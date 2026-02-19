@@ -198,6 +198,7 @@ export type Response<T = unknown> = SuccessResponse<T> | ErrorResponse;
 export enum FileType {
   FILE = 'FILE',
   DIRECTORY = 'DIRECTORY',
+  ARCHIVE = 'ARCHIVE',
   SYMLINK = 'SYMLINK',
 }
 

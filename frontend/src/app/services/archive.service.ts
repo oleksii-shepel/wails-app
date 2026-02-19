@@ -1,121 +1,170 @@
 import { Injectable } from '@angular/core';
-import { ArchiveListing, ArchiveEntry } from '../shared/protocol-enhanced';
+import { ArchiveListing } from '../shared/protocol-enhanced';
 import { FileInfo, FileType } from '../shared/protocol';
 
+// ─── Types ───────────────────────────────────────────────────────────────────
+
 export interface ArchiveFrame {
-  fsPath: string;           // Physical path on disk
-  innerPath: string;        // Current path inside the archive
-  listing: ArchiveListing;  // Current entries
+  /** Absolute path to the on-disk archive file. Never changes within a stack. */
+  fsPath: string;
+  /**
+   * Chain of archive-entry names that leads to the *current* archive.
+   * Empty for a top-level (filesystem) archive.
+   * e.g. [] → top-level zip
+   *      ['inner.zip'] → a zip nested one level deep
+   *      ['a.tar.gz', 'b.zip'] → zip nested two levels deep
+   */
+  nestedChain: string[];
+  /** Current sub-directory path inside the innermost archive. '' = root. */
+  innerPath: string;
+  /** Cached listing for this frame. */
+  listing: ArchiveListing;
 }
 
-/** Checks if a file is an archive (zip, tar, tgz, etc.) */
+// ─── Pure helpers (exported so components can use them) ───────────────────────
+
+/** Returns true if the file name looks like a supported archive format. */
 export function isArchive(name: string): boolean {
   const l = name.toLowerCase();
-  return l.endsWith('.zip') || l.endsWith('.tar') || l.endsWith('.tgz') ||
-         l.endsWith('.tar.gz') || l.endsWith('.tar.bz2') || l.endsWith('.tar.xz');
+  return (
+    l.endsWith('.zip') ||
+    l.endsWith('.tar') ||
+    l.endsWith('.tgz') ||
+    l.endsWith('.tar.gz') ||
+    l.endsWith('.tar.bz2') ||
+    l.endsWith('.tar.xz') ||
+    l.endsWith('.gz') ||
+    l.endsWith('.bz2') ||
+    l.endsWith('.xz')
+  );
 }
 
-/** Builds a virtual display path for nested archives */
+/**
+ * Build the virtual display path shown in the address bar while inside archives.
+ * e.g.  /home/user/project.zip > src/lib
+ */
 export function buildArchiveDisplayPath(rootFsPath: string, stack: ArchiveFrame[]): string {
-  const parts: string[] = [rootFsPath];
-  for (const frame of stack) {
-    if (frame.innerPath) parts.push(frame.innerPath);
-  }
-  return parts.join('/');
+  if (stack.length === 0) return rootFsPath;
+  const frame = stack[stack.length - 1];
+  const parts = [rootFsPath, ...frame.nestedChain];
+  if (frame.innerPath) parts.push(frame.innerPath);
+  return parts.join(' > ');
 }
+
+// ─── Wails Go bridge ─────────────────────────────────────────────────────────
 
 declare const window: any;
+
+// Unified call that matches the new ArchiveBrowse method on the Go side.
+// Falls back to the old split API so this works during migration too.
+async function goBrowse(
+  fsPath: string,
+  nestedChain: string[],
+  innerPath: string
+): Promise<ArchiveListing> {
+  const app = window.go?.main?.App;
+  if (!app) throw new Error('Wails bridge not available');
+
+  // Prefer the new unified method; fall back to old split API.
+  if (app.ArchiveBrowse) {
+    return app.ArchiveBrowse(fsPath, nestedChain, innerPath);
+  }
+  if (nestedChain.length === 0) {
+    return app.ArchiveList(fsPath, innerPath);
+  }
+  return app.ArchiveListNested(fsPath, nestedChain, innerPath);
+}
+
+// ─── Service ─────────────────────────────────────────────────────────────────
 
 @Injectable({ providedIn: 'root' })
 export class ArchiveService {
 
-  constructor() {}
+  // ── Opening ────────────────────────────────────────────────────────────────
 
-  /** Open a top-level archive on the filesystem */
+  /** Open a top-level (filesystem) archive. */
   async openRootArchive(fsPath: string): Promise<ArchiveFrame> {
-    try {
-      const listing: ArchiveListing = await window.go.main.App.ArchiveList(fsPath, '');
-      return { fsPath, innerPath: '', listing };
-    } catch (err: any) {
-      throw new Error(err?.message || 'Failed to open archive');
-    }
+    const listing = await goBrowse(fsPath, [], '');
+    return { fsPath, nestedChain: [], innerPath: '', listing };
   }
 
-  /** Open a nested archive inside a current frame */
+  /**
+   * Open a nested archive that lives *inside* the current frame.
+   * `entry` must be a FileInfo whose type is ARCHIVE (or FILE with an archive name).
+   * The entry's nestedChain from the Go response is the authoritative chain.
+   */
   async openNestedArchive(
     frame: ArchiveFrame,
-    entryInnerPath: string,
-    entryName: string
+    entryNestedChain: string[]   // comes from FileInfo.nestedChain returned by Go
   ): Promise<ArchiveFrame> {
-    try {
-      const listing: ArchiveListing = await window.go.main.App.ArchiveListNested(
-        frame.fsPath,
-        entryInnerPath,
-        ''
-      );
-      return {
-        fsPath: frame.fsPath,
-        innerPath: entryInnerPath,
-        listing
-      };
-    } catch (err: any) {
-      throw new Error(err?.message || `Failed to open nested archive: ${entryName}`);
-    }
+    const listing = await goBrowse(frame.fsPath, entryNestedChain, '');
+    return { fsPath: frame.fsPath, nestedChain: entryNestedChain, innerPath: '', listing };
   }
 
-  /** Navigate into a folder inside the current archive frame */
-  async navigateInto(frame: ArchiveFrame, folderName: string): Promise<ArchiveFrame> {
-    const targetPath = frame.innerPath
-      ? `${frame.innerPath}/${folderName}`
-      : folderName;
-    try {
-      const listing: ArchiveListing = await window.go.main.App.ArchiveListNested(
-        frame.fsPath,
-        targetPath,
-        ''
-      );
-      return { ...frame, innerPath: targetPath, listing };
-    } catch (err: any) {
-      throw new Error(err?.message || `Failed to navigate into folder: ${folderName}`);
-    }
+  // ── Navigation inside an archive ──────────────────────────────────────────
+
+  /**
+   * Navigate into a sub-directory within the *same* archive level.
+   * `folderInnerPath` is the full inner path of the target folder
+   * (i.e. what was stored in FileInfo.path by the Go backend).
+   */
+  async navigateInto(frame: ArchiveFrame, folderInnerPath: string): Promise<ArchiveFrame> {
+    const listing = await goBrowse(frame.fsPath, frame.nestedChain, folderInnerPath);
+    return { ...frame, innerPath: folderInnerPath, listing };
   }
 
-  /** Refresh the current archive frame (re-read contents from backend) */
+  /**
+   * Navigate to the parent directory inside the current archive level.
+   * Returns null if already at the archive root (caller should pop the stack).
+   */
+  async navigateUp(frame: ArchiveFrame): Promise<ArchiveFrame | null> {
+    if (!frame.innerPath) return null;  // already at archive root
+
+    const parentInnerPath = frame.innerPath.includes('/')
+      ? frame.innerPath.replace(/\/[^/]+$/, '')
+      : '';
+
+    const listing = await goBrowse(frame.fsPath, frame.nestedChain, parentInnerPath);
+    return { ...frame, innerPath: parentInnerPath, listing };
+  }
+
+  // ── Refresh ────────────────────────────────────────────────────────────────
+
   async refreshFrame(frame: ArchiveFrame): Promise<ArchiveFrame> {
-    try {
-      const listing: ArchiveListing = frame.innerPath
-        ? await window.go.main.App.ArchiveListNested(frame.fsPath, frame.innerPath, '')
-        : await window.go.main.App.ArchiveList(frame.fsPath, '');
-      return { ...frame, listing };
-    } catch (err: any) {
-      throw new Error(err?.message || 'Failed to refresh archive');
-    }
+    const listing = await goBrowse(frame.fsPath, frame.nestedChain, frame.innerPath);
+    return { ...frame, listing };
   }
 
-  /** Convert ArchiveListing entries to FileInfo array for Angular pane */
-  public listingToFileInfos(listing: ArchiveListing): FileInfo[] {
-    const files: FileInfo[] = listing.entries.map((e: ArchiveEntry) => ({
-      name: e.name,
-      path: e.innerPath,
-      type: e.type === FileType.DIRECTORY ? FileType.DIRECTORY : FileType.FILE,
-      size: e.size,
-      modified: e.modified,
-      permissions: e.type === FileType.DIRECTORY ? 'drwxr-xr-x' : '-rw-r--r--',
-      isHidden: e.name.startsWith('.'),
-      created: e.modified,
-      accessed: e.modified
-    }));
-    // Prepend '..' for navigating up in archive
-    return [{
+  // ── Conversion ────────────────────────────────────────────────────────────
+
+  /**
+   * Convert an ArchiveListing into the FileInfo array expected by FileListComponent.
+   * Prepends a '..' entry so the user can navigate up.
+   */
+  listingToFileInfos(listing: ArchiveListing): FileInfo[] {
+    const dotdot: FileInfo = {
       name: '..',
       path: '__archive_parent__',
       type: FileType.DIRECTORY,
-      size: 0,
-      modified: 0,
+      size: 0, modified: 0, created: 0, accessed: 0,
       permissions: 'drwxr-xr-x',
       isHidden: false,
-      created: 0,
-      accessed: 0
-    }, ...files];
+    };
+
+    const entries: FileInfo[] = listing.entries.map(e => ({
+      name: e.name,
+      path: e.path,           // Go returns "path", not "innerPath"
+      type: e.type as FileType,
+      size: e.size,
+      modified: e.modified,
+      created: e.modified,
+      accessed: e.modified,
+      permissions: e.type === FileType.DIRECTORY ? 'drwxr-xr-x' : '-rw-r--r--',
+      isHidden: e.name.startsWith('.'),
+      // Preserve the nestedChain so the pane can open nested archives correctly.
+      nestedChain: (e as any).nestedChain ?? undefined,
+    }));
+
+    return [dotdot, ...entries];
   }
 }

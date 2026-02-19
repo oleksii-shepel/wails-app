@@ -167,7 +167,7 @@ export interface NavigationHistory {
 /** Represents a single file/folder inside an archive */
 export interface ArchiveEntry {
   name: string;           // filename or folder name
-  innerPath: string;      // path inside archive
+  path: string;           // path inside archive
   type: 'FILE' | 'DIRECTORY' | 'ARCHIVE';
   size: number;           // bytes
   modified: number;       // timestamp in ms

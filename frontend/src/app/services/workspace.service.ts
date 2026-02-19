@@ -501,14 +501,9 @@ export class WorkspaceService {
    */
   private getPathTitle(path: string): string {
     const normalized = this.normalizePath(path);
-
-    // Unix / Windows drive roots
-    if (normalized === '/') return '/';
+    // Drive roots: show "C:" not "C:/"
     if (/^[a-zA-Z]:\/?$/.test(normalized)) return normalized.slice(0, 2);
-
-    // Return only the last path segment (basename)
-    const parts = normalized.replace(/\\/g, '/').split('/').filter(Boolean);
-    return parts[parts.length - 1] ?? normalized;
+    return normalized;
   }
 
   private normalizePath(path: string): string {

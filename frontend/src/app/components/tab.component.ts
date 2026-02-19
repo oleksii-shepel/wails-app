@@ -11,6 +11,7 @@ import { TabInfo } from "../shared/protocol-enhanced";
          [class.active]="isActive"
          [class.pinned]="tab.isPinned"
          [class.in-archive]="inArchive"
+         [title]="tab.title"
          (click)="onClick()"
          (auxclick)="onMouseUp($event)"
          (mouseenter)="isHovered = true"
@@ -23,7 +24,7 @@ import { TabInfo } from "../shared/protocol-enhanced";
         <path d="M6.5 7.5a1 1 0 0 0-1 1v.5h-1v-.5a2 2 0 0 1 4 0v.5h-1v-.5a1 1 0 0 0-1-1zM5.5 11a1 1 0 1 0 2 0v-.5h-2V11zm7-6H10V2.5a.5.5 0 0 0-.5-.5h-3a.5.5 0 0 0-.5.5V5H3.5A1.5 1.5 0 0 0 2 6.5v6A1.5 1.5 0 0 0 3.5 14h9a1.5 1.5 0 0 0 1.5-1.5v-6A1.5 1.5 0 0 0 12.5 5zM7 2h2v3H7V2zm5.5 10.5a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-6a.5.5 0 0 1 .5-.5h8a.5.5 0 0 1 .5.5v6z"/>
       </svg>
 
-      <span class="tab-title">{{ tab.title }}</span>
+      <span class="tab-title">{{ shortTitle }}</span>
 
       <!-- Active Tab Indicators -->
       <div class="tab-border-top" *ngIf="isActive"></div>
@@ -246,5 +247,15 @@ export class TabComponent {
   onPin(event: Event): void {
     event.stopPropagation();
     this.tabPin.emit(this.tab);
+  }
+  
+  get shortTitle(): string {
+    const t = this.tab?.title ?? '';
+    if (!t) return '';
+    const parts = t.replace(/\\/g, '/').split('/').filter(Boolean);
+    if (parts.length === 0) return t;
+    // Drive root: "C:" or "/"
+    if (parts.length === 1) return t;
+    return parts[parts.length - 1];
   }
 }

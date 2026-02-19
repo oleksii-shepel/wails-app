@@ -86,14 +86,14 @@ function buildSegments(p: string): PathSegment[] {
     const drive = p.slice(0, 2).toUpperCase();
     const rest = p.slice(3);
     const parts = rest ? rest.split('/').filter(Boolean) : [];
-    
+
     const segs: PathSegment[] = [{
       label: drive,
       fullPath: drive + '/',
       isRoot: true,
       rootLabel: drive,
     }];
-    
+
     parts.forEach((part, i) => {
       segs.push({
         label: part,
@@ -140,16 +140,6 @@ function parentPath(p: string): string {
 
 /**
  * Build breadcrumb segments for an archive stack.
- *
- * The virtual path looks like a normal filesystem path:
- *   C:/Desktop.zip/progress.zip/docs
- *
- * We build it by running buildSegments() on the full virtual path string —
- * the same function used for real FS paths — so every segment is clickable
- * and styled correctly. We then mark the archive-file segments and inner
- * segments with the appropriate flags so the template can style them.
- *
- * "Archive boundary" = the index of the first archive filename in the path.
  */
 function buildArchiveSegments(fsDirPath: string, stack: ArchiveFrame[]): PathSegment[] {
   if (stack.length === 0) return buildSegments(fsDirPath);
@@ -157,21 +147,14 @@ function buildArchiveSegments(fsDirPath: string, stack: ArchiveFrame[]): PathSeg
   const virtualPath = buildArchiveDisplayPath(fsDirPath, stack);
   const allSegs = buildSegments(virtualPath);
 
-  // Determine which segments belong to the real FS portion.
-  // fsDirPath ends with the archive filename (e.g. "C:/Desktop.zip"),
-  // so everything up to and including that segment is "real FS".
-  // Segments beyond it are archive-interior.
   const fsSegs = buildSegments(fsDirPath);
-  const fsDepth = fsSegs.length; // number of segments that are real FS
+  const fsDepth = fsSegs.length;
 
   allSegs.forEach((seg, i) => {
     if (i === fsDepth - 1) {
-      // This is the archive file itself (e.g. Desktop.zip)
       seg.isArchiveRoot = true;
     } else if (i >= fsDepth) {
-      // Everything deeper is inside the archive
       const label = seg.label.toLowerCase();
-      // A nested archive file inside the archive
       if (label.endsWith('.zip') || label.endsWith('.tar') || label.endsWith('.tgz') ||
           label.endsWith('.tar.gz') || label.endsWith('.tar.bz2') || label.endsWith('.tar.xz')) {
         seg.isArchiveRoot = true;
@@ -259,20 +242,23 @@ function buildArchiveSegments(fsDirPath: string, stack: ArchiveFrame[]): PathSeg
     <div class="ab-crumbs" (click)="onCrumbsClick($event)">
       <div class="ab-crumbs-inner" #crumbsEl>
         <ng-container *ngFor="let seg of segments; let i = index; let last = last">
-          
+
           <!-- ARCHIVE-INNER segment (inside an archive, not FS-navigable) -->
           <span
             *ngIf="seg.isArchiveInner && !seg.isArchiveRoot"
             class="ab-seg ab-seg--archive-inner"
             [class.ab-seg--last]="last"
-            [title]="seg.label"
+            [class.ab-seg--clickable]="!last"
+            [title]="seg.fullPath || seg.label"
+            (click)="!last && onArchiveSegClick(seg, $event)"
           >{{ seg.label }}</span>
 
           <!-- ARCHIVE-ROOT segment (the archive file itself, or a nested archive) -->
           <span
             *ngIf="seg.isArchiveRoot"
             class="ab-seg ab-seg--archive-root"
-            [class.ab-seg--last]="last"
+            [class.ab-seg--clickable]="!last"
+            (click)="!last && onArchiveSegClick(seg, $event)"
             [title]="seg.fullPath || seg.label"
           >
             <svg class="ab-seg-archive-icon" width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
@@ -281,9 +267,14 @@ function buildArchiveSegments(fsDirPath: string, stack: ArchiveFrame[]): PathSeg
             {{ seg.label }}
           </span>
 
-          <!-- Archive chevron separator (›) between archive segments — no dropdown -->
+          <!-- Archive chevron — now fully interactive, opens sibling dropdown -->
           <div class="ab-chev-wrap" *ngIf="!last && (seg.isArchiveInner || seg.isArchiveRoot)">
-            <span class="ab-chev ab-chev--archive">›</span>
+            <button
+              class="ab-chev ab-chev--archive"
+              [class.ab-chev--open]="chevIdx === i"
+              (click)="onArchiveChevClick(i, seg, $event)"
+              aria-label="Browse archive siblings"
+            >›</button>
           </div>
 
           <!-- DRIVE LETTER (Windows) - VS Code blue, clickable to show drive grid -->
@@ -322,7 +313,7 @@ function buildArchiveSegments(fsDirPath: string, stack: ArchiveFrame[]): PathSeg
             [title]="seg.fullPath"
           >{{ seg.label }}</span>
 
-          <!-- Regular chevron between FS segments (no chevron for archive segs above) -->
+          <!-- Regular chevron between FS segments -->
           <div class="ab-chev-wrap" *ngIf="!last && !(seg.isRoot && isWin) && !seg.isArchiveInner && !seg.isArchiveRoot">
             <button
               class="ab-chev"
@@ -332,35 +323,7 @@ function buildArchiveSegments(fsDirPath: string, stack: ArchiveFrame[]): PathSeg
               #chevBtn
             >›</button>
           </div>
-          <!-- Sibling dropdown -->
-          <div
-            class="ab-dropdown ab-sib-drop"
-            *ngIf="chevIdx >= 0"
-            [ngStyle]="{ left: sibDropLeft + 'px', top: sibDropTop + 'px', position: 'fixed' }"
-          >
-            <div class="ab-drop-head">
-              <span>{{ segments[chevIdx].label }}</span>
-              <span class="ab-badge" *ngIf="!sibLoading">{{ siblings.length }}</span>
-            </div>
-            <div class="ab-drop-loading" *ngIf="sibLoading">
-              <span class="ab-spinner"></span>Loading…
-            </div>
-            <div class="ab-drop-empty" *ngIf="!sibLoading && siblings.length === 0">
-              <span class="ab-drop-empty-icon">📭</span>
-              <span>No sub-folders</span>
-            </div>
-            <div class="ab-drop-scroll">
-              <div
-                *ngFor="let s of siblings"
-                class="ab-drop-item ab-sib-item"
-                [class.ab-drop-item--active]="s.isCurrent"
-                (click)="onSibClick(s)"
-              >
-                <span class="ab-sib-folder">📁</span>
-                <span class="ab-sib-name">{{ s.name }}</span>
-              </div>
-            </div>
-          </div>
+
         </ng-container>
       </div>
     </div>
@@ -439,16 +402,16 @@ function buildArchiveSegments(fsDirPath: string, stack: ArchiveFrame[]): PathSeg
       <span>Available Drives</span>
       <span class="ab-badge">{{ drives.length }}</span>
     </div>
-    
+
     <div class="ab-drop-loading" *ngIf="drivesLoading">
       <span class="ab-spinner"></span>Loading drives…
     </div>
-    
+
     <div class="ab-drop-empty" *ngIf="!drivesLoading && drives.length === 0">
       <span class="ab-drop-empty-icon">💽</span>
       <span>No drives found</span>
     </div>
-    
+
     <div class="ab-drive-grid" *ngIf="!drivesLoading && drives.length > 0">
       <div
         *ngFor="let d of drives"
@@ -464,7 +427,7 @@ function buildArchiveSegments(fsDirPath: string, stack: ArchiveFrame[]): PathSeg
             <path d="M13.485 1.929L5.5 9.914 2.515 6.929a1 1 0 0 0-1.414 1.414l3.692 3.693a1 1 0 0 0 1.414 0l8.692-8.693a1 1 0 0 0-1.414-1.414z"/>
           </svg>
         </div>
-        
+
         <div class="ab-drive-grid-details">
           <div class="ab-drive-grid-space" *ngIf="d.totalSpace > 0">
             <div class="ab-drive-grid-space-labels">
@@ -479,9 +442,39 @@ function buildArchiveSegments(fsDirPath: string, stack: ArchiveFrame[]): PathSeg
         </div>
       </div>
     </div>
-    
+
     <div class="ab-drop-footer" *ngIf="!drivesLoading && drives.length > 0">
       <kbd>↑↓</kbd> navigate &nbsp; <kbd>⏎</kbd> select &nbsp; <kbd>Esc</kbd> close
+    </div>
+  </div>
+
+  <!-- ── SIBLING DROPDOWN — single instance outside ngFor, works for both FS and archive ── -->
+  <div
+    class="ab-dropdown ab-sib-drop"
+    *ngIf="chevIdx >= 0"
+    [ngStyle]="{ left: sibDropLeft + 'px', top: sibDropTop + 'px', position: 'fixed' }"
+  >
+    <div class="ab-drop-head">
+      <span>{{ segments[chevIdx].label }}</span>
+      <span class="ab-badge" *ngIf="!sibLoading">{{ siblings.length }}</span>
+    </div>
+    <div class="ab-drop-loading" *ngIf="sibLoading">
+      <span class="ab-spinner"></span>Loading…
+    </div>
+    <div class="ab-drop-empty" *ngIf="!sibLoading && siblings.length === 0">
+      <span class="ab-drop-empty-icon">📭</span>
+      <span>No sub-folders</span>
+    </div>
+    <div class="ab-drop-scroll">
+      <div
+        *ngFor="let s of siblings"
+        class="ab-drop-item ab-sib-item"
+        [class.ab-drop-item--active]="s.isCurrent"
+        (click)="onSibClick(s)"
+      >
+        <span class="ab-sib-folder">📁</span>
+        <span class="ab-sib-name">{{ s.name }}</span>
+      </div>
     </div>
   </div>
 
@@ -549,13 +542,13 @@ function buildArchiveSegments(fsDirPath: string, stack: ArchiveFrame[]): PathSeg
     }
 
     .ab-bar--compact {
-      height: 28px; /* Compact override, not using variable */
-      
+      height: 28px;
+
       .ab-btn {
         width: 22px;
         height: 22px;
       }
-      
+
       .ab-seg {
         height: 20px;
         line-height: 20px;
@@ -631,7 +624,7 @@ function buildArchiveSegments(fsDirPath: string, stack: ArchiveFrame[]): PathSeg
     .ab-btn--star {
       font-size: 16px;
       line-height: 1;
-      
+
       &:hover {
         color: var(--vsc-accent-yellow);
       }
@@ -645,7 +638,7 @@ function buildArchiveSegments(fsDirPath: string, stack: ArchiveFrame[]): PathSeg
     .ab-btn--open {
       background: var(--vsc-list-active-background);
       color: var(--vsc-foreground-bright);
-      
+
       svg {
         opacity: 1;
       }
@@ -660,7 +653,7 @@ function buildArchiveSegments(fsDirPath: string, stack: ArchiveFrame[]): PathSeg
     .ab-btn--cancel {
       font-size: 14px;
       color: var(--vsc-foreground-dim);
-      
+
       &:hover {
         background: var(--vsc-error);
         color: var(--vsc-foreground-bright);
@@ -689,7 +682,7 @@ function buildArchiveSegments(fsDirPath: string, stack: ArchiveFrame[]): PathSeg
       scroll-behavior: smooth;
       scrollbar-width: none;
       -ms-overflow-style: none;
-      
+
       &::-webkit-scrollbar {
         display: none;
       }
@@ -726,7 +719,7 @@ function buildArchiveSegments(fsDirPath: string, stack: ArchiveFrame[]): PathSeg
         color: var(--vsc-foreground-bright);
         cursor: default;
         max-width: 240px;
-        
+
         &:hover {
           background: transparent;
         }
@@ -740,9 +733,17 @@ function buildArchiveSegments(fsDirPath: string, stack: ArchiveFrame[]): PathSeg
         gap: 4px;
         cursor: default;
 
-        &:hover {
-          background: color-mix(in srgb, var(--vsc-accent-orange) 26%, transparent);
+        &.ab-seg--clickable {
+          cursor: pointer;
+        }
+
+        &.ab-seg--clickable:hover {
+          background: color-mix(in srgb, var(--vsc-accent-orange) 34%, transparent);
           color: #ffb347;
+        }
+
+        &:not(.ab-seg--clickable):hover {
+          background: color-mix(in srgb, var(--vsc-accent-orange) 18%, transparent);
         }
 
         .ab-seg-archive-icon {
@@ -751,19 +752,27 @@ function buildArchiveSegments(fsDirPath: string, stack: ArchiveFrame[]): PathSeg
         }
       }
 
-      /* Archive inner segment — a folder or sub-archive inside the archive */
+      /* Archive inner segment — a folder inside the archive */
       &.ab-seg--archive-inner {
         color: color-mix(in srgb, #ffb347 80%, var(--vsc-foreground));
         cursor: default;
-        font-style: italic;
 
-        &:hover {
+        &.ab-seg--clickable {
+          cursor: pointer;
+        }
+
+        &.ab-seg--clickable:hover {
+          background: color-mix(in srgb, #ffb347 15%, transparent);
+          color: #ffb347;
+        }
+
+        &:not(.ab-seg--clickable):hover {
           background: transparent;
         }
       }
     }
 
-    /* Drive letter styling - use same visual as the AND/OR mode badge */
+    /* Drive letter styling */
     .ab-drive-letter {
       background: color-mix(in srgb, #007fd4 20%, transparent);
       border: 1px solid rgba(0,127,212,0.4);
@@ -814,7 +823,7 @@ function buildArchiveSegments(fsDirPath: string, stack: ArchiveFrame[]): PathSeg
 
       &:hover {
         color: var(--vsc-foreground);
-        background: var(--vsc-list-hover-background);
+        background: var(--vsc-list-hover-background) !important;
       }
 
       &:focus-visible {
@@ -825,17 +834,24 @@ function buildArchiveSegments(fsDirPath: string, stack: ArchiveFrame[]): PathSeg
       &.ab-chev--open {
         transform: rotate(90deg);
         color: var(--vsc-accent-blue);
-        background: var(--vsc-list-active-background);
+        background: var(--vsc-list-active-background) !important;
       }
 
-      /* Non-interactive separator inside archives */
+      /* Archive chevron — interactive, amber tinted */
       &.ab-chev--archive {
-        cursor: default;
-        color: rgba(255, 179, 71, 0.5);
-        pointer-events: none;
+        cursor: pointer;
+        color: rgba(255, 179, 71, 0.6);
+        pointer-events: auto;
 
         &:hover {
-          background: transparent;
+          background: color-mix(in srgb, #ffb347 15%, transparent) !important;
+          color: #ffb347;
+        }
+
+        &.ab-chev--open {
+          transform: rotate(90deg);
+          color: #ffb347;
+          background: color-mix(in srgb, #ffb347 20%, transparent) !important;
         }
       }
     }
@@ -850,52 +866,51 @@ function buildArchiveSegments(fsDirPath: string, stack: ArchiveFrame[]): PathSeg
     .ab-drive-chevron {
       border-radius: 0 var(--vsc-border-radius-sm) var(--vsc-border-radius-sm) 0;
       margin-left: -2px;
-      
+
       &.ab-chev--open {
-        background: var(--vsc-list-active-background);
+        background: var(--vsc-list-active-background) !important;
         color: var(--vsc-foreground-bright);
       }
     }
 
     /* === DROPDOWNS === */
 
-    /* Base dropdown */
     .ab-dropdown {
-  position: absolute;
-  min-width: 220px;
-  max-width: 340px;
-  background-color: var(--vsc-panel-background, #252526) !important;
-  background-image: none !important;
-  border: 1px solid var(--vsc-border);
-  border-radius: var(--vsc-border-radius);
-  box-shadow: var(--vsc-widget-shadow);
-  z-index: 9999;
-  overflow: hidden;
-  animation: ab-appear var(--vsc-transition-fast) cubic-bezier(0.4, 0, 0.2, 1);
-  isolation: isolate;
-  
-  .ab-drop-head,
-  .ab-drop-scroll,
-  .ab-drop-footer,
-  .ab-drop-loading,
-  .ab-drop-empty {
-    background-color: var(--vsc-panel-background, #252526) !important;
-  }
-  
-  .ab-drop-scroll {
-    .ab-drop-item {
-      background: transparent;
-      
-      &:hover {
-        background: var(--vsc-list-hover-background);
+      position: absolute;
+      min-width: 220px;
+      max-width: 340px;
+      background-color: var(--vsc-panel-background, #252526) !important;
+      background-image: none !important;
+      border: 1px solid var(--vsc-border);
+      border-radius: var(--vsc-border-radius);
+      box-shadow: var(--vsc-widget-shadow);
+      z-index: 9999;
+      overflow: hidden;
+      animation: ab-appear var(--vsc-transition-fast) cubic-bezier(0.4, 0, 0.2, 1);
+      isolation: isolate;
+
+      .ab-drop-head,
+      .ab-drop-scroll,
+      .ab-drop-footer,
+      .ab-drop-loading,
+      .ab-drop-empty {
+        background-color: var(--vsc-panel-background, #252526) !important;
       }
-      
-      &.ab-drop-item--active {
-        background: var(--vsc-list-active-background);
+
+      .ab-drop-scroll {
+        .ab-drop-item {
+          background: transparent;
+
+          &:hover {
+            background: var(--vsc-list-hover-background);
+          }
+
+          &.ab-drop-item--active {
+            background: var(--vsc-list-active-background);
+          }
+        }
       }
     }
-  }
-}
 
     @keyframes ab-appear {
       from {
@@ -945,20 +960,19 @@ function buildArchiveSegments(fsDirPath: string, stack: ArchiveFrame[]): PathSeg
       max-height: 300px;
       overflow-y: auto;
       padding: var(--vsc-padding-xs) 0;
-      
-      /* VS Code style scrollbar */
+
       &::-webkit-scrollbar {
         width: 10px;
       }
-      
+
       &::-webkit-scrollbar-track {
         background: var(--vsc-scrollbar-track);
       }
-      
+
       &::-webkit-scrollbar-thumb {
         background: var(--vsc-scrollbar-thumb);
         border-radius: 5px;
-        
+
         &:hover {
           background: var(--vsc-scrollbar-thumb-hover);
         }
@@ -986,11 +1000,11 @@ function buildArchiveSegments(fsDirPath: string, stack: ArchiveFrame[]): PathSeg
         background: var(--vsc-list-active-background);
         color: var(--vsc-foreground-bright);
         border-left-color: var(--vsc-accent-blue);
-        
+
         &:hover {
           background: var(--vsc-list-active-background);
         }
-        
+
         .ab-pin-sub {
           color: var(--vsc-foreground-bright);
           opacity: 0.9;
@@ -1015,12 +1029,12 @@ function buildArchiveSegments(fsDirPath: string, stack: ArchiveFrame[]): PathSeg
       background: var(--vsc-input-background);
       transition: all var(--vsc-transition-fast);
       color: transparent;
-      
+
       &.ab-checkbox--checked {
         background: var(--vsc-accent-blue) !important;
         border-color: var(--vsc-accent-blue) !important;
         color: var(--vsc-foreground-bright);
-        
+
         &::after {
           content: '✓';
           font-size: 12px;
@@ -1157,7 +1171,7 @@ function buildArchiveSegments(fsDirPath: string, stack: ArchiveFrame[]): PathSeg
       .ab-drop-item:hover & {
         color: var(--vsc-foreground-dim);
       }
-      
+
       &:hover {
         background: var(--vsc-error) !important;
         color: var(--vsc-foreground-bright) !important;
@@ -1186,44 +1200,44 @@ function buildArchiveSegments(fsDirPath: string, stack: ArchiveFrame[]): PathSeg
 
     /* === DRIVE DROPDOWN GRID === */
     .ab-drive-drop {
-  min-width: 320px;
-  max-width: 500px;
-  padding: 0;
-  z-index: 9999 !important;
-  position: fixed !important;
-  background-color: var(--vsc-panel-background, #252526) !important;
-  background-image: none !important;
-  border: 1px solid var(--vsc-border);
-  border-radius: var(--vsc-border-radius);
-  box-shadow: var(--vsc-widget-shadow);
-  isolation: isolate;
-  
-  .ab-drop-head {
-    background-color: var(--vsc-panel-background, #252526) !important;
-    border-bottom: 1px solid var(--vsc-border-subtle);
-  }
-  
-  .ab-drive-grid {
-    background-color: var(--vsc-panel-background, #252526) !important;
-    
-    .ab-drive-grid-item {
-      background-color: var(--vsc-sidebar-background, #1e1e1e) !important;
-      
-      &:hover {
-        background-color: var(--vsc-list-hover-background) !important;
+      min-width: 320px;
+      max-width: 500px;
+      padding: 0;
+      z-index: 9999 !important;
+      position: fixed !important;
+      background-color: var(--vsc-panel-background, #252526) !important;
+      background-image: none !important;
+      border: 1px solid var(--vsc-border);
+      border-radius: var(--vsc-border-radius);
+      box-shadow: var(--vsc-widget-shadow);
+      isolation: isolate;
+
+      .ab-drop-head {
+        background-color: var(--vsc-panel-background, #252526) !important;
+        border-bottom: 1px solid var(--vsc-border-subtle);
       }
-      
-      &.ab-drive-grid-item--active {
-        background-color: var(--vsc-list-active-background) !important;
+
+      .ab-drive-grid {
+        background-color: var(--vsc-panel-background, #252526) !important;
+
+        .ab-drive-grid-item {
+          background-color: var(--vsc-sidebar-background, #1e1e1e) !important;
+
+          &:hover {
+            background-color: var(--vsc-list-hover-background) !important;
+          }
+
+          &.ab-drive-grid-item--active {
+            background-color: var(--vsc-list-active-background) !important;
+          }
+        }
+      }
+
+      .ab-drop-footer {
+        background-color: var(--vsc-panel-background, #252526) !important;
+        border-top: 1px solid var(--vsc-border-subtle);
       }
     }
-  }
-  
-  .ab-drop-footer {
-    background-color: var(--vsc-panel-background, #252526) !important;
-    border-top: 1px solid var(--vsc-border-subtle);
-  }
-}
 
     .ab-drive-grid {
       display: grid;
@@ -1232,15 +1246,15 @@ function buildArchiveSegments(fsDirPath: string, stack: ArchiveFrame[]): PathSeg
       padding: var(--vsc-padding-lg);
       max-height: 350px;
       overflow-y: auto;
-      
+
       &::-webkit-scrollbar {
         width: 10px;
       }
-      
+
       &::-webkit-scrollbar-track {
         background: var(--vsc-scrollbar-track);
       }
-      
+
       &::-webkit-scrollbar-thumb {
         background: var(--vsc-scrollbar-thumb);
         border-radius: 5px;
@@ -1268,7 +1282,7 @@ function buildArchiveSegments(fsDirPath: string, stack: ArchiveFrame[]): PathSeg
       &.ab-drive-grid-item--active {
         background: var(--vsc-list-active-background);
         border-color: var(--vsc-accent-blue);
-        
+
         .ab-drive-grid-letter,
         .ab-drive-grid-label,
         .ab-drive-grid-details {
@@ -1413,7 +1427,7 @@ function buildArchiveSegments(fsDirPath: string, stack: ArchiveFrame[]): PathSeg
         color: var(--vsc-input-placeholder);
         opacity: 1;
       }
-      
+
       &::selection {
         background: color-mix(in srgb, var(--vsc-accent-blue) 40%, transparent);
       }
@@ -1452,12 +1466,12 @@ function buildArchiveSegments(fsDirPath: string, stack: ArchiveFrame[]): PathSeg
         background: var(--vsc-success);
         color: var(--vsc-foreground-bright);
       }
-      
+
       &.ab-ac-badge--directory {
         background: var(--vsc-accent-blue);
         color: var(--vsc-foreground-bright);
       }
-      
+
       &.ab-ac-badge--fuzzy {
         background: var(--vsc-accent-orange);
         color: var(--vsc-foreground-bright);
@@ -1540,7 +1554,7 @@ function buildArchiveSegments(fsDirPath: string, stack: ArchiveFrame[]): PathSeg
 
       &:hover {
         background: var(--vsc-list-hover-background);
-        
+
         svg {
           opacity: 1;
         }
@@ -1562,44 +1576,44 @@ function buildArchiveSegments(fsDirPath: string, stack: ArchiveFrame[]): PathSeg
       .ab-bar {
         height: 28px;
       }
-      
+
       .ab-edit {
         height: 28px;
       }
-      
+
       .ab-btn {
         width: 22px;
         height: 22px;
-        
+
         svg {
           width: 14px;
           height: 14px;
         }
       }
-      
+
       .ab-chev {
         width: 18px;
         height: 22px;
       }
-      
+
       .ab-drive-letter {
         font-size: var(--vsc-font-size-small);
         padding: 0 var(--vsc-padding-md);
         height: 22px;
         line-height: 22px;
       }
-      
+
       .ab-seg {
         height: 22px;
         line-height: 22px;
         font-size: var(--vsc-font-size-small);
         padding: 0 var(--vsc-padding-sm);
       }
-      
+
       .ab-drive-grid-item {
         padding: var(--vsc-padding-sm);
       }
-      
+
       .ab-drop-item {
         height: 26px;
       }
@@ -1612,15 +1626,15 @@ function buildArchiveSegments(fsDirPath: string, stack: ArchiveFrame[]): PathSeg
         border-color: rgba(0,96,192,0.4);
         color: #0060c0;
       }
-      
+
       .ab-btn--star:hover {
         color: var(--vsc-accent-yellow);
       }
-      
+
       .ab-checkbox--checked {
         background: var(--vsc-accent-blue) !important;
       }
-      
+
       .ab-pin-remove:hover {
         background: var(--vsc-error) !important;
       }
@@ -1634,26 +1648,19 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   @Input() initialPath = '/';
   @Input() placeholder = 'Enter path…';
   @Input() paneId = 'left';
-  /**
-   * Pass the current archive stack from FilePaneComponent.
-   * Empty array = not in archive mode.
-   */
   @Input() archiveStack: ArchiveFrame[] = [];
-  /**
-   * The real filesystem directory path (used to build FS breadcrumbs
-   * while inside an archive). Only needed when archiveStack is non-empty.
-   */
   @Input() fsDirPath = '';
 
   @Output() pathChange = new EventEmitter<string>();
   @Output() navigateUpClicked = new EventEmitter<void>();
   @Output() refreshClicked = new EventEmitter<void>();
   @Output() openInOtherPane = new EventEmitter<string>();
+  @Output() archiveSegmentClick = new EventEmitter<string>();
 
   // ── State: path ─────────────────────────────────────────
   currentPath = '/';
   segments: PathSegment[] = [];
-  
+
   get isWin(): boolean {
     return isWindowsPath(this.currentPath);
   }
@@ -1733,7 +1740,6 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
         if (this.editMode) this.editValue = next;
       }
     }
-    // Re-render breadcrumbs when the archive stack changes (enter/exit/navigate).
     if (changes['archiveStack'] || changes['fsDirPath']) {
       this.rebuildSegments();
     }
@@ -1752,22 +1758,15 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
 
   onDriveLetterClick(seg: PathSegment, e: MouseEvent): void {
     e.stopPropagation();
-    
-    // If drive menu is already showing, just close it
     if (this.showDriveMenu) {
       this.showDriveMenu = false;
       return;
     }
-    
-    // Close other dropdowns
     this.closeAll();
-    
     const rect = (e.target as HTMLElement).getBoundingClientRect();
     this.driveMenuLeft = rect.left;
     this.driveMenuTop = rect.bottom + 4;
-    
     this.showDriveMenu = true;
-    
     if (this.drives.length === 0 && !this.drivesLoading) {
       this.loadDrives();
     }
@@ -1775,18 +1774,12 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
 
   switchToDrive(drive: DriveInfo): void {
     this.showDriveMenu = false;
-    // Determine drive root:
-    // - Windows drive letters -> "C:/"
-    // - UNC paths -> "//server/share"
-    // - Fallback to provided path or '/'
     const raw = (drive.path || drive.name || '').toString();
     let target = raw;
 
     if (/^[A-Za-z]:/.test(raw)) {
-      // always navigate to drive root (keep forward-slash for normalization)
       target = raw.slice(0, 2) + '/';
     } else {
-      // Normalize slashes for UNC detection
       const n = raw.replace(/\\+/g, '/');
       if (n.startsWith('//')) {
         const parts = n.split('/').filter(Boolean);
@@ -1805,7 +1798,6 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
 
   async loadDrives(): Promise<void> {
     if (!this.isWin) return;
-    
     this.drivesLoading = true;
     try {
       const drives = await this.apiService.listDrives();
@@ -1856,7 +1848,6 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   onSegClick(seg: PathSegment, e: MouseEvent): void {
     e.stopPropagation();
     this.closeAll();
-    // Archive-interior segments are not real FS paths — ignore clicks
     if (seg.isArchiveInner || seg.isArchiveRoot) return;
     if (seg.fullPath !== this.currentPath) {
       this.navigateTo(seg.fullPath);
@@ -1867,11 +1858,20 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   // Chevron / sibling dropdown
   // ────────────────────────────────────────────────────────
 
+  /**
+   * Called by archive chevrons. Delegates to toggleChev so the sibling
+   * dropdown opens — does NOT navigate like the old onArchiveChevClick did.
+   */
+  onArchiveChevClick(idx: number, seg: PathSegment, e: MouseEvent): void {
+    this.toggleChev(idx, seg, e);
+  }
+
   async toggleChev(idx: number, seg: PathSegment, e: MouseEvent): Promise<void> {
     e.stopPropagation();
     this.showPinDrop = false;
     this.showDriveMenu = false;
 
+    // Toggle off if already open at this index
     if (this.chevIdx === idx) {
       this.chevIdx = -1;
       this.siblings = [];
@@ -1892,6 +1892,13 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
       : null;
 
     try {
+      // ── Archive segment ───────────────────────────────────────────
+      if (seg.isArchiveRoot || seg.isArchiveInner) {
+        await this.loadArchiveSiblings(seg, activeChildPath);
+        return;
+      }
+
+      // ── Normal FS segment ─────────────────────────────────────────
       const listing: DirectoryListing = await this.apiService.listDirectory(seg.fullPath, false);
       this.siblings = listing.entries
         .filter(e => e.type === FileType.DIRECTORY)
@@ -1905,10 +1912,100 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     }
   }
 
+  /**
+   * Load the sibling directories for an archive segment.
+   *
+   * "Siblings of seg" = all directories inside seg's *parent* folder
+   * within the same archive level.
+   *
+   * seg.fullPath is a virtual path like "C:/Desktop.zip/src/utils".
+   * We strip the fsDirPath prefix to get the archive-internal portion,
+   * then go one level up to find the parent innerPath, then call
+   * ArchiveBrowse on that parent to list its children.
+   */
+  private async loadArchiveSiblings(
+    seg: PathSegment,
+    activeChildPath: string | null,
+  ): Promise<void> {
+    const stack = this.archiveStack;
+    if (!stack.length) { this.sibLoading = false; return; }
+
+    const fsNorm  = this.fsDirPath.replace(/\\/g, '/');
+    const vNorm   = seg.fullPath.replace(/\\/g, '/');
+    const afterFs = vNorm.startsWith(fsNorm)
+      ? vNorm.slice(fsNorm.length).replace(/^\//, '')
+      : '';
+
+    // parts = archive-internal path components for this segment
+    const parts = afterFs ? afterFs.split('/').filter(Boolean) : [];
+
+    // Find the deepest frame whose nestedChain is a prefix of parts
+    let frame = stack[0];
+    for (let i = stack.length - 1; i >= 0; i--) {
+      const f = stack[i];
+      const chainLen = f.nestedChain.length;
+      const partsPrefix = parts.slice(0, chainLen).join('/');
+      const chainStr    = f.nestedChain.join('/');
+      if (chainStr === partsPrefix || i === 0) {
+        frame = f;
+        break;
+      }
+    }
+
+    // innerParts = path components after the nestedChain
+    const innerParts = parts.slice(frame.nestedChain.length);
+    // parentInnerPath = one level up from the segment itself
+    const parentInnerPath = innerParts.slice(0, -1).join('/');
+
+    try {
+      const app = (window as any).go?.main?.App;
+      if (!app?.ArchiveBrowse) throw new Error('ArchiveBrowse not available');
+
+      const listing = await app.ArchiveBrowse(frame.fsPath, frame.nestedChain, parentInnerPath);
+
+      const activeChildVirtual = activeChildPath?.replace(/\\/g, '/') ?? null;
+
+      this.siblings = (listing.entries as any[])
+        .filter(e => e.type === 'directory' || e.type === 2)
+        .map(e => {
+          // Build the full virtual path for this sibling so onSibClick
+          // can pass it straight to archiveSegmentClick.
+          const sibInnerPath = parentInnerPath
+            ? parentInnerPath + '/' + e.name
+            : e.name;
+          // Reconstruct virtual path: fsNorm + nestedChain parts + sibInnerPath
+          const chainPart = frame.nestedChain.length
+            ? '/' + frame.nestedChain.join('/')
+            : '';
+          const virtualSibPath = fsNorm + chainPart + '/' + sibInnerPath;
+
+          return {
+            name: e.name,
+            path: virtualSibPath,
+            isCurrent: activeChildVirtual
+              ? activeChildVirtual === virtualSibPath ||
+                activeChildVirtual.endsWith('/' + e.name)
+              : false,
+          };
+        })
+        .sort((a: SiblingEntry, b: SiblingEntry) => a.name.localeCompare(b.name));
+    } catch {
+      this.siblings = [];
+    } finally {
+      this.sibLoading = false;
+      this.cdr.detectChanges();
+    }
+  }
+
   onSibClick(s: SiblingEntry): void {
     this.chevIdx = -1;
     this.siblings = [];
-    this.navigateTo(s.path);
+    // Archive siblings carry a virtual path — emit to pane for navigation.
+    if (this.archiveStack.length > 0) {
+      this.archiveSegmentClick.emit(s.path);
+    } else {
+      this.navigateTo(s.path);
+    }
   }
 
   onCrumbsClick(e: MouseEvent): void {
@@ -1938,7 +2035,9 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
       this.pinnedPaths = this.pinnedPaths.filter(p => p.path !== this.currentPath);
     } else {
       const parts = this.currentPath.split('/').filter(Boolean);
-      const label = parts.length ? parts[parts.length - 1] : (isWindowsPath(this.currentPath) ? this.currentPath.slice(0,2) : '/');
+      const label = parts.length
+        ? parts[parts.length - 1]
+        : (isWindowsPath(this.currentPath) ? this.currentPath.slice(0, 2) : '/');
       this.pinnedPaths.push({ path: this.currentPath, label, icon: '📁', addedAt: Date.now() });
     }
     this.savePins();
@@ -1974,7 +2073,6 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   // ────────────────────────────────────────────────────────
 
   enterEditMode(): void {
-    // Cannot type a path while inside an archive — the path isn't an FS path.
     if (this.archiveStack.length > 0) return;
     this.closeAll();
     this.editMode = true;
@@ -2132,7 +2230,6 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   // ────────────────────────────────────────────────────────
 
   goUp(): void {
-    // In archive mode the pane handles up-navigation; just emit the event.
     this.navigateUpClicked.emit();
     if (this.archiveStack.length === 0) {
       const p = parentPath(this.currentPath);
@@ -2147,6 +2244,12 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     clearTimeout(this.copiedTimer);
     this.justCopied = true;
     this.copiedTimer = setTimeout(() => { this.justCopied = false; this.cdr.detectChanges(); }, 1800);
+  }
+
+  onArchiveSegClick(seg: PathSegment, e: MouseEvent): void {
+    e.stopPropagation();
+    this.closeAll();
+    this.archiveSegmentClick.emit(seg.fullPath);
   }
 
   // ────────────────────────────────────────────────────────

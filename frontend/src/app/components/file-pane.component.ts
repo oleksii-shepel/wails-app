@@ -50,7 +50,8 @@ declare const window: any;
         [fsDirPath]="fsDirPath"
         (pathChange)="onPathChange($event)"
         (navigateUpClicked)="onNavigateUp()"
-        (refreshClicked)="onRefresh()">
+        (refreshClicked)="onRefresh()"
+        (archiveSegmentClick)="onArchiveSegmentClick($event)">
       </app-address-bar>
 
       <app-filter-bar
@@ -272,6 +273,71 @@ export class FilePaneComponent implements OnInit, OnChanges {
   onNewTab(): void {
     const newTab = this.workspaceService.addTab(this.paneId, this.currentPath, true);
     if (newTab) this.loadPaneState();
+  }
+
+  async onArchiveSegmentClick(virtualPath: string): Promise<void> {
+    if (!this.isInArchive()) return;
+
+    // Count how many archive stack levels the clicked segment represents.
+    // virtualPath = fsDirPath [+ nestedChain parts] [+ innerPath parts]
+    const fsNorm = this.fsDirPath.replace(/\\/g, '/');
+    const vNorm  = virtualPath.replace(/\\/g, '/');
+
+    // Strip the fsPath prefix to get the archive-internal portion
+    const afterFs = vNorm.startsWith(fsNorm)
+      ? vNorm.slice(fsNorm.length).replace(/^\//, '')
+      : '';
+
+    if (!afterFs) {
+      // Clicked the archive root itself — navigate to innerPath = ''
+      const rootFrame = this.archiveStack[0];
+      this.loading = true;
+      try {
+        const frame = await this.archiveService.navigateInto(rootFrame, '');
+        this.archiveStack = [{ ...frame, innerPath: '' }];
+        this.renderArchiveFrame({ ...frame, innerPath: '' });
+      } catch (err: any) {
+        this.error = err.message;
+      } finally { this.loading = false; }
+      return;
+    }
+
+    // Walk the virtual path parts to find the target stack depth + innerPath
+    const parts = afterFs.split('/').filter(Boolean);
+    // Rebuild stack up to the clicked segment
+    this.loading = true;
+    try {
+      let stack: ArchiveFrame[] = [this.archiveStack[0]];
+      // Reset root frame to its root
+      let frame = await this.archiveService.navigateInto(this.archiveStack[0], '');
+      stack = [{ ...frame, innerPath: '' }];
+
+      for (const part of parts) {
+        // Is this part a nested archive in the current frame's listing?
+        const isNested = frame.listing.entries.some(
+          e => e.name === part && (e.type === FileType.ARCHIVE || isArchive(e.name))
+        );
+        if (isNested) {
+          const nestedChain = [...frame.nestedChain, part];
+          frame = await this.archiveService.openNestedArchive(frame, nestedChain);
+          stack.push(frame);
+        } else {
+          // It's a sub-directory within the current archive level
+          const innerPath = frame.innerPath ? `${frame.innerPath}/${part}` : part;
+          frame = await this.archiveService.navigateInto(
+            stack[stack.length - 1], innerPath
+          );
+          stack = [...stack.slice(0, -1), frame];
+        }
+      }
+
+      this.archiveStack = stack;
+      this.renderArchiveFrame(stack[stack.length - 1]);
+    } catch (err: any) {
+      this.error = err.message || 'Failed to navigate to archive segment';
+    } finally {
+      this.loading = false;
+    }
   }
 
   onCloseCurrentTab(): void {

@@ -489,4 +489,19 @@ export class WorkspaceService {
     const drive = normalized.match(/^([a-zA-Z]):/);
     return drive ? `${drive[1]}:/` : '/';
   }
+
+  getAllTabPaths(): string[] {
+    const state = this.workspacesSubject.value;
+    const paths: string[] = [];
+    for (const ws of state.workspaces) {
+      for (const pane of [ws.leftPane, ws.rightPane]) {
+        if (pane && Array.isArray(pane.tabs)) {
+          for (const tab of pane.tabs) {
+            if (tab.path) paths.push(tab.path);
+          }
+        }
+      }
+    }
+    return paths;
+  }
 }

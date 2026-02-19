@@ -43,7 +43,10 @@ interface ArchiveStackFrame {
         (newTab)="onNewTab()">
       </app-tab-bar>
 
+      <!-- Only render address bar once we have the real platform path,
+           preventing a flash of '/' before GetInitialPath() resolves -->
       <app-address-bar
+        *ngIf="pathReady"
         [initialPath]="currentPath"
         [paneId]="paneId"
         (pathChange)="onPathChange($event)"
@@ -132,6 +135,7 @@ export class FilePaneComponent implements OnInit, OnChanges {
 
   currentPath = '';
   currentTabId = '';
+  pathReady = false;  // guards address bar from rendering with stale '/'
   tabs: TabInfo[] = [];
   entries: FileInfo[] = [];
   filteredEntries: FileInfo[] = [];
@@ -162,32 +166,31 @@ export class FilePaneComponent implements OnInit, OnChanges {
     if (!this.workspace) return;
     this.tabs = this.workspaceService.getTabs(this.paneId);
     const activeTab = this.workspaceService.getActiveTab(this.paneId);
-
-    // Ask Go for the platform-correct initial directory.
-    // This also tells us whether we're on Windows.
-    let platformPath = '/';
-    try {
-      platformPath = await window.go.main.App.GetInitialPath();
-    } catch (err) {
-      console.error('Failed to get initial path:', err);
-    }
-
-    const isWindows = /^[A-Za-z]:[/\\]/.test(platformPath);
-
-    // A saved path is "stale" when it's empty, or when we're on Windows but
-    // the workspace was seeded with a bare Unix '/' default.
     const savedPath = activeTab?.path ?? '';
-    const pathIsStale = !savedPath || (isWindows && savedPath === '/');
 
-    if (!pathIsStale) {
-      this.currentTabId = activeTab!.id;
-      this.currentPath = savedPath;
-      await this.loadDirectory(savedPath);
-    } else {
-      // Use the correct platform path returned by Go
-      this.currentPath = platformPath;
-      await this.loadDirectory(platformPath);
+    // Detect Windows by scanning ALL saved tab paths across both panes.
+    // If any saved path looks like a Windows drive path (e.g. "C:/"),
+    // we're on Windows and a bare "/" is a stale Unix default.
+    const allPaths = this.workspaceService.getAllTabPaths();
+    const windowsRoot = allPaths.find(p => /^[A-Za-z]:[/\\]/.test(p));
+    const platformRoot = windowsRoot
+      ? windowsRoot.replace(/\\/g, '/').replace(/^([A-Za-z]:).*$/, '$1/')
+      : '/';
+
+    const isWindows = platformRoot !== '/';
+    const pathIsStale = !savedPath || (isWindows && savedPath === '/');
+    const pathToLoad = pathIsStale ? platformRoot : savedPath;
+
+    console.log(`[file-pane:${this.paneId}] saved="${savedPath}" root="${platformRoot}" stale=${pathIsStale} → load="${pathToLoad}"`);
+
+    this.currentPath = pathToLoad;
+    this.pathReady = true;
+
+    if (activeTab) {
+      this.currentTabId = activeTab.id;
     }
+
+    await this.loadDirectory(pathToLoad);
   }
 
   private async loadDirectory(path: string): Promise<void> {

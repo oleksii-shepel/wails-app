@@ -64,13 +64,15 @@ const (
 type FileInfo struct {
 	Name        string   `json:"name"`
 	Path        string   `json:"path"`
-	Type        FileType `json:"type"`
+	Type        FileType `json:"type"` // "FILE", "DIRECTORY", "ARCHIVE"
 	Size        int64    `json:"size"`
 	Created     int64    `json:"created"`
 	Modified    int64    `json:"modified"`
 	Accessed    int64    `json:"accessed"`
 	Permissions string   `json:"permissions"`
 	IsHidden    bool     `json:"isHidden"`
+	IsNested    bool     `json:"isNested"`
+	NestedChain []string `json:"nestedChain,omitempty"`
 }
 
 type DirectoryListing struct {
@@ -87,8 +89,8 @@ type FileContent struct {
 }
 
 type OperationResult struct {
-	Success      bool     `json:"success"`
-	Message      string   `json:"message,omitempty"`
+	Success       bool     `json:"success"`
+	Message       string   `json:"message,omitempty"`
 	AffectedPaths []string `json:"affectedPaths,omitempty"`
 }
 
@@ -158,15 +160,15 @@ type PaneState struct {
 }
 
 type WorkspaceConfig struct {
-	ID               string    `json:"id"`
-	Name             string    `json:"name"`
-	Icon             string    `json:"icon,omitempty"`
-	Color            string    `json:"color,omitempty"`
-	LeftPane         PaneState `json:"leftPane"`
-	RightPane        PaneState `json:"rightPane"`
-	ShowHidden       bool      `json:"showHidden"`
-	CreatedAt        int64     `json:"createdAt"`
-	LastAccessedAt   int64     `json:"lastAccessedAt"`
+	ID             string    `json:"id"`
+	Name           string    `json:"name"`
+	Icon           string    `json:"icon,omitempty"`
+	Color          string    `json:"color,omitempty"`
+	LeftPane       PaneState `json:"leftPane"`
+	RightPane      PaneState `json:"rightPane"`
+	ShowHidden     bool      `json:"showHidden"`
+	CreatedAt      int64     `json:"createdAt"`
+	LastAccessedAt int64     `json:"lastAccessedAt"`
 }
 
 type WorkspaceList struct {
@@ -206,11 +208,11 @@ type FilterQuery struct {
 // ============================================================================
 
 type UserPreferences struct {
-	Theme                  string `json:"theme"`
-	DefaultShowHidden      bool   `json:"defaultShowHidden"`
-	DefaultSortBy          string `json:"defaultSortBy"`
-	DefaultSortOrder       string `json:"defaultSortOrder"`
-	EnableKeyboardShortcuts bool  `json:"enableKeyboardShortcuts"`
-	DoubleClickAction      string `json:"doubleClickAction"`
-	ConfirmDelete          bool   `json:"confirmDelete"`
+	Theme                   string `json:"theme"`
+	DefaultShowHidden       bool   `json:"defaultShowHidden"`
+	DefaultSortBy           string `json:"defaultSortBy"`
+	DefaultSortOrder        string `json:"defaultSortOrder"`
+	EnableKeyboardShortcuts bool   `json:"enableKeyboardShortcuts"`
+	DoubleClickAction       string `json:"doubleClickAction"`
+	ConfirmDelete           bool   `json:"confirmDelete"`
 }

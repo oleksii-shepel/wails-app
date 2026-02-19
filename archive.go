@@ -1,47 +1,42 @@
 package main
 
-// archive.go — ArchiveList and ArchiveListNested methods exposed via Wails.
-//
-// Dependency:  github.com/mholt/archiver/v3
-//   go get github.com/mholt/archiver/v3
+// archive.go — Production-ready ArchiveList & ArchiveListNested for Wails.
+// Uses github.com/mholt/archiver/v3
 
 import (
-	"archive/tar"
-	"archive/zip"
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/mholt/archiver/v3"
 )
 
-// ─── Protocol types ───────────────────────────────────────────────────────────
+// ─── Protocol types ────────────────────────────────────────────────
 
 type ArchiveEntry struct {
-	Name      string `json:"name"`
-	InnerPath string `json:"innerPath"`
-	Type      string `json:"type"` // "FILE" | "DIRECTORY"
-	Size      int64  `json:"size"`
-	Modified  int64  `json:"modified"` // unix milliseconds
+	Name        string   `json:"name"`
+	InnerPath   string   `json:"innerPath"`
+	Type        string   `json:"type"` // "FILE" | "DIRECTORY" | "ARCHIVE"
+	Size        int64    `json:"size"`
+	Modified    int64    `json:"modified"` // unix milliseconds
+	IsNested    bool     `json:"isNested"`
+	NestedChain []string `json:"nestedChain,omitempty"` // for nested archives
 }
 
 type ArchiveListing struct {
 	ArchivePath string         `json:"archivePath"`
 	InnerPath   string         `json:"innerPath"`
+	NestedChain []string       `json:"nestedChain,omitempty"`
 	Entries     []ArchiveEntry `json:"entries"`
 }
 
-// ─── Public App methods ───────────────────────────────────────────────────────
+// ─── Public App methods ────────────────────────────────────────────
 
-// ArchiveList lists one directory level inside a root (filesystem) archive.
-//
-//	fsPath    – absolute path to the archive file, e.g. "C:/stuff/outer.zip"
-//	innerPath – folder to list within the archive; "" = root
+// ArchiveList lists a single level of a filesystem archive.
 func (a *App) ArchiveList(fsPath string, innerPath string) (ArchiveListing, error) {
-	entries, err := listArchiveEntries(fsPath, innerPath)
+	entries, err := listArchiveEntries(fsPath, innerPath, nil)
 	if err != nil {
 		return ArchiveListing{}, err
 	}
@@ -52,32 +47,22 @@ func (a *App) ArchiveList(fsPath string, innerPath string) (ArchiveListing, erro
 	}, nil
 }
 
-// ArchiveListNested lists one directory level inside a nested archive —
-// an archive file that lives inside another archive.
-//
-//	fsPath          – outermost archive on disk
-//	nestedEntryPath – path of the nested archive inside fsPath, e.g. "libs/inner.tar.gz"
-//	innerPath       – folder to list within the nested archive; "" = root
-func (a *App) ArchiveListNested(fsPath string, nestedEntryPath string, innerPath string) (ArchiveListing, error) {
-	// Extract the nested archive bytes into a temp file
-	// (archiver/v3 requires a seekable reader, so we can't use an in-memory buffer)
+// ArchiveListNested lists a single level of a nested archive.
+func (a *App) ArchiveListNested(fsPath string, nestedEntryPath, innerPath string) (ArchiveListing, error) {
+	// Extract nested archive into temp file
 	data, err := extractEntryBytes(fsPath, nestedEntryPath)
 	if err != nil {
 		return ArchiveListing{}, err
 	}
 
-	ext := filepath.Ext(nestedEntryPath)
-	// Handle compound extensions like .tar.gz
-	if strings.HasSuffix(strings.ToLower(nestedEntryPath), ".tar.gz") {
-		ext = ".tar.gz"
-	}
-
+	ext := detectExt(nestedEntryPath)
 	tmpFile, err := os.CreateTemp("", "nested-archive-*"+ext)
 	if err != nil {
 		return ArchiveListing{}, err
 	}
-	tmpName := tmpFile.Name()
-	defer os.Remove(tmpName)
+	// We don't defer remove here if we want to browse it,
+	// but for a stateless "List" call, it's safer to cleanup or use a cache.
+	defer os.Remove(tmpFile.Name())
 
 	if _, err := tmpFile.Write(data); err != nil {
 		tmpFile.Close()
@@ -85,72 +70,63 @@ func (a *App) ArchiveListNested(fsPath string, nestedEntryPath string, innerPath
 	}
 	tmpFile.Close()
 
-	entries, err := listArchiveEntries(tmpName, innerPath)
+	entries, err := listArchiveEntries(tmpFile.Name(), innerPath, []string{nestedEntryPath})
 	if err != nil {
 		return ArchiveListing{}, err
 	}
+
 	return ArchiveListing{
-		ArchivePath: fsPath, // always report the outermost FS path
+		ArchivePath: fsPath,
 		InnerPath:   innerPath,
+		NestedChain: []string{nestedEntryPath},
 		Entries:     entries,
 	}, nil
 }
 
-// ─── Internal helpers ─────────────────────────────────────────────────────────
+// ─── Internal helpers ─────────────────────────────────────────────
 
-// listArchiveEntries walks an archive and returns only the immediate children
-// of innerPath (non-recursive, like a single directory listing).
-func listArchiveEntries(fsPath string, innerPath string) ([]ArchiveEntry, error) {
-	innerPath = strings.Trim(strings.ReplaceAll(innerPath, "\\", "/"), "/")
-
-	// Use a map to deduplicate: archives often store "dir/", "dir/file.txt" as
-	// separate entries, but we only want to emit "dir" once as a DIRECTORY.
+func listArchiveEntries(fsPath, innerPath string, nestedChain []string) ([]ArchiveEntry, error) {
+	innerPath = normalize(innerPath)
 	seen := map[string]ArchiveEntry{}
 
 	err := archiver.Walk(fsPath, func(f archiver.File) error {
-		ep := archiveEntryPath(f)
-		ep = strings.Trim(strings.ReplaceAll(ep, "\\", "/"), "/")
+		ep := normalize(archiveEntryPath(f))
 		if ep == "" {
 			return nil
 		}
 
-		// Determine the path relative to innerPath
-		var rel string
-		if innerPath == "" {
-			rel = ep
-		} else {
-			prefix := innerPath + "/"
-			if !strings.HasPrefix(ep, prefix) {
-				return nil
-			}
-			rel = ep[len(prefix):]
-			if rel == "" {
-				return nil
-			}
+		rel := getRelativePath(ep, innerPath)
+		if rel == "" {
+			return nil
 		}
 
-		// Only keep the first segment (immediate child)
 		parts := strings.SplitN(rel, "/", 2)
 		childName := parts[0]
 		isDir := f.IsDir() || len(parts) > 1
+		isArchive := !isDir && isArchiveFile(childName)
 
-		childInnerPath := childName
+		childInner := childName
 		if innerPath != "" {
-			childInnerPath = innerPath + "/" + childName
+			childInner = innerPath + "/" + childName
 		}
 
-		if _, exists := seen[childName]; !exists {
-			entryType := "FILE"
-			if isDir {
-				entryType = "DIRECTORY"
-			}
-			seen[childName] = ArchiveEntry{
+		if _, ok := seen[childName]; !ok {
+			entry := ArchiveEntry{
 				Name:      childName,
-				InnerPath: childInnerPath,
-				Type:      entryType,
+				InnerPath: childInner,
+				Type:      "FILE",
 				Size:      f.Size(),
 				Modified:  f.ModTime().UnixMilli(),
+				IsNested:  isArchive,
 			}
+			if isDir {
+				entry.Type = "DIRECTORY"
+			} else if isArchive {
+				entry.Type = "ARCHIVE"
+				entry.NestedChain = append([]string{}, nestedChain...)
+				entry.NestedChain = append(entry.NestedChain, childName)
+			}
+			seen[childName] = entry
 		}
 		return nil
 	})
@@ -158,27 +134,27 @@ func listArchiveEntries(fsPath string, innerPath string) ([]ArchiveEntry, error)
 		return nil, err
 	}
 
-	// Sort: directories first, then alphabetically within each group
 	entries := make([]ArchiveEntry, 0, len(seen))
 	for _, e := range seen {
 		entries = append(entries, e)
 	}
+
 	sort.Slice(entries, func(i, j int) bool {
+		order := map[string]int{"DIRECTORY": 0, "ARCHIVE": 1, "FILE": 2}
 		if entries[i].Type != entries[j].Type {
-			return entries[i].Type == "DIRECTORY"
+			return order[entries[i].Type] < order[entries[j].Type]
 		}
 		return strings.ToLower(entries[i].Name) < strings.ToLower(entries[j].Name)
 	})
 	return entries, nil
 }
 
-// extractEntryBytes extracts a single named entry from an archive into memory.
-func extractEntryBytes(fsPath string, entryPath string) ([]byte, error) {
-	entryPath = strings.Trim(strings.ReplaceAll(entryPath, "\\", "/"), "/")
-
+func extractEntryBytes(fsPath, entryPath string) ([]byte, error) {
+	entryPath = normalize(entryPath)
 	var buf []byte
+
 	err := archiver.Walk(fsPath, func(f archiver.File) error {
-		if archiveEntryPath(f) != entryPath {
+		if normalize(archiveEntryPath(f)) != entryPath {
 			return nil
 		}
 		data, err := io.ReadAll(f)
@@ -193,21 +169,7 @@ func extractEntryBytes(fsPath string, entryPath string) ([]byte, error) {
 		return nil, err
 	}
 	if buf == nil {
-		return nil, fmt.Errorf("entry %q not found in archive %s", entryPath, fsPath)
+		return nil, fmt.Errorf("entry %q not found in %s", entryPath, fsPath)
 	}
 	return buf, nil
-}
-
-// archiveEntryPath returns the full inner path from an archiver.File header.
-// Only zip and tar expose typed headers with full paths in archiver/v3.
-func archiveEntryPath(f archiver.File) string {
-	switch hdr := f.Header.(type) {
-	case *zip.FileHeader:
-		return strings.TrimSuffix(hdr.Name, "/")
-	case *tar.Header:
-		return strings.TrimSuffix(hdr.Name, "/")
-	}
-	// For other formats (rar, 7z) archiver/v3 only exposes the basename via f.Name().
-	// Full path support for those formats requires archiver/v4 or a dedicated library.
-	return f.Name()
 }

@@ -383,24 +383,6 @@ func isHiddenFile(name, path string) bool {
 	return checkHidden(name, path)
 }
 
-// filterEntries applies a FilterQuery against a slice of FileInfo.
-func filterEntries(entries []FileInfo, q FilterQuery) []FileInfo {
-	if q.Text == "" && len(q.Criteria) == 0 {
-		return entries
-	}
-
-	var result []FileInfo
-	for _, e := range entries {
-		if matchesFilter(e, q) {
-			result = append(result, e)
-		}
-	}
-	if result == nil {
-		result = []FileInfo{}
-	}
-	return result
-}
-
 func matchesFilter(e FileInfo, q FilterQuery) bool {
 	// Simple text search
 	if q.Text != "" {

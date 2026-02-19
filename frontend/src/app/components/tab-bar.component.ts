@@ -8,12 +8,13 @@ import { TabInfo } from '../shared/protocol-enhanced';
   standalone: true,
   imports: [CommonModule, TabComponent],
   template: `
-    <div class="tab-bar-container" [class.compact]="isCompact">
+    <div class="tab-bar-container" [class.compact]="isCompact" [class.in-archive]="inArchive">
       <div class="tabs-scroll-viewport">
         <div class="tabs-list">
           <app-tab *ngFor="let tab of tabs; trackBy: trackByTabId"
                    [tab]="tab"
                    [isActive]="tab.id === activeTabId"
+                   [inArchive]="inArchive"
                    (tabClick)="onTabClick($event)"
                    (tabClose)="onTabClose($event)"
                    (tabPin)="onTabPin($event)">
@@ -48,6 +49,11 @@ import { TabInfo } from '../shared/protocol-enhanced';
     .tab-bar-container.compact {
       height: 100%;
       min-height: 0;
+    }
+
+    /* Amber bottom border when browsing inside an archive */
+    .tab-bar-container.in-archive {
+      border-bottom-color: rgba(255, 179, 71, 0.45);
     }
 
     .tabs-scroll-viewport {
@@ -120,6 +126,8 @@ export class TabBarComponent {
   @Input() tabs: TabInfo[] = [];
   @Input() activeTabId = '';
   @Input() isCompact = false;
+  /** Forwarded from FilePaneComponent — true when browsing inside an archive. */
+  @Input() inArchive = false;
 
   @Output() tabChange = new EventEmitter<TabInfo>();
   @Output() tabClose = new EventEmitter<TabInfo>();

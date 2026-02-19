@@ -360,8 +360,8 @@ export class WorkspaceService {
   }
 
   /**
-   * Update the path of a tab (called on every navigation).
-   * Uses silent mode to avoid re-triggering workspace reload loops.
+   * Update the filesystem path of a tab and derive its title from the basename.
+   * Should NOT be called while inside an archive — use updateTabTitle instead.
    */
   updateTabPath(paneId: string, tabId: string, path: string): boolean {
     const workspace = this.activeWorkspaceSubject.value;
@@ -374,11 +374,35 @@ export class WorkspaceService {
     tab.path = path;
     tab.title = this.getPathTitle(path);
 
-    // Silent = true prevents the reload loop described in the original service
     this.updateWorkspace(
       workspace.id,
       { [paneId === 'left' ? 'leftPane' : 'rightPane']: pane },
-      true,
+      true, // silent — avoids reload loop
+    );
+    return true;
+  }
+
+  /**
+   * Update only the display title of a tab without touching its stored path.
+   *
+   * Used by FilePaneComponent when navigating inside an archive so the tab
+   * shows e.g. "project.zip > src" while tab.path still holds the real FS
+   * path (needed to restore navigation on tab switch / workspace reload).
+   */
+  updateTabTitle(paneId: string, tabId: string, title: string): boolean {
+    const workspace = this.activeWorkspaceSubject.value;
+    if (!workspace) return false;
+
+    const pane = paneId === 'left' ? workspace.leftPane : workspace.rightPane;
+    const tab = pane.tabs.find((t) => t.id === tabId);
+    if (!tab) return false;
+
+    tab.title = title;
+
+    this.updateWorkspace(
+      workspace.id,
+      { [paneId === 'left' ? 'leftPane' : 'rightPane']: pane },
+      true, // silent — title change doesn't need to re-trigger workspace reload
     );
     return true;
   }
@@ -465,16 +489,25 @@ export class WorkspaceService {
     return `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
   }
 
+  /**
+   * Derive a short display title from a filesystem path.
+   *
+   * Rules:
+   *   /                     → /
+   *   C:/                   → C:
+   *   /home/user/documents  → documents
+   *   C:/Users/Alice/docs   → docs
+   */
   private getPathTitle(path: string): string {
     const normalized = this.normalizePath(path);
-    const isWindows =
-      (navigator as any).userAgentData?.platform === 'Windows' ||
-      navigator.userAgent.includes('Windows');
-    
-    if (normalized === '/' && isWindows) {
-      return 'C:';
-    }
-    return normalized === '/' || normalized === '' ? '/' : normalized;
+
+    // Unix / Windows drive roots
+    if (normalized === '/') return '/';
+    if (/^[a-zA-Z]:\/?$/.test(normalized)) return normalized.slice(0, 2);
+
+    // Return only the last path segment (basename)
+    const parts = normalized.replace(/\\/g, '/').split('/').filter(Boolean);
+    return parts[parts.length - 1] ?? normalized;
   }
 
   private normalizePath(path: string): string {

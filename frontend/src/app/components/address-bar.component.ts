@@ -19,6 +19,7 @@ import { PathHistoryService, PathSuggestion } from '../services/path-history.ser
 import { ApiService } from '../services/api.service';
 import { DirectoryListing, FileType } from '../shared/protocol';
 import { DriveInfo } from '../shared/protocol-enhanced';
+import { ArchiveFrame } from '../services/archive.service';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -27,6 +28,10 @@ interface PathSegment {
   fullPath: string;
   isRoot: boolean;
   rootLabel?: string;
+  /** True for the archive file entry itself (e.g. project.zip) */
+  isArchiveRoot?: boolean;
+  /** True for path parts that live *inside* an archive — not navigable via FS */
+  isArchiveInner?: boolean;
 }
 
 interface SiblingEntry {
@@ -133,6 +138,56 @@ function parentPath(p: string): string {
   return '/' + parts.join('/');
 }
 
+/**
+ * Build breadcrumb segments for an archive stack.
+ * The result is:
+ *   [normal FS segments…] [archive-root seg] [nestedChain segs…] [innerPath segs…]
+ *
+ * The FS segments are built normally via buildSegments(fsDirPath).
+ * Only the last FS segment (the archive file) is marked isArchiveRoot=true.
+ * Everything inside the archive is marked isArchiveInner=true.
+ */
+function buildArchiveSegments(fsDirPath: string, stack: ArchiveFrame[]): PathSegment[] {
+  if (stack.length === 0) return buildSegments(fsDirPath);
+  const frame = stack[stack.length - 1];
+
+  // FS part: build normal segments for the directory containing the archive.
+  // The last FS segment IS the archive file — mark it as the archive root.
+  const fsSegs = buildSegments(fsDirPath);
+  if (fsSegs.length > 0) {
+    fsSegs[fsSegs.length - 1].isArchiveRoot = true;
+  }
+
+  // Archive-interior segments: nestedChain entries + innerPath parts
+  const innerSegs: PathSegment[] = [];
+
+  // Each level in nestedChain is a nested archive file
+  for (const name of frame.nestedChain) {
+    innerSegs.push({
+      label: name,
+      fullPath: '',        // no FS path — not navigable
+      isRoot: false,
+      isArchiveRoot: true,
+      isArchiveInner: true,
+    });
+  }
+
+  // innerPath sub-directories
+  if (frame.innerPath) {
+    const parts = frame.innerPath.split('/').filter(Boolean);
+    parts.forEach(part => {
+      innerSegs.push({
+        label: part,
+        fullPath: '',
+        isRoot: false,
+        isArchiveInner: true,
+      });
+    });
+  }
+
+  return [...fsSegs, ...innerSegs];
+}
+
 // ───────────────────────────────────────────────────────────────────────────
 
 @Component({
@@ -208,9 +263,35 @@ function parentPath(p: string): string {
       <div class="ab-crumbs-inner" #crumbsEl>
         <ng-container *ngFor="let seg of segments; let i = index; let last = last">
           
+          <!-- ARCHIVE-INNER segment (inside an archive, not FS-navigable) -->
+          <span
+            *ngIf="seg.isArchiveInner && !seg.isArchiveRoot"
+            class="ab-seg ab-seg--archive-inner"
+            [class.ab-seg--last]="last"
+            [title]="seg.label"
+          >{{ seg.label }}</span>
+
+          <!-- ARCHIVE-ROOT segment (the archive file itself, or a nested archive) -->
+          <span
+            *ngIf="seg.isArchiveRoot"
+            class="ab-seg ab-seg--archive-root"
+            [class.ab-seg--last]="last"
+            [title]="seg.fullPath || seg.label"
+          >
+            <svg class="ab-seg-archive-icon" width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M6.5 7.5a1 1 0 0 0-1 1v.5h-1v-.5a2 2 0 0 1 4 0v.5h-1v-.5a1 1 0 0 0-1-1zM5.5 11a1 1 0 1 0 2 0v-.5h-2V11zm7-6H10V2.5a.5.5 0 0 0-.5-.5h-3a.5.5 0 0 0-.5.5V5H3.5A1.5 1.5 0 0 0 2 6.5v6A1.5 1.5 0 0 0 3.5 14h9a1.5 1.5 0 0 0 1.5-1.5v-6A1.5 1.5 0 0 0 12.5 5zM7 2h2v3H7V2zm5.5 10.5a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-6a.5.5 0 0 1 .5-.5h8a.5.5 0 0 1 .5.5v6z"/>
+            </svg>
+            {{ seg.label }}
+          </span>
+
+          <!-- Archive chevron separator (›) between archive segments — no dropdown -->
+          <div class="ab-chev-wrap" *ngIf="!last && (seg.isArchiveInner || seg.isArchiveRoot)">
+            <span class="ab-chev ab-chev--archive">›</span>
+          </div>
+
           <!-- DRIVE LETTER (Windows) - VS Code blue, clickable to show drive grid -->
           <span
-            *ngIf="seg.isRoot && isWin"
+            *ngIf="seg.isRoot && isWin && !seg.isArchiveInner && !seg.isArchiveRoot"
             class="ab-seg ab-drive-letter"
             [class.ab-seg--last]="last"
             (click)="onDriveLetterClick(seg, $event)"
@@ -221,7 +302,7 @@ function parentPath(p: string): string {
           </span>
 
           <!-- CHEVRON after drive letter (shows root folder contents) -->
-          <div class="ab-drive-chevron-wrap" *ngIf="seg.isRoot && isWin && !last">
+          <div class="ab-drive-chevron-wrap" *ngIf="seg.isRoot && isWin && !last && !seg.isArchiveInner && !seg.isArchiveRoot">
             <button
               class="ab-chev ab-drive-chevron"
               [class.ab-chev--open]="chevIdx === i"
@@ -235,7 +316,7 @@ function parentPath(p: string): string {
 
           <!-- Regular segment (non-drive or Unix root) -->
           <span
-            *ngIf="!seg.isRoot || !isWin"
+            *ngIf="(!seg.isRoot || !isWin) && !seg.isArchiveInner && !seg.isArchiveRoot"
             class="ab-seg"
             [class.ab-seg--root]="seg.isRoot"
             [class.ab-seg--last]="last"
@@ -244,8 +325,8 @@ function parentPath(p: string): string {
             [title]="seg.fullPath"
           >{{ seg.label }}</span>
 
-          <!-- Regular chevron between segments (for non-drive segments) -->
-          <div class="ab-chev-wrap" *ngIf="!last && !(seg.isRoot && isWin)">
+          <!-- Regular chevron between FS segments (no chevron for archive segs above) -->
+          <div class="ab-chev-wrap" *ngIf="!last && !(seg.isRoot && isWin) && !seg.isArchiveInner && !seg.isArchiveRoot">
             <button
               class="ab-chev"
               [class.ab-chev--open]="chevIdx === i"
@@ -254,7 +335,6 @@ function parentPath(p: string): string {
               #chevBtn
             >›</button>
           </div>
-
           <!-- Sibling dropdown -->
           <div
             class="ab-dropdown ab-sib-drop"
@@ -654,6 +734,36 @@ function parentPath(p: string): string {
           background: transparent;
         }
       }
+
+      /* Archive root segment — the .zip/.tar file itself */
+      &.ab-seg--archive-root {
+        background: color-mix(in srgb, var(--vsc-accent-orange) 18%, transparent);
+        border: 1px solid rgba(255, 140, 0, 0.35);
+        color: #ffb347;
+        gap: 4px;
+        cursor: default;
+
+        &:hover {
+          background: color-mix(in srgb, var(--vsc-accent-orange) 26%, transparent);
+          color: #ffb347;
+        }
+
+        .ab-seg-archive-icon {
+          opacity: 0.85;
+          flex-shrink: 0;
+        }
+      }
+
+      /* Archive inner segment — a folder or sub-archive inside the archive */
+      &.ab-seg--archive-inner {
+        color: color-mix(in srgb, #ffb347 80%, var(--vsc-foreground));
+        cursor: default;
+        font-style: italic;
+
+        &:hover {
+          background: transparent;
+        }
+      }
     }
 
     /* Drive letter styling - use same visual as the AND/OR mode badge */
@@ -719,6 +829,17 @@ function parentPath(p: string): string {
         transform: rotate(90deg);
         color: var(--vsc-accent-blue);
         background: var(--vsc-list-active-background);
+      }
+
+      /* Non-interactive separator inside archives */
+      &.ab-chev--archive {
+        cursor: default;
+        color: rgba(255, 179, 71, 0.5);
+        pointer-events: none;
+
+        &:hover {
+          background: transparent;
+        }
       }
     }
 
@@ -1516,6 +1637,16 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   @Input() initialPath = '/';
   @Input() placeholder = 'Enter path…';
   @Input() paneId = 'left';
+  /**
+   * Pass the current archive stack from FilePaneComponent.
+   * Empty array = not in archive mode.
+   */
+  @Input() archiveStack: ArchiveFrame[] = [];
+  /**
+   * The real filesystem directory path (used to build FS breadcrumbs
+   * while inside an archive). Only needed when archiveStack is non-empty.
+   */
+  @Input() fsDirPath = '';
 
   @Output() pathChange = new EventEmitter<string>();
   @Output() navigateUpClicked = new EventEmitter<void>();
@@ -1604,6 +1735,10 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
         this.rebuildSegments();
         if (this.editMode) this.editValue = next;
       }
+    }
+    // Re-render breadcrumbs when the archive stack changes (enter/exit/navigate).
+    if (changes['archiveStack'] || changes['fsDirPath']) {
+      this.rebuildSegments();
     }
   }
 
@@ -1708,7 +1843,11 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   // ────────────────────────────────────────────────────────
 
   private rebuildSegments(): void {
-    this.segments = buildSegments(this.currentPath);
+    if (this.archiveStack.length > 0 && this.fsDirPath) {
+      this.segments = buildArchiveSegments(this.fsDirPath, this.archiveStack);
+    } else {
+      this.segments = buildSegments(this.currentPath);
+    }
     setTimeout(() => {
       if (this.crumbsEl) {
         const el = this.crumbsEl.nativeElement;
@@ -1836,6 +1975,8 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   // ────────────────────────────────────────────────────────
 
   enterEditMode(): void {
+    // Cannot type a path while inside an archive — the path isn't an FS path.
+    if (this.archiveStack.length > 0) return;
     this.closeAll();
     this.editMode = true;
     this.editValue = this.currentPath;
@@ -1992,9 +2133,12 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   // ────────────────────────────────────────────────────────
 
   goUp(): void {
-    const p = parentPath(this.currentPath);
+    // In archive mode the pane handles up-navigation; just emit the event.
     this.navigateUpClicked.emit();
-    if (p !== this.currentPath) this.navigateTo(p);
+    if (this.archiveStack.length === 0) {
+      const p = parentPath(this.currentPath);
+      if (p !== this.currentPath) this.navigateTo(p);
+    }
   }
 
   refresh(): void { this.refreshClicked.emit(); }

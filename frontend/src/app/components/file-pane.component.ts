@@ -12,7 +12,7 @@ import { WorkspaceService } from '../services/workspace.service';
 import { FilterService } from '../services/filter.service';
 import { PathHistoryService } from '../services/path-history.service';
 import {
-  ArchiveService, ArchiveFrame, isArchive, buildArchiveDisplayPath
+  ArchiveService, ArchiveFrame, isArchive, buildArchiveDisplayPath, buildArchiveTabTitle
 } from '../services/archive.service';
 
 declare const window: any;
@@ -33,6 +33,7 @@ declare const window: any;
       <app-tab-bar
         [tabs]="tabs"
         [activeTabId]="currentTabId"
+        [inArchive]="isInArchive()"
         (tabChange)="onTabChange($event)"
         (tabClose)="onTabClose($event)"
         (tabPin)="onTabPin($event)"
@@ -45,6 +46,8 @@ declare const window: any;
         *ngIf="pathReady"
         [initialPath]="currentPath"
         [paneId]="paneId"
+        [archiveStack]="archiveStack"
+        [fsDirPath]="fsDirPath"
         (pathChange)="onPathChange($event)"
         (navigateUpClicked)="onNavigateUp()"
         (refreshClicked)="onRefresh()">
@@ -128,7 +131,7 @@ export class FilePaneComponent implements OnInit, OnChanges {
 
   currentPath = '';
   /** The real filesystem path — preserved when we enter archives so we can restore it. */
-  private fsDirPath = '';
+  fsDirPath = '';
   currentTabId = '';
   pathReady = false;
   tabs: TabInfo[] = [];
@@ -422,7 +425,13 @@ export class FilePaneComponent implements OnInit, OnChanges {
 
   exitArchive(): void {
     this.archiveStack = [];
-    if (this.fsDirPath) this.currentPath = this.fsDirPath;
+    if (this.fsDirPath) {
+      this.currentPath = this.fsDirPath;
+      // Restore tab title to the real directory name
+      const dirName = this.fsDirPath.split('/').filter(Boolean).pop() ?? this.fsDirPath;
+      this.workspaceService.updateTabTitle(this.paneId, this.currentTabId, dirName);
+      this.tabs = this.workspaceService.getTabs(this.paneId);
+    }
   }
 
   private async refreshArchive(): Promise<void> {
@@ -440,12 +449,17 @@ export class FilePaneComponent implements OnInit, OnChanges {
     }
   }
 
-  /** Convert the current archive frame to FileInfo rows and update the address bar. */
+  /** Convert the current archive frame to FileInfo rows and update the address bar + tab title. */
   private renderArchiveFrame(frame: ArchiveFrame): void {
     this.entries = this.archiveService.listingToFileInfos(frame.listing);
     this.selectedFiles.clear();
     this.applyFilter();
-    this.currentPath = buildArchiveDisplayPath(this.fsDirPath || this.currentPath, this.archiveStack);
+    // Address bar: full FS path + archive interior  e.g. /home/user/project.zip > src/lib
+    this.currentPath = buildArchiveDisplayPath(this.fsDirPath, this.archiveStack);
+    // Tab title: concise basename form  e.g. project.zip > src/lib
+    const title = buildArchiveTabTitle(this.fsDirPath, this.archiveStack);
+    this.workspaceService.updateTabTitle(this.paneId, this.currentTabId, title);
+    this.tabs = this.workspaceService.getTabs(this.paneId);
   }
 
   // ── Filtering ─────────────────────────────────────────────────────────────

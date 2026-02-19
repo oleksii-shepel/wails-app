@@ -10,12 +10,24 @@ import { TabInfo } from "../shared/protocol-enhanced";
     <div class="tab"
          [class.active]="isActive"
          [class.pinned]="tab.isPinned"
+         [class.in-archive]="inArchive"
          (click)="onClick()"
          (auxclick)="onMouseUp($event)"
          (mouseenter)="isHovered = true"
          (mouseleave)="isHovered = false">
-      <span class="tab-icon">📁</span>
+
+      <!-- Icon: archive zip icon when inside archive, folder otherwise -->
+      <span class="tab-icon" *ngIf="!inArchive">📁</span>
+      <svg *ngIf="inArchive" class="tab-icon tab-icon--archive" width="14" height="14"
+           viewBox="0 0 16 16" fill="currentColor" aria-label="Archive">
+        <path d="M6.5 7.5a1 1 0 0 0-1 1v.5h-1v-.5a2 2 0 0 1 4 0v.5h-1v-.5a1 1 0 0 0-1-1zM5.5 11a1 1 0 1 0 2 0v-.5h-2V11zm7-6H10V2.5a.5.5 0 0 0-.5-.5h-3a.5.5 0 0 0-.5.5V5H3.5A1.5 1.5 0 0 0 2 6.5v6A1.5 1.5 0 0 0 3.5 14h9a1.5 1.5 0 0 0 1.5-1.5v-6A1.5 1.5 0 0 0 12.5 5zM7 2h2v3H7V2zm5.5 10.5a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-6a.5.5 0 0 1 .5-.5h8a.5.5 0 0 1 .5.5v6z"/>
+      </svg>
+
       <span class="tab-title">{{ tab.title }}</span>
+
+      <!-- Archive badge: shown when browsing inside an archive -->
+      <span class="tab-archive-badge" *ngIf="inArchive" title="Browsing archive">ZIP</span>
+
       <!-- Active Tab Indicators -->
       <div class="tab-border-top" *ngIf="isActive"></div>
       <div class="tab-active-indicator"></div>
@@ -44,7 +56,7 @@ import { TabInfo } from "../shared/protocol-enhanced";
       align-items: center;
       gap: 6px;
       height: 100%;
-      padding: 2px 14px 0 14px; /* shift tab down by 2px */
+      padding: 2px 14px 0 14px;
       min-width: 120px;
       max-width: 240px;
       cursor: pointer;
@@ -76,7 +88,7 @@ import { TabInfo } from "../shared/protocol-enhanced";
 
     /* Active */
     .tab.active {
-      background: var(--vsc-editor-background); /* match content below */
+      background: var(--vsc-editor-background);
       color: var(--vsc-tab-active-foreground);
       border-left-color: var(--vsc-tab-border);
       border-right-color: var(--vsc-tab-border);
@@ -90,10 +102,25 @@ import { TabInfo } from "../shared/protocol-enhanced";
       display: none;
     }
 
+    /* Archive mode: amber top border */
+    .tab.in-archive {
+      border-top-color: #ffb347 !important;
+    }
+
+    .tab.in-archive.active {
+      border-top-color: #ffb347 !important;
+    }
+
     /* Icon */
     .tab-icon {
       font-size: 15px;
       opacity: .75;
+      flex-shrink: 0;
+    }
+
+    .tab-icon--archive {
+      color: #ffb347;
+      opacity: 1;
     }
 
     /* Title */
@@ -102,6 +129,20 @@ import { TabInfo } from "../shared/protocol-enhanced";
       text-overflow: ellipsis;
       white-space: nowrap;
       font-size: var(--vsc-font-size);
+    }
+
+    /* Archive badge */
+    .tab-archive-badge {
+      flex-shrink: 0;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.4px;
+      padding: 1px 4px;
+      border-radius: 3px;
+      background: color-mix(in srgb, #ffb347 22%, transparent);
+      border: 1px solid rgba(255, 179, 71, 0.45);
+      color: #ffb347;
+      line-height: 14px;
     }
 
     /* Action buttons */
@@ -146,7 +187,8 @@ import { TabInfo } from "../shared/protocol-enhanced";
     }
 
     .tab.pinned .tab-title,
-    .tab.pinned .close {
+    .tab.pinned .close,
+    .tab.pinned .tab-archive-badge {
       display: none;
     }
 
@@ -182,6 +224,8 @@ import { TabInfo } from "../shared/protocol-enhanced";
 export class TabComponent {
   @Input() tab!: TabInfo;
   @Input() isActive = false;
+  /** Set to true when this tab is currently browsing inside an archive. */
+  @Input() inArchive = false;
 
   @Output() tabClick = new EventEmitter<TabInfo>();
   @Output() tabClose = new EventEmitter<TabInfo>();
@@ -192,7 +236,7 @@ export class TabComponent {
   onClick(): void { this.tabClick.emit(this.tab); }
 
   onMouseUp(event: MouseEvent): void {
-    if (event.button === 1) { // Middle click to close
+    if (event.button === 1) {
       this.onClose(event);
     }
   }

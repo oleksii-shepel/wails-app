@@ -51,6 +51,28 @@ export function buildArchiveDisplayPath(rootFsPath: string, stack: ArchiveFrame[
   return parts.join(' > ');
 }
 
+/**
+ * Build a concise tab title for the current archive position.
+ * Format:  archive.zip                      (at root)
+ *          archive.zip > subdir             (inside a sub-folder)
+ *          outer.zip > inner.zip            (nested archive root)
+ *          outer.zip > inner.zip > subdir   (nested + sub-folder)
+ *
+ * Uses basenames only — no full FS path in the tab title.
+ * For deep innerPaths only the last segment is shown to keep the title short.
+ */
+export function buildArchiveTabTitle(rootFsPath: string, stack: ArchiveFrame[]): string {
+  const archiveName = rootFsPath.split('/').filter(Boolean).pop() ?? rootFsPath;
+  if (stack.length === 0) return archiveName;
+  const frame = stack[stack.length - 1];
+  const parts = [archiveName, ...frame.nestedChain];
+  if (frame.innerPath) {
+    const lastFolder = frame.innerPath.split('/').filter(Boolean).pop();
+    if (lastFolder) parts.push(lastFolder);
+  }
+  return parts.join(' > ');
+}
+
 // ─── Wails Go bridge ─────────────────────────────────────────────────────────
 
 declare const window: any;

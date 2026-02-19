@@ -1,19 +1,84 @@
-<div class="panes-container">
+<div class="file-manager-enhanced" style="display: flex; flex-direction: column; width: 100vw; height: 100vh; min-width: 0; min-height: 0;">
+  <!-- Main content column: toolbar + panes -->
+  <div style="display: flex; flex-direction: column; flex: 1 1 0%; min-height: 0; min-width: 0;">
+    <!-- Top Toolbar with Workspace Selector -->
+    <div class="toolbar">
+      <div class="toolbar-left">
+        <div class="workspace-selector" (click)="toggleWorkspaceMenu($event)">
+          <span class="workspace-icon">{{ activeWorkspace?.icon || '📁' }}</span>
+          <span class="workspace-name">{{ activeWorkspace?.name || 'Default' }}</span>
+          <span class="workspace-arrow">▼</span>
+        </div>
 
-  <app-file-pane
-    paneId="left"
-    [workspace]="activeWorkspace"
-    [showHidden]="showHidden"
-    (copyToOther)="copyToOtherPane(leftPane, rightPane)"
-    (moveToOther)="moveToOtherPane(leftPane, rightPane)">
-  </app-file-pane>
+        <!-- Workspace Dropdown Menu -->
+        <div class="workspace-menu" *ngIf="showWorkspaceMenu" (click)="$event.stopPropagation()">
+          <div class="workspace-menu-header">
+            <h3>Workspaces</h3>
+            <button (click)="createNewWorkspace()" class="btn-icon">➕</button>
+          </div>
+          <div class="workspace-list">
+            <div 
+              *ngFor="let workspace of workspaceList"
+              class="workspace-item"
+              [class.active]="workspace.id === activeWorkspace?.id"
+              (click)="switchWorkspace(workspace.id)"
+            >
+              <span class="workspace-icon">{{ workspace.icon }}</span>
+              <span class="workspace-name">{{ workspace.name }}</span>
+            </div>
+          </div>
+          <div class="workspace-menu-footer">
+            <button (click)="renameCurrentWorkspace()" class="btn-small">Rename</button>
+            <button (click)="deleteCurrentWorkspace()" class="btn-small btn-danger">Delete</button>
+          </div>
+        </div>
+      </div>
 
-  <app-file-pane
-    paneId="right"
-    [workspace]="activeWorkspace"
-    [showHidden]="showHidden"
-    (copyToOther)="copyToOtherPane(rightPane, leftPane)"
-    (moveToOther)="moveToOtherPane(rightPane, leftPane)">
-  </app-file-pane>
+      <div class="toolbar-center">
+        <h1>File Manager</h1>
+      </div>
 
+      <div class="toolbar-right">
+        <button (click)="toggleShowHidden()" [class.active]="showHidden" class="btn">
+          {{ showHidden ? 'Hide' : 'Show' }} Hidden
+        </button>
+        <button (click)="theme.toggleTheme()" class="btn" title="Toggle theme">
+          Theme
+        </button>
+        <button (click)="theme.toggleCompact()" [class.active]="(theme.getCompact$() | async)" class="btn" title="Toggle compact UI">
+          Compact
+        </button>
+      </div>
+    </div>
+
+    <!-- Main Panes Container - Fixed to use full width -->
+    <div class="panes-container" style="flex: 1 1 0%; min-height: 0; min-width: 0;">
+      <!-- Left Pane -->
+      <app-file-pane
+        #leftPane
+        paneId="left"
+        [workspace]="activeWorkspace"
+        [showHidden]="showHidden"
+        (pathChange)="onPanePathChange('left', $event)"
+        (copyToOther)="onCopyFromLeft($event)"
+        (moveToOther)="onMoveFromLeft($event)">
+      </app-file-pane>
+
+      <!-- Right Pane -->
+      <app-file-pane
+        #rightPane
+        paneId="right"
+        [workspace]="activeWorkspace"
+        [showHidden]="showHidden"
+        (pathChange)="onPanePathChange('right', $event)"
+        (copyToOther)="onCopyFromRight($event)"
+        (moveToOther)="onMoveFromRight($event)">
+      </app-file-pane>
+    </div>
+  </div>
+
+  <!-- Overlays and modals (not part of flex sizing) -->
+  <app-path-history-viewer></app-path-history-viewer>
+  <app-global-search (resultSelected)="onGlobalSearchResult($event)"></app-global-search>
+  <app-keyboard-help></app-keyboard-help>
 </div>

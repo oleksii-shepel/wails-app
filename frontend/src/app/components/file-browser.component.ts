@@ -20,6 +20,9 @@ import { FilePaneComponent } from './file-pane.component';
   imports: [
     CommonModule,
     FilePaneComponent,
+    PathHistoryViewerComponent,
+    GlobalSearchComponent,
+    KeyboardHelpComponent,
   ],
   templateUrl: './file-browser.component.html',
   styleUrls: ['./file-browser.component.scss'],

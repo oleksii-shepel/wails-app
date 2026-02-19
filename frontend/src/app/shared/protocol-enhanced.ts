@@ -163,3 +163,22 @@ export interface NavigationHistory {
   entries: HistoryEntry[];
   maxEntries: number;
 }
+
+/** Represents a single file/folder inside an archive */
+export interface ArchiveEntry {
+  name: string;           // filename or folder name
+  innerPath: string;      // path inside archive
+  type: 'FILE' | 'DIRECTORY' | 'ARCHIVE';
+  size: number;           // bytes
+  modified: number;       // timestamp in ms
+  isNested: boolean;      // true if entry is itself an archive
+  nestedChain?: string[]; // path of nested archives leading here
+}
+
+/** Represents the contents of an archive or a folder inside an archive */
+export interface ArchiveListing {
+  archivePath: string;         // original filesystem path
+  innerPath: string;           // current path inside archive
+  nestedChain?: string[];      // optional, nested archives leading here
+  entries: ArchiveEntry[];     // list of files/folders in this folder
+}

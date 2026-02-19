@@ -1,3 +1,4 @@
+export { ArchiveListing, ArchiveEntry } from './protocol-enhanced';
 /**
  * Shared protocol definitions between client and server.
  * These types define the command structure and responses.

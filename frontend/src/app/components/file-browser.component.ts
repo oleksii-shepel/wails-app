@@ -154,10 +154,10 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     }
   }
 
-  createNewWorkspace(): void {
+  async createNewWorkspace(): Promise<void> {
     const name = prompt('Enter workspace name:');
     if (!name) return;
-    const workspace = this.workspaceService.createWorkspace(name);
+    const workspace = await this.workspaceService.createWorkspace(name);
     this.workspaceService.switchWorkspace(workspace.id);
     this.showWorkspaceMenu = false;
   }

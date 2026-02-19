@@ -1,25 +1,5 @@
 import { Injectable } from '@angular/core';
-import { Observable, Subject } from 'rxjs';
 import {
-  Command,
-  CommandType,
-  Response,
-  ResponseStatus,
-  MessageType,
-  WebSocketMessage,
-  // Command shapes
-  GetOSInfoCommand,
-  ListDrivesCommand,
-  ListDirectoryCommand,
-  ReadFileCommand,
-  WriteFileCommand,
-  DeleteFileCommand,
-  CreateDirectoryCommand,
-  MoveFileCommand,
-  CopyFileCommand,
-  GetFileInfoCommand,
-  SearchFilesCommand,
-  // Response data shapes
   OSInfoResponse,
   DrivesList,
   DriveInfo,
@@ -29,161 +9,95 @@ import {
   OperationResult,
   SearchResult,
 } from '../shared/protocol';
+import {
+  FilterQuery,
+} from '../shared/protocol-enhanced';
 
+/**
+ * Thin wrapper around the Wails-generated Go bindings.
+ *
+ * Every method delegates directly to `window['go']['main']['App']`, which is
+ * injected by the Wails runtime.  The old HTTP/WebSocket transport has been
+ * removed entirely – there is no server to connect to in a Wails desktop app.
+ *
+ * Method signatures are kept identical to the previous ApiService so that all
+ * callers (components, other services) compile without changes.
+ */
 @Injectable({
   providedIn: 'root',
 })
 export class ApiService {
-  private readonly serverUrl = 'http://localhost:3030';
-  private readonly wsUrl = 'ws://localhost:3030/ws';
 
-  private ws: WebSocket | null = null;
-  private readonly wsMessages$ = new Subject<Response>();
-  private commandCounter = 0;
+  // ---------------------------------------------------------------------------
+  // Internal helper – single point of entry into the Wails bridge
+  // ---------------------------------------------------------------------------
 
-  // -------------------------------------------------------------------------
-  // WebSocket
-  // -------------------------------------------------------------------------
-
-  /** Open (or reuse) a WebSocket connection and stream incoming responses. */
-  connectWebSocket(): Observable<Response> {
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      return this.wsMessages$.asObservable();
+  /** Call a method on the bound Go App struct via the Wails bridge. */
+  private call<T>(method: string, ...args: unknown[]): Promise<T> {
+    const bridge = (window as any)?.go?.main?.App;
+    if (!bridge) {
+      return Promise.reject(
+        new Error(
+          `Wails bridge not available. Make sure the app is running inside the Wails runtime (window.go.main.App is undefined).`
+        )
+      );
     }
-
-    this.ws = new WebSocket(this.wsUrl);
-
-    this.ws.onopen = () => console.log('WebSocket connected');
-
-    this.ws.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data as string) as WebSocketMessage;
-        if (message.type === MessageType.RESPONSE) {
-          this.wsMessages$.next(message.payload as Response);
-        }
-      } catch (error) {
-        console.error('Failed to parse WebSocket message:', error);
-      }
-    };
-
-    this.ws.onerror = (error) => console.error('WebSocket error:', error);
-
-    this.ws.onclose = () => {
-      console.log('WebSocket disconnected');
-      this.ws = null;
-    };
-
-    return this.wsMessages$.asObservable();
-  }
-
-  /** Close the WebSocket connection. */
-  disconnectWebSocket(): void {
-    this.ws?.close();
-    this.ws = null;
-  }
-
-  /** Send a command over the open WebSocket. */
-  private sendWebSocketCommand(command: Command): void {
-    if (this.ws?.readyState !== WebSocket.OPEN) {
-      throw new Error('WebSocket is not connected');
+    if (typeof bridge[method] !== 'function') {
+      return Promise.reject(new Error(`Wails bridge method '${method}' not found.`));
     }
-
-    const message: WebSocketMessage = {
-      type: MessageType.COMMAND,
-      payload: command,
-    };
-
-    this.ws.send(JSON.stringify(message));
+    return bridge[method](...args) as Promise<T>;
   }
 
-  // -------------------------------------------------------------------------
-  // HTTP
-  // -------------------------------------------------------------------------
-
-  /** Send a command via HTTP POST and return the parsed response. */
-  private async sendHttpCommand<T = unknown>(command: Command): Promise<Response<T>> {
-    const res = await fetch(`${this.serverUrl}/api/command`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(command),
-    });
-
-    if (!res.ok) {
-      throw new Error(`HTTP error! status: ${res.status}`);
-    }
-
-    return res.json() as Promise<Response<T>>;
-  }
-
-  /** Throw if the response carries an error, otherwise return the data payload. */
-  private unwrap<T>(response: Response<T>): T {
-    if (response.status === ResponseStatus.ERROR) {
-      throw new Error(response.error.message);
-    }
-    return response.data;
-  }
-
-  // -------------------------------------------------------------------------
-  // Helpers
-  // -------------------------------------------------------------------------
-
-  private generateCommandId(): string {
-    return `cmd-${Date.now()}-${++this.commandCounter}`;
-  }
-
-  private baseCommand<T extends CommandType>(type: T) {
-    return {
-      type,
-      id: this.generateCommandId(),
-      timestamp: Date.now(),
-    } as const;
-  }
-
-  // -------------------------------------------------------------------------
-  // API Methods
-  // -------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // OS / System
+  // ---------------------------------------------------------------------------
 
   /** Retrieve host OS details (OS name, version, arch, hostname, system drive). */
   async getOSInfo(): Promise<OSInfoResponse> {
-    const command: GetOSInfoCommand = this.baseCommand(CommandType.GET_OS_INFO);
-    const response = await this.sendHttpCommand<OSInfoResponse>(command);
-    return this.unwrap(response);
+    return this.call<OSInfoResponse>('GetOSInfo');
   }
+
+  // ---------------------------------------------------------------------------
+  // Drives
+  // ---------------------------------------------------------------------------
 
   /** List available drives. Returns all mounts on Linux/macOS, lettered drives on Windows. */
   async listDrives(): Promise<DriveInfo[]> {
-    const command: ListDrivesCommand = this.baseCommand(CommandType.LIST_DRIVES);
-    const response = await this.sendHttpCommand<DrivesList>(command);
-    console.log(response);
-    return this.unwrap(response).drives;
+    const result = await this.call<DrivesList>('GetDrives');
+    return result.drives;
   }
+
+  // ---------------------------------------------------------------------------
+  // Directory / File listing
+  // ---------------------------------------------------------------------------
 
   /** List the contents of a directory. */
-  async listDirectory(
-    path: string,
-    showHidden = false,
-  ): Promise<DirectoryListing> {
-    const command: ListDirectoryCommand = {
-      ...this.baseCommand(CommandType.LIST_DIRECTORY),
-      path,
-      showHidden,
-    };
-    const response = await this.sendHttpCommand<DirectoryListing>(command);
-    return this.unwrap(response);
+  async listDirectory(path: string, showHidden = false): Promise<DirectoryListing> {
+    return this.call<DirectoryListing>('ListDir', path, showHidden);
   }
 
-  /** Read a file's contents, optionally as base64. */
-  async readFile(
+  /**
+   * List directory contents with a filter query applied server-side.
+   * Falls back to client-side filtering via FilterService if not needed.
+   */
+  async listDirectoryFiltered(
     path: string,
-    encoding: 'utf8' | 'base64' = 'utf8',
-  ): Promise<FileContent> {
-    const command: ReadFileCommand = {
-      ...this.baseCommand(CommandType.READ_FILE),
-      path,
-      encoding,
-    };
-    const response = await this.sendHttpCommand<FileContent>(command);
-    return this.unwrap(response);
+    showHidden = false,
+    filter?: FilterQuery,
+  ): Promise<DirectoryListing> {
+    if (!filter) {
+      return this.listDirectory(path, showHidden);
+    }
+    return this.call<DirectoryListing>('ListDirFiltered', path, showHidden, filter);
+  }
+
+  // ---------------------------------------------------------------------------
+  // File I/O
+  // ---------------------------------------------------------------------------
+
+  /** Read a file's contents, optionally as base64. */
+  async readFile(path: string, encoding: 'utf8' | 'base64' = 'utf8'): Promise<FileContent> {
+    return this.call<FileContent>('ReadFile', path, encoding);
   }
 
   /** Write content to a file. */
@@ -192,47 +106,26 @@ export class ApiService {
     content: string,
     encoding: 'utf8' | 'base64' = 'utf8',
   ): Promise<OperationResult> {
-    const command: WriteFileCommand = {
-      ...this.baseCommand(CommandType.WRITE_FILE),
-      path,
-      content,
-      encoding,
-    };
-    const response = await this.sendHttpCommand<OperationResult>(command);
-    return this.unwrap(response);
+    return this.call<OperationResult>('WriteFile', path, content, encoding);
   }
+
+  // ---------------------------------------------------------------------------
+  // File operations
+  // ---------------------------------------------------------------------------
 
   /** Delete a file or directory. Pass `recursive: true` for non-empty directories. */
   async deleteFile(path: string, recursive = false): Promise<OperationResult> {
-    const command: DeleteFileCommand = {
-      ...this.baseCommand(CommandType.DELETE_FILE),
-      path,
-      recursive,
-    };
-    const response = await this.sendHttpCommand<OperationResult>(command);
-    return this.unwrap(response);
+    return this.call<OperationResult>('Delete', path, recursive);
   }
 
   /** Create a directory, optionally creating all parent directories. */
   async createDirectory(path: string, recursive = true): Promise<OperationResult> {
-    const command: CreateDirectoryCommand = {
-      ...this.baseCommand(CommandType.CREATE_DIRECTORY),
-      path,
-      recursive,
-    };
-    const response = await this.sendHttpCommand<OperationResult>(command);
-    return this.unwrap(response);
+    return this.call<OperationResult>('CreateDir', path, recursive);
   }
 
   /** Move (rename) a file or directory. */
   async moveFile(source: string, destination: string): Promise<OperationResult> {
-    const command: MoveFileCommand = {
-      ...this.baseCommand(CommandType.MOVE_FILE),
-      source,
-      destination,
-    };
-    const response = await this.sendHttpCommand<OperationResult>(command);
-    return this.unwrap(response);
+    return this.call<OperationResult>('Move', source, destination);
   }
 
   /** Copy a file or directory. Pass `recursive: true` for directories. */
@@ -241,49 +134,154 @@ export class ApiService {
     destination: string,
     recursive = false,
   ): Promise<OperationResult> {
-    const command: CopyFileCommand = {
-      ...this.baseCommand(CommandType.COPY_FILE),
-      source,
-      destination,
-      recursive,
-    };
-    const response = await this.sendHttpCommand<OperationResult>(command);
-    return this.unwrap(response);
+    return this.call<OperationResult>('Copy', source, destination, recursive);
   }
+
+  // ---------------------------------------------------------------------------
+  // File metadata
+  // ---------------------------------------------------------------------------
 
   /** Retrieve metadata for a single file or directory. */
   async getFileInfo(path: string): Promise<FileInfo> {
-    const command: GetFileInfoCommand = {
-      ...this.baseCommand(CommandType.GET_FILE_INFO),
-      path,
-    };
-    const response = await this.sendHttpCommand<FileInfo>(command);
-    return this.unwrap(response);
+    return this.call<FileInfo>('GetFileInfo', path);
   }
+
+  // ---------------------------------------------------------------------------
+  // Search
+  // ---------------------------------------------------------------------------
 
   /** Search for files matching a pattern within a directory. */
-  async searchFiles(
-    path: string,
-    pattern: string,
-    recursive = true,
-  ): Promise<SearchResult> {
-    const command: SearchFilesCommand = {
-      ...this.baseCommand(CommandType.SEARCH_FILES),
-      path,
-      pattern,
-      recursive,
-    };
-    const response = await this.sendHttpCommand<SearchResult>(command);
-    return this.unwrap(response);
+  async searchFiles(path: string, pattern: string, recursive = true): Promise<SearchResult> {
+    return this.call<SearchResult>('Search', path, pattern, recursive);
   }
 
-  /** Ping the server health endpoint. */
+  // ---------------------------------------------------------------------------
+  // Path utilities
+  // ---------------------------------------------------------------------------
+
+  /** Check whether a path exists on the filesystem. */
+  async pathExists(path: string): Promise<boolean> {
+    return this.call<boolean>('PathExists', path);
+  }
+
+  /** Check whether a path points to a directory. */
+  async isDirectory(path: string): Promise<boolean> {
+    return this.call<boolean>('IsDirectory', path);
+  }
+
+  /** Join path segments using the OS separator. */
+  async joinPaths(parts: string[]): Promise<string> {
+    return this.call<string>('JoinPaths', parts);
+  }
+
+  /** Get the parent path of a given path. */
+  async getParentPath(path: string): Promise<string> {
+    return this.call<string>('GetParentPath', path);
+  }
+
+  /** Split a path into { dir, base, ext } parts. */
+  async splitPath(path: string): Promise<Record<string, string>> {
+    return this.call<Record<string, string>>('SplitPath', path);
+  }
+
+  /** Return breadcrumb segments for a path. */
+  async breadcrumbs(path: string): Promise<Array<Record<string, string>>> {
+    return this.call<Array<Record<string, string>>>('Breadcrumbs', path);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Navigation history (server-side, per-pane)
+  // ---------------------------------------------------------------------------
+
+  /** Navigate to a path inside a pane, recording history. */
+  async navNavigate(paneId: string, path: string): Promise<DirectoryListing> {
+    return this.call<DirectoryListing>('NavNavigate', paneId, path);
+  }
+
+  /** Navigate to a path with show-hidden toggle. */
+  async navNavigateShowHidden(
+    paneId: string,
+    path: string,
+    showHidden: boolean,
+  ): Promise<DirectoryListing> {
+    return this.call<DirectoryListing>('NavNavigateShowHidden', paneId, path, showHidden);
+  }
+
+  /** Go back in navigation history for a pane. */
+  async navBack(paneId: string): Promise<DirectoryListing> {
+    return this.call<DirectoryListing>('NavBack', paneId);
+  }
+
+  /** Go forward in navigation history for a pane. */
+  async navForward(paneId: string): Promise<DirectoryListing> {
+    return this.call<DirectoryListing>('NavForward', paneId);
+  }
+
+  /** Navigate to the parent directory. */
+  async navGoUp(paneId: string): Promise<DirectoryListing> {
+    return this.call<DirectoryListing>('NavGoUp', paneId);
+  }
+
+  /** Check whether back navigation is possible. */
+  async navCanGoBack(paneId: string): Promise<boolean> {
+    return this.call<boolean>('NavCanGoBack', paneId);
+  }
+
+  /** Check whether forward navigation is possible. */
+  async navCanGoForward(paneId: string): Promise<boolean> {
+    return this.call<boolean>('NavCanGoForward', paneId);
+  }
+
+  /** Get the current path recorded for a pane. */
+  async navCurrentPath(paneId: string): Promise<string> {
+    return this.call<string>('NavCurrentPath', paneId);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Preferences
+  // ---------------------------------------------------------------------------
+
+  /** Load user preferences from the backend. */
+  async getPreferences(): Promise<any> {
+    return this.call<any>('GetPreferences');
+  }
+
+  /** Persist user preferences. */
+  async savePreferences(prefs: any): Promise<void> {
+    return this.call<void>('SavePreferences', prefs);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Health / diagnostics
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Ping the Go backend.
+   * Returns a Unix-ms timestamp; resolves to true if the call succeeds.
+   */
   async checkHealth(): Promise<boolean> {
     try {
-      const response = await fetch(`${this.serverUrl}/health`);
-      return response.ok;
+      await this.call<number>('Ping');
+      return true;
     } catch {
       return false;
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Legacy no-ops kept for interface compatibility
+  // ---------------------------------------------------------------------------
+
+  /**
+   * No-op in the Wails version – there is no WebSocket to connect to.
+   * Kept so existing call sites don't break at compile time.
+   */
+  connectWebSocket(): void {
+    // Wails uses IPC; no WebSocket needed.
+  }
+
+  /** No-op in the Wails version. */
+  disconnectWebSocket(): void {
+    // Wails uses IPC; no WebSocket needed.
   }
 }

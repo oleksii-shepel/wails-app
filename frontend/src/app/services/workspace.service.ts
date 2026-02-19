@@ -7,52 +7,417 @@ import {
   TabInfo,
   STORAGE_KEYS,
 } from '../shared/protocol-enhanced';
+import { ApiService } from './api.service';
 
+/**
+ * WorkspaceService – manages workspaces and per-pane tab state.
+ *
+ * Persistence strategy:
+ *   1. Primary:   Wails backend (SaveWorkspace / GetWorkspaces / DeleteWorkspace / SetActiveWorkspace)
+ *   2. Fallback:  localStorage (used when the Wails bridge is not yet available,
+ *                 e.g. during Angular unit tests or early bootstrap)
+ *
+ * All public surface-area is identical to the previous implementation so that
+ * components that inject this service require zero changes.
+ */
 @Injectable({
-  providedIn: 'root'
+  providedIn: 'root',
 })
 export class WorkspaceService {
-  private workspacesSubject = new BehaviorSubject<WorkspaceList>(this.loadWorkspaces());
+  private workspacesSubject = new BehaviorSubject<WorkspaceList>(this.loadLocalWorkspaces());
   public workspaces$ = this.workspacesSubject.asObservable();
 
   private activeWorkspaceSubject = new BehaviorSubject<WorkspaceConfig | null>(null);
   public activeWorkspace$ = this.activeWorkspaceSubject.asObservable();
 
-  constructor() {
+  /** True once the initial load from the Wails backend has completed. */
+  private backendLoaded = false;
+
+  constructor(private api: ApiService) {
     this.initializeWorkspaces();
   }
 
+  // ---------------------------------------------------------------------------
+  // Initialisation
+  // ---------------------------------------------------------------------------
+
   /**
-   * Initialize workspaces from local storage or create default
+   * Load workspaces from the Wails backend first; fall back to localStorage if
+   * the backend is not yet reachable (first-run, test environment, etc.).
    */
-  private initializeWorkspaces(): void {
-    const workspaceList = this.workspacesSubject.value;
-    
-    if (workspaceList.workspaces.length === 0) {
-      // Create default workspace
-      const defaultWorkspace = this.createDefaultWorkspace();
-      workspaceList.workspaces.push(defaultWorkspace);
-      workspaceList.activeWorkspaceId = defaultWorkspace.id;
-      this.saveWorkspaces(workspaceList);
+  private async initializeWorkspaces(): Promise<void> {
+    let workspaceList: WorkspaceList;
+
+    try {
+      workspaceList = await this.loadBackendWorkspaces();
+      this.backendLoaded = true;
+    } catch {
+      // Backend not reachable yet – use what we already loaded from localStorage
+      workspaceList = this.workspacesSubject.value;
     }
 
-    // Load active workspace
-    const activeWorkspace = workspaceList.workspaces.find(
-      w => w.id === workspaceList.activeWorkspaceId
+    // Bootstrap: create a default workspace if none exist yet
+    if (!workspaceList.workspaces || workspaceList.workspaces.length === 0) {
+      const defaultWorkspace = await this.buildDefaultWorkspace();
+      workspaceList = {
+        workspaces: [defaultWorkspace],
+        activeWorkspaceId: defaultWorkspace.id,
+      };
+
+      await this.persistWorkspace(defaultWorkspace);
+      await this.setActiveBackend(defaultWorkspace.id);
+    }
+
+    // Ensure an activeWorkspaceId is set
+    if (!workspaceList.activeWorkspaceId && workspaceList.workspaces.length > 0) {
+      workspaceList.activeWorkspaceId = workspaceList.workspaces[0].id;
+    }
+
+    this.workspacesSubject.next(workspaceList);
+    this.saveLocalWorkspaces(workspaceList);
+
+    const active = workspaceList.workspaces.find(
+      (w) => w.id === workspaceList.activeWorkspaceId,
     );
-    
-    if (activeWorkspace) {
-      this.activeWorkspaceSubject.next(activeWorkspace);
+    this.activeWorkspaceSubject.next(active ?? null);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Backend persistence
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Load all workspaces from the Wails Go backend.
+   * Maps the backend WorkspaceList model to our local type.
+   */
+  private async loadBackendWorkspaces(): Promise<WorkspaceList> {
+    const bridge = (window as any)?.go?.main?.App;
+    if (!bridge?.GetWorkspaces) throw new Error('Wails bridge not ready');
+    const raw = await bridge.GetWorkspaces() as WorkspaceList;
+    return raw;
+  }
+
+  /** Persist a single workspace to the Wails backend. */
+  private async persistWorkspace(workspace: WorkspaceConfig): Promise<void> {
+    try {
+      const bridge = (window as any)?.go?.main?.App;
+      if (bridge?.SaveWorkspace) {
+        await bridge.SaveWorkspace(workspace);
+      }
+    } catch (err) {
+      console.warn('WorkspaceService: failed to persist workspace to backend', err);
     }
   }
 
-  /**
-   * Create a default workspace
-   */
-  private createDefaultWorkspace(): WorkspaceConfig {
-    const now = Date.now();
-    const homePath = this.getHomePath();
+  /** Delete a workspace from the Wails backend. */
+  private async deleteBackendWorkspace(id: string): Promise<void> {
+    try {
+      const bridge = (window as any)?.go?.main?.App;
+      if (bridge?.DeleteWorkspace) {
+        await bridge.DeleteWorkspace(id);
+      }
+    } catch (err) {
+      console.warn('WorkspaceService: failed to delete workspace from backend', err);
+    }
+  }
 
+  /** Mark a workspace as active in the Wails backend. */
+  private async setActiveBackend(id: string): Promise<void> {
+    try {
+      const bridge = (window as any)?.go?.main?.App;
+      if (bridge?.SetActiveWorkspace) {
+        await bridge.SetActiveWorkspace(id);
+      }
+    } catch (err) {
+      console.warn('WorkspaceService: failed to set active workspace on backend', err);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // localStorage fallback helpers
+  // ---------------------------------------------------------------------------
+
+  private loadLocalWorkspaces(): WorkspaceList {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEYS.WORKSPACES);
+      if (stored) return JSON.parse(stored);
+    } catch {}
+    return { workspaces: [], activeWorkspaceId: '' };
+  }
+
+  private saveLocalWorkspaces(list: WorkspaceList): void {
+    try {
+      localStorage.setItem(STORAGE_KEYS.WORKSPACES, JSON.stringify(list));
+    } catch {}
+  }
+
+  // ---------------------------------------------------------------------------
+  // Internal mutations (sync emit + async persist)
+  // ---------------------------------------------------------------------------
+
+  private updateAndPersist(
+    list: WorkspaceList,
+    changedWorkspace?: WorkspaceConfig,
+    silent = false,
+  ): void {
+    this.saveLocalWorkspaces(list);
+
+    if (!silent) {
+      this.workspacesSubject.next(list);
+    }
+
+    if (changedWorkspace) {
+      // Fire-and-forget backend persistence
+      this.persistWorkspace(changedWorkspace);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Public API
+  // ---------------------------------------------------------------------------
+
+  getWorkspaces(): WorkspaceList {
+    return this.workspacesSubject.value;
+  }
+
+  getActiveWorkspace(): WorkspaceConfig | null {
+    return this.activeWorkspaceSubject.value;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Workspace CRUD
+  // ---------------------------------------------------------------------------
+
+  async createWorkspace(name: string, icon?: string, color?: string): Promise<WorkspaceConfig> {
+    const homePath = await this.resolveHomePath();
+    const now = Date.now();
+
+    const workspace: WorkspaceConfig = {
+      id: this.generateId(),
+      name,
+      icon: icon ?? '📁',
+      color: color ?? '#007acc',
+      leftPane: this.createDefaultPane('left', homePath),
+      rightPane: this.createDefaultPane('right', homePath),
+      showHidden: false,
+      createdAt: now,
+      lastAccessedAt: now,
+    };
+
+    const list = this.workspacesSubject.value;
+    list.workspaces.push(workspace);
+    this.updateAndPersist(list, workspace);
+
+    return workspace;
+  }
+
+  switchWorkspace(workspaceId: string): boolean {
+    const list = this.workspacesSubject.value;
+    const workspace = list.workspaces.find((w) => w.id === workspaceId);
+    if (!workspace) return false;
+
+    workspace.lastAccessedAt = Date.now();
+    list.activeWorkspaceId = workspaceId;
+    this.updateAndPersist(list, workspace);
+    this.activeWorkspaceSubject.next(workspace);
+    this.setActiveBackend(workspaceId);
+
+    return true;
+  }
+
+  updateWorkspace(
+    workspaceId: string,
+    updates: Partial<WorkspaceConfig>,
+    silent = false,
+  ): boolean {
+    const list = this.workspacesSubject.value;
+    const workspace = list.workspaces.find((w) => w.id === workspaceId);
+    if (!workspace) return false;
+
+    Object.assign(workspace, updates);
+    this.updateAndPersist(list, workspace, silent);
+
+    if (!silent && workspace.id === this.activeWorkspaceSubject.value?.id) {
+      this.activeWorkspaceSubject.next(workspace);
+    }
+
+    return true;
+  }
+
+  deleteWorkspace(workspaceId: string): boolean {
+    const list = this.workspacesSubject.value;
+    const index = list.workspaces.findIndex((w) => w.id === workspaceId);
+
+    if (index === -1 || list.workspaces.length <= 1) return false;
+
+    list.workspaces.splice(index, 1);
+
+    if (list.activeWorkspaceId === workspaceId) {
+      const newActive = list.workspaces[0];
+      list.activeWorkspaceId = newActive.id;
+      this.activeWorkspaceSubject.next(newActive);
+      this.setActiveBackend(newActive.id);
+    }
+
+    this.updateAndPersist(list);
+    this.deleteBackendWorkspace(workspaceId);
+
+    return true;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Tab management
+  // ---------------------------------------------------------------------------
+
+  addTab(paneId: string, path: string, activate = true): TabInfo | null {
+    const workspace = this.activeWorkspaceSubject.value;
+    if (!workspace) return null;
+
+    const pane = paneId === 'left' ? workspace.leftPane : workspace.rightPane;
+
+    const newTab: TabInfo = {
+      id: this.generateId(),
+      title: this.getPathTitle(path),
+      path,
+      isActive: activate,
+      isPinned: false,
+      createdAt: Date.now(),
+    };
+
+    if (activate) {
+      pane.tabs.forEach((t) => (t.isActive = false));
+      pane.activeTabId = newTab.id;
+    }
+
+    pane.tabs.push(newTab);
+    this.updateWorkspace(workspace.id, {
+      [paneId === 'left' ? 'leftPane' : 'rightPane']: pane,
+    });
+
+    return newTab;
+  }
+
+  closeTab(paneId: string, tabId: string): boolean {
+    const workspace = this.activeWorkspaceSubject.value;
+    if (!workspace) return false;
+
+    const pane = paneId === 'left' ? workspace.leftPane : workspace.rightPane;
+    const tabIndex = pane.tabs.findIndex((t) => t.id === tabId);
+    if (tabIndex === -1) return false;
+
+    // Keep at least one tab – replace it with the drive root
+    if (pane.tabs.length === 1) {
+      const closedTab = pane.tabs[tabIndex];
+      const rootPath = this.getRootForPath(closedTab.path || '/');
+      const newTab: TabInfo = {
+        id: this.generateId(),
+        title: this.getPathTitle(rootPath),
+        path: rootPath,
+        isActive: true,
+        isPinned: false,
+        createdAt: Date.now(),
+      };
+      pane.tabs[tabIndex] = newTab;
+      pane.activeTabId = newTab.id;
+      this.updateWorkspace(workspace.id, {
+        [paneId === 'left' ? 'leftPane' : 'rightPane']: pane,
+      });
+      return true;
+    }
+
+    const wasActive = pane.tabs[tabIndex].isActive;
+    pane.tabs.splice(tabIndex, 1);
+
+    if (wasActive && pane.tabs.length > 0) {
+      const newActiveIdx = Math.min(tabIndex, pane.tabs.length - 1);
+      pane.tabs[newActiveIdx].isActive = true;
+      pane.activeTabId = pane.tabs[newActiveIdx].id;
+    }
+
+    this.updateWorkspace(workspace.id, {
+      [paneId === 'left' ? 'leftPane' : 'rightPane']: pane,
+    });
+    return true;
+  }
+
+  switchTab(paneId: string, tabId: string): boolean {
+    const workspace = this.activeWorkspaceSubject.value;
+    if (!workspace) return false;
+
+    const pane = paneId === 'left' ? workspace.leftPane : workspace.rightPane;
+    const tab = pane.tabs.find((t) => t.id === tabId);
+    if (!tab) return false;
+
+    pane.tabs.forEach((t) => (t.isActive = false));
+    tab.isActive = true;
+    pane.activeTabId = tabId;
+
+    this.updateWorkspace(workspace.id, {
+      [paneId === 'left' ? 'leftPane' : 'rightPane']: pane,
+    });
+    return true;
+  }
+
+  /**
+   * Update the path of a tab (called on every navigation).
+   * Uses silent mode to avoid re-triggering workspace reload loops.
+   */
+  updateTabPath(paneId: string, tabId: string, path: string): boolean {
+    const workspace = this.activeWorkspaceSubject.value;
+    if (!workspace) return false;
+
+    const pane = paneId === 'left' ? workspace.leftPane : workspace.rightPane;
+    const tab = pane.tabs.find((t) => t.id === tabId);
+    if (!tab) return false;
+
+    tab.path = path;
+    tab.title = this.getPathTitle(path);
+
+    // Silent = true prevents the reload loop described in the original service
+    this.updateWorkspace(
+      workspace.id,
+      { [paneId === 'left' ? 'leftPane' : 'rightPane']: pane },
+      true,
+    );
+    return true;
+  }
+
+  toggleTabPin(paneId: string, tabId: string): boolean {
+    const workspace = this.activeWorkspaceSubject.value;
+    if (!workspace) return false;
+
+    const pane = paneId === 'left' ? workspace.leftPane : workspace.rightPane;
+    const tab = pane.tabs.find((t) => t.id === tabId);
+    if (!tab) return false;
+
+    tab.isPinned = !tab.isPinned;
+    this.updateWorkspace(workspace.id, {
+      [paneId === 'left' ? 'leftPane' : 'rightPane']: pane,
+    });
+    return true;
+  }
+
+  getActiveTab(paneId: string): TabInfo | null {
+    const workspace = this.activeWorkspaceSubject.value;
+    if (!workspace) return null;
+    const pane = paneId === 'left' ? workspace.leftPane : workspace.rightPane;
+    return pane.tabs.find((t) => t.id === pane.activeTabId) ?? null;
+  }
+
+  getTabs(paneId: string): TabInfo[] {
+    const workspace = this.activeWorkspaceSubject.value;
+    if (!workspace) return [];
+    const pane = paneId === 'left' ? workspace.leftPane : workspace.rightPane;
+    return pane.tabs;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Helpers
+  // ---------------------------------------------------------------------------
+
+  private async buildDefaultWorkspace(): Promise<WorkspaceConfig> {
+    const now = Date.now();
+    const homePath = await this.resolveHomePath();
     return {
       id: this.generateId(),
       name: 'Default Workspace',
@@ -66,390 +431,54 @@ export class WorkspaceService {
     };
   }
 
-  /**
-   * Create a default pane with one tab
-   */
   private createDefaultPane(paneId: string, path: string): PaneState {
     const tabId = this.generateId();
     return {
       id: paneId,
-      tabs: [{
-        id: tabId,
-        title: this.getPathTitle(path),
-        path,
-        isActive: true,
-        isPinned: false,
-        createdAt: Date.now(),
-      }],
+      tabs: [
+        {
+          id: tabId,
+          title: this.getPathTitle(path),
+          path,
+          isActive: true,
+          isPinned: false,
+          createdAt: Date.now(),
+        },
+      ],
       activeTabId: tabId,
     };
   }
 
   /**
-   * Load workspaces from local storage
+   * Resolve the home path using the Wails OS info, falling back to '/'.
    */
-  private loadWorkspaces(): WorkspaceList {
+  private async resolveHomePath(): Promise<string> {
     try {
-      const stored = localStorage.getItem(STORAGE_KEYS.WORKSPACES);
-      if (stored) {
-        return JSON.parse(stored);
-      }
-    } catch (error) {
-      console.error('Failed to load workspaces:', error);
-    }
-
-    return {
-      workspaces: [],
-      activeWorkspaceId: '',
-    };
+      const info = await this.api.getOSInfo();
+      if (info?.systemDrive) return info.systemDrive;
+    } catch {}
+    return '/';
   }
-
-  /**
-   * Save workspaces to local storage
-   */
-  private saveWorkspaces(workspaceList: WorkspaceList): void {
-    try {
-      localStorage.setItem(STORAGE_KEYS.WORKSPACES, JSON.stringify(workspaceList));
-      this.workspacesSubject.next(workspaceList);
-    } catch (error) {
-      console.error('Failed to save workspaces:', error);
-    }
-  }
-
-  /**
-   * Get current workspace list
-   */
-  getWorkspaces(): WorkspaceList {
-    return this.workspacesSubject.value;
-  }
-
-  /**
-   * Get active workspace
-   */
-  getActiveWorkspace(): WorkspaceConfig | null {
-    return this.activeWorkspaceSubject.value;
-  }
-
-  /**
-   * Create a new workspace
-   */
-  createWorkspace(name: string, icon?: string, color?: string): WorkspaceConfig {
-    const now = Date.now();
-    const homePath = this.getHomePath();
-
-    const workspace: WorkspaceConfig = {
-      id: this.generateId(),
-      name,
-      icon: icon || '📁',
-      color: color || '#007acc',
-      leftPane: this.createDefaultPane('left', homePath),
-      rightPane: this.createDefaultPane('right', homePath),
-      showHidden: false,
-      createdAt: now,
-      lastAccessedAt: now,
-    };
-
-    const workspaceList = this.workspacesSubject.value;
-    workspaceList.workspaces.push(workspace);
-    this.saveWorkspaces(workspaceList);
-
-    return workspace;
-  }
-
-  /**
-   * Switch to a different workspace
-   */
-  switchWorkspace(workspaceId: string): boolean {
-    const workspaceList = this.workspacesSubject.value;
-    const workspace = workspaceList.workspaces.find(w => w.id === workspaceId);
-
-    if (!workspace) {
-      return false;
-    }
-
-    workspace.lastAccessedAt = Date.now();
-    workspaceList.activeWorkspaceId = workspaceId;
-    this.saveWorkspaces(workspaceList);
-    this.activeWorkspaceSubject.next(workspace);
-
-    return true;
-  }
-
-  /**
-   * Update workspace configuration
-   * @param silent - If true, don't emit workspace change (prevents reload loops)
-   */
-  updateWorkspace(workspaceId: string, updates: Partial<WorkspaceConfig>, silent: boolean = false): boolean {
-    const workspaceList = this.workspacesSubject.value;
-    const workspace = workspaceList.workspaces.find(w => w.id === workspaceId);
-
-    if (!workspace) {
-      return false;
-    }
-
-    Object.assign(workspace, updates);
-    
-    // Save to localStorage but don't trigger reload if silent
-    try {
-      localStorage.setItem(STORAGE_KEYS.WORKSPACES, JSON.stringify(workspaceList));
-      
-      // Only emit if not silent
-      if (!silent) {
-        this.workspacesSubject.next(workspaceList);
-        
-        // Update active workspace if it's the one being modified
-        if (workspace.id === this.activeWorkspaceSubject.value?.id) {
-          this.activeWorkspaceSubject.next(workspace);
-        }
-      }
-    } catch (error) {
-      console.error('Failed to save workspaces:', error);
-    }
-
-    return true;
-  }
-
-  /**
-   * Delete a workspace
-   */
-  deleteWorkspace(workspaceId: string): boolean {
-    const workspaceList = this.workspacesSubject.value;
-    const index = workspaceList.workspaces.findIndex(w => w.id === workspaceId);
-
-    if (index === -1 || workspaceList.workspaces.length <= 1) {
-      return false; // Can't delete last workspace
-    }
-
-    workspaceList.workspaces.splice(index, 1);
-
-    // If deleting active workspace, switch to first available
-    if (workspaceList.activeWorkspaceId === workspaceId) {
-      const newActive = workspaceList.workspaces[0];
-      workspaceList.activeWorkspaceId = newActive.id;
-      this.activeWorkspaceSubject.next(newActive);
-    }
-
-    this.saveWorkspaces(workspaceList);
-    return true;
-  }
-
-  /**
-   * Add a new tab to a pane
-   */
-  addTab(paneId: string, path: string, activate: boolean = true): TabInfo | null {
-    const workspace = this.activeWorkspaceSubject.value;
-    if (!workspace) return null;
-
-    const pane = paneId === 'left' ? workspace.leftPane : workspace.rightPane;
-    
-    const newTab: TabInfo = {
-      id: this.generateId(),
-      title: this.getPathTitle(path),
-      path,
-      isActive: activate,
-      isPinned: false,
-      createdAt: Date.now(),
-    };
-
-    // Deactivate other tabs if activating this one
-    if (activate) {
-      pane.tabs.forEach(tab => tab.isActive = false);
-      pane.activeTabId = newTab.id;
-    }
-
-    pane.tabs.push(newTab);
-    this.updateWorkspace(workspace.id, { [paneId === 'left' ? 'leftPane' : 'rightPane']: pane });
-
-    return newTab;
-  }
-
-  /**
-   * Close a tab
-   */
-  closeTab(paneId: string, tabId: string): boolean {
-    const workspace = this.activeWorkspaceSubject.value;
-    if (!workspace) return false;
-
-    const pane = paneId === 'left' ? workspace.leftPane : workspace.rightPane;
-    const tabIndex = pane.tabs.findIndex(t => t.id === tabId);
-
-    if (tabIndex === -1) {
-      return false;
-    }
-
-    // If this is the only tab, replace it with the root of the selected disk
-    if (pane.tabs.length === 1) {
-      const closedTab = pane.tabs[tabIndex];
-      const rootPath = this.getRootForPath(closedTab.path || this.getHomePath());
-
-      const newTab: TabInfo = {
-        id: this.generateId(),
-        title: this.getPathTitle(rootPath),
-        path: rootPath,
-        isActive: true,
-        isPinned: false,
-        createdAt: Date.now(),
-      };
-
-      pane.tabs[tabIndex] = newTab;
-      pane.activeTabId = newTab.id;
-      this.updateWorkspace(workspace.id, { [paneId === 'left' ? 'leftPane' : 'rightPane']: pane });
-      return true;
-    }
-
-    const wasActive = pane.tabs[tabIndex].isActive;
-    pane.tabs.splice(tabIndex, 1);
-
-    // If closed tab was active, activate another
-    if (wasActive && pane.tabs.length > 0) {
-      const newActiveIndex = Math.min(tabIndex, pane.tabs.length - 1);
-      pane.tabs[newActiveIndex].isActive = true;
-      pane.activeTabId = pane.tabs[newActiveIndex].id;
-    }
-
-    this.updateWorkspace(workspace.id, { [paneId === 'left' ? 'leftPane' : 'rightPane']: pane });
-    return true;
-  }
-
-  /**
-   * Switch to a different tab
-   */
-  switchTab(paneId: string, tabId: string): boolean {
-    const workspace = this.activeWorkspaceSubject.value;
-    if (!workspace) return false;
-
-    const pane = paneId === 'left' ? workspace.leftPane : workspace.rightPane;
-    const tab = pane.tabs.find(t => t.id === tabId);
-
-    if (!tab) return false;
-
-    // Deactivate all tabs
-    pane.tabs.forEach(t => t.isActive = false);
-    
-    // Activate selected tab
-    tab.isActive = true;
-    pane.activeTabId = tabId;
-
-    this.updateWorkspace(workspace.id, { [paneId === 'left' ? 'leftPane' : 'rightPane']: pane });
-    return true;
-  }
-
-  /**
-   * Update tab path (when navigating)
-   * IMPORTANT: Uses silent mode to prevent reload loops
-   */
-  updateTabPath(paneId: string, tabId: string, path: string): boolean {
-    const workspace = this.activeWorkspaceSubject.value;
-    if (!workspace) return false;
-
-    const pane = paneId === 'left' ? workspace.leftPane : workspace.rightPane;
-    const tab = pane.tabs.find(t => t.id === tabId);
-
-    if (!tab) return false;
-
-    tab.path = path;
-    tab.title = this.getPathTitle(path);
-
-    // CRITICAL FIX: Use silent mode to avoid triggering workspace reload
-    // This prevents the infinite loop: updateTabPath -> updateWorkspace -> emit -> loadWorkspaceState -> loadDirectory -> updateTabPath
-    this.updateWorkspace(workspace.id, { [paneId === 'left' ? 'leftPane' : 'rightPane']: pane }, true);
-    return true;
-  }
-
-  /**
-   * Toggle tab pin status
-   */
-  toggleTabPin(paneId: string, tabId: string): boolean {
-    const workspace = this.activeWorkspaceSubject.value;
-    if (!workspace) return false;
-
-    const pane = paneId === 'left' ? workspace.leftPane : workspace.rightPane;
-    const tab = pane.tabs.find(t => t.id === tabId);
-
-    if (!tab) return false;
-
-    tab.isPinned = !tab.isPinned;
-
-    this.updateWorkspace(workspace.id, { [paneId === 'left' ? 'leftPane' : 'rightPane']: pane });
-    return true;
-  }
-
-  /**
-   * Get active tab for a pane
-   */
-  getActiveTab(paneId: string): TabInfo | null {
-    const workspace = this.activeWorkspaceSubject.value;
-    if (!workspace) return null;
-
-    const pane = paneId === 'left' ? workspace.leftPane : workspace.rightPane;
-    return pane.tabs.find(t => t.id === pane.activeTabId) || null;
-  }
-
-  /**
-   * Get all tabs for a pane
-   */
-  getTabs(paneId: string): TabInfo[] {
-    const workspace = this.activeWorkspaceSubject.value;
-    if (!workspace) return [];
-
-    const pane = paneId === 'left' ? workspace.leftPane : workspace.rightPane;
-    return pane.tabs;
-  }
-
-  // ============================================================================
-  // Helper Methods
-  // ============================================================================
 
   private generateId(): string {
-    return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-  }
-
-  private getHomePath(): string {
-    return '/';
+    return `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
   }
 
   private getPathTitle(path: string): string {
     const normalized = this.normalizePath(path);
-
-    // Show full normalized path in tab title; keep root as '/'
-    if (normalized === '/' || normalized === '') {
-      return '/';
-    }
-
-    return normalized;
+    return normalized === '/' || normalized === '' ? '/' : normalized;
   }
 
-  /**
-   * Normalize a path string: convert backslashes, collapse slashes, remove trailing slash
-   */
   private normalizePath(path: string): string {
     if (!path) return '/';
-
-    let normalized = path.replace(/\\/g, '/');
-    normalized = normalized.replace(/\/+/g, '/');
-
-    if (normalized === '') return '/';
-
-    if (normalized.length > 1 && normalized.endsWith('/')) {
-      normalized = normalized.slice(0, -1);
-    }
-
-    return normalized;
+    let p = path.replace(/\\/g, '/').replace(/\/+/g, '/');
+    if (p.length > 1 && p.endsWith('/')) p = p.slice(0, -1);
+    return p || '/';
   }
 
-  /**
-   * Derive the root path for a given path. On Windows returns 'C:/', otherwise '/'.
-   */
   private getRootForPath(path: string): string {
-    const normalized = this.normalizePath(path || '');
-
-    // Windows drive letter (e.g. C:/ or C:\)
-    const driveMatch = normalized.match(/^([a-zA-Z]):/);
-    if (driveMatch) {
-      return `${driveMatch[1]}:/`;
-    }
-
-    // For POSIX-like paths default to '/'
-    return '/';
+    const normalized = this.normalizePath(path);
+    const drive = normalized.match(/^([a-zA-Z]):/);
+    return drive ? `${drive[1]}:/` : '/';
   }
 }

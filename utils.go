@@ -71,17 +71,23 @@ func detectExt(name string) string {
 	return filepath.Ext(name)
 }
 
-// Change the parameter and return type to FileInfo to match your DirectoryListing
+// Add this function to fix "undefined: joinPath"
+func joinPath(base, child string) string {
+	base = normalize(base)
+	child = normalize(child)
+	if base == "" {
+		return child
+	}
+	return base + "/" + child
+}
+
+// Ensure filterEntries uses the FileInfo type from types.go
 func filterEntries(entries []FileInfo, filter FilterQuery) []FileInfo {
-	// If FilterQuery is from types.go, use filter.Text.
-	// If it's the simple one from utils.go, use filter.Query.
-	searchQuery := filter.Text
-	if searchQuery == "" {
+	if filter.Text == "" {
 		return entries
 	}
-
 	var result []FileInfo
-	q := strings.ToLower(searchQuery)
+	q := strings.ToLower(filter.Text)
 	for _, e := range entries {
 		if strings.Contains(strings.ToLower(e.Name), q) {
 			result = append(result, e)

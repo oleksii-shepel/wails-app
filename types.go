@@ -57,6 +57,7 @@ type FileType string
 
 const (
 	FileTypeFile      FileType = "FILE"
+	FileTypeArchive   FileType = "ARCHIVE"
 	FileTypeDirectory FileType = "DIRECTORY"
 	FileTypeSymlink   FileType = "SYMLINK"
 )
@@ -64,7 +65,7 @@ const (
 type FileInfo struct {
 	Name        string   `json:"name"`
 	Path        string   `json:"path"`
-	Type        FileType `json:"type"` // "FILE", "DIRECTORY", "ARCHIVE"
+	Type        FileType `json:"type"`
 	Size        int64    `json:"size"`
 	Created     int64    `json:"created"`
 	Modified    int64    `json:"modified"`
@@ -73,6 +74,14 @@ type FileInfo struct {
 	IsHidden    bool     `json:"isHidden"`
 	IsNested    bool     `json:"isNested"`
 	NestedChain []string `json:"nestedChain,omitempty"`
+}
+
+// Add this struct to fix "undefined: ArchiveListing"
+type ArchiveListing struct {
+	ArchivePath string     `json:"archivePath"`
+	InnerPath   string     `json:"innerPath"`
+	NestedChain []string   `json:"nestedChain,omitempty"`
+	Entries     []FileInfo `json:"entries"`
 }
 
 type DirectoryListing struct {

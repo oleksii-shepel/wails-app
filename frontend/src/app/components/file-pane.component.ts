@@ -216,12 +216,47 @@ export class FilePaneComponent implements OnInit, OnChanges {
 
   // ── Tab management ────────────────────────────────────────────────────────
 
-  onTabChange(tab: TabInfo): void {
+  async onTabChange(tab: TabInfo): Promise<void> {
     this.workspaceService.switchTab(this.paneId, tab.id);
     this.currentTabId = tab.id;
-    this.currentPath = tab.path;
+
+    // detect virtual archive path
+    if (this.archiveService.isArchiveVirtualPath(tab.path)) {
+      await this.restoreArchiveFromPath(tab.path);
+      return;
+    }
+
+    // normal filesystem tab
     this.exitArchive();
-    this.loadDirectory(tab.path);
+    await this.loadDirectory(tab.path);
+  }
+
+  private async restoreArchiveFromPath(path: string): Promise<void> {
+    this.loading = true;
+    this.error = null;
+
+    try {
+      const { fsPath, chain } = this.archiveService.parseVirtualPath(path);
+
+      // open root archive
+      let frame = await this.archiveService.openRootArchive(fsPath);
+      const stack: ArchiveFrame[] = [frame];
+
+      // walk nested chain
+      for (const part of chain) {
+        frame = await this.archiveService.openNestedArchive(frame, [part]);
+        stack.push(frame);
+      }
+
+      this.archiveStack = stack;
+      this.fsDirPath = fsPath;
+      this.renderArchiveFrame(frame);
+
+    } catch (err: any) {
+      this.error = err.message || 'Failed to restore archive tab';
+    } finally {
+      this.loading = false;
+    }
   }
 
   onTabClose(tab: TabInfo): void {

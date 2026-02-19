@@ -25,9 +25,6 @@ import { TabInfo } from "../shared/protocol-enhanced";
 
       <span class="tab-title">{{ tab.title }}</span>
 
-      <!-- Archive badge: shown when browsing inside an archive -->
-      <span class="tab-archive-badge" *ngIf="inArchive" title="Browsing archive">ZIP</span>
-
       <!-- Active Tab Indicators -->
       <div class="tab-border-top" *ngIf="isActive"></div>
       <div class="tab-active-indicator"></div>

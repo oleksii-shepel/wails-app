@@ -161,6 +161,26 @@ export class ArchiveService {
     return { ...frame, innerPath: parentInnerPath, listing };
   }
 
+  parseVirtualPath(path: string): { fsPath: string; chain: string[] } {
+    const normalized = path.replace(/\\/g, '/');
+    const parts = normalized.split('/');
+
+    const archiveIndex = parts.findIndex(p => /\.(zip|tar|rar|7z)$/i.test(p));
+
+    if (archiveIndex === -1) {
+      return { fsPath: normalized, chain: [] };
+    }
+
+    return {
+      fsPath: parts.slice(0, archiveIndex + 1).join('/'),
+      chain: parts.slice(archiveIndex + 1)
+    };
+  }
+
+  isArchiveVirtualPath(path: string): boolean {
+    return /\.zip\//i.test(path) || /\.tar\//i.test(path);
+  }
+  
   // ── Refresh ────────────────────────────────────────────────────────────────
 
   async refreshFrame(frame: ArchiveFrame): Promise<ArchiveFrame> {

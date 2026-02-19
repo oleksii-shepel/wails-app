@@ -4,8 +4,9 @@
   "outputfilename": "wails-app",
   "frontend:install": "npm install",
   "frontend:build": "npm run build",
-  "frontend:dev": "npm start",
-  "frontend:dir": "frontend/dist",
+  "frontend:dev:watcher": "npm run watch",
+  "frontend:devServerUrl": "http://localhost:4200",
+  "frontend:dir": "frontend",
   "author": {
     "name": "epikodelabs",
     "email": "oleksii.shepel@outlook.com"

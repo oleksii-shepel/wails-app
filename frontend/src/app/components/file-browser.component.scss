@@ -1,3 +1,262 @@
+// ============================================================================
+// File Manager Root Layout
+// ============================================================================
+
+.file-manager-root {
+  display: flex;
+  flex-direction: column;
+  width: 100vw;
+  height: 100vh;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--vsc-editor-background);
+}
+
+.file-manager-inner {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0%;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+// ============================================================================
+// Toolbar
+// ============================================================================
+
+.toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: var(--vsc-titlebar-height);
+  padding: 0 var(--vsc-padding-lg);
+  background: var(--vsc-titlebar-background);
+  border-bottom: 1px solid var(--vsc-border);
+  gap: var(--vsc-padding-lg);
+  flex-shrink: 0;
+  z-index: 10;
+
+  h1 {
+    margin: 0;
+    font-size: var(--vsc-font-size-large);
+    font-weight: 500;
+    color: var(--vsc-foreground);
+    letter-spacing: -0.01em;
+  }
+
+  .toolbar-left,
+  .toolbar-right {
+    display: flex;
+    gap: var(--vsc-padding-sm);
+    align-items: center;
+    flex-shrink: 0;
+  }
+
+  .toolbar-center {
+    flex: 1;
+    text-align: center;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--vsc-padding-xs) var(--vsc-padding-md);
+    border: 1px solid transparent;
+    border-radius: var(--vsc-border-radius-sm);
+    background: var(--vsc-button-secondary);
+    color: var(--vsc-foreground);
+    cursor: pointer;
+    font-size: var(--vsc-font-size);
+    font-family: var(--vsc-font-family);
+    font-weight: 500;
+    transition: all var(--vsc-transition-fast);
+    height: 26px;
+    white-space: nowrap;
+    line-height: 1;
+
+    &:hover {
+      background: var(--vsc-button-secondary-hover);
+    }
+
+    &.active {
+      background: var(--vsc-button-background);
+      color: var(--vsc-foreground-bright);
+      border-color: var(--vsc-accent-blue);
+    }
+  }
+}
+
+// ============================================================================
+// Workspace Selector
+// ============================================================================
+
+.workspace-selector {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--vsc-padding-sm);
+  padding: var(--vsc-padding-xs) var(--vsc-padding-md);
+  background: var(--vsc-input-background);
+  border: 1px solid var(--vsc-border);
+  border-radius: var(--vsc-border-radius-sm);
+  cursor: pointer;
+  transition: all var(--vsc-transition-fast);
+  min-height: 26px;
+  user-select: none;
+
+  &:hover {
+    background: var(--vsc-list-hover-background);
+    border-color: var(--vsc-border-bright);
+  }
+
+  .workspace-icon {
+    font-size: 14px;
+    line-height: 1;
+  }
+
+  .workspace-name {
+    font-size: var(--vsc-font-size);
+    color: var(--vsc-foreground);
+    font-weight: 500;
+  }
+
+  .workspace-arrow {
+    font-size: 9px;
+    opacity: 0.6;
+  }
+}
+
+.workspace-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 250px;
+  background: var(--vsc-panel-background);
+  border: 1px solid var(--vsc-border-bright);
+  border-radius: var(--vsc-border-radius);
+  box-shadow: var(--vsc-widget-shadow);
+  z-index: var(--vsc-z-dropdown);
+  overflow: hidden;
+  animation: dropdownFadeIn 0.15s ease-out;
+
+  @keyframes dropdownFadeIn {
+    from { opacity: 0; transform: translateY(-4px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .workspace-menu-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--vsc-padding-md);
+    border-bottom: 1px solid var(--vsc-border);
+    background: var(--vsc-sidebar-background);
+
+    h3 {
+      margin: 0;
+      font-size: var(--vsc-font-size-small);
+      font-weight: 600;
+      text-transform: uppercase;
+      color: var(--vsc-foreground-dim);
+      letter-spacing: 0.5px;
+    }
+
+    .btn-icon {
+      padding: var(--vsc-padding-xs);
+      width: 26px;
+      height: 26px;
+      background: transparent;
+      border: none;
+      color: var(--vsc-foreground);
+      cursor: pointer;
+      border-radius: var(--vsc-border-radius-sm);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+
+      &:hover {
+        background: var(--vsc-button-secondary);
+      }
+    }
+  }
+
+  .workspace-list {
+    max-height: 300px;
+    overflow-y: auto;
+
+    &::-webkit-scrollbar { width: 8px; }
+    &::-webkit-scrollbar-track { background: var(--vsc-scrollbar-track); }
+    &::-webkit-scrollbar-thumb {
+      background: var(--vsc-scrollbar-thumb);
+      border-radius: 4px;
+      &:hover { background: var(--vsc-scrollbar-thumb-hover); }
+    }
+  }
+
+  .workspace-item {
+    display: flex;
+    align-items: center;
+    gap: var(--vsc-padding-md);
+    padding: var(--vsc-padding-sm) var(--vsc-padding-md);
+    cursor: pointer;
+    transition: all var(--vsc-transition-fast);
+    border-left: 3px solid transparent;
+
+    &:hover {
+      background: var(--vsc-list-hover-background);
+      border-left-color: var(--vsc-border-bright);
+    }
+
+    &.active {
+      background: var(--vsc-list-active-background);
+      color: var(--vsc-foreground-bright);
+      border-left-color: var(--vsc-accent-blue);
+      font-weight: 500;
+    }
+
+    .workspace-icon { font-size: 16px; line-height: 1; }
+    .workspace-name { font-size: var(--vsc-font-size); flex: 1; }
+  }
+
+  .workspace-menu-footer {
+    display: flex;
+    gap: var(--vsc-padding-sm);
+    padding: var(--vsc-padding-md);
+    border-top: 1px solid var(--vsc-border);
+    background: var(--vsc-sidebar-background);
+
+    .btn-small {
+      flex: 1;
+      padding: var(--vsc-padding-xs) var(--vsc-padding-sm);
+      border: 1px solid transparent;
+      border-radius: var(--vsc-border-radius-sm);
+      background: var(--vsc-button-secondary);
+      color: var(--vsc-foreground);
+      cursor: pointer;
+      font-size: var(--vsc-font-size-small);
+      font-family: var(--vsc-font-family);
+      font-weight: 500;
+      transition: all var(--vsc-transition-fast);
+      height: 22px;
+
+      &:hover { background: var(--vsc-button-secondary-hover); }
+
+      &.btn-danger {
+        background: var(--vsc-error);
+        color: white;
+        &:hover { background: #d32f2f; }
+      }
+    }
+  }
+}
+
+// ============================================================================
+// Panes Container
+// ============================================================================
 
 .panes-container {
   display: flex;
@@ -11,6 +270,10 @@
   min-width: 0;
 }
 
+// ============================================================================
+// Pane
+// ============================================================================
+
 .pane {
   flex: 1 1 0%;
   min-width: 0;
@@ -21,69 +284,50 @@
   overflow: hidden;
   position: relative;
   z-index: 10;
-  flex-shrink: 0;
-  overflow-x: auto;
-  overflow-y: hidden;
-
-  &::-webkit-scrollbar {
-    height: 3px;
-  }
-
-  &::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  &::-webkit-scrollbar-thumb {
-    background: var(--vsc-scrollbar-thumb);
-    border-radius: 2px;
-
-    &:hover {
-      background: var(--vsc-scrollbar-thumb-hover);
-    }
-  }
 }
+
+// ============================================================================
+// Tab Bar
+// ============================================================================
+
+.tab-bar {
+  display: flex;
+  align-items: flex-end;
+  height: 35px;
+  background: var(--vsc-tabbar-background);
+  border-bottom: 1px solid var(--vsc-tab-border);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+// ============================================================================
+// Tab
+// ============================================================================
 
 .tab {
   display: inline-flex;
   align-items: center;
   gap: var(--vsc-padding-sm);
   padding: 0 var(--vsc-padding-lg);
-  background: transparent;
-  border-right: 1px solid transparent;
+  background: var(--vsc-tab-background);
+  border-right: 1px solid var(--vsc-tab-border);
   cursor: pointer;
   transition: all var(--vsc-transition-fast);
   min-width: 120px;
   max-width: 200px;
   height: 35px;
   position: relative;
-  color: var(--vsc-foreground-dim);
-
-  // VS Code style: subtle border on right
-  &::after {
-    content: '';
-    position: absolute;
-    right: 0;
-    top: 0;
-    bottom: 0;
-    width: 1px;
-    background: var(--vsc-border-subtle);
-    opacity: 0.5;
-  }
+  color: var(--vsc-tab-foreground);
 
   &:hover {
-    background: rgba(255, 255, 255, 0.03);
-    color: var(--vsc-foreground);
-
-    .tab-title {
-      color: var(--vsc-foreground);
-    }
+    background: var(--vsc-tab-hover-background);
+    color: var(--vsc-tab-hover-foreground);
   }
 
   &.active {
     background: var(--vsc-editor-background);
-    color: var(--vsc-foreground-bright);
-    
-    // Active tab top border (VS Code style)
+    color: var(--vsc-tab-active-foreground);
+
     &::before {
       content: '';
       position: absolute;
@@ -94,51 +338,16 @@
       background: var(--vsc-accent-blue);
       z-index: 1;
     }
-
-    &::after {
-      opacity: 0;
-    }
-
-    .tab-title {
-      color: var(--vsc-foreground-bright);
-      font-weight: 400;
-    }
-
-    .tab-icon {
-      opacity: 1;
-    }
   }
 
   &.pinned {
     min-width: 40px;
     max-width: 40px;
     padding: 0 var(--vsc-padding-sm);
-    
-    // Pin indicator dot (VS Code style)
-    .tab-icon::after {
-      content: '';
-      position: absolute;
-      bottom: 2px;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 4px;
-      height: 4px;
-      background: var(--vsc-accent-blue);
-      border-radius: 50%;
-    }
 
     .tab-title,
     .tab-close {
-      width: 0;
-      overflow: hidden;
-      opacity: 0;
-      pointer-events: none;
-    }
-  }
-
-  &.pinned.active {
-    .tab-icon::after {
-      background: var(--vsc-foreground-bright);
+      display: none;
     }
   }
 
@@ -147,8 +356,6 @@
     flex-shrink: 0;
     line-height: 1;
     opacity: 0.7;
-    position: relative;
-    transition: opacity var(--vsc-transition-fast);
   }
 
   .tab-title {
@@ -158,12 +365,10 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     line-height: 1;
-    color: inherit;
-    transition: color var(--vsc-transition-fast);
   }
 
-  .tab-pin,
-  .tab-close {
+  .tab-close,
+  .tab-pin {
     display: inline-flex;
     width: 20px;
     height: 20px;
@@ -172,63 +377,26 @@
     border: none;
     color: var(--vsc-foreground-dim);
     cursor: pointer;
-    font-size: 16px;
+    font-size: 14px;
     opacity: 0;
     transition: all var(--vsc-transition-fast);
     border-radius: var(--vsc-border-radius-sm);
-    line-height: 1;
     align-items: center;
     justify-content: center;
-    position: relative;
     flex-shrink: 0;
-
-    &:hover {
-      background: rgba(255, 255, 255, 0.1);
-      color: var(--vsc-foreground);
-      opacity: 1 !important;
-    }
-
-    &:active {
-      background: rgba(255, 255, 255, 0.15);
-    }
   }
 
-  .tab-close {
-    &::before {
-      content: '✕';
-      font-size: 14px;
-      line-height: 1;
-    }
-  }
-
-  .tab-pin {
-    &::before {
-      content: '📌';
-      font-size: 11px;
-      line-height: 1;
-      filter: grayscale(1);
-      opacity: 0.7;
-    }
-  }
-
+  &:hover .tab-close,
   &:hover .tab-pin,
-  &:hover .tab-close {
-    opacity: 0.7;
+  &.active .tab-close,
+  &.active .tab-pin {
+    opacity: 0.6;
   }
 
-  // Pinned tabs always show pin icon
-  &.pinned .tab-pin {
-    display: inline-flex;
-    opacity: 0.5;
-
-    &::before {
-      filter: grayscale(0);
-      opacity: 1;
-    }
-  }
-
-  &.pinned:hover .tab-pin {
-    opacity: 1;
+  .tab-close:hover,
+  .tab-pin:hover {
+    opacity: 1 !important;
+    background: rgba(255,255,255,0.1);
   }
 }
 
@@ -238,38 +406,27 @@
   justify-content: center;
   width: 35px;
   min-width: 35px;
-  max-width: 35px;
+  height: 35px;
   padding: 0;
   background: transparent;
   border: none;
   color: var(--vsc-foreground-dim);
   cursor: pointer;
-  font-size: 16px;
-  transition: all var(--vsc-transition-fast);
+  font-size: 18px;
+  font-weight: 300;
   opacity: 0.5;
-  height: 35px;
-
-  &::before {
-    content: '+';
-    font-size: 18px;
-    line-height: 1;
-    font-weight: 300;
-  }
+  transition: all var(--vsc-transition-fast);
 
   &:hover {
     opacity: 1;
-    background: rgba(255, 255, 255, 0.05);
+    background: rgba(255,255,255,0.05);
     color: var(--vsc-foreground);
-  }
-
-  &:active {
-    background: rgba(255, 255, 255, 0.1);
   }
 }
 
-// ==================================================
+// ============================================================================
 // Filter Bar
-// ==================================================
+// ============================================================================
 
 .filter-bar {
   display: flex;
@@ -279,6 +436,7 @@
   background: var(--vsc-sidebar-background);
   border-bottom: 1px solid var(--vsc-border);
   flex-shrink: 0;
+  height: 32px;
 
   .filter-input {
     flex: 1;
@@ -289,7 +447,7 @@
     color: var(--vsc-input-foreground);
     font-size: var(--vsc-font-size);
     font-family: var(--vsc-font-family);
-    min-height: 28px;
+    min-height: 24px;
     transition: all var(--vsc-transition-fast);
 
     &:focus {
@@ -312,9 +470,9 @@
   }
 }
 
-// ==================================================
+// ============================================================================
 // Action Bar
-// ==================================================
+// ============================================================================
 
 .action-bar {
   display: flex;
@@ -326,9 +484,9 @@
   flex-shrink: 0;
 }
 
-// ==================================================
+// ============================================================================
 // Pane Content (File List)
-// ==================================================
+// ============================================================================
 
 .pane-content {
   flex: 1;
@@ -337,42 +495,47 @@
   background: var(--vsc-editor-background);
   min-height: 0;
 
-  &::-webkit-scrollbar {
-    width: 10px;
-  }
-
-  &::-webkit-scrollbar-track {
-    background: var(--vsc-scrollbar-track);
-  }
-
+  &::-webkit-scrollbar { width: 10px; }
+  &::-webkit-scrollbar-track { background: var(--vsc-scrollbar-track); }
   &::-webkit-scrollbar-thumb {
     background: var(--vsc-scrollbar-thumb);
     border-radius: 5px;
-
-    &:hover {
-      background: var(--vsc-scrollbar-thumb-hover);
-    }
+    &:hover { background: var(--vsc-scrollbar-thumb-hover); }
   }
 }
 
 .loading,
 .error {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   height: 100%;
+  gap: var(--vsc-padding-md);
   font-size: var(--vsc-font-size);
   color: var(--vsc-foreground-dim);
+
+  .spinner {
+    width: 32px;
+    height: 32px;
+    border: 2px solid var(--vsc-border);
+    border-top-color: var(--vsc-accent-blue);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  p { margin: 0; }
 }
 
-.error {
-  color: var(--vsc-error);
-  font-weight: 500;
+.error { color: var(--vsc-error); font-weight: 500; }
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
-// ==================================================
+// ============================================================================
 // File List
-// ==================================================
+// ============================================================================
 
 .file-list {
   display: flex;
@@ -402,23 +565,13 @@
     color: var(--vsc-foreground-bright);
     border-left-color: var(--vsc-accent-blue);
 
-    &:hover {
-      background: var(--vsc-list-focus-background);
-    }
-
-    .file-name {
-      font-weight: 500;
-    }
+    &:hover { background: var(--vsc-list-focus-background); }
+    .file-name { font-weight: 500; }
   }
 
   &.directory {
-    .file-name {
-      font-weight: 500;
-    }
-
-    .file-icon {
-      opacity: 1;
-    }
+    .file-name { font-weight: 500; }
+    .file-icon { opacity: 1; }
   }
 
   .file-icon {
@@ -449,70 +602,47 @@
     margin-top: 2px;
 
     .file-size,
-    .file-date {
-      white-space: nowrap;
-    }
+    .file-date { white-space: nowrap; }
   }
 }
 
-// ==================================================
+// ============================================================================
 // Compact Mode
-// ==================================================
+// ============================================================================
 
 .compact-mode {
   .toolbar {
     height: 30px;
     padding: 0 var(--vsc-padding-md);
+
+    h1 { font-size: var(--vsc-font-size); }
+    .btn { height: 22px; font-size: var(--vsc-font-size-small); }
   }
 
-  .tab-bar {
-    min-height: 30px;
-  }
+  .tab-bar { height: 30px; }
 
   .tab {
     height: 30px;
-    padding: 0 var(--vsc-padding-md);
     min-width: 100px;
     max-width: 160px;
+    padding: 0 var(--vsc-padding-md);
 
-    &.pinned {
-      min-width: 36px;
-      max-width: 36px;
-    }
+    &.pinned { min-width: 36px; max-width: 36px; }
   }
 
-  .tab-new {
-    height: 30px;
-    width: 30px;
-    min-width: 30px;
-    max-width: 30px;
-  }
+  .tab-new { height: 30px; width: 30px; min-width: 30px; }
 
   .file-entry {
     min-height: 24px;
     padding: var(--vsc-padding-xs) var(--vsc-padding-sm);
     gap: var(--vsc-padding-sm);
 
-    .file-icon {
-      font-size: 14px;
-    }
-
-    .file-name {
-      font-size: var(--vsc-font-size-small);
-    }
+    .file-icon { font-size: 14px; }
+    .file-name { font-size: var(--vsc-font-size-small); }
   }
 
-  .filter-input {
-    min-height: 24px;
-  }
-
-  .btn {
-    height: 22px;
-    font-size: var(--vsc-font-size-small);
-  }
-
-  .btn-icon {
-    width: 22px;
-    height: 22px;
-  }
+  .filter-bar { height: 28px; }
+  .filter-input { min-height: 20px; }
+  .btn { height: 22px; }
+  .btn-icon { width: 22px; height: 22px; }
 }

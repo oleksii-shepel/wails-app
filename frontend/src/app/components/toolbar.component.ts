@@ -1,8 +1,8 @@
 import { Component, Input, Output, EventEmitter } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { WorkspaceSelectorComponent } from '../workspace-selector/workspace-selector.component';
+import { WorkspaceSelectorComponent } from './workspace-selector.component';
 import { WorkspaceConfig } from '../shared/protocol-enhanced';
-import { ThemeService } from '../../services/theme.service';
+import { ThemeService } from '../services/theme.service';
 
 /**
  * Toolbar Component
@@ -32,25 +32,25 @@ import { ThemeService } from '../../services/theme.service';
       </div>
 
       <div class="toolbar-right">
-        <button 
-          (click)="onToggleHidden()" 
-          [class.active]="showHidden" 
+        <button
+          (click)="onToggleHidden()"
+          [class.active]="showHidden"
           class="btn"
           title="Toggle hidden files">
           {{ showHidden ? 'Hide' : 'Show' }} Hidden
         </button>
-        
-        <button 
-          (click)="onToggleTheme()" 
-          class="btn" 
+
+        <button
+          (click)="onToggleTheme()"
+          class="btn"
           title="Toggle theme">
           Theme
         </button>
-        
-        <button 
-          (click)="onToggleCompact()" 
-          [class.active]="isCompact" 
-          class="btn" 
+
+        <button
+          (click)="onToggleCompact()"
+          [class.active]="isCompact"
+          class="btn"
           title="Toggle compact mode">
           Compact
         </button>
@@ -109,11 +109,6 @@ import { ThemeService } from '../../services/theme.service';
 
         &:hover {
           background: var(--vsc-button-secondary-hover);
-          transform: translateY(-1px);
-        }
-
-        &:active {
-          transform: translateY(0);
         }
 
         &.active {
@@ -128,14 +123,8 @@ import { ThemeService } from '../../services/theme.service';
       height: 30px;
       padding: 0 var(--vsc-padding-md);
 
-      h1 {
-        font-size: var(--vsc-font-size);
-      }
-
-      .btn {
-        height: 22px;
-        font-size: var(--vsc-font-size-small);
-      }
+      h1 { font-size: var(--vsc-font-size); }
+      .btn { height: 22px; font-size: var(--vsc-font-size-small); }
     }
   `]
 })
@@ -146,7 +135,7 @@ export class ToolbarComponent {
   @Input() showHidden = false;
   @Input() isCompact = false;
   @Input() title = 'File Manager';
-  
+
   @Output() workspaceChange = new EventEmitter<WorkspaceConfig>();
   @Output() createWorkspace = new EventEmitter<void>();
   @Output() renameWorkspace = new EventEmitter<void>();
@@ -156,35 +145,14 @@ export class ToolbarComponent {
   @Output() toggleCompact = new EventEmitter<void>();
   @Output() menuToggle = new EventEmitter<boolean>();
 
-  onWorkspaceChange(workspace: WorkspaceConfig): void {
-    this.workspaceChange.emit(workspace);
-  }
+  constructor(public theme: ThemeService) {}
 
-  onCreateWorkspace(): void {
-    this.createWorkspace.emit();
-  }
-
-  onRenameWorkspace(): void {
-    this.renameWorkspace.emit();
-  }
-
-  onDeleteWorkspace(): void {
-    this.deleteWorkspace.emit();
-  }
-
-  onToggleHidden(): void {
-    this.toggleHidden.emit();
-  }
-
-  onToggleTheme(): void {
-    this.toggleTheme.emit();
-  }
-
-  onToggleCompact(): void {
-    this.toggleCompact.emit();
-  }
-
-  onMenuToggle(show: boolean): void {
-    this.menuToggle.emit(show);
-  }
+  onWorkspaceChange(workspace: WorkspaceConfig): void { this.workspaceChange.emit(workspace); }
+  onCreateWorkspace(): void { this.createWorkspace.emit(); }
+  onRenameWorkspace(): void { this.renameWorkspace.emit(); }
+  onDeleteWorkspace(): void { this.deleteWorkspace.emit(); }
+  onToggleHidden(): void { this.toggleHidden.emit(); }
+  onToggleTheme(): void { this.toggleTheme.emit(); }
+  onToggleCompact(): void { this.toggleCompact.emit(); }
+  onMenuToggle(show: boolean): void { this.menuToggle.emit(show); }
 }

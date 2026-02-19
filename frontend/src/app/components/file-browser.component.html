@@ -1,6 +1,6 @@
-<div class="file-manager-enhanced" style="display: flex; flex-direction: column; width: 100vw; height: 100vh; min-width: 0; min-height: 0;">
+<div class="file-manager-root">
   <!-- Main content column: toolbar + panes -->
-  <div style="display: flex; flex-direction: column; flex: 1 1 0%; min-height: 0; min-width: 0;">
+  <div class="file-manager-inner">
     <!-- Top Toolbar with Workspace Selector -->
     <div class="toolbar">
       <div class="toolbar-left">
@@ -17,7 +17,7 @@
             <button (click)="createNewWorkspace()" class="btn-icon">➕</button>
           </div>
           <div class="workspace-list">
-            <div 
+            <div
               *ngFor="let workspace of workspaceList"
               class="workspace-item"
               [class.active]="workspace.id === activeWorkspace?.id"
@@ -51,8 +51,8 @@
       </div>
     </div>
 
-    <!-- Main Panes Container - Fixed to use full width -->
-    <div class="panes-container" style="flex: 1 1 0%; min-height: 0; min-width: 0;">
+    <!-- Main Panes Container -->
+    <div class="panes-container">
       <!-- Left Pane -->
       <app-file-pane
         #leftPane

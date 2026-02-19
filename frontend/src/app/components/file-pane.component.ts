@@ -11,24 +11,16 @@ import { ApiService } from '../services/api.service';
 import { WorkspaceService } from '../services/workspace.service';
 import { FilterService } from '../services/filter.service';
 import { PathHistoryService } from '../services/path-history.service';
-
-// Archive types
-import { ArchiveService, ArchiveEntry, ArchiveListing, isArchive, archiveFormat } from '../services/archive.service';
+import { ArchiveService, ArchiveListing, isArchive } from '../services/archive.service';
 
 declare const window: any;
 
-/** One level in the archive navigation stack. */
 interface ArchiveStackFrame {
   archivePath: string;
   innerPath: string;
   listing: ArchiveListing;
 }
 
-/**
- * File Pane Component
- * Complete reusable file browser pane
- * Combines tabs, address bar, filter, actions, and file list
- */
 @Component({
   selector: 'app-file-pane',
   standalone: true,
@@ -41,7 +33,7 @@ interface ArchiveStackFrame {
     FileListComponent
   ],
   template: `
-    <div class="pane" [class.archive-mode]="isInArchive()">
+    <div class="file-pane" [class.file-pane--archive]="isInArchive()">
       <app-tab-bar
         [tabs]="tabs"
         [activeTabId]="currentTabId"
@@ -86,18 +78,46 @@ interface ArchiveStackFrame {
     </div>
   `,
   styles: [`
-    .pane {
-      flex: 1;
+    /* Host element must participate in the panes-container flex layout */
+    :host {
       display: flex;
       flex-direction: column;
-      background: var(--vsc-editor-background);
-      overflow: hidden;
+      flex: 1 1 0%;
       min-height: 0;
       min-width: 0;
-      width: 100%;
+      overflow: hidden;
     }
-    .pane.archive-mode {
-      background: var(--vsc-editor-background, #1e1e1e);
+
+    .file-pane {
+      display: flex;
+      flex-direction: column;
+      flex: 1 1 0%;
+      min-height: 0;
+      min-width: 0;
+      background: var(--vsc-editor-background);
+      overflow: hidden;
+    }
+
+    .file-pane--archive {
+      background: color-mix(in srgb, var(--vsc-accent-orange) 4%, var(--vsc-editor-background));
+    }
+
+    /* All child component host elements must not collapse */
+    app-tab-bar,
+    app-address-bar,
+    app-filter-bar,
+    app-action-bar {
+      display: block;
+      flex-shrink: 0;
+    }
+
+    /* File list takes all remaining vertical space */
+    app-file-list {
+      display: flex;
+      flex-direction: column;
+      flex: 1 1 0%;
+      min-height: 0;
+      overflow: hidden;
     }
   `]
 })
@@ -110,7 +130,6 @@ export class FilePaneComponent implements OnInit, OnChanges {
   @Output() copyToOther = new EventEmitter<string[]>();
   @Output() moveToOther = new EventEmitter<string[]>();
 
-  // State
   currentPath = '';
   currentTabId = '';
   tabs: TabInfo[] = [];
@@ -122,11 +141,9 @@ export class FilePaneComponent implements OnInit, OnChanges {
   filterText = '';
   filterQuery: FilterQuery = { text: '', criteria: [] };
 
-  // Archive state
   archiveStack: ArchiveStackFrame[] = [];
   currentArchiveListing: ArchiveListing | null = null;
 
-  // Expose to template
   FileType = FileType;
   isArchive = isArchive;
 
@@ -138,74 +155,68 @@ export class FilePaneComponent implements OnInit, OnChanges {
     private archiveService: ArchiveService
   ) {}
 
-  ngOnInit(): void {
-    this.loadPaneState();
-  }
-
-  ngOnChanges(): void {
-    if (this.workspace) {
-      this.loadPaneState();
-    }
-  }
-
-  // ============================================================================
-  // Initialization
-  // ============================================================================
+  ngOnInit(): void { this.loadPaneState(); }
+  ngOnChanges(): void { if (this.workspace) this.loadPaneState(); }
 
   private async loadPaneState(): Promise<void> {
     if (!this.workspace) return;
-
     this.tabs = this.workspaceService.getTabs(this.paneId);
     const activeTab = this.workspaceService.getActiveTab(this.paneId);
 
-    if (activeTab && activeTab.path) {
-      this.currentTabId = activeTab.id;
-      this.currentPath = activeTab.path;
-      await this.loadDirectory(activeTab.path);
+    // Ask Go for the platform-correct initial directory.
+    // This also tells us whether we're on Windows.
+    let platformPath = '/';
+    try {
+      platformPath = await window.go.main.App.GetInitialPath();
+    } catch (err) {
+      console.error('Failed to get initial path:', err);
+    }
+
+    const isWindows = /^[A-Za-z]:[/\\]/.test(platformPath);
+
+    // A saved path is "stale" when it's empty, or when we're on Windows but
+    // the workspace was seeded with a bare Unix '/' default.
+    const savedPath = activeTab?.path ?? '';
+    const pathIsStale = !savedPath || (isWindows && savedPath === '/');
+
+    if (!pathIsStale) {
+      this.currentTabId = activeTab!.id;
+      this.currentPath = savedPath;
+      await this.loadDirectory(savedPath);
     } else {
-      // No saved tab — ask Go for the platform-correct initial path
-      try {
-        const initialPath: string = await window.go.main.App.GetInitialPath();
-        this.currentPath = initialPath;
-        await this.loadDirectory(initialPath);
-      } catch (err) {
-        console.error('Failed to get initial path:', err);
-      }
+      // Use the correct platform path returned by Go
+      this.currentPath = platformPath;
+      await this.loadDirectory(platformPath);
     }
   }
 
-  // ============================================================================
-  // Directory Loading
-  // ============================================================================
-
   private async loadDirectory(path: string): Promise<void> {
-    // Entering a real directory always exits any archive context
     this.exitArchive();
-
     this.loading = true;
     this.error = null;
-
     try {
       const listing = await this.apiService.listDirectory(path, this.showHidden);
       this.currentPath = listing.path;
       this.entries = listing.entries;
       this.selectedFiles.clear();
-
       this.applyFilter();
       this.workspaceService.updateTabPath(this.paneId, this.currentTabId, listing.path);
       this.pathHistoryService.addPath(listing.path, this.paneId);
       this.pathChange.emit(listing.path);
+
+      // Keep Go's per-pane current-directory in sync so NavGoUp works correctly.
+      // This is a no-op if the method doesn't exist on the Go side.
+      try {
+        if (window.go?.main?.App?.SetPaneDirectory) {
+          await window.go.main.App.SetPaneDirectory(this.paneId, listing.path);
+        }
+      } catch { /* optional Go method — ignore if not implemented */ }
     } catch (error: any) {
       this.error = error.message || 'Failed to load directory';
-      console.error('Failed to load directory:', error);
     } finally {
       this.loading = false;
     }
   }
-
-  // ============================================================================
-  // Tab Management
-  // ============================================================================
 
   onTabChange(tab: TabInfo): void {
     this.workspaceService.switchTab(this.paneId, tab.id);
@@ -227,51 +238,32 @@ export class FilePaneComponent implements OnInit, OnChanges {
 
   onNewTab(): void {
     const newTab = this.workspaceService.addTab(this.paneId, this.currentPath, true);
-    if (newTab) {
-      this.loadPaneState();
-    }
+    if (newTab) this.loadPaneState();
   }
 
-  // Tab navigation for keyboard shortcuts
   onCloseCurrentTab(): void {
     const activeTab = this.tabs.find(t => t.isActive);
-    if (activeTab) {
-      this.onTabClose(activeTab);
-    }
+    if (activeTab) this.onTabClose(activeTab);
   }
 
   onNextTab(): void {
     const i = this.tabs.findIndex(t => t.isActive);
-    if (i >= 0) {
-      const nextIndex = (i + 1) % this.tabs.length;
-      this.onTabChange(this.tabs[nextIndex]);
-    }
+    if (i >= 0) this.onTabChange(this.tabs[(i + 1) % this.tabs.length]);
   }
 
   onPreviousTab(): void {
     const i = this.tabs.findIndex(t => t.isActive);
-    if (i >= 0) {
-      const prevIndex = i === 0 ? this.tabs.length - 1 : i - 1;
-      this.onTabChange(this.tabs[prevIndex]);
-    }
+    if (i >= 0) this.onTabChange(this.tabs[i === 0 ? this.tabs.length - 1 : i - 1]);
   }
 
   onJumpToTab(index: number): void {
-    if (index > 0 && index <= this.tabs.length) {
-      this.onTabChange(this.tabs[index - 1]);
-    }
+    if (index > 0 && index <= this.tabs.length) this.onTabChange(this.tabs[index - 1]);
   }
 
   onTogglePinCurrentTab(): void {
     const activeTab = this.tabs.find(t => t.isActive);
-    if (activeTab) {
-      this.onTabPin(activeTab);
-    }
+    if (activeTab) this.onTabPin(activeTab);
   }
-
-  // ============================================================================
-  // Navigation
-  // ============================================================================
 
   onPathChange(path: string): void {
     if (path && path !== this.currentPath) {
@@ -280,11 +272,6 @@ export class FilePaneComponent implements OnInit, OnChanges {
     }
   }
 
-  /**
-   * Navigate up to parent directory.
-   * Delegates entirely to Go (NavGoUp) so path logic is platform-correct
-   * for both Unix "/" and Windows "C:\" roots.
-   */
   async onNavigateUp(): Promise<void> {
     if (this.isInArchive()) {
       await this.navigateArchiveUp();
@@ -298,51 +285,31 @@ export class FilePaneComponent implements OnInit, OnChanges {
         this.workspaceService.updateTabPath(this.paneId, this.currentTabId, listing.path);
         this.pathHistoryService.addPath(listing.path, this.paneId);
         this.pathChange.emit(listing.path);
-      } catch {
-        // Already at root — silently ignore
-      }
+      } catch { /* already at root */ }
     }
   }
 
   onRefresh(): void {
-    if (this.isInArchive()) {
-      this.refreshArchive();
-    } else {
-      this.loadDirectory(this.currentPath);
-    }
+    if (this.isInArchive()) this.refreshArchive();
+    else this.loadDirectory(this.currentPath);
   }
 
   onNavigate(entry: FileInfo): void {
-    // Special sentinel: '..' inside an archive
-    if (entry.path === '__archive_parent__') {
-      this.navigateArchiveUp();
-      return;
-    }
-
-    // Inside an archive
+    if (entry.path === '__archive_parent__') { this.navigateArchiveUp(); return; }
     if (this.isInArchive()) {
-      const frame = this.archiveStack[this.archiveStack.length - 1];
       if (entry.type === FileType.DIRECTORY) {
+        const frame = this.archiveStack[this.archiveStack.length - 1];
         this.loadArchive(frame.archivePath, entry.path);
       }
-      // Files inside archives are read-only — no action
       return;
     }
-
-    // Normal filesystem: directory
     if (entry.type === FileType.DIRECTORY) {
-      if (entry.name === '..') {
-        this.onNavigateUp();
-      } else {
-        this.loadDirectory(entry.path);
-      }
+      if (entry.name === '..') this.onNavigateUp();
+      else this.loadDirectory(entry.path);
       return;
     }
-
-    // Normal filesystem: archive file → open as folder
     if (entry.type === FileType.FILE && isArchive(entry.name)) {
       this.loadArchive(entry.path);
-      return;
     }
   }
 
@@ -350,32 +317,22 @@ export class FilePaneComponent implements OnInit, OnChanges {
     const selected = Array.from(this.selectedFiles);
     if (selected.length === 1) {
       const entry = this.entries.find(e => e.path === selected[0]);
-      if (entry) {
-        this.onNavigate(entry);
-      }
+      if (entry) this.onNavigate(entry);
     }
   }
 
-  // ============================================================================
-  // Archive Navigation
-  // ============================================================================
-
-  isInArchive(): boolean {
-    return this.archiveStack.length > 0;
-  }
+  // Archive navigation
+  isInArchive(): boolean { return this.archiveStack.length > 0; }
 
   async loadArchive(archivePath: string, innerPath = ''): Promise<void> {
     this.loading = true;
     this.error = null;
-
     try {
       const listing = await this.archiveService.listArchive(archivePath, innerPath);
       if (!listing) throw new Error('Empty response from server');
-
       const frame: ArchiveStackFrame = { archivePath, innerPath, listing };
       this.archiveStack.push(frame);
       this.currentArchiveListing = listing;
-
       this.entries = this.archiveListingToFileInfos(listing);
       this.selectedFiles.clear();
       this.applyFilter();
@@ -388,14 +345,11 @@ export class FilePaneComponent implements OnInit, OnChanges {
 
   async navigateArchiveUp(): Promise<void> {
     this.archiveStack.pop();
-
     if (this.archiveStack.length === 0) {
-      // Back on the real filesystem
       this.currentArchiveListing = null;
       await this.loadDirectory(this.currentPath);
       return;
     }
-
     const frame = this.archiveStack[this.archiveStack.length - 1];
     this.currentArchiveListing = frame.listing;
     this.entries = this.archiveListingToFileInfos(frame.listing);
@@ -414,65 +368,6 @@ export class FilePaneComponent implements OnInit, OnChanges {
     await this.loadArchive(frame.archivePath, frame.innerPath);
   }
 
-  getArchiveBreadcrumb(): { label: string; frameIndex: number }[] {
-    return this.archiveStack.map((frame, i) => {
-      const archiveName = frame.archivePath.split(/[\\/]/).pop() ?? frame.archivePath;
-      if (i === 0) {
-        return { label: archiveName, frameIndex: i };
-      }
-      const segment = frame.innerPath.split('/').pop() ?? frame.innerPath;
-      return { label: segment, frameIndex: i };
-    });
-  }
-
-  async jumpToArchiveFrame(frameIndex: number): Promise<void> {
-    this.archiveStack = this.archiveStack.slice(0, frameIndex + 1);
-    const frame = this.archiveStack[this.archiveStack.length - 1];
-    this.currentArchiveListing = frame.listing;
-    this.entries = this.archiveListingToFileInfos(frame.listing);
-    this.selectedFiles.clear();
-    this.applyFilter();
-  }
-
-  getCurrentArchiveFormat(): string | null {
-    return this.currentArchiveListing?.format ?? null;
-  }
-
-  getCompressionRatio(entry: FileInfo): string | null {
-    if (!this.isInArchive() || !this.currentArchiveListing) return null;
-    const archiveEntry = this.currentArchiveListing.entries.find(e => e.innerPath === entry.path);
-    if (!archiveEntry || archiveEntry.size === 0 || archiveEntry.compressedSize === 0) return null;
-    const ratio = Math.round((1 - archiveEntry.compressedSize / archiveEntry.size) * 100);
-    return ratio > 0 ? `${ratio}%` : null;
-  }
-
-  getCompressionMethod(entry: FileInfo): string | null {
-    if (!this.isInArchive() || !this.currentArchiveListing) return null;
-    const archiveEntry = this.currentArchiveListing.entries.find(e => e.innerPath === entry.path);
-    return archiveEntry?.compression ?? null;
-  }
-
-  async onExtractSelected(): Promise<void> {
-    if (!this.isInArchive()) return;
-
-    const frame = this.archiveStack[this.archiveStack.length - 1];
-    const destination = prompt('Extract to directory:', this.currentPath);
-    if (!destination) return;
-
-    const selected = Array.from(this.selectedFiles);
-    const innerPaths = selected.length > 0 ? selected : [];
-
-    this.loading = true;
-    try {
-      await this.archiveService.extractArchive(frame.archivePath, destination, innerPaths);
-      alert(`Extracted successfully to ${destination}`);
-    } catch (error: any) {
-      alert(`Extraction failed: ${error.message}`);
-    } finally {
-      this.loading = false;
-    }
-  }
-
   private archiveListingToFileInfos(listing: ArchiveListing): FileInfo[] {
     const entries: FileInfo[] = listing.entries.map(e => ({
       name: e.name,
@@ -485,9 +380,7 @@ export class FilePaneComponent implements OnInit, OnChanges {
       created: e.modified,
       accessed: e.modified,
     }));
-
-    // Add '..' entry
-    const parentEntry: FileInfo = {
+    return [{
       name: '..',
       path: '__archive_parent__',
       type: FileType.DIRECTORY,
@@ -497,15 +390,10 @@ export class FilePaneComponent implements OnInit, OnChanges {
       isHidden: false,
       created: 0,
       accessed: 0,
-    };
-
-    return [parentEntry, ...entries];
+    }, ...entries];
   }
 
-  // ============================================================================
   // Filtering
-  // ============================================================================
-
   onFilterChange(state: any): void {
     if (state && typeof state.combined === 'string') {
       this.filterText = state.combined;
@@ -521,24 +409,18 @@ export class FilePaneComponent implements OnInit, OnChanges {
   }
 
   private applyFilter(): void {
-    if (!this.filterText || this.filterText.trim() === '') {
+    if (!this.filterText?.trim()) {
       this.filteredEntries = this.entries;
     } else {
       this.filteredEntries = this.filterService.filterEntries(this.entries, this.filterQuery);
     }
   }
 
-  // ============================================================================
   // Selection
-  // ============================================================================
-
   onSelectionChange(entry: FileInfo): void {
-    if (this.selectedFiles.has(entry.path)) {
-      this.selectedFiles.delete(entry.path);
-    } else {
-      this.selectedFiles.add(entry.path);
-    }
-    this.selectedFiles = new Set(this.selectedFiles); // trigger change detection
+    if (this.selectedFiles.has(entry.path)) this.selectedFiles.delete(entry.path);
+    else this.selectedFiles.add(entry.path);
+    this.selectedFiles = new Set(this.selectedFiles);
   }
 
   onSelectAll(): void {
@@ -551,23 +433,13 @@ export class FilePaneComponent implements OnInit, OnChanges {
     this.selectedFiles = new Set(this.selectedFiles);
   }
 
-  // ============================================================================
   // File Operations
-  // ============================================================================
-
   async onCreateFolder(): Promise<void> {
-    if (this.isInArchive()) {
-      alert('Cannot create folders inside an archive.');
-      return;
-    }
-
+    if (this.isInArchive()) { alert('Cannot create folders inside an archive.'); return; }
     const folderName = prompt('Enter folder name:');
     if (!folderName) return;
-
     try {
-      const newPath: string = await window.go.main.App.JoinPaths(
-        [this.currentPath, folderName]
-      );
+      const newPath: string = await window.go.main.App.JoinPaths([this.currentPath, folderName]);
       await this.apiService.createDirectory(newPath, false);
       await this.loadDirectory(this.currentPath);
     } catch (error: any) {
@@ -576,46 +448,31 @@ export class FilePaneComponent implements OnInit, OnChanges {
   }
 
   async onDeleteSelected(): Promise<void> {
-    if (this.isInArchive()) {
-      alert('Cannot delete files inside an archive.');
-      return;
-    }
-
+    if (this.isInArchive()) { alert('Cannot delete files inside an archive.'); return; }
     if (this.selectedFiles.size === 0) return;
     if (!confirm(`Delete ${this.selectedFiles.size} item(s)?`)) return;
-
     for (const path of Array.from(this.selectedFiles)) {
       try {
         await this.apiService.deleteFile(path, true);
       } catch (error: any) {
-        console.error(`Failed to delete ${path}:`, error);
         alert(`Failed to delete ${path}: ${error.message}`);
       }
     }
-
     await this.loadDirectory(this.currentPath);
   }
 
   onCopyToOther(): void {
-    if (this.selectedFiles.size > 0) {
-      this.copyToOther.emit(Array.from(this.selectedFiles));
-    }
+    if (this.selectedFiles.size > 0) this.copyToOther.emit(Array.from(this.selectedFiles));
   }
 
   onMoveToOther(): void {
-    if (this.selectedFiles.size > 0) {
-      this.moveToOther.emit(Array.from(this.selectedFiles));
-    }
+    if (this.selectedFiles.size > 0) this.moveToOther.emit(Array.from(this.selectedFiles));
   }
-
-  // ============================================================================
-  // Focus Methods for Keyboard Shortcuts
-  // ============================================================================
 
   focusFilter(): void {
     setTimeout(() => {
       const el = document.querySelector(
-        `.pane:nth-child(${this.paneId === 'left' ? 1 : 2}) .filter-input`
+        `app-file-pane[paneId="${this.paneId}"] .filter-input`
       ) as HTMLInputElement;
       el?.focus();
     });
@@ -624,7 +481,7 @@ export class FilePaneComponent implements OnInit, OnChanges {
   focusAddressBar(): void {
     setTimeout(() => {
       const el = document.querySelector(
-        `.pane:nth-child(${this.paneId === 'left' ? 1 : 2}) .address-input`
+        `app-file-pane[paneId="${this.paneId}"] .ab-edit-input`
       ) as HTMLInputElement;
       el?.focus();
       el?.select();

@@ -52,8 +52,9 @@ export class WorkspaceService {
       workspaceList = await this.loadBackendWorkspaces();
       this.backendLoaded = true;
     } catch {
-      // Backend not reachable yet – use what we already loaded from localStorage
-      workspaceList = this.workspacesSubject.value;
+      // wait for backend instead of falling back
+      await new Promise(r => setTimeout(r, 300));
+      return this.initializeWorkspaces();
     }
 
     // Bootstrap: create a default workspace if none exist yet
@@ -466,6 +467,13 @@ export class WorkspaceService {
 
   private getPathTitle(path: string): string {
     const normalized = this.normalizePath(path);
+    const isWindows =
+      (navigator as any).userAgentData?.platform === 'Windows' ||
+      navigator.userAgent.includes('Windows');
+    
+    if (normalized === '/' && isWindows) {
+      return 'C:';
+    }
     return normalized === '/' || normalized === '' ? '/' : normalized;
   }
 

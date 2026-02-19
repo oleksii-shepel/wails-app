@@ -36,9 +36,14 @@ func (a *App) SplitPath(path string) map[string]string {
 	}
 }
 
-// GetParentPath returns the parent directory of the given path.
+// GetParentPath returns the parent directory of the given path,
+// stopping at the filesystem root.
 func (a *App) GetParentPath(path string) string {
-	return filepath.Dir(path)
+	parent := filepath.Dir(path)
+	if parent == path {
+		return path // already at root
+	}
+	return parent
 }
 
 // PathExists checks whether a path exists.
@@ -56,59 +61,72 @@ func (a *App) IsDirectory(path string) bool {
 	return info.IsDir()
 }
 
+// IsRoot returns true if the path is a filesystem root.
+// On Unix: "/"
+// On Windows: "C:\", "D:\", etc.
+func (a *App) IsRoot(path string) bool {
+	return filepath.Dir(path) == path
+}
+
 // Breadcrumbs returns the path split into navigable segments.
-// e.g. "/home/user/docs" → [{label:"home", path:"/home"}, ...]
+//
+// Examples:
+//
+//	"/home/user/docs" → [{label:"/", path:"/"}, {label:"home", path:"/home"}, ...]
+//	`C:\Users\alice` → [{label:`C:\`, path:`C:\`}, {label:"Users", path:`C:\Users`}, ...]
 func (a *App) Breadcrumbs(path string) []map[string]string {
 	path = filepath.Clean(path)
-	parts := splitIntoParts(path)
 
-	crumbs := make([]map[string]string, 0, len(parts))
-	accumulated := ""
+	// Walk upward collecting segments, then reverse.
+	type segment struct {
+		label string
+		path  string
+	}
+	var segments []segment
 
-	for i, part := range parts {
-		if part == "" {
-			continue
-		}
-		if i == 0 && isRootPart(part) {
-			accumulated = part
+	current := path
+	for {
+		parent := filepath.Dir(current)
+		isRoot := parent == current
+
+		var label string
+		if isRoot {
+			// Root segment: use the root path itself as the label.
+			// On Unix this is "/"; on Windows "C:\".
+			label = current
 		} else {
-			if accumulated == "" || accumulated == string(filepath.Separator) {
-				accumulated = string(filepath.Separator) + part
-			} else {
-				accumulated = accumulated + string(filepath.Separator) + part
-			}
+			label = filepath.Base(current)
 		}
-		crumbs = append(crumbs, map[string]string{
-			"label": part,
-			"path":  accumulated,
-		})
+
+		segments = append(segments, segment{label: label, path: current})
+
+		if isRoot {
+			break
+		}
+		current = parent
 	}
 
+	// Reverse so we go root → leaf.
+	for i, j := 0, len(segments)-1; i < j; i, j = i+1, j-1 {
+		segments[i], segments[j] = segments[j], segments[i]
+	}
+
+	crumbs := make([]map[string]string, len(segments))
+	for i, s := range segments {
+		crumbs[i] = map[string]string{
+			"label": s.label,
+			"path":  s.path,
+		}
+	}
 	return crumbs
 }
 
-// splitIntoParts splits a path into its component parts.
-func splitIntoParts(path string) []string {
-	// filepath.SplitList is for PATH env; we want directory components
-	var parts []string
-	for {
-		dir, file := filepath.Split(path)
-		dir = strings.TrimSuffix(dir, string(filepath.Separator))
-		if file != "" {
-			parts = append([]string{file}, parts...)
-		}
-		if dir == path || dir == "" {
-			if dir != "" {
-				parts = append([]string{dir}, parts...)
-			}
-			break
-		}
-		path = dir
+// parentPath returns the parent directory, stopping at filesystem root.
+// Use filepath.Dir which correctly handles both Unix "/" and Windows "C:\".
+func parentPath(path string) string {
+	parent := filepath.Dir(path)
+	if parent == path {
+		return path // already at root
 	}
-	return parts
-}
-
-func isRootPart(part string) bool {
-	// Windows drive root like "C:", Unix root already handled
-	return strings.HasSuffix(part, ":")
+	return parent
 }

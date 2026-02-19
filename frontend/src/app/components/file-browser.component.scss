@@ -1,302 +1,25 @@
-.file-manager-enhanced {
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  background: var(--vsc-editor-background);
-  color: var(--vsc-foreground);
-  font-family: var(--vsc-font-family);
-  font-size: var(--vsc-font-size);
-  overflow: hidden;
-}
-
-// ==================================================
-// Toolbar (Title Bar Style)
-// ==================================================
-
-.toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  height: var(--vsc-titlebar-height);
-  padding: 0 var(--vsc-padding-lg);
-  background: var(--vsc-titlebar-background);
-  border-bottom: 1px solid var(--vsc-border);
-  gap: var(--vsc-padding-lg);
-  flex-shrink: 0;
-
-  h1 {
-    margin: 0;
-    font-size: var(--vsc-font-size-large);
-    font-weight: 500;
-    color: var(--vsc-foreground);
-    letter-spacing: -0.01em;
-  }
-
-  .toolbar-left,
-  .toolbar-right {
-    display: flex;
-    gap: var(--vsc-padding-sm);
-    align-items: center;
-  }
-
-  .toolbar-center {
-    flex: 1;
-    text-align: center;
-  }
-}
-
-// ==================================================
-// Workspace Selector
-// ==================================================
-
-.workspace-selector {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: var(--vsc-padding-sm);
-  padding: var(--vsc-padding-xs) var(--vsc-padding-md);
-  background: var(--vsc-input-background);
-  border: 1px solid var(--vsc-border);
-  border-radius: var(--vsc-border-radius-sm);
-  cursor: pointer;
-  transition: all var(--vsc-transition-fast);
-  min-height: 26px;
-
-  &:hover {
-    background: var(--vsc-list-hover-background);
-    border-color: var(--vsc-border-bright);
-  }
-
-  &:active {
-    transform: scale(0.98);
-  }
-
-  .workspace-icon {
-    font-size: 14px;
-    line-height: 1;
-  }
-
-  .workspace-name {
-    font-size: var(--vsc-font-size);
-    color: var(--vsc-foreground);
-    font-weight: 500;
-  }
-
-  .workspace-arrow {
-    font-size: 9px;
-    opacity: 0.7;
-    transition: transform var(--vsc-transition-fast);
-  }
-
-  &:hover .workspace-arrow {
-    opacity: 1;
-  }
-}
-
-.workspace-menu {
-  position: absolute;
-  top: calc(100% + var(--vsc-padding-xs));
-  left: 0;
-  min-width: 250px;
-  background: var(--vsc-panel-background);
-  border: 1px solid var(--vsc-border-bright);
-  border-radius: var(--vsc-border-radius);
-  box-shadow: var(--vsc-widget-shadow);
-  z-index: var(--vsc-z-dropdown);
-  overflow: hidden;
-  animation: dropdownFadeIn 0.15s ease-out;
-
-  @keyframes dropdownFadeIn {
-    from {
-      opacity: 0;
-      transform: translateY(-4px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-
-  .workspace-menu-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: var(--vsc-padding-md);
-    border-bottom: 1px solid var(--vsc-border);
-    background: var(--vsc-sidebar-background);
-
-    h3 {
-      margin: 0;
-      font-size: var(--vsc-font-size-small);
-      font-weight: 600;
-      text-transform: uppercase;
-      color: var(--vsc-foreground-dim);
-      letter-spacing: 0.5px;
-    }
-  }
-
-  .workspace-list {
-    max-height: 300px;
-    overflow-y: auto;
-
-    &::-webkit-scrollbar {
-      width: 8px;
-    }
-
-    &::-webkit-scrollbar-track {
-      background: var(--vsc-scrollbar-track);
-    }
-
-    &::-webkit-scrollbar-thumb {
-      background: var(--vsc-scrollbar-thumb);
-      border-radius: 4px;
-
-      &:hover {
-        background: var(--vsc-scrollbar-thumb-hover);
-      }
-    }
-  }
-
-  .workspace-item {
-    display: flex;
-    align-items: center;
-    gap: var(--vsc-padding-md);
-    padding: var(--vsc-padding-sm) var(--vsc-padding-md);
-    cursor: pointer;
-    transition: all var(--vsc-transition-fast);
-    border-left: 3px solid transparent;
-
-    &:hover {
-      background: var(--vsc-list-hover-background);
-      border-left-color: var(--vsc-border-bright);
-    }
-
-    &.active {
-      background: var(--vsc-list-active-background);
-      color: var(--vsc-foreground-bright);
-      border-left-color: var(--vsc-accent-blue);
-      font-weight: 500;
-    }
-
-    .workspace-icon {
-      font-size: 16px;
-      line-height: 1;
-    }
-
-    .workspace-name {
-      font-size: var(--vsc-font-size);
-      flex: 1;
-    }
-  }
-
-  .workspace-menu-footer {
-    display: flex;
-    gap: var(--vsc-padding-sm);
-    padding: var(--vsc-padding-md);
-    border-top: 1px solid var(--vsc-border);
-    background: var(--vsc-sidebar-background);
-  }
-}
-
-// ==================================================
-// Buttons
-// ==================================================
-
-.btn,
-.btn-small,
-.btn-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--vsc-padding-xs);
-  padding: var(--vsc-padding-xs) var(--vsc-padding-md);
-  border: 1px solid transparent;
-  border-radius: var(--vsc-border-radius-sm);
-  background: var(--vsc-button-secondary);
-  color: var(--vsc-foreground);
-  cursor: pointer;
-  font-size: var(--vsc-font-size);
-  font-family: var(--vsc-font-family);
-  font-weight: 500;
-  transition: all var(--vsc-transition-fast);
-  height: 26px;
-  white-space: nowrap;
-  line-height: 1;
-
-  &:hover:not(:disabled) {
-    background: var(--vsc-button-secondary-hover);
-    transform: translateY(-1px);
-  }
-
-  &:active:not(:disabled) {
-    transform: translateY(0);
-  }
-
-  &:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  &.active {
-    background: var(--vsc-button-background);
-    color: var(--vsc-foreground-bright);
-    border-color: var(--vsc-accent-blue);
-  }
-}
-
-.btn-small {
-  padding: var(--vsc-padding-xs) var(--vsc-padding-sm);
-  font-size: var(--vsc-font-size-small);
-  height: 22px;
-}
-
-.btn-icon {
-  padding: var(--vsc-padding-xs);
-  width: 26px;
-  height: 26px;
-}
-
-.btn-danger {
-  background: var(--vsc-error);
-  color: white;
-
-  &:hover:not(:disabled) {
-    background: #d32f2f;
-  }
-}
-
-// ==================================================
-// Panes Container
-// ==================================================
 
 .panes-container {
   display: flex;
-  flex: 1;
+  flex: 1 1 0%;
+  width: 100%;
+  height: 100%;
   gap: 1px;
   background: var(--vsc-border);
   overflow: hidden;
   min-height: 0;
+  min-width: 0;
 }
 
 .pane {
-  flex: 1;
+  flex: 1 1 0%;
   display: flex;
   flex-direction: column;
   background: var(--vsc-editor-background);
   overflow: hidden;
   min-height: 0;
   min-width: 0;
-}
-
-// ==================================================
-// Tab Bar (VS Code Style)
-// ==================================================
-
-.tab-bar {
-  display: flex;
-  background: var(--vsc-editor-background);
-  border-bottom: 1px solid var(--vsc-border);
-  min-height: 35px;
+  max-width: 100%;
   overflow-x: auto;
   overflow-y: hidden;
   position: relative;
@@ -319,14 +42,15 @@
       background: var(--vsc-scrollbar-thumb-hover);
     }
   }
-}
-
-.tabs {
-  display: flex;
-  flex: 1;
-  min-width: 0;
-  height: 100%;
-  align-items: stretch;
+    flex: 0 0 50%;
+    width: 50%;
+    max-width: 50%;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--vsc-editor-background);
+    overflow: hidden;
 }
 
 .tab {

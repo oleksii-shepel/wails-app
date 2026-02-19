@@ -275,12 +275,3 @@ func (a *App) emitEvent(name string, data interface{}) {
 		runtime.EventsEmit(a.ctx, name, data)
 	}
 }
-
-// parentPath returns the parent directory, handling both Unix and Windows roots.
-func parentPath(path string) string {
-	parent := cleanPath(path + "/..")
-	if parent == path {
-		return path // already at root
-	}
-	return parent
-}

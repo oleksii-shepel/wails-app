@@ -43,7 +43,6 @@ func (a *App) startup(ctx context.Context) {
 // ============================================================================
 
 func (a *App) GetOSInfo_() OSInfoResponse {
-	// Assuming GetOSInfo is defined elsewhere in your OS logic
 	return a.GetOSInfo()
 }
 
@@ -59,23 +58,19 @@ func (a *App) GetDrives() DrivesList {
 // File System
 // ============================================================================
 
-// ListDir lists the contents of a directory.
 func (a *App) ListDir(path string, showHidden bool) (*DirectoryListing, error) {
 	return a.ListDirectory(path, showHidden)
 }
 
-// ListDirFiltered lists directory contents applying a filter.
 func (a *App) ListDirFiltered(path string, showHidden bool, filter FilterQuery) (*DirectoryListing, error) {
 	listing, err := a.ListDirectory(path, showHidden)
 	if err != nil {
 		return nil, err
 	}
-	// filterEntries is now defined in utils.go
 	listing.Entries = filterEntries(listing.Entries, filter)
 	return listing, nil
 }
 
-// FileInfo returns metadata for a single file or directory.
 func (a *App) FileInfo(path string) (*FileInfo, error) {
 	return a.GetFileInfo(path)
 }
@@ -106,6 +101,33 @@ func (a *App) Copy(source, destination string, recursive bool) (*OperationResult
 
 func (a *App) Search(path, pattern string, recursive bool) (*SearchResult, error) {
 	return a.SearchFiles(path, pattern, recursive)
+}
+
+// ============================================================================
+// Archive traversal  (treat archives like directories, no temp files)
+// ============================================================================
+
+// ArchiveBrowse is the unified entry point the frontend calls whenever it
+// "opens" something that is an ARCHIVE type entry.
+//
+//   - fsPath      – absolute path to the on-disk archive file.
+//   - nestedChain – empty for a top-level archive; each element is the entry
+//     name of an archive-inside-an-archive, in order from
+//     outermost to innermost.
+//   - innerPath   – the sub-directory inside the (innermost) archive to list,
+//     e.g. "" for the root or "src/pkg" for a subdirectory.
+func (a *App) ArchiveBrowse(fsPath string, nestedChain []string, innerPath string) (ArchiveListing, error) {
+	if len(nestedChain) == 0 {
+		return a.ArchiveList(fsPath, innerPath)
+	}
+	return a.ArchiveListNested(fsPath, nestedChain, innerPath)
+}
+
+// ArchiveRead returns the contents of a single file inside an archive.
+// Use the same fsPath / nestedChain as ArchiveBrowse, and set entryPath to
+// the full inner path of the file you want to read.
+func (a *App) ArchiveRead(fsPath string, nestedChain []string, entryPath string) (*FileContent, error) {
+	return a.ArchiveReadFile(fsPath, nestedChain, entryPath)
 }
 
 // ============================================================================
@@ -143,7 +165,6 @@ func (a *App) NavGoUp(paneID string) (*DirectoryListing, error) {
 	if current == "" {
 		return nil, fmt.Errorf("no current path for pane %q", paneID)
 	}
-	// Ensure parentPath is defined in your utils
 	parent := filepath.Dir(current)
 	if parent == current {
 		return nil, fmt.Errorf("already at root")

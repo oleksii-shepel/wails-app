@@ -1,190 +1,245 @@
 import { Injectable } from '@angular/core';
 
-// ============================================================================
-// Archive Response Types
-// ============================================================================
+declare const window: any;
 
-export type ArchiveEntryType = 'FILE' | 'DIRECTORY';
+// ─── Archive format detection ────────────────────────────────────────────────
 
-export interface ArchiveEntry {
-  name: string;
-  innerPath: string;
-  type: ArchiveEntryType;
-  size: number;
-  compressedSize: number;
-  modified: number;
-  compression: string;
-}
+const SINGLE_EXT = new Set([
+  'zip', 'jar', 'war', 'ear', 'apk', 'ipa', 'xpi', 'crx', 'whl',
+  'rar', 'r00', 'r01',
+  '7z',
+  'gz', 'bz2', 'xz', 'zst', 'lz4', 'lzma', 'lzo', 'br',
+  'tar',
+  'iso', 'img', 'dmg',
+  'cab', 'msi',
+  'deb', 'rpm',
+  'arj', 'lzh', 'lha', 'ace', 'arc', 'zoo',
+  'zz', 'z',
+]);
 
-export interface ArchiveListing {
-  archivePath: string;
-  innerPath: string;
-  format: string;
-  entries: ArchiveEntry[];
-  totalSize: number;
-}
-
-export interface ReadArchiveFileResponse {
-  path: string;
-  content: string;
-  encoding: 'utf8' | 'base64';
-  size: number;
-}
-
-export interface ExtractArchiveResponse {
-  success: boolean;
-  message: string;
-  affectedPaths: string[];
-}
-
-// ============================================================================
-// Archive Format Detection
-// ============================================================================
-
-export type ArchiveFormat =
-  | 'zip' | 'tar' | 'tar.gz' | 'tar.bz2' | 'tar.xz' | 'tar.zst'
-  | 'gz' | 'bz2' | 'xz' | 'zst'
-  | '7z' | 'rar' | 'cab' | 'arj' | 'lzh' | 'ace';
-
-const ARCHIVE_EXTENSIONS = [
-  '.zip', '.jar', '.war', '.ear', '.apk',
-  '.docx', '.xlsx', '.pptx', '.odt', '.ods', '.odp',
-  '.tar', '.tar.gz', '.tgz', '.tar.bz2', '.tbz2', '.tbz',
-  '.tar.xz', '.txz', '.tar.zst', '.tar.zstd', '.tzst',
-  '.gz', '.bz2', '.xz', '.zst', '.zstd',
-  '.7z', '.rar', '.cab', '.arj', '.lzh', '.lha', '.ace',
+const COMPOUND_EXT: string[] = [
+  'tar.gz', 'tar.bz2', 'tar.xz', 'tar.zst', 'tar.lz4',
+  'tar.lzma', 'tar.lzo', 'tar.br', 'tar.z',
+  'tar.sz', 'tar.zz',
 ];
 
-export function isArchive(path: string): boolean {
-  const lower = path.toLowerCase();
-  return ARCHIVE_EXTENSIONS.some(ext => lower.endsWith(ext));
+export function isArchive(name: string): boolean {
+  if (!name) return false;
+  const lower = name.toLowerCase();
+  for (const ext of COMPOUND_EXT) {
+    if (lower.endsWith('.' + ext)) return true;
+  }
+  const dot = lower.lastIndexOf('.');
+  return dot !== -1 && SINGLE_EXT.has(lower.slice(dot + 1));
 }
 
-export function getArchiveFormat(path: string): ArchiveFormat | 'unknown' {
-  const lower = path.toLowerCase();
-  if (lower.endsWith('.tar.gz') || lower.endsWith('.tgz')) return 'tar.gz';
-  if (lower.endsWith('.tar.bz2') || lower.endsWith('.tbz2') || lower.endsWith('.tbz')) return 'tar.bz2';
-  if (lower.endsWith('.tar.xz') || lower.endsWith('.txz')) return 'tar.xz';
-  if (lower.endsWith('.tar.zst') || lower.endsWith('.tar.zstd') || lower.endsWith('.tzst')) return 'tar.zst';
-  if (lower.endsWith('.tar')) return 'tar';
-  if (['.zip','.jar','.war','.ear','.apk','.docx','.xlsx','.pptx','.odt','.ods','.odp']
-        .some(e => lower.endsWith(e))) return 'zip';
-  if (lower.endsWith('.gz')) return 'gz';
-  if (lower.endsWith('.bz2')) return 'bz2';
-  if (lower.endsWith('.xz')) return 'xz';
-  if (lower.endsWith('.zst') || lower.endsWith('.zstd')) return 'zst';
-  if (lower.endsWith('.7z')) return '7z';
-  if (lower.endsWith('.rar')) return 'rar';
-  if (lower.endsWith('.cab')) return 'cab';
-  if (lower.endsWith('.arj')) return 'arj';
-  if (lower.endsWith('.lzh') || lower.endsWith('.lha')) return 'lzh';
-  if (lower.endsWith('.ace')) return 'ace';
-  return 'unknown';
+export function archiveExtension(name: string): string {
+  const lower = name.toLowerCase();
+  for (const ext of COMPOUND_EXT) {
+    if (lower.endsWith('.' + ext)) return ext;
+  }
+  const dot = lower.lastIndexOf('.');
+  return dot === -1 ? '' : lower.slice(dot + 1);
 }
 
-export function getFormatDescription(format: ArchiveFormat | string): string {
-  const descriptions: Record<string, string> = {
-    'zip': 'ZIP Archive', 'tar': 'TAR Archive', 'tar.gz': 'GZIP-compressed TAR',
-    'tar.bz2': 'BZIP2-compressed TAR', 'tar.xz': 'XZ-compressed TAR',
-    'tar.zst': 'Zstandard-compressed TAR', 'gz': 'GZIP Compressed File',
-    'bz2': 'BZIP2 Compressed File', 'xz': 'XZ Compressed File',
-    'zst': 'Zstandard Compressed File', '7z': '7-Zip Archive',
-    'rar': 'RAR Archive', 'cab': 'CAB Archive', 'arj': 'ARJ Archive',
-    'lzh': 'LZH Archive', 'ace': 'ACE Archive',
-  };
-  return descriptions[format] ?? `Unknown (${format})`;
+// ─── Protocol types (must match Go structs) ──────────────────────────────────
+
+/**
+ * One entry returned by Go's ArchiveList / ArchiveListNested.
+ * Must match the Go struct `ArchiveEntry`.
+ */
+export interface ArchiveEntry {
+  name: string;       // basename, e.g. "README.md"
+  innerPath: string;  // full path inside the archive, e.g. "src/lib/README.md"
+  type: 'FILE' | 'DIRECTORY';
+  size: number;
+  modified: number;   // unix milliseconds
 }
 
-export function getFormatExtension(format: ArchiveFormat): string {
-  const extensions: Record<ArchiveFormat, string> = {
-    'zip': '.zip', 'tar': '.tar', 'tar.gz': '.tar.gz', 'tar.bz2': '.tar.bz2',
-    'tar.xz': '.tar.xz', 'tar.zst': '.tar.zst', 'gz': '.gz', 'bz2': '.bz2',
-    'xz': '.xz', 'zst': '.zst', '7z': '.7z', 'rar': '.rar', 'cab': '.cab',
-    'arj': '.arj', 'lzh': '.lzh', 'ace': '.ace',
-  };
-  return extensions[format] ?? '.unknown';
+/**
+ * Response from Go's ArchiveList / ArchiveListNested.
+ * Must match the Go struct `ArchiveListing`.
+ */
+export interface ArchiveListing {
+  archivePath: string;  // outermost filesystem path
+  innerPath: string;    // folder currently listed
+  entries: ArchiveEntry[];
 }
 
-// ============================================================================
-// Service – calls Wails backend directly (no HTTP command bus)
-// ============================================================================
+// ─── Navigation stack type ───────────────────────────────────────────────────
+
+/**
+ * One level in the archive navigation stack.
+ *
+ * stack[0]  — root archive opened directly from the filesystem:
+ *   archiveFsPath   = "C:/stuff/outer.zip"
+ *   nestedEntryPath = null
+ *   innerPath       = current folder, e.g. "" or "src/lib"
+ *
+ * stack[1+] — nested archive opened from inside the parent:
+ *   archiveFsPath   = same root FS path as stack[0] (Go always needs it)
+ *   nestedEntryPath = innerPath of this archive inside the root,
+ *                     e.g. "libs/inner.tar.gz"
+ *   innerPath       = current folder within this nested archive
+ */
+export interface ArchiveFrame {
+  /** Filesystem path of the outermost archive — constant throughout the whole stack. */
+  archiveFsPath: string;
+  /**
+   * Path of this archive entry within the root archive.
+   * null only for stack[0] (the root archive itself).
+   */
+  nestedEntryPath: string | null;
+  /** Current folder being browsed. "" = root of this archive level. */
+  innerPath: string;
+  /** Cached listing — restored instantly when navigating back without a network call. */
+  listing: ArchiveListing;
+  /** Display name used in the address bar breadcrumb. */
+  archiveName: string;
+}
+
+// ─── Service ─────────────────────────────────────────────────────────────────
 
 @Injectable({ providedIn: 'root' })
 export class ArchiveService {
 
-  /** Direct call to the Wails Go bridge. */
+  /**
+   * Direct Wails bridge call — same pattern as ApiService.call().
+   * No dependency on ApiService needed since we call Go directly.
+   */
   private call<T>(method: string, ...args: unknown[]): Promise<T> {
-    const bridge = (window as any)?.go?.main?.App;
-    if (!bridge?.[method]) {
-      return Promise.reject(new Error(`Wails bridge method '${method}' not found.`));
+    const bridge = window?.go?.main?.App;
+    if (!bridge) {
+      return Promise.reject(new Error('Wails bridge (window.go.main.App) not available.'));
+    }
+    if (typeof bridge[method] !== 'function') {
+      return Promise.reject(new Error(`Go method '${method}' not found on Wails bridge.`));
     }
     return bridge[method](...args) as Promise<T>;
   }
 
-  /**
-   * List entries inside an archive.
-   * @param archivePath  Absolute path to the archive on disk.
-   * @param innerPath    Sub-directory inside the archive ('' = root).
-   */
-  async listArchive(archivePath: string, innerPath = ''): Promise<ArchiveListing> {
-    return this.call<ArchiveListing>('ListArchive', archivePath, innerPath);
-  }
+  // ── Public API ─────────────────────────────────────────────────────────────
 
   /**
-   * Read a single file from inside an archive.
+   * Open a root (filesystem) archive and return the initial frame.
+   *
+   * Go signature:
+   *   func (a *App) ArchiveList(fsPath string, innerPath string) (ArchiveListing, error)
    */
-  async readArchiveFile(
-    archivePath: string,
-    innerPath: string,
-    encoding: 'utf8' | 'base64' = 'utf8',
-  ): Promise<ReadArchiveFileResponse> {
-    return this.call<ReadArchiveFileResponse>('ReadArchiveFile', archivePath, innerPath, encoding);
-  }
-
-  /**
-   * Extract entries from an archive to a destination directory.
-   * @param innerPaths  Specific inner paths to extract; empty = all.
-   */
-  async extractArchive(
-    archivePath: string,
-    destination: string,
-    innerPaths: string[] = [],
-  ): Promise<ExtractArchiveResponse> {
-    return this.call<ExtractArchiveResponse>('ExtractArchive', archivePath, destination, innerPaths);
-  }
-
-  // ---------------------------------------------------------------------------
-  // Pure-TS helpers (unchanged from original)
-  // ---------------------------------------------------------------------------
-
-  compressionRatio(entry: ArchiveEntry): string {
-    if (entry.size === 0 || entry.compressedSize === 0) return '—';
-    return `${Math.round((1 - entry.compressedSize / entry.size) * 100)}%`;
-  }
-
-  isArchivePath(path: string): boolean { return isArchive(path); }
-  getArchiveFormat(path: string): ArchiveFormat | 'unknown' { return getArchiveFormat(path); }
-  getFormatDescription(format: ArchiveFormat | string): string { return getFormatDescription(format); }
-  getFormatExtension(format: ArchiveFormat): string { return getFormatExtension(format); }
-
-  isFormatSupported(format: string): boolean {
-    return (['zip','tar','tar.gz','tar.bz2','tar.xz','tar.zst','gz','bz2','xz','zst',
-             '7z','rar','cab','arj','lzh','ace'] as string[]).includes(format);
-  }
-
-  getSupportedFormats(): ArchiveFormat[] {
-    return ['zip','tar','tar.gz','tar.bz2','tar.xz','tar.zst',
-            'gz','bz2','xz','zst','7z','rar','cab','arj','lzh','ace'];
-  }
-
-  getArchiveIcon(format: ArchiveFormat | string): string {
-    const icons: Record<string, string> = {
-      'zip':'📦','tar':'📦','tar.gz':'📦','tar.bz2':'📦','tar.xz':'📦','tar.zst':'📦',
-      'gz':'🗜️','bz2':'🗜️','xz':'🗜️','zst':'🗜️','7z':'🗜️',
-      'rar':'📚','cab':'📦','arj':'📦','lzh':'📦','ace':'📦',
+  async openRootArchive(fsPath: string): Promise<ArchiveFrame> {
+    const listing = await this.call<ArchiveListing>('ArchiveList', fsPath, '');
+    return {
+      archiveFsPath: fsPath,
+      nestedEntryPath: null,
+      innerPath: '',
+      listing,
+      archiveName: basename(fsPath),
     };
-    return icons[format] ?? '📄';
+  }
+
+  /**
+   * Navigate into a sub-folder within the current archive level.
+   * Fetches the listing for targetInnerPath and returns an updated frame.
+   *
+   * Uses ArchiveList for root archives, ArchiveListNested for nested ones.
+   */
+  async navigateInto(frame: ArchiveFrame, targetInnerPath: string): Promise<ArchiveFrame> {
+    const listing = await this.fetchListing(
+      frame.archiveFsPath,
+      frame.nestedEntryPath,
+      targetInnerPath,
+    );
+    return { ...frame, innerPath: targetInnerPath, listing };
+  }
+
+  /**
+   * Open a nested archive entry that lives inside the current frame.
+   *
+   * Go signature:
+   *   func (a *App) ArchiveListNested(
+   *     fsPath string,        // outermost archive on disk
+   *     nestedEntry string,   // path of the nested archive within fsPath
+   *     innerPath string,     // folder to list within the nested archive
+   *   ) (ArchiveListing, error)
+   *
+   * @param parentFrame     Frame that contains the nested archive entry.
+   * @param entryInnerPath  innerPath of the nested archive within parentFrame.
+   * @param entryName       Display name, e.g. "inner.tar.gz".
+   */
+  async openNestedArchive(
+    parentFrame: ArchiveFrame,
+    entryInnerPath: string,
+    entryName: string,
+  ): Promise<ArchiveFrame> {
+    const listing = await this.call<ArchiveListing>(
+      'ArchiveListNested',
+      parentFrame.archiveFsPath,
+      entryInnerPath,
+      '',
+    );
+    return {
+      archiveFsPath: parentFrame.archiveFsPath,
+      nestedEntryPath: entryInnerPath,
+      innerPath: '',
+      listing,
+      archiveName: entryName,
+    };
+  }
+
+  /** Re-fetch the listing for an existing frame (refresh). */
+  async refreshFrame(frame: ArchiveFrame): Promise<ArchiveFrame> {
+    const listing = await this.fetchListing(
+      frame.archiveFsPath,
+      frame.nestedEntryPath,
+      frame.innerPath,
+    );
+    return { ...frame, listing };
+  }
+
+  // ── Private ────────────────────────────────────────────────────────────────
+
+  private fetchListing(
+    archiveFsPath: string,
+    nestedEntryPath: string | null,
+    innerPath: string,
+  ): Promise<ArchiveListing> {
+    if (nestedEntryPath) {
+      // Inside a nested archive — Go needs to extract it from the root first
+      return this.call<ArchiveListing>(
+        'ArchiveListNested',
+        archiveFsPath,
+        nestedEntryPath,
+        innerPath,
+      );
+    }
+    // Inside the root archive
+    return this.call<ArchiveListing>('ArchiveList', archiveFsPath, innerPath);
   }
 }
 
-export { getArchiveFormat as archiveFormat };
+// ─── Utilities ────────────────────────────────────────────────────────────────
+
+function basename(path: string): string {
+  return path.replace(/\\/g, '/').split('/').pop() ?? path;
+}
+
+/** Join two innerPaths, avoiding double slashes. */
+export function joinInnerPath(base: string, segment: string): string {
+  if (!base) return segment;
+  if (!segment) return base;
+  return base.replace(/\/$/, '') + '/' + segment.replace(/^\//, '');
+}
+
+/**
+ * Build a virtual path string for the address bar when inside an archive stack.
+ * e.g. "C:/stuff/outer.zip :: libs/inner.tar.gz / src"
+ */
+export function buildArchiveDisplayPath(fsDir: string, stack: ArchiveFrame[]): string {
+  if (!stack.length) return fsDir;
+  let result = fsDir;
+  for (const frame of stack) {
+    result += ' :: ' + frame.archiveName;
+    if (frame.innerPath) result += ' / ' + frame.innerPath;
+  }
+  return result;
+}

@@ -11,15 +11,11 @@ import { ApiService } from '../services/api.service';
 import { WorkspaceService } from '../services/workspace.service';
 import { FilterService } from '../services/filter.service';
 import { PathHistoryService } from '../services/path-history.service';
-import { ArchiveService, ArchiveListing, isArchive } from '../services/archive.service';
+import {
+  ArchiveService, ArchiveFrame, isArchive, buildArchiveDisplayPath
+} from '../services/archive.service';
 
 declare const window: any;
-
-interface ArchiveStackFrame {
-  archivePath: string;
-  innerPath: string;
-  listing: ArchiveListing;
-}
 
 @Component({
   selector: 'app-file-pane',
@@ -134,6 +130,8 @@ export class FilePaneComponent implements OnInit, OnChanges {
   @Output() moveToOther = new EventEmitter<string[]>();
 
   currentPath = '';
+  /** The real filesystem path — preserved when we enter archives so we can restore it. */
+  private fsDirPath = '';
   currentTabId = '';
   pathReady = false;  // guards address bar from rendering with stale '/'
   tabs: TabInfo[] = [];
@@ -145,8 +143,7 @@ export class FilePaneComponent implements OnInit, OnChanges {
   filterText = '';
   filterQuery: FilterQuery = { text: '', criteria: [] };
 
-  archiveStack: ArchiveStackFrame[] = [];
-  currentArchiveListing: ArchiveListing | null = null;
+  archiveStack: ArchiveFrame[] = [];
 
   FileType = FileType;
   isArchive = isArchive;
@@ -200,6 +197,7 @@ export class FilePaneComponent implements OnInit, OnChanges {
     try {
       const listing = await this.apiService.listDirectory(path, this.showHidden);
       this.currentPath = listing.path;
+      this.fsDirPath = listing.path;  // preserve real FS path for archive display
       this.entries = listing.entries;
       this.selectedFiles.clear();
       this.applyFilter();
@@ -299,20 +297,26 @@ export class FilePaneComponent implements OnInit, OnChanges {
 
   onNavigate(entry: FileInfo): void {
     if (entry.path === '__archive_parent__') { this.navigateArchiveUp(); return; }
+
     if (this.isInArchive()) {
       if (entry.type === FileType.DIRECTORY) {
-        const frame = this.archiveStack[this.archiveStack.length - 1];
-        this.loadArchive(frame.archivePath, entry.path);
+        // Navigate into a sub-folder within the current archive level
+        this.archiveNavigateInto(entry.name, entry.path);
+      } else if (entry.type === FileType.FILE && isArchive(entry.name)) {
+        // Open a nested archive inside the current archive
+        this.openNestedArchive(entry.path, entry.name);
       }
       return;
     }
+
+    // Normal filesystem navigation
     if (entry.type === FileType.DIRECTORY) {
       if (entry.name === '..') this.onNavigateUp();
       else this.loadDirectory(entry.path);
       return;
     }
     if (entry.type === FileType.FILE && isArchive(entry.name)) {
-      this.loadArchive(entry.path);
+      this.openRootArchive(entry.path);
     }
   }
 
@@ -324,57 +328,139 @@ export class FilePaneComponent implements OnInit, OnChanges {
     }
   }
 
-  // Archive navigation
+  // ── Archive navigation ───────────────────────────────────────────────────
+
   isInArchive(): boolean { return this.archiveStack.length > 0; }
 
-  async loadArchive(archivePath: string, innerPath = ''): Promise<void> {
+  /** Open a top-level (filesystem) archive. Pushes the first frame. */
+  async openRootArchive(fsPath: string): Promise<void> {
     this.loading = true;
     this.error = null;
     try {
-      const listing = await this.archiveService.listArchive(archivePath, innerPath);
-      if (!listing) throw new Error('Empty response from server');
-      const frame: ArchiveStackFrame = { archivePath, innerPath, listing };
-      this.archiveStack.push(frame);
-      this.currentArchiveListing = listing;
-      this.entries = this.archiveListingToFileInfos(listing);
-      this.selectedFiles.clear();
-      this.applyFilter();
-    } catch (error: any) {
-      this.error = error.message || 'Failed to open archive';
+      const frame = await this.archiveService.openRootArchive(fsPath);
+      this.archiveStack = [frame];
+      this.renderArchiveFrame(frame);
+    } catch (err: any) {
+      this.error = err.message || 'Failed to open archive';
     } finally {
       this.loading = false;
     }
   }
 
+  /** Navigate into a sub-directory within the current archive level. */
+  private async archiveNavigateInto(name: string, innerPath: string): Promise<void> {
+    const currentFrame = this.archiveStack[this.archiveStack.length - 1];
+    this.loading = true;
+    this.error = null;
+    try {
+      const newFrame = await this.archiveService.navigateInto(currentFrame, name);
+      // Replace the top frame (same archive, deeper folder)
+      this.archiveStack[this.archiveStack.length - 1] = newFrame;
+      this.renderArchiveFrame(newFrame);
+    } catch (err: any) {
+      this.error = err.message || 'Failed to navigate into folder';
+    } finally {
+      this.loading = false;
+    }
+  }
+
+  /** Open a nested archive that lives inside the current archive. */
+  private async openNestedArchive(entryInnerPath: string, entryName: string): Promise<void> {
+    const currentFrame = this.archiveStack[this.archiveStack.length - 1];
+    this.loading = true;
+    this.error = null;
+    try {
+      const newFrame = await this.archiveService.openNestedArchive(
+        currentFrame, entryInnerPath, entryName
+      );
+      this.archiveStack.push(newFrame);
+      this.renderArchiveFrame(newFrame);
+    } catch (err: any) {
+      this.error = err.message || `Failed to open nested archive: ${entryName}`;
+    } finally {
+      this.loading = false;
+    }
+  }
+
+  /** Navigate up one level in the archive stack. */
   async navigateArchiveUp(): Promise<void> {
-    this.archiveStack.pop();
-    if (this.archiveStack.length === 0) {
-      this.currentArchiveListing = null;
-      await this.loadDirectory(this.currentPath);
+    const currentFrame = this.archiveStack[this.archiveStack.length - 1];
+
+    // If we're inside a sub-folder of the current archive, go to its parent folder
+    if (currentFrame.innerPath) {
+      const parentInnerPath = currentFrame.innerPath.includes('/')
+        ? currentFrame.innerPath.replace(/\/[^/]+$/, '')
+        : '';
+      this.loading = true;
+      this.error = null;
+      try {
+        // Fetch the parent folder listing. navigateInto expects a target innerPath,
+        // so we pass a root-anchored frame and navigate to the parent innerPath.
+        const rootFrame = { ...currentFrame, innerPath: '' };
+        const parentFrame = await this.archiveService.navigateInto(rootFrame, parentInnerPath);
+        const newFrame: ArchiveFrame = { ...currentFrame, innerPath: parentInnerPath, listing: parentFrame.listing };
+        this.archiveStack[this.archiveStack.length - 1] = newFrame;
+        this.renderArchiveFrame(newFrame);
+      } catch (err: any) {
+        this.error = err.message || 'Failed to navigate up';
+      } finally {
+        this.loading = false;
+      }
       return;
     }
-    const frame = this.archiveStack[this.archiveStack.length - 1];
-    this.currentArchiveListing = frame.listing;
-    this.entries = this.archiveListingToFileInfos(frame.listing);
-    this.selectedFiles.clear();
-    this.applyFilter();
+
+    // At the root of this archive level — pop the stack
+    this.archiveStack.pop();
+    if (this.archiveStack.length === 0) {
+      // Exited all archives — go back to filesystem
+      await this.loadDirectory(this.fsDirPath || this.currentPath);
+      return;
+    }
+    // Restore the previous archive level (cached listing, no network call)
+    this.renderArchiveFrame(this.archiveStack[this.archiveStack.length - 1]);
   }
 
   exitArchive(): void {
     this.archiveStack = [];
-    this.currentArchiveListing = null;
+    if (this.fsDirPath) this.currentPath = this.fsDirPath;
   }
 
   private async refreshArchive(): Promise<void> {
     const frame = this.archiveStack[this.archiveStack.length - 1];
-    this.archiveStack.pop();
-    await this.loadArchive(frame.archivePath, frame.innerPath);
+    this.loading = true;
+    this.error = null;
+    try {
+      const refreshed = await this.archiveService.refreshFrame(frame);
+      this.archiveStack[this.archiveStack.length - 1] = refreshed;
+      this.renderArchiveFrame(refreshed);
+    } catch (err: any) {
+      this.error = err.message || 'Failed to refresh archive';
+    } finally {
+      this.loading = false;
+    }
   }
 
-  private archiveListingToFileInfos(listing: ArchiveListing): FileInfo[] {
-    const entries: FileInfo[] = listing.entries.map(e => ({
+  /** Render the entries from an archive frame and update the address bar. */
+  private renderArchiveFrame(frame: ArchiveFrame): void {
+    this.entries = this.archiveListingToFileInfos(frame);
+    this.selectedFiles.clear();
+    this.applyFilter();
+    this.updateArchiveAddressBar();
+  }
+
+  /** Update currentPath to reflect the virtual archive path shown in the address bar. */
+  private updateArchiveAddressBar(): void {
+    if (!this.isInArchive()) {
+      this.currentPath = this.fsDirPath || this.currentPath;
+      return;
+    }
+    this.currentPath = buildArchiveDisplayPath(this.fsDirPath || this.currentPath, this.archiveStack);
+  }
+
+  private archiveListingToFileInfos(frame: ArchiveFrame): FileInfo[] {
+    const entries: FileInfo[] = frame.listing.entries.map(e => ({
       name: e.name,
-      path: e.innerPath,
+      path: e.innerPath,   // innerPath within the archive — used by onNavigate
       type: e.type === 'DIRECTORY' ? FileType.DIRECTORY : FileType.FILE,
       size: e.size,
       modified: e.modified,
@@ -387,12 +473,9 @@ export class FilePaneComponent implements OnInit, OnChanges {
       name: '..',
       path: '__archive_parent__',
       type: FileType.DIRECTORY,
-      size: 0,
-      modified: 0,
+      size: 0, modified: 0,
       permissions: 'drwxr-xr-x',
-      isHidden: false,
-      created: 0,
-      accessed: 0,
+      isHidden: false, created: 0, accessed: 0,
     }, ...entries];
   }
 

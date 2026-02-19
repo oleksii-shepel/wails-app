@@ -361,7 +361,7 @@ export class WorkspaceService {
 
   /**
    * Update the filesystem path of a tab and derive its title from the basename.
-   * Should NOT be called while inside an archive — use updateTabTitle instead.
+   * Only called during real FS navigation — never while inside an archive.
    */
   updateTabPath(paneId: string, tabId: string, path: string): boolean {
     const workspace = this.activeWorkspaceSubject.value;
@@ -377,19 +377,19 @@ export class WorkspaceService {
     this.updateWorkspace(
       workspace.id,
       { [paneId === 'left' ? 'leftPane' : 'rightPane']: pane },
-      true, // silent — avoids reload loop
+      true,
     );
     return true;
   }
 
   /**
-   * Update only the display title of a tab without touching its stored path.
+   * Update both the path and title of a tab explicitly, without any derivation.
    *
-   * Used by FilePaneComponent when navigating inside an archive so the tab
-   * shows e.g. "project.zip > src" while tab.path still holds the real FS
-   * path (needed to restore navigation on tab switch / workspace reload).
+   * Used for archive navigation where path and title are virtual
+   * (e.g. "C:/Desktop.zip/src") and must not be processed by getPathTitle.
+   * Also used on archive exit to restore the real FS path + basename title.
    */
-  updateTabTitle(paneId: string, tabId: string, title: string): boolean {
+  updateTabPathAndTitle(paneId: string, tabId: string, path: string, title: string): boolean {
     const workspace = this.activeWorkspaceSubject.value;
     if (!workspace) return false;
 
@@ -397,12 +397,13 @@ export class WorkspaceService {
     const tab = pane.tabs.find((t) => t.id === tabId);
     if (!tab) return false;
 
+    tab.path = path;
     tab.title = title;
 
     this.updateWorkspace(
       workspace.id,
       { [paneId === 'left' ? 'leftPane' : 'rightPane']: pane },
-      true, // silent — title change doesn't need to re-trigger workspace reload
+      true,
     );
     return true;
   }

@@ -40,37 +40,48 @@ export function isArchive(name: string): boolean {
 }
 
 /**
- * Build the virtual display path shown in the address bar while inside archives.
- * e.g.  /home/user/project.zip > src/lib
+ * Build the full virtual path shown in the address bar and stored as the tab path.
+ *
+ * Examples:
+ *   C:/Desktop.zip
+ *   C:/Desktop.zip/src
+ *   C:/Desktop.zip/progress.zip
+ *   C:/Desktop.zip/progress.zip/docs
  */
 export function buildArchiveDisplayPath(rootFsPath: string, stack: ArchiveFrame[]): string {
   if (stack.length === 0) return rootFsPath;
   const frame = stack[stack.length - 1];
+  // rootFsPath already ends with the archive filename (e.g. C:/Desktop.zip)
   const parts = [rootFsPath, ...frame.nestedChain];
   if (frame.innerPath) parts.push(frame.innerPath);
-  return parts.join(' > ');
+  // Join with / — rootFsPath may already end with / on some platforms so normalise
+  return parts.join('/').replace(/\/+/g, '/');
 }
 
 /**
- * Build a concise tab title for the current archive position.
- * Format:  archive.zip                      (at root)
- *          archive.zip > subdir             (inside a sub-folder)
- *          outer.zip > inner.zip            (nested archive root)
- *          outer.zip > inner.zip > subdir   (nested + sub-folder)
+ * Build the tab display title — just the last meaningful segment of the virtual path.
  *
- * Uses basenames only — no full FS path in the tab title.
- * For deep innerPaths only the last segment is shown to keep the title short.
+ * Examples:
+ *   C:/Desktop.zip            →  Desktop.zip
+ *   C:/Desktop.zip/src        →  src
+ *   C:/Desktop.zip/progress.zip          →  progress.zip
+ *   C:/Desktop.zip/progress.zip/docs     →  docs
  */
 export function buildArchiveTabTitle(rootFsPath: string, stack: ArchiveFrame[]): string {
-  const archiveName = rootFsPath.split('/').filter(Boolean).pop() ?? rootFsPath;
-  if (stack.length === 0) return archiveName;
-  const frame = stack[stack.length - 1];
-  const parts = [archiveName, ...frame.nestedChain];
-  if (frame.innerPath) {
-    const lastFolder = frame.innerPath.split('/').filter(Boolean).pop();
-    if (lastFolder) parts.push(lastFolder);
+  if (stack.length === 0) {
+    return rootFsPath.split('/').filter(Boolean).pop() ?? rootFsPath;
   }
-  return parts.join(' > ');
+  const frame = stack[stack.length - 1];
+  // Innermost sub-directory takes priority
+  if (frame.innerPath) {
+    return frame.innerPath.split('/').filter(Boolean).pop() ?? frame.innerPath;
+  }
+  // Deepest nested archive in the chain
+  if (frame.nestedChain.length > 0) {
+    return frame.nestedChain[frame.nestedChain.length - 1];
+  }
+  // At the root of the top-level archive
+  return rootFsPath.split('/').filter(Boolean).pop() ?? rootFsPath;
 }
 
 // ─── Wails Go bridge ─────────────────────────────────────────────────────────

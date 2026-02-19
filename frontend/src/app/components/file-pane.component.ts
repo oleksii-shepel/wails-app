@@ -130,8 +130,10 @@ export class FilePaneComponent implements OnInit, OnChanges {
   @Output() moveToOther = new EventEmitter<string[]>();
 
   currentPath = '';
-  /** The real filesystem path — preserved when we enter archives so we can restore it. */
+  /** Full path to the archive file currently open (e.g. C:/Desktop.zip). Used by address bar. */
   fsDirPath = '';
+  /** The real FS directory containing the archive — restored when exiting. */
+  private fsParentDir = '';
   currentTabId = '';
   pathReady = false;
   tabs: TabInfo[] = [];
@@ -192,6 +194,7 @@ export class FilePaneComponent implements OnInit, OnChanges {
       const listing = await this.apiService.listDirectory(path, this.showHidden);
       this.currentPath = listing.path;
       this.fsDirPath = listing.path;
+      this.fsParentDir = listing.path;  // remember the FS dir for archive exit
       this.entries = listing.entries;
       this.selectedFiles.clear();
       this.applyFilter();
@@ -347,6 +350,10 @@ export class FilePaneComponent implements OnInit, OnChanges {
     try {
       const frame = await this.archiveService.openRootArchive(fsPath);
       this.archiveStack = [frame];
+      // fsParentDir = the directory we came from (for restoring on exit)
+      // fsDirPath   = the archive file path itself (for address bar / breadcrumbs)
+      this.fsParentDir = this.fsDirPath;
+      this.fsDirPath = fsPath;
       this.renderArchiveFrame(frame);
     } catch (err: any) {
       this.error = err.message || 'Failed to open archive';
@@ -365,8 +372,8 @@ export class FilePaneComponent implements OnInit, OnChanges {
     this.error = null;
     try {
       const newFrame = await this.archiveService.navigateInto(currentFrame, folderInnerPath);
-      // Replace the top frame (same archive, deeper folder)
-      this.archiveStack[this.archiveStack.length - 1] = newFrame;
+      // New array reference so Angular OnChanges fires on [archiveStack] input
+      this.archiveStack = [...this.archiveStack.slice(0, -1), newFrame];
       this.renderArchiveFrame(newFrame);
     } catch (err: any) {
       this.error = err.message || 'Failed to navigate into folder';
@@ -382,7 +389,7 @@ export class FilePaneComponent implements OnInit, OnChanges {
     this.error = null;
     try {
       const newFrame = await this.archiveService.openNestedArchive(currentFrame, nestedChain);
-      this.archiveStack.push(newFrame);
+      this.archiveStack = [...this.archiveStack, newFrame];  // new reference ✓
       this.renderArchiveFrame(newFrame);
     } catch (err: any) {
       this.error = err.message || 'Failed to open nested archive';
@@ -400,22 +407,22 @@ export class FilePaneComponent implements OnInit, OnChanges {
       // Try navigating to the parent folder within the same archive level.
       const parentFrame = await this.archiveService.navigateUp(currentFrame);
       if (parentFrame !== null) {
-        this.archiveStack[this.archiveStack.length - 1] = parentFrame;
+        this.archiveStack = [...this.archiveStack.slice(0, -1), parentFrame]; // new reference ✓
         this.renderArchiveFrame(parentFrame);
         return;
       }
 
       // At the root of this archive level — pop the stack.
-      this.archiveStack.pop();
+      const poppedStack = this.archiveStack.slice(0, -1);
 
-      if (this.archiveStack.length === 0) {
-        // Exited all archives — return to the filesystem directory.
-        await this.loadDirectory(this.fsDirPath || this.currentPath);
+      if (poppedStack.length === 0) {
+        this.archiveStack = [];                               // new reference ✓
+        await this.loadDirectory(this.fsParentDir || this.fsDirPath);
         return;
       }
 
-      // Restore the previous archive level (listing is already cached).
-      this.renderArchiveFrame(this.archiveStack[this.archiveStack.length - 1]);
+      this.archiveStack = poppedStack;                       // new reference ✓
+      this.renderArchiveFrame(poppedStack[poppedStack.length - 1]);
     } catch (err: any) {
       this.error = err.message || 'Failed to navigate up';
     } finally {
@@ -425,11 +432,12 @@ export class FilePaneComponent implements OnInit, OnChanges {
 
   exitArchive(): void {
     this.archiveStack = [];
-    if (this.fsDirPath) {
-      this.currentPath = this.fsDirPath;
-      // Restore tab title to the real directory name
-      const dirName = this.fsDirPath.split('/').filter(Boolean).pop() ?? this.fsDirPath;
-      this.workspaceService.updateTabTitle(this.paneId, this.currentTabId, dirName);
+    const restorePath = this.fsParentDir || this.fsDirPath;
+    if (restorePath) {
+      this.currentPath = restorePath;
+      this.fsDirPath = restorePath;
+      const dirName = restorePath.split('/').filter(Boolean).pop() ?? restorePath;
+      this.workspaceService.updateTabPathAndTitle(this.paneId, this.currentTabId, restorePath, dirName);
       this.tabs = this.workspaceService.getTabs(this.paneId);
     }
   }
@@ -440,7 +448,7 @@ export class FilePaneComponent implements OnInit, OnChanges {
     this.error = null;
     try {
       const refreshed = await this.archiveService.refreshFrame(frame);
-      this.archiveStack[this.archiveStack.length - 1] = refreshed;
+      this.archiveStack = [...this.archiveStack.slice(0, -1), refreshed]; // new reference ✓
       this.renderArchiveFrame(refreshed);
     } catch (err: any) {
       this.error = err.message || 'Failed to refresh archive';
@@ -449,16 +457,16 @@ export class FilePaneComponent implements OnInit, OnChanges {
     }
   }
 
-  /** Convert the current archive frame to FileInfo rows and update the address bar + tab title. */
+  /** Convert the current archive frame to FileInfo rows and update the address bar + tab. */
   private renderArchiveFrame(frame: ArchiveFrame): void {
     this.entries = this.archiveService.listingToFileInfos(frame.listing);
     this.selectedFiles.clear();
     this.applyFilter();
-    // Address bar: full FS path + archive interior  e.g. /home/user/project.zip > src/lib
-    this.currentPath = buildArchiveDisplayPath(this.fsDirPath, this.archiveStack);
-    // Tab title: concise basename form  e.g. project.zip > src/lib
+    // Both address bar and tab show the same virtual path: C:/Desktop.zip/src
+    const virtualPath = buildArchiveDisplayPath(this.fsDirPath, this.archiveStack);
+    this.currentPath = virtualPath;
     const title = buildArchiveTabTitle(this.fsDirPath, this.archiveStack);
-    this.workspaceService.updateTabTitle(this.paneId, this.currentTabId, title);
+    this.workspaceService.updateTabPathAndTitle(this.paneId, this.currentTabId, virtualPath, title);
     this.tabs = this.workspaceService.getTabs(this.paneId);
   }
 

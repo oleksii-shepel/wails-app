@@ -19,7 +19,7 @@ import { PathHistoryService, PathSuggestion } from '../services/path-history.ser
 import { ApiService } from '../services/api.service';
 import { DirectoryListing, FileType } from '../shared/protocol';
 import { DriveInfo } from '../shared/protocol-enhanced';
-import { ArchiveFrame } from '../services/archive.service';
+import { ArchiveFrame, buildArchiveDisplayPath } from '../services/archive.service';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -140,52 +140,49 @@ function parentPath(p: string): string {
 
 /**
  * Build breadcrumb segments for an archive stack.
- * The result is:
- *   [normal FS segments…] [archive-root seg] [nestedChain segs…] [innerPath segs…]
  *
- * The FS segments are built normally via buildSegments(fsDirPath).
- * Only the last FS segment (the archive file) is marked isArchiveRoot=true.
- * Everything inside the archive is marked isArchiveInner=true.
+ * The virtual path looks like a normal filesystem path:
+ *   C:/Desktop.zip/progress.zip/docs
+ *
+ * We build it by running buildSegments() on the full virtual path string —
+ * the same function used for real FS paths — so every segment is clickable
+ * and styled correctly. We then mark the archive-file segments and inner
+ * segments with the appropriate flags so the template can style them.
+ *
+ * "Archive boundary" = the index of the first archive filename in the path.
  */
 function buildArchiveSegments(fsDirPath: string, stack: ArchiveFrame[]): PathSegment[] {
   if (stack.length === 0) return buildSegments(fsDirPath);
-  const frame = stack[stack.length - 1];
 
-  // FS part: build normal segments for the directory containing the archive.
-  // The last FS segment IS the archive file — mark it as the archive root.
+  const virtualPath = buildArchiveDisplayPath(fsDirPath, stack);
+  const allSegs = buildSegments(virtualPath);
+
+  // Determine which segments belong to the real FS portion.
+  // fsDirPath ends with the archive filename (e.g. "C:/Desktop.zip"),
+  // so everything up to and including that segment is "real FS".
+  // Segments beyond it are archive-interior.
   const fsSegs = buildSegments(fsDirPath);
-  if (fsSegs.length > 0) {
-    fsSegs[fsSegs.length - 1].isArchiveRoot = true;
-  }
+  const fsDepth = fsSegs.length; // number of segments that are real FS
 
-  // Archive-interior segments: nestedChain entries + innerPath parts
-  const innerSegs: PathSegment[] = [];
+  allSegs.forEach((seg, i) => {
+    if (i === fsDepth - 1) {
+      // This is the archive file itself (e.g. Desktop.zip)
+      seg.isArchiveRoot = true;
+    } else if (i >= fsDepth) {
+      // Everything deeper is inside the archive
+      const label = seg.label.toLowerCase();
+      // A nested archive file inside the archive
+      if (label.endsWith('.zip') || label.endsWith('.tar') || label.endsWith('.tgz') ||
+          label.endsWith('.tar.gz') || label.endsWith('.tar.bz2') || label.endsWith('.tar.xz')) {
+        seg.isArchiveRoot = true;
+        seg.isArchiveInner = true;
+      } else {
+        seg.isArchiveInner = true;
+      }
+    }
+  });
 
-  // Each level in nestedChain is a nested archive file
-  for (const name of frame.nestedChain) {
-    innerSegs.push({
-      label: name,
-      fullPath: '',        // no FS path — not navigable
-      isRoot: false,
-      isArchiveRoot: true,
-      isArchiveInner: true,
-    });
-  }
-
-  // innerPath sub-directories
-  if (frame.innerPath) {
-    const parts = frame.innerPath.split('/').filter(Boolean);
-    parts.forEach(part => {
-      innerSegs.push({
-        label: part,
-        fullPath: '',
-        isRoot: false,
-        isArchiveInner: true,
-      });
-    });
-  }
-
-  return [...fsSegs, ...innerSegs];
+  return allSegs;
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -1859,6 +1856,8 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   onSegClick(seg: PathSegment, e: MouseEvent): void {
     e.stopPropagation();
     this.closeAll();
+    // Archive-interior segments are not real FS paths — ignore clicks
+    if (seg.isArchiveInner || seg.isArchiveRoot) return;
     if (seg.fullPath !== this.currentPath) {
       this.navigateTo(seg.fullPath);
     }

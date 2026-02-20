@@ -359,7 +359,6 @@ import { AddressBarSiblingDropdownComponent } from './address-bar-sibling-dropdo
       scroll-behavior: smooth;
       scrollbar-width: none;
       -ms-overflow-style: none;
-      /* ADD THIS — makes the inner div always fill the full width even when segments are short */
       cursor: text;
     }
 

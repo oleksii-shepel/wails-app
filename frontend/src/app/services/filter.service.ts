@@ -2,30 +2,56 @@ import { Injectable } from '@angular/core';
 import { FileInfo, FileType } from '../shared/protocol';
 import { FilterQuery, FilterCriteria, FilterType } from '../shared/protocol-enhanced';
 
+/**
+ * A CriteriaGroup is one "segment" separated by OR in the filter string.
+ * Within a group, same-type criteria (e.g. multiple EXTENSIONs) are OR-ed;
+ * different types are AND-ed.
+ * Between groups, the entry only needs to satisfy ONE group (OR semantics).
+ */
+export interface CriteriaGroup {
+  criteria: FilterCriteria[];
+  text?: string;
+}
+
 @Injectable({
   providedIn: 'root'
 })
 export class FilterService {
 
   /**
-   * Filter file entries based on query
+   * Filter file entries based on query.
+   *
+   * query.groups (new): OR-separated groups of criteria. Within each group,
+   *   same-type criteria are OR-ed, different types are AND-ed.
+   * query.criteria (legacy): flat list, all AND-ed (kept for back-compat).
+   * query.text: plain text match, AND-ed on top of whichever group matched.
    */
-  filterEntries(entries: FileInfo[], query: FilterQuery): FileInfo[] {
-    if (!query.text && (!query.criteria || query.criteria.length === 0)) {
+  filterEntries(entries: FileInfo[], query: FilterQuery & { groups?: CriteriaGroup[] }): FileInfo[] {
+    const groups: CriteriaGroup[] = query.groups ?? [];
+    const hasGroups = groups.length > 0;
+    const hasLegacyCriteria = !hasGroups && query.criteria && query.criteria.length > 0;
+
+    if (!query.text && !hasGroups && !hasLegacyCriteria) {
       return entries;
     }
 
     return entries.filter(entry => {
-      // Apply text filter if present
+      // ── Text filter (AND'd globally) ───────────────────────────────────
       if (query.text) {
         if (!this.matchesTextFilter(entry, query.text, query.caseSensitive)) {
           return false;
         }
       }
 
-      // Apply criteria filters
-      if (query.criteria && query.criteria.length > 0) {
-        for (const criterion of query.criteria) {
+      // ── Group-based evaluation (new path) ─────────────────────────────
+      if (hasGroups) {
+        // Entry must satisfy AT LEAST ONE group (OR between groups)
+        return groups.some(group => this.matchesGroup(entry, group, query.caseSensitive));
+      }
+
+      // ── Legacy flat criteria (all AND-ed, kept for back-compat) ───────
+      if (hasLegacyCriteria) {
+        for (const criterion of query.criteria!) {
           if (!this.matchesCriterion(entry, criterion, query.caseSensitive)) {
             return false;
           }
@@ -37,81 +63,138 @@ export class FilterService {
   }
 
   /**
-   * Parse filter text into structured query
-   * Supports:
-   * - Plain text: "document"
-   * - Extension filter: "ext:pdf"
-   * - Type filter: "type:file" or "type:dir"
-   * - Size filter: "size>1mb" or "size<100kb"
-   * - Modified filter: "modified:today" or "modified>2024-01-01"
-   * - Glob pattern: "*.pdf" or "doc*"
+   * Test whether an entry satisfies a single CriteriaGroup.
+   *
+   * Rules:
+   *  - Same FilterType criteria → OR  (e.g. ext:jpg OR ext:png)
+   *  - Different FilterType criteria → AND (e.g. ext:jpg AND size>1mb)
+   *  - Group-level text → AND with the above
    */
-  parseFilterText(text: string): FilterQuery {
-    const query: FilterQuery = {
-      text: '',
-      criteria: [],
-      caseSensitive: false,
-    };
-
-    if (!text || text.trim() === '') {
-      return query;
+  private matchesGroup(entry: FileInfo, group: CriteriaGroup, caseSensitive?: boolean): boolean {
+    // Optional per-group text filter
+    if (group.text) {
+      if (!this.matchesTextFilter(entry, group.text, caseSensitive)) return false;
     }
 
-    const tokens = text.trim().split(/\s+/);
+    // Bucket criteria by type
+    const buckets = new Map<FilterType, FilterCriteria[]>();
+    for (const c of group.criteria) {
+      if (!buckets.has(c.type)) buckets.set(c.type, []);
+      buckets.get(c.type)!.push(c);
+    }
+
+    // Every bucket must be satisfied; within each bucket any one match suffices
+    for (const [, bucket] of buckets) {
+      const bucketMatch = bucket.some(c => this.matchesCriterion(entry, c, caseSensitive));
+      if (!bucketMatch) return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * Parse filter text into a structured query with OR groups.
+   *
+   * Supports:
+   * - OR separator:       "ext:pdf OR ext:png"     → two groups (any match)
+   * - Plain text:         "document"
+   * - Extension filter:   "ext:pdf"
+   * - Type filter:        "type:file" or "type:dir"
+   * - Size filter:        "size>1mb" or "size<100kb"
+   * - Modified filter:    "modified:today" or "modified>2024-01-01"
+   * - Glob pattern:       "*.pdf" or "doc*"
+   *
+   * Category presets emit e.g.:
+   *   "ext:jpg ext:jpeg ext:png"          (single preset, OR within extensions)
+   *   "ext:jpg ext:jpeg OR ext:js ext:ts" (two presets joined with OR)
+   */
+  parseFilterText(text: string): FilterQuery & { groups: CriteriaGroup[] } {
+    const emptyQuery = (): FilterQuery & { groups: CriteriaGroup[] } => ({
+      text: '',
+      criteria: [],
+      groups: [],
+      caseSensitive: false,
+    });
+
+    if (!text || text.trim() === '') return emptyQuery();
+
+    // Split on " OR " (case-insensitive, surrounded by whitespace)
+    const segments = text.trim().split(/\s+OR\s+/i);
+
+    if (segments.length === 1) {
+      // No OR — parse as a single group, expose via both groups[] and legacy fields
+      const group = this.parseSegment(segments[0]);
+      return {
+        text: group.text ?? '',
+        criteria: group.criteria,   // legacy compat
+        groups: [group],
+        caseSensitive: false,
+      };
+    }
+
+    // Multiple OR segments
+    const groups = segments.map(seg => this.parseSegment(seg));
+    return {
+      text: '',       // per-group text lives inside each group
+      criteria: [],   // legacy field unused when groups present
+      groups,
+      caseSensitive: false,
+    };
+  }
+
+  /**
+   * Parse one whitespace-separated segment into a CriteriaGroup.
+   * Multiple ext: tokens within the segment become sibling EXTENSION criteria
+   * that are OR-ed at evaluation time (same bucket logic in matchesGroup).
+   */
+  private parseSegment(segment: string): CriteriaGroup {
+    const group: CriteriaGroup = { criteria: [] };
     const plainTextTokens: string[] = [];
 
+    const tokens = segment.trim().split(/\s+/);
+
     for (const token of tokens) {
+      if (!token) continue;
+
       if (token.includes(':')) {
-        const [prefix, value] = token.split(':', 2);
+        const colonIdx = token.indexOf(':');
+        const prefix = token.slice(0, colonIdx);
+        const value  = token.slice(colonIdx + 1);
         const criterion = this.parseFilterToken(prefix, value);
         if (criterion) {
-          query.criteria!.push(criterion);
+          group.criteria.push(criterion);
           continue;
         }
       }
 
-      // Check for size comparisons
+      // Size comparisons: size>1mb
       const sizeMatch = token.match(/^size([><=]+)(.+)$/i);
       if (sizeMatch) {
-        const [, operator, value] = sizeMatch;
-        const criterion = this.parseSizeFilter(operator, value);
-        if (criterion) {
-          query.criteria!.push(criterion);
-          continue;
-        }
+        const criterion = this.parseSizeFilter(sizeMatch[1], sizeMatch[2]);
+        if (criterion) { group.criteria.push(criterion); continue; }
       }
 
-      // Check for date comparisons
+      // Date comparisons: modified>2024-01-01
       const dateMatch = token.match(/^modified([><=]+)(.+)$/i);
       if (dateMatch) {
-        const [, operator, value] = dateMatch;
-        const criterion = this.parseDateFilter(operator, value);
-        if (criterion) {
-          query.criteria!.push(criterion);
-          continue;
-        }
+        const criterion = this.parseDateFilter(dateMatch[1], dateMatch[2]);
+        if (criterion) { group.criteria.push(criterion); continue; }
       }
 
-      // Check for glob pattern
+      // Glob pattern
       if (token.includes('*') || token.includes('?')) {
-        query.criteria!.push({
-          type: FilterType.GLOB,
-          value: token,
-          operator: 'contains',
-        });
+        group.criteria.push({ type: FilterType.GLOB, value: token, operator: 'contains' });
         continue;
       }
 
-      // Plain text token
       plainTextTokens.push(token);
     }
 
-    // Combine plain text tokens
     if (plainTextTokens.length > 0) {
-      query.text = plainTextTokens.join(' ');
+      group.text = plainTextTokens.join(' ');
     }
 
-    return query;
+    return group;
   }
 
   /**
@@ -127,23 +210,14 @@ export class FilterService {
           operator: 'equals',
         };
 
-      case 'type':
+      case 'type': {
         const fileType = this.parseFileType(value);
-        if (fileType) {
-          return {
-            type: FilterType.TYPE,
-            value: fileType,
-            operator: 'equals',
-          };
-        }
+        if (fileType) return { type: FilterType.TYPE, value: fileType, operator: 'equals' };
         break;
+      }
 
       case 'name':
-        return {
-          type: FilterType.NAME,
-          value,
-          operator: 'contains',
-        };
+        return { type: FilterType.NAME, value, operator: 'contains' };
 
       case 'modified':
         return this.parseDateFilter('=', value);
@@ -152,9 +226,6 @@ export class FilterService {
     return null;
   }
 
-  /**
-   * Parse file type from string
-   */
   private parseFileType(value: string): string | null {
     const lower = value.toLowerCase();
     if (lower === 'file' || lower === 'f') return FileType.FILE;
@@ -163,231 +234,136 @@ export class FilterService {
     return null;
   }
 
-  /**
-   * Parse size filter
-   */
   private parseSizeFilter(operator: string, value: string): FilterCriteria | null {
     const sizeBytes = this.parseSizeValue(value);
     if (sizeBytes === null) return null;
-
-    return {
-      type: FilterType.SIZE,
-      value: sizeBytes.toString(),
-      operator: this.normalizeOperator(operator),
-    };
+    return { type: FilterType.SIZE, value: sizeBytes.toString(), operator: this.normalizeOperator(operator) };
   }
 
-  /**
-   * Parse date filter
-   */
   private parseDateFilter(operator: string, value: string): FilterCriteria | null {
     const timestamp = this.parseDateValue(value);
     if (timestamp === null) return null;
-
-    return {
-      type: FilterType.MODIFIED,
-      value: timestamp.toString(),
-      operator: this.normalizeOperator(operator),
-    };
+    return { type: FilterType.MODIFIED, value: timestamp.toString(), operator: this.normalizeOperator(operator) };
   }
 
-  /**
-   * Parse size value (supports kb, mb, gb)
-   */
   private parseSizeValue(value: string): number | null {
     const match = value.match(/^(\d+(?:\.\d+)?)(b|kb|mb|gb)?$/i);
     if (!match) return null;
-
-    const [, num, unit] = match;
-    const numValue = parseFloat(num);
-
-    switch ((unit || 'b').toLowerCase()) {
-      case 'b': return numValue;
+    const numValue = parseFloat(match[1]);
+    switch ((match[2] || 'b').toLowerCase()) {
+      case 'b':  return numValue;
       case 'kb': return numValue * 1024;
       case 'mb': return numValue * 1024 * 1024;
       case 'gb': return numValue * 1024 * 1024 * 1024;
-      default: return numValue;
+      default:   return numValue;
     }
   }
 
-  /**
-   * Parse date value
-   */
   private parseDateValue(value: string): number | null {
     const lower = value.toLowerCase();
-
-    // Special keywords
     const now = Date.now();
     const day = 24 * 60 * 60 * 1000;
 
-    if (lower === 'today') {
-      return now - day;
-    }
-    if (lower === 'yesterday') {
-      return now - (2 * day);
-    }
-    if (lower === 'week') {
-      return now - (7 * day);
-    }
-    if (lower === 'month') {
-      return now - (30 * day);
-    }
+    if (lower === 'today')     return now - day;
+    if (lower === 'yesterday') return now - (2 * day);
+    if (lower === 'week' || lower === 'thisweek') return now - (7 * day);
+    if (lower === 'month' || lower === 'thismonth') return now - (30 * day);
 
-    // Try parsing as ISO date
     const date = new Date(value);
-    if (!isNaN(date.getTime())) {
-      return date.getTime();
-    }
-
-    return null;
+    return isNaN(date.getTime()) ? null : date.getTime();
   }
 
-  /**
-   * Normalize comparison operator
-   */
   private normalizeOperator(operator: string): FilterCriteria['operator'] {
     switch (operator) {
-      case '>': return 'gt';
-      case '<': return 'lt';
+      case '>':  return 'gt';
+      case '<':  return 'lt';
       case '>=': return 'gte';
       case '<=': return 'lte';
       case '=':
       case '==': return 'equals';
-      default: return 'equals';
+      default:   return 'equals';
     }
   }
 
-  /**
-   * Check if entry matches text filter
-   */
   private matchesTextFilter(entry: FileInfo, text: string, caseSensitive?: boolean): boolean {
     const searchText = caseSensitive ? text : text.toLowerCase();
-    const entryName = caseSensitive ? entry.name : entry.name.toLowerCase();
+    const entryName  = caseSensitive ? entry.name : entry.name.toLowerCase();
     return entryName.includes(searchText);
   }
 
-  /**
-   * Check if entry matches a criterion
-   */
   private matchesCriterion(entry: FileInfo, criterion: FilterCriteria, caseSensitive?: boolean): boolean {
     switch (criterion.type) {
-      case FilterType.NAME:
-        return this.matchesNameCriterion(entry, criterion, caseSensitive);
-      
-      case FilterType.EXTENSION:
-        return this.matchesExtensionCriterion(entry, criterion);
-      
-      case FilterType.TYPE:
-        return entry.type === criterion.value;
-      
-      case FilterType.SIZE:
-        return this.matchesSizeCriterion(entry, criterion);
-      
-      case FilterType.MODIFIED:
-        return this.matchesModifiedCriterion(entry, criterion);
-      
-      case FilterType.GLOB:
-        return this.matchesGlobPattern(entry.name, criterion.value);
-      
-      default:
-        return true;
+      case FilterType.NAME:      return this.matchesNameCriterion(entry, criterion, caseSensitive);
+      case FilterType.EXTENSION: return this.matchesExtensionCriterion(entry, criterion);
+      case FilterType.TYPE:      return entry.type === criterion.value;
+      case FilterType.SIZE:      return this.matchesSizeCriterion(entry, criterion);
+      case FilterType.MODIFIED:  return this.matchesModifiedCriterion(entry, criterion);
+      case FilterType.GLOB:      return this.matchesGlobPattern(entry.name, criterion.value);
+      default:                   return true;
     }
   }
 
-  /**
-   * Match name criterion
-   */
   private matchesNameCriterion(entry: FileInfo, criterion: FilterCriteria, caseSensitive?: boolean): boolean {
-    const name = caseSensitive ? entry.name : entry.name.toLowerCase();
+    const name  = caseSensitive ? entry.name : entry.name.toLowerCase();
     const value = caseSensitive ? criterion.value : criterion.value.toLowerCase();
-
     switch (criterion.operator) {
-      case 'equals': return name === value;
-      case 'contains': return name.includes(value);
+      case 'equals':     return name === value;
+      case 'contains':   return name.includes(value);
       case 'startsWith': return name.startsWith(value);
-      case 'endsWith': return name.endsWith(value);
-      default: return name.includes(value);
+      case 'endsWith':   return name.endsWith(value);
+      default:           return name.includes(value);
     }
   }
 
-  /**
-   * Match extension criterion
-   */
   private matchesExtensionCriterion(entry: FileInfo, criterion: FilterCriteria): boolean {
     if (entry.type !== FileType.FILE) return false;
-    
-    const ext = this.getFileExtension(entry.name);
-    return ext === criterion.value;
+    return this.getFileExtension(entry.name) === criterion.value;
   }
 
-  /**
-   * Match size criterion
-   */
   private matchesSizeCriterion(entry: FileInfo, criterion: FilterCriteria): boolean {
     const targetSize = parseInt(criterion.value, 10);
-    const entrySize = entry.size;
-
+    const entrySize  = entry.size;
     switch (criterion.operator) {
       case 'equals': return entrySize === targetSize;
-      case 'gt': return entrySize > targetSize;
-      case 'lt': return entrySize < targetSize;
-      case 'gte': return entrySize >= targetSize;
-      case 'lte': return entrySize <= targetSize;
-      default: return entrySize === targetSize;
+      case 'gt':     return entrySize >  targetSize;
+      case 'lt':     return entrySize <  targetSize;
+      case 'gte':    return entrySize >= targetSize;
+      case 'lte':    return entrySize <= targetSize;
+      default:       return entrySize === targetSize;
     }
   }
 
-  /**
-   * Match modified date criterion
-   */
   private matchesModifiedCriterion(entry: FileInfo, criterion: FilterCriteria): boolean {
     const targetTime = parseInt(criterion.value, 10);
-    const entryTime = entry.modified * 1000; // Convert to milliseconds
-
+    const entryTime  = entry.modified * 1000;
     switch (criterion.operator) {
-      case 'equals': 
-        // For date equality, check if same day
-        return this.isSameDay(entryTime, targetTime);
-      case 'gt': return entryTime > targetTime;
-      case 'lt': return entryTime < targetTime;
-      case 'gte': return entryTime >= targetTime;
-      case 'lte': return entryTime <= targetTime;
-      default: return this.isSameDay(entryTime, targetTime);
+      case 'equals': return this.isSameDay(entryTime, targetTime);
+      case 'gt':     return entryTime >  targetTime;
+      case 'lt':     return entryTime <  targetTime;
+      case 'gte':    return entryTime >= targetTime;
+      case 'lte':    return entryTime <= targetTime;
+      default:       return this.isSameDay(entryTime, targetTime);
     }
   }
 
-  /**
-   * Match glob pattern
-   */
   private matchesGlobPattern(name: string, pattern: string): boolean {
-    // Convert glob pattern to regex
     const regexPattern = pattern
       .replace(/\./g, '\\.')
       .replace(/\*/g, '.*')
       .replace(/\?/g, '.');
-    
-    const regex = new RegExp(`^${regexPattern}$`, 'i');
-    return regex.test(name);
+    return new RegExp(`^${regexPattern}$`, 'i').test(name);
   }
 
-  /**
-   * Get file extension
-   */
   private getFileExtension(filename: string): string {
     const lastDot = filename.lastIndexOf('.');
     if (lastDot === -1 || lastDot === 0) return '';
     return filename.substring(lastDot);
   }
 
-  /**
-   * Check if two timestamps are on the same day
-   */
   private isSameDay(time1: number, time2: number): boolean {
-    const date1 = new Date(time1);
-    const date2 = new Date(time2);
-    
-    return date1.getFullYear() === date2.getFullYear() &&
-           date1.getMonth() === date2.getMonth() &&
-           date1.getDate() === date2.getDate();
+    const d1 = new Date(time1), d2 = new Date(time2);
+    return d1.getFullYear() === d2.getFullYear() &&
+           d1.getMonth()    === d2.getMonth()    &&
+           d1.getDate()     === d2.getDate();
   }
 }

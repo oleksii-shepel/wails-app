@@ -56,6 +56,7 @@ declare const window: any;
 
       <app-filter-bar
         [totalCount]="entries.length"
+        [dataset]="entriesForAnalysis"
         [filteredCount]="filteredEntries.length"
         (filterChange)="onFilterChange($event)"
         (clear)="onClearFilter()">
@@ -106,10 +107,16 @@ declare const window: any;
 
     app-tab-bar,
     app-address-bar,
-    app-filter-bar,
     app-action-bar {
       display: block;
       flex-shrink: 0;
+    }
+
+    app-filter-bar {
+      display: block;
+      flex-shrink: 0;
+      position: relative;
+      z-index: 100;
     }
 
     app-file-list {
@@ -162,6 +169,10 @@ export class FilePaneComponent implements OnInit, OnChanges {
 
   ngOnInit(): void { this.loadPaneState(); }
   ngOnChanges(): void { if (this.workspace) this.loadPaneState(); }
+
+  get entriesForAnalysis(): FileInfo[] {
+    return this.entries.filter(e => e.path !== '__archive_parent__');
+  }
 
   private async loadPaneState(): Promise<void> {
     if (!this.workspace) return;

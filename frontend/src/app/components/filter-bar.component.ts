@@ -18,11 +18,13 @@ export interface FilterPreset {
 export interface FilterGroup {
   name: string;
   presets: FilterPreset[];
+  mode?: 'AND' | 'OR';  // Group-specific combine mode
 }
 
 export interface ActiveFilterState {
   presets: FilterPreset[];
   combined: string;
+  groupModes?: Map<string, 'AND' | 'OR'>; // Track group-specific modes
 }
 
 interface ContentAnalysis {
@@ -93,19 +95,15 @@ const DEFAULT_FILE_CATEGORIES: FileCategory[] = [
         <div class="fb-menu" #menuEl *ngIf="isOpen"
           [style.top.px]="dropPos.top"
           [style.left.px]="dropPos.left"
-          [style.minWidth.px]="menuWidth"
+          [style.minWidth.px]="lockedMenuWidth"
+          [style.maxWidth.px]="lockedMenuWidth"
           (mousedown)="$event.preventDefault()"
+          (click)="$event.stopPropagation()"
           role="menu">
 
           <!-- AND / OR mode toggle -->
           <div class="fb-mode-row">
-            <span class="fb-mode-label">COMBINE WITH</span>
-            <div class="fb-mode-toggle">
-              <button class="fb-mode-btn" [class.fb-mode-btn--on]="combineMode === 'AND'"
-                (click)="setCombineMode('AND')" title="All conditions must match">AND</button>
-              <button class="fb-mode-btn" [class.fb-mode-btn--on]="combineMode === 'OR'"
-                (click)="setCombineMode('OR')" title="Any condition can match">OR</button>
-            </div>
+            <span class="fb-mode-label">GLOBAL COMBINE</span>
           </div>
 
           <!-- Dynamic content-aware indicator -->
@@ -118,7 +116,15 @@ const DEFAULT_FILE_CATEGORIES: FileCategory[] = [
             <ng-container *ngFor="let group of groupedPresets; let gi = index">
               <div class="fb-group-head" *ngIf="group.presets.length > 0">
                 <span>{{ group.name }}</span>
-                <span class="fb-badge">{{ group.presets.length }}</span>
+                <div class="fb-group-controls">
+                  <span class="fb-group-badge" 
+                        [class.fb-group-badge--or]="getGroupMode(group.name) === 'OR'" 
+                        [class.fb-group-badge--and]="getGroupMode(group.name) === 'AND'"
+                        [title]="getGroupModeTooltip(group.name)"
+                        (click)="toggleGroupMode(group.name, $event)">
+                    {{ getGroupMode(group.name) }}
+                  </span>
+                </div>
               </div>
               <div *ngFor="let preset of group.presets; let pi = index"
                 class="fb-item"
@@ -137,7 +143,6 @@ const DEFAULT_FILE_CATEGORIES: FileCategory[] = [
                 </span>
                 <span class="fb-item-icon">{{ preset.icon || getDefaultIcon(preset) }}</span>
                 <span class="fb-item-name">{{ preset.name }}</span>
-                <span class="fb-item-count" *ngIf="preset.count !== undefined">{{ preset.count }}</span>
                 <span class="fb-order-badge" *ngIf="isSelected(preset) && activePresets.length > 1">
                   {{ getSelectionOrder(preset) }}
                 </span>
@@ -259,7 +264,8 @@ const DEFAULT_FILE_CATEGORIES: FileCategory[] = [
     /* ── Dropdown ────────────────────────────────────────── */
     .fb-menu {
       position: fixed;
-      min-width: 250px; max-width: 340px;
+      min-width: 300px;
+      max-width: 300px;
       background: var(--vsc-panel-background, #252526);
       border: 1px solid var(--vsc-border, #3c3c3c);
       border-radius: 4px;
@@ -330,6 +336,47 @@ const DEFAULT_FILE_CATEGORIES: FileCategory[] = [
       font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px;
       color: var(--vsc-foreground-dim, #858585);
       &:first-child { margin-top: 0; }
+    }
+
+    .fb-group-controls {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .fb-group-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      height: 16px;
+      padding: 0 5px;
+      border-radius: 3px;
+      font-size: 9px;
+      font-weight: 700;
+      font-family: var(--vsc-font-family-mono, Consolas, monospace);
+      cursor: pointer;
+      transition: all 0.1s;
+      min-width: 28px;
+    }
+
+    .fb-group-badge--or {
+      background: color-mix(in srgb, #2d7d46 20%, transparent);
+      border: 1px solid rgba(45,125,70,0.4);
+      color: #7ee787;
+      &:hover {
+        background: color-mix(in srgb, #2d7d46 35%, transparent);
+        border-color: rgba(45,125,70,0.7);
+      }
+    }
+
+    .fb-group-badge--and {
+      background: color-mix(in srgb, #007fd4 20%, transparent);
+      border: 1px solid rgba(0,127,212,0.4);
+      color: #7ec8f8;
+      &:hover {
+        background: color-mix(in srgb, #007fd4 35%, transparent);
+        border-color: rgba(0,127,212,0.7);
+      }
     }
 
     .fb-badge {
@@ -526,6 +573,14 @@ const DEFAULT_FILE_CATEGORIES: FileCategory[] = [
       .fb-order-badge   { background: #0060c0; }
       .fb-dynamic-hint  { background: color-mix(in srgb, #2d7d46 10%, transparent); color: #1a7f37; }
       .fb-item--dynamic { border-left-color: color-mix(in srgb, #2d7d46 20%, transparent); }
+      .fb-group-badge--or {
+        background: color-mix(in srgb, #2d7d46 10%, transparent);
+        color: #1a7f37;
+      }
+      .fb-group-badge--and {
+        background: color-mix(in srgb, #0060c0 10%, transparent);
+        color: #0060c0;
+      }
     }
   `]
 })
@@ -547,7 +602,7 @@ export class FilterBarComponent implements OnInit, OnDestroy, OnChanges {
   @Input() dataset:       FileInfo[] = [];
   @Input() showChips      = true;
   @Input() compact        = true;
-  @Input() menuWidth      = 250;
+  @Input() menuWidth      = 300;
 
   @Input() enableDynamicPresets  = true;
   @Input() maxExtensions         = 8;
@@ -563,11 +618,26 @@ export class FilterBarComponent implements OnInit, OnDestroy, OnChanges {
   focusedIdx    = -1;
   groupedPresets: FilterGroup[] = [];
   dropPos       = { top: 0, left: 0 };
+  lockedMenuWidth = 300;
   activePresets: FilterPreset[] = [];
   dynamicPresets: FilterPreset[] = [];
+  
+  // Track group-specific combine modes
+  private groupModes = new Map<string, 'AND' | 'OR'>();
 
   get hasActive(): boolean { return this.activePresets.length > 0; }
   get hasDynamicPresets(): boolean { return this.dynamicPresets.some(p => p.isDynamic); }
+
+  // Default group modes: Basic and Extensions use OR, others use AND
+  private readonly defaultGroupModes: Record<string, 'AND' | 'OR'> = {
+    'Basic': 'OR',
+    'Type': 'OR',
+    'Extensions': 'OR',
+    'Date': 'AND',
+    'Size': 'AND',
+    'Special': 'AND',
+    'Other': 'OR'
+  };
 
   /**
    * All chips to show in the bar:
@@ -588,7 +658,6 @@ export class FilterBarComponent implements OnInit, OnDestroy, OnChanges {
       ).length;
 
       // Show if dataset has matches OR if already active
-      // Removed: this.dataset.length === 0 condition
       const catPreset = this.categoryToPreset(cat, count);
       categoryChipIds.add(catPreset.id);
 
@@ -625,6 +694,7 @@ export class FilterBarComponent implements OnInit, OnDestroy, OnChanges {
   // ── Lifecycle ────────────────────────────────────────────
 
   ngOnInit(): void {
+    this.initializeGroupModes();
     this.generateDynamicPresets();
     this.groupPresets();
   }
@@ -643,6 +713,36 @@ export class FilterBarComponent implements OnInit, OnDestroy, OnChanges {
   ngOnDestroy(): void {
     this.destroy$.next();
     this.destroy$.complete();
+  }
+
+  // ── Group Mode Management ─────────────────────────────────
+
+  private initializeGroupModes(): void {
+    // Set default modes for all groups
+    Object.entries(this.defaultGroupModes).forEach(([group, mode]) => {
+      this.groupModes.set(group, mode);
+    });
+  }
+
+  getGroupMode(groupName: string): 'AND' | 'OR' {
+    return this.groupModes.get(groupName) || this.defaultGroupModes[groupName] || 'OR';
+  }
+
+  getGroupModeTooltip(groupName: string): string {
+    const mode = this.getGroupMode(groupName);
+    return `Filters in this group are combined with ${mode} — click to switch to ${mode === 'AND' ? 'OR' : 'AND'}`;
+  }
+
+  toggleGroupMode(groupName: string, event: MouseEvent): void {
+    event.stopPropagation(); // Prevent menu from closing
+    const currentMode = this.getGroupMode(groupName);
+    const newMode = currentMode === 'AND' ? 'OR' : 'AND';
+    this.groupModes.set(groupName, newMode);
+    
+    // Re-emit if we have active filters
+    if (this.hasActive) {
+      this.emit();
+    }
   }
 
   // ── Content Analysis ─────────────────────────────────────
@@ -784,7 +884,11 @@ export class FilterBarComponent implements OnInit, OnDestroy, OnChanges {
       const ia = groupOrder.indexOf(a[0]), ib = groupOrder.indexOf(b[0]);
       return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
     });
-    this.groupedPresets = sorted.map(([name, presets]) => ({ name, presets }));
+    this.groupedPresets = sorted.map(([name, presets]) => ({ 
+      name, 
+      presets,
+      mode: this.getGroupMode(name)
+    }));
   }
 
   // ── Selection ─────────────────────────────────────────────
@@ -804,6 +908,8 @@ export class FilterBarComponent implements OnInit, OnDestroy, OnChanges {
       this.activePresets = [...this.activePresets, preset];
     }
     this.emit();
+    // Re-measure after render in case footer changed (e.g. 'Clear all' appeared)
+    requestAnimationFrame(() => this.remeasureMenuWidth());
   }
 
   setCombineMode(mode: 'AND' | 'OR'): void {
@@ -819,12 +925,57 @@ export class FilterBarComponent implements OnInit, OnDestroy, OnChanges {
   }
 
   private emit(): void {
-    const sep      = this.combineMode === 'OR' ? ' OR ' : ' ';
-    const combined = this.activePresets.map(p => p.filter).filter(Boolean).join(sep);
-    this.filterChange.emit({ presets: [...this.activePresets], combined });
+    // Build combined filter string respecting group modes
+    const groupMap = new Map<string, FilterPreset[]>();
+    
+    // Group active presets by their group
+    for (const preset of this.activePresets) {
+      const group = preset.group || 'Other';
+      if (!groupMap.has(group)) {
+        groupMap.set(group, []);
+      }
+      groupMap.get(group)!.push(preset);
+    }
+
+    // Build filter string for each group with its mode
+    const groupFilters: string[] = [];
+    for (const [group, presets] of groupMap.entries()) {
+      const groupMode = this.getGroupMode(group);
+      const groupFilter = presets
+        .map(p => p.filter)
+        .filter(Boolean)
+        .join(groupMode === 'OR' ? ' OR ' : ' ');
+      
+      if (groupFilter) {
+        // Wrap group in parentheses if it has multiple filters
+        if (presets.length > 1) {
+          groupFilters.push(`(${groupFilter})`);
+        } else {
+          groupFilters.push(groupFilter);
+        }
+      }
+    }
+
+    // Combine all groups with global combine mode
+    const combined = groupFilters.join(this.combineMode === 'OR' ? ' OR ' : ' AND ');
+
+    this.filterChange.emit({ 
+      presets: [...this.activePresets], 
+      combined,
+      groupModes: this.groupModes
+    });
   }
 
   // ── Dropdown ──────────────────────────────────────────────
+
+  /** Measure the live menu width and grow lockedMenuWidth if needed. Never shrinks. */
+  private remeasureMenuWidth(): void {
+    const menuEl = document.querySelector('.fb-menu') as HTMLElement | null;
+    if (menuEl) {
+      const w = menuEl.getBoundingClientRect().width;
+      if (w > this.lockedMenuWidth) this.lockedMenuWidth = w;
+    }
+  }
 
   toggleDropdown(btn: HTMLElement): void {
     this.isOpen = !this.isOpen;
@@ -833,6 +984,7 @@ export class FilterBarComponent implements OnInit, OnDestroy, OnChanges {
       this.dropPos = { top: r.bottom + 3, left: r.left };
       this.focusedIdx = 0;
       this.groupPresets();
+      requestAnimationFrame(() => this.remeasureMenuWidth());
     }
   }
 
@@ -889,8 +1041,10 @@ export class FilterBarComponent implements OnInit, OnDestroy, OnChanges {
   @HostListener('document:click', ['$event'])
   onDocClick(e: MouseEvent): void {
     if (!this.isOpen) return;
-    const inAnchor = this.dropdownContainerRef?.nativeElement.contains(e.target as Node);
-    const inMenu   = this.menuElRef?.nativeElement.contains(e.target as Node);
+    const target = e.target as Node;
+    const inAnchor = this.dropdownContainerRef?.nativeElement.contains(target);
+    const liveMenu = document.querySelector('.fb-menu');
+    const inMenu   = liveMenu?.contains(target);
     if (!inAnchor && !inMenu) this.isOpen = false;
   }
 

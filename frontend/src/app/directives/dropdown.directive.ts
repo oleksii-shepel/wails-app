@@ -18,7 +18,7 @@ import { DropdownService } from '../services/dropdown.service';
  * Usage:
  *   <button appDropdownTrigger>Open</button>
  */
-@Directive({ selector: '[appDropdownTrigger]' })
+@Directive({ selector: '[appDropdownTrigger]', standalone: true })
 export class DropdownTriggerDirective {
   constructor(public el: ElementRef<HTMLElement>) {}
 }
@@ -31,7 +31,7 @@ export class DropdownTriggerDirective {
  * Usage:
  *   <div appDropdownMenu *ngIf="isOpen">...</div>
  */
-@Directive({ selector: '[appDropdownMenu]' })
+@Directive({ selector: '[appDropdownMenu]', standalone: true })
 export class DropdownMenuDirective {
   constructor(public el: ElementRef<HTMLElement>) {}
 }
@@ -60,6 +60,7 @@ export class DropdownMenuDirective {
  */
 @Directive({
   selector: '[appDropdown]',
+  standalone: true,
   host: {
     '(keydown.escape)': 'close()',
   },

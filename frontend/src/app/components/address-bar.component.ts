@@ -349,7 +349,7 @@ import { AddressBarSiblingDropdownComponent } from './address-bar-sibling-dropdo
     .ab-crumbs-inner {
       width: 100%;
       flex: 1;
-      min-width: 0;
+      min-width: max-content;
       display: flex;
       align-items: center;
       height: 100%;

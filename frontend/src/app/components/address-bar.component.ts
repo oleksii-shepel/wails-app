@@ -212,6 +212,9 @@ import { AddressBarSiblingDropdownComponent } from './address-bar-sibling-dropdo
 
   <!-- ── SIBLING DROPDOWN ──────────────────────────────────────────────── -->
   <app-adress-bar-sibling-dropdown
+    appDropdown
+    [(isOpen)]="sibOpen"
+    (isOpenChange)="onSibOpenChange($event)"
     *ngIf="chevIdx >= 0"
     [entries]="siblings"
     [loading]="sibLoading"
@@ -223,6 +226,8 @@ import { AddressBarSiblingDropdownComponent } from './address-bar-sibling-dropdo
 
   <!-- ── DRIVE DROPDOWN ────────────────────────────────────────────────── -->
   <app-addressbar-drive-dropdown
+    appDropdown
+    [(isOpen)]="showDriveMenu"
     *ngIf="showDriveMenu"
     [drives]="drives"
     [loading]="drivesLoading"
@@ -527,6 +532,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
 
   // ── Chevron / sibling dropdown ───────────────────────────────────────
   chevIdx = -1;
+  sibOpen  = false; // mirrors chevIdx >= 0 for appDropdown binding
   siblings: SiblingEntry[] = [];
   sibLoading = false;
   sibDropLeft = 0;
@@ -556,8 +562,6 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   private editChange$ = new Subject<string>();
   private blurTimer: any;
   private copiedTimer: any;
-  private ddChev!: string;
-  private ddDrive!: string;
 
   constructor(
     private pathHistoryService: PathHistoryService,
@@ -694,6 +698,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     this.driveMenuTop  = rect.bottom + 4;
     this.showDriveMenu = true;
     if (this.drives.length === 0 && !this.drivesLoading) this.loadDrives();
+    // showDriveMenu bound via [(isOpen)] on appDropdown — no manual registration needed
   }
   /**
    * Click on the .ab-crumbs or .ab-crumbs-inner wrapper (empty space) → edit mode.
@@ -745,7 +750,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     this.showPinDrop  = false;
     this.showDriveMenu = false;
 
-    if (this.chevIdx === idx) { this.chevIdx = -1; this.siblings = []; return; }
+    if (this.chevIdx === idx) { this.chevIdx = -1; this.sibOpen = false; this.siblings = []; return; }
 
     const rect = (e.target as HTMLElement).getBoundingClientRect();
     this.sibDropLeft = Math.round(rect.left);
@@ -773,6 +778,8 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     } finally {
       this.sibLoading = false;
       this.cdr.detectChanges();
+      // Register once; getter resolves live element at event time
+      this.sibOpen = true;
     }
   }
 
@@ -880,6 +887,11 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
       this.pinnedPaths.push({ path: this.currentPath, label, icon: '📁', addedAt: Date.now() });
     }
     this.savePins();
+  }
+
+  onSibOpenChange(open: boolean): void {
+    this.sibOpen = open;
+    if (!open) { this.chevIdx = -1; this.siblings = []; }
   }
 
   togglePinDrop(): void {
@@ -1038,6 +1050,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
 
   private closeAll(): void {
     this.chevIdx      = -1;
+    this.sibOpen      = false;
     this.siblings     = [];
     this.showPinDrop  = false;
     this.showDriveMenu = false;

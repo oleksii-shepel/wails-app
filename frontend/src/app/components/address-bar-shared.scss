@@ -1,0 +1,201 @@
+/*
+ * address-bar-shared.scss
+ * Shared styles imported by all address-bar subcomponents.
+ * Add to angular.json styles[] or import in each component's styleUrls.
+ */
+
+/* === DROPDOWN BASE === */
+.ab-dropdown {
+  position: absolute;
+  min-width: 220px;
+  max-width: 340px;
+  background-color: var(--vsc-panel-background, #252526) !important;
+  background-image: none !important;
+  border: 1px solid var(--vsc-border);
+  border-radius: var(--vsc-border-radius);
+  box-shadow: var(--vsc-widget-shadow);
+  z-index: 9999;
+  overflow: hidden;
+  animation: ab-appear var(--vsc-transition-fast) cubic-bezier(0.4, 0, 0.2, 1);
+  isolation: isolate;
+
+  .ab-drop-head,
+  .ab-drop-scroll,
+  .ab-drop-footer,
+  .ab-drop-loading,
+  .ab-drop-empty {
+    background-color: var(--vsc-panel-background, #252526) !important;
+  }
+
+  .ab-drop-scroll .ab-drop-item {
+    background: transparent;
+    &:hover { background: var(--vsc-list-hover-background); }
+    &.ab-drop-item--active { background: var(--vsc-list-active-background); }
+  }
+}
+
+@keyframes ab-appear {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.ab-drop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 32px;
+  padding: 0 var(--vsc-padding-lg);
+  background: var(--vsc-panel-background);
+  border-bottom: 1px solid var(--vsc-border-subtle);
+  font-size: var(--vsc-font-size-small);
+  color: var(--vsc-foreground-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+
+.ab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 var(--vsc-padding-xs);
+  background: var(--vsc-badge-background);
+  color: var(--vsc-badge-foreground);
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.ab-drop-scroll {
+  max-height: 300px;
+  overflow-y: auto;
+  padding: var(--vsc-padding-xs) 0;
+
+  &::-webkit-scrollbar { width: 10px; }
+  &::-webkit-scrollbar-track { background: var(--vsc-scrollbar-track); }
+  &::-webkit-scrollbar-thumb {
+    background: var(--vsc-scrollbar-thumb);
+    border-radius: 5px;
+    &:hover { background: var(--vsc-scrollbar-thumb-hover); }
+  }
+}
+
+.ab-drop-item {
+  display: flex;
+  align-items: center;
+  gap: var(--vsc-padding-sm);
+  height: 28px;
+  padding: 0 var(--vsc-padding-lg);
+  cursor: pointer;
+  transition: background-color var(--vsc-transition-fast);
+  border-left: 2px solid transparent;
+  color: var(--vsc-foreground);
+  font-size: var(--vsc-font-size);
+
+  &:hover { background: var(--vsc-list-hover-background); }
+
+  &.ab-drop-item--active {
+    background: var(--vsc-list-active-background);
+    color: var(--vsc-foreground-bright);
+    border-left-color: var(--vsc-accent-blue);
+    &:hover { background: var(--vsc-list-active-background); }
+  }
+
+  &.ab-drop-item--focused { background: var(--vsc-list-focus-background); }
+}
+
+.ab-drop-footer {
+  display: flex;
+  align-items: center;
+  gap: var(--vsc-padding-sm);
+  height: 28px;
+  padding: 0 var(--vsc-padding-lg);
+  background: var(--vsc-panel-background);
+  border-top: 1px solid var(--vsc-border-subtle);
+  font-size: 11px;
+  color: var(--vsc-foreground-dim);
+
+  kbd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 3px;
+    background: var(--vsc-input-background);
+    border: 1px solid var(--vsc-border);
+    border-bottom-width: 2px;
+    border-radius: var(--vsc-border-radius-sm);
+    font-family: var(--vsc-font-family-mono);
+    font-size: 10px;
+    color: var(--vsc-foreground);
+    line-height: 1;
+    margin: 0 var(--vsc-padding-xs);
+  }
+}
+
+.ab-drop-loading {
+  display: flex;
+  align-items: center;
+  gap: var(--vsc-padding-sm);
+  padding: var(--vsc-padding-lg);
+  font-size: var(--vsc-font-size);
+  color: var(--vsc-foreground-dim);
+}
+
+.ab-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--vsc-border);
+  border-top-color: var(--vsc-accent-blue);
+  border-radius: 50%;
+  animation: ab-spin 0.7s linear infinite;
+}
+
+@keyframes ab-spin { to { transform: rotate(360deg); } }
+
+.ab-drop-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--vsc-padding-sm);
+  padding: var(--vsc-padding-xl);
+  font-size: var(--vsc-font-size-small);
+  color: var(--vsc-foreground-dim);
+  text-align: center;
+  line-height: 1.5;
+}
+
+.ab-drop-empty-icon {
+  font-size: 24px;
+  opacity: 0.5;
+  margin-bottom: var(--vsc-padding-xs);
+}
+
+/* === BUTTON BASE === */
+.ab-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--vsc-border-radius-sm);
+  color: var(--vsc-foreground-dim);
+  cursor: pointer;
+  transition: background-color var(--vsc-transition-fast), color var(--vsc-transition-fast);
+  flex-shrink: 0;
+
+  &:hover { background: var(--vsc-list-hover-background); color: var(--vsc-foreground-bright); }
+  &:active { background: var(--vsc-list-active-background); color: var(--vsc-foreground-bright); }
+  &:focus-visible { outline: 1px solid var(--vsc-focusBorder, var(--vsc-accent-blue)); outline-offset: -1px; }
+
+  svg { width: 16px; height: 16px; fill: currentColor; opacity: 0.9; transition: opacity var(--vsc-transition-fast); }
+  &:hover svg { opacity: 1; }
+}

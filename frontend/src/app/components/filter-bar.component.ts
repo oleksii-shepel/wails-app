@@ -97,7 +97,7 @@ const DEFAULT_FILE_CATEGORIES: FileCategory[] = [
           [style.left.px]="dropPos.left"
           [style.minWidth.px]="lockedMenuWidth"
           [style.maxWidth.px]="lockedMenuWidth"
-          (mousedown)="$event.stopPropagation()"
+          (mousedown)="$event.preventDefault()"
           (click)="$event.stopPropagation()"
           role="menu">
 
@@ -262,7 +262,6 @@ const DEFAULT_FILE_CATEGORIES: FileCategory[] = [
     .fb-trigger-caret--open { transform: rotate(180deg); }
 
     /* ── Dropdown ────────────────────────────────────────── */
-
     .fb-menu {
       position: fixed;
       min-width: 300px;
@@ -582,18 +581,6 @@ const DEFAULT_FILE_CATEGORIES: FileCategory[] = [
         background: color-mix(in srgb, #0060c0 10%, transparent);
         color: #0060c0;
       }
-    }
-
-    .fb-menu {
-      /* ... existing styles ... */
-      z-index: 10000 !important;
-      pointer-events: auto !important;
-      position: fixed;
-    }
-
-    .fb-item, .fb-group-head, .fb-menu-foot button {
-      pointer-events: auto !important;
-      cursor: pointer;
     }
   `]
 })

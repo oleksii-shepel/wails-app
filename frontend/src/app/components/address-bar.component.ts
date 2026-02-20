@@ -1,10 +1,12 @@
 import {
   Component, Input, Output, EventEmitter,
   OnInit, OnDestroy, OnChanges, SimpleChanges,
-  ViewChild, ElementRef, HostListener, ChangeDetectorRef,
+  ViewChild, ElementRef, ChangeDetectorRef,
+  HostListener,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Subject, debounceTime, distinctUntilChanged, takeUntil } from 'rxjs';
+import { DropdownDirective, DropdownTriggerDirective, DropdownMenuDirective } from '../directives/dropdown.directive';
 
 import { PathHistoryService, PathSuggestion } from '../services/path-history.service';
 import { ApiService } from '../services/api.service';
@@ -24,6 +26,9 @@ import { AddressBarSiblingDropdownComponent } from './address-bar-sibling-dropdo
   standalone: true,
   imports: [
     CommonModule,
+    DropdownDirective,
+    DropdownTriggerDirective,
+    DropdownMenuDirective,
     AddressBarSiblingDropdownComponent,
     AddressBarPinDropdownComponent,
     AddressBarDriveDropdownComponent,
@@ -45,8 +50,9 @@ import { AddressBarSiblingDropdownComponent } from './address-bar-sibling-dropdo
         aria-label="Toggle pin"
       >{{ isPinned ? '★' : '☆' }}</button>
 
-      <div class="ab-drop-anchor">
+      <div class="ab-drop-anchor" appDropdown [(isOpen)]="showPinDrop">
         <button
+          appDropdownTrigger
           class="ab-btn ab-btn--pinlist"
           [class.ab-btn--open]="showPinDrop"
           (click)="togglePinDrop()"
@@ -58,6 +64,7 @@ import { AddressBarSiblingDropdownComponent } from './address-bar-sibling-dropdo
           </svg>
         </button>
         <app-address-bar-pin-dropdown
+          appDropdownMenu
           *ngIf="showPinDrop"
           [pins]="pinnedPaths"
           [currentPath]="currentPath"
@@ -549,6 +556,8 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   private editChange$ = new Subject<string>();
   private blurTimer: any;
   private copiedTimer: any;
+  private ddChev!: string;
+  private ddDrive!: string;
 
   constructor(
     private pathHistoryService: PathHistoryService,
@@ -569,7 +578,16 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
       .subscribe(v => this.fetchSuggestions(v));
 
     if (this.isWin) this.loadDrives();
+
+    // Handle editMode outside-click (DropdownService handles dropdown clicks)
+    document.addEventListener('mousedown', this.onEditModeOutsideClick, { capture: true });
   }
+
+  private onEditModeOutsideClick = (e: MouseEvent): void => {
+    if (this.editMode && !this.elRef.nativeElement.contains(e.target as Node)) {
+      this.exitEditMode(false);
+    }
+  };
 
   ngOnChanges(changes: SimpleChanges): void {
     // Tab switched — reset all transient state and show the new tab's path.
@@ -610,6 +628,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     clearTimeout(this.copiedTimer);
     this.destroy$.next();
     this.destroy$.complete();
+    document.removeEventListener('mousedown', this.onEditModeOutsideClick, { capture: true } as any);
   }
 
   // ── Segments ─────────────────────────────────────────────────────────
@@ -676,7 +695,6 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     this.showDriveMenu = true;
     if (this.drives.length === 0 && !this.drivesLoading) this.loadDrives();
   }
-
   /**
    * Click on the .ab-crumbs or .ab-crumbs-inner wrapper (empty space) → edit mode.
    */
@@ -866,7 +884,10 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
 
   togglePinDrop(): void {
     this.showPinDrop = !this.showPinDrop;
-    if (this.showPinDrop) { this.chevIdx = -1; this.showDriveMenu = false; }
+    if (this.showPinDrop) {
+      this.chevIdx = -1;
+      this.showDriveMenu = false;
+    }
   }
 
   removePin(p: PinnedPath, e: MouseEvent): void {
@@ -1024,14 +1045,8 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   }
 
   // ── Outside click / escape ───────────────────────────────────────────
-
-  @HostListener('document:click', ['$event'])
-  onDocClick(e: MouseEvent): void {
-    if (!this.elRef.nativeElement.contains(e.target as Node)) {
-      this.closeAll();
-      if (this.editMode) this.exitEditMode(false);
-    }
-  }
+  // Note: outside-click closing is now handled by DropdownService for all
+  // registered dropdowns. The editMode outside-click is handled below.
 
   @HostListener('document:keydown', ['$event'])
   onDocKey(e: KeyboardEvent): void {

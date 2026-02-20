@@ -1,4 +1,5 @@
-import { Component, Input, Output, EventEmitter, OnInit, OnDestroy, ViewChild, ElementRef, HostListener, OnChanges, SimpleChanges } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnInit, OnDestroy, ViewChild, ElementRef, OnChanges, SimpleChanges, HostListener } from '@angular/core';
+import { DropdownDirective, DropdownTriggerDirective, DropdownMenuDirective } from '../directives/dropdown.directive';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Subject } from 'rxjs';
@@ -65,14 +66,15 @@ const DEFAULT_FILE_CATEGORIES: FileCategory[] = [
 @Component({
   selector: 'app-filter-bar',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, DropdownDirective, DropdownTriggerDirective, DropdownMenuDirective],
   template: `
     <div class="filter-bar" [class.filter-bar--compact]="compact">
 
       <!-- ── Trigger button ────────────────────────────────── -->
-      <div class="fb-anchor" #dropdownContainer>
+      <div class="fb-anchor" #dropdownContainer appDropdown [(isOpen)]="isOpen">
         <button
           #triggerBtn
+          appDropdownTrigger
           class="fb-trigger"
           [class.fb-trigger--active]="hasActive"
           [class.fb-trigger--open]="isOpen"
@@ -92,13 +94,11 @@ const DEFAULT_FILE_CATEGORIES: FileCategory[] = [
         </button>
 
         <!-- ── Dropdown ───────────────────────────────────── -->
-        <div class="fb-menu" #menuEl *ngIf="isOpen"
+        <div class="fb-menu" #menuEl appDropdownMenu *ngIf="isOpen"
           [style.top.px]="dropPos.top"
           [style.left.px]="dropPos.left"
           [style.minWidth.px]="lockedMenuWidth"
           [style.maxWidth.px]="lockedMenuWidth"
-          (mousedown)="$event.preventDefault()"
-          (click)="$event.stopPropagation()"
           role="menu">
 
           <!-- AND / OR mode toggle -->
@@ -690,6 +690,7 @@ export class FilterBarComponent implements OnInit, OnDestroy, OnChanges {
 
   private destroy$ = new Subject<void>();
   private analysisCache?: ContentAnalysis;
+  constructor() {}
 
   // ── Lifecycle ────────────────────────────────────────────
 
@@ -1036,16 +1037,6 @@ export class FilterBarComponent implements OnInit, OnDestroy, OnChanges {
     if (p.filter.includes('modified:')) return '⚡';
     if (p.filter.includes('hidden:'))   return '👻';
     return '📄';
-  }
-
-  @HostListener('document:click', ['$event'])
-  onDocClick(e: MouseEvent): void {
-    if (!this.isOpen) return;
-    const target = e.target as Node;
-    const inAnchor = this.dropdownContainerRef?.nativeElement.contains(target);
-    const liveMenu = document.querySelector('.fb-menu');
-    const inMenu   = liveMenu?.contains(target);
-    if (!inAnchor && !inMenu) this.isOpen = false;
   }
 
   @HostListener('window:keydown.control.shift.f', ['$event'])

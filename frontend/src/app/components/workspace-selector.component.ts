@@ -1,17 +1,20 @@
 import { Component, Input, Output, EventEmitter } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { WorkspaceConfig } from '../shared/protocol-enhanced';
+import { DropdownDirective, DropdownTriggerDirective, DropdownMenuDirective } from '../directives/dropdown.directive';
 
 /**
  * Workspace Selector Component
- * Dropdown menu for selecting and managing workspaces
+ * Dropdown menu for selecting and managing workspaces.
+ * Uses DropdownService for robust outside-click handling.
  */
 @Component({
   selector: 'app-workspace-selector',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, DropdownDirective, DropdownTriggerDirective, DropdownMenuDirective],
   template: `
-    <div class="ws-selector" (click)="toggleMenu()">
+    <div appDropdown [(isOpen)]="showMenu">
+    <div appDropdownTrigger class="ws-selector" (click)="toggleMenu()">
       <span class="ws-icon">{{ activeWorkspace?.icon || '📁' }}</span>
       <span class="ws-name">{{ activeWorkspace?.name || 'Default' }}</span>
       <svg class="ws-caret" [class.ws-caret--open]="showMenu"
@@ -20,7 +23,7 @@ import { WorkspaceConfig } from '../shared/protocol-enhanced';
       </svg>
     </div>
 
-    <div class="ws-menu" *ngIf="showMenu" (click)="$event.stopPropagation()">
+    <div appDropdownMenu class="ws-menu" *ngIf="showMenu">
       <div class="ws-menu-header">
         <span>Workspaces</span>
         <button (click)="onCreateNew()" class="ws-btn-icon" title="New workspace">
@@ -49,6 +52,7 @@ import { WorkspaceConfig } from '../shared/protocol-enhanced';
         <button (click)="onRename()" class="ws-footer-btn">Rename</button>
         <button (click)="onDelete()" class="ws-footer-btn ws-footer-btn--danger">Delete</button>
       </div>
+    </div>
     </div>
   `,
   styles: [`
@@ -229,6 +233,7 @@ export class WorkspaceSelectorComponent {
   @Output() deleteWorkspace = new EventEmitter<void>();
   @Output() menuToggle = new EventEmitter<boolean>();
 
+  // isOpen is two-way bound to appDropdown — directive handles all close/outside-click logic
   toggleMenu(): void {
     this.showMenu = !this.showMenu;
     this.menuToggle.emit(this.showMenu);

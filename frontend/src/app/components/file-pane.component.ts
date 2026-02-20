@@ -40,8 +40,6 @@ declare const window: any;
         (newTab)="onNewTab()">
       </app-tab-bar>
 
-      <!-- Only render address bar once we have the real platform path,
-           preventing a flash of '/' before GetInitialPath() resolves -->
       <app-address-bar
         *ngIf="pathReady"
         [initialPath]="currentPath"
@@ -157,6 +155,10 @@ export class FilePaneComponent implements OnInit, OnChanges {
 
   archiveStack: ArchiveFrame[] = [];
 
+  /** Per-tab address store. Each tab remembers its own current path
+   *  independently so switching tabs restores the correct address. */
+  private tabPaths = new Map<string, string>();
+
   FileType = FileType;
 
   constructor(
@@ -197,7 +199,11 @@ export class FilePaneComponent implements OnInit, OnChanges {
       this.currentTabId = activeTab.id;
     }
 
-    await this.loadDirectory(pathToLoad);
+    if (this.archiveService.isArchiveVirtualPath(pathToLoad)) {
+      await this.restoreArchiveFromPath(pathToLoad);
+    } else {
+      await this.loadDirectory(pathToLoad);
+    }
   }
 
   private async loadDirectory(path: string): Promise<void> {
@@ -212,6 +218,7 @@ export class FilePaneComponent implements OnInit, OnChanges {
       this.entries = listing.entries;
       this.selectedFiles.clear();
       this.applyFilter();
+      this.tabPaths.set(this.currentTabId, listing.path);
       this.workspaceService.updateTabPath(this.paneId, this.currentTabId, listing.path);
       this.pathHistoryService.addPath(listing.path, this.paneId);
       this.pathChange.emit(listing.path);
@@ -231,18 +238,28 @@ export class FilePaneComponent implements OnInit, OnChanges {
   // ── Tab management ────────────────────────────────────────────────────────
 
   async onTabChange(tab: TabInfo): Promise<void> {
+    // Save the address the user has reached in the current tab
+    if (this.currentTabId && this.currentPath) {
+      this.tabPaths.set(this.currentTabId, this.currentPath);
+      this.workspaceService.updateTabPath(this.paneId, this.currentTabId, this.currentPath);
+    }
+
     this.workspaceService.switchTab(this.paneId, tab.id);
     this.currentTabId = tab.id;
 
+    // Restore this tab's remembered path (or fall back to its workspace path)
+    const restoredPath = this.tabPaths.get(tab.id) ?? tab.path;
+    this.currentPath = restoredPath;
+
     // detect virtual archive path
-    if (this.archiveService.isArchiveVirtualPath(tab.path)) {
-      await this.restoreArchiveFromPath(tab.path);
+    if (this.archiveService.isArchiveVirtualPath(restoredPath)) {
+      await this.restoreArchiveFromPath(restoredPath);
       return;
     }
 
     // normal filesystem tab
     this.exitArchive();
-    await this.loadDirectory(tab.path);
+    await this.loadDirectory(restoredPath);
   }
 
   private async restoreArchiveFromPath(path: string): Promise<void> {
@@ -285,7 +302,13 @@ export class FilePaneComponent implements OnInit, OnChanges {
 
   onNewTab(): void {
     const newTab = this.workspaceService.addTab(this.paneId, this.currentPath, true);
-    if (newTab) this.loadPaneState();
+    if (!newTab) return;
+    // Switch to the new tab without reloading other tabs' paths
+    this.currentTabId = newTab.id;
+    this.tabs = this.workspaceService.getTabs(this.paneId);
+    // New tab inherits current directory — no navigation needed
+    this.workspaceService.switchTab(this.paneId, newTab.id);
+    this.tabs = this.workspaceService.getTabs(this.paneId);
   }
 
   async onArchiveSegmentClick(virtualPath: string): Promise<void> {
@@ -381,8 +404,13 @@ export class FilePaneComponent implements OnInit, OnChanges {
 
   onPathChange(path: string): void {
     if (path && path !== this.currentPath) {
-      this.exitArchive();
-      this.loadDirectory(path);
+      if (this.archiveService.isArchiveVirtualPath(path)) {
+        this.currentPath = path;
+        this.restoreArchiveFromPath(path);
+      } else {
+        this.exitArchive();
+        this.loadDirectory(path);
+      }
     }
   }
 
@@ -393,6 +421,7 @@ export class FilePaneComponent implements OnInit, OnChanges {
       try {
         const listing = await window.go.main.App.NavGoUp(this.paneId);
         this.currentPath = listing.path;
+        this.tabPaths.set(this.currentTabId, listing.path);
         this.entries = listing.entries;
         this.selectedFiles.clear();
         this.applyFilter();
@@ -579,6 +608,7 @@ export class FilePaneComponent implements OnInit, OnChanges {
     // Both address bar and tab show the same virtual path: C:/Desktop.zip/src
     const virtualPath = buildArchiveDisplayPath(this.fsDirPath, this.archiveStack);
     this.currentPath = virtualPath;
+    this.tabPaths.set(this.currentTabId, virtualPath);
     const title = buildArchiveTabTitle(this.fsDirPath, this.archiveStack);
     this.workspaceService.updateTabPathAndTitle(this.paneId, this.currentTabId, virtualPath, title);
     this.tabs = this.workspaceService.getTabs(this.paneId);

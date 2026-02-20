@@ -14,7 +14,6 @@ import { TabInfo } from '../shared/protocol-enhanced';
           <app-tab *ngFor="let tab of tabs; trackBy: trackByTabId"
                    [tab]="tab"
                    [isActive]="tab.id === activeTabId"
-                   [inArchive]="inArchive"
                    (tabClick)="onTabClick($event)"
                    (tabClose)="onTabClose($event)"
                    (tabPin)="onTabPin($event)">

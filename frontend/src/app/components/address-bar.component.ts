@@ -98,9 +98,6 @@ import { AddressBarSiblingDropdownComponent } from './address-bar-sibling-dropdo
             (click)="onArchiveRootSegClick(seg, last, $event)"
             [title]="seg.fullPath || seg.label"
           >
-            <svg class="ab-seg-archive-icon" width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
-              <path d="M6.5 7.5a1 1 0 0 0-1 1v.5h-1v-.5a2 2 0 0 1 4 0v.5h-1v-.5a1 1 0 0 0-1-1zM5.5 11a1 1 0 1 0 2 0v-.5h-2V11zm7-6H10V2.5a.5.5 0 0 0-.5-.5h-3a.5.5 0 0 0-.5.5V5H3.5A1.5 1.5 0 0 0 2 6.5v6A1.5 1.5 0 0 0 3.5 14h9a1.5 1.5 0 0 0 1.5-1.5v-6A1.5 1.5 0 0 0 12.5 5zM7 2h2v3H7V2zm5.5 10.5a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-6a.5.5 0 0 1 .5-.5h8a.5.5 0 0 1 .5.5v6z"/>
-            </svg>
             {{ seg.label }}
           </span>
 
@@ -499,6 +496,9 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   @Input() paneId = 'left';
   @Input() archiveStack: ArchiveFrame[] = [];
   @Input() fsDirPath = '';
+  /** Changes whenever the parent switches tabs — triggers a full state reset
+   *  so the address bar reflects the new tab's path cleanly. */
+  @Input() tabId = '';
 
   @Output() pathChange          = new EventEmitter<string>();
   @Output() navigateUpClicked   = new EventEmitter<void>();
@@ -572,6 +572,26 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   }
 
   ngOnChanges(changes: SimpleChanges): void {
+    // Tab switched — reset all transient state and show the new tab's path.
+    // IMPORTANT: both tabId and initialPath change in the same cycle, so read
+    // the new path from changes['initialPath'].currentValue (already updated)
+    // rather than this.initialPath (may still be stale at this point).
+    if (changes['tabId'] && !changes['tabId'].firstChange) {
+      this.closeAll();
+      if (this.editMode) {
+        clearTimeout(this.blurTimer);
+        this.editMode = false;
+        this.editValue = '';
+        this.suggestions = [];
+        this.acIdx = -1;
+      }
+      // Prefer the in-flight currentValue if initialPath also changed this cycle
+      const rawNext = changes['initialPath']?.currentValue ?? this.initialPath;
+      this.currentPath = normalizePath(rawNext);
+      this.rebuildSegments();
+      this.cdr.detectChanges();
+      return;
+    }
     if (changes['initialPath'] && !changes['initialPath'].firstChange) {
       const next = normalizePath(changes['initialPath'].currentValue);
       if (next !== this.currentPath) {

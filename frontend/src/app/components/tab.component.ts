@@ -10,20 +10,23 @@ import { TabInfo } from "../shared/protocol-enhanced";
     <div class="tab"
          [class.active]="isActive"
          [class.pinned]="tab.isPinned"
-         [class.in-archive]="inArchive"
+         [class.in-archive]="isArchiveTab"
          [title]="tab.title"
          (click)="onClick()"
          (auxclick)="onMouseUp($event)"
          (mouseenter)="isHovered = true"
          (mouseleave)="isHovered = false">
 
-      <!-- Icon: archive zip icon when inside archive, folder otherwise -->
-      <span class="tab-icon" *ngIf="!inArchive">📁</span>
-      <svg *ngIf="inArchive" class="tab-icon tab-icon--archive" width="14" height="14"
-           viewBox="0 0 16 16" fill="currentColor" aria-label="Archive">
-        <path d="M6.5 7.5a1 1 0 0 0-1 1v.5h-1v-.5a2 2 0 0 1 4 0v.5h-1v-.5a1 1 0 0 0-1-1zM5.5 11a1 1 0 1 0 2 0v-.5h-2V11zm7-6H10V2.5a.5.5 0 0 0-.5-.5h-3a.5.5 0 0 0-.5.5V5H3.5A1.5 1.5 0 0 0 2 6.5v6A1.5 1.5 0 0 0 3.5 14h9a1.5 1.5 0 0 0 1.5-1.5v-6A1.5 1.5 0 0 0 12.5 5zM7 2h2v3H7V2zm5.5 10.5a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-6a.5.5 0 0 1 .5-.5h8a.5.5 0 0 1 .5.5v6z"/>
+      <!-- Icon: per-tab — archive icon if this tab's path is inside an archive, folder otherwise -->
+      <svg *ngIf="!isArchiveTab" width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-label="Folder" class="tab-icon tab-icon--folder">
+        <path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h3.086a1.5 1.5 0 0 1 1.06.44l.915.914A.5.5 0 0 0 7.914 3.5H13.5A1.5 1.5 0 0 1 15 5v7.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 12.5v-9Z"/>
       </svg>
 
+      <svg *ngIf="isArchiveTab" width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-label="Archive" class="tab-icon tab-icon--archive">
+        <path d="M2 1a1 1 0 0 0-1 1v1a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1H2Z"/>
+        <path d="M2 5v8a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V5H2Zm4 2.5h4a.5.5 0 0 1 0 1H8.5v1a.5.5 0 0 1-1 0v-1H6a.5.5 0 0 1 0-1Z"/>
+      </svg>
+      
       <span class="tab-title">{{ shortTitle }}</span>
 
       <!-- Active Tab Indicators -->
@@ -223,7 +226,14 @@ export class TabComponent {
   @Input() tab!: TabInfo;
   @Input() isActive = false;
   /** Set to true when this tab is currently browsing inside an archive. */
-  @Input() inArchive = false;
+  /** True when this specific tab's saved path is inside an archive virtual path.
+   *  Derived from tab.path so each tab carries its own icon independently. */
+  get isArchiveTab(): boolean {
+    const p = this.tab?.path ?? '';
+    // Archive virtual paths contain a known archive extension followed by a slash.
+    // e.g. "C:/foo/bar.zip/src" or "/home/user/backup.tar.gz/etc"
+    return /\.(zip|tar|gz|bz2|xz|7z|rar|iso|dmg|tgz|tbz2)([\/\\]|$)/i.test(p);
+  }
 
   @Output() tabClick = new EventEmitter<TabInfo>();
   @Output() tabClose = new EventEmitter<TabInfo>();

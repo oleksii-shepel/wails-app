@@ -19,7 +19,7 @@ import { PathHistoryService, PathSuggestion } from '../services/path-history.ser
 import { ApiService } from '../services/api.service';
 import { DirectoryListing, FileType } from '../shared/protocol';
 import { DriveInfo } from '../shared/protocol-enhanced';
-import { ArchiveFrame, buildArchiveDisplayPath } from '../services/archive.service';
+import { ArchiveFrame, buildArchiveDisplayPath, isArchive } from '../services/archive.service';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -805,6 +805,7 @@ function buildArchiveSegments(fsDirPath: string, stack: ArchiveFrame[]): PathSeg
       align-items: center;
     }
 
+    /* Base chevron — already has transparent, but be explicit */
     .ab-chev {
       display: flex;
       align-items: center;
@@ -819,7 +820,8 @@ function buildArchiveSegments(fsDirPath: string, stack: ArchiveFrame[]): PathSeg
       font-weight: 400;
       cursor: pointer;
       border-radius: var(--vsc-border-radius-sm);
-      transition: background-color var(--vsc-transition-fast), transform var(--vsc-transition-normal);
+      transition: color var(--vsc-transition-fast), transform var(--vsc-transition-normal);
+      /* REMOVED background-color from transition — prevents colored flash */
 
       &:hover {
         color: var(--vsc-foreground);
@@ -833,25 +835,36 @@ function buildArchiveSegments(fsDirPath: string, stack: ArchiveFrame[]): PathSeg
 
       &.ab-chev--open {
         transform: rotate(90deg);
-        color: var(--vsc-accent-blue);
-        background: var(--vsc-list-active-background) !important;
+        color: var(--vsc-foreground-dim);       /* no blue tint when open */
+        background: transparent !important;     /* no background when open */
       }
 
-      /* Archive chevron — interactive, amber tinted */
+      /* Drive chevron — inherits base, no special background */
+      &.ab-drive-chevron {
+        border-radius: 0 var(--vsc-border-radius-sm) var(--vsc-border-radius-sm) 0;
+        margin-left: -2px;
+        background: transparent !important;
+
+        &.ab-chev--open {
+          background: transparent !important;
+          color: var(--vsc-foreground-dim);
+        }
+      }
+
+      /* Archive chevron — amber color only, never a background tint at rest */
       &.ab-chev--archive {
-        cursor: pointer;
-        color: rgba(255, 179, 71, 0.6);
-        pointer-events: auto;
+        color: rgba(255, 179, 71, 0.45);
+        background: transparent !important;
 
         &:hover {
-          background: color-mix(in srgb, #ffb347 15%, transparent) !important;
+          background: transparent !important;   /* no hover bg either — matches FS chevrons */
           color: #ffb347;
         }
 
         &.ab-chev--open {
           transform: rotate(90deg);
           color: #ffb347;
-          background: color-mix(in srgb, #ffb347 20%, transparent) !important;
+          background: transparent !important;
         }
       }
     }
@@ -1927,71 +1940,130 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     seg: PathSegment,
     activeChildPath: string | null,
   ): Promise<void> {
+
     const stack = this.archiveStack;
-    if (!stack.length) { this.sibLoading = false; return; }
-
-    const fsNorm  = this.fsDirPath.replace(/\\/g, '/');
-    const vNorm   = seg.fullPath.replace(/\\/g, '/');
-    const afterFs = vNorm.startsWith(fsNorm)
-      ? vNorm.slice(fsNorm.length).replace(/^\//, '')
-      : '';
-
-    // parts = archive-internal path components for this segment
-    const parts = afterFs ? afterFs.split('/').filter(Boolean) : [];
-
-    // Find the deepest frame whose nestedChain is a prefix of parts
-    let frame = stack[0];
-    for (let i = stack.length - 1; i >= 0; i--) {
-      const f = stack[i];
-      const chainLen = f.nestedChain.length;
-      const partsPrefix = parts.slice(0, chainLen).join('/');
-      const chainStr    = f.nestedChain.join('/');
-      if (chainStr === partsPrefix || i === 0) {
-        frame = f;
-        break;
-      }
+    if (!stack?.length) {
+      this.sibLoading = false;
+      this.siblings = [];
+      return;
     }
-
-    // innerParts = path components after the nestedChain
-    const innerParts = parts.slice(frame.nestedChain.length);
-    // parentInnerPath = one level up from the segment itself
-    const parentInnerPath = innerParts.slice(0, -1).join('/');
 
     try {
       const app = (window as any).go?.main?.App;
-      if (!app?.ArchiveBrowse) throw new Error('ArchiveBrowse not available');
+      if (!app?.ArchiveBrowse)
+        throw new Error('ArchiveBrowse not available');
 
-      const listing = await app.ArchiveBrowse(frame.fsPath, frame.nestedChain, parentInnerPath);
+      /* ---------------------------------------------------------
+        Normalize paths
+      --------------------------------------------------------- */
+      const archiveBase = stack[0].fsPath.replace(/\\/g, '/');
+      const vNorm = seg.fullPath.replace(/\\/g, '/');
 
-      const activeChildVirtual = activeChildPath?.replace(/\\/g, '/') ?? null;
+      /* ---------------------------------------------------------
+        Remove physical archive prefix from virtual path
+        Example:
+        C:/a.zip/inner.zip/docs
+        -> inner.zip/docs
+      --------------------------------------------------------- */
+      const afterArchive = vNorm.startsWith(archiveBase)
+        ? vNorm.slice(archiveBase.length).replace(/^\/+/, '')
+        : '';
 
+      const allParts = afterArchive.split('/').filter(Boolean);
+
+      /* ---------------------------------------------------------
+        Find owning frame (deepest chain that matches prefix)
+      --------------------------------------------------------- */
+      let owningFrame = stack[0];
+
+      for (const frame of stack) {
+        const chain = frame.nestedChain;
+
+        const matches =
+          chain.length <= allParts.length &&
+          chain.every((seg, i) => seg === allParts[i]);
+
+        if (matches && chain.length >= owningFrame.nestedChain.length) {
+          owningFrame = frame;
+        }
+      }
+
+      /* ---------------------------------------------------------
+        Determine browse parameters
+      --------------------------------------------------------- */
+
+      const browseChain = owningFrame.nestedChain;
+
+      // everything after chain = path inside that archive
+      const innerParts = allParts.slice(browseChain.length);
+
+      const browseInnerPath = innerParts.join('/');
+
+      /* ---------------------------------------------------------
+        Fetch listing
+      --------------------------------------------------------- */
+      const listing = await app.ArchiveBrowse(
+        stack[0].fsPath,
+        browseChain,
+        browseInnerPath
+      );
+
+      const activeChildVirtual =
+        activeChildPath?.replace(/\\/g, '/') ?? null;
+
+      /* ---------------------------------------------------------
+        Convert entries → siblings
+      --------------------------------------------------------- */
       this.siblings = (listing.entries as any[])
-        .filter(e => e.type === 'directory' || e.type === 2)
+        .filter(e => {
+          const isDir =
+            e.type === 'directory' ||
+            e.type === 2;
+
+          const isArchiveFile =
+            (e.type === 'file' || e.type === 1) &&
+            isArchive(e.name);
+
+          return isDir || isArchiveFile;
+        })
         .map(e => {
-          // Build the full virtual path for this sibling so onSibClick
-          // can pass it straight to archiveSegmentClick.
-          const sibInnerPath = parentInnerPath
-            ? parentInnerPath + '/' + e.name
-            : e.name;
-          // Reconstruct virtual path: fsNorm + nestedChain parts + sibInnerPath
-          const chainPart = frame.nestedChain.length
-            ? '/' + frame.nestedChain.join('/')
-            : '';
-          const virtualSibPath = fsNorm + chainPart + '/' + sibInnerPath;
+
+          const sibInnerPath =
+            browseInnerPath
+              ? `${browseInnerPath}/${e.name}`
+              : e.name;
+
+          const chainPart =
+            browseChain.length
+              ? `/${browseChain.join('/')}`
+              : '';
+
+          const virtualPath =
+            `${archiveBase}${chainPart}/${sibInnerPath}`
+              .replace(/\/+/g, '/');
 
           return {
             name: e.name,
-            path: virtualSibPath,
+            path: virtualPath,
             isCurrent: activeChildVirtual
-              ? activeChildVirtual === virtualSibPath ||
-                activeChildVirtual.endsWith('/' + e.name)
-              : false,
+              ? (
+                  activeChildVirtual === virtualPath ||
+                  activeChildVirtual.endsWith('/' + e.name)
+                )
+              : false
           };
         })
-        .sort((a: SiblingEntry, b: SiblingEntry) => a.name.localeCompare(b.name));
-    } catch {
+        .sort((a: SiblingEntry, b: SiblingEntry) =>
+          a.name.localeCompare(b.name)
+        );
+
+    } catch (err) {
+
+      console.error('[loadArchiveSiblings] failed:', err);
       this.siblings = [];
+
     } finally {
+
       this.sibLoading = false;
       this.cdr.detectChanges();
     }

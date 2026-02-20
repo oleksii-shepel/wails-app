@@ -13,6 +13,13 @@ export interface ShortcutDefinition {
   category: 'navigation' | 'tabs' | 'files' | 'search' | 'workspace' | 'pane';
   description: string;
   enabled?: boolean;
+  /**
+   * When true the global listener calls preventDefault() but NOT stopPropagation(),
+   * so Angular component (keydown) bindings at lower levels can still react.
+   * Default: true (stop propagation). Set to false for address-bar / focus shortcuts
+   * that need to be handled both globally AND by the focused component.
+   */
+  allowBubble?: boolean;
 }
 
 /**
@@ -45,7 +52,7 @@ export class KeyboardService {
   private shortcuts = new Map<string, ShortcutDefinition>();
   private enabledSubject = new BehaviorSubject<boolean>(true);
   public enabled$ = this.enabledSubject.asObservable();
-  
+
   private historyStack: string[] = [];
   private maxHistorySize = 50;
 
@@ -54,18 +61,15 @@ export class KeyboardService {
   }
 
   /**
-   * Initialize global keyboard event listener
+   * Initialize global keyboard event listener.
+   * Uses `capture: true` so this fires before Angular zone / component handlers,
+   * but we only stopPropagation when the shortcut does NOT set allowBubble.
    */
   private initializeGlobalListener(): void {
     document.addEventListener('keydown', (event) => {
       if (!this.enabledSubject.value) return;
-
-      const handled = this.handleKeyboardEvent(event);
-      if (handled) {
-        event.preventDefault();
-        event.stopPropagation();
-      }
-    });
+      this.handleKeyboardEvent(event);
+    }, { capture: true });
   }
 
   /**
@@ -73,7 +77,7 @@ export class KeyboardService {
    */
   register(shortcut: ShortcutDefinition): void {
     const key = this.buildShortcutKey(shortcut.key, shortcut.modifiers);
-    
+
     if (this.shortcuts.has(key)) {
       console.warn(`Shortcut conflict: ${key} is already registered`);
     }
@@ -99,9 +103,9 @@ export class KeyboardService {
   /**
    * Handle keyboard event
    */
-  private handleKeyboardEvent(event: KeyboardEvent): boolean {
+  private handleKeyboardEvent(event: KeyboardEvent): void {
     const context = this.getKeyboardContext(event);
-    
+
     // Build key signature from event
     const modifiers: ('ctrl' | 'shift' | 'alt' | 'meta')[] = [];
     if (event.ctrlKey || event.metaKey) modifiers.push(event.ctrlKey ? 'ctrl' : 'meta');
@@ -113,30 +117,30 @@ export class KeyboardService {
 
     // Find matching shortcut
     const shortcut = this.shortcuts.get(shortcutKey);
-    
-    if (!shortcut || !shortcut.enabled) {
-      return false;
-    }
+
+    if (!shortcut || !shortcut.enabled) return;
 
     // Check context restrictions
-    if (!this.isShortcutValidInContext(shortcut, context)) {
-      return false;
-    }
+    if (!this.isShortcutValidInContext(shortcut, context)) return;
 
     // Execute action
     try {
+      event.preventDefault();
+
+      // Only stop propagation when the shortcut does NOT need to bubble
+      // down to component-level keydown handlers (e.g. address bar focus).
+      if (!shortcut.allowBubble) {
+        event.stopPropagation();
+      }
+
       const result = shortcut.action();
       if (result instanceof Promise) {
         result.catch(err => console.error('Shortcut action failed:', err));
       }
-      
-      // Add to history
+
       this.addToHistory(shortcut.id);
-      
-      return true;
     } catch (error) {
       console.error('Error executing shortcut:', error);
-      return false;
     }
   }
 
@@ -165,7 +169,7 @@ export class KeyboardService {
 
     const panes = Array.from(document.querySelectorAll('.pane'));
     const index = panes.indexOf(pane);
-    
+
     return index === 0 ? 'left' : index === 1 ? 'right' : null;
   }
 
@@ -206,14 +210,14 @@ export class KeyboardService {
    */
   private buildShortcutKey(key: string, modifiers?: string[]): string {
     const parts: string[] = [];
-    
+
     if (modifiers) {
       const sorted = [...modifiers].sort();
       parts.push(...sorted);
     }
-    
+
     parts.push(key.toLowerCase());
-    
+
     return parts.join('+');
   }
 
@@ -246,7 +250,7 @@ export class KeyboardService {
    */
   private addToHistory(shortcutId: string): void {
     this.historyStack.push(shortcutId);
-    
+
     if (this.historyStack.length > this.maxHistorySize) {
       this.historyStack.shift();
     }
@@ -333,7 +337,6 @@ export class KeyboardService {
       }
     }
 
-    // Format key name
     const keyName = this.formatKeyName(shortcut.key);
     parts.push(keyName);
 
@@ -387,7 +390,7 @@ export class KeyboardService {
    */
   exportConfig(): any {
     const shortcuts: any[] = [];
-    
+
     for (const shortcut of this.shortcuts.values()) {
       shortcuts.push({
         id: shortcut.id,

@@ -67,8 +67,16 @@ import { AddressBarSiblingDropdownComponent } from './address-bar-sibling-dropdo
       </div>
     </div>
 
-    <!-- Breadcrumb trail -->
-    <div class="ab-crumbs" (click)="onCrumbsClick($event)">
+    <!-- Breadcrumb trail
+         • single-click on empty space / last segment → edit mode
+         • double-click anywhere (including on segments) → edit mode
+         • user-select:none on .ab-bar prevents text-selection flicker on click
+    -->
+    <div
+      class="ab-crumbs"
+      (click)="onCrumbsClick($event)"
+      title="Double-click or Alt+D / Ctrl+L to edit path"
+    >
       <div class="ab-crumbs-inner" #crumbsEl>
         <ng-container *ngFor="let seg of segments; let i = index; let last = last">
 
@@ -79,7 +87,7 @@ import { AddressBarSiblingDropdownComponent } from './address-bar-sibling-dropdo
             [class.ab-seg--last]="last"
             [class.ab-seg--clickable]="!last"
             [title]="seg.fullPath || seg.label"
-            (click)="!last && onArchiveSegClick(seg, $event)"
+            (click)="onArchiveInnerSegClick(seg, last, $event)"
           >{{ seg.label }}</span>
 
           <!-- Archive root (the .zip file itself) -->
@@ -87,7 +95,7 @@ import { AddressBarSiblingDropdownComponent } from './address-bar-sibling-dropdo
             *ngIf="seg.isArchiveRoot"
             class="ab-seg ab-seg--archive-root"
             [class.ab-seg--clickable]="!last"
-            (click)="!last && onArchiveSegClick(seg, $event)"
+            (click)="onArchiveRootSegClick(seg, last, $event)"
             [title]="seg.fullPath || seg.label"
           >
             <svg class="ab-seg-archive-icon" width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
@@ -111,9 +119,9 @@ import { AddressBarSiblingDropdownComponent } from './address-bar-sibling-dropdo
             *ngIf="seg.isRoot && isWin && !seg.isArchiveInner && !seg.isArchiveRoot"
             class="ab-seg ab-drive-letter"
             [class.ab-seg--last]="last"
-            (click)="onDriveLetterClick(seg, $event)"
+            (click)="onDriveLetterClick(seg, last, $event)"
             (contextmenu)="onSegRightClick(seg, i, $event)"
-            title="Switch drives"
+            title="Switch drives (single-click) or double-click to edit path"
           >{{ seg.label }}</span>
 
           <!-- Chevron after drive letter -->
@@ -127,7 +135,11 @@ import { AddressBarSiblingDropdownComponent } from './address-bar-sibling-dropdo
             >›</button>
           </div>
 
-          <!-- Regular FS segment -->
+          <!-- Regular FS segment
+               • non-last: single-click navigates, Ctrl+click opens in other pane
+               • last:     single-click enters edit mode (no navigation target)
+               • dblclick bubbles to onCrumbsDblClick — do NOT stopPropagation on last
+          -->
           <span
             *ngIf="(!seg.isRoot || !isWin) && !seg.isArchiveInner && !seg.isArchiveRoot"
             class="ab-seg"
@@ -135,7 +147,7 @@ import { AddressBarSiblingDropdownComponent } from './address-bar-sibling-dropdo
             [class.ab-seg--last]="last"
             (click)="onSegClick(seg, $event)"
             (contextmenu)="onSegRightClick(seg, i, $event)"
-            [title]="seg.fullPath"
+            [title]="last ? 'Click to edit path' : seg.fullPath"
           >{{ seg.label }}</span>
 
           <!-- Regular chevron between FS segments -->
@@ -274,6 +286,9 @@ import { AddressBarSiblingDropdownComponent } from './address-bar-sibling-dropdo
       overflow: visible;
       background: var(--vsc-sidebar-background);
       transition: background var(--vsc-transition-fast);
+      /* Prevent the browser from painting a text-selection highlight across
+         the entire bar when the user single-clicks on a segment or empty area. */
+      user-select: none;
     }
 
     .ab-bar--compact {
@@ -324,17 +339,28 @@ import { AddressBarSiblingDropdownComponent } from './address-bar-sibling-dropdo
     .ab-drop-anchor { position: relative; }
 
     .ab-crumbs {
-      flex: 1; min-width: 0; overflow: visible;
-      cursor: text; height: 100%;
-      display: flex; align-items: center;
+      flex: 1;           /* Occupy available width */
+      min-width: 0;      /* Required for flex children to shrink/truncate */
+      overflow: hidden;  /* Contain the scrolling inner div */
+      display: flex;
+      align-items: center;
     }
 
     .ab-crumbs-inner {
-      display: flex; align-items: center; height: 100%;
-      min-width: 0; overflow-x: auto; overflow-y: hidden;
-      gap: 0; scroll-behavior: smooth;
-      scrollbar-width: none; -ms-overflow-style: none;
-      &::-webkit-scrollbar { display: none; }
+      width: 100%;
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      height: 100%;
+      overflow-x: auto;
+      overflow-y: hidden;
+      gap: 0;
+      scroll-behavior: smooth;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+      /* ADD THIS — makes the inner div always fill the full width even when segments are short */
+      cursor: text;
     }
 
     .ab-seg {
@@ -348,7 +374,11 @@ import { AddressBarSiblingDropdownComponent } from './address-bar-sibling-dropdo
 
       &:hover { background: var(--vsc-list-hover-background); color: var(--vsc-foreground); }
       &.ab-seg--root { color: var(--vsc-foreground); font-weight: 500; }
-      &.ab-seg--last { color: var(--vsc-foreground-bright); cursor: default; max-width: 240px; &:hover { background: transparent; } }
+      /* Last segment: clicking enters edit mode rather than navigating */
+      &.ab-seg--last {
+        color: var(--vsc-foreground-bright); cursor: text; max-width: 240px;
+        &:hover { background: color-mix(in srgb, var(--vsc-accent-blue) 12%, transparent); }
+      }
 
       &.ab-seg--archive-root {
         background: color-mix(in srgb, var(--vsc-accent-orange) 18%, transparent);
@@ -375,7 +405,8 @@ import { AddressBarSiblingDropdownComponent } from './address-bar-sibling-dropdo
       padding: 0 var(--vsc-padding-lg) !important; margin-right: var(--vsc-padding-md) !important;
       cursor: pointer; transition: background 0.08s, border-color 0.08s;
       &:hover { background: color-mix(in srgb, #007fd4 30%, transparent); border-color: rgba(0,127,212,0.6); }
-      &.ab-seg--last { background: color-mix(in srgb, #007fd4 18%, transparent); }
+      /* When it's also the last segment it should signal editability */
+      &.ab-seg--last { background: color-mix(in srgb, #007fd4 18%, transparent); cursor: text; }
     }
 
     .ab-chev-wrap {
@@ -577,29 +608,46 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     }, 0);
   }
 
+  // ── Click handlers ───────────────────────────────────────────────────
+
+  /**
+   * Regular FS segment click.
+   * • last segment  → enter edit mode; do NOT stopPropagation so dblclick still bubbles.
+   * • non-last      → navigate or open in other pane (Ctrl+click); stopPropagation only here.
+   */
   onSegClick(seg: PathSegment, e: MouseEvent): void {
     e.stopPropagation();
     this.closeAll();
     if (!seg.isArchiveInner && !seg.isArchiveRoot && seg.fullPath !== this.currentPath) {
       this.navigateTo(seg.fullPath);
+    } else if (seg.fullPath === this.currentPath) {
+      // Last segment — enter edit mode
+      this.enterEditMode();
     }
   }
 
-  onArchiveSegClick(seg: PathSegment, e: MouseEvent): void {
+  onArchiveInnerSegClick(seg: PathSegment, isLast: boolean, e: MouseEvent): void {
+    if (isLast) { this.enterEditMode(); return; }
     e.stopPropagation();
     this.closeAll();
     this.archiveSegmentClick.emit(seg.fullPath);
   }
 
-  onCrumbsClick(e: MouseEvent): void {
-    if ((e.target as HTMLElement).classList.contains('ab-crumbs')) {
-      this.enterEditMode();
-    }
+  onArchiveRootSegClick(seg: PathSegment, isLast: boolean, e: MouseEvent): void {
+    if (isLast) { this.enterEditMode(); return; }
+    e.stopPropagation();
+    this.closeAll();
+    this.archiveSegmentClick.emit(seg.fullPath);
   }
 
-  // ── Drive handling ───────────────────────────────────────────────────
-
-  onDriveLetterClick(seg: PathSegment, e: MouseEvent): void {
+  /**
+   * Drive letter click.
+   * • last segment (e.g. "C:" with no sub-path) → enter edit mode.
+   * • non-last → open drive switcher dropdown.
+   * No stopPropagation on last so dblclick still works.
+   */
+  onDriveLetterClick(seg: PathSegment, isLast: boolean, e: MouseEvent): void {
+    if (isLast) { this.enterEditMode(); return; }
     e.stopPropagation();
     if (this.showDriveMenu) { this.showDriveMenu = false; return; }
     this.closeAll();
@@ -609,6 +657,29 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     this.showDriveMenu = true;
     if (this.drives.length === 0 && !this.drivesLoading) this.loadDrives();
   }
+
+  /**
+   * Click on the .ab-crumbs or .ab-crumbs-inner wrapper (empty space) → edit mode.
+   */
+  onCrumbsClick(e: MouseEvent): void {
+    const target = e.target as HTMLElement;
+    if (target.classList.contains('ab-crumbs') || 
+        target.classList.contains('ab-crumbs-inner')) {
+      e.stopPropagation();
+      this.enterEditMode();
+    }
+  }
+
+  /**
+   * Double-click anywhere inside the crumbs area → edit mode.
+   * Works for all targets including non-last segments (which normally navigate on single click).
+   */
+  onCrumbsDblClick(e: MouseEvent): void {
+    // e.preventDefault();
+    // this.enterEditMode();
+  }
+
+  // ── Drive handling ───────────────────────────────────────────────────
 
   switchToDrive(drive: DriveInfo): void {
     this.showDriveMenu = false;
@@ -691,7 +762,6 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
       : '';
     const allParts     = afterArchive ? afterArchive.split('/').filter(Boolean) : [];
 
-    // Find deepest owning frame
     let owningFrame = stack[0];
     for (const f of stack) {
       if (f.nestedChain.length > allParts.length) continue;
@@ -700,16 +770,13 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     }
 
     const innerParts = allParts.slice(owningFrame.nestedChain.length);
-
     let browseChain: string[];
     let browseInnerPath: string;
 
     if (seg.isArchiveRoot && innerParts.length === 0) {
-      // Chevron after an archive FILE → show its contents
       browseChain     = owningFrame.nestedChain;
       browseInnerPath = '';
     } else {
-      // Chevron after an inner FOLDER → show contents of that folder
       browseChain     = owningFrame.nestedChain;
       browseInnerPath = innerParts.join('/');
     }
@@ -805,12 +872,12 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   // ── Edit mode ────────────────────────────────────────────────────────
 
   enterEditMode(): void {
-    if (this.archiveStack.length > 0) return;
     this.closeAll();
     this.editMode  = true;
     this.editValue = this.currentPath;
     this.suggestions = [];
     this.acIdx = -1;
+    this.cdr.detectChanges();
   }
 
   exitEditMode(commit: boolean): void {
@@ -842,15 +909,21 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
           this.exitEditMode(true);
         }
         break;
-      case 'Escape':   e.preventDefault(); this.exitEditMode(false); break;
+      case 'Escape':    e.preventDefault(); this.exitEditMode(false); break;
       case 'ArrowDown': e.preventDefault(); this.acIdx = Math.min(this.acIdx + 1, this.suggestions.length - 1); break;
       case 'ArrowUp':   e.preventDefault(); this.acIdx = Math.max(this.acIdx - 1, -1); break;
       case 'Tab':       e.preventDefault(); if (this.suggestions.length) this.acceptSuggestion(this.suggestions[0]); break;
     }
   }
 
+  /**
+   * Component-level keydown — receives Ctrl+L and Alt+D because
+   * ShortcutRegistryService registers both with allowBubble:true,
+   * so the global listener calls preventDefault() but NOT stopPropagation().
+   */
   onHostKeyDown(e: KeyboardEvent): void {
     if ((e.ctrlKey || e.metaKey) && e.key === 'l') { e.preventDefault(); this.enterEditMode(); }
+    if (e.altKey && e.key === 'd') { e.preventDefault(); this.enterEditMode(); }
   }
 
   // ── Autocomplete ─────────────────────────────────────────────────────
@@ -953,8 +1026,8 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   @HostListener('document:keydown', ['$event'])
   onDocKey(e: KeyboardEvent): void {
     if (e.key === 'Escape') {
-      if (this.ctxMenu.visible)                                       { this.closeCtx(); e.preventDefault(); }
-      else if (this.editMode)                                         { this.exitEditMode(false); e.preventDefault(); }
+      if (this.ctxMenu.visible)                                              { this.closeCtx(); e.preventDefault(); }
+      else if (this.editMode)                                                { this.exitEditMode(false); e.preventDefault(); }
       else if (this.chevIdx >= 0 || this.showPinDrop || this.showDriveMenu) { this.closeAll(); e.preventDefault(); }
     }
   }

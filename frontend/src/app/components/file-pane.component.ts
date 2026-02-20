@@ -1,4 +1,4 @@
-import { Component, Input, Output, EventEmitter, OnInit, OnChanges } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnInit, OnChanges, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { TabBarComponent } from './tab-bar.component';
 import { AddressBarComponent } from './address-bar.component';
@@ -122,6 +122,8 @@ declare const window: any;
   `]
 })
 export class FilePaneComponent implements OnInit, OnChanges {
+  @ViewChild(AddressBarComponent) addressBar?: AddressBarComponent;
+  
   @Input() paneId: 'left' | 'right' = 'left';
   @Input() workspace: WorkspaceConfig | null = null;
   @Input() showHidden = false;
@@ -660,12 +662,6 @@ export class FilePaneComponent implements OnInit, OnChanges {
   }
 
   focusAddressBar(): void {
-    setTimeout(() => {
-      const el = document.querySelector(
-        `app-file-pane[paneId="${this.paneId}"] .ab-edit-input`
-      ) as HTMLInputElement;
-      el?.focus();
-      el?.select();
-    });
+    this.addressBar?.enterEditMode();
   }
 }

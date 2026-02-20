@@ -396,7 +396,11 @@ export class ShortcutRegistryService {
       description: 'Move selected to other pane',
     });
 
-    // Focus address bar
+    // Focus address bar — Ctrl+L
+    // allowBubble: true so the event still reaches the address bar component's
+    // own (keydown) handler, which calls enterEditMode() directly on the right instance.
+    // Without this the global listener swallows the event via stopPropagation() and
+    // the component never sees it.
     this.keyboardService.register({
       id: 'focus-address',
       key: 'l',
@@ -404,7 +408,21 @@ export class ShortcutRegistryService {
       action: callbacks.focusAddressBar,
       context: 'global',
       category: 'pane',
-      description: 'Focus address bar',
+      description: 'Focus address bar (Ctrl+L)',
+      allowBubble: true,
+    });
+
+    // Focus address bar — Alt+D (Windows Explorer convention)
+    // Same allowBubble requirement as Ctrl+L above.
+    this.keyboardService.register({
+      id: 'focus-address-alt-d',
+      key: 'd',
+      modifiers: ['alt'],
+      action: callbacks.focusAddressBar,
+      context: 'global',
+      category: 'pane',
+      description: 'Focus address bar (Alt+D)',
+      allowBubble: true,
     });
   }
 }

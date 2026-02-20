@@ -59,17 +59,18 @@
         paneId="left"
         [workspace]="activeWorkspace"
         [showHidden]="showHidden"
+        (click)="activePaneId = 'left'"
         (pathChange)="onPanePathChange('left', $event)"
         (copyToOther)="onCopyFromLeft($event)"
         (moveToOther)="onMoveFromLeft($event)">
       </app-file-pane>
 
-      <!-- Right Pane -->
       <app-file-pane
         #rightPane
         paneId="right"
         [workspace]="activeWorkspace"
         [showHidden]="showHidden"
+        (click)="activePaneId = 'right'"
         (pathChange)="onPanePathChange('right', $event)"
         (copyToOther)="onCopyFromRight($event)"
         (moveToOther)="onMoveFromRight($event)">

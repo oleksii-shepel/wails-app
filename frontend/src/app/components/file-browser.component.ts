@@ -61,12 +61,12 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
   workspaceList: WorkspaceConfig[] = [];
   showWorkspaceMenu = false;
   showHidden = false;
-
+  activePaneId: 'left' | 'right' = 'left';
+  
   // Expose to template
   FileType = FileType;
 
   private destroy$ = new Subject<void>();
-  private activePaneId: 'left' | 'right' = 'left';
   private clipboard: { operation: 'copy' | 'cut'; paths: string[] } | null = null;
 
   constructor(

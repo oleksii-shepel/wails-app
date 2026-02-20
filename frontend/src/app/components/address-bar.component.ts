@@ -1936,138 +1936,142 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
    * then go one level up to find the parent innerPath, then call
    * ArchiveBrowse on that parent to list its children.
    */
-  private async loadArchiveSiblings(
-    seg: PathSegment,
-    activeChildPath: string | null,
-  ): Promise<void> {
+private async loadArchiveSiblings(
+  seg: PathSegment,
+  activeChildPath: string | null,
+): Promise<void> {
+  const stack = this.archiveStack;
 
-    const stack = this.archiveStack;
-    if (!stack?.length) {
-      this.sibLoading = false;
-      this.siblings = [];
-      return;
-    }
+  console.group('[loadArchiveSiblings]');
+  console.log('seg:', { label: seg.label, fullPath: seg.fullPath, isArchiveRoot: seg.isArchiveRoot, isArchiveInner: seg.isArchiveInner });
+  console.log('activeChildPath:', activeChildPath);
+  console.log('fsDirPath:', this.fsDirPath);
+  console.log('archiveStack:', JSON.stringify(stack.map(f => ({
+    fsPath: f.fsPath,
+    nestedChain: f.nestedChain,
+    innerPath: f.innerPath,
+  })), null, 2));
 
-    try {
-      const app = (window as any).go?.main?.App;
-      if (!app?.ArchiveBrowse)
-        throw new Error('ArchiveBrowse not available');
+  if (!stack.length) {
+    console.warn('→ stack is empty, aborting');
+    console.groupEnd();
+    this.sibLoading = false;
+    return;
+  }
 
-      /* ---------------------------------------------------------
-        Normalize paths
-      --------------------------------------------------------- */
-      const archiveBase = stack[0].fsPath.replace(/\\/g, '/');
-      const vNorm = seg.fullPath.replace(/\\/g, '/');
+  const fsPath       = stack[0].fsPath.replace(/\\/g, '/');
+  const vNorm        = seg.fullPath.replace(/\\/g, '/');
+  const afterArchive = vNorm.startsWith(fsPath)
+    ? vNorm.slice(fsPath.length).replace(/^\//, '')
+    : '';
+  const allParts     = afterArchive ? afterArchive.split('/').filter(Boolean) : [];
 
-      /* ---------------------------------------------------------
-        Remove physical archive prefix from virtual path
-        Example:
-        C:/a.zip/inner.zip/docs
-        -> inner.zip/docs
-      --------------------------------------------------------- */
-      const afterArchive = vNorm.startsWith(archiveBase)
-        ? vNorm.slice(archiveBase.length).replace(/^\/+/, '')
-        : '';
+  console.log('--- path decomposition ---');
+  console.log('fsPath (stack[0].fsPath):', fsPath);
+  console.log('vNorm (seg.fullPath):', vNorm);
+  console.log('afterArchive:', afterArchive || '(empty = seg IS the root archive)');
+  console.log('allParts:', allParts);
 
-      const allParts = afterArchive.split('/').filter(Boolean);
-
-      /* ---------------------------------------------------------
-        Find owning frame (deepest chain that matches prefix)
-      --------------------------------------------------------- */
-      let owningFrame = stack[0];
-
-      for (const frame of stack) {
-        const chain = frame.nestedChain;
-
-        const matches =
-          chain.length <= allParts.length &&
-          chain.every((seg, i) => seg === allParts[i]);
-
-        if (matches && chain.length >= owningFrame.nestedChain.length) {
-          owningFrame = frame;
-        }
-      }
-
-      /* ---------------------------------------------------------
-        Determine browse parameters
-      --------------------------------------------------------- */
-
-      const browseChain = owningFrame.nestedChain;
-
-      // everything after chain = path inside that archive
-      const innerParts = allParts.slice(browseChain.length);
-
-      const browseInnerPath = innerParts.join('/');
-
-      /* ---------------------------------------------------------
-        Fetch listing
-      --------------------------------------------------------- */
-      const listing = await app.ArchiveBrowse(
-        stack[0].fsPath,
-        browseChain,
-        browseInnerPath
-      );
-
-      const activeChildVirtual =
-        activeChildPath?.replace(/\\/g, '/') ?? null;
-
-      /* ---------------------------------------------------------
-        Convert entries → siblings
-      --------------------------------------------------------- */
-      this.siblings = (listing.entries as any[])
-        .filter(e => {
-          const isDir =
-            e.type === 'directory' ||
-            e.type === 2;
-
-          const isArchiveFile =
-            (e.type === 'file' || e.type === 1) &&
-            isArchive(e.name);
-
-          return isDir || isArchiveFile;
-        })
-        .map(e => {
-
-          const sibInnerPath =
-            browseInnerPath
-              ? `${browseInnerPath}/${e.name}`
-              : e.name;
-
-          const chainPart =
-            browseChain.length
-              ? `/${browseChain.join('/')}`
-              : '';
-
-          const virtualPath =
-            `${archiveBase}${chainPart}/${sibInnerPath}`
-              .replace(/\/+/g, '/');
-
-          return {
-            name: e.name,
-            path: virtualPath,
-            isCurrent: activeChildVirtual
-              ? (
-                  activeChildVirtual === virtualPath ||
-                  activeChildVirtual.endsWith('/' + e.name)
-                )
-              : false
-          };
-        })
-        .sort((a: SiblingEntry, b: SiblingEntry) =>
-          a.name.localeCompare(b.name)
-        );
-
-    } catch (err) {
-
-      console.error('[loadArchiveSiblings] failed:', err);
-      this.siblings = [];
-
-    } finally {
-
-      this.sibLoading = false;
-      this.cdr.detectChanges();
+  // Find the deepest frame whose nestedChain is a prefix of allParts
+  let owningFrame = stack[0];
+  for (const f of stack) {
+    if (f.nestedChain.length > allParts.length) continue;
+    const prefix = allParts.slice(0, f.nestedChain.length).join('/');
+    if (f.nestedChain.join('/') === prefix) {
+      owningFrame = f;
     }
   }
+
+  const innerParts = allParts.slice(owningFrame.nestedChain.length);
+
+  console.log('--- frame resolution ---');
+  console.log('owningFrame:', { fsPath: owningFrame.fsPath, nestedChain: owningFrame.nestedChain, innerPath: owningFrame.innerPath });
+  console.log('innerParts:', innerParts);
+
+  // Determine browse target:
+  // - archive-root seg (e.g. Desktop.zip itself) → browse parent context to show siblings
+  // - archive-inner seg (a folder inside) → browse parent folder within owningFrame
+  let browseChain: string[];
+  let browseInnerPath: string;
+
+  if (seg.isArchiveRoot && innerParts.length === 0) {
+    // Is there a frame that IS this archive (i.e. we've navigated inside it)?
+    // If yes → show its contents. If no → show siblings at parent level.
+    const frameInsideThisArchive = stack.find(f =>
+      f.nestedChain.length > 0 &&
+      f.nestedChain[f.nestedChain.length - 1] === seg.label
+    );
+
+    if (frameInsideThisArchive) {
+      // We're inside this archive — browse its root to show contents
+      browseChain     = frameInsideThisArchive.nestedChain;
+      browseInnerPath = '';
+      console.log('--- mode: ARCHIVE-ROOT (navigated inside) → browsing its contents ---');
+    } else {
+      // We're not inside this archive — show siblings at parent level
+      browseChain     = owningFrame.nestedChain.slice(0, -1);
+      browseInnerPath = '';
+      console.log('--- mode: ARCHIVE-ROOT (not entered) → browsing parent context ---');
+    }
+  } else {
+    browseChain     = owningFrame.nestedChain;
+    browseInnerPath = innerParts.join('/');
+    console.log('--- mode: INNER folder → browsing parent folder within owningFrame ---');
+  }
+
+  console.log('ArchiveBrowse call args:', { fsPath, browseChain, browseInnerPath });
+
+  try {
+    const app = (window as any).go?.main?.App;
+    if (!app?.ArchiveBrowse) throw new Error('ArchiveBrowse not available on window.go.main.App');
+
+    const listing = await app.ArchiveBrowse(fsPath, browseChain, browseInnerPath);
+
+    console.log('ArchiveBrowse raw response:', listing);
+    console.log('entries count:', listing?.entries?.length ?? 'NO ENTRIES FIELD');
+    console.log('all entry types:', listing?.entries?.map((e: any) => ({ name: e.name, type: e.type })));
+
+    const activeChildVirtual = activeChildPath?.replace(/\\/g, '/') ?? null;
+
+    const filtered = (listing.entries as any[]).filter(e =>
+      e.type === 'directory'  || e.type === 'DIRECTORY' ||
+      e.type === 'ARCHIVE'    ||
+      e.type === 2            ||
+      ((e.type === 'file' || e.type === 'FILE' || e.type === 1) &&
+        /\.(zip|tar|tgz|gz|bz2|xz)$/i.test(e.name))
+    );
+    console.log('filtered (dirs + archives):', filtered.map((e: any) => ({ name: e.name, type: e.type })));
+
+    this.siblings = filtered
+      .map(e => {
+        const sibInnerPath   = browseInnerPath ? `${browseInnerPath}/${e.name}` : e.name;
+        const chainPart      = browseChain.length ? `/${browseChain.join('/')}` : '';
+        const virtualSibPath = `${fsPath}${chainPart}/${sibInnerPath}`.replace(/\/+/g, '/');
+        console.log(`  sibling: ${e.name} (${e.type}) → ${virtualSibPath}`);
+        return {
+          name:      e.name,
+          path:      virtualSibPath,
+          isArchive: e.type === 'ARCHIVE' || /\.(zip|tar|tgz|gz|bz2|xz)$/i.test(e.name),
+          isCurrent: activeChildVirtual
+            ? activeChildVirtual === virtualSibPath ||
+              activeChildVirtual.startsWith(virtualSibPath + '/') ||  // ← add this
+              activeChildVirtual.endsWith('/' + e.name)
+            : false,
+        } as SiblingEntry;
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    console.log('final siblings:', this.siblings);
+
+  } catch (err) {
+    console.error('ArchiveBrowse FAILED:', err);
+    this.siblings = [];
+  } finally {
+    this.sibLoading = false;
+    console.groupEnd();
+    this.cdr.detectChanges();
+  }
+}
 
   onSibClick(s: SiblingEntry): void {
     this.chevIdx = -1;

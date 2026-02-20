@@ -8,6 +8,17 @@ import {
   STORAGE_KEYS,
 } from '../shared/protocol-enhanced';
 import { ApiService } from './api.service';
+import { ArchiveFrame } from './archive.service';
+
+/**
+ * Archive tab state - stores the complete archive navigation state
+ */
+export interface ArchiveTabState {
+  path: string;
+  archiveStack: ArchiveFrame[];
+  fsDirPath: string;
+  fsParentDir: string;
+}
 
 /**
  * WorkspaceService – manages workspaces and per-pane tab state.
@@ -32,6 +43,9 @@ export class WorkspaceService {
 
   /** True once the initial load from the Wails backend has completed. */
   private backendLoaded = false;
+
+  /** Store archive states per pane per tab */
+  private archiveStates = new Map<string, Map<string, ArchiveTabState>>();
 
   constructor(private api: ApiService) {
     this.initializeWorkspaces();
@@ -223,6 +237,9 @@ export class WorkspaceService {
     this.activeWorkspaceSubject.next(workspace);
     this.setActiveBackend(workspaceId);
 
+    // Clear archive states when switching workspaces
+    this.archiveStates.clear();
+
     return true;
   }
 
@@ -263,7 +280,92 @@ export class WorkspaceService {
     this.updateAndPersist(list);
     this.deleteBackendWorkspace(workspaceId);
 
+    // Clear archive states for deleted workspace
+    this.clearAllArchiveStatesForWorkspace(workspaceId);
+
     return true;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Archive State Management
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Save archive state for a specific tab
+   */
+  saveArchiveState(paneId: string, tabId: string, state: ArchiveTabState): void {
+    const paneKey = `${this.activeWorkspaceSubject.value?.id}:${paneId}`;
+    
+    if (!this.archiveStates.has(paneKey)) {
+      this.archiveStates.set(paneKey, new Map());
+    }
+    
+    this.archiveStates.get(paneKey)!.set(tabId, {
+      ...state,
+      // Clone the archive stack to prevent reference issues
+      archiveStack: state.archiveStack.map(frame => ({
+        ...frame,
+        listing: { ...frame.listing },
+        nestedChain: [...frame.nestedChain]
+      }))
+    });
+  }
+
+  /**
+   * Get archive state for a specific tab
+   */
+  getArchiveState(paneId: string, tabId: string): ArchiveTabState | null {
+    const paneKey = `${this.activeWorkspaceSubject.value?.id}:${paneId}`;
+    const state = this.archiveStates.get(paneKey)?.get(tabId);
+    
+    if (state) {
+      // Return a deep clone to prevent mutation issues
+      return {
+        ...state,
+        archiveStack: state.archiveStack.map(frame => ({
+          ...frame,
+          listing: { ...frame.listing },
+          nestedChain: [...frame.nestedChain]
+        }))
+      };
+    }
+    
+    return null;
+  }
+
+  /**
+   * Clear archive state for a specific tab
+   */
+  clearArchiveState(paneId: string, tabId: string): void {
+    const paneKey = `${this.activeWorkspaceSubject.value?.id}:${paneId}`;
+    this.archiveStates.get(paneKey)?.delete(tabId);
+  }
+
+  /**
+   * Clear all archive states for a specific pane
+   */
+  clearAllArchiveStatesForPane(paneId: string): void {
+    const paneKey = `${this.activeWorkspaceSubject.value?.id}:${paneId}`;
+    this.archiveStates.delete(paneKey);
+  }
+
+  /**
+   * Clear all archive states for a specific workspace
+   */
+  clearAllArchiveStatesForWorkspace(workspaceId: string): void {
+    for (const key of this.archiveStates.keys()) {
+      if (key.startsWith(`${workspaceId}:`)) {
+        this.archiveStates.delete(key);
+      }
+    }
+  }
+
+  /**
+   * Check if a tab has archive state
+   */
+  hasArchiveState(paneId: string, tabId: string): boolean {
+    const paneKey = `${this.activeWorkspaceSubject.value?.id}:${paneId}`;
+    return this.archiveStates.get(paneKey)?.has(tabId) || false;
   }
 
   // ---------------------------------------------------------------------------
@@ -305,6 +407,9 @@ export class WorkspaceService {
     const pane = paneId === 'left' ? workspace.leftPane : workspace.rightPane;
     const tabIndex = pane.tabs.findIndex((t) => t.id === tabId);
     if (tabIndex === -1) return false;
+
+    // Clear archive state when closing tab
+    this.clearArchiveState(paneId, tabId);
 
     // Keep at least one tab – replace it with the drive root
     if (pane.tabs.length === 1) {

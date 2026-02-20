@@ -199,6 +199,9 @@ export class FilePaneComponent implements OnInit, OnChanges {
       this.currentTabId = activeTab.id;
     }
 
+    // Clear any existing archive state before loading
+    this.clearArchiveState();
+
     if (this.archiveService.isArchiveVirtualPath(pathToLoad)) {
       await this.restoreArchiveFromPath(pathToLoad);
     } else {
@@ -206,15 +209,24 @@ export class FilePaneComponent implements OnInit, OnChanges {
     }
   }
 
+  private clearArchiveState(): void {
+    this.archiveStack = [];
+    this.fsDirPath = '';
+    this.fsParentDir = '';
+  }
+
   private async loadDirectory(path: string): Promise<void> {
+    // Force exit archive mode and clear all archive-related state
     this.exitArchive();
+    this.clearArchiveState();
+    
     this.loading = true;
     this.error = null;
     try {
       const listing = await this.apiService.listDirectory(path, this.showHidden);
       this.currentPath = listing.path;
       this.fsDirPath = listing.path;
-      this.fsParentDir = listing.path;  // remember the FS dir for archive exit
+      this.fsParentDir = listing.path;
       this.entries = listing.entries;
       this.selectedFiles.clear();
       this.applyFilter();
@@ -238,27 +250,57 @@ export class FilePaneComponent implements OnInit, OnChanges {
   // ── Tab management ────────────────────────────────────────────────────────
 
   async onTabChange(tab: TabInfo): Promise<void> {
-    // Save the address the user has reached in the current tab
+    // Save the current tab's state before switching
     if (this.currentTabId && this.currentPath) {
-      this.tabPaths.set(this.currentTabId, this.currentPath);
-      this.workspaceService.updateTabPath(this.paneId, this.currentTabId, this.currentPath);
+      if (this.isInArchive()) {
+        // For archive tabs, save the full archive state
+        this.workspaceService.saveArchiveState(this.paneId, this.currentTabId, {
+          path: this.currentPath,
+          archiveStack: this.archiveStack,
+          fsDirPath: this.fsDirPath,
+          fsParentDir: this.fsParentDir
+        });
+      } else {
+        // For regular tabs, just save the path
+        this.tabPaths.set(this.currentTabId, this.currentPath);
+        this.workspaceService.updateTabPath(this.paneId, this.currentTabId, this.currentPath);
+      }
     }
 
     this.workspaceService.switchTab(this.paneId, tab.id);
     this.currentTabId = tab.id;
 
-    // Restore this tab's remembered path (or fall back to its workspace path)
+    // CRITICAL: Always clear current archive state first
+    this.clearArchiveState();
+
+    // Try to restore archive state first
+    const archiveState = this.workspaceService.getArchiveState(this.paneId, tab.id);
+    if (archiveState) {
+      // This is an archive tab - restore its state
+      this.currentPath = archiveState.path;
+      this.archiveStack = archiveState.archiveStack;
+      this.fsDirPath = archiveState.fsDirPath;
+      this.fsParentDir = archiveState.fsParentDir;
+      
+      // Render the archive
+      if (this.archiveStack.length > 0) {
+        this.renderArchiveFrame(this.archiveStack[this.archiveStack.length - 1]);
+      }
+      return;
+    }
+
+    // If no archive state, try regular path
     const restoredPath = this.tabPaths.get(tab.id) ?? tab.path;
     this.currentPath = restoredPath;
 
-    // detect virtual archive path
+    // Check if this path is a virtual archive path
     if (this.archiveService.isArchiveVirtualPath(restoredPath)) {
+      // This is an archive path but no state exists - restore from path
       await this.restoreArchiveFromPath(restoredPath);
       return;
     }
 
-    // normal filesystem tab
-    this.exitArchive();
+    // This is a regular filesystem tab
     await this.loadDirectory(restoredPath);
   }
 
@@ -274,23 +316,36 @@ export class FilePaneComponent implements OnInit, OnChanges {
       const stack: ArchiveFrame[] = [frame];
 
       // walk nested chain
+      let currentFrame = frame;
       for (const part of chain) {
-        frame = await this.archiveService.openNestedArchive(frame, [part]);
-        stack.push(frame);
+        currentFrame = await this.archiveService.openNestedArchive(currentFrame, [part]);
+        stack.push(currentFrame);
       }
 
       this.archiveStack = stack;
       this.fsDirPath = fsPath;
-      this.renderArchiveFrame(frame);
+      
+      // Render the last frame in the stack
+      this.renderArchiveFrame(stack[stack.length - 1]);
+
+      // Also update the tab path to ensure it matches
+      const virtualPath = buildArchiveDisplayPath(this.fsDirPath, this.archiveStack);
+      this.tabPaths.set(this.currentTabId, virtualPath);
+      const title = buildArchiveTabTitle(this.fsDirPath, this.archiveStack);
+      this.workspaceService.updateTabPathAndTitle(this.paneId, this.currentTabId, virtualPath, title);
+      this.tabs = this.workspaceService.getTabs(this.paneId);
 
     } catch (err: any) {
       this.error = err.message || 'Failed to restore archive tab';
+      console.error('Error restoring archive tab:', err);
     } finally {
       this.loading = false;
     }
   }
 
   onTabClose(tab: TabInfo): void {
+    // Clean up archive state when closing tab
+    this.workspaceService.clearArchiveState(this.paneId, tab.id);
     this.workspaceService.closeTab(this.paneId, tab.id);
     this.loadPaneState();
   }
@@ -406,9 +461,11 @@ export class FilePaneComponent implements OnInit, OnChanges {
     if (path && path !== this.currentPath) {
       if (this.archiveService.isArchiveVirtualPath(path)) {
         this.currentPath = path;
+        this.clearArchiveState();
         this.restoreArchiveFromPath(path);
       } else {
         this.exitArchive();
+        this.clearArchiveState();
         this.loadDirectory(path);
       }
     }
@@ -484,7 +541,7 @@ export class FilePaneComponent implements OnInit, OnChanges {
 
   // ── Archive navigation ────────────────────────────────────────────────────
 
-  isInArchive(): boolean { return this.archiveStack.length > 0; }
+  isInArchive(): boolean { return this.archiveStack && this.archiveStack.length > 0; }
 
   /** Open a top-level (filesystem) archive. */
   async openRootArchive(fsPath: string): Promise<void> {
@@ -574,15 +631,19 @@ export class FilePaneComponent implements OnInit, OnChanges {
   }
 
   exitArchive(): void {
-    this.archiveStack = [];
-    const restorePath = this.fsParentDir || this.fsDirPath;
-    if (restorePath) {
-      this.currentPath = restorePath;
-      this.fsDirPath = restorePath;
-      const dirName = restorePath.split('/').filter(Boolean).pop() ?? restorePath;
-      this.workspaceService.updateTabPathAndTitle(this.paneId, this.currentTabId, restorePath, dirName);
-      this.tabs = this.workspaceService.getTabs(this.paneId);
+    // Save the current archive state before clearing (if we're in an archive)
+    if (this.isInArchive() && this.currentTabId) {
+      this.workspaceService.saveArchiveState(this.paneId, this.currentTabId, {
+        path: this.currentPath,
+        archiveStack: this.archiveStack,
+        fsDirPath: this.fsDirPath,
+        fsParentDir: this.fsParentDir
+      });
     }
+    
+    // Clear ALL archive-related state
+    this.archiveStack = [];
+    // Don't modify fsDirPath or fsParentDir here - they'll be set by loadDirectory
   }
 
   private async refreshArchive(): Promise<void> {
@@ -605,12 +666,16 @@ export class FilePaneComponent implements OnInit, OnChanges {
     this.entries = this.archiveService.listingToFileInfos(frame.listing);
     this.selectedFiles.clear();
     this.applyFilter();
+    
     // Both address bar and tab show the same virtual path: C:/Desktop.zip/src
     const virtualPath = buildArchiveDisplayPath(this.fsDirPath, this.archiveStack);
     this.currentPath = virtualPath;
     this.tabPaths.set(this.currentTabId, virtualPath);
+    
     const title = buildArchiveTabTitle(this.fsDirPath, this.archiveStack);
     this.workspaceService.updateTabPathAndTitle(this.paneId, this.currentTabId, virtualPath, title);
+    
+    // Refresh tabs list to show updated title
     this.tabs = this.workspaceService.getTabs(this.paneId);
   }
 

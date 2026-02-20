@@ -689,15 +689,6 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     }
   }
 
-  /**
-   * Double-click anywhere inside the crumbs area → edit mode.
-   * Works for all targets including non-last segments (which normally navigate on single click).
-   */
-  onCrumbsDblClick(e: MouseEvent): void {
-    // e.preventDefault();
-    // this.enterEditMode();
-  }
-
   // ── Drive handling ───────────────────────────────────────────────────
 
   switchToDrive(drive: DriveInfo): void {

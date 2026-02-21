@@ -53,9 +53,6 @@ declare const window: any;
       </app-address-bar>
 
       <app-filter-bar
-        [totalCount]="entries.length"
-        [dataset]="entriesForAnalysis"
-        [filteredCount]="filteredEntries.length"
         (filterChange)="onFilterChange($event)"
         (clear)="onClearFilter()">
       </app-filter-bar>

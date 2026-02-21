@@ -8,42 +8,81 @@ import { FilterPreset } from './filter-bar.types';
   imports: [CommonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <button class="chip" [class.chip--dynamic]="preset.isDynamic"
-      [title]="preset.description || preset.name" (click)="remove.emit(preset)">
-      <span class="chip-icon">{{ preset.icon || '🔍' }}</span>
-      <span class="chip-label">{{ preset.name }}</span>
-      <span class="chip-order" *ngIf="showOrder && order > 0">{{ order }}</span>
-      <svg class="chip-x" width="8" height="8" viewBox="0 0 16 16" fill="currentColor">
-        <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/>
-      </svg>
-    </button>
+    <div
+      class="fb-chip"
+      [class.fb-chip--dynamic]="preset.isDynamic"
+      [title]="preset.description || preset.name"
+    >
+      <span class="fb-chip-icon">{{ preset.icon || '🔍' }}</span>
+      <span class="fb-chip-label">{{ preset.name }}</span>
+      <button
+        class="fb-chip-close"
+        (click)="$event.stopPropagation(); remove.emit(preset)"
+        title="Remove"
+      >×</button>
+    </div>
   `,
   styles: [`
-    .chip {
-      display: inline-flex; align-items: center; gap: 3px;
-      padding: 1px 5px 1px 4px; height: 20px;
-      border: 1px solid var(--vsc-border-subtle);
-      border-radius: var(--vsc-border-radius-sm);
-      background: var(--vsc-list-inactive-selection);
-      color: var(--vsc-foreground);
-      font-size: var(--vsc-font-size-small); font-family: var(--vsc-font-family);
-      cursor: pointer; white-space: nowrap;
-      transition: background var(--vsc-transition-fast);
+    :host { display: contents; }
+
+    .fb-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      height: 18px;
+      padding: 0 6px;
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 2px;
+      flex-shrink: 0;
+      color: var(--vsc-foreground-dim);
+      font-size: 11.5px;
+      font-family: var(--vsc-font-family);
+      transition:
+        background var(--vsc-transition-fast),
+        border-color var(--vsc-transition-fast),
+        color var(--vsc-transition-fast);
+
+      &:hover {
+        background: var(--vsc-list-hover-background);
+        border-color: var(--vsc-border);
+        color: var(--vsc-foreground);
+      }
+
+      &.fb-chip--dynamic {
+        border-color: color-mix(in srgb, var(--vsc-accent-green) 40%, var(--vsc-border));
+      }
     }
-    .chip:hover { background: var(--vsc-list-hover-background); }
-    .chip-icon { font-size: 11px; }
-    .chip-order {
-      display: inline-flex; align-items: center; justify-content: center;
-      width: 13px; height: 13px; border-radius: 50%;
-      background: var(--vsc-accent-blue); color: #fff; font-size: 9px; font-weight: 700;
+
+    .fb-chip-icon  { font-size: 11px; line-height: 1; flex-shrink: 0; }
+    .fb-chip-label { white-space: nowrap; line-height: 1; max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
+
+    .fb-chip-close {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 12px;
+      height: 12px;
+      margin-left: 1px;
+      background: transparent;
+      border: none;
+      border-radius: 2px;
+      color: currentColor;
+      font-size: 14px;
+      line-height: 1;
+      padding: 0;
+      cursor: pointer;
+      opacity: 0.55;
+      transition: opacity var(--vsc-transition-fast), background var(--vsc-transition-fast);
+
+      &:hover {
+        opacity: 1;
+        background: color-mix(in srgb, var(--vsc-foreground) 15%, transparent);
+      }
     }
-    .chip-x { opacity: 0.45; flex-shrink: 0; transition: opacity var(--vsc-transition-fast); }
-    .chip:hover .chip-x { opacity: 1; }
   `],
 })
 export class FilterChipComponent {
   @Input() preset!: FilterPreset;
-  @Input() order = 0;
-  @Input() showOrder = false;
   @Output() remove = new EventEmitter<FilterPreset>();
 }

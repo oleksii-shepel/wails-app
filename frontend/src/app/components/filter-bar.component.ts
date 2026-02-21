@@ -13,7 +13,8 @@ import { FilterQuery } from '../shared/protocol-enhanced';
 import { FilterService, CriteriaGroup } from '../services/filter.service';
 
 import { DropdownDirective, DropdownTriggerDirective, DropdownMenuDirective } from '../directives/dropdown.directive';
-import { FilterDropdownComponent } from './filter-bar-dropdown.component';
+import { FilterDropdownComponent } from './filter-dropdown.component';
+import { FilterChipComponent } from './filter-chip.component';
 import {
   FilterPreset,
   FilterCategory,
@@ -32,6 +33,7 @@ import {
     DropdownTriggerDirective,
     DropdownMenuDirective,
     FilterDropdownComponent,
+    FilterChipComponent,
   ],
   template: `
 <div class="fb-host" (keydown)="onHostKeyDown($event)">
@@ -91,7 +93,7 @@ import {
       <button *ngIf="searchText" class="fb-search-clear" (click)="clearSearch()" title="Clear search">×</button>
     </div>
 
-    <!-- Right: preset dropdown + clear button -->
+    <!-- Right: saved presets dropdown + clear button -->
     <div class="fb-cluster fb-cluster--right">
       <div class="fb-drop-anchor" appDropdown [(isOpen)]="showPresetDropdown">
         <button
@@ -143,13 +145,36 @@ import {
   <div class="fb-chips" *ngIf="selectedPresets.length > 0 || searchText">
     <div class="fb-chips-scroll">
 
-      <div *ngFor="let p of selectedPresets" class="fb-chip">
-        <span class="fb-chip-icon">{{ p.icon || '🔍' }}</span>
-        <span class="fb-chip-label">{{ p.name }}</span>
-        <button class="fb-chip-close" (click)="onPresetToggle(p)" title="Remove">×</button>
+      <!-- OR badge: any OR group has >1 active preset -->
+      <span
+        *ngIf="hasMultiItemOrGroups"
+        class="fb-mode-badge fb-mode-badge--or"
+        title="Filters in OR groups are combined with OR — any can match"
+      >OR</span>
+
+      <!-- AND badge: only when OR list is non-empty AND >1 AND-group preset active -->
+      <span
+        *ngIf="hasMultiItemAndGroups"
+        class="fb-mode-badge fb-mode-badge--and"
+        title="Filters in AND groups (Date, Size) must all match"
+      >AND</span>
+
+      <!-- Preset chips via FilterChipComponent -->
+      <app-filter-chip
+        *ngFor="let p of selectedPresets"
+        [preset]="p"
+        (remove)="onPresetToggle($event)"
+      />
+
+      <!-- Search chip (inline — no preset object to pass) -->
+      <div *ngIf="searchText" class="fb-chip fb-chip--search" (click)="clearSearch()" title="Clear search">
+        <span class="fb-chip-label">"{{ searchText }}"</span>
+        <button class="fb-chip-close" (click)="$event.stopPropagation(); clearSearch()">×</button>
       </div>
+
     </div>
   </div>
+
 </div>
   `,
   styles: [`
@@ -164,6 +189,7 @@ import {
 
     .fb-host { position: relative; }
 
+    /* ── Bar row ──────────────────────────────────────────────────── */
     .fb-bar {
       display: flex;
       align-items: center;
@@ -190,9 +216,7 @@ import {
     }
 
     .fb-icon {
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      display: flex; align-items: center; justify-content: center;
       width: 24px; height: 24px;
       color: var(--vsc-foreground-dim);
       svg { fill: currentColor; }
@@ -200,78 +224,53 @@ import {
 
     .fb-drop-anchor { position: relative; }
 
+    /* ── Buttons ──────────────────────────────────────────────────── */
     .fb-btn {
-      display: flex;
-      align-items: center;
-      gap: var(--vsc-padding-xs);
-      height: 28px;
-      padding: 0 var(--vsc-padding-md);
-      background: transparent;
-      border: 1px solid transparent;
+      display: flex; align-items: center; gap: var(--vsc-padding-xs);
+      height: 28px; padding: 0 var(--vsc-padding-md);
+      background: transparent; border: 1px solid transparent;
       border-radius: var(--vsc-border-radius-sm);
       color: var(--vsc-foreground-dim);
-      font-size: var(--vsc-font-size);
-      font-family: var(--vsc-font-family);
-      cursor: pointer;
+      font-size: var(--vsc-font-size); font-family: var(--vsc-font-family);
+      cursor: pointer; white-space: nowrap;
       transition: background var(--vsc-transition-fast), color var(--vsc-transition-fast), border-color var(--vsc-transition-fast);
-      white-space: nowrap;
       svg { fill: currentColor; }
 
-      &:hover {
-        background: var(--vsc-list-hover-background);
-        color: var(--vsc-foreground-bright);
-        border-color: var(--vsc-border);
-      }
+      &:hover { background: var(--vsc-list-hover-background); color: var(--vsc-foreground-bright); border-color: var(--vsc-border); }
       &:focus-visible { outline: 1px solid var(--vsc-accent-blue); outline-offset: -1px; }
       &:disabled { opacity: 0.4; cursor: not-allowed; &:hover { background: transparent; border-color: transparent; } }
       &.fb-btn--open { background: var(--vsc-list-active-background); color: var(--vsc-foreground-bright); border-color: var(--vsc-border); }
       &.fb-btn--active { color: var(--vsc-accent-blue); border-color: color-mix(in srgb, var(--vsc-accent-blue) 40%, transparent); }
       &.fb-btn--active:hover { background: color-mix(in srgb, var(--vsc-accent-blue) 10%, transparent); }
     }
-
     .fb-btn--category { min-width: 80px; }
     .fb-btn--icon { padding: 0 var(--vsc-padding-sm); min-width: unset; }
 
     .fb-btn-label { flex: 1; }
-    .fb-btn-badge {
-      display: inline-flex; align-items: center; justify-content: center;
-      min-width: 18px; height: 18px; padding: 0 4px;
-      background: var(--vsc-accent-blue); color: #fff;
-      border-radius: 10px; font-size: 10px; font-weight: 700;
-    }
     .fb-btn-chevron {
-      font-size: 14px; opacity: 0.6;
-      transition: transform var(--vsc-transition-fast);
-      display: inline-block;
+      font-size: 14px; opacity: 0.6; display: inline-block;
       transform: rotate(90deg);
+      transition: transform var(--vsc-transition-fast);
     }
     .fb-btn-chevron--open { transform: rotate(270deg); }
 
     /* ── Search ───────────────────────────────────────────────────── */
     .fb-search {
-      position: relative;
-      flex: 1;
-      min-width: 160px;
-      display: flex;
-      align-items: center;
+      position: relative; flex: 1; min-width: 160px;
+      display: flex; align-items: center;
     }
     .fb-search-icon {
-      position: absolute;
-      left: 8px;
-      color: var(--vsc-foreground-dim);
-      pointer-events: none;
-      flex-shrink: 0;
+      position: absolute; left: 8px;
+      color: var(--vsc-foreground-dim); pointer-events: none; flex-shrink: 0;
     }
     .fb-search-input {
-      width: 100%;
-      height: 28px;
+      width: 100%; height: 28px;
       padding: 0 28px 0 28px;
       background: var(--vsc-input-background);
       border: 1px solid var(--vsc-input-border);
       border-radius: var(--vsc-border-radius-sm);
       color: var(--vsc-foreground);
-      font-size: var(--vsc-font-size);
-      font-family: var(--vsc-font-family);
+      font-size: var(--vsc-font-size); font-family: var(--vsc-font-family);
       &:focus { outline: none; border-color: var(--vsc-input-focus-border); }
       &::placeholder { color: var(--vsc-input-placeholder); }
     }
@@ -284,16 +283,14 @@ import {
       &:hover { background: var(--vsc-list-hover-background); color: var(--vsc-foreground-bright); }
     }
 
-    /* ── Preset dropdown ──────────────────────────────────────────── */
+    /* ── Saved preset dropdown ────────────────────────────────────── */
     .fb-preset-dropdown {
-      position: fixed;
-      min-width: 220px;
+      position: fixed; min-width: 220px;
       background: var(--vsc-panel-background);
       border: 1px solid var(--vsc-border);
       border-radius: var(--vsc-border-radius);
       box-shadow: var(--vsc-widget-shadow);
-      z-index: var(--vsc-z-dropdown);
-      overflow: hidden;
+      z-index: var(--vsc-z-dropdown); overflow: hidden;
     }
     .fb-preset-head {
       display: flex; align-items: center; justify-content: space-between;
@@ -334,60 +331,60 @@ import {
       font-size: var(--vsc-font-size-small); font-style: italic;
     }
 
-    /* ── Chips ────────────────────────────────────────────────────── */
+    /* ── AND/OR mode badges ───────────────────────────────────────── */
+    .fb-mode-badge {
+      display: inline-flex; align-items: center; justify-content: center;
+      height: 16px; padding: 0 5px; border-radius: 3px;
+      font-size: 9px; font-weight: 700;
+      font-family: var(--vsc-font-family-mono);
+      min-width: 28px; flex-shrink: 0;
+    }
+    .fb-mode-badge--or {
+      background: color-mix(in srgb, var(--vsc-accent-green) 15%, transparent);
+      border: 1px solid color-mix(in srgb, var(--vsc-accent-green) 45%, transparent);
+      color: var(--vsc-accent-green);
+    }
+    .fb-mode-badge--and {
+      background: color-mix(in srgb, var(--vsc-accent-blue) 15%, transparent);
+      border: 1px solid color-mix(in srgb, var(--vsc-accent-blue) 45%, transparent);
+      color: var(--vsc-accent-blue);
+    }
+
+    /* ── Chips row ────────────────────────────────────────────────── */
     .fb-chips {
       padding: 0 var(--vsc-padding-sm) var(--vsc-padding-xs);
       border-top: 1px solid var(--vsc-border-subtle);
     }
     .fb-chips-scroll {
-      display: flex; gap: var(--vsc-padding-xs);
+      display: flex; align-items: center; gap: var(--vsc-padding-xs);
       overflow-x: auto; overflow-y: hidden;
       padding: var(--vsc-padding-xs) 0;
       scrollbar-width: thin;
       &::-webkit-scrollbar { height: 3px; }
     }
+
+    /* Search chip — inline, no component */
     .fb-chip {
       display: inline-flex; align-items: center; gap: 3px;
       height: 18px; padding: 0 6px;
       background: transparent; border: 1px solid transparent;
-      border-radius: 2px; cursor: pointer; flex-shrink: 0;
-      color: var(--vsc-foreground-dim, #858585);
-      font-size: 11.5px; font-family: inherit;
-      transition: background 0.08s, border-color 0.08s, color 0.08s;
-
-      &:hover {
-        background: var(--vsc-list-hover-background, #2a2d2e);
-        border-color: var(--vsc-border, #3c3c3c);
-        color: var(--vsc-foreground, #ccc);
-      }
-
-      &.fb-chip--on {
-        background: #094771;
-        border-color: rgba(0,127,212,0.4);
-        color: #ccddff;
-      }
-
-      /* Extra chips (from dropdown, not a default category) */
-      &.fb-chip--extra {
-        border-style: dashed;
-        border-color: var(--vsc-border, #3c3c3c);
-        &.fb-chip--on { border-style: solid; }
-      }
+      border-radius: 2px; flex-shrink: 0;
+      color: var(--vsc-foreground-dim);
+      font-size: 11.5px; font-family: var(--vsc-font-family);
+      transition: background var(--vsc-transition-fast), border-color var(--vsc-transition-fast), color var(--vsc-transition-fast);
+      cursor: pointer;
+      &:hover { background: var(--vsc-list-hover-background); border-color: var(--vsc-border); color: var(--vsc-foreground); }
     }
-
-    .fb-chip-icon  { font-size: 11px; line-height: 1; flex-shrink: 0; }
+    .fb-chip--search { font-style: italic; }
     .fb-chip-label { white-space: nowrap; line-height: 1; }
-    .fb-chip-count {
-      font-size: 9px; font-weight: 600; opacity: 0.55; margin-left: 1px;
-      font-family: var(--vsc-font-family-mono, Consolas, monospace);
-    }
     .fb-chip-close {
       display: flex; align-items: center; justify-content: center;
-      background: transparent; border: none; color: var(--vsc-foreground-dim);
       width: 12px; height: 12px; margin-left: 1px;
-      opacity: 0.6; border-radius: 2px;
-      transition: opacity 0.1s, background 0.1s;
-      &:hover { opacity: 1; background: rgba(255,255,255,0.15); }
+      background: transparent; border: none; border-radius: 2px;
+      color: currentColor; font-size: 14px; line-height: 1; padding: 0;
+      cursor: pointer; opacity: 0.55;
+      transition: opacity var(--vsc-transition-fast), background var(--vsc-transition-fast);
+      &:hover { opacity: 1; background: color-mix(in srgb, var(--vsc-foreground) 15%, transparent); }
     }
   `],
 })
@@ -395,25 +392,19 @@ export class FilterBarComponent implements OnInit, OnDestroy, OnChanges {
 
   @ViewChild('searchInput') searchInput?: ElementRef<HTMLInputElement>;
 
-  // ── Inputs ──────────────────────────────────────────────────────────────
+  // ── Inputs ────────────────────────────────────────────────────────────────
 
-  /** The full unfiltered dataset — drives dynamic preset generation */
-  @Input() dataset: FileInfo[] = [];
-
+  @Input() dataset:           FileInfo[] = [];
   @Input() placeholder        = 'Search files…';
   @Input() compact            = false;
   @Input() initialSearch      = '';
   @Input() initialCategories: string[] = [];
 
-  // ── Outputs ─────────────────────────────────────────────────────────────
+  // ── Outputs ───────────────────────────────────────────────────────────────
 
-  /**
-   * Emits a FilterQuery (compatible with FilterService.filterEntries) every
-   * time the search text or selected presets change.
-   */
   @Output() filterChange = new EventEmitter<FilterQuery & { groups: CriteriaGroup[] }>();
 
-  // ── State ────────────────────────────────────────────────────────────────
+  // ── State ─────────────────────────────────────────────────────────────────
 
   allPresets:      FilterPreset[] = [];
   selectedPresets: FilterPreset[] = [];
@@ -424,20 +415,52 @@ export class FilterBarComponent implements OnInit, OnDestroy, OnChanges {
 
   savedPresets: { id: string; name: string; presetIds: string[] }[] = [];
 
-  showCustomDialog = false;
+  showCustomDialog  = false;
   editingCategory: FilterCategory | null = null;
-  dialogLeft = 0;
-  dialogTop  = 0;
 
   private groupModes = new Map<string, 'AND' | 'OR'>();
   private destroy$   = new Subject<void>();
   private search$    = new Subject<string>();
 
-  // ── Computed ─────────────────────────────────────────────────────────────
+  // Groups that combine with OR (any one match is enough)
+  private readonly orGroups  = new Set(['Basic', 'Type', 'Extensions', 'Special', 'Other']);
+  // Groups that combine with AND (all must match)
+  private readonly andGroups = new Set(['Date', 'Size']);
 
-  get hasDynamic(): boolean     { return this.allPresets.some(p => p.isDynamic); }
-  get hasAnyFilter(): boolean   { return this.selectedPresets.length > 0 || !!this.searchText; }
-  get canSavePreset(): boolean  { return this.selectedPresets.length > 0 && this.savedPresets.length < 20; }
+  // ── Computed ──────────────────────────────────────────────────────────────
+
+  get hasDynamic():    boolean { return this.allPresets.some(p => p.isDynamic); }
+  get hasAnyFilter():  boolean { return this.selectedPresets.length > 0 || !!this.searchText; }
+  get canSavePreset(): boolean { return this.selectedPresets.length > 0 && this.savedPresets.length < 20; }
+
+  private getGroupCounts(): Map<string, number> {
+    const counts = new Map<string, number>();
+    for (const p of this.selectedPresets) {
+      const g = p.group || 'Other';
+      counts.set(g, (counts.get(g) || 0) + 1);
+    }
+    return counts;
+  }
+
+  get hasMultiItemOrGroups(): boolean {
+    const counts = this.getGroupCounts();
+    for (const g of this.orGroups) {
+      if ((counts.get(g) || 0) > 1) return true;
+    }
+    return false;
+  }
+
+  get hasMultiItemAndGroups(): boolean {
+    const counts   = this.getGroupCounts();
+    const hasOrItems = [...this.orGroups].some(g => (counts.get(g) || 0) > 0);
+    if (!hasOrItems) return false;
+    for (const g of this.andGroups) {
+      if ((counts.get(g) || 0) > 1) return true;
+    }
+    return false;
+  }
+
+  // ── Constructor ───────────────────────────────────────────────────────────
 
   constructor(
     private filterService: FilterService,
@@ -452,14 +475,12 @@ export class FilterBarComponent implements OnInit, OnDestroy, OnChanges {
     this.loadSavedPresets();
     this.rebuildPresets();
 
-    // Debounce search input
     this.search$
       .pipe(debounceTime(200), distinctUntilChanged(), takeUntil(this.destroy$))
       .subscribe(() => this.emitFilterChange());
   }
 
   ngOnChanges(changes: SimpleChanges): void {
-    // Re-analyse whenever the dataset changes (new folder navigated to, etc.)
     if (changes['dataset'] && !changes['dataset'].firstChange) {
       this.rebuildPresets();
     }
@@ -472,31 +493,22 @@ export class FilterBarComponent implements OnInit, OnDestroy, OnChanges {
 
   // ── Preset generation ─────────────────────────────────────────────────────
 
-  /**
-   * Re-analyse dataset → rebuild allPresets with live counts.
-   * Also drops any selectedPreset that no longer exists in the new list.
-   */
   rebuildPresets(): void {
     this.allPresets = buildPresetsFromDataset(this.dataset);
 
-    // Drop selections that vanished (e.g. navigated to a folder with no images)
     const ids = new Set(this.allPresets.map(p => p.id));
     this.selectedPresets = this.selectedPresets.filter(p => ids.has(p.id));
-
-    // Refresh counts on already-selected presets
     this.selectedPresets = this.selectedPresets.map(sel =>
       this.allPresets.find(p => p.id === sel.id) ?? sel,
     );
 
     this.cdr.detectChanges();
-
-    // Emit updated query so the file list re-filters with new counts
     if (this.hasAnyFilter) this.emitFilterChange();
   }
 
   refreshPresets(): void { this.rebuildPresets(); }
 
-  // ── Dropdown toggle ───────────────────────────────────────────────────────
+  // ── Dropdown ──────────────────────────────────────────────────────────────
 
   toggleCategoryDropdown(): void {
     this.showCategoryDropdown = !this.showCategoryDropdown;
@@ -506,11 +518,9 @@ export class FilterBarComponent implements OnInit, OnDestroy, OnChanges {
 
   onPresetToggle(preset: FilterPreset): void {
     const idx = this.selectedPresets.findIndex(p => p.id === preset.id);
-    if (idx >= 0) {
-      this.selectedPresets = this.selectedPresets.filter(p => p.id !== preset.id);
-    } else {
-      this.selectedPresets = [...this.selectedPresets, preset];
-    }
+    this.selectedPresets = idx >= 0
+      ? this.selectedPresets.filter(p => p.id !== preset.id)
+      : [...this.selectedPresets, preset];
     this.emitFilterChange();
     this.cdr.detectChanges();
   }
@@ -528,14 +538,8 @@ export class FilterBarComponent implements OnInit, OnDestroy, OnChanges {
 
   // ── Search ────────────────────────────────────────────────────────────────
 
-  onSearchChange(value: string): void {
-    this.searchText = value;
-    this.search$.next(value);
-  }
-
-  onSearchKeyDown(e: KeyboardEvent): void {
-    if (e.key === 'Escape') this.clearSearch();
-  }
+  onSearchChange(value: string): void { this.searchText = value; this.search$.next(value); }
+  onSearchKeyDown(e: KeyboardEvent): void { if (e.key === 'Escape') this.clearSearch(); }
 
   clearSearch(): void {
     this.searchText = '';
@@ -564,10 +568,11 @@ export class FilterBarComponent implements OnInit, OnDestroy, OnChanges {
   onSavePreset(): void {
     const name = prompt('Preset name:');
     if (!name?.trim()) return;
-    this.savedPresets = [
-      ...this.savedPresets,
-      { id: `preset-${Date.now()}`, name: name.trim(), presetIds: this.selectedPresets.map(p => p.id) },
-    ];
+    this.savedPresets = [...this.savedPresets, {
+      id: `preset-${Date.now()}`,
+      name: name.trim(),
+      presetIds: this.selectedPresets.map(p => p.id),
+    }];
     this.persistSavedPresets();
     this.showPresetDropdown = false;
   }
@@ -586,9 +591,9 @@ export class FilterBarComponent implements OnInit, OnDestroy, OnChanges {
     this.persistSavedPresets();
   }
 
-  // ── Custom categories (dialog plumbing kept from original) ────────────────
+  // ── Custom categories ─────────────────────────────────────────────────────
 
-  onCustomCategorySave(data: CustomCategoryData): void { this.closeCustomDialog(); }
+  onCustomCategorySave(_data: CustomCategoryData): void { this.closeCustomDialog(); }
   closeCustomDialog(): void { this.showCustomDialog = false; this.editingCategory = null; }
 
   // ── Keyboard ──────────────────────────────────────────────────────────────
@@ -603,36 +608,25 @@ export class FilterBarComponent implements OnInit, OnDestroy, OnChanges {
   @HostListener('document:keydown', ['$event'])
   onDocKey(e: KeyboardEvent): void {
     if (e.key === 'Escape') {
-      if (this.showCategoryDropdown)  { this.showCategoryDropdown = false; e.preventDefault(); }
-      if (this.showPresetDropdown)    { this.showPresetDropdown   = false; e.preventDefault(); }
-      if (this.showCustomDialog)      { this.closeCustomDialog();          e.preventDefault(); }
+      if (this.showCategoryDropdown) { this.showCategoryDropdown = false; e.preventDefault(); }
+      if (this.showPresetDropdown)   { this.showPresetDropdown   = false; e.preventDefault(); }
+      if (this.showCustomDialog)     { this.closeCustomDialog();          e.preventDefault(); }
     }
   }
 
   // ── Emit ──────────────────────────────────────────────────────────────────
 
-  /**
-   * Build a FilterQuery from selected presets + search text and emit.
-   *
-   * Logic:
-   *  • Each preset's filter string is parsed via FilterService.parseFilterText().
-   *  • Presets in the same group are combined according to that group's mode (AND/OR).
-   *  • Groups are combined with OR (entry must pass any one group).
-   *  • The search text is AND-ed globally (top-level query.text).
-   */
   private emitFilterChange(): void {
     if (!this.hasAnyFilter) {
       this.filterChange.emit(this.filterService.parseFilterText(''));
       return;
     }
-
     if (this.selectedPresets.length === 0) {
-      // Only text search
       this.filterChange.emit(this.filterService.parseFilterText(this.searchText));
       return;
     }
 
-    // Group presets by group name
+    // Group presets → build combined filter string
     const groupMap = new Map<string, FilterPreset[]>();
     for (const p of this.selectedPresets) {
       const g = p.group || 'Other';
@@ -640,30 +634,21 @@ export class FilterBarComponent implements OnInit, OnDestroy, OnChanges {
       groupMap.get(g)!.push(p);
     }
 
-    // Build one OR-segment per group
     const segments: string[] = [];
     for (const [groupName, presets] of groupMap) {
-      const mode = this.groupModes.get(groupName) ?? 'OR';
-      const filterStrings = presets.map(p => p.filter).filter(Boolean);
-
-      if (filterStrings.length === 1) {
-        segments.push(filterStrings[0]);
+      const mode    = this.groupModes.get(groupName) ?? 'OR';
+      const filters = presets.map(p => (p as any).filter).filter(Boolean) as string[];
+      if (filters.length === 1) {
+        segments.push(filters[0]);
       } else if (mode === 'OR') {
-        // Join multiple presets within group with " OR "
-        segments.push(filterStrings.join(' OR '));
+        segments.push(filters.join(' OR '));
       } else {
-        // AND: concatenate tokens (FilterService ANDs different types within a segment)
-        segments.push(filterStrings.join(' '));
+        segments.push(filters.join(' '));
       }
     }
 
-    // All groups are OR-ed together
-    const combinedFilter = segments.join(' OR ');
-    const query = this.filterService.parseFilterText(combinedFilter);
-
-    // Global text search on top
-    query.text = this.searchText;
-
+    const query    = this.filterService.parseFilterText(segments.join(' OR '));
+    query.text     = this.searchText;
     this.filterChange.emit(query);
   }
 }

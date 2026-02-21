@@ -13,7 +13,7 @@ import { FilterQuery } from '../shared/protocol-enhanced';
 import { FilterService, CriteriaGroup } from '../services/filter.service';
 
 import { DropdownDirective, DropdownTriggerDirective, DropdownMenuDirective } from '../directives/dropdown.directive';
-import { FilterDropdownComponent } from './filter-bar-category-dropdown.component';
+import { FilterDropdownComponent } from './filter-bar-dropdown.component';
 import {
   FilterPreset,
   FilterCategory,
@@ -56,7 +56,6 @@ import {
           title="Filter by type, size, date…"
         >
           <span class="fb-btn-label">Filter</span>
-          <span class="fb-btn-badge" *ngIf="selectedPresets.length > 0">{{ selectedPresets.length }}</span>
           <span class="fb-btn-chevron" [class.fb-btn-chevron--open]="showCategoryDropdown">›</span>
         </button>
 
@@ -144,20 +143,11 @@ import {
   <div class="fb-chips" *ngIf="selectedPresets.length > 0 || searchText">
     <div class="fb-chips-scroll">
 
-      <div *ngFor="let p of selectedPresets" class="fb-chip" [class.fb-chip--dynamic]="p.isDynamic">
+      <div *ngFor="let p of selectedPresets" class="fb-chip">
         <span class="fb-chip-icon">{{ p.icon || '🔍' }}</span>
         <span class="fb-chip-label">{{ p.name }}</span>
-        <button class="fb-chip-remove" (click)="onPresetToggle(p)" title="Remove">×</button>
+        <button class="fb-chip-close" (click)="onPresetToggle(p)" title="Remove">×</button>
       </div>
-
-      <div *ngIf="searchText" class="fb-chip fb-chip--search">
-        <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
-          <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.099zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
-        </svg>
-        <span class="fb-chip-label">{{ searchText }}</span>
-        <button class="fb-chip-remove" (click)="clearSearch()" title="Clear search">×</button>
-      </div>
-
     </div>
   </div>
 </div>
@@ -357,29 +347,47 @@ import {
       &::-webkit-scrollbar { height: 3px; }
     }
     .fb-chip {
-      display: inline-flex; align-items: center; gap: var(--vsc-padding-xs);
-      height: 22px; padding: 0 var(--vsc-padding-sm);
-      background: var(--vsc-list-inactive-selection);
-      border: 1px solid var(--vsc-border-subtle);
-      border-radius: 11px; color: var(--vsc-foreground);
-      font-size: var(--vsc-font-size-small); white-space: nowrap;
-      flex-shrink: 0;
+      display: inline-flex; align-items: center; gap: 3px;
+      height: 18px; padding: 0 6px;
+      background: transparent; border: 1px solid transparent;
+      border-radius: 2px; cursor: pointer; flex-shrink: 0;
+      color: var(--vsc-foreground-dim, #858585);
+      font-size: 11.5px; font-family: inherit;
+      transition: background 0.08s, border-color 0.08s, color 0.08s;
+
+      &:hover {
+        background: var(--vsc-list-hover-background, #2a2d2e);
+        border-color: var(--vsc-border, #3c3c3c);
+        color: var(--vsc-foreground, #ccc);
+      }
+
+      &.fb-chip--on {
+        background: #094771;
+        border-color: rgba(0,127,212,0.4);
+        color: #ccddff;
+      }
+
+      /* Extra chips (from dropdown, not a default category) */
+      &.fb-chip--extra {
+        border-style: dashed;
+        border-color: var(--vsc-border, #3c3c3c);
+        &.fb-chip--on { border-style: solid; }
+      }
     }
-    .fb-chip--dynamic {
-      border-color: color-mix(in srgb, var(--vsc-accent-green) 40%, var(--vsc-border-subtle));
+
+    .fb-chip-icon  { font-size: 11px; line-height: 1; flex-shrink: 0; }
+    .fb-chip-label { white-space: nowrap; line-height: 1; }
+    .fb-chip-count {
+      font-size: 9px; font-weight: 600; opacity: 0.55; margin-left: 1px;
+      font-family: var(--vsc-font-family-mono, Consolas, monospace);
     }
-    .fb-chip--search {
-      background: var(--vsc-input-background);
-      border-color: var(--vsc-border);
-    }
-    .fb-chip-icon { font-size: 11px; }
-    .fb-chip-label { max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
-    .fb-chip-remove {
+    .fb-chip-close {
       display: flex; align-items: center; justify-content: center;
-      width: 14px; height: 14px; padding: 0;
-      background: transparent; border: none; border-radius: 3px;
-      color: currentColor; font-size: 14px; cursor: pointer; opacity: 0.6;
-      &:hover { opacity: 1; background: rgba(255,255,255,0.1); }
+      background: transparent; border: none; color: var(--vsc-foreground-dim);
+      width: 12px; height: 12px; margin-left: 1px;
+      opacity: 0.6; border-radius: 2px;
+      transition: opacity 0.1s, background 0.1s;
+      &:hover { opacity: 1; background: rgba(255,255,255,0.15); }
     }
   `],
 })

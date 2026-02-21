@@ -36,7 +36,16 @@ export interface CustomCategoryData {
 }
 
 export const FILTER_PRESETS_KEY = 'filter-bar-presets';
-export const GROUP_ORDER = ['Type', 'Special', 'Date', 'Size', 'Extensions', 'Other'];
+export const GROUP_ORDER = ['Basic', 'Extensions', 'Special', 'Date', 'Size', 'Other'];
+
+export const GROUP_MODES: Record<string, 'AND' | 'OR'> = {
+  'Basic': 'OR',       // Files OR Folders OR Symlinks
+  'Extensions': 'OR',  // Images OR Documents OR Code
+  'Other': 'OR',       // Uncategorized items
+  'Special': 'AND',     // Hidden OR other special attributes
+  'Date': 'AND',       // Date ranges (though this might be OR in practice)
+  'Size': 'AND'        // Size ranges (e.g., >10MB AND <100MB)
+};
 
 // kept for any legacy imports
 export const BUILT_IN_CATEGORIES: FilterCategory[] = [];
@@ -129,24 +138,10 @@ export function buildPresetsFromDataset(dataset: FileInfo[]): FilterPreset[] {
 
   const out: FilterPreset[] = [];
 
-  // Type
-  if (files)    out.push({ id: 'files',    name: 'Files',    filter: 'type:file',    icon: '📄', group: 'Type',    count: files });
-  if (dirs)     out.push({ id: 'dirs',     name: 'Folders',  filter: 'type:dir',     icon: '📁', group: 'Type',    count: dirs });
-  if (symlinks) out.push({ id: 'symlinks', name: 'Symlinks', filter: 'type:symlink', icon: '🔗', group: 'Type',    count: symlinks });
-
-  // Special
-  if (hidden)   out.push({ id: 'hidden',   name: 'Hidden',   filter: 'hidden:true',  icon: '👻', group: 'Special', count: hidden });
-
-  // Date — isDynamic so they get the green "📊" hint
-  if (dateCounts.today)     out.push({ id: 'today',      name: 'Today',      filter: 'modified:today', icon: '⚡', group: 'Date', isDynamic: true, count: dateCounts.today });
-  if (dateCounts.thisWeek)  out.push({ id: 'this-week',  name: 'This week',  filter: 'modified:week',  icon: '📅', group: 'Date', isDynamic: true, count: dateCounts.thisWeek });
-  if (dateCounts.thisMonth) out.push({ id: 'this-month', name: 'This month', filter: 'modified:month', icon: '🗓️', group: 'Date', isDynamic: true, count: dateCounts.thisMonth });
-
-  // Size
-  if (sizeCounts.small)  out.push({ id: 'size-small',  name: '< 100 KB',       filter: 'size<102400',                icon: '🔹', group: 'Size', count: sizeCounts.small });
-  if (sizeCounts.medium) out.push({ id: 'size-medium', name: '100 KB – 10 MB', filter: 'size>102400 size<10485760',  icon: '🔸', group: 'Size', count: sizeCounts.medium });
-  if (sizeCounts.large)  out.push({ id: 'size-large',  name: '> 10 MB',        filter: 'size>10485760',              icon: '🔶', group: 'Size', count: sizeCounts.large });
-  if (sizeCounts.huge)   out.push({ id: 'size-huge',   name: '> 1 GB',         filter: 'size>1073741824',            icon: '🔴', group: 'Size', count: sizeCounts.huge });
+  // Basic
+  if (files)    out.push({ id: 'files',    name: 'Files',    filter: 'type:file',    icon: '📄', group: 'Basic',    count: files });
+  if (dirs)     out.push({ id: 'dirs',     name: 'Folders',  filter: 'type:dir',     icon: '📁', group: 'Basic',    count: dirs });
+  if (symlinks) out.push({ id: 'symlinks', name: 'Symlinks', filter: 'type:symlink', icon: '🔗', group: 'Basic',    count: symlinks });
 
   // Named extension categories — only those present in dataset
   for (const cat of DEFAULT_FILE_CATEGORIES) {
@@ -179,6 +174,20 @@ export function buildPresetsFromDataset(dataset: FileInfo[]): FilterPreset[] {
       isDynamic:  true,
       count,
     }));
+
+  // Special
+  if (hidden)   out.push({ id: 'hidden',   name: 'Hidden',   filter: 'hidden:true',  icon: '👻', group: 'Special', count: hidden });
+
+  // Date — isDynamic so they get the green "📊" hint
+  if (dateCounts.today)     out.push({ id: 'today',      name: 'Today',      filter: 'modified:today', icon: '⚡', group: 'Date', isDynamic: true, count: dateCounts.today });
+  if (dateCounts.thisWeek)  out.push({ id: 'this-week',  name: 'This week',  filter: 'modified:week',  icon: '📅', group: 'Date', isDynamic: true, count: dateCounts.thisWeek });
+  if (dateCounts.thisMonth) out.push({ id: 'this-month', name: 'This month', filter: 'modified:month', icon: '🗓️', group: 'Date', isDynamic: true, count: dateCounts.thisMonth });
+
+  // Size
+  if (sizeCounts.small)  out.push({ id: 'size-small',  name: '< 100 KB',       filter: 'size<102400',                icon: '🔹', group: 'Size', count: sizeCounts.small });
+  if (sizeCounts.medium) out.push({ id: 'size-medium', name: '100 KB – 10 MB', filter: 'size>102400 size<10485760',  icon: '🔸', group: 'Size', count: sizeCounts.medium });
+  if (sizeCounts.large)  out.push({ id: 'size-large',  name: '> 10 MB',        filter: 'size>10485760',              icon: '🔶', group: 'Size', count: sizeCounts.large });
+  if (sizeCounts.huge)   out.push({ id: 'size-huge',   name: '> 1 GB',         filter: 'size>1073741824',            icon: '🔴', group: 'Size', count: sizeCounts.huge });
 
   return out;
 }

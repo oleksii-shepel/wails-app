@@ -1,9 +1,9 @@
 import {
   Component, Input, Output, EventEmitter,
-  ChangeDetectionStrategy, ChangeDetectorRef, OnChanges, SimpleChanges,
+  ChangeDetectionStrategy, ChangeDetectorRef, OnChanges, SimpleChanges, OnInit
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { FilterPreset, FilterGroup, GROUP_ORDER } from './filter-bar.types';
+import { FilterPreset, FilterGroup, GROUP_ORDER, GROUP_MODES } from './filter-bar.types';
 
 @Component({
   selector: 'app-filter-dropdown',
@@ -20,13 +20,10 @@ import { FilterPreset, FilterGroup, GROUP_ORDER } from './filter-bar.types';
       <!-- ── Header ────────────────────────────────────────────── -->
       <div class="fd-header">
         <span class="fd-header-label">Filters</span>
-        <span class="fd-header-count" *ngIf="selected.length > 0">
-          {{ selected.length }} active
-        </span>
         <button
           class="fd-header-clear"
           *ngIf="selected.length > 0"
-          (click)="clearAll.emit()"
+          (click)="onClearAllClick($event)"
           title="Clear all filters"
         >Clear</button>
       </div>
@@ -51,9 +48,9 @@ import { FilterPreset, FilterGroup, GROUP_ORDER } from './filter-bar.types';
             <div class="fd-group-head">
               <span class="fd-group-name">{{ group.name }}</span>
               <span
-                class="fd-group-mode"
-                [class.fd-group-mode--or]="getGroupMode(group.name) === 'OR'"
-                [class.fd-group-mode--and]="getGroupMode(group.name) === 'AND'"
+                class="fb-group-badge"
+                [class.fb-group-badge--or]="getGroupMode(group.name) === 'OR'"
+                [class.fb-group-badge--and]="getGroupMode(group.name) === 'AND'"
                 [title]="'Items in this group are combined with ' + getGroupMode(group.name)"
               >{{ getGroupMode(group.name) }}</span>
             </div>
@@ -66,7 +63,7 @@ import { FilterPreset, FilterGroup, GROUP_ORDER } from './filter-bar.types';
               [attr.aria-checked]="isSelected(preset)"
               [class.fd-item--active]="isSelected(preset)"
               [class.fd-item--dynamic]="preset.isDynamic"
-              (click)="itemToggle.emit(preset)"
+              (click)="onItemClick(preset, $event)"
             >
               <span class="fd-checkbox" [class.fd-checkbox--on]="isSelected(preset)" aria-hidden="true">
                 <svg *ngIf="isSelected(preset)" width="8" height="8" viewBox="0 0 16 16" fill="currentColor">
@@ -84,7 +81,7 @@ import { FilterPreset, FilterGroup, GROUP_ORDER } from './filter-bar.types';
 
       <!-- ── Footer ────────────────────────────────────────────── -->
       <div class="fd-footer">
-        <button class="fd-refresh" (click)="refresh.emit()" title="Re-analyse folder">
+        <button class="fd-refresh" (click)="onRefreshClick($event)" title="Re-analyse folder">
           <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
             <path d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/>
             <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/>
@@ -218,32 +215,29 @@ import { FilterPreset, FilterGroup, GROUP_ORDER } from './filter-bar.types';
     }
 
     /* AND / OR pill — display only, not interactive */
-    .fd-group-mode {
+    .fb-group-badge {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      height: 20px;
-      min-width: 36px;
-      padding: 0 var(--vsc-padding-sm);
-      border-radius: var(--vsc-border-radius-sm);
-      font-size: 11px;
+      height: 16px;
+      padding: 0 5px;
+      border-radius: 3px;
+      font-size: 9px;
       font-weight: 700;
-      font-family: var(--vsc-font-family-mono);
-      letter-spacing: 0.05em;
-      pointer-events: none;
-      user-select: none;
+      font-family: var(--vsc-font-family-mono, Consolas, monospace);
+      min-width: 28px;
     }
-    /* OR = green outlined pill (matches screenshot) */
-    .fd-group-mode--or {
-      background: transparent;
-      border: 1.5px solid var(--vsc-accent-green);
-      color: var(--vsc-accent-green);
+
+    .fb-group-badge--or {
+      background: color-mix(in srgb, #2d7d46 20%, transparent);
+      border: 1px solid rgba(45,125,70,0.4);
+      color: #7ee787;
     }
-    /* AND = blue filled pill (matches screenshot) */
-    .fd-group-mode--and {
-      background: var(--vsc-accent-blue);
-      border: 1.5px solid var(--vsc-accent-blue);
-      color: #fff;
+
+    .fb-group-badge--and {
+      background: color-mix(in srgb, #007fd4 20%, transparent);
+      border: 1px solid rgba(0,127,212,0.4);
+      color: #7ec8f8;
     }
 
     /* ── Item ────────────────────────────────────────────── */
@@ -266,7 +260,7 @@ import { FilterPreset, FilterGroup, GROUP_ORDER } from './filter-bar.types';
     }
     .fd-item:hover { background: var(--vsc-list-hover-background); }
     .fd-item--active {
-      background: var(--vsc-list-focus-background);
+      background: color-mix(in srgb, var(--vsc-list-focus-background) 70%, transparent);
       border-left-color: var(--vsc-accent-blue);
       color: var(--vsc-foreground-bright);
     }
@@ -375,7 +369,7 @@ import { FilterPreset, FilterGroup, GROUP_ORDER } from './filter-bar.types';
     .fd-hint-label:last-child { margin-right: 0; }
   `],
 })
-export class FilterDropdownComponent implements OnChanges {
+export class FilterDropdownComponent implements OnChanges, OnInit {
 
   @Input() presets:    FilterPreset[] = [];
   @Input() selected:   FilterPreset[] = [];
@@ -389,10 +383,27 @@ export class FilterDropdownComponent implements OnChanges {
   groups: FilterGroup[] = [];
   private groupModes = new Map<string, 'AND' | 'OR'>();
 
+  // Define which groups are OR vs AND
+  private readonly orGroups = new Set(['Basic', 'Extensions', 'Special', 'Other']);
+  private readonly andGroups = new Set(['Date', 'Size']);
+
   constructor(private cdr: ChangeDetectorRef) {}
 
+  ngOnInit(): void {
+    this.initializeGroupModes();
+  }
+
   ngOnChanges(changes: SimpleChanges): void {
-    if (changes['presets']) this.buildGroups();
+    if (changes['presets']) {
+      this.buildGroups();
+    }
+  }
+
+  private initializeGroupModes(): void {
+    // OR groups
+    this.orGroups.forEach(group => this.groupModes.set(group, 'OR'));
+    // AND groups
+    this.andGroups.forEach(group => this.groupModes.set(group, 'AND'));
   }
 
   isSelected(preset: FilterPreset): boolean {
@@ -400,22 +411,71 @@ export class FilterDropdownComponent implements OnChanges {
   }
 
   getGroupMode(group: string): 'AND' | 'OR' {
-    return this.groupModes.get(group) ?? 'OR';
+    return this.groupModes.get(group) ?? 'OR'; // Default to OR if not specified
+  }
+
+  onItemClick(preset: FilterPreset, event: MouseEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.itemToggle.emit(preset);
+  }
+
+  onClearAllClick(event: MouseEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.clearAll.emit();
+  }
+
+  onRefreshClick(event: MouseEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.refresh.emit();
   }
 
   private buildGroups(): void {
     const map = new Map<string, FilterPreset[]>();
+    
+    // Group presets by their group
     for (const p of this.presets) {
       const g = p.group || 'Other';
       if (!map.has(g)) map.set(g, []);
       map.get(g)!.push(p);
     }
+
+    // Sort groups: OR groups first (Basic, Extensions, Special, Other), then AND groups (Date, Size)
     this.groups = Array.from(map.entries())
       .sort((a, b) => {
-        const ia = GROUP_ORDER.indexOf(a[0]), ib = GROUP_ORDER.indexOf(b[0]);
+        const groupA = a[0];
+        const groupB = b[0];
+        
+        // OR groups have priority (lower index)
+        const aIsOr = this.orGroups.has(groupA);
+        const bIsOr = this.orGroups.has(groupB);
+        
+        if (aIsOr && !bIsOr) return -1;
+        if (!aIsOr && bIsOr) return 1;
+        
+        // Both are OR or both are AND, use GROUP_ORDER
+        const ia = GROUP_ORDER.indexOf(groupA);
+        const ib = GROUP_ORDER.indexOf(groupB);
         return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
       })
-      .map(([name, presets]) => ({ name, presets }));
+      .map(([name, presets]) => ({ 
+        name, 
+        presets: this.sortPresetsByCount(presets)
+      }));
+    
     this.cdr.markForCheck();
+  }
+
+  private sortPresetsByCount(presets: FilterPreset[]): FilterPreset[] {
+    return [...presets].sort((a, b) => {
+      // Sort by count descending (higher counts first)
+      const countA = a.count ?? 0;
+      const countB = b.count ?? 0;
+      if (countA !== countB) return countB - countA;
+      // Then alphabetically
+      return a.name.localeCompare(b.name);
+    });
   }
 }

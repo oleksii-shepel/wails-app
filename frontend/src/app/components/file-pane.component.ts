@@ -53,6 +53,7 @@ declare const window: any;
       </app-address-bar>
 
       <app-filter-bar
+        [dataset]="entries"
         (filterChange)="onFilterChange($event)"
         (clear)="onClearFilter()">
       </app-filter-bar>

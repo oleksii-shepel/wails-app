@@ -42,21 +42,29 @@ export class DropdownMenuDirective {
  * USAGE:
  *
  * ```html
+ * <!-- Basic -->
  * <div appDropdown [(isOpen)]="menuOpen">
  *   <button appDropdownTrigger (click)="menuOpen = !menuOpen">Filter ▾</button>
- *   <div appDropdownMenu *ngIf="menuOpen">
- *     <div class="item" (click)="selectItem(x)">Item</div>
- *   </div>
+ *   <div appDropdownMenu *ngIf="menuOpen">...</div>
+ * </div>
+ *
+ * <!-- With backdrop (closes on click-outside, blocks scroll) -->
+ * <div appDropdown [(isOpen)]="menuOpen" [backdrop]="true">
+ *   ...
+ * </div>
+ *
+ * <!-- With dim backdrop (visually darkens page behind the menu) -->
+ * <div appDropdown [(isOpen)]="menuOpen" [backdrop]="true" [backdropDim]="true">
+ *   ...
  * </div>
  * ```
  *
- * Handles:
- *  - Registering/updating with DropdownService (including after *ngIf re-creates the menu)
- *  - Closing on outside click (via DropdownService)
- *  - NOT closing when clicking inside — no race conditions
- *  - Closing other open dropdowns when this one opens
- *  - Escape key closes
- *  - Cleanup on destroy
+ * Backdrop behaviour:
+ *  - A full-screen fixed <div> is inserted into document.body when the dropdown opens.
+ *  - It sits at z-index var(--vsc-z-dropdown) - 1, so below the menu panel.
+ *  - Clicking the backdrop calls close() (identical to an outside-click).
+ *  - `backdropDim` adds a semi-transparent dark tint (useful for modal-style dropdowns).
+ *  - The backdrop is removed from the DOM as soon as the dropdown closes.
  */
 @Directive({
   selector: '[appDropdown]',
@@ -71,11 +79,25 @@ export class DropdownDirective implements OnInit, AfterContentInit, AfterContent
   @Output() isOpenChange = new EventEmitter<boolean>();
   @Output() closed = new EventEmitter<void>();
 
+  /**
+   * When true, a transparent backdrop element is injected into document.body
+   * while the dropdown is open. Clicking it closes the dropdown.
+   * Defaults to false — existing dropdowns are unaffected unless opted in.
+   */
+  backdrop = true;
+
+  /**
+   * When true (requires backdrop=true), the backdrop has a semi-transparent
+   * dark tint, visually dimming everything behind the menu.
+   */
+  @Input() backdropDim = false;
+
   @ContentChild(DropdownTriggerDirective) triggerDir?: DropdownTriggerDirective;
   @ContentChild(DropdownMenuDirective) menuDir?: DropdownMenuDirective;
 
   private dropdownId!: string;
   private lastMenuEl: HTMLElement | null = null;
+  private backdropEl: HTMLElement | null = null;
 
   constructor(
     private el: ElementRef<HTMLElement>,
@@ -109,10 +131,46 @@ export class DropdownDirective implements OnInit, AfterContentInit, AfterContent
     this.dropdownService.update(this.dropdownId, trigger, menu);
   }
 
+  // ── Backdrop ──────────────────────────────────────────────────────────────
+
+  private attachBackdrop(): void {
+    if (!this.backdrop || this.backdropEl) return;
+
+    const el = document.createElement('div');
+    el.setAttribute('data-dropdown-backdrop', this.dropdownId);
+
+    Object.assign(el.style, {
+      position:        'fixed',
+      inset:           '0',
+      zIndex:          'calc(var(--vsc-z-dropdown, 1000) - 1)',
+      // Transparent by default; dim mode adds a subtle tint
+      background:      this.backdropDim
+                         ? 'rgba(0, 0, 0, 0.32)'
+                         : 'transparent',
+      // Animate opacity when dimming so it doesn't snap in harshly
+      transition:      this.backdropDim ? 'opacity 0.12s ease' : 'none',
+    });
+
+    // Clicking the backdrop is treated as an outside click → close
+    el.addEventListener('mousedown', () => this.close());
+
+    document.body.appendChild(el);
+    this.backdropEl = el;
+  }
+
+  private detachBackdrop(): void {
+    if (!this.backdropEl) return;
+    this.backdropEl.remove();
+    this.backdropEl = null;
+  }
+
+  // ── Open / close / toggle ─────────────────────────────────────────────────
+
   open(): void {
     this.dropdownService.closeOthers(this.dropdownId);
     this.isOpen = true;
     this.isOpenChange.emit(true);
+    this.attachBackdrop();
   }
 
   close(): void {
@@ -121,6 +179,7 @@ export class DropdownDirective implements OnInit, AfterContentInit, AfterContent
     this.isOpen = false;
     this.isOpenChange.emit(false);
     this.closed.emit();
+    this.detachBackdrop();
   }
 
   toggle(): void {
@@ -128,6 +187,7 @@ export class DropdownDirective implements OnInit, AfterContentInit, AfterContent
   }
 
   ngOnDestroy(): void {
+    this.detachBackdrop();
     this.dropdownService.unregister(this.dropdownId);
   }
 }

@@ -1,22 +1,25 @@
-// filter-bar.component.ts
 import {
   Component, Input, Output, EventEmitter,
-  OnInit, OnDestroy, ViewChild, ElementRef,
-  ChangeDetectorRef, HostListener
+  OnInit, OnDestroy, OnChanges, SimpleChanges,
+  ViewChild, ElementRef,
+  ChangeDetectorRef, HostListener,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Subject, debounceTime, distinctUntilChanged, takeUntil } from 'rxjs';
 
+import { FileInfo } from '../shared/protocol';
+import { FilterQuery } from '../shared/protocol-enhanced';
+import { FilterService, CriteriaGroup } from '../services/filter.service';
+
 import { DropdownDirective, DropdownTriggerDirective, DropdownMenuDirective } from '../directives/dropdown.directive';
-import { FilterBarCategoryDropdownComponent } from './filter-bar-category-dropdown.component';
-import { FilterBarCustomCategoryDialogComponent } from './filter-bar-custom-category-dialog.component';
+import { FilterDropdownComponent } from './filter-bar-category-dropdown.component';
 import {
-  FilterCategory,
   FilterPreset,
-  BUILT_IN_CATEGORIES,
+  FilterCategory,
+  CustomCategoryData,
   FILTER_PRESETS_KEY,
-  CustomCategoryData
+  buildPresetsFromDataset,
 } from './filter-bar.types';
 
 @Component({
@@ -28,21 +31,18 @@ import {
     DropdownDirective,
     DropdownTriggerDirective,
     DropdownMenuDirective,
-    FilterBarCategoryDropdownComponent,
-    FilterBarCustomCategoryDialogComponent
+    FilterDropdownComponent,
   ],
   template: `
 <div class="fb-host" (keydown)="onHostKeyDown($event)">
 
-  <!-- Main filter bar -->
   <div class="fb-bar" [class.fb-bar--compact]="compact">
 
-    <!-- Left cluster: filter icon + category dropdown -->
+    <!-- Left: filter icon + category dropdown -->
     <div class="fb-cluster fb-cluster--left">
       <div class="fb-icon">
         <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-          <path d="M1.5 2A1.5 1.5 0 0 0 0 3.5v9A1.5 1.5 0 0 0 1.5 14h13a1.5 1.5 0 0 0 1.5-1.5v-9A1.5 1.5 0 0 0 14.5 2h-13zM1 3.5a.5.5 0 0 1 .5-.5h13a.5.5 0 0 1 .5.5v9a.5.5 0 0 1-.5.5h-13a.5.5 0 0 1-.5-.5v-9z"/>
-          <path d="M3 6h10v1H3zm0 3h10v1H3z"/>
+          <path d="M6 10.5a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 0 1h-3a.5.5 0 0 1-.5-.5zm-2-3a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1-.5-.5zm-2-3a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11a.5.5 0 0 1-.5-.5z"/>
         </svg>
       </div>
 
@@ -51,32 +51,34 @@ import {
           appDropdownTrigger
           class="fb-btn fb-btn--category"
           [class.fb-btn--open]="showCategoryDropdown"
-          [class.fb-btn--active]="hasActiveFilters"
+          [class.fb-btn--active]="selectedPresets.length > 0"
           (click)="toggleCategoryDropdown()"
-          [title]="'Filter by category'"
+          title="Filter by type, size, date…"
         >
-          <span class="fb-btn-label">Category</span>
-          <span class="fb-btn-badge" *ngIf="activeCategoryCount">{{ activeCategoryCount }}</span>
-          <span class="fb-btn-chevron">›</span>
+          <span class="fb-btn-label">Filter</span>
+          <span class="fb-btn-badge" *ngIf="selectedPresets.length > 0">{{ selectedPresets.length }}</span>
+          <span class="fb-btn-chevron" [class.fb-btn-chevron--open]="showCategoryDropdown">›</span>
         </button>
 
-        <app-filter-bar-category-dropdown
+        <app-filter-dropdown
           appDropdownMenu
           *ngIf="showCategoryDropdown"
-          [categories]="categories"
-          [selectedCategoryIds]="selectedCategoryIds"
-          [left]="categoryDropLeft"
-          [top]="categoryDropTop"
-          (categorySelect)="onCategorySelect($event)"
-          (addCustom)="onAddCustom($event)"
-          (editCustom)="onEditCustom($event)"
-          (deleteCustom)="onDeleteCustom($event)"
+          [presets]="allPresets"
+          [selected]="selectedPresets"
+          [hasDynamic]="hasDynamic"
+          (itemToggle)="onPresetToggle($event)"
+          (clearAll)="clearPresets()"
+          (refresh)="refreshPresets()"
+          (groupModeChange)="onGroupModeChange($event)"
         />
       </div>
     </div>
 
     <!-- Search input -->
     <div class="fb-search">
+      <svg class="fb-search-icon" width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+        <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.099zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
+      </svg>
       <input
         #searchInput
         type="text"
@@ -87,120 +89,77 @@ import {
         (keydown)="onSearchKeyDown($event)"
         [attr.aria-label]="placeholder"
       />
-      <button
-        *ngIf="searchText"
-        class="fb-search-clear"
-        (click)="clearSearch()"
-        title="Clear search"
-      >×</button>
+      <button *ngIf="searchText" class="fb-search-clear" (click)="clearSearch()" title="Clear search">×</button>
     </div>
 
-    <!-- Right cluster: preset dropdown + clear button -->
+    <!-- Right: preset dropdown + clear button -->
     <div class="fb-cluster fb-cluster--right">
       <div class="fb-drop-anchor" appDropdown [(isOpen)]="showPresetDropdown">
         <button
           appDropdownTrigger
-          class="fb-btn fb-btn--preset"
+          class="fb-btn fb-btn--icon"
           [class.fb-btn--open]="showPresetDropdown"
-          (click)="togglePresetDropdown()"
-          title="Filter presets"
+          (click)="showPresetDropdown = !showPresetDropdown"
+          title="Saved presets"
         >
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M9.5 1.5a1 1 0 0 0-1.415 0L4.94 4.645a3.5 3.5 0 0 0-.871 3.547l-2.646 2.647a.5.5 0 0 0 .708.707l2.646-2.646a3.5 3.5 0 0 0 3.547-.872l3.144-3.144A1 1 0 0 0 11.5 3l-2-1.5z"/>
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M2 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v13.5a.5.5 0 0 1-.777.416L8 13.101l-5.223 2.815A.5.5 0 0 1 2 15.5V2zm2-1a1 1 0 0 0-1 1v12.566l4.723-2.482a.5.5 0 0 1 .554 0L13 14.566V2a1 1 0 0 0-1-1H4z"/>
           </svg>
         </button>
 
-        <div
-          appDropdownMenu
-          *ngIf="showPresetDropdown"
-          class="fb-preset-dropdown"
-        >
+        <div appDropdownMenu *ngIf="showPresetDropdown" class="fb-preset-dropdown">
           <div class="fb-preset-head">
-            <span>Filter Presets</span>
+            <span>Presets</span>
             <button
               class="fb-preset-save"
               (click)="onSavePreset()"
               [disabled]="!canSavePreset"
-              title="Save current filters as preset"
+              title="Save current selection as preset"
             >+ Save</button>
           </div>
-
           <div class="fb-preset-list">
-            <div
-              *ngFor="let preset of presets"
-              class="fb-preset-item"
-              [class.fb-preset-item--builtin]="preset.isBuiltIn"
-            >
-              <span class="fb-preset-name" (click)="applyPreset(preset)">
-                {{ preset.name }}
-              </span>
-              <button
-                *ngIf="!preset.isBuiltIn"
-                class="fb-preset-delete"
-                (click)="deletePreset(preset)"
-                title="Delete preset"
-              >×</button>
+            <div *ngFor="let p of savedPresets" class="fb-preset-item">
+              <span class="fb-preset-name" (click)="applyPreset(p)">{{ p.name }}</span>
+              <button class="fb-preset-delete" (click)="deletePreset(p)" title="Delete">×</button>
             </div>
-
-            <div *ngIf="presets.length === 0" class="fb-preset-empty">
-              No saved presets
-            </div>
+            <div *ngIf="savedPresets.length === 0" class="fb-preset-empty">No saved presets</div>
           </div>
         </div>
       </div>
 
       <button
-        class="fb-btn fb-btn--clear"
-        [disabled]="!hasActiveFilters && !searchText"
+        class="fb-btn fb-btn--icon fb-btn--clear"
+        [disabled]="!hasAnyFilter"
         (click)="clearAllFilters()"
         title="Clear all filters"
       >
         <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-          <path d="M2.5 1A1.5 1.5 0 0 0 1 2.5v11A1.5 1.5 0 0 0 2.5 15h11a1.5 1.5 0 0 0 1.5-1.5v-11A1.5 1.5 0 0 0 13.5 1h-11zM2 2.5a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 .5.5v11a.5.5 0 0 1-.5.5h-11a.5.5 0 0 1-.5-.5v-11z"/>
           <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/>
         </svg>
       </button>
     </div>
   </div>
 
-  <!-- Active filter chips -->
-  <div class="fb-chips" *ngIf="activeCategories.length > 0 || searchText">
+  <!-- Active chips -->
+  <div class="fb-chips" *ngIf="selectedPresets.length > 0 || searchText">
     <div class="fb-chips-scroll">
-      <div
-        *ngFor="let cat of activeCategories"
-        class="fb-chip"
-        [class.fb-chip--custom]="cat.isCustom"
-      >
-        <span class="fb-chip-icon">{{ cat.icon || '📌' }}</span>
-        <span class="fb-chip-label">{{ cat.label }}</span>
-        <button
-          class="fb-chip-remove"
-          (click)="removeCategory(cat.id)"
-          title="Remove filter"
-        >×</button>
+
+      <div *ngFor="let p of selectedPresets" class="fb-chip" [class.fb-chip--dynamic]="p.isDynamic">
+        <span class="fb-chip-icon">{{ p.icon || '🔍' }}</span>
+        <span class="fb-chip-label">{{ p.name }}</span>
+        <button class="fb-chip-remove" (click)="onPresetToggle(p)" title="Remove">×</button>
       </div>
 
       <div *ngIf="searchText" class="fb-chip fb-chip--search">
-        <span class="fb-chip-label">"{{ searchText }}"</span>
-        <button
-          class="fb-chip-remove"
-          (click)="clearSearch()"
-          title="Clear search"
-        >×</button>
+        <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.099zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
+        </svg>
+        <span class="fb-chip-label">{{ searchText }}</span>
+        <button class="fb-chip-remove" (click)="clearSearch()" title="Clear search">×</button>
       </div>
+
     </div>
   </div>
-
-  <!-- Custom category dialog -->
-  <app-filter-bar-custom-category-dialog
-    *ngIf="showCustomDialog"
-    [category]="editingCategory"
-    [left]="dialogLeft"
-    [top]="dialogTop"
-    (save)="onCustomCategorySave($event)"
-    (cancel)="closeCustomDialog()"
-  />
-
 </div>
   `,
   styles: [`
@@ -213,10 +172,7 @@ import {
       border-bottom: 1px solid var(--vsc-border-subtle);
     }
 
-    .fb-host {
-      position: relative;
-      background: var(--vsc-sidebar-background);
-    }
+    .fb-host { position: relative; }
 
     .fb-bar {
       display: flex;
@@ -224,16 +180,9 @@ import {
       height: 36px;
       padding: 0 var(--vsc-padding-sm);
       gap: var(--vsc-padding-sm);
-      background: var(--vsc-sidebar-background);
       user-select: none;
     }
-
-    .fb-bar--compact {
-      height: 30px;
-      
-      .fb-btn { height: 24px; }
-      .fb-search-input { height: 24px; }
-    }
+    .fb-bar--compact { height: 30px; }
 
     .fb-cluster {
       display: flex;
@@ -241,12 +190,10 @@ import {
       gap: var(--vsc-padding-xs);
       flex-shrink: 0;
     }
-
     .fb-cluster--left {
       padding-right: var(--vsc-padding-sm);
       border-right: 1px solid var(--vsc-border-subtle);
     }
-
     .fb-cluster--right {
       padding-left: var(--vsc-padding-sm);
       border-left: 1px solid var(--vsc-border-subtle);
@@ -256,16 +203,12 @@ import {
       display: flex;
       align-items: center;
       justify-content: center;
-      width: 26px;
-      height: 26px;
+      width: 24px; height: 24px;
       color: var(--vsc-foreground-dim);
-      
       svg { fill: currentColor; }
     }
 
-    .fb-drop-anchor {
-      position: relative;
-    }
+    .fb-drop-anchor { position: relative; }
 
     .fb-btn {
       display: flex;
@@ -278,136 +221,80 @@ import {
       border-radius: var(--vsc-border-radius-sm);
       color: var(--vsc-foreground-dim);
       font-size: var(--vsc-font-size);
+      font-family: var(--vsc-font-family);
       cursor: pointer;
-      transition: all var(--vsc-transition-fast);
+      transition: background var(--vsc-transition-fast), color var(--vsc-transition-fast), border-color var(--vsc-transition-fast);
       white-space: nowrap;
+      svg { fill: currentColor; }
 
       &:hover {
         background: var(--vsc-list-hover-background);
         color: var(--vsc-foreground-bright);
         border-color: var(--vsc-border);
       }
-
-      &:focus-visible {
-        outline: 1px solid var(--vsc-focusBorder, var(--vsc-accent-blue));
-        outline-offset: -1px;
-      }
-
-      &:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-        &:hover {
-          background: transparent;
-          border-color: transparent;
-        }
-      }
-
-      &.fb-btn--open {
-        background: var(--vsc-list-active-background);
-        color: var(--vsc-foreground-bright);
-        border-color: var(--vsc-border);
-      }
-
-      &.fb-btn--active {
-        color: var(--vsc-accent-blue);
-        .fb-btn-badge {
-          background: var(--vsc-accent-blue);
-          color: white;
-        }
-      }
-
-      svg { fill: currentColor; }
+      &:focus-visible { outline: 1px solid var(--vsc-accent-blue); outline-offset: -1px; }
+      &:disabled { opacity: 0.4; cursor: not-allowed; &:hover { background: transparent; border-color: transparent; } }
+      &.fb-btn--open { background: var(--vsc-list-active-background); color: var(--vsc-foreground-bright); border-color: var(--vsc-border); }
+      &.fb-btn--active { color: var(--vsc-accent-blue); border-color: color-mix(in srgb, var(--vsc-accent-blue) 40%, transparent); }
+      &.fb-btn--active:hover { background: color-mix(in srgb, var(--vsc-accent-blue) 10%, transparent); }
     }
 
-    .fb-btn--category {
-      min-width: 90px;
-    }
+    .fb-btn--category { min-width: 80px; }
+    .fb-btn--icon { padding: 0 var(--vsc-padding-sm); min-width: unset; }
 
-    .fb-btn--preset {
-      padding: 0 var(--vsc-padding-sm);
-    }
-
-    .fb-btn--clear {
-      padding: 0 var(--vsc-padding-sm);
-    }
-
-    .fb-btn-label {
-      flex: 1;
-    }
-
+    .fb-btn-label { flex: 1; }
     .fb-btn-badge {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-width: 18px;
-      height: 18px;
-      padding: 0 4px;
-      background: var(--vsc-badge-background);
-      color: var(--vsc-badge-foreground);
-      border-radius: 10px;
-      font-size: 10px;
-      font-weight: 600;
+      display: inline-flex; align-items: center; justify-content: center;
+      min-width: 18px; height: 18px; padding: 0 4px;
+      background: var(--vsc-accent-blue); color: #fff;
+      border-radius: 10px; font-size: 10px; font-weight: 700;
     }
-
     .fb-btn-chevron {
-      font-size: 14px;
+      font-size: 14px; opacity: 0.6;
+      transition: transform var(--vsc-transition-fast);
+      display: inline-block;
       transform: rotate(90deg);
-      opacity: 0.7;
     }
+    .fb-btn-chevron--open { transform: rotate(270deg); }
 
+    /* ── Search ───────────────────────────────────────────────────── */
     .fb-search {
       position: relative;
       flex: 1;
-      min-width: 200px;
+      min-width: 160px;
+      display: flex;
+      align-items: center;
     }
-
+    .fb-search-icon {
+      position: absolute;
+      left: 8px;
+      color: var(--vsc-foreground-dim);
+      pointer-events: none;
+      flex-shrink: 0;
+    }
     .fb-search-input {
       width: 100%;
       height: 28px;
-      padding: 0 var(--vsc-padding-md);
-      padding-right: 28px;
+      padding: 0 28px 0 28px;
       background: var(--vsc-input-background);
-      border: 1px solid var(--vsc-border);
+      border: 1px solid var(--vsc-input-border);
       border-radius: var(--vsc-border-radius-sm);
       color: var(--vsc-foreground);
       font-size: var(--vsc-font-size);
-      
-      &:focus {
-        outline: none;
-        border-color: var(--vsc-focusBorder, var(--vsc-accent-blue));
-      }
-      
-      &::placeholder {
-        color: var(--vsc-foreground-dim);
-        opacity: 0.7;
-      }
+      font-family: var(--vsc-font-family);
+      &:focus { outline: none; border-color: var(--vsc-input-focus-border); }
+      &::placeholder { color: var(--vsc-input-placeholder); }
     }
-
     .fb-search-clear {
-      position: absolute;
-      right: 4px;
-      top: 50%;
-      transform: translateY(-50%);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      width: 20px;
-      height: 20px;
-      padding: 0;
-      background: transparent;
-      border: none;
-      border-radius: 4px;
-      color: var(--vsc-foreground-dim);
-      font-size: 16px;
-      cursor: pointer;
-      
-      &:hover {
-        background: var(--vsc-list-hover-background);
-        color: var(--vsc-foreground-bright);
-      }
+      position: absolute; right: 4px;
+      display: flex; align-items: center; justify-content: center;
+      width: 20px; height: 20px; padding: 0;
+      background: transparent; border: none; border-radius: 4px;
+      color: var(--vsc-foreground-dim); font-size: 16px; cursor: pointer;
+      &:hover { background: var(--vsc-list-hover-background); color: var(--vsc-foreground-bright); }
     }
 
-    /* Preset dropdown */
+    /* ── Preset dropdown ──────────────────────────────────────────── */
     .fb-preset-dropdown {
       position: fixed;
       min-width: 220px;
@@ -415,230 +302,159 @@ import {
       border: 1px solid var(--vsc-border);
       border-radius: var(--vsc-border-radius);
       box-shadow: var(--vsc-widget-shadow);
-      z-index: 10000;
+      z-index: var(--vsc-z-dropdown);
       overflow: hidden;
     }
-
     .fb-preset-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: var(--vsc-padding-sm) var(--vsc-padding-lg);
-      background: var(--vsc-panel-background);
+      display: flex; align-items: center; justify-content: space-between;
+      padding: var(--vsc-padding-sm) var(--vsc-padding-md);
       border-bottom: 1px solid var(--vsc-border-subtle);
-      font-size: var(--vsc-font-size-small);
-      color: var(--vsc-foreground-dim);
-      text-transform: uppercase;
+      font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--vsc-foreground-dim);
     }
-
     .fb-preset-save {
       padding: 2px var(--vsc-padding-sm);
-      background: transparent;
-      border: 1px solid var(--vsc-border);
-      border-radius: 4px;
-      color: var(--vsc-foreground);
-      font-size: 11px;
-      cursor: pointer;
-      
-      &:hover:not(:disabled) {
-        background: var(--vsc-list-hover-background);
-        border-color: var(--vsc-focusBorder);
-      }
-      
-      &:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-      }
+      background: transparent; border: 1px solid var(--vsc-border);
+      border-radius: var(--vsc-border-radius-sm);
+      color: var(--vsc-foreground); font-size: 11px; cursor: pointer;
+      font-family: var(--vsc-font-family);
+      &:hover:not(:disabled) { background: var(--vsc-list-hover-background); }
+      &:disabled { opacity: 0.4; cursor: not-allowed; }
     }
-
-    .fb-preset-list {
-      max-height: 200px;
-      overflow-y: auto;
-      padding: var(--vsc-padding-xs) 0;
-    }
-
+    .fb-preset-list { max-height: 200px; overflow-y: auto; padding: var(--vsc-padding-xs) 0; }
     .fb-preset-item {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: var(--vsc-padding-sm) var(--vsc-padding-lg);
-      
-      &:hover {
-        background: var(--vsc-list-hover-background);
-      }
-      
-      &.fb-preset-item--builtin {
-        color: var(--vsc-foreground-dim);
-        font-style: italic;
-      }
+      display: flex; align-items: center; justify-content: space-between;
+      padding: var(--vsc-padding-sm) var(--vsc-padding-md);
+      &:hover { background: var(--vsc-list-hover-background); }
     }
-
     .fb-preset-name {
-      flex: 1;
-      cursor: pointer;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      flex: 1; cursor: pointer; white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis; font-size: var(--vsc-font-size);
     }
-
     .fb-preset-delete {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      width: 18px;
-      height: 18px;
-      padding: 0;
-      background: transparent;
-      border: none;
-      border-radius: 4px;
-      color: var(--vsc-foreground-dim);
-      font-size: 14px;
-      cursor: pointer;
-      
-      &:hover {
-        background: var(--vsc-list-active-background);
-        color: var(--vsc-foreground-bright);
-      }
+      display: flex; align-items: center; justify-content: center;
+      width: 18px; height: 18px; padding: 0;
+      background: transparent; border: none; border-radius: 4px;
+      color: var(--vsc-foreground-dim); font-size: 14px; cursor: pointer;
+      &:hover { background: var(--vsc-list-active-background); color: var(--vsc-foreground-bright); }
     }
-
     .fb-preset-empty {
-      padding: var(--vsc-padding-lg);
-      text-align: center;
-      color: var(--vsc-foreground-dim);
-      font-size: var(--vsc-font-size-small);
-      font-style: italic;
+      padding: var(--vsc-padding-md) var(--vsc-padding-lg);
+      text-align: center; color: var(--vsc-foreground-dim);
+      font-size: var(--vsc-font-size-small); font-style: italic;
     }
 
-    /* Filter chips */
+    /* ── Chips ────────────────────────────────────────────────────── */
     .fb-chips {
       padding: 0 var(--vsc-padding-sm) var(--vsc-padding-xs);
       border-top: 1px solid var(--vsc-border-subtle);
-      background: var(--vsc-sidebar-background);
     }
-
     .fb-chips-scroll {
-      display: flex;
-      gap: var(--vsc-padding-xs);
-      overflow-x: auto;
-      overflow-y: hidden;
+      display: flex; gap: var(--vsc-padding-xs);
+      overflow-x: auto; overflow-y: hidden;
       padding: var(--vsc-padding-xs) 0;
       scrollbar-width: thin;
-      
-      &::-webkit-scrollbar {
-        height: 4px;
-      }
+      &::-webkit-scrollbar { height: 3px; }
     }
-
     .fb-chip {
-      display: flex;
-      align-items: center;
-      gap: var(--vsc-padding-xs);
-      height: 24px;
-      padding: 0 var(--vsc-padding-sm);
-      background: var(--vsc-badge-background);
-      border-radius: 12px;
-      color: var(--vsc-badge-foreground);
-      font-size: var(--vsc-font-size-small);
-      white-space: nowrap;
-      
-      &.fb-chip--custom {
-        background: color-mix(in srgb, var(--vsc-accent-purple) 20%, transparent);
-        border: 1px solid color-mix(in srgb, var(--vsc-accent-purple) 40%, transparent);
-      }
-      
-      &.fb-chip--search {
-        background: var(--vsc-input-background);
-        border: 1px solid var(--vsc-border);
-      }
+      display: inline-flex; align-items: center; gap: var(--vsc-padding-xs);
+      height: 22px; padding: 0 var(--vsc-padding-sm);
+      background: var(--vsc-list-inactive-selection);
+      border: 1px solid var(--vsc-border-subtle);
+      border-radius: 11px; color: var(--vsc-foreground);
+      font-size: var(--vsc-font-size-small); white-space: nowrap;
+      flex-shrink: 0;
     }
-
-    .fb-chip-icon {
-      font-size: 12px;
-      opacity: 0.8;
+    .fb-chip--dynamic {
+      border-color: color-mix(in srgb, var(--vsc-accent-green) 40%, var(--vsc-border-subtle));
     }
-
-    .fb-chip-label {
-      max-width: 120px;
-      overflow: hidden;
-      text-overflow: ellipsis;
+    .fb-chip--search {
+      background: var(--vsc-input-background);
+      border-color: var(--vsc-border);
     }
-
+    .fb-chip-icon { font-size: 11px; }
+    .fb-chip-label { max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
     .fb-chip-remove {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      width: 16px;
-      height: 16px;
-      padding: 0;
-      background: transparent;
-      border: none;
-      border-radius: 4px;
-      color: currentColor;
-      font-size: 14px;
-      cursor: pointer;
-      opacity: 0.7;
-      
-      &:hover {
-        opacity: 1;
-        background: rgba(255,255,255,0.1);
-      }
+      display: flex; align-items: center; justify-content: center;
+      width: 14px; height: 14px; padding: 0;
+      background: transparent; border: none; border-radius: 3px;
+      color: currentColor; font-size: 14px; cursor: pointer; opacity: 0.6;
+      &:hover { opacity: 1; background: rgba(255,255,255,0.1); }
     }
-  `]
+  `],
 })
-export class FilterBarComponent implements OnInit, OnDestroy {
+export class FilterBarComponent implements OnInit, OnDestroy, OnChanges {
+
   @ViewChild('searchInput') searchInput?: ElementRef<HTMLInputElement>;
 
-  @Input() placeholder = 'Filter files and folders...';
-  @Input() compact = false;
-  @Input() initialSearch = '';
+  // ── Inputs ──────────────────────────────────────────────────────────────
+
+  /** The full unfiltered dataset — drives dynamic preset generation */
+  @Input() dataset: FileInfo[] = [];
+
+  @Input() placeholder        = 'Search files…';
+  @Input() compact            = false;
+  @Input() initialSearch      = '';
   @Input() initialCategories: string[] = [];
 
-  @Output() filterChange = new EventEmitter<{
-    search: string;
-    categories: FilterCategory[];
-  }>();
+  // ── Outputs ─────────────────────────────────────────────────────────────
 
-  // Categories
-  categories: FilterCategory[] = [...BUILT_IN_CATEGORIES];
-  selectedCategoryIds: string[] = [];
+  /**
+   * Emits a FilterQuery (compatible with FilterService.filterEntries) every
+   * time the search text or selected presets change.
+   */
+  @Output() filterChange = new EventEmitter<FilterQuery & { groups: CriteriaGroup[] }>();
 
-  // Category dropdown
+  // ── State ────────────────────────────────────────────────────────────────
+
+  allPresets:      FilterPreset[] = [];
+  selectedPresets: FilterPreset[] = [];
+  searchText       = '';
+
   showCategoryDropdown = false;
-  categoryDropLeft = 0;
-  categoryDropTop = 0;
+  showPresetDropdown   = false;
 
-  // Search
-  searchText = '';
+  savedPresets: { id: string; name: string; presetIds: string[] }[] = [];
 
-  // Presets
-  presets: FilterPreset[] = [];
-  showPresetDropdown = false;
-
-  // Custom category dialog
   showCustomDialog = false;
   editingCategory: FilterCategory | null = null;
   dialogLeft = 0;
-  dialogTop = 0;
+  dialogTop  = 0;
 
-  private destroy$ = new Subject<void>();
-  private searchChange$ = new Subject<string>();
+  private groupModes = new Map<string, 'AND' | 'OR'>();
+  private destroy$   = new Subject<void>();
+  private search$    = new Subject<string>();
+
+  // ── Computed ─────────────────────────────────────────────────────────────
+
+  get hasDynamic(): boolean     { return this.allPresets.some(p => p.isDynamic); }
+  get hasAnyFilter(): boolean   { return this.selectedPresets.length > 0 || !!this.searchText; }
+  get canSavePreset(): boolean  { return this.selectedPresets.length > 0 && this.savedPresets.length < 20; }
 
   constructor(
+    private filterService: FilterService,
     private elRef: ElementRef,
-    private cdr: ChangeDetectorRef
-  ) { }
+    private cdr: ChangeDetectorRef,
+  ) {}
+
+  // ── Lifecycle ─────────────────────────────────────────────────────────────
 
   ngOnInit(): void {
     this.searchText = this.initialSearch;
-    this.selectedCategoryIds = this.initialCategories;
-    this.loadPresets();
+    this.loadSavedPresets();
+    this.rebuildPresets();
 
-    this.searchChange$
-      .pipe(debounceTime(300), distinctUntilChanged(), takeUntil(this.destroy$))
-      .subscribe(search => this.emitFilterChange());
+    // Debounce search input
+    this.search$
+      .pipe(debounceTime(200), distinctUntilChanged(), takeUntil(this.destroy$))
+      .subscribe(() => this.emitFilterChange());
+  }
 
-    // Load custom categories from storage
-    this.loadCustomCategories();
+  ngOnChanges(changes: SimpleChanges): void {
+    // Re-analyse whenever the dataset changes (new folder navigated to, etc.)
+    if (changes['dataset'] && !changes['dataset'].firstChange) {
+      this.rebuildPresets();
+    }
   }
 
   ngOnDestroy(): void {
@@ -646,278 +462,200 @@ export class FilterBarComponent implements OnInit, OnDestroy {
     this.destroy$.complete();
   }
 
-  // Getters
-  get activeCategories(): FilterCategory[] {
-    return this.categories.filter(c => this.selectedCategoryIds.includes(c.id));
+  // ── Preset generation ─────────────────────────────────────────────────────
+
+  /**
+   * Re-analyse dataset → rebuild allPresets with live counts.
+   * Also drops any selectedPreset that no longer exists in the new list.
+   */
+  rebuildPresets(): void {
+    this.allPresets = buildPresetsFromDataset(this.dataset);
+
+    // Drop selections that vanished (e.g. navigated to a folder with no images)
+    const ids = new Set(this.allPresets.map(p => p.id));
+    this.selectedPresets = this.selectedPresets.filter(p => ids.has(p.id));
+
+    // Refresh counts on already-selected presets
+    this.selectedPresets = this.selectedPresets.map(sel =>
+      this.allPresets.find(p => p.id === sel.id) ?? sel,
+    );
+
+    this.cdr.detectChanges();
+
+    // Emit updated query so the file list re-filters with new counts
+    if (this.hasAnyFilter) this.emitFilterChange();
   }
 
-  get activeCategoryCount(): number {
-    return this.activeCategories.length;
-  }
+  refreshPresets(): void { this.rebuildPresets(); }
 
-  get hasActiveFilters(): boolean {
-    return this.activeCategoryCount > 0;
-  }
+  // ── Dropdown toggle ───────────────────────────────────────────────────────
 
-  get canSavePreset(): boolean {
-    return this.hasActiveFilters && this.presets.length < 20; // Limit to 20 presets
-  }
-
-  // Category dropdown
   toggleCategoryDropdown(): void {
-    if (this.showCategoryDropdown) {
-      this.showCategoryDropdown = false;
+    this.showCategoryDropdown = !this.showCategoryDropdown;
+  }
+
+  // ── Preset selection ──────────────────────────────────────────────────────
+
+  onPresetToggle(preset: FilterPreset): void {
+    const idx = this.selectedPresets.findIndex(p => p.id === preset.id);
+    if (idx >= 0) {
+      this.selectedPresets = this.selectedPresets.filter(p => p.id !== preset.id);
     } else {
-      const btn = this.elRef.nativeElement.querySelector('.fb-btn--category');
-      if (btn) {
-        const rect = btn.getBoundingClientRect();
-        this.categoryDropLeft = rect.left;
-        this.categoryDropTop = rect.bottom + 4;
-        this.showCategoryDropdown = true;
-      }
+      this.selectedPresets = [...this.selectedPresets, preset];
     }
-  }
-
-  onCategorySelect(category: FilterCategory): void {
-    if (category.id === 'all') {
-      // 'All' clears other selections
-      this.selectedCategoryIds = ['all'];
-    } else {
-      // Toggle category
-      const index = this.selectedCategoryIds.indexOf(category.id);
-      if (index >= 0) {
-        this.selectedCategoryIds.splice(index, 1);
-      } else {
-        // Remove 'all' if present
-        this.selectedCategoryIds = this.selectedCategoryIds.filter(id => id !== 'all');
-        this.selectedCategoryIds.push(category.id);
-      }
-    }
-
     this.emitFilterChange();
+    this.cdr.detectChanges();
   }
 
-  removeCategory(categoryId: string): void {
-    this.selectedCategoryIds = this.selectedCategoryIds.filter(id => id !== categoryId);
+  clearPresets(): void {
+    this.selectedPresets = [];
     this.emitFilterChange();
+    this.cdr.detectChanges();
   }
 
-  // Search
+  onGroupModeChange(ev: { group: string; mode: 'AND' | 'OR' }): void {
+    this.groupModes.set(ev.group, ev.mode);
+    if (this.selectedPresets.length > 0) this.emitFilterChange();
+  }
+
+  // ── Search ────────────────────────────────────────────────────────────────
+
   onSearchChange(value: string): void {
     this.searchText = value;
-    this.searchChange$.next(value);
+    this.search$.next(value);
   }
 
-  onSearchKeyDown(event: KeyboardEvent): void {
-    if (event.key === 'Escape') {
-      this.clearSearch();
-    }
+  onSearchKeyDown(e: KeyboardEvent): void {
+    if (e.key === 'Escape') this.clearSearch();
   }
 
   clearSearch(): void {
     this.searchText = '';
     this.emitFilterChange();
-  }
-
-  // Custom categories
-  // In filter-bar.component.ts - update these methods:
-
-  loadCustomCategories(): void {
-    try {
-      const saved = localStorage.getItem('filter-bar-custom-categories');
-      if (saved) {
-        const customCats = JSON.parse(saved);
-        this.categories = [
-          ...BUILT_IN_CATEGORIES,
-          ...customCats.map((c: any) => ({
-            id: c.id,
-            label: c.label,
-            icon: c.icon,
-            pattern: c.pattern,
-            isCustom: true,
-            predicate: this.createPredicateFromPattern(c.pattern)
-          }))
-        ];
-      }
-    } catch (e) {
-      console.error('Failed to load custom categories', e);
-    }
-  }
-
-  saveCustomCategories(): void {
-    const customCats = this.categories
-      .filter(c => c.isCustom)
-      .map(({ id, label, icon, pattern }) => ({ id, label, icon, pattern }));
-
-    try {
-      localStorage.setItem('filter-bar-custom-categories', JSON.stringify(customCats));
-    } catch (e) {
-      console.error('Failed to save custom categories', e);
-    }
-  }
-
-  createPredicateFromPattern(pattern: string): (entry: any) => boolean {
-    const patterns = pattern.split(',').map(p => p.trim().toLowerCase());
-    return (entry) => {
-      const name = entry.name?.toLowerCase() || '';
-      return patterns.some(p => {
-        if (p.includes('*')) {
-          const regex = new RegExp('^' + p.replace(/\*/g, '.*') + '$');
-          return regex.test(name);
-        }
-        return name.includes(p);
-      });
-    };
-  }
-
-  onAddCustom(event: MouseEvent): void {
-    const btn = event.currentTarget as HTMLElement;
-    const rect = btn.getBoundingClientRect();
-    this.dialogLeft = rect.left - 160; // Center roughly
-    this.dialogTop = rect.bottom + 4;
-    this.editingCategory = null;
-    this.showCustomDialog = true;
-  }
-
-  onEditCustom(event: { category: FilterCategory; event: MouseEvent }): void {
-    const rect = (event.event.currentTarget as HTMLElement).getBoundingClientRect();
-    this.dialogLeft = rect.left - 160;
-    this.dialogTop = rect.bottom + 4;
-    this.editingCategory = event.category;
-    this.showCustomDialog = true;
-  }
-
-  onDeleteCustom(event: { category: FilterCategory; event: MouseEvent }): void {
-    event.event.stopPropagation();
-    this.categories = this.categories.filter(c => c.id !== event.category.id);
-    this.selectedCategoryIds = this.selectedCategoryIds.filter(id => id !== event.category.id);
-    this.saveCustomCategories();
-    this.emitFilterChange();
-  }
-
-  onCustomCategorySave(data: CustomCategoryData): void {
-    if (this.editingCategory) {
-      // Update existing
-      const index = this.categories.findIndex(c => c.id === this.editingCategory!.id);
-      if (index >= 0) {
-        this.categories[index] = {
-          ...this.categories[index],
-          label: data.label,
-          icon: data.icon,
-          pattern: data.pattern,
-          predicate: this.createPredicateFromPattern(data.pattern)
-        };
-      }
-    } else {
-      // Add new
-      const newCategory: FilterCategory = {
-        id: `custom-${Date.now()}`,
-        label: data.label,
-        icon: data.icon,
-        pattern: data.pattern,
-        isCustom: true,
-        predicate: this.createPredicateFromPattern(data.pattern)
-      };
-      this.categories.push(newCategory);
-    }
-
-    this.saveCustomCategories();
-    this.closeCustomDialog();
     this.cdr.detectChanges();
   }
 
-  closeCustomDialog(): void {
-    this.showCustomDialog = false;
-    this.editingCategory = null;
+  clearAllFilters(): void {
+    this.selectedPresets = [];
+    this.searchText = '';
+    this.emitFilterChange();
+    this.cdr.detectChanges();
   }
 
-  // Presets
-  loadPresets(): void {
-    try {
-      this.presets = JSON.parse(localStorage.getItem(FILTER_PRESETS_KEY) || '[]');
-    } catch {
-      this.presets = [];
-    }
+  // ── Saved presets ─────────────────────────────────────────────────────────
+
+  loadSavedPresets(): void {
+    try { this.savedPresets = JSON.parse(localStorage.getItem(FILTER_PRESETS_KEY) || '[]'); }
+    catch { this.savedPresets = []; }
   }
 
-  savePresets(): void {
-    try {
-      localStorage.setItem(FILTER_PRESETS_KEY, JSON.stringify(this.presets));
-    } catch (e) {
-      console.error('Failed to save presets', e);
-    }
-  }
-
-  togglePresetDropdown(): void {
-    this.showPresetDropdown = !this.showPresetDropdown;
+  persistSavedPresets(): void {
+    try { localStorage.setItem(FILTER_PRESETS_KEY, JSON.stringify(this.savedPresets)); } catch {}
   }
 
   onSavePreset(): void {
-    const name = prompt('Enter preset name:');
-    if (!name) return;
-
-    const preset: FilterPreset = {
-      id: `preset-${Date.now()}`,
-      name,
-      categories: [...this.selectedCategoryIds],
-      isBuiltIn: false
-    };
-
-    this.presets.push(preset);
-    this.savePresets();
+    const name = prompt('Preset name:');
+    if (!name?.trim()) return;
+    this.savedPresets = [
+      ...this.savedPresets,
+      { id: `preset-${Date.now()}`, name: name.trim(), presetIds: this.selectedPresets.map(p => p.id) },
+    ];
+    this.persistSavedPresets();
     this.showPresetDropdown = false;
   }
 
-  applyPreset(preset: FilterPreset): void {
-    this.selectedCategoryIds = [...preset.categories];
+  applyPreset(saved: { id: string; name: string; presetIds: string[] }): void {
+    this.selectedPresets = saved.presetIds
+      .map(id => this.allPresets.find(p => p.id === id))
+      .filter(Boolean) as FilterPreset[];
     this.showPresetDropdown = false;
     this.emitFilterChange();
-  }
-
-  deletePreset(preset: FilterPreset): void {
-    this.presets = this.presets.filter(p => p.id !== preset.id);
-    this.savePresets();
-  }
-
-  // Clear all
-  clearAllFilters(): void {
-    this.selectedCategoryIds = [];
-    this.searchText = '';
-    this.emitFilterChange();
-  }
-
-  // Emit filter change
-  private emitFilterChange(): void {
-    this.filterChange.emit({
-      search: this.searchText,
-      categories: this.activeCategories
-    });
     this.cdr.detectChanges();
   }
 
-  // Keyboard handling
-  onHostKeyDown(event: KeyboardEvent): void {
-    if ((event.ctrlKey || event.metaKey) && event.key === 'f') {
-      event.preventDefault();
+  deletePreset(saved: { id: string; name: string; presetIds: string[] }): void {
+    this.savedPresets = this.savedPresets.filter(p => p.id !== saved.id);
+    this.persistSavedPresets();
+  }
+
+  // ── Custom categories (dialog plumbing kept from original) ────────────────
+
+  onCustomCategorySave(data: CustomCategoryData): void { this.closeCustomDialog(); }
+  closeCustomDialog(): void { this.showCustomDialog = false; this.editingCategory = null; }
+
+  // ── Keyboard ──────────────────────────────────────────────────────────────
+
+  onHostKeyDown(e: KeyboardEvent): void {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+      e.preventDefault();
       this.searchInput?.nativeElement.focus();
     }
   }
 
   @HostListener('document:keydown', ['$event'])
-  onDocKey(event: KeyboardEvent): void {
-    if (event.key === 'Escape') {
-      if (this.showCategoryDropdown) {
-        this.showCategoryDropdown = false;
-        event.preventDefault();
-      }
-      if (this.showPresetDropdown) {
-        this.showPresetDropdown = false;
-        event.preventDefault();
-      }
-      if (this.showCustomDialog) {
-        this.closeCustomDialog();
-        event.preventDefault();
+  onDocKey(e: KeyboardEvent): void {
+    if (e.key === 'Escape') {
+      if (this.showCategoryDropdown)  { this.showCategoryDropdown = false; e.preventDefault(); }
+      if (this.showPresetDropdown)    { this.showPresetDropdown   = false; e.preventDefault(); }
+      if (this.showCustomDialog)      { this.closeCustomDialog();          e.preventDefault(); }
+    }
+  }
+
+  // ── Emit ──────────────────────────────────────────────────────────────────
+
+  /**
+   * Build a FilterQuery from selected presets + search text and emit.
+   *
+   * Logic:
+   *  • Each preset's filter string is parsed via FilterService.parseFilterText().
+   *  • Presets in the same group are combined according to that group's mode (AND/OR).
+   *  • Groups are combined with OR (entry must pass any one group).
+   *  • The search text is AND-ed globally (top-level query.text).
+   */
+  private emitFilterChange(): void {
+    if (!this.hasAnyFilter) {
+      this.filterChange.emit(this.filterService.parseFilterText(''));
+      return;
+    }
+
+    if (this.selectedPresets.length === 0) {
+      // Only text search
+      this.filterChange.emit(this.filterService.parseFilterText(this.searchText));
+      return;
+    }
+
+    // Group presets by group name
+    const groupMap = new Map<string, FilterPreset[]>();
+    for (const p of this.selectedPresets) {
+      const g = p.group || 'Other';
+      if (!groupMap.has(g)) groupMap.set(g, []);
+      groupMap.get(g)!.push(p);
+    }
+
+    // Build one OR-segment per group
+    const segments: string[] = [];
+    for (const [groupName, presets] of groupMap) {
+      const mode = this.groupModes.get(groupName) ?? 'OR';
+      const filterStrings = presets.map(p => p.filter).filter(Boolean);
+
+      if (filterStrings.length === 1) {
+        segments.push(filterStrings[0]);
+      } else if (mode === 'OR') {
+        // Join multiple presets within group with " OR "
+        segments.push(filterStrings.join(' OR '));
+      } else {
+        // AND: concatenate tokens (FilterService ANDs different types within a segment)
+        segments.push(filterStrings.join(' '));
       }
     }
+
+    // All groups are OR-ed together
+    const combinedFilter = segments.join(' OR ');
+    const query = this.filterService.parseFilterText(combinedFilter);
+
+    // Global text search on top
+    query.text = this.searchText;
+
+    this.filterChange.emit(query);
   }
 }

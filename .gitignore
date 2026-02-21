@@ -33,6 +33,7 @@ Thumbs.db
 *.deb
 *.rpm
 *.msi
+build/
 
 # Test coverage
 coverage/

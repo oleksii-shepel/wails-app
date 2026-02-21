@@ -31,7 +31,7 @@ import { FilterPreset, FilterGroup, GROUP_ORDER, GROUP_MODES } from './filter-ba
       <!-- ── Dynamic content hint ──────────────────────────────── -->
       <div class="fd-dynamic-hint" *ngIf="hasDynamic">
         <span class="fd-dynamic-icon">📊</span>
-        <span>Counts reflect current folder</span>
+        <span>List reflects current folder content</span>
       </div>
 
       <!-- ── No data state ─────────────────────────────────────── -->
@@ -384,8 +384,8 @@ export class FilterDropdownComponent implements OnChanges, OnInit {
   private groupModes = new Map<string, 'AND' | 'OR'>();
 
   // Define which groups are OR vs AND
-  private readonly orGroups = new Set(['Basic', 'Extensions', 'Special', 'Other']);
-  private readonly andGroups = new Set(['Date', 'Size']);
+  private readonly orGroups = new Set(['Basic', 'Extensions', 'Other']);
+  private readonly andGroups = new Set(['Date', 'Size', 'Special']);
 
   constructor(private cdr: ChangeDetectorRef) {}
 

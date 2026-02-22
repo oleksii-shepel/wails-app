@@ -371,27 +371,6 @@ export class FindWidgetComponent implements OnDestroy {
     this.cdr.markForCheck();
   }
 
-  // ── Global keyboard shortcut ──────────────────────────────────
-
-  @HostListener('document:keydown', ['$event'])
-  onDocKey(e: KeyboardEvent): void {
-    // Ctrl/Cmd+F — open or refocus
-    if ((e.ctrlKey || e.metaKey) && e.key === 'f' && !e.shiftKey) {
-      e.preventDefault();
-      if (this.visible) {
-        this.inputEl?.nativeElement.focus();
-        this.inputEl?.nativeElement.select();
-      } else {
-        this.open();
-      }
-    }
-    // F3 / Shift+F3 cycle through matches globally
-    if (e.key === 'F3' && this.visible) {
-      e.preventDefault();
-      e.shiftKey ? this.onPrev() : this.onNext();
-    }
-  }
-
   // ── Emit state ────────────────────────────────────────────────
 
   private emit(): void {

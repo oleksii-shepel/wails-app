@@ -595,10 +595,6 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   };
 
   ngOnChanges(changes: SimpleChanges): void {
-    // Tab switched — reset all transient state and show the new tab's path.
-    // IMPORTANT: both tabId and initialPath change in the same cycle, so read
-    // the new path from changes['initialPath'].currentValue (already updated)
-    // rather than this.initialPath (may still be stale at this point).
     if (changes['tabId'] && !changes['tabId'].firstChange) {
       this.closeAll();
       if (this.editMode) {
@@ -608,13 +604,13 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
         this.suggestions = [];
         this.acIdx = -1;
       }
-      // Prefer the in-flight currentValue if initialPath also changed this cycle
       const rawNext = changes['initialPath']?.currentValue ?? this.initialPath;
       this.currentPath = normalizePath(rawNext);
-      this.rebuildSegments();
+      this.rebuildSegments();  // archiveStack already updated in this cycle
       this.cdr.detectChanges();
       return;
     }
+
     if (changes['initialPath'] && !changes['initialPath'].firstChange) {
       const next = normalizePath(changes['initialPath'].currentValue);
       if (next !== this.currentPath) {
@@ -623,7 +619,10 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
         if (this.editMode) this.editValue = next;
       }
     }
-    if (changes['archiveStack'] || changes['fsDirPath']) {
+
+    // Always rebuild when archive context changes, even if path didn't change
+    // (e.g. navigating deeper inside archive keeps same fsPath but different stack)
+    if ((changes['archiveStack'] || changes['fsDirPath']) && !changes['tabId']) {
       this.rebuildSegments();
     }
   }

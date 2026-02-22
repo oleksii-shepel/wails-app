@@ -45,6 +45,7 @@ declare const window: any;
         [initialPath]="currentPath"
         [paneId]="paneId"
         [archiveStack]="archiveStack"
+        [fsDirPath]="fsParentDir"
         (pathChange)="onPathChange($event)"
         (navigateUpClicked)="onNavigateUp()"
         (refreshClicked)="onRefresh()"
@@ -147,7 +148,7 @@ export class FilePaneComponent implements OnInit, OnChanges {
   @Output() moveToOther  = new EventEmitter<string[]>();
 
   currentPath   = '';
-  private fsParentDir = '';
+  fsParentDir = '';
   currentTabId  = '';
   pathReady     = false;
   tabs: TabInfo[] = [];

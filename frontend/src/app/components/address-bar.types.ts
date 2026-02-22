@@ -4,10 +4,9 @@ export interface PathSegment {
   label: string;
   fullPath: string;
   isRoot: boolean;
+  isLast?: boolean;
   rootLabel?: string;
-  /** True for the archive file entry itself (e.g. project.zip) */
   isArchiveRoot?: boolean;
-  /** True for path parts that live *inside* an archive — not navigable via FS */
   isArchiveInner?: boolean;
 }
 

@@ -12,7 +12,8 @@ import { PathHistoryService, PathSuggestion } from '../services/path-history.ser
 import { ApiService } from '../services/api.service';
 import { DirectoryListing, FileType } from '../shared/protocol';
 import { DriveInfo } from '../shared/protocol-enhanced';
-import { ArchiveFrame, buildArchiveDisplayPath, isArchive } from '../services/archive.service';
+import { ArchiveFrame, isArchive } from '../services/archive.service';
+import { parsePathWithArchives, buildSegmentsFromParsedPath } from './address-bar.utils';
 
 import { PathSegment, SiblingEntry, PinnedPath, ContextMenuState, PINNED_KEY, CTX_MENU_CLOSED } from './address-bar.types';
 import { isWindowsPath, normalizePath, parentPath, shortenPath, buildSegments, buildArchiveSegments } from './address-bar.utils';
@@ -638,9 +639,16 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   // ── Segments ─────────────────────────────────────────────────────────
 
   private rebuildSegments(): void {
-    this.segments = (this.archiveStack.length > 0 && this.fsDirPath)
-      ? buildArchiveSegments(this.fsDirPath, this.archiveStack)
-      : buildSegments(this.currentPath);
+    if (this.archiveStack.length > 0 && this.fsDirPath) {
+      // Parent-provided archive context — use existing rich builder
+      this.segments = buildArchiveSegments(this.fsDirPath, this.archiveStack);
+    } else {
+      // Self-parse: detect archive boundaries in the raw path string
+      const { fsDirPath, archiveInnerParts } = parsePathWithArchives(this.currentPath);
+      this.segments = archiveInnerParts.length > 0
+        ? buildSegmentsFromParsedPath(fsDirPath, archiveInnerParts)
+        : buildSegments(this.currentPath);
+    }
 
     setTimeout(() => {
       if (this.crumbsEl) {
@@ -660,10 +668,20 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   onSegClick(seg: PathSegment, e: MouseEvent): void {
     e.stopPropagation();
     this.closeAll();
-    if (!seg.isArchiveInner && !seg.isArchiveRoot && seg.fullPath !== this.currentPath) {
+
+    if (seg.isArchiveRoot || seg.isArchiveInner) {
+      // Delegate to archive click handler
+      if (seg.fullPath !== this.currentPath) {
+        this.archiveSegmentClick.emit(seg.fullPath);
+      } else {
+        this.enterEditMode();
+      }
+      return;
+    }
+
+    if (seg.fullPath !== this.currentPath) {
       this.navigateTo(seg.fullPath);
-    } else if (seg.fullPath === this.currentPath) {
-      // Last segment — enter edit mode
+    } else {
       this.enterEditMode();
     }
   }
@@ -1039,11 +1057,23 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   navigateTo(p: string): void {
     const np = normalizePath(p);
     this.closeAll();
-    if (np !== this.currentPath) {
+    if (np === this.currentPath) return;
+
+    const { archiveInnerParts, fsDirPath } = parsePathWithArchives(np);
+
+    if (archiveInnerParts.length > 0 && this.archiveStack.length === 0) {
+      // Path crosses an archive boundary — emit so parent can open the archive
+      // The parent handles ArchiveService.openRootArchive / navigateInto
+      this.archiveSegmentClick.emit(np);
+      // Still update local display immediately for responsiveness
       this.currentPath = np;
       this.rebuildSegments();
-      this.pathChange.emit(np);
+      return;
     }
+
+    this.currentPath = np;
+    this.rebuildSegments();
+    this.pathChange.emit(np);
   }
 
   // ── Close all overlays ───────────────────────────────────────────────

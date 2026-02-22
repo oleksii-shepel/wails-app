@@ -32,7 +32,7 @@ import { FilterPreset } from './filter-bar.types';
       height: 18px;
       padding: 0 6px;
       background: transparent;
-      border: 1px solid transparent;
+      border: 1px solid var(--vsc-border);
       border-radius: 2px;
       flex-shrink: 0;
       color: var(--vsc-foreground-dim);
@@ -45,7 +45,6 @@ import { FilterPreset } from './filter-bar.types';
 
       &:hover {
         background: var(--vsc-list-hover-background);
-        border-color: var(--vsc-border);
         color: var(--vsc-foreground);
       }
 

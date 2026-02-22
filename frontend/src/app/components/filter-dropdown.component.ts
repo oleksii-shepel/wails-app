@@ -20,6 +20,15 @@ import { FilterPreset, FilterGroup, GROUP_ORDER, GROUP_MODES } from './filter-ba
       <!-- ── Header ────────────────────────────────────────────── -->
       <div class="fd-header">
         <span class="fd-header-label">Filters</span>
+
+        <span
+          *ngIf="selected.length > 0"
+          class="fd-header-count"
+          title="Selected filters"
+        >
+          {{ selected.length }}
+        </span>
+
         <button
           class="fd-header-clear"
           *ngIf="selected.length > 0"
@@ -56,12 +65,12 @@ import { FilterPreset, FilterGroup, GROUP_ORDER, GROUP_MODES } from './filter-ba
             </div>
 
             <!-- Items -->
-            <button
+            <div
               class="fd-item"
               *ngFor="let preset of group.presets"
               role="menuitemcheckbox"
               [attr.aria-checked]="isSelected(preset)"
-              [class.fd-item--active]="isSelected(preset)"
+              [class.fd-item--selected]="isSelected(preset)"
               [class.fd-item--dynamic]="preset.isDynamic"
               (click)="onItemClick(preset, $event)"
             >
@@ -73,25 +82,10 @@ import { FilterPreset, FilterGroup, GROUP_ORDER, GROUP_MODES } from './filter-ba
               <span class="fd-item-icon">{{ preset.icon || '📄' }}</span>
               <span class="fd-item-label">{{ preset.name }}</span>
               <span class="fd-item-count" *ngIf="preset.count != null">{{ preset.count }}</span>
-            </button>
+            </div>
 
           </ng-container>
         </ng-container>
-      </div>
-
-      <!-- ── Footer ────────────────────────────────────────────── -->
-      <div class="fd-footer">
-        <button class="fd-refresh" (click)="onRefreshClick($event)" title="Re-analyse folder">
-          <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/>
-            <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/>
-          </svg>
-          Refresh
-        </button>
-        <div class="fd-hints">
-          <kbd>Space</kbd><span class="fd-hint-label">toggle</span>
-          <kbd>Esc</kbd><span class="fd-hint-label">close</span>
-        </div>
       </div>
     </div>
   `,
@@ -106,7 +100,6 @@ import { FilterPreset, FilterGroup, GROUP_ORDER, GROUP_MODES } from './filter-ba
       display: flex;
       flex-direction: column;
       width: 300px;
-      max-height: 480px;
       background: var(--vsc-panel-background);
       border: 1px solid var(--vsc-border);
       border-radius: var(--vsc-border-radius-lg);
@@ -183,7 +176,8 @@ import { FilterPreset, FilterGroup, GROUP_ORDER, GROUP_MODES } from './filter-ba
 
     /* ── Body ────────────────────────────────────────────── */
     .fd-body {
-      flex: 1;
+      flex: 1 1 auto;
+      min-height: 0;
       overflow-y: auto;
       padding: var(--vsc-padding-xs) 0;
       scrollbar-width: thin;
@@ -258,13 +252,17 @@ import { FilterPreset, FilterGroup, GROUP_ORDER, GROUP_MODES } from './filter-ba
       text-align: left;
       transition: background var(--vsc-transition-fast), border-color var(--vsc-transition-fast);
     }
-    .fd-item:hover { background: var(--vsc-list-hover-background); }
-    .fd-item--active {
-      background: color-mix(in srgb, var(--vsc-list-focus-background) 70%, transparent);
-      border-left-color: var(--vsc-accent-blue);
-      color: var(--vsc-foreground-bright);
+    .fd-item:hover {
+      background: var(--vsc-list-hover-background);
     }
-    .fd-item--active:hover { background: var(--vsc-list-active-background); }
+    .fd-item--selected {
+      background: var(--vsc-list-active-background);
+      color: var(--vsc-foreground-bright);
+      border-left-color: var(--vsc-accent-blue);
+    }
+    .fd-item--selected:hover {
+      background: var(--vsc-list-active-background);
+    }
 
     /* ── Checkbox ────────────────────────────────────────── */
     .fd-checkbox {
@@ -274,9 +272,9 @@ import { FilterPreset, FilterGroup, GROUP_ORDER, GROUP_MODES } from './filter-ba
       justify-content: center;
       width: 14px;
       height: 14px;
-      border: 1px solid var(--vsc-border-bright);
+      border: 1px solid var(--vsc-checkbox-border);
       border-radius: var(--vsc-border-radius-sm);
-      background: var(--vsc-input-background);
+      background: var(--vsc-checkbox-background);
       transition: background var(--vsc-transition-fast), border-color var(--vsc-transition-fast);
     }
     .fd-checkbox--on {
@@ -284,8 +282,21 @@ import { FilterPreset, FilterGroup, GROUP_ORDER, GROUP_MODES } from './filter-ba
       border-color: var(--vsc-accent-blue);
     }
 
-    .fd-item-icon  { font-size: 15px; flex-shrink: 0; width: 18px; text-align: center; line-height: 1; }
-    .fd-item-label { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .fd-item-icon  { 
+      font-size: 15px; 
+      flex-shrink: 0; 
+      width: 18px; 
+      text-align: center; 
+      line-height: 1; 
+      opacity: 0.9;
+    }
+
+    .fd-item-label { 
+      flex: 1; 
+      white-space: nowrap; 
+      overflow: hidden; 
+      text-overflow: ellipsis; 
+    }
 
     .fd-item-count {
       flex-shrink: 0;
@@ -306,67 +317,6 @@ import { FilterPreset, FilterGroup, GROUP_ORDER, GROUP_MODES } from './filter-ba
       color: var(--vsc-foreground-dim);
       font-size: var(--vsc-font-size-small);
     }
-
-    /* ── Footer ──────────────────────────────────────────── */
-    .fd-footer {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      height: 32px;
-      padding: 0 var(--vsc-padding-sm);
-      border-top: 1px solid var(--vsc-border-subtle);
-      flex-shrink: 0;
-      gap: var(--vsc-padding-sm);
-    }
-
-    .fd-refresh {
-      display: inline-flex;
-      align-items: center;
-      gap: var(--vsc-padding-xs);
-      height: 22px;
-      padding: 0 var(--vsc-padding-sm);
-      border: 1px solid var(--vsc-border);
-      border-radius: var(--vsc-border-radius-sm);
-      background: transparent;
-      color: var(--vsc-foreground-dim);
-      font-size: var(--vsc-font-size-small);
-      font-family: var(--vsc-font-family);
-      cursor: pointer;
-      transition: background var(--vsc-transition-fast), color var(--vsc-transition-fast);
-    }
-    .fd-refresh:hover {
-      background: var(--vsc-list-hover-background);
-      color: var(--vsc-foreground);
-    }
-
-    .fd-hints {
-      display: flex;
-      align-items: center;
-      gap: var(--vsc-padding-xs);
-      margin-left: auto;
-      font-size: 11px;
-      color: var(--vsc-foreground-dim);
-    }
-    .fd-hints kbd {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      height: 20px;
-      padding: 0 var(--vsc-padding-sm);
-      background: var(--vsc-input-background);
-      border: 1px solid var(--vsc-border);
-      border-bottom-width: 2px;
-      border-radius: var(--vsc-border-radius-sm);
-      font-size: 10px;
-      font-family: var(--vsc-font-family-mono);
-      color: var(--vsc-foreground);
-      font-weight: 600;
-    }
-    .fd-hint-label {
-      margin-right: var(--vsc-padding-sm);
-      font-size: 11px;
-    }
-    .fd-hint-label:last-child { margin-right: 0; }
   `],
 })
 export class FilterDropdownComponent implements OnChanges, OnInit {
@@ -411,7 +361,7 @@ export class FilterDropdownComponent implements OnChanges, OnInit {
   }
 
   getGroupMode(group: string): 'AND' | 'OR' {
-    return this.groupModes.get(group) ?? 'OR'; // Default to OR if not specified
+    return this.groupModes.get(group) ?? 'OR';
   }
 
   onItemClick(preset: FilterPreset, event: MouseEvent): void {
@@ -435,27 +385,23 @@ export class FilterDropdownComponent implements OnChanges, OnInit {
   private buildGroups(): void {
     const map = new Map<string, FilterPreset[]>();
     
-    // Group presets by their group
     for (const p of this.presets) {
       const g = p.group || 'Other';
       if (!map.has(g)) map.set(g, []);
       map.get(g)!.push(p);
     }
 
-    // Sort groups: OR groups first (Basic, Extensions, Special, Other), then AND groups (Date, Size)
     this.groups = Array.from(map.entries())
       .sort((a, b) => {
         const groupA = a[0];
         const groupB = b[0];
         
-        // OR groups have priority (lower index)
         const aIsOr = this.orGroups.has(groupA);
         const bIsOr = this.orGroups.has(groupB);
         
         if (aIsOr && !bIsOr) return -1;
         if (!aIsOr && bIsOr) return 1;
         
-        // Both are OR or both are AND, use GROUP_ORDER
         const ia = GROUP_ORDER.indexOf(groupA);
         const ib = GROUP_ORDER.indexOf(groupB);
         return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
@@ -470,11 +416,9 @@ export class FilterDropdownComponent implements OnChanges, OnInit {
 
   private sortPresetsByCount(presets: FilterPreset[]): FilterPreset[] {
     return [...presets].sort((a, b) => {
-      // Sort by count descending (higher counts first)
       const countA = a.count ?? 0;
       const countB = b.count ?? 0;
       if (countA !== countB) return countB - countA;
-      // Then alphabetically
       return a.name.localeCompare(b.name);
     });
   }

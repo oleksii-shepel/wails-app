@@ -145,34 +145,47 @@ import {
   <div class="fb-chips" *ngIf="selectedPresets.length > 0 || searchText">
     <div class="fb-chips-scroll">
 
-      <!-- OR badge: any OR group has >1 active preset -->
-      <span
-        *ngIf="hasMultiItemOrGroups"
-        class="fb-mode-badge fb-mode-badge--or"
-        title="Filters in OR groups are combined with OR — any can match"
-      >OR</span>
+  <!-- OR chips -->
+  <ng-container *ngIf="orPresets.length > 0">
 
-      <!-- AND badge: only when OR list is non-empty AND >1 AND-group preset active -->
-      <span
-        *ngIf="hasMultiItemAndGroups"
-        class="fb-mode-badge fb-mode-badge--and"
-        title="Filters in AND groups (Date, Size) must all match"
-      >AND</span>
+    <!-- OR badge (only if >1 OR item) -->
+    <span
+      *ngIf="orPresets.length > 1"
+      class="fb-mode-badge fb-mode-badge--or"
+      title="Any of these filters may match"
+    >OR</span>
 
-      <!-- Preset chips via FilterChipComponent -->
-      <app-filter-chip
-        *ngFor="let p of selectedPresets"
-        [preset]="p"
-        (remove)="onPresetToggle($event)"
-      />
+    <app-filter-chip
+      *ngFor="let p of orPresets"
+      [preset]="p"
+      (remove)="onPresetToggle($event)"
+    />
+  </ng-container>
 
-      <!-- Search chip (inline — no preset object to pass) -->
-      <div *ngIf="searchText" class="fb-chip fb-chip--search" (click)="clearSearch()" title="Clear search">
-        <span class="fb-chip-label">"{{ searchText }}"</span>
-        <button class="fb-chip-close" (click)="$event.stopPropagation(); clearSearch()">×</button>
-      </div>
+  <!-- AND chips -->
+  <ng-container *ngIf="andPresets.length > 0">
 
-    </div>
+    <!-- AND badge (only if OR exists + ≥1 AND) -->
+    <span
+      *ngIf="orPresets.length > 0"
+      class="fb-mode-badge fb-mode-badge--and"
+      title="All of these filters must match"
+    >AND</span>
+
+    <app-filter-chip
+      *ngFor="let p of andPresets"
+      [preset]="p"
+      (remove)="onPresetToggle($event)"
+    />
+  </ng-container>
+
+  <!-- Search chip -->
+  <div *ngIf="searchText" class="fb-chip fb-chip--search" (click)="clearSearch()">
+    <span class="fb-chip-label">"{{ searchText }}"</span>
+    <button class="fb-chip-close" (click)="$event.stopPropagation(); clearSearch()">×</button>
+  </div>
+
+</div>
   </div>
 
 </div>
@@ -334,7 +347,7 @@ import {
     /* ── AND/OR mode badges ───────────────────────────────────────── */
     .fb-mode-badge {
       display: inline-flex; align-items: center; justify-content: center;
-      height: 16px; padding: 0 5px; border-radius: 3px;
+      height: 16px; padding: 0 5px; border-radius: 3px; margin: 0 5px;
       font-size: 9px; font-weight: 700;
       font-family: var(--vsc-font-family-mono);
       min-width: 28px; flex-shrink: 0;
@@ -423,9 +436,9 @@ export class FilterBarComponent implements OnInit, OnDestroy, OnChanges {
   private search$    = new Subject<string>();
 
   // Groups that combine with OR (any one match is enough)
-  private readonly orGroups  = new Set(['Basic', 'Type', 'Extensions', 'Special', 'Other']);
+  private readonly orGroups  = new Set(['Basic', 'Extensions', 'Other']);
   // Groups that combine with AND (all must match)
-  private readonly andGroups = new Set(['Date', 'Size']);
+  private readonly andGroups = new Set(['Date', 'Size', 'Special']);
 
   // ── Computed ──────────────────────────────────────────────────────────────
 
@@ -442,22 +455,16 @@ export class FilterBarComponent implements OnInit, OnDestroy, OnChanges {
     return counts;
   }
 
-  get hasMultiItemOrGroups(): boolean {
-    const counts = this.getGroupCounts();
-    for (const g of this.orGroups) {
-      if ((counts.get(g) || 0) > 1) return true;
-    }
-    return false;
+  get orPresets(): FilterPreset[] {
+    return this.selectedPresets.filter(p =>
+      this.orGroups.has(p.group || 'Other')
+    );
   }
 
-  get hasMultiItemAndGroups(): boolean {
-    const counts   = this.getGroupCounts();
-    const hasOrItems = [...this.orGroups].some(g => (counts.get(g) || 0) > 0);
-    if (!hasOrItems) return false;
-    for (const g of this.andGroups) {
-      if ((counts.get(g) || 0) > 1) return true;
-    }
-    return false;
+  get andPresets(): FilterPreset[] {
+    return this.selectedPresets.filter(p =>
+      this.andGroups.has(p.group || 'Other')
+    );
   }
 
   // ── Constructor ───────────────────────────────────────────────────────────

@@ -661,6 +661,6 @@ export class FilePaneComponent implements OnInit, OnChanges {
   focusAddressBar(): void { this.addressBar?.enterEditMode(); }
   focusFind():       void { this.findWidget?.open(); }
 
-  focusFilter(): void { }
-  onClearFilter(): void { }
+  focusFilter(): void { this.findWidget?.toggle(); }
+  onClearFilter(): void { this.findWidget?.close(); }
 }

@@ -404,7 +404,6 @@ template: `
         
         /* NESTED ARCHIVE - archive inside another archive */
         &.ab-seg--archive-inner {
-          border-left: 3px solid rgba(255, 140, 0, 0.6);
           background: color-mix(in srgb, var(--vsc-accent-orange) 24%, transparent);
           
           &:hover { background: color-mix(in srgb, var(--vsc-accent-orange) 40%, transparent); }
@@ -700,48 +699,28 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
 
   private rebuildSegments(): void {
     const { fsDirPath, archiveInnerParts } = parsePathWithArchives(this.currentPath);
-    
-    if (archiveInnerParts.length > 0) {
-      this.segments = buildSegmentsFromParsedPath(fsDirPath, archiveInnerParts);
-      
-      // Mark all archive files in the path as archive roots
-      // The buildSegmentsFromParsedPath already marks the first archive correctly,
-      // but we need to mark any additional archives in the inner path
-      
-      // Track which parts are actual archive files
-      let accumulatedPath = fsDirPath;
-      for (let i = 0; i < archiveInnerParts.length; i++) {
-        const part = archiveInnerParts[i];
-        accumulatedPath += '/' + part;
-        
-        // Find the segment that corresponds to this archive file
-        const segmentIndex = this.segments.findIndex(s => s.fullPath === accumulatedPath);
-        if (segmentIndex >= 0 && isArchive(part)) {
-          // Mark this segment as an archive root
-          this.segments[segmentIndex] = {
-            ...this.segments[segmentIndex],
-            isArchiveRoot: true
-          };
-          
-          // The next segment (if any) should be marked as archive inner
-          if (i < archiveInnerParts.length - 1 && segmentIndex + 1 < this.segments.length) {
-            this.segments[segmentIndex + 1] = {
-              ...this.segments[segmentIndex + 1],
-              isArchiveInner: true
-            };
-          }
-        }
-      }
-    } else {
-      this.segments = buildSegments(this.currentPath);
-      
-      // If the path itself ends at an archive file, mark the last segment as archive root
-      if (isArchive(this.currentPath.split('/').pop() ?? '') && this.segments.length > 0) {
-        const last = this.segments[this.segments.length - 1];
-        this.segments[this.segments.length - 1] = { ...last, isArchiveRoot: true };
-      }
+
+    // Build base segments normally
+    this.segments = archiveInnerParts.length > 0
+      ? buildSegmentsFromParsedPath(fsDirPath, archiveInnerParts)
+      : buildSegments(this.currentPath);
+
+    let insideArchive = false;
+
+    for (let i = 0; i < this.segments.length; i++) {
+      const seg = this.segments[i];
+      const isRealArchive = isArchive(seg.label);
+
+      this.segments[i] = {
+        ...seg,
+        isArchiveRoot: isRealArchive,
+        isArchiveInner: insideArchive
+      };
+
+      // once we hit an archive file, everything after it is inside archive
+      if (isRealArchive) insideArchive = true;
     }
-    
+
     this.shouldScrollRight = true;
   }
 

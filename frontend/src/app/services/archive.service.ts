@@ -45,7 +45,10 @@ export function buildArchiveDisplayPath(
   if (stack.length === 0) return rootFsPath;
 
   const frame = stack[stack.length - 1];
-  const parts = [rootFsPath, ...frame.nestedChain];
+  
+  // Always include the archive file name itself from the first frame's fsPath
+  const archiveFsPath = stack[0].fsPath.replace(/\\/g, '/');
+  const parts = [archiveFsPath, ...frame.nestedChain];
 
   if (frame.innerPath)
     parts.push(frame.innerPath);

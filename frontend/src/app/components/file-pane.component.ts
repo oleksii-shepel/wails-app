@@ -461,10 +461,11 @@ export class FilePaneComponent implements OnInit, OnChanges {
   async openRootArchive(fsPath: string): Promise<void> {
     this.loading = true;
     this.error   = null;
+    const exitPath = this.currentPath;  // ← capture parent dir before entering archive
     try {
       const frame       = await this.archiveService.openRootArchive(fsPath);
       this.archiveStack = [frame];
-      this.fsParentDir  = this.archiveStack[0]?.fsPath ?? this.currentPath;
+      this.fsParentDir  = exitPath;     // ← use captured value
       this.renderArchiveFrame(frame);
     } catch (err: any) {
       this.error = err.message || 'Failed to open archive';
@@ -506,7 +507,7 @@ export class FilePaneComponent implements OnInit, OnChanges {
   async navigateArchiveUp(): Promise<void> {
     const currentFrame = this.archiveStack[this.archiveStack.length - 1];
     this.loading = true;
-    this.error   = null;
+    this.error = null;
     try {
       const parentFrame = await this.archiveService.navigateUp(currentFrame);
       if (parentFrame !== null) {
@@ -517,10 +518,12 @@ export class FilePaneComponent implements OnInit, OnChanges {
 
       const poppedStack = this.archiveStack.slice(0, -1);
       if (poppedStack.length === 0) {
-        this.archiveStack = [];
-        await this.loadDirectory(this.fsParentDir || this.currentPath);
+        const exitPath = this.fsParentDir || this.currentPath;  // capture before clear
+        this.clearArchiveState();                                 // now zero both fields
+        await this.loadDirectory(exitPath);
         return;
       }
+      
       this.archiveStack = poppedStack;
       this.renderArchiveFrame(poppedStack[poppedStack.length - 1]);
     } catch (err: any) {

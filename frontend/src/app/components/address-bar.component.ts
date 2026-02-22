@@ -80,91 +80,85 @@ import { AddressBarSiblingDropdownComponent } from './address-bar-sibling-dropdo
          • double-click anywhere (including on segments) → edit mode
          • user-select:none on .ab-bar prevents text-selection flicker on click
     -->
-    <div
-      class="ab-crumbs"
-      (click)="onCrumbsClick($event)"
-      title="Double-click or Alt+D / Ctrl+L to edit path"
-    >
+    <div class="ab-crumbs">
+      <!-- Drive letter stays fixed, outside the scroll -->
+      <ng-container *ngIf="isWin && segments.length > 0">
+        <span
+          class="ab-seg ab-drive-letter"
+          [class.ab-seg--last]="segments.length === 1"
+          (click)="onDriveLetterClick(segments[0], segments.length === 1, $event)"
+          (contextmenu)="onSegRightClick(segments[0], 0, $event)"
+          title="Switch drives (single-click) or double-click to edit path"
+        >{{ segments[0].label }}</span>
+
+        <div class="ab-drive-chevron-wrap" *ngIf="segments.length > 1">
+          <button
+            class="ab-chev ab-drive-chevron"
+            [class.ab-chev--open]="chevIdx === 0"
+            (click)="toggleChev(0, segments[0], $event)"
+            [title]="'Show contents of ' + segments[0].fullPath"
+            aria-label="Show drive contents"
+          >›</button>
+        </div>
+      </ng-container>
+
+      <!-- Everything else scrolls -->
       <div class="ab-crumbs-inner" #crumbsEl>
         <ng-container *ngFor="let seg of segments; let i = index; let last = last">
+          <!-- skip index 0 on Windows (drive letter rendered above) -->
+          <ng-container *ngIf="!isWin || i > 0">
 
-          <!-- Archive inner folder -->
-          <span
-            *ngIf="seg.isArchiveInner && !seg.isArchiveRoot"
-            class="ab-seg ab-seg--archive-inner"
-            [class.ab-seg--last]="last"
-            [class.ab-seg--clickable]="!last"
-            [title]="seg.fullPath || seg.label"
-            (click)="onArchiveInnerSegClick(seg, last, $event)"
-          >{{ seg.label }}</span>
+            <!-- Archive inner folder -->
+            <span
+              *ngIf="seg.isArchiveInner && !seg.isArchiveRoot"
+              class="ab-seg ab-seg--archive-inner"
+              [class.ab-seg--last]="last"
+              [class.ab-seg--clickable]="!last"
+              [title]="seg.fullPath || seg.label"
+              (click)="onArchiveInnerSegClick(seg, last, $event)"
+            >{{ seg.label }}</span>
 
-          <!-- Archive root (the .zip file itself) -->
-          <span
-            *ngIf="seg.isArchiveRoot"
-            class="ab-seg ab-seg--archive-root"
-            [class.ab-seg--clickable]="!last"
-            (click)="onArchiveRootSegClick(seg, last, $event)"
-            [title]="seg.fullPath || seg.label"
-          >
-            {{ seg.label }}
-          </span>
+            <!-- Archive root -->
+            <span
+              *ngIf="seg.isArchiveRoot"
+              class="ab-seg ab-seg--archive-root"
+              [class.ab-seg--clickable]="!last"
+              (click)="onArchiveRootSegClick(seg, last, $event)"
+              [title]="seg.fullPath || seg.label"
+            >{{ seg.label }}</span>
 
-          <!-- Chevron after archive segment -->
-          <div class="ab-chev-wrap" *ngIf="!last && (seg.isArchiveInner || seg.isArchiveRoot)">
-            <button
-              class="ab-chev ab-chev--archive"
-              [class.ab-chev--open]="chevIdx === i"
-              (click)="onArchiveChevClick(i, seg, $event)"
-              aria-label="Browse archive"
-            >›</button>
-          </div>
+            <!-- Chevron after archive segment -->
+            <div class="ab-chev-wrap" *ngIf="!last && (seg.isArchiveInner || seg.isArchiveRoot)">
+              <button
+                class="ab-chev ab-chev--archive"
+                [class.ab-chev--open]="chevIdx === i"
+                (click)="onArchiveChevClick(i, seg, $event)"
+                aria-label="Browse archive"
+              >›</button>
+            </div>
 
-          <!-- Drive letter (Windows) -->
-          <span
-            *ngIf="seg.isRoot && isWin && !seg.isArchiveInner && !seg.isArchiveRoot"
-            class="ab-seg ab-drive-letter"
-            [class.ab-seg--last]="last"
-            (click)="onDriveLetterClick(seg, last, $event)"
-            (contextmenu)="onSegRightClick(seg, i, $event)"
-            title="Switch drives (single-click) or double-click to edit path"
-          >{{ seg.label }}</span>
+            <!-- Regular FS segment (non-Windows-root) -->
+            <span
+              *ngIf="(!seg.isRoot || !isWin) && !seg.isArchiveInner && !seg.isArchiveRoot"
+              class="ab-seg"
+              [class.ab-seg--root]="seg.isRoot"
+              [class.ab-seg--last]="last"
+              (click)="onSegClick(seg, $event)"
+              (contextmenu)="onSegRightClick(seg, i, $event)"
+              [title]="last ? 'Click to edit path' : seg.fullPath"
+            >{{ seg.label }}</span>
 
-          <!-- Chevron after drive letter -->
-          <div class="ab-drive-chevron-wrap" *ngIf="seg.isRoot && isWin && !last && !seg.isArchiveInner && !seg.isArchiveRoot">
-            <button
-              class="ab-chev ab-drive-chevron"
-              [class.ab-chev--open]="chevIdx === i"
-              (click)="toggleChev(i, seg, $event)"
-              [title]="'Show contents of ' + seg.fullPath"
-              aria-label="Show drive contents"
-            >›</button>
-          </div>
+            <!-- Regular chevron -->
+            <div class="ab-chev-wrap" *ngIf="!last && !(seg.isRoot && isWin) && !seg.isArchiveInner && !seg.isArchiveRoot">
+              <button
+                class="ab-chev"
+                [class.ab-chev--open]="chevIdx === i"
+                (click)="toggleChev(i, seg, $event)"
+                aria-label="Browse siblings"
+              >›</button>
+            </div>
 
-          <!-- Regular FS segment
-               • non-last: single-click navigates, Ctrl+click opens in other pane
-               • last:     single-click enters edit mode (no navigation target)
-               • dblclick bubbles to onCrumbsDblClick — do NOT stopPropagation on last
-          -->
-          <span
-            *ngIf="(!seg.isRoot || !isWin) && !seg.isArchiveInner && !seg.isArchiveRoot"
-            class="ab-seg"
-            [class.ab-seg--root]="seg.isRoot"
-            [class.ab-seg--last]="last"
-            (click)="onSegClick(seg, $event)"
-            (contextmenu)="onSegRightClick(seg, i, $event)"
-            [title]="last ? 'Click to edit path' : seg.fullPath"
-          >{{ seg.label }}</span>
-
-          <!-- Regular chevron between FS segments -->
-          <div class="ab-chev-wrap" *ngIf="!last && !(seg.isRoot && isWin) && !seg.isArchiveInner && !seg.isArchiveRoot">
-            <button
-              class="ab-chev"
-              [class.ab-chev--open]="chevIdx === i"
-              (click)="toggleChev(i, seg, $event)"
-              aria-label="Browse siblings"
-            >›</button>
-          </div>
-
+          </ng-container>
         </ng-container>
       </div>
     </div>
@@ -349,27 +343,34 @@ import { AddressBarSiblingDropdownComponent } from './address-bar-sibling-dropdo
     .ab-drop-anchor { position: relative; }
 
     .ab-crumbs {
-      flex: 1;           /* Occupy available width */
-      min-width: 0;      /* Required for flex children to shrink/truncate */
-      overflow: hidden;  /* Contain the scrolling inner div */
+      flex: 1;
+      min-width: 0;
       display: flex;
       align-items: center;
+      overflow: hidden;
     }
 
     .ab-crumbs-inner {
-      width: 100%;
-      flex: 1;
-      min-width: max-content;
+      flex: 1 1 0%;
+      min-width: 0;
+      width: 0;          /* ← forces flex to allocate all remaining space */
       display: flex;
       align-items: center;
       height: 100%;
       overflow-x: auto;
       overflow-y: hidden;
-      gap: 0;
       scroll-behavior: smooth;
       scrollbar-width: none;
       -ms-overflow-style: none;
-      cursor: text;
+      &::-webkit-scrollbar { display: none; }
+
+      /* prevent children from shrinking — they should overflow into scroll instead */
+      > * { flex-shrink: 0; }
+    }
+
+    /* drive letter stays fixed width, never scrolls */
+    .ab-drive-letter {
+      flex-shrink: 0;
     }
 
     .ab-seg {
@@ -563,6 +564,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   private editChange$ = new Subject<string>();
   private blurTimer: any;
   private copiedTimer: any;
+  private shouldScrollRight = false;
 
   constructor(
     private pathHistoryService: PathHistoryService,
@@ -586,6 +588,14 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
 
     // Handle editMode outside-click (DropdownService handles dropdown clicks)
     document.addEventListener('mousedown', this.onEditModeOutsideClick, { capture: true });
+  }
+
+  ngAfterViewChecked(): void {
+    if (this.shouldScrollRight && this.crumbsEl) {
+      const el = this.crumbsEl.nativeElement;
+      el.scrollLeft = el.scrollWidth;
+      this.shouldScrollRight = false;
+    }
   }
 
   private onEditModeOutsideClick = (e: MouseEvent): void => {
@@ -639,22 +649,14 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
 
   private rebuildSegments(): void {
     if (this.archiveStack.length > 0 && this.fsDirPath) {
-      // Parent-provided archive context — use existing rich builder
       this.segments = buildArchiveSegments(this.fsDirPath, this.archiveStack);
     } else {
-      // Self-parse: detect archive boundaries in the raw path string
       const { fsDirPath, archiveInnerParts } = parsePathWithArchives(this.currentPath);
       this.segments = archiveInnerParts.length > 0
         ? buildSegmentsFromParsedPath(fsDirPath, archiveInnerParts)
         : buildSegments(this.currentPath);
     }
-
-    setTimeout(() => {
-      if (this.crumbsEl) {
-        const el = this.crumbsEl.nativeElement;
-        el.scrollLeft = el.scrollWidth;
-      }
-    }, 0);
+    this.shouldScrollRight = true;
   }
 
   // ── Click handlers ───────────────────────────────────────────────────

@@ -99,9 +99,10 @@ export function buildArchiveSegments(fsDirPath: string, stack: ArchiveFrame[]): 
   const fsDepth = buildSegments(fsDirPath).length;
 
   allSegs.forEach((seg, i) => {
-    if (i === fsDepth - 1) {
+    if (i === fsDepth) {
+      // This is the archive file segment itself
       seg.isArchiveRoot = true;
-    } else if (i >= fsDepth) {
+    } else if (i > fsDepth) {
       const label = seg.label.toLowerCase();
       if (label.endsWith('.zip') || label.endsWith('.tar') || label.endsWith('.tgz') ||
           label.endsWith('.tar.gz') || label.endsWith('.tar.bz2') || label.endsWith('.tar.xz')) {
@@ -111,6 +112,7 @@ export function buildArchiveSegments(fsDirPath: string, stack: ArchiveFrame[]): 
         seg.isArchiveInner = true;
       }
     }
+    // i < fsDepth → plain FS segment, no archive flags
   });
 
   return allSegs;

@@ -2,7 +2,7 @@ import { Component, Input, Output, EventEmitter, OnInit, OnChanges, ViewChild } 
 import { CommonModule } from '@angular/common';
 import { TabBarComponent } from './tab-bar.component';
 import { AddressBarComponent } from './address-bar.component';
-import { FilterBarComponent } from './filter-bar.component';
+import { FindWidgetComponent, FindWidgetState } from './find-widget.component';
 import { ActionBarComponent } from './action-bar.component';
 import { FileListComponent } from './file-list.component';
 import { FileInfo, FileType } from '../shared/protocol';
@@ -24,9 +24,9 @@ declare const window: any;
     CommonModule,
     TabBarComponent,
     AddressBarComponent,
-    FilterBarComponent,
+    FindWidgetComponent,
     ActionBarComponent,
-    FileListComponent
+    FileListComponent,
   ],
   template: `
     <div class="file-pane" [class.file-pane--archive]="isInArchive()">
@@ -45,18 +45,11 @@ declare const window: any;
         [initialPath]="currentPath"
         [paneId]="paneId"
         [archiveStack]="archiveStack"
-        [fsDirPath]="fsDirPath"
         (pathChange)="onPathChange($event)"
         (navigateUpClicked)="onNavigateUp()"
         (refreshClicked)="onRefresh()"
         (archiveSegmentClick)="onArchiveSegmentClick($event)">
       </app-address-bar>
-
-      <app-filter-bar
-        [dataset]="entries"
-        (filterChange)="onFilterChange($event)"
-        (clear)="onClearFilter()">
-      </app-filter-bar>
 
       <app-action-bar
         [selectedCount]="selectedFiles.size"
@@ -67,14 +60,24 @@ declare const window: any;
         (moveToOther)="onMoveToOther()">
       </app-action-bar>
 
-      <app-file-list
-        [entries]="filteredEntries"
-        [selectedFiles]="selectedFiles"
-        [loading]="loading"
-        [error]="error"
-        (selectionChange)="onSelectionChange($event)"
-        (navigate)="onNavigate($event)">
-      </app-file-list>
+      <!-- File list + find widget overlay share the same relative container -->
+      <div class="file-pane__list-host">
+        <app-find-widget
+          #findWidget
+          (stateChange)="onFindStateChange($event)"
+          (nextMatch)="onFindNext()"
+          (prevMatch)="onFindPrev()">
+        </app-find-widget>
+
+        <app-file-list
+          [entries]="filteredEntries"
+          [selectedFiles]="selectedFiles"
+          [loading]="loading"
+          [error]="error"
+          (selectionChange)="onSelectionChange($event)"
+          (navigate)="onNavigate($event)">
+        </app-file-list>
+      </div>
     </div>
   `,
   styles: [`
@@ -108,11 +111,18 @@ declare const window: any;
       flex-shrink: 0;
     }
 
-    app-filter-bar {
-      display: block;
-      flex-shrink: 0;
+    /* The list host is the anchor for the find widget overlay */
+    .file-pane__list-host {
       position: relative;
-      z-index: 100;
+      display: flex;
+      flex-direction: column;
+      flex: 1 1 0%;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    app-find-widget {
+      /* find-widget positions itself absolute inside .file-pane__list-host */
     }
 
     app-file-list {
@@ -126,35 +136,30 @@ declare const window: any;
 })
 export class FilePaneComponent implements OnInit, OnChanges {
   @ViewChild(AddressBarComponent) addressBar?: AddressBarComponent;
-  
+  @ViewChild('findWidget')        findWidget?: FindWidgetComponent;
+
   @Input() paneId: 'left' | 'right' = 'left';
   @Input() workspace: WorkspaceConfig | null = null;
   @Input() showHidden = false;
 
-  @Output() pathChange = new EventEmitter<string>();
-  @Output() copyToOther = new EventEmitter<string[]>();
-  @Output() moveToOther = new EventEmitter<string[]>();
+  @Output() pathChange   = new EventEmitter<string>();
+  @Output() copyToOther  = new EventEmitter<string[]>();
+  @Output() moveToOther  = new EventEmitter<string[]>();
 
-  currentPath = '';
-  /** Full path to the archive file currently open (e.g. C:/Desktop.zip). Used by address bar. */
-  fsDirPath = '';
-  /** The real FS directory containing the archive — restored when exiting. */
+  currentPath   = '';
   private fsParentDir = '';
-  currentTabId = '';
-  pathReady = false;
+  currentTabId  = '';
+  pathReady     = false;
   tabs: TabInfo[] = [];
   entries: FileInfo[] = [];
   filteredEntries: FileInfo[] = [];
   selectedFiles: Set<string> = new Set();
   loading = false;
   error: string | null = null;
-  filterText = '';
   filterQuery: FilterQuery = { text: '', criteria: [] };
 
   archiveStack: ArchiveFrame[] = [];
 
-  /** Per-tab address store. Each tab remembers its own current path
-   *  independently so switching tabs restores the correct address. */
   private tabPaths = new Map<string, string>();
 
   FileType = FileType;
@@ -164,40 +169,38 @@ export class FilePaneComponent implements OnInit, OnChanges {
     private workspaceService: WorkspaceService,
     private filterService: FilterService,
     private pathHistoryService: PathHistoryService,
-    private archiveService: ArchiveService
+    private archiveService: ArchiveService,
   ) {}
 
-  ngOnInit(): void { this.loadPaneState(); }
+  ngOnInit(): void  { this.loadPaneState(); }
   ngOnChanges(): void { if (this.workspace) this.loadPaneState(); }
 
   get entriesForAnalysis(): FileInfo[] {
     return this.entries.filter(e => e.path !== '__archive_parent__');
   }
 
+  // ── Pane state ────────────────────────────────────────────────────────────
+
   private async loadPaneState(): Promise<void> {
     if (!this.workspace) return;
     this.tabs = this.workspaceService.getTabs(this.paneId);
-    const activeTab = this.workspaceService.getActiveTab(this.paneId);
-    const savedPath = activeTab?.path ?? '';
+    const activeTab  = this.workspaceService.getActiveTab(this.paneId);
+    const savedPath  = activeTab?.path ?? '';
 
-    const allPaths = this.workspaceService.getAllTabPaths();
+    const allPaths   = this.workspaceService.getAllTabPaths();
     const windowsRoot = allPaths.find(p => /^[A-Za-z]:[/\\]/.test(p));
     const platformRoot = windowsRoot
       ? windowsRoot.replace(/\\/g, '/').replace(/^([A-Za-z]:).*$/, '$1/')
       : '/';
 
-    const isWindows = platformRoot !== '/';
+    const isWindows   = platformRoot !== '/';
     const pathIsStale = !savedPath || (isWindows && savedPath === '/');
-    const pathToLoad = pathIsStale ? platformRoot : savedPath;
+    const pathToLoad  = pathIsStale ? platformRoot : savedPath;
 
     this.currentPath = pathToLoad;
-    this.pathReady = true;
+    this.pathReady   = true;
+    if (activeTab) this.currentTabId = activeTab.id;
 
-    if (activeTab) {
-      this.currentTabId = activeTab.id;
-    }
-
-    // Clear any existing archive state before loading
     this.clearArchiveState();
 
     if (this.archiveService.isArchiveVirtualPath(pathToLoad)) {
@@ -209,23 +212,19 @@ export class FilePaneComponent implements OnInit, OnChanges {
 
   private clearArchiveState(): void {
     this.archiveStack = [];
-    this.fsDirPath = '';
-    this.fsParentDir = '';
+    this.fsParentDir  = '';
   }
 
   private async loadDirectory(path: string): Promise<void> {
-    // Force exit archive mode and clear all archive-related state
     this.exitArchive();
     this.clearArchiveState();
-    
     this.loading = true;
-    this.error = null;
+    this.error   = null;
     try {
-      const listing = await this.apiService.listDirectory(path, this.showHidden);
-      this.currentPath = listing.path;
-      this.fsDirPath = listing.path;
-      this.fsParentDir = listing.path;
-      this.entries = listing.entries;
+      const listing       = await this.apiService.listDirectory(path, this.showHidden);
+      this.currentPath    = listing.path;
+      this.fsParentDir    = listing.path;
+      this.entries        = listing.entries;
       this.selectedFiles.clear();
       this.applyFilter();
       this.tabPaths.set(this.currentTabId, listing.path);
@@ -237,7 +236,7 @@ export class FilePaneComponent implements OnInit, OnChanges {
         if (window.go?.main?.App?.SetPaneDirectory) {
           await window.go.main.App.SetPaneDirectory(this.paneId, listing.path);
         }
-      } catch { /* optional — ignore */ }
+      } catch { /* optional */ }
     } catch (error: any) {
       this.error = error.message || 'Failed to load directory';
     } finally {
@@ -248,18 +247,13 @@ export class FilePaneComponent implements OnInit, OnChanges {
   // ── Tab management ────────────────────────────────────────────────────────
 
   async onTabChange(tab: TabInfo): Promise<void> {
-    // Save the current tab's state before switching
     if (this.currentTabId && this.currentPath) {
       if (this.isInArchive()) {
-        // For archive tabs, save the full archive state
         this.workspaceService.saveArchiveState(this.paneId, this.currentTabId, {
-          path: this.currentPath,
-          archiveStack: this.archiveStack,
-          fsDirPath: this.fsDirPath,
-          fsParentDir: this.fsParentDir
+          path: this.currentPath, archiveStack: this.archiveStack,
+          fsDirPath: this.archiveStack[0]?.fsPath ?? '', fsParentDir: this.fsParentDir,
         });
       } else {
-        // For regular tabs, just save the path
         this.tabPaths.set(this.currentTabId, this.currentPath);
         this.workspaceService.updateTabPath(this.paneId, this.currentTabId, this.currentPath);
       }
@@ -267,82 +261,57 @@ export class FilePaneComponent implements OnInit, OnChanges {
 
     this.workspaceService.switchTab(this.paneId, tab.id);
     this.currentTabId = tab.id;
-
-    // CRITICAL: Always clear current archive state first
     this.clearArchiveState();
 
-    // Try to restore archive state first
     const archiveState = this.workspaceService.getArchiveState(this.paneId, tab.id);
     if (archiveState) {
-      // This is an archive tab - restore its state
-      this.currentPath = archiveState.path;
+      this.currentPath  = archiveState.path;
       this.archiveStack = archiveState.archiveStack;
-      this.fsDirPath = archiveState.fsDirPath;
-      this.fsParentDir = archiveState.fsParentDir;
-      
-      // Render the archive
+      this.fsParentDir  = archiveState.fsParentDir;
       if (this.archiveStack.length > 0) {
         this.renderArchiveFrame(this.archiveStack[this.archiveStack.length - 1]);
       }
       return;
     }
 
-    // If no archive state, try regular path
     const restoredPath = this.tabPaths.get(tab.id) ?? tab.path;
     this.currentPath = restoredPath;
 
-    // Check if this path is a virtual archive path
     if (this.archiveService.isArchiveVirtualPath(restoredPath)) {
-      // This is an archive path but no state exists - restore from path
       await this.restoreArchiveFromPath(restoredPath);
       return;
     }
 
-    // This is a regular filesystem tab
     await this.loadDirectory(restoredPath);
   }
 
   private async restoreArchiveFromPath(path: string): Promise<void> {
     this.loading = true;
-    this.error = null;
-
+    this.error   = null;
     try {
       const { fsPath, chain } = this.archiveService.parseVirtualPath(path);
-
-      // open root archive
       let frame = await this.archiveService.openRootArchive(fsPath);
       const stack: ArchiveFrame[] = [frame];
-
-      // walk nested chain
-      let currentFrame = frame;
       for (const part of chain) {
-        currentFrame = await this.archiveService.openNestedArchive(currentFrame, [part]);
-        stack.push(currentFrame);
+        frame = await this.archiveService.openNestedArchive(frame, [part]);
+        stack.push(frame);
       }
-
       this.archiveStack = stack;
-      this.fsDirPath = fsPath;
-      
-      // Render the last frame in the stack
       this.renderArchiveFrame(stack[stack.length - 1]);
 
-      // Also update the tab path to ensure it matches
-      const virtualPath = buildArchiveDisplayPath(this.fsDirPath, this.archiveStack);
+      const virtualPath = buildArchiveDisplayPath(stack[0].fsPath, this.archiveStack);
       this.tabPaths.set(this.currentTabId, virtualPath);
-      const title = buildArchiveTabTitle(this.fsDirPath, this.archiveStack);
+      const title = buildArchiveTabTitle(stack[0].fsPath, this.archiveStack);
       this.workspaceService.updateTabPathAndTitle(this.paneId, this.currentTabId, virtualPath, title);
       this.tabs = this.workspaceService.getTabs(this.paneId);
-
     } catch (err: any) {
       this.error = err.message || 'Failed to restore archive tab';
-      console.error('Error restoring archive tab:', err);
     } finally {
       this.loading = false;
     }
   }
 
   onTabClose(tab: TabInfo): void {
-    // Clean up archive state when closing tab
     this.workspaceService.clearArchiveState(this.paneId, tab.id);
     this.workspaceService.closeTab(this.paneId, tab.id);
     this.loadPaneState();
@@ -356,101 +325,10 @@ export class FilePaneComponent implements OnInit, OnChanges {
   onNewTab(): void {
     const newTab = this.workspaceService.addTab(this.paneId, this.currentPath, true);
     if (!newTab) return;
-    // Switch to the new tab without reloading other tabs' paths
     this.currentTabId = newTab.id;
     this.tabs = this.workspaceService.getTabs(this.paneId);
-    // New tab inherits current directory — no navigation needed
     this.workspaceService.switchTab(this.paneId, newTab.id);
     this.tabs = this.workspaceService.getTabs(this.paneId);
-  }
-
-  async onArchiveSegmentClick(virtualPath: string): Promise<void> {
-    if (!this.isInArchive()) return;
-
-    // Count how many archive stack levels the clicked segment represents.
-    // virtualPath = fsDirPath [+ nestedChain parts] [+ innerPath parts]
-    const fsNorm = this.fsDirPath.replace(/\\/g, '/');
-    const vNorm  = virtualPath.replace(/\\/g, '/');
-
-    // Strip the fsPath prefix to get the archive-internal portion
-    const afterFs = vNorm.startsWith(fsNorm)
-      ? vNorm.slice(fsNorm.length).replace(/^\//, '')
-      : '';
-
-    if (!afterFs) {
-      // Clicked the archive root itself — navigate to innerPath = ''
-      const rootFrame = this.archiveStack[0];
-      this.loading = true;
-      try {
-        const frame = await this.archiveService.navigateInto(rootFrame, '');
-        this.archiveStack = [{ ...frame, innerPath: '' }];
-        this.renderArchiveFrame({ ...frame, innerPath: '' });
-      } catch (err: any) {
-        this.error = err.message;
-      } finally { this.loading = false; }
-      return;
-    }
-
-    // Walk the virtual path parts to find the target stack depth + innerPath
-    const parts = afterFs.split('/').filter(Boolean);
-    // Rebuild stack up to the clicked segment
-    this.loading = true;
-    try {
-      let stack: ArchiveFrame[] = [this.archiveStack[0]];
-      // Reset root frame to its root
-      let frame = await this.archiveService.navigateInto(this.archiveStack[0], '');
-      stack = [{ ...frame, innerPath: '' }];
-
-      for (const part of parts) {
-        // Is this part a nested archive in the current frame's listing?
-        const isNested = frame.listing.entries.some(
-          e => e.name === part && (e.type === FileType.ARCHIVE || isArchive(e.name))
-        );
-        if (isNested) {
-          const nestedChain = [...frame.nestedChain, part];
-          frame = await this.archiveService.openNestedArchive(frame, nestedChain);
-          stack.push(frame);
-        } else {
-          // It's a sub-directory within the current archive level
-          const innerPath = frame.innerPath ? `${frame.innerPath}/${part}` : part;
-          frame = await this.archiveService.navigateInto(
-            stack[stack.length - 1], innerPath
-          );
-          stack = [...stack.slice(0, -1), frame];
-        }
-      }
-
-      this.archiveStack = stack;
-      this.renderArchiveFrame(stack[stack.length - 1]);
-    } catch (err: any) {
-      this.error = err.message || 'Failed to navigate to archive segment';
-    } finally {
-      this.loading = false;
-    }
-  }
-
-  onCloseCurrentTab(): void {
-    const activeTab = this.tabs.find(t => t.isActive);
-    if (activeTab) this.onTabClose(activeTab);
-  }
-
-  onNextTab(): void {
-    const i = this.tabs.findIndex(t => t.isActive);
-    if (i >= 0) this.onTabChange(this.tabs[(i + 1) % this.tabs.length]);
-  }
-
-  onPreviousTab(): void {
-    const i = this.tabs.findIndex(t => t.isActive);
-    if (i >= 0) this.onTabChange(this.tabs[i === 0 ? this.tabs.length - 1 : i - 1]);
-  }
-
-  onJumpToTab(index: number): void {
-    if (index > 0 && index <= this.tabs.length) this.onTabChange(this.tabs[index - 1]);
-  }
-
-  onTogglePinCurrentTab(): void {
-    const activeTab = this.tabs.find(t => t.isActive);
-    if (activeTab) this.onTabPin(activeTab);
   }
 
   // ── Address bar / path ────────────────────────────────────────────────────
@@ -492,38 +370,76 @@ export class FilePaneComponent implements OnInit, OnChanges {
     else this.loadDirectory(this.currentPath);
   }
 
-  // ── Navigation ────────────────────────────────────────────────────────────
+  // ── Archive segment click ────────────────────────────────────────────────
 
-  onNavigate(entry: FileInfo): void {
-    // Special sentinel for the '..' row inside archives
-    if (entry.path === '__archive_parent__') {
-      this.navigateArchiveUp();
+  async onArchiveSegmentClick(virtualPath: string): Promise<void> {
+    if (!this.isInArchive()) return;
+
+    const fsNorm   = (this.archiveStack[0]?.fsPath ?? '').replace(/\\/g, '/');
+    const vNorm    = virtualPath.replace(/\\/g, '/');
+    const afterFs  = vNorm.startsWith(fsNorm) ? vNorm.slice(fsNorm.length).replace(/^\//, '') : '';
+
+    if (!afterFs) {
+      const rootFrame = this.archiveStack[0];
+      this.loading = true;
+      try {
+        const frame = await this.archiveService.navigateInto(rootFrame, '');
+        this.archiveStack = [{ ...frame, innerPath: '' }];
+        this.renderArchiveFrame({ ...frame, innerPath: '' });
+      } catch (err: any) { this.error = err.message; }
+      finally { this.loading = false; }
       return;
     }
 
-    if (this.isInArchive()) {
-      if (entry.type === FileType.DIRECTORY) {
-        // Navigate deeper into a folder within the current archive level.
-        // entry.path holds the full innerPath as returned by Go.
-        this.archiveNavigateInto(entry.path);
-      } else if (entry.type === FileType.ARCHIVE) {
-        // Open a nested archive. Go put the correct nestedChain on the entry.
-        const chain: string[] = (entry as any).nestedChain;
-        if (chain?.length) {
-          this.openNestedArchive(chain);
+    const parts = afterFs.split('/').filter(Boolean);
+    this.loading = true;
+    try {
+      let frame = await this.archiveService.navigateInto(this.archiveStack[0], '');
+      let stack: ArchiveFrame[] = [{ ...frame, innerPath: '' }];
+
+      for (const part of parts) {
+        const isNested = frame.listing.entries.some(
+          e => e.name === part && (e.type === FileType.ARCHIVE || isArchive(e.name))
+        );
+        if (isNested) {
+          const nestedChain = [...frame.nestedChain, part];
+          frame = await this.archiveService.openNestedArchive(frame, nestedChain);
+          stack.push(frame);
+        } else {
+          const innerPath = frame.innerPath ? `${frame.innerPath}/${part}` : part;
+          frame = await this.archiveService.navigateInto(stack[stack.length - 1], innerPath);
+          stack = [...stack.slice(0, -1), frame];
         }
+      }
+
+      this.archiveStack = stack;
+      this.renderArchiveFrame(stack[stack.length - 1]);
+    } catch (err: any) {
+      this.error = err.message || 'Failed to navigate to archive segment';
+    } finally {
+      this.loading = false;
+    }
+  }
+
+  // ── Navigation ────────────────────────────────────────────────────────────
+
+  onNavigate(entry: FileInfo): void {
+    if (entry.path === '__archive_parent__') { this.navigateArchiveUp(); return; }
+
+    if (this.isInArchive()) {
+      if (entry.type === FileType.DIRECTORY) { this.archiveNavigateInto(entry.path); }
+      else if (entry.type === FileType.ARCHIVE) {
+        const chain: string[] = (entry as any).nestedChain;
+        if (chain?.length) this.openNestedArchive(chain);
       }
       return;
     }
 
-    // Normal filesystem navigation
     if (entry.type === FileType.DIRECTORY) {
       if (entry.name === '..') this.onNavigateUp();
       else this.loadDirectory(entry.path);
       return;
     }
-
-    // ARCHIVE type or a file whose name looks like an archive
     if (entry.type === FileType.ARCHIVE || isArchive(entry.name)) {
       this.openRootArchive(entry.path);
     }
@@ -539,19 +455,15 @@ export class FilePaneComponent implements OnInit, OnChanges {
 
   // ── Archive navigation ────────────────────────────────────────────────────
 
-  isInArchive(): boolean { return this.archiveStack && this.archiveStack.length > 0; }
+  isInArchive(): boolean { return this.archiveStack?.length > 0; }
 
-  /** Open a top-level (filesystem) archive. */
   async openRootArchive(fsPath: string): Promise<void> {
     this.loading = true;
-    this.error = null;
+    this.error   = null;
     try {
-      const frame = await this.archiveService.openRootArchive(fsPath);
+      const frame       = await this.archiveService.openRootArchive(fsPath);
       this.archiveStack = [frame];
-      // fsParentDir = the directory we came from (for restoring on exit)
-      // fsDirPath   = the archive file path itself (for address bar / breadcrumbs)
-      this.fsParentDir = this.fsDirPath;
-      this.fsDirPath = fsPath;
+      this.fsParentDir  = this.archiveStack[0]?.fsPath ?? this.currentPath;
       this.renderArchiveFrame(frame);
     } catch (err: any) {
       this.error = err.message || 'Failed to open archive';
@@ -560,17 +472,12 @@ export class FilePaneComponent implements OnInit, OnChanges {
     }
   }
 
-  /**
-   * Navigate into a sub-directory within the current archive frame.
-   * `folderInnerPath` is the full inner path from the Go FileInfo.path field.
-   */
   private async archiveNavigateInto(folderInnerPath: string): Promise<void> {
     const currentFrame = this.archiveStack[this.archiveStack.length - 1];
     this.loading = true;
-    this.error = null;
+    this.error   = null;
     try {
-      const newFrame = await this.archiveService.navigateInto(currentFrame, folderInnerPath);
-      // New array reference so Angular OnChanges fires on [archiveStack] input
+      const newFrame    = await this.archiveService.navigateInto(currentFrame, folderInnerPath);
       this.archiveStack = [...this.archiveStack.slice(0, -1), newFrame];
       this.renderArchiveFrame(newFrame);
     } catch (err: any) {
@@ -580,14 +487,13 @@ export class FilePaneComponent implements OnInit, OnChanges {
     }
   }
 
-  /** Open a nested archive using the chain provided by the Go backend. */
   private async openNestedArchive(nestedChain: string[]): Promise<void> {
     const currentFrame = this.archiveStack[this.archiveStack.length - 1];
     this.loading = true;
-    this.error = null;
+    this.error   = null;
     try {
-      const newFrame = await this.archiveService.openNestedArchive(currentFrame, nestedChain);
-      this.archiveStack = [...this.archiveStack, newFrame];  // new reference ✓
+      const newFrame    = await this.archiveService.openNestedArchive(currentFrame, nestedChain);
+      this.archiveStack = [...this.archiveStack, newFrame];
       this.renderArchiveFrame(newFrame);
     } catch (err: any) {
       this.error = err.message || 'Failed to open nested archive';
@@ -596,30 +502,25 @@ export class FilePaneComponent implements OnInit, OnChanges {
     }
   }
 
-  /** Navigate up one level: parent folder → archive root → previous archive level → filesystem. */
   async navigateArchiveUp(): Promise<void> {
     const currentFrame = this.archiveStack[this.archiveStack.length - 1];
     this.loading = true;
-    this.error = null;
+    this.error   = null;
     try {
-      // Try navigating to the parent folder within the same archive level.
       const parentFrame = await this.archiveService.navigateUp(currentFrame);
       if (parentFrame !== null) {
-        this.archiveStack = [...this.archiveStack.slice(0, -1), parentFrame]; // new reference ✓
+        this.archiveStack = [...this.archiveStack.slice(0, -1), parentFrame];
         this.renderArchiveFrame(parentFrame);
         return;
       }
 
-      // At the root of this archive level — pop the stack.
       const poppedStack = this.archiveStack.slice(0, -1);
-
       if (poppedStack.length === 0) {
-        this.archiveStack = [];                               // new reference ✓
-        await this.loadDirectory(this.fsParentDir || this.fsDirPath);
+        this.archiveStack = [];
+        await this.loadDirectory(this.fsParentDir || this.currentPath);
         return;
       }
-
-      this.archiveStack = poppedStack;                       // new reference ✓
+      this.archiveStack = poppedStack;
       this.renderArchiveFrame(poppedStack[poppedStack.length - 1]);
     } catch (err: any) {
       this.error = err.message || 'Failed to navigate up';
@@ -629,28 +530,22 @@ export class FilePaneComponent implements OnInit, OnChanges {
   }
 
   exitArchive(): void {
-    // Save the current archive state before clearing (if we're in an archive)
     if (this.isInArchive() && this.currentTabId) {
       this.workspaceService.saveArchiveState(this.paneId, this.currentTabId, {
-        path: this.currentPath,
-        archiveStack: this.archiveStack,
-        fsDirPath: this.fsDirPath,
-        fsParentDir: this.fsParentDir
+        path: this.currentPath, archiveStack: this.archiveStack,
+        fsDirPath: this.archiveStack[0]?.fsPath ?? '', fsParentDir: this.fsParentDir,
       });
     }
-    
-    // Clear ALL archive-related state
     this.archiveStack = [];
-    // Don't modify fsDirPath or fsParentDir here - they'll be set by loadDirectory
   }
 
   private async refreshArchive(): Promise<void> {
-    const frame = this.archiveStack[this.archiveStack.length - 1];
+    const frame  = this.archiveStack[this.archiveStack.length - 1];
     this.loading = true;
-    this.error = null;
+    this.error   = null;
     try {
-      const refreshed = await this.archiveService.refreshFrame(frame);
-      this.archiveStack = [...this.archiveStack.slice(0, -1), refreshed]; // new reference ✓
+      const refreshed   = await this.archiveService.refreshFrame(frame);
+      this.archiveStack = [...this.archiveStack.slice(0, -1), refreshed];
       this.renderArchiveFrame(refreshed);
     } catch (err: any) {
       this.error = err.message || 'Failed to refresh archive';
@@ -659,46 +554,55 @@ export class FilePaneComponent implements OnInit, OnChanges {
     }
   }
 
-  /** Convert the current archive frame to FileInfo rows and update the address bar + tab. */
   private renderArchiveFrame(frame: ArchiveFrame): void {
     this.entries = this.archiveService.listingToFileInfos(frame.listing);
     this.selectedFiles.clear();
     this.applyFilter();
-    
-    // Both address bar and tab show the same virtual path: C:/Desktop.zip/src
-    const virtualPath = buildArchiveDisplayPath(this.fsDirPath, this.archiveStack);
-    this.currentPath = virtualPath;
+
+    const fsPath      = this.archiveStack[0]?.fsPath ?? '';
+    const virtualPath = buildArchiveDisplayPath(fsPath, this.archiveStack);
+    this.currentPath  = virtualPath;
     this.tabPaths.set(this.currentTabId, virtualPath);
-    
-    const title = buildArchiveTabTitle(this.fsDirPath, this.archiveStack);
+
+    const title = buildArchiveTabTitle(fsPath, this.archiveStack);
     this.workspaceService.updateTabPathAndTitle(this.paneId, this.currentTabId, virtualPath, title);
-    
-    // Refresh tabs list to show updated title
     this.tabs = this.workspaceService.getTabs(this.paneId);
   }
 
+  // ── Find widget ───────────────────────────────────────────────────────────
+
+  onFindStateChange(state: FindWidgetState | null): void {
+    if (!state) {
+      this.filterQuery = { text: '', criteria: [] };
+    } else {
+      // Build a FilterQuery from the find widget state.
+      // matchCase / wholeWord / useRegex are passed as criteria for FilterService.
+      this.filterQuery = this.filterService.parseFilterText(state.text);
+      // Patch in the extra options so FilterService can honour them if supported.
+      (this.filterQuery as any).matchCase  = state.matchCase;
+      (this.filterQuery as any).wholeWord  = state.wholeWord;
+      (this.filterQuery as any).useRegex   = state.useRegex;
+    }
+    this.applyFilter();
+
+    // Update match count badge on the widget
+    if (this.findWidget) {
+      this.findWidget.setMatchCount(this.filteredEntries.length);
+    }
+  }
+
+  onFindNext(): void { /* file-list scroll-to-next can be wired here */ }
+  onFindPrev(): void { /* file-list scroll-to-prev can be wired here */ }
+
   // ── Filtering ─────────────────────────────────────────────────────────────
 
-  onFilterChange(state: any): void {
-    if (state && typeof state.combined === 'string') {
-      this.filterText = state.combined;
-      this.filterQuery = this.filterService.parseFilterText(state.combined);
-      this.applyFilter();
-    }
-  }
-
-  onClearFilter(): void {
-    this.filterText = '';
-    this.filterQuery = { text: '', criteria: [] };
-    this.applyFilter();
-  }
-
   private applyFilter(): void {
-    if (!this.filterText?.trim()) {
+    const q = this.filterQuery;
+    if (!q?.text?.trim() && !q?.criteria?.length) {
       this.filteredEntries = this.entries;
-    } else {
-      this.filteredEntries = this.filterService.filterEntries(this.entries, this.filterQuery);
+      return;
     }
+    this.filteredEntries = this.filterService.filterEntries(this.entries, q);
   }
 
   // ── Selection ─────────────────────────────────────────────────────────────
@@ -729,9 +633,7 @@ export class FilePaneComponent implements OnInit, OnChanges {
       const newPath: string = await window.go.main.App.JoinPaths([this.currentPath, folderName]);
       await this.apiService.createDirectory(newPath, false);
       await this.loadDirectory(this.currentPath);
-    } catch (error: any) {
-      alert(`Failed to create folder: ${error.message}`);
-    }
+    } catch (error: any) { alert(`Failed to create folder: ${error.message}`); }
   }
 
   async onDeleteSelected(): Promise<void> {
@@ -739,33 +641,26 @@ export class FilePaneComponent implements OnInit, OnChanges {
     if (this.selectedFiles.size === 0) return;
     if (!confirm(`Delete ${this.selectedFiles.size} item(s)?`)) return;
     for (const path of Array.from(this.selectedFiles)) {
-      try {
-        await this.apiService.deleteFile(path, true);
-      } catch (error: any) {
-        alert(`Failed to delete ${path}: ${error.message}`);
-      }
+      try { await this.apiService.deleteFile(path, true); }
+      catch (error: any) { alert(`Failed to delete ${path}: ${error.message}`); }
     }
     await this.loadDirectory(this.currentPath);
   }
 
-  onCopyToOther(): void {
-    if (this.selectedFiles.size > 0) this.copyToOther.emit(Array.from(this.selectedFiles));
-  }
+  onCopyToOther(): void { if (this.selectedFiles.size > 0) this.copyToOther.emit(Array.from(this.selectedFiles)); }
+  onMoveToOther(): void { if (this.selectedFiles.size > 0) this.moveToOther.emit(Array.from(this.selectedFiles)); }
 
-  onMoveToOther(): void {
-    if (this.selectedFiles.size > 0) this.moveToOther.emit(Array.from(this.selectedFiles));
-  }
+  // ── Tab shortcuts ─────────────────────────────────────────────────────────
 
-  focusFilter(): void {
-    setTimeout(() => {
-      const el = document.querySelector(
-        `app-file-pane[paneId="${this.paneId}"] .filter-input`
-      ) as HTMLInputElement;
-      el?.focus();
-    });
-  }
+  onCloseCurrentTab():   void { const t = this.tabs.find(t => t.isActive); if (t) this.onTabClose(t); }
+  onNextTab():           void { const i = this.tabs.findIndex(t => t.isActive); if (i >= 0) this.onTabChange(this.tabs[(i + 1) % this.tabs.length]); }
+  onPreviousTab():       void { const i = this.tabs.findIndex(t => t.isActive); if (i >= 0) this.onTabChange(this.tabs[i === 0 ? this.tabs.length - 1 : i - 1]); }
+  onJumpToTab(n: number): void { if (n > 0 && n <= this.tabs.length) this.onTabChange(this.tabs[n - 1]); }
+  onTogglePinCurrentTab(): void { const t = this.tabs.find(t => t.isActive); if (t) this.onTabPin(t); }
 
-  focusAddressBar(): void {
-    this.addressBar?.enterEditMode();
-  }
+  focusAddressBar(): void { this.addressBar?.enterEditMode(); }
+  focusFind():       void { this.findWidget?.open(); }
+
+  focusFilter(): void { }
+  onClearFilter(): void { }
 }

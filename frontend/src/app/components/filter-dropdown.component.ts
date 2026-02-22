@@ -81,7 +81,6 @@ import { FilterPreset, FilterGroup, GROUP_ORDER, GROUP_MODES } from './filter-ba
               </span>
               <span class="fd-item-icon">{{ preset.icon || '📄' }}</span>
               <span class="fd-item-label">{{ preset.name }}</span>
-              <span class="fd-item-count" *ngIf="preset.count != null">{{ preset.count }}</span>
             </div>
 
           </ng-container>

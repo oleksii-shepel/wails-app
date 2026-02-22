@@ -42,12 +42,6 @@ import {
 
     <!-- Left: filter icon + category dropdown -->
     <div class="fb-cluster fb-cluster--left">
-      <div class="fb-icon">
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-          <path d="M6 10.5a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 0 1h-3a.5.5 0 0 1-.5-.5zm-2-3a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1-.5-.5zm-2-3a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11a.5.5 0 0 1-.5-.5z"/>
-        </svg>
-      </div>
-
       <div class="fb-drop-anchor" appDropdown [(isOpen)]="showCategoryDropdown">
         <button
           appDropdownTrigger
@@ -57,7 +51,9 @@ import {
           (click)="toggleCategoryDropdown()"
           title="Filter by type, size, date…"
         >
-          <span class="fb-btn-label">Filter</span>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" class="fb-icon">
+            <path d="M6 10.5a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 0 1h-3a.5.5 0 0 1-.5-.5zm-2-3a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1-.5-.5zm-2-3a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11a.5.5 0 0 1-.5-.5z"/>
+          </svg>
           <span class="fb-btn-chevron" [class.fb-btn-chevron--open]="showCategoryDropdown">›</span>
         </button>
 
@@ -144,48 +140,49 @@ import {
   <!-- Active chips -->
   <div class="fb-chips" *ngIf="selectedPresets.length > 0 || searchText">
     <div class="fb-chips-scroll">
+      <!-- OR chips -->
+      <ng-container *ngIf="orPresets.length > 0">
+        <!-- OR badge (only if >1 OR item) -->
+        <span
+          *ngIf="orPresets.length > 1"
+          class="fb-mode-badge fb-mode-badge--or"
+          title="Any of these filters may match"
+        >OR</span>
 
-  <!-- OR chips -->
-  <ng-container *ngIf="orPresets.length > 0">
+        <app-filter-chip
+          *ngFor="let p of orPresets"
+          [preset]="p"
+          (remove)="onPresetToggle($event)"
+        />
+      </ng-container>
 
-    <!-- OR badge (only if >1 OR item) -->
-    <span
-      *ngIf="orPresets.length > 1"
-      class="fb-mode-badge fb-mode-badge--or"
-      title="Any of these filters may match"
-    >OR</span>
+      <!-- AND chips -->
+      <ng-container *ngIf="andPresets.length > 0">
+        <!-- AND badge (only if OR exists + ≥1 AND) -->
+        <span
+          *ngIf="orPresets.length > 0"
+          class="fb-mode-badge fb-mode-badge--and"
+          title="All of these filters must match"
+        >AND</span>
 
-    <app-filter-chip
-      *ngFor="let p of orPresets"
-      [preset]="p"
-      (remove)="onPresetToggle($event)"
-    />
-  </ng-container>
+        <app-filter-chip
+          *ngFor="let p of andPresets"
+          [preset]="p"
+          (remove)="onPresetToggle($event)"
+        />
+      </ng-container>
 
-  <!-- AND chips -->
-  <ng-container *ngIf="andPresets.length > 0">
-
-    <!-- AND badge (only if OR exists + ≥1 AND) -->
-    <span
-      *ngIf="orPresets.length > 0"
-      class="fb-mode-badge fb-mode-badge--and"
-      title="All of these filters must match"
-    >AND</span>
-
-    <app-filter-chip
-      *ngFor="let p of andPresets"
-      [preset]="p"
-      (remove)="onPresetToggle($event)"
-    />
-  </ng-container>
-
-  <!-- Search chip -->
-  <div *ngIf="searchText" class="fb-chip fb-chip--search" (click)="clearSearch()">
-    <span class="fb-chip-label">"{{ searchText }}"</span>
-    <button class="fb-chip-close" (click)="$event.stopPropagation(); clearSearch()">×</button>
-  </div>
-
-</div>
+      <!-- Search chip -->
+      <div *ngIf="searchText" class="fb-chip fb-chip--search" (click)="clearSearch()">
+        <span class="fb-chip-label">"{{ searchText }}"</span>
+        <button class="fb-chip-close" (click)="$event.stopPropagation(); clearSearch()">×</button>
+      </div>
+    </div>
+    
+    <!-- Filter count on the right -->
+    <span class="fb-chip-count" *ngIf="dataset.length > 0">
+      {{ filteredCount }} / {{ dataset.length }}
+    </span>
   </div>
 
 </div>
@@ -229,8 +226,8 @@ import {
     }
 
     .fb-icon {
+      margin: 0 15px;
       display: flex; align-items: center; justify-content: center;
-      width: 24px; height: 24px;
       color: var(--vsc-foreground-dim);
       svg { fill: currentColor; }
     }
@@ -365,15 +362,34 @@ import {
 
     /* ── Chips row ────────────────────────────────────────────────── */
     .fb-chips {
+      display: flex;
+      flex-wrap: nowrap;
       padding: 0 var(--vsc-padding-sm) var(--vsc-padding-xs);
       border-top: 1px solid var(--vsc-border-subtle);
     }
+    
     .fb-chips-scroll {
-      display: flex; align-items: center; gap: var(--vsc-padding-xs);
-      overflow-x: auto; overflow-y: hidden;
+      display: flex;
+      align-items: center;
+      gap: var(--vsc-padding-xs);
+      overflow-x: auto;
+      overflow-y: hidden;
       padding: var(--vsc-padding-xs) 0;
-      scrollbar-width: thin;
-      &::-webkit-scrollbar { height: 3px; }
+      flex: 1;
+      min-width: 0;
+      
+      /* Hide scrollbar for Firefox */
+      scrollbar-width: none;
+      
+      /* Hide scrollbar for Chrome/Safari/Edge */
+      &::-webkit-scrollbar {
+        display: none;
+        width: 0;
+        height: 0;
+      }
+      
+      /* Hide scrollbar for IE/Edge legacy */
+      -ms-overflow-style: none;
     }
 
     /* Search chip — inline, no component */
@@ -398,6 +414,18 @@ import {
       cursor: pointer; opacity: 0.55;
       transition: opacity var(--vsc-transition-fast), background var(--vsc-transition-fast);
       &:hover { opacity: 1; background: color-mix(in srgb, var(--vsc-foreground) 15%, transparent); }
+    }
+
+    .fb-chip-count {
+      flex-shrink: 0;
+      padding: 0 var(--vsc-padding-sm);
+      height: 18px;
+      color: var(--vsc-badge-foreground);
+      font-size: 10px;
+      font-weight: 500;
+      white-space: nowrap;
+      display: inline-flex;
+      align-items: center;
     }
   `],
 })
@@ -445,6 +473,45 @@ export class FilterBarComponent implements OnInit, OnDestroy, OnChanges {
   get hasDynamic():    boolean { return this.allPresets.some(p => p.isDynamic); }
   get hasAnyFilter():  boolean { return this.selectedPresets.length > 0 || !!this.searchText; }
   get canSavePreset(): boolean { return this.selectedPresets.length > 0 && this.savedPresets.length < 20; }
+  get filteredCount(): number {
+    if (!this.dataset.length) return 0;
+    
+    // Build a filter query from current state
+    let query: FilterQuery & { groups: CriteriaGroup[] };
+    
+    if (!this.hasAnyFilter) {
+      query = this.filterService.parseFilterText('');
+    } else if (this.selectedPresets.length === 0) {
+      query = this.filterService.parseFilterText(this.searchText);
+    } else {
+      // Build the query from selected presets
+      const groupMap = new Map<string, FilterPreset[]>();
+      for (const p of this.selectedPresets) {
+        const g = p.group || 'Other';
+        if (!groupMap.has(g)) groupMap.set(g, []);
+        groupMap.get(g)!.push(p);
+      }
+
+      const segments: string[] = [];
+      for (const [groupName, presets] of groupMap) {
+        const mode = this.groupModes.get(groupName) ?? 'OR';
+        const filters = presets.map(p => (p as any).filter).filter(Boolean) as string[];
+        if (filters.length === 1) {
+          segments.push(filters[0]);
+        } else if (mode === 'OR') {
+          segments.push(filters.join(' OR '));
+        } else {
+          segments.push(filters.join(' '));
+        }
+      }
+      
+      query = this.filterService.parseFilterText(segments.join(' OR '));
+      query.text = this.searchText;
+    }
+    
+    // Use filterEntries to get the filtered count
+    return this.filterService.filterEntries(this.dataset, query).length;
+  }
 
   private getGroupCounts(): Map<string, number> {
     const counts = new Map<string, number>();

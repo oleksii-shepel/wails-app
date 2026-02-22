@@ -12,11 +12,11 @@ import { PathHistoryService, PathSuggestion } from '../services/path-history.ser
 import { ApiService } from '../services/api.service';
 import { DirectoryListing, FileType } from '../shared/protocol';
 import { DriveInfo } from '../shared/protocol-enhanced';
-import { ArchiveFrame, isArchive } from '../services/archive.service';
+import { ArchiveService, ArchiveFrame, isArchive } from '../services/archive.service';
 import { parsePathWithArchives, buildSegmentsFromParsedPath } from './address-bar.utils';
 
 import { PathSegment, SiblingEntry, PinnedPath, ContextMenuState, PINNED_KEY, CTX_MENU_CLOSED } from './address-bar.types';
-import { isWindowsPath, normalizePath, parentPath, shortenPath, buildSegments, buildArchiveSegments } from './address-bar.utils';
+import { isWindowsPath, normalizePath, parentPath, shortenPath, buildSegments } from './address-bar.utils';
 import { AddressBarEditComponent } from './address-bar-edit.component';
 import { AddressBarPinDropdownComponent } from './address-bar-pin-dropdown.component';
 import { AddressBarDriveDropdownComponent } from './address-bar-drive-dropdown.component';
@@ -35,7 +35,7 @@ import { AddressBarSiblingDropdownComponent } from './address-bar-sibling-dropdo
     AddressBarDriveDropdownComponent,
     AddressBarEditComponent,
   ],
-  template: `
+template: `
 <div class="ab-host" (keydown)="onHostKeyDown($event)">
 
   <!-- ── BREADCRUMB ROW ──────────────────────────────────────────────── -->
@@ -75,12 +75,8 @@ import { AddressBarSiblingDropdownComponent } from './address-bar-sibling-dropdo
       </div>
     </div>
 
-    <!-- Breadcrumb trail
-         • single-click on empty space / last segment → edit mode
-         • double-click anywhere (including on segments) → edit mode
-         • user-select:none on .ab-bar prevents text-selection flicker on click
-    -->
-    <div class="ab-crumbs">
+    <!-- Breadcrumb trail -->
+    <div class="ab-crumbs" (click)="onCrumbsClick($event)">
       <!-- Drive letter stays fixed, outside the scroll -->
       <ng-container *ngIf="isWin && segments.length > 0">
         <span
@@ -108,36 +104,37 @@ import { AddressBarSiblingDropdownComponent } from './address-bar-sibling-dropdo
           <!-- skip index 0 on Windows (drive letter rendered above) -->
           <ng-container *ngIf="!isWin || i > 0">
 
-            <!-- Archive inner folder -->
+            <!-- 
+              ARCHIVE FILE (can be both root AND inner)
+              - Every archive file gets isArchiveRoot=true
+              - If it's inside another archive, also gets isArchiveInner=true
+            -->
+            <span
+              *ngIf="seg.isArchiveRoot"
+              class="ab-seg"
+              [class.ab-seg--archive-root]="seg.isArchiveRoot"
+              [class.ab-seg--archive-inner]="seg.isArchiveInner"
+              [class.ab-seg--clickable]="!last"
+              [class.ab-seg--last]="last"
+              (click)="onArchiveRootSegClick(seg, last, $event)"
+              (contextmenu)="onSegRightClick(seg, i, $event)"
+              [title]="last ? 'Click to edit path' : seg.fullPath"
+            >
+              {{ seg.label }}
+            </span>
+
+            <!-- REGULAR FOLDER INSIDE ARCHIVE (not an archive file) -->
             <span
               *ngIf="seg.isArchiveInner && !seg.isArchiveRoot"
               class="ab-seg ab-seg--archive-inner"
               [class.ab-seg--last]="last"
               [class.ab-seg--clickable]="!last"
-              [title]="seg.fullPath || seg.label"
+              [title]="last ? 'Click to edit path' : seg.fullPath"
               (click)="onArchiveInnerSegClick(seg, last, $event)"
+              (contextmenu)="onSegRightClick(seg, i, $event)"
             >{{ seg.label }}</span>
 
-            <!-- Archive root -->
-            <span
-              *ngIf="seg.isArchiveRoot"
-              class="ab-seg ab-seg--archive-root"
-              [class.ab-seg--clickable]="!last"
-              (click)="onArchiveRootSegClick(seg, last, $event)"
-              [title]="seg.fullPath || seg.label"
-            >{{ seg.label }}</span>
-
-            <!-- Chevron after archive segment -->
-            <div class="ab-chev-wrap" *ngIf="!last && (seg.isArchiveInner || seg.isArchiveRoot)">
-              <button
-                class="ab-chev ab-chev--archive"
-                [class.ab-chev--open]="chevIdx === i"
-                (click)="onArchiveChevClick(i, seg, $event)"
-                aria-label="Browse archive"
-              >›</button>
-            </div>
-
-            <!-- Regular FS segment (non-Windows-root) -->
+            <!-- REGULAR FS SEGMENT (non-archive, non-Windows-root) -->
             <span
               *ngIf="(!seg.isRoot || !isWin) && !seg.isArchiveInner && !seg.isArchiveRoot"
               class="ab-seg"
@@ -148,13 +145,14 @@ import { AddressBarSiblingDropdownComponent } from './address-bar-sibling-dropdo
               [title]="last ? 'Click to edit path' : seg.fullPath"
             >{{ seg.label }}</span>
 
-            <!-- Regular chevron -->
-            <div class="ab-chev-wrap" *ngIf="!last && !(seg.isRoot && isWin) && !seg.isArchiveInner && !seg.isArchiveRoot">
+            <!-- Chevron after segment (if not last) -->
+            <div class="ab-chev-wrap" *ngIf="!last">
               <button
                 class="ab-chev"
+                [class.ab-chev--archive]="seg.isArchiveRoot || seg.isArchiveInner"
                 [class.ab-chev--open]="chevIdx === i"
                 (click)="toggleChev(i, seg, $event)"
-                aria-label="Browse siblings"
+                [attr.aria-label]="(seg.isArchiveRoot || seg.isArchiveInner) ? 'Browse archive' : 'Browse siblings'"
               >›</button>
             </div>
 
@@ -206,7 +204,7 @@ import { AddressBarSiblingDropdownComponent } from './address-bar-sibling-dropdo
   />
 
   <!-- ── SIBLING DROPDOWN ──────────────────────────────────────────────── -->
-  <app-adress-bar-sibling-dropdown
+  <app-address-bar-sibling-dropdown
     appDropdown
     [(isOpen)]="sibOpen"
     (isOpenChange)="onSibOpenChange($event)"
@@ -220,7 +218,7 @@ import { AddressBarSiblingDropdownComponent } from './address-bar-sibling-dropdo
   />
 
   <!-- ── DRIVE DROPDOWN ────────────────────────────────────────────────── -->
-  <app-addressbar-drive-dropdown
+  <app-address-bar-drive-dropdown
     appDropdown
     [(isOpen)]="showDriveMenu"
     *ngIf="showDriveMenu"
@@ -290,8 +288,6 @@ import { AddressBarSiblingDropdownComponent } from './address-bar-sibling-dropdo
       overflow: visible;
       background: var(--vsc-sidebar-background);
       transition: background var(--vsc-transition-fast);
-      /* Prevent the browser from painting a text-selection highlight across
-         the entire bar when the user single-clicks on a segment or empty area. */
       user-select: none;
     }
 
@@ -353,7 +349,7 @@ import { AddressBarSiblingDropdownComponent } from './address-bar-sibling-dropdo
     .ab-crumbs-inner {
       flex: 1 1 0%;
       min-width: 0;
-      width: 0;          /* ← forces flex to allocate all remaining space */
+      width: 0;
       display: flex;
       align-items: center;
       height: 100%;
@@ -364,11 +360,9 @@ import { AddressBarSiblingDropdownComponent } from './address-bar-sibling-dropdo
       -ms-overflow-style: none;
       &::-webkit-scrollbar { display: none; }
 
-      /* prevent children from shrinking — they should overflow into scroll instead */
       > * { flex-shrink: 0; }
     }
 
-    /* drive letter stays fixed width, never scrolls */
     .ab-drive-letter {
       flex-shrink: 0;
     }
@@ -383,27 +377,50 @@ import { AddressBarSiblingDropdownComponent } from './address-bar-sibling-dropdo
       max-width: 180px; overflow: hidden; text-overflow: ellipsis;
 
       &:hover { background: var(--vsc-list-hover-background); color: var(--vsc-foreground); }
+      
       &.ab-seg--root { color: var(--vsc-foreground); font-weight: 500; }
+      
       /* Last segment: clicking enters edit mode rather than navigating */
       &.ab-seg--last {
         color: var(--vsc-foreground-bright); cursor: text; max-width: 240px;
         &:hover { background: color-mix(in srgb, var(--vsc-accent-blue) 12%, transparent); }
       }
 
+      /* ARCHIVE ROOT - any archive file in the path */
       &.ab-seg--archive-root {
         background: color-mix(in srgb, var(--vsc-accent-orange) 18%, transparent);
         border: 1px solid rgba(255, 140, 0, 0.35);
-        color: #ffb347; gap: 4px; cursor: default;
+        color: #ffb347;
+        gap: 4px;
+        
+        .ab-seg-archive-icon { 
+          opacity: 0.9; 
+          flex-shrink: 0;
+          font-size: 14px;
+        }
+        
         &.ab-seg--clickable { cursor: pointer; }
         &.ab-seg--clickable:hover { background: color-mix(in srgb, var(--vsc-accent-orange) 34%, transparent); }
-        &:not(.ab-seg--clickable):hover { background: color-mix(in srgb, var(--vsc-accent-orange) 18%, transparent); }
-        .ab-seg-archive-icon { opacity: 0.85; flex-shrink: 0; }
+        
+        /* NESTED ARCHIVE - archive inside another archive */
+        &.ab-seg--archive-inner {
+          border-left: 3px solid rgba(255, 140, 0, 0.6);
+          background: color-mix(in srgb, var(--vsc-accent-orange) 24%, transparent);
+          
+          &:hover { background: color-mix(in srgb, var(--vsc-accent-orange) 40%, transparent); }
+        }
       }
 
-      &.ab-seg--archive-inner {
-        color: color-mix(in srgb, #ffb347 80%, var(--vsc-foreground)); cursor: default;
+      /* REGULAR FOLDER INSIDE ARCHIVE (not an archive file) */
+      &.ab-seg--archive-inner:not(.ab-seg--archive-root) {
+        color: color-mix(in srgb, #ffb347 80%, var(--vsc-foreground));
+        cursor: default;
+        
         &.ab-seg--clickable { cursor: pointer; }
-        &.ab-seg--clickable:hover { background: color-mix(in srgb, #ffb347 15%, transparent); color: #ffb347; }
+        &.ab-seg--clickable:hover { 
+          background: color-mix(in srgb, #ffb347 15%, transparent); 
+          color: #ffb347; 
+        }
         &:not(.ab-seg--clickable):hover { background: transparent; }
       }
     }
@@ -415,7 +432,6 @@ import { AddressBarSiblingDropdownComponent } from './address-bar-sibling-dropdo
       padding: 0 var(--vsc-padding-lg) !important; margin-right: var(--vsc-padding-md) !important;
       cursor: pointer; transition: background 0.08s, border-color 0.08s;
       &:hover { background: color-mix(in srgb, #007fd4 30%, transparent); border-color: rgba(0,127,212,0.6); }
-      /* When it's also the last segment it should signal editability */
       &.ab-seg--last { background: color-mix(in srgb, #007fd4 18%, transparent); cursor: text; }
     }
 
@@ -436,10 +452,21 @@ import { AddressBarSiblingDropdownComponent } from './address-bar-sibling-dropdo
       &:focus-visible { outline: 1px solid var(--vsc-accent-blue); outline-offset: -1px; }
       &.ab-chev--open { transform: rotate(90deg); color: var(--vsc-foreground-dim); background: transparent !important; }
 
+      /* Archive chevron styling */
       &.ab-chev--archive {
-        color: rgba(255, 179, 71, 0.5); background: transparent !important;
-        &:hover { background: transparent !important; color: #ffb347; }
-        &.ab-chev--open { transform: rotate(90deg); color: #ffb347; background: transparent !important; }
+        color: rgba(255, 179, 71, 0.6);
+        background: transparent !important;
+        
+        &:hover { 
+          background: transparent !important; 
+          color: #ffb347; 
+        }
+        
+        &.ab-chev--open { 
+          transform: rotate(90deg); 
+          color: #ffb347; 
+          background: transparent !important; 
+        }
       }
     }
 
@@ -496,9 +523,30 @@ import { AddressBarSiblingDropdownComponent } from './address-bar-sibling-dropdo
       .ab-seg { height: 22px; line-height: 22px; font-size: var(--vsc-font-size-small); padding: 0 var(--vsc-padding-sm); }
     }
 
-    /* Light theme */
+    /* Light theme adjustments */
     :host-context(.vscode-light) {
       .ab-drive-letter { background: color-mix(in srgb, #0060c0 15%, transparent); border-color: rgba(0,96,192,0.4); color: #0060c0; }
+      
+      .ab-seg--archive-root {
+        background: color-mix(in srgb, #ff8c00 12%, transparent);
+        border-color: rgba(255, 140, 0, 0.3);
+        color: #b85e00;
+        
+        &.ab-seg--archive-inner {
+          border-left-color: #ff8c00;
+          background: color-mix(in srgb, #ff8c00 18%, transparent);
+        }
+      }
+      
+      .ab-seg--archive-inner:not(.ab-seg--archive-root) {
+        color: #b85e00;
+      }
+      
+      .ab-chev--archive {
+        color: rgba(184, 94, 0, 0.5);
+        &:hover { color: #b85e00; }
+        &.ab-chev--open { color: #b85e00; }
+      }
     }
   `],
 })
@@ -508,8 +556,6 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   @Input() initialPath = '/';
   @Input() placeholder = 'Enter path…';
   @Input() paneId = 'left';
-  @Input() archiveStack: ArchiveFrame[] = [];
-  @Input() fsDirPath = '';
   /** Changes whenever the parent switches tabs — triggers a full state reset
    *  so the address bar reflects the new tab's path cleanly. */
   @Input() tabId = '';
@@ -570,6 +616,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   constructor(
     private pathHistoryService: PathHistoryService,
     private apiService: ApiService,
+    private archiveService: ArchiveService,
     private elRef: ElementRef,
     private cdr: ChangeDetectorRef,
   ) {}
@@ -634,12 +681,6 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
         if (this.editMode) this.editValue = next;
       }
     }
-
-    // Always rebuild when archive context changes, even if path didn't change
-    // (e.g. navigating deeper inside archive keeps same fsPath but different stack)
-    if ((changes['archiveStack'] || changes['fsDirPath']) && !changes['tabId']) {
-      this.rebuildSegments();
-    }
   }
 
   ngOnDestroy(): void {
@@ -658,14 +699,49 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   // ── Segments ─────────────────────────────────────────────────────────
 
   private rebuildSegments(): void {
-    if (this.archiveStack.length > 0 && this.fsDirPath) {
-      this.segments = buildArchiveSegments(this.fsDirPath, this.archiveStack);
+    const { fsDirPath, archiveInnerParts } = parsePathWithArchives(this.currentPath);
+    
+    if (archiveInnerParts.length > 0) {
+      this.segments = buildSegmentsFromParsedPath(fsDirPath, archiveInnerParts);
+      
+      // Mark all archive files in the path as archive roots
+      // The buildSegmentsFromParsedPath already marks the first archive correctly,
+      // but we need to mark any additional archives in the inner path
+      
+      // Track which parts are actual archive files
+      let accumulatedPath = fsDirPath;
+      for (let i = 0; i < archiveInnerParts.length; i++) {
+        const part = archiveInnerParts[i];
+        accumulatedPath += '/' + part;
+        
+        // Find the segment that corresponds to this archive file
+        const segmentIndex = this.segments.findIndex(s => s.fullPath === accumulatedPath);
+        if (segmentIndex >= 0 && isArchive(part)) {
+          // Mark this segment as an archive root
+          this.segments[segmentIndex] = {
+            ...this.segments[segmentIndex],
+            isArchiveRoot: true
+          };
+          
+          // The next segment (if any) should be marked as archive inner
+          if (i < archiveInnerParts.length - 1 && segmentIndex + 1 < this.segments.length) {
+            this.segments[segmentIndex + 1] = {
+              ...this.segments[segmentIndex + 1],
+              isArchiveInner: true
+            };
+          }
+        }
+      }
     } else {
-      const { fsDirPath, archiveInnerParts } = parsePathWithArchives(this.currentPath);
-      this.segments = archiveInnerParts.length > 0
-        ? buildSegmentsFromParsedPath(fsDirPath, archiveInnerParts)
-        : buildSegments(this.currentPath);
+      this.segments = buildSegments(this.currentPath);
+      
+      // If the path itself ends at an archive file, mark the last segment as archive root
+      if (isArchive(this.currentPath.split('/').pop() ?? '') && this.segments.length > 0) {
+        const last = this.segments[this.segments.length - 1];
+        this.segments[this.segments.length - 1] = { ...last, isArchiveRoot: true };
+      }
     }
+    
     this.shouldScrollRight = true;
   }
 
@@ -825,57 +901,46 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     seg: PathSegment,
     activeChildPath: string | null,
   ): Promise<void> {
-    const stack = this.archiveStack;
-    if (!stack.length) { this.sibLoading = false; return; }
+    const { fsDirPath, archiveInnerParts } = parsePathWithArchives(this.currentPath);
+    if (!archiveInnerParts.length) { this.sibLoading = false; return; }
 
-    const fsPath       = stack[0].fsPath.replace(/\\/g, '/');
-    const vNorm        = seg.fullPath.replace(/\\/g, '/');
-    const afterArchive = vNorm.startsWith(fsPath)
-      ? vNorm.slice(fsPath.length).replace(/^\//, '')
-      : '';
-    const allParts     = afterArchive ? afterArchive.split('/').filter(Boolean) : [];
+    // Build a minimal stack from the parsed path so resolveBrowseTarget can work
+    // without needing live ArchiveFrame objects with listing data.
+    const syntheticStack: ArchiveFrame[] = [{
+      fsPath: fsDirPath,
+      nestedChain: [],
+      innerPath: archiveInnerParts.join('/'),
+      listing: { archivePath: fsDirPath, innerPath: archiveInnerParts.join('/'), entries: [] },
+    }];
 
-    let owningFrame = stack[0];
-    for (const f of stack) {
-      if (f.nestedChain.length > allParts.length) continue;
-      const prefix = allParts.slice(0, f.nestedChain.length).join('/');
-      if (f.nestedChain.join('/') === prefix) owningFrame = f;
-    }
-
-    const innerParts = allParts.slice(owningFrame.nestedChain.length);
-    let browseChain: string[];
-    let browseInnerPath: string;
-
-    if (seg.isArchiveRoot && innerParts.length === 0) {
-      browseChain     = owningFrame.nestedChain;
-      browseInnerPath = '';
-    } else {
-      browseChain     = owningFrame.nestedChain;
-      browseInnerPath = innerParts.join('/');
-    }
+    const target = this.archiveService.resolveBrowseTarget(
+      { name: seg.label, fullPath: seg.fullPath },
+      syntheticStack,
+    );
+    if (!target) { this.sibLoading = false; return; }
 
     try {
-      const app = (window as any).go?.main?.App;
-      if (!app?.ArchiveBrowse) throw new Error('ArchiveBrowse not available');
-
-      const listing = await app.ArchiveBrowse(fsPath, browseChain, browseInnerPath);
+      const listing = await this.archiveService.navigateInto(
+        { ...target.frame, nestedChain: target.browseChain },
+        target.browseInnerPath,
+      );
       const activeChildVirtual = activeChildPath?.replace(/\\/g, '/') ?? null;
+      const fsPath = fsDirPath.replace(/\\/g, '/');
 
-      this.siblings = (listing.entries as any[])
+      this.siblings = listing.listing.entries
         .filter(e =>
-          e.type === 'directory' || e.type === 'DIRECTORY' || e.type === 2 ||
-          e.type === 'ARCHIVE'   ||
-          ((e.type === 'file' || e.type === 'FILE' || e.type === 1) &&
-            /\.(zip|tar|tgz|gz|bz2|xz)$/i.test(e.name))
+          e.type === FileType.DIRECTORY ||
+          (e.type === FileType.ARCHIVE) ||
+          isArchive(e.name)
         )
         .map(e => {
-          const sibInnerPath   = browseInnerPath ? `${browseInnerPath}/${e.name}` : e.name;
-          const chainPart      = browseChain.length ? `/${browseChain.join('/')}` : '';
+          const sibInnerPath   = target.browseInnerPath ? `${target.browseInnerPath}/${e.name}` : e.name;
+          const chainPart      = target.browseChain.length ? `/${target.browseChain.join('/')}` : '';
           const virtualSibPath = `${fsPath}${chainPart}/${sibInnerPath}`.replace(/\/+/g, '/');
           return {
             name:      e.name,
             path:      virtualSibPath,
-            isArchive: e.type === 'ARCHIVE' || /\.(zip|tar|tgz|gz|bz2|xz)$/i.test(e.name),
+            isArchive: e.type === FileType.ARCHIVE || isArchive(e.name),
             isCurrent: activeChildVirtual
               ? activeChildVirtual === virtualSibPath ||
                 activeChildVirtual.startsWith(virtualSibPath + '/') ||
@@ -896,7 +961,8 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   onSibClick(s: SiblingEntry): void {
     this.chevIdx  = -1;
     this.siblings = [];
-    if (this.archiveStack.length > 0) {
+    const { archiveInnerParts } = parsePathWithArchives(this.currentPath);
+    if (archiveInnerParts.length > 0) {
       this.archiveSegmentClick.emit(s.path);
     } else {
       this.navigateTo(s.path);
@@ -1059,7 +1125,8 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
 
   goUp(): void {
     this.navigateUpClicked.emit();
-    if (this.archiveStack.length === 0) {
+    const { archiveInnerParts } = parsePathWithArchives(this.currentPath);
+    if (archiveInnerParts.length === 0) {
       const p = parentPath(this.currentPath);
       if (p !== this.currentPath) this.navigateTo(p);
     }
@@ -1079,13 +1146,14 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     this.closeAll();
     if (np === this.currentPath) return;
 
-    const { archiveInnerParts, fsDirPath } = parsePathWithArchives(np);
+    const { archiveInnerParts } = parsePathWithArchives(np);
+    const pathIsArchive = archiveInnerParts.length > 0
+      || isArchive(np.split('/').pop() ?? '');
 
-    if (archiveInnerParts.length > 0 && this.archiveStack.length === 0) {
-      // Path crosses an archive boundary — emit so parent can open the archive
-      // The parent handles ArchiveService.openRootArchive / navigateInto
+    if (pathIsArchive) {
+      // Path targets an archive or is an archive file itself — let the parent handle it
       this.archiveSegmentClick.emit(np);
-      // Still update local display immediately for responsiveness
+      // Update local display immediately for responsiveness
       this.currentPath = np;
       this.rebuildSegments();
       return;

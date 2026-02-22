@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { SiblingEntry, PathSegment } from './address-bar.types';
 
 @Component({
-  selector: 'app-adress-bar-sibling-dropdown',
+  selector: 'app-address-bar-sibling-dropdown',
   standalone: true,
   imports: [CommonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,

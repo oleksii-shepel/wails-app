@@ -1,5 +1,5 @@
 import { PathSegment } from './address-bar.types';
-import { ArchiveFrame, buildArchiveDisplayPath } from '../services/archive.service';
+import { ArchiveFrame, buildArchiveDisplayPath, isArchive } from '../services/archive.service';
 
 // ─── Path utilities ───────────────────────────────────────────────────────────
 
@@ -184,40 +184,37 @@ export function parsePathWithArchives(path: string): {
  */
 export function buildSegmentsFromParsedPath(
   fsDirPath: string,
-  archiveInnerParts: string[],
+  archiveInnerParts: string[]
 ): PathSegment[] {
-  // Build the regular FS segments up to and including the archive file
-  const fsSegs = buildSegments(fsDirPath);
-
-  // Mark the last FS segment (the archive file itself) as archive root
-  if (fsSegs.length > 0) {
-    const last = fsSegs[fsSegs.length - 1];
-    last.isArchiveRoot = true;
-    // It's only "last" visually if there are no inner parts
-    last.isLast = archiveInnerParts.length === 0;
-  }
-
-  if (archiveInnerParts.length === 0) return fsSegs;
-
-  // Build inner archive segments
-  const innerSegs: PathSegment[] = archiveInnerParts.map((part, i) => {
-    const innerPath = archiveInnerParts.slice(0, i + 1).join('/');
-    return {
+  const segments: PathSegment[] = [];
+  
+  // Build the filesystem path segments first
+  const fsSegments = buildSegments(fsDirPath);
+  segments.push(...fsSegments);
+  
+  // Track the cumulative path
+  let cumulativePath = fsDirPath;
+  
+  // Add archive inner parts, marking EVERY archive file in the path
+  for (let i = 0; i < archiveInnerParts.length; i++) {
+    const part = archiveInnerParts[i];
+    cumulativePath += '/' + part;
+    
+    // Check if this part is an archive file
+    const isArchiveFile = isArchive(part);
+    const isLast = i === archiveInnerParts.length - 1;
+    
+    segments.push({
       label: part,
-      fullPath: `${fsDirPath}/${innerPath}`,
+      fullPath: cumulativePath,
       isRoot: false,
-      isArchiveRoot: false,
-      isArchiveInner: true,
-    } as PathSegment;
-  });
-
-  // Mark last segment
-  if (innerSegs.length > 0) {
-    innerSegs[innerSegs.length - 1].isLast = true;
-    if (fsSegs.length > 0) {
-      fsSegs[fsSegs.length - 1].isLast = false;
-    }
+      isLast,
+      // Mark as archive root if it's an archive file
+      isArchiveRoot: isArchiveFile,
+      // Mark as archive inner only if it's NOT an archive file AND we're inside an archive
+      isArchiveInner: !isArchiveFile
+    });
   }
-
-  return [...fsSegs, ...innerSegs];
+  
+  return segments;
 }

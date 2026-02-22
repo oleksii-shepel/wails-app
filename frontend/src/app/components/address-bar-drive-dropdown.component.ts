@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { DriveInfo } from '../shared/protocol-enhanced';
 
 @Component({
-  selector: 'app-addressbar-drive-dropdown',
+  selector: 'app-address-bar-drive-dropdown',
   standalone: true,
   imports: [CommonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,

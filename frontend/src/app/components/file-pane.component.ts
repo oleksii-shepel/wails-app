@@ -44,8 +44,6 @@ declare const window: any;
         *ngIf="pathReady"
         [initialPath]="currentPath"
         [paneId]="paneId"
-        [archiveStack]="archiveStack"
-        [fsDirPath]="fsParentDir"
         (pathChange)="onPathChange($event)"
         (navigateUpClicked)="onNavigateUp()"
         (refreshClicked)="onRefresh()"
@@ -374,7 +372,13 @@ export class FilePaneComponent implements OnInit, OnChanges {
   // ── Archive segment click ────────────────────────────────────────────────
 
   async onArchiveSegmentClick(virtualPath: string): Promise<void> {
-    if (!this.isInArchive()) return;
+    // Not currently in an archive — open it fresh (e.g. typed in address bar, or pin click)
+    if (!this.isInArchive()) {
+      this.currentPath = virtualPath;
+      this.clearArchiveState();
+      await this.restoreArchiveFromPath(virtualPath);
+      return;
+    }
 
     const fsNorm   = (this.archiveStack[0]?.fsPath ?? '').replace(/\\/g, '/');
     const vNorm    = virtualPath.replace(/\\/g, '/');

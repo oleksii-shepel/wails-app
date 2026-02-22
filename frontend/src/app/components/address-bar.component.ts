@@ -565,6 +565,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   private blurTimer: any;
   private copiedTimer: any;
   private shouldScrollRight = false;
+  private wheelListener?: (e: WheelEvent) => void;
 
   constructor(
     private pathHistoryService: PathHistoryService,
@@ -588,6 +589,10 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
 
     // Handle editMode outside-click (DropdownService handles dropdown clicks)
     document.addEventListener('mousedown', this.onEditModeOutsideClick, { capture: true });
+  }
+
+  ngAfterViewInit(): void {
+    this.setupWheelScroll();
   }
 
   ngAfterViewChecked(): void {
@@ -643,6 +648,11 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     this.destroy$.next();
     this.destroy$.complete();
     document.removeEventListener('mousedown', this.onEditModeOutsideClick, { capture: true } as any);
+    // Clean up wheel listener
+    const el = this.crumbsEl?.nativeElement;
+    if (el && this.wheelListener) {
+      el.removeEventListener('wheel', this.wheelListener);
+    }
   }
 
   // ── Segments ─────────────────────────────────────────────────────────
@@ -731,6 +741,15 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     }
   }
 
+  private setupWheelScroll(): void {
+    const el = this.crumbsEl?.nativeElement;
+    if (!el) return;
+    this.wheelListener = (e: WheelEvent) => {
+      e.preventDefault();
+      el.scrollLeft += e.deltaY || e.deltaX;
+    };
+    el.addEventListener('wheel', this.wheelListener, { passive: false });
+  }
   // ── Drive handling ───────────────────────────────────────────────────
 
   switchToDrive(drive: DriveInfo): void {

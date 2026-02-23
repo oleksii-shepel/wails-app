@@ -63,10 +63,18 @@ export interface FindWidgetState {
               title="Match Whole Word (Alt+W)"
               aria-label="Match Whole Word"
             >
-              <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
-                <path d="M1 11V3h1v1.5l.5-.5h1l.5.5V3h1v8H4V7.5l-.5.5h-1l-.5-.5V11zm5-8v8h1V8.5l.5.5h1l.5-.5V11h1V3h-1v2.5L9 5H8l-.5-.5V3zm5 0h3v1h-2v2h1.5v1H14v2h2v1h-3V3z"/>
-              </svg>
-            </button>
+            <svg width="16" height="16" viewBox="0 0 16 16" role="img" aria-hidden="true">
+              <path d="M2 3h1v10H2zM13 3h1v10h-1z" fill="currentColor"/>
+              <path
+                d="M4 5.5l1.9 6 1.4-4.7 1.4 4.7 1.9-6"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </button>
 
             <button
               class="fw-toggle"
@@ -209,7 +217,6 @@ export interface FindWidgetState {
       font-family: var(--vsc-font-family-mono);
       color: var(--vsc-foreground-dim);
       white-space: nowrap;
-      border-left: 1px solid var(--vsc-border-subtle);
     }
 
     /* ── Toggle buttons (Aa / W / .*) ────────────────────────── */
@@ -217,7 +224,6 @@ export interface FindWidgetState {
       display: flex;
       align-items: center;
       flex-shrink: 0;
-      border-left: 1px solid var(--vsc-border-subtle);
     }
 
     .fw-toggle {

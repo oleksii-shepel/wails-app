@@ -2,7 +2,7 @@ import { Component, Input, Output, EventEmitter, OnInit, OnChanges, ViewChild } 
 import { CommonModule } from '@angular/common';
 import { TabBarComponent } from './tab-bar.component';
 import { AddressBarComponent } from './address-bar.component';
-import { FindWidgetComponent, FindWidgetState } from './find-widget.component';
+import { FindWidgetComponent, FindWidgetState } from './filter-widget.component';
 import { ActionBarComponent } from './action-bar.component';
 import { FileListComponent } from './file-list.component';
 import { FileInfo, FileType } from '../shared/protocol';

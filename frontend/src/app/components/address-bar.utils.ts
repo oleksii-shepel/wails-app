@@ -103,12 +103,13 @@ export function buildArchiveSegments(fsDirPath: string, stack: ArchiveFrame[]): 
       // This is the archive file segment itself
       seg.isArchiveRoot = true;
     } else if (i > fsDepth) {
-      const label = seg.label.toLowerCase();
-      if (label.endsWith('.zip') || label.endsWith('.tar') || label.endsWith('.tgz') ||
-          label.endsWith('.tar.gz') || label.endsWith('.tar.bz2') || label.endsWith('.tar.xz')) {
-        seg.isArchiveRoot = true;
-        seg.isArchiveInner = true;
-      } else {
+    const label = seg.label.toLowerCase();
+    if (label.endsWith('.zip') || label.endsWith('.tar') || label.endsWith('.tgz') ||
+        label.endsWith('.tar.gz') || label.endsWith('.tar.bz2') || label.endsWith('.tar.xz') ||
+        label.endsWith('.rar') || label.endsWith('.7z')) {
+      seg.isArchiveRoot = true;
+      seg.isArchiveInner = true;
+    } else {
         seg.isArchiveInner = true;
       }
     }
@@ -145,7 +146,7 @@ export function parsePathWithArchives(path: string): {
   fsDirPath: string;
   archiveInnerParts: string[];
 } {
-  const ARCHIVE_RE = /\.(zip|tar|tgz|tar\.gz|tar\.bz2|tar\.xz|gz|bz2|xz)$/i;
+  const ARCHIVE_RE = /\.(zip|tar|tgz|tar\.gz|tar\.bz2|tar\.xz|gz|bz2|xz|rar|7z)$/i;
   const sep = path.includes('\\') ? '\\' : '/';
   const parts = path.replace(/\\/g, '/').split('/').filter(Boolean);
 

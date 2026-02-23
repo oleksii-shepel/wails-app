@@ -70,7 +70,7 @@ func (a *App) ArchiveReadFile(fsPath string, nestedChain []string, entryPath str
 		if nerr != nil {
 			return nil, nerr
 		}
-		data, err = a.extractFromBytes(archiveData, entryPath)
+		data, err = a.extractFromBytes(archiveData, entryPath, nestedChain[len(nestedChain)-1])
 	}
 	if err != nil {
 		return nil, err
@@ -109,6 +109,9 @@ func (a *App) walkFile(fsPath, innerPath string, nestedChain []string) ([]FileIn
 func (a *App) walkBytes(data []byte, innerPath string, nestedChain []string) ([]FileInfo, error) {
 	if isZipMagic(data) {
 		return a.walkZip(data, innerPath, nestedChain)
+	}
+	if len(nestedChain) > 0 && isRarArchiveName(nestedChain[len(nestedChain)-1]) {
+		return a.walkArchiveReader(data, innerPath, nestedChain, nestedChain[len(nestedChain)-1])
 	}
 	return a.walkTar(data, innerPath, nestedChain)
 }
@@ -228,7 +231,7 @@ func (a *App) extractNestedArchive(fsPath string, nestedChain []string) ([]byte,
 
 	// Step 2: recurse through the remaining layers in memory.
 	for i := 1; i < len(nestedChain); i++ {
-		next, err := a.extractFromBytes(current, nestedChain[i])
+		next, err := a.extractFromBytes(current, nestedChain[i], nestedChain[i])
 		if err != nil {
 			return nil, fmt.Errorf("extracting %q (chain depth %d): %w", nestedChain[i], i, err)
 		}
@@ -262,7 +265,7 @@ func (a *App) extractFromFile(fsPath, entryPath string) ([]byte, error) {
 }
 
 // extractFromBytes pulls one named entry out of an in-memory archive.
-func (a *App) extractFromBytes(data []byte, entryPath string) ([]byte, error) {
+func (a *App) extractFromBytes(data []byte, entryPath string, archiveName string) ([]byte, error) {
 	want := normalize(entryPath)
 
 	// Try ZIP first (magic bytes PK).
@@ -281,6 +284,10 @@ func (a *App) extractFromBytes(data []byte, entryPath string) ([]byte, error) {
 			}
 			return nil, fmt.Errorf("entry %q not found in ZIP", entryPath)
 		}
+	}
+
+	if archiveName != "" && isRarArchiveName(archiveName) {
+		return a.extractFromArchiveReader(data, archiveName, entryPath)
 	}
 
 	// Fall back to TAR (covers .tar, .tar.gz, .tgz, .tar.bz2, .tar.xz).
@@ -327,4 +334,95 @@ func isZipMagic(data []byte) bool {
 		data[0] == 'P' && data[1] == 'K' &&
 		((data[2] == 0x03 && data[3] == 0x04) ||
 			(data[2] == 0x05 && data[3] == 0x06))
+}
+
+func isRarArchiveName(name string) bool {
+	if name == "" {
+		return false
+	}
+	return strings.HasSuffix(strings.ToLower(name), ".rar")
+}
+
+func (a *App) walkArchiveReader(data []byte, innerPath string, nestedChain []string, archiveName string) ([]FileInfo, error) {
+	reader, err := openArchiveReader(archiveName, data)
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+
+	seen := make(map[string]FileInfo)
+	innerPath = normalize(innerPath)
+
+	for {
+		f, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		ep := normalize(archiveEntryPath(f))
+		isDir := f.IsDir()
+		if err := a.processEntryInto(ep, isDir, f.Size(), f.ModTime().UnixMilli(), innerPath, nestedChain, seen); err != nil {
+			f.Close()
+			return nil, err
+		}
+		if err := f.Close(); err != nil {
+			return nil, err
+		}
+	}
+
+	return a.sortFileInfo(seen), nil
+}
+
+func (a *App) extractFromArchiveReader(data []byte, archiveName, entryPath string) ([]byte, error) {
+	reader, err := openArchiveReader(archiveName, data)
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+
+	want := normalize(entryPath)
+
+	for {
+		f, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		if normalize(archiveEntryPath(f)) == want {
+			buf, readErr := io.ReadAll(f)
+			f.Close()
+			if readErr != nil {
+				return nil, readErr
+			}
+			return buf, nil
+		}
+		if err := f.Close(); err != nil {
+			return nil, err
+		}
+	}
+
+	return nil, fmt.Errorf("entry %q not found in %s", entryPath, archiveName)
+}
+
+func openArchiveReader(archiveName string, data []byte) (archiver.Reader, error) {
+	if archiveName == "" {
+		return nil, fmt.Errorf("archive name required to read from bytes")
+	}
+	aIface, err := archiver.ByExtension(archiveName)
+	if err != nil {
+		return nil, err
+	}
+	reader, ok := aIface.(archiver.Reader)
+	if !ok {
+		return nil, fmt.Errorf("archive format %q cannot be read from bytes", archiveName)
+	}
+	if err := reader.Open(bytes.NewReader(data), int64(len(data))); err != nil {
+		reader.Close()
+		return nil, err
+	}
+	return reader, nil
 }

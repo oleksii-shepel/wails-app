@@ -159,6 +159,8 @@ export class FileEntryComponent {
       case 'zip':
       case 'tar':
       case 'gz':
+      case 'rar':
+      case '7z':
         return '📦';
       case 'mp3':
       case 'wav':

@@ -34,7 +34,9 @@ export function isArchive(name: string): boolean {
     l.endsWith('.tar.xz') ||
     l.endsWith('.gz') ||
     l.endsWith('.bz2') ||
-    l.endsWith('.xz')
+    l.endsWith('.xz') ||
+    l.endsWith('.rar') ||
+    l.endsWith('.7z')
   );
 }
 
@@ -239,7 +241,7 @@ export class ArchiveService {
   }
 
   isArchiveVirtualPath(path: string): boolean {
-    return /\.zip\//i.test(path) || /\.tar\//i.test(path);
+    return /\.zip\//i.test(path) || /\.tar\//i.test(path) || /\.rar\//i.test(path) || /\.7z\//i.test(path);
   }
 
   /* ─────────────── REFRESH ─────────────── */

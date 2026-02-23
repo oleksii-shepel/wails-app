@@ -120,7 +120,12 @@ template: `
               (contextmenu)="onSegRightClick(seg, i, $event)"
               [title]="last ? 'Click to edit path' : seg.fullPath"
             >
-              {{ seg.label }}
+              <ng-container *ngIf="getSegmentLabelParts(seg) as labelParts">
+                <span class="ab-seg-label">
+                  <span class="ab-seg-main">{{ labelParts.main }}</span>
+                  <span *ngIf="labelParts.ext" class="ab-seg-ext">{{ labelParts.ext }}</span>
+                </span>
+              </ng-container>
             </span>
 
             <!-- REGULAR FOLDER INSIDE ARCHIVE (not an archive file) -->
@@ -132,7 +137,14 @@ template: `
               [title]="last ? 'Click to edit path' : seg.fullPath"
               (click)="onArchiveInnerSegClick(seg, last, $event)"
               (contextmenu)="onSegRightClick(seg, i, $event)"
-            >{{ seg.label }}</span>
+            >
+              <ng-container *ngIf="getSegmentLabelParts(seg) as labelParts">
+                <span class="ab-seg-label">
+                  <span class="ab-seg-main">{{ labelParts.main }}</span>
+                  <span *ngIf="labelParts.ext" class="ab-seg-ext">{{ labelParts.ext }}</span>
+                </span>
+              </ng-container>
+            </span>
 
             <!-- REGULAR FS SEGMENT (non-archive, non-Windows-root) -->
             <span
@@ -143,7 +155,14 @@ template: `
               (click)="onSegClick(seg, $event)"
               (contextmenu)="onSegRightClick(seg, i, $event)"
               [title]="last ? 'Click to edit path' : seg.fullPath"
-            >{{ seg.label }}</span>
+            >
+              <ng-container *ngIf="getSegmentLabelParts(seg) as labelParts">
+                <span class="ab-seg-label">
+                  <span class="ab-seg-main">{{ labelParts.main }}</span>
+                  <span *ngIf="labelParts.ext" class="ab-seg-ext">{{ labelParts.ext }}</span>
+                </span>
+              </ng-container>
+            </span>
 
             <!-- Chevron after segment (if not last) -->
             <div class="ab-chev-wrap" *ngIf="!last">
@@ -372,9 +391,9 @@ template: `
       height: 24px; padding: 0 var(--vsc-padding-sm);
       border-radius: var(--vsc-border-radius-sm);
       color: var(--vsc-foreground-dim); font-size: var(--vsc-font-size);
-      line-height: 24px; white-space: nowrap; cursor: pointer;
+      line-height: 24px; cursor: pointer;
       transition: background-color var(--vsc-transition-fast), color var(--vsc-transition-fast);
-      max-width: 180px; overflow: hidden; text-overflow: ellipsis;
+      max-width: 180px; overflow: hidden;
 
       &:hover { background: var(--vsc-list-hover-background); color: var(--vsc-foreground); }
       
@@ -750,6 +769,39 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     } else {
       this.enterEditMode();
     }
+
+    .ab-seg-label {
+      display: inline-flex;
+      align-items: center;
+      min-width: 0;
+      gap: 2px;
+      width: 100%;
+    }
+
+    .ab-seg-main {
+      flex: 1 1 auto;
+      min-width: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .ab-seg-ext {
+      flex: 0 0 auto;
+      font-size: 0.85em;
+      opacity: 0.8;
+    }
+  }
+
+  getSegmentLabelParts(seg: PathSegment): { main: string; ext?: string } {
+    if (!seg) return { main: '' };
+    const cleaned = (seg.fullPath || seg.label || '').replace(/\/+$/, '');
+    const lastPart = cleaned.split('/').pop() || seg.label || '';
+    const idx = lastPart.lastIndexOf('.');
+    if (idx > 0 && idx < lastPart.length - 1) {
+      return { main: lastPart.slice(0, idx), ext: lastPart.slice(idx) };
+    }
+    return { main: lastPart };
   }
 
   onArchiveInnerSegClick(seg: PathSegment, isLast: boolean, e: MouseEvent): void {

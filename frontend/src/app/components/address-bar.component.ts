@@ -1112,12 +1112,36 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     if (!total) return;
 
     const currentTabIdx = tabCandidates.findIndex(s => this.matchesCompletionQuery(query, s.path));
-
     let nextTabIdx = 0;
+    let useSlashVariant = false;
+
     if (currentTabIdx < 0) {
       nextTabIdx = direction > 0 ? 0 : total - 1;
     } else {
-      nextTabIdx = (currentTabIdx + direction + total) % total;
+      const currentPlainPath = normalizePath(tabCandidates[currentTabIdx].path);
+      const isSlashOnCurrent = query.endsWith('/') && normalizePath(query) === currentPlainPath;
+
+      if (direction > 0) {
+        if (isSlashOnCurrent) {
+          // After "name/" continue cycling regular siblings.
+          nextTabIdx = (currentTabIdx + 1) % total;
+        } else if (currentTabIdx === total - 1) {
+          // End of sibling list proposes slash on the same last sibling.
+          nextTabIdx = currentTabIdx;
+          useSlashVariant = true;
+        } else {
+          nextTabIdx = currentTabIdx + 1;
+        }
+      } else {
+        if (isSlashOnCurrent) {
+          // Hack requested: Shift+Tab right after slash removes it.
+          nextTabIdx = currentTabIdx;
+        } else if (currentTabIdx === 0) {
+          nextTabIdx = total - 1;
+        } else {
+          nextTabIdx = currentTabIdx - 1;
+        }
+      }
     }
 
     const selected = tabCandidates[nextTabIdx];
@@ -1125,15 +1149,16 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
       this.suggestions = tabCandidates;
       this.acIdx = nextTabIdx;
       this.tabCompletionSession = { candidates: tabCandidates, index: nextTabIdx };
-      this.editValue = this.normalizeEditQuery(selected.path);
+      const selectedPlainPath = this.normalizeEditQuery(selected.path);
+      this.editValue = useSlashVariant ? `${selectedPlainPath}/` : selectedPlainPath;
       this.applyingTabCompletion = true;
       try {
         this.editChange$.next(this.normalizeEditQuery(this.editValue));
       } finally {
         this.applyingTabCompletion = false;
       }
-      if (!selected.path.endsWith('/')) {
-        this.scheduleSlashAppendOnIdle(selected.path);
+      if (!useSlashVariant) {
+        this.scheduleSlashAppendOnIdle(selectedPlainPath);
       }
       this.cdr.detectChanges();
     }
@@ -1155,7 +1180,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
         this.applyingTabCompletion = false;
       }
       this.cdr.detectChanges();
-    }, 1500);
+    }, 3000);
   }
 
   private async resolveTabCandidates(query: string): Promise<PathSuggestion[]> {
@@ -1172,7 +1197,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   private matchesCompletionQuery(query: string, suggestionPath: string): boolean {
     const normalizedQuery = this.normalizeEditQuery(query);
     const normalizedPath = this.normalizeEditQuery(suggestionPath);
-    return normalizedQuery === normalizedPath;
+    return normalizedQuery === normalizedPath || normalizedQuery === `${normalizedPath}/`;
   }
 
   private async fetchDirectoryTabCandidates(query: string): Promise<PathSuggestion[]> {
@@ -1197,37 +1222,10 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
         }))
         .sort((a, b) => a.path.localeCompare(b.path));
 
-      return this.addSlashVariants(baseCandidates);
+      return baseCandidates;
     } catch {
       return [];
     }
-  }
-
-  private addSlashVariants(candidates: PathSuggestion[]): PathSuggestion[] {
-    const result: PathSuggestion[] = [];
-    const seen = new Set<string>();
-
-    for (const candidate of candidates) {
-      const plainPath = this.normalizeEditQuery(candidate.path);
-      const slashPath = plainPath.endsWith('/') ? plainPath : `${plainPath}/`;
-
-      if (!seen.has(plainPath)) {
-        seen.add(plainPath);
-        result.push({ ...candidate, path: plainPath });
-      }
-
-      if (!seen.has(slashPath)) {
-        seen.add(slashPath);
-        result.push({
-          ...candidate,
-          path: slashPath,
-          displayName: candidate.displayName.endsWith('/') ? candidate.displayName : `${candidate.displayName}/`,
-          score: candidate.score - 1,
-        });
-      }
-    }
-
-    return result;
   }
 
   private extractCompletionContext(query: string): { dirPath: string; prefix: string } {

@@ -509,7 +509,7 @@ interface IdleSlashTick {
       padding: 0 var(--vsc-padding-lg) !important; margin-right: var(--vsc-padding-md) !important;
       cursor: pointer; transition: background 0.08s, border-color 0.08s;
       &:hover { background: color-mix(in srgb, #007fd4 30%, transparent); border-color: rgba(0,127,212,0.6); }
-      &.ab-seg--last { background: color-mix(in srgb, #007fd4 18%, transparent); cursor: text; }
+      &.ab-seg--last { background: color-mix(in srgb, #007fd4 18%, transparent); cursor: pointer; }
     }
 
     .ab-chev-wrap {
@@ -700,38 +700,36 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   justCopied = false;
   compact    = false;
 
-  // ── RxJS streams ─────────────────────────────────────────────────────────
+  // ── RxJS ─────────────────────────────────────────────────────────────────
 
   private readonly destroy$ = new Subject<void>();
 
   /**
-   * Emits the current editValue only when the *user* types a character.
-   * Never emits when TAB writes to editValue (applyingTab guard).
-   * Drives: history-suggestion pipeline + idle-slash pipeline.
+   * Emits only when the user actually types a character.
+   * Suppressed when TAB writes to editValue (applyingTab guard).
+   * Feeds: history suggestions + idle-slash pipeline.
    */
   private readonly userTyped$ = new Subject<string>();
 
   /**
-   * Emits the selected path every time TAB picks a candidate.
-   * Drives: idle-slash pipeline only (restarts the 1 s debounce window so
-   * the slash fires 1 s after the user *stops pressing TAB*).
-   *
-   * Does NOT use distinctUntilChanged — the same path can legitimately be
-   * re-selected (e.g. user went away and came back) and must re-arm the timer.
+   * Emits the selected path each time TAB lands on a candidate.
+   * Feeds: idle-slash pipeline only — restarts the 1 s debounce so the
+   * slash fires 1 s after the user stops pressing TAB.
+   * No distinctUntilChanged — same path can be re-visited legitimately.
    */
   private readonly tabSelected$ = new Subject<string>();
 
-  // ── Tab completion state ──────────────────────────────────────────────────
+  // ── Tab completion ────────────────────────────────────────────────────────
 
   private tabSession: TabSession | null = null;
 
   /**
-   * True while TAB is writing to editValue programmatically.
-   * Causes onEditChange to skip emitting userTyped$ and clearing tabSession.
+   * True while TAB logic is writing to editValue.
+   * Makes onEditChange skip clearing tabSession / emitting userTyped$.
    */
   private applyingTab = false;
 
-  // ── One-shot timers ───────────────────────────────────────────────────────
+  // ── Timers ───────────────────────────────────────────────────────────────
   private blurTimer:   ReturnType<typeof setTimeout> | undefined;
   private copiedTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -755,8 +753,8 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     this.loadPins();
     if (this.isWin) this.loadDrives();
 
-    // ── Pipeline 1: history suggestions (240 ms debounce) ─────────────────
-    // Only userTyped$ — TAB selections are not search queries.
+    // ── Pipeline 1: history suggestions ───────────────────────────────────
+    // 240 ms debounce, user-typed only, switchMap cancels stale requests.
     this.userTyped$.pipe(
       debounceTime(240),
       distinctUntilChanged(),
@@ -771,33 +769,27 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
       this.cdr.detectChanges();
     });
 
-    // ── Pipeline 2: idle-slash append (1 000 ms debounce) ─────────────────
+    // ── Pipeline 2: idle-slash ─────────────────────────────────────────────
     //
-    // Sources: merge(userTyped$, tabSelected$)
-    //   • userTyped$   — user stopped typing; apply distinctUntilChanged so
-    //                    we don't re-fire for the exact same typed string.
-    //   • tabSelected$ — TAB just landed on a candidate; NO distinctUntilChanged
-    //                    because the same path can be revisited (e.g. user went
-    //                    forward then Shift+TAB'd back — that must re-arm the timer).
+    // Fires 1 s after whichever happened last: user typed OR TAB selected.
+    // switchMap ensures only the latest fires; prior async calls are cancelled.
     //
-    // We achieve per-source dedup by tagging each emission and deduping only
-    // the typing stream inside the merge.
+    // userTyped$ uses distinctUntilChanged — no point re-running for the same
+    // typed string.  tabSelected$ does NOT — same path can be legitimately
+    // re-visited after cycling away and back.
     //
-    // Guards applied before the async work:
-    //   • editMode must be active
-    //   • value must not already end with "/" or be a filesystem root
-    //   • session must not already be in enteredDir=true state
-    //     (slash already appended, waiting for user to press TAB)
-
-    const typedTick$    = this.userTyped$.pipe(
-      distinctUntilChanged(),
-      filter(v => !!v),
-    );
-    const tabTick$      = this.tabSelected$; // no dedup — intentional
-
-    merge(typedTick$, tabTick$).pipe(
-      debounceTime(750),
-      filter(() => this.editMode && !this.tabSession?.enteredDir),
+    // Guards:
+    //   • editMode must still be active
+    //   • value must not already end with "/" or be a root
+    //   • tabSession must not already be in enteredDir=true (slash was already
+    //     appended; we are just waiting for TAB)
+    merge(
+      this.userTyped$.pipe(distinctUntilChanged()),
+      this.tabSelected$,
+    ).pipe(
+      debounceTime(1000),
+      filter(() => this.editMode),
+      filter(() => !this.tabSession?.enteredDir),
       filter(v => {
         const n = normalizePath(v);
         return !!v && !n.endsWith('/') && n !== '/' && !/^[A-Za-z]:\/$/.test(n);
@@ -875,7 +867,6 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
       this.segments[i] = { ...seg, isArchiveRoot: isRealArchive, isArchiveInner: insideArchive };
       if (isRealArchive) insideArchive = true;
     }
-
     this.shouldScrollRight = true;
   }
 
@@ -919,7 +910,6 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   }
 
   onDriveLetterClick(seg: PathSegment, isLast: boolean, e: MouseEvent): void {
-    if (isLast) { this.enterEditMode(); return; }
     e.stopPropagation();
     if (this.showDriveMenu) { this.showDriveMenu = false; return; }
     this.closeAll();
@@ -1136,9 +1126,9 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   }
 
   /**
-   * Every keystroke from the input.
-   * When the user types (applyingTab=false): clear tabSession, emit userTyped$.
-   * When TAB writes (applyingTab=true): no-op — tabSession managed by TAB methods.
+   * Called on every input keystroke.
+   * Real user input (applyingTab=false): clear tabSession, feed userTyped$.
+   * TAB writing (applyingTab=true): no-op — session managed by TAB methods.
    */
   onEditChange(v: string): void {
     this.editValue = v;
@@ -1180,35 +1170,36 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   // ── Tab completion ────────────────────────────────────────────────────────
 
   private async cycleTab(direction: 1 | -1): Promise<void> {
-    const raw            = this.editValue || '';
-    const normalizedPath = normalizePath(raw);
-
-    // Reuse existing session — never re-fetch if one already exists.
-    // tryAppendSlash() sets enteredDir=true + fresh children; throwing that
-    // away here breaks the "TAB selects first child" step.
+    // Bootstrap a session only when none exists.
+    // tryAppendSlash() sets up enteredDir=true + children — preserving that
+    // session here is critical; re-fetching would discard the enteredDir state.
     if (!this.tabSession || this.tabSession.candidates.length === 0) {
-      const candidates = await this.fetchChildren(raw);
-      this.tabSession = { candidates, index: -1, enteredDir: false };
+      // No idle-slash yet — user pressed TAB on a raw typed value.
+      // Treat the current editValue as a prefix: list the parent dir,
+      // filter by the last segment, give the user siblings to cycle through.
+      const candidates = await this.fetchChildren(this.editValue);
+      this.tabSession  = { candidates, index: -1, enteredDir: false };
     }
 
     if (this.tabSession.candidates.length === 0) return;
 
-    const currentIndex = this.findSessionIndex(normalizedPath);
+    // Use editValue directly (preserving trailing slash) for index lookup.
+    const currentIndex = this.findSessionIndex(this.editValue);
 
     direction > 0
       ? this.tabForward(currentIndex)
-      : await this.tabBackward(currentIndex, normalizedPath);
+      : await this.tabBackward(currentIndex);
   }
 
   /**
-   * TAB forward.
+   * TAB (forward).
    *
-   * enteredDir=true  → idle-slash appended "/" and loaded children.
-   *                    Select candidates[0] (no extra slash).
-   *                    Set enteredDir=false so next TABs cycle siblings.
-   *                    Emit tabSelected$ to restart the 1 s idle window.
+   * enteredDir=true  → idle-slash fired, children are loaded.
+   *                    Pick candidates[0], set enteredDir=false.
+   *                    Emit tabSelected$ to restart 1 s idle.
    *
-   * enteredDir=false → cycle to next sibling; emit tabSelected$.
+   * enteredDir=false → cycle forward through siblings.
+   *                    Emit tabSelected$ to restart 1 s idle.
    */
   private tabForward(currentIndex: number): void {
     const session   = this.tabSession!;
@@ -1220,36 +1211,40 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   }
 
   /**
-   * Shift+TAB backward.
+   * Shift+TAB (backward).
    *
-   * enteredDir=true  → undo the slash: strip it, reload parent siblings,
-   *                    land on the dir we came from, restart idle.
+   * enteredDir=true  → undo the slash: strip it, reload parent-level siblings,
+   *                    land on the current dir in that list, restart idle.
    *
-   * enteredDir=false → cycle to previous sibling; emit tabSelected$.
+   * enteredDir=false → cycle backward through siblings, restart idle.
    */
-  private async tabBackward(currentIndex: number, normalizedPath: string): Promise<void> {
+  private async tabBackward(currentIndex: number): Promise<void> {
     const session = this.tabSession!;
 
     if (session.enteredDir) {
-      const withoutSlash = normalizedPath.replace(/\/+$/, '');
+      // editValue is e.g. "/home/user/Music/" — strip trailing slash
+      const withoutSlash = this.editValue.replace(/\/+$/, '');
       const lastSlash    = withoutSlash.lastIndexOf('/');
       const parentDir    = lastSlash >= 0 ? withoutSlash.slice(0, lastSlash + 1) : '/';
 
       const siblings   = await this.fetchChildren(parentDir);
-      const landingIdx = Math.max(0, siblings.findIndex(c => normalizePath(c.path) === withoutSlash));
+      // Find this dir in the parent list so we can highlight it
+      const landingIdx = siblings.findIndex(
+        c => normalizePath(c.path) === normalizePath(withoutSlash),
+      );
+      const idx = landingIdx >= 0 ? landingIdx : 0;
 
       this.writeTabValue(withoutSlash);
-      this.tabSession  = { candidates: siblings, index: landingIdx, enteredDir: false };
+      this.tabSession  = { candidates: siblings, index: idx, enteredDir: false };
       this.suggestions = siblings;
-      this.acIdx       = landingIdx;
+      this.acIdx       = idx;
       this.cdr.detectChanges();
 
-      // Restart idle from this moment so slash fires 1 s after Shift+TAB
       this.tabSelected$.next(withoutSlash);
       return;
     }
 
-    // currentIndex <= 0 covers "nothing selected" (-1) and "first item" (0)
+    // currentIndex of -1 (nothing highlighted) or 0 (first) both wrap to last
     const prevIndex = currentIndex <= 0
       ? session.candidates.length - 1
       : currentIndex - 1;
@@ -1258,8 +1253,8 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   }
 
   /**
-   * Apply a candidate: write its path to editValue, update session state,
-   * and emit to tabSelected$ to restart the idle-slash debounce from now.
+   * Apply a candidate: write its path to editValue, update session,
+   * emit tabSelected$ to restart the 1 s idle-slash timer.
    */
   private applyCandidate(
     candidate: PathSuggestion,
@@ -1275,13 +1270,13 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     this.acIdx       = index;
     this.cdr.detectChanges();
 
-    // Restart idle-slash timer from this TAB selection.
-    // No distinctUntilChanged on tabSelected$ — same path can be re-selected.
+    // Restart the idle-slash timer from this selection.
+    // tabSelected$ has no distinctUntilChanged — same path can be re-visited.
     this.tabSelected$.next(candidate.path);
   }
 
   /**
-   * Write a value to editValue without touching userTyped$ or tabSession.
+   * Write a value to editValue without emitting userTyped$ or clearing tabSession.
    * The applyingTab flag makes onEditChange a no-op for this write.
    */
   private writeTabValue(value: string): void {
@@ -1290,36 +1285,42 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     this.applyingTab = false;
   }
 
-  /** Find the index of normalizedPath (stripped of trailing slash) in the session. */
-  private findSessionIndex(normalizedPath: string): number {
-    const stripped = normalizedPath.replace(/\/$/, '');
+  /**
+   * Find the index of the current editValue in the active session candidates.
+   * Compares without trailing slashes so "/home/user/" matches "/home/user".
+   */
+  private findSessionIndex(editValue: string): number {
+    const clean = normalizePath(editValue);
     return (this.tabSession?.candidates ?? []).findIndex(
-      c => normalizePath(c.path) === stripped,
+      c => normalizePath(c.path) === clean,
     );
   }
 
   // ── Idle-slash ────────────────────────────────────────────────────────────
 
   /**
-   * Called by the idle-slash pipeline after 1 s of inactivity on either
-   * userTyped$ or tabSelected$.
+   * Called by the idle-slash pipeline 1 s after the last userTyped$ or
+   * tabSelected$ emission.
    *
-   * Fetches children of `value` directly (never reuses tabSession — it holds
-   * siblings, not children). If the directory exists and has children,
-   * appends "/" and sets up a fresh session with enteredDir=true.
+   * Checks whether `value` is a real directory by listing it.
+   * If so: appends "/", loads children, sets up a fresh session with
+   * enteredDir=true so the next TAB picks the first child.
+   *
+   * Always fetches fresh — never reuses tabSession, which holds siblings
+   * of the current level, not children of the selected candidate.
    */
   private async tryAppendSlash(value: string): Promise<void> {
     if (!this.editMode) return;
 
-    // Always fetch fresh children — never reuse tabSession here, which holds
-    // the *sibling* list from the current level, not children of the selected path.
+    // List `value` as a directory — if it's not one, the API will throw
+    // and we return [].
     const children = await this.fetchChildren(value + '/');
     if (children.length === 0) return;
 
+    // It's a real dir with children — append slash and present children.
     const withSlash = value.endsWith('/') ? value : value + '/';
 
     this.writeTabValue(withSlash);
-
     this.tabSession  = { candidates: children, index: -1, enteredDir: true };
     this.suggestions = children;
     this.acIdx       = -1;
@@ -1329,8 +1330,12 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   // ── Directory fetch ───────────────────────────────────────────────────────
 
   /**
-   * List immediate child directories for a query string.
-   * Splits the query into parent-dir + prefix, lists the parent, filters by prefix.
+   * List immediate child directories matching a query.
+   *
+   * Splits the query into a parent directory and a filename prefix:
+   *   "/home/use"   → list "/home/",       filter names starting with "use"
+   *   "/home/user/" → list "/home/user/",  no prefix filter (show all children)
+   *   "C:"          → list "C:/",          no prefix
    */
   private async fetchChildren(query: string): Promise<PathSuggestion[]> {
     const { dirPath, prefix } = this.splitQueryContext(query);
@@ -1341,7 +1346,10 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
       const prefixLower = prefix.toLowerCase();
 
       return listing.entries
-        .filter(e => e.type === FileType.DIRECTORY && e.name.toLowerCase().startsWith(prefixLower))
+        .filter(e =>
+          e.type === FileType.DIRECTORY &&
+          e.name.toLowerCase().startsWith(prefixLower),
+        )
         .map(e => ({
           path:        this.joinPath(dirPath, e.name),
           displayName: e.name,
@@ -1356,10 +1364,12 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   }
 
   /**
-   * Split a query into the directory to list and the filename prefix to filter by.
-   *   "/home/use"  → { dirPath: "/home/", prefix: "use" }
-   *   "/home/"     → { dirPath: "/home/", prefix: "" }
-   *   "C:"         → { dirPath: "C:/",    prefix: "" }
+   * Split a query string into the directory to list and the prefix to match.
+   *
+   *   "/home/use"  → { dirPath: "/home/",    prefix: "use" }
+   *   "/home/"     → { dirPath: "/home/",    prefix: ""    }
+   *   "/home/user" → { dirPath: "/home/",    prefix: "user"}  ← prefix filter
+   *   "C:"         → { dirPath: "C:/",       prefix: ""    }
    */
   private splitQueryContext(query: string): { dirPath: string; prefix: string } {
     const q = (query || '').replace(/\\/g, '/');
@@ -1367,7 +1377,9 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     if (q.endsWith('/')) return { dirPath: q, prefix: '' };
 
     const lastSlash = q.lastIndexOf('/');
-    if (lastSlash >= 0) return { dirPath: q.slice(0, lastSlash + 1), prefix: q.slice(lastSlash + 1) };
+    if (lastSlash >= 0) {
+      return { dirPath: q.slice(0, lastSlash + 1), prefix: q.slice(lastSlash + 1) };
+    }
     if (/^[A-Za-z]:$/.test(q)) return { dirPath: `${q}/`, prefix: '' };
     return { dirPath: '/', prefix: q };
   }
@@ -1399,7 +1411,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     this.ctxMenu = { visible: true, x: e.clientX, y: e.clientY, segmentIndex: idx, segment: seg };
   }
 
-  ctxNavigateTo(): void { if (this.ctxMenu.segment) this.navigateTo(this.ctxMenu.segment.fullPath); this.closeCtx(); }
+  ctxNavigateTo(): void   { if (this.ctxMenu.segment) this.navigateTo(this.ctxMenu.segment.fullPath); this.closeCtx(); }
   async ctxCopyPath(): Promise<void> { if (this.ctxMenu.segment) await navigator.clipboard.writeText(this.ctxMenu.segment.fullPath).catch(() => {}); this.closeCtx(); }
   async ctxCopyName(): Promise<void> { if (this.ctxMenu.segment) await navigator.clipboard.writeText(this.ctxMenu.segment.label).catch(() => {}); this.closeCtx(); }
   ctxOpenOtherPane(): void { if (this.ctxMenu.segment) this.openInOtherPane.emit(this.ctxMenu.segment.fullPath); this.closeCtx(); }
@@ -1486,12 +1498,10 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   @HostListener('document:keydown', ['$event'])
   onDocKey(e: KeyboardEvent): void {
     if (e.key !== 'Escape') return;
-    if (this.ctxMenu.visible)                                              { this.closeCtx();         e.preventDefault(); }
-    else if (this.editMode)                                                { this.exitEditMode(false); e.preventDefault(); }
-    else if (this.chevIdx >= 0 || this.showPinDrop || this.showDriveMenu)  { this.closeAll();          e.preventDefault(); }
+    if (this.ctxMenu.visible)                                             { this.closeCtx();         e.preventDefault(); }
+    else if (this.editMode)                                               { this.exitEditMode(false); e.preventDefault(); }
+    else if (this.chevIdx >= 0 || this.showPinDrop || this.showDriveMenu) { this.closeAll();          e.preventDefault(); }
   }
 }
-
-
 
 

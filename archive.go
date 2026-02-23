@@ -265,6 +265,29 @@ func (a *App) extractNestedArchive(fsPath string, nestedChain []string) ([]byte,
 // extractFromFile pulls one named entry out of an on-disk archive.
 func (a *App) extractFromFile(fsPath, entryPath string) ([]byte, error) {
 	want := normalize(entryPath)
+	lower := strings.ToLower(fsPath)
+
+	// ZIP: use stdlib directly for the same reason as walkFile
+	if strings.HasSuffix(lower, ".zip") {
+		r, err := zip.OpenReader(fsPath)
+		if err != nil {
+			return nil, err
+		}
+		defer r.Close()
+		for _, f := range r.File {
+			if normalize(f.Name) == want {
+				rc, err := f.Open()
+				if err != nil {
+					return nil, err
+				}
+				defer rc.Close()
+				return io.ReadAll(rc)
+			}
+		}
+		return nil, fmt.Errorf("entry %q not found in %q", entryPath, fsPath)
+	}
+
+	// TAR-based formats
 	var buf []byte
 	err := archiver.Walk(fsPath, func(f archiver.File) error {
 		if normalize(archiveEntryPath(f)) == want {

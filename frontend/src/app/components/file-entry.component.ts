@@ -2,6 +2,9 @@ import { Component, Input, Output, EventEmitter } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FileInfo, FileType } from '../shared/protocol';
 
+/** Sentinel path for the virtual ".." parent-directory entry. */
+const PARENT_ENTRY_PATH = '__archive_parent__';
+
 /**
  * File Entry Component
  * Displays a single file or directory entry
@@ -15,6 +18,7 @@ import { FileInfo, FileType } from '../shared/protocol';
       class="file-entry"
       [class.selected]="selected"
       [class.directory]="entry.type === FileType.DIRECTORY"
+      [class.parent-dir]="isParentEntry()"
       (click)="onClick()"
       (dblclick)="onDoubleClick()">
       
@@ -22,7 +26,7 @@ import { FileInfo, FileType } from '../shared/protocol';
       
       <div class="file-info">
         <div class="file-name">{{ entry.name }}</div>
-        <div class="file-details">
+        <div class="file-details" *ngIf="!isParentEntry()">
           <span class="file-size">{{ formatSize(entry.size) }}</span>
           <span class="file-date">{{ formatDate(entry.modified) }}</span>
         </div>
@@ -68,6 +72,29 @@ import { FileInfo, FileType } from '../shared/protocol';
 
         .file-icon {
           opacity: 1;
+        }
+      }
+
+      /* ".." entry — distinct muted style, never shows selection highlight */
+      &.parent-dir {
+        opacity: 0.65;
+        border-left-color: transparent !important;
+
+        &:hover {
+          opacity: 0.9;
+          background: var(--vsc-list-hover-background);
+          border-left-color: var(--vsc-border-bright) !important;
+        }
+
+        /* Prevent selected styling from leaking onto the parent entry */
+        &.selected {
+          background: transparent;
+          color: inherit;
+        }
+
+        .file-name {
+          font-style: italic;
+          letter-spacing: 0.02em;
         }
       }
 
@@ -129,6 +156,10 @@ export class FileEntryComponent {
 
   FileType = FileType;
 
+  isParentEntry(): boolean {
+    return this.entry?.path === PARENT_ENTRY_PATH;
+  }
+
   onClick(): void {
     this.select.emit(this.entry);
   }
@@ -138,6 +169,8 @@ export class FileEntryComponent {
   }
 
   getIcon(): string {
+    if (this.isParentEntry()) return '↩';
+
     if (this.entry.type === FileType.DIRECTORY) {
       return '📁';
     } else if (this.entry.type === FileType.SYMLINK) {

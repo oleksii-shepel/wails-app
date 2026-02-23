@@ -14,8 +14,12 @@ import { PathHistoryService } from '../services/path-history.service';
 import {
   ArchiveService, ArchiveFrame, isArchive, buildArchiveDisplayPath, buildArchiveTabTitle
 } from '../services/archive.service';
+import { parentPath, normalizePath } from './address-bar.utils';
 
 declare const window: any;
+
+/** Sentinel path used to identify the virtual ".." parent-directory entry. */
+const PARENT_ENTRY_PATH = '__archive_parent__';
 
 @Component({
   selector: 'app-file-pane',
@@ -175,7 +179,41 @@ export class FilePaneComponent implements OnInit, OnChanges {
   ngOnChanges(): void { if (this.workspace) this.loadPaneState(); }
 
   get entriesForAnalysis(): FileInfo[] {
-    return this.entries.filter(e => e.path !== '__archive_parent__');
+    return this.entries.filter(e => e.path !== PARENT_ENTRY_PATH);
+  }
+
+  // ── Virtual ".." entry helpers ────────────────────────────────────────────
+
+  /** Returns true when the current path is a filesystem root (e.g. "/" or "C:/"). */
+  private isAtFsRoot(path: string): boolean {
+    const p = path.replace(/\\/g, '/');
+    return p === '/' || /^[A-Za-z]:\/?\s*$/.test(p);
+  }
+
+  /** Creates the virtual parent-directory entry. */
+  private makeParentEntry(): FileInfo {
+    return {
+      name: '..',
+      path: PARENT_ENTRY_PATH,
+      type: FileType.DIRECTORY,
+      size: 0,
+      modified: 0,
+    } as FileInfo;
+  }
+
+  /**
+   * Prepend the virtual ".." entry to a raw entry list when appropriate.
+   * – Always prepended inside archives (so the user can navigate out).
+   * – Prepended for normal directories unless we are at the filesystem root.
+   */
+  private withParentEntry(raw: FileInfo[], inArchive: boolean, fsPath: string): FileInfo[] {
+    if (raw.some(e => e.path === PARENT_ENTRY_PATH)) {
+      return raw;
+    }
+    if (inArchive || !this.isAtFsRoot(fsPath)) {
+      return [this.makeParentEntry(), ...raw];
+    }
+    return raw;
   }
 
   // ── Pane state ────────────────────────────────────────────────────────────
@@ -223,7 +261,7 @@ export class FilePaneComponent implements OnInit, OnChanges {
       const listing       = await this.apiService.listDirectory(path, this.showHidden);
       this.currentPath    = listing.path;
       this.fsParentDir    = listing.path;
-      this.entries        = listing.entries;
+      this.entries        = this.withParentEntry(listing.entries, false, listing.path);
       this.selectedFiles.clear();
       this.applyFilter();
       this.tabPaths.set(this.currentTabId, listing.path);
@@ -354,13 +392,16 @@ export class FilePaneComponent implements OnInit, OnChanges {
         const listing = await window.go.main.App.NavGoUp(this.paneId);
         this.currentPath = listing.path;
         this.tabPaths.set(this.currentTabId, listing.path);
-        this.entries = listing.entries;
+        this.entries = this.withParentEntry(listing.entries, false, listing.path);
         this.selectedFiles.clear();
         this.applyFilter();
         this.workspaceService.updateTabPath(this.paneId, this.currentTabId, listing.path);
         this.pathHistoryService.addPath(listing.path, this.paneId);
         this.pathChange.emit(listing.path);
-      } catch { /* already at root */ }
+      } catch {
+        const target = parentPath(normalizePath(this.currentPath));
+        if (target !== this.currentPath) await this.loadDirectory(target);
+      }
     }
   }
 
@@ -429,7 +470,11 @@ export class FilePaneComponent implements OnInit, OnChanges {
   // ── Navigation ────────────────────────────────────────────────────────────
 
   onNavigate(entry: FileInfo): void {
-    if (entry.path === '__archive_parent__') { this.navigateArchiveUp(); return; }
+    // Virtual ".." entry — navigate up regardless of context
+    if (entry.path === PARENT_ENTRY_PATH) {
+      this.onNavigateUp();
+      return;
+    }
 
     if (this.isInArchive()) {
       if (entry.type === FileType.DIRECTORY) { this.archiveNavigateInto(entry.path); }
@@ -441,8 +486,7 @@ export class FilePaneComponent implements OnInit, OnChanges {
     }
 
     if (entry.type === FileType.DIRECTORY) {
-      if (entry.name === '..') this.onNavigateUp();
-      else this.loadDirectory(entry.path);
+      this.loadDirectory(entry.path);
       return;
     }
     if (entry.type === FileType.ARCHIVE || isArchive(entry.name)) {
@@ -563,7 +607,8 @@ export class FilePaneComponent implements OnInit, OnChanges {
   }
 
   private renderArchiveFrame(frame: ArchiveFrame): void {
-    this.entries = this.archiveService.listingToFileInfos(frame.listing);
+    const rawEntries  = this.archiveService.listingToFileInfos(frame.listing);
+    this.entries      = this.withParentEntry(rawEntries, true, '');
     this.selectedFiles.clear();
     this.applyFilter();
 
@@ -610,19 +655,30 @@ export class FilePaneComponent implements OnInit, OnChanges {
       this.filteredEntries = this.entries;
       return;
     }
-    this.filteredEntries = this.filterService.filterEntries(this.entries, q);
+    // Always keep the ".." entry visible regardless of the active filter.
+    const parentEntry = this.entries.filter(e => e.path === PARENT_ENTRY_PATH);
+    const filtered    = this.filterService.filterEntries(
+      this.entries.filter(e => e.path !== PARENT_ENTRY_PATH),
+      q
+    );
+    this.filteredEntries = [...parentEntry, ...filtered];
   }
 
   // ── Selection ─────────────────────────────────────────────────────────────
 
   onSelectionChange(entry: FileInfo): void {
+    // The ".." entry is never selectable
+    if (entry.path === PARENT_ENTRY_PATH) return;
+
     if (this.selectedFiles.has(entry.path)) this.selectedFiles.delete(entry.path);
     else this.selectedFiles.add(entry.path);
     this.selectedFiles = new Set(this.selectedFiles);
   }
 
   onSelectAll(): void {
-    this.filteredEntries.forEach(e => this.selectedFiles.add(e.path));
+    this.filteredEntries
+      .filter(e => e.path !== PARENT_ENTRY_PATH)
+      .forEach(e => this.selectedFiles.add(e.path));
     this.selectedFiles = new Set(this.selectedFiles);
   }
 

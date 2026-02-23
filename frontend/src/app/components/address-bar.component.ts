@@ -374,7 +374,7 @@ template: `
       height: 100%;
       overflow-x: auto;
       overflow-y: hidden;
-      scroll-behavior: smooth;
+      scroll-behavior: auto;
       scrollbar-width: none;
       -ms-overflow-style: none;
       &::-webkit-scrollbar { display: none; }
@@ -393,7 +393,7 @@ template: `
       color: var(--vsc-foreground-dim); font-size: var(--vsc-font-size);
       line-height: 24px; cursor: pointer;
       transition: background-color var(--vsc-transition-fast), color var(--vsc-transition-fast);
-      max-width: 180px; overflow: hidden;
+      max-width: 260px; overflow: hidden;
 
       &:hover { background: var(--vsc-list-hover-background); color: var(--vsc-foreground); }
       
@@ -401,7 +401,7 @@ template: `
       
       /* Last segment: clicking enters edit mode rather than navigating */
       &.ab-seg--last {
-        color: var(--vsc-foreground-bright); cursor: text; max-width: 240px;
+        color: var(--vsc-foreground-bright); cursor: text; max-width: 320px;
         &:hover { background: color-mix(in srgb, var(--vsc-accent-blue) 12%, transparent); }
       }
 
@@ -564,6 +564,28 @@ template: `
         color: rgba(184, 94, 0, 0.5);
         &:hover { color: #b85e00; }
         &.ab-chev--open { color: #b85e00; }
+      }
+      
+      .ab-seg-label {
+        display: inline-flex;
+        align-items: center;
+        min-width: 0;
+        gap: 2px;
+        width: 100%;
+      }
+
+      .ab-seg-main {
+        flex: 1 1 auto;
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .ab-seg-ext {
+        flex: 0 0 auto;
+        font-size: 0.85em;
+        opacity: 0.8;
       }
     }
   `],
@@ -768,28 +790,6 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
       this.navigateTo(seg.fullPath);
     } else {
       this.enterEditMode();
-    }
-
-    .ab-seg-label {
-      display: inline-flex;
-      align-items: center;
-      min-width: 0;
-      gap: 2px;
-      width: 100%;
-    }
-
-    .ab-seg-main {
-      flex: 1 1 auto;
-      min-width: 0;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .ab-seg-ext {
-      flex: 0 0 auto;
-      font-size: 0.85em;
-      opacity: 0.8;
     }
   }
 

@@ -5,7 +5,7 @@ import {
   HostListener,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Subject, debounceTime, distinctUntilChanged, takeUntil } from 'rxjs';
+import { EMPTY, Subject, debounceTime, distinctUntilChanged, filter, from, merge, switchMap, takeUntil } from 'rxjs';
 import { DropdownDirective, DropdownTriggerDirective, DropdownMenuDirective } from '../directives/dropdown.directive';
 
 import { PathHistoryService, PathSuggestion } from '../services/path-history.service';
@@ -21,6 +21,65 @@ import { AddressBarEditComponent } from './address-bar-edit.component';
 import { AddressBarPinDropdownComponent } from './address-bar-pin-dropdown.component';
 import { AddressBarDriveDropdownComponent } from './address-bar-drive-dropdown.component';
 import { AddressBarSiblingDropdownComponent } from './address-bar-sibling-dropdown.component';
+
+// ── Tab-completion session ────────────────────────────────────────────────────
+//
+// Full state-machine flow:
+//
+//  [user types "/home/use"]
+//      userTyped$ → debounce 1 s (idle-slash pipeline)
+//      tryAppendSlash("/home/use")
+//        → editValue  = "/home/user/"
+//        → tabSession = { candidates:[Documents,Downloads,…], enteredDir:true }
+//        → suggestions = children shown in dropdown
+//
+//  TAB (enteredDir=true)
+//      tabForward → applyCandidate(candidates[0])
+//        → editValue         = "/home/user/Documents"   (no slash yet)
+//        → tabSession.enteredDir = false
+//        → tabSelected$.next("/home/user/Documents")    ← restarts 1 s idle
+//
+//  [user keeps pressing TAB — each TAB resets the 1 s window]
+//      TAB idx=1  → "/home/user/Downloads"   tabSelected$ emits
+//      TAB idx=2  → "/home/user/Music"        tabSelected$ emits
+//      … pause 1 s …
+//      tryAppendSlash("/home/user/Music")
+//        → editValue  = "/home/user/Music/"
+//        → tabSession = { candidates:[Albums,Playlists,…], enteredDir:true }
+//
+//  TAB (enteredDir=true) → applyCandidate(candidates[0]) "/home/user/Music/Albums"
+//
+//  Shift+TAB (enteredDir=true)
+//      strip slash → "/home/user/Music"
+//      reload parent siblings, land on Music
+//      tabSession = { candidates:parentSiblings, enteredDir:false }
+//      tabSelected$.next("/home/user/Music")
+//
+//  Shift+TAB (enteredDir=false) → cycle backwards through siblings
+//
+//  [user types any key]
+//      applyingTab=false → onEditChange clears tabSession, emits userTyped$
+
+interface TabSession {
+  candidates: PathSuggestion[];
+  index: number;
+  /**
+   * True right after idle-slash appended "/" and loaded children.
+   *   TAB       → select candidates[0], set enteredDir=false, restart idle
+   *   Shift+TAB → strip the slash, go up to parent siblings, restart idle
+   */
+  enteredDir: boolean;
+}
+
+// A small tagged wrapper so the idle-slash pipeline knows which subject fired.
+// This lets us drop distinctUntilChanged on the TAB side (same path can be
+// re-selected after going away and coming back) while keeping it on the
+// typing side (no point re-fetching suggestions for the same typed string).
+interface IdleSlashTick {
+  value: string;
+  /** true = came from TAB selection; false = came from user keystroke */
+  fromTab: boolean;
+}
 
 @Component({
   selector: 'app-address-bar',
@@ -593,64 +652,90 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   @Input() initialPath = '/';
   @Input() placeholder = 'Enter path…';
   @Input() paneId = 'left';
-  /** Changes whenever the parent switches tabs — triggers a full state reset
-   *  so the address bar reflects the new tab's path cleanly. */
   @Input() tabId = '';
 
-  @Output() pathChange = new EventEmitter<string>();
-  @Output() navigateUpClicked = new EventEmitter<void>();
-  @Output() refreshClicked = new EventEmitter<void>();
-  @Output() openInOtherPane = new EventEmitter<string>();
+  @Output() pathChange          = new EventEmitter<string>();
+  @Output() navigateUpClicked   = new EventEmitter<void>();
+  @Output() refreshClicked      = new EventEmitter<void>();
+  @Output() openInOtherPane     = new EventEmitter<string>();
   @Output() archiveSegmentClick = new EventEmitter<string>();
 
-  // ── Path state ───────────────────────────────────────────────────────
+  // ── Path state ───────────────────────────────────────────────────────────
   currentPath = '/';
   segments: PathSegment[] = [];
   get isWin(): boolean { return isWindowsPath(this.currentPath); }
 
-  // ── Drive switcher ───────────────────────────────────────────────────
+  // ── Drive switcher ───────────────────────────────────────────────────────
   drives: DriveInfo[] = [];
   showDriveMenu = false;
   driveMenuLeft = 0;
-  driveMenuTop = 0;
+  driveMenuTop  = 0;
   drivesLoading = false;
 
-  // ── Chevron / sibling dropdown ───────────────────────────────────────
-  chevIdx = -1;
-  sibOpen = false; // mirrors chevIdx >= 0 for appDropdown binding
+  // ── Chevron / sibling dropdown ───────────────────────────────────────────
+  chevIdx     = -1;
+  sibOpen     = false;
   siblings: SiblingEntry[] = [];
-  sibLoading = false;
+  sibLoading  = false;
   sibDropLeft = 0;
-  sibDropTop = 0;
+  sibDropTop  = 0;
 
-  // ── Pinned paths ─────────────────────────────────────────────────────
+  // ── Pinned paths ─────────────────────────────────────────────────────────
   pinnedPaths: PinnedPath[] = [];
   showPinDrop = false;
   get isPinned(): boolean { return this.pinnedPaths.some(p => p.path === this.currentPath); }
 
-  // ── Edit mode ────────────────────────────────────────────────────────
-  editMode = false;
+  // ── Edit mode ────────────────────────────────────────────────────────────
+  editMode  = false;
   editValue = '';
 
-  // ── Autocomplete ─────────────────────────────────────────────────────
+  // ── Suggestions (history-based dropdown) ─────────────────────────────────
   suggestions: PathSuggestion[] = [];
   acIdx = -1;
-  private tabCompletionSession: { candidates: PathSuggestion[]; index: number; enteredDir: boolean; } | null = null;
-  private applyingTabCompletion = false;
-  private slashIdleTimer?: ReturnType<typeof setTimeout>;
-  private readonly SLASH_IDLE_TIMEOUT = 1000; // 1 second
 
-  // ── Context menu ─────────────────────────────────────────────────────
+  // ── Context menu ─────────────────────────────────────────────────────────
   ctxMenu: ContextMenuState = { ...CTX_MENU_CLOSED };
 
-  // ── Misc ─────────────────────────────────────────────────────────────
+  // ── Misc ─────────────────────────────────────────────────────────────────
   justCopied = false;
-  compact = false;
+  compact    = false;
 
-  private destroy$ = new Subject<void>();
-  private editChange$ = new Subject<string>();
-  private blurTimer: any;
-  private copiedTimer: any;
+  // ── RxJS streams ─────────────────────────────────────────────────────────
+
+  private readonly destroy$ = new Subject<void>();
+
+  /**
+   * Emits the current editValue only when the *user* types a character.
+   * Never emits when TAB writes to editValue (applyingTab guard).
+   * Drives: history-suggestion pipeline + idle-slash pipeline.
+   */
+  private readonly userTyped$ = new Subject<string>();
+
+  /**
+   * Emits the selected path every time TAB picks a candidate.
+   * Drives: idle-slash pipeline only (restarts the 1 s debounce window so
+   * the slash fires 1 s after the user *stops pressing TAB*).
+   *
+   * Does NOT use distinctUntilChanged — the same path can legitimately be
+   * re-selected (e.g. user went away and came back) and must re-arm the timer.
+   */
+  private readonly tabSelected$ = new Subject<string>();
+
+  // ── Tab completion state ──────────────────────────────────────────────────
+
+  private tabSession: TabSession | null = null;
+
+  /**
+   * True while TAB is writing to editValue programmatically.
+   * Causes onEditChange to skip emitting userTyped$ and clearing tabSession.
+   */
+  private applyingTab = false;
+
+  // ── One-shot timers ───────────────────────────────────────────────────────
+  private blurTimer:   ReturnType<typeof setTimeout> | undefined;
+  private copiedTimer: ReturnType<typeof setTimeout> | undefined;
+
+  // ── Scroll ───────────────────────────────────────────────────────────────
   private shouldScrollRight = false;
   private wheelListener?: (e: WheelEvent) => void;
 
@@ -660,22 +745,67 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     private archiveService: ArchiveService,
     private elRef: ElementRef,
     private cdr: ChangeDetectorRef,
-  ) { }
+  ) {}
 
-  // ── Lifecycle ────────────────────────────────────────────────────────
+  // ── Lifecycle ─────────────────────────────────────────────────────────────
 
   ngOnInit(): void {
     this.currentPath = normalizePath(this.initialPath);
     this.rebuildSegments();
     this.loadPins();
-
-    this.editChange$
-      .pipe(debounceTime(240), distinctUntilChanged(), takeUntil(this.destroy$))
-      .subscribe(v => this.fetchSuggestions(v));
-
     if (this.isWin) this.loadDrives();
 
-    // Handle editMode outside-click (DropdownService handles dropdown clicks)
+    // ── Pipeline 1: history suggestions (240 ms debounce) ─────────────────
+    // Only userTyped$ — TAB selections are not search queries.
+    this.userTyped$.pipe(
+      debounceTime(240),
+      distinctUntilChanged(),
+      switchMap(v => v?.trim()
+        ? from(this.pathHistoryService.getSuggestions(v, this.currentPath))
+        : EMPTY,
+      ),
+      takeUntil(this.destroy$),
+    ).subscribe(suggestions => {
+      this.suggestions = suggestions;
+      this.acIdx = -1;
+      this.cdr.detectChanges();
+    });
+
+    // ── Pipeline 2: idle-slash append (1 000 ms debounce) ─────────────────
+    //
+    // Sources: merge(userTyped$, tabSelected$)
+    //   • userTyped$   — user stopped typing; apply distinctUntilChanged so
+    //                    we don't re-fire for the exact same typed string.
+    //   • tabSelected$ — TAB just landed on a candidate; NO distinctUntilChanged
+    //                    because the same path can be revisited (e.g. user went
+    //                    forward then Shift+TAB'd back — that must re-arm the timer).
+    //
+    // We achieve per-source dedup by tagging each emission and deduping only
+    // the typing stream inside the merge.
+    //
+    // Guards applied before the async work:
+    //   • editMode must be active
+    //   • value must not already end with "/" or be a filesystem root
+    //   • session must not already be in enteredDir=true state
+    //     (slash already appended, waiting for user to press TAB)
+
+    const typedTick$    = this.userTyped$.pipe(
+      distinctUntilChanged(),
+      filter(v => !!v),
+    );
+    const tabTick$      = this.tabSelected$; // no dedup — intentional
+
+    merge(typedTick$, tabTick$).pipe(
+      debounceTime(750),
+      filter(() => this.editMode && !this.tabSession?.enteredDir),
+      filter(v => {
+        const n = normalizePath(v);
+        return !!v && !n.endsWith('/') && n !== '/' && !/^[A-Za-z]:\/$/.test(n);
+      }),
+      switchMap(v => from(this.tryAppendSlash(v))),
+      takeUntil(this.destroy$),
+    ).subscribe();
+
     document.addEventListener('mousedown', this.onEditModeOutsideClick, { capture: true });
   }
 
@@ -691,25 +821,20 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     }
   }
 
-  private onEditModeOutsideClick = (e: MouseEvent): void => {
-    if (this.editMode && !this.elRef.nativeElement.contains(e.target as Node)) {
-      this.exitEditMode(false);
-    }
-  };
-
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['tabId'] && !changes['tabId'].firstChange) {
       this.closeAll();
       if (this.editMode) {
         clearTimeout(this.blurTimer);
-        this.editMode = false;
-        this.editValue = '';
+        this.editMode    = false;
+        this.editValue   = '';
         this.suggestions = [];
-        this.acIdx = -1;
+        this.acIdx       = -1;
+        this.tabSession  = null;
       }
       const rawNext = changes['initialPath']?.currentValue ?? this.initialPath;
       this.currentPath = normalizePath(rawNext);
-      this.rebuildSegments();  // archiveStack already updated in this cycle
+      this.rebuildSegments();
       this.cdr.detectChanges();
       return;
     }
@@ -727,77 +852,50 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   ngOnDestroy(): void {
     clearTimeout(this.blurTimer);
     clearTimeout(this.copiedTimer);
-    clearTimeout(this.slashIdleTimer);
     this.destroy$.next();
     this.destroy$.complete();
     document.removeEventListener('mousedown', this.onEditModeOutsideClick, { capture: true } as any);
-    // Clean up wheel listener
     const el = this.crumbsEl?.nativeElement;
-    if (el && this.wheelListener) {
-      el.removeEventListener('wheel', this.wheelListener);
-    }
+    if (el && this.wheelListener) el.removeEventListener('wheel', this.wheelListener);
   }
 
-  // ── Segments ─────────────────────────────────────────────────────────
+  // ── Segments ──────────────────────────────────────────────────────────────
 
   private rebuildSegments(): void {
     const { fsDirPath, archiveInnerParts } = parsePathWithArchives(this.currentPath);
 
-    // Build base segments normally
     this.segments = archiveInnerParts.length > 0
       ? buildSegmentsFromParsedPath(fsDirPath, archiveInnerParts)
       : buildSegments(this.currentPath);
 
     let insideArchive = false;
-
     for (let i = 0; i < this.segments.length; i++) {
       const seg = this.segments[i];
       const isRealArchive = isArchive(seg.label);
-
-      this.segments[i] = {
-        ...seg,
-        isArchiveRoot: isRealArchive,
-        isArchiveInner: insideArchive
-      };
-
-      // once we hit an archive file, everything after it is inside archive
+      this.segments[i] = { ...seg, isArchiveRoot: isRealArchive, isArchiveInner: insideArchive };
       if (isRealArchive) insideArchive = true;
     }
 
     this.shouldScrollRight = true;
   }
 
-  // ── Click handlers ───────────────────────────────────────────────────
+  // ── Segment click handlers ────────────────────────────────────────────────
 
-  /**
-   * Regular FS segment click.
-   * • last segment  → enter edit mode; do NOT stopPropagation so dblclick still bubbles.
-   * • non-last      → navigate or open in other pane (Ctrl+click); stopPropagation only here.
-   */
   onSegClick(seg: PathSegment, e: MouseEvent): void {
     e.stopPropagation();
     this.closeAll();
-
     if (seg.isArchiveRoot || seg.isArchiveInner) {
-      // Delegate to archive click handler
-      if (seg.fullPath !== this.currentPath) {
-        this.archiveSegmentClick.emit(seg.fullPath);
-      } else {
-        this.enterEditMode();
-      }
+      seg.fullPath !== this.currentPath
+        ? this.archiveSegmentClick.emit(seg.fullPath)
+        : this.enterEditMode();
       return;
     }
-
-    if (seg.fullPath !== this.currentPath) {
-      this.navigateTo(seg.fullPath);
-    } else {
-      this.enterEditMode();
-    }
+    seg.fullPath !== this.currentPath ? this.navigateTo(seg.fullPath) : this.enterEditMode();
   }
 
   getSegmentLabelParts(seg: PathSegment): { main: string; ext?: string } {
     if (!seg) return { main: '' };
-    const cleaned = (seg.fullPath || seg.label || '').replace(/\/+$/, '');
+    const cleaned  = (seg.fullPath || seg.label || '').replace(/\/+$/, '');
     const lastPart = cleaned.split('/').pop() || seg.label || '';
     const idx = lastPart.lastIndexOf('.');
     if (idx > 0 && idx < lastPart.length - 1) {
@@ -820,12 +918,6 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     this.archiveSegmentClick.emit(seg.fullPath);
   }
 
-  /**
-   * Drive letter click.
-   * • last segment (e.g. "C:" with no sub-path) → enter edit mode.
-   * • non-last → open drive switcher dropdown.
-   * No stopPropagation on last so dblclick still works.
-   */
   onDriveLetterClick(seg: PathSegment, isLast: boolean, e: MouseEvent): void {
     if (isLast) { this.enterEditMode(); return; }
     e.stopPropagation();
@@ -833,18 +925,14 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     this.closeAll();
     const rect = (e.target as HTMLElement).getBoundingClientRect();
     this.driveMenuLeft = rect.left;
-    this.driveMenuTop = rect.bottom + 4;
+    this.driveMenuTop  = rect.bottom + 4;
     this.showDriveMenu = true;
     if (this.drives.length === 0 && !this.drivesLoading) this.loadDrives();
-    // showDriveMenu bound via [(isOpen)] on appDropdown — no manual registration needed
   }
-  /**
-   * Click on the .ab-crumbs or .ab-crumbs-inner wrapper (empty space) → edit mode.
-   */
+
   onCrumbsClick(e: MouseEvent): void {
-    const target = e.target as HTMLElement;
-    if (target.classList.contains('ab-crumbs') ||
-      target.classList.contains('ab-crumbs-inner')) {
+    const t = e.target as HTMLElement;
+    if (t.classList.contains('ab-crumbs') || t.classList.contains('ab-crumbs-inner')) {
       e.stopPropagation();
       this.enterEditMode();
     }
@@ -853,13 +941,11 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   private setupWheelScroll(): void {
     const el = this.crumbsEl?.nativeElement;
     if (!el) return;
-    this.wheelListener = (e: WheelEvent) => {
-      e.preventDefault();
-      el.scrollLeft += e.deltaY || e.deltaX;
-    };
+    this.wheelListener = (e: WheelEvent) => { e.preventDefault(); el.scrollLeft += e.deltaY || e.deltaX; };
     el.addEventListener('wheel', this.wheelListener, { passive: false });
   }
-  // ── Drive handling ───────────────────────────────────────────────────
+
+  // ── Drive handling ────────────────────────────────────────────────────────
 
   switchToDrive(drive: DriveInfo): void {
     this.showDriveMenu = false;
@@ -880,35 +966,28 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   async loadDrives(): Promise<void> {
     if (!this.isWin) return;
     this.drivesLoading = true;
-    try {
-      this.drives = await this.apiService.listDrives() || [];
-    } catch { this.drives = []; }
+    try { this.drives = await this.apiService.listDrives() || []; }
+    catch { this.drives = []; }
     finally { this.drivesLoading = false; this.cdr.detectChanges(); }
   }
 
-  // ── Chevron / siblings ───────────────────────────────────────────────
-
-  onArchiveChevClick(idx: number, seg: PathSegment, e: MouseEvent): void {
-    this.toggleChev(idx, seg, e);
-  }
+  // ── Chevron / siblings ────────────────────────────────────────────────────
 
   async toggleChev(idx: number, seg: PathSegment, e: MouseEvent): Promise<void> {
     e.stopPropagation();
-    this.showPinDrop = false;
+    this.showPinDrop   = false;
     this.showDriveMenu = false;
 
     if (this.chevIdx === idx) { this.chevIdx = -1; this.sibOpen = false; this.siblings = []; return; }
 
     const rect = (e.target as HTMLElement).getBoundingClientRect();
     this.sibDropLeft = Math.round(rect.left);
-    this.sibDropTop = Math.round(rect.bottom + 4);
-    this.chevIdx = idx;
-    this.siblings = [];
+    this.sibDropTop  = Math.round(rect.bottom + 4);
+    this.chevIdx    = idx;
+    this.siblings   = [];
     this.sibLoading = true;
 
-    const activeChildPath = idx + 1 < this.segments.length
-      ? this.segments[idx + 1].fullPath
-      : null;
+    const activeChildPath = idx + 1 < this.segments.length ? this.segments[idx + 1].fullPath : null;
 
     try {
       if (seg.isArchiveRoot || seg.isArchiveInner) {
@@ -925,64 +1004,49 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     } finally {
       this.sibLoading = false;
       this.cdr.detectChanges();
-      // Register once; getter resolves live element at event time
       this.sibOpen = true;
     }
   }
 
-  private async loadArchiveSiblings(
-    seg: PathSegment,
-    activeChildPath: string | null,
-  ): Promise<void> {
+  private async loadArchiveSiblings(seg: PathSegment, activeChildPath: string | null): Promise<void> {
     const { fsDirPath, archiveInnerParts } = parsePathWithArchives(this.currentPath);
     if (!archiveInnerParts.length) { this.sibLoading = false; return; }
 
-    // Build a minimal stack from the parsed path so resolveBrowseTarget can work
-    // without needing live ArchiveFrame objects with listing data.
     const syntheticStack: ArchiveFrame[] = [{
-      fsPath: fsDirPath,
-      nestedChain: [],
+      fsPath: fsDirPath, nestedChain: [],
       innerPath: archiveInnerParts.join('/'),
       listing: { archivePath: fsDirPath, innerPath: archiveInnerParts.join('/'), entries: [] },
     }];
 
     const target = this.archiveService.resolveBrowseTarget(
-      { name: seg.label, fullPath: seg.fullPath },
-      syntheticStack,
+      { name: seg.label, fullPath: seg.fullPath }, syntheticStack,
     );
     if (!target) { this.sibLoading = false; return; }
 
     try {
       const listing = await this.archiveService.navigateInto(
-        { ...target.frame, nestedChain: target.browseChain },
-        target.browseInnerPath,
+        { ...target.frame, nestedChain: target.browseChain }, target.browseInnerPath,
       );
       const activeChildVirtual = activeChildPath?.replace(/\\/g, '/') ?? null;
       const fsPath = fsDirPath.replace(/\\/g, '/');
 
       this.siblings = listing.listing.entries
-        .filter(e =>
-          e.type === FileType.DIRECTORY ||
-          (e.type === FileType.ARCHIVE) ||
-          isArchive(e.name)
-        )
+        .filter(e => e.type === FileType.DIRECTORY || e.type === FileType.ARCHIVE || isArchive(e.name))
         .map(e => {
           const sibInnerPath = target.browseInnerPath ? `${target.browseInnerPath}/${e.name}` : e.name;
-          const chainPart = target.browseChain.length ? `/${target.browseChain.join('/')}` : '';
-          const virtualSibPath = `${fsPath}${chainPart}/${sibInnerPath}`.replace(/\/+/g, '/');
+          const chainPart    = target.browseChain.length ? `/${target.browseChain.join('/')}` : '';
+          const virtualPath  = `${fsPath}${chainPart}/${sibInnerPath}`.replace(/\/+/g, '/');
           return {
-            name: e.name,
-            path: virtualSibPath,
+            name: e.name, path: virtualPath,
             isArchive: e.type === FileType.ARCHIVE || isArchive(e.name),
             isCurrent: activeChildVirtual
-              ? activeChildVirtual === virtualSibPath ||
-              activeChildVirtual.startsWith(virtualSibPath + '/') ||
-              activeChildVirtual.endsWith('/' + e.name)
+              ? activeChildVirtual === virtualPath ||
+                activeChildVirtual.startsWith(virtualPath + '/') ||
+                activeChildVirtual.endsWith('/' + e.name)
               : false,
           } as SiblingEntry;
         })
         .sort((a, b) => a.name.localeCompare(b.name));
-
     } catch {
       this.siblings = [];
     } finally {
@@ -992,17 +1056,20 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   }
 
   onSibClick(s: SiblingEntry): void {
-    this.chevIdx = -1;
+    this.chevIdx  = -1;
     this.siblings = [];
     const { archiveInnerParts } = parsePathWithArchives(this.currentPath);
-    if (archiveInnerParts.length > 0) {
-      this.archiveSegmentClick.emit(s.path);
-    } else {
-      this.navigateTo(s.path);
-    }
+    archiveInnerParts.length > 0
+      ? this.archiveSegmentClick.emit(s.path)
+      : this.navigateTo(s.path);
   }
 
-  // ── Pins ─────────────────────────────────────────────────────────────
+  onSibOpenChange(open: boolean): void {
+    this.sibOpen = open;
+    if (!open) { this.chevIdx = -1; this.siblings = []; }
+  }
+
+  // ── Pins ──────────────────────────────────────────────────────────────────
 
   private loadPins(): void {
     try { this.pinnedPaths = JSON.parse(localStorage.getItem(PINNED_KEY) || '[]'); }
@@ -1010,7 +1077,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   }
 
   private savePins(): void {
-    try { localStorage.setItem(PINNED_KEY, JSON.stringify(this.pinnedPaths)); } catch { }
+    try { localStorage.setItem(PINNED_KEY, JSON.stringify(this.pinnedPaths)); } catch {}
   }
 
   togglePin(): void {
@@ -1026,17 +1093,9 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     this.savePins();
   }
 
-  onSibOpenChange(open: boolean): void {
-    this.sibOpen = open;
-    if (!open) { this.chevIdx = -1; this.siblings = []; }
-  }
-
   togglePinDrop(): void {
     this.showPinDrop = !this.showPinDrop;
-    if (this.showPinDrop) {
-      this.chevIdx = -1;
-      this.showDriveMenu = false;
-    }
+    if (this.showPinDrop) { this.chevIdx = -1; this.showDriveMenu = false; }
   }
 
   removePin(p: PinnedPath, e: MouseEvent): void {
@@ -1049,27 +1108,26 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     return !!seg && this.pinnedPaths.some(p => p.path === seg.fullPath);
   }
 
-  // ── Edit mode ────────────────────────────────────────────────────────
+  // ── Edit mode ─────────────────────────────────────────────────────────────
 
   enterEditMode(): void {
     this.closeAll();
-    this.editMode = true;
-    this.editValue = this.currentPath;
+    this.editMode    = true;
+    this.editValue   = this.currentPath;
     this.suggestions = [];
-    this.acIdx = -1;
-    this.tabCompletionSession = null;
+    this.acIdx       = -1;
+    this.tabSession  = null;
     this.cdr.detectChanges();
   }
 
   exitEditMode(commit: boolean): void {
     clearTimeout(this.blurTimer);
-    clearTimeout(this.slashIdleTimer);
     const val = normalizePath(this.editValue);
-    this.editMode = false;
-    this.editValue = '';
+    this.editMode    = false;
+    this.editValue   = '';
     this.suggestions = [];
-    this.acIdx = -1;
-    this.tabCompletionSession = null;
+    this.acIdx       = -1;
+    this.tabSession  = null;
     if (commit && val && val !== this.currentPath) this.navigateTo(val);
   }
 
@@ -1077,18 +1135,18 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     this.blurTimer = setTimeout(() => this.exitEditMode(false), 170);
   }
 
+  /**
+   * Every keystroke from the input.
+   * When the user types (applyingTab=false): clear tabSession, emit userTyped$.
+   * When TAB writes (applyingTab=true): no-op — tabSession managed by TAB methods.
+   */
   onEditChange(v: string): void {
-    clearTimeout(this.slashIdleTimer);
     this.editValue = v;
-    if (!this.applyingTabCompletion) {
-      this.tabCompletionSession = null;
+    if (!this.applyingTab) {
+      this.tabSession = null;
+      this.userTyped$.next(v);
     }
-    this.editChange$.next(this.normalizeEditQuery(v));
-
-    // Don't reset timer here - we want to start fresh after user stops typing
-    // The timer will be reset when they press Tab or select a candidate
   }
-
 
   async onEditKeyDown(e: KeyboardEvent): Promise<void> {
     switch (e.key) {
@@ -1100,405 +1158,240 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
           this.exitEditMode(true);
         }
         break;
-      case 'Escape': e.preventDefault(); this.exitEditMode(false); break;
-      case 'ArrowDown': e.preventDefault(); this.acIdx = Math.min(this.acIdx + 1, this.suggestions.length - 1); break;
-      case 'ArrowUp': e.preventDefault(); this.acIdx = Math.max(this.acIdx - 1, -1); break;
+      case 'Escape':
+        e.preventDefault();
+        this.exitEditMode(false);
+        break;
+      case 'ArrowDown':
+        e.preventDefault();
+        this.acIdx = Math.min(this.acIdx + 1, this.suggestions.length - 1);
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        this.acIdx = Math.max(this.acIdx - 1, -1);
+        break;
       case 'Tab':
         e.preventDefault();
-        await this.cycleTabSuggestion(e.shiftKey ? -1 : 1);
-        this.resetSlashIdleTimer(); // Reset timer after tab navigation
+        await this.cycleTab(e.shiftKey ? -1 : 1);
         break;
     }
   }
 
-  /**
-   * POLISHED TAB COMPLETION LOGIC
-   * Clean, modular implementation with clear cases for each scenario
-   */
-  private async cycleTabSuggestion(direction: 1 | -1): Promise<void> {
-    const currentValue = this.editValue || '';
-    const normalizedQuery = this.normalizeEditQuery(currentValue);
-    const normalizedPath = normalizePath(normalizedQuery);
+  // ── Tab completion ────────────────────────────────────────────────────────
 
-    // Initialize or get existing session
-    let session = this.tabCompletionSession;
-    let candidates = session?.candidates;
+  private async cycleTab(direction: 1 | -1): Promise<void> {
+    const raw            = this.editValue || '';
+    const normalizedPath = normalizePath(raw);
 
-    if (!candidates?.length) {
-      candidates = await this.resolveTabCandidates(normalizedQuery);
-      session = { candidates, index: -1, enteredDir: true };
-      this.tabCompletionSession = session;
+    // Reuse existing session — never re-fetch if one already exists.
+    // tryAppendSlash() sets enteredDir=true + fresh children; throwing that
+    // away here breaks the "TAB selects first child" step.
+    if (!this.tabSession || this.tabSession.candidates.length === 0) {
+      const candidates = await this.fetchChildren(raw);
+      this.tabSession = { candidates, index: -1, enteredDir: false };
     }
 
-    if (!candidates.length) return;
+    if (this.tabSession.candidates.length === 0) return;
 
-    // Find current selection index
-    const currentIndex = this.findCandidateIndex(candidates, normalizedPath);
+    const currentIndex = this.findSessionIndex(normalizedPath);
 
-    if (direction > 0) {
-      await this.handleTabForward(candidates, session!, currentIndex, normalizedPath);
-    } else {
-      await this.handleTabBackward(candidates, session!, currentIndex, normalizedPath);
-    }
+    direction > 0
+      ? this.tabForward(currentIndex)
+      : await this.tabBackward(currentIndex, normalizedPath);
   }
 
   /**
-   * Handle TAB (forward) navigation
+   * TAB forward.
+   *
+   * enteredDir=true  → idle-slash appended "/" and loaded children.
+   *                    Select candidates[0] (no extra slash).
+   *                    Set enteredDir=false so next TABs cycle siblings.
+   *                    Emit tabSelected$ to restart the 1 s idle window.
+   *
+   * enteredDir=false → cycle to next sibling; emit tabSelected$.
    */
- private async handleTabForward(
-  candidates: PathSuggestion[],
-  session: { candidates: PathSuggestion[]; index: number; enteredDir: boolean; },
-  currentIndex: number,
-  normalizedPath: string
-): Promise<void> {
-  // Case 1: Just entered a directory (via slash append) - select first child
-  // This allows cycling through children
-  if (session.enteredDir) {
-    // We're in "/path/to/folder/" with children as candidates
-    // Pressing TAB should select the first child (not enter it yet)
-    this.selectCandidate(candidates, 0, candidates, false);
-    return;
+  private tabForward(currentIndex: number): void {
+    const session   = this.tabSession!;
+    const nextIndex = session.enteredDir
+      ? 0
+      : (currentIndex + 1) % session.candidates.length;
+
+    this.applyCandidate(session.candidates[nextIndex], session.candidates, false);
   }
-  
-  // Case 2: Normal next candidate - cycle through siblings
-  const nextIndex = (currentIndex + 1) % candidates.length;
-  this.selectCandidate(candidates, nextIndex, candidates, false);
-}
 
   /**
-   * Handle SHIFT+TAB (backward) navigation
+   * Shift+TAB backward.
+   *
+   * enteredDir=true  → undo the slash: strip it, reload parent siblings,
+   *                    land on the dir we came from, restart idle.
+   *
+   * enteredDir=false → cycle to previous sibling; emit tabSelected$.
    */
-  private async handleTabBackward(
-    candidates: PathSuggestion[],
-    session: { candidates: PathSuggestion[]; index: number; enteredDir: boolean; },
-    currentIndex: number,
-    normalizedPath: string
-  ): Promise<void> {
-    // Case 1: In enteredDir state (directory with slash) - go to parent and remove slash
+  private async tabBackward(currentIndex: number, normalizedPath: string): Promise<void> {
+    const session = this.tabSession!;
+
     if (session.enteredDir) {
-      await this.navigateToParent(normalizedPath);
+      const withoutSlash = normalizedPath.replace(/\/+$/, '');
+      const lastSlash    = withoutSlash.lastIndexOf('/');
+      const parentDir    = lastSlash >= 0 ? withoutSlash.slice(0, lastSlash + 1) : '/';
+
+      const siblings   = await this.fetchChildren(parentDir);
+      const landingIdx = Math.max(0, siblings.findIndex(c => normalizePath(c.path) === withoutSlash));
+
+      this.writeTabValue(withoutSlash);
+      this.tabSession  = { candidates: siblings, index: landingIdx, enteredDir: false };
+      this.suggestions = siblings;
+      this.acIdx       = landingIdx;
+      this.cdr.detectChanges();
+
+      // Restart idle from this moment so slash fires 1 s after Shift+TAB
+      this.tabSelected$.next(withoutSlash);
       return;
     }
 
-    // Case 2: At first candidate - wrap to last
-    if (currentIndex === 0) {
-      this.selectCandidate(candidates, candidates.length - 1, candidates, false);
-      return;
-    }
+    // currentIndex <= 0 covers "nothing selected" (-1) and "first item" (0)
+    const prevIndex = currentIndex <= 0
+      ? session.candidates.length - 1
+      : currentIndex - 1;
 
-    // Case 3: Normal previous candidate
-    this.selectCandidate(candidates, currentIndex - 1, candidates, false);
+    this.applyCandidate(session.candidates[prevIndex], session.candidates, false);
   }
 
   /**
-   * Enter a directory - load its children and set enteredDir state
+   * Apply a candidate: write its path to editValue, update session state,
+   * and emit to tabSelected$ to restart the idle-slash debounce from now.
    */
-  private async enterDirectory(path: string): Promise<void> {
-  // Ensure we don't add double slashes
-  // path comes as "/parent/child" from the candidate
-  // Add trailing slash only if not already present
-  const directoryPath = path.endsWith('/') ? path : path + '/';
-  
-  // Update UI with directory path
-  this.applyingTabCompletion = true;
-  this.editValue = directoryPath;
-  this.editChange$.next(directoryPath);
-  
-  // Load children of this directory
-  const children = await this.resolveTabCandidates(directoryPath);
-  
-  // Create new session with children AND set enteredDir=true
-  this.tabCompletionSession = {
-    candidates: children,
-    index: -1,
-    enteredDir: true
-  };
-  
-  this.suggestions = children;
-  this.acIdx = -1;
-  this.applyingTabCompletion = false;
-  this.cdr.detectChanges();
-  
-  this.resetSlashIdleTimer();
-}
+  private applyCandidate(
+    candidate: PathSuggestion,
+    sessionCandidates: PathSuggestion[],
+    enteredDir: boolean,
+  ): void {
+    if (!candidate) return;
+    const index = sessionCandidates.indexOf(candidate);
 
+    this.writeTabValue(candidate.path);
+    this.tabSession  = { candidates: sessionCandidates, index, enteredDir };
+    this.suggestions = sessionCandidates;
+    this.acIdx       = index;
+    this.cdr.detectChanges();
 
+    // Restart idle-slash timer from this TAB selection.
+    // No distinctUntilChanged on tabSelected$ — same path can be re-selected.
+    this.tabSelected$.next(candidate.path);
+  }
 
   /**
-   * Navigate to parent directory - load parent candidates
+   * Write a value to editValue without touching userTyped$ or tabSession.
+   * The applyingTab flag makes onEditChange a no-op for this write.
    */
-  private async navigateToParent(currentPath: string): Promise<void> {
-  // Remove trailing slashes to get clean path
-  const cleanPath = currentPath.replace(/\/+$/, '');
-  
-  // Find parent directory
-  const lastSlashIndex = cleanPath.lastIndexOf('/');
-  // Ensure we don't create double slashes
-  const parentPath = lastSlashIndex >= 0 
-    ? cleanPath.slice(0, lastSlashIndex + 1) 
-    : '/';
-  
-  // Load parent candidates
-  const parentCandidates = await this.resolveTabCandidates(parentPath);
-  
-  // Find the index of the current directory in parent candidates
-  const dirIndex = parentCandidates.findIndex(
-    c => normalizePath(c.path) === cleanPath
-  );
-  
-  // Update UI with parent path
-  this.applyingTabCompletion = true;
-  this.editValue = parentPath;
-  this.editChange$.next(parentPath);
-  
-  this.tabCompletionSession = {
-    candidates: parentCandidates,
-    index: dirIndex >= 0 ? dirIndex : parentCandidates.length - 1,
-    enteredDir: false
-  };
-  
-  this.suggestions = parentCandidates;
-  this.acIdx = dirIndex >= 0 ? dirIndex : parentCandidates.length - 1;
-  this.applyingTabCompletion = false;
-  this.cdr.detectChanges();
-  
-  this.resetSlashIdleTimer();
-}
+  private writeTabValue(value: string): void {
+    this.applyingTab = true;
+    this.editValue   = value;
+    this.applyingTab = false;
+  }
 
-  /**
-   * Select a candidate and update UI
-   */
-  private selectCandidate(
-  candidates: PathSuggestion[],
-  index: number,
-  sessionCandidates: PathSuggestion[],
-  enteredDir: boolean
-): void {
-  const selected = candidates[index];
-  if (!selected) return;
-  
-  // Just update the edit value with the selected path
-  // Keep it as a path without trailing slash for selection
-  const value = this.normalizeEditQuery(selected.path);
-  
-  this.applyingTabCompletion = true;
-  this.editValue = value;
-  this.editChange$.next(value);
-  
-  // Update session - we're now selecting a candidate, not in enteredDir mode
-  this.tabCompletionSession = {
-    candidates: sessionCandidates,
-    index,
-    enteredDir
-  };
-  
-  this.suggestions = sessionCandidates;
-  this.acIdx = index;
-  this.applyingTabCompletion = false;
-  this.cdr.detectChanges();
-  
-  // Reset the idle timer
-  this.resetSlashIdleTimer();
-}
-
-  /**
-   * Find the index of the current path in candidates
-   */
-  private findCandidateIndex(candidates: PathSuggestion[], normalizedPath: string): number {
-    const pathWithoutTrailingSlash = normalizedPath.replace(/\/$/, '');
-    return candidates.findIndex(
-      c => normalizePath(c.path) === pathWithoutTrailingSlash
+  /** Find the index of normalizedPath (stripped of trailing slash) in the session. */
+  private findSessionIndex(normalizedPath: string): number {
+    const stripped = normalizedPath.replace(/\/$/, '');
+    return (this.tabSession?.candidates ?? []).findIndex(
+      c => normalizePath(c.path) === stripped,
     );
   }
 
+  // ── Idle-slash ────────────────────────────────────────────────────────────
+
   /**
-   * Reset the idle timer for slash append
+   * Called by the idle-slash pipeline after 1 s of inactivity on either
+   * userTyped$ or tabSelected$.
+   *
+   * Fetches children of `value` directly (never reuses tabSession — it holds
+   * siblings, not children). If the directory exists and has children,
+   * appends "/" and sets up a fresh session with enteredDir=true.
    */
-  private resetSlashIdleTimer(): void {
-    clearTimeout(this.slashIdleTimer);
-    this.slashIdleTimer = setTimeout(() => {
-      this.appendSlashAfterInactivity();
-    }, this.SLASH_IDLE_TIMEOUT);
+  private async tryAppendSlash(value: string): Promise<void> {
+    if (!this.editMode) return;
+
+    // Always fetch fresh children — never reuse tabSession here, which holds
+    // the *sibling* list from the current level, not children of the selected path.
+    const children = await this.fetchChildren(value + '/');
+    if (children.length === 0) return;
+
+    const withSlash = value.endsWith('/') ? value : value + '/';
+
+    this.writeTabValue(withSlash);
+
+    this.tabSession  = { candidates: children, index: -1, enteredDir: true };
+    this.suggestions = children;
+    this.acIdx       = -1;
+    this.cdr.detectChanges();
   }
+
+  // ── Directory fetch ───────────────────────────────────────────────────────
 
   /**
- * Append slash after inactivity if current path exists as a folder or archive
- * Then load and show children subfolders as candidates
- */
-private async appendSlashAfterInactivity(): Promise<void> {
-  if (!this.editMode) return;
-  
-  const currentValue = this.editValue || '';
-  if (!currentValue) return;
-  
-  const normalizedPath = normalizePath(currentValue);
-  
-  // Don't append slash if already ends with slash or is root
-  if (normalizedPath.endsWith('/') || 
-      normalizedPath === '/' || 
-      /^[A-Za-z]:\/$/.test(normalizedPath)) {
-    return;
-  }
-  
-  try {
-    // First check if the path exists by getting its children
-    const children = await this.resolveTabCandidates(currentValue);
-    
-    if (children.length > 0) {
-      // Path exists and has children - append slash
-      const withSlash = currentValue.endsWith('/') 
-        ? currentValue 
-        : currentValue + '/';
-      
-      this.applyingTabCompletion = true;
-      this.editValue = withSlash;
-      this.editChange$.next(withSlash);
-      
-      // IMPORTANT: We want to cycle through the children, so set candidates to children
-      // and set enteredDir=true so next TAB goes to first child
-      this.tabCompletionSession = {
-        candidates: children,  // The children are what we want to cycle through
-        index: -1,
-        enteredDir: true  // Next TAB will go to first child
-      };
-      
-      // Show children in suggestion dropdown for visual feedback
-      this.suggestions = children;
-      this.acIdx = -1;
-      this.applyingTabCompletion = false;
-      this.cdr.detectChanges();
-      
-      console.debug(`Appended slash to directory, ready to cycle through ${children.length} children`);
-    }
-  } catch (error) {
-    // Path doesn't exist - do nothing
-    console.debug(`Path not accessible: ${currentValue}`);
-  }
-}
-
-  private async resolveTabCandidates(query: string): Promise<PathSuggestion[]> {
-    const sessionCandidates = this.tabCompletionSession?.candidates ?? [];
-    if (sessionCandidates.length > 0) {
-      const sessionIdx = sessionCandidates.findIndex(s => this.matchesCompletionQuery(query, s.path));
-      if (sessionIdx >= 0) {
-        return sessionCandidates;
-      }
-    }
-    return this.fetchDirectoryTabCandidates(query);
-  }
-
-  private matchesCompletionQuery(query: string, suggestionPath: string): boolean {
-    const normalizedQuery = this.normalizeEditQuery(query);
-    const normalizedPath = this.normalizeEditQuery(suggestionPath);
-    return normalizedQuery === normalizedPath || normalizedQuery === `${normalizedPath}/`;
-  }
-
-  private async fetchDirectoryTabCandidates(query: string): Promise<PathSuggestion[]> {
-    const { dirPath, prefix } = this.extractCompletionContext(query);
+   * List immediate child directories for a query string.
+   * Splits the query into parent-dir + prefix, lists the parent, filters by prefix.
+   */
+  private async fetchChildren(query: string): Promise<PathSuggestion[]> {
+    const { dirPath, prefix } = this.splitQueryContext(query);
     if (!dirPath) return [];
 
     try {
-      const listing = await this.apiService.listDirectory(dirPath, false);
+      const listing     = await this.apiService.listDirectory(dirPath, false);
       const prefixLower = prefix.toLowerCase();
 
-      const baseCandidates = listing.entries
-        .filter(entry =>
-          entry.type === FileType.DIRECTORY &&
-          entry.name.toLowerCase().startsWith(prefixLower)
-        )
-        .map(entry => ({
-          path: this.joinCompletionPath(dirPath, entry.name),
-          displayName: entry.name,
-          matchType: 'directory' as const,
-          score: 100,
-          exists: true,
+      return listing.entries
+        .filter(e => e.type === FileType.DIRECTORY && e.name.toLowerCase().startsWith(prefixLower))
+        .map(e => ({
+          path:        this.joinPath(dirPath, e.name),
+          displayName: e.name,
+          matchType:   'directory' as const,
+          score:       100,
+          exists:      true,
         }))
         .sort((a, b) => a.path.localeCompare(b.path));
-
-      return baseCandidates;
     } catch {
       return [];
     }
   }
 
-  private extractCompletionContext(query: string): { dirPath: string; prefix: string } {
+  /**
+   * Split a query into the directory to list and the filename prefix to filter by.
+   *   "/home/use"  → { dirPath: "/home/", prefix: "use" }
+   *   "/home/"     → { dirPath: "/home/", prefix: "" }
+   *   "C:"         → { dirPath: "C:/",    prefix: "" }
+   */
+  private splitQueryContext(query: string): { dirPath: string; prefix: string } {
     const q = (query || '').replace(/\\/g, '/');
     if (!q) return { dirPath: '/', prefix: '' };
     if (q.endsWith('/')) return { dirPath: q, prefix: '' };
 
     const lastSlash = q.lastIndexOf('/');
-    if (lastSlash >= 0) {
-      return { dirPath: q.slice(0, lastSlash + 1), prefix: q.slice(lastSlash + 1) };
-    }
-    if (/^[A-Za-z]:$/.test(q)) {
-      return { dirPath: `${q}/`, prefix: '' };
-    }
+    if (lastSlash >= 0) return { dirPath: q.slice(0, lastSlash + 1), prefix: q.slice(lastSlash + 1) };
+    if (/^[A-Za-z]:$/.test(q)) return { dirPath: `${q}/`, prefix: '' };
     return { dirPath: '/', prefix: q };
   }
 
-  private joinCompletionPath(dirPath: string, name: string): string {
-  // Remove trailing slash from dirPath if present
-  const cleanDirPath = dirPath.replace(/\/+$/, '');
-  // Add single slash and name
-  const joined = `${cleanDirPath}/${name}`.replace(/\\/g, '/');
-  
-  if (joined.startsWith('//')) {
-    return `//${joined.slice(2).replace(/\/{2,}/g, '/')}`;
-  }
-  return joined.replace(/\/{2,}/g, '/');
-}
-
-  private normalizeEditQuery(value: string): string {
-  const raw = (value || '').replace(/\\/g, '/');
-  // First normalize the path (removes double slashes)
-  const normalized = normalizePath(raw);
-  
-  if (!raw.endsWith('/')) {
-    return normalized;
-  }
-  
-  // If it should end with slash, ensure we have exactly one
-  if (normalized === '/' || /^[A-Za-z]:\/$/.test(normalized)) {
-    return normalized;
-  }
-  
-  // Add trailing slash if needed, but ensure no double slash
-  return normalized.endsWith('/') ? normalized : `${normalized}/`;
-}
-
-  /**
-   * Component-level keydown — receives Ctrl+L and Alt+D because
-   * ShortcutRegistryService registers both with allowBubble:true,
-   * so the global listener calls preventDefault() but NOT stopPropagation().
-   */
-  onHostKeyDown(e: KeyboardEvent): void {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'l') { e.preventDefault(); this.enterEditMode(); }
-    if (e.altKey && e.key === 'd') { e.preventDefault(); this.enterEditMode(); }
+  private joinPath(dirPath: string, name: string): string {
+    const clean  = dirPath.replace(/\/+$/, '');
+    const joined = `${clean}/${name}`.replace(/\\/g, '/');
+    if (joined.startsWith('//')) return `//${joined.slice(2).replace(/\/{2,}/g, '/')}`;
+    return joined.replace(/\/{2,}/g, '/');
   }
 
-  // ── Autocomplete ─────────────────────────────────────────────────────
-
-  private async fetchSuggestions(path: string): Promise<void> {
-    if (!path?.trim()) { this.suggestions = []; return; }
-    try {
-      this.suggestions = await this.pathHistoryService.getSuggestions(path, this.currentPath);
-      this.acIdx = -1;
-      this.cdr.detectChanges();
-    } catch { this.suggestions = []; }
-  }
+  // ── History suggestions ───────────────────────────────────────────────────
 
   acceptSuggestion(s: PathSuggestion, e?: MouseEvent): void {
     e?.preventDefault();
     clearTimeout(this.blurTimer);
-    clearTimeout(this.slashIdleTimer);
-    this.editMode = false;
-    this.editValue = '';
+    this.editMode    = false;
+    this.editValue   = '';
     this.suggestions = [];
-    this.tabCompletionSession = null;
+    this.tabSession  = null;
     this.navigateTo(normalizePath(s.path));
   }
 
-  // ── Context menu ─────────────────────────────────────────────────────
+  // ── Context menu ──────────────────────────────────────────────────────────
 
   onSegRightClick(seg: PathSegment, idx: number, e: MouseEvent): void {
     e.preventDefault(); e.stopPropagation();
@@ -1507,8 +1400,8 @@ private async appendSlashAfterInactivity(): Promise<void> {
   }
 
   ctxNavigateTo(): void { if (this.ctxMenu.segment) this.navigateTo(this.ctxMenu.segment.fullPath); this.closeCtx(); }
-  async ctxCopyPath(): Promise<void> { if (this.ctxMenu.segment) await navigator.clipboard.writeText(this.ctxMenu.segment.fullPath).catch(() => { }); this.closeCtx(); }
-  async ctxCopyName(): Promise<void> { if (this.ctxMenu.segment) await navigator.clipboard.writeText(this.ctxMenu.segment.label).catch(() => { }); this.closeCtx(); }
+  async ctxCopyPath(): Promise<void> { if (this.ctxMenu.segment) await navigator.clipboard.writeText(this.ctxMenu.segment.fullPath).catch(() => {}); this.closeCtx(); }
+  async ctxCopyName(): Promise<void> { if (this.ctxMenu.segment) await navigator.clipboard.writeText(this.ctxMenu.segment.label).catch(() => {}); this.closeCtx(); }
   ctxOpenOtherPane(): void { if (this.ctxMenu.segment) this.openInOtherPane.emit(this.ctxMenu.segment.fullPath); this.closeCtx(); }
 
   ctxPinPath(): void {
@@ -1526,7 +1419,7 @@ private async appendSlashAfterInactivity(): Promise<void> {
 
   private closeCtx(): void { this.ctxMenu = { ...CTX_MENU_CLOSED }; }
 
-  // ── Actions ──────────────────────────────────────────────────────────
+  // ── Navigation ────────────────────────────────────────────────────────────
 
   goUp(): void {
     this.navigateUpClicked.emit();
@@ -1540,7 +1433,7 @@ private async appendSlashAfterInactivity(): Promise<void> {
   refresh(): void { this.refreshClicked.emit(); }
 
   async copyPath(): Promise<void> {
-    await navigator.clipboard.writeText(this.currentPath).catch(() => { });
+    await navigator.clipboard.writeText(this.currentPath).catch(() => {});
     clearTimeout(this.copiedTimer);
     this.justCopied = true;
     this.copiedTimer = setTimeout(() => { this.justCopied = false; this.cdr.detectChanges(); }, 1800);
@@ -1552,13 +1445,10 @@ private async appendSlashAfterInactivity(): Promise<void> {
     if (np === this.currentPath) return;
 
     const { archiveInnerParts } = parsePathWithArchives(np);
-    const pathIsArchive = archiveInnerParts.length > 0
-      || isArchive(np.split('/').pop() ?? '');
+    const pathIsArchive = archiveInnerParts.length > 0 || isArchive(np.split('/').pop() ?? '');
 
     if (pathIsArchive) {
-      // Path targets an archive or is an archive file itself — let the parent handle it
       this.archiveSegmentClick.emit(np);
-      // Update local display immediately for responsiveness
       this.currentPath = np;
       this.rebuildSegments();
       return;
@@ -1569,27 +1459,39 @@ private async appendSlashAfterInactivity(): Promise<void> {
     this.pathChange.emit(np);
   }
 
-  // ── Close all overlays ───────────────────────────────────────────────
+  // ── Close all overlays ────────────────────────────────────────────────────
 
   private closeAll(): void {
-    this.chevIdx = -1;
-    this.sibOpen = false;
-    this.siblings = [];
-    this.showPinDrop = false;
+    this.chevIdx       = -1;
+    this.sibOpen       = false;
+    this.siblings      = [];
+    this.showPinDrop   = false;
     this.showDriveMenu = false;
     this.closeCtx();
   }
 
-  // ── Outside click / escape ───────────────────────────────────────────
-  // Note: outside-click closing is now handled by DropdownService for all
-  // registered dropdowns. The editMode outside-click is handled below.
+  // ── Outside-click / keyboard ──────────────────────────────────────────────
+
+  private onEditModeOutsideClick = (e: MouseEvent): void => {
+    if (this.editMode && !this.elRef.nativeElement.contains(e.target as Node)) {
+      this.exitEditMode(false);
+    }
+  };
+
+  onHostKeyDown(e: KeyboardEvent): void {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'l') { e.preventDefault(); this.enterEditMode(); }
+    if (e.altKey && e.key === 'd')                  { e.preventDefault(); this.enterEditMode(); }
+  }
 
   @HostListener('document:keydown', ['$event'])
   onDocKey(e: KeyboardEvent): void {
-    if (e.key === 'Escape') {
-      if (this.ctxMenu.visible) { this.closeCtx(); e.preventDefault(); }
-      else if (this.editMode) { this.exitEditMode(false); e.preventDefault(); }
-      else if (this.chevIdx >= 0 || this.showPinDrop || this.showDriveMenu) { this.closeAll(); e.preventDefault(); }
-    }
+    if (e.key !== 'Escape') return;
+    if (this.ctxMenu.visible)                                              { this.closeCtx();         e.preventDefault(); }
+    else if (this.editMode)                                                { this.exitEditMode(false); e.preventDefault(); }
+    else if (this.chevIdx >= 0 || this.showPinDrop || this.showDriveMenu)  { this.closeAll();          e.preventDefault(); }
   }
 }
+
+
+
+

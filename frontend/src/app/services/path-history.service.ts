@@ -1,6 +1,7 @@
 import { Injectable } from '@angular/core';
 import { BehaviorSubject, Observable } from 'rxjs';
 import { ApiService } from './api.service';
+import { FileType } from '../shared/protocol';
 
 /**
  * Path history entry
@@ -87,7 +88,7 @@ export class PathHistoryService {
     suggestions.push(...historyMatches);
 
     // 2. Directory-based suggestions (autocomplete current directory)
-    if (query.startsWith('/') || query.startsWith('.')) {
+    if (this.canUseDirectoryAutocomplete(query)) {
       const dirSuggestions = await this.getDirectorySuggestions(query);
       suggestions.push(...dirSuggestions);
     }
@@ -162,8 +163,15 @@ export class PathHistoryService {
       const suggestions: PathSuggestion[] = [];
       
       for (const entry of listing.entries) {
+        if (entry.type !== FileType.DIRECTORY) {
+          continue;
+        }
+
         if (entry.name.toLowerCase().startsWith(prefix.toLowerCase())) {
-          const fullPath = `${dirPath}${entry.name}`.replace('//', '/');
+          const joined = `${dirPath}${entry.name}`.replace(/\\/g, '/');
+          const fullPath = joined.startsWith('//')
+            ? `//${joined.slice(2).replace(/\/{2,}/g, '/')}`
+            : joined.replace(/\/{2,}/g, '/');
           suggestions.push({
             path: fullPath,
             displayName: entry.name,
@@ -178,6 +186,17 @@ export class PathHistoryService {
     } catch (error) {
       return [];
     }
+  }
+
+  private canUseDirectoryAutocomplete(query: string): boolean {
+    const normalized = query.replace(/\\/g, '/');
+    return (
+      normalized.startsWith('/') ||
+      normalized.startsWith('./') ||
+      normalized.startsWith('../') ||
+      /^[a-zA-Z]:\//.test(normalized) ||
+      normalized.startsWith('//')
+    );
   }
 
   /**

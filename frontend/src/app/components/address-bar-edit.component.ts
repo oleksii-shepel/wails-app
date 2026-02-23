@@ -22,7 +22,7 @@ import { highlightMatch } from './address-bar.utils';
         type="text"
         [(ngModel)]="value"
         (ngModelChange)="valueChange.emit($event)"
-        (keydown)="keydown.emit($event)"
+        (keydown)="editKeydown.emit($event)"
         (blur)="blur.emit()"
         [placeholder]="placeholder"
         autocomplete="off"
@@ -51,7 +51,7 @@ import { highlightMatch } from './address-bar.utils';
         </div>
       </div>
       <div class="ab-drop-footer">
-        <kbd>↑↓</kbd> navigate &nbsp; <kbd>⏎</kbd> select &nbsp; <kbd>Esc</kbd> cancel
+        <kbd>Tab</kbd>/<kbd>Shift+Tab</kbd> cycle &nbsp; <kbd>/</kbd> auto-add on idle &nbsp; <kbd>↑↓</kbd> navigate &nbsp; <kbd>⏎</kbd> select &nbsp; <kbd>Esc</kbd> cancel
       </div>
     </div>
   `,
@@ -197,7 +197,7 @@ export class AddressBarEditComponent implements OnChanges {
   @Input() focusOnInit = false;
 
   @Output() valueChange      = new EventEmitter<string>();
-  @Output() keydown          = new EventEmitter<KeyboardEvent>();
+  @Output() editKeydown      = new EventEmitter<KeyboardEvent>();
   @Output() blur             = new EventEmitter<void>();
   @Output() cancel           = new EventEmitter<void>();
   @Output() acIdxChange      = new EventEmitter<number>();

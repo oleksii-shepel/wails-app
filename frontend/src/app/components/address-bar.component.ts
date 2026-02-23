@@ -215,7 +215,7 @@ template: `
     [acIdx]="acIdx"
     [focusOnInit]="editMode"
     (valueChange)="onEditChange($event)"
-    (keydown)="onEditKeyDown($event)"
+    (editKeydown)="onEditKeyDown($event)"
     (blur)="onEditBlur()"
     (cancel)="exitEditMode(false)"
     (acIdxChange)="acIdx = $event"
@@ -635,6 +635,9 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   // ── Autocomplete ─────────────────────────────────────────────────────
   suggestions: PathSuggestion[] = [];
   acIdx = -1;
+  private tabCompletionSession: { candidates: PathSuggestion[]; index: number } | null = null;
+  private applyingTabCompletion = false;
+  private slashIdleTimer?: ReturnType<typeof setTimeout>;
 
   // ── Context menu ─────────────────────────────────────────────────────
   ctxMenu: ContextMenuState = { ...CTX_MENU_CLOSED };
@@ -1052,16 +1055,19 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     this.editValue = this.currentPath;
     this.suggestions = [];
     this.acIdx = -1;
+    this.tabCompletionSession = null;
     this.cdr.detectChanges();
   }
 
   exitEditMode(commit: boolean): void {
     clearTimeout(this.blurTimer);
+    clearTimeout(this.slashIdleTimer);
     const val = normalizePath(this.editValue);
     this.editMode    = false;
     this.editValue   = '';
     this.suggestions = [];
     this.acIdx = -1;
+    this.tabCompletionSession = null;
     if (commit && val && val !== this.currentPath) this.navigateTo(val);
   }
 
@@ -1070,11 +1076,15 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   }
 
   onEditChange(v: string): void {
+    clearTimeout(this.slashIdleTimer);
     this.editValue = v;
-    this.editChange$.next(normalizePath(v));
+    if (!this.applyingTabCompletion) {
+      this.tabCompletionSession = null;
+    }
+    this.editChange$.next(this.normalizeEditQuery(v));
   }
 
-  onEditKeyDown(e: KeyboardEvent): void {
+  async onEditKeyDown(e: KeyboardEvent): Promise<void> {
     switch (e.key) {
       case 'Enter':
         e.preventDefault();
@@ -1087,8 +1097,172 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
       case 'Escape':    e.preventDefault(); this.exitEditMode(false); break;
       case 'ArrowDown': e.preventDefault(); this.acIdx = Math.min(this.acIdx + 1, this.suggestions.length - 1); break;
       case 'ArrowUp':   e.preventDefault(); this.acIdx = Math.max(this.acIdx - 1, -1); break;
-      case 'Tab':       e.preventDefault(); if (this.suggestions.length) this.acceptSuggestion(this.suggestions[0]); break;
+      case 'Tab':
+        e.preventDefault();
+        await this.cycleTabSuggestion(e.shiftKey ? -1 : 1);
+        break;
     }
+  }
+
+  private async cycleTabSuggestion(direction: 1 | -1): Promise<void> {
+    clearTimeout(this.slashIdleTimer);
+    const query = this.normalizeEditQuery(this.editValue || '');
+    const tabCandidates = await this.resolveTabCandidates(query);
+    const total = tabCandidates.length;
+    if (!total) return;
+
+    const currentTabIdx = tabCandidates.findIndex(s => this.matchesCompletionQuery(query, s.path));
+
+    let nextTabIdx = 0;
+    if (currentTabIdx < 0) {
+      nextTabIdx = direction > 0 ? 0 : total - 1;
+    } else {
+      nextTabIdx = (currentTabIdx + direction + total) % total;
+    }
+
+    const selected = tabCandidates[nextTabIdx];
+    if (selected) {
+      this.suggestions = tabCandidates;
+      this.acIdx = nextTabIdx;
+      this.tabCompletionSession = { candidates: tabCandidates, index: nextTabIdx };
+      this.editValue = this.normalizeEditQuery(selected.path);
+      this.applyingTabCompletion = true;
+      try {
+        this.editChange$.next(this.normalizeEditQuery(this.editValue));
+      } finally {
+        this.applyingTabCompletion = false;
+      }
+      if (!selected.path.endsWith('/')) {
+        this.scheduleSlashAppendOnIdle(selected.path);
+      }
+      this.cdr.detectChanges();
+    }
+  }
+
+  private scheduleSlashAppendOnIdle(selectedPath: string): void {
+    const normalizedPath = normalizePath(selectedPath);
+    if (normalizedPath.endsWith('/')) return;
+    if (normalizedPath === '/' || /^[A-Za-z]:\/$/.test(normalizedPath)) return;
+
+    this.slashIdleTimer = setTimeout(() => {
+      if (!this.editMode) return;
+      if (normalizePath(this.editValue || '') !== normalizedPath) return;
+      this.editValue = `${normalizedPath}/`;
+      this.applyingTabCompletion = true;
+      try {
+        this.editChange$.next(this.normalizeEditQuery(this.editValue));
+      } finally {
+        this.applyingTabCompletion = false;
+      }
+      this.cdr.detectChanges();
+    }, 1500);
+  }
+
+  private async resolveTabCandidates(query: string): Promise<PathSuggestion[]> {
+    const sessionCandidates = this.tabCompletionSession?.candidates ?? [];
+    if (sessionCandidates.length > 0) {
+      const sessionIdx = sessionCandidates.findIndex(s => this.matchesCompletionQuery(query, s.path));
+      if (sessionIdx >= 0) {
+        return sessionCandidates;
+      }
+    }
+    return this.fetchDirectoryTabCandidates(query);
+  }
+
+  private matchesCompletionQuery(query: string, suggestionPath: string): boolean {
+    const normalizedQuery = this.normalizeEditQuery(query);
+    const normalizedPath = this.normalizeEditQuery(suggestionPath);
+    return normalizedQuery === normalizedPath;
+  }
+
+  private async fetchDirectoryTabCandidates(query: string): Promise<PathSuggestion[]> {
+    const { dirPath, prefix } = this.extractCompletionContext(query);
+    if (!dirPath) return [];
+
+    try {
+      const listing = await this.apiService.listDirectory(dirPath, false);
+      const prefixLower = prefix.toLowerCase();
+
+      const baseCandidates = listing.entries
+        .filter(entry =>
+          entry.type === FileType.DIRECTORY &&
+          entry.name.toLowerCase().startsWith(prefixLower)
+        )
+        .map(entry => ({
+          path: this.joinCompletionPath(dirPath, entry.name),
+          displayName: entry.name,
+          matchType: 'directory' as const,
+          score: 100,
+          exists: true,
+        }))
+        .sort((a, b) => a.path.localeCompare(b.path));
+
+      return this.addSlashVariants(baseCandidates);
+    } catch {
+      return [];
+    }
+  }
+
+  private addSlashVariants(candidates: PathSuggestion[]): PathSuggestion[] {
+    const result: PathSuggestion[] = [];
+    const seen = new Set<string>();
+
+    for (const candidate of candidates) {
+      const plainPath = this.normalizeEditQuery(candidate.path);
+      const slashPath = plainPath.endsWith('/') ? plainPath : `${plainPath}/`;
+
+      if (!seen.has(plainPath)) {
+        seen.add(plainPath);
+        result.push({ ...candidate, path: plainPath });
+      }
+
+      if (!seen.has(slashPath)) {
+        seen.add(slashPath);
+        result.push({
+          ...candidate,
+          path: slashPath,
+          displayName: candidate.displayName.endsWith('/') ? candidate.displayName : `${candidate.displayName}/`,
+          score: candidate.score - 1,
+        });
+      }
+    }
+
+    return result;
+  }
+
+  private extractCompletionContext(query: string): { dirPath: string; prefix: string } {
+    const q = (query || '').replace(/\\/g, '/');
+    if (!q) return { dirPath: '/', prefix: '' };
+    if (q.endsWith('/')) return { dirPath: q, prefix: '' };
+
+    const lastSlash = q.lastIndexOf('/');
+    if (lastSlash >= 0) {
+      return { dirPath: q.slice(0, lastSlash + 1), prefix: q.slice(lastSlash + 1) };
+    }
+    if (/^[A-Za-z]:$/.test(q)) {
+      return { dirPath: `${q}/`, prefix: '' };
+    }
+    return { dirPath: '/', prefix: q };
+  }
+
+  private joinCompletionPath(dirPath: string, name: string): string {
+    const joined = `${dirPath}${name}`.replace(/\\/g, '/');
+    if (joined.startsWith('//')) {
+      return `//${joined.slice(2).replace(/\/{2,}/g, '/')}`;
+    }
+    return joined.replace(/\/{2,}/g, '/');
+  }
+
+  private normalizeEditQuery(value: string): string {
+    const raw = (value || '').replace(/\\/g, '/');
+    const normalized = normalizePath(raw);
+    if (!raw.endsWith('/')) {
+      return normalized;
+    }
+    if (normalized === '/' || /^[A-Za-z]:\/$/.test(normalized)) {
+      return normalized;
+    }
+    return `${normalized}/`;
   }
 
   /**
@@ -1115,9 +1289,11 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   acceptSuggestion(s: PathSuggestion, e?: MouseEvent): void {
     e?.preventDefault();
     clearTimeout(this.blurTimer);
+    clearTimeout(this.slashIdleTimer);
     this.editMode    = false;
     this.editValue   = '';
     this.suggestions = [];
+    this.tabCompletionSession = null;
     this.navigateTo(normalizePath(s.path));
   }
 

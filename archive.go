@@ -89,9 +89,31 @@ func (a *App) ArchiveReadFile(fsPath string, nestedChain []string, entryPath str
 // ────────────────────────────────────────────────────────────────────────────
 
 func (a *App) walkFile(fsPath, innerPath string, nestedChain []string) ([]FileInfo, error) {
+	lower := strings.ToLower(fsPath)
+
+	// ZIP: use stdlib directly — archiver.Walk strips directory prefixes from hdr.Name
+	if strings.HasSuffix(lower, ".zip") {
+		r, err := zip.OpenReader(fsPath)
+		if err != nil {
+			return nil, err
+		}
+		defer r.Close()
+
+		seen := make(map[string]FileInfo)
+		innerPath = normalize(innerPath)
+		for _, f := range r.File {
+			ep := normalize(f.Name)
+			isDir := f.FileInfo().IsDir()
+			if err := a.processEntryInto(ep, isDir, int64(f.UncompressedSize64), f.Modified.UnixMilli(), innerPath, nestedChain, seen); err != nil {
+				return nil, err
+			}
+		}
+		return a.sortFileInfo(seen), nil
+	}
+
+	// TAR-based formats: archiver.Walk works correctly for these
 	seen := make(map[string]FileInfo)
 	innerPath = normalize(innerPath)
-
 	err := archiver.Walk(fsPath, func(f archiver.File) error {
 		ep := normalize(archiveEntryPath(f))
 		return a.processEntryInto(ep, f.IsDir(), f.Size(), f.ModTime().UnixMilli(), innerPath, nestedChain, seen)

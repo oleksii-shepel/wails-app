@@ -115,7 +115,7 @@ export class FileViewContainerComponent implements OnChanges {
   @Input() sortDirection: 'asc' | 'desc' = 'asc';
   
   @Output() viewChange = new EventEmitter<ViewLayout>();
-  @Output() selectionChange = new EventEmitter<FileInfo>();
+  @Output() selectionChange = new EventEmitter<FileInfo | FileInfo[]>();
   @Output() navigate = new EventEmitter<FileInfo>();
   @Output() sortChange = new EventEmitter<{ field: string; direction: 'asc' | 'desc' }>();
   @Output() contextMenu = new EventEmitter<{ event: MouseEvent; entry: FileInfo }>();
@@ -149,12 +149,42 @@ export class FileViewContainerComponent implements OnChanges {
     this.sortEntries();
   }
 
-  onSelectionChange(entry: FileInfo): void {
-    this.selectionChange.emit(entry);
+  onSelectionChange(entryOrNodes: FileInfo | FileInfo[] | TreeNode[]): void {
+    // Normalize selection payloads from child views (list/grid -> single FileInfo, tree -> TreeNode[])
+    if (Array.isArray(entryOrNodes)) {
+      const files: FileInfo[] = entryOrNodes.map((n: any) => {
+        return {
+          name: n.name,
+          path: n.path,
+          type: n.type,
+          size: n.size,
+          modified: n.modified,
+          created: n.created,
+        } as FileInfo;
+      });
+      this.selectionChange.emit(files);
+    } else {
+      this.selectionChange.emit(entryOrNodes as FileInfo);
+    }
   }
 
-  onNavigate(entry: FileInfo): void {
-    this.navigate.emit(entry);
+  onNavigate(entry: FileInfo | TreeNode | Event): void {
+    // Support navigate payloads from tree (TreeNode) or list/grid (FileInfo)
+    if (!entry) return;
+    // DOM Events may be passed if template bound incorrectly; ignore those
+    if ((entry as Event) instanceof Event) return;
+    const e: any = entry as any;
+    if (e.path) {
+      const file: FileInfo = {
+        name: e.name,
+        path: e.path,
+        type: e.type,
+        size: e.size,
+        modified: e.modified,
+        created: e.created,
+      } as FileInfo;
+      this.navigate.emit(file);
+    }
   }
 
   onContextMenu(event: { event: MouseEvent; entry: FileInfo }): void {

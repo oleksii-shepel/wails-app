@@ -735,7 +735,15 @@ export class FilePaneComponent implements OnInit, OnChanges {
 
   // ── Selection ─────────────────────────────────────────────────────────────
 
-  onSelectionChange(entry: FileInfo): void {
+  onSelectionChange(entryOrEntries: FileInfo | FileInfo[]): void {
+    // Support single FileInfo or array of FileInfo from tree selection
+    if (Array.isArray(entryOrEntries)) {
+      const paths = entryOrEntries.map(e => e.path).filter(p => p !== PARENT_ENTRY_PATH);
+      this.selectedFiles = new Set(paths);
+      return;
+    }
+
+    const entry = entryOrEntries as FileInfo;
     // The ".." entry is never selectable
     if (entry.path === PARENT_ENTRY_PATH) return;
 

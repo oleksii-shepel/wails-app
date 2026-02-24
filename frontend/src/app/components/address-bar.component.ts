@@ -734,7 +734,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   private copiedTimer: ReturnType<typeof setTimeout> | undefined;
 
   // ── Scroll ───────────────────────────────────────────────────────────────
-  private shouldScrollRight = false;
+  private scrollAnimFrame: number | null = null;
   private wheelListener?: (e: WheelEvent) => void;
 
   constructor(
@@ -805,13 +805,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     this.setupWheelScroll();
   }
 
-  ngAfterViewChecked(): void {
-    if (this.shouldScrollRight && this.crumbsEl) {
-      const el = this.crumbsEl.nativeElement;
-      el.scrollLeft = el.scrollWidth;
-      this.shouldScrollRight = false;
-    }
-  }
+  ngAfterViewChecked(): void {}
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['tabId'] && !changes['tabId'].firstChange) {
@@ -844,6 +838,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   ngOnDestroy(): void {
     clearTimeout(this.blurTimer);
     clearTimeout(this.copiedTimer);
+    if (this.scrollAnimFrame !== null) cancelAnimationFrame(this.scrollAnimFrame);
     this.destroy$.next();
     this.destroy$.complete();
     document.removeEventListener('mousedown', this.onEditModeOutsideClick, { capture: true } as any);
@@ -867,7 +862,8 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
       this.segments[i] = { ...seg, isArchiveRoot: isRealArchive, isArchiveInner: insideArchive };
       if (isRealArchive) insideArchive = true;
     }
-    this.shouldScrollRight = true;
+    // Animate scroll to end after segments update (next frame so DOM has rendered)
+    requestAnimationFrame(() => this.animateScrollToEnd());
   }
 
   // ── Segment click handlers ────────────────────────────────────────────────
@@ -910,6 +906,9 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   }
 
   onDriveLetterClick(seg: PathSegment, isLast: boolean, e: MouseEvent): void {
+    // Drive letter always opens the drive switcher — even when at the root
+    // of a drive (isLast=true). Unlike regular segments, there is no useful
+    // "edit the last crumb" behaviour for a drive letter.
     e.stopPropagation();
     if (this.showDriveMenu) { this.showDriveMenu = false; return; }
     this.closeAll();
@@ -931,8 +930,67 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   private setupWheelScroll(): void {
     const el = this.crumbsEl?.nativeElement;
     if (!el) return;
-    this.wheelListener = (e: WheelEvent) => { e.preventDefault(); el.scrollLeft += e.deltaY || e.deltaX; };
+    this.wheelListener = (e: WheelEvent) => {
+      e.preventDefault();
+      const delta = e.deltaY || e.deltaX;
+      this.animateScrollBy(el, delta * 1.4);
+    };
     el.addEventListener('wheel', this.wheelListener, { passive: false });
+  }
+
+  /**
+   * Smoothly scroll the crumbs bar to its rightmost position.
+   * Uses a short ease-out animation so new path segments slide into view
+   * rather than snapping. Cancels any in-flight animation first.
+   */
+  private animateScrollToEnd(): void {
+    const el = this.crumbsEl?.nativeElement;
+    if (!el) return;
+    const target = el.scrollWidth - el.clientWidth;
+    if (target <= 0) return;
+    this.animateScrollTo(el, target);
+  }
+
+  /**
+   * Animate scrollLeft from current position to `target` in ~120 ms (ease-out).
+   */
+  private animateScrollTo(el: HTMLElement, target: number): void {
+    if (this.scrollAnimFrame !== null) {
+      cancelAnimationFrame(this.scrollAnimFrame);
+      this.scrollAnimFrame = null;
+    }
+
+    const start     = el.scrollLeft;
+    const distance  = target - start;
+    if (Math.abs(distance) < 1) return;
+
+    const duration  = Math.min(220, Math.max(160, Math.abs(distance) * 0.3)); // 60-220 ms
+    const startTime = performance.now();
+
+    const tick = (now: number) => {
+      const elapsed  = now - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      // Ease-out cubic: fast start, gentle finish
+      const eased    = 1 - Math.pow(1 - progress, 3);
+      el.scrollLeft  = start + distance * eased;
+
+      if (progress < 1) {
+        this.scrollAnimFrame = requestAnimationFrame(tick);
+      } else {
+        this.scrollAnimFrame = null;
+      }
+    };
+
+    this.scrollAnimFrame = requestAnimationFrame(tick);
+  }
+
+  /**
+   * Animate a scroll-by delta from the current position — used by wheel events
+   * for a smooth, momentum-like feel without OS-level momentum scrolling.
+   */
+  private animateScrollBy(el: HTMLElement, delta: number): void {
+    const target = Math.max(0, Math.min(el.scrollWidth - el.clientWidth, el.scrollLeft + delta));
+    this.animateScrollTo(el, target);
   }
 
   // ── Drive handling ────────────────────────────────────────────────────────
@@ -1503,5 +1561,6 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     else if (this.chevIdx >= 0 || this.showPinDrop || this.showDriveMenu) { this.closeAll();          e.preventDefault(); }
   }
 }
+
 
 

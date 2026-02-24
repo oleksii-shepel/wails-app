@@ -117,8 +117,7 @@ export interface TreeNode extends FileInfo {
         <!-- Children container - rendered when expanded -->
         <div 
           class="tree-children" 
-          *ngIf="isExpanded(node)"
-          [@expandCollapse]="isExpanded(node) ? 'expanded' : 'collapsed'">
+          *ngIf="isExpanded(node)">
           
           <!-- Recursively render children -->
           <ng-container *ngIf="node.children?.length; else noChildren">

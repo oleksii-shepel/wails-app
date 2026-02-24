@@ -74,6 +74,7 @@ declare const window: any;
 
         <app-file-view-container
           [entries]="filteredEntries"
+          [showHidden]="showHidden"
           [selectedFiles]="selectedFiles"
           [loading]="loading"
           [error]="error"

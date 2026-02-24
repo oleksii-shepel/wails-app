@@ -1,5 +1,6 @@
 // file-view-container.component.ts
 import { Component, Input, Output, EventEmitter, ViewChild, OnChanges } from '@angular/core';
+import { ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FileListComponent } from './file-list.component';
 import { FileGridComponent } from './file-grid.component';
@@ -7,6 +8,7 @@ import { FileTreeComponent, TreeNode } from './file-tree.component';
 import { FileDetailsComponent } from './file-details.component';
 import { ViewSwitcherComponent, ViewMode } from './view-switcher.component';
 import { FileInfo, FileType } from '../shared/protocol';
+import { ApiService } from '../services/api.service';
 
 export type ViewLayout = ViewMode;
 
@@ -61,6 +63,7 @@ export type ViewLayout = ViewMode;
           (selectionChange)="onSelectionChange($event)"
           (nodeDoubleClick)="onTreeNodeDoubleClick($event)"
           (toggleExpand)="onTreeToggleExpand($event)"
+          (loadChildren)="onTreeLoadChildren($event)"
           (navigate)="onNavigate($event)">
         </app-file-tree>
         
@@ -105,6 +108,8 @@ export type ViewLayout = ViewMode;
 })
 export class FileViewContainerComponent implements OnChanges {
   @ViewChild(FileTreeComponent) treeComponent?: FileTreeComponent;
+  @Input() showHidden = false;
+  constructor(private apiService: ApiService, private cdr: ChangeDetectorRef) {}
   
   @Input() entries: FileInfo[] = [];
   @Input() selectedFiles: Set<string> = new Set();
@@ -202,6 +207,50 @@ export class FileViewContainerComponent implements OnChanges {
     console.log('Tree node toggled:', node.name, 'expanded:', node.expanded);
   }
 
+  // Handle lazy load requests from tree component by populating children from current entries
+  onTreeLoadChildren(node: TreeNode): void {
+    // Lazy-load children from backend
+    if (!node.expandable) return;
+    // If already loading or already loaded, skip
+    if (node.loading || node.loaded) return;
+
+    // Optimistically expand and show a placeholder child so the UI updates immediately
+    node.expanded = true;
+    node.loading = true;
+    if (!node.children || node.children.length === 0) {
+      node.children = [{
+        name: 'Loading...', path: node.path + '/.loading', type: FileType.DIRECTORY,
+        level: (node.level ?? 0) + 1, expandable: false, loaded: false
+      } as unknown as TreeNode];
+    }
+
+    this.apiService.listDirectory(node.path, this.showHidden)
+      .then(listing => {
+        const childrenEntries = listing.entries || [];
+        const children: TreeNode[] = childrenEntries.map(e => ({
+          ...e,
+          level: (node.level ?? 0) + 1,
+          expandable: e.type === FileType.DIRECTORY,
+          expanded: false,
+          children: e.type === FileType.DIRECTORY ? [] : undefined,
+          loaded: false,
+        } as TreeNode));
+
+        // assign parent references and attach children
+        for (const c of children) { c.parent = node; }
+        node.children = children;
+        node.loaded = true;
+        node.loading = false;
+        // Replace placeholder with actual children and update view
+        node.children = children;
+        this.cdr.markForCheck();
+      })
+      .catch(() => {
+        node.loading = false;
+        node.loaded = true;
+      });
+  }
+
   private sortEntries(): void {
     const sorted = [...this.entries];
     const multiplier = this.sortDirection === 'asc' ? 1 : -1;
@@ -246,8 +295,8 @@ export class FileViewContainerComponent implements OnChanges {
     const map = new Map<string, TreeNode>();
     
     const sorted = [...this.entries].sort((a, b) => {
-      const depthA = a.path.split('/').length;
-      const depthB = b.path.split('/').length;
+      const depthA = a.path.replace(/\\/g, '/').split('/').length;
+      const depthB = b.path.replace(/\\/g, '/').split('/').length;
       return depthA - depthB;
     });
     
@@ -282,7 +331,8 @@ export class FileViewContainerComponent implements OnChanges {
 
   private getParentPath(path: string): string | null {
     if (path === '/' || path === '') return null;
-    const parts = path.split('/').filter(p => p);
+    const fixed = path.replace(/\\/g, '/');
+    const parts = fixed.split('/').filter(p => p);
     if (parts.length === 0) return null;
     parts.pop();
     return '/' + parts.join('/');

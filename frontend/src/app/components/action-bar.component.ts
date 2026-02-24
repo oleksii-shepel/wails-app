@@ -142,11 +142,21 @@ export type ViewMode = 'list' | 'grid' | 'tree' | 'details';
       display: flex;
       align-items: center;
       gap: var(--vsc-padding-sm);
-      padding: var(--vsc-padding-sm) var(--vsc-padding-lg);
+      /* Keep action-bar no taller than the address bar */
+      height: var(--vsc-titlebar-height);
+      padding: 0 var(--vsc-padding-lg);
       background: var(--vsc-sidebar-background);
       border-bottom: 1px solid var(--vsc-border);
       flex-wrap: wrap;
       flex-shrink: 0;
+    }
+
+    /* Soften white visuals slightly (icons/text) */
+    .action-bar svg,
+    .action-bar .action-btn,
+    .action-bar .view-btn,
+    .action-bar .btn-small {
+      filter: brightness(0.90);
     }
 
     .view-switcher { display: flex; align-items: center; gap: var(--vsc-padding-sm); }
@@ -176,6 +186,13 @@ export type ViewMode = 'list' | 'grid' | 'tree' | 'details';
     .btn-small { display:inline-flex; align-items:center; justify-content:center; gap: var(--vsc-padding-xs); padding: var(--vsc-padding-xs) var(--vsc-padding-sm); border:1px solid transparent; border-radius:var(--vsc-border-radius-sm); background:var(--vsc-button-secondary); color:var(--vsc-foreground); cursor:pointer; font-size:var(--vsc-font-size-small); font-family:var(--vsc-font-family); font-weight:500; height:22px; white-space:nowrap; line-height:1; opacity:0.94; transition: background-color var(--vsc-transition-fast), color var(--vsc-transition-fast), transform 80ms ease, opacity 120ms ease; }
     .btn-small:hover:not(:disabled) { background:var(--vsc-button-secondary-hover); transform:translateY(-1px); opacity:1; }
     .btn-small:disabled { opacity:0.5; cursor:not-allowed; }
+
+    /* Compact mode: match address-bar compact sizing */
+    :host-context(.compact-mode) {
+      .action-bar { height: 28px; }
+      .action-btn, .view-btn { width:22px; height:22px; }
+      .btn-small { height:20px; padding: 0 6px; font-size: calc(var(--vsc-font-size-small) - 1px); }
+    }
   `]
 })
 export class ActionBarComponent {
@@ -248,6 +265,7 @@ export class ActionBarComponent {
     this.sortChange.emit({ field: this.currentSort, direction: newDir });
     this.sortMenuOpen = false;
   }
+
 
   // Legacy action handlers (emit both legacy and new alias outputs)
   onCreate(): void { this.createFolder.emit(); this.create.emit(); }

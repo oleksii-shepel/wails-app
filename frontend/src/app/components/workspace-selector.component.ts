@@ -216,7 +216,7 @@ import { DropdownDirective, DropdownTriggerDirective, DropdownMenuDirective } fr
 
       &.ws-footer-btn--danger {
         background: var(--vsc-error);
-        color: #fff;
+        color: var(--vsc-foreground-bright);
         &:hover { background: #d32f2f; }
       }
     }

@@ -136,7 +136,7 @@ import { FilterPreset, FilterGroup, GROUP_ORDER, GROUP_MODES } from './filter-ba
       padding: 1px 6px;
       border-radius: 8px;
       background: var(--vsc-accent-blue);
-      color: #fff;
+      color: var(--vsc-badge-foreground);
       font-weight: 600;
     }
     .fd-header-clear {

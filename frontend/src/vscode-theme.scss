@@ -15,7 +15,7 @@
   /* === Text Colors === */
   --vsc-foreground: #cccccc;
   --vsc-foreground-dim: #888888;
-  --vsc-foreground-bright: #ffffff;
+  --vsc-foreground-bright: #cccccc;
   --vsc-text-link: #3794ff;
   
   /* === Border Colors === */
@@ -58,7 +58,7 @@
   
   /* === Badge Colors === */
   --vsc-badge-background: #4d4d4d;
-  --vsc-badge-foreground: #ffffff;
+  --vsc-badge-foreground: var(--vsc-foreground-bright);
   
   /* === Scrollbar === */
   --vsc-scrollbar-track: #1e1e1e;
@@ -79,7 +79,7 @@
   --vsc-tab-active-border-top: #007acc;
 
   --vsc-tab-foreground: #969696;
-  --vsc-tab-active-foreground: #ffffff;
+  --vsc-tab-active-foreground: var(--vsc-foreground-bright);
   --vsc-tab-hover-foreground: #cccccc;
 
   --vsc-tab-shadow: inset 0 -1px 0 #1e1e1e;

@@ -325,8 +325,9 @@ export class SplitDividerComponent implements OnInit {
         if (saved) {
             const parsed = parseFloat(saved);
             if (!isNaN(parsed) && parsed >= this.min && parsed <= this.max) {
+                // Restore internal position but avoid emitting during init
+                // to prevent ExpressionChangedAfterItHasBeenCheckedError
                 this.position = parsed;
-                this.positionChange.emit(parsed);
             }
         }
     }

@@ -118,6 +118,14 @@
   --vsc-titlebar-height: 35px;
   --vsc-activitybar-width: 48px;
   --vsc-statusbar-height: 22px;
+
+  /* === Tree View Colors === */
+  --vsc-tree-indent-guide-stroke: #585858;
+  --vsc-tree-indent-guide-active-stroke: #a8a8a8;
+  --vsc-folder-fill: #dcb67a;
+  --vsc-folder-open-fill: #dcb67a;
+  --vsc-file-fill: #3c3c3c;
+  --vsc-file-stroke: #5a5a5a;
   
   /* === Legacy compatibility === */
   --vsc-background: var(--vsc-editor-background);
@@ -177,6 +185,14 @@
 
   --vsc-tab-shadow: inset 0 -1px 0 #ffffff;
   --vsc-tab-inner-shadow: inset 0 -1px 0 rgba(0,0,0,.08);
+
+  /* === Tree View Colors (Light) === */
+  --vsc-tree-indent-guide-stroke: #c8c8c8;
+  --vsc-tree-indent-guide-active-stroke: #888888;
+  --vsc-folder-fill: #dcb67a;
+  --vsc-folder-open-fill: #dcb67a;
+  --vsc-file-fill: #f5f5f5;
+  --vsc-file-stroke: #d4d4d4;
 }
 
 /* === Compact Mode === */

@@ -57,12 +57,10 @@ export type ViewLayout = ViewMode;
         <app-file-tree
           *ngIf="currentView === 'tree'"
           [nodes]="treeNodes"
-          [selectedFiles]="selectedFiles"
-          [loadChildrenFn]="loadChildrenFn"
-          (selectionChange)="onSelectionChange($event)"
-          (navigate)="onNavigate($event)"
-          (expandNode)="onExpandNode($event)"
-          (collapseNode)="onCollapseNode($event)">
+          (nodeClick)="onSelectionChange($event)"
+          (nodeDoubleClick)="onNavigate($event)"
+          (toggleExpand)="onExpandNode($event)"
+          (contextMenu)="onContextMenu($event)">
         </app-file-tree>
         
         <!-- Details View -->
@@ -162,8 +160,13 @@ export class FileViewContainerComponent implements OnChanges {
     this.navigate.emit(entry);
   }
 
-  onContextMenu(event: { event: MouseEvent; entry: FileInfo }): void {
-    this.contextMenu.emit(event);
+  onContextMenu(event: { event: MouseEvent; node: TreeNode } | { event: MouseEvent; entry: FileInfo }): void {
+    // Accept both shapes, map node to entry if needed
+    if ('node' in event) {
+      this.contextMenu.emit({ event: event.event, entry: event.node });
+    } else {
+      this.contextMenu.emit(event);
+    }
   }
 
   onExpandNode(node: TreeNode): void {

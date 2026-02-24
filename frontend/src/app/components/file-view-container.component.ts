@@ -125,6 +125,7 @@ export class FileViewContainerComponent implements OnChanges {
   constructor(private apiService: ApiService, private cdr: ChangeDetectorRef) {}
 
   ngOnChanges(): void {
+    console.log('[FileViewContainer] ngOnChanges', { view: this.currentView, entries: this.entries?.length });
     this.sortEntries();
     if (this.currentView === 'tree') {
       this.buildTreeNodes();
@@ -200,11 +201,12 @@ export class FileViewContainerComponent implements OnChanges {
    * We own the loading flag here — we must NOT double-set it to avoid the infinite-loader bug.
    */
   onTreeLoadChildren(node: TreeNode): void {
-    // Guard: skip if already loading or already loaded
-    // If already loaded, skip. Allow loading=true (set by tree) so we proceed to fetch.
+    // Guard: skip if already loaded
     if (node.loaded) return;
 
-    // No loader: request children and update when ready.
+    console.log('[FileViewContainer] onTreeLoadChildren START', node.path);
+    // Mark loading state (tree may already have set it)
+    node.loading = true;
 
     this.apiService.listDirectory(node.path, this.showHidden)
       .then(listing => {
@@ -224,13 +226,16 @@ export class FileViewContainerComponent implements OnChanges {
         node.loaded = true;
         node.loading = false;
         this.cdr.markForCheck();
+        console.log('[FileViewContainer] onTreeLoadChildren ASSIGNED', node.path, children.length);
       })
-      .catch(() => {
+      .catch(err => {
+        console.error('[FileViewContainer] onTreeLoadChildren ERROR', node.path, err);
         node.children = [];
         node.loading = false;
         node.loaded = true;
         this.cdr.markForCheck();
-      });
+      })
+        .finally(() => console.log('[FileViewContainer] onTreeLoadChildren END', node.path));
   }
 
   // ── Sorting ──────────────────────────────────────────────
@@ -278,6 +283,7 @@ export class FileViewContainerComponent implements OnChanges {
   // ── Tree building (root level only) ──────────────────────
 
   private buildTreeNodes(): void {
+    console.log('[FileViewContainer] buildTreeNodes start', { entries: this.entries?.length });
     const root: TreeNode[] = [];
     const map = new Map<string, TreeNode>();
 

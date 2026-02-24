@@ -68,7 +68,7 @@ export interface TreeNode extends FileInfo {
           [attr.aria-level]="node.level + 1"
           [attr.aria-expanded]="node.expandable ? isExpanded(node) : undefined"
           [attr.aria-selected]="isSelected(node)"
-          (dblclick)="onNodeDoubleClick(node)"
+          (click)="onNodeClick(node, $event)"
           (contextmenu)="onContextMenu($event, node)">
 
           <!-- Indentation guides -->
@@ -341,6 +341,8 @@ export class FileTreeComponent implements OnChanges {
   private expansionState = new Map<string, boolean>();
   private focusedNodePath: string | null = null;
   private lastSelectedPath: string | null = null;
+  private lastToggleAt = new Map<string, number>();
+  private toggleSuppressUntil = new Map<string, number>();
   
   isFocused = false;
   FileType = FileType;
@@ -364,12 +366,15 @@ export class FileTreeComponent implements OnChanges {
    * Set expansion state
    */
   private setExpanded(node: TreeNode, expanded: boolean): void {
+    console.log('[FileTree] setExpanded', node.path, expanded);
     this.expansionState.set(node.path, expanded);
     node.expanded = expanded;
     
     // If expanding and not loaded, trigger lazy load
     if (expanded && !node.loaded && node.expandable && !node.loading) {
       node.loading = true;
+      // suppress rapid re-toggles for this node until loading settles
+      this.toggleSuppressUntil.set(node.path, Date.now() + 800);
       this.loadChildren.emit(node);
     }
   }
@@ -454,6 +459,7 @@ export class FileTreeComponent implements OnChanges {
 
   onNodeClick(node: TreeNode, event: MouseEvent): void {
     event.stopPropagation();
+    console.log('[FileTree] onNodeClick', node.path, { ctrl: event.ctrlKey, shift: event.shiftKey, meta: event.metaKey });
     this.focusedNodePath = node.path;
 
     const isMulti = event.ctrlKey || event.metaKey;
@@ -496,12 +502,28 @@ export class FileTreeComponent implements OnChanges {
 
   onToggleExpand(event: MouseEvent, node: TreeNode): void {
     event.stopPropagation();
+    console.log('[FileTree] onToggleExpand', node.path);
     if (!node.expandable) return;
     this.toggleNode(node);
   }
 
   private toggleNode(node: TreeNode): void {
+    const now = Date.now();
+    const last = this.lastToggleAt.get(node.path) || 0;
+    // Ignore toggles that happen within 300ms for the same node (prevent accidental double toggles)
+    if (now - last < 300) {
+      console.log('[FileTree] toggleNode ignored (debounce)', node.path, now - last);
+      return;
+    }
+    // If suppression window set (during async load), ignore toggles until it expires
+    const suppressUntil = this.toggleSuppressUntil.get(node.path) || 0;
+    if (now < suppressUntil) {
+      console.log('[FileTree] toggleNode suppressed until', suppressUntil, 'now', now, node.path);
+      return;
+    }
+    this.lastToggleAt.set(node.path, now);
     const expanded = !this.isExpanded(node);
+    console.log('[FileTree] toggleNode', node.path, expanded);
     this.setExpanded(node, expanded);
     this.toggleExpand.emit(node);
     this.cdr.markForCheck();

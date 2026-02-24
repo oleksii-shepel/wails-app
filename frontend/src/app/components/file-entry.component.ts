@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FileInfo, FileType } from '../shared/protocol';
 
 /** Sentinel path for the virtual ".." parent-directory entry. */
-const PARENT_ENTRY_PATH = '__archive_parent__';
+export const PARENT_ENTRY_PATH = '__archive_parent__';
 
 /**
  * File Entry Component

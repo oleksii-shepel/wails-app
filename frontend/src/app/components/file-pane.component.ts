@@ -1,10 +1,11 @@
+// file-pane.component.ts
 import { Component, Input, Output, EventEmitter, OnInit, OnChanges, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { TabBarComponent } from './tab-bar.component';
 import { AddressBarComponent } from './address-bar.component';
 import { FindWidgetComponent, FindWidgetState } from './filter-widget.component';
 import { ActionBarComponent } from './action-bar.component';
-import { FileListComponent } from './file-list.component';
+import { FileViewContainerComponent, ViewLayout } from './file-view-container.component';
 import { FileInfo, FileType } from '../shared/protocol';
 import { TabInfo, WorkspaceConfig, FilterQuery } from '../shared/protocol-enhanced';
 import { ApiService } from '../services/api.service';
@@ -15,6 +16,7 @@ import {
   ArchiveService, ArchiveFrame, isArchive, buildArchiveDisplayPath, buildArchiveTabTitle
 } from '../services/archive.service';
 import { parentPath, normalizePath } from './address-bar.utils';
+import { TreeNode } from './file-tree.component';
 
 declare const window: any;
 
@@ -30,7 +32,7 @@ const PARENT_ENTRY_PATH = '__archive_parent__';
     AddressBarComponent,
     FindWidgetComponent,
     ActionBarComponent,
-    FileListComponent,
+    FileViewContainerComponent,
   ],
   template: `
     <div class="file-pane" [class.file-pane--archive]="isInArchive()">
@@ -72,14 +74,23 @@ const PARENT_ENTRY_PATH = '__archive_parent__';
           (prevMatch)="onFindPrev()">
         </app-find-widget>
 
-        <app-file-list
+        <app-file-view-container
           [entries]="filteredEntries"
           [selectedFiles]="selectedFiles"
           [loading]="loading"
           [error]="error"
+          [currentView]="currentView"
+          [sortField]="sortField"
+          [sortDirection]="sortDirection"
+          [loadChildrenFn]="currentView === 'tree' ? loadTreeChildrenFn : undefined"
+          (viewChange)="onViewChange($event)"
           (selectionChange)="onSelectionChange($event)"
-          (navigate)="onNavigate($event)">
-        </app-file-list>
+          (navigate)="onNavigate($event)"
+          (sortChange)="onSortChange($event)"
+          (contextMenu)="onContextMenu($event)"
+          (expandNode)="onTreeExpandNode($event)"
+          (collapseNode)="onTreeCollapseNode($event)">
+        </app-file-view-container>
       </div>
     </div>
   `,
@@ -128,7 +139,7 @@ const PARENT_ENTRY_PATH = '__archive_parent__';
       /* find-widget positions itself absolute inside .file-pane__list-host */
     }
 
-    app-file-list {
+    app-file-view-container {
       display: flex;
       flex-direction: column;
       flex: 1 1 0%;
@@ -161,6 +172,12 @@ export class FilePaneComponent implements OnInit, OnChanges {
   error: string | null = null;
   filterQuery: FilterQuery = { text: '', criteria: [] };
 
+  // View system state
+  currentView: ViewLayout = 'list';
+  sortField: string = 'name';
+  sortDirection: 'asc' | 'desc' = 'asc';
+  loadTreeChildrenFn = this.loadTreeChildren.bind(this);
+
   archiveStack: ArchiveFrame[] = [];
 
   private tabPaths = new Map<string, string>();
@@ -175,11 +192,92 @@ export class FilePaneComponent implements OnInit, OnChanges {
     private archiveService: ArchiveService,
   ) {}
 
-  ngOnInit(): void  { this.loadPaneState(); }
-  ngOnChanges(): void { if (this.workspace) this.loadPaneState(); }
+  ngOnInit(): void  { 
+    this.loadViewPreference();
+    this.loadPaneState(); 
+  }
+  
+  ngOnChanges(): void { 
+    if (this.workspace) {
+      this.loadViewPreference();
+      this.loadPaneState(); 
+    }
+  }
 
   get entriesForAnalysis(): FileInfo[] {
     return this.entries.filter(e => e.path !== PARENT_ENTRY_PATH);
+  }
+
+  // ── View System Methods ───────────────────────────────────────────────────
+
+  private loadViewPreference(): void {
+    const savedView = localStorage.getItem('fileManager_viewMode') as ViewLayout;
+    if (savedView && ['list', 'grid', 'tree', 'details'].includes(savedView)) {
+      this.currentView = savedView;
+    }
+    
+    const savedSortField = localStorage.getItem('fileManager_sortField');
+    const savedSortDir = localStorage.getItem('fileManager_sortDirection') as 'asc' | 'desc';
+    if (savedSortField) this.sortField = savedSortField;
+    if (savedSortDir) this.sortDirection = savedSortDir;
+  }
+
+  private saveViewPreference(): void {
+    localStorage.setItem('fileManager_viewMode', this.currentView);
+    localStorage.setItem('fileManager_sortField', this.sortField);
+    localStorage.setItem('fileManager_sortDirection', this.sortDirection);
+  }
+
+  onViewChange(view: ViewLayout): void {
+    this.currentView = view;
+    this.saveViewPreference();
+    
+    // Refresh entries when switching to ensure proper sorting/filtering
+    this.applyFilter();
+  }
+
+  onSortChange(sort: { field: string; direction: 'asc' | 'desc' }): void {
+    this.sortField = sort.field;
+    this.sortDirection = sort.direction;
+    this.saveViewPreference();
+    this.applyFilter();
+  }
+
+  async loadTreeChildren(node: TreeNode): Promise<FileInfo[]> {
+    if (this.isInArchive()) {
+      // Handle archive tree navigation
+      try {
+        const currentFrame = this.archiveStack[this.archiveStack.length - 1];
+        const newFrame = await this.archiveService.navigateInto(currentFrame, node.path);
+        const rawEntries = this.archiveService.listingToFileInfos(newFrame.listing);
+        return rawEntries.filter(e => e.path !== PARENT_ENTRY_PATH);
+      } catch {
+        return [];
+      }
+    }
+    
+    try {
+      const listing = await this.apiService.listDirectory(node.path, this.showHidden);
+      return this.withParentEntry(listing.entries, false, node.path)
+        .filter(e => e.path !== PARENT_ENTRY_PATH);
+    } catch {
+      return [];
+    }
+  }
+
+  onTreeExpandNode(node: TreeNode): void {
+    // Tree node expanded - can trigger lazy loading or other actions
+    console.log('Tree node expanded:', node.path);
+  }
+
+  onTreeCollapseNode(node: TreeNode): void {
+    // Tree node collapsed
+    console.log('Tree node collapsed:', node.path);
+  }
+
+  onContextMenu(event: { event: MouseEvent; entry: FileInfo }): void {
+    // Handle context menu - can integrate with existing context menu system
+    console.log('Context menu for:', event.entry.name);
   }
 
   // ── Virtual ".." entry helpers ────────────────────────────────────────────
@@ -670,8 +768,13 @@ export class FilePaneComponent implements OnInit, OnChanges {
     // The ".." entry is never selectable
     if (entry.path === PARENT_ENTRY_PATH) return;
 
-    if (this.selectedFiles.has(entry.path)) this.selectedFiles.delete(entry.path);
-    else this.selectedFiles.add(entry.path);
+    if (this.selectedFiles.has(entry.path)) {
+      this.selectedFiles.delete(entry.path);
+    } else {
+      // Clear selection for single select, or keep for multi-select based on modifier keys
+      // For now, toggle behavior - parent component can handle multi-select logic
+      this.selectedFiles.add(entry.path);
+    }
     this.selectedFiles = new Set(this.selectedFiles);
   }
 
@@ -711,20 +814,57 @@ export class FilePaneComponent implements OnInit, OnChanges {
     await this.loadDirectory(this.currentPath);
   }
 
-  onCopyToOther(): void { if (this.selectedFiles.size > 0) this.copyToOther.emit(Array.from(this.selectedFiles)); }
-  onMoveToOther(): void { if (this.selectedFiles.size > 0) this.moveToOther.emit(Array.from(this.selectedFiles)); }
+  onCopyToOther(): void { 
+    if (this.selectedFiles.size > 0) {
+      this.copyToOther.emit(Array.from(this.selectedFiles));
+    }
+  }
+  
+  onMoveToOther(): void { 
+    if (this.selectedFiles.size > 0) {
+      this.moveToOther.emit(Array.from(this.selectedFiles));
+    }
+  }
 
   // ── Tab shortcuts ─────────────────────────────────────────────────────────
 
-  onCloseCurrentTab():   void { const t = this.tabs.find(t => t.isActive); if (t) this.onTabClose(t); }
-  onNextTab():           void { const i = this.tabs.findIndex(t => t.isActive); if (i >= 0) this.onTabChange(this.tabs[(i + 1) % this.tabs.length]); }
-  onPreviousTab():       void { const i = this.tabs.findIndex(t => t.isActive); if (i >= 0) this.onTabChange(this.tabs[i === 0 ? this.tabs.length - 1 : i - 1]); }
-  onJumpToTab(n: number): void { if (n > 0 && n <= this.tabs.length) this.onTabChange(this.tabs[n - 1]); }
-  onTogglePinCurrentTab(): void { const t = this.tabs.find(t => t.isActive); if (t) this.onTabPin(t); }
+  onCloseCurrentTab():   void { 
+    const t = this.tabs.find(t => t.isActive); 
+    if (t) this.onTabClose(t); 
+  }
+  
+  onNextTab():           void { 
+    const i = this.tabs.findIndex(t => t.isActive); 
+    if (i >= 0) this.onTabChange(this.tabs[(i + 1) % this.tabs.length]); 
+  }
+  
+  onPreviousTab():       void { 
+    const i = this.tabs.findIndex(t => t.isActive); 
+    if (i >= 0) this.onTabChange(this.tabs[i === 0 ? this.tabs.length - 1 : i - 1]); 
+  }
+  
+  onJumpToTab(n: number): void { 
+    if (n > 0 && n <= this.tabs.length) this.onTabChange(this.tabs[n - 1]); 
+  }
+  
+  onTogglePinCurrentTab(): void { 
+    const t = this.tabs.find(t => t.isActive); 
+    if (t) this.onTabPin(t); 
+  }
 
-  focusAddressBar(): void { this.addressBar?.enterEditMode(); }
-  focusFind():       void { this.findWidget?.open(); }
+  focusAddressBar(): void { 
+    this.addressBar?.enterEditMode(); 
+  }
+  
+  focusFind():       void { 
+    this.findWidget?.open(); 
+  }
 
-  focusFilter(): void { this.findWidget?.toggle(); }
-  onClearFilter(): void { this.findWidget?.close(); }
+  focusFilter(): void { 
+    this.findWidget?.toggle(); 
+  }
+  
+  onClearFilter(): void { 
+    this.findWidget?.close(); 
+  }
 }

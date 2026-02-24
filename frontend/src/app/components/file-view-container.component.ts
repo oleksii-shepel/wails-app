@@ -57,10 +57,9 @@ export type ViewLayout = ViewMode;
         <app-file-tree
           *ngIf="currentView === 'tree'"
           [nodes]="treeNodes"
+          [selectedNode]="selectedNode"
           (nodeClick)="onSelectionChange($event)"
-          (nodeDoubleClick)="onNavigate($event)"
-          (toggleExpand)="onExpandNode($event)"
-          (contextMenu)="onContextMenu($event)">
+          (toggleExpand)="onExpandNode($event)">
         </app-file-tree>
         
         <!-- Details View -->
@@ -113,7 +112,7 @@ export class FileViewContainerComponent implements OnChanges {
   @Input() sortField: string = 'name';
   @Input() sortDirection: 'asc' | 'desc' = 'asc';
   @Input() loadChildrenFn?: (node: TreeNode) => Promise<FileInfo[]>;
-  
+
   @Output() viewChange = new EventEmitter<ViewLayout>();
   @Output() selectionChange = new EventEmitter<FileInfo>();
   @Output() navigate = new EventEmitter<FileInfo>();
@@ -124,11 +123,19 @@ export class FileViewContainerComponent implements OnChanges {
 
   sortedEntries: FileInfo[] = [];
   treeNodes: TreeNode[] = [];
+  selectedNode?: TreeNode;
 
   ngOnChanges(): void {
     this.sortEntries();
+    
     if (this.currentView === 'tree') {
       this.buildTreeNodes();
+
+      // Update selectedNode based on selectedFiles
+      const selectedPath = this.selectedFiles.values().next().value;
+      this.selectedNode = selectedPath
+        ? this.findNodeByPath(this.treeNodes, selectedPath)
+        : undefined;
     }
   }
 
@@ -160,13 +167,8 @@ export class FileViewContainerComponent implements OnChanges {
     this.navigate.emit(entry);
   }
 
-  onContextMenu(event: { event: MouseEvent; node: TreeNode } | { event: MouseEvent; entry: FileInfo }): void {
-    // Accept both shapes, map node to entry if needed
-    if ('node' in event) {
-      this.contextMenu.emit({ event: event.event, entry: event.node });
-    } else {
-      this.contextMenu.emit(event);
-    }
+  onContextMenu(event: { event: MouseEvent; entry: FileInfo }): void {
+    this.contextMenu.emit(event);
   }
 
   onExpandNode(node: TreeNode): void {
@@ -219,20 +221,15 @@ export class FileViewContainerComponent implements OnChanges {
   }
 
   private buildTreeNodes(): void {
-    // Convert flat entries to tree structure
     const root: TreeNode[] = [];
     const map = new Map<string, TreeNode>();
-    
-    // Sort by path depth to ensure parents are created first
-    const sorted = [...this.entries].sort((a, b) => {
-      const depthA = a.path.split('/').length;
-      const depthB = b.path.split('/').length;
-      return depthA - depthB;
-    });
-    
+
+    // Sort entries by path depth so parents come before children
+    const sorted = [...this.entries].sort((a, b) => a.path.split('/').length - b.path.split('/').length);
+
     for (const entry of sorted) {
       if (entry.path === '__archive_parent__') continue;
-      
+
       const node: TreeNode = {
         ...entry,
         level: 0,
@@ -241,23 +238,36 @@ export class FileViewContainerComponent implements OnChanges {
         children: entry.type === FileType.DIRECTORY ? [] : undefined,
         loaded: false
       };
-      
+
       map.set(entry.path, node);
-      
-      // Find parent
+
+      // Determine parent path
       const parentPath = this.getParentPath(entry.path);
+
       if (parentPath && map.has(parentPath)) {
         const parent = map.get(parentPath)!;
-        if (!parent.children) parent.children = [];
-        parent.children.push(node);
         node.parent = parent;
         node.level = parent.level + 1;
+        parent.children = parent.children || [];
+        parent.children.push(node);
+        parent.expandable = true; // ensure parent is marked expandable
       } else {
-        root.push(node);
+        root.push(node); // top-level node
       }
     }
-    
+
     this.treeNodes = root;
+
+    // Optional: auto-expand all parents so tree shows nested structure
+    const expandParents = (nodes: TreeNode[]) => {
+      nodes.forEach(n => {
+        if (n.children && n.children.length > 0) {
+          n.expanded = true;
+          expandParents(n.children);
+        }
+      });
+    };
+    expandParents(root);
   }
 
   private getParentPath(path: string): string | null {
@@ -266,5 +276,16 @@ export class FileViewContainerComponent implements OnChanges {
     if (parts.length === 0) return null;
     parts.pop();
     return '/' + parts.join('/');
+  }
+
+  private findNodeByPath(nodes: TreeNode[], path: string): TreeNode | undefined {
+    for (const node of nodes) {
+      if (node.path === path) return node;
+      if (node.children) {
+        const child = this.findNodeByPath(node.children, path);
+        if (child) return child;
+      }
+    }
+    return undefined;
   }
 }

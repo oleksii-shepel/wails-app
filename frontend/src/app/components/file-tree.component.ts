@@ -190,17 +190,19 @@ export interface TreeNode extends FileInfo {
     .indent-guide::before {
       content: '';
       position: absolute;
-      left: 9px;
+      left: 7px;
       top: 0;
       bottom: 0;
       width: 1px;
-      background: var(--vsc-tree-indent-guide, rgba(255,255,255,0.12));
+      /* less bright fallback to avoid overly white guides on light/dark backgrounds */
+      background: var(--vsc-tree-indent-guide, rgba(255,255,255,0.06));
       pointer-events: none;
     }
 
     /* Brighter line when a selected node passes through this level */
     .indent-guide--active::before {
-      background: var(--vsc-tree-indent-guide-active, rgba(255,255,255,0.3));
+      /* active guide slightly brighter but still subtle */
+      background: var(--vsc-tree-indent-guide-active, rgba(255,255,255,0.12));
     }
 
     /*

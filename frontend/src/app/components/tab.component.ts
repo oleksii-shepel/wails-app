@@ -117,6 +117,7 @@ import { TabInfo } from "../shared/protocol-enhanced";
       font-size: 15px;
       opacity: .75;
       flex-shrink: 0;
+      transition: opacity 120ms ease, filter 120ms ease;
     }
 
     .tab-icon--archive {
@@ -157,6 +158,12 @@ import { TabInfo } from "../shared/protocol-enhanced";
       display: flex;
       align-items: center;
       justify-content: center;
+
+    /* Soften the tab icon when the tab is active to reduce perceived brightness */
+    .tab.active .tab-icon {
+      opacity: 0.82;
+      filter: saturate(0.94) brightness(0.95);
+    }
     }
 
     .tab:hover .tab-action {

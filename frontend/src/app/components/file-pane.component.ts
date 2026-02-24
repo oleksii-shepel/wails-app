@@ -57,6 +57,11 @@ declare const window: any;
       <app-action-bar
         [selectedCount]="selectedFiles.size"
         [panePosition]="paneId"
+        [currentView]="currentView"
+        [currentSort]="sortField"
+        [sortDirection]="sortDirection"
+        (viewChange)="onViewChange($event)"
+        (sortChange)="onSortChange($event)"
         (createFolder)="onCreateFolder()"
         (deleteSelected)="onDeleteSelected()"
         (copyToOther)="onCopyToOther()"

@@ -405,8 +405,14 @@ interface IdleSlashTick {
       &:active { background: var(--vsc-list-active-background); color: var(--vsc-foreground-bright); }
       &:focus-visible { outline: 1px solid var(--vsc-focusBorder, var(--vsc-accent-blue)); outline-offset: -1px; }
 
-      svg { width: 16px; height: 16px; fill: currentColor; opacity: 0.9; transition: opacity var(--vsc-transition-fast); }
+      svg { width: 16px; height: 16px; fill: currentColor; opacity: 0.9; transition: opacity var(--vsc-transition-fast), filter 120ms ease; }
       &:hover svg { opacity: 1; }
+      /* Soften icons when button is in an active/open state */
+      &.ab-btn--open svg,
+      &.ab-btn--pinned svg {
+        opacity: 0.78;
+        filter: saturate(0.92) brightness(0.94);
+      }
     }
 
     .ab-btn--star { font-size: 16px; line-height: 1; &:hover { color: var(--vsc-accent-yellow); } }
@@ -503,13 +509,16 @@ interface IdleSlashTick {
     }
 
     .ab-drive-letter {
-      background: color-mix(in srgb, #007fd4 20%, transparent);
-      border: 1px solid rgba(0,127,212,0.4); border-radius: 4px;
-      color: #7ec8f8; font-family: var(--vsc-font-family-mono); font-weight: 600;
+      /* Softer drive letter styling: lower opacity and subtler border */
+      background: color-mix(in srgb, #007fd4 12%, transparent);
+      border: 1px solid rgba(0,127,212,0.25);
+      border-radius: 4px;
+      color: #6fb3db; /* slightly dimmer blue */
+      font-family: var(--vsc-font-family-mono); font-weight: 600;
       padding: 0 var(--vsc-padding-lg) !important; margin-right: var(--vsc-padding-md) !important;
-      cursor: pointer; transition: background 0.08s, border-color 0.08s;
-      &:hover { background: color-mix(in srgb, #007fd4 30%, transparent); border-color: rgba(0,127,212,0.6); }
-      &.ab-seg--last { background: color-mix(in srgb, #007fd4 18%, transparent); cursor: pointer; }
+      cursor: pointer; transition: background 0.12s, border-color 0.12s, color 120ms;
+      &:hover { background: color-mix(in srgb, #007fd4 20%, transparent); border-color: rgba(0,127,212,0.38); }
+      &.ab-seg--last { background: color-mix(in srgb, #007fd4 10%, transparent); cursor: pointer; }
     }
 
     .ab-chev-wrap {
@@ -621,7 +630,7 @@ interface IdleSlashTick {
 
     /* Light theme adjustments */
     :host-context(.vscode-light) {
-      .ab-drive-letter { background: color-mix(in srgb, #0060c0 15%, transparent); border-color: rgba(0,96,192,0.4); color: #0060c0; }
+      .ab-drive-letter { background: color-mix(in srgb, #0060c0 10%, transparent); border-color: rgba(0,96,192,0.28); color: #0a6fb0; }
       
       .ab-seg--archive-root {
         background: color-mix(in srgb, #ff8c00 12%, transparent);

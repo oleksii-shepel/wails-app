@@ -10,7 +10,7 @@ import { FileListComponent } from './file-list.component';
 import { FileGridComponent } from './file-grid.component';
 import { FileTreeComponent, TreeNode } from './file-tree.component';
 import { FileDetailsComponent } from './file-details.component';
-import { ViewSwitcherComponent, ViewMode } from './view-switcher.component';
+import { ActionBarComponent, ViewMode } from './action-bar.component';
 import { FileInfo, FileType } from '../shared/protocol';
 import { ApiService } from '../services/api.service';
 
@@ -24,19 +24,10 @@ export type ViewLayout = ViewMode;
     FileListComponent,
     FileGridComponent,
     FileTreeComponent,
-    FileDetailsComponent,
-    ViewSwitcherComponent
+    FileDetailsComponent
   ],
   template: `
     <div class="view-container">
-      <app-view-switcher
-        [currentView]="currentView"
-        [currentSort]="sortField"
-        [sortDirection]="sortDirection"
-        (viewChange)="onViewChange($event)"
-        (sortChange)="onSortChange($event)">
-      </app-view-switcher>
-
       <div class="view-content">
         <app-file-list
           *ngIf="currentView === 'list'"

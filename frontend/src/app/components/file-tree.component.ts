@@ -85,9 +85,8 @@ export interface TreeNode extends FileInfo {
             (click)="onToggleExpand($event, node)">
 
             <ng-container *ngIf="node.expandable">
-              <span *ngIf="node.loading" class="spinner-small"></span>
-              <svg *ngIf="!node.loading" width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
             </ng-container>
             <span *ngIf="!node.expandable" class="twistie-placeholder"></span>
@@ -107,7 +106,9 @@ export interface TreeNode extends FileInfo {
         </div>
 
         <!-- Children -->
-        <div class="tree-children" *ngIf="isExpanded(node)">
+        <!-- Only render children container when expanded AND there are children or a load is in progress.
+             This keeps the twistie rotating for empty folders but prevents showing an empty expansion panel. -->
+        <div class="tree-children" *ngIf="isExpanded(node) && (node.loading || (node.children && node.children.length > 0))">
           <ng-container *ngIf="node.children?.length; else emptyOrLoading">
             <ng-container *ngTemplateOutlet="treeTemplate; context: {
               $implicit: node.children,
@@ -208,6 +209,7 @@ export interface TreeNode extends FileInfo {
       - Horizontal stub then runs right from midpoint toward the twistie
     */
     .indent-guide--last::before {
+      /* stop exactly at midpoint to align with horizontal stub */
       bottom: 50%;
     }
 
@@ -215,11 +217,14 @@ export interface TreeNode extends FileInfo {
       content: '';
       position: absolute;
       left: 9px;
-      top: 50%;
-      width: 8px;
+      /* place the horizontal stub centered on the midpoint and use 1px height for a crisp line */
+      top: calc(50% - 0.5px);
+      width: 12px;
       height: 1px;
       background: var(--vsc-tree-indent-guide, rgba(255,255,255,0.12));
       pointer-events: none;
+      /* avoid subpixel blending where possible */
+      transform: translateZ(0);
     }
 
     /* ── Twistie ──────────────────────────────────────────── */
@@ -440,10 +445,15 @@ export class FileTreeComponent implements OnChanges, OnDestroy {
     const guides: { active: boolean; last: boolean }[] = [];
     for (let i = 0; i < node.level; i++) {
       const isInnermost     = i === node.level - 1;
-      const hasContinuation = parentLines[i] ?? false;
+      // Determine if this node is the last child of its parent (only meaningful for the innermost level)
+      const isLastChild = isInnermost && !!node.parent && Array.isArray(node.parent.children)
+        ? node.parent.children[node.parent.children.length - 1].path === node.path
+        : false;
+
       guides.push({
         active: this.isSelected(node),
-        last:   isInnermost && !hasContinuation,
+        // Only mark `last` for the innermost level when this node is actually the last sibling
+        last: isLastChild,
       });
     }
     return guides;
@@ -536,9 +546,7 @@ export class FileTreeComponent implements OnChanges, OnDestroy {
     event.preventDefault();
     event.stopPropagation();
     this.focusedNodePath = node.path;
-    if (!this.selectedFiles.has(node.path)) {
-      this.selectionChange.emit([node]);
-    }
+    // removed: selectionChange.emit — this was causing the pane to rebuild the tree
     this.contextMenu.emit({ event, node });
     this.cdr.markForCheck();
   }

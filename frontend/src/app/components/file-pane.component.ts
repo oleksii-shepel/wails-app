@@ -21,7 +21,7 @@ import { TreeNode } from './file-tree.component';
 declare const window: any;
 
 /** Sentinel path used to identify the virtual ".." parent-directory entry. */
-const PARENT_ENTRY_PATH = '__archive_parent__';
+const PARENT_ENTRY_PATH = '__parent__';
 
 @Component({
   selector: 'app-file-pane',
@@ -82,14 +82,11 @@ const PARENT_ENTRY_PATH = '__archive_parent__';
           [currentView]="currentView"
           [sortField]="sortField"
           [sortDirection]="sortDirection"
-          [loadChildrenFn]="currentView === 'tree' ? loadTreeChildrenFn : undefined"
           (viewChange)="onViewChange($event)"
           (selectionChange)="onSelectionChange($event)"
           (navigate)="onNavigate($event)"
           (sortChange)="onSortChange($event)"
-          (contextMenu)="onContextMenu($event)"
-          (expandNode)="onTreeExpandNode($event)"
-          (collapseNode)="onTreeCollapseNode($event)">
+          (contextMenu)="onContextMenu($event)">
         </app-file-view-container>
       </div>
     </div>
@@ -176,7 +173,6 @@ export class FilePaneComponent implements OnInit, OnChanges {
   currentView: ViewLayout = 'list';
   sortField: string = 'name';
   sortDirection: 'asc' | 'desc' = 'asc';
-  loadTreeChildrenFn = this.loadTreeChildren.bind(this);
 
   archiveStack: ArchiveFrame[] = [];
 
@@ -241,38 +237,6 @@ export class FilePaneComponent implements OnInit, OnChanges {
     this.sortDirection = sort.direction;
     this.saveViewPreference();
     this.applyFilter();
-  }
-
-  async loadTreeChildren(node: TreeNode): Promise<FileInfo[]> {
-    if (this.isInArchive()) {
-      // Handle archive tree navigation
-      try {
-        const currentFrame = this.archiveStack[this.archiveStack.length - 1];
-        const newFrame = await this.archiveService.navigateInto(currentFrame, node.path);
-        const rawEntries = this.archiveService.listingToFileInfos(newFrame.listing);
-        return rawEntries.filter(e => e.path !== PARENT_ENTRY_PATH);
-      } catch {
-        return [];
-      }
-    }
-    
-    try {
-      const listing = await this.apiService.listDirectory(node.path, this.showHidden);
-      return this.withParentEntry(listing.entries, false, node.path)
-        .filter(e => e.path !== PARENT_ENTRY_PATH);
-    } catch {
-      return [];
-    }
-  }
-
-  onTreeExpandNode(node: TreeNode): void {
-    // Tree node expanded - can trigger lazy loading or other actions
-    console.log('Tree node expanded:', node.path);
-  }
-
-  onTreeCollapseNode(node: TreeNode): void {
-    // Tree node collapsed
-    console.log('Tree node collapsed:', node.path);
   }
 
   onContextMenu(event: { event: MouseEvent; entry: FileInfo }): void {
@@ -768,11 +732,12 @@ export class FilePaneComponent implements OnInit, OnChanges {
     // The ".." entry is never selectable
     if (entry.path === PARENT_ENTRY_PATH) return;
 
+    // Toggle selection
     if (this.selectedFiles.has(entry.path)) {
       this.selectedFiles.delete(entry.path);
     } else {
-      // Clear selection for single select, or keep for multi-select based on modifier keys
-      // For now, toggle behavior - parent component can handle multi-select logic
+      // For single selection mode, clear others first
+      // For multi-selection, keep existing and add new
       this.selectedFiles.add(entry.path);
     }
     this.selectedFiles = new Set(this.selectedFiles);

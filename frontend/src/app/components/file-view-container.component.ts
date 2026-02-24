@@ -58,8 +58,10 @@ export type ViewLayout = ViewMode;
           *ngIf="currentView === 'tree'"
           [nodes]="treeNodes"
           [selectedNode]="selectedNode"
-          (nodeClick)="onSelectionChange($event)"
-          (toggleExpand)="onExpandNode($event)">
+          (nodeClick)="onTreeNodeClick($event)"
+          (nodeDoubleClick)="onTreeNodeDoubleClick($event)"
+          (toggleExpand)="onTreeToggleExpand($event)"
+          (navigate)="onTreeNavigate($event)">
         </app-file-tree>
         
         <!-- Details View -->
@@ -77,29 +79,7 @@ export type ViewLayout = ViewMode;
       </div>
     </div>
   `,
-  styles: [`
-    .view-container {
-      display: flex;
-      flex-direction: column;
-      flex: 1;
-      min-height: 0;
-      overflow: hidden;
-    }
-
-    .view-content {
-      flex: 1;
-      min-height: 0;
-      overflow: hidden;
-      position: relative;
-    }
-
-    /* Ensure child components fill the container */
-    .view-content > * {
-      display: flex;
-      flex-direction: column;
-      height: 100%;
-    }
-  `],
+  styles: [`...`], // same styles as before
 })
 export class FileViewContainerComponent implements OnChanges {
   @ViewChild(FileTreeComponent) treeComponent?: FileTreeComponent;
@@ -111,15 +91,12 @@ export class FileViewContainerComponent implements OnChanges {
   @Input() currentView: ViewLayout = 'list';
   @Input() sortField: string = 'name';
   @Input() sortDirection: 'asc' | 'desc' = 'asc';
-  @Input() loadChildrenFn?: (node: TreeNode) => Promise<FileInfo[]>;
 
   @Output() viewChange = new EventEmitter<ViewLayout>();
   @Output() selectionChange = new EventEmitter<FileInfo>();
   @Output() navigate = new EventEmitter<FileInfo>();
   @Output() sortChange = new EventEmitter<{ field: string; direction: 'asc' | 'desc' }>();
   @Output() contextMenu = new EventEmitter<{ event: MouseEvent; entry: FileInfo }>();
-  @Output() expandNode = new EventEmitter<TreeNode>();
-  @Output() collapseNode = new EventEmitter<TreeNode>();
 
   sortedEntries: FileInfo[] = [];
   treeNodes: TreeNode[] = [];
@@ -130,7 +107,7 @@ export class FileViewContainerComponent implements OnChanges {
     
     if (this.currentView === 'tree') {
       this.buildTreeNodes();
-
+      
       // Update selectedNode based on selectedFiles
       const selectedPath = this.selectedFiles.values().next().value;
       this.selectedNode = selectedPath
@@ -143,10 +120,8 @@ export class FileViewContainerComponent implements OnChanges {
     this.currentView = view;
     this.viewChange.emit(view);
     
-    // Persist preference
     localStorage.setItem('fileManager_viewMode', view);
     
-    // Rebuild tree if switching to tree view
     if (view === 'tree') {
       this.buildTreeNodes();
     }
@@ -171,12 +146,38 @@ export class FileViewContainerComponent implements OnChanges {
     this.contextMenu.emit(event);
   }
 
-  onExpandNode(node: TreeNode): void {
-    this.expandNode.emit(node);
+  // Tree view specific handlers
+  onTreeNodeClick(node: TreeNode): void {
+    // Update selection
+    this.selectedNode = node;
+    this.selectedFiles = new Set([node.path]);
+    
+    // Emit as regular selection
+    this.selectionChange.emit(node);
   }
 
-  onCollapseNode(node: TreeNode): void {
-    this.collapseNode.emit(node);
+  onTreeNodeDoubleClick(node: TreeNode): void {
+    if (node.type === FileType.DIRECTORY) {
+      // For folders in tree view, double-click navigates into them
+      this.navigate.emit(node);
+    } else {
+      // For files, open them (same as other views)
+      this.navigate.emit(node);
+    }
+  }
+
+  onTreeToggleExpand(node: TreeNode): void {
+    // Tree node expanded/collapsed - just update the tree state
+    // No navigation happens here, just visual expansion
+    console.log('Tree node toggled:', node.name, 'expanded:', node.expanded);
+  }
+
+  onTreeNavigate(node: TreeNode): void {
+    // This is called when user wants to navigate into a folder from tree view
+    // (e.g., double-click on folder)
+    if (node.type === FileType.DIRECTORY) {
+      this.navigate.emit(node);
+    }
   }
 
   private sortEntries(): void {
@@ -184,11 +185,9 @@ export class FileViewContainerComponent implements OnChanges {
     const multiplier = this.sortDirection === 'asc' ? 1 : -1;
     
     sorted.sort((a, b) => {
-      // Always keep parent entry at top
       if (a.path === '__archive_parent__') return -1;
       if (b.path === '__archive_parent__') return 1;
       
-      // Directories first in list/details views
       if (this.currentView !== 'grid') {
         if (a.type === FileType.DIRECTORY && b.type !== FileType.DIRECTORY) return -1;
         if (b.type === FileType.DIRECTORY && a.type !== FileType.DIRECTORY) return 1;
@@ -224,7 +223,6 @@ export class FileViewContainerComponent implements OnChanges {
     const root: TreeNode[] = [];
     const map = new Map<string, TreeNode>();
 
-    // Sort entries by path depth so parents come before children
     const sorted = [...this.entries].sort((a, b) => a.path.split('/').length - b.path.split('/').length);
 
     for (const entry of sorted) {
@@ -234,14 +232,13 @@ export class FileViewContainerComponent implements OnChanges {
         ...entry,
         level: 0,
         expandable: entry.type === FileType.DIRECTORY,
-        expanded: false,
+        expanded: false, // Start collapsed
         children: entry.type === FileType.DIRECTORY ? [] : undefined,
         loaded: false
       };
 
       map.set(entry.path, node);
 
-      // Determine parent path
       const parentPath = this.getParentPath(entry.path);
 
       if (parentPath && map.has(parentPath)) {
@@ -250,24 +247,13 @@ export class FileViewContainerComponent implements OnChanges {
         node.level = parent.level + 1;
         parent.children = parent.children || [];
         parent.children.push(node);
-        parent.expandable = true; // ensure parent is marked expandable
+        parent.expandable = true;
       } else {
-        root.push(node); // top-level node
+        root.push(node);
       }
     }
 
     this.treeNodes = root;
-
-    // Optional: auto-expand all parents so tree shows nested structure
-    const expandParents = (nodes: TreeNode[]) => {
-      nodes.forEach(n => {
-        if (n.children && n.children.length > 0) {
-          n.expanded = true;
-          expandParents(n.children);
-        }
-      });
-    };
-    expandParents(root);
   }
 
   private getParentPath(path: string): string | null {

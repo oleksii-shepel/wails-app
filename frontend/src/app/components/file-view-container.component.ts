@@ -7,7 +7,6 @@ import { FileTreeComponent, TreeNode } from './file-tree.component';
 import { FileDetailsComponent } from './file-details.component';
 import { ViewSwitcherComponent, ViewMode } from './view-switcher.component';
 import { FileInfo, FileType } from '../shared/protocol';
-import { PARENT_ENTRY_PATH } from './file-entry.component';
 
 export type ViewLayout = ViewMode;
 
@@ -21,7 +20,7 @@ export type ViewLayout = ViewMode;
     FileTreeComponent,
     FileDetailsComponent,
     ViewSwitcherComponent
-],
+  ],
   template: `
     <div class="view-container">
       <app-view-switcher
@@ -58,11 +57,11 @@ export type ViewLayout = ViewMode;
         <app-file-tree
           *ngIf="currentView === 'tree'"
           [nodes]="treeNodes"
-          [selectedNode]="selectedNode"
-          (nodeClick)="onTreeNodeClick($event)"
+          [selectedFiles]="selectedFiles"
+          (selectionChange)="onSelectionChange($event)"
           (nodeDoubleClick)="onTreeNodeDoubleClick($event)"
           (toggleExpand)="onTreeToggleExpand($event)"
-          (navigate)="onTreeNavigate($event)">
+          (navigate)="onNavigate($event)">
         </app-file-tree>
         
         <!-- Details View -->
@@ -102,7 +101,7 @@ export type ViewLayout = ViewMode;
       flex-direction: column;
       height: 100%;
     }
-  `],
+  `]
 })
 export class FileViewContainerComponent implements OnChanges {
   @ViewChild(FileTreeComponent) treeComponent?: FileTreeComponent;
@@ -114,28 +113,21 @@ export class FileViewContainerComponent implements OnChanges {
   @Input() currentView: ViewLayout = 'list';
   @Input() sortField: string = 'name';
   @Input() sortDirection: 'asc' | 'desc' = 'asc';
-
+  
   @Output() viewChange = new EventEmitter<ViewLayout>();
   @Output() selectionChange = new EventEmitter<FileInfo>();
   @Output() navigate = new EventEmitter<FileInfo>();
   @Output() sortChange = new EventEmitter<{ field: string; direction: 'asc' | 'desc' }>();
   @Output() contextMenu = new EventEmitter<{ event: MouseEvent; entry: FileInfo }>();
+  @Output() nodeDoubleClick = new EventEmitter<FileInfo>();
 
   sortedEntries: FileInfo[] = [];
   treeNodes: TreeNode[] = [];
-  selectedNode?: TreeNode;
 
   ngOnChanges(): void {
     this.sortEntries();
-    
     if (this.currentView === 'tree') {
       this.buildTreeNodes();
-      
-      // Update selectedNode based on selectedFiles
-      const selectedPath = this.selectedFiles.values().next().value;
-      this.selectedNode = selectedPath
-        ? this.findNodeByPath(this.treeNodes, selectedPath)
-        : undefined;
     }
   }
 
@@ -169,38 +161,15 @@ export class FileViewContainerComponent implements OnChanges {
     this.contextMenu.emit(event);
   }
 
-  // Tree view specific handlers
-  onTreeNodeClick(node: TreeNode): void {
-    // Update selection
-    this.selectedNode = node;
-    this.selectedFiles = new Set([node.path]);
-    
-    // Emit as regular selection
-    this.selectionChange.emit(node);
-  }
-
   onTreeNodeDoubleClick(node: TreeNode): void {
-    if (node.type === FileType.DIRECTORY) {
-      // For folders in tree view, double-click navigates into them
-      this.navigate.emit(node);
-    } else {
-      // For files, open them (same as other views)
-      this.navigate.emit(node);
+    if (node.type !== FileType.DIRECTORY) {
+      this.nodeDoubleClick.emit(node);
     }
   }
 
   onTreeToggleExpand(node: TreeNode): void {
-    // Tree node expanded/collapsed - just update the tree state
-    // No navigation happens here, just visual expansion
+    // Tree handles expansion internally, just log if needed
     console.log('Tree node toggled:', node.name, 'expanded:', node.expanded);
-  }
-
-  onTreeNavigate(node: TreeNode): void {
-    // This is called when user wants to navigate into a folder from tree view
-    // (e.g., double-click on folder)
-    if (node.type === FileType.DIRECTORY) {
-      this.navigate.emit(node);
-    }
   }
 
   private sortEntries(): void {
@@ -208,8 +177,8 @@ export class FileViewContainerComponent implements OnChanges {
     const multiplier = this.sortDirection === 'asc' ? 1 : -1;
     
     sorted.sort((a, b) => {
-      if (a.path === PARENT_ENTRY_PATH) return -1;
-      if (b.path === PARENT_ENTRY_PATH) return 1;
+      if (a.path === '__archive_parent__') return -1;
+      if (b.path === '__archive_parent__') return 1;
       
       if (this.currentView !== 'grid') {
         if (a.type === FileType.DIRECTORY && b.type !== FileType.DIRECTORY) return -1;
@@ -245,37 +214,39 @@ export class FileViewContainerComponent implements OnChanges {
   private buildTreeNodes(): void {
     const root: TreeNode[] = [];
     const map = new Map<string, TreeNode>();
-
-    const sorted = [...this.entries].sort((a, b) => a.path.split('/').length - b.path.split('/').length);
-
+    
+    const sorted = [...this.entries].sort((a, b) => {
+      const depthA = a.path.split('/').length;
+      const depthB = b.path.split('/').length;
+      return depthA - depthB;
+    });
+    
     for (const entry of sorted) {
-      if (entry.path === PARENT_ENTRY_PATH) continue;
-
+      if (entry.path === '__archive_parent__') continue;
+      
       const node: TreeNode = {
         ...entry,
         level: 0,
         expandable: entry.type === FileType.DIRECTORY,
-        expanded: false, // Start collapsed
+        expanded: false,
         children: entry.type === FileType.DIRECTORY ? [] : undefined,
         loaded: false
       };
-
+      
       map.set(entry.path, node);
-
+      
       const parentPath = this.getParentPath(entry.path);
-
       if (parentPath && map.has(parentPath)) {
         const parent = map.get(parentPath)!;
+        if (!parent.children) parent.children = [];
+        parent.children.push(node);
         node.parent = parent;
         node.level = parent.level + 1;
-        parent.children = parent.children || [];
-        parent.children.push(node);
-        parent.expandable = true;
       } else {
         root.push(node);
       }
     }
-
+    
     this.treeNodes = root;
   }
 
@@ -285,16 +256,5 @@ export class FileViewContainerComponent implements OnChanges {
     if (parts.length === 0) return null;
     parts.pop();
     return '/' + parts.join('/');
-  }
-
-  private findNodeByPath(nodes: TreeNode[], path: string): TreeNode | undefined {
-    for (const node of nodes) {
-      if (node.path === path) return node;
-      if (node.children) {
-        const child = this.findNodeByPath(node.children, path);
-        if (child) return child;
-      }
-    }
-    return undefined;
   }
 }

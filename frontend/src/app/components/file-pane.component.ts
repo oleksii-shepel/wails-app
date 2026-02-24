@@ -5,7 +5,6 @@ import { TabBarComponent } from './tab-bar.component';
 import { AddressBarComponent } from './address-bar.component';
 import { FindWidgetComponent, FindWidgetState } from './filter-widget.component';
 import { ActionBarComponent } from './action-bar.component';
-import { FileViewContainerComponent, ViewLayout } from './file-view-container.component';
 import { FileInfo, FileType } from '../shared/protocol';
 import { TabInfo, WorkspaceConfig, FilterQuery } from '../shared/protocol-enhanced';
 import { ApiService } from '../services/api.service';
@@ -18,6 +17,7 @@ import {
 import { parentPath, normalizePath } from './address-bar.utils';
 import { TreeNode } from './file-tree.component';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
+import { FileViewContainerComponent, ViewLayout } from './file-view-container.component';
 
 declare const window: any;
 
@@ -30,7 +30,7 @@ declare const window: any;
     AddressBarComponent,
     FindWidgetComponent,
     ActionBarComponent,
-    FileViewContainerComponent,
+    FileViewContainerComponent
   ],
   template: `
     <div class="file-pane" [class.file-pane--archive]="isInArchive()">
@@ -84,7 +84,8 @@ declare const window: any;
           (selectionChange)="onSelectionChange($event)"
           (navigate)="onNavigate($event)"
           (sortChange)="onSortChange($event)"
-          (contextMenu)="onContextMenu($event)">
+          (contextMenu)="onContextMenu($event)"
+          (nodeDoubleClick)="onNodeDoubleClick($event)">
         </app-file-view-container>
       </div>
     </div>
@@ -240,6 +241,14 @@ export class FilePaneComponent implements OnInit, OnChanges {
   onContextMenu(event: { event: MouseEvent; entry: FileInfo }): void {
     // Handle context menu - can integrate with existing context menu system
     console.log('Context menu for:', event.entry.name);
+  }
+
+  onNodeDoubleClick(entry: FileInfo): void {
+    // Handle file open - for non-directory files
+    if (entry.type !== FileType.DIRECTORY) {
+      console.log('Open file:', entry.name);
+      // Implement file opening logic here
+    }
   }
 
   // ── Virtual ".." entry helpers ────────────────────────────────────────────

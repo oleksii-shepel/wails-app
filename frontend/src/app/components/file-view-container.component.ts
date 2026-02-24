@@ -7,6 +7,7 @@ import { FileTreeComponent, TreeNode } from './file-tree.component';
 import { FileDetailsComponent } from './file-details.component';
 import { ViewSwitcherComponent, ViewMode } from './view-switcher.component';
 import { FileInfo, FileType } from '../shared/protocol';
+import { PARENT_ENTRY_PATH } from './file-entry.component';
 
 export type ViewLayout = ViewMode;
 
@@ -207,8 +208,8 @@ export class FileViewContainerComponent implements OnChanges {
     const multiplier = this.sortDirection === 'asc' ? 1 : -1;
     
     sorted.sort((a, b) => {
-      if (a.path === '__archive_parent__') return -1;
-      if (b.path === '__archive_parent__') return 1;
+      if (a.path === PARENT_ENTRY_PATH) return -1;
+      if (b.path === PARENT_ENTRY_PATH) return 1;
       
       if (this.currentView !== 'grid') {
         if (a.type === FileType.DIRECTORY && b.type !== FileType.DIRECTORY) return -1;
@@ -248,7 +249,7 @@ export class FileViewContainerComponent implements OnChanges {
     const sorted = [...this.entries].sort((a, b) => a.path.split('/').length - b.path.split('/').length);
 
     for (const entry of sorted) {
-      if (entry.path === '__archive_parent__') continue;
+      if (entry.path === PARENT_ENTRY_PATH) continue;
 
       const node: TreeNode = {
         ...entry,

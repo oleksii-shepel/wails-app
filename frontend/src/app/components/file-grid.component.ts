@@ -2,6 +2,7 @@
 import { Component, Input, Output, EventEmitter } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FileInfo, FileType } from '../shared/protocol';
+import { PARENT_ENTRY_PATH } from './file-entry.component';
 
 @Component({
   selector: 'app-file-grid',
@@ -177,7 +178,7 @@ export class FileGridComponent {
   private lastClickedEntry: FileInfo | null = null;
 
   isParentEntry(entry: FileInfo): boolean {
-    return entry.path === '__archive_parent__';
+    return entry.path === PARENT_ENTRY_PATH;
   }
 
   isSelected(entry: FileInfo): boolean {

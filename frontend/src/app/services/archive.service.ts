@@ -1,6 +1,7 @@
 import { Injectable } from '@angular/core';
 import { ArchiveListing } from '../shared/protocol-enhanced';
 import { FileInfo, FileType } from '../shared/protocol';
+import { PARENT_ENTRY_PATH } from '../components/file-entry.component';
 
 /* ─────────────────────────────────────────────────────────────
    Types
@@ -263,7 +264,7 @@ export class ArchiveService {
 
     const dotdot: FileInfo = {
       name: '..',
-      path: '__archive_parent__',
+      path: PARENT_ENTRY_PATH,
       type: FileType.DIRECTORY,
       size: 0,
       modified: 0,

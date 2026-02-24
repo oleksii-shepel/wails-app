@@ -17,11 +17,9 @@ import {
 } from '../services/archive.service';
 import { parentPath, normalizePath } from './address-bar.utils';
 import { TreeNode } from './file-tree.component';
+import { PARENT_ENTRY_PATH } from './file-entry.component';
 
 declare const window: any;
-
-/** Sentinel path used to identify the virtual ".." parent-directory entry. */
-const PARENT_ENTRY_PATH = '__parent__';
 
 @Component({
   selector: 'app-file-pane',

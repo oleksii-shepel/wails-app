@@ -37,100 +37,293 @@ export interface TreeNode extends FileInfo {
       (blur)="onBlur()"
       (keydown)="onKeyDown($event)">
       
-      <div 
-        *ngFor="let node of flattenedNodes; trackBy: trackByFn"
-        class="tree-node"
-        [class.selected]="isSelected(node)"
-        [class.focused]="isFocusedNode(node)"
-        [class.expanded]="node.expanded"
-        [class.collapsed]="!node.expanded && node.expandable"
-        [class.loading]="node.loading"
-        [style.padding-left.px]="getIndentation(node.level)"
-        [attr.role]="'treeitem'"
-        [attr.aria-expanded]="node.expandable ? node.expanded : undefined"
-        [attr.aria-selected]="isSelected(node)"
-        [attr.data-level]="node.level"
-        (click)="onNodeClick(node, $event)"
-        (dblclick)="onNodeDoubleClick(node)"
-        (contextmenu)="onContextMenu($event, node)">
+      <!-- Recursive tree template -->
+      <ng-container *ngTemplateOutlet="treeTemplate; context: { nodes: nodes, level: 0 }"></ng-container>
 
-        <!-- Indentation guides -->
-        <div class="indent-guides">
-          <div 
-            *ngFor="let guide of getIndentGuides(node.level); let i = index"
-            class="indent-guide"
-            [class.active]="isGuideActive(node, i)">
-          </div>
-        </div>
-
-        <!-- Twistie (expand/collapse arrow) -->
-        <span 
-          class="tree-twistie"
-          [class.expandable]="node.expandable"
-          [class.expanded]="node.expanded"
-          [class.collapsed]="!node.expanded && node.expandable"
-          (click)="onToggleExpand($event, node)">
-          <svg *ngIf="node.expandable" width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </span>
-
-        <!-- Icon -->
-        <span class="tree-icon">
-          <ng-container *ngIf="node.type === FileType.DIRECTORY">
-            {{ node.expanded ? '📂' : '📁' }}
-          </ng-container>
-          <ng-container *ngIf="node.type === FileType.SYMLINK">🔗</ng-container>
-          <ng-container *ngIf="node.type !== FileType.DIRECTORY && node.type !== FileType.SYMLINK">
-            {{ getCategoryIcon(node.name) }}
-          </ng-container>
-        </span>
-
-        <!-- Label -->
-        <span class="tree-label" [title]="node.name">{{ node.name }}</span>
-
-        <!-- Loading Spinner -->
-        <span class="tree-spinner" *ngIf="node.loading">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <circle cx="8" cy="8" r="6" stroke="var(--vsc-foreground-dim)" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="20 10">
-              <animateTransform attributeName="transform" type="rotate" from="0 8 8" to="360 8 8" dur="1s" repeatCount="indefinite"/>
-            </circle>
-          </svg>
-        </span>
+      <!-- Empty state -->
+      <div *ngIf="nodes.length === 0" class="tree-empty">
+        No items
       </div>
     </div>
+
+    <!-- Recursive tree template definition -->
+    <ng-template #treeTemplate let-nodes="nodes" let-level="level">
+      <div *ngFor="let node of nodes; trackBy: trackByFn" class="tree-node-wrapper">
+        <!-- Current node -->
+        <div 
+          class="tree-node"
+          [class.selected]="isSelected(node)"
+          [class.focused]="isFocusedNode(node)"
+          [class.expanded]="node.expanded"
+          [class.collapsed]="!node.expanded && node.expandable"
+          [class.loading]="node.loading"
+          [style.padding-left.px]="getIndentation(level)"
+          [attr.role]="'treeitem'"
+          [attr.aria-level]="level + 1"
+          [attr.aria-expanded]="node.expandable ? node.expanded : undefined"
+          [attr.aria-selected]="isSelected(node)"
+          [attr.data-path]="node.path"
+          (click)="onNodeClick(node, $event)"
+          (dblclick)="onNodeDoubleClick(node)"
+          (contextmenu)="onContextMenu($event, node)">
+
+          <!-- Indentation guides (vertical lines connecting levels) -->
+          <div class="indent-guides" *ngIf="level > 0">
+            <div 
+              *ngFor="let guide of getIndentGuides(level); let i = index"
+              class="indent-guide"
+              [class.active]="isGuideActive(node, i, level)">
+            </div>
+          </div>
+
+          <!-- Twistie (expand/collapse arrow) - always visible for expandable nodes -->
+          <span 
+            class="tree-twistie"
+            [class.expandable]="node.expandable"
+            [class.expanded]="node.expanded"
+            [class.visible]="node.expandable"
+            (click)="onToggleExpand($event, node)">
+            <svg *ngIf="node.expandable" width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span *ngIf="!node.expandable" class="twistie-placeholder"></span>
+          </span>
+
+          <!-- Icon based on type -->
+          <span class="tree-icon">
+            <ng-container *ngIf="node.type === FileType.DIRECTORY">
+              <span class="folder-icon">{{ node.expanded ? '📂' : '📁' }}</span>
+            </ng-container>
+            <ng-container *ngIf="node.type === FileType.SYMLINK">
+              <span class="symlink-icon">🔗</span>
+            </ng-container>
+            <ng-container *ngIf="node.type !== FileType.DIRECTORY && node.type !== FileType.SYMLINK">
+              <span class="file-icon">{{ getCategoryIcon(node.name) }}</span>
+            </ng-container>
+          </span>
+
+          <!-- Filename with path tooltip -->
+          <span class="tree-label" [title]="node.path">{{ node.name }}</span>
+
+          <!-- Loading spinner for lazy loading -->
+          <span class="tree-spinner" *ngIf="node.loading">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="20 10">
+                <animateTransform attributeName="transform" type="rotate" from="0 8 8" to="360 8 8" dur="1s" repeatCount="indefinite"/>
+              </circle>
+            </svg>
+          </span>
+        </div>
+
+        <!-- Children nodes (recursively rendered) - only shown when expanded -->
+        <div class="tree-children" *ngIf="node.expanded && node.children?.length">
+          <ng-container *ngTemplateOutlet="treeTemplate; context: { nodes: node.children, level: level + 1 }"></ng-container>
+        </div>
+      </div>
+    </ng-template>
   `,
   styles: [`
-    :host { display:block; flex:1; min-height:0; overflow:hidden; }
-    .file-tree { overflow-y:auto; background: var(--vsc-editor-background); font-family: var(--vsc-font-family); font-size: var(--vsc-font-size); line-height: var(--vsc-line-height); outline: none; }
-    .tree-node { display:flex; align-items:center; height:22px; cursor:pointer; position:relative; color: var(--vsc-foreground); transition: background-color 0.1s ease; }
-    .tree-node.selected { background-color: var(--vsc-list-active-background); color: var(--vsc-foreground-bright); }
-    .file-tree.focused .tree-node.selected { outline:1px solid var(--vsc-accent-blue); outline-offset:-1px; }
-    .tree-node:hover:not(.selected) { background-color: var(--vsc-list-hover-background); }
-    .tree-node.focused { outline:1px dotted var(--vsc-border-bright); outline-offset:-1px; }
+    :host { 
+      display: block; 
+      flex: 1; 
+      min-height: 0; 
+      overflow: hidden; 
+    }
     
-    /* Indentation guides */
-    .indent-guides { display:flex; position:absolute; left:0; top:0; bottom:0; pointer-events:none; }
-    .indent-guide { width:20px; height:100%; position:relative; }
-    .indent-guide::before { content:''; position:absolute; left:9.5px; top:0; bottom:0; width:1px; background-color: var(--vsc-border-subtle); opacity:0.3; }
-    .indent-guide.active::before { background-color: var(--vsc-border-bright); opacity:0.8; }
+    .file-tree { 
+      overflow-y: auto; 
+      overflow-x: hidden;
+      background: var(--vsc-editor-background); 
+      font-family: var(--vsc-font-family); 
+      font-size: var(--vsc-font-size); 
+      line-height: 22px; 
+      outline: none;
+      height: 100%;
+      position: relative;
+      user-select: none;
+    }
     
-    /* Twistie */
-    .tree-twistie { width:16px; height:16px; display:flex; align-items:center; justify-content:center; flex-shrink:0; margin-right:2px; opacity:0; transition:opacity 0.15s ease; }
-    .tree-node:hover .tree-twistie.expandable, .tree-twistie.expandable { opacity:1; cursor:pointer; border-radius:3px; }
-    .tree-twistie:hover { background-color: var(--vsc-list-hover-background); }
-    .tree-twistie svg { color: var(--vsc-foreground-dim); transition:transform 0.15s ease; width: 16px; height: 16px; }
-    .tree-twistie.expanded svg { transform: rotate(90deg); }
-    .tree-twistie.expandable:hover svg { color: var(--vsc-foreground); }
+    .tree-node-wrapper {
+      position: relative;
+    }
     
-    /* Icon */
-    .tree-icon { width:16px; height:16px; display:flex; align-items:center; justify-content:center; flex-shrink:0; margin-right:4px; font-size: 14px; }
+    .tree-node { 
+      display: flex; 
+      align-items: center; 
+      height: 22px; 
+      cursor: pointer; 
+      position: relative; 
+      color: var(--vsc-foreground); 
+      transition: background-color 0.1s ease;
+      white-space: nowrap;
+    }
     
-    /* Label */
-    .tree-label { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding-right:12px; font-size: var(--vsc-font-size); }
+    .tree-node.selected { 
+      background-color: var(--vsc-list-active-background); 
+      color: var(--vsc-foreground-bright); 
+    }
     
-    /* Loading */
-    .tree-spinner { margin-left:auto; margin-right:8px; width:16px; height:16px; }
+    .file-tree.focused .tree-node.selected { 
+      outline: 1px solid var(--vsc-focus-border); 
+      outline-offset: -1px; 
+    }
+    
+    .tree-node:hover:not(.selected) { 
+      background-color: var(--vsc-list-hover-background); 
+    }
+    
+    .tree-node.focused { 
+      outline: 1px dotted var(--vsc-focus-border); 
+      outline-offset: -1px; 
+    }
+    
+    /* Indentation guides - visual connection to ancestors */
+    .indent-guides { 
+      display: flex; 
+      position: absolute; 
+      left: 0; 
+      top: 0; 
+      bottom: 0; 
+      pointer-events: none; 
+      z-index: 0;
+    }
+    
+    .indent-guide { 
+      width: 20px; 
+      height: 100%; 
+      position: relative; 
+    }
+    
+    .indent-guide::before { 
+      content: ''; 
+      position: absolute; 
+      left: 9px; 
+      top: 0; 
+      bottom: 0; 
+      width: 1px; 
+      background-color: var(--vsc-tree-indent-guide); 
+      opacity: 0.3; 
+    }
+    
+    .indent-guide.active::before { 
+      background-color: var(--vsc-tree-indent-guide-active); 
+      opacity: 0.8; 
+    }
+    
+    /* Twistie styling */
+    .tree-twistie { 
+      width: 20px; 
+      height: 22px; 
+      display: flex; 
+      align-items: center; 
+      justify-content: center; 
+      flex-shrink: 0; 
+      color: var(--vsc-foreground-dim);
+      z-index: 1;
+    }
+    
+    .tree-twistie.expandable {
+      cursor: pointer;
+      opacity: 0.7;
+    }
+    
+    .tree-twistie.expandable:hover {
+      opacity: 1;
+      background-color: var(--vsc-list-hover-background);
+      border-radius: 3px;
+    }
+    
+    .tree-twistie.expandable.expanded {
+      opacity: 1;
+    }
+    
+    .tree-twistie svg { 
+      transition: transform 0.15s ease; 
+      width: 16px; 
+      height: 16px; 
+    }
+    
+    .tree-twistie.expanded svg { 
+      transform: rotate(90deg); 
+    }
+    
+    .twistie-placeholder {
+      width: 16px;
+      height: 16px;
+    }
+    
+    /* Icon styling */
+    .tree-icon { 
+      width: 20px; 
+      height: 22px; 
+      display: flex; 
+      align-items: center; 
+      justify-content: center; 
+      flex-shrink: 0; 
+      font-size: 16px; 
+      z-index: 1;
+    }
+    
+    .folder-icon, .file-icon, .symlink-icon {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    /* Label styling */
+    .tree-label { 
+      flex: 1; 
+      overflow: hidden; 
+      text-overflow: ellipsis; 
+      white-space: nowrap; 
+      padding-right: 12px; 
+      font-size: var(--vsc-font-size);
+      margin-left: 2px;
+      z-index: 1;
+    }
+    
+    /* Loading spinner */
+    .tree-spinner { 
+      margin-left: auto; 
+      margin-right: 8px; 
+      width: 16px; 
+      height: 16px;
+      color: var(--vsc-foreground-dim);
+      z-index: 1;
+    }
+    
+    /* Children container - maintains hierarchy */
+    .tree-children {
+      position: relative;
+    }
+    
+    /* Empty state */
+    .tree-empty {
+      padding: 12px;
+      color: var(--vsc-foreground-dim);
+      font-style: italic;
+      text-align: center;
+    }
+    
+    /* Scrollbar styling */
+    .file-tree::-webkit-scrollbar {
+      width: 10px;
+    }
+    
+    .file-tree::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    
+    .file-tree::-webkit-scrollbar-thumb {
+      background: var(--vsc-scrollbar-background);
+      border-radius: 5px;
+      border: 2px solid transparent;
+      background-clip: content-box;
+    }
+    
+    .file-tree::-webkit-scrollbar-thumb:hover {
+      background: var(--vsc-scrollbar-hover-background);
+    }
   `]
 })
 export class FileTreeComponent implements OnChanges {
@@ -143,29 +336,52 @@ export class FileTreeComponent implements OnChanges {
   @Output() toggleExpand = new EventEmitter<TreeNode>();
   @Output() navigate = new EventEmitter<TreeNode>(); // Navigate into folder
   
-  flattenedNodes: TreeNode[] = [];
+  // For keyboard navigation, we maintain a flattened view
+  private flattenedNodes: TreeNode[] = [];
   focusedNodeIndex = -1;
   isFocused = false;
   FileType = FileType;
 
   ngOnChanges(changes: SimpleChanges) {
-    if (changes['nodes'] || changes['selectedNode']) {
+    if (changes['nodes']) {
+      // Update parent references and levels throughout the hierarchy
+      this.updateNodeHierarchy(this.nodes, undefined, 0);
+      // Rebuild flattened list for keyboard navigation
       this.refreshFlattenedNodes();
-      if (this.selectedNode) {
-        this.focusedNodeIndex = this.flattenedNodes.findIndex(n => n.path === this.selectedNode?.path);
+    }
+    
+    if (changes['selectedNode'] && this.selectedNode) {
+      // Ensure selected node is visible by expanding ancestors
+      this.revealNode(this.selectedNode.path);
+      // Update focus index
+      this.focusedNodeIndex = this.flattenedNodes.findIndex(n => n.path === this.selectedNode?.path);
+    }
+  }
+
+  /**
+   * Recursively update parent references and levels for all nodes
+   */
+  private updateNodeHierarchy(nodes: TreeNode[], parent?: TreeNode, level: number = 0): void {
+    for (const node of nodes) {
+      node.parent = parent;
+      node.level = level;
+      if (node.children) {
+        this.updateNodeHierarchy(node.children, node, level + 1);
       }
     }
   }
 
+  /**
+   * Build flattened list for keyboard navigation (visible nodes only)
+   */
   refreshFlattenedNodes(): void {
     const result: TreeNode[] = [];
-    const flatten = (nodes: TreeNode[], parent?: TreeNode) => {
+    const flatten = (nodes: TreeNode[]) => {
       for (const node of nodes) {
-        node.parent = parent;
         result.push(node);
-        // Only show children if expanded
-        if (node.expandable && node.expanded && node.children) {
-          flatten(node.children, node);
+        // Only include children in flattened list if expanded
+        if (node.expanded && node.children) {
+          flatten(node.children);
         }
       }
     };
@@ -174,7 +390,7 @@ export class FileTreeComponent implements OnChanges {
   }
 
   getIndentation(level: number): number { 
-    return 8 + level * this.indentSize; 
+    return 4 + level * this.indentSize; 
   }
   
   getIndentGuides(level: number): number[] { 
@@ -187,24 +403,30 @@ export class FileTreeComponent implements OnChanges {
     return cat ? cat.icon : '📄';
   }
 
-  isGuideActive(node: TreeNode, guideIndex: number): boolean {
-    // Highlight guide if this node is an ancestor of the selected/focused node
+  /**
+   * Determine if an indentation guide should be highlighted
+   * Guides are highlighted if they lead to the selected/focused node
+   */
+  isGuideActive(node: TreeNode, guideIndex: number, currentLevel: number): boolean {
     const targetNode = this.selectedNode || this.flattenedNodes[this.focusedNodeIndex];
     if (!targetNode) return false;
     
-    // Check if this guide represents an ancestor level of the target node
+    // Check if this node is an ancestor of the target node
     let current: TreeNode | undefined = targetNode;
-    while (current) {
-      if (current.parent === node.parent && guideIndex === current.level - 1) {
-        return true;
-      }
+    while (current && current.level > currentLevel) {
       current = current.parent;
     }
-    return false;
+    
+    return current === node && guideIndex === currentLevel - 1;
   }
 
-  onFocus() { this.isFocused = true; }
-  onBlur() { this.isFocused = false; }
+  onFocus() { 
+    this.isFocused = true; 
+  }
+  
+  onBlur() { 
+    this.isFocused = false; 
+  }
 
   onKeyDown(event: KeyboardEvent) {
     if (this.flattenedNodes.length === 0) return;
@@ -237,32 +459,52 @@ export class FileTreeComponent implements OnChanges {
         event.preventDefault();
         if (this.focusedNodeIndex >= 0) {
           const node = this.flattenedNodes[this.focusedNodeIndex];
-          this.onNodeClick(node, new MouseEvent('click'));
+          this.nodeClick.emit(node);
         }
+        break;
+      case 'Home':
+        event.preventDefault();
+        this.focusedNodeIndex = 0;
+        this.ensureFocusVisible();
+        break;
+      case 'End':
+        event.preventDefault();
+        this.focusedNodeIndex = this.flattenedNodes.length - 1;
+        this.ensureFocusVisible();
         break;
     }
   }
 
   private navigateDown(): void {
-    this.focusedNodeIndex = Math.min(this.focusedNodeIndex + 1, this.flattenedNodes.length - 1);
-    this.emitSelection();
+    if (this.focusedNodeIndex < this.flattenedNodes.length - 1) {
+      this.focusedNodeIndex++;
+      this.ensureFocusVisible();
+    }
   }
 
   private navigateUp(): void {
-    this.focusedNodeIndex = Math.max(this.focusedNodeIndex - 1, 0);
-    this.emitSelection();
+    if (this.focusedNodeIndex > 0) {
+      this.focusedNodeIndex--;
+      this.ensureFocusVisible();
+    }
   }
 
   private handleArrowRight(): void {
     if (this.focusedNodeIndex < 0) return;
     const node = this.flattenedNodes[this.focusedNodeIndex];
     
-    if (node.expandable && !node.expanded) {
-      // Expand folder
-      this.expandNode(node);
-    } else if (node.expandable && node.expanded && node.children && node.children.length > 0) {
-      // Navigate to first child
-      this.navigateDown();
+    if (node.expandable) {
+      if (!node.expanded) {
+        // Expand folder
+        this.expandNode(node);
+      } else if (node.children?.length) {
+        // Move to first child
+        const firstChildIndex = this.flattenedNodes.findIndex(n => n.parent === node);
+        if (firstChildIndex > this.focusedNodeIndex) {
+          this.focusedNodeIndex = firstChildIndex;
+          this.ensureFocusVisible();
+        }
+      }
     }
   }
 
@@ -273,19 +515,19 @@ export class FileTreeComponent implements OnChanges {
     if (node.expandable && node.expanded) {
       // Collapse folder
       this.collapseNode(node);
-    } else if (node.level > 0 && node.parent) {
-      // Navigate to parent
+    } else if (node.parent) {
+      // Move to parent
       const parentIndex = this.flattenedNodes.findIndex(n => n === node.parent);
       if (parentIndex >= 0) {
         this.focusedNodeIndex = parentIndex;
-        this.emitSelection();
+        this.ensureFocusVisible();
       }
     }
   }
 
   private handleEnter(node: TreeNode): void {
     if (node.type === FileType.DIRECTORY) {
-      // Toggle expansion on Enter for folders
+      // Toggle expansion for folders
       if (node.expandable) {
         if (node.expanded) {
           this.collapseNode(node);
@@ -293,8 +535,9 @@ export class FileTreeComponent implements OnChanges {
           this.expandNode(node);
         }
       }
+      this.navigate.emit(node);
     } else {
-      // Open file on Enter
+      // Open file
       this.nodeDoubleClick.emit(node);
     }
   }
@@ -311,17 +554,23 @@ export class FileTreeComponent implements OnChanges {
     this.refreshFlattenedNodes();
   }
 
-  private emitSelection(): void {
-    if (this.focusedNodeIndex >= 0) {
-      const node = this.flattenedNodes[this.focusedNodeIndex];
-      this.nodeClick.emit(node);
-    }
+  private ensureFocusVisible(): void {
+    // Use setTimeout to ensure DOM is updated
+    setTimeout(() => {
+      const focusedElement = document.querySelector('.tree-node.focused');
+      if (focusedElement) {
+        focusedElement.scrollIntoView({ block: 'nearest' });
+      }
+    });
   }
 
   onContextMenu(event: MouseEvent, node: TreeNode): void {
     event.preventDefault();
     event.stopPropagation();
-    this.focusedNodeIndex = this.flattenedNodes.findIndex(n => n.path === node.path);
+    const index = this.flattenedNodes.findIndex(n => n.path === node.path);
+    if (index >= 0) {
+      this.focusedNodeIndex = index;
+    }
     this.nodeClick.emit(node);
   }
 
@@ -338,17 +587,18 @@ export class FileTreeComponent implements OnChanges {
 
   onNodeClick(node: TreeNode, event: MouseEvent): void {
     event.stopPropagation();
-
-    // Focus the node
-    this.focusedNodeIndex = this.flattenedNodes.findIndex(n => n.path === node.path);
     
-    // Select the node (emit click)
+    const index = this.flattenedNodes.findIndex(n => n.path === node.path);
+    if (index >= 0) {
+      this.focusedNodeIndex = index;
+    }
+    
     this.nodeClick.emit(node);
   }
 
   onNodeDoubleClick(node: TreeNode): void {
     if (node.type === FileType.DIRECTORY) {
-      // For folders, double-click toggles expansion (like VS Code)
+      // Double-click toggles expansion for folders
       if (node.expandable) {
         if (node.expanded) {
           this.collapseNode(node);
@@ -356,10 +606,8 @@ export class FileTreeComponent implements OnChanges {
           this.expandNode(node);
         }
       }
-      // Also emit navigate for folders if needed
       this.navigate.emit(node);
     } else {
-      // For files, double-click opens them
       this.nodeDoubleClick.emit(node);
     }
   }
@@ -372,7 +620,7 @@ export class FileTreeComponent implements OnChanges {
     return this.flattenedNodes[this.focusedNodeIndex]?.path === node.path;
   }
 
-  trackByFn: TrackByFunction<TreeNode> = (_, n) => n.path;
+  trackByFn: TrackByFunction<TreeNode> = (_, node) => node.path;
 
   // Public API methods
   expandAll(): void {
@@ -415,12 +663,12 @@ export class FileTreeComponent implements OnChanges {
   }
 
   revealNode(path: string): void {
-    // Expand parents to make node visible
-    const findAndExpand = (nodes: TreeNode[]): boolean => {
+    // Expand all ancestors to make the node visible
+    const expandParents = (nodes: TreeNode[]): boolean => {
       for (const node of nodes) {
         if (node.path === path) return true;
         if (node.children) {
-          const found = findAndExpand(node.children);
+          const found = expandParents(node.children);
           if (found) {
             node.expanded = true;
             return true;
@@ -429,13 +677,15 @@ export class FileTreeComponent implements OnChanges {
       }
       return false;
     };
-    findAndExpand(this.nodes);
+    
+    expandParents(this.nodes);
     this.refreshFlattenedNodes();
     
     // Focus the revealed node
     const index = this.flattenedNodes.findIndex(n => n.path === path);
     if (index >= 0) {
       this.focusedNodeIndex = index;
+      this.ensureFocusVisible();
     }
   }
 }

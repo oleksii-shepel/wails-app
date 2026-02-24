@@ -3,6 +3,31 @@ import { Component, Input, Output, EventEmitter, OnChanges, SimpleChanges, Track
 import { CommonModule } from '@angular/common';
 import { FileInfo, FileType } from '../shared/protocol';
 
+export interface FileCategory {
+  id: string;
+  name: string;
+  icon: string;
+  extensions: string[];
+}
+
+export const DEFAULT_FILE_CATEGORIES: FileCategory[] = [
+  { id: 'images',        name: 'Images',        icon: '🖼️',  extensions: ['jpg','jpeg','png','gif','webp','svg','bmp','ico','tiff','raw','heic'] },
+  { id: 'documents',     name: 'Documents',     icon: '📄',  extensions: ['pdf','doc','docx','odt','rtf','tex','epub'] },
+  { id: 'spreadsheets',  name: 'Spreadsheets',  icon: '📊',  extensions: ['xls','xlsx','ods','csv','tsv'] },
+  { id: 'presentations', name: 'Presentations', icon: '📽️', extensions: ['ppt','pptx','odp','key'] },
+  { id: 'code',          name: 'Code',          icon: '💻',  extensions: ['js','ts','jsx','tsx','vue','py','java','cpp','c','h','cs','go','rs','rb','php','swift','kt'] },
+  { id: 'web',           name: 'Web',           icon: '🌐',  extensions: ['html','htm','css','scss','sass','less','xml','xsl'] },
+  { id: 'data',          name: 'Data',          icon: '🗄️', extensions: ['json','yaml','yml','toml','ini','sql','graphql','proto'] },
+  { id: 'archives',      name: 'Archives',      icon: '📦',  extensions: ['zip','tar','gz','bz2','xz','7z','rar','iso','dmg'] },
+  { id: 'audio',         name: 'Audio',         icon: '🎵',  extensions: ['mp3','wav','flac','aac','ogg','m4a','wma'] },
+  { id: 'video',         name: 'Video',         icon: '🎬',  extensions: ['mp4','mov','avi','mkv','wmv','flv','webm','m4v'] },
+  { id: 'fonts',         name: 'Fonts',         icon: '🔤',  extensions: ['ttf','otf','woff','woff2','eot'] },
+  { id: 'markdown',      name: 'Markdown',      icon: '📝',  extensions: ['md','mdx','rst','adoc'] },
+  { id: 'scripts',       name: 'Scripts',       icon: '⌨️', extensions: ['sh','bash','zsh','fish','ps1','bat','cmd'] },
+  { id: '3d',            name: '3D',            icon: '🎲',  extensions: ['obj','fbx','stl','blend','3ds','gltf','glb'] },
+  { id: 'design',        name: 'Design',        icon: '🎨',  extensions: ['fig','sketch','xd','psd','ai','afdesign'] },
+];
+
 export interface TreeNode extends FileInfo {
   level: number;
   expanded?: boolean;
@@ -79,88 +104,13 @@ export interface TreeNode extends FileInfo {
           </svg>
         </span>
 
-        <!-- File/Folder Icon -->
+        <!-- File/Folder Icon using emoji from DEFAULT_FILE_CATEGORIES -->
         <span class="tree-icon">
-          <svg 
-            *ngIf="node.type === FileType.DIRECTORY"
-            width="16" 
-            height="16" 
-            viewBox="0 0 16 16" 
-            fill="none"
-            class="folder-icon"
-            [class.open]="node.expanded">
-            <path 
-              d="M14.5 3H7.5L6 1.5H1.5V12.5C1.5 13.0523 1.94772 13.5 2.5 13.5H13.5C14.0523 13.5 14.5 13.0523 14.5 12.5V3.5C14.5 3.22386 14.2761 3 14 3H14.5Z" 
-              fill="var(--vsc-folder-fill, #dcb67a)"/>
-            <path 
-              d="M1.5 3V12.5C1.5 13.0523 1.94772 13.5 2.5 13.5H13.5C14.0523 13.5 14.5 13.0523 14.5 12.5V5H7.5L6 3.5H1.5V3Z" 
-              fill="var(--vsc-folder-fill, #dcb67a)"/>
-            <path 
-              d="M1.5 3.5V12.5C1.5 13.0523 1.94772 13.5 2.5 13.5H13.5C14.0523 13.5 14.5 13.0523 14.5 12.5V5H7.5L6 3.5H1.5Z" 
-              stroke="var(--vsc-folder-stroke, #dcb67a)" 
-              stroke-width="1"/>
-          </svg>
-
-          <svg 
-            *ngIf="node.type === FileType.SYMLINK"
-            width="16" 
-            height="16" 
-            viewBox="0 0 16 16" 
-            fill="none"
-            class="symlink-icon">
-            <path 
-              d="M4 8V5.5C4 3.567 5.567 2 7.5 2H11.5C13.433 2 15 3.567 15 5.5C15 7.433 13.433 9 11.5 9H8" 
-              stroke="var(--vsc-accent-blue)" 
-              stroke-width="1.5" 
-              stroke-linecap="round"/>
-            <path 
-              d="M12 8V10.5C12 12.433 10.433 14 8.5 14H4.5C2.567 14 1 12.433 1 10.5C1 8.567 2.567 7 4.5 7H8" 
-              stroke="var(--vsc-accent-blue)" 
-              stroke-width="1.5" 
-              stroke-linecap="round"/>
-            <path 
-              d="M11 5L13.5 2.5L11 0" 
-              stroke="var(--vsc-accent-blue)" 
-              stroke-width="1.5" 
-              stroke-linecap="round" 
-              stroke-linejoin="round"/>
-            <path 
-              d="M5 11L2.5 13.5L5 16" 
-              stroke="var(--vsc-accent-blue)" 
-              stroke-width="1.5" 
-              stroke-linecap="round" 
-              stroke-linejoin="round"/>
-          </svg>
-
-          <svg 
-            *ngIf="node.type !== FileType.DIRECTORY && node.type !== FileType.SYMLINK"
-            width="16" 
-            height="16" 
-            viewBox="0 0 16 16" 
-            fill="none"
-            class="file-icon"
-            [class]="getFileIconClass(node)">
-            <path 
-              d="M9 1.5H4C3.17157 1.5 2.5 2.17157 2.5 3V13C2.5 13.8284 3.17157 14.5 4 14.5H12C12.8284 14.5 13.5 13.8284 13.5 13V5.5L9 1.5Z" 
-              fill="var(--vsc-file-fill, #3c3c3c)"
-              stroke="var(--vsc-file-stroke, #5a5a5a)"
-              stroke-width="1"/>
-            <path 
-              d="M9 1.5V5C9 5.27614 9.22386 5.5 9.5 5.5H13.5" 
-              stroke="var(--vsc-file-stroke, #5a5a5a)"
-              stroke-width="1"
-              stroke-linecap="round"/>
-            <!-- File extension indicator -->
-            <text 
-              *ngIf="getFileExtension(node)"
-              x="8" 
-              y="11" 
-              text-anchor="middle" 
-              font-size="5" 
-              font-weight="bold"
-              fill="var(--vsc-foreground-dim)"
-              class="file-ext">{{ getFileExtension(node) }}</text>
-          </svg>
+          <ng-container *ngIf="node.type === FileType.DIRECTORY">📁</ng-container>
+          <ng-container *ngIf="node.type === FileType.SYMLINK">🔗</ng-container>
+          <ng-container *ngIf="node.type !== FileType.DIRECTORY && node.type !== FileType.SYMLINK">
+            {{ getCategoryIcon(node.name) }}
+          </ng-container>
         </span>
 
         <!-- Node Label -->
@@ -468,6 +418,12 @@ export class FileTreeComponent implements OnChanges {
   getIndentGuides(level: number): number[] {
     if (!this.showIndentGuides || level === 0) return [];
     return Array.from({ length: level }, (_, i) => i);
+  }
+
+  getCategoryIcon(filename: string): string {
+    const ext = filename.split('.').pop()?.toLowerCase() || '';
+    const category = DEFAULT_FILE_CATEGORIES.find(cat => cat.extensions.includes(ext));
+    return category ? category.icon : '📄';
   }
 
   isActiveGuide(node: TreeNode, guideIndex: number): boolean {

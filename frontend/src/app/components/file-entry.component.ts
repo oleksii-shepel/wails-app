@@ -161,11 +161,19 @@ export class FileEntryComponent {
   }
 
   onClick(): void {
-    this.select.emit(this.entry);
+    // ".." navigates immediately on single click — no need to select first
+    if (this.isParentEntry()) {
+      this.navigate.emit(this.entry);
+    } else {
+      this.select.emit(this.entry);
+    }
   }
 
   onDoubleClick(): void {
-    this.navigate.emit(this.entry);
+    // ".." already handled by single click; double-click navigates everything else
+    if (!this.isParentEntry()) {
+      this.navigate.emit(this.entry);
+    }
   }
 
   getIcon(): string {
@@ -211,11 +219,9 @@ export class FileEntryComponent {
 
   formatSize(bytes: number): string {
     if (bytes === 0) return '0 B';
-    
     const k = 1024;
     const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-    
     return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
   }
 

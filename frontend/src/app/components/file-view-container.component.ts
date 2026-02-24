@@ -1,6 +1,11 @@
 // file-view-container.component.ts
-import { Component, Input, Output, EventEmitter, ViewChild, OnChanges, ChangeDetectorRef } from '@angular/core';
+import {
+  Component, Input, Output, EventEmitter,
+  ViewChild, OnChanges, OnDestroy, ChangeDetectorRef
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { Subject, merge } from 'rxjs';
+import { groupBy, mergeMap, exhaustMap, takeUntil } from 'rxjs/operators';
 import { FileListComponent } from './file-list.component';
 import { FileGridComponent } from './file-grid.component';
 import { FileTreeComponent, TreeNode } from './file-tree.component';
@@ -53,13 +58,14 @@ export type ViewLayout = ViewMode;
         </app-file-grid>
 
         <app-file-tree
+          #fileTree
           *ngIf="currentView === 'tree'"
           [nodes]="treeNodes"
           [selectedFiles]="selectedFiles"
           (selectionChange)="onSelectionChange($event)"
           (nodeDoubleClick)="onTreeNodeDoubleClick($event)"
           (toggleExpand)="onTreeToggleExpand($event)"
-          (loadChildren)="onTreeLoadChildren($event)"
+          (loadChildren)="onLoadChildren($event)"
           (navigate)="onNavigate($event)">
         </app-file-tree>
 
@@ -100,63 +106,144 @@ export type ViewLayout = ViewMode;
     }
   `]
 })
-export class FileViewContainerComponent implements OnChanges {
-  @ViewChild(FileTreeComponent) treeComponent?: FileTreeComponent;
+export class FileViewContainerComponent implements OnChanges, OnDestroy {
+  @ViewChild('fileTree') treeComponent?: FileTreeComponent;
 
-  @Input() showHidden = false;
+  @Input() showHidden    = false;
   @Input() entries: FileInfo[] = [];
   @Input() selectedFiles: Set<string> = new Set();
-  @Input() loading = false;
+  @Input() loading       = false;
   @Input() error: string | null = null;
   @Input() currentView: ViewLayout = 'list';
-  @Input() sortField: string = 'name';
+  @Input() sortField     = 'name';
   @Input() sortDirection: 'asc' | 'desc' = 'asc';
 
-  @Output() viewChange = new EventEmitter<ViewLayout>();
+  @Output() viewChange      = new EventEmitter<ViewLayout>();
   @Output() selectionChange = new EventEmitter<FileInfo | FileInfo[]>();
-  @Output() navigate = new EventEmitter<FileInfo>();
-  @Output() sortChange = new EventEmitter<{ field: string; direction: 'asc' | 'desc' }>();
-  @Output() contextMenu = new EventEmitter<{ event: MouseEvent; entry: FileInfo }>();
+  @Output() navigate        = new EventEmitter<FileInfo>();
+  @Output() sortChange      = new EventEmitter<{ field: string; direction: 'asc' | 'desc' }>();
+  @Output() contextMenu     = new EventEmitter<{ event: MouseEvent; entry: FileInfo }>();
   @Output() nodeDoubleClick = new EventEmitter<FileInfo>();
 
   sortedEntries: FileInfo[] = [];
   treeNodes: TreeNode[] = [];
 
-  constructor(private apiService: ApiService, private cdr: ChangeDetectorRef) {}
+  /**
+   * Hot subject that receives every loadChildren request from the tree.
+   *
+   * We group by node path so each directory gets its own exhaustMap lane:
+   * - If a load for /foo is in flight and another /foo request arrives, it's dropped.
+   * - Requests for /bar proceed independently.
+   */
+  private loadRequest$ = new Subject<TreeNode>();
+  private destroy$     = new Subject<void>();
+
+  constructor(private apiService: ApiService, private cdr: ChangeDetectorRef) {
+    this.loadRequest$
+      .pipe(
+        // One lane per directory path
+        groupBy(node => node.path),
+        mergeMap(group$ =>
+          group$.pipe(
+            // Within each lane: ignore new requests while one is in flight
+            exhaustMap(node => this.loadNodeChildren(node))
+          )
+        ),
+        takeUntil(this.destroy$)
+      )
+      .subscribe();
+  }
 
   ngOnChanges(): void {
-    console.log('[FileViewContainer] ngOnChanges', { view: this.currentView, entries: this.entries?.length });
     this.sortEntries();
     if (this.currentView === 'tree') {
       this.buildTreeNodes();
     }
   }
 
+  ngOnDestroy(): void {
+    this.destroy$.next();
+    this.destroy$.complete();
+  }
+
+  // ── Load children via RxJS pipeline ───────────────────────
+
+  /** Called from the tree's (loadChildren) output — just push into the stream. */
+  onLoadChildren(node: TreeNode): void {
+    this.loadRequest$.next(node);
+  }
+
+  /**
+   * Performs the actual API call for one node.
+   * Sets node.loading synchronously so the spinner appears immediately,
+   * then resolves the promise into an Observable so exhaustMap can manage it.
+   */
+  private loadNodeChildren(node: TreeNode) {
+    // Set spinner immediately — this is synchronous, before any async work
+    node.loading = true;
+    node.children = node.children?.length ? node.children : [];
+    this.cdr.markForCheck();
+
+    // We return a Subject that completes when the promise settles.
+    // exhaustMap subscribes to it and won't accept another request for this
+    // node path until the Subject completes (i.e. until the load finishes).
+    const result$ = new Subject<void>();
+
+    this.apiService
+      .listDirectory(node.path, this.showHidden)
+      .then(listing => {
+        const childLevel = (node.level ?? 0) + 1;
+        node.children = (listing.entries || []).map(e => ({
+          ...e,
+          level: childLevel,
+          expandable: e.type === FileType.DIRECTORY,
+          expanded: false,
+          children: e.type === FileType.DIRECTORY ? [] : undefined,
+          loaded: false,
+          loading: false,
+          parent: node,
+        } as TreeNode));
+        node.loaded  = true;
+        node.loading = false;
+        this.cdr.markForCheck();
+      })
+      .catch(() => {
+        node.children = [];
+        node.loading  = false;
+        node.loaded   = true;
+        this.cdr.markForCheck();
+      })
+      .finally(() => {
+        result$.next();
+        result$.complete();
+      });
+
+    return result$;
+  }
+
+  // ── View / sort ────────────────────────────────────────────
+
   onViewChange(view: ViewLayout): void {
     this.currentView = view;
     this.viewChange.emit(view);
     localStorage.setItem('fileManager_viewMode', view);
-    if (view === 'tree') {
-      this.buildTreeNodes();
-    }
+    if (view === 'tree') this.buildTreeNodes();
   }
 
   onSortChange(sort: { field: string; direction: 'asc' | 'desc' }): void {
-    this.sortField = sort.field;
+    this.sortField     = sort.field;
     this.sortDirection = sort.direction;
     this.sortChange.emit(sort);
     this.sortEntries();
   }
 
+  // ── Event passthrough ──────────────────────────────────────
+
   onSelectionChange(entryOrNodes: FileInfo | FileInfo[] | TreeNode[]): void {
     if (Array.isArray(entryOrNodes)) {
       const files: FileInfo[] = entryOrNodes.map((n: any) => ({
-        name: n.name,
-        path: n.path,
-        type: n.type,
-        size: n.size,
-        modified: n.modified,
-        created: n.created,
+        name: n.name, path: n.path, type: n.type,
+        size: n.size, modified: n.modified, created: n.created,
       } as FileInfo));
       this.selectionChange.emit(files);
     } else {
@@ -169,12 +256,8 @@ export class FileViewContainerComponent implements OnChanges {
     const e = entry as any;
     if (e.path) {
       this.navigate.emit({
-        name: e.name,
-        path: e.path,
-        type: e.type,
-        size: e.size,
-        modified: e.modified,
-        created: e.created,
+        name: e.name, path: e.path, type: e.type,
+        size: e.size, modified: e.modified, created: e.created,
       } as FileInfo);
     }
   }
@@ -184,64 +267,17 @@ export class FileViewContainerComponent implements OnChanges {
   }
 
   onTreeNodeDoubleClick(node: TreeNode): void {
-    if (node.type !== FileType.DIRECTORY) {
-      this.nodeDoubleClick.emit(node);
-    }
+    if (node.type !== FileType.DIRECTORY) this.nodeDoubleClick.emit(node);
   }
 
   onTreeToggleExpand(_node: TreeNode): void {
-    // Tree manages its own expansion state; nothing extra needed here.
+    // Tree manages expansion state internally; nothing extra needed.
   }
 
-  /**
-   * Lazy-load children for a tree node.
-   *
-   * Called by FileTreeComponent when it wants to populate an expanded directory.
-   * The tree has already added the node to expansionState=true and emitted this event.
-   * We own the loading flag here — we must NOT double-set it to avoid the infinite-loader bug.
-   */
-  onTreeLoadChildren(node: TreeNode): void {
-    // Guard: skip if already loaded
-    if (node.loaded) return;
-
-    console.log('[FileViewContainer] onTreeLoadChildren START', node.path);
-    // Mark loading state (tree may already have set it)
-    node.loading = true;
-
-    this.apiService.listDirectory(node.path, this.showHidden)
-      .then(listing => {
-        const childLevel = (node.level ?? 0) + 1;
-        const children: TreeNode[] = (listing.entries || []).map(e => ({
-          ...e,
-          level: childLevel,
-          expandable: e.type === FileType.DIRECTORY,
-          expanded: false,
-          children: e.type === FileType.DIRECTORY ? [] : undefined,
-          loaded: false,
-          loading: false,
-          parent: node,
-        } as TreeNode));
-
-        node.children = children;
-        node.loaded = true;
-        node.loading = false;
-        this.cdr.markForCheck();
-        console.log('[FileViewContainer] onTreeLoadChildren ASSIGNED', node.path, children.length);
-      })
-      .catch(err => {
-        console.error('[FileViewContainer] onTreeLoadChildren ERROR', node.path, err);
-        node.children = [];
-        node.loading = false;
-        node.loaded = true;
-        this.cdr.markForCheck();
-      })
-        .finally(() => console.log('[FileViewContainer] onTreeLoadChildren END', node.path));
-  }
-
-  // ── Sorting ──────────────────────────────────────────────
+  // ── Sorting ────────────────────────────────────────────────
 
   private sortEntries(): void {
-    const sorted = [...this.entries];
+    const sorted     = [...this.entries];
     const multiplier = this.sortDirection === 'asc' ? 1 : -1;
 
     sorted.sort((a, b) => {
@@ -255,23 +291,16 @@ export class FileViewContainerComponent implements OnChanges {
 
       let comparison = 0;
       switch (this.sortField) {
-        case 'name':
-          comparison = a.name.localeCompare(b.name);
-          break;
-        case 'size':
-          comparison = (a.size || 0) - (b.size || 0);
-          break;
-        case 'modified':
-          comparison = (a.modified || 0) - (b.modified || 0);
-          break;
+        case 'name':     comparison = a.name.localeCompare(b.name); break;
+        case 'size':     comparison = (a.size || 0) - (b.size || 0); break;
+        case 'modified': comparison = (a.modified || 0) - (b.modified || 0); break;
         case 'type': {
-          const typeA = a.type === FileType.DIRECTORY ? 'folder' : (a.name.split('.').pop() || '');
-          const typeB = b.type === FileType.DIRECTORY ? 'folder' : (b.name.split('.').pop() || '');
-          comparison = typeA.localeCompare(typeB);
+          const ta = a.type === FileType.DIRECTORY ? 'folder' : (a.name.split('.').pop() || '');
+          const tb = b.type === FileType.DIRECTORY ? 'folder' : (b.name.split('.').pop() || '');
+          comparison = ta.localeCompare(tb);
           break;
         }
-        default:
-          comparison = a.name.localeCompare(b.name);
+        default: comparison = a.name.localeCompare(b.name);
       }
 
       return comparison * multiplier;
@@ -280,17 +309,16 @@ export class FileViewContainerComponent implements OnChanges {
     this.sortedEntries = sorted;
   }
 
-  // ── Tree building (root level only) ──────────────────────
+  // ── Tree building ──────────────────────────────────────────
 
   private buildTreeNodes(): void {
-    console.log('[FileViewContainer] buildTreeNodes start', { entries: this.entries?.length });
     const root: TreeNode[] = [];
     const map = new Map<string, TreeNode>();
 
     const sorted = [...this.entries].sort((a, b) => {
-      const depthA = a.path.replace(/\\/g, '/').split('/').length;
-      const depthB = b.path.replace(/\\/g, '/').split('/').length;
-      return depthA - depthB;
+      const da = a.path.replace(/\\/g, '/').split('/').length;
+      const db = b.path.replace(/\\/g, '/').split('/').length;
+      return da - db;
     });
 
     for (const entry of sorted) {
@@ -298,12 +326,12 @@ export class FileViewContainerComponent implements OnChanges {
 
       const node: TreeNode = {
         ...entry,
-        level: 0,
+        level:      0,
         expandable: entry.type === FileType.DIRECTORY,
-        expanded: false,
-        children: entry.type === FileType.DIRECTORY ? [] : undefined,
-        loaded: false,
-        loading: false,
+        expanded:   false,
+        children:   entry.type === FileType.DIRECTORY ? [] : undefined,
+        loaded:     false,
+        loading:    false,
       };
 
       map.set(entry.path, node);
@@ -314,7 +342,7 @@ export class FileViewContainerComponent implements OnChanges {
         if (!parent.children) parent.children = [];
         parent.children.push(node);
         node.parent = parent;
-        node.level = parent.level + 1;
+        node.level  = parent.level + 1;
       } else {
         root.push(node);
       }
@@ -325,8 +353,7 @@ export class FileViewContainerComponent implements OnChanges {
 
   private getParentPath(path: string): string | null {
     if (path === '/' || path === '') return null;
-    const fixed = path.replace(/\\/g, '/');
-    const parts = fixed.split('/').filter(p => p);
+    const parts = path.replace(/\\/g, '/').split('/').filter(Boolean);
     if (parts.length === 0) return null;
     parts.pop();
     return '/' + parts.join('/');

@@ -63,13 +63,11 @@ export interface TreeNode extends FileInfo {
           [class.focused]="isFocusedNode(node)"
           [class.expanded]="isExpanded(node)"
           [class.collapsed]="!isExpanded(node) && node.expandable"
-          [class.loading]="node.loading"
           [style.--indent-level]="node.level"
           [attr.role]="'treeitem'"
           [attr.aria-level]="node.level + 1"
           [attr.aria-expanded]="node.expandable ? isExpanded(node) : undefined"
           [attr.aria-selected]="isSelected(node)"
-          (click)="onNodeClick(node, $event)"
           (dblclick)="onNodeDoubleClick(node)"
           (contextmenu)="onContextMenu($event, node)">
 
@@ -91,10 +89,9 @@ export interface TreeNode extends FileInfo {
             (click)="onToggleExpand($event, node)">
             
             <ng-container *ngIf="node.expandable">
-              <svg *ngIf="!node.loading" width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                 <path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
-              <span *ngIf="node.loading" class="spinner-small"></span>
             </ng-container>
             <span *ngIf="!node.expandable" class="twistie-placeholder"></span>
           </span>
@@ -461,40 +458,34 @@ export class FileTreeComponent implements OnChanges {
 
     const isMulti = event.ctrlKey || event.metaKey;
     const isRange = event.shiftKey;
-
+    
     if (isRange && this.lastSelectedPath) {
-      // Range selection
       const visible = this.getVisibleNodes();
       const startIdx = visible.findIndex(n => n.path === this.lastSelectedPath);
       const endIdx = visible.findIndex(n => n.path === node.path);
       const [min, max] = [Math.min(startIdx, endIdx), Math.max(startIdx, endIdx)];
-      
       const newSelection: TreeNode[] = [];
       for (let i = min; i <= max; i++) {
-        if (i >= 0 && i < visible.length) {
-          newSelection.push(visible[i]);
-        }
+        if (i >= 0 && i < visible.length) newSelection.push(visible[i]);
       }
       this.selectionChange.emit(newSelection);
     } else if (isMulti) {
-      // Toggle selection
       const current = Array.from(this.selectedFiles);
       const exists = current.includes(node.path);
-      const newSelection = exists 
-        ? current.filter(p => p !== node.path)
-        : [...current, node.path];
-      
-      const selectedNodes = this.getVisibleNodes().filter(n => newSelection.includes(n.path));
+      const newPaths = exists ? current.filter(p => p !== node.path) : [...current, node.path];
+      const selectedNodes = this.getVisibleNodes().filter(n => newPaths.includes(n.path));
       this.selectionChange.emit(selectedNodes);
       this.lastSelectedPath = node.path;
     } else {
-      // Single selection
       this.selectionChange.emit([node]);
       this.lastSelectedPath = node.path;
     }
+
+    this.cdr.markForCheck();
   }
 
   onNodeDoubleClick(node: TreeNode): void {
+    // Restore original: directories toggle expand AND navigate, files just navigate
     if (node.type === FileType.DIRECTORY && node.expandable) {
       this.toggleNode(node);
     } else {

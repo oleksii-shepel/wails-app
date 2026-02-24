@@ -1,6 +1,5 @@
 // file-view-container.component.ts
-import { Component, Input, Output, EventEmitter, ViewChild, OnChanges } from '@angular/core';
-import { ChangeDetectorRef } from '@angular/core';
+import { Component, Input, Output, EventEmitter, ViewChild, OnChanges, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FileListComponent } from './file-list.component';
 import { FileGridComponent } from './file-grid.component';
@@ -32,9 +31,8 @@ export type ViewLayout = ViewMode;
         (viewChange)="onViewChange($event)"
         (sortChange)="onSortChange($event)">
       </app-view-switcher>
-      
+
       <div class="view-content">
-        <!-- List View (Original) -->
         <app-file-list
           *ngIf="currentView === 'list'"
           [entries]="sortedEntries"
@@ -44,8 +42,7 @@ export type ViewLayout = ViewMode;
           (selectionChange)="onSelectionChange($event)"
           (navigate)="onNavigate($event)">
         </app-file-list>
-        
-        <!-- Grid View -->
+
         <app-file-grid
           *ngIf="currentView === 'grid'"
           [entries]="sortedEntries"
@@ -54,8 +51,7 @@ export type ViewLayout = ViewMode;
           (navigate)="onNavigate($event)"
           (contextMenu)="onContextMenu($event)">
         </app-file-grid>
-        
-        <!-- Tree View -->
+
         <app-file-tree
           *ngIf="currentView === 'tree'"
           [nodes]="treeNodes"
@@ -66,8 +62,7 @@ export type ViewLayout = ViewMode;
           (loadChildren)="onTreeLoadChildren($event)"
           (navigate)="onNavigate($event)">
         </app-file-tree>
-        
-        <!-- Details View -->
+
         <app-file-details
           *ngIf="currentView === 'details'"
           [entries]="sortedEntries"
@@ -98,7 +93,6 @@ export type ViewLayout = ViewMode;
       position: relative;
     }
 
-    /* Ensure child components fill the container */
     .view-content > * {
       display: flex;
       flex-direction: column;
@@ -108,9 +102,8 @@ export type ViewLayout = ViewMode;
 })
 export class FileViewContainerComponent implements OnChanges {
   @ViewChild(FileTreeComponent) treeComponent?: FileTreeComponent;
+
   @Input() showHidden = false;
-  constructor(private apiService: ApiService, private cdr: ChangeDetectorRef) {}
-  
   @Input() entries: FileInfo[] = [];
   @Input() selectedFiles: Set<string> = new Set();
   @Input() loading = false;
@@ -118,7 +111,7 @@ export class FileViewContainerComponent implements OnChanges {
   @Input() currentView: ViewLayout = 'list';
   @Input() sortField: string = 'name';
   @Input() sortDirection: 'asc' | 'desc' = 'asc';
-  
+
   @Output() viewChange = new EventEmitter<ViewLayout>();
   @Output() selectionChange = new EventEmitter<FileInfo | FileInfo[]>();
   @Output() navigate = new EventEmitter<FileInfo>();
@@ -128,6 +121,8 @@ export class FileViewContainerComponent implements OnChanges {
 
   sortedEntries: FileInfo[] = [];
   treeNodes: TreeNode[] = [];
+
+  constructor(private apiService: ApiService, private cdr: ChangeDetectorRef) {}
 
   ngOnChanges(): void {
     this.sortEntries();
@@ -139,9 +134,7 @@ export class FileViewContainerComponent implements OnChanges {
   onViewChange(view: ViewLayout): void {
     this.currentView = view;
     this.viewChange.emit(view);
-    
     localStorage.setItem('fileManager_viewMode', view);
-    
     if (view === 'tree') {
       this.buildTreeNodes();
     }
@@ -155,18 +148,15 @@ export class FileViewContainerComponent implements OnChanges {
   }
 
   onSelectionChange(entryOrNodes: FileInfo | FileInfo[] | TreeNode[]): void {
-    // Normalize selection payloads from child views (list/grid -> single FileInfo, tree -> TreeNode[])
     if (Array.isArray(entryOrNodes)) {
-      const files: FileInfo[] = entryOrNodes.map((n: any) => {
-        return {
-          name: n.name,
-          path: n.path,
-          type: n.type,
-          size: n.size,
-          modified: n.modified,
-          created: n.created,
-        } as FileInfo;
-      });
+      const files: FileInfo[] = entryOrNodes.map((n: any) => ({
+        name: n.name,
+        path: n.path,
+        type: n.type,
+        size: n.size,
+        modified: n.modified,
+        created: n.created,
+      } as FileInfo));
       this.selectionChange.emit(files);
     } else {
       this.selectionChange.emit(entryOrNodes as FileInfo);
@@ -174,21 +164,17 @@ export class FileViewContainerComponent implements OnChanges {
   }
 
   onNavigate(entry: FileInfo | TreeNode | Event): void {
-    // Support navigate payloads from tree (TreeNode) or list/grid (FileInfo)
-    if (!entry) return;
-    // DOM Events may be passed if template bound incorrectly; ignore those
-    if ((entry as Event) instanceof Event) return;
-    const e: any = entry as any;
+    if (!entry || (entry as Event) instanceof Event) return;
+    const e = entry as any;
     if (e.path) {
-      const file: FileInfo = {
+      this.navigate.emit({
         name: e.name,
         path: e.path,
         type: e.type,
         size: e.size,
         modified: e.modified,
         created: e.created,
-      } as FileInfo;
-      this.navigate.emit(file);
+      } as FileInfo);
     }
   }
 
@@ -202,68 +188,66 @@ export class FileViewContainerComponent implements OnChanges {
     }
   }
 
-  onTreeToggleExpand(node: TreeNode): void {
-    // Tree handles expansion internally, just log if needed
-    console.log('Tree node toggled:', node.name, 'expanded:', node.expanded);
+  onTreeToggleExpand(_node: TreeNode): void {
+    // Tree manages its own expansion state; nothing extra needed here.
   }
 
-  // Handle lazy load requests from tree component by populating children from current entries
+  /**
+   * Lazy-load children for a tree node.
+   *
+   * Called by FileTreeComponent when it wants to populate an expanded directory.
+   * The tree has already added the node to expansionState=true and emitted this event.
+   * We own the loading flag here — we must NOT double-set it to avoid the infinite-loader bug.
+   */
   onTreeLoadChildren(node: TreeNode): void {
-    // Lazy-load children from backend
-    if (!node.expandable) return;
-    // If already loading or already loaded, skip
-    if (node.loading || node.loaded) return;
+    // Guard: skip if already loading or already loaded
+    // If already loaded, skip. Allow loading=true (set by tree) so we proceed to fetch.
+    if (node.loaded) return;
 
-    // Optimistically expand and show a placeholder child so the UI updates immediately
-    node.expanded = true;
-    node.loading = true;
-    if (!node.children || node.children.length === 0) {
-      node.children = [{
-        name: 'Loading...', path: node.path + '/.loading', type: FileType.DIRECTORY,
-        level: (node.level ?? 0) + 1, expandable: false, loaded: false
-      } as unknown as TreeNode];
-    }
+    // No loader: request children and update when ready.
 
     this.apiService.listDirectory(node.path, this.showHidden)
       .then(listing => {
-        const childrenEntries = listing.entries || [];
-        const children: TreeNode[] = childrenEntries.map(e => ({
+        const childLevel = (node.level ?? 0) + 1;
+        const children: TreeNode[] = (listing.entries || []).map(e => ({
           ...e,
-          level: (node.level ?? 0) + 1,
+          level: childLevel,
           expandable: e.type === FileType.DIRECTORY,
           expanded: false,
           children: e.type === FileType.DIRECTORY ? [] : undefined,
           loaded: false,
+          loading: false,
+          parent: node,
         } as TreeNode));
 
-        // assign parent references and attach children
-        for (const c of children) { c.parent = node; }
         node.children = children;
         node.loaded = true;
         node.loading = false;
-        // Replace placeholder with actual children and update view
-        node.children = children;
         this.cdr.markForCheck();
       })
       .catch(() => {
+        node.children = [];
         node.loading = false;
         node.loaded = true;
+        this.cdr.markForCheck();
       });
   }
+
+  // ── Sorting ──────────────────────────────────────────────
 
   private sortEntries(): void {
     const sorted = [...this.entries];
     const multiplier = this.sortDirection === 'asc' ? 1 : -1;
-    
+
     sorted.sort((a, b) => {
       if (a.path === '__archive_parent__') return -1;
       if (b.path === '__archive_parent__') return 1;
-      
+
       if (this.currentView !== 'grid') {
         if (a.type === FileType.DIRECTORY && b.type !== FileType.DIRECTORY) return -1;
         if (b.type === FileType.DIRECTORY && a.type !== FileType.DIRECTORY) return 1;
       }
-      
+
       let comparison = 0;
       switch (this.sortField) {
         case 'name':
@@ -275,45 +259,49 @@ export class FileViewContainerComponent implements OnChanges {
         case 'modified':
           comparison = (a.modified || 0) - (b.modified || 0);
           break;
-        case 'type':
+        case 'type': {
           const typeA = a.type === FileType.DIRECTORY ? 'folder' : (a.name.split('.').pop() || '');
           const typeB = b.type === FileType.DIRECTORY ? 'folder' : (b.name.split('.').pop() || '');
           comparison = typeA.localeCompare(typeB);
           break;
+        }
         default:
           comparison = a.name.localeCompare(b.name);
       }
-      
+
       return comparison * multiplier;
     });
-    
+
     this.sortedEntries = sorted;
   }
+
+  // ── Tree building (root level only) ──────────────────────
 
   private buildTreeNodes(): void {
     const root: TreeNode[] = [];
     const map = new Map<string, TreeNode>();
-    
+
     const sorted = [...this.entries].sort((a, b) => {
       const depthA = a.path.replace(/\\/g, '/').split('/').length;
       const depthB = b.path.replace(/\\/g, '/').split('/').length;
       return depthA - depthB;
     });
-    
+
     for (const entry of sorted) {
       if (entry.path === '__archive_parent__') continue;
-      
+
       const node: TreeNode = {
         ...entry,
         level: 0,
         expandable: entry.type === FileType.DIRECTORY,
         expanded: false,
         children: entry.type === FileType.DIRECTORY ? [] : undefined,
-        loaded: false
+        loaded: false,
+        loading: false,
       };
-      
+
       map.set(entry.path, node);
-      
+
       const parentPath = this.getParentPath(entry.path);
       if (parentPath && map.has(parentPath)) {
         const parent = map.get(parentPath)!;
@@ -325,7 +313,7 @@ export class FileViewContainerComponent implements OnChanges {
         root.push(node);
       }
     }
-    
+
     this.treeNodes = root;
   }
 

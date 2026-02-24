@@ -496,36 +496,11 @@ export class FileTreeComponent implements OnChanges, OnDestroy {
 
   onNodeClick(node: TreeNode, event: MouseEvent): void {
     event.stopPropagation();
-    this.focusedNodePath = node.path;
-
-    const isMulti = event.ctrlKey || event.metaKey;
-    const isRange = event.shiftKey;
-
-    if (isRange && this.lastSelectedPath) {
-      const visible  = this.getVisibleNodes();
-      const startIdx = visible.findIndex(n => n.path === this.lastSelectedPath);
-      const endIdx   = visible.findIndex(n => n.path === node.path);
-      const [min, max] = [Math.min(startIdx, endIdx), Math.max(startIdx, endIdx)];
-      const newSelection: TreeNode[] = [];
-      for (let i = min; i <= max; i++) {
-        if (i >= 0 && i < visible.length) newSelection.push(visible[i]);
-      }
-      this.selectionChange.emit(newSelection);
-    } else if (isMulti) {
-      const current  = Array.from(this.selectedFiles);
-      const exists   = current.includes(node.path);
-      const newPaths = exists
-        ? current.filter(p => p !== node.path)
-        : [...current, node.path];
-      const selectedNodes = this.getVisibleNodes().filter(n => newPaths.includes(n.path));
-      this.selectionChange.emit(selectedNodes);
-      this.lastSelectedPath = node.path;
+    if (node.type === FileType.DIRECTORY) {
+      this.onToggleExpand(event, node);
     } else {
-      this.selectionChange.emit([node]);
-      this.lastSelectedPath = node.path;
+      this.navigate.emit(node);
     }
-
-    this.cdr.markForCheck();
   }
 
   onNodeDoubleClick(node: TreeNode, event: MouseEvent): void {

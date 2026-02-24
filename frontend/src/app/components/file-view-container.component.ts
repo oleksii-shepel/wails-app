@@ -10,9 +10,10 @@ import { FileListComponent } from './file-list.component';
 import { FileGridComponent } from './file-grid.component';
 import { FileTreeComponent, TreeNode } from './file-tree.component';
 import { FileDetailsComponent } from './file-details.component';
-import { ActionBarComponent, ViewMode } from './action-bar.component';
+import { ViewMode } from './action-bar.component';
 import { FileInfo, FileType } from '../shared/protocol';
 import { ApiService } from '../services/api.service';
+import { parentPath } from './address-bar.utils';
 
 export type ViewLayout = ViewMode;
 
@@ -317,36 +318,31 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
 
       const node: TreeNode = {
         ...entry,
-        level:      0,
+        level: 0,
         expandable: entry.type === FileType.DIRECTORY,
-        expanded:   false,
-        children:   entry.type === FileType.DIRECTORY ? [] : undefined,
-        loaded:     false,
-        loading:    false,
+        expanded: false,
+        children: entry.type === FileType.DIRECTORY ? [] : undefined,
+        loaded: false,
+        loading: false,
       };
 
       map.set(entry.path, node);
 
-      const parentPath = this.getParentPath(entry.path);
-      if (parentPath && map.has(parentPath)) {
-        const parent = map.get(parentPath)!;
-        if (!parent.children) parent.children = [];
-        parent.children.push(node);
-        node.parent = parent;
-        node.level  = parent.level + 1;
+      const parent = parentPath(entry.path);          // ← use shared util
+      const parentKey = parent !== entry.path         // avoid self-reference at root
+        ? parent : null;
+
+      if (parentKey && map.has(parentKey)) {
+        const parentNode = map.get(parentKey)!;
+        if (!parentNode.children) parentNode.children = [];
+        parentNode.children.push(node);
+        node.parent = parentNode;
+        node.level = parentNode.level + 1;
       } else {
         root.push(node);
       }
     }
 
     this.treeNodes = root;
-  }
-
-  private getParentPath(path: string): string | null {
-    if (path === '/' || path === '') return null;
-    const parts = path.replace(/\\/g, '/').split('/').filter(Boolean);
-    if (parts.length === 0) return null;
-    parts.pop();
-    return '/' + parts.join('/');
   }
 }

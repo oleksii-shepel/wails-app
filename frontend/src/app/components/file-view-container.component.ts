@@ -79,7 +79,29 @@ export type ViewLayout = ViewMode;
       </div>
     </div>
   `,
-  styles: [`...`], // same styles as before
+  styles: [`
+    .view-container {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .view-content {
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* Ensure child components fill the container */
+    .view-content > * {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+  `],
 })
 export class FileViewContainerComponent implements OnChanges {
   @ViewChild(FileTreeComponent) treeComponent?: FileTreeComponent;

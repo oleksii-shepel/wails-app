@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, ViewChild } from '@angular/core';
+import { Component, OnInit, OnDestroy, ViewChild, ElementRef, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Subject, takeUntil } from 'rxjs';
 
@@ -13,6 +13,7 @@ import { PathHistoryService } from '../services/path-history.service';
 import { ThemeService } from '../services/theme.service';
 import { PathHistoryViewerComponent } from './path-history-viewer.component';
 import { FilePaneComponent } from './file-pane.component';
+import { SplitDividerComponent } from './split-divider.component';
 
 @Component({
   selector: 'app-file-browser',
@@ -23,46 +24,37 @@ import { FilePaneComponent } from './file-pane.component';
     PathHistoryViewerComponent,
     GlobalSearchComponent,
     KeyboardHelpComponent,
+    SplitDividerComponent
   ],
   templateUrl: './file-browser.component.html',
   styleUrls: ['./file-browser.component.scss'],
 })
 export class FileBrowserComponent implements OnInit, OnDestroy {
-    // Methods for template (used by app-file-pane events)
-    copyToOtherPane(source: FilePaneComponent | undefined, target: FilePaneComponent | undefined, paths?: string[]): void {
-      if (!source || !target) return;
-      const selected = paths ?? Array.from(source.selectedFiles);
-      if (selected.length === 0) return;
-      if (source === this.leftPane && target === this.rightPane) {
-        this.onCopyFromLeft(selected);
-      } else if (source === this.rightPane && target === this.leftPane) {
-        this.onCopyFromRight(selected);
-      }
-    }
-
-    moveToOtherPane(source: FilePaneComponent | undefined, target: FilePaneComponent | undefined, paths?: string[]): void {
-      if (!source || !target) return;
-      const selected = paths ?? Array.from(source.selectedFiles);
-      if (selected.length === 0) return;
-      if (source === this.leftPane && target === this.rightPane) {
-        this.onMoveFromLeft(selected);
-      } else if (source === this.rightPane && target === this.leftPane) {
-        this.onMoveFromRight(selected);
-      }
-    }
+  // ViewChild references
   @ViewChild(KeyboardHelpComponent) keyboardHelp?: KeyboardHelpComponent;
   @ViewChild(GlobalSearchComponent) globalSearch?: GlobalSearchComponent;
   @ViewChild(PathHistoryViewerComponent) pathHistoryViewer?: PathHistoryViewerComponent;
+  @ViewChild('panesContainer') panesContainer?: ElementRef;
   
   @ViewChild('leftPane') leftPane?: FilePaneComponent;
   @ViewChild('rightPane') rightPane?: FilePaneComponent;
 
+  // Workspace state
   activeWorkspace: WorkspaceConfig | null = null;
   workspaceList: WorkspaceConfig[] = [];
   showWorkspaceMenu = false;
   showHidden = false;
   activePaneId: 'left' | 'right' = 'left';
   
+  // Resizable panes
+  leftPaneWidth = 50;
+  rightPaneWidth = 50;
+  isResizing = false;
+  private startX = 0;
+  private startLeftWidth = 0;
+  private readonly MIN_PANE_WIDTH = 20; // Minimum width percentage
+  private readonly MAX_PANE_WIDTH = 80; // Maximum width percentage
+
   // Expose to template
   FileType = FileType;
 
@@ -95,12 +87,37 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
 
     this.checkServerConnection();
     this.registerKeyboardShortcuts();
+    this.loadPaneWidths();
   }
 
   ngOnDestroy(): void {
     this.destroy$.next();
     this.destroy$.complete();
     this.apiService.disconnectWebSocket();
+    this.cleanupResizeListeners();
+  }
+
+  // Methods for template (used by app-file-pane events)
+  copyToOtherPane(source: FilePaneComponent | undefined, target: FilePaneComponent | undefined, paths?: string[]): void {
+    if (!source || !target) return;
+    const selected = paths ?? Array.from(source.selectedFiles);
+    if (selected.length === 0) return;
+    if (source === this.leftPane && target === this.rightPane) {
+      this.onCopyFromLeft(selected);
+    } else if (source === this.rightPane && target === this.leftPane) {
+      this.onCopyFromRight(selected);
+    }
+  }
+
+  moveToOtherPane(source: FilePaneComponent | undefined, target: FilePaneComponent | undefined, paths?: string[]): void {
+    if (!source || !target) return;
+    const selected = paths ?? Array.from(source.selectedFiles);
+    if (selected.length === 0) return;
+    if (source === this.leftPane && target === this.rightPane) {
+      this.onMoveFromLeft(selected);
+    } else if (source === this.rightPane && target === this.leftPane) {
+      this.onMoveFromRight(selected);
+    }
   }
 
   private getActivePane(): FilePaneComponent | undefined {
@@ -399,6 +416,113 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
       this.onMoveFromLeft(Array.from(src?.selectedFiles || []));
     } else {
       this.onMoveFromRight(Array.from(src?.selectedFiles || []));
+    }
+  }
+
+  // ============================================================================
+  // Resizable Panels
+  // ============================================================================
+
+  private loadPaneWidths(): void {
+    const savedLeftWidth = localStorage.getItem('fileManager_leftPaneWidth');
+    const savedRightWidth = localStorage.getItem('fileManager_rightPaneWidth');
+    
+    if (savedLeftWidth && savedRightWidth) {
+      this.leftPaneWidth = parseFloat(savedLeftWidth);
+      this.rightPaneWidth = parseFloat(savedRightWidth);
+    }
+  }
+
+  private savePaneWidths(): void {
+    localStorage.setItem('fileManager_leftPaneWidth', this.leftPaneWidth.toString());
+    localStorage.setItem('fileManager_rightPaneWidth', this.rightPaneWidth.toString());
+  }
+
+  startResize(event: MouseEvent): void {
+    event.preventDefault();
+    this.isResizing = true;
+    this.startX = event.clientX;
+    this.startLeftWidth = this.leftPaneWidth;
+    
+    // Add global event listeners
+    document.addEventListener('mousemove', this.onResize);
+    document.addEventListener('mouseup', this.stopResize);
+    
+    // Add class to body to prevent text selection during resize
+    document.body.classList.add('resizing');
+  }
+
+  private onResize = (event: MouseEvent): void => {
+    if (!this.isResizing || !this.panesContainer) return;
+    
+    event.preventDefault();
+    
+    const containerWidth = this.panesContainer.nativeElement.clientWidth;
+    const deltaX = event.clientX - this.startX;
+    const deltaPercent = (deltaX / containerWidth) * 100;
+    
+    let newLeftWidth = this.startLeftWidth + deltaPercent;
+    
+    // Constrain to minimum and maximum widths
+    newLeftWidth = Math.max(this.MIN_PANE_WIDTH, Math.min(this.MAX_PANE_WIDTH, newLeftWidth));
+    
+    this.leftPaneWidth = newLeftWidth;
+    this.rightPaneWidth = 100 - newLeftWidth;
+  };
+
+  private stopResize = (): void => {
+    if (this.isResizing) {
+      this.isResizing = false;
+      
+      // Remove global event listeners
+      document.removeEventListener('mousemove', this.onResize);
+      document.removeEventListener('mouseup', this.stopResize);
+      
+      // Remove class from body
+      document.body.classList.remove('resizing');
+      
+      // Save the new widths
+      this.savePaneWidths();
+    }
+  };
+
+  resetPaneWidths(): void {
+    this.leftPaneWidth = 50;
+    this.rightPaneWidth = 50;
+    this.savePaneWidths();
+  }
+
+  private cleanupResizeListeners(): void {
+    if (this.isResizing) {
+      document.removeEventListener('mousemove', this.onResize);
+      document.removeEventListener('mouseup', this.stopResize);
+    }
+  }
+
+  // Clean up event listeners if component is destroyed during resize
+  @HostListener('window:beforeunload')
+  onBeforeUnload(): void {
+    this.cleanupResizeListeners();
+  }
+
+  // Handle keyboard navigation for the divider
+  @HostListener('window:keydown.arrowleft', ['$event'])
+  onArrowLeft(event: any): void {
+    if (document.activeElement?.classList.contains('pane-divider')) {
+      event.preventDefault();
+      this.leftPaneWidth = Math.max(this.MIN_PANE_WIDTH, this.leftPaneWidth - 5);
+      this.rightPaneWidth = 100 - this.leftPaneWidth;
+      this.savePaneWidths();
+    }
+  }
+
+  @HostListener('window:keydown.arrowright', ['$event'])
+  onArrowRight(event: any): void {
+    if (document.activeElement?.classList.contains('pane-divider')) {
+      event.preventDefault();
+      this.leftPaneWidth = Math.min(this.MAX_PANE_WIDTH, this.leftPaneWidth + 5);
+      this.rightPaneWidth = 100 - this.leftPaneWidth;
+      this.savePaneWidths();
     }
   }
 }

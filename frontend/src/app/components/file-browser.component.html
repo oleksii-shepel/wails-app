@@ -51,30 +51,46 @@
       </div>
     </div>
 
-    <!-- Main Panes Container -->
-    <div class="panes-container">
-      <!-- Left Pane -->
-      <app-file-pane
-        #leftPane
-        paneId="left"
-        [workspace]="activeWorkspace"
-        [showHidden]="showHidden"
-        (click)="activePaneId = 'left'"
-        (pathChange)="onPanePathChange('left', $event)"
-        (copyToOther)="onCopyFromLeft($event)"
-        (moveToOther)="onMoveFromLeft($event)">
-      </app-file-pane>
+    <!-- Main Panes Container with Resizable Split -->
+    <div class="panes-container" #panesContainer>
 
-      <app-file-pane
-        #rightPane
-        paneId="right"
-        [workspace]="activeWorkspace"
-        [showHidden]="showHidden"
-        (click)="activePaneId = 'right'"
-        (pathChange)="onPanePathChange('right', $event)"
-        (copyToOther)="onCopyFromRight($event)"
-        (moveToOther)="onMoveFromRight($event)">
-      </app-file-pane>
+      <!-- Left Pane -->
+      <div class="pane-wrapper left-pane" [style.width.%]="leftPaneWidth">
+        <app-file-pane
+          #leftPane
+          paneId="left"
+          [workspace]="activeWorkspace"
+          [showHidden]="showHidden"
+          (click)="activePaneId = 'left'"
+          (pathChange)="onPanePathChange('left', $event)"
+          (copyToOther)="onCopyFromLeft($event)"
+          (moveToOther)="onMoveFromLeft($event)">
+        </app-file-pane>
+      </div>
+
+      <!-- NEW Divider Component -->
+      <app-split-divider
+        [(position)]="leftPaneWidth"
+        [min]="20"
+        [max]="80"
+        [snapPoints]="[20,25,33.333,50,66.666,75,80]"
+        (positionChange)="rightPaneWidth = 100 - $event">
+      </app-split-divider>
+
+      <!-- Right Pane -->
+      <div class="pane-wrapper right-pane" [style.width.%]="rightPaneWidth">
+        <app-file-pane
+          #rightPane
+          paneId="right"
+          [workspace]="activeWorkspace"
+          [showHidden]="showHidden"
+          (click)="activePaneId = 'right'"
+          (pathChange)="onPanePathChange('right', $event)"
+          (copyToOther)="onCopyFromRight($event)"
+          (moveToOther)="onMoveFromRight($event)">
+        </app-file-pane>
+      </div>
+
     </div>
   </div>
 

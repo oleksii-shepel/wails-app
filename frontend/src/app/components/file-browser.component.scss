@@ -268,10 +268,114 @@
   overflow: hidden;
   min-height: 0;
   min-width: 0;
+  position: relative;
+  
+  &.resizing {
+    cursor: col-resize;
+    user-select: none;
+  }
 }
 
 // ============================================================================
-// Pane
+// Pane Wrapper
+// ============================================================================
+
+.pane-wrapper {
+  display: flex;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--vsc-editor-background);
+  
+  &.left-pane {
+    /* Width set dynamically via style binding */
+  }
+  
+  &.right-pane {
+    /* Width set dynamically via style binding */
+  }
+}
+
+// ============================================================================
+// Pane Divider
+// ============================================================================
+
+.pane-divider {
+  width: 8px;
+  height: 100%;
+  background: transparent;
+  cursor: col-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s ease;
+  position: relative;
+  z-index: 20;
+  
+  &:hover {
+    background: var(--vsc-panel-border);
+    
+    .divider-dots {
+      background: var(--vsc-foreground);
+      opacity: 0.8;
+    }
+  }
+  
+  &:focus-visible {
+    outline: 2px solid var(--vsc-focusBorder);
+    outline-offset: -2px;
+    background: var(--vsc-panel-border);
+  }
+  
+  &.resizing {
+    background: var(--vsc-button-background);
+    
+    .divider-dots {
+      background: var(--vsc-button-foreground);
+      opacity: 1;
+    }
+  }
+  
+  .divider-handle {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  
+  .divider-dots {
+    width: 4px;
+    height: 32px;
+    background: var(--vsc-icon-foreground);
+    border-radius: 2px;
+    opacity: 0.4;
+    transition: all 0.2s ease;
+    position: relative;
+    
+    &::before,
+    &::after {
+      content: '';
+      position: absolute;
+      width: 4px;
+      height: 8px;
+      background: inherit;
+      border-radius: 2px;
+      left: 0;
+    }
+    
+    &::before {
+      top: -10px;
+    }
+    
+    &::after {
+      bottom: -10px;
+    }
+  }
+}
+
+// ============================================================================
+// Pane (Legacy - kept for backward compatibility)
 // ============================================================================
 
 .pane {
@@ -645,4 +749,91 @@
   .filter-input { min-height: 20px; }
   .btn { height: 22px; }
   .btn-icon { width: 22px; height: 22px; }
+}
+
+// ============================================================================
+// Responsive Design
+// ============================================================================
+
+@media (max-width: 768px) {
+  .panes-container {
+    flex-direction: column;
+    
+    &.resizing {
+      cursor: row-resize;
+    }
+  }
+  
+  .pane-divider {
+    width: 100%;
+    height: 8px;
+    cursor: row-resize;
+    
+    .divider-dots {
+      width: 32px;
+      height: 4px;
+      
+      &::before,
+      &::after {
+        width: 8px;
+        height: 4px;
+        left: auto;
+      }
+      
+      &::before {
+        left: -12px;
+        top: 0;
+      }
+      
+      &::after {
+        right: -12px;
+        bottom: 0;
+      }
+    }
+  }
+  
+  .pane-wrapper {
+    width: 100% !important;
+    height: auto;
+  }
+}
+
+// ============================================================================
+// Global Resizing State
+// ============================================================================
+
+:host-context(body.resizing) {
+  cursor: col-resize;
+  
+  .pane-wrapper {
+    transition: none;
+    pointer-events: none;
+  }
+  
+  .pane-divider {
+    background: var(--vsc-button-background);
+    
+    .divider-dots {
+      background: var(--vsc-button-foreground);
+      opacity: 1;
+    }
+  }
+}
+
+@media (max-width: 768px) {
+  :host-context(body.resizing) {
+    cursor: row-resize;
+  }
+}
+
+// ============================================================================
+// Pane Wrapper Transitions
+// ============================================================================
+
+.pane-wrapper {
+  transition: width 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.panes-container:not(.resizing) .pane-wrapper {
+  transition: width 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }

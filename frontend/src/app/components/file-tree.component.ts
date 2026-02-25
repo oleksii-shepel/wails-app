@@ -1033,8 +1033,8 @@ export class FileTreeComponent implements OnChanges {
       if (!el) return;
       const hostRect = host.getBoundingClientRect();
       const elRect = el.getBoundingClientRect();
-      const fullyVisible = elRect.top >= hostRect.top && elRect.bottom <= hostRect.bottom;
-      if (fullyVisible) return;
+      const partlyVisible = elRect.bottom > hostRect.top && elRect.top < hostRect.bottom;
+      if (partlyVisible) return;
       el.scrollIntoView({ block: 'center', inline: 'nearest' });
     });
   }

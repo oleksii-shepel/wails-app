@@ -1,6 +1,7 @@
-import { Component, Input, Output, EventEmitter } from '@angular/core';
+// dropdown-container.component.ts
+import { Component, Input, Output, EventEmitter, ViewChild, ContentChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { DropdownDirective } from '../directives/dropdown.directive';
+import { DropdownDirective, DropdownMenuDirective } from '../directives/dropdown.directive';
 
 @Component({
   selector: 'app-dropdown-container',
@@ -11,10 +12,24 @@ import { DropdownDirective } from '../directives/dropdown.directive';
       class="dropdown-wrapper" 
       [appDropdown]="isOpen" 
       (isOpenChange)="onToggle($event)"
+      #dropdownRef="appDropdown"
     >
-      <div *ngIf="isOpen" class="dropdown-backdrop" (click)="close()" aria-hidden="true"></div>
+      <!-- Backdrop - captures clicks outside the menu -->
+      <div 
+        *ngIf="isOpen" 
+        class="dropdown-backdrop" 
+        (click)="onBackdropClick($event)"
+        aria-hidden="true">
+      </div>
 
-      <ng-content></ng-content>
+      <!-- Menu content wrapper - stops click propagation -->
+      <div 
+        *ngIf="isOpen" 
+        class="dropdown-menu-wrapper"
+        appDropdownMenu
+        (click)="$event.stopPropagation()">
+        <ng-content></ng-content>
+      </div>
     </div>
   `,
   styles: [`
@@ -29,12 +44,16 @@ import { DropdownDirective } from '../directives/dropdown.directive';
       left: 0;
       width: 100vw;
       height: 100vh;
-      background-color: rgba(0, 0, 0, 0.4); /* Dimmed effect */
-      z-index: 998; /* Just below the menu */
+      background-color: rgba(0, 0, 0, 0.4);
+      z-index: 998;
       cursor: default;
     }
 
-    /* We use ::ng-deep to ensure the projected menu stays above the backdrop */
+    .dropdown-menu-wrapper {
+      position: relative;
+      z-index: 999;
+    }
+
     ::ng-deep [appDropdownMenu] {
       position: absolute;
       z-index: 999;
@@ -44,10 +63,19 @@ import { DropdownDirective } from '../directives/dropdown.directive';
 export class DropdownContainerComponent {
   @Input() isOpen = false;
   @Output() isOpenChange = new EventEmitter<boolean>();
+  
+  @ViewChild('dropdownRef', { static: true }) dropdownRef?: DropdownDirective;
+  @ContentChild(DropdownMenuDirective, { static: false }) menuDir?: DropdownMenuDirective;
 
   onToggle(state: boolean) {
     this.isOpen = state;
     this.isOpenChange.emit(state);
+  }
+
+  onBackdropClick(event: MouseEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.close();
   }
 
   close() {

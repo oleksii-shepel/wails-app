@@ -55,6 +55,7 @@ export type ViewLayout = ViewMode;
           #fileTree
           *ngIf="currentView === 'tree'"
           [nodes]="treeNodes"
+          [currentPath]="currentPath"
           [selectedFiles]="selectedFiles"
           (selectionChange)="onTreeSelectionChange($event)"
           (nodeDoubleClick)="onTreeNodeDoubleClick($event)"
@@ -81,13 +82,53 @@ export type ViewLayout = ViewMode;
       </div>
     </div>
   `,
-  styles: [`/* ... keep existing styles ... */`]
+  styles: [`
+    :host {
+      display: flex;
+      flex-direction: column;
+      flex: 1 1 0%;
+      min-height: 0;
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    .view-container {
+      display: flex;
+      flex-direction: column;
+      flex: 1 1 0%;
+      min-height: 0;
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    .view-content {
+      display: flex;
+      flex-direction: column;
+      flex: 1 1 0%;
+      min-height: 0;
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    app-file-list,
+    app-file-grid,
+    app-file-tree,
+    app-file-details {
+      display: flex;
+      flex-direction: column;
+      flex: 1 1 0%;
+      min-height: 0;
+      min-width: 0;
+      overflow: hidden;
+    }
+  `]
 })
 export class FileViewContainerComponent implements OnChanges, OnDestroy {
   @ViewChild('fileTree') treeComponent?: FileTreeComponent;
 
   @Input() showHidden    = false;
   @Input() entries: FileInfo[] = [];
+  @Input() currentPath = '';
   @Input() selectedFiles: Set<string> = new Set();
   @Input() loading       = false;
   @Input() error: string | null = null;
@@ -110,6 +151,8 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
 
   private loadRequest$ = new Subject<TreeNode>();
   private destroy$     = new Subject<void>();
+  private nodeLoadPromises = new Map<string, Promise<void>>();
+  private syncToken = 0;
 
   constructor(private apiService: ApiService, private cdr: ChangeDetectorRef) {
     this.loadRequest$
@@ -127,10 +170,11 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
 
   ngOnChanges(changes: SimpleChanges): void {
     this.sortEntries();
-    if (this.currentView === 'tree') {
-      if (changes['entries']) {
-        this.buildTreeNodes();
-      }
+    const switchedToTree = !!changes['currentView'] && this.currentView === 'tree';
+    const treeRelevantChange = switchedToTree || !!changes['currentPath'] || !!changes['showHidden'];
+    if (this.currentView === 'tree' && treeRelevantChange) {
+      this.buildTreeNodes();
+      void this.syncTreeToCurrentPath();
     }
   }
 
@@ -194,54 +238,8 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
     this.loadRequest$.next(node);
   }
 
-  private loadNodeChildren(node: TreeNode) {
-    node.loading = true;
-    node.children = node.children?.length ? node.children : [];
-    this.cdr.markForCheck();
-
-    const result$ = new Subject<void>();
-
-    this.apiService
-      .listDirectory(node.path, this.showHidden)
-      .then(listing => {
-        const childLevel = (node.level ?? 0) + 1;
-        const existingChildren = new Map<string, TreeNode>();
-        if (node.children) {
-          for (const child of node.children) {
-            existingChildren.set(child.path, child);
-          }
-        }
-
-        node.children = (listing.entries || []).map(e => {
-          const existing = existingChildren.get(e.path);
-          return {
-            ...e,
-            level: childLevel,
-            expandable: e.type === FileType.DIRECTORY,
-            expanded: existing?.expanded ?? false,
-            children: existing?.children ?? (e.type === FileType.DIRECTORY ? [] : undefined),
-            loaded: existing?.loaded ?? false,
-            loading: false,
-            parent: node,
-          } as TreeNode;
-        });
-        
-        node.loaded  = true;
-        node.loading = false;
-        this.cdr.markForCheck();
-      })
-      .catch(() => {
-        node.children = [];
-        node.loading  = false;
-        node.loaded   = true;
-        this.cdr.markForCheck();
-      })
-      .finally(() => {
-        result$.next();
-        result$.complete();
-      });
-
-    return result$;
+  private loadNodeChildren(node: TreeNode): Promise<void> {
+    return this.ensureNodeChildrenLoaded(node);
   }
 
   // ── View / sort ────────────────────────────────────────────
@@ -250,7 +248,10 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
     this.currentView = view;
     this.viewChange.emit(view);
     localStorage.setItem('fileManager_viewMode', view);
-    if (view === 'tree') this.buildTreeNodes();
+    if (view === 'tree') {
+      this.buildTreeNodes();
+      void this.syncTreeToCurrentPath();
+    }
   }
 
   onSortChange(sort: { field: string; direction: 'asc' | 'desc' }): void {
@@ -348,56 +349,170 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
   // ── Tree building ──────────────────────────────────────────
 
   private buildTreeNodes(): void {
-    const root: TreeNode[] = [];
-    const map = new Map<string, TreeNode>();
-    const existingMap = new Map<string, TreeNode>();
-    
-    const traverseExisting = (nodes: TreeNode[]) => {
-      for (const node of nodes) {
-        existingMap.set(node.path, node);
-        if (node.children) traverseExisting(node.children);
-      }
-    };
-    traverseExisting(this.treeNodes);
-
-    const sorted = [...this.entries].sort((a, b) => {
-      const da = a.path.replace(/\\/g, '/').split('/').length;
-      const db = b.path.replace(/\\/g, '/').split('/').length;
-      return da - db;
-    });
-
-    for (const entry of sorted) {
-      if (entry.path === '__archive_parent__') continue;
-
-      const existing = existingMap.get(entry.path);
-      
-      const node: TreeNode = {
-        ...entry,
-        level: 0,
-        expandable: entry.type === FileType.DIRECTORY,
-        expanded: existing?.expanded ?? false,
-        children: existing?.children ?? (entry.type === FileType.DIRECTORY ? [] : undefined),
-        loaded: existing?.loaded ?? false,
-        loading: existing?.loading ?? false,
-        parent: undefined,
-      };
-
-      map.set(entry.path, node);
-
-      const parent = parentPath(entry.path);
-      const parentKey = parent !== entry.path ? parent : null;
-
-      if (parentKey && map.has(parentKey)) {
-        const parentNode = map.get(parentKey)!;
-        if (!parentNode.children) parentNode.children = [];
-        parentNode.children.push(node);
-        node.parent = parentNode;
-        node.level = parentNode.level + 1;
-      } else {
-        root.push(node);
-      }
+    const rootPath = this.getRootPath(this.currentPath);
+    if (!rootPath) {
+      this.treeNodes = [];
+      return;
     }
 
-    this.treeNodes = root;
+    const currentRoot = this.treeNodes[0];
+    if (currentRoot && this.normalizePath(currentRoot.path) === this.normalizePath(rootPath)) {
+      return;
+    }
+
+    this.nodeLoadPromises.clear();
+    this.treeNodes = [this.createRootNode(rootPath)];
+    this.cdr.markForCheck();
+  }
+
+  private async syncTreeToCurrentPath(): Promise<void> {
+    if (this.currentView !== 'tree') return;
+    this.buildTreeNodes();
+    const rootNode = this.treeNodes[0];
+    if (!rootNode) return;
+
+    const token = ++this.syncToken;
+    const chain = this.buildPathChain(rootNode.path, this.currentPath);
+    if (chain.length === 0) return;
+
+    let current = rootNode;
+    await this.ensureNodeChildrenLoaded(current);
+    if (token !== this.syncToken) return;
+
+    for (let i = 1; i < chain.length; i++) {
+      const expected = this.normalizePath(chain[i]);
+      const next = current.children?.find(c => this.normalizePath(c.path) === expected);
+      if (!next || next.type !== FileType.DIRECTORY) break;
+      current = next;
+      await this.ensureNodeChildrenLoaded(current);
+      if (token !== this.syncToken) return;
+    }
+
+    setTimeout(() => {
+      if (token !== this.syncToken || this.currentView !== 'tree') return;
+      for (const path of chain) {
+        this.treeComponent?.expandNode(path);
+      }
+      this.treeComponent?.focusNode(current.path);
+    }, 0);
+  }
+
+  private async ensureNodeChildrenLoaded(node: TreeNode): Promise<void> {
+    if (node.loaded) return;
+
+    const existingPromise = this.nodeLoadPromises.get(node.path);
+    if (existingPromise) {
+      await existingPromise;
+      return;
+    }
+
+    const loadPromise = this.populateNodeChildren(node);
+    this.nodeLoadPromises.set(node.path, loadPromise);
+    try {
+      await loadPromise;
+    } finally {
+      this.nodeLoadPromises.delete(node.path);
+    }
+  }
+
+  private async populateNodeChildren(node: TreeNode): Promise<void> {
+    node.loading = true;
+    node.children = node.children?.length ? node.children : [];
+    this.cdr.markForCheck();
+
+    try {
+      const listing = await this.apiService.listDirectory(node.path, this.showHidden);
+      const childLevel = (node.level ?? 0) + 1;
+      const existingChildren = new Map<string, TreeNode>();
+      if (node.children) {
+        for (const child of node.children) {
+          existingChildren.set(this.normalizePath(child.path), child);
+        }
+      }
+
+      node.children = (listing.entries || [])
+        .filter(e => e.path !== '__archive_parent__')
+        .map(e => {
+          const existing = existingChildren.get(this.normalizePath(e.path));
+          return {
+            ...e,
+            level: childLevel,
+            expandable: e.type === FileType.DIRECTORY,
+            expanded: existing?.expanded ?? false,
+            children: existing?.children ?? (e.type === FileType.DIRECTORY ? [] : undefined),
+            loaded: existing?.loaded ?? false,
+            loading: false,
+            parent: node,
+          } as TreeNode;
+        });
+
+      node.loaded = true;
+      node.loading = false;
+      this.cdr.markForCheck();
+    } catch {
+      node.children = [];
+      node.loading = false;
+      node.loaded = true;
+      this.cdr.markForCheck();
+    }
+  }
+
+  private createRootNode(rootPath: string): TreeNode {
+    const isWindowsRoot = /^[A-Za-z]:\/$/.test(rootPath);
+    const rootName = rootPath === '/' ? '/' : (isWindowsRoot ? rootPath.slice(0, 2) : rootPath);
+    return {
+      name: rootName,
+      path: rootPath,
+      type: FileType.DIRECTORY,
+      size: 0,
+      modified: 0,
+      created: 0,
+      accessed: 0,
+      permissions: '',
+      isHidden: false,
+      level: -1,
+      syntheticRoot: rootPath,
+      expandable: true,
+      expanded: true,
+      children: [],
+      loaded: false,
+      loading: false,
+      parent: undefined,
+    } as TreeNode;
+  }
+
+  private getRootPath(path: string): string {
+    const normalized = this.normalizePath(path || '/');
+    const winDrive = normalized.match(/^([A-Za-z]:)\//);
+    if (winDrive) return `${winDrive[1]}/`;
+    return '/';
+  }
+
+  private buildPathChain(rootPath: string, targetPath: string): string[] {
+    const root = this.normalizePath(rootPath);
+    const target = this.normalizePath(targetPath || rootPath);
+
+    const chain = [root];
+    const rootForPrefix = root.endsWith('/') ? root : `${root}/`;
+    const startsAtRoot = target === root || this.normalizePath(target).startsWith(rootForPrefix);
+    if (!startsAtRoot) return chain;
+    if (target === root) return chain;
+
+    const relative = target.slice(root.length).replace(/^\/+/, '');
+    if (!relative) return chain;
+
+    let current = root;
+    for (const segment of relative.split('/').filter(Boolean)) {
+      current = current === '/' ? `/${segment}` : `${current.replace(/\/$/, '')}/${segment}`;
+      chain.push(this.normalizePath(current));
+    }
+    return chain;
+  }
+
+  private normalizePath(path: string): string {
+    const normalized = (path || '/').replace(/\\/g, '/').replace(/\/+/g, '/');
+    if (/^[A-Za-z]:$/.test(normalized)) return `${normalized}/`;
+    if (normalized.length > 1 && normalized.endsWith('/')) return normalized.slice(0, -1);
+    return normalized || '/';
   }
 }

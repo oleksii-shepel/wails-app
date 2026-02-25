@@ -79,6 +79,7 @@ declare const window: any;
 
         <app-file-view-container
           [entries]="filteredEntries"
+          [currentPath]="currentPath"
           [showHidden]="showHidden"
           [selectedFiles]="selectedFiles"
           [loading]="loading"
@@ -230,10 +231,32 @@ export class FilePaneComponent implements OnInit, OnChanges {
     localStorage.setItem('fileManager_sortDirection', this.sortDirection);
   }
 
-  onViewChange(view: ViewLayout): void {
+  async onViewChange(view: ViewLayout): Promise<void> {
+    const previousView = this.currentView;
     this.currentView = view;
     this.saveViewPreference();
-    
+
+    // Tree navigation keeps currentPath in sync without replacing entries.
+    // When leaving tree mode, load the current folder so list/grid/details
+    // always render the active directory contents.
+    if (previousView === 'tree' && view !== 'tree') {
+      if (this.archiveService.isArchiveVirtualPath(this.currentPath)) {
+        if (this.isInArchive()) {
+          const currentFrame = this.archiveStack[this.archiveStack.length - 1];
+          if (currentFrame) {
+            this.renderArchiveFrame(currentFrame);
+          } else {
+            await this.restoreArchiveFromPath(this.currentPath);
+          }
+        } else {
+          await this.restoreArchiveFromPath(this.currentPath);
+        }
+      } else {
+        await this.loadDirectory(this.currentPath);
+      }
+      return;
+    }
+
     // Refresh entries when switching to ensure proper sorting/filtering
     this.applyFilter();
   }

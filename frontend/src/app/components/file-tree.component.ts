@@ -18,6 +18,7 @@ import { DEFAULT_FILE_CATEGORIES } from './filter-bar.types';
 
 export interface TreeNode extends FileInfo {
   level: number;
+  syntheticRoot?: string;
   expanded?: boolean;
   expandable?: boolean;
   children?: TreeNode[];
@@ -50,9 +51,9 @@ export interface DropTarget {
       (dragover)="onContainerDragOver($event)"
       (drop)="onContainerDrop($event)">
 
-      <ng-container *ngTemplateOutlet="treeTemplate; context: { $implicit: nodes, parentLines: [] }"></ng-container>
+      <ng-container *ngTemplateOutlet="treeTemplate; context: { $implicit: renderedNodes, parentLines: [] }"></ng-container>
 
-      <div *ngIf="nodes.length === 0 && !loading" class="tree-empty">
+      <div *ngIf="renderedNodes.length === 0 && !loading" class="tree-empty">
         {{ emptyMessage }}
       </div>
 
@@ -391,6 +392,7 @@ export interface DropTarget {
 })
 export class FileTreeComponent implements OnChanges {
   @Input() nodes: TreeNode[] = [];
+  @Input() currentPath = '';
   @Input() selectedFiles: Set<string> = new Set();
   @Input() loading = false;
   @Input() emptyMessage = 'No items';
@@ -425,9 +427,20 @@ export class FileTreeComponent implements OnChanges {
 
   constructor(private cdr: ChangeDetectorRef) {}
 
+  get renderedNodes(): TreeNode[] {
+    const root = this.nodes[0];
+    if (this.nodes.length === 1 && typeof root?.syntheticRoot === 'string') {
+      return root.children ?? [];
+    }
+    return this.nodes;
+  }
+
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['nodes']) {
       this.updateNodeHierarchy(this.nodes);
+    }
+    if (changes['nodes'] || changes['currentPath']) {
+      this.expandToCurrentPath();
     }
   }
 
@@ -510,7 +523,9 @@ export class FileTreeComponent implements OnChanges {
   // ── Selection ──────────────────────────────────────────────
 
   isSelected(node: TreeNode): boolean {
-    return this.selectedFiles.has(node.path);
+    if (this.selectedFiles.has(node.path)) return true;
+    if (this.selectedFiles.size > 0 || !this.currentPath) return false;
+    return this.normalizePath(node.path) === this.normalizePath(this.currentPath);
   }
 
   isFocusedNode(node: TreeNode): boolean {
@@ -1012,6 +1027,57 @@ export class FileTreeComponent implements OnChanges {
       }
     }
     return undefined;
+  }
+
+  private expandToCurrentPath(): void {
+    if (!this.currentPath || this.nodes.length === 0) return;
+
+    const target = this.findBestPathMatch(this.nodes, this.currentPath);
+    if (!target) return;
+
+    // Always keep the chain to the current path visible.
+    let current: TreeNode | undefined = target;
+    while (current) {
+      if (current.expandable) {
+        this.setExpanded(current, true);
+      }
+      current = current.parent;
+    }
+
+    this.focusedNodePath = target.path;
+    this.ensureVisible(target);
+    this.cdr.markForCheck();
+  }
+
+  private findBestPathMatch(nodes: TreeNode[], path: string): TreeNode | undefined {
+    const target = this.normalizePath(path);
+    let best: TreeNode | undefined;
+    let bestLen = -1;
+
+    const visit = (items: TreeNode[]) => {
+      for (const node of items) {
+        const nodePath = this.normalizePath(node.path);
+        const isExact = nodePath === target;
+        const isAncestor = target.startsWith(`${nodePath}/`);
+
+        if ((isExact || isAncestor) && nodePath.length > bestLen) {
+          best = node;
+          bestLen = nodePath.length;
+        }
+
+        if (node.children?.length) {
+          visit(node.children);
+        }
+      }
+    };
+
+    visit(nodes);
+    return best;
+  }
+
+  private normalizePath(path: string): string {
+    const normalized = path.replace(/\\/g, '/').replace(/\/+$/, '');
+    return normalized.length ? normalized : '/';
   }
 
   notifyChildrenLoaded(node: TreeNode, children: TreeNode[]): void {

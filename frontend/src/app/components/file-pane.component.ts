@@ -545,11 +545,7 @@ export class FilePaneComponent implements OnInit, OnChanges {
   // ── Navigation ────────────────────────────────────────────────────────────
 
   onNavigate(entry: FileInfo): void {
-    // Virtual ".." entry — navigate up regardless of context
-    if (entry.path === PARENT_ENTRY_PATH) {
-      this.onNavigateUp();
-      return;
-    }
+    if (entry.path === PARENT_ENTRY_PATH) { this.onNavigateUp(); return; }
 
     if (this.isInArchive()) {
       if (entry.type === FileType.DIRECTORY) { this.archiveNavigateInto(entry.path); }
@@ -557,6 +553,12 @@ export class FilePaneComponent implements OnInit, OnChanges {
         const chain: string[] = (entry as any).nestedChain;
         if (chain?.length) this.openNestedArchive(chain);
       }
+      return;
+    }
+
+    // In tree view, directories are expanded in-place by the tree component
+    // — do NOT call loadDirectory which would replace all entries
+    if (this.currentView === 'tree' && entry.type === FileType.DIRECTORY) {
       return;
     }
 

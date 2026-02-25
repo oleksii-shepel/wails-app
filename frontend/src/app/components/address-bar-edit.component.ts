@@ -56,7 +56,7 @@ import { highlightMatch } from './address-bar.utils';
     </div>
   `,
   styles: [`
-    :host { display: block; }
+    :host { display: block; width: 100%; }
 
     .ab-edit {
       display: flex; align-items: center; gap: var(--vsc-padding-sm);
@@ -66,6 +66,8 @@ import { highlightMatch } from './address-bar.utils';
       border-radius: var(--vsc-border-radius);
       animation: ab-edit-in var(--vsc-transition-fast) ease;
       position: relative;
+      box-sizing: border-box;
+      width: 100%;
     }
 
     @keyframes ab-edit-in {

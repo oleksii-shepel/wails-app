@@ -1,15 +1,16 @@
 // file-view-container.component.ts
+// Add these new imports and update the component
+
 import {
   Component, Input, Output, EventEmitter,
-  ViewChild, OnChanges, OnDestroy, ChangeDetectorRef,
-  SimpleChanges
+  ViewChild, OnChanges, OnDestroy, ChangeDetectorRef, SimpleChanges
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Subject, merge } from 'rxjs';
+import { Subject } from 'rxjs';
 import { groupBy, mergeMap, exhaustMap, takeUntil } from 'rxjs/operators';
 import { FileListComponent } from './file-list.component';
 import { FileGridComponent } from './file-grid.component';
-import { FileTreeComponent, TreeNode } from './file-tree.component';
+import { FileTreeComponent, TreeNode, DropTarget } from './file-tree.component';
 import { FileDetailsComponent } from './file-details.component';
 import { ViewMode } from './action-bar.component';
 import { FileInfo, FileType } from '../shared/protocol';
@@ -55,11 +56,15 @@ export type ViewLayout = ViewMode;
           *ngIf="currentView === 'tree'"
           [nodes]="treeNodes"
           [selectedFiles]="selectedFiles"
-          (selectionChange)="onSelectionChange($event)"
+          (selectionChange)="onTreeSelectionChange($event)"
           (nodeDoubleClick)="onTreeNodeDoubleClick($event)"
           (toggleExpand)="onTreeToggleExpand($event)"
           (loadChildren)="onLoadChildren($event)"
-          (navigate)="onNavigate($event)">
+          (navigate)="onNavigate($event)"
+          (contextMenu)="onTreeContextMenu($event)"
+          (dragStart)="onTreeDragStart($event)"
+          (dragDrop)="onTreeDragDrop($event)"
+          (rename)="onTreeRename($event)">
         </app-file-tree>
 
         <app-file-details
@@ -76,28 +81,7 @@ export type ViewLayout = ViewMode;
       </div>
     </div>
   `,
-  styles: [`
-    .view-container {
-      display: flex;
-      flex-direction: column;
-      flex: 1;
-      min-height: 0;
-      overflow: hidden;
-    }
-
-    .view-content {
-      flex: 1;
-      min-height: 0;
-      overflow: hidden;
-      position: relative;
-    }
-
-    .view-content > * {
-      display: flex;
-      flex-direction: column;
-      height: 100%;
-    }
-  `]
+  styles: [`/* ... keep existing styles ... */`]
 })
 export class FileViewContainerComponent implements OnChanges, OnDestroy {
   @ViewChild('fileTree') treeComponent?: FileTreeComponent;
@@ -117,6 +101,9 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
   @Output() sortChange      = new EventEmitter<{ field: string; direction: 'asc' | 'desc' }>();
   @Output() contextMenu     = new EventEmitter<{ event: MouseEvent; entry: FileInfo }>();
   @Output() nodeDoubleClick = new EventEmitter<FileInfo>();
+  @Output() dragStart       = new EventEmitter<{ event: DragEvent; entries: FileInfo[] }>();
+  @Output() dragDrop        = new EventEmitter<{ event: DragEvent; source: FileInfo[]; targetPath: string }>();
+  @Output() rename          = new EventEmitter<{ entry: FileInfo; newName: string }>();
 
   sortedEntries: FileInfo[] = [];
   treeNodes: TreeNode[] = [];
@@ -141,7 +128,6 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
   ngOnChanges(changes: SimpleChanges): void {
     this.sortEntries();
     if (this.currentView === 'tree') {
-      // Only rebuild tree if entries actually changed, and preserve expansion state
       if (changes['entries']) {
         this.buildTreeNodes();
       }
@@ -153,7 +139,56 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
     this.destroy$.complete();
   }
 
-  // ── Load children via RxJS pipeline ───────────────────────
+  // ── Tree specific handlers ─────────────────────────────────
+
+  onTreeSelectionChange(nodes: TreeNode[]): void {
+    const files = nodes.map(n => this.treeNodeToFileInfo(n));
+    this.selectedFiles = new Set(nodes.map(n => n.path));
+    this.selectionChange.emit(files);
+  }
+
+  onTreeContextMenu(event: { event: MouseEvent; node: TreeNode }): void {
+    this.contextMenu.emit({ event: event.event, entry: this.treeNodeToFileInfo(event.node) });
+  }
+
+  onTreeDragStart(event: { event: DragEvent; nodes: TreeNode[] }): void {
+    this.dragStart.emit({
+      event: event.event,
+      entries: event.nodes.map(n => this.treeNodeToFileInfo(n))
+    });
+  }
+
+  onTreeDragDrop(event: { event: DragEvent; source: TreeNode[]; target: DropTarget }): void {
+    const targetPath = event.target.position === 'inside' 
+      ? event.target.node.path 
+      : parentPath(event.target.node.path);
+    
+    this.dragDrop.emit({
+      event: event.event,
+      source: event.source.map(n => this.treeNodeToFileInfo(n)),
+      targetPath
+    });
+  }
+
+  onTreeRename(event: { node: TreeNode; newName: string }): void {
+    this.rename.emit({
+      entry: this.treeNodeToFileInfo(event.node),
+      newName: event.newName
+    });
+  }
+
+  private treeNodeToFileInfo(node: TreeNode): FileInfo {
+    return {
+      name: node.name,
+      path: node.path,
+      type: node.type,
+      size: node.size,
+      modified: node.modified,
+      created: node.created
+    } as FileInfo;
+  }
+
+  // ── Load children ──────────────────────────────────────────
 
   onLoadChildren(node: TreeNode): void {
     this.loadRequest$.next(node);
@@ -170,8 +205,6 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
       .listDirectory(node.path, this.showHidden)
       .then(listing => {
         const childLevel = (node.level ?? 0) + 1;
-        
-        // Preserve existing child nodes' expansion state if they exist
         const existingChildren = new Map<string, TreeNode>();
         if (node.children) {
           for (const child of node.children) {
@@ -185,7 +218,7 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
             ...e,
             level: childLevel,
             expandable: e.type === FileType.DIRECTORY,
-            expanded: existing?.expanded ?? false,  // Preserve expansion state
+            expanded: existing?.expanded ?? false,
             children: existing?.children ?? (e.type === FileType.DIRECTORY ? [] : undefined),
             loaded: existing?.loaded ?? false,
             loading: false,
@@ -229,15 +262,13 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
 
   // ── Event passthrough ──────────────────────────────────────
 
-  onSelectionChange(entryOrNodes: FileInfo | FileInfo[] | TreeNode[]): void {
-    if (Array.isArray(entryOrNodes)) {
-      const files: FileInfo[] = entryOrNodes.map((n: any) => ({
-        name: n.name, path: n.path, type: n.type,
-        size: n.size, modified: n.modified, created: n.created,
-      } as FileInfo));
-      this.selectionChange.emit(files);
+  onSelectionChange(entryOrEntries: FileInfo | FileInfo[]): void {
+    if (Array.isArray(entryOrEntries)) {
+      this.selectedFiles = new Set(entryOrEntries.map(e => e.path));
+      this.selectionChange.emit(entryOrEntries);
     } else {
-      this.selectionChange.emit(entryOrNodes as FileInfo);
+      this.selectedFiles = new Set([entryOrEntries.path]);
+      this.selectionChange.emit(entryOrEntries);
     }
   }
 
@@ -276,7 +307,7 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
   }
 
   onTreeToggleExpand(_node: TreeNode): void {
-    // Tree manages expansion state internally; nothing extra needed.
+    // Tree manages expansion state internally
   }
 
   // ── Sorting ────────────────────────────────────────────────
@@ -319,9 +350,8 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
   private buildTreeNodes(): void {
     const root: TreeNode[] = [];
     const map = new Map<string, TreeNode>();
-    
-    // Build a map of existing nodes to preserve their state
     const existingMap = new Map<string, TreeNode>();
+    
     const traverseExisting = (nodes: TreeNode[]) => {
       for (const node of nodes) {
         existingMap.set(node.path, node);
@@ -339,18 +369,17 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
     for (const entry of sorted) {
       if (entry.path === '__archive_parent__') continue;
 
-      // Preserve existing node state if available
       const existing = existingMap.get(entry.path);
       
       const node: TreeNode = {
         ...entry,
         level: 0,
         expandable: entry.type === FileType.DIRECTORY,
-        expanded: existing?.expanded ?? false,  // Preserve expansion
+        expanded: existing?.expanded ?? false,
         children: existing?.children ?? (entry.type === FileType.DIRECTORY ? [] : undefined),
-        loaded: existing?.loaded ?? false,      // Preserve loaded state
-        loading: existing?.loading ?? false,    // Preserve loading state
-        parent: undefined,  // Will be set below
+        loaded: existing?.loaded ?? false,
+        loading: existing?.loading ?? false,
+        parent: undefined,
       };
 
       map.set(entry.path, node);

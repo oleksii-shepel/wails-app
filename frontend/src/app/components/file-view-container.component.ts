@@ -16,6 +16,7 @@ import { ViewMode } from './action-bar.component';
 import { FileInfo, FileType } from '../shared/protocol';
 import { ApiService } from '../services/api.service';
 import { parentPath } from './address-bar.utils';
+import { PARENT_ENTRY_PATH } from './file-entry.component';
 
 export type ViewLayout = ViewMode;
 
@@ -318,8 +319,8 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
     const multiplier = this.sortDirection === 'asc' ? 1 : -1;
 
     sorted.sort((a, b) => {
-      if (a.path === '__archive_parent__') return -1;
-      if (b.path === '__archive_parent__') return 1;
+      if (a.path === PARENT_ENTRY_PATH) return -1;
+      if (b.path === PARENT_ENTRY_PATH) return 1;
 
       if (this.currentView !== 'grid') {
         if (a.type === FileType.DIRECTORY && b.type !== FileType.DIRECTORY) return -1;
@@ -376,6 +377,7 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
     if (chain.length === 0) return;
 
     let current = rootNode;
+    const expandedNodes: TreeNode[] = [rootNode];
     await this.ensureNodeChildrenLoaded(current);
     if (token !== this.syncToken) return;
 
@@ -384,15 +386,17 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
       const next = current.children?.find(c => this.normalizePath(c.path) === expected);
       if (!next || next.type !== FileType.DIRECTORY) break;
       current = next;
+      expandedNodes.push(current);
       await this.ensureNodeChildrenLoaded(current);
       if (token !== this.syncToken) return;
     }
 
     setTimeout(() => {
       if (token !== this.syncToken || this.currentView !== 'tree') return;
-      for (const path of chain) {
-        this.treeComponent?.expandNode(path);
+      for (const node of expandedNodes) {
+        this.treeComponent?.expandNode(node.path);
       }
+      this.treeComponent?.centerNode(this.currentPath);
     }, 0);
   }
 
@@ -430,7 +434,7 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
       }
 
       node.children = (listing.entries || [])
-        .filter(e => e.path !== '__archive_parent__')
+        .filter(e => e.path !== PARENT_ENTRY_PATH)
         .map(e => {
           const existing = existingChildren.get(this.normalizePath(e.path));
           return {

@@ -40,6 +40,7 @@ export interface DropTarget {
   imports: [CommonModule, FormsModule],
   template: `
     <div
+      #treeContainer
       class="file-tree-container"
       role="tree"
       tabindex="0"
@@ -408,6 +409,7 @@ export class FileTreeComponent implements OnChanges {
   @Output() rename = new EventEmitter<{ node: TreeNode; newName: string }>();
 
   @ViewChild('renameInput') renameInput?: ElementRef<HTMLInputElement>;
+  @ViewChild('treeContainer') treeContainer?: ElementRef<HTMLElement>;
 
   private expansionState = new Map<string, boolean>();
   private focusedNodePath: string | null = null;
@@ -984,7 +986,9 @@ export class FileTreeComponent implements OnChanges {
 
   private ensureVisible(node: TreeNode): void {
     requestAnimationFrame(() => {
-      const el = document.querySelector(`[data-path="${CSS.escape(node.path)}"]`);
+      const host = this.treeContainer?.nativeElement;
+      if (!host) return;
+      const el = host.querySelector(`[data-path="${CSS.escape(node.path)}"]`);
       el?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     });
   }
@@ -1014,11 +1018,28 @@ export class FileTreeComponent implements OnChanges {
     this.cdr.markForCheck();
   }
 
+  centerNode(path: string): void {
+    const node = this.findNodeByPath(this.nodes, path);
+    const host = this.treeContainer?.nativeElement;
+    if (!host) return;
+
+    if (!node) {
+      host.scrollTop = 0;
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      const el = host.querySelector(`[data-path="${CSS.escape(node.path)}"]`);
+      el?.scrollIntoView({ block: 'center', inline: 'nearest' });
+    });
+  }
+
   private findNodeByPath(nodes: TreeNode[], path: string): TreeNode | undefined {
+    const target = this.normalizePath(path);
     for (const node of nodes) {
-      if (node.path === path) return node;
+      if (this.normalizePath(node.path) === target) return node;
       if (node.children) {
-        const found = this.findNodeByPath(node.children, path);
+        const found = this.findNodeByPath(node.children, target);
         if (found) return found;
       }
     }

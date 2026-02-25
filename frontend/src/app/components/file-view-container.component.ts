@@ -259,7 +259,25 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
   }
 
   onTreeNodeDoubleClick(node: TreeNode): void {
-    if (node.type !== FileType.DIRECTORY) this.nodeDoubleClick.emit(node);
+    // Only emit if argument is a valid TreeNode (not a native Event)
+    if (node && typeof node === 'object' && 'path' in node && 'name' in node && 'type' in node) {
+      const file: FileInfo = {
+        name: node.name,
+        path: node.path,
+        type: node.type,
+        size: node.size,
+        modified: node.modified,
+        created: node.created
+      } as FileInfo;
+
+      // For directories, navigate into them on double-click (main pane).
+      // For files, emit nodeDoubleClick for parent handlers to open.
+      if (node.type === FileType.DIRECTORY) {
+        this.onNavigate(file);
+      } else {
+        this.nodeDoubleClick.emit(file);
+      }
+    }
   }
 
   onTreeToggleExpand(_node: TreeNode): void {

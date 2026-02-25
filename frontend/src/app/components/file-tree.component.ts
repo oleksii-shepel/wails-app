@@ -5,13 +5,11 @@ import {
   Output,
   EventEmitter,
   OnChanges,
-  OnDestroy,
   SimpleChanges,
   TrackByFunction,
   ChangeDetectorRef
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Subject } from 'rxjs';
 import { FileInfo, FileType } from '../shared/protocol';
 import { DEFAULT_FILE_CATEGORIES } from './filter-bar.types';
 
@@ -69,7 +67,7 @@ export interface TreeNode extends FileInfo {
           (dblclick)="onNodeDoubleClick(node, $event)"
           (contextmenu)="onContextMenu($event, node)">
 
-          <!-- VSCode-style indent guides, one per level -->
+          <!-- Indent guides -->
           <span
             *ngFor="let guide of getGuides(node, parentLines)"
             class="indent-guide"
@@ -82,7 +80,7 @@ export interface TreeNode extends FileInfo {
             class="tree-twistie"
             [class.tree-twistie--expandable]="node.expandable"
             [class.tree-twistie--expanded]="node.expandable && isExpanded(node)"
-            (click)="onToggleExpand($event, node)">
+            (click)="onTwistieClick($event, node)">
 
             <ng-container *ngIf="node.expandable">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -106,8 +104,6 @@ export interface TreeNode extends FileInfo {
         </div>
 
         <!-- Children -->
-        <!-- Only render children container when expanded AND there are children or a load is in progress.
-             This keeps the twistie rotating for empty folders but prevents showing an empty expansion panel. -->
         <div class="tree-children" *ngIf="isExpanded(node) && (node.loading || (node.children && node.children.length > 0))">
           <ng-container *ngIf="node.children?.length; else emptyOrLoading">
             <ng-container *ngTemplateOutlet="treeTemplate; context: {
@@ -176,8 +172,6 @@ export interface TreeNode extends FileInfo {
       outline-offset: -1px;
     }
 
-    /* ── VSCode indent guides ─────────────────────────────── */
-
     .indent-guide {
       display: inline-flex;
       flex-shrink: 0;
@@ -186,7 +180,6 @@ export interface TreeNode extends FileInfo {
       position: relative;
     }
 
-    /* Default: full vertical line through entire row height */
     .indent-guide::before {
       content: '';
       position: absolute;
@@ -194,24 +187,15 @@ export interface TreeNode extends FileInfo {
       top: 0;
       bottom: 0;
       width: 1px;
-      /* less bright fallback to avoid overly white guides on light/dark backgrounds */
       background: var(--vsc-tree-indent-guide, rgba(255,255,255,0.06));
       pointer-events: none;
     }
 
-    /* Brighter line when a selected node passes through this level */
     .indent-guide--active::before {
-      /* active guide slightly brighter but still subtle */
       background: var(--vsc-tree-indent-guide-active, rgba(255,255,255,0.12));
     }
 
-    /*
-      Last-child elbow:
-      - Vertical line runs only from top down to the row midpoint
-      - Horizontal stub then runs right from midpoint toward the twistie
-    */
     .indent-guide--last::before {
-      /* stop exactly at midpoint to align with horizontal stub */
       bottom: 50%;
     }
 
@@ -219,17 +203,12 @@ export interface TreeNode extends FileInfo {
       content: '';
       position: absolute;
       left: 9px;
-      /* place the horizontal stub centered on the midpoint and use 1px height for a crisp line */
       top: calc(50% - 0.5px);
       width: 12px;
       height: 1px;
       background: var(--vsc-tree-indent-guide, rgba(255,255,255,0.12));
       pointer-events: none;
-      /* avoid subpixel blending where possible */
-      transform: translateZ(0);
     }
-
-    /* ── Twistie ──────────────────────────────────────────── */
 
     .tree-twistie {
       width: 20px;
@@ -258,18 +237,6 @@ export interface TreeNode extends FileInfo {
       display: inline-block;
     }
 
-    /* ── Spinner ──────────────────────────────────────────── */
-
-    .spinner-small {
-      width: 12px;
-      height: 12px;
-      border: 1.5px solid var(--vsc-foreground-dim);
-      border-radius: 50%;
-      flex-shrink: 0;
-    }
-
-    /* ── Icon & Label ─────────────────────────────────────── */
-
     .tree-icon {
       width: 20px;
       height: 22px;
@@ -290,8 +257,6 @@ export interface TreeNode extends FileInfo {
       margin-left: 3px;
     }
 
-    /* ── Children ─────────────────────────────────────────── */
-
     .tree-children { position: relative; }
 
     .tree-empty-folder {
@@ -304,8 +269,6 @@ export interface TreeNode extends FileInfo {
     }
 
     .empty-label { margin-left: 4px; }
-
-    /* ── Empty / Loading states ───────────────────────────── */
 
     .tree-empty, .tree-loading {
       padding: 20px;
@@ -322,10 +285,15 @@ export interface TreeNode extends FileInfo {
       height: 14px;
       border: 2px solid var(--vsc-foreground-dim);
       border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
     }
   `]
 })
-export class FileTreeComponent implements OnChanges, OnDestroy {
+export class FileTreeComponent implements OnChanges {
   @Input() nodes: TreeNode[] = [];
   @Input() selectedFiles: Set<string> = new Set();
   @Input() loading = false;
@@ -333,21 +301,14 @@ export class FileTreeComponent implements OnChanges, OnDestroy {
 
   @Output() selectionChange = new EventEmitter<TreeNode[]>();
   @Output() nodeDoubleClick = new EventEmitter<TreeNode>();
-  @Output() navigate        = new EventEmitter<TreeNode>();
-  @Output() toggleExpand    = new EventEmitter<TreeNode>();
-  @Output() loadChildren    = new EventEmitter<TreeNode>();
-  @Output() contextMenu     = new EventEmitter<{ event: MouseEvent; node: TreeNode }>();
-
-  /**
-   * The container subscribes to this stream and handles each load with exhaustMap,
-   * so concurrent requests for the same node are automatically dropped.
-   */
-  readonly loadRequest$ = new Subject<TreeNode>();
+  @Output() navigate = new EventEmitter<TreeNode>();
+  @Output() toggleExpand = new EventEmitter<TreeNode>();
+  @Output() loadChildren = new EventEmitter<TreeNode>();
+  @Output() contextMenu = new EventEmitter<{ event: MouseEvent; node: TreeNode }>();
 
   private expansionState = new Map<string, boolean>();
   private focusedNodePath: string | null = null;
-  private lastSelectedPath: string | null = null;
-  private destroy$ = new Subject<void>();
+  private clickTimer: number | null = null;
 
   isFocused = false;
   FileType = FileType;
@@ -360,41 +321,21 @@ export class FileTreeComponent implements OnChanges, OnDestroy {
     }
   }
 
-  ngOnDestroy(): void {
-    this.destroy$.next();
-    this.destroy$.complete();
-  }
-
   // ── Expansion ─────────────────────────────────────────────
 
   isExpanded(node: TreeNode): boolean {
     return this.expansionState.get(node.path) ?? false;
   }
 
-  /**
-   * Update expansion state.
-   * - Does NOT write node.expanded (expansionState map is sole source of truth)
-   * - Does NOT set node.loading (container owns that)
-   * - Emits loadChildren when expanding a not-yet-loaded node
-   */
   private setExpanded(node: TreeNode, expanded: boolean): void {
     this.expansionState.set(node.path, expanded);
-
     if (expanded && !node.loaded && node.expandable && !node.loading) {
-      // Set loading=true synchronously HERE before emitting, so any re-click
-      // that arrives before the container's async pipeline runs will hit the
-      // `if (node.loading) return` guard in toggleNode and be blocked.
       node.loading = true;
       this.loadChildren.emit(node);
     }
   }
 
-  /**
-   * Toggle open/closed.
-   * Only guard: skip if a load is actively in flight for this node.
-   * No debounce, no suppress windows — those caused the need-to-click-3-times bug.
-   */
-  private toggleNode(node: TreeNode): void {
+  toggleNode(node: TreeNode): void {
     if (node.loading) return;
     this.setExpanded(node, !this.isExpanded(node));
     this.toggleExpand.emit(node);
@@ -410,7 +351,7 @@ export class FileTreeComponent implements OnChanges, OnDestroy {
     }
   }
 
-  // ── Visible node list (keyboard nav) ──────────────────────
+  // ── Visible nodes ─────────────────────────────────────────
 
   getVisibleNodes(): TreeNode[] {
     const result: TreeNode[] = [];
@@ -426,35 +367,22 @@ export class FileTreeComponent implements OnChanges, OnDestroy {
     return result;
   }
 
-  // ── Indent guide helpers ───────────────────────────────────
+  // ── Indent guides ─────────────────────────────────────────
 
-  /**
-   * Called from the template when descending into a children block.
-   * Tracks whether each ancestor level still has more siblings below.
-   *
-   *   true  = this level has more siblings below → draw full vertical line
-   *   false = this was the last sibling           → draw elbow
-   */
   buildParentLines(parentLines: boolean[], isLastChild: boolean): boolean[] {
     return [...parentLines, !isLastChild];
   }
 
-  /**
-   * Returns one descriptor per indent level for the given node.
-   * The innermost level shows the L-shaped elbow when the node is a last child.
-   */
   getGuides(node: TreeNode, parentLines: boolean[]): { active: boolean; last: boolean }[] {
     const guides: { active: boolean; last: boolean }[] = [];
     for (let i = 0; i < node.level; i++) {
-      const isInnermost     = i === node.level - 1;
-      // Determine if this node is the last child of its parent (only meaningful for the innermost level)
+      const isInnermost = i === node.level - 1;
       const isLastChild = isInnermost && !!node.parent && Array.isArray(node.parent.children)
         ? node.parent.children[node.parent.children.length - 1].path === node.path
         : false;
 
       guides.push({
         active: this.isSelected(node),
-        // Only mark `last` for the innermost level when this node is actually the last sibling
         last: isLastChild,
       });
     }
@@ -479,6 +407,13 @@ export class FileTreeComponent implements OnChanges, OnDestroy {
     return this.focusedNodePath === node.path;
   }
 
+  private selectNode(node: TreeNode): void {
+    this.focusedNodePath = node.path;
+    // Emit selection change - parent manages the Set
+    this.selectionChange.emit([node]);
+    this.cdr.markForCheck();
+  }
+
   // ── Event handlers ─────────────────────────────────────────
 
   onFocus(): void {
@@ -496,15 +431,29 @@ export class FileTreeComponent implements OnChanges, OnDestroy {
 
   onNodeClick(node: TreeNode, event: MouseEvent): void {
     event.stopPropagation();
-    if (node.type === FileType.DIRECTORY) {
-      this.onToggleExpand(event, node);
-    } else {
-      this.navigate.emit(node);
+
+    // Clear pending double-click timer
+    if (this.clickTimer) {
+      clearTimeout(this.clickTimer);
+      this.clickTimer = null;
     }
+
+    // Use timer to distinguish single vs double click
+    this.clickTimer = window.setTimeout(() => {
+      this.clickTimer = null;
+      this.selectNode(node);
+    }, 250);
   }
 
   onNodeDoubleClick(node: TreeNode, event: MouseEvent): void {
     event.stopPropagation();
+
+    // Cancel single-click selection
+    if (this.clickTimer) {
+      clearTimeout(this.clickTimer);
+      this.clickTimer = null;
+    }
+
     if (node.type === FileType.DIRECTORY && node.expandable) {
       this.toggleNode(node);
     } else {
@@ -513,9 +462,15 @@ export class FileTreeComponent implements OnChanges, OnDestroy {
     }
   }
 
-  onToggleExpand(event: MouseEvent, node: TreeNode): void {
+  onTwistieClick(event: MouseEvent, node: TreeNode): void {
     event.stopPropagation();
     if (!node.expandable) return;
+
+    if (this.clickTimer) {
+      clearTimeout(this.clickTimer);
+      this.clickTimer = null;
+    }
+
     this.toggleNode(node);
   }
 
@@ -523,7 +478,6 @@ export class FileTreeComponent implements OnChanges, OnDestroy {
     event.preventDefault();
     event.stopPropagation();
     this.focusedNodePath = node.path;
-    // removed: selectionChange.emit — this was causing the pane to rebuild the tree
     this.contextMenu.emit({ event, node });
     this.cdr.markForCheck();
   }
@@ -535,7 +489,7 @@ export class FileTreeComponent implements OnChanges, OnDestroy {
     if (visible.length === 0) return;
 
     const currentIdx = visible.findIndex(n => n.path === this.focusedNodePath);
-    const current    = currentIdx >= 0 ? visible[currentIdx] : null;
+    const current = currentIdx >= 0 ? visible[currentIdx] : null;
 
     switch (event.key) {
       case 'ArrowDown':
@@ -594,10 +548,7 @@ export class FileTreeComponent implements OnChanges, OnDestroy {
       case ' ':
         event.preventDefault();
         if (current) {
-          this.onNodeClick(current, new MouseEvent('click', {
-            ctrlKey:  event.ctrlKey,
-            shiftKey: event.shiftKey,
-          }));
+          this.selectNode(current);
         }
         break;
 
@@ -611,13 +562,6 @@ export class FileTreeComponent implements OnChanges, OnDestroy {
         event.preventDefault();
         this.focusedNodePath = visible[visible.length - 1].path;
         this.ensureVisible(visible[visible.length - 1]);
-        break;
-
-      case '*':
-        event.preventDefault();
-        (current?.parent?.children ?? this.nodes).forEach(node => {
-          if (node.expandable && !this.isExpanded(node)) this.toggleNode(node);
-        });
         break;
     }
 
@@ -637,12 +581,18 @@ export class FileTreeComponent implements OnChanges, OnDestroy {
 
   expandNode(path: string): void {
     const node = this.findNodeByPath(this.nodes, path);
-    if (node?.expandable) { this.setExpanded(node, true); this.cdr.markForCheck(); }
+    if (node?.expandable) {
+      this.setExpanded(node, true);
+      this.cdr.markForCheck();
+    }
   }
 
   collapseNode(path: string): void {
     const node = this.findNodeByPath(this.nodes, path);
-    if (node) { this.setExpanded(node, false); this.cdr.markForCheck(); }
+    if (node) {
+      this.setExpanded(node, false);
+      this.cdr.markForCheck();
+    }
   }
 
   focusNode(path: string): void {
@@ -661,5 +611,14 @@ export class FileTreeComponent implements OnChanges, OnDestroy {
       }
     }
     return undefined;
+  }
+
+  notifyChildrenLoaded(node: TreeNode, children: TreeNode[]): void {
+    node.children = children;
+    node.loading = false;
+    node.loaded = true;
+    node.expandable = children.length > 0;
+    this.updateNodeHierarchy(children, node);
+    this.cdr.markForCheck();
   }
 }

@@ -152,6 +152,7 @@ declare const window: any;
 })
 export class FilePaneComponent implements OnInit, OnChanges {
   @ViewChild(AddressBarComponent) addressBar?: AddressBarComponent;
+  @ViewChild(FileViewContainerComponent) fileViewContainer?: FileViewContainerComponent;
   @ViewChild('findWidget')        findWidget?: FindWidgetComponent;
 
   @Input() paneId: 'left' | 'right' = 'left';
@@ -349,6 +350,10 @@ export class FilePaneComponent implements OnInit, OnChanges {
           await window.go.main.App.SetPaneDirectory(this.paneId, listing.path);
         }
       } catch { /* optional */ }
+      // Focus the tree (if visible) to the newly-loaded path so address-bar and tree stay in sync
+      setTimeout(() => {
+        try { this.fileViewContainer?.treeComponent?.focusNode(listing.path); } catch { /* best-effort */ }
+      }, 0);
     } catch (error: any) {
       this.error = error.message || 'Failed to load directory';
     } finally {
@@ -416,6 +421,8 @@ export class FilePaneComponent implements OnInit, OnChanges {
       const title = buildArchiveTabTitle(stack[0].fsPath, this.archiveStack);
       this.workspaceService.updateTabPathAndTitle(this.paneId, this.currentTabId, virtualPath, title);
       this.tabs = this.workspaceService.getTabs(this.paneId);
+      // Focus tree to the virtual path (best-effort)
+      setTimeout(() => { try { this.fileViewContainer?.treeComponent?.focusNode(this.currentPath); } catch {} }, 0);
     } catch (err: any) {
       this.error = err.message || 'Failed to restore archive tab';
     } finally {
@@ -473,6 +480,8 @@ export class FilePaneComponent implements OnInit, OnChanges {
         this.workspaceService.updateTabPath(this.paneId, this.currentTabId, listing.path);
         this.pathHistoryService.addPath(listing.path, this.paneId);
         this.pathChange.emit(listing.path);
+        // Ensure tree focus updates after navigating up
+        setTimeout(() => { try { this.fileViewContainer?.treeComponent?.focusNode(listing.path); } catch {} }, 0);
       } catch {
         const target = parentPath(normalizePath(this.currentPath));
         if (target !== this.currentPath) await this.loadDirectory(target);
@@ -556,9 +565,9 @@ export class FilePaneComponent implements OnInit, OnChanges {
       return;
     }
 
-    // In tree view, directories are expanded in-place by the tree component
-    // — do NOT call loadDirectory which would replace all entries
     if (this.currentView === 'tree' && entry.type === FileType.DIRECTORY) {
+      this.currentPath = entry.path;
+      this.pathChange.emit(entry.path);
       return;
     }
 

@@ -550,6 +550,10 @@ export class FileTreeComponent implements OnChanges {
 
     this.focusedNodePath = node.path;
     this.selectionChange.emit(newSelection);
+    // Emit navigate so the address bar tracks the focused directory
+    if (newSelection.length === 1 && node.type === FileType.DIRECTORY) {
+      this.navigate.emit(node);
+    }
     this.cdr.markForCheck();
   }
 

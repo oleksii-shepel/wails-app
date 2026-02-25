@@ -1,7 +1,8 @@
 // file-view-container.component.ts
 import {
   Component, Input, Output, EventEmitter,
-  ViewChild, OnChanges, OnDestroy, ChangeDetectorRef
+  ViewChild, OnChanges, OnDestroy, ChangeDetectorRef,
+  SimpleChanges
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Subject, merge } from 'rxjs';
@@ -120,24 +121,15 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
   sortedEntries: FileInfo[] = [];
   treeNodes: TreeNode[] = [];
 
-  /**
-   * Hot subject that receives every loadChildren request from the tree.
-   *
-   * We group by node path so each directory gets its own exhaustMap lane:
-   * - If a load for /foo is in flight and another /foo request arrives, it's dropped.
-   * - Requests for /bar proceed independently.
-   */
   private loadRequest$ = new Subject<TreeNode>();
   private destroy$     = new Subject<void>();
 
   constructor(private apiService: ApiService, private cdr: ChangeDetectorRef) {
     this.loadRequest$
       .pipe(
-        // One lane per directory path
         groupBy(node => node.path),
         mergeMap(group$ =>
           group$.pipe(
-            // Within each lane: ignore new requests while one is in flight
             exhaustMap(node => this.loadNodeChildren(node))
           )
         ),
@@ -146,10 +138,13 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
       .subscribe();
   }
 
-  ngOnChanges(): void {
+  ngOnChanges(changes: SimpleChanges): void {
     this.sortEntries();
     if (this.currentView === 'tree') {
-      this.buildTreeNodes();
+      // Only rebuild tree if entries actually changed, and preserve expansion state
+      if (changes['entries']) {
+        this.buildTreeNodes();
+      }
     }
   }
 
@@ -160,41 +155,44 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
 
   // ── Load children via RxJS pipeline ───────────────────────
 
-  /** Called from the tree's (loadChildren) output — just push into the stream. */
   onLoadChildren(node: TreeNode): void {
     this.loadRequest$.next(node);
   }
 
-  /**
-   * Performs the actual API call for one node.
-   * Sets node.loading synchronously so the spinner appears immediately,
-   * then resolves the promise into an Observable so exhaustMap can manage it.
-   */
   private loadNodeChildren(node: TreeNode) {
-    // Set spinner immediately — this is synchronous, before any async work
     node.loading = true;
     node.children = node.children?.length ? node.children : [];
     this.cdr.markForCheck();
 
-    // We return a Subject that completes when the promise settles.
-    // exhaustMap subscribes to it and won't accept another request for this
-    // node path until the Subject completes (i.e. until the load finishes).
     const result$ = new Subject<void>();
 
     this.apiService
       .listDirectory(node.path, this.showHidden)
       .then(listing => {
         const childLevel = (node.level ?? 0) + 1;
-        node.children = (listing.entries || []).map(e => ({
-          ...e,
-          level: childLevel,
-          expandable: e.type === FileType.DIRECTORY,
-          expanded: false,
-          children: e.type === FileType.DIRECTORY ? [] : undefined,
-          loaded: false,
-          loading: false,
-          parent: node,
-        } as TreeNode));
+        
+        // Preserve existing child nodes' expansion state if they exist
+        const existingChildren = new Map<string, TreeNode>();
+        if (node.children) {
+          for (const child of node.children) {
+            existingChildren.set(child.path, child);
+          }
+        }
+
+        node.children = (listing.entries || []).map(e => {
+          const existing = existingChildren.get(e.path);
+          return {
+            ...e,
+            level: childLevel,
+            expandable: e.type === FileType.DIRECTORY,
+            expanded: existing?.expanded ?? false,  // Preserve expansion state
+            children: existing?.children ?? (e.type === FileType.DIRECTORY ? [] : undefined),
+            loaded: existing?.loaded ?? false,
+            loading: false,
+            parent: node,
+          } as TreeNode;
+        });
+        
         node.loaded  = true;
         node.loading = false;
         this.cdr.markForCheck();
@@ -259,7 +257,6 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
   }
 
   onTreeNodeDoubleClick(node: TreeNode): void {
-    // Only emit if argument is a valid TreeNode (not a native Event)
     if (node && typeof node === 'object' && 'path' in node && 'name' in node && 'type' in node) {
       const file: FileInfo = {
         name: node.name,
@@ -270,8 +267,6 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
         created: node.created
       } as FileInfo;
 
-      // For directories, navigate into them on double-click (main pane).
-      // For files, emit nodeDoubleClick for parent handlers to open.
       if (node.type === FileType.DIRECTORY) {
         this.onNavigate(file);
       } else {
@@ -324,6 +319,16 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
   private buildTreeNodes(): void {
     const root: TreeNode[] = [];
     const map = new Map<string, TreeNode>();
+    
+    // Build a map of existing nodes to preserve their state
+    const existingMap = new Map<string, TreeNode>();
+    const traverseExisting = (nodes: TreeNode[]) => {
+      for (const node of nodes) {
+        existingMap.set(node.path, node);
+        if (node.children) traverseExisting(node.children);
+      }
+    };
+    traverseExisting(this.treeNodes);
 
     const sorted = [...this.entries].sort((a, b) => {
       const da = a.path.replace(/\\/g, '/').split('/').length;
@@ -334,21 +339,24 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
     for (const entry of sorted) {
       if (entry.path === '__archive_parent__') continue;
 
+      // Preserve existing node state if available
+      const existing = existingMap.get(entry.path);
+      
       const node: TreeNode = {
         ...entry,
         level: 0,
         expandable: entry.type === FileType.DIRECTORY,
-        expanded: false,
-        children: entry.type === FileType.DIRECTORY ? [] : undefined,
-        loaded: false,
-        loading: false,
+        expanded: existing?.expanded ?? false,  // Preserve expansion
+        children: existing?.children ?? (entry.type === FileType.DIRECTORY ? [] : undefined),
+        loaded: existing?.loaded ?? false,      // Preserve loaded state
+        loading: existing?.loading ?? false,    // Preserve loading state
+        parent: undefined,  // Will be set below
       };
 
       map.set(entry.path, node);
 
-      const parent = parentPath(entry.path);          // ← use shared util
-      const parentKey = parent !== entry.path         // avoid self-reference at root
-        ? parent : null;
+      const parent = parentPath(entry.path);
+      const parentKey = parent !== entry.path ? parent : null;
 
       if (parentKey && map.has(parentKey)) {
         const parentNode = map.get(parentKey)!;

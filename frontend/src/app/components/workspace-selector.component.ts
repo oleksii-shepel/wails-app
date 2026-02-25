@@ -2,6 +2,7 @@ import { Component, Input, Output, EventEmitter } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { WorkspaceConfig } from '../shared/protocol-enhanced';
 import { DropdownDirective, DropdownTriggerDirective, DropdownMenuDirective } from '../directives/dropdown.directive';
+import { DropdownContainerComponent } from './dropdown-container.component';
 
 /**
  * Workspace Selector Component
@@ -11,9 +12,9 @@ import { DropdownDirective, DropdownTriggerDirective, DropdownMenuDirective } fr
 @Component({
   selector: 'app-workspace-selector',
   standalone: true,
-  imports: [CommonModule, DropdownDirective, DropdownTriggerDirective, DropdownMenuDirective],
+  imports: [CommonModule, DropdownDirective, DropdownTriggerDirective, DropdownMenuDirective, DropdownContainerComponent],
   template: `
-    <div appDropdown [(isOpen)]="showMenu">
+    <app-dropdown-container [(isOpen)]="showMenu">
     <div appDropdownTrigger class="ws-selector" (click)="toggleMenu()">
       <span class="ws-icon">{{ activeWorkspace?.icon || '📁' }}</span>
       <span class="ws-name">{{ activeWorkspace?.name || 'Default' }}</span>
@@ -53,7 +54,7 @@ import { DropdownDirective, DropdownTriggerDirective, DropdownMenuDirective } fr
         <button (click)="onDelete()" class="ws-footer-btn ws-footer-btn--danger">Delete</button>
       </div>
     </div>
-    </div>
+    </app-dropdown-container>
   `,
   styles: [`
     :host {

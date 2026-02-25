@@ -7,6 +7,7 @@ import {
 import { CommonModule } from '@angular/common';
 import { EMPTY, Subject, debounceTime, distinctUntilChanged, filter, from, merge, switchMap, takeUntil } from 'rxjs';
 import { DropdownDirective, DropdownTriggerDirective, DropdownMenuDirective } from '../directives/dropdown.directive';
+import { DropdownContainerComponent } from './dropdown-container.component';
 
 import { PathHistoryService, PathSuggestion } from '../services/path-history.service';
 import { ApiService } from '../services/api.service';
@@ -86,9 +87,9 @@ interface IdleSlashTick {
   standalone: true,
   imports: [
     CommonModule,
-    DropdownDirective,
     DropdownTriggerDirective,
     DropdownMenuDirective,
+    DropdownContainerComponent,
     AddressBarSiblingDropdownComponent,
     AddressBarPinDropdownComponent,
     AddressBarDriveDropdownComponent,
@@ -110,7 +111,7 @@ interface IdleSlashTick {
         aria-label="Toggle pin"
       >{{ isPinned ? '★' : '☆' }}</button>
 
-      <div class="ab-drop-anchor" appDropdown [(isOpen)]="showPinDrop">
+      <app-dropdown-container class="ab-drop-anchor" [(isOpen)]="showPinDrop">
         <button
           appDropdownTrigger
           class="ab-btn ab-btn--pinlist"
@@ -131,7 +132,7 @@ interface IdleSlashTick {
           (navigate)="navigateTo($event)"
           (remove)="removePin($event.pin, $event.event)"
         />
-      </div>
+      </app-dropdown-container>
     </div>
 
     <!-- Breadcrumb trail -->
@@ -282,31 +283,28 @@ interface IdleSlashTick {
   />
 
   <!-- ── SIBLING DROPDOWN ──────────────────────────────────────────────── -->
-  <app-address-bar-sibling-dropdown
-    appDropdown
-    [(isOpen)]="sibOpen"
-    (isOpenChange)="onSibOpenChange($event)"
-    *ngIf="chevIdx >= 0"
-    [entries]="siblings"
-    [loading]="sibLoading"
-    [left]="sibDropLeft"
-    [top]="sibDropTop"
-    [headLabel]="segments[chevIdx].label"
-    (entryClick)="onSibClick($event)"
-  />
+  <app-dropdown-container [(isOpen)]="sibOpen" *ngIf="chevIdx >= 0">
+    <app-address-bar-sibling-dropdown
+      [entries]="siblings"
+      [loading]="sibLoading"
+      [left]="sibDropLeft"
+      [top]="sibDropTop"
+      [headLabel]="segments[chevIdx].label"
+      (entryClick)="onSibClick($event)"
+    />
+  </app-dropdown-container>
 
   <!-- ── DRIVE DROPDOWN ────────────────────────────────────────────────── -->
-  <app-address-bar-drive-dropdown
-    appDropdown
-    [(isOpen)]="showDriveMenu"
-    *ngIf="showDriveMenu"
-    [drives]="drives"
-    [loading]="drivesLoading"
-    [left]="driveMenuLeft"
-    [top]="driveMenuTop"
-    [currentPath]="currentPath"
-    (driveClick)="switchToDrive($event)"
-  />
+  <app-dropdown-container [(isOpen)]="showDriveMenu" *ngIf="showDriveMenu">
+    <app-address-bar-drive-dropdown
+      [drives]="drives"
+      [loading]="drivesLoading"
+      [left]="driveMenuLeft"
+      [top]="driveMenuTop"
+      [currentPath]="currentPath"
+      (driveClick)="switchToDrive($event)"
+    />
+  </app-dropdown-container>
 
   <!-- ── CONTEXT MENU ──────────────────────────────────────────────────── -->
   <div

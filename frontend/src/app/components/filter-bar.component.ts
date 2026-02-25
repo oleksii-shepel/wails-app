@@ -13,6 +13,7 @@ import { FilterQuery } from '../shared/protocol-enhanced';
 import { FilterService, CriteriaGroup } from '../services/filter.service';
 
 import { DropdownDirective, DropdownTriggerDirective, DropdownMenuDirective } from '../directives/dropdown.directive';
+import { DropdownContainerComponent } from './dropdown-container.component';
 import { FilterDropdownComponent } from './filter-dropdown.component';
 import { FilterChipComponent } from './filter-chip.component';
 import {
@@ -32,6 +33,7 @@ import {
     DropdownDirective,
     DropdownTriggerDirective,
     DropdownMenuDirective,
+    DropdownContainerComponent,
     FilterDropdownComponent,
     FilterChipComponent,
   ],
@@ -42,7 +44,7 @@ import {
 
     <!-- Left: filter icon + category dropdown -->
     <div class="fb-cluster fb-cluster--left">
-      <div class="fb-drop-anchor" appDropdown [(isOpen)]="showCategoryDropdown">
+    <app-dropdown-container class="fb-drop-anchor" [(isOpen)]="showCategoryDropdown">
         <button
           appDropdownTrigger
           class="fb-btn fb-btn--category"
@@ -68,7 +70,7 @@ import {
           (refresh)="refreshPresets()"
           (groupModeChange)="onGroupModeChange($event)"
         />
-      </div>
+      </app-dropdown-container>
     </div>
 
     <!-- Search input -->
@@ -91,7 +93,7 @@ import {
 
     <!-- Right: saved presets dropdown + clear button -->
     <div class="fb-cluster fb-cluster--right">
-      <div class="fb-drop-anchor" appDropdown [(isOpen)]="showPresetDropdown">
+    <app-dropdown-container class="fb-drop-anchor" [(isOpen)]="showPresetDropdown">
         <button
           appDropdownTrigger
           class="fb-btn fb-btn--icon"
@@ -122,7 +124,7 @@ import {
             <div *ngIf="savedPresets.length === 0" class="fb-preset-empty">No saved presets</div>
           </div>
         </div>
-      </div>
+      </app-dropdown-container>
 
       <button
         class="fb-btn fb-btn--icon fb-btn--clear"

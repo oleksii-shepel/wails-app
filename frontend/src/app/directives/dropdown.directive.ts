@@ -67,7 +67,8 @@ export class DropdownMenuDirective {
   exportAs: 'appDropdown',
 })
 export class DropdownDirective implements OnInit, AfterContentInit, AfterContentChecked, OnDestroy {
-  @Input() isOpen = false;
+  // Bind to the host attribute name so templates can use `[appDropdown]`.
+  @Input('appDropdown') isOpen = false;
   @Output() isOpenChange = new EventEmitter<boolean>();
   @Output() closed = new EventEmitter<void>();
 

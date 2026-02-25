@@ -1030,7 +1030,12 @@ export class FileTreeComponent implements OnChanges {
 
     requestAnimationFrame(() => {
       const el = host.querySelector(`[data-path="${CSS.escape(node.path)}"]`);
-      el?.scrollIntoView({ block: 'center', inline: 'nearest' });
+      if (!el) return;
+      const hostRect = host.getBoundingClientRect();
+      const elRect = el.getBoundingClientRect();
+      const fullyVisible = elRect.top >= hostRect.top && elRect.bottom <= hostRect.bottom;
+      if (fullyVisible) return;
+      el.scrollIntoView({ block: 'center', inline: 'nearest' });
     });
   }
 

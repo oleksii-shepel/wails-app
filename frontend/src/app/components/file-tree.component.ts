@@ -523,9 +523,7 @@ export class FileTreeComponent implements OnChanges {
   // ── Selection ──────────────────────────────────────────────
 
   isSelected(node: TreeNode): boolean {
-    if (this.selectedFiles.has(node.path)) return true;
-    if (this.selectedFiles.size > 0 || !this.currentPath) return false;
-    return this.normalizePath(node.path) === this.normalizePath(this.currentPath);
+    return this.selectedFiles.has(node.path);
   }
 
   isFocusedNode(node: TreeNode): boolean {
@@ -1013,8 +1011,6 @@ export class FileTreeComponent implements OnChanges {
 
   focusNode(path: string): void {
     this.focusedNodePath = path;
-    const node = this.findNodeByPath(this.nodes, path);
-    if (node) this.ensureVisible(node);
     this.cdr.markForCheck();
   }
 
@@ -1043,9 +1039,6 @@ export class FileTreeComponent implements OnChanges {
       }
       current = current.parent;
     }
-
-    this.focusedNodePath = target.path;
-    this.ensureVisible(target);
     this.cdr.markForCheck();
   }
 

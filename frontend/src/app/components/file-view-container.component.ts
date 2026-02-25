@@ -393,7 +393,6 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
       for (const path of chain) {
         this.treeComponent?.expandNode(path);
       }
-      this.treeComponent?.focusNode(current.path);
     }, 0);
   }
 

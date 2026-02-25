@@ -6,8 +6,7 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { EMPTY, Subject, debounceTime, distinctUntilChanged, filter, from, merge, switchMap, takeUntil } from 'rxjs';
-import { DropdownDirective, DropdownTriggerDirective, DropdownMenuDirective } from '../directives/dropdown.directive';
-import { DropdownContainerComponent } from './dropdown-container.component';
+import { DropdownTriggerDirective, DropdownMenuDirective } from '../directives/dropdown.directive';
 
 import { PathHistoryService, PathSuggestion } from '../services/path-history.service';
 import { ApiService } from '../services/api.service';
@@ -22,6 +21,7 @@ import { AddressBarEditComponent } from './address-bar-edit.component';
 import { AddressBarPinDropdownComponent } from './address-bar-pin-dropdown.component';
 import { AddressBarDriveDropdownComponent } from './address-bar-drive-dropdown.component';
 import { AddressBarSiblingDropdownComponent } from './address-bar-sibling-dropdown.component';
+import { DropdownContainerComponent } from './dropdown-container.component';
 
 // ── Tab-completion session ────────────────────────────────────────────────────
 //
@@ -87,9 +87,9 @@ interface IdleSlashTick {
   standalone: true,
   imports: [
     CommonModule,
+    DropdownContainerComponent,
     DropdownTriggerDirective,
     DropdownMenuDirective,
-    DropdownContainerComponent,
     AddressBarSiblingDropdownComponent,
     AddressBarPinDropdownComponent,
     AddressBarDriveDropdownComponent,
@@ -111,19 +111,20 @@ interface IdleSlashTick {
         aria-label="Toggle pin"
       >{{ isPinned ? '★' : '☆' }}</button>
 
+      <!-- PIN DROPDOWN -->
+      <button
+        appDropdownTrigger
+        class="ab-btn ab-btn--pinlist"
+        [class.ab-btn--open]="showPinDrop"
+        (click)="togglePinDrop()"
+        title="Pinned paths"
+        aria-label="Open pinned paths"
+      >
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M9.5 1.5a1 1 0 0 0-1.415 0L4.94 4.645a3.5 3.5 0 0 0-.871 3.547l-2.646 2.647a.5.5 0 0 0 .708.707l2.646-2.646a3.5 3.5 0 0 0 3.547-.872l3.144-3.144A1 1 0 0 0 11.5 3l-2-1.5z"/>
+        </svg>
+      </button>
       <app-dropdown-container class="ab-drop-anchor" [(isOpen)]="showPinDrop">
-        <button
-          appDropdownTrigger
-          class="ab-btn ab-btn--pinlist"
-          [class.ab-btn--open]="showPinDrop"
-          (click)="togglePinDrop()"
-          title="Pinned paths"
-          aria-label="Open pinned paths"
-        >
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M9.5 1.5a1 1 0 0 0-1.415 0L4.94 4.645a3.5 3.5 0 0 0-.871 3.547l-2.646 2.647a.5.5 0 0 0 .708.707l2.646-2.646a3.5 3.5 0 0 0 3.547-.872l3.144-3.144A1 1 0 0 0 11.5 3l-2-1.5z"/>
-          </svg>
-        </button>
         <app-address-bar-pin-dropdown
           appDropdownMenu
           *ngIf="showPinDrop"
@@ -283,8 +284,13 @@ interface IdleSlashTick {
   />
 
   <!-- ── SIBLING DROPDOWN ──────────────────────────────────────────────── -->
-  <app-dropdown-container [(isOpen)]="sibOpen" *ngIf="chevIdx >= 0">
+  <app-dropdown-container
+    [(isOpen)]="sibOpen"
+    (isOpenChange)="onSibOpenChange($event)"
+    *ngIf="chevIdx >= 0"
+  >
     <app-address-bar-sibling-dropdown
+      appDropdownMenu
       [entries]="siblings"
       [loading]="sibLoading"
       [left]="sibDropLeft"
@@ -295,8 +301,12 @@ interface IdleSlashTick {
   </app-dropdown-container>
 
   <!-- ── DRIVE DROPDOWN ────────────────────────────────────────────────── -->
-  <app-dropdown-container [(isOpen)]="showDriveMenu" *ngIf="showDriveMenu">
+  <app-dropdown-container
+    [(isOpen)]="showDriveMenu"
+    *ngIf="showDriveMenu"
+  >
     <app-address-bar-drive-dropdown
+      appDropdownMenu
       [drives]="drives"
       [loading]="drivesLoading"
       [left]="driveMenuLeft"
@@ -307,36 +317,41 @@ interface IdleSlashTick {
   </app-dropdown-container>
 
   <!-- ── CONTEXT MENU ──────────────────────────────────────────────────── -->
-  <div
-    class="ab-ctx-menu"
-    *ngIf="ctxMenu.visible"
-    [style.left.px]="ctxMenu.x"
-    [style.top.px]="ctxMenu.y"
+  <app-dropdown-container
+    [(isOpen)]="ctxMenu.visible"
+    (isOpenChange)="onCtxMenuOpenChange($event)"
   >
-    <div class="ab-ctx-path">{{ ctxMenu.segment?.fullPath }}</div>
-    <hr class="ab-ctx-divider"/>
-    <button class="ab-ctx-item" (click)="ctxNavigateTo()">
-      <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h2.764c.958 0 1.76.56 2.311 1.184C7.985 3.648 8.48 4 9 4h4.5A1.5 1.5 0 0 1 15 5.5v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 12.5v-9z"/></svg>
-      Navigate here
-    </button>
-    <button class="ab-ctx-item" (click)="ctxCopyPath()">
-      <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/><path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zm-3-1A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0h-3z"/></svg>
-      Copy path
-    </button>
-    <button class="ab-ctx-item" (click)="ctxCopyName()">
-      <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M14 4.5V14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2a2 2 0 0 1 2-2h5.5L14 4.5zm-3 0A1.5 1.5 0 0 1 9.5 3V1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V4.5h-2z"/></svg>
-      Copy folder name
-    </button>
-    <hr class="ab-ctx-divider"/>
-    <button class="ab-ctx-item" (click)="ctxOpenOtherPane()">
-      <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M0 3a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V3zm8.5-1v12H14a1 1 0 0 0 1-1V3a1 1 0 0 0-1-1H8.5zM7.5 2H2a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h5.5V2z"/></svg>
-      Open in other pane
-    </button>
-    <button class="ab-ctx-item" (click)="ctxPinPath()">
-      <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M9.5 1.5a1 1 0 0 0-1.415 0L4.94 4.645a3.5 3.5 0 0 0-.871 3.547l-2.646 2.647a.5.5 0 0 0 .708.707l2.646-2.646a3.5 3.5 0 0 0 3.547-.872l3.144-3.144A1 1 0 0 0 11.5 3l-2-1.5z"/></svg>
-      {{ isSegmentPinned(ctxMenu.segment) ? 'Unpin path' : 'Pin path' }}
-    </button>
-  </div>
+    <div
+      class="ab-ctx-menu"
+      appDropdownMenu
+      [style.left.px]="ctxMenu.x"
+      [style.top.px]="ctxMenu.y"
+    >
+      <div class="ab-ctx-path">{{ ctxMenu.segment?.fullPath }}</div>
+      <hr class="ab-ctx-divider"/>
+      <button class="ab-ctx-item" (click)="ctxNavigateTo()">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h2.764c.958 0 1.76.56 2.311 1.184C7.985 3.648 8.48 4 9 4h4.5A1.5 1.5 0 0 1 15 5.5v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 12.5v-9z"/></svg>
+        Navigate here
+      </button>
+      <button class="ab-ctx-item" (click)="ctxCopyPath()">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/><path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zm-3-1A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0h-3z"/></svg>
+        Copy path
+      </button>
+      <button class="ab-ctx-item" (click)="ctxCopyName()">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M14 4.5V14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2a2 2 0 0 1 2-2h5.5L14 4.5zm-3 0A1.5 1.5 0 0 1 9.5 3V1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V4.5h-2z"/></svg>
+        Copy folder name
+      </button>
+      <hr class="ab-ctx-divider"/>
+      <button class="ab-ctx-item" (click)="ctxOpenOtherPane()">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M0 3a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V3zm8.5-1v12H14a1 1 0 0 0 1-1V3a1 1 0 0 0-1-1H8.5zM7.5 2H2a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h5.5V2z"/></svg>
+        Open in other pane
+      </button>
+      <button class="ab-ctx-item" (click)="ctxPinPath()">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M9.5 1.5a1 1 0 0 0-1.415 0L4.94 4.645a3.5 3.5 0 0 0-.871 3.547l-2.646 2.647a.5.5 0 0 0 .708.707l2.646-2.646a3.5 3.5 0 0 0 3.547-.872l3.144-3.144A1 1 0 0 0 11.5 3l-2-1.5z"/></svg>
+        {{ isSegmentPinned(ctxMenu.segment) ? 'Unpin path' : 'Pin path' }}
+      </button>
+    </div>
+  </app-dropdown-container>
 
 </div>
   `,
@@ -348,19 +363,30 @@ interface IdleSlashTick {
       font-size: var(--vsc-font-size);
       color: var(--vsc-foreground);
       background: var(--vsc-sidebar-background);
+      border-bottom: 1px solid var(--vsc-border);  /* ← moved here */
+      box-sizing: border-box;
     }
 
     .ab-host {
       position: relative;
       background: var(--vsc-sidebar-background);
-      border-bottom: 1px solid var(--vsc-border-subtle);
+      height: 32px;
+      display: flex;
+      align-items: center;
+      overflow: visible;
+      box-sizing: border-box;
     }
 
     .ab-bar {
-      display: flex; align-items: center;
-      height: var(--vsc-titlebar-height);
+      /* use grid so the middle (breadcrumbs) reliably fills remaining space */
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      /* reduced height */
+      height: 32px;
       padding: 0 var(--vsc-padding-sm);
       gap: var(--vsc-padding-xs);
+      width: 100%;
       overflow: visible;
       background: var(--vsc-sidebar-background);
       transition: background var(--vsc-transition-fast);
@@ -392,7 +418,7 @@ interface IdleSlashTick {
 
     .ab-btn {
       display: flex; align-items: center; justify-content: center;
-      width: 26px; height: 26px; padding: 0;
+      width: 22px; height: 22px; padding: 0;
       background: transparent; border: none;
       border-radius: var(--vsc-border-radius-sm);
       color: var(--vsc-foreground-dim); cursor: pointer;
@@ -403,7 +429,7 @@ interface IdleSlashTick {
       &:active { background: var(--vsc-list-active-background); color: var(--vsc-foreground-bright); }
       &:focus-visible { outline: 1px solid var(--vsc-focusBorder, var(--vsc-accent-blue)); outline-offset: -1px; }
 
-      svg { width: 16px; height: 16px; fill: currentColor; opacity: 0.9; transition: opacity var(--vsc-transition-fast), filter 120ms ease; }
+      svg { width: 14px; height: 14px; fill: currentColor; opacity: 0.9; transition: opacity var(--vsc-transition-fast), filter 120ms ease; }
       &:hover svg { opacity: 1; }
       /* Soften icons when button is in an active/open state */
       &.ab-btn--open svg,
@@ -421,7 +447,8 @@ interface IdleSlashTick {
     .ab-drop-anchor { position: relative; }
 
     .ab-crumbs {
-      flex: 1;
+      /* take all remaining space between left and right clusters */
+      flex: 1 1 auto;
       min-width: 0;
       display: flex;
       align-items: center;
@@ -429,9 +456,11 @@ interface IdleSlashTick {
     }
 
     .ab-crumbs-inner {
-      flex: 1 1 0%;
+      /* fill the crumbs container so breadcrumbs use available width
+         while still allowing horizontal scrolling when content overflows */
+      flex: 1 1 auto;
       min-width: 0;
-      width: 0;
+      width: 100%;
       display: flex;
       align-items: center;
       height: 100%;
@@ -451,10 +480,10 @@ interface IdleSlashTick {
 
     .ab-seg {
       display: inline-flex; align-items: center;
-      height: 24px; padding: 0 var(--vsc-padding-sm);
+      height: 20px; padding: 0 var(--vsc-padding-sm);
       border-radius: var(--vsc-border-radius-sm);
       color: var(--vsc-foreground-dim); font-size: var(--vsc-font-size);
-      line-height: 24px; cursor: pointer;
+      line-height: 20px; cursor: pointer;
       transition: background-color var(--vsc-transition-fast), color var(--vsc-transition-fast);
       max-width: 260px; overflow: hidden;
 
@@ -943,6 +972,12 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
       this.animateScrollBy(el, delta * 1.4);
     };
     el.addEventListener('wheel', this.wheelListener, { passive: false });
+  }
+
+  onCtxMenuOpenChange(open: boolean): void {
+    if (!open) {
+      this.closeCtx();
+    }
   }
 
   /**
@@ -1568,6 +1603,3 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     else if (this.chevIdx >= 0 || this.showPinDrop || this.showDriveMenu) { this.closeAll();          e.preventDefault(); }
   }
 }
-
-
-

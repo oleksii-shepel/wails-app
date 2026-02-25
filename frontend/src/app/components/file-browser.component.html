@@ -4,34 +4,16 @@
     <!-- Top Toolbar with Workspace Selector -->
     <div class="toolbar">
       <div class="toolbar-left">
-        <div class="workspace-selector" (click)="toggleWorkspaceMenu($event)">
-          <span class="workspace-icon">{{ activeWorkspace?.icon || '📁' }}</span>
-          <span class="workspace-name">{{ activeWorkspace?.name || 'Default' }}</span>
-          <span class="workspace-arrow">▼</span>
-        </div>
-
-        <!-- Workspace Dropdown Menu -->
-        <div class="workspace-menu" *ngIf="showWorkspaceMenu" (click)="$event.stopPropagation()">
-          <div class="workspace-menu-header">
-            <h3>Workspaces</h3>
-            <button (click)="createNewWorkspace()" class="btn-icon">➕</button>
-          </div>
-          <div class="workspace-list">
-            <div
-              *ngFor="let workspace of workspaceList"
-              class="workspace-item"
-              [class.active]="workspace.id === activeWorkspace?.id"
-              (click)="switchWorkspace(workspace.id)"
-            >
-              <span class="workspace-icon">{{ workspace.icon }}</span>
-              <span class="workspace-name">{{ workspace.name }}</span>
-            </div>
-          </div>
-          <div class="workspace-menu-footer">
-            <button (click)="renameCurrentWorkspace()" class="btn-small">Rename</button>
-            <button (click)="deleteCurrentWorkspace()" class="btn-small btn-danger">Delete</button>
-          </div>
-        </div>
+        <app-workspace-selector
+          [workspaces]="workspaceList"
+          [activeWorkspace]="activeWorkspace"
+          [showMenu]="showWorkspaceMenu"
+          (menuToggle)="showWorkspaceMenu = $event"
+          (workspaceChange)="switchWorkspace($event.id)"
+          (createNew)="createNewWorkspace()"
+          (rename)="renameCurrentWorkspace()"
+          (deleteWorkspace)="deleteCurrentWorkspace()"
+        ></app-workspace-selector>
       </div>
 
       <div class="toolbar-center">

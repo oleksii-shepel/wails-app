@@ -7,6 +7,7 @@ import { WorkspaceService } from '../services/workspace.service';
 import { FileType } from '../shared/protocol';
 import { WorkspaceConfig } from '../shared/protocol-enhanced';
 import { KeyboardHelpComponent } from './keyboard-help.component';
+import { WorkspaceSelectorComponent } from './workspace-selector.component';
 import { ShortcutCallbacks, ShortcutRegistryService } from '../services/shortcut-registry.service';
 import { GlobalSearchComponent } from './global-search.component';
 import { PathHistoryService } from '../services/path-history.service';
@@ -20,6 +21,7 @@ import { SplitDividerComponent } from './split-divider.component';
   standalone: true,
   imports: [
     CommonModule,
+    WorkspaceSelectorComponent,
     FilePaneComponent,
     PathHistoryViewerComponent,
     GlobalSearchComponent,

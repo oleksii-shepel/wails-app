@@ -12,9 +12,8 @@ import { DropdownContainerComponent } from './dropdown-container.component';
 @Component({
   selector: 'app-workspace-selector',
   standalone: true,
-  imports: [CommonModule, DropdownDirective, DropdownTriggerDirective, DropdownMenuDirective, DropdownContainerComponent],
+  imports: [CommonModule, DropdownTriggerDirective, DropdownMenuDirective, DropdownContainerComponent],
   template: `
-    <app-dropdown-container [(isOpen)]="showMenu">
     <div appDropdownTrigger class="ws-selector" (click)="toggleMenu()">
       <span class="ws-icon">{{ activeWorkspace?.icon || '📁' }}</span>
       <span class="ws-name">{{ activeWorkspace?.name || 'Default' }}</span>
@@ -23,7 +22,8 @@ import { DropdownContainerComponent } from './dropdown-container.component';
         <path d="M4 6l4 4 4-4H4z"/>
       </svg>
     </div>
-
+    <app-dropdown-container [(isOpen)]="showMenu">
+    
     <div appDropdownMenu class="ws-menu" *ngIf="showMenu">
       <div class="ws-menu-header">
         <span>Workspaces</span>
@@ -59,7 +59,9 @@ import { DropdownContainerComponent } from './dropdown-container.component';
   styles: [`
     :host {
       position: relative;
-      display: block;
+      /* inline-block so it sizes to content inside flex containers */
+      display: flex;
+      vertical-align: middle;
     }
 
     .ws-selector {
@@ -68,6 +70,9 @@ import { DropdownContainerComponent } from './dropdown-container.component';
       gap: var(--vsc-padding-sm);
       padding: var(--vsc-padding-xs) var(--vsc-padding-md);
       background: var(--vsc-input-background);
+      /* ensure selector doesn't collapse to zero width inside flex/grid parents */
+      min-width: 120px;
+      flex: 0 0 auto;
       border: 1px solid var(--vsc-border);
       border-radius: var(--vsc-border-radius-sm);
       cursor: pointer;

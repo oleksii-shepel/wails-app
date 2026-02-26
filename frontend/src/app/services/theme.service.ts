@@ -1,12 +1,12 @@
 import { Injectable } from '@angular/core';
-import { BehaviorSubject } from 'rxjs';
+import { createBehaviorSubject } from '@epikodelabs/streamix';
 
 export type Theme = 'dark' | 'light';
 
 @Injectable({ providedIn: 'root' })
 export class ThemeService {
-  private theme$ = new BehaviorSubject<Theme>(this.readInitialTheme());
-  private compact$ = new BehaviorSubject<boolean>(this.readInitialCompact());
+  private theme$ = createBehaviorSubject<Theme>(this.readInitialTheme());
+  private compact$ = createBehaviorSubject<boolean>(this.readInitialCompact());
 
   constructor() {
     this.applyTheme(this.theme$.value);
@@ -24,7 +24,7 @@ export class ThemeService {
   }
 
   getTheme$() {
-    return this.theme$.asObservable();
+    return this.theme$;
   }
 
   setCompact(compact: boolean) {
@@ -38,7 +38,7 @@ export class ThemeService {
   }
 
   getCompact$() {
-    return this.compact$.asObservable();
+    return this.compact$;
   }
 
   private applyTheme(theme: Theme) {
@@ -71,3 +71,6 @@ export class ThemeService {
     return false;
   }
 }
+
+
+

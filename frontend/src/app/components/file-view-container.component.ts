@@ -6,8 +6,8 @@ import {
   ViewChild, OnChanges, OnDestroy, ChangeDetectorRef, SimpleChanges
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Subject } from 'rxjs';
-import { groupBy, mergeMap, exhaustMap, takeUntil } from 'rxjs/operators';
+import { createSubject } from '@epikodelabs/streamix';
+import { groupBy, mergeMap, exhaustMap, takeUntil } from '@epikodelabs/streamix';
 import { FileListComponent } from './file-list.component';
 import { FileGridComponent } from './file-grid.component';
 import { FileTreeComponent, TreeNode, DropTarget } from './file-tree.component';
@@ -150,8 +150,8 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
   sortedEntries: FileInfo[] = [];
   treeNodes: TreeNode[] = [];
 
-  private loadRequest$ = new Subject<TreeNode>();
-  private destroy$     = new Subject<void>();
+  private loadRequest$ = createSubject<TreeNode>();
+  private destroy$     = createSubject<void>();
   private nodeLoadPromises = new Map<string, Promise<void>>();
   private syncToken = 0;
 
@@ -519,3 +519,6 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
     return normalized || '/';
   }
 }
+
+
+

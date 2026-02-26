@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { BehaviorSubject, Observable } from 'rxjs';
+import { createBehaviorSubject, type Stream } from '@epikodelabs/streamix';
 import {
   WorkspaceConfig,
   WorkspaceList,
@@ -35,11 +35,11 @@ export interface ArchiveTabState {
   providedIn: 'root',
 })
 export class WorkspaceService {
-  private workspacesSubject = new BehaviorSubject<WorkspaceList>(this.loadLocalWorkspaces());
-  public workspaces$ = this.workspacesSubject.asObservable();
+  private workspacesSubject = createBehaviorSubject<WorkspaceList>(this.loadLocalWorkspaces());
+  public workspaces$ = this.workspacesSubject;
 
-  private activeWorkspaceSubject = new BehaviorSubject<WorkspaceConfig | null>(null);
-  public activeWorkspace$ = this.activeWorkspaceSubject.asObservable();
+  private activeWorkspaceSubject = createBehaviorSubject<WorkspaceConfig | null>(null);
+  public activeWorkspace$ = this.activeWorkspaceSubject;
 
   /** True once the initial load from the Wails backend has completed. */
   private backendLoaded = false;
@@ -639,3 +639,5 @@ export class WorkspaceService {
     return paths;
   }
 }
+
+

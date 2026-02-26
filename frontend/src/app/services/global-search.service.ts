@@ -1,6 +1,6 @@
 import { Injectable } from '@angular/core';
-import { BehaviorSubject, Observable, Subject } from 'rxjs';
-import { debounceTime, distinctUntilChanged } from 'rxjs';
+import { createBehaviorSubject, type Stream, createSubject } from '@epikodelabs/streamix';
+import { debounce, distinctUntilChanged } from '@epikodelabs/streamix';
 import { ApiService } from './api.service';
 import { FileInfo, FileType } from '../shared/protocol';
 
@@ -59,8 +59,8 @@ export interface SearchConfig {
 export class GlobalSearchService {
   // Search index (in-memory for MVP, could be moved to IndexedDB)
   private index: Map<string, IndexEntry> = new Map();
-  private indexingInProgress$ = new BehaviorSubject<boolean>(false);
-  private indexStats$ = new BehaviorSubject<IndexStats>({
+  private indexingInProgress$ = createBehaviorSubject<boolean>(false);
+  private indexStats$ = createBehaviorSubject<IndexStats>({
     totalFiles: 0,
     totalDirectories: 0,
     indexedPaths: [],
@@ -109,15 +109,15 @@ export class GlobalSearchService {
   /**
    * Observable for indexing status
    */
-  get isIndexing$(): Observable<boolean> {
-    return this.indexingInProgress$.asObservable();
+  get isIndexing$(): Stream<boolean> {
+    return this.indexingInProgress$;
   }
 
   /**
    * Observable for index statistics
    */
-  get stats$(): Observable<IndexStats> {
-    return this.indexStats$.asObservable();
+  get stats$(): Stream<IndexStats> {
+    return this.indexStats$;
   }
 
   /**
@@ -501,3 +501,5 @@ export class GlobalSearchService {
     this.protectedPaths.clear();
   }
 }
+
+

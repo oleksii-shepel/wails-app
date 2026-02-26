@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { BehaviorSubject, Observable } from 'rxjs';
+import { createBehaviorSubject, type Stream } from '@epikodelabs/streamix';
 import { ApiService } from './api.service';
 import { FileType } from '../shared/protocol';
 
@@ -36,7 +36,7 @@ export class PathHistoryService {
   private readonly MAX_HISTORY_ENTRIES = 100;
 
   private history = new Map<string, PathHistoryEntry>();
-  private historySubject = new BehaviorSubject<PathHistoryEntry[]>([]);
+  private historySubject = createBehaviorSubject<PathHistoryEntry[]>([]);
 
   constructor(private apiService: ApiService) {
     this.loadHistory();
@@ -45,8 +45,8 @@ export class PathHistoryService {
   /**
    * Observable for history changes
    */
-  get history$(): Observable<PathHistoryEntry[]> {
-    return this.historySubject.asObservable();
+  get history$(): Stream<PathHistoryEntry[]> {
+    return this.historySubject;
   }
 
   /**
@@ -345,3 +345,6 @@ export class PathHistoryService {
     this.emitHistory();
   }
 }
+
+
+

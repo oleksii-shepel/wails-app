@@ -5,7 +5,7 @@ import {
   HostListener,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { EMPTY, Subject, debounceTime, distinctUntilChanged, filter, from, merge, switchMap, takeUntil } from 'rxjs';
+import { EMPTY, createSubject, debounce, distinctUntilChanged, filter, from, merge, switchMap, takeUntil } from '@epikodelabs/streamix';
 import { DropdownTriggerDirective, DropdownMenuDirective } from '../directives/dropdown.directive';
 
 import { PathHistoryService, PathSuggestion } from '../services/path-history.service';
@@ -738,14 +738,14 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
 
   // ── RxJS ─────────────────────────────────────────────────────────────────
 
-  private readonly destroy$ = new Subject<void>();
+  private readonly destroy$ = createSubject<void>();
 
   /**
    * Emits only when the user actually types a character.
    * Suppressed when TAB writes to editValue (applyingTab guard).
    * Feeds: history suggestions + idle-slash pipeline.
    */
-  private readonly userTyped$ = new Subject<string>();
+  private readonly userTyped$ = createSubject<string>();
 
   /**
    * Emits the selected path each time TAB lands on a candidate.
@@ -753,7 +753,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
    * slash fires 1 s after the user stops pressing TAB.
    * No distinctUntilChanged — same path can be re-visited legitimately.
    */
-  private readonly tabSelected$ = new Subject<string>();
+  private readonly tabSelected$ = createSubject<string>();
 
   // ── Tab completion ────────────────────────────────────────────────────────
 
@@ -792,7 +792,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     // ── Pipeline 1: history suggestions ───────────────────────────────────
     // 240 ms debounce, user-typed only, switchMap cancels stale requests.
     this.userTyped$.pipe(
-      debounceTime(240),
+      debounce(240),
       distinctUntilChanged(),
       switchMap(v => v?.trim()
         ? from(this.pathHistoryService.getSuggestions(v, this.currentPath))
@@ -823,7 +823,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
       this.userTyped$.pipe(distinctUntilChanged()),
       this.tabSelected$,
     ).pipe(
-      debounceTime(1000),
+      debounce(1000),
       filter(() => this.editMode),
       filter(() => !this.tabSession?.enteredDir),
       filter(v => {
@@ -1603,3 +1603,6 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     else if (this.chevIdx >= 0 || this.showPinDrop || this.showDriveMenu) { this.closeAll();          e.preventDefault(); }
   }
 }
+
+
+

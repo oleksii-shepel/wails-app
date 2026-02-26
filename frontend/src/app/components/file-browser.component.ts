@@ -1,6 +1,6 @@
 import { Component, OnInit, OnDestroy, ViewChild, ElementRef, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Subject, takeUntil } from 'rxjs';
+import { createSubject, takeUntil } from '@epikodelabs/streamix';
 
 import { ApiService } from '../services/api.service';
 import { WorkspaceService } from '../services/workspace.service';
@@ -60,7 +60,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
   // Expose to template
   FileType = FileType;
 
-  private destroy$ = new Subject<void>();
+  private destroy$ = createSubject<void>();
   private clipboard: { operation: 'copy' | 'cut'; paths: string[] } | null = null;
 
   constructor(
@@ -528,3 +528,5 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     }
   }
 }
+
+

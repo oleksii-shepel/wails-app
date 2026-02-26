@@ -1,7 +1,7 @@
 import { Component, OnInit, OnDestroy, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Subject } from 'rxjs';
+import { createSubject } from '@epikodelabs/streamix';
 import { KeyboardService, ShortcutCategory } from '../services/keyboard.service';
 
 @Component({
@@ -17,7 +17,7 @@ export class KeyboardHelpComponent implements OnInit, OnDestroy {
   searchText = '';
   filteredCategories: ShortcutCategory[] = [];
 
-  private destroy$ = new Subject<void>();
+  private destroy$ = createSubject<void>();
 
   constructor(private keyboardService: KeyboardService) {}
 
@@ -174,3 +174,6 @@ export class KeyboardHelpComponent implements OnInit, OnDestroy {
     }
   }
 }
+
+
+

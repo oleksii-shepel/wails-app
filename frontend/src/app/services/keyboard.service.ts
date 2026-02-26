@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { BehaviorSubject } from 'rxjs';
+import { createBehaviorSubject } from '@epikodelabs/streamix';
 
 /**
  * Keyboard shortcut definition
@@ -50,8 +50,8 @@ interface KeyboardContext {
 })
 export class KeyboardService {
   private shortcuts = new Map<string, ShortcutDefinition>();
-  private enabledSubject = new BehaviorSubject<boolean>(true);
-  public enabled$ = this.enabledSubject.asObservable();
+  private enabledSubject = createBehaviorSubject<boolean>(true);
+  public enabled$ = this.enabledSubject;
 
   private historyStack: string[] = [];
   private maxHistorySize = 50;
@@ -427,3 +427,5 @@ export class KeyboardService {
     }
   }
 }
+
+

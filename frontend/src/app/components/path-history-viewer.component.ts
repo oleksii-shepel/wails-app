@@ -1,7 +1,7 @@
 import { Component, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Subject, takeUntil } from 'rxjs';
+import { createSubject, takeUntil } from '@epikodelabs/streamix';
 import { PathHistoryService, PathHistoryEntry } from '../services/path-history.service';
 
 @Component({
@@ -415,7 +415,7 @@ export class PathHistoryViewerComponent implements OnInit, OnDestroy {
   filteredEntries: PathHistoryEntry[] = [];
   filterText = '';
 
-  private destroy$ = new Subject<void>();
+  private destroy$ = createSubject<void>();
 
   constructor(private pathHistoryService: PathHistoryService) {}
 
@@ -516,3 +516,5 @@ export class PathHistoryViewerComponent implements OnInit, OnDestroy {
     URL.revokeObjectURL(url);
   }
 }
+
+

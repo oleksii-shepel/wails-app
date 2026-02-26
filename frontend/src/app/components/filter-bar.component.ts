@@ -6,7 +6,7 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Subject, debounceTime, distinctUntilChanged, takeUntil } from 'rxjs';
+import { createSubject, debounce, distinctUntilChanged, takeUntil } from '@epikodelabs/streamix';
 
 import { FileInfo } from '../shared/protocol';
 import { FilterQuery } from '../shared/protocol-enhanced';
@@ -460,8 +460,8 @@ export class FilterBarComponent implements OnInit, OnDestroy, OnChanges {
   editingCategory: FilterCategory | null = null;
 
   private groupModes = new Map<string, 'AND' | 'OR'>();
-  private destroy$   = new Subject<void>();
-  private search$    = new Subject<string>();
+  private destroy$   = createSubject<void>();
+  private search$    = createSubject<string>();
 
   // Groups that combine with OR (any one match is enough)
   private readonly orGroups  = new Set(['Basic', 'Extensions', 'Other']);
@@ -550,7 +550,7 @@ export class FilterBarComponent implements OnInit, OnDestroy, OnChanges {
     this.rebuildPresets();
 
     this.search$
-      .pipe(debounceTime(200), distinctUntilChanged(), takeUntil(this.destroy$))
+      .pipe(debounce(200), distinctUntilChanged(), takeUntil(this.destroy$))
       .subscribe(() => this.emitFilterChange());
   }
 
@@ -726,3 +726,5 @@ export class FilterBarComponent implements OnInit, OnDestroy, OnChanges {
     this.filterChange.emit(query);
   }
 }
+
+

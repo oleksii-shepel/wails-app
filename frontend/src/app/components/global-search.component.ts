@@ -1,8 +1,8 @@
 import { Component, OnInit, OnDestroy, HostListener, ViewChild, ElementRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Subject } from 'rxjs';
-import { takeUntil, debounceTime } from 'rxjs/operators';
+import { createSubject } from '@epikodelabs/streamix';
+import { takeUntil, debounce } from '@epikodelabs/streamix';
 import { GlobalSearchService, SearchResultItem, IndexStats, SearchConfig } from '../services/global-search.service';
 import { FileType } from '../shared/protocol';
 
@@ -34,8 +34,8 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
     fileTypes: [FileType.FILE, FileType.DIRECTORY],
   };
 
-  private destroy$ = new Subject<void>();
-  private searchSubject = new Subject<string>();
+  private destroy$ = createSubject<void>();
+  private searchSubject = createSubject<string>();
 
   constructor(private searchService: GlobalSearchService) {}
 
@@ -50,7 +50,7 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
     // Setup debounced search
     this.searchSubject
       .pipe(
-        debounceTime(300),
+        debounce(300),
         takeUntil(this.destroy$)
       )
       .subscribe(query => {
@@ -357,3 +357,6 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
     }, 0);
   }
 }
+
+
+

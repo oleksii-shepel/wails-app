@@ -137,6 +137,24 @@ export class ApiService {
     return this.call<OperationResult>('Copy', source, destination, recursive);
   }
 
+  // ADD these two methods to ApiService, alongside the existing copyFile / moveFile methods.
+// The only difference from the originals is the backend method name — no other changes needed.
+
+  /**
+   * Copy with real-time progress notifications.
+   * Fires operation:start → operation:progress* → operation:complete on the Wails event bus.
+   */
+  async copyFileWithProgress(source: string, destination: string, recursive: boolean): Promise<void> {
+    await (window as any).go.main.App.CopyFileWithProgress(source, destination, recursive);
+  }
+
+  /**
+   * Move with real-time progress notifications.
+   */
+  async moveFileWithProgress(source: string, destination: string): Promise<void> {
+    await (window as any).go.main.App.MoveFileWithProgress(source, destination);
+  }
+  
   // ---------------------------------------------------------------------------
   // File metadata
   // ---------------------------------------------------------------------------

@@ -38,32 +38,28 @@ import { OperationToastStackComponent } from './operation-stack.component';
   styleUrls: ['./file-browser.component.scss'],
 })
 export class FileBrowserComponent implements OnInit, OnDestroy {
-  // ViewChild references
   @ViewChild(KeyboardHelpComponent) keyboardHelp?: KeyboardHelpComponent;
   @ViewChild(GlobalSearchComponent) globalSearch?: GlobalSearchComponent;
   @ViewChild(PathHistoryViewerComponent) pathHistoryViewer?: PathHistoryViewerComponent;
   @ViewChild('panesContainer') panesContainer?: ElementRef;
-  
+
   @ViewChild('leftPane') leftPane?: FilePaneComponent;
   @ViewChild('rightPane') rightPane?: FilePaneComponent;
 
-  // Workspace state
   activeWorkspace: WorkspaceConfig | null = null;
   workspaceList: WorkspaceConfig[] = [];
   showWorkspaceMenu = false;
   showHidden = false;
   activePaneId: 'left' | 'right' = 'left';
-  
-  // Resizable panes
+
   leftPaneWidth = 50;
   rightPaneWidth = 50;
   isResizing = false;
   private startX = 0;
   private startLeftWidth = 0;
-  private readonly MIN_PANE_WIDTH = 20; // Minimum width percentage
-  private readonly MAX_PANE_WIDTH = 80; // Maximum width percentage
+  private readonly MIN_PANE_WIDTH = 20;
+  private readonly MAX_PANE_WIDTH = 80;
 
-  // Expose to template
   FileType = FileType;
 
   private destroy$ = createSubject<void>();
@@ -105,7 +101,6 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     this.cleanupResizeListeners();
   }
 
-  // Methods for template (used by app-file-pane events)
   copyToOtherPane(source: FilePaneComponent | undefined, target: FilePaneComponent | undefined, paths?: string[]): void {
     if (!source || !target) return;
     const selected = paths ?? Array.from(source.selectedFiles);
@@ -144,7 +139,6 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     const isHealthy = await this.apiService.checkHealth();
     if (!isHealthy) {
       console.error('Cannot connect to server');
-      // Panes will show their own errors
     }
   }
 
@@ -190,11 +184,10 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
   async toggleShowHidden(): Promise<void> {
     this.showHidden = !this.showHidden;
     if (this.activeWorkspace) {
-      this.workspaceService.updateWorkspace(this.activeWorkspace.id, { 
-        showHidden: this.showHidden 
+      this.workspaceService.updateWorkspace(this.activeWorkspace.id, {
+        showHidden: this.showHidden
       });
     }
-    // Refresh both panes
     await Promise.all([
       this.leftPane?.onRefresh(),
       this.rightPane?.onRefresh()
@@ -203,77 +196,102 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
 
   // ============================================================================
   // Cross-Pane Operations
+  //
+  // All four methods now call the *WithProgress variants so the backend emits
+  // operation:start / operation:progress / operation:complete events, which
+  // the OperationService picks up and renders as toast notifications.
+  //
+  // We no longer await each file sequentially and then refresh — the copy runs
+  // in the background and the pane refreshes once all files are done.
   // ============================================================================
 
   async onCopyFromLeft(paths: string[]): Promise<void> {
-    const target = this.rightPane;
     const source = this.leftPane;
-    if (!target || !source || paths.length === 0) return;
+    const target = this.rightPane;
+    if (!source || !target || paths.length === 0) return;
 
-    for (const sourcePath of paths) {
+    const errors: string[] = [];
+
+    await Promise.all(paths.map(async sourcePath => {
       try {
         const splitResult = await (window as any).go.main.App.SplitPath(sourcePath);
         const fileName = splitResult['base'] || 'file';
         const destPath: string = await (window as any).go.main.App.JoinPaths([target.currentPath, fileName]);
-        await this.apiService.copyFile(sourcePath, destPath, true);
+        // ↓ progress-aware copy — fires toast notifications automatically
+        await this.apiService.copyFileWithProgress(sourcePath, destPath, true);
       } catch (error: any) {
-        alert(`Failed to copy ${sourcePath}: ${error.message}`);
+        errors.push(`${sourcePath}: ${error.message}`);
       }
-    }
+    }));
+
+    if (errors.length) alert(`Copy errors:\n${errors.join('\n')}`);
     await target.onRefresh();
   }
 
   async onMoveFromLeft(paths: string[]): Promise<void> {
-    const target = this.rightPane;
     const source = this.leftPane;
-    if (!target || !source || paths.length === 0) return;
+    const target = this.rightPane;
+    if (!source || !target || paths.length === 0) return;
 
-    for (const sourcePath of paths) {
+    const errors: string[] = [];
+
+    await Promise.all(paths.map(async sourcePath => {
       try {
         const splitResult = await (window as any).go.main.App.SplitPath(sourcePath);
         const fileName = splitResult['base'] || 'file';
         const destPath: string = await (window as any).go.main.App.JoinPaths([target.currentPath, fileName]);
-        await this.apiService.moveFile(sourcePath, destPath);
+        // ↓ progress-aware move
+        await this.apiService.moveFileWithProgress(sourcePath, destPath);
       } catch (error: any) {
-        alert(`Failed to move ${sourcePath}: ${error.message}`);
+        errors.push(`${sourcePath}: ${error.message}`);
       }
-    }
+    }));
+
+    if (errors.length) alert(`Move errors:\n${errors.join('\n')}`);
     await Promise.all([source.onRefresh(), target.onRefresh()]);
   }
 
   async onCopyFromRight(paths: string[]): Promise<void> {
-    const target = this.leftPane;
     const source = this.rightPane;
-    if (!target || !source || paths.length === 0) return;
+    const target = this.leftPane;
+    if (!source || !target || paths.length === 0) return;
 
-    for (const sourcePath of paths) {
+    const errors: string[] = [];
+
+    await Promise.all(paths.map(async sourcePath => {
       try {
         const splitResult = await (window as any).go.main.App.SplitPath(sourcePath);
         const fileName = splitResult['base'] || 'file';
         const destPath: string = await (window as any).go.main.App.JoinPaths([target.currentPath, fileName]);
-        await this.apiService.copyFile(sourcePath, destPath, true);
+        await this.apiService.copyFileWithProgress(sourcePath, destPath, true);
       } catch (error: any) {
-        alert(`Failed to copy ${sourcePath}: ${error.message}`);
+        errors.push(`${sourcePath}: ${error.message}`);
       }
-    }
+    }));
+
+    if (errors.length) alert(`Copy errors:\n${errors.join('\n')}`);
     await target.onRefresh();
   }
 
   async onMoveFromRight(paths: string[]): Promise<void> {
-    const target = this.leftPane;
     const source = this.rightPane;
-    if (!target || !source || paths.length === 0) return;
+    const target = this.leftPane;
+    if (!source || !target || paths.length === 0) return;
 
-    for (const sourcePath of paths) {
+    const errors: string[] = [];
+
+    await Promise.all(paths.map(async sourcePath => {
       try {
         const splitResult = await (window as any).go.main.App.SplitPath(sourcePath);
         const fileName = splitResult['base'] || 'file';
         const destPath: string = await (window as any).go.main.App.JoinPaths([target.currentPath, fileName]);
-        await this.apiService.moveFile(sourcePath, destPath);
+        await this.apiService.moveFileWithProgress(sourcePath, destPath);
       } catch (error: any) {
-        alert(`Failed to move ${sourcePath}: ${error.message}`);
+        errors.push(`${sourcePath}: ${error.message}`);
       }
-    }
+    }));
+
+    if (errors.length) alert(`Move errors:\n${errors.join('\n')}`);
     await Promise.all([source.onRefresh(), target.onRefresh()]);
   }
 
@@ -294,8 +312,6 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     } else {
       const parentPath = this.getParentPath(result.file.path);
       pane.onPathChange(parentPath);
-      // Note: File selection after navigation would need to be implemented
-      // This could be done by adding a selectedPath input to FilePaneComponent
     }
   }
 
@@ -351,7 +367,6 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
 
   private switchActivePaneInternal(): void {
     this.activePaneId = this.activePaneId === 'left' ? 'right' : 'left';
-    // Visual indication of active pane could be added here
   }
 
   // ============================================================================
@@ -361,9 +376,9 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
   private copySelectedToClipboard(): void {
     const pane = this.getActivePane();
     if (pane?.selectedFiles.size) {
-      this.clipboard = { 
-        operation: 'copy', 
-        paths: Array.from(pane.selectedFiles) 
+      this.clipboard = {
+        operation: 'copy',
+        paths: Array.from(pane.selectedFiles)
       };
     }
   }
@@ -371,36 +386,39 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
   private cutSelectedToClipboard(): void {
     const pane = this.getActivePane();
     if (pane?.selectedFiles.size) {
-      this.clipboard = { 
-        operation: 'cut', 
-        paths: Array.from(pane.selectedFiles) 
+      this.clipboard = {
+        operation: 'cut',
+        paths: Array.from(pane.selectedFiles)
       };
     }
   }
 
   private async pasteFromClipboard(): Promise<void> {
     if (!this.clipboard) return;
-    
+
     const targetPane = this.getActivePane();
     if (!targetPane) return;
 
     const { operation, paths } = this.clipboard;
+    const errors: string[] = [];
 
-    for (const sourcePath of paths) {
+    await Promise.all(paths.map(async sourcePath => {
       try {
         const splitResult = await (window as any).go.main.App.SplitPath(sourcePath);
         const fileName = splitResult['base'] || 'file';
         const destPath: string = await (window as any).go.main.App.JoinPaths([targetPane.currentPath, fileName]);
-        
+
         if (operation === 'copy') {
-          await this.apiService.copyFile(sourcePath, destPath, true);
+          await this.apiService.copyFileWithProgress(sourcePath, destPath, true);
         } else {
-          await this.apiService.moveFile(sourcePath, destPath);
+          await this.apiService.moveFileWithProgress(sourcePath, destPath);
         }
       } catch (error: any) {
-        alert(`Failed to ${operation}: ${error.message}`);
+        errors.push(`${sourcePath}: ${error.message}`);
       }
-    }
+    }));
+
+    if (errors.length) alert(`Paste errors:\n${errors.join('\n')}`);
 
     if (operation === 'cut') {
       this.clipboard = null;
@@ -434,7 +452,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
   private loadPaneWidths(): void {
     const savedLeftWidth = localStorage.getItem('fileManager_leftPaneWidth');
     const savedRightWidth = localStorage.getItem('fileManager_rightPaneWidth');
-    
+
     if (savedLeftWidth && savedRightWidth) {
       this.leftPaneWidth = parseFloat(savedLeftWidth);
       this.rightPaneWidth = parseFloat(savedRightWidth);
@@ -451,29 +469,24 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     this.isResizing = true;
     this.startX = event.clientX;
     this.startLeftWidth = this.leftPaneWidth;
-    
-    // Add global event listeners
+
     document.addEventListener('mousemove', this.onResize);
     document.addEventListener('mouseup', this.stopResize);
-    
-    // Add class to body to prevent text selection during resize
     document.body.classList.add('resizing');
   }
 
   private onResize = (event: MouseEvent): void => {
     if (!this.isResizing || !this.panesContainer) return;
-    
+
     event.preventDefault();
-    
+
     const containerWidth = this.panesContainer.nativeElement.clientWidth;
     const deltaX = event.clientX - this.startX;
     const deltaPercent = (deltaX / containerWidth) * 100;
-    
+
     let newLeftWidth = this.startLeftWidth + deltaPercent;
-    
-    // Constrain to minimum and maximum widths
     newLeftWidth = Math.max(this.MIN_PANE_WIDTH, Math.min(this.MAX_PANE_WIDTH, newLeftWidth));
-    
+
     this.leftPaneWidth = newLeftWidth;
     this.rightPaneWidth = 100 - newLeftWidth;
   };
@@ -481,15 +494,9 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
   private stopResize = (): void => {
     if (this.isResizing) {
       this.isResizing = false;
-      
-      // Remove global event listeners
       document.removeEventListener('mousemove', this.onResize);
       document.removeEventListener('mouseup', this.stopResize);
-      
-      // Remove class from body
       document.body.classList.remove('resizing');
-      
-      // Save the new widths
       this.savePaneWidths();
     }
   };
@@ -507,13 +514,11 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     }
   }
 
-  // Clean up event listeners if component is destroyed during resize
   @HostListener('window:beforeunload')
   onBeforeUnload(): void {
     this.cleanupResizeListeners();
   }
 
-  // Handle keyboard navigation for the divider
   @HostListener('window:keydown.arrowleft', ['$event'])
   onArrowLeft(event: any): void {
     if (document.activeElement?.classList.contains('pane-divider')) {
@@ -536,5 +541,3 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
 
   statusText: string = 'Ready';
 }
-
-

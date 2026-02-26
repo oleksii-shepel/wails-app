@@ -15,6 +15,7 @@ import { ThemeService } from '../services/theme.service';
 import { PathHistoryViewerComponent } from './path-history-viewer.component';
 import { FilePaneComponent } from './file-pane.component';
 import { SplitDividerComponent } from './split-divider.component';
+import { StatusBarComponent } from './status-bar.component';
 
 @Component({
   selector: 'app-file-browser',
@@ -26,7 +27,8 @@ import { SplitDividerComponent } from './split-divider.component';
     PathHistoryViewerComponent,
     GlobalSearchComponent,
     KeyboardHelpComponent,
-    SplitDividerComponent
+    SplitDividerComponent,
+    StatusBarComponent
   ],
   templateUrl: './file-browser.component.html',
   styleUrls: ['./file-browser.component.scss'],
@@ -527,6 +529,8 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
       this.savePaneWidths();
     }
   }
+
+  statusText: string = 'Ready';
 }
 
 

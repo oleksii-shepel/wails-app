@@ -37,7 +37,6 @@ export type ViewLayout = ViewMode;
           *ngIf="currentView === 'list'"
           [entries]="sortedEntries"
           [selectedFiles]="selectedFiles"
-          [loading]="loading"
           [error]="error"
           (selectionChange)="onSelectionChange($event)"
           (navigate)="onNavigate($event)">
@@ -131,7 +130,6 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
   @Input() entries: FileInfo[] = [];
   @Input() currentPath = '';
   @Input() selectedFiles: Set<string> = new Set();
-  @Input() loading       = false;
   @Input() error: string | null = null;
   @Input() currentView: ViewLayout = 'list';
   @Input() sortField     = 'name';

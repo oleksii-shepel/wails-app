@@ -293,8 +293,6 @@ interface IdleSlashTick {
       appDropdownMenu
       [entries]="siblings"
       [loading]="sibLoading"
-      [left]="sibDropLeft"
-      [top]="sibDropTop"
       [headLabel]="segments[chevIdx].label"
       (entryClick)="onSibClick($event)"
     />

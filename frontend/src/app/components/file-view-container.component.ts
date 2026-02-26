@@ -7,7 +7,7 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { createSubject, fromPromise } from '@epikodelabs/streamix';
-import { groupBy, mergeMap, exhaustMap, takeUntil } from '@epikodelabs/streamix';
+import { mergeMap, takeUntil } from '@epikodelabs/streamix';
 import { FileListComponent } from './file-list.component';
 import { FileGridComponent } from './file-grid.component';
 import { FileTreeComponent, TreeNode, DropTarget } from './file-tree.component';

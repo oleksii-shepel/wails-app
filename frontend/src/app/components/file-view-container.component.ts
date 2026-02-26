@@ -6,7 +6,7 @@ import {
   ViewChild, OnChanges, OnDestroy, ChangeDetectorRef, SimpleChanges
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { createSubject } from '@epikodelabs/streamix';
+import { createSubject, fromPromise } from '@epikodelabs/streamix';
 import { groupBy, mergeMap, exhaustMap, takeUntil } from '@epikodelabs/streamix';
 import { FileListComponent } from './file-list.component';
 import { FileGridComponent } from './file-grid.component';
@@ -158,12 +158,7 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
   constructor(private apiService: ApiService, private cdr: ChangeDetectorRef) {
     this.loadRequest$
       .pipe(
-        groupBy(node => node.path),
-        mergeMap(group$ =>
-          group$.pipe(
-            exhaustMap(node => this.loadNodeChildren(node))
-          )
-        ),
+        mergeMap(node => fromPromise(this.ensureNodeChildrenLoaded(node))),
         takeUntil(this.destroy$)
       )
       .subscribe();

@@ -82,4 +82,47 @@ export class DropdownContainerComponent {
     this.isOpen = false;
     this.isOpenChange.emit(false);
   }
+
+  ngAfterViewInit() {
+    this.positionDropdown();
+  }
+
+  ngOnChanges() {
+    this.positionDropdown();
+  }
+
+  private positionDropdown() {
+    if (!this.isOpen) return;
+    const menuEl = this.dropdownRef?.menuDir?.el.nativeElement;
+    const triggerEl = this.dropdownRef?.triggerDir?.el.nativeElement;
+    if (!menuEl || !triggerEl) return;
+
+    // Get bounding rects
+    const triggerRect = triggerEl.getBoundingClientRect();
+    const menuRect = menuEl.getBoundingClientRect();
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    // Default position: below trigger, left-aligned
+    let top = triggerRect.bottom;
+    let left = triggerRect.left;
+
+    // Adjust if dropdown would overflow right
+    if (left + menuRect.width > viewportWidth) {
+      left = viewportWidth - menuRect.width - 8;
+    }
+    // Adjust if dropdown would overflow bottom
+    if (top + menuRect.height > viewportHeight) {
+      top = triggerRect.top - menuRect.height;
+      if (top < 0) top = 8;
+    }
+    // Adjust if dropdown would overflow left
+    if (left < 0) left = 8;
+
+    // Apply position
+    menuEl.style.position = 'absolute';
+    menuEl.style.left = `${left}px`;
+    menuEl.style.top = `${top}px`;
+    menuEl.style.zIndex = '999';
+  }
 }

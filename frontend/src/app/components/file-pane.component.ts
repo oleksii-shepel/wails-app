@@ -82,7 +82,6 @@ declare const window: any;
           [currentPath]="currentPath"
           [showHidden]="showHidden"
           [selectedFiles]="selectedFiles"
-          [loading]="loading"
           [error]="error"
           [currentView]="currentView"
           [sortField]="sortField"

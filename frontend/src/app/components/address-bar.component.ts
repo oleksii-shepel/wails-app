@@ -5,7 +5,7 @@ import {
   HostListener,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { EMPTY, createSubject, debounce, distinctUntilChanged, filter, from, merge, switchMap, takeUntil } from '@epikodelabs/streamix';
+import { EMPTY, createSubject, debounce, distinctUntilChanged, filter, from, fromAny, merge, switchMap, takeUntil } from '@epikodelabs/streamix';
 import { DropdownTriggerDirective, DropdownMenuDirective } from '../directives/dropdown.directive';
 
 import { PathHistoryService, PathSuggestion } from '../services/path-history.service';
@@ -795,12 +795,12 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
       debounce(240),
       distinctUntilChanged(),
       switchMap(v => v?.trim()
-        ? from(this.pathHistoryService.getSuggestions(v, this.currentPath))
+        ? fromAny(this.pathHistoryService.getSuggestions(v, this.currentPath))
         : EMPTY,
       ),
       takeUntil(this.destroy$),
-    ).subscribe(suggestions => {
-      this.suggestions = suggestions;
+    ).subscribe((suggestions: any) => {
+      this.suggestions = suggestions || [];
       this.acIdx = -1;
       this.cdr.detectChanges();
     });
@@ -824,13 +824,16 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
       this.tabSelected$,
     ).pipe(
       debounce(1000),
-      filter(() => this.editMode),
-      filter(() => !this.tabSession?.enteredDir),
-      filter(v => {
+      filter((v: string) => this.editMode),
+      filter((v: string) => !this.tabSession?.enteredDir),
+      filter((v: string) => {
         const n = normalizePath(v);
         return !!v && !n.endsWith('/') && n !== '/' && !/^[A-Za-z]:\/$/.test(n);
       }),
-      switchMap(v => from(this.tryAppendSlash(v))),
+      switchMap((v: string) => {
+        this.tryAppendSlash(v);
+        return EMPTY;
+      }),
       takeUntil(this.destroy$),
     ).subscribe();
 

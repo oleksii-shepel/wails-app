@@ -16,6 +16,8 @@ import { PathHistoryViewerComponent } from './path-history-viewer.component';
 import { FilePaneComponent } from './file-pane.component';
 import { SplitDividerComponent } from './split-divider.component';
 import { StatusBarComponent } from './status-bar.component';
+import { OperationStatusBarComponent } from './operation-status-bar.component';
+import { OperationToastStackComponent } from './operation-stack.component';
 
 @Component({
   selector: 'app-file-browser',
@@ -28,7 +30,9 @@ import { StatusBarComponent } from './status-bar.component';
     GlobalSearchComponent,
     KeyboardHelpComponent,
     SplitDividerComponent,
-    StatusBarComponent
+    StatusBarComponent,
+    OperationStatusBarComponent,
+    OperationToastStackComponent
   ],
   templateUrl: './file-browser.component.html',
   styleUrls: ['./file-browser.component.scss'],

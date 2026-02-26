@@ -5,6 +5,18 @@
   box-sizing: border-box;
 }
 
+:root {
+  --op-blue: #3b82f6;
+  --op-purple: #8b5cf6;
+  --op-red: #ef4444;
+  --op-orange: #f97316;
+  --op-green: #10b981;
+  --op-cyan: #06b6d4;
+  --op-teal: #14b8a6;
+  --op-indigo: #6366f1;
+  --op-gray: #6b7280;
+}
+
 html, body {
   margin: 0;
   padding: 0;

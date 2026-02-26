@@ -1,5 +1,10 @@
 package main
 
+import (
+	"sync"
+	"time"
+)
+
 // ============================================================================
 // OS Info
 // ============================================================================
@@ -116,8 +121,8 @@ type SearchResult struct {
 type ResponseStatus string
 
 const (
-	StatusSuccess ResponseStatus = "SUCCESS"
-	StatusError   ResponseStatus = "ERROR"
+	ResponseStatusSuccess ResponseStatus = "SUCCESS"
+	ResponseStatusError   ResponseStatus = "ERROR"
 )
 
 type ErrorDetail struct {
@@ -224,4 +229,94 @@ type UserPreferences struct {
 	EnableKeyboardShortcuts bool   `json:"enableKeyboardShortcuts"`
 	DoubleClickAction       string `json:"doubleClickAction"`
 	ConfirmDelete           bool   `json:"confirmDelete"`
+}
+
+// OperationType categorizes long-running operations
+type OperationType string
+
+const (
+	OpCopy      OperationType = "COPY"
+	OpMove      OperationType = "MOVE"
+	OpDelete    OperationType = "DELETE"
+	OpArchive   OperationType = "ARCHIVE"
+	OpExtract   OperationType = "EXTRACT"
+	OpSearch    OperationType = "SEARCH"
+	OpCalculate OperationType = "CALCULATE" // Size calculation
+)
+
+// OperationStatus represents the current state
+type OperationStatus string
+
+const (
+	StatusPending   OperationStatus = "PENDING"
+	StatusRunning   OperationStatus = "RUNNING"
+	StatusPaused    OperationStatus = "PAUSED"
+	StatusCompleted OperationStatus = "COMPLETED"
+	StatusCancelled OperationStatus = "CANCELLED"
+	StatusError     OperationStatus = "ERROR"
+)
+
+// OperationProgress is sent to frontend via Wails events
+type OperationProgress struct {
+	ID              string          `json:"id"`
+	Type            OperationType   `json:"type"`
+	Status          OperationStatus `json:"status"`
+	Title           string          `json:"title"`
+	SourcePath      string          `json:"sourcePath"`
+	DestinationPath string          `json:"destinationPath,omitempty"`
+
+	// Progress metrics
+	TotalItems      int64  `json:"totalItems"`
+	ProcessedItems  int64  `json:"processedItems"`
+	TotalBytes      int64  `json:"totalBytes"`
+	ProcessedBytes  int64  `json:"processedBytes"`
+	CurrentFile     string `json:"currentFile"`
+	CurrentFileSize int64  `json:"currentFileSize"`
+
+	// Calculated fields
+	PercentComplete     float64 `json:"percentComplete"`
+	SpeedBytesPerSec    float64 `json:"speedBytesPerSec"`    // Current speed
+	AvgSpeedBytesPerSec float64 `json:"avgSpeedBytesPerSec"` // Average speed
+	ETASeconds          int64   `json:"etaSeconds"`          // Estimated time remaining
+
+	// Timing
+	StartTime      int64  `json:"startTime"`
+	ElapsedSeconds int64  `json:"elapsedSeconds"`
+	EndTime        *int64 `json:"endTime,omitempty"`
+
+	// Error info
+	Error *string `json:"error,omitempty"`
+}
+
+// ProgressSnapshot for internal tracking
+type progressSnapshot struct {
+	bytesAtStart    int64
+	timeAtStart     time.Time
+	lastUpdateTime  time.Time
+	lastUpdateBytes int64
+	speedSamples    []float64 // For averaging
+}
+
+// ActiveOperation tracks a running operation internally
+type ActiveOperation struct {
+	ID       string
+	Type     OperationType
+	Progress OperationProgress
+	snapshot progressSnapshot
+	cancel   chan struct{}
+	mu       sync.RWMutex
+}
+
+// OperationManager manages all active operations
+type OperationManager struct {
+	operations map[string]*ActiveOperation
+	mu         sync.RWMutex
+	nextID     int
+}
+
+func NewOperationManager() *OperationManager {
+	return &OperationManager{
+		operations: make(map[string]*ActiveOperation),
+		nextID:     1,
+	}
 }

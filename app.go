@@ -14,6 +14,7 @@ type App struct {
 	ctx        context.Context
 	nav        *NavigationManager
 	workspaces *WorkspaceManager
+	operations *OperationManager
 }
 
 // NewApp creates a new App application struct.
@@ -30,6 +31,7 @@ func NewApp() *App {
 	return &App{
 		nav:        NewNavigationManager(),
 		workspaces: wm,
+		operations: NewOperationManager(),
 	}
 }
 
@@ -101,6 +103,22 @@ func (a *App) Copy(source, destination string, recursive bool) (*OperationResult
 
 func (a *App) Search(path, pattern string, recursive bool) (*SearchResult, error) {
 	return a.SearchFiles(path, pattern, recursive)
+}
+
+// ============================================================================
+// Progress Operations API (exposed to frontend)
+// ============================================================================
+
+func (a *App) GetActiveOperations() []OperationProgress {
+	return a.operations.ListActiveOperations()
+}
+
+func (a *App) CancelOperation(id string) bool {
+	return a.operations.CancelOperation(id)
+}
+
+func (a *App) DismissOperation(id string) {
+	a.operations.RemoveOperation(id)
 }
 
 // ============================================================================

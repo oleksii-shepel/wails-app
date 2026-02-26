@@ -11,6 +11,14 @@
   min-height: 0;
   overflow: hidden;
   background: var(--vsc-editor-background);
+
+  // Pin the status bar as a fixed-height flex child so it is never squashed
+  // by .file-manager-inner (which takes flex: 1 1 0%).
+  > app-status-bar {
+    flex-shrink: 0;
+    display: block;
+    height: var(--vsc-statusbar-height, 22px);
+  }
 }
 
 .file-manager-inner {
@@ -263,7 +271,6 @@
   display: flex;
   flex: 1 1 0%;
   width: 100%;
-  height: 100%;
   gap: 1px;
   background: var(--vsc-border);
   overflow: hidden;
@@ -284,7 +291,6 @@
 .pane-wrapper {
   display: flex;
   min-width: 0;
-  height: 100%;
   overflow: hidden;
   background: var(--vsc-editor-background);
 }

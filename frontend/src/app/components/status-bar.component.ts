@@ -15,16 +15,24 @@ import { OperationState } from '../services/operation.types';
         <span class="divider"></span>
         <span class="status-text">{{ totalSize }}</span>
       </div>
-      
+
       <div class="status-center">
-        <div 
-          class="operations-pill" 
-          *ngIf="hasActiveOperations"
+        <!-- Show pill whenever any operation exists (running OR collapsed/completed) -->
+        <div
+          class="operations-pill"
+          *ngIf="hasAnyOperations"
           (click)="toggleOperationsPanel()"
-          [class.has-completed]="hasCompleted"
+          [class.has-active]="hasActiveOperations"
+          [class.has-collapsed]="collapsedCount > 0"
         >
           <div class="pulse-dot" *ngIf="hasActiveOperations"></div>
-          <span>{{ activeCount }} operation{{ activeCount !== 1 ? 's' : '' }}</span>
+          <div class="collapsed-dot" *ngIf="!hasActiveOperations && collapsedCount > 0"></div>
+          <span>
+            {{ activeCount > 0 ? activeCount + ' running' : '' }}
+            {{ activeCount > 0 && collapsedCount > 0 ? '·' : '' }}
+            {{ collapsedCount > 0 ? collapsedCount + ' waiting' : '' }}
+            {{ activeCount === 0 && collapsedCount === 0 ? totalCount + ' op' + (totalCount !== 1 ? 's' : '') : '' }}
+          </span>
           <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" [class.rotated]="showPanel">
             <polyline points="6 9 12 15 18 9"></polyline>
           </svg>
@@ -35,17 +43,22 @@ import { OperationState } from '../services/operation.types';
         <span class="status-text">{{ currentPath }}</span>
       </div>
 
+      <!-- Projected content: e.g. <app-operation-status-bar> -->
+      <ng-content></ng-content>
+
       <!-- Mini Operations Panel -->
       <div class="mini-panel" *ngIf="showPanel">
         <div class="mini-header">
-          <span>Active Operations</span>
-          <button class="btn-text" (click)="collapseAll()">Collapse All</button>
+          <span>Operations</span>
+          <button class="btn-text" (click)="restoreAll(); $event.stopPropagation()">
+            Show All
+          </button>
         </div>
         <div class="mini-list">
-          <div 
-            class="mini-item" 
+          <div
+            class="mini-item"
             *ngFor="let op of recentOperations"
-            (click)="restoreOperation(op.id)"
+            (click)="restoreOperation(op.id); $event.stopPropagation()"
             [class]="'status-' + op.status"
           >
             <div class="mini-icon" [style.--mini-color]="'var(' + op.config.themeColor + ')'">
@@ -53,7 +66,14 @@ import { OperationState } from '../services/operation.types';
             </div>
             <div class="mini-info">
               <span class="mini-title">{{ op.config.title }}</span>
-              <span class="mini-detail">{{ formatSpeed(op) }} • {{ formatETA(op) }}</span>
+              <span class="mini-detail">
+                <ng-container *ngIf="op.status === 'running'">
+                  {{ formatSpeed(op) }} · {{ formatETA(op) }}
+                </ng-container>
+                <ng-container *ngIf="op.status === 'completed'">Done</ng-container>
+                <ng-container *ngIf="op.status === 'error'">Error</ng-container>
+                <ng-container *ngIf="op.status === 'cancelled'">Cancelled</ng-container>
+              </span>
             </div>
             <div class="mini-percent">{{ op.percentComplete | number:'1.0-0' }}%</div>
           </div>
@@ -112,15 +132,23 @@ import { OperationState } from '../services/operation.types';
       transition: all 0.2s;
       font-weight: 500;
       font-size: var(--vsc-font-size-small, 12px);
+      white-space: nowrap;
     }
 
     .operations-pill:hover {
       background: rgba(255, 255, 255, 0.2);
     }
 
-    .operations-pill.has-completed {
-      background: rgba(16, 185, 129, 0.3);
-      border-color: rgba(16, 185, 129, 0.5);
+    /* Active (running) — blue tint */
+    .operations-pill.has-active {
+      background: rgba(0, 122, 204, 0.35);
+      border-color: rgba(0, 122, 204, 0.6);
+    }
+
+    /* Collapsed only — subtle indicator so the user knows ops are waiting */
+    .operations-pill.has-collapsed:not(.has-active) {
+      background: rgba(255, 255, 255, 0.08);
+      border-color: rgba(255, 255, 255, 0.25);
     }
 
     .pulse-dot {
@@ -129,6 +157,16 @@ import { OperationState } from '../services/operation.types';
       background: currentColor;
       border-radius: 50%;
       animation: pulse 2s infinite;
+      flex-shrink: 0;
+    }
+
+    /* Static dot for collapsed-only state */
+    .collapsed-dot {
+      width: 6px;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.6);
+      border-radius: 50%;
+      flex-shrink: 0;
     }
 
     @keyframes pulse {
@@ -138,6 +176,7 @@ import { OperationState } from '../services/operation.types';
 
     .operations-pill svg {
       transition: transform 0.2s;
+      flex-shrink: 0;
     }
 
     .operations-pill svg.rotated {
@@ -233,24 +272,12 @@ import { OperationState } from '../services/operation.types';
       transition: width 0.3s;
     }
 
-    .mini-item.status-completed .mini-icon { 
-      background: rgba(16, 185, 129, 0.2); 
-    }
-    .mini-item.status-completed .mini-progress { 
-      background: var(--vsc-success, #89d185); 
-    }
-    .mini-item.status-error .mini-icon { 
-      background: rgba(239, 68, 68, 0.2); 
-    }
-    .mini-item.status-error .mini-progress { 
-      background: var(--vsc-error, #f48771); 
-    }
-    .mini-item.status-cancelled .mini-icon { 
-      background: rgba(245, 158, 11, 0.2); 
-    }
-    .mini-item.status-cancelled .mini-progress { 
-      background: var(--vsc-warning, #cca700); 
-    }
+    .mini-item.status-completed .mini-icon  { background: rgba(16, 185, 129, 0.2); }
+    .mini-item.status-completed .mini-progress { background: var(--vsc-success, #89d185); }
+    .mini-item.status-error .mini-icon      { background: rgba(239, 68, 68, 0.2); }
+    .mini-item.status-error .mini-progress  { background: var(--vsc-error, #f48771); }
+    .mini-item.status-cancelled .mini-icon  { background: rgba(245, 158, 11, 0.2); }
+    .mini-item.status-cancelled .mini-progress { background: var(--vsc-warning, #cca700); }
 
     .mini-info {
       flex: 1;
@@ -286,53 +313,45 @@ import { OperationState } from '../services/operation.types';
   `]
 })
 export class StatusBarComponent implements OnInit, OnDestroy {
-  // Local state
-  hasActiveOperations = false;
   showPanel = false;
+
+  // Counts
+  totalCount = 0;
   activeCount = 0;
-  hasCompleted = false;
+  collapsedCount = 0;
+
+  // Derived flags used in template
+  hasAnyOperations = false;
+  hasActiveOperations = false;
+
   recentOperations: OperationState[] = [];
-  
+
   itemsSelected = 0;
   totalSize = '0 B';
   currentPath = '/';
 
-  // Cleanup
   private destroy$ = createSubject<void>();
 
   constructor(private operationService: OperationService) {}
 
   ngOnInit(): void {
-    // Subscribe to active count
-    this.operationService.activeCount$.pipe(
-      takeUntil(this.destroy$)
-    ).subscribe(count => {
-      this.activeCount = count;
-      this.hasActiveOperations = count > 0;
-    });
-
-    // Subscribe to has active operations
-    this.operationService.hasActiveOperations$.pipe(
-      takeUntil(this.destroy$)
-    ).subscribe(hasActive => {
-      this.hasActiveOperations = hasActive;
-    });
-
-    // Subscribe to all operations to check for completed and get recent list
+    // Single source of truth: operations$ covers every state.
     this.operationService.operations$.pipe(
       takeUntil(this.destroy$)
     ).subscribe((ops: Map<string, OperationState>) => {
-      // Check if any completed
-      let hasCompleted = false;
-      ops.forEach(op => {
-        if (op.status === 'completed') hasCompleted = true;
-      });
-      this.hasCompleted = hasCompleted;
+      const all = Array.from(ops.values());
 
-      // Get recent operations (first 5)
-      const opsArray: OperationState[] = [];
-      ops.forEach(op => opsArray.push(op));
-      this.recentOperations = opsArray.slice(0, 5);
+      this.totalCount = all.length;
+      this.activeCount = all.filter(o => o.status === 'running' || o.status === 'pending').length;
+      this.collapsedCount = all.filter(o => o.isCollapsed).length;
+
+      // Pill is visible whenever ANY operation exists — running, collapsed, or
+      // recently completed but not yet auto-dismissed.
+      this.hasAnyOperations = this.totalCount > 0;
+      this.hasActiveOperations = this.activeCount > 0;
+
+      // Show up to 5 most recent in the popover
+      this.recentOperations = all.slice(0, 5);
     });
   }
 
@@ -350,8 +369,8 @@ export class StatusBarComponent implements OnInit, OnDestroy {
     this.showPanel = false;
   }
 
-  collapseAll(): void {
-    this.operationService.collapseAll();
+  restoreAll(): void {
+    this.operationService.restoreAll();
     this.showPanel = false;
   }
 

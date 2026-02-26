@@ -31,7 +31,6 @@ import { OperationToastStackComponent } from './operation-stack.component';
     KeyboardHelpComponent,
     SplitDividerComponent,
     StatusBarComponent,
-    OperationStatusBarComponent,
     OperationToastStackComponent
   ],
   templateUrl: './file-browser.component.html',

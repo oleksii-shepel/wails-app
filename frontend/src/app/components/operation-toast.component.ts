@@ -93,8 +93,8 @@ import { OperationService } from '../services/operation.service';
 
         <button 
           class="action-btn collapse" 
-          (click)="onCollapse($event)"
-          title="Hide to status bar"
+          (click)="onGlobalCollapse($event)"
+          title="Collapse all to status bar"
         >
           <svg viewBox="0 0 24 24">
             <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"></path>
@@ -402,6 +402,11 @@ import { OperationService } from '../services/operation.service';
       stroke-linejoin: round;
     }
 
+    .action-btn.collapse:hover {
+      background: color-mix(in srgb, var(--vsc-accent-purple) 20%, transparent);
+      color: var(--vsc-accent-purple);
+    }
+
     .action-btn.cancel:hover {
       background: color-mix(in srgb, var(--vsc-error) 20%, transparent);
       color: var(--vsc-error);
@@ -519,7 +524,7 @@ export class OperationToastComponent {
   @Input() operation!: OperationState;
   @Output() minimize = new EventEmitter<string>();
   @Output() expand = new EventEmitter<string>();
-  @Output() collapse = new EventEmitter<string>();
+  @Output() globalCollapse = new EventEmitter<void>(); // Changed from individual collapse
   @Output() cancel = new EventEmitter<string>();
   @Output() dismiss = new EventEmitter<string>();
 
@@ -547,9 +552,9 @@ export class OperationToastComponent {
     this.minimize.emit(this.operation.id);
   }
 
-  onCollapse(event: Event): void {
+  onGlobalCollapse(event: Event): void {
     event.stopPropagation();
-    this.collapse.emit(this.operation.id);
+    this.globalCollapse.emit(); // Emit without ID - collapse all
   }
 
   onCancel(event: Event): void {

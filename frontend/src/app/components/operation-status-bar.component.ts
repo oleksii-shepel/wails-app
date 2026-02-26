@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy } from '@angular/core';
+import { Component, OnInit, OnDestroy, Input, Output, EventEmitter } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { 
   createSubject,
@@ -17,28 +17,57 @@ import { OperationState } from '../services/operation.types';
       <div 
         class="status-pill"
         [class.has-active]="hasActive"
-        (click)="toggleExpanded()"
+        [class.toast-collapsed]="toastCollapsed"
+        (click)="onPillClick()"
       >
         <div class="pulse-indicator" *ngIf="hasActive"></div>
+        <div class="static-indicator" *ngIf="!hasActive"></div>
         <span class="pill-label">{{ count }} ops</span>
         <div class="pill-progress" *ngIf="overallProgress > 0">
           <div class="pill-progress-fill" [style.width.%]="overallProgress"></div>
         </div>
+        <!-- Restore arrow when toast is collapsed -->
+        <svg 
+          *ngIf="toastCollapsed"
+          class="restore-icon" 
+          viewBox="0 0 24 24" 
+          width="12" 
+          height="12" 
+          stroke="currentColor" 
+          stroke-width="2" 
+          fill="none"
+        >
+          <polyline points="6 15 12 9 18 15"></polyline>
+        </svg>
       </div>
 
       <!-- Expanded Mini List -->
       <div class="operations-popover" *ngIf="expanded" @fadeIn>
         <div class="popover-header">
           <span>Operations</span>
-          <button class="btn-text" (click)="collapseAll(); $event.stopPropagation()">
-            Hide All
-          </button>
+          <div class="header-actions">
+            <button 
+              *ngIf="toastCollapsed"
+              class="btn-text restore-btn"
+              (click)="restoreToastStack(); $event.stopPropagation()"
+            >
+              Show Toasts
+            </button>
+            <button 
+              *ngIf="!toastCollapsed"
+              class="btn-text"
+              (click)="collapseToastStack(); $event.stopPropagation()"
+            >
+              Hide Toasts
+            </button>
+          </div>
         </div>
         <div class="popover-list">
           <div 
             class="popover-item"
             *ngFor="let op of operations"
-            (click)="restore(op.id); $event.stopPropagation()"
+            (click)="restoreOperation(op.id); $event.stopPropagation()"
+            [class]="'status-' + op.status"
           >
             <div 
               class="item-icon"
@@ -83,6 +112,7 @@ import { OperationState } from '../services/operation.types';
       transition: all var(--vsc-transition-fast);
       font-size: var(--vsc-font-size-small);
       color: var(--vsc-badge-foreground);
+      border: 1px solid transparent;
     }
 
     .status-pill:hover {
@@ -91,6 +121,12 @@ import { OperationState } from '../services/operation.types';
 
     .status-pill.has-active {
       background: color-mix(in srgb, var(--vsc-accent-blue) 20%, var(--vsc-badge-background));
+      border-color: color-mix(in srgb, var(--vsc-accent-blue) 40%, transparent);
+    }
+
+    .status-pill.toast-collapsed {
+      background: color-mix(in srgb, var(--vsc-accent-purple) 15%, var(--vsc-badge-background));
+      border-color: color-mix(in srgb, var(--vsc-accent-purple) 30%, transparent);
     }
 
     .pulse-indicator {
@@ -99,6 +135,14 @@ import { OperationState } from '../services/operation.types';
       background: var(--vsc-accent-blue);
       border-radius: 50%;
       animation: pulse 1.5s ease-in-out infinite;
+    }
+
+    .static-indicator {
+      width: 6px;
+      height: 6px;
+      background: var(--vsc-foreground-dim);
+      border-radius: 50%;
+      opacity: 0.5;
     }
 
     @keyframes pulse {
@@ -125,16 +169,29 @@ import { OperationState } from '../services/operation.types';
       transition: width var(--vsc-transition-fast);
     }
 
+    .restore-icon {
+      margin-left: 2px;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      animation: bounce 2s infinite;
+    }
+
+    @keyframes bounce {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-2px); }
+    }
+
     .operations-popover {
       position: absolute;
       bottom: calc(100% + 8px);
       right: 0;
-      width: 240px;
+      width: 260px;
       background: var(--vsc-panel-background);
       border: 1px solid var(--vsc-border);
       border-radius: var(--vsc-border-radius-lg);
       box-shadow: var(--vsc-widget-shadow);
       animation: popover-enter 0.15s ease;
+      z-index: var(--vsc-z-dropdown);
     }
 
     @keyframes popover-enter {
@@ -153,6 +210,11 @@ import { OperationState } from '../services/operation.types';
       color: var(--vsc-foreground-bright);
     }
 
+    .header-actions {
+      display: flex;
+      gap: var(--vsc-padding-sm);
+    }
+
     .btn-text {
       background: none;
       border: none;
@@ -161,14 +223,24 @@ import { OperationState } from '../services/operation.types';
       cursor: pointer;
       padding: 2px 6px;
       border-radius: var(--vsc-border-radius);
+      transition: all var(--vsc-transition-fast);
     }
 
     .btn-text:hover {
       background: var(--vsc-list-hover-background);
     }
 
+    .restore-btn {
+      color: var(--vsc-accent-purple);
+      font-weight: 600;
+    }
+
+    .restore-btn:hover {
+      background: color-mix(in srgb, var(--vsc-accent-purple) 20%, var(--vsc-list-hover-background));
+    }
+
     .popover-list {
-      max-height: 200px;
+      max-height: 220px;
       overflow-y: auto;
     }
 
@@ -184,6 +256,18 @@ import { OperationState } from '../services/operation.types';
 
     .popover-item:hover {
       background: var(--vsc-list-hover-background);
+    }
+
+    .popover-item.status-completed {
+      opacity: 0.8;
+    }
+
+    .popover-item.status-error {
+      background: color-mix(in srgb, var(--vsc-error) 5%, transparent);
+    }
+
+    .popover-item.status-error:hover {
+      background: color-mix(in srgb, var(--vsc-error) 10%, var(--vsc-list-hover-background));
     }
 
     .item-icon {
@@ -202,12 +286,17 @@ import { OperationState } from '../services/operation.types';
       flex: 1;
       font-size: var(--vsc-font-size-small);
       color: var(--vsc-foreground);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .item-percent {
       font-size: var(--vsc-font-size-small);
       color: var(--vsc-foreground-dim);
       font-family: var(--vsc-font-family-mono);
+      min-width: 35px;
+      text-align: right;
     }
 
     .item-bar {
@@ -229,6 +318,9 @@ import { OperationState } from '../services/operation.types';
   `]
 })
 export class OperationStatusBarComponent implements OnInit, OnDestroy {
+  @Input() toastCollapsed = false;
+  @Output() toastCollapsedChange = new EventEmitter<boolean>();
+  
   expanded = false;
   operations: OperationState[] = [];
   hasOperations = false;
@@ -241,7 +333,6 @@ export class OperationStatusBarComponent implements OnInit, OnDestroy {
   constructor(private operationService: OperationService) {}
 
   ngOnInit(): void {
-    // Subscribe to all operations
     this.operationService.operations$.pipe(
       takeUntil(this.destroy$)
     ).subscribe(ops => {
@@ -249,7 +340,6 @@ export class OperationStatusBarComponent implements OnInit, OnDestroy {
       this.hasOperations = this.operations.length > 0;
       this.count = this.operations.length;
       
-      // Calculate overall progress
       if (this.operations.length > 0) {
         const sum = this.operations.reduce((acc, op) => acc + op.percentComplete, 0);
         this.overallProgress = sum / this.operations.length;
@@ -258,7 +348,6 @@ export class OperationStatusBarComponent implements OnInit, OnDestroy {
       }
     });
 
-    // Subscribe to active status
     this.operationService.hasActiveOperations$.pipe(
       takeUntil(this.destroy$)
     ).subscribe(hasActive => {
@@ -271,17 +360,32 @@ export class OperationStatusBarComponent implements OnInit, OnDestroy {
     this.destroy$.complete();
   }
 
-  toggleExpanded(): void {
+  onPillClick(): void {
     this.expanded = !this.expanded;
   }
 
-  collapseAll(): void {
-    this.operationService.collapseAll();
+  restoreToastStack(): void {
+    this.toastCollapsed = false;
+    this.toastCollapsedChange.emit(false);
     this.expanded = false;
+    // Also restore all individual operations
+    this.operationService.restoreAll();
   }
 
-  restore(id: string): void {
-    this.operationService.restore(id);
+  collapseToastStack(): void {
+    this.toastCollapsed = true;
+    this.toastCollapsedChange.emit(true);
     this.expanded = false;
+    // Also collapse all individual operations
+    this.operationService.collapseAll();
+  }
+
+  restoreOperation(id: string): void {
+    this.operationService.restore(id);
+    // If we restore an individual operation while toast stack is collapsed,
+    // we should probably restore the toast stack too
+    if (this.toastCollapsed) {
+      this.restoreToastStack();
+    }
   }
 }

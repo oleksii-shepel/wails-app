@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy } from '@angular/core';
+import { Component, OnInit, OnDestroy, Input, Output, EventEmitter } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { 
   createSubject,
@@ -15,9 +15,8 @@ import { OperationToastComponent } from './operation-toast.component';
   standalone: true,
   imports: [CommonModule, OperationToastComponent],
   template: `
-    <div class="toast-stack-host">
-      <!-- Visible Toasts -->
-      <div class="toast-stack" *ngIf="visibleOps.length > 0">
+    <div class="toast-stack-host" *ngIf="!isGloballyCollapsed && visibleOps.length > 0">
+      <div class="toast-stack">
         <div 
           class="toast-item"
           *ngFor="let op of visibleOps; let i = index; trackBy: trackById"
@@ -27,39 +26,25 @@ import { OperationToastComponent } from './operation-toast.component';
             [operation]="op"
             (minimize)="onMinimize($event)"
             (expand)="onExpand($event)"
-            (collapse)="onCollapse($event)"
+            (collapse)="onGlobalCollapse()"
             (cancel)="onCancel($event)"
             (dismiss)="onDismiss($event)"
           ></app-operation-toast>
         </div>
       </div>
 
-      <!-- Collapsed Indicator Pill -->
-      <div 
-        class="collapsed-pill"
-        *ngIf="collapsedCount > 0"
-        (click)="onRestoreAll()"
+      <!-- Global Collapse Button (shown when multiple toasts) -->
+      <button 
+        *ngIf="visibleOps.length > 1"
+        class="global-collapse-btn"
+        (click)="onGlobalCollapse()"
+        title="Collapse all to status bar"
       >
-        <div class="pill-content">
-          <div class="activity-indicator" *ngIf="hasActive">
-            <div class="indicator-dot"></div>
-          </div>
-          <span class="pill-text">{{ collapsedCount }} operation{{ collapsedCount > 1 ? 's' : '' }}</span>
-          <svg class="pill-arrow" viewBox="0 0 24 24">
-            <polyline points="6 9 12 15 18 9"></polyline>
-          </svg>
-        </div>
-        
-        <!-- Mini progress bars -->
-        <div class="pill-progress-bars" *ngIf="collapsedOps.length > 0">
-          <div 
-            *ngFor="let op of collapsedOps.slice(0, 4)"
-            class="mini-bar"
-            [style.background]="'var(' + op.config.themeColor + ')'"
-            [style.width.%]="op.percentComplete"
-          ></div>
-        </div>
-      </div>
+        <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none">
+          <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"></path>
+        </svg>
+        <span>Collapse</span>
+      </button>
     </div>
   `,
   styles: [`
@@ -75,7 +60,7 @@ import { OperationToastComponent } from './operation-toast.component';
       display: flex;
       flex-direction: column;
       align-items: flex-end;
-      gap: var(--vsc-padding-md);
+      gap: var(--vsc-padding-sm);
       pointer-events: auto;
     }
 
@@ -116,122 +101,50 @@ import { OperationToastComponent } from './operation-toast.component';
       opacity: 0.7;
     }
 
-    .collapsed-pill {
-      background: var(--vsc-panel-background);
-      border: 1px solid var(--vsc-border);
-      border-radius: 20px;
-      padding: var(--vsc-padding-sm) var(--vsc-padding-md);
-      cursor: pointer;
-      transition: all var(--vsc-transition-normal);
-      box-shadow: var(--vsc-widget-shadow);
-      min-width: 140px;
-    }
-
-    .collapsed-pill:hover {
-      background: var(--vsc-list-hover-background);
-      border-color: var(--vsc-border-bright);
-      transform: translateY(-1px);
-    }
-
-    .pill-content {
+    .global-collapse-btn {
       display: flex;
       align-items: center;
       gap: var(--vsc-padding-sm);
+      padding: var(--vsc-padding-xs) var(--vsc-padding-md);
+      background: var(--vsc-panel-background);
+      border: 1px solid var(--vsc-border);
+      border-radius: 20px;
+      color: var(--vsc-foreground-dim);
+      cursor: pointer;
       font-size: var(--vsc-font-size-small);
+      font-family: var(--vsc-font-family);
+      transition: all var(--vsc-transition-fast);
+      box-shadow: var(--vsc-widget-shadow);
+      margin-top: var(--vsc-padding-xs);
+    }
+
+    .global-collapse-btn:hover {
+      background: var(--vsc-list-hover-background);
+      border-color: var(--vsc-border-bright);
       color: var(--vsc-foreground);
-      font-weight: 500;
     }
 
-    .activity-indicator {
-      width: 14px;
-      height: 14px;
-      position: relative;
-    }
-
-    .indicator-dot {
-      width: 8px;
-      height: 8px;
-      background: var(--vsc-accent-blue);
-      border-radius: 50%;
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      animation: pulse 1.5s ease-in-out infinite;
-    }
-
-    @keyframes pulse {
-      0%, 100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-      50% { opacity: 0.5; transform: translate(-50%, -50%) scale(0.8); }
-    }
-
-    .pill-arrow {
-      width: 14px;
-      height: 14px;
-      margin-left: auto;
-      stroke: var(--vsc-foreground-dim);
-      stroke-width: 2;
-      fill: none;
+    .global-collapse-btn svg {
       stroke-linecap: round;
       stroke-linejoin: round;
-      transition: transform var(--vsc-transition-fast);
-    }
-
-    .collapsed-pill:hover .pill-arrow {
-      transform: rotate(180deg);
-    }
-
-    .pill-progress-bars {
-      display: flex;
-      gap: 2px;
-      margin-top: var(--vsc-padding-sm);
-      height: 2px;
-    }
-
-    .mini-bar {
-      flex: 1;
-      height: 100%;
-      border-radius: 1px;
-      opacity: 0.7;
-      transition: opacity var(--vsc-transition-fast);
-    }
-
-    .mini-bar:hover {
-      opacity: 1;
     }
   `]
 })
 export class OperationToastStackComponent implements OnInit, OnDestroy {
+  @Input() isGloballyCollapsed = false;
+  @Output() isGloballyCollapsedChange = new EventEmitter<boolean>();
+  
   visibleOps: OperationState[] = [];
-  collapsedOps: OperationState[] = [];
-  collapsedCount = 0;
-  hasActive = false;
-
   private destroy$ = createSubject<void>();
 
   constructor(private operationService: OperationService) {}
 
   ngOnInit(): void {
-    // Subscribe to visible operations
+    // Subscribe to all non-collapsed operations (individual collapse)
     this.operationService.visibleOperations$.pipe(
       takeUntil(this.destroy$)
     ).subscribe(ops => {
       this.visibleOps = ops;
-    });
-
-    // Subscribe to collapsed operations
-    this.operationService.collapsedOperations$.pipe(
-      takeUntil(this.destroy$)
-    ).subscribe(ops => {
-      this.collapsedOps = ops;
-      this.collapsedCount = ops.length;
-    });
-
-    // Subscribe to active count
-    this.operationService.hasActiveOperations$.pipe(
-      takeUntil(this.destroy$)
-    ).subscribe(hasActive => {
-      this.hasActive = hasActive;
     });
   }
 
@@ -244,6 +157,20 @@ export class OperationToastStackComponent implements OnInit, OnDestroy {
     return op.id;
   }
 
+  onGlobalCollapse(): void {
+    this.isGloballyCollapsed = true;
+    this.isGloballyCollapsedChange.emit(true);
+    // Also collapse all individual operations
+    this.operationService.collapseAll();
+  }
+
+  restore(): void {
+    this.isGloballyCollapsed = false;
+    this.isGloballyCollapsedChange.emit(false);
+    // Restore all individual operations
+    this.operationService.restoreAll();
+  }
+
   onMinimize(id: string): void {
     this.operationService.minimize(id);
   }
@@ -252,19 +179,11 @@ export class OperationToastStackComponent implements OnInit, OnDestroy {
     this.operationService.expand(id);
   }
 
-  onCollapse(id: string): void {
-    this.operationService.collapse(id);
-  }
-
   onCancel(id: string): void {
     this.operationService.cancel(id);
   }
 
   onDismiss(id: string): void {
     this.operationService.dismiss(id);
-  }
-
-  onRestoreAll(): void {
-    this.operationService.restoreAll();
   }
 }

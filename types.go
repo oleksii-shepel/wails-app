@@ -81,7 +81,6 @@ type FileInfo struct {
 	NestedChain []string `json:"nestedChain,omitempty"`
 }
 
-// Add this struct to fix "undefined: ArchiveListing"
 type ArchiveListing struct {
 	ArchivePath string     `json:"archivePath"`
 	InnerPath   string     `json:"innerPath"`
@@ -231,7 +230,11 @@ type UserPreferences struct {
 	ConfirmDelete           bool   `json:"confirmDelete"`
 }
 
-// OperationType categorizes long-running operations
+// ============================================================================
+// Operations
+// ============================================================================
+
+// OperationType categorizes long-running operations.
 type OperationType string
 
 const (
@@ -241,10 +244,10 @@ const (
 	OpArchive   OperationType = "ARCHIVE"
 	OpExtract   OperationType = "EXTRACT"
 	OpSearch    OperationType = "SEARCH"
-	OpCalculate OperationType = "CALCULATE" // Size calculation
+	OpCalculate OperationType = "CALCULATE"
 )
 
-// OperationStatus represents the current state
+// OperationStatus represents the current state.
 type OperationStatus string
 
 const (
@@ -256,7 +259,8 @@ const (
 	StatusError     OperationStatus = "ERROR"
 )
 
-// OperationProgress is sent to frontend via Wails events
+// OperationProgress holds all progress state for an operation.
+// This is the internal struct; wire events use the typed op*Event structs.
 type OperationProgress struct {
 	ID              string          `json:"id"`
 	Type            OperationType   `json:"type"`
@@ -265,7 +269,6 @@ type OperationProgress struct {
 	SourcePath      string          `json:"sourcePath"`
 	DestinationPath string          `json:"destinationPath,omitempty"`
 
-	// Progress metrics
 	TotalItems      int64  `json:"totalItems"`
 	ProcessedItems  int64  `json:"processedItems"`
 	TotalBytes      int64  `json:"totalBytes"`
@@ -273,31 +276,30 @@ type OperationProgress struct {
 	CurrentFile     string `json:"currentFile"`
 	CurrentFileSize int64  `json:"currentFileSize"`
 
-	// Calculated fields
 	PercentComplete     float64 `json:"percentComplete"`
-	SpeedBytesPerSec    float64 `json:"speedBytesPerSec"`    // Current speed
-	AvgSpeedBytesPerSec float64 `json:"avgSpeedBytesPerSec"` // Average speed
-	ETASeconds          int64   `json:"etaSeconds"`          // Estimated time remaining
+	SpeedBytesPerSec    float64 `json:"speedBytesPerSec"`
+	AvgSpeedBytesPerSec float64 `json:"avgSpeedBytesPerSec"`
+	ETASeconds          int64   `json:"etaSeconds"`
 
-	// Timing
+	// StartTime is stored in milliseconds to match frontend expectations.
 	StartTime      int64  `json:"startTime"`
 	ElapsedSeconds int64  `json:"elapsedSeconds"`
 	EndTime        *int64 `json:"endTime,omitempty"`
 
-	// Error info
 	Error *string `json:"error,omitempty"`
 }
 
-// ProgressSnapshot for internal tracking
+// progressSnapshot holds the internal bookkeeping needed for speed/ETA
+// calculations and is never serialised to the frontend.
 type progressSnapshot struct {
 	bytesAtStart    int64
 	timeAtStart     time.Time
 	lastUpdateTime  time.Time
 	lastUpdateBytes int64
-	speedSamples    []float64 // For averaging
+	speedSamples    []float64
 }
 
-// ActiveOperation tracks a running operation internally
+// ActiveOperation tracks a running operation internally.
 type ActiveOperation struct {
 	ID       string
 	Type     OperationType
@@ -305,18 +307,36 @@ type ActiveOperation struct {
 	snapshot progressSnapshot
 	cancel   chan struct{}
 	mu       sync.RWMutex
+
+	// app holds a reference to the App so we can emit Wails events without
+	// relying on a package-level global variable.
+	app *App
 }
 
-// OperationManager manages all active operations
+// OperationManager manages all active operations.
 type OperationManager struct {
 	operations map[string]*ActiveOperation
 	mu         sync.RWMutex
 	nextID     int
+
+	// app is set once by NewOperationManager and propagated to every
+	// ActiveOperation so they can emit events.
+	app *App
 }
 
+// NewOperationManager creates a manager. Call SetApp once the Wails context
+// is available (i.e. from App.startup).
 func NewOperationManager() *OperationManager {
 	return &OperationManager{
 		operations: make(map[string]*ActiveOperation),
 		nextID:     1,
 	}
+}
+
+// SetApp wires the App reference into the manager (and all future operations).
+// Must be called before any file operations start.
+func (om *OperationManager) SetApp(a *App) {
+	om.mu.Lock()
+	defer om.mu.Unlock()
+	om.app = a
 }

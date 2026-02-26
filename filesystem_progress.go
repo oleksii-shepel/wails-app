@@ -8,18 +8,14 @@ import (
 	"path/filepath"
 )
 
-// CopyFileWithProgress copies with real-time progress tracking
+// CopyFileWithProgress copies with real-time progress tracking.
 func (a *App) CopyFileWithProgress(source, destination string, recursive bool) (*OperationResult, error) {
-	// First, calculate total size
 	op := a.operations.StartOperation(OpCopy, "Copying files", source, destination)
 
-	// Calculate totals in background
 	totalItems, totalBytes := a.calculateSize(source)
 	op.SetTotal(totalItems, totalBytes)
 
-	// Perform copy with progress
 	err := a.copyWithProgress(source, destination, recursive, op)
-
 	if err != nil {
 		op.SetError(err)
 		return nil, err
@@ -64,12 +60,18 @@ func (a *App) copyWithProgress(src, dst string, recursive bool, op *ActiveOperat
 	return a.copySingleFileWithProgress(src, dst, info.Size(), op)
 }
 
+// copySingleFileWithProgress copies one file and emits granular byte-level
+// progress updates.
+//
+// The progress counters on the operation accumulate across all files in a
+// multi-file copy. This function receives baseBytes — the number of bytes
+// already accounted for by previously completed files — and adds only the
+// bytes written for THIS file on top of that value.
 func (a *App) copySingleFileWithProgress(src, dst string, size int64, op *ActiveOperation) error {
 	if op.IsCancelled() {
 		return fmt.Errorf("operation cancelled")
 	}
 
-	// Ensure dest directory exists
 	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
 		return err
 	}
@@ -86,44 +88,53 @@ func (a *App) copySingleFileWithProgress(src, dst string, size int64, op *Active
 	}
 	defer dstFile.Close()
 
-	// Update progress with current file
-	op.UpdateProgress(op.Progress.ProcessedItems, op.Progress.ProcessedBytes, filepath.Base(src), size)
+	// Snapshot the already-processed byte count BEFORE this file starts so
+	// we can add only the delta for this file to the running total.
+	op.mu.RLock()
+	baseBytes := op.Progress.ProcessedBytes
+	baseItems := op.Progress.ProcessedItems
+	op.mu.RUnlock()
 
-	// Copy with progress tracking
-	buf := make([]byte, 32*1024) // 32KB buffer
+	// Announce we have started this file (0 bytes written yet).
+	op.UpdateProgress(baseItems, baseBytes, filepath.Base(src), size)
+
+	buf := make([]byte, 32*1024) // 32 KB
 	var written int64
+
 	for {
 		if op.IsCancelled() {
-			os.Remove(dst) // Clean up partial file
+			os.Remove(dst)
 			return fmt.Errorf("operation cancelled")
 		}
 
-		nr, err := srcFile.Read(buf)
+		nr, readErr := srcFile.Read(buf)
 		if nr > 0 {
-			nw, err := dstFile.Write(buf[:nr])
-			if err != nil {
-				return err
+			nw, writeErr := dstFile.Write(buf[:nr])
+			if writeErr != nil {
+				return writeErr
 			}
 			written += int64(nw)
-			op.UpdateProgress(op.Progress.ProcessedItems, op.Progress.ProcessedBytes+written, filepath.Base(src), size)
+			// baseBytes + written gives the correct cumulative total across
+			// ALL files processed so far.
+			op.UpdateProgress(baseItems, baseBytes+written, filepath.Base(src), size)
 		}
-		if err == io.EOF {
+		if readErr == io.EOF {
 			break
 		}
-		if err != nil {
-			return err
+		if readErr != nil {
+			return readErr
 		}
 	}
 
-	// Update final progress for this file
-	op.UpdateProgress(op.Progress.ProcessedItems+1, op.Progress.ProcessedBytes+written, "", 0)
+	// Mark this file as fully processed: increment the item counter.
+	op.UpdateProgress(baseItems+1, baseBytes+written, "", 0)
 	return nil
 }
 
 func (a *App) copyDirWithProgress(src, dst string, op *ActiveOperation) error {
 	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return nil // Skip errors
+			return nil
 		}
 
 		if op.IsCancelled() {
@@ -142,14 +153,14 @@ func (a *App) copyDirWithProgress(src, dst string, op *ActiveOperation) error {
 	})
 }
 
-// MoveFileWithProgress moves with progress tracking
+// MoveFileWithProgress moves with progress tracking.
 func (a *App) MoveFileWithProgress(source, destination string) (*OperationResult, error) {
 	op := a.operations.StartOperation(OpMove, "Moving files", source, destination)
 
-	// Try atomic rename first
+	// Try atomic rename first — instant, no byte-level progress needed.
 	err := os.Rename(source, destination)
 	if err != nil {
-		// Cross-device: copy then delete
+		// Cross-device: fall back to copy-then-delete with progress.
 		totalItems, totalBytes := a.calculateSize(source)
 		op.SetTotal(totalItems, totalBytes)
 
@@ -173,7 +184,7 @@ func (a *App) MoveFileWithProgress(source, destination string) (*OperationResult
 	}, nil
 }
 
-// DeleteFileWithProgress deletes with progress tracking
+// DeleteFileWithProgress deletes with progress tracking.
 func (a *App) DeleteFileWithProgress(path string, recursive bool) (*OperationResult, error) {
 	op := a.operations.StartOperation(OpDelete, "Deleting files", path, "")
 
@@ -184,10 +195,8 @@ func (a *App) DeleteFileWithProgress(path string, recursive bool) (*OperationRes
 	}
 
 	if info.IsDir() && recursive {
-		// Calculate size for progress
 		totalItems, totalBytes := a.calculateSize(path)
 		op.SetTotal(totalItems, totalBytes)
-
 		err = a.deleteDirWithProgress(path, op)
 	} else {
 		op.SetTotal(1, info.Size())
@@ -209,15 +218,11 @@ func (a *App) DeleteFileWithProgress(path string, recursive bool) (*OperationRes
 }
 
 func (a *App) deleteDirWithProgress(path string, op *ActiveOperation) error {
-	// Walk and delete files first, then directories
 	var files []string
 	var dirs []string
 
 	filepath.WalkDir(path, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if p == path {
+		if err != nil || p == path {
 			return nil
 		}
 		if d.IsDir() {
@@ -228,23 +233,28 @@ func (a *App) deleteDirWithProgress(path string, op *ActiveOperation) error {
 		return nil
 	})
 
-	// Delete files with progress
+	// Delete files with progress.
 	for _, f := range files {
 		if op.IsCancelled() {
 			return fmt.Errorf("operation cancelled")
 		}
 
-		info, _ := os.Stat(f)
-		size := int64(0)
-		if info != nil {
+		var size int64
+		if info, err := os.Stat(f); err == nil {
 			size = info.Size()
 		}
 
 		os.Remove(f)
-		op.UpdateProgress(op.Progress.ProcessedItems+1, op.Progress.ProcessedBytes+size, filepath.Base(f), size)
+
+		op.mu.RLock()
+		prevItems := op.Progress.ProcessedItems
+		prevBytes := op.Progress.ProcessedBytes
+		op.mu.RUnlock()
+
+		op.UpdateProgress(prevItems+1, prevBytes+size, filepath.Base(f), size)
 	}
 
-	// Delete directories (reverse order)
+	// Delete directories in reverse order (deepest first).
 	for i := len(dirs) - 1; i >= 0; i-- {
 		os.Remove(dirs[i])
 	}

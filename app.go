@@ -38,6 +38,9 @@ func NewApp() *App {
 // startup is called by Wails when the app starts.
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	// Wire the App reference into the operation manager so it can emit
+	// Wails events. This replaces the old package-level appInstance global.
+	a.operations.SetApp(a)
 }
 
 // ============================================================================
@@ -125,15 +128,6 @@ func (a *App) DismissOperation(id string) {
 // Archive traversal  (treat archives like directories, no temp files)
 // ============================================================================
 
-// ArchiveBrowse is the unified entry point the frontend calls whenever it
-// "opens" something that is an ARCHIVE type entry.
-//
-//   - fsPath      – absolute path to the on-disk archive file.
-//   - nestedChain – empty for a top-level archive; each element is the entry
-//     name of an archive-inside-an-archive, in order from
-//     outermost to innermost.
-//   - innerPath   – the sub-directory inside the (innermost) archive to list,
-//     e.g. "" for the root or "src/pkg" for a subdirectory.
 func (a *App) ArchiveBrowse(fsPath string, nestedChain []string, innerPath string) (ArchiveListing, error) {
 	if len(nestedChain) == 0 {
 		return a.ArchiveList(fsPath, innerPath)
@@ -141,9 +135,6 @@ func (a *App) ArchiveBrowse(fsPath string, nestedChain []string, innerPath strin
 	return a.ArchiveListNested(fsPath, nestedChain, innerPath)
 }
 
-// ArchiveRead returns the contents of a single file inside an archive.
-// Use the same fsPath / nestedChain as ArchiveBrowse, and set entryPath to
-// the full inner path of the file you want to read.
 func (a *App) ArchiveRead(fsPath string, nestedChain []string, entryPath string) (*FileContent, error) {
 	return a.ArchiveReadFile(fsPath, nestedChain, entryPath)
 }

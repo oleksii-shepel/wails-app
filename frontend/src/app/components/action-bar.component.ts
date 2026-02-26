@@ -1,12 +1,13 @@
 import { Component, Input, Output, EventEmitter } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { DropdownContainerComponent } from './dropdown-container.component';
 
 export type ViewMode = 'list' | 'grid' | 'tree' | 'details';
 
 @Component({
   selector: 'app-action-bar',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, DropdownContainerComponent],
   template: `
     <div class="action-bar">
       <!-- View switcher (merged) -->
@@ -66,75 +67,77 @@ export type ViewMode = 'list' | 'grid' | 'tree' | 'details';
           </svg>
         </button>
 
-        <div class="sort-menu" *ngIf="sortMenuOpen" (click)="$event.stopPropagation()">
-          <div
-            class="sort-item"
-            *ngFor="let sort of sortOptions"
-            [class.active]="currentSort === sort.value"
-            (click)="onSortChange(sort.value)">
-            <span class="sort-check">
-              <svg *ngIf="currentSort === sort.value" width="20" height="20" viewBox="0 0 16 16" fill="none">
-                <path d="M2 8L6 12L14 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-            </span>
-            <span class="sort-label">{{ sort.label }}</span>
+        <app-dropdown-container [(isOpen)]="sortMenuOpen">
+          <div appDropdownMenu class="sort-menu">
+            <div
+              class="sort-item"
+              *ngFor="let sort of sortOptions"
+              [class.active]="currentSort === sort.value"
+              (click)="onSortChange(sort.value)">
+              <span class="sort-check">
+                <svg *ngIf="currentSort === sort.value" width="20" height="20" viewBox="0 0 16 16" fill="none">
+                  <path d="M2 8L6 12L14 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </span>
+              <span class="sort-label">{{ sort.label }}</span>
+            </div>
+            <div class="sort-divider"></div>
+            <div class="sort-item" (click)="toggleSortDirection()">
+              <span class="sort-check">
+                <svg *ngIf="sortDirection === 'asc'" width="20" height="20" viewBox="0 0 16 16" fill="none">
+                  <path d="M8 13 L8 3 M4 7 L8 3 L12 7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <svg *ngIf="sortDirection === 'desc'" width="20" height="20" viewBox="0 0 16 16" fill="none">
+                  <path d="M8 3 L8 13 M4 9 L8 13 L12 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </span>
+              <span class="sort-label">{{ sortDirection === 'asc' ? 'Ascending' : 'Descending' }}</span>
+            </div>
           </div>
-          <div class="sort-divider"></div>
-          <div class="sort-item" (click)="toggleSortDirection()">
-            <span class="sort-check">
-              <svg *ngIf="sortDirection === 'asc'" width="20" height="20" viewBox="0 0 16 16" fill="none">
-                <path d="M8 13 L8 3 M4 7 L8 3 L12 7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-              <svg *ngIf="sortDirection === 'desc'" width="20" height="20" viewBox="0 0 16 16" fill="none">
-                <path d="M8 3 L8 13 M4 9 L8 13 L12 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-            </span>
-            <span class="sort-label">{{ sortDirection === 'asc' ? 'Ascending' : 'Descending' }}</span>
-          </div>
-        </div>
+        </app-dropdown-container>
+
+        <div class="view-divider"></div>
+
+        <!-- New Folder -->
+        <button class="action-btn" title="New folder" (click)="onCreate()" aria-label="New folder">
+          <svg width="20" height="20" viewBox="0 0 16 16" fill="none">
+            <path d="M1 3.5A1.5 1.5 0 0 1 2.5 2H6l1.5 1.5H13.5A1.5 1.5 0 0 1 15 5v6.5A1.5 1.5 0 0 1 13.5 13h-11A1.5 1.5 0 0 1 1 11.5v-8z" fill="currentColor" opacity="0.25"/>
+            <path d="M1 5h14v6.5A1.5 1.5 0 0 1 13.5 13h-11A1.5 1.5 0 0 1 1 11.5V5z" fill="currentColor" opacity="0.4"/>
+            <path d="M8 6.75a.75.75 0 0 1 .75.75v1.25h1.25a.75.75 0 0 1 0 1.5H8.75v1.25a.75.75 0 0 1-1.5 0V10.25H6a.75.75 0 0 1 0-1.5h1.25V7.5A.75.75 0 0 1 8 6.75z" fill="currentColor"/>
+          </svg>
+        </button>
+
+        <!-- Delete -->
+        <button class="action-btn" title="Delete" (click)="onDelete()" aria-label="Delete">
+          <svg width="20" height="20" viewBox="0 0 16 16" fill="none">
+            <path d="M6 2h4l1 1h2v1H3V3h2l1-1zM4 5h8l-1 8a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 5z" fill="currentColor"/>
+          </svg>
+        </button>
+
+        <!-- Copy -->
+        <button class="action-btn" title="Copy" (click)="onCopy()" aria-label="Copy">
+          <svg width="20" height="20" viewBox="0 0 16 16" fill="none">
+            <path d="M3 2.5A1.5 1.5 0 0 1 4.5 1h5.586a1 1 0 0 1 .707.293l2.914 2.914A1 1 0 0 1 14 4.914V10.5A1.5 1.5 0 0 1 12.5 12H4.5A1.5 1.5 0 0 1 3 10.5v-8z" fill="currentColor" opacity="0.3"/>
+            <path d="M1 5.5A1.5 1.5 0 0 1 2.5 4h5.586a1 1 0 0 1 .707.293l2.914 2.914A1 1 0 0 1 12 7.914V13.5A1.5 1.5 0 0 1 10.5 15h-8A1.5 1.5 0 0 1 1 13.5v-8z" fill="currentColor"/>
+          </svg>
+        </button>
+
+        <!-- Move -->
+        <button class="action-btn" title="Move" (click)="onMove()" aria-label="Move">
+          <svg width="20" height="20" viewBox="0 0 16 16" fill="none">
+            <path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h6.586a1 1 0 0 1 .707.293l2.914 2.914A1 1 0 0 1 13 5.914V7h-1.5V6H9.5A1.5 1.5 0 0 1 8 4.5V3H2.5a.5.5 0 0 0-.5.5v9a.5.5 0 0 0 .5.5H7v1.5H2.5A1.5 1.5 0 0 1 1 13V3.5z" fill="currentColor"/>
+            <path d="M10 9.75a.75.75 0 0 1 .75-.75h2.69l-.72-.72a.75.75 0 1 1 1.06-1.06l2 2a.75.75 0 0 1 0 1.06l-2 2a.75.75 0 1 1-1.06-1.06l.72-.72H10.75A.75.75 0 0 1 10 9.75z" fill="currentColor"/>
+          </svg>
+        </button>
+
+        <!-- Refresh -->
+        <button class="action-btn" title="Refresh" (click)="onRefresh()" aria-label="Refresh">
+          <svg width="20" height="20" viewBox="0 0 16 16" fill="none">
+            <path d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z" fill="currentColor"/>
+            <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z" fill="currentColor"/>
+          </svg>
+        </button>
       </div>
-
-      <div class="view-divider"></div>
-
-      <!-- New Folder -->
-      <button class="action-btn" title="New folder" (click)="onCreate()" aria-label="New folder">
-        <svg width="20" height="20" viewBox="0 0 16 16" fill="none">
-          <path d="M1 3.5A1.5 1.5 0 0 1 2.5 2H6l1.5 1.5H13.5A1.5 1.5 0 0 1 15 5v6.5A1.5 1.5 0 0 1 13.5 13h-11A1.5 1.5 0 0 1 1 11.5v-8z" fill="currentColor" opacity="0.25"/>
-          <path d="M1 5h14v6.5A1.5 1.5 0 0 1 13.5 13h-11A1.5 1.5 0 0 1 1 11.5V5z" fill="currentColor" opacity="0.4"/>
-          <path d="M8 6.75a.75.75 0 0 1 .75.75v1.25h1.25a.75.75 0 0 1 0 1.5H8.75v1.25a.75.75 0 0 1-1.5 0V10.25H6a.75.75 0 0 1 0-1.5h1.25V7.5A.75.75 0 0 1 8 6.75z" fill="currentColor"/>
-        </svg>
-      </button>
-
-      <!-- Delete -->
-      <button class="action-btn" title="Delete" (click)="onDelete()" aria-label="Delete">
-        <svg width="20" height="20" viewBox="0 0 16 16" fill="none">
-          <path d="M6 2h4l1 1h2v1H3V3h2l1-1zM4 5h8l-1 8a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 5z" fill="currentColor"/>
-        </svg>
-      </button>
-
-      <!-- Copy -->
-      <button class="action-btn" title="Copy" (click)="onCopy()" aria-label="Copy">
-        <svg width="20" height="20" viewBox="0 0 16 16" fill="none">
-          <path d="M3 2.5A1.5 1.5 0 0 1 4.5 1h5.586a1 1 0 0 1 .707.293l2.914 2.914A1 1 0 0 1 14 4.914V10.5A1.5 1.5 0 0 1 12.5 12H4.5A1.5 1.5 0 0 1 3 10.5v-8z" fill="currentColor" opacity="0.3"/>
-          <path d="M1 5.5A1.5 1.5 0 0 1 2.5 4h5.586a1 1 0 0 1 .707.293l2.914 2.914A1 1 0 0 1 12 7.914V13.5A1.5 1.5 0 0 1 10.5 15h-8A1.5 1.5 0 0 1 1 13.5v-8z" fill="currentColor"/>
-        </svg>
-      </button>
-
-      <!-- Move -->
-      <button class="action-btn" title="Move" (click)="onMove()" aria-label="Move">
-        <svg width="20" height="20" viewBox="0 0 16 16" fill="none">
-          <path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h6.586a1 1 0 0 1 .707.293l2.914 2.914A1 1 0 0 1 13 5.914V7h-1.5V6H9.5A1.5 1.5 0 0 1 8 4.5V3H2.5a.5.5 0 0 0-.5.5v9a.5.5 0 0 0 .5.5H7v1.5H2.5A1.5 1.5 0 0 1 1 13V3.5z" fill="currentColor"/>
-          <path d="M10 9.75a.75.75 0 0 1 .75-.75h2.69l-.72-.72a.75.75 0 1 1 1.06-1.06l2 2a.75.75 0 0 1 0 1.06l-2 2a.75.75 0 1 1-1.06-1.06l.72-.72H10.75A.75.75 0 0 1 10 9.75z" fill="currentColor"/>
-        </svg>
-      </button>
-
-      <!-- Refresh -->
-      <button class="action-btn" title="Refresh" (click)="onRefresh()" aria-label="Refresh">
-        <svg width="20" height="20" viewBox="0 0 16 16" fill="none">
-          <path d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z" fill="currentColor"/>
-          <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z" fill="currentColor"/>
-        </svg>
-      </button>
     </div>
   `,
   styles: [`

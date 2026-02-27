@@ -197,12 +197,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
   // ============================================================================
   // Cross-Pane Operations
   //
-  // All four methods now call the *WithProgress variants so the backend emits
-  // operation:start / operation:progress / operation:complete events, which
-  // the OperationService picks up and renders as toast notifications.
-  //
-  // We no longer await each file sequentially and then refresh — the copy runs
-  // in the background and the pane refreshes once all files are done.
+  // These methods need to be updated to use batch operations
   // ============================================================================
 
   async onCopyFromLeft(paths: string[]): Promise<void> {
@@ -210,22 +205,20 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     const target = this.rightPane;
     if (!source || !target || paths.length === 0) return;
 
-    const errors: string[] = [];
-
-    await Promise.all(paths.map(async sourcePath => {
-      try {
-        const splitResult = await (window as any).go.main.App.SplitPath(sourcePath);
-        const fileName = splitResult['base'] || 'file';
-        const destPath: string = await (window as any).go.main.App.JoinPaths([target.currentPath, fileName]);
-        // ↓ progress-aware copy — fires toast notifications automatically
-        await this.apiService.copyFileWithProgress(sourcePath, destPath, true);
-      } catch (error: any) {
-        errors.push(`${sourcePath}: ${error.message}`);
-      }
-    }));
-
-    if (errors.length) alert(`Copy errors:\n${errors.join('\n')}`);
-    await target.onRefresh();
+    try {
+      // Use batch copy instead of individual file copy
+      const items = paths.map(sourcePath => ({
+        source: sourcePath,
+        destination: target.currentPath
+      }));
+      
+      await this.apiService.batchCopy(items, true);
+    } catch (error: any) {
+      console.error('Copy error:', error);
+      alert(`Copy error: ${error.message}`);
+    } finally {
+      await target.onRefresh();
+    }
   }
 
   async onMoveFromLeft(paths: string[]): Promise<void> {
@@ -233,22 +226,20 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     const target = this.rightPane;
     if (!source || !target || paths.length === 0) return;
 
-    const errors: string[] = [];
-
-    await Promise.all(paths.map(async sourcePath => {
-      try {
-        const splitResult = await (window as any).go.main.App.SplitPath(sourcePath);
-        const fileName = splitResult['base'] || 'file';
-        const destPath: string = await (window as any).go.main.App.JoinPaths([target.currentPath, fileName]);
-        // ↓ progress-aware move
-        await this.apiService.moveFileWithProgress(sourcePath, destPath);
-      } catch (error: any) {
-        errors.push(`${sourcePath}: ${error.message}`);
-      }
-    }));
-
-    if (errors.length) alert(`Move errors:\n${errors.join('\n')}`);
-    await Promise.all([source.onRefresh(), target.onRefresh()]);
+    try {
+      // Use batch move instead of individual file move
+      const items = paths.map(sourcePath => ({
+        source: sourcePath,
+        destination: target.currentPath
+      }));
+      
+      await this.apiService.batchMove(items, true);
+    } catch (error: any) {
+      console.error('Move error:', error);
+      alert(`Move error: ${error.message}`);
+    } finally {
+      await Promise.all([source.onRefresh(), target.onRefresh()]);
+    }
   }
 
   async onCopyFromRight(paths: string[]): Promise<void> {
@@ -256,21 +247,19 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     const target = this.leftPane;
     if (!source || !target || paths.length === 0) return;
 
-    const errors: string[] = [];
-
-    await Promise.all(paths.map(async sourcePath => {
-      try {
-        const splitResult = await (window as any).go.main.App.SplitPath(sourcePath);
-        const fileName = splitResult['base'] || 'file';
-        const destPath: string = await (window as any).go.main.App.JoinPaths([target.currentPath, fileName]);
-        await this.apiService.copyFileWithProgress(sourcePath, destPath, true);
-      } catch (error: any) {
-        errors.push(`${sourcePath}: ${error.message}`);
-      }
-    }));
-
-    if (errors.length) alert(`Copy errors:\n${errors.join('\n')}`);
-    await target.onRefresh();
+    try {
+      const items = paths.map(sourcePath => ({
+        source: sourcePath,
+        destination: target.currentPath
+      }));
+      
+      await this.apiService.batchCopy(items, true);
+    } catch (error: any) {
+      console.error('Copy error:', error);
+      alert(`Copy error: ${error.message}`);
+    } finally {
+      await target.onRefresh();
+    }
   }
 
   async onMoveFromRight(paths: string[]): Promise<void> {
@@ -278,21 +267,19 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     const target = this.leftPane;
     if (!source || !target || paths.length === 0) return;
 
-    const errors: string[] = [];
-
-    await Promise.all(paths.map(async sourcePath => {
-      try {
-        const splitResult = await (window as any).go.main.App.SplitPath(sourcePath);
-        const fileName = splitResult['base'] || 'file';
-        const destPath: string = await (window as any).go.main.App.JoinPaths([target.currentPath, fileName]);
-        await this.apiService.moveFileWithProgress(sourcePath, destPath);
-      } catch (error: any) {
-        errors.push(`${sourcePath}: ${error.message}`);
-      }
-    }));
-
-    if (errors.length) alert(`Move errors:\n${errors.join('\n')}`);
-    await Promise.all([source.onRefresh(), target.onRefresh()]);
+    try {
+      const items = paths.map(sourcePath => ({
+        source: sourcePath,
+        destination: target.currentPath
+      }));
+      
+      await this.apiService.batchMove(items, true);
+    } catch (error: any) {
+      console.error('Move error:', error);
+      alert(`Move error: ${error.message}`);
+    } finally {
+      await Promise.all([source.onRefresh(), target.onRefresh()]);
+    }
   }
 
   onPanePathChange(paneId: string, path: string): void {
@@ -400,25 +387,22 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     if (!targetPane) return;
 
     const { operation, paths } = this.clipboard;
-    const errors: string[] = [];
 
-    await Promise.all(paths.map(async sourcePath => {
-      try {
-        const splitResult = await (window as any).go.main.App.SplitPath(sourcePath);
-        const fileName = splitResult['base'] || 'file';
-        const destPath: string = await (window as any).go.main.App.JoinPaths([targetPane.currentPath, fileName]);
+    try {
+      const items = paths.map(sourcePath => ({
+        source: sourcePath,
+        destination: targetPane.currentPath
+      }));
 
-        if (operation === 'copy') {
-          await this.apiService.copyFileWithProgress(sourcePath, destPath, true);
-        } else {
-          await this.apiService.moveFileWithProgress(sourcePath, destPath);
-        }
-      } catch (error: any) {
-        errors.push(`${sourcePath}: ${error.message}`);
+      if (operation === 'copy') {
+        await this.apiService.batchCopy(items, true);
+      } else {
+        await this.apiService.batchMove(items, true);
       }
-    }));
-
-    if (errors.length) alert(`Paste errors:\n${errors.join('\n')}`);
+    } catch (error: any) {
+      console.error('Paste error:', error);
+      alert(`Paste error: ${error.message}`);
+    }
 
     if (operation === 'cut') {
       this.clipboard = null;

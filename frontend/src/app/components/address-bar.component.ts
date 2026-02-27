@@ -1057,9 +1057,15 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   async loadDrives(): Promise<void> {
     if (!this.isWin) return;
     this.drivesLoading = true;
-    try { this.drives = await this.apiService.listDrives() || []; }
-    catch { this.drives = []; }
-    finally { this.drivesLoading = false; this.cdr.detectChanges(); }
+    try { 
+      const drivesList = await this.apiService.getDrives();
+      this.drives = drivesList?.drives || [];
+    } catch {
+      this.drives = [];
+    } finally { 
+      this.drivesLoading = false; 
+      this.cdr.detectChanges(); 
+    }
   }
 
   // ── Chevron / siblings ────────────────────────────────────────────────────
@@ -1604,6 +1610,5 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     else if (this.chevIdx >= 0 || this.showPinDrop || this.showDriveMenu) { this.closeAll();          e.preventDefault(); }
   }
 }
-
 
 

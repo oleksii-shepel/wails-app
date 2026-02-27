@@ -1,29 +1,33 @@
 package main
 
 import (
+	"archive/tar"
+	"archive/zip"
+	"bytes"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/mholt/archiver/v3"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // ============================================================================
-// Conflict registry — lives on OperationManager
+// Conflict registry
 // ============================================================================
 //
-// When a copy/move goroutine detects a conflict it registers a pendingConflict
-// in the registry and then blocks reading from its response channel.  The
-// frontend calls App.ResolveConflict which looks up the channel and sends the
-// user's decision, unblocking the goroutine.
+// An operation goroutine registers a pendingConflict and blocks on its response
+// channel.  The frontend calls ResolveConflict which sends the user's decision,
+// unblocking the goroutine.
 
 type conflictRegistry struct {
 	mu      sync.Mutex
-	pending map[string]*pendingConflict // keyed by conflictID
+	pending map[string]*pendingConflict
 }
 
 func newConflictRegistry() *conflictRegistry {
@@ -61,21 +65,16 @@ func (cr *conflictRegistry) cancelAll() {
 	}
 }
 
-// Attach a registry to OperationManager (zero-value safe, initialised lazily).
 var globalConflicts = newConflictRegistry()
 
 // ============================================================================
-// Throttled progress emitter
+// Throttled progress
 // ============================================================================
-//
-// batchProgress wraps an ActiveOperation and ensures that UpdateProgress is
-// only flushed to the frontend at most once per 100 ms, while still tracking
-// counters accurately.
 
 type batchProgress struct {
-	op         *ActiveOperation
-	lastEmit   time.Time
-	throttleMs time.Duration
+	op       *ActiveOperation
+	throttle time.Duration
+	lastEmit time.Time
 
 	mu             sync.Mutex
 	processedItems int64
@@ -86,115 +85,95 @@ type batchProgress struct {
 
 func newBatchProgress(op *ActiveOperation) *batchProgress {
 	return &batchProgress{
-		op:         op,
-		lastEmit:   time.Now(),
-		throttleMs: 100 * time.Millisecond,
+		op:       op,
+		throttle: 100 * time.Millisecond,
+		lastEmit: time.Now(),
 	}
 }
 
-// update records progress; only flushes to the frontend if ≥100 ms have
-// passed since the last flush, or if force is true (e.g. at operation end).
-func (bp *batchProgress) update(items, bytes int64, file string, fileSize int64, force bool) {
+// update stores counters and flushes to the frontend at most once per 100 ms.
+// Pass force=true to emit unconditionally (e.g. at operation end).
+func (bp *batchProgress) update(items, byt int64, file string, fileSize int64, force bool) {
 	bp.mu.Lock()
 	bp.processedItems = items
-	bp.processedBytes = bytes
+	bp.processedBytes = byt
 	bp.currentFile = file
 	bp.currentSize = fileSize
 	now := time.Now()
-	shouldEmit := force || now.Sub(bp.lastEmit) >= bp.throttleMs
-	if shouldEmit {
+	emit := force || now.Sub(bp.lastEmit) >= bp.throttle
+	if emit {
 		bp.lastEmit = now
 	}
-	items2 := bp.processedItems
-	bytes2 := bp.processedBytes
-	file2 := bp.currentFile
-	size2 := bp.currentSize
+	i, b, f, s := bp.processedItems, bp.processedBytes, bp.currentFile, bp.currentSize
 	bp.mu.Unlock()
-
-	if shouldEmit {
-		bp.op.UpdateProgress(items2, bytes2, file2, size2)
+	if emit {
+		bp.op.UpdateProgress(i, b, f, s)
 	}
 }
 
 func (bp *batchProgress) flush() {
 	bp.mu.Lock()
-	items := bp.processedItems
-	bytes := bp.processedBytes
-	file := bp.currentFile
-	size := bp.currentSize
+	i, b, f, s := bp.processedItems, bp.processedBytes, bp.currentFile, bp.currentSize
 	bp.mu.Unlock()
-	bp.op.UpdateProgress(items, bytes, file, size)
+	bp.op.UpdateProgress(i, b, f, s)
 }
 
 // ============================================================================
-// Unique conflict ID generator
+// Conflict ID generator
 // ============================================================================
 
 var conflictCounter int64
 
 func nextConflictID(opID string) string {
-	n := atomic.AddInt64(&conflictCounter, 1)
-	return fmt.Sprintf("%s-conflict-%d", opID, n)
+	return fmt.Sprintf("%s-conflict-%d", opID, atomic.AddInt64(&conflictCounter, 1))
 }
 
 // ============================================================================
-// Conflict check & resolution helper
+// Conflict helper — single entry point for all batch operations
 // ============================================================================
-
-// checkConflict examines whether dst exists.  If it does, it emits a
-// "operation:conflict" event and blocks until the frontend resolves it.
 //
-// Returns (resolution, renamedDst, err).
-// renamedDst is only non-empty when resolution == ConflictRename.
-// When applyToAll is already set, the stored blanket resolution is returned
-// immediately without emitting an event.
+// checkConflict checks whether dst already exists and, if so, either applies
+// the stored blanket decision immediately or emits "operation:conflict" and
+// blocks until the frontend calls ResolveConflict.
+//
+// blanket is **ConflictResolution so the caller's variable is updated when
+// ApplyToAll is set — no extra return value needed.
+//
+// Returns (finalDst, skip, err):
+//   finalDst — path to write to (may differ from dst on ConflictRename)
+//   skip     — true: count as skipped and move on
+//   err      — non-nil only on stat error or uniqueDestination failure
+
 func (a *App) checkConflict(
 	op *ActiveOperation,
-	src, dst string,
-	blanketResolution *ConflictResolution, // nil = ask each time
-) (res ConflictResolution, finalDst string, err error) {
-	finalDst = dst
-
+	srcLabel, dst string,
+	blanket **ConflictResolution,
+) (finalDst string, skip bool, err error) {
 	dstInfo, statErr := os.Lstat(dst)
 	if os.IsNotExist(statErr) {
-		return ConflictOverwrite, dst, nil // no conflict
+		return dst, false, nil // no conflict
 	}
 	if statErr != nil {
-		return "", "", statErr
+		return "", false, statErr
 	}
 
-	// Conflict exists.  If the caller already has a blanket decision, use it.
-	if blanketResolution != nil {
-		switch *blanketResolution {
-		case ConflictSkip:
-			return ConflictSkip, dst, nil
-		case ConflictOverwrite:
-			return ConflictOverwrite, dst, nil
-		case ConflictRename:
-			renamed, rerr := uniqueDestination(dst)
-			if rerr != nil {
-				return "", "", rerr
-			}
-			return ConflictRename, renamed, nil
-		case ConflictCancel:
-			return ConflictCancel, dst, nil
-		}
+	// Apply stored blanket without prompting.
+	if *blanket != nil {
+		return applyResolution(**blanket, dst)
 	}
 
-	// Gather source info for the event payload.
-	srcInfo, srcStatErr := os.Lstat(src)
+	// Gather source metadata for the event (best-effort).
 	var srcSize, srcMtime int64
-	if srcStatErr == nil {
-		srcSize = srcInfo.Size()
-		srcMtime = srcInfo.ModTime().Unix()
+	if info, serr := os.Lstat(srcLabel); serr == nil {
+		srcSize = info.Size()
+		srcMtime = info.ModTime().Unix()
 	}
 
 	conflictID := nextConflictID(op.ID)
-
 	evt := ConflictEvent{
 		OperationID: op.ID,
 		ConflictID:  conflictID,
-		SourcePath:  src,
+		SourcePath:  srcLabel,
 		DestPath:    dst,
 		SourceSize:  srcSize,
 		DestSize:    dstInfo.Size(),
@@ -203,41 +182,44 @@ func (a *App) checkConflict(
 		IsDirectory: dstInfo.IsDir(),
 	}
 
-	// Register the pending conflict BEFORE emitting so the frontend can
-	// call ResolveConflict synchronously without a race.
+	// Register before emitting to avoid a race if the frontend responds instantly.
 	pc := globalConflicts.register(conflictID)
-
 	if a.ctx != nil {
 		runtime.EventsEmit(a.ctx, "operation:conflict", evt)
 	}
 
-	// Block until the frontend responds or the operation is cancelled.
 	select {
-	case resolution := <-pc.response:
-		switch resolution.Resolution {
-		case ConflictSkip:
-			return ConflictSkip, dst, nil
-		case ConflictOverwrite:
-			return ConflictOverwrite, dst, nil
-		case ConflictRename:
-			renamed, rerr := uniqueDestination(dst)
-			if rerr != nil {
-				return "", "", rerr
-			}
-			return ConflictRename, renamed, nil
-		case ConflictCancel:
-			return ConflictCancel, dst, nil
-		default:
-			return ConflictSkip, dst, nil
+	case res := <-pc.response:
+		if res.ApplyToAll {
+			r := res.Resolution
+			*blanket = &r
 		}
+		return applyResolution(res.Resolution, dst)
 	case <-op.cancel:
 		globalConflicts.cancelAll()
-		return ConflictCancel, dst, nil
+		return "", true, fmt.Errorf("operation cancelled")
 	}
 }
 
-// uniqueDestination returns a path that does not yet exist by appending
-// " (N)" before the extension until a free slot is found (up to 999).
+// applyResolution converts a ConflictResolution into the (finalDst, skip, err)
+// triple that checkConflict returns.
+func applyResolution(res ConflictResolution, dst string) (string, bool, error) {
+	switch res {
+	case ConflictSkip:
+		return dst, true, nil
+	case ConflictOverwrite:
+		return dst, false, nil
+	case ConflictRename:
+		renamed, err := uniqueDestination(dst)
+		return renamed, false, err
+	case ConflictCancel:
+		return "", true, fmt.Errorf("operation cancelled by user")
+	default:
+		return dst, true, nil
+	}
+}
+
+// uniqueDestination finds a free path by appending " (N)" before the extension.
 func uniqueDestination(dst string) (string, error) {
 	ext := filepath.Ext(dst)
 	base := dst[:len(dst)-len(ext)]
@@ -247,107 +229,77 @@ func uniqueDestination(dst string) (string, error) {
 			return candidate, nil
 		}
 	}
-	return "", fmt.Errorf("could not find a free destination name for %q", dst)
+	return "", fmt.Errorf("could not find a free name for %q", dst)
+}
+
+// ============================================================================
+// Shared streaming writer
+// ============================================================================
+//
+// streamToFile is the single 32 KB copy loop used by both file copy and all
+// archive streaming paths.  It updates throttled progress on every chunk and
+// removes the partial destination file if the operation is cancelled mid-write.
+
+func (a *App) streamToFile(r io.Reader, dst string, size int64, label string, op *ActiveOperation, bp *batchProgress) (int64, error) {
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return 0, err
+	}
+	out, err := os.Create(dst)
+	if err != nil {
+		return 0, err
+	}
+	defer out.Close()
+
+	bp.mu.Lock()
+	baseItems := bp.processedItems
+	baseBytes := bp.processedBytes
+	bp.mu.Unlock()
+	bp.update(baseItems, baseBytes, label, size, false)
+
+	buf := make([]byte, 32*1024)
+	var written int64
+	for {
+		if op.IsCancelled() {
+			out.Close()
+			os.Remove(dst)
+			return 0, fmt.Errorf("operation cancelled")
+		}
+		nr, readErr := r.Read(buf)
+		if nr > 0 {
+			nw, writeErr := out.Write(buf[:nr])
+			if writeErr != nil {
+				return written, writeErr
+			}
+			written += int64(nw)
+			bp.update(baseItems, baseBytes+written, label, size, false)
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return written, readErr
+		}
+	}
+
+	bp.mu.Lock()
+	bp.processedItems = baseItems + 1
+	bp.processedBytes = baseBytes + written
+	i, b := bp.processedItems, bp.processedBytes
+	bp.mu.Unlock()
+	bp.update(i, b, "", 0, false)
+	return written, nil
 }
 
 // ============================================================================
 // Batch Copy
 // ============================================================================
 
-func (a *App) BatchCopyWithProgress(req BatchRequest) (*BatchResult, error) {
-	op := a.operations.StartOperation(OpCopy, "Batch copy", "", "")
-
-	// Calculate totals across all items.
-	var totalItems, totalBytes int64
-	for _, item := range req.Items {
-		n, b := a.calculateSize(item.Source)
-		totalItems += n
-		totalBytes += b
-	}
-	op.SetTotal(totalItems, totalBytes)
-
-	bp := newBatchProgress(op)
-	result := &BatchResult{
-		OperationID: op.ID,
-		Total:       len(req.Items),
-	}
-
-	var blanket *ConflictResolution
-
-	for _, item := range req.Items {
-		if op.IsCancelled() {
-			break
-		}
-
-		dst := item.Destination
-
-		// For directories we place source *inside* dst if dst already is a dir.
-		srcInfo, err := os.Stat(item.Source)
-		if err != nil {
-			result.Failed++
-			result.Errors = append(result.Errors, BatchItemError{
-				Source: item.Source, Destination: dst, Error: err.Error(),
-			})
-			continue
-		}
-
-		if srcInfo.IsDir() {
-			dst = filepath.Join(item.Destination, filepath.Base(item.Source))
-		}
-
-		resolution, finalDst, confErr := a.checkConflict(op, item.Source, dst, blanket)
-		if confErr != nil {
-			result.Failed++
-			result.Errors = append(result.Errors, BatchItemError{
-				Source: item.Source, Destination: dst, Error: confErr.Error(),
-			})
-			continue
-		}
-
-		switch resolution {
-		case ConflictCancel:
-			op.Complete()
-			bp.flush()
-			return result, nil
-		case ConflictSkip:
-			result.Skipped++
-			continue
-		}
-
-		// resolution is Overwrite or Rename (finalDst is already correct).
-		if err := a.copyWithProgressBatch(item.Source, finalDst, req.Recursive, op, bp); err != nil {
-			result.Failed++
-			result.Errors = append(result.Errors, BatchItemError{
-				Source: item.Source, Destination: finalDst, Error: err.Error(),
-			})
-		} else {
-			result.Succeeded++
-		}
-
-		// If the user chose ApplyToAll in the conflict dialog, the blanket was
-		// already stored by checkConflict's caller.  We update it here by
-		// checking whether the resolution we got was explicit.
-		_ = blanket
-	}
-
-	bp.flush()
-	op.Complete()
-	return result, nil
-}
-
-// BatchCopyWithProgressApplyToAll is the full version that honours the
-// applyToAll flag returned in ConflictResolutionRequest.  The frontend can
-// still call the simpler BatchCopyWithProgress which never stores a blanket.
-func (a *App) BatchCopyWithProgressEx(req BatchRequest) (*BatchResult, error) {
-	return a.runBatchCopy(req)
-}
-
-func (a *App) runBatchCopy(req BatchRequest) (*BatchResult, error) {
+func (a *App) BatchCopy(req BatchRequest) (*BatchResult, error) {
 	op := a.operations.StartOperation(OpCopy, "Batch copy", "", "")
 
 	var totalItems, totalBytes int64
 	for _, item := range req.Items {
-		n, b := a.calculateSize(item.Source)
+		n, b := calculateSize(item.Source)
 		totalItems += n
 		totalBytes += b
 	}
@@ -355,82 +307,59 @@ func (a *App) runBatchCopy(req BatchRequest) (*BatchResult, error) {
 
 	bp := newBatchProgress(op)
 	result := &BatchResult{OperationID: op.ID, Total: len(req.Items)}
-
 	var blanket *ConflictResolution
 
 	for _, item := range req.Items {
-		if op.IsCancelled() {
+		if op.IsCancelled() || (blanket != nil && *blanket == ConflictCancel) {
 			break
 		}
-		succeeded, skipped, err := a.processBatchCopyItem(item, req.Recursive, op, bp, &blanket)
-		switch {
-		case err != nil:
+
+		srcInfo, err := os.Stat(item.Source)
+		if err != nil {
 			result.Failed++
-			result.Errors = append(result.Errors, BatchItemError{
-				Source: item.Source, Destination: item.Destination, Error: err.Error(),
-			})
-		case skipped:
-			result.Skipped++
-		case succeeded:
-			result.Succeeded++
+			result.Errors = append(result.Errors, BatchItemError{Source: item.Source, Error: err.Error()})
+			continue
 		}
-		if blanket != nil && *blanket == ConflictCancel {
-			break
+
+		dst := item.Destination
+		if srcInfo.IsDir() {
+			dst = filepath.Join(item.Destination, filepath.Base(item.Source))
+		}
+
+		finalDst, skip, err := a.checkConflict(op, item.Source, dst, &blanket)
+		if err != nil {
+			result.Failed++
+			result.Errors = append(result.Errors, BatchItemError{Source: item.Source, Destination: dst, Error: err.Error()})
+			continue
+		}
+		if skip {
+			result.Skipped++
+			continue
+		}
+
+		if err := a.copyPath(item.Source, finalDst, req.Recursive, op, bp); err != nil {
+			result.Failed++
+			result.Errors = append(result.Errors, BatchItemError{Source: item.Source, Destination: finalDst, Error: err.Error()})
+		} else {
+			result.Succeeded++
 		}
 	}
 
 	bp.flush()
 	op.Complete()
 	return result, nil
-}
-
-func (a *App) processBatchCopyItem(
-	item BatchItem,
-	recursive bool,
-	op *ActiveOperation,
-	bp *batchProgress,
-	blanket **ConflictResolution,
-) (succeeded, skipped bool, err error) {
-	srcInfo, err := os.Stat(item.Source)
-	if err != nil {
-		return false, false, err
-	}
-
-	dst := item.Destination
-	if srcInfo.IsDir() {
-		dst = filepath.Join(item.Destination, filepath.Base(item.Source))
-	}
-
-	resolution, finalDst, confErr := a.checkConflictEx(op, item.Source, dst, blanket)
-	if confErr != nil {
-		return false, false, confErr
-	}
-
-	switch resolution {
-	case ConflictCancel:
-		cancel := ConflictCancel
-		*blanket = &cancel
-		return false, false, nil
-	case ConflictSkip:
-		return false, true, nil
-	}
-
-	if err := a.copyWithProgressBatch(item.Source, finalDst, recursive, op, bp); err != nil {
-		return false, false, err
-	}
-	return true, false, nil
 }
 
 // ============================================================================
 // Batch Move
 // ============================================================================
 
-func (a *App) BatchMoveWithProgress(req BatchRequest) (*BatchResult, error) {
+func (a *App) BatchMove(req BatchRequest) (*BatchResult, error) {
 	op := a.operations.StartOperation(OpMove, "Batch move", "", "")
 
 	var totalItems, totalBytes int64
 	for _, item := range req.Items {
-		n, b := a.calculateSize(item.Source)
+		n, b := calculateSize(item.Source)
 		totalItems += n
 		totalBytes += b
 	}
@@ -438,23 +367,17 @@ func (a *App) BatchMoveWithProgress(req BatchRequest) (*BatchResult, error) {
 
 	bp := newBatchProgress(op)
 	result := &BatchResult{OperationID: op.ID, Total: len(req.Items)}
-
 	var blanket *ConflictResolution
 
 	for _, item := range req.Items {
-		if op.IsCancelled() {
-			break
-		}
-		if blanket != nil && *blanket == ConflictCancel {
+		if op.IsCancelled() || (blanket != nil && *blanket == ConflictCancel) {
 			break
 		}
 
 		srcInfo, err := os.Stat(item.Source)
 		if err != nil {
 			result.Failed++
-			result.Errors = append(result.Errors, BatchItemError{
-				Source: item.Source, Error: err.Error(),
-			})
+			result.Errors = append(result.Errors, BatchItemError{Source: item.Source, Error: err.Error()})
 			continue
 		}
 
@@ -463,52 +386,38 @@ func (a *App) BatchMoveWithProgress(req BatchRequest) (*BatchResult, error) {
 			dst = filepath.Join(item.Destination, filepath.Base(item.Source))
 		}
 
-		resolution, finalDst, confErr := a.checkConflictEx(op, item.Source, dst, &blanket)
-		if confErr != nil {
+		finalDst, skip, err := a.checkConflict(op, item.Source, dst, &blanket)
+		if err != nil {
 			result.Failed++
-			result.Errors = append(result.Errors, BatchItemError{
-				Source: item.Source, Destination: dst, Error: confErr.Error(),
-			})
+			result.Errors = append(result.Errors, BatchItemError{Source: item.Source, Destination: dst, Error: err.Error()})
 			continue
 		}
-
-		switch resolution {
-		case ConflictCancel:
-			op.Complete()
-			bp.flush()
-			return result, nil
-		case ConflictSkip:
+		if skip {
 			result.Skipped++
 			continue
 		}
 
-		// Try atomic rename; fall back to copy+delete with progress.
+		// Atomic rename first; cross-device falls back to copy+delete.
 		if err := os.Rename(item.Source, finalDst); err != nil {
-			if err2 := a.copyWithProgressBatch(item.Source, finalDst, true, op, bp); err2 != nil {
+			if err2 := a.copyPath(item.Source, finalDst, true, op, bp); err2 != nil {
 				result.Failed++
-				result.Errors = append(result.Errors, BatchItemError{
-					Source: item.Source, Destination: finalDst, Error: err2.Error(),
-				})
+				result.Errors = append(result.Errors, BatchItemError{Source: item.Source, Destination: finalDst, Error: err2.Error()})
 				continue
 			}
 			if err2 := os.RemoveAll(item.Source); err2 != nil {
 				result.Failed++
-				result.Errors = append(result.Errors, BatchItemError{
-					Source: item.Source, Error: err2.Error(),
-				})
+				result.Errors = append(result.Errors, BatchItemError{Source: item.Source, Error: err2.Error()})
 				continue
 			}
 		} else {
-			// Atomic rename succeeded — advance progress counters manually.
+			// Atomic rename: advance counters without a byte loop.
 			bp.mu.Lock()
 			bp.processedItems++
 			bp.processedBytes += srcInfo.Size()
-			items := bp.processedItems
-			bytes := bp.processedBytes
+			i, b := bp.processedItems, bp.processedBytes
 			bp.mu.Unlock()
-			bp.update(items, bytes, filepath.Base(item.Source), srcInfo.Size(), false)
+			bp.update(i, b, filepath.Base(item.Source), srcInfo.Size(), false)
 		}
-
 		result.Succeeded++
 	}
 
@@ -521,12 +430,12 @@ func (a *App) BatchMoveWithProgress(req BatchRequest) (*BatchResult, error) {
 // Batch Delete
 // ============================================================================
 
-func (a *App) BatchDeleteWithProgress(req BatchDeleteRequest) (*BatchResult, error) {
+func (a *App) BatchDelete(req BatchDeleteRequest) (*BatchResult, error) {
 	op := a.operations.StartOperation(OpDelete, "Batch delete", "", "")
 
 	var totalItems, totalBytes int64
 	for _, p := range req.Paths {
-		n, b := a.calculateSize(p)
+		n, b := calculateSize(p)
 		totalItems += n
 		totalBytes += b
 	}
@@ -548,7 +457,7 @@ func (a *App) BatchDeleteWithProgress(req BatchDeleteRequest) (*BatchResult, err
 		}
 
 		if info.IsDir() && req.Recursive {
-			if err := a.deleteDirWithProgressBatch(p, op, bp); err != nil {
+			if err := a.deleteDir(p, op, bp); err != nil {
 				result.Failed++
 				result.Errors = append(result.Errors, BatchItemError{Source: p, Error: err.Error()})
 				continue
@@ -563,12 +472,10 @@ func (a *App) BatchDeleteWithProgress(req BatchDeleteRequest) (*BatchResult, err
 			bp.mu.Lock()
 			bp.processedItems++
 			bp.processedBytes += size
-			items := bp.processedItems
-			bytes := bp.processedBytes
+			i, b := bp.processedItems, bp.processedBytes
 			bp.mu.Unlock()
-			bp.update(items, bytes, filepath.Base(p), size, false)
+			bp.update(i, b, filepath.Base(p), size, false)
 		}
-
 		result.Succeeded++
 	}
 
@@ -578,107 +485,799 @@ func (a *App) BatchDeleteWithProgress(req BatchDeleteRequest) (*BatchResult, err
 }
 
 // ============================================================================
-// Internal copy with batchProgress (throttled)
+// Batch Extract — full archives
 // ============================================================================
 
-func (a *App) copyWithProgressBatch(src, dst string, recursive bool, op *ActiveOperation, bp *batchProgress) error {
+func (a *App) BatchExtract(req BatchExtractRequest) (*BatchExtractResult, error) {
+	op := a.operations.StartOperation(OpExtract, "Batch extract", "", req.DestinationDir)
+	op.SetTotal(int64(len(req.Archives)), 0)
+
+	bp := newBatchProgress(op)
+	result := &BatchExtractResult{OperationID: op.ID, Total: len(req.Archives)}
+	var blanket *ConflictResolution
+
+	for _, archivePath := range req.Archives {
+		if op.IsCancelled() || (blanket != nil && *blanket == ConflictCancel) {
+			break
+		}
+
+		destRoot := req.DestinationDir
+		if req.CreateSubdirectory {
+			destRoot = filepath.Join(req.DestinationDir, archiveBaseName(archivePath))
+		}
+
+		ec := extractCtx{op: op, bp: bp, req: &req, blanket: blanket, destRoot: destRoot, depth: 0}
+		files, byt, err := a.extractOnDisk(archivePath, &ec)
+		blanket = ec.blanket
+
+		if err != nil {
+			result.Failed++
+			result.Errors = append(result.Errors, BatchItemError{Source: archivePath, Destination: destRoot, Error: err.Error()})
+			continue
+		}
+		result.Succeeded++
+		result.ExtractedFiles += files
+		result.ExtractedBytes += byt
+
+		bp.mu.Lock()
+		bp.processedItems++
+		i, b := bp.processedItems, bp.processedBytes
+		bp.mu.Unlock()
+		bp.update(i, b, filepath.Base(archivePath), 0, false)
+	}
+
+	bp.flush()
+	op.Complete()
+	return result, nil
+}
+
+// ============================================================================
+// Batch Selective Extract — specific files from archives / nested chains
+// ============================================================================
+//
+// Memory model:
+//   Top-level archives  → only matched entries buffered; streamed from disk.
+//   Nested archives     → innermost archive resolved in memory (no seekable
+//                         handle exists), then only matched entries buffered.
+//                         Intermediate archive bytes released after collection.
+
+func (a *App) BatchSelectiveExtract(req BatchSelectiveExtractRequest) (*BatchSelectiveExtractResult, error) {
+	op := a.operations.StartOperation(OpExtract, "Selective extract", "", req.DestinationDir)
+	op.SetTotal(int64(len(req.Items)), 0)
+
+	bp := newBatchProgress(op)
+	result := &BatchSelectiveExtractResult{OperationID: op.ID, Total: len(req.Items)}
+	var blanket *ConflictResolution
+
+	for _, item := range req.Items {
+		if op.IsCancelled() || (blanket != nil && *blanket == ConflictCancel) {
+			break
+		}
+
+		dest := item.DestinationDir
+		if dest == "" {
+			dest = req.DestinationDir
+		}
+
+		files, byt, err := a.selectiveExtractItem(item, dest, op, bp, &blanket)
+		if err != nil {
+			result.Failed++
+			result.Errors = append(result.Errors, BatchItemError{Source: item.ArchivePath, Error: err.Error()})
+		} else {
+			result.Succeeded++
+			result.ExtractedFiles += files
+			result.ExtractedBytes += byt
+		}
+
+		bp.mu.Lock()
+		bp.processedItems++
+		i, b := bp.processedItems, bp.processedBytes
+		bp.mu.Unlock()
+		bp.update(i, b, filepath.Base(item.ArchivePath), 0, false)
+	}
+
+	bp.flush()
+	op.Complete()
+	return result, nil
+}
+
+// selectiveExtractItem handles one SelectiveExtractItem end-to-end.
+func (a *App) selectiveExtractItem(
+	item SelectiveExtractItem,
+	destRoot string,
+	op *ActiveOperation,
+	bp *batchProgress,
+	blanket **ConflictResolution,
+) (int64, int64, error) {
+	if op.IsCancelled() {
+		return 0, 0, fmt.Errorf("operation cancelled")
+	}
+
+	// Phase 1: collect matched entries into memory.
+	var collected []archiveEntry
+	var err error
+	if len(item.NestedChain) == 0 {
+		collected, err = a.collectFromDisk(item.ArchivePath, item.Entries)
+	} else {
+		collected, err = a.collectFromNested(item.ArchivePath, item.NestedChain, item.Entries)
+	}
+	if err != nil {
+		return 0, 0, err
+	}
+	if len(collected) == 0 {
+		return 0, 0, nil
+	}
+
+	// Update total byte estimate now that we know the collected sizes.
+	var totalSize int64
+	for _, e := range collected {
+		totalSize += e.size
+	}
+	op.mu.Lock()
+	op.Progress.TotalBytes += totalSize
+	op.mu.Unlock()
+
+	// Phase 2: write collected entries to disk.
+	return a.writeEntries(collected, destRoot, item.FlattenPaths, op, bp, blanket)
+}
+
+// ============================================================================
+// Phase 1 — collect matched entries into memory
+// ============================================================================
+
+// wantEntry reports whether innerPath should be extracted given the entry list.
+// An empty list means "everything".  A directory prefix extracts its subtree.
+func wantEntry(innerPath string, entries []string) bool {
+	if len(entries) == 0 {
+		return true
+	}
+	for _, e := range entries {
+		e = normalize(e)
+		if e == "" || e == "." {
+			return true
+		}
+		if innerPath == e || strings.HasPrefix(innerPath, e+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *App) collectFromDisk(archivePath string, entries []string) ([]archiveEntry, error) {
+	if strings.HasSuffix(strings.ToLower(archivePath), ".zip") {
+		return collectZipFile(archivePath, entries)
+	}
+	return collectTarFile(archivePath, entries)
+}
+
+func collectZipFile(archivePath string, entries []string) ([]archiveEntry, error) {
+	r, err := zip.OpenReader(archivePath)
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close()
+
+	var out []archiveEntry
+	for _, f := range r.File {
+		if f.FileInfo().IsDir() {
+			continue
+		}
+		ep := normalize(f.Name)
+		if !wantEntry(ep, entries) {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return nil, fmt.Errorf("open %q: %w", f.Name, err)
+		}
+		data, err := io.ReadAll(rc)
+		rc.Close()
+		if err != nil {
+			return nil, fmt.Errorf("read %q: %w", f.Name, err)
+		}
+		out = append(out, archiveEntry{ep, data, int64(f.UncompressedSize64), f.Modified.Unix()})
+	}
+	return out, nil
+}
+
+func collectTarFile(archivePath string, entries []string) ([]archiveEntry, error) {
+	var out []archiveEntry
+	err := archiver.Walk(archivePath, func(f archiver.File) error {
+		if f.IsDir() {
+			return nil
+		}
+		ep := normalize(archiveEntryPath(f))
+		if !wantEntry(ep, entries) {
+			return nil
+		}
+		data, err := io.ReadAll(f)
+		if err != nil {
+			return fmt.Errorf("read %q: %w", ep, err)
+		}
+		var mtime int64
+		if hdr, ok := f.Header.(*tar.Header); ok {
+			mtime = hdr.ModTime.Unix()
+		}
+		out = append(out, archiveEntry{ep, data, f.Size(), mtime})
+		return nil
+	})
+	return out, err
+}
+
+// collectFromNested resolves a nested archive chain then collects only matched
+// entries from the innermost archive bytes.
+func (a *App) collectFromNested(archivePath string, nestedChain []string, entries []string) ([]archiveEntry, error) {
+	// extractNestedArchive is defined in archive.go — resolves chain fully in memory.
+	data, err := a.extractNestedArchive(archivePath, nestedChain)
+	if err != nil {
+		return nil, fmt.Errorf("resolve nested chain: %w", err)
+	}
+	return collectFromBytes(data, nestedChain[len(nestedChain)-1], entries)
+}
+
+func collectFromBytes(data []byte, archiveName string, entries []string) ([]archiveEntry, error) {
+	if isZipMagic(data) {
+		return collectZipBytes(data, entries)
+	}
+	if isRarArchiveName(archiveName) {
+		return collectRarBytes(data, archiveName, entries)
+	}
+	return collectTarBytes(data, entries)
+}
+
+func collectZipBytes(data []byte, entries []string) ([]archiveEntry, error) {
+	r, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return nil, err
+	}
+	var out []archiveEntry
+	for _, f := range r.File {
+		if f.FileInfo().IsDir() {
+			continue
+		}
+		ep := normalize(f.Name)
+		if !wantEntry(ep, entries) {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return nil, fmt.Errorf("open %q: %w", f.Name, err)
+		}
+		buf, err := io.ReadAll(rc)
+		rc.Close()
+		if err != nil {
+			return nil, fmt.Errorf("read %q: %w", f.Name, err)
+		}
+		out = append(out, archiveEntry{ep, buf, int64(f.UncompressedSize64), f.Modified.Unix()})
+	}
+	return out, nil
+}
+
+func collectTarBytes(data []byte, entries []string) ([]archiveEntry, error) {
+	tr := tar.NewReader(bytes.NewReader(data))
+	var out []archiveEntry
+	for {
+		h, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		if h.FileInfo().IsDir() {
+			io.Copy(io.Discard, tr) // drain required for sequential TAR
+			continue
+		}
+		ep := normalize(h.Name)
+		if !wantEntry(ep, entries) {
+			io.Copy(io.Discard, tr)
+			continue
+		}
+		buf, err := io.ReadAll(tr)
+		if err != nil {
+			return nil, fmt.Errorf("read %q: %w", h.Name, err)
+		}
+		out = append(out, archiveEntry{ep, buf, h.Size, h.ModTime.Unix()})
+	}
+	return out, nil
+}
+
+func collectRarBytes(data []byte, archiveName string, entries []string) ([]archiveEntry, error) {
+	reader, err := openArchiveReader(archiveName, data)
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+
+	var out []archiveEntry
+	for {
+		f, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		ep := normalize(archiveEntryPath(f))
+		if f.IsDir() || !wantEntry(ep, entries) {
+			f.Close()
+			continue
+		}
+		buf, err := io.ReadAll(f)
+		f.Close()
+		if err != nil {
+			return nil, fmt.Errorf("read %q: %w", ep, err)
+		}
+		out = append(out, archiveEntry{ep, buf, f.Size(), f.ModTime().Unix()})
+	}
+	return out, nil
+}
+
+// ============================================================================
+// Phase 2 — write collected entries to disk
+// ============================================================================
+
+func (a *App) writeEntries(
+	collected []archiveEntry,
+	destRoot string,
+	flatten bool,
+	op *ActiveOperation,
+	bp *batchProgress,
+	blanket **ConflictResolution,
+) (int64, int64, error) {
+	var totalFiles, totalBytes int64
+
+	for _, entry := range collected {
+		if op.IsCancelled() {
+			return totalFiles, totalBytes, fmt.Errorf("operation cancelled")
+		}
+
+		var destPath string
+		if flatten {
+			destPath = filepath.Join(destRoot, filepath.Base(filepath.FromSlash(entry.innerPath)))
+		} else {
+			destPath = filepath.Join(destRoot, filepath.FromSlash(entry.innerPath))
+		}
+
+		finalDst, skip, err := a.checkConflict(op, entry.innerPath, destPath, blanket)
+		if err != nil {
+			return totalFiles, totalBytes, err
+		}
+		if skip {
+			continue
+		}
+
+		if err := os.MkdirAll(filepath.Dir(finalDst), 0755); err != nil {
+			return totalFiles, totalBytes, err
+		}
+
+		// Buffered entry: single WriteFile call, still updates progress.
+		bp.mu.Lock()
+		baseItems := bp.processedItems
+		baseBytes := bp.processedBytes
+		bp.mu.Unlock()
+		bp.update(baseItems, baseBytes, filepath.Base(entry.innerPath), entry.size, false)
+
+		if err := os.WriteFile(finalDst, entry.data, 0644); err != nil {
+			return totalFiles, totalBytes, fmt.Errorf("write %q: %w", finalDst, err)
+		}
+
+		written := int64(len(entry.data))
+		bp.mu.Lock()
+		bp.processedItems = baseItems + 1
+		bp.processedBytes = baseBytes + written
+		i, b := bp.processedItems, bp.processedBytes
+		bp.mu.Unlock()
+		bp.update(i, b, "", 0, false)
+
+		totalFiles++
+		totalBytes += written
+	}
+	return totalFiles, totalBytes, nil
+}
+
+// ============================================================================
+// Full-archive extraction internals
+// ============================================================================
+
+type extractCtx struct {
+	op       *ActiveOperation
+	bp       *batchProgress
+	req      *BatchExtractRequest
+	blanket  *ConflictResolution
+	destRoot string
+	depth    int
+}
+
+func (ec *extractCtx) cancelled() bool { return ec.op.IsCancelled() }
+
+func (ec *extractCtx) tooDeep() bool {
+	if !ec.req.ExpandNestedArchives {
+		return true
+	}
+	if ec.req.MaxNestDepth < 0 {
+		return false // unlimited
+	}
+	return ec.depth >= ec.req.MaxNestDepth
+}
+
+func (a *App) extractOnDisk(archivePath string, ec *extractCtx) (int64, int64, error) {
+	if strings.HasSuffix(strings.ToLower(archivePath), ".zip") {
+		return a.extractZipOnDisk(archivePath, ec)
+	}
+	return a.extractTarOnDisk(archivePath, ec)
+}
+
+func (a *App) extractZipOnDisk(archivePath string, ec *extractCtx) (int64, int64, error) {
+	r, err := zip.OpenReader(archivePath)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer r.Close()
+
+	rootStrip := zipRootPrefix(r.File, ec.req.FlattenSingleRoot)
+	var totalFiles, totalBytes int64
+
+	for _, f := range r.File {
+		if ec.cancelled() {
+			return totalFiles, totalBytes, fmt.Errorf("operation cancelled")
+		}
+
+		ep := normalize(f.Name)
+		if rootStrip != "" {
+			if ep = strings.TrimPrefix(ep, rootStrip); ep == "" {
+				continue
+			}
+		}
+		destPath := filepath.Join(ec.destRoot, filepath.FromSlash(ep))
+
+		if f.FileInfo().IsDir() {
+			os.MkdirAll(destPath, 0755)
+			continue
+		}
+
+		// Nested archive: recurse in memory.
+		if isArchiveFile(f.Name) && !ec.tooDeep() {
+			rc, err := f.Open()
+			if err != nil {
+				return totalFiles, totalBytes, err
+			}
+			data, err := io.ReadAll(rc)
+			rc.Close()
+			if err != nil {
+				return totalFiles, totalBytes, err
+			}
+			child := extractCtx{op: ec.op, bp: ec.bp, req: ec.req, blanket: ec.blanket,
+				destRoot: filepath.Join(ec.destRoot, archiveBaseName(f.Name)), depth: ec.depth + 1}
+			nf, nb, nerr := a.extractNestedFromBytes(data, f.Name, &child)
+			ec.blanket = child.blanket
+			totalFiles += nf
+			totalBytes += nb
+			if nerr != nil {
+				return totalFiles, totalBytes, nerr
+			}
+			continue
+		}
+
+		rc, err := f.Open()
+		if err != nil {
+			return totalFiles, totalBytes, err
+		}
+		finalDst, skip, cerr := a.checkConflict(ec.op, f.Name, destPath, &ec.blanket)
+		if cerr != nil {
+			rc.Close()
+			return totalFiles, totalBytes, cerr
+		}
+		if skip {
+			rc.Close()
+			continue
+		}
+		written, werr := a.streamToFile(rc, finalDst, int64(f.UncompressedSize64), f.Name, ec.op, ec.bp)
+		rc.Close()
+		if werr != nil {
+			return totalFiles, totalBytes, werr
+		}
+		totalFiles++
+		totalBytes += written
+	}
+	return totalFiles, totalBytes, nil
+}
+
+func (a *App) extractTarOnDisk(archivePath string, ec *extractCtx) (int64, int64, error) {
+	// Single-root detection requires a pre-scan when FlattenSingleRoot is set.
+	var rootStrip string
+	if ec.req.FlattenSingleRoot {
+		var tops []string
+		_ = archiver.Walk(archivePath, func(f archiver.File) error {
+			parts := strings.SplitN(normalize(archiveEntryPath(f)), "/", 2)
+			tops = appendUnique(tops, parts[0])
+			return nil
+		})
+		if len(tops) == 1 {
+			rootStrip = tops[0] + "/"
+		}
+	}
+
+	var totalFiles, totalBytes int64
+	err := archiver.Walk(archivePath, func(f archiver.File) error {
+		if ec.cancelled() {
+			return fmt.Errorf("operation cancelled")
+		}
+		ep := normalize(archiveEntryPath(f))
+		if rootStrip != "" {
+			if ep = strings.TrimPrefix(ep, rootStrip); ep == "" {
+				return nil
+			}
+		}
+		destPath := filepath.Join(ec.destRoot, filepath.FromSlash(ep))
+
+		if f.IsDir() {
+			return os.MkdirAll(destPath, 0755)
+		}
+		if isArchiveFile(f.Name()) && !ec.tooDeep() {
+			data, err := io.ReadAll(f)
+			if err != nil {
+				return err
+			}
+			child := extractCtx{op: ec.op, bp: ec.bp, req: ec.req, blanket: ec.blanket,
+				destRoot: filepath.Join(ec.destRoot, archiveBaseName(f.Name())), depth: ec.depth + 1}
+			nf, nb, nerr := a.extractNestedFromBytes(data, f.Name(), &child)
+			ec.blanket = child.blanket
+			totalFiles += nf
+			totalBytes += nb
+			return nerr
+		}
+
+		finalDst, skip, err := a.checkConflict(ec.op, f.Name(), destPath, &ec.blanket)
+		if err != nil {
+			return err
+		}
+		if skip {
+			return nil
+		}
+		written, err := a.streamToFile(f, finalDst, f.Size(), f.Name(), ec.op, ec.bp)
+		if err != nil {
+			return err
+		}
+		totalFiles++
+		totalBytes += written
+		return nil
+	})
+	return totalFiles, totalBytes, err
+}
+
+// extractFromBytes handles a nested (in-memory) archive layer.
+func (a *App) extractNestedFromBytes(data []byte, archiveName string, ec *extractCtx) (int64, int64, error) {
+	if isZipMagic(data) {
+		return a.extractZipBytes(data, ec)
+	}
+	if isRarArchiveName(archiveName) {
+		return a.extractRarBytes(data, archiveName, ec)
+	}
+	return a.extractTarBytes(data, ec)
+}
+
+func (a *App) extractZipBytes(data []byte, ec *extractCtx) (int64, int64, error) {
+	r, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return 0, 0, err
+	}
+	var totalFiles, totalBytes int64
+	for _, f := range r.File {
+		if ec.cancelled() {
+			return totalFiles, totalBytes, fmt.Errorf("operation cancelled")
+		}
+		ep := normalize(f.Name)
+		destPath := filepath.Join(ec.destRoot, filepath.FromSlash(ep))
+		if f.FileInfo().IsDir() {
+			os.MkdirAll(destPath, 0755)
+			continue
+		}
+		if isArchiveFile(f.Name) && !ec.tooDeep() {
+			rc, err := f.Open()
+			if err != nil {
+				return totalFiles, totalBytes, err
+			}
+			nested, err := io.ReadAll(rc)
+			rc.Close()
+			if err != nil {
+				return totalFiles, totalBytes, err
+			}
+			child := extractCtx{op: ec.op, bp: ec.bp, req: ec.req, blanket: ec.blanket,
+				destRoot: filepath.Join(ec.destRoot, archiveBaseName(f.Name)), depth: ec.depth + 1}
+			nf, nb, nerr := a.extractNestedFromBytes(nested, f.Name, &child)
+			ec.blanket = child.blanket
+			totalFiles += nf
+			totalBytes += nb
+			if nerr != nil {
+				return totalFiles, totalBytes, nerr
+			}
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return totalFiles, totalBytes, err
+		}
+		finalDst, skip, cerr := a.checkConflict(ec.op, f.Name, destPath, &ec.blanket)
+		if cerr != nil {
+			rc.Close()
+			return totalFiles, totalBytes, cerr
+		}
+		if skip {
+			rc.Close()
+			continue
+		}
+		written, werr := a.streamToFile(rc, finalDst, int64(f.UncompressedSize64), f.Name, ec.op, ec.bp)
+		rc.Close()
+		if werr != nil {
+			return totalFiles, totalBytes, werr
+		}
+		totalFiles++
+		totalBytes += written
+	}
+	return totalFiles, totalBytes, nil
+}
+
+func (a *App) extractTarBytes(data []byte, ec *extractCtx) (int64, int64, error) {
+	tr := tar.NewReader(bytes.NewReader(data))
+	var totalFiles, totalBytes int64
+	for {
+		h, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return totalFiles, totalBytes, err
+		}
+		if ec.cancelled() {
+			return totalFiles, totalBytes, fmt.Errorf("operation cancelled")
+		}
+		ep := normalize(h.Name)
+		destPath := filepath.Join(ec.destRoot, filepath.FromSlash(ep))
+		if h.FileInfo().IsDir() {
+			os.MkdirAll(destPath, 0755)
+			continue
+		}
+		if isArchiveFile(h.Name) && !ec.tooDeep() {
+			nested, err := io.ReadAll(tr)
+			if err != nil {
+				return totalFiles, totalBytes, err
+			}
+			child := extractCtx{op: ec.op, bp: ec.bp, req: ec.req, blanket: ec.blanket,
+				destRoot: filepath.Join(ec.destRoot, archiveBaseName(h.Name)), depth: ec.depth + 1}
+			nf, nb, nerr := a.extractNestedFromBytes(nested, h.Name, &child)
+			ec.blanket = child.blanket
+			totalFiles += nf
+			totalBytes += nb
+			if nerr != nil {
+				return totalFiles, totalBytes, nerr
+			}
+			continue
+		}
+		finalDst, skip, cerr := a.checkConflict(ec.op, h.Name, destPath, &ec.blanket)
+		if cerr != nil {
+			return totalFiles, totalBytes, cerr
+		}
+		if skip {
+			continue
+		}
+		written, werr := a.streamToFile(tr, finalDst, h.Size, h.Name, ec.op, ec.bp)
+		if werr != nil {
+			return totalFiles, totalBytes, werr
+		}
+		totalFiles++
+		totalBytes += written
+	}
+	return totalFiles, totalBytes, nil
+}
+
+func (a *App) extractRarBytes(data []byte, archiveName string, ec *extractCtx) (int64, int64, error) {
+	reader, err := openArchiveReader(archiveName, data)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer reader.Close()
+
+	var totalFiles, totalBytes int64
+	for {
+		f, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return totalFiles, totalBytes, err
+		}
+		if ec.cancelled() {
+			f.Close()
+			return totalFiles, totalBytes, fmt.Errorf("operation cancelled")
+		}
+		ep := normalize(archiveEntryPath(f))
+		destPath := filepath.Join(ec.destRoot, filepath.FromSlash(ep))
+		if f.IsDir() {
+			f.Close()
+			os.MkdirAll(destPath, 0755)
+			continue
+		}
+		if isArchiveFile(f.Name()) && !ec.tooDeep() {
+			nested, err := io.ReadAll(f)
+			f.Close()
+			if err != nil {
+				return totalFiles, totalBytes, err
+			}
+			child := extractCtx{op: ec.op, bp: ec.bp, req: ec.req, blanket: ec.blanket,
+				destRoot: filepath.Join(ec.destRoot, archiveBaseName(f.Name())), depth: ec.depth + 1}
+			nf, nb, nerr := a.extractNestedFromBytes(nested, f.Name(), &child)
+			ec.blanket = child.blanket
+			totalFiles += nf
+			totalBytes += nb
+			f.Close()
+			if nerr != nil {
+				return totalFiles, totalBytes, nerr
+			}
+			continue
+		}
+		finalDst, skip, cerr := a.checkConflict(ec.op, f.Name(), destPath, &ec.blanket)
+		if cerr != nil {
+			f.Close()
+			return totalFiles, totalBytes, cerr
+		}
+		if skip {
+			f.Close()
+			continue
+		}
+		written, werr := a.streamToFile(f, finalDst, f.Size(), f.Name(), ec.op, ec.bp)
+		f.Close()
+		if werr != nil {
+			return totalFiles, totalBytes, werr
+		}
+		totalFiles++
+		totalBytes += written
+	}
+	return totalFiles, totalBytes, nil
+}
+
+// ============================================================================
+// File copy / delete internals
+// ============================================================================
+
+func (a *App) copyPath(src, dst string, recursive bool, op *ActiveOperation, bp *batchProgress) error {
 	info, err := os.Stat(src)
 	if err != nil {
 		return err
 	}
 	if info.IsDir() {
 		if !recursive {
-			return fmt.Errorf("source is a directory; use recursive copy")
+			return fmt.Errorf("source is a directory; use recursive=true")
 		}
-		return a.copyDirWithProgressBatch(src, dst, op, bp)
+		return walkDirOrdered(src, func(p string, isDir bool, size int64) error {
+			if op.IsCancelled() {
+				return fmt.Errorf("operation cancelled")
+			}
+			rel, _ := filepath.Rel(src, p)
+			target := filepath.Join(dst, rel)
+			if isDir {
+				return os.MkdirAll(target, 0755)
+			}
+			f, err := os.Open(p)
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+			_, err = a.streamToFile(f, target, size, filepath.Base(p), op, bp)
+			return err
+		})
 	}
-	return a.copySingleFileWithProgressBatch(src, dst, info.Size(), op, bp)
-}
-
-func (a *App) copySingleFileWithProgressBatch(src, dst string, size int64, op *ActiveOperation, bp *batchProgress) error {
-	if op.IsCancelled() {
-		return fmt.Errorf("operation cancelled")
-	}
-
-	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
-		return err
-	}
-
-	srcFile, err := os.Open(src)
+	f, err := os.Open(src)
 	if err != nil {
 		return err
 	}
-	defer srcFile.Close()
-
-	dstFile, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer dstFile.Close()
-
-	bp.mu.Lock()
-	baseBytes := bp.processedBytes
-	baseItems := bp.processedItems
-	bp.mu.Unlock()
-
-	// Announce start of this file.
-	bp.update(baseItems, baseBytes, filepath.Base(src), size, false)
-
-	buf := make([]byte, 32*1024)
-	var written int64
-
-	for {
-		if op.IsCancelled() {
-			dstFile.Close()
-			os.Remove(dst)
-			return fmt.Errorf("operation cancelled")
-		}
-
-		nr, readErr := srcFile.Read(buf)
-		if nr > 0 {
-			nw, writeErr := dstFile.Write(buf[:nr])
-			if writeErr != nil {
-				return writeErr
-			}
-			written += int64(nw)
-			bp.update(baseItems, baseBytes+written, filepath.Base(src), size, false)
-		}
-		if readErr != nil {
-			if readErr == io.EOF {
-				break
-			}
-			return readErr
-		}
-	}
-
-	bp.mu.Lock()
-	bp.processedItems = baseItems + 1
-	bp.processedBytes = baseBytes + written
-	bp.mu.Unlock()
-	bp.update(baseItems+1, baseBytes+written, "", 0, false)
-	return nil
+	defer f.Close()
+	_, err = a.streamToFile(f, dst, info.Size(), filepath.Base(src), op, bp)
+	return err
 }
 
-func (a *App) copyDirWithProgressBatch(src, dst string, op *ActiveOperation, bp *batchProgress) error {
-	return walkDirOrdered(src, func(path string, isDir bool, size int64) error {
-		if op.IsCancelled() {
-			return fmt.Errorf("operation cancelled")
-		}
-
-		rel, _ := filepath.Rel(src, path)
-		target := filepath.Join(dst, rel)
-
-		if isDir {
-			return os.MkdirAll(target, 0755)
-		}
-		return a.copySingleFileWithProgressBatch(path, target, size, op, bp)
-	})
-}
-
-func (a *App) deleteDirWithProgressBatch(path string, op *ActiveOperation, bp *batchProgress) error {
-	var files []string
-	var dirs []string
-
+func (a *App) deleteDir(path string, op *ActiveOperation, bp *batchProgress) error {
+	var files, dirs []string
 	walkDirOrdered(path, func(p string, isDir bool, _ int64) error {
 		if p == path {
 			return nil
@@ -700,23 +1299,19 @@ func (a *App) deleteDirWithProgressBatch(path string, op *ActiveOperation, bp *b
 			size = info.Size()
 		}
 		os.Remove(f)
-
 		bp.mu.Lock()
 		bp.processedItems++
 		bp.processedBytes += size
-		items := bp.processedItems
-		bytes := bp.processedBytes
+		i, b := bp.processedItems, bp.processedBytes
 		bp.mu.Unlock()
-		bp.update(items, bytes, filepath.Base(f), size, false)
+		bp.update(i, b, filepath.Base(f), size, false)
 	}
-
 	for i := len(dirs) - 1; i >= 0; i-- {
 		os.Remove(dirs[i])
 	}
 	return os.Remove(path)
 }
 
-// walkDirOrdered walks src calling fn for every entry.
 func walkDirOrdered(src string, fn func(path string, isDir bool, size int64) error) error {
 	return filepath.Walk(src, func(p string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -727,92 +1322,56 @@ func walkDirOrdered(src string, fn func(path string, isDir bool, size int64) err
 }
 
 // ============================================================================
-// checkConflictEx — variant that updates *blanket on ApplyToAll responses
+// Frontend binding
 // ============================================================================
 
-func (a *App) checkConflictEx(
-	op *ActiveOperation,
-	src, dst string,
-	blanket **ConflictResolution,
-) (res ConflictResolution, finalDst string, err error) {
-	finalDst = dst
+// ResolveConflict unblocks a paused operation by supplying the user's decision.
+// conflictID comes from ConflictEvent.ConflictID emitted on "operation:conflict".
+// Returns false when the ID is not recognised (already resolved or cancelled).
+func (a *App) ResolveConflict(conflictID string, resolution ConflictResolution, applyToAll bool) bool {
+	return globalConflicts.resolve(conflictID, ConflictResolutionRequest{
+		Resolution: resolution,
+		ApplyToAll: applyToAll,
+	})
+}
 
-	dstInfo, statErr := os.Lstat(dst)
-	if os.IsNotExist(statErr) {
-		return ConflictOverwrite, dst, nil
-	}
-	if statErr != nil {
-		return "", "", statErr
-	}
+// ============================================================================
+// Archive helpers
+// ============================================================================
 
-	// Use blanket decision if already set.
-	if *blanket != nil {
-		switch **blanket {
-		case ConflictSkip:
-			return ConflictSkip, dst, nil
-		case ConflictOverwrite:
-			return ConflictOverwrite, dst, nil
-		case ConflictRename:
-			renamed, rerr := uniqueDestination(dst)
-			if rerr != nil {
-				return "", "", rerr
-			}
-			return ConflictRename, renamed, nil
-		case ConflictCancel:
-			return ConflictCancel, dst, nil
+func archiveBaseName(name string) string {
+	base := filepath.Base(name)
+	for _, suffix := range []string{".tar.gz", ".tar.bz2", ".tar.xz"} {
+		if strings.HasSuffix(strings.ToLower(base), suffix) {
+			return base[:len(base)-len(suffix)]
 		}
 	}
-
-	srcInfo, srcStatErr := os.Lstat(src)
-	var srcSize, srcMtime int64
-	if srcStatErr == nil {
-		srcSize = srcInfo.Size()
-		srcMtime = srcInfo.ModTime().Unix()
+	if ext := filepath.Ext(base); ext != "" {
+		return base[:len(base)-len(ext)]
 	}
+	return base
+}
 
-	conflictID := nextConflictID(op.ID)
-	evt := ConflictEvent{
-		OperationID: op.ID,
-		ConflictID:  conflictID,
-		SourcePath:  src,
-		DestPath:    dst,
-		SourceSize:  srcSize,
-		DestSize:    dstInfo.Size(),
-		SourceMtime: srcMtime,
-		DestMtime:   dstInfo.ModTime().Unix(),
-		IsDirectory: dstInfo.IsDir(),
+func zipRootPrefix(files []*zip.File, flatten bool) string {
+	if !flatten {
+		return ""
 	}
-
-	pc := globalConflicts.register(conflictID)
-
-	if a.ctx != nil {
-		runtime.EventsEmit(a.ctx, "operation:conflict", evt)
+	var tops []string
+	for _, f := range files {
+		parts := strings.SplitN(normalize(f.Name), "/", 2)
+		tops = appendUnique(tops, parts[0])
 	}
+	if len(tops) == 1 {
+		return tops[0] + "/"
+	}
+	return ""
+}
 
-	select {
-	case resolution := <-pc.response:
-		if resolution.ApplyToAll {
-			r := resolution.Resolution
-			*blanket = &r
+func appendUnique(slice []string, s string) []string {
+	for _, v := range slice {
+		if v == s {
+			return slice
 		}
-		switch resolution.Resolution {
-		case ConflictSkip:
-			return ConflictSkip, dst, nil
-		case ConflictOverwrite:
-			return ConflictOverwrite, dst, nil
-		case ConflictRename:
-			renamed, rerr := uniqueDestination(dst)
-			if rerr != nil {
-				return "", "", rerr
-			}
-			return ConflictRename, renamed, nil
-		case ConflictCancel:
-			return ConflictCancel, dst, nil
-		default:
-			return ConflictSkip, dst, nil
-		}
-	case <-op.cancel:
-		globalConflicts.cancelAll()
-		return ConflictCancel, dst, nil
 	}
+	return append(slice, s)
 }

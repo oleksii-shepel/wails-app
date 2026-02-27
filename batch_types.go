@@ -8,14 +8,10 @@ package main
 type ConflictResolution string
 
 const (
-	// ConflictSkip leaves the destination untouched and moves on.
-	ConflictSkip ConflictResolution = "skip"
-	// ConflictOverwrite replaces the destination with the source.
+	ConflictSkip      ConflictResolution = "skip"
 	ConflictOverwrite ConflictResolution = "overwrite"
-	// ConflictRename appends a numeric suffix to make the destination unique.
-	ConflictRename ConflictResolution = "rename"
-	// ConflictCancel aborts the entire batch immediately.
-	ConflictCancel ConflictResolution = "cancel"
+	ConflictRename    ConflictResolution = "rename" // appends " (N)" before extension
+	ConflictCancel    ConflictResolution = "cancel"
 )
 
 // ConflictEvent is the payload emitted as "operation:conflict" when a
@@ -23,8 +19,6 @@ const (
 // ResolveConflict with the user's decision.
 type ConflictEvent struct {
 	OperationID string `json:"operationId"`
-	// ConflictID uniquely identifies this conflict within the operation so the
-	// frontend can match the resolution back to the right goroutine.
 	ConflictID  string `json:"conflictId"`
 	SourcePath  string `json:"sourcePath"`
 	DestPath    string `json:"destPath"`
@@ -39,34 +33,31 @@ type ConflictEvent struct {
 // ResolveConflict.
 type ConflictResolutionRequest struct {
 	Resolution ConflictResolution `json:"resolution"`
-	// ApplyToAll, when true, applies this resolution to all remaining conflicts
-	// in the operation without asking again.
+	// ApplyToAll stores this resolution as the blanket for all subsequent
+	// conflicts in the same operation — no further dialogs will appear.
 	ApplyToAll bool `json:"applyToAll"`
 }
 
-// pendingConflict holds the channel pair used to pause the operation goroutine
+// pendingConflict holds the channel used to pause an operation goroutine
 // while the user decides what to do.
 type pendingConflict struct {
 	response chan ConflictResolutionRequest
 }
 
 // ============================================================================
-// Batch request / result types
+// Copy / Move / Delete
 // ============================================================================
 
-// BatchItem is a single source→destination pair in a batch request.
 type BatchItem struct {
 	Source      string `json:"source"`
 	Destination string `json:"destination"`
 }
 
-// BatchRequest describes a multi-item copy or move operation.
 type BatchRequest struct {
 	Items     []BatchItem `json:"items"`
 	Recursive bool        `json:"recursive"`
 }
 
-// BatchResult is the summary returned after a batch finishes (or is cancelled).
 type BatchResult struct {
 	OperationID string           `json:"operationId"`
 	Total       int              `json:"total"`
@@ -76,15 +67,98 @@ type BatchResult struct {
 	Errors      []BatchItemError `json:"errors,omitempty"`
 }
 
-// BatchItemError records why a single item in a batch failed.
 type BatchItemError struct {
 	Source      string `json:"source"`
 	Destination string `json:"destination,omitempty"`
 	Error       string `json:"error"`
 }
 
-// BatchDeleteRequest is a list of paths to delete.
 type BatchDeleteRequest struct {
 	Paths     []string `json:"paths"`
 	Recursive bool     `json:"recursive"`
+}
+
+// ============================================================================
+// Full-archive extraction
+// ============================================================================
+
+// BatchExtractRequest extracts one or more complete on-disk archives.
+type BatchExtractRequest struct {
+	// Archives is the list of on-disk archive paths to extract.
+	Archives []string `json:"archives"`
+	// DestinationDir is the root directory all archives are extracted into.
+	DestinationDir string `json:"destinationDir"`
+	// CreateSubdirectory extracts each archive into its own named subdirectory
+	// (<DestinationDir>/<archive-name-without-ext>/).
+	CreateSubdirectory bool `json:"createSubdirectory"`
+	// ExpandNestedArchives recurses into archive-inside-archive entries instead
+	// of writing them as plain files.
+	ExpandNestedArchives bool `json:"expandNestedArchives"`
+	// MaxNestDepth caps recursion depth (-1 = unlimited, 0 = top-level only).
+	MaxNestDepth int `json:"maxNestDepth"`
+	// FlattenSingleRoot skips a sole top-level directory inside the archive
+	// (common in source tarballs).
+	FlattenSingleRoot bool `json:"flattenSingleRoot"`
+}
+
+type BatchExtractResult struct {
+	OperationID    string           `json:"operationId"`
+	Total          int              `json:"total"`
+	Succeeded      int              `json:"succeeded"`
+	Skipped        int              `json:"skipped"`
+	Failed         int              `json:"failed"`
+	ExtractedFiles int64            `json:"extractedFiles"`
+	ExtractedBytes int64            `json:"extractedBytes"`
+	Errors         []BatchItemError `json:"errors,omitempty"`
+}
+
+// ============================================================================
+// Selective extraction (specific files/dirs from an archive or nested chain)
+// ============================================================================
+
+// SelectiveExtractItem extracts specific entries from one archive, which may
+// be reached through a chain of nested archives.
+//
+// NestedChain mirrors the same field used in ArchiveBrowse / ArchiveRead:
+//
+//	[]                    → entries live directly in the top-level on-disk archive
+//	["inner.zip"]         → entries are inside inner.zip, which is inside the disk archive
+//	["a.tar.gz","b.zip"]  → two levels deep
+//
+// Entries lists inner paths to extract.  A directory prefix extracts the whole
+// subtree below it.  An empty slice (or [""]) extracts everything at that level.
+//
+// FlattenPaths strips directory structure and dumps all files directly into
+// DestinationDir (conflicts handled normally).
+type SelectiveExtractItem struct {
+	ArchivePath    string   `json:"archivePath"`
+	NestedChain    []string `json:"nestedChain"`
+	Entries        []string `json:"entries"`
+	DestinationDir string   `json:"destinationDir,omitempty"` // overrides batch-level default
+	FlattenPaths   bool     `json:"flattenPaths"`
+}
+
+type BatchSelectiveExtractRequest struct {
+	Items          []SelectiveExtractItem `json:"items"`
+	DestinationDir string                 `json:"destinationDir"` // fallback when item.DestinationDir is empty
+}
+
+type BatchSelectiveExtractResult struct {
+	OperationID    string           `json:"operationId"`
+	Total          int              `json:"total"`
+	Succeeded      int              `json:"succeeded"`
+	Skipped        int              `json:"skipped"`
+	Failed         int              `json:"failed"`
+	ExtractedFiles int64            `json:"extractedFiles"`
+	ExtractedBytes int64            `json:"extractedBytes"`
+	Errors         []BatchItemError `json:"errors,omitempty"`
+}
+
+// archiveEntry is a single file held in memory after archive layers are
+// resolved.  Only matched files are ever buffered — never the whole archive.
+type archiveEntry struct {
+	innerPath string // normalised path inside the innermost archive
+	data      []byte // uncompressed bytes
+	size      int64  // declared uncompressed size from archive header
+	mtime     int64  // modification time (unix seconds)
 }

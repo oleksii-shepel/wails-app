@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"io/fs"
 	"math"
+	"path/filepath"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -334,4 +336,23 @@ func (op *ActiveOperation) emitComplete(status, errMsg string) {
 			SpeedBytesPerSecond:  op.Progress.AvgSpeedBytesPerSec,
 		},
 	})
+}
+
+// calculateSize walks path and returns the total number of entries and
+// uncompressed bytes.  Used by batch operations to set operation totals
+// before work begins.
+func calculateSize(path string) (items, bytes int64) {
+	filepath.WalkDir(path, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		items++
+		if !d.IsDir() {
+			if info, err := d.Info(); err == nil {
+				bytes += info.Size()
+			}
+		}
+		return nil
+	})
+	return
 }

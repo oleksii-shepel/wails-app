@@ -362,28 +362,15 @@ export class OperationStatusBarComponent implements OnInit, OnDestroy {
     this.expanded = !this.expanded;
   }
 
-  restoreToastStack(): void {
-    this.toastCollapsed = false;
-    this.toastCollapsedChange.emit(false);
-    this.expanded = false;
-    // Also restore all individual operations
-    this.operationService.restoreAll();
-  }
-
   collapseToastStack(): void {
     this.toastCollapsed = true;
     this.toastCollapsedChange.emit(true);
     this.expanded = false;
-    // Also collapse all individual operations
-    this.operationService.collapseAll();
   }
 
-  restoreOperation(id: string): void {
-    this.operationService.restore(id);
-    // If we restore an individual operation while toast stack is collapsed,
-    // we should probably restore the toast stack too
-    if (this.toastCollapsed) {
-      this.restoreToastStack();
-    }
+  restoreToastStack(): void {
+    this.toastCollapsed = false;
+    this.toastCollapsedChange.emit(false);
+    this.expanded = false;
   }
 }

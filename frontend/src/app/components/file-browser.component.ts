@@ -33,7 +33,7 @@ import { OperationToastStackComponent } from './operation-stack.component';
     StatusBarComponent,
     OperationToastStackComponent,
     OperationStatusBarComponent
-  ],
+],
   templateUrl: './file-browser.component.html',
   styleUrls: ['./file-browser.component.scss'],
 })
@@ -55,6 +55,8 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
   leftPaneWidth = 50;
   rightPaneWidth = 50;
   isResizing = false;
+  toastCollapsed = false;
+  
   private startX = 0;
   private startLeftWidth = 0;
   private readonly MIN_PANE_WIDTH = 20;

@@ -805,9 +805,16 @@ export class OperationToastComponent implements OnInit {
     if (this.isResolving) return;
     
     this.isResolving = true;
+    console.log('Resolving conflict:', {
+      resolution,
+      applyToAll: this.applyToAll,
+      conflictData: this.operation.conflictData,
+      operationId: this.operation.id
+    });
     
     // Use the actual conflictId from operation if available
     const conflictId = this.operation.conflictData?.conflictId || this.operation.id + '-conflict';
+    console.log('Using conflictId:', conflictId);
     
     this.resolve.emit({
       conflictId,

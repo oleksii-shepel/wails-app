@@ -28,6 +28,7 @@ import { ConflictResolution } from '../shared/protocol-enhanced';
             (collapse)="onGlobalCollapse()"
             (cancel)="onCancel($event)"
             (dismiss)="onDismiss($event)"
+            (resolve)="onResolveConflict($event)"
           ></app-operation-toast>
         </div>
       </div>

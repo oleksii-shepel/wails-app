@@ -7,6 +7,7 @@ import {
 import { OperationService } from '../services/operation.service';
 import { OperationState } from '../services/operation.service'; // Import from service
 import { OperationToastComponent } from './operation-toast.component';
+import { ConflictResolution } from '../shared/protocol-enhanced';
 
 @Component({
   selector: 'app-operation-toast-stack',
@@ -183,5 +184,16 @@ export class OperationToastStackComponent implements OnInit, OnDestroy {
 
   onDismiss(id: string): void {
     this.operationService.dismiss(id);
+  }
+
+  onResolveConflict(event: {conflictId: string, resolution: ConflictResolution, applyToAll: boolean}): void {
+    this.operationService.resolveConflict(event.conflictId, event.resolution, event.applyToAll)
+      .then(success => {
+        if (success) {
+          console.log('Conflict resolved successfully');
+        } else {
+          console.error('Failed to resolve conflict');
+        }
+      });
   }
 }

@@ -195,24 +195,80 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
   }
 
   // ============================================================================
-  // Cross-Pane Operations
-  //
-  // These methods need to be updated to use batch operations
+  // Cross-Pane Operations - FIXED with proper destination path handling
   // ============================================================================
+
+  /**
+   * Helper to build proper destination path
+   * If destination is a directory, append the source filename
+   * Otherwise use destination as-is
+   */
+  private async buildDestinationPath(sourcePath: string, targetDir: string): Promise<string> {
+    try {
+      // Check if target is a directory
+      const isTargetDir = await this.apiService.isDirectory(targetDir);
+      
+      if (isTargetDir) {
+        // Get filename from source path
+        const fileName = await this.getFileName(sourcePath);
+        // Join with target directory
+        return await this.apiService.joinPaths([targetDir, fileName]);
+      }
+      
+      // Target is not a directory (shouldn't happen in normal usage, but handle it)
+      return targetDir;
+    } catch (error) {
+      console.warn('Error building destination path, falling back to target dir:', error);
+      return targetDir;
+    }
+  }
+
+  /**
+   * Extract filename from a path
+   */
+  private async getFileName(path: string): Promise<string> {
+    try {
+      // Try using the API first
+      const splitResult = await this.apiService.splitPath(path);
+      if (splitResult.base) {
+        return splitResult.base;
+      }
+    } catch (error) {
+      console.warn('Error splitting path via API, falling back to manual split:', error);
+    }
+    
+    // Fallback: manual split
+    const normalized = path.replace(/\\/g, '/');
+    const parts = normalized.split('/').filter(p => p.length > 0);
+    return parts.length > 0 ? parts[parts.length - 1] : 'file';
+  }
 
   async onCopyFromLeft(paths: string[]): Promise<void> {
     const source = this.leftPane;
     const target = this.rightPane;
     if (!source || !target || paths.length === 0) return;
 
+    console.log('Starting batch copy from left to right:', paths);
+    
     try {
-      // Use batch copy instead of individual file copy
-      const items = paths.map(sourcePath => ({
-        source: sourcePath,
-        destination: target.currentPath
+      // Build items with correct destination paths
+      const items = await Promise.all(paths.map(async sourcePath => {
+        const destination = await this.buildDestinationPath(sourcePath, target.currentPath);
+        return {
+          source: sourcePath,
+          destination: destination
+        };
       }));
       
-      await this.apiService.batchCopy(items, true);
+      console.log('Batch copy items:', items);
+      const result = await this.apiService.batchCopy(items, true);
+      console.log('Batch copy result:', result);
+      
+      // Show summary if there were errors
+      if (result.failed > 0) {
+        const errorMsg = result.errors?.map(e => `${e.source}: ${e.error}`).join('\n');
+        alert(`Copy completed with ${result.failed} errors:\n${errorMsg}`);
+      }
     } catch (error: any) {
       console.error('Copy error:', error);
       alert(`Copy error: ${error.message}`);
@@ -226,14 +282,25 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     const target = this.rightPane;
     if (!source || !target || paths.length === 0) return;
 
+    console.log('Starting batch move from left to right:', paths);
+    
     try {
-      // Use batch move instead of individual file move
-      const items = paths.map(sourcePath => ({
-        source: sourcePath,
-        destination: target.currentPath
+      const items = await Promise.all(paths.map(async sourcePath => {
+        const destination = await this.buildDestinationPath(sourcePath, target.currentPath);
+        return {
+          source: sourcePath,
+          destination: destination
+        };
       }));
       
-      await this.apiService.batchMove(items, true);
+      console.log('Batch move items:', items);
+      const result = await this.apiService.batchMove(items, true);
+      console.log('Batch move result:', result);
+      
+      if (result.failed > 0) {
+        const errorMsg = result.errors?.map(e => `${e.source}: ${e.error}`).join('\n');
+        alert(`Move completed with ${result.failed} errors:\n${errorMsg}`);
+      }
     } catch (error: any) {
       console.error('Move error:', error);
       alert(`Move error: ${error.message}`);
@@ -247,13 +314,24 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     const target = this.leftPane;
     if (!source || !target || paths.length === 0) return;
 
+    console.log('Starting batch copy from right to left:', paths);
+    
     try {
-      const items = paths.map(sourcePath => ({
-        source: sourcePath,
-        destination: target.currentPath
+      const items = await Promise.all(paths.map(async sourcePath => {
+        const destination = await this.buildDestinationPath(sourcePath, target.currentPath);
+        return {
+          source: sourcePath,
+          destination: destination
+        };
       }));
       
-      await this.apiService.batchCopy(items, true);
+      const result = await this.apiService.batchCopy(items, true);
+      console.log('Batch copy result:', result);
+      
+      if (result.failed > 0) {
+        const errorMsg = result.errors?.map(e => `${e.source}: ${e.error}`).join('\n');
+        alert(`Copy completed with ${result.failed} errors:\n${errorMsg}`);
+      }
     } catch (error: any) {
       console.error('Copy error:', error);
       alert(`Copy error: ${error.message}`);
@@ -267,18 +345,124 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     const target = this.leftPane;
     if (!source || !target || paths.length === 0) return;
 
+    console.log('Starting batch move from right to left:', paths);
+    
     try {
-      const items = paths.map(sourcePath => ({
-        source: sourcePath,
-        destination: target.currentPath
+      const items = await Promise.all(paths.map(async sourcePath => {
+        const destination = await this.buildDestinationPath(sourcePath, target.currentPath);
+        return {
+          source: sourcePath,
+          destination: destination
+        };
       }));
       
-      await this.apiService.batchMove(items, true);
+      const result = await this.apiService.batchMove(items, true);
+      console.log('Batch move result:', result);
+      
+      if (result.failed > 0) {
+        const errorMsg = result.errors?.map(e => `${e.source}: ${e.error}`).join('\n');
+        alert(`Move completed with ${result.failed} errors:\n${errorMsg}`);
+      }
     } catch (error: any) {
       console.error('Move error:', error);
       alert(`Move error: ${error.message}`);
     } finally {
       await Promise.all([source.onRefresh(), target.onRefresh()]);
+    }
+  }
+
+  // ============================================================================
+  // Clipboard Operations - FIXED with proper destination path handling
+  // ============================================================================
+
+  private copySelectedToClipboard(): void {
+    const pane = this.getActivePane();
+    if (pane?.selectedFiles.size) {
+      this.clipboard = {
+        operation: 'copy',
+        paths: Array.from(pane.selectedFiles)
+      };
+      console.log('Copied to clipboard:', this.clipboard);
+    }
+  }
+
+  private cutSelectedToClipboard(): void {
+    const pane = this.getActivePane();
+    if (pane?.selectedFiles.size) {
+      this.clipboard = {
+        operation: 'cut',
+        paths: Array.from(pane.selectedFiles)
+      };
+      console.log('Cut to clipboard:', this.clipboard);
+    }
+  }
+
+  private async pasteFromClipboard(): Promise<void> {
+    if (!this.clipboard) return;
+
+    const targetPane = this.getActivePane();
+    if (!targetPane) return;
+
+    const { operation, paths } = this.clipboard;
+    console.log(`Pasting ${operation} operation:`, paths);
+
+    try {
+      const items = await Promise.all(paths.map(async sourcePath => {
+        const destination = await this.buildDestinationPath(sourcePath, targetPane.currentPath);
+        return {
+          source: sourcePath,
+          destination: destination
+        };
+      }));
+
+      let result;
+      if (operation === 'copy') {
+        result = await this.apiService.batchCopy(items, true);
+      } else {
+        result = await this.apiService.batchMove(items, true);
+      }
+      
+      console.log('Paste result:', result);
+      
+      if (result.failed > 0) {
+        const errorMsg = result.errors?.map(e => `${e.source}: ${e.error}`).join('\n');
+        alert(`Paste completed with ${result.failed} errors:\n${errorMsg}`);
+      }
+    } catch (error: any) {
+      console.error('Paste error:', error);
+      alert(`Paste error: ${error.message}`);
+    }
+
+    if (operation === 'cut') {
+      this.clipboard = null;
+    }
+
+    await targetPane.onRefresh();
+  }
+
+  private copyToOtherPaneCurrent(): void {
+    const src = this.getActivePane();
+    const paths = Array.from(src?.selectedFiles || []);
+    if (paths.length === 0) return;
+    
+    console.log('Copy to other pane current:', paths);
+    if (this.activePaneId === 'left') {
+      this.onCopyFromLeft(paths);
+    } else {
+      this.onCopyFromRight(paths);
+    }
+  }
+
+  private moveToOtherPaneCurrent(): void {
+    const src = this.getActivePane();
+    const paths = Array.from(src?.selectedFiles || []);
+    if (paths.length === 0) return;
+    
+    console.log('Move to other pane current:', paths);
+    if (this.activePaneId === 'left') {
+      this.onMoveFromLeft(paths);
+    } else {
+      this.onMoveFromRight(paths);
     }
   }
 
@@ -354,79 +538,6 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
 
   private switchActivePaneInternal(): void {
     this.activePaneId = this.activePaneId === 'left' ? 'right' : 'left';
-  }
-
-  // ============================================================================
-  // Clipboard Operations
-  // ============================================================================
-
-  private copySelectedToClipboard(): void {
-    const pane = this.getActivePane();
-    if (pane?.selectedFiles.size) {
-      this.clipboard = {
-        operation: 'copy',
-        paths: Array.from(pane.selectedFiles)
-      };
-    }
-  }
-
-  private cutSelectedToClipboard(): void {
-    const pane = this.getActivePane();
-    if (pane?.selectedFiles.size) {
-      this.clipboard = {
-        operation: 'cut',
-        paths: Array.from(pane.selectedFiles)
-      };
-    }
-  }
-
-  private async pasteFromClipboard(): Promise<void> {
-    if (!this.clipboard) return;
-
-    const targetPane = this.getActivePane();
-    if (!targetPane) return;
-
-    const { operation, paths } = this.clipboard;
-
-    try {
-      const items = paths.map(sourcePath => ({
-        source: sourcePath,
-        destination: targetPane.currentPath
-      }));
-
-      if (operation === 'copy') {
-        await this.apiService.batchCopy(items, true);
-      } else {
-        await this.apiService.batchMove(items, true);
-      }
-    } catch (error: any) {
-      console.error('Paste error:', error);
-      alert(`Paste error: ${error.message}`);
-    }
-
-    if (operation === 'cut') {
-      this.clipboard = null;
-    }
-
-    await targetPane.onRefresh();
-  }
-
-  private copyToOtherPaneCurrent(): void {
-    const src = this.getActivePane();
-    if (this.activePaneId === 'left') {
-      this.onCopyFromLeft(Array.from(src?.selectedFiles || []));
-    } else {
-      this.onCopyFromRight(Array.from(src?.selectedFiles || []));
-    }
-  }
-
-  private moveToOtherPaneCurrent(): void {
-    const src = this.getActivePane();
-    if (this.activePaneId === 'left') {
-      this.onMoveFromLeft(Array.from(src?.selectedFiles || []));
-    } else {
-      this.onMoveFromRight(Array.from(src?.selectedFiles || []));
-    }
   }
 
   // ============================================================================

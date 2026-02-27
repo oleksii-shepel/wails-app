@@ -17,7 +17,8 @@ import {
   UserPreferences,
   WorkspaceList,
   ArchiveListing,
-  OperationProgress
+  OperationProgress,
+  FileType
 } from '../shared/protocol-enhanced';
 import { EventsEmit } from 'wailsjs/runtime/runtime';
 
@@ -378,5 +379,14 @@ export class ApiService {
    */
   emitEvent(eventName: string, data: any): void {
     EventsEmit(eventName, data);
+  }
+
+  async isDirectory(path: string): Promise<boolean> {
+    try {
+      const info = await this.getFileInfo(path);
+      return info.type === FileType.DIRECTORY;
+    } catch {
+      return false;
+    }
   }
 }

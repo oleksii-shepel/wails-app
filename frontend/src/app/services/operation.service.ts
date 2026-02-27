@@ -1,4 +1,5 @@
-// operation.service.ts - Fix event handling
+// operation.service.ts - Add resolveConflict method
+
 import { Injectable, NgZone, OnDestroy } from '@angular/core';
 import { 
   createSubject, 
@@ -15,7 +16,8 @@ import {
   OpStartEvent,
   OpProgressEvent,
   OpCompleteEvent,
-  ConflictEvent
+  ConflictEvent,
+  ConflictResolution
 } from '../shared/protocol-enhanced';
 import { OperationRegistryService, OperationConfig } from './operation-registry.service';
 
@@ -24,6 +26,15 @@ export interface OperationState {
   config: OperationConfig;
   status: OperationStatus;
   error?: string;
+  // Add conflict data
+  conflictData?: {
+    conflictId: string;
+    sourcePath: string;
+    destPath: string;
+    sourceSize: number;
+    destSize: number;
+    isDirectory: boolean;
+  };
   metrics: {
     totalBytes: number;
     processedBytes: number;
@@ -49,6 +60,12 @@ export class OperationService implements OnDestroy {
   // Core state streams
   private operationsMap = new Map<string, OperationState>();
   readonly operations$ = createBehaviorSubject<Map<string, OperationState>>(new Map());
+  
+  // Add conflicts stream
+  private conflictsSubject = createSubject<ConflictEvent[]>();
+  public conflicts$ = this.conflictsSubject.pipe(shareReplay(1));
+  
+  private pendingConflicts = new Map<string, ConflictEvent>();
   
   // Derived streams using Streamix
   public activeCount$ = this.operations$.pipe(
@@ -237,12 +254,31 @@ export class OperationService implements OnDestroy {
   }
 
   private handleConflict(event: ConflictEvent): void {
-    // Pause the operation in UI
+    console.log('Conflict detected:', event);
+    
+    // Store the conflict
+    this.pendingConflicts.set(event.conflictId, event);
+    this.conflictsSubject.next(Array.from(this.pendingConflicts.values()));
+
+    // Update the operation state
     const existing = this.operationsMap.get(event.operationId);
     if (existing) {
       const updated: OperationState = {
         ...existing,
-        status: 'paused'
+        status: 'paused',
+        error: `Conflict: ${event.destPath} already exists`,
+        conflictData: {
+          conflictId: event.conflictId,
+          sourcePath: event.sourcePath,
+          destPath: event.destPath,
+          sourceSize: event.sourceSize,
+          destSize: event.destSize,
+          isDirectory: event.isDirectory
+        },
+        metrics: {
+          ...existing.metrics,
+          currentFile: event.sourcePath
+        }
       };
       this.operationsMap.set(event.operationId, updated);
       this.emitOperations();
@@ -265,7 +301,74 @@ export class OperationService implements OnDestroy {
     this.autoCloseTimers.set(id, timer);
   }
 
-  // Public API methods
+  // ============================================================================
+  // Conflict Resolution
+  // ============================================================================
+
+  /**
+   * Resolve a conflict by sending the user's decision to the backend
+   */
+  async resolveConflict(conflictId: string, resolution: ConflictResolution, applyToAll: boolean): Promise<boolean> {
+    try {
+      console.log(`Resolving conflict ${conflictId} with ${resolution}, applyToAll: ${applyToAll}`);
+      
+      // Call the backend to resolve the conflict
+      const result = await (window as any).go?.main?.App?.ResolveConflict(conflictId, resolution, applyToAll);
+      
+      if (result) {
+        // Remove from pending conflicts
+        const conflict = this.pendingConflicts.get(conflictId);
+        this.pendingConflicts.delete(conflictId);
+        this.conflictsSubject.next(Array.from(this.pendingConflicts.values()));
+
+        // Resume the operation if no more conflicts pending for this operation
+        if (conflict && !this.hasPendingConflictsForOperation(conflict.operationId)) {
+          const op = this.operationsMap.get(conflict.operationId);
+          if (op && op.status === 'paused') {
+            op.status = 'running';
+            op.error = undefined;
+            op.conflictData = undefined;
+            this.emitOperations();
+          }
+        }
+      }
+      
+      return result;
+    } catch (error) {
+      console.error('Failed to resolve conflict:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Check if an operation has any pending conflicts
+   */
+  private hasPendingConflictsForOperation(operationId: string): boolean {
+    for (const conflict of this.pendingConflicts.values()) {
+      if (conflict.operationId === operationId) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Get all pending conflicts
+   */
+  getPendingConflicts(): ConflictEvent[] {
+    return Array.from(this.pendingConflicts.values());
+  }
+
+  /**
+   * Get a specific pending conflict by ID
+   */
+  getConflict(conflictId: string): ConflictEvent | undefined {
+    return this.pendingConflicts.get(conflictId);
+  }
+
+  // ============================================================================
+  // Public API Methods
+  // ============================================================================
 
   minimize(id: string): void {
     this.patchOperation(id, { isMinimized: true });
@@ -287,7 +390,6 @@ export class OperationService implements OnDestroy {
 
   async cancel(id: string): Promise<void> {
     try {
-      // Use the global window.go reference
       const result = await (window as any).go?.main?.App?.CancelOperation(id);
       if (!result) {
         console.warn('Cancel operation returned false');
@@ -347,7 +449,9 @@ export class OperationService implements OnDestroy {
     this.emitOperations();
   }
 
+  // ============================================================================
   // Formatters
+  // ============================================================================
 
   formatBytes(bytes: number): string {
     if (bytes === 0) return '0 B';
@@ -372,6 +476,10 @@ export class OperationService implements OnDestroy {
     }
     return `${minutes}:${(seconds % 60).toString().padStart(2, '0')}`;
   }
+
+  // ============================================================================
+  // Cleanup
+  // ============================================================================
 
   ngOnDestroy(): void {
     this.destroySubject.next();

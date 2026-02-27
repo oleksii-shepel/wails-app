@@ -1,8 +1,7 @@
 import { Component, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { createSubject, map, takeUntil } from '@epikodelabs/streamix';
-import { OperationService } from '../services/operation.service';
-import { OperationState } from '../services/operation.types';
+import { createSubject, takeUntil } from '@epikodelabs/streamix';
+import { OperationService, OperationState } from '../services/operation.service';
 
 @Component({
   selector: 'app-status-bar',

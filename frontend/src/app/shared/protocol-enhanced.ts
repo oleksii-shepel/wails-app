@@ -4,6 +4,8 @@
  * - Workspaces
  * - Address Bar
  * - Item Filter
+ * - Batch Operations
+ * - Progress Tracking
  */
 
 // Re-export everything from the base protocol so consumers only need one import.
@@ -86,6 +88,223 @@ export interface FilterQuery {
 }
 
 // ============================================================================
+// Operation Types (from backend)
+// ============================================================================
+
+export type OperationKind = 'copy' | 'move' | 'delete' | 'archive' | 'extract' | 'search';
+export type OperationStatus = 'pending' | 'running' | 'paused' | 'completed' | 'error' | 'cancelled';
+
+export type ConflictResolution = 'skip' | 'overwrite' | 'rename' | 'cancel';
+
+export interface ConflictEvent {
+  operationId: string;
+  conflictId: string;
+  sourcePath: string;
+  destPath: string;
+  sourceSize: number;
+  destSize: number;
+  sourceMtime: number;
+  destMtime: number;
+  isDirectory: boolean;
+}
+
+export interface ConflictResolutionRequest {
+  resolution: ConflictResolution;
+  applyToAll: boolean;
+}
+
+// ============================================================================
+// Batch Operations
+// ============================================================================
+
+export interface BatchItem {
+  source: string;
+  destination: string;
+}
+
+export interface BatchRequest {
+  items: BatchItem[];
+  recursive: boolean;
+}
+
+export interface BatchResult {
+  operationId: string;
+  total: number;
+  succeeded: number;
+  skipped: number;
+  failed: number;
+  errors?: BatchItemError[];
+}
+
+export interface BatchItemError {
+  source: string;
+  destination?: string;
+  error: string;
+}
+
+export interface BatchDeleteRequest {
+  paths: string[];
+  recursive: boolean;
+}
+
+// ============================================================================
+// Archive Extraction
+// ============================================================================
+
+export interface BatchExtractRequest {
+  archives: string[];
+  destinationDir: string;
+  createSubdirectory?: boolean;
+  expandNestedArchives?: boolean;
+  maxNestDepth?: number;
+  flattenSingleRoot?: boolean;
+}
+
+export interface BatchExtractResult {
+  operationId: string;
+  total: number;
+  succeeded: number;
+  skipped: number;
+  failed: number;
+  extractedFiles: number;
+  extractedBytes: number;
+  errors?: BatchItemError[];
+}
+
+export interface SelectiveExtractItem {
+  archivePath: string;
+  nestedChain?: string[];
+  entries?: string[];
+  destinationDir?: string;
+  flattenPaths?: boolean;
+}
+
+export interface BatchSelectiveExtractRequest {
+  items: SelectiveExtractItem[];
+  destinationDir: string;
+}
+
+export interface BatchSelectiveExtractResult {
+  operationId: string;
+  total: number;
+  succeeded: number;
+  skipped: number;
+  failed: number;
+  extractedFiles: number;
+  extractedBytes: number;
+  errors?: BatchItemError[];
+}
+
+// ============================================================================
+// Progress Tracking (from backend events)
+// ============================================================================
+
+export interface OperationMetrics {
+  totalBytes: number;
+  processedBytes: number;
+  totalItems: number;
+  processedItems: number;
+  currentFile?: string;
+  currentFileSize?: number;
+}
+
+export interface OperationTiming {
+  startedAt: number;
+  elapsedMs: number;
+  estimatedRemainingMs: number;
+  speedBytesPerSecond: number;
+}
+
+export interface OperationProgress {
+  id: string;
+  type: OperationKind;
+  status: OperationStatus;
+  title: string;
+  sourcePath: string;
+  destinationPath?: string;
+  startTime: number;
+  endTime?: number;
+  totalBytes: number;
+  processedBytes: number;
+  totalItems: number;
+  processedItems: number;
+  currentFile?: string;
+  currentFileSize?: number;
+  percentComplete: number;
+  avgSpeedBytesPerSec: number;
+  speedBytesPerSec: number;
+  elapsedSeconds: number;
+  etaSeconds: number;
+  error?: string;
+}
+
+// ============================================================================
+// Event Payloads (from backend)
+// ============================================================================
+
+export interface OpStartEvent {
+  id: string;
+  kind: string;
+  title: string;
+  sources: string[];
+  destination?: string;
+  totalBytes: number;
+  totalItems: number;
+}
+
+export interface OpProgressEvent {
+  id: string;
+  processedBytes: number;
+  processedItems: number;
+  currentFile?: string;
+  currentFileSize?: number;
+  speedBps: number;
+  elapsedMs: number;
+  remainingMs: number;
+}
+
+export interface OpCompleteEvent {
+  id: string;
+  status: string;
+  error?: string;
+  finalMetrics: {
+    totalBytes: number;
+    processedBytes: number;
+    totalItems: number;
+    processedItems: number;
+  };
+  timing: {
+    startedAt: number;
+    elapsedMs: number;
+    estimatedRemainingMs: number;
+    speedBytesPerSecond: number;
+  };
+}
+
+// ============================================================================
+// Archive Types
+// ============================================================================
+
+/** Represents a single file/folder inside an archive */
+export interface ArchiveEntry {
+  name: string;           // filename or folder name
+  path: string;           // path inside archive
+  type: 'FILE' | 'DIRECTORY' | 'ARCHIVE';
+  size: number;           // bytes
+  modified: number;       // timestamp in ms
+  isNested: boolean;      // true if entry is itself an archive
+  nestedChain?: string[]; // path of nested archives leading here
+}
+
+/** Represents the contents of an archive or a folder inside an archive */
+export interface ArchiveListing {
+  archivePath: string;         // original filesystem path
+  innerPath: string;           // current path inside archive
+  nestedChain?: string[];      // optional, nested archives leading here
+  entries: ArchiveEntry[];     // list of files/folders in this folder
+}
+
+// ============================================================================
 // Enhanced Commands
 // ============================================================================
 
@@ -162,23 +381,4 @@ export interface HistoryEntry {
 export interface NavigationHistory {
   entries: HistoryEntry[];
   maxEntries: number;
-}
-
-/** Represents a single file/folder inside an archive */
-export interface ArchiveEntry {
-  name: string;           // filename or folder name
-  path: string;           // path inside archive
-  type: 'FILE' | 'DIRECTORY' | 'ARCHIVE';
-  size: number;           // bytes
-  modified: number;       // timestamp in ms
-  isNested: boolean;      // true if entry is itself an archive
-  nestedChain?: string[]; // path of nested archives leading here
-}
-
-/** Represents the contents of an archive or a folder inside an archive */
-export interface ArchiveListing {
-  archivePath: string;         // original filesystem path
-  innerPath: string;           // current path inside archive
-  nestedChain?: string[];      // optional, nested archives leading here
-  entries: ArchiveEntry[];     // list of files/folders in this folder
 }

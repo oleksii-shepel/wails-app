@@ -2,11 +2,9 @@ import { Component, OnInit, OnDestroy, Input, Output, EventEmitter } from '@angu
 import { CommonModule } from '@angular/common';
 import { 
   createSubject,
-  map, 
   takeUntil 
 } from '@epikodelabs/streamix';
-import { OperationService } from '../services/operation.service';
-import { OperationState } from '../services/operation.types';
+import { OperationService, OperationState } from '../services/operation.service';
 
 @Component({
   selector: 'app-operation-status-bar',
@@ -42,7 +40,7 @@ import { OperationState } from '../services/operation.types';
       </div>
 
       <!-- Expanded Mini List -->
-      <div class="operations-popover" *ngIf="expanded" @fadeIn>
+      <div class="operations-popover" *ngIf="expanded">
         <div class="popover-header">
           <span>Operations</span>
           <div class="header-actions">

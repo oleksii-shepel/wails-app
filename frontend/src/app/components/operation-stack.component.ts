@@ -2,12 +2,10 @@ import { Component, OnInit, OnDestroy, Input, Output, EventEmitter } from '@angu
 import { CommonModule } from '@angular/common';
 import { 
   createSubject,
-  map, 
-  takeUntil, 
-  shareReplay 
+  takeUntil 
 } from '@epikodelabs/streamix';
 import { OperationService } from '../services/operation.service';
-import { OperationState } from '../services/operation.types';
+import { OperationState } from '../services/operation.service'; // Import from service
 import { OperationToastComponent } from './operation-toast.component';
 
 @Component({

@@ -9,10 +9,45 @@ import {
 } from '@epikodelabs/streamix';
 import { EventsOn, EventsOff } from 'wailsjs/runtime';
 import {
-  OperationState,
-  OperationStartEvent, OperationProgressEvent, OperationCompleteEvent
-} from '../services/operation.types';
+  OperationKind,
+  OperationStatus,
+  OpStartEvent,
+  OpProgressEvent,
+  OpCompleteEvent,
+  ConflictEvent
+} from '../shared/protocol-enhanced';
 import { OperationRegistryService } from './operation-registry.service';
+
+// Define OperationState locally since it's a UI-specific extension of protocol types
+export interface OperationState {
+  id: string;
+  config: {
+    icon: string;
+    title: string;
+    themeColor: string;
+    cancellable: boolean;
+  };
+  status: OperationStatus;
+  error?: string;
+  metrics: {
+    totalBytes: number;
+    processedBytes: number;
+    totalItems: number;
+    processedItems: number;
+    currentFile?: string;
+    currentFileSize?: number;
+  };
+  percentComplete: number;
+  timing: {
+    startedAt: number;
+    elapsedMs: number;
+    estimatedRemainingMs: number;
+    speedBytesPerSecond: number;
+  };
+  isMinimized: boolean;
+  isCollapsed: boolean;
+  stackIndex: number;
+}
 
 @Injectable({ providedIn: 'root' })
 export class OperationService implements OnDestroy {
@@ -74,27 +109,38 @@ export class OperationService implements OnDestroy {
   }
 
   private setupWailsEvents(): void {
-    const handleStart = (event: OperationStartEvent) => {
+    const handleStart = (event: OpStartEvent) => {
       this.zone.run(() => this.handleStart(event));
     };
 
-    const handleProgress = (event: OperationProgressEvent) => {
+    const handleProgress = (event: OpProgressEvent) => {
       this.zone.run(() => this.handleProgress(event));
     };
 
-    const handleComplete = (event: OperationCompleteEvent) => {
+    const handleComplete = (event: OpCompleteEvent) => {
       this.zone.run(() => this.handleComplete(event));
+    };
+
+    // Handle conflicts if needed
+    const handleConflict = (event: ConflictEvent) => {
+      this.zone.run(() => this.handleConflict(event));
     };
 
     EventsOn('operation:start', handleStart);
     EventsOn('operation:progress', handleProgress);
     EventsOn('operation:complete', handleComplete);
+    EventsOn('operation:conflict', handleConflict);
 
-    (this as any)._eventHandlers = { handleStart, handleProgress, handleComplete };
+    (this as any)._eventHandlers = { 
+      handleStart, 
+      handleProgress, 
+      handleComplete,
+      handleConflict 
+    };
   }
 
-  private handleStart(event: OperationStartEvent): void {
-    const config = this.registry.get(event.kind);
+  private handleStart(event: OpStartEvent): void {
+    const config = this.registry.get(event.kind as OperationKind);
     const now = Date.now();
     
     const state: OperationState = {
@@ -102,7 +148,6 @@ export class OperationService implements OnDestroy {
       config,
       status: 'running',
       metrics: {
-        // Store total from start event
         totalBytes: event.totalBytes,
         processedBytes: 0,
         totalItems: event.totalItems,
@@ -125,11 +170,10 @@ export class OperationService implements OnDestroy {
     this.emitOperations();
   }
 
-  private handleProgress(event: OperationProgressEvent): void {
+  private handleProgress(event: OpProgressEvent): void {
     const existing = this.operationsMap.get(event.id);
     if (!existing) return;
 
-    // Calculate percent using stored total from start event
     const totalBytes = existing.metrics.totalBytes;
     const processedBytes = event.processedBytes;
     
@@ -159,16 +203,15 @@ export class OperationService implements OnDestroy {
     this.emitOperations();
   }
 
-  private handleComplete(event: OperationCompleteEvent): void {
+  private handleComplete(event: OpCompleteEvent): void {
     const existing = this.operationsMap.get(event.id);
     if (!existing) return;
 
     const updated: OperationState = {
       ...existing,
-      status: event.status,
+      status: event.status as OperationStatus,
       metrics: {
         ...existing.metrics,
-        // Ensure final metrics reflect completion
         processedBytes: event.finalMetrics.processedBytes,
         processedItems: event.finalMetrics.processedItems
       },
@@ -180,9 +223,21 @@ export class OperationService implements OnDestroy {
     this.operationsMap.set(event.id, updated);
     this.emitOperations();
 
-    // Auto-close completed operations
     if (event.status === 'completed' || event.status === 'cancelled') {
       this.scheduleAutoClose(event.id);
+    }
+  }
+
+  private handleConflict(event: ConflictEvent): void {
+    // Pause the operation in UI
+    const existing = this.operationsMap.get(event.operationId);
+    if (existing) {
+      const updated: OperationState = {
+        ...existing,
+        status: 'paused'
+      };
+      this.operationsMap.set(event.operationId, updated);
+      this.emitOperations();
     }
   }
 
@@ -295,7 +350,7 @@ export class OperationService implements OnDestroy {
   }
 
   formatDuration(ms: number): string {
-    if (ms < 0) return '--:--';
+    if (ms < 0 || !isFinite(ms)) return '--:--';
     const seconds = Math.floor(ms / 1000);
     const minutes = Math.floor(seconds / 60);
     const hours = Math.floor(minutes / 60);
@@ -310,7 +365,11 @@ export class OperationService implements OnDestroy {
     this.destroySubject.next();
     this.destroySubject.complete();
     
-    EventsOff('operation:start', 'operation:progress', 'operation:complete');
+    EventsOff('operation:start');
+    EventsOff('operation:progress');
+    EventsOff('operation:complete');
+    EventsOff('operation:conflict');
+    
     this.autoCloseTimers.forEach(clearTimeout);
   }
 }

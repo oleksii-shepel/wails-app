@@ -1,5 +1,14 @@
 import { Injectable } from '@angular/core';
-import { OperationConfig, OperationKind, ThemeColor } from '../services/operation.types';
+import { OperationKind } from '../shared/protocol-enhanced';
+
+export interface OperationConfig {
+  kind: OperationKind;
+  title: string;
+  icon: string;
+  themeColor: string;
+  cancellable: boolean;
+  pausable: boolean;
+}
 
 @Injectable({ providedIn: 'root' })
 export class OperationRegistryService {
@@ -51,29 +60,19 @@ export class OperationRegistryService {
       themeColor: '--vsc-info',
       cancellable: true,
       pausable: false
-    }],
-    ['upload', {
-      kind: 'upload',
-      title: 'Uploading',
-      icon: 'upload',
-      themeColor: '--vsc-accent-teal',
-      cancellable: true,
-      pausable: true
-    }],
-    ['download', {
-      kind: 'download',
-      title: 'Downloading',
-      icon: 'download',
-      themeColor: '--vsc-accent-blue',
-      cancellable: true,
-      pausable: true
     }]
   ]);
 
+  /**
+   * Register a new operation type configuration
+   */
   register(config: OperationConfig): void {
     this.configs.set(config.kind, config);
   }
 
+  /**
+   * Get configuration for an operation kind
+   */
   get(kind: OperationKind): OperationConfig {
     return this.configs.get(kind) ?? {
       kind,
@@ -85,7 +84,35 @@ export class OperationRegistryService {
     };
   }
 
+  /**
+   * Get all registered operation configurations
+   */
   getAll(): OperationConfig[] {
     return Array.from(this.configs.values());
+  }
+
+  /**
+   * Check if an operation kind exists
+   */
+  has(kind: OperationKind): boolean {
+    return this.configs.has(kind);
+  }
+
+  /**
+   * Remove an operation configuration
+   */
+  unregister(kind: OperationKind): boolean {
+    return this.configs.delete(kind);
+  }
+
+  /**
+   * Update an existing operation configuration
+   */
+  update(kind: OperationKind, partialConfig: Partial<OperationConfig>): boolean {
+    const existing = this.configs.get(kind);
+    if (!existing) return false;
+    
+    this.configs.set(kind, { ...existing, ...partialConfig });
+    return true;
   }
 }

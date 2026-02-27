@@ -1,7 +1,6 @@
 import { Component, Input, Output, EventEmitter } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { OperationState } from '../services/operation.types';
-import { OperationService } from '../services/operation.service';
+import { OperationService, OperationState } from '../services/operation.service';
 
 @Component({
   selector: 'app-operation-toast',

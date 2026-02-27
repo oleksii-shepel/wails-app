@@ -19,6 +19,7 @@ import {
   ArchiveListing,
   OperationProgress
 } from '../shared/protocol-enhanced';
+import { EventsEmit } from 'wailsjs/runtime/runtime';
 
 // Extend the Window interface to include Wails runtime objects
 declare global {
@@ -362,5 +363,20 @@ export class ApiService {
 
   async getParentPath(path: string): Promise<string> {
     return await window.go.main.App.GetParentPath(path);
+  }
+
+  /**
+   * Set up event listeners for operation progress
+   */
+  setupOperationListeners(): void {
+    // These events will be picked up by OperationService
+    // No need to do anything here - just ensure wailsjs/runtime is imported
+  }
+
+  /**
+   * Emit an event (for testing or custom events)
+   */
+  emitEvent(eventName: string, data: any): void {
+    EventsEmit(eventName, data);
   }
 }

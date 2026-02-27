@@ -1,6 +1,7 @@
 import { Component } from '@angular/core';
 import { FileBrowserComponent } from './components/file-browser.component';
 import { ThemeService } from './services/theme.service';
+import { OperationService } from './services/operation.service';
 
 @Component({
   selector: 'app-root',
@@ -18,5 +19,5 @@ import { ThemeService } from './services/theme.service';
 })
 export class AppComponent {
   title = 'File Manager';
-  constructor(public theme: ThemeService) {}
+  constructor(public theme: ThemeService, public operationService: OperationService) {}
 }

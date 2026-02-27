@@ -1,3 +1,4 @@
+// operation.service.ts - Fix event handling
 import { Injectable, NgZone, OnDestroy } from '@angular/core';
 import { 
   createSubject, 
@@ -16,17 +17,11 @@ import {
   OpCompleteEvent,
   ConflictEvent
 } from '../shared/protocol-enhanced';
-import { OperationRegistryService } from './operation-registry.service';
+import { OperationRegistryService, OperationConfig } from './operation-registry.service';
 
-// Define OperationState locally since it's a UI-specific extension of protocol types
 export interface OperationState {
   id: string;
-  config: {
-    icon: string;
-    title: string;
-    themeColor: string;
-    cancellable: boolean;
-  };
+  config: OperationConfig;
   status: OperationStatus;
   error?: string;
   metrics: {
@@ -101,6 +96,9 @@ export class OperationService implements OnDestroy {
   private autoCloseTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly AUTO_CLOSE_DELAY = 5000;
 
+  // Flag to track if events are set up
+  private eventsSetup = false;
+
   constructor(
     private zone: NgZone,
     private registry: OperationRegistryService
@@ -109,28 +107,38 @@ export class OperationService implements OnDestroy {
   }
 
   private setupWailsEvents(): void {
+    if (this.eventsSetup) return;
+    
     const handleStart = (event: OpStartEvent) => {
+      console.log('Operation start event received:', event);
       this.zone.run(() => this.handleStart(event));
     };
 
     const handleProgress = (event: OpProgressEvent) => {
+      console.log('Operation progress event received:', event);
       this.zone.run(() => this.handleProgress(event));
     };
 
     const handleComplete = (event: OpCompleteEvent) => {
+      console.log('Operation complete event received:', event);
       this.zone.run(() => this.handleComplete(event));
     };
 
-    // Handle conflicts if needed
     const handleConflict = (event: ConflictEvent) => {
+      console.log('Operation conflict event received:', event);
       this.zone.run(() => this.handleConflict(event));
     };
 
+    // Register event listeners
     EventsOn('operation:start', handleStart);
     EventsOn('operation:progress', handleProgress);
     EventsOn('operation:complete', handleComplete);
     EventsOn('operation:conflict', handleConflict);
 
+    this.eventsSetup = true;
+    console.log('Operation service event listeners registered');
+
+    // Store handlers for cleanup
     (this as any)._eventHandlers = { 
       handleStart, 
       handleProgress, 
@@ -279,7 +287,11 @@ export class OperationService implements OnDestroy {
 
   async cancel(id: string): Promise<void> {
     try {
-      await (window as any).go?.main?.App?.CancelOperation(id);
+      // Use the global window.go reference
+      const result = await (window as any).go?.main?.App?.CancelOperation(id);
+      if (!result) {
+        console.warn('Cancel operation returned false');
+      }
     } catch (e) {
       console.error('Failed to cancel operation:', e);
     }
@@ -365,6 +377,7 @@ export class OperationService implements OnDestroy {
     this.destroySubject.next();
     this.destroySubject.complete();
     
+    // Clean up event listeners
     EventsOff('operation:start');
     EventsOff('operation:progress');
     EventsOff('operation:complete');

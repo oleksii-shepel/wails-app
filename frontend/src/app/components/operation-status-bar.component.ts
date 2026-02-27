@@ -373,4 +373,8 @@ export class OperationStatusBarComponent implements OnInit, OnDestroy {
     this.toastCollapsedChange.emit(false);
     this.expanded = false;
   }
+
+  restoreOperation(id: string): void {
+    this.operationService.restore(id);
+  }
 }

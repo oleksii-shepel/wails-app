@@ -160,15 +160,11 @@ export class OperationToastStackComponent implements OnInit, OnDestroy {
   onGlobalCollapse(): void {
     this.isGloballyCollapsed = true;
     this.isGloballyCollapsedChange.emit(true);
-    // Also collapse all individual operations
-    this.operationService.collapseAll();
   }
 
   restore(): void {
     this.isGloballyCollapsed = false;
     this.isGloballyCollapsedChange.emit(false);
-    // Restore all individual operations
-    this.operationService.restoreAll();
   }
 
   onMinimize(id: string): void {

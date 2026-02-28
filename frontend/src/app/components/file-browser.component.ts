@@ -18,6 +18,10 @@ import { SplitDividerComponent } from './split-divider.component';
 import { StatusBarComponent } from './status-bar.component';
 import { OperationStatusBarComponent } from './operation-status-bar.component';
 import { OperationToastStackComponent } from './operation-stack.component';
+import { ArchiveService } from '../services/archive.service';
+
+interface CopyMoveItem { source: string; destination: string; }
+interface OpResult { failed: number; errors?: Array<{ source: string; error: string }> }
 
 @Component({
   selector: 'app-file-browser',
@@ -74,6 +78,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     private shortcutRegistry: ShortcutRegistryService,
     private pathHistoryService: PathHistoryService,
     public theme: ThemeService,
+    private archiveService: ArchiveService,
   ) {}
 
   ngOnInit(): void {
@@ -132,6 +137,15 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
 
   private getOtherPane(): FilePaneComponent | undefined {
     return this.activePaneId === 'left' ? this.rightPane : this.leftPane;
+  }
+
+  private archiveError(result: any): string | null {
+    if (!result?.failed) return null;
+    return (result.errors ?? []).map((e: any) => e.error).join('\n');
+  }
+
+  private bothArchive(src?: FilePaneComponent, dst?: FilePaneComponent): boolean {
+    return !!src?.isInArchive() && !!dst?.isInArchive();
   }
 
   // ============================================================================
@@ -198,7 +212,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
   }
 
   // ============================================================================
-  // Cross-Pane Operations - FIXED with proper destination path handling
+  // Cross-Pane Operations - Archive-Aware Implementations
   // ============================================================================
 
   /**
@@ -247,131 +261,121 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
   }
 
   async onCopyFromLeft(paths: string[]): Promise<void> {
-    const source = this.leftPane;
-    const target = this.rightPane;
-    if (!source || !target || paths.length === 0) return;
+    const src = this.leftPane;
+    const dst = this.rightPane;
+    if (!src || !dst || paths.length === 0) return;
 
-    console.log('Starting batch copy from left to right:', paths);
-    
-    try {
-      // Build items with correct destination paths
-      const items = await Promise.all(paths.map(async sourcePath => {
-        const destination = await this.buildDestinationPath(sourcePath, target.currentPath);
-        return {
-          source: sourcePath,
-          destination: destination
-        };
-      }));
-      
-      console.log('Batch copy items:', items);
-      const result = await this.apiService.batchCopy(items, true);
-      console.log('Batch copy result:', result);
-      
-      // Show summary if there were errors
-      if (result.failed > 0) {
-        const errorMsg = result.errors?.map(e => `${e.source}: ${e.error}`).join('\n');
-        alert(`Copy completed with ${result.failed} errors:\n${errorMsg}`);
+    if (src.isInArchive()) {
+      if (this.bothArchive(src, dst)) {
+        alert('Cannot copy between two archive panes. Open a real folder in one pane first.');
+        return;
       }
-    } catch (error: any) {
-      console.error('Copy error:', error);
-      alert(`Copy error: ${error.message}`);
-    } finally {
-      await target.onRefresh();
+      const frame = src.archiveStack[src.archiveStack.length - 1];
+      const result = await this.archiveService.copy(frame, paths, dst.currentPath);
+      const err = this.archiveError(result);
+      if (err) alert(`Copy completed with errors:\n${err}`);
+      dst.onRefresh();
+      return;
     }
-  }
 
-  async onMoveFromLeft(paths: string[]): Promise<void> {
-    const source = this.leftPane;
-    const target = this.rightPane;
-    if (!source || !target || paths.length === 0) return;
-
-    console.log('Starting batch move from left to right:', paths);
-    
-    try {
-      const items = await Promise.all(paths.map(async sourcePath => {
-        const destination = await this.buildDestinationPath(sourcePath, target.currentPath);
-        return {
-          source: sourcePath,
-          destination: destination
-        };
-      }));
-      
-      console.log('Batch move items:', items);
-      const result = await this.apiService.batchMove(items, true);
-      console.log('Batch move result:', result);
-      
-      if (result.failed > 0) {
-        const errorMsg = result.errors?.map(e => `${e.source}: ${e.error}`).join('\n');
-        alert(`Move completed with ${result.failed} errors:\n${errorMsg}`);
-      }
-    } catch (error: any) {
-      console.error('Move error:', error);
-      alert(`Move error: ${error.message}`);
-    } finally {
-      await Promise.all([source.onRefresh(), target.onRefresh()]);
-    }
+    // Filesystem copy — unchanged
+    const items = await Promise.all(
+      paths.map(async srcPath => ({ 
+        source: srcPath, 
+        destination: await this.buildDestinationPath(srcPath, dst.currentPath) 
+      }))
+    );
+    const result = await this.apiService.batchCopy(items, true);
+    const err = this.archiveError(result);
+    if (err) alert(`Copy errors:\n${err}`);
+    dst.onRefresh();
   }
 
   async onCopyFromRight(paths: string[]): Promise<void> {
-    const source = this.rightPane;
-    const target = this.leftPane;
-    if (!source || !target || paths.length === 0) return;
+    const src = this.rightPane;
+    const dst = this.leftPane;
+    if (!src || !dst || paths.length === 0) return;
 
-    console.log('Starting batch copy from right to left:', paths);
-    
-    try {
-      const items = await Promise.all(paths.map(async sourcePath => {
-        const destination = await this.buildDestinationPath(sourcePath, target.currentPath);
-        return {
-          source: sourcePath,
-          destination: destination
-        };
-      }));
-      
-      const result = await this.apiService.batchCopy(items, true);
-      console.log('Batch copy result:', result);
-      
-      if (result.failed > 0) {
-        const errorMsg = result.errors?.map(e => `${e.source}: ${e.error}`).join('\n');
-        alert(`Copy completed with ${result.failed} errors:\n${errorMsg}`);
+    if (src.isInArchive()) {
+      if (this.bothArchive(src, dst)) {
+        alert('Cannot copy between two archive panes. Open a real folder in one pane first.');
+        return;
       }
-    } catch (error: any) {
-      console.error('Copy error:', error);
-      alert(`Copy error: ${error.message}`);
-    } finally {
-      await target.onRefresh();
+      const frame = src.archiveStack[src.archiveStack.length - 1];
+      const result = await this.archiveService.copy(frame, paths, dst.currentPath);
+      const err = this.archiveError(result);
+      if (err) alert(`Copy completed with errors:\n${err}`);
+      dst.onRefresh();
+      return;
     }
+
+    const items = await Promise.all(
+      paths.map(async srcPath => ({ 
+        source: srcPath, 
+        destination: await this.buildDestinationPath(srcPath, dst.currentPath) 
+      }))
+    );
+    const result = await this.apiService.batchCopy(items, true);
+    const err = this.archiveError(result);
+    if (err) alert(`Copy errors:\n${err}`);
+    dst.onRefresh();
+  }
+
+  async onMoveFromLeft(paths: string[]): Promise<void> {
+    const src = this.leftPane;
+    const dst = this.rightPane;
+    if (!src || !dst || paths.length === 0) return;
+
+    if (src.isInArchive()) {
+      if (this.bothArchive(src, dst)) {
+        alert('Cannot move between two archive panes. Open a real folder in one pane first.');
+        return;
+      }
+      // Delegate: pane shows warning dialog → user confirms → pane calls
+      // archiveOps.move() → operation events → toast progress shown automatically
+      src.initiatePendingMove(paths, dst.currentPath);
+      return;
+    }
+
+    // Filesystem move — unchanged
+    const items = await Promise.all(
+      paths.map(async srcPath => ({ 
+        source: srcPath, 
+        destination: await this.buildDestinationPath(srcPath, dst.currentPath) 
+      }))
+    );
+    const result = await this.apiService.batchMove(items, true);
+    const err = this.archiveError(result);
+    if (err) alert(`Move errors:\n${err}`);
+    src.onRefresh();
+    dst.onRefresh();
   }
 
   async onMoveFromRight(paths: string[]): Promise<void> {
-    const source = this.rightPane;
-    const target = this.leftPane;
-    if (!source || !target || paths.length === 0) return;
+    const src = this.rightPane;
+    const dst = this.leftPane;
+    if (!src || !dst || paths.length === 0) return;
 
-    console.log('Starting batch move from right to left:', paths);
-    
-    try {
-      const items = await Promise.all(paths.map(async sourcePath => {
-        const destination = await this.buildDestinationPath(sourcePath, target.currentPath);
-        return {
-          source: sourcePath,
-          destination: destination
-        };
-      }));
-      
-      const result = await this.apiService.batchMove(items, true);
-      console.log('Batch move result:', result);
-      
-      if (result.failed > 0) {
-        const errorMsg = result.errors?.map(e => `${e.source}: ${e.error}`).join('\n');
-        alert(`Move completed with ${result.failed} errors:\n${errorMsg}`);
+    if (src.isInArchive()) {
+      if (this.bothArchive(src, dst)) {
+        alert('Cannot move between two archive panes. Open a real folder in one pane first.');
+        return;
       }
-    } catch (error: any) {
-      console.error('Move error:', error);
-      alert(`Move error: ${error.message}`);
-    } finally {
-      await Promise.all([source.onRefresh(), target.onRefresh()]);
+      src.initiatePendingMove(paths, dst.currentPath);
+      return;
     }
+
+    const items = await Promise.all(
+      paths.map(async srcPath => ({ 
+        source: srcPath, 
+        destination: await this.buildDestinationPath(srcPath, dst.currentPath) 
+      }))
+    );
+    const result = await this.apiService.batchMove(items, true);
+    const err = this.archiveError(result);
+    if (err) alert(`Move errors:\n${err}`);
+    src.onRefresh();
+    dst.onRefresh();
   }
 
   // ============================================================================

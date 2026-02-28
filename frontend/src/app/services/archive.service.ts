@@ -4,7 +4,7 @@ import { FileInfo, FileType } from '../shared/protocol';
 import { PARENT_ENTRY_PATH } from '../components/file-entry.component';
 
 /* ─────────────────────────────────────────────────────────────
-   Types
+   TYPES
 ───────────────────────────────────────────────────────────── */
 
 export interface ArchiveFrame {
@@ -20,8 +20,25 @@ export interface ArchiveBrowseTarget {
   browseInnerPath: string;
 }
 
+export interface ArchiveEntriesRequest {
+  fsPath: string;
+  nestedChain: string[];
+  entries: string[];
+  destinationDir: string;
+  flattenPaths: boolean;
+}
+
+export interface ArchiveEntriesResult {
+  operationId: string;
+  total: number;
+  succeeded: number;
+  failed: number;
+  sourceRemoved: boolean;
+  errors?: Array<{ source: string; error: string }>;
+}
+
 /* ─────────────────────────────────────────────────────────────
-   Helpers
+   HELPERS
 ───────────────────────────────────────────────────────────── */
 
 export function isArchive(name: string): boolean {
@@ -48,8 +65,6 @@ export function buildArchiveDisplayPath(
   if (stack.length === 0) return rootFsPath;
 
   const frame = stack[stack.length - 1];
-  
-  // Always include the archive file name itself from the first frame's fsPath
   const archiveFsPath = stack[0].fsPath.replace(/\\/g, '/');
   const parts = [archiveFsPath, ...frame.nestedChain];
 
@@ -79,7 +94,7 @@ export function buildArchiveTabTitle(
 }
 
 /* ─────────────────────────────────────────────────────────────
-   Wails bridge
+   WAILS BRIDGE
 ───────────────────────────────────────────────────────────── */
 
 declare const window: any;
@@ -103,7 +118,7 @@ async function goBrowse(
 }
 
 /* ─────────────────────────────────────────────────────────────
-   Service
+   SERVICE
 ───────────────────────────────────────────────────────────── */
 
 @Injectable({ providedIn: 'root' })
@@ -169,10 +184,7 @@ export class ArchiveService {
     return { ...frame, innerPath: parentInnerPath, listing };
   }
 
-  /* ─────────────────────────────────────────────
-     ⭐ UNIVERSAL RESOLVER (NEW)
-     Single source of truth for archive navigation
-  ───────────────────────────────────────────── */
+  /* ─────────────── UNIVERSAL RESOLVER ─────────────── */
 
   resolveBrowseTarget(
     seg: { name: string; fullPath: string },
@@ -191,8 +203,6 @@ export class ArchiveService {
 
     const parts = afterArchive.split('/').filter(Boolean);
 
-    /* ---------- find owning frame ---------- */
-
     let owningFrame = stack[0];
 
     for (const frame of stack) {
@@ -207,8 +217,6 @@ export class ArchiveService {
         owningFrame = frame;
     }
 
-    /* ---------- compute inner path ---------- */
-
     const chain = owningFrame.nestedChain;
     let innerParts = parts.slice(chain.length);
 
@@ -220,6 +228,67 @@ export class ArchiveService {
       browseChain: chain,
       browseInnerPath: innerParts.join('/')
     };
+  }
+
+  /* ─────────────── OPERATIONS ─────────────── */
+
+  copy(
+    frame: ArchiveFrame,
+    entries: string[],
+    destDir: string,
+    flattenPaths = false,
+  ): Promise<ArchiveEntriesResult> {
+
+    const req: ArchiveEntriesRequest = {
+      fsPath: frame.fsPath,
+      nestedChain: frame.nestedChain,
+      entries,
+      destinationDir: destDir,
+      flattenPaths,
+    };
+
+    return window.go.main.App.ArchiveCopyEntries(req);
+  }
+
+  move(
+    frame: ArchiveFrame,
+    entries: string[],
+    destDir: string,
+    flattenPaths = false,
+  ): Promise<ArchiveEntriesResult> {
+
+    const req: ArchiveEntriesRequest = {
+      fsPath: frame.fsPath,
+      nestedChain: frame.nestedChain,
+      entries,
+      destinationDir: destDir,
+      flattenPaths,
+    };
+
+    return window.go.main.App.ArchiveMoveEntries(req);
+  }
+
+  delete(
+    frame: ArchiveFrame,
+    entries: string[],
+  ): Promise<ArchiveEntriesResult> {
+
+    if (frame.nestedChain.length > 0) {
+      return Promise.reject(new Error(
+        'Deleting entries from nested archives is not supported. ' +
+        'Navigate to the top-level archive first.'
+      ));
+    }
+
+    const req: ArchiveEntriesRequest = {
+      fsPath: frame.fsPath,
+      nestedChain: [],
+      entries,
+      destinationDir: '',
+      flattenPaths: false,
+    };
+
+    return window.go.main.App.ArchiveDeleteEntries(req);
   }
 
   /* ─────────────── UTILITIES ─────────────── */
@@ -242,10 +311,11 @@ export class ArchiveService {
   }
 
   isArchiveVirtualPath(path: string): boolean {
-    return /\.zip\//i.test(path) || /\.tar\//i.test(path) || /\.rar\//i.test(path) || /\.7z\//i.test(path);
+    return /\.zip\//i.test(path)
+        || /\.tar\//i.test(path)
+        || /\.rar\//i.test(path)
+        || /\.7z\//i.test(path);
   }
-
-  /* ─────────────── REFRESH ─────────────── */
 
   async refreshFrame(frame: ArchiveFrame): Promise<ArchiveFrame> {
 
@@ -257,8 +327,6 @@ export class ArchiveService {
 
     return { ...frame, listing };
   }
-
-  /* ─────────────── CONVERSION ─────────────── */
 
   listingToFileInfos(listing: ArchiveListing): FileInfo[] {
 

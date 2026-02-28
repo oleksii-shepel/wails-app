@@ -15,9 +15,9 @@ import {
   ArchiveService, ArchiveFrame, isArchive, buildArchiveDisplayPath, buildArchiveTabTitle
 } from '../services/archive.service';
 import { parentPath, normalizePath } from './address-bar.utils';
-import { TreeNode } from './file-tree.component';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
 import { FileViewContainerComponent, ViewLayout } from './file-view-container.component';
+import { ArchiveMoveWarningComponent } from "./archive-move-warning.component";
 
 declare const window: any;
 
@@ -30,8 +30,9 @@ declare const window: any;
     AddressBarComponent,
     FindWidgetComponent,
     ActionBarComponent,
-    FileViewContainerComponent
-  ],
+    FileViewContainerComponent,
+    ArchiveMoveWarningComponent
+],
   template: `
     <div class="file-pane" [class.file-pane--archive]="isInArchive()">
       <app-tab-bar
@@ -94,6 +95,14 @@ declare const window: any;
           (nodeDoubleClick)="onNodeDoubleClick($event)">
         </app-file-view-container>
       </div>
+
+      <!-- Archive move warning dialog -->
+      <app-archive-move-warning
+        [visible]="archiveMoveWarning"
+        [entryCount]="archivePendingMoveEntries.length"
+        (confirmed)="executePendingMove()"
+        (cancelled)="archiveMoveWarning = false">
+      </app-archive-move-warning>
     </div>
   `,
   styles: [`
@@ -182,6 +191,11 @@ export class FilePaneComponent implements OnInit, OnChanges {
 
   archiveStack: ArchiveFrame[] = [];
 
+  // Archive move state
+  archiveMoveWarning = false;
+  archivePendingMoveEntries: string[] = [];
+  archivePendingMoveDestDir = '';
+
   private tabPaths = new Map<string, string>();
 
   FileType = FileType;
@@ -191,7 +205,7 @@ export class FilePaneComponent implements OnInit, OnChanges {
     private workspaceService: WorkspaceService,
     private filterService: FilterService,
     private pathHistoryService: PathHistoryService,
-    private archiveService: ArchiveService,
+    private archiveService: ArchiveService
   ) {}
 
   ngOnInit(): void  { 
@@ -823,8 +837,40 @@ export class FilePaneComponent implements OnInit, OnChanges {
   }
 
   async onDeleteSelected(): Promise<void> {
-    if (this.isInArchive()) { alert('Cannot delete files inside an archive.'); return; }
     if (this.selectedFiles.size === 0) return;
+
+    if (this.isInArchive()) {
+      const frame   = this.archiveStack[this.archiveStack.length - 1];
+      const entries = Array.from(this.selectedFiles);
+
+      if (frame.nestedChain.length > 0) {
+        alert(
+          'Cannot delete from a nested archive.\n' +
+          'Exit back to the top-level archive first.',
+        );
+        return;
+      }
+
+      if (!confirm(
+        `Delete ${entries.length} item(s) from the archive?\n` +
+        `This rewrites the archive file on disk and cannot be undone.`,
+      )) return;
+
+      try {
+        const result = await this.archiveService.delete(frame, entries);
+        if (result.failed > 0) {
+          alert('Delete failed:\n' + (result.errors ?? []).map((e: any) => e.error).join('\n'));
+        }
+      } catch (err: any) {
+        alert(`Delete error: ${err.message}`);
+        return;
+      }
+      // Refresh the archive listing so deleted entries disappear
+      await this.refreshArchive();
+      return;
+    }
+
+    // ── Filesystem delete — unchanged from original ───────────────────────────
     if (!confirm(`Delete ${this.selectedFiles.size} item(s)?`)) return;
     try {
       await this.apiService.batchDelete(Array.from(this.selectedFiles), true);
@@ -843,6 +889,56 @@ export class FilePaneComponent implements OnInit, OnChanges {
   onMoveToOther(): void { 
     if (this.selectedFiles.size > 0) {
       this.moveToOther.emit(Array.from(this.selectedFiles));
+    }
+  }
+
+  // ── Archive move operations ───────────────────────────────────────────────
+
+  /**
+   * Called by FileBrowserComponent after it has resolved destDir.
+   * Shows the confirmation dialog; executePendingMove runs when user confirms.
+   */
+  initiatePendingMove(entries: string[], destDir: string): void {
+    this.archivePendingMoveEntries = entries;
+    this.archivePendingMoveDestDir = destDir;
+    this.archiveMoveWarning        = true;
+  }
+
+  /**
+   * Bound to (confirmed) on the ArchiveMoveWarningDialogComponent.
+   */
+  async executePendingMove(): Promise<void> {
+    this.archiveMoveWarning = false;
+    const frame   = this.archiveStack[this.archiveStack.length - 1];
+    const entries = this.archivePendingMoveEntries;
+    const destDir = this.archivePendingMoveDestDir;
+    this.archivePendingMoveEntries = [];
+    this.archivePendingMoveDestDir = '';
+
+    try {
+      const result = await this.archiveService.move(frame, entries, destDir);
+
+      // sourceRemoved === false means extraction succeeded but delete was skipped
+      if (!result.sourceRemoved) {
+        const softMsg = (result.errors ?? []).find((e: any) =>
+          e.error.includes('NOT removed'),
+        );
+        alert(
+          `${result.succeeded} file(s) extracted to destination.\n\n` +
+          `⚠ Source entries were NOT removed from the archive: ` +
+          (softMsg?.error ?? 'nested archive deletion is not supported.'),
+        );
+        return;
+      }
+
+      if (result.failed > 0) {
+        alert('Move errors:\n' + (result.errors ?? []).map((e: any) => e.error).join('\n'));
+      }
+
+      // Refresh archive listing — moved entries have been deleted from it
+      await this.refreshArchive();
+    } catch (err: any) {
+      alert(`Move failed: ${err.message}`);
     }
   }
 

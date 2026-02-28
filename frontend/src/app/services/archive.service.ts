@@ -232,6 +232,20 @@ export class ArchiveService {
 
   /* ─────────────── OPERATIONS ─────────────── */
 
+  /**
+   * Ensures every entry path is a full inner path from the archive root.
+   *
+   * When browsing inside a subdirectory (frame.innerPath = "some/dir"), the
+   * listing entries carry short paths like "file.txt" rather than the full
+   * "some/dir/file.txt" the backend needs for matchesEntries() to locate them.
+   * We prepend frame.innerPath when it is not already present.
+   */
+  private resolveEntries(frame: ArchiveFrame, entries: string[]): string[] {
+    const prefix = frame.innerPath ? frame.innerPath + '/' : '';
+    if (!prefix) return entries;
+    return entries.map(e => e.startsWith(prefix) ? e : prefix + e);
+  }
+
   copy(
     frame: ArchiveFrame,
     entries: string[],
@@ -242,7 +256,7 @@ export class ArchiveService {
     const req: ArchiveEntriesRequest = {
       fsPath: frame.fsPath,
       nestedChain: frame.nestedChain,
-      entries,
+      entries: this.resolveEntries(frame, entries),
       destinationDir: destDir,
       flattenPaths,
     };
@@ -260,7 +274,7 @@ export class ArchiveService {
     const req: ArchiveEntriesRequest = {
       fsPath: frame.fsPath,
       nestedChain: frame.nestedChain,
-      entries,
+      entries: this.resolveEntries(frame, entries),
       destinationDir: destDir,
       flattenPaths,
     };
@@ -283,7 +297,7 @@ export class ArchiveService {
     const req: ArchiveEntriesRequest = {
       fsPath: frame.fsPath,
       nestedChain: [],
-      entries,
+      entries: this.resolveEntries(frame, entries),
       destinationDir: '',
       flattenPaths: false,
     };

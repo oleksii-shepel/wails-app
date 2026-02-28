@@ -4,8 +4,11 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"bytes"
+	"compress/gzip"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -13,7 +16,35 @@ import (
 )
 
 // ────────────────────────────────────────────────────────────────────────────
-// Public API
+// Types
+// ────────────────────────────────────────────────────────────────────────────
+
+type ArchiveEntriesRequest struct {
+	// FsPath is the absolute on-disk path of the archive.
+	FsPath string `json:"fsPath"`
+	// NestedChain is non-empty when operating on a nested archive.
+	// Copy/Move support it; Delete requires it to be empty.
+	NestedChain []string `json:"nestedChain"`
+	// Entries are the inner paths to act on. Empty = all entries.
+	Entries []string `json:"entries"`
+	// DestinationDir is only used by Copy and Move.
+	DestinationDir string `json:"destinationDir"`
+	// FlattenPaths strips directory structure on extraction.
+	FlattenPaths bool `json:"flattenPaths"`
+}
+
+type ArchiveEntriesResult struct {
+	OperationID string `json:"operationId"`
+	Total       int    `json:"total"`
+	Succeeded   int    `json:"succeeded"`
+	Failed      int    `json:"failed"`
+	// SourceRemoved is false when the delete step was skipped (nested chain).
+	SourceRemoved bool             `json:"sourceRemoved"`
+	Errors        []BatchItemError `json:"errors,omitempty"`
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Public API - Archive Listing
 // ────────────────────────────────────────────────────────────────────────────
 
 // ArchiveList lists one level of a top-level archive on disk.
@@ -82,6 +113,142 @@ func (a *App) ArchiveReadFile(fsPath string, nestedChain []string, entryPath str
 		Encoding: "utf8",
 		Size:     int64(len(data)),
 	}, nil
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Public API - Archive Mutations
+// ────────────────────────────────────────────────────────────────────────────
+
+// ArchiveCopyEntries extracts the listed entries to DestinationDir.
+// Delegates entirely to BatchSelectiveExtract so all operation events,
+// conflict resolution, and progress tracking are inherited for free.
+func (a *App) ArchiveCopyEntries(req ArchiveEntriesRequest) (*ArchiveEntriesResult, error) {
+	if req.DestinationDir == "" {
+		return nil, fmt.Errorf("destinationDir is required")
+	}
+
+	selectiveReq := BatchSelectiveExtractRequest{
+		DestinationDir: req.DestinationDir,
+		Items: []SelectiveExtractItem{{
+			ArchivePath:    req.FsPath,
+			NestedChain:    req.NestedChain,
+			Entries:        req.Entries,
+			DestinationDir: req.DestinationDir,
+			FlattenPaths:   req.FlattenPaths,
+		}},
+	}
+
+	res, err := a.BatchSelectiveExtract(selectiveReq)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ArchiveEntriesResult{
+		OperationID: res.OperationID,
+		Total:       res.Total,
+		Succeeded:   res.Succeeded,
+		Failed:      res.Failed,
+		Errors:      res.Errors,
+	}, nil
+}
+
+// ArchiveMoveEntries copies entries to DestinationDir then rewrites the archive without them.
+// If NestedChain is non-empty the delete step is skipped (nested rewrite
+// not supported) and SourceRemoved is set to false in the result.
+func (a *App) ArchiveMoveEntries(req ArchiveEntriesRequest) (*ArchiveEntriesResult, error) {
+	// Step 1 — copy out
+	copyResult, err := a.ArchiveCopyEntries(req)
+	if err != nil {
+		return nil, err
+	}
+	if copyResult.Failed > 0 {
+		// Don't delete from archive if extraction had errors.
+		return copyResult, nil
+	}
+
+	// Step 2 — delete from source archive
+	if len(req.NestedChain) > 0 {
+		// Cannot rewrite nested archives — skip delete, surface as soft warning.
+		copyResult.SourceRemoved = false
+		copyResult.Errors = append(copyResult.Errors, BatchItemError{
+			Source: req.FsPath,
+			Error:  "entries copied but NOT removed: deleting from nested archives is not supported",
+		})
+		return copyResult, nil
+	}
+
+	deleteReq := ArchiveEntriesRequest{FsPath: req.FsPath, Entries: req.Entries}
+	delResult, err := a.ArchiveDeleteEntries(deleteReq)
+	if err != nil {
+		copyResult.SourceRemoved = false
+		copyResult.Errors = append(copyResult.Errors, BatchItemError{
+			Source: req.FsPath,
+			Error:  "entries copied but NOT removed from archive: " + err.Error(),
+		})
+		return copyResult, nil
+	}
+
+	copyResult.SourceRemoved = true
+	if delResult.Failed > 0 {
+		copyResult.Errors = append(copyResult.Errors, delResult.Errors...)
+	}
+	return copyResult, nil
+}
+
+// ArchiveDeleteEntries rewrites the archive atomically (temp file → rename),
+// omitting the listed entries. Emits operation:start / :progress / :complete.
+// NestedChain must be empty — nested rewrite is not supported.
+func (a *App) ArchiveDeleteEntries(req ArchiveEntriesRequest) (*ArchiveEntriesResult, error) {
+	if len(req.NestedChain) > 0 {
+		return nil, fmt.Errorf("deleting entries from nested archives is not supported")
+	}
+	if len(req.Entries) == 0 {
+		return &ArchiveEntriesResult{}, nil
+	}
+
+	// Start operation so OperationService / toast stack picks it up.
+	op := a.operations.StartOperation(OpDelete, "Delete from archive",
+		req.FsPath, "")
+	op.SetTotal(0, 0) // unknown total until we scan
+
+	var (
+		removed, kept int
+		rewriteErr    error
+	)
+
+	lower := strings.ToLower(req.FsPath)
+	switch {
+	case strings.HasSuffix(lower, ".zip"):
+		removed, kept, rewriteErr = rewriteZip(req.FsPath, req.Entries, op)
+	case strings.HasSuffix(lower, ".tar.gz"), strings.HasSuffix(lower, ".tgz"):
+		removed, kept, rewriteErr = rewriteTar(req.FsPath, req.Entries, "gz", op)
+	case strings.HasSuffix(lower, ".tar.bz2"):
+		removed, kept, rewriteErr = rewriteTar(req.FsPath, req.Entries, "bz2", op)
+	case strings.HasSuffix(lower, ".tar.xz"):
+		removed, kept, rewriteErr = rewriteTar(req.FsPath, req.Entries, "xz", op)
+	case strings.HasSuffix(lower, ".tar"):
+		removed, kept, rewriteErr = rewriteTar(req.FsPath, req.Entries, "", op)
+	default:
+		op.SetError(fmt.Errorf("unsupported archive format"))
+		return nil, fmt.Errorf("unsupported archive format: %q", req.FsPath)
+	}
+
+	result := &ArchiveEntriesResult{
+		OperationID:   op.ID,
+		Total:         removed + kept,
+		Succeeded:     removed,
+		SourceRemoved: rewriteErr == nil,
+	}
+
+	if rewriteErr != nil {
+		op.SetError(rewriteErr)
+		result.Failed = 1
+		result.Errors = []BatchItemError{{Source: req.FsPath, Error: rewriteErr.Error()}}
+		return result, rewriteErr
+	}
+
+	op.Complete()
+	return result, nil
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -175,6 +342,38 @@ func (a *App) walkTar(data []byte, innerPath string, nestedChain []string) ([]Fi
 			return nil, err
 		}
 	}
+	return a.sortFileInfo(seen), nil
+}
+
+func (a *App) walkArchiveReader(data []byte, innerPath string, nestedChain []string, archiveName string) ([]FileInfo, error) {
+	reader, err := openArchiveReader(archiveName, data)
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+
+	seen := make(map[string]FileInfo)
+	innerPath = normalize(innerPath)
+
+	for {
+		f, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		ep := normalize(archiveEntryPath(f))
+		isDir := f.IsDir()
+		if err := a.processEntryInto(ep, isDir, f.Size(), f.ModTime().UnixMilli(), innerPath, nestedChain, seen); err != nil {
+			f.Close()
+			return nil, err
+		}
+		if err := f.Close(); err != nil {
+			return nil, err
+		}
+	}
+
 	return a.sortFileInfo(seen), nil
 }
 
@@ -352,6 +551,206 @@ func (a *App) extractFromBytes(data []byte, entryPath string, archiveName string
 	return nil, fmt.Errorf("entry %q not found in archive", entryPath)
 }
 
+func (a *App) extractFromArchiveReader(data []byte, archiveName, entryPath string) ([]byte, error) {
+	reader, err := openArchiveReader(archiveName, data)
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+
+	want := normalize(entryPath)
+
+	for {
+		f, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		if normalize(archiveEntryPath(f)) == want {
+			buf, readErr := io.ReadAll(f)
+			f.Close()
+			if readErr != nil {
+				return nil, readErr
+			}
+			return buf, nil
+		}
+		if err := f.Close(); err != nil {
+			return nil, err
+		}
+	}
+
+	return nil, fmt.Errorf("entry %q not found in %s", entryPath, archiveName)
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// ZIP rewrite
+// ────────────────────────────────────────────────────────────────────────────
+
+func rewriteZip(fsPath string, entries []string, op *ActiveOperation) (removed, kept int, err error) {
+	r, err := zip.OpenReader(fsPath)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer r.Close()
+
+	op.SetTotal(int64(len(r.File)), 0)
+
+	tmp, err := os.CreateTemp(filepath.Dir(fsPath), ".archive-rewrite-*.zip")
+	if err != nil {
+		return 0, 0, err
+	}
+	tmpPath := tmp.Name()
+	defer func() {
+		tmp.Close()
+		if err != nil {
+			os.Remove(tmpPath)
+		}
+	}()
+
+	w := zip.NewWriter(tmp)
+	defer w.Close()
+
+	var processed int64
+	for _, f := range r.File {
+		if op.IsCancelled() {
+			return removed, kept, fmt.Errorf("cancelled")
+		}
+
+		innerPath := normalizePath(f.Name)
+		if matchesEntries(innerPath, entries) {
+			removed++
+			processed++
+			op.UpdateProgress(processed, 0, f.Name, 0)
+			continue
+		}
+
+		rc, openErr := f.Open()
+		if openErr != nil {
+			return removed, kept, fmt.Errorf("open %q: %w", f.Name, openErr)
+		}
+
+		hdr, _ := zip.FileInfoHeader(f.FileInfo())
+		hdr.Name = f.Name
+		hdr.Method = f.Method
+		fw, writeErr := w.CreateHeader(hdr)
+		if writeErr != nil {
+			rc.Close()
+			return removed, kept, writeErr
+		}
+
+		n, copyErr := io.Copy(fw, rc)
+		rc.Close()
+		if copyErr != nil {
+			return removed, kept, fmt.Errorf("copy %q: %w", f.Name, copyErr)
+		}
+
+		kept++
+		processed++
+		op.UpdateProgress(processed, n, f.Name, n)
+	}
+
+	if err = w.Close(); err != nil {
+		return removed, kept, err
+	}
+	tmp.Close()
+	return removed, kept, os.Rename(tmpPath, fsPath)
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// TAR rewrite (plain / gz / bz2 / xz)
+// ────────────────────────────────────────────────────────────────────────────
+//
+// bz2 and xz cannot be written natively without extra deps.
+// They are rewritten as plain .tar.gz — format mismatch is accepted in this
+// prototype. For a production build, link in dsnet/compress.
+
+func rewriteTar(fsPath string, entries []string, compression string, op *ActiveOperation) (removed, kept int, err error) {
+	srcFile, err := os.Open(fsPath)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer srcFile.Close()
+
+	var tarReader *tar.Reader
+	switch compression {
+	case "gz":
+		gr, gzErr := gzip.NewReader(srcFile)
+		if gzErr != nil {
+			return 0, 0, gzErr
+		}
+		defer gr.Close()
+		tarReader = tar.NewReader(gr)
+	default:
+		tarReader = tar.NewReader(srcFile)
+	}
+
+	tmp, err := os.CreateTemp(filepath.Dir(fsPath), ".archive-rewrite-*")
+	if err != nil {
+		return 0, 0, err
+	}
+	tmpPath := tmp.Name()
+	defer func() {
+		tmp.Close()
+		if err != nil {
+			os.Remove(tmpPath)
+		}
+	}()
+
+	var tarWriter *tar.Writer
+	var gzWriter *gzip.Writer
+	if compression == "gz" || compression == "bz2" || compression == "xz" {
+		gzWriter = gzip.NewWriter(tmp)
+		tarWriter = tar.NewWriter(gzWriter)
+		defer func() {
+			tarWriter.Close()
+			gzWriter.Close()
+		}()
+	} else {
+		tarWriter = tar.NewWriter(tmp)
+		defer tarWriter.Close()
+	}
+
+	var processed int64
+	for {
+		if op.IsCancelled() {
+			return removed, kept, fmt.Errorf("cancelled")
+		}
+
+		hdr, tarErr := tarReader.Next()
+		if tarErr == io.EOF {
+			break
+		}
+		if tarErr != nil {
+			return removed, kept, tarErr
+		}
+
+		innerPath := normalizePath(hdr.Name)
+		if matchesEntries(innerPath, entries) {
+			removed++
+			processed++
+			op.UpdateProgress(processed, 0, hdr.Name, 0)
+			continue
+		}
+
+		if writeErr := tarWriter.WriteHeader(hdr); writeErr != nil {
+			return removed, kept, writeErr
+		}
+
+		n, copyErr := io.Copy(tarWriter, tarReader)
+		if copyErr != nil {
+			return removed, kept, copyErr
+		}
+
+		kept++
+		processed++
+		op.UpdateProgress(processed, n, hdr.Name, n)
+	}
+
+	return removed, kept, os.Rename(tmpPath, fsPath)
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // Sorting & helpers
 // ────────────────────────────────────────────────────────────────────────────
@@ -388,71 +787,6 @@ func isRarArchiveName(name string) bool {
 	return strings.HasSuffix(strings.ToLower(name), ".rar")
 }
 
-func (a *App) walkArchiveReader(data []byte, innerPath string, nestedChain []string, archiveName string) ([]FileInfo, error) {
-	reader, err := openArchiveReader(archiveName, data)
-	if err != nil {
-		return nil, err
-	}
-	defer reader.Close()
-
-	seen := make(map[string]FileInfo)
-	innerPath = normalize(innerPath)
-
-	for {
-		f, err := reader.Read()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, err
-		}
-		ep := normalize(archiveEntryPath(f))
-		isDir := f.IsDir()
-		if err := a.processEntryInto(ep, isDir, f.Size(), f.ModTime().UnixMilli(), innerPath, nestedChain, seen); err != nil {
-			f.Close()
-			return nil, err
-		}
-		if err := f.Close(); err != nil {
-			return nil, err
-		}
-	}
-
-	return a.sortFileInfo(seen), nil
-}
-
-func (a *App) extractFromArchiveReader(data []byte, archiveName, entryPath string) ([]byte, error) {
-	reader, err := openArchiveReader(archiveName, data)
-	if err != nil {
-		return nil, err
-	}
-	defer reader.Close()
-
-	want := normalize(entryPath)
-
-	for {
-		f, err := reader.Read()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, err
-		}
-		if normalize(archiveEntryPath(f)) == want {
-			buf, readErr := io.ReadAll(f)
-			f.Close()
-			if readErr != nil {
-				return nil, readErr
-			}
-			return buf, nil
-		}
-		if err := f.Close(); err != nil {
-			return nil, err
-		}
-	}
-
-	return nil, fmt.Errorf("entry %q not found in %s", entryPath, archiveName)
-}
-
 func openArchiveReader(archiveName string, data []byte) (archiver.Reader, error) {
 	if archiveName == "" {
 		return nil, fmt.Errorf("archive name required to read from bytes")
@@ -470,4 +804,22 @@ func openArchiveReader(archiveName string, data []byte) (archiver.Reader, error)
 		return nil, err
 	}
 	return reader, nil
+}
+
+// normalizePath strips leading slashes and normalises separators.
+func normalizePath(p string) string {
+	p = strings.ReplaceAll(p, "\\", "/")
+	return strings.TrimPrefix(p, "/")
+}
+
+// matchesEntries returns true when innerPath matches any of the listed entries.
+// A directory entry matches the entry itself and all children.
+func matchesEntries(innerPath string, entries []string) bool {
+	for _, e := range entries {
+		e = normalizePath(e)
+		if e == "" || innerPath == e || strings.HasPrefix(innerPath, e+"/") {
+			return true
+		}
+	}
+	return false
 }

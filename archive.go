@@ -119,50 +119,51 @@ func (a *App) ArchiveReadFile(fsPath string, nestedChain []string, entryPath str
 // Public API - Archive Mutations
 // ────────────────────────────────────────────────────────────────────────────
 
-// ArchiveCopyEntries extracts the listed entries to DestinationDir.
-// Delegates entirely to BatchSelectiveExtract so all operation events,
-// conflict resolution, and progress tracking are inherited for free.
+// ArchiveCopyEntries extracts the listed entries to DestinationDir
+// synchronously, blocking until every file is fully written to disk.
+//
+// BatchSelectiveExtract is NOT used here because:
+//  1. It is fire-and-forget (async), so callers cannot know when files are
+//     actually on disk.
+//  2. It uses matchesEntries which exact-matches directory root headers,
+//     writing them as empty files at the destination instead of skipping them.
+//
+// extractEntriesSync uses matchesEntriesForExtract which correctly skips the
+// directory root entry itself while still extracting all of its children.
 func (a *App) ArchiveCopyEntries(req ArchiveEntriesRequest) (*ArchiveEntriesResult, error) {
 	if req.DestinationDir == "" {
 		return nil, fmt.Errorf("destinationDir is required")
 	}
 
-	selectiveReq := BatchSelectiveExtractRequest{
-		DestinationDir: req.DestinationDir,
-		Items: []SelectiveExtractItem{{
-			ArchivePath:    req.FsPath,
-			NestedChain:    req.NestedChain,
-			Entries:        req.Entries,
-			DestinationDir: req.DestinationDir,
-			FlattenPaths:   req.FlattenPaths,
-		}},
-	}
+	op := a.operations.StartOperation(OpDelete, "Copy from archive",
+		req.FsPath, req.DestinationDir)
 
-	res, err := a.BatchSelectiveExtract(selectiveReq)
+	succeeded, failed, errs, err := a.extractEntriesSync(req, op)
 	if err != nil {
+		op.SetError(err)
 		return nil, err
 	}
 
+	op.Complete()
 	return &ArchiveEntriesResult{
-		OperationID: res.OperationID,
-		Total:       res.Total,
-		Succeeded:   res.Succeeded,
-		Failed:      res.Failed,
-		Errors:      res.Errors,
+		OperationID: op.ID,
+		Total:       succeeded + failed,
+		Succeeded:   succeeded,
+		Failed:      failed,
+		Errors:      errs,
 	}, nil
 }
 
 // ArchiveMoveEntries extracts entries to DestinationDir synchronously, then
 // rewrites the archive without them only after all files are fully on disk.
 //
-// ArchiveCopyEntries is intentionally NOT used here: it delegates to
-// BatchSelectiveExtract which is fire-and-forget — it starts an async
-// operation and returns before files are written, so ArchiveDeleteEntries
-// would rewrite (and potentially corrupt) the archive while extraction is
-// still in progress.
+// BatchSelectiveExtract is NOT used here because it is fire-and-forget (async):
+// it starts an operation and returns before files are written to disk, so
+// ArchiveDeleteEntries would rewrite the archive while extraction is still
+// in progress, corrupting or losing files.
 //
-// Instead we extract synchronously via moveExtractSync, block until every
-// byte is written, then call ArchiveDeleteEntries for the atomic rewrite.
+// extractEntriesSync blocks until every byte is written, then the archive
+// rewrite via ArchiveDeleteEntries is safe to run.
 func (a *App) ArchiveMoveEntries(req ArchiveEntriesRequest) (*ArchiveEntriesResult, error) {
 	if req.DestinationDir == "" {
 		return nil, fmt.Errorf("destinationDir is required")
@@ -171,12 +172,11 @@ func (a *App) ArchiveMoveEntries(req ArchiveEntriesRequest) (*ArchiveEntriesResu
 		return &ArchiveEntriesResult{}, nil
 	}
 
-	// Single operation that covers both extract and delete phases.
 	op := a.operations.StartOperation(OpDelete, "Move from archive",
 		req.FsPath, req.DestinationDir)
 
-	// ── Phase 1: synchronous extraction ──────────────────────────────────────
-	succeeded, failed, extractErrors, err := a.moveExtractSync(req, op)
+	// Phase 1: synchronous extraction — blocks until all files are on disk.
+	succeeded, failed, errs, err := a.extractEntriesSync(req, op)
 	if err != nil {
 		op.SetError(err)
 		return nil, err
@@ -187,16 +187,15 @@ func (a *App) ArchiveMoveEntries(req ArchiveEntriesRequest) (*ArchiveEntriesResu
 		Total:       succeeded + failed,
 		Succeeded:   succeeded,
 		Failed:      failed,
-		Errors:      extractErrors,
+		Errors:      errs,
 	}
 
 	if failed > 0 {
-		// Don't touch the archive if any file failed to extract.
 		op.SetError(fmt.Errorf("%d file(s) failed to extract; archive not modified", failed))
 		return result, nil
 	}
 
-	// ── Phase 2: archive rewrite ──────────────────────────────────────────────
+	// Phase 2: atomic archive rewrite — safe because phase 1 has completed.
 	if len(req.NestedChain) > 0 {
 		result.SourceRemoved = false
 		result.Errors = append(result.Errors, BatchItemError{
@@ -227,48 +226,46 @@ func (a *App) ArchiveMoveEntries(req ArchiveEntriesRequest) (*ArchiveEntriesResu
 	return result, nil
 }
 
-// moveExtractSync extracts all matching entries to req.DestinationDir and
+// ────────────────────────────────────────────────────────────────────────────
+// Synchronous extraction
+// ────────────────────────────────────────────────────────────────────────────
+
+// extractEntriesSync extracts all matching entries to req.DestinationDir and
 // blocks until every file is fully written to disk.
-// Returns (succeeded, failed, per-file errors, fatal error).
-// A non-nil fatal error means the archive could not be opened at all.
-func (a *App) moveExtractSync(req ArchiveEntriesRequest, op *ActiveOperation) (succeeded, failed int, errs []BatchItemError, fatalErr error) {
+// Directory root entries (e.g. the "some/dir/" header itself) are skipped via
+// matchesEntriesForExtract — only the directory's children are extracted.
+func (a *App) extractEntriesSync(req ArchiveEntriesRequest, op *ActiveOperation) (succeeded, failed int, errs []BatchItemError, fatalErr error) {
 	if err := os.MkdirAll(req.DestinationDir, 0755); err != nil {
 		return 0, 0, nil, fmt.Errorf("create destination: %w", err)
 	}
 
-	// For nested archives, extract to memory then walk the bytes.
 	if len(req.NestedChain) > 0 {
 		data, err := a.extractNestedArchive(req.FsPath, req.NestedChain)
 		if err != nil {
 			return 0, 0, nil, err
 		}
-		return moveExtractFromBytes(data, req.NestedChain[len(req.NestedChain)-1], req.Entries, req.DestinationDir, req.FlattenPaths, op)
+		return extractFromBytesSync(data, req.NestedChain[len(req.NestedChain)-1], req.Entries, req.DestinationDir, req.FlattenPaths, op)
 	}
 
 	lower := strings.ToLower(req.FsPath)
 	switch {
 	case strings.HasSuffix(lower, ".zip"):
-		return moveExtractZip(req.FsPath, req.Entries, req.DestinationDir, req.FlattenPaths, op)
-	case strings.HasSuffix(lower, ".tar.gz"), strings.HasSuffix(lower, ".tgz"),
-		strings.HasSuffix(lower, ".tar.bz2"), strings.HasSuffix(lower, ".tar.xz"),
-		strings.HasSuffix(lower, ".tar"):
-		return moveExtractTar(req.FsPath, req.Entries, req.DestinationDir, req.FlattenPaths, op)
+		return extractZipSync(req.FsPath, req.Entries, req.DestinationDir, req.FlattenPaths, op)
 	default:
-		return 0, 0, nil, fmt.Errorf("unsupported archive format: %q", req.FsPath)
+		return extractTarSync(req.FsPath, req.Entries, req.DestinationDir, req.FlattenPaths, op)
 	}
 }
 
-func moveExtractZip(fsPath string, entries []string, destDir string, flatten bool, op *ActiveOperation) (succeeded, failed int, errs []BatchItemError, fatalErr error) {
+func extractZipSync(fsPath string, entries []string, destDir string, flatten bool, op *ActiveOperation) (succeeded, failed int, errs []BatchItemError, fatalErr error) {
 	r, err := zip.OpenReader(fsPath)
 	if err != nil {
 		return 0, 0, nil, err
 	}
 	defer r.Close()
 
-	// Pre-filter so we can set an accurate total before starting.
 	var matches []*zip.File
 	for _, f := range r.File {
-		if !f.FileInfo().IsDir() && matchesEntries(normalizePath(f.Name), entries) {
+		if matchesEntriesForExtract(normalizePath(f.Name), entries) {
 			matches = append(matches, f)
 		}
 	}
@@ -281,8 +278,11 @@ func moveExtractZip(fsPath string, entries []string, destDir string, flatten boo
 			failed++
 			continue
 		}
+		if f.FileInfo().IsDir() {
+			continue // create dirs implicitly via MkdirAll below
+		}
 
-		destPath := moveDestPath(f.Name, destDir, flatten)
+		destPath := extractDestPath(f.Name, destDir, flatten)
 		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
 			errs = append(errs, BatchItemError{Source: f.Name, Error: err.Error()})
 			failed++
@@ -295,8 +295,7 @@ func moveExtractZip(fsPath string, entries []string, destDir string, flatten boo
 			failed++
 			continue
 		}
-
-		n, writeErr := moveWriteFile(destPath, rc)
+		n, writeErr := extractWriteFile(destPath, rc)
 		rc.Close()
 		if writeErr != nil {
 			errs = append(errs, BatchItemError{Source: f.Name, Error: writeErr.Error()})
@@ -311,24 +310,23 @@ func moveExtractZip(fsPath string, entries []string, destDir string, flatten boo
 	return
 }
 
-func moveExtractTar(fsPath string, entries []string, destDir string, flatten bool, op *ActiveOperation) (succeeded, failed int, errs []BatchItemError, fatalErr error) {
+func extractTarSync(fsPath string, entries []string, destDir string, flatten bool, op *ActiveOperation) (succeeded, failed int, errs []BatchItemError, fatalErr error) {
 	src, err := os.Open(fsPath)
 	if err != nil {
 		return 0, 0, nil, err
 	}
 	defer src.Close()
 
-	tr, closeGz, err := openTarReader(src, fsPath)
+	tr, closeExtra, err := wrapTarReader(src, fsPath)
 	if err != nil {
 		return 0, 0, nil, err
 	}
-	if closeGz != nil {
-		defer closeGz()
+	if closeExtra != nil {
+		defer closeExtra()
 	}
 
-	op.SetTotal(0, 0) // TAR is streaming; total unknown upfront
+	op.SetTotal(0, 0)
 	var processed int64
-
 	for {
 		if op.IsCancelled() {
 			break
@@ -340,24 +338,22 @@ func moveExtractTar(fsPath string, entries []string, destDir string, flatten boo
 		if err != nil {
 			return succeeded, failed, errs, err
 		}
-		if hdr.FileInfo().IsDir() || !matchesEntries(normalizePath(hdr.Name), entries) {
+		if hdr.FileInfo().IsDir() || !matchesEntriesForExtract(normalizePath(hdr.Name), entries) {
 			continue
 		}
 
-		destPath := moveDestPath(hdr.Name, destDir, flatten)
+		destPath := extractDestPath(hdr.Name, destDir, flatten)
 		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
 			errs = append(errs, BatchItemError{Source: hdr.Name, Error: err.Error()})
 			failed++
 			continue
 		}
-
-		n, writeErr := moveWriteFile(destPath, tr)
+		n, writeErr := extractWriteFile(destPath, tr)
 		if writeErr != nil {
 			errs = append(errs, BatchItemError{Source: hdr.Name, Error: writeErr.Error()})
 			failed++
 			continue
 		}
-
 		succeeded++
 		processed++
 		op.UpdateProgress(processed, n, hdr.Name, n)
@@ -365,7 +361,7 @@ func moveExtractTar(fsPath string, entries []string, destDir string, flatten boo
 	return
 }
 
-func moveExtractFromBytes(data []byte, archiveName string, entries []string, destDir string, flatten bool, op *ActiveOperation) (succeeded, failed int, errs []BatchItemError, fatalErr error) {
+func extractFromBytesSync(data []byte, archiveName string, entries []string, destDir string, flatten bool, op *ActiveOperation) (succeeded, failed int, errs []BatchItemError, fatalErr error) {
 	if isZipMagic(data) {
 		r, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 		if err != nil {
@@ -373,7 +369,7 @@ func moveExtractFromBytes(data []byte, archiveName string, entries []string, des
 		}
 		var matches []*zip.File
 		for _, f := range r.File {
-			if !f.FileInfo().IsDir() && matchesEntries(normalizePath(f.Name), entries) {
+			if matchesEntriesForExtract(normalizePath(f.Name), entries) {
 				matches = append(matches, f)
 			}
 		}
@@ -385,7 +381,10 @@ func moveExtractFromBytes(data []byte, archiveName string, entries []string, des
 				failed++
 				continue
 			}
-			destPath := moveDestPath(f.Name, destDir, flatten)
+			if f.FileInfo().IsDir() {
+				continue
+			}
+			destPath := extractDestPath(f.Name, destDir, flatten)
 			if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
 				errs = append(errs, BatchItemError{Source: f.Name, Error: err.Error()})
 				failed++
@@ -397,7 +396,7 @@ func moveExtractFromBytes(data []byte, archiveName string, entries []string, des
 				failed++
 				continue
 			}
-			n, writeErr := moveWriteFile(destPath, rc)
+			n, writeErr := extractWriteFile(destPath, rc)
 			rc.Close()
 			if writeErr != nil {
 				errs = append(errs, BatchItemError{Source: f.Name, Error: writeErr.Error()})
@@ -411,7 +410,6 @@ func moveExtractFromBytes(data []byte, archiveName string, entries []string, des
 		return
 	}
 
-	// TAR-based in-memory
 	tr := tar.NewReader(bytes.NewReader(data))
 	op.SetTotal(0, 0)
 	var processed int64
@@ -426,16 +424,16 @@ func moveExtractFromBytes(data []byte, archiveName string, entries []string, des
 		if err != nil {
 			return succeeded, failed, errs, err
 		}
-		if hdr.FileInfo().IsDir() || !matchesEntries(normalizePath(hdr.Name), entries) {
+		if hdr.FileInfo().IsDir() || !matchesEntriesForExtract(normalizePath(hdr.Name), entries) {
 			continue
 		}
-		destPath := moveDestPath(hdr.Name, destDir, flatten)
+		destPath := extractDestPath(hdr.Name, destDir, flatten)
 		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
 			errs = append(errs, BatchItemError{Source: hdr.Name, Error: err.Error()})
 			failed++
 			continue
 		}
-		n, writeErr := moveWriteFile(destPath, tr)
+		n, writeErr := extractWriteFile(destPath, tr)
 		if writeErr != nil {
 			errs = append(errs, BatchItemError{Source: hdr.Name, Error: writeErr.Error()})
 			failed++
@@ -448,9 +446,9 @@ func moveExtractFromBytes(data []byte, archiveName string, entries []string, des
 	return
 }
 
-// openTarReader wraps a file in a tar.Reader, unwrapping gzip if the filename
-// indicates it. Returns a cleanup func for the gzip reader (may be nil).
-func openTarReader(src *os.File, fsPath string) (*tar.Reader, func(), error) {
+// wrapTarReader opens a tar.Reader over src, unwrapping gzip when the filename
+// indicates it. Returns an optional close func for the gzip layer.
+func wrapTarReader(src *os.File, fsPath string) (*tar.Reader, func(), error) {
 	lower := strings.ToLower(fsPath)
 	if strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz") ||
 		strings.HasSuffix(lower, ".tar.bz2") || strings.HasSuffix(lower, ".tar.xz") {
@@ -463,8 +461,8 @@ func openTarReader(src *os.File, fsPath string) (*tar.Reader, func(), error) {
 	return tar.NewReader(src), nil, nil
 }
 
-// moveWriteFile creates destPath and copies all of r into it, returning bytes written.
-func moveWriteFile(destPath string, r io.Reader) (int64, error) {
+// extractWriteFile creates destPath and copies all of r into it.
+func extractWriteFile(destPath string, r io.Reader) (int64, error) {
 	f, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		return 0, err
@@ -477,8 +475,8 @@ func moveWriteFile(destPath string, r io.Reader) (int64, error) {
 	return n, closeErr
 }
 
-// moveDestPath resolves the output path for an archive entry.
-func moveDestPath(entryName, destDir string, flatten bool) string {
+// extractDestPath resolves the output path for an archive entry.
+func extractDestPath(entryName, destDir string, flatten bool) string {
 	entryName = normalizePath(entryName)
 	if flatten {
 		return filepath.Join(destDir, filepath.Base(entryName))
@@ -1105,10 +1103,41 @@ func normalizePath(p string) string {
 
 // matchesEntries returns true when innerPath matches any of the listed entries.
 // A directory entry matches the entry itself and all children.
+// Used for archive rewrite (deletion) — exact matches are included so that
+// explicit directory header entries are also removed from the archive.
 func matchesEntries(innerPath string, entries []string) bool {
 	for _, e := range entries {
 		e = normalizePath(e)
 		if e == "" || innerPath == e || strings.HasPrefix(innerPath, e+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// matchesEntriesForExtract is like matchesEntries but skips an entry that
+// exactly equals a selected path — i.e. the directory root header itself.
+// When extracting "some/dir", we want its children ("some/dir/file.txt") but
+// not the bare directory entry ("some/dir" or "some/dir/"), which would be
+// written as a zero-byte file or spurious empty directory at the destination.
+func matchesEntriesForExtract(innerPath string, entries []string) bool {
+	// Strip trailing slash that zips sometimes add to directory entries.
+	cleanInner := strings.TrimSuffix(innerPath, "/")
+	for _, e := range entries {
+		e = normalizePath(e)
+		if e == "" {
+			return true
+		}
+		// Exact match → this IS the selected directory root itself; skip it.
+		if cleanInner == e {
+			return false
+		}
+		// Child of a selected directory → include it.
+		if strings.HasPrefix(innerPath, e+"/") {
+			return true
+		}
+		// Exact file match → include it.
+		if innerPath == e {
 			return true
 		}
 	}

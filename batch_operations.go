@@ -314,7 +314,7 @@ func (a *App) BatchCopy(req BatchRequest) (*BatchResult, error) {
 			break
 		}
 
-		srcInfo, err := os.Stat(item.Source)
+		_, err := os.Stat(item.Source)
 		if err != nil {
 			result.Failed++
 			result.Errors = append(result.Errors, BatchItemError{Source: item.Source, Error: err.Error()})
@@ -322,9 +322,6 @@ func (a *App) BatchCopy(req BatchRequest) (*BatchResult, error) {
 		}
 
 		dst := item.Destination
-		if srcInfo.IsDir() {
-			dst = filepath.Join(item.Destination, filepath.Base(item.Source))
-		}
 
 		finalDst, skip, err := a.checkConflict(op, item.Source, dst, &blanket)
 		if err != nil {
@@ -382,11 +379,11 @@ func (a *App) BatchMove(req BatchRequest) (*BatchResult, error) {
 		}
 
 		dst := item.Destination
-		if srcInfo.IsDir() {
-			dst = filepath.Join(item.Destination, filepath.Base(item.Source))
-		}
 
-		finalDst, skip, err := a.checkConflict(op, item.Source, dst, &blanket)
+		// For directories, always use the destination as provided (avoid nesting duplicate folder names)
+		finalDst := dst
+		skip := false
+		finalDst, skip, err = a.checkConflict(op, item.Source, dst, &blanket)
 		if err != nil {
 			result.Failed++
 			result.Errors = append(result.Errors, BatchItemError{Source: item.Source, Destination: dst, Error: err.Error()})
@@ -398,7 +395,7 @@ func (a *App) BatchMove(req BatchRequest) (*BatchResult, error) {
 		}
 
 		// Atomic rename first; cross-device falls back to copy+delete.
-		if err := os.Rename(item.Source, finalDst); err != nil {
+		if err = os.Rename(item.Source, finalDst); err != nil {
 			if err2 := a.copyPath(item.Source, finalDst, true, op, bp); err2 != nil {
 				result.Failed++
 				result.Errors = append(result.Errors, BatchItemError{Source: item.Source, Destination: finalDst, Error: err2.Error()})

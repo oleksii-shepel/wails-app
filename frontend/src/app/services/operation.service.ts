@@ -59,7 +59,7 @@ export interface OperationState {
 export class OperationService implements OnDestroy {
   // Core state streams
   private operationsMap = new Map<string, OperationState>();
-  readonly operations$ = createBehaviorSubject<Map<string, OperationState>>(new Map());
+  readonly operations$ = createBehaviorSubject<Map<string, OperationState>>(new Map<string, OperationState>());
   
   // Add conflicts stream
   private conflictsSubject = createSubject<ConflictEvent[]>();

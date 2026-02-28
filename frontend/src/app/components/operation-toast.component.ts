@@ -1,830 +1,489 @@
 // operation-toast.component.ts
-import { Component, Input, Output, EventEmitter, OnInit } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnChanges, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { OperationService, OperationState } from '../services/operation.service';
 import { ConflictResolution } from '../shared/protocol-enhanced';
+import { createSubject } from '@epikodelabs/streamix';
 
 @Component({
   selector: 'app-operation-toast',
   standalone: true,
   imports: [CommonModule, FormsModule],
   template: `
-    <div 
-      class="operation-toast"
-      [class]="'status-' + operation.status"
-      [class.minimized]="operation.isMinimized"
-      [class.has-conflict]="hasConflict"
-      [style.--op-color]="'var(' + operation.config.themeColor + ')'"
-    >
-      <!-- Icon Ring -->
-      <div class="toast-icon-ring">
-        <svg class="icon-svg" viewBox="0 0 24 24">
-          <use [attr.href]="'#icon-' + operation.config.icon"></use>
+  <div class="toast" [class.is-conflict]="hasConflict">
+
+    <!-- ── NORMAL / PROGRESS ── -->
+    <ng-container *ngIf="!hasConflict">
+
+      <div class="ring-wrap">
+        <svg viewBox="0 0 36 36" class="ring">
+          <circle class="ring-bg" cx="18" cy="18" r="15.9"/>
+          <circle class="ring-fg" cx="18" cy="18" r="15.9"
+            [style.stroke-dasharray]="operation.percentComplete + ' 100'"
+            [style.stroke-dashoffset]="0"/>
         </svg>
-        <svg class="progress-ring" viewBox="0 0 36 36" *ngIf="!hasConflict">
-          <path class="ring-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
-          <path 
-            class="ring-fill" 
-            [attr.stroke-dasharray]="operation.percentComplete + ', 100'"
-            d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-          />
-        </svg>
-        <!-- Warning icon for conflicts -->
-        <svg class="conflict-icon" *ngIf="hasConflict" viewBox="0 0 24 24">
-          <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none"/>
-          <line x1="12" y1="8" x2="12" y2="12" stroke="currentColor" stroke-width="2"/>
-          <circle cx="12" cy="16" r="1" fill="currentColor"/>
-        </svg>
+        <span class="ring-pct">{{operation.percentComplete | number:'1.0-0'}}</span>
       </div>
 
-      <!-- Content -->
-      <div class="toast-content">
-        <div class="toast-header">
-          <span class="toast-title">{{ operation.config.title }}</span>
-          <span class="toast-percent" *ngIf="!operation.isMinimized && !hasConflict">
-            {{ operation.percentComplete | number:'1.0-0' }}%
-          </span>
-          <span class="conflict-badge" *ngIf="hasConflict">⚠️ Conflict</span>
+      <div class="body">
+        <div class="op-header">
+          <span class="op-title">{{operation.config.title}}</span>
+          <button class="icon-btn" *ngIf="operation.status === 'running'" (click)="onCancel($event)" title="Cancel">
+            <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm3.5 9.1-1.4 1.4L8 9.4l-2.1 2.1-1.4-1.4L6.6 8 4.5 5.9l1.4-1.4L8 6.6l2.1-2.1 1.4 1.4L9.4 8l2.1 2.1z"/></svg>
+          </button>
+          <button class="icon-btn" *ngIf="isCompleted" (click)="onDismiss($event)" title="Dismiss">
+            <svg viewBox="0 0 16 16" fill="currentColor"><path d="M9.41 8 12 5.41 10.59 4 8 6.59 5.41 4 4 5.41 6.59 8 4 10.59 5.41 12 8 9.41 10.59 12 12 10.59 9.41 8z"/></svg>
+          </button>
         </div>
 
-        <!-- Normal Progress View -->
-        <ng-container *ngIf="!hasConflict">
-          <div class="toast-body" *ngIf="!operation.isMinimized">
-            <div class="file-path" [title]="operation.metrics.currentFile">
-              <span class="path-text">{{ currentFileName }}</span>
-            </div>
+        <div class="file-name">{{currentFileName}}</div>
 
-            <div class="stats-grid">
-              <div class="stat">
-                <span class="stat-label">Speed</span>
-                <span class="stat-value speed">{{ svc.formatSpeed(operation.timing.speedBytesPerSecond) }}</span>
-              </div>
-              <div class="stat">
-                <span class="stat-label">ETA</span>
-                <span class="stat-value">{{ svc.formatDuration(operation.timing.estimatedRemainingMs) }}</span>
-              </div>
-              <div class="stat">
-                <span class="stat-label">Size</span>
-                <span class="stat-value">
-                  {{ svc.formatBytes(operation.metrics.processedBytes) }} / 
-                  {{ svc.formatBytes(operation.metrics.totalBytes) }}
-                </span>
-              </div>
-            </div>
-
-            <div class="progress-track">
-              <div class="progress-fill" [style.width.%]="operation.percentComplete">
-                <div class="progress-shimmer" *ngIf="operation.status === 'running'"></div>
-              </div>
-            </div>
-
-            <div class="items-counter" *ngIf="operation.metrics.totalItems > 1">
-              {{ operation.metrics.processedItems }} of {{ operation.metrics.totalItems }} items
-            </div>
-          </div>
-        </ng-container>
-
-        <!-- Conflict Resolution View -->
-        <div class="conflict-resolution" *ngIf="hasConflict && !operation.isMinimized">
-          <div class="conflict-files">
-            <div class="conflict-file source">
-              <div class="file-label">Source</div>
-              <div class="file-path" [title]="sourcePath">
-                {{ sourceFileName }}
-              </div>
-              <div class="file-meta" *ngIf="sourceSize">
-                Size: {{ svc.formatBytes(sourceSize) }}
-              </div>
-            </div>
-            
-            <div class="conflict-arrow">→</div>
-            
-            <div class="conflict-file dest">
-              <div class="file-label">Destination (exists)</div>
-              <div class="file-path" [title]="destPath">
-                {{ destFileName }}
-              </div>
-              <div class="file-meta" *ngIf="destSize">
-                Size: {{ svc.formatBytes(destSize) }} · 
-                <span *ngIf="isDirectory">Directory</span>
-              </div>
-            </div>
-          </div>
-
-          <div class="conflict-actions">
-            <button class="conflict-btn skip" (click)="resolveConflict('skip')">
-              <svg viewBox="0 0 24 24" width="14" height="14">
-                <polyline points="9 18 15 12 9 6"></polyline>
-              </svg>
-              Skip
-            </button>
-            <button class="conflict-btn overwrite" (click)="resolveConflict('overwrite')">
-              <svg viewBox="0 0 24 24" width="14" height="14">
-                <path d="M3 12h14m-5-5l5 5-5 5"></path>
-              </svg>
-              Overwrite
-            </button>
-            <button class="conflict-btn rename" (click)="resolveConflict('rename')">
-              <svg viewBox="0 0 24 24" width="14" height="14">
-                <path d="M12 20h9M16.5 3.5l4 4L7 21H3v-4L16.5 3.5z"></path>
-              </svg>
-              Rename New
-            </button>
-            <button class="conflict-btn cancel" (click)="resolveConflict('cancel')">
-              <svg viewBox="0 0 24 24" width="14" height="14">
-                <line x1="18" y1="6" x2="6" y2="18"></line>
-                <line x1="6" y1="6" x2="18" y2="18"></line>
-              </svg>
-              Cancel
-            </button>
-          </div>
-
-          <label class="apply-to-all">
-            <input 
-              type="checkbox" 
-              [(ngModel)]="applyToAll"
-              [disabled]="isResolving"
-            >
-            Apply to all conflicts
-          </label>
+        <div class="progress-bar">
+          <div class="progress-fill" [style.width.%]="operation.percentComplete"></div>
         </div>
 
-        <!-- Minimized conflict view -->
-        <div class="conflict-mini" *ngIf="hasConflict && operation.isMinimized">
-          <span class="conflict-mini-text">Conflict: {{ sourceFileName }}</span>
+        <div class="stats-row">
+          <span>{{svc.formatSpeed(operation.timing.speedBytesPerSecond)}}</span>
+          <span class="eta">{{svc.formatDuration(operation.timing.estimatedRemainingMs)}}</span>
+          <span>{{svc.formatBytes(operation.metrics.processedBytes)}} / {{svc.formatBytes(operation.metrics.totalBytes)}}</span>
         </div>
       </div>
 
-      <!-- Actions -->
-      <div class="toast-actions">
-        <button 
-          class="action-btn minimize" 
-          (click)="onMinimize($event)"
-          [title]="operation.isMinimized ? 'Expand' : 'Minimize'"
-        >
-          <svg viewBox="0 0 24 24" *ngIf="!operation.isMinimized">
-            <line x1="5" y1="12" x2="19" y2="12"></line>
-          </svg>
-          <svg viewBox="0 0 24 24" *ngIf="operation.isMinimized">
-            <polyline points="6 9 12 15 18 9"></polyline>
-          </svg>
-        </button>
+    </ng-container>
 
-        <button 
-          class="action-btn collapse" 
-          (click)="onGlobalCollapse($event)"
-          title="Collapse all to status bar"
-        >
-          <svg viewBox="0 0 24 24">
-            <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"></path>
-          </svg>
-        </button>
+    <!-- ── CONFLICT ── -->
+    <ng-container *ngIf="hasConflict">
+      <div class="conflict-body">
 
-        <button 
-          class="action-btn cancel" 
-          *ngIf="operation.status === 'running' && operation.config.cancellable && !hasConflict"
-          (click)="onCancel($event)"
-          title="Cancel"
-        >
-          <svg viewBox="0 0 24 24">
-            <line x1="18" y1="6" x2="6" y2="18"></line>
-            <line x1="6" y1="6" x2="18" y2="18"></line>
+        <div class="conflict-heading">
+          <svg class="warn-icon" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M7.56 1h.88l6.54 12.26-.44.74H1.44L1 13.26Zm.44 2L2.28 13h11.44ZM8 11a.75.75 0 1 1 0 1.5A.75.75 0 0 1 8 11zm.75-5v4.5h-1.5V6h1.5z"/>
           </svg>
-        </button>
+          <div>
+            <div class="conflict-title">File already exists</div>
+            <div class="conflict-sub">Choose how to handle this conflict</div>
+          </div>
+        </div>
 
-        <button 
-          class="action-btn close" 
-          *ngIf="isCompleted"
-          (click)="onDismiss($event)"
-          title="Dismiss"
-        >
-          <svg viewBox="0 0 24 24">
-            <line x1="18" y1="6" x2="6" y2="18"></line>
-            <line x1="6" y1="6" x2="18" y2="18"></line>
-          </svg>
-        </button>
+        <div class="file-compare">
+          <div class="file-side">
+            <div class="side-label">Source</div>
+            <div class="side-path">{{conflictFileName(operation.conflictData?.sourcePath)}}</div>
+            <div class="side-dir">{{conflictDir(operation.conflictData?.sourcePath)}}</div>
+            <div class="side-meta">{{svc.formatBytes(operation.conflictData?.sourceSize || 0)}}</div>
+          </div>
+
+          <div class="compare-arrow">
+            <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L11.19 8.5H2.75a.75.75 0 0 1 0-1.5h8.44L8.22 4.28a.75.75 0 0 1 0-1.06z"/></svg>
+          </div>
+
+          <div class="file-side dest">
+            <div class="side-label">Destination</div>
+            <div class="side-path">{{conflictFileName(operation.conflictData?.destPath)}}</div>
+            <div class="side-dir">{{conflictDir(operation.conflictData?.destPath)}}</div>
+            <div class="side-meta">
+              {{svc.formatBytes(operation.conflictData?.destSize || 0)}}
+              <span *ngIf="operation.conflictData?.isDirectory" class="folder-badge">folder</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="resolution-btns">
+          <button class="res-btn" (click)="resolveConflict('skip')">Skip</button>
+          <button class="res-btn primary" (click)="resolveConflict('overwrite')">Replace</button>
+          <button class="res-btn" (click)="resolveConflict('rename')">Keep Both</button>
+          <button class="res-btn danger" (click)="resolveConflict('cancel')">Cancel All</button>
+        </div>
+
+        <label class="apply-all">
+          <input type="checkbox" [(ngModel)]="applyToAll">
+          <span>Apply to all conflicts</span>
+        </label>
+
       </div>
+    </ng-container>
 
-      <!-- Error Banner -->
-      <div class="error-banner" *ngIf="operation.error && !hasConflict && !operation.isMinimized">
-        <svg viewBox="0 0 24 24">
-          <circle cx="12" cy="12" r="10"></circle>
-          <line x1="12" y1="8" x2="12" y2="12"></line>
-          <line x1="12" y1="16" x2="12.01" y2="16"></line>
-        </svg>
-        <span>{{ operation.error }}</span>
-      </div>
-    </div>
+  </div>
   `,
   styles: [`
     :host {
       display: block;
-      animation: toast-enter 0.25s var(--vsc-transition-normal) both;
+      animation: slide-in .18s cubic-bezier(.16,1,.3,1);
     }
 
-    @keyframes toast-enter {
-      from {
-        opacity: 0;
-        transform: translateX(20px) scale(0.96);
-      }
-      to {
-        opacity: 1;
-        transform: translateX(0) scale(1);
-      }
+    @keyframes slide-in {
+      from { opacity: 0; transform: translateY(8px) scale(.98); }
+      to   { opacity: 1; transform: translateY(0) scale(1); }
     }
 
-    .operation-toast {
-      --op-color: var(--vsc-accent-blue);
-      
-      position: relative;
+    /* ── Shell ── */
+    .toast {
+      width: 360px;
+      padding: 12px 14px;
+      background: var(--vsc-panel-background, #1e1e1e);
+      border: 1px solid var(--vsc-border, #3c3c3c);
+      border-radius: 6px;
+      box-shadow: 0 8px 24px rgba(0,0,0,.45);
+      color: var(--vsc-foreground, #ccc);
+      font-size: 12px;
       display: flex;
-      align-items: flex-start;
-      gap: var(--vsc-padding-md);
-      width: 420px;
-      padding: var(--vsc-padding-lg);
-      background: var(--vsc-panel-background);
-      border: 1px solid var(--vsc-border);
-      border-radius: var(--vsc-border-radius-lg);
-      box-shadow: var(--vsc-widget-shadow);
-      font-family: var(--vsc-font-family);
-      font-size: var(--vsc-font-size);
-      color: var(--vsc-foreground);
-      overflow: hidden;
-      transition: all var(--vsc-transition-normal);
+      gap: 12px;
+      transition: border-color .15s;
     }
 
-    .operation-toast:hover {
-      border-color: var(--vsc-border-bright);
-      box-shadow: 0 8px 16px 0 rgba(0, 0, 0, 0.48);
-    }
+    .toast:hover { border-color: var(--vsc-focusBorder, #007fd4); }
+    .toast.is-conflict { border-color: #e8a94d; padding: 0; }
 
-    .operation-toast::before {
-      content: '';
-      position: absolute;
-      left: 0;
-      top: 0;
-      bottom: 0;
-      width: 3px;
-      background: var(--op-color);
-    }
-
-    .operation-toast.has-conflict::before {
-      background: var(--vsc-warning);
-    }
-
-    .operation-toast.status-completed::before {
-      background: var(--vsc-success);
-    }
-    .operation-toast.status-error::before {
-      background: var(--vsc-error);
-    }
-    .operation-toast.status-cancelled::before {
-      background: var(--vsc-warning);
-    }
-
-    .toast-icon-ring {
+    /* ── Ring ── */
+    .ring-wrap {
       position: relative;
-      width: 40px;
-      height: 40px;
+      width: 36px;
+      height: 36px;
       flex-shrink: 0;
     }
 
-    .icon-svg {
-      position: absolute;
-      inset: 8px;
-      width: 24px;
-      height: 24px;
-      color: var(--op-color);
-      z-index: 2;
-    }
-
-    .progress-ring {
-      width: 100%;
-      height: 100%;
+    .ring {
+      width: 36px;
+      height: 36px;
       transform: rotate(-90deg);
     }
 
     .ring-bg {
       fill: none;
-      stroke: var(--vsc-border);
+      stroke: var(--vsc-border, #3c3c3c);
       stroke-width: 2.5;
     }
 
-    .ring-fill {
+    .ring-fg {
       fill: none;
-      stroke: var(--op-color);
+      stroke: var(--vsc-accent-blue, #007fd4);
       stroke-width: 2.5;
       stroke-linecap: round;
-      transition: stroke-dasharray var(--vsc-transition-fast);
+      stroke-dashoffset: 0;
+      /* circumference ≈ 100 in viewBox units when r=15.9 */
+      transition: stroke-dasharray .25s ease;
     }
 
-    .conflict-icon {
+    .ring-pct {
       position: absolute;
       inset: 0;
-      width: 100%;
-      height: 100%;
-      color: var(--vsc-warning);
-      animation: pulse 2s infinite;
-    }
-
-    @keyframes pulse {
-      0%, 100% { opacity: 1; transform: scale(1); }
-      50% { opacity: 0.7; transform: scale(0.95); }
-    }
-
-    .toast-content {
-      flex: 1;
-      min-width: 0;
-    }
-
-    .toast-header {
       display: flex;
-      justify-content: space-between;
       align-items: center;
-      margin-bottom: var(--vsc-padding-sm);
-    }
-
-    .toast-title {
+      justify-content: center;
+      font-size: 9px;
+      font-family: monospace;
       font-weight: 600;
-      color: var(--vsc-foreground-bright);
     }
 
-    .toast-percent {
-      font-size: var(--vsc-font-size-small);
-      font-weight: 700;
-      color: var(--op-color);
-      font-family: var(--vsc-font-family-mono);
-    }
+    /* ── Body ── */
+    .body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 
-    .conflict-badge {
-      font-size: var(--vsc-font-size-small);
-      font-weight: 600;
-      color: var(--vsc-warning);
-      background: color-mix(in srgb, var(--vsc-warning) 15%, transparent);
-      padding: 2px 8px;
-      border-radius: 12px;
-    }
-
-    .toast-body {
+    .op-header {
       display: flex;
-      flex-direction: column;
-      gap: var(--vsc-padding-sm);
+      align-items: center;
+      gap: 6px;
     }
 
-    .file-path {
-      font-family: var(--vsc-font-family-mono);
-      font-size: var(--vsc-font-size-small);
-      color: var(--vsc-foreground-dim);
+    .op-title {
+      flex: 1;
+      font-weight: 600;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
 
-    .stats-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
-      gap: var(--vsc-padding-sm);
-      font-size: var(--vsc-font-size-small);
-    }
-
-    .stat {
+    .icon-btn {
+      flex-shrink: 0;
+      width: 18px;
+      height: 18px;
+      padding: 0;
+      border: none;
+      background: none;
+      color: var(--vsc-foreground, #ccc);
+      opacity: 0;
+      cursor: pointer;
       display: flex;
-      flex-direction: column;
-      gap: 1px;
+      align-items: center;
+      justify-content: center;
+      border-radius: 3px;
+      transition: opacity .15s, background .15s;
     }
 
-    .stat-label {
-      color: var(--vsc-foreground-dim);
-      font-size: 10px;
-      text-transform: uppercase;
-      letter-spacing: 0.3px;
-    }
+    .toast:hover .icon-btn { opacity: .6; }
+    .icon-btn:hover { opacity: 1 !important; background: var(--vsc-toolbar-hover, rgba(255,255,255,.08)); }
+    .icon-btn svg { width: 14px; height: 14px; }
 
-    .stat-value {
-      color: var(--vsc-foreground);
-      font-family: var(--vsc-font-family-mono);
-    }
-
-    .stat-value.speed {
-      color: var(--op-color);
-      font-weight: 600;
-    }
-
-    .progress-track {
-      height: 4px;
-      background: var(--vsc-border-subtle);
-      border-radius: 2px;
+    .file-name {
+      font-family: monospace;
+      font-size: 11px;
+      opacity: .65;
+      white-space: nowrap;
       overflow: hidden;
-      margin-top: var(--vsc-padding-xs);
+      text-overflow: ellipsis;
+    }
+
+    .progress-bar {
+      height: 2px;
+      background: var(--vsc-border, #3c3c3c);
+      border-radius: 1px;
+      overflow: hidden;
     }
 
     .progress-fill {
       height: 100%;
-      background: var(--op-color);
-      border-radius: 2px;
-      transition: width var(--vsc-transition-fast);
-      position: relative;
-      overflow: hidden;
+      background: var(--vsc-accent-blue, #007fd4);
+      transition: width .2s linear;
     }
 
-    .progress-shimmer {
-      position: absolute;
-      inset: 0;
-      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.25), transparent);
-      animation: shimmer 1.5s infinite;
+    .stats-row {
+      display: flex;
+      gap: 10px;
+      font-family: monospace;
+      font-size: 11px;
+      opacity: .55;
     }
 
-    @keyframes shimmer {
-      0% { transform: translateX(-100%); }
-      100% { transform: translateX(200%); }
-    }
+    .eta { flex: 1; }
 
-    .items-counter {
-      font-size: var(--vsc-font-size-small);
-      color: var(--vsc-foreground-dim);
-      text-align: center;
-    }
-
-    /* Conflict Resolution Styles */
-    .conflict-resolution {
+    /* ── Conflict body ── */
+    .conflict-body {
+      width: 100%;
       display: flex;
       flex-direction: column;
-      gap: var(--vsc-padding-md);
-      margin-top: var(--vsc-padding-sm);
-      padding: var(--vsc-padding-md);
-      background: color-mix(in srgb, var(--vsc-warning) 8%, transparent);
-      border-radius: var(--vsc-border-radius);
-      border: 1px solid color-mix(in srgb, var(--vsc-warning) 20%, transparent);
-      animation: slideDown 0.2s ease;
+      gap: 0;
     }
 
-    @keyframes slideDown {
-      from {
-        opacity: 0;
-        transform: translateY(-10px);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
-    }
-
-    .conflict-files {
+    .conflict-heading {
       display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 12px 14px 10px;
+      border-bottom: 1px solid rgba(232,169,77,.2);
+    }
+
+    .warn-icon {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+      color: #e8a94d;
+      margin-top: 1px;
+    }
+
+    .conflict-title {
+      font-weight: 600;
+      font-size: 12px;
+      color: #e8a94d;
+      line-height: 1.3;
+    }
+
+    .conflict-sub {
+      font-size: 11px;
+      opacity: .6;
+      margin-top: 1px;
+    }
+
+    /* ── File compare ── */
+    .file-compare {
+      display: grid;
+      grid-template-columns: 1fr 24px 1fr;
       align-items: center;
-      gap: var(--vsc-padding-sm);
+      gap: 0;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--vsc-border, #3c3c3c);
     }
 
-    .conflict-file {
-      flex: 1;
+    .file-side {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
       min-width: 0;
-      padding: var(--vsc-padding-sm);
-      background: var(--vsc-input-background);
-      border-radius: var(--vsc-border-radius);
     }
 
-    .conflict-file.source {
-      border-left: 2px solid var(--vsc-accent-blue);
-    }
+    .file-side.dest .side-path,
+    .file-side.dest .side-dir { color: #e8a94d; opacity: .9; }
 
-    .conflict-file.dest {
-      border-left: 2px solid var(--vsc-error);
-    }
-
-    .file-label {
+    .side-label {
       font-size: 10px;
       text-transform: uppercase;
-      color: var(--vsc-foreground-dim);
-      margin-bottom: 2px;
+      letter-spacing: .06em;
+      opacity: .45;
+      font-weight: 600;
     }
 
-    .conflict-arrow {
-      font-size: 18px;
-      color: var(--vsc-foreground-dim);
-      opacity: 0.6;
+    .side-path {
+      font-family: monospace;
+      font-size: 11px;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
-    .conflict-actions {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: var(--vsc-padding-sm);
+    .side-dir {
+      font-family: monospace;
+      font-size: 10px;
+      opacity: .45;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
-    .conflict-btn {
+    .side-meta {
+      font-size: 11px;
+      opacity: .6;
+      margin-top: 2px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .folder-badge {
+      font-size: 10px;
+      background: rgba(255,255,255,.08);
+      border-radius: 3px;
+      padding: 0 4px;
+    }
+
+    .compare-arrow {
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 4px;
-      padding: var(--vsc-padding-sm) var(--vsc-padding-md);
-      background: var(--vsc-button-secondary);
-      border: 1px solid var(--vsc-border);
-      border-radius: var(--vsc-border-radius);
-      color: var(--vsc-foreground);
-      font-size: var(--vsc-font-size-small);
+      opacity: .35;
+    }
+
+    .compare-arrow svg { width: 14px; height: 14px; }
+
+    /* ── Resolution buttons ── */
+    .resolution-btns {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+      padding: 10px 14px 8px;
+    }
+
+    .res-btn {
+      padding: 5px 0;
+      font-size: 11px;
+      font-weight: 500;
+      border-radius: 4px;
+      border: 1px solid var(--vsc-border, #3c3c3c);
+      background: var(--vsc-button-secondary, rgba(255,255,255,.05));
+      color: var(--vsc-foreground, #ccc);
       cursor: pointer;
-      transition: all 0.15s;
+      transition: background .12s, border-color .12s;
       white-space: nowrap;
     }
 
-    .conflict-btn:hover {
-      background: var(--vsc-button-secondary-hover);
+    .res-btn:hover {
+      background: var(--vsc-button-secondary-hover, rgba(255,255,255,.1));
+      border-color: var(--vsc-focusBorder, #007fd4);
     }
 
-    .conflict-btn.skip:hover {
-      background: color-mix(in srgb, var(--vsc-foreground-dim) 20%, var(--vsc-button-secondary-hover));
+    .res-btn.primary {
+      background: var(--vsc-button-background, #0e639c);
+      border-color: transparent;
+      color: #fff;
     }
 
-    .conflict-btn.overwrite:hover {
-      background: color-mix(in srgb, var(--vsc-accent-blue) 20%, var(--vsc-button-secondary-hover));
-      border-color: var(--vsc-accent-blue);
+    .res-btn.primary:hover { background: var(--vsc-button-hover, #1177bb); }
+
+    .res-btn.danger {
+      color: #f48771;
+      border-color: rgba(244,135,113,.3);
     }
 
-    .conflict-btn.rename:hover {
-      background: color-mix(in srgb, var(--vsc-accent-green) 20%, var(--vsc-button-secondary-hover));
-      border-color: var(--vsc-accent-green);
+    .res-btn.danger:hover {
+      background: rgba(244,135,113,.1);
+      border-color: #f48771;
     }
 
-    .conflict-btn.cancel:hover {
-      background: color-mix(in srgb, var(--vsc-error) 20%, var(--vsc-button-secondary-hover));
-      border-color: var(--vsc-error);
-    }
-
-    .conflict-btn svg {
-      stroke: currentColor;
-      stroke-width: 2;
-      fill: none;
-    }
-
-    .apply-to-all {
+    /* ── Apply to all ── */
+    .apply-all {
       display: flex;
       align-items: center;
-      gap: var(--vsc-padding-sm);
-      font-size: var(--vsc-font-size-small);
-      color: var(--vsc-foreground-dim);
+      gap: 7px;
+      padding: 0 14px 11px;
+      font-size: 11px;
+      opacity: .65;
       cursor: pointer;
+      user-select: none;
     }
 
-    .apply-to-all input {
-      margin: 0;
-      cursor: pointer;
-    }
-
-    .conflict-mini {
-      margin-top: var(--vsc-padding-xs);
-      font-size: var(--vsc-font-size-small);
-      color: var(--vsc-warning);
-    }
-
-    .conflict-mini-text {
-      background: color-mix(in srgb, var(--vsc-warning) 10%, transparent);
-      padding: 2px 8px;
-      border-radius: 12px;
-    }
-
-    .toast-actions {
-      display: flex;
-      flex-direction: column;
-      gap: var(--vsc-padding-xs);
-      opacity: 0;
-      transition: opacity var(--vsc-transition-fast);
-    }
-
-    .operation-toast:hover .toast-actions {
-      opacity: 1;
-    }
-
-    .action-btn {
-      width: 24px;
-      height: 24px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: var(--vsc-button-secondary);
-      border: none;
-      border-radius: var(--vsc-border-radius);
-      color: var(--vsc-foreground-dim);
-      cursor: pointer;
-      transition: all var(--vsc-transition-fast);
-    }
-
-    .action-btn:hover {
-      background: var(--vsc-button-secondary-hover);
-      color: var(--vsc-foreground);
-    }
-
-    .action-btn svg {
-      width: 14px;
-      height: 14px;
-      stroke: currentColor;
-      stroke-width: 2;
-      fill: none;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-    }
-
-    .action-btn.collapse:hover {
-      background: color-mix(in srgb, var(--vsc-accent-purple) 20%, transparent);
-      color: var(--vsc-accent-purple);
-    }
-
-    .action-btn.cancel:hover {
-      background: color-mix(in srgb, var(--vsc-error) 20%, transparent);
-      color: var(--vsc-error);
-    }
-
-    .action-btn.close:hover {
-      background: var(--vsc-error);
-      color: white;
-    }
-
-    .error-banner {
-      position: absolute;
-      bottom: 0;
-      left: 0;
-      right: 0;
-      display: flex;
-      align-items: center;
-      gap: var(--vsc-padding-sm);
-      padding: var(--vsc-padding-sm) var(--vsc-padding-md);
-      background: color-mix(in srgb, var(--vsc-error) 10%, transparent);
-      border-top: 1px solid color-mix(in srgb, var(--vsc-error) 30%, transparent);
-      font-size: var(--vsc-font-size-small);
-      color: var(--vsc-error);
-      animation: slide-up 0.2s ease;
-    }
-
-    @keyframes slide-up {
-      from { transform: translateY(100%); }
-      to { transform: translateY(0); }
-    }
-
-    .error-banner svg {
-      width: 14px;
-      height: 14px;
-      flex-shrink: 0;
-      stroke: currentColor;
-      stroke-width: 2;
-      fill: none;
-    }
-
-    .operation-toast.minimized {
-      width: 260px;
-      padding: var(--vsc-padding-md);
-    }
-
-    .operation-toast.minimized .toast-body,
-    .operation-toast.minimized .conflict-resolution,
-    .operation-toast.minimized .stats-grid,
-    .operation-toast.minimized .progress-track {
-      display: none;
-    }
-
-    .operation-toast.minimized .toast-header {
-      margin: 0;
-    }
-
-    .operation-toast.minimized .toast-icon-ring {
-      width: 32px;
-      height: 32px;
-    }
-
-    .operation-toast.minimized .icon-svg {
-      inset: 6px;
-      width: 20px;
-      height: 20px;
-    }
-
-    .operation-toast.minimized .action-btn.minimize {
-      opacity: 1;
-    }
+    .apply-all:hover { opacity: 1; }
+    .apply-all input { cursor: pointer; accent-color: var(--vsc-accent-blue, #007fd4); }
   `]
 })
-export class OperationToastComponent implements OnInit {
+export class OperationToastComponent implements OnChanges, OnInit, OnDestroy {
   @Input() operation!: OperationState;
-  @Output() minimize = new EventEmitter<string>();
-  @Output() expand = new EventEmitter<string>();
-  @Output() globalCollapse = new EventEmitter<void>();
-  @Output() cancel = new EventEmitter<string>();
-  @Output() dismiss = new EventEmitter<string>();
-  @Output() resolve = new EventEmitter<{conflictId: string, resolution: ConflictResolution, applyToAll: boolean}>();
 
-  applyToAll = false;
+  @Output() cancel  = new EventEmitter<string>();
+  @Output() dismiss = new EventEmitter<string>();
+  @Output() resolve = new EventEmitter<{ conflictId: string; resolution: ConflictResolution; applyToAll: boolean }>();
+
+  applyToAll  = false;
   isResolving = false;
 
-  // Conflict data extracted from operation error
-  sourcePath = '';
-  sourceFileName = '';
-  sourceSize = 0;
-  destPath = '';
-  destFileName = '';
-  destSize = 0;
-  isDirectory = false;
-  conflictId = '';
+  private destroy$ = createSubject<void>();
+  private timer: any;
 
   constructor(public svc: OperationService) {}
 
-  ngOnInit(): void {
-    this.parseConflictFromError();
+  ngOnInit()    { this.setupAutoDismiss(); }
+  ngOnChanges() { this.setupAutoDismiss(); }
+
+  ngOnDestroy() {
+    this.clearTimer();
+    this.destroy$.next();
+    this.destroy$.complete();
   }
 
-  private parseConflictFromError(): void {
-    if (this.hasConflict && this.operation.error) {
-      // Try to parse conflict info from error message
-      // Format expected: "Conflict: [dest] already exists"
-      const errorMsg = this.operation.error;
-      
-      // Extract source from currentFile
-      if (this.operation.metrics.currentFile) {
-        this.sourcePath = this.operation.metrics.currentFile;
-        this.sourceFileName = this.getFileName(this.sourcePath);
-      }
-      
-      // Try to extract destination from error
-      const destMatch = errorMsg.match(/Conflict: (.+?) already exists/);
-      if (destMatch) {
-        this.destPath = destMatch[1];
-        this.destFileName = this.getFileName(this.destPath);
-      }
-      
-      // Check if it's a directory from the error or assume file
-      this.isDirectory = errorMsg.includes('directory') || false;
+  private setupAutoDismiss() {
+    this.clearTimer();
+    if (this.isCompleted && !this.hasConflict) {
+      this.timer = setTimeout(() => this.dismiss.emit(this.operation.id), 800);
     }
   }
 
-  private getFileName(path: string): string {
-    if (!path) return '';
-    const parts = path.split(/[\\/]/);
-    return parts[parts.length - 1] || path;
+  private clearTimer() {
+    if (this.timer) { clearTimeout(this.timer); this.timer = null; }
   }
 
-  get hasConflict(): boolean {
-    return this.operation.status === 'paused' && 
-           !!this.operation.error && 
-           this.operation.error.includes('Conflict');
+  get hasConflict() {
+    return this.operation.status === 'paused' && !!this.operation.conflictData;
   }
 
-  get currentFileName(): string {
-    const path = this.operation.metrics.currentFile || '';
-    return path.split(/[\\/]/).pop() || path;
-  }
-
-  get isCompleted(): boolean {
+  get isCompleted() {
     return ['completed', 'error', 'cancelled'].includes(this.operation.status);
   }
 
-  toggleMinimize(): void {
-    if (this.operation.isMinimized) {
-      this.expand.emit(this.operation.id);
-    } else {
-      this.minimize.emit(this.operation.id);
-    }
+  get currentFileName() {
+    const p = this.operation.metrics.currentFile || '';
+    return p.split(/[\\/]/).pop() || p;
   }
 
-  onMinimize(event: Event): void {
-    event.stopPropagation();
-    this.minimize.emit(this.operation.id);
+  conflictFileName(path?: string): string {
+    if (!path) return '';
+    return path.split(/[\\/]/).pop() || path;
   }
 
-  onGlobalCollapse(event: Event): void {
-    event.stopPropagation();
-    this.globalCollapse.emit();
+  conflictDir(path?: string): string {
+    if (!path) return '';
+    const parts = path.split(/[\\/]/);
+    return parts.slice(0, -1).join('/') || '/';
   }
 
-  onCancel(event: Event): void {
-    event.stopPropagation();
-    this.cancel.emit(this.operation.id);
-  }
+  onCancel(e: Event)  { e.stopPropagation(); this.cancel.emit(this.operation.id); }
+  onDismiss(e: Event) { e.stopPropagation(); this.clearTimer(); this.dismiss.emit(this.operation.id); }
 
-  onDismiss(event: Event): void {
-    event.stopPropagation();
-    this.dismiss.emit(this.operation.id);
-  }
-
-  async resolveConflict(resolution: ConflictResolution): Promise<void> {
+  async resolveConflict(resolution: ConflictResolution) {
     if (this.isResolving) return;
-    
     this.isResolving = true;
-    console.log('Resolving conflict:', {
+    this.resolve.emit({
+      conflictId: this.operation.conflictData?.conflictId || this.operation.id,
       resolution,
       applyToAll: this.applyToAll,
-      conflictData: this.operation.conflictData,
-      operationId: this.operation.id
     });
-    
-    // Use the actual conflictId from operation if available
-    const conflictId = this.operation.conflictData?.conflictId || this.operation.id + '-conflict';
-    console.log('Using conflictId:', conflictId);
-    
-    this.resolve.emit({
-      conflictId,
-      resolution,
-      applyToAll: this.applyToAll
-    });
-    
-    // Reset after a short delay
-    setTimeout(() => {
-      this.isResolving = false;
-    }, 500);
+    setTimeout(() => this.isResolving = false, 400);
   }
 }

@@ -45,6 +45,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
 
   @ViewChild('leftPane') leftPane?: FilePaneComponent;
   @ViewChild('rightPane') rightPane?: FilePaneComponent;
+  @ViewChild('toastStack') toastStack?: OperationToastStackComponent;
 
   activeWorkspace: WorkspaceConfig | null = null;
   workspaceList: WorkspaceConfig[] = [];

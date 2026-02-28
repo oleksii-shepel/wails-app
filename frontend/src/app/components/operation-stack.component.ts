@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, Input } from '@angular/core';
+import { Component, OnInit, OnDestroy, Input, ElementRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { OperationService, OperationState } from '../services/operation.service';
 import { OperationToastComponent } from './operation-toast.component';
@@ -40,7 +40,7 @@ export class OperationToastStackComponent implements OnInit, OnDestroy {
   ops: OperationState[] = [];
   destroy$ = createSubject<void>();
 
-  constructor(public svc: OperationService) { }
+  constructor(public svc: OperationService, public elementRef: ElementRef) { }
 
   ngOnInit() {
     this.svc.visibleOperations$

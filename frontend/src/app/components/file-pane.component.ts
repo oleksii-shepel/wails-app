@@ -826,9 +826,10 @@ export class FilePaneComponent implements OnInit, OnChanges {
     if (this.isInArchive()) { alert('Cannot delete files inside an archive.'); return; }
     if (this.selectedFiles.size === 0) return;
     if (!confirm(`Delete ${this.selectedFiles.size} item(s)?`)) return;
-    for (const path of Array.from(this.selectedFiles)) {
-      try { await this.apiService.deleteFile(path, true); }
-      catch (error: any) { alert(`Failed to delete ${path}: ${error.message}`); }
+    try {
+      await this.apiService.batchDelete(Array.from(this.selectedFiles), true);
+    } catch (error: any) {
+      alert(`Failed to delete items: ${error.message}`);
     }
     await this.loadDirectory(this.currentPath);
   }

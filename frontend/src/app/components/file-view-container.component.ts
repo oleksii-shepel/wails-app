@@ -39,7 +39,11 @@ export type ViewLayout = ViewMode;
           [selectedFiles]="selectedFiles"
           [error]="error"
           (selectionChange)="onSelectionChange($event)"
-          (navigate)="onNavigate($event)">
+          (navigate)="onNavigate($event)"
+          (openInNewTab)="onOpenInNewTab($event)"
+          (contextMenu)="onContextMenu($event)"
+          (dragStart)="onViewDragStart($event)"
+          (dragDrop)="onViewDragDrop($event)">
         </app-file-list>
 
         <app-file-grid
@@ -48,7 +52,10 @@ export type ViewLayout = ViewMode;
           [selectedFiles]="selectedFiles"
           (selectionChange)="onSelectionChange($event)"
           (navigate)="onNavigate($event)"
-          (contextMenu)="onContextMenu($event)">
+          (openInNewTab)="onOpenInNewTab($event)"
+          (contextMenu)="onContextMenu($event)"
+          (dragStart)="onViewDragStart($event)"
+          (dragDrop)="onViewDragDrop($event)">
         </app-file-grid>
 
         <app-file-tree
@@ -62,6 +69,7 @@ export type ViewLayout = ViewMode;
           (toggleExpand)="onTreeToggleExpand($event)"
           (loadChildren)="onLoadChildren($event)"
           (navigate)="onNavigate($event)"
+          (openInNewTab)="onTreeOpenInNewTab($event)"
           (contextMenu)="onTreeContextMenu($event)"
           (dragStart)="onTreeDragStart($event)"
           (dragDrop)="onTreeDragDrop($event)"
@@ -76,8 +84,11 @@ export type ViewLayout = ViewMode;
           [sortDirection]="sortDirection"
           (selectionChange)="onSelectionChange($event)"
           (navigate)="onNavigate($event)"
+          (openInNewTab)="onOpenInNewTab($event)"
           (sort)="onSortChange($event)"
-          (contextMenu)="onContextMenu($event)">
+          (contextMenu)="onContextMenu($event)"
+          (dragStart)="onViewDragStart($event)"
+          (dragDrop)="onViewDragDrop($event)">
         </app-file-details>
       </div>
     </div>
@@ -138,6 +149,7 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
   @Output() viewChange      = new EventEmitter<ViewLayout>();
   @Output() selectionChange = new EventEmitter<FileInfo | FileInfo[]>();
   @Output() navigate        = new EventEmitter<FileInfo>();
+  @Output() openInNewTab    = new EventEmitter<FileInfo>();
   @Output() sortChange      = new EventEmitter<{ field: string; direction: 'asc' | 'desc' }>();
   @Output() contextMenu     = new EventEmitter<{ event: MouseEvent; entry: FileInfo }>();
   @Output() nodeDoubleClick = new EventEmitter<FileInfo>();
@@ -208,11 +220,34 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
     });
   }
 
+  onViewDragStart(event: { event: DragEvent; entries: FileInfo[] }): void {
+    this.dragStart.emit(event);
+  }
+
+  onViewDragDrop(event: { event: DragEvent; source: FileInfo[]; target: FileInfo }): void {
+    let targetPath = event.target.path;
+    if (event.target.path === PARENT_ENTRY_PATH) {
+      targetPath = parentPath(this.currentPath);
+    } else if (event.target.type !== FileType.DIRECTORY) {
+      targetPath = parentPath(event.target.path);
+    }
+
+    this.dragDrop.emit({
+      event: event.event,
+      source: event.source,
+      targetPath,
+    });
+  }
+
   onTreeRename(event: { node: TreeNode; newName: string }): void {
     this.rename.emit({
       entry: this.treeNodeToFileInfo(event.node),
       newName: event.newName
     });
+  }
+
+  onTreeOpenInNewTab(node: TreeNode): void {
+    this.openInNewTab.emit(this.treeNodeToFileInfo(node));
   }
 
   private treeNodeToFileInfo(node: TreeNode): FileInfo {
@@ -280,6 +315,10 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
 
   onContextMenu(event: { event: MouseEvent; entry: FileInfo }): void {
     this.contextMenu.emit(event);
+  }
+
+  onOpenInNewTab(entry: FileInfo): void {
+    this.openInNewTab.emit(entry);
   }
 
   onTreeNodeDoubleClick(node: TreeNode): void {

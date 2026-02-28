@@ -3,6 +3,7 @@ import { Component, Input, Output, EventEmitter } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FileInfo, FileType } from '../shared/protocol';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
+import { parentPath } from './address-bar.utils';
 
 export interface ColumnDef {
   field: keyof FileInfo | string;
@@ -41,17 +42,24 @@ export interface ColumnDef {
       </div>
       
       <!-- Body -->
-      <div class="details-body" role="rowgroup">
+      <div class="details-body" role="rowgroup" (click)="onBackgroundClick($event)" (contextmenu)="onBackgroundContextMenu($event)">
         <div 
           *ngFor="let entry of entries"
           class="details-row"
           [class.selected]="isSelected(entry)"
           [class.parent-dir]="isParentEntry(entry)"
+          [class.drop-target]="isDropTarget(entry)"
           [attr.role]="'row'"
           [attr.aria-selected]="isSelected(entry)"
+          [draggable]="!isParentEntry(entry)"
           (click)="onRowClick(entry, $event)"
+          (auxclick)="onRowAuxClick($event, entry)"
           (dblclick)="onRowDoubleClick(entry)"
-          (contextmenu)="onContextMenu($event, entry)">
+          (contextmenu)="onContextMenu($event, entry)"
+          (dragstart)="onDragStart($event, entry)"
+          (dragover)="onDragOver($event, entry)"
+          (dragleave)="onDragLeave(entry)"
+          (drop)="onDrop($event, entry)">
           
           <div 
             *ngFor="let col of columns"
@@ -124,6 +132,12 @@ export interface ColumnDef {
             font-style: italic;
           }
         }
+
+        &.drop-target {
+          outline: 1px dashed var(--vsc-focus-border);
+          outline-offset: -1px;
+          background: var(--vsc-list-hover-background);
+        }
       }
     }
 
@@ -192,12 +206,16 @@ export class FileDetailsComponent {
   @Input() sortField: string = 'name';
   @Input() sortDirection: 'asc' | 'desc' = 'asc';
   
-  @Output() selectionChange = new EventEmitter<FileInfo>();
+  @Output() selectionChange = new EventEmitter<FileInfo | FileInfo[]>;
   @Output() navigate = new EventEmitter<FileInfo>();
+  @Output() openInNewTab = new EventEmitter<FileInfo>();
   @Output() sort = new EventEmitter<{ field: string; direction: 'asc' | 'desc' }>();
   @Output() contextMenu = new EventEmitter<{ event: MouseEvent; entry: FileInfo }>();
+  @Output() dragStart = new EventEmitter<{ event: DragEvent; entries: FileInfo[] }>();
+  @Output() dragDrop = new EventEmitter<{ event: DragEvent; source: FileInfo[]; target: FileInfo }>();
 
-  private lastClickedEntry: FileInfo | null = null;
+  private anchorPath: string | null = null;
+  private dropTargetPath: string | null = null;
 
   isParentEntry(entry: FileInfo): boolean {
     return entry.path === PARENT_ENTRY_PATH;
@@ -207,6 +225,10 @@ export class FileDetailsComponent {
     return this.selectedFiles.has(entry.path);
   }
 
+  isDropTarget(entry: FileInfo): boolean {
+    return this.dropTargetPath === entry.path;
+  }
+
   onRowClick(entry: FileInfo, event: MouseEvent): void {
     if (this.isParentEntry(entry)) {
       this.navigate.emit(entry);
@@ -214,15 +236,15 @@ export class FileDetailsComponent {
     }
 
     if (event.ctrlKey || event.metaKey) {
-      // Toggle selection
-      this.selectionChange.emit(entry);
-    } else if (event.shiftKey && this.lastClickedEntry) {
+      this.selectionChange.emit(this.buildToggledSelection(entry));
+      this.anchorPath = entry.path;
+    } else if (event.shiftKey && this.anchorPath) {
       // Range selection
       this.rangeSelect(entry);
     } else {
+      this.anchorPath = entry.path;
       this.selectionChange.emit(entry);
     }
-    this.lastClickedEntry = entry;
   }
 
   onRowDoubleClick(entry: FileInfo): void {
@@ -235,8 +257,31 @@ export class FileDetailsComponent {
     event.preventDefault();
     if (!this.isSelected(entry)) {
       this.selectionChange.emit(entry);
+      this.anchorPath = entry.path;
     }
     this.contextMenu.emit({ event, entry });
+  }
+
+  onRowAuxClick(event: MouseEvent, entry: FileInfo): void {
+    if (event.button !== 1 || this.isParentEntry(entry)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    this.openInNewTab.emit(entry);
+  }
+
+  onBackgroundClick(event: MouseEvent): void {
+    if (event.target === event.currentTarget) {
+      this.selectionChange.emit([]);
+      this.anchorPath = null;
+    }
+  }
+
+  onBackgroundContextMenu(event: MouseEvent): void {
+    if (event.target === event.currentTarget) {
+      event.preventDefault();
+      this.selectionChange.emit([]);
+      this.anchorPath = null;
+    }
   }
 
   onSort(field: string): void {
@@ -284,14 +329,99 @@ export class FileDetailsComponent {
   }
 
   private rangeSelect(entry: FileInfo): void {
-    const startIdx = this.entries.indexOf(this.lastClickedEntry!);
-    const endIdx = this.entries.indexOf(entry);
+    const selectable = this.entries.filter(e => !this.isParentEntry(e));
+    const startIdx = selectable.findIndex(e => e.path === this.anchorPath);
+    const endIdx = selectable.findIndex(e => e.path === entry.path);
+
+    if (startIdx === -1 || endIdx === -1) {
+      return;
+    }
+
     const [min, max] = [Math.min(startIdx, endIdx), Math.max(startIdx, endIdx)];
-    
+
+    const range: FileInfo[] = [];
     for (let i = min; i <= max; i++) {
-      if (!this.isParentEntry(this.entries[i])) {
-        this.selectionChange.emit(this.entries[i]);
+      if (!this.isParentEntry(selectable[i])) {
+        range.push(selectable[i]);
       }
+    }
+    this.selectionChange.emit(range);
+  }
+
+  onDragStart(event: DragEvent, entry: FileInfo): void {
+    if (this.isParentEntry(entry)) {
+      event.preventDefault();
+      return;
+    }
+
+    const entries = this.isSelected(entry)
+      ? this.entries.filter(e => this.selectedFiles.has(e.path) && !this.isParentEntry(e))
+      : [entry];
+
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = 'copyMove';
+      event.dataTransfer.setData('application/json', JSON.stringify({
+        source: 'details',
+        paths: entries.map(e => e.path),
+      }));
+    }
+
+    this.dragStart.emit({ event, entries });
+  }
+
+  onDragOver(event: DragEvent, entry: FileInfo): void {
+    if (this.isParentEntry(entry) || entry.type !== FileType.DIRECTORY) return;
+    event.preventDefault();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = event.ctrlKey || event.metaKey ? 'copy' : 'move';
+    }
+    this.dropTargetPath = entry.path;
+  }
+
+  onDragLeave(entry: FileInfo): void {
+    if (this.dropTargetPath === entry.path) {
+      this.dropTargetPath = null;
+    }
+  }
+
+  onDrop(event: DragEvent, entry: FileInfo): void {
+    if (this.isParentEntry(entry)) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    this.dropTargetPath = null;
+
+    const paths = this.readDraggedPaths(event);
+    if (!paths.length) return;
+
+    const source = this.entries.filter(e => paths.includes(e.path) && !this.isParentEntry(e));
+    if (!source.length) return;
+
+    const target = entry.type === FileType.DIRECTORY
+      ? entry
+      : ({ ...entry, path: parentPath(entry.path), type: FileType.DIRECTORY } as FileInfo);
+
+    this.dragDrop.emit({ event, source, target });
+  }
+
+  private buildToggledSelection(entry: FileInfo): FileInfo[] {
+    const selected = new Set(this.selectedFiles);
+    if (selected.has(entry.path)) {
+      selected.delete(entry.path);
+    } else {
+      selected.add(entry.path);
+    }
+    return this.entries.filter(e => selected.has(e.path) && !this.isParentEntry(e));
+  }
+
+  private readDraggedPaths(event: DragEvent): string[] {
+    try {
+      const payload = event.dataTransfer?.getData('application/json');
+      if (!payload) return [];
+      const parsed = JSON.parse(payload);
+      return Array.isArray(parsed?.paths) ? parsed.paths : [];
+    } catch {
+      return [];
     }
   }
 }

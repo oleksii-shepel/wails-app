@@ -528,7 +528,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
       selectAll:             () => this.getActivePane()?.onSelectAll(),
       deselectAll:           () => this.getActivePane()?.onDeselectAll(),
       newFolder:             () => this.getActivePane()?.onCreateFolder(),
-      renameSelected:        () => console.log('Rename - to be implemented'),
+      renameSelected:        () => this.getActivePane()?.onRenameSelected(),
       focusFilter:           () => this.getActivePane()?.focusFilter(),
       advancedFilter:        () => console.log('Advanced filter - to be implemented'),
       clearFilter:           () => this.getActivePane()?.onClearFilter(),

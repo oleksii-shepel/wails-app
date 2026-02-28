@@ -48,6 +48,8 @@ export interface DropTarget {
       [class.dragging]="dragState.isDragging"
       (focus)="onFocus()"
       (blur)="onBlur()"
+      (click)="onContainerClick($event)"
+      (contextmenu)="onContainerContextMenu($event)"
       (keydown)="onKeyDown($event)"
       (dragover)="onContainerDragOver($event)"
       (drop)="onContainerDrop($event)">
@@ -90,6 +92,7 @@ export interface DropTarget {
           [draggable]="true"
           (mousedown)="onNodeMouseDown(node, $event)"
           (click)="onNodeClick(node, $event)"
+          (auxclick)="onNodeAuxClick(node, $event)"
           (dblclick)="onNodeDoubleClick(node, $event)"
           (contextmenu)="onContextMenu($event, node)"
           (dragstart)="onDragStart($event, node)"
@@ -401,6 +404,7 @@ export class FileTreeComponent implements OnChanges {
   @Output() selectionChange = new EventEmitter<TreeNode[]>();
   @Output() nodeDoubleClick = new EventEmitter<TreeNode>();
   @Output() navigate = new EventEmitter<TreeNode>();
+  @Output() openInNewTab = new EventEmitter<TreeNode>();
   @Output() toggleExpand = new EventEmitter<TreeNode>();
   @Output() loadChildren = new EventEmitter<TreeNode>();
   @Output() contextMenu = new EventEmitter<{ event: MouseEvent; node: TreeNode }>();
@@ -662,6 +666,13 @@ export class FileTreeComponent implements OnChanges {
     }
   }
 
+  onNodeAuxClick(node: TreeNode, event: MouseEvent): void {
+    if (event.button !== 1) return;
+    event.preventDefault();
+    event.stopPropagation();
+    this.openInNewTab.emit(node);
+  }
+
   onTwistieMouseDown(event: MouseEvent, node: TreeNode): void {
     event.stopPropagation();
   }
@@ -817,6 +828,27 @@ export class FileTreeComponent implements OnChanges {
   onContainerDrop(event: DragEvent): void {
     // Handle drop on empty space (root level)
     event.preventDefault();
+  }
+
+  onContainerClick(event: MouseEvent): void {
+    const target = event.target as HTMLElement;
+    if (!target.closest('.tree-node')) {
+      this.selectionChange.emit([]);
+      this.anchorNodePath = null;
+      this.focusedNodePath = null;
+      this.cdr.markForCheck();
+    }
+  }
+
+  onContainerContextMenu(event: MouseEvent): void {
+    const target = event.target as HTMLElement;
+    if (!target.closest('.tree-node')) {
+      event.preventDefault();
+      this.selectionChange.emit([]);
+      this.anchorNodePath = null;
+      this.focusedNodePath = null;
+      this.cdr.markForCheck();
+    }
   }
 
   private isDescendant(potentialDescendant: TreeNode, ancestor: TreeNode): boolean {

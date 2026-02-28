@@ -137,17 +137,25 @@ export class ArchiveService {
     destDir: string,
     flattenPaths = false
   ): Promise<any> {
-    // Remove parent entry if present
+    // 1. Filter out the ".." parent entry
     const filteredEntries = entries.filter(e => e !== PARENT_ENTRY_PATH);
-    // Get all top-level entries in the current archive folder
-    const allTopLevel = frame.listing.entries.map(e => e.path).filter(e => e !== PARENT_ENTRY_PATH);
-    // If user selected all top-level entries, treat as root extract
-    const isRootExtract =
-      filteredEntries.length === allTopLevel.length &&
-      filteredEntries.every(e => allTopLevel.includes(e));
+    
+    // 2. Get all entries currently visible in this frame
+    const allInView = frame.listing.entries
+      .map(e => e.path)
+      .filter(e => e !== PARENT_ENTRY_PATH);
 
-    if (isRootExtract) {
-      // Extract the whole archive (root forrest)
+    // 3. Check if we are at the true root of the physical archive
+    const isAtArchiveRoot = frame.nestedChain.length === 0 && !frame.innerPath;
+
+    // 4. Check if everything in the current view is selected
+    const isAllSelected = 
+      filteredEntries.length > 0 &&
+      filteredEntries.length === allInView.length &&
+      filteredEntries.every(e => allInView.includes(e));
+
+    // Fallback to BatchExtract ONLY if at the root and everything is selected
+    if (isAtArchiveRoot && isAllSelected) {
       return window.go.main.App.BatchExtract({
         archives: [frame.fsPath],
         destinationDir: destDir,
@@ -155,21 +163,22 @@ export class ArchiveService {
         expandNestedArchives: false,
         flattenSingleRoot: flattenPaths,
       });
-    } else {
-      // Extract only selected entries
-      return window.go.main.App.BatchSelectiveExtract({
-        items: [
-          {
-            archivePath: frame.fsPath,
-            nestedChain: frame.nestedChain,
-            entries: filteredEntries,
-            destinationDir: destDir,
-            flattenPaths,
-          },
-        ],
-        destinationDir: destDir,
-      });
-    }
+    } 
+    
+    // Otherwise, use Selective Extraction to ensure only the 
+    // contents of the current folder/selection are processed
+    return window.go.main.App.BatchSelectiveExtract({
+      items: [
+        {
+          archivePath: frame.fsPath,
+          nestedChain: frame.nestedChain,
+          entries: filteredEntries,
+          destinationDir: destDir,
+          flattenPaths,
+        },
+      ],
+      destinationDir: destDir,
+    });
   }
 
   /* ─────────────── OPEN ─────────────── */

@@ -2,6 +2,11 @@ import { Component, Input, Output, EventEmitter } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FileInfo, FileType } from '../shared/protocol';
 
+export interface FileEntrySelectEvent {
+  entry: FileInfo;
+  mouseEvent: MouseEvent;
+}
+
 /** Sentinel path for the virtual ".." parent-directory entry. */
 export const PARENT_ENTRY_PATH = '__parent__';
 
@@ -19,7 +24,7 @@ export const PARENT_ENTRY_PATH = '__parent__';
       [class.selected]="selected"
       [class.directory]="entry.type === FileType.DIRECTORY"
       [class.parent-dir]="isParentEntry()"
-      (click)="onClick()"
+      (click)="onClick($event)"
       (dblclick)="onDoubleClick()">
       
       <span class="file-icon">
@@ -158,7 +163,7 @@ export class FileEntryComponent {
   @Input() entry!: FileInfo;
   @Input() selected = false;
   
-  @Output() select = new EventEmitter<FileInfo>();
+  @Output() select = new EventEmitter<FileEntrySelectEvent>();
   @Output() navigate = new EventEmitter<FileInfo>();
 
   FileType = FileType;
@@ -167,12 +172,12 @@ export class FileEntryComponent {
     return this.entry?.path === PARENT_ENTRY_PATH;
   }
 
-  onClick(): void {
+  onClick(mouseEvent: MouseEvent): void {
     // ".." navigates immediately on single click — no need to select first
     if (this.isParentEntry()) {
       this.navigate.emit(this.entry);
     } else {
-      this.select.emit(this.entry);
+      this.select.emit({ entry: this.entry, mouseEvent });
     }
   }
 

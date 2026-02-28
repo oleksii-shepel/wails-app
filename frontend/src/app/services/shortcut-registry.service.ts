@@ -75,8 +75,8 @@ export class ShortcutRegistryService {
     // Refresh current pane
     this.keyboardService.register({
       id: 'refresh',
-      key: 'f5',
-      modifiers: [],
+      key: 'r',
+      modifiers: ['ctrl'],
       action: callbacks.refresh,
       context: 'global',
       category: 'navigation',
@@ -280,6 +280,57 @@ export class ShortcutRegistryService {
       context: 'global',
       category: 'files',
       description: 'Rename selected item',
+    });
+
+    // Total Commander-style function keys
+    this.keyboardService.register({
+      id: 'tc-copy',
+      key: 'f5',
+      modifiers: [],
+      action: callbacks.copyToOtherPane,
+      context: 'global',
+      category: 'files',
+      description: 'Copy to other pane (F5)',
+    });
+
+    this.keyboardService.register({
+      id: 'tc-move',
+      key: 'f6',
+      modifiers: [],
+      action: callbacks.moveToOtherPane,
+      context: 'global',
+      category: 'files',
+      description: 'Move to other pane (F6)',
+    });
+
+    this.keyboardService.register({
+      id: 'tc-rename',
+      key: 'f6',
+      modifiers: ['shift'],
+      action: callbacks.renameSelected,
+      context: 'global',
+      category: 'files',
+      description: 'Rename selected item (Shift+F6)',
+    });
+
+    this.keyboardService.register({
+      id: 'tc-new-folder',
+      key: 'f7',
+      modifiers: [],
+      action: callbacks.newFolder,
+      context: 'global',
+      category: 'files',
+      description: 'Create folder (F7)',
+    });
+
+    this.keyboardService.register({
+      id: 'tc-delete',
+      key: 'f8',
+      modifiers: [],
+      action: callbacks.deleteSelected,
+      context: 'global',
+      category: 'files',
+      description: 'Delete selected items (F8)',
     });
   }
 

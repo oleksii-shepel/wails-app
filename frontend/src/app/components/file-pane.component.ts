@@ -90,9 +90,12 @@ declare const window: any;
           (viewChange)="onViewChange($event)"
           (selectionChange)="onSelectionChange($event)"
           (navigate)="onNavigate($event)"
+          (openInNewTab)="onOpenInNewTab($event)"
           (sortChange)="onSortChange($event)"
           (contextMenu)="onContextMenu($event)"
-          (nodeDoubleClick)="onNodeDoubleClick($event)">
+          (nodeDoubleClick)="onNodeDoubleClick($event)"
+          (dragDrop)="onDragDrop($event)"
+          (rename)="onRename($event)">
         </app-file-view-container>
       </div>
 
@@ -506,6 +509,13 @@ export class FilePaneComponent implements OnInit, OnChanges {
     this.tabs = this.workspaceService.getTabs(this.paneId);
   }
 
+  private async openPathInNewTab(path: string): Promise<void> {
+    const newTab = this.workspaceService.addTab(this.paneId, path, true);
+    if (!newTab) return;
+    this.tabs = this.workspaceService.getTabs(this.paneId);
+    await this.onTabChange(newTab);
+  }
+
   // ── Address bar / path ────────────────────────────────────────────────────
 
   onPathChange(path: string): void {
@@ -641,6 +651,68 @@ export class FilePaneComponent implements OnInit, OnChanges {
     if (selected.length === 1) {
       const entry = this.entries.find(e => e.path === selected[0]);
       if (entry) this.onNavigate(entry);
+    }
+  }
+
+  async onOpenInNewTab(entry: FileInfo): Promise<void> {
+    if (entry.path === PARENT_ENTRY_PATH) {
+      const up = this.isInArchive() ? this.currentPath : parentPath(this.currentPath);
+      await this.openPathInNewTab(up);
+      return;
+    }
+
+    if (entry.type === FileType.DIRECTORY) {
+      await this.openPathInNewTab(entry.path);
+      return;
+    }
+
+    if (entry.type === FileType.ARCHIVE || isArchive(entry.name)) {
+      await this.openPathInNewTab(entry.path);
+    }
+  }
+
+  async onRenameSelected(): Promise<void> {
+    const selected = Array.from(this.selectedFiles);
+    if (selected.length !== 1) return;
+    const entry = this.entries.find(e => e.path === selected[0]);
+    if (!entry || entry.path === PARENT_ENTRY_PATH) return;
+    await this.renameEntry(entry);
+  }
+
+  async onRename(event: { entry: FileInfo; newName: string }): Promise<void> {
+    await this.renameEntry(event.entry, event.newName);
+  }
+
+  async onDragDrop(event: { event: DragEvent; source: FileInfo[]; targetPath: string }): Promise<void> {
+    if (!event.source?.length || !event.targetPath) return;
+
+    if (this.isInArchive()) {
+      alert('Drag & drop within archive view is not supported yet. Use copy/move to other pane.');
+      return;
+    }
+
+    const sourcePaths = event.source
+      .map(e => e.path)
+      .filter(p => p && p !== PARENT_ENTRY_PATH);
+
+    if (!sourcePaths.length) return;
+
+    try {
+      const items = await Promise.all(sourcePaths.map(async sourcePath => ({
+        source: sourcePath,
+        destination: await this.buildDestinationPath(sourcePath, event.targetPath),
+      })));
+
+      const isCopy = event.event.ctrlKey || event.event.metaKey;
+      if (isCopy) {
+        await this.apiService.batchCopy(items, true);
+      } else {
+        await this.apiService.batchMove(items, true);
+      }
+
+      await this.onRefresh();
+    } catch (error: any) {
+      alert(`Drag & drop failed: ${error.message}`);
     }
   }
 
@@ -904,6 +976,32 @@ export class FilePaneComponent implements OnInit, OnChanges {
     if (this.selectedFiles.size > 0) {
       this.copyToOther.emit(Array.from(this.selectedFiles));
     }
+  }
+
+  private async renameEntry(entry: FileInfo, forcedName?: string): Promise<void> {
+    if (this.isInArchive()) {
+      alert('Rename inside archive view is not supported yet.');
+      return;
+    }
+
+    if (entry.path === PARENT_ENTRY_PATH) return;
+
+    const nextName = (forcedName ?? prompt('Rename to:', entry.name) ?? '').trim();
+    if (!nextName || nextName === entry.name) return;
+
+    try {
+      const destination = await this.apiService.joinPaths([parentPath(entry.path), nextName]);
+      await this.apiService.batchMove([{ source: entry.path, destination }], true);
+      await this.onRefresh();
+    } catch (error: any) {
+      alert(`Rename failed: ${error.message}`);
+    }
+  }
+
+  private async buildDestinationPath(sourcePath: string, targetDir: string): Promise<string> {
+    const split = await this.apiService.splitPath(sourcePath);
+    const base = split.base || sourcePath.replace(/\\/g, '/').split('/').filter(Boolean).pop() || '';
+    return await this.apiService.joinPaths([targetDir, base]);
   }
   
   onMoveToOther(): void { 

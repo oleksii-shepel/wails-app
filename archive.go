@@ -152,47 +152,338 @@ func (a *App) ArchiveCopyEntries(req ArchiveEntriesRequest) (*ArchiveEntriesResu
 	}, nil
 }
 
-// ArchiveMoveEntries copies entries to DestinationDir then rewrites the archive without them.
-// If NestedChain is non-empty the delete step is skipped (nested rewrite
-// not supported) and SourceRemoved is set to false in the result.
+// ArchiveMoveEntries extracts entries to DestinationDir synchronously, then
+// rewrites the archive without them only after all files are fully on disk.
+//
+// ArchiveCopyEntries is intentionally NOT used here: it delegates to
+// BatchSelectiveExtract which is fire-and-forget — it starts an async
+// operation and returns before files are written, so ArchiveDeleteEntries
+// would rewrite (and potentially corrupt) the archive while extraction is
+// still in progress.
+//
+// Instead we extract synchronously via moveExtractSync, block until every
+// byte is written, then call ArchiveDeleteEntries for the atomic rewrite.
 func (a *App) ArchiveMoveEntries(req ArchiveEntriesRequest) (*ArchiveEntriesResult, error) {
-	// Step 1 — copy out
-	copyResult, err := a.ArchiveCopyEntries(req)
-	if err != nil {
-		return nil, err
+	if req.DestinationDir == "" {
+		return nil, fmt.Errorf("destinationDir is required")
 	}
-	if copyResult.Failed > 0 {
-		// Don't delete from archive if extraction had errors.
-		return copyResult, nil
+	if len(req.Entries) == 0 {
+		return &ArchiveEntriesResult{}, nil
 	}
 
-	// Step 2 — delete from source archive
+	// Single operation that covers both extract and delete phases.
+	op := a.operations.StartOperation(OpDelete, "Move from archive",
+		req.FsPath, req.DestinationDir)
+
+	// ── Phase 1: synchronous extraction ──────────────────────────────────────
+	succeeded, failed, extractErrors, err := a.moveExtractSync(req, op)
+	if err != nil {
+		op.SetError(err)
+		return nil, err
+	}
+
+	result := &ArchiveEntriesResult{
+		OperationID: op.ID,
+		Total:       succeeded + failed,
+		Succeeded:   succeeded,
+		Failed:      failed,
+		Errors:      extractErrors,
+	}
+
+	if failed > 0 {
+		// Don't touch the archive if any file failed to extract.
+		op.SetError(fmt.Errorf("%d file(s) failed to extract; archive not modified", failed))
+		return result, nil
+	}
+
+	// ── Phase 2: archive rewrite ──────────────────────────────────────────────
 	if len(req.NestedChain) > 0 {
-		// Cannot rewrite nested archives — skip delete, surface as soft warning.
-		copyResult.SourceRemoved = false
-		copyResult.Errors = append(copyResult.Errors, BatchItemError{
+		result.SourceRemoved = false
+		result.Errors = append(result.Errors, BatchItemError{
 			Source: req.FsPath,
 			Error:  "entries copied but NOT removed: deleting from nested archives is not supported",
 		})
-		return copyResult, nil
+		op.Complete()
+		return result, nil
 	}
 
 	deleteReq := ArchiveEntriesRequest{FsPath: req.FsPath, Entries: req.Entries}
-	delResult, err := a.ArchiveDeleteEntries(deleteReq)
-	if err != nil {
-		copyResult.SourceRemoved = false
-		copyResult.Errors = append(copyResult.Errors, BatchItemError{
+	delResult, delErr := a.ArchiveDeleteEntries(deleteReq)
+	if delErr != nil {
+		result.SourceRemoved = false
+		result.Errors = append(result.Errors, BatchItemError{
 			Source: req.FsPath,
-			Error:  "entries copied but NOT removed from archive: " + err.Error(),
+			Error:  "entries extracted but NOT removed from archive: " + delErr.Error(),
 		})
-		return copyResult, nil
+		op.Complete()
+		return result, nil
 	}
 
-	copyResult.SourceRemoved = true
+	result.SourceRemoved = true
 	if delResult.Failed > 0 {
-		copyResult.Errors = append(copyResult.Errors, delResult.Errors...)
+		result.Errors = append(result.Errors, delResult.Errors...)
 	}
-	return copyResult, nil
+	op.Complete()
+	return result, nil
+}
+
+// moveExtractSync extracts all matching entries to req.DestinationDir and
+// blocks until every file is fully written to disk.
+// Returns (succeeded, failed, per-file errors, fatal error).
+// A non-nil fatal error means the archive could not be opened at all.
+func (a *App) moveExtractSync(req ArchiveEntriesRequest, op *ActiveOperation) (succeeded, failed int, errs []BatchItemError, fatalErr error) {
+	if err := os.MkdirAll(req.DestinationDir, 0755); err != nil {
+		return 0, 0, nil, fmt.Errorf("create destination: %w", err)
+	}
+
+	// For nested archives, extract to memory then walk the bytes.
+	if len(req.NestedChain) > 0 {
+		data, err := a.extractNestedArchive(req.FsPath, req.NestedChain)
+		if err != nil {
+			return 0, 0, nil, err
+		}
+		return moveExtractFromBytes(data, req.NestedChain[len(req.NestedChain)-1], req.Entries, req.DestinationDir, req.FlattenPaths, op)
+	}
+
+	lower := strings.ToLower(req.FsPath)
+	switch {
+	case strings.HasSuffix(lower, ".zip"):
+		return moveExtractZip(req.FsPath, req.Entries, req.DestinationDir, req.FlattenPaths, op)
+	case strings.HasSuffix(lower, ".tar.gz"), strings.HasSuffix(lower, ".tgz"),
+		strings.HasSuffix(lower, ".tar.bz2"), strings.HasSuffix(lower, ".tar.xz"),
+		strings.HasSuffix(lower, ".tar"):
+		return moveExtractTar(req.FsPath, req.Entries, req.DestinationDir, req.FlattenPaths, op)
+	default:
+		return 0, 0, nil, fmt.Errorf("unsupported archive format: %q", req.FsPath)
+	}
+}
+
+func moveExtractZip(fsPath string, entries []string, destDir string, flatten bool, op *ActiveOperation) (succeeded, failed int, errs []BatchItemError, fatalErr error) {
+	r, err := zip.OpenReader(fsPath)
+	if err != nil {
+		return 0, 0, nil, err
+	}
+	defer r.Close()
+
+	// Pre-filter so we can set an accurate total before starting.
+	var matches []*zip.File
+	for _, f := range r.File {
+		if !f.FileInfo().IsDir() && matchesEntries(normalizePath(f.Name), entries) {
+			matches = append(matches, f)
+		}
+	}
+	op.SetTotal(int64(len(matches)), 0)
+
+	var processed int64
+	for _, f := range matches {
+		if op.IsCancelled() {
+			errs = append(errs, BatchItemError{Source: f.Name, Error: "cancelled"})
+			failed++
+			continue
+		}
+
+		destPath := moveDestPath(f.Name, destDir, flatten)
+		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+			errs = append(errs, BatchItemError{Source: f.Name, Error: err.Error()})
+			failed++
+			continue
+		}
+
+		rc, err := f.Open()
+		if err != nil {
+			errs = append(errs, BatchItemError{Source: f.Name, Error: err.Error()})
+			failed++
+			continue
+		}
+
+		n, writeErr := moveWriteFile(destPath, rc)
+		rc.Close()
+		if writeErr != nil {
+			errs = append(errs, BatchItemError{Source: f.Name, Error: writeErr.Error()})
+			failed++
+			continue
+		}
+
+		succeeded++
+		processed++
+		op.UpdateProgress(processed, n, f.Name, n)
+	}
+	return
+}
+
+func moveExtractTar(fsPath string, entries []string, destDir string, flatten bool, op *ActiveOperation) (succeeded, failed int, errs []BatchItemError, fatalErr error) {
+	src, err := os.Open(fsPath)
+	if err != nil {
+		return 0, 0, nil, err
+	}
+	defer src.Close()
+
+	tr, closeGz, err := openTarReader(src, fsPath)
+	if err != nil {
+		return 0, 0, nil, err
+	}
+	if closeGz != nil {
+		defer closeGz()
+	}
+
+	op.SetTotal(0, 0) // TAR is streaming; total unknown upfront
+	var processed int64
+
+	for {
+		if op.IsCancelled() {
+			break
+		}
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return succeeded, failed, errs, err
+		}
+		if hdr.FileInfo().IsDir() || !matchesEntries(normalizePath(hdr.Name), entries) {
+			continue
+		}
+
+		destPath := moveDestPath(hdr.Name, destDir, flatten)
+		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+			errs = append(errs, BatchItemError{Source: hdr.Name, Error: err.Error()})
+			failed++
+			continue
+		}
+
+		n, writeErr := moveWriteFile(destPath, tr)
+		if writeErr != nil {
+			errs = append(errs, BatchItemError{Source: hdr.Name, Error: writeErr.Error()})
+			failed++
+			continue
+		}
+
+		succeeded++
+		processed++
+		op.UpdateProgress(processed, n, hdr.Name, n)
+	}
+	return
+}
+
+func moveExtractFromBytes(data []byte, archiveName string, entries []string, destDir string, flatten bool, op *ActiveOperation) (succeeded, failed int, errs []BatchItemError, fatalErr error) {
+	if isZipMagic(data) {
+		r, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+		if err != nil {
+			return 0, 0, nil, err
+		}
+		var matches []*zip.File
+		for _, f := range r.File {
+			if !f.FileInfo().IsDir() && matchesEntries(normalizePath(f.Name), entries) {
+				matches = append(matches, f)
+			}
+		}
+		op.SetTotal(int64(len(matches)), 0)
+		var processed int64
+		for _, f := range matches {
+			if op.IsCancelled() {
+				errs = append(errs, BatchItemError{Source: f.Name, Error: "cancelled"})
+				failed++
+				continue
+			}
+			destPath := moveDestPath(f.Name, destDir, flatten)
+			if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+				errs = append(errs, BatchItemError{Source: f.Name, Error: err.Error()})
+				failed++
+				continue
+			}
+			rc, err := f.Open()
+			if err != nil {
+				errs = append(errs, BatchItemError{Source: f.Name, Error: err.Error()})
+				failed++
+				continue
+			}
+			n, writeErr := moveWriteFile(destPath, rc)
+			rc.Close()
+			if writeErr != nil {
+				errs = append(errs, BatchItemError{Source: f.Name, Error: writeErr.Error()})
+				failed++
+				continue
+			}
+			succeeded++
+			processed++
+			op.UpdateProgress(processed, n, f.Name, n)
+		}
+		return
+	}
+
+	// TAR-based in-memory
+	tr := tar.NewReader(bytes.NewReader(data))
+	op.SetTotal(0, 0)
+	var processed int64
+	for {
+		if op.IsCancelled() {
+			break
+		}
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return succeeded, failed, errs, err
+		}
+		if hdr.FileInfo().IsDir() || !matchesEntries(normalizePath(hdr.Name), entries) {
+			continue
+		}
+		destPath := moveDestPath(hdr.Name, destDir, flatten)
+		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+			errs = append(errs, BatchItemError{Source: hdr.Name, Error: err.Error()})
+			failed++
+			continue
+		}
+		n, writeErr := moveWriteFile(destPath, tr)
+		if writeErr != nil {
+			errs = append(errs, BatchItemError{Source: hdr.Name, Error: writeErr.Error()})
+			failed++
+			continue
+		}
+		succeeded++
+		processed++
+		op.UpdateProgress(processed, n, hdr.Name, n)
+	}
+	return
+}
+
+// openTarReader wraps a file in a tar.Reader, unwrapping gzip if the filename
+// indicates it. Returns a cleanup func for the gzip reader (may be nil).
+func openTarReader(src *os.File, fsPath string) (*tar.Reader, func(), error) {
+	lower := strings.ToLower(fsPath)
+	if strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz") ||
+		strings.HasSuffix(lower, ".tar.bz2") || strings.HasSuffix(lower, ".tar.xz") {
+		gr, err := gzip.NewReader(src)
+		if err != nil {
+			return nil, nil, err
+		}
+		return tar.NewReader(gr), func() { gr.Close() }, nil
+	}
+	return tar.NewReader(src), nil, nil
+}
+
+// moveWriteFile creates destPath and copies all of r into it, returning bytes written.
+func moveWriteFile(destPath string, r io.Reader) (int64, error) {
+	f, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		return 0, err
+	}
+	n, copyErr := io.Copy(f, r)
+	closeErr := f.Close()
+	if copyErr != nil {
+		return n, copyErr
+	}
+	return n, closeErr
+}
+
+// moveDestPath resolves the output path for an archive entry.
+func moveDestPath(entryName, destDir string, flatten bool) string {
+	entryName = normalizePath(entryName)
+	if flatten {
+		return filepath.Join(destDir, filepath.Base(entryName))
+	}
+	return filepath.Join(destDir, filepath.FromSlash(entryName))
 }
 
 // ArchiveDeleteEntries rewrites the archive atomically (temp file → rename),

@@ -123,6 +123,54 @@ async function goBrowse(
 
 @Injectable({ providedIn: 'root' })
 export class ArchiveService {
+  /**
+   * Extracts entries from an archive. If the user selects all top-level entries (the root),
+   * it uses BatchExtract for efficiency. Otherwise, it uses BatchSelectiveExtract for a subset.
+   * @param frame The current archive frame
+   * @param entries The selected entry paths (relative to the archive root)
+   * @param destDir The destination directory for extraction
+   * @param flattenPaths Whether to flatten extracted paths
+   */
+  async extractEntries(
+    frame: ArchiveFrame,
+    entries: string[],
+    destDir: string,
+    flattenPaths = false
+  ): Promise<any> {
+    // Remove parent entry if present
+    const filteredEntries = entries.filter(e => e !== PARENT_ENTRY_PATH);
+    // Get all top-level entries in the current archive folder
+    const allTopLevel = frame.listing.entries.map(e => e.path).filter(e => e !== PARENT_ENTRY_PATH);
+    // If user selected all top-level entries, treat as root extract
+    const isRootExtract =
+      filteredEntries.length === allTopLevel.length &&
+      filteredEntries.every(e => allTopLevel.includes(e));
+
+    if (isRootExtract) {
+      // Extract the whole archive (root forrest)
+      return window.go.main.App.BatchExtract({
+        archives: [frame.fsPath],
+        destinationDir: destDir,
+        createSubdirectory: false,
+        expandNestedArchives: false,
+        flattenSingleRoot: flattenPaths,
+      });
+    } else {
+      // Extract only selected entries
+      return window.go.main.App.BatchSelectiveExtract({
+        items: [
+          {
+            archivePath: frame.fsPath,
+            nestedChain: frame.nestedChain,
+            entries: filteredEntries,
+            destinationDir: destDir,
+            flattenPaths,
+          },
+        ],
+        destinationDir: destDir,
+      });
+    }
+  }
 
   /* ─────────────── OPEN ─────────────── */
 

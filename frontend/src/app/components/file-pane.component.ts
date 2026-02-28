@@ -160,6 +160,26 @@ declare const window: any;
   `]
 })
 export class FilePaneComponent implements OnInit, OnChanges {
+    /**
+     * Extract selected entries from the current archive frame.
+     * If all top-level entries are selected, extracts the whole archive (root forrest).
+     * Otherwise, extracts only the selected files/folders.
+     */
+    async onExtractSelected(destDir: string, flattenPaths = false): Promise<void> {
+      if (!this.isInArchive() || this.selectedFiles.size === 0) return;
+      const frame = this.archiveStack[this.archiveStack.length - 1];
+      const entries = Array.from(this.selectedFiles);
+      try {
+        const result = await this.archiveService.extractEntries(frame, entries, destDir, flattenPaths);
+        if (result.failed > 0) {
+          alert('Extract failed:\n' + (result.errors ?? []).map((e: any) => e.error).join('\n'));
+        } else {
+          alert(`${result.succeeded} file(s) extracted to destination.`);
+        }
+      } catch (err: any) {
+        alert(`Extract failed: ${err.message}`);
+      }
+    }
   @ViewChild(AddressBarComponent) addressBar?: AddressBarComponent;
   @ViewChild(FileViewContainerComponent) fileViewContainer?: FileViewContainerComponent;
   @ViewChild('findWidget')        findWidget?: FindWidgetComponent;

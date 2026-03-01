@@ -886,17 +886,18 @@ export class FilePaneComponent implements OnInit, OnChanges {
     const paths = entries.map(e => e.path).filter(p => p !== PARENT_ENTRY_PATH);
     this.selectedFiles = new Set(paths);
     this.selectionCursorPath = paths.length ? paths[paths.length - 1] : null;
-    if (!this.selectionAnchorPath && this.selectionCursorPath) {
+    if (paths.length === 0) {
+      this.selectionAnchorPath = null;
+    } else if (paths.length === 1) {
+      this.selectionAnchorPath = this.selectionCursorPath;
+    } else if (!this.selectionAnchorPath) {
       this.selectionAnchorPath = this.selectionCursorPath;
     }
   }
 
   onSelectAll(): void {
-    this.filteredEntries
-      .filter(e => e.path !== PARENT_ENTRY_PATH)
-      .forEach(e => this.selectedFiles.add(e.path));
-    this.selectedFiles = new Set(this.selectedFiles);
     const selectable = this.getSelectableEntries();
+    this.selectedFiles = new Set(selectable.map(e => e.path));
     this.selectionCursorPath = selectable.length ? selectable[selectable.length - 1].path : null;
     this.selectionAnchorPath = this.selectionCursorPath;
   }
@@ -965,6 +966,7 @@ export class FilePaneComponent implements OnInit, OnChanges {
       if (matcher(entry.name)) next.add(entry.path);
     }
     this.selectedFiles = next;
+    this.syncCursorFromSelection();
   }
 
   onUnselectByMask(): void {
@@ -977,6 +979,7 @@ export class FilePaneComponent implements OnInit, OnChanges {
       if (matcher(entry.name)) next.delete(entry.path);
     }
     this.selectedFiles = next;
+    this.syncCursorFromSelection();
   }
 
   onInvertSelection(): void {
@@ -988,8 +991,7 @@ export class FilePaneComponent implements OnInit, OnChanges {
       }
     }
     this.selectedFiles = next;
-    this.selectionCursorPath = selectable.length ? selectable[0].path : null;
-    this.selectionAnchorPath = this.selectionCursorPath;
+    this.syncCursorFromSelection();
   }
 
   onSelectSameExtension(): void {
@@ -1006,9 +1008,42 @@ export class FilePaneComponent implements OnInit, OnChanges {
       }
     }
     this.selectedFiles = next;
+    this.syncCursorFromSelection();
+  }
+
+  private syncCursorFromSelection(): void {
+    const selectable = this.getSelectableEntries();
+    if (!selectable.length || this.selectedFiles.size === 0) {
+      this.selectionCursorPath = selectable.length ? selectable[0].path : null;
+      this.selectionAnchorPath = this.selectionCursorPath;
+      return;
+    }
+
+    const firstSelected = selectable.find(e => this.selectedFiles.has(e.path));
+    if (firstSelected) {
+      this.selectionCursorPath = firstSelected.path;
+      this.selectionAnchorPath = this.selectionAnchorPath ?? firstSelected.path;
+    }
   }
 
   private getSelectableEntries(): FileInfo[] {
+    if (this.currentView === 'tree') {
+      const tree = this.fileViewContainer?.treeComponent;
+      if (tree) {
+        return tree
+          .getVisibleNodes()
+          .filter(node => node.path !== PARENT_ENTRY_PATH && (node.level ?? 0) >= 0)
+          .map(node => ({
+            name: node.name,
+            path: node.path,
+            type: node.type,
+            size: node.size,
+            modified: node.modified,
+            created: node.created,
+          } as FileInfo));
+      }
+    }
+
     return this.filteredEntries.filter(e => e.path !== PARENT_ENTRY_PATH);
   }
 

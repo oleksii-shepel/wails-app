@@ -175,12 +175,12 @@ export class ShortcutRegistryService {
     // Quick view (preview)
     this.keyboardService.register({
       id: 'quick-view',
-      key: 'space',
+      key: 'f3',
       modifiers: [],
       action: callbacks.quickView,
       context: 'global',
       category: 'files',
-      description: 'Quick view selected item',
+      description: 'Quick view selected item (F3)',
     });
 
     // Open file/folder

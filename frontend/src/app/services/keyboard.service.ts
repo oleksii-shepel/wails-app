@@ -36,6 +36,8 @@ export interface ShortcutCategory {
 interface KeyboardContext {
   inInput: boolean;
   inTextarea: boolean;
+  inSelect: boolean;
+  inContentEditable: boolean;
   inModal: boolean;
   activePane: 'left' | 'right' | null;
   hasSelection: boolean;
@@ -104,7 +106,13 @@ export class KeyboardService {
    * Handle keyboard event
    */
   private handleKeyboardEvent(event: KeyboardEvent): void {
+    if (event.isComposing) return;
+
     const context = this.getKeyboardContext(event);
+
+    if (event.repeat && (context.inInput || context.inTextarea || context.inSelect || context.inContentEditable)) {
+      return;
+    }
 
     // Build key signature from event
     const modifiers: ('ctrl' | 'shift' | 'alt' | 'meta')[] = [];
@@ -112,7 +120,7 @@ export class KeyboardService {
     if (event.shiftKey) modifiers.push('shift');
     if (event.altKey) modifiers.push('alt');
 
-    const key = this.normalizeKey(event.key);
+    const key = this.normalizeEventKey(event);
     const shortcutKey = this.buildShortcutKey(key, modifiers);
 
     // Find matching shortcut
@@ -154,6 +162,8 @@ export class KeyboardService {
     return {
       inInput: tagName === 'input',
       inTextarea: tagName === 'textarea',
+      inSelect: tagName === 'select',
+      inContentEditable: !!target.isContentEditable,
       inModal: !!target.closest('.modal, [role="dialog"]'),
       activePane: this.getActivePaneFromTarget(target),
       hasSelection: window.getSelection()!.toString().length > 0,
@@ -182,7 +192,7 @@ export class KeyboardService {
   ): boolean {
     // Global shortcuts work everywhere except when typing
     if (shortcut.context === 'global') {
-      return !context.inInput && !context.inTextarea;
+      return !context.inInput && !context.inTextarea && !context.inSelect && !context.inContentEditable;
     }
 
     // Modal shortcuts only work in modals
@@ -203,6 +213,19 @@ export class KeyboardService {
 
     // Default: works when not typing
     return !context.inInput && !context.inTextarea;
+  }
+
+  private normalizeEventKey(event: KeyboardEvent): string {
+    const codeMap: Record<string, string> = {
+      NumpadAdd: 'numpadadd',
+      NumpadSubtract: 'numpadsubtract',
+      NumpadMultiply: 'numpadmultiply',
+    };
+
+    const byCode = codeMap[event.code];
+    if (byCode) return byCode;
+
+    return this.normalizeKey(event.key);
   }
 
   /**

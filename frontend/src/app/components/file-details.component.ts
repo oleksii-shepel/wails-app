@@ -81,7 +81,7 @@ export interface ColumnDef {
         </div>
 
         <div
-          *ngIf="selectionRect.active"
+          *ngIf="showSelectionRect"
           class="selection-rect"
           [style.left.px]="selectionRect.left"
           [style.top.px]="selectionRect.top"
@@ -269,6 +269,10 @@ export class FileDetailsComponent implements OnDestroy {
     width: 0,
     height: 0,
   };
+
+  get showSelectionRect(): boolean {
+    return this.selectionRect.active && this.marqueeButton !== 2;
+  }
 
   ngOnDestroy(): void {
     this.detachMarqueeListeners();

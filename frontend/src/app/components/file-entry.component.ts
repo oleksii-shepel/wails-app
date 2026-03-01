@@ -173,19 +173,11 @@ export class FileEntryComponent {
   }
 
   onClick(mouseEvent: MouseEvent): void {
-    // ".." navigates immediately on single click — no need to select first
-    if (this.isParentEntry()) {
-      this.navigate.emit(this.entry);
-    } else {
-      this.select.emit({ entry: this.entry, mouseEvent });
-    }
+  this.select.emit({ entry: this.entry, mouseEvent });
   }
 
   onDoubleClick(): void {
-    // ".." already handled by single click; double-click navigates everything else
-    if (!this.isParentEntry()) {
-      this.navigate.emit(this.entry);
-    }
+  this.navigate.emit(this.entry);
   }
 
   getIcon(): string {

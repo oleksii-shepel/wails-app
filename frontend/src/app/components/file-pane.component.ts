@@ -357,17 +357,21 @@ export class FilePaneComponent implements OnInit, OnChanges {
   private async refreshCurrentPathTransparently(): Promise<void> {
     if (!this.currentPath) return;
 
-    if (!this.isTransparentArchivePath(this.currentPath)) {
-      await this.loadDirectory(this.currentPath);
-      return;
-    }
-
+    // Check archive state FIRST — the virtual path at the archive root has no
+    // trailing slash (e.g. "C:/foo/archive.zip") so isArchiveVirtualPath()
+    // returns false for it, which previously caused loadDirectory() to be
+    // called on the archive file itself, exiting archive mode.
     if (this.isInArchive()) {
       const currentFrame = this.archiveStack[this.archiveStack.length - 1];
       if (currentFrame) {
         this.renderArchiveFrame(currentFrame);
         return;
       }
+    }
+
+    if (!this.isTransparentArchivePath(this.currentPath)) {
+      await this.loadDirectory(this.currentPath);
+      return;
     }
 
     await this.restoreArchiveFromPath(this.currentPath);

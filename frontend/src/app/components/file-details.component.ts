@@ -1,5 +1,5 @@
 // file-details.component.ts
-import { Component, Input, Output, EventEmitter } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnDestroy, NgZone } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FileInfo, FileType } from '../shared/protocol';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
@@ -42,10 +42,11 @@ export interface ColumnDef {
       </div>
       
       <!-- Body -->
-      <div class="details-body" role="rowgroup" (click)="onBackgroundClick($event)" (contextmenu)="onBackgroundContextMenu($event)">
+      <div class="details-body" role="rowgroup" (mousedown)="onBodyMouseDown($event)" (click)="onBackgroundClick($event)" (contextmenu)="onBackgroundContextMenu($event)">
         <div 
           *ngFor="let entry of entries"
           class="details-row"
+          [attr.data-path]="entry.path"
           [class.selected]="isSelected(entry)"
           [class.parent-dir]="isParentEntry(entry)"
           [class.drop-target]="isDropTarget(entry)"
@@ -78,13 +79,33 @@ export interface ColumnDef {
             </ng-container>
           </div>
         </div>
+
+        <div
+          *ngIf="selectionRect.active"
+          class="selection-rect"
+          [style.left.px]="selectionRect.left"
+          [style.top.px]="selectionRect.top"
+          [style.width.px]="selectionRect.width"
+          [style.height.px]="selectionRect.height">
+        </div>
       </div>
     </div>
   `,
   styles: [`
+    :host {
+      display: flex;
+      flex-direction: column;
+      flex: 1 1 0%;
+      min-height: 0;
+      min-width: 0;
+      overflow: hidden;
+    }
+
     .file-details {
       display: flex;
       flex-direction: column;
+      flex: 1 1 0%;
+      min-height: 0;
       overflow: hidden;
       background: var(--vsc-editor-background);
     }
@@ -173,7 +194,16 @@ export interface ColumnDef {
 
     .details-body {
       flex: 1;
+      position: relative;
       overflow-y: auto;
+    }
+
+    .selection-rect {
+      position: absolute;
+      pointer-events: none;
+      z-index: 20;
+      border: 1px solid var(--vsc-focus-border);
+      background: color-mix(in srgb, var(--vsc-list-active-background) 45%, transparent);
     }
 
     .file-icon {
@@ -194,7 +224,9 @@ export interface ColumnDef {
     .col-type { width: 100px; }
   `]
 })
-export class FileDetailsComponent {
+export class FileDetailsComponent implements OnDestroy {
+  constructor(private zone: NgZone) {}
+
   @Input() entries: FileInfo[] = [];
   @Input() selectedFiles: Set<string> = new Set();
   @Input() columns: ColumnDef[] = [
@@ -206,7 +238,7 @@ export class FileDetailsComponent {
   @Input() sortField: string = 'name';
   @Input() sortDirection: 'asc' | 'desc' = 'asc';
   
-  @Output() selectionChange = new EventEmitter<FileInfo | FileInfo[]>;
+  @Output() selectionChange = new EventEmitter<FileInfo[]>();
   @Output() navigate = new EventEmitter<FileInfo>();
   @Output() openInNewTab = new EventEmitter<FileInfo>();
   @Output() sort = new EventEmitter<{ field: string; direction: 'asc' | 'desc' }>();
@@ -216,6 +248,31 @@ export class FileDetailsComponent {
 
   private anchorPath: string | null = null;
   private dropTargetPath: string | null = null;
+  private marqueeContainer: HTMLElement | null = null;
+  private marqueeStartX = 0;
+  private marqueeStartY = 0;
+  private marqueeAppend = false;
+  private suppressBackgroundContextMenu = false;
+  private suppressBackgroundClick = false;
+  private suppressItemContextMenu = false;
+  private marqueeButton: 0 | 2 | null = null;
+  private hasMarqueeMoved = false;
+  private pendingClearOnMove = false;
+  private windowMouseMove?: (event: MouseEvent) => void;
+  private windowMouseUp?: (event: MouseEvent) => void;
+  private windowContextMenu?: (event: MouseEvent) => void;
+
+  selectionRect = {
+    active: false,
+    left: 0,
+    top: 0,
+    width: 0,
+    height: 0,
+  };
+
+  ngOnDestroy(): void {
+    this.detachMarqueeListeners();
+  }
 
   isParentEntry(entry: FileInfo): boolean {
     return entry.path === PARENT_ENTRY_PATH;
@@ -243,7 +300,7 @@ export class FileDetailsComponent {
       this.rangeSelect(entry);
     } else {
       this.anchorPath = entry.path;
-      this.selectionChange.emit(entry);
+      this.selectionChange.emit([entry]);
     }
   }
 
@@ -254,9 +311,17 @@ export class FileDetailsComponent {
   }
 
   onContextMenu(event: MouseEvent, entry: FileInfo): void {
+    if (this.suppressItemContextMenu) {
+      event.preventDefault();
+      this.suppressItemContextMenu = false;
+      return;
+    }
+
     event.preventDefault();
-    if (!this.isSelected(entry)) {
-      this.selectionChange.emit(entry);
+    if (!this.isParentEntry(entry) && !this.isSelected(entry)) {
+      const selected = new Set(this.selectedFiles);
+      selected.add(entry.path);
+      this.selectionChange.emit(this.entries.filter(e => selected.has(e.path) && !this.isParentEntry(e)));
       this.anchorPath = entry.path;
     }
     this.contextMenu.emit({ event, entry });
@@ -270,6 +335,11 @@ export class FileDetailsComponent {
   }
 
   onBackgroundClick(event: MouseEvent): void {
+    if (this.suppressBackgroundClick) {
+      this.suppressBackgroundClick = false;
+      return;
+    }
+
     if (event.target === event.currentTarget) {
       this.selectionChange.emit([]);
       this.anchorPath = null;
@@ -277,11 +347,144 @@ export class FileDetailsComponent {
   }
 
   onBackgroundContextMenu(event: MouseEvent): void {
+    if (this.suppressBackgroundContextMenu) {
+      event.preventDefault();
+      this.suppressBackgroundContextMenu = false;
+      return;
+    }
+
     if (event.target === event.currentTarget) {
       event.preventDefault();
       this.selectionChange.emit([]);
       this.anchorPath = null;
     }
+  }
+
+  onBodyMouseDown(event: MouseEvent): void {
+    if (event.button !== 0 && event.button !== 2) return;
+    if (event.button === 0 && event.target !== event.currentTarget) return;
+
+    const container = event.currentTarget as HTMLElement;
+    this.marqueeContainer = container;
+    this.marqueeAppend = event.ctrlKey || event.metaKey;
+    this.marqueeButton = event.button as 0 | 2;
+    this.hasMarqueeMoved = false;
+    this.pendingClearOnMove = this.marqueeButton === 2 && !this.marqueeAppend;
+
+    const { x, y } = this.getRelativePoint(event, container);
+    this.marqueeStartX = x;
+    this.marqueeStartY = y;
+    this.selectionRect = { active: true, left: x, top: y, width: 0, height: 0 };
+
+    if (!this.marqueeAppend && !this.pendingClearOnMove) {
+      this.selectionChange.emit([]);
+    }
+
+    this.suppressBackgroundClick = true;
+    this.suppressBackgroundContextMenu = event.button === 2;
+
+    this.windowMouseMove = (moveEvent: MouseEvent) => this.zone.run(() => this.onBodyMouseMove(moveEvent));
+    this.windowMouseUp = () => this.zone.run(() => this.finishMarqueeSelection());
+    this.windowContextMenu = (contextEvent: MouseEvent) => {
+      if (this.selectionRect.active && this.hasMarqueeMoved) {
+        contextEvent.preventDefault();
+        contextEvent.stopPropagation();
+      }
+    };
+
+    window.addEventListener('mousemove', this.windowMouseMove);
+    window.addEventListener('mouseup', this.windowMouseUp);
+    window.addEventListener('contextmenu', this.windowContextMenu, true);
+    if (event.button === 0) {
+      event.preventDefault();
+    }
+  }
+
+  private onBodyMouseMove(event: MouseEvent): void {
+    if (!this.marqueeContainer || !this.selectionRect.active) return;
+
+    const { x, y } = this.getRelativePoint(event, this.marqueeContainer);
+    const left = Math.min(this.marqueeStartX, x);
+    const top = Math.min(this.marqueeStartY, y);
+    const width = Math.abs(x - this.marqueeStartX);
+    const height = Math.abs(y - this.marqueeStartY);
+    if (width > 2 || height > 2) {
+      this.hasMarqueeMoved = true;
+      if (this.pendingClearOnMove) {
+        this.selectionChange.emit([]);
+        this.pendingClearOnMove = false;
+      }
+      if (this.marqueeButton === 2) {
+        this.suppressItemContextMenu = true;
+      }
+    }
+    this.selectionRect = { active: true, left, top, width, height };
+    this.emitMarqueeSelection();
+  }
+
+  private emitMarqueeSelection(): void {
+    if (!this.marqueeContainer) return;
+
+    const containerRect = this.marqueeContainer.getBoundingClientRect();
+    const selectionPaths = new Set<string>();
+    const rows = this.marqueeContainer.querySelectorAll<HTMLElement>('.details-row[data-path]');
+
+    for (const row of Array.from(rows)) {
+      const path = row.dataset['path'];
+      if (!path || path === PARENT_ENTRY_PATH) continue;
+
+      const rowRect = row.getBoundingClientRect();
+      const rowLeft = rowRect.left - containerRect.left + this.marqueeContainer.scrollLeft;
+      const rowTop = rowRect.top - containerRect.top + this.marqueeContainer.scrollTop;
+      const intersects =
+        rowLeft < this.selectionRect.left + this.selectionRect.width &&
+        rowLeft + rowRect.width > this.selectionRect.left &&
+        rowTop < this.selectionRect.top + this.selectionRect.height &&
+        rowTop + rowRect.height > this.selectionRect.top;
+
+      if (intersects) selectionPaths.add(path);
+    }
+
+    if (this.marqueeAppend) {
+      for (const path of this.selectedFiles) {
+        if (path !== PARENT_ENTRY_PATH) selectionPaths.add(path);
+      }
+    }
+
+    const selectedEntries = this.entries.filter(entry => selectionPaths.has(entry.path));
+    this.selectionChange.emit(selectedEntries);
+  }
+
+  private finishMarqueeSelection(): void {
+    this.detachMarqueeListeners();
+    this.marqueeContainer = null;
+    this.marqueeButton = null;
+    this.hasMarqueeMoved = false;
+    this.pendingClearOnMove = false;
+    this.selectionRect = { active: false, left: 0, top: 0, width: 0, height: 0 };
+  }
+
+  private detachMarqueeListeners(): void {
+    if (this.windowMouseMove) {
+      window.removeEventListener('mousemove', this.windowMouseMove);
+      this.windowMouseMove = undefined;
+    }
+    if (this.windowMouseUp) {
+      window.removeEventListener('mouseup', this.windowMouseUp);
+      this.windowMouseUp = undefined;
+    }
+    if (this.windowContextMenu) {
+      window.removeEventListener('contextmenu', this.windowContextMenu, true);
+      this.windowContextMenu = undefined;
+    }
+  }
+
+  private getRelativePoint(event: MouseEvent, container: HTMLElement): { x: number; y: number } {
+    const rect = container.getBoundingClientRect();
+    return {
+      x: event.clientX - rect.left + container.scrollLeft,
+      y: event.clientY - rect.top + container.scrollTop,
+    };
   }
 
   onSort(field: string): void {

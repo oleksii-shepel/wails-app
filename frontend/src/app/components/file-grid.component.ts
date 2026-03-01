@@ -1,5 +1,5 @@
 // file-grid.component.ts
-import { Component, Input, Output, EventEmitter, OnDestroy } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnDestroy, NgZone } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FileInfo, FileType } from '../shared/protocol';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
@@ -54,10 +54,22 @@ import { parentPath } from './address-bar.utils';
     </div>
   `,
   styles: [`
+    :host {
+      display: flex;
+      flex-direction: column;
+      flex: 1 1 0%;
+      min-height: 0;
+      min-width: 0;
+      overflow: hidden;
+    }
+
     .file-grid {
       position: relative;
+      flex: 1 1 0%;
+      min-height: 0;
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+      align-content: start;
       gap: var(--vsc-padding-md);
       padding: var(--vsc-padding-md);
       overflow-y: auto;
@@ -177,10 +189,12 @@ import { parentPath } from './address-bar.utils';
   `]
 })
 export class FileGridComponent implements OnDestroy {
+  constructor(private zone: NgZone) {}
+
   @Input() entries: FileInfo[] = [];
   @Input() selectedFiles: Set<string> = new Set();
   
-  @Output() selectionChange = new EventEmitter<FileInfo | FileInfo[]>;
+  @Output() selectionChange = new EventEmitter<FileInfo[]>();
   @Output() navigate = new EventEmitter<FileInfo>();
   @Output() openInNewTab = new EventEmitter<FileInfo>();
   @Output() contextMenu = new EventEmitter<{ event: MouseEvent; entry: FileInfo }>();
@@ -199,6 +213,9 @@ export class FileGridComponent implements OnDestroy {
   private suppressItemContextMenu = false;
   private selectionMode: 'none' | 'marquee' | 'paint' = 'none';
   private paintedPaths = new Set<string>();
+  private marqueeButton: 0 | 2 | null = null;
+  private hasMarqueeMoved = false;
+  private pendingClearOnMove = false;
   private windowMouseMove?: (event: MouseEvent) => void;
   private windowMouseUp?: (event: MouseEvent) => void;
   private windowContextMenu?: (event: MouseEvent) => void;
@@ -240,7 +257,7 @@ export class FileGridComponent implements OnDestroy {
         this.navigate.emit(entry);
       } else {
         this.anchorPath = entry.path;
-        this.selectionChange.emit(entry);
+        this.selectionChange.emit([entry]);
       }
     }
   }
@@ -259,8 +276,10 @@ export class FileGridComponent implements OnDestroy {
     }
 
     event.preventDefault();
-    if (!this.isSelected(entry)) {
-      this.selectionChange.emit(entry);
+    if (!this.isParentEntry(entry) && !this.isSelected(entry)) {
+      const selected = new Set(this.selectedFiles);
+      selected.add(entry.path);
+      this.selectionChange.emit(this.entries.filter(e => selected.has(e.path) && !this.isParentEntry(e)));
       this.anchorPath = entry.path;
     }
     this.contextMenu.emit({ event, entry });
@@ -302,52 +321,38 @@ export class FileGridComponent implements OnDestroy {
   onGridMouseDown(event: MouseEvent): void {
     if (event.button !== 0 && event.button !== 2) return;
 
-    const target = event.target as HTMLElement;
-    if (target.closest('.grid-item')) return;
-
     const container = event.currentTarget as HTMLElement;
     this.marqueeContainer = container;
     this.marqueeAppend = event.ctrlKey || event.metaKey;
-    this.selectionMode = event.button === 0 ? 'marquee' : 'paint';
+    this.selectionMode = 'marquee';
+    this.marqueeButton = event.button as 0 | 2;
+    this.hasMarqueeMoved = false;
+    this.pendingClearOnMove = this.marqueeButton === 2 && !this.marqueeAppend;
     this.paintedPaths.clear();
 
     const { x, y } = this.getRelativePoint(event, container);
     this.marqueeStartX = x;
     this.marqueeStartY = y;
 
-    this.selectionRect = this.selectionMode === 'marquee'
-      ? {
-          active: true,
-          left: x,
-          top: y,
-          width: 0,
-          height: 0,
-        }
-      : {
-          active: false,
-          left: 0,
-          top: 0,
-          width: 0,
-          height: 0,
-        };
+    this.selectionRect = {
+      active: true,
+      left: x,
+      top: y,
+      width: 0,
+      height: 0,
+    };
 
-    if (!this.marqueeAppend) {
+    if (!this.marqueeAppend && !this.pendingClearOnMove) {
       this.selectionChange.emit([]);
     }
 
-    if (this.selectionMode === 'paint') {
-      this.updatePaintSelection(event);
-    }
-
     this.suppressBackgroundClick = true;
-    if (this.selectionMode === 'paint') {
-      this.suppressItemContextMenu = true;
-    }
+    this.suppressItemContextMenu = false;
 
-    this.windowMouseMove = (moveEvent: MouseEvent) => this.onGridMouseMove(moveEvent);
-    this.windowMouseUp = () => this.finishMarqueeSelection();
+    this.windowMouseMove = (moveEvent: MouseEvent) => this.zone.run(() => this.onGridMouseMove(moveEvent));
+    this.windowMouseUp = () => this.zone.run(() => this.finishMarqueeSelection());
     this.windowContextMenu = (contextEvent: MouseEvent) => {
-      if (this.selectionMode !== 'none') {
+      if (this.selectionMode !== 'none' && this.hasMarqueeMoved) {
         contextEvent.preventDefault();
         contextEvent.stopPropagation();
       }
@@ -355,8 +360,10 @@ export class FileGridComponent implements OnDestroy {
     window.addEventListener('mousemove', this.windowMouseMove);
     window.addEventListener('mouseup', this.windowMouseUp);
     window.addEventListener('contextmenu', this.windowContextMenu, true);
-    this.suppressBackgroundContextMenu = this.selectionMode === 'paint';
-    event.preventDefault();
+    this.suppressBackgroundContextMenu = event.button === 2;
+    if (event.button === 0) {
+      event.preventDefault();
+    }
   }
 
   private onGridMouseMove(event: MouseEvent): void {
@@ -374,6 +381,16 @@ export class FileGridComponent implements OnDestroy {
     const top = Math.min(this.marqueeStartY, y);
     const width = Math.abs(x - this.marqueeStartX);
     const height = Math.abs(y - this.marqueeStartY);
+    if (width > 2 || height > 2) {
+      this.hasMarqueeMoved = true;
+      if (this.pendingClearOnMove) {
+        this.selectionChange.emit([]);
+        this.pendingClearOnMove = false;
+      }
+      if (this.marqueeButton === 2) {
+        this.suppressItemContextMenu = true;
+      }
+    }
 
     this.selectionRect = { active: true, left, top, width, height };
     this.emitMarqueeSelection();
@@ -441,6 +458,9 @@ export class FileGridComponent implements OnDestroy {
     this.detachMarqueeListeners();
     this.marqueeContainer = null;
     this.selectionMode = 'none';
+    this.marqueeButton = null;
+    this.hasMarqueeMoved = false;
+    this.pendingClearOnMove = false;
     this.paintedPaths.clear();
     this.selectionRect = {
       active: false,
@@ -499,6 +519,11 @@ export class FileGridComponent implements OnDestroy {
   }
 
   onDragStart(event: DragEvent, entry: FileInfo): void {
+    if (this.selectionMode !== 'none') {
+      event.preventDefault();
+      return;
+    }
+
     if (this.isParentEntry(entry)) {
       event.preventDefault();
       return;

@@ -227,6 +227,7 @@ export class KeyboardService {
   private normalizeKey(key: string): string {
     const keyMap: Record<string, string> = {
       ' ': 'space',
+      'Insert': 'insert',
       'Escape': 'escape',
       'Enter': 'enter',
       'Tab': 'tab',
@@ -240,6 +241,9 @@ export class KeyboardService {
       'Meta': 'meta',
       'Shift': 'shift',
       'Alt': 'alt',
+      'NumpadAdd': 'numpadadd',
+      'NumpadSubtract': 'numpadsubtract',
+      'NumpadMultiply': 'numpadmultiply',
     };
 
     return keyMap[key] || key.toLowerCase();

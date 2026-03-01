@@ -220,6 +220,8 @@ export class FilePaneComponent implements OnInit, OnChanges {
   archivePendingMoveDestDir = '';
 
   private tabPaths = new Map<string, string>();
+  private selectionCursorPath: string | null = null;
+  private selectionAnchorPath: string | null = null;
 
   FileType = FileType;
 
@@ -880,27 +882,13 @@ export class FilePaneComponent implements OnInit, OnChanges {
 
   // ── Selection ─────────────────────────────────────────────────────────────
 
-  onSelectionChange(entryOrEntries: FileInfo | FileInfo[]): void {
-    // Support single FileInfo or array of FileInfo from tree selection
-    if (Array.isArray(entryOrEntries)) {
-      const paths = entryOrEntries.map(e => e.path).filter(p => p !== PARENT_ENTRY_PATH);
-      this.selectedFiles = new Set(paths);
-      return;
+  onSelectionChange(entries: FileInfo[]): void {
+    const paths = entries.map(e => e.path).filter(p => p !== PARENT_ENTRY_PATH);
+    this.selectedFiles = new Set(paths);
+    this.selectionCursorPath = paths.length ? paths[paths.length - 1] : null;
+    if (!this.selectionAnchorPath && this.selectionCursorPath) {
+      this.selectionAnchorPath = this.selectionCursorPath;
     }
-
-    const entry = entryOrEntries as FileInfo;
-    // The ".." entry is never selectable
-    if (entry.path === PARENT_ENTRY_PATH) return;
-
-    // Toggle selection
-    if (this.selectedFiles.has(entry.path)) {
-      this.selectedFiles.delete(entry.path);
-    } else {
-      // For single selection mode, clear others first
-      // For multi-selection, keep existing and add new
-      this.selectedFiles.add(entry.path);
-    }
-    this.selectedFiles = new Set(this.selectedFiles);
   }
 
   onSelectAll(): void {
@@ -908,11 +896,159 @@ export class FilePaneComponent implements OnInit, OnChanges {
       .filter(e => e.path !== PARENT_ENTRY_PATH)
       .forEach(e => this.selectedFiles.add(e.path));
     this.selectedFiles = new Set(this.selectedFiles);
+    const selectable = this.getSelectableEntries();
+    this.selectionCursorPath = selectable.length ? selectable[selectable.length - 1].path : null;
+    this.selectionAnchorPath = this.selectionCursorPath;
   }
 
   onDeselectAll(): void {
     this.selectedFiles.clear();
     this.selectedFiles = new Set(this.selectedFiles);
+    this.selectionCursorPath = null;
+    this.selectionAnchorPath = null;
+  }
+
+  onToggleCurrentAndMoveDown(): void {
+    const selectable = this.getSelectableEntries();
+    const index = this.getCursorIndex(selectable);
+    if (index < 0) return;
+
+    const path = selectable[index].path;
+    const next = new Set(this.selectedFiles);
+    if (next.has(path)) next.delete(path);
+    else next.add(path);
+    this.selectedFiles = next;
+
+    const nextIndex = Math.min(index + 1, selectable.length - 1);
+    this.selectionCursorPath = selectable[nextIndex]?.path ?? path;
+    this.selectionAnchorPath = this.selectionAnchorPath ?? path;
+  }
+
+  onSelectCurrentAndMoveDown(): void {
+    const selectable = this.getSelectableEntries();
+    const index = this.getCursorIndex(selectable);
+    if (index < 0) return;
+
+    const path = selectable[index].path;
+    const next = new Set(this.selectedFiles);
+    next.add(path);
+    this.selectedFiles = next;
+
+    const nextIndex = Math.min(index + 1, selectable.length - 1);
+    this.selectionCursorPath = selectable[nextIndex]?.path ?? path;
+    this.selectionAnchorPath = path;
+  }
+
+  onExtendSelection(delta: -1 | 1): void {
+    const selectable = this.getSelectableEntries();
+    const index = this.getCursorIndex(selectable);
+    if (index < 0) return;
+
+    const targetIndex = Math.max(0, Math.min(selectable.length - 1, index + delta));
+    const anchorPath = this.selectionAnchorPath ?? selectable[index].path;
+    const anchorIndex = selectable.findIndex(e => e.path === anchorPath);
+    const start = Math.min(anchorIndex === -1 ? index : anchorIndex, targetIndex);
+    const end = Math.max(anchorIndex === -1 ? index : anchorIndex, targetIndex);
+
+    this.selectedFiles = new Set(selectable.slice(start, end + 1).map(e => e.path));
+    this.selectionCursorPath = selectable[targetIndex].path;
+    this.selectionAnchorPath = anchorPath;
+  }
+
+  onSelectByMask(): void {
+    const mask = prompt('Select by mask (example: *.txt):', '*.*')?.trim();
+    if (!mask) return;
+
+    const matcher = this.createMaskMatcher(mask);
+    const next = new Set(this.selectedFiles);
+    for (const entry of this.getSelectableEntries()) {
+      if (matcher(entry.name)) next.add(entry.path);
+    }
+    this.selectedFiles = next;
+  }
+
+  onUnselectByMask(): void {
+    const mask = prompt('Unselect by mask (example: *.txt):', '*.*')?.trim();
+    if (!mask) return;
+
+    const matcher = this.createMaskMatcher(mask);
+    const next = new Set(this.selectedFiles);
+    for (const entry of this.getSelectableEntries()) {
+      if (matcher(entry.name)) next.delete(entry.path);
+    }
+    this.selectedFiles = next;
+  }
+
+  onInvertSelection(): void {
+    const selectable = this.getSelectableEntries();
+    const next = new Set<string>();
+    for (const entry of selectable) {
+      if (!this.selectedFiles.has(entry.path)) {
+        next.add(entry.path);
+      }
+    }
+    this.selectedFiles = next;
+    this.selectionCursorPath = selectable.length ? selectable[0].path : null;
+    this.selectionAnchorPath = this.selectionCursorPath;
+  }
+
+  onSelectSameExtension(): void {
+    const current = this.getCurrentCursorEntry();
+    if (!current) return;
+
+    const extension = this.getExtension(current.name);
+    if (!extension) return;
+
+    const next = new Set(this.selectedFiles);
+    for (const entry of this.getSelectableEntries()) {
+      if (this.getExtension(entry.name) === extension) {
+        next.add(entry.path);
+      }
+    }
+    this.selectedFiles = next;
+  }
+
+  private getSelectableEntries(): FileInfo[] {
+    return this.filteredEntries.filter(e => e.path !== PARENT_ENTRY_PATH);
+  }
+
+  private getCursorIndex(entries: FileInfo[]): number {
+    if (!entries.length) return -1;
+
+    if (this.selectionCursorPath) {
+      const idx = entries.findIndex(e => e.path === this.selectionCursorPath);
+      if (idx !== -1) return idx;
+    }
+
+    const firstSelected = entries.findIndex(e => this.selectedFiles.has(e.path));
+    if (firstSelected !== -1) {
+      this.selectionCursorPath = entries[firstSelected].path;
+      return firstSelected;
+    }
+
+    this.selectionCursorPath = entries[0].path;
+    return 0;
+  }
+
+  private getCurrentCursorEntry(): FileInfo | null {
+    const entries = this.getSelectableEntries();
+    const idx = this.getCursorIndex(entries);
+    return idx >= 0 ? entries[idx] : null;
+  }
+
+  private createMaskMatcher(mask: string): (value: string) => boolean {
+    const escaped = mask
+      .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+      .replace(/\*/g, '.*')
+      .replace(/\?/g, '.');
+    const regex = new RegExp(`^${escaped}$`, 'i');
+    return (value: string) => regex.test(value);
+  }
+
+  private getExtension(name: string): string {
+    const idx = name.lastIndexOf('.');
+    if (idx <= 0 || idx === name.length - 1) return '';
+    return name.slice(idx + 1).toLowerCase();
   }
 
   // ── File operations ───────────────────────────────────────────────────────

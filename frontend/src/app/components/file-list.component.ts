@@ -1,4 +1,4 @@
-import { Component, Input, Output, EventEmitter, OnDestroy } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnDestroy, NgZone } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FileEntryComponent, FileEntrySelectEvent } from './file-entry.component';
 import { FileInfo, FileType } from '../shared/protocol';
@@ -24,7 +24,7 @@ import { parentPath } from './address-bar.utils';
         {{ error }}
       </div>
       
-      <div *ngIf="!loading && !error" class="file-list" (click)="onBackgroundClick($event)" (contextmenu)="onBackgroundContextMenu($event)">
+      <div *ngIf="!loading && !error" class="file-list">
         <div
           *ngFor="let entry of entries"
           class="file-list-row"
@@ -57,6 +57,15 @@ import { parentPath } from './address-bar.utils';
     </div>
   `,
   styles: [`
+    :host {
+      display: flex;
+      flex-direction: column;
+      flex: 1 1 0%;
+      min-height: 0;
+      min-width: 0;
+      overflow: hidden;
+    }
+
     .pane-content {
       position: relative;
       flex: 1;
@@ -145,12 +154,14 @@ import { parentPath } from './address-bar.utils';
   `]
 })
 export class FileListComponent implements OnDestroy {
+  constructor(private zone: NgZone) {}
+
   @Input() entries: FileInfo[] = [];
   @Input() selectedFiles: Set<string> = new Set();
   @Input() loading = false;
   @Input() error: string | null = null;
   
-  @Output() selectionChange = new EventEmitter<FileInfo | FileInfo[]>;
+  @Output() selectionChange = new EventEmitter<FileInfo[]>();
   @Output() navigate = new EventEmitter<FileInfo>();
   @Output() openInNewTab = new EventEmitter<FileInfo>();
   @Output() contextMenu = new EventEmitter<{ event: MouseEvent; entry: FileInfo }>();
@@ -168,6 +179,9 @@ export class FileListComponent implements OnDestroy {
   private suppressItemContextMenu = false;
   private selectionMode: 'none' | 'marquee' | 'paint' = 'none';
   private paintedPaths = new Set<string>();
+  private marqueeButton: 0 | 2 | null = null;
+  private hasMarqueeMoved = false;
+  private pendingClearOnMove = false;
   private windowMouseMove?: (event: MouseEvent) => void;
   private windowMouseUp?: (event: MouseEvent) => void;
   private windowContextMenu?: (event: MouseEvent) => void;
@@ -219,7 +233,7 @@ export class FileListComponent implements OnDestroy {
     }
 
     this.anchorPath = entry.path;
-    this.selectionChange.emit(entry);
+    this.selectionChange.emit([entry]);
   }
 
   onNavigate(entry: FileInfo): void {
@@ -262,8 +276,10 @@ export class FileListComponent implements OnDestroy {
     }
 
     event.preventDefault();
-    if (!this.isSelected(entry) && !this.isParentEntry(entry)) {
-      this.selectionChange.emit(entry);
+    if (!this.isParentEntry(entry) && !this.isSelected(entry)) {
+      const selected = new Set(this.selectedFiles);
+      selected.add(entry.path);
+      this.selectionChange.emit(this.entries.filter(e => selected.has(e.path) && !this.isParentEntry(e)));
       this.anchorPath = entry.path;
     }
     this.contextMenu.emit({ event, entry });
@@ -278,40 +294,33 @@ export class FileListComponent implements OnDestroy {
 
   onListMouseDown(event: MouseEvent): void {
     if (event.button !== 0 && event.button !== 2) return;
-    const target = event.target as HTMLElement;
-    if (target.closest('.file-list-row')) return;
 
     const container = event.currentTarget as HTMLElement;
     if (!container) return;
 
     this.marqueeContainer = container;
     this.marqueeAppend = event.ctrlKey || event.metaKey;
-    this.selectionMode = event.button === 0 ? 'marquee' : 'paint';
+    this.selectionMode = 'marquee';
+    this.marqueeButton = event.button as 0 | 2;
+    this.hasMarqueeMoved = false;
+    this.pendingClearOnMove = this.marqueeButton === 2 && !this.marqueeAppend;
     this.paintedPaths.clear();
     const { x, y } = this.getRelativePoint(event, container);
     this.marqueeStartX = x;
     this.marqueeStartY = y;
-    this.selectionRect = this.selectionMode === 'marquee'
-      ? { active: true, left: x, top: y, width: 0, height: 0 }
-      : { active: false, left: 0, top: 0, width: 0, height: 0 };
+    this.selectionRect = { active: true, left: x, top: y, width: 0, height: 0 };
 
-    if (!this.marqueeAppend) {
+    if (!this.marqueeAppend && !this.pendingClearOnMove) {
       this.selectionChange.emit([]);
     }
 
-    if (this.selectionMode === 'paint') {
-      this.updatePaintSelection(event);
-    }
-
     this.suppressBackgroundClick = true;
-    if (this.selectionMode === 'paint') {
-      this.suppressItemContextMenu = true;
-    }
+    this.suppressItemContextMenu = false;
 
-    this.windowMouseMove = (moveEvent: MouseEvent) => this.onListMouseMove(moveEvent);
-    this.windowMouseUp = () => this.finishMarqueeSelection();
+    this.windowMouseMove = (moveEvent: MouseEvent) => this.zone.run(() => this.onListMouseMove(moveEvent));
+    this.windowMouseUp = () => this.zone.run(() => this.finishMarqueeSelection());
     this.windowContextMenu = (contextEvent: MouseEvent) => {
-      if (this.selectionMode !== 'none') {
+      if (this.selectionMode !== 'none' && this.hasMarqueeMoved) {
         contextEvent.preventDefault();
         contextEvent.stopPropagation();
       }
@@ -319,8 +328,10 @@ export class FileListComponent implements OnDestroy {
     window.addEventListener('mousemove', this.windowMouseMove);
     window.addEventListener('mouseup', this.windowMouseUp);
     window.addEventListener('contextmenu', this.windowContextMenu, true);
-    this.suppressBackgroundContextMenu = this.selectionMode === 'paint';
-    event.preventDefault();
+    this.suppressBackgroundContextMenu = event.button === 2;
+    if (event.button === 0) {
+      event.preventDefault();
+    }
   }
 
   private onListMouseMove(event: MouseEvent): void {
@@ -338,6 +349,16 @@ export class FileListComponent implements OnDestroy {
     const top = Math.min(this.marqueeStartY, y);
     const width = Math.abs(x - this.marqueeStartX);
     const height = Math.abs(y - this.marqueeStartY);
+    if (width > 2 || height > 2) {
+      this.hasMarqueeMoved = true;
+      if (this.pendingClearOnMove) {
+        this.selectionChange.emit([]);
+        this.pendingClearOnMove = false;
+      }
+      if (this.marqueeButton === 2) {
+        this.suppressItemContextMenu = true;
+      }
+    }
     this.selectionRect = { active: true, left, top, width, height };
     this.emitMarqueeSelection();
   }
@@ -402,6 +423,9 @@ export class FileListComponent implements OnDestroy {
     this.detachMarqueeListeners();
     this.marqueeContainer = null;
     this.selectionMode = 'none';
+    this.marqueeButton = null;
+    this.hasMarqueeMoved = false;
+    this.pendingClearOnMove = false;
     this.paintedPaths.clear();
     this.selectionRect = { active: false, left: 0, top: 0, width: 0, height: 0 };
   }
@@ -430,6 +454,11 @@ export class FileListComponent implements OnDestroy {
   }
 
   onDragStart(event: DragEvent, entry: FileInfo): void {
+    if (this.selectionMode !== 'none') {
+      event.preventDefault();
+      return;
+    }
+
     if (this.isParentEntry(entry)) {
       event.preventDefault();
       return;

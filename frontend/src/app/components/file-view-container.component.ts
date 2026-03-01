@@ -147,7 +147,7 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
   @Input() sortDirection: 'asc' | 'desc' = 'asc';
 
   @Output() viewChange      = new EventEmitter<ViewLayout>();
-  @Output() selectionChange = new EventEmitter<FileInfo | FileInfo[]>();
+  @Output() selectionChange = new EventEmitter<FileInfo[]>();
   @Output() navigate        = new EventEmitter<FileInfo>();
   @Output() openInNewTab    = new EventEmitter<FileInfo>();
   @Output() sortChange      = new EventEmitter<{ field: string; direction: 'asc' | 'desc' }>();
@@ -292,14 +292,9 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
 
   // ── Event passthrough ──────────────────────────────────────
 
-  onSelectionChange(entryOrEntries: FileInfo | FileInfo[]): void {
-    if (Array.isArray(entryOrEntries)) {
-      this.selectedFiles = new Set(entryOrEntries.map(e => e.path));
-      this.selectionChange.emit(entryOrEntries);
-    } else {
-      this.selectedFiles = new Set([entryOrEntries.path]);
-      this.selectionChange.emit(entryOrEntries);
-    }
+  onSelectionChange(entries: FileInfo[]): void {
+    this.selectedFiles = new Set(entries.map(e => e.path));
+    this.selectionChange.emit(entries);
   }
 
   onNavigate(entry: FileInfo | TreeNode | Event): void {

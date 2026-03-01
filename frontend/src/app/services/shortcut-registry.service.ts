@@ -249,6 +249,26 @@ export class ShortcutRegistryService {
       description: 'Select all items',
     });
 
+    this.keyboardService.register({
+      id: 'select-all-ctrl-num-plus',
+      key: 'numpadadd',
+      modifiers: ['ctrl'],
+      action: callbacks.selectAll,
+      context: 'global',
+      category: 'files',
+      description: 'Select all items (Ctrl+Num +)',
+    });
+
+    this.keyboardService.register({
+      id: 'select-all-shift-num-plus',
+      key: 'numpadadd',
+      modifiers: ['shift'],
+      action: callbacks.selectAll,
+      context: 'global',
+      category: 'files',
+      description: 'Select all items (Shift+Num +)',
+    });
+
     // Deselect all
     this.keyboardService.register({
       id: 'deselect-all',
@@ -258,6 +278,106 @@ export class ShortcutRegistryService {
       context: 'global',
       category: 'files',
       description: 'Deselect all items',
+    });
+
+    this.keyboardService.register({
+      id: 'deselect-all-ctrl-num-minus',
+      key: 'numpadsubtract',
+      modifiers: ['ctrl'],
+      action: callbacks.deselectAll,
+      context: 'global',
+      category: 'files',
+      description: 'Deselect all items (Ctrl+Num -)',
+    });
+
+    this.keyboardService.register({
+      id: 'deselect-all-shift-num-minus',
+      key: 'numpadsubtract',
+      modifiers: ['shift'],
+      action: callbacks.deselectAll,
+      context: 'global',
+      category: 'files',
+      description: 'Deselect all items (Shift+Num -)',
+    });
+
+    this.keyboardService.register({
+      id: 'toggle-current-insert',
+      key: 'insert',
+      modifiers: [],
+      action: callbacks.toggleCurrentAndMoveDown,
+      context: 'global',
+      category: 'files',
+      description: 'Toggle current item and move down (Insert)',
+    });
+
+    this.keyboardService.register({
+      id: 'select-current-space',
+      key: 'space',
+      modifiers: [],
+      action: callbacks.selectCurrentAndMoveDown,
+      context: 'global',
+      category: 'files',
+      description: 'Select current item and move down (Space)',
+    });
+
+    this.keyboardService.register({
+      id: 'extend-selection-up',
+      key: 'arrowup',
+      modifiers: ['shift'],
+      action: callbacks.extendSelectionUp,
+      context: 'global',
+      category: 'files',
+      description: 'Extend selection upward (Shift+ArrowUp)',
+    });
+
+    this.keyboardService.register({
+      id: 'extend-selection-down',
+      key: 'arrowdown',
+      modifiers: ['shift'],
+      action: callbacks.extendSelectionDown,
+      context: 'global',
+      category: 'files',
+      description: 'Extend selection downward (Shift+ArrowDown)',
+    });
+
+    this.keyboardService.register({
+      id: 'select-by-mask',
+      key: 'numpadadd',
+      modifiers: [],
+      action: callbacks.selectByMask,
+      context: 'global',
+      category: 'files',
+      description: 'Select by mask (Num +)',
+    });
+
+    this.keyboardService.register({
+      id: 'unselect-by-mask',
+      key: 'numpadsubtract',
+      modifiers: [],
+      action: callbacks.unselectByMask,
+      context: 'global',
+      category: 'files',
+      description: 'Unselect by mask (Num -)',
+    });
+
+    this.keyboardService.register({
+      id: 'invert-selection',
+      key: 'numpadmultiply',
+      modifiers: [],
+      action: callbacks.invertSelection,
+      context: 'global',
+      category: 'files',
+      description: 'Invert selection (Num *)',
+    });
+
+    this.keyboardService.register({
+      id: 'select-same-extension',
+      key: 'numpadadd',
+      modifiers: ['alt'],
+      action: callbacks.selectSameExtension,
+      context: 'global',
+      category: 'files',
+      description: 'Select files with same extension (Alt+Num +)',
     });
 
     // New folder
@@ -510,6 +630,14 @@ export interface ShortcutCallbacks {
   deselectAll: () => void;
   newFolder: () => void;
   renameSelected: () => void;
+  toggleCurrentAndMoveDown: () => void;
+  selectCurrentAndMoveDown: () => void;
+  extendSelectionUp: () => void;
+  extendSelectionDown: () => void;
+  selectByMask: () => void;
+  unselectByMask: () => void;
+  invertSelection: () => void;
+  selectSameExtension: () => void;
 
   // Search
   focusFilter: () => void;

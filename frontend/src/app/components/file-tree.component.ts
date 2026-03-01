@@ -692,9 +692,9 @@ export class FileTreeComponent implements OnChanges {
   onContextMenu(event: MouseEvent, node: TreeNode): void {
     event.preventDefault();
     event.stopPropagation();
-    
+
     if (!this.isSelected(node)) {
-      this.selectNode(node, false, false);
+      this.selectNode(node, true, false);
     }
     
     this.focusedNodePath = node.path;

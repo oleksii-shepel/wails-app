@@ -15,6 +15,7 @@ import { FileDetailsComponent } from './file-details.component';
 import { ViewMode } from './action-bar.component';
 import { FileInfo, FileType } from '../shared/protocol';
 import { ApiService } from '../services/api.service';
+import { parseArchivePath, buildArchivePath } from '../services/archive.service';
 import { parentPath } from './address-bar.utils';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
 
@@ -301,10 +302,14 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
     if (!entry || (entry as Event) instanceof Event) return;
     const e = entry as any;
     if (e.path) {
-      this.navigate.emit({
+      const payload: any = {
         name: e.name, path: e.path, type: e.type,
         size: e.size, modified: e.modified, created: e.created,
-      } as FileInfo);
+      };
+      if (Array.isArray(e.nestedChain)) {
+        payload.nestedChain = [...e.nestedChain];
+      }
+      this.navigate.emit(payload as FileInfo);
     }
   }
 
@@ -411,7 +416,7 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
     for (let i = 1; i < chain.length; i++) {
       const expected = this.normalizePath(chain[i]);
       const next = current.children?.find(c => this.normalizePath(c.path) === expected);
-      if (!next || next.type !== FileType.DIRECTORY) break;
+      if (!next || (next.type !== FileType.DIRECTORY && next.type !== FileType.ARCHIVE)) break;
       current = next;
       expandedNodes.push(current);
       await this.ensureNodeChildrenLoaded(current);
@@ -451,7 +456,11 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
     this.cdr.markForCheck();
 
     try {
-      const listing = await this.apiService.listDirectory(node.path, this.showHidden);
+      const ctx = node.archivePath ? parseArchivePath(node.archivePath) : null;
+
+      const listing = ctx
+        ? await this.apiService.archiveBrowse(ctx.fsPath, ctx.nestedChain, ctx.innerPath)
+        : await this.apiService.listDirectory(node.path, this.showHidden);
       const childLevel = (node.level ?? 0) + 1;
       const existingChildren = new Map<string, TreeNode>();
       if (node.children) {
@@ -463,16 +472,43 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
       node.children = (listing.entries || [])
         .filter(e => e.path !== PARENT_ENTRY_PATH)
         .map(e => {
-          const existing = existingChildren.get(this.normalizePath(e.path));
+          const entryNestedChain = (e as any).nestedChain as string[] | undefined;
+          const isArchiveEntry = e.type === FileType.ARCHIVE;
+
+          // Build the single archivePath that encodes the full context for this child.
+          let childArchivePath: string | undefined;
+          if (ctx) {
+            if (isArchiveEntry) {
+              // Entering a nested archive: chain grows, innerPath resets.
+              const newChain = entryNestedChain?.length
+                ? entryNestedChain
+                : [...ctx.nestedChain, e.path];
+              childArchivePath = buildArchivePath(ctx.fsPath, newChain, '');
+            } else {
+              // Navigating deeper inside the same archive.
+              childArchivePath = buildArchivePath(ctx.fsPath, ctx.nestedChain, e.path);
+            }
+          } else {
+            // Not inside an archive yet — only set archivePath for archive entries.
+            childArchivePath = isArchiveEntry ? e.path : undefined;
+          }
+
+          const childPath = ctx
+            ? `${node.path.replace(/\/+$/, '')}/${e.name}`.replace(/\/+/g, '/')
+            : e.path;
+
+          const existing = existingChildren.get(this.normalizePath(childPath));
           return {
             ...e,
+            path: childPath,
             level: childLevel,
-            expandable: e.type === FileType.DIRECTORY,
+            expandable: e.type === FileType.DIRECTORY || e.type === FileType.ARCHIVE,
             expanded: existing?.expanded ?? false,
-            children: existing?.children ?? (e.type === FileType.DIRECTORY ? [] : undefined),
+            children: existing?.children ?? ((e.type === FileType.DIRECTORY || e.type === FileType.ARCHIVE) ? [] : undefined),
             loaded: existing?.loaded ?? false,
             loading: false,
             parent: node,
+            archivePath: childArchivePath,
           } as TreeNode;
         });
 
@@ -487,9 +523,11 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
     }
   }
 
-  private createRootNode(rootPath: string): TreeNode {
+  private createRootNode(rootPath: string, archivePath?: string): TreeNode {
     const isWindowsRoot = /^[A-Za-z]:\/$/.test(rootPath);
-    const rootName = rootPath === '/' ? '/' : (isWindowsRoot ? rootPath.slice(0, 2) : rootPath);
+    const rootName = archivePath
+      ? rootPath.split('/').filter(Boolean).pop() || rootPath
+      : (rootPath === '/' ? '/' : (isWindowsRoot ? rootPath.slice(0, 2) : rootPath));
     return {
       name: rootName,
       path: rootPath,
@@ -508,6 +546,7 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
       loaded: false,
       loading: false,
       parent: undefined,
+      archivePath,
     } as TreeNode;
   }
 
@@ -546,6 +585,3 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
     return normalized || '/';
   }
 }
-
-
-

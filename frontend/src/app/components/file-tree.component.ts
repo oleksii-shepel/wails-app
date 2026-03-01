@@ -19,6 +19,7 @@ import { DEFAULT_FILE_CATEGORIES } from './filter-bar.types';
 export interface TreeNode extends FileInfo {
   level: number;
   syntheticRoot?: string;
+  archivePath?: string;
   expanded?: boolean;
   expandable?: boolean;
   children?: TreeNode[];
@@ -660,6 +661,14 @@ export class FileTreeComponent implements OnChanges {
 
     if (node.type === FileType.DIRECTORY && node.expandable) {
       this.toggleNode(node);
+    } else if (node.type === FileType.ARCHIVE) {
+      if (node.expandable) {
+        this.toggleNode(node);
+      }
+      // Do NOT emit navigate for archives in tree view – expansion via
+      // toggleNode + loadChildren already populates child nodes without
+      // switching the pane to archive mode (which would corrupt the tree).
+      this.nodeDoubleClick.emit(node);
     } else {
       this.nodeDoubleClick.emit(node);
       this.navigate.emit(node);

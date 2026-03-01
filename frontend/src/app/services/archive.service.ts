@@ -119,6 +119,52 @@ async function goBrowse(
 }
 
 /* ─────────────────────────────────────────────────────────────
+   PATH UTILITIES
+───────────────────────────────────────────────────────────── */
+
+/**
+ * Decomposes a global archive path like
+ *   "C:/foo/bar.zip/nested.zip/dir/file.txt"
+ * into the three components expected by the backend:
+ *   fsPath      = "C:/foo/bar.zip"
+ *   nestedChain = ["nested.zip"]
+ *   innerPath   = "dir/file.txt"
+ */
+export function parseArchivePath(globalPath: string): { fsPath: string; nestedChain: string[]; innerPath: string } {
+  const norm = globalPath.replace(/\\/g, '/');
+  const parts = norm.split('/');
+
+  const firstIdx = parts.findIndex(p => isArchive(p));
+  if (firstIdx === -1) return { fsPath: globalPath, nestedChain: [], innerPath: '' };
+
+  const fsPath = parts.slice(0, firstIdx + 1).join('/');
+  const rest = parts.slice(firstIdx + 1);
+
+  // Accumulate segments; each time we hit an archive name it closes a nestedChain entry.
+  const nestedChain: string[] = [];
+  const accum: string[] = [];
+  for (const seg of rest) {
+    accum.push(seg);
+    if (isArchive(seg)) {
+      nestedChain.push(accum.join('/'));
+      accum.length = 0;
+    }
+  }
+  return { fsPath, nestedChain, innerPath: accum.join('/') };
+}
+
+/**
+ * Builds a global archive path from its three components.
+ * Empty parts are omitted so trailing slashes are avoided.
+ */
+export function buildArchivePath(fsPath: string, nestedChain: string[], innerPath: string): string {
+  return [fsPath.replace(/\\/g, '/'), ...nestedChain, innerPath]
+    .filter(Boolean)
+    .join('/')
+    .replace(/\/+/g, '/');
+}
+
+/* ─────────────────────────────────────────────────────────────
    SERVICE
 ───────────────────────────────────────────────────────────── */
 
@@ -354,6 +400,49 @@ export class ArchiveService {
     };
 
     return window.go.main.App.ArchiveDeleteEntries(req);
+  }
+
+  /**
+   * Copy archive entries without needing an open ArchiveFrame (tree-view path).
+   * archivePath is the global path to the archive context, e.g. "C:/foo/bar.zip/inner.zip".
+   * innerPaths are file paths relative to that archive's root.
+   */
+  copyByContext(
+    archivePath: string,
+    innerPaths: string[],
+    destDir: string,
+  ): Promise<ArchiveEntriesResult> {
+    const { fsPath, nestedChain } = parseArchivePath(archivePath);
+    const req: ArchiveEntriesRequest = {
+      fsPath,
+      nestedChain,
+      entries: innerPaths,
+      stripPrefix: '',
+      destinationDir: destDir,
+      flattenPaths: false,
+    };
+    return window.go.main.App.ArchiveCopyEntries(req);
+  }
+
+  /**
+   * Move archive entries without needing an open ArchiveFrame (tree-view path).
+   * archivePath is the global path to the archive context, e.g. "C:/foo/bar.zip/inner.zip".
+   */
+  moveByContext(
+    archivePath: string,
+    innerPaths: string[],
+    destDir: string,
+  ): Promise<ArchiveEntriesResult> {
+    const { fsPath, nestedChain } = parseArchivePath(archivePath);
+    const req: ArchiveEntriesRequest = {
+      fsPath,
+      nestedChain,
+      entries: innerPaths,
+      stripPrefix: '',
+      destinationDir: destDir,
+      flattenPaths: false,
+    };
+    return window.go.main.App.ArchiveMoveEntries(req);
   }
 
   /* ─────────────── UTILITIES ─────────────── */

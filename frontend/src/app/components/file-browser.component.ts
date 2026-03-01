@@ -278,6 +278,18 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
       return;
     }
 
+    // Tree view: selected nodes may be inside an expanded archive node.
+    const treeArchive = src.getTreeArchiveSelectionContext();
+    if (treeArchive) {
+      const result = await this.archiveService.copyByContext(
+        treeArchive.archivePath, treeArchive.innerPaths, dst.currentPath
+      );
+      const err = this.archiveError(result);
+      if (err) alert(`Copy errors:\n${err}`);
+      dst.onRefresh();
+      return;
+    }
+
     // Filesystem copy — unchanged
     const items = await Promise.all(
       paths.map(async srcPath => ({ 
@@ -305,6 +317,18 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
       const result = await this.archiveService.copy(frame, paths, dst.currentPath);
       const err = this.archiveError(result);
       if (err) alert(`Copy completed with errors:\n${err}`);
+      dst.onRefresh();
+      return;
+    }
+
+    // Tree view: selected nodes may be inside an expanded archive node.
+    const treeArchive = src.getTreeArchiveSelectionContext();
+    if (treeArchive) {
+      const result = await this.archiveService.copyByContext(
+        treeArchive.archivePath, treeArchive.innerPaths, dst.currentPath
+      );
+      const err = this.archiveError(result);
+      if (err) alert(`Copy errors:\n${err}`);
       dst.onRefresh();
       return;
     }
@@ -337,6 +361,18 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
       return;
     }
 
+    // Tree view: selected nodes may be inside an expanded archive node.
+    const treeArchive = src.getTreeArchiveSelectionContext();
+    if (treeArchive) {
+      const result = await this.archiveService.moveByContext(
+        treeArchive.archivePath, treeArchive.innerPaths, dst.currentPath
+      );
+      const err = this.archiveError(result);
+      if (err) alert(`Move errors:\n${err}`);
+      dst.onRefresh();
+      return;
+    }
+
     // Filesystem move — unchanged
     const items = await Promise.all(
       paths.map(async srcPath => ({ 
@@ -362,6 +398,18 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
         return;
       }
       src.initiatePendingMove(paths, dst.currentPath);
+      return;
+    }
+
+    // Tree view: selected nodes may be inside an expanded archive node.
+    const treeArchive = src.getTreeArchiveSelectionContext();
+    if (treeArchive) {
+      const result = await this.archiveService.moveByContext(
+        treeArchive.archivePath, treeArchive.innerPaths, dst.currentPath
+      );
+      const err = this.archiveError(result);
+      if (err) alert(`Move errors:\n${err}`);
+      dst.onRefresh();
       return;
     }
 

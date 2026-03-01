@@ -276,7 +276,14 @@ export class FileGridComponent implements OnDestroy {
     }
 
     event.preventDefault();
-    if (!this.isParentEntry(entry) && !this.isSelected(entry)) {
+    if (this.isParentEntry(entry)) {
+      return;
+    }
+
+    if (this.isSelected(entry)) {
+      const nextSelection = this.entries.filter(e => this.selectedFiles.has(e.path) && e.path !== entry.path && !this.isParentEntry(e));
+      this.selectionChange.emit(nextSelection);
+    } else {
       const selected = new Set(this.selectedFiles);
       selected.add(entry.path);
       this.selectionChange.emit(this.entries.filter(e => selected.has(e.path) && !this.isParentEntry(e)));

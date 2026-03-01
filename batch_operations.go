@@ -950,7 +950,7 @@ func (a *App) extractZipOnDisk(archivePath string, ec *extractCtx) (int64, int64
 		}
 
 		// Nested archive: recurse in memory.
-		if isArchiveFile(f.Name) && !ec.tooDeep() {
+		if isArchive(f.Name) && !ec.tooDeep() {
 			rc, err := f.Open()
 			if err != nil {
 				return totalFiles, totalBytes, err
@@ -1027,7 +1027,7 @@ func (a *App) extractTarOnDisk(archivePath string, ec *extractCtx) (int64, int64
 		if f.IsDir() {
 			return os.MkdirAll(destPath, 0755)
 		}
-		if isArchiveFile(f.Name()) && !ec.tooDeep() {
+		if isArchive(f.Name()) && !ec.tooDeep() {
 			data, err := io.ReadAll(f)
 			if err != nil {
 				return err
@@ -1086,7 +1086,7 @@ func (a *App) extractZipBytes(data []byte, ec *extractCtx) (int64, int64, error)
 			os.MkdirAll(destPath, 0755)
 			continue
 		}
-		if isArchiveFile(f.Name) && !ec.tooDeep() {
+		if isArchive(f.Name) && !ec.tooDeep() {
 			rc, err := f.Open()
 			if err != nil {
 				return totalFiles, totalBytes, err
@@ -1151,7 +1151,7 @@ func (a *App) extractTarBytes(data []byte, ec *extractCtx) (int64, int64, error)
 			os.MkdirAll(destPath, 0755)
 			continue
 		}
-		if isArchiveFile(h.Name) && !ec.tooDeep() {
+		if isArchive(h.Name) && !ec.tooDeep() {
 			nested, err := io.ReadAll(tr)
 			if err != nil {
 				return totalFiles, totalBytes, err
@@ -1211,7 +1211,7 @@ func (a *App) extractRarBytes(data []byte, archiveName string, ec *extractCtx) (
 			os.MkdirAll(destPath, 0755)
 			continue
 		}
-		if isArchiveFile(f.Name()) && !ec.tooDeep() {
+		if isArchive(f.Name()) && !ec.tooDeep() {
 			nested, err := io.ReadAll(f)
 			f.Close()
 			if err != nil {

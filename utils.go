@@ -56,8 +56,8 @@ func getRelativePath(full, base string) string {
 	return ""
 }
 
-// isArchiveFile reports whether a file name looks like a supported archive.
-func isArchiveFile(name string) bool {
+// isArchive reports whether a file name looks like a supported archive.
+func isArchive(name string) bool {
 	switch detectExt(strings.ToLower(name)) {
 	case ".zip", ".tar", ".tgz", ".gz", ".bz2", ".xz", ".rar", ".7z", ".tar.gz", ".tar.bz2", ".tar.xz":
 		return true

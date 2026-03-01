@@ -12,7 +12,8 @@ import { WorkspaceService } from '../services/workspace.service';
 import { FilterService } from '../services/filter.service';
 import { PathHistoryService } from '../services/path-history.service';
 import {
-  ArchiveService, ArchiveFrame, isArchive, buildArchiveDisplayPath, buildArchiveTabTitle
+  ArchiveService, ArchiveFrame, isArchive, buildArchiveDisplayPath, buildArchiveTabTitle,
+  parseArchivePath, buildArchivePath
 } from '../services/archive.service';
 import { parentPath, normalizePath } from './address-bar.utils';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
@@ -625,18 +626,24 @@ export class FilePaneComponent implements OnInit, OnChanges {
   onNavigate(entry: FileInfo): void {
     if (entry.path === PARENT_ENTRY_PATH) { this.onNavigateUp(); return; }
 
+    // Tree navigation: real FS directory must exit archive mode first so the
+    // tree root is never overwritten with a virtual archive path.
+    if (this.currentView === 'tree' && entry.type === FileType.DIRECTORY) {
+      if (this.isInArchive()) {
+        this.exitArchive();
+        this.clearArchiveState();
+      }
+      this.currentPath = entry.path;
+      this.pathChange.emit(entry.path);
+      return;
+    }
+
     if (this.isInArchive()) {
       if (entry.type === FileType.DIRECTORY) { this.archiveNavigateInto(entry.path); }
       else if (entry.type === FileType.ARCHIVE) {
         const chain: string[] = (entry as any).nestedChain;
         if (chain?.length) this.openNestedArchive(chain);
       }
-      return;
-    }
-
-    if (this.currentView === 'tree' && entry.type === FileType.DIRECTORY) {
-      this.currentPath = entry.path;
-      this.pathChange.emit(entry.path);
       return;
     }
 
@@ -1142,6 +1149,46 @@ export class FilePaneComponent implements OnInit, OnChanges {
       alert(`Failed to delete items: ${error.message}`);
     }
     await this.loadDirectory(this.currentPath);
+  }
+
+  /**
+   * Returns archive metadata for the current tree-view selection when the
+   * selected nodes are inside an expanded archive node (not in archive-pane
+   * mode). All selected nodes must share the same archive FS path and nested
+   * chain; otherwise returns null.
+   */
+  getTreeArchiveSelectionContext(): { archivePath: string; innerPaths: string[] } | null {
+    if (this.currentView !== 'tree' || this.selectedFiles.size === 0) return null;
+
+    const tree = this.fileViewContainer?.treeComponent;
+    if (!tree) return null;
+
+    const visible = tree.getVisibleNodes();
+    const selected = visible.filter(n => this.selectedFiles.has(n.path));
+    if (!selected.length) return null;
+
+    const firstArchivePath = (selected[0] as any).archivePath as string | undefined;
+    if (!firstArchivePath) return null;
+
+    // Derive the archive context path (fsPath + nestedChain, no innerPath).
+    const { fsPath, nestedChain } = parseArchivePath(firstArchivePath);
+    const contextPath = buildArchivePath(fsPath, nestedChain, '');
+
+    // All selected must come from the same archive context.
+    if (!selected.every(n => {
+      const nPath = (n as any).archivePath as string | undefined;
+      if (!nPath) return false;
+      const { fsPath: nFs, nestedChain: nChain } = parseArchivePath(nPath);
+      return buildArchivePath(nFs, nChain, '') === contextPath;
+    })) return null;
+
+    // Inner paths: each selected file's path within its (nested) archive.
+    const innerPaths = selected.map(n => {
+      const nPath = (n as any).archivePath as string | undefined;
+      return nPath ? (parseArchivePath(nPath).innerPath || n.name) : n.name;
+    }).filter(Boolean);
+
+    return innerPaths.length ? { archivePath: contextPath, innerPaths } : null;
   }
 
   onCopyToOther(): void { 

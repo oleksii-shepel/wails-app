@@ -138,7 +138,7 @@ func (a *App) ArchiveCopyEntries(req ArchiveEntriesRequest) (*ArchiveEntriesResu
 		return nil, fmt.Errorf("destinationDir is required")
 	}
 
-	op := a.operations.StartOperation(OpDelete, "Copy from archive",
+	op := a.operations.StartOperation(OpCopy, "Copy from archive",
 		req.FsPath, req.DestinationDir)
 
 	succeeded, failed, errs, err := a.extractEntriesSync(req, op)
@@ -175,7 +175,7 @@ func (a *App) ArchiveMoveEntries(req ArchiveEntriesRequest) (*ArchiveEntriesResu
 		return &ArchiveEntriesResult{}, nil
 	}
 
-	op := a.operations.StartOperation(OpDelete, "Move from archive",
+	op := a.operations.StartOperation(OpMove, "Move from archive",
 		req.FsPath, req.DestinationDir)
 
 	// Phase 1: synchronous extraction — blocks until all files are on disk.
@@ -740,7 +740,7 @@ func (a *App) processEntryInto(
 	// entry's own isDir flag (implicit directory from a nested path).
 	implicitDir := len(parts) > 1
 	childIsDir := isDir || implicitDir
-	childIsArchive := !childIsDir && isArchiveFile(childName)
+	childIsArchive := !childIsDir && isArchive(childName)
 
 	if _, exists := seen[childName]; exists {
 		return nil // already recorded
@@ -761,7 +761,7 @@ func (a *App) processEntryInto(
 		fi.Type = FileTypeArchive
 		fi.IsNested = true
 		// Build the chain that reaches this nested archive.
-		fi.NestedChain = append(append([]string{}, nestedChain...), childName)
+		fi.NestedChain = append(append([]string{}, nestedChain...), fi.Path)
 	}
 
 	seen[childName] = fi

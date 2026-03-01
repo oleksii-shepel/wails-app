@@ -298,6 +298,8 @@ func buildFileInfo(name, fullPath string, info os.FileInfo) FileInfo {
 		ft = FileTypeDirectory
 	} else if info.Mode()&os.ModeSymlink != 0 {
 		ft = FileTypeSymlink
+	} else if isArchive(name) {
+		ft = FileTypeArchive
 	}
 
 	return FileInfo{

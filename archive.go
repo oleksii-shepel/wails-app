@@ -373,6 +373,58 @@ func extractTarSync(fsPath string, entries []string, stripPrefix string, destDir
 }
 
 func extractFromBytesSync(data []byte, archiveName string, entries []string, stripPrefix string, destDir string, flatten bool, op *ActiveOperation) (succeeded, failed int, errs []BatchItemError, fatalErr error) {
+	// Non-ZIP, non-TAR formats (RAR, 7z, …) must be handled before the ZIP
+	// magic-byte check because their headers do not start with "PK".
+	if !isZipMagic(data) && needsArchiveReader(archiveName) {
+		reader, err := openArchiveReader(archiveName, data)
+		if err != nil {
+			return 0, 0, nil, err
+		}
+		defer reader.Close()
+		op.SetTotal(0, 0)
+		var processed int64
+		for {
+			if op.IsCancelled() {
+				break
+			}
+			f, err := reader.Read()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				return succeeded, failed, errs, err
+			}
+			entryName := archiveEntryPath(f)
+			if f.IsDir() || !matchesEntriesForExtract(normalizePath(entryName), entries) {
+				f.Close()
+				continue
+			}
+			relPath, ok := rebaseExtractPath(entryName, stripPrefix)
+			if !ok {
+				f.Close()
+				continue
+			}
+			destPath := extractDestPath(relPath, destDir, flatten)
+			if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+				errs = append(errs, BatchItemError{Source: entryName, Error: err.Error()})
+				failed++
+				f.Close()
+				continue
+			}
+			n, writeErr := extractWriteFile(destPath, f)
+			f.Close()
+			if writeErr != nil {
+				errs = append(errs, BatchItemError{Source: entryName, Error: writeErr.Error()})
+				failed++
+				continue
+			}
+			succeeded++
+			processed++
+			op.UpdateProgress(processed, n, entryName, n)
+		}
+		return
+	}
+
 	if isZipMagic(data) {
 		r, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 		if err != nil {
@@ -634,7 +686,7 @@ func (a *App) walkBytes(data []byte, innerPath string, nestedChain []string) ([]
 	if isZipMagic(data) {
 		return a.walkZip(data, innerPath, nestedChain)
 	}
-	if len(nestedChain) > 0 && isRarArchiveName(nestedChain[len(nestedChain)-1]) {
+	if len(nestedChain) > 0 && needsArchiveReader(nestedChain[len(nestedChain)-1]) {
 		return a.walkArchiveReader(data, innerPath, nestedChain, nestedChain[len(nestedChain)-1])
 	}
 	return a.walkTar(data, innerPath, nestedChain)
@@ -865,7 +917,7 @@ func (a *App) extractFromBytes(data []byte, entryPath string, archiveName string
 		}
 	}
 
-	if archiveName != "" && isRarArchiveName(archiveName) {
+	if archiveName != "" && needsArchiveReader(archiveName) {
 		return a.extractFromArchiveReader(data, archiveName, entryPath)
 	}
 
@@ -1115,6 +1167,32 @@ func isZipMagic(data []byte) bool {
 			(data[2] == 0x05 && data[3] == 0x06))
 }
 
+// needsArchiveReader returns true for any format whose in-memory bytes must be
+// decoded via archiver.Reader rather than the stdlib zip or tar packages.
+// This covers RAR, 7z, and any other format supported by github.com/mholt/archiver
+// that is NOT a ZIP (handled by magic bytes) and NOT a plain/compressed TAR.
+func needsArchiveReader(name string) bool {
+	if name == "" {
+		return false
+	}
+	lower := strings.ToLower(name)
+	// TAR family is handled directly by the tar package.
+	for _, sfx := range []string{".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tar.xz", ".gz", ".bz2", ".xz"} {
+		if strings.HasSuffix(lower, sfx) {
+			return false
+		}
+	}
+	// ZIP is handled by isZipMagic / stdlib zip; skip it here so the caller
+	// can still attempt openArchiveReader on a mis-named file without error.
+	if strings.HasSuffix(lower, ".zip") {
+		return false
+	}
+	// Everything else (rar, 7z, …) goes through archiver.Reader.
+	return true
+}
+
+// isRarArchiveName is kept for narrow RAR-only checks (e.g. in extractFromBytes
+// where only RAR can appear as an in-memory nested archive name).
 func isRarArchiveName(name string) bool {
 	if name == "" {
 		return false

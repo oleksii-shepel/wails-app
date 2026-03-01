@@ -264,6 +264,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     const src = this.leftPane;
     const dst = this.rightPane;
     if (!src || !dst || paths.length === 0) return;
+    const destDir = dst.getDestinationDir();
 
     if (src.isInArchive()) {
       if (this.bothArchive(src, dst)) {
@@ -271,7 +272,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
         return;
       }
       const frame = src.archiveStack[src.archiveStack.length - 1];
-      const result = await this.archiveService.copy(frame, paths, dst.currentPath);
+      const result = await this.archiveService.copy(frame, paths, destDir);
       const err = this.archiveError(result);
       if (err) alert(`Copy completed with errors:\n${err}`);
       dst.onRefresh();
@@ -282,7 +283,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     const treeArchive = src.getTreeArchiveSelectionContext();
     if (treeArchive) {
       const result = await this.archiveService.copyByContext(
-        treeArchive.archivePath, treeArchive.innerPaths, dst.currentPath
+        treeArchive.archivePath, treeArchive.innerPaths, destDir
       );
       const err = this.archiveError(result);
       if (err) alert(`Copy errors:\n${err}`);
@@ -290,11 +291,11 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
       return;
     }
 
-    // Filesystem copy — unchanged
+    // Filesystem copy
     const items = await Promise.all(
-      paths.map(async srcPath => ({ 
-        source: srcPath, 
-        destination: await this.buildDestinationPath(srcPath, dst.currentPath) 
+      paths.map(async srcPath => ({
+        source: srcPath,
+        destination: await this.buildDestinationPath(srcPath, destDir)
       }))
     );
     const result = await this.apiService.batchCopy(items, true);
@@ -307,6 +308,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     const src = this.rightPane;
     const dst = this.leftPane;
     if (!src || !dst || paths.length === 0) return;
+    const destDir = dst.getDestinationDir();
 
     if (src.isInArchive()) {
       if (this.bothArchive(src, dst)) {
@@ -314,7 +316,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
         return;
       }
       const frame = src.archiveStack[src.archiveStack.length - 1];
-      const result = await this.archiveService.copy(frame, paths, dst.currentPath);
+      const result = await this.archiveService.copy(frame, paths, destDir);
       const err = this.archiveError(result);
       if (err) alert(`Copy completed with errors:\n${err}`);
       dst.onRefresh();
@@ -325,7 +327,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     const treeArchive = src.getTreeArchiveSelectionContext();
     if (treeArchive) {
       const result = await this.archiveService.copyByContext(
-        treeArchive.archivePath, treeArchive.innerPaths, dst.currentPath
+        treeArchive.archivePath, treeArchive.innerPaths, destDir
       );
       const err = this.archiveError(result);
       if (err) alert(`Copy errors:\n${err}`);
@@ -334,9 +336,9 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     }
 
     const items = await Promise.all(
-      paths.map(async srcPath => ({ 
-        source: srcPath, 
-        destination: await this.buildDestinationPath(srcPath, dst.currentPath) 
+      paths.map(async srcPath => ({
+        source: srcPath,
+        destination: await this.buildDestinationPath(srcPath, destDir)
       }))
     );
     const result = await this.apiService.batchCopy(items, true);
@@ -349,15 +351,14 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     const src = this.leftPane;
     const dst = this.rightPane;
     if (!src || !dst || paths.length === 0) return;
+    const destDir = dst.getDestinationDir();
 
     if (src.isInArchive()) {
       if (this.bothArchive(src, dst)) {
         alert('Cannot move between two archive panes. Open a real folder in one pane first.');
         return;
       }
-      // Delegate: pane shows warning dialog → user confirms → pane calls
-      // archiveOps.move() → operation events → toast progress shown automatically
-      src.initiatePendingMove(paths, dst.currentPath);
+      src.initiatePendingMove(paths, destDir);
       return;
     }
 
@@ -365,19 +366,20 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     const treeArchive = src.getTreeArchiveSelectionContext();
     if (treeArchive) {
       const result = await this.archiveService.moveByContext(
-        treeArchive.archivePath, treeArchive.innerPaths, dst.currentPath
+        treeArchive.archivePath, treeArchive.innerPaths, destDir
       );
       const err = this.archiveError(result);
       if (err) alert(`Move errors:\n${err}`);
+      src.onRefresh();
       dst.onRefresh();
       return;
     }
 
-    // Filesystem move — unchanged
+    // Filesystem move
     const items = await Promise.all(
-      paths.map(async srcPath => ({ 
-        source: srcPath, 
-        destination: await this.buildDestinationPath(srcPath, dst.currentPath) 
+      paths.map(async srcPath => ({
+        source: srcPath,
+        destination: await this.buildDestinationPath(srcPath, destDir)
       }))
     );
     const result = await this.apiService.batchMove(items, true);
@@ -391,13 +393,14 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     const src = this.rightPane;
     const dst = this.leftPane;
     if (!src || !dst || paths.length === 0) return;
+    const destDir = dst.getDestinationDir();
 
     if (src.isInArchive()) {
       if (this.bothArchive(src, dst)) {
         alert('Cannot move between two archive panes. Open a real folder in one pane first.');
         return;
       }
-      src.initiatePendingMove(paths, dst.currentPath);
+      src.initiatePendingMove(paths, destDir);
       return;
     }
 
@@ -405,18 +408,19 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     const treeArchive = src.getTreeArchiveSelectionContext();
     if (treeArchive) {
       const result = await this.archiveService.moveByContext(
-        treeArchive.archivePath, treeArchive.innerPaths, dst.currentPath
+        treeArchive.archivePath, treeArchive.innerPaths, destDir
       );
       const err = this.archiveError(result);
       if (err) alert(`Move errors:\n${err}`);
+      src.onRefresh();
       dst.onRefresh();
       return;
     }
 
     const items = await Promise.all(
-      paths.map(async srcPath => ({ 
-        source: srcPath, 
-        destination: await this.buildDestinationPath(srcPath, dst.currentPath) 
+      paths.map(async srcPath => ({
+        source: srcPath,
+        destination: await this.buildDestinationPath(srcPath, destDir)
       }))
     );
     const result = await this.apiService.batchMove(items, true);

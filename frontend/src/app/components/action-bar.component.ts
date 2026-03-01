@@ -170,10 +170,11 @@ export type ViewMode = 'list' | 'grid' | 'tree' | 'details';
     .action-btn:hover { background: var(--vsc-tab-hover-background); color: var(--vsc-tab-hover-foreground); }
 
     .view-btn { display:flex; align-items:center; justify-content:center; width:28px; height:28px; border:none; border-radius:var(--vsc-border-radius); background:transparent; color:var(--vsc-tab-foreground); cursor:pointer; }
+    .view-btn svg { opacity: 0.45; transition: opacity 120ms ease, filter 120ms ease; }
     .view-btn:hover { background: var(--vsc-tab-hover-background); color: var(--vsc-tab-hover-foreground); }
-    .view-btn.active { background: var(--vsc-tab-active-background); color: var(--vsc-tab-active-foreground); }
-    .view-btn svg { transition: opacity 120ms ease, filter 120ms ease; }
-    .view-btn.active svg { opacity:0.78; filter: saturate(0.9) brightness(0.94); }
+    .view-btn:hover svg { opacity: 0.80; }
+    .view-btn.active { background: var(--vsc-tab-active-background); color: var(--vsc-accent-blue); }
+    .view-btn.active svg { opacity: 1; filter: none; }
 
     .view-divider { width:1px; height:20px; background:var(--vsc-border); margin:0 var(--vsc-padding-sm); }
 

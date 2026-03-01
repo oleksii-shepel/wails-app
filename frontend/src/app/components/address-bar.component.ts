@@ -143,9 +143,10 @@ interface IdleSlashTick {
         <span
           class="ab-seg ab-drive-letter"
           [class.ab-seg--last]="segments.length === 1"
+          [class.ab-drive-letter--open]="showDriveMenu"
           (click)="onDriveLetterClick(segments[0], segments.length === 1, $event)"
           (contextmenu)="onSegRightClick(segments[0], 0, $event)"
-          title="Switch drives (single-click) or double-click to edit path"
+          title="Switch drives"
         >{{ segments[0].label }}</span>
 
         <div class="ab-drive-chevron-wrap" *ngIf="segments.length > 1">
@@ -544,7 +545,9 @@ interface IdleSlashTick {
       cursor: pointer; transition: background 0.12s, border-color 0.12s, color 120ms;
       &:hover { background: color-mix(in srgb, #007fd4 20%, transparent); border-color: rgba(0,127,212,0.38); }
       &.ab-seg--last { background: color-mix(in srgb, #007fd4 10%, transparent); cursor: pointer; }
+      &.ab-drive-letter--open { background: color-mix(in srgb, #007fd4 22%, transparent); border-color: rgba(0,127,212,0.45); }
     }
+
 
     .ab-chev-wrap {
       position: relative; flex-shrink: 0; overflow: visible;
@@ -655,7 +658,9 @@ interface IdleSlashTick {
 
     /* Light theme adjustments */
     :host-context(.vscode-light) {
-      .ab-drive-letter { background: color-mix(in srgb, #0060c0 10%, transparent); border-color: rgba(0,96,192,0.28); color: #0a6fb0; }
+      .ab-drive-letter { background: color-mix(in srgb, #0060c0 10%, transparent); border-color: rgba(0,96,192,0.28); color: #0a6fb0;
+        &.ab-drive-letter--open { background: color-mix(in srgb, #0060c0 18%, transparent); border-color: rgba(0,96,192,0.42); }
+      }
       
       .ab-seg--archive-root {
         background: color-mix(in srgb, #ff8c00 12%, transparent);

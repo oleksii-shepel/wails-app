@@ -578,6 +578,30 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
     return chain;
   }
 
+  /**
+   * Reload the children of the tree node that corresponds to `path`.
+   * Call this after a file operation so the tree stays in sync without
+   * collapsing any already-expanded subtrees.
+   */
+  refreshTreeNode(path: string): void {
+    const target = this.normalizePath(path);
+    const node = this.findTreeNodeByPath(this.treeNodes, target);
+    if (!node || !node.loaded) return;   // not yet loaded — nothing to refresh
+    node.loaded = false;
+    void this.ensureNodeChildrenLoaded(node);
+  }
+
+  private findTreeNodeByPath(nodes: TreeNode[], target: string): TreeNode | undefined {
+    for (const n of nodes) {
+      if (this.normalizePath(n.path) === target) return n;
+      if (n.children) {
+        const found = this.findTreeNodeByPath(n.children, target);
+        if (found) return found;
+      }
+    }
+    return undefined;
+  }
+
   private normalizePath(path: string): string {
     const normalized = (path || '/').replace(/\\/g, '/').replace(/\/+/g, '/');
     if (/^[A-Za-z]:$/.test(normalized)) return `${normalized}/`;

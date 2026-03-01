@@ -191,9 +191,10 @@ export class FilePaneComponent implements OnInit, OnChanges {
   @Input() workspace: WorkspaceConfig | null = null;
   @Input() showHidden = false;
 
-  @Output() pathChange   = new EventEmitter<string>();
-  @Output() copyToOther  = new EventEmitter<string[]>();
-  @Output() moveToOther  = new EventEmitter<string[]>();
+  @Output() pathChange    = new EventEmitter<string>();
+  @Output() copyToOther   = new EventEmitter<string[]>();
+  @Output() moveToOther   = new EventEmitter<string[]>();
+  @Output() filesDeleted  = new EventEmitter<void>();
 
   currentPath   = '';
   fsParentDir = '';
@@ -382,9 +383,22 @@ export class FilePaneComponent implements OnInit, OnChanges {
 
     const allPaths   = this.workspaceService.getAllTabPaths();
     const windowsRoot = allPaths.find(p => /^[A-Za-z]:[/\\]/.test(p));
-    const platformRoot = windowsRoot
+    let platformRoot = windowsRoot
       ? windowsRoot.replace(/\\/g, '/').replace(/^([A-Za-z]:).*$/, '$1/')
       : '/';
+
+    // No cached Windows path yet — ask the backend for the system drive.
+    // This ensures a fresh Windows install starts on C:/ (or the actual
+    // system drive) instead of the Unix-style '/'.
+    if (platformRoot === '/') {
+      try {
+        const osInfo = await this.apiService.getOSInfo();
+        if (osInfo?.systemDrive) {
+          const drive = (osInfo.systemDrive as string).replace(/\\/g, '/').toUpperCase();
+          platformRoot = drive.endsWith('/') ? drive : drive + '/';
+        }
+      } catch { /* ignore — stays '/' on non-Windows */ }
+    }
 
     const isWindows   = platformRoot !== '/';
     const pathIsStale = !savedPath || (isWindows && savedPath === '/');
@@ -562,6 +576,32 @@ export class FilePaneComponent implements OnInit, OnChanges {
 
   onRefresh(): void {
     void this.refreshCurrentPathTransparently();
+    // Keep the tree in sync: reload children of the current directory node
+    // without collapsing any expanded subtrees.
+    this.fileViewContainer?.refreshTreeNode(this.currentPath);
+  }
+
+  /**
+   * Returns the effective destination directory for a copy/move operation.
+   * If exactly one directory is selected in this pane, operations are directed
+   * into that folder rather than the generic currentPath.
+   */
+  getDestinationDir(): string {
+    if (this.selectedFiles.size !== 1) return this.currentPath;
+    const [selectedPath] = this.selectedFiles;
+
+    // List / grid / details mode: check entries directly.
+    const entry = this.entries.find(e => e.path === selectedPath);
+    if (entry?.type === FileType.DIRECTORY) return selectedPath;
+
+    // Tree mode: check visible tree nodes.
+    if (this.currentView === 'tree') {
+      const nodes = this.fileViewContainer?.treeComponent?.getVisibleNodes() ?? [];
+      const node = nodes.find(n => n.path === selectedPath);
+      if (node?.type === FileType.DIRECTORY) return selectedPath;
+    }
+
+    return this.currentPath;
   }
 
   // ── Archive segment click ────────────────────────────────────────────────
@@ -1149,6 +1189,8 @@ export class FilePaneComponent implements OnInit, OnChanges {
       alert(`Failed to delete items: ${error.message}`);
     }
     await this.loadDirectory(this.currentPath);
+    this.fileViewContainer?.refreshTreeNode(this.currentPath);
+    this.filesDeleted.emit();
   }
 
   /**

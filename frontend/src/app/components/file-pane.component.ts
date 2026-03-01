@@ -51,8 +51,7 @@ declare const window: any;
         [paneId]="paneId"
         (pathChange)="onPathChange($event)"
         (navigateUpClicked)="onNavigateUp()"
-        (refreshClicked)="onRefresh()"
-        (archiveSegmentClick)="onArchiveSegmentClick($event)">
+        (refreshClicked)="onRefresh()">
       </app-address-bar>
 
       <app-action-bar
@@ -278,20 +277,7 @@ export class FilePaneComponent implements OnInit, OnChanges {
     // When leaving tree mode, load the current folder so list/grid/details
     // always render the active directory contents.
     if (previousView === 'tree' && view !== 'tree') {
-      if (this.archiveService.isArchiveVirtualPath(this.currentPath)) {
-        if (this.isInArchive()) {
-          const currentFrame = this.archiveStack[this.archiveStack.length - 1];
-          if (currentFrame) {
-            this.renderArchiveFrame(currentFrame);
-          } else {
-            await this.restoreArchiveFromPath(this.currentPath);
-          }
-        } else {
-          await this.restoreArchiveFromPath(this.currentPath);
-        }
-      } else {
-        await this.loadDirectory(this.currentPath);
-      }
+      await this.refreshCurrentPathTransparently();
       return;
     }
 
@@ -353,6 +339,38 @@ export class FilePaneComponent implements OnInit, OnChanges {
     return raw;
   }
 
+  private isTransparentArchivePath(path: string): boolean {
+    return this.archiveService.isArchiveVirtualPath(path);
+  }
+
+  private async loadPathTransparently(path: string): Promise<void> {
+    if (this.isTransparentArchivePath(path)) {
+      await this.restoreArchiveFromPath(path);
+      return;
+    }
+
+    await this.loadDirectory(path);
+  }
+
+  private async refreshCurrentPathTransparently(): Promise<void> {
+    if (!this.currentPath) return;
+
+    if (!this.isTransparentArchivePath(this.currentPath)) {
+      await this.loadDirectory(this.currentPath);
+      return;
+    }
+
+    if (this.isInArchive()) {
+      const currentFrame = this.archiveStack[this.archiveStack.length - 1];
+      if (currentFrame) {
+        this.renderArchiveFrame(currentFrame);
+        return;
+      }
+    }
+
+    await this.restoreArchiveFromPath(this.currentPath);
+  }
+
   // ── Pane state ────────────────────────────────────────────────────────────
 
   private async loadPaneState(): Promise<void> {
@@ -376,12 +394,7 @@ export class FilePaneComponent implements OnInit, OnChanges {
     if (activeTab) this.currentTabId = activeTab.id;
 
     this.clearArchiveState();
-
-    if (this.archiveService.isArchiveVirtualPath(pathToLoad)) {
-      await this.restoreArchiveFromPath(pathToLoad);
-    } else {
-      await this.loadDirectory(pathToLoad);
-    }
+    await this.loadPathTransparently(pathToLoad);
   }
 
   private clearArchiveState(): void {
@@ -454,13 +467,7 @@ export class FilePaneComponent implements OnInit, OnChanges {
 
     const restoredPath = this.tabPaths.get(tab.id) ?? tab.path;
     this.currentPath = restoredPath;
-
-    if (this.archiveService.isArchiveVirtualPath(restoredPath)) {
-      await this.restoreArchiveFromPath(restoredPath);
-      return;
-    }
-
-    await this.loadDirectory(restoredPath);
+    await this.loadPathTransparently(restoredPath);
   }
 
   private async restoreArchiveFromPath(path: string): Promise<void> {
@@ -522,15 +529,10 @@ export class FilePaneComponent implements OnInit, OnChanges {
 
   onPathChange(path: string): void {
     if (path && path !== this.currentPath) {
-      if (this.archiveService.isArchiveVirtualPath(path)) {
-        this.currentPath = path;
-        this.clearArchiveState();
-        this.restoreArchiveFromPath(path);
-      } else {
-        this.exitArchive();
-        this.clearArchiveState();
-        this.loadDirectory(path);
-      }
+      this.currentPath = path;
+      this.exitArchive();
+      this.clearArchiveState();
+      void this.loadPathTransparently(path);
     }
   }
 
@@ -558,8 +560,7 @@ export class FilePaneComponent implements OnInit, OnChanges {
   }
 
   onRefresh(): void {
-    if (this.isInArchive()) this.refreshArchive();
-    else this.loadDirectory(this.currentPath);
+    void this.refreshCurrentPathTransparently();
   }
 
   // ── Archive segment click ────────────────────────────────────────────────

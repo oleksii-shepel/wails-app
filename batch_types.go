@@ -134,6 +134,7 @@ type SelectiveExtractItem struct {
 	ArchivePath    string   `json:"archivePath"`
 	NestedChain    []string `json:"nestedChain"`
 	Entries        []string `json:"entries"`
+	StripPrefix    string   `json:"stripPrefix,omitempty"`
 	DestinationDir string   `json:"destinationDir,omitempty"` // overrides batch-level default
 	FlattenPaths   bool     `json:"flattenPaths"`
 }

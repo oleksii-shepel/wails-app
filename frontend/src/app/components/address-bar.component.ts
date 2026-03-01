@@ -908,12 +908,6 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   onSegClick(seg: PathSegment, e: MouseEvent): void {
     e.stopPropagation();
     this.closeAll();
-    if (seg.isArchiveRoot || seg.isArchiveInner) {
-      seg.fullPath !== this.currentPath
-        ? this.archiveSegmentClick.emit(seg.fullPath)
-        : this.enterEditMode();
-      return;
-    }
     seg.fullPath !== this.currentPath ? this.navigateTo(seg.fullPath) : this.enterEditMode();
   }
 
@@ -932,14 +926,14 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     if (isLast) { this.enterEditMode(); return; }
     e.stopPropagation();
     this.closeAll();
-    this.archiveSegmentClick.emit(seg.fullPath);
+    this.navigateTo(seg.fullPath);
   }
 
   onArchiveRootSegClick(seg: PathSegment, isLast: boolean, e: MouseEvent): void {
     if (isLast) { this.enterEditMode(); return; }
     e.stopPropagation();
     this.closeAll();
-    this.archiveSegmentClick.emit(seg.fullPath);
+    this.navigateTo(seg.fullPath);
   }
 
   onDriveLetterClick(seg: PathSegment, isLast: boolean, e: MouseEvent): void {
@@ -1155,10 +1149,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   onSibClick(s: SiblingEntry): void {
     this.chevIdx  = -1;
     this.siblings = [];
-    const { archiveInnerParts } = parsePathWithArchives(this.currentPath);
-    archiveInnerParts.length > 0
-      ? this.archiveSegmentClick.emit(s.path)
-      : this.navigateTo(s.path);
+    this.navigateTo(s.path);
   }
 
   onSibOpenChange(open: boolean): void {
@@ -1562,16 +1553,6 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     const np = normalizePath(p);
     this.closeAll();
     if (np === this.currentPath) return;
-
-    const { archiveInnerParts } = parsePathWithArchives(np);
-    const pathIsArchive = archiveInnerParts.length > 0 || isArchive(np.split('/').pop() ?? '');
-
-    if (pathIsArchive) {
-      this.archiveSegmentClick.emit(np);
-      this.currentPath = np;
-      this.rebuildSegments();
-      return;
-    }
 
     this.currentPath = np;
     this.rebuildSegments();

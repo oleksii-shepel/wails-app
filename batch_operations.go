@@ -615,7 +615,7 @@ func (a *App) selectiveExtractItem(
 	op.mu.Unlock()
 
 	// Phase 2: write collected entries to disk.
-	return a.writeEntries(collected, destRoot, item.FlattenPaths, op, bp, blanket)
+	return a.writeEntries(collected, destRoot, item.StripPrefix, item.FlattenPaths, op, bp, blanket)
 }
 
 // ============================================================================
@@ -817,23 +817,39 @@ func collectRarBytes(data []byte, archiveName string, entries []string) ([]archi
 func (a *App) writeEntries(
 	collected []archiveEntry,
 	destRoot string,
+	stripPrefix string,
 	flatten bool,
 	op *ActiveOperation,
 	bp *batchProgress,
 	blanket **ConflictResolution,
 ) (int64, int64, error) {
 	var totalFiles, totalBytes int64
+	rebasePrefix := normalize(stripPrefix)
 
 	for _, entry := range collected {
 		if op.IsCancelled() {
 			return totalFiles, totalBytes, fmt.Errorf("operation cancelled")
 		}
 
+		relPath := normalize(entry.innerPath)
+		if rebasePrefix != "" {
+			if relPath == rebasePrefix {
+				continue
+			}
+			prefixWithSep := rebasePrefix + "/"
+			if strings.HasPrefix(relPath, prefixWithSep) {
+				relPath = strings.TrimPrefix(relPath, prefixWithSep)
+			}
+		}
+		if relPath == "" {
+			continue
+		}
+
 		var destPath string
 		if flatten {
-			destPath = filepath.Join(destRoot, filepath.Base(filepath.FromSlash(entry.innerPath)))
+			destPath = filepath.Join(destRoot, filepath.Base(filepath.FromSlash(relPath)))
 		} else {
-			destPath = filepath.Join(destRoot, filepath.FromSlash(entry.innerPath))
+			destPath = filepath.Join(destRoot, filepath.FromSlash(relPath))
 		}
 
 		finalDst, skip, err := a.checkConflict(op, entry.innerPath, destPath, blanket)

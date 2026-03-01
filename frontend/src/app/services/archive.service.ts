@@ -24,6 +24,7 @@ export interface ArchiveEntriesRequest {
   fsPath: string;
   nestedChain: string[];
   entries: string[];
+  stripPrefix?: string;
   destinationDir: string;
   flattenPaths: boolean;
 }
@@ -173,6 +174,7 @@ export class ArchiveService {
           archivePath: frame.fsPath,
           nestedChain: frame.nestedChain,
           entries: filteredEntries,
+          stripPrefix: frame.innerPath || '',
           destinationDir: destDir,
           flattenPaths,
         },
@@ -304,6 +306,7 @@ export class ArchiveService {
       fsPath: frame.fsPath,
       nestedChain: frame.nestedChain,
       entries,
+      stripPrefix: frame.innerPath || '',
       destinationDir: destDir,
       flattenPaths,
     };
@@ -322,6 +325,7 @@ export class ArchiveService {
       fsPath: frame.fsPath,
       nestedChain: frame.nestedChain,
       entries,
+      stripPrefix: frame.innerPath || '',
       destinationDir: destDir,
       flattenPaths,
     };

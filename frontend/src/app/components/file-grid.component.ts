@@ -254,7 +254,7 @@ export class FileGridComponent implements OnDestroy {
     } else {
       // Single select
       if (this.isParentEntry(entry)) {
-        this.navigate.emit(entry);
+        return; // navigate only on double-click
       } else {
         this.anchorPath = entry.path;
         this.selectionChange.emit([entry]);
@@ -263,9 +263,7 @@ export class FileGridComponent implements OnDestroy {
   }
 
   onItemDoubleClick(entry: FileInfo): void {
-    if (!this.isParentEntry(entry)) {
-      this.navigate.emit(entry);
-    }
+    this.navigate.emit(entry);
   }
 
   onContextMenu(event: MouseEvent, entry: FileInfo): void {

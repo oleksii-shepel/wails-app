@@ -217,8 +217,7 @@ export class FileListComponent implements OnDestroy {
   onSelect(event: FileEntrySelectEvent): void {
     const entry = event.entry;
     if (this.isParentEntry(entry)) {
-      this.navigate.emit(entry);
-      return;
+      return; // navigate only on double-click
     }
 
     const mouseEvent = event.mouseEvent;
@@ -241,6 +240,10 @@ export class FileListComponent implements OnDestroy {
   }
 
   onNavigate(entry: FileInfo): void {
+    this.navigate.emit(entry);
+  }
+
+  onItemDoubleClick(entry: FileInfo): void {
     this.navigate.emit(entry);
   }
 

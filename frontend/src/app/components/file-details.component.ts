@@ -292,8 +292,7 @@ export class FileDetailsComponent implements OnDestroy {
 
   onRowClick(entry: FileInfo, event: MouseEvent): void {
     if (this.isParentEntry(entry)) {
-      this.navigate.emit(entry);
-      return;
+      return; // navigate only on double-click
     }
 
     if (event.ctrlKey || event.metaKey) {
@@ -309,9 +308,7 @@ export class FileDetailsComponent implements OnDestroy {
   }
 
   onRowDoubleClick(entry: FileInfo): void {
-    if (!this.isParentEntry(entry)) {
-      this.navigate.emit(entry);
-    }
+    this.navigate.emit(entry);
   }
 
   onContextMenu(event: MouseEvent, entry: FileInfo): void {

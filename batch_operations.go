@@ -837,9 +837,7 @@ func (a *App) writeEntries(
 				continue
 			}
 			prefixWithSep := rebasePrefix + "/"
-			if strings.HasPrefix(relPath, prefixWithSep) {
-				relPath = strings.TrimPrefix(relPath, prefixWithSep)
-			}
+			relPath = strings.TrimPrefix(relPath, prefixWithSep)
 		}
 		if relPath == "" {
 			continue

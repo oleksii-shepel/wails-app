@@ -338,12 +338,14 @@ export class FilePaneComponent implements OnInit, OnChanges {
     return raw;
   }
 
-  private isTransparentArchivePath(path: string): boolean {
-    return this.archiveService.isArchiveVirtualPath(path);
+  private pathIsInsideArchive(path: string): boolean {
+    const { fsPath } = parseArchivePath(path);
+    const name = fsPath.replace(/\\/g, '/').split('/').filter(Boolean).pop() ?? '';
+    return isArchive(name);
   }
 
   private async loadPathTransparently(path: string): Promise<void> {
-    if (this.isTransparentArchivePath(path)) {
+    if (this.pathIsInsideArchive(path)) {
       await this.restoreArchiveFromPath(path);
       return;
     }
@@ -354,10 +356,6 @@ export class FilePaneComponent implements OnInit, OnChanges {
   private async refreshCurrentPathTransparently(): Promise<void> {
     if (!this.currentPath) return;
 
-    // Check archive state FIRST — the virtual path at the archive root has no
-    // trailing slash (e.g. "C:/foo/archive.zip") so isArchiveVirtualPath()
-    // returns false for it, which previously caused loadDirectory() to be
-    // called on the archive file itself, exiting archive mode.
     if (this.isInArchive()) {
       const currentFrame = this.archiveStack[this.archiveStack.length - 1];
       if (currentFrame) {
@@ -366,12 +364,12 @@ export class FilePaneComponent implements OnInit, OnChanges {
       }
     }
 
-    if (!this.isTransparentArchivePath(this.currentPath)) {
-      await this.loadDirectory(this.currentPath);
+    if (this.pathIsInsideArchive(this.currentPath)) {
+      await this.restoreArchiveFromPath(this.currentPath);
       return;
     }
 
-    await this.restoreArchiveFromPath(this.currentPath);
+    await this.loadDirectory(this.currentPath);
   }
 
   // ── Pane state ────────────────────────────────────────────────────────────
@@ -490,13 +488,28 @@ export class FilePaneComponent implements OnInit, OnChanges {
     this.loading = true;
     this.error   = null;
     try {
-      const { fsPath, chain } = this.archiveService.parseVirtualPath(path);
+      // parseArchivePath correctly splits into:
+      //   fsPath      – the on-disk archive file (e.g. "C:/foo/archive.zip")
+      //   nestedChain – nested archive segments inside (e.g. ["folder/inner.zip"])
+      //   innerPath   – regular subdirectory to navigate into (e.g. "subdir")
+      const { fsPath, nestedChain, innerPath } = parseArchivePath(path);
+
+      // 1. Open root archive
       let frame = await this.archiveService.openRootArchive(fsPath);
       const stack: ArchiveFrame[] = [frame];
-      for (const part of chain) {
-        frame = await this.archiveService.openNestedArchive(frame, [part]);
+
+      // 2. Open each nested archive level using cumulative chains
+      for (let i = 0; i < nestedChain.length; i++) {
+        frame = await this.archiveService.openNestedArchive(frame, nestedChain.slice(0, i + 1));
         stack.push(frame);
       }
+
+      // 3. Navigate into the inner subdirectory (if any) within the deepest archive
+      if (innerPath) {
+        frame = await this.archiveService.navigateInto(frame, innerPath);
+        stack[stack.length - 1] = frame;
+      }
+
       this.archiveStack = stack;
       this.renderArchiveFrame(stack[stack.length - 1]);
 

@@ -80,8 +80,8 @@ func (a *App) WriteFileContent(path string, content string, encoding string) (*O
 	return a.WriteFile(path, content, encoding)
 }
 
-func (a *App) Delete(path string, recursive bool) (*OperationResult, error) {
-	return a.DeleteFile(path, recursive)
+func (a *App) Delete(path string, recursive bool, useTrash *bool) (*OperationResult, error) {
+	return a.DeleteFile(path, recursive, useTrash)
 }
 
 func (a *App) CreateDir(path string, recursive bool) (*OperationResult, error) {

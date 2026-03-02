@@ -76,6 +76,11 @@ type BatchItemError struct {
 type BatchDeleteRequest struct {
 	Paths     []string `json:"paths"`
 	Recursive bool     `json:"recursive"`
+	// UseTrash moves items to the OS recycle bin / trash instead of
+	// permanently deleting them. Supported on Windows (Recycle Bin),
+	// macOS (~/.Trash), and Linux (FreeDesktop Trash spec).
+	// Defaults to true; set to false for permanent deletion.
+	UseTrash *bool `json:"useTrash"`
 }
 
 // ============================================================================

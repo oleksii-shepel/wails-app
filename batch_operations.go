@@ -446,6 +446,24 @@ func (a *App) BatchDelete(req BatchDeleteRequest) (*BatchResult, error) {
 			break
 		}
 
+		useTrash := req.UseTrash == nil || *req.UseTrash
+		if useTrash {
+			// Delegate entirely to the OS trash / recycle bin. The OS handles
+			// directories recursively, so no need to walk them ourselves.
+			if err := moveToTrash(p); err != nil {
+				result.Failed++
+				result.Errors = append(result.Errors, BatchItemError{Source: p, Error: err.Error()})
+				continue
+			}
+			bp.mu.Lock()
+			bp.processedItems++
+			i, b := bp.processedItems, bp.processedBytes
+			bp.mu.Unlock()
+			bp.update(i, b, filepath.Base(p), 0, false)
+			result.Succeeded++
+			continue
+		}
+
 		info, err := os.Lstat(p)
 		if err != nil {
 			result.Failed++

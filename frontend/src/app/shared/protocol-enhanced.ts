@@ -145,6 +145,8 @@ export interface BatchItemError {
 export interface BatchDeleteRequest {
   paths: string[];
   recursive: boolean;
+  /** Move to OS recycle bin / trash instead of permanently deleting. Defaults to true. */
+  useTrash?: boolean;
 }
 
 // ============================================================================

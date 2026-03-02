@@ -124,8 +124,8 @@ export class ApiService {
      * Progress-aware file delete (single file).
      * Uses batchDelete under the hood.
      */
-    async deleteFile(path: string, recursive: boolean = true): Promise<any> {
-      return await this.batchDelete([path], recursive);
+    async deleteFile(path: string, recursive: boolean = true, useTrash: boolean = true): Promise<any> {
+      return await this.batchDelete([path], recursive, useTrash);
     }
   private ws: WebSocket | null = null;
 
@@ -205,10 +205,11 @@ export class ApiService {
     });
   }
 
-  async batchDelete(paths: string[], recursive: boolean = true): Promise<BatchResult> {
+  async batchDelete(paths: string[], recursive: boolean = true, useTrash: boolean = true): Promise<BatchResult> {
     const request: BatchDeleteRequest = {
       paths,
-      recursive
+      recursive,
+      useTrash
     };
     return await window.go.main.App.BatchDelete(request);
   }

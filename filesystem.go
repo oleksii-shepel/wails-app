@@ -136,7 +136,19 @@ func (a *App) WriteFile(path string, content string, encoding string) (*Operatio
 // Delete File / Directory
 // ============================================================================
 
-func (a *App) DeleteFile(path string, recursive bool) (*OperationResult, error) {
+func (a *App) DeleteFile(path string, recursive bool, useTrash *bool) (*OperationResult, error) {
+	trash := useTrash == nil || *useTrash
+	if trash {
+		if err := moveToTrash(path); err != nil {
+			return nil, err
+		}
+		return &OperationResult{
+			Success:       true,
+			Message:       "Moved to trash successfully",
+			AffectedPaths: []string{path},
+		}, nil
+	}
+
 	info, err := os.Lstat(path)
 	if err != nil {
 		return nil, err

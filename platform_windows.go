@@ -195,6 +195,23 @@ func symlinkPointsToDir(path string) bool {
 	return attrs&syscall.FILE_ATTRIBUTE_DIRECTORY != 0
 }
 
+// isUntrackedDirectoryJunction returns true when GetFileAttributes reports
+// both FILE_ATTRIBUTE_DIRECTORY and FILE_ATTRIBUTE_REPARSE_POINT, i.e. the
+// entry is a Windows junction/mount-point that Go's os.Lstat doesn't always
+// flag as a symlink or directory (e.g. "Documents and Settings").
+func isUntrackedDirectoryJunction(path string) bool {
+	ptr, err := syscall.UTF16PtrFromString(path)
+	if err != nil {
+		return false
+	}
+	attrs, err := syscall.GetFileAttributes(ptr)
+	if err != nil {
+		return false
+	}
+	const reparsePoint = uint32(0x400) // FILE_ATTRIBUTE_REPARSE_POINT
+	return attrs&syscall.FILE_ATTRIBUTE_DIRECTORY != 0 && attrs&reparsePoint != 0
+}
+
 // resolveLinkPath parses a Windows Shell Link (.lnk) file (MS-SHLLINK binary
 // format) in pure Go — no COM, no PowerShell, no extra dependencies.
 // Returns the target path and whether the target is a directory.

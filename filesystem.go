@@ -17,7 +17,20 @@ import (
 func (a *App) ListDirectory(path string, showHidden bool) (*DirectoryListing, error) {
 	entries, err := os.ReadDir(path)
 	if err != nil {
-		return nil, err
+		// For Windows junctions/reparse-points (e.g. "Documents and Settings"),
+		// os.ReadDir may fail with access denied on the junction path itself even
+		// though the target directory is readable. Try resolving the reparse point
+		// and retrying on the real path.
+		if resolved, rerr := os.Readlink(path); rerr == nil {
+			if entries2, rerr2 := os.ReadDir(resolved); rerr2 == nil {
+				entries = entries2
+				path = toSlash(resolved)
+				err = nil
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	var files []FileInfo
@@ -321,6 +334,16 @@ func buildFileInfo(name, fullPath string, info os.FileInfo) FileInfo {
 		}
 	} else if isArchive(name) {
 		ft = FileTypeArchive
+	}
+
+	// Last-resort: some Windows junctions (e.g. "Documents and Settings")
+	// are reported by Go's os.Lstat with IsDir()=false and ModeSymlink=0
+	// because the reparse tag is not a plain symlink. GetFileAttributes still
+	// reports FILE_ATTRIBUTE_DIRECTORY|FILE_ATTRIBUTE_REPARSE_POINT for them.
+	// On Unix this is always a no-op (returns false immediately).
+	if ft == FileTypeFile && isUntrackedDirectoryJunction(fullPath) {
+		ft = FileTypeDirectory
+		isSymlink = true
 	}
 
 	return FileInfo{

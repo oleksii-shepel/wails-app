@@ -253,6 +253,10 @@ func symlinkPointsToDir(path string) bool {
 	return info.IsDir()
 }
 
+// isUntrackedDirectoryJunction is a no-op on Unix: Go's Lstat always correctly
+// identifies symlinks and directories, so no last-resort check is needed.
+func isUntrackedDirectoryJunction(_ string) bool { return false }
+
 // resolveLinkPath follows a Unix symlink and returns the real target path
 // together with whether that target is a directory.
 func resolveLinkPath(symlinkPath string) (target string, isDir bool, err error) {

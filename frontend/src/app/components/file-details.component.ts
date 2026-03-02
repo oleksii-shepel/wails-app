@@ -1,6 +1,7 @@
 // file-details.component.ts
 import { Component, Input, Output, EventEmitter, OnDestroy, NgZone } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FileEntryComponent } from './file-entry.component';
 import { FileInfo, FileType } from '../shared/protocol';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
 import { parentPath } from './address-bar.utils';
@@ -17,7 +18,7 @@ export interface ColumnDef {
 @Component({
   selector: 'app-file-details',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, FileEntryComponent],
   template: `
     <div class="file-details" role="table">
       <!-- Header -->
@@ -74,8 +75,11 @@ export interface ColumnDef {
             [attr.role]="'cell'">
             
             <ng-container *ngIf="col.field === 'name'">
-              <span class="file-icon">{{ getIcon(entry) }}</span>
-              <span class="file-name-text">{{ entry.name }}</span>
+              <app-file-entry
+                [entry]="entry"
+                [selected]="isSelected(entry)"
+                variant="inline">
+              </app-file-entry>
             </ng-container>
             
             <ng-container *ngIf="col.field !== 'name'">

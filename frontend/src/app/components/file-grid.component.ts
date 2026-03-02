@@ -1,6 +1,7 @@
 // file-grid.component.ts
 import { Component, Input, Output, EventEmitter, OnDestroy, NgZone } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FileEntryComponent } from './file-entry.component';
 import { FileInfo, FileType } from '../shared/protocol';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
 import { parentPath } from './address-bar.utils';
@@ -8,7 +9,7 @@ import { parentPath } from './address-bar.utils';
 @Component({
   selector: 'app-file-grid',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, FileEntryComponent],
   template: `
     <div class="file-grid" role="grid" (mousedown)="onGridMouseDown($event)" (click)="onBackgroundClick($event)" (contextmenu)="onBackgroundContextMenu($event)">
       <div 
@@ -31,12 +32,12 @@ import { parentPath } from './address-bar.utils';
         (dragleave)="onDragLeave(entry)"
         (drop)="onDrop($event, entry)">
         
-        <div class="grid-icon">
-          <span class="file-emoji">{{ getIcon(entry) }}</span>
-        </div>
-        
         <div class="grid-info">
-          <div class="grid-name" [title]="entry.name">{{ entry.name }}</div>
+          <app-file-entry
+            [entry]="entry"
+            [selected]="isSelected(entry)"
+            variant="grid">
+          </app-file-entry>
           <div class="grid-meta" *ngIf="!isParentEntry(entry)">
             {{ formatSize(entry.size) }}
           </div>

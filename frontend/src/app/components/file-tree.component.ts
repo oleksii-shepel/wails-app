@@ -13,6 +13,7 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { FileEntryComponent } from './file-entry.component';
 import { FileInfo, FileType } from '../shared/protocol';
 import { DEFAULT_FILE_CATEGORIES } from './filter-bar.types';
 
@@ -38,7 +39,7 @@ export interface DropTarget {
 @Component({
   selector: 'app-file-tree',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, FileEntryComponent],
   template: `
     <div
       #treeContainer
@@ -126,17 +127,14 @@ export interface DropTarget {
             <span *ngIf="!node.expandable" class="twistie-placeholder"></span>
           </span>
 
-          <!-- Icon -->
-          <span class="tree-icon">
-            <ng-container [ngSwitch]="node.type">
-              <span *ngSwitchCase="FileType.DIRECTORY">{{ isExpanded(node) ? '📂' : '📁' }}</span>
-              <span *ngSwitchCase="FileType.SYMLINK">🔗</span>
-              <span *ngSwitchDefault>{{ getCategoryIcon(node.name) }}</span>
-            </ng-container>
-          </span>
-
           <!-- Label or Rename Input -->
-          <span *ngIf="!node.renaming" class="tree-label" [title]="node.path">{{ node.name }}</span>
+          <app-file-entry
+            *ngIf="!node.renaming"
+            class="tree-entry"
+            [entry]="node"
+            [selected]="isSelected(node)"
+            variant="inline">
+          </app-file-entry>
           <input
             *ngIf="node.renaming"
             #renameInput
@@ -346,14 +344,11 @@ export interface DropTarget {
       }
     }
 
-    .tree-label {
+    .tree-entry {
       flex: 1;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      padding-right: 12px;
-      font-size: var(--vsc-font-size);
+      min-width: 0;
       margin-left: 3px;
+      pointer-events: none;
     }
 
     /* Rename input */

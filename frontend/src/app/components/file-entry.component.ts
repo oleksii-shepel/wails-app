@@ -35,10 +35,12 @@ export const PARENT_ENTRY_PATH = '__parent__';
       <span *ngIf="!isParentEntry()" class="file-icon">
         <span class="icon-emoji">{{ getIconEmoji() }}</span>
         <svg *ngIf="isSymlink()" class="symlink-badge" viewBox="0 0 10 10" fill="none" aria-label="symlink">
+          <!-- Curved arrow body -->
           <path d="M2 8 C2 5 5 3 8 2"
-            stroke="var(--vsc-icon-symlink,#5dade2)" stroke-width="1.8" stroke-linecap="round"/>
+            stroke="var(--vsc-icon-symlink,#5dade2)" stroke-width="2" stroke-linecap="round"/>
+          <!-- Arrow corner/head -->
           <path d="M6 1.2 L8.8 1.2 L8.8 4"
-            stroke="var(--vsc-icon-symlink,#5dade2)" stroke-width="1.8"
+            stroke="var(--vsc-icon-symlink,#5dade2)" stroke-width="2"
             stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
       </span>
@@ -127,11 +129,15 @@ export const PARENT_ENTRY_PATH = '__parent__';
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      --symlink-badge-size: 9px;
-      --symlink-badge-right: 0px;
-      --symlink-badge-bottom: 0px;
+
+      /* Badge geometry tokens — overridden per variant below */
+      --symlink-badge-size: 10px;
+      --symlink-badge-right: -1px;
+      --symlink-badge-bottom: -1px;
       --symlink-badge-transform: translate(0%, 0%);
-      --vsc-icon-symlink: color-mix(in srgb, var(--vsc-accent-blue) 82%, white 18%);
+
+      /* Symlink arrow colour: accent-blue lightened slightly */
+      --vsc-icon-symlink: color-mix(in srgb, var(--vsc-accent-blue, #4fc3f7) 80%, white 20%);
     }
 
     .icon-emoji {
@@ -141,8 +147,9 @@ export const PARENT_ENTRY_PATH = '__parent__';
     }
 
     /* ── Symlink badge ───────────────────────────────────────
-       Cyan curved-arrow SVG, pinned to the bottom-right of
-       the icon cell.  Dark halo keeps it legible on any bg.
+       Pinned to the bottom-right corner of the icon cell.
+       Two-layer shadow: dark outline for contrast on any bg +
+       subtle cyan glow for identity/visibility.
     ───────────────────────────────────────────────────────── */
     .symlink-badge {
       position: absolute;
@@ -151,26 +158,40 @@ export const PARENT_ENTRY_PATH = '__parent__';
       width: var(--symlink-badge-size);
       height: var(--symlink-badge-size);
       pointer-events: none;
-      filter: drop-shadow(0 0 1.5px var(--vsc-editor-background, #1e1e1e));
       transform: var(--symlink-badge-transform);
+
+      /*
+        Layer 1 – dark halo: punches the badge out from any bg colour.
+        Layer 2 – cyan glow: ties the badge to the symlink accent colour.
+      */
+      filter:
+        drop-shadow(0 0 1.5px color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 90%, transparent))
+        drop-shadow(0 0 2.5px color-mix(in srgb, var(--vsc-icon-symlink, #4fc3f7) 55%, transparent));
     }
 
+    /* ── Compact mode ───────────────────────────────────────── */
     :host-context(.compact-mode) .file-entry {
       min-height: 24px;
       padding: var(--vsc-padding-xs) var(--vsc-padding-sm);
       gap: var(--vsc-padding-sm);
 
-      .file-icon      { width: 16px; height: 16px; }
-      .icon-emoji     { font-size: 13px; }
-      .file-icon      {
-        --symlink-badge-size: 7px;
-        --symlink-badge-right: 0px;
-        --symlink-badge-bottom: 0px;
-        --symlink-badge-transform: translate(18%, 18%);
-      }
-      .file-name      { font-size: var(--vsc-font-size-small); }
+      .file-name { font-size: var(--vsc-font-size-small); }
     }
 
+    :host-context(.compact-mode) .file-icon {
+      width: 16px;
+      height: 16px;
+      --symlink-badge-size: 8px;
+      --symlink-badge-right: -1px;
+      --symlink-badge-bottom: -1px;
+      --symlink-badge-transform: translate(0%, 0%);
+    }
+
+    :host-context(.compact-mode) .icon-emoji {
+      font-size: 13px;
+    }
+
+    /* ── Inline variant ─────────────────────────────────────── */
     :host(.variant-inline) .file-entry {
       min-height: auto;
       padding: 0;
@@ -194,16 +215,17 @@ export const PARENT_ENTRY_PATH = '__parent__';
     :host(.variant-inline) .file-icon {
       width: 16px;
       height: 16px;
-      --symlink-badge-size: 7px;
-      --symlink-badge-right: 0px;
-      --symlink-badge-bottom: 0px;
-      --symlink-badge-transform: translate(18%, 18%);
+      --symlink-badge-size: 8px;
+      --symlink-badge-right: -1px;
+      --symlink-badge-bottom: -1px;
+      --symlink-badge-transform: translate(0%, 0%);
     }
 
     :host(.variant-inline) .icon-emoji {
       font-size: 13px;
     }
 
+    /* ── Grid variant ───────────────────────────────────────── */
     :host(.variant-grid) .file-entry {
       min-height: auto;
       padding: 0;
@@ -239,10 +261,10 @@ export const PARENT_ENTRY_PATH = '__parent__';
     :host(.variant-grid) .file-icon {
       width: 48px;
       height: 48px;
-      --symlink-badge-size: 10px;
-      --symlink-badge-right: 8px;
-      --symlink-badge-bottom: 8px;
-      --symlink-badge-transform: translate(35%, 35%);
+      --symlink-badge-size: 12px;
+      --symlink-badge-right: 4px;
+      --symlink-badge-bottom: 4px;
+      --symlink-badge-transform: translate(0%, 0%);
     }
 
     :host(.variant-grid) .icon-emoji {

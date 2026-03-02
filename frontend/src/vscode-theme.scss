@@ -11,37 +11,37 @@
   --vsc-statusbar-background: #007acc;
   --vsc-panel-background: #252526;
   --vsc-titlebar-background: #3c3c3c;
-  
+
   /* === Text Colors === */
   --vsc-foreground: #cccccc;
   --vsc-foreground-dim: #888888;
   --vsc-foreground-bright: #cccccc;
   --vsc-text-link: #3794ff;
-  
+
   /* === Border Colors === */
   --vsc-border: #454545;
   --vsc-border-subtle: #3a3a3a;
   --vsc-border-bright: #5a5a5a;
-  
+
   /* === Interactive Colors === */
   --vsc-button-background: #0e639c;
   --vsc-button-hover: #1177bb;
   --vsc-button-secondary: #3a3d41;
   --vsc-button-secondary-hover: #45494e;
-  
+
   /* === Input Colors === */
   --vsc-input-background: #3c3c3c;
   --vsc-input-border: #3c3c3c;
   --vsc-input-foreground: #cccccc;
   --vsc-input-placeholder: #767676;
   --vsc-input-focus-border: #007acc;
-  
+
   /* === Selection Colors === */
   --vsc-list-hover-background: #2a2d2e;
   --vsc-list-active-background: #094771;
   --vsc-list-focus-background: #062f4a;
   --vsc-list-inactive-selection: #37373d;
-  
+
   /* === Accent Colors === */
   --vsc-accent-blue: #007acc;
   --vsc-accent-green: #89d185;
@@ -49,26 +49,38 @@
   --vsc-accent-orange: #ce9178;
   --vsc-accent-red: #f48771;
   --vsc-accent-purple: #c586c0;
-  
+
   /* === Status Colors === */
   --vsc-error: #f48771;
   --vsc-warning: #cca700;
   --vsc-info: #3794ff;
   --vsc-success: #89d185;
-  
+
   /* === Badge Colors === */
   --vsc-badge-background: #4d4d4d;
   --vsc-badge-foreground: var(--vsc-foreground-bright);
-  
+
+  /* === Symlink Badge (dark) ===
+     Arrow icon colour: accent-blue lightened for legibility on dark bg.
+     Two-layer filter: dark halo punches badge from bg, cyan glow signals identity.
+     Consume in components as: filter: var(--vsc-icon-symlink-filter)
+  */
+  --vsc-icon-symlink:        #4fc3f7;
+  --vsc-icon-symlink-halo:   rgba(18, 18, 18, 0.85);
+  --vsc-icon-symlink-glow:   rgba(79, 195, 247, 0.45);
+  --vsc-icon-symlink-filter:
+    drop-shadow(0 0 1.5px var(--vsc-icon-symlink-halo))
+    drop-shadow(0 0 2.5px var(--vsc-icon-symlink-glow));
+
   /* === Scrollbar === */
   --vsc-scrollbar-track: #1e1e1e;
   --vsc-scrollbar-thumb: #424242;
   --vsc-scrollbar-thumb-hover: #4f4f4f;
-  
+
   /* === Shadows === */
   --vsc-shadow: rgba(0, 0, 0, 0.36);
   --vsc-widget-shadow: 0 5px 8px 0 rgba(0, 0, 0, 0.36);
-  
+
   /* === Tabs === */
   --vsc-tabbar-background: #2d2d2d;
   --vsc-tab-background: #2d2d2d;
@@ -84,7 +96,7 @@
 
   --vsc-tab-shadow: inset 0 -1px 0 #1e1e1e;
   --vsc-tab-inner-shadow: inset 0 -1px 0 rgba(0,0,0,.4);
-  
+
   /* === Typography === */
   --vsc-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
   --vsc-font-family-mono: Consolas, "Courier New", monospace;
@@ -92,28 +104,28 @@
   --vsc-font-size-small: 12px;
   --vsc-font-size-large: 14px;
   --vsc-line-height: 1.4;
-  
+
   /* === Spacing === */
   --vsc-padding-xs: 2px;
   --vsc-padding-sm: 4px;
   --vsc-padding-md: 8px;
   --vsc-padding-lg: 12px;
   --vsc-padding-xl: 16px;
-  
+
   /* === Border Radius === */
   --vsc-border-radius: 3px;
   --vsc-border-radius-sm: 2px;
   --vsc-border-radius-lg: 4px;
-  
+
   /* === Transitions === */
   --vsc-transition-fast: 0.1s ease;
   --vsc-transition-normal: 0.2s ease;
-  
+
   /* === Z-Index Layers === */
   --vsc-z-base: 0;
   --vsc-z-dropdown: 1000;
   --vsc-z-modal: 2000;
-  
+
   /* === Layout === */
   --vsc-titlebar-height: 35px;
   --vsc-activitybar-width: 48px;
@@ -126,7 +138,7 @@
   --vsc-folder-open-fill: #dcb67a;
   --vsc-file-fill: #3c3c3c;
   --vsc-file-stroke: #5a5a5a;
-  
+
   /* === Legacy compatibility === */
   --vsc-background: var(--vsc-editor-background);
   --vsc-text: var(--vsc-foreground);
@@ -141,58 +153,110 @@
 
 /* === Light Theme === */
 .vscode-light {
+  /* === Core Backgrounds === */
   --vsc-editor-background: #ffffff;
   --vsc-sidebar-background: #f3f3f3;
   --vsc-activitybar-background: #2c2c2c;
   --vsc-panel-background: #f3f3f3;
   --vsc-titlebar-background: #dddddd;
-  
-  --vsc-foreground: #616161;
-  --vsc-foreground-dim: #999999;
-  --vsc-foreground-bright: #000000;
-  
-  --vsc-border: #d4d4d4;
+  --vsc-statusbar-background: #007acc;
+
+  /* === Text — improved contrast (WCAG AA) ===
+     Old #616161 on white = 5.74:1 — technically passing but visually thin.
+     New #3b3b3b = 10.2:1 — noticeably crisper without being harsh.
+     --vsc-foreground-dim at #737373 = 4.6:1 (just above AA floor).
+  */
+  --vsc-foreground:        #3b3b3b;
+  --vsc-foreground-dim:    #737373;
+  --vsc-foreground-bright: #111111;
+  --vsc-text-link:         #005fb8;
+
+  /* === Borders === */
+  --vsc-border:        #c4c4c4;
   --vsc-border-subtle: #e5e5e5;
-  
-  --vsc-button-background: #007acc;
-  --vsc-button-hover: #005ba1;
-  --vsc-button-secondary: #e5e5e5;
-  --vsc-button-secondary-hover: #d4d4d4;
-  
-  --vsc-input-background: #ffffff;
-  --vsc-input-border: #cecece;
-  --vsc-input-foreground: #616161;
-  
-  --vsc-list-hover-background: #e8e8e8;
-  --vsc-list-active-background: #0060c0;
-  
-  --vsc-scrollbar-track: #f3f3f3;
-  --vsc-scrollbar-thumb: #c4c4c4;
-  --vsc-scrollbar-thumb-hover: #a4a4a4;
+  --vsc-border-bright: #a0a0a0;  /* was absent */
+
+  /* === Interactive === */
+  --vsc-button-background:       #007acc;
+  --vsc-button-hover:            #005ba1;
+  --vsc-button-secondary:        #e5e5e5;
+  --vsc-button-secondary-hover:  #d4d4d4;
+
+  /* === Inputs === */
+  --vsc-input-background:   #ffffff;
+  --vsc-input-border:       #b8b8b8;
+  --vsc-input-foreground:   #3b3b3b;
+  --vsc-input-placeholder:  #9e9e9e;
+  --vsc-input-focus-border: #007acc;
+
+  /* === Selection / List === */
+  --vsc-list-hover-background:   #e4e6f1;
+  --vsc-list-active-background:  #0060c0;
+  --vsc-list-focus-background:   #d6e4f7;  /* was absent */
+  --vsc-list-inactive-selection: #d9d9d9;  /* was absent */
+
+  /* === Accent Colors (darkened for light-bg legibility) === */
+  --vsc-accent-blue:   #007acc;
+  --vsc-accent-green:  #388a34;
+  --vsc-accent-yellow: #a27a00;
+  --vsc-accent-orange: #a8522a;
+  --vsc-accent-red:    #c7372f;
+  --vsc-accent-purple: #7c3f99;
+
+  /* === Status === */
+  --vsc-error:   #c7372f;
+  --vsc-warning: #b08000;
+  --vsc-info:    #005fb8;
+  --vsc-success: #388a34;
+
+  /* === Badge === */
+  --vsc-badge-background: #c2c2c2;
+  --vsc-badge-foreground: #1a1a1a;
+
+  /* === Symlink Badge (light) ===
+     Deeper cyan (#0288d1) stays legible on white and light-grey backgrounds.
+     Halo flipped to near-white — creates a bright separation ring rather than
+     the dark outline used in the dark theme.
+  */
+  --vsc-icon-symlink:        #0288d1;
+  --vsc-icon-symlink-halo:   rgba(245, 245, 245, 0.92);
+  --vsc-icon-symlink-glow:   rgba(2, 136, 209, 0.38);
+  --vsc-icon-symlink-filter:
+    drop-shadow(0 0 1.5px var(--vsc-icon-symlink-halo))
+    drop-shadow(0 0 2.5px var(--vsc-icon-symlink-glow));
+
+  /* === Scrollbar === */
+  --vsc-scrollbar-track:       #f3f3f3;
+  --vsc-scrollbar-thumb:       #b8b8b8;
+  --vsc-scrollbar-thumb-hover: #909090;
+
+  /* === Shadows === */
+  --vsc-shadow:        rgba(0, 0, 0, 0.16);
+  --vsc-widget-shadow: 0 5px 8px 0 rgba(0, 0, 0, 0.16);
 
   /* === Tabs === */
-  --vsc-tabbar-background: #ececec;
-  --vsc-tab-background: #ececec;
+  --vsc-tabbar-background:     #ececec;
+  --vsc-tab-background:        #ececec;
   --vsc-tab-active-background: #ffffff;
-  --vsc-tab-hover-background: #f5f5f5;
+  --vsc-tab-hover-background:  #f5f5f5;
 
-  --vsc-tab-border: #d4d4d4;
+  --vsc-tab-border:            #d4d4d4;
   --vsc-tab-active-border-top: #007acc;
 
-  --vsc-tab-foreground: #616161;
-  --vsc-tab-active-foreground: #000000;
-  --vsc-tab-hover-foreground: #333333;
+  --vsc-tab-foreground:        #6e6e6e;
+  --vsc-tab-active-foreground: #1a1a1a;
+  --vsc-tab-hover-foreground:  #333333;
 
-  --vsc-tab-shadow: inset 0 -1px 0 #ffffff;
+  --vsc-tab-shadow:       inset 0 -1px 0 #ffffff;
   --vsc-tab-inner-shadow: inset 0 -1px 0 rgba(0,0,0,.08);
 
-  /* === Tree View Colors (Light) === */
-  --vsc-tree-indent-guide-stroke: #c8c8c8;
-  --vsc-tree-indent-guide-active-stroke: #888888;
-  --vsc-folder-fill: #dcb67a;
+  /* === Tree View === */
+  --vsc-tree-indent-guide-stroke:        #c8c8c8;
+  --vsc-tree-indent-guide-active-stroke: #707070;
+  --vsc-folder-fill:      #dcb67a;
   --vsc-folder-open-fill: #dcb67a;
-  --vsc-file-fill: #f5f5f5;
-  --vsc-file-stroke: #d4d4d4;
+  --vsc-file-fill:        #f5f5f5;
+  --vsc-file-stroke:      #c4c4c4;
 }
 
 /* === Compact Mode === */

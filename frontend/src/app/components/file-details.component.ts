@@ -34,8 +34,12 @@ export interface ColumnDef {
             (click)="col.sortable && onSort(col.field)">
             
             <span class="header-label">{{ col.header }}</span>
-            <span class="sort-indicator" *ngIf="sortField === col.field">
-              {{ sortDirection === 'asc' ? '▲' : '▼' }}
+            <span class="sort-indicator" *ngIf="sortField === col.field"
+                  [class.sort-asc]="sortDirection === 'asc'"
+                  [class.sort-desc]="sortDirection === 'desc'">
+              <svg viewBox="0 0 16 16">
+                <path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="2"/>
+              </svg>
             </span>
           </div>
         </div>
@@ -187,8 +191,24 @@ export interface ColumnDef {
       }
       
       .sort-indicator {
-        margin-left: var(--vsc-padding-xs);
-        font-size: 10px;
+        margin-left: var(--vsc-padding-lg);
+
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+
+        width: 12px;
+        height: 12px;
+        flex: 0 0 12px;
+
+        font-size: 12px;
+        line-height: 1;
+
+        transform-origin: 50% 50%;
+        transition: transform 0.15s ease;
+
+        &.sort-asc  { transform: rotate(-90deg); }
+        &.sort-desc { transform: rotate(90deg); }
       }
     }
 

@@ -216,7 +216,7 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
     if (file.type === FileType.DIRECTORY) {
       return '📁';
     } else if (file.type === FileType.SYMLINK) {
-      return '🔗';
+      return '🔗'; // file symlink
     }
     
     const ext = file.name.split('.').pop()?.toLowerCase();

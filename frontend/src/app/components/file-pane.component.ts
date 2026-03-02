@@ -703,9 +703,10 @@ export class FilePaneComponent implements OnInit, OnChanges {
       this.pathChange.emit(entry.path);
       return;
     }
-    // For file/symlink/archive nodes in tree view: update the address bar to
-    // the parent directory without opening the item (opening is handled via the
-    // nodeDoubleClick path in onNodeDoubleClick).
+    // For file/file-symlink/archive nodes in tree view: update the address bar
+    // to the parent directory without opening the item (opening is handled via
+    // the nodeDoubleClick path in onNodeDoubleClick).
+    // Dir-symlinks have type=DIRECTORY and are handled by the block above.
     if (this.currentView === 'tree' && (entry.type === FileType.FILE || entry.type === FileType.SYMLINK || entry.type === FileType.ARCHIVE)) {
       const parent = parentPath(entry.path);
       this.currentPath = parent;

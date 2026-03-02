@@ -295,7 +295,13 @@ export class FilterService {
     switch (criterion.type) {
       case FilterType.NAME:      return this.matchesNameCriterion(entry, criterion, caseSensitive);
       case FilterType.EXTENSION: return this.matchesExtensionCriterion(entry, criterion);
-      case FilterType.TYPE:      return entry.type === criterion.value;
+      case FilterType.TYPE:
+        // type:symlink matches both file-symlinks (SYMLINK) and
+        // dir-symlinks (DIRECTORY + isSymlink).
+        if (criterion.value === FileType.SYMLINK) {
+          return entry.type === FileType.SYMLINK || !!(entry as any).isSymlink;
+        }
+        return entry.type === criterion.value;
       case FilterType.SIZE:      return this.matchesSizeCriterion(entry, criterion);
       case FilterType.MODIFIED:  return this.matchesModifiedCriterion(entry, criterion);
       case FilterType.GLOB:      return this.matchesGlobPattern(entry.name, criterion.value);

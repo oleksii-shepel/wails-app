@@ -218,6 +218,8 @@ export interface FileInfo {
   /** e.g. "rwxr-xr-x" on Unix, "rw-" / "r--" on Windows */
   permissions: string;
   isHidden: boolean;
+  /** True for both dir-symlinks (type=DIRECTORY) and file-symlinks (type=SYMLINK). */
+  isSymlink?: boolean;
 }
 
 export interface DirectoryListing {

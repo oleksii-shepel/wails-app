@@ -129,7 +129,7 @@ export interface DropTarget {
           <!-- Icon -->
           <span class="tree-icon">
             <ng-container [ngSwitch]="node.type">
-              <span *ngSwitchCase="FileType.DIRECTORY">{{ isExpanded(node) ? '📂' : '📁' }}</span>
+              <span *ngSwitchCase="FileType.DIRECTORY" [class.dir-symlink-icon]="node.isSymlink">{{ isExpanded(node) ? '📂' : '📁' }}</span>
               <span *ngSwitchCase="FileType.SYMLINK">🔗</span>
               <span *ngSwitchDefault>{{ getCategoryIcon(node.name) }}</span>
             </ng-container>
@@ -330,6 +330,20 @@ export interface DropTarget {
       justify-content: center;
       flex-shrink: 0;
       font-size: 14px;
+    }
+
+    /* Dir-symlink overlay indicator */
+    .dir-symlink-icon {
+      position: relative;
+      &::after {
+        content: '↗';
+        position: absolute;
+        bottom: -1px;
+        right: -5px;
+        font-size: 8px;
+        line-height: 1;
+        opacity: 0.8;
+      }
     }
 
     .tree-label {

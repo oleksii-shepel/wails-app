@@ -18,6 +18,7 @@ import { parentPath } from './address-bar.utils';
         [class.selected]="isSelected(entry)"
         [class.directory]="entry.type === FileType.DIRECTORY"
         [class.parent-dir]="isParentEntry(entry)"
+        [class.dir-symlink]="entry.type === FileType.DIRECTORY && entry.isSymlink"
         [attr.role]="'gridcell'"
         [attr.aria-selected]="isSelected(entry)"
         [class.drop-target]="isDropTarget(entry)"
@@ -32,7 +33,7 @@ import { parentPath } from './address-bar.utils';
         (drop)="onDrop($event, entry)">
         
         <div class="grid-icon">
-          <span class="file-emoji">{{ getIcon(entry) }}</span>
+          <span class="file-emoji" [class.dir-symlink-icon]="entry.type === FileType.DIRECTORY && entry.isSymlink">{{ getIcon(entry) }}</span>
         </div>
         
         <div class="grid-info">
@@ -143,6 +144,21 @@ import { parentPath } from './address-bar.utils';
       font-size: 32px;
       line-height: 1;
       filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2));
+    }
+
+    /* Dir-symlink overlay indicator */
+    .dir-symlink-icon {
+      position: relative;
+      &::after {
+        content: '↗';
+        position: absolute;
+        bottom: -2px;
+        right: -6px;
+        font-size: 11px;
+        line-height: 1;
+        opacity: 0.8;
+        filter: none;
+      }
     }
 
     .grid-info {
@@ -608,7 +624,7 @@ export class FileGridComponent implements OnDestroy {
   getIcon(entry: FileInfo): string {
     if (this.isParentEntry(entry)) return '↩';
     if (entry.type === FileType.DIRECTORY) return '📁';
-    if (entry.type === FileType.SYMLINK) return '🔗';
+    if (entry.type === FileType.SYMLINK) return '🔗'; // file symlink
     
     const ext = entry.name.split('.').pop()?.toLowerCase();
     const iconMap: Record<string, string> = {

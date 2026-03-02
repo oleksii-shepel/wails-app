@@ -74,7 +74,7 @@ export interface ColumnDef {
             [attr.role]="'cell'">
             
             <ng-container *ngIf="col.field === 'name'">
-              <span class="file-icon">{{ getIcon(entry) }}</span>
+              <span class="file-icon" [class.dir-symlink-icon]="entry.type === FileType.DIRECTORY && entry.isSymlink">{{ getIcon(entry) }}</span>
               <span class="file-name-text">{{ entry.name }}</span>
             </ng-container>
             
@@ -232,6 +232,20 @@ export interface ColumnDef {
       flex-shrink: 0;
     }
 
+    /* Dir-symlink overlay indicator */
+    .dir-symlink-icon {
+      position: relative;
+      &::after {
+        content: '↗';
+        position: absolute;
+        bottom: -2px;
+        right: -4px;
+        font-size: 8px;
+        line-height: 1;
+        opacity: 0.8;
+      }
+    }
+
     .file-name-text {
       overflow: hidden;
       text-overflow: ellipsis;
@@ -245,6 +259,8 @@ export interface ColumnDef {
   `]
 })
 export class FileDetailsComponent implements OnDestroy {
+  FileType = FileType; // for template access
+  
   constructor(private zone: NgZone) {}
 
   @Input() entries: FileInfo[] = [];
@@ -536,12 +552,12 @@ export class FileDetailsComponent implements OnDestroy {
   getIcon(entry: FileInfo): string {
     if (this.isParentEntry(entry)) return '↩';
     if (entry.type === FileType.DIRECTORY) return '📁';
-    if (entry.type === FileType.SYMLINK) return '🔗';
+    if (entry.type === FileType.SYMLINK) return '🔗'; // file symlink
     return '📄';
   }
 
   getFileTypeLabel(entry: FileInfo): string {
-    if (entry.type === FileType.DIRECTORY) return 'Folder';
+    if (entry.type === FileType.DIRECTORY) return entry.isSymlink ? 'Folder Shortcut' : 'Folder';
     if (entry.type === FileType.SYMLINK) return 'Shortcut';
     const ext = entry.name.split('.').pop()?.toUpperCase();
     return ext ? `${ext} File` : 'File';

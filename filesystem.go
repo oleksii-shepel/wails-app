@@ -306,10 +306,18 @@ func (a *App) SearchFiles(path, pattern string, recursive bool) (*SearchResult, 
 
 func buildFileInfo(name, fullPath string, info os.FileInfo) FileInfo {
 	ft := FileTypeFile
+	isSymlink := false
 	if info.IsDir() {
 		ft = FileTypeDirectory
 	} else if info.Mode()&os.ModeSymlink != 0 {
-		ft = FileTypeSymlink
+		isSymlink = true
+		// Follow the symlink: if the target is a directory, expose it as a
+		// directory so navigation, tree expansion, etc. all work naturally.
+		if target, err := os.Stat(fullPath); err == nil && target.IsDir() {
+			ft = FileTypeDirectory
+		} else {
+			ft = FileTypeSymlink
+		}
 	} else if isArchive(name) {
 		ft = FileTypeArchive
 	}
@@ -324,6 +332,7 @@ func buildFileInfo(name, fullPath string, info os.FileInfo) FileInfo {
 		Accessed:    getAccessedTime(info),
 		Permissions: formatPermissions(info),
 		IsHidden:    isHiddenFile(name, fullPath),
+		IsSymlink:   isSymlink,
 	}
 }
 

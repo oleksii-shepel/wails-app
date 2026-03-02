@@ -77,6 +77,7 @@ type FileInfo struct {
 	Accessed    int64    `json:"accessed"`
 	Permissions string   `json:"permissions"`
 	IsHidden    bool     `json:"isHidden"`
+	IsSymlink   bool     `json:"isSymlink,omitempty"`
 	IsNested    bool     `json:"isNested"`
 	NestedChain []string `json:"nestedChain,omitempty"`
 }

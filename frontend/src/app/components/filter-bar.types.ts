@@ -101,7 +101,8 @@ export function buildPresetsFromDataset(dataset: FileInfo[]): FilterPreset[] {
     // Type
     if      (f.type === FileType.FILE)      files++;
     else if (f.type === FileType.DIRECTORY) dirs++;
-    else if (f.type === FileType.SYMLINK)   symlinks++;
+    // Count both file-symlinks (SYMLINK type) and dir-symlinks (DIRECTORY + isSymlink)
+    if (f.type === FileType.SYMLINK || (f as any).isSymlink) symlinks++;
 
     // Hidden (dot-prefix)
     if (f.name.startsWith('.')) hidden++;

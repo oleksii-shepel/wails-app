@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
@@ -241,4 +242,27 @@ func openFileWithDefaultApp(path string) error {
 	default: // linux and others
 		return exec.Command("xdg-open", path).Start()
 	}
+}
+
+// symlinkPointsToDir returns true if following the symlink leads to a directory.
+func symlinkPointsToDir(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return info.IsDir()
+}
+
+// resolveLinkPath follows a Unix symlink and returns the real target path
+// together with whether that target is a directory.
+func resolveLinkPath(symlinkPath string) (target string, isDir bool, err error) {
+	resolved, err := filepath.EvalSymlinks(symlinkPath)
+	if err != nil {
+		return "", false, err
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return "", false, err
+	}
+	return resolved, info.IsDir(), nil
 }

@@ -3,6 +3,8 @@
 package main
 
 import (
+	"encoding/binary"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -176,4 +178,109 @@ func intToStr(n int) string {
 
 func openFileWithDefaultApp(path string) error {
 	return exec.Command("cmd", "/c", "start", "", path).Start()
+}
+
+// symlinkPointsToDir returns true if the path (a symlink/junction/reparse point)
+// points to a directory. Uses GetFileAttributes so it works even on protected
+// system junctions (e.g. "Documents and Settings") that deny traversal.
+func symlinkPointsToDir(path string) bool {
+	ptr, err := syscall.UTF16PtrFromString(path)
+	if err != nil {
+		return false
+	}
+	attrs, err := syscall.GetFileAttributes(ptr)
+	if err != nil {
+		return false
+	}
+	return attrs&syscall.FILE_ATTRIBUTE_DIRECTORY != 0
+}
+
+// resolveLinkPath parses a Windows Shell Link (.lnk) file (MS-SHLLINK binary
+// format) in pure Go — no COM, no PowerShell, no extra dependencies.
+// Returns the target path and whether the target is a directory.
+func resolveLinkPath(lnkPath string) (target string, isDir bool, err error) {
+	data, err := os.ReadFile(lnkPath)
+	if err != nil {
+		return "", false, err
+	}
+	if len(data) < 76 {
+		return "", false, fmt.Errorf(".lnk file too small")
+	}
+	// HeaderMagic must be 0x4C000000
+	if data[0] != 0x4C || data[1] != 0 || data[2] != 0 || data[3] != 0 {
+		return "", false, fmt.Errorf("not a valid .lnk file")
+	}
+
+	linkFlags := binary.LittleEndian.Uint32(data[20:24])
+	fileAttrs := binary.LittleEndian.Uint32(data[24:28])
+	isDir = (fileAttrs & 0x10) != 0 // FILE_ATTRIBUTE_DIRECTORY
+
+	hasIDList := (linkFlags & 0x01) != 0
+	hasLinkInfo := (linkFlags & 0x02) != 0
+	isUnicode := (linkFlags & 0x80) != 0
+
+	offset := 76 // skip fixed-size header
+
+	// Skip optional LinkTargetIDList
+	if hasIDList {
+		if offset+2 > len(data) {
+			return "", isDir, fmt.Errorf("unexpected EOF in IDList")
+		}
+		idListSize := int(binary.LittleEndian.Uint16(data[offset : offset+2]))
+		offset += 2 + idListSize
+	}
+
+	if !hasLinkInfo {
+		return "", isDir, fmt.Errorf("no LinkInfo section")
+	}
+	if offset+32 > len(data) {
+		return "", isDir, fmt.Errorf("unexpected EOF in LinkInfo")
+	}
+
+	liStart := offset
+	liHeaderSize := int(binary.LittleEndian.Uint32(data[liStart+4 : liStart+8]))
+	liFlags := binary.LittleEndian.Uint32(data[liStart+8 : liStart+12])
+
+	if liFlags&0x01 == 0 {
+		return "", isDir, fmt.Errorf("no local volume path in .lnk")
+	}
+
+	var path string
+	// Prefer Unicode path when available (LinkInfoHeaderSize >= 0x24)
+	if isUnicode && liHeaderSize >= 0x24 && liStart+32 <= len(data) {
+		uOff := int(binary.LittleEndian.Uint32(data[liStart+28 : liStart+32]))
+		pathStart := liStart + uOff
+		if pathStart < len(data) {
+			path = readUTF16LEString(data[pathStart:])
+		}
+	}
+	// Fall back to ANSI path
+	if path == "" {
+		ansiOff := int(binary.LittleEndian.Uint32(data[liStart+16 : liStart+20]))
+		pathStart := liStart + ansiOff
+		if pathStart < len(data) {
+			end := pathStart
+			for end < len(data) && data[end] != 0 {
+				end++
+			}
+			path = string(data[pathStart:end])
+		}
+	}
+
+	if path == "" {
+		return "", isDir, fmt.Errorf("could not extract target path from .lnk")
+	}
+	return filepath.ToSlash(path), isDir, nil
+}
+
+func readUTF16LEString(data []byte) string {
+	var u16 []uint16
+	for i := 0; i+1 < len(data); i += 2 {
+		ch := binary.LittleEndian.Uint16(data[i : i+2])
+		if ch == 0 {
+			break
+		}
+		u16 = append(u16, ch)
+	}
+	return syscall.UTF16ToString(u16)
 }

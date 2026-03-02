@@ -311,9 +311,10 @@ func buildFileInfo(name, fullPath string, info os.FileInfo) FileInfo {
 		ft = FileTypeDirectory
 	} else if info.Mode()&os.ModeSymlink != 0 {
 		isSymlink = true
-		// Follow the symlink: if the target is a directory, expose it as a
-		// directory so navigation, tree expansion, etc. all work naturally.
-		if target, err := os.Stat(fullPath); err == nil && target.IsDir() {
+		// Use the platform helper so that protected Windows junctions (e.g.
+		// "Documents and Settings") are correctly identified as directories
+		// without needing traversal access.
+		if symlinkPointsToDir(fullPath) {
 			ft = FileTypeDirectory
 		} else {
 			ft = FileTypeSymlink

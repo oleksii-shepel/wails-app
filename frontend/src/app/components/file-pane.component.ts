@@ -308,12 +308,35 @@ export class FilePaneComponent implements OnInit, OnChanges {
         this.openRootArchive(entry.path);
         return;
       }
+      if (entry.name.toLowerCase().endsWith('.lnk') || entry.type === FileType.SYMLINK) {
+        this.resolveAndOpen(entry.path);
+        return;
+      }
       this.apiService.openFile(entry.path).catch(err =>
         console.error('Failed to open file:', err)
       );
       return;
     }
     this.onNavigate(entry);
+  }
+
+  /** Resolves a .lnk or symlink and either navigates into (dir) or opens (file). */
+  private resolveAndOpen(path: string): void {
+    this.apiService.resolveLink(path).then(result => {
+      if (result.isDir) {
+        this.loadDirectory(result.target);
+      } else {
+        this.apiService.openFile(result.target).catch(err =>
+          console.error('Failed to open link target:', err)
+        );
+      }
+    }).catch(err => {
+      // Fallback: let the OS handle it
+      console.warn('Could not resolve link, falling back to OS open:', err);
+      this.apiService.openFile(path).catch(e =>
+        console.error('Failed to open file:', e)
+      );
+    });
   }
 
   // ── Virtual ".." entry helpers ────────────────────────────────────────────
@@ -729,6 +752,11 @@ export class FilePaneComponent implements OnInit, OnChanges {
     }
     if (entry.type === FileType.ARCHIVE || isArchive(entry.name)) {
       this.openRootArchive(entry.path);
+      return;
+    }
+    // .lnk Shell Links (Windows) and unresolved Unix file-symlinks
+    if (entry.name.toLowerCase().endsWith('.lnk') || entry.type === FileType.SYMLINK) {
+      this.resolveAndOpen(entry.path);
       return;
     }
     // Regular file — open with default OS application

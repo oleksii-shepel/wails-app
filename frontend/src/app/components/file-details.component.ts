@@ -557,7 +557,7 @@ export class FileDetailsComponent implements OnDestroy {
   }
 
   getFileTypeLabel(entry: FileInfo): string {
-    if (entry.type === FileType.DIRECTORY) return entry.isSymlink ? 'Folder Shortcut' : 'Folder';
+    if (entry.type === FileType.DIRECTORY) return entry.isSymlink ? 'Symlink' : 'Folder';
     if (entry.type === FileType.SYMLINK) return 'Shortcut';
     const ext = entry.name.split('.').pop()?.toUpperCase();
     return ext ? `${ext} File` : 'File';

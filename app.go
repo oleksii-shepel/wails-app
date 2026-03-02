@@ -201,6 +201,22 @@ func (a *App) OpenFile(path string) error {
 	return openFileWithDefaultApp(path)
 }
 
+// ResolvedLink is the result returned by ResolveLink.
+type ResolvedLink struct {
+	Target string `json:"target"`
+	IsDir  bool   `json:"isDir"`
+}
+
+// ResolveLink resolves a Shell Link (.lnk on Windows) or a Unix symlink and
+// returns the real target path plus whether the target is a directory.
+func (a *App) ResolveLink(path string) (*ResolvedLink, error) {
+	target, isDir, err := resolveLinkPath(path)
+	if err != nil {
+		return nil, err
+	}
+	return &ResolvedLink{Target: target, IsDir: isDir}, nil
+}
+
 func (a *App) emitEvent(name string, data interface{}) {
 	if a.ctx != nil {
 		runtime.EventsEmit(a.ctx, name, data)

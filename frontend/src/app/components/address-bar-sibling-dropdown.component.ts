@@ -10,7 +10,6 @@ import { SiblingEntry, PathSegment } from './address-bar.types';
   template: `
     <div
       class="ab-dropdown ab-sib-drop"
-      [ngStyle]="{ left: left + 'px', top: top + 'px', position: 'fixed' }"
     >
       <div class="ab-drop-head">
         <span>{{ headLabel }}</span>
@@ -139,8 +138,6 @@ import { SiblingEntry, PathSegment } from './address-bar.types';
 export class AddressBarSiblingDropdownComponent {
   @Input() entries: SiblingEntry[] = [];
   @Input() loading = false;
-  @Input() left = 0;
-  @Input() top = 0;
   @Input() headLabel = '';
   @Output() entryClick = new EventEmitter<SiblingEntry>();
 }

@@ -26,8 +26,6 @@ export interface PinnedPath {
 
 export interface ContextMenuState {
   visible: boolean;
-  x: number;
-  y: number;
   segmentIndex: number;
   segment: PathSegment | null;
 }
@@ -35,5 +33,5 @@ export interface ContextMenuState {
 export const PINNED_KEY = 'filemanager:pinned-paths-v2';
 
 export const CTX_MENU_CLOSED: ContextMenuState = {
-  visible: false, x: 0, y: 0, segmentIndex: -1, segment: null,
+  visible: false, segmentIndex: -1, segment: null,
 };

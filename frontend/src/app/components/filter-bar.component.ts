@@ -44,6 +44,7 @@ import {
     <!-- Left: filter icon + category dropdown -->
     <div class="fb-cluster fb-cluster--left">
       <button
+        #categoryBtn
         appDropdownTrigger
         class="fb-btn fb-btn--category"
         [class.fb-btn--open]="showCategoryDropdown"
@@ -56,7 +57,7 @@ import {
         </svg>
         <span class="fb-btn-chevron" [class.fb-btn-chevron--open]="showCategoryDropdown">›</span>
       </button>
-      <app-dropdown-container class="fb-drop-anchor" [(isOpen)]="showCategoryDropdown">
+      <app-dropdown-container class="fb-drop-anchor" [(isOpen)]="showCategoryDropdown" [anchorEl]="categoryBtnRef?.nativeElement ?? null">
         <app-filter-dropdown
           appDropdownMenu
           *ngIf="showCategoryDropdown"
@@ -91,19 +92,18 @@ import {
 
     <!-- Right: saved presets dropdown + clear button -->
     <div class="fb-cluster fb-cluster--right">
-    <app-dropdown-container class="fb-drop-anchor" [(isOpen)]="showPresetDropdown">
-        <button
-          appDropdownTrigger
-          class="fb-btn fb-btn--icon"
-          [class.fb-btn--open]="showPresetDropdown"
-          (click)="showPresetDropdown = !showPresetDropdown"
-          title="Saved presets"
-        >
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M2 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v13.5a.5.5 0 0 1-.777.416L8 13.101l-5.223 2.815A.5.5 0 0 1 2 15.5V2zm2-1a1 1 0 0 0-1 1v12.566l4.723-2.482a.5.5 0 0 1 .554 0L13 14.566V2a1 1 0 0 0-1-1H4z"/>
-          </svg>
-        </button>
-
+    <button
+        #presetBtn
+        class="fb-btn fb-btn--icon"
+        [class.fb-btn--open]="showPresetDropdown"
+        (click)="showPresetDropdown = !showPresetDropdown"
+        title="Saved presets"
+      >
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M2 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v13.5a.5.5 0 0 1-.777.416L8 13.101l-5.223 2.815A.5.5 0 0 1 2 15.5V2zm2-1a1 1 0 0 0-1 1v12.566l4.723-2.482a.5.5 0 0 1 .554 0L13 14.566V2a1 1 0 0 0-1-1H4z"/>
+        </svg>
+      </button>
+    <app-dropdown-container class="fb-drop-anchor" [(isOpen)]="showPresetDropdown" [anchorEl]="presetBtnRef?.nativeElement ?? null">
         <div appDropdownMenu *ngIf="showPresetDropdown" class="fb-preset-dropdown">
           <div class="fb-preset-head">
             <span>Presets</span>
@@ -432,6 +432,8 @@ import {
 export class FilterBarComponent implements OnInit, OnDestroy, OnChanges {
 
   @ViewChild('searchInput') searchInput?: ElementRef<HTMLInputElement>;
+  @ViewChild('categoryBtn') categoryBtnRef?: ElementRef<HTMLElement>;
+  @ViewChild('presetBtn')   presetBtnRef?: ElementRef<HTMLElement>;
 
   // ── Inputs ────────────────────────────────────────────────────────────────
 

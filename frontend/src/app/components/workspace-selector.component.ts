@@ -1,4 +1,4 @@
-import { Component, Input, Output, EventEmitter } from '@angular/core';
+import { Component, Input, Output, EventEmitter, ViewChild, ElementRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { WorkspaceConfig } from '../shared/protocol-enhanced';
 import { DropdownDirective, DropdownTriggerDirective, DropdownMenuDirective } from '../directives/dropdown.directive';
@@ -14,7 +14,7 @@ import { DropdownContainerComponent } from './dropdown-container.component';
   standalone: true,
   imports: [CommonModule, DropdownTriggerDirective, DropdownMenuDirective, DropdownContainerComponent],
   template: `
-    <div appDropdownTrigger class="ws-selector" (click)="toggleMenu()">
+    <div #wsSelector appDropdownTrigger class="ws-selector" (click)="toggleMenu()">
       <span class="ws-icon">{{ activeWorkspace?.icon || '📁' }}</span>
       <span class="ws-name">{{ activeWorkspace?.name || 'Default' }}</span>
       <svg class="ws-caret" [class.ws-caret--open]="showMenu"
@@ -22,7 +22,7 @@ import { DropdownContainerComponent } from './dropdown-container.component';
         <path d="M4 6l4 4 4-4H4z"/>
       </svg>
     </div>
-    <app-dropdown-container [(isOpen)]="showMenu">
+    <app-dropdown-container [(isOpen)]="showMenu" [anchorEl]="wsSelectorRef?.nativeElement ?? null">
     
     <div appDropdownMenu class="ws-menu" *ngIf="showMenu">
       <div class="ws-menu-header">
@@ -232,6 +232,8 @@ export class WorkspaceSelectorComponent {
   @Input() workspaces: WorkspaceConfig[] = [];
   @Input() activeWorkspace: WorkspaceConfig | null = null;
   @Input() showMenu = false;
+
+  @ViewChild('wsSelector') wsSelectorRef?: ElementRef<HTMLElement>;
 
   @Output() workspaceChange = new EventEmitter<WorkspaceConfig>();
   @Output() createNew = new EventEmitter<void>();

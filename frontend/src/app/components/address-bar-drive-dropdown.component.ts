@@ -10,7 +10,6 @@ import { DriveInfo } from '../shared/protocol-enhanced';
   template: `
     <div
       class="ab-dropdown ab-drive-drop"
-      [ngStyle]="{ left: left + 'px', top: top + 'px', position: 'fixed' }"
     >
       <div class="ab-drop-head">
         <span>Available Drives</span>
@@ -183,8 +182,6 @@ import { DriveInfo } from '../shared/protocol-enhanced';
 export class AddressBarDriveDropdownComponent {
   @Input() drives: DriveInfo[] = [];
   @Input() loading = false;
-  @Input() left = 0;
-  @Input() top = 0;
   @Input() currentPath = '';
   @Output() driveClick = new EventEmitter<DriveInfo>();
 

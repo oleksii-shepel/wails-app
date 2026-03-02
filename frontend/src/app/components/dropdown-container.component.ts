@@ -1,7 +1,7 @@
 // dropdown-container.component.ts
-import { Component, Input, Output, EventEmitter, ViewChild, ContentChild } from '@angular/core';
+import { Component, Input, Output, EventEmitter, ViewChild, ContentChild, ElementRef, OnChanges, SimpleChanges, AfterViewInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { DropdownDirective, DropdownMenuDirective } from '../directives/dropdown.directive';
+import { DropdownDirective, DropdownTriggerDirective, DropdownMenuDirective } from '../directives/dropdown.directive';
 
 @Component({
   selector: 'app-dropdown-container',
@@ -14,6 +14,9 @@ import { DropdownDirective, DropdownMenuDirective } from '../directives/dropdown
       (isOpenChange)="onToggle($event)"
       #dropdownRef="appDropdown"
     >
+      <!-- Trigger slot — always rendered, never inside *ngIf -->
+      <ng-content select="[appDropdownTrigger]"></ng-content>
+
       <!-- Backdrop - captures clicks outside the menu -->
       <div 
         *ngIf="isOpen" 
@@ -53,19 +56,18 @@ import { DropdownDirective, DropdownMenuDirective } from '../directives/dropdown
       position: relative;
       z-index: 999;
     }
-
-    ::ng-deep [appDropdownMenu] {
-      position: absolute;
-      z-index: 999;
-    }
   `]
 })
-export class DropdownContainerComponent {
+export class DropdownContainerComponent implements AfterViewInit, OnChanges {
   @Input() isOpen = false;
+  /** Fallback anchor for when the trigger element is outside the container (e.g. right-click menus). */
+  @Input() anchorEl: HTMLElement | null = null;
   @Output() isOpenChange = new EventEmitter<boolean>();
-  
+
   @ViewChild('dropdownRef', { static: true }) dropdownRef?: DropdownDirective;
-  @ContentChild(DropdownMenuDirective, { static: false }) menuDir?: DropdownMenuDirective;
+  @ContentChild(DropdownTriggerDirective, { static: false }) triggerDir?: DropdownTriggerDirective;
+
+  constructor(private _el: ElementRef<HTMLElement>) {}
 
   onToggle(state: boolean) {
     this.isOpen = state;
@@ -83,46 +85,33 @@ export class DropdownContainerComponent {
     this.isOpenChange.emit(false);
   }
 
-  ngAfterViewInit() {
-    this.positionDropdown();
+  ngAfterViewInit(): void {}
+
+  ngOnChanges(changes: SimpleChanges): void {
+    if (changes['isOpen']?.currentValue === true) {
+      setTimeout(() => this.positionMenu());
+    }
   }
 
-  ngOnChanges() {
-    this.positionDropdown();
-  }
-
-  private positionDropdown() {
+  private positionMenu(): void {
     if (!this.isOpen) return;
-    const menuEl = this.dropdownRef?.menuDir?.el.nativeElement;
-    const triggerEl = this.dropdownRef?.triggerDir?.el.nativeElement;
-    if (!menuEl || !triggerEl) return;
-
-    // Get bounding rects
-    const triggerRect = triggerEl.getBoundingClientRect();
-    const menuRect = menuEl.getBoundingClientRect();
-    const viewportWidth = window.innerWidth;
-    const viewportHeight = window.innerHeight;
-
-    // Default position: below trigger, left-aligned
-    let top = triggerRect.bottom;
-    let left = triggerRect.left;
-
-    // Adjust if dropdown would overflow right
-    if (left + menuRect.width > viewportWidth) {
-      left = viewportWidth - menuRect.width - 8;
-    }
-    // Adjust if dropdown would overflow bottom
-    if (top + menuRect.height > viewportHeight) {
-      top = triggerRect.top - menuRect.height;
-      if (top < 0) top = 8;
-    }
-    // Adjust if dropdown would overflow left
+    const anchor = (this.triggerDir?.el.nativeElement ?? this.anchorEl) as HTMLElement | null;
+    if (!anchor) return;
+    const wrapperEl = this._el.nativeElement.querySelector('.dropdown-menu-wrapper') as HTMLElement | null;
+    if (!wrapperEl) return;
+    const rect  = anchor.getBoundingClientRect();
+    const menuW = wrapperEl.offsetWidth  || 200;
+    const menuH = wrapperEl.offsetHeight || 100;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    let left = rect.left;
+    let top  = rect.bottom + 4;
+    if (left + menuW > vw) left = Math.max(0, vw - menuW - 8);
+    if (top  + menuH > vh) top  = Math.max(0, rect.top - menuH - 4);
     if (left < 0) left = 8;
-
-    // Apply position
-    menuEl.style.position = 'absolute';
-    menuEl.style.left = `${left}px`;
-    menuEl.style.top = `${top}px`;
-    menuEl.style.zIndex = '999';
+    wrapperEl.style.position = 'fixed';
+    wrapperEl.style.left     = `${Math.round(left)}px`;
+    wrapperEl.style.top      = `${Math.round(top)}px`;
+    wrapperEl.style.zIndex   = '9999';
   }
 }

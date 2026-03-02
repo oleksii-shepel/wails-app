@@ -156,7 +156,7 @@ interface IdleSlashTick {
             (click)="toggleChev(0, segments[0], $event)"
             [title]="'Show contents of ' + segments[0].fullPath"
             aria-label="Show drive contents"
-          >›</button>
+          ><svg viewBox="0 0 16 16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="2"/></svg></button>
         </div>
       </ng-container>
 
@@ -234,7 +234,7 @@ interface IdleSlashTick {
                 [class.ab-chev--open]="chevIdx === i"
                 (click)="toggleChev(i, seg, $event)"
                 [attr.aria-label]="(seg.isArchiveRoot || seg.isArchiveInner) ? 'Browse archive' : 'Browse siblings'"
-              >›</button>
+              ><svg viewBox="0 0 16 16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="2"/></svg></button>
             </div>
 
           </ng-container>
@@ -288,6 +288,7 @@ interface IdleSlashTick {
   <app-dropdown-container
     [(isOpen)]="sibOpen"
     (isOpenChange)="onSibOpenChange($event)"
+    [anchorEl]="sibAnchorEl"
     *ngIf="chevIdx >= 0"
   >
     <app-address-bar-sibling-dropdown
@@ -302,14 +303,13 @@ interface IdleSlashTick {
   <!-- ── DRIVE DROPDOWN ────────────────────────────────────────────────── -->
   <app-dropdown-container
     [(isOpen)]="showDriveMenu"
+    [anchorEl]="driveAnchorEl"
     *ngIf="showDriveMenu"
   >
     <app-address-bar-drive-dropdown
       appDropdownMenu
       [drives]="drives"
       [loading]="drivesLoading"
-      [left]="driveMenuLeft"
-      [top]="driveMenuTop"
       [currentPath]="currentPath"
       (driveClick)="switchToDrive($event)"
     />
@@ -319,12 +319,11 @@ interface IdleSlashTick {
   <app-dropdown-container
     [(isOpen)]="ctxMenu.visible"
     (isOpenChange)="onCtxMenuOpenChange($event)"
+    [anchorEl]="ctxAnchorEl"
   >
     <div
       class="ab-ctx-menu"
       appDropdownMenu
-      [style.left.px]="ctxMenu.x"
-      [style.top.px]="ctxMenu.y"
     >
       <div class="ab-ctx-path">{{ ctxMenu.segment?.fullPath }}</div>
       <hr class="ab-ctx-divider"/>
@@ -558,9 +557,11 @@ interface IdleSlashTick {
       display: flex; align-items: center; justify-content: center;
       width: 20px; height: 24px; padding: 0;
       background: transparent !important; border: none;
-      color: var(--vsc-foreground-dim); font-size: 16px; font-weight: 400;
+      color: var(--vsc-foreground-dim);
       cursor: pointer; border-radius: var(--vsc-border-radius-sm);
       transition: color var(--vsc-transition-fast), transform var(--vsc-transition-normal);
+
+      svg { width: 12px; height: 12px; flex-shrink: 0; }
 
       &:hover { color: var(--vsc-foreground); background: var(--vsc-list-hover-background) !important; }
       &:focus-visible { outline: 1px solid var(--vsc-accent-blue); outline-offset: -1px; }
@@ -707,8 +708,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   // ── Drive switcher ───────────────────────────────────────────────────────
   drives: DriveInfo[] = [];
   showDriveMenu = false;
-  driveMenuLeft = 0;
-  driveMenuTop  = 0;
+  driveAnchorEl: HTMLElement | null = null;
   drivesLoading = false;
 
   // ── Chevron / sibling dropdown ───────────────────────────────────────────
@@ -716,8 +716,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   sibOpen     = false;
   siblings: SiblingEntry[] = [];
   sibLoading  = false;
-  sibDropLeft = 0;
-  sibDropTop  = 0;
+  sibAnchorEl: HTMLElement | null = null;
 
   // ── Pinned paths ─────────────────────────────────────────────────────────
   pinnedPaths: PinnedPath[] = [];
@@ -734,6 +733,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
 
   // ── Context menu ─────────────────────────────────────────────────────────
   ctxMenu: ContextMenuState = { ...CTX_MENU_CLOSED };
+  ctxAnchorEl: HTMLElement | null = null;
 
   // ── Misc ─────────────────────────────────────────────────────────────────
   justCopied = false;
@@ -948,9 +948,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     e.stopPropagation();
     if (this.showDriveMenu) { this.showDriveMenu = false; return; }
     this.closeAll();
-    const rect = (e.target as HTMLElement).getBoundingClientRect();
-    this.driveMenuLeft = rect.left;
-    this.driveMenuTop  = rect.bottom + 4;
+    this.driveAnchorEl = e.currentTarget as HTMLElement;
     this.showDriveMenu = true;
     if (this.drives.length === 0 && !this.drivesLoading) this.loadDrives();
   }
@@ -1076,9 +1074,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
 
     if (this.chevIdx === idx) { this.chevIdx = -1; this.sibOpen = false; this.siblings = []; return; }
 
-    const rect = (e.target as HTMLElement).getBoundingClientRect();
-    this.sibDropLeft = Math.round(rect.left);
-    this.sibDropTop  = Math.round(rect.bottom + 4);
+    this.sibAnchorEl = e.currentTarget as HTMLElement;
     this.chevIdx    = idx;
     this.siblings   = [];
     this.sibLoading = true;
@@ -1511,7 +1507,8 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   onSegRightClick(seg: PathSegment, idx: number, e: MouseEvent): void {
     e.preventDefault(); e.stopPropagation();
     this.closeAll();
-    this.ctxMenu = { visible: true, x: e.clientX, y: e.clientY, segmentIndex: idx, segment: seg };
+    this.ctxAnchorEl = e.currentTarget as HTMLElement;
+    this.ctxMenu = { visible: true, segmentIndex: idx, segment: seg };
   }
 
   ctxNavigateTo(): void   { if (this.ctxMenu.segment) this.navigateTo(this.ctxMenu.segment.fullPath); this.closeCtx(); }
@@ -1532,7 +1529,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     this.closeCtx();
   }
 
-  private closeCtx(): void { this.ctxMenu = { ...CTX_MENU_CLOSED }; }
+  private closeCtx(): void { this.ctxMenu = { ...CTX_MENU_CLOSED }; this.ctxAnchorEl = null; }
 
   // ── Navigation ────────────────────────────────────────────────────────────
 

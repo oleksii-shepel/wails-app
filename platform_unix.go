@@ -233,3 +233,21 @@ func guessDriveTypeDarwin(device string) DriveType {
 	}
 	return DriveUnknown
 }
+
+func openFileWithDefaultApp(path string) error {
+	switch runtime.GOOS {
+	case "darwin":
+		return exec.Command("open", path).Start()
+	default: // linux and others
+		return exec.Command("xdg-open", path).Start()
+	}
+}
+
+func openFileWithDefaultApp(path string) error {
+	switch runtime.GOOS {
+	case "darwin":
+		return exec.Command("open", path).Start()
+	default: // linux and others
+		return exec.Command("xdg-open", path).Start()
+	}
+}

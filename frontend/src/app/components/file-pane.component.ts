@@ -300,11 +300,8 @@ export class FilePaneComponent implements OnInit, OnChanges {
   }
 
   onNodeDoubleClick(entry: FileInfo): void {
-    // Handle file open - for non-directory files
-    if (entry.type !== FileType.DIRECTORY) {
-      console.log('Open file:', entry.name);
-      // Implement file opening logic here
-    }
+    // Delegate to onNavigate so directories, archives, and files are handled uniformly
+    this.onNavigate(entry);
   }
 
   // ── Virtual ".." entry helpers ────────────────────────────────────────────
@@ -697,7 +694,12 @@ export class FilePaneComponent implements OnInit, OnChanges {
     }
     if (entry.type === FileType.ARCHIVE || isArchive(entry.name)) {
       this.openRootArchive(entry.path);
+      return;
     }
+    // Regular file — open with default OS application
+    this.apiService.openFile(entry.path).catch(err =>
+      console.error('Failed to open file:', err)
+    );
   }
 
   onOpenSelectedItem(): void {

@@ -204,6 +204,11 @@ func (a *App) Ping() int64 {
 	return time.Now().UnixMilli()
 }
 
+// OpenFile opens the given path with the OS default application.
+func (a *App) OpenFile(path string) error {
+	return openFileWithDefaultApp(path)
+}
+
 func (a *App) emitEvent(name string, data interface{}) {
 	if a.ctx != nil {
 		runtime.EventsEmit(a.ctx, name, data)

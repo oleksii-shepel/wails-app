@@ -4,6 +4,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -171,4 +172,8 @@ func intToStr(n int) string {
 		buf = append([]byte{'-'}, buf...)
 	}
 	return string(buf)
+}
+
+func openFileWithDefaultApp(path string) error {
+	return exec.Command("cmd", "/c", "start", "", path).Start()
 }

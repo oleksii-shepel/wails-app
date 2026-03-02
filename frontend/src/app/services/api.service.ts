@@ -37,6 +37,7 @@ declare global {
           ListDir(path: string, showHidden: boolean): Promise<DirectoryListing>;
           ListDirFiltered(path: string, showHidden: boolean, filter: any): Promise<DirectoryListing>;
           FileInfo(path: string): Promise<FileInfo>;
+          OpenFile(path: string): Promise<void>;
           ReadFileContent(path: string, encoding: string): Promise<FileContent>;
           WriteFileContent(path: string, content: string, encoding: string): Promise<OperationResult>;
           CreateDir(path: string, recursive: boolean): Promise<OperationResult>;
@@ -164,6 +165,10 @@ export class ApiService {
 
   async getFileInfo(path: string): Promise<FileInfo> {
     return await window.go.main.App.FileInfo(path);
+  }
+
+  async openFile(path: string): Promise<void> {
+    return await window.go.main.App.OpenFile(path);
   }
 
   async readFile(path: string, encoding: string = 'utf8'): Promise<FileContent> {

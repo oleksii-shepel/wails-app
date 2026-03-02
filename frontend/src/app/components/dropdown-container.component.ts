@@ -55,6 +55,12 @@ import { DropdownDirective, DropdownTriggerDirective, DropdownMenuDirective } fr
     .dropdown-menu-wrapper {
       position: relative;
       z-index: 999;
+      animation: dropdown-appear 0.12s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    @keyframes dropdown-appear {
+      from { opacity: 0; transform: translateY(-6px) scale(0.98); }
+      to   { opacity: 1; transform: translateY(0)   scale(1); }
     }
   `]
 })

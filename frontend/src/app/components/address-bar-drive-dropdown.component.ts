@@ -71,12 +71,6 @@ import { DriveInfo } from '../shared/protocol-enhanced';
       border-radius: var(--vsc-border-radius);
       box-shadow: var(--vsc-widget-shadow);
       overflow: hidden;
-      animation: ab-appear var(--vsc-transition-fast) cubic-bezier(0.4, 0, 0.2, 1);
-    }
-
-    @keyframes ab-appear {
-      from { opacity: 0; transform: translateY(-4px); }
-      to   { opacity: 1; transform: translateY(0); }
     }
 
     .ab-drop-head {

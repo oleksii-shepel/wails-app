@@ -113,6 +113,7 @@ interface IdleSlashTick {
 
       <!-- PIN DROPDOWN -->
       <button
+        #pinDropTrigger
         appDropdownTrigger
         class="ab-btn ab-btn--pinlist"
         [class.ab-btn--open]="showPinDrop"
@@ -124,7 +125,11 @@ interface IdleSlashTick {
           <path d="M9.5 1.5a1 1 0 0 0-1.415 0L4.94 4.645a3.5 3.5 0 0 0-.871 3.547l-2.646 2.647a.5.5 0 0 0 .708.707l2.646-2.646a3.5 3.5 0 0 0 3.547-.872l3.144-3.144A1 1 0 0 0 11.5 3l-2-1.5z"/>
         </svg>
       </button>
-      <app-dropdown-container class="ab-drop-anchor" [(isOpen)]="showPinDrop">
+      <app-dropdown-container
+        class="ab-drop-anchor"
+        [(isOpen)]="showPinDrop"
+        [anchorEl]="pinDropTrigger"
+      >
         <app-address-bar-pin-dropdown
           appDropdownMenu
           *ngIf="showPinDrop"

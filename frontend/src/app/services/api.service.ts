@@ -30,7 +30,7 @@ declare global {
         App: {
           // System
           Ping(): Promise<number>;
-          GetOSInfo_(): Promise<any>;
+          GetOSInfo(): Promise<any>;
           GetDrives(): Promise<any>;
           
           // File System
@@ -144,7 +144,7 @@ export class ApiService {
   }
 
   async getOSInfo(): Promise<any> {
-    return await window.go.main.App.GetOSInfo_();
+    return await window.go.main.App.GetOSInfo();
   }
 
   async getDrives(): Promise<any> {

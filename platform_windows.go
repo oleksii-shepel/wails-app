@@ -42,9 +42,9 @@ func getOSTypeAndVersion() (OSType, string) {
 
 func getSystemDrive() string {
 	if sd := os.Getenv("SystemDrive"); sd != "" {
-		return sd + string(filepath.Separator)
+		return filepath.ToSlash(sd) + "/"
 	}
-	return `C:\`
+	return "C:/"
 }
 
 func listDrivesPlatform() []DriveInfo {
@@ -115,7 +115,7 @@ func buildDriveInfo(root string) DriveInfo {
 
 	return DriveInfo{
 		Name:       name,
-		Path:       root,
+		Path:       filepath.ToSlash(root),
 		DriveType:  dt,
 		TotalSpace: int64(totalBytes),
 		FreeSpace:  int64(totalFreeBytes),

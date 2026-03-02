@@ -166,8 +166,8 @@ func (a *App) NavGoUp(paneID string) (*DirectoryListing, error) {
 	if current == "" {
 		return nil, fmt.Errorf("no current path for pane %q", paneID)
 	}
-	parent := filepath.Dir(current)
-	if parent == current {
+	parent := toSlash(filepath.Dir(current))
+	if parent == toSlash(current) {
 		return nil, fmt.Errorf("already at root")
 	}
 	return a.NavNavigate(paneID, parent)

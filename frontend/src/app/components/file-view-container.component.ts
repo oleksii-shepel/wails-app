@@ -604,7 +604,8 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
 
   private normalizePath(path: string): string {
     const normalized = (path || '/').replace(/\\/g, '/').replace(/\/+/g, '/');
-    if (/^[A-Za-z]:$/.test(normalized)) return `${normalized}/`;
+    // Always normalise Windows drive roots (with or without trailing slash) to "X:/"
+    if (/^[A-Za-z]:\/?$/.test(normalized)) return `${normalized.slice(0, 2)}/`;
     if (normalized.length > 1 && normalized.endsWith('/')) return normalized.slice(0, -1);
     return normalized || '/';
   }

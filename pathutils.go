@@ -5,9 +5,16 @@ import (
 	"strings"
 )
 
+// toSlash converts any OS-native path separators to forward slashes.
+// This is the single point where the backend normalises paths before
+// returning them to the frontend, so the frontend never sees backslashes.
+func toSlash(path string) string {
+	return filepath.ToSlash(path)
+}
+
 // cleanPath normalises a path: resolves "..", cleans separators.
 func cleanPath(path string) string {
-	return filepath.Clean(path)
+	return toSlash(filepath.Clean(path))
 }
 
 // IsAbsPath returns true if the path is absolute.
@@ -20,7 +27,7 @@ func (a *App) JoinPaths(parts []string) string {
 	if len(parts) == 0 {
 		return ""
 	}
-	return filepath.Join(parts...)
+	return toSlash(filepath.Join(parts...))
 }
 
 // SplitPath splits a path into directory and file components.
@@ -29,7 +36,7 @@ func (a *App) SplitPath(path string) map[string]string {
 	ext := filepath.Ext(file)
 	name := strings.TrimSuffix(file, ext)
 	return map[string]string{
-		"dir":  filepath.Clean(dir),
+		"dir":  toSlash(filepath.Clean(dir)),
 		"base": file,
 		"name": name,
 		"ext":  ext,
@@ -41,9 +48,9 @@ func (a *App) SplitPath(path string) map[string]string {
 func (a *App) GetParentPath(path string) string {
 	parent := filepath.Dir(path)
 	if parent == path {
-		return path // already at root
+		return toSlash(path) // already at root
 	}
-	return parent
+	return toSlash(parent)
 }
 
 // PathExists checks whether a path exists.
@@ -115,7 +122,7 @@ func (a *App) Breadcrumbs(path string) []map[string]string {
 	for i, s := range segments {
 		crumbs[i] = map[string]string{
 			"label": s.label,
-			"path":  s.path,
+			"path":  toSlash(s.path),
 		}
 	}
 	return crumbs
@@ -126,7 +133,7 @@ func (a *App) Breadcrumbs(path string) []map[string]string {
 func parentPath(path string) string {
 	parent := filepath.Dir(path)
 	if parent == path {
-		return path // already at root
+		return toSlash(path) // already at root
 	}
-	return parent
+	return toSlash(parent)
 }

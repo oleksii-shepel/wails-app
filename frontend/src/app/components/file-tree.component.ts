@@ -570,8 +570,9 @@ export class FileTreeComponent implements OnChanges {
 
     this.focusedNodePath = node.path;
     this.selectionChange.emit(newSelection);
-    // Emit navigate so the address bar tracks the focused directory
-    if (newSelection.length === 1 && node.type === FileType.DIRECTORY) {
+    // Emit navigate so the address bar tracks the focused directory or its
+    // parent when a file, symlink, or archive is selected.
+    if (newSelection.length === 1) {
       this.navigate.emit(node);
     }
     this.cdr.markForCheck();
@@ -659,16 +660,9 @@ export class FileTreeComponent implements OnChanges {
 
     this.isMouseDownSelecting = false;
 
-    if (node.type === FileType.DIRECTORY && node.expandable) {
+    if ((node.type === FileType.DIRECTORY || node.type === FileType.ARCHIVE) && node.expandable) {
+      // Toggle expand/collapse – do NOT open archive mode in the pane.
       this.toggleNode(node);
-    } else if (node.type === FileType.ARCHIVE) {
-      if (node.expandable) {
-        this.toggleNode(node);
-      }
-      // Do NOT emit navigate for archives in tree view – expansion via
-      // toggleNode + loadChildren already populates child nodes without
-      // switching the pane to archive mode (which would corrupt the tree).
-      this.nodeDoubleClick.emit(node);
     } else {
       this.nodeDoubleClick.emit(node);
       this.navigate.emit(node);

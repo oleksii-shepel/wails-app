@@ -300,7 +300,19 @@ export class FilePaneComponent implements OnInit, OnChanges {
   }
 
   onNodeDoubleClick(entry: FileInfo): void {
-    // Delegate to onNavigate so directories, archives, and files are handled uniformly
+    if (entry.path === PARENT_ENTRY_PATH) { this.onNavigateUp(); return; }
+    // In tree view, non-directory double-clicks must bypass onNavigate (which
+    // now returns early to update the address bar). Handle open actions here.
+    if (this.currentView === 'tree' && entry.type !== FileType.DIRECTORY) {
+      if (entry.type === FileType.ARCHIVE || isArchive(entry.name)) {
+        this.openRootArchive(entry.path);
+        return;
+      }
+      this.apiService.openFile(entry.path).catch(err =>
+        console.error('Failed to open file:', err)
+      );
+      return;
+    }
     this.onNavigate(entry);
   }
 
@@ -689,6 +701,15 @@ export class FilePaneComponent implements OnInit, OnChanges {
       }
       this.currentPath = entry.path;
       this.pathChange.emit(entry.path);
+      return;
+    }
+    // For file/symlink/archive nodes in tree view: update the address bar to
+    // the parent directory without opening the item (opening is handled via the
+    // nodeDoubleClick path in onNodeDoubleClick).
+    if (this.currentView === 'tree' && (entry.type === FileType.FILE || entry.type === FileType.SYMLINK || entry.type === FileType.ARCHIVE)) {
+      const parent = parentPath(entry.path);
+      this.currentPath = parent;
+      this.pathChange.emit(parent);
       return;
     }
 

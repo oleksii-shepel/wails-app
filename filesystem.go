@@ -36,7 +36,7 @@ func (a *App) ListDirectory(path string, showHidden bool) (*DirectoryListing, er
 			continue
 		}
 
-		fullPath := filepath.Join(path, name)
+		fullPath := toSlash(filepath.Join(path, name))
 		fi := buildFileInfo(name, fullPath, info)
 		files = append(files, fi)
 		if !fi.IsHidden || showHidden {
@@ -49,7 +49,7 @@ func (a *App) ListDirectory(path string, showHidden bool) (*DirectoryListing, er
 	}
 
 	return &DirectoryListing{
-		Path:      path,
+		Path:      toSlash(path),
 		Entries:   files,
 		TotalSize: totalSize,
 	}, nil
@@ -281,7 +281,7 @@ func (a *App) SearchFiles(path, pattern string, recursive bool) (*SearchResult, 
 		if err != nil {
 			return nil
 		}
-		matches = append(matches, buildFileInfo(name, p, info))
+		matches = append(matches, buildFileInfo(name, toSlash(p), info))
 		return nil
 	}
 
@@ -294,7 +294,7 @@ func (a *App) SearchFiles(path, pattern string, recursive bool) (*SearchResult, 
 	}
 
 	return &SearchResult{
-		Path:         path,
+		Path:         toSlash(path),
 		Matches:      matches,
 		TotalMatches: len(matches),
 	}, nil

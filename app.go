@@ -15,6 +15,7 @@ type App struct {
 	nav        *NavigationManager
 	workspaces *WorkspaceManager
 	operations *OperationManager
+	dirWatch   *PaneDirWatchManager
 }
 
 // NewApp creates a new App application struct.
@@ -41,6 +42,13 @@ func (a *App) startup(ctx context.Context) {
 	// Wire the App reference into the operation manager so it can emit
 	// Wails events. This replaces the old package-level appInstance global.
 	a.operations.SetApp(a)
+	a.dirWatch = NewPaneDirWatchManager(a)
+}
+
+func (a *App) shutdown(ctx context.Context) {
+	if a.dirWatch != nil {
+		a.dirWatch.Close()
+	}
 }
 
 // ============================================================================
@@ -215,6 +223,13 @@ func (a *App) ResolveLink(path string) (*ResolvedLink, error) {
 		return nil, err
 	}
 	return &ResolvedLink{Target: target, IsDir: isDir}, nil
+}
+
+func (a *App) SetPaneDirectory(paneID, path string) error {
+	if a.dirWatch == nil {
+		return nil
+	}
+	return a.dirWatch.SetPaneDirectory(paneID, path)
 }
 
 func (a *App) emitEvent(name string, data interface{}) {

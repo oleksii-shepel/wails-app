@@ -1,5 +1,5 @@
 // file-pane.component.ts
-import { Component, Input, Output, EventEmitter, OnInit, OnChanges, ViewChild } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnInit, OnChanges, OnDestroy, ViewChild, SimpleChanges } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { TabBarComponent } from './tab-bar.component';
 import { AddressBarComponent } from './address-bar.component';
@@ -19,6 +19,7 @@ import { parentPath, normalizePath } from './address-bar.utils';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
 import { FileViewContainerComponent, ViewLayout } from './file-view-container.component';
 import { ArchiveMoveWarningComponent } from "./archive-move-warning.component";
+import { EventsOn, EventsOff } from 'wailsjs/runtime';
 
 declare const window: any;
 
@@ -162,7 +163,7 @@ declare const window: any;
     }
   `]
 })
-export class FilePaneComponent implements OnInit, OnChanges {
+export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     /**
      * Extract selected entries from the current archive frame.
      * If all top-level entries are selected, extracts the whole archive (root forrest).
@@ -223,6 +224,7 @@ export class FilePaneComponent implements OnInit, OnChanges {
   private tabPaths = new Map<string, string>();
   private selectionCursorPath: string | null = null;
   private selectionAnchorPath: string | null = null;
+  private fsChangeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   FileType = FileType;
 
@@ -236,14 +238,24 @@ export class FilePaneComponent implements OnInit, OnChanges {
 
   ngOnInit(): void  { 
     this.loadViewPreference();
-    this.loadPaneState(); 
+    this.loadPaneState();
+    this.bindFsChangeEvents();
   }
   
-  ngOnChanges(): void { 
-    if (this.workspace) {
+  ngOnChanges(changes: SimpleChanges): void {
+    if (changes['workspace'] && this.workspace) {
       this.loadViewPreference();
-      this.loadPaneState(); 
+      this.loadPaneState();
+      return;
     }
+
+    if (changes['showHidden'] && !changes['showHidden'].firstChange) {
+      this.onRefresh();
+    }
+  }
+
+  ngOnDestroy(): void {
+    this.unbindFsChangeEvents();
   }
 
   get entriesForAnalysis(): FileInfo[] {
@@ -628,6 +640,37 @@ export class FilePaneComponent implements OnInit, OnChanges {
     // Keep the tree in sync: reload children of the current directory node
     // without collapsing any expanded subtrees.
     this.fileViewContainer?.refreshTreeNode(this.currentPath);
+  }
+
+  private bindFsChangeEvents(): void {
+    EventsOn('fs:directoryChanged', (event: { paneId?: string; path?: string } | null) => {
+      this.handleFsDirectoryChanged(event);
+    });
+  }
+
+  private unbindFsChangeEvents(): void {
+    if (this.fsChangeDebounceTimer) {
+      clearTimeout(this.fsChangeDebounceTimer);
+      this.fsChangeDebounceTimer = null;
+    }
+    EventsOff('fs:directoryChanged');
+  }
+
+  private handleFsDirectoryChanged(event: { paneId?: string; path?: string } | null): void {
+    if (!event || event.paneId !== this.paneId) return;
+    if (this.isInArchive()) return;
+
+    const current = (this.currentPath || '').replace(/\\/g, '/');
+    const changed = (event.path || '').replace(/\\/g, '/');
+    if (!current || !changed || current !== changed) return;
+
+    if (this.fsChangeDebounceTimer) {
+      clearTimeout(this.fsChangeDebounceTimer);
+    }
+    this.fsChangeDebounceTimer = setTimeout(() => {
+      this.fsChangeDebounceTimer = null;
+      this.onRefresh();
+    }, 150);
   }
 
   /**

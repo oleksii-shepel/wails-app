@@ -3,6 +3,7 @@ module wails-app
 go 1.23
 
 require (
+	github.com/fsnotify/fsnotify v1.9.0
 	github.com/mholt/archiver/v3 v3.5.1
 	github.com/wailsapp/wails/v2 v2.11.0
 	golang.org/x/sys v0.30.0

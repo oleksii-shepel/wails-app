@@ -301,7 +301,6 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     const result = await this.apiService.batchCopy(items, true);
     const err = this.archiveError(result);
     if (err) alert(`Copy errors:\n${err}`);
-    dst.onRefresh();
   }
 
   async onCopyFromRight(paths: string[]): Promise<void> {
@@ -344,7 +343,6 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     const result = await this.apiService.batchCopy(items, true);
     const err = this.archiveError(result);
     if (err) alert(`Copy errors:\n${err}`);
-    dst.onRefresh();
   }
 
   async onMoveFromLeft(paths: string[]): Promise<void> {
@@ -385,8 +383,6 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     const result = await this.apiService.batchMove(items, true);
     const err = this.archiveError(result);
     if (err) alert(`Move errors:\n${err}`);
-    src.onRefresh();
-    dst.onRefresh();
   }
 
   async onMoveFromRight(paths: string[]): Promise<void> {
@@ -426,8 +422,6 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     const result = await this.apiService.batchMove(items, true);
     const err = this.archiveError(result);
     if (err) alert(`Move errors:\n${err}`);
-    src.onRefresh();
-    dst.onRefresh();
   }
 
   // ============================================================================
@@ -495,8 +489,6 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     if (operation === 'cut') {
       this.clipboard = null;
     }
-
-    await targetPane.onRefresh();
   }
 
   private copyToOtherPaneCurrent(): void {

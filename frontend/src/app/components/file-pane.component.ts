@@ -195,7 +195,6 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   @Output() pathChange    = new EventEmitter<string>();
   @Output() copyToOther   = new EventEmitter<string[]>();
   @Output() moveToOther   = new EventEmitter<string[]>();
-  @Output() filesDeleted  = new EventEmitter<void>();
 
   currentPath   = '';
   fsParentDir = '';
@@ -871,8 +870,6 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       } else {
         await this.apiService.batchMove(items, true);
       }
-
-      await this.onRefresh();
     } catch (error: any) {
       alert(`Drag & drop failed: ${error.message}`);
     }
@@ -1300,9 +1297,6 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     } catch (error: any) {
       alert(`Failed to delete items: ${error.message}`);
     }
-    await this.loadDirectory(this.currentPath);
-    this.fileViewContainer?.refreshTreeNode(this.currentPath);
-    this.filesDeleted.emit();
   }
 
   /**
@@ -1365,7 +1359,6 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     try {
       const destination = await this.apiService.joinPaths([parentPath(entry.path), nextName]);
       await this.apiService.batchMove([{ source: entry.path, destination }], true);
-      await this.onRefresh();
     } catch (error: any) {
       alert(`Rename failed: ${error.message}`);
     }

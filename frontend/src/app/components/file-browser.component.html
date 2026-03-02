@@ -46,8 +46,7 @@
           (click)="activePaneId = 'left'"
           (pathChange)="onPanePathChange('left', $event)"
           (copyToOther)="onCopyFromLeft($event)"
-          (moveToOther)="onMoveFromLeft($event)"
-          (filesDeleted)="rightPane?.onRefresh()">
+          (moveToOther)="onMoveFromLeft($event)">
         </app-file-pane>
       </div>
 
@@ -70,8 +69,7 @@
           (click)="activePaneId = 'right'"
           (pathChange)="onPanePathChange('right', $event)"
           (copyToOther)="onCopyFromRight($event)"
-          (moveToOther)="onMoveFromRight($event)"
-          (filesDeleted)="leftPane?.onRefresh()">
+          (moveToOther)="onMoveFromRight($event)">
         </app-file-pane>
       </div>
 

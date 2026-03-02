@@ -27,7 +27,7 @@ export const PARENT_ENTRY_PATH = '__parent__';
       (click)="onClick($event)"
       (dblclick)="onDoubleClick()">
       
-      <span class="file-icon" [class.dir-symlink-icon]="entry.type === FileType.DIRECTORY && entry.isSymlink">
+      <span class="file-icon">
         <ng-container *ngIf="isParentEntry(); else iconText">
           <svg width="24" height="24" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
             <path transform="rotate(45, 8, 8)" d="M7.78 3.22a.75.75 0 0 1 0 1.06L4.56 7.5H13.25a.75.75 0 0 1 0 1.5H4.56l3.22 3.22a.75.75 0 1 1-1.06 1.06l-4.5-4.5a.75.75 0 0 1 0-1.06l4.5-4.5a.75.75 0 0 1 1.06 0z"/>

@@ -74,7 +74,7 @@ export interface ColumnDef {
             [attr.role]="'cell'">
             
             <ng-container *ngIf="col.field === 'name'">
-              <span class="file-icon" [class.dir-symlink-icon]="entry.type === FileType.DIRECTORY && entry.isSymlink">{{ getIcon(entry) }}</span>
+              <span class="file-icon">{{ getIcon(entry) }}</span>
               <span class="file-name-text">{{ entry.name }}</span>
             </ng-container>
             

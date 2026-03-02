@@ -18,7 +18,6 @@ import { parentPath } from './address-bar.utils';
         [class.selected]="isSelected(entry)"
         [class.directory]="entry.type === FileType.DIRECTORY"
         [class.parent-dir]="isParentEntry(entry)"
-        [class.dir-symlink]="entry.type === FileType.DIRECTORY && entry.isSymlink"
         [attr.role]="'gridcell'"
         [attr.aria-selected]="isSelected(entry)"
         [class.drop-target]="isDropTarget(entry)"
@@ -33,7 +32,7 @@ import { parentPath } from './address-bar.utils';
         (drop)="onDrop($event, entry)">
         
         <div class="grid-icon">
-          <span class="file-emoji" [class.dir-symlink-icon]="entry.type === FileType.DIRECTORY && entry.isSymlink">{{ getIcon(entry) }}</span>
+          <span class="file-emoji">{{ getIcon(entry) }}</span>
         </div>
         
         <div class="grid-info">

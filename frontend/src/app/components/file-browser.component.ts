@@ -19,6 +19,7 @@ import { StatusBarComponent } from './status-bar.component';
 import { OperationStatusBarComponent } from './operation-status-bar.component';
 import { OperationToastStackComponent } from './operation-stack.component';
 import { ArchiveService } from '../services/archive.service';
+import { ElevationDialogComponent } from './elevation-dialog.component';
 
 interface CopyMoveItem { source: string; destination: string; }
 interface OpResult { failed: number; errors?: Array<{ source: string; error: string }> }
@@ -36,7 +37,8 @@ interface OpResult { failed: number; errors?: Array<{ source: string; error: str
     SplitDividerComponent,
     StatusBarComponent,
     OperationToastStackComponent,
-    OperationStatusBarComponent
+    OperationStatusBarComponent,
+    ElevationDialogComponent
 ],
   templateUrl: './file-browser.component.html',
   styleUrls: ['./file-browser.component.scss'],

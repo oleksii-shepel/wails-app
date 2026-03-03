@@ -80,6 +80,7 @@ declare global {
           SplitPath(path: string): Promise<Record<string, string>>;
           JoinPaths(parts: string[]): Promise<string>;
           GetParentPath(path: string): Promise<string>;
+          ConfirmElevationRequest(requestID: string, approve: boolean): Promise<void>;
         };
       };
     };
@@ -375,6 +376,10 @@ export class ApiService {
 
   async getParentPath(path: string): Promise<string> {
     return await window.go.main.App.GetParentPath(path);
+  }
+
+  async confirmElevationRequest(requestID: string, approve: boolean): Promise<void> {
+    return await window.go.main.App.ConfirmElevationRequest(requestID, approve);
   }
 
   /**

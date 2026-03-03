@@ -2,12 +2,14 @@ package main
 
 import (
 	"encoding/base64"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 )
 
 // ============================================================================
@@ -15,6 +17,26 @@ import (
 // ============================================================================
 
 func (a *App) ListDirectory(path string, showHidden bool) (*DirectoryListing, error) {
+	listing, err := listDirectoryRaw(path, showHidden)
+	if err == nil {
+		return listing, nil
+	}
+	if !isPermissionDenied(err) {
+		return nil, err
+	}
+
+	resp, elevErr := a.runElevatedWithEvents("list", opTargetSingle(path), elevatedRequest{
+		Op:         "list",
+		Path:       path,
+		ShowHidden: showHidden,
+	})
+	if elevErr != nil {
+		return nil, err
+	}
+	return resp.DirListing, nil
+}
+
+func listDirectoryRaw(path string, showHidden bool) (*DirectoryListing, error) {
 	entries, err := os.ReadDir(path)
 	if err != nil {
 		// For Windows junctions/reparse-points (e.g. "Documents and Settings"),
@@ -44,12 +66,14 @@ func (a *App) ListDirectory(path string, showHidden bool) (*DirectoryListing, er
 			continue
 		}
 
-		info, err := entry.Info()
+		fullPath := toSlash(filepath.Join(path, name))
+		// Use Lstat so symlinks (including broken/inaccessible targets) still
+		// appear in listings; DirEntry.Info can fail for those and hide them.
+		info, err := os.Lstat(fullPath)
 		if err != nil {
 			continue
 		}
 
-		fullPath := toSlash(filepath.Join(path, name))
 		fi := buildFileInfo(name, fullPath, info)
 		files = append(files, fi)
 		if !fi.IsHidden || showHidden {
@@ -87,6 +111,26 @@ func (a *App) GetFileInfo(path string) (*FileInfo, error) {
 // ============================================================================
 
 func (a *App) ReadFile(path string, encoding string) (*FileContent, error) {
+	file, err := readFileRaw(path, encoding)
+	if err == nil {
+		return file, nil
+	}
+	if !isPermissionDenied(err) {
+		return nil, err
+	}
+
+	resp, elevErr := a.runElevatedWithEvents("read", opTargetSingle(path), elevatedRequest{
+		Op:       "read",
+		Path:     path,
+		Encoding: encoding,
+	})
+	if elevErr != nil {
+		return nil, err
+	}
+	return resp.File, nil
+}
+
+func readFileRaw(path string, encoding string) (*FileContent, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -122,6 +166,27 @@ func (a *App) ReadFile(path string, encoding string) (*FileContent, error) {
 // ============================================================================
 
 func (a *App) WriteFile(path string, content string, encoding string) (*OperationResult, error) {
+	op, err := writeFileRaw(path, content, encoding)
+	if err == nil {
+		return op, nil
+	}
+	if !isPermissionDenied(err) {
+		return nil, err
+	}
+
+	resp, elevErr := a.runElevatedWithEvents("write", opTargetSingle(path), elevatedRequest{
+		Op:       "write",
+		Path:     path,
+		Content:  content,
+		Encoding: encoding,
+	})
+	if elevErr != nil {
+		return nil, err
+	}
+	return resp.Operation, nil
+}
+
+func writeFileRaw(path string, content string, encoding string) (*OperationResult, error) {
 	var data []byte
 	var err error
 
@@ -150,6 +215,27 @@ func (a *App) WriteFile(path string, content string, encoding string) (*Operatio
 // ============================================================================
 
 func (a *App) DeleteFile(path string, recursive bool, useTrash *bool) (*OperationResult, error) {
+	op, err := deleteFileRaw(path, recursive, useTrash)
+	if err == nil {
+		return op, nil
+	}
+	if !isPermissionDenied(err) {
+		return nil, err
+	}
+
+	resp, elevErr := a.runElevatedWithEvents("delete", opTargetSingle(path), elevatedRequest{
+		Op:        "delete",
+		Path:      path,
+		Recursive: recursive,
+		UseTrash:  useTrash,
+	})
+	if elevErr != nil {
+		return nil, err
+	}
+	return resp.Operation, nil
+}
+
+func deleteFileRaw(path string, recursive bool, useTrash *bool) (*OperationResult, error) {
 	trash := useTrash == nil || *useTrash
 	if trash {
 		if err := moveToTrash(path); err != nil {
@@ -193,6 +279,26 @@ func (a *App) DeleteFile(path string, recursive bool, useTrash *bool) (*Operatio
 // ============================================================================
 
 func (a *App) CreateDirectory(path string, recursive bool) (*OperationResult, error) {
+	op, err := createDirectoryRaw(path, recursive)
+	if err == nil {
+		return op, nil
+	}
+	if !isPermissionDenied(err) {
+		return nil, err
+	}
+
+	resp, elevErr := a.runElevatedWithEvents("mkdir", opTargetSingle(path), elevatedRequest{
+		Op:        "mkdir",
+		Path:      path,
+		Recursive: recursive,
+	})
+	if elevErr != nil {
+		return nil, err
+	}
+	return resp.Operation, nil
+}
+
+func createDirectoryRaw(path string, recursive bool) (*OperationResult, error) {
 	var err error
 	if recursive {
 		err = os.MkdirAll(path, 0755)
@@ -215,6 +321,26 @@ func (a *App) CreateDirectory(path string, recursive bool) (*OperationResult, er
 // ============================================================================
 
 func (a *App) MoveFile(source, destination string) (*OperationResult, error) {
+	op, err := moveFileRaw(source, destination)
+	if err == nil {
+		return op, nil
+	}
+	if !isPermissionDenied(err) {
+		return nil, err
+	}
+
+	resp, elevErr := a.runElevatedWithEvents("move", opTargetPair(source, destination), elevatedRequest{
+		Op:          "move",
+		Source:      source,
+		Destination: destination,
+	})
+	if elevErr != nil {
+		return nil, err
+	}
+	return resp.Operation, nil
+}
+
+func moveFileRaw(source, destination string) (*OperationResult, error) {
 	// Try atomic rename first
 	err := os.Rename(source, destination)
 	if err != nil {
@@ -239,6 +365,27 @@ func (a *App) MoveFile(source, destination string) (*OperationResult, error) {
 // ============================================================================
 
 func (a *App) CopyFile(source, destination string, recursive bool) (*OperationResult, error) {
+	op, err := copyFileRaw(source, destination, recursive)
+	if err == nil {
+		return op, nil
+	}
+	if !isPermissionDenied(err) {
+		return nil, err
+	}
+
+	resp, elevErr := a.runElevatedWithEvents("copy", opTargetPair(source, destination), elevatedRequest{
+		Op:          "copy",
+		Source:      source,
+		Destination: destination,
+		Recursive:   recursive,
+	})
+	if elevErr != nil {
+		return nil, err
+	}
+	return resp.Operation, nil
+}
+
+func copyFileRaw(source, destination string, recursive bool) (*OperationResult, error) {
 	info, err := os.Stat(source)
 	if err != nil {
 		return nil, err
@@ -486,4 +633,69 @@ func compareStrings(a, b, operator string, caseSensitive bool) bool {
 		return strings.Contains(a, b)
 	}
 	return strings.Contains(a, b)
+}
+
+type elevationEvent struct {
+	RequestID string `json:"requestId,omitempty"`
+	Phase     string `json:"phase"`
+	Operation string `json:"operation"`
+	Target    string `json:"target"`
+	Message   string `json:"message,omitempty"`
+	Success   bool   `json:"success,omitempty"`
+	Error     string `json:"error,omitempty"`
+}
+
+func (a *App) emitElevationRequested(requestID, op, target string) {
+	a.emitEvent("elevation:requested", elevationEvent{
+		RequestID: requestID,
+		Phase:     "requested",
+		Operation: op,
+		Target:    target,
+		Message:   "Administrative privileges required. Confirm to show OS elevation prompt.",
+	})
+}
+
+func (a *App) emitElevationResult(requestID, op, target string, success bool, err error) {
+	evt := elevationEvent{
+		RequestID: requestID,
+		Phase:     "result",
+		Operation: op,
+		Target:    target,
+		Success:   success,
+	}
+	if err != nil {
+		evt.Error = err.Error()
+		evt.Message = "Elevation failed or was cancelled."
+	} else {
+		evt.Message = "Elevated operation completed."
+	}
+	a.emitEvent("elevation:result", evt)
+}
+
+func (a *App) runElevatedWithEvents(op, target string, req elevatedRequest) (elevatedResponse, error) {
+	requestID := newElevationRequestID()
+	a.emitElevationRequested(requestID, op, target)
+	approved, waitErr := a.waitForElevationApproval(requestID, 90*time.Second)
+	if waitErr != nil {
+		err := fmt.Errorf("elevation confirmation timeout")
+		a.emitElevationResult(requestID, op, target, false, err)
+		return elevatedResponse{}, err
+	}
+	if !approved {
+		err := fmt.Errorf("elevation cancelled by user")
+		a.emitElevationResult(requestID, op, target, false, err)
+		return elevatedResponse{}, err
+	}
+
+	resp, err := runElevatedRequest(req)
+	a.emitElevationResult(requestID, op, target, err == nil, err)
+	return resp, err
+}
+
+func opTargetSingle(path string) string {
+	return path
+}
+
+func opTargetPair(src, dst string) string {
+	return fmt.Sprintf("%s -> %s", src, dst)
 }

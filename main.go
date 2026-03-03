@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"os"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -12,6 +13,14 @@ import (
 var assets embed.FS
 
 func main() {
+	if handled, err := maybeRunElevatedHelper(); handled {
+		if err != nil {
+			println("Elevated helper error:", err.Error())
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
 	app := NewApp()
 
 	err := wails.Run(&options.App{

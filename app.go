@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -16,6 +19,8 @@ type App struct {
 	workspaces *WorkspaceManager
 	operations *OperationManager
 	dirWatch   *PaneDirWatchManager
+	elevMu     sync.Mutex
+	elevWait   map[string]chan bool
 }
 
 // NewApp creates a new App application struct.
@@ -33,6 +38,7 @@ func NewApp() *App {
 		nav:        NewNavigationManager(),
 		workspaces: wm,
 		operations: NewOperationManager(),
+		elevWait:   make(map[string]chan bool),
 	}
 }
 
@@ -236,4 +242,48 @@ func (a *App) emitEvent(name string, data interface{}) {
 	if a.ctx != nil {
 		runtime.EventsEmit(a.ctx, name, data)
 	}
+}
+
+func (a *App) ConfirmElevationRequest(requestID string, approve bool) {
+	a.elevMu.Lock()
+	ch, ok := a.elevWait[requestID]
+	if ok {
+		delete(a.elevWait, requestID)
+	}
+	a.elevMu.Unlock()
+
+	if ok {
+		select {
+		case ch <- approve:
+		default:
+		}
+	}
+}
+
+func (a *App) waitForElevationApproval(requestID string, timeout time.Duration) (bool, error) {
+	ch := make(chan bool, 1)
+	a.elevMu.Lock()
+	a.elevWait[requestID] = ch
+	a.elevMu.Unlock()
+
+	defer func() {
+		a.elevMu.Lock()
+		delete(a.elevWait, requestID)
+		a.elevMu.Unlock()
+	}()
+
+	select {
+	case approve := <-ch:
+		return approve, nil
+	case <-time.After(timeout):
+		return false, fmt.Errorf("elevation approval timed out")
+	}
+}
+
+func newElevationRequestID() string {
+	b := make([]byte, 12)
+	if _, err := rand.Read(b); err != nil {
+		return fmt.Sprintf("elev-%d", time.Now().UnixNano())
+	}
+	return "elev-" + base64.RawURLEncoding.EncodeToString(b)
 }

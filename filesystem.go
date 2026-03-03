@@ -71,6 +71,12 @@ func listDirectoryRaw(path string, showHidden bool) (*DirectoryListing, error) {
 		// appear in listings; DirEntry.Info can fail for those and hide them.
 		info, err := os.Lstat(fullPath)
 		if err != nil {
+			if fallback, ok := buildFallbackLinkInfo(name, fullPath, entry); ok {
+				files = append(files, fallback)
+				if !fallback.IsHidden || showHidden {
+					totalSize += fallback.Size
+				}
+			}
 			continue
 		}
 
@@ -467,9 +473,7 @@ func (a *App) SearchFiles(path, pattern string, recursive bool) (*SearchResult, 
 func buildFileInfo(name, fullPath string, info os.FileInfo) FileInfo {
 	ft := FileTypeFile
 	isSymlink := false
-	if info.IsDir() {
-		ft = FileTypeDirectory
-	} else if info.Mode()&os.ModeSymlink != 0 {
+	if info.Mode()&os.ModeSymlink != 0 {
 		isSymlink = true
 		// Use the platform helper so that protected Windows junctions (e.g.
 		// "Documents and Settings") are correctly identified as directories
@@ -479,6 +483,8 @@ func buildFileInfo(name, fullPath string, info os.FileInfo) FileInfo {
 		} else {
 			ft = FileTypeSymlink
 		}
+	} else if info.IsDir() {
+		ft = FileTypeDirectory
 	} else if isArchive(name) {
 		ft = FileTypeArchive
 	}
@@ -488,7 +494,7 @@ func buildFileInfo(name, fullPath string, info os.FileInfo) FileInfo {
 	// because the reparse tag is not a plain symlink. GetFileAttributes still
 	// reports FILE_ATTRIBUTE_DIRECTORY|FILE_ATTRIBUTE_REPARSE_POINT for them.
 	// On Unix this is always a no-op (returns false immediately).
-	if ft == FileTypeFile && isUntrackedDirectoryJunction(fullPath) {
+	if isUntrackedDirectoryJunction(fullPath) {
 		ft = FileTypeDirectory
 		isSymlink = true
 	}
@@ -633,6 +639,33 @@ func compareStrings(a, b, operator string, caseSensitive bool) bool {
 		return strings.Contains(a, b)
 	}
 	return strings.Contains(a, b)
+}
+
+func buildFallbackLinkInfo(name, fullPath string, entry fs.DirEntry) (FileInfo, bool) {
+	// Include inaccessible reparse points/symlinks instead of silently dropping them.
+	isLinkLike := (entry.Type()&os.ModeSymlink != 0) || isUntrackedDirectoryJunction(fullPath)
+	if !isLinkLike {
+		return FileInfo{}, false
+	}
+
+	ft := FileTypeSymlink
+	if entry.IsDir() || symlinkPointsToDir(fullPath) || isUntrackedDirectoryJunction(fullPath) {
+		ft = FileTypeDirectory
+	}
+
+	now := time.Now().Unix()
+	return FileInfo{
+		Name:        name,
+		Path:        fullPath,
+		Type:        ft,
+		Size:        0,
+		Created:     now,
+		Modified:    now,
+		Accessed:    now,
+		Permissions: "",
+		IsHidden:    isHiddenFile(name, fullPath),
+		IsSymlink:   true,
+	}, true
 }
 
 type elevationEvent struct {

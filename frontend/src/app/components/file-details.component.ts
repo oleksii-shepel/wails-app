@@ -1,5 +1,19 @@
 // file-details.component.ts
-import { Component, Input, Output, EventEmitter, OnDestroy, NgZone } from '@angular/core';
+import {
+  Component,
+  Input,
+  Output,
+  EventEmitter,
+  OnDestroy,
+  OnChanges,
+  AfterViewInit,
+  SimpleChanges,
+  ElementRef,
+  ViewChild,
+  NgZone,
+  ChangeDetectionStrategy,
+  ChangeDetectorRef,
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FileEntryComponent } from './file-entry.component';
 import { FileInfo, FileType } from '../shared/protocol';
@@ -19,9 +33,9 @@ export interface ColumnDef {
   selector: 'app-file-details',
   standalone: true,
   imports: [CommonModule, FileEntryComponent],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="file-details" role="table">
-      <!-- Header -->
       <div class="details-header" role="rowgroup">
         <div class="details-row header-row" role="row">
           <div 
@@ -46,45 +60,56 @@ export interface ColumnDef {
         </div>
       </div>
       
-      <!-- Body -->
-      <div class="details-body" role="rowgroup" (mousedown)="onBodyMouseDown($event)" (click)="onBackgroundClick($event)" (contextmenu)="onBackgroundContextMenu($event)">
-        <div 
-          *ngFor="let entry of entries"
-          class="details-row"
-          [attr.data-path]="entry.path"
-          [class.selected]="isSelected(entry)"
-          [class.parent-dir]="isParentEntry(entry)"
-          [class.drop-target]="isDropTarget(entry)"
-          [attr.role]="'row'"
-          [attr.aria-selected]="isSelected(entry)"
-          [draggable]="!isParentEntry(entry)"
-          (click)="onRowClick(entry, $event)"
-          (auxclick)="onRowAuxClick($event, entry)"
-          (dblclick)="onRowDoubleClick(entry)"
-          (contextmenu)="onContextMenu($event, entry)"
-          (dragstart)="onDragStart($event, entry)"
-          (dragover)="onDragOver($event, entry)"
-          (dragleave)="onDragLeave(entry)"
-          (drop)="onDrop($event, entry)">
-          
+      <div
+        #detailsBody
+        class="details-body"
+        role="rowgroup"
+        (mousedown)="onBodyMouseDown($event)"
+        (click)="onBackgroundClick($event)"
+        (contextmenu)="onBackgroundContextMenu($event)">
+        
+        <div class="virtual-spacer" *ngIf="virtualEnabled" [style.height.px]="totalContentHeight"></div>
+        
+        <div class="details-window" [class.virtual-window]="virtualEnabled" [style.transform]="virtualWindowTransform">
           <div 
-            *ngFor="let col of columns"
-            class="details-cell"
-            [style.width]="col.width"
-            [style.flex]="col.width ? 'none' : '1'"
-            [attr.role]="'cell'">
+            *ngFor="let entry of visibleEntries; trackBy: trackByPath"
+            class="details-row"
+            [attr.data-path]="entry.path"
+            [style.height.px]="virtualEnabled ? rowHeight : null"
+            [class.selected]="isSelected(entry)"
+            [class.parent-dir]="isParentEntry(entry)"
+            [class.drop-target]="isDropTarget(entry)"
+            [attr.role]="'row'"
+            [attr.aria-selected]="isSelected(entry)"
+            [draggable]="!isParentEntry(entry)"
+            (click)="onRowClick(entry, $event)"
+            (auxclick)="onRowAuxClick($event, entry)"
+            (dblclick)="onRowDoubleClick(entry)"
+            (contextmenu)="onContextMenu($event, entry)"
+            (dragstart)="onDragStart($event, entry)"
+            (dragover)="onDragOver($event, entry)"
+            (dragleave)="onDragLeave(entry)"
+            (drop)="onDrop($event, entry)">
             
-            <ng-container *ngIf="col.field === 'name'">
-              <app-file-entry
-                [entry]="entry"
-                [selected]="isSelected(entry)"
-                variant="inline">
-              </app-file-entry>
-            </ng-container>
-            
-            <ng-container *ngIf="col.field !== 'name'">
-              {{ getCellValue(entry, col) }}
-            </ng-container>
+            <div 
+              *ngFor="let col of columns"
+              class="details-cell"
+              [style.width]="col.width"
+              [style.flex]="col.width ? 'none' : '1'"
+              [attr.role]="'cell'">
+              
+              <ng-container *ngIf="col.field === 'name'">
+                <app-file-entry
+                  [entry]="entry"
+                  [selected]="isSelected(entry)"
+                  variant="inline">
+                </app-file-entry>
+              </ng-container>
+              
+              <ng-container *ngIf="col.field !== 'name'">
+                {{ getCellValue(entry, col) }}
+              </ng-container>
+            </div>
           </div>
         </div>
 
@@ -107,6 +132,7 @@ export interface ColumnDef {
       min-height: 0;
       min-width: 0;
       overflow: hidden;
+      contain: layout style paint;
     }
 
     .file-details {
@@ -130,6 +156,8 @@ export interface ColumnDef {
       height: 24px;
       padding: 0 var(--vsc-padding-md);
       border-bottom: 1px solid transparent;
+      flex-shrink: 0;
+      contain: layout style paint;
       
       &.header-row {
         height: 28px;
@@ -196,18 +224,14 @@ export interface ColumnDef {
       
       .sort-indicator {
         margin-left: var(--vsc-padding-lg);
-
         display: inline-flex;
         align-items: center;
         justify-content: center;
-
         width: 12px;
         height: 12px;
         flex: 0 0 12px;
-
         font-size: 12px;
         line-height: 1;
-
         transform-origin: 50% 50%;
         transition: transform 0.15s ease;
 
@@ -220,6 +244,20 @@ export interface ColumnDef {
       flex: 1;
       position: relative;
       overflow-y: auto;
+      overflow-x: hidden;
+    }
+    
+    .virtual-spacer {
+      width: 1px;
+      pointer-events: none;
+    }
+    
+    .details-window.virtual-window {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 0;
+      will-change: transform;
     }
 
     .selection-rect {
@@ -236,7 +274,6 @@ export interface ColumnDef {
       flex-shrink: 0;
     }
 
-    /* Dir-symlink overlay indicator */
     .dir-symlink-icon {
       position: relative;
       &::after {
@@ -255,17 +292,21 @@ export interface ColumnDef {
       text-overflow: ellipsis;
     }
 
-    /* Column specific widths */
     .col-name { flex: 2; }
     .col-size { width: 100px; text-align: right; justify-content: flex-end; }
     .col-date { width: 150px; }
     .col-type { width: 100px; }
   `]
 })
-export class FileDetailsComponent implements OnDestroy {
-  FileType = FileType; // for template access
+export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit {
+  FileType = FileType;
   
-  constructor(private zone: NgZone) {}
+  constructor(
+    private zone: NgZone,
+    private cdr: ChangeDetectorRef
+  ) {}
+
+  @ViewChild('detailsBody') detailsBodyRef?: ElementRef<HTMLElement>;
 
   @Input() entries: FileInfo[] = [];
   @Input() selectedFiles: Set<string> = new Set();
@@ -285,6 +326,18 @@ export class FileDetailsComponent implements OnDestroy {
   @Output() contextMenu = new EventEmitter<{ event: MouseEvent; entry: FileInfo }>();
   @Output() dragStart = new EventEmitter<{ event: DragEvent; entries: FileInfo[] }>();
   @Output() dragDrop = new EventEmitter<{ event: DragEvent; source: FileInfo[]; target: FileInfo }>();
+
+  private readonly VIRTUAL_THRESHOLD = 100;
+  private readonly DEFAULT_ROW_HEIGHT = 24;
+  rowHeight = 24;
+  private readonly overscan = 5;
+  private scrollRAF: number | null = null;
+  private boundScrollListener?: () => void;
+  private resizeObserver?: ResizeObserver;
+
+  private virtualStart = 0;
+  private virtualEnd = 0;
+  private viewportHeight = 0;
 
   private anchorPath: string | null = null;
   private dropTargetPath: string | null = null;
@@ -314,8 +367,151 @@ export class FileDetailsComponent implements OnDestroy {
     return this.selectionRect.active && this.marqueeButton !== 2;
   }
 
+  get virtualEnabled(): boolean {
+    return this.entries.length >= this.VIRTUAL_THRESHOLD;
+  }
+
+  get visibleEntries(): FileInfo[] {
+    if (!this.virtualEnabled) return this.entries;
+    return this.entries.slice(this.virtualStart, this.virtualEnd);
+  }
+
+  get totalContentHeight(): number {
+    return this.entries.length * this.rowHeight;
+  }
+
+  get virtualWindowTransform(): string {
+    if (!this.virtualEnabled) return '';
+    return `translateY(${this.virtualStart * this.rowHeight}px)`;
+  }
+
+  ngAfterViewInit(): void {
+    const element = this.detailsBodyRef?.nativeElement;
+    this.viewportHeight = element?.clientHeight || 0;
+    this.setupResizeObserver();
+    this.setupScrollListener();
+    this.updateVirtualWindow();
+    requestAnimationFrame(() => this.measureRowHeight());
+  }
+
+  ngOnChanges(changes: SimpleChanges): void {
+    if (changes['entries'] || changes['columns']) {
+      const entriesChange = changes['entries'];
+      if (entriesChange) {
+        const prevLen = entriesChange.previousValue?.length || 0;
+        const currLen = entriesChange.currentValue?.length || 0;
+        if (Math.abs(prevLen - currLen) > 1000) {
+          this.resetScroll();
+        }
+      }
+      this.updateVirtualWindow();
+      queueMicrotask(() => requestAnimationFrame(() => this.measureRowHeight()));
+      this.cdr.markForCheck();
+    }
+  }
+
   ngOnDestroy(): void {
     this.detachMarqueeListeners();
+    this.cleanupResizeObserver();
+    this.cleanupScrollListener();
+    if (this.scrollRAF) {
+      cancelAnimationFrame(this.scrollRAF);
+    }
+  }
+
+  private setupResizeObserver(): void {
+    if (!this.detailsBodyRef?.nativeElement) return;
+    
+    this.resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        this.viewportHeight = entry.contentRect.height;
+        this.updateVirtualWindow();
+        this.cdr.markForCheck();
+      }
+    });
+    
+    this.resizeObserver.observe(this.detailsBodyRef.nativeElement);
+  }
+
+  private cleanupResizeObserver(): void {
+    this.resizeObserver?.disconnect();
+  }
+
+  private setupScrollListener(): void {
+    const element = this.detailsBodyRef?.nativeElement;
+    if (!element) return;
+    this.boundScrollListener = () => this.onScroll();
+    element.addEventListener('scroll', this.boundScrollListener, { passive: true });
+  }
+
+  private cleanupScrollListener(): void {
+    const element = this.detailsBodyRef?.nativeElement;
+    if (!element || !this.boundScrollListener) return;
+    element.removeEventListener('scroll', this.boundScrollListener);
+    this.boundScrollListener = undefined;
+  }
+
+  private onScroll(): void {
+    if (this.scrollRAF) return;
+    this.scrollRAF = requestAnimationFrame(() => {
+      this.scrollRAF = null;
+      this.updateVirtualWindow();
+      this.cdr.markForCheck();
+    });
+  }
+
+  private resetScroll(): void {
+    const element = this.detailsBodyRef?.nativeElement;
+    if (element) {
+      element.scrollTop = 0;
+    }
+    this.virtualStart = 0;
+    this.virtualEnd = Math.min(this.overscan * 2, this.entries.length);
+  }
+
+  private updateVirtualWindow(): void {
+    if (!this.virtualEnabled) {
+      this.virtualStart = 0;
+      this.virtualEnd = this.entries.length;
+      return;
+    }
+
+    const element = this.detailsBodyRef?.nativeElement;
+    const scrollTop = element?.scrollTop ?? 0;
+
+    const viewportHeight = this.viewportHeight || element?.clientHeight || 0;
+    if (viewportHeight <= 0) {
+      this.virtualStart = 0;
+      this.virtualEnd = Math.min(this.entries.length, this.overscan * 4);
+      return;
+    }
+    const visibleCount = Math.max(1, Math.ceil(viewportHeight / this.rowHeight));
+    
+    const start = Math.max(0, Math.floor(scrollTop / this.rowHeight) - this.overscan);
+    const end = Math.min(this.entries.length, start + visibleCount + this.overscan * 2);
+
+    if (start !== this.virtualStart || end !== this.virtualEnd) {
+      this.virtualStart = start;
+      this.virtualEnd = end;
+    }
+  }
+
+  private measureRowHeight(): void {
+    const host = this.detailsBodyRef?.nativeElement;
+    if (!host) return;
+    const row = host.querySelector<HTMLElement>('.details-row[data-path]');
+    if (!row) return;
+    const measured = Math.ceil(row.getBoundingClientRect().height);
+    if (!Number.isFinite(measured) || measured <= 0) return;
+    const next = Math.max(this.DEFAULT_ROW_HEIGHT, measured);
+    if (Math.abs(next - this.rowHeight) < 1) return;
+    this.rowHeight = next;
+    this.updateVirtualWindow();
+    this.cdr.markForCheck();
+  }
+
+  trackByPath(_i: number, entry: FileInfo): string {
+    return entry.path;
   }
 
   isParentEntry(entry: FileInfo): boolean {
@@ -331,15 +527,12 @@ export class FileDetailsComponent implements OnDestroy {
   }
 
   onRowClick(entry: FileInfo, event: MouseEvent): void {
-    if (this.isParentEntry(entry)) {
-      return; // navigate only on double-click
-    }
+    if (this.isParentEntry(entry)) return;
 
     if (event.ctrlKey || event.metaKey) {
       this.selectionChange.emit(this.buildToggledSelection(entry));
       this.anchorPath = entry.path;
     } else if (event.shiftKey && this.anchorPath) {
-      // Range selection
       this.rangeSelect(entry);
     } else {
       this.anchorPath = entry.path;
@@ -359,17 +552,19 @@ export class FileDetailsComponent implements OnDestroy {
     }
 
     event.preventDefault();
-    if (this.isParentEntry(entry)) {
-      return;
-    }
+    if (this.isParentEntry(entry)) return;
 
     if (this.isSelected(entry)) {
-      const nextSelection = this.entries.filter(e => this.selectedFiles.has(e.path) && e.path !== entry.path && !this.isParentEntry(e));
+      const nextSelection = this.entries.filter(e => 
+        this.selectedFiles.has(e.path) && e.path !== entry.path && !this.isParentEntry(e)
+      );
       this.selectionChange.emit(nextSelection);
     } else {
       const selected = new Set(this.selectedFiles);
       selected.add(entry.path);
-      this.selectionChange.emit(this.entries.filter(e => selected.has(e.path) && !this.isParentEntry(e)));
+      this.selectionChange.emit(this.entries.filter(e => 
+        selected.has(e.path) && !this.isParentEntry(e)
+      ));
       this.anchorPath = entry.path;
     }
     this.contextMenu.emit({ event, entry });
@@ -443,6 +638,7 @@ export class FileDetailsComponent implements OnDestroy {
     window.addEventListener('mousemove', this.windowMouseMove);
     window.addEventListener('mouseup', this.windowMouseUp);
     window.addEventListener('contextmenu', this.windowContextMenu, true);
+    
     if (event.button === 0) {
       event.preventDefault();
     }
@@ -456,6 +652,7 @@ export class FileDetailsComponent implements OnDestroy {
     const top = Math.min(this.marqueeStartY, y);
     const width = Math.abs(x - this.marqueeStartX);
     const height = Math.abs(y - this.marqueeStartY);
+    
     if (width > 2 || height > 2) {
       this.hasMarqueeMoved = true;
       if (this.pendingClearOnMove) {
@@ -466,8 +663,10 @@ export class FileDetailsComponent implements OnDestroy {
         this.suppressItemContextMenu = true;
       }
     }
+    
     this.selectionRect = { active: true, left, top, width, height };
     this.emitMarqueeSelection();
+    this.cdr.markForCheck();
   }
 
   private emitMarqueeSelection(): void {
@@ -484,6 +683,7 @@ export class FileDetailsComponent implements OnDestroy {
       const rowRect = row.getBoundingClientRect();
       const rowLeft = rowRect.left - containerRect.left + this.marqueeContainer.scrollLeft;
       const rowTop = rowRect.top - containerRect.top + this.marqueeContainer.scrollTop;
+      
       const intersects =
         rowLeft < this.selectionRect.left + this.selectionRect.width &&
         rowLeft + rowRect.width > this.selectionRect.left &&
@@ -510,6 +710,7 @@ export class FileDetailsComponent implements OnDestroy {
     this.hasMarqueeMoved = false;
     this.pendingClearOnMove = false;
     this.selectionRect = { active: false, left: 0, top: 0, width: 0, height: 0 };
+    this.cdr.markForCheck();
   }
 
   private detachMarqueeListeners(): void {
@@ -556,7 +757,7 @@ export class FileDetailsComponent implements OnDestroy {
   getIcon(entry: FileInfo): string {
     if (this.isParentEntry(entry)) return '↩';
     if (entry.type === FileType.DIRECTORY) return '📁';
-    if (entry.type === FileType.SYMLINK) return '🔗'; // file symlink
+    if (entry.type === FileType.SYMLINK) return '🔗';
     return '📄';
   }
 
@@ -584,13 +785,11 @@ export class FileDetailsComponent implements OnDestroy {
     const startIdx = selectable.findIndex(e => e.path === this.anchorPath);
     const endIdx = selectable.findIndex(e => e.path === entry.path);
 
-    if (startIdx === -1 || endIdx === -1) {
-      return;
-    }
+    if (startIdx === -1 || endIdx === -1) return;
 
     const [min, max] = [Math.min(startIdx, endIdx), Math.max(startIdx, endIdx)];
-
     const range: FileInfo[] = [];
+    
     for (let i = min; i <= max; i++) {
       if (!this.isParentEntry(selectable[i])) {
         range.push(selectable[i]);
@@ -623,6 +822,7 @@ export class FileDetailsComponent implements OnDestroy {
   onDragOver(event: DragEvent, entry: FileInfo): void {
     if (this.isParentEntry(entry) || entry.type !== FileType.DIRECTORY) return;
     event.preventDefault();
+    
     if (event.dataTransfer) {
       event.dataTransfer.dropEffect = event.ctrlKey || event.metaKey ? 'copy' : 'move';
     }

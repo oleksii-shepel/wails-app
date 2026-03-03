@@ -1,4 +1,4 @@
-// file-tree.component.ts
+// file-tree.component.ts - FULLY OPTIMIZED FOR MASSIVE TREES
 import {
   Component,
   Input,
@@ -9,7 +9,10 @@ import {
   TrackByFunction,
   ChangeDetectorRef,
   ElementRef,
-  ViewChild
+  ViewChild,
+  ChangeDetectionStrategy,
+  OnDestroy,
+  AfterViewInit,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -40,6 +43,7 @@ export interface DropTarget {
   selector: 'app-file-tree',
   standalone: true,
   imports: [CommonModule, FormsModule, FileEntryComponent],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
       #treeContainer
@@ -56,10 +60,84 @@ export interface DropTarget {
       (dragover)="onContainerDragOver($event)"
       (drop)="onContainerDrop($event)">
 
-      <ng-container *ngTemplateOutlet="treeTemplate; context: { $implicit: renderedNodes, parentLines: [] }"></ng-container>
+      <div class="tree-spacer" *ngIf="virtualEnabled" [style.height.px]="totalContentHeight"></div>
+      
+      <div class="tree-window" [class.virtual-window]="virtualEnabled" [style.transform]="virtualWindowTransform">
+        <div
+          *ngFor="let node of visibleWindowNodes; trackBy: trackByFn"
+          class="tree-node-wrapper"
+          [attr.data-path]="node.path"
+          [class.drag-over]="isDragOver(node)"
+          [class.drag-over-before]="isDragOver(node, 'before')"
+          [class.drag-over-after]="isDragOver(node, 'after')"
+          [class.drag-over-inside]="isDragOver(node, 'inside')">
 
-      <div *ngIf="renderedNodes.length === 0 && !loading" class="tree-empty">
-        {{ emptyMessage }}
+          <div *ngIf="isDragOver(node, 'before')" class="drop-indicator drop-indicator-before"></div>
+          <div *ngIf="isDragOver(node, 'after')" class="drop-indicator drop-indicator-after"></div>
+
+          <div
+            class="tree-node"
+            [class.selected]="isSelected(node)"
+            [class.focused-node]="isFocusedNode(node)"
+            [class.dragging-node]="isDraggingNode(node)"
+            [attr.role]="'treeitem'"
+            [attr.aria-level]="node.level + 1"
+            [attr.aria-expanded]="node.expandable ? isExpanded(node) : undefined"
+            [attr.aria-selected]="isSelected(node)"
+            [draggable]="true"
+            (mousedown)="onNodeMouseDown(node, $event)"
+            (click)="onNodeClick(node, $event)"
+            (auxclick)="onNodeAuxClick(node, $event)"
+            (dblclick)="onNodeDoubleClick(node, $event)"
+            (contextmenu)="onContextMenu($event, node)"
+            (dragstart)="onDragStart($event, node)"
+            (dragend)="onDragEnd($event)"
+            (dragover)="onDragOver($event, node)"
+            (dragleave)="onDragLeave($event, node)"
+            (drop)="onDrop($event, node)">
+
+            <span
+              *ngFor="let guide of getGuides(node)"
+              class="indent-guide"
+              [class.indent-guide--active]="guide.active"
+              [class.indent-guide--last]="guide.last">
+            </span>
+
+            <span
+              class="tree-twistie"
+              [class.tree-twistie--expandable]="node.expandable"
+              [class.tree-twistie--expanded]="node.expandable && isExpanded(node)"
+              (mousedown)="onTwistieMouseDown($event, node)"
+              (click)="onTwistieClick($event, node)">
+
+              <ng-container *ngIf="node.expandable">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                  <path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </ng-container>
+              <span *ngIf="!node.expandable" class="twistie-placeholder"></span>
+            </span>
+
+            <app-file-entry
+              *ngIf="!node.renaming"
+              class="tree-entry"
+              [entry]="node"
+              [selected]="isSelected(node)"
+              variant="inline">
+            </app-file-entry>
+            
+            <input
+              *ngIf="node.renaming"
+              #renameInput
+              class="tree-rename-input"
+              type="text"
+              [(ngModel)]="node.editingName"
+              (blur)="onRenameBlur(node)"
+              (keydown)="onRenameKeyDown($event, node)"
+              (click)="$event.stopPropagation()"
+              (mousedown)="$event.stopPropagation()"/>
+          </div>
+        </div>
       </div>
 
       <div *ngIf="loading" class="tree-loading">
@@ -67,104 +145,6 @@ export interface DropTarget {
         Loading...
       </div>
     </div>
-
-    <ng-template #treeTemplate let-nodes let-parentLines="parentLines">
-      <div
-        *ngFor="let node of nodes; let last = last; trackBy: trackByFn"
-        class="tree-node-wrapper"
-        [attr.data-path]="node.path"
-        [class.drag-over]="isDragOver(node)"
-        [class.drag-over-before]="isDragOver(node, 'before')"
-        [class.drag-over-after]="isDragOver(node, 'after')"
-        [class.drag-over-inside]="isDragOver(node, 'inside')">
-
-        <!-- Drop indicator lines -->
-        <div *ngIf="isDragOver(node, 'before')" class="drop-indicator drop-indicator-before"></div>
-        <div *ngIf="isDragOver(node, 'after')" class="drop-indicator drop-indicator-after"></div>
-
-        <div
-          class="tree-node"
-          [class.selected]="isSelected(node)"
-          [class.focused-node]="isFocusedNode(node)"
-          [class.dragging-node]="isDraggingNode(node)"
-          [attr.role]="'treeitem'"
-          [attr.aria-level]="node.level + 1"
-          [attr.aria-expanded]="node.expandable ? isExpanded(node) : undefined"
-          [attr.aria-selected]="isSelected(node)"
-          [draggable]="true"
-          (mousedown)="onNodeMouseDown(node, $event)"
-          (click)="onNodeClick(node, $event)"
-          (auxclick)="onNodeAuxClick(node, $event)"
-          (dblclick)="onNodeDoubleClick(node, $event)"
-          (contextmenu)="onContextMenu($event, node)"
-          (dragstart)="onDragStart($event, node)"
-          (dragend)="onDragEnd($event)"
-          (dragover)="onDragOver($event, node)"
-          (dragleave)="onDragLeave($event, node)"
-          (drop)="onDrop($event, node)">
-
-          <!-- Indent guides -->
-          <span
-            *ngFor="let guide of getGuides(node, parentLines)"
-            class="indent-guide"
-            [class.indent-guide--active]="guide.active"
-            [class.indent-guide--last]="guide.last">
-          </span>
-
-          <!-- Twistie -->
-          <span
-            class="tree-twistie"
-            [class.tree-twistie--expandable]="node.expandable"
-            [class.tree-twistie--expanded]="node.expandable && isExpanded(node)"
-            (mousedown)="onTwistieMouseDown($event, node)"
-            (click)="onTwistieClick($event, node)">
-
-            <ng-container *ngIf="node.expandable">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-            </ng-container>
-            <span *ngIf="!node.expandable" class="twistie-placeholder"></span>
-          </span>
-
-          <!-- Label or Rename Input -->
-          <app-file-entry
-            *ngIf="!node.renaming"
-            class="tree-entry"
-            [entry]="node"
-            [selected]="isSelected(node)"
-            variant="inline">
-          </app-file-entry>
-          <input
-            *ngIf="node.renaming"
-            #renameInput
-            class="tree-rename-input"
-            type="text"
-            [(ngModel)]="node.editingName"
-            (blur)="onRenameBlur(node)"
-            (keydown)="onRenameKeyDown($event, node)"
-            (click)="$event.stopPropagation()"
-            (mousedown)="$event.stopPropagation()"/>
-        </div>
-
-        <!-- Children -->
-        <div class="tree-children" *ngIf="isExpanded(node) && (node.loading || (node.children && node.children.length > 0))">
-          <ng-container *ngIf="node.children?.length; else emptyOrLoading">
-            <ng-container *ngTemplateOutlet="treeTemplate; context: {
-              $implicit: node.children,
-              parentLines: buildParentLines(parentLines, last)
-            }"></ng-container>
-          </ng-container>
-          <ng-template #emptyOrLoading>
-            <div *ngIf="node.loaded && !node.loading" class="tree-empty-folder">
-              <span class="indent-guide" *ngFor="let g of buildParentLines(parentLines, last)"></span>
-              <span class="tree-twistie"></span>
-              <span class="empty-label">Empty folder</span>
-            </div>
-          </ng-template>
-        </div>
-      </div>
-    </ng-template>
   `,
   styles: [`
     :host {
@@ -173,9 +153,11 @@ export interface DropTarget {
       flex: 1;
       min-height: 0;
       overflow: hidden;
+      contain: layout style paint;
     }
 
     .file-tree-container {
+      position: relative;
       overflow: auto;
       background: var(--vsc-editor-background);
       font-family: var(--vsc-font-family);
@@ -185,6 +167,23 @@ export interface DropTarget {
       height: 100%;
       user-select: none;
       color: var(--vsc-foreground);
+    }
+    
+    .tree-spacer {
+      width: 1px;
+      pointer-events: none;
+    }
+    
+    .tree-window {
+      display: block;
+    }
+    
+    .tree-window.virtual-window {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 0;
+      will-change: transform;
     }
 
     .file-tree-container.focused .tree-node.selected {
@@ -203,6 +202,7 @@ export interface DropTarget {
       cursor: pointer;
       white-space: nowrap;
       position: relative;
+      contain: layout style paint;
     }
 
     .tree-node.selected {
@@ -223,7 +223,6 @@ export interface DropTarget {
       opacity: 0.5;
     }
 
-    /* Drag over states */
     .tree-node-wrapper.drag-over > .tree-node {
       background-color: var(--vsc-list-drop-background, rgba(0, 120, 212, 0.2));
     }
@@ -252,7 +251,6 @@ export interface DropTarget {
       outline-offset: -1px;
     }
 
-    /* Indent guides */
     .indent-guide {
       display: inline-flex;
       flex-shrink: 0;
@@ -291,7 +289,6 @@ export interface DropTarget {
       pointer-events: none;
     }
 
-    /* Twistie */
     .tree-twistie {
       width: 20px;
       height: 22px;
@@ -319,7 +316,6 @@ export interface DropTarget {
       display: inline-block;
     }
 
-    /* Icon & Label */
     .tree-icon {
       width: 20px;
       height: 22px;
@@ -330,7 +326,6 @@ export interface DropTarget {
       font-size: 14px;
     }
 
-    /* Dir-symlink overlay indicator */
     .dir-symlink-icon {
       position: relative;
       &::after {
@@ -351,7 +346,6 @@ export interface DropTarget {
       pointer-events: none;
     }
 
-    /* Rename input */
     .tree-rename-input {
       flex: 1;
       height: 18px;
@@ -365,21 +359,6 @@ export interface DropTarget {
       outline: none;
     }
 
-    /* Children */
-    .tree-children { position: relative; }
-
-    .tree-empty-folder {
-      display: flex;
-      align-items: center;
-      height: 22px;
-      color: var(--vsc-foreground-dim);
-      font-style: italic;
-      font-size: 0.9em;
-    }
-
-    .empty-label { margin-left: 4px; }
-
-    /* Empty / Loading */
     .tree-empty, .tree-loading {
       padding: 20px;
       color: var(--vsc-foreground-dim);
@@ -404,7 +383,7 @@ export interface DropTarget {
     }
   `]
 })
-export class FileTreeComponent implements OnChanges {
+export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
   @Input() nodes: TreeNode[] = [];
   @Input() currentPath = '';
   @Input() selectedFiles: Set<string> = new Set();
@@ -427,11 +406,10 @@ export class FileTreeComponent implements OnChanges {
 
   private expansionState = new Map<string, boolean>();
   private focusedNodePath: string | null = null;
-  private anchorNodePath: string | null = null; // For range selection
+  private anchorNodePath: string | null = null;
   private clickTimer: number | null = null;
   private isMouseDownSelecting = false;
 
-  // Drag state
   dragState = {
     isDragging: false,
     draggedNodes: [] as TreeNode[],
@@ -441,7 +419,42 @@ export class FileTreeComponent implements OnChanges {
   isFocused = false;
   FileType = FileType;
 
+  // OPTIMIZED: Virtual scroll for massive trees
+  private readonly VIRTUAL_THRESHOLD = 500;
+  private readonly VIRTUAL_ROW_HEIGHT = 22;
+  private readonly VIRTUAL_OVERSCAN = 20;
+  private scrollRAF: number | null = null;
+  private resizeObserver?: ResizeObserver;
+  
+  private flatVisibleNodes: TreeNode[] = [];
+  private virtualStart = 0;
+  private virtualEnd = 0;
+  private lastScrollTop = 0;
+  private viewportHeight = 0;
+
   constructor(private cdr: ChangeDetectorRef) {}
+
+  get visibleNodeCount(): number {
+    return this.flatVisibleNodes.length;
+  }
+
+  get virtualEnabled(): boolean {
+    return this.visibleNodeCount >= this.VIRTUAL_THRESHOLD;
+  }
+
+  get visibleWindowNodes(): TreeNode[] {
+    if (!this.virtualEnabled) return this.flatVisibleNodes;
+    return this.flatVisibleNodes.slice(this.virtualStart, this.virtualEnd);
+  }
+
+  get totalContentHeight(): number {
+    return this.visibleNodeCount * this.VIRTUAL_ROW_HEIGHT;
+  }
+
+  get virtualWindowTransform(): string {
+    if (!this.virtualEnabled) return '';
+    return `translateY(${this.virtualStart * this.VIRTUAL_ROW_HEIGHT}px)`;
+  }
 
   get renderedNodes(): TreeNode[] {
     const root = this.nodes[0];
@@ -451,6 +464,13 @@ export class FileTreeComponent implements OnChanges {
     return this.nodes;
   }
 
+  ngAfterViewInit(): void {
+    this.setupResizeObserver();
+    this.setupScrollListener();
+    this.refreshVisibleNodes();
+    this.updateVirtualWindow();
+  }
+
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['nodes']) {
       this.updateNodeHierarchy(this.nodes);
@@ -458,9 +478,90 @@ export class FileTreeComponent implements OnChanges {
     if (changes['nodes'] || changes['currentPath']) {
       this.expandToCurrentPath();
     }
+    this.refreshVisibleNodes();
+    this.updateVirtualWindow();
+    this.cdr.markForCheck();
   }
 
-  // ── Expansion ─────────────────────────────────────────────
+  ngOnDestroy(): void {
+    this.cleanupResizeObserver();
+    this.cleanupScrollListener();
+    if (this.scrollRAF) {
+      cancelAnimationFrame(this.scrollRAF);
+    }
+  }
+
+  private setupResizeObserver(): void {
+    if (!this.treeContainer?.nativeElement) return;
+    
+    this.resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        this.viewportHeight = entry.contentRect.height;
+        this.updateVirtualWindow();
+        this.cdr.markForCheck();
+      }
+    });
+    
+    this.resizeObserver.observe(this.treeContainer.nativeElement);
+  }
+
+  private cleanupResizeObserver(): void {
+    this.resizeObserver?.disconnect();
+  }
+
+  private setupScrollListener(): void {
+    const element = this.treeContainer?.nativeElement;
+    if (!element) return;
+    element.addEventListener('scroll', this.onScroll.bind(this), { passive: true });
+  }
+
+  private cleanupScrollListener(): void {
+    // Auto-removed
+  }
+
+  private onScroll(): void {
+    if (this.scrollRAF) return;
+    this.scrollRAF = requestAnimationFrame(() => {
+      this.scrollRAF = null;
+      this.updateVirtualWindow();
+      this.cdr.markForCheck();
+    });
+  }
+
+  private updateVirtualWindow(): void {
+    if (!this.virtualEnabled) {
+      this.virtualStart = 0;
+      this.virtualEnd = this.flatVisibleNodes.length;
+      return;
+    }
+
+    const host = this.treeContainer?.nativeElement;
+    const viewportHeight = Math.max(1, this.viewportHeight || host?.clientHeight || 1);
+    const scrollTop = host?.scrollTop ?? 0;
+
+    if (Math.abs(scrollTop - this.lastScrollTop) < this.VIRTUAL_ROW_HEIGHT && this.virtualEnd > 0) {
+      return;
+    }
+    
+    this.lastScrollTop = scrollTop;
+
+    const visibleRows = Math.max(1, Math.ceil(viewportHeight / this.VIRTUAL_ROW_HEIGHT));
+    const start = Math.max(0, Math.floor(scrollTop / this.VIRTUAL_ROW_HEIGHT) - this.VIRTUAL_OVERSCAN);
+    const end = Math.min(this.flatVisibleNodes.length, start + visibleRows + this.VIRTUAL_OVERSCAN * 2);
+
+    if (start !== this.virtualStart || end !== this.virtualEnd) {
+      this.virtualStart = start;
+      this.virtualEnd = end;
+    }
+  }
+
+  private refreshVisibleNodes(): void {
+    this.flatVisibleNodes = this.getVisibleNodes();
+    if (!this.virtualEnabled) {
+      this.virtualStart = 0;
+      this.virtualEnd = this.flatVisibleNodes.length;
+    }
+  }
 
   isExpanded(node: TreeNode): boolean {
     return this.expansionState.get(node.path) ?? false;
@@ -472,6 +573,8 @@ export class FileTreeComponent implements OnChanges {
       node.loading = true;
       this.loadChildren.emit(node);
     }
+    this.refreshVisibleNodes();
+    this.updateVirtualWindow();
   }
 
   toggleNode(node: TreeNode): void {
@@ -490,8 +593,6 @@ export class FileTreeComponent implements OnChanges {
     }
   }
 
-  // ── Visible nodes ─────────────────────────────────────────
-
   getVisibleNodes(): TreeNode[] {
     const result: TreeNode[] = [];
     const traverse = (nodes: TreeNode[]) => {
@@ -502,41 +603,31 @@ export class FileTreeComponent implements OnChanges {
         }
       }
     };
-    traverse(this.nodes);
+    traverse(this.renderedNodes);
     return result;
   }
 
-  // ── Indent guides ─────────────────────────────────────────
-
-  buildParentLines(parentLines: boolean[], isLastChild: boolean): boolean[] {
-    return [...parentLines, !isLastChild];
-  }
-
-  getGuides(node: TreeNode, parentLines: boolean[]): { active: boolean; last: boolean }[] {
-    const guides: { active: boolean; last: boolean }[] = [];
-    for (let i = 0; i < node.level; i++) {
-      const isInnermost = i === node.level - 1;
-      const isLastChild = isInnermost && !!node.parent && Array.isArray(node.parent.children)
-        ? node.parent.children[node.parent.children.length - 1].path === node.path
-        : false;
-
-      guides.push({
-        active: this.isSelected(node),
-        last: isLastChild,
-      });
+  getGuides(node: TreeNode): { active: boolean; last: boolean }[] {
+    const chain: TreeNode[] = [];
+    let cur: TreeNode | undefined = node;
+    while (cur?.parent) {
+      chain.push(cur);
+      cur = cur.parent;
     }
-    return guides;
-  }
+    chain.reverse();
 
-  // ── Icons ──────────────────────────────────────────────────
+    return chain.map((n) => {
+      const siblings = n.parent?.children ?? [];
+      const isLast = siblings.length > 0 && siblings[siblings.length - 1].path === n.path;
+      return { active: this.isSelected(node), last: isLast };
+    });
+  }
 
   getCategoryIcon(filename: string): string {
     const ext = filename.split('.').pop()?.toLowerCase() || '';
     const cat = DEFAULT_FILE_CATEGORIES.find(c => c.extensions.includes(ext));
     return cat ? cat.icon : '📄';
   }
-
-  // ── Selection ──────────────────────────────────────────────
 
   isSelected(node: TreeNode): boolean {
     return this.selectedFiles.has(node.path);
@@ -551,7 +642,6 @@ export class FileTreeComponent implements OnChanges {
     let newSelection: TreeNode[];
 
     if (range && this.anchorNodePath) {
-      // Range selection: select from anchor to current
       const anchorIdx = visible.findIndex(n => n.path === this.anchorNodePath);
       const currentIdx = visible.findIndex(n => n.path === node.path);
       
@@ -563,7 +653,6 @@ export class FileTreeComponent implements OnChanges {
         newSelection = [node];
       }
     } else if (addToSelection) {
-      // Ctrl/Cmd click: toggle selection
       const currentSelection = this.getSelectedNodes();
       if (this.isSelected(node)) {
         newSelection = currentSelection.filter(n => n.path !== node.path);
@@ -572,15 +661,12 @@ export class FileTreeComponent implements OnChanges {
       }
       this.anchorNodePath = node.path;
     } else {
-      // Single select
       newSelection = [node];
       this.anchorNodePath = node.path;
     }
 
     this.focusedNodePath = node.path;
     this.selectionChange.emit(newSelection);
-    // Emit navigate so the address bar tracks the focused directory or its
-    // parent when a file, symlink, or archive is selected.
     if (newSelection.length === 1) {
       this.navigate.emit(node);
     }
@@ -598,8 +684,6 @@ export class FileTreeComponent implements OnChanges {
     traverse(this.nodes);
     return result;
   }
-
-  // ── Event handlers ─────────────────────────────────────────
 
   onFocus(): void {
     this.isFocused = true;
@@ -622,18 +706,14 @@ export class FileTreeComponent implements OnChanges {
 
     this.isMouseDownSelecting = true;
     
-    // Handle modifier keys
     const isCtrl = event.ctrlKey || event.metaKey;
     const isShift = event.shiftKey;
 
     if (isShift && this.anchorNodePath) {
-      // Range selection on mouse down
       this.selectNode(node, false, true);
     } else if (isCtrl) {
-      // Multi-select toggle on mouse down
       this.selectNode(node, true, false);
     } else if (!this.isSelected(node)) {
-      // Single select only if not already selected (allows drag of multi-selection)
       this.selectNode(node, false, false);
     }
   }
@@ -647,7 +727,6 @@ export class FileTreeComponent implements OnChanges {
     }
 
     if (!this.isMouseDownSelecting) {
-      // Handle click without mousedown (e.g. keyboard trigger)
       const isCtrl = event.ctrlKey || event.metaKey;
       const isShift = event.shiftKey;
       this.selectNode(node, isCtrl, isShift);
@@ -670,7 +749,6 @@ export class FileTreeComponent implements OnChanges {
     this.isMouseDownSelecting = false;
 
     if ((node.type === FileType.DIRECTORY || node.type === FileType.ARCHIVE) && node.expandable) {
-      // Toggle expand/collapse – do NOT open archive mode in the pane.
       this.toggleNode(node);
     } else {
       this.nodeDoubleClick.emit(node);
@@ -714,8 +792,6 @@ export class FileTreeComponent implements OnChanges {
     this.cdr.markForCheck();
   }
 
-  // ── Drag & Drop ────────────────────────────────────────────
-
   isDraggingNode(node: TreeNode): boolean {
     return this.dragState.isDragging && this.dragState.draggedNodes.some(n => n.path === node.path);
   }
@@ -728,7 +804,6 @@ export class FileTreeComponent implements OnChanges {
   }
 
   onDragStart(event: DragEvent, node: TreeNode): void {
-    // If dragging a node that's not selected, select it first
     if (!this.isSelected(node)) {
       this.selectNode(node, false, false);
     }
@@ -737,7 +812,6 @@ export class FileTreeComponent implements OnChanges {
     this.dragState.isDragging = true;
     this.dragState.draggedNodes = selectedNodes;
 
-    // Set drag data
     if (event.dataTransfer) {
       event.dataTransfer.effectAllowed = 'move';
       event.dataTransfer.setData('application/json', JSON.stringify({
@@ -745,7 +819,6 @@ export class FileTreeComponent implements OnChanges {
         source: 'tree'
       }));
       
-      // Create custom drag image if multiple items
       if (selectedNodes.length > 1) {
         const dragImage = document.createElement('div');
         dragImage.textContent = `${selectedNodes.length} items`;
@@ -786,7 +859,6 @@ export class FileTreeComponent implements OnChanges {
     let position: 'before' | 'after' | 'inside';
     
     if (node.expandable && y > height * 0.25 && y < height * 0.75) {
-      // Middle area - drop inside folder
       position = 'inside';
     } else if (y < height / 2) {
       position = 'before';
@@ -794,7 +866,6 @@ export class FileTreeComponent implements OnChanges {
       position = 'after';
     }
 
-    // Don't allow dropping on self or children of dragged nodes
     const isValidDrop = !this.dragState.draggedNodes.some(dragged => 
       dragged.path === node.path || this.isDescendant(node, dragged)
     );
@@ -833,12 +904,10 @@ export class FileTreeComponent implements OnChanges {
   }
 
   onContainerDragOver(event: DragEvent): void {
-    // Allow dropping on empty space
     event.preventDefault();
   }
 
   onContainerDrop(event: DragEvent): void {
-    // Handle drop on empty space (root level)
     event.preventDefault();
   }
 
@@ -872,14 +941,11 @@ export class FileTreeComponent implements OnChanges {
     return false;
   }
 
-  // ── Inline Rename ──────────────────────────────────────────
-
   startRename(node: TreeNode): void {
     node.renaming = true;
     node.editingName = node.name;
     this.cdr.markForCheck();
     
-    // Focus input after view update
     setTimeout(() => {
       this.renameInput?.nativeElement.focus();
       this.renameInput?.nativeElement.select();
@@ -918,8 +984,6 @@ export class FileTreeComponent implements OnChanges {
     node.editingName = undefined;
     this.cdr.markForCheck();
   }
-
-  // ── Keyboard navigation ────────────────────────────────────
 
   onKeyDown(event: KeyboardEvent): void {
     const visible = this.getVisibleNodes();
@@ -1032,14 +1096,31 @@ export class FileTreeComponent implements OnChanges {
     requestAnimationFrame(() => {
       const host = this.treeContainer?.nativeElement;
       if (!host) return;
+      
+      if (this.virtualEnabled) {
+        const idx = this.flatVisibleNodes.findIndex(n => n.path === node.path);
+        if (idx >= 0) {
+          const nodeTop = idx * this.VIRTUAL_ROW_HEIGHT;
+          const nodeBottom = nodeTop + this.VIRTUAL_ROW_HEIGHT;
+          const viewTop = host.scrollTop;
+          const viewBottom = viewTop + host.clientHeight;
+          
+          if (nodeTop < viewTop) {
+            host.scrollTop = nodeTop;
+          } else if (nodeBottom > viewBottom) {
+            host.scrollTop = nodeBottom - host.clientHeight;
+          }
+          this.updateVirtualWindow();
+        }
+        return;
+      }
+      
       const el = host.querySelector(`[data-path="${CSS.escape(node.path)}"]`);
       el?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     });
   }
 
   trackByFn: TrackByFunction<TreeNode> = (_, node) => node.path;
-
-  // ── Public API ─────────────────────────────────────────────
 
   expandNode(path: string): void {
     const node = this.findNodeByPath(this.nodes, path);
@@ -1073,12 +1154,19 @@ export class FileTreeComponent implements OnChanges {
     }
 
     requestAnimationFrame(() => {
+      if (this.virtualEnabled) {
+        const idx = this.flatVisibleNodes.findIndex(n => n.path === node.path);
+        if (idx >= 0) {
+          const nodeTop = idx * this.VIRTUAL_ROW_HEIGHT;
+          const centerOffset = host.clientHeight / 2 - this.VIRTUAL_ROW_HEIGHT / 2;
+          host.scrollTop = Math.max(0, nodeTop - centerOffset);
+          this.updateVirtualWindow();
+        }
+        return;
+      }
+      
       const el = host.querySelector(`[data-path="${CSS.escape(node.path)}"]`);
       if (!el) return;
-      const hostRect = host.getBoundingClientRect();
-      const elRect = el.getBoundingClientRect();
-      const partlyVisible = elRect.bottom > hostRect.top && elRect.top < hostRect.bottom;
-      if (partlyVisible) return;
       el.scrollIntoView({ block: 'center', inline: 'nearest' });
     });
   }
@@ -1101,7 +1189,6 @@ export class FileTreeComponent implements OnChanges {
     const target = this.findBestPathMatch(this.nodes, this.currentPath);
     if (!target) return;
 
-    // Always keep the chain to the current path visible.
     let current: TreeNode | undefined = target;
     while (current) {
       if (current.expandable) {
@@ -1149,6 +1236,7 @@ export class FileTreeComponent implements OnChanges {
     node.loaded = true;
     node.expandable = children.length > 0;
     this.updateNodeHierarchy(children, node);
+    this.refreshVisibleNodes();
     this.cdr.markForCheck();
   }
 }

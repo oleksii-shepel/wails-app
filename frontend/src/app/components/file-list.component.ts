@@ -1,20 +1,39 @@
-import { Component, Input, Output, EventEmitter, OnDestroy, NgZone } from '@angular/core';
+// file-list.component.ts
+import {
+  Component,
+  Input,
+  Output,
+  EventEmitter,
+  OnDestroy,
+  OnChanges,
+  AfterViewInit,
+  SimpleChanges,
+  ElementRef,
+  ViewChild,
+  NgZone,
+  ChangeDetectionStrategy,
+  ChangeDetectorRef,
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FileEntryComponent, FileEntrySelectEvent } from './file-entry.component';
 import { FileInfo, FileType } from '../shared/protocol';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
 import { parentPath } from './address-bar.utils';
 
-/**
- * File List Component
- * Displays a list of files and directories
- */
 @Component({
   selector: 'app-file-list',
   standalone: true,
   imports: [CommonModule, FileEntryComponent],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="pane-content" (mousedown)="onListMouseDown($event)" (click)="onBackgroundClick($event)" (contextmenu)="onBackgroundContextMenu($event)">
+    <div
+      #paneContent
+      class="pane-content"
+      [class.virtual]="virtualEnabled"
+      (mousedown)="onListMouseDown($event)"
+      (click)="onBackgroundClick($event)"
+      (contextmenu)="onBackgroundContextMenu($event)">
+      
       <div *ngIf="loading" class="loading">
         <div class="spinner"></div>
         <p>Loading...</p>
@@ -24,25 +43,55 @@ import { parentPath } from './address-bar.utils';
         {{ error }}
       </div>
       
-      <div *ngIf="!loading && !error" class="file-list">
+      <div *ngIf="!loading && !error" class="file-list-container">
         <div
-          *ngFor="let entry of entries"
+          *ngIf="virtualEnabled && parentEntry"
+          #parentRow
           class="file-list-row"
-          [attr.data-path]="entry.path"
-          [class.drop-target]="isDropTarget(entry)"
-          [draggable]="!isParentEntry(entry)"
-          (auxclick)="onItemAuxClick($event, entry)"
-          (dragstart)="onDragStart($event, entry)"
-          (dragover)="onDragOver($event, entry)"
-          (dragleave)="onDragLeave(entry)"
-          (drop)="onDrop($event, entry)"
-          (contextmenu)="onContextMenu($event, entry)">
+          [attr.data-path]="parentEntry.path"
+          [class.drop-target]="isDropTarget(parentEntry)"
+          [draggable]="false"
+          (auxclick)="onItemAuxClick($event, parentEntry)"
+          (dragstart)="onDragStart($event, parentEntry)"
+          (dragover)="onDragOver($event, parentEntry)"
+          (dragleave)="onDragLeave(parentEntry)"
+          (drop)="onDrop($event, parentEntry)"
+          (contextmenu)="onContextMenu($event, parentEntry)">
           <app-file-entry
-            [entry]="entry"
-            [selected]="isSelected(entry)"
+            [entry]="parentEntry"
+            [selected]="isSelected(parentEntry)"
             (select)="onSelect($event)"
             (navigate)="onNavigate($event)">
           </app-file-entry>
+        </div>
+
+        <div class="virtual-spacer" *ngIf="virtualEnabled" [style.height.px]="totalContentHeight"></div>
+        
+        <div
+          class="file-list-window"
+          [class.virtual-window]="virtualEnabled"
+          [style.top.px]="virtualTopOffset"
+          [style.transform]="virtualWindowTransform">
+          <div
+            *ngFor="let entry of visibleEntries; trackBy: trackByPath"
+            class="file-list-row"
+            [attr.data-path]="entry.path"
+            [style.height.px]="virtualEnabled ? rowHeight : null"
+            [class.drop-target]="isDropTarget(entry)"
+            [draggable]="!isParentEntry(entry)"
+            (auxclick)="onItemAuxClick($event, entry)"
+            (dragstart)="onDragStart($event, entry)"
+            (dragover)="onDragOver($event, entry)"
+            (dragleave)="onDragLeave(entry)"
+            (drop)="onDrop($event, entry)"
+            (contextmenu)="onContextMenu($event, entry)">
+            <app-file-entry
+              [entry]="entry"
+              [selected]="isSelected(entry)"
+              (select)="onSelect($event)"
+              (navigate)="onNavigate($event)">
+            </app-file-entry>
+          </div>
         </div>
       </div>
 
@@ -64,15 +113,18 @@ import { parentPath } from './address-bar.utils';
       min-height: 0;
       min-width: 0;
       overflow: hidden;
+      contain: layout style paint;
     }
 
     .pane-content {
       position: relative;
       flex: 1;
       overflow-y: auto;
+      overflow-x: hidden;
       padding: var(--vsc-padding-sm);
       background: var(--vsc-editor-background);
       min-height: 0;
+      contain: layout style paint;
 
       &::-webkit-scrollbar {
         width: 10px;
@@ -128,10 +180,30 @@ import { parentPath } from './address-bar.utils';
       }
     }
 
-    .file-list {
+    .file-list-container {
+      position: relative;
       display: flex;
       flex-direction: column;
-      gap: 1px;
+    }
+
+    .virtual-spacer {
+      width: 1px;
+      pointer-events: none;
+      flex-shrink: 0;
+    }
+
+    .file-list-window {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+
+    .file-list-window.virtual-window {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 0;
+      will-change: transform;
     }
 
     .selection-rect {
@@ -144,6 +216,8 @@ import { parentPath } from './address-bar.utils';
 
     .file-list-row {
       border-radius: var(--vsc-border-radius-sm);
+      flex-shrink: 0;
+      contain: layout style paint;
 
       &.drop-target {
         outline: 1px dashed var(--vsc-focus-border);
@@ -153,8 +227,14 @@ import { parentPath } from './address-bar.utils';
     }
   `]
 })
-export class FileListComponent implements OnDestroy {
-  constructor(private zone: NgZone) {}
+export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
+  constructor(
+    private zone: NgZone,
+    private cdr: ChangeDetectorRef
+  ) {}
+
+  @ViewChild('paneContent') paneContentRef?: ElementRef<HTMLElement>;
+  @ViewChild('parentRow') parentRowRef?: ElementRef<HTMLElement>;
 
   @Input() entries: FileInfo[] = [];
   @Input() selectedFiles: Set<string> = new Set();
@@ -167,6 +247,19 @@ export class FileListComponent implements OnDestroy {
   @Output() contextMenu = new EventEmitter<{ event: MouseEvent; entry: FileInfo }>();
   @Output() dragStart = new EventEmitter<{ event: DragEvent; entries: FileInfo[] }>();
   @Output() dragDrop = new EventEmitter<{ event: DragEvent; source: FileInfo[]; target: FileInfo }>();
+
+  private readonly VIRTUAL_THRESHOLD = 100;
+  private readonly DEFAULT_ROW_HEIGHT = 44;
+  rowHeight = 44;
+  private readonly overscan = 5;
+  private scrollRAF: number | null = null;
+  private boundScrollListener?: () => void;
+  private resizeObserver?: ResizeObserver;
+
+  private virtualStart = 0;
+  private virtualEnd = 0;
+  private viewportHeight = 0;
+  private parentRowHeight = 0;
 
   private anchorPath: string | null = null;
   private dropTargetPath: string | null = null;
@@ -198,8 +291,184 @@ export class FileListComponent implements OnDestroy {
     return this.selectionRect.active && this.marqueeButton !== 2;
   }
 
+  get virtualEnabled(): boolean {
+    return !this.loading && !this.error && this.virtualEntries.length >= this.VIRTUAL_THRESHOLD;
+  }
+
+  get parentEntry(): FileInfo | null {
+    const first = this.entries[0];
+    return first && this.isParentEntry(first) ? first : null;
+  }
+
+  get virtualEntries(): FileInfo[] {
+    if (!this.parentEntry) return this.entries;
+    return this.entries.slice(1);
+  }
+
+  get visibleEntries(): FileInfo[] {
+    if (!this.virtualEnabled) return this.entries;
+    return this.virtualEntries.slice(this.virtualStart, this.virtualEnd);
+  }
+
+  get totalContentHeight(): number {
+    return this.virtualEntries.length * this.rowHeight;
+  }
+
+  get virtualWindowTransform(): string {
+    if (!this.virtualEnabled) return '';
+    return `translateY(${this.virtualStart * this.rowHeight}px)`;
+  }
+
+  get virtualTopOffset(): number | null {
+    if (!this.virtualEnabled) return null;
+    return this.parentEntry ? this.parentRowHeight : 0;
+  }
+
+  ngAfterViewInit(): void {
+    this.setupResizeObserver();
+    this.setupScrollListener();
+    this.updateVirtualWindow();
+    requestAnimationFrame(() => this.measureHeights());
+  }
+
+  ngOnChanges(changes: SimpleChanges): void {
+    if (changes['entries'] || changes['loading'] || changes['error']) {
+      if (changes['entries'] && !changes['entries'].firstChange) {
+        const prevLen = changes['entries'].previousValue?.length || 0;
+        const currLen = changes['entries'].currentValue?.length || 0;
+        if (Math.abs(prevLen - currLen) > 1000) {
+          this.resetScroll();
+        }
+      }
+      this.updateVirtualWindow();
+      queueMicrotask(() => requestAnimationFrame(() => this.measureHeights()));
+      this.cdr.markForCheck();
+    }
+  }
+
   ngOnDestroy(): void {
     this.detachMarqueeListeners();
+    this.cleanupResizeObserver();
+    this.cleanupScrollListener();
+    if (this.scrollRAF) {
+      cancelAnimationFrame(this.scrollRAF);
+    }
+  }
+
+  private setupResizeObserver(): void {
+    if (!this.paneContentRef?.nativeElement) return;
+    
+    this.resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        this.viewportHeight = entry.contentRect.height;
+        this.updateVirtualWindow();
+        this.cdr.markForCheck();
+      }
+    });
+    
+    this.resizeObserver.observe(this.paneContentRef.nativeElement);
+  }
+
+  private cleanupResizeObserver(): void {
+    this.resizeObserver?.disconnect();
+  }
+
+  private setupScrollListener(): void {
+    const element = this.paneContentRef?.nativeElement;
+    if (!element) return;
+    this.boundScrollListener = () => this.onScroll();
+    element.addEventListener('scroll', this.boundScrollListener, { passive: true });
+  }
+
+  private cleanupScrollListener(): void {
+    const element = this.paneContentRef?.nativeElement;
+    if (!element || !this.boundScrollListener) return;
+    element.removeEventListener('scroll', this.boundScrollListener);
+    this.boundScrollListener = undefined;
+  }
+
+  private onScroll(): void {
+    if (this.scrollRAF) return;
+    this.scrollRAF = requestAnimationFrame(() => {
+      this.scrollRAF = null;
+      this.updateVirtualWindow();
+      this.cdr.markForCheck();
+    });
+  }
+
+  private resetScroll(): void {
+    const element = this.paneContentRef?.nativeElement;
+    if (element) {
+      element.scrollTop = 0;
+    }
+    this.virtualStart = 0;
+    this.virtualEnd = Math.min(this.overscan * 2, this.virtualEntries.length);
+  }
+
+  private updateVirtualWindow(): void {
+    if (!this.virtualEnabled) {
+      this.virtualStart = 0;
+      this.virtualEnd = this.entries.length;
+      return;
+    }
+
+    const element = this.paneContentRef?.nativeElement;
+    const scrollTop = element?.scrollTop ?? 0;
+    const parentOffset = this.parentEntry ? this.parentRowHeight : 0;
+    const contentScrollTop = Math.max(0, scrollTop - parentOffset);
+    const visibleParentPart = this.parentEntry ? Math.max(0, parentOffset - scrollTop) : 0;
+
+    const viewportHeight = Math.max(
+      1,
+      (this.viewportHeight || element?.clientHeight || 0) - visibleParentPart
+    );
+    const visibleCount = Math.max(1, Math.ceil(viewportHeight / this.rowHeight));
+    
+    const start = Math.max(0, Math.floor(contentScrollTop / this.rowHeight) - this.overscan);
+    const end = Math.min(this.virtualEntries.length, start + visibleCount + this.overscan * 2);
+
+    if (start !== this.virtualStart || end !== this.virtualEnd) {
+      this.virtualStart = start;
+      this.virtualEnd = end;
+    }
+  }
+
+  private measureHeights(): void {
+    const host = this.paneContentRef?.nativeElement;
+    if (!host) return;
+    const row = host.querySelector<HTMLElement>(
+      `.file-list-row[data-path]:not([data-path="${PARENT_ENTRY_PATH}"]) .file-entry`
+    ) ?? host.querySelector<HTMLElement>('.file-list-row .file-entry');
+    if (!row) return;
+    const measured = Math.ceil(row.getBoundingClientRect().height);
+    if (!Number.isFinite(measured) || measured <= 0) return;
+    const nextRowHeight = Math.max(this.DEFAULT_ROW_HEIGHT, measured);
+    let changed = false;
+    if (Math.abs(nextRowHeight - this.rowHeight) >= 1) {
+      this.rowHeight = nextRowHeight;
+      changed = true;
+    }
+
+    const parentEl = this.parentRowRef?.nativeElement?.querySelector<HTMLElement>('.file-entry');
+    if (parentEl) {
+      const nextParentHeight = Math.ceil(parentEl.getBoundingClientRect().height);
+      if (Number.isFinite(nextParentHeight) && nextParentHeight > 0 && Math.abs(nextParentHeight - this.parentRowHeight) >= 1) {
+        this.parentRowHeight = nextParentHeight;
+        changed = true;
+      }
+    } else if (this.parentRowHeight !== 0) {
+      this.parentRowHeight = 0;
+      changed = true;
+    }
+
+    if (changed) {
+      this.updateVirtualWindow();
+      this.cdr.markForCheck();
+    }
+  }
+
+  trackByPath(_index: number, entry: FileInfo): string {
+    return entry.path;
   }
 
   isParentEntry(entry: FileInfo): boolean {
@@ -216,9 +485,7 @@ export class FileListComponent implements OnDestroy {
 
   onSelect(event: FileEntrySelectEvent): void {
     const entry = event.entry;
-    if (this.isParentEntry(entry)) {
-      return; // navigate only on double-click
-    }
+    if (this.isParentEntry(entry)) return;
 
     const mouseEvent = event.mouseEvent;
     const isToggle = mouseEvent.ctrlKey || mouseEvent.metaKey;
@@ -226,24 +493,16 @@ export class FileListComponent implements OnDestroy {
 
     if (isRange) {
       this.selectionChange.emit(this.buildRangeSelection(entry));
-      return;
-    }
-
-    if (isToggle) {
+    } else if (isToggle) {
       this.selectionChange.emit(this.buildToggledSelection(entry));
       this.anchorPath = entry.path;
-      return;
+    } else {
+      this.anchorPath = entry.path;
+      this.selectionChange.emit([entry]);
     }
-
-    this.anchorPath = entry.path;
-    this.selectionChange.emit([entry]);
   }
 
   onNavigate(entry: FileInfo): void {
-    this.navigate.emit(entry);
-  }
-
-  onItemDoubleClick(entry: FileInfo): void {
     this.navigate.emit(entry);
   }
 
@@ -254,7 +513,7 @@ export class FileListComponent implements OnDestroy {
     }
 
     const target = event.target as HTMLElement;
-    if (event.target === event.currentTarget || target.classList.contains('file-list')) {
+    if (event.target === event.currentTarget || target.classList.contains('file-list-container')) {
       this.selectionChange.emit([]);
       this.anchorPath = null;
     }
@@ -268,7 +527,7 @@ export class FileListComponent implements OnDestroy {
     }
 
     const target = event.target as HTMLElement;
-    if (event.target === event.currentTarget || target.classList.contains('file-list')) {
+    if (event.target === event.currentTarget || target.classList.contains('file-list-container')) {
       event.preventDefault();
       this.selectionChange.emit([]);
       this.anchorPath = null;
@@ -283,17 +542,19 @@ export class FileListComponent implements OnDestroy {
     }
 
     event.preventDefault();
-    if (this.isParentEntry(entry)) {
-      return;
-    }
+    if (this.isParentEntry(entry)) return;
 
     if (this.isSelected(entry)) {
-      const nextSelection = this.entries.filter(e => this.selectedFiles.has(e.path) && e.path !== entry.path && !this.isParentEntry(e));
+      const nextSelection = this.entries.filter(e => 
+        this.selectedFiles.has(e.path) && e.path !== entry.path && !this.isParentEntry(e)
+      );
       this.selectionChange.emit(nextSelection);
     } else {
       const selected = new Set(this.selectedFiles);
       selected.add(entry.path);
-      this.selectionChange.emit(this.entries.filter(e => selected.has(e.path) && !this.isParentEntry(e)));
+      this.selectionChange.emit(this.entries.filter(e => 
+        selected.has(e.path) && !this.isParentEntry(e)
+      ));
       this.anchorPath = entry.path;
     }
     this.contextMenu.emit({ event, entry });
@@ -319,6 +580,7 @@ export class FileListComponent implements OnDestroy {
     this.hasMarqueeMoved = false;
     this.pendingClearOnMove = this.marqueeButton === 2 && !this.marqueeAppend;
     this.paintedPaths.clear();
+    
     const { x, y } = this.getRelativePoint(event, container);
     this.marqueeStartX = x;
     this.marqueeStartY = y;
@@ -339,10 +601,12 @@ export class FileListComponent implements OnDestroy {
         contextEvent.stopPropagation();
       }
     };
+    
     window.addEventListener('mousemove', this.windowMouseMove);
     window.addEventListener('mouseup', this.windowMouseUp);
     window.addEventListener('contextmenu', this.windowContextMenu, true);
     this.suppressBackgroundContextMenu = event.button === 2;
+    
     if (event.button === 0) {
       event.preventDefault();
     }
@@ -363,6 +627,7 @@ export class FileListComponent implements OnDestroy {
     const top = Math.min(this.marqueeStartY, y);
     const width = Math.abs(x - this.marqueeStartX);
     const height = Math.abs(y - this.marqueeStartY);
+    
     if (width > 2 || height > 2) {
       this.hasMarqueeMoved = true;
       if (this.pendingClearOnMove) {
@@ -373,14 +638,17 @@ export class FileListComponent implements OnDestroy {
         this.suppressItemContextMenu = true;
       }
     }
+    
     this.selectionRect = { active: true, left, top, width, height };
     this.emitMarqueeSelection();
+    this.cdr.markForCheck();
   }
 
   private updatePaintSelection(event: MouseEvent): void {
     const element = document.elementFromPoint(event.clientX, event.clientY) as HTMLElement | null;
     const row = element?.closest('.file-list-row') as HTMLElement | null;
     const path = row?.dataset['path'];
+    
     if (!path || path === PARENT_ENTRY_PATH || this.paintedPaths.has(path)) return;
 
     this.paintedPaths.add(path);
@@ -400,6 +668,7 @@ export class FileListComponent implements OnDestroy {
 
   private emitMarqueeSelection(): void {
     if (!this.marqueeContainer) return;
+    
     const containerRect = this.marqueeContainer.getBoundingClientRect();
     const selectionPaths = new Set<string>();
     const items = this.marqueeContainer.querySelectorAll<HTMLElement>('.file-list-row[data-path]');
@@ -407,9 +676,11 @@ export class FileListComponent implements OnDestroy {
     for (const item of Array.from(items)) {
       const path = item.dataset['path'];
       if (!path || path === PARENT_ENTRY_PATH) continue;
+      
       const itemRect = item.getBoundingClientRect();
       const itemLeft = itemRect.left - containerRect.left + this.marqueeContainer.scrollLeft;
       const itemTop = itemRect.top - containerRect.top + this.marqueeContainer.scrollTop;
+      
       const intersects =
         itemLeft < this.selectionRect.left + this.selectionRect.width &&
         itemLeft + itemRect.width > this.selectionRect.left &&
@@ -442,6 +713,7 @@ export class FileListComponent implements OnDestroy {
     this.pendingClearOnMove = false;
     this.paintedPaths.clear();
     this.selectionRect = { active: false, left: 0, top: 0, width: 0, height: 0 };
+    this.cdr.markForCheck();
   }
 
   private detachMarqueeListeners(): void {
@@ -496,6 +768,7 @@ export class FileListComponent implements OnDestroy {
   onDragOver(event: DragEvent, entry: FileInfo): void {
     if (this.isParentEntry(entry) || entry.type !== FileType.DIRECTORY) return;
     event.preventDefault();
+    
     if (event.dataTransfer) {
       event.dataTransfer.dropEffect = event.ctrlKey || event.metaKey ? 'copy' : 'move';
     }

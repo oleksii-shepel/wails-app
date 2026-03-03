@@ -78,7 +78,6 @@ export const PARENT_ENTRY_PATH = '__parent__';
         border-left-color: var(--vsc-accent-blue);
 
         &:hover { background: var(--vsc-list-focus-background); }
-        .file-name { font-weight: 500; }
       }
 
       &.directory .file-icon { opacity: 1; }

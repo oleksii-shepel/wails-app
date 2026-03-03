@@ -28,7 +28,7 @@
           class="btn"
           [title]="elevationActive ? 'Stop elevated service session' : 'Start elevated service session'"
         >
-          {{ elevationBusy ? 'Elevation…' : (elevationActive ? 'Elevation On' : 'Elevation Off') }}
+          {{ elevationBusy ? 'Elevation…' : (elevationActive ? 'Elevate' : 'Elevate') }}
         </button>
         <button (click)="toggleShowHidden()" [class.active]="showHidden" class="btn">
           {{ showHidden ? 'Hide' : 'Show' }} Hidden

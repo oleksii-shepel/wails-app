@@ -60,18 +60,19 @@ func listDirectoryRaw(path string, showHidden bool) (*DirectoryListing, error) {
 
 	for _, entry := range entries {
 		name := entry.Name()
+		fullPath := toSlash(filepath.Join(path, name))
+		hidden := isHiddenFile(name, fullPath)
 
 		// Hidden file filtering
-		if !showHidden && isHidden(name, path) {
+		if !showHidden && hidden {
 			continue
 		}
 
-		fullPath := toSlash(filepath.Join(path, name))
 		// Use Lstat so symlinks (including broken/inaccessible targets) still
 		// appear in listings; DirEntry.Info can fail for those and hide them.
 		info, err := os.Lstat(fullPath)
 		if err != nil {
-			if fallback, ok := buildFallbackLinkInfo(name, fullPath, entry); ok {
+			if fallback, ok := buildFallbackLinkInfo(name, fullPath, entry, hidden); ok {
 				files = append(files, fallback)
 				if !fallback.IsHidden || showHidden {
 					totalSize += fallback.Size
@@ -80,7 +81,7 @@ func listDirectoryRaw(path string, showHidden bool) (*DirectoryListing, error) {
 			continue
 		}
 
-		fi := buildFileInfo(name, fullPath, info)
+		fi := buildFileInfoWithHidden(name, fullPath, info, hidden)
 		files = append(files, fi)
 		if !fi.IsHidden || showHidden {
 			totalSize += fi.Size
@@ -471,9 +472,14 @@ func (a *App) SearchFiles(path, pattern string, recursive bool) (*SearchResult, 
 // ============================================================================
 
 func buildFileInfo(name, fullPath string, info os.FileInfo) FileInfo {
+	return buildFileInfoWithHidden(name, fullPath, info, isHiddenFile(name, fullPath))
+}
+
+func buildFileInfoWithHidden(name, fullPath string, info os.FileInfo, hidden bool) FileInfo {
 	ft := FileTypeFile
 	isSymlink := false
-	if info.Mode()&os.ModeSymlink != 0 {
+	mode := info.Mode()
+	if mode&os.ModeSymlink != 0 {
 		isSymlink = true
 		// Use the platform helper so that protected Windows junctions (e.g.
 		// "Documents and Settings") are correctly identified as directories
@@ -494,7 +500,7 @@ func buildFileInfo(name, fullPath string, info os.FileInfo) FileInfo {
 	// because the reparse tag is not a plain symlink. GetFileAttributes still
 	// reports FILE_ATTRIBUTE_DIRECTORY|FILE_ATTRIBUTE_REPARSE_POINT for them.
 	// On Unix this is always a no-op (returns false immediately).
-	if isUntrackedDirectoryJunction(fullPath) {
+	if !info.IsDir() && mode&os.ModeSymlink == 0 && isUntrackedDirectoryJunction(fullPath) {
 		ft = FileTypeDirectory
 		isSymlink = true
 	}
@@ -508,7 +514,7 @@ func buildFileInfo(name, fullPath string, info os.FileInfo) FileInfo {
 		Modified:    info.ModTime().Unix(),
 		Accessed:    getAccessedTime(info),
 		Permissions: formatPermissions(info),
-		IsHidden:    isHiddenFile(name, fullPath),
+		IsHidden:    hidden,
 		IsSymlink:   isSymlink,
 	}
 }
@@ -641,15 +647,18 @@ func compareStrings(a, b, operator string, caseSensitive bool) bool {
 	return strings.Contains(a, b)
 }
 
-func buildFallbackLinkInfo(name, fullPath string, entry fs.DirEntry) (FileInfo, bool) {
+func buildFallbackLinkInfo(name, fullPath string, entry fs.DirEntry, hidden bool) (FileInfo, bool) {
 	// Include inaccessible reparse points/symlinks instead of silently dropping them.
-	isLinkLike := (entry.Type()&os.ModeSymlink != 0) || isUntrackedDirectoryJunction(fullPath)
+	mode := entry.Type()
+	isSymlink := mode&os.ModeSymlink != 0
+	isJunction := isUntrackedDirectoryJunction(fullPath)
+	isLinkLike := isSymlink || isJunction
 	if !isLinkLike {
 		return FileInfo{}, false
 	}
 
 	ft := FileTypeSymlink
-	if entry.IsDir() || symlinkPointsToDir(fullPath) || isUntrackedDirectoryJunction(fullPath) {
+	if entry.IsDir() || isJunction || (isSymlink && symlinkPointsToDir(fullPath)) {
 		ft = FileTypeDirectory
 	}
 
@@ -663,7 +672,7 @@ func buildFallbackLinkInfo(name, fullPath string, entry fs.DirEntry) (FileInfo, 
 		Modified:    now,
 		Accessed:    now,
 		Permissions: "",
-		IsHidden:    isHiddenFile(name, fullPath),
+		IsHidden:    hidden,
 		IsSymlink:   true,
 	}, true
 }

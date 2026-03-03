@@ -28,27 +28,48 @@ func launchElevatedService(exePath string, port int, secretB64 string) (int, err
 	}
 
 	if runtime.GOOS == "linux" {
-		cmd := exec.Command("pkexec", append([]string{exePath}, args...)...)
-		if err := cmd.Start(); err == nil {
-			return cmd.Process.Pid, nil
+		script := detachedCommandScript(exePath, args)
+
+		// Try pkexec first (desktop polkit agent).
+		if out, err := exec.Command("pkexec", "sh", "-c", script).CombinedOutput(); err == nil {
+			if pid, perr := parseLaunchedPID(out); perr == nil {
+				return pid, nil
+			}
+			return 0, fmt.Errorf("elevation failed: could not parse elevated PID")
 		}
-		// Fall back to sudo (will show terminal password prompt if no GUI agent).
-		cmd = exec.Command("sudo", append([]string{exePath}, args...)...)
-		if err := cmd.Start(); err != nil {
-			return 0, fmt.Errorf("elevation failed (pkexec and sudo both unavailable): %w", err)
+
+		// Fall back to sudo.
+		out, err := exec.Command("sudo", "sh", "-c", script).CombinedOutput()
+		if err != nil {
+			msg := strings.TrimSpace(string(out))
+			if msg == "" {
+				msg = err.Error()
+			}
+			return 0, fmt.Errorf("elevation failed (pkexec/sudo): %s", msg)
 		}
-		return cmd.Process.Pid, nil
+		pid, perr := parseLaunchedPID(out)
+		if perr != nil {
+			return 0, fmt.Errorf("elevation failed: could not parse elevated PID")
+		}
+		return pid, nil
 	}
 
 	if runtime.GOOS == "darwin" {
-		command := shellEscape(exePath)
-		for _, a := range args {
-			command += " " + shellEscape(a)
-		}
+		command := detachedCommandScript(exePath, args)
 		script := fmt.Sprintf(`do shell script %q with administrator privileges without altering line endings`, command)
-		// osascript blocks until the script exits — run asynchronously.
-		go exec.Command("osascript", "-e", script).Run() //nolint:errcheck
-		return -1, nil
+		out, err := exec.Command("osascript", "-e", script).CombinedOutput()
+		if err != nil {
+			msg := strings.TrimSpace(string(out))
+			if msg == "" {
+				msg = err.Error()
+			}
+			return 0, fmt.Errorf("elevation failed: %s", msg)
+		}
+		pid, perr := parseLaunchedPID(out)
+		if perr != nil {
+			return 0, fmt.Errorf("elevation failed: could not parse elevated PID")
+		}
+		return pid, nil
 	}
 
 	return 0, fmt.Errorf("launchElevatedService: unsupported platform %q", runtime.GOOS)
@@ -101,4 +122,27 @@ func launchElevatedProcess(exePath, reqB64, resultPath string) error {
 
 func shellEscape(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+}
+
+func detachedCommandScript(exePath string, args []string) string {
+	command := shellEscape(exePath)
+	for _, a := range args {
+		command += " " + shellEscape(a)
+	}
+	// Launch detached and print child PID so parent can track status.
+	return command + " >/dev/null 2>&1 & echo $!"
+}
+
+func parseLaunchedPID(out []byte) (int, error) {
+	txt := strings.TrimSpace(string(out))
+	if txt == "" {
+		return 0, fmt.Errorf("empty output")
+	}
+	lines := strings.Split(txt, "\n")
+	last := strings.TrimSpace(lines[len(lines)-1])
+	pid, err := strconv.Atoi(last)
+	if err != nil || pid <= 0 {
+		return 0, fmt.Errorf("invalid pid output: %q", last)
+	}
+	return pid, nil
 }

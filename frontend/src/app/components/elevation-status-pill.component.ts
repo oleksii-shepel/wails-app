@@ -206,7 +206,7 @@ type PillState = 'idle' | 'starting' | 'active' | 'stopping' | 'error';
 })
 export class ElevationStatusPillComponent implements OnInit, OnDestroy {
   @Input() monitorOnly = false;
-  // ── reactive state (Angular signals) ────────────────────────────────────
+  // Reactive state (Angular signals)
   private _state = signal<PillState>('idle');
   private _opCount = signal(0);
   private _errorMsg = signal('');
@@ -222,8 +222,8 @@ export class ElevationStatusPillComponent implements OnInit, OnDestroy {
 
   readonly label = computed(() => {
     switch (this._state()) {
-      case 'starting':  return 'Starting…';
-      case 'stopping':  return 'Stopping…';
+      case 'starting':  return 'Starting...';
+      case 'stopping':  return 'Stopping...';
       case 'active':    return 'Elevated';
       case 'error':     return 'Elev. Error';
       default:          return 'Elevate';
@@ -241,9 +241,9 @@ export class ElevationStatusPillComponent implements OnInit, OnDestroy {
           ? `Elevated session error: ${this._errorMsg()}.`
           : `Elevated session error: ${this._errorMsg()}. Click to retry.`;
       case 'starting':
-        return 'Starting elevated session…';
+        return 'Starting elevated session...';
       case 'stopping':
-        return 'Stopping elevated session…';
+        return 'Stopping elevated session...';
       default:
         return this.monitorOnly ? 'Monitors hidden elevated helper activity.' : 'Start an elevated service session (one UAC/sudo prompt, then reuse).';
     }
@@ -251,21 +251,20 @@ export class ElevationStatusPillComponent implements OnInit, OnDestroy {
 
   constructor(private api: ApiService, private cdr: ChangeDetectorRef) {}
 
-  // ── lifecycle ────────────────────────────────────────────────────────────
+  // Lifecycle
 
   ngOnInit(): void {
-    // Sync initial state from backend — safely, in case the Wails runtime
+    // Sync initial state from backend safely, in case the Wails runtime
     // hasn't registered the method yet (stale bindings before wails dev restart).
     this.api.getElevatedSessionStatus()
       .then(s => { this.applyStatus(s); this.cdr.markForCheck(); })
-      .catch(() => { /* method not yet available in runtime — ignore */ });
+      .catch(() => { /* method not yet available in runtime - ignore */ });
 
     // Backend events
     EventsOn('elevation:session-starting', () => {
-      // Auto-start triggered by a permission-denied operation — show UAC is pending
-      this._state.set('starting');      this.cdr.markForCheck();
-    });
-    EventsOn('elevation:uac-requested', () => {      this.cdr.markForCheck();
+      // Auto-start triggered by a permission-denied operation; show UAC is pending.
+      this._state.set('starting');
+      this.cdr.markForCheck();
     });
     EventsOn('elevation:session-started', (status: ElevatedSessionStatus) => {
       this.applyStatus(status);
@@ -291,14 +290,15 @@ export class ElevationStatusPillComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     EventsOff(
-      'elevation:session-starting',      'elevation:session-started',
+      'elevation:session-starting',
+      'elevation:session-started',
       'elevation:session-stopped',
       'elevation:auto-started',
       'elevation:auto-failed',
     );
   }
 
-  // ── user interaction ─────────────────────────────────────────────────────
+  // User interaction
 
   async toggle(): Promise<void> {
     const current = this._state();
@@ -313,7 +313,7 @@ export class ElevationStatusPillComponent implements OnInit, OnDestroy {
       return;
     }
 
-    // idle / error → start session
+    // idle / error -> start session
     this._state.set('starting');
     this._errorMsg.set('');
     this.cdr.markForCheck();
@@ -334,7 +334,7 @@ export class ElevationStatusPillComponent implements OnInit, OnDestroy {
     void this.toggle();
   }
 
-  // ── helpers ──────────────────────────────────────────────────────────────
+  // Helpers
 
   private applyStatus(s: ElevatedSessionStatus): void {
     if (!s) {
@@ -360,7 +360,7 @@ export class ElevationStatusPillComponent implements OnInit, OnDestroy {
     setTimeout(() => {
       this._blinkOp.set(true);
       this.cdr.markForCheck();
-      // 3 cycles × 300ms = 900ms
+      // 3 cycles x 300ms = 900ms
       setTimeout(() => { this._blinkOp.set(false); this.cdr.markForCheck(); }, 950);
     }, 16);
   }
@@ -377,4 +377,3 @@ export class ElevationStatusPillComponent implements OnInit, OnDestroy {
     }
   }
 }
-

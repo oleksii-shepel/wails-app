@@ -608,9 +608,17 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
   }
 
   getGuides(node: TreeNode): { active: boolean; last: boolean }[] {
+    // Do not draw guide lines for top-level entries under a synthetic root.
+    if (typeof node.parent?.syntheticRoot === 'string') {
+      return [];
+    }
+
     const chain: TreeNode[] = [];
     let cur: TreeNode | undefined = node;
     while (cur?.parent) {
+      if (typeof cur.parent.syntheticRoot === 'string') {
+        break;
+      }
       chain.push(cur);
       cur = cur.parent;
     }

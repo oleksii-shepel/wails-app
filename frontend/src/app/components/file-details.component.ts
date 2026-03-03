@@ -39,11 +39,12 @@ export interface ColumnDef {
       <div class="details-header" role="rowgroup">
         <div class="details-row header-row" role="row">
           <div 
-            *ngFor="let col of columns"
+            *ngFor="let col of columns; let i = index"
             class="details-cell header-cell"
+            [attr.data-col]="getColumnKey(col)"
             [class.sortable]="col.sortable"
-            [style.width]="col.width"
-            [style.flex]="col.width ? 'none' : '1'"
+            [style.width]="getColumnWidth(col)"
+            [style.flex]="getColumnFlex(col)"
             [attr.role]="'columnheader'"
             [attr.aria-sort]="getSortState(col.field)"
             (click)="col.sortable && onSort(col.field)">
@@ -56,6 +57,12 @@ export interface ColumnDef {
                 <path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="2"/>
               </svg>
             </span>
+            <div
+              *ngIf="i < columns.length - 1"
+              class="view-divider"
+              title="Resize column"
+              (mousedown)="onColumnResizeStart($event, col)">
+            </div>
           </div>
         </div>
       </div>
@@ -92,10 +99,10 @@ export interface ColumnDef {
             (drop)="onDrop($event, entry)">
             
             <div 
-              *ngFor="let col of columns"
+              *ngFor="let col of columns; let i = index"
               class="details-cell"
-              [style.width]="col.width"
-              [style.flex]="col.width ? 'none' : '1'"
+              [style.width]="getColumnWidth(col)"
+              [style.flex]="getColumnFlex(col)"
               [attr.role]="'cell'">
               
               <ng-container *ngIf="col.field === 'name'">
@@ -200,6 +207,7 @@ export interface ColumnDef {
 
     .details-cell {
       display: flex;
+      position: relative;
       align-items: center;
       padding: 0 var(--vsc-padding-sm);
       overflow: hidden;
@@ -208,6 +216,7 @@ export interface ColumnDef {
       font-size: var(--vsc-font-size);
       
       &.header-cell {
+        position: relative;
         &.sortable {
           cursor: pointer;
           
@@ -216,14 +225,50 @@ export interface ColumnDef {
           }
         }
       }
+
+      .view-divider {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        right: 0;
+        width: 1px;
+        background: var(--vsc-border);
+        pointer-events: none;
+      }
+
+      &.header-cell .view-divider {
+        right: -3px;
+        width: 6px;
+        cursor: col-resize;
+        pointer-events: auto;
+        background: transparent;
+        z-index: 3;
+      }
+
+      &.header-cell .view-divider::before {
+        content: '';
+        position: absolute;
+        top: 2px;
+        bottom: 2px;
+        left: 50%;
+        width: 1px;
+        transform: translateX(-50%);
+        background: var(--vsc-border);
+      }
+
+      &.header-cell .view-divider:hover::before {
+        background: var(--vsc-focus-border);
+      }
       
       .header-label {
         overflow: hidden;
         text-overflow: ellipsis;
+        margin-left: var(--vsc-padding-lg);
+        margin-right: var(--vsc-padding-lg);
       }
       
       .sort-indicator {
-        margin-left: var(--vsc-padding-lg);
+        margin-left: var(--vsc-padding-md);
         display: inline-flex;
         align-items: center;
         justify-content: center;
@@ -354,6 +399,13 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   private windowMouseMove?: (event: MouseEvent) => void;
   private windowMouseUp?: (event: MouseEvent) => void;
   private windowContextMenu?: (event: MouseEvent) => void;
+  private readonly MIN_COLUMN_WIDTH = 80;
+  private columnWidths = new Map<string, number>();
+  private resizingColumnKey: string | null = null;
+  private resizeStartX = 0;
+  private resizeStartWidth = 0;
+  private boundResizeMouseMove?: (event: MouseEvent) => void;
+  private boundResizeMouseUp?: () => void;
 
   selectionRect = {
     active: false,
@@ -385,6 +437,27 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     return `translateY(${this.virtualStart * this.rowHeight}px)`;
   }
 
+  getColumnKey(col: ColumnDef): string {
+    return String(col.field);
+  }
+
+  getColumnWidth(col: ColumnDef): string | null {
+    const key = this.getColumnKey(col);
+    const resized = this.columnWidths.get(key);
+    if (typeof resized === 'number') {
+      return `${resized}px`;
+    }
+    return col.width ?? null;
+  }
+
+  getColumnFlex(col: ColumnDef): string {
+    const key = this.getColumnKey(col);
+    if (this.columnWidths.has(key) || !!col.width) {
+      return 'none';
+    }
+    return col.flex ? String(col.flex) : '1';
+  }
+
   ngAfterViewInit(): void {
     const element = this.detailsBodyRef?.nativeElement;
     this.viewportHeight = element?.clientHeight || 0;
@@ -414,8 +487,60 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     this.detachMarqueeListeners();
     this.cleanupResizeObserver();
     this.cleanupScrollListener();
+    this.cleanupColumnResizeListeners();
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
     if (this.scrollRAF) {
       cancelAnimationFrame(this.scrollRAF);
+    }
+  }
+
+  onColumnResizeStart(event: MouseEvent, col: ColumnDef): void {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const key = this.getColumnKey(col);
+    const headerCell = (event.target as HTMLElement).closest('.header-cell') as HTMLElement | null;
+    if (!headerCell) return;
+
+    this.resizingColumnKey = key;
+    this.resizeStartX = event.clientX;
+    this.resizeStartWidth = Math.max(this.MIN_COLUMN_WIDTH, Math.round(headerCell.getBoundingClientRect().width));
+    this.columnWidths.set(key, this.resizeStartWidth);
+
+    this.boundResizeMouseMove = (moveEvent: MouseEvent) => this.onColumnResizeMove(moveEvent);
+    this.boundResizeMouseUp = () => this.onColumnResizeEnd();
+    window.addEventListener('mousemove', this.boundResizeMouseMove);
+    window.addEventListener('mouseup', this.boundResizeMouseUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    this.cdr.markForCheck();
+  }
+
+  private onColumnResizeMove(event: MouseEvent): void {
+    if (!this.resizingColumnKey) return;
+    const delta = event.clientX - this.resizeStartX;
+    const next = Math.max(this.MIN_COLUMN_WIDTH, this.resizeStartWidth + delta);
+    this.columnWidths.set(this.resizingColumnKey, next);
+    this.cdr.markForCheck();
+  }
+
+  private onColumnResizeEnd(): void {
+    this.resizingColumnKey = null;
+    this.cleanupColumnResizeListeners();
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    this.cdr.markForCheck();
+  }
+
+  private cleanupColumnResizeListeners(): void {
+    if (this.boundResizeMouseMove) {
+      window.removeEventListener('mousemove', this.boundResizeMouseMove);
+      this.boundResizeMouseMove = undefined;
+    }
+    if (this.boundResizeMouseUp) {
+      window.removeEventListener('mouseup', this.boundResizeMouseUp);
+      this.boundResizeMouseUp = undefined;
     }
   }
 

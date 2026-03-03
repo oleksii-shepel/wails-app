@@ -23,6 +23,8 @@ type App struct {
 	elevMu     sync.Mutex
 	elevWait   map[string]chan bool
 	elevSvc    *ElevatedServiceClient // persistent JWT-authenticated elevated IPC channel
+	streamMu   sync.Mutex
+	dirStreams map[string]context.CancelFunc
 }
 
 // NewApp creates a new App application struct.
@@ -41,6 +43,7 @@ func NewApp() *App {
 		workspaces: wm,
 		operations: NewOperationManager(),
 		elevWait:   make(map[string]chan bool),
+		dirStreams: make(map[string]context.CancelFunc),
 	}
 }
 
@@ -57,6 +60,7 @@ func (a *App) shutdown(ctx context.Context) {
 	if a.dirWatch != nil {
 		a.dirWatch.Close()
 	}
+	a.cancelAllDirStreams()
 	a.elevMu.Lock()
 	svc := a.elevSvc
 	a.elevSvc = nil
@@ -247,9 +251,57 @@ func (a *App) SetPaneDirectory(paneID, path string) error {
 	return a.dirWatch.SetPaneDirectory(paneID, path)
 }
 
+func (a *App) StartListDirStream(paneID, path string, showHidden bool) (string, error) {
+	return a.startListDirectoryStream(paneID, path, showHidden)
+}
+
+func (a *App) CancelListDirStream(streamID string) {
+	a.cancelDirStream(streamID)
+}
+
 func (a *App) emitEvent(name string, data interface{}) {
 	if a.ctx != nil {
 		runtime.EventsEmit(a.ctx, name, data)
+	}
+}
+
+func (a *App) registerDirStream(streamID string, cancel context.CancelFunc) {
+	a.streamMu.Lock()
+	a.dirStreams[streamID] = cancel
+	a.streamMu.Unlock()
+}
+
+func (a *App) unregisterDirStream(streamID string) {
+	a.streamMu.Lock()
+	delete(a.dirStreams, streamID)
+	a.streamMu.Unlock()
+}
+
+func (a *App) cancelDirStream(streamID string) {
+	if streamID == "" {
+		return
+	}
+	a.streamMu.Lock()
+	cancel := a.dirStreams[streamID]
+	delete(a.dirStreams, streamID)
+	a.streamMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+func (a *App) cancelAllDirStreams() {
+	a.streamMu.Lock()
+	cancels := make([]context.CancelFunc, 0, len(a.dirStreams))
+	for id, cancel := range a.dirStreams {
+		delete(a.dirStreams, id)
+		if cancel != nil {
+			cancels = append(cancels, cancel)
+		}
+	}
+	a.streamMu.Unlock()
+	for _, cancel := range cancels {
+		cancel()
 	}
 }
 

@@ -23,6 +23,36 @@ import { EventsOn, EventsOff } from 'wailsjs/runtime';
 
 declare const window: any;
 
+interface DirStreamMetaEvent {
+  streamId: string;
+  paneId: string;
+  path: string;
+  showHidden: boolean;
+}
+
+interface DirStreamBatchEvent {
+  streamId: string;
+  paneId: string;
+  path: string;
+  entries: FileInfo[];
+}
+
+interface DirStreamDoneEvent {
+  streamId: string;
+  paneId: string;
+  path: string;
+  entryCount: number;
+  totalSize: number;
+  durationMs: number;
+}
+
+interface DirStreamErrorEvent {
+  streamId: string;
+  paneId: string;
+  path: string;
+  error: string;
+}
+
 @Component({
   selector: 'app-file-pane',
   standalone: true,
@@ -224,6 +254,10 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   private selectionCursorPath: string | null = null;
   private selectionAnchorPath: string | null = null;
   private fsChangeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private activeDirStreamId: string | null = null;
+  private streamBaseEntries: FileInfo[] = [];
+  private streamWaiters = new Map<string, { resolve: () => void; reject: (err: Error) => void }>();
+  private streamPathChangeEmitted = false;
 
   FileType = FileType;
 
@@ -463,34 +497,28 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   private async loadDirectory(path: string): Promise<void> {
+    await this.cancelActiveDirectoryStream();
     this.exitArchive();
     this.clearArchiveState();
     this.loading = true;
     this.error   = null;
+    this.selectedFiles.clear();
+    this.streamBaseEntries = [];
+    this.entries = this.withParentEntry([], false, path);
+    this.applyFilter();
     try {
-      const listing       = await this.apiService.listDirectory(path, this.showHidden);
-      this.currentPath    = listing.path;
-      this.fsParentDir    = listing.path;
-      this.entries        = this.withParentEntry(listing.entries, false, listing.path);
-      this.selectedFiles.clear();
-      this.applyFilter();
-      this.tabPaths.set(this.currentTabId, listing.path);
-      this.workspaceService.updateTabPath(this.paneId, this.currentTabId, listing.path);
-      this.pathHistoryService.addPath(listing.path, this.paneId);
-      this.pathChange.emit(listing.path);
-
-      try {
-        if (window.go?.main?.App?.SetPaneDirectory) {
-          await window.go.main.App.SetPaneDirectory(this.paneId, listing.path);
-        }
-      } catch { /* optional */ }
-      // Focus the tree (if visible) to the newly-loaded path so address-bar and tree stay in sync
-      setTimeout(() => {
-        try { this.fileViewContainer?.treeComponent?.focusNode(listing.path); } catch { /* best-effort */ }
-      }, 0);
+      const streamId = await this.apiService.startListDirectoryStream(this.paneId, path, this.showHidden);
+      this.activeDirStreamId = streamId;
+      this.streamPathChangeEmitted = false;
+      await this.waitForDirectoryStream(streamId);
     } catch (error: any) {
+      if (error?.message === 'Directory stream cancelled') {
+        return;
+      }
       this.error = error.message || 'Failed to load directory';
     } finally {
+      this.activeDirStreamId = null;
+      this.streamBaseEntries = [];
       this.loading = false;
     }
   }
@@ -617,16 +645,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     } else {
       try {
         const listing = await window.go.main.App.NavGoUp(this.paneId);
-        this.currentPath = listing.path;
-        this.tabPaths.set(this.currentTabId, listing.path);
-        this.entries = this.withParentEntry(listing.entries, false, listing.path);
-        this.selectedFiles.clear();
-        this.applyFilter();
-        this.workspaceService.updateTabPath(this.paneId, this.currentTabId, listing.path);
-        this.pathHistoryService.addPath(listing.path, this.paneId);
-        this.pathChange.emit(listing.path);
-        // Ensure tree focus updates after navigating up
-        setTimeout(() => { try { this.fileViewContainer?.treeComponent?.focusNode(listing.path); } catch {} }, 0);
+        await this.loadDirectory(listing.path);
       } catch {
         const target = parentPath(normalizePath(this.currentPath));
         if (target !== this.currentPath) await this.loadDirectory(target);
@@ -645,6 +664,18 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     EventsOn('fs:directoryChanged', (event: { paneId?: string; path?: string } | null) => {
       this.handleFsDirectoryChanged(event);
     });
+    EventsOn('fs:listStream:meta', (event: DirStreamMetaEvent | null) => {
+      this.handleDirStreamMeta(event);
+    });
+    EventsOn('fs:listStream:batch', (event: DirStreamBatchEvent | null) => {
+      this.handleDirStreamBatch(event);
+    });
+    EventsOn('fs:listStream:done', (event: DirStreamDoneEvent | null) => {
+      this.handleDirStreamDone(event);
+    });
+    EventsOn('fs:listStream:error', (event: DirStreamErrorEvent | null) => {
+      this.handleDirStreamError(event);
+    });
   }
 
   private unbindFsChangeEvents(): void {
@@ -652,7 +683,15 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       clearTimeout(this.fsChangeDebounceTimer);
       this.fsChangeDebounceTimer = null;
     }
-    EventsOff('fs:directoryChanged');
+    void this.cancelActiveDirectoryStream();
+    this.rejectAllDirectoryStreamWaiters(new Error('Pane disposed'));
+    EventsOff(
+      'fs:directoryChanged',
+      'fs:listStream:meta',
+      'fs:listStream:batch',
+      'fs:listStream:done',
+      'fs:listStream:error',
+    );
   }
 
   private handleFsDirectoryChanged(event: { paneId?: string; path?: string } | null): void {
@@ -670,6 +709,95 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       this.fsChangeDebounceTimer = null;
       this.onRefresh();
     }, 150);
+  }
+
+  private handleDirStreamMeta(event: DirStreamMetaEvent | null): void {
+    if (!event || event.paneId !== this.paneId) return;
+    if (!this.activeDirStreamId || event.streamId !== this.activeDirStreamId) return;
+
+    this.currentPath = event.path;
+    this.fsParentDir = event.path;
+    this.tabPaths.set(this.currentTabId, event.path);
+    this.workspaceService.updateTabPath(this.paneId, this.currentTabId, event.path);
+    this.pathHistoryService.addPath(event.path, this.paneId);
+    if (!this.streamPathChangeEmitted) {
+      this.pathChange.emit(event.path);
+      this.streamPathChangeEmitted = true;
+    }
+    this.entries = this.withParentEntry([], false, event.path);
+    this.applyFilter();
+
+    // best-effort pane watch sync
+    void window.go?.main?.App?.SetPaneDirectory?.(this.paneId, event.path);
+  }
+
+  private handleDirStreamBatch(event: DirStreamBatchEvent | null): void {
+    if (!event || event.paneId !== this.paneId) return;
+    if (!this.activeDirStreamId || event.streamId !== this.activeDirStreamId) return;
+
+    this.streamBaseEntries = this.streamBaseEntries.concat(event.entries || []);
+    this.entries = this.withParentEntry(this.streamBaseEntries, false, this.currentPath || event.path);
+    this.applyFilter();
+  }
+
+  private handleDirStreamDone(event: DirStreamDoneEvent | null): void {
+    if (!event || event.paneId !== this.paneId) return;
+    if (!this.activeDirStreamId || event.streamId !== this.activeDirStreamId) return;
+
+    this.entries = this.withParentEntry(this.streamBaseEntries, false, event.path || this.currentPath);
+    this.applyFilter();
+    this.resolveDirectoryStreamWaiter(event.streamId);
+    setTimeout(() => {
+      try { this.fileViewContainer?.treeComponent?.focusNode(event.path); } catch { /* best-effort */ }
+    }, 0);
+  }
+
+  private handleDirStreamError(event: DirStreamErrorEvent | null): void {
+    if (!event || event.paneId !== this.paneId) return;
+    if (!this.activeDirStreamId || event.streamId !== this.activeDirStreamId) return;
+
+    this.error = event.error || 'Failed to load directory';
+    this.rejectDirectoryStreamWaiter(event.streamId, new Error(this.error));
+  }
+
+  private waitForDirectoryStream(streamId: string): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      this.streamWaiters.set(streamId, { resolve, reject });
+    });
+  }
+
+  private resolveDirectoryStreamWaiter(streamId: string): void {
+    const waiter = this.streamWaiters.get(streamId);
+    if (!waiter) return;
+    this.streamWaiters.delete(streamId);
+    waiter.resolve();
+  }
+
+  private rejectDirectoryStreamWaiter(streamId: string, err: Error): void {
+    const waiter = this.streamWaiters.get(streamId);
+    if (!waiter) return;
+    this.streamWaiters.delete(streamId);
+    waiter.reject(err);
+  }
+
+  private rejectAllDirectoryStreamWaiters(err: Error): void {
+    for (const [id, waiter] of this.streamWaiters.entries()) {
+      this.streamWaiters.delete(id);
+      waiter.reject(err);
+    }
+  }
+
+  private async cancelActiveDirectoryStream(): Promise<void> {
+    if (!this.activeDirStreamId) return;
+    const streamId = this.activeDirStreamId;
+    this.activeDirStreamId = null;
+    this.streamBaseEntries = [];
+    this.rejectDirectoryStreamWaiter(streamId, new Error('Directory stream cancelled'));
+    try {
+      await this.apiService.cancelListDirectoryStream(streamId);
+    } catch {
+      // best effort
+    }
   }
 
   /**

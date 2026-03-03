@@ -52,6 +52,8 @@ declare global {
           // File System
           ListDir(path: string, showHidden: boolean): Promise<DirectoryListing>;
           ListDirFiltered(path: string, showHidden: boolean, filter: any): Promise<DirectoryListing>;
+          StartListDirStream(paneId: string, path: string, showHidden: boolean): Promise<string>;
+          CancelListDirStream(streamId: string): Promise<void>;
           FileInfo(path: string): Promise<FileInfo>;
           OpenFile(path: string): Promise<void>;
           ResolveLink(path: string): Promise<{ target: string; isDir: boolean }>;
@@ -181,6 +183,15 @@ export class ApiService {
 
   async listDirectory(path: string, showHidden: boolean = false): Promise<DirectoryListing> {
     return await window.go.main.App.ListDir(path, showHidden);
+  }
+
+  async startListDirectoryStream(paneId: string, path: string, showHidden: boolean = false): Promise<string> {
+    return await window.go.main.App.StartListDirStream(paneId, path, showHidden);
+  }
+
+  async cancelListDirectoryStream(streamId: string): Promise<void> {
+    if (!streamId) return;
+    await window.go.main.App.CancelListDirStream(streamId);
   }
 
   async listDirectoryFiltered(path: string, showHidden: boolean, filter: any): Promise<DirectoryListing> {

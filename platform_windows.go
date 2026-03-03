@@ -6,7 +6,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -177,7 +176,34 @@ func intToStr(n int) string {
 }
 
 func openFileWithDefaultApp(path string) error {
-	return exec.Command("cmd", "/c", "start", "", path).Start()
+	// Use ShellExecute directly to avoid spawning a visible cmd.exe window.
+	verb, err := syscall.UTF16PtrFromString("open")
+	if err != nil {
+		return err
+	}
+	target, err := syscall.UTF16PtrFromString(path)
+	if err != nil {
+		return err
+	}
+
+	shell32 := windows.NewLazySystemDLL("shell32.dll")
+	shellExecute := shell32.NewProc("ShellExecuteW")
+	const swShownormal = 1
+	r, _, callErr := shellExecute.Call(
+		0,
+		uintptr(unsafe.Pointer(verb)),
+		uintptr(unsafe.Pointer(target)),
+		0,
+		0,
+		uintptr(swShownormal),
+	)
+	if r <= 32 {
+		if callErr != nil && callErr != syscall.Errno(0) {
+			return fmt.Errorf("ShellExecuteW failed: %w", callErr)
+		}
+		return fmt.Errorf("ShellExecuteW failed with code %d", r)
+	}
+	return nil
 }
 
 // symlinkPointsToDir returns true if the path (a symlink/junction/reparse point)

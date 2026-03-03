@@ -22,6 +22,22 @@ import {
 } from '../shared/protocol-enhanced';
 import { EventsEmit } from 'wailsjs/runtime/runtime';
 
+/** Mirror of Go's ElevatedSessionStatus struct. */
+export interface ElevatedSessionStatus {
+  /** True when the elevated helper process is connected and healthy. */
+  active: boolean;
+  /** OS PID of the elevated helper process, or 0 when inactive. */
+  pid: number;
+  /** Unix timestamp (seconds) when the session was started, or 0. */
+  startedAt: number;
+  /** TCP port used for the IPC channel. */
+  port: number;
+  /** Number of operations dispatched through this session. */
+  opCount: number;
+  /** Non-empty when the last operation produced an error. */
+  error: string;
+}
+
 // Extend the Window interface to include Wails runtime objects
 declare global {
   interface Window {
@@ -81,6 +97,12 @@ declare global {
           JoinPaths(parts: string[]): Promise<string>;
           GetParentPath(path: string): Promise<string>;
           ConfirmElevationRequest(requestID: string, approve: boolean): Promise<void>;
+
+          // Elevation – persistent JWT-secured helper service
+          IsProcessElevated(): Promise<boolean>;
+          StartElevatedSession(): Promise<ElevatedSessionStatus>;
+          StopElevatedSession(): Promise<void>;
+          GetElevatedSessionStatus(): Promise<ElevatedSessionStatus>;
         };
       };
     };
@@ -380,6 +402,24 @@ export class ApiService {
 
   async confirmElevationRequest(requestID: string, approve: boolean): Promise<void> {
     return await window.go.main.App.ConfirmElevationRequest(requestID, approve);
+  }
+
+  // ── Persistent elevated service session (JWT-secured helper process) ───────
+
+  async isProcessElevated(): Promise<boolean> {
+    return window.go.main.App.IsProcessElevated();
+  }
+
+  async startElevatedSession(): Promise<ElevatedSessionStatus> {
+    return window.go.main.App.StartElevatedSession();
+  }
+
+  async stopElevatedSession(): Promise<void> {
+    return window.go.main.App.StopElevatedSession();
+  }
+
+  async getElevatedSessionStatus(): Promise<ElevatedSessionStatus> {
+    return window.go.main.App.GetElevatedSessionStatus();
   }
 
   /**

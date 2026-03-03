@@ -4,6 +4,8 @@ package main
 
 import (
 	"fmt"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"unsafe"
 )
@@ -51,6 +53,11 @@ const (
 // moveToTrash moves path to the Windows Recycle Bin using SHFileOperationW.
 // It works for both files and directories.
 func moveToTrash(path string) error {
+	path = normalizeShellTrashPath(path)
+	if path == "" {
+		return fmt.Errorf("trash: empty path")
+	}
+
 	// pFrom must be double-null-terminated UTF-16.
 	from, err := syscall.UTF16FromString(path)
 	if err != nil {
@@ -67,10 +74,23 @@ func moveToTrash(path string) error {
 
 	ret, _, _ := shFileOperation.Call(uintptr(unsafe.Pointer(&op)))
 	if ret != 0 {
-		return fmt.Errorf("trash: SHFileOperationW returned error code 0x%X", ret)
+		return fmt.Errorf("trash: SHFileOperationW returned error code 0x%X (path=%q)", ret, path)
 	}
 	if op.fAnyOperationsAborted != 0 {
 		return fmt.Errorf("trash: operation was aborted by the user or system")
 	}
 	return nil
+}
+
+func normalizeShellTrashPath(path string) string {
+	p := strings.TrimSpace(path)
+	if p == "" {
+		return ""
+	}
+	// Shell APIs are picky about slash direction.
+	p = filepath.FromSlash(p)
+	p = filepath.Clean(p)
+	// SHFileOperationW does not support extended-length path prefixes.
+	p = strings.TrimPrefix(p, `\\?\`)
+	return p
 }

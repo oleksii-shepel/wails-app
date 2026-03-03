@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -21,6 +22,7 @@ type App struct {
 	dirWatch   *PaneDirWatchManager
 	elevMu     sync.Mutex
 	elevWait   map[string]chan bool
+	elevSvc    *ElevatedServiceClient // persistent JWT-authenticated elevated IPC channel
 }
 
 // NewApp creates a new App application struct.
@@ -54,6 +56,13 @@ func (a *App) startup(ctx context.Context) {
 func (a *App) shutdown(ctx context.Context) {
 	if a.dirWatch != nil {
 		a.dirWatch.Close()
+	}
+	a.elevMu.Lock()
+	svc := a.elevSvc
+	a.elevSvc = nil
+	a.elevMu.Unlock()
+	if svc != nil {
+		svc.Stop()
 	}
 }
 
@@ -244,6 +253,79 @@ func (a *App) emitEvent(name string, data interface{}) {
 	}
 }
 
+// ============================================================================
+// Elevated service session (persistent JWT-secured IPC channel)
+// ============================================================================
+
+// StartElevatedSession launches the elevated helper process (one UAC/sudo
+// prompt) and establishes a persistent JWT-authenticated TCP channel to it.
+// All subsequent permission-denied operations are routed through this channel
+// with no further OS prompts.
+func (a *App) StartElevatedSession() (*ElevatedSessionStatus, error) {
+	a.elevMu.Lock()
+	defer a.elevMu.Unlock()
+
+	if a.elevSvc != nil && a.elevSvc.Alive() {
+		status := a.elevSvc.Status()
+		a.emitEvent("elevation:session-started", status)
+		return &status, nil
+	}
+
+	exePath, err := executablePath()
+	if err != nil {
+		return nil, fmt.Errorf("resolve executable: %w", err)
+	}
+
+	a.emitEvent("elevation:uac-requested", map[string]string{
+		"phase":     "requested",
+		"operation": "session-start",
+		"target":    "elevated-service",
+		"message":   "Administrative privileges requested to start elevated service session.",
+	})
+
+	svc, err := StartElevatedServiceClient(exePath)
+	if err != nil {
+		return nil, err
+	}
+	a.elevSvc = svc
+	status := svc.Status()
+	a.emitEvent("elevation:session-started", status)
+	return &status, nil
+}
+
+// StopElevatedSession closes the elevated IPC channel and terminates the
+// helper process. Future permission-denied operations will fall back to the
+// interactive per-op UAC dialog.
+func (a *App) StopElevatedSession() {
+	a.elevMu.Lock()
+	svc := a.elevSvc
+	a.elevSvc = nil
+	a.elevMu.Unlock()
+	if svc != nil {
+		svc.Stop()
+	}
+	a.emitEvent("elevation:session-stopped", map[string]bool{"active": false})
+}
+
+// GetElevatedSessionStatus returns the live status of the elevated service
+// channel without starting or stopping it.
+func (a *App) GetElevatedSessionStatus() ElevatedSessionStatus {
+	a.elevMu.Lock()
+	svc := a.elevSvc
+	a.elevMu.Unlock()
+	if svc == nil {
+		return ElevatedSessionStatus{}
+	}
+	return svc.Status()
+}
+
+// ============================================================================
+// IsProcessElevated returns true when the current process is running with
+// administrator / root privileges.
+func (a *App) IsProcessElevated() bool {
+	return isProcessElevated()
+}
+
 func (a *App) ConfirmElevationRequest(requestID string, approve bool) {
 	a.elevMu.Lock()
 	ch, ok := a.elevWait[requestID]
@@ -278,6 +360,11 @@ func (a *App) waitForElevationApproval(requestID string, timeout time.Duration) 
 	case <-time.After(timeout):
 		return false, fmt.Errorf("elevation approval timed out")
 	}
+}
+
+// executablePath returns the absolute path of the running binary.
+func executablePath() (string, error) {
+	return os.Executable()
 }
 
 func newElevationRequestID() string {

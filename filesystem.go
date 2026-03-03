@@ -21,7 +21,7 @@ func (a *App) ListDirectory(path string, showHidden bool) (*DirectoryListing, er
 	if err == nil {
 		return listing, nil
 	}
-	if !isPermissionDenied(err) {
+	if !shouldRetryDeleteWithElevation(err) {
 		return nil, err
 	}
 
@@ -706,23 +706,57 @@ func (a *App) emitElevationResult(requestID, op, target string, success bool, er
 }
 
 func (a *App) runElevatedWithEvents(op, target string, req elevatedRequest) (elevatedResponse, error) {
-	requestID := newElevationRequestID()
-	a.emitElevationRequested(requestID, op, target)
-	approved, waitErr := a.waitForElevationApproval(requestID, 90*time.Second)
-	if waitErr != nil {
-		err := fmt.Errorf("elevation confirmation timeout")
-		a.emitElevationResult(requestID, op, target, false, err)
-		return elevatedResponse{}, err
-	}
-	if !approved {
-		err := fmt.Errorf("elevation cancelled by user")
-		a.emitElevationResult(requestID, op, target, false, err)
-		return elevatedResponse{}, err
+	// ── Tier 1: process is already admin/root ────────────────────────────────
+	if isProcessElevated() {
+		return executeElevatedRequest(req), nil
 	}
 
+	// ── Tier 2: route through the persistent elevated service session ─────────
+	// If a session is already alive, dispatch immediately.
+	// If not, try to auto-start one now — this shows exactly ONE UAC/sudo
+	// prompt and then all future operations reuse the same elevated channel.
+	a.elevMu.Lock()
+	svc := a.elevSvc
+	a.elevMu.Unlock()
+
+	if svc == nil || !svc.Alive() {
+		// Serialize startup via StartElevatedSession so concurrent denied
+		// operations do not trigger multiple overlapping UAC prompts.
+		a.emitEvent("elevation:session-starting", map[string]string{"op": op, "target": target})
+		if status, startErr := a.StartElevatedSession(); startErr == nil {
+			a.emitEvent("elevation:session-started", status)
+			a.elevMu.Lock()
+			svc = a.elevSvc
+			a.elevMu.Unlock()
+		}
+		// If start failed (e.g. user clicked "No") svc stays nil and we
+		// fall through to the per-op dialog below.
+	}
+
+	if svc != nil && svc.Alive() {
+		resp, err := svc.Dispatch(req)
+		if err != nil {
+			a.emitEvent("elevation:auto-failed", map[string]interface{}{"op": op, "target": target, "error": err.Error()})
+			return elevatedResponse{}, err
+		}
+		a.emitEvent("elevation:auto-started", map[string]string{"op": op, "target": target})
+		return resp, nil
+	}
+
+	// ── Tier 3: service unavailable — direct per-op elevation fallback ───────
+	// Do not show an in-app confirmation dialog; let OS UAC prompt directly.
+	a.emitEvent("elevation:uac-requested", map[string]string{
+		"phase":     "requested",
+		"operation": op,
+		"target":    target,
+	})
 	resp, err := runElevatedRequest(req)
-	a.emitElevationResult(requestID, op, target, err == nil, err)
-	return resp, err
+	if err != nil {
+		a.emitEvent("elevation:auto-failed", map[string]interface{}{"op": op, "target": target, "error": err.Error()})
+		return elevatedResponse{}, err
+	}
+	a.emitEvent("elevation:auto-started", map[string]string{"op": op, "target": target})
+	return resp, nil
 }
 
 func opTargetSingle(path string) string {

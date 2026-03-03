@@ -181,3 +181,14 @@ func isPermissionDenied(err error) bool {
 		strings.Contains(msg, "eacces") ||
 		strings.Contains(msg, "eperm")
 }
+
+func shouldRetryDeleteWithElevation(err error) bool {
+	if isPermissionDenied(err) {
+		return true
+	}
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "shfileoperationw returned error code 0x78")
+}

@@ -1293,7 +1293,12 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     // ── Filesystem delete — unchanged from original ───────────────────────────
     if (!confirm(`Delete ${this.selectedFiles.size} item(s)?`)) return;
     try {
-      await this.apiService.batchDelete(Array.from(this.selectedFiles), true);
+      const result = await this.apiService.batchDelete(Array.from(this.selectedFiles), true);
+      if (result.failed > 0) {
+        const msg = (result.errors ?? []).map((e: any) => `${e.source}: ${e.error}`).join('\n');
+        alert(`Delete completed with ${result.failed} error(s):\n${msg}`);
+      }
+      await this.loadDirectory(this.currentPath);
     } catch (error: any) {
       alert(`Failed to delete items: ${error.message}`);
     }

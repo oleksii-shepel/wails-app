@@ -1,7 +1,7 @@
 import { Component, OnInit, OnDestroy, ViewChild, ElementRef, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
-
+import { EventsOn, EventsOff } from 'wailsjs/runtime/runtime';
 import { ApiService } from '../services/api.service';
 import { WorkspaceService } from '../services/workspace.service';
 import { FileType } from '../shared/protocol';
@@ -19,10 +19,7 @@ import { StatusBarComponent } from './status-bar.component';
 import { OperationStatusBarComponent } from './operation-status-bar.component';
 import { OperationToastStackComponent } from './operation-stack.component';
 import { ArchiveService } from '../services/archive.service';
-import { ElevationDialogComponent } from './elevation-dialog.component';
-
-interface CopyMoveItem { source: string; destination: string; }
-interface OpResult { failed: number; errors?: Array<{ source: string; error: string }> }
+import { ElevationStatusPillComponent } from './elevation-status-pill.component';
 
 @Component({
   selector: 'app-file-browser',
@@ -38,7 +35,7 @@ interface OpResult { failed: number; errors?: Array<{ source: string; error: str
     StatusBarComponent,
     OperationToastStackComponent,
     OperationStatusBarComponent,
-    ElevationDialogComponent
+    ElevationStatusPillComponent
 ],
   templateUrl: './file-browser.component.html',
   styleUrls: ['./file-browser.component.scss'],
@@ -63,6 +60,8 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
   rightPaneWidth = 50;
   isResizing = false;
   toastCollapsed = false;
+  elevationActive = false;
+  elevationBusy = false;
   
   private startX = 0;
   private startLeftWidth = 0;
@@ -102,6 +101,19 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     this.checkServerConnection();
     this.registerKeyboardShortcuts();
     this.loadPaneWidths();
+    void this.syncElevationState();
+
+    EventsOn('elevation:session-starting', () => {
+      this.elevationBusy = true;
+    });
+    EventsOn('elevation:session-started', () => {
+      this.elevationActive = true;
+      this.elevationBusy = false;
+    });
+    EventsOn('elevation:session-stopped', () => {
+      this.elevationActive = false;
+      this.elevationBusy = false;
+    });
   }
 
   ngOnDestroy(): void {
@@ -109,6 +121,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     this.destroy$.complete();
     this.apiService.disconnectWebSocket();
     this.cleanupResizeListeners();
+    EventsOff('elevation:session-starting', 'elevation:session-started', 'elevation:session-stopped');
   }
 
   copyToOtherPane(source: FilePaneComponent | undefined, target: FilePaneComponent | undefined, paths?: string[]): void {
@@ -158,6 +171,17 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     const isHealthy = await this.apiService.checkHealth();
     if (!isHealthy) {
       console.error('Cannot connect to server');
+    }
+  }
+
+  async syncElevationState(): Promise<void> {
+    try {
+      const status = await this.apiService.getElevatedSessionStatus();
+      this.elevationActive = !!status?.active;
+    } catch {
+      this.elevationActive = false;
+    } finally {
+      this.elevationBusy = false;
     }
   }
 
@@ -211,6 +235,25 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
       this.leftPane?.onRefresh(),
       this.rightPane?.onRefresh()
     ]);
+  }
+
+  async toggleElevation(): Promise<void> {
+    if (this.elevationBusy) return;
+    this.elevationBusy = true;
+    try {
+      if (this.elevationActive) {
+        await this.apiService.stopElevatedSession();
+        this.elevationActive = false;
+        return;
+      }
+      const status = await this.apiService.startElevatedSession();
+      this.elevationActive = !!status?.active;
+    } catch (error: any) {
+      console.error('Elevation toggle failed:', error);
+      alert(`Elevation error: ${error?.message ?? String(error)}`);
+    } finally {
+      this.elevationBusy = false;
+    }
   }
 
   // ============================================================================

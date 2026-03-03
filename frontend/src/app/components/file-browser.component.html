@@ -21,6 +21,15 @@
       </div>
 
       <div class="toolbar-right">
+        <button
+          (click)="toggleElevation()"
+          [class.active]="elevationActive"
+          [disabled]="elevationBusy"
+          class="btn"
+          [title]="elevationActive ? 'Stop elevated service session' : 'Start elevated service session'"
+        >
+          {{ elevationBusy ? 'Elevation…' : (elevationActive ? 'Elevation On' : 'Elevation Off') }}
+        </button>
         <button (click)="toggleShowHidden()" [class.active]="showHidden" class="btn">
           {{ showHidden ? 'Hide' : 'Show' }} Hidden
         </button>
@@ -80,11 +89,11 @@
   <app-path-history-viewer></app-path-history-viewer>
   <app-global-search (resultSelected)="onGlobalSearchResult($event)"></app-global-search>
   <app-keyboard-help></app-keyboard-help>
-  <app-elevation-dialog></app-elevation-dialog>
   <app-operation-toast-stack #toastStack [collapsed]="toastCollapsed">
   </app-operation-toast-stack>
 
   <app-status-bar>
+    <app-elevation-status-pill></app-elevation-status-pill>
     <app-operation-status-bar
       [(toastCollapsed)]="toastCollapsed"
       [stackElement]="toastStack.elementRef.nativeElement">

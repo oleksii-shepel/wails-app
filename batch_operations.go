@@ -335,6 +335,18 @@ func (a *App) BatchCopy(req BatchRequest) (*BatchResult, error) {
 		}
 
 		if err := a.copyPath(item.Source, finalDst, req.Recursive, op, bp); err != nil {
+			if isPermissionDenied(err) {
+				resp, elevErr := a.runElevatedWithEvents("copy", opTargetPair(item.Source, finalDst), elevatedRequest{
+					Op:          "copy",
+					Source:      item.Source,
+					Destination: finalDst,
+					Recursive:   req.Recursive,
+				})
+				if elevErr == nil && resp.Success {
+					result.Succeeded++
+					continue
+				}
+			}
 			result.Failed++
 			result.Errors = append(result.Errors, BatchItemError{Source: item.Source, Destination: finalDst, Error: err.Error()})
 		} else {
@@ -396,12 +408,47 @@ func (a *App) BatchMove(req BatchRequest) (*BatchResult, error) {
 
 		// Atomic rename first; cross-device falls back to copy+delete.
 		if err = os.Rename(item.Source, finalDst); err != nil {
+			if isPermissionDenied(err) {
+				resp, elevErr := a.runElevatedWithEvents("move", opTargetPair(item.Source, finalDst), elevatedRequest{
+					Op:          "move",
+					Source:      item.Source,
+					Destination: finalDst,
+				})
+				if elevErr == nil && resp.Success {
+					result.Succeeded++
+					continue
+				}
+			}
 			if err2 := a.copyPath(item.Source, finalDst, true, op, bp); err2 != nil {
+				if isPermissionDenied(err2) {
+					resp, elevErr := a.runElevatedWithEvents("move", opTargetPair(item.Source, finalDst), elevatedRequest{
+						Op:          "move",
+						Source:      item.Source,
+						Destination: finalDst,
+					})
+					if elevErr == nil && resp.Success {
+						result.Succeeded++
+						continue
+					}
+				}
 				result.Failed++
 				result.Errors = append(result.Errors, BatchItemError{Source: item.Source, Destination: finalDst, Error: err2.Error()})
 				continue
 			}
 			if err2 := os.RemoveAll(item.Source); err2 != nil {
+				if isPermissionDenied(err2) {
+					useTrash := false
+					resp, elevErr := a.runElevatedWithEvents("delete", opTargetSingle(item.Source), elevatedRequest{
+						Op:        "delete",
+						Path:      item.Source,
+						Recursive: true,
+						UseTrash:  &useTrash,
+					})
+					if elevErr == nil && resp.Success {
+						result.Succeeded++
+						continue
+					}
+				}
 				result.Failed++
 				result.Errors = append(result.Errors, BatchItemError{Source: item.Source, Error: err2.Error()})
 				continue
@@ -451,6 +498,26 @@ func (a *App) BatchDelete(req BatchDeleteRequest) (*BatchResult, error) {
 			// Delegate entirely to the OS trash / recycle bin. The OS handles
 			// directories recursively, so no need to walk them ourselves.
 			if err := moveToTrash(p); err != nil {
+				if shouldRetryDeleteWithElevation(err) {
+					useTrashElev := true
+					resp, elevErr := a.runElevatedWithEvents("delete", opTargetSingle(p), elevatedRequest{
+						Op:       "delete",
+						Path:     p,
+						UseTrash: &useTrashElev,
+					})
+					if elevErr == nil && resp.Success {
+						bp.mu.Lock()
+						bp.processedItems++
+						i, b := bp.processedItems, bp.processedBytes
+						bp.mu.Unlock()
+						bp.update(i, b, filepath.Base(p), 0, false)
+						result.Succeeded++
+						continue
+					}
+					if elevErr != nil {
+						err = elevErr
+					}
+				}
 				result.Failed++
 				result.Errors = append(result.Errors, BatchItemError{Source: p, Error: err.Error()})
 				continue
@@ -473,6 +540,19 @@ func (a *App) BatchDelete(req BatchDeleteRequest) (*BatchResult, error) {
 
 		if info.IsDir() && req.Recursive {
 			if err := a.deleteDir(p, op, bp); err != nil {
+				if shouldRetryDeleteWithElevation(err) {
+					useTrashElev := false
+					resp, elevErr := a.runElevatedWithEvents("delete", opTargetSingle(p), elevatedRequest{
+						Op:        "delete",
+						Path:      p,
+						Recursive: true,
+						UseTrash:  &useTrashElev,
+					})
+					if elevErr == nil && resp.Success {
+						result.Succeeded++
+						continue
+					}
+				}
 				result.Failed++
 				result.Errors = append(result.Errors, BatchItemError{Source: p, Error: err.Error()})
 				continue
@@ -480,6 +560,25 @@ func (a *App) BatchDelete(req BatchDeleteRequest) (*BatchResult, error) {
 		} else {
 			size := info.Size()
 			if err := os.Remove(p); err != nil {
+				if shouldRetryDeleteWithElevation(err) {
+					useTrashElev := false
+					resp, elevErr := a.runElevatedWithEvents("delete", opTargetSingle(p), elevatedRequest{
+						Op:        "delete",
+						Path:      p,
+						Recursive: req.Recursive,
+						UseTrash:  &useTrashElev,
+					})
+					if elevErr == nil && resp.Success {
+						bp.mu.Lock()
+						bp.processedItems++
+						bp.processedBytes += size
+						i, b := bp.processedItems, bp.processedBytes
+						bp.mu.Unlock()
+						bp.update(i, b, filepath.Base(p), size, false)
+						result.Succeeded++
+						continue
+					}
+				}
 				result.Failed++
 				result.Errors = append(result.Errors, BatchItemError{Source: p, Error: err.Error()})
 				continue

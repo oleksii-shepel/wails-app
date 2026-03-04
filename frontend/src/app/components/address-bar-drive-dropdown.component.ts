@@ -29,18 +29,22 @@ import { DriveInfo } from '../shared/protocol-enhanced';
         <div
           *ngFor="let d of drives"
           class="ab-drive-grid-item"
-          [class.ab-drive-grid-item--active]="d.path === currentPath"
+          [class.ab-drive-grid-item--active]="isActive(d)"
+          [title]="getDisplayPath(d.path)"
           (click)="driveClick.emit(d)"
         >
           <div class="ab-drive-grid-top">
             <span class="ab-drive-grid-icon">{{ getIcon(d) }}</span>
             <span class="ab-drive-grid-letter">{{ d.name }}</span>
-            <span class="ab-drive-grid-label">Local Drive</span>
-            <svg *ngIf="d.path === currentPath" class="ab-drive-grid-check" width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+            <span class="ab-drive-grid-label">{{ getDriveLabel(d) }}</span>
+            <svg *ngIf="isActive(d)" class="ab-drive-grid-check" width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
               <path d="M13.485 1.929L5.5 9.914 2.515 6.929a1 1 0 0 0-1.414 1.414l3.692 3.693a1 1 0 0 0 1.414 0l8.692-8.693a1 1 0 0 0-1.414-1.414z"/>
             </svg>
           </div>
           <div class="ab-drive-grid-details">
+            <div class="ab-drive-grid-path" [title]="getDisplayPath(d.path)">
+              {{ getDisplayPath(d.path) }}
+            </div>
             <div class="ab-drive-grid-space" *ngIf="d.totalSpace > 0">
               <div class="ab-drive-grid-space-labels">
                 <span class="ab-drive-grid-space-free">{{ formatSize(d.freeSpace) }} free</span>
@@ -107,6 +111,7 @@ import { DriveInfo } from '../shared/protocol-enhanced';
       border-radius: var(--vsc-border-radius);
       cursor: pointer; transition: all var(--vsc-transition-fast);
       gap: var(--vsc-padding-sm);
+      min-height: 108px;
 
       &:hover {
         background: var(--vsc-panel-background) !important;
@@ -125,8 +130,27 @@ import { DriveInfo } from '../shared/protocol-enhanced';
     .ab-drive-grid-label { font-size: var(--vsc-font-size); font-weight: 500; color: var(--vsc-foreground); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .ab-drive-grid-check { color: var(--vsc-foreground-dim); margin-left: auto; flex-shrink: 0; }
 
-    .ab-drive-grid-details { display: flex; flex-direction: column; gap: 5px; font-size: 11px; color: var(--vsc-foreground-dim); margin-top: 2px; }
+    .ab-drive-grid-details {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      font-size: 11px;
+      color: var(--vsc-foreground-dim);
+      margin-top: 2px;
+      min-height: 32px;
+    }
+    .ab-drive-grid-path {
+      font-family: var(--vsc-font-family-mono);
+      font-size: 10px;
+      color: var(--vsc-foreground-dim);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
+      opacity: 0.95;
+    }
     .ab-drive-grid-space { display: flex; flex-direction: column; gap: 4px; }
+    .ab-drive-grid-space--placeholder { min-height: 18px; }
     .ab-drive-grid-space-labels { display: flex; align-items: center; justify-content: space-between; font-size: 10px; color: var(--vsc-foreground-dim); }
     .ab-drive-grid-space-free { font-weight: 600; color: var(--vsc-foreground); }
     .ab-drive-space-bar { width: 100%; height: 4px; background: var(--vsc-border-subtle); border-radius: 2px; overflow: hidden; }
@@ -178,7 +202,40 @@ export class AddressBarDriveDropdownComponent {
   @Input() currentPath = '';
   @Output() driveClick = new EventEmitter<DriveInfo>();
 
+  private normalizePath(path: string): string {
+    const replaced = (path || '').replace(/\\/g, '/');
+    const collapsed = replaced.startsWith('//')
+      ? `//${replaced.slice(2).replace(/\/{2,}/g, '/')}`
+      : replaced.replace(/\/{2,}/g, '/');
+    return collapsed.length > 1 && collapsed.endsWith('/') && !/^[A-Za-z]:\/$/.test(collapsed)
+      ? collapsed.slice(0, -1)
+      : collapsed;
+  }
+
+  isActive(d: DriveInfo): boolean {
+    const current = this.normalizePath(this.currentPath).toLowerCase();
+    const root = this.normalizePath(d.path).toLowerCase();
+    return current === root || current.startsWith(`${root}/`);
+  }
+
+  getDriveLabel(d: DriveInfo): string {
+    if (d.driveType?.startsWith('cloud-')) {
+      return 'Cloud Storage';
+    }
+    if (d.driveType === 'network') {
+      return 'Network Drive';
+    }
+    return 'Local Drive';
+  }
+
+  getDisplayPath(path: string): string {
+    return this.normalizePath(path || '');
+  }
+
   getIcon(d: DriveInfo): string {
+    if (d.driveType === 'cloud-onedrive') return '☁️';
+    if (d.driveType === 'cloud-google')   return '🗂️';
+    if (d.driveType === 'cloud-dropbox')  return '📦';
     if (d.driveType === 'fixed')    return '💽';
     if (d.driveType === 'removable') return '💾';
     if (d.driveType === 'cdrom')    return '💿';

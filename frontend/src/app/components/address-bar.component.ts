@@ -1079,17 +1079,102 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   switchToDrive(drive: DriveInfo): void {
     this.showDriveMenu = false;
     const raw = (drive.path || drive.name || '').toString();
-    let target = raw;
-    if (/^[A-Za-z]:/.test(raw)) {
-      target = raw.slice(0, 2) + '/';
-    } else {
-      const n = raw.replace(/\\+/g, '/');
-      if (n.startsWith('//')) {
-        const parts = n.split('/').filter(Boolean);
-        target = parts.length >= 2 ? '//' + parts[0] + '/' + parts[1] : n;
-      }
+    const normalized = normalizePath(raw);
+    let target = normalized;
+
+    // Collapse only true drive roots like "C:" or "C:/".
+    if (/^[A-Za-z]:\/?$/.test(normalized)) {
+      target = normalized.slice(0, 2) + '/';
     }
+
+    // For UNC, keep/share root form (//server/share).
+    if (normalized.startsWith('//')) {
+      const parts = normalized.split('/').filter(Boolean);
+      target = parts.length >= 2 ? `//${parts[0]}/${parts[1]}` : normalized;
+    }
+
     if (target && target !== this.currentPath) this.navigateTo(target);
+  }
+
+  private async pathExists(path: string): Promise<boolean> {
+    try {
+      const info = await this.apiService.getFileInfo(path);
+      return info.type === FileType.DIRECTORY;
+    } catch {
+      return false;
+    }
+  }
+
+  private getHomeFolderPath(): string | null {
+    const home = this.specialFolders.find(f => f.name.toLowerCase() === 'home')?.path;
+    return home ? normalizePath(home) : null;
+  }
+
+  private async getCloudDrives(): Promise<DriveInfo[]> {
+    if (!this.specialFolders.length) {
+      await this.loadSpecialFolders();
+    }
+
+    const home = this.getHomeFolderPath();
+    if (!home) {
+      return [];
+    }
+
+    const providers: Array<{ name: string; driveType: string; paths: string[] }> = [
+      {
+        name: 'OneDrive',
+        driveType: 'cloud-onedrive',
+        paths: [
+          `${home}/OneDrive`,
+          `${home}/OneDrive - Personal`,
+        ],
+      },
+      {
+        name: 'Google Drive',
+        driveType: 'cloud-google',
+        paths: [
+          `${home}/Google Drive`,
+          `${home}/My Drive`,
+          `${home}/Google Drive/My Drive`,
+        ],
+      },
+      {
+        name: 'Dropbox',
+        driveType: 'cloud-dropbox',
+        paths: [
+          `${home}/Dropbox`,
+        ],
+      },
+    ];
+
+    const cloudDrives: DriveInfo[] = [];
+    for (const provider of providers) {
+      let foundPath: string | null = null;
+      for (const candidate of provider.paths.map(normalizePath)) {
+        if (await this.pathExists(candidate)) {
+          foundPath = candidate;
+          break;
+        }
+      }
+
+      if (!foundPath) {
+        continue;
+      }
+
+      cloudDrives.push({
+        name: provider.name,
+        path: foundPath,
+        type: 'DIRECTORY',
+        driveType: provider.driveType,
+        totalSize: 0,
+        freeSize: 0,
+        totalSpace: 0,
+        freeSpace: 0,
+        fileSystem: 'Cloud',
+      });
+    }
+
+    return cloudDrives;
   }
 
   async loadDrives(): Promise<void> {
@@ -1097,7 +1182,9 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     this.drivesLoading = true;
     try { 
       const drivesList = await this.apiService.getDrives();
-      this.drives = drivesList?.drives || [];
+      const systemDrives = drivesList?.drives || [];
+      const cloudDrives = await this.getCloudDrives();
+      this.drives = [...systemDrives, ...cloudDrives];
     } catch {
       this.drives = [];
     } finally { 

@@ -120,8 +120,6 @@ import { highlightMatch } from './address-bar.utils';
       to   { opacity: 1; transform: translateY(0); }
     }
 
-    .ab-autocomplete { max-height: 350px; overflow-y: auto; }
-
     .ab-drop-head {
       display: flex; align-items: center; justify-content: space-between;
       height: 32px; padding: 0 var(--vsc-padding-lg);
@@ -139,7 +137,7 @@ import { highlightMatch } from './address-bar.utils';
     }
 
     .ab-drop-scroll {
-      max-height: 300px; overflow-y: auto; padding: var(--vsc-padding-xs) 0;
+      padding: var(--vsc-padding-xs) 0;
       background-color: var(--vsc-panel-background, #252526) !important;
     }
 

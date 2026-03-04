@@ -108,23 +108,21 @@ import { DriveInfo } from '../shared/protocol-enhanced';
       gap: var(--vsc-padding-sm);
 
       &:hover {
-        background: var(--vsc-list-hover-background) !important;
-        border-color: var(--vsc-accent-blue);
-        transform: translateY(-1px);
-        box-shadow: 0 2px 8px var(--vsc-shadow);
+        background: var(--vsc-panel-background) !important;
+        border-color: var(--vsc-border);
       }
 
       &.ab-drive-grid-item--active {
-        background: var(--vsc-list-active-background) !important;
-        border-color: var(--vsc-accent-blue);
+        background: var(--vsc-panel-background) !important;
+        border-color: var(--vsc-border);
       }
     }
 
     .ab-drive-grid-top { display: flex; align-items: center; gap: var(--vsc-padding-sm); }
     .ab-drive-grid-icon { font-size: 20px; flex-shrink: 0; }
-    .ab-drive-grid-letter { font-family: var(--vsc-font-family-mono); font-size: 14px; font-weight: 700; color: var(--vsc-accent-blue); }
+    .ab-drive-grid-letter { font-family: var(--vsc-font-family-mono); font-size: 14px; font-weight: 700; color: var(--vsc-foreground-dim); }
     .ab-drive-grid-label { font-size: var(--vsc-font-size); font-weight: 500; color: var(--vsc-foreground); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .ab-drive-grid-check { color: var(--vsc-accent-blue); margin-left: auto; flex-shrink: 0; }
+    .ab-drive-grid-check { color: var(--vsc-foreground-dim); margin-left: auto; flex-shrink: 0; }
 
     .ab-drive-grid-details { display: flex; flex-direction: column; gap: 5px; font-size: 11px; color: var(--vsc-foreground-dim); margin-top: 2px; }
     .ab-drive-grid-space { display: flex; flex-direction: column; gap: 4px; }

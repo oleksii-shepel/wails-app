@@ -382,13 +382,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
         treeArchive.archivePath, treeArchive.innerPaths, destDir
       );
       const err = this.archiveError(result);
-      if (err) {
-        await this.confirmDialog.confirm({
-          title: 'Copy Errors',
-          message: err,
-          confirmText: 'OK'
-        });
-      }
+      if (err) this.confirmDialog.alert(`Copy Errors\n${err}`);
       dst.onRefresh();
       return;
     }

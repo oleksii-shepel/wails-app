@@ -18,7 +18,8 @@ import {
   WorkspaceList,
   ArchiveListing,
   OperationProgress,
-  FileType
+  FileType,
+  SpecialFolder,
 } from '../shared/protocol-enhanced';
 import { EventsEmit } from 'wailsjs/runtime/runtime';
 
@@ -48,6 +49,7 @@ declare global {
           Ping(): Promise<number>;
           GetOSInfo(): Promise<any>;
           GetDrives(): Promise<any>;
+          GetSpecialFolders(): Promise<{ folders: SpecialFolder[] }>;
           
           // File System
           ListDir(path: string, showHidden: boolean): Promise<DirectoryListing>;
@@ -175,6 +177,11 @@ export class ApiService {
 
   async getDrives(): Promise<any> {
     return await window.go.main.App.GetDrives();
+  }
+
+  async getSpecialFolders(): Promise<SpecialFolder[]> {
+    const response = await window.go.main.App.GetSpecialFolders();
+    return response.folders || [];
   }
 
   // ============================================================================

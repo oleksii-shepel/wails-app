@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
 import { PathHistoryService, PathHistoryEntry } from '../services/path-history.service';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
+import { normalizePath } from './address-bar.utils';
 
 @Component({
   selector: 'app-path-history-viewer',
@@ -14,7 +15,7 @@ import { ConfirmDialogService } from '../services/confirm-dialog.service';
       <div class="path-history-modal" (click)="$event.stopPropagation()">
         <!-- Header -->
         <div class="modal-header">
-          <h2>📂 Path History</h2>
+          <h2>Path History</h2>
           <button class="btn-close" (click)="hide()" title="Close (Esc)">✕</button>
         </div>
 
@@ -26,10 +27,10 @@ import { ConfirmDialogService } from '../services/confirm-dialog.service';
           </div>
           <div class="stat-item">
             <span class="stat-label">Most Visited:</span>
-            <span class="stat-value">{{ getMostVisited()?.path || 'None' }}</span>
+            <span class="stat-value">{{ getMostVisited() ? normalizeEntryPath(getMostVisited()?.path) : 'None' }}</span>
           </div>
           <button (click)="clearHistory()" class="btn-clear-history">
-            🗑️ Clear All
+            Clear All
           </button>
         </div>
 
@@ -60,7 +61,7 @@ import { ConfirmDialogService } from '../services/confirm-dialog.service';
           >
             <div class="entry-icon">📁</div>
             <div class="entry-info">
-              <div class="entry-path">{{ entry.path }}</div>
+              <div class="entry-path">{{ normalizeEntryPath(entry.path) }}</div>
               <div class="entry-meta">
                 <span class="entry-pane">{{ entry.paneId }} pane</span>
                 <span class="entry-count">{{ entry.accessCount }} visit{{ entry.accessCount > 1 ? 's' : '' }}</span>
@@ -84,7 +85,7 @@ import { ConfirmDialogService } from '../services/confirm-dialog.service';
           </div>
           <div class="footer-actions">
             <button (click)="exportHistory()" class="btn-secondary">
-              💾 Export
+              Export
             </button>
             <button (click)="hide()" class="btn-primary">
               Close
@@ -101,12 +102,13 @@ import { ConfirmDialogService } from '../services/confirm-dialog.service';
       left: 0;
       right: 0;
       bottom: 0;
-      background: rgba(0, 0, 0, 0.75);
+      background: rgba(0, 0, 0, 0.45);
       display: flex;
       align-items: center;
       justify-content: center;
-      z-index: 9999;
+      z-index: var(--vsc-z-modal);
       animation: fadeIn 0.2s ease;
+      padding: var(--vsc-padding-xl);
     }
 
     @keyframes fadeIn {
@@ -115,9 +117,9 @@ import { ConfirmDialogService } from '../services/confirm-dialog.service';
     }
 
     .path-history-modal {
-      background: #2d2d30;
-      border: 1px solid #3e3e42;
-      border-radius: 12px;
+      background: var(--vsc-panel-background);
+      border: 1px solid var(--vsc-border);
+      border-radius: var(--vsc-border-radius);
       width: 90%;
       max-width: 800px;
       max-height: 80vh;
@@ -125,6 +127,7 @@ import { ConfirmDialogService } from '../services/confirm-dialog.service';
       flex-direction: column;
       box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
       animation: slideUp 0.3s ease;
+      color: var(--vsc-foreground);
     }
 
     @keyframes slideUp {
@@ -142,40 +145,48 @@ import { ConfirmDialogService } from '../services/confirm-dialog.service';
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 1.5rem;
-      border-bottom: 1px solid #3e3e42;
+      padding: var(--vsc-padding-md) var(--vsc-padding-lg);
+      border-bottom: 1px solid var(--vsc-border-subtle);
     }
 
     .modal-header h2 {
       margin: 0;
-      font-size: 1.5rem;
-      color: #d4d4d4;
+      font-size: var(--vsc-font-size-large);
+      color: var(--vsc-foreground-bright);
     }
 
     .btn-close {
-      padding: 0.5rem;
+      width: 28px;
+      height: 28px;
+      padding: 0;
       background: transparent;
-      border: none;
-      color: #858585;
+      border: 1px solid transparent;
+      color: var(--vsc-foreground-muted);
       cursor: pointer;
-      font-size: 1.5rem;
-      transition: all 0.2s;
-      border-radius: 4px;
+      font-size: var(--vsc-font-size-large);
+      transition: all var(--vsc-transition-fast);
+      border-radius: var(--vsc-border-radius-sm);
     }
 
     .btn-close:hover {
-      background: #3e3e42;
-      color: #d4d4d4;
+      background: var(--vsc-list-hover-background);
+      color: var(--vsc-foreground);
+    }
+
+    .btn-close:focus-visible {
+      outline: 1px solid var(--vsc-input-focus-border);
+      outline-offset: 1px;
     }
 
     .stats-bar {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 1rem 1.5rem;
-      background: #252526;
-      border-bottom: 1px solid #3e3e42;
+      padding: var(--vsc-padding-md) var(--vsc-padding-lg);
+      background: color-mix(in srgb, var(--vsc-panel-background) 85%, var(--vsc-sidebar-background) 15%);
+      border-bottom: 1px solid var(--vsc-border-subtle);
       gap: 1rem;
+      flex-wrap: wrap;
     }
 
     .stat-item {
@@ -185,77 +196,65 @@ import { ConfirmDialogService } from '../services/confirm-dialog.service';
     }
 
     .stat-label {
-      font-size: 0.85rem;
-      color: #858585;
+      font-size: var(--vsc-font-size-small);
+      color: var(--vsc-foreground-muted);
     }
 
     .stat-value {
-      font-size: 0.9rem;
-      color: #4ec9b0;
+      font-size: var(--vsc-font-size);
+      color: var(--vsc-foreground);
       font-weight: 600;
-      font-family: 'Courier New', monospace;
+      font-family: var(--vsc-font-family-mono);
     }
 
     .btn-clear-history {
       padding: 0.4rem 0.75rem;
-      background: #d32f2f;
-      border: none;
-      border-radius: 4px;
+      background: var(--vsc-error);
+      border: 1px solid transparent;
+      border-radius: var(--vsc-border-radius-sm);
       color: white;
       cursor: pointer;
-      font-size: 0.85rem;
-      transition: all 0.2s;
+      font-size: var(--vsc-font-size-small);
+      transition: all var(--vsc-transition-fast);
     }
 
     .btn-clear-history:hover {
-      background: #b71c1c;
+      filter: brightness(1.08);
+    }
+
+    .btn-clear-history:focus-visible {
+      outline: 1px solid var(--vsc-input-focus-border);
+      outline-offset: 1px;
     }
 
     .search-bar {
-      padding: 1rem 1.5rem;
-      border-bottom: 1px solid #3e3e42;
+      padding: var(--vsc-padding-md) var(--vsc-padding-lg);
+      border-bottom: 1px solid var(--vsc-border-subtle);
     }
 
     .filter-input {
       width: 100%;
-      padding: 0.75rem 1rem;
-      background: #1e1e1e;
-      border: 1px solid #3e3e42;
-      border-radius: 6px;
-      color: #d4d4d4;
-      font-size: 0.95rem;
+      padding: var(--vsc-padding-sm) var(--vsc-padding-md);
+      background: var(--vsc-input-background);
+      border: 1px solid var(--vsc-input-border);
+      border-radius: var(--vsc-border-radius-sm);
+      color: var(--vsc-input-foreground);
+      font-size: var(--vsc-font-size);
     }
 
     .filter-input:focus {
       outline: none;
-      border-color: #007acc;
+      border-color: var(--vsc-input-focus-border);
     }
 
     .filter-input::placeholder {
-      color: #858585;
+      color: var(--vsc-input-placeholder);
     }
 
     .history-list {
       flex: 1;
       overflow-y: auto;
-      padding: 0.5rem 0;
-    }
-
-    .history-list::-webkit-scrollbar {
-      width: 10px;
-    }
-
-    .history-list::-webkit-scrollbar-track {
-      background: #1e1e1e;
-    }
-
-    .history-list::-webkit-scrollbar-thumb {
-      background: #424242;
-      border-radius: 5px;
-    }
-
-    .history-list::-webkit-scrollbar-thumb:hover {
-      background: #4e4e4e;
+      padding: var(--vsc-padding-xs) 0;
     }
 
     .empty-state {
@@ -265,7 +264,7 @@ import { ConfirmDialogService } from '../services/confirm-dialog.service';
       justify-content: center;
       padding: 3rem 1.5rem;
       text-align: center;
-      color: #858585;
+      color: var(--vsc-foreground-muted);
     }
 
     .empty-icon {
@@ -277,12 +276,12 @@ import { ConfirmDialogService } from '../services/confirm-dialog.service';
     .empty-state p {
       margin: 0.5rem 0;
       font-size: 1rem;
-      color: #d4d4d4;
+      color: var(--vsc-foreground);
     }
 
     .empty-hint {
       font-size: 0.9rem;
-      color: #858585 !important;
+      color: var(--vsc-foreground-muted) !important;
     }
 
     .history-entry {
@@ -296,11 +295,11 @@ import { ConfirmDialogService } from '../services/confirm-dialog.service';
     }
 
     .history-entry:hover {
-      background: #252526;
+      background: var(--vsc-list-hover-background);
     }
 
     .history-entry.recent {
-      border-left: 3px solid #4caf50;
+      border-left: 3px solid var(--vsc-accent-blue);
     }
 
     .entry-icon {
@@ -314,9 +313,9 @@ import { ConfirmDialogService } from '../services/confirm-dialog.service';
     }
 
     .entry-path {
-      font-size: 0.95rem;
-      color: #d4d4d4;
-      font-family: 'Courier New', monospace;
+      font-size: var(--vsc-font-size);
+      color: var(--vsc-foreground);
+      font-family: var(--vsc-font-family-mono);
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -326,8 +325,8 @@ import { ConfirmDialogService } from '../services/confirm-dialog.service';
     .entry-meta {
       display: flex;
       gap: 1rem;
-      font-size: 0.8rem;
-      color: #858585;
+      font-size: var(--vsc-font-size-small);
+      color: var(--vsc-foreground-muted);
     }
 
     .entry-pane {
@@ -335,20 +334,20 @@ import { ConfirmDialogService } from '../services/confirm-dialog.service';
     }
 
     .entry-count {
-      color: #4ec9b0;
+      color: var(--vsc-accent-blue);
       font-weight: 600;
     }
 
     .btn-remove {
       padding: 0.25rem 0.5rem;
       background: transparent;
-      border: none;
-      color: #858585;
+      border: 1px solid transparent;
+      color: var(--vsc-foreground-muted);
       cursor: pointer;
       font-size: 1rem;
       opacity: 0;
-      transition: all 0.2s;
-      border-radius: 4px;
+      transition: all var(--vsc-transition-fast);
+      border-radius: var(--vsc-border-radius-sm);
     }
 
     .history-entry:hover .btn-remove {
@@ -356,22 +355,28 @@ import { ConfirmDialogService } from '../services/confirm-dialog.service';
     }
 
     .btn-remove:hover {
-      background: #d32f2f;
+      background: var(--vsc-error);
       color: white;
+    }
+
+    .btn-remove:focus-visible {
+      opacity: 1;
+      outline: 1px solid var(--vsc-input-focus-border);
+      outline-offset: 1px;
     }
 
     .modal-footer {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 1rem 1.5rem;
-      border-top: 1px solid #3e3e42;
-      background: #252526;
+      padding: var(--vsc-padding-md) var(--vsc-padding-lg);
+      border-top: 1px solid var(--vsc-border-subtle);
+      background: color-mix(in srgb, var(--vsc-panel-background) 85%, var(--vsc-sidebar-background) 15%);
     }
 
     .footer-info {
-      font-size: 0.85rem;
-      color: #858585;
+      font-size: var(--vsc-font-size-small);
+      color: var(--vsc-foreground-muted);
     }
 
     .footer-actions {
@@ -381,32 +386,57 @@ import { ConfirmDialogService } from '../services/confirm-dialog.service';
 
     .btn-primary,
     .btn-secondary {
-      padding: 0.5rem 1rem;
-      border: 1px solid #3e3e42;
-      border-radius: 4px;
+      min-width: 86px;
+      height: 28px;
+      padding: 0 var(--vsc-padding-md);
+      border: 1px solid transparent;
+      border-radius: var(--vsc-border-radius-sm);
       cursor: pointer;
-      font-size: 0.9rem;
-      transition: all 0.2s;
+      font-size: var(--vsc-font-size);
+      transition: all var(--vsc-transition-fast);
+      outline: none;
     }
 
     .btn-primary {
-      background: #007acc;
-      color: white;
-      border-color: #007acc;
+      background: var(--vsc-button-background);
+      color: var(--vsc-foreground-bright);
     }
 
     .btn-primary:hover {
-      background: #005a9e;
-      border-color: #005a9e;
+      background: var(--vsc-button-hover);
     }
 
     .btn-secondary {
-      background: #3c3c3c;
-      color: #d4d4d4;
+      background: var(--vsc-button-secondary);
+      color: var(--vsc-foreground);
     }
 
     .btn-secondary:hover {
-      background: #505050;
+      background: var(--vsc-button-secondary-hover);
+    }
+
+    .btn-primary:focus-visible,
+    .btn-secondary:focus-visible {
+      outline: 1px solid var(--vsc-input-focus-border);
+      outline-offset: 1px;
+    }
+
+    @media (max-width: 900px) {
+      .path-history-modal {
+        width: 100%;
+        max-height: calc(100vh - 2 * var(--vsc-padding-xl));
+      }
+
+      .modal-footer {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: var(--vsc-padding-sm);
+      }
+
+      .footer-actions {
+        width: 100%;
+        justify-content: flex-end;
+      }
     }
   `]
 })
@@ -453,33 +483,38 @@ export class PathHistoryViewerComponent implements OnInit, OnDestroy {
     this.isVisible = false;
   }
 
+  normalizeEntryPath(path: string | null | undefined): string {
+    return normalizePath(path ?? '');
+  }
+
   applyFilter(): void {
     if (!this.filterText || this.filterText.trim() === '') {
       this.filteredEntries = [...this.historyEntries];
     } else {
-      const filter = this.filterText.toLowerCase();
+      const filter = this.normalizeEntryPath(this.filterText).toLowerCase();
       this.filteredEntries = this.historyEntries.filter(entry =>
-        entry.path.toLowerCase().includes(filter)
+        this.normalizeEntryPath(entry.path).toLowerCase().includes(filter)
       );
     }
   }
 
   selectPath(entry: PathHistoryEntry): void {
-    console.log('Selected path:', entry.path);
+    console.log('Selected path:', this.normalizeEntryPath(entry.path));
     // Emit event to navigate to this path
     // This would need to be wired up to the main component
   }
 
   async removePath(entry: PathHistoryEntry, event: Event): Promise<void> {
     event.stopPropagation();
+    const normalizedPath = this.normalizeEntryPath(entry.path);
     const confirmed = await this.confirmDialog.confirm({
       title: 'Remove History Entry',
-      message: `Remove "${entry.path}" from history?`,
+      message: `Remove "${normalizedPath}" from history?`,
       confirmText: 'Remove',
       danger: true,
     });
     if (confirmed) {
-      this.pathHistoryService.removePath(entry.path);
+      this.pathHistoryService.removePath(normalizedPath);
     }
   }
 
@@ -522,7 +557,11 @@ export class PathHistoryViewerComponent implements OnInit, OnDestroy {
   }
 
   exportHistory(): void {
-    const data = JSON.stringify(this.historyEntries, null, 2);
+    const normalizedEntries = this.historyEntries.map(entry => ({
+      ...entry,
+      path: this.normalizeEntryPath(entry.path),
+    }));
+    const data = JSON.stringify(normalizedEntries, null, 2);
     const blob = new Blob([data], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

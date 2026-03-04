@@ -100,7 +100,8 @@ export interface DropTarget {
               *ngFor="let guide of getGuides(node)"
               class="indent-guide"
               [class.indent-guide--active]="guide.active"
-              [class.indent-guide--last]="guide.last">
+              [class.indent-guide--last]="guide.last"
+              [class.indent-guide--skip]="guide.skip">
             </span>
 
             <span
@@ -300,6 +301,11 @@ export interface DropTarget {
 
     .indent-guide--active::before {
       background: var(--vsc-tree-indent-guide-active, rgba(255,255,255,0.12));
+    }
+
+    .indent-guide--skip::before,
+    .indent-guide--skip::after {
+      display: none;
     }
 
     .indent-guide--last::before {
@@ -635,7 +641,7 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
     return result;
   }
 
-  getGuides(node: TreeNode): { active: boolean; last: boolean }[] {
+  getGuides(node: TreeNode): { active: boolean; last: boolean; skip: boolean }[] {
     // Do not draw guide lines for top-level entries under a synthetic root.
     if (typeof node.parent?.syntheticRoot === 'string') {
       return [];
@@ -652,10 +658,17 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
     }
     chain.reverse();
 
-    return chain.map((n) => {
+    return chain.map((n, index, arr) => {
       const siblings = n.parent?.children ?? [];
       const isLast = siblings.length > 0 && siblings[siblings.length - 1].path === n.path;
-      return { active: this.isSelected(node), last: isLast };
+      const isDeepest = index === arr.length - 1;
+      
+      // Skip rendering guide lines for ancestors that are last children (to avoid vertical continuation).
+      // Only the deepest node should show an elbow if it's last.
+      const skip = isLast && !isDeepest;
+      const shouldMarkAsLast = isLast && isDeepest;
+      
+      return { active: this.isSelected(node), last: shouldMarkAsLast, skip };
     });
   }
 

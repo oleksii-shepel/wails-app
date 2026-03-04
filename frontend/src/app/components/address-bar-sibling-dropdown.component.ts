@@ -39,6 +39,7 @@ import { SiblingEntry, PathSegment } from './address-bar.types';
     :host { display: contents; }
 
     .ab-sib-drop {
+      position: static;
       min-width: 210px;
       max-width: 320px;
     }

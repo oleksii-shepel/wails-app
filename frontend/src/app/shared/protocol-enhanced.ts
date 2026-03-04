@@ -12,6 +12,28 @@
 export * from './protocol';
 
 // ============================================================================
+// Quick Access / Special Folders
+// ============================================================================
+
+export interface SpecialFolder {
+  name: string;
+  path: string;
+  icon: string;
+}
+
+export interface DriveInfo {
+  name: string;
+  path: string;
+  type: string;
+  driveType?: string;
+  totalSize: number;
+  freeSize: number;
+  totalSpace: number;
+  freeSpace: number;
+  fileSystem?: string;
+}
+
+// ============================================================================
 // Tab Management
 // ============================================================================
 

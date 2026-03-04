@@ -53,14 +53,15 @@ export class PathHistoryService {
    * Add path to history
    */
   addPath(path: string, paneId: string): void {
-    const existing = this.history.get(path);
+    const normalizedPath = this.normalizePath(path);
+    const existing = this.history.get(normalizedPath);
 
     if (existing) {
       existing.timestamp = Date.now();
       existing.accessCount++;
     } else {
-      this.history.set(path, {
-        path,
+      this.history.set(normalizedPath, {
+        path: normalizedPath,
         timestamp: Date.now(),
         accessCount: 1,
         paneId,
@@ -100,10 +101,11 @@ export class PathHistoryService {
     // Sort by score and remove duplicates
     const uniquePaths = new Set<string>();
     const uniqueSuggestions = suggestions.filter(s => {
-      if (uniquePaths.has(s.path)) {
+      const normalizedSuggestionPath = this.normalizePath(s.path);
+      if (uniquePaths.has(normalizedSuggestionPath)) {
         return false;
       }
-      uniquePaths.add(s.path);
+      uniquePaths.add(normalizedSuggestionPath);
       return true;
     });
 
@@ -152,10 +154,14 @@ export class PathHistoryService {
    */
   private async getDirectorySuggestions(query: string): Promise<PathSuggestion[]> {
     try {
+      const normalizedQuery = query.replace(/\\/g, '/');
       // Extract the directory part
-      const lastSlash = query.lastIndexOf('/');
-      const dirPath = query.substring(0, lastSlash + 1) || '/';
-      const prefix = query.substring(lastSlash + 1);
+      const lastSlash = normalizedQuery.lastIndexOf('/');
+      if (lastSlash < 0) {
+        return [];
+      }
+      const dirPath = normalizedQuery.substring(0, lastSlash + 1) || '/';
+      const prefix = normalizedQuery.substring(lastSlash + 1);
 
       // List directory
       const listing = await this.apiService.listDirectory(dirPath, false);
@@ -168,10 +174,7 @@ export class PathHistoryService {
         }
 
         if (entry.name.toLowerCase().startsWith(prefix.toLowerCase())) {
-          const joined = `${dirPath}${entry.name}`.replace(/\\/g, '/');
-          const fullPath = joined.startsWith('//')
-            ? `//${joined.slice(2).replace(/\/{2,}/g, '/')}`
-            : joined.replace(/\/{2,}/g, '/');
+          const fullPath = this.normalizePath(`${dirPath}${entry.name}`);
           suggestions.push({
             path: fullPath,
             displayName: entry.name,
@@ -254,12 +257,40 @@ export class PathHistoryService {
    * Get display name for path
    */
   private getDisplayName(path: string): string {
-    if (path === '/' || path === '') {
+    const normalized = this.normalizePath(path);
+    if (normalized === '/' || normalized === '') {
       return 'Root';
     }
     
-    const parts = path.split('/').filter(p => p.length > 0);
+    const parts = normalized.split('/').filter(p => p.length > 0);
     return parts.length > 0 ? parts[parts.length - 1] : 'Root';
+  }
+
+  private normalizePath(path: string): string {
+    const rawPath = (path ?? '').trim();
+    if (!rawPath) {
+      return '/';
+    }
+
+    let normalized = rawPath.replace(/\\/g, '/');
+    const isUncPath = normalized.startsWith('//');
+    normalized = isUncPath
+      ? `//${normalized.slice(2).replace(/\/{2,}/g, '/')}`
+      : normalized.replace(/\/{2,}/g, '/');
+
+    if (/^[a-zA-Z]:/.test(normalized)) {
+      normalized = normalized[0].toUpperCase() + normalized.slice(1);
+      if (/^[A-Za-z]:$/.test(normalized)) {
+        normalized = `${normalized}/`;
+      }
+    }
+
+    const isDriveRoot = /^[A-Za-z]:\/$/.test(normalized);
+    if (normalized.length > 1 && normalized.endsWith('/') && !isDriveRoot && normalized !== '//') {
+      normalized = normalized.slice(0, -1);
+    }
+
+    return normalized || '/';
   }
 
   /**
@@ -290,7 +321,23 @@ export class PathHistoryService {
       if (stored) {
         const entries: PathHistoryEntry[] = JSON.parse(stored);
         for (const entry of entries) {
-          this.history.set(entry.path, entry);
+          const normalizedPath = this.normalizePath(entry.path);
+          const existing = this.history.get(normalizedPath);
+          if (existing) {
+            const nextTimestamp = Number(entry.timestamp) || 0;
+            if (nextTimestamp >= existing.timestamp) {
+              existing.timestamp = nextTimestamp;
+              existing.paneId = entry.paneId || existing.paneId;
+            }
+            existing.accessCount += Math.max(1, Number(entry.accessCount) || 1);
+          } else {
+            this.history.set(normalizedPath, {
+              path: normalizedPath,
+              timestamp: Number(entry.timestamp) || Date.now(),
+              accessCount: Math.max(1, Number(entry.accessCount) || 1),
+              paneId: entry.paneId || 'left',
+            });
+          }
         }
         this.emitHistory();
       }
@@ -340,7 +387,7 @@ export class PathHistoryService {
    * Remove specific path from history
    */
   removePath(path: string): void {
-    this.history.delete(path);
+    this.history.delete(this.normalizePath(path));
     this.saveHistory();
     this.emitHistory();
   }

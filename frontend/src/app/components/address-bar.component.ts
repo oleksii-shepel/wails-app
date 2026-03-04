@@ -11,7 +11,7 @@ import { DropdownTriggerDirective, DropdownMenuDirective } from '../directives/d
 import { PathHistoryService, PathSuggestion } from '../services/path-history.service';
 import { ApiService } from '../services/api.service';
 import { DirectoryListing, FileType } from '../shared/protocol';
-import { DriveInfo } from '../shared/protocol-enhanced';
+import { DriveInfo, SpecialFolder } from '../shared/protocol-enhanced';
 import { ArchiveService, ArchiveFrame, isArchive } from '../services/archive.service';
 import { parsePathWithArchives, buildSegmentsFromParsedPath } from './address-bar.utils';
 
@@ -21,6 +21,7 @@ import { AddressBarEditComponent } from './address-bar-edit.component';
 import { AddressBarPinDropdownComponent } from './address-bar-pin-dropdown.component';
 import { AddressBarDriveDropdownComponent } from './address-bar-drive-dropdown.component';
 import { AddressBarSiblingDropdownComponent } from './address-bar-sibling-dropdown.component';
+import { AddressBarQuickAccessComponent } from './address-bar-quick-access.component';
 import { DropdownContainerComponent } from './dropdown-container.component';
 
 // ── Tab-completion session ────────────────────────────────────────────────────
@@ -94,6 +95,7 @@ interface IdleSlashTick {
     AddressBarPinDropdownComponent,
     AddressBarDriveDropdownComponent,
     AddressBarEditComponent,
+    AddressBarQuickAccessComponent,
   ],
   template: `
 <div class="ab-host" (keydown)="onHostKeyDown($event)">
@@ -111,6 +113,35 @@ interface IdleSlashTick {
         aria-label="Toggle pin"
       >{{ isPinned ? '★' : '☆' }}</button>
 
+      <!-- QUICK ACCESS -->
+      <button
+        #quickAccessTrigger
+        appDropdownTrigger
+        class="ab-btn ab-btn--quick-access"
+        [class.ab-btn--open]="showQuickAccess"
+        (click)="toggleQuickAccess()"
+        title="Quick Access (Ctrl+Q)"
+        aria-label="Open Quick Access"
+      >
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M2 3.5a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11a.5.5 0 0 1-.5-.5zM2 8a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11A.5.5 0 0 1 2 8zm0 4.5a.5.5 0 0 1 .5-.5h6a.5.5 0 0 1 0 1h-6a.5.5 0 0 1-.5-.5z"/>
+        </svg>
+      </button>
+      <app-dropdown-container
+        class="ab-drop-anchor"
+        [(isOpen)]="showQuickAccess"
+        [anchorEl]="quickAccessTrigger"
+      >
+        <app-address-bar-quick-access
+          appDropdownMenu
+          *ngIf="showQuickAccess"
+          [currentPath]="currentPath"
+          [specialFolders]="specialFolders"
+          [pinnedPaths]="pinnedPaths"
+          (navigate)="navigateTo($event); showQuickAccess = false"
+        />
+      </app-dropdown-container>
+
       <!-- PIN DROPDOWN -->
       <button
         #pinDropTrigger
@@ -118,7 +149,7 @@ interface IdleSlashTick {
         class="ab-btn ab-btn--pinlist"
         [class.ab-btn--open]="showPinDrop"
         (click)="togglePinDrop()"
-        title="Pinned paths"
+        title="Pinned paths (Ctrl+B)"
         aria-label="Open pinned paths"
       >
         <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
@@ -723,6 +754,10 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   sibLoading  = false;
   sibAnchorEl: HTMLElement | null = null;
 
+  // ── Quick Access ─────────────────────────────────────────────────────────
+  specialFolders: SpecialFolder[] = [];
+  showQuickAccess = false;
+
   // ── Pinned paths ─────────────────────────────────────────────────────────
   pinnedPaths: PinnedPath[] = [];
   showPinDrop = false;
@@ -795,6 +830,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     this.currentPath = normalizePath(this.initialPath);
     this.rebuildSegments();
     this.loadPins();
+    this.loadSpecialFolders();
     if (this.isWin) this.loadDrives();
 
     // ── Pipeline 1: history suggestions ───────────────────────────────────
@@ -1165,6 +1201,15 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
 
   // ── Pins ──────────────────────────────────────────────────────────────────
 
+  private async loadSpecialFolders(): Promise<void> {
+    try {
+      this.specialFolders = await this.apiService.getSpecialFolders();
+    } catch (error) {
+      console.error('Failed to load special folders:', error);
+      this.specialFolders = [];
+    }
+  }
+
   private loadPins(): void {
     try { this.pinnedPaths = JSON.parse(localStorage.getItem(PINNED_KEY) || '[]'); }
     catch { this.pinnedPaths = []; }
@@ -1187,9 +1232,14 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     this.savePins();
   }
 
+  toggleQuickAccess(): void {
+    this.showQuickAccess = !this.showQuickAccess;
+    if (this.showQuickAccess) { this.chevIdx = -1; this.showPinDrop = false; this.showDriveMenu = false; }
+  }
+
   togglePinDrop(): void {
     this.showPinDrop = !this.showPinDrop;
-    if (this.showPinDrop) { this.chevIdx = -1; this.showDriveMenu = false; }
+    if (this.showPinDrop) { this.chevIdx = -1; this.showQuickAccess = false; this.showDriveMenu = false; }
   }
 
   removePin(p: PinnedPath, e: MouseEvent): void {
@@ -1572,6 +1622,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     this.chevIdx       = -1;
     this.sibOpen       = false;
     this.siblings      = [];
+    this.showQuickAccess = false;
     this.showPinDrop   = false;
     this.showDriveMenu = false;
     this.closeCtx();
@@ -1588,14 +1639,16 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   onHostKeyDown(e: KeyboardEvent): void {
     if ((e.ctrlKey || e.metaKey) && e.key === 'l') { e.preventDefault(); this.enterEditMode(); }
     if (e.altKey && e.key === 'd')                  { e.preventDefault(); this.enterEditMode(); }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'q') { e.preventDefault(); this.toggleQuickAccess(); }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'b') { e.preventDefault(); this.togglePinDrop(); }
   }
 
   @HostListener('document:keydown', ['$event'])
   onDocKey(e: KeyboardEvent): void {
     if (e.key !== 'Escape') return;
-    if (this.ctxMenu.visible)                                             { this.closeCtx();         e.preventDefault(); }
-    else if (this.editMode)                                               { this.exitEditMode(false); e.preventDefault(); }
-    else if (this.chevIdx >= 0 || this.showPinDrop || this.showDriveMenu) { this.closeAll();          e.preventDefault(); }
+    if (this.ctxMenu.visible)                                                        { this.closeCtx();         e.preventDefault(); }
+    else if (this.editMode)                                                          { this.exitEditMode(false); e.preventDefault(); }
+    else if (this.chevIdx >= 0 || this.showQuickAccess || this.showPinDrop || this.showDriveMenu) { this.closeAll();          e.preventDefault(); }
   }
 }
 

@@ -63,6 +63,7 @@ import { DriveInfo } from '../shared/protocol-enhanced';
     :host { display: contents; }
 
     .ab-drive-drop {
+      position: static;
       min-width: 320px; max-width: 500px; padding: 0;
       z-index: 9999 !important;
       background-color: var(--vsc-panel-background, #252526) !important;

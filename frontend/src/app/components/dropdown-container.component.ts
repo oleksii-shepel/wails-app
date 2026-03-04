@@ -53,7 +53,7 @@ import { DropdownDirective, DropdownTriggerDirective, DropdownMenuDirective } fr
     }
 
     .dropdown-menu-wrapper {
-      position: relative;
+      position: fixed;
       z-index: 999;
       animation: dropdown-appear 0.12s cubic-bezier(0.4, 0, 0.2, 1);
     }
@@ -95,7 +95,10 @@ export class DropdownContainerComponent implements AfterViewInit, OnChanges {
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['isOpen']?.currentValue === true) {
-      setTimeout(() => this.positionMenu());
+      // Use requestAnimationFrame to ensure DOM is ready
+      requestAnimationFrame(() => {
+        setTimeout(() => this.positionMenu(), 0);
+      });
     }
   }
 

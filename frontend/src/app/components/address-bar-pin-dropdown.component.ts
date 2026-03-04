@@ -41,7 +41,11 @@ import { shortenPath } from './address-bar.utils';
   styles: [`
     :host { display: contents; }
 
-    .ab-pin-drop { min-width: 270px; max-width: 370px; }
+    .ab-pin-drop {
+      position: static;
+      min-width: 270px;
+      max-width: 370px;
+    }
     .ab-pin-item { padding-right: var(--vsc-padding-sm); }
     .ab-pin-icon { font-size: 14px; flex-shrink: 0; opacity: 0.8; }
 

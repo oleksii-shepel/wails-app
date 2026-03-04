@@ -54,6 +54,49 @@ func (a *App) startup(ctx context.Context) {
 	// Wails events. This replaces the old package-level appInstance global.
 	a.operations.SetApp(a)
 	a.dirWatch = NewPaneDirWatchManager(a)
+
+	fmt.Println("[startup] Registering wails:file-drop listener...")
+
+	// Listen for native Wails file drop events from the OS
+	runtime.EventsOn(ctx, "wails:file-drop", func(optionalData ...interface{}) {
+		fmt.Println("[wails:file-drop] Backend listener fired!")
+		if len(optionalData) > 0 {
+			// Extract the data map sent by Wails
+			if data, ok := optionalData[0].(map[string]interface{}); ok {
+				fmt.Printf("[wails:file-drop] Native event received: %+v\n", data)
+
+				// Extract x, y coordinates
+				x := 0
+				y := 0
+				if xVal, ok := data["x"].(float64); ok {
+					x = int(xVal)
+				}
+				if yVal, ok := data["y"].(float64); ok {
+					y = int(yVal)
+				}
+
+				// Extract paths array
+				paths := []string{}
+				if pathsVal, ok := data["paths"].([]interface{}); ok {
+					for _, p := range pathsVal {
+						if str, ok := p.(string); ok {
+							paths = append(paths, str)
+						}
+					}
+				}
+
+				fmt.Printf("[wails:file-drop] x=%d, y=%d, paths=%v\n", x, y, paths)
+
+				// Process the file drop
+				err := a.HandleFileDrop(x, y, paths)
+				if err != nil {
+					fmt.Printf("[wails:file-drop] HandleFileDrop error: %v\n", err)
+				}
+			}
+		}
+	})
+
+	fmt.Println("[startup] wails:file-drop listener registered!")
 }
 
 func (a *App) shutdown(ctx context.Context) {
@@ -425,4 +468,95 @@ func newElevationRequestID() string {
 		return fmt.Sprintf("elev-%d", time.Now().UnixNano())
 	}
 	return "elev-" + base64.RawURLEncoding.EncodeToString(b)
+}
+
+// HandleFileDrop processes files dropped onto the app and emits an event.
+// This is called by the frontend when files are dropped.
+// If browser doesn't provide filesystem paths, it attempts to read from Windows clipboard.
+func (a *App) HandleFileDrop(x int, y int, paths []string) error {
+	fmt.Printf("[HandleFileDrop] Called with x=%d, y=%d, %d paths: %v\n", x, y, len(paths), paths)
+
+	if len(paths) == 0 {
+		return fmt.Errorf("no paths provided")
+	}
+
+	providedPaths := paths
+
+	// Check if paths are relative/filename-only (from browser drop)
+	isRelativeOnly := false
+	for _, p := range paths {
+		if !isAbsolutePath(p) {
+			isRelativeOnly = true
+			fmt.Printf("[HandleFileDrop] Path is relative: %s\n", p)
+			break
+		}
+	}
+
+	// If paths are just filenames (no directory), try to get from clipboard
+	if isRelativeOnly {
+		fmt.Println("[HandleFileDrop] Detected filename-only paths, attempting clipboard fallback...")
+		clipboardPaths, err := GetClipboardFilePaths()
+		if err == nil && len(clipboardPaths) > 0 {
+			fmt.Printf("[HandleFileDrop] ✓ Got %d paths from clipboard: %v\n", len(clipboardPaths), clipboardPaths)
+			providedPaths = clipboardPaths
+		} else {
+			fmt.Println("[HandleFileDrop] ✗ Clipboard fallback failed:", err)
+			// Try to use what we have anyway
+			fmt.Printf("[HandleFileDrop] Continuing with provided %d paths\n", len(paths))
+		}
+	}
+
+	// Validate each path and collect valid ones
+	validPaths := []string{}
+	for _, p := range providedPaths {
+		if p == "" {
+			continue
+		}
+
+		fmt.Printf("[HandleFileDrop] Checking path: %s\n", p)
+
+		// Verify path exists
+		if stat, err := os.Stat(p); err == nil {
+			validPaths = append(validPaths, p)
+			fmt.Printf("[HandleFileDrop] ✓ Path exists: %s (isDir=%v)\n", p, stat.IsDir())
+		} else {
+			fmt.Printf("[HandleFileDrop] ✗ Path does not exist: %s (%v)\n", p, err)
+		}
+	}
+
+	if len(validPaths) == 0 {
+		fmt.Println("[HandleFileDrop] ✗ No valid file paths after validation")
+		return fmt.Errorf("no valid file paths after validation")
+	}
+
+	fmt.Printf("[HandleFileDrop] ✓ Emitting file:drop event with %d valid files\n", len(validPaths))
+
+	// Emit a Wails event to the frontend with the drop data
+	payload := map[string]interface{}{
+		"x":     x,
+		"y":     y,
+		"paths": validPaths,
+	}
+
+	runtime.EventsEmit(a.ctx, "file:drop", payload)
+	return nil
+}
+
+// isAbsolutePath checks if a path is absolute (not just a filename)
+func isAbsolutePath(path string) bool {
+	if len(path) == 0 {
+		return false
+	}
+	// Windows absolute paths start with drive letter (C:) or UNC (\\)
+	if len(path) > 1 && path[1] == ':' {
+		return true
+	}
+	if len(path) > 1 && path[0] == '\\' && path[1] == '\\' {
+		return true
+	}
+	// Unix paths start with /
+	if path[0] == '/' {
+		return true
+	}
+	return false
 }

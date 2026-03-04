@@ -1,4 +1,4 @@
-import { Component, Input, Output, EventEmitter, ViewChild, ElementRef } from '@angular/core';
+import { Component, Input, Output, EventEmitter, ViewChild, ElementRef, AfterViewInit, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { WorkspaceConfig } from '../shared/protocol-enhanced';
 import { DropdownDirective, DropdownTriggerDirective, DropdownMenuDirective } from '../directives/dropdown.directive';
@@ -22,7 +22,7 @@ import { DropdownContainerComponent } from './dropdown-container.component';
         <path d="M4 6l4 4 4-4H4z"/>
       </svg>
     </div>
-    <app-dropdown-container [(isOpen)]="showMenu" [anchorEl]="wsSelectorRef?.nativeElement ?? null">
+    <app-dropdown-container [(isOpen)]="showMenu" [anchorEl]="anchorElement">
     
     <div appDropdownMenu class="ws-menu" *ngIf="showMenu">
       <div class="ws-menu-header">
@@ -228,7 +228,7 @@ import { DropdownContainerComponent } from './dropdown-container.component';
     }
   `]
 })
-export class WorkspaceSelectorComponent {
+export class WorkspaceSelectorComponent implements AfterViewInit {
   @Input() workspaces: WorkspaceConfig[] = [];
   @Input() activeWorkspace: WorkspaceConfig | null = null;
   @Input() showMenu = false;
@@ -240,6 +240,15 @@ export class WorkspaceSelectorComponent {
   @Output() rename = new EventEmitter<void>();
   @Output() deleteWorkspace = new EventEmitter<void>();
   @Output() menuToggle = new EventEmitter<boolean>();
+
+  anchorElement: HTMLElement | null = null;
+
+  constructor(private cdr: ChangeDetectorRef) {}
+
+  ngAfterViewInit(): void {
+    this.anchorElement = this.wsSelectorRef?.nativeElement ?? null;
+    this.cdr.detectChanges();
+  }
 
   // isOpen is two-way bound to appDropdown — directive handles all close/outside-click logic
   toggleMenu(): void {

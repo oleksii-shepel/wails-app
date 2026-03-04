@@ -42,6 +42,11 @@ func main() {
 		},
 		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
 		OnStartup:        app.startup,
+		OnShutdown:       app.shutdown,
+		DragAndDrop: &options.DragAndDrop{
+			EnableFileDrop:     true,
+			DisableWebViewDrop: false, // Must be false - true calls AllowExternalDrag(false) which blocks OS-level drops
+		},
 		Bind: []interface{}{
 			app,
 		},

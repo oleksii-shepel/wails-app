@@ -10,5 +10,13 @@
   "author": {
     "name": "epikodelabs",
     "email": "oleksii.shepel@outlook.com"
+  },
+  "build": {
+    "devTools": "on"
+  },
+  "frontend": {
+    "dragAndDrop": {
+      "enableFileDrop": true
+    }
   }
 }

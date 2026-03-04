@@ -899,6 +899,20 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
 
   onDragOver(event: DragEvent, node: TreeNode): void {
     event.preventDefault();
+    
+    // Handle external files (from OS file manager)
+    if (this.hasExternalFiles(event)) {
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = event.ctrlKey || event.metaKey ? 'copy' : 'move';
+      }
+      // Set simple drop target for external files
+      const position = node.type === FileType.DIRECTORY ? 'inside' : 'after';
+      this.dragState.dropTarget = { node, position };
+      this.cdr.markForCheck();
+      return;
+    }
+    
+    // Handle internal drags
     if (!this.dragState.isDragging) return;
 
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
@@ -938,6 +952,14 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
 
   onDrop(event: DragEvent, node: TreeNode): void {
     event.preventDefault();
+
+    // For external OS drops, don't stopPropagation - let Wails' window handler fire wails:file-drop
+    if (this.hasExternalFiles(event)) {
+      this.dragState.dropTarget = null;
+      this.cdr.markForCheck();
+      return;
+    }
+
     event.stopPropagation();
 
     if (!this.dragState.dropTarget) return;
@@ -958,6 +980,144 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
 
   onContainerDrop(event: DragEvent): void {
     event.preventDefault();
+
+    // For external OS drops, don't stopPropagation - let Wails' window handler fire wails:file-drop
+    if (this.hasExternalFiles(event)) {
+      return;
+    }
+
+    event.stopPropagation();
+  }
+
+  private hasExternalFiles(event: DragEvent): boolean {
+    const types = event.dataTransfer?.types;
+    if (!types) return false;
+    if (types.includes('application/json')) return false;
+    return types.includes('Files') || (event.dataTransfer?.files?.length ?? 0) > 0;
+  }
+
+  private extractExternalPaths(event: DragEvent): string[] {
+    const dataTransfer = event.dataTransfer;
+    if (!dataTransfer) return [];
+
+    const paths = new Set<string>();
+
+    const files = dataTransfer.files;
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const filePath = (file as any).path as string | undefined;
+      if (filePath) {
+        paths.add(filePath);
+      }
+    }
+
+    const uriPayload = dataTransfer.getData('text/uri-list') || dataTransfer.getData('text/plain');
+    if (uriPayload) {
+      for (const rawLine of uriPayload.split(/\r?\n/)) {
+        const line = rawLine.trim();
+        if (!line || line.startsWith('#')) continue;
+        const parsedPath = this.fileUriToPath(line);
+        if (parsedPath) paths.add(parsedPath);
+      }
+    }
+
+    return Array.from(paths);
+  }
+
+  private fileUriToPath(value: string): string | null {
+    if (!value) return null;
+    const trimmed = value.trim();
+    if (!/^file:\/\//i.test(trimmed)) {
+      if (/^[A-Za-z]:[\\/]/.test(trimmed)) return trimmed;
+      if (/^\\\\/.test(trimmed)) return trimmed;
+      if (trimmed.startsWith('/')) return trimmed;
+      return null;
+    }
+
+    try {
+      let decoded = decodeURIComponent(trimmed).replace(/^file:\/\//i, '');
+
+      if (/^\/[A-Za-z]:\//.test(decoded)) {
+        decoded = decoded.slice(1);
+      }
+
+      if (/^[A-Za-z]:\//.test(decoded)) {
+        return decoded.replace(/\//g, '\\');
+      }
+
+      if (!decoded.startsWith('/')) {
+        return ('//' + decoded).replace(/\//g, '\\');
+      }
+
+      return decoded;
+    } catch {
+      return null;
+    }
+  }
+
+  private handleExternalDrop(event: DragEvent, targetNode: TreeNode): void {
+    const externalPaths = this.extractExternalPaths(event);
+    if (externalPaths.length === 0) return;
+
+    // Convert external paths to TreeNodes
+    const sourceNodes: TreeNode[] = externalPaths.map(path => ({
+      name: path.split(/[/\\]/).pop() || '',
+      path: path,
+      type: FileType.FILE,
+      size: 0,
+      created: 0,
+      modified: 0,
+      accessed: 0,
+      permissions: '',
+      isHidden: false,
+      level: 0,
+    }));
+
+    // Create drop target
+    const dropTarget: DropTarget = {
+      node: targetNode,
+      position: targetNode.type === FileType.DIRECTORY ? 'inside' : 'after'
+    };
+
+    this.dragDrop.emit({
+      event,
+      source: sourceNodes,
+      target: dropTarget
+    });
+  }
+
+  private handleExternalBackgroundDrop(event: DragEvent): void {
+    const externalPaths = this.extractExternalPaths(event);
+    if (externalPaths.length === 0) return;
+
+    // For background drops, use current path or root node as target
+    if (this.nodes.length === 0) return;
+
+    const sourceNodes: TreeNode[] = externalPaths.map(path => ({
+      name: path.split(/[/\\]/).pop() || '',
+      path: path,
+      type: FileType.FILE,
+      size: 0,
+      created: 0,
+      modified: 0,
+      accessed: 0,
+      permissions: '',
+      isHidden: false,
+      level: 0,
+    }));
+
+    // Find the current directory node or use first node
+    const targetNode = this.nodes[0];
+    const dropTarget: DropTarget = {
+      node: targetNode,
+      position: 'inside'
+    };
+
+    this.dragDrop.emit({
+      event,
+      source: sourceNodes,
+      target: dropTarget
+    });
   }
 
   onContainerClick(event: MouseEvent): void {

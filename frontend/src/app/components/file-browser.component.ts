@@ -1,7 +1,7 @@
-import { Component, OnInit, OnDestroy, ViewChild, ElementRef, HostListener } from '@angular/core';
+import { Component, OnInit, OnDestroy, AfterViewInit, ViewChild, ElementRef, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
-import { EventsOn, EventsOff } from 'wailsjs/runtime/runtime';
+import { EventsOn, EventsOff, OnFileDrop, OnFileDropOff } from 'wailsjs/runtime/runtime';
 import { ApiService } from '../services/api.service';
 import { WorkspaceService } from '../services/workspace.service';
 import { FileType } from '../shared/protocol';
@@ -41,7 +41,7 @@ import { ConfirmDialogService } from '../services/confirm-dialog.service';
   templateUrl: './file-browser.component.html',
   styleUrls: ['./file-browser.component.scss'],
 })
-export class FileBrowserComponent implements OnInit, OnDestroy {
+export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
   @ViewChild(KeyboardHelpComponent) keyboardHelp?: KeyboardHelpComponent;
   @ViewChild(GlobalSearchComponent) globalSearch?: GlobalSearchComponent;
   @ViewChild(PathHistoryViewerComponent) pathHistoryViewer?: PathHistoryViewerComponent;
@@ -116,6 +116,22 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
       this.elevationActive = false;
       this.elevationBusy = false;
     });
+
+    // Register Wails native file drop handler.
+    // OnFileDrop registers Wails' own dragover/drop listeners (required for the
+    // wails:file-drop event to fire) AND the event callback.
+    // useDropTarget=false means: fire for any drop location, not just CSS-marked ones.
+    OnFileDrop((x: number, y: number, paths: string[]) => {
+      console.log('[FileBrowser] 🎯🎯🎯 wails:file-drop received! x:', x, 'y:', y, 'paths:', paths);
+      void this.handleNativeFileDrop(x, y, paths);
+    }, false);
+  }
+
+
+
+  ngAfterViewInit(): void {
+    // File drop handling is done via native Wails event (wails:file-drop)
+    // No need to attach browser drag-drop listeners
   }
 
   ngOnDestroy(): void {
@@ -123,7 +139,78 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     this.destroy$.complete();
     this.apiService.disconnectWebSocket();
     this.cleanupResizeListeners();
+    
+    // Clean up Wails event listeners
     EventsOff('elevation:session-starting', 'elevation:session-started', 'elevation:session-stopped');
+    OnFileDropOff();
+  }
+
+  private async handleNativeFileDrop(x: number, y: number, paths: string[]): Promise<void> {
+    console.log('[handleNativeFileDrop] Called with', paths.length, 'paths');
+    if (!paths.length) {
+      console.log('[handleNativeFileDrop] No paths received, aborting');
+      return;
+    }
+
+    const sourcePaths = paths
+      .map(p => (p || '').trim())
+      .filter(p => p.length > 0);
+
+    console.log('[handleNativeFileDrop] Filtered to', sourcePaths.length, 'valid paths:', sourcePaths);
+    if (!sourcePaths.length) return;
+
+    const targetPane = this.resolveDropTargetPane(x, y);
+    console.log('[handleNativeFileDrop] Resolved target pane:', targetPane ? 'LEFT/RIGHT' : 'NONE');
+    if (!targetPane) return;
+
+    if (targetPane.isInArchive()) {
+      console.log('[handleNativeFileDrop] Target is in archive, blocking');
+      this.confirmDialog.alert('Drag & Drop Not Supported In Archive\nDrop into a filesystem folder instead.');
+      return;
+    }
+
+    const destinationDir = targetPane.getDestinationDir();
+    console.log('[handleNativeFileDrop] Destination directory:', destinationDir);
+    if (!destinationDir) {
+      console.log('[handleNativeFileDrop] No destination directory, aborting');
+      return;
+    }
+
+    try {
+      console.log('[handleNativeFileDrop] Building copy items...');
+      const items = await Promise.all(
+        sourcePaths.map(async sourcePath => ({
+          source: sourcePath,
+          destination: await this.buildDestinationPath(sourcePath, destinationDir),
+        }))
+      );
+
+      console.log('[handleNativeFileDrop] Executing batchCopy for', items.length, 'items:', items);
+      await this.apiService.batchCopy(items, true);
+      console.log('[handleNativeFileDrop] Copy completed, refreshing pane');
+      await targetPane.onRefresh();
+      console.log('[handleNativeFileDrop] SUCCESS');
+    } catch (error: any) {
+      console.error('[handleNativeFileDrop] ERROR:', error);
+      this.confirmDialog.alert(`Drag & Drop Failed\n${error?.message ?? String(error)}`);
+    }
+  }
+
+  private resolveDropTargetPane(x: number, y: number): FilePaneComponent | undefined {
+    const container = this.panesContainer?.nativeElement as HTMLElement | undefined;
+    if (!container) {
+      return this.getActivePane();
+    }
+
+    const rect = container.getBoundingClientRect();
+    const insideContainer = x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+
+    if (!insideContainer) {
+      return this.getActivePane();
+    }
+
+    const splitX = rect.left + (rect.width * this.leftPaneWidth / 100);
+    return x <= splitX ? this.leftPane : this.rightPane;
   }
 
   copyToOtherPane(source: FilePaneComponent | undefined, target: FilePaneComponent | undefined, paths?: string[]): void {

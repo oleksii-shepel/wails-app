@@ -233,6 +233,10 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
       targetPath = parentPath(event.target.path);
     }
 
+    if (!targetPath) {
+      targetPath = this.currentPath;
+    }
+
     this.dragDrop.emit({
       event: event.event,
       source: event.source,

@@ -70,10 +70,14 @@ export interface ColumnDef {
       <div
         #detailsBody
         class="details-body"
+        [class.drop-target-bg]="isBackgroundDropTarget"
         role="rowgroup"
         (mousedown)="onBodyMouseDown($event)"
         (click)="onBackgroundClick($event)"
-        (contextmenu)="onBackgroundContextMenu($event)">
+        (contextmenu)="onBackgroundContextMenu($event)"
+        (dragover)="onBackgroundDragOver($event)"
+        (dragleave)="onBackgroundDragLeave($event)"
+        (drop)="onBackgroundDrop($event)">
         
         <div class="virtual-spacer" *ngIf="virtualEnabled" [style.height.px]="totalContentHeight"></div>
         
@@ -368,6 +372,12 @@ export interface ColumnDef {
     .col-size { width: 100px; text-align: right; justify-content: flex-end; }
     .col-date { width: 150px; }
     .col-type { width: 100px; }
+
+    .details-body.drop-target-bg {
+      outline: 2px dashed var(--vsc-focus-border);
+      outline-offset: -2px;
+      background: color-mix(in srgb, var(--vsc-list-hover-background) 30%, transparent);
+    }
   `]
 })
 export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit {
@@ -413,6 +423,7 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
 
   private anchorPath: string | null = null;
   private dropTargetPath: string | null = null;
+  isBackgroundDropTarget = false;
   private marqueeContainer: HTMLElement | null = null;
   private marqueeStartX = 0;
   private marqueeStartY = 0;
@@ -971,6 +982,17 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   }
 
   onDragOver(event: DragEvent, entry: FileInfo): void {
+    // Always prevent default for external files
+    if (this.hasExternalFiles(event)) {
+      event.preventDefault();
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = event.ctrlKey || event.metaKey ? 'copy' : 'move';
+      }
+      this.dropTargetPath = entry.path;
+      return;
+    }
+    
+    // For internal drags, only allow drops on directories
     if (this.isParentEntry(entry) || entry.type !== FileType.DIRECTORY) return;
     event.preventDefault();
     
@@ -989,8 +1011,14 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   onDrop(event: DragEvent, entry: FileInfo): void {
     if (this.isParentEntry(entry)) return;
     event.preventDefault();
-    event.stopPropagation();
 
+    // For external OS drops, don't stopPropagation - let Wails' window handler fire wails:file-drop
+    if (this.hasExternalFiles(event)) {
+      this.dropTargetPath = null;
+      return;
+    }
+
+    event.stopPropagation();
     this.dropTargetPath = null;
 
     const paths = this.readDraggedPaths(event);
@@ -1002,6 +1030,192 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     const target = entry.type === FileType.DIRECTORY
       ? entry
       : ({ ...entry, path: parentPath(entry.path), type: FileType.DIRECTORY } as FileInfo);
+
+    this.dragDrop.emit({ event, source, target });
+  }
+
+  onBackgroundDragOver(event: DragEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = event.ctrlKey || event.metaKey ? 'copy' : 'move';
+    }
+    
+    this.isBackgroundDropTarget = true;
+    this.cdr.markForCheck();
+  }
+
+  onBackgroundDragLeave(event: DragEvent): void {
+    const target = event.relatedTarget as HTMLElement;
+    const container = this.detailsBodyRef?.nativeElement;
+    
+    if (container && !container.contains(target)) {
+      this.isBackgroundDropTarget = false;
+      this.cdr.markForCheck();
+    }
+  }
+
+  onBackgroundDrop(event: DragEvent): void {
+    event.preventDefault();
+
+    // For external OS drops, don't stopPropagation - let Wails' window handler fire wails:file-drop
+    if (this.hasExternalFiles(event)) {
+      this.isBackgroundDropTarget = false;
+      this.cdr.markForCheck();
+      return;
+    }
+
+    event.stopPropagation();
+    this.isBackgroundDropTarget = false;
+    this.cdr.markForCheck();
+
+    // Internal drag to background
+    const paths = this.readDraggedPaths(event);
+    if (!paths.length) return;
+
+    const source = this.entries.filter(e => paths.includes(e.path) && !this.isParentEntry(e));
+    if (!source.length) return;
+
+    const currentDir = this.entries.length > 0 && !this.isParentEntry(this.entries[0])
+      ? parentPath(this.entries[0].path)
+      : '';
+    
+    const target: FileInfo = {
+      name: '',
+      path: currentDir,
+      type: FileType.DIRECTORY,
+      size: 0,
+      created: 0,
+      modified: 0,
+      accessed: 0,
+      permissions: '',
+      isHidden: false,
+    };
+
+    this.dragDrop.emit({ event, source, target });
+  }
+
+  private hasExternalFiles(event: DragEvent): boolean {
+    const types = event.dataTransfer?.types;
+    if (!types) return false;
+    if (types.includes('application/json')) return false;
+    return types.includes('Files') || (event.dataTransfer?.files?.length ?? 0) > 0;
+  }
+
+  private extractExternalPaths(event: DragEvent): string[] {
+    const dataTransfer = event.dataTransfer;
+    if (!dataTransfer) return [];
+
+    const paths = new Set<string>();
+
+    const files = dataTransfer.files;
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const filePath = (file as any).path as string | undefined;
+      if (filePath) {
+        paths.add(filePath);
+      }
+    }
+
+    const uriPayload = dataTransfer.getData('text/uri-list') || dataTransfer.getData('text/plain');
+    if (uriPayload) {
+      for (const rawLine of uriPayload.split(/\r?\n/)) {
+        const line = rawLine.trim();
+        if (!line || line.startsWith('#')) continue;
+        const parsedPath = this.fileUriToPath(line);
+        if (parsedPath) paths.add(parsedPath);
+      }
+    }
+
+    return Array.from(paths);
+  }
+
+  private fileUriToPath(value: string): string | null {
+    if (!value) return null;
+    const trimmed = value.trim();
+    if (!/^file:\/\//i.test(trimmed)) {
+      if (/^[A-Za-z]:[\\/]/.test(trimmed)) return trimmed;
+      if (/^\\\\/.test(trimmed)) return trimmed;
+      if (trimmed.startsWith('/')) return trimmed;
+      return null;
+    }
+
+    try {
+      let decoded = decodeURIComponent(trimmed).replace(/^file:\/\//i, '');
+
+      if (/^\/[A-Za-z]:\//.test(decoded)) {
+        decoded = decoded.slice(1);
+      }
+
+      if (/^[A-Za-z]:\//.test(decoded)) {
+        return decoded.replace(/\//g, '\\');
+      }
+
+      if (!decoded.startsWith('/')) {
+        return ('//' + decoded).replace(/\//g, '\\');
+      }
+
+      return decoded;
+    } catch {
+      return null;
+    }
+  }
+
+  private handleExternalDrop(event: DragEvent, targetEntry: FileInfo): void {
+    const externalPaths = this.extractExternalPaths(event);
+    if (externalPaths.length === 0) return;
+
+    const source: FileInfo[] = externalPaths.map(path => ({
+      name: path.split(/[/\\]/).pop() || '',
+      path: path,
+      type: FileType.FILE,
+      size: 0,
+      created: 0,
+      modified: 0,
+      accessed: 0,
+      permissions: '',
+      isHidden: false,
+    }));
+
+    const target = targetEntry.type === FileType.DIRECTORY
+      ? targetEntry
+      : ({ ...targetEntry, path: parentPath(targetEntry.path), type: FileType.DIRECTORY } as FileInfo);
+
+    this.dragDrop.emit({ event, source, target });
+  }
+
+  private handleExternalBackgroundDrop(event: DragEvent): void {
+    const externalPaths = this.extractExternalPaths(event);
+    if (externalPaths.length === 0) return;
+
+    const source: FileInfo[] = externalPaths.map(path => ({
+      name: path.split(/[/\\]/).pop() || '',
+      path: path,
+      type: FileType.FILE,
+      size: 0,
+      created: 0,
+      modified: 0,
+      accessed: 0,
+      permissions: '',
+      isHidden: false,
+    }));
+
+    const currentDir = this.entries.length > 0 && !this.isParentEntry(this.entries[0])
+      ? parentPath(this.entries[0].path)
+      : '';
+    
+    const target: FileInfo = {
+      name: '',
+      path: currentDir,
+      type: FileType.DIRECTORY,
+      size: 0,
+      created: 0,
+      modified: 0,
+      accessed: 0,
+      permissions: '',
+      isHidden: false,
+    };
 
     this.dragDrop.emit({ event, source, target });
   }

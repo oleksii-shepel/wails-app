@@ -853,6 +853,11 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
   }
 
   onDragStart(event: DragEvent, node: TreeNode): void {
+    if (event.button !== 0) {
+      event.preventDefault();
+      return;
+    }
+
     if (!this.isSelected(node)) {
       this.selectNode(node, false, false);
     }
@@ -864,7 +869,7 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
     if (event.dataTransfer) {
       event.dataTransfer.effectAllowed = 'move';
       event.dataTransfer.setData('application/json', JSON.stringify({
-        paths: selectedNodes.map(n => n.path),
+        entries: selectedNodes.map(n => ({ path: n.path, type: n.type, name: n.name })),
         source: 'tree'
       }));
       
@@ -912,8 +917,9 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
       return;
     }
     
-    // Handle internal drags
-    if (!this.dragState.isDragging) return;
+    // Internal drag: from tree itself, or cross-component (list/grid/details → tree)
+    const isInternalDrag = this.dragState.isDragging || (event.dataTransfer?.types ?? []).includes('application/json');
+    if (!isInternalDrag) return;
 
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
     const y = event.clientY - rect.top;
@@ -929,15 +935,17 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
       position = 'after';
     }
 
-    const isValidDrop = !this.dragState.draggedNodes.some(dragged => 
-      dragged.path === node.path || this.isDescendant(node, dragged)
-    );
+    // For tree-internal drags, validate against dragged nodes to prevent dropping onto self
+    if (this.dragState.isDragging) {
+      const isValidDrop = !this.dragState.draggedNodes.some(dragged => 
+        dragged.path === node.path || this.isDescendant(node, dragged)
+      );
+      if (!isValidDrop) return;
+    }
 
-    if (isValidDrop) {
-      this.dragState.dropTarget = { node, position };
-      if (event.dataTransfer) {
-        event.dataTransfer.dropEffect = 'move';
-      }
+    this.dragState.dropTarget = { node, position };
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = event.ctrlKey || event.metaKey ? 'copy' : 'move';
     }
 
     this.cdr.markForCheck();
@@ -964,9 +972,33 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
 
     if (!this.dragState.dropTarget) return;
 
+    // Use draggedNodes when drag started within the tree; fall back to dataTransfer for cross-component drags
+    let sourceNodes: TreeNode[] = this.dragState.draggedNodes;
+    if (!sourceNodes.length) {
+      const dragged = this.readDraggedEntries(event);
+      sourceNodes = dragged.map(d => ({
+        name: d.name,
+        path: d.path,
+        type: d.type as FileType,
+        size: 0,
+        created: 0,
+        modified: 0,
+        accessed: 0,
+        permissions: '',
+        isHidden: false,
+        level: 0,
+      } as TreeNode));
+    }
+
+    if (!sourceNodes.length) {
+      this.dragState.dropTarget = null;
+      this.cdr.markForCheck();
+      return;
+    }
+
     this.dragDrop.emit({
       event,
-      source: this.dragState.draggedNodes,
+      source: sourceNodes,
       target: this.dragState.dropTarget
     });
 
@@ -987,6 +1019,19 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
     }
 
     event.stopPropagation();
+  }
+
+  private readDraggedEntries(event: DragEvent): { path: string; type: FileType; name: string }[] {
+    try {
+      const payload = event.dataTransfer?.getData('application/json');
+      if (!payload) return [];
+      const parsed = JSON.parse(payload);
+      if (Array.isArray(parsed?.entries)) return parsed.entries;
+      if (Array.isArray(parsed?.paths)) return parsed.paths.map((p: string) => ({ path: p, type: FileType.FILE, name: p.split(/[\/\\]/).pop() || p }));
+      return [];
+    } catch {
+      return [];
+    }
   }
 
   private hasExternalFiles(event: DragEvent): boolean {

@@ -961,6 +961,11 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   }
 
   onDragStart(event: DragEvent, entry: FileInfo): void {
+    if (event.button !== 0) {
+      event.preventDefault();
+      return;
+    }
+
     if (this.isParentEntry(entry)) {
       event.preventDefault();
       return;
@@ -974,7 +979,7 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
       event.dataTransfer.effectAllowed = 'copyMove';
       event.dataTransfer.setData('application/json', JSON.stringify({
         source: 'details',
-        paths: entries.map(e => e.path),
+        entries: entries.map(e => ({ path: e.path, type: e.type, name: e.name })),
       }));
     }
 
@@ -1021,10 +1026,10 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     event.stopPropagation();
     this.dropTargetPath = null;
 
-    const paths = this.readDraggedPaths(event);
-    if (!paths.length) return;
+    const draggedEntries = this.readDraggedEntries(event);
+    if (!draggedEntries.length) return;
 
-    const source = this.entries.filter(e => paths.includes(e.path) && !this.isParentEntry(e));
+    const source = this.buildSourceFromEntries(draggedEntries);
     if (!source.length) return;
 
     const target = entry.type === FileType.DIRECTORY
@@ -1071,10 +1076,10 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     this.cdr.markForCheck();
 
     // Internal drag to background
-    const paths = this.readDraggedPaths(event);
-    if (!paths.length) return;
+    const draggedEntries = this.readDraggedEntries(event);
+    if (!draggedEntries.length) return;
 
-    const source = this.entries.filter(e => paths.includes(e.path) && !this.isParentEntry(e));
+    const source = this.buildSourceFromEntries(draggedEntries);
     if (!source.length) return;
 
     const currentDir = this.entries.length > 0 && !this.isParentEntry(this.entries[0])
@@ -1230,12 +1235,32 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     return this.entries.filter(e => selected.has(e.path) && !this.isParentEntry(e));
   }
 
-  private readDraggedPaths(event: DragEvent): string[] {
+  /** Build source entries; uses pane entries for same-pane drag or constructs minimal FileInfo for cross-pane drags. */
+  private buildSourceFromEntries(dragged: { path: string; type: FileType; name: string }[]): FileInfo[] {
+    const paths = dragged.map(d => d.path);
+    const fromEntries = this.entries.filter(e => paths.includes(e.path) && !this.isParentEntry(e));
+    if (fromEntries.length > 0) return fromEntries;
+    return dragged.filter(d => d.path && d.path !== PARENT_ENTRY_PATH).map(d => ({
+      name: d.name,
+      path: d.path,
+      type: d.type,
+      size: 0,
+      created: 0,
+      modified: 0,
+      accessed: 0,
+      permissions: '',
+      isHidden: false,
+    } as FileInfo));
+  }
+
+  private readDraggedEntries(event: DragEvent): { path: string; type: FileType; name: string }[] {
     try {
       const payload = event.dataTransfer?.getData('application/json');
       if (!payload) return [];
       const parsed = JSON.parse(payload);
-      return Array.isArray(parsed?.paths) ? parsed.paths : [];
+      if (Array.isArray(parsed?.entries)) return parsed.entries;
+      if (Array.isArray(parsed?.paths)) return parsed.paths.map((p: string) => ({ path: p, type: FileType.FILE, name: p.split(/[\/\\]/).pop() || p }));
+      return [];
     } catch {
       return [];
     }

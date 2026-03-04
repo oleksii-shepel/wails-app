@@ -171,6 +171,12 @@ export type ViewMode = 'list' | 'grid' | 'tree' | 'details';
     .action-btn:hover { background: var(--vsc-tab-hover-background); color: var(--vsc-tab-hover-foreground); }
 
     .view-btn { display:flex; align-items:center; justify-content:center; width:28px; height:28px; border:none; border-radius:var(--vsc-border-radius); background:transparent; color:var(--vsc-tab-foreground); cursor:pointer; }
+    .action-btn svg,
+    .view-btn svg {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+    }
     .view-btn svg { opacity: 0.45; transition: opacity 120ms ease, filter 120ms ease; }
     .view-btn:hover { background: var(--vsc-tab-hover-background); color: var(--vsc-tab-hover-foreground); }
     .view-btn:hover svg { opacity: 0.80; }
@@ -196,6 +202,7 @@ export type ViewMode = 'list' | 'grid' | 'tree' | 'details';
     :host-context(.compact-mode) {
       .action-bar { height: 28px; }
       .action-btn, .view-btn { width:22px; height:22px; }
+      .action-btn svg, .view-btn svg { width: 14px; height: 14px; }
       .btn-small { height:20px; padding: 0 6px; font-size: calc(var(--vsc-font-size-small) - 1px); }
     }
   `]

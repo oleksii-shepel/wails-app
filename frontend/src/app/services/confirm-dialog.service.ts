@@ -33,7 +33,7 @@ export class ConfirmDialogService {
   alert(options: ConfirmDialogOptions | string): Promise<void> {
     const normalized = this.normalizeOptions(options);
     normalized.isAlert = true;
-    normalized.confirmText = normalized.confirmText ?? 'OK';
+    normalized.confirmText = 'OK';
 
     return new Promise<void>((resolve) => {
       this.queue.push({

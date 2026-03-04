@@ -20,6 +20,7 @@ import { PARENT_ENTRY_PATH } from './file-entry.component';
 import { FileViewContainerComponent, ViewLayout } from './file-view-container.component';
 import { ArchiveMoveWarningComponent } from "./archive-move-warning.component";
 import { EventsOn, EventsOff } from 'wailsjs/runtime';
+import { ConfirmDialogService } from '../services/confirm-dialog.service';
 
 declare const window: any;
 
@@ -206,12 +207,12 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       try {
         const result = await this.archiveService.extractEntries(frame, entries, destDir, flattenPaths);
         if (result.failed > 0) {
-          alert('Extract failed:\n' + (result.errors ?? []).map((e: any) => e.error).join('\n'));
+          this.confirmDialog.alert('Extract Failed\n' + (result.errors ?? []).map((e: any) => e.error).join('\n'));
         } else {
-          alert(`${result.succeeded} file(s) extracted to destination.`);
+          this.confirmDialog.alert(`Extraction Complete\n${result.succeeded} file(s) extracted to destination.`);
         }
       } catch (err: any) {
-        alert(`Extract failed: ${err.message}`);
+        this.confirmDialog.alert(`Extract Failed\n${err.message}`);
       }
     }
   @ViewChild(AddressBarComponent) addressBar?: AddressBarComponent;
@@ -266,6 +267,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     private workspaceService: WorkspaceService,
     private filterService: FilterService,
     private pathHistoryService: PathHistoryService,
+      private confirmDialog: ConfirmDialogService,
     private archiveService: ArchiveService
   ) {}
 
@@ -976,7 +978,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     if (!event.source?.length || !event.targetPath) return;
 
     if (this.isInArchive()) {
-      alert('Drag & drop within archive view is not supported yet. Use copy/move to other pane.');
+      this.confirmDialog.alert('Archive Drag & Drop Not Supported\nUse copy/move to other pane instead.');
       return;
     }
 
@@ -999,7 +1001,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
         await this.apiService.batchMove(items, true);
       }
     } catch (error: any) {
-      alert(`Drag & drop failed: ${error.message}`);
+      this.confirmDialog.alert(`Drag & Drop Failed\n${error.message}`);
     }
   }
 
@@ -1374,14 +1376,14 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   // ── File operations ───────────────────────────────────────────────────────
 
   async onCreateFolder(): Promise<void> {
-    if (this.isInArchive()) { alert('Cannot create folders inside an archive.'); return; }
+    if (this.isInArchive()) { this.confirmDialog.alert('Archive Limitation\nCannot create folders inside an archive.'); return; }
     const folderName = prompt('Enter folder name:');
     if (!folderName) return;
     try {
       const newPath: string = await window.go.main.App.JoinPaths([this.currentPath, folderName]);
       await this.apiService.createDirectory(newPath, false);
       await this.loadDirectory(this.currentPath);
-    } catch (error: any) { alert(`Failed to create folder: ${error.message}`); }
+    } catch (error: any) { this.confirmDialog.alert(`Create Folder Failed\n${error.message}`); }
   }
 
   async onDeleteSelected(): Promise<void> {
@@ -1392,25 +1394,30 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       const entries = Array.from(this.selectedFiles);
 
       if (frame.nestedChain.length > 0) {
-        alert(
-          'Cannot delete from a nested archive.\n' +
+        this.confirmDialog.alert(
+          'Nested Archive Limitation\n' +
           'Exit back to the top-level archive first.',
         );
         return;
       }
 
-      if (!confirm(
-        `Delete ${entries.length} item(s) from the archive?\n` +
-        `This rewrites the archive file on disk and cannot be undone.`,
-      )) return;
+      const archiveDeleteConfirmed = await this.confirmDialog.confirm({
+        title: 'Delete from Archive',
+        message:
+          `Delete ${entries.length} item(s) from the archive?\n` +
+          `This rewrites the archive file on disk and cannot be undone.`,
+        confirmText: 'Delete',
+        danger: true,
+      });
+      if (!archiveDeleteConfirmed) return;
 
       try {
         const result = await this.archiveService.delete(frame, entries);
         if (result.failed > 0) {
-          alert('Delete failed:\n' + (result.errors ?? []).map((e: any) => e.error).join('\n'));
+          this.confirmDialog.alert('Delete Failed\n' + (result.errors ?? []).map((e: any) => e.error).join('\n'));
         }
       } catch (err: any) {
-        alert(`Delete error: ${err.message}`);
+        this.confirmDialog.alert(`Delete Error\n${err.message}`);
         return;
       }
       // Refresh the archive listing so deleted entries disappear
@@ -1419,16 +1426,22 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     }
 
     // ── Filesystem delete — unchanged from original ───────────────────────────
-    if (!confirm(`Delete ${this.selectedFiles.size} item(s)?`)) return;
+    const deleteConfirmed = await this.confirmDialog.confirm({
+      title: 'Delete Items',
+      message: `Delete ${this.selectedFiles.size} item(s)?`,
+      confirmText: 'Delete',
+      danger: true,
+    });
+    if (!deleteConfirmed) return;
     try {
       const result = await this.apiService.batchDelete(Array.from(this.selectedFiles), true);
       if (result.failed > 0) {
         const msg = (result.errors ?? []).map((e: any) => `${e.source}: ${e.error}`).join('\n');
-        alert(`Delete completed with ${result.failed} error(s):\n${msg}`);
+        this.confirmDialog.alert(`Delete Completed With Errors\n${result.failed} item(s) failed:\n${msg}`);
       }
       await this.loadDirectory(this.currentPath);
     } catch (error: any) {
-      alert(`Failed to delete items: ${error.message}`);
+      this.confirmDialog.alert(`Delete Failed\n${error.message}`);
     }
   }
 
@@ -1480,7 +1493,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
 
   private async renameEntry(entry: FileInfo, forcedName?: string): Promise<void> {
     if (this.isInArchive()) {
-      alert('Rename inside archive view is not supported yet.');
+      this.confirmDialog.alert('Archive Limitation\nRename is not supported inside archives.');
       return;
     }
 
@@ -1493,7 +1506,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       const destination = await this.apiService.joinPaths([parentPath(entry.path), nextName]);
       await this.apiService.batchMove([{ source: entry.path, destination }], true);
     } catch (error: any) {
-      alert(`Rename failed: ${error.message}`);
+      this.confirmDialog.alert(`Rename Failed\n${error.message}`);
     }
   }
 
@@ -1540,22 +1553,22 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
         const softMsg = (result.errors ?? []).find((e: any) =>
           e.error.includes('NOT removed'),
         );
-        alert(
-          `${result.succeeded} file(s) extracted to destination.\n\n` +
-          `⚠ Source entries were NOT removed from the archive: ` +
-          (softMsg?.error ?? 'nested archive deletion is not supported.'),
+        this.confirmDialog.alert(
+          `Move Partially Complete\n` +
+          `${result.succeeded} file(s) extracted, but source NOT removed:\n` +
+          (softMsg?.error ?? 'Nested archive deletion is not supported.'),
         );
         return;
       }
 
       if (result.failed > 0) {
-        alert('Move errors:\n' + (result.errors ?? []).map((e: any) => e.error).join('\n'));
+        this.confirmDialog.alert('Move Errors\n' + (result.errors ?? []).map((e: any) => e.error).join('\n'));
       }
 
       // Refresh archive listing — moved entries have been deleted from it
       await this.refreshArchive();
     } catch (err: any) {
-      alert(`Move failed: ${err.message}`);
+      this.confirmDialog.alert(`Move Failed\n${err.message}`);
     }
   }
 

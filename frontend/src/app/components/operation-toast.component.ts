@@ -131,8 +131,7 @@ import { createSubject } from '@epikodelabs/streamix';
       gap: 12px;
       transition: border-color .15s;
     }
-
-    .toast:hover { border-color: var(--vsc-focusBorder, #007fd4); }
+    
     .toast.is-conflict { border-color: #e8a94d; padding: 0; }
 
     /* ── Ring ── */

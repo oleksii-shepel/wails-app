@@ -167,6 +167,34 @@ export interface DropTarget {
       height: 100%;
       user-select: none;
       color: var(--vsc-foreground);
+      scrollbar-width: thin;
+      scrollbar-color: rgba(121, 121, 121, 0.4) transparent;
+
+      &::-webkit-scrollbar {
+        width: 10px;
+        height: 10px;
+      }
+
+      &::-webkit-scrollbar-track {
+        background: transparent;
+      }
+
+      &::-webkit-scrollbar-thumb {
+        background: rgba(121, 121, 121, 0.4);
+        border-radius: 0;
+
+        &:hover {
+          background: rgba(100, 100, 100, 0.7);
+        }
+
+        &:active {
+          background: rgba(85, 85, 85, 0.8);
+        }
+      }
+
+      &::-webkit-scrollbar-corner {
+        background: transparent;
+      }
     }
     
     .tree-spacer {

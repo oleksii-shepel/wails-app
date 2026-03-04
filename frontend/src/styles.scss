@@ -46,16 +46,82 @@ code, pre {
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--vsc-scrollbar-track);
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--vsc-scrollbar-thumb);
-  border-radius: 10px;
+  background: rgba(121, 121, 121, 0.4);
+  border-radius: 0;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--vsc-scrollbar-thumb-hover);
+  background: rgba(100, 100, 100, 0.7);
+}
+
+::-webkit-scrollbar-thumb:active {
+  background: rgba(85, 85, 85, 0.8);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(121, 121, 121, 0.4) transparent;
+}
+
+/* Force file-pane scrollbars to use VS Code-like flat corners */
+app-file-list .pane-content,
+app-file-grid .file-grid,
+app-file-details .details-body,
+app-file-tree .file-tree-container {
+  scrollbar-width: auto;
+  scrollbar-color: rgba(121, 121, 121, 0.4) transparent;
+}
+
+app-file-list .pane-content::-webkit-scrollbar,
+app-file-grid .file-grid::-webkit-scrollbar,
+app-file-details .details-body::-webkit-scrollbar,
+app-file-tree .file-tree-container::-webkit-scrollbar {
+  width: 12px !important;
+  height: 12px !important;
+}
+
+app-file-list .pane-content::-webkit-scrollbar-track,
+app-file-grid .file-grid::-webkit-scrollbar-track,
+app-file-details .details-body::-webkit-scrollbar-track,
+app-file-tree .file-tree-container::-webkit-scrollbar-track {
+  background: transparent !important;
+}
+
+app-file-list .pane-content::-webkit-scrollbar-thumb,
+app-file-grid .file-grid::-webkit-scrollbar-thumb,
+app-file-details .details-body::-webkit-scrollbar-thumb,
+app-file-tree .file-tree-container::-webkit-scrollbar-thumb {
+  background: rgba(121, 121, 121, 0.4) !important;
+  border-radius: 0 !important;
+}
+
+app-file-list .pane-content::-webkit-scrollbar-thumb:hover,
+app-file-grid .file-grid::-webkit-scrollbar-thumb:hover,
+app-file-details .details-body::-webkit-scrollbar-thumb:hover,
+app-file-tree .file-tree-container::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 100, 100, 0.7) !important;
+}
+
+app-file-list .pane-content::-webkit-scrollbar-thumb:active,
+app-file-grid .file-grid::-webkit-scrollbar-thumb:active,
+app-file-details .details-body::-webkit-scrollbar-thumb:active,
+app-file-tree .file-tree-container::-webkit-scrollbar-thumb:active {
+  background: rgba(85, 85, 85, 0.8) !important;
+}
+
+app-file-list .pane-content::-webkit-scrollbar-corner,
+app-file-grid .file-grid::-webkit-scrollbar-corner,
+app-file-details .details-body::-webkit-scrollbar-corner,
+app-file-tree .file-tree-container::-webkit-scrollbar-corner {
+  background: transparent !important;
 }
 
 /* === Focus Outline === */

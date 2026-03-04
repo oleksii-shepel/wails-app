@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { createSubject } from '@epikodelabs/streamix';
 import { KeyboardService, ShortcutCategory } from '../services/keyboard.service';
+import { ConfirmDialogService } from '../services/confirm-dialog.service';
 
 @Component({
   selector: 'app-keyboard-help',
@@ -19,7 +20,10 @@ export class KeyboardHelpComponent implements OnInit, OnDestroy {
 
   private destroy$ = createSubject<void>();
 
-  constructor(private keyboardService: KeyboardService) {}
+  constructor(
+    private keyboardService: KeyboardService,
+    private confirmDialog: ConfirmDialogService,
+  ) {}
 
   ngOnInit(): void {
     this.loadShortcuts();
@@ -156,9 +160,9 @@ export class KeyboardHelpComponent implements OnInit, OnDestroy {
         const config = JSON.parse(e.target?.result as string);
         this.keyboardService.importConfig(config);
         this.loadShortcuts();
-        alert('Shortcuts imported successfully!');
+        this.confirmDialog.alert('Import Successful\nShortcuts have been imported.');
       } catch (error) {
-        alert('Failed to import shortcuts: Invalid file format');
+        this.confirmDialog.alert('Import Failed\nInvalid file format.');
       }
     };
     reader.readAsText(file);
@@ -167,10 +171,16 @@ export class KeyboardHelpComponent implements OnInit, OnDestroy {
   /**
    * Reset to default shortcuts
    */
-  resetToDefaults(): void {
-    if (confirm('Reset all shortcuts to defaults?')) {
+  async resetToDefaults(): Promise<void> {
+    const confirmed = await this.confirmDialog.confirm({
+      title: 'Reset Shortcuts',
+      message: 'Reset all shortcuts to defaults?',
+      confirmText: 'Reset',
+      danger: true,
+    });
+    if (confirmed) {
       // This would need to be implemented based on your default shortcuts
-      alert('Reset functionality not yet implemented');
+      this.confirmDialog.alert('Not Yet Implemented\nReset functionality is coming soon.');
     }
   }
 }

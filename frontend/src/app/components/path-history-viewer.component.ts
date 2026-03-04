@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
 import { PathHistoryService, PathHistoryEntry } from '../services/path-history.service';
+import { ConfirmDialogService } from '../services/confirm-dialog.service';
 
 @Component({
   selector: 'app-path-history-viewer',
@@ -417,7 +418,10 @@ export class PathHistoryViewerComponent implements OnInit, OnDestroy {
 
   private destroy$ = createSubject<void>();
 
-  constructor(private pathHistoryService: PathHistoryService) {}
+  constructor(
+    private pathHistoryService: PathHistoryService,
+    private confirmDialog: ConfirmDialogService,
+  ) {}
 
   ngOnInit(): void {
     // Subscribe to history changes
@@ -466,15 +470,27 @@ export class PathHistoryViewerComponent implements OnInit, OnDestroy {
     // This would need to be wired up to the main component
   }
 
-  removePath(entry: PathHistoryEntry, event: Event): void {
+  async removePath(entry: PathHistoryEntry, event: Event): Promise<void> {
     event.stopPropagation();
-    if (confirm(`Remove "${entry.path}" from history?`)) {
+    const confirmed = await this.confirmDialog.confirm({
+      title: 'Remove History Entry',
+      message: `Remove "${entry.path}" from history?`,
+      confirmText: 'Remove',
+      danger: true,
+    });
+    if (confirmed) {
       this.pathHistoryService.removePath(entry.path);
     }
   }
 
-  clearHistory(): void {
-    if (confirm('Clear all path history?')) {
+  async clearHistory(): Promise<void> {
+    const confirmed = await this.confirmDialog.confirm({
+      title: 'Clear Path History',
+      message: 'Clear all path history?',
+      confirmText: 'Clear',
+      danger: true,
+    });
+    if (confirmed) {
       this.pathHistoryService.clearHistory();
     }
   }

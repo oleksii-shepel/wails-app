@@ -20,6 +20,7 @@ import { OperationStatusBarComponent } from './operation-status-bar.component';
 import { OperationToastStackComponent } from './operation-stack.component';
 import { ArchiveService } from '../services/archive.service';
 import { ElevationStatusPillComponent } from './elevation-status-pill.component';
+import { ConfirmDialogService } from '../services/confirm-dialog.service';
 
 @Component({
   selector: 'app-file-browser',
@@ -80,6 +81,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     private pathHistoryService: PathHistoryService,
     public theme: ThemeService,
     private archiveService: ArchiveService,
+    private confirmDialog: ConfirmDialogService,
   ) {}
 
   ngOnInit(): void {
@@ -211,9 +213,15 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     this.showWorkspaceMenu = false;
   }
 
-  deleteCurrentWorkspace(): void {
+  async deleteCurrentWorkspace(): Promise<void> {
     if (!this.activeWorkspace) return;
-    if (!confirm(`Delete workspace "${this.activeWorkspace.name}"?`)) return;
+    const confirmed = await this.confirmDialog.confirm({
+      title: 'Delete Workspace',
+      message: `Delete workspace "${this.activeWorkspace.name}"?`,
+      confirmText: 'Delete',
+      danger: true,
+    });
+    if (!confirmed) return;
     this.workspaceService.deleteWorkspace(this.activeWorkspace.id);
   }
 
@@ -250,7 +258,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
       this.elevationActive = !!status?.active;
     } catch (error: any) {
       console.error('Elevation toggle failed:', error);
-      alert(`Elevation error: ${error?.message ?? String(error)}`);
+      this.confirmDialog.alert(`Elevation Error\n${error?.message ?? String(error)}`);
     } finally {
       this.elevationBusy = false;
     }
@@ -313,13 +321,13 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
 
     if (src.isInArchive()) {
       if (this.bothArchive(src, dst)) {
-        alert('Cannot copy between two archive panes. Open a real folder in one pane first.');
+        this.confirmDialog.alert('Cannot copy between two archive panes\nOpen a real folder in one pane first.');
         return;
       }
       const frame = src.archiveStack[src.archiveStack.length - 1];
       const result = await this.archiveService.copy(frame, paths, destDir);
       const err = this.archiveError(result);
-      if (err) alert(`Copy completed with errors:\n${err}`);
+      if (err) this.confirmDialog.alert(`Copy Completed with Errors\n${err}`);
       dst.onRefresh();
       return;
     }
@@ -331,7 +339,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
         treeArchive.archivePath, treeArchive.innerPaths, destDir
       );
       const err = this.archiveError(result);
-      if (err) alert(`Copy errors:\n${err}`);
+      if (err) this.confirmDialog.alert(`Copy Errors\n${err}`);
       dst.onRefresh();
       return;
     }
@@ -345,7 +353,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     );
     const result = await this.apiService.batchCopy(items, true);
     const err = this.archiveError(result);
-    if (err) alert(`Copy errors:\n${err}`);
+    if (err) this.confirmDialog.alert(`Copy Errors\n${err}`);
   }
 
   async onCopyFromRight(paths: string[]): Promise<void> {
@@ -356,13 +364,13 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
 
     if (src.isInArchive()) {
       if (this.bothArchive(src, dst)) {
-        alert('Cannot copy between two archive panes. Open a real folder in one pane first.');
+        this.confirmDialog.alert('Cannot copy between two archive panes\nOpen a real folder in one pane first.');
         return;
       }
       const frame = src.archiveStack[src.archiveStack.length - 1];
       const result = await this.archiveService.copy(frame, paths, destDir);
       const err = this.archiveError(result);
-      if (err) alert(`Copy completed with errors:\n${err}`);
+      if (err) this.confirmDialog.alert(`Copy Completed with Errors\n${err}`);
       dst.onRefresh();
       return;
     }
@@ -374,7 +382,13 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
         treeArchive.archivePath, treeArchive.innerPaths, destDir
       );
       const err = this.archiveError(result);
-      if (err) alert(`Copy errors:\n${err}`);
+      if (err) {
+        await this.confirmDialog.confirm({
+          title: 'Copy Errors',
+          message: err,
+          confirmText: 'OK'
+        });
+      }
       dst.onRefresh();
       return;
     }
@@ -387,7 +401,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     );
     const result = await this.apiService.batchCopy(items, true);
     const err = this.archiveError(result);
-    if (err) alert(`Copy errors:\n${err}`);
+    if (err) this.confirmDialog.alert(`Copy Errors\n${err}`);
   }
 
   async onMoveFromLeft(paths: string[]): Promise<void> {
@@ -398,7 +412,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
 
     if (src.isInArchive()) {
       if (this.bothArchive(src, dst)) {
-        alert('Cannot move between two archive panes. Open a real folder in one pane first.');
+        this.confirmDialog.alert('Cannot move between two archive panes\nOpen a real folder in one pane first.');
         return;
       }
       src.initiatePendingMove(paths, destDir);
@@ -412,7 +426,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
         treeArchive.archivePath, treeArchive.innerPaths, destDir
       );
       const err = this.archiveError(result);
-      if (err) alert(`Move errors:\n${err}`);
+      if (err) this.confirmDialog.alert(`Move Errors\n${err}`);
       src.onRefresh();
       dst.onRefresh();
       return;
@@ -427,7 +441,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     );
     const result = await this.apiService.batchMove(items, true);
     const err = this.archiveError(result);
-    if (err) alert(`Move errors:\n${err}`);
+    if (err) this.confirmDialog.alert(`Move Errors\n${err}`);
   }
 
   async onMoveFromRight(paths: string[]): Promise<void> {
@@ -438,7 +452,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
 
     if (src.isInArchive()) {
       if (this.bothArchive(src, dst)) {
-        alert('Cannot move between two archive panes. Open a real folder in one pane first.');
+        this.confirmDialog.alert('Cannot move between two archive panes\nOpen a real folder in one pane first.');
         return;
       }
       src.initiatePendingMove(paths, destDir);
@@ -452,7 +466,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
         treeArchive.archivePath, treeArchive.innerPaths, destDir
       );
       const err = this.archiveError(result);
-      if (err) alert(`Move errors:\n${err}`);
+      if (err) this.confirmDialog.alert(`Move Errors\n${err}`);
       src.onRefresh();
       dst.onRefresh();
       return;
@@ -466,7 +480,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     );
     const result = await this.apiService.batchMove(items, true);
     const err = this.archiveError(result);
-    if (err) alert(`Move errors:\n${err}`);
+    if (err) this.confirmDialog.alert(`Move Errors\n${err}`);
   }
 
   // ============================================================================
@@ -524,11 +538,11 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
       
       if (result.failed > 0) {
         const errorMsg = result.errors?.map(e => `${e.source}: ${e.error}`).join('\n');
-        alert(`Paste completed with ${result.failed} errors:\n${errorMsg}`);
+        this.confirmDialog.alert(`Paste Completed with ${result.failed} Errors\n${errorMsg}`);
       }
     } catch (error: any) {
       console.error('Paste error:', error);
-      alert(`Paste error: ${error.message}`);
+      this.confirmDialog.alert(`Paste Error\n${error.message}`);
     }
 
     if (operation === 'cut') {

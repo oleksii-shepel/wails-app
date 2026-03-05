@@ -122,12 +122,26 @@ export function buildArchiveSegments(fsDirPath: string, stack: ArchiveFrame[]): 
 // ─── Highlight match for autocomplete ────────────────────────────────────────
 
 export function highlightMatch(text: string, query: string): string {
-  if (!query) return text;
-  const idx = text.toLowerCase().indexOf(query.toLowerCase());
-  if (idx < 0) return text;
-  return text.slice(0, idx)
-    + '<mark>' + text.slice(idx, idx + query.length) + '</mark>'
-    + text.slice(idx + query.length);
+  const t = text ?? '';
+  const q = query ?? '';
+  if (!q) return escapeHtml(t);
+
+  const idx = t.toLowerCase().indexOf(q.toLowerCase());
+  if (idx < 0) return escapeHtml(t);
+
+  const before = escapeHtml(t.slice(0, idx));
+  const match = escapeHtml(t.slice(idx, idx + q.length));
+  const after = escapeHtml(t.slice(idx + q.length));
+  return before + '<span class="ab-ac-match">' + match + '</span>' + after;
+}
+
+function escapeHtml(s: string): string {
+  return (s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 /**

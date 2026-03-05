@@ -47,7 +47,7 @@ import { shortenPath } from './address-bar.utils';
       max-width: 370px;
     }
     .ab-pin-item { padding-right: var(--vsc-padding-sm); }
-    .ab-pin-icon { font-size: 14px; flex-shrink: 0; opacity: 0.8; }
+    .ab-pin-icon { font-size: 14px; flex-shrink: 0; }
 
     .ab-pin-label {
       flex: 1; font-size: var(--vsc-font-size); font-weight: 500;

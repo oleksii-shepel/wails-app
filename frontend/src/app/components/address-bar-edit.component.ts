@@ -4,12 +4,13 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { EMPTY, createSubject, debounce, distinctUntilChanged, filter, fromAny, merge, switchMap, takeUntil } from '@epikodelabs/streamix';
+import { createSubject } from '@epikodelabs/streamix';
 import { PathSuggestion } from '../services/path-history.service';
 import { PathHistoryService } from '../services/path-history.service';
 import { ApiService } from '../services/api.service';
-import { FileType } from '../shared/protocol';
+import { FileType, FileInfo } from '../shared/protocol';
 import { highlightMatch, isWindowsPath, normalizePath } from './address-bar.utils';
+import { EventsOn } from 'wailsjs/runtime';
 
 interface TabSession {
   candidates: PathSuggestion[];
@@ -28,13 +29,8 @@ interface TabSession {
       <!-- ── Input row ── -->
       <div class="ab-edit" [class.ab-edit--open]="suggestions.length > 0">
 
-        <!-- Folder SVG icon -->
-        <span class="ab-icon" aria-hidden="true">
-          <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
-            <path d="M1 4C1 3.45 1.45 3 2 3H5.5L7 4.5H13C13.55 4.5 14 4.95 14 5.5v7C14 13.1 13.55 13.5 13 13.5H2C1.45 13.5 1 13.1 1 12.5V4z"
-                  fill="var(--vsc-folder-fill, #dcb67a)"/>
-          </svg>
-        </span>
+        <!-- Folder icon -->
+        <span class="ab-icon" aria-hidden="true">📁</span>
 
         <input
           #editInput
@@ -58,9 +54,7 @@ interface TabSession {
           title="Cancel (Esc)"
           aria-label="Cancel"
         >
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-            <path d="M1 1l8 8M9 1L1 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-          </svg>
+✕
         </button>
       </div>
 
@@ -72,81 +66,36 @@ interface TabSession {
         aria-label="Path suggestions"
         (mousedown)="$event.preventDefault()"
       >
-        <!-- Top hairline separator -->
-        <div class="ab-separator"></div>
+        <div
+          #dropScroll
+          class="ab-scroll"
+          (scroll)="onDropScroll()"
+        >
+          <!-- virtual spacer gives the scrollbar the right total height -->
+          <div class="ab-virtual-spacer" [style.height.px]="totalDropHeight"></div>
 
-        <div class="ab-scroll">
-
-          <!-- Group: filesystem directories -->
-          <ng-container *ngIf="dirSuggestions.length > 0">
-            <div class="ab-group-label" role="presentation">
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
-                <path d="M0.5 2C0.5 1.45 0.95 1 1.5 1H3.5L4.5 2H8.5C9.05 2 9.5 2.45 9.5 3v5.5C9.5 9.05 9.05 9.5 8.5 9.5H1.5C0.95 9.5 0.5 9.05 0.5 8.5V2z"
-                      fill="var(--vsc-folder-fill, #dcb67a)" fill-opacity="0.85"/>
-              </svg>
-              Directories
-              <span class="ab-group-rule"></span>
-            </div>
-
+          <!-- only the visible slice is rendered, translated into place -->
+          <div
+            class="ab-virtual-window"
+            [style.transform]="'translateY(' + virtualTranslate + 'px)'"
+          >
             <div
-              *ngFor="let s of dirSuggestions; let i = index"
+              *ngFor="let s of visibleSuggestions; trackBy: trackBySuggestion"
               class="ab-item"
               role="option"
-              [attr.aria-selected]="acIdx === globalIndex('dir', i)"
-              [class.ab-item--focused]="acIdx === globalIndex('dir', i)"
-              (mouseenter)="acIdx = globalIndex('dir', i)"
+              [attr.aria-selected]="acIdx === s.__idx"
+              [class.ab-item--focused]="acIdx === s.__idx"
+              (mouseenter)="acIdx = s.__idx"
               (mousedown)="acceptSuggestion(s, $event)"
             >
               <span class="ab-item-icon" aria-hidden="true">
-                <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-                  <path d="M1 3C1 2.45 1.45 2 2 2H4.8L6 3.2H11C11.55 3.2 12 3.65 12 4.2v6.3C12 11.05 11.55 11.5 11 11.5H2C1.45 11.5 1 11.05 1 10.5V3z"
-                        fill="var(--vsc-folder-fill, #dcb67a)"/>
-                </svg>
+                <ng-container *ngIf="s.matchType === 'directory'; else histIcon">📁</ng-container>
+                <ng-template #histIcon>🕒</ng-template>
               </span>
               <span class="ab-item-path" [innerHTML]="highlight(s.path, value)"></span>
-              <span class="ab-item-badge ab-item-badge--dir">dir</span>
             </div>
-          </ng-container>
+          </div>
 
-          <!-- Group: history / recent -->
-          <ng-container *ngIf="histSuggestions.length > 0">
-            <div class="ab-group-label" [class.ab-group-label--spaced]="dirSuggestions.length > 0" role="presentation">
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
-                <circle cx="5" cy="5" r="4.25" stroke="var(--vsc-accent-blue, #007acc)" stroke-width="1.1"/>
-                <path d="M5 2.5v2.8l1.8 1" stroke="var(--vsc-accent-blue, #007acc)" stroke-width="1.1" stroke-linecap="round"/>
-              </svg>
-              Recent
-              <span class="ab-group-rule"></span>
-            </div>
-
-            <div
-              *ngFor="let s of histSuggestions; let i = index"
-              class="ab-item"
-              role="option"
-              [attr.aria-selected]="acIdx === globalIndex('hist', i)"
-              [class.ab-item--focused]="acIdx === globalIndex('hist', i)"
-              (mouseenter)="acIdx = globalIndex('hist', i)"
-              (mousedown)="acceptSuggestion(s, $event)"
-            >
-              <span class="ab-item-icon ab-item-icon--hist" aria-hidden="true">
-                <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-                  <circle cx="6.5" cy="6.5" r="5.25" stroke="var(--vsc-accent-blue, #007acc)" stroke-width="1.1"/>
-                  <path d="M6.5 3.5v3.2l2 1.1" stroke="var(--vsc-accent-blue, #007acc)" stroke-width="1.1" stroke-linecap="round"/>
-                </svg>
-              </span>
-              <span class="ab-item-path" [innerHTML]="highlight(s.path, value)"></span>
-              <span class="ab-item-badge ab-item-badge--hist">recent</span>
-            </div>
-          </ng-container>
-
-        </div>
-
-        <!-- Keyboard hint footer -->
-        <div class="ab-footer" aria-hidden="true">
-          <span class="ab-hint"><kbd>↑↓</kbd> navigate</span>
-          <span class="ab-hint"><kbd>↵</kbd> open</span>
-          <span class="ab-hint"><kbd>Tab</kbd> complete</span>
-          <span class="ab-hint"><kbd>Esc</kbd> cancel</span>
         </div>
       </div>
 
@@ -202,7 +151,6 @@ interface TabSession {
       height: 16px;
       display: grid;
       place-items: center;
-      opacity: 0.82;
     }
 
     /* Monospace path input */
@@ -262,11 +210,9 @@ interface TabSession {
       border-top: none;
       border-bottom-left-radius:  var(--vsc-border-radius, 3px);
       border-bottom-right-radius: var(--vsc-border-radius, 3px);
-      box-shadow: var(--vsc-widget-shadow, 0 5px 8px rgba(0,0,0,.36));
+      box-shadow: var(--vsc-widget-shadow, none);
       z-index: var(--vsc-z-dropdown, 1000);
       overflow: hidden;
-      transform-origin: top center;
-      animation: ab-appear 110ms cubic-bezier(0.2, 0, 0.13, 1) both;
     }
 
     /* Inherit focus ring colour on the dropdown border */
@@ -274,24 +220,12 @@ interface TabSession {
       border-color: var(--vsc-input-focus-border, #007acc);
     }
 
-    @keyframes ab-appear {
-      from { opacity: 0; transform: scaleY(0.93) translateY(-3px); }
-      to   { opacity: 1; transform: scaleY(1)    translateY(0);    }
-    }
-
-    /* Hairline separator between input and first item */
-    .ab-separator {
-      height: 1px;
-      margin: 0 10px;
-      background: var(--vsc-border, #454545);
-      opacity: 0.5;
-    }
-
     /* Scroll area */
     .ab-scroll {
       max-height: 272px;
       overflow-y: auto;
       padding: 3px 0 4px;
+      position: relative;
       scrollbar-width: thin;
       scrollbar-color: var(--vsc-scrollbar-thumb, #424242) transparent;
 
@@ -304,30 +238,16 @@ interface TabSession {
       }
     }
 
-    /* ── Group label ────────────────────────────────────────── */
-    .ab-group-label {
-      display: flex;
-      align-items: center;
-      gap: 5px;
-      height: 20px;
-      padding: 0 10px;
-      font-size: 10px;
-      font-weight: 600;
-      letter-spacing: 0.07em;
-      text-transform: uppercase;
-      color: var(--vsc-foreground-dim, #888888);
-      opacity: 0.75;
-      cursor: default;
-      user-select: none;
-
-      &.ab-group-label--spaced { margin-top: 4px; }
+    /* Virtual scroll helpers */
+    .ab-virtual-spacer {
+      position: absolute;
+      top: 0; left: 0; width: 1px;
+      pointer-events: none;
     }
 
-    .ab-group-rule {
-      flex: 1;
-      height: 1px;
-      background: var(--vsc-border, #454545);
-      opacity: 0.4;
+    .ab-virtual-window {
+      position: relative;
+      will-change: transform;
     }
 
     /* ── Suggestion row ─────────────────────────────────────── */
@@ -349,10 +269,8 @@ interface TabSession {
       }
 
       &.ab-item--focused {
-        background: var(--vsc-list-active-background, #094771);
         border-left-color: var(--vsc-accent-blue, #007acc);
-
-        .ab-item-badge { opacity: 0.55; }
+        font-weight: 600;
       }
     }
 
@@ -379,86 +297,22 @@ interface TabSession {
     }
 
     /* Match highlight — blue tint, no yellow */
-    :host ::ng-deep .ab-item-path mark {
-      background: color-mix(in srgb, var(--vsc-accent-blue, #007acc) 22%, transparent);
-      color: #569cd6;
+    :host ::ng-deep .ab-item-path .ab-ac-match {
+      background: color-mix(in srgb, var(--vsc-accent-blue, #007acc) 18%, transparent);
+      color: color-mix(in srgb, var(--vsc-accent-blue, #007acc) 70%, var(--vsc-foreground, #cccccc));
       font-weight: 700;
       border-radius: 2px;
       padding: 0 1px;
-      /* color-mix fallback for older browsers */
       @supports not (background: color-mix(in srgb, red 1%, blue)) {
         background: var(--vsc-list-focus-background, #062f4a);
+        color: var(--vsc-accent-blue, #007acc);
       }
-    }
-
-    /* Type badge pill */
-    .ab-item-badge {
-      flex-shrink: 0;
-      margin-left: 10px;
-      display: inline-flex;
-      align-items: center;
-      padding: 1px 5px;
-      border-radius: 3px;
-      font-size: 10px;
-      font-weight: 600;
-      letter-spacing: 0.04em;
-      line-height: 14px;
-      transition: opacity var(--vsc-transition-fast, 80ms ease);
-
-      &.ab-item-badge--dir {
-        background: color-mix(in srgb, var(--vsc-folder-fill, #dcb67a) 16%, transparent);
-        color: var(--vsc-folder-fill, #dcb67a);
-        @supports not (background: color-mix(in srgb, red 1%, blue)) {
-          background: rgba(220, 182, 122, 0.16);
-        }
-      }
-
-      &.ab-item-badge--hist {
-        background: color-mix(in srgb, var(--vsc-accent-blue, #007acc) 16%, transparent);
-        color: color-mix(in srgb, var(--vsc-accent-blue, #007acc) 80%, #fff);
-        @supports not (background: color-mix(in srgb, red 1%, blue)) {
-          background: rgba(0, 122, 204, 0.16);
-          color: #7aaccc;
-        }
-      }
-    }
-
-    /* ── Keyboard hint footer ───────────────────────────────── */
-    .ab-footer {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      height: 22px;
-      padding: 0 10px;
-      border-top: 1px solid var(--vsc-border, #454545);
-      opacity: 0.55;
-    }
-
-    .ab-hint {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      font-size: 11px;
-      color: var(--vsc-foreground-dim, #888888);
-      white-space: nowrap;
-    }
-
-    kbd {
-      display: inline-block;
-      padding: 1px 4px;
-      background: color-mix(in srgb, var(--vsc-foreground, #cccccc) 8%, transparent);
-      border: 1px solid color-mix(in srgb, var(--vsc-border, #454545) 80%, transparent);
-      border-bottom-width: 2px;
-      border-radius: 2px;
-      font-family: var(--vsc-font-family-mono, Consolas, monospace);
-      font-size: 10px;
-      color: var(--vsc-foreground-dim, #888888);
-      line-height: 14px;
     }
   `],
 })
 export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
   @ViewChild('editInput') editInputRef?: ElementRef<HTMLInputElement>;
+  @ViewChild('dropScroll') dropScrollRef?: ElementRef<HTMLElement>;
 
   @Input() currentPath = '';
   @Input() placeholder = 'Enter path…';
@@ -483,30 +337,31 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
   private idleSlashTimer: ReturnType<typeof setTimeout> | undefined;
   private idleSlashLastValue = '';
 
+  // ── Virtual scroll state ────────────────────────────────────────────────
+  private readonly DROP_ROW_H = 26;   // must match .ab-item height in CSS
+  private readonly DROP_OVERSCAN = 4;
+  private readonly DROP_MAX_H = 272;  // must match max-height in CSS
+  private vsStart = 0;
+  private vsEnd = 20;
+  private vsScrollTop = 0;
+  private vsRAF: number | null = null;
+
+  get totalDropHeight(): number { return this.suggestions.length * this.DROP_ROW_H; }
+  get virtualTranslate(): number { return this.vsStart * this.DROP_ROW_H; }
+  get visibleSuggestions(): (PathSuggestion & { __idx: number })[] {
+    return this.suggestions
+      .slice(this.vsStart, this.vsEnd)
+      .map((s, i) => ({ ...s, __idx: this.vsStart + i }));
+  }
+  trackBySuggestion(_i: number, s: PathSuggestion & { __idx: number }): string { return s.__idx + s.path; }
+
+  private readonly fetchPaneId = 'ab-edit-' + Math.random().toString(36).slice(2, 8);
+  private activeFetchStreamId: string | null = null;
+  private fetchStreamCancel: (() => void) | null = null;
+
+  private scrollListener?: () => void;
+
   highlight = highlightMatch;
-
-  /** Filesystem directory suggestions (shown in the "Directories" group). */
-  get dirSuggestions(): PathSuggestion[] {
-    return this.suggestions.filter(s => s.matchType === 'directory');
-  }
-
-  /** History / recent suggestions (shown in the "Recent" group). */
-  get histSuggestions(): PathSuggestion[] {
-    return this.suggestions.filter(s => s.matchType !== 'directory');
-  }
-
-  /**
-   * Maps a within-group index back to the flat `suggestions` index used by
-   * acIdx, so keyboard navigation and mouse hover stay in sync.
-   */
-  globalIndex(group: 'dir' | 'hist', localIndex: number): number {
-    if (group === 'dir') {
-      const item = this.dirSuggestions[localIndex];
-      return item ? this.suggestions.indexOf(item) : -1;
-    }
-    const item = this.histSuggestions[localIndex];
-    return item ? this.suggestions.indexOf(item) : -1;
-  }
 
   constructor(
     private pathHistoryService: PathHistoryService,
@@ -529,6 +384,9 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
     clearTimeout(this.blurTimer);
     clearTimeout(this.suggestionsTimer);
     clearTimeout(this.idleSlashTimer);
+    this.cancelFetchStream();
+    if (this.vsRAF) cancelAnimationFrame(this.vsRAF);
+    this.detachDropScroll();
     this.destroy$.next();
     this.destroy$.complete();
     document.removeEventListener('mousedown', this.onOutsideClick, { capture: true } as any);
@@ -659,6 +517,50 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
     }, 0);
   }
 
+  private resetVirtualScroll(): void {
+    this.vsScrollTop = 0;
+    this.vsStart = 0;
+    this.vsEnd = Math.min(this.suggestions.length, Math.ceil(this.DROP_MAX_H / this.DROP_ROW_H) + this.DROP_OVERSCAN * 2);
+    // reset the DOM scroll position if element exists
+    const el = this.dropScrollRef?.nativeElement;
+    if (el) el.scrollTop = 0;
+  }
+
+  onDropScroll(): void {
+    if (this.vsRAF) return;
+    this.vsRAF = requestAnimationFrame(() => {
+      this.vsRAF = null;
+      const el = this.dropScrollRef?.nativeElement;
+      if (el) {
+        this.vsScrollTop = el.scrollTop;
+        this.updateVirtualWindow();
+        this.cdr.detectChanges();
+      }
+    });
+  }
+
+  private attachDropScroll(): void {
+    const el = this.dropScrollRef?.nativeElement;
+    if (!el || this.scrollListener) return;
+    this.scrollListener = () => this.onDropScroll();
+    el.addEventListener('scroll', this.scrollListener, { passive: true });
+  }
+
+  private detachDropScroll(): void {
+    const el = this.dropScrollRef?.nativeElement;
+    if (el && this.scrollListener) el.removeEventListener('scroll', this.scrollListener);
+    this.scrollListener = undefined;
+  }
+
+  private updateVirtualWindow(): void {
+    const total = this.suggestions.length;
+    const visCount = Math.ceil(this.DROP_MAX_H / this.DROP_ROW_H);
+    const start = Math.max(0, Math.floor(this.vsScrollTop / this.DROP_ROW_H) - this.DROP_OVERSCAN);
+    const end = Math.min(total, start + visCount + this.DROP_OVERSCAN * 2);
+    this.vsStart = start;
+    this.vsEnd = end;
+  }
+
   onBlur(): void {
     clearTimeout(this.blurTimer);
     this.blurTimer = setTimeout(() => this.cancelEdit(), 170);
@@ -722,10 +624,28 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
   }
 
   acceptSuggestion(s: PathSuggestion, e?: MouseEvent): void {
-    e?.preventDefault();
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      // Restore focus so the blur timer never fires and dropdown stays open.
+      this.editInputRef?.nativeElement?.focus();
+    }
     clearTimeout(this.blurTimer);
+
     const val = normalizePath(s.path);
-    if (val) this.commit.emit(val);
+    if (!val) return;
+
+    // For directories, navigate into them (append slash + refresh suggestions)
+    // rather than committing — keeps the dropdown alive for further browsing.
+    const isDir = s.matchType === 'directory';
+    const finalVal = isDir && !val.endsWith('/') ? val + '/' : val;
+
+    this.writeProgrammaticValue(this.toDisplayPath(finalVal));
+    this.tabSession = null;
+    this.cancelFetchStream();
+    this.scheduleSuggestions(finalVal, true);
+    this.scheduleIdleSlash(finalVal);
+    this.cdr.detectChanges();
   }
 
   private shouldNormalizeToForwardSlashes(): boolean {
@@ -767,6 +687,7 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
 
   private scheduleSuggestions(query: string, immediate: boolean): void {
     clearTimeout(this.suggestionsTimer);
+    this.cancelFetchStream();
     const requestId = ++this.suggestionsRequestId;
     const delay = immediate ? 0 : 240;
 
@@ -775,21 +696,35 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
       if (!q) {
         this.suggestions = [];
         this.acIdx = -1;
+        this.resetVirtualScroll();
         this.cdr.detectChanges();
         return;
       }
 
-      try {
-        const suggestions = await this.loadTypingSuggestions(query);
-        if (requestId !== this.suggestionsRequestId) return;
-        this.suggestions = suggestions || [];
-        this.acIdx = -1;
-        this.cdr.detectChanges();
-      } catch {
-        if (requestId !== this.suggestionsRequestId) return;
-        this.suggestions = [];
-        this.acIdx = -1;
-        this.cdr.detectChanges();
+      // Load history immediately (local/fast)
+      const hist = await this.pathHistoryService.getSuggestions(q, this.currentPath).catch(() => []) as PathSuggestion[];
+      if (requestId !== this.suggestionsRequestId) return;
+
+      // Show history right away
+      this.suggestions = this.buildMergedSuggestions([], hist);
+      this.acIdx = -1;
+      this.resetVirtualScroll();
+      this.cdr.detectChanges();
+      // Attach scroll listener after Angular renders the .ab-scroll div
+      setTimeout(() => this.attachDropScroll(), 0);
+
+      // Stream FS children progressively
+      if (this.shouldFetchFsSuggestions(q)) {
+        const { dirPath, prefix } = this.splitQueryContext(q);
+        if (dirPath) {
+          await this.streamDirChildren(dirPath, prefix, (fsBatch) => {
+            if (requestId !== this.suggestionsRequestId) return;
+            this.suggestions = this.buildMergedSuggestions(fsBatch, hist);
+            this.updateVirtualWindow();
+            this.cdr.detectChanges();
+            setTimeout(() => this.attachDropScroll(), 0);
+          });
+        }
       }
     }, delay);
   }
@@ -926,27 +861,94 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
   private async fetchChildren(query: string): Promise<PathSuggestion[]> {
     const { dirPath, prefix } = this.splitQueryContext(query);
     if (!dirPath) return [];
+    return this.streamDirChildren(dirPath, prefix);
+  }
 
-    try {
-      const listing     = await this.apiService.listDirectory(dirPath, false);
-      const prefixLower = prefix.toLowerCase();
-
-      return listing.entries
-        .filter(e =>
-          e.type === FileType.DIRECTORY &&
-          e.name.toLowerCase().startsWith(prefixLower),
-        )
-        .map(e => ({
-          path:        this.toDisplayPath(this.joinPath(dirPath, e.name)),
-          displayName: e.name,
-          matchType:   'directory' as const,
-          score:       100,
-          exists:      true,
-        }))
-        .sort((a, b) => a.path.localeCompare(b.path));
-    } catch {
-      return [];
+  private cancelFetchStream(): void {
+    if (this.fetchStreamCancel) {
+      this.fetchStreamCancel();
+      this.fetchStreamCancel = null;
     }
+  }
+
+  private streamDirChildren(
+    dirPath: string,
+    prefix: string,
+    onBatch?: (accumulated: PathSuggestion[]) => void,
+  ): Promise<PathSuggestion[]> {
+    return new Promise<PathSuggestion[]>(async (resolve) => {
+      // Cancel any prior fetch stream
+      if (this.activeFetchStreamId) {
+        void this.apiService.cancelListDirectoryStream(this.activeFetchStreamId);
+        this.activeFetchStreamId = null;
+      }
+      if (this.fetchStreamCancel) {
+        this.fetchStreamCancel();
+        this.fetchStreamCancel = null;
+      }
+
+      const prefixLower = prefix.toLowerCase();
+      const accumulated: PathSuggestion[] = [];
+      const seenNames = new Set<string>();
+
+      let streamId: string;
+      try {
+        streamId = await this.apiService.startListDirectoryStream(this.fetchPaneId, dirPath, false);
+      } catch {
+        return resolve([]);
+      }
+      this.activeFetchStreamId = streamId;
+
+      const finish = (unsubAll: () => void) => {
+        unsubAll();
+        if (this.activeFetchStreamId === streamId) this.activeFetchStreamId = null;
+        if (this.fetchStreamCancel === cancel) this.fetchStreamCancel = null;
+        resolve(accumulated.slice());
+      };
+
+      const offBatch = EventsOn('fs:listStream:batch', (ev: any) => {
+        if (ev?.streamId !== streamId) return;
+        let changed = false;
+        for (const entry of (ev.entries as FileInfo[] || [])) {
+          if (entry.type !== FileType.DIRECTORY) continue;
+          if (prefixLower && !entry.name.toLowerCase().startsWith(prefixLower)) continue;
+          if (seenNames.has(entry.name)) continue;
+          seenNames.add(entry.name);
+          accumulated.push({
+            path:        this.toDisplayPath(entry.path),
+            displayName: entry.name,
+            matchType:   'directory' as const,
+            score:       100,
+            exists:      true,
+          });
+          changed = true;
+        }
+        if (changed) {
+          accumulated.sort((a, b) => a.path.localeCompare(b.path));
+          onBatch?.(accumulated.slice());
+        }
+      });
+
+      const offDone = EventsOn('fs:listStream:done', (ev: any) => {
+        if (ev?.streamId !== streamId) return;
+        finish(() => { offBatch(); offDone(); offError(); });
+      });
+
+      const offError = EventsOn('fs:listStream:error', (ev: any) => {
+        if (ev?.streamId !== streamId) return;
+        finish(() => { offBatch(); offDone(); offError(); });
+      });
+
+      const cancel = () => {
+        offBatch(); offDone(); offError();
+        if (this.activeFetchStreamId === streamId) {
+          void this.apiService.cancelListDirectoryStream(streamId);
+          this.activeFetchStreamId = null;
+        }
+        resolve(accumulated.slice());
+      };
+      this.fetchStreamCancel = cancel;
+    });
   }
 
   private splitQueryContext(query: string): { dirPath: string; prefix: string } {
@@ -986,25 +988,18 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
     return false;
   }
 
-  private async loadTypingSuggestions(query: string): Promise<PathSuggestion[]> {
-    const q = query || '';
-
-    const [fs, hist] = await Promise.all([
-      this.shouldFetchFsSuggestions(q) ? this.fetchChildren(q) : Promise.resolve([]),
-      this.pathHistoryService.getSuggestions(q, this.currentPath).catch(() => []),
-    ]);
-
-    // Merge + de-dupe by normalized path.
+  private buildMergedSuggestions(fs: PathSuggestion[], hist: PathSuggestion[]): PathSuggestion[] {
     const seen = new Set<string>();
-    const merged: PathSuggestion[] = [];
+    const dirs: PathSuggestion[] = [];
+    const rest: PathSuggestion[] = [];
 
-    for (const s of [...fs, ...(hist as any as PathSuggestion[])]) {
+    for (const s of [...fs, ...hist]) {
       const key = normalizePath(s?.path || '').toLowerCase();
       if (!key || seen.has(key)) continue;
       seen.add(key);
-      merged.push(this.shouldNormalizeToForwardSlashes() ? { ...s, path: this.toDisplayPath(s.path) } : s);
+      const entry = this.shouldNormalizeToForwardSlashes() ? { ...s, path: this.toDisplayPath(s.path) } : s;
+      (entry.matchType === 'directory' ? dirs : rest).push(entry);
     }
-
-    return merged;
+    return [...dirs, ...rest];
   }
 }

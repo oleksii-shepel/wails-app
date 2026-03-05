@@ -8,10 +8,11 @@ import { CommonModule } from '@angular/common';
 import { DropdownTriggerDirective, DropdownMenuDirective } from '../directives/dropdown.directive';
 
 import { ApiService } from '../services/api.service';
-import { DirectoryListing, FileType } from '../shared/protocol';
+import { DirectoryListing, FileInfo, FileType } from '../shared/protocol';
 import { DriveInfo, SpecialFolder } from '../shared/protocol-enhanced';
 import { ArchiveService, ArchiveFrame, isArchive } from '../services/archive.service';
 import { parsePathWithArchives, buildSegmentsFromParsedPath } from './address-bar.utils';
+import { EventsOn } from 'wailsjs/runtime';
 
 import { PathSegment, SiblingEntry, PinnedPath, ContextMenuState, PINNED_KEY, CTX_MENU_CLOSED } from './address-bar.types';
 import { isWindowsPath, normalizePath, parentPath, shortenPath, buildSegments } from './address-bar.utils';
@@ -687,6 +688,10 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   sibLoading  = false;
   sibAnchorEl: HTMLElement | null = null;
 
+  private readonly sibPaneId = 'ab-sib-' + Math.random().toString(36).slice(2, 8);
+  private activeSibStreamId: string | null = null;
+  private sibStreamOff: Array<() => void> = [];
+
   // ── Quick Access ─────────────────────────────────────────────────────────
   specialFolders: SpecialFolder[] = [];
   showQuickAccess = false;
@@ -764,6 +769,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     if (this.scrollAnimFrame !== null) cancelAnimationFrame(this.scrollAnimFrame);
     const el = this.crumbsEl?.nativeElement;
     if (el && this.wheelListener) el.removeEventListener('wheel', this.wheelListener);
+    this.closeSiblingStream();
   }
 
   // ── Segments ──────────────────────────────────────────────────────────────
@@ -1037,8 +1043,13 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     this.showPinDrop   = false;
     this.showDriveMenu = false;
 
-    if (this.chevIdx === idx) { this.chevIdx = -1; this.sibOpen = false; this.siblings = []; return; }
+    if (this.chevIdx === idx) {
+      this.closeSiblingStream();
+      this.chevIdx = -1; this.sibOpen = false; this.siblings = [];
+      return;
+    }
 
+    this.closeSiblingStream();
     this.sibAnchorEl = e.currentTarget as HTMLElement;
     this.chevIdx    = idx;
     this.siblings   = [];
@@ -1046,23 +1057,63 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
 
     const activeChildPath = idx + 1 < this.segments.length ? this.segments[idx + 1].fullPath : null;
 
-    try {
-      if (seg.isArchiveRoot || seg.isArchiveInner) {
+    if (seg.isArchiveRoot || seg.isArchiveInner) {
+      try {
         await this.loadArchiveSiblings(seg, activeChildPath);
-        return;
+      } catch {
+        this.siblings = [];
+        this.sibLoading = false;
+        this.cdr.detectChanges();
+        this.sibOpen = true;
       }
-      const listing: DirectoryListing = await this.apiService.listDirectory(seg.fullPath, false);
-      this.siblings = listing.entries
-        .filter(e => e.type === FileType.DIRECTORY)
-        .map(e => ({ name: e.name, path: e.path, isCurrent: e.path === activeChildPath }))
-        .sort((a, b) => a.name.localeCompare(b.name));
+      return;
+    }
+
+    // Stream directory contents progressively
+    let streamId: string;
+    try {
+      streamId = await this.apiService.startListDirectoryStream(this.sibPaneId, seg.fullPath, false);
     } catch {
       this.siblings = [];
-    } finally {
       this.sibLoading = false;
       this.cdr.detectChanges();
       this.sibOpen = true;
+      return;
     }
+    this.activeSibStreamId = streamId;
+
+    const offBatch = EventsOn('fs:listStream:batch', (ev: any) => {
+      if (ev?.streamId !== streamId) return;
+      for (const entry of (ev.entries as FileInfo[] || [])) {
+        if (entry.type !== FileType.DIRECTORY) continue;
+        this.siblings.push({ name: entry.name, path: entry.path, isCurrent: entry.path === activeChildPath });
+      }
+      this.siblings = this.siblings.slice().sort((a, b) => a.name.localeCompare(b.name));
+      if (this.sibLoading) { this.sibLoading = false; this.sibOpen = true; }
+      this.cdr.detectChanges();
+    });
+
+    const offDone = EventsOn('fs:listStream:done', (ev: any) => {
+      if (ev?.streamId !== streamId) return;
+      offBatch(); offDone(); offError();
+      this.sibStreamOff = [];
+      if (this.activeSibStreamId === streamId) this.activeSibStreamId = null;
+      this.sibLoading = false;
+      if (!this.sibOpen) this.sibOpen = true;
+      this.cdr.detectChanges();
+    });
+
+    const offError = EventsOn('fs:listStream:error', (ev: any) => {
+      if (ev?.streamId !== streamId) return;
+      offBatch(); offDone(); offError();
+      this.sibStreamOff = [];
+      if (this.activeSibStreamId === streamId) this.activeSibStreamId = null;
+      this.sibLoading = false;
+      if (!this.sibOpen) this.sibOpen = true;
+      this.cdr.detectChanges();
+    });
+
+    this.sibStreamOff = [offBatch, offDone, offError];
   }
 
   private async loadArchiveSiblings(seg: PathSegment, activeChildPath: string | null): Promise<void> {
@@ -1120,7 +1171,20 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
 
   onSibOpenChange(open: boolean): void {
     this.sibOpen = open;
-    if (!open) { this.chevIdx = -1; this.siblings = []; }
+    if (!open) {
+      this.closeSiblingStream();
+      this.chevIdx = -1;
+      this.siblings = [];
+    }
+  }
+
+  private closeSiblingStream(): void {
+    this.sibStreamOff.forEach(f => f());
+    this.sibStreamOff = [];
+    if (this.activeSibStreamId) {
+      void this.apiService.cancelListDirectoryStream(this.activeSibStreamId);
+      this.activeSibStreamId = null;
+    }
   }
 
   // ── Pins ──────────────────────────────────────────────────────────────────

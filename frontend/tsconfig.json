@@ -2,6 +2,9 @@
   "compileOnSave": false,
   "compilerOptions": {
     "baseUrl": "./",
+    "paths": {
+      "wailsjs/*": ["wailsjs/*"]
+    },
     "outDir": "./out-tsc/app",
     "forceConsistentCasingInFileNames": true,
     "strict": true,

@@ -17,6 +17,11 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
       # Set up Node.js
       - name: Use Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v3
@@ -28,6 +33,12 @@ jobs:
       - name: Clean node_modules and dist
         run: |
           rm -rf frontend/node_modules frontend/dist
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.11.0
+
+      - name: Generate Wails JS bindings
+        run: wails generate module
 
       # Install dependencies cleanly
       - name: Install dependencies

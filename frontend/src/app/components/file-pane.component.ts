@@ -95,6 +95,8 @@ interface DirStreamErrorEvent {
         [sortDirection]="sortDirection"
         (viewChange)="onViewChange($event)"
         (sortChange)="onSortChange($event)"
+        [directoriesFirst]="directoriesFirst"
+        (directoriesFirstChange)="onDirectoriesFirstChange($event)"
         (createFolder)="onCreateFolder()"
         (deleteSelected)="onDeleteSelected()"
         (copyToOther)="onCopyToOther()"
@@ -120,6 +122,7 @@ interface DirStreamErrorEvent {
           [currentView]="currentView"
           [sortField]="sortField"
           [sortDirection]="sortDirection"
+          [directoriesFirst]="directoriesFirst"
           (viewChange)="onViewChange($event)"
           (selectionChange)="onSelectionChange($event)"
           (navigate)="onNavigate($event)"
@@ -248,6 +251,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   currentView: ViewLayout = 'list';
   sortField: string = 'name';
   sortDirection: 'asc' | 'desc' = 'asc';
+  directoriesFirst = true;
 
   archiveStack: ArchiveFrame[] = [];
 
@@ -352,12 +356,18 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     const savedSortDir = localStorage.getItem('fileManager_sortDirection') as 'asc' | 'desc';
     if (savedSortField) this.sortField = savedSortField;
     if (savedSortDir) this.sortDirection = savedSortDir;
+
+    const savedDirsFirst = localStorage.getItem('fileManager_directoriesFirst');
+    if (savedDirsFirst === 'true' || savedDirsFirst === 'false') {
+      this.directoriesFirst = savedDirsFirst === 'true';
+    }
   }
 
   private saveViewPreference(): void {
     localStorage.setItem('fileManager_viewMode', this.currentView);
     localStorage.setItem('fileManager_sortField', this.sortField);
     localStorage.setItem('fileManager_sortDirection', this.sortDirection);
+    localStorage.setItem('fileManager_directoriesFirst', String(this.directoriesFirst));
   }
 
   async onViewChange(view: ViewLayout): Promise<void> {
@@ -380,6 +390,12 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   onSortChange(sort: { field: string; direction: 'asc' | 'desc' }): void {
     this.sortField = sort.field;
     this.sortDirection = sort.direction;
+    this.saveViewPreference();
+    this.applyFilter();
+  }
+
+  onDirectoriesFirstChange(value: boolean): void {
+    this.directoriesFirst = value;
     this.saveViewPreference();
     this.applyFilter();
   }

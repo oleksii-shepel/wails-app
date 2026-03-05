@@ -94,6 +94,16 @@ export type ViewMode = 'list' | 'grid' | 'tree' | 'details';
               </span>
               <span class="sort-label">{{ sortDirection === 'asc' ? 'Ascending' : 'Descending' }}</span>
             </div>
+
+            <div class="sort-divider"></div>
+            <div class="sort-item" [class.active]="directoriesFirst" (click)="toggleDirectoriesFirst()">
+              <span class="sort-check">
+                <svg *ngIf="directoriesFirst" width="20" height="20" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <circle cx="8" cy="8" r="2.5" fill="currentColor" />
+                </svg>
+              </span>
+              <span class="sort-label">Directories first</span>
+            </div>
           </div>
         </app-dropdown-container>
 
@@ -215,10 +225,12 @@ export class ActionBarComponent {
   @Input() currentView: ViewMode = 'list';
   @Input() currentSort: string = 'name';
   @Input() sortDirection: 'asc' | 'desc' = 'asc';
+  @Input() directoriesFirst = true;
 
   // Outputs: view/sort
   @Output() viewChange = new EventEmitter<ViewMode>();
   @Output() sortChange = new EventEmitter<{ field: string; direction: 'asc' | 'desc' }>();
+  @Output() directoriesFirstChange = new EventEmitter<boolean>();
 
   // Legacy outputs kept for existing wiring
   @Output() createFolder = new EventEmitter<void>();
@@ -276,6 +288,12 @@ export class ActionBarComponent {
     const newDir = this.sortDirection === 'asc' ? 'desc' : 'asc';
     this.sortChange.emit({ field: this.currentSort, direction: newDir });
     this.sortMenuOpen = false;
+  }
+
+  toggleDirectoriesFirst(): void {
+    this.directoriesFirst = !this.directoriesFirst;
+    this.directoriesFirstChange.emit(this.directoriesFirst);
+    // Keep menu open (checkbox-style)
   }
 
 

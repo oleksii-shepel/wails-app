@@ -31,6 +31,7 @@ import { parentPath } from './address-bar.utils';
       class="file-grid"
       [class.virtual]="virtualEnabled"
       [class.drop-target-bg]="isBackgroundDropTarget"
+      [class.dragging]="draggingPaths.size > 0"
       (mousedown)="onGridMouseDown($event)"
       (click)="onBackgroundClick($event)"
       (contextmenu)="onBackgroundContextMenu($event)"
@@ -156,6 +157,11 @@ import { parentPath } from './address-bar.utils';
       &::-webkit-scrollbar-corner {
         background: transparent;
       }
+    }
+
+    /* Performance hint while dragging (FLIP uses transforms). */
+    .file-grid.dragging .grid-item {
+      will-change: transform;
     }
     
     .file-grid.virtual {
@@ -419,6 +425,8 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
   isBackgroundDropTarget = false;
   draggingPaths = new Set<string>();
   private dragImageEl: HTMLElement | null = null;
+  private reflowRaf: number | null = null;
+  private pendingReflowBefore: Map<string, { el: HTMLElement; rect: DOMRect }> | null = null;
   private marqueeContainer: HTMLElement | null = null;
   private marqueeStartX = 0;
   private marqueeStartY = 0;
@@ -507,6 +515,11 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
     if (this.scrollRAF) {
       cancelAnimationFrame(this.scrollRAF);
     }
+    if (this.reflowRaf) {
+      cancelAnimationFrame(this.reflowRaf);
+      this.reflowRaf = null;
+    }
+    this.pendingReflowBefore = null;
   }
 
   private cleanupDragImage(): void {
@@ -547,40 +560,50 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
     if (this.prefersReducedMotion()) return;
     if (before.size === 0) return;
 
+    // Coalesce: if dragover fires rapidly, keep only the latest reflow.
+    this.pendingReflowBefore = before;
+    if (this.reflowRaf) {
+      cancelAnimationFrame(this.reflowRaf);
+      this.reflowRaf = null;
+    }
+
     this.zone.runOutsideAngular(() => {
-      // Double-rAF: gives Angular + layout a chance to settle.
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          const after = this.captureGridItemRects();
-          if (after.size === 0) return;
+      this.reflowRaf = requestAnimationFrame(() => {
+        this.reflowRaf = null;
 
-          for (const [path, next] of after) {
-            const prev = before.get(path);
-            if (!prev) continue;
+        const beforeSnapshot = this.pendingReflowBefore;
+        this.pendingReflowBefore = null;
+        if (!beforeSnapshot || beforeSnapshot.size === 0) return;
 
-            const dx = prev.rect.left - next.rect.left;
-            const dy = prev.rect.top - next.rect.top;
-            if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue;
+        const after = this.captureGridItemRects();
+        if (after.size === 0) return;
 
-            // Avoid fighting the folder hover transform while dragging over folders.
-            if (next.el.classList.contains('drag-over-folder')) continue;
+        for (const [path, next] of after) {
+          const prev = beforeSnapshot.get(path);
+          if (!prev) continue;
 
-            try {
-              next.el.animate(
-                [
-                  { transform: `translate(${dx}px, ${dy}px)` },
-                  { transform: 'translate(0px, 0px)' },
-                ],
-                {
-                  duration: 160,
-                  easing: 'cubic-bezier(0.2, 0, 0, 1)',
-                }
-              );
-            } catch {
-              // ignore (WAAPI not available)
-            }
+          const dx = prev.rect.left - next.rect.left;
+          const dy = prev.rect.top - next.rect.top;
+          if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue;
+
+          // Avoid fighting the folder hover transform while dragging over folders.
+          if (next.el.classList.contains('drag-over-folder')) continue;
+
+          try {
+            next.el.animate(
+              [
+                { transform: `translate(${dx}px, ${dy}px)` },
+                { transform: 'translate(0px, 0px)' },
+              ],
+              {
+                duration: 110,
+                easing: 'cubic-bezier(0.2, 0, 0.2, 1)',
+              }
+            );
+          } catch {
+            // ignore (WAAPI not available)
           }
-        });
+        }
       });
     });
   }

@@ -147,6 +147,7 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
   @Input() currentView: ViewLayout = 'list';
   @Input() sortField     = 'name';
   @Input() sortDirection: 'asc' | 'desc' = 'asc';
+  @Input() directoriesFirst = true;
 
   @Output() viewChange      = new EventEmitter<ViewLayout>();
   @Output() selectionChange = new EventEmitter<FileInfo[]>();
@@ -369,7 +370,7 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
       if (a.path === PARENT_ENTRY_PATH) return -1;
       if (b.path === PARENT_ENTRY_PATH) return 1;
 
-      if (this.currentView !== 'grid') {
+      if (this.directoriesFirst) {
         if (a.type === FileType.DIRECTORY && b.type !== FileType.DIRECTORY) return -1;
         if (b.type === FileType.DIRECTORY && a.type !== FileType.DIRECTORY) return 1;
       }

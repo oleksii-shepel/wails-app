@@ -528,6 +528,107 @@ export class WorkspaceService {
     return true;
   }
 
+  /**
+   * Move/reorder a tab within a pane or across panes.
+   *
+   * - When moving across panes, the tab becomes active in the destination pane.
+   * - The source pane will always keep at least one tab (replacing with a root tab if needed).
+   * - Archive browsing state for the tab (if any) is migrated to the destination pane.
+   */
+  moveTab(
+    fromPaneId: 'left' | 'right',
+    toPaneId: 'left' | 'right',
+    tabId: string,
+    toIndex: number,
+  ): boolean {
+    const workspace = this.activeWorkspaceSubject.value;
+    if (!workspace) return false;
+
+    const fromPane = fromPaneId === 'left' ? workspace.leftPane : workspace.rightPane;
+    const toPane = toPaneId === 'left' ? workspace.leftPane : workspace.rightPane;
+
+    const fromIndex = fromPane.tabs.findIndex((t) => t.id === tabId);
+    if (fromIndex === -1) return false;
+
+    // No-op fast path
+    if (fromPaneId === toPaneId) {
+      const clamped = Math.max(0, Math.min(toIndex, fromPane.tabs.length));
+      // Dropping "before itself" (or immediately after) should do nothing.
+      if (clamped === fromIndex || clamped === fromIndex + 1) return true;
+    }
+
+    const [tab] = fromPane.tabs.splice(fromIndex, 1);
+    const wasActive = tab.isActive;
+
+    // If the tab had archive state, migrate it to the destination pane.
+    if (fromPaneId !== toPaneId) {
+      const archiveState = this.getArchiveState(fromPaneId, tabId);
+      if (archiveState) {
+        this.saveArchiveState(toPaneId, tabId, archiveState);
+        this.clearArchiveState(fromPaneId, tabId);
+      }
+    }
+
+    if (fromPaneId === toPaneId) {
+      // Reorder within the same pane.
+      const target = Math.max(0, Math.min(toIndex, fromPane.tabs.length));
+      const adjusted = target > fromIndex ? target - 1 : target;
+      fromPane.tabs.splice(adjusted, 0, tab);
+      // Preserve active tab bookkeeping
+      const active = fromPane.tabs.find((t) => t.isActive) ?? fromPane.tabs[0];
+      if (active) fromPane.activeTabId = active.id;
+
+      this.updateWorkspace(workspace.id, {
+        [fromPaneId === 'left' ? 'leftPane' : 'rightPane']: fromPane,
+      });
+      return true;
+    }
+
+    // Destination insert
+    const insertAt = Math.max(0, Math.min(toIndex, toPane.tabs.length));
+    toPane.tabs.splice(insertAt, 0, tab);
+
+    // Make moved tab active in the destination.
+    toPane.tabs.forEach((t) => (t.isActive = false));
+    tab.isActive = true;
+    toPane.activeTabId = tab.id;
+
+    // Source pane: ensure it still has an active tab and at least one tab.
+    if (fromPane.tabs.length === 0) {
+      const rootPath = this.getRootForPath(tab.path || '/');
+      const replacement: TabInfo = {
+        id: this.generateId(),
+        title: this.getPathTitle(rootPath),
+        path: rootPath,
+        isActive: true,
+        isPinned: false,
+        createdAt: Date.now(),
+      };
+      fromPane.tabs.push(replacement);
+      fromPane.activeTabId = replacement.id;
+    } else if (wasActive) {
+      // Activate a neighbor when the active tab moved away.
+      fromPane.tabs.forEach((t) => (t.isActive = false));
+      const newActiveIdx = Math.min(fromIndex, fromPane.tabs.length - 1);
+      fromPane.tabs[newActiveIdx].isActive = true;
+      fromPane.activeTabId = fromPane.tabs[newActiveIdx].id;
+    } else {
+      // Keep current activeTabId consistent.
+      const active = fromPane.tabs.find((t) => t.isActive);
+      if (active) fromPane.activeTabId = active.id;
+      else {
+        fromPane.tabs[0].isActive = true;
+        fromPane.activeTabId = fromPane.tabs[0].id;
+      }
+    }
+
+    this.updateWorkspace(workspace.id, {
+      [fromPaneId === 'left' ? 'leftPane' : 'rightPane']: fromPane,
+      [toPaneId === 'left' ? 'leftPane' : 'rightPane']: toPane,
+    });
+    return true;
+  }
+
   getActiveTab(paneId: string): TabInfo | null {
     const workspace = this.activeWorkspaceSubject.value;
     if (!workspace) return null;

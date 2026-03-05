@@ -12,6 +12,7 @@ import { TabInfo } from "../shared/protocol-enhanced";
          [class.pinned]="tab.isPinned"
          [class.in-archive]="isArchiveTab"
          [title]="tab.title"
+          draggable="true"
          (click)="onClick()"
          (auxclick)="onMouseUp($event)"
          (mouseenter)="isHovered = true"
@@ -35,12 +36,12 @@ import { TabInfo } from "../shared/protocol-enhanced";
       <div class="tab-actions">
         <!-- Pinned indicator/button -->
         <button *ngIf="tab.isPinned" class="tab-action pin" (click)="onPin($event)" 
-                [class.active-action]="isActive" title="Unpin tab">
+                [class.active-action]="isActive" title="Unpin tab" draggable="false">
           <span class="pin-icon">📌</span>
         </button>
         <!-- Close button -->
         <button class="tab-action close" (click)="onClose($event)" 
-                [class.active-action]="isActive" title="Close (Ctrl+W)"></button>
+                [class.active-action]="isActive" title="Close (Ctrl+W)" draggable="false"></button>
       </div>
     </div>
   `,

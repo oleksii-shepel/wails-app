@@ -1,12 +1,13 @@
 // file-pane.component.ts
 import { Component, Input, Output, EventEmitter, OnInit, OnChanges, OnDestroy, ViewChild, SimpleChanges } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { TabBarComponent } from './tab-bar.component';
+import { TabBarComponent, type TabDropEvent } from './tab-bar.component';
 import { AddressBarComponent } from './address-bar.component';
 import { FindWidgetComponent, FindWidgetState } from './filter-widget.component';
 import { ActionBarComponent } from './action-bar.component';
 import { FileInfo, FileType } from '../shared/protocol';
 import { TabInfo, WorkspaceConfig, FilterQuery } from '../shared/protocol-enhanced';
+import { createSubject, takeUntil } from '@epikodelabs/streamix';
 import { ApiService } from '../services/api.service';
 import { WorkspaceService } from '../services/workspace.service';
 import { FilterService } from '../services/filter.service';
@@ -69,12 +70,15 @@ interface DirStreamErrorEvent {
   template: `
     <div class="file-pane" [class.file-pane--archive]="isInArchive()">
       <app-tab-bar
+        [paneId]="paneId"
         [tabs]="tabs"
         [activeTabId]="currentTabId"
         [inArchive]="isInArchive()"
         (tabChange)="onTabChange($event)"
         (tabClose)="onTabClose($event)"
         (tabPin)="onTabPin($event)"
+        (tabDragStart)="onTabDragStart($event)"
+        (tabDrop)="onTabDrop($event)"
         (newTab)="onNewTab()">
       </app-tab-bar>
 
@@ -270,6 +274,10 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   private streamPathChangeEmitted = false;
   private activeDirStreamPreserveUI = false;
 
+  private destroy$ = createSubject<void>();
+  private lastSeenActiveTabId: string | null = null;
+  private lastSeenActiveTabPath: string | null = null;
+
   FileType = FileType;
 
   constructor(
@@ -286,12 +294,24 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     this.loadPaneState();
     this.bindFsChangeEvents();
     this.setupOptimisticDnDListeners();
+
+    // Keep panes in sync when tab state changes elsewhere (e.g. cross-pane tab drag/drop).
+    this.workspaceService.activeWorkspace$
+      .pipe(takeUntil(this.destroy$))
+      .subscribe(ws => {
+        if (!ws || !this.workspace) return;
+        if (ws.id !== this.workspace.id) return;
+        this.onWorkspaceUpdate(ws);
+      });
   }
   
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['workspace'] && this.workspace) {
       this.loadViewPreference();
-      this.loadPaneState();
+      // Initial mount needs a full load; subsequent updates are handled by the activeWorkspace$ subscription.
+      if (changes['workspace'].firstChange) {
+        this.loadPaneState();
+      }
       return;
     }
 
@@ -301,6 +321,9 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.destroy$.next();
+    this.destroy$.complete();
+
     this.unbindFsChangeEvents();
 
     if (this.optimisticHideListener) {
@@ -310,6 +333,74 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     if (this.optimisticRestoreListener) {
       window.removeEventListener('pane:dnd-optimistic-restore', this.optimisticRestoreListener);
       this.optimisticRestoreListener = undefined;
+    }
+  }
+
+  private onWorkspaceUpdate(ws: WorkspaceConfig): void {
+    const pane = this.paneId === 'left' ? ws.leftPane : ws.rightPane;
+    const nextActiveId = pane.activeTabId;
+    const nextActivePath = pane.tabs.find(t => t.id === nextActiveId)?.path ?? '';
+
+    // First event: establish baseline.
+    if (this.lastSeenActiveTabId === null) {
+      this.lastSeenActiveTabId = nextActiveId;
+      this.lastSeenActiveTabPath = nextActivePath;
+      this.tabs = this.workspaceService.getTabs(this.paneId);
+      this.currentTabId = nextActiveId;
+      return;
+    }
+
+    const activeChanged = nextActiveId !== this.lastSeenActiveTabId || nextActivePath !== this.lastSeenActiveTabPath;
+    this.lastSeenActiveTabId = nextActiveId;
+    this.lastSeenActiveTabPath = nextActivePath;
+
+    if (!activeChanged) {
+      // Reorder/pin changes etc — just update the tab strip.
+      this.tabs = this.workspaceService.getTabs(this.paneId);
+      return;
+    }
+
+    // If we already navigated to the new active tab locally, avoid a redundant reload.
+    if (this.currentTabId === nextActiveId && this.currentPath === nextActivePath) {
+      this.tabs = this.workspaceService.getTabs(this.paneId);
+      return;
+    }
+
+    // Active tab changed (including cross-pane drag) — load the new active path.
+    this.loadPaneState();
+  }
+
+  onTabDrop(event: TabDropEvent): void {
+    if (!event) return;
+    this.workspaceService.moveTab(event.fromPaneId, event.toPaneId, event.tabId, event.toIndex);
+
+    // If the drop landed in this pane, ensure we navigate to the newly-active tab.
+    if (event.toPaneId === this.paneId) {
+      this.tabs = this.workspaceService.getTabs(this.paneId);
+
+      const active = this.workspaceService.getActiveTab(this.paneId);
+      if (active?.id === event.tabId) {
+        const t = this.tabs.find(tab => tab.id === event.tabId);
+        if (t) void this.onTabChange(t);
+      }
+    }
+  }
+
+  onTabDragStart(tab: TabInfo): void {
+    // Snapshot current tab state before it potentially leaves this pane.
+    if (!tab || tab.id !== this.currentTabId) return;
+    if (!this.currentTabId || !this.currentPath) return;
+
+    if (this.isInArchive()) {
+      this.workspaceService.saveArchiveState(this.paneId, this.currentTabId, {
+        path: this.currentPath,
+        archiveStack: this.archiveStack,
+        fsDirPath: this.archiveStack[0]?.fsPath ?? '',
+        fsParentDir: this.fsParentDir,
+      });
+    } else {
+      this.tabPaths.set(this.currentTabId, this.currentPath);
+      this.workspaceService.updateTabPath(this.paneId, this.currentTabId, this.currentPath);
     }
   }
 

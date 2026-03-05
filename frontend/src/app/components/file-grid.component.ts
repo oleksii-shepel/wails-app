@@ -41,13 +41,33 @@ import { parentPath } from './address-bar.utils';
       <div class="virtual-spacer" *ngIf="virtualEnabled" [style.height.px]="totalContentHeight"></div>
       
       <div class="grid-window" [class.virtual-window]="virtualEnabled" [style.transform]="virtualWindowTransform">
-        <div 
-          *ngFor="let entry of visibleEntries; trackBy: trackByPath"
+        <ng-container *ngFor="let entry of displayEntries; trackBy: trackByDisplayPath">
+        <div
+          *ngIf="entry === null"
+          class="grid-item ghost-slot"
+          aria-hidden="true">
+          <div class="grid-info" *ngIf="dragPreviewEntry">
+            <app-file-entry
+              [entry]="dragPreviewEntry"
+              [selected]="false"
+              variant="grid">
+            </app-file-entry>
+            <div class="grid-meta" *ngIf="!isParentEntry(dragPreviewEntry)">
+              {{ formatSize(dragPreviewEntry.size) }}
+            </div>
+          </div>
+        </div>
+
+        <div
+          *ngIf="entry !== null"
           class="grid-item"
           [attr.data-path]="entry.path"
+          [class.dragging-source]="draggingPaths.has(entry.path)"
           [class.selected]="isSelected(entry)"
           [class.directory]="entry.type === FileType.DIRECTORY"
           [class.parent-dir]="isParentEntry(entry)"
+          [class.drag-over]="isDragOverInside(entry)"
+          [class.drag-over-folder]="isDragOverInside(entry) && entry.type === FileType.DIRECTORY"
           [attr.role]="'gridcell'"
           [attr.aria-selected]="isSelected(entry)"
           [class.drop-target]="isDropTarget(entry)"
@@ -57,11 +77,12 @@ import { parentPath } from './address-bar.utils';
           (dblclick)="onItemDoubleClick(entry)"
           (contextmenu)="onContextMenu($event, entry)"
           (dragstart)="onDragStart($event, entry)"
+          (dragend)="onDragEnd()"
           (dragover)="onDragOver($event, entry)"
-          (dragleave)="onDragLeave(entry)"
+          (dragleave)="onDragLeave($event, entry)"
           (drop)="onDrop($event, entry)">
           
-          <div class="grid-info">
+          <div class="grid-info" *ngIf="!draggingPaths.has(entry.path)">
             <app-file-entry
               [entry]="entry"
               [selected]="isSelected(entry)"
@@ -72,6 +93,7 @@ import { parentPath } from './address-bar.utils';
             </div>
           </div>
         </div>
+        </ng-container>
       </div>
 
       <div
@@ -177,7 +199,12 @@ import { parentPath } from './address-bar.utils';
       padding: var(--vsc-padding-md);
       border-radius: var(--vsc-border-radius);
       cursor: pointer;
-      transition: all var(--vsc-transition-fast);
+      transition:
+        background-color var(--vsc-transition-fast),
+        border-color var(--vsc-transition-fast),
+        outline-color var(--vsc-transition-fast),
+        box-shadow var(--vsc-transition-fast),
+        transform var(--vsc-transition-fast);
       border: 2px solid transparent;
       position: relative;
       contain: layout style paint;
@@ -214,6 +241,63 @@ import { parentPath } from './address-bar.utils';
         outline-offset: -2px;
         background: var(--vsc-list-hover-background);
       }
+
+      &.drag-over {
+        background-color: var(--vsc-list-drop-background, color-mix(in srgb, var(--vsc-focus-border, #0078d4) 20%, transparent));
+        outline: 1px dashed var(--vsc-focus-border);
+        outline-offset: -2px;
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--vsc-focus-border, #0078d4) 28%, transparent);
+      }
+
+      &.drag-over-folder {
+        border-color: var(--vsc-focus-border, #0078d4);
+        border-width: 3px;
+        border-style: solid;
+        background: var(--vsc-list-drop-background, color-mix(in srgb, var(--vsc-list-active-background) 25%, transparent));
+        box-shadow:
+          inset 0 0 0 1px color-mix(in srgb, var(--vsc-focus-border, #0078d4) 36%, transparent),
+          0 0 0 2px color-mix(in srgb, var(--vsc-focus-border, #0078d4) 14%, transparent);
+        transform: translateY(-1px);
+      }
+
+    }
+
+    .grid-item.dragging-source {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 0 !important;
+      height: 0 !important;
+      padding: 0 !important;
+      margin: 0 !important;
+      border: 0 !important;
+      opacity: 0;
+      overflow: hidden;
+      pointer-events: none;
+    }
+
+    .grid-item.ghost-slot {
+      pointer-events: none;
+      cursor: default;
+      contain: layout style;
+      background: color-mix(in srgb, var(--vsc-focus-border, #0078d4) 12%, transparent);
+      border: 2px dashed color-mix(in srgb, var(--vsc-focus-border, #0078d4) 85%, transparent);
+      outline: none;
+      opacity: 0.96;
+      box-shadow:
+        inset 0 0 0 1px color-mix(in srgb, var(--vsc-focus-border, #0078d4) 26%, transparent),
+        0 0 12px color-mix(in srgb, var(--vsc-focus-border, #0078d4) 18%, transparent);
+      animation: ghost-slot-pulse 900ms ease-in-out infinite alternate;
+    }
+
+    .grid-item.ghost-slot .grid-info {
+      opacity: 0.82;
+      filter: saturate(0.9);
+    }
+
+    @keyframes ghost-slot-pulse {
+      from { transform: scale(0.985); }
+      to { transform: scale(1); }
     }
 
     .grid-icon {
@@ -329,8 +413,12 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
   private viewportHeight = 0;
 
   private anchorPath: string | null = null;
-  private dropTargetPath: string | null = null;
+  dragPreviewEntry: FileInfo | null = null;
+  dragOverPath: string | null = null;
+  dragOverPosition: 'before' | 'after' | 'inside' | null = null;
   isBackgroundDropTarget = false;
+  draggingPaths = new Set<string>();
+  private dragImageEl: HTMLElement | null = null;
   private marqueeContainer: HTMLElement | null = null;
   private marqueeStartX = 0;
   private marqueeStartY = 0;
@@ -375,6 +463,24 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
     return this.entries.slice(this.virtualStart, this.virtualEnd);
   }
 
+  get displayEntries(): (FileInfo | null)[] {
+    const visible = this.visibleEntries;
+    if (!this.dragOverPath || this.dragOverPosition === 'inside') return visible;
+
+    const targetIndex = visible.findIndex(entry => entry.path === this.dragOverPath);
+    if (targetIndex === -1) return visible;
+
+    const insertAt = this.dragOverPosition === 'after' ? targetIndex + 1 : targetIndex;
+    const withGhost: (FileInfo | null)[] = [...visible];
+    withGhost.splice(insertAt, 0, null);
+    return withGhost;
+  }
+
+  trackByDisplayPath(index: number, entry: FileInfo | null): string {
+    if (entry) return entry.path;
+    return '__grid_ghost__';
+  }
+
   ngAfterViewInit(): void {
     this.setupResizeObserver();
     this.setupScrollListener();
@@ -395,11 +501,22 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
 
   ngOnDestroy(): void {
     this.detachMarqueeListeners();
+    this.cleanupDragImage();
     this.cleanupResizeObserver();
     this.cleanupScrollListener();
     if (this.scrollRAF) {
       cancelAnimationFrame(this.scrollRAF);
     }
+  }
+
+  private cleanupDragImage(): void {
+    if (!this.dragImageEl) return;
+    try {
+      this.dragImageEl.remove();
+    } catch {
+      // ignore
+    }
+    this.dragImageEl = null;
   }
 
   private setupResizeObserver(): void {
@@ -499,7 +616,19 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
   }
 
   isDropTarget(entry: FileInfo): boolean {
-    return this.dropTargetPath === entry.path;
+    return this.dragOverPath === entry.path && this.dragOverPosition === 'inside';
+  }
+
+  isDragOverBefore(entry: FileInfo): boolean {
+    return this.dragOverPath === entry.path && this.dragOverPosition === 'before';
+  }
+
+  isDragOverAfter(entry: FileInfo): boolean {
+    return this.dragOverPath === entry.path && this.dragOverPosition === 'after';
+  }
+
+  isDragOverInside(entry: FileInfo): boolean {
+    return this.dragOverPath === entry.path && this.dragOverPosition === 'inside';
   }
 
   onItemClick(entry: FileInfo, event: MouseEvent): void {
@@ -809,46 +938,137 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
       ? this.entries.filter(e => this.selectedFiles.has(e.path) && !this.isParentEntry(e))
       : [entry];
 
+    const draggingPaths = entries.map(e => e.path);
+
     if (event.dataTransfer) {
       event.dataTransfer.effectAllowed = 'copyMove';
       event.dataTransfer.setData('application/json', JSON.stringify({
         source: 'grid',
         entries: entries.map(e => ({ path: e.path, type: e.type, name: e.name })),
       }));
+
+      // Ensure we don't leak an old drag image node.
+      this.cleanupDragImage();
+
+      const tileEl = event.currentTarget as HTMLElement;
+      const tileRect = tileEl.getBoundingClientRect();
+      const ghost = tileEl.cloneNode(true) as HTMLElement;
+      ghost.style.position = 'fixed';
+      ghost.style.top = '-1000px';
+      ghost.style.left = '0';
+      ghost.style.width = `${Math.round(tileRect.width)}px`;
+      ghost.style.height = `${Math.round(tileRect.height)}px`;
+      ghost.style.margin = '0';
+      ghost.style.pointerEvents = 'none';
+      ghost.style.transform = 'none';
+      ghost.style.opacity = '0.98';
+      ghost.style.background = 'var(--vsc-editor-background)';
+      ghost.style.border = '1px solid color-mix(in srgb, var(--vsc-focus-border, #0078d4) 35%, transparent)';
+      ghost.style.boxShadow = '0 6px 20px rgba(0,0,0,0.28)';
+      ghost.style.borderRadius = 'var(--vsc-border-radius)';
+      ghost.classList.remove('drag-over', 'drag-over-folder', 'drop-target', 'dragging-source');
+
+      if (entries.length > 1) {
+        const badge = document.createElement('div');
+        badge.style.cssText = `
+          position: absolute;
+          top: 6px;
+          right: 6px;
+          min-width: 18px;
+          height: 18px;
+          padding: 0 6px;
+          border-radius: 9px;
+          background: var(--vsc-focus-border, #0078d4);
+          color: var(--vsc-editor-background, #1e1e1e);
+          font-size: 11px;
+          line-height: 18px;
+          text-align: center;
+          box-sizing: border-box;
+          border: 1px solid color-mix(in srgb, var(--vsc-focus-border, #0078d4) 65%, transparent);
+          z-index: 20;
+        `;
+        badge.textContent = `${entries.length}`;
+        ghost.appendChild(badge);
+      }
+
+      document.body.appendChild(ghost);
+
+      // Force layout/paint before using it as a drag image.
+      void ghost.offsetWidth;
+
+      event.dataTransfer.setDragImage(ghost, Math.floor(tileRect.width / 2), Math.floor(tileRect.height / 2));
+      // Keep it mounted for the duration of the drag;
+      // some environments (incl. embedded WebView) can lose the drag image if removed immediately.
+      this.dragImageEl = ghost;
     }
+
+    this.dragPreviewEntry = entries[0] ?? null;
+    // Delay hiding the source tiles until after the drag-start snapshot.
+    // This also keeps a fallback preview visible if setDragImage is flaky.
+    setTimeout(() => {
+      this.draggingPaths = new Set(draggingPaths);
+      this.cdr.markForCheck();
+    }, 0);
 
     this.dragStart.emit({ event, entries });
   }
 
+  onDragEnd(): void {
+    this.dragPreviewEntry = null;
+    this.dragOverPath = null;
+    this.dragOverPosition = null;
+    this.draggingPaths = new Set<string>();
+    this.cleanupDragImage();
+    this.cdr.markForCheck();
+  }
+
   onDragOver(event: DragEvent, entry: FileInfo): void {
+    if (this.isParentEntry(entry)) return;
+
     const types = event.dataTransfer?.types;
     const hasInternalData = types?.includes('application/json') || false;
     const hasExternalFiles = !hasInternalData && ((types?.includes('Files') || false) || ((event.dataTransfer?.files?.length ?? 0) > 0));
-    
-    // Always prevent default for external files
-    if (hasExternalFiles) {
-      event.preventDefault();
-      if (event.dataTransfer) {
-        event.dataTransfer.dropEffect = event.ctrlKey || event.metaKey ? 'copy' : 'move';
-      }
-      this.dropTargetPath = entry.path;
-      return;
-    }
-    
-    // For internal drags, only allow drops on directories
-    if (this.isParentEntry(entry) || entry.type !== FileType.DIRECTORY) return;
+
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    const xFraction = rect.width > 0 ? (event.clientX - rect.left) / rect.width : 0.5;
+
     event.preventDefault();
-    
     if (event.dataTransfer) {
       event.dataTransfer.dropEffect = event.ctrlKey || event.metaKey ? 'copy' : 'move';
     }
-    this.dropTargetPath = entry.path;
+
+    if (hasExternalFiles) {
+      const nextPosition: 'before' | 'after' | 'inside' = entry.type === FileType.DIRECTORY
+        ? 'inside'
+        : (xFraction < 0.5 ? 'before' : 'after');
+      if (this.dragOverPath === entry.path && this.dragOverPosition === nextPosition) return;
+      this.dragOverPath = entry.path;
+      this.dragOverPosition = nextPosition;
+      this.cdr.markForCheck();
+      return;
+    }
+
+    let position: 'before' | 'after' | 'inside';
+    if (xFraction < 0.3) {
+      position = 'before';
+    } else if (xFraction > 0.7) {
+      position = 'after';
+    } else {
+      position = entry.type === FileType.DIRECTORY ? 'inside' : (xFraction < 0.5 ? 'before' : 'after');
+    }
+
+    if (this.dragOverPath === entry.path && this.dragOverPosition === position) return;
+    this.dragOverPath = entry.path;
+    this.dragOverPosition = position;
+    this.cdr.markForCheck();
   }
 
-  onDragLeave(entry: FileInfo): void {
-    if (this.dropTargetPath === entry.path) {
-      this.dropTargetPath = null;
-    }
+  onDragLeave(event: DragEvent, entry: FileInfo): void {
+    // Intentionally keep current drag-over state here.
+    // Clearing on per-tile dragleave causes flicker while moving across child nodes/adjacent tiles.
+    // State is cleared on dragend/drop or when leaving the container.
+    void event;
+    void entry;
   }
 
   onDrop(event: DragEvent, entry: FileInfo): void {
@@ -859,12 +1079,23 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
     const hasExternalFiles = !(types?.includes('application/json') || false) && ((types?.includes('Files') || false) || ((event.dataTransfer?.files?.length ?? 0) > 0));
     // For external OS drops, don't stopPropagation - let Wails' window handler fire wails:file-drop
     if (hasExternalFiles) {
-      this.dropTargetPath = null;
+      this.dragPreviewEntry = null;
+      this.dragOverPath = null;
+      this.dragOverPosition = null;
+      this.draggingPaths = new Set<string>();
+      this.cleanupDragImage();
+      this.cdr.markForCheck();
       return;
     }
 
     event.stopPropagation();
-    this.dropTargetPath = null;
+    const capturedPosition = this.dragOverPosition;
+    this.dragPreviewEntry = null;
+    this.dragOverPath = null;
+    this.dragOverPosition = null;
+    this.draggingPaths = new Set<string>();
+    this.cleanupDragImage();
+    this.cdr.markForCheck();
 
     const draggedEntries = this.readDraggedEntries(event);
     if (!draggedEntries.length) return;
@@ -872,7 +1103,8 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
     const source = this.buildSourceFromEntries(draggedEntries);
     if (!source.length) return;
 
-    const target = entry.type === FileType.DIRECTORY
+    const goInto = capturedPosition === 'inside' && entry.type === FileType.DIRECTORY;
+    const target = goInto
       ? entry
       : ({ ...entry, path: parentPath(entry.path), type: FileType.DIRECTORY } as FileInfo);
 
@@ -896,6 +1128,9 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
     const container = this.gridContainerRef?.nativeElement;
     
     if (container && !container.contains(target)) {
+      this.dragPreviewEntry = null;
+      this.dragOverPath = null;
+      this.dragOverPosition = null;
       this.isBackgroundDropTarget = false;
       this.cdr.markForCheck();
     }
@@ -908,13 +1143,19 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
     const hasExternalFiles = !(types?.includes('application/json') || false) && ((types?.includes('Files') || false) || ((event.dataTransfer?.files?.length ?? 0) > 0));
     // For external OS drops, don't stopPropagation - let Wails' window handler fire wails:file-drop
     if (hasExternalFiles) {
+      this.dragPreviewEntry = null;
       this.isBackgroundDropTarget = false;
+      this.draggingPaths = new Set<string>();
+      this.cleanupDragImage();
       this.cdr.markForCheck();
       return;
     }
 
     event.stopPropagation();
+    this.dragPreviewEntry = null;
     this.isBackgroundDropTarget = false;
+    this.draggingPaths = new Set<string>();
+    this.cleanupDragImage();
     this.cdr.markForCheck();
 
     // Internal drag and drop to current directory

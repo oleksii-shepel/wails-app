@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, AfterViewInit, ViewChild, ElementRef, HostListener } from '@angular/core';
+import { Component, OnInit, OnDestroy, AfterViewInit, ViewChild, ElementRef, HostListener, NgZone, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
 import { EventsOn, EventsOff, OnFileDrop, OnFileDropOff } from 'wailsjs/runtime/runtime';
@@ -82,22 +82,32 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
     public theme: ThemeService,
     private archiveService: ArchiveService,
     private confirmDialog: ConfirmDialogService,
+    private zone: NgZone,
+    private cdr: ChangeDetectorRef,
   ) {}
 
   ngOnInit(): void {
     this.workspaceService.activeWorkspace$
       .pipe(takeUntil(this.destroy$))
       .subscribe(workspace => {
-        this.activeWorkspace = workspace;
-        if (workspace) {
-          this.showHidden = workspace.showHidden;
-        }
+        // Some Wails/bridge async callbacks can land outside Angular's zone.
+        // Ensure state updates trigger a render without requiring a user click.
+        this.zone.run(() => {
+          this.activeWorkspace = workspace;
+          if (workspace) {
+            this.showHidden = workspace.showHidden;
+          }
+          this.cdr.markForCheck();
+        });
       });
 
     this.workspaceService.workspaces$
       .pipe(takeUntil(this.destroy$))
       .subscribe(workspaces => {
-        this.workspaceList = workspaces.workspaces;
+        this.zone.run(() => {
+          this.workspaceList = workspaces.workspaces;
+          this.cdr.markForCheck();
+        });
       });
 
     this.checkServerConnection();
@@ -744,18 +754,24 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
   // ============================================================================
 
   private loadPaneWidths(): void {
+    const savedSplit = localStorage.getItem('split-pos');
     const savedLeftWidth = localStorage.getItem('fileManager_leftPaneWidth');
-    const savedRightWidth = localStorage.getItem('fileManager_rightPaneWidth');
 
-    if (savedLeftWidth && savedRightWidth) {
-      this.leftPaneWidth = parseFloat(savedLeftWidth);
-      this.rightPaneWidth = parseFloat(savedRightWidth);
-    }
+    const raw = savedSplit ?? savedLeftWidth;
+    if (!raw) return;
+    const parsed = parseFloat(raw);
+    if (!Number.isFinite(parsed)) return;
+
+    const clampedLeft = Math.max(this.MIN_PANE_WIDTH, Math.min(this.MAX_PANE_WIDTH, parsed));
+    this.leftPaneWidth = clampedLeft;
+    this.rightPaneWidth = 100 - clampedLeft;
   }
 
   private savePaneWidths(): void {
     localStorage.setItem('fileManager_leftPaneWidth', this.leftPaneWidth.toString());
     localStorage.setItem('fileManager_rightPaneWidth', this.rightPaneWidth.toString());
+    // Keep SplitDividerComponent restore key in sync.
+    localStorage.setItem('split-pos', this.leftPaneWidth.toString());
   }
 
   startResize(event: MouseEvent): void {

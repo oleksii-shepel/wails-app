@@ -306,10 +306,15 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   }
   
   ngOnChanges(changes: SimpleChanges): void {
-    if (changes['workspace'] && this.workspace) {
-      this.loadViewPreference();
-      // Initial mount needs a full load; subsequent updates are handled by the activeWorkspace$ subscription.
-      if (changes['workspace'].firstChange) {
+    if (changes['workspace']) {
+      // The input is bound to FileBrowserComponent.activeWorkspace which starts as null.
+      // That means the *first* change Angular sees is often null, and the transition
+      // to a real workspace would be a later change. Always load once we have a
+      // non-null workspace so tabs/pane render without requiring a user click.
+      if (this.workspace) {
+        this.loadViewPreference();
+        this.lastSeenActiveTabId = null;
+        this.lastSeenActiveTabPath = null;
         this.loadPaneState();
       }
       return;

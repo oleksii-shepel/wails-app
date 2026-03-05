@@ -1,4 +1,4 @@
-import { Injectable } from '@angular/core';
+import { Injectable, NgZone } from '@angular/core';
 import { createBehaviorSubject, type Stream } from '@epikodelabs/streamix';
 import {
   WorkspaceConfig,
@@ -47,8 +47,12 @@ export class WorkspaceService {
   /** Store archive states per pane per tab */
   private archiveStates = new Map<string, Map<string, ArchiveTabState>>();
 
-  constructor(private api: ApiService) {
+  constructor(private api: ApiService, private ngZone: NgZone) {
     this.initializeWorkspaces();
+  }
+
+  private emitInZone(fn: () => void): void {
+    this.ngZone.run(fn);
   }
 
   // ---------------------------------------------------------------------------
@@ -83,18 +87,91 @@ export class WorkspaceService {
       await this.setActiveBackend(defaultWorkspace.id);
     }
 
+    // Repair/normalize loaded workspaces so panes are never empty.
+    const homePath = await this.resolveHomePath();
+    const normalizedWorkspaces: WorkspaceConfig[] = [];
+    for (const ws of (workspaceList.workspaces ?? [])) {
+      const { workspace, changed } = this.normalizeWorkspace(ws, homePath);
+      normalizedWorkspaces.push(workspace);
+      if (changed) {
+        // Best-effort persist so future launches don't start with empty panes.
+        void this.persistWorkspace(workspace);
+      }
+    }
+    workspaceList.workspaces = normalizedWorkspaces;
+
     // Ensure an activeWorkspaceId is set
     if (!workspaceList.activeWorkspaceId && workspaceList.workspaces.length > 0) {
       workspaceList.activeWorkspaceId = workspaceList.workspaces[0].id;
     }
 
-    this.workspacesSubject.next(workspaceList);
-    this.saveLocalWorkspaces(workspaceList);
+    // Ensure activeWorkspaceId points to an existing workspace.
+    if (
+      workspaceList.activeWorkspaceId &&
+      !workspaceList.workspaces.some(w => w.id === workspaceList.activeWorkspaceId)
+    ) {
+      workspaceList.activeWorkspaceId = workspaceList.workspaces[0]?.id ?? '';
+    }
 
-    const active = workspaceList.workspaces.find(
-      (w) => w.id === workspaceList.activeWorkspaceId,
-    );
-    this.activeWorkspaceSubject.next(active ?? null);
+    this.emitInZone(() => {
+      this.workspacesSubject.next(workspaceList);
+      this.saveLocalWorkspaces(workspaceList);
+
+      const active = workspaceList.workspaces.find(
+        (w) => w.id === workspaceList.activeWorkspaceId,
+      );
+      this.activeWorkspaceSubject.next(active ?? null);
+    });
+  }
+
+  private normalizeWorkspace(
+    workspace: WorkspaceConfig,
+    homePath: string,
+  ): { workspace: WorkspaceConfig; changed: boolean } {
+    let changed = false;
+
+    const left = this.normalizePane('left', workspace.leftPane, homePath);
+    const right = this.normalizePane('right', workspace.rightPane, homePath);
+    if (left.changed || right.changed) changed = true;
+
+    const normalized: WorkspaceConfig = {
+      ...workspace,
+      leftPane: left.pane,
+      rightPane: right.pane,
+    };
+    return { workspace: normalized, changed };
+  }
+
+  private normalizePane(
+    paneId: 'left' | 'right',
+    pane: PaneState | undefined,
+    homePath: string,
+  ): { pane: PaneState; changed: boolean } {
+    if (!pane || !Array.isArray(pane.tabs) || pane.tabs.length === 0) {
+      return { pane: this.createDefaultPane(paneId, homePath), changed: true };
+    }
+
+    let changed = false;
+    let activeTabId = pane.activeTabId;
+    if (!activeTabId || !pane.tabs.some(t => t.id === activeTabId)) {
+      activeTabId = pane.tabs[0].id;
+      changed = true;
+    }
+
+    const tabs = pane.tabs.map(t => {
+      const shouldBeActive = t.id === activeTabId;
+      if (t.isActive !== shouldBeActive) changed = true;
+      return { ...t, isActive: shouldBeActive };
+    });
+
+    const normalized: PaneState = {
+      ...pane,
+      id: paneId,
+      tabs,
+      activeTabId,
+    };
+    if (pane.id !== paneId) changed = true;
+    return { pane: normalized, changed };
   }
 
   // ---------------------------------------------------------------------------
@@ -178,7 +255,7 @@ export class WorkspaceService {
     this.saveLocalWorkspaces(list);
 
     if (!silent) {
-      this.workspacesSubject.next(list);
+      this.emitInZone(() => this.workspacesSubject.next(list));
     }
 
     if (changedWorkspace) {
@@ -234,7 +311,7 @@ export class WorkspaceService {
     workspace.lastAccessedAt = Date.now();
     list.activeWorkspaceId = workspaceId;
     this.updateAndPersist(list, workspace);
-    this.activeWorkspaceSubject.next(workspace);
+    this.emitInZone(() => this.activeWorkspaceSubject.next(workspace));
     this.setActiveBackend(workspaceId);
 
     // Clear archive states when switching workspaces
@@ -256,7 +333,7 @@ export class WorkspaceService {
     this.updateAndPersist(list, workspace, silent);
 
     if (!silent && workspace.id === this.activeWorkspaceSubject.value?.id) {
-      this.activeWorkspaceSubject.next(workspace);
+      this.emitInZone(() => this.activeWorkspaceSubject.next(workspace));
     }
 
     return true;
@@ -273,7 +350,7 @@ export class WorkspaceService {
     if (list.activeWorkspaceId === workspaceId) {
       const newActive = list.workspaces[0];
       list.activeWorkspaceId = newActive.id;
-      this.activeWorkspaceSubject.next(newActive);
+      this.emitInZone(() => this.activeWorkspaceSubject.next(newActive));
       this.setActiveBackend(newActive.id);
     }
 

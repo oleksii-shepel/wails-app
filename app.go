@@ -55,8 +55,6 @@ func (a *App) startup(ctx context.Context) {
 	a.operations.SetApp(a)
 	a.dirWatch = NewPaneDirWatchManager(a)
 
-	fmt.Println("[startup] Registering wails:file-drop listener...")
-
 	// Listen for native Wails file drop events from the OS
 	runtime.EventsOn(ctx, "wails:file-drop", func(optionalData ...interface{}) {
 		fmt.Println("[wails:file-drop] Backend listener fired!")
@@ -95,8 +93,6 @@ func (a *App) startup(ctx context.Context) {
 			}
 		}
 	})
-
-	fmt.Println("[startup] wails:file-drop listener registered!")
 }
 
 func (a *App) shutdown(ctx context.Context) {

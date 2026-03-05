@@ -37,8 +37,8 @@ import { DriveInfo } from '../shared/protocol-enhanced';
             <span class="ab-drive-grid-icon">{{ getIcon(d) }}</span>
             <span class="ab-drive-grid-letter">{{ d.name }}</span>
             <span class="ab-drive-grid-label">{{ getDriveLabel(d) }}</span>
-            <svg *ngIf="isActive(d)" class="ab-drive-grid-check" width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-              <path d="M13.485 1.929L5.5 9.914 2.515 6.929a1 1 0 0 0-1.414 1.414l3.692 3.693a1 1 0 0 0 1.414 0l8.692-8.693a1 1 0 0 0-1.414-1.414z"/>
+            <svg *ngIf="isActive(d)" class="ab-drive-grid-dot" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <circle cx="8" cy="8" r="2.5" fill="currentColor" />
             </svg>
           </div>
           <div class="ab-drive-grid-details">
@@ -128,7 +128,7 @@ import { DriveInfo } from '../shared/protocol-enhanced';
     .ab-drive-grid-icon { font-size: 20px; flex-shrink: 0; }
     .ab-drive-grid-letter { font-family: var(--vsc-font-family-mono); font-size: 14px; font-weight: 700; color: var(--vsc-foreground-dim); }
     .ab-drive-grid-label { font-size: var(--vsc-font-size); font-weight: 500; color: var(--vsc-foreground); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .ab-drive-grid-check { color: var(--vsc-foreground-dim); margin-left: auto; flex-shrink: 0; }
+    .ab-drive-grid-dot { color: var(--vsc-accent-blue); margin-left: auto; flex-shrink: 0; }
 
     .ab-drive-grid-details {
       display: flex;

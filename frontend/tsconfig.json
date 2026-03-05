@@ -3,7 +3,7 @@
   "compilerOptions": {
     "baseUrl": "./",
     "paths": {
-      "wailsjs/*": ["wailsjs/*", "src/wailsjs/*"]
+      "wailsjs/*": ["wailsjs/*"]
     },
     "outDir": "./out-tsc/app",
     "forceConsistentCasingInFileNames": true,

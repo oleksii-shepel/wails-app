@@ -252,15 +252,16 @@ export interface DropTarget {
       opacity: 0.5;
     }
 
+    /* During drag we only show the thin indicators; do not highlight the row itself */
     .tree-node-wrapper.drag-over > .tree-node {
-      background-color: var(--vsc-list-drop-background, rgba(0, 120, 212, 0.2));
+      background-color: transparent;
     }
 
     .drop-indicator {
       position: absolute;
       left: 0;
       right: 0;
-      height: 2px;
+      height: 3px;
       background-color: var(--vsc-focus-border, #0078d4);
       pointer-events: none;
       z-index: 10;
@@ -274,8 +275,9 @@ export interface DropTarget {
       bottom: -1px;
     }
 
+    /* When dropping inside a folder, give it a soft highlight plus the outline */
     .tree-node-wrapper.drag-over-inside > .tree-node {
-      background-color: var(--vsc-list-drop-background, rgba(0, 120, 212, 0.3));
+      background-color: var(--vsc-list-drop-background, rgba(0, 120, 212, 0.16));
       outline: 1px dashed var(--vsc-focus-border);
       outline-offset: -1px;
     }
@@ -753,18 +755,9 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
     const target = event.target as HTMLElement;
     if (target.closest('.tree-twistie')) return;
 
-    this.isMouseDownSelecting = true;
-    
-    const isCtrl = event.ctrlKey || event.metaKey;
-    const isShift = event.shiftKey;
-
-    if (isShift && this.anchorNodePath) {
-      this.selectNode(node, false, true);
-    } else if (isCtrl) {
-      this.selectNode(node, true, false);
-    } else if (!this.isSelected(node)) {
-      this.selectNode(node, false, false);
-    }
+    // Do not change selection on mousedown; wait for click or keyboard.
+    // This keeps drag initiation from altering selection when drawing the drop indicator.
+    this.isMouseDownSelecting = false;
   }
 
   onNodeClick(node: TreeNode, event: MouseEvent): void {
@@ -775,11 +768,9 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
       this.clickTimer = null;
     }
 
-    if (!this.isMouseDownSelecting) {
-      const isCtrl = event.ctrlKey || event.metaKey;
-      const isShift = event.shiftKey;
-      this.selectNode(node, isCtrl, isShift);
-    }
+    const isCtrl = event.ctrlKey || event.metaKey;
+    const isShift = event.shiftKey;
+    this.selectNode(node, isCtrl, isShift);
     this.isMouseDownSelecting = false;
 
     this.clickTimer = window.setTimeout(() => {
@@ -858,24 +849,22 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
       return;
     }
 
-    if (!this.isSelected(node)) {
-      this.selectNode(node, false, false);
-    }
-
+    // Do not alter selection when beginning a drag. Use existing selection set; if none, drag the node itself.
     const selectedNodes = this.getSelectedNodes();
+    const dragNodes = selectedNodes.length ? selectedNodes : [node];
     this.dragState.isDragging = true;
-    this.dragState.draggedNodes = selectedNodes;
+    this.dragState.draggedNodes = dragNodes;
 
     if (event.dataTransfer) {
       event.dataTransfer.effectAllowed = 'move';
       event.dataTransfer.setData('application/json', JSON.stringify({
-        entries: selectedNodes.map(n => ({ path: n.path, type: n.type, name: n.name })),
+        entries: dragNodes.map(n => ({ path: n.path, type: n.type, name: n.name })),
         source: 'tree'
       }));
       
-      if (selectedNodes.length > 1) {
+      if (dragNodes.length > 1) {
         const dragImage = document.createElement('div');
-        dragImage.textContent = `${selectedNodes.length} items`;
+        dragImage.textContent = `${dragNodes.length} items`;
         dragImage.style.cssText = `
           background: var(--vsc-list-active-background);
           color: var(--vsc-foreground);

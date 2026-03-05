@@ -53,7 +53,6 @@ import { parentPath } from './address-bar.utils';
           #parentRow
           class="file-list-row"
           [attr.data-path]="parentEntry.path"
-          [class.drop-target]="isDropTarget(parentEntry)"
           [draggable]="false"
           (auxclick)="onItemAuxClick($event, parentEntry)"
           (dragstart)="onDragStart($event, parentEntry)"
@@ -81,7 +80,9 @@ import { parentPath } from './address-bar.utils';
             class="file-list-row"
             [attr.data-path]="entry.path"
             [style.height.px]="virtualEnabled ? rowHeight : null"
-            [class.drop-target]="isDropTarget(entry)"
+            [class.drag-over]="isDragOverInside(entry)"
+            [class.drag-over-before]="isDragOverBefore(entry)"
+            [class.drag-over-after]="isDragOverAfter(entry)"
             [draggable]="!isParentEntry(entry)"
             (auxclick)="onItemAuxClick($event, entry)"
             (dragstart)="onDragStart($event, entry)"
@@ -89,6 +90,8 @@ import { parentPath } from './address-bar.utils';
             (dragleave)="onDragLeave(entry)"
             (drop)="onDrop($event, entry)"
             (contextmenu)="onContextMenu($event, entry)">
+            <div *ngIf="isDragOverBefore(entry)" class="drop-indicator drop-indicator-before"></div>
+            <div *ngIf="isDragOverAfter(entry)" class="drop-indicator drop-indicator-after"></div>
             <app-file-entry
               [entry]="entry"
               [selected]="isSelected(entry)"
@@ -231,13 +234,32 @@ import { parentPath } from './address-bar.utils';
     .file-list-row {
       border-radius: var(--vsc-border-radius-sm);
       flex-shrink: 0;
-      contain: layout style paint;
+      contain: layout style;
+      position: relative;
 
-      &.drop-target {
+      &.drag-over {
+        background-color: var(--vsc-list-drop-background, rgba(0, 120, 212, 0.2));
         outline: 1px dashed var(--vsc-focus-border);
         outline-offset: -1px;
-        background: var(--vsc-list-hover-background);
       }
+    }
+
+    .drop-indicator {
+      position: absolute;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background-color: var(--vsc-focus-border, #0078d4);
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    .drop-indicator-before {
+      top: -1px;
+    }
+
+    .drop-indicator-after {
+      bottom: -1px;
     }
 
     .pane-content.drop-target-bg {
@@ -282,7 +304,8 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
   private parentRowHeight = 0;
 
   private anchorPath: string | null = null;
-  private dropTargetPath: string | null = null;
+  dragOverPath: string | null = null;
+  dragOverPosition: 'before' | 'after' | 'inside' | null = null;
   isBackgroundDropTarget = false;
   private marqueeContainer: HTMLElement | null = null;
   private marqueeStartX = 0;
@@ -497,7 +520,19 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
   }
 
   isDropTarget(entry: FileInfo): boolean {
-    return this.dropTargetPath === entry.path;
+    return this.dragOverPath === entry.path && this.dragOverPosition === 'inside';
+  }
+
+  isDragOverBefore(entry: FileInfo): boolean {
+    return this.dragOverPath === entry.path && this.dragOverPosition === 'before';
+  }
+
+  isDragOverAfter(entry: FileInfo): boolean {
+    return this.dragOverPath === entry.path && this.dragOverPosition === 'after';
+  }
+
+  isDragOverInside(entry: FileInfo): boolean {
+    return this.dragOverPath === entry.path && this.dragOverPosition === 'inside';
   }
 
   isSelected(entry: FileInfo): boolean {
@@ -798,29 +833,32 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
   }
 
   onDragOver(event: DragEvent, entry: FileInfo): void {
-    // Always prevent default for external files
-    if (this.hasExternalFiles(event)) {
-      event.preventDefault();
-      if (event.dataTransfer) {
-        event.dataTransfer.dropEffect = event.ctrlKey || event.metaKey ? 'copy' : 'move';
-      }
-      this.dropTargetPath = entry.path;
-      return;
-    }
-    
-    // For internal drags, only allow drops on directories
-    if (this.isParentEntry(entry) || entry.type !== FileType.DIRECTORY) return;
+    if (this.isParentEntry(entry)) return;
     event.preventDefault();
-    
     if (event.dataTransfer) {
       event.dataTransfer.dropEffect = event.ctrlKey || event.metaKey ? 'copy' : 'move';
     }
-    this.dropTargetPath = entry.path;
+    const el = event.currentTarget as HTMLElement;
+    const rect = el.getBoundingClientRect();
+    const fraction = rect.height > 0 ? (event.clientY - rect.top) / rect.height : 0.5;
+    let position: 'before' | 'after' | 'inside';
+    if (fraction < 0.3) {
+      position = 'before';
+    } else if (fraction > 0.7) {
+      position = 'after';
+    } else {
+      position = entry.type === FileType.DIRECTORY ? 'inside' : (fraction < 0.5 ? 'before' : 'after');
+    }
+    this.dragOverPath = entry.path;
+    this.dragOverPosition = position;
+    this.cdr.markForCheck();
   }
 
   onDragLeave(entry: FileInfo): void {
-    if (this.dropTargetPath === entry.path) {
-      this.dropTargetPath = null;
+    if (this.dragOverPath === entry.path) {
+      this.dragOverPath = null;
+      this.dragOverPosition = null;
+      this.cdr.markForCheck();
     }
   }
 
@@ -830,12 +868,17 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
 
     // For external OS drops, don't stopPropagation - let Wails' window handler fire wails:file-drop
     if (this.hasExternalFiles(event)) {
-      this.dropTargetPath = null;
+      this.dragOverPath = null;
+      this.dragOverPosition = null;
+      this.cdr.markForCheck();
       return;
     }
 
     event.stopPropagation();
-    this.dropTargetPath = null;
+    const capturedPosition = this.dragOverPosition;
+    this.dragOverPath = null;
+    this.dragOverPosition = null;
+    this.cdr.markForCheck();
 
     const draggedEntries = this.readDraggedEntries(event);
     if (!draggedEntries.length) return;
@@ -843,7 +886,8 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
     const source = this.buildSourceFromEntries(draggedEntries);
     if (!source.length) return;
 
-    const target = entry.type === FileType.DIRECTORY
+    const goInto = capturedPosition === 'inside' && entry.type === FileType.DIRECTORY;
+    const target = goInto
       ? entry
       : ({ ...entry, path: parentPath(entry.path), type: FileType.DIRECTORY } as FileInfo);
 

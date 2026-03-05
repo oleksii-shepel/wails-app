@@ -92,7 +92,7 @@ import { createSubject } from '@epikodelabs/streamix';
         <div class="resolution-btns">
           <button class="res-btn" (click)="resolveConflict('skip')">Skip</button>
           <button class="res-btn primary" (click)="resolveConflict('overwrite')">Replace</button>
-          <button class="res-btn" (click)="resolveConflict('rename')">Keep Both</button>
+          <button class="res-btn" *ngIf="canKeepBoth" (click)="resolveConflict('rename')">Keep Both</button>
           <button class="res-btn danger" (click)="resolveConflict('cancel')">Cancel All</button>
         </div>
 
@@ -356,7 +356,7 @@ import { createSubject } from '@epikodelabs/streamix';
     /* ── Resolution buttons ── */
     .resolution-btns {
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
+      grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
       gap: 6px;
       padding: 10px 14px 8px;
     }
@@ -456,6 +456,18 @@ export class OperationToastComponent implements OnChanges, OnInit, OnDestroy {
     return ['completed', 'error', 'cancelled'].includes(this.operation.status);
   }
 
+  get canKeepBoth() {
+    if (this.operation?.config?.kind !== 'move') return true;
+
+    const src = this.operation.conflictData?.sourcePath;
+    const dst = this.operation.conflictData?.destPath;
+    if (!src || !dst) return true; // fallback: allow if uncertain
+
+    const srcDir = this.parentDir(src);
+    const dstDir = this.parentDir(dst);
+    return srcDir !== dstDir; // allow keep-both when moving into a different folder
+  }
+
   get currentFileName() {
     const p = this.operation.metrics.currentFile || '';
     return p.split(/[\\/]/).pop() || p;
@@ -472,11 +484,18 @@ export class OperationToastComponent implements OnChanges, OnInit, OnDestroy {
     return parts.slice(0, -1).join('/') || '/';
   }
 
+  private parentDir(path: string): string {
+    const parts = path.split(/[\\/]/);
+    parts.pop();
+    return parts.join('/') || '/';
+  }
+
   onCancel(e: Event)  { e.stopPropagation(); this.cancel.emit(this.operation.id); }
   onDismiss(e: Event) { e.stopPropagation(); this.clearTimer(); this.dismiss.emit(this.operation.id); }
 
   async resolveConflict(resolution: ConflictResolution) {
     if (this.isResolving) return;
+    if (resolution === 'rename' && !this.canKeepBoth) return;
     this.isResolving = true;
     this.resolve.emit({
       conflictId: this.operation.conflictData?.conflictId || this.operation.id,

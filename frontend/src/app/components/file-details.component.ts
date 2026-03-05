@@ -89,7 +89,9 @@ export interface ColumnDef {
             [style.height.px]="virtualEnabled ? rowHeight : null"
             [class.selected]="isSelected(entry)"
             [class.parent-dir]="isParentEntry(entry)"
-            [class.drop-target]="isDropTarget(entry)"
+            [class.drag-over]="isDragOverInside(entry)"
+            [class.drag-over-before]="isDragOverBefore(entry)"
+            [class.drag-over-after]="isDragOverAfter(entry)"
             [attr.role]="'row'"
             [attr.aria-selected]="isSelected(entry)"
             [draggable]="!isParentEntry(entry)"
@@ -101,6 +103,8 @@ export interface ColumnDef {
             (dragover)="onDragOver($event, entry)"
             (dragleave)="onDragLeave(entry)"
             (drop)="onDrop($event, entry)">
+            <div *ngIf="isDragOverBefore(entry)" class="drop-indicator drop-indicator-before"></div>
+            <div *ngIf="isDragOverAfter(entry)" class="drop-indicator drop-indicator-after"></div>
             
             <div 
               *ngFor="let col of columns; let i = index"
@@ -168,7 +172,8 @@ export interface ColumnDef {
       padding: 0 var(--vsc-padding-md);
       border-bottom: 1px solid transparent;
       flex-shrink: 0;
-      contain: layout style paint;
+      contain: layout style;
+      position: relative;
       
       &.header-row {
         height: 28px;
@@ -206,7 +211,31 @@ export interface ColumnDef {
           outline-offset: -1px;
           background: var(--vsc-list-hover-background);
         }
+
+        &.drag-over {
+          background-color: var(--vsc-list-drop-background, rgba(0, 120, 212, 0.2));
+          outline: 1px dashed var(--vsc-focus-border);
+          outline-offset: -1px;
+        }
       }
+    }
+
+    .drop-indicator {
+      position: absolute;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background-color: var(--vsc-focus-border, #0078d4);
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    .drop-indicator-before {
+      top: -1px;
+    }
+
+    .drop-indicator-after {
+      bottom: -1px;
     }
 
     .details-cell {
@@ -422,7 +451,8 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   private viewportHeight = 0;
 
   private anchorPath: string | null = null;
-  private dropTargetPath: string | null = null;
+  dragOverPath: string | null = null;
+  dragOverPosition: 'before' | 'after' | 'inside' | null = null;
   isBackgroundDropTarget = false;
   private marqueeContainer: HTMLElement | null = null;
   private marqueeStartX = 0;
@@ -685,7 +715,19 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   }
 
   isDropTarget(entry: FileInfo): boolean {
-    return this.dropTargetPath === entry.path;
+    return this.dragOverPath === entry.path && this.dragOverPosition === 'inside';
+  }
+
+  isDragOverBefore(entry: FileInfo): boolean {
+    return this.dragOverPath === entry.path && this.dragOverPosition === 'before';
+  }
+
+  isDragOverAfter(entry: FileInfo): boolean {
+    return this.dragOverPath === entry.path && this.dragOverPosition === 'after';
+  }
+
+  isDragOverInside(entry: FileInfo): boolean {
+    return this.dragOverPath === entry.path && this.dragOverPosition === 'inside';
   }
 
   onRowClick(entry: FileInfo, event: MouseEvent): void {
@@ -987,29 +1029,32 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   }
 
   onDragOver(event: DragEvent, entry: FileInfo): void {
-    // Always prevent default for external files
-    if (this.hasExternalFiles(event)) {
-      event.preventDefault();
-      if (event.dataTransfer) {
-        event.dataTransfer.dropEffect = event.ctrlKey || event.metaKey ? 'copy' : 'move';
-      }
-      this.dropTargetPath = entry.path;
-      return;
-    }
-    
-    // For internal drags, only allow drops on directories
-    if (this.isParentEntry(entry) || entry.type !== FileType.DIRECTORY) return;
+    if (this.isParentEntry(entry)) return;
     event.preventDefault();
-    
     if (event.dataTransfer) {
       event.dataTransfer.dropEffect = event.ctrlKey || event.metaKey ? 'copy' : 'move';
     }
-    this.dropTargetPath = entry.path;
+    const el = event.currentTarget as HTMLElement;
+    const rect = el.getBoundingClientRect();
+    const fraction = rect.height > 0 ? (event.clientY - rect.top) / rect.height : 0.5;
+    let position: 'before' | 'after' | 'inside';
+    if (fraction < 0.3) {
+      position = 'before';
+    } else if (fraction > 0.7) {
+      position = 'after';
+    } else {
+      position = entry.type === FileType.DIRECTORY ? 'inside' : (fraction < 0.5 ? 'before' : 'after');
+    }
+    this.dragOverPath = entry.path;
+    this.dragOverPosition = position;
+    this.cdr.markForCheck();
   }
 
   onDragLeave(entry: FileInfo): void {
-    if (this.dropTargetPath === entry.path) {
-      this.dropTargetPath = null;
+    if (this.dragOverPath === entry.path) {
+      this.dragOverPath = null;
+      this.dragOverPosition = null;
+      this.cdr.markForCheck();
     }
   }
 
@@ -1019,12 +1064,17 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
 
     // For external OS drops, don't stopPropagation - let Wails' window handler fire wails:file-drop
     if (this.hasExternalFiles(event)) {
-      this.dropTargetPath = null;
+      this.dragOverPath = null;
+      this.dragOverPosition = null;
+      this.cdr.markForCheck();
       return;
     }
 
     event.stopPropagation();
-    this.dropTargetPath = null;
+    const capturedPosition = this.dragOverPosition;
+    this.dragOverPath = null;
+    this.dragOverPosition = null;
+    this.cdr.markForCheck();
 
     const draggedEntries = this.readDraggedEntries(event);
     if (!draggedEntries.length) return;
@@ -1032,7 +1082,8 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     const source = this.buildSourceFromEntries(draggedEntries);
     if (!source.length) return;
 
-    const target = entry.type === FileType.DIRECTORY
+    const goInto = capturedPosition === 'inside' && entry.type === FileType.DIRECTORY;
+    const target = goInto
       ? entry
       : ({ ...entry, path: parentPath(entry.path), type: FileType.DIRECTORY } as FileInfo);
 

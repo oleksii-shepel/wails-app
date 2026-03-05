@@ -8,13 +8,14 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/mholt/archiver/v3"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // ============================================================================
@@ -185,7 +186,7 @@ func (a *App) checkConflict(
 	// Register before emitting to avoid a race if the frontend responds instantly.
 	pc := globalConflicts.register(conflictID)
 	if a.ctx != nil {
-		runtime.EventsEmit(a.ctx, "operation:conflict", evt)
+		wruntime.EventsEmit(a.ctx, "operation:conflict", evt)
 	}
 
 	select {
@@ -223,13 +224,36 @@ func applyResolution(res ConflictResolution, dst string) (string, bool, error) {
 func uniqueDestination(dst string) (string, error) {
 	ext := filepath.Ext(dst)
 	base := dst[:len(dst)-len(ext)]
+
+	// Try the canonical "_copy" first, then numeric suffixes: _copy2, _copy3, ...
+	if candidate := fmt.Sprintf("%s_copy%s", base, ext); pathAvailable(candidate) {
+		return candidate, nil
+	}
+
 	for i := 2; i <= 999; i++ {
-		candidate := fmt.Sprintf("%s (%d)%s", base, i, ext)
-		if _, err := os.Lstat(candidate); os.IsNotExist(err) {
+		candidate := fmt.Sprintf("%s_copy%d%s", base, i, ext)
+		if pathAvailable(candidate) {
 			return candidate, nil
 		}
 	}
 	return "", fmt.Errorf("could not find a free name for %q", dst)
+}
+
+// pathAvailable reports whether a path does not already exist.
+func pathAvailable(path string) bool {
+	_, err := os.Lstat(path)
+	return os.IsNotExist(err)
+}
+
+// sameDir reports whether two directory paths refer to the same location,
+// using case-insensitive comparison on Windows and case-sensitive elsewhere.
+func sameDir(a, b string) bool {
+	ca := filepath.Clean(a)
+	cb := filepath.Clean(b)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(ca, cb)
+	}
+	return ca == cb
 }
 
 // ============================================================================
@@ -364,6 +388,20 @@ func (a *App) BatchCopy(req BatchRequest) (*BatchResult, error) {
 // ============================================================================
 
 func (a *App) BatchMove(req BatchRequest) (*BatchResult, error) {
+	// Pre-scan: if every item is a no-op move within the same directory, skip the operation entirely.
+	allNoOp := true
+	for _, item := range req.Items {
+		srcDir := filepath.Dir(item.Source)
+		dstDir := filepath.Dir(item.Destination)
+		if !sameDir(srcDir, dstDir) {
+			allNoOp = false
+			break
+		}
+	}
+	if allNoOp {
+		return &BatchResult{Total: len(req.Items), Skipped: len(req.Items)}, nil
+	}
+
 	op := a.operations.StartOperation(OpMove, "Batch move", "", "")
 
 	var totalItems, totalBytes int64
@@ -381,6 +419,15 @@ func (a *App) BatchMove(req BatchRequest) (*BatchResult, error) {
 	for _, item := range req.Items {
 		if op.IsCancelled() || (blanket != nil && *blanket == ConflictCancel) {
 			break
+		}
+
+		// No-op: moving within the same directory should do nothing.
+		// This avoids surfacing a conflict dialog and mirrors common UX (skip silently).
+		srcDir := filepath.Dir(item.Source)
+		dstDir := filepath.Dir(item.Destination)
+		if sameDir(srcDir, dstDir) {
+			result.Skipped++
+			continue
 		}
 
 		srcInfo, err := os.Stat(item.Source)

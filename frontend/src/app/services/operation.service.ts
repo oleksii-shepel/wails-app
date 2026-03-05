@@ -321,14 +321,21 @@ export class OperationService implements OnDestroy {
         this.pendingConflicts.delete(conflictId);
         this.conflictsSubject.next(Array.from(this.pendingConflicts.values()));
 
-        // Resume the operation if no more conflicts pending for this operation
+        // Resume or hide the operation depending on the user's choice
         if (conflict && !this.hasPendingConflictsForOperation(conflict.operationId)) {
           const op = this.operationsMap.get(conflict.operationId);
-          if (op && op.status === 'paused') {
-            op.status = 'running';
+          if (op) {
             op.error = undefined;
             op.conflictData = undefined;
-            this.emitOperations();
+
+            // Skip/Cancel: immediately dismiss the toast so no moving dialog is shown again
+            if (resolution === 'skip' || resolution === 'cancel') {
+              this.dismiss(conflict.operationId);
+            } else if (op.status === 'paused') {
+              // For overwrite/rename, let it continue
+              op.status = 'running';
+              this.emitOperations();
+            }
           }
         }
       }

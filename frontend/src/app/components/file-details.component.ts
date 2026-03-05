@@ -10,6 +10,8 @@ import {
   SimpleChanges,
   ElementRef,
   ViewChild,
+  ViewChildren,
+  QueryList,
   NgZone,
   ChangeDetectionStrategy,
   ChangeDetectorRef,
@@ -117,7 +119,8 @@ export interface ColumnDef {
                 <app-file-entry
                   [entry]="entry"
                   [selected]="isSelected(entry)"
-                  variant="inline">
+                  variant="inline"
+                  (rename)="onRename($event)">
                 </app-file-entry>
               </ng-container>
               
@@ -418,6 +421,7 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   ) {}
 
   @ViewChild('detailsBody') detailsBodyRef?: ElementRef<HTMLElement>;
+  @ViewChildren(FileEntryComponent) fileEntryComponents?: QueryList<FileEntryComponent>;
 
   @Input() entries: FileInfo[] = [];
   @Input() selectedFiles: Set<string> = new Set();
@@ -437,6 +441,7 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   @Output() contextMenu = new EventEmitter<{ event: MouseEvent; entry: FileInfo }>();
   @Output() dragStart = new EventEmitter<{ event: DragEvent; entries: FileInfo[] }>();
   @Output() dragDrop = new EventEmitter<{ event: DragEvent; source: FileInfo[]; target: FileInfo }>();
+  @Output() rename = new EventEmitter<{ entry: FileInfo; newName: string }>();
 
   private readonly VIRTUAL_THRESHOLD = 100;
   private readonly DEFAULT_ROW_HEIGHT = 24;
@@ -468,6 +473,52 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   private windowMouseUp?: (event: MouseEvent) => void;
   private windowContextMenu?: (event: MouseEvent) => void;
   private readonly MIN_COLUMN_WIDTH = 80;
+
+  onRename(event: { entry: FileInfo; newName: string }): void {
+    this.rename.emit(event);
+  }
+
+  /** Called by parent (eg. on F2) to begin in-place rename for the current selection. */
+  startRenameSelected(): void {
+    const selectedPath = this.getFirstSelectedPathInOrder();
+    if (!selectedPath) return;
+    this.startRenameByPath(selectedPath);
+  }
+
+  private getFirstSelectedPathInOrder(): string | null {
+    if (!this.selectedFiles?.size) return null;
+    for (const entry of this.entries) {
+      if (!entry || this.isParentEntry(entry)) continue;
+      if (this.selectedFiles.has(entry.path)) return entry.path;
+    }
+    return null;
+  }
+
+  private startRenameByPath(path: string): void {
+    if (!path || path === PARENT_ENTRY_PATH) return;
+    const host = this.detailsBodyRef?.nativeElement;
+    if (host) {
+      if (this.virtualEnabled) {
+        const idx = this.entries.findIndex(e => e.path === path);
+        if (idx >= 0) {
+          const targetTop = idx * this.rowHeight;
+          const centerOffset = host.clientHeight / 2 - this.rowHeight / 2;
+          host.scrollTop = Math.max(0, targetTop - centerOffset);
+          this.updateVirtualWindow();
+          this.cdr.markForCheck();
+        }
+      } else {
+        const el = host.querySelector<HTMLElement>(`.details-row[data-path="${CSS.escape(path)}"]`);
+        el?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      }
+    }
+
+    requestAnimationFrame(() => {
+      const comp = this.fileEntryComponents?.find(c => c.entry?.path === path);
+      comp?.beginRename();
+      this.cdr.markForCheck();
+    });
+  }
   private columnWidths = new Map<string, number>();
   private resizingColumnKey: string | null = null;
   private resizeStartX = 0;

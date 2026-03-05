@@ -44,7 +44,8 @@ export type ViewLayout = ViewMode;
           (openInNewTab)="onOpenInNewTab($event)"
           (contextMenu)="onContextMenu($event)"
           (dragStart)="onViewDragStart($event)"
-          (dragDrop)="onViewDragDrop($event)">
+          (dragDrop)="onViewDragDrop($event)"
+          (rename)="rename.emit($event)">
         </app-file-list>
 
         <app-file-grid
@@ -56,7 +57,8 @@ export type ViewLayout = ViewMode;
           (openInNewTab)="onOpenInNewTab($event)"
           (contextMenu)="onContextMenu($event)"
           (dragStart)="onViewDragStart($event)"
-          (dragDrop)="onViewDragDrop($event)">
+          (dragDrop)="onViewDragDrop($event)"
+          (rename)="rename.emit($event)">
         </app-file-grid>
 
         <app-file-tree
@@ -89,7 +91,8 @@ export type ViewLayout = ViewMode;
           (sort)="onSortChange($event)"
           (contextMenu)="onContextMenu($event)"
           (dragStart)="onViewDragStart($event)"
-          (dragDrop)="onViewDragDrop($event)">
+          (dragDrop)="onViewDragDrop($event)"
+          (rename)="rename.emit($event)">
         </app-file-details>
       </div>
     </div>
@@ -137,6 +140,9 @@ export type ViewLayout = ViewMode;
 })
 export class FileViewContainerComponent implements OnChanges, OnDestroy {
   @ViewChild('fileTree') treeComponent?: FileTreeComponent;
+  @ViewChild(FileListComponent) listComponent?: FileListComponent;
+  @ViewChild(FileGridComponent) gridComponent?: FileGridComponent;
+  @ViewChild(FileDetailsComponent) detailsComponent?: FileDetailsComponent;
 
   @Input() paneId: 'left' | 'right' = 'left';
   @Input() showHidden    = false;
@@ -261,6 +267,30 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
       entry: this.treeNodeToFileInfo(event.node),
       newName: event.newName
     });
+  }
+
+  /** Trigger in-place rename for the currently selected item in the active view (eg. on F2). */
+  startRenameSelected(): void {
+    switch (this.currentView) {
+      case 'list':
+        this.listComponent?.startRenameSelected();
+        return;
+      case 'grid':
+        this.gridComponent?.startRenameSelected();
+        return;
+      case 'details':
+        this.detailsComponent?.startRenameSelected();
+        return;
+      case 'tree':
+        try {
+          (this.treeComponent as any)?.startRenameFocused?.();
+        } catch {
+          // ignore
+        }
+        return;
+      default:
+        return;
+    }
   }
 
   onTreeOpenInNewTab(node: TreeNode): void {

@@ -10,6 +10,8 @@ import {
   SimpleChanges,
   ElementRef,
   ViewChild,
+  ViewChildren,
+  QueryList,
   NgZone,
   ChangeDetectionStrategy,
   ChangeDetectorRef,
@@ -64,7 +66,8 @@ import { parentPath } from './address-bar.utils';
             [entry]="parentEntry"
             [selected]="isSelected(parentEntry)"
             (select)="onSelect($event)"
-            (navigate)="onNavigate($event)">
+            (navigate)="onNavigate($event)"
+            (rename)="onRename($event)">
           </app-file-entry>
         </div>
 
@@ -96,7 +99,8 @@ import { parentPath } from './address-bar.utils';
               [entry]="entry"
               [selected]="isSelected(entry)"
               (select)="onSelect($event)"
-              (navigate)="onNavigate($event)">
+              (navigate)="onNavigate($event)"
+              (rename)="onRename($event)">
             </app-file-entry>
           </div>
         </div>
@@ -277,6 +281,7 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
 
   @ViewChild('paneContent') paneContentRef?: ElementRef<HTMLElement>;
   @ViewChild('parentRow') parentRowRef?: ElementRef<HTMLElement>;
+  @ViewChildren(FileEntryComponent) fileEntryComponents?: QueryList<FileEntryComponent>;
 
   @Input() entries: FileInfo[] = [];
   @Input() selectedFiles: Set<string> = new Set();
@@ -289,6 +294,7 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
   @Output() contextMenu = new EventEmitter<{ event: MouseEvent; entry: FileInfo }>();
   @Output() dragStart = new EventEmitter<{ event: DragEvent; entries: FileInfo[] }>();
   @Output() dragDrop = new EventEmitter<{ event: DragEvent; source: FileInfo[]; target: FileInfo }>();
+  @Output() rename = new EventEmitter<{ entry: FileInfo; newName: string }>();
 
   private readonly VIRTUAL_THRESHOLD = 100;
   private readonly DEFAULT_ROW_HEIGHT = 44;
@@ -560,6 +566,54 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
 
   onNavigate(entry: FileInfo): void {
     this.navigate.emit(entry);
+  }
+
+  onRename(event: { entry: FileInfo; newName: string }): void {
+    this.rename.emit(event);
+  }
+
+  /** Called by parent (eg. on F2) to begin in-place rename for the current selection. */
+  startRenameSelected(): void {
+    const selectedPath = this.getFirstSelectedPathInOrder();
+    if (!selectedPath) return;
+    this.startRenameByPath(selectedPath);
+  }
+
+  private getFirstSelectedPathInOrder(): string | null {
+    if (!this.selectedFiles?.size) return null;
+    for (const entry of this.entries) {
+      if (!entry || this.isParentEntry(entry)) continue;
+      if (this.selectedFiles.has(entry.path)) return entry.path;
+    }
+    return null;
+  }
+
+  private startRenameByPath(path: string): void {
+    if (!path || path === PARENT_ENTRY_PATH) return;
+
+    const host = this.paneContentRef?.nativeElement;
+    if (host) {
+      if (this.virtualEnabled) {
+        const idx = this.virtualEntries.findIndex(e => e.path === path);
+        if (idx >= 0) {
+          const parentOffset = this.parentEntry ? this.parentRowHeight : 0;
+          const targetTop = idx * this.rowHeight;
+          const centerOffset = host.clientHeight / 2 - this.rowHeight / 2;
+          host.scrollTop = Math.max(0, parentOffset + targetTop - centerOffset);
+          this.updateVirtualWindow();
+          this.cdr.markForCheck();
+        }
+      } else {
+        const el = host.querySelector<HTMLElement>(`.file-list-row[data-path="${CSS.escape(path)}"]`);
+        el?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      }
+    }
+
+    requestAnimationFrame(() => {
+      const comp = this.fileEntryComponents?.find(c => c.entry?.path === path);
+      comp?.beginRename();
+      this.cdr.markForCheck();
+    });
   }
 
   onBackgroundClick(event: MouseEvent): void {

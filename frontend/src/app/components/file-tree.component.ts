@@ -1195,6 +1195,15 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
     }, 0);
   }
 
+  /** Public helper for parent components to trigger rename on the focused node (eg. global F2). */
+  startRenameFocused(): void {
+    const visible = this.getVisibleNodes();
+    if (visible.length === 0) return;
+    const currentIdx = visible.findIndex(n => n.path === this.focusedNodePath);
+    const current = currentIdx >= 0 ? visible[currentIdx] : visible[0];
+    if (current) this.startRename(current);
+  }
+
   onRenameBlur(node: TreeNode): void {
     this.commitRename(node);
   }

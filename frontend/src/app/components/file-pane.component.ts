@@ -1137,7 +1137,11 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     if (selected.length !== 1) return;
     const entry = this.entries.find(e => e.path === selected[0]);
     if (!entry || entry.path === PARENT_ENTRY_PATH) return;
-    await this.renameEntry(entry);
+    if (this.isInArchive()) {
+      this.confirmDialog.alert('Archive Limitation\nRename is not supported inside archives.');
+      return;
+    }
+    this.fileViewContainer?.startRenameSelected();
   }
 
   async onRename(event: { entry: FileInfo; newName: string }): Promise<void> {
@@ -1714,7 +1718,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
 
     if (entry.path === PARENT_ENTRY_PATH) return;
 
-    const nextName = (forcedName ?? prompt('Rename to:', entry.name) ?? '').trim();
+    const nextName = (forcedName ?? '').trim();
     if (!nextName || nextName === entry.name) return;
 
     try {

@@ -1,4 +1,4 @@
-import { Component, Input, Output, EventEmitter, HostBinding } from '@angular/core';
+import { Component, Input, Output, EventEmitter, HostBinding, ElementRef, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FileInfo, FileType } from '../shared/protocol';
 
@@ -46,7 +46,20 @@ export const PARENT_ENTRY_PATH = '__parent__';
       </span>
 
       <div class="file-info">
-        <div class="file-name">{{ entry.name }}</div>
+        <div class="file-name">
+          <input
+            *ngIf="isRenaming"
+            #renameInput
+            class="rename-input"
+            [value]="editingName"
+            (click)="$event.stopPropagation()"
+            (dblclick)="$event.stopPropagation()"
+            (mousedown)="$event.stopPropagation()"
+            (input)="onRenameInput($event)"
+            (blur)="onRenameBlur()"
+            (keydown)="onRenameKeyDown($event)" />
+          <span *ngIf="!isRenaming">{{ entry.name }}</span>
+        </div>
         <div class="file-details" *ngIf="!isParentEntry()">
           <span class="file-size">{{ formatSize(entry.size) }}</span>
           <span class="file-date">{{ formatDate(entry.modified) }}</span>
@@ -98,11 +111,32 @@ export const PARENT_ENTRY_PATH = '__parent__';
       .file-info { flex: 1; min-width: 0; }
 
       .file-name {
+        display: flex;
+        align-items: center;
         font-size: var(--vsc-font-size);
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
         line-height: 1.4;
+      }
+
+      .rename-input {
+        width: 100%;
+        min-width: 0;
+        box-sizing: border-box;
+        font: inherit;
+        line-height: inherit;
+        color: var(--vsc-input-foreground);
+        background: var(--vsc-input-background);
+        border: 1px solid var(--vsc-input-border);
+        border-radius: var(--vsc-border-radius-sm);
+        padding: var(--vsc-padding-xs) var(--vsc-padding-sm);
+        outline: none;
+      }
+
+      .rename-input:focus {
+        border-color: var(--vsc-input-focus-border);
+        box-shadow: 0 0 0 1px var(--vsc-input-focus-border);
       }
 
       .file-details {
@@ -201,6 +235,10 @@ export const PARENT_ENTRY_PATH = '__parent__';
       pointer-events: none;
     }
 
+    :host(.variant-inline).renaming .file-entry {
+      pointer-events: auto;
+    }
+
     :host(.variant-inline) .file-entry:hover,
     :host(.variant-inline) .file-entry.selected {
       background: transparent;
@@ -257,6 +295,10 @@ export const PARENT_ENTRY_PATH = '__parent__';
       line-height: 1.3;
     }
 
+    :host(.variant-grid).renaming .file-entry {
+      pointer-events: auto;
+    }
+
     :host(.variant-grid) .file-icon {
       width: 48px;
       height: 48px;
@@ -278,6 +320,12 @@ export class FileEntryComponent {
 
   @Output() select   = new EventEmitter<FileEntrySelectEvent>();
   @Output() navigate = new EventEmitter<FileInfo>();
+  @Output() rename = new EventEmitter<{ entry: FileInfo; newName: string }>();
+
+  @ViewChild('renameInput') renameInput?: ElementRef<HTMLInputElement>;
+
+  isRenaming = false;
+  editingName = '';
 
   FileType = FileType;
 
@@ -287,6 +335,10 @@ export class FileEntryComponent {
 
   @HostBinding('class.variant-grid') get isGridVariant(): boolean {
     return this.variant === 'grid';
+  }
+
+  @HostBinding('class.renaming') get isRenamingHost(): boolean {
+    return this.isRenaming;
   }
 
   isParentEntry(): boolean {
@@ -314,8 +366,65 @@ export class FileEntryComponent {
     }
   }
 
-  onClick(mouseEvent: MouseEvent): void { this.select.emit({ entry: this.entry, mouseEvent }); }
-  onDoubleClick(): void { this.navigate.emit(this.entry); }
+  onClick(mouseEvent: MouseEvent): void {
+    if (this.isRenaming) return;
+    this.select.emit({ entry: this.entry, mouseEvent });
+  }
+
+  onDoubleClick(): void {
+    if (this.isRenaming) return;
+    this.navigate.emit(this.entry);
+  }
+
+  /** Begin in-place rename. Parent components can call this (eg. for F2). */
+  beginRename(): void {
+    if (!this.entry || this.isParentEntry()) return;
+    this.isRenaming = true;
+    this.editingName = this.entry.name;
+    setTimeout(() => {
+      const input = this.renameInput?.nativeElement;
+      if (!input) return;
+      input.focus();
+      input.select();
+    }, 0);
+  }
+
+  private commitRename(): void {
+    if (!this.isRenaming) return;
+    const newName = (this.editingName ?? '').trim();
+    this.isRenaming = false;
+    if (!newName || newName === this.entry.name) return;
+    this.rename.emit({ entry: this.entry, newName });
+  }
+
+  private cancelRename(): void {
+    this.isRenaming = false;
+    this.editingName = '';
+  }
+
+  onRenameInput(event: Event): void {
+    const target = event.target as HTMLInputElement | null;
+    this.editingName = target?.value ?? '';
+  }
+
+  onRenameBlur(): void {
+    // Commit on blur to match common file manager UX.
+    this.commitRename();
+  }
+
+  onRenameKeyDown(event: KeyboardEvent): void {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      event.stopPropagation();
+      this.commitRename();
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      this.cancelRename();
+    } else {
+      event.stopPropagation();
+    }
+  }
 
   private extIcon(name: string): string {
     const ext = name.split('.').pop()?.toLowerCase();

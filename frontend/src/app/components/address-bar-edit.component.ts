@@ -23,13 +23,22 @@ interface TabSession {
   imports: [CommonModule, FormsModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="ab-edit-wrap">
-      <!-- Edit input row -->
+    <div class="ab-wrap">
+
+      <!-- ── Input row ── -->
       <div class="ab-edit" [class.ab-edit--open]="suggestions.length > 0">
-        <span class="ab-edit-icon">📂</span>
+
+        <!-- Folder SVG icon -->
+        <span class="ab-icon" aria-hidden="true">
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+            <path d="M1 4C1 3.45 1.45 3 2 3H5.5L7 4.5H13C13.55 4.5 14 4.95 14 5.5v7C14 13.1 13.55 13.5 13 13.5H2C1.45 13.5 1 13.1 1 12.5V4z"
+                  fill="var(--vsc-folder-fill, #dcb67a)"/>
+          </svg>
+        </span>
+
         <input
           #editInput
-          class="ab-edit-input"
+          class="ab-input"
           type="text"
           [(ngModel)]="value"
           (ngModelChange)="onValueChange($event)"
@@ -42,131 +51,409 @@ interface TabSession {
           autocomplete="off"
           spellcheck="false"
         />
-        <button class="ab-btn ab-btn--cancel" (click)="cancelEdit()" title="Cancel (Esc)" aria-label="Cancel">✕</button>
+
+        <button
+          class="ab-cancel"
+          (click)="cancelEdit()"
+          title="Cancel (Esc)"
+          aria-label="Cancel"
+        >
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+            <path d="M1 1l8 8M9 1L1 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </button>
       </div>
 
-      <!-- Autocomplete dropdown (anchored to the full-width wrapper) -->
+      <!-- ── Autocomplete dropdown ── -->
       <div
-        class="ab-dropdown ab-autocomplete"
+        class="ab-dropdown"
         *ngIf="suggestions.length > 0"
+        role="listbox"
+        aria-label="Path suggestions"
         (mousedown)="$event.preventDefault()"
       >
-        <div class="ab-drop-scroll">
-          <div
-            *ngFor="let s of suggestions; let i = index"
-            class="ab-drop-item ab-ac-item"
-            [class.ab-drop-item--focused]="acIdx === i"
-            (mouseenter)="acIdx = i"
-            (mousedown)="acceptSuggestion(s, $event)"
-          >
-            <span class="ab-ac-path" [innerHTML]="highlight(s.path, value)"></span>
-          </div>
+        <!-- Top hairline separator -->
+        <div class="ab-separator"></div>
+
+        <div class="ab-scroll">
+
+          <!-- Group: filesystem directories -->
+          <ng-container *ngIf="dirSuggestions.length > 0">
+            <div class="ab-group-label" role="presentation">
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+                <path d="M0.5 2C0.5 1.45 0.95 1 1.5 1H3.5L4.5 2H8.5C9.05 2 9.5 2.45 9.5 3v5.5C9.5 9.05 9.05 9.5 8.5 9.5H1.5C0.95 9.5 0.5 9.05 0.5 8.5V2z"
+                      fill="var(--vsc-folder-fill, #dcb67a)" fill-opacity="0.85"/>
+              </svg>
+              Directories
+              <span class="ab-group-rule"></span>
+            </div>
+
+            <div
+              *ngFor="let s of dirSuggestions; let i = index"
+              class="ab-item"
+              role="option"
+              [attr.aria-selected]="acIdx === globalIndex('dir', i)"
+              [class.ab-item--focused]="acIdx === globalIndex('dir', i)"
+              (mouseenter)="acIdx = globalIndex('dir', i)"
+              (mousedown)="acceptSuggestion(s, $event)"
+            >
+              <span class="ab-item-icon" aria-hidden="true">
+                <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                  <path d="M1 3C1 2.45 1.45 2 2 2H4.8L6 3.2H11C11.55 3.2 12 3.65 12 4.2v6.3C12 11.05 11.55 11.5 11 11.5H2C1.45 11.5 1 11.05 1 10.5V3z"
+                        fill="var(--vsc-folder-fill, #dcb67a)"/>
+                </svg>
+              </span>
+              <span class="ab-item-path" [innerHTML]="highlight(s.path, value)"></span>
+              <span class="ab-item-badge ab-item-badge--dir">dir</span>
+            </div>
+          </ng-container>
+
+          <!-- Group: history / recent -->
+          <ng-container *ngIf="histSuggestions.length > 0">
+            <div class="ab-group-label" [class.ab-group-label--spaced]="dirSuggestions.length > 0" role="presentation">
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+                <circle cx="5" cy="5" r="4.25" stroke="var(--vsc-accent-blue, #007acc)" stroke-width="1.1"/>
+                <path d="M5 2.5v2.8l1.8 1" stroke="var(--vsc-accent-blue, #007acc)" stroke-width="1.1" stroke-linecap="round"/>
+              </svg>
+              Recent
+              <span class="ab-group-rule"></span>
+            </div>
+
+            <div
+              *ngFor="let s of histSuggestions; let i = index"
+              class="ab-item"
+              role="option"
+              [attr.aria-selected]="acIdx === globalIndex('hist', i)"
+              [class.ab-item--focused]="acIdx === globalIndex('hist', i)"
+              (mouseenter)="acIdx = globalIndex('hist', i)"
+              (mousedown)="acceptSuggestion(s, $event)"
+            >
+              <span class="ab-item-icon ab-item-icon--hist" aria-hidden="true">
+                <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                  <circle cx="6.5" cy="6.5" r="5.25" stroke="var(--vsc-accent-blue, #007acc)" stroke-width="1.1"/>
+                  <path d="M6.5 3.5v3.2l2 1.1" stroke="var(--vsc-accent-blue, #007acc)" stroke-width="1.1" stroke-linecap="round"/>
+                </svg>
+              </span>
+              <span class="ab-item-path" [innerHTML]="highlight(s.path, value)"></span>
+              <span class="ab-item-badge ab-item-badge--hist">recent</span>
+            </div>
+          </ng-container>
+
+        </div>
+
+        <!-- Keyboard hint footer -->
+        <div class="ab-footer" aria-hidden="true">
+          <span class="ab-hint"><kbd>↑↓</kbd> navigate</span>
+          <span class="ab-hint"><kbd>↵</kbd> open</span>
+          <span class="ab-hint"><kbd>Tab</kbd> complete</span>
+          <span class="ab-hint"><kbd>Esc</kbd> cancel</span>
         </div>
       </div>
+
     </div>
   `,
   styles: [`
     :host { display: block; width: 100%; }
 
-    .ab-edit-wrap { position: relative; width: 100%; }
-
-    .ab-edit {
-      display: flex; align-items: center; gap: var(--vsc-padding-sm);
-      height: var(--vsc-titlebar-height); padding: 0 var(--vsc-padding-md);
-      background: var(--vsc-input-background);
-      border: 1px solid var(--vsc-input-border);
-      border-radius: var(--vsc-border-radius-sm);
+    /* ── Wrapper ────────────────────────────────────────────── */
+    .ab-wrap {
       position: relative;
+      width: 100%;
+    }
+
+    /* ── Input row ──────────────────────────────────────────── */
+    .ab-edit {
+      display: flex;
+      align-items: center;
+      gap: var(--vsc-padding-sm, 4px);
+      height: var(--vsc-titlebar-height, 35px);
+      padding: 0 var(--vsc-padding-sm, 4px) 0 var(--vsc-padding-md, 8px);
+      background: var(--vsc-input-background, #3c3c3c);
+      border: 1px solid var(--vsc-input-border, #3c3c3c);
+      border-radius: var(--vsc-border-radius, 3px);
       box-sizing: border-box;
       width: 100%;
+      transition:
+        border-color var(--vsc-transition-fast, 80ms ease),
+        box-shadow   var(--vsc-transition-fast, 80ms ease);
 
       &:focus-within {
-        border-color: var(--vsc-input-focus-border);
+        border-color: var(--vsc-input-focus-border, #007acc);
+        box-shadow: 0 0 0 1px color-mix(in srgb, var(--vsc-input-focus-border, #007acc) 30%, transparent);
       }
     }
 
+    /* When dropdown is open: square off the bottom corners and dissolve the
+       bottom border so the dropdown reads as a continuous surface. */
     .ab-edit.ab-edit--open {
       border-bottom-left-radius: 0;
       border-bottom-right-radius: 0;
-      border-bottom: none;
+      border-bottom-color: var(--vsc-panel-background, #252526);
     }
 
-    .ab-edit-icon { font-size: 14px; flex-shrink: 0; opacity: 0.8; color: var(--vsc-foreground-dim); }
-
-    .ab-edit-input {
-      flex: 1; background: transparent; border: none; outline: none;
-      color: var(--vsc-input-foreground); font-family: var(--vsc-font-family);
-      font-size: var(--vsc-font-size); caret-color: var(--vsc-input-focus-border);
-      min-width: 0; padding: 0;
-      &::placeholder { color: var(--vsc-input-placeholder); opacity: 1; }
+    .ab-edit.ab-edit--open:focus-within {
+      border-bottom-color: var(--vsc-input-focus-border, #007acc);
     }
 
-    .ab-edit-hint {
-      position: absolute; left: calc(32px + var(--vsc-padding-sm));
-      font-family: var(--vsc-font-family); font-size: var(--vsc-font-size);
-      color: var(--vsc-input-placeholder); pointer-events: none;
-      white-space: nowrap; overflow: hidden; opacity: 0.7;
+    /* Folder icon */
+    .ab-icon {
+      flex-shrink: 0;
+      width: 16px;
+      height: 16px;
+      display: grid;
+      place-items: center;
+      opacity: 0.82;
     }
 
-    .ab-btn {
-      display: flex; align-items: center; justify-content: center;
-      width: 26px; height: 26px; padding: 0; background: transparent; border: none;
-      border-radius: var(--vsc-border-radius-sm); cursor: pointer;
-      transition: background-color var(--vsc-transition-fast), color var(--vsc-transition-fast);
+    /* Monospace path input */
+    .ab-input {
+      flex: 1;
+      min-width: 0;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: var(--vsc-input-foreground, #cccccc);
+      font-family: var(--vsc-font-family-mono, Consolas, monospace);
+      font-size: var(--vsc-font-size, 13px);
+      caret-color: var(--vsc-input-focus-border, #007acc);
+      padding: 0;
+      line-height: 1;
+
+      &::placeholder {
+        color: var(--vsc-input-placeholder, #767676);
+        opacity: 1;
+        font-family: var(--vsc-font-family, sans-serif);
+        font-size: var(--vsc-font-size-small, 12px);
+        letter-spacing: 0.01em;
+      }
     }
 
-    .ab-btn--cancel {
-      font-size: 14px; color: var(--vsc-foreground-dim);
-      &:hover { background: var(--vsc-error); color: var(--vsc-foreground-bright); }
+    /* Cancel button */
+    .ab-cancel {
+      flex-shrink: 0;
+      width: 22px;
+      height: 22px;
+      display: grid;
+      place-items: center;
+      padding: 0;
+      background: transparent;
+      border: none;
+      border-radius: var(--vsc-border-radius-sm, 2px);
+      cursor: pointer;
+      color: var(--vsc-foreground-dim, #888888);
+      transition:
+        background var(--vsc-transition-fast, 80ms ease),
+        color      var(--vsc-transition-fast, 80ms ease);
+
+      &:hover {
+        background: var(--vsc-error, #f48771);
+        color: var(--vsc-foreground-bright, #ffffff);
+      }
     }
 
-    /* autocomplete dropdown */
+    /* ── Dropdown ───────────────────────────────────────────── */
     .ab-dropdown {
-      position: absolute; left: 0; right: 0;
-      top: calc(100% - 1px);
-      background-color: var(--vsc-panel-background, #252526) !important;
-      background-image: none !important;
-      border: 1px solid var(--vsc-input-border);
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: calc(100% - 1px); /* overlap the dissolved bottom border */
+      background: var(--vsc-panel-background, #252526);
+      border: 1px solid var(--vsc-input-border, #3c3c3c);
       border-top: none;
-      border-bottom-left-radius: var(--vsc-border-radius-sm);
-      border-bottom-right-radius: var(--vsc-border-radius-sm);
-      box-shadow: var(--vsc-widget-shadow); z-index: 9999; overflow: hidden;
-      animation: ab-appear var(--vsc-transition-fast) cubic-bezier(0.4, 0, 0.2, 1);
+      border-bottom-left-radius:  var(--vsc-border-radius, 3px);
+      border-bottom-right-radius: var(--vsc-border-radius, 3px);
+      box-shadow: var(--vsc-widget-shadow, 0 5px 8px rgba(0,0,0,.36));
+      z-index: var(--vsc-z-dropdown, 1000);
+      overflow: hidden;
+      transform-origin: top center;
+      animation: ab-appear 110ms cubic-bezier(0.2, 0, 0.13, 1) both;
     }
 
-    .ab-edit-wrap:focus-within .ab-dropdown {
-      border-color: var(--vsc-input-focus-border);
+    /* Inherit focus ring colour on the dropdown border */
+    .ab-wrap:focus-within .ab-dropdown {
+      border-color: var(--vsc-input-focus-border, #007acc);
     }
 
     @keyframes ab-appear {
-      from { opacity: 0; transform: translateY(-4px); }
-      to   { opacity: 1; transform: translateY(0); }
+      from { opacity: 0; transform: scaleY(0.93) translateY(-3px); }
+      to   { opacity: 1; transform: scaleY(1)    translateY(0);    }
     }
 
-    .ab-drop-scroll {
-      padding: var(--vsc-padding-xs) 0;
-      background-color: var(--vsc-panel-background, #252526) !important;
-      max-height: 280px;
+    /* Hairline separator between input and first item */
+    .ab-separator {
+      height: 1px;
+      margin: 0 10px;
+      background: var(--vsc-border, #454545);
+      opacity: 0.5;
+    }
+
+    /* Scroll area */
+    .ab-scroll {
+      max-height: 272px;
       overflow-y: auto;
-    }
+      padding: 3px 0 4px;
+      scrollbar-width: thin;
+      scrollbar-color: var(--vsc-scrollbar-thumb, #424242) transparent;
 
-    .ab-drop-item {
-      display: flex; align-items: center; gap: var(--vsc-padding-sm);
-      height: 26px; padding: 0 var(--vsc-padding-md); cursor: pointer;
-      transition: background-color var(--vsc-transition-fast);
-      border-left: 2px solid transparent; background: transparent;
-      color: var(--vsc-foreground); font-size: var(--vsc-font-size);
-      &:hover { background: var(--vsc-list-hover-background); }
-      &.ab-drop-item--focused { background: var(--vsc-list-focus-background); }
-    }
-
-    .ab-ac-path {
-      flex: 1; font-size: var(--vsc-font-size); font-family: var(--vsc-font-family);
-      color: var(--vsc-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-      ::ng-deep mark {
-        background: var(--vsc-accent-blue); color: var(--vsc-foreground-bright);
-        padding: 0 2px; border-radius: 2px; font-style: normal; font-weight: 500;
+      &::-webkit-scrollbar       { width: 6px; }
+      &::-webkit-scrollbar-track { background: transparent; }
+      &::-webkit-scrollbar-thumb {
+        background: var(--vsc-scrollbar-thumb, #424242);
+        border-radius: 3px;
+        &:hover { background: var(--vsc-scrollbar-thumb-hover, #4f4f4f); }
       }
+    }
+
+    /* ── Group label ────────────────────────────────────────── */
+    .ab-group-label {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      height: 20px;
+      padding: 0 10px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: var(--vsc-foreground-dim, #888888);
+      opacity: 0.75;
+      cursor: default;
+      user-select: none;
+
+      &.ab-group-label--spaced { margin-top: 4px; }
+    }
+
+    .ab-group-rule {
+      flex: 1;
+      height: 1px;
+      background: var(--vsc-border, #454545);
+      opacity: 0.4;
+    }
+
+    /* ── Suggestion row ─────────────────────────────────────── */
+    .ab-item {
+      display: flex;
+      align-items: center;
+      height: 26px;
+      padding: 0 10px;
+      gap: 0;
+      cursor: pointer;
+      border-left: 2px solid transparent;
+      user-select: none;
+      transition:
+        background     var(--vsc-transition-fast, 80ms ease),
+        border-color   var(--vsc-transition-fast, 80ms ease);
+
+      &:hover {
+        background: var(--vsc-list-hover-background, #2a2d2e);
+      }
+
+      &.ab-item--focused {
+        background: var(--vsc-list-active-background, #094771);
+        border-left-color: var(--vsc-accent-blue, #007acc);
+
+        .ab-item-badge { opacity: 0.55; }
+      }
+    }
+
+    /* Icon cell */
+    .ab-item-icon {
+      flex-shrink: 0;
+      width: 20px;
+      height: 20px;
+      display: grid;
+      place-items: center;
+      margin-right: 6px;
+    }
+
+    /* Monospace path text */
+    .ab-item-path {
+      flex: 1;
+      min-width: 0;
+      font-family: var(--vsc-font-family-mono, Consolas, monospace);
+      font-size: var(--vsc-font-size, 13px);
+      color: var(--vsc-foreground, #cccccc);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* Match highlight — blue tint, no yellow */
+    :host ::ng-deep .ab-item-path mark {
+      background: color-mix(in srgb, var(--vsc-accent-blue, #007acc) 22%, transparent);
+      color: #569cd6;
+      font-weight: 700;
+      border-radius: 2px;
+      padding: 0 1px;
+      /* color-mix fallback for older browsers */
+      @supports not (background: color-mix(in srgb, red 1%, blue)) {
+        background: var(--vsc-list-focus-background, #062f4a);
+      }
+    }
+
+    /* Type badge pill */
+    .ab-item-badge {
+      flex-shrink: 0;
+      margin-left: 10px;
+      display: inline-flex;
+      align-items: center;
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      line-height: 14px;
+      transition: opacity var(--vsc-transition-fast, 80ms ease);
+
+      &.ab-item-badge--dir {
+        background: color-mix(in srgb, var(--vsc-folder-fill, #dcb67a) 16%, transparent);
+        color: var(--vsc-folder-fill, #dcb67a);
+        @supports not (background: color-mix(in srgb, red 1%, blue)) {
+          background: rgba(220, 182, 122, 0.16);
+        }
+      }
+
+      &.ab-item-badge--hist {
+        background: color-mix(in srgb, var(--vsc-accent-blue, #007acc) 16%, transparent);
+        color: color-mix(in srgb, var(--vsc-accent-blue, #007acc) 80%, #fff);
+        @supports not (background: color-mix(in srgb, red 1%, blue)) {
+          background: rgba(0, 122, 204, 0.16);
+          color: #7aaccc;
+        }
+      }
+    }
+
+    /* ── Keyboard hint footer ───────────────────────────────── */
+    .ab-footer {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      height: 22px;
+      padding: 0 10px;
+      border-top: 1px solid var(--vsc-border, #454545);
+      opacity: 0.55;
+    }
+
+    .ab-hint {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      color: var(--vsc-foreground-dim, #888888);
+      white-space: nowrap;
+    }
+
+    kbd {
+      display: inline-block;
+      padding: 1px 4px;
+      background: color-mix(in srgb, var(--vsc-foreground, #cccccc) 8%, transparent);
+      border: 1px solid color-mix(in srgb, var(--vsc-border, #454545) 80%, transparent);
+      border-bottom-width: 2px;
+      border-radius: 2px;
+      font-family: var(--vsc-font-family-mono, Consolas, monospace);
+      font-size: 10px;
+      color: var(--vsc-foreground-dim, #888888);
+      line-height: 14px;
     }
   `],
 })
@@ -197,6 +484,29 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
   private idleSlashLastValue = '';
 
   highlight = highlightMatch;
+
+  /** Filesystem directory suggestions (shown in the "Directories" group). */
+  get dirSuggestions(): PathSuggestion[] {
+    return this.suggestions.filter(s => s.matchType === 'directory');
+  }
+
+  /** History / recent suggestions (shown in the "Recent" group). */
+  get histSuggestions(): PathSuggestion[] {
+    return this.suggestions.filter(s => s.matchType !== 'directory');
+  }
+
+  /**
+   * Maps a within-group index back to the flat `suggestions` index used by
+   * acIdx, so keyboard navigation and mouse hover stay in sync.
+   */
+  globalIndex(group: 'dir' | 'hist', localIndex: number): number {
+    if (group === 'dir') {
+      const item = this.dirSuggestions[localIndex];
+      return item ? this.suggestions.indexOf(item) : -1;
+    }
+    const item = this.histSuggestions[localIndex];
+    return item ? this.suggestions.indexOf(item) : -1;
+  }
 
   constructor(
     private pathHistoryService: PathHistoryService,

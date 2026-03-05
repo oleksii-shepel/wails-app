@@ -519,6 +519,72 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
     this.dragImageEl = null;
   }
 
+  private prefersReducedMotion(): boolean {
+    try {
+      return window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false;
+    } catch {
+      return false;
+    }
+  }
+
+  private captureGridItemRects(): Map<string, { el: HTMLElement; rect: DOMRect }> {
+    const container = this.gridContainerRef?.nativeElement;
+    if (!container) return new Map();
+
+    const map = new Map<string, { el: HTMLElement; rect: DOMRect }>();
+    const items = container.querySelectorAll<HTMLElement>('.grid-item[data-path]');
+    for (const el of Array.from(items)) {
+      if (el.classList.contains('dragging-source')) continue;
+      const path = el.dataset['path'];
+      if (!path) continue;
+      map.set(path, { el, rect: el.getBoundingClientRect() });
+    }
+    return map;
+  }
+
+  /** Animate grid reflow using FLIP (First-Last-Invert-Play). */
+  private animateGridReflowFrom(before: Map<string, { el: HTMLElement; rect: DOMRect }>): void {
+    if (this.prefersReducedMotion()) return;
+    if (before.size === 0) return;
+
+    this.zone.runOutsideAngular(() => {
+      // Double-rAF: gives Angular + layout a chance to settle.
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const after = this.captureGridItemRects();
+          if (after.size === 0) return;
+
+          for (const [path, next] of after) {
+            const prev = before.get(path);
+            if (!prev) continue;
+
+            const dx = prev.rect.left - next.rect.left;
+            const dy = prev.rect.top - next.rect.top;
+            if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue;
+
+            // Avoid fighting the folder hover transform while dragging over folders.
+            if (next.el.classList.contains('drag-over-folder')) continue;
+
+            try {
+              next.el.animate(
+                [
+                  { transform: `translate(${dx}px, ${dy}px)` },
+                  { transform: 'translate(0px, 0px)' },
+                ],
+                {
+                  duration: 160,
+                  easing: 'cubic-bezier(0.2, 0, 0, 1)',
+                }
+              );
+            } catch {
+              // ignore (WAAPI not available)
+            }
+          }
+        });
+      });
+    });
+  }
+
   private setupResizeObserver(): void {
     if (!this.gridContainerRef?.nativeElement) return;
     
@@ -940,6 +1006,9 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
 
     const draggingPaths = entries.map(e => e.path);
 
+    // Snapshot positions before we hide/remove source tiles, so the remaining tiles can FLIP-animate into place.
+    const reflowBefore = this.captureGridItemRects();
+
     if (event.dataTransfer) {
       event.dataTransfer.effectAllowed = 'copyMove';
       event.dataTransfer.setData('application/json', JSON.stringify({
@@ -1008,18 +1077,21 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
     setTimeout(() => {
       this.draggingPaths = new Set(draggingPaths);
       this.cdr.markForCheck();
+      this.animateGridReflowFrom(reflowBefore);
     }, 0);
 
     this.dragStart.emit({ event, entries });
   }
 
   onDragEnd(): void {
+    const reflowBefore = this.captureGridItemRects();
     this.dragPreviewEntry = null;
     this.dragOverPath = null;
     this.dragOverPosition = null;
     this.draggingPaths = new Set<string>();
     this.cleanupDragImage();
     this.cdr.markForCheck();
+    this.animateGridReflowFrom(reflowBefore);
   }
 
   onDragOver(event: DragEvent, entry: FileInfo): void {
@@ -1042,9 +1114,12 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
         ? 'inside'
         : (xFraction < 0.5 ? 'before' : 'after');
       if (this.dragOverPath === entry.path && this.dragOverPosition === nextPosition) return;
+
+      const reflowBefore = this.captureGridItemRects();
       this.dragOverPath = entry.path;
       this.dragOverPosition = nextPosition;
       this.cdr.markForCheck();
+      this.animateGridReflowFrom(reflowBefore);
       return;
     }
 
@@ -1058,9 +1133,12 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
     }
 
     if (this.dragOverPath === entry.path && this.dragOverPosition === position) return;
+
+    const reflowBefore = this.captureGridItemRects();
     this.dragOverPath = entry.path;
     this.dragOverPosition = position;
     this.cdr.markForCheck();
+    this.animateGridReflowFrom(reflowBefore);
   }
 
   onDragLeave(event: DragEvent, entry: FileInfo): void {
@@ -1090,12 +1168,15 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
 
     event.stopPropagation();
     const capturedPosition = this.dragOverPosition;
+
+    const reflowBefore = this.captureGridItemRects();
     this.dragPreviewEntry = null;
     this.dragOverPath = null;
     this.dragOverPosition = null;
     this.draggingPaths = new Set<string>();
     this.cleanupDragImage();
     this.cdr.markForCheck();
+    this.animateGridReflowFrom(reflowBefore);
 
     const draggedEntries = this.readDraggedEntries(event);
     if (!draggedEntries.length) return;
@@ -1128,11 +1209,13 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
     const container = this.gridContainerRef?.nativeElement;
     
     if (container && !container.contains(target)) {
+      const reflowBefore = this.captureGridItemRects();
       this.dragPreviewEntry = null;
       this.dragOverPath = null;
       this.dragOverPosition = null;
       this.isBackgroundDropTarget = false;
       this.cdr.markForCheck();
+      this.animateGridReflowFrom(reflowBefore);
     }
   }
 
@@ -1152,11 +1235,14 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
     }
 
     event.stopPropagation();
+
+    const reflowBefore = this.captureGridItemRects();
     this.dragPreviewEntry = null;
     this.isBackgroundDropTarget = false;
     this.draggingPaths = new Set<string>();
     this.cleanupDragImage();
     this.cdr.markForCheck();
+    this.animateGridReflowFrom(reflowBefore);
 
     // Internal drag and drop to current directory
     const draggedEntries = this.readDraggedEntries(event);

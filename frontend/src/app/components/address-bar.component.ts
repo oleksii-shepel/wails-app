@@ -5,10 +5,8 @@ import {
   HostListener,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { EMPTY, createSubject, debounce, distinctUntilChanged, filter, from, fromAny, merge, switchMap, takeUntil } from '@epikodelabs/streamix';
 import { DropdownTriggerDirective, DropdownMenuDirective } from '../directives/dropdown.directive';
 
-import { PathHistoryService, PathSuggestion } from '../services/path-history.service';
 import { ApiService } from '../services/api.service';
 import { DirectoryListing, FileType } from '../shared/protocol';
 import { DriveInfo, SpecialFolder } from '../shared/protocol-enhanced';
@@ -24,64 +22,6 @@ import { AddressBarSiblingDropdownComponent } from './address-bar-sibling-dropdo
 import { AddressBarQuickAccessComponent } from './address-bar-quick-access.component';
 import { DropdownContainerComponent } from './dropdown-container.component';
 
-// ── Tab-completion session ────────────────────────────────────────────────────
-//
-// Full state-machine flow:
-//
-//  [user types "/home/use"]
-//      userTyped$ → debounce 1 s (idle-slash pipeline)
-//      tryAppendSlash("/home/use")
-//        → editValue  = "/home/user/"
-//        → tabSession = { candidates:[Documents,Downloads,…], enteredDir:true }
-//        → suggestions = children shown in dropdown
-//
-//  TAB (enteredDir=true)
-//      tabForward → applyCandidate(candidates[0])
-//        → editValue         = "/home/user/Documents"   (no slash yet)
-//        → tabSession.enteredDir = false
-//        → tabSelected$.next("/home/user/Documents")    ← restarts 1 s idle
-//
-//  [user keeps pressing TAB — each TAB resets the 1 s window]
-//      TAB idx=1  → "/home/user/Downloads"   tabSelected$ emits
-//      TAB idx=2  → "/home/user/Music"        tabSelected$ emits
-//      … pause 1 s …
-//      tryAppendSlash("/home/user/Music")
-//        → editValue  = "/home/user/Music/"
-//        → tabSession = { candidates:[Albums,Playlists,…], enteredDir:true }
-//
-//  TAB (enteredDir=true) → applyCandidate(candidates[0]) "/home/user/Music/Albums"
-//
-//  Shift+TAB (enteredDir=true)
-//      strip slash → "/home/user/Music"
-//      reload parent siblings, land on Music
-//      tabSession = { candidates:parentSiblings, enteredDir:false }
-//      tabSelected$.next("/home/user/Music")
-//
-//  Shift+TAB (enteredDir=false) → cycle backwards through siblings
-//
-//  [user types any key]
-//      applyingTab=false → onEditChange clears tabSession, emits userTyped$
-
-interface TabSession {
-  candidates: PathSuggestion[];
-  index: number;
-  /**
-   * True right after idle-slash appended "/" and loaded children.
-   *   TAB       → select candidates[0], set enteredDir=false, restart idle
-   *   Shift+TAB → strip the slash, go up to parent siblings, restart idle
-   */
-  enteredDir: boolean;
-}
-
-// A small tagged wrapper so the idle-slash pipeline knows which subject fired.
-// This lets us drop distinctUntilChanged on the TAB side (same path can be
-// re-selected after going away and coming back) while keeping it on the
-// typing side (no point re-fetching suggestions for the same typed string).
-interface IdleSlashTick {
-  value: string;
-  /** true = came from TAB selection; false = came from user keystroke */
-  fromTab: boolean;
-}
 
 @Component({
   selector: 'app-address-bar',
@@ -306,18 +246,11 @@ interface IdleSlashTick {
   <!-- ── EDIT MODE ─────────────────────────────────────────────────────── -->
   <address-bar-edit
     *ngIf="editMode"
-    [value]="editValue"
     [currentPath]="currentPath"
     [placeholder]="placeholder"
-    [suggestions]="suggestions"
-    [acIdx]="acIdx"
     [focusOnInit]="editMode"
-    (valueChange)="onEditChange($event)"
-    (editKeydown)="onEditKeyDown($event)"
-    (blur)="onEditBlur()"
+    (commit)="onEditCommit($event)"
     (cancel)="exitEditMode(false)"
-    (acIdxChange)="acIdx = $event"
-    (suggestionSelect)="acceptSuggestion($event.suggestion, $event.event)"
   />
 
   <!-- ── SIBLING DROPDOWN ──────────────────────────────────────────────── -->
@@ -765,11 +698,6 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
 
   // ── Edit mode ────────────────────────────────────────────────────────────
   editMode  = false;
-  editValue = '';
-
-  // ── Suggestions (history-based dropdown) ─────────────────────────────────
-  suggestions: PathSuggestion[] = [];
-  acIdx = -1;
 
   // ── Context menu ─────────────────────────────────────────────────────────
   ctxMenu: ContextMenuState = { ...CTX_MENU_CLOSED };
@@ -779,37 +707,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   justCopied = false;
   compact    = false;
 
-  // ── RxJS ─────────────────────────────────────────────────────────────────
-
-  private readonly destroy$ = createSubject<void>();
-
-  /**
-   * Emits only when the user actually types a character.
-   * Suppressed when TAB writes to editValue (applyingTab guard).
-   * Feeds: history suggestions + idle-slash pipeline.
-   */
-  private readonly userTyped$ = createSubject<string>();
-
-  /**
-   * Emits the selected path each time TAB lands on a candidate.
-   * Feeds: idle-slash pipeline only — restarts the 1 s debounce so the
-   * slash fires 1 s after the user stops pressing TAB.
-   * No distinctUntilChanged — same path can be re-visited legitimately.
-   */
-  private readonly tabSelected$ = createSubject<string>();
-
-  // ── Tab completion ────────────────────────────────────────────────────────
-
-  private tabSession: TabSession | null = null;
-
-  /**
-   * True while TAB logic is writing to editValue.
-   * Makes onEditChange skip clearing tabSession / emitting userTyped$.
-   */
-  private applyingTab = false;
-
   // ── Timers ───────────────────────────────────────────────────────────────
-  private blurTimer:   ReturnType<typeof setTimeout> | undefined;
   private copiedTimer: ReturnType<typeof setTimeout> | undefined;
 
   // ── Scroll ───────────────────────────────────────────────────────────────
@@ -817,7 +715,6 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   private wheelListener?: (e: WheelEvent) => void;
 
   constructor(
-    private pathHistoryService: PathHistoryService,
     private apiService: ApiService,
     private archiveService: ArchiveService,
     private elRef: ElementRef,
@@ -832,56 +729,6 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     this.loadPins();
     this.loadSpecialFolders();
     if (this.isWin) this.loadDrives();
-
-    // ── Pipeline 1: history suggestions ───────────────────────────────────
-    // 240 ms debounce, user-typed only, switchMap cancels stale requests.
-    this.userTyped$.pipe(
-      debounce(240),
-      distinctUntilChanged(),
-      switchMap(v => v?.trim()
-        ? fromAny(this.pathHistoryService.getSuggestions(v, this.currentPath))
-        : EMPTY,
-      ),
-      takeUntil(this.destroy$),
-    ).subscribe((suggestions: any) => {
-      this.suggestions = suggestions || [];
-      this.acIdx = -1;
-      this.cdr.detectChanges();
-    });
-
-    // ── Pipeline 2: idle-slash ─────────────────────────────────────────────
-    //
-    // Fires 1 s after whichever happened last: user typed OR TAB selected.
-    // switchMap ensures only the latest fires; prior async calls are cancelled.
-    //
-    // userTyped$ uses distinctUntilChanged — no point re-running for the same
-    // typed string.  tabSelected$ does NOT — same path can be legitimately
-    // re-visited after cycling away and back.
-    //
-    // Guards:
-    //   • editMode must still be active
-    //   • value must not already end with "/" or be a root
-    //   • tabSession must not already be in enteredDir=true (slash was already
-    //     appended; we are just waiting for TAB)
-    merge(
-      this.userTyped$.pipe(distinctUntilChanged()),
-      this.tabSelected$,
-    ).pipe(
-      debounce(1000),
-      filter((v: string) => this.editMode),
-      filter((v: string) => !this.tabSession?.enteredDir),
-      filter((v: string) => {
-        const n = normalizePath(v);
-        return !!v && !n.endsWith('/') && n !== '/' && !/^[A-Za-z]:\/$/.test(n);
-      }),
-      switchMap((v: string) => {
-        this.tryAppendSlash(v);
-        return EMPTY;
-      }),
-      takeUntil(this.destroy$),
-    ).subscribe();
-
-    document.addEventListener('mousedown', this.onEditModeOutsideClick, { capture: true });
   }
 
   ngAfterViewInit(): void {
@@ -894,12 +741,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     if (changes['tabId'] && !changes['tabId'].firstChange) {
       this.closeAll();
       if (this.editMode) {
-        clearTimeout(this.blurTimer);
         this.editMode    = false;
-        this.editValue   = '';
-        this.suggestions = [];
-        this.acIdx       = -1;
-        this.tabSession  = null;
       }
       const rawNext = changes['initialPath']?.currentValue ?? this.initialPath;
       this.currentPath = normalizePath(rawNext);
@@ -913,18 +755,13 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
       if (next !== this.currentPath) {
         this.currentPath = next;
         this.rebuildSegments();
-        if (this.editMode) this.editValue = next;
       }
     }
   }
 
   ngOnDestroy(): void {
-    clearTimeout(this.blurTimer);
     clearTimeout(this.copiedTimer);
     if (this.scrollAnimFrame !== null) cancelAnimationFrame(this.scrollAnimFrame);
-    this.destroy$.next();
-    this.destroy$.complete();
-    document.removeEventListener('mousedown', this.onEditModeOutsideClick, { capture: true } as any);
     const el = this.crumbsEl?.nativeElement;
     if (el && this.wheelListener) el.removeEventListener('wheel', this.wheelListener);
   }
@@ -1344,304 +1181,20 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   enterEditMode(): void {
     this.closeAll();
     this.editMode    = true;
-    this.editValue   = this.currentPath;
-    this.suggestions = [];
-    this.acIdx       = -1;
-    this.tabSession  = null;
     this.cdr.detectChanges();
   }
 
   exitEditMode(commit: boolean): void {
-    clearTimeout(this.blurTimer);
-    const val = normalizePath(this.editValue);
     this.editMode    = false;
-    this.editValue   = '';
-    this.suggestions = [];
-    this.acIdx       = -1;
-    this.tabSession  = null;
-    if (commit && val && val !== this.currentPath) this.navigateTo(val);
-  }
-
-  onEditBlur(): void {
-    this.blurTimer = setTimeout(() => this.exitEditMode(false), 170);
-  }
-
-  /**
-   * Called on every input keystroke.
-   * Real user input (applyingTab=false): clear tabSession, feed userTyped$.
-   * TAB writing (applyingTab=true): no-op — session managed by TAB methods.
-   */
-  onEditChange(v: string): void {
-    this.editValue = v;
-    if (!this.applyingTab) {
-      this.tabSession = null;
-      this.userTyped$.next(v);
+    if (commit) {
+      // commit is now handled by onEditCommit
     }
   }
 
-  async onEditKeyDown(e: KeyboardEvent): Promise<void> {
-    switch (e.key) {
-      case 'Enter':
-        e.preventDefault();
-        if (this.acIdx >= 0 && this.suggestions[this.acIdx]) {
-          this.acceptSuggestion(this.suggestions[this.acIdx]);
-        } else {
-          this.exitEditMode(true);
-        }
-        break;
-      case 'Escape':
-        e.preventDefault();
-        this.exitEditMode(false);
-        break;
-      case 'ArrowDown':
-        e.preventDefault();
-        this.acIdx = Math.min(this.acIdx + 1, this.suggestions.length - 1);
-        break;
-      case 'ArrowUp':
-        e.preventDefault();
-        this.acIdx = Math.max(this.acIdx - 1, -1);
-        break;
-      case 'Tab':
-        e.preventDefault();
-        await this.cycleTab(e.shiftKey ? -1 : 1);
-        break;
-    }
-  }
-
-  // ── Tab completion ────────────────────────────────────────────────────────
-
-  private async cycleTab(direction: 1 | -1): Promise<void> {
-    // Bootstrap a session only when none exists.
-    // tryAppendSlash() sets up enteredDir=true + children — preserving that
-    // session here is critical; re-fetching would discard the enteredDir state.
-    if (!this.tabSession || this.tabSession.candidates.length === 0) {
-      // No idle-slash yet — user pressed TAB on a raw typed value.
-      // Treat the current editValue as a prefix: list the parent dir,
-      // filter by the last segment, give the user siblings to cycle through.
-      const candidates = await this.fetchChildren(this.editValue);
-      this.tabSession  = { candidates, index: -1, enteredDir: false };
-    }
-
-    if (this.tabSession.candidates.length === 0) return;
-
-    // Use editValue directly (preserving trailing slash) for index lookup.
-    const currentIndex = this.findSessionIndex(this.editValue);
-
-    direction > 0
-      ? this.tabForward(currentIndex)
-      : await this.tabBackward(currentIndex);
-  }
-
-  /**
-   * TAB (forward).
-   *
-   * enteredDir=true  → idle-slash fired, children are loaded.
-   *                    Pick candidates[0], set enteredDir=false.
-   *                    Emit tabSelected$ to restart 1 s idle.
-   *
-   * enteredDir=false → cycle forward through siblings.
-   *                    Emit tabSelected$ to restart 1 s idle.
-   */
-  private tabForward(currentIndex: number): void {
-    const session   = this.tabSession!;
-    const nextIndex = session.enteredDir
-      ? 0
-      : (currentIndex + 1) % session.candidates.length;
-
-    this.applyCandidate(session.candidates[nextIndex], session.candidates, false);
-  }
-
-  /**
-   * Shift+TAB (backward).
-   *
-   * enteredDir=true  → undo the slash: strip it, reload parent-level siblings,
-   *                    land on the current dir in that list, restart idle.
-   *
-   * enteredDir=false → cycle backward through siblings, restart idle.
-   */
-  private async tabBackward(currentIndex: number): Promise<void> {
-    const session = this.tabSession!;
-
-    if (session.enteredDir) {
-      // editValue is e.g. "/home/user/Music/" — strip trailing slash
-      const withoutSlash = this.editValue.replace(/\/+$/, '');
-      const lastSlash    = withoutSlash.lastIndexOf('/');
-      const parentDir    = lastSlash >= 0 ? withoutSlash.slice(0, lastSlash + 1) : '/';
-
-      const siblings   = await this.fetchChildren(parentDir);
-      // Find this dir in the parent list so we can highlight it
-      const landingIdx = siblings.findIndex(
-        c => normalizePath(c.path) === normalizePath(withoutSlash),
-      );
-      const idx = landingIdx >= 0 ? landingIdx : 0;
-
-      this.writeTabValue(withoutSlash);
-      this.tabSession  = { candidates: siblings, index: idx, enteredDir: false };
-      this.suggestions = siblings;
-      this.acIdx       = idx;
-      this.cdr.detectChanges();
-
-      this.tabSelected$.next(withoutSlash);
-      return;
-    }
-
-    // currentIndex of -1 (nothing highlighted) or 0 (first) both wrap to last
-    const prevIndex = currentIndex <= 0
-      ? session.candidates.length - 1
-      : currentIndex - 1;
-
-    this.applyCandidate(session.candidates[prevIndex], session.candidates, false);
-  }
-
-  /**
-   * Apply a candidate: write its path to editValue, update session,
-   * emit tabSelected$ to restart the 1 s idle-slash timer.
-   */
-  private applyCandidate(
-    candidate: PathSuggestion,
-    sessionCandidates: PathSuggestion[],
-    enteredDir: boolean,
-  ): void {
-    if (!candidate) return;
-    const index = sessionCandidates.indexOf(candidate);
-
-    this.writeTabValue(candidate.path);
-    this.tabSession  = { candidates: sessionCandidates, index, enteredDir };
-    this.suggestions = sessionCandidates;
-    this.acIdx       = index;
-    this.cdr.detectChanges();
-
-    // Restart the idle-slash timer from this selection.
-    // tabSelected$ has no distinctUntilChanged — same path can be re-visited.
-    this.tabSelected$.next(candidate.path);
-  }
-
-  /**
-   * Write a value to editValue without emitting userTyped$ or clearing tabSession.
-   * The applyingTab flag makes onEditChange a no-op for this write.
-   */
-  private writeTabValue(value: string): void {
-    this.applyingTab = true;
-    this.editValue   = value;
-    this.applyingTab = false;
-  }
-
-  /**
-   * Find the index of the current editValue in the active session candidates.
-   * Compares without trailing slashes so "/home/user/" matches "/home/user".
-   */
-  private findSessionIndex(editValue: string): number {
-    const clean = normalizePath(editValue);
-    return (this.tabSession?.candidates ?? []).findIndex(
-      c => normalizePath(c.path) === clean,
-    );
-  }
-
-  // ── Idle-slash ────────────────────────────────────────────────────────────
-
-  /**
-   * Called by the idle-slash pipeline 1 s after the last userTyped$ or
-   * tabSelected$ emission.
-   *
-   * Checks whether `value` is a real directory by listing it.
-   * If so: appends "/", loads children, sets up a fresh session with
-   * enteredDir=true so the next TAB picks the first child.
-   *
-   * Always fetches fresh — never reuses tabSession, which holds siblings
-   * of the current level, not children of the selected candidate.
-   */
-  private async tryAppendSlash(value: string): Promise<void> {
-    if (!this.editMode) return;
-
-    // List `value` as a directory — if it's not one, the API will throw
-    // and we return [].
-    const children = await this.fetchChildren(value + '/');
-    if (children.length === 0) return;
-
-    // It's a real dir with children — append slash and present children.
-    const withSlash = value.endsWith('/') ? value : value + '/';
-
-    this.writeTabValue(withSlash);
-    this.tabSession  = { candidates: children, index: -1, enteredDir: true };
-    this.suggestions = children;
-    this.acIdx       = -1;
-    this.cdr.detectChanges();
-  }
-
-  // ── Directory fetch ───────────────────────────────────────────────────────
-
-  /**
-   * List immediate child directories matching a query.
-   *
-   * Splits the query into a parent directory and a filename prefix:
-   *   "/home/use"   → list "/home/",       filter names starting with "use"
-   *   "/home/user/" → list "/home/user/",  no prefix filter (show all children)
-   *   "C:"          → list "C:/",          no prefix
-   */
-  private async fetchChildren(query: string): Promise<PathSuggestion[]> {
-    const { dirPath, prefix } = this.splitQueryContext(query);
-    if (!dirPath) return [];
-
-    try {
-      const listing     = await this.apiService.listDirectory(dirPath, false);
-      const prefixLower = prefix.toLowerCase();
-
-      return listing.entries
-        .filter(e =>
-          e.type === FileType.DIRECTORY &&
-          e.name.toLowerCase().startsWith(prefixLower),
-        )
-        .map(e => ({
-          path:        this.joinPath(dirPath, e.name),
-          displayName: e.name,
-          matchType:   'directory' as const,
-          score:       100,
-          exists:      true,
-        }))
-        .sort((a, b) => a.path.localeCompare(b.path));
-    } catch {
-      return [];
-    }
-  }
-
-  /**
-   * Split a query string into the directory to list and the prefix to match.
-   *
-   *   "/home/use"  → { dirPath: "/home/",    prefix: "use" }
-   *   "/home/"     → { dirPath: "/home/",    prefix: ""    }
-   *   "/home/user" → { dirPath: "/home/",    prefix: "user"}  ← prefix filter
-   *   "C:"         → { dirPath: "C:/",       prefix: ""    }
-   */
-  private splitQueryContext(query: string): { dirPath: string; prefix: string } {
-    const q = (query || '').replace(/\\/g, '/');
-    if (!q) return { dirPath: '/', prefix: '' };
-    if (q.endsWith('/')) return { dirPath: q, prefix: '' };
-
-    const lastSlash = q.lastIndexOf('/');
-    if (lastSlash >= 0) {
-      return { dirPath: q.slice(0, lastSlash + 1), prefix: q.slice(lastSlash + 1) };
-    }
-    if (/^[A-Za-z]:$/.test(q)) return { dirPath: `${q}/`, prefix: '' };
-    return { dirPath: '/', prefix: q };
-  }
-
-  private joinPath(dirPath: string, name: string): string {
-    const clean  = dirPath.replace(/\/+$/, '');
-    const joined = `${clean}/${name}`.replace(/\\/g, '/');
-    if (joined.startsWith('//')) return `//${joined.slice(2).replace(/\/{2,}/g, '/')}`;
-    return joined.replace(/\/{2,}/g, '/');
-  }
-
-  // ── History suggestions ───────────────────────────────────────────────────
-
-  acceptSuggestion(s: PathSuggestion, e?: MouseEvent): void {
-    e?.preventDefault();
-    clearTimeout(this.blurTimer);
-    this.editMode    = false;
-    this.editValue   = '';
-    this.suggestions = [];
-    this.tabSession  = null;
-    this.navigateTo(normalizePath(s.path));
+  onEditCommit(path: string): void {
+    this.exitEditMode(false);
+    const np = normalizePath(path);
+    if (np && np !== this.currentPath) this.navigateTo(np);
   }
 
   // ── Context menu ──────────────────────────────────────────────────────────
@@ -1716,12 +1269,6 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   }
 
   // ── Outside-click / keyboard ──────────────────────────────────────────────
-
-  private onEditModeOutsideClick = (e: MouseEvent): void => {
-    if (this.editMode && !this.elRef.nativeElement.contains(e.target as Node)) {
-      this.exitEditMode(false);
-    }
-  };
 
   onHostKeyDown(e: KeyboardEvent): void {
     if ((e.ctrlKey || e.metaKey) && e.key === 'l') { e.preventDefault(); this.enterEditMode(); }

@@ -111,6 +111,7 @@ interface DirStreamErrorEvent {
         </app-find-widget>
 
         <app-file-view-container
+          [paneId]="paneId"
           [entries]="filteredEntries"
           [currentPath]="currentPath"
           [showHidden]="showHidden"
@@ -239,6 +240,10 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   error: string | null = null;
   filterQuery: FilterQuery = { text: '', criteria: [] };
 
+  private optimisticHiddenPaths = new Set<string>();
+  private optimisticHideListener?: (event: Event) => void;
+  private optimisticRestoreListener?: (event: Event) => void;
+
   // View system state
   currentView: ViewLayout = 'list';
   sortField: string = 'name';
@@ -259,6 +264,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   private streamBaseEntries: FileInfo[] = [];
   private streamWaiters = new Map<string, { resolve: () => void; reject: (err: Error) => void }>();
   private streamPathChangeEmitted = false;
+  private activeDirStreamPreserveUI = false;
 
   FileType = FileType;
 
@@ -275,6 +281,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     this.loadViewPreference();
     this.loadPaneState();
     this.bindFsChangeEvents();
+    this.setupOptimisticDnDListeners();
   }
   
   ngOnChanges(changes: SimpleChanges): void {
@@ -291,6 +298,42 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
 
   ngOnDestroy(): void {
     this.unbindFsChangeEvents();
+
+    if (this.optimisticHideListener) {
+      window.removeEventListener('pane:dnd-optimistic-hide', this.optimisticHideListener);
+      this.optimisticHideListener = undefined;
+    }
+    if (this.optimisticRestoreListener) {
+      window.removeEventListener('pane:dnd-optimistic-restore', this.optimisticRestoreListener);
+      this.optimisticRestoreListener = undefined;
+    }
+  }
+
+  private setupOptimisticDnDListeners(): void {
+    this.optimisticHideListener = (ev: Event) => {
+      const detail = (ev as CustomEvent).detail as { paneId?: 'left' | 'right'; paths?: string[] } | undefined;
+      if (!detail?.paneId || detail.paneId !== this.paneId) return;
+      const paths = (detail.paths ?? []).filter(p => p && p !== PARENT_ENTRY_PATH);
+      if (!paths.length) return;
+
+      for (const p of paths) this.optimisticHiddenPaths.add(p);
+      for (const p of paths) this.selectedFiles.delete(p);
+      this.selectedFiles = new Set(this.selectedFiles);
+      this.applyFilter();
+    };
+
+    this.optimisticRestoreListener = (ev: Event) => {
+      const detail = (ev as CustomEvent).detail as { paneId?: 'left' | 'right'; paths?: string[] } | undefined;
+      if (!detail?.paneId || detail.paneId !== this.paneId) return;
+      const paths = (detail.paths ?? []).filter(p => p && p !== PARENT_ENTRY_PATH);
+      if (!paths.length) return;
+
+      for (const p of paths) this.optimisticHiddenPaths.delete(p);
+      this.applyFilter();
+    };
+
+    window.addEventListener('pane:dnd-optimistic-hide', this.optimisticHideListener);
+    window.addEventListener('pane:dnd-optimistic-restore', this.optimisticRestoreListener);
   }
 
   get entriesForAnalysis(): FileInfo[] {
@@ -451,7 +494,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       return;
     }
 
-    await this.loadDirectory(this.currentPath);
+    await this.loadDirectory(this.currentPath, { preserveUI: true });
   }
 
   // ── Pane state ────────────────────────────────────────────────────────────
@@ -498,16 +541,20 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     this.fsParentDir  = '';
   }
 
-  private async loadDirectory(path: string): Promise<void> {
+  private async loadDirectory(path: string, opts?: { preserveUI?: boolean }): Promise<void> {
     await this.cancelActiveDirectoryStream();
     this.exitArchive();
     this.clearArchiveState();
+    this.activeDirStreamPreserveUI = !!opts?.preserveUI;
     this.loading = true;
     this.error   = null;
-    this.selectedFiles.clear();
     this.streamBaseEntries = [];
-    this.entries = this.withParentEntry([], false, path);
-    this.applyFilter();
+
+    if (!this.activeDirStreamPreserveUI) {
+      this.selectedFiles.clear();
+      this.entries = this.withParentEntry([], false, path);
+      this.applyFilter();
+    }
     try {
       const streamId = await this.apiService.startListDirectoryStream(this.paneId, path, this.showHidden);
       this.activeDirStreamId = streamId;
@@ -521,6 +568,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     } finally {
       this.activeDirStreamId = null;
       this.streamBaseEntries = [];
+      this.activeDirStreamPreserveUI = false;
       this.loading = false;
     }
   }
@@ -726,8 +774,10 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       this.pathChange.emit(event.path);
       this.streamPathChangeEmitted = true;
     }
-    this.entries = this.withParentEntry([], false, event.path);
-    this.applyFilter();
+    if (!this.activeDirStreamPreserveUI) {
+      this.entries = this.withParentEntry([], false, event.path);
+      this.applyFilter();
+    }
 
     // best-effort pane watch sync
     void window.go?.main?.App?.SetPaneDirectory?.(this.paneId, event.path);
@@ -747,6 +797,14 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     if (!this.activeDirStreamId || event.streamId !== this.activeDirStreamId) return;
 
     this.entries = this.withParentEntry(this.streamBaseEntries, false, event.path || this.currentPath);
+    // Prune selection to keep it stable across refresh.
+    if (this.selectedFiles.size > 0) {
+      const present = new Set(this.entries.map(e => e.path));
+      for (const p of Array.from(this.selectedFiles)) {
+        if (!present.has(p)) this.selectedFiles.delete(p);
+      }
+      this.selectedFiles = new Set(this.selectedFiles);
+    }
     this.applyFilter();
     this.resolveDirectoryStreamWaiter(event.streamId);
     setTimeout(() => {
@@ -989,18 +1047,51 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     if (!sourcePaths.length) return;
 
     try {
+      const isCopy = event.event.ctrlKey || event.event.metaKey;
+      const sourcePaneIdRaw = event.event.dataTransfer?.getData('application/x-wails-pane-id') || '';
+      const sourcePaneId = (sourcePaneIdRaw === 'left' || sourcePaneIdRaw === 'right') ? sourcePaneIdRaw : null;
+      const isCrossPane = !!sourcePaneId && sourcePaneId !== this.paneId;
+
       const items = await Promise.all(sourcePaths.map(async sourcePath => ({
         source: sourcePath,
         destination: await this.buildDestinationPath(sourcePath, event.targetPath),
       })));
 
-      const isCopy = event.event.ctrlKey || event.event.metaKey;
-      if (isCopy) {
-        await this.apiService.batchCopy(items, true);
-      } else {
-        await this.apiService.batchMove(items, true);
+      if (!isCopy) {
+        const moveItems = items.filter(i => normalizePath(i.source) !== normalizePath(i.destination));
+        if (moveItems.length === 0) return;
+
+        // Cross-pane move UX: hide in source pane BEFORE starting the move.
+        if (isCrossPane) {
+          try {
+            window.dispatchEvent(new CustomEvent('pane:dnd-optimistic-hide', {
+              detail: { paneId: sourcePaneId, paths: moveItems.map(i => i.source) }
+            }));
+          } catch {
+            // ignore
+          }
+        }
+
+        await this.apiService.batchMove(moveItems, true);
+        return;
       }
+
+      await this.apiService.batchCopy(items, true);
     } catch (error: any) {
+      // If we optimistically hid items (cross-pane move), restore them on immediate failure.
+      try {
+        const isCopy = event.event.ctrlKey || event.event.metaKey;
+        const sourcePaneIdRaw = event.event.dataTransfer?.getData('application/x-wails-pane-id') || '';
+        const sourcePaneId = (sourcePaneIdRaw === 'left' || sourcePaneIdRaw === 'right') ? sourcePaneIdRaw : null;
+        const isCrossPane = !!sourcePaneId && sourcePaneId !== this.paneId;
+        if (!isCopy && isCrossPane) {
+          window.dispatchEvent(new CustomEvent('pane:dnd-optimistic-restore', {
+            detail: { paneId: sourcePaneId, paths: sourcePaths }
+          }));
+        }
+      } catch {
+        // ignore
+      }
       this.confirmDialog.alert(`Drag & Drop Failed\n${error.message}`);
     }
   }
@@ -1153,15 +1244,27 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   // ── Filtering ─────────────────────────────────────────────────────────────
 
   private applyFilter(): void {
+    // Prune any optimistic hides that are no longer present in the current listing.
+    if (this.optimisticHiddenPaths.size > 0) {
+      const present = new Set(this.entries.map(e => e.path));
+      for (const p of Array.from(this.optimisticHiddenPaths)) {
+        if (!present.has(p)) this.optimisticHiddenPaths.delete(p);
+      }
+    }
+
+    const baseEntries = this.optimisticHiddenPaths.size > 0
+      ? this.entries.filter(e => e.path === PARENT_ENTRY_PATH || !this.optimisticHiddenPaths.has(e.path))
+      : this.entries;
+
     const q = this.filterQuery;
     if (!q?.text?.trim() && !q?.criteria?.length) {
-      this.filteredEntries = this.entries;
+      this.filteredEntries = baseEntries;
       return;
     }
     // Always keep the ".." entry visible regardless of the active filter.
-    const parentEntry = this.entries.filter(e => e.path === PARENT_ENTRY_PATH);
+    const parentEntry = baseEntries.filter(e => e.path === PARENT_ENTRY_PATH);
     const filtered    = this.filterService.filterEntries(
-      this.entries.filter(e => e.path !== PARENT_ENTRY_PATH),
+      baseEntries.filter(e => e.path !== PARENT_ENTRY_PATH),
       q
     );
     this.filteredEntries = [...parentEntry, ...filtered];

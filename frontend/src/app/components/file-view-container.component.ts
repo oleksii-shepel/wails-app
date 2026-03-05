@@ -138,6 +138,7 @@ export type ViewLayout = ViewMode;
 export class FileViewContainerComponent implements OnChanges, OnDestroy {
   @ViewChild('fileTree') treeComponent?: FileTreeComponent;
 
+  @Input() paneId: 'left' | 'right' = 'left';
   @Input() showHidden    = false;
   @Input() entries: FileInfo[] = [];
   @Input() currentPath = '';
@@ -203,6 +204,11 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
   }
 
   onTreeDragStart(event: { event: DragEvent; nodes: TreeNode[] }): void {
+    try {
+      event.event.dataTransfer?.setData('application/x-wails-pane-id', this.paneId);
+    } catch {
+      // ignore
+    }
     this.dragStart.emit({
       event: event.event,
       entries: event.nodes.map(n => this.treeNodeToFileInfo(n))
@@ -222,6 +228,11 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
   }
 
   onViewDragStart(event: { event: DragEvent; entries: FileInfo[] }): void {
+    try {
+      event.event.dataTransfer?.setData('application/x-wails-pane-id', this.paneId);
+    } catch {
+      // ignore
+    }
     this.dragStart.emit(event);
   }
 

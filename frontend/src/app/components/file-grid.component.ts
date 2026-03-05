@@ -1227,6 +1227,8 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
     // For external OS drops, don't stopPropagation - let Wails' window handler fire wails:file-drop
     if (hasExternalFiles) {
       this.dragPreviewEntry = null;
+      this.dragOverPath = null;
+      this.dragOverPosition = null;
       this.isBackgroundDropTarget = false;
       this.draggingPaths = new Set<string>();
       this.cleanupDragImage();
@@ -1238,6 +1240,8 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
 
     const reflowBefore = this.captureGridItemRects();
     this.dragPreviewEntry = null;
+    this.dragOverPath = null;
+    this.dragOverPosition = null;
     this.isBackgroundDropTarget = false;
     this.draggingPaths = new Set<string>();
     this.cleanupDragImage();

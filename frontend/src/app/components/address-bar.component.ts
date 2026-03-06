@@ -1222,7 +1222,11 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
 
   toggleQuickAccess(): void {
     this.showQuickAccess = !this.showQuickAccess;
-    if (this.showQuickAccess) { this.chevIdx = -1; this.showPinDrop = false; this.showDriveMenu = false; }
+    if (this.showQuickAccess) {
+      this.chevIdx = -1;
+      this.showPinDrop = false;
+      this.showDriveMenu = false;
+    }
   }
 
   togglePinDrop(): void {

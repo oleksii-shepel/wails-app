@@ -39,6 +39,7 @@ interface KeyboardContext {
   inSelect: boolean;
   inContentEditable: boolean;
   inModal: boolean;
+  inQuickAccessMenu: boolean;
   activePane: 'left' | 'right' | null;
   hasSelection: boolean;
 }
@@ -165,6 +166,7 @@ export class KeyboardService {
       inSelect: tagName === 'select',
       inContentEditable: !!target.isContentEditable,
       inModal: !!target.closest('.modal, [role="dialog"]'),
+      inQuickAccessMenu: !!target.closest('.ab-quick-access-drop'),
       activePane: this.getActivePaneFromTarget(target),
       hasSelection: window.getSelection()!.toString().length > 0,
     };
@@ -190,6 +192,10 @@ export class KeyboardService {
     shortcut: ShortcutDefinition,
     context: KeyboardContext
   ): boolean {
+    if (context.inQuickAccessMenu) {
+      return false;
+    }
+
     // Global shortcuts work everywhere except when typing
     if (shortcut.context === 'global') {
       return !context.inInput && !context.inTextarea && !context.inSelect && !context.inContentEditable;

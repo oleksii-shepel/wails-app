@@ -30,6 +30,7 @@ import { DropdownDirective, DropdownTriggerDirective, DropdownMenuDirective } fr
         *ngIf="isOpen" 
         class="dropdown-menu-wrapper"
         appDropdownMenu
+        tabindex="-1"
         (click)="$event.stopPropagation()">
         <ng-content></ng-content>
       </div>
@@ -97,9 +98,21 @@ export class DropdownContainerComponent implements AfterViewInit, OnChanges {
     if (changes['isOpen']?.currentValue === true) {
       // Use requestAnimationFrame to ensure DOM is ready
       requestAnimationFrame(() => {
-        setTimeout(() => this.positionMenu(), 0);
+        setTimeout(() => {
+          this.positionMenu();
+          this.focusMenu();
+        }, 0);
       });
     }
+  }
+
+  private focusMenu(): void {
+    if (!this.isOpen) return;
+    const wrapperEl = this._el.nativeElement.querySelector('.dropdown-menu-wrapper') as HTMLElement | null;
+    const focusTarget = wrapperEl?.querySelector<HTMLElement>(
+      '.ab-quick-access-drop, [role="menu"], [role="dialog"], [role="listbox"]'
+    ) ?? wrapperEl;
+    focusTarget?.focus({ preventScroll: true });
   }
 
   private positionMenu(): void {

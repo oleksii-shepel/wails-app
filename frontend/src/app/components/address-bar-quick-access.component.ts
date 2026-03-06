@@ -1,4 +1,4 @@
-import { Component, Input, Output, EventEmitter, OnInit, ChangeDetectionStrategy, HostListener } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnInit, OnDestroy, ChangeDetectionStrategy, HostListener, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { SpecialFolder } from '../shared/protocol-enhanced';
 import { PathHistoryService, PathHistoryEntry } from '../services/path-history.service';
@@ -8,6 +8,13 @@ export interface QuickAccessSection {
   title: string;
   items: QuickAccessItem[];
 }
+
+interface OrderedQuickAccessSection {
+  section: QuickAccessSection;
+  originalIndex: number;
+}
+
+type TabSpinDirection = 'left' | 'right' | null;
 
 export interface QuickAccessItem {
   name: string;
@@ -23,11 +30,39 @@ export interface QuickAccessItem {
   imports: [CommonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="ab-quick-access-drop" role="menu">
-      <!-- Header -->
+    <div class="ab-quick-access-drop" role="menu" tabindex="-1">
+      <!-- Header with Tabs -->
       <div class="ab-drop-head">
-        <span>Quick Access</span>
-        <span class="ab-qa-hint">Ctrl+Q</span>
+        <div
+          class="ab-qa-tabs"
+          role="tablist"
+          [class.ab-qa-tabs--spin-left]="tabSpinDirection === 'left'"
+          [class.ab-qa-tabs--spin-right]="tabSpinDirection === 'right'"
+        >
+          <button
+            *ngIf="activeSectionEntry() as activeSection"
+            class="ab-qa-tab ab-qa-tab--active"
+            (click)="setActiveTab(activeSection.originalIndex)"
+            role="tab"
+            [attr.aria-selected]="true"
+            type="button"
+          >
+            {{ activeSection.section.title }}
+          </button>
+
+          <div class="ab-qa-tab-trail">
+            <button
+              *ngFor="let orderedSection of trailingSections(); trackBy: trackByOrderedSection"
+              class="ab-qa-tab ab-qa-tab--trailing"
+              (click)="setActiveTab(orderedSection.originalIndex)"
+              role="tab"
+              [attr.aria-selected]="false"
+              type="button"
+            >
+              {{ orderedSection.section.title }}
+            </button>
+          </div>
+        </div>
       </div>
 
       <!-- Empty State -->
@@ -36,37 +71,31 @@ export interface QuickAccessItem {
         <span>No quick access items available</span>
       </div>
 
-      <!-- Sections -->
-      <div class="ab-drop-scroll" *ngIf="sections.length > 0" (keydown)="onKeyDown($event)">
-        <div *ngFor="let section of sections; let sIdx = index" class="qa-section" role="group" [attr.aria-label]="section.title">
-          <!-- Section Header -->
-          <div class="qa-section-title" *ngIf="section.items.length > 0">
-            {{ section.title }}
-            <span class="qa-section-count">{{ section.items.length }}</span>
-          </div>
+      <!-- Active Section Items -->
+      <div class="ab-drop-scroll" *ngIf="sections.length > 0">
+        <div class="qa-section" role="group">
+          <ng-container *ngIf="sections[activeTabIdx] as activeSection">
+            <div class="ab-drop-empty" *ngIf="activeSection.items.length === 0">
+              <span>No items in this section</span>
+            </div>
 
-          <!-- Section Items -->
-          <button
-            *ngFor="let item of section.items; let iIdx = index"
-            class="ab-drop-item qa-item"
-            [class.ab-drop-item--active]="item.path === currentPath"
-            [class.qa-item--highlighted]="isHighlighted(sIdx, iIdx)"
-            role="menuitem"
-            (click)="selectItem(sIdx, iIdx)"
-            (mouseenter)="highlightItem(sIdx, iIdx)"
-            [title]="item.path"
-            type="button"
-          >
-            <span class="qa-item-icon">{{ item.icon }}</span>
-            <span class="qa-item-name">{{ item.name }}</span>
-            <span *ngIf="item.accessCount" class="qa-item-count">{{ item.accessCount }}×</span>
-          </button>
+            <button
+              *ngFor="let item of activeSection.items; let iIdx = index"
+              class="ab-drop-item qa-item"
+              [class.ab-drop-item--active]="item.path === currentPath"
+              [class.qa-item--highlighted]="isHighlighted(iIdx)"
+              role="menuitem"
+              (click)="selectItem(activeTabIdx, iIdx)"
+              (mouseenter)="highlightItem(activeTabIdx, iIdx)"
+              [title]="item.path"
+              type="button"
+            >
+              <span class="qa-item-icon">{{ item.icon }}</span>
+              <span class="qa-item-name">{{ item.name }}</span>
+              <span *ngIf="item.accessCount" class="qa-item-count">{{ item.accessCount }}×</span>
+            </button>
+          </ng-container>
         </div>
-      </div>
-
-      <!-- Footer Hint -->
-      <div class="ab-drop-footer" *ngIf="sections.length > 0">
-        <kbd>↑↓</kbd> navigate &nbsp; <kbd>⏎</kbd> select &nbsp; <kbd>Esc</kbd> close
       </div>
     </div>
   `,
@@ -83,36 +112,135 @@ export interface QuickAccessItem {
       border-radius: var(--vsc-border-radius);
       box-shadow: var(--vsc-widget-shadow);
       overflow: hidden;
+      display: flex;
+      flex-direction: column;
     }
 
     .ab-drop-head {
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      height: 32px;
+      height: 36px;
       padding: 0 var(--vsc-padding-lg);
       background-color: var(--vsc-panel-background, #252526) !important;
       border-bottom: 1px solid var(--vsc-border-subtle);
-      font-size: var(--vsc-font-size-small);
-      color: var(--vsc-foreground-dim);
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      font-weight: 600;
     }
 
-    .ab-qa-hint {
-      font-size: 10px;
-      opacity: 0.6;
-      font-weight: normal;
-      letter-spacing: normal;
-      text-transform: none;
+    .ab-qa-tabs {
+      display: flex;
+      justify-content: space-between;
+      height: 100%;
+      align-items: center;
+      width: 100%;
+      gap: 12px;
+      transform-origin: center center;
+      will-change: transform;
+    }
+
+    .ab-qa-tab-trail {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 0;
+      min-width: 0;
+      margin-left: auto;
+    }
+
+    .ab-qa-tabs--spin-left {
+      animation: ab-qa-tabs-spin-left 180ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .ab-qa-tabs--spin-right {
+      animation: ab-qa-tabs-spin-right 180ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .ab-qa-tab {
+      background: none;
+      border: none;
+      color: var(--vsc-foreground-dim);
+      border-bottom: 2px solid transparent;
+      height: 100%;
+      padding: 0 4px;
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      transition: color 0.14s ease, border-color 0.14s ease, opacity 0.14s ease, transform 0.14s ease;
+
+      &:hover {
+        color: var(--vsc-foreground);
+      }
+
+      &.active {
+        color: var(--vsc-foreground);
+        border-bottom-color: var(--vsc-accent-blue);
+      }
+    }
+
+    .ab-qa-tab--active {
+      flex: 0 0 auto;
+      padding-left: 0;
+      padding-right: 10px;
+      color: var(--vsc-foreground);
+      border-bottom-color: var(--vsc-accent-blue);
+      text-shadow: 0 0 10px color-mix(in srgb, var(--vsc-accent-blue) 22%, transparent);
+    }
+
+    .ab-qa-tab--trailing {
+      position: relative;
+      flex: 0 0 auto;
+      opacity: 0.72;
+      padding-left: 18px;
+    }
+
+    .ab-qa-tab--trailing:hover {
+      opacity: 1;
+      transform: translateY(-1px);
+    }
+
+    .ab-qa-tab--trailing::before {
+      content: '';
+      position: absolute;
+      left: 6px;
+      top: 50%;
+      width: 1px;
+      height: 14px;
+      background: color-mix(in srgb, var(--vsc-foreground-dim) 60%, transparent);
+      transform: translateY(-50%) rotate(22deg);
+      transform-origin: center;
+      opacity: 0.7;
+      pointer-events: none;
+    }
+
+    @keyframes ab-qa-tabs-spin-left {
+      0% {
+        transform: perspective(500px) rotateY(0deg) translateX(0);
+      }
+      50% {
+        transform: perspective(500px) rotateY(-9deg) translateX(-6px);
+      }
+      100% {
+        transform: perspective(500px) rotateY(0deg) translateX(0);
+      }
+    }
+
+    @keyframes ab-qa-tabs-spin-right {
+      0% {
+        transform: perspective(500px) rotateY(0deg) translateX(0);
+      }
+      50% {
+        transform: perspective(500px) rotateY(9deg) translateX(6px);
+      }
+      100% {
+        transform: perspective(500px) rotateY(0deg) translateX(0);
+      }
     }
 
     .ab-drop-scroll {
-      max-height: min(400px, 60vh);
+      max-height: min(300px, 50vh);
       overflow-x: hidden;
       overflow-y: auto;
-      padding: var(--vsc-padding-xs) 0;
+      padding: 4px 0;
       background-color: var(--vsc-panel-background, #252526) !important;
       scrollbar-width: thin;
       scrollbar-color: var(--vsc-scrollbar-thumb) var(--vsc-scrollbar-track);
@@ -135,74 +263,27 @@ export interface QuickAccessItem {
       }
     }
 
+    /* Common Styles */
     .ab-drop-empty {
-      padding: 20px;
-      text-align: center;
-      color: var(--vsc-foreground-dim);
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 8px;
+      gap: var(--vsc-padding-sm);
+      padding: var(--vsc-padding-xl);
+      font-size: var(--vsc-font-size-small);
+      color: var(--vsc-foreground-dim);
+      text-align: center;
+      line-height: 1.5;
+      background-color: var(--vsc-panel-background, #252526) !important;
     }
 
     .ab-drop-empty-icon {
-      font-size: 24px;
-      opacity: 0.5;
-    }
-
-    .ab-drop-footer {
-      padding: 8px var(--vsc-padding-lg);
-      border-top: 1px solid var(--vsc-border-subtle);
-      font-size: 11px;
-      color: var(--vsc-foreground-dim);
-      background-color: var(--vsc-panel-background, #252526) !important;
-      text-align: center;
-    }
-
-    .ab-drop-footer kbd {
-      display: inline-block;
-      padding: 2px 4px;
-      background: var(--vsc-keybinding-background);
-      border: 1px solid var(--vsc-border);
-      border-radius: 3px;
-      font-size: 10px;
-      font-family: monospace;
+      font-size: 28px;
+      opacity: 0.4;
     }
 
     .qa-section {
       margin-bottom: 0;
-
-      &:not(:first-child) {
-        border-top: 1px solid var(--vsc-border-subtle);
-      }
-    }
-
-    .qa-section-title {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 6px var(--vsc-padding-lg);
-      margin-top: 4px;
-      font-size: 11px;
-      font-weight: 600;
-      color: var(--vsc-foreground-dim);
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      background: transparent;
-    }
-
-    .qa-section-count {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-width: 18px;
-      height: 16px;
-      padding: 0 4px;
-      background: var(--vsc-badge-background);
-      color: var(--vsc-badge-foreground);
-      border-radius: 8px;
-      font-size: 10px;
-      font-weight: 600;
     }
 
     .qa-item {
@@ -264,77 +345,41 @@ export interface QuickAccessItem {
       flex-shrink: 0;
       text-align: center;
     }
-
-    .ab-drop-empty {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: var(--vsc-padding-sm);
-      padding: var(--vsc-padding-xl);
-      font-size: var(--vsc-font-size-small);
-      color: var(--vsc-foreground-dim);
-      text-align: center;
-      line-height: 1.5;
-      background-color: var(--vsc-panel-background, #252526) !important;
-    }
-
-    .ab-drop-empty-icon {
-      font-size: 28px;
-      opacity: 0.4;
-    }
-
-    .ab-drop-footer {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      height: 28px;
-      padding: 0 var(--vsc-padding-md);
-      font-size: 10px;
-      color: var(--vsc-foreground-dim);
-      border-top: 1px solid var(--vsc-border-subtle);
-      background-color: var(--vsc-panel-background, #252526) !important;
-
-      kbd {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        min-width: 18px;
-        padding: 2px 4px;
-        background: var(--vsc-badge-background);
-        color: var(--vsc-foreground-dim);
-        border: 1px solid var(--vsc-border-subtle);
-        border-radius: 2px;
-        font-family: var(--vsc-font-family-mono);
-        font-size: 9px;
-        font-weight: 600;
-      }
-    }
-
   `]
 })
-export class AddressBarQuickAccessComponent implements OnInit {
+export class AddressBarQuickAccessComponent implements OnInit, OnDestroy {
   @Input() currentPath = '';
   @Input() specialFolders: SpecialFolder[] = [];
   @Input() pinnedPaths: PinnedPath[] = [];
   @Output() navigate = new EventEmitter<string>();
 
   sections: QuickAccessSection[] = [];
+  activeTabIdx = 0;
+  tabSpinDirection: TabSpinDirection = null;
   highlightedItem: { sectionIdx: number; itemIdx: number } | null = null;
+  private tabSpinTimer: ReturnType<typeof setTimeout> | null = null;
 
-  constructor(private pathHistoryService: PathHistoryService) {}
+  constructor(
+    private pathHistoryService: PathHistoryService,
+    private cdr: ChangeDetectorRef,
+  ) {}
 
   ngOnInit(): void {
     this.buildSections();
   }
 
+  ngOnDestroy(): void {
+    if (this.tabSpinTimer) clearTimeout(this.tabSpinTimer);
+  }
+
+  // no-op if no items
   private buildSections(): void {
     this.sections = [];
 
     // System Folders
     if (this.specialFolders.length > 0) {
       this.sections.push({
-        title: 'System Folders',
+        title: 'System',
         items: this.specialFolders.map(f => ({
           name: f.name,
           path: f.path,
@@ -373,10 +418,136 @@ export class AddressBarQuickAccessComponent implements OnInit {
       });
     }
 
-    // Initialize highlight to first item
-    if (this.sections.length > 0 && this.sections[0].items.length > 0) {
-      this.highlightedItem = { sectionIdx: 0, itemIdx: 0 };
+    // Reset initial state
+    this.activeTabIdx = 0;
+    this.updateHighlightForNewTab();
+  }
+
+  setActiveTab(idx: number): void {
+    if (this.activeTabIdx === idx) return;
+    const previousIdx = this.activeTabIdx;
+    this.activeTabIdx = idx;
+    this.startTabSpin(this.getSpinDirection(previousIdx, idx));
+    this.updateHighlightForNewTab();
+    this.cdr.markForCheck();
+  }
+
+  activeSectionEntry(): OrderedQuickAccessSection | null {
+    const section = this.sections[this.activeTabIdx];
+    if (!section) return null;
+    return { section, originalIndex: this.activeTabIdx };
+  }
+
+  trailingSections(): OrderedQuickAccessSection[] {
+    if (this.sections.length === 0) return [];
+
+    const ordered = this.sections.map((section, originalIndex) => ({ section, originalIndex }));
+    return ordered.slice(this.activeTabIdx + 1).concat(ordered.slice(0, this.activeTabIdx));
+  }
+
+  trackByOrderedSection(_index: number, orderedSection: OrderedQuickAccessSection): number {
+    return orderedSection.originalIndex;
+  }
+
+  private getSpinDirection(previousIdx: number, nextIdx: number): TabSpinDirection {
+    if (nextIdx === previousIdx) return null;
+    const lastIdx = this.sections.length - 1;
+    if (previousIdx === lastIdx && nextIdx === 0) return 'right';
+    if (previousIdx === 0 && nextIdx === lastIdx) return 'left';
+    return nextIdx > previousIdx ? 'right' : 'left';
+  }
+
+  private startTabSpin(direction: TabSpinDirection): void {
+    if (this.tabSpinTimer) clearTimeout(this.tabSpinTimer);
+    this.tabSpinDirection = null;
+    this.cdr.markForCheck();
+
+    requestAnimationFrame(() => {
+      this.tabSpinDirection = direction;
+      this.cdr.markForCheck();
+      this.tabSpinTimer = setTimeout(() => {
+        this.tabSpinDirection = null;
+        this.tabSpinTimer = null;
+        this.cdr.markForCheck();
+      }, 200);
+    });
+  }
+
+  private updateHighlightForNewTab(): void {
+    if (this.sections.length > 0 && this.sections[this.activeTabIdx].items.length > 0) {
+      this.highlightedItem = { sectionIdx: this.activeTabIdx, itemIdx: 0 };
+    } else {
+      this.highlightedItem = null;
     }
+  }
+
+  isHighlighted(itemIdx: number): boolean {
+    return this.highlightedItem?.sectionIdx === this.activeTabIdx && this.highlightedItem?.itemIdx === itemIdx;
+  }
+
+  highlightItem(sectionIdx: number, itemIdx: number): void {
+    this.highlightedItem = { sectionIdx, itemIdx };
+  }
+
+  selectItem(sectionIdx: number, itemIdx: number): void {
+    if (sectionIdx < this.sections.length && itemIdx < this.sections[sectionIdx].items.length) {
+      const item = this.sections[sectionIdx].items[itemIdx];
+      this.navigate.emit(item.path);
+    }
+  }
+
+  @HostListener('document:keydown', ['$event'])
+  onKeyDown(event: KeyboardEvent): void {
+    // Tab switching logic
+    if (event.key === 'Tab') {
+      event.preventDefault();
+      event.stopPropagation();
+      const len = this.sections.length;
+      if (len <= 1) return;
+
+      const delta = event.shiftKey ? -1 : 1;
+      const next = (this.activeTabIdx + delta + len) % len;
+      this.setActiveTab(next);
+      return;
+    }
+
+    if (!this.highlightedItem) return;
+
+    switch (event.key) {
+      case 'ArrowDown':
+        event.preventDefault();
+        this.moveDown();
+        break;
+      case 'ArrowUp':
+        event.preventDefault();
+        this.moveUp();
+        break;
+      case 'Enter':
+        event.preventDefault();
+        this.selectItem(this.highlightedItem.sectionIdx, this.highlightedItem.itemIdx);
+        break;
+    }
+  }
+
+  private moveDown(): void {
+    if (!this.highlightedItem) return;
+    const { sectionIdx, itemIdx } = this.highlightedItem;
+    const currentSection = this.sections[sectionIdx];
+
+    if (itemIdx < currentSection.items.length - 1) {
+      this.highlightedItem = { sectionIdx, itemIdx: itemIdx + 1 };
+    }
+    // No wrapping to next section; just stop at bottom of list
+  }
+
+  private moveUp(): void {
+    if (!this.highlightedItem) return;
+    const { sectionIdx, itemIdx } = this.highlightedItem;
+
+    if (itemIdx > 0) {
+      this.highlightedItem = { sectionIdx, itemIdx: itemIdx - 1 };
+    }
+    // No wrapping to prev section; just stop at top of list
   }
 
   private getFrequentFolders(limit: number): QuickAccessItem[] {
@@ -410,83 +581,5 @@ export class AddressBarQuickAccessComponent implements OnInit {
     if (path === '/' || path === '') return 'Root';
     const parts = path.split('/').filter(p => p.length > 0);
     return parts.length > 0 ? parts[parts.length - 1] : 'Root';
-  }
-
-  isHighlighted(sectionIdx: number, itemIdx: number): boolean {
-    return this.highlightedItem?.sectionIdx === sectionIdx && this.highlightedItem?.itemIdx === itemIdx;
-  }
-
-  highlightItem(sectionIdx: number, itemIdx: number): void {
-    this.highlightedItem = { sectionIdx, itemIdx };
-  }
-
-  selectItem(sectionIdx: number, itemIdx: number): void {
-    if (sectionIdx < this.sections.length && itemIdx < this.sections[sectionIdx].items.length) {
-      const item = this.sections[sectionIdx].items[itemIdx];
-      this.navigate.emit(item.path);
-    }
-  }
-
-  onKeyDown(event: KeyboardEvent): void {
-    if (!this.highlightedItem) return;
-
-    switch (event.key) {
-      case 'ArrowDown':
-        event.preventDefault();
-        this.moveDown();
-        break;
-      case 'ArrowUp':
-        event.preventDefault();
-        this.moveUp();
-        break;
-      case 'Enter':
-        event.preventDefault();
-        this.selectItem(this.highlightedItem.sectionIdx, this.highlightedItem.itemIdx);
-        break;
-      default:
-        break;
-    }
-  }
-
-  private moveDown(): void {
-    if (!this.highlightedItem) return;
-
-    let { sectionIdx, itemIdx } = this.highlightedItem;
-
-    // Try next item in current section
-    if (itemIdx < this.sections[sectionIdx].items.length - 1) {
-      itemIdx++;
-      this.highlightedItem = { sectionIdx, itemIdx };
-      return;
-    }
-
-    // Try next section
-    if (sectionIdx < this.sections.length - 1) {
-      sectionIdx++;
-      itemIdx = 0;
-      if (this.sections[sectionIdx].items.length > 0) {
-        this.highlightedItem = { sectionIdx, itemIdx };
-      }
-    }
-  }
-
-  private moveUp(): void {
-    if (!this.highlightedItem) return;
-
-    let { sectionIdx, itemIdx } = this.highlightedItem;
-
-    // Try previous item in current section
-    if (itemIdx > 0) {
-      itemIdx--;
-      this.highlightedItem = { sectionIdx, itemIdx };
-      return;
-    }
-
-    // Try previous section
-    if (sectionIdx > 0) {
-      sectionIdx--;
-      itemIdx = this.sections[sectionIdx].items.length - 1;
-      this.highlightedItem = { sectionIdx, itemIdx };
-    }
   }
 }

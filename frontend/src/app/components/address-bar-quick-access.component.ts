@@ -1,4 +1,4 @@
-import { Component, Input, Output, EventEmitter, OnInit, OnDestroy, ChangeDetectionStrategy, HostListener, ChangeDetectorRef } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnInit, OnDestroy, ChangeDetectionStrategy, HostListener, ChangeDetectorRef, ElementRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { SpecialFolder } from '../shared/protocol-enhanced';
 import { PathHistoryService, PathHistoryEntry } from '../services/path-history.service';
@@ -33,35 +33,107 @@ export interface QuickAccessItem {
     <div class="ab-quick-access-drop" role="menu" tabindex="-1">
       <!-- Header with Tabs -->
       <div class="ab-drop-head">
-        <div
-          class="ab-qa-tabs"
-          role="tablist"
-          [class.ab-qa-tabs--spin-left]="tabSpinDirection === 'left'"
-          [class.ab-qa-tabs--spin-right]="tabSpinDirection === 'right'"
-        >
-          <button
-            *ngIf="activeSectionEntry() as activeSection"
-            class="ab-qa-tab ab-qa-tab--active"
-            (click)="setActiveTab(activeSection.originalIndex)"
-            role="tab"
-            [attr.aria-selected]="true"
-            type="button"
-          >
-            {{ activeSection.section.title }}
-          </button>
-
-          <div class="ab-qa-tab-trail">
-            <button
-              *ngFor="let orderedSection of trailingSections(); trackBy: trackByOrderedSection"
-              class="ab-qa-tab ab-qa-tab--trailing"
-              (click)="setActiveTab(orderedSection.originalIndex)"
-              role="tab"
-              [attr.aria-selected]="false"
-              type="button"
+        <div class="ab-qa-tabs-stage">
+          <ng-container *ngIf="tabTransitionActive; else staticTabs">
+            <div
+              class="ab-qa-tabs ab-qa-tabs--anim ab-qa-tabs--outgoing"
+              [class.ab-qa-tabs--left]="tabSpinDirection === 'left'"
+              [class.ab-qa-tabs--right]="tabSpinDirection === 'right'"
             >
-              {{ orderedSection.section.title }}
-            </button>
-          </div>
+              <button
+                *ngIf="leadingSection(animationFromSections) as activeSection"
+                class="ab-qa-tab ab-qa-tab--active"
+                role="tab"
+                [attr.aria-selected]="true"
+                type="button"
+              >
+                {{ activeSection.section.title }}
+              </button>
+
+              <div class="ab-qa-tab-trail">
+                <div
+                  *ngFor="let orderedSection of trailingSectionsFrom(animationFromSections); trackBy: trackByOrderedSection"
+                  class="ab-qa-tab-trailing-item"
+                >
+                  <span class="ab-qa-tab-divider" aria-hidden="true"></span>
+                  <button
+                    class="ab-qa-tab ab-qa-tab--trailing"
+                    role="tab"
+                    [attr.aria-selected]="false"
+                    type="button"
+                  >
+                    {{ orderedSection.section.title }}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div
+              class="ab-qa-tabs ab-qa-tabs--anim ab-qa-tabs--incoming"
+              [class.ab-qa-tabs--left]="tabSpinDirection === 'left'"
+              [class.ab-qa-tabs--right]="tabSpinDirection === 'right'"
+            >
+              <button
+                *ngIf="leadingSection(animationToSections) as activeSection"
+                class="ab-qa-tab ab-qa-tab--active"
+                role="tab"
+                [attr.aria-selected]="true"
+                type="button"
+              >
+                {{ activeSection.section.title }}
+              </button>
+
+              <div class="ab-qa-tab-trail">
+                <div
+                  *ngFor="let orderedSection of trailingSectionsFrom(animationToSections); trackBy: trackByOrderedSection"
+                  class="ab-qa-tab-trailing-item"
+                >
+                  <span class="ab-qa-tab-divider" aria-hidden="true"></span>
+                  <button
+                    class="ab-qa-tab ab-qa-tab--trailing"
+                    role="tab"
+                    [attr.aria-selected]="false"
+                    type="button"
+                  >
+                    {{ orderedSection.section.title }}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </ng-container>
+
+          <ng-template #staticTabs>
+            <div class="ab-qa-tabs" role="tablist">
+              <button
+                *ngIf="activeSectionEntry() as activeSection"
+                class="ab-qa-tab ab-qa-tab--active"
+                (click)="setActiveTab(activeSection.originalIndex)"
+                role="tab"
+                [attr.aria-selected]="true"
+                type="button"
+              >
+                {{ activeSection.section.title }}
+              </button>
+
+              <div class="ab-qa-tab-trail">
+                <div
+                  *ngFor="let orderedSection of trailingSections(); trackBy: trackByOrderedSection"
+                  class="ab-qa-tab-trailing-item"
+                >
+                  <span class="ab-qa-tab-divider" aria-hidden="true"></span>
+                  <button
+                    class="ab-qa-tab ab-qa-tab--trailing"
+                    (click)="setActiveTab(orderedSection.originalIndex)"
+                    role="tab"
+                    [attr.aria-selected]="false"
+                    type="button"
+                  >
+                    {{ orderedSection.section.title }}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </ng-template>
         </div>
       </div>
 
@@ -101,7 +173,6 @@ export interface QuickAccessItem {
   `,
   styles: [`
     :host { display: contents; }
-
     .ab-quick-access-drop {
       min-width: 280px;
       max-width: 380px;
@@ -123,6 +194,15 @@ export interface QuickAccessItem {
       padding: 0 var(--vsc-padding-lg);
       background-color: var(--vsc-panel-background, #252526) !important;
       border-bottom: 1px solid var(--vsc-border-subtle);
+      overflow: hidden;
+      perspective: 900px;
+    }
+
+    .ab-qa-tabs-stage {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
     }
 
     .ab-qa-tabs {
@@ -134,6 +214,29 @@ export interface QuickAccessItem {
       gap: 12px;
       transform-origin: center center;
       will-change: transform;
+      transform-style: preserve-3d;
+    }
+
+    .ab-qa-tabs--anim {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+
+    .ab-qa-tabs--outgoing.ab-qa-tabs--left {
+      animation: ab-qa-strip-out-left 260ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    }
+
+    .ab-qa-tabs--incoming.ab-qa-tabs--left {
+      animation: ab-qa-strip-in-left 260ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    }
+
+    .ab-qa-tabs--outgoing.ab-qa-tabs--right {
+      animation: ab-qa-strip-out-right 260ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    }
+
+    .ab-qa-tabs--incoming.ab-qa-tabs--right {
+      animation: ab-qa-strip-in-right 260ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
     }
 
     .ab-qa-tab-trail {
@@ -145,12 +248,27 @@ export interface QuickAccessItem {
       margin-left: auto;
     }
 
-    .ab-qa-tabs--spin-left {
-      animation: ab-qa-tabs-spin-left 180ms cubic-bezier(0.22, 1, 0.36, 1);
+    .ab-qa-tab-trailing-item {
+      display: flex;
+      align-items: center;
+      flex: 0 0 auto;
+      margin-left: 6px;
     }
 
-    .ab-qa-tabs--spin-right {
-      animation: ab-qa-tabs-spin-right 180ms cubic-bezier(0.22, 1, 0.36, 1);
+    .ab-qa-tab-divider {
+      display: block;
+      width: 1px;
+      height: 14px;
+      margin-right: 10px;
+      background: color-mix(in srgb, var(--vsc-foreground-dim) 60%, transparent);
+      transform: rotate(22deg);
+      transform-origin: center;
+      opacity: 0.7;
+      pointer-events: none;
+      user-select: none;
+      -webkit-user-select: none;
+      flex: 0 0 auto;
+      backface-visibility: hidden;
     }
 
     .ab-qa-tab {
@@ -159,12 +277,15 @@ export interface QuickAccessItem {
       color: var(--vsc-foreground-dim);
       border-bottom: 2px solid transparent;
       height: 100%;
-      padding: 0 4px;
+      padding: 0;
       cursor: pointer;
       font-size: 11px;
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.5px;
+      user-select: none;
+      -webkit-user-select: none;
+      backface-visibility: hidden;
       transition: color 0.14s ease, border-color 0.14s ease, opacity 0.14s ease, transform 0.14s ease;
 
       &:hover {
@@ -180,17 +301,16 @@ export interface QuickAccessItem {
     .ab-qa-tab--active {
       flex: 0 0 auto;
       padding-left: 0;
-      padding-right: 10px;
+      padding-right: 0;
       color: var(--vsc-foreground);
       border-bottom-color: var(--vsc-accent-blue);
       text-shadow: 0 0 10px color-mix(in srgb, var(--vsc-accent-blue) 22%, transparent);
     }
 
     .ab-qa-tab--trailing {
-      position: relative;
       flex: 0 0 auto;
       opacity: 0.72;
-      padding-left: 18px;
+      padding-left: 0;
     }
 
     .ab-qa-tab--trailing:hover {
@@ -198,41 +318,47 @@ export interface QuickAccessItem {
       transform: translateY(-1px);
     }
 
-    .ab-qa-tab--trailing::before {
-      content: '';
-      position: absolute;
-      left: 6px;
-      top: 50%;
-      width: 1px;
-      height: 14px;
-      background: color-mix(in srgb, var(--vsc-foreground-dim) 60%, transparent);
-      transform: translateY(-50%) rotate(22deg);
-      transform-origin: center;
-      opacity: 0.7;
-      pointer-events: none;
-    }
-
-    @keyframes ab-qa-tabs-spin-left {
+    @keyframes ab-qa-strip-out-left {
       0% {
-        transform: perspective(500px) rotateY(0deg) translateX(0);
-      }
-      50% {
-        transform: perspective(500px) rotateY(-9deg) translateX(-6px);
+        transform: translateX(0) rotateY(0deg) rotateX(0deg) scale(1);
+        opacity: 1;
       }
       100% {
-        transform: perspective(500px) rotateY(0deg) translateX(0);
+        transform: translateX(-108%) rotateY(-18deg) rotateX(3deg) scale(0.985);
+        opacity: 0.18;
       }
     }
 
-    @keyframes ab-qa-tabs-spin-right {
+    @keyframes ab-qa-strip-in-left {
       0% {
-        transform: perspective(500px) rotateY(0deg) translateX(0);
-      }
-      50% {
-        transform: perspective(500px) rotateY(9deg) translateX(6px);
+        transform: translateX(108%) rotateY(18deg) rotateX(-3deg) scale(0.985);
+        opacity: 0.18;
       }
       100% {
-        transform: perspective(500px) rotateY(0deg) translateX(0);
+        transform: translateX(0) rotateY(0deg) rotateX(0deg) scale(1);
+        opacity: 1;
+      }
+    }
+
+    @keyframes ab-qa-strip-out-right {
+      0% {
+        transform: translateX(0) rotateY(0deg) rotateX(0deg) scale(1);
+        opacity: 1;
+      }
+      100% {
+        transform: translateX(108%) rotateY(18deg) rotateX(3deg) scale(0.985);
+        opacity: 0.18;
+      }
+    }
+
+    @keyframes ab-qa-strip-in-right {
+      0% {
+        transform: translateX(-108%) rotateY(-18deg) rotateX(-3deg) scale(0.985);
+        opacity: 0.18;
+      }
+      100% {
+        transform: translateX(0) rotateY(0deg) rotateX(0deg) scale(1);
+        opacity: 1;
       }
     }
 
@@ -335,16 +461,6 @@ export interface QuickAccessItem {
       white-space: nowrap;
       font-size: var(--vsc-font-size);
     }
-
-    .qa-item-count {
-      font-size: 10px;
-      color: var(--vsc-foreground-dim);
-      background: var(--vsc-badge-background);
-      padding: 1px 5px;
-      border-radius: 8px;
-      flex-shrink: 0;
-      text-align: center;
-    }
   `]
 })
 export class AddressBarQuickAccessComponent implements OnInit, OnDestroy {
@@ -356,12 +472,16 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy {
   sections: QuickAccessSection[] = [];
   activeTabIdx = 0;
   tabSpinDirection: TabSpinDirection = null;
+  tabTransitionActive = false;
+  animationFromSections: OrderedQuickAccessSection[] = [];
+  animationToSections: OrderedQuickAccessSection[] = [];
   highlightedItem: { sectionIdx: number; itemIdx: number } | null = null;
   private tabSpinTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     private pathHistoryService: PathHistoryService,
     private cdr: ChangeDetectorRef,
+    private hostEl: ElementRef<HTMLElement>,
   ) {}
 
   ngOnInit(): void {
@@ -425,7 +545,10 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy {
 
   setActiveTab(idx: number): void {
     if (this.activeTabIdx === idx) return;
+    this.focusMenuRoot();
     const previousIdx = this.activeTabIdx;
+    this.animationFromSections = this.orderedSectionsFor(previousIdx);
+    this.animationToSections = this.orderedSectionsFor(idx);
     this.activeTabIdx = idx;
     this.startTabSpin(this.getSpinDirection(previousIdx, idx));
     this.updateHighlightForNewTab();
@@ -439,10 +562,22 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy {
   }
 
   trailingSections(): OrderedQuickAccessSection[] {
+    return this.trailingSectionsFrom(this.orderedSectionsFor(this.activeTabIdx));
+  }
+
+  leadingSection(sections: OrderedQuickAccessSection[]): OrderedQuickAccessSection | null {
+    return sections[0] ?? null;
+  }
+
+  trailingSectionsFrom(sections: OrderedQuickAccessSection[]): OrderedQuickAccessSection[] {
+    return sections.slice(1);
+  }
+
+  private orderedSectionsFor(startIdx: number): OrderedQuickAccessSection[] {
     if (this.sections.length === 0) return [];
 
     const ordered = this.sections.map((section, originalIndex) => ({ section, originalIndex }));
-    return ordered.slice(this.activeTabIdx + 1).concat(ordered.slice(0, this.activeTabIdx));
+    return ordered.slice(startIdx).concat(ordered.slice(0, startIdx));
   }
 
   trackByOrderedSection(_index: number, orderedSection: OrderedQuickAccessSection): number {
@@ -452,24 +587,33 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy {
   private getSpinDirection(previousIdx: number, nextIdx: number): TabSpinDirection {
     if (nextIdx === previousIdx) return null;
     const lastIdx = this.sections.length - 1;
-    if (previousIdx === lastIdx && nextIdx === 0) return 'right';
-    if (previousIdx === 0 && nextIdx === lastIdx) return 'left';
-    return nextIdx > previousIdx ? 'right' : 'left';
+    if (previousIdx === lastIdx && nextIdx === 0) return 'left';
+    if (previousIdx === 0 && nextIdx === lastIdx) return 'right';
+    return nextIdx > previousIdx ? 'left' : 'right';
   }
 
   private startTabSpin(direction: TabSpinDirection): void {
     if (this.tabSpinTimer) clearTimeout(this.tabSpinTimer);
-    this.tabSpinDirection = null;
+    this.tabSpinDirection = direction;
+    this.tabTransitionActive = true;
     this.cdr.markForCheck();
+    this.focusMenuRoot();
 
-    requestAnimationFrame(() => {
-      this.tabSpinDirection = direction;
+    this.tabSpinTimer = setTimeout(() => {
+      this.tabSpinDirection = null;
+      this.tabTransitionActive = false;
+      this.animationFromSections = [];
+      this.animationToSections = [];
+      this.tabSpinTimer = null;
       this.cdr.markForCheck();
-      this.tabSpinTimer = setTimeout(() => {
-        this.tabSpinDirection = null;
-        this.tabSpinTimer = null;
-        this.cdr.markForCheck();
-      }, 200);
+      this.focusMenuRoot();
+    }, 260);
+  }
+
+  private focusMenuRoot(): void {
+    requestAnimationFrame(() => {
+      const menu = this.hostEl.nativeElement.querySelector<HTMLElement>('.ab-quick-access-drop');
+      menu?.focus({ preventScroll: true });
     });
   }
 

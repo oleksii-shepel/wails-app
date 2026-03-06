@@ -88,10 +88,6 @@ interface TabSession {
               (mouseenter)="acIdx = s.__idx"
               (mousedown)="acceptSuggestion(s, $event)"
             >
-              <span class="ab-item-icon" aria-hidden="true">
-                <ng-container *ngIf="s.matchType === 'directory'; else histIcon">📁</ng-container>
-                <ng-template #histIcon>🕒</ng-template>
-              </span>
               <span class="ab-item-path" [innerHTML]="highlight(s.path, value)"></span>
             </div>
           </div>
@@ -702,7 +698,8 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
       }
 
       // Load history immediately (local/fast)
-      const hist = await this.pathHistoryService.getSuggestions(q, this.currentPath).catch(() => []) as PathSuggestion[];
+      // We are skipping history suggestions as per user request
+      const hist: PathSuggestion[] = [];
       if (requestId !== this.suggestionsRequestId) return;
 
       // Show history right away

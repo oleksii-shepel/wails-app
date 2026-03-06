@@ -1,4 +1,4 @@
-import { Component, Input, Output, EventEmitter, OnInit, OnDestroy, ChangeDetectionStrategy, HostListener, ChangeDetectorRef, ElementRef } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnInit, OnDestroy, OnChanges, SimpleChanges, ChangeDetectionStrategy, HostListener, ChangeDetectorRef, ElementRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { SpecialFolder } from '../shared/protocol-enhanced';
 import { PathHistoryService, PathHistoryEntry } from '../services/path-history.service';
@@ -22,6 +22,7 @@ export interface QuickAccessItem {
   icon: string;
   accessCount?: number;
   timestamp?: number;
+  pin?: PinnedPath;
 }
 
 @Component({
@@ -148,7 +149,13 @@ export interface QuickAccessItem {
         <div class="qa-section" role="group">
           <ng-container *ngIf="sections[activeTabIdx] as activeSection">
             <div class="ab-drop-empty" *ngIf="activeSection.items.length === 0">
-              <span>No items in this section</span>
+              <ng-container *ngIf="activeSection.title === 'Pinned'; else genericEmptyState">
+                <span class="ab-drop-empty-icon">📍</span>
+                <span>No pinned paths yet.<br>Click ☆ to pin the current path.</span>
+              </ng-container>
+              <ng-template #genericEmptyState>
+                <span>No items in this section</span>
+              </ng-template>
             </div>
 
             <button
@@ -164,7 +171,14 @@ export interface QuickAccessItem {
             >
               <span class="qa-item-icon">{{ item.icon }}</span>
               <span class="qa-item-name">{{ item.name }}</span>
-              <span *ngIf="item.accessCount" class="qa-item-count">{{ item.accessCount }}×</span>
+              <button
+                *ngIf="item.pin"
+                class="qa-item-remove"
+                (click)="removePinnedItem(item, $event)"
+                title="Remove pin"
+                aria-label="Remove pin"
+                type="button"
+              >✕</button>
             </button>
           </ng-container>
         </div>
@@ -174,8 +188,8 @@ export interface QuickAccessItem {
   styles: [`
     :host { display: contents; }
     .ab-quick-access-drop {
-      min-width: 280px;
-      max-width: 380px;
+      min-width: 360px;
+      max-width: 520px;
       z-index: 9999 !important;
       background-color: var(--vsc-panel-background, #252526) !important;
       background-image: none !important;
@@ -461,13 +475,42 @@ export interface QuickAccessItem {
       white-space: nowrap;
       font-size: var(--vsc-font-size);
     }
+
+    .qa-item-remove {
+      flex: 0 0 auto;
+      width: 20px;
+      height: 20px;
+      padding: 0;
+      border: none;
+      border-radius: var(--vsc-border-radius-sm, 2px);
+      background: transparent;
+      color: transparent;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: background-color var(--vsc-transition-fast), color var(--vsc-transition-fast);
+
+      .qa-item:hover &,
+      .qa-item--highlighted &,
+      .ab-drop-item--active & {
+        color: var(--vsc-foreground-dim);
+      }
+
+      &:hover {
+        background: var(--vsc-error, #f48771);
+        color: var(--vsc-foreground-bright, #ffffff);
+      }
+    }
   `]
 })
-export class AddressBarQuickAccessComponent implements OnInit, OnDestroy {
+export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChanges {
   @Input() currentPath = '';
   @Input() specialFolders: SpecialFolder[] = [];
   @Input() pinnedPaths: PinnedPath[] = [];
+  @Input() preferredSectionTitle: string | null = null;
   @Output() navigate = new EventEmitter<string>();
+  @Output() removePin = new EventEmitter<PinnedPath>();
 
   sections: QuickAccessSection[] = [];
   activeTabIdx = 0;
@@ -486,6 +529,15 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.buildSections();
+  }
+
+  ngOnChanges(changes: SimpleChanges): void {
+    if (changes['specialFolders'] || changes['pinnedPaths']) {
+      this.buildSections();
+    }
+    if (changes['preferredSectionTitle'] && !changes['preferredSectionTitle'].firstChange) {
+      this.applyPreferredSection();
+    }
   }
 
   ngOnDestroy(): void {
@@ -509,16 +561,15 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy {
     }
 
     // Pinned Folders
-    if (this.pinnedPaths.length > 0) {
-      this.sections.push({
-        title: 'Pinned',
-        items: this.pinnedPaths.map(p => ({
-          name: p.label,
-          path: p.path,
-          icon: p.icon,
-        }))
-      });
-    }
+    this.sections.push({
+      title: 'Pinned',
+      items: this.pinnedPaths.map(p => ({
+        name: p.label,
+        path: p.path,
+        icon: p.icon,
+        pin: p,
+      }))
+    });
 
     // Frequent Folders (top 5 by access count)
     const frequentItems = this.getFrequentFolders(5);
@@ -540,7 +591,20 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy {
 
     // Reset initial state
     this.activeTabIdx = 0;
+    this.applyPreferredSection();
     this.updateHighlightForNewTab();
+  }
+
+  private applyPreferredSection(): void {
+    const preferred = (this.preferredSectionTitle || '').trim().toLowerCase();
+    if (!preferred || this.sections.length === 0) return;
+
+    const preferredIdx = this.sections.findIndex(section => section.title.toLowerCase() === preferred);
+    if (preferredIdx >= 0) {
+      this.activeTabIdx = preferredIdx;
+      this.updateHighlightForNewTab();
+      this.cdr.markForCheck();
+    }
   }
 
   setActiveTab(idx: number): void {
@@ -638,6 +702,12 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy {
       const item = this.sections[sectionIdx].items[itemIdx];
       this.navigate.emit(item.path);
     }
+  }
+
+  removePinnedItem(item: QuickAccessItem, event: MouseEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    if (item.pin) this.removePin.emit(item.pin);
   }
 
   @HostListener('document:keydown', ['$event'])

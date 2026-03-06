@@ -17,7 +17,6 @@ import { EventsOn } from 'wailsjs/runtime';
 import { PathSegment, SiblingEntry, PinnedPath, ContextMenuState, PINNED_KEY, CTX_MENU_CLOSED } from './address-bar.types';
 import { isWindowsPath, normalizePath, parentPath, shortenPath, buildSegments } from './address-bar.utils';
 import { AddressBarEditComponent } from './address-bar-edit.component';
-import { AddressBarPinDropdownComponent } from './address-bar-pin-dropdown.component';
 import { AddressBarDriveDropdownComponent } from './address-bar-drive-dropdown.component';
 import { AddressBarSiblingDropdownComponent } from './address-bar-sibling-dropdown.component';
 import { AddressBarQuickAccessComponent } from './address-bar-quick-access.component';
@@ -33,7 +32,6 @@ import { DropdownContainerComponent } from './dropdown-container.component';
     DropdownTriggerDirective,
     DropdownMenuDirective,
     AddressBarSiblingDropdownComponent,
-    AddressBarPinDropdownComponent,
     AddressBarDriveDropdownComponent,
     AddressBarEditComponent,
     AddressBarQuickAccessComponent,
@@ -44,16 +42,8 @@ import { DropdownContainerComponent } from './dropdown-container.component';
   <!-- ── BREADCRUMB ROW ──────────────────────────────────────────────── -->
   <div class="ab-bar" *ngIf="!editMode" [class.ab-bar--compact]="compact">
 
-    <!-- Left cluster: pin star + pin dropdown -->
+    <!-- Left cluster: quick access + pin star -->
     <div class="ab-cluster ab-cluster--left">
-      <button
-        class="ab-btn ab-btn--star"
-        [class.ab-btn--pinned]="isPinned"
-        (click)="togglePin()"
-        [title]="isPinned ? 'Unpin this path' : 'Pin this path'"
-        aria-label="Toggle pin"
-      >{{ isPinned ? '★' : '☆' }}</button>
-
       <!-- QUICK ACCESS -->
       <button
         #quickAccessTrigger
@@ -79,38 +69,19 @@ import { DropdownContainerComponent } from './dropdown-container.component';
           [currentPath]="currentPath"
           [specialFolders]="specialFolders"
           [pinnedPaths]="pinnedPaths"
+          [preferredSectionTitle]="quickAccessPreferredSection"
           (navigate)="navigateTo($event); showQuickAccess = false"
+          (removePin)="removePin($event)"
         />
       </app-dropdown-container>
 
-      <!-- PIN DROPDOWN -->
       <button
-        #pinDropTrigger
-        appDropdownTrigger
-        class="ab-btn ab-btn--pinlist"
-        [class.ab-btn--open]="showPinDrop"
-        (click)="togglePinDrop()"
-        title="Pinned paths (Ctrl+B)"
-        aria-label="Open pinned paths"
-      >
-        <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
-          <path d="M9.5 1.5a1 1 0 0 0-1.415 0L4.94 4.645a3.5 3.5 0 0 0-.871 3.547l-2.646 2.647a.5.5 0 0 0 .708.707l2.646-2.646a3.5 3.5 0 0 0 3.547-.872l3.144-3.144A1 1 0 0 0 11.5 3l-2-1.5z"/>
-        </svg>
-      </button>
-      <app-dropdown-container
-        class="ab-drop-anchor"
-        [(isOpen)]="showPinDrop"
-        [anchorEl]="pinDropTrigger"
-      >
-        <app-address-bar-pin-dropdown
-          appDropdownMenu
-          *ngIf="showPinDrop"
-          [pins]="pinnedPaths"
-          [currentPath]="currentPath"
-          (navigate)="navigateTo($event)"
-          (remove)="removePin($event.pin, $event.event)"
-        />
-      </app-dropdown-container>
+        class="ab-btn ab-btn--star"
+        [class.ab-btn--pinned]="isPinned"
+        (click)="togglePin()"
+        [title]="isPinned ? 'Unpin this path' : 'Pin this path'"
+        aria-label="Toggle pin"
+      >{{ isPinned ? '★' : '☆' }}</button>
     </div>
 
     <!-- Breadcrumb trail -->
@@ -695,10 +666,10 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   // ── Quick Access ─────────────────────────────────────────────────────────
   specialFolders: SpecialFolder[] = [];
   showQuickAccess = false;
+  quickAccessPreferredSection: string | null = null;
 
   // ── Pinned paths ─────────────────────────────────────────────────────────
   pinnedPaths: PinnedPath[] = [];
-  showPinDrop = false;
   get isPinned(): boolean { return this.pinnedPaths.some(p => p.path === this.currentPath); }
 
   // ── Edit mode ────────────────────────────────────────────────────────────
@@ -1040,7 +1011,6 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
 
   async toggleChev(idx: number, seg: PathSegment, e: MouseEvent): Promise<void> {
     e.stopPropagation();
-    this.showPinDrop   = false;
     this.showDriveMenu = false;
 
     if (this.chevIdx === idx) {
@@ -1221,21 +1191,26 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   }
 
   toggleQuickAccess(): void {
-    this.showQuickAccess = !this.showQuickAccess;
+    this.openQuickAccess(null, !this.showQuickAccess);
+  }
+
+  private openQuickAccess(preferredSectionTitle: string | null, toggleWhenSame = false): void {
+    const samePreference = this.quickAccessPreferredSection === preferredSectionTitle;
+    if (toggleWhenSame && samePreference) {
+      this.showQuickAccess = !this.showQuickAccess;
+    } else {
+      this.showQuickAccess = true;
+    }
+
+    this.quickAccessPreferredSection = preferredSectionTitle;
     if (this.showQuickAccess) {
       this.chevIdx = -1;
-      this.showPinDrop = false;
       this.showDriveMenu = false;
     }
   }
 
-  togglePinDrop(): void {
-    this.showPinDrop = !this.showPinDrop;
-    if (this.showPinDrop) { this.chevIdx = -1; this.showQuickAccess = false; this.showDriveMenu = false; }
-  }
-
-  removePin(p: PinnedPath, e: MouseEvent): void {
-    e.stopPropagation();
+  removePin(p: PinnedPath, e?: MouseEvent): void {
+    e?.stopPropagation();
     this.pinnedPaths = this.pinnedPaths.filter(x => x.path !== p.path);
     this.savePins();
   }
@@ -1331,7 +1306,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     this.sibOpen       = false;
     this.siblings      = [];
     this.showQuickAccess = false;
-    this.showPinDrop   = false;
+    this.quickAccessPreferredSection = null;
     this.showDriveMenu = false;
     this.closeCtx();
   }
@@ -1342,7 +1317,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     if ((e.ctrlKey || e.metaKey) && e.key === 'l') { e.preventDefault(); this.enterEditMode(); }
     if (e.altKey && e.key === 'd')                  { e.preventDefault(); this.enterEditMode(); }
     if ((e.ctrlKey || e.metaKey) && e.key === 'q') { e.preventDefault(); this.toggleQuickAccess(); }
-    if ((e.ctrlKey || e.metaKey) && e.key === 'b') { e.preventDefault(); this.togglePinDrop(); }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'b') { e.preventDefault(); this.openQuickAccess('Pinned'); }
   }
 
   @HostListener('document:keydown', ['$event'])
@@ -1350,7 +1325,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     if (e.key !== 'Escape') return;
     if (this.ctxMenu.visible)                                                        { this.closeCtx();         e.preventDefault(); }
     else if (this.editMode)                                                          { this.exitEditMode(false); e.preventDefault(); }
-    else if (this.chevIdx >= 0 || this.showQuickAccess || this.showPinDrop || this.showDriveMenu) { this.closeAll();          e.preventDefault(); }
+    else if (this.chevIdx >= 0 || this.showQuickAccess || this.showDriveMenu) { this.closeAll();          e.preventDefault(); }
   }
 }
 

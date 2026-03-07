@@ -4,6 +4,7 @@ import {
   Input,
   Output,
   EventEmitter,
+  OnInit,
   OnDestroy,
   OnChanges,
   AfterViewInit,
@@ -67,7 +68,6 @@ import { parentPath } from './address-bar.utils';
           [attr.data-path]="entry.path"
           [class.dragging-source]="draggingPaths.has(entry.path)"
           [class.selected]="isSelected(entry)"
-          [class.cursor]="entry.path === cursorPath"
           [class.directory]="entry.type === FileType.DIRECTORY"
           [class.parent-dir]="isParentEntry(entry)"
           [class.drag-over]="isDragOverInside(entry)"
@@ -90,7 +90,6 @@ import { parentPath } from './address-bar.utils';
             <app-file-entry
               [entry]="entry"
               [selected]="isSelected(entry)"
-              [cursor]="entry.path === cursorPath"
               variant="grid"
               (rename)="onRename($event)">
             </app-file-entry>
@@ -231,17 +230,6 @@ import { parentPath } from './address-bar.utils';
         .grid-name {
           color: var(--vsc-foreground-bright);
         }
-      }
-      
-      /* TC cursor indicator */
-      &.cursor:not(.selected) {
-        background: color-mix(in srgb, var(--vsc-list-active-background) 35%, transparent);
-        border-color: color-mix(in srgb, var(--vsc-accent-blue) 70%, transparent);
-      }
-      
-      &.cursor.selected {
-        outline: 2px solid var(--vsc-accent-blue);
-        outline-offset: -2px;
       }
       
       &.directory {
@@ -401,7 +389,7 @@ import { parentPath } from './address-bar.utils';
     }
   `]
 })
-export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
+export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterViewInit {
   constructor(
     private zone: NgZone,
     private cdr: ChangeDetectorRef
@@ -416,6 +404,7 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
   @Input() paneActive = true;
   
   @Output() selectionChange = new EventEmitter<FileInfo[]>();
+  @Output() cursorPathChange = new EventEmitter<string | null>();
   @Output() navigate = new EventEmitter<FileInfo>();
   @Output() openInNewTab = new EventEmitter<FileInfo>();
   @Output() contextMenu = new EventEmitter<{ event: MouseEvent; entry: FileInfo }>();
@@ -439,6 +428,11 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
   private viewportHeight = 0;
 
   private anchorPath: string | null = null;
+
+  private setCursor(path: string | null): void {
+    this.anchorPath = path;
+    this.cursorPathChange.emit(path);
+  }
   dragPreviewEntry: FileInfo | null = null;
   dragOverPath: string | null = null;
   dragOverPosition: 'before' | 'after' | 'inside' | null = null;
@@ -495,16 +489,47 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
     this.rename.emit(event);
   }
 
+  /** Number of columns currently visible in the grid. */
+  getColumns(): number {
+    return Math.max(1, this.virtualColumns);
+  }
+
+  /** Approximate number of grid items visible in the viewport. */
+  getApproxPageSize(): number {
+    const host = this.gridContainerRef?.nativeElement;
+    if (!host) return 5;
+    const rows = Math.max(1, Math.floor(host.clientHeight / this.rowHeight) - 1);
+    return rows * Math.max(1, this.virtualColumns);
+  }
+
+  /** Scroll the grid to bring the given path into view. */
+  scrollToPath(path: string): void {
+    if (!path || path === PARENT_ENTRY_PATH) return;
+    const host = this.gridContainerRef?.nativeElement;
+    if (!host) return;
+    const idx = this.entries.findIndex(e => e.path === path);
+    if (idx < 0) return;
+    if (this.virtualEnabled) {
+      const row = Math.floor(idx / Math.max(1, this.virtualColumns));
+      const itemTop = row * this.rowHeight;
+      const itemBottom = itemTop + this.rowHeight;
+      if (itemTop < host.scrollTop || itemBottom > host.scrollTop + host.clientHeight) {
+        const centerOffset = host.clientHeight / 2 - this.rowHeight / 2;
+        host.scrollTop = Math.max(0, itemTop - centerOffset);
+      }
+      this.updateVirtualWindow();
+      this.cdr.markForCheck();
+    } else {
+      const el = host.querySelector<HTMLElement>(`.grid-item[data-path="${CSS.escape(path)}"]`);
+      el?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    }
+  }
+
   /** Called by parent (eg. on F2) to begin in-place rename for the current selection. */
   startRenameSelected(): void {
     const selectedPath = this.getFirstSelectedPathInOrder();
     if (!selectedPath) return;
     this.startRenameByPath(selectedPath);
-  }
-
-  /** Number of columns currently visible in the grid. */
-  getColumns(): number {
-    return Math.max(1, this.virtualColumns);
   }
 
   private getFirstSelectedPathInOrder(): string | null {
@@ -544,37 +569,6 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
     });
   }
 
-  /** Scroll the grid to bring the given path into view. */
-  scrollToPath(path: string): void {
-    if (!path || path === PARENT_ENTRY_PATH) return;
-    const host = this.gridContainerRef?.nativeElement;
-    if (!host) return;
-    const idx = this.entries.findIndex(e => e.path === path);
-    if (idx < 0) return;
-    if (this.virtualEnabled) {
-      const row = Math.floor(idx / Math.max(1, this.virtualColumns));
-      const itemTop = row * this.rowHeight;
-      const itemBottom = itemTop + this.rowHeight;
-      if (itemTop < host.scrollTop || itemBottom > host.scrollTop + host.clientHeight) {
-        const centerOffset = host.clientHeight / 2 - this.rowHeight / 2;
-        host.scrollTop = Math.max(0, itemTop - centerOffset);
-      }
-      this.updateVirtualWindow();
-      this.cdr.markForCheck();
-    } else {
-      const el = host.querySelector<HTMLElement>(`.grid-item[data-path="${CSS.escape(path)}"]`);
-      el?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-    }
-  }
-
-  /** Approximate number of grid items visible in the viewport. */
-  getApproxPageSize(): number {
-    const host = this.gridContainerRef?.nativeElement;
-    if (!host) return 5;
-    const rows = Math.max(1, Math.floor(host.clientHeight / this.rowHeight) - 1);
-    return rows * Math.max(1, this.virtualColumns);
-  }
-
   get displayEntries(): (FileInfo | null)[] {
     const visible = this.visibleEntries;
     if (!this.dragOverPath || this.dragOverPosition === 'inside') return visible;
@@ -593,6 +587,13 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
     return '__grid_ghost__';
   }
 
+  ngOnInit(): void {
+    // Seed anchor from parent-provided cursor on first load (e.g. tab restore).
+    if (this.cursorPath && !this.anchorPath) {
+      this.anchorPath = this.cursorPath;
+    }
+  }
+
   ngAfterViewInit(): void {
     this.setupResizeObserver();
     this.setupScrollListener();
@@ -600,6 +601,11 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
   }
 
   ngOnChanges(changes: SimpleChanges): void {
+    // Parent can restore cursor position (e.g. after tab switch / navigation).
+    // Only sync if parent explicitly changed it; internal clicks update anchorPath directly.
+    if (changes['cursorPath'] && this.cursorPath !== undefined) {
+      this.anchorPath = this.cursorPath;
+    }
     if (changes['entries']) {
       const prevLen = changes['entries'].previousValue?.length || 0;
       const currLen = changes['entries'].currentValue?.length || 0;
@@ -760,25 +766,28 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
   }
 
   private updateVirtualWindow(): void {
-    // Always compute actual column count so getColumns() is correct even when virtualization is off.
-    const host = this.gridContainerRef?.nativeElement;
-    const cellMin = 100;
-    const gap = 8;
-    const pad = 16;
-    const contentWidth = Math.max(1, (host?.clientWidth ?? 1) - pad * 2);
-    const cols = Math.max(1, Math.floor((contentWidth + gap) / (cellMin + gap)));
-    if (cols !== this.virtualColumns) {
-      this.virtualColumns = cols;
-    }
-
     if (!this.virtualEnabled) {
       this.virtualStart = 0;
       this.virtualEnd = this.entries.length;
+      this.virtualColumns = 1;
       return;
     }
 
+    const host = this.gridContainerRef?.nativeElement;
+    const width = Math.max(1, host?.clientWidth ?? 1);
     const viewportHeight = this.viewportHeight || host?.clientHeight || 0;
     const scrollTop = host?.scrollTop ?? 0;
+
+    // Calculate columns based on CSS grid logic
+    const cellMin = 100;
+    const gap = 8;
+    const pad = 16;
+    const contentWidth = Math.max(1, width - pad * 2);
+    const cols = Math.max(1, Math.floor((contentWidth + gap) / (cellMin + gap)));
+    
+    if (cols !== this.virtualColumns) {
+      this.virtualColumns = cols;
+    }
 
     const startRow = Math.max(0, Math.floor(scrollTop / this.rowHeight) - this.overscanRows);
     const visibleRows = Math.max(1, Math.ceil(viewportHeight / this.rowHeight));
@@ -824,12 +833,12 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
   onItemClick(entry: FileInfo, event: MouseEvent): void {
     if (event.ctrlKey || event.metaKey) {
       this.selectionChange.emit(this.buildToggledSelection(entry));
-      this.anchorPath = entry.path;
+      this.setCursor(entry.path);
     } else if (event.shiftKey && this.anchorPath) {
       this.selectionChange.emit(this.rangeSelect(entry));
     } else {
       if (this.isParentEntry(entry)) return;
-      this.anchorPath = entry.path;
+      this.setCursor(entry.path);
       this.selectionChange.emit([entry]);
     }
   }
@@ -848,19 +857,12 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
     event.preventDefault();
     if (this.isParentEntry(entry)) return;
 
-    if (this.isSelected(entry)) {
-      const nextSelection = this.entries.filter(e => 
-        this.selectedFiles.has(e.path) && e.path !== entry.path && !this.isParentEntry(e)
-      );
-      this.selectionChange.emit(nextSelection);
-    } else {
-      const selected = new Set(this.selectedFiles);
-      selected.add(entry.path);
-      this.selectionChange.emit(this.entries.filter(e => 
-        selected.has(e.path) && !this.isParentEntry(e)
-      ));
-      this.anchorPath = entry.path;
+    if (!this.isSelected(entry)) {
+      // TC: right-click on unselected → replace selection with only this file
+      this.selectionChange.emit([entry]);
+      this.setCursor(entry.path);
     }
+    // TC: right-click on selected → keep full selection unchanged
     this.contextMenu.emit({ event, entry });
   }
 
@@ -876,8 +878,11 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
       this.suppressBackgroundClick = false;
       return;
     }
-    // Background click just focuses the pane (handled by parent wrapper).
-    // Never clear selection here — the pane-inactive CSS dims the cursor automatically.
+
+    if (event.target === event.currentTarget) {
+      this.selectionChange.emit([]);
+      // TC: background click clears selection but keeps cursor
+    }
   }
 
   onBackgroundContextMenu(event: MouseEvent): void {
@@ -889,6 +894,8 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
 
     if (event.target === event.currentTarget) {
       event.preventDefault();
+      this.selectionChange.emit([]);
+      // TC: background contextmenu clears selection but keeps cursor
     }
   }
 
@@ -907,9 +914,7 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
     this.selectionMode = 'marquee';
     this.marqueeButton = event.button as 0 | 2;
     this.hasMarqueeMoved = false;
-    // Defer selection clear until the marquee actually moves — a plain background
-    // click keeps selection so the cursor stays visible in both active and inactive panes.
-    this.pendingClearOnMove = !this.marqueeAppend;
+    this.pendingClearOnMove = this.marqueeButton === 2 && !this.marqueeAppend;
     this.paintedPaths.clear();
 
     const { x, y } = this.getRelativePoint(event, container);
@@ -923,6 +928,10 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
       width: 0,
       height: 0,
     };
+
+    if (!this.marqueeAppend && !this.pendingClearOnMove) {
+      this.selectionChange.emit([]);
+    }
 
     this.suppressBackgroundClick = true;
     this.suppressItemContextMenu = false;
@@ -962,7 +971,7 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
     const width = Math.abs(x - this.marqueeStartX);
     const height = Math.abs(y - this.marqueeStartY);
     
-    if (width > 10 || height > 10) {
+    if (width > 2 || height > 2) {
       this.hasMarqueeMoved = true;
       if (this.pendingClearOnMove) {
         this.selectionChange.emit([]);
@@ -974,9 +983,7 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
     }
 
     this.selectionRect = { active: true, left, top, width, height };
-    if (this.hasMarqueeMoved) {
-      this.emitMarqueeSelection();
-    }
+    this.emitMarqueeSelection();
     this.cdr.markForCheck();
   }
 
@@ -1119,9 +1126,15 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
       return;
     }
 
-    const entries = this.isSelected(entry)
-      ? this.entries.filter(e => this.selectedFiles.has(e.path) && !this.isParentEntry(e))
-      : [entry];
+    let entries: FileInfo[];
+    if (this.isSelected(entry)) {
+      entries = this.entries.filter(e => this.selectedFiles.has(e.path) && !this.isParentEntry(e));
+    } else {
+      // TC: dragging unselected file → replace selection with only this file
+      entries = [entry];
+      this.selectionChange.emit([entry]);
+      this.setCursor(entry.path);
+    }
 
     const draggingPaths = entries.map(e => e.path);
 

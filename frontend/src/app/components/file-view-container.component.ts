@@ -195,9 +195,15 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
     this.sortEntries();
     const switchedToTree = !!changes['currentView'] && this.currentView === 'tree';
     const treeRelevantChange = switchedToTree || !!changes['currentPath'] || !!changes['showHidden'];
+    const treeSortChanged = this.currentView === 'tree' &&
+      (!!changes['sortField'] || !!changes['sortDirection'] || !!changes['directoriesFirst']);
     if (this.currentView === 'tree' && treeRelevantChange) {
       this.buildTreeNodes();
       void this.syncTreeToCurrentPath();
+    } else if (treeSortChanged) {
+      this.resortAllLoadedTreeNodes(this.treeNodes);
+      this.treeNodes = [...this.treeNodes]; // new reference so app-file-tree detects the change
+      this.cdr.markForCheck();
     }
   }
 
@@ -437,6 +443,41 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
 
   // ── Sorting ────────────────────────────────────────────────
 
+  private sortTreeNodes(nodes: TreeNode[]): TreeNode[] {
+    const multiplier = this.sortDirection === 'asc' ? 1 : -1;
+    return [...nodes].sort((a, b) => {
+      if (this.directoriesFirst) {
+        const aIsDir = a.type === FileType.DIRECTORY || a.type === FileType.ARCHIVE;
+        const bIsDir = b.type === FileType.DIRECTORY || b.type === FileType.ARCHIVE;
+        if (aIsDir && !bIsDir) return -1;
+        if (!aIsDir && bIsDir) return 1;
+      }
+      let comparison = 0;
+      switch (this.sortField) {
+        case 'name':     comparison = a.name.localeCompare(b.name); break;
+        case 'size':     comparison = (a.size || 0) - (b.size || 0); break;
+        case 'modified': comparison = (a.modified || 0) - (b.modified || 0); break;
+        case 'type': {
+          const ta = (a.type === FileType.DIRECTORY || a.type === FileType.ARCHIVE) ? 'folder' : (a.name.split('.').pop() || '');
+          const tb = (b.type === FileType.DIRECTORY || b.type === FileType.ARCHIVE) ? 'folder' : (b.name.split('.').pop() || '');
+          comparison = ta.localeCompare(tb);
+          break;
+        }
+        default: comparison = a.name.localeCompare(b.name);
+      }
+      return comparison * multiplier;
+    });
+  }
+
+  private resortAllLoadedTreeNodes(nodes: TreeNode[]): void {
+    for (const node of nodes) {
+      if (node.children?.length) {
+        node.children = this.sortTreeNodes(node.children);
+        this.resortAllLoadedTreeNodes(node.children);
+      }
+    }
+  }
+
   private sortEntries(): void {
     const sorted     = [...this.entries];
     const multiplier = this.sortDirection === 'asc' ? 1 : -1;
@@ -560,7 +601,7 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
         }
       }
 
-      node.children = (listing.entries || [])
+      const rawChildren: TreeNode[] = (listing.entries || [])
         .filter(e => e.path !== PARENT_ENTRY_PATH)
         .map(e => {
           const entryNestedChain = (e as any).nestedChain as string[] | undefined;
@@ -602,6 +643,8 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
             archivePath: childArchivePath,
           } as TreeNode;
         });
+
+      node.children = this.sortTreeNodes(rawChildren);
 
       node.loaded = true;
       node.loading = false;

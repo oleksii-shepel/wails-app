@@ -433,6 +433,7 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   ];
   @Input() sortField: string = 'name';
   @Input() sortDirection: 'asc' | 'desc' = 'asc';
+  @Input() paneActive = true;
   
   @Output() selectionChange = new EventEmitter<FileInfo[]>();
   @Output() navigate = new EventEmitter<FileInfo>();
@@ -867,11 +868,8 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
       this.suppressBackgroundClick = false;
       return;
     }
-
-    if (event.target === event.currentTarget) {
-      this.selectionChange.emit([]);
-      this.anchorPath = null;
-    }
+    // Background click just focuses the pane (handled by parent wrapper).
+    // Never clear selection here — the pane-inactive CSS dims the cursor automatically.
   }
 
   onBackgroundContextMenu(event: MouseEvent): void {
@@ -883,8 +881,6 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
 
     if (event.target === event.currentTarget) {
       event.preventDefault();
-      this.selectionChange.emit([]);
-      this.anchorPath = null;
     }
   }
 
@@ -897,16 +893,14 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     this.marqueeAppend = event.ctrlKey || event.metaKey;
     this.marqueeButton = event.button as 0 | 2;
     this.hasMarqueeMoved = false;
-    this.pendingClearOnMove = this.marqueeButton === 2 && !this.marqueeAppend;
+    // Defer selection clear until the marquee actually moves — a plain background
+    // click keeps selection so the cursor stays visible in both active and inactive panes.
+    this.pendingClearOnMove = !this.marqueeAppend;
 
     const { x, y } = this.getRelativePoint(event, container);
     this.marqueeStartX = x;
     this.marqueeStartY = y;
     this.selectionRect = { active: true, left: x, top: y, width: 0, height: 0 };
-
-    if (!this.marqueeAppend && !this.pendingClearOnMove) {
-      this.selectionChange.emit([]);
-    }
 
     this.suppressBackgroundClick = true;
     this.suppressBackgroundContextMenu = event.button === 2;

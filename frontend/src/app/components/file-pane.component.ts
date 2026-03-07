@@ -127,6 +127,7 @@ interface DirStreamErrorEvent {
           [sortField]="sortField"
           [sortDirection]="sortDirection"
           [directoriesFirst]="directoriesFirst"
+          [paneActive]="paneActive"
           (viewChange)="onViewChange($event)"
           (selectionChange)="onSelectionChange($event)"
           (navigate)="onNavigate($event)"
@@ -230,6 +231,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   @Input() paneId: 'left' | 'right' = 'left';
   @Input() workspace: WorkspaceConfig | null = null;
   @Input() showHidden = false;
+  @Input() paneActive = true;
 
   @Output() pathChange    = new EventEmitter<string>();
   @Output() copyToOther   = new EventEmitter<string[]>();
@@ -322,6 +324,19 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
 
     if (changes['showHidden'] && !changes['showHidden'].firstChange) {
       this.onRefresh();
+    }
+
+    if (changes['paneActive'] && this.paneActive && !changes['paneActive'].firstChange) {
+      // Pane just became active — ensure there is a visible cursor.
+      if (this.selectedFiles.size === 0 && !this.selectionCursorPath) {
+        const selectable = this.getSelectableEntries();
+        if (selectable.length) {
+          this.selectionCursorPath = selectable[0].path;
+          this.selectionAnchorPath = selectable[0].path;
+          this.selectedFiles = new Set([selectable[0].path]);
+          this.fileViewContainer?.scrollToCursorPath(selectable[0].path);
+        }
+      }
     }
   }
 

@@ -399,6 +399,7 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
 
   @Input() entries: FileInfo[] = [];
   @Input() selectedFiles: Set<string> = new Set();
+  @Input() paneActive = true;
   
   @Output() selectionChange = new EventEmitter<FileInfo[]>();
   @Output() navigate = new EventEmitter<FileInfo>();
@@ -861,11 +862,8 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
       this.suppressBackgroundClick = false;
       return;
     }
-
-    if (event.target === event.currentTarget) {
-      this.selectionChange.emit([]);
-      this.anchorPath = null;
-    }
+    // Background click just focuses the pane (handled by parent wrapper).
+    // Never clear selection here — the pane-inactive CSS dims the cursor automatically.
   }
 
   onBackgroundContextMenu(event: MouseEvent): void {
@@ -877,8 +875,6 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
 
     if (event.target === event.currentTarget) {
       event.preventDefault();
-      this.selectionChange.emit([]);
-      this.anchorPath = null;
     }
   }
 
@@ -897,8 +893,8 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
     this.selectionMode = 'marquee';
     this.marqueeButton = event.button as 0 | 2;
     this.hasMarqueeMoved = false;
-    // Defer selection clear until the marquee actually drags — plain background
-    // clicks keep selection intact so the cursor stays visible in the active pane.
+    // Defer selection clear until the marquee actually moves — a plain background
+    // click keeps selection so the cursor stays visible in both active and inactive panes.
     this.pendingClearOnMove = !this.marqueeAppend;
     this.paintedPaths.clear();
 

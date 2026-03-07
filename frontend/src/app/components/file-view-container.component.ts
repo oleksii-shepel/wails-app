@@ -39,6 +39,7 @@ export type ViewLayout = ViewMode;
           [entries]="sortedEntries"
           [selectedFiles]="selectedFiles"
           [error]="error"
+          [paneActive]="paneActive"
           (selectionChange)="onSelectionChange($event)"
           (navigate)="onNavigate($event)"
           (openInNewTab)="onOpenInNewTab($event)"
@@ -52,6 +53,7 @@ export type ViewLayout = ViewMode;
           *ngIf="currentView === 'grid'"
           [entries]="sortedEntries"
           [selectedFiles]="selectedFiles"
+          [paneActive]="paneActive"
           (selectionChange)="onSelectionChange($event)"
           (navigate)="onNavigate($event)"
           (openInNewTab)="onOpenInNewTab($event)"
@@ -85,6 +87,7 @@ export type ViewLayout = ViewMode;
           [selectedFiles]="selectedFiles"
           [sortField]="sortField"
           [sortDirection]="sortDirection"
+          [paneActive]="paneActive"
           (selectionChange)="onSelectionChange($event)"
           (navigate)="onNavigate($event)"
           (openInNewTab)="onOpenInNewTab($event)"
@@ -154,6 +157,7 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
   @Input() sortField     = 'name';
   @Input() sortDirection: 'asc' | 'desc' = 'asc';
   @Input() directoriesFirst = true;
+  @Input() paneActive = true;
 
   @Output() viewChange      = new EventEmitter<ViewLayout>();
   @Output() selectionChange = new EventEmitter<FileInfo[]>();

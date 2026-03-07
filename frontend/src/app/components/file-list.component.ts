@@ -287,6 +287,7 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
   @Input() selectedFiles: Set<string> = new Set();
   @Input() loading = false;
   @Input() error: string | null = null;
+  @Input() paneActive = true;
   
   @Output() selectionChange = new EventEmitter<FileInfo[]>();
   @Output() navigate = new EventEmitter<FileInfo>();
@@ -652,12 +653,8 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
       this.suppressBackgroundClick = false;
       return;
     }
-
-    const target = event.target as HTMLElement;
-    if (event.target === event.currentTarget || target.classList.contains('file-list-container')) {
-      this.selectionChange.emit([]);
-      this.anchorPath = null;
-    }
+    // Background click just focuses the pane (handled by parent wrapper).
+    // Never clear selection here — the pane-inactive CSS dims the cursor automatically.
   }
 
   onBackgroundContextMenu(event: MouseEvent): void {
@@ -670,8 +667,6 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
     const target = event.target as HTMLElement;
     if (event.target === event.currentTarget || target.classList.contains('file-list-container')) {
       event.preventDefault();
-      this.selectionChange.emit([]);
-      this.anchorPath = null;
     }
   }
 
@@ -725,8 +720,8 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
     this.selectionMode = 'marquee';
     this.marqueeButton = event.button as 0 | 2;
     this.hasMarqueeMoved = false;
-    // Defer selection clear until the marquee actually drags — plain background
-    // clicks keep selection intact so the cursor stays visible in the active pane.
+    // Defer selection clear until the marquee actually moves — a plain background
+    // click keeps selection so the cursor stays visible in both active and inactive panes.
     this.pendingClearOnMove = !this.marqueeAppend;
     this.paintedPaths.clear();
     

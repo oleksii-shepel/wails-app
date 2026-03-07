@@ -227,8 +227,7 @@ export interface DropTarget {
     }
 
     .file-tree-container.focused .tree-node.selected {
-      outline: 1px solid var(--vsc-focus-border);
-      outline-offset: -1px;
+      outline: none;
     }
 
     .tree-node-wrapper { 

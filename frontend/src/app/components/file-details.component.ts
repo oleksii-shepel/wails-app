@@ -210,8 +210,7 @@ export interface ColumnDef {
         }
         
         &.cursor.selected {
-          outline: 1px solid var(--vsc-accent-blue);
-          outline-offset: -1px;
+          outline: none;
         }
         
         &.parent-dir {

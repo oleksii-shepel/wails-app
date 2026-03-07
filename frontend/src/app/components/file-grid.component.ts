@@ -215,7 +215,7 @@ import { parentPath } from './address-bar.utils';
         outline-color var(--vsc-transition-fast),
         box-shadow var(--vsc-transition-fast),
         transform var(--vsc-transition-fast);
-      border: 2px solid transparent;
+      border: none;
       position: relative;
       contain: layout style paint;
       
@@ -261,12 +261,10 @@ import { parentPath } from './address-bar.utils';
 
       &.drag-over-folder {
         border-color: var(--vsc-focus-border, #0078d4);
-        border-width: 3px;
+        border-width: 1px;
         border-style: solid;
         background: var(--vsc-list-drop-background, color-mix(in srgb, var(--vsc-list-active-background) 25%, transparent));
-        box-shadow:
-          inset 0 0 0 1px color-mix(in srgb, var(--vsc-focus-border, #0078d4) 36%, transparent),
-          0 0 0 2px color-mix(in srgb, var(--vsc-focus-border, #0078d4) 14%, transparent);
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--vsc-focus-border, #0078d4) 28%, transparent);
         transform: translateY(-1px);
       }
 

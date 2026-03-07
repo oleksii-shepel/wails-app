@@ -302,6 +302,26 @@
   --vsc-foreground-bright: var(--vsc-foreground);
 }
 
+/* When a pane is inactive, suppress any selection outlines/borders on child rows
+   so previously-selected items appear uniformly dimmed without focus rings. */
+.pane-wrapper.pane-inactive {
+  .file-list-row,
+  .file-list-row .file-entry,
+  .grid-item,
+  .tree-node,
+  .details-row,
+  .details-cell {
+    outline: none !important;
+    box-shadow: none !important;
+    border-left: none !important;
+  }
+
+  /* Also ensure any auxiliary dashed/solid outlines used for focus/drag are hidden */
+  .file-list-row[role], .grid-item[role], .tree-node[role] {
+    outline: none !important;
+  }
+}
+
 // ============================================================================
 // Pane Divider
 // ============================================================================

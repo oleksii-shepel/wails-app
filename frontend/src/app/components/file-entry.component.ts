@@ -108,8 +108,7 @@ export const PARENT_ENTRY_PATH = '__parent__';
       }
 
       &.cursor.selected {
-        outline: 1px solid var(--vsc-accent-blue);
-        outline-offset: -1px; /* Changed from -2px to -1px for better alignment */
+        outline: none;
       }
 
       &.directory .file-icon { opacity: 1; }

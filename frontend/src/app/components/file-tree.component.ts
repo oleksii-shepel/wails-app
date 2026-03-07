@@ -13,6 +13,7 @@ import {
   ChangeDetectionStrategy,
   OnDestroy,
   AfterViewInit,
+  NgZone,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -54,6 +55,7 @@ export interface DropTarget {
       [class.dragging]="dragState.isDragging"
       (focus)="onFocus()"
       (blur)="onBlur()"
+      (mousedown)="onContainerMouseDown($event)"
       (click)="onContainerClick($event)"
       (contextmenu)="onContainerContextMenu($event)"
       (keydown)="onKeyDown($event)"
@@ -144,6 +146,15 @@ export interface DropTarget {
       <div *ngIf="loading" class="tree-loading">
         <span class="spinner"></span>
         Loading...
+      </div>
+
+      <div
+        *ngIf="showSelectionRect"
+        class="selection-rect"
+        [style.left.px]="selectionRect.left"
+        [style.top.px]="selectionRect.top"
+        [style.width.px]="selectionRect.width"
+        [style.height.px]="selectionRect.height">
       </div>
     </div>
   `,
@@ -414,6 +425,14 @@ export interface DropTarget {
       animation: spin 1s linear infinite;
     }
 
+    .selection-rect {
+      position: absolute;
+      pointer-events: none;
+      z-index: 20;
+      border: 1px solid var(--vsc-focus-border);
+      background: color-mix(in srgb, var(--vsc-list-active-background) 45%, transparent);
+    }
+
     @keyframes spin {
       to { transform: rotate(360deg); }
     }
@@ -433,6 +452,7 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
   @Output() toggleExpand = new EventEmitter<TreeNode>();
   @Output() loadChildren = new EventEmitter<TreeNode>();
   @Output() contextMenu = new EventEmitter<{ event: MouseEvent; node: TreeNode }>();
+  @Output() backgroundContextMenu = new EventEmitter<MouseEvent>();
   @Output() dragStart = new EventEmitter<{ event: DragEvent; nodes: TreeNode[] }>();
   @Output() dragDrop = new EventEmitter<{ event: DragEvent; source: TreeNode[]; target: DropTarget }>();
   @Output() rename = new EventEmitter<{ node: TreeNode; newName: string }>();
@@ -468,7 +488,28 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
   private lastScrollTop = 0;
   private viewportHeight = 0;
 
-  constructor(private cdr: ChangeDetectorRef) {}
+  constructor(private cdr: ChangeDetectorRef, private zone: NgZone) {}
+
+  // ── Marquee selection state ───────────────────────────────────────────────
+  selectionRect = { active: false, left: 0, top: 0, width: 0, height: 0 };
+
+  get showSelectionRect(): boolean {
+    return this.selectionRect.active && this.marqueeButton !== 2;
+  }
+
+  private marqueeContainer: HTMLElement | null = null;
+  private marqueeStartX = 0;
+  private marqueeStartY = 0;
+  private marqueeAppend = false;
+  private marqueeButton: 0 | 2 | null = null;
+  private hasMarqueeMoved = false;
+  private pendingClearOnMove = false;
+  private suppressContainerClick = false;
+  private suppressContainerContextMenu = false;
+  private suppressItemContextMenu = false;
+  private windowMouseMove?: (event: MouseEvent) => void;
+  private windowMouseUp?: (event: MouseEvent) => void;
+  private windowContextMenu?: (event: MouseEvent) => void;
 
   get visibleNodeCount(): number {
     return this.flatVisibleNodes.length;
@@ -520,6 +561,7 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
   }
 
   ngOnDestroy(): void {
+    this.detachMarqueeListeners();
     this.cleanupResizeObserver();
     this.cleanupScrollListener();
     if (this.scrollRAF) {
@@ -1154,18 +1196,157 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
     });
   }
 
-  onContainerClick(event: MouseEvent): void {
-    // Background click — do not clear selection (keeps cursor stable, same as list/grid/details).
+  onContainerMouseDown(event: MouseEvent): void {
+    if (event.button !== 0 && event.button !== 2) return;
+
+    // Left-button on a node is handled by click/drag-and-drop — skip.
+    // Right-button on a node should still start marquee selection (TC behaviour).
+    const target = event.target as HTMLElement;
+    if (event.button === 0 && target.closest('.tree-node')) return;
+
+    const container = event.currentTarget as HTMLElement;
+    this.marqueeContainer = container;
+    this.marqueeAppend = event.ctrlKey || event.metaKey;
+    this.marqueeButton = event.button as 0 | 2;
+    this.hasMarqueeMoved = false;
+    // Defer clear until marquee actually moves — plain click keeps cursor visible
+    this.pendingClearOnMove = !this.marqueeAppend;
+
+    const { x, y } = this.getRelativePoint(event, container);
+    this.marqueeStartX = x;
+    this.marqueeStartY = y;
+    this.selectionRect = { active: true, left: x, top: y, width: 0, height: 0 };
+
+    this.suppressContainerClick = true;
+    this.suppressContainerContextMenu = event.button === 2;
+
+    this.windowMouseMove = (e: MouseEvent) => this.zone.run(() => this.onMarqueeMouseMove(e));
+    this.windowMouseUp = () => this.zone.run(() => this.finishMarqueeSelection());
+    this.windowContextMenu = (e: MouseEvent) => {
+      if (this.selectionRect.active && this.hasMarqueeMoved) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+
+    window.addEventListener('mousemove', this.windowMouseMove);
+    window.addEventListener('mouseup', this.windowMouseUp);
+    window.addEventListener('contextmenu', this.windowContextMenu, true);
+
+    if (event.button === 0) {
+      event.preventDefault();
+    }
   }
 
+  private onMarqueeMouseMove(event: MouseEvent): void {
+    if (!this.marqueeContainer || !this.selectionRect.active) return;
+
+    const { x, y } = this.getRelativePoint(event, this.marqueeContainer);
+    const left = Math.min(this.marqueeStartX, x);
+    const top = Math.min(this.marqueeStartY, y);
+    const width = Math.abs(x - this.marqueeStartX);
+    const height = Math.abs(y - this.marqueeStartY);
+
+    if (width > 10 || height > 10) {
+      this.hasMarqueeMoved = true;
+      if (this.pendingClearOnMove) {
+        this.selectionChange.emit([]);
+        this.pendingClearOnMove = false;
+      }
+    }
+
+    this.selectionRect = { active: true, left, top, width, height };
+    if (this.hasMarqueeMoved) {
+      this.emitMarqueeSelection();
+    }
+    this.cdr.markForCheck();
+  }
+
+  private emitMarqueeSelection(): void {
+    if (!this.marqueeContainer) return;
+
+    const containerRect = this.marqueeContainer.getBoundingClientRect();
+    const selectionPaths = new Set<string>();
+    const rows = this.marqueeContainer.querySelectorAll<HTMLElement>('.tree-node-wrapper[data-path]');
+
+    for (const row of Array.from(rows)) {
+      const path = row.dataset['path'];
+      if (!path) continue;
+
+      const rowRect = row.getBoundingClientRect();
+      const rowLeft = rowRect.left - containerRect.left + this.marqueeContainer.scrollLeft;
+      const rowTop = rowRect.top - containerRect.top + this.marqueeContainer.scrollTop;
+
+      const intersects =
+        rowLeft < this.selectionRect.left + this.selectionRect.width &&
+        rowLeft + rowRect.width > this.selectionRect.left &&
+        rowTop < this.selectionRect.top + this.selectionRect.height &&
+        rowTop + rowRect.height > this.selectionRect.top;
+
+      if (intersects) selectionPaths.add(path);
+    }
+
+    if (this.marqueeAppend) {
+      for (const path of this.selectedFiles) selectionPaths.add(path);
+    }
+
+    const selectedNodes = this.flatVisibleNodes.filter(n => selectionPaths.has(n.path));
+    this.selectionChange.emit(selectedNodes);
+  }
+
+  private finishMarqueeSelection(): void {
+    this.detachMarqueeListeners();
+    this.marqueeContainer = null;
+    this.marqueeButton = null;
+    this.hasMarqueeMoved = false;
+    this.pendingClearOnMove = false;
+    this.selectionRect = { active: false, left: 0, top: 0, width: 0, height: 0 };
+    this.cdr.markForCheck();
+  }
+
+  private detachMarqueeListeners(): void {
+    if (this.windowMouseMove) {
+      window.removeEventListener('mousemove', this.windowMouseMove);
+      this.windowMouseMove = undefined;
+    }
+    if (this.windowMouseUp) {
+      window.removeEventListener('mouseup', this.windowMouseUp);
+      this.windowMouseUp = undefined;
+    }
+    if (this.windowContextMenu) {
+      window.removeEventListener('contextmenu', this.windowContextMenu, true);
+      this.windowContextMenu = undefined;
+    }
+  }
+
+  private getRelativePoint(event: MouseEvent, container: HTMLElement): { x: number; y: number } {
+    const rect = container.getBoundingClientRect();
+    return {
+      x: event.clientX - rect.left + container.scrollLeft,
+      y: event.clientY - rect.top + container.scrollTop,
+    };
+  }
+
+  // TC: background left-click — cursor stays, selection unchanged
+  onContainerClick(event: MouseEvent): void {
+    if (this.suppressContainerClick) {
+      this.suppressContainerClick = false;
+      return;
+    }
+  }
+
+  // TC: background right-click — open directory context menu, do NOT change selection
   onContainerContextMenu(event: MouseEvent): void {
+    if (this.suppressContainerContextMenu) {
+      event.preventDefault();
+      this.suppressContainerContextMenu = false;
+      return;
+    }
+
     const target = event.target as HTMLElement;
     if (!target.closest('.tree-node')) {
       event.preventDefault();
-      this.selectionChange.emit([]);
-      this.anchorNodePath = null;
-      this.focusedNodePath = null;
-      this.cdr.markForCheck();
+      this.backgroundContextMenu.emit(event);
     }
   }
 

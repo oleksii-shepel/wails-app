@@ -80,6 +80,7 @@ export const PARENT_ENTRY_PATH = '__parent__';
       user-select: none;
       min-height: 28px;
       border-left: 3px solid transparent;
+      position: relative; /* Add positioning context */
 
       &:hover {
         background: var(--vsc-list-hover-background);
@@ -89,7 +90,13 @@ export const PARENT_ENTRY_PATH = '__parent__';
       &.selected {
         background: var(--vsc-list-active-background);
         color: var(--vsc-foreground-bright);
+        /* Fix border positioning */
         border-left-color: var(--vsc-accent-blue);
+        border-left-width: 3px;
+        border-left-style: solid;
+        /* Ensure border aligns perfectly */
+        margin-left: 0;
+        padding-left: var(--vsc-padding-md); /* Keep consistent padding */
 
         &:hover { background: var(--vsc-list-focus-background); }
       }
@@ -102,7 +109,7 @@ export const PARENT_ENTRY_PATH = '__parent__';
 
       &.cursor.selected {
         outline: 1px solid var(--vsc-accent-blue);
-        outline-offset: -2px;
+        outline-offset: -1px; /* Changed from -2px to -1px for better alignment */
       }
 
       &.directory .file-icon { opacity: 1; }

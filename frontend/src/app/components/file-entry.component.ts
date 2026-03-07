@@ -293,6 +293,8 @@ export const PARENT_ENTRY_PATH = '__parent__';
     :host(.variant-grid) .file-name {
       font-size: var(--vsc-font-size-small);
       line-height: 1.3;
+      justify-content: center;
+      text-align: center;
     }
 
     :host(.variant-grid).renaming .file-entry {

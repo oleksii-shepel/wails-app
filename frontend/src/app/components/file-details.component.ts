@@ -485,6 +485,36 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     this.startRenameByPath(selectedPath);
   }
 
+  /** Scroll so the given path is visible. */
+  scrollToPath(path: string): void {
+    if (!path || path === PARENT_ENTRY_PATH) return;
+    const host = this.detailsBodyRef?.nativeElement;
+    if (!host) return;
+    if (this.virtualEnabled) {
+      const idx = this.entries.findIndex(e => e.path === path);
+      if (idx >= 0) {
+        const itemTop = idx * this.rowHeight;
+        const itemBottom = itemTop + this.rowHeight;
+        if (itemTop < host.scrollTop || itemBottom > host.scrollTop + host.clientHeight) {
+          const centerOffset = host.clientHeight / 2 - this.rowHeight / 2;
+          host.scrollTop = Math.max(0, itemTop - centerOffset);
+        }
+        this.updateVirtualWindow();
+        this.cdr.markForCheck();
+      }
+    } else {
+      const el = host.querySelector<HTMLElement>(`.details-row[data-path="${CSS.escape(path)}"]`);
+      el?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    }
+  }
+
+  /** Approximate number of rows visible in the viewport. */
+  getApproxPageSize(): number {
+    const host = this.detailsBodyRef?.nativeElement;
+    if (!host) return 10;
+    return Math.max(1, Math.floor(host.clientHeight / this.rowHeight) - 1);
+  }
+
   private getFirstSelectedPathInOrder(): string | null {
     if (!this.selectedFiles?.size) return null;
     for (const entry of this.entries) {

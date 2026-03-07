@@ -616,6 +616,37 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
     });
   }
 
+  /** Scroll the list to bring the given path into view. */
+  scrollToPath(path: string): void {
+    if (!path || path === PARENT_ENTRY_PATH) return;
+    const host = this.paneContentRef?.nativeElement;
+    if (!host) return;
+    if (this.virtualEnabled) {
+      const idx = this.virtualEntries.findIndex(e => e.path === path);
+      if (idx >= 0) {
+        const parentOffset = this.parentEntry ? this.parentRowHeight : 0;
+        const itemTop = parentOffset + idx * this.rowHeight;
+        const itemBottom = itemTop + this.rowHeight;
+        if (itemTop < host.scrollTop || itemBottom > host.scrollTop + host.clientHeight) {
+          const centerOffset = host.clientHeight / 2 - this.rowHeight / 2;
+          host.scrollTop = Math.max(0, parentOffset + idx * this.rowHeight - centerOffset);
+        }
+        this.updateVirtualWindow();
+        this.cdr.markForCheck();
+      }
+    } else {
+      const el = host.querySelector<HTMLElement>(`.file-list-row[data-path="${CSS.escape(path)}"]`);
+      el?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    }
+  }
+
+  /** Approximate number of rows visible in the viewport. */
+  getApproxPageSize(): number {
+    const host = this.paneContentRef?.nativeElement;
+    if (!host) return 10;
+    return Math.max(1, Math.floor(host.clientHeight / this.rowHeight) - 1);
+  }
+
   onBackgroundClick(event: MouseEvent): void {
     if (this.suppressBackgroundClick) {
       this.suppressBackgroundClick = false;
@@ -694,17 +725,15 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
     this.selectionMode = 'marquee';
     this.marqueeButton = event.button as 0 | 2;
     this.hasMarqueeMoved = false;
-    this.pendingClearOnMove = this.marqueeButton === 2 && !this.marqueeAppend;
+    // Defer selection clear until the marquee actually drags — plain background
+    // clicks keep selection intact so the cursor stays visible in the active pane.
+    this.pendingClearOnMove = !this.marqueeAppend;
     this.paintedPaths.clear();
     
     const { x, y } = this.getRelativePoint(event, container);
     this.marqueeStartX = x;
     this.marqueeStartY = y;
     this.selectionRect = { active: true, left: x, top: y, width: 0, height: 0 };
-
-    if (!this.marqueeAppend && !this.pendingClearOnMove) {
-      this.selectionChange.emit([]);
-    }
 
     this.suppressBackgroundClick = true;
     this.suppressItemContextMenu = false;

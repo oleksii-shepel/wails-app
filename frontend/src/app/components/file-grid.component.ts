@@ -487,6 +487,11 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
     this.startRenameByPath(selectedPath);
   }
 
+  /** Number of columns currently visible in the grid. */
+  getColumns(): number {
+    return Math.max(1, this.virtualColumns);
+  }
+
   private getFirstSelectedPathInOrder(): string | null {
     if (!this.selectedFiles?.size) return null;
     for (const entry of this.entries) {
@@ -522,6 +527,37 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
       comp?.beginRename();
       this.cdr.markForCheck();
     });
+  }
+
+  /** Scroll the grid to bring the given path into view. */
+  scrollToPath(path: string): void {
+    if (!path || path === PARENT_ENTRY_PATH) return;
+    const host = this.gridContainerRef?.nativeElement;
+    if (!host) return;
+    const idx = this.entries.findIndex(e => e.path === path);
+    if (idx < 0) return;
+    if (this.virtualEnabled) {
+      const row = Math.floor(idx / Math.max(1, this.virtualColumns));
+      const itemTop = row * this.rowHeight;
+      const itemBottom = itemTop + this.rowHeight;
+      if (itemTop < host.scrollTop || itemBottom > host.scrollTop + host.clientHeight) {
+        const centerOffset = host.clientHeight / 2 - this.rowHeight / 2;
+        host.scrollTop = Math.max(0, itemTop - centerOffset);
+      }
+      this.updateVirtualWindow();
+      this.cdr.markForCheck();
+    } else {
+      const el = host.querySelector<HTMLElement>(`.grid-item[data-path="${CSS.escape(path)}"]`);
+      el?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    }
+  }
+
+  /** Approximate number of grid items visible in the viewport. */
+  getApproxPageSize(): number {
+    const host = this.gridContainerRef?.nativeElement;
+    if (!host) return 5;
+    const rows = Math.max(1, Math.floor(host.clientHeight / this.rowHeight) - 1);
+    return rows * Math.max(1, this.virtualColumns);
   }
 
   get displayEntries(): (FileInfo | null)[] {
@@ -709,28 +745,25 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
   }
 
   private updateVirtualWindow(): void {
-    if (!this.virtualEnabled) {
-      this.virtualStart = 0;
-      this.virtualEnd = this.entries.length;
-      this.virtualColumns = 1;
-      return;
-    }
-
+    // Always compute actual column count so getColumns() is correct even when virtualization is off.
     const host = this.gridContainerRef?.nativeElement;
-    const width = Math.max(1, host?.clientWidth ?? 1);
-    const viewportHeight = this.viewportHeight || host?.clientHeight || 0;
-    const scrollTop = host?.scrollTop ?? 0;
-
-    // Calculate columns based on CSS grid logic
     const cellMin = 100;
     const gap = 8;
     const pad = 16;
-    const contentWidth = Math.max(1, width - pad * 2);
+    const contentWidth = Math.max(1, (host?.clientWidth ?? 1) - pad * 2);
     const cols = Math.max(1, Math.floor((contentWidth + gap) / (cellMin + gap)));
-    
     if (cols !== this.virtualColumns) {
       this.virtualColumns = cols;
     }
+
+    if (!this.virtualEnabled) {
+      this.virtualStart = 0;
+      this.virtualEnd = this.entries.length;
+      return;
+    }
+
+    const viewportHeight = this.viewportHeight || host?.clientHeight || 0;
+    const scrollTop = host?.scrollTop ?? 0;
 
     const startRow = Math.max(0, Math.floor(scrollTop / this.rowHeight) - this.overscanRows);
     const visibleRows = Math.max(1, Math.ceil(viewportHeight / this.rowHeight));
@@ -864,7 +897,9 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
     this.selectionMode = 'marquee';
     this.marqueeButton = event.button as 0 | 2;
     this.hasMarqueeMoved = false;
-    this.pendingClearOnMove = this.marqueeButton === 2 && !this.marqueeAppend;
+    // Defer selection clear until the marquee actually drags — plain background
+    // clicks keep selection intact so the cursor stays visible in the active pane.
+    this.pendingClearOnMove = !this.marqueeAppend;
     this.paintedPaths.clear();
 
     const { x, y } = this.getRelativePoint(event, container);
@@ -878,10 +913,6 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
       width: 0,
       height: 0,
     };
-
-    if (!this.marqueeAppend && !this.pendingClearOnMove) {
-      this.selectionChange.emit([]);
-    }
 
     this.suppressBackgroundClick = true;
     this.suppressItemContextMenu = false;

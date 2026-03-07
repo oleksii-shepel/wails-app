@@ -293,6 +293,43 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
     }
   }
 
+  /** Scroll the active view to bring the given path into view. */
+  scrollToCursorPath(path: string): void {
+    switch (this.currentView) {
+      case 'list':
+        this.listComponent?.scrollToPath(path);
+        return;
+      case 'details':
+        this.detailsComponent?.scrollToPath(path);
+        return;
+      case 'grid':
+        this.gridComponent?.scrollToPath(path);
+        return;
+      case 'tree':
+        try { this.treeComponent?.focusNode(path); } catch { /* best-effort */ }
+        return;
+    }
+  }
+
+  /** Approximate number of items per page in the active view. */
+  getApproxPageSize(): number {
+    switch (this.currentView) {
+      case 'list':
+        return this.listComponent?.getApproxPageSize() ?? 10;
+      case 'details':
+        return this.detailsComponent?.getApproxPageSize() ?? 10;
+      case 'grid':
+        return this.gridComponent?.getApproxPageSize() ?? 5;
+      default:
+        return 10;
+    }
+  }
+
+  /** Number of columns in grid view (1 for all other views). */
+  getGridColumns(): number {
+    return this.currentView === 'grid' ? (this.gridComponent?.getColumns() ?? 1) : 1;
+  }
+
   onTreeOpenInNewTab(node: TreeNode): void {
     this.openInNewTab.emit(this.treeNodeToFileInfo(node));
   }

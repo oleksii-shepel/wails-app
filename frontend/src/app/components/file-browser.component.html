@@ -46,7 +46,7 @@
     <div class="panes-container" #panesContainer>
 
       <!-- Left Pane -->
-      <div class="pane-wrapper left-pane" [style.width.%]="leftPaneWidth">
+      <div class="pane-wrapper left-pane" [style.width.%]="leftPaneWidth" [class.pane-inactive]="activePaneId !== 'left'">
         <app-file-pane
           #leftPane
           paneId="left"
@@ -69,7 +69,7 @@
       </app-split-divider>
 
       <!-- Right Pane -->
-      <div class="pane-wrapper right-pane" [style.width.%]="rightPaneWidth">
+      <div class="pane-wrapper right-pane" [style.width.%]="rightPaneWidth" [class.pane-inactive]="activePaneId !== 'right'">
         <app-file-pane
           #rightPane
           paneId="right"

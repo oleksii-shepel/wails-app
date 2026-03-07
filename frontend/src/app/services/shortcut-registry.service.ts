@@ -93,6 +93,87 @@ export class ShortcutRegistryService {
       category: 'navigation',
       description: 'Show keyboard shortcuts',
     });
+
+    // Cursor movement — plain Arrow keys
+    this.keyboardService.register({
+      id: 'cursor-up',
+      key: 'arrowup',
+      modifiers: [],
+      action: callbacks.moveCursorUp,
+      context: 'global',
+      category: 'navigation',
+      description: 'Move cursor up (ArrowUp)',
+    });
+
+    this.keyboardService.register({
+      id: 'cursor-down',
+      key: 'arrowdown',
+      modifiers: [],
+      action: callbacks.moveCursorDown,
+      context: 'global',
+      category: 'navigation',
+      description: 'Move cursor down (ArrowDown)',
+    });
+
+    this.keyboardService.register({
+      id: 'cursor-left',
+      key: 'arrowleft',
+      modifiers: [],
+      action: callbacks.moveCursorLeft,
+      context: 'global',
+      category: 'navigation',
+      description: 'Move cursor left / prev item (ArrowLeft)',
+    });
+
+    this.keyboardService.register({
+      id: 'cursor-right',
+      key: 'arrowright',
+      modifiers: [],
+      action: callbacks.moveCursorRight,
+      context: 'global',
+      category: 'navigation',
+      description: 'Move cursor right / next item (ArrowRight)',
+    });
+
+    this.keyboardService.register({
+      id: 'cursor-home',
+      key: 'home',
+      modifiers: [],
+      action: callbacks.moveCursorHome,
+      context: 'global',
+      category: 'navigation',
+      description: 'Move cursor to first item (Home)',
+    });
+
+    this.keyboardService.register({
+      id: 'cursor-end',
+      key: 'end',
+      modifiers: [],
+      action: callbacks.moveCursorEnd,
+      context: 'global',
+      category: 'navigation',
+      description: 'Move cursor to last item (End)',
+    });
+
+    this.keyboardService.register({
+      id: 'cursor-page-up',
+      key: 'pageup',
+      modifiers: [],
+      action: callbacks.moveCursorPageUp,
+      context: 'global',
+      category: 'navigation',
+      description: 'Move cursor up by page (PageUp)',
+    });
+
+    this.keyboardService.register({
+      id: 'cursor-page-down',
+      key: 'pagedown',
+      modifiers: [],
+      action: callbacks.moveCursorPageDown,
+      context: 'global',
+      category: 'navigation',
+      description: 'Move cursor down by page (PageDown)',
+    });
   }
 
   /**
@@ -654,4 +735,14 @@ export interface ShortcutCallbacks {
   copyToOtherPane: () => void;
   moveToOtherPane: () => void;
   focusAddressBar: () => void;
+
+  // Cursor movement
+  moveCursorUp: () => void;
+  moveCursorDown: () => void;
+  moveCursorLeft: () => void;
+  moveCursorRight: () => void;
+  moveCursorHome: () => void;
+  moveCursorEnd: () => void;
+  moveCursorPageUp: () => void;
+  moveCursorPageDown: () => void;
 }

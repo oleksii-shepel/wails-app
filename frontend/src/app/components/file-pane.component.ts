@@ -1462,6 +1462,63 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     this.selectionAnchorPath = anchorPath;
   }
 
+  // ── Cursor movement ───────────────────────────────────────────────────────
+
+  private moveCursorTo(idx: number): void {
+    const selectable = this.getSelectableEntries();
+    if (!selectable.length) return;
+    const clamped = Math.max(0, Math.min(selectable.length - 1, idx));
+    this.selectionCursorPath = selectable[clamped].path;
+    this.selectionAnchorPath = this.selectionCursorPath;
+    this.selectedFiles = new Set([this.selectionCursorPath]);
+    this.fileViewContainer?.scrollToCursorPath(this.selectionCursorPath);
+  }
+
+  onMoveCursorUp(): void {
+    const cols = this.fileViewContainer?.getGridColumns() ?? 1;
+    const selectable = this.getSelectableEntries();
+    this.moveCursorTo(this.getCursorIndex(selectable) - cols);
+  }
+
+  onMoveCursorDown(): void {
+    const cols = this.fileViewContainer?.getGridColumns() ?? 1;
+    const selectable = this.getSelectableEntries();
+    this.moveCursorTo(this.getCursorIndex(selectable) + cols);
+  }
+
+  onMoveCursorLeft(): void {
+    if (this.currentView !== 'grid') return;
+    const selectable = this.getSelectableEntries();
+    this.moveCursorTo(this.getCursorIndex(selectable) - 1);
+  }
+
+  onMoveCursorRight(): void {
+    if (this.currentView !== 'grid') return;
+    const selectable = this.getSelectableEntries();
+    this.moveCursorTo(this.getCursorIndex(selectable) + 1);
+  }
+
+  onMoveCursorHome(): void {
+    this.moveCursorTo(0);
+  }
+
+  onMoveCursorEnd(): void {
+    const selectable = this.getSelectableEntries();
+    this.moveCursorTo(selectable.length - 1);
+  }
+
+  onMoveCursorPageUp(): void {
+    const pageSize = this.fileViewContainer?.getApproxPageSize() ?? 10;
+    const selectable = this.getSelectableEntries();
+    this.moveCursorTo(this.getCursorIndex(selectable) - pageSize);
+  }
+
+  onMoveCursorPageDown(): void {
+    const pageSize = this.fileViewContainer?.getApproxPageSize() ?? 10;
+    const selectable = this.getSelectableEntries();
+    this.moveCursorTo(this.getCursorIndex(selectable) + pageSize);
+  }
+
   onSelectByMask(): void {
     const mask = prompt('Select by mask (example: *.txt):', '*.*')?.trim();
     if (!mask) return;
@@ -1550,7 +1607,10 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       }
     }
 
-    return this.filteredEntries.filter(e => e.path !== PARENT_ENTRY_PATH);
+    // Use sortedEntries from the view container so index matches visual order.
+    const container = this.fileViewContainer;
+    const source = container?.sortedEntries?.length ? container.sortedEntries : this.filteredEntries;
+    return source.filter(e => e.path !== PARENT_ENTRY_PATH);
   }
 
   private getCursorIndex(entries: FileInfo[]): number {

@@ -295,6 +295,13 @@
   background: var(--vsc-editor-background);
 }
 
+.pane-wrapper.pane-inactive {
+  --vsc-list-active-background: var(--vsc-list-inactive-selection);
+  --vsc-list-focus-background: var(--vsc-list-inactive-selection);
+  --vsc-accent-blue: var(--vsc-foreground-dim);
+  --vsc-foreground-bright: var(--vsc-foreground);
+}
+
 // ============================================================================
 // Pane Divider
 // ============================================================================

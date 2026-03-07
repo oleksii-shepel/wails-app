@@ -741,6 +741,14 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
       copyToOtherPane:       () => this.copyToOtherPaneCurrent(),
       moveToOtherPane:       () => this.moveToOtherPaneCurrent(),
       focusAddressBar:       () => this.getActivePane()?.focusAddressBar(),
+      moveCursorUp:          () => this.getActivePane()?.onMoveCursorUp(),
+      moveCursorDown:        () => this.getActivePane()?.onMoveCursorDown(),
+      moveCursorLeft:        () => this.getActivePane()?.onMoveCursorLeft(),
+      moveCursorRight:       () => this.getActivePane()?.onMoveCursorRight(),
+      moveCursorHome:        () => this.getActivePane()?.onMoveCursorHome(),
+      moveCursorEnd:         () => this.getActivePane()?.onMoveCursorEnd(),
+      moveCursorPageUp:      () => this.getActivePane()?.onMoveCursorPageUp(),
+      moveCursorPageDown:    () => this.getActivePane()?.onMoveCursorPageDown(),
     };
     this.shortcutRegistry.registerAllShortcuts(callbacks);
   }

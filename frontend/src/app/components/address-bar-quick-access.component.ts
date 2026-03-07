@@ -648,12 +648,8 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChan
     return orderedSection.originalIndex;
   }
 
-  private getSpinDirection(previousIdx: number, nextIdx: number): TabSpinDirection {
-    if (nextIdx === previousIdx) return null;
-    const lastIdx = this.sections.length - 1;
-    if (previousIdx === lastIdx && nextIdx === 0) return 'left';
-    if (previousIdx === 0 && nextIdx === lastIdx) return 'right';
-    return nextIdx > previousIdx ? 'left' : 'right';
+  private getSpinDirection(_previousIdx: number, _nextIdx: number): TabSpinDirection {
+    return 'left';
   }
 
   private startTabSpin(direction: TabSpinDirection): void {

@@ -962,7 +962,7 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
     const width = Math.abs(x - this.marqueeStartX);
     const height = Math.abs(y - this.marqueeStartY);
     
-    if (width > 2 || height > 2) {
+    if (width > 10 || height > 10) {
       this.hasMarqueeMoved = true;
       if (this.pendingClearOnMove) {
         this.selectionChange.emit([]);
@@ -974,7 +974,9 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
     }
 
     this.selectionRect = { active: true, left, top, width, height };
-    this.emitMarqueeSelection();
+    if (this.hasMarqueeMoved) {
+      this.emitMarqueeSelection();
+    }
     this.cdr.markForCheck();
   }
 

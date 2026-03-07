@@ -1155,13 +1155,7 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
   }
 
   onContainerClick(event: MouseEvent): void {
-    const target = event.target as HTMLElement;
-    if (!target.closest('.tree-node')) {
-      this.selectionChange.emit([]);
-      this.anchorNodePath = null;
-      this.focusedNodePath = null;
-      this.cdr.markForCheck();
-    }
+    // Background click — do not clear selection (keeps cursor stable, same as list/grid/details).
   }
 
   onContainerContextMenu(event: MouseEvent): void {

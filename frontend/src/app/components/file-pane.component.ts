@@ -276,6 +276,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   private streamWaiters = new Map<string, { resolve: () => void; reject: (err: Error) => void }>();
   private streamPathChangeEmitted = false;
   private activeDirStreamPreserveUI = false;
+  private pendingFocusPath: string | null = null;
 
   private destroy$ = createSubject<void>();
   private lastSeenActiveTabId: string | null = null;
@@ -669,11 +670,12 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     this.fsParentDir  = '';
   }
 
-  private async loadDirectory(path: string, opts?: { preserveUI?: boolean }): Promise<void> {
+  private async loadDirectory(path: string, opts?: { preserveUI?: boolean; focusPath?: string }): Promise<void> {
     await this.cancelActiveDirectoryStream();
     this.exitArchive();
     this.clearArchiveState();
     this.activeDirStreamPreserveUI = !!opts?.preserveUI;
+    this.pendingFocusPath = opts?.focusPath ?? null;
     this.loading = true;
     this.error   = null;
     this.streamBaseEntries = [];
@@ -699,6 +701,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       this.activeDirStreamId = null;
       this.streamBaseEntries = [];
       this.activeDirStreamPreserveUI = false;
+      this.pendingFocusPath = null;
       this.loading = false;
     }
   }
@@ -823,12 +826,13 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     if (this.isInArchive()) {
       await this.navigateArchiveUp();
     } else {
+      const fromPath = this.currentPath;
       try {
         const listing = await window.go.main.App.NavGoUp(this.paneId);
-        await this.loadDirectory(listing.path);
+        await this.loadDirectory(listing.path, { focusPath: fromPath });
       } catch {
-        const target = parentPath(normalizePath(this.currentPath));
-        if (target !== this.currentPath) await this.loadDirectory(target);
+        const target = parentPath(normalizePath(fromPath));
+        if (target !== fromPath) await this.loadDirectory(target, { focusPath: fromPath });
       }
     }
   }
@@ -937,8 +941,18 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     }
     this.applyFilter();
 
-    // TC: place cursor on first entry when loading a new directory
-    if (!this.selectionCursorPath) {
+    // TC: after navigating up, select the folder we came from; otherwise place cursor on first entry.
+    if (this.pendingFocusPath) {
+      const focusNorm = normalizePath(this.pendingFocusPath);
+      const target = this.filteredEntries.find(e => normalizePath(e.path) === focusNorm);
+      if (target) {
+        this.selectionCursorPath = target.path;
+        this.selectionAnchorPath = target.path;
+        this.selectedFiles = new Set([target.path]);
+        setTimeout(() => this.fileViewContainer?.scrollToCursorPath(target.path), 0);
+      }
+      this.pendingFocusPath = null;
+    } else if (!this.selectionCursorPath) {
       const firstReal = this.filteredEntries.find(e => e.path !== PARENT_ENTRY_PATH);
       if (firstReal) {
         this.selectionCursorPath = firstReal.path;
@@ -1420,14 +1434,15 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   onSelectionChange(entries: FileInfo[]): void {
     const paths = entries.map(e => e.path).filter(p => p !== PARENT_ENTRY_PATH);
     this.selectedFiles = new Set(paths);
-    this.selectionCursorPath = paths.length ? paths[paths.length - 1] : null;
-    if (paths.length === 0) {
-      this.selectionAnchorPath = null;
-    } else if (paths.length === 1) {
-      this.selectionAnchorPath = this.selectionCursorPath;
-    } else if (!this.selectionAnchorPath) {
-      this.selectionAnchorPath = this.selectionCursorPath;
+    if (paths.length > 0) {
+      this.selectionCursorPath = paths[paths.length - 1];
+      if (paths.length === 1) {
+        this.selectionAnchorPath = this.selectionCursorPath;
+      } else if (!this.selectionAnchorPath) {
+        this.selectionAnchorPath = this.selectionCursorPath;
+      }
     }
+    // paths.length === 0: marks cleared but cursor stays where it was (TC style)
   }
 
   onSelectAll(): void {

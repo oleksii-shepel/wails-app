@@ -253,6 +253,17 @@ export class ShortcutRegistryService {
    * File operation shortcuts
    */
   private registerFileOperationShortcuts(callbacks: ShortcutCallbacks): void {
+    // TC Space: mark/unmark item under cursor and advance
+    this.keyboardService.register({
+      id: 'mark-current-item',
+      key: ' ',
+      modifiers: [],
+      action: callbacks.markCurrentItem,
+      context: 'global',
+      category: 'files',
+      description: 'Mark/unmark item under cursor (Space)',
+    });
+
     // Quick view (preview)
     this.keyboardService.register({
       id: 'quick-view',
@@ -745,4 +756,5 @@ export interface ShortcutCallbacks {
   moveCursorEnd: () => void;
   moveCursorPageUp: () => void;
   moveCursorPageDown: () => void;
+  markCurrentItem: () => void;
 }

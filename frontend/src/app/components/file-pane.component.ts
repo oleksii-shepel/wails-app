@@ -122,6 +122,7 @@ interface DirStreamErrorEvent {
           [currentPath]="currentPath"
           [showHidden]="showHidden"
           [selectedFiles]="selectedFiles"
+          [cursorPath]="selectionCursorPath"
           [error]="error"
           [currentView]="currentView"
           [sortField]="sortField"
@@ -267,7 +268,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   archivePendingMoveDestDir = '';
 
   private tabPaths = new Map<string, string>();
-  private selectionCursorPath: string | null = null;
+  selectionCursorPath: string | null = null;
   private selectionAnchorPath: string | null = null;
   private fsChangeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private activeDirStreamId: string | null = null;
@@ -333,7 +334,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
         if (selectable.length) {
           this.selectionCursorPath = selectable[0].path;
           this.selectionAnchorPath = selectable[0].path;
-          this.selectedFiles = new Set([selectable[0].path]);
+          // TC: just position cursor, don't mark the item
           this.fileViewContainer?.scrollToCursorPath(selectable[0].path);
         }
       }
@@ -679,6 +680,8 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
 
     if (!this.activeDirStreamPreserveUI) {
       this.selectedFiles.clear();
+      this.selectionCursorPath = null;
+      this.selectionAnchorPath = null;
       this.entries = this.withParentEntry([], false, path);
       this.applyFilter();
     }
@@ -933,6 +936,16 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       this.selectedFiles = new Set(this.selectedFiles);
     }
     this.applyFilter();
+
+    // TC: place cursor on first entry when loading a new directory
+    if (!this.selectionCursorPath) {
+      const firstReal = this.filteredEntries.find(e => e.path !== PARENT_ENTRY_PATH);
+      if (firstReal) {
+        this.selectionCursorPath = firstReal.path;
+        this.selectionAnchorPath = firstReal.path;
+      }
+    }
+
     this.resolveDirectoryStreamWaiter(event.streamId);
     setTimeout(() => {
       try { this.fileViewContainer?.treeComponent?.focusNode(event.path); } catch { /* best-effort */ }
@@ -1123,7 +1136,8 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   onOpenSelectedItem(): void {
-    const selected = Array.from(this.selectedFiles);
+    const effective = this.getEffectiveSelection();
+    const selected = Array.from(effective);
     if (selected.length === 1) {
       const entry = this.entries.find(e => e.path === selected[0]);
       if (entry) this.onNavigate(entry);
@@ -1424,10 +1438,18 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   onDeselectAll(): void {
-    this.selectedFiles.clear();
-    this.selectedFiles = new Set(this.selectedFiles);
-    this.selectionCursorPath = null;
-    this.selectionAnchorPath = null;
+    this.selectedFiles = new Set();
+    // TC: preserve cursor position when clearing marks
+  }
+
+  /**
+   * TC-style effective selection: use marked files when any exist,
+   * otherwise treat the cursor item as the implicit selection.
+   */
+  private getEffectiveSelection(): Set<string> {
+    if (this.selectedFiles.size > 0) return this.selectedFiles;
+    if (this.selectionCursorPath) return new Set([this.selectionCursorPath]);
+    return new Set();
   }
 
   onToggleCurrentAndMoveDown(): void {
@@ -1461,6 +1483,24 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     this.selectionAnchorPath = path;
   }
 
+  /** TC Space: mark/unmark item under cursor and advance cursor down. */
+  onMarkCurrentItem(): void {
+    if (!this.selectionCursorPath) return;
+    const path = this.selectionCursorPath;
+    const next = new Set(this.selectedFiles);
+    if (next.has(path)) next.delete(path);
+    else next.add(path);
+    this.selectedFiles = next;
+
+    // Advance cursor down (TC Space key advances after marking)
+    const selectable = this.getSelectableEntries();
+    const idx = this.getCursorIndex(selectable);
+    if (idx >= 0 && idx < selectable.length - 1) {
+      this.selectionCursorPath = selectable[idx + 1].path;
+      this.fileViewContainer?.scrollToCursorPath(this.selectionCursorPath);
+    }
+  }
+
   onExtendSelection(delta: -1 | 1): void {
     const selectable = this.getSelectableEntries();
     const index = this.getCursorIndex(selectable);
@@ -1485,7 +1525,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     const clamped = Math.max(0, Math.min(selectable.length - 1, idx));
     this.selectionCursorPath = selectable[clamped].path;
     this.selectionAnchorPath = this.selectionCursorPath;
-    this.selectedFiles = new Set([this.selectionCursorPath]);
+    // TC: cursor moves independently of marks — do NOT touch selectedFiles
     this.fileViewContainer?.scrollToCursorPath(this.selectionCursorPath);
   }
 
@@ -1681,11 +1721,12 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   async onDeleteSelected(): Promise<void> {
-    if (this.selectedFiles.size === 0) return;
+    const effective = this.getEffectiveSelection();
+    if (effective.size === 0) return;
 
     if (this.isInArchive()) {
       const frame   = this.archiveStack[this.archiveStack.length - 1];
-      const entries = Array.from(this.selectedFiles);
+      const entries = Array.from(effective);
 
       if (frame.nestedChain.length > 0) {
         this.confirmDialog.alert(
@@ -1719,16 +1760,16 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       return;
     }
 
-    // ── Filesystem delete — unchanged from original ───────────────────────────
+    // ── Filesystem delete ─────────────────────────────────────────────────────
     const deleteConfirmed = await this.confirmDialog.confirm({
       title: 'Delete Items',
-      message: `Delete ${this.selectedFiles.size} item(s)?`,
+      message: `Delete ${effective.size} item(s)?`,
       confirmText: 'Delete',
       danger: true,
     });
     if (!deleteConfirmed) return;
     try {
-      const result = await this.apiService.batchDelete(Array.from(this.selectedFiles), true);
+      const result = await this.apiService.batchDelete(Array.from(effective), true);
       if (result.failed > 0) {
         const msg = (result.errors ?? []).map((e: any) => `${e.source}: ${e.error}`).join('\n');
         this.confirmDialog.alert(`Delete Completed With Errors\n${result.failed} item(s) failed:\n${msg}`);

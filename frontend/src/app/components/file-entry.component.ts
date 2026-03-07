@@ -18,6 +18,7 @@ export const PARENT_ENTRY_PATH = '__parent__';
     <div
       class="file-entry"
       [class.selected]="selected"
+      [class.cursor]="cursor"
       [class.directory]="entry.type === FileType.DIRECTORY"
       [class.parent-dir]="isParentEntry()"
       (click)="onClick($event)"
@@ -91,6 +92,17 @@ export const PARENT_ENTRY_PATH = '__parent__';
         border-left-color: var(--vsc-accent-blue);
 
         &:hover { background: var(--vsc-list-focus-background); }
+      }
+
+      /* TC-style cursor: position indicator separate from marks */
+      &.cursor:not(.selected) {
+        background: color-mix(in srgb, var(--vsc-list-active-background) 35%, transparent);
+        border-left-color: var(--vsc-accent-blue);
+      }
+
+      &.cursor.selected {
+        outline: 1px solid var(--vsc-accent-blue);
+        outline-offset: -2px;
       }
 
       &.directory .file-icon { opacity: 1; }
@@ -240,9 +252,11 @@ export const PARENT_ENTRY_PATH = '__parent__';
     }
 
     :host(.variant-inline) .file-entry:hover,
-    :host(.variant-inline) .file-entry.selected {
+    :host(.variant-inline) .file-entry.selected,
+    :host(.variant-inline) .file-entry.cursor {
       background: transparent;
       border-left: none;
+      outline: none;
     }
 
     :host(.variant-inline) .file-details {
@@ -276,9 +290,11 @@ export const PARENT_ENTRY_PATH = '__parent__';
     }
 
     :host(.variant-grid) .file-entry:hover,
-    :host(.variant-grid) .file-entry.selected {
+    :host(.variant-grid) .file-entry.selected,
+    :host(.variant-grid) .file-entry.cursor {
       background: transparent;
       border-left: none;
+      outline: none;
     }
 
     :host(.variant-grid) .file-details {
@@ -318,6 +334,7 @@ export const PARENT_ENTRY_PATH = '__parent__';
 export class FileEntryComponent {
   @Input() entry!: FileInfo;
   @Input() selected = false;
+  @Input() cursor = false;
   @Input() variant: 'row' | 'inline' | 'grid' = 'row';
 
   @Output() select   = new EventEmitter<FileEntrySelectEvent>();

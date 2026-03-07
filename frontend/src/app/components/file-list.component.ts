@@ -65,6 +65,7 @@ import { parentPath } from './address-bar.utils';
           <app-file-entry
             [entry]="parentEntry"
             [selected]="isSelected(parentEntry)"
+            [cursor]="parentEntry.path === cursorPath"
             (select)="onSelect($event)"
             (navigate)="onNavigate($event)"
             (rename)="onRename($event)">
@@ -98,6 +99,7 @@ import { parentPath } from './address-bar.utils';
             <app-file-entry
               [entry]="entry"
               [selected]="isSelected(entry)"
+              [cursor]="entry.path === cursorPath"
               (select)="onSelect($event)"
               (navigate)="onNavigate($event)"
               (rename)="onRename($event)">
@@ -285,6 +287,7 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
 
   @Input() entries: FileInfo[] = [];
   @Input() selectedFiles: Set<string> = new Set();
+  @Input() cursorPath: string | null = null;
   @Input() loading = false;
   @Input() error: string | null = null;
   @Input() paneActive = true;

@@ -90,6 +90,7 @@ export interface ColumnDef {
             [attr.data-path]="entry.path"
             [style.height.px]="virtualEnabled ? rowHeight : null"
             [class.selected]="isSelected(entry)"
+            [class.cursor]="entry.path === cursorPath"
             [class.parent-dir]="isParentEntry(entry)"
             [class.drag-over]="isDragOverInside(entry)"
             [class.drag-over-before]="isDragOverBefore(entry)"
@@ -119,6 +120,7 @@ export interface ColumnDef {
                 <app-file-entry
                   [entry]="entry"
                   [selected]="isSelected(entry)"
+                  [cursor]="entry.path === cursorPath"
                   variant="inline"
                   (rename)="onRename($event)">
                 </app-file-entry>
@@ -199,6 +201,17 @@ export interface ColumnDef {
           .file-name-text {
             font-weight: 500;
           }
+        }
+        
+        /* TC cursor indicator */
+        &.cursor:not(.selected) {
+          background: color-mix(in srgb, var(--vsc-list-active-background) 35%, transparent);
+          border-left: 2px solid var(--vsc-accent-blue);
+        }
+        
+        &.cursor.selected {
+          outline: 1px solid var(--vsc-accent-blue);
+          outline-offset: -1px;
         }
         
         &.parent-dir {
@@ -425,6 +438,7 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
 
   @Input() entries: FileInfo[] = [];
   @Input() selectedFiles: Set<string> = new Set();
+  @Input() cursorPath: string | null = null;
   @Input() columns: ColumnDef[] = [
     { field: 'name', header: 'Name', flex: 2, sortable: true },
     { field: 'size', header: 'Size', width: '100px', sortable: true, formatter: (v) => this.formatSize(v) },

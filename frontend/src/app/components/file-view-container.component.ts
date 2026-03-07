@@ -38,6 +38,7 @@ export type ViewLayout = ViewMode;
           *ngIf="currentView === 'list'"
           [entries]="sortedEntries"
           [selectedFiles]="selectedFiles"
+          [cursorPath]="cursorPath"
           [error]="error"
           [paneActive]="paneActive"
           (selectionChange)="onSelectionChange($event)"
@@ -53,6 +54,7 @@ export type ViewLayout = ViewMode;
           *ngIf="currentView === 'grid'"
           [entries]="sortedEntries"
           [selectedFiles]="selectedFiles"
+          [cursorPath]="cursorPath"
           [paneActive]="paneActive"
           (selectionChange)="onSelectionChange($event)"
           (navigate)="onNavigate($event)"
@@ -85,6 +87,7 @@ export type ViewLayout = ViewMode;
           *ngIf="currentView === 'details'"
           [entries]="sortedEntries"
           [selectedFiles]="selectedFiles"
+          [cursorPath]="cursorPath"
           [sortField]="sortField"
           [sortDirection]="sortDirection"
           [paneActive]="paneActive"
@@ -152,6 +155,7 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
   @Input() entries: FileInfo[] = [];
   @Input() currentPath = '';
   @Input() selectedFiles: Set<string> = new Set();
+  @Input() cursorPath: string | null = null;
   @Input() error: string | null = null;
   @Input() currentView: ViewLayout = 'list';
   @Input() sortField     = 'name';

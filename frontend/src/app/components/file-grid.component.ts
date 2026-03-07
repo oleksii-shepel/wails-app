@@ -67,6 +67,7 @@ import { parentPath } from './address-bar.utils';
           [attr.data-path]="entry.path"
           [class.dragging-source]="draggingPaths.has(entry.path)"
           [class.selected]="isSelected(entry)"
+          [class.cursor]="entry.path === cursorPath"
           [class.directory]="entry.type === FileType.DIRECTORY"
           [class.parent-dir]="isParentEntry(entry)"
           [class.drag-over]="isDragOverInside(entry)"
@@ -89,6 +90,7 @@ import { parentPath } from './address-bar.utils';
             <app-file-entry
               [entry]="entry"
               [selected]="isSelected(entry)"
+              [cursor]="entry.path === cursorPath"
               variant="grid"
               (rename)="onRename($event)">
             </app-file-entry>
@@ -229,6 +231,17 @@ import { parentPath } from './address-bar.utils';
         .grid-name {
           color: var(--vsc-foreground-bright);
         }
+      }
+      
+      /* TC cursor indicator */
+      &.cursor:not(.selected) {
+        background: color-mix(in srgb, var(--vsc-list-active-background) 35%, transparent);
+        border-color: color-mix(in srgb, var(--vsc-accent-blue) 70%, transparent);
+      }
+      
+      &.cursor.selected {
+        outline: 2px solid var(--vsc-accent-blue);
+        outline-offset: -2px;
       }
       
       &.directory {
@@ -399,6 +412,7 @@ export class FileGridComponent implements OnDestroy, OnChanges, AfterViewInit {
 
   @Input() entries: FileInfo[] = [];
   @Input() selectedFiles: Set<string> = new Set();
+  @Input() cursorPath: string | null = null;
   @Input() paneActive = true;
   
   @Output() selectionChange = new EventEmitter<FileInfo[]>();

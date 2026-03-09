@@ -42,6 +42,9 @@ export interface ArchiveEntriesResult {
    HELPERS
 ───────────────────────────────────────────────────────────── */
 
+// FIX: added .tbz2 and .txz which the tar handler registers but were missing,
+// causing those files to be treated as plain files and nested-chain parsing to
+// break for paths containing them.
 export function isArchive(name: string): boolean {
   const l = name.toLowerCase();
   return (
@@ -50,7 +53,9 @@ export function isArchive(name: string): boolean {
     l.endsWith('.tgz') ||
     l.endsWith('.tar.gz') ||
     l.endsWith('.tar.bz2') ||
+    l.endsWith('.tbz2') ||    // added
     l.endsWith('.tar.xz') ||
+    l.endsWith('.txz') ||     // added
     l.endsWith('.gz') ||
     l.endsWith('.bz2') ||
     l.endsWith('.xz') ||
@@ -337,10 +342,6 @@ export class ArchiveService {
 
   /* ─────────────── OPERATIONS ─────────────── */
 
-  // entries from selectedFiles already carry full inner paths from the archive
-  // root (e.g. "some/dir/file.txt") because processEntryInto in archive.go
-  // sets Path: joinPath(innerPath, childName). No prefixing needed.
-
   copy(
     frame: ArchiveFrame,
     entries: string[],
@@ -402,11 +403,6 @@ export class ArchiveService {
     return window.go.main.App.ArchiveDeleteEntries(req);
   }
 
-  /**
-   * Copy archive entries without needing an open ArchiveFrame (tree-view path).
-   * archivePath is the global path to the archive context, e.g. "C:/foo/bar.zip/inner.zip".
-   * innerPaths are file paths relative to that archive's root.
-   */
   copyByContext(
     archivePath: string,
     innerPaths: string[],
@@ -424,10 +420,6 @@ export class ArchiveService {
     return window.go.main.App.ArchiveCopyEntries(req);
   }
 
-  /**
-   * Move archive entries without needing an open ArchiveFrame (tree-view path).
-   * archivePath is the global path to the archive context, e.g. "C:/foo/bar.zip/inner.zip".
-   */
   moveByContext(
     archivePath: string,
     innerPaths: string[],
@@ -478,7 +470,7 @@ export class ArchiveService {
         path: e.path,
         type: e.type as FileType,
         size: e.size,
-        modified: e.modified,
+        modified: e.modified, // already UnixMilli from backend
         created: e.modified,
         accessed: e.modified,
         permissions:
@@ -486,6 +478,8 @@ export class ArchiveService {
             ? 'drwxr-xr-x'
             : '-rw-r--r--',
         isHidden: e.name.startsWith('.'),
+        // FIX: nestedChain is now populated for archive entries by the backend
+        // (convertVFSInfoWithChain / vfsEntryToFileInfo) for all formats.
         nestedChain: (e as any).nestedChain ?? undefined,
       }));
 

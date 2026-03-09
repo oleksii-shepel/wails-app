@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -192,31 +191,30 @@ func (a *App) DismissOperation(id string) {
 // Archive traversal  (treat archives like directories, no temp files)
 // ============================================================================
 
+// ArchiveBrowse routes ALL supported archive formats through the VFS handler
+// registry (zip, tar/tar.gz/tar.bz2, rar, 7z). The handler is selected by
+// archive.ForPath() based on the innermost name in the chain, so the calling
+// convention from the frontend is unchanged.
 func (a *App) ArchiveBrowse(fsPath string, nestedChain []string, innerPath string) (ArchiveListing, error) {
-	// Route .zip files through the VFS provider registry.
-	// All other formats (tar, rar, 7z, …) keep using the existing archive.go path.
-	if strings.HasSuffix(strings.ToLower(fsPath), ".zip") {
-		return a.vfsBrowseZip(fsPath, nestedChain, innerPath)
-	}
-	if len(nestedChain) == 0 {
-		return a.ArchiveList(fsPath, innerPath)
-	}
-	return a.ArchiveListNested(fsPath, nestedChain, innerPath)
+	return a.vfsBrowseArchive(fsPath, nestedChain, innerPath)
 }
 
-// vfsBrowseZip delegates archive listing for .zip files to the VFS zip provider.
-// It converts vfs.FileInfo entries back into the app's wire FileInfo type so the
-// rest of the frontend/backend pipeline is completely unchanged.
-func (a *App) vfsBrowseZip(fsPath string, nestedChain []string, innerPath string) (ArchiveListing, error) {
+// vfsBrowseArchive delegates archive listing to whichever VFS handler is
+// registered for the given path (zip, tar, rar, 7z, …).
+// It converts vfs.FileInfo entries back into the app's wire FileInfo type so
+// the rest of the frontend/backend pipeline is completely unchanged.
+func (a *App) vfsBrowseArchive(fsPath string, nestedChain []string, innerPath string) (ArchiveListing, error) {
 	ctx := context.Background()
 
-	h, ok := vfsarchive.ForPath(fsPath)
+	// The innermost name in the chain determines the handler.
+	handlerPath := fsPath
+	if len(nestedChain) > 0 {
+		handlerPath = nestedChain[len(nestedChain)-1]
+	}
+
+	h, ok := vfsarchive.ForPath(handlerPath)
 	if !ok {
-		// Shouldn't happen for .zip, but fall through gracefully.
-		if len(nestedChain) == 0 {
-			return a.ArchiveList(fsPath, innerPath)
-		}
-		return a.ArchiveListNested(fsPath, nestedChain, innerPath)
+		return ArchiveListing{}, fmt.Errorf("vfs: no archive handler for %q", handlerPath)
 	}
 
 	arch, err := h.Open(ctx, fsPath, vfsarchive.OpenOptions{
@@ -224,7 +222,7 @@ func (a *App) vfsBrowseZip(fsPath string, nestedChain []string, innerPath string
 		NestedChain: nestedChain,
 	})
 	if err != nil {
-		return ArchiveListing{}, fmt.Errorf("vfs: open zip %q: %w", fsPath, err)
+		return ArchiveListing{}, fmt.Errorf("vfs: open %q: %w", fsPath, err)
 	}
 	defer arch.Close()
 
@@ -235,8 +233,7 @@ func (a *App) vfsBrowseZip(fsPath string, nestedChain []string, innerPath string
 
 	entries := make([]FileInfo, 0, len(vfsEntries))
 	for _, e := range vfsEntries {
-		fi := vfsEntryToFileInfo(e, nestedChain)
-		entries = append(entries, fi)
+		entries = append(entries, vfsEntryToFileInfo(e, nestedChain))
 	}
 
 	return ArchiveListing{

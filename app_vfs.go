@@ -140,6 +140,12 @@ func archiveMountPoint(osPath string, nested []string) string {
 
 // convertVFSInfo maps a vfs.FileInfo to the app's wire FileInfo type.
 func convertVFSInfo(e vfslib.FileInfo) FileInfo {
+	return convertVFSInfoWithChain(e, nil)
+}
+
+// convertVFSInfoWithChain maps a vfs.FileInfo to the app's wire FileInfo type,
+// building the nestedChain for archive entries so the frontend can open them.
+func convertVFSInfoWithChain(e vfslib.FileInfo, parentChain []string) FileInfo {
 	ft := FileTypeFile
 	switch {
 	case e.IsDir():
@@ -150,15 +156,22 @@ func convertVFSInfo(e vfslib.FileInfo) FileInfo {
 		ft = FileTypeSymlink
 	}
 
+	// Build the chain the frontend passes when opening a nested archive:
+	// parent's chain + this entry's path within the archive.
+	var nestedChain []string
+	if ft == FileTypeArchive {
+		nestedChain = append(append([]string{}, parentChain...), e.Path())
+	}
+
 	return FileInfo{
 		Name:        e.Name(),
 		Path:        e.Path(),
 		Type:        ft,
 		Size:        e.Size(),
-		Modified:    e.ModTime().Unix(),
+		Modified:    e.ModTime().UnixMilli(), // unified with vfsEntryToFileInfo
 		IsHidden:    e.IsHidden(),
 		IsSymlink:   e.IsSymlink(),
-		IsNested:    e.IsNested(),
-		NestedChain: e.MountChain(),
+		IsNested:    ft == FileTypeArchive,
+		NestedChain: nestedChain,
 	}
 }

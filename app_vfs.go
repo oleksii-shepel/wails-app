@@ -10,6 +10,9 @@ import (
 	"wails-app/vfs/mount"
 	"wails-app/vfs/osfs"
 
+	_ "wails-app/vfs/archive/7z"  // register 7z handler
+	_ "wails-app/vfs/archive/rar" // register rar handler
+	_ "wails-app/vfs/archive/tar" // register tar/tar.gz/tar.bz2 handler
 	_ "wails-app/vfs/archive/zip" // register zip handler
 )
 

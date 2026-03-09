@@ -42,10 +42,11 @@ type Volume interface {
 type VolumeType string
 
 const (
-	VolumeLocal   VolumeType = "local"
-	VolumeArchive VolumeType = "archive"
-	VolumeRemote  VolumeType = "remote"
-	VolumeMemory  VolumeType = "memory"
+	VolumeLocal    VolumeType = "local"
+	VolumeArchive  VolumeType = "archive"
+	VolumeRemote   VolumeType = "remote"
+	VolumeMemory   VolumeType = "memory"
+	VolumeRegistry VolumeType = "registry"
 )
 
 // FileSystem is the core VFS interface every adapter must implement.

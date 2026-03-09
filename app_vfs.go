@@ -11,6 +11,7 @@ import (
 	"wails-app/vfs/archive"
 	"wails-app/vfs/mount"
 	"wails-app/vfs/osfs"
+	"wails-app/vfs/registry"
 
 	_ "wails-app/vfs/archive/7z"  // register 7z handler
 	_ "wails-app/vfs/archive/rar" // register rar handler
@@ -22,6 +23,10 @@ import (
 func (a *App) initVFS() {
 	mgr := mount.NewManager(osfs.New("/"))
 	a.vfs = vfslib.NewUnified(mgr)
+
+	if regFS, err := registry.New(); err == nil {
+		a.vfs.Mount("/registry", regFS, true, "Registry", vfslib.VolumeRegistry)
+	}
 }
 
 // ── Wails-exposed methods ─────────────────────────────────────────────────────

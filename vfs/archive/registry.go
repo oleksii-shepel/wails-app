@@ -136,3 +136,12 @@ func ForName(name string) (Handler, bool) {
 func Detect(data []byte) (Handler, bool) {
 	return DefaultRegistry.Detect(data)
 }
+
+// IsArchiveExt reports whether name has a file extension that matches a
+// registered archive handler.  It uses the same longest-suffix matching as
+// ForPath, so it stays automatically in sync with whatever handlers have been
+// registered via init() — no separate extension list to maintain.
+func IsArchiveExt(name string) bool {
+	_, ok := DefaultRegistry.ForPath(name)
+	return ok
+}

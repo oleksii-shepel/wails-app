@@ -416,7 +416,11 @@ func (a *Archive) Close() error { return nil }
 // rardecode does not support seeking, so every read is O(n) in the archive.
 func (a *Archive) readEntry(path string) ([]byte, error) {
 	if a.memData != nil {
-		return findEntry(mustNewReader(bytes.NewReader(a.memData), a.password), path)
+		r, err := rardecode.NewReader(bytes.NewReader(a.memData), a.password)
+		if err != nil {
+			return nil, fmt.Errorf("rar: re-open mem for read %q: %w", path, err)
+		}
+		return findEntry(r, path)
 	}
 	r, err := rardecode.OpenReader(a.osPath, a.password)
 	if err != nil {
@@ -424,14 +428,6 @@ func (a *Archive) readEntry(path string) ([]byte, error) {
 	}
 	defer r.Close()
 	return findEntry(&r.Reader, path)
-}
-
-func mustNewReader(rd io.Reader, password string) *rardecode.Reader {
-	r, err := rardecode.NewReader(rd, password)
-	if err != nil {
-		panic("rar: mustNewReader: " + err.Error())
-	}
-	return r
 }
 
 // ── rarFileInfo ───────────────────────────────────────────────────────────────
@@ -458,7 +454,7 @@ func (r *rarFileInfo) Sys() any           { return r.entry.header }
 func (r *rarFileInfo) Path() string       { return r.entry.path }
 func (r *rarFileInfo) RealPath() string   { return "" }
 func (r *rarFileInfo) Volume() vfs.Volume { return nil }
-func (r *rarFileInfo) IsArchive() bool    { return !r.entry.isDir && isArchiveExt(r.Name()) }
+func (r *rarFileInfo) IsArchive() bool    { return !r.entry.isDir && archive.IsArchiveExt(r.Name()) }
 func (r *rarFileInfo) IsHidden() bool     { return strings.HasPrefix(r.Name(), ".") }
 func (r *rarFileInfo) IsSymlink() bool    { return false }
 func (r *rarFileInfo) IsNested() bool     { return len(r.chain) > 0 }
@@ -535,16 +531,6 @@ func rebasePath(ep, stripPrefix string) string {
 		return ep[len(prefix)+1:]
 	}
 	return ep
-}
-
-func isArchiveExt(name string) bool {
-	lower := strings.ToLower(name)
-	for _, ext := range []string{".zip", ".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tar.xz", ".rar", ".7z"} {
-		if strings.HasSuffix(lower, ext) {
-			return true
-		}
-	}
-	return false
 }
 
 // Compile-time interface checks.

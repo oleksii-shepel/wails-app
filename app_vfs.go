@@ -188,7 +188,7 @@ func openFromMemory(ctx context.Context, name string, data []byte, password stri
 	// Write to a temp file so the handler can use its normal disk-open path.
 	// This is O(size-of-entry) disk I/O and is only needed for nested archives,
 	// which are rare.  The temp file is deleted when the returned archive closes.
-	f, err := os.CreateTemp("", "vfs-nested-*"+filepath.Ext(name))
+	f, err := os.CreateTemp("", "vfs-nested-*"+detectExt(name))
 	if err != nil {
 		return nil, fmt.Errorf("temp file for %q: %w", name, err)
 	}

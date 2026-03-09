@@ -13,7 +13,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
 	vfslib "wails-app/vfs"
-	vfsarchive "wails-app/vfs/archive"
+	"wails-app/vfs/archive/cache"
 )
 
 // App is the main application struct bound to the Wails frontend.
@@ -29,6 +29,7 @@ type App struct {
 	streamMu   sync.Mutex
 	dirStreams map[string]context.CancelFunc
 	vfs        *vfslib.Unified
+	archCache  *cache.Cache // lazy-open, LRU cache of open archive.Archive objects
 }
 
 // NewApp creates a new App application struct.
@@ -48,6 +49,7 @@ func NewApp() *App {
 		operations: NewOperationManager(),
 		elevWait:   make(map[string]chan bool),
 		dirStreams: make(map[string]context.CancelFunc),
+		archCache:  cache.New(resolveChain),
 	}
 }
 
@@ -112,6 +114,7 @@ func (a *App) shutdown(ctx context.Context) {
 	if svc != nil {
 		svc.Stop()
 	}
+	a.archCache.CloseAll()
 }
 
 // ============================================================================
@@ -201,30 +204,18 @@ func (a *App) ArchiveBrowse(fsPath string, nestedChain []string, innerPath strin
 
 // vfsBrowseArchive delegates archive listing to whichever VFS handler is
 // registered for the given path (zip, tar, rar, 7z, …).
-// It converts vfs.FileInfo entries back into the app's wire FileInfo type so
-// the rest of the frontend/backend pipeline is completely unchanged.
+// Archives are opened once and kept alive in archCache; subsequent calls for
+// any innerPath within the same (fsPath, nestedChain) identity are instant —
+// no extraction, no temp files, no re-parse of the archive header.
 func (a *App) vfsBrowseArchive(fsPath string, nestedChain []string, innerPath string) (ArchiveListing, error) {
 	ctx := context.Background()
 
-	// The innermost name in the chain determines the handler.
-	handlerPath := fsPath
-	if len(nestedChain) > 0 {
-		handlerPath = nestedChain[len(nestedChain)-1]
-	}
-
-	h, ok := vfsarchive.ForPath(handlerPath)
-	if !ok {
-		return ArchiveListing{}, fmt.Errorf("vfs: no archive handler for %q", handlerPath)
-	}
-
-	arch, err := h.Open(ctx, fsPath, vfsarchive.OpenOptions{
-		ReadOnly:    true,
-		NestedChain: nestedChain,
-	})
+	// Retrieve (or lazily open) the archive from the LRU cache.
+	arch, err := a.archCache.Get(ctx, fsPath, nestedChain, "")
 	if err != nil {
 		return ArchiveListing{}, fmt.Errorf("vfs: open %q: %w", fsPath, err)
 	}
-	defer arch.Close()
+	// NOTE: do NOT defer arch.Close() — the cache owns the lifetime.
 
 	vfsEntries, err := arch.ReadDir(ctx, normalize(innerPath))
 	if err != nil {

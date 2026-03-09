@@ -174,6 +174,13 @@ func collectEntries(tr *tar.Reader) ([]tarEntry, error) {
 			return nil, err
 		}
 		p := normalizePath(hdr.Name)
+		if p == "." {
+			// Many tar creators (GNU tar, bsdtar, Python tarfile) emit a "./"
+			// record for the archive root directory itself.  It is never a
+			// useful child entry and would appear as a spurious "." folder in
+			// every root listing, so we skip it here.
+			continue
+		}
 		entries = append(entries, tarEntry{
 			header:  hdr,
 			path:    p,
@@ -500,7 +507,7 @@ func (t *tarFileInfo) Sys() any           { return t.entry.header }
 func (t *tarFileInfo) Path() string       { return t.entry.path }
 func (t *tarFileInfo) RealPath() string   { return "" }
 func (t *tarFileInfo) Volume() vfs.Volume { return nil }
-func (t *tarFileInfo) IsArchive() bool    { return !t.entry.isDir && isArchiveExt(t.Name()) }
+func (t *tarFileInfo) IsArchive() bool    { return !t.entry.isDir && archive.IsArchiveExt(t.Name()) }
 func (t *tarFileInfo) IsHidden() bool     { return strings.HasPrefix(t.Name(), ".") }
 func (t *tarFileInfo) IsSymlink() bool {
 	return t.entry.header != nil && t.entry.header.Typeflag == tar.TypeSymlink
@@ -536,6 +543,12 @@ func (f *tarFile) Sync() error                 { return nil }
 func normalizePath(p string) string {
 	p = strings.ReplaceAll(p, "\\", "/")
 	p = strings.Trim(p, "/")
+	// Many tar creators (GNU tar, Python tarfile, bsdtar) prefix every entry
+	// with "./" — e.g. "./subdir/file.txt" instead of "subdir/file.txt".
+	// Strip that prefix so all paths are in the canonical "a/b/c" form.
+	// The root entry "./" is already handled by the p=="." skip in
+	// collectEntries, but other entries like "./file.txt" must be cleaned here.
+	p = strings.TrimPrefix(p, "./")
 	return p
 }
 
@@ -579,16 +592,6 @@ func rebasePath(ep, stripPrefix string) string {
 		return ep[len(prefix)+1:]
 	}
 	return ep
-}
-
-func isArchiveExt(name string) bool {
-	lower := strings.ToLower(name)
-	for _, ext := range []string{".zip", ".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tbz2", ".tar.xz", ".txz", ".rar", ".7z"} {
-		if strings.HasSuffix(lower, ext) {
-			return true
-		}
-	}
-	return false
 }
 
 // Compile-time interface checks.

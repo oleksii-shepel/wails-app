@@ -446,7 +446,7 @@ func (z *zipFileInfo) Path() string {
 func (z *zipFileInfo) RealPath() string   { return "" }
 func (z *zipFileInfo) Volume() vfs.Volume { return nil }
 func (z *zipFileInfo) IsArchive() bool {
-	return !z.IsDir() && isArchiveExt(z.Name())
+	return !z.IsDir() && archive.IsArchiveExt(z.Name())
 }
 func (z *zipFileInfo) IsHidden() bool  { return strings.HasPrefix(z.Name(), ".") }
 func (z *zipFileInfo) IsSymlink() bool { return false }
@@ -536,16 +536,6 @@ func rebasePath(ep, stripPrefix string) string {
 		return ep[len(prefix)+1:]
 	}
 	return ep
-}
-
-func isArchiveExt(name string) bool {
-	lower := strings.ToLower(name)
-	for _, ext := range []string{".zip", ".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tar.xz", ".rar", ".7z"} {
-		if strings.HasSuffix(lower, ext) {
-			return true
-		}
-	}
-	return false
 }
 
 // Ensure interface compliance at compile time.

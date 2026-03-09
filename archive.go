@@ -70,21 +70,13 @@ func (a *App) ArchiveList(fsPath string, innerPath string) (ArchiveListing, erro
 //
 //	["inner.zip"]                  – one level deep
 //	["outer.tar.gz", "inner.zip"]  – two levels deep
+//
+// The resolved archive is kept open in archCache so repeated navigation inside
+// the same nested archive (e.g. entering subdirectories) costs only a ReadDir,
+// not a fresh extraction.
 func (a *App) ArchiveListNested(fsPath string, nestedChain []string, innerPath string) (ArchiveListing, error) {
-	archiveData, err := a.extractNestedArchive(fsPath, nestedChain)
-	if err != nil {
-		return ArchiveListing{}, err
-	}
-	entries, err := a.walkBytes(archiveData, innerPath, nestedChain)
-	if err != nil {
-		return ArchiveListing{}, err
-	}
-	return ArchiveListing{
-		ArchivePath: fsPath,
-		InnerPath:   innerPath,
-		NestedChain: nestedChain,
-		Entries:     entries,
-	}, nil
+	// Delegate to the cached VFS browse path, which resolveChain once and caches.
+	return a.vfsBrowseArchive(fsPath, nestedChain, innerPath)
 }
 
 // ArchiveReadFile returns the raw bytes (base64-encoded) of a single file

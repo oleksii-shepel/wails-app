@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/mholt/archiver/v3"
+
+	"wails-app/vfs/archive"
 )
 
 // Entry is kept for any frontend types that reference it directly.
@@ -57,12 +59,10 @@ func getRelativePath(full, base string) string {
 }
 
 // isArchive reports whether a file name looks like a supported archive.
+// It delegates to the format registry so it stays in sync automatically
+// when new handlers are registered — no separate extension list to maintain.
 func isArchive(name string) bool {
-	switch detectExt(strings.ToLower(name)) {
-	case ".zip", ".tar", ".tgz", ".gz", ".bz2", ".xz", ".rar", ".7z", ".tar.gz", ".tar.bz2", ".tar.xz":
-		return true
-	}
-	return false
+	return archive.IsArchiveExt(name)
 }
 
 // detectExt returns the effective extension, handling compound suffixes like
@@ -78,6 +78,8 @@ func detectExt(name string) string {
 		return ".tar.xz"
 	case strings.HasSuffix(l, ".tgz"):
 		return ".tgz"
+	case strings.HasSuffix(l, ".tbz2"):
+		return ".tbz2"
 	}
 	return filepath.Ext(name)
 }

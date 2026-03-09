@@ -7,10 +7,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
+
+	vfslib "wails-app/vfs"
+	vfsarchive "wails-app/vfs/archive"
 )
 
 // App is the main application struct bound to the Wails frontend.
@@ -25,6 +29,7 @@ type App struct {
 	elevSvc    *ElevatedServiceClient // persistent JWT-authenticated elevated IPC channel
 	streamMu   sync.Mutex
 	dirStreams map[string]context.CancelFunc
+	vfs        *vfslib.Unified
 }
 
 // NewApp creates a new App application struct.
@@ -54,6 +59,7 @@ func (a *App) startup(ctx context.Context) {
 	// Wails events. This replaces the old package-level appInstance global.
 	a.operations.SetApp(a)
 	a.dirWatch = NewPaneDirWatchManager(a)
+	a.initVFS()
 
 	// Listen for native Wails file drop events from the OS
 	runtime.EventsOn(ctx, "wails:file-drop", func(optionalData ...interface{}) {
@@ -187,10 +193,92 @@ func (a *App) DismissOperation(id string) {
 // ============================================================================
 
 func (a *App) ArchiveBrowse(fsPath string, nestedChain []string, innerPath string) (ArchiveListing, error) {
+	// Route .zip files through the VFS provider registry.
+	// All other formats (tar, rar, 7z, …) keep using the existing archive.go path.
+	if strings.HasSuffix(strings.ToLower(fsPath), ".zip") {
+		return a.vfsBrowseZip(fsPath, nestedChain, innerPath)
+	}
 	if len(nestedChain) == 0 {
 		return a.ArchiveList(fsPath, innerPath)
 	}
 	return a.ArchiveListNested(fsPath, nestedChain, innerPath)
+}
+
+// vfsBrowseZip delegates archive listing for .zip files to the VFS zip provider.
+// It converts vfs.FileInfo entries back into the app's wire FileInfo type so the
+// rest of the frontend/backend pipeline is completely unchanged.
+func (a *App) vfsBrowseZip(fsPath string, nestedChain []string, innerPath string) (ArchiveListing, error) {
+	ctx := context.Background()
+
+	h, ok := vfsarchive.ForPath(fsPath)
+	if !ok {
+		// Shouldn't happen for .zip, but fall through gracefully.
+		if len(nestedChain) == 0 {
+			return a.ArchiveList(fsPath, innerPath)
+		}
+		return a.ArchiveListNested(fsPath, nestedChain, innerPath)
+	}
+
+	arch, err := h.Open(ctx, fsPath, vfsarchive.OpenOptions{
+		ReadOnly:    true,
+		NestedChain: nestedChain,
+	})
+	if err != nil {
+		return ArchiveListing{}, fmt.Errorf("vfs: open zip %q: %w", fsPath, err)
+	}
+	defer arch.Close()
+
+	vfsEntries, err := arch.ReadDir(ctx, normalize(innerPath))
+	if err != nil {
+		return ArchiveListing{}, fmt.Errorf("vfs: readdir %q in %q: %w", innerPath, fsPath, err)
+	}
+
+	entries := make([]FileInfo, 0, len(vfsEntries))
+	for _, e := range vfsEntries {
+		fi := vfsEntryToFileInfo(e, nestedChain)
+		entries = append(entries, fi)
+	}
+
+	return ArchiveListing{
+		ArchivePath: fsPath,
+		InnerPath:   innerPath,
+		NestedChain: nestedChain,
+		Entries:     entries,
+	}, nil
+}
+
+// vfsEntryToFileInfo converts a vfs.FileInfo (from the archive provider) into
+// the app's wire FileInfo type, preserving the NestedChain that tells the
+// frontend which chain to pass back when opening a nested archive.
+func vfsEntryToFileInfo(e vfslib.FileInfo, parentChain []string) FileInfo {
+	ft := FileTypeFile
+	switch {
+	case e.IsDir():
+		ft = FileTypeDirectory
+	case e.IsArchive():
+		ft = FileTypeArchive
+	case e.IsSymlink():
+		ft = FileTypeSymlink
+	}
+
+	var nestedChain []string
+	if ft == FileTypeArchive {
+		// Build the chain the frontend will pass when opening this nested archive:
+		// the parent's chain + this entry's path within the archive.
+		nestedChain = append(append([]string{}, parentChain...), e.Path())
+	}
+
+	return FileInfo{
+		Name:        e.Name(),
+		Path:        e.Path(),
+		Type:        ft,
+		Size:        e.Size(),
+		Modified:    e.ModTime().UnixMilli(),
+		IsHidden:    e.IsHidden(),
+		IsSymlink:   e.IsSymlink(),
+		IsNested:    ft == FileTypeArchive,
+		NestedChain: nestedChain,
+	}
 }
 
 func (a *App) ArchiveRead(fsPath string, nestedChain []string, entryPath string) (*FileContent, error) {

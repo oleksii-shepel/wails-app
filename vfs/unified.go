@@ -3,122 +3,173 @@ package vfs
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"path/filepath"
 	"strings"
-	"vfs/archive"
-
-	"vfs/mount"
+	"time"
 )
 
-// UnifiedVFS combines mount management with VFS operations
-type UnifiedVFS struct {
-	mounts *mount.Manager
+// Mounter is the interface Unified requires from a mount manager.
+// mount.Manager satisfies this via the adapter in vfs/mount.
+type Mounter interface {
+	Mount(mountPoint string, fs FileSystem, readOnly bool, name string, vtype VolumeType) (Volume, error)
+	Unmount(mountPoint string) error
+	Resolve(path string) (FileSystem, string, Volume, error)
+	ListMounts() []MountedEntry
 }
 
-func New(root FileSystem) *UnifiedVFS {
-	return &UnifiedVFS{
-		mounts: mount.NewManager(root),
-	}
+// MountedEntry describes one active mount point.
+type MountedEntry struct {
+	MountPoint string
+	FS         FileSystem
+	Volume     Volume
+	ReadOnly   bool
 }
 
-func (u *UnifiedVFS) Mount(mountPoint string, fs FileSystem, opts mount.MountOptions) (Volume, error) {
-	return u.mounts.Mount(mountPoint, fs, opts)
+// Unified is the top-level VFS the application uses.
+// Construct it with NewUnified, then call Open/Stat/ReadDir/etc. on it.
+//
+// To support archive formats, blank-import their packages in main.go:
+//
+//	import _ "wails-app/vfs/archive/zip"
+//	import _ "wails-app/vfs/archive/tar"
+type Unified struct {
+	mounts Mounter
 }
 
-func (u *UnifiedVFS) Unmount(mountPoint string) error {
+// NewUnified creates a Unified VFS backed by the given Mounter.
+func NewUnified(mounts Mounter) *Unified {
+	return &Unified{mounts: mounts}
+}
+
+func (u *Unified) Mount(mountPoint string, fs FileSystem, readOnly bool, name string, vtype VolumeType) (Volume, error) {
+	return u.mounts.Mount(mountPoint, fs, readOnly, name, vtype)
+}
+
+func (u *Unified) Unmount(mountPoint string) error {
 	return u.mounts.Unmount(mountPoint)
 }
 
-// VFS operations with automatic routing
-func (u *UnifiedVFS) Open(ctx context.Context, path string) (File, error) {
-	fs, rel, _, err := u.mounts.Resolve(path)
+func (u *Unified) Open(ctx context.Context, path string) (File, error) {
+	fsys, rel, _, err := u.mounts.Resolve(path)
 	if err != nil {
 		return nil, err
 	}
-	return fs.Open(ctx, rel)
+	return fsys.Open(ctx, rel)
 }
 
-func (u *UnifiedVFS) Stat(ctx context.Context, path string) (FileInfo, error) {
-	fs, rel, _, err := u.mounts.Resolve(path)
+func (u *Unified) Stat(ctx context.Context, path string) (FileInfo, error) {
+	fsys, rel, _, err := u.mounts.Resolve(path)
 	if err != nil {
 		return nil, err
 	}
-	return fs.Stat(ctx, rel)
+	return fsys.Stat(ctx, rel)
 }
 
-func (u *UnifiedVFS) ReadDir(ctx context.Context, path string) ([]FileInfo, error) {
-	fs, rel, vol, err := u.mounts.Resolve(path)
+func (u *Unified) ReadDir(ctx context.Context, path string) ([]FileInfo, error) {
+	fsys, rel, _, err := u.mounts.Resolve(path)
 	if err != nil {
 		return nil, err
 	}
-
-	entries, err := fs.ReadDir(ctx, rel)
+	entries, err := fsys.ReadDir(ctx, rel)
 	if err != nil {
 		return nil, err
 	}
-
-	// Inject mount points as virtual directories
-	if rel == "/" || rel == "" {
-		for _, m := range u.mounts.ListMounts() {
-			if filepath.Dir(m.MountPoint) == path ||
-				(path == "/" && strings.Count(m.MountPoint, "/") == 1) {
-				// Create virtual entry for mount point
-				entries = append(entries, &mountPointInfo{
-					name: filepath.Base(m.MountPoint),
-					path: m.MountPoint,
-					vol:  m.Volume,
-				})
-			}
+	// Inject synthetic directory entries for sub-mounts under path.
+	cleanPath := filepath.ToSlash(filepath.Clean("/" + path))
+	for _, m := range u.mounts.ListMounts() {
+		if filepath.ToSlash(filepath.Dir(m.MountPoint)) == cleanPath {
+			entries = append(entries, &mountPointInfo{
+				name: filepath.Base(m.MountPoint),
+				path: m.MountPoint,
+				vol:  m.Volume,
+			})
 		}
 	}
-
 	return entries, nil
 }
 
-// ... implement all other FileSystem methods similarly
-
-// Special handling for archives - auto-mount on access
-func (u *UnifiedVFS) OpenArchive(ctx context.Context, path string, nested []string) (FileSystem, error) {
-	// Resolve to real path first
-	realPath, err := u.RealPath(path)
-	if err != nil {
-		return nil, err
-	}
-
-	// Get archive handler
-	handler, ok := archive.DefaultRegistry.GetByPath(realPath)
-	if !ok {
-		return nil, fmt.Errorf("no handler for archive: %s", path)
-	}
-
-	// Open archive
-	arch, err := handler.Open(ctx, realPath, archive.OpenOptions{
-		NestedChain: nested,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	// Auto-mount at virtual path
-	mountPoint := filepath.Join("/archives", path)
-	if len(nested) > 0 {
-		mountPoint = filepath.Join(mountPoint, strings.Join(nested, "/"))
-	}
-
-	vol, err := u.Mount(mountPoint, arch, mount.MountOptions{
-		Name:     filepath.Base(path),
-		Type:     VolumeArchive,
-		ReadOnly: true,
-	})
-	if err != nil {
-		arch.Close()
-		return nil, err
-	}
-
-	return &mountedArchive{
-		Archive:    arch,
-		volume:     vol,
-		mountPoint: mountPoint,
-		vfs:        u,
-	}, nil
+func (u *Unified) Exists(ctx context.Context, path string) bool {
+	_, err := u.Stat(ctx, path)
+	return err == nil
 }
+
+func (u *Unified) Create(ctx context.Context, path string) (File, error) {
+	fsys, rel, _, err := u.mounts.Resolve(path)
+	if err != nil {
+		return nil, err
+	}
+	return fsys.Create(ctx, rel)
+}
+
+func (u *Unified) Mkdir(ctx context.Context, path string, perm fs.FileMode) error {
+	fsys, rel, _, err := u.mounts.Resolve(path)
+	if err != nil {
+		return err
+	}
+	return fsys.Mkdir(ctx, rel, perm)
+}
+
+func (u *Unified) Remove(ctx context.Context, path string) error {
+	fsys, rel, _, err := u.mounts.Resolve(path)
+	if err != nil {
+		return err
+	}
+	return fsys.Remove(ctx, rel)
+}
+
+func (u *Unified) Rename(ctx context.Context, oldPath, newPath string) error {
+	fsOld, relOld, volOld, err := u.mounts.Resolve(oldPath)
+	if err != nil {
+		return err
+	}
+	_, relNew, volNew, err := u.mounts.Resolve(newPath)
+	if err != nil {
+		return err
+	}
+	if volOld != volNew {
+		return fmt.Errorf("vfs: cannot rename across filesystems")
+	}
+	return fsOld.Rename(ctx, relOld, relNew)
+}
+
+func (u *Unified) Join(elem ...string) string { return strings.Join(elem, "/") }
+func (u *Unified) Split(path string) (string, string) {
+	i := strings.LastIndex(path, "/")
+	if i < 0 {
+		return "", path
+	}
+	return path[:i], path[i+1:]
+}
+func (u *Unified) IsAbs(path string) bool { return strings.HasPrefix(path, "/") }
+func (u *Unified) RealPath(path string) (string, error) {
+	fsys, rel, _, err := u.mounts.Resolve(path)
+	if err != nil {
+		return "", err
+	}
+	return fsys.RealPath(rel)
+}
+
+// mountPointInfo is a synthetic FileInfo injected for each active sub-mount.
+type mountPointInfo struct {
+	name string
+	path string
+	vol  Volume
+}
+
+func (m *mountPointInfo) Name() string         { return m.name }
+func (m *mountPointInfo) Size() int64          { return 0 }
+func (m *mountPointInfo) Mode() fs.FileMode    { return fs.ModeDir | 0555 }
+func (m *mountPointInfo) ModTime() time.Time   { return time.Time{} }
+func (m *mountPointInfo) IsDir() bool          { return true }
+func (m *mountPointInfo) Sys() any             { return nil }
+func (m *mountPointInfo) Path() string         { return m.path }
+func (m *mountPointInfo) RealPath() string     { return "" }
+func (m *mountPointInfo) Volume() Volume       { return m.vol }
+func (m *mountPointInfo) IsArchive() bool      { return false }
+func (m *mountPointInfo) IsHidden() bool       { return false }
+func (m *mountPointInfo) IsSymlink() bool      { return false }
+func (m *mountPointInfo) IsNested() bool       { return false }
+func (m *mountPointInfo) MountChain() []string { return nil }
+
+var _ FileInfo = (*mountPointInfo)(nil)

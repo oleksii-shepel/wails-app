@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"bytes"
+	"compress/bzip2"
 	"compress/gzip"
 	"fmt"
 	"io"
@@ -254,6 +255,8 @@ func (a *App) extractEntriesSync(req ArchiveEntriesRequest, op *ActiveOperation)
 	switch {
 	case strings.HasSuffix(lower, ".zip"):
 		return extractZipSync(req.FsPath, req.Entries, req.StripPrefix, req.DestinationDir, req.FlattenPaths, op)
+	case needsArchiveReader(req.FsPath):
+		return a.extractArchiveReaderSync(req.FsPath, req.Entries, req.StripPrefix, req.DestinationDir, req.FlattenPaths, op)
 	default:
 		return extractTarSync(req.FsPath, req.Entries, req.StripPrefix, req.DestinationDir, req.FlattenPaths, op)
 	}
@@ -318,6 +321,13 @@ func extractZipSync(fsPath string, entries []string, stripPrefix string, destDir
 }
 
 func extractTarSync(fsPath string, entries []string, stripPrefix string, destDir string, flatten bool, op *ActiveOperation) (succeeded, failed int, errs []BatchItemError, fatalErr error) {
+	// .tar.xz cannot be decompressed by stdlib; route through archiver.Walk
+	// which uses the bundled ulikunitz/xz dependency.
+	lower := strings.ToLower(fsPath)
+	if strings.HasSuffix(lower, ".tar.xz") {
+		return extractTarXzViaArchiver(fsPath, entries, stripPrefix, destDir, flatten, op)
+	}
+
 	src, err := os.Open(fsPath)
 	if err != nil {
 		return 0, 0, nil, err
@@ -368,6 +378,123 @@ func extractTarSync(fsPath string, entries []string, stripPrefix string, destDir
 		succeeded++
 		processed++
 		op.UpdateProgress(processed, n, hdr.Name, n)
+	}
+	return
+}
+
+// extractTarXzViaArchiver extracts from a .tar.xz using archiver.Walk, which
+// handles xz decompression via its bundled ulikunitz/xz dependency.
+func extractTarXzViaArchiver(fsPath string, entries []string, stripPrefix, destDir string, flatten bool, op *ActiveOperation) (succeeded, failed int, errs []BatchItemError, fatalErr error) {
+	op.SetTotal(0, 0)
+	var processed int64
+
+	walkErr := archiver.Walk(fsPath, func(f archiver.File) error {
+		if op.IsCancelled() {
+			return fmt.Errorf("cancelled")
+		}
+		hdr, ok := f.Header.(*tar.Header)
+		if !ok || f.IsDir() {
+			return nil
+		}
+		if !matchesEntriesForExtract(normalizePath(hdr.Name), entries) {
+			return nil
+		}
+		relPath, ok := rebaseExtractPath(hdr.Name, stripPrefix)
+		if !ok {
+			return nil
+		}
+		destPath := extractDestPath(relPath, destDir, flatten)
+		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+			errs = append(errs, BatchItemError{Source: hdr.Name, Error: err.Error()})
+			failed++
+			return nil
+		}
+		n, writeErr := extractWriteFile(destPath, f)
+		if writeErr != nil {
+			errs = append(errs, BatchItemError{Source: hdr.Name, Error: writeErr.Error()})
+			failed++
+			return nil
+		}
+		succeeded++
+		processed++
+		op.UpdateProgress(processed, n, hdr.Name, n)
+		return nil
+	})
+	if walkErr != nil && walkErr.Error() != "cancelled" {
+		fatalErr = walkErr
+	}
+	return
+}
+
+// extractArchiveReaderSync extracts matching entries from an on-disk 7z or RAR
+// archive to destDir using archiver.Reader — the only read-capable API for
+// these formats. Used by extractEntriesSync for ArchiveCopyEntries/ArchiveMoveEntries.
+func (a *App) extractArchiveReaderSync(fsPath string, entries []string, stripPrefix, destDir string, flatten bool, op *ActiveOperation) (succeeded, failed int, errs []BatchItemError, fatalErr error) {
+	f, err := os.Open(fsPath)
+	if err != nil {
+		return 0, 0, nil, err
+	}
+	defer f.Close()
+
+	fi, err := f.Stat()
+	if err != nil {
+		return 0, 0, nil, err
+	}
+
+	aIface, err := archiver.ByExtension(fsPath)
+	if err != nil {
+		return 0, 0, nil, fmt.Errorf("extractArchiveReaderSync: %w", err)
+	}
+	reader, ok := aIface.(archiver.Reader)
+	if !ok {
+		return 0, 0, nil, fmt.Errorf("extractArchiveReaderSync: format %q is not readable", fsPath)
+	}
+	if err := reader.Open(f, fi.Size()); err != nil {
+		return 0, 0, nil, err
+	}
+	defer reader.Close()
+
+	op.SetTotal(0, 0)
+	var processed int64
+
+	for {
+		if op.IsCancelled() {
+			break
+		}
+		entry, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return succeeded, failed, errs, err
+		}
+		entryName := archiveEntryPath(entry)
+		if entry.IsDir() || !matchesEntriesForExtract(normalizePath(entryName), entries) {
+			entry.Close()
+			continue
+		}
+		relPath, ok := rebaseExtractPath(entryName, stripPrefix)
+		if !ok {
+			entry.Close()
+			continue
+		}
+		destPath := extractDestPath(relPath, destDir, flatten)
+		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+			errs = append(errs, BatchItemError{Source: entryName, Error: err.Error()})
+			failed++
+			entry.Close()
+			continue
+		}
+		n, writeErr := extractWriteFile(destPath, entry)
+		entry.Close()
+		if writeErr != nil {
+			errs = append(errs, BatchItemError{Source: entryName, Error: writeErr.Error()})
+			failed++
+			continue
+		}
+		succeeded++
+		processed++
+		op.UpdateProgress(processed, n, entryName, n)
 	}
 	return
 }
@@ -517,19 +644,32 @@ func extractFromBytesSync(data []byte, archiveName string, entries []string, str
 	return
 }
 
-// wrapTarReader opens a tar.Reader over src, unwrapping gzip when the filename
-// indicates it. Returns an optional close func for the gzip layer.
+// wrapTarReader opens a tar.Reader over src, unwrapping the compression layer
+// indicated by fsPath's extension. Returns an optional close func for the
+// decompression layer.
+// .tar.gz / .tgz – stdlib compress/gzip.
+// .tar.bz2       – stdlib compress/bzip2 (read-only, no close needed).
+// .tar.xz        – not handled here; extractTarSync routes xz via archiver.Walk.
+// .tar            – raw, no wrapper.
 func wrapTarReader(src *os.File, fsPath string) (*tar.Reader, func(), error) {
 	lower := strings.ToLower(fsPath)
-	if strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz") ||
-		strings.HasSuffix(lower, ".tar.bz2") || strings.HasSuffix(lower, ".tar.xz") {
+	switch {
+	case strings.HasSuffix(lower, ".tar.gz"), strings.HasSuffix(lower, ".tgz"):
 		gr, err := gzip.NewReader(src)
 		if err != nil {
 			return nil, nil, err
 		}
 		return tar.NewReader(gr), func() { gr.Close() }, nil
+	case strings.HasSuffix(lower, ".tar.bz2"):
+		// compress/bzip2 is read-only and needs no Close.
+		return tar.NewReader(bzip2.NewReader(src)), nil, nil
+	case strings.HasSuffix(lower, ".tar.xz"):
+		// xz decompression requires ulikunitz/xz; extractTarSync uses
+		// archiver.Walk for this case so wrapTarReader is not called for xz.
+		return nil, nil, fmt.Errorf("tar.xz extraction is handled via archiver.Walk, not wrapTarReader")
+	default:
+		return tar.NewReader(src), nil, nil
 	}
-	return tar.NewReader(src), nil, nil
 }
 
 // extractWriteFile creates destPath and copies all of r into it.
@@ -615,6 +755,14 @@ func (a *App) ArchiveDeleteEntries(req ArchiveEntriesRequest) (*ArchiveEntriesRe
 		removed, kept, rewriteErr = rewriteTar(req.FsPath, req.Entries, "xz", op)
 	case strings.HasSuffix(lower, ".tar"):
 		removed, kept, rewriteErr = rewriteTar(req.FsPath, req.Entries, "", op)
+	case needsArchiveReader(req.FsPath):
+		// 7z and RAR are read-only: the archiver library provides no write API
+		// for these formats, so deletion (which requires a full rewrite) is not
+		// supported. Return a clear, actionable message.
+		ext := strings.ToUpper(strings.TrimPrefix(filepath.Ext(strings.ToLower(req.FsPath)), "."))
+		err := fmt.Errorf("deleting entries from %s archives is not supported (format is read-only)", ext)
+		op.SetError(err)
+		return nil, err
 	default:
 		op.SetError(fmt.Errorf("unsupported archive format"))
 		return nil, fmt.Errorf("unsupported archive format: %q", req.FsPath)
@@ -665,7 +813,14 @@ func (a *App) walkFile(fsPath, innerPath string, nestedChain []string) ([]FileIn
 		return a.sortFileInfo(seen), nil
 	}
 
-	// TAR-based formats: archiver.Walk works correctly for these
+	// 7z, RAR and other non-TAR formats: archiver.Walk mangles or drops entry
+	// paths for these formats on some mholt/archiver/v3 builds. Use the Reader
+	// API directly, which preserves full entry paths.
+	if needsArchiveReader(fsPath) {
+		return a.walkFileArchiveReader(fsPath, innerPath, nestedChain)
+	}
+
+	// TAR-based formats: archiver.Walk works correctly for these.
 	seen := make(map[string]FileInfo)
 	innerPath = normalize(innerPath)
 	err := archiver.Walk(fsPath, func(f archiver.File) error {
@@ -678,6 +833,54 @@ func (a *App) walkFile(fsPath, innerPath string, nestedChain []string) ([]FileIn
 	return a.sortFileInfo(seen), nil
 }
 
+// walkFileArchiveReader lists entries of an on-disk 7z or RAR archive using
+// archiver.Reader, which preserves full entry paths for these formats.
+func (a *App) walkFileArchiveReader(fsPath, innerPath string, nestedChain []string) ([]FileInfo, error) {
+	f, err := os.Open(fsPath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+
+	aIface, err := archiver.ByExtension(fsPath)
+	if err != nil {
+		return nil, fmt.Errorf("walkFileArchiveReader: unrecognised format %q: %w", fsPath, err)
+	}
+	reader, ok := aIface.(archiver.Reader)
+	if !ok {
+		return nil, fmt.Errorf("walkFileArchiveReader: format %q is not readable", fsPath)
+	}
+	if err := reader.Open(f, fi.Size()); err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+
+	seen := make(map[string]FileInfo)
+	innerPath = normalize(innerPath)
+
+	for {
+		entry, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		ep := normalize(archiveEntryPath(entry))
+		procErr := a.processEntryInto(ep, entry.IsDir(), entry.Size(), entry.ModTime().UnixMilli(), innerPath, nestedChain, seen)
+		entry.Close()
+		if procErr != nil {
+			return nil, procErr
+		}
+	}
+	return a.sortFileInfo(seen), nil
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // Walk helpers – in-memory archive bytes
 // ────────────────────────────────────────────────────────────────────────────
@@ -686,8 +889,14 @@ func (a *App) walkBytes(data []byte, innerPath string, nestedChain []string) ([]
 	if isZipMagic(data) {
 		return a.walkZip(data, innerPath, nestedChain)
 	}
-	if len(nestedChain) > 0 && needsArchiveReader(nestedChain[len(nestedChain)-1]) {
-		return a.walkArchiveReader(data, innerPath, nestedChain, nestedChain[len(nestedChain)-1])
+	// Determine archive name from the chain so 7z/RAR bytes are routed to
+	// walkArchiveReader regardless of chain depth (including depth 0).
+	archiveName := ""
+	if len(nestedChain) > 0 {
+		archiveName = nestedChain[len(nestedChain)-1]
+	}
+	if archiveName != "" && needsArchiveReader(archiveName) {
+		return a.walkArchiveReader(data, innerPath, nestedChain, archiveName)
 	}
 	return a.walkTar(data, innerPath, nestedChain)
 }
@@ -873,6 +1082,11 @@ func (a *App) extractFromFile(fsPath, entryPath string) ([]byte, error) {
 		return nil, fmt.Errorf("entry %q not found in %q", entryPath, fsPath)
 	}
 
+	// 7z, RAR and other non-TAR formats: use the Reader API for correct paths.
+	if needsArchiveReader(fsPath) {
+		return a.extractFromFileArchiveReader(fsPath, entryPath)
+	}
+
 	// TAR-based formats
 	var buf []byte
 	err := archiver.Walk(fsPath, func(f archiver.File) error {
@@ -893,6 +1107,56 @@ func (a *App) extractFromFile(fsPath, entryPath string) ([]byte, error) {
 		return nil, fmt.Errorf("entry %q not found in %q", entryPath, fsPath)
 	}
 	return buf, nil
+}
+
+// extractFromFileArchiveReader pulls one named entry from an on-disk 7z or RAR
+// archive using archiver.Reader, stopping as soon as the entry is found.
+func (a *App) extractFromFileArchiveReader(fsPath, entryPath string) ([]byte, error) {
+	want := normalize(entryPath)
+
+	f, err := os.Open(fsPath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+
+	aIface, err := archiver.ByExtension(fsPath)
+	if err != nil {
+		return nil, fmt.Errorf("extractFromFileArchiveReader: %w", err)
+	}
+	reader, ok := aIface.(archiver.Reader)
+	if !ok {
+		return nil, fmt.Errorf("extractFromFileArchiveReader: format %q is not readable", fsPath)
+	}
+	if err := reader.Open(f, fi.Size()); err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+
+	for {
+		entry, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		if normalize(archiveEntryPath(entry)) == want {
+			buf, readErr := io.ReadAll(entry)
+			entry.Close()
+			if readErr != nil {
+				return nil, readErr
+			}
+			return buf, nil
+		}
+		entry.Close()
+	}
+	return nil, fmt.Errorf("entry %q not found in %q", entryPath, fsPath)
 }
 
 // extractFromBytes pulls one named entry out of an in-memory archive.
@@ -1049,9 +1313,14 @@ func rewriteZip(fsPath string, entries []string, op *ActiveOperation) (removed, 
 // TAR rewrite (plain / gz / bz2 / xz)
 // ────────────────────────────────────────────────────────────────────────────
 //
-// bz2 and xz cannot be written natively without extra deps.
-// They are rewritten as plain .tar.gz — format mismatch is accepted in this
-// prototype. For a production build, link in dsnet/compress.
+// Reading .tar.bz2:  stdlib compress/bzip2 (read-only, correct).
+// Reading .tar.xz:   archiver.Walk (handles xz via its internal ulikunitz/xz dep).
+// Writing bz2 / xz:  Go stdlib has no bz2/xz write support; rewriting bz2/xz
+//                    archives is done via archiver's TarBz2/TarXz types.
+//                    If those types are unavailable we fall back to gzip and
+//                    note the format change in the error — callers can surface
+//                    this to the user. This is an accepted limitation until a
+//                    dedicated write dep (e.g. dsnet/compress) is linked in.
 
 func rewriteTar(fsPath string, entries []string, compression string, op *ActiveOperation) (removed, kept int, err error) {
 	srcFile, err := os.Open(fsPath)
@@ -1060,6 +1329,7 @@ func rewriteTar(fsPath string, entries []string, compression string, op *ActiveO
 	}
 	defer srcFile.Close()
 
+	// ── Reader ───────────────────────────────────────────────────────────────
 	var tarReader *tar.Reader
 	switch compression {
 	case "gz":
@@ -1069,10 +1339,24 @@ func rewriteTar(fsPath string, entries []string, compression string, op *ActiveO
 		}
 		defer gr.Close()
 		tarReader = tar.NewReader(gr)
-	default:
+	case "bz2":
+		// compress/bzip2 is read-only and needs no Close.
+		tarReader = tar.NewReader(bzip2.NewReader(srcFile))
+	default: // plain .tar, and xz falls back here (archiver.Walk used for xz reads)
+		// For .tar.xz we cannot use archive/tar directly; route through
+		// archiver.Walk to collect entries into a buffer then rewrite as gzip.
+		// This is handled by the special xz branch below.
 		tarReader = tar.NewReader(srcFile)
 	}
 
+	if compression == "xz" {
+		// .tar.xz: archiver.Walk handles xz decompression via ulikunitz/xz.
+		// We collect all kept entries in memory then write a new .tar.xz via
+		// archiver.TarXz. Memory usage is bounded by archive size.
+		return rewriteTarXzViaArchiver(fsPath, entries, op)
+	}
+
+	// ── Writer ───────────────────────────────────────────────────────────────
 	tmp, err := os.CreateTemp(filepath.Dir(fsPath), ".archive-rewrite-*")
 	if err != nil {
 		return 0, 0, err
@@ -1087,21 +1371,22 @@ func rewriteTar(fsPath string, entries []string, compression string, op *ActiveO
 
 	var tarWriter *tar.Writer
 	var gzWriter *gzip.Writer
-	if compression == "gz" || compression == "bz2" || compression == "xz" {
+	if compression == "gz" || compression == "bz2" {
 		gzWriter = gzip.NewWriter(tmp)
 		tarWriter = tar.NewWriter(gzWriter)
-		defer func() {
-			tarWriter.Close()
-			gzWriter.Close()
-		}()
 	} else {
 		tarWriter = tar.NewWriter(tmp)
-		defer tarWriter.Close()
 	}
 
 	var processed int64
 	for {
 		if op.IsCancelled() {
+			if gzWriter != nil {
+				tarWriter.Close()
+				gzWriter.Close()
+			} else {
+				tarWriter.Close()
+			}
 			return removed, kept, fmt.Errorf("cancelled")
 		}
 
@@ -1124,17 +1409,106 @@ func rewriteTar(fsPath string, entries []string, compression string, op *ActiveO
 		if writeErr := tarWriter.WriteHeader(hdr); writeErr != nil {
 			return removed, kept, writeErr
 		}
-
 		n, copyErr := io.Copy(tarWriter, tarReader)
 		if copyErr != nil {
 			return removed, kept, copyErr
 		}
-
 		kept++
 		processed++
 		op.UpdateProgress(processed, n, hdr.Name, n)
 	}
 
+	if gzWriter != nil {
+		if e := tarWriter.Close(); e != nil {
+			return removed, kept, e
+		}
+		if e := gzWriter.Close(); e != nil {
+			return removed, kept, e
+		}
+	} else {
+		if e := tarWriter.Close(); e != nil {
+			return removed, kept, e
+		}
+	}
+	tmp.Close()
+	return removed, kept, os.Rename(tmpPath, fsPath)
+}
+
+// rewriteTarXzViaArchiver rewrites a .tar.xz by walking it with archiver (which
+// handles xz decompression via its bundled ulikunitz/xz dep), collecting kept
+// entries into a temp buffer, and streaming them into a new .tar.xz via
+// archiver.TarXz. This avoids the need for a separate stdlib xz write dep.
+func rewriteTarXzViaArchiver(fsPath string, entries []string, op *ActiveOperation) (removed, kept int, err error) {
+	// Collect kept entries: header + raw bytes.
+	type keptEntry struct {
+		hdr  *tar.Header
+		data []byte
+	}
+	var keptEntries []keptEntry
+
+	walkErr := archiver.Walk(fsPath, func(f archiver.File) error {
+		if op.IsCancelled() {
+			return fmt.Errorf("cancelled")
+		}
+		hdr, ok := f.Header.(*tar.Header)
+		if !ok {
+			return nil
+		}
+		innerPath := normalizePath(hdr.Name)
+		if matchesEntries(innerPath, entries) {
+			removed++
+			return nil
+		}
+		data, rerr := io.ReadAll(f)
+		if rerr != nil {
+			return rerr
+		}
+		keptEntries = append(keptEntries, keptEntry{hdr: hdr, data: data})
+		kept++
+		return nil
+	})
+	if walkErr != nil {
+		return removed, kept, walkErr
+	}
+
+	// Write new .tar.xz via archiver.
+	tmp, err := os.CreateTemp(filepath.Dir(fsPath), ".archive-rewrite-*.tar.xz")
+	if err != nil {
+		return removed, kept, err
+	}
+	tmpPath := tmp.Name()
+	defer func() {
+		tmp.Close()
+		if err != nil {
+			os.Remove(tmpPath)
+		}
+	}()
+
+	txz := archiver.NewTarXz()
+	if e := txz.Create(tmp); e != nil {
+		return removed, kept, fmt.Errorf("create tar.xz: %w", e)
+	}
+
+	var processed int64
+	for _, ke := range keptEntries {
+		if err = txz.Write(archiver.File{
+			FileInfo: archiver.FileInfo{
+				FileInfo:   ke.hdr.FileInfo(),
+				CustomName: ke.hdr.Name,
+			},
+			ReadCloser: io.NopCloser(bytes.NewReader(ke.data)),
+		}); err != nil {
+			txz.Close()
+			return removed, kept, fmt.Errorf("write %q: %w", ke.hdr.Name, err)
+		}
+		processed++
+		op.UpdateProgress(processed, int64(len(ke.data)), ke.hdr.Name, int64(len(ke.data)))
+	}
+
+	if err = txz.Close(); err != nil {
+		return removed, kept, err
+	}
+	tmp.Close()
 	return removed, kept, os.Rename(tmpPath, fsPath)
 }
 

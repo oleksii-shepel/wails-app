@@ -1312,6 +1312,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     try {
       const parentFrame = await this.archiveService.navigateUp(currentFrame);
       if (parentFrame !== null) {
+        // Still inside the archive — navigate to parent directory within it.
         this.archiveStack = [...this.archiveStack.slice(0, -1), parentFrame];
         this.renderArchiveFrame(parentFrame);
         return;
@@ -1319,12 +1320,17 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
 
       const poppedStack = this.archiveStack.slice(0, -1);
       if (poppedStack.length === 0) {
-        const exitPath = this.fsParentDir || this.currentPath;  // capture before clear
-        this.clearArchiveState();                                 // now zero both fields
-        await this.loadDirectory(exitPath);
+        // Exiting to the real filesystem.
+        // Capture both paths before clearArchiveState() zeroes them.
+        const exitPath    = this.fsParentDir || this.currentPath;
+        const archivePath = this.archiveStack[0]?.fsPath ?? '';
+        this.clearArchiveState();
+        // Pass the archive file's path as focusPath so it is selected after load.
+        await this.loadDirectory(exitPath, { focusPath: archivePath });
         return;
       }
-      
+
+      // Exiting a nested archive — pop back to the parent archive frame.
       this.archiveStack = poppedStack;
       this.renderArchiveFrame(poppedStack[poppedStack.length - 1]);
     } catch (err: any) {

@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 
 	vfslib "wails-app/vfs"
@@ -70,7 +72,7 @@ func (a *App) VFSOpenArchive(path string, nested []string) (ArchiveListing, erro
 
 	files := make([]FileInfo, 0, len(entries))
 	for _, e := range entries {
-		files = append(files, convertVFSInfo(e))
+		files = append(files, convertVFSInfoWithChain(e, nested))
 	}
 
 	return ArchiveListing{
@@ -94,26 +96,11 @@ func (a *App) VFSUnmount(mountPoint string) error {
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
-// mountArchive opens the archive at osPath (resolving nested if non-empty),
-// mounts it in the unified VFS, and returns the virtual mount point path.
+// mountArchive resolves the full nested chain and mounts the innermost archive.
 func (a *App) mountArchive(ctx context.Context, osPath string, nested []string) (string, error) {
-	// The innermost name in the chain determines the handler.
-	handlerPath := osPath
-	if len(nested) > 0 {
-		handlerPath = nested[len(nested)-1]
-	}
-
-	handler, ok := archive.ForPath(handlerPath)
-	if !ok {
-		return "", fmt.Errorf("vfs: no archive handler for %q", handlerPath)
-	}
-
-	arch, err := handler.Open(ctx, osPath, archive.OpenOptions{
-		ReadOnly:    true,
-		NestedChain: nested,
-	})
+	arch, err := resolveChain(ctx, osPath, nested, "")
 	if err != nil {
-		return "", fmt.Errorf("vfs: open archive %q: %w", osPath, err)
+		return "", fmt.Errorf("vfs: open archive %q (chain %v): %w", osPath, nested, err)
 	}
 
 	mountPoint := archiveMountPoint(osPath, nested)
@@ -124,6 +111,125 @@ func (a *App) mountArchive(ctx context.Context, osPath string, nested []string) 
 	}
 
 	return mountPoint, nil
+}
+
+// resolveChain opens a (possibly cross-format) nested archive chain and returns
+// the innermost archive ready to browse.
+//
+// It works by peeling one level at a time, using the correct handler for each
+// level's format.  No handler ever has to understand another format.
+//
+// Example — outer.zip contains subdir/inner.tar.gz which contains deep.rar:
+//
+//	osPath = "/data/outer.zip"
+//	chain  = ["subdir/inner.tar.gz", "deep.rar"]
+//
+//	Step 1: open outer.zip with the zip handler (disk open)
+//	Step 2: extract bytes of "subdir/inner.tar.gz" from the zip archive
+//	Step 3: open those bytes as tar with the tar handler (openFromMemory)
+//	Step 4: extract bytes of "deep.rar" from the tar archive
+//	Step 5: open those bytes as rar with the rar handler (openFromMemory) → returned
+func resolveChain(ctx context.Context, osPath string, chain []string, password string) (archive.Archive, error) {
+	// ── Level 0: open top-level archive from disk ────────────────────────────
+	h0, ok := archive.ForPath(osPath)
+	if !ok {
+		return nil, fmt.Errorf("no archive handler for %q", osPath)
+	}
+
+	if len(chain) == 0 {
+		// No nesting — plain disk open.
+		return h0.Open(ctx, osPath, archive.OpenOptions{ReadOnly: true, Password: password})
+	}
+
+	outer, err := h0.Open(ctx, osPath, archive.OpenOptions{ReadOnly: true, Password: password})
+	if err != nil {
+		return nil, fmt.Errorf("open %q: %w", osPath, err)
+	}
+
+	// Extract the first nested archive's bytes from the outermost archive.
+	data, err := readEntryBytes(ctx, outer, chain[0])
+	outer.Close()
+	if err != nil {
+		return nil, fmt.Errorf("extract %q from %q: %w", chain[0], osPath, err)
+	}
+
+	// ── Levels 1..n: peel in memory ──────────────────────────────────────────
+	for i := 1; i < len(chain); i++ {
+		// chain[i-1] is the name (and thus format) of the archive we hold as bytes.
+		mid, err := openFromMemory(ctx, chain[i-1], data, password)
+		if err != nil {
+			return nil, fmt.Errorf("open level %d %q from bytes: %w", i, chain[i-1], err)
+		}
+		next, err := readEntryBytes(ctx, mid, chain[i])
+		mid.Close()
+		if err != nil {
+			return nil, fmt.Errorf("extract %q from level %d (%q): %w", chain[i], i, chain[i-1], err)
+		}
+		data = next
+	}
+
+	// Open the innermost archive from the final extracted bytes.
+	return openFromMemory(ctx, chain[len(chain)-1], data, password)
+}
+
+// openFromMemory opens an archive whose bytes are already in memory.
+// name is used only to select the correct handler by extension.
+//
+// Writes to a temp file so every handler can use its normal disk-open path.
+// The temp file is deleted automatically when the returned archive is closed.
+// This only happens for nested archives (rare), so the temp-file round-trip
+// is acceptable.
+func openFromMemory(ctx context.Context, name string, data []byte, password string) (archive.Archive, error) {
+	h, ok := archive.ForPath(name)
+	if !ok {
+		return nil, fmt.Errorf("no archive handler for %q", name)
+	}
+
+	// Write to a temp file so the handler can use its normal disk-open path.
+	// This is O(size-of-entry) disk I/O and is only needed for nested archives,
+	// which are rare.  The temp file is deleted when the returned archive closes.
+	f, err := os.CreateTemp("", "vfs-nested-*"+filepath.Ext(name))
+	if err != nil {
+		return nil, fmt.Errorf("temp file for %q: %w", name, err)
+	}
+	tmpPath := f.Name()
+
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		os.Remove(tmpPath)
+		return nil, fmt.Errorf("write temp %q: %w", name, err)
+	}
+	f.Close()
+
+	arch, err := h.Open(ctx, tmpPath, archive.OpenOptions{ReadOnly: true, Password: password})
+	if err != nil {
+		os.Remove(tmpPath)
+		return nil, fmt.Errorf("open %q from temp: %w", name, err)
+	}
+	return &tempArchive{Archive: arch, tmp: tmpPath}, nil
+}
+
+// readEntryBytes reads all bytes for a named entry from an open archive.
+// entryPath may contain directory components ("subdir/inner.tar.gz").
+func readEntryBytes(ctx context.Context, arch archive.Archive, entryPath string) ([]byte, error) {
+	f, err := arch.Open(ctx, normalize(entryPath))
+	if err != nil {
+		return nil, fmt.Errorf("open entry %q: %w", entryPath, err)
+	}
+	defer f.Close()
+	return io.ReadAll(f)
+}
+
+// tempArchive wraps an Archive and deletes the backing temp file on Close.
+type tempArchive struct {
+	archive.Archive
+	tmp string
+}
+
+func (t *tempArchive) Close() error {
+	err := t.Archive.Close()
+	os.Remove(t.tmp)
+	return err
 }
 
 // archiveMountPoint builds the deterministic VFS path for an archive mount.
@@ -139,12 +245,15 @@ func archiveMountPoint(osPath string, nested []string) string {
 }
 
 // convertVFSInfo maps a vfs.FileInfo to the app's wire FileInfo type.
+// Use convertVFSInfoWithChain when listing inside an archive so that nested
+// archive entries carry the correct parentChain for the frontend to open them.
 func convertVFSInfo(e vfslib.FileInfo) FileInfo {
 	return convertVFSInfoWithChain(e, nil)
 }
 
 // convertVFSInfoWithChain maps a vfs.FileInfo to the app's wire FileInfo type,
-// building the nestedChain for archive entries so the frontend can open them.
+// building the NestedChain for archive entries by appending the entry's own
+// path to parentChain so the frontend can open them via VFSOpenArchive.
 func convertVFSInfoWithChain(e vfslib.FileInfo, parentChain []string) FileInfo {
 	ft := FileTypeFile
 	switch {
@@ -156,8 +265,6 @@ func convertVFSInfoWithChain(e vfslib.FileInfo, parentChain []string) FileInfo {
 		ft = FileTypeSymlink
 	}
 
-	// Build the chain the frontend passes when opening a nested archive:
-	// parent's chain + this entry's path within the archive.
 	var nestedChain []string
 	if ft == FileTypeArchive {
 		nestedChain = append(append([]string{}, parentChain...), e.Path())
@@ -168,7 +275,7 @@ func convertVFSInfoWithChain(e vfslib.FileInfo, parentChain []string) FileInfo {
 		Path:        e.Path(),
 		Type:        ft,
 		Size:        e.Size(),
-		Modified:    e.ModTime().UnixMilli(), // unified with vfsEntryToFileInfo
+		Modified:    e.ModTime().UnixMilli(),
 		IsHidden:    e.IsHidden(),
 		IsSymlink:   e.IsSymlink(),
 		IsNested:    ft == FileTypeArchive,

@@ -144,6 +144,14 @@ export function StartListDirStream(arg1:string,arg2:string,arg3:boolean):Promise
 
 export function StopElevatedSession():Promise<void>;
 
+export function VFSListDir(arg1:string):Promise<main.DirectoryListing>;
+
+export function VFSMountArchive(arg1:string):Promise<string>;
+
+export function VFSOpenArchive(arg1:string,arg2:Array<string>):Promise<main.ArchiveListing>;
+
+export function VFSUnmount(arg1:string):Promise<void>;
+
 export function WriteFile(arg1:string,arg2:string,arg3:string):Promise<main.OperationResult>;
 
 export function WriteFileContent(arg1:string,arg2:string,arg3:string):Promise<main.OperationResult>;

@@ -286,6 +286,22 @@ export function StopElevatedSession() {
   return window['go']['main']['App']['StopElevatedSession']();
 }
 
+export function VFSListDir(arg1) {
+  return window['go']['main']['App']['VFSListDir'](arg1);
+}
+
+export function VFSMountArchive(arg1) {
+  return window['go']['main']['App']['VFSMountArchive'](arg1);
+}
+
+export function VFSOpenArchive(arg1, arg2) {
+  return window['go']['main']['App']['VFSOpenArchive'](arg1, arg2);
+}
+
+export function VFSUnmount(arg1) {
+  return window['go']['main']['App']['VFSUnmount'](arg1);
+}
+
 export function WriteFile(arg1, arg2, arg3) {
   return window['go']['main']['App']['WriteFile'](arg1, arg2, arg3);
 }

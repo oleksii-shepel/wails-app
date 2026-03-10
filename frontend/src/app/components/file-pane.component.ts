@@ -1,4 +1,4 @@
-// file-pane.component.ts
+﻿// file-pane.component.ts
 import { Component, Input, Output, EventEmitter, OnInit, OnChanges, OnDestroy, ViewChild, SimpleChanges } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { TabBarComponent, type TabDropEvent } from './tab-bar.component';
@@ -20,6 +20,8 @@ import { FileViewContainerComponent, ViewLayout } from './file-view-container.co
 import { ViewerArchiveContext } from './viewer-surface.component';
 import { DirSurfaceVm } from '../surfaces/dir/dir-surface.vm';
 import { DirSurfaceSession } from '../surfaces/dir/dir-surface-session';
+import { DirSurfaceRuntime } from '../surfaces/dir/dir-surface-runtime';
+import { FilePaneDirSurfaceRuntime } from '../surfaces/dir/file-pane-dir-surface-runtime';
 import { SurfaceContext } from '../surfaces/surface-context';
 import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
 import {
@@ -208,6 +210,14 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
 
   FileType = FileType;
 
+  // Minimal UI runtime adapter for dir sessions (tree vs list/grid/details).
+  private readonly dirRuntime: DirSurfaceRuntime = new FilePaneDirSurfaceRuntime(
+    () => this.currentView,
+    () => this.fileViewContainer,
+    () => this.filteredEntries,
+    PARENT_ENTRY_PATH,
+  );
+
   private get dir(): DirSurfaceSession {
     const id = this.activeDirTabId ?? this.currentTabId;
     let session = id ? this.dirSessions.get(id) : undefined;
@@ -369,9 +379,9 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     }
 
     if (changes['paneActive'] && this.paneActive && !changes['paneActive'].firstChange) {
-      // Pane just became active — ensure there is a visible cursor.
+      // Pane just became active вЂ” ensure there is a visible cursor.
       if (this.selectedFiles.size === 0 && !this.selectionCursorPath) {
-        const selectable = this.getSelectableEntries();
+        const selectable = this.dirRuntime.getSelectableEntries();
         if (selectable.length) {
           this.selectionCursorPath = selectable[0].path;
           this.selectionAnchorPath = selectable[0].path;
@@ -417,7 +427,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     this.lastSeenActiveTabPath = nextActivePath;
 
     if (!activeChanged) {
-      // Reorder/pin changes etc — just update the tab strip.
+      // Reorder/pin changes etc вЂ” just update the tab strip.
       this.tabs = this.workspaceService.getTabs(this.paneId);
       return;
     }
@@ -428,7 +438,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       return;
     }
 
-    // Active tab changed (including cross-pane drag) — load the new active path.
+    // Active tab changed (including cross-pane drag) вЂ” load the new active path.
     this.loadPaneState();
   }
 
@@ -496,7 +506,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     return this.entries.filter(e => e.path !== PARENT_ENTRY_PATH);
   }
 
-  // ── View System Methods ───────────────────────────────────────────────────
+  // в”Ђв”Ђ View System Methods в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
   private loadViewPreference(): void {
     const savedView = localStorage.getItem('fileManager_viewMode') as ViewLayout;
@@ -600,7 +610,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     });
   }
 
-  // ── Virtual ".." entry helpers ────────────────────────────────────────────
+  // в”Ђв”Ђ Virtual ".." entry helpers в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
   /** Returns true when the current path is a filesystem root (e.g. "/" or "C:/"). */
   private isAtFsRoot(path: string): boolean {
@@ -621,8 +631,8 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
 
   /**
    * Prepend the virtual ".." entry to a raw entry list when appropriate.
-   * – Always prepended inside archives (so the user can navigate out).
-   * – Prepended for normal directories unless we are at the filesystem root.
+   * вЂ“ Always prepended inside archives (so the user can navigate out).
+   * вЂ“ Prepended for normal directories unless we are at the filesystem root.
    */
   private withParentEntry(raw: FileInfo[], inArchive: boolean, fsPath: string): FileInfo[] {
     if (raw.some(e => e.path === PARENT_ENTRY_PATH)) {
@@ -668,7 +678,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     await this.loadDirectory(this.currentPath, { preserveUI: true });
   }
 
-  // ── Pane state ────────────────────────────────────────────────────────────
+  // в”Ђв”Ђ Pane state в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
   private async loadPaneState(): Promise<void> {
     if (!this.workspace) return;
@@ -683,7 +693,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       ? windowsRoot.replace(/\\/g, '/').replace(/^([A-Za-z]:).*$/, '$1/')
       : '/';
 
-    // No cached Windows path yet — ask the backend for the system drive.
+    // No cached Windows path yet вЂ” ask the backend for the system drive.
     // This ensures a fresh Windows install starts on C:/ (or the actual
     // system drive) instead of the Unix-style '/'.
     if (platformRoot === '/') {
@@ -693,7 +703,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
           const drive = (osInfo.systemDrive as string).replace(/\\/g, '/').toUpperCase();
           platformRoot = drive.endsWith('/') ? drive : drive + '/';
         }
-      } catch { /* ignore — stays '/' on non-Windows */ }
+      } catch { /* ignore вЂ” stays '/' on non-Windows */ }
     }
 
     const isWindows   = platformRoot !== '/';
@@ -772,7 +782,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     }
   }
 
-  // ── Tab management ────────────────────────────────────────────────────────
+  // в”Ђв”Ђ Tab management в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
   async onTabChange(tab: TabInfo): Promise<void> {
     const current = this.tabs.find(t => t.id === this.currentTabId);
@@ -841,7 +851,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     if (!path) return;
 
     const normalized = normalizePath(path);
-    const selectable = this.getSelectableEntries();
+    const selectable = this.dirRuntime.getSelectableEntries();
     const idx = selectable.findIndex(e => normalizePath(e.path) === normalized);
     if (idx < 0) return;
 
@@ -872,9 +882,9 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     this.error   = null;
     try {
       // parseArchivePath correctly splits into:
-      //   fsPath      – the on-disk archive file (e.g. "C:/foo/archive.zip")
-      //   nestedChain – nested archive segments inside (e.g. ["folder/inner.zip"])
-      //   innerPath   – regular subdirectory to navigate into (e.g. "subdir")
+      //   fsPath      вЂ“ the on-disk archive file (e.g. "C:/foo/archive.zip")
+      //   nestedChain вЂ“ nested archive segments inside (e.g. ["folder/inner.zip"])
+      //   innerPath   вЂ“ regular subdirectory to navigate into (e.g. "subdir")
       const { fsPath, nestedChain, innerPath } = parseArchivePath(path);
 
       // 1. Open root archive
@@ -938,7 +948,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     await this.onTabChange(newTab);
   }
 
-  // ── Address bar / path ────────────────────────────────────────────────────
+  // в”Ђв”Ђ Address bar / path в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
   onPathChange(path: string): void {
     if (path && path !== this.currentPath) {
@@ -1098,10 +1108,10 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     return this.currentPath;
   }
 
-  // ── Archive segment click ────────────────────────────────────────────────
+  // в”Ђв”Ђ Archive segment click в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
   async onArchiveSegmentClick(virtualPath: string): Promise<void> {
-    // Not currently in an archive — open it fresh (e.g. typed in address bar, or pin click)
+    // Not currently in an archive вЂ” open it fresh (e.g. typed in address bar, or pin click)
     if (!this.isInArchive()) {
       this.currentPath = virtualPath;
       this.clearArchiveState();
@@ -1155,7 +1165,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     }
   }
 
-  // ── Navigation ────────────────────────────────────────────────────────────
+  // в”Ђв”Ђ Navigation в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
   onNavigate(entry: FileInfo): void {
     if (entry.path === PARENT_ENTRY_PATH) { this.onNavigateUp(); return; }
@@ -1204,7 +1214,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       this.resolveAndOpen(entry.path);
       return;
     }
-    // Regular file — open with default OS application
+    // Regular file вЂ” open with default OS application
     this.apiService.openFile(entry.path).catch(err =>
       console.error('Failed to open file:', err)
     );
@@ -1229,7 +1239,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     const path = selected[0];
     try {
       if (this.isInArchive()) {
-        // Build archive context — viewer extracts entry bytes into memory via ArchiveReadFile.
+        // Build archive context вЂ” viewer extracts entry bytes into memory via ArchiveReadFile.
         const frame = this.archiveStack[this.archiveStack.length - 1];
         const entry = this.entries.find(e => e.path === path);
         if (!entry || entry.type === FileType.DIRECTORY) return;
@@ -1274,7 +1284,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
 
     try {
       if (this.isInArchive()) {
-        // Same as openQuickView — extract via ArchiveReadFile, no disk writes.
+        // Same as openQuickView вЂ” extract via ArchiveReadFile, no disk writes.
         const frame = this.archiveStack[this.archiveStack.length - 1];
         const entry = this.entries.find(e => e.path === path);
         if (!entry || entry.type === FileType.DIRECTORY) return;
@@ -1410,18 +1420,18 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     }
   }
 
-  // ── Archive navigation ────────────────────────────────────────────────────
+  // в”Ђв”Ђ Archive navigation в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
   isInArchive(): boolean { return this.archiveStack?.length > 0; }
 
   async openRootArchive(fsPath: string): Promise<void> {
     this.loading = true;
     this.error   = null;
-    const exitPath = this.currentPath;  // ← capture parent dir before entering archive
+    const exitPath = this.currentPath;  // в†ђ capture parent dir before entering archive
     try {
       const frame       = await this.archiveService.openRootArchive(fsPath);
       this.archiveStack = [frame];
-      this.fsParentDir  = exitPath;     // ← use captured value
+      this.fsParentDir  = exitPath;     // в†ђ use captured value
       this.renderArchiveFrame(frame);
     } catch (err: any) {
       this.error = err.message || 'Failed to open archive';
@@ -1467,7 +1477,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     try {
       const parentFrame = await this.archiveService.navigateUp(currentFrame);
       if (parentFrame !== null) {
-        // Still inside the archive — navigate to parent directory within it.
+        // Still inside the archive вЂ” navigate to parent directory within it.
         this.archiveStack = [...this.archiveStack.slice(0, -1), parentFrame];
         this.renderArchiveFrame(parentFrame);
         return;
@@ -1485,7 +1495,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
         return;
       }
 
-      // Exiting a nested archive — pop back to the parent archive frame.
+      // Exiting a nested archive вЂ” pop back to the parent archive frame.
       this.archiveStack = poppedStack;
       this.renderArchiveFrame(poppedStack[poppedStack.length - 1]);
     } catch (err: any) {
@@ -1535,7 +1545,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     this.tabs = this.workspaceService.getTabs(this.paneId);
   }
 
-  // ── Find widget ───────────────────────────────────────────────────────────
+  // в”Ђв”Ђ Find widget в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
   onFindStateChange(state: FindWidgetState | null): void {
     if (!state) {
@@ -1562,7 +1572,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   onFindNext(): void { /* file-list scroll-to-next can be wired here */ }
   onFindPrev(): void { /* file-list scroll-to-prev can be wired here */ }
 
-  // ── Filtering ─────────────────────────────────────────────────────────────
+  // в”Ђв”Ђ Filtering в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
   applyFilter(): void {
     // Prune any optimistic hides that are no longer present in the current listing.
@@ -1595,7 +1605,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     // DirSurfaceSession is the source of truth now; kept for compatibility with existing call sites.
   }
 
-  // ── Selection ─────────────────────────────────────────────────────────────
+  // в”Ђв”Ђ Selection в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
   onSelectionChange(entries: FileInfo[]): void {
     const paths = entries.map(e => e.path).filter(p => p !== PARENT_ENTRY_PATH);
@@ -1640,7 +1650,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   getSelectableEntriesPaths(): string[] {
-    return this.getSelectableEntries().map(e => e.path);
+    return this.dirRuntime.getSelectableEntries().map(e => e.path);
   }
 
   scrollToCursorPath(path: string): void {
@@ -1649,7 +1659,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   onSelectAll(): void {
-    const selectable = this.getSelectableEntries();
+    const selectable = this.dirRuntime.getSelectableEntries();
     this.selectedFiles = new Set(selectable.map(e => e.path));
     this.selectionCursorPath = selectable.length ? selectable[selectable.length - 1].path : null;
     this.selectionAnchorPath = this.selectionCursorPath;
@@ -1671,7 +1681,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   onToggleCurrentAndMoveDown(): void {
-    const selectable = this.getSelectableEntries();
+    const selectable = this.dirRuntime.getSelectableEntries();
     const index = this.getCursorIndex(selectable);
     if (index < 0) return;
 
@@ -1688,7 +1698,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   onSelectCurrentAndMoveDown(): void {
-    const selectable = this.getSelectableEntries();
+    const selectable = this.dirRuntime.getSelectableEntries();
     const index = this.getCursorIndex(selectable);
     if (index < 0) return;
 
@@ -1713,7 +1723,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     this.selectedFiles = next;
 
     // Advance cursor down (TC Space key advances after marking)
-    const selectable = this.getSelectableEntries();
+    const selectable = this.dirRuntime.getSelectableEntries();
     const idx = this.getCursorIndex(selectable);
     if (idx >= 0 && idx < selectable.length - 1) {
       this.selectionCursorPath = selectable[idx + 1].path;
@@ -1724,7 +1734,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   onExtendSelection(delta: -1 | 1): void {
-    const selectable = this.getSelectableEntries();
+    const selectable = this.dirRuntime.getSelectableEntries();
     const index = this.getCursorIndex(selectable);
     if (index < 0) return;
 
@@ -1740,15 +1750,15 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     this.emitPreviewTargetFromState();
   }
 
-  // ── Cursor movement ───────────────────────────────────────────────────────
+  // в”Ђв”Ђ Cursor movement в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
   private moveCursorTo(idx: number): void {
-    const selectable = this.getSelectableEntries();
+    const selectable = this.dirRuntime.getSelectableEntries();
     if (!selectable.length) return;
     const clamped = Math.max(0, Math.min(selectable.length - 1, idx));
     this.selectionCursorPath = selectable[clamped].path;
     this.selectionAnchorPath = this.selectionCursorPath;
-    // TC: cursor moves independently of marks — do NOT touch selectedFiles
+    // TC: cursor moves independently of marks вЂ” do NOT touch selectedFiles
     this.fileViewContainer?.scrollToCursorPath(this.selectionCursorPath);
     this.emitPreviewTargetFromState();
     this.persistDirTabState();
@@ -1756,25 +1766,25 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
 
   onMoveCursorUp(): void {
     const cols = this.fileViewContainer?.getGridColumns() ?? 1;
-    const selectable = this.getSelectableEntries();
+    const selectable = this.dirRuntime.getSelectableEntries();
     this.moveCursorTo(this.getCursorIndex(selectable) - cols);
   }
 
   onMoveCursorDown(): void {
     const cols = this.fileViewContainer?.getGridColumns() ?? 1;
-    const selectable = this.getSelectableEntries();
+    const selectable = this.dirRuntime.getSelectableEntries();
     this.moveCursorTo(this.getCursorIndex(selectable) + cols);
   }
 
   onMoveCursorLeft(): void {
     if (this.currentView !== 'grid') return;
-    const selectable = this.getSelectableEntries();
+    const selectable = this.dirRuntime.getSelectableEntries();
     this.moveCursorTo(this.getCursorIndex(selectable) - 1);
   }
 
   onMoveCursorRight(): void {
     if (this.currentView !== 'grid') return;
-    const selectable = this.getSelectableEntries();
+    const selectable = this.dirRuntime.getSelectableEntries();
     this.moveCursorTo(this.getCursorIndex(selectable) + 1);
   }
 
@@ -1783,19 +1793,19 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   onMoveCursorEnd(): void {
-    const selectable = this.getSelectableEntries();
+    const selectable = this.dirRuntime.getSelectableEntries();
     this.moveCursorTo(selectable.length - 1);
   }
 
   onMoveCursorPageUp(): void {
     const pageSize = this.fileViewContainer?.getApproxPageSize() ?? 10;
-    const selectable = this.getSelectableEntries();
+    const selectable = this.dirRuntime.getSelectableEntries();
     this.moveCursorTo(this.getCursorIndex(selectable) - pageSize);
   }
 
   onMoveCursorPageDown(): void {
     const pageSize = this.fileViewContainer?.getApproxPageSize() ?? 10;
-    const selectable = this.getSelectableEntries();
+    const selectable = this.dirRuntime.getSelectableEntries();
     this.moveCursorTo(this.getCursorIndex(selectable) + pageSize);
   }
 
@@ -1805,7 +1815,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
 
     const matcher = this.createMaskMatcher(mask);
     const next = new Set(this.selectedFiles);
-    for (const entry of this.getSelectableEntries()) {
+    for (const entry of this.dirRuntime.getSelectableEntries()) {
       if (matcher(entry.name)) next.add(entry.path);
     }
     this.selectedFiles = next;
@@ -1818,7 +1828,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
 
     const matcher = this.createMaskMatcher(mask);
     const next = new Set(this.selectedFiles);
-    for (const entry of this.getSelectableEntries()) {
+    for (const entry of this.dirRuntime.getSelectableEntries()) {
       if (matcher(entry.name)) next.delete(entry.path);
     }
     this.selectedFiles = next;
@@ -1826,7 +1836,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   onInvertSelection(): void {
-    const selectable = this.getSelectableEntries();
+    const selectable = this.dirRuntime.getSelectableEntries();
     const next = new Set<string>();
     for (const entry of selectable) {
       if (!this.selectedFiles.has(entry.path)) {
@@ -1845,7 +1855,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     if (!extension) return;
 
     const next = new Set(this.selectedFiles);
-    for (const entry of this.getSelectableEntries()) {
+    for (const entry of this.dirRuntime.getSelectableEntries()) {
       if (this.getExtension(entry.name) === extension) {
         next.add(entry.path);
       }
@@ -1855,7 +1865,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   private syncCursorFromSelection(): void {
-    const selectable = this.getSelectableEntries();
+    const selectable = this.dirRuntime.getSelectableEntries();
     if (!selectable.length || this.selectedFiles.size === 0) {
       this.selectionCursorPath = selectable.length ? selectable[0].path : null;
       this.selectionAnchorPath = this.selectionCursorPath;
@@ -1869,30 +1879,6 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       this.selectionAnchorPath = this.selectionAnchorPath ?? firstSelected.path;
     }
     this.emitPreviewTargetFromState();
-  }
-
-  private getSelectableEntries(): FileInfo[] {
-    if (this.currentView === 'tree') {
-      const tree = this.fileViewContainer?.treeComponent;
-      if (tree) {
-        return tree
-          .getVisibleNodes()
-          .filter((node: any) => node.path !== PARENT_ENTRY_PATH && (node.level ?? 0) >= 0)
-          .map((node: any) => ({
-            name: node.name,
-            path: node.path,
-            type: node.type,
-            size: node.size,
-            modified: node.modified,
-            created: node.created,
-          } as FileInfo));
-      }
-    }
-
-    // Use sortedEntries from the view container so index matches visual order.
-    const container = this.fileViewContainer;
-    const source = container?.sortedEntries?.length ? container.sortedEntries : this.filteredEntries;
-    return source.filter((e: FileInfo) => e.path !== PARENT_ENTRY_PATH);
   }
 
   private getCursorIndex(entries: FileInfo[]): number {
@@ -1914,7 +1900,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   private getCurrentCursorEntry(): FileInfo | null {
-    const entries = this.getSelectableEntries();
+    const entries = this.dirRuntime.getSelectableEntries();
     const idx = this.getCursorIndex(entries);
     return idx >= 0 ? entries[idx] : null;
   }
@@ -1934,7 +1920,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     return name.slice(idx + 1).toLowerCase();
   }
 
-  // ── File operations ───────────────────────────────────────────────────────
+  // в”Ђв”Ђ File operations в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
   async onCreateFolder(): Promise<void> {
     if (this.isInArchive()) { this.confirmDialog.alert('Archive Limitation\nCannot create folders inside an archive.'); return; }
@@ -1987,7 +1973,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       return;
     }
 
-    // ── Filesystem delete ─────────────────────────────────────────────────────
+    // в”Ђв”Ђ Filesystem delete в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
     const deleteConfirmed = await this.confirmDialog.confirm({
       title: 'Delete Items',
       message: `Delete ${effective.size} item(s)?`,
@@ -2084,7 +2070,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     }
   }
 
-  // ── Archive move operations ───────────────────────────────────────────────
+  // в”Ђв”Ђ Archive move operations в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
   /**
    * Called by FileBrowserComponent after it has resolved destDir.
@@ -2127,14 +2113,14 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
         this.confirmDialog.alert('Move Errors\n' + (result.errors ?? []).map((e: any) => e.error).join('\n'));
       }
 
-      // Refresh archive listing — moved entries have been deleted from it
+      // Refresh archive listing вЂ” moved entries have been deleted from it
       await this.refreshArchive();
     } catch (err: any) {
       this.confirmDialog.alert(`Move Failed\n${err.message}`);
     }
   }
 
-  // ── Tab shortcuts ─────────────────────────────────────────────────────────
+  // в”Ђв”Ђ Tab shortcuts в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
   onCloseCurrentTab():   void { 
     const t = this.tabs.find(t => t.isActive); 

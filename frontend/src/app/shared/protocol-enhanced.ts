@@ -41,6 +41,23 @@ export interface TabInfo {
   id: string;
   title: string;
   path: string;
+  /** "dir" (default) or "viewer". Old persisted workspaces omit this field. */
+  kind?: 'dir' | 'viewer';
+  /** Viewer tab payload; only meaningful when kind === 'viewer'. */
+  viewer?: {
+    /** Absolute filesystem path to the viewed file (initially FS-only). */
+    targetPath: string;
+    /** Optional explicit viewer selection override. */
+    viewerId?: string;
+    /** When true, this tab's target auto-follows selection in dir tabs. */
+    autoFollow?: boolean;
+    /** Origin of this preview (used to restore cursor when switching previews). */
+    sourcePane?: 'left' | 'right';
+    sourceTabId?: string;
+    sourceDir?: string;
+  };
+  /** If false, the UI hides the close button. Defaults to true when omitted. */
+  isClosable?: boolean;
   isActive: boolean;
   isPinned: boolean;
   createdAt: number;

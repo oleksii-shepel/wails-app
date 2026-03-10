@@ -20,6 +20,7 @@ import { parentPath, normalizePath } from './address-bar.utils';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
 import { FileViewContainerComponent, ViewLayout } from './file-view-container.component';
 import { ArchiveMoveWarningComponent } from "./archive-move-warning.component";
+import { ViewerSurfaceComponent } from './viewer-surface.component';
 import { EventsOn, EventsOff } from 'wailsjs/runtime';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 
@@ -65,7 +66,8 @@ interface DirStreamErrorEvent {
     FindWidgetComponent,
     ActionBarComponent,
     FileViewContainerComponent,
-    ArchiveMoveWarningComponent
+    ArchiveMoveWarningComponent,
+    ViewerSurfaceComponent
 ],
   template: `
     <div class="file-pane" [class.file-pane--archive]="isInArchive()">
@@ -82,72 +84,78 @@ interface DirStreamErrorEvent {
         (newTab)="onNewTab()">
       </app-tab-bar>
 
-      <app-address-bar
-        *ngIf="pathReady"
-        [initialPath]="currentPath"
-        [paneId]="paneId"
-        (pathChange)="onPathChange($event)"
-        (navigateUpClicked)="onNavigateUp()"
-        (refreshClicked)="onRefresh()">
-      </app-address-bar>
-
-      <app-action-bar
-        [selectedCount]="selectedFiles.size"
-        [panePosition]="paneId"
-        [currentView]="currentView"
-        [currentSort]="sortField"
-        [sortDirection]="sortDirection"
-        (viewChange)="onViewChange($event)"
-        (sortChange)="onSortChange($event)"
-        [directoriesFirst]="directoriesFirst"
-        (directoriesFirstChange)="onDirectoriesFirstChange($event)"
-        (createFolder)="onCreateFolder()"
-        (deleteSelected)="onDeleteSelected()"
-        (copyToOther)="onCopyToOther()"
-        (moveToOther)="onMoveToOther()">
-      </app-action-bar>
-
-      <!-- File list + find widget overlay share the same relative container -->
-      <div class="file-pane__list-host">
-        <app-find-widget
-          #findWidget
-          (stateChange)="onFindStateChange($event)"
-          (nextMatch)="onFindNext()"
-          (prevMatch)="onFindPrev()">
-        </app-find-widget>
-
-        <app-file-view-container
+      <ng-container *ngIf="activeTabKind === 'dir'; else viewerTab">
+        <app-address-bar
+          *ngIf="pathReady"
+          [initialPath]="currentPath"
           [paneId]="paneId"
-          [entries]="filteredEntries"
-          [currentPath]="currentPath"
-          [showHidden]="showHidden"
-          [selectedFiles]="selectedFiles"
-          [cursorPath]="selectionCursorPath"
-          [error]="error"
-          [currentView]="currentView"
-          [sortField]="sortField"
-          [sortDirection]="sortDirection"
-          [directoriesFirst]="directoriesFirst"
-          [paneActive]="paneActive"
-          (viewChange)="onViewChange($event)"
-          (selectionChange)="onSelectionChange($event)"
-          (navigate)="onNavigate($event)"
-          (openInNewTab)="onOpenInNewTab($event)"
-          (sortChange)="onSortChange($event)"
-          (contextMenu)="onContextMenu($event)"
-          (nodeDoubleClick)="onNodeDoubleClick($event)"
-          (dragDrop)="onDragDrop($event)"
-          (rename)="onRename($event)">
-        </app-file-view-container>
-      </div>
+          (pathChange)="onPathChange($event)"
+          (navigateUpClicked)="onNavigateUp()"
+          (refreshClicked)="onRefresh()">
+        </app-address-bar>
 
-      <!-- Archive move warning dialog -->
-      <app-archive-move-warning
-        [visible]="archiveMoveWarning"
-        [entryCount]="archivePendingMoveEntries.length"
-        (confirmed)="executePendingMove()"
-        (cancelled)="archiveMoveWarning = false">
-      </app-archive-move-warning>
+        <app-action-bar
+          [selectedCount]="selectedFiles.size"
+          [panePosition]="paneId"
+          [currentView]="currentView"
+          [currentSort]="sortField"
+          [sortDirection]="sortDirection"
+          (viewChange)="onViewChange($event)"
+          (sortChange)="onSortChange($event)"
+          [directoriesFirst]="directoriesFirst"
+          (directoriesFirstChange)="onDirectoriesFirstChange($event)"
+          (createFolder)="onCreateFolder()"
+          (deleteSelected)="onDeleteSelected()"
+          (copyToOther)="onCopyToOther()"
+          (moveToOther)="onMoveToOther()">
+        </app-action-bar>
+
+        <!-- File list + find widget overlay share the same relative container -->
+        <div class="file-pane__list-host">
+          <app-find-widget
+            #findWidget
+            (stateChange)="onFindStateChange($event)"
+            (nextMatch)="onFindNext()"
+            (prevMatch)="onFindPrev()">
+          </app-find-widget>
+
+          <app-file-view-container
+            [paneId]="paneId"
+            [entries]="filteredEntries"
+            [currentPath]="currentPath"
+            [showHidden]="showHidden"
+            [selectedFiles]="selectedFiles"
+            [cursorPath]="selectionCursorPath"
+            [error]="error"
+            [currentView]="currentView"
+            [sortField]="sortField"
+            [sortDirection]="sortDirection"
+            [directoriesFirst]="directoriesFirst"
+            [paneActive]="paneActive"
+            (viewChange)="onViewChange($event)"
+            (selectionChange)="onSelectionChange($event)"
+            (navigate)="onNavigate($event)"
+            (openInNewTab)="onOpenInNewTab($event)"
+            (sortChange)="onSortChange($event)"
+            (contextMenu)="onContextMenu($event)"
+            (nodeDoubleClick)="onNodeDoubleClick($event)"
+            (dragDrop)="onDragDrop($event)"
+            (rename)="onRename($event)">
+          </app-file-view-container>
+        </div>
+
+        <!-- Archive move warning dialog -->
+        <app-archive-move-warning
+          [visible]="archiveMoveWarning"
+          [entryCount]="archivePendingMoveEntries.length"
+          (confirmed)="executePendingMove()"
+          (cancelled)="archiveMoveWarning = false">
+        </app-archive-move-warning>
+      </ng-container>
+
+      <ng-template #viewerTab>
+        <app-viewer-surface [targetPath]="activeViewerTargetPath"></app-viewer-surface>
+      </ng-template>
     </div>
   `,
   styles: [`
@@ -237,6 +245,8 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   @Output() pathChange    = new EventEmitter<string>();
   @Output() copyToOther   = new EventEmitter<string[]>();
   @Output() moveToOther   = new EventEmitter<string[]>();
+  @Output() previewTargetChange = new EventEmitter<string>();
+  @Output() activeTabChange = new EventEmitter<TabInfo>();
 
   currentPath   = '';
   fsParentDir = '';
@@ -270,6 +280,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   private tabPaths = new Map<string, string>();
   selectionCursorPath: string | null = null;
   private selectionAnchorPath: string | null = null;
+  private lastPreviewTargetEmitted: string | null = null;
   private fsChangeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private activeDirStreamId: string | null = null;
   private streamBaseEntries: FileInfo[] = [];
@@ -283,6 +294,18 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   private lastSeenActiveTabPath: string | null = null;
 
   FileType = FileType;
+
+  get activeTabKind(): 'dir' | 'viewer' {
+    const t = this.tabs.find(t => t.id === this.currentTabId);
+    return (t?.kind ?? 'dir');
+  }
+
+  get activeViewerTargetPath(): string {
+    const t = this.tabs.find(t => t.id === this.currentTabId);
+    if (!t) return '';
+    if ((t.kind ?? 'dir') !== 'viewer') return '';
+    return (t.viewer?.targetPath ?? '');
+  }
 
   constructor(
     private apiService: ApiService,
@@ -633,6 +656,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     this.tabs = this.workspaceService.getTabs(this.paneId);
     const activeTab  = this.workspaceService.getActiveTab(this.paneId);
     const savedPath  = activeTab?.path ?? '';
+    const activeKind = (activeTab?.kind ?? 'dir');
 
     const allPaths   = this.workspaceService.getAllTabPaths();
     const windowsRoot = allPaths.find(p => /^[A-Za-z]:[/\\]/.test(p));
@@ -657,10 +681,17 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     const pathIsStale = !savedPath || (isWindows && savedPath === '/');
     const pathToLoad  = pathIsStale ? platformRoot : savedPath;
 
-    this.currentPath = pathToLoad;
     this.pathReady   = true;
     if (activeTab) this.currentTabId = activeTab.id;
 
+    // Viewer tabs don't drive directory loading; keep directory state as-is.
+    if (activeKind === 'viewer') {
+      // Ensure currentPath isn't empty (used by various helpers even if UI is hidden).
+      if (!this.currentPath) this.currentPath = platformRoot;
+      return;
+    }
+
+    this.currentPath = pathToLoad;
     this.clearArchiveState();
     await this.loadPathTransparently(pathToLoad);
   }
@@ -709,7 +740,10 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   // ── Tab management ────────────────────────────────────────────────────────
 
   async onTabChange(tab: TabInfo): Promise<void> {
-    if (this.currentTabId && this.currentPath) {
+    const current = this.tabs.find(t => t.id === this.currentTabId);
+    const currentKind = (current?.kind ?? 'dir');
+
+    if (currentKind === 'dir' && this.currentTabId && this.currentPath) {
       if (this.isInArchive()) {
         this.workspaceService.saveArchiveState(this.paneId, this.currentTabId, {
           path: this.currentPath, archiveStack: this.archiveStack,
@@ -725,6 +759,13 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     this.currentTabId = tab.id;
     this.clearArchiveState();
 
+    // Viewer tab: render surface only; no directory load.
+    if ((tab.kind ?? 'dir') === 'viewer') {
+      this.tabs = this.workspaceService.getTabs(this.paneId);
+      this.activeTabChange.emit(tab);
+      return;
+    }
+
     const archiveState = this.workspaceService.getArchiveState(this.paneId, tab.id);
     if (archiveState) {
       this.currentPath  = archiveState.path;
@@ -739,6 +780,24 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     const restoredPath = this.tabPaths.get(tab.id) ?? tab.path;
     this.currentPath = restoredPath;
     await this.loadPathTransparently(restoredPath);
+    this.activeTabChange.emit(tab);
+  }
+
+  /** Best-effort: focus/move cursor to a path if it exists in the current listing. */
+  focusCursorPath(path: string): void {
+    if (this.activeTabKind !== 'dir') return;
+    if (!path) return;
+
+    const normalized = normalizePath(path);
+    const selectable = this.getSelectableEntries();
+    const idx = selectable.findIndex(e => normalizePath(e.path) === normalized);
+    if (idx < 0) return;
+
+    this.selectionCursorPath = selectable[idx].path;
+    this.selectionAnchorPath = this.selectionCursorPath;
+    // Keep marks intact; only move cursor.
+    this.fileViewContainer?.scrollToCursorPath(this.selectionCursorPath);
+    this.emitPreviewTargetFromState();
   }
 
   private async restoreArchiveFromPath(path: string): Promise<void> {
@@ -1158,6 +1217,63 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     }
   }
 
+  async openQuickView(): Promise<void> {
+    if (this.activeTabKind !== 'dir') return;
+
+    const effective = this.getEffectiveSelection();
+    const selected = Array.from(effective).filter(p => p && p !== PARENT_ENTRY_PATH);
+    if (selected.length !== 1) return;
+
+    const path = selected[0];
+    try {
+      if (this.isInArchive()) {
+        this.confirmDialog.alert('Preview Not Supported\nQuick view is not supported inside archives yet.');
+        return;
+      }
+
+      const isDir = await this.apiService.isDirectory(path);
+      if (isDir) return;
+
+      const tab = this.workspaceService.addViewerTab(this.paneId, path, {
+        activate: true,
+        closable: true,
+      });
+      if (!tab) return;
+
+      this.tabs = this.workspaceService.getTabs(this.paneId);
+      await this.onTabChange(tab);
+    } catch (err: any) {
+      this.confirmDialog.alert(`Preview Failed\n${err?.message || String(err)}`);
+    }
+  }
+
+  /** Open a new, closable viewer tab for the given filesystem path. */
+  async openFrozenPreviewTab(targetPath: string): Promise<void> {
+    const path = (targetPath || '').trim();
+    if (!path) return;
+
+    try {
+      if (this.isInArchive()) {
+        this.confirmDialog.alert('Preview Not Supported\nQuick view is not supported inside archives yet.');
+        return;
+      }
+
+      const isDir = await this.apiService.isDirectory(path);
+      if (isDir) return;
+
+      const tab = this.workspaceService.addViewerTab(this.paneId, path, {
+        activate: true,
+        closable: true,
+      });
+      if (!tab) return;
+
+      this.tabs = this.workspaceService.getTabs(this.paneId);
+      await this.onTabChange(tab);
+    } catch (err: any) {
+      this.confirmDialog.alert(`Preview Failed\n${err?.message || String(err)}`);
+    }
+  }
+
   async onOpenInNewTab(entry: FileInfo): Promise<void> {
     if (entry.path === PARENT_ENTRY_PATH) {
       const up = this.isInArchive() ? this.currentPath : parentPath(this.currentPath);
@@ -1449,6 +1565,28 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       }
     }
     // paths.length === 0: marks cleared but cursor stays where it was (TC style)
+    this.emitPreviewTargetFromState();
+  }
+
+  /** Returns a filesystem path suitable for preview, or empty string when none. */
+  getPreviewTargetPath(): string {
+    if (this.isInArchive()) return '';
+
+    const effective = this.getEffectiveSelection();
+    const selected = Array.from(effective).filter(p => p && p !== PARENT_ENTRY_PATH);
+    if (selected.length !== 1) return '';
+
+    const entry = this.entries.find(e => e.path === selected[0]);
+    if (!entry) return '';
+    if (entry.type !== FileType.FILE && entry.type !== FileType.SYMLINK) return '';
+    return entry.path;
+  }
+
+  private emitPreviewTargetFromState(): void {
+    const next = this.getPreviewTargetPath();
+    if (this.lastPreviewTargetEmitted === next) return;
+    this.lastPreviewTargetEmitted = next;
+    this.previewTargetChange.emit(next);
   }
 
   onSelectAll(): void {
@@ -1487,6 +1625,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     const nextIndex = Math.min(index + 1, selectable.length - 1);
     this.selectionCursorPath = selectable[nextIndex]?.path ?? path;
     this.selectionAnchorPath = this.selectionAnchorPath ?? path;
+    this.emitPreviewTargetFromState();
   }
 
   onSelectCurrentAndMoveDown(): void {
@@ -1502,6 +1641,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     const nextIndex = Math.min(index + 1, selectable.length - 1);
     this.selectionCursorPath = selectable[nextIndex]?.path ?? path;
     this.selectionAnchorPath = path;
+    this.emitPreviewTargetFromState();
   }
 
   /** TC Space: mark/unmark item under cursor and advance cursor down. */
@@ -1520,6 +1660,8 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       this.selectionCursorPath = selectable[idx + 1].path;
       this.fileViewContainer?.scrollToCursorPath(this.selectionCursorPath);
     }
+
+    this.emitPreviewTargetFromState();
   }
 
   onExtendSelection(delta: -1 | 1): void {
@@ -1536,6 +1678,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     this.selectedFiles = new Set(selectable.slice(start, end + 1).map(e => e.path));
     this.selectionCursorPath = selectable[targetIndex].path;
     this.selectionAnchorPath = anchorPath;
+    this.emitPreviewTargetFromState();
   }
 
   // ── Cursor movement ───────────────────────────────────────────────────────
@@ -1548,6 +1691,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     this.selectionAnchorPath = this.selectionCursorPath;
     // TC: cursor moves independently of marks — do NOT touch selectedFiles
     this.fileViewContainer?.scrollToCursorPath(this.selectionCursorPath);
+    this.emitPreviewTargetFromState();
   }
 
   onMoveCursorUp(): void {
@@ -1655,6 +1799,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     if (!selectable.length || this.selectedFiles.size === 0) {
       this.selectionCursorPath = selectable.length ? selectable[0].path : null;
       this.selectionAnchorPath = this.selectionCursorPath;
+      this.emitPreviewTargetFromState();
       return;
     }
 
@@ -1663,6 +1808,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       this.selectionCursorPath = firstSelected.path;
       this.selectionAnchorPath = this.selectionAnchorPath ?? firstSelected.path;
     }
+    this.emitPreviewTargetFromState();
   }
 
   private getSelectableEntries(): FileInfo[] {

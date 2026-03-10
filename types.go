@@ -159,12 +159,24 @@ type NavigationHistory struct {
 // ============================================================================
 
 type TabInfo struct {
-	ID        string `json:"id"`
-	Title     string `json:"title"`
-	Path      string `json:"path"`
-	IsActive  bool   `json:"isActive"`
-	IsPinned  bool   `json:"isPinned"`
-	CreatedAt int64  `json:"createdAt"`
+	ID         string        `json:"id"`
+	Title      string        `json:"title"`
+	Path       string        `json:"path"`
+	Kind       string        `json:"kind,omitempty"`       // "dir" (default) | "viewer"
+	Viewer     *ViewerTab    `json:"viewer,omitempty"`     // only for kind="viewer"
+	IsClosable *bool         `json:"isClosable,omitempty"` // nil => default true (back-compat)
+	IsActive   bool          `json:"isActive"`
+	IsPinned   bool          `json:"isPinned"`
+	CreatedAt  int64         `json:"createdAt"`
+}
+
+type ViewerTab struct {
+	TargetPath string `json:"targetPath"`
+	ViewerID   string `json:"viewerId,omitempty"`
+	AutoFollow bool   `json:"autoFollow,omitempty"`
+	SourcePane string `json:"sourcePane,omitempty"` // "left" | "right"
+	SourceTabID string `json:"sourceTabId,omitempty"`
+	SourceDir   string `json:"sourceDir,omitempty"` // directory path at time of preview creation
 }
 
 type PaneState struct {

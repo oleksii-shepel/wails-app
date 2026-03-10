@@ -55,6 +55,8 @@
           [paneActive]="activePaneId === 'left'"
           (click)="activePaneId = 'left'"
           (pathChange)="onPanePathChange('left', $event)"
+          (previewTargetChange)="onPanePreviewTarget('left', $event)"
+          (activeTabChange)="onPaneActiveTabChanged('left', $event)"
           (copyToOther)="onCopyFromLeft($event)"
           (moveToOther)="onMoveFromLeft($event)">
         </app-file-pane>
@@ -79,6 +81,8 @@
           [paneActive]="activePaneId === 'right'"
           (click)="activePaneId = 'right'"
           (pathChange)="onPanePathChange('right', $event)"
+          (previewTargetChange)="onPanePreviewTarget('right', $event)"
+          (activeTabChange)="onPaneActiveTabChanged('right', $event)"
           (copyToOther)="onCopyFromRight($event)"
           (moveToOther)="onMoveFromRight($event)">
         </app-file-pane>

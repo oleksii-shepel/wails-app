@@ -764,13 +764,6 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
   }
 
   private updateVirtualWindow(): void {
-    if (!this.virtualEnabled) {
-      this.virtualStart = 0;
-      this.virtualEnd = this.entries.length;
-      this.virtualColumns = 1;
-      return;
-    }
-
     const host = this.gridContainerRef?.nativeElement;
     const width = Math.max(1, host?.clientWidth ?? 1);
     const viewportHeight = this.viewportHeight || host?.clientHeight || 0;
@@ -785,6 +778,14 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
     
     if (cols !== this.virtualColumns) {
       this.virtualColumns = cols;
+    }
+
+    if (!this.virtualEnabled) {
+      // Even without virtualization, keep the computed column count so keyboard navigation
+      // (Up/Down by row) behaves correctly in grid view.
+      this.virtualStart = 0;
+      this.virtualEnd = this.entries.length;
+      return;
     }
 
     const startRow = Math.max(0, Math.floor(scrollTop / this.rowHeight) - this.overscanRows);

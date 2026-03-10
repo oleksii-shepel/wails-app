@@ -206,7 +206,8 @@ export interface ColumnDef {
         /* TC cursor indicator */
         &.cursor:not(.selected) {
           background: color-mix(in srgb, var(--vsc-list-active-background) 35%, transparent);
-          border-left: 2px solid var(--vsc-accent-blue);
+          /* Use inset shadow so cursor highlight never shifts layout. */
+          box-shadow: inset 2px 0 0 0 var(--vsc-accent-blue);
         }
         
         &.cursor.selected {

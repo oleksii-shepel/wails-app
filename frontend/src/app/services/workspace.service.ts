@@ -158,11 +158,20 @@ export class WorkspaceService {
       changed = true;
     }
 
-    const tabs = pane.tabs.map(t => {
+    let tabs: TabInfo[] = pane.tabs.map(t => {
       const shouldBeActive = t.id === activeTabId;
       if (t.isActive !== shouldBeActive) changed = true;
-      return { ...t, isActive: shouldBeActive };
+      const kind = (t.kind ?? 'dir');
+      if (!t.kind) changed = true;
+      // Migration: earlier iterations made the auto-follow Preview tab non-closable.
+      // Preview should behave like other tabs, so force it back to closable.
+      const isClosable = (t.isClosable === false && kind === 'viewer') ? true : t.isClosable;
+      if (t.isClosable === false && kind === 'viewer') changed = true;
+      return { ...t, kind, isClosable, isActive: shouldBeActive } as TabInfo;
     });
+
+    // Do not force-create preview tabs here. Preview tabs are user-facing and closable;
+    // if the user closes them, they should stay closed across launches.
 
     const normalized: PaneState = {
       ...pane,
@@ -459,6 +468,7 @@ export class WorkspaceService {
       id: this.generateId(),
       title: this.getPathTitle(path),
       path,
+      kind: 'dir',
       isActive: activate,
       isPinned: false,
       createdAt: Date.now(),
@@ -496,6 +506,7 @@ export class WorkspaceService {
         id: this.generateId(),
         title: this.getPathTitle(rootPath),
         path: rootPath,
+        kind: 'dir',
         isActive: true,
         isPinned: false,
         createdAt: Date.now(),
@@ -677,6 +688,7 @@ export class WorkspaceService {
         id: this.generateId(),
         title: this.getPathTitle(rootPath),
         path: rootPath,
+        kind: 'dir',
         isActive: true,
         isPinned: false,
         createdAt: Date.now(),
@@ -742,6 +754,7 @@ export class WorkspaceService {
 
   private createDefaultPane(paneId: string, path: string): PaneState {
     const tabId = this.generateId();
+    const previewId = this.generateId();
     return {
       id: paneId,
       tabs: [
@@ -749,13 +762,104 @@ export class WorkspaceService {
           id: tabId,
           title: this.getPathTitle(path),
           path,
+          kind: 'dir',
           isActive: true,
+          isPinned: false,
+          createdAt: Date.now(),
+        },
+        {
+          id: previewId,
+          title: 'Preview',
+          path: '',
+          kind: 'viewer',
+          viewer: { targetPath: '', autoFollow: true },
+          isActive: false,
           isPinned: false,
           createdAt: Date.now(),
         },
       ],
       activeTabId: tabId,
     };
+  }
+
+  updateViewerTabTargetPath(paneId: string, tabId: string, targetPath: string): boolean {
+    const workspace = this.activeWorkspaceSubject.value;
+    if (!workspace) return false;
+
+    const pane = paneId === 'left' ? workspace.leftPane : workspace.rightPane;
+    const tab = pane.tabs.find((t) => t.id === tabId);
+    if (!tab) return false;
+    if ((tab.kind ?? 'dir') !== 'viewer') return false;
+
+    const next = targetPath || '';
+    tab.path = next;
+    tab.title = next || 'Preview';
+    tab.viewer = {
+      targetPath: next,
+      viewerId: tab.viewer?.viewerId,
+      autoFollow: tab.viewer?.autoFollow,
+      sourcePane: tab.viewer?.sourcePane,
+      sourceTabId: tab.viewer?.sourceTabId,
+      sourceDir: tab.viewer?.sourceDir,
+    };
+    this.updateWorkspace(
+      workspace.id,
+      { [paneId === 'left' ? 'leftPane' : 'rightPane']: pane },
+      false,
+    );
+    return true;
+  }
+
+  addViewerTab(
+    paneId: string,
+    targetPath: string,
+    opts?: {
+      activate?: boolean;
+      title?: string;
+      viewerId?: string;
+      autoFollow?: boolean;
+      closable?: boolean;
+      sourcePane?: 'left' | 'right';
+      sourceTabId?: string;
+      sourceDir?: string;
+    },
+  ): TabInfo | null {
+    const workspace = this.activeWorkspaceSubject.value;
+    if (!workspace) return null;
+
+    const pane = paneId === 'left' ? workspace.leftPane : workspace.rightPane;
+    const activate = opts?.activate !== false;
+
+    const newTab: TabInfo = {
+      id: this.generateId(),
+      title: (opts?.title ?? (targetPath || 'Preview')),
+      path: targetPath || '',
+      kind: 'viewer',
+      viewer: {
+        targetPath: targetPath || '',
+        viewerId: opts?.viewerId,
+        autoFollow: !!opts?.autoFollow,
+        sourcePane: opts?.sourcePane,
+        sourceTabId: opts?.sourceTabId,
+        sourceDir: opts?.sourceDir,
+      },
+      isClosable: opts?.closable === false ? false : true,
+      isActive: activate,
+      isPinned: false,
+      createdAt: Date.now(),
+    };
+
+    if (activate) {
+      pane.tabs.forEach((t) => (t.isActive = false));
+      pane.activeTabId = newTab.id;
+    }
+
+    pane.tabs.push(newTab);
+    this.updateWorkspace(workspace.id, {
+      [paneId === 'left' ? 'leftPane' : 'rightPane']: pane,
+    });
+
+    return newTab;
   }
 
   /**

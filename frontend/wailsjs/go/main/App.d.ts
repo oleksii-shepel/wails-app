@@ -14,9 +14,9 @@ export function ArchiveListNested(arg1:string,arg2:Array<string>,arg3:string):Pr
 
 export function ArchiveMoveEntries(arg1:main.ArchiveEntriesRequest):Promise<main.ArchiveEntriesResult>;
 
-export function ArchiveRead(arg1:string,arg2:Array<string>,arg3:string):Promise<main.FileContent>;
+export function ArchiveRead(arg1:string,arg2:Array<string>,arg3:string,arg4:string):Promise<main.FileContent>;
 
-export function ArchiveReadFile(arg1:string,arg2:Array<string>,arg3:string):Promise<main.FileContent>;
+export function ArchiveReadFile(arg1:string,arg2:Array<string>,arg3:string,arg4:string):Promise<main.FileContent>;
 
 export function BatchCopy(arg1:main.BatchRequest):Promise<main.BatchResult>;
 

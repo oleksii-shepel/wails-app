@@ -801,6 +801,7 @@ export class WorkspaceService {
       sourcePane: tab.viewer?.sourcePane,
       sourceTabId: tab.viewer?.sourceTabId,
       sourceDir: tab.viewer?.sourceDir,
+      // archiveContext intentionally omitted — auto-follow always points to FS files
     };
     this.updateWorkspace(
       workspace.id,
@@ -822,6 +823,7 @@ export class WorkspaceService {
       sourcePane?: 'left' | 'right';
       sourceTabId?: string;
       sourceDir?: string;
+      archiveContext?: { fsPath: string; nestedChain: string[]; entryPath: string };
     },
   ): TabInfo | null {
     const workspace = this.activeWorkspaceSubject.value;
@@ -842,6 +844,7 @@ export class WorkspaceService {
         sourcePane: opts?.sourcePane,
         sourceTabId: opts?.sourceTabId,
         sourceDir: opts?.sourceDir,
+        archiveContext: opts?.archiveContext,
       },
       isClosable: opts?.closable === false ? false : true,
       isActive: activate,
@@ -921,5 +924,3 @@ export class WorkspaceService {
     return paths;
   }
 }
-
-

@@ -55,6 +55,20 @@ export interface TabInfo {
     sourcePane?: 'left' | 'right';
     sourceTabId?: string;
     sourceDir?: string;
+    /**
+     * Present when the viewed file lives inside an archive.
+     * The viewer uses this to call ArchiveReadFile (in-memory extraction)
+     * instead of ReadFile.  Cleared when autoFollow changes the target to a
+     * regular filesystem file.
+     */
+    archiveContext?: {
+      /** Outermost archive on disk, e.g. "C:/foo/archive.zip" */
+      fsPath: string;
+      /** Nested archive chain, e.g. ["inner.tar.gz"] — empty for flat archives */
+      nestedChain: string[];
+      /** Entry path inside the innermost archive, e.g. "src/main.go" */
+      entryPath: string;
+    };
   };
   /** If false, the UI hides the close button. Defaults to true when omitted. */
   isClosable?: boolean;

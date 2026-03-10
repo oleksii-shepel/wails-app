@@ -73,7 +73,7 @@ declare global {
           
           // Archive Operations
           ArchiveBrowse(fsPath: string, nestedChain: string[], innerPath: string): Promise<ArchiveListing>;
-          ArchiveRead(fsPath: string, nestedChain: string[], entryPath: string): Promise<FileContent>;
+          ArchiveRead(fsPath: string, nestedChain: string[], entryPath: string, encoding: string): Promise<FileContent>;
           
           // Navigation
           NavNavigate(paneId: string, path: string): Promise<DirectoryListing>;
@@ -276,8 +276,8 @@ export class ApiService {
     return await window.go.main.App.ArchiveBrowse(fsPath, nestedChain, innerPath);
   }
 
-  async archiveReadFile(fsPath: string, nestedChain: string[] = [], entryPath: string): Promise<FileContent> {
-    return await window.go.main.App.ArchiveRead(fsPath, nestedChain, entryPath);
+  async archiveReadFile(fsPath: string, nestedChain: string[] = [], entryPath: string, encoding: string = 'utf8'): Promise<FileContent> {
+    return await window.go.main.App.ArchiveRead(fsPath, nestedChain, entryPath, encoding);
   }
 
   // ============================================================================

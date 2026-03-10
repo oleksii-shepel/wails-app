@@ -20,7 +20,7 @@ import { parentPath, normalizePath } from './address-bar.utils';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
 import { FileViewContainerComponent, ViewLayout } from './file-view-container.component';
 import { ArchiveMoveWarningComponent } from "./archive-move-warning.component";
-import { ViewerSurfaceComponent } from './viewer-surface.component';
+import { ViewerSurfaceComponent, ViewerArchiveContext } from './viewer-surface.component';
 import { EventsOn, EventsOff } from 'wailsjs/runtime';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 
@@ -154,7 +154,7 @@ interface DirStreamErrorEvent {
       </ng-container>
 
       <ng-template #viewerTab>
-        <app-viewer-surface [targetPath]="activeViewerTargetPath"></app-viewer-surface>
+        <app-viewer-surface [targetPath]="activeViewerTargetPath" [archiveContext]="activeViewerArchiveContext"></app-viewer-surface>
       </ng-template>
     </div>
   `,
@@ -305,6 +305,12 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     if (!t) return '';
     if ((t.kind ?? 'dir') !== 'viewer') return '';
     return (t.viewer?.targetPath ?? '');
+  }
+
+  get activeViewerArchiveContext(): ViewerArchiveContext | null {
+    const t = this.tabs.find(t => t.id === this.currentTabId);
+    if (!t || (t.kind ?? 'dir') !== 'viewer') return null;
+    return (t.viewer?.archiveContext as ViewerArchiveContext) ?? null;
   }
 
   constructor(
@@ -1227,7 +1233,22 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     const path = selected[0];
     try {
       if (this.isInArchive()) {
-        this.confirmDialog.alert('Preview Not Supported\nQuick view is not supported inside archives yet.');
+        // Build archive context — viewer extracts entry bytes into memory via ArchiveReadFile.
+        const frame = this.archiveStack[this.archiveStack.length - 1];
+        const entry = this.entries.find(e => e.path === path);
+        if (!entry || entry.type === FileType.DIRECTORY) return;
+
+        const archiveContext: ViewerArchiveContext = {
+          fsPath:      this.archiveStack[0].fsPath,
+          nestedChain: frame.nestedChain ?? [],
+          entryPath:   entry.path,
+        };
+        const tab = this.workspaceService.addViewerTab(this.paneId, path, {
+          activate: true, closable: true, archiveContext,
+        });
+        if (!tab) return;
+        this.tabs = this.workspaceService.getTabs(this.paneId);
+        await this.onTabChange(tab);
         return;
       }
 
@@ -1254,7 +1275,22 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
 
     try {
       if (this.isInArchive()) {
-        this.confirmDialog.alert('Preview Not Supported\nQuick view is not supported inside archives yet.');
+        // Same as openQuickView — extract via ArchiveReadFile, no disk writes.
+        const frame = this.archiveStack[this.archiveStack.length - 1];
+        const entry = this.entries.find(e => e.path === path);
+        if (!entry || entry.type === FileType.DIRECTORY) return;
+
+        const archiveContext: ViewerArchiveContext = {
+          fsPath:      this.archiveStack[0].fsPath,
+          nestedChain: frame.nestedChain ?? [],
+          entryPath:   entry.path,
+        };
+        const tab = this.workspaceService.addViewerTab(this.paneId, path, {
+          activate: true, closable: true, archiveContext,
+        });
+        if (!tab) return;
+        this.tabs = this.workspaceService.getTabs(this.paneId);
+        await this.onTabChange(tab);
         return;
       }
 

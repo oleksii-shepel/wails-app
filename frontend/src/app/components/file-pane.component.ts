@@ -18,9 +18,8 @@ import { parentPath, normalizePath } from './address-bar.utils';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
 import { FileViewContainerComponent, ViewLayout } from './file-view-container.component';
 import { ViewerArchiveContext } from './viewer-surface.component';
-import { DirTabStateController } from '../surfaces/dir/dir-tab-state-controller';
-import { DirTabState } from '../surfaces/dir/dir-tab-state';
 import { DirSurfaceVm } from '../surfaces/dir/dir-surface.vm';
+import { DirSurfaceSession } from '../surfaces/dir/dir-surface-session';
 import { SurfaceContext } from '../surfaces/surface-context';
 import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
 import {
@@ -97,8 +96,9 @@ declare const window: any;
   `]
 })
 export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
-  private readonly dirTabStates = new DirTabStateController();
   private readonly dirStream: DirListStreamController;
+  private readonly dirSessions = new Map<string, DirSurfaceSession>();
+  private activeDirTabId: string | null = null;
   readonly dirVm: DirSurfaceVm = new (class implements DirSurfaceVm {
     constructor(private pane: FilePaneComponent) {}
 
@@ -186,35 +186,11 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   @Output() previewTargetChange = new EventEmitter<string>();
   @Output() activeTabChange = new EventEmitter<TabInfo>();
 
-  currentPath   = '';
-  fsParentDir = '';
   currentTabId  = '';
   pathReady     = false;
   tabs: TabInfo[] = [];
-  entries: FileInfo[] = [];
-  filteredEntries: FileInfo[] = [];
-  selectedFiles: Set<string> = new Set();
-  loading = false;
-  error: string | null = null;
-  filterQuery: FilterQuery = { text: '', criteria: [] };
-
-  private optimisticHiddenPaths = new Set<string>();
   private optimisticHideListener?: (event: Event) => void;
   private optimisticRestoreListener?: (event: Event) => void;
-
-  getOptimisticHiddenPaths(): string[] {
-    return Array.from(this.optimisticHiddenPaths);
-  }
-
-  setOptimisticHiddenPaths(paths: string[]): void {
-    this.optimisticHiddenPaths = new Set((paths ?? []).filter(Boolean));
-  }
-
-  // View system state
-  currentView: ViewLayout = 'list';
-  sortField: string = 'name';
-  sortDirection: 'asc' | 'desc' = 'asc';
-  directoriesFirst = true;
 
   archiveStack: ArchiveFrame[] = [];
 
@@ -222,11 +198,6 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   archiveMoveWarning = false;
   archivePendingMoveEntries: string[] = [];
   archivePendingMoveDestDir = '';
-
-  private tabPaths = new Map<string, string>();
-  selectionCursorPath: string | null = null;
-  selectionAnchorPath: string | null = null;
-  private lastPreviewTargetEmitted: string | null = null;
   private fsChangeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private activeDirStreamPreserveUI = false;
   private pendingFocusPath: string | null = null;
@@ -234,9 +205,83 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   private destroy$ = createSubject<void>();
   private lastSeenActiveTabId: string | null = null;
   private lastSeenActiveTabPath: string | null = null;
-  private pendingDirStateRestore: DirTabState | null = null;
 
   FileType = FileType;
+
+  private get dir(): DirSurfaceSession {
+    const id = this.activeDirTabId ?? this.currentTabId;
+    let session = id ? this.dirSessions.get(id) : undefined;
+    if (!session) {
+      session = new DirSurfaceSession(id || 'default');
+      // Default view prefs
+      session.currentView = this.currentViewPrefFromStorage();
+      const sf = localStorage.getItem('fileManager_sortField');
+      const sd = localStorage.getItem('fileManager_sortDirection') as ('asc' | 'desc' | null);
+      if (sf) session.sortField = sf;
+      if (sd === 'asc' || sd === 'desc') session.sortDirection = sd;
+      const df = localStorage.getItem('fileManager_directoriesFirst');
+      if (df === 'true' || df === 'false') session.directoriesFirst = df === 'true';
+
+      this.dirSessions.set(session.tabId, session);
+    }
+    // If current tab is a dir tab, keep activeDirTabId aligned.
+    const t = this.tabs.find(t => t.id === this.currentTabId);
+    if ((t?.kind ?? 'dir') === 'dir') this.activeDirTabId = session.tabId;
+    return session;
+  }
+
+  private currentViewPrefFromStorage(): ViewLayout {
+    const saved = localStorage.getItem('fileManager_viewMode') as ViewLayout | null;
+    return (saved === 'list' || saved === 'grid' || saved === 'details' || saved === 'tree') ? saved : 'list';
+  }
+
+  // Dir state proxies (backed by the active dir session)
+  get currentPath(): string { return this.dir.currentPath; }
+  set currentPath(v: string) { this.dir.currentPath = v; }
+
+  get fsParentDir(): string { return this.dir.fsParentDir; }
+  set fsParentDir(v: string) { this.dir.fsParentDir = v; }
+
+  get entries(): FileInfo[] { return this.dir.entries; }
+  set entries(v: FileInfo[]) { this.dir.entries = v; }
+
+  get filteredEntries(): FileInfo[] { return this.dir.filteredEntries; }
+  set filteredEntries(v: FileInfo[]) { this.dir.filteredEntries = v; }
+
+  get selectedFiles(): Set<string> { return this.dir.selectedFiles; }
+  set selectedFiles(v: Set<string>) { this.dir.selectedFiles = v; }
+
+  get loading(): boolean { return this.dir.loading; }
+  set loading(v: boolean) { this.dir.loading = v; }
+
+  get error(): string | null { return this.dir.error; }
+  set error(v: string | null) { this.dir.error = v; }
+
+  get filterQuery(): FilterQuery { return this.dir.filterQuery; }
+  set filterQuery(v: FilterQuery) { this.dir.filterQuery = v; }
+
+  get currentView(): ViewLayout { return this.dir.currentView; }
+  set currentView(v: ViewLayout) { this.dir.currentView = v; }
+
+  get sortField(): string { return this.dir.sortField; }
+  set sortField(v: string) { this.dir.sortField = v; }
+
+  get sortDirection(): 'asc' | 'desc' { return this.dir.sortDirection; }
+  set sortDirection(v: 'asc' | 'desc') { this.dir.sortDirection = v; }
+
+  get directoriesFirst(): boolean { return this.dir.directoriesFirst; }
+  set directoriesFirst(v: boolean) { this.dir.directoriesFirst = v; }
+
+  get selectionCursorPath(): string | null { return this.dir.selectionCursorPath; }
+  set selectionCursorPath(v: string | null) { this.dir.selectionCursorPath = v; }
+
+  get selectionAnchorPath(): string | null { return this.dir.selectionAnchorPath; }
+  set selectionAnchorPath(v: string | null) { this.dir.selectionAnchorPath = v; }
+
+  getOptimisticHiddenPaths(): string[] { return Array.from(this.dir.optimisticHiddenPaths); }
+  setOptimisticHiddenPaths(paths: string[]): void {
+    this.dir.optimisticHiddenPaths = new Set((paths ?? []).filter(Boolean));
+  }
 
   get activeTabKind(): 'dir' | 'viewer' {
     const t = this.tabs.find(t => t.id === this.currentTabId);
@@ -416,7 +461,6 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
         fsParentDir: this.fsParentDir,
       });
     } else {
-      this.tabPaths.set(this.currentTabId, this.currentPath);
       this.workspaceService.updateTabPath(this.paneId, this.currentTabId, this.currentPath);
     }
   }
@@ -428,7 +472,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       const paths = (detail.paths ?? []).filter(p => p && p !== PARENT_ENTRY_PATH);
       if (!paths.length) return;
 
-      for (const p of paths) this.optimisticHiddenPaths.add(p);
+      for (const p of paths) this.dir.optimisticHiddenPaths.add(p);
       for (const p of paths) this.selectedFiles.delete(p);
       this.selectedFiles = new Set(this.selectedFiles);
       this.applyFilter();
@@ -440,7 +484,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       const paths = (detail.paths ?? []).filter(p => p && p !== PARENT_ENTRY_PATH);
       if (!paths.length) return;
 
-      for (const p of paths) this.optimisticHiddenPaths.delete(p);
+      for (const p of paths) this.dir.optimisticHiddenPaths.delete(p);
       this.applyFilter();
     };
 
@@ -661,37 +705,35 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
 
     // Viewer tabs don't drive directory loading; keep directory state as-is.
     if (activeKind === 'viewer') {
+      // Keep a stable "active dir session" for operations/preview origin restore.
+      if (!this.activeDirTabId) {
+        const firstDir = this.tabs.find(t => (t.kind ?? 'dir') === 'dir');
+        if (firstDir) this.activeDirTabId = firstDir.id;
+      }
       // Ensure currentPath isn't empty (used by various helpers even if UI is hidden).
       if (!this.currentPath) this.currentPath = platformRoot;
       return;
     }
 
-    // Restore per-tab UI state before loading.
-    this.pendingDirStateRestore = activeTab ? this.dirTabStates.load(activeTab.id) : null;
-    if (this.pendingDirStateRestore) {
-      this.dirTabStates.applyBeforeLoad(this.pendingDirStateRestore, this);
-    }
-
+    // Activate per-tab session.
+    if (activeTab) this.activeDirTabId = activeTab.id;
     this.currentPath = pathToLoad;
     this.clearArchiveState();
 
+    const session = this.dir;
     const cachedOk =
-      !!this.pendingDirStateRestore &&
       !this.pathIsInsideArchive(pathToLoad) &&
-      this.pendingDirStateRestore.path === pathToLoad &&
-      this.pendingDirStateRestore.showHidden === this.showHidden &&
-      (this.pendingDirStateRestore.entries?.length ?? 0) > 0;
+      session.currentPath === pathToLoad &&
+      session.showHiddenLoaded === this.showHidden &&
+      (session.entries?.length ?? 0) > 0;
 
-    if (cachedOk && this.pendingDirStateRestore) {
-      this.entries = this.pendingDirStateRestore.entries;
-      this.setOptimisticHiddenPaths(this.pendingDirStateRestore.optimisticHiddenPaths ?? []);
+    if (cachedOk) {
       this.applyFilter();
-      this.restorePendingDirTabState();
+      this.emitPreviewTargetFromState();
       return;
     }
 
     await this.loadPathTransparently(pathToLoad);
-    this.restorePendingDirTabState();
   }
 
   private clearArchiveState(): void {
@@ -737,14 +779,12 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     const currentKind = (current?.kind ?? 'dir');
 
     if (currentKind === 'dir' && this.currentTabId && this.currentPath) {
-      this.dirTabStates.save(this.currentTabId, this);
       if (this.isInArchive()) {
         this.workspaceService.saveArchiveState(this.paneId, this.currentTabId, {
           path: this.currentPath, archiveStack: this.archiveStack,
           fsDirPath: this.archiveStack[0]?.fsPath ?? '', fsParentDir: this.fsParentDir,
         });
       } else {
-        this.tabPaths.set(this.currentTabId, this.currentPath);
         this.workspaceService.updateTabPath(this.paneId, this.currentTabId, this.currentPath);
       }
     }
@@ -760,11 +800,8 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       return;
     }
 
-    // Preload per-tab UI state (filter/view/sort) before loading listing so the initial render matches.
-    this.pendingDirStateRestore = this.dirTabStates.load(tab.id);
-    if (this.pendingDirStateRestore) {
-      this.dirTabStates.applyBeforeLoad(this.pendingDirStateRestore, this);
-    }
+    // Switch active session for this dir tab.
+    this.activeDirTabId = tab.id;
 
     const archiveState = this.workspaceService.getArchiveState(this.paneId, tab.id);
     if (archiveState) {
@@ -777,35 +814,25 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       return;
     }
 
-    const restoredPath = this.tabPaths.get(tab.id) ?? tab.path;
-    this.currentPath = restoredPath;
+    const restoredPath = tab.path;
+    if (restoredPath) this.currentPath = restoredPath;
 
+    const session = this.dir;
     const cachedOk =
-      !!this.pendingDirStateRestore &&
       !this.pathIsInsideArchive(restoredPath) &&
-      this.pendingDirStateRestore.path === restoredPath &&
-      this.pendingDirStateRestore.showHidden === this.showHidden &&
-      (this.pendingDirStateRestore.entries?.length ?? 0) > 0;
+      session.currentPath === restoredPath &&
+      session.showHiddenLoaded === this.showHidden &&
+      (session.entries?.length ?? 0) > 0;
 
-    if (cachedOk && this.pendingDirStateRestore) {
-      this.entries = this.pendingDirStateRestore.entries;
-      this.setOptimisticHiddenPaths(this.pendingDirStateRestore.optimisticHiddenPaths ?? []);
+    if (cachedOk) {
       this.applyFilter();
-      this.restorePendingDirTabState();
+      this.emitPreviewTargetFromState();
       this.activeTabChange.emit(tab);
       return;
     }
 
     await this.loadPathTransparently(restoredPath);
-    this.restorePendingDirTabState();
     this.activeTabChange.emit(tab);
-  }
-
-  private restorePendingDirTabState(): void {
-    const state = this.pendingDirStateRestore;
-    this.pendingDirStateRestore = null;
-    if (!state) return;
-    this.dirTabStates.finalizeAfterLoad(state, this);
   }
 
   /** Best-effort: focus/move cursor to a path if it exists in the current listing. */
@@ -870,7 +897,6 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       this.renderArchiveFrame(stack[stack.length - 1]);
 
       const virtualPath = buildArchiveDisplayPath(stack[0].fsPath, this.archiveStack);
-      this.tabPaths.set(this.currentTabId, virtualPath);
       const title = buildArchiveTabTitle(stack[0].fsPath, this.archiveStack);
       this.workspaceService.updateTabPathAndTitle(this.paneId, this.currentTabId, virtualPath, title);
       this.tabs = this.workspaceService.getTabs(this.paneId);
@@ -884,7 +910,8 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   onTabClose(tab: TabInfo): void {
-    this.dirTabStates.delete(tab.id);
+    this.dirSessions.delete(tab.id);
+    if (this.activeDirTabId === tab.id) this.activeDirTabId = null;
     this.workspaceService.clearArchiveState(this.paneId, tab.id);
     this.workspaceService.closeTab(this.paneId, tab.id);
     this.loadPaneState();
@@ -986,7 +1013,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   private handleDirStreamMeta(event: DirStreamMetaEvent, isFirstMeta: boolean): void {
     this.currentPath = event.path;
     this.fsParentDir = event.path;
-    this.tabPaths.set(this.currentTabId, event.path);
+    this.dir.showHiddenLoaded = !!event.showHidden;
     this.workspaceService.updateTabPath(this.paneId, this.currentTabId, event.path);
     this.pathHistoryService.addPath(event.path, this.paneId);
     if (isFirstMeta) {
@@ -1502,7 +1529,6 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     const fsPath      = this.archiveStack[0]?.fsPath ?? '';
     const virtualPath = buildArchiveDisplayPath(fsPath, this.archiveStack);
     this.currentPath  = virtualPath;
-    this.tabPaths.set(this.currentTabId, virtualPath);
 
     const title = buildArchiveTabTitle(fsPath, this.archiveStack);
     this.workspaceService.updateTabPathAndTitle(this.paneId, this.currentTabId, virtualPath, title);
@@ -1540,15 +1566,15 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
 
   applyFilter(): void {
     // Prune any optimistic hides that are no longer present in the current listing.
-    if (this.optimisticHiddenPaths.size > 0) {
+    if (this.dir.optimisticHiddenPaths.size > 0) {
       const present = new Set(this.entries.map(e => e.path));
-      for (const p of Array.from(this.optimisticHiddenPaths)) {
-        if (!present.has(p)) this.optimisticHiddenPaths.delete(p);
+      for (const p of Array.from(this.dir.optimisticHiddenPaths)) {
+        if (!present.has(p)) this.dir.optimisticHiddenPaths.delete(p);
       }
     }
 
-    const baseEntries = this.optimisticHiddenPaths.size > 0
-      ? this.entries.filter(e => e.path === PARENT_ENTRY_PATH || !this.optimisticHiddenPaths.has(e.path))
+    const baseEntries = this.dir.optimisticHiddenPaths.size > 0
+      ? this.entries.filter(e => e.path === PARENT_ENTRY_PATH || !this.dir.optimisticHiddenPaths.has(e.path))
       : this.entries;
 
     const q = this.filterQuery;
@@ -1566,10 +1592,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   private persistDirTabState(): void {
-    if (this.activeTabKind !== 'dir') return;
-    if (!this.currentTabId) return;
-    if (this.isInArchive()) return;
-    this.dirTabStates.save(this.currentTabId, this);
+    // DirSurfaceSession is the source of truth now; kept for compatibility with existing call sites.
   }
 
   // ── Selection ─────────────────────────────────────────────────────────────
@@ -1606,8 +1629,8 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
 
   emitPreviewTargetFromState(): void {
     const next = this.getPreviewTargetPath();
-    if (this.lastPreviewTargetEmitted === next) return;
-    this.lastPreviewTargetEmitted = next;
+    if (this.dir.lastPreviewTargetEmitted === next) return;
+    this.dir.lastPreviewTargetEmitted = next;
     this.previewTargetChange.emit(next);
   }
 

@@ -19,6 +19,7 @@ import (
 // App is the main application struct bound to the Wails frontend.
 type App struct {
 	ctx        context.Context
+	archive    *ArchiveService
 	nav        *NavigationManager
 	workspaces *WorkspaceManager
 	operations *OperationManager
@@ -43,7 +44,8 @@ func NewApp() *App {
 		}
 	}
 
-	return &App{
+	app := &App{
+		archive:    nil,
 		nav:        NewNavigationManager(),
 		workspaces: wm,
 		operations: NewOperationManager(),
@@ -51,6 +53,8 @@ func NewApp() *App {
 		dirStreams: make(map[string]context.CancelFunc),
 		archCache:  cache.New(resolveChain),
 	}
+	app.archive = NewArchiveService(app)
+	return app
 }
 
 // startup is called by Wails when the app starts.
@@ -198,10 +202,6 @@ func (a *App) DismissOperation(id string) {
 // registry (zip, tar/tar.gz/tar.bz2, rar, 7z). The handler is selected by
 // archive.ForPath() based on the innermost name in the chain, so the calling
 // convention from the frontend is unchanged.
-func (a *App) ArchiveBrowse(fsPath string, nestedChain []string, innerPath string) (ArchiveListing, error) {
-	return a.vfsBrowseArchive(fsPath, nestedChain, innerPath)
-}
-
 // vfsBrowseArchive delegates archive listing to whichever VFS handler is
 // registered for the given path (zip, tar, rar, 7z, …).
 // Archives are opened once and kept alive in archCache; subsequent calls for
@@ -267,10 +267,6 @@ func vfsEntryToFileInfo(e vfslib.FileInfo, parentChain []string) FileInfo {
 		IsNested:    ft == FileTypeArchive,
 		NestedChain: nestedChain,
 	}
-}
-
-func (a *App) ArchiveRead(fsPath string, nestedChain []string, entryPath string, encoding string) (*FileContent, error) {
-	return a.ArchiveReadFile(fsPath, nestedChain, entryPath, encoding)
 }
 
 // ============================================================================

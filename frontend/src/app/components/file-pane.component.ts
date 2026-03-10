@@ -11,7 +11,7 @@ import { WorkspaceService } from '../services/workspace.service';
 import { FilterService } from '../services/filter.service';
 import { PathHistoryService } from '../services/path-history.service';
 import {
-  ArchiveService, ArchiveFrame, isArchive, buildArchiveDisplayPath, buildArchiveTabTitle,
+  ArchiveService, ArchiveFrame, isArchive,
   parseArchivePath, buildArchivePath
 } from '../services/archive.service';
 import { parentPath, normalizePath } from './address-bar.utils';
@@ -22,8 +22,15 @@ import { DirSurfaceVm } from '../surfaces/dir/dir-surface.vm';
 import { DirSurfaceSession } from '../surfaces/dir/dir-surface-session';
 import { DirSurfaceRuntime } from '../surfaces/dir/dir-surface-runtime';
 import { FilePaneDirSurfaceRuntime } from '../surfaces/dir/file-pane-dir-surface-runtime';
+import { DirTabStateController, type DirTabRuntime } from '../surfaces/dir/dir-tab-state-controller';
 import { SurfaceContext } from '../surfaces/surface-context';
 import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
+import { FilePaneArchiveController, type FilePaneArchiveHost } from './file-pane-archive.controller';
+import { FilePaneNavigationController, type FilePaneNavigationHost } from './file-pane-navigation.controller';
+import { FilePaneOpenController, type FilePaneOpenHost } from './file-pane-open.controller';
+import { FilePaneOperationsController, type FilePaneOperationsHost } from './file-pane-operations.controller';
+import { FilePanePreviewController, type FilePanePreviewHost } from './file-pane-preview.controller';
+import { FilePaneStateController, type FilePaneStateHost } from './file-pane-state.controller';
 import {
   DirListStreamController,
   DirStreamMetaEvent,
@@ -100,6 +107,7 @@ declare const window: any;
 export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   private readonly dirStream: DirListStreamController;
   private readonly dirSessions = new Map<string, DirSurfaceSession>();
+  private readonly dirTabStateController = new DirTabStateController();
   private activeDirTabId: string | null = null;
   readonly dirVm: DirSurfaceVm = new (class implements DirSurfaceVm {
     constructor(private pane: FilePaneComponent) {}
@@ -217,6 +225,185 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     () => this.filteredEntries,
     PARENT_ENTRY_PATH,
   );
+  private readonly navigationController = new FilePaneNavigationController();
+  private readonly archiveController = new FilePaneArchiveController();
+  private readonly openController = new FilePaneOpenController();
+  private readonly operationsController = new FilePaneOperationsController();
+  private readonly previewController = new FilePanePreviewController();
+  private readonly stateController = new FilePaneStateController(
+    PARENT_ENTRY_PATH,
+    FileType.FILE,
+    FileType.SYMLINK,
+  );
+
+  private get navigationHost(): FilePaneNavigationHost {
+    const thisRef = this;
+    return {
+      get paneId() { return thisRef.paneId; },
+      get workspace() { return thisRef.workspace; },
+      get showHidden() { return thisRef.showHidden; },
+      get currentTabId() { return thisRef.currentTabId; },
+      set currentTabId(value: string) { thisRef.currentTabId = value; },
+      get currentPath() { return thisRef.currentPath; },
+      set currentPath(value: string) { thisRef.currentPath = value; },
+      get pathReady() { return thisRef.pathReady; },
+      set pathReady(value: boolean) { thisRef.pathReady = value; },
+      get tabs() { return thisRef.tabs; },
+      set tabs(value: TabInfo[]) { thisRef.tabs = value; },
+      get activeDirTabId() { return thisRef.activeDirTabId; },
+      set activeDirTabId(value: string | null) { thisRef.activeDirTabId = value; },
+      get archiveStack() { return thisRef.archiveStack; },
+      set archiveStack(value: ArchiveFrame[]) { thisRef.archiveStack = value; },
+      apiService: this.apiService,
+      workspaceService: this.workspaceService,
+      getDirSession: () => this.dir,
+      isInArchive: () => this.isInArchive(),
+      clearArchiveState: () => this.clearArchiveState(),
+      pathIsInsideArchive: (path: string) => this.pathIsInsideArchive(path),
+      loadPathTransparently: (path: string) => this.loadPathTransparently(path),
+      renderArchiveFrame: (frame: ArchiveFrame) => this.renderArchiveFrame(frame),
+      applyFilter: () => this.applyFilter(),
+      emitPreviewTargetFromState: () => this.emitPreviewTargetFromState(),
+      emitActiveTabChange: (tab: TabInfo) => this.activeTabChange.emit(tab),
+    };
+  }
+
+  private get stateHost(): FilePaneStateHost {
+    const thisRef = this;
+    return {
+      get entries() { return thisRef.entries; },
+      set entries(value: FileInfo[]) { thisRef.entries = value; },
+      get filteredEntries() { return thisRef.filteredEntries; },
+      set filteredEntries(value: FileInfo[]) { thisRef.filteredEntries = value; },
+      get selectedFiles() { return thisRef.selectedFiles; },
+      set selectedFiles(value: Set<string>) { thisRef.selectedFiles = value; },
+      get selectionCursorPath() { return thisRef.selectionCursorPath; },
+      set selectionCursorPath(value: string | null) { thisRef.selectionCursorPath = value; },
+      get selectionAnchorPath() { return thisRef.selectionAnchorPath; },
+      set selectionAnchorPath(value: string | null) { thisRef.selectionAnchorPath = value; },
+      get filterQuery() { return thisRef.filterQuery; },
+      set filterQuery(value: FilterQuery) { thisRef.filterQuery = value; },
+      get currentView() { return thisRef.currentView; },
+      set currentView(value: ViewLayout) { thisRef.currentView = value; },
+      get lastPreviewTargetEmitted() { return thisRef.dir.lastPreviewTargetEmitted; },
+      set lastPreviewTargetEmitted(value: string | null) { thisRef.dir.lastPreviewTargetEmitted = value; },
+      isInArchive: () => thisRef.isInArchive(),
+      getSelectableEntries: () => thisRef.dirRuntime.getSelectableEntries(),
+      getOptimisticHiddenPaths: () => thisRef.getOptimisticHiddenPaths(),
+      setOptimisticHiddenPaths: (paths: string[]) => thisRef.setOptimisticHiddenPaths(paths),
+      filterEntries: (entries: FileInfo[], query: FilterQuery) => thisRef.filterService.filterEntries(entries, query),
+      findEntry: (path: string) => thisRef.entries.find(entry => entry.path === path),
+      emitPreviewTarget: (path: string) => thisRef.previewTargetChange.emit(path),
+      scrollToCursorPath: (path: string) => thisRef.scrollToCursorPath(path),
+      getGridColumns: () => thisRef.fileViewContainer?.getGridColumns() ?? 1,
+      getApproxPageSize: () => thisRef.fileViewContainer?.getApproxPageSize() ?? 10,
+      persistDirTabState: () => thisRef.persistDirTabState(),
+    };
+  }
+
+  private get archiveHost(): FilePaneArchiveHost {
+    const thisRef = this;
+    return {
+      get paneId() { return thisRef.paneId; },
+      get currentTabId() { return thisRef.currentTabId; },
+      get currentPath() { return thisRef.currentPath; },
+      set currentPath(value: string) { thisRef.currentPath = value; },
+      get fsParentDir() { return thisRef.fsParentDir; },
+      set fsParentDir(value: string) { thisRef.fsParentDir = value; },
+      get archiveStack() { return thisRef.archiveStack; },
+      set archiveStack(value: ArchiveFrame[]) { thisRef.archiveStack = value; },
+      get entries() { return thisRef.entries; },
+      set entries(value: FileInfo[]) { thisRef.entries = value; },
+      get selectedFiles() { return thisRef.selectedFiles; },
+      set selectedFiles(value: Set<string>) { thisRef.selectedFiles = value; },
+      get loading() { return thisRef.loading; },
+      set loading(value: boolean) { thisRef.loading = value; },
+      get error() { return thisRef.error; },
+      set error(value: string | null) { thisRef.error = value; },
+      get tabs() { return thisRef.tabs; },
+      set tabs(value: TabInfo[]) { thisRef.tabs = value; },
+      get archiveMoveWarning() { return thisRef.archiveMoveWarning; },
+      set archiveMoveWarning(value: boolean) { thisRef.archiveMoveWarning = value; },
+      get archivePendingMoveEntries() { return thisRef.archivePendingMoveEntries; },
+      set archivePendingMoveEntries(value: string[]) { thisRef.archivePendingMoveEntries = value; },
+      get archivePendingMoveDestDir() { return thisRef.archivePendingMoveDestDir; },
+      set archivePendingMoveDestDir(value: string) { thisRef.archivePendingMoveDestDir = value; },
+      archiveService: this.archiveService,
+      workspaceService: this.workspaceService,
+      confirmDialog: this.confirmDialog,
+      withParentEntry: (raw: FileInfo[], inArchive: boolean, fsPath: string) => thisRef.withParentEntry(raw, inArchive, fsPath),
+      applyFilter: () => thisRef.applyFilter(),
+      loadDirectory: (path: string, opts?: { preserveUI?: boolean; focusPath?: string }) => thisRef.loadDirectory(path, opts),
+      clearArchiveState: () => thisRef.clearArchiveState(),
+      focusTreeNode: (path: string) => {
+        try {
+          thisRef.fileViewContainer?.treeComponent?.focusNode(path);
+        } catch {
+          // best-effort only
+        }
+      },
+    };
+  }
+
+  private get operationsHost(): FilePaneOperationsHost {
+    const thisRef = this;
+    return {
+      get paneId() { return thisRef.paneId; },
+      get currentPath() { return thisRef.currentPath; },
+      get currentView() { return thisRef.currentView; },
+      get entries() { return thisRef.entries; },
+      get selectedFiles() { return thisRef.selectedFiles; },
+      apiService: this.apiService,
+      confirmDialog: this.confirmDialog,
+      isInArchive: () => thisRef.isInArchive(),
+      deleteSelectedFromArchive: (effective: Set<string>) => thisRef.archiveController.deleteSelectedFromArchive(thisRef.archiveHost, effective),
+      getEffectiveSelection: () => thisRef.getEffectiveSelection(),
+      loadDirectory: (path: string) => thisRef.loadDirectory(path),
+      emitCopyToOther: (paths: string[]) => thisRef.copyToOther.emit(paths),
+      emitMoveToOther: (paths: string[]) => thisRef.moveToOther.emit(paths),
+      startRenameSelected: () => thisRef.fileViewContainer?.startRenameSelected(),
+      getVisibleTreeNodes: () => thisRef.fileViewContainer?.treeComponent?.getVisibleNodes() ?? [],
+    };
+  }
+
+  private get previewHost(): FilePanePreviewHost {
+    const thisRef = this;
+    return {
+      get paneId() { return thisRef.paneId; },
+      get activeTabKind() { return thisRef.activeTabKind; },
+      get entries() { return thisRef.entries; },
+      get archiveStack() { return thisRef.archiveStack; },
+      get tabs() { return thisRef.tabs; },
+      set tabs(value: any[]) { thisRef.tabs = value as TabInfo[]; },
+      apiService: this.apiService,
+      workspaceService: this.workspaceService,
+      confirmDialog: this.confirmDialog,
+      isInArchive: () => thisRef.isInArchive(),
+      getEffectiveSelection: () => thisRef.getEffectiveSelection(),
+      onTabChange: (tab: any) => thisRef.onTabChange(tab as TabInfo),
+    };
+  }
+
+  private get openHost(): FilePaneOpenHost {
+    const thisRef = this;
+    return {
+      get currentPath() { return thisRef.currentPath; },
+      set currentPath(value: string) { thisRef.currentPath = value; },
+      get currentView() { return thisRef.currentView; },
+      get entries() { return thisRef.entries; },
+      apiService: this.apiService,
+      isInArchive: () => thisRef.isInArchive(),
+      exitArchive: () => thisRef.exitArchive(),
+      clearArchiveState: () => thisRef.clearArchiveState(),
+      archiveNavigateInto: (path: string) => thisRef.archiveNavigateInto(path),
+      openNestedArchive: (chain: string[]) => thisRef.openNestedArchive(chain),
+      loadDirectory: (path: string) => thisRef.loadDirectory(path),
+      openRootArchive: (path: string) => thisRef.openRootArchive(path),
+      emitPathChange: (path: string) => thisRef.pathChange.emit(path),
+      getEffectiveSelection: () => thisRef.getEffectiveSelection(),
+      openPathInNewTab: (path: string) => thisRef.openPathInNewTab(path),
+    };
+  }
 
   private get dir(): DirSurfaceSession {
     const id = this.activeDirTabId ?? this.currentTabId;
@@ -232,12 +419,72 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       const df = localStorage.getItem('fileManager_directoriesFirst');
       if (df === 'true' || df === 'false') session.directoriesFirst = df === 'true';
 
+      const savedState = this.dirTabStateController.load(session.tabId);
+      if (savedState) {
+        this.dirTabStateController.applyBeforeLoad(savedState, this.createDirTabRuntime(session));
+      }
+
       this.dirSessions.set(session.tabId, session);
     }
     // If current tab is a dir tab, keep activeDirTabId aligned.
     const t = this.tabs.find(t => t.id === this.currentTabId);
     if ((t?.kind ?? 'dir') === 'dir') this.activeDirTabId = session.tabId;
     return session;
+  }
+
+  private createDirTabRuntime(session: DirSurfaceSession): DirTabRuntime {
+    return {
+      isInArchive: () => this.isInArchive(),
+      getEntriesPaths: () => (session.entries ?? []).map(entry => entry.path),
+      getSelectableEntriesPaths: () => this.dirRuntime.getSelectableEntries().map(entry => entry.path),
+      applyFilter: () => this.applyFilter(),
+      scrollToCursorPath: (path: string) => this.scrollToCursorPath(path),
+      emitPreviewTargetFromState: () => this.emitPreviewTargetFromState(),
+      getOptimisticHiddenPaths: () => Array.from(session.optimisticHiddenPaths ?? []),
+      setOptimisticHiddenPaths: (paths: string[]) => {
+        session.optimisticHiddenPaths = new Set((paths ?? []).filter(Boolean));
+      },
+      get currentPath() { return session.currentPath; },
+      set currentPath(value: string) { session.currentPath = value; },
+      get showHidden() { return !!session.showHiddenLoaded; },
+      set showHidden(_value: boolean) {},
+      get entries() { return session.entries; },
+      set entries(value: FileInfo[]) { session.entries = value; },
+      get currentView() { return session.currentView; },
+      set currentView(value: ViewLayout) { session.currentView = value; },
+      get sortField() { return session.sortField; },
+      set sortField(value: string) { session.sortField = value; },
+      get sortDirection() { return session.sortDirection; },
+      set sortDirection(value: 'asc' | 'desc') { session.sortDirection = value; },
+      get directoriesFirst() { return session.directoriesFirst; },
+      set directoriesFirst(value: boolean) { session.directoriesFirst = value; },
+      get filterQuery() { return session.filterQuery; },
+      set filterQuery(value: FilterQuery) { session.filterQuery = value; },
+      get selectedFiles() { return session.selectedFiles; },
+      set selectedFiles(value: Set<string>) { session.selectedFiles = value; },
+      get selectionCursorPath() { return session.selectionCursorPath; },
+      set selectionCursorPath(value: string | null) { session.selectionCursorPath = value; },
+      get selectionAnchorPath() { return session.selectionAnchorPath; },
+      set selectionAnchorPath(value: string | null) { session.selectionAnchorPath = value; },
+    };
+  }
+
+  private get activeDirTabStateRuntime(): DirTabRuntime {
+    return this.createDirTabRuntime(this.dir);
+  }
+
+  private restoreActiveDirTabState(): void {
+    const tabId = this.activeDirTabId ?? this.currentTabId;
+    if (!tabId || this.activeTabKind !== 'dir' || this.isInArchive()) {
+      return;
+    }
+
+    const savedState = this.dirTabStateController.load(tabId);
+    if (!savedState) {
+      return;
+    }
+
+    this.dirTabStateController.finalizeAfterLoad(savedState, this.activeDirTabStateRuntime);
   }
 
   private currentViewPrefFromStorage(): ViewLayout {
@@ -571,43 +818,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   onNodeDoubleClick(entry: FileInfo): void {
-    if (entry.path === PARENT_ENTRY_PATH) { this.onNavigateUp(); return; }
-    // In tree view, non-directory double-clicks must bypass onNavigate (which
-    // now returns early to update the address bar). Handle open actions here.
-    if (this.currentView === 'tree' && entry.type !== FileType.DIRECTORY) {
-      if (entry.type === FileType.ARCHIVE || isArchive(entry.name)) {
-        this.openRootArchive(entry.path);
-        return;
-      }
-      if (entry.name.toLowerCase().endsWith('.lnk') || entry.type === FileType.SYMLINK) {
-        this.resolveAndOpen(entry.path);
-        return;
-      }
-      this.apiService.openFile(entry.path).catch(err =>
-        console.error('Failed to open file:', err)
-      );
-      return;
-    }
-    this.onNavigate(entry);
-  }
-
-  /** Resolves a .lnk or symlink and either navigates into (dir) or opens (file). */
-  private resolveAndOpen(path: string): void {
-    this.apiService.resolveLink(path).then(result => {
-      if (result.isDir) {
-        this.loadDirectory(result.target);
-      } else {
-        this.apiService.openFile(result.target).catch(err =>
-          console.error('Failed to open link target:', err)
-        );
-      }
-    }).catch(err => {
-      // Fallback: let the OS handle it
-      console.warn('Could not resolve link, falling back to OS open:', err);
-      this.apiService.openFile(path).catch(e =>
-        console.error('Failed to open file:', e)
-      );
-    });
+    this.openController.onNodeDoubleClick(this.openHost, entry, () => this.onNavigateUp());
   }
 
   // в”Ђв”Ђ Virtual ".." entry helpers в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
@@ -681,69 +892,15 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   // в”Ђв”Ђ Pane state в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
   private async loadPaneState(): Promise<void> {
-    if (!this.workspace) return;
-    this.tabs = this.workspaceService.getTabs(this.paneId);
-    const activeTab  = this.workspaceService.getActiveTab(this.paneId);
-    const savedPath  = activeTab?.path ?? '';
-    const activeKind = (activeTab?.kind ?? 'dir');
-
-    const allPaths   = this.workspaceService.getAllTabPaths();
-    const windowsRoot = allPaths.find(p => /^[A-Za-z]:[/\\]/.test(p));
-    let platformRoot = windowsRoot
-      ? windowsRoot.replace(/\\/g, '/').replace(/^([A-Za-z]:).*$/, '$1/')
-      : '/';
-
-    // No cached Windows path yet вЂ” ask the backend for the system drive.
-    // This ensures a fresh Windows install starts on C:/ (or the actual
-    // system drive) instead of the Unix-style '/'.
-    if (platformRoot === '/') {
-      try {
-        const osInfo = await this.apiService.getOSInfo();
-        if (osInfo?.systemDrive) {
-          const drive = (osInfo.systemDrive as string).replace(/\\/g, '/').toUpperCase();
-          platformRoot = drive.endsWith('/') ? drive : drive + '/';
-        }
-      } catch { /* ignore вЂ” stays '/' on non-Windows */ }
-    }
-
-    const isWindows   = platformRoot !== '/';
-    const pathIsStale = !savedPath || (isWindows && savedPath === '/');
-    const pathToLoad  = pathIsStale ? platformRoot : savedPath;
-
-    this.pathReady   = true;
-    if (activeTab) this.currentTabId = activeTab.id;
-
-    // Viewer tabs don't drive directory loading; keep directory state as-is.
-    if (activeKind === 'viewer') {
-      // Keep a stable "active dir session" for operations/preview origin restore.
-      if (!this.activeDirTabId) {
-        const firstDir = this.tabs.find(t => (t.kind ?? 'dir') === 'dir');
-        if (firstDir) this.activeDirTabId = firstDir.id;
-      }
-      // Ensure currentPath isn't empty (used by various helpers even if UI is hidden).
-      if (!this.currentPath) this.currentPath = platformRoot;
-      return;
-    }
-
-    // Activate per-tab session.
-    if (activeTab) this.activeDirTabId = activeTab.id;
-    this.currentPath = pathToLoad;
-    this.clearArchiveState();
-
-    const session = this.dir;
-    const cachedOk =
-      !this.pathIsInsideArchive(pathToLoad) &&
-      session.currentPath === pathToLoad &&
-      session.showHiddenLoaded === this.showHidden &&
-      (session.entries?.length ?? 0) > 0;
-
-    if (cachedOk) {
-      this.applyFilter();
-      this.emitPreviewTargetFromState();
-      return;
-    }
-
-    await this.loadPathTransparently(pathToLoad);
+    const host = this.navigationHost;
+    await this.navigationController.loadPaneState(host);
+    this.currentTabId = host.currentTabId;
+    this.currentPath = host.currentPath;
+    this.pathReady = host.pathReady;
+    this.tabs = host.tabs;
+    this.activeDirTabId = host.activeDirTabId;
+    this.archiveStack = host.archiveStack;
+    this.restoreActiveDirTabState();
   }
 
   private clearArchiveState(): void {
@@ -785,64 +942,14 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   // в”Ђв”Ђ Tab management в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
   async onTabChange(tab: TabInfo): Promise<void> {
-    const current = this.tabs.find(t => t.id === this.currentTabId);
-    const currentKind = (current?.kind ?? 'dir');
-
-    if (currentKind === 'dir' && this.currentTabId && this.currentPath) {
-      if (this.isInArchive()) {
-        this.workspaceService.saveArchiveState(this.paneId, this.currentTabId, {
-          path: this.currentPath, archiveStack: this.archiveStack,
-          fsDirPath: this.archiveStack[0]?.fsPath ?? '', fsParentDir: this.fsParentDir,
-        });
-      } else {
-        this.workspaceService.updateTabPath(this.paneId, this.currentTabId, this.currentPath);
-      }
-    }
-
-    this.workspaceService.switchTab(this.paneId, tab.id);
-    this.currentTabId = tab.id;
-    this.clearArchiveState();
-
-    // Viewer tab: render surface only; no directory load.
-    if ((tab.kind ?? 'dir') === 'viewer') {
-      this.tabs = this.workspaceService.getTabs(this.paneId);
-      this.activeTabChange.emit(tab);
-      return;
-    }
-
-    // Switch active session for this dir tab.
-    this.activeDirTabId = tab.id;
-
-    const archiveState = this.workspaceService.getArchiveState(this.paneId, tab.id);
-    if (archiveState) {
-      this.currentPath  = archiveState.path;
-      this.archiveStack = archiveState.archiveStack;
-      this.fsParentDir  = archiveState.fsParentDir;
-      if (this.archiveStack.length > 0) {
-        this.renderArchiveFrame(this.archiveStack[this.archiveStack.length - 1]);
-      }
-      return;
-    }
-
-    const restoredPath = tab.path;
-    if (restoredPath) this.currentPath = restoredPath;
-
-    const session = this.dir;
-    const cachedOk =
-      !this.pathIsInsideArchive(restoredPath) &&
-      session.currentPath === restoredPath &&
-      session.showHiddenLoaded === this.showHidden &&
-      (session.entries?.length ?? 0) > 0;
-
-    if (cachedOk) {
-      this.applyFilter();
-      this.emitPreviewTargetFromState();
-      this.activeTabChange.emit(tab);
-      return;
-    }
-
-    await this.loadPathTransparently(restoredPath);
-    this.activeTabChange.emit(tab);
+    const host = this.navigationHost;
+    await this.navigationController.onTabChange(host, tab);
+    this.currentTabId = host.currentTabId;
+    this.currentPath = host.currentPath;
+    this.tabs = host.tabs;
+    this.activeDirTabId = host.activeDirTabId;
+    this.archiveStack = host.archiveStack;
+    this.restoreActiveDirTabState();
   }
 
   /** Best-effort: focus/move cursor to a path if it exists in the current listing. */
@@ -878,49 +985,12 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   private async restoreArchiveFromPath(path: string): Promise<void> {
-    this.loading = true;
-    this.error   = null;
-    try {
-      // parseArchivePath correctly splits into:
-      //   fsPath      вЂ“ the on-disk archive file (e.g. "C:/foo/archive.zip")
-      //   nestedChain вЂ“ nested archive segments inside (e.g. ["folder/inner.zip"])
-      //   innerPath   вЂ“ regular subdirectory to navigate into (e.g. "subdir")
-      const { fsPath, nestedChain, innerPath } = parseArchivePath(path);
-
-      // 1. Open root archive
-      let frame = await this.archiveService.openRootArchive(fsPath);
-      const stack: ArchiveFrame[] = [frame];
-
-      // 2. Open each nested archive level using cumulative chains
-      for (let i = 0; i < nestedChain.length; i++) {
-        frame = await this.archiveService.openNestedArchive(frame, nestedChain.slice(0, i + 1));
-        stack.push(frame);
-      }
-
-      // 3. Navigate into the inner subdirectory (if any) within the deepest archive
-      if (innerPath) {
-        frame = await this.archiveService.navigateInto(frame, innerPath);
-        stack[stack.length - 1] = frame;
-      }
-
-      this.archiveStack = stack;
-      this.renderArchiveFrame(stack[stack.length - 1]);
-
-      const virtualPath = buildArchiveDisplayPath(stack[0].fsPath, this.archiveStack);
-      const title = buildArchiveTabTitle(stack[0].fsPath, this.archiveStack);
-      this.workspaceService.updateTabPathAndTitle(this.paneId, this.currentTabId, virtualPath, title);
-      this.tabs = this.workspaceService.getTabs(this.paneId);
-      // Focus tree to the virtual path (best-effort)
-      setTimeout(() => { try { this.fileViewContainer?.treeComponent?.focusNode(this.currentPath); } catch {} }, 0);
-    } catch (err: any) {
-      this.error = err.message || 'Failed to restore archive tab';
-    } finally {
-      this.loading = false;
-    }
+    await this.archiveController.restoreArchiveFromPath(this.archiveHost, path);
   }
 
   onTabClose(tab: TabInfo): void {
     this.dirSessions.delete(tab.id);
+    this.dirTabStateController.delete(tab.id);
     if (this.activeDirTabId === tab.id) this.activeDirTabId = null;
     this.workspaceService.clearArchiveState(this.paneId, tab.id);
     this.workspaceService.closeTab(this.paneId, tab.id);
@@ -1066,6 +1136,8 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
         setTimeout(() => this.fileViewContainer?.scrollToCursorPath(target.path), 0);
       }
       this.pendingFocusPath = null;
+    } else if (this.dirTabStateController.load(this.activeDirTabId ?? this.currentTabId)) {
+      this.restoreActiveDirTabState();
     } else if (!this.selectionCursorPath) {
       const firstReal = this.filteredEntries.find(e => e.path !== PARENT_ENTRY_PATH);
       if (firstReal) {
@@ -1091,187 +1163,27 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
    * into that folder rather than the generic currentPath.
    */
   getDestinationDir(): string {
-    if (this.selectedFiles.size !== 1) return this.currentPath;
-    const [selectedPath] = this.selectedFiles;
-
-    // List / grid / details mode: check entries directly.
-    const entry = this.entries.find(e => e.path === selectedPath);
-    if (entry?.type === FileType.DIRECTORY) return selectedPath;
-
-    // Tree mode: check visible tree nodes.
-    if (this.currentView === 'tree') {
-      const nodes = this.fileViewContainer?.treeComponent?.getVisibleNodes() ?? [];
-      const node = nodes.find((n: any) => n.path === selectedPath);
-      if (node?.type === FileType.DIRECTORY) return selectedPath;
-    }
-
-    return this.currentPath;
+    return this.operationsController.getDestinationDir(this.operationsHost);
   }
 
   // в”Ђв”Ђ Archive segment click в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
   async onArchiveSegmentClick(virtualPath: string): Promise<void> {
-    // Not currently in an archive вЂ” open it fresh (e.g. typed in address bar, or pin click)
-    if (!this.isInArchive()) {
-      this.currentPath = virtualPath;
-      this.clearArchiveState();
-      await this.restoreArchiveFromPath(virtualPath);
-      return;
-    }
-
-    const fsNorm   = (this.archiveStack[0]?.fsPath ?? '').replace(/\\/g, '/');
-    const vNorm    = virtualPath.replace(/\\/g, '/');
-    const afterFs  = vNorm.startsWith(fsNorm) ? vNorm.slice(fsNorm.length).replace(/^\//, '') : '';
-
-    if (!afterFs) {
-      const rootFrame = this.archiveStack[0];
-      this.loading = true;
-      try {
-        const frame = await this.archiveService.navigateInto(rootFrame, '');
-        this.archiveStack = [{ ...frame, innerPath: '' }];
-        this.renderArchiveFrame({ ...frame, innerPath: '' });
-      } catch (err: any) { this.error = err.message; }
-      finally { this.loading = false; }
-      return;
-    }
-
-    const parts = afterFs.split('/').filter(Boolean);
-    this.loading = true;
-    try {
-      let frame = await this.archiveService.navigateInto(this.archiveStack[0], '');
-      let stack: ArchiveFrame[] = [{ ...frame, innerPath: '' }];
-
-      for (const part of parts) {
-        const isNested = frame.listing.entries.some(
-          e => e.name === part && (e.type === FileType.ARCHIVE || isArchive(e.name))
-        );
-        if (isNested) {
-          const nestedChain = [...frame.nestedChain, part];
-          frame = await this.archiveService.openNestedArchive(frame, nestedChain);
-          stack.push(frame);
-        } else {
-          const innerPath = frame.innerPath ? `${frame.innerPath}/${part}` : part;
-          frame = await this.archiveService.navigateInto(stack[stack.length - 1], innerPath);
-          stack = [...stack.slice(0, -1), frame];
-        }
-      }
-
-      this.archiveStack = stack;
-      this.renderArchiveFrame(stack[stack.length - 1]);
-    } catch (err: any) {
-      this.error = err.message || 'Failed to navigate to archive segment';
-    } finally {
-      this.loading = false;
-    }
+    await this.archiveController.onArchiveSegmentClick(this.archiveHost, virtualPath);
   }
 
   // в”Ђв”Ђ Navigation в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
   onNavigate(entry: FileInfo): void {
-    if (entry.path === PARENT_ENTRY_PATH) { this.onNavigateUp(); return; }
-
-    // Tree navigation: real FS directory must exit archive mode first so the
-    // tree root is never overwritten with a virtual archive path.
-    if (this.currentView === 'tree' && entry.type === FileType.DIRECTORY) {
-      if (this.isInArchive()) {
-        this.exitArchive();
-        this.clearArchiveState();
-      }
-      this.currentPath = entry.path;
-      this.pathChange.emit(entry.path);
-      return;
-    }
-    // For file/file-symlink/archive nodes in tree view: update the address bar
-    // to the parent directory without opening the item (opening is handled via
-    // the nodeDoubleClick path in onNodeDoubleClick).
-    // Dir-symlinks have type=DIRECTORY and are handled by the block above.
-    if (this.currentView === 'tree' && (entry.type === FileType.FILE || entry.type === FileType.SYMLINK || entry.type === FileType.ARCHIVE)) {
-      const parent = parentPath(entry.path);
-      this.currentPath = parent;
-      this.pathChange.emit(parent);
-      return;
-    }
-
-    if (this.isInArchive()) {
-      if (entry.type === FileType.DIRECTORY) { this.archiveNavigateInto(entry.path); }
-      else if (entry.type === FileType.ARCHIVE) {
-        const chain: string[] = (entry as any).nestedChain;
-        if (chain?.length) this.openNestedArchive(chain);
-      }
-      return;
-    }
-
-    if (entry.type === FileType.DIRECTORY) {
-      this.loadDirectory(entry.path);
-      return;
-    }
-    if (entry.type === FileType.ARCHIVE || isArchive(entry.name)) {
-      this.openRootArchive(entry.path);
-      return;
-    }
-    // .lnk Shell Links (Windows) and unresolved Unix file-symlinks
-    if (entry.name.toLowerCase().endsWith('.lnk') || entry.type === FileType.SYMLINK) {
-      this.resolveAndOpen(entry.path);
-      return;
-    }
-    // Regular file вЂ” open with default OS application
-    this.apiService.openFile(entry.path).catch(err =>
-      console.error('Failed to open file:', err)
-    );
+    this.openController.onNavigate(this.openHost, entry, () => this.onNavigateUp());
   }
 
   onOpenSelectedItem(): void {
-    const effective = this.getEffectiveSelection();
-    const selected = Array.from(effective);
-    if (selected.length === 1) {
-      const entry = this.entries.find(e => e.path === selected[0]);
-      if (entry) this.onNavigate(entry);
-    }
+    this.openController.onOpenSelectedItem(this.openHost, () => this.onNavigateUp());
   }
 
   async openQuickView(): Promise<void> {
-    if (this.activeTabKind !== 'dir') return;
-
-    const effective = this.getEffectiveSelection();
-    const selected = Array.from(effective).filter(p => p && p !== PARENT_ENTRY_PATH);
-    if (selected.length !== 1) return;
-
-    const path = selected[0];
-    try {
-      if (this.isInArchive()) {
-        // Build archive context вЂ” viewer extracts entry bytes into memory via ArchiveReadFile.
-        const frame = this.archiveStack[this.archiveStack.length - 1];
-        const entry = this.entries.find(e => e.path === path);
-        if (!entry || entry.type === FileType.DIRECTORY) return;
-
-        const archiveContext: ViewerArchiveContext = {
-          fsPath:      this.archiveStack[0].fsPath,
-          nestedChain: frame.nestedChain ?? [],
-          entryPath:   entry.path,
-        };
-        const tab = this.workspaceService.addViewerTab(this.paneId, path, {
-          activate: true, closable: true, archiveContext,
-        });
-        if (!tab) return;
-        this.tabs = this.workspaceService.getTabs(this.paneId);
-        await this.onTabChange(tab);
-        return;
-      }
-
-      const isDir = await this.apiService.isDirectory(path);
-      if (isDir) return;
-
-      const tab = this.workspaceService.addViewerTab(this.paneId, path, {
-        activate: true,
-        closable: true,
-      });
-      if (!tab) return;
-
-      this.tabs = this.workspaceService.getTabs(this.paneId);
-      await this.onTabChange(tab);
-    } catch (err: any) {
-      this.confirmDialog.alert(`Preview Failed\n${err?.message || String(err)}`);
-    }
+    await this.previewController.openQuickView(this.previewHost);
   }
 
   /** Open a new, closable viewer tab for the given filesystem path. */
@@ -1279,270 +1191,55 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     targetPath: string,
     opts?: { sourcePane: 'left' | 'right'; sourceTabId: string; sourceDir: string; autoFollow?: boolean },
   ): Promise<void> {
-    const path = (targetPath || '').trim();
-    if (!path) return;
-
-    try {
-      if (this.isInArchive()) {
-        // Same as openQuickView вЂ” extract via ArchiveReadFile, no disk writes.
-        const frame = this.archiveStack[this.archiveStack.length - 1];
-        const entry = this.entries.find(e => e.path === path);
-        if (!entry || entry.type === FileType.DIRECTORY) return;
-
-        const archiveContext: ViewerArchiveContext = {
-          fsPath:      this.archiveStack[0].fsPath,
-          nestedChain: frame.nestedChain ?? [],
-          entryPath:   entry.path,
-        };
-        const tab = this.workspaceService.addViewerTab(this.paneId, path, {
-          activate: true, closable: true, archiveContext,
-        });
-        if (!tab) return;
-        this.tabs = this.workspaceService.getTabs(this.paneId);
-        await this.onTabChange(tab);
-        return;
-      }
-
-      const isDir = await this.apiService.isDirectory(path);
-      if (isDir) return;
-
-      const tab = this.workspaceService.addViewerTab(this.paneId, path, {
-        activate: true,
-        closable: true,
-        autoFollow: !!opts?.autoFollow,
-        sourcePane: opts?.sourcePane,
-        sourceTabId: opts?.sourceTabId,
-        sourceDir: opts?.sourceDir,
-      });
-      if (!tab) return;
-
-      this.tabs = this.workspaceService.getTabs(this.paneId);
-      await this.onTabChange(tab);
-    } catch (err: any) {
-      this.confirmDialog.alert(`Preview Failed\n${err?.message || String(err)}`);
-    }
+    await this.previewController.openFrozenPreviewTab(this.previewHost, targetPath, opts);
   }
 
   async onOpenInNewTab(entry: FileInfo): Promise<void> {
-    if (entry.path === PARENT_ENTRY_PATH) {
-      const up = this.isInArchive() ? this.currentPath : parentPath(this.currentPath);
-      await this.openPathInNewTab(up);
-      return;
-    }
-
-    if (entry.type === FileType.DIRECTORY) {
-      await this.openPathInNewTab(entry.path);
-      return;
-    }
-
-    if (entry.type === FileType.ARCHIVE || isArchive(entry.name)) {
-      await this.openPathInNewTab(entry.path);
-    }
+    await this.openController.onOpenInNewTab(this.openHost, entry);
   }
 
   async onRenameSelected(): Promise<void> {
-    const selected = Array.from(this.selectedFiles);
-    if (selected.length !== 1) return;
-    const entry = this.entries.find(e => e.path === selected[0]);
-    if (!entry || entry.path === PARENT_ENTRY_PATH) return;
-    if (this.isInArchive()) {
-      this.confirmDialog.alert('Archive Limitation\nRename is not supported inside archives.');
-      return;
-    }
-    this.fileViewContainer?.startRenameSelected();
+    await this.operationsController.onRenameSelected(this.operationsHost);
   }
 
   async onRename(event: { entry: FileInfo; newName: string }): Promise<void> {
-    await this.renameEntry(event.entry, event.newName);
+    await this.operationsController.onRename(this.operationsHost, event);
   }
 
   async onDragDrop(event: { event: DragEvent; source: FileInfo[]; targetPath: string }): Promise<void> {
-    if (!event.source?.length || !event.targetPath) return;
-
-    if (this.isInArchive()) {
-      this.confirmDialog.alert('Archive Drag & Drop Not Supported\nUse copy/move to other pane instead.');
-      return;
-    }
-
-    const sourcePaths = event.source
-      .map(e => e.path)
-      .filter(p => p && p !== PARENT_ENTRY_PATH);
-
-    if (!sourcePaths.length) return;
-
-    try {
-      const isCopy = event.event.ctrlKey || event.event.metaKey;
-      const sourcePaneIdRaw = event.event.dataTransfer?.getData('application/x-wails-pane-id') || '';
-      const sourcePaneId = (sourcePaneIdRaw === 'left' || sourcePaneIdRaw === 'right') ? sourcePaneIdRaw : null;
-      const isCrossPane = !!sourcePaneId && sourcePaneId !== this.paneId;
-
-      const items = await Promise.all(sourcePaths.map(async sourcePath => ({
-        source: sourcePath,
-        destination: await this.buildDestinationPath(sourcePath, event.targetPath),
-      })));
-
-      if (!isCopy) {
-        const moveItems = items.filter(i => normalizePath(i.source) !== normalizePath(i.destination));
-        if (moveItems.length === 0) return;
-
-        // Cross-pane move UX: hide in source pane BEFORE starting the move.
-        if (isCrossPane) {
-          try {
-            window.dispatchEvent(new CustomEvent('pane:dnd-optimistic-hide', {
-              detail: { paneId: sourcePaneId, paths: moveItems.map(i => i.source) }
-            }));
-          } catch {
-            // ignore
-          }
-        }
-
-        await this.apiService.batchMove(moveItems, true);
-        return;
-      }
-
-      await this.apiService.batchCopy(items, true);
-    } catch (error: any) {
-      // If we optimistically hid items (cross-pane move), restore them on immediate failure.
-      try {
-        const isCopy = event.event.ctrlKey || event.event.metaKey;
-        const sourcePaneIdRaw = event.event.dataTransfer?.getData('application/x-wails-pane-id') || '';
-        const sourcePaneId = (sourcePaneIdRaw === 'left' || sourcePaneIdRaw === 'right') ? sourcePaneIdRaw : null;
-        const isCrossPane = !!sourcePaneId && sourcePaneId !== this.paneId;
-        if (!isCopy && isCrossPane) {
-          window.dispatchEvent(new CustomEvent('pane:dnd-optimistic-restore', {
-            detail: { paneId: sourcePaneId, paths: sourcePaths }
-          }));
-        }
-      } catch {
-        // ignore
-      }
-      this.confirmDialog.alert(`Drag & Drop Failed\n${error.message}`);
-    }
+    await this.operationsController.onDragDrop(this.operationsHost, event);
   }
 
   // в”Ђв”Ђ Archive navigation в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
-  isInArchive(): boolean { return this.archiveStack?.length > 0; }
+  isInArchive(): boolean { return this.archiveController.isInArchive(this.archiveHost); }
 
   async openRootArchive(fsPath: string): Promise<void> {
-    this.loading = true;
-    this.error   = null;
-    const exitPath = this.currentPath;  // в†ђ capture parent dir before entering archive
-    try {
-      const frame       = await this.archiveService.openRootArchive(fsPath);
-      this.archiveStack = [frame];
-      this.fsParentDir  = exitPath;     // в†ђ use captured value
-      this.renderArchiveFrame(frame);
-    } catch (err: any) {
-      this.error = err.message || 'Failed to open archive';
-    } finally {
-      this.loading = false;
-    }
+    await this.archiveController.openRootArchive(this.archiveHost, fsPath);
   }
 
   private async archiveNavigateInto(folderInnerPath: string): Promise<void> {
-    const currentFrame = this.archiveStack[this.archiveStack.length - 1];
-    this.loading = true;
-    this.error   = null;
-    try {
-      const newFrame    = await this.archiveService.navigateInto(currentFrame, folderInnerPath);
-      this.archiveStack = [...this.archiveStack.slice(0, -1), newFrame];
-      this.renderArchiveFrame(newFrame);
-    } catch (err: any) {
-      this.error = err.message || 'Failed to navigate into folder';
-    } finally {
-      this.loading = false;
-    }
+    await this.archiveController.archiveNavigateInto(this.archiveHost, folderInnerPath);
   }
 
   private async openNestedArchive(nestedChain: string[]): Promise<void> {
-    const currentFrame = this.archiveStack[this.archiveStack.length - 1];
-    this.loading = true;
-    this.error   = null;
-    try {
-      const newFrame    = await this.archiveService.openNestedArchive(currentFrame, nestedChain);
-      this.archiveStack = [...this.archiveStack, newFrame];
-      this.renderArchiveFrame(newFrame);
-    } catch (err: any) {
-      this.error = err.message || 'Failed to open nested archive';
-    } finally {
-      this.loading = false;
-    }
+    await this.archiveController.openNestedArchive(this.archiveHost, nestedChain);
   }
 
   async navigateArchiveUp(): Promise<void> {
-    const currentFrame = this.archiveStack[this.archiveStack.length - 1];
-    this.loading = true;
-    this.error = null;
-    try {
-      const parentFrame = await this.archiveService.navigateUp(currentFrame);
-      if (parentFrame !== null) {
-        // Still inside the archive вЂ” navigate to parent directory within it.
-        this.archiveStack = [...this.archiveStack.slice(0, -1), parentFrame];
-        this.renderArchiveFrame(parentFrame);
-        return;
-      }
-
-      const poppedStack = this.archiveStack.slice(0, -1);
-      if (poppedStack.length === 0) {
-        // Exiting to the real filesystem.
-        // Capture both paths before clearArchiveState() zeroes them.
-        const exitPath    = this.fsParentDir || this.currentPath;
-        const archivePath = this.archiveStack[0]?.fsPath ?? '';
-        this.clearArchiveState();
-        // Pass the archive file's path as focusPath so it is selected after load.
-        await this.loadDirectory(exitPath, { focusPath: archivePath });
-        return;
-      }
-
-      // Exiting a nested archive вЂ” pop back to the parent archive frame.
-      this.archiveStack = poppedStack;
-      this.renderArchiveFrame(poppedStack[poppedStack.length - 1]);
-    } catch (err: any) {
-      this.error = err.message || 'Failed to navigate up';
-    } finally {
-      this.loading = false;
-    }
+    await this.archiveController.navigateArchiveUp(this.archiveHost);
   }
 
   exitArchive(): void {
-    if (this.isInArchive() && this.currentTabId) {
-      this.workspaceService.saveArchiveState(this.paneId, this.currentTabId, {
-        path: this.currentPath, archiveStack: this.archiveStack,
-        fsDirPath: this.archiveStack[0]?.fsPath ?? '', fsParentDir: this.fsParentDir,
-      });
-    }
-    this.archiveStack = [];
+    this.archiveController.exitArchive(this.archiveHost);
   }
 
   private async refreshArchive(): Promise<void> {
-    const frame  = this.archiveStack[this.archiveStack.length - 1];
-    this.loading = true;
-    this.error   = null;
-    try {
-      const refreshed   = await this.archiveService.refreshFrame(frame);
-      this.archiveStack = [...this.archiveStack.slice(0, -1), refreshed];
-      this.renderArchiveFrame(refreshed);
-    } catch (err: any) {
-      this.error = err.message || 'Failed to refresh archive';
-    } finally {
-      this.loading = false;
-    }
+    await this.archiveController.refreshArchive(this.archiveHost);
   }
 
   private renderArchiveFrame(frame: ArchiveFrame): void {
-    const rawEntries  = this.archiveService.listingToFileInfos(frame.listing);
-    this.entries      = this.withParentEntry(rawEntries, true, '');
-    this.selectedFiles.clear();
-    this.applyFilter();
-
-    const fsPath      = this.archiveStack[0]?.fsPath ?? '';
-    const virtualPath = buildArchiveDisplayPath(fsPath, this.archiveStack);
-    this.currentPath  = virtualPath;
-
-    const title = buildArchiveTabTitle(fsPath, this.archiveStack);
-    this.workspaceService.updateTabPathAndTitle(this.paneId, this.currentTabId, virtualPath, title);
-    this.tabs = this.workspaceService.getTabs(this.paneId);
+    this.archiveController.renderArchiveFrame(this.archiveHost, frame);
   }
 
   // в”Ђв”Ђ Find widget в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
@@ -1575,76 +1272,34 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   // в”Ђв”Ђ Filtering в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
   applyFilter(): void {
-    // Prune any optimistic hides that are no longer present in the current listing.
-    if (this.dir.optimisticHiddenPaths.size > 0) {
-      const present = new Set(this.entries.map(e => e.path));
-      for (const p of Array.from(this.dir.optimisticHiddenPaths)) {
-        if (!present.has(p)) this.dir.optimisticHiddenPaths.delete(p);
-      }
-    }
-
-    const baseEntries = this.dir.optimisticHiddenPaths.size > 0
-      ? this.entries.filter(e => e.path === PARENT_ENTRY_PATH || !this.dir.optimisticHiddenPaths.has(e.path))
-      : this.entries;
-
-    const q = this.filterQuery;
-    if (!q?.text?.trim() && !q?.criteria?.length) {
-      this.filteredEntries = baseEntries;
-      return;
-    }
-    // Always keep the ".." entry visible regardless of the active filter.
-    const parentEntry = baseEntries.filter(e => e.path === PARENT_ENTRY_PATH);
-    const filtered    = this.filterService.filterEntries(
-      baseEntries.filter(e => e.path !== PARENT_ENTRY_PATH),
-      q
-    );
-    this.filteredEntries = [...parentEntry, ...filtered];
+    this.stateController.applyFilter(this.stateHost);
   }
 
   private persistDirTabState(): void {
-    // DirSurfaceSession is the source of truth now; kept for compatibility with existing call sites.
+    const tabId = this.activeDirTabId ?? this.currentTabId;
+    if (!tabId || this.activeTabKind !== 'dir' || this.isInArchive()) {
+      return;
+    }
+
+    this.dirTabStateController.save(tabId, this.activeDirTabStateRuntime);
   }
 
   // в”Ђв”Ђ Selection в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
   onSelectionChange(entries: FileInfo[]): void {
-    const paths = entries.map(e => e.path).filter(p => p !== PARENT_ENTRY_PATH);
-    this.selectedFiles = new Set(paths);
-    if (paths.length > 0) {
-      this.selectionCursorPath = paths[paths.length - 1];
-      if (paths.length === 1) {
-        this.selectionAnchorPath = this.selectionCursorPath;
-      } else if (!this.selectionAnchorPath) {
-        this.selectionAnchorPath = this.selectionCursorPath;
-      }
-    }
-    // paths.length === 0: marks cleared but cursor stays where it was (TC style)
-    this.emitPreviewTargetFromState();
-    this.persistDirTabState();
+    this.stateController.onSelectionChange(this.stateHost, entries);
   }
 
   /** Returns a filesystem path suitable for preview, or empty string when none. */
   getPreviewTargetPath(): string {
-    if (this.isInArchive()) return '';
-
-    const effective = this.getEffectiveSelection();
-    const selected = Array.from(effective).filter(p => p && p !== PARENT_ENTRY_PATH);
-    if (selected.length !== 1) return '';
-
-    const entry = this.entries.find(e => e.path === selected[0]);
-    if (!entry) return '';
-    if (entry.type !== FileType.FILE && entry.type !== FileType.SYMLINK) return '';
-    return entry.path;
+    return this.stateController.getPreviewTargetPath(this.stateHost);
   }
 
   emitPreviewTargetFromState(): void {
-    const next = this.getPreviewTargetPath();
-    if (this.dir.lastPreviewTargetEmitted === next) return;
-    this.dir.lastPreviewTargetEmitted = next;
-    this.previewTargetChange.emit(next);
+    this.stateController.emitPreviewTargetFromState(this.stateHost);
   }
 
-  // DirTabRuntime adapter methods for DirTabStateController
+  // State/runtime adapter methods shared by pane-level state controllers.
   getEntriesPaths(): string[] {
     return (this.entries ?? []).map(e => e.path);
   }
@@ -1659,15 +1314,11 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   onSelectAll(): void {
-    const selectable = this.dirRuntime.getSelectableEntries();
-    this.selectedFiles = new Set(selectable.map(e => e.path));
-    this.selectionCursorPath = selectable.length ? selectable[selectable.length - 1].path : null;
-    this.selectionAnchorPath = this.selectionCursorPath;
+    this.stateController.onSelectAll(this.stateHost);
   }
 
   onDeselectAll(): void {
-    this.selectedFiles = new Set();
-    // TC: preserve cursor position when clearing marks
+    this.stateController.onDeselectAll(this.stateHost);
   }
 
   /**
@@ -1675,322 +1326,88 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
    * otherwise treat the cursor item as the implicit selection.
    */
   private getEffectiveSelection(): Set<string> {
-    if (this.selectedFiles.size > 0) return this.selectedFiles;
-    if (this.selectionCursorPath) return new Set([this.selectionCursorPath]);
-    return new Set();
+    return this.stateController.getEffectiveSelection(this.stateHost);
   }
 
   onToggleCurrentAndMoveDown(): void {
-    const selectable = this.dirRuntime.getSelectableEntries();
-    const index = this.getCursorIndex(selectable);
-    if (index < 0) return;
-
-    const path = selectable[index].path;
-    const next = new Set(this.selectedFiles);
-    if (next.has(path)) next.delete(path);
-    else next.add(path);
-    this.selectedFiles = next;
-
-    const nextIndex = Math.min(index + 1, selectable.length - 1);
-    this.selectionCursorPath = selectable[nextIndex]?.path ?? path;
-    this.selectionAnchorPath = this.selectionAnchorPath ?? path;
-    this.emitPreviewTargetFromState();
+    this.stateController.onToggleCurrentAndMoveDown(this.stateHost);
   }
 
   onSelectCurrentAndMoveDown(): void {
-    const selectable = this.dirRuntime.getSelectableEntries();
-    const index = this.getCursorIndex(selectable);
-    if (index < 0) return;
-
-    const path = selectable[index].path;
-    const next = new Set(this.selectedFiles);
-    next.add(path);
-    this.selectedFiles = next;
-
-    const nextIndex = Math.min(index + 1, selectable.length - 1);
-    this.selectionCursorPath = selectable[nextIndex]?.path ?? path;
-    this.selectionAnchorPath = path;
-    this.emitPreviewTargetFromState();
+    this.stateController.onSelectCurrentAndMoveDown(this.stateHost);
   }
 
   /** TC Space: mark/unmark item under cursor and advance cursor down. */
   onMarkCurrentItem(): void {
-    if (!this.selectionCursorPath) return;
-    const path = this.selectionCursorPath;
-    const next = new Set(this.selectedFiles);
-    if (next.has(path)) next.delete(path);
-    else next.add(path);
-    this.selectedFiles = next;
-
-    // Advance cursor down (TC Space key advances after marking)
-    const selectable = this.dirRuntime.getSelectableEntries();
-    const idx = this.getCursorIndex(selectable);
-    if (idx >= 0 && idx < selectable.length - 1) {
-      this.selectionCursorPath = selectable[idx + 1].path;
-      this.fileViewContainer?.scrollToCursorPath(this.selectionCursorPath);
-    }
-
-    this.emitPreviewTargetFromState();
+    this.stateController.onMarkCurrentItem(this.stateHost);
   }
 
   onExtendSelection(delta: -1 | 1): void {
-    const selectable = this.dirRuntime.getSelectableEntries();
-    const index = this.getCursorIndex(selectable);
-    if (index < 0) return;
-
-    const targetIndex = Math.max(0, Math.min(selectable.length - 1, index + delta));
-    const anchorPath = this.selectionAnchorPath ?? selectable[index].path;
-    const anchorIndex = selectable.findIndex(e => e.path === anchorPath);
-    const start = Math.min(anchorIndex === -1 ? index : anchorIndex, targetIndex);
-    const end = Math.max(anchorIndex === -1 ? index : anchorIndex, targetIndex);
-
-    this.selectedFiles = new Set(selectable.slice(start, end + 1).map(e => e.path));
-    this.selectionCursorPath = selectable[targetIndex].path;
-    this.selectionAnchorPath = anchorPath;
-    this.emitPreviewTargetFromState();
+    this.stateController.onExtendSelection(this.stateHost, delta);
   }
 
   // в”Ђв”Ђ Cursor movement в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
-  private moveCursorTo(idx: number): void {
-    const selectable = this.dirRuntime.getSelectableEntries();
-    if (!selectable.length) return;
-    const clamped = Math.max(0, Math.min(selectable.length - 1, idx));
-    this.selectionCursorPath = selectable[clamped].path;
-    this.selectionAnchorPath = this.selectionCursorPath;
-    // TC: cursor moves independently of marks вЂ” do NOT touch selectedFiles
-    this.fileViewContainer?.scrollToCursorPath(this.selectionCursorPath);
-    this.emitPreviewTargetFromState();
-    this.persistDirTabState();
-  }
-
   onMoveCursorUp(): void {
-    const cols = this.fileViewContainer?.getGridColumns() ?? 1;
-    const selectable = this.dirRuntime.getSelectableEntries();
-    this.moveCursorTo(this.getCursorIndex(selectable) - cols);
+    this.stateController.onMoveCursorUp(this.stateHost);
   }
 
   onMoveCursorDown(): void {
-    const cols = this.fileViewContainer?.getGridColumns() ?? 1;
-    const selectable = this.dirRuntime.getSelectableEntries();
-    this.moveCursorTo(this.getCursorIndex(selectable) + cols);
+    this.stateController.onMoveCursorDown(this.stateHost);
   }
 
   onMoveCursorLeft(): void {
-    if (this.currentView !== 'grid') return;
-    const selectable = this.dirRuntime.getSelectableEntries();
-    this.moveCursorTo(this.getCursorIndex(selectable) - 1);
+    this.stateController.onMoveCursorLeft(this.stateHost);
   }
 
   onMoveCursorRight(): void {
-    if (this.currentView !== 'grid') return;
-    const selectable = this.dirRuntime.getSelectableEntries();
-    this.moveCursorTo(this.getCursorIndex(selectable) + 1);
+    this.stateController.onMoveCursorRight(this.stateHost);
   }
 
   onMoveCursorHome(): void {
-    this.moveCursorTo(0);
+    this.stateController.onMoveCursorHome(this.stateHost);
   }
 
   onMoveCursorEnd(): void {
-    const selectable = this.dirRuntime.getSelectableEntries();
-    this.moveCursorTo(selectable.length - 1);
+    this.stateController.onMoveCursorEnd(this.stateHost);
   }
 
   onMoveCursorPageUp(): void {
-    const pageSize = this.fileViewContainer?.getApproxPageSize() ?? 10;
-    const selectable = this.dirRuntime.getSelectableEntries();
-    this.moveCursorTo(this.getCursorIndex(selectable) - pageSize);
+    this.stateController.onMoveCursorPageUp(this.stateHost);
   }
 
   onMoveCursorPageDown(): void {
-    const pageSize = this.fileViewContainer?.getApproxPageSize() ?? 10;
-    const selectable = this.dirRuntime.getSelectableEntries();
-    this.moveCursorTo(this.getCursorIndex(selectable) + pageSize);
+    this.stateController.onMoveCursorPageDown(this.stateHost);
   }
 
   onSelectByMask(): void {
     const mask = prompt('Select by mask (example: *.txt):', '*.*')?.trim();
     if (!mask) return;
-
-    const matcher = this.createMaskMatcher(mask);
-    const next = new Set(this.selectedFiles);
-    for (const entry of this.dirRuntime.getSelectableEntries()) {
-      if (matcher(entry.name)) next.add(entry.path);
-    }
-    this.selectedFiles = next;
-    this.syncCursorFromSelection();
+    this.stateController.onSelectByMask(this.stateHost, mask);
   }
 
   onUnselectByMask(): void {
     const mask = prompt('Unselect by mask (example: *.txt):', '*.*')?.trim();
     if (!mask) return;
-
-    const matcher = this.createMaskMatcher(mask);
-    const next = new Set(this.selectedFiles);
-    for (const entry of this.dirRuntime.getSelectableEntries()) {
-      if (matcher(entry.name)) next.delete(entry.path);
-    }
-    this.selectedFiles = next;
-    this.syncCursorFromSelection();
+    this.stateController.onUnselectByMask(this.stateHost, mask);
   }
 
   onInvertSelection(): void {
-    const selectable = this.dirRuntime.getSelectableEntries();
-    const next = new Set<string>();
-    for (const entry of selectable) {
-      if (!this.selectedFiles.has(entry.path)) {
-        next.add(entry.path);
-      }
-    }
-    this.selectedFiles = next;
-    this.syncCursorFromSelection();
+    this.stateController.onInvertSelection(this.stateHost);
   }
 
   onSelectSameExtension(): void {
-    const current = this.getCurrentCursorEntry();
-    if (!current) return;
-
-    const extension = this.getExtension(current.name);
-    if (!extension) return;
-
-    const next = new Set(this.selectedFiles);
-    for (const entry of this.dirRuntime.getSelectableEntries()) {
-      if (this.getExtension(entry.name) === extension) {
-        next.add(entry.path);
-      }
-    }
-    this.selectedFiles = next;
-    this.syncCursorFromSelection();
-  }
-
-  private syncCursorFromSelection(): void {
-    const selectable = this.dirRuntime.getSelectableEntries();
-    if (!selectable.length || this.selectedFiles.size === 0) {
-      this.selectionCursorPath = selectable.length ? selectable[0].path : null;
-      this.selectionAnchorPath = this.selectionCursorPath;
-      this.emitPreviewTargetFromState();
-      return;
-    }
-
-    const firstSelected = selectable.find(e => this.selectedFiles.has(e.path));
-    if (firstSelected) {
-      this.selectionCursorPath = firstSelected.path;
-      this.selectionAnchorPath = this.selectionAnchorPath ?? firstSelected.path;
-    }
-    this.emitPreviewTargetFromState();
-  }
-
-  private getCursorIndex(entries: FileInfo[]): number {
-    if (!entries.length) return -1;
-
-    if (this.selectionCursorPath) {
-      const idx = entries.findIndex(e => e.path === this.selectionCursorPath);
-      if (idx !== -1) return idx;
-    }
-
-    const firstSelected = entries.findIndex(e => this.selectedFiles.has(e.path));
-    if (firstSelected !== -1) {
-      this.selectionCursorPath = entries[firstSelected].path;
-      return firstSelected;
-    }
-
-    this.selectionCursorPath = entries[0].path;
-    return 0;
-  }
-
-  private getCurrentCursorEntry(): FileInfo | null {
-    const entries = this.dirRuntime.getSelectableEntries();
-    const idx = this.getCursorIndex(entries);
-    return idx >= 0 ? entries[idx] : null;
-  }
-
-  private createMaskMatcher(mask: string): (value: string) => boolean {
-    const escaped = mask
-      .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-      .replace(/\*/g, '.*')
-      .replace(/\?/g, '.');
-    const regex = new RegExp(`^${escaped}$`, 'i');
-    return (value: string) => regex.test(value);
-  }
-
-  private getExtension(name: string): string {
-    const idx = name.lastIndexOf('.');
-    if (idx <= 0 || idx === name.length - 1) return '';
-    return name.slice(idx + 1).toLowerCase();
+    this.stateController.onSelectSameExtension(this.stateHost);
   }
 
   // в”Ђв”Ђ File operations в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
   async onCreateFolder(): Promise<void> {
-    if (this.isInArchive()) { this.confirmDialog.alert('Archive Limitation\nCannot create folders inside an archive.'); return; }
-    const folderName = prompt('Enter folder name:');
-    if (!folderName) return;
-    try {
-      const newPath: string = await window.go.main.App.JoinPaths([this.currentPath, folderName]);
-      await this.apiService.createDirectory(newPath, false);
-      await this.loadDirectory(this.currentPath);
-    } catch (error: any) { this.confirmDialog.alert(`Create Folder Failed\n${error.message}`); }
+    await this.operationsController.onCreateFolder(this.operationsHost);
   }
 
   async onDeleteSelected(): Promise<void> {
-    const effective = this.getEffectiveSelection();
-    if (effective.size === 0) return;
-
-    if (this.isInArchive()) {
-      const frame   = this.archiveStack[this.archiveStack.length - 1];
-      const entries = Array.from(effective);
-
-      if (frame.nestedChain.length > 0) {
-        this.confirmDialog.alert(
-          'Nested Archive Limitation\n' +
-          'Exit back to the top-level archive first.',
-        );
-        return;
-      }
-
-      const archiveDeleteConfirmed = await this.confirmDialog.confirm({
-        title: 'Delete from Archive',
-        message:
-          `Delete ${entries.length} item(s) from the archive?\n` +
-          `This rewrites the archive file on disk and cannot be undone.`,
-        confirmText: 'Delete',
-        danger: true,
-      });
-      if (!archiveDeleteConfirmed) return;
-
-      try {
-        const result = await this.archiveService.delete(frame, entries);
-        if (result.failed > 0) {
-          this.confirmDialog.alert('Delete Failed\n' + (result.errors ?? []).map((e: any) => e.error).join('\n'));
-        }
-      } catch (err: any) {
-        this.confirmDialog.alert(`Delete Error\n${err.message}`);
-        return;
-      }
-      // Refresh the archive listing so deleted entries disappear
-      await this.refreshArchive();
-      return;
-    }
-
-    // в”Ђв”Ђ Filesystem delete в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
-    const deleteConfirmed = await this.confirmDialog.confirm({
-      title: 'Delete Items',
-      message: `Delete ${effective.size} item(s)?`,
-      confirmText: 'Delete',
-      danger: true,
-    });
-    if (!deleteConfirmed) return;
-    try {
-      const result = await this.apiService.batchDelete(Array.from(effective), true);
-      if (result.failed > 0) {
-        const msg = (result.errors ?? []).map((e: any) => `${e.source}: ${e.error}`).join('\n');
-        this.confirmDialog.alert(`Delete Completed With Errors\n${result.failed} item(s) failed:\n${msg}`);
-      }
-      await this.loadDirectory(this.currentPath);
-    } catch (error: any) {
-      this.confirmDialog.alert(`Delete Failed\n${error.message}`);
-    }
+    await this.operationsController.onDeleteSelected(this.operationsHost);
   }
 
   /**
@@ -2000,74 +1417,15 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
    * chain; otherwise returns null.
    */
   getTreeArchiveSelectionContext(): { archivePath: string; innerPaths: string[] } | null {
-    if (this.currentView !== 'tree' || this.selectedFiles.size === 0) return null;
-
-    const tree = this.fileViewContainer?.treeComponent;
-    if (!tree) return null;
-
-    const visible = tree.getVisibleNodes();
-    const selected = visible.filter((n: any) => this.selectedFiles.has(n.path));
-    if (!selected.length) return null;
-
-    const firstArchivePath = (selected[0] as any).archivePath as string | undefined;
-    if (!firstArchivePath) return null;
-
-    // Derive the archive context path (fsPath + nestedChain, no innerPath).
-    const { fsPath, nestedChain } = parseArchivePath(firstArchivePath);
-    const contextPath = buildArchivePath(fsPath, nestedChain, '');
-
-    // All selected must come from the same archive context.
-    if (!selected.every((n: any) => {
-      const nPath = (n as any).archivePath as string | undefined;
-      if (!nPath) return false;
-      const { fsPath: nFs, nestedChain: nChain } = parseArchivePath(nPath);
-      return buildArchivePath(nFs, nChain, '') === contextPath;
-    })) return null;
-
-    // Inner paths: each selected file's path within its (nested) archive.
-    const innerPaths = selected.map((n: any) => {
-      const nPath = (n as any).archivePath as string | undefined;
-      return nPath ? (parseArchivePath(nPath).innerPath || n.name) : n.name;
-    }).filter(Boolean);
-
-    return innerPaths.length ? { archivePath: contextPath, innerPaths } : null;
+    return this.operationsController.getTreeArchiveSelectionContext(this.operationsHost);
   }
 
   onCopyToOther(): void { 
-    if (this.selectedFiles.size > 0) {
-      this.copyToOther.emit(Array.from(this.selectedFiles));
-    }
-  }
-
-  private async renameEntry(entry: FileInfo, forcedName?: string): Promise<void> {
-    if (this.isInArchive()) {
-      this.confirmDialog.alert('Archive Limitation\nRename is not supported inside archives.');
-      return;
-    }
-
-    if (entry.path === PARENT_ENTRY_PATH) return;
-
-    const nextName = (forcedName ?? '').trim();
-    if (!nextName || nextName === entry.name) return;
-
-    try {
-      const destination = await this.apiService.joinPaths([parentPath(entry.path), nextName]);
-      await this.apiService.batchMove([{ source: entry.path, destination }], true);
-    } catch (error: any) {
-      this.confirmDialog.alert(`Rename Failed\n${error.message}`);
-    }
-  }
-
-  private async buildDestinationPath(sourcePath: string, targetDir: string): Promise<string> {
-    const split = await this.apiService.splitPath(sourcePath);
-    const base = split.base || sourcePath.replace(/\\/g, '/').split('/').filter(Boolean).pop() || '';
-    return await this.apiService.joinPaths([targetDir, base]);
+    this.operationsController.onCopyToOther(this.operationsHost);
   }
   
   onMoveToOther(): void { 
-    if (this.selectedFiles.size > 0) {
-      this.moveToOther.emit(Array.from(this.selectedFiles));
-    }
+    this.operationsController.onMoveToOther(this.operationsHost);
   }
 
   // в”Ђв”Ђ Archive move operations в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
@@ -2077,47 +1435,14 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
    * Shows the confirmation dialog; executePendingMove runs when user confirms.
    */
   initiatePendingMove(entries: string[], destDir: string): void {
-    this.archivePendingMoveEntries = entries;
-    this.archivePendingMoveDestDir = destDir;
-    this.archiveMoveWarning        = true;
+    this.archiveController.initiatePendingMove(this.archiveHost, entries, destDir);
   }
 
   /**
    * Bound to (confirmed) on the ArchiveMoveWarningDialogComponent.
    */
   async executePendingMove(): Promise<void> {
-    this.archiveMoveWarning = false;
-    const frame   = this.archiveStack[this.archiveStack.length - 1];
-    const entries = this.archivePendingMoveEntries;
-    const destDir = this.archivePendingMoveDestDir;
-    this.archivePendingMoveEntries = [];
-    this.archivePendingMoveDestDir = '';
-
-    try {
-      const result = await this.archiveService.move(frame, entries, destDir);
-
-      // sourceRemoved === false means extraction succeeded but delete was skipped
-      if (!result.sourceRemoved) {
-        const softMsg = (result.errors ?? []).find((e: any) =>
-          e.error.includes('NOT removed'),
-        );
-        this.confirmDialog.alert(
-          `Move Partially Complete\n` +
-          `${result.succeeded} file(s) extracted, but source NOT removed:\n` +
-          (softMsg?.error ?? 'Nested archive deletion is not supported.'),
-        );
-        return;
-      }
-
-      if (result.failed > 0) {
-        this.confirmDialog.alert('Move Errors\n' + (result.errors ?? []).map((e: any) => e.error).join('\n'));
-      }
-
-      // Refresh archive listing вЂ” moved entries have been deleted from it
-      await this.refreshArchive();
-    } catch (err: any) {
-      this.confirmDialog.alert(`Move Failed\n${err.message}`);
-    }
+    await this.archiveController.executePendingMove(this.archiveHost);
   }
 
   // в”Ђв”Ђ Tab shortcuts в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ

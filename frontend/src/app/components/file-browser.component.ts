@@ -13,7 +13,10 @@ import { GlobalSearchComponent } from './global-search.component';
 import { PathHistoryService } from '../services/path-history.service';
 import { ThemeService } from '../services/theme.service';
 import { PathHistoryViewerComponent } from './path-history-viewer.component';
+import { FileBrowserClipboardController, type FileBrowserClipboardHost } from './file-browser-clipboard.controller';
+import { FileBrowserDropController, type FileBrowserDropHost } from './file-browser-drop.controller';
 import { FilePaneComponent } from './file-pane.component';
+import { FileBrowserTransferController, type FileBrowserTransferHost } from './file-browser-transfer.controller';
 import { SplitDividerComponent } from './split-divider.component';
 import { StatusBarComponent } from './status-bar.component';
 import { OperationStatusBarComponent } from './operation-status-bar.component';
@@ -74,6 +77,9 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
   private readonly MAX_PANE_WIDTH = 80;
 
   FileType = FileType;
+  private readonly clipboardController = new FileBrowserClipboardController();
+  private readonly dropController = new FileBrowserDropController();
+  private readonly transferController = new FileBrowserTransferController();
 
   private destroy$ = createSubject<void>();
   private clipboard: { operation: 'copy' | 'cut'; paths: string[] } | null = null;
@@ -160,71 +166,7 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   private async handleNativeFileDrop(x: number, y: number, paths: string[]): Promise<void> {
-    console.log('[handleNativeFileDrop] Called with', paths.length, 'paths');
-    if (!paths.length) {
-      console.log('[handleNativeFileDrop] No paths received, aborting');
-      return;
-    }
-
-    const sourcePaths = paths
-      .map(p => (p || '').trim())
-      .filter(p => p.length > 0);
-
-    console.log('[handleNativeFileDrop] Filtered to', sourcePaths.length, 'valid paths:', sourcePaths);
-    if (!sourcePaths.length) return;
-
-    const targetPane = this.resolveDropTargetPane(x, y);
-    console.log('[handleNativeFileDrop] Resolved target pane:', targetPane ? 'LEFT/RIGHT' : 'NONE');
-    if (!targetPane) return;
-
-    if (targetPane.isInArchive()) {
-      console.log('[handleNativeFileDrop] Target is in archive, blocking');
-      this.confirmDialog.alert('Drag & Drop Not Supported In Archive\nDrop into a filesystem folder instead.');
-      return;
-    }
-
-    const destinationDir = targetPane.getDestinationDir();
-    console.log('[handleNativeFileDrop] Destination directory:', destinationDir);
-    if (!destinationDir) {
-      console.log('[handleNativeFileDrop] No destination directory, aborting');
-      return;
-    }
-
-    try {
-      console.log('[handleNativeFileDrop] Building copy items...');
-      const items = await Promise.all(
-        sourcePaths.map(async sourcePath => ({
-          source: sourcePath,
-          destination: await this.buildDestinationPath(sourcePath, destinationDir),
-        }))
-      );
-
-      console.log('[handleNativeFileDrop] Executing batchCopy for', items.length, 'items:', items);
-      await this.apiService.batchCopy(items, true);
-      console.log('[handleNativeFileDrop] Copy completed, refreshing pane');
-      await targetPane.onRefresh();
-      console.log('[handleNativeFileDrop] SUCCESS');
-    } catch (error: any) {
-      console.error('[handleNativeFileDrop] ERROR:', error);
-      this.confirmDialog.alert(`Drag & Drop Failed\n${error?.message ?? String(error)}`);
-    }
-  }
-
-  private resolveDropTargetPane(x: number, y: number): FilePaneComponent | undefined {
-    const container = this.panesContainer?.nativeElement as HTMLElement | undefined;
-    if (!container) {
-      return this.getActivePane();
-    }
-
-    const rect = container.getBoundingClientRect();
-    const insideContainer = x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
-
-    if (!insideContainer) {
-      return this.getActivePane();
-    }
-
-    const splitX = rect.left + (rect.width * this.leftPaneWidth / 100);
-    return x <= splitX ? this.leftPane : this.rightPane;
+    await this.dropController.handleNativeFileDrop(this.dropHost, x, y, paths);
   }
 
   copyToOtherPane(source: FilePaneComponent | undefined, target: FilePaneComponent | undefined, paths?: string[]): void {
@@ -257,13 +199,40 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
     return this.activePaneId === 'left' ? this.rightPane : this.leftPane;
   }
 
-  private archiveError(result: any): string | null {
-    if (!result?.failed) return null;
-    return (result.errors ?? []).map((e: any) => e.error).join('\n');
+  private get transferHost(): FileBrowserTransferHost {
+    return {
+      leftPane: this.leftPane,
+      rightPane: this.rightPane,
+      apiService: this.apiService,
+      archiveService: this.archiveService,
+      confirmDialog: this.confirmDialog,
+      buildDestinationPath: (sourcePath: string, targetDir: string) => this.buildDestinationPath(sourcePath, targetDir),
+    };
   }
 
-  private bothArchive(src?: FilePaneComponent, dst?: FilePaneComponent): boolean {
-    return !!src?.isInArchive() && !!dst?.isInArchive();
+  private get clipboardHost(): FileBrowserClipboardHost {
+    return {
+      getActivePane: () => this.getActivePane(),
+      getActivePaneId: () => this.activePaneId,
+      apiService: this.apiService,
+      confirmDialog: this.confirmDialog,
+      buildDestinationPath: (sourcePath: string, targetDir: string) => this.buildDestinationPath(sourcePath, targetDir),
+      runCrossPaneCopy: (sourceSide: 'left' | 'right', paths: string[]) => this.transferController.copy(this.transferHost, sourceSide, paths),
+      runCrossPaneMove: (sourceSide: 'left' | 'right', paths: string[]) => this.transferController.move(this.transferHost, sourceSide, paths),
+    };
+  }
+
+  private get dropHost(): FileBrowserDropHost {
+    return {
+      getActivePane: () => this.getActivePane(),
+      getLeftPane: () => this.leftPane,
+      getRightPane: () => this.rightPane,
+      getPanesContainer: () => this.panesContainer?.nativeElement as HTMLElement | undefined,
+      getLeftPaneWidth: () => this.leftPaneWidth,
+      apiService: this.apiService,
+      confirmDialog: this.confirmDialog,
+      buildDestinationPath: (sourcePath: string, targetDir: string) => this.buildDestinationPath(sourcePath, targetDir),
+    };
   }
 
   // ============================================================================
@@ -415,167 +384,19 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   async onCopyFromLeft(paths: string[]): Promise<void> {
-    const src = this.leftPane;
-    const dst = this.rightPane;
-    if (!src || !dst || paths.length === 0) return;
-    const destDir = dst.getDestinationDir();
-
-    if (src.isInArchive()) {
-      if (this.bothArchive(src, dst)) {
-        this.confirmDialog.alert('Cannot copy between two archive panes\nOpen a real folder in one pane first.');
-        return;
-      }
-      const frame = src.archiveStack[src.archiveStack.length - 1];
-      const result = await this.archiveService.copy(frame, paths, destDir);
-      const err = this.archiveError(result);
-      if (err) this.confirmDialog.alert(`Copy Completed with Errors\n${err}`);
-      dst.onRefresh();
-      return;
-    }
-
-    // Tree view: selected nodes may be inside an expanded archive node.
-    const treeArchive = src.getTreeArchiveSelectionContext();
-    if (treeArchive) {
-      const result = await this.archiveService.copyByContext(
-        treeArchive.archivePath, treeArchive.innerPaths, destDir
-      );
-      const err = this.archiveError(result);
-      if (err) this.confirmDialog.alert(`Copy Errors\n${err}`);
-      dst.onRefresh();
-      return;
-    }
-
-    // Filesystem copy
-    const items = await Promise.all(
-      paths.map(async srcPath => ({
-        source: srcPath,
-        destination: await this.buildDestinationPath(srcPath, destDir)
-      }))
-    );
-    const result = await this.apiService.batchCopy(items, true);
-    const err = this.archiveError(result);
-    if (err) this.confirmDialog.alert(`Copy Errors\n${err}`);
+    await this.transferController.copy(this.transferHost, 'left', paths);
   }
 
   async onCopyFromRight(paths: string[]): Promise<void> {
-    const src = this.rightPane;
-    const dst = this.leftPane;
-    if (!src || !dst || paths.length === 0) return;
-    const destDir = dst.getDestinationDir();
-
-    if (src.isInArchive()) {
-      if (this.bothArchive(src, dst)) {
-        this.confirmDialog.alert('Cannot copy between two archive panes\nOpen a real folder in one pane first.');
-        return;
-      }
-      const frame = src.archiveStack[src.archiveStack.length - 1];
-      const result = await this.archiveService.copy(frame, paths, destDir);
-      const err = this.archiveError(result);
-      if (err) this.confirmDialog.alert(`Copy Completed with Errors\n${err}`);
-      dst.onRefresh();
-      return;
-    }
-
-    // Tree view: selected nodes may be inside an expanded archive node.
-    const treeArchive = src.getTreeArchiveSelectionContext();
-    if (treeArchive) {
-      const result = await this.archiveService.copyByContext(
-        treeArchive.archivePath, treeArchive.innerPaths, destDir
-      );
-      const err = this.archiveError(result);
-      if (err) this.confirmDialog.alert(`Copy Errors\n${err}`);
-      dst.onRefresh();
-      return;
-    }
-
-    const items = await Promise.all(
-      paths.map(async srcPath => ({
-        source: srcPath,
-        destination: await this.buildDestinationPath(srcPath, destDir)
-      }))
-    );
-    const result = await this.apiService.batchCopy(items, true);
-    const err = this.archiveError(result);
-    if (err) this.confirmDialog.alert(`Copy Errors\n${err}`);
+    await this.transferController.copy(this.transferHost, 'right', paths);
   }
 
   async onMoveFromLeft(paths: string[]): Promise<void> {
-    const src = this.leftPane;
-    const dst = this.rightPane;
-    if (!src || !dst || paths.length === 0) return;
-    const destDir = dst.getDestinationDir();
-
-    if (src.isInArchive()) {
-      if (this.bothArchive(src, dst)) {
-        this.confirmDialog.alert('Cannot move between two archive panes\nOpen a real folder in one pane first.');
-        return;
-      }
-      src.initiatePendingMove(paths, destDir);
-      return;
-    }
-
-    // Tree view: selected nodes may be inside an expanded archive node.
-    const treeArchive = src.getTreeArchiveSelectionContext();
-    if (treeArchive) {
-      const result = await this.archiveService.moveByContext(
-        treeArchive.archivePath, treeArchive.innerPaths, destDir
-      );
-      const err = this.archiveError(result);
-      if (err) this.confirmDialog.alert(`Move Errors\n${err}`);
-      src.onRefresh();
-      dst.onRefresh();
-      return;
-    }
-
-    // Filesystem move
-    const items = await Promise.all(
-      paths.map(async srcPath => ({
-        source: srcPath,
-        destination: await this.buildDestinationPath(srcPath, destDir)
-      }))
-    );
-    const result = await this.apiService.batchMove(items, true);
-    const err = this.archiveError(result);
-    if (err) this.confirmDialog.alert(`Move Errors\n${err}`);
+    await this.transferController.move(this.transferHost, 'left', paths);
   }
 
   async onMoveFromRight(paths: string[]): Promise<void> {
-    const src = this.rightPane;
-    const dst = this.leftPane;
-    if (!src || !dst || paths.length === 0) return;
-    const destDir = dst.getDestinationDir();
-
-    if (src.isInArchive()) {
-      if (this.bothArchive(src, dst)) {
-        this.confirmDialog.alert('Cannot move between two archive panes\nOpen a real folder in one pane first.');
-        return;
-      }
-      src.initiatePendingMove(paths, destDir);
-      return;
-    }
-
-    // Tree view: selected nodes may be inside an expanded archive node.
-    const treeArchive = src.getTreeArchiveSelectionContext();
-    if (treeArchive) {
-      const result = await this.archiveService.moveByContext(
-        treeArchive.archivePath, treeArchive.innerPaths, destDir
-      );
-      const err = this.archiveError(result);
-      if (err) this.confirmDialog.alert(`Move Errors\n${err}`);
-      src.onRefresh();
-      dst.onRefresh();
-      return;
-    }
-
-    const items = await Promise.all(
-      paths.map(async srcPath => ({
-        source: srcPath,
-        destination: await this.buildDestinationPath(srcPath, destDir)
-      }))
-    );
-    const result = await this.apiService.batchMove(items, true);
-    const err = this.archiveError(result);
-    if (err) this.confirmDialog.alert(`Move Errors\n${err}`);
+    await this.transferController.move(this.transferHost, 'right', paths);
   }
 
   // ============================================================================
@@ -583,92 +404,23 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
   // ============================================================================
 
   private copySelectedToClipboard(): void {
-    const pane = this.getActivePane();
-    if (pane?.selectedFiles.size) {
-      this.clipboard = {
-        operation: 'copy',
-        paths: Array.from(pane.selectedFiles)
-      };
-      console.log('Copied to clipboard:', this.clipboard);
-    }
+    this.clipboard = this.clipboardController.copySelectedToClipboard(this.clipboardHost);
   }
 
   private cutSelectedToClipboard(): void {
-    const pane = this.getActivePane();
-    if (pane?.selectedFiles.size) {
-      this.clipboard = {
-        operation: 'cut',
-        paths: Array.from(pane.selectedFiles)
-      };
-      console.log('Cut to clipboard:', this.clipboard);
-    }
+    this.clipboard = this.clipboardController.cutSelectedToClipboard(this.clipboardHost);
   }
 
   private async pasteFromClipboard(): Promise<void> {
-    if (!this.clipboard) return;
-
-    const targetPane = this.getActivePane();
-    if (!targetPane) return;
-
-    const { operation, paths } = this.clipboard;
-    console.log(`Pasting ${operation} operation:`, paths);
-
-    try {
-      const items = await Promise.all(paths.map(async sourcePath => {
-        const destination = await this.buildDestinationPath(sourcePath, targetPane.currentPath);
-        return {
-          source: sourcePath,
-          destination: destination
-        };
-      }));
-
-      let result;
-      if (operation === 'copy') {
-        result = await this.apiService.batchCopy(items, true);
-      } else {
-        result = await this.apiService.batchMove(items, true);
-      }
-      
-      console.log('Paste result:', result);
-      
-      if (result.failed > 0) {
-        const errorMsg = result.errors?.map(e => `${e.source}: ${e.error}`).join('\n');
-        this.confirmDialog.alert(`Paste Completed with ${result.failed} Errors\n${errorMsg}`);
-      }
-    } catch (error: any) {
-      console.error('Paste error:', error);
-      this.confirmDialog.alert(`Paste Error\n${error.message}`);
-    }
-
-    if (operation === 'cut') {
-      this.clipboard = null;
-    }
+    this.clipboard = await this.clipboardController.pasteFromClipboard(this.clipboardHost, this.clipboard);
   }
 
-  private copyToOtherPaneCurrent(): void {
-    const src = this.getActivePane();
-    const paths = Array.from(src?.selectedFiles || []);
-    if (paths.length === 0) return;
-    
-    console.log('Copy to other pane current:', paths);
-    if (this.activePaneId === 'left') {
-      this.onCopyFromLeft(paths);
-    } else {
-      this.onCopyFromRight(paths);
-    }
+  private async copyToOtherPaneCurrent(): Promise<void> {
+    await this.clipboardController.copyToOtherPaneCurrent(this.clipboardHost);
   }
 
-  private moveToOtherPaneCurrent(): void {
-    const src = this.getActivePane();
-    const paths = Array.from(src?.selectedFiles || []);
-    if (paths.length === 0) return;
-    
-    console.log('Move to other pane current:', paths);
-    if (this.activePaneId === 'left') {
-      this.onMoveFromLeft(paths);
-    } else {
-      this.onMoveFromRight(paths);
-    }
+  private async moveToOtherPaneCurrent(): Promise<void> {
+    await this.clipboardController.moveToOtherPaneCurrent(this.clipboardHost);
   }
 
   onPanePathChange(paneId: string, path: string): void {

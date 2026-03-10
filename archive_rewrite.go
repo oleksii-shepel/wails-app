@@ -105,7 +105,7 @@ func rewriteZip(fsPath string, entries []string, op *ActiveOperation) (removed, 
 			return removed, kept, fmt.Errorf("cancelled")
 		}
 
-		innerPath := normalizePath(f.Name)
+		innerPath := normalizeArchiveEntryPath(f.Name)
 		if matchesEntries(innerPath, entries) {
 			removed++
 			processed++
@@ -217,7 +217,7 @@ func rewriteTar(fsPath string, entries []string, compression string, op *ActiveO
 			return removed, kept, tarErr
 		}
 
-		innerPath := normalizePath(hdr.Name)
+		innerPath := normalizeArchiveEntryPath(hdr.Name)
 		if matchesEntries(innerPath, entries) {
 			removed++
 			processed++
@@ -268,7 +268,7 @@ func rewriteTarXzViaArchiver(fsPath string, entries []string, op *ActiveOperatio
 		if !ok {
 			return nil
 		}
-		innerPath := normalizePath(hdr.Name)
+		innerPath := normalizeArchiveEntryPath(hdr.Name)
 		if matchesEntries(innerPath, entries) {
 			removed++
 			return nil

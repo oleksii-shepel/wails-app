@@ -14,9 +14,11 @@ import { ThemeService } from '../services/theme.service';
 import { PathHistoryViewerComponent } from './path-history-viewer.component';
 import { FileBrowserClipboardController, type FileBrowserClipboardHost } from './file-browser-clipboard.controller';
 import { FileBrowserDropController, type FileBrowserDropHost } from './file-browser-drop.controller';
+import { FileBrowserLayoutController, type FileBrowserLayoutHost } from './file-browser-layout.controller';
 import { FileBrowserPathHelper } from './file-browser-path.helper';
 import { FileBrowserPreviewController, type FileBrowserPreviewHost } from './file-browser-preview.controller';
 import { FileBrowserRuntimeController, type FileBrowserRuntimeHost } from './file-browser-runtime.controller';
+import { FileBrowserSearchController, type FileBrowserSearchHost } from './file-browser-search.controller';
 import { FileBrowserWorkspaceController, type FileBrowserWorkspaceHost } from './file-browser-workspace.controller';
 import { FilePaneComponent } from './file-pane.component';
 import { FileBrowserTransferController, type FileBrowserTransferHost } from './file-browser-transfer.controller';
@@ -70,18 +72,15 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
   toastCollapsed = false;
   elevationActive = false;
   elevationBusy = false;
-  
-  private startX = 0;
-  private startLeftWidth = 0;
-  private readonly MIN_PANE_WIDTH = 20;
-  private readonly MAX_PANE_WIDTH = 80;
 
   FileType = FileType;
   private readonly clipboardController = new FileBrowserClipboardController();
   private readonly dropController = new FileBrowserDropController();
+  private readonly layoutController = new FileBrowserLayoutController();
   private readonly pathHelper: FileBrowserPathHelper;
   private readonly previewController = new FileBrowserPreviewController();
   private readonly runtimeController = new FileBrowserRuntimeController();
+  private readonly searchController = new FileBrowserSearchController();
   private readonly transferController = new FileBrowserTransferController();
   private readonly workspaceController = new FileBrowserWorkspaceController();
 
@@ -127,7 +126,7 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
       });
 
     this.registerKeyboardShortcuts();
-    this.loadPaneWidths();
+    this.layoutController.loadPaneWidths(this.layoutHost);
     void this.runtimeController.initialize(this.runtimeHost);
   }
 
@@ -142,7 +141,7 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
     this.destroy$.next();
     this.destroy$.complete();
     this.apiService.disconnectWebSocket();
-    this.cleanupResizeListeners();
+    this.layoutController.cleanupResizeListeners(this.layoutHost);
 
     this.runtimeController.dispose();
   }
@@ -213,6 +212,22 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
     };
   }
 
+  private get layoutHost(): FileBrowserLayoutHost {
+  return {
+    getPanesContainer: () => this.panesContainer?.nativeElement as HTMLElement | undefined,
+    getLeftPaneWidth: () => this.leftPaneWidth,
+    getRightPaneWidth: () => this.rightPaneWidth,
+    setPaneWidths: (left: number, right: number) => {
+    this.leftPaneWidth = left;
+    this.rightPaneWidth = right;
+    },
+    getIsResizing: () => this.isResizing,
+    setIsResizing: (resizing: boolean) => {
+    this.isResizing = resizing;
+    },
+  };
+  }
+
   private get workspaceHost(): FileBrowserWorkspaceHost {
     return {
       workspaceService: this.workspaceService,
@@ -262,6 +277,13 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
       getLeftPane: () => this.leftPane,
       getRightPane: () => this.rightPane,
     };
+  }
+
+  private get searchHost(): FileBrowserSearchHost {
+	return {
+	  pathHistoryService: this.pathHistoryService,
+	  getActivePane: () => this.getActivePane(),
+	};
   }
 
   // ============================================================================
@@ -354,31 +376,11 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   onPanePathChange(paneId: string, path: string): void {
-    this.pathHistoryService.addPath(path, paneId);
+    this.searchController.onPanePathChange(this.searchHost, paneId, path);
   }
-
-  // ============================================================================
-  // Global Search
-  // ============================================================================
 
   onGlobalSearchResult(result: any): void {
-    const pane = this.getActivePane();
-    if (!pane) return;
-
-    if (result.file.type === FileType.DIRECTORY) {
-      pane.onPathChange(result.file.path);
-    } else {
-      const parentPath = this.getParentPath(result.file.path);
-      pane.onPathChange(parentPath);
-    }
-  }
-
-  private getParentPath(path: string): string {
-    if (path === '/' || path === '') return '/';
-    const parts = path.split('/').filter(p => p.length > 0);
-    if (parts.length === 0) return '/';
-    parts.pop();
-    return '/' + parts.join('/');
+    this.searchController.onGlobalSearchResult(this.searchHost, result);
   }
 
   // ============================================================================
@@ -453,100 +455,31 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
   // Resizable Panels
   // ============================================================================
 
-  private loadPaneWidths(): void {
-    const savedSplit = localStorage.getItem('split-pos');
-    const savedLeftWidth = localStorage.getItem('fileManager_leftPaneWidth');
-
-    const raw = savedSplit ?? savedLeftWidth;
-    if (!raw) return;
-    const parsed = parseFloat(raw);
-    if (!Number.isFinite(parsed)) return;
-
-    const clampedLeft = Math.max(this.MIN_PANE_WIDTH, Math.min(this.MAX_PANE_WIDTH, parsed));
-    this.leftPaneWidth = clampedLeft;
-    this.rightPaneWidth = 100 - clampedLeft;
-  }
-
-  private savePaneWidths(): void {
-    localStorage.setItem('fileManager_leftPaneWidth', this.leftPaneWidth.toString());
-    localStorage.setItem('fileManager_rightPaneWidth', this.rightPaneWidth.toString());
-    // Keep SplitDividerComponent restore key in sync.
-    localStorage.setItem('split-pos', this.leftPaneWidth.toString());
-  }
-
   startResize(event: MouseEvent): void {
-    event.preventDefault();
-    this.isResizing = true;
-    this.startX = event.clientX;
-    this.startLeftWidth = this.leftPaneWidth;
-
-    document.addEventListener('mousemove', this.onResize);
-    document.addEventListener('mouseup', this.stopResize);
-    document.body.classList.add('resizing');
-  }
-
-  private onResize = (event: MouseEvent): void => {
-    if (!this.isResizing || !this.panesContainer) return;
-
-    event.preventDefault();
-
-    const containerWidth = this.panesContainer.nativeElement.clientWidth;
-    const deltaX = event.clientX - this.startX;
-    const deltaPercent = (deltaX / containerWidth) * 100;
-
-    let newLeftWidth = this.startLeftWidth + deltaPercent;
-    newLeftWidth = Math.max(this.MIN_PANE_WIDTH, Math.min(this.MAX_PANE_WIDTH, newLeftWidth));
-
-    this.leftPaneWidth = newLeftWidth;
-    this.rightPaneWidth = 100 - newLeftWidth;
-  };
-
-  private stopResize = (): void => {
-    if (this.isResizing) {
-      this.isResizing = false;
-      document.removeEventListener('mousemove', this.onResize);
-      document.removeEventListener('mouseup', this.stopResize);
-      document.body.classList.remove('resizing');
-      this.savePaneWidths();
-    }
+  this.layoutController.startResize(this.layoutHost, event);
   };
 
   resetPaneWidths(): void {
-    this.leftPaneWidth = 50;
-    this.rightPaneWidth = 50;
-    this.savePaneWidths();
-  }
-
-  private cleanupResizeListeners(): void {
-    if (this.isResizing) {
-      document.removeEventListener('mousemove', this.onResize);
-      document.removeEventListener('mouseup', this.stopResize);
-    }
+  this.layoutController.resetPaneWidths(this.layoutHost);
   }
 
   @HostListener('window:beforeunload')
   onBeforeUnload(): void {
-    this.cleanupResizeListeners();
+  this.layoutController.cleanupResizeListeners(this.layoutHost);
   }
 
   @HostListener('window:keydown.arrowleft', ['$event'])
   onArrowLeft(event: any): void {
-    if (document.activeElement?.classList.contains('pane-divider')) {
-      event.preventDefault();
-      this.leftPaneWidth = Math.max(this.MIN_PANE_WIDTH, this.leftPaneWidth - 5);
-      this.rightPaneWidth = 100 - this.leftPaneWidth;
-      this.savePaneWidths();
-    }
+  if (!document.activeElement?.classList.contains('pane-divider')) return;
+  event.preventDefault();
+  this.layoutController.nudgeDividerLeft(this.layoutHost);
   }
 
   @HostListener('window:keydown.arrowright', ['$event'])
   onArrowRight(event: any): void {
-    if (document.activeElement?.classList.contains('pane-divider')) {
-      event.preventDefault();
-      this.leftPaneWidth = Math.min(this.MAX_PANE_WIDTH, this.leftPaneWidth + 5);
-      this.rightPaneWidth = 100 - this.leftPaneWidth;
-      this.savePaneWidths();
-    }
+  if (!document.activeElement?.classList.contains('pane-divider')) return;
+  event.preventDefault();
+  this.layoutController.nudgeDividerRight(this.layoutHost);
   }
 
   statusText: string = 'Ready';

@@ -52,7 +52,7 @@ func extractZipSync(fsPath string, entries []string, stripPrefix string, destDir
 
 	var matches []*zip.File
 	for _, f := range r.File {
-		if matchesEntriesForExtract(normalizePath(f.Name), entries) {
+		if matchesEntriesForExtract(normalizeArchiveEntryPath(f.Name), entries) {
 			matches = append(matches, f)
 		}
 	}
@@ -136,7 +136,7 @@ func extractTarSync(fsPath string, entries []string, stripPrefix string, destDir
 		if err != nil {
 			return succeeded, failed, errs, err
 		}
-		if hdr.FileInfo().IsDir() || !matchesEntriesForExtract(normalizePath(hdr.Name), entries) {
+		if hdr.FileInfo().IsDir() || !matchesEntriesForExtract(normalizeArchiveEntryPath(hdr.Name), entries) {
 			continue
 		}
 
@@ -177,7 +177,7 @@ func extractTarXzViaArchiver(fsPath string, entries []string, stripPrefix, destD
 		if !ok || f.IsDir() {
 			return nil
 		}
-		if !matchesEntriesForExtract(normalizePath(hdr.Name), entries) {
+		if !matchesEntriesForExtract(normalizeArchiveEntryPath(hdr.Name), entries) {
 			return nil
 		}
 		relPath, ok := rebaseExtractPath(hdr.Name, stripPrefix)
@@ -250,7 +250,7 @@ func (a *App) extractArchiveReaderSync(fsPath string, entries []string, stripPre
 			return succeeded, failed, errs, err
 		}
 		entryName := archiveEntryPath(entry)
-		if entry.IsDir() || !matchesEntriesForExtract(normalizePath(entryName), entries) {
+		if entry.IsDir() || !matchesEntriesForExtract(normalizeArchiveEntryPath(entryName), entries) {
 			entry.Close()
 			continue
 		}
@@ -301,7 +301,7 @@ func extractFromBytesSync(data []byte, archiveName string, entries []string, str
 				return succeeded, failed, errs, err
 			}
 			entryName := archiveEntryPath(f)
-			if f.IsDir() || !matchesEntriesForExtract(normalizePath(entryName), entries) {
+			if f.IsDir() || !matchesEntriesForExtract(normalizeArchiveEntryPath(entryName), entries) {
 				f.Close()
 				continue
 			}
@@ -338,7 +338,7 @@ func extractFromBytesSync(data []byte, archiveName string, entries []string, str
 		}
 		var matches []*zip.File
 		for _, f := range r.File {
-			if matchesEntriesForExtract(normalizePath(f.Name), entries) {
+			if matchesEntriesForExtract(normalizeArchiveEntryPath(f.Name), entries) {
 				matches = append(matches, f)
 			}
 		}
@@ -397,7 +397,7 @@ func extractFromBytesSync(data []byte, archiveName string, entries []string, str
 		if err != nil {
 			return succeeded, failed, errs, err
 		}
-		if hdr.FileInfo().IsDir() || !matchesEntriesForExtract(normalizePath(hdr.Name), entries) {
+		if hdr.FileInfo().IsDir() || !matchesEntriesForExtract(normalizeArchiveEntryPath(hdr.Name), entries) {
 			continue
 		}
 		relPath, ok := rebaseExtractPath(hdr.Name, stripPrefix)
@@ -458,7 +458,7 @@ func extractWriteFile(destPath string, r io.Reader) (int64, error) {
 }
 
 func extractDestPath(entryName, destDir string, flatten bool) string {
-	entryName = normalizePath(entryName)
+	entryName = normalizeArchiveEntryPath(entryName)
 	if flatten {
 		return filepath.Join(destDir, filepath.Base(entryName))
 	}

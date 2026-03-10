@@ -2,8 +2,11 @@ package main
 
 import "strings"
 
-// normalizePath strips leading slashes and normalises separators.
-func normalizePath(p string) string {
+// normalizeArchiveEntryPath preserves a trailing slash on raw archive header
+// names so extract/rewrite matching can still distinguish a directory header
+// from a regular file entry. This intentionally does not share VFS pathutil
+// semantics, which trim both ends for browsing-oriented paths.
+func normalizeArchiveEntryPath(p string) string {
 	p = strings.ReplaceAll(p, "\\", "/")
 	return strings.TrimPrefix(p, "/")
 }

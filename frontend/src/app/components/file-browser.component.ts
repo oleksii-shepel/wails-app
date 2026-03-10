@@ -15,6 +15,8 @@ import { ThemeService } from '../services/theme.service';
 import { PathHistoryViewerComponent } from './path-history-viewer.component';
 import { FileBrowserClipboardController, type FileBrowserClipboardHost } from './file-browser-clipboard.controller';
 import { FileBrowserDropController, type FileBrowserDropHost } from './file-browser-drop.controller';
+import { FileBrowserPathHelper } from './file-browser-path.helper';
+import { FileBrowserWorkspaceController, type FileBrowserWorkspaceHost } from './file-browser-workspace.controller';
 import { FilePaneComponent } from './file-pane.component';
 import { FileBrowserTransferController, type FileBrowserTransferHost } from './file-browser-transfer.controller';
 import { SplitDividerComponent } from './split-divider.component';
@@ -79,7 +81,9 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
   FileType = FileType;
   private readonly clipboardController = new FileBrowserClipboardController();
   private readonly dropController = new FileBrowserDropController();
+  private readonly pathHelper: FileBrowserPathHelper;
   private readonly transferController = new FileBrowserTransferController();
+  private readonly workspaceController = new FileBrowserWorkspaceController();
 
   private destroy$ = createSubject<void>();
   private clipboard: { operation: 'copy' | 'cut'; paths: string[] } | null = null;
@@ -94,7 +98,9 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
     private confirmDialog: ConfirmDialogService,
     private zone: NgZone,
     private cdr: ChangeDetectorRef,
-  ) {}
+  ) {
+    this.pathHelper = new FileBrowserPathHelper(this.apiService);
+  }
 
   ngOnInit(): void {
     this.workspaceService.activeWorkspace$
@@ -235,6 +241,28 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
     };
   }
 
+  private get workspaceHost(): FileBrowserWorkspaceHost {
+    return {
+      workspaceService: this.workspaceService,
+      confirmDialog: this.confirmDialog,
+      getActiveWorkspace: () => this.activeWorkspace,
+      getShowHidden: () => this.showHidden,
+      getShowWorkspaceMenu: () => this.showWorkspaceMenu,
+      setShowHidden: (showHidden: boolean) => {
+        this.showHidden = showHidden;
+      },
+      setShowWorkspaceMenu: (show: boolean) => {
+        this.showWorkspaceMenu = show;
+      },
+      refreshPanes: async () => {
+        await Promise.all([
+          this.leftPane?.onRefresh(),
+          this.rightPane?.onRefresh(),
+        ]);
+      },
+    };
+  }
+
   // ============================================================================
   // Server Connection
   // ============================================================================
@@ -262,57 +290,31 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
   // ============================================================================
 
   async createNewWorkspace(): Promise<void> {
-    const name = prompt('Enter workspace name:');
-    if (!name) return;
-    const workspace = await this.workspaceService.createWorkspace(name);
-    this.workspaceService.switchWorkspace(workspace.id);
-    this.showWorkspaceMenu = false;
+    await this.workspaceController.createNewWorkspace(this.workspaceHost);
   }
 
   switchWorkspace(workspaceId: string): void {
-    this.workspaceService.switchWorkspace(workspaceId);
-    this.showWorkspaceMenu = false;
+    this.workspaceController.switchWorkspace(this.workspaceHost, workspaceId);
   }
 
   toggleWorkspaceMenu(event?: Event): void {
-    if (event) event.stopPropagation();
-    this.showWorkspaceMenu = !this.showWorkspaceMenu;
+    this.workspaceController.toggleWorkspaceMenu(this.workspaceHost, event);
   }
 
   closeWorkspaceMenu(): void {
-    this.showWorkspaceMenu = false;
+    this.workspaceController.closeWorkspaceMenu(this.workspaceHost);
   }
 
   async deleteCurrentWorkspace(): Promise<void> {
-    if (!this.activeWorkspace) return;
-    const confirmed = await this.confirmDialog.confirm({
-      title: 'Delete Workspace',
-      message: `Delete workspace "${this.activeWorkspace.name}"?`,
-      confirmText: 'Delete',
-      danger: true,
-    });
-    if (!confirmed) return;
-    this.workspaceService.deleteWorkspace(this.activeWorkspace.id);
+    await this.workspaceController.deleteCurrentWorkspace(this.workspaceHost);
   }
 
   renameCurrentWorkspace(): void {
-    if (!this.activeWorkspace) return;
-    const name = prompt('Enter new workspace name:', this.activeWorkspace.name);
-    if (!name) return;
-    this.workspaceService.updateWorkspace(this.activeWorkspace.id, { name });
+    this.workspaceController.renameCurrentWorkspace(this.workspaceHost);
   }
 
   async toggleShowHidden(): Promise<void> {
-    this.showHidden = !this.showHidden;
-    if (this.activeWorkspace) {
-      this.workspaceService.updateWorkspace(this.activeWorkspace.id, {
-        showHidden: this.showHidden
-      });
-    }
-    await Promise.all([
-      this.leftPane?.onRefresh(),
-      this.rightPane?.onRefresh()
-    ]);
+    await this.workspaceController.toggleShowHidden(this.workspaceHost);
   }
 
   async toggleElevation(): Promise<void> {
@@ -344,43 +346,7 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
    * Otherwise use destination as-is
    */
   private async buildDestinationPath(sourcePath: string, targetDir: string): Promise<string> {
-    try {
-      // Check if target is a directory
-      const isTargetDir = await this.apiService.isDirectory(targetDir);
-      
-      if (isTargetDir) {
-        // Get filename from source path
-        const fileName = await this.getFileName(sourcePath);
-        // Join with target directory
-        return await this.apiService.joinPaths([targetDir, fileName]);
-      }
-      
-      // Target is not a directory (shouldn't happen in normal usage, but handle it)
-      return targetDir;
-    } catch (error) {
-      console.warn('Error building destination path, falling back to target dir:', error);
-      return targetDir;
-    }
-  }
-
-  /**
-   * Extract filename from a path
-   */
-  private async getFileName(path: string): Promise<string> {
-    try {
-      // Try using the API first
-      const splitResult = await this.apiService.splitPath(path);
-      if (splitResult.base) {
-        return splitResult.base;
-      }
-    } catch (error) {
-      console.warn('Error splitting path via API, falling back to manual split:', error);
-    }
-    
-    // Fallback: manual split
-    const normalized = path.replace(/\\/g, '/');
-    const parts = normalized.split('/').filter(p => p.length > 0);
-    return parts.length > 0 ? parts[parts.length - 1] : 'file';
+    return await this.pathHelper.buildDestinationPath(sourcePath, targetDir);
   }
 
   async onCopyFromLeft(paths: string[]): Promise<void> {

@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { Component, Input, OnChanges, ChangeDetectionStrategy, Type } from '@angular/core';
+import { ChangeDetectionStrategy, ChangeDetectorRef, Component, Input, OnChanges, Type } from '@angular/core';
 import { ViewerRegistryService } from './viewer-registry.service';
 import { ViewerArchiveContext } from '../components/viewer-surface.component';
 
@@ -48,7 +48,10 @@ export class ViewerHostSurfaceComponent implements OnChanges {
 
   private resolveSeq = 0;
 
-  constructor(private registry: ViewerRegistryService) {}
+  constructor(
+    private registry: ViewerRegistryService,
+    private cdr: ChangeDetectorRef,
+  ) {}
 
   ngOnChanges(): void {
     const seq = ++this.resolveSeq;
@@ -63,14 +66,18 @@ export class ViewerHostSurfaceComponent implements OnChanges {
       archiveContext: req.archiveContext,
       viewerId: req.viewerId,
     };
+    this.component = null;
+    this.cdr.markForCheck();
 
     // Async resolve so we can lazy-load contributions.
     void this.registry.resolve(req).then(({ component }) => {
       if (seq !== this.resolveSeq) return;
       this.component = component;
+      this.cdr.markForCheck();
     }).catch(() => {
       if (seq !== this.resolveSeq) return;
       this.component = null;
+      this.cdr.markForCheck();
     });
   }
 }

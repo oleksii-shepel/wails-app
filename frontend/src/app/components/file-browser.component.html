@@ -102,7 +102,7 @@
     <app-elevation-status-pill></app-elevation-status-pill>
     <app-operation-status-bar
       [(toastCollapsed)]="toastCollapsed"
-      [stackElement]="toastStack.elementRef.nativeElement">
+      [stackElement]="toastStack?.elementRef?.nativeElement ?? null">
     </app-operation-status-bar>
   </app-status-bar>
 </div>

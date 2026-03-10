@@ -1,5 +1,5 @@
 import { CommonModule, NgComponentOutlet } from '@angular/common';
-import { ChangeDetectionStrategy, Component, Input, OnChanges, Type, ViewChild } from '@angular/core';
+import { ChangeDetectionStrategy, ChangeDetectorRef, Component, Input, OnChanges, Type, ViewChild } from '@angular/core';
 import { SurfaceRegistryService } from './surface-registry.service';
 import { SurfaceContext } from './surface-context';
 
@@ -31,19 +31,38 @@ export class SurfaceOutletComponent implements OnChanges {
   @ViewChild(NgComponentOutlet) private outlet?: NgComponentOutlet;
 
   private resolveSeq = 0;
+  private resolvedSurfaceKey: string | null = null;
 
-  constructor(private registry: SurfaceRegistryService) {}
+  constructor(
+    private registry: SurfaceRegistryService,
+    private cdr: ChangeDetectorRef,
+  ) {}
 
   ngOnChanges(): void {
-    const seq = ++this.resolveSeq;
     this.outletInputs = { ctx: this.ctx };
+    const surfaceKey = this.ctx?.tab?.kind ?? 'dir';
+
+    // FilePaneComponent rebuilds the surface context object on every change
+    // detection pass. Reload the dynamic surface only when the surface kind
+    // actually changes; otherwise just push fresh inputs into the mounted one.
+    if (this.component && this.resolvedSurfaceKey === surfaceKey) {
+      this.cdr.markForCheck();
+      return;
+    }
+
+    const seq = ++this.resolveSeq;
+    this.resolvedSurfaceKey = surfaceKey;
+    this.cdr.markForCheck();
 
     void this.registry.resolve({ tab: this.ctx.tab }).then(({ component }) => {
       if (seq !== this.resolveSeq) return;
       this.component = component;
+      this.cdr.markForCheck();
     }).catch(() => {
       if (seq !== this.resolveSeq) return;
+      this.resolvedSurfaceKey = null;
       this.component = null;
+      this.cdr.markForCheck();
     });
   }
 

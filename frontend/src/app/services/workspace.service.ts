@@ -782,7 +782,12 @@ export class WorkspaceService {
     };
   }
 
-  updateViewerTabTargetPath(paneId: string, tabId: string, targetPath: string): boolean {
+  updateViewerTabTargetPath(
+    paneId: string,
+    tabId: string,
+    targetPath: string,
+    source?: { sourcePane: 'left' | 'right'; sourceTabId: string; sourceDir: string },
+  ): boolean {
     const workspace = this.activeWorkspaceSubject.value;
     if (!workspace) return false;
 
@@ -798,9 +803,9 @@ export class WorkspaceService {
       targetPath: next,
       viewerId: tab.viewer?.viewerId,
       autoFollow: tab.viewer?.autoFollow,
-      sourcePane: tab.viewer?.sourcePane,
-      sourceTabId: tab.viewer?.sourceTabId,
-      sourceDir: tab.viewer?.sourceDir,
+      sourcePane: source?.sourcePane ?? tab.viewer?.sourcePane,
+      sourceTabId: source?.sourceTabId ?? tab.viewer?.sourceTabId,
+      sourceDir: source?.sourceDir ?? tab.viewer?.sourceDir,
       // archiveContext intentionally omitted — auto-follow always points to FS files
     };
     this.updateWorkspace(

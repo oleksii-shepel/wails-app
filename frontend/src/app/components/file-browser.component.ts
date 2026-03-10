@@ -59,6 +59,7 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
   activePaneId: 'left' | 'right' = 'left';
   private lastCrossPreviewTarget: string | null = null;
   private lastPreviewTabFocus: string | null = null;
+  private restoringFromPreview = false;
 
   leftPaneWidth = 50;
   rightPaneWidth = 50;
@@ -751,12 +752,12 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
       moveCursorPageUp:      () => this.getActivePane()?.onMoveCursorPageUp(),
       moveCursorPageDown:    () => this.getActivePane()?.onMoveCursorPageDown(),
       markCurrentItem:       () => this.getActivePane()?.onMarkCurrentItem(),
-      quickView:             () => this.openLivePreviewInOtherPane(),
+      quickView:             () => this.openFrozenPreviewInOtherPane(),
     };
     this.shortcutRegistry.registerAllShortcuts(callbacks);
   }
 
-  private async openLivePreviewInOtherPane(): Promise<void> {
+  private async openFrozenPreviewInOtherPane(): Promise<void> {
     const fromPane = this.getActivePane();
     if (!fromPane) return;
     const target = fromPane.getPreviewTargetPath();
@@ -766,14 +767,14 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
     const toPane = toPaneId === 'left' ? this.leftPane : this.rightPane;
     if (!toPane) return;
 
-    // Only create the live preview tab when the user explicitly asks (F3).
-    this.ensureAutoPreviewTab(toPaneId);
-    const auto = this.findAutoPreviewTab(toPaneId);
-    if (!auto) return;
-
-    this.workspaceService.updateViewerTabTargetPath(toPaneId, auto.id, target);
-    // Activate the preview tab in the other pane; it will render the current file and keep updating.
-    await toPane.onTabChange(auto);
+    // Open a new preview surface in the other pane, but remember which tab/cursor it came from.
+    // This preview follows cursor/selection changes (no new tabs on cursor move).
+    await toPane.openFrozenPreviewTab(target, {
+      sourcePane: this.activePaneId,
+      sourceTabId: fromPane.currentTabId,
+      sourceDir: fromPane.currentPath,
+      autoFollow: true,
+    });
   }
 
   private switchActivePaneInternal(): void {
@@ -786,16 +787,27 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
 
     const otherPane: 'left' | 'right' = fromPane === 'left' ? 'right' : 'left';
     const next = targetPath || '';
-    if (this.lastCrossPreviewTarget === `${otherPane}:${next}`) return;
-    this.lastCrossPreviewTarget = `${otherPane}:${next}`;
 
-    // Update only if the other pane has a live preview tab (do not create tabs on cursor move).
+    const from = fromPane === 'left' ? this.leftPane : this.rightPane;
+    const sourceTabId = from?.currentTabId ?? '';
+    const sourceDir = from?.currentPath ?? '';
+
+    const dedupeKey = `${otherPane}:${next}:${fromPane}:${sourceTabId}`;
+    if (this.lastCrossPreviewTarget === dedupeKey) return;
+    this.lastCrossPreviewTarget = dedupeKey;
+
+    // Update only the ACTIVE live preview tab in the other pane.
+    // This preserves "frozen" preview tabs when multiple viewer tabs exist.
     const active = this.workspaceService.getActiveTab(otherPane);
-    const activeIsLivePreview = (active?.kind ?? 'dir') === 'viewer' && !!active?.viewer?.autoFollow;
-    const tab = activeIsLivePreview ? active : this.findAutoPreviewTab(otherPane);
-    if (!tab) return;
-    if ((tab.kind ?? 'dir') !== 'viewer' || !tab.viewer?.autoFollow) return;
-    this.workspaceService.updateViewerTabTargetPath(otherPane, tab.id, next);
+    if (!active) return;
+    if ((active.kind ?? 'dir') !== 'viewer') return;
+    if (!active.viewer?.autoFollow) return;
+
+    this.workspaceService.updateViewerTabTargetPath(otherPane, active.id, next, {
+      sourcePane: fromPane,
+      sourceTabId,
+      sourceDir,
+    });
   }
 
   onPaneActiveTabChanged(fromPane: 'left' | 'right', tab: TabInfo): void {
@@ -805,29 +817,37 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
     const target = tab.viewer?.targetPath ?? '';
     if (!target) return;
 
+    const sourcePane = tab.viewer?.sourcePane;
+    const sourceTabId = tab.viewer?.sourceTabId;
+
+    // Restore cursor in the source pane/tab if the preview tab recorded origin metadata.
+    if (sourcePane && sourceTabId) {
+      const key = `${sourcePane}:${sourceTabId}:${target}`;
+      if (this.lastPreviewTabFocus === key) return;
+      this.lastPreviewTabFocus = key;
+
+      const pane = sourcePane === 'left' ? this.leftPane : this.rightPane;
+      if (!pane) return;
+
+      // Avoid feedback loops: switching the source pane tab can trigger additional activeTabChange events.
+      if (this.restoringFromPreview) return;
+      this.restoringFromPreview = true;
+      pane.activateDirTabAndFocusPath(sourceTabId, target).finally(() => {
+        this.restoringFromPreview = false;
+      });
+      return;
+    }
+
+    // Fallback: focus the opposite pane (previous behavior).
     const otherPane: 'left' | 'right' = fromPane === 'left' ? 'right' : 'left';
     const key = `${otherPane}:${target}`;
     if (this.lastPreviewTabFocus === key) return;
     this.lastPreviewTabFocus = key;
-
     const pane = otherPane === 'left' ? this.leftPane : this.rightPane;
     pane?.focusCursorPath(target);
   }
 
-  private findAutoPreviewTab(paneId: 'left' | 'right') {
-    const tabs = this.workspaceService.getTabs(paneId) ?? [];
-    return tabs.find(t => (t.kind ?? 'dir') === 'viewer' && t.viewer?.autoFollow) ?? null;
-  }
-
-  private ensureAutoPreviewTab(paneId: 'left' | 'right'): void {
-    if (this.findAutoPreviewTab(paneId)) return;
-    this.workspaceService.addViewerTab(paneId, '', {
-      activate: false,
-      autoFollow: true,
-      title: 'Preview',
-      closable: true,
-    });
-  }
+  // NOTE: we intentionally do not auto-create live preview tabs on cursor move.
 
   // ============================================================================
   // Resizable Panels

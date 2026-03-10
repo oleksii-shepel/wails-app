@@ -24,6 +24,7 @@ import (
 
 	"wails-app/vfs"
 	"wails-app/vfs/archive"
+	"wails-app/vfs/archive/pathutil"
 )
 
 func init() {
@@ -541,57 +542,19 @@ func (f *tarFile) Sync() error                 { return nil }
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 func normalizePath(p string) string {
-	p = strings.ReplaceAll(p, "\\", "/")
-	p = strings.Trim(p, "/")
-	// Many tar creators (GNU tar, Python tarfile, bsdtar) prefix every entry
-	// with "./" — e.g. "./subdir/file.txt" instead of "subdir/file.txt".
-	// Strip that prefix so all paths are in the canonical "a/b/c" form.
-	// The root entry "./" is already handled by the p=="." skip in
-	// collectEntries, but other entries like "./file.txt" must be cleaned here.
-	p = strings.TrimPrefix(p, "./")
-	return p
+	return pathutil.NormalizeTarPath(p)
 }
 
 func childOf(ep, parent string) string {
-	ep = normalizePath(ep)
-	parent = normalizePath(parent)
-	if parent == "" {
-		return ep
-	}
-	if ep == parent {
-		return ""
-	}
-	prefix := parent + "/"
-	if strings.HasPrefix(ep, prefix) {
-		return ep[len(prefix):]
-	}
-	return ""
+	return pathutil.ChildOf(ep, parent)
 }
 
 func matchesEntries(ep string, entries []string) bool {
-	if len(entries) == 0 {
-		return true
-	}
-	for _, e := range entries {
-		if ep == e || strings.HasPrefix(ep, e+"/") {
-			return true
-		}
-	}
-	return false
+	return pathutil.MatchesEntries(ep, entries)
 }
 
 func rebasePath(ep, stripPrefix string) string {
-	if stripPrefix == "" {
-		return ep
-	}
-	prefix := normalizePath(stripPrefix)
-	if ep == prefix {
-		return ""
-	}
-	if strings.HasPrefix(ep, prefix+"/") {
-		return ep[len(prefix)+1:]
-	}
-	return ep
+	return pathutil.RebasePath(ep, stripPrefix)
 }
 
 // Compile-time interface checks.

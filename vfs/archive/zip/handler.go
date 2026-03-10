@@ -18,6 +18,7 @@ import (
 
 	"wails-app/vfs"
 	"wails-app/vfs/archive"
+	"wails-app/vfs/archive/pathutil"
 )
 
 func init() {
@@ -482,9 +483,7 @@ func (f *zipFile) Sync() error                 { return nil }
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 func normalizePath(p string) string {
-	p = strings.ReplaceAll(p, "\\", "/")
-	p = strings.Trim(p, "/")
-	return p
+	return pathutil.NormalizePath(p)
 }
 
 // childOf returns the path of ep relative to parent, or "" if ep is not under parent.
@@ -493,49 +492,18 @@ func normalizePath(p string) string {
 //	childOf("a/b/c.txt", "a")  == "b/c.txt"
 //	childOf("a/b/c.txt", "")   == "a/b/c.txt"
 func childOf(ep, parent string) string {
-	parent = normalizePath(parent)
-	ep = normalizePath(ep)
-	if parent == "" {
-		return ep
-	}
-	if ep == parent {
-		return ""
-	}
-	prefix := parent + "/"
-	if strings.HasPrefix(ep, prefix) {
-		return ep[len(prefix):]
-	}
-	return ""
+	return pathutil.ChildOf(ep, parent)
 }
 
 // matchesEntries reports whether ep matches any of the listed entry paths.
 // An empty entries list means "everything".
 func matchesEntries(ep string, entries []string) bool {
-	if len(entries) == 0 {
-		return true
-	}
-	for _, e := range entries {
-		e = normalizePath(e)
-		if ep == e || strings.HasPrefix(ep, e+"/") {
-			return true
-		}
-	}
-	return false
+	return pathutil.MatchesEntries(ep, entries)
 }
 
 // rebasePath strips stripPrefix from ep.
 func rebasePath(ep, stripPrefix string) string {
-	if stripPrefix == "" {
-		return ep
-	}
-	prefix := normalizePath(stripPrefix)
-	if ep == prefix {
-		return ""
-	}
-	if strings.HasPrefix(ep, prefix+"/") {
-		return ep[len(prefix)+1:]
-	}
-	return ep
+	return pathutil.RebasePath(ep, stripPrefix)
 }
 
 // Ensure interface compliance at compile time.

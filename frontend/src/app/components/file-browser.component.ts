@@ -1,7 +1,6 @@
 import { Component, OnInit, OnDestroy, AfterViewInit, ViewChild, ElementRef, HostListener, NgZone, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
-import { EventsOn, EventsOff, OnFileDrop, OnFileDropOff } from 'wailsjs/runtime/runtime';
 import { ApiService } from '../services/api.service';
 import { WorkspaceService } from '../services/workspace.service';
 import { FileType } from '../shared/protocol';
@@ -16,6 +15,8 @@ import { PathHistoryViewerComponent } from './path-history-viewer.component';
 import { FileBrowserClipboardController, type FileBrowserClipboardHost } from './file-browser-clipboard.controller';
 import { FileBrowserDropController, type FileBrowserDropHost } from './file-browser-drop.controller';
 import { FileBrowserPathHelper } from './file-browser-path.helper';
+import { FileBrowserPreviewController, type FileBrowserPreviewHost } from './file-browser-preview.controller';
+import { FileBrowserRuntimeController, type FileBrowserRuntimeHost } from './file-browser-runtime.controller';
 import { FileBrowserWorkspaceController, type FileBrowserWorkspaceHost } from './file-browser-workspace.controller';
 import { FilePaneComponent } from './file-pane.component';
 import { FileBrowserTransferController, type FileBrowserTransferHost } from './file-browser-transfer.controller';
@@ -62,9 +63,6 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
   showWorkspaceMenu = false;
   showHidden = false;
   activePaneId: 'left' | 'right' = 'left';
-  private lastCrossPreviewTarget: string | null = null;
-  private lastPreviewTabFocus: string | null = null;
-  private restoringFromPreview = false;
 
   leftPaneWidth = 50;
   rightPaneWidth = 50;
@@ -82,6 +80,8 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
   private readonly clipboardController = new FileBrowserClipboardController();
   private readonly dropController = new FileBrowserDropController();
   private readonly pathHelper: FileBrowserPathHelper;
+  private readonly previewController = new FileBrowserPreviewController();
+  private readonly runtimeController = new FileBrowserRuntimeController();
   private readonly transferController = new FileBrowserTransferController();
   private readonly workspaceController = new FileBrowserWorkspaceController();
 
@@ -126,31 +126,9 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
         });
       });
 
-    this.checkServerConnection();
     this.registerKeyboardShortcuts();
     this.loadPaneWidths();
-    void this.syncElevationState();
-
-    EventsOn('elevation:session-starting', () => {
-      this.elevationBusy = true;
-    });
-    EventsOn('elevation:session-started', () => {
-      this.elevationActive = true;
-      this.elevationBusy = false;
-    });
-    EventsOn('elevation:session-stopped', () => {
-      this.elevationActive = false;
-      this.elevationBusy = false;
-    });
-
-    // Register Wails native file drop handler.
-    // OnFileDrop registers Wails' own dragover/drop listeners (required for the
-    // wails:file-drop event to fire) AND the event callback.
-    // useDropTarget=false means: fire for any drop location, not just CSS-marked ones.
-    OnFileDrop((x: number, y: number, paths: string[]) => {
-      console.log('[FileBrowser] 🎯🎯🎯 wails:file-drop received! x:', x, 'y:', y, 'paths:', paths);
-      void this.handleNativeFileDrop(x, y, paths);
-    }, false);
+    void this.runtimeController.initialize(this.runtimeHost);
   }
 
 
@@ -165,14 +143,8 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
     this.destroy$.complete();
     this.apiService.disconnectWebSocket();
     this.cleanupResizeListeners();
-    
-    // Clean up Wails event listeners
-    EventsOff('elevation:session-starting', 'elevation:session-started', 'elevation:session-stopped');
-    OnFileDropOff();
-  }
 
-  private async handleNativeFileDrop(x: number, y: number, paths: string[]): Promise<void> {
-    await this.dropController.handleNativeFileDrop(this.dropHost, x, y, paths);
+    this.runtimeController.dispose();
   }
 
   copyToOtherPane(source: FilePaneComponent | undefined, target: FilePaneComponent | undefined, paths?: string[]): void {
@@ -263,26 +235,33 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
     };
   }
 
-  // ============================================================================
-  // Server Connection
-  // ============================================================================
-
-  async checkServerConnection(): Promise<void> {
-    const isHealthy = await this.apiService.checkHealth();
-    if (!isHealthy) {
-      console.error('Cannot connect to server');
-    }
+  private get runtimeHost(): FileBrowserRuntimeHost {
+    return {
+      apiService: this.apiService,
+      confirmDialog: this.confirmDialog,
+      getElevationActive: () => this.elevationActive,
+      getElevationBusy: () => this.elevationBusy,
+      setElevationActive: (active: boolean) => {
+        this.elevationActive = active;
+      },
+      setElevationBusy: (busy: boolean) => {
+        this.elevationBusy = busy;
+      },
+      handleNativeFileDrop: (x: number, y: number, paths: string[]) => this.dropController.handleNativeFileDrop(this.dropHost, x, y, paths),
+    };
   }
 
-  async syncElevationState(): Promise<void> {
-    try {
-      const status = await this.apiService.getElevatedSessionStatus();
-      this.elevationActive = !!status?.active;
-    } catch {
-      this.elevationActive = false;
-    } finally {
-      this.elevationBusy = false;
-    }
+  private get previewHost(): FileBrowserPreviewHost {
+    return {
+      workspaceService: this.workspaceService,
+      getActivePaneId: () => this.activePaneId,
+      setActivePaneId: (paneId: 'left' | 'right') => {
+        this.activePaneId = paneId;
+      },
+      getActivePane: () => this.getActivePane(),
+      getLeftPane: () => this.leftPane,
+      getRightPane: () => this.rightPane,
+    };
   }
 
   // ============================================================================
@@ -318,22 +297,7 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   async toggleElevation(): Promise<void> {
-    if (this.elevationBusy) return;
-    this.elevationBusy = true;
-    try {
-      if (this.elevationActive) {
-        await this.apiService.stopElevatedSession();
-        this.elevationActive = false;
-        return;
-      }
-      const status = await this.apiService.startElevatedSession();
-      this.elevationActive = !!status?.active;
-    } catch (error: any) {
-      console.error('Elevation toggle failed:', error);
-      this.confirmDialog.alert(`Elevation Error\n${error?.message ?? String(error)}`);
-    } finally {
-      this.elevationBusy = false;
-    }
+    await this.runtimeController.toggleElevation(this.runtimeHost);
   }
 
   // ============================================================================
@@ -457,7 +421,7 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
       showWorkspaceSwitcher: () => this.toggleWorkspaceMenu(),
       newWorkspace:          () => this.createNewWorkspace(),
       toggleHiddenFiles:     () => this.toggleShowHidden(),
-      switchPane:            () => this.switchActivePaneInternal(),
+      switchPane:            () => this.previewController.switchActivePane(this.previewHost),
       copyToOtherPane:       () => this.copyToOtherPaneCurrent(),
       moveToOtherPane:       () => this.moveToOtherPaneCurrent(),
       focusAddressBar:       () => this.getActivePane()?.focusAddressBar(),
@@ -470,99 +434,17 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
       moveCursorPageUp:      () => this.getActivePane()?.onMoveCursorPageUp(),
       moveCursorPageDown:    () => this.getActivePane()?.onMoveCursorPageDown(),
       markCurrentItem:       () => this.getActivePane()?.onMarkCurrentItem(),
-      quickView:             () => this.openFrozenPreviewInOtherPane(),
+      quickView:             () => this.previewController.openFrozenPreviewInOtherPane(this.previewHost),
     };
     this.shortcutRegistry.registerAllShortcuts(callbacks);
   }
 
-  private async openFrozenPreviewInOtherPane(): Promise<void> {
-    const fromPane = this.getActivePane();
-    if (!fromPane) return;
-    const target = fromPane.getPreviewTargetPath();
-    if (!target) return;
-
-    const toPaneId: 'left' | 'right' = this.activePaneId === 'left' ? 'right' : 'left';
-    const toPane = toPaneId === 'left' ? this.leftPane : this.rightPane;
-    if (!toPane) return;
-
-    // Open a new preview surface in the other pane, but remember which tab/cursor it came from.
-    // This preview follows cursor/selection changes (no new tabs on cursor move).
-    await toPane.openFrozenPreviewTab(target, {
-      sourcePane: this.activePaneId,
-      sourceTabId: fromPane.currentTabId,
-      sourceDir: fromPane.currentPath,
-      autoFollow: true,
-    });
-  }
-
-  private switchActivePaneInternal(): void {
-    this.activePaneId = this.activePaneId === 'left' ? 'right' : 'left';
-  }
-
   onPanePreviewTarget(fromPane: 'left' | 'right', targetPath: string): void {
-    // Only the active pane drives cross-pane preview (TC-style: other panel shows preview).
-    if (fromPane !== this.activePaneId) return;
-
-    const otherPane: 'left' | 'right' = fromPane === 'left' ? 'right' : 'left';
-    const next = targetPath || '';
-
-    const from = fromPane === 'left' ? this.leftPane : this.rightPane;
-    const sourceTabId = from?.currentTabId ?? '';
-    const sourceDir = from?.currentPath ?? '';
-
-    const dedupeKey = `${otherPane}:${next}:${fromPane}:${sourceTabId}`;
-    if (this.lastCrossPreviewTarget === dedupeKey) return;
-    this.lastCrossPreviewTarget = dedupeKey;
-
-    // Update only the ACTIVE live preview tab in the other pane.
-    // This preserves "frozen" preview tabs when multiple viewer tabs exist.
-    const active = this.workspaceService.getActiveTab(otherPane);
-    if (!active) return;
-    if ((active.kind ?? 'dir') !== 'viewer') return;
-    if (!active.viewer?.autoFollow) return;
-
-    this.workspaceService.updateViewerTabTargetPath(otherPane, active.id, next, {
-      sourcePane: fromPane,
-      sourceTabId,
-      sourceDir,
-    });
+    this.previewController.onPanePreviewTarget(this.previewHost, fromPane, targetPath);
   }
 
   onPaneActiveTabChanged(fromPane: 'left' | 'right', tab: TabInfo): void {
-    if (!tab) return;
-    if ((tab.kind ?? 'dir') !== 'viewer') return;
-
-    const target = tab.viewer?.targetPath ?? '';
-    if (!target) return;
-
-    const sourcePane = tab.viewer?.sourcePane;
-    const sourceTabId = tab.viewer?.sourceTabId;
-
-    // Restore cursor in the source pane/tab if the preview tab recorded origin metadata.
-    if (sourcePane && sourceTabId) {
-      const key = `${sourcePane}:${sourceTabId}:${target}`;
-      if (this.lastPreviewTabFocus === key) return;
-      this.lastPreviewTabFocus = key;
-
-      const pane = sourcePane === 'left' ? this.leftPane : this.rightPane;
-      if (!pane) return;
-
-      // Avoid feedback loops: switching the source pane tab can trigger additional activeTabChange events.
-      if (this.restoringFromPreview) return;
-      this.restoringFromPreview = true;
-      pane.activateDirTabAndFocusPath(sourceTabId, target).finally(() => {
-        this.restoringFromPreview = false;
-      });
-      return;
-    }
-
-    // Fallback: focus the opposite pane (previous behavior).
-    const otherPane: 'left' | 'right' = fromPane === 'left' ? 'right' : 'left';
-    const key = `${otherPane}:${target}`;
-    if (this.lastPreviewTabFocus === key) return;
-    this.lastPreviewTabFocus = key;
-    const pane = otherPane === 'left' ? this.leftPane : this.rightPane;
-    pane?.focusCursorPath(target);
+    this.previewController.onPaneActiveTabChanged(this.previewHost, fromPane, tab);
   }
 
   // NOTE: we intentionally do not auto-create live preview tabs on cursor move.

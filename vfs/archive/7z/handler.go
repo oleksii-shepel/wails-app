@@ -25,6 +25,7 @@ import (
 
 	"wails-app/vfs"
 	"wails-app/vfs/archive"
+	"wails-app/vfs/archive/pathutil"
 )
 
 func init() {
@@ -496,51 +497,19 @@ func (f *szFile) Sync() error                 { return nil }
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 func normalizePath(p string) string {
-	p = strings.ReplaceAll(p, "\\", "/")
-	p = strings.Trim(p, "/")
-	return p
+	return pathutil.NormalizePath(p)
 }
 
 func childOf(ep, parent string) string {
-	ep = normalizePath(ep)
-	parent = normalizePath(parent)
-	if parent == "" {
-		return ep
-	}
-	if ep == parent {
-		return ""
-	}
-	prefix := parent + "/"
-	if strings.HasPrefix(ep, prefix) {
-		return ep[len(prefix):]
-	}
-	return ""
+	return pathutil.ChildOf(ep, parent)
 }
 
 func matchesEntries(ep string, entries []string) bool {
-	if len(entries) == 0 {
-		return true
-	}
-	for _, e := range entries {
-		if ep == e || strings.HasPrefix(ep, e+"/") {
-			return true
-		}
-	}
-	return false
+	return pathutil.MatchesEntries(ep, entries)
 }
 
 func rebasePath(ep, stripPrefix string) string {
-	if stripPrefix == "" {
-		return ep
-	}
-	prefix := normalizePath(stripPrefix)
-	if ep == prefix {
-		return ""
-	}
-	if strings.HasPrefix(ep, prefix+"/") {
-		return ep[len(prefix)+1:]
-	}
-	return ep
+	return pathutil.RebasePath(ep, stripPrefix)
 }
 
 // Compile-time interface checks.

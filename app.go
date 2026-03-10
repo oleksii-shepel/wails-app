@@ -269,8 +269,8 @@ func vfsEntryToFileInfo(e vfslib.FileInfo, parentChain []string) FileInfo {
 	}
 }
 
-func (a *App) ArchiveRead(fsPath string, nestedChain []string, entryPath string) (*FileContent, error) {
-	return a.ArchiveReadFile(fsPath, nestedChain, entryPath)
+func (a *App) ArchiveRead(fsPath string, nestedChain []string, entryPath string, encoding string) (*FileContent, error) {
+	return a.ArchiveReadFile(fsPath, nestedChain, entryPath, encoding)
 }
 
 // ============================================================================

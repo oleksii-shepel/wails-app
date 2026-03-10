@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"compress/bzip2"
 	"compress/gzip"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"os"
@@ -79,20 +80,25 @@ func (a *App) ArchiveListNested(fsPath string, nestedChain []string, innerPath s
 	return a.vfsBrowseArchive(fsPath, nestedChain, innerPath)
 }
 
-// ArchiveReadFile returns the raw bytes (base64-encoded) of a single file
-// inside an archive (optionally nested).  entryPath is the full inner path
-// inside the innermost archive, e.g. "src/main.go".
-func (a *App) ArchiveReadFile(fsPath string, nestedChain []string, entryPath string) (*FileContent, error) {
+// ArchiveReadFile extracts a single entry from an archive into memory and
+// returns its contents encoded as requested.
+//
+//   - encoding "base64" → base64 string  (use for binary: images, pdf, video…)
+//   - encoding "utf8"/""  → raw UTF-8    (use for text files)
+//
+// Extraction is done entirely in-process — no temp files are written to disk
+// for flat archives.  Nested archives do use a temp file only for the
+// intermediate archive layer (not the final entry), which is unavoidable due
+// to handler design, but the entry itself is always returned as []byte.
+func (a *App) ArchiveReadFile(fsPath string, nestedChain []string, entryPath string, encoding string) (*FileContent, error) {
 	entryPath = normalize(entryPath)
 
 	var data []byte
 	var err error
 
 	if len(nestedChain) == 0 {
-		// Read directly from the on-disk archive.
 		data, err = a.extractFromFile(fsPath, entryPath)
 	} else {
-		// Resolve the innermost archive into memory, then extract the entry.
 		archiveData, nerr := a.extractNestedArchive(fsPath, nestedChain)
 		if nerr != nil {
 			return nil, nerr
@@ -103,10 +109,21 @@ func (a *App) ArchiveReadFile(fsPath string, nestedChain []string, entryPath str
 		return nil, err
 	}
 
+	if encoding == "" {
+		encoding = "utf8"
+	}
+	var content string
+	if encoding == "base64" {
+		content = base64.StdEncoding.EncodeToString(data)
+	} else {
+		content = string(data)
+		encoding = "utf8"
+	}
+
 	return &FileContent{
 		Path:     entryPath,
-		Content:  string(data),
-		Encoding: "utf8",
+		Content:  content,
+		Encoding: encoding,
 		Size:     int64(len(data)),
 	}, nil
 }

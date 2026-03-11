@@ -11,6 +11,25 @@ import { SurfaceContext } from '../surface-context';
   template: `
     <app-dir-surface #dir [vm]="ctx.dirVm"></app-dir-surface>
   `,
+  styles: [`
+    :host {
+      display: flex;
+      flex-direction: column;
+      flex: 1 1 0%;
+      min-height: 0;
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    app-dir-surface {
+      display: flex;
+      flex-direction: column;
+      flex: 1 1 0%;
+      min-height: 0;
+      min-width: 0;
+      overflow: hidden;
+    }
+  `],
 })
 export class DirSurfaceTabComponent {
   @Input({ required: true }) ctx!: SurfaceContext;

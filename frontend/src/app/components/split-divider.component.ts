@@ -6,8 +6,7 @@ import {
     HostBinding,
     HostListener,
     Input,
-    Output,
-    OnInit
+    Output
 } from '@angular/core';
 
 @Component({
@@ -194,7 +193,7 @@ import {
     `],
     imports: [CommonModule]
 })
-export class SplitDividerComponent implements OnInit {
+export class SplitDividerComponent {
     /* ---------------- INPUTS ---------------- */
 
     @Input() position = 50;
@@ -261,8 +260,6 @@ export class SplitDividerComponent implements OnInit {
         const final = this.snapToNearest(this.position);
         this.position = final;
         this.positionChange.emit(final);
-
-        localStorage.setItem('split-pos', String(final));
     }
 
     /* ---------------- DOUBLE CLICK RESET ---------------- */
@@ -271,7 +268,6 @@ export class SplitDividerComponent implements OnInit {
     reset() {
         this.position = 50;
         this.positionChange.emit(50);
-        localStorage.setItem('split-pos', '50');
     }
 
     /* ---------------- SNAP ENGINE ---------------- */
@@ -316,20 +312,6 @@ export class SplitDividerComponent implements OnInit {
         // ease-out curve so center zone feels noticeably wider
         const eased = t * t;
         return this.SNAP_THRESHOLD_MAX - eased * (this.SNAP_THRESHOLD_MAX - this.SNAP_THRESHOLD_MIN);
-    }
-
-    /* ---------------- INIT RESTORE ---------------- */
-
-    ngOnInit() {
-        const saved = localStorage.getItem('split-pos');
-        if (saved) {
-            const parsed = parseFloat(saved);
-            if (!isNaN(parsed) && parsed >= this.min && parsed <= this.max) {
-                // Restore internal position but avoid emitting during init
-                // to prevent ExpressionChangedAfterItHasBeenCheckedError
-                this.position = parsed;
-            }
-        }
     }
 
     /* ---------------- CLASS ---------------- */

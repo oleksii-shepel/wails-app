@@ -18,8 +18,19 @@ import { SurfaceContext } from './surface-context';
     </ng-template>
   `,
   styles: [`
-    :host { display: block; min-height: 0; min-width: 0; height: 100%; }
-    .surface-empty { height: 100%; }
+    :host {
+      display: flex;
+      flex-direction: column;
+      flex: 1 1 0%;
+      min-height: 0;
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    .surface-empty {
+      flex: 1 1 0%;
+      min-height: 0;
+    }
   `],
 })
 export class SurfaceOutletComponent implements OnChanges {

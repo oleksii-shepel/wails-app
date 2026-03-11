@@ -1,5 +1,5 @@
 ﻿// file-pane.component.ts
-import { Component, Input, Output, EventEmitter, OnInit, OnChanges, OnDestroy, ViewChild, SimpleChanges } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnInit, OnChanges, OnDestroy, ViewChild, SimpleChanges, NgZone, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { TabBarComponent, type TabDropEvent } from './tab-bar.component';
 import { FindWidgetState } from './filter-widget.component';
@@ -101,6 +101,15 @@ declare const window: any;
     app-tab-bar {
       display: block;
       flex-shrink: 0;
+    }
+
+    app-surface-outlet {
+      display: flex;
+      flex-direction: column;
+      flex: 1 1 0%;
+      min-height: 0;
+      min-width: 0;
+      overflow: hidden;
     }
   `]
 })
@@ -569,7 +578,9 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     private workspaceService: WorkspaceService,
     private filterService: FilterService,
     private pathHistoryService: PathHistoryService,
-      private confirmDialog: ConfirmDialogService,
+    private confirmDialog: ConfirmDialogService,
+    private zone: NgZone,
+    private cdr: ChangeDetectorRef,
     private archiveService: ArchiveService
   ) {
     this.dirStream = new DirListStreamController(this.apiService);
@@ -1051,16 +1062,23 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     this.fileViewContainer?.refreshTreeNode(this.currentPath);
   }
 
+  private runInAngular(update: () => void): void {
+    this.zone.run(() => {
+      update();
+      this.cdr.markForCheck();
+    });
+  }
+
   private bindFsChangeEvents(): void {
     EventsOn('fs:directoryChanged', (event: { paneId?: string; path?: string } | null) => {
-      this.handleFsDirectoryChanged(event);
+      this.runInAngular(() => this.handleFsDirectoryChanged(event));
     });
 
     this.dirStream.bind(this.paneId, {
-      onMeta: (event, isFirst) => this.handleDirStreamMeta(event, isFirst),
-      onBatch: (event, baseEntries) => this.handleDirStreamBatch(event, baseEntries),
-      onDone: (event, baseEntries) => this.handleDirStreamDone(event, baseEntries),
-      onError: (event) => this.handleDirStreamError(event),
+      onMeta: (event, isFirst) => this.runInAngular(() => this.handleDirStreamMeta(event, isFirst)),
+      onBatch: (event, baseEntries) => this.runInAngular(() => this.handleDirStreamBatch(event, baseEntries)),
+      onDone: (event, baseEntries) => this.runInAngular(() => this.handleDirStreamDone(event, baseEntries)),
+      onError: (event) => this.runInAngular(() => this.handleDirStreamError(event)),
     });
   }
 

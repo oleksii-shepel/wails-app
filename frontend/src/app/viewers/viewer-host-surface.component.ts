@@ -21,11 +21,19 @@ import { ViewerArchiveContext } from '../components/viewer-surface.component';
     </ng-template>
   `,
   styles: [`
-    :host { display: block; min-height: 0; min-width: 0; height: 100%; }
-    .viewer-host-empty {
-      height: 100%;
+    :host {
       display: flex;
       flex-direction: column;
+      flex: 1 1 0%;
+      min-height: 0;
+      min-width: 0;
+      overflow: hidden;
+    }
+    .viewer-host-empty {
+      display: flex;
+      flex-direction: column;
+      flex: 1 1 0%;
+      min-height: 0;
       align-items: center;
       justify-content: center;
       color: var(--vsc-foreground, #ccc);

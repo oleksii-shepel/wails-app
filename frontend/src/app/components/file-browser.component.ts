@@ -68,7 +68,6 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
 
   leftPaneWidth = 50;
   rightPaneWidth = 50;
-  isResizing = false;
   toastCollapsed = false;
   elevationActive = false;
   elevationBusy = false;
@@ -141,7 +140,6 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
     this.destroy$.next();
     this.destroy$.complete();
     this.apiService.disconnectWebSocket();
-    this.layoutController.cleanupResizeListeners(this.layoutHost);
 
     this.runtimeController.dispose();
   }
@@ -213,19 +211,14 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   private get layoutHost(): FileBrowserLayoutHost {
-  return {
-    getPanesContainer: () => this.panesContainer?.nativeElement as HTMLElement | undefined,
-    getLeftPaneWidth: () => this.leftPaneWidth,
-    getRightPaneWidth: () => this.rightPaneWidth,
-    setPaneWidths: (left: number, right: number) => {
-    this.leftPaneWidth = left;
-    this.rightPaneWidth = right;
-    },
-    getIsResizing: () => this.isResizing,
-    setIsResizing: (resizing: boolean) => {
-    this.isResizing = resizing;
-    },
-  };
+    return {
+      getLeftPaneWidth: () => this.leftPaneWidth,
+      getRightPaneWidth: () => this.rightPaneWidth,
+      setPaneWidths: (left: number, right: number) => {
+        this.leftPaneWidth = left;
+        this.rightPaneWidth = right;
+      },
+    };
   }
 
   private get workspaceHost(): FileBrowserWorkspaceHost {
@@ -455,31 +448,22 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
   // Resizable Panels
   // ============================================================================
 
-  startResize(event: MouseEvent): void {
-  this.layoutController.startResize(this.layoutHost, event);
-  };
-
-  resetPaneWidths(): void {
-  this.layoutController.resetPaneWidths(this.layoutHost);
-  }
-
-  @HostListener('window:beforeunload')
-  onBeforeUnload(): void {
-  this.layoutController.cleanupResizeListeners(this.layoutHost);
+  onPaneDividerPositionChange(position: number): void {
+    this.layoutController.syncPaneWidths(this.layoutHost, position);
   }
 
   @HostListener('window:keydown.arrowleft', ['$event'])
   onArrowLeft(event: any): void {
-  if (!document.activeElement?.classList.contains('pane-divider')) return;
-  event.preventDefault();
-  this.layoutController.nudgeDividerLeft(this.layoutHost);
+    if (!document.activeElement?.classList.contains('pane-divider')) return;
+    event.preventDefault();
+    this.layoutController.nudgeDividerLeft(this.layoutHost);
   }
 
   @HostListener('window:keydown.arrowright', ['$event'])
   onArrowRight(event: any): void {
-  if (!document.activeElement?.classList.contains('pane-divider')) return;
-  event.preventDefault();
-  this.layoutController.nudgeDividerRight(this.layoutHost);
+    if (!document.activeElement?.classList.contains('pane-divider')) return;
+    event.preventDefault();
+    this.layoutController.nudgeDividerRight(this.layoutHost);
   }
 
   statusText: string = 'Ready';

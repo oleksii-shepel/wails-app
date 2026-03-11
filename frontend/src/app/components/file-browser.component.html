@@ -64,11 +64,11 @@
 
       <!-- NEW Divider Component -->
       <app-split-divider
-        [(position)]="leftPaneWidth"
+        [position]="leftPaneWidth"
         [min]="20"
         [max]="80"
         [snapPoints]="[20,25,33.333,50,66.666,75,80]"
-        (positionChange)="rightPaneWidth = 100 - $event">
+        (positionChange)="onPaneDividerPositionChange($event)">
       </app-split-divider>
 
       <!-- Right Pane -->

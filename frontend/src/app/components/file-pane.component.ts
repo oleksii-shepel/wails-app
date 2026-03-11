@@ -30,15 +30,10 @@ import { FilePaneNavigationController, type FilePaneNavigationHost } from './fil
 import { FilePaneOpenController, type FilePaneOpenHost } from './file-pane-open.controller';
 import { FilePaneOperationsController, type FilePaneOperationsHost } from './file-pane-operations.controller';
 import { FilePanePreviewController, type FilePanePreviewHost } from './file-pane-preview.controller';
+import { FilePaneDirectoryController, type FilePaneDirectoryHost } from './file-pane-directory.controller';
+import { FilePaneTabsController, type FilePaneTabsHost } from './file-pane-tabs.controller';
 import { FilePaneStateController, type FilePaneStateHost } from './file-pane-state.controller';
-import {
-  DirListStreamController,
-  DirStreamMetaEvent,
-  DirStreamBatchEvent,
-  DirStreamDoneEvent,
-  DirStreamErrorEvent,
-} from '../surfaces/dir/dir-list-stream.controller';
-import { EventsOn, EventsOff } from 'wailsjs/runtime';
+import { DirListStreamController } from '../surfaces/dir/dir-list-stream.controller';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 
 declare const window: any;
@@ -217,9 +212,6 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   archiveMoveWarning = false;
   archivePendingMoveEntries: string[] = [];
   archivePendingMoveDestDir = '';
-  private fsChangeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-  private activeDirStreamPreserveUI = false;
-  private pendingFocusPath: string | null = null;
 
   private destroy$ = createSubject<void>();
   private lastSeenActiveTabId: string | null = null;
@@ -236,6 +228,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   );
   private readonly navigationController = new FilePaneNavigationController();
   private readonly archiveController = new FilePaneArchiveController();
+  private readonly directoryController = new FilePaneDirectoryController();
   private readonly openController = new FilePaneOpenController();
   private readonly operationsController = new FilePaneOperationsController();
   private readonly previewController = new FilePanePreviewController();
@@ -244,6 +237,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     FileType.FILE,
     FileType.SYMLINK,
   );
+  private readonly tabsController = new FilePaneTabsController();
 
   private get navigationHost(): FilePaneNavigationHost {
     const thisRef = this;
@@ -354,6 +348,57 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     };
   }
 
+  private get directoryHost(): FilePaneDirectoryHost {
+    const thisRef = this;
+    return {
+      get paneId() { return thisRef.paneId; },
+      get currentPath() { return thisRef.currentPath; },
+      set currentPath(value: string) { thisRef.currentPath = value; },
+      get fsParentDir() { return thisRef.fsParentDir; },
+      set fsParentDir(value: string) { thisRef.fsParentDir = value; },
+      get currentTabId() { return thisRef.currentTabId; },
+      get showHidden() { return thisRef.showHidden; },
+      get entries() { return thisRef.entries; },
+      set entries(value: FileInfo[]) { thisRef.entries = value; },
+      get filteredEntries() { return thisRef.filteredEntries; },
+      get selectedFiles() { return thisRef.selectedFiles; },
+      set selectedFiles(value: Set<string>) { thisRef.selectedFiles = value; },
+      get selectionCursorPath() { return thisRef.selectionCursorPath; },
+      set selectionCursorPath(value: string | null) { thisRef.selectionCursorPath = value; },
+      get selectionAnchorPath() { return thisRef.selectionAnchorPath; },
+      set selectionAnchorPath(value: string | null) { thisRef.selectionAnchorPath = value; },
+      get loading() { return thisRef.loading; },
+      set loading(value: boolean) { thisRef.loading = value; },
+      get error() { return thisRef.error; },
+      set error(value: string | null) { thisRef.error = value; },
+      workspaceService: this.workspaceService,
+      pathHistoryService: this.pathHistoryService,
+      dirStream: this.dirStream,
+      isInArchive: () => thisRef.isInArchive(),
+      exitArchive: () => thisRef.exitArchive(),
+      clearArchiveState: () => thisRef.clearArchiveState(),
+      withParentEntry: (raw: FileInfo[], inArchive: boolean, fsPath: string) => thisRef.withParentEntry(raw, inArchive, fsPath),
+      applyFilter: () => thisRef.applyFilter(),
+      setShowHiddenLoaded: (showHidden: boolean) => {
+        thisRef.dir.showHiddenLoaded = showHidden;
+      },
+      emitPathChange: (path: string) => thisRef.pathChange.emit(path),
+      runInAngular: (update: () => void) => thisRef.runInAngular(update),
+      onRefresh: () => thisRef.onRefresh(),
+      hasSavedDirTabState: () => !!thisRef.dirTabStateController.load(thisRef.activeDirTabId ?? thisRef.currentTabId),
+      restoreActiveDirTabState: () => thisRef.restoreActiveDirTabState(),
+      persistDirTabState: () => thisRef.persistDirTabState(),
+      scrollToCursorPath: (path: string) => thisRef.scrollToCursorPath(path),
+      focusTreeNode: (path: string) => {
+        try {
+          thisRef.fileViewContainer?.treeComponent?.focusNode(path);
+        } catch {
+          // best-effort only
+        }
+      },
+    };
+  }
+
   private get operationsHost(): FilePaneOperationsHost {
     const thisRef = this;
     return {
@@ -411,6 +456,36 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       emitPathChange: (path: string) => thisRef.pathChange.emit(path),
       getEffectiveSelection: () => thisRef.getEffectiveSelection(),
       openPathInNewTab: (path: string) => thisRef.openPathInNewTab(path),
+    };
+  }
+
+  private get tabsHost(): FilePaneTabsHost {
+    const thisRef = this;
+    return {
+      get paneId() { return thisRef.paneId; },
+      get currentTabId() { return thisRef.currentTabId; },
+      set currentTabId(value: string) { thisRef.currentTabId = value; },
+      get currentPath() { return thisRef.currentPath; },
+      get tabs() { return thisRef.tabs; },
+      set tabs(value: TabInfo[]) { thisRef.tabs = value; },
+      get activeDirTabId() { return thisRef.activeDirTabId; },
+      set activeDirTabId(value: string | null) { thisRef.activeDirTabId = value; },
+      get archiveStack() { return thisRef.archiveStack; },
+      get fsParentDir() { return thisRef.fsParentDir; },
+      get lastSeenActiveTabId() { return thisRef.lastSeenActiveTabId; },
+      set lastSeenActiveTabId(value: string | null) { thisRef.lastSeenActiveTabId = value; },
+      get lastSeenActiveTabPath() { return thisRef.lastSeenActiveTabPath; },
+      set lastSeenActiveTabPath(value: string | null) { thisRef.lastSeenActiveTabPath = value; },
+      workspaceService: this.workspaceService,
+      isInArchive: () => thisRef.isInArchive(),
+      deleteDirSession: (tabId: string) => {
+        thisRef.dirSessions.delete(tabId);
+      },
+      deleteDirTabState: (tabId: string) => {
+        thisRef.dirTabStateController.delete(tabId);
+      },
+      loadPaneState: () => thisRef.loadPaneState(),
+      onTabChange: (tab: TabInfo) => thisRef.onTabChange(tab),
     };
   }
 
@@ -604,7 +679,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   ngOnInit(): void  { 
     this.loadViewPreference();
     this.loadPaneState();
-    this.bindFsChangeEvents();
+    this.directoryController.bind(this.directoryHost);
     this.setupOptimisticDnDListeners();
 
     // Keep panes in sync when tab state changes elsewhere (e.g. cross-pane tab drag/drop).
@@ -613,7 +688,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       .subscribe(ws => {
         if (!ws || !this.workspace) return;
         if (ws.id !== this.workspace.id) return;
-        this.onWorkspaceUpdate(ws);
+        this.tabsController.onWorkspaceUpdate(this.tabsHost, ws);
       });
   }
   
@@ -654,7 +729,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     this.destroy$.next();
     this.destroy$.complete();
 
-    this.unbindFsChangeEvents();
+    void this.directoryController.unbind(this.directoryHost);
 
     if (this.optimisticHideListener) {
       window.removeEventListener('pane:dnd-optimistic-hide', this.optimisticHideListener);
@@ -666,71 +741,12 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     }
   }
 
-  private onWorkspaceUpdate(ws: WorkspaceConfig): void {
-    const pane = this.paneId === 'left' ? ws.leftPane : ws.rightPane;
-    const nextActiveId = pane.activeTabId;
-    const nextActivePath = pane.tabs.find(t => t.id === nextActiveId)?.path ?? '';
-
-    // First event: establish baseline.
-    if (this.lastSeenActiveTabId === null) {
-      this.lastSeenActiveTabId = nextActiveId;
-      this.lastSeenActiveTabPath = nextActivePath;
-      this.tabs = this.workspaceService.getTabs(this.paneId);
-      this.currentTabId = nextActiveId;
-      return;
-    }
-
-    const activeChanged = nextActiveId !== this.lastSeenActiveTabId || nextActivePath !== this.lastSeenActiveTabPath;
-    this.lastSeenActiveTabId = nextActiveId;
-    this.lastSeenActiveTabPath = nextActivePath;
-
-    if (!activeChanged) {
-      // Reorder/pin changes etc вЂ” just update the tab strip.
-      this.tabs = this.workspaceService.getTabs(this.paneId);
-      return;
-    }
-
-    // If we already navigated to the new active tab locally, avoid a redundant reload.
-    if (this.currentTabId === nextActiveId && this.currentPath === nextActivePath) {
-      this.tabs = this.workspaceService.getTabs(this.paneId);
-      return;
-    }
-
-    // Active tab changed (including cross-pane drag) вЂ” load the new active path.
-    this.loadPaneState();
-  }
-
   onTabDrop(event: TabDropEvent): void {
-    if (!event) return;
-    this.workspaceService.moveTab(event.fromPaneId, event.toPaneId, event.tabId, event.toIndex);
-
-    // If the drop landed in this pane, ensure we navigate to the newly-active tab.
-    if (event.toPaneId === this.paneId) {
-      this.tabs = this.workspaceService.getTabs(this.paneId);
-
-      const active = this.workspaceService.getActiveTab(this.paneId);
-      if (active?.id === event.tabId) {
-        const t = this.tabs.find(tab => tab.id === event.tabId);
-        if (t) void this.onTabChange(t);
-      }
-    }
+    this.tabsController.onTabDrop(this.tabsHost, event);
   }
 
   onTabDragStart(tab: TabInfo): void {
-    // Snapshot current tab state before it potentially leaves this pane.
-    if (!tab || tab.id !== this.currentTabId) return;
-    if (!this.currentTabId || !this.currentPath) return;
-
-    if (this.isInArchive()) {
-      this.workspaceService.saveArchiveState(this.paneId, this.currentTabId, {
-        path: this.currentPath,
-        archiveStack: this.archiveStack,
-        fsDirPath: this.archiveStack[0]?.fsPath ?? '',
-        fsParentDir: this.fsParentDir,
-      });
-    } else {
-      this.workspaceService.updateTabPath(this.paneId, this.currentTabId, this.currentPath);
-    }
+    this.tabsController.onTabDragStart(this.tabsHost, tab);
   }
 
   private setupOptimisticDnDListeners(): void {
@@ -920,34 +936,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   private async loadDirectory(path: string, opts?: { preserveUI?: boolean; focusPath?: string }): Promise<void> {
-    await this.dirStream.cancelActive();
-    this.exitArchive();
-    this.clearArchiveState();
-    this.activeDirStreamPreserveUI = !!opts?.preserveUI;
-    this.pendingFocusPath = opts?.focusPath ?? null;
-    this.loading = true;
-    this.error   = null;
-
-    if (!this.activeDirStreamPreserveUI) {
-      this.selectedFiles.clear();
-      this.selectionCursorPath = null;
-      this.selectionAnchorPath = null;
-      this.entries = this.withParentEntry([], false, path);
-      this.applyFilter();
-    }
-    try {
-      const streamId = await this.dirStream.start(path, this.showHidden);
-      await this.dirStream.waitFor(streamId);
-    } catch (error: any) {
-      if (error?.message === 'Directory stream cancelled') {
-        return;
-      }
-      this.error = error.message || 'Failed to load directory';
-    } finally {
-      this.activeDirStreamPreserveUI = false;
-      this.pendingFocusPath = null;
-      this.loading = false;
-    }
+    await this.directoryController.loadDirectory(this.directoryHost, path, opts);
   }
 
   // в”Ђв”Ђ Tab management в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
@@ -1000,33 +989,19 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   onTabClose(tab: TabInfo): void {
-    this.dirSessions.delete(tab.id);
-    this.dirTabStateController.delete(tab.id);
-    if (this.activeDirTabId === tab.id) this.activeDirTabId = null;
-    this.workspaceService.clearArchiveState(this.paneId, tab.id);
-    this.workspaceService.closeTab(this.paneId, tab.id);
-    this.loadPaneState();
+    this.tabsController.onTabClose(this.tabsHost, tab);
   }
 
   onTabPin(tab: TabInfo): void {
-    this.workspaceService.toggleTabPin(this.paneId, tab.id);
-    this.loadPaneState();
+    this.tabsController.onTabPin(this.tabsHost, tab);
   }
 
   onNewTab(): void {
-    const newTab = this.workspaceService.addTab(this.paneId, this.currentPath, true);
-    if (!newTab) return;
-    this.currentTabId = newTab.id;
-    this.tabs = this.workspaceService.getTabs(this.paneId);
-    this.workspaceService.switchTab(this.paneId, newTab.id);
-    this.tabs = this.workspaceService.getTabs(this.paneId);
+    this.tabsController.onNewTab(this.tabsHost);
   }
 
   private async openPathInNewTab(path: string): Promise<void> {
-    const newTab = this.workspaceService.addTab(this.paneId, path, true);
-    if (!newTab) return;
-    this.tabs = this.workspaceService.getTabs(this.paneId);
-    await this.onTabChange(newTab);
+    await this.tabsController.openPathInNewTab(this.tabsHost, path);
   }
 
   // в”Ђв”Ђ Address bar / path в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
@@ -1067,112 +1042,6 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       update();
       this.cdr.markForCheck();
     });
-  }
-
-  private bindFsChangeEvents(): void {
-    EventsOn('fs:directoryChanged', (event: { paneId?: string; path?: string } | null) => {
-      this.runInAngular(() => this.handleFsDirectoryChanged(event));
-    });
-
-    this.dirStream.bind(this.paneId, {
-      onMeta: (event, isFirst) => this.runInAngular(() => this.handleDirStreamMeta(event, isFirst)),
-      onBatch: (event, baseEntries) => this.runInAngular(() => this.handleDirStreamBatch(event, baseEntries)),
-      onDone: (event, baseEntries) => this.runInAngular(() => this.handleDirStreamDone(event, baseEntries)),
-      onError: (event) => this.runInAngular(() => this.handleDirStreamError(event)),
-    });
-  }
-
-  private unbindFsChangeEvents(): void {
-    if (this.fsChangeDebounceTimer) {
-      clearTimeout(this.fsChangeDebounceTimer);
-      this.fsChangeDebounceTimer = null;
-    }
-    void this.dirStream.unbind();
-    EventsOff('fs:directoryChanged');
-  }
-
-  private handleFsDirectoryChanged(event: { paneId?: string; path?: string } | null): void {
-    if (!event || event.paneId !== this.paneId) return;
-    if (this.isInArchive()) return;
-
-    const current = (this.currentPath || '').replace(/\\/g, '/');
-    const changed = (event.path || '').replace(/\\/g, '/');
-    if (!current || !changed || current !== changed) return;
-
-    if (this.fsChangeDebounceTimer) {
-      clearTimeout(this.fsChangeDebounceTimer);
-    }
-    this.fsChangeDebounceTimer = setTimeout(() => {
-      this.fsChangeDebounceTimer = null;
-      this.onRefresh();
-    }, 150);
-  }
-
-  private handleDirStreamMeta(event: DirStreamMetaEvent, isFirstMeta: boolean): void {
-    this.currentPath = event.path;
-    this.fsParentDir = event.path;
-    this.dir.showHiddenLoaded = !!event.showHidden;
-    this.workspaceService.updateTabPath(this.paneId, this.currentTabId, event.path);
-    this.pathHistoryService.addPath(event.path, this.paneId);
-    if (isFirstMeta) {
-      this.pathChange.emit(event.path);
-    }
-    if (!this.activeDirStreamPreserveUI) {
-      this.entries = this.withParentEntry([], false, event.path);
-      this.applyFilter();
-    }
-
-    // best-effort pane watch sync
-    void window.go?.main?.App?.SetPaneDirectory?.(this.paneId, event.path);
-  }
-
-  private handleDirStreamBatch(event: DirStreamBatchEvent, baseEntries: FileInfo[]): void {
-    this.entries = this.withParentEntry(baseEntries, false, this.currentPath || event.path);
-    this.applyFilter();
-  }
-
-  private handleDirStreamDone(event: DirStreamDoneEvent, baseEntries: FileInfo[]): void {
-    this.entries = this.withParentEntry(baseEntries, false, event.path || this.currentPath);
-    // Prune selection to keep it stable across refresh.
-    if (this.selectedFiles.size > 0) {
-      const present = new Set(this.entries.map(e => e.path));
-      for (const p of Array.from(this.selectedFiles)) {
-        if (!present.has(p)) this.selectedFiles.delete(p);
-      }
-      this.selectedFiles = new Set(this.selectedFiles);
-    }
-    this.applyFilter();
-
-    // TC: after navigating up, select the folder we came from; otherwise place cursor on first entry.
-    if (this.pendingFocusPath) {
-      const focusNorm = normalizePath(this.pendingFocusPath);
-      const target = this.filteredEntries.find(e => normalizePath(e.path) === focusNorm);
-      if (target) {
-        this.selectionCursorPath = target.path;
-        this.selectionAnchorPath = target.path;
-        this.selectedFiles = new Set([target.path]);
-        setTimeout(() => this.fileViewContainer?.scrollToCursorPath(target.path), 0);
-      }
-      this.pendingFocusPath = null;
-    } else if (this.dirTabStateController.load(this.activeDirTabId ?? this.currentTabId)) {
-      this.restoreActiveDirTabState();
-    } else if (!this.selectionCursorPath) {
-      const firstReal = this.filteredEntries.find(e => e.path !== PARENT_ENTRY_PATH);
-      if (firstReal) {
-        this.selectionCursorPath = firstReal.path;
-        this.selectionAnchorPath = firstReal.path;
-      }
-    }
-
-    this.persistDirTabState();
-
-    setTimeout(() => {
-      try { this.fileViewContainer?.treeComponent?.focusNode(event.path); } catch { /* best-effort */ }
-    }, 0);
-  }
-
-  private handleDirStreamError(event: DirStreamErrorEvent): void {
-    this.error = event.error || 'Failed to load directory';
   }
 
   /**

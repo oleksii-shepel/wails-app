@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/mholt/archiver/v3"
-	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // ============================================================================
@@ -145,7 +144,7 @@ func nextConflictID(opID string) string {
 //   skip     — true: count as skipped and move on
 //   err      — non-nil only on stat error or uniqueDestination failure
 
-func (a *App) checkConflict(
+func (s *BatchService) checkConflict(
 	op *ActiveOperation,
 	srcLabel, dst string,
 	blanket **ConflictResolution,
@@ -185,8 +184,8 @@ func (a *App) checkConflict(
 
 	// Register before emitting to avoid a race if the frontend responds instantly.
 	pc := globalConflicts.register(conflictID)
-	if a.ctx != nil {
-		wruntime.EventsEmit(a.ctx, "operation:conflict", evt)
+	if s.emitEvent != nil {
+		s.emitEvent("operation:conflict", evt)
 	}
 
 	select {
@@ -264,7 +263,7 @@ func sameDir(a, b string) bool {
 // archive streaming paths.  It updates throttled progress on every chunk and
 // removes the partial destination file if the operation is cancelled mid-write.
 
-func (a *App) streamToFile(r io.Reader, dst string, size int64, label string, op *ActiveOperation, bp *batchProgress) (int64, error) {
+func (s *BatchService) streamToFile(r io.Reader, dst string, size int64, label string, op *ActiveOperation, bp *batchProgress) (int64, error) {
 	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
 		return 0, err
 	}
@@ -318,8 +317,8 @@ func (a *App) streamToFile(r io.Reader, dst string, size int64, label string, op
 // Batch Copy
 // ============================================================================
 
-func (a *App) BatchCopy(req BatchRequest) (*BatchResult, error) {
-	op := a.operations.StartOperation(OpCopy, "Batch copy", "", "")
+func (s *BatchService) BatchCopy(req BatchRequest) (*BatchResult, error) {
+	op := s.operations.StartOperation(OpCopy, "Batch copy", "", "")
 
 	var totalItems, totalBytes int64
 	for _, item := range req.Items {
@@ -347,7 +346,7 @@ func (a *App) BatchCopy(req BatchRequest) (*BatchResult, error) {
 
 		dst := item.Destination
 
-		finalDst, skip, err := a.checkConflict(op, item.Source, dst, &blanket)
+		finalDst, skip, err := s.checkConflict(op, item.Source, dst, &blanket)
 		if err != nil {
 			result.Failed++
 			result.Errors = append(result.Errors, BatchItemError{Source: item.Source, Destination: dst, Error: err.Error()})
@@ -358,9 +357,9 @@ func (a *App) BatchCopy(req BatchRequest) (*BatchResult, error) {
 			continue
 		}
 
-		if err := a.copyPath(item.Source, finalDst, req.Recursive, op, bp); err != nil {
+		if err := s.copyPath(item.Source, finalDst, req.Recursive, op, bp); err != nil {
 			if isPermissionDenied(err) {
-				resp, elevErr := a.runElevatedWithEvents("copy", opTargetPair(item.Source, finalDst), elevatedRequest{
+				resp, elevErr := s.runElevatedWithEvents("copy", opTargetPair(item.Source, finalDst), elevatedRequest{
 					Op:          "copy",
 					Source:      item.Source,
 					Destination: finalDst,
@@ -387,7 +386,7 @@ func (a *App) BatchCopy(req BatchRequest) (*BatchResult, error) {
 // Batch Move
 // ============================================================================
 
-func (a *App) BatchMove(req BatchRequest) (*BatchResult, error) {
+func (s *BatchService) BatchMove(req BatchRequest) (*BatchResult, error) {
 	// Pre-scan: if every item is a no-op move within the same directory, skip the operation entirely.
 	allNoOp := true
 	for _, item := range req.Items {
@@ -402,7 +401,7 @@ func (a *App) BatchMove(req BatchRequest) (*BatchResult, error) {
 		return &BatchResult{Total: len(req.Items), Skipped: len(req.Items)}, nil
 	}
 
-	op := a.operations.StartOperation(OpMove, "Batch move", "", "")
+	op := s.operations.StartOperation(OpMove, "Batch move", "", "")
 
 	var totalItems, totalBytes int64
 	for _, item := range req.Items {
@@ -442,7 +441,7 @@ func (a *App) BatchMove(req BatchRequest) (*BatchResult, error) {
 		// For directories, always use the destination as provided (avoid nesting duplicate folder names)
 		finalDst := dst
 		skip := false
-		finalDst, skip, err = a.checkConflict(op, item.Source, dst, &blanket)
+		finalDst, skip, err = s.checkConflict(op, item.Source, dst, &blanket)
 		if err != nil {
 			result.Failed++
 			result.Errors = append(result.Errors, BatchItemError{Source: item.Source, Destination: dst, Error: err.Error()})
@@ -456,7 +455,7 @@ func (a *App) BatchMove(req BatchRequest) (*BatchResult, error) {
 		// Atomic rename first; cross-device falls back to copy+delete.
 		if err = os.Rename(item.Source, finalDst); err != nil {
 			if isPermissionDenied(err) {
-				resp, elevErr := a.runElevatedWithEvents("move", opTargetPair(item.Source, finalDst), elevatedRequest{
+				resp, elevErr := s.runElevatedWithEvents("move", opTargetPair(item.Source, finalDst), elevatedRequest{
 					Op:          "move",
 					Source:      item.Source,
 					Destination: finalDst,
@@ -466,9 +465,9 @@ func (a *App) BatchMove(req BatchRequest) (*BatchResult, error) {
 					continue
 				}
 			}
-			if err2 := a.copyPath(item.Source, finalDst, true, op, bp); err2 != nil {
+			if err2 := s.copyPath(item.Source, finalDst, true, op, bp); err2 != nil {
 				if isPermissionDenied(err2) {
-					resp, elevErr := a.runElevatedWithEvents("move", opTargetPair(item.Source, finalDst), elevatedRequest{
+					resp, elevErr := s.runElevatedWithEvents("move", opTargetPair(item.Source, finalDst), elevatedRequest{
 						Op:          "move",
 						Source:      item.Source,
 						Destination: finalDst,
@@ -485,7 +484,7 @@ func (a *App) BatchMove(req BatchRequest) (*BatchResult, error) {
 			if err2 := os.RemoveAll(item.Source); err2 != nil {
 				if isPermissionDenied(err2) {
 					useTrash := false
-					resp, elevErr := a.runElevatedWithEvents("delete", opTargetSingle(item.Source), elevatedRequest{
+					resp, elevErr := s.runElevatedWithEvents("delete", opTargetSingle(item.Source), elevatedRequest{
 						Op:        "delete",
 						Path:      item.Source,
 						Recursive: true,
@@ -521,8 +520,8 @@ func (a *App) BatchMove(req BatchRequest) (*BatchResult, error) {
 // Batch Delete
 // ============================================================================
 
-func (a *App) BatchDelete(req BatchDeleteRequest) (*BatchResult, error) {
-	op := a.operations.StartOperation(OpDelete, "Batch delete", "", "")
+func (s *BatchService) BatchDelete(req BatchDeleteRequest) (*BatchResult, error) {
+	op := s.operations.StartOperation(OpDelete, "Batch delete", "", "")
 
 	var totalItems, totalBytes int64
 	for _, p := range req.Paths {
@@ -547,7 +546,7 @@ func (a *App) BatchDelete(req BatchDeleteRequest) (*BatchResult, error) {
 			if err := moveToTrash(p); err != nil {
 				if shouldRetryDeleteWithElevation(err) {
 					useTrashElev := true
-					resp, elevErr := a.runElevatedWithEvents("delete", opTargetSingle(p), elevatedRequest{
+					resp, elevErr := s.runElevatedWithEvents("delete", opTargetSingle(p), elevatedRequest{
 						Op:       "delete",
 						Path:     p,
 						UseTrash: &useTrashElev,
@@ -586,10 +585,10 @@ func (a *App) BatchDelete(req BatchDeleteRequest) (*BatchResult, error) {
 		}
 
 		if info.IsDir() && req.Recursive {
-			if err := a.deleteDir(p, op, bp); err != nil {
+			if err := s.deleteDir(p, op, bp); err != nil {
 				if shouldRetryDeleteWithElevation(err) {
 					useTrashElev := false
-					resp, elevErr := a.runElevatedWithEvents("delete", opTargetSingle(p), elevatedRequest{
+					resp, elevErr := s.runElevatedWithEvents("delete", opTargetSingle(p), elevatedRequest{
 						Op:        "delete",
 						Path:      p,
 						Recursive: true,
@@ -609,7 +608,7 @@ func (a *App) BatchDelete(req BatchDeleteRequest) (*BatchResult, error) {
 			if err := os.Remove(p); err != nil {
 				if shouldRetryDeleteWithElevation(err) {
 					useTrashElev := false
-					resp, elevErr := a.runElevatedWithEvents("delete", opTargetSingle(p), elevatedRequest{
+					resp, elevErr := s.runElevatedWithEvents("delete", opTargetSingle(p), elevatedRequest{
 						Op:        "delete",
 						Path:      p,
 						Recursive: req.Recursive,
@@ -649,8 +648,8 @@ func (a *App) BatchDelete(req BatchDeleteRequest) (*BatchResult, error) {
 // Batch Extract — full archives
 // ============================================================================
 
-func (a *App) BatchExtract(req BatchExtractRequest) (*BatchExtractResult, error) {
-	op := a.operations.StartOperation(OpExtract, "Batch extract", "", req.DestinationDir)
+func (s *BatchService) BatchExtract(req BatchExtractRequest) (*BatchExtractResult, error) {
+	op := s.operations.StartOperation(OpExtract, "Batch extract", "", req.DestinationDir)
 	op.SetTotal(int64(len(req.Archives)), 0)
 
 	bp := newBatchProgress(op)
@@ -668,7 +667,7 @@ func (a *App) BatchExtract(req BatchExtractRequest) (*BatchExtractResult, error)
 		}
 
 		ec := extractCtx{op: op, bp: bp, req: &req, blanket: blanket, destRoot: destRoot, depth: 0}
-		files, byt, err := a.extractOnDisk(archivePath, &ec)
+		files, byt, err := s.extractOnDisk(archivePath, &ec)
 		blanket = ec.blanket
 
 		if err != nil {
@@ -702,8 +701,8 @@ func (a *App) BatchExtract(req BatchExtractRequest) (*BatchExtractResult, error)
 //                         handle exists), then only matched entries buffered.
 //                         Intermediate archive bytes released after collection.
 
-func (a *App) BatchSelectiveExtract(req BatchSelectiveExtractRequest) (*BatchSelectiveExtractResult, error) {
-	op := a.operations.StartOperation(OpExtract, "Selective extract", "", req.DestinationDir)
+func (s *BatchService) BatchSelectiveExtract(req BatchSelectiveExtractRequest) (*BatchSelectiveExtractResult, error) {
+	op := s.operations.StartOperation(OpExtract, "Selective extract", "", req.DestinationDir)
 	op.SetTotal(int64(len(req.Items)), 0)
 
 	bp := newBatchProgress(op)
@@ -720,7 +719,7 @@ func (a *App) BatchSelectiveExtract(req BatchSelectiveExtractRequest) (*BatchSel
 			dest = req.DestinationDir
 		}
 
-		files, byt, err := a.selectiveExtractItem(item, dest, op, bp, &blanket)
+		files, byt, err := s.selectiveExtractItem(item, dest, op, bp, &blanket)
 		if err != nil {
 			result.Failed++
 			result.Errors = append(result.Errors, BatchItemError{Source: item.ArchivePath, Error: err.Error()})
@@ -743,7 +742,7 @@ func (a *App) BatchSelectiveExtract(req BatchSelectiveExtractRequest) (*BatchSel
 }
 
 // selectiveExtractItem handles one SelectiveExtractItem end-to-end.
-func (a *App) selectiveExtractItem(
+func (s *BatchService) selectiveExtractItem(
 	item SelectiveExtractItem,
 	destRoot string,
 	op *ActiveOperation,
@@ -758,9 +757,9 @@ func (a *App) selectiveExtractItem(
 	var collected []archiveEntry
 	var err error
 	if len(item.NestedChain) == 0 {
-		collected, err = a.collectFromDisk(item.ArchivePath, item.Entries)
+		collected, err = s.collectFromDisk(item.ArchivePath, item.Entries)
 	} else {
-		collected, err = a.collectFromNested(item.ArchivePath, item.NestedChain, item.Entries)
+		collected, err = s.collectFromNested(item.ArchivePath, item.NestedChain, item.Entries)
 	}
 	if err != nil {
 		return 0, 0, err
@@ -779,7 +778,7 @@ func (a *App) selectiveExtractItem(
 	op.mu.Unlock()
 
 	// Phase 2: write collected entries to disk.
-	return a.writeEntries(collected, destRoot, item.StripPrefix, item.FlattenPaths, op, bp, blanket)
+	return s.writeEntries(collected, destRoot, item.StripPrefix, item.FlattenPaths, op, bp, blanket)
 }
 
 // ============================================================================
@@ -804,7 +803,7 @@ func wantEntry(innerPath string, entries []string) bool {
 	return false
 }
 
-func (a *App) collectFromDisk(archivePath string, entries []string) ([]archiveEntry, error) {
+func (s *BatchService) collectFromDisk(archivePath string, entries []string) ([]archiveEntry, error) {
 	if strings.HasSuffix(strings.ToLower(archivePath), ".zip") {
 		return collectZipFile(archivePath, entries)
 	}
@@ -867,9 +866,9 @@ func collectTarFile(archivePath string, entries []string) ([]archiveEntry, error
 
 // collectFromNested resolves a nested archive chain then collects only matched
 // entries from the innermost archive bytes.
-func (a *App) collectFromNested(archivePath string, nestedChain []string, entries []string) ([]archiveEntry, error) {
+func (s *BatchService) collectFromNested(archivePath string, nestedChain []string, entries []string) ([]archiveEntry, error) {
 	// extractNestedArchive is defined in archive.go — resolves chain fully in memory.
-	data, err := a.extractNestedArchive(archivePath, nestedChain)
+	data, err := s.extractNestedArchive(archivePath, nestedChain)
 	if err != nil {
 		return nil, fmt.Errorf("resolve nested chain: %w", err)
 	}
@@ -978,7 +977,7 @@ func collectRarBytes(data []byte, archiveName string, entries []string) ([]archi
 // Phase 2 — write collected entries to disk
 // ============================================================================
 
-func (a *App) writeEntries(
+func (s *BatchService) writeEntries(
 	collected []archiveEntry,
 	destRoot string,
 	stripPrefix string,
@@ -1014,7 +1013,7 @@ func (a *App) writeEntries(
 			destPath = filepath.Join(destRoot, filepath.FromSlash(relPath))
 		}
 
-		finalDst, skip, err := a.checkConflict(op, entry.innerPath, destPath, blanket)
+		finalDst, skip, err := s.checkConflict(op, entry.innerPath, destPath, blanket)
 		if err != nil {
 			return totalFiles, totalBytes, err
 		}
@@ -1076,14 +1075,14 @@ func (ec *extractCtx) tooDeep() bool {
 	return ec.depth >= ec.req.MaxNestDepth
 }
 
-func (a *App) extractOnDisk(archivePath string, ec *extractCtx) (int64, int64, error) {
+func (s *BatchService) extractOnDisk(archivePath string, ec *extractCtx) (int64, int64, error) {
 	if strings.HasSuffix(strings.ToLower(archivePath), ".zip") {
-		return a.extractZipOnDisk(archivePath, ec)
+		return s.extractZipOnDisk(archivePath, ec)
 	}
-	return a.extractTarOnDisk(archivePath, ec)
+	return s.extractTarOnDisk(archivePath, ec)
 }
 
-func (a *App) extractZipOnDisk(archivePath string, ec *extractCtx) (int64, int64, error) {
+func (s *BatchService) extractZipOnDisk(archivePath string, ec *extractCtx) (int64, int64, error) {
 	r, err := zip.OpenReader(archivePath)
 	if err != nil {
 		return 0, 0, err
@@ -1124,7 +1123,7 @@ func (a *App) extractZipOnDisk(archivePath string, ec *extractCtx) (int64, int64
 			}
 			child := extractCtx{op: ec.op, bp: ec.bp, req: ec.req, blanket: ec.blanket,
 				destRoot: filepath.Join(ec.destRoot, archiveBaseName(f.Name)), depth: ec.depth + 1}
-			nf, nb, nerr := a.extractNestedFromBytes(data, f.Name, &child)
+			nf, nb, nerr := s.extractNestedFromBytes(data, f.Name, &child)
 			ec.blanket = child.blanket
 			totalFiles += nf
 			totalBytes += nb
@@ -1138,7 +1137,7 @@ func (a *App) extractZipOnDisk(archivePath string, ec *extractCtx) (int64, int64
 		if err != nil {
 			return totalFiles, totalBytes, err
 		}
-		finalDst, skip, cerr := a.checkConflict(ec.op, f.Name, destPath, &ec.blanket)
+		finalDst, skip, cerr := s.checkConflict(ec.op, f.Name, destPath, &ec.blanket)
 		if cerr != nil {
 			rc.Close()
 			return totalFiles, totalBytes, cerr
@@ -1147,7 +1146,7 @@ func (a *App) extractZipOnDisk(archivePath string, ec *extractCtx) (int64, int64
 			rc.Close()
 			continue
 		}
-		written, werr := a.streamToFile(rc, finalDst, int64(f.UncompressedSize64), f.Name, ec.op, ec.bp)
+		written, werr := s.streamToFile(rc, finalDst, int64(f.UncompressedSize64), f.Name, ec.op, ec.bp)
 		rc.Close()
 		if werr != nil {
 			return totalFiles, totalBytes, werr
@@ -1158,7 +1157,7 @@ func (a *App) extractZipOnDisk(archivePath string, ec *extractCtx) (int64, int64
 	return totalFiles, totalBytes, nil
 }
 
-func (a *App) extractTarOnDisk(archivePath string, ec *extractCtx) (int64, int64, error) {
+func (s *BatchService) extractTarOnDisk(archivePath string, ec *extractCtx) (int64, int64, error) {
 	// Single-root detection requires a pre-scan when FlattenSingleRoot is set.
 	var rootStrip string
 	if ec.req.FlattenSingleRoot {
@@ -1196,21 +1195,21 @@ func (a *App) extractTarOnDisk(archivePath string, ec *extractCtx) (int64, int64
 			}
 			child := extractCtx{op: ec.op, bp: ec.bp, req: ec.req, blanket: ec.blanket,
 				destRoot: filepath.Join(ec.destRoot, archiveBaseName(f.Name())), depth: ec.depth + 1}
-			nf, nb, nerr := a.extractNestedFromBytes(data, f.Name(), &child)
+			nf, nb, nerr := s.extractNestedFromBytes(data, f.Name(), &child)
 			ec.blanket = child.blanket
 			totalFiles += nf
 			totalBytes += nb
 			return nerr
 		}
 
-		finalDst, skip, err := a.checkConflict(ec.op, f.Name(), destPath, &ec.blanket)
+		finalDst, skip, err := s.checkConflict(ec.op, f.Name(), destPath, &ec.blanket)
 		if err != nil {
 			return err
 		}
 		if skip {
 			return nil
 		}
-		written, err := a.streamToFile(f, finalDst, f.Size(), f.Name(), ec.op, ec.bp)
+		written, err := s.streamToFile(f, finalDst, f.Size(), f.Name(), ec.op, ec.bp)
 		if err != nil {
 			return err
 		}
@@ -1222,17 +1221,17 @@ func (a *App) extractTarOnDisk(archivePath string, ec *extractCtx) (int64, int64
 }
 
 // extractFromBytes handles a nested (in-memory) archive layer.
-func (a *App) extractNestedFromBytes(data []byte, archiveName string, ec *extractCtx) (int64, int64, error) {
+func (s *BatchService) extractNestedFromBytes(data []byte, archiveName string, ec *extractCtx) (int64, int64, error) {
 	if isZipMagic(data) {
-		return a.extractZipBytes(data, ec)
+		return s.extractZipBytes(data, ec)
 	}
 	if isRarArchiveName(archiveName) {
-		return a.extractRarBytes(data, archiveName, ec)
+		return s.extractRarBytes(data, archiveName, ec)
 	}
-	return a.extractTarBytes(data, ec)
+	return s.extractTarBytes(data, ec)
 }
 
-func (a *App) extractZipBytes(data []byte, ec *extractCtx) (int64, int64, error) {
+func (s *BatchService) extractZipBytes(data []byte, ec *extractCtx) (int64, int64, error) {
 	r, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		return 0, 0, err
@@ -1260,7 +1259,7 @@ func (a *App) extractZipBytes(data []byte, ec *extractCtx) (int64, int64, error)
 			}
 			child := extractCtx{op: ec.op, bp: ec.bp, req: ec.req, blanket: ec.blanket,
 				destRoot: filepath.Join(ec.destRoot, archiveBaseName(f.Name)), depth: ec.depth + 1}
-			nf, nb, nerr := a.extractNestedFromBytes(nested, f.Name, &child)
+			nf, nb, nerr := s.extractNestedFromBytes(nested, f.Name, &child)
 			ec.blanket = child.blanket
 			totalFiles += nf
 			totalBytes += nb
@@ -1273,7 +1272,7 @@ func (a *App) extractZipBytes(data []byte, ec *extractCtx) (int64, int64, error)
 		if err != nil {
 			return totalFiles, totalBytes, err
 		}
-		finalDst, skip, cerr := a.checkConflict(ec.op, f.Name, destPath, &ec.blanket)
+		finalDst, skip, cerr := s.checkConflict(ec.op, f.Name, destPath, &ec.blanket)
 		if cerr != nil {
 			rc.Close()
 			return totalFiles, totalBytes, cerr
@@ -1282,7 +1281,7 @@ func (a *App) extractZipBytes(data []byte, ec *extractCtx) (int64, int64, error)
 			rc.Close()
 			continue
 		}
-		written, werr := a.streamToFile(rc, finalDst, int64(f.UncompressedSize64), f.Name, ec.op, ec.bp)
+		written, werr := s.streamToFile(rc, finalDst, int64(f.UncompressedSize64), f.Name, ec.op, ec.bp)
 		rc.Close()
 		if werr != nil {
 			return totalFiles, totalBytes, werr
@@ -1293,7 +1292,7 @@ func (a *App) extractZipBytes(data []byte, ec *extractCtx) (int64, int64, error)
 	return totalFiles, totalBytes, nil
 }
 
-func (a *App) extractTarBytes(data []byte, ec *extractCtx) (int64, int64, error) {
+func (s *BatchService) extractTarBytes(data []byte, ec *extractCtx) (int64, int64, error) {
 	tr := tar.NewReader(bytes.NewReader(data))
 	var totalFiles, totalBytes int64
 	for {
@@ -1320,7 +1319,7 @@ func (a *App) extractTarBytes(data []byte, ec *extractCtx) (int64, int64, error)
 			}
 			child := extractCtx{op: ec.op, bp: ec.bp, req: ec.req, blanket: ec.blanket,
 				destRoot: filepath.Join(ec.destRoot, archiveBaseName(h.Name)), depth: ec.depth + 1}
-			nf, nb, nerr := a.extractNestedFromBytes(nested, h.Name, &child)
+			nf, nb, nerr := s.extractNestedFromBytes(nested, h.Name, &child)
 			ec.blanket = child.blanket
 			totalFiles += nf
 			totalBytes += nb
@@ -1329,14 +1328,14 @@ func (a *App) extractTarBytes(data []byte, ec *extractCtx) (int64, int64, error)
 			}
 			continue
 		}
-		finalDst, skip, cerr := a.checkConflict(ec.op, h.Name, destPath, &ec.blanket)
+		finalDst, skip, cerr := s.checkConflict(ec.op, h.Name, destPath, &ec.blanket)
 		if cerr != nil {
 			return totalFiles, totalBytes, cerr
 		}
 		if skip {
 			continue
 		}
-		written, werr := a.streamToFile(tr, finalDst, h.Size, h.Name, ec.op, ec.bp)
+		written, werr := s.streamToFile(tr, finalDst, h.Size, h.Name, ec.op, ec.bp)
 		if werr != nil {
 			return totalFiles, totalBytes, werr
 		}
@@ -1346,7 +1345,7 @@ func (a *App) extractTarBytes(data []byte, ec *extractCtx) (int64, int64, error)
 	return totalFiles, totalBytes, nil
 }
 
-func (a *App) extractRarBytes(data []byte, archiveName string, ec *extractCtx) (int64, int64, error) {
+func (s *BatchService) extractRarBytes(data []byte, archiveName string, ec *extractCtx) (int64, int64, error) {
 	reader, err := openArchiveReader(archiveName, data)
 	if err != nil {
 		return 0, 0, err
@@ -1381,7 +1380,7 @@ func (a *App) extractRarBytes(data []byte, archiveName string, ec *extractCtx) (
 			}
 			child := extractCtx{op: ec.op, bp: ec.bp, req: ec.req, blanket: ec.blanket,
 				destRoot: filepath.Join(ec.destRoot, archiveBaseName(f.Name())), depth: ec.depth + 1}
-			nf, nb, nerr := a.extractNestedFromBytes(nested, f.Name(), &child)
+			nf, nb, nerr := s.extractNestedFromBytes(nested, f.Name(), &child)
 			ec.blanket = child.blanket
 			totalFiles += nf
 			totalBytes += nb
@@ -1391,7 +1390,7 @@ func (a *App) extractRarBytes(data []byte, archiveName string, ec *extractCtx) (
 			}
 			continue
 		}
-		finalDst, skip, cerr := a.checkConflict(ec.op, f.Name(), destPath, &ec.blanket)
+		finalDst, skip, cerr := s.checkConflict(ec.op, f.Name(), destPath, &ec.blanket)
 		if cerr != nil {
 			f.Close()
 			return totalFiles, totalBytes, cerr
@@ -1400,7 +1399,7 @@ func (a *App) extractRarBytes(data []byte, archiveName string, ec *extractCtx) (
 			f.Close()
 			continue
 		}
-		written, werr := a.streamToFile(f, finalDst, f.Size(), f.Name(), ec.op, ec.bp)
+		written, werr := s.streamToFile(f, finalDst, f.Size(), f.Name(), ec.op, ec.bp)
 		f.Close()
 		if werr != nil {
 			return totalFiles, totalBytes, werr
@@ -1415,7 +1414,7 @@ func (a *App) extractRarBytes(data []byte, archiveName string, ec *extractCtx) (
 // File copy / delete internals
 // ============================================================================
 
-func (a *App) copyPath(src, dst string, recursive bool, op *ActiveOperation, bp *batchProgress) error {
+func (s *BatchService) copyPath(src, dst string, recursive bool, op *ActiveOperation, bp *batchProgress) error {
 	info, err := os.Stat(src)
 	if err != nil {
 		return err
@@ -1438,7 +1437,7 @@ func (a *App) copyPath(src, dst string, recursive bool, op *ActiveOperation, bp 
 				return err
 			}
 			defer f.Close()
-			_, err = a.streamToFile(f, target, size, filepath.Base(p), op, bp)
+			_, err = s.streamToFile(f, target, size, filepath.Base(p), op, bp)
 			return err
 		})
 	}
@@ -1447,11 +1446,11 @@ func (a *App) copyPath(src, dst string, recursive bool, op *ActiveOperation, bp 
 		return err
 	}
 	defer f.Close()
-	_, err = a.streamToFile(f, dst, info.Size(), filepath.Base(src), op, bp)
+	_, err = s.streamToFile(f, dst, info.Size(), filepath.Base(src), op, bp)
 	return err
 }
 
-func (a *App) deleteDir(path string, op *ActiveOperation, bp *batchProgress) error {
+func (s *BatchService) deleteDir(path string, op *ActiveOperation, bp *batchProgress) error {
 	var files, dirs []string
 	walkDirOrdered(path, func(p string, isDir bool, _ int64) error {
 		if p == path {
@@ -1503,7 +1502,7 @@ func walkDirOrdered(src string, fn func(path string, isDir bool, size int64) err
 // ResolveConflict unblocks a paused operation by supplying the user's decision.
 // conflictID comes from ConflictEvent.ConflictID emitted on "operation:conflict".
 // Returns false when the ID is not recognised (already resolved or cancelled).
-func (a *App) ResolveConflict(conflictID string, resolution ConflictResolution, applyToAll bool) bool {
+func (s *BatchService) ResolveConflict(conflictID string, resolution ConflictResolution, applyToAll bool) bool {
 	return globalConflicts.resolve(conflictID, ConflictResolutionRequest{
 		Resolution: resolution,
 		ApplyToAll: applyToAll,

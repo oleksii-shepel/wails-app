@@ -2,12 +2,7 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/base64"
 	"fmt"
-	"os"
-	"path/filepath"
-	"sync"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -20,15 +15,15 @@ import (
 type App struct {
 	ctx        context.Context
 	archive    *ArchiveService
-	nav        *NavigationManager
-	workspaces *WorkspaceManager
+	filesystem *FilesystemService
+	batch      *BatchService
+	dirStream  *DirStreamService
+	utility    *UtilityService
+	navigation *NavigationService
+	workspace  *WorkspaceService
 	operations *OperationManager
 	dirWatch   *PaneDirWatchManager
-	elevMu     sync.Mutex
-	elevWait   map[string]chan bool
-	elevSvc    *ElevatedServiceClient // persistent JWT-authenticated elevated IPC channel
-	streamMu   sync.Mutex
-	dirStreams map[string]context.CancelFunc
+	elevation  *ElevationSessionService
 	vfs        *vfslib.Unified
 	archCache  *cache.Cache // lazy-open, LRU cache of open archive.Archive objects
 }
@@ -44,15 +39,25 @@ func NewApp() *App {
 		}
 	}
 
+	navManager := NewNavigationManager()
+
 	app := &App{
 		archive:    nil,
-		nav:        NewNavigationManager(),
-		workspaces: wm,
 		operations: NewOperationManager(),
-		elevWait:   make(map[string]chan bool),
-		dirStreams: make(map[string]context.CancelFunc),
 		archCache:  cache.New(resolveChain),
 	}
+	app.elevation = NewElevationSessionService(app.emitEvent)
+	app.filesystem = NewFilesystemService(app.elevation, app.emitEvent, app.StartElevatedSession)
+	app.dirStream = NewDirStreamService(app.emitEvent, app.filesystem.runElevatedWithEvents)
+	app.utility = NewUtilityService(app.emitEvent)
+	app.batch = NewBatchService(
+		app.operations,
+		app.emitEvent,
+		app.filesystem.runElevatedWithEvents,
+		app.extractNestedArchive,
+	)
+	app.navigation = NewNavigationService(navManager, app.filesystem.ListDirectory)
+	app.workspace = NewWorkspaceService(wm)
 	app.archive = NewArchiveService(app)
 	return app
 }
@@ -110,13 +115,9 @@ func (a *App) shutdown(ctx context.Context) {
 	if a.dirWatch != nil {
 		a.dirWatch.Close()
 	}
-	a.cancelAllDirStreams()
-	a.elevMu.Lock()
-	svc := a.elevSvc
-	a.elevSvc = nil
-	a.elevMu.Unlock()
-	if svc != nil {
-		svc.Stop()
+	a.dirStream.CancelAll()
+	if a.elevation != nil {
+		a.elevation.StopSession()
 	}
 	a.archCache.CloseAll()
 }
@@ -274,56 +275,38 @@ func vfsEntryToFileInfo(e vfslib.FileInfo, parentChain []string) FileInfo {
 // ============================================================================
 
 func (a *App) NavNavigate(paneID, path string) (*DirectoryListing, error) {
-	a.nav.Navigate(paneID, path)
-	return a.ListDirectory(path, false)
+	return a.navigation.Navigate(paneID, path)
 }
 
 func (a *App) NavNavigateShowHidden(paneID, path string, showHidden bool) (*DirectoryListing, error) {
-	a.nav.Navigate(paneID, path)
-	return a.ListDirectory(path, showHidden)
+	return a.navigation.NavigateShowHidden(paneID, path, showHidden)
 }
 
 func (a *App) NavBack(paneID string) (*DirectoryListing, error) {
-	path := a.nav.GoBack(paneID)
-	if path == "" {
-		return nil, fmt.Errorf("no previous location for pane %q", paneID)
-	}
-	return a.ListDirectory(path, false)
+	return a.navigation.Back(paneID)
 }
 
 func (a *App) NavForward(paneID string) (*DirectoryListing, error) {
-	path := a.nav.GoForward(paneID)
-	if path == "" {
-		return nil, fmt.Errorf("no forward location for pane %q", paneID)
-	}
-	return a.ListDirectory(path, false)
+	return a.navigation.Forward(paneID)
 }
 
 func (a *App) NavGoUp(paneID string) (*DirectoryListing, error) {
-	current := a.nav.CurrentPath(paneID)
-	if current == "" {
-		return nil, fmt.Errorf("no current path for pane %q", paneID)
-	}
-	parent := toSlash(filepath.Dir(current))
-	if parent == toSlash(current) {
-		return nil, fmt.Errorf("already at root")
-	}
-	return a.NavNavigate(paneID, parent)
+	return a.navigation.GoUp(paneID)
 }
 
 // ============================================================================
 // Workspaces & Preferences
 // ============================================================================
 
-func (a *App) GetWorkspaces() WorkspaceList           { return a.workspaces.ListWorkspaces() }
-func (a *App) SaveWorkspace(ws WorkspaceConfig) error { return a.workspaces.SaveWorkspace(ws) }
+func (a *App) GetWorkspaces() WorkspaceList           { return a.workspace.GetWorkspaces() }
+func (a *App) SaveWorkspace(ws WorkspaceConfig) error { return a.workspace.SaveWorkspace(ws) }
 func (a *App) LoadWorkspace(id string) (*WorkspaceConfig, error) {
-	return a.workspaces.LoadWorkspace(id)
+	return a.workspace.LoadWorkspace(id)
 }
-func (a *App) DeleteWorkspace(id string) error { return a.workspaces.DeleteWorkspace(id) }
-func (a *App) GetPreferences() UserPreferences { return a.workspaces.GetPreferences() }
+func (a *App) DeleteWorkspace(id string) error { return a.workspace.DeleteWorkspace(id) }
+func (a *App) GetPreferences() UserPreferences { return a.workspace.GetPreferences() }
 func (a *App) SavePreferences(prefs UserPreferences) error {
-	return a.workspaces.SavePreferences(prefs)
+	return a.workspace.SavePreferences(prefs)
 }
 
 // ============================================================================
@@ -334,25 +317,12 @@ func (a *App) Ping() int64 {
 	return time.Now().UnixMilli()
 }
 
-// OpenFile opens the given path with the OS default application.
 func (a *App) OpenFile(path string) error {
-	return openFileWithDefaultApp(path)
+	return a.utility.OpenFile(path)
 }
 
-// ResolvedLink is the result returned by ResolveLink.
-type ResolvedLink struct {
-	Target string `json:"target"`
-	IsDir  bool   `json:"isDir"`
-}
-
-// ResolveLink resolves a Shell Link (.lnk on Windows) or a Unix symlink and
-// returns the real target path plus whether the target is a directory.
 func (a *App) ResolveLink(path string) (*ResolvedLink, error) {
-	target, isDir, err := resolveLinkPath(path)
-	if err != nil {
-		return nil, err
-	}
-	return &ResolvedLink{Target: target, IsDir: isDir}, nil
+	return a.utility.ResolveLink(path)
 }
 
 func (a *App) SetPaneDirectory(paneID, path string) error {
@@ -363,56 +333,16 @@ func (a *App) SetPaneDirectory(paneID, path string) error {
 }
 
 func (a *App) StartListDirStream(paneID, path string, showHidden bool) (string, error) {
-	return a.startListDirectoryStream(paneID, path, showHidden)
+	return a.dirStream.Start(paneID, path, showHidden)
 }
 
 func (a *App) CancelListDirStream(streamID string) {
-	a.cancelDirStream(streamID)
+	a.dirStream.Cancel(streamID)
 }
 
 func (a *App) emitEvent(name string, data interface{}) {
 	if a.ctx != nil {
 		runtime.EventsEmit(a.ctx, name, data)
-	}
-}
-
-func (a *App) registerDirStream(streamID string, cancel context.CancelFunc) {
-	a.streamMu.Lock()
-	a.dirStreams[streamID] = cancel
-	a.streamMu.Unlock()
-}
-
-func (a *App) unregisterDirStream(streamID string) {
-	a.streamMu.Lock()
-	delete(a.dirStreams, streamID)
-	a.streamMu.Unlock()
-}
-
-func (a *App) cancelDirStream(streamID string) {
-	if streamID == "" {
-		return
-	}
-	a.streamMu.Lock()
-	cancel := a.dirStreams[streamID]
-	delete(a.dirStreams, streamID)
-	a.streamMu.Unlock()
-	if cancel != nil {
-		cancel()
-	}
-}
-
-func (a *App) cancelAllDirStreams() {
-	a.streamMu.Lock()
-	cancels := make([]context.CancelFunc, 0, len(a.dirStreams))
-	for id, cancel := range a.dirStreams {
-		delete(a.dirStreams, id)
-		if cancel != nil {
-			cancels = append(cancels, cancel)
-		}
-	}
-	a.streamMu.Unlock()
-	for _, cancel := range cancels {
-		cancel()
 	}
 }
 
@@ -425,61 +355,20 @@ func (a *App) cancelAllDirStreams() {
 // All subsequent permission-denied operations are routed through this channel
 // with no further OS prompts.
 func (a *App) StartElevatedSession() (*ElevatedSessionStatus, error) {
-	a.elevMu.Lock()
-	defer a.elevMu.Unlock()
-
-	if a.elevSvc != nil && a.elevSvc.Alive() {
-		status := a.elevSvc.Status()
-		a.emitEvent("elevation:session-started", status)
-		return &status, nil
-	}
-
-	exePath, err := executablePath()
-	if err != nil {
-		return nil, fmt.Errorf("resolve executable: %w", err)
-	}
-
-	a.emitEvent("elevation:uac-requested", map[string]string{
-		"phase":     "requested",
-		"operation": "session-start",
-		"target":    "elevated-service",
-		"message":   "Administrative privileges requested to start elevated service session.",
-	})
-
-	svc, err := StartElevatedServiceClient(exePath)
-	if err != nil {
-		return nil, err
-	}
-	a.elevSvc = svc
-	status := svc.Status()
-	a.emitEvent("elevation:session-started", status)
-	return &status, nil
+	return a.elevation.StartSession()
 }
 
 // StopElevatedSession closes the elevated IPC channel and terminates the
 // helper process. Future permission-denied operations will fall back to the
 // interactive per-op UAC dialog.
 func (a *App) StopElevatedSession() {
-	a.elevMu.Lock()
-	svc := a.elevSvc
-	a.elevSvc = nil
-	a.elevMu.Unlock()
-	if svc != nil {
-		svc.Stop()
-	}
-	a.emitEvent("elevation:session-stopped", map[string]bool{"active": false})
+	a.elevation.StopSession()
 }
 
 // GetElevatedSessionStatus returns the live status of the elevated service
 // channel without starting or stopping it.
 func (a *App) GetElevatedSessionStatus() ElevatedSessionStatus {
-	a.elevMu.Lock()
-	svc := a.elevSvc
-	a.elevMu.Unlock()
-	if svc == nil {
-		return ElevatedSessionStatus{}
-	}
-	return svc.Status()
+	return a.elevation.Status()
 }
 
 // ============================================================================
@@ -490,141 +379,13 @@ func (a *App) IsProcessElevated() bool {
 }
 
 func (a *App) ConfirmElevationRequest(requestID string, approve bool) {
-	a.elevMu.Lock()
-	ch, ok := a.elevWait[requestID]
-	if ok {
-		delete(a.elevWait, requestID)
-	}
-	a.elevMu.Unlock()
-
-	if ok {
-		select {
-		case ch <- approve:
-		default:
-		}
-	}
+	a.elevation.Confirm(requestID, approve)
 }
 
 func (a *App) waitForElevationApproval(requestID string, timeout time.Duration) (bool, error) {
-	ch := make(chan bool, 1)
-	a.elevMu.Lock()
-	a.elevWait[requestID] = ch
-	a.elevMu.Unlock()
-
-	defer func() {
-		a.elevMu.Lock()
-		delete(a.elevWait, requestID)
-		a.elevMu.Unlock()
-	}()
-
-	select {
-	case approve := <-ch:
-		return approve, nil
-	case <-time.After(timeout):
-		return false, fmt.Errorf("elevation approval timed out")
-	}
+	return a.elevation.WaitForApproval(requestID, timeout)
 }
 
-// executablePath returns the absolute path of the running binary.
-func executablePath() (string, error) {
-	return os.Executable()
-}
-
-func newElevationRequestID() string {
-	b := make([]byte, 12)
-	if _, err := rand.Read(b); err != nil {
-		return fmt.Sprintf("elev-%d", time.Now().UnixNano())
-	}
-	return "elev-" + base64.RawURLEncoding.EncodeToString(b)
-}
-
-// HandleFileDrop processes files dropped onto the app and emits an event.
-// This is called by the frontend when files are dropped.
-// If browser doesn't provide filesystem paths, it attempts to read from Windows clipboard.
 func (a *App) HandleFileDrop(x int, y int, paths []string) error {
-	fmt.Printf("[HandleFileDrop] Called with x=%d, y=%d, %d paths: %v\n", x, y, len(paths), paths)
-
-	if len(paths) == 0 {
-		return fmt.Errorf("no paths provided")
-	}
-
-	providedPaths := paths
-
-	// Check if paths are relative/filename-only (from browser drop)
-	isRelativeOnly := false
-	for _, p := range paths {
-		if !isAbsolutePath(p) {
-			isRelativeOnly = true
-			fmt.Printf("[HandleFileDrop] Path is relative: %s\n", p)
-			break
-		}
-	}
-
-	// If paths are just filenames (no directory), try to get from clipboard
-	if isRelativeOnly {
-		fmt.Println("[HandleFileDrop] Detected filename-only paths, attempting clipboard fallback...")
-		clipboardPaths, err := GetClipboardFilePaths()
-		if err == nil && len(clipboardPaths) > 0 {
-			fmt.Printf("[HandleFileDrop] ✓ Got %d paths from clipboard: %v\n", len(clipboardPaths), clipboardPaths)
-			providedPaths = clipboardPaths
-		} else {
-			fmt.Println("[HandleFileDrop] ✗ Clipboard fallback failed:", err)
-			// Try to use what we have anyway
-			fmt.Printf("[HandleFileDrop] Continuing with provided %d paths\n", len(paths))
-		}
-	}
-
-	// Validate each path and collect valid ones
-	validPaths := []string{}
-	for _, p := range providedPaths {
-		if p == "" {
-			continue
-		}
-
-		fmt.Printf("[HandleFileDrop] Checking path: %s\n", p)
-
-		// Verify path exists
-		if stat, err := os.Stat(p); err == nil {
-			validPaths = append(validPaths, p)
-			fmt.Printf("[HandleFileDrop] ✓ Path exists: %s (isDir=%v)\n", p, stat.IsDir())
-		} else {
-			fmt.Printf("[HandleFileDrop] ✗ Path does not exist: %s (%v)\n", p, err)
-		}
-	}
-
-	if len(validPaths) == 0 {
-		fmt.Println("[HandleFileDrop] ✗ No valid file paths after validation")
-		return fmt.Errorf("no valid file paths after validation")
-	}
-
-	fmt.Printf("[HandleFileDrop] ✓ Emitting file:drop event with %d valid files\n", len(validPaths))
-
-	// Emit a Wails event to the frontend with the drop data
-	payload := map[string]interface{}{
-		"x":     x,
-		"y":     y,
-		"paths": validPaths,
-	}
-
-	runtime.EventsEmit(a.ctx, "file:drop", payload)
-	return nil
-}
-
-// isAbsolutePath checks if a path is absolute (not just a filename)
-func isAbsolutePath(path string) bool {
-	if len(path) == 0 {
-		return false
-	}
-	// Windows absolute paths start with drive letter (C:) or UNC (\\)
-	if len(path) > 1 && path[1] == ':' {
-		return true
-	}
-	if len(path) > 1 && path[0] == '\\' && path[1] == '\\' {
-		return true
-	}
-	// Unix paths start with /
-	if path[0] == '/' {
-		return true
-	}
-	return false
+	return a.utility.HandleFileDrop(x, y, paths)
 }

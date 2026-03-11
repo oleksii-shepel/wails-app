@@ -44,24 +44,28 @@ type dirStreamErrorEvent struct {
 }
 
 func (a *App) startListDirectoryStream(paneID, path string, showHidden bool) (string, error) {
+	return a.dirStream.Start(paneID, path, showHidden)
+}
+
+func (s *DirStreamService) Start(paneID, path string, showHidden bool) (string, error) {
 	if path == "" {
 		return "", fmt.Errorf("path is required")
 	}
 	streamID := fmt.Sprintf("%s-%d", paneID, time.Now().UnixNano())
 	ctx, cancel := context.WithCancel(context.Background())
-	a.registerDirStream(streamID, cancel)
-	go a.runListDirectoryStream(ctx, streamID, paneID, toSlash(path), showHidden)
+	s.Register(streamID, cancel)
+	go s.run(ctx, streamID, paneID, toSlash(path), showHidden)
 	return streamID, nil
 }
 
-func (a *App) runListDirectoryStream(ctx context.Context, streamID, paneID, path string, showHidden bool) {
-	defer a.unregisterDirStream(streamID)
+func (s *DirStreamService) run(ctx context.Context, streamID, paneID, path string, showHidden bool) {
+	defer s.Unregister(streamID)
 
 	started := time.Now()
 	var entryCount int
 	var totalSize int64
 
-	a.emitEvent("fs:listStream:meta", dirStreamMetaEvent{
+	s.Emit("fs:listStream:meta", dirStreamMetaEvent{
 		StreamID:   streamID,
 		PaneID:     paneID,
 		Path:       path,
@@ -71,7 +75,7 @@ func (a *App) runListDirectoryStream(ctx context.Context, streamID, paneID, path
 	err := scanDirectoryStream(ctx, path, showHidden, dirStreamBatchSize, func(batch []FileInfo, batchSize int64) {
 		entryCount += len(batch)
 		totalSize += batchSize
-		a.emitEvent("fs:listStream:batch", dirStreamBatchEvent{
+		s.Emit("fs:listStream:batch", dirStreamBatchEvent{
 			StreamID: streamID,
 			PaneID:   paneID,
 			Path:     path,
@@ -79,7 +83,7 @@ func (a *App) runListDirectoryStream(ctx context.Context, streamID, paneID, path
 		})
 	})
 	if err == nil {
-		a.emitEvent("fs:listStream:done", dirStreamDoneEvent{
+		s.Emit("fs:listStream:done", dirStreamDoneEvent{
 			StreamID:   streamID,
 			PaneID:     paneID,
 			Path:       path,
@@ -96,7 +100,7 @@ func (a *App) runListDirectoryStream(ctx context.Context, streamID, paneID, path
 	// Permission denied fallback: stream one elevated listing batch so the UI
 	// still completes through the same streaming channel.
 	if shouldRetryDeleteWithElevation(err) {
-		resp, elevErr := a.runElevatedWithEvents("list", opTargetSingle(path), elevatedRequest{
+		resp, elevErr := s.runElevatedWithEvents("list", opTargetSingle(path), elevatedRequest{
 			Op:         "list",
 			Path:       path,
 			ShowHidden: showHidden,
@@ -110,13 +114,13 @@ func (a *App) runListDirectoryStream(ctx context.Context, streamID, paneID, path
 			for _, fi := range entries {
 				size += fi.Size
 			}
-			a.emitEvent("fs:listStream:batch", dirStreamBatchEvent{
+			s.Emit("fs:listStream:batch", dirStreamBatchEvent{
 				StreamID: streamID,
 				PaneID:   paneID,
 				Path:     path,
 				Entries:  entries,
 			})
-			a.emitEvent("fs:listStream:done", dirStreamDoneEvent{
+			s.Emit("fs:listStream:done", dirStreamDoneEvent{
 				StreamID:    streamID,
 				PaneID:      paneID,
 				Path:        path,
@@ -129,7 +133,7 @@ func (a *App) runListDirectoryStream(ctx context.Context, streamID, paneID, path
 		}
 	}
 
-	a.emitEvent("fs:listStream:error", dirStreamErrorEvent{
+	s.Emit("fs:listStream:error", dirStreamErrorEvent{
 		StreamID: streamID,
 		PaneID:   paneID,
 		Path:     path,

@@ -17,6 +17,10 @@ import (
 // ============================================================================
 
 func (a *App) ListDirectory(path string, showHidden bool) (*DirectoryListing, error) {
+	return a.filesystem.ListDirectory(path, showHidden)
+}
+
+func (s *FilesystemService) ListDirectory(path string, showHidden bool) (*DirectoryListing, error) {
 	listing, err := listDirectoryRaw(path, showHidden)
 	if err == nil {
 		return listing, nil
@@ -25,7 +29,7 @@ func (a *App) ListDirectory(path string, showHidden bool) (*DirectoryListing, er
 		return nil, err
 	}
 
-	resp, elevErr := a.runElevatedWithEvents("list", opTargetSingle(path), elevatedRequest{
+	resp, elevErr := s.runElevatedWithEvents("list", opTargetSingle(path), elevatedRequest{
 		Op:         "list",
 		Path:       path,
 		ShowHidden: showHidden,
@@ -104,6 +108,10 @@ func listDirectoryRaw(path string, showHidden bool) (*DirectoryListing, error) {
 // ============================================================================
 
 func (a *App) GetFileInfo(path string) (*FileInfo, error) {
+	return a.filesystem.GetFileInfo(path)
+}
+
+func (s *FilesystemService) GetFileInfo(path string) (*FileInfo, error) {
 	info, err := os.Lstat(path)
 	if err != nil {
 		return nil, err
@@ -118,6 +126,10 @@ func (a *App) GetFileInfo(path string) (*FileInfo, error) {
 // ============================================================================
 
 func (a *App) ReadFile(path string, encoding string) (*FileContent, error) {
+	return a.filesystem.ReadFile(path, encoding)
+}
+
+func (s *FilesystemService) ReadFile(path string, encoding string) (*FileContent, error) {
 	file, err := readFileRaw(path, encoding)
 	if err == nil {
 		return file, nil
@@ -126,7 +138,7 @@ func (a *App) ReadFile(path string, encoding string) (*FileContent, error) {
 		return nil, err
 	}
 
-	resp, elevErr := a.runElevatedWithEvents("read", opTargetSingle(path), elevatedRequest{
+	resp, elevErr := s.runElevatedWithEvents("read", opTargetSingle(path), elevatedRequest{
 		Op:       "read",
 		Path:     path,
 		Encoding: encoding,
@@ -173,6 +185,10 @@ func readFileRaw(path string, encoding string) (*FileContent, error) {
 // ============================================================================
 
 func (a *App) WriteFile(path string, content string, encoding string) (*OperationResult, error) {
+	return a.filesystem.WriteFile(path, content, encoding)
+}
+
+func (s *FilesystemService) WriteFile(path string, content string, encoding string) (*OperationResult, error) {
 	op, err := writeFileRaw(path, content, encoding)
 	if err == nil {
 		return op, nil
@@ -181,7 +197,7 @@ func (a *App) WriteFile(path string, content string, encoding string) (*Operatio
 		return nil, err
 	}
 
-	resp, elevErr := a.runElevatedWithEvents("write", opTargetSingle(path), elevatedRequest{
+	resp, elevErr := s.runElevatedWithEvents("write", opTargetSingle(path), elevatedRequest{
 		Op:       "write",
 		Path:     path,
 		Content:  content,
@@ -222,6 +238,10 @@ func writeFileRaw(path string, content string, encoding string) (*OperationResul
 // ============================================================================
 
 func (a *App) DeleteFile(path string, recursive bool, useTrash *bool) (*OperationResult, error) {
+	return a.filesystem.DeleteFile(path, recursive, useTrash)
+}
+
+func (s *FilesystemService) DeleteFile(path string, recursive bool, useTrash *bool) (*OperationResult, error) {
 	op, err := deleteFileRaw(path, recursive, useTrash)
 	if err == nil {
 		return op, nil
@@ -230,7 +250,7 @@ func (a *App) DeleteFile(path string, recursive bool, useTrash *bool) (*Operatio
 		return nil, err
 	}
 
-	resp, elevErr := a.runElevatedWithEvents("delete", opTargetSingle(path), elevatedRequest{
+	resp, elevErr := s.runElevatedWithEvents("delete", opTargetSingle(path), elevatedRequest{
 		Op:        "delete",
 		Path:      path,
 		Recursive: recursive,
@@ -286,6 +306,10 @@ func deleteFileRaw(path string, recursive bool, useTrash *bool) (*OperationResul
 // ============================================================================
 
 func (a *App) CreateDirectory(path string, recursive bool) (*OperationResult, error) {
+	return a.filesystem.CreateDirectory(path, recursive)
+}
+
+func (s *FilesystemService) CreateDirectory(path string, recursive bool) (*OperationResult, error) {
 	op, err := createDirectoryRaw(path, recursive)
 	if err == nil {
 		return op, nil
@@ -294,7 +318,7 @@ func (a *App) CreateDirectory(path string, recursive bool) (*OperationResult, er
 		return nil, err
 	}
 
-	resp, elevErr := a.runElevatedWithEvents("mkdir", opTargetSingle(path), elevatedRequest{
+	resp, elevErr := s.runElevatedWithEvents("mkdir", opTargetSingle(path), elevatedRequest{
 		Op:        "mkdir",
 		Path:      path,
 		Recursive: recursive,
@@ -328,6 +352,10 @@ func createDirectoryRaw(path string, recursive bool) (*OperationResult, error) {
 // ============================================================================
 
 func (a *App) MoveFile(source, destination string) (*OperationResult, error) {
+	return a.filesystem.MoveFile(source, destination)
+}
+
+func (s *FilesystemService) MoveFile(source, destination string) (*OperationResult, error) {
 	op, err := moveFileRaw(source, destination)
 	if err == nil {
 		return op, nil
@@ -336,7 +364,7 @@ func (a *App) MoveFile(source, destination string) (*OperationResult, error) {
 		return nil, err
 	}
 
-	resp, elevErr := a.runElevatedWithEvents("move", opTargetPair(source, destination), elevatedRequest{
+	resp, elevErr := s.runElevatedWithEvents("move", opTargetPair(source, destination), elevatedRequest{
 		Op:          "move",
 		Source:      source,
 		Destination: destination,
@@ -372,6 +400,10 @@ func moveFileRaw(source, destination string) (*OperationResult, error) {
 // ============================================================================
 
 func (a *App) CopyFile(source, destination string, recursive bool) (*OperationResult, error) {
+	return a.filesystem.CopyFile(source, destination, recursive)
+}
+
+func (s *FilesystemService) CopyFile(source, destination string, recursive bool) (*OperationResult, error) {
 	op, err := copyFileRaw(source, destination, recursive)
 	if err == nil {
 		return op, nil
@@ -380,7 +412,7 @@ func (a *App) CopyFile(source, destination string, recursive bool) (*OperationRe
 		return nil, err
 	}
 
-	resp, elevErr := a.runElevatedWithEvents("copy", opTargetPair(source, destination), elevatedRequest{
+	resp, elevErr := s.runElevatedWithEvents("copy", opTargetPair(source, destination), elevatedRequest{
 		Op:          "copy",
 		Source:      source,
 		Destination: destination,
@@ -421,6 +453,10 @@ func copyFileRaw(source, destination string, recursive bool) (*OperationResult, 
 // ============================================================================
 
 func (a *App) SearchFiles(path, pattern string, recursive bool) (*SearchResult, error) {
+	return a.filesystem.SearchFiles(path, pattern, recursive)
+}
+
+func (s *FilesystemService) SearchFiles(path, pattern string, recursive bool) (*SearchResult, error) {
 	var matches []FileInfo
 
 	walkFn := func(p string, d fs.DirEntry, err error) error {
@@ -687,8 +723,8 @@ type elevationEvent struct {
 	Error     string `json:"error,omitempty"`
 }
 
-func (a *App) emitElevationRequested(requestID, op, target string) {
-	a.emitEvent("elevation:requested", elevationEvent{
+func (s *FilesystemService) emitElevationRequested(requestID, op, target string) {
+	s.emit("elevation:requested", elevationEvent{
 		RequestID: requestID,
 		Phase:     "requested",
 		Operation: op,
@@ -697,7 +733,7 @@ func (a *App) emitElevationRequested(requestID, op, target string) {
 	})
 }
 
-func (a *App) emitElevationResult(requestID, op, target string, success bool, err error) {
+func (s *FilesystemService) emitElevationResult(requestID, op, target string, success bool, err error) {
 	evt := elevationEvent{
 		RequestID: requestID,
 		Phase:     "result",
@@ -711,10 +747,10 @@ func (a *App) emitElevationResult(requestID, op, target string, success bool, er
 	} else {
 		evt.Message = "Elevated operation completed."
 	}
-	a.emitEvent("elevation:result", evt)
+	s.emit("elevation:result", evt)
 }
 
-func (a *App) runElevatedWithEvents(op, target string, req elevatedRequest) (elevatedResponse, error) {
+func (s *FilesystemService) runElevatedWithEvents(op, target string, req elevatedRequest) (elevatedResponse, error) {
 	// ── Tier 1: process is already admin/root ────────────────────────────────
 	if isProcessElevated() {
 		return executeElevatedRequest(req), nil
@@ -724,19 +760,15 @@ func (a *App) runElevatedWithEvents(op, target string, req elevatedRequest) (ele
 	// If a session is already alive, dispatch immediately.
 	// If not, try to auto-start one now — this shows exactly ONE UAC/sudo
 	// prompt and then all future operations reuse the same elevated channel.
-	a.elevMu.Lock()
-	svc := a.elevSvc
-	a.elevMu.Unlock()
+	svc := s.elevation.Client()
 
 	if svc == nil || !svc.Alive() {
 		// Serialize startup via StartElevatedSession so concurrent denied
 		// operations do not trigger multiple overlapping UAC prompts.
-		a.emitEvent("elevation:session-starting", map[string]string{"op": op, "target": target})
-		if status, startErr := a.StartElevatedSession(); startErr == nil {
-			a.emitEvent("elevation:session-started", status)
-			a.elevMu.Lock()
-			svc = a.elevSvc
-			a.elevMu.Unlock()
+		s.emit("elevation:session-starting", map[string]string{"op": op, "target": target})
+		if status, startErr := s.startElevatedSession(); startErr == nil {
+			s.emit("elevation:session-started", status)
+			svc = s.elevation.Client()
 		}
 		// If start failed (e.g. user clicked "No") svc stays nil and we
 		// fall through to the per-op dialog below.
@@ -745,26 +777,26 @@ func (a *App) runElevatedWithEvents(op, target string, req elevatedRequest) (ele
 	if svc != nil && svc.Alive() {
 		resp, err := svc.Dispatch(req)
 		if err != nil {
-			a.emitEvent("elevation:auto-failed", map[string]interface{}{"op": op, "target": target, "error": err.Error()})
+			s.emit("elevation:auto-failed", map[string]interface{}{"op": op, "target": target, "error": err.Error()})
 			return elevatedResponse{}, err
 		}
-		a.emitEvent("elevation:auto-started", map[string]string{"op": op, "target": target})
+		s.emit("elevation:auto-started", map[string]string{"op": op, "target": target})
 		return resp, nil
 	}
 
 	// ── Tier 3: service unavailable — direct per-op elevation fallback ───────
 	// Do not show an in-app confirmation dialog; let OS UAC prompt directly.
-	a.emitEvent("elevation:uac-requested", map[string]string{
+	s.emit("elevation:uac-requested", map[string]string{
 		"phase":     "requested",
 		"operation": op,
 		"target":    target,
 	})
 	resp, err := runElevatedRequest(req)
 	if err != nil {
-		a.emitEvent("elevation:auto-failed", map[string]interface{}{"op": op, "target": target, "error": err.Error()})
+		s.emit("elevation:auto-failed", map[string]interface{}{"op": op, "target": target, "error": err.Error()})
 		return elevatedResponse{}, err
 	}
-	a.emitEvent("elevation:auto-started", map[string]string{"op": op, "target": target})
+	s.emit("elevation:auto-started", map[string]string{"op": op, "target": target})
 	return resp, nil
 }
 

@@ -1,9 +1,5 @@
 package main
 
-// ────────────────────────────────────────────────────────────────────────────
-// Types
-// ────────────────────────────────────────────────────────────────────────────
-
 type ArchiveEntriesRequest struct {
 	// FsPath is the absolute on-disk path of the archive.
 	FsPath string `json:"fsPath"`

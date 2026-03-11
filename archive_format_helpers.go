@@ -8,6 +8,8 @@ import (
 	"github.com/mholt/archiver/v3"
 )
 
+var archiveStdlibSuffixes = []string{".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tar.xz", ".gz", ".bz2", ".xz", ".zip"}
+
 // isZipMagic returns true when data starts with the ZIP local file header
 // signature "PK\x03\x04" or the empty-archive signature "PK\x05\x06".
 func isZipMagic(data []byte) bool {
@@ -23,16 +25,7 @@ func needsArchiveReader(name string) bool {
 	if name == "" {
 		return false
 	}
-	lower := strings.ToLower(name)
-	for _, sfx := range []string{".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tar.xz", ".gz", ".bz2", ".xz"} {
-		if strings.HasSuffix(lower, sfx) {
-			return false
-		}
-	}
-	if strings.HasSuffix(lower, ".zip") {
-		return false
-	}
-	return true
+	return !usesStdlibArchiveHandling(name)
 }
 
 // isRarArchiveName is kept for the batch/nested extraction path that chooses
@@ -42,6 +35,23 @@ func isRarArchiveName(name string) bool {
 		return false
 	}
 	return strings.HasSuffix(strings.ToLower(name), ".rar")
+}
+
+func isZipArchiveName(name string) bool {
+	if name == "" {
+		return false
+	}
+	return strings.HasSuffix(strings.ToLower(name), ".zip")
+}
+
+func usesStdlibArchiveHandling(name string) bool {
+	lower := strings.ToLower(name)
+	for _, sfx := range archiveStdlibSuffixes {
+		if strings.HasSuffix(lower, sfx) {
+			return true
+		}
+	}
+	return false
 }
 
 func openArchiveReader(archiveName string, data []byte) (archiver.Reader, error) {

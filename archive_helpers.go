@@ -17,7 +17,7 @@ func matchesEntries(innerPath string, entries []string) bool {
 	cleanInner := normalize(innerPath)
 	for _, entry := range entries {
 		entry = normalize(entry)
-		if entry == "" || cleanInner == entry || strings.HasPrefix(cleanInner, entry+"/") {
+		if matchesArchiveEntry(cleanInner, entry) {
 			return true
 		}
 	}
@@ -40,9 +40,40 @@ func matchesEntriesForExtract(innerPath string, entries []string) bool {
 			}
 			return true
 		}
-		if strings.HasPrefix(cleanInner, entry+"/") {
+		if matchesArchiveEntry(cleanInner, entry) {
 			return true
 		}
 	}
 	return false
+}
+
+func rebaseExtractPath(entryName, stripPrefix string) (string, bool) {
+	entry := normalize(entryName)
+	if entry == "" {
+		return "", false
+	}
+
+	prefix := normalize(stripPrefix)
+	if prefix == "" {
+		return entry, true
+	}
+
+	if entry == prefix {
+		return "", false
+	}
+
+	prefixWithSep := prefix + "/"
+	if strings.HasPrefix(entry, prefixWithSep) {
+		rel := strings.TrimPrefix(entry, prefixWithSep)
+		if rel == "" {
+			return "", false
+		}
+		return rel, true
+	}
+
+	return entry, true
+}
+
+func matchesArchiveEntry(cleanInner, entry string) bool {
+	return entry == "" || cleanInner == entry || strings.HasPrefix(cleanInner, entry+"/")
 }

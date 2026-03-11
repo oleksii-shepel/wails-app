@@ -34,6 +34,17 @@ interface ActiveContextState {
   activatedAt: number;
 }
 
+interface KeyboardEventContext {
+  inInput: boolean;
+  inTextarea: boolean;
+  inSelect: boolean;
+  inContentEditable: boolean;
+  inModal: boolean;
+  inQuickAccessMenu: boolean;
+  hasActivePane: boolean;
+  isFilterInput: boolean;
+}
+
 const SOURCE_PRIORITY: Record<InputSourceKind, number> = {
   default: 10,
   plugin: 20,
@@ -61,6 +72,8 @@ export class InputEngineService {
   readonly activeContexts$ = createBehaviorSubject<InputContextDefinition[]>([]);
   readonly pendingChord$ = createBehaviorSubject<PendingChordState | null>(null);
   readonly bindings$ = createBehaviorSubject<InputBindingDefinition[]>([]);
+
+  private keyboardEnabled = true;
 
   constructor() {
     this.registerContext({
@@ -132,6 +145,8 @@ export class InputEngineService {
   registerBinding(binding: InputBindingDefinition): void {
     this.bindings.set(binding.id, {
       ...binding,
+      preventDefault: binding.preventDefault !== false,
+      stopPropagation: binding.stopPropagation !== false,
       enabled: true,
       registrationOrder: ++this.registrationCounter,
     });
@@ -148,6 +163,13 @@ export class InputEngineService {
     if (!binding) return;
     binding.enabled = enabled;
     this.emitBindings();
+  }
+
+  setKeyboardEnabled(enabled: boolean): void {
+    this.keyboardEnabled = enabled;
+    if (!enabled) {
+      this.clearPendingChord();
+    }
   }
 
   registerPluginBindings(contribution: PluginInputContribution): void {
@@ -181,9 +203,9 @@ export class InputEngineService {
     return Array.from(this.contexts.values());
   }
 
-  resolveKeyStroke(stroke: KeyStroke): BindingResolution | null {
+  resolveKeyStroke(stroke: KeyStroke, event?: KeyboardEvent): BindingResolution | null {
     const currentSequence = this.pendingChord ? [...this.pendingChord.steps, stroke] : [stroke];
-    const candidates = this.matchBindings(currentSequence);
+    const candidates = this.matchBindings(currentSequence, event);
 
     if (candidates.length === 0) {
       if (this.pendingChord) {
@@ -233,17 +255,21 @@ export class InputEngineService {
 
   private initializeKeyboardListener(): void {
     document.addEventListener('keydown', (event) => {
-      if (event.isComposing) return;
+      if (!this.keyboardEnabled || event.isComposing) return;
 
       const stroke = this.normalizeKeyStroke(event);
-      const resolution = this.resolveKeyStroke(stroke);
+      const resolution = this.resolveKeyStroke(stroke, event);
       if (!resolution) return;
 
       const command = this.getCommandHandler(resolution.binding.commandId);
       if (!command) return;
 
-      event.preventDefault();
-      event.stopPropagation();
+      if (resolution.binding.preventDefault !== false) {
+        event.preventDefault();
+      }
+      if (resolution.binding.stopPropagation !== false) {
+        event.stopPropagation();
+      }
 
       try {
         const result = command();
@@ -295,13 +321,14 @@ export class InputEngineService {
     return keyMap[key] ?? key.toLowerCase();
   }
 
-  private matchBindings(sequence: KeyStroke[]): RegisteredBinding[] {
+  private matchBindings(sequence: KeyStroke[], event?: KeyboardEvent): RegisteredBinding[] {
     const activeContextIds = this.getActiveContextIds();
+    const keyboardContext = event ? this.getKeyboardEventContext(event) : null;
 
     return Array.from(this.bindings.values()).filter(binding => {
       if (!binding.enabled || binding.trigger.device !== 'keyboard') return false;
       if (!activeContextIds.has(binding.contextId)) return false;
-      if (!this.whenClauseAllows(binding.when)) return false;
+      if (!this.whenClauseAllows(binding.when, keyboardContext)) return false;
 
       const steps = binding.trigger.chord.steps;
       if (steps.length < sequence.length) return false;
@@ -356,11 +383,55 @@ export class InputEngineService {
     return left.key === right.key && leftMods === rightMods;
   }
 
-  private whenClauseAllows(expression?: string): boolean {
+  private whenClauseAllows(expression?: string, context?: KeyboardEventContext | null): boolean {
     if (!expression || expression.trim() === '' || expression === 'true') {
       return true;
     }
-    return false;
+
+    const terms = expression.split('&&').map(term => term.trim()).filter(Boolean);
+    if (terms.length === 0) {
+      return true;
+    }
+
+    return terms.every(term => {
+      const isNegated = term.startsWith('!');
+      const token = isNegated ? term.slice(1).trim() : term;
+      const value = this.resolveWhenToken(token, context);
+      return isNegated ? !value : value;
+    });
+  }
+
+  private resolveWhenToken(token: string, context?: KeyboardEventContext | null): boolean {
+    switch (token) {
+      case 'typing':
+        return !!context && (context.inInput || context.inTextarea || context.inSelect || context.inContentEditable);
+      case 'modal':
+        return !!context?.inModal;
+      case 'quickAccess':
+        return !!context?.inQuickAccessMenu;
+      case 'activePane':
+        return !!context?.hasActivePane;
+      case 'filterInput':
+        return !!context?.isFilterInput;
+      default:
+        return false;
+    }
+  }
+
+  private getKeyboardEventContext(event: KeyboardEvent): KeyboardEventContext {
+    const target = event.target as HTMLElement | null;
+    const tagName = target?.tagName.toLowerCase() ?? '';
+
+    return {
+      inInput: tagName === 'input',
+      inTextarea: tagName === 'textarea',
+      inSelect: tagName === 'select',
+      inContentEditable: !!target?.isContentEditable,
+      inModal: !!target?.closest('.modal, [role="dialog"]'),
+      inQuickAccessMenu: !!target?.closest('.ab-quick-access-drop'),
+      hasActivePane: !!target?.closest('.pane'),
+      isFilterInput: !!target?.classList.contains('filter-input'),
+    };
   }
 
   private getActiveContextIds(): Set<string> {

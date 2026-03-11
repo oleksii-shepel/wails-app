@@ -1,5 +1,7 @@
 import { Injectable } from '@angular/core';
 import { createBehaviorSubject } from '@epikodelabs/streamix';
+import { InputEngineService } from './input-engine.service';
+import type { InputBindingDefinition } from './input-system.types';
 
 /**
  * Keyboard shortcut definition
@@ -31,64 +33,46 @@ export interface ShortcutCategory {
 }
 
 /**
- * Keyboard event context information
- */
-interface KeyboardContext {
-  inInput: boolean;
-  inTextarea: boolean;
-  inSelect: boolean;
-  inContentEditable: boolean;
-  inModal: boolean;
-  inQuickAccessMenu: boolean;
-  activePane: 'left' | 'right' | null;
-  hasSelection: boolean;
-}
-
-/**
  * Global keyboard shortcut service
- * Manages all keyboard shortcuts across the application
+ * Compatibility adapter over the shared input engine.
  */
 @Injectable({
   providedIn: 'root'
 })
 export class KeyboardService {
   private shortcuts = new Map<string, ShortcutDefinition>();
+  private shortcutBindings = new Map<string, string>();
   private enabledSubject = createBehaviorSubject<boolean>(true);
   public enabled$ = this.enabledSubject;
 
   private historyStack: string[] = [];
   private maxHistorySize = 50;
 
-  constructor() {
-    this.initializeGlobalListener();
-  }
-
-  /**
-   * Initialize global keyboard event listener.
-   * Uses `capture: true` so this fires before Angular zone / component handlers,
-   * but we only stopPropagation when the shortcut does NOT set allowBubble.
-   */
-  private initializeGlobalListener(): void {
-    document.addEventListener('keydown', (event) => {
-      if (!this.enabledSubject.value) return;
-      this.handleKeyboardEvent(event);
-    }, { capture: true });
+  constructor(private inputEngine: InputEngineService) {
+    this.inputEngine.setKeyboardEnabled(true);
   }
 
   /**
    * Register a keyboard shortcut
    */
   register(shortcut: ShortcutDefinition): void {
-    const key = this.buildShortcutKey(shortcut.key, shortcut.modifiers);
+    const normalizedKey = this.normalizeKey(shortcut.key);
+    const key = this.buildShortcutKey(normalizedKey, shortcut.modifiers);
+    const previousShortcut = this.shortcuts.get(key);
 
-    if (this.shortcuts.has(key)) {
+    if (previousShortcut) {
       console.warn(`Shortcut conflict: ${key} is already registered`);
+      this.unregisterFromInputEngine(previousShortcut.id);
     }
 
-    this.shortcuts.set(key, {
+    const normalizedShortcut: ShortcutDefinition = {
       ...shortcut,
+      key: normalizedKey,
       enabled: shortcut.enabled !== false,
-    });
+    };
+
+    this.shortcuts.set(key, normalizedShortcut);
+    this.registerWithInputEngine(normalizedShortcut);
   }
 
   /**
@@ -97,141 +81,11 @@ export class KeyboardService {
   unregister(id: string): void {
     for (const [key, shortcut] of this.shortcuts.entries()) {
       if (shortcut.id === id) {
+        this.unregisterFromInputEngine(shortcut.id);
         this.shortcuts.delete(key);
         break;
       }
     }
-  }
-
-  /**
-   * Handle keyboard event
-   */
-  private handleKeyboardEvent(event: KeyboardEvent): void {
-    if (event.isComposing) return;
-
-    const context = this.getKeyboardContext(event);
-
-    if (event.repeat && (context.inInput || context.inTextarea || context.inSelect || context.inContentEditable)) {
-      return;
-    }
-
-    // Build key signature from event
-    const modifiers: ('ctrl' | 'shift' | 'alt' | 'meta')[] = [];
-    if (event.ctrlKey || event.metaKey) modifiers.push(event.ctrlKey ? 'ctrl' : 'meta');
-    if (event.shiftKey) modifiers.push('shift');
-    if (event.altKey) modifiers.push('alt');
-
-    const key = this.normalizeEventKey(event);
-    const shortcutKey = this.buildShortcutKey(key, modifiers);
-
-    // Find matching shortcut
-    const shortcut = this.shortcuts.get(shortcutKey);
-
-    if (!shortcut || !shortcut.enabled) return;
-
-    // Check context restrictions
-    if (!this.isShortcutValidInContext(shortcut, context)) return;
-
-    // Execute action
-    try {
-      event.preventDefault();
-
-      // Only stop propagation when the shortcut does NOT need to bubble
-      // down to component-level keydown handlers (e.g. address bar focus).
-      if (!shortcut.allowBubble) {
-        event.stopPropagation();
-      }
-
-      const result = shortcut.action();
-      if (result instanceof Promise) {
-        result.catch(err => console.error('Shortcut action failed:', err));
-      }
-
-      this.addToHistory(shortcut.id);
-    } catch (error) {
-      console.error('Error executing shortcut:', error);
-    }
-  }
-
-  /**
-   * Get current keyboard context
-   */
-  private getKeyboardContext(event: KeyboardEvent): KeyboardContext {
-    const target = event.target as HTMLElement;
-    const tagName = target.tagName.toLowerCase();
-
-    return {
-      inInput: tagName === 'input',
-      inTextarea: tagName === 'textarea',
-      inSelect: tagName === 'select',
-      inContentEditable: !!target.isContentEditable,
-      inModal: !!target.closest('.modal, [role="dialog"]'),
-      inQuickAccessMenu: !!target.closest('.ab-quick-access-drop'),
-      activePane: this.getActivePaneFromTarget(target),
-      hasSelection: window.getSelection()!.toString().length > 0,
-    };
-  }
-
-  /**
-   * Get active pane from event target
-   */
-  private getActivePaneFromTarget(target: HTMLElement): 'left' | 'right' | null {
-    const pane = target.closest('.pane');
-    if (!pane) return null;
-
-    const panes = Array.from(document.querySelectorAll('.pane'));
-    const index = panes.indexOf(pane);
-
-    return index === 0 ? 'left' : index === 1 ? 'right' : null;
-  }
-
-  /**
-   * Check if shortcut is valid in current context
-   */
-  private isShortcutValidInContext(
-    shortcut: ShortcutDefinition,
-    context: KeyboardContext
-  ): boolean {
-    if (context.inQuickAccessMenu) {
-      return false;
-    }
-
-    // Global shortcuts work everywhere except when typing
-    if (shortcut.context === 'global') {
-      return !context.inInput && !context.inTextarea && !context.inSelect && !context.inContentEditable;
-    }
-
-    // Modal shortcuts only work in modals
-    if (shortcut.context === 'modal') {
-      return context.inModal;
-    }
-
-    // Filter shortcuts only work in filter inputs
-    if (shortcut.context === 'filter') {
-      const target = document.activeElement as HTMLElement;
-      return target?.classList.contains('filter-input') || false;
-    }
-
-    // Pane-specific shortcuts
-    if (shortcut.context === 'pane') {
-      return context.activePane !== null;
-    }
-
-    // Default: works when not typing
-    return !context.inInput && !context.inTextarea;
-  }
-
-  private normalizeEventKey(event: KeyboardEvent): string {
-    const codeMap: Record<string, string> = {
-      NumpadAdd: 'numpadadd',
-      NumpadSubtract: 'numpadsubtract',
-      NumpadMultiply: 'numpadmultiply',
-    };
-
-    const byCode = codeMap[event.code];
-    if (byCode) return byCode;
-
-    return this.normalizeKey(event.key);
   }
 
   /**
@@ -330,6 +184,11 @@ export class KeyboardService {
    */
   setEnabled(enabled: boolean): void {
     this.enabledSubject.next(enabled);
+    this.inputEngine.setKeyboardEnabled(enabled);
+
+    for (const shortcut of this.shortcuts.values()) {
+      this.inputEngine.setBindingEnabled(this.getBindingId(shortcut.id), enabled && shortcut.enabled !== false);
+    }
   }
 
   /**
@@ -339,6 +198,7 @@ export class KeyboardService {
     for (const shortcut of this.shortcuts.values()) {
       if (shortcut.id === id) {
         shortcut.enabled = enabled;
+        this.inputEngine.setBindingEnabled(this.getBindingId(id), this.enabledSubject.value && enabled);
         break;
       }
     }
@@ -414,8 +274,82 @@ export class KeyboardService {
    * Check if a key combination is available
    */
   isAvailable(key: string, modifiers?: string[]): boolean {
-    const shortcutKey = this.buildShortcutKey(key, modifiers);
+    const shortcutKey = this.buildShortcutKey(this.normalizeKey(key), modifiers);
     return !this.shortcuts.has(shortcutKey);
+  }
+
+  private registerWithInputEngine(shortcut: ShortcutDefinition): void {
+    const commandId = this.getCommandId(shortcut.id);
+    const bindingId = this.getBindingId(shortcut.id);
+
+    this.unregisterFromInputEngine(shortcut.id);
+
+    this.inputEngine.registerCommand(commandId, () => {
+      const result = shortcut.action();
+      if (result instanceof Promise) {
+        return result.then(() => this.addToHistory(shortcut.id));
+      }
+
+      this.addToHistory(shortcut.id);
+      return result;
+    }, this.getCommandOwnerId(shortcut.id));
+
+    const binding: InputBindingDefinition = {
+      id: bindingId,
+      commandId,
+      contextId: 'global',
+      source: 'default',
+      description: shortcut.description,
+      when: this.buildWhenClause(shortcut),
+      preventDefault: true,
+      stopPropagation: !shortcut.allowBubble,
+      trigger: {
+        device: 'keyboard',
+        chord: {
+          steps: [{
+            key: shortcut.key,
+            modifiers: shortcut.modifiers?.length ? [...shortcut.modifiers].sort() : undefined,
+          }],
+        },
+      },
+    };
+
+    this.inputEngine.registerBinding(binding);
+    this.inputEngine.setBindingEnabled(bindingId, this.enabledSubject.value && shortcut.enabled !== false);
+    this.shortcutBindings.set(shortcut.id, bindingId);
+  }
+
+  private unregisterFromInputEngine(shortcutId: string): void {
+    const bindingId = this.shortcutBindings.get(shortcutId) ?? this.getBindingId(shortcutId);
+    this.inputEngine.unregisterBinding(bindingId);
+    this.inputEngine.unregisterCommand(this.getCommandId(shortcutId), this.getCommandOwnerId(shortcutId));
+    this.shortcutBindings.delete(shortcutId);
+  }
+
+  private getBindingId(shortcutId: string): string {
+    return `legacy.shortcut.binding.${shortcutId}`;
+  }
+
+  private getCommandId(shortcutId: string): string {
+    return `legacy.shortcut.command.${shortcutId}`;
+  }
+
+  private getCommandOwnerId(shortcutId: string): string {
+    return `legacy.shortcut.owner.${shortcutId}`;
+  }
+
+  private buildWhenClause(shortcut: ShortcutDefinition): string {
+    switch (shortcut.context) {
+      case 'modal':
+        return 'modal';
+      case 'filter':
+        return 'filterInput';
+      case 'pane':
+        return '!typing && !quickAccess && activePane';
+      case 'global':
+      default:
+        return '!typing && !quickAccess';
+    }
   }
 
   /**

@@ -47,6 +47,8 @@ export interface InputBindingDefinition {
   priority?: number;
   when?: string;
   description: string;
+  preventDefault?: boolean;
+  stopPropagation?: boolean;
 }
 
 export interface PluginInputContribution {

@@ -1,16 +1,11 @@
 import type { WorkspaceService } from '../services/workspace.service';
 import type { TabInfo } from '../shared/protocol-enhanced';
+import type { FilePaneBrowserCommands } from './file-pane-browser-commands.factory';
 
 export interface FileBrowserPreviewPane {
   currentTabId: string;
   currentPath: string;
-  getPreviewTargetPath(): string | null;
-  openFrozenPreviewTab(
-    targetPath: string,
-    options: { sourcePane: 'left' | 'right'; sourceTabId: string; sourceDir: string; autoFollow: boolean },
-  ): Promise<void>;
-  activateDirTabAndFocusPath(tabId: string, path: string): Promise<void>;
-  focusCursorPath(path: string): void;
+  browserCommands: Pick<FilePaneBrowserCommands, 'preview'>;
 }
 
 export interface FileBrowserPreviewHost {
@@ -33,7 +28,7 @@ export class FileBrowserPreviewController {
       return;
     }
 
-    const target = fromPane.getPreviewTargetPath();
+    const target = fromPane.browserCommands.preview.getTargetPath();
     if (!target) {
       return;
     }
@@ -44,7 +39,7 @@ export class FileBrowserPreviewController {
       return;
     }
 
-    await toPane.openFrozenPreviewTab(target, {
+    await toPane.browserCommands.preview.openFrozenPreviewTab(target, {
       sourcePane: host.getActivePaneId(),
       sourceTabId: fromPane.currentTabId,
       sourceDir: fromPane.currentPath,
@@ -112,7 +107,7 @@ export class FileBrowserPreviewController {
       }
 
       this.restoringFromPreview = true;
-      pane.activateDirTabAndFocusPath(sourceTabId, target).finally(() => {
+      pane.browserCommands.preview.activateDirTabAndFocusPath(sourceTabId, target).finally(() => {
         this.restoringFromPreview = false;
       });
       return;
@@ -126,6 +121,6 @@ export class FileBrowserPreviewController {
     this.lastPreviewTabFocus = key;
 
     const pane = otherPane === 'left' ? host.getLeftPane() : host.getRightPane();
-    pane?.focusCursorPath(target);
+    pane?.browserCommands.preview.focusCursorPath(target);
   }
 }

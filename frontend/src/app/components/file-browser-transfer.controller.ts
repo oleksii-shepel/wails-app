@@ -1,6 +1,7 @@
 import type { ApiService } from '../services/api.service';
 import type { ArchiveService, ArchiveFrame } from '../services/archive.service';
 import type { ConfirmDialogService } from '../services/confirm-dialog.service';
+import type { FilePaneBrowserCommands } from './file-pane-browser-commands.factory';
 
 export interface FileBrowserTransferPane {
   selectedFiles: Set<string>;
@@ -9,7 +10,7 @@ export interface FileBrowserTransferPane {
   getTreeArchiveSelectionContext(): { archivePath: string; innerPaths: string[] } | null;
   initiatePendingMove(entries: string[], destDir: string): void;
   isInArchive(): boolean;
-  onRefresh(): void | Promise<void>;
+  browserCommands: Pick<FilePaneBrowserCommands, 'navigation'>;
 }
 
 export interface FileBrowserTransferHost {
@@ -36,7 +37,7 @@ export class FileBrowserTransferController {
       const result = await host.archiveService.copy(frame, paths, destDir);
       const err = this.archiveError(result);
       if (err) host.confirmDialog.alert(`Copy Completed with Errors\n${err}`);
-      await dst.onRefresh();
+      await dst.browserCommands.navigation.refresh();
       return;
     }
 
@@ -45,7 +46,7 @@ export class FileBrowserTransferController {
       const result = await host.archiveService.copyByContext(treeArchive.archivePath, treeArchive.innerPaths, destDir);
       const err = this.archiveError(result);
       if (err) host.confirmDialog.alert(`Copy Errors\n${err}`);
-      await dst.onRefresh();
+      await dst.browserCommands.navigation.refresh();
       return;
     }
 
@@ -79,8 +80,8 @@ export class FileBrowserTransferController {
       const result = await host.archiveService.moveByContext(treeArchive.archivePath, treeArchive.innerPaths, destDir);
       const err = this.archiveError(result);
       if (err) host.confirmDialog.alert(`Move Errors\n${err}`);
-      await src.onRefresh();
-      await dst.onRefresh();
+      await src.browserCommands.navigation.refresh();
+      await dst.browserCommands.navigation.refresh();
       return;
     }
 

@@ -24,6 +24,7 @@ import { DirSurfaceVm } from '../surfaces/dir/dir-surface.vm';
       [initialPath]="vm.currentPath"
       [paneId]="vm.paneId"
       (pathChange)="vm.onPathChange($event)"
+      (archiveSegmentClick)="vm.onArchiveSegmentClick($event)"
       (navigateUpClicked)="vm.onNavigateUp()"
       (refreshClicked)="vm.onRefresh()">
     </app-address-bar>

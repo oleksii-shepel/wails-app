@@ -21,6 +21,7 @@ export interface FilePaneDirVmSource {
   get archivePendingMoveEntries(): string[];
   set archiveMoveWarning(value: boolean);
   onPathChange(path: string): void;
+  onArchiveSegmentClick(path: string): void;
   onNavigateUp(): void;
   onRefresh(): void;
   onViewChange(view: ViewLayout): void;
@@ -63,6 +64,7 @@ export class FilePaneDirVmFactory {
       get archiveMoveEntryCount() { return source.archivePendingMoveEntries.length; }
 
       onPathChange = (path: string) => source.onPathChange(path);
+  onArchiveSegmentClick = (path: string) => source.onArchiveSegmentClick(path);
       onNavigateUp = () => source.onNavigateUp();
       onRefresh = () => source.onRefresh();
       onViewChange = (view: ViewLayout) => source.onViewChange(view);

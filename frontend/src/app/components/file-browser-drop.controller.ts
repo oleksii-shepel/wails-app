@@ -1,10 +1,11 @@
 import type { ApiService } from '../services/api.service';
 import type { ConfirmDialogService } from '../services/confirm-dialog.service';
+import type { FilePaneBrowserCommands } from './file-pane-browser-commands.factory';
 
 export interface FileBrowserDropPane {
   getDestinationDir(): string;
   isInArchive(): boolean;
-  onRefresh(): void | Promise<void>;
+  browserCommands: Pick<FilePaneBrowserCommands, 'navigation'>;
 }
 
 export interface FileBrowserDropHost {
@@ -55,7 +56,7 @@ export class FileBrowserDropController {
       );
 
       await host.apiService.batchCopy(items, true);
-      await targetPane.onRefresh();
+      await targetPane.browserCommands.navigation.refresh();
     } catch (error: any) {
       host.confirmDialog.alert(`Drag & Drop Failed\n${error?.message ?? String(error)}`);
     }

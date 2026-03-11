@@ -30,6 +30,7 @@ import { FilePaneDirVmFactory, type FilePaneDirVmSource } from './file-pane-dir-
 import { FilePaneNavigationController, type FilePaneNavigationHost } from './file-pane-navigation.controller';
 import { FilePaneSurfaceContextFactory, type FilePaneSurfaceContextSource } from './file-pane-surface-context.factory';
 import { FilePaneRuntimeStateController, type FilePaneRuntimeStateHost } from './file-pane-runtime-state.controller';
+import { FilePaneBrowserCommandsFactory, type FilePaneBrowserCommands, type FilePaneBrowserCommandsSource } from './file-pane-browser-commands.factory';
 import { FilePaneShortcutCommandsFactory, type FilePaneShortcutCommands, type FilePaneShortcutCommandsSource } from './file-pane-shortcut-commands.factory';
 import { FilePaneStateRuntimeFactory, type FilePaneStateRuntimeAdapter, type FilePaneStateRuntimeSource } from './file-pane-state-runtime.factory';
 import { FilePaneOpenController, type FilePaneOpenHost } from './file-pane-open.controller';
@@ -127,6 +128,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   private readonly dirVmFactory = new FilePaneDirVmFactory();
   private readonly runtimeHostsFactory = new FilePaneRuntimeHostsFactory();
   private readonly runtimeStateController = new FilePaneRuntimeStateController();
+  private readonly browserCommandsFactory = new FilePaneBrowserCommandsFactory();
   private readonly shortcutCommandsFactory = new FilePaneShortcutCommandsFactory();
   private readonly stateRuntimeFactory = new FilePaneStateRuntimeFactory();
   private readonly surfaceContextFactory = new FilePaneSurfaceContextFactory();
@@ -137,8 +139,29 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     return this.shortcutCommandsFactory.create(this.shortcutCommandsSource);
   }
 
+  get browserCommands(): FilePaneBrowserCommands {
+    return this.browserCommandsFactory.create(this.browserCommandsSource);
+  }
+
   private get stateRuntime(): FilePaneStateRuntimeAdapter {
     return this.stateRuntimeFactory.create(this.stateRuntimeSource);
+  }
+
+  private get browserCommandsSource(): FilePaneBrowserCommandsSource {
+    return {
+      activeTabKind: this.activeTabKind,
+      navigationController: this.navigationController,
+      navigationHost: this.navigationHost,
+      openController: this.openController,
+      openHost: this.openHost,
+      operationsController: this.operationsController,
+      operationsHost: this.operationsHost,
+      previewController: this.previewController,
+      previewHost: this.previewHost,
+      focusController: this.focusController,
+      focusHost: this.focusHost,
+      stateRuntime: this.stateRuntime,
+    };
   }
 
   readonly dirVm: DirSurfaceVm = this.dirVmFactory.create(this.dirVmSource);
@@ -163,25 +186,26 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       set archiveMoveWarning(value: boolean) { thisRef.archiveMoveWarning = value; },
       get archivePendingMoveEntries() { return thisRef.archivePendingMoveEntries; },
       onPathChange: (path: string) => thisRef.onPathChange(path),
-      onNavigateUp: () => thisRef.onNavigateUp(),
-      onRefresh: () => thisRef.onRefresh(),
+      onArchiveSegmentClick: (path: string) => thisRef.handleArchiveSegmentClick(path),
+      onNavigateUp: () => thisRef.browserCommands.navigation.navigateUp(),
+      onRefresh: () => thisRef.browserCommands.navigation.refresh(),
       onViewChange: (view: ViewLayout) => thisRef.onViewChange(view),
       onSortChange: (sort: { field: string; direction: 'asc' | 'desc' }) => thisRef.onSortChange(sort),
       onDirectoriesFirstChange: (value: boolean) => thisRef.onDirectoriesFirstChange(value),
-      onCreateFolder: () => thisRef.onCreateFolder(),
-      onDeleteSelected: () => thisRef.onDeleteSelected(),
-      onCopyToOther: () => thisRef.onCopyToOther(),
-      onMoveToOther: () => thisRef.onMoveToOther(),
+      onCreateFolder: () => thisRef.browserCommands.selection.createFolder(),
+      onDeleteSelected: () => thisRef.browserCommands.selection.deleteSelected(),
+      onCopyToOther: () => thisRef.browserCommands.selection.copyToOther(),
+      onMoveToOther: () => thisRef.browserCommands.selection.moveToOther(),
       onFindStateChange: (state: FindWidgetState | null) => thisRef.onFindStateChange(state),
       onFindNext: () => thisRef.onFindNext(),
       onFindPrev: () => thisRef.onFindPrev(),
       onSelectionChange: (entries: FileInfo[]) => thisRef.onSelectionChange(entries),
       onNavigate: (entry: FileInfo) => thisRef.onNavigate(entry),
-      onOpenInNewTab: (entry: FileInfo) => thisRef.onOpenInNewTab(entry),
+      onOpenInNewTab: (entry: FileInfo) => thisRef.openEntryInNewTab(entry),
       onContextMenu: (event: { event: MouseEvent; entry: FileInfo }) => thisRef.onContextMenu(event),
       onNodeDoubleClick: (entry: FileInfo) => thisRef.onNodeDoubleClick(entry),
-      onDragDrop: (event: any) => thisRef.onDragDrop(event),
-      onRename: (event: { entry: FileInfo; newName: string }) => thisRef.onRename(event),
+      onDragDrop: (event: any) => thisRef.handleDragDrop(event),
+      onRename: (event: { entry: FileInfo; newName: string }) => thisRef.renameEntry(event),
       executePendingMove: () => thisRef.executePendingMove(),
     };
   }
@@ -512,7 +536,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       },
       emitPathChange: (path: string) => thisRef.pathChange.emit(path),
       runInAngular: (update: () => void) => thisRef.runInAngular(update),
-      onRefresh: () => thisRef.onRefresh(),
+      onRefresh: () => thisRef.browserCommands.navigation.refresh(),
       hasSavedDirTabState: () => !!thisRef.dirTabStateController.load(thisRef.activeDirTabId ?? thisRef.currentTabId),
       restoreActiveDirTabState: () => thisRef.restoreActiveDirTabState(),
       persistDirTabState: () => thisRef.persistDirTabState(),
@@ -656,7 +680,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     }
 
     if (changes['showHidden'] && !changes['showHidden'].firstChange) {
-      this.onRefresh();
+      this.browserCommands.navigation.refresh();
     }
 
     if (changes['paneActive'] && this.paneActive && !changes['paneActive'].firstChange) {
@@ -703,7 +727,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   onNodeDoubleClick(entry: FileInfo): void {
-    this.openController.onNodeDoubleClick(this.openHost, entry, () => this.onNavigateUp());
+    this.openController.onNodeDoubleClick(this.openHost, entry, () => this.browserCommands.navigation.navigateUp());
   }
 
   private withParentEntry(raw: FileInfo[], inArchive: boolean, fsPath: string): FileInfo[] {
@@ -744,20 +768,6 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     this.runtimeStateController.afterNavigationMutation(this.runtimeStateHost);
   }
 
-  /** Best-effort: focus/move cursor to a path if it exists in the current listing. */
-  focusCursorPath(path: string): void {
-    if (this.activeTabKind !== 'dir') return;
-    this.focusController.focusCursorPath(this.focusHost, path);
-  }
-
-  /**
-   * Restore a specific directory tab (by id) and place the cursor on `focusPath`.
-   * Used by FileBrowser to restore selection when switching between preview tabs.
-   */
-  async activateDirTabAndFocusPath(tabId: string, focusPath: string): Promise<void> {
-    await this.focusController.activateDirTabAndFocusPath(this.focusHost, tabId, focusPath);
-  }
-
   onTabClose(tab: TabInfo): void {
     this.tabsController.onTabClose(this.tabsHost, tab);
   }
@@ -780,14 +790,6 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     this.navigationController.onPathChange(this.navigationHost, path);
   }
 
-  async onNavigateUp(): Promise<void> {
-    await this.navigationController.onNavigateUp(this.navigationHost);
-  }
-
-  onRefresh(): void {
-    this.navigationController.onRefresh(this.navigationHost);
-  }
-
   private runInAngular(update: () => void): void {
     this.zone.run(() => {
       update();
@@ -806,45 +808,25 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
 
   // в”Ђв”Ђ Archive segment click в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
-  async onArchiveSegmentClick(virtualPath: string): Promise<void> {
+  private async handleArchiveSegmentClick(virtualPath: string): Promise<void> {
     await this.archiveController.onArchiveSegmentClick(this.archiveHost, virtualPath);
   }
 
   // в”Ђв”Ђ Navigation в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
   onNavigate(entry: FileInfo): void {
-    this.openController.onNavigate(this.openHost, entry, () => this.onNavigateUp());
+    this.openController.onNavigate(this.openHost, entry, () => this.browserCommands.navigation.navigateUp());
   }
 
-  onOpenSelectedItem(): void {
-    this.openController.onOpenSelectedItem(this.openHost, () => this.onNavigateUp());
-  }
-
-  async openQuickView(): Promise<void> {
-    await this.previewController.openQuickView(this.previewHost);
-  }
-
-  /** Open a new, closable viewer tab for the given filesystem path. */
-  async openFrozenPreviewTab(
-    targetPath: string,
-    opts?: { sourcePane: 'left' | 'right'; sourceTabId: string; sourceDir: string; autoFollow?: boolean },
-  ): Promise<void> {
-    await this.previewController.openFrozenPreviewTab(this.previewHost, targetPath, opts);
-  }
-
-  async onOpenInNewTab(entry: FileInfo): Promise<void> {
+  private async openEntryInNewTab(entry: FileInfo): Promise<void> {
     await this.openController.onOpenInNewTab(this.openHost, entry);
   }
 
-  async onRenameSelected(): Promise<void> {
-    await this.operationsController.onRenameSelected(this.operationsHost);
-  }
-
-  async onRename(event: { entry: FileInfo; newName: string }): Promise<void> {
+  private async renameEntry(event: { entry: FileInfo; newName: string }): Promise<void> {
     await this.operationsController.onRename(this.operationsHost, event);
   }
 
-  async onDragDrop(event: { event: DragEvent; source: FileInfo[]; targetPath: string }): Promise<void> {
+  private async handleDragDrop(event: { event: DragEvent; source: FileInfo[]; targetPath: string }): Promise<void> {
     await this.operationsController.onDragDrop(this.operationsHost, event);
   }
 
@@ -882,11 +864,6 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     this.stateController.onSelectionChange(this.stateHost, entries);
   }
 
-  /** Returns a filesystem path suitable for preview, or empty string when none. */
-  getPreviewTargetPath(): string {
-    return this.stateRuntime.getPreviewTargetPath();
-  }
-
   /**
    * TC-style effective selection: use marked files when any exist,
    * otherwise treat the cursor item as the implicit selection.
@@ -894,14 +871,6 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   // в”Ђв”Ђ Cursor movement в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
   // в”Ђв”Ђ File operations в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
-
-  async onCreateFolder(): Promise<void> {
-    await this.operationsController.onCreateFolder(this.operationsHost);
-  }
-
-  async onDeleteSelected(): Promise<void> {
-    await this.operationsController.onDeleteSelected(this.operationsHost);
-  }
 
   /**
    * Returns archive metadata for the current tree-view selection when the
@@ -911,14 +880,6 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
    */
   getTreeArchiveSelectionContext(): { archivePath: string; innerPaths: string[] } | null {
     return this.operationsController.getTreeArchiveSelectionContext(this.operationsHost);
-  }
-
-  onCopyToOther(): void { 
-    this.operationsController.onCopyToOther(this.operationsHost);
-  }
-  
-  onMoveToOther(): void { 
-    this.operationsController.onMoveToOther(this.operationsHost);
   }
 
   // в”Ђв”Ђ Archive move operations в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ

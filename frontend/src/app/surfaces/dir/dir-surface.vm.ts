@@ -23,6 +23,7 @@ export interface DirSurfaceVm {
   archiveMoveEntryCount: number;
 
   onPathChange(path: string): void;
+  onArchiveSegmentClick(path: string): void;
   onNavigateUp(): void;
   onRefresh(): void;
 

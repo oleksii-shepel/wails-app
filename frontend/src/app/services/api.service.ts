@@ -21,8 +21,8 @@ import {
   OperationProgress,
   FileType,
   DriveInfo,
-  SpecialFolder,
 } from '../shared/protocol-enhanced';
+import { SpecialFolder } from '../shared/protocol';
 import { EventsEmit } from 'wailsjs/runtime/runtime';
 
 /** Mirror of Go's ElevatedSessionStatus struct. */

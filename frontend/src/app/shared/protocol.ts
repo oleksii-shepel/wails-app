@@ -64,6 +64,12 @@ export interface DrivesList {
   drives: DriveInfo[];
 }
 
+export interface SpecialFolder {
+  name: string;
+  path: string;
+  icon: string;
+}
+
 // ============================================================================
 // Commands (Client -> Server)
 // ============================================================================

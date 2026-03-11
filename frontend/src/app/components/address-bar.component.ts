@@ -8,8 +8,7 @@ import { CommonModule } from '@angular/common';
 import { DropdownTriggerDirective, DropdownMenuDirective } from '../directives/dropdown.directive';
 
 import { ApiService } from '../services/api.service';
-import { DirectoryListing, DriveInfo, DriveType, FileInfo, FileType } from '../shared/protocol';
-import { SpecialFolder } from '../shared/protocol-enhanced';
+import { DirectoryListing, DriveInfo, DriveType, FileInfo, FileType, SpecialFolder } from '../shared/protocol';
 import { ArchiveService, ArchiveFrame, isArchive } from '../services/archive.service';
 import { parsePathWithArchives, buildSegmentsFromParsedPath } from './address-bar.utils';
 import { EventsOn } from 'wailsjs/runtime';

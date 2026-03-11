@@ -1,6 +1,6 @@
 import { Component, Input, Output, EventEmitter, OnInit, OnDestroy, OnChanges, SimpleChanges, ChangeDetectionStrategy, HostListener, ChangeDetectorRef, ElementRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { SpecialFolder } from '../shared/protocol-enhanced';
+import { SpecialFolder } from '../shared/protocol';
 import { PathHistoryService, PathHistoryEntry } from '../services/path-history.service';
 import { PinnedPath } from './address-bar.types';
 

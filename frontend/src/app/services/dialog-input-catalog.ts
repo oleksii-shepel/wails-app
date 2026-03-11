@@ -97,6 +97,17 @@ export const DIALOG_INPUT_CATALOG: DialogBindingCatalogEntry[] = [
     ],
   },
   {
+    context: dialogContext('widget.addressBar.edit', 'widget', 810, 'Address bar edit field'),
+    bindings: [
+      keyBinding('widget.addressBar.edit.commit.enter', 'widget.addressBar.edit', 'widget.addressBar.edit.commit', 'enter', 'Commit address bar path'),
+      keyBinding('widget.addressBar.edit.cancel.escape', 'widget.addressBar.edit', 'widget.addressBar.edit.cancel', 'escape', 'Cancel address bar edit'),
+      keyBinding('widget.addressBar.edit.tab.next', 'widget.addressBar.edit', 'widget.addressBar.edit.nextSuggestion', 'tab', 'Cycle to next address suggestion'),
+      keyBinding('widget.addressBar.edit.tab.prev', 'widget.addressBar.edit', 'widget.addressBar.edit.prevSuggestion', 'tab', 'Cycle to previous address suggestion', ['shift']),
+      keyBinding('widget.addressBar.edit.prev.arrowUp', 'widget.addressBar.edit', 'widget.addressBar.edit.prevItem', 'arrowup', 'Select previous address suggestion'),
+      keyBinding('widget.addressBar.edit.next.arrowDown', 'widget.addressBar.edit', 'widget.addressBar.edit.nextItem', 'arrowdown', 'Select next address suggestion'),
+    ],
+  },
+  {
     context: dialogContext('overlay.quickAccess', 'overlay', 900, 'Address bar quick access overlay'),
     bindings: [
       keyBinding('overlay.quickAccess.close.escape', 'overlay.quickAccess', 'overlay.quickAccess.close', 'escape', 'Close quick access'),

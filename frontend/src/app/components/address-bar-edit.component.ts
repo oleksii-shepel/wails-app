@@ -8,6 +8,8 @@ import { createSubject } from '@epikodelabs/streamix';
 import { PathSuggestion } from '../services/path-history.service';
 import { PathHistoryService } from '../services/path-history.service';
 import { ApiService } from '../services/api.service';
+import { InputContextService } from '../services/input-context.service';
+import { InputEngineService } from '../services/input-engine.service';
 import { FileType, FileInfo } from '../shared/protocol';
 import { highlightMatch, isWindowsPath, normalizePath } from './address-bar.utils';
 import { EventsOn } from 'wailsjs/runtime';
@@ -356,6 +358,8 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
   private fetchStreamCancel: (() => void) | null = null;
 
   private scrollListener?: () => void;
+  private readonly commandOwner = `widget.addressBar.edit:${Math.random().toString(36).slice(2, 8)}`;
+  private releaseWidgetContext: (() => void) | null = null;
 
   highlight = highlightMatch;
 
@@ -364,9 +368,13 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
     private apiService: ApiService,
     private cdr: ChangeDetectorRef,
     private hostEl: ElementRef,
+    private inputContexts: InputContextService,
+    private inputEngine: InputEngineService,
   ) {}
 
   ngOnInit(): void {
+    this.registerInputCommands();
+    this.releaseWidgetContext ??= this.inputContexts.acquire('widget.addressBar.edit');
     this.value = this.toDisplayPath(this.currentPath || '');
     this.lastInputValue = this.value;
 
@@ -385,6 +393,9 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
     this.detachDropScroll();
     this.destroy$.next();
     this.destroy$.complete();
+    this.releaseWidgetContext?.();
+    this.releaseWidgetContext = null;
+    this.unregisterInputCommands();
     document.removeEventListener('mousedown', this.onOutsideClick, { capture: true } as any);
   }
 
@@ -567,17 +578,29 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
     this.cancel.emit();
   }
 
+  private commitCurrentValue(): void {
+    if (this.acIdx >= 0 && this.suggestions[this.acIdx]) {
+      this.acceptSuggestion(this.suggestions[this.acIdx]);
+      return;
+    }
+
+    const val = normalizePath(this.value);
+    if (val) this.commit.emit(val);
+    else this.cancelEdit();
+  }
+
+  private moveSuggestionSelection(delta: number): void {
+    if (this.suggestions.length === 0) return;
+    const nextIndex = Math.max(-1, Math.min(this.suggestions.length - 1, this.acIdx + delta));
+    this.acIdx = nextIndex;
+    this.cdr.markForCheck();
+  }
+
   async onKeyDown(e: KeyboardEvent): Promise<void> {
     switch (e.key) {
       case 'Enter': {
         e.preventDefault();
-        if (this.acIdx >= 0 && this.suggestions[this.acIdx]) {
-          this.acceptSuggestion(this.suggestions[this.acIdx]);
-        } else {
-          const val = normalizePath(this.value);
-          if (val) this.commit.emit(val);
-          else this.cancelEdit();
-        }
+        this.commitCurrentValue();
         break;
       }
       case 'Escape':
@@ -586,11 +609,11 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
         break;
       case 'ArrowDown':
         e.preventDefault();
-        this.acIdx = Math.min(this.acIdx + 1, this.suggestions.length - 1);
+        this.moveSuggestionSelection(1);
         break;
       case 'ArrowUp':
         e.preventDefault();
-        this.acIdx = Math.max(this.acIdx - 1, -1);
+        this.moveSuggestionSelection(-1);
         break;
       case 'Tab':
         e.preventDefault();
@@ -998,5 +1021,64 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
       (entry.matchType === 'directory' ? dirs : rest).push(entry);
     }
     return [...dirs, ...rest];
+  }
+
+  private registerInputCommands(): void {
+    this.inputEngine.registerCommand('widget.addressBar.edit.commit', () => {
+      this.commitCurrentValue();
+    }, this.commandOwner);
+
+    this.inputEngine.registerCommand('widget.addressBar.edit.cancel', () => {
+      this.cancelEdit();
+    }, this.commandOwner);
+
+    this.inputEngine.registerCommand('widget.addressBar.edit.nextSuggestion', async () => {
+      if (!(this.value || '').trim()) {
+        const root = this.getDefaultRootForTab();
+        if (root) {
+          this.writeProgrammaticValue(root);
+          this.tabSession = null;
+          this.scheduleSuggestions(root, true);
+          this.scheduleIdleSlash(root);
+          this.cdr.detectChanges();
+          return;
+        }
+      }
+
+      await this.cycleTab(1);
+    }, this.commandOwner);
+
+    this.inputEngine.registerCommand('widget.addressBar.edit.prevSuggestion', async () => {
+      if (!(this.value || '').trim()) {
+        const root = this.getDefaultRootForTab();
+        if (root) {
+          this.writeProgrammaticValue(root);
+          this.tabSession = null;
+          this.scheduleSuggestions(root, true);
+          this.scheduleIdleSlash(root);
+          this.cdr.detectChanges();
+          return;
+        }
+      }
+
+      await this.cycleTab(-1);
+    }, this.commandOwner);
+
+    this.inputEngine.registerCommand('widget.addressBar.edit.prevItem', () => {
+      this.moveSuggestionSelection(-1);
+    }, this.commandOwner);
+
+    this.inputEngine.registerCommand('widget.addressBar.edit.nextItem', () => {
+      this.moveSuggestionSelection(1);
+    }, this.commandOwner);
+  }
+
+  private unregisterInputCommands(): void {
+    this.inputEngine.unregisterCommand('widget.addressBar.edit.commit', this.commandOwner);
+    this.inputEngine.unregisterCommand('widget.addressBar.edit.cancel', this.commandOwner);
+    this.inputEngine.unregisterCommand('widget.addressBar.edit.nextSuggestion', this.commandOwner);
+    this.inputEngine.unregisterCommand('widget.addressBar.edit.prevSuggestion', this.commandOwner);
+    this.inputEngine.unregisterCommand('widget.addressBar.edit.prevItem', this.commandOwner);
+    this.inputEngine.unregisterCommand('widget.addressBar.edit.nextItem', this.commandOwner);
   }
 }

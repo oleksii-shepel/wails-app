@@ -1,10 +1,12 @@
 import {
-  Component, Output, EventEmitter, HostListener,
+  Component, Output, EventEmitter,
   ElementRef, ViewChild, ChangeDetectionStrategy, ChangeDetectorRef,
   OnDestroy,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { InputContextService } from '../services/input-context.service';
+import { InputEngineService } from '../services/input-engine.service';
 
 export interface FindWidgetState {
   text: string;
@@ -316,16 +318,30 @@ export class FindWidgetComponent implements OnDestroy {
   hasRegexError = false;
 
   private _focusTimer: any;
+  private readonly commandOwner = `widget.filterInline:${Math.random().toString(36).slice(2, 8)}`;
+  private releaseWidgetContext: (() => void) | null = null;
 
-  constructor(private cdr: ChangeDetectorRef) {}
+  constructor(
+    private cdr: ChangeDetectorRef,
+    private inputContexts: InputContextService,
+    private inputEngine: InputEngineService,
+  ) {
+    this.registerInputCommands();
+  }
 
-  ngOnDestroy(): void { clearTimeout(this._focusTimer); }
+  ngOnDestroy(): void {
+    clearTimeout(this._focusTimer);
+    this.releaseWidgetContext?.();
+    this.releaseWidgetContext = null;
+    this.unregisterInputCommands();
+  }
 
   // ── Open / close ──────────────────────────────────────────────
 
   open(): void {
     this.visible = true;
     this.hasRegexError = false;
+    this.releaseWidgetContext ??= this.inputContexts.acquire('widget.filterInline');
     this.cdr.markForCheck();
     // Defer focus so the CSS transition has started
     clearTimeout(this._focusTimer);
@@ -342,6 +358,8 @@ export class FindWidgetComponent implements OnDestroy {
     this.matchCount = null;
     this.currentMatch = 0;
     this.hasRegexError = false;
+    this.releaseWidgetContext?.();
+    this.releaseWidgetContext = null;
     this.cdr.markForCheck();
     this.stateChange.emit(null);  // null = no filter
   }
@@ -390,5 +408,28 @@ export class FindWidgetComponent implements OnDestroy {
       wholeWord: this.wholeWord,
       useRegex:  this.useRegex,
     });
+  }
+
+  private registerInputCommands(): void {
+    this.inputEngine.registerCommand('widget.filterInline.close', () => {
+      if (!this.visible) return;
+      this.close();
+    }, this.commandOwner);
+
+    this.inputEngine.registerCommand('widget.filterInline.nextMatch', () => {
+      if (!this.visible) return;
+      this.onNext();
+    }, this.commandOwner);
+
+    this.inputEngine.registerCommand('widget.filterInline.prevMatch', () => {
+      if (!this.visible) return;
+      this.onPrev();
+    }, this.commandOwner);
+  }
+
+  private unregisterInputCommands(): void {
+    this.inputEngine.unregisterCommand('widget.filterInline.close', this.commandOwner);
+    this.inputEngine.unregisterCommand('widget.filterInline.nextMatch', this.commandOwner);
+    this.inputEngine.unregisterCommand('widget.filterInline.prevMatch', this.commandOwner);
   }
 }

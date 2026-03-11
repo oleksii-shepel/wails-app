@@ -262,6 +262,29 @@ export class FilePaneArchiveController {
     host.archiveMoveWarning = true;
   }
 
+  async extractSelected(host: FilePaneArchiveHost, flattenPaths: boolean, destDir: string): Promise<void> {
+    if (!this.isInArchive(host) || host.selectedFiles.size === 0) return;
+
+    const frame = host.archiveStack[host.archiveStack.length - 1];
+    const entries = Array.from(host.selectedFiles);
+
+    try {
+      const result = await host.archiveService.extractEntries(frame, entries, destDir, flattenPaths);
+      if (result.failed > 0) {
+        host.confirmDialog.alert(
+          'Extract Failed\n' + (result.errors ?? []).map((error: any) => error.error).join('\n'),
+        );
+        return;
+      }
+
+      host.confirmDialog.alert(
+        `Extraction Complete\n${result.succeeded} file(s) extracted to destination.`,
+      );
+    } catch (err: any) {
+      host.confirmDialog.alert(`Extract Failed\n${err.message}`);
+    }
+  }
+
   async executePendingMove(host: FilePaneArchiveHost): Promise<void> {
     host.archiveMoveWarning = false;
     const frame = host.archiveStack[host.archiveStack.length - 1];

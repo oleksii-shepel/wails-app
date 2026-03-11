@@ -1,5 +1,6 @@
 import type { FileInfo, FileType } from '../shared/protocol';
 import type { FilterQuery } from '../shared/protocol-enhanced';
+import type { FindWidgetState } from './filter-widget.component';
 import type { ViewLayout } from './file-view-container.component';
 
 export interface FilePaneStateHost {
@@ -16,9 +17,11 @@ export interface FilePaneStateHost {
   getSelectableEntries(): FileInfo[];
   getOptimisticHiddenPaths(): string[];
   setOptimisticHiddenPaths(paths: string[]): void;
+  parseFilterText(text: string): FilterQuery;
   filterEntries(entries: FileInfo[], query: FilterQuery): FileInfo[];
   findEntry(path: string): FileInfo | undefined;
   emitPreviewTarget(path: string): void;
+  setFindMatchCount(count: number): void;
   scrollToCursorPath(path: string): void;
   getGridColumns(): number;
   getApproxPageSize(): number;
@@ -61,6 +64,22 @@ export class FilePaneStateController {
     host.filteredEntries = [...parentEntry, ...filtered];
   }
 
+  onFindStateChange(host: FilePaneStateHost, state: FindWidgetState | null): void {
+    if (!state) {
+      host.filterQuery = { text: '', criteria: [] };
+    } else {
+      const query = host.parseFilterText(state.text);
+      (query as any).matchCase = state.matchCase;
+      (query as any).wholeWord = state.wholeWord;
+      (query as any).useRegex = state.useRegex;
+      host.filterQuery = query;
+    }
+
+    this.applyFilter(host);
+    host.setFindMatchCount(host.filteredEntries.length);
+    host.persistDirTabState();
+  }
+
   onSelectionChange(host: FilePaneStateHost, entries: FileInfo[]): void {
     const paths = entries.map(entry => entry.path).filter(path => path !== this.parentEntryPath);
     host.selectedFiles = new Set(paths);
@@ -75,6 +94,14 @@ export class FilePaneStateController {
 
     this.emitPreviewTargetFromState(host);
     host.persistDirTabState();
+  }
+
+  onFindNext(host: FilePaneStateHost): void {
+    this.moveToAdjacentMatch(host, 1);
+  }
+
+  onFindPrev(host: FilePaneStateHost): void {
+    this.moveToAdjacentMatch(host, -1);
   }
 
   getPreviewTargetPath(host: FilePaneStateHost): string {
@@ -286,6 +313,18 @@ export class FilePaneStateController {
     host.scrollToCursorPath(host.selectionCursorPath);
     this.emitPreviewTargetFromState(host);
     host.persistDirTabState();
+  }
+
+  private moveToAdjacentMatch(host: FilePaneStateHost, delta: -1 | 1): void {
+    const selectable = host.getSelectableEntries();
+    if (!selectable.length) return;
+
+    const currentIndex = this.getCursorIndex(host, selectable);
+    const nextIndex = currentIndex < 0
+      ? 0
+      : (currentIndex + delta + selectable.length) % selectable.length;
+
+    this.moveCursorTo(host, nextIndex);
   }
 
   private syncCursorFromSelection(host: FilePaneStateHost): void {

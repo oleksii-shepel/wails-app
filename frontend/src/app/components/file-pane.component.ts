@@ -11,10 +11,9 @@ import { WorkspaceService } from '../services/workspace.service';
 import { FilterService } from '../services/filter.service';
 import { PathHistoryService } from '../services/path-history.service';
 import {
-  ArchiveService, ArchiveFrame, isArchive,
-  parseArchivePath, buildArchivePath
+  ArchiveService, ArchiveFrame
 } from '../services/archive.service';
-import { parentPath, normalizePath } from './address-bar.utils';
+import { normalizePath } from './address-bar.utils';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
 import { FileViewContainerComponent, ViewLayout } from './file-view-container.component';
 import { ViewerArchiveContext } from './viewer-surface.component';
@@ -22,7 +21,7 @@ import { DirSurfaceVm } from '../surfaces/dir/dir-surface.vm';
 import { DirSurfaceSession } from '../surfaces/dir/dir-surface-session';
 import { DirSurfaceRuntime } from '../surfaces/dir/dir-surface-runtime';
 import { FilePaneDirSurfaceRuntime } from '../surfaces/dir/file-pane-dir-surface-runtime';
-import { DirTabStateController, type DirTabRuntime } from '../surfaces/dir/dir-tab-state-controller';
+import { DirTabStateController } from '../surfaces/dir/dir-tab-state-controller';
 import { SurfaceContext } from '../surfaces/surface-context';
 import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
 import { FilePaneArchiveController, type FilePaneArchiveHost } from './file-pane-archive.controller';
@@ -31,6 +30,10 @@ import { FilePaneOpenController, type FilePaneOpenHost } from './file-pane-open.
 import { FilePaneOperationsController, type FilePaneOperationsHost } from './file-pane-operations.controller';
 import { FilePanePreviewController, type FilePanePreviewHost } from './file-pane-preview.controller';
 import { FilePaneDirectoryController, type FilePaneDirectoryHost } from './file-pane-directory.controller';
+import { FilePaneDirSessionController, type FilePaneDirSessionHost } from './file-pane-dir-session.controller';
+import { FilePaneFocusController, type FilePaneFocusHost } from './file-pane-focus.controller';
+import { FilePanePathController, type FilePanePathHost } from './file-pane-path.controller';
+import { FilePaneUiController, type FilePaneUiHost } from './file-pane-ui.controller';
 import { FilePaneTabsController, type FilePaneTabsHost } from './file-pane-tabs.controller';
 import { FilePaneStateController, type FilePaneStateHost } from './file-pane-state.controller';
 import { DirListStreamController } from '../surfaces/dir/dir-list-stream.controller';
@@ -203,8 +206,6 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   currentTabId  = '';
   pathReady     = false;
   tabs: TabInfo[] = [];
-  private optimisticHideListener?: (event: Event) => void;
-  private optimisticRestoreListener?: (event: Event) => void;
 
   archiveStack: ArchiveFrame[] = [];
 
@@ -229,6 +230,10 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   private readonly navigationController = new FilePaneNavigationController();
   private readonly archiveController = new FilePaneArchiveController();
   private readonly directoryController = new FilePaneDirectoryController();
+  private readonly dirSessionController = new FilePaneDirSessionController();
+  private readonly focusController = new FilePaneFocusController();
+  private readonly pathController = new FilePanePathController();
+  private readonly uiController = new FilePaneUiController();
   private readonly openController = new FilePaneOpenController();
   private readonly operationsController = new FilePaneOperationsController();
   private readonly previewController = new FilePanePreviewController();
@@ -261,10 +266,15 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       workspaceService: this.workspaceService,
       getDirSession: () => this.dir,
       isInArchive: () => this.isInArchive(),
+      exitArchive: () => this.archiveController.exitArchive(this.archiveHost),
       clearArchiveState: () => this.clearArchiveState(),
       pathIsInsideArchive: (path: string) => this.pathIsInsideArchive(path),
       loadPathTransparently: (path: string) => this.loadPathTransparently(path),
-      renderArchiveFrame: (frame: ArchiveFrame) => this.renderArchiveFrame(frame),
+      loadDirectory: (path: string, opts?: { preserveUI?: boolean; focusPath?: string }) => this.loadDirectory(path, opts),
+      navigateArchiveUp: () => this.archiveController.navigateArchiveUp(this.archiveHost),
+      refreshCurrentPathTransparently: () => this.refreshCurrentPathTransparently(),
+      refreshTreeNode: (path: string) => this.fileViewContainer?.refreshTreeNode(path),
+      renderArchiveFrame: (frame: ArchiveFrame) => this.archiveController.renderArchiveFrame(this.archiveHost, frame),
       applyFilter: () => this.applyFilter(),
       emitPreviewTargetFromState: () => this.emitPreviewTargetFromState(),
       emitActiveTabChange: (tab: TabInfo) => this.activeTabChange.emit(tab),
@@ -294,9 +304,11 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       getSelectableEntries: () => thisRef.dirRuntime.getSelectableEntries(),
       getOptimisticHiddenPaths: () => thisRef.getOptimisticHiddenPaths(),
       setOptimisticHiddenPaths: (paths: string[]) => thisRef.setOptimisticHiddenPaths(paths),
+      parseFilterText: (text: string) => thisRef.filterService.parseFilterText(text),
       filterEntries: (entries: FileInfo[], query: FilterQuery) => thisRef.filterService.filterEntries(entries, query),
       findEntry: (path: string) => thisRef.entries.find(entry => entry.path === path),
       emitPreviewTarget: (path: string) => thisRef.previewTargetChange.emit(path),
+      setFindMatchCount: (count: number) => thisRef.findWidget?.setMatchCount(count),
       scrollToCursorPath: (path: string) => thisRef.scrollToCursorPath(path),
       getGridColumns: () => thisRef.fileViewContainer?.getGridColumns() ?? 1,
       getApproxPageSize: () => thisRef.fileViewContainer?.getApproxPageSize() ?? 10,
@@ -375,7 +387,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       pathHistoryService: this.pathHistoryService,
       dirStream: this.dirStream,
       isInArchive: () => thisRef.isInArchive(),
-      exitArchive: () => thisRef.exitArchive(),
+      exitArchive: () => thisRef.archiveController.exitArchive(thisRef.archiveHost),
       clearArchiveState: () => thisRef.clearArchiveState(),
       withParentEntry: (raw: FileInfo[], inArchive: boolean, fsPath: string) => thisRef.withParentEntry(raw, inArchive, fsPath),
       applyFilter: () => thisRef.applyFilter(),
@@ -447,12 +459,12 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       get entries() { return thisRef.entries; },
       apiService: this.apiService,
       isInArchive: () => thisRef.isInArchive(),
-      exitArchive: () => thisRef.exitArchive(),
+      exitArchive: () => thisRef.archiveController.exitArchive(thisRef.archiveHost),
       clearArchiveState: () => thisRef.clearArchiveState(),
-      archiveNavigateInto: (path: string) => thisRef.archiveNavigateInto(path),
-      openNestedArchive: (chain: string[]) => thisRef.openNestedArchive(chain),
+      archiveNavigateInto: (path: string) => thisRef.archiveController.archiveNavigateInto(thisRef.archiveHost, path),
+      openNestedArchive: (chain: string[]) => thisRef.archiveController.openNestedArchive(thisRef.archiveHost, chain),
       loadDirectory: (path: string) => thisRef.loadDirectory(path),
-      openRootArchive: (path: string) => thisRef.openRootArchive(path),
+      openRootArchive: (path: string) => thisRef.archiveController.openRootArchive(thisRef.archiveHost, path),
       emitPathChange: (path: string) => thisRef.pathChange.emit(path),
       getEffectiveSelection: () => thisRef.getEffectiveSelection(),
       openPathInNewTab: (path: string) => thisRef.openPathInNewTab(path),
@@ -486,94 +498,93 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       },
       loadPaneState: () => thisRef.loadPaneState(),
       onTabChange: (tab: TabInfo) => thisRef.onTabChange(tab),
+      onTabClose: (tab: TabInfo) => thisRef.onTabClose(tab),
+      onTabPin: (tab: TabInfo) => thisRef.onTabPin(tab),
+    };
+  }
+
+  private get dirSessionHost(): FilePaneDirSessionHost {
+    const thisRef = this;
+    return {
+      get currentTabId() { return thisRef.currentTabId; },
+      get activeDirTabId() { return thisRef.activeDirTabId; },
+      set activeDirTabId(value: string | null) { thisRef.activeDirTabId = value; },
+      get tabs() { return thisRef.tabs; },
+      dirTabStateController: this.dirTabStateController,
+      getDirSession: (tabId: string) => thisRef.dirSessions.get(tabId),
+      setDirSession: (session: DirSurfaceSession) => {
+        thisRef.dirSessions.set(session.tabId, session);
+      },
+      isInArchive: () => thisRef.isInArchive(),
+      getSelectableEntriesPaths: () => thisRef.dirRuntime.getSelectableEntries().map(entry => entry.path),
+      applyFilter: () => thisRef.applyFilter(),
+      scrollToCursorPath: (path: string) => thisRef.scrollToCursorPath(path),
+      emitPreviewTargetFromState: () => thisRef.emitPreviewTargetFromState(),
+    };
+  }
+
+  private get uiHost(): FilePaneUiHost {
+    const thisRef = this;
+    return {
+      get paneId() { return thisRef.paneId; },
+      get currentView() { return thisRef.currentView; },
+      set currentView(value: ViewLayout) { thisRef.currentView = value; },
+      get sortField() { return thisRef.sortField; },
+      set sortField(value: string) { thisRef.sortField = value; },
+      get sortDirection() { return thisRef.sortDirection; },
+      set sortDirection(value: 'asc' | 'desc') { thisRef.sortDirection = value; },
+      get directoriesFirst() { return thisRef.directoriesFirst; },
+      set directoriesFirst(value: boolean) { thisRef.directoriesFirst = value; },
+      get selectedFiles() { return thisRef.selectedFiles; },
+      set selectedFiles(value: Set<string>) { thisRef.selectedFiles = value; },
+      getOptimisticHiddenPaths: () => thisRef.getOptimisticHiddenPaths(),
+      setOptimisticHiddenPaths: (paths: string[]) => thisRef.setOptimisticHiddenPaths(paths),
+      applyFilter: () => thisRef.applyFilter(),
+      persistDirTabState: () => thisRef.persistDirTabState(),
+      refreshCurrentPathTransparently: () => thisRef.refreshCurrentPathTransparently(),
+    };
+  }
+
+  private get pathHost(): FilePanePathHost {
+    const thisRef = this;
+    return {
+      get currentPath() { return thisRef.currentPath; },
+      get archiveStack() { return thisRef.archiveStack; },
+      isInArchive: () => thisRef.isInArchive(),
+      loadDirectory: (path: string, opts?: { preserveUI?: boolean; focusPath?: string }) => thisRef.loadDirectory(path, opts),
+      restoreArchiveFromPath: (path: string) => thisRef.archiveController.restoreArchiveFromPath(thisRef.archiveHost, path),
+      renderArchiveFrame: (frame: ArchiveFrame) => thisRef.archiveController.renderArchiveFrame(thisRef.archiveHost, frame),
+    };
+  }
+
+  private get focusHost(): FilePaneFocusHost {
+    const thisRef = this;
+    return {
+      get currentTabId() { return thisRef.currentTabId; },
+      get paneId() { return thisRef.paneId; },
+      get selectionCursorPath() { return thisRef.selectionCursorPath; },
+      set selectionCursorPath(value: string | null) { thisRef.selectionCursorPath = value; },
+      get selectionAnchorPath() { return thisRef.selectionAnchorPath; },
+      set selectionAnchorPath(value: string | null) { thisRef.selectionAnchorPath = value; },
+      get selectedFiles() { return thisRef.selectedFiles; },
+      getSelectableEntries: () => thisRef.dirRuntime.getSelectableEntries(),
+      scrollToCursorPath: (path: string) => thisRef.scrollToCursorPath(path),
+      emitPreviewTargetFromState: () => thisRef.emitPreviewTargetFromState(),
+      getWorkspaceTabs: () => thisRef.workspaceService.getTabs(thisRef.paneId) ?? [],
+      onTabChange: (tab: TabInfo) => thisRef.onTabChange(tab),
+      focusAddressBar: () => thisRef.addressBar?.enterEditMode(),
+      openFindWidget: () => thisRef.findWidget?.open(),
+      toggleFindWidget: () => thisRef.findWidget?.toggle(),
+      closeFindWidget: () => thisRef.findWidget?.close(),
     };
   }
 
   private get dir(): DirSurfaceSession {
-    const id = this.activeDirTabId ?? this.currentTabId;
-    let session = id ? this.dirSessions.get(id) : undefined;
-    if (!session) {
-      session = new DirSurfaceSession(id || 'default');
-      // Default view prefs
-      session.currentView = this.currentViewPrefFromStorage();
-      const sf = localStorage.getItem('fileManager_sortField');
-      const sd = localStorage.getItem('fileManager_sortDirection') as ('asc' | 'desc' | null);
-      if (sf) session.sortField = sf;
-      if (sd === 'asc' || sd === 'desc') session.sortDirection = sd;
-      const df = localStorage.getItem('fileManager_directoriesFirst');
-      if (df === 'true' || df === 'false') session.directoriesFirst = df === 'true';
-
-      const savedState = this.dirTabStateController.load(session.tabId);
-      if (savedState) {
-        this.dirTabStateController.applyBeforeLoad(savedState, this.createDirTabRuntime(session));
-      }
-
-      this.dirSessions.set(session.tabId, session);
-    }
-    // If current tab is a dir tab, keep activeDirTabId aligned.
-    const t = this.tabs.find(t => t.id === this.currentTabId);
-    if ((t?.kind ?? 'dir') === 'dir') this.activeDirTabId = session.tabId;
-    return session;
-  }
-
-  private createDirTabRuntime(session: DirSurfaceSession): DirTabRuntime {
-    return {
-      isInArchive: () => this.isInArchive(),
-      getEntriesPaths: () => (session.entries ?? []).map(entry => entry.path),
-      getSelectableEntriesPaths: () => this.dirRuntime.getSelectableEntries().map(entry => entry.path),
-      applyFilter: () => this.applyFilter(),
-      scrollToCursorPath: (path: string) => this.scrollToCursorPath(path),
-      emitPreviewTargetFromState: () => this.emitPreviewTargetFromState(),
-      getOptimisticHiddenPaths: () => Array.from(session.optimisticHiddenPaths ?? []),
-      setOptimisticHiddenPaths: (paths: string[]) => {
-        session.optimisticHiddenPaths = new Set((paths ?? []).filter(Boolean));
-      },
-      get currentPath() { return session.currentPath; },
-      set currentPath(value: string) { session.currentPath = value; },
-      get showHidden() { return !!session.showHiddenLoaded; },
-      set showHidden(_value: boolean) {},
-      get entries() { return session.entries; },
-      set entries(value: FileInfo[]) { session.entries = value; },
-      get currentView() { return session.currentView; },
-      set currentView(value: ViewLayout) { session.currentView = value; },
-      get sortField() { return session.sortField; },
-      set sortField(value: string) { session.sortField = value; },
-      get sortDirection() { return session.sortDirection; },
-      set sortDirection(value: 'asc' | 'desc') { session.sortDirection = value; },
-      get directoriesFirst() { return session.directoriesFirst; },
-      set directoriesFirst(value: boolean) { session.directoriesFirst = value; },
-      get filterQuery() { return session.filterQuery; },
-      set filterQuery(value: FilterQuery) { session.filterQuery = value; },
-      get selectedFiles() { return session.selectedFiles; },
-      set selectedFiles(value: Set<string>) { session.selectedFiles = value; },
-      get selectionCursorPath() { return session.selectionCursorPath; },
-      set selectionCursorPath(value: string | null) { session.selectionCursorPath = value; },
-      get selectionAnchorPath() { return session.selectionAnchorPath; },
-      set selectionAnchorPath(value: string | null) { session.selectionAnchorPath = value; },
-    };
-  }
-
-  private get activeDirTabStateRuntime(): DirTabRuntime {
-    return this.createDirTabRuntime(this.dir);
+    return this.dirSessionController.getActiveSession(this.dirSessionHost);
   }
 
   private restoreActiveDirTabState(): void {
-    const tabId = this.activeDirTabId ?? this.currentTabId;
-    if (!tabId || this.activeTabKind !== 'dir' || this.isInArchive()) {
-      return;
-    }
-
-    const savedState = this.dirTabStateController.load(tabId);
-    if (!savedState) {
-      return;
-    }
-
-    this.dirTabStateController.finalizeAfterLoad(savedState, this.activeDirTabStateRuntime);
-  }
-
-  private currentViewPrefFromStorage(): ViewLayout {
-    const saved = localStorage.getItem('fileManager_viewMode') as ViewLayout | null;
-    return (saved === 'list' || saved === 'grid' || saved === 'details' || saved === 'tree') ? saved : 'list';
+    this.dirSessionController.restoreActiveState(this.dirSessionHost);
   }
 
   // Dir state proxies (backed by the active dir session)
@@ -677,10 +688,10 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   ngOnInit(): void  { 
-    this.loadViewPreference();
+    this.uiController.loadViewPreference(this.uiHost);
     this.loadPaneState();
     this.directoryController.bind(this.directoryHost);
-    this.setupOptimisticDnDListeners();
+    this.uiController.bindOptimisticDnD(this.uiHost);
 
     // Keep panes in sync when tab state changes elsewhere (e.g. cross-pane tab drag/drop).
     this.workspaceService.activeWorkspace$
@@ -699,7 +710,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       // to a real workspace would be a later change. Always load once we have a
       // non-null workspace so tabs/pane render without requiring a user click.
       if (this.workspace) {
-        this.loadViewPreference();
+        this.uiController.loadViewPreference(this.uiHost);
         this.lastSeenActiveTabId = null;
         this.lastSeenActiveTabPath = null;
         this.loadPaneState();
@@ -712,16 +723,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     }
 
     if (changes['paneActive'] && this.paneActive && !changes['paneActive'].firstChange) {
-      // Pane just became active вЂ” ensure there is a visible cursor.
-      if (this.selectedFiles.size === 0 && !this.selectionCursorPath) {
-        const selectable = this.dirRuntime.getSelectableEntries();
-        if (selectable.length) {
-          this.selectionCursorPath = selectable[0].path;
-          this.selectionAnchorPath = selectable[0].path;
-          // TC: just position cursor, don't mark the item
-          this.fileViewContainer?.scrollToCursorPath(selectable[0].path);
-        }
-      }
+      this.focusController.ensureCursorVisibleOnActivation(this.focusHost);
     }
   }
 
@@ -730,15 +732,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     this.destroy$.complete();
 
     void this.directoryController.unbind(this.directoryHost);
-
-    if (this.optimisticHideListener) {
-      window.removeEventListener('pane:dnd-optimistic-hide', this.optimisticHideListener);
-      this.optimisticHideListener = undefined;
-    }
-    if (this.optimisticRestoreListener) {
-      window.removeEventListener('pane:dnd-optimistic-restore', this.optimisticRestoreListener);
-      this.optimisticRestoreListener = undefined;
-    }
+    this.uiController.unbindOptimisticDnD();
   }
 
   onTabDrop(event: TabDropEvent): void {
@@ -749,171 +743,46 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     this.tabsController.onTabDragStart(this.tabsHost, tab);
   }
 
-  private setupOptimisticDnDListeners(): void {
-    this.optimisticHideListener = (ev: Event) => {
-      const detail = (ev as CustomEvent).detail as { paneId?: 'left' | 'right'; paths?: string[] } | undefined;
-      if (!detail?.paneId || detail.paneId !== this.paneId) return;
-      const paths = (detail.paths ?? []).filter(p => p && p !== PARENT_ENTRY_PATH);
-      if (!paths.length) return;
-
-      for (const p of paths) this.dir.optimisticHiddenPaths.add(p);
-      for (const p of paths) this.selectedFiles.delete(p);
-      this.selectedFiles = new Set(this.selectedFiles);
-      this.applyFilter();
-    };
-
-    this.optimisticRestoreListener = (ev: Event) => {
-      const detail = (ev as CustomEvent).detail as { paneId?: 'left' | 'right'; paths?: string[] } | undefined;
-      if (!detail?.paneId || detail.paneId !== this.paneId) return;
-      const paths = (detail.paths ?? []).filter(p => p && p !== PARENT_ENTRY_PATH);
-      if (!paths.length) return;
-
-      for (const p of paths) this.dir.optimisticHiddenPaths.delete(p);
-      this.applyFilter();
-    };
-
-    window.addEventListener('pane:dnd-optimistic-hide', this.optimisticHideListener);
-    window.addEventListener('pane:dnd-optimistic-restore', this.optimisticRestoreListener);
-  }
-
   get entriesForAnalysis(): FileInfo[] {
     return this.entries.filter(e => e.path !== PARENT_ENTRY_PATH);
   }
 
   // в”Ђв”Ђ View System Methods в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
-  private loadViewPreference(): void {
-    const savedView = localStorage.getItem('fileManager_viewMode') as ViewLayout;
-    if (savedView && ['list', 'grid', 'tree', 'details'].includes(savedView)) {
-      this.currentView = savedView;
-    }
-    
-    const savedSortField = localStorage.getItem('fileManager_sortField');
-    const savedSortDir = localStorage.getItem('fileManager_sortDirection') as 'asc' | 'desc';
-    if (savedSortField) this.sortField = savedSortField;
-    if (savedSortDir) this.sortDirection = savedSortDir;
-
-    const savedDirsFirst = localStorage.getItem('fileManager_directoriesFirst');
-    if (savedDirsFirst === 'true' || savedDirsFirst === 'false') {
-      this.directoriesFirst = savedDirsFirst === 'true';
-    }
-  }
-
-  private saveViewPreference(): void {
-    localStorage.setItem('fileManager_viewMode', this.currentView);
-    localStorage.setItem('fileManager_sortField', this.sortField);
-    localStorage.setItem('fileManager_sortDirection', this.sortDirection);
-    localStorage.setItem('fileManager_directoriesFirst', String(this.directoriesFirst));
-  }
-
   async onViewChange(view: ViewLayout): Promise<void> {
-    const previousView = this.currentView;
-    this.currentView = view;
-    this.saveViewPreference();
-
-    // Tree navigation keeps currentPath in sync without replacing entries.
-    // When leaving tree mode, load the current folder so list/grid/details
-    // always render the active directory contents.
-    if (previousView === 'tree' && view !== 'tree') {
-      await this.refreshCurrentPathTransparently();
-      return;
-    }
-
-    // Refresh entries when switching to ensure proper sorting/filtering
-    this.applyFilter();
-    this.persistDirTabState();
+    await this.uiController.onViewChange(this.uiHost, view);
   }
 
   onSortChange(sort: { field: string; direction: 'asc' | 'desc' }): void {
-    this.sortField = sort.field;
-    this.sortDirection = sort.direction;
-    this.saveViewPreference();
-    this.applyFilter();
-    this.persistDirTabState();
+    this.uiController.onSortChange(this.uiHost, sort);
   }
 
   onDirectoriesFirstChange(value: boolean): void {
-    this.directoriesFirst = value;
-    this.saveViewPreference();
-    this.applyFilter();
-    this.persistDirTabState();
+    this.uiController.onDirectoriesFirstChange(this.uiHost, value);
   }
 
   onContextMenu(event: { event: MouseEvent; entry: FileInfo }): void {
-    // Handle context menu - can integrate with existing context menu system
-    console.log('Context menu for:', event.entry.name);
+    void event;
   }
 
   onNodeDoubleClick(entry: FileInfo): void {
     this.openController.onNodeDoubleClick(this.openHost, entry, () => this.onNavigateUp());
   }
 
-  // в”Ђв”Ђ Virtual ".." entry helpers в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
-
-  /** Returns true when the current path is a filesystem root (e.g. "/" or "C:/"). */
-  private isAtFsRoot(path: string): boolean {
-    const p = path.replace(/\\/g, '/');
-    return p === '/' || /^[A-Za-z]:\/?\s*$/.test(p);
-  }
-
-  /** Creates the virtual parent-directory entry. */
-  private makeParentEntry(): FileInfo {
-    return {
-      name: '..',
-      path: PARENT_ENTRY_PATH,
-      type: FileType.DIRECTORY,
-      size: 0,
-      modified: 0,
-    } as FileInfo;
-  }
-
-  /**
-   * Prepend the virtual ".." entry to a raw entry list when appropriate.
-   * вЂ“ Always prepended inside archives (so the user can navigate out).
-   * вЂ“ Prepended for normal directories unless we are at the filesystem root.
-   */
   private withParentEntry(raw: FileInfo[], inArchive: boolean, fsPath: string): FileInfo[] {
-    if (raw.some(e => e.path === PARENT_ENTRY_PATH)) {
-      return raw;
-    }
-    if (inArchive || !this.isAtFsRoot(fsPath)) {
-      return [this.makeParentEntry(), ...raw];
-    }
-    return raw;
+    return this.pathController.withParentEntry(raw, inArchive, fsPath);
   }
 
   private pathIsInsideArchive(path: string): boolean {
-    const { fsPath } = parseArchivePath(path);
-    const name = fsPath.replace(/\\/g, '/').split('/').filter(Boolean).pop() ?? '';
-    return isArchive(name);
+    return this.pathController.pathIsInsideArchive(path);
   }
 
   private async loadPathTransparently(path: string): Promise<void> {
-    if (this.pathIsInsideArchive(path)) {
-      await this.restoreArchiveFromPath(path);
-      return;
-    }
-
-    await this.loadDirectory(path);
+    await this.pathController.loadPathTransparently(this.pathHost, path);
   }
 
   private async refreshCurrentPathTransparently(): Promise<void> {
-    if (!this.currentPath) return;
-
-    if (this.isInArchive()) {
-      const currentFrame = this.archiveStack[this.archiveStack.length - 1];
-      if (currentFrame) {
-        this.renderArchiveFrame(currentFrame);
-        return;
-      }
-    }
-
-    if (this.pathIsInsideArchive(this.currentPath)) {
-      await this.restoreArchiveFromPath(this.currentPath);
-      return;
-    }
-
-    await this.loadDirectory(this.currentPath, { preserveUI: true });
+    await this.pathController.refreshCurrentPathTransparently(this.pathHost);
   }
 
   // в”Ђв”Ђ Pane state в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
@@ -921,13 +790,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   private async loadPaneState(): Promise<void> {
     const host = this.navigationHost;
     await this.navigationController.loadPaneState(host);
-    this.currentTabId = host.currentTabId;
-    this.currentPath = host.currentPath;
-    this.pathReady = host.pathReady;
-    this.tabs = host.tabs;
-    this.activeDirTabId = host.activeDirTabId;
-    this.archiveStack = host.archiveStack;
-    this.restoreActiveDirTabState();
+    this.applyNavigationHostState(host);
   }
 
   private clearArchiveState(): void {
@@ -944,8 +807,13 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   async onTabChange(tab: TabInfo): Promise<void> {
     const host = this.navigationHost;
     await this.navigationController.onTabChange(host, tab);
+    this.applyNavigationHostState(host);
+  }
+
+  private applyNavigationHostState(host: FilePaneNavigationHost): void {
     this.currentTabId = host.currentTabId;
     this.currentPath = host.currentPath;
+    this.pathReady = host.pathReady;
     this.tabs = host.tabs;
     this.activeDirTabId = host.activeDirTabId;
     this.archiveStack = host.archiveStack;
@@ -955,18 +823,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   /** Best-effort: focus/move cursor to a path if it exists in the current listing. */
   focusCursorPath(path: string): void {
     if (this.activeTabKind !== 'dir') return;
-    if (!path) return;
-
-    const normalized = normalizePath(path);
-    const selectable = this.dirRuntime.getSelectableEntries();
-    const idx = selectable.findIndex(e => normalizePath(e.path) === normalized);
-    if (idx < 0) return;
-
-    this.selectionCursorPath = selectable[idx].path;
-    this.selectionAnchorPath = this.selectionCursorPath;
-    // Keep marks intact; only move cursor.
-    this.fileViewContainer?.scrollToCursorPath(this.selectionCursorPath);
-    this.emitPreviewTargetFromState();
+    this.focusController.focusCursorPath(this.focusHost, path);
   }
 
   /**
@@ -974,18 +831,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
    * Used by FileBrowser to restore selection when switching between preview tabs.
    */
   async activateDirTabAndFocusPath(tabId: string, focusPath: string): Promise<void> {
-    if (!tabId) return;
-    const tabs = this.workspaceService.getTabs(this.paneId) ?? [];
-    const tab = tabs.find(t => t.id === tabId);
-    if (!tab) return;
-    if ((tab.kind ?? 'dir') !== 'dir') return;
-
-    await this.onTabChange(tab);
-    this.focusCursorPath(focusPath);
-  }
-
-  private async restoreArchiveFromPath(path: string): Promise<void> {
-    await this.archiveController.restoreArchiveFromPath(this.archiveHost, path);
+    await this.focusController.activateDirTabAndFocusPath(this.focusHost, tabId, focusPath);
   }
 
   onTabClose(tab: TabInfo): void {
@@ -1007,34 +853,15 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   // в”Ђв”Ђ Address bar / path в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
   onPathChange(path: string): void {
-    if (path && path !== this.currentPath) {
-      this.currentPath = path;
-      this.exitArchive();
-      this.clearArchiveState();
-      void this.loadPathTransparently(path);
-    }
+    this.navigationController.onPathChange(this.navigationHost, path);
   }
 
   async onNavigateUp(): Promise<void> {
-    if (this.isInArchive()) {
-      await this.navigateArchiveUp();
-    } else {
-      const fromPath = this.currentPath;
-      try {
-        const listing = await window.go.main.App.NavGoUp(this.paneId);
-        await this.loadDirectory(listing.path, { focusPath: fromPath });
-      } catch {
-        const target = parentPath(normalizePath(fromPath));
-        if (target !== fromPath) await this.loadDirectory(target, { focusPath: fromPath });
-      }
-    }
+    await this.navigationController.onNavigateUp(this.navigationHost);
   }
 
   onRefresh(): void {
-    void this.refreshCurrentPathTransparently();
-    // Keep the tree in sync: reload children of the current directory node
-    // without collapsing any expanded subtrees.
-    this.fileViewContainer?.refreshTreeNode(this.currentPath);
+    this.navigationController.onRefresh(this.navigationHost);
   }
 
   private runInAngular(update: () => void): void {
@@ -1101,60 +928,19 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
 
   isInArchive(): boolean { return this.archiveController.isInArchive(this.archiveHost); }
 
-  async openRootArchive(fsPath: string): Promise<void> {
-    await this.archiveController.openRootArchive(this.archiveHost, fsPath);
-  }
-
-  private async archiveNavigateInto(folderInnerPath: string): Promise<void> {
-    await this.archiveController.archiveNavigateInto(this.archiveHost, folderInnerPath);
-  }
-
-  private async openNestedArchive(nestedChain: string[]): Promise<void> {
-    await this.archiveController.openNestedArchive(this.archiveHost, nestedChain);
-  }
-
-  async navigateArchiveUp(): Promise<void> {
-    await this.archiveController.navigateArchiveUp(this.archiveHost);
-  }
-
-  exitArchive(): void {
-    this.archiveController.exitArchive(this.archiveHost);
-  }
-
-  private async refreshArchive(): Promise<void> {
-    await this.archiveController.refreshArchive(this.archiveHost);
-  }
-
-  private renderArchiveFrame(frame: ArchiveFrame): void {
-    this.archiveController.renderArchiveFrame(this.archiveHost, frame);
-  }
-
   // в”Ђв”Ђ Find widget в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
   onFindStateChange(state: FindWidgetState | null): void {
-    if (!state) {
-      this.filterQuery = { text: '', criteria: [] };
-    } else {
-      // Build a FilterQuery from the find widget state.
-      // matchCase / wholeWord / useRegex are passed as criteria for FilterService.
-      this.filterQuery = this.filterService.parseFilterText(state.text);
-      // Patch in the extra options so FilterService can honour them if supported.
-      (this.filterQuery as any).matchCase  = state.matchCase;
-      (this.filterQuery as any).wholeWord  = state.wholeWord;
-      (this.filterQuery as any).useRegex   = state.useRegex;
-    }
-    this.applyFilter();
-
-    // Update match count badge on the widget
-    if (this.findWidget) {
-      this.findWidget.setMatchCount(this.filteredEntries.length);
-    }
-
-    this.persistDirTabState();
+    this.stateController.onFindStateChange(this.stateHost, state);
   }
 
-  onFindNext(): void { /* file-list scroll-to-next can be wired here */ }
-  onFindPrev(): void { /* file-list scroll-to-prev can be wired here */ }
+  onFindNext(): void {
+    this.stateController.onFindNext(this.stateHost);
+  }
+
+  onFindPrev(): void {
+    this.stateController.onFindPrev(this.stateHost);
+  }
 
   // в”Ђв”Ђ Filtering в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
@@ -1168,7 +954,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       return;
     }
 
-    this.dirTabStateController.save(tabId, this.activeDirTabStateRuntime);
+    this.dirTabStateController.save(tabId, this.dirSessionController.getActiveRuntime(this.dirSessionHost));
   }
 
   // в”Ђв”Ђ Selection в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
@@ -1335,42 +1121,38 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   // в”Ђв”Ђ Tab shortcuts в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
   onCloseCurrentTab():   void { 
-    const t = this.tabs.find(t => t.isActive); 
-    if (t) this.onTabClose(t); 
+    this.tabsController.closeCurrentTab(this.tabsHost); 
   }
   
   onNextTab():           void { 
-    const i = this.tabs.findIndex(t => t.isActive); 
-    if (i >= 0) this.onTabChange(this.tabs[(i + 1) % this.tabs.length]); 
+    this.tabsController.nextTab(this.tabsHost); 
   }
   
   onPreviousTab():       void { 
-    const i = this.tabs.findIndex(t => t.isActive); 
-    if (i >= 0) this.onTabChange(this.tabs[i === 0 ? this.tabs.length - 1 : i - 1]); 
+    this.tabsController.previousTab(this.tabsHost); 
   }
   
   onJumpToTab(n: number): void { 
-    if (n > 0 && n <= this.tabs.length) this.onTabChange(this.tabs[n - 1]); 
+    this.tabsController.jumpToTab(this.tabsHost, n); 
   }
   
   onTogglePinCurrentTab(): void { 
-    const t = this.tabs.find(t => t.isActive); 
-    if (t) this.onTabPin(t); 
+    this.tabsController.togglePinCurrentTab(this.tabsHost); 
   }
 
   focusAddressBar(): void { 
-    this.addressBar?.enterEditMode(); 
+    this.focusController.focusAddressBar(this.focusHost); 
   }
   
   focusFind():       void { 
-    this.findWidget?.open(); 
+    this.focusController.focusFind(this.focusHost); 
   }
 
   focusFilter(): void { 
-    this.findWidget?.toggle(); 
+    this.focusController.focusFilter(this.focusHost); 
   }
   
   onClearFilter(): void { 
-    this.findWidget?.close(); 
+    this.focusController.clearFilter(this.focusHost); 
   }
 }

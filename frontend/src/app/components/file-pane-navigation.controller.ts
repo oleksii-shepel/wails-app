@@ -3,6 +3,9 @@ import type { ArchiveFrame } from '../services/archive.service';
 import type { WorkspaceService } from '../services/workspace.service';
 import type { DirSurfaceSession } from '../surfaces/dir/dir-surface-session';
 import type { TabInfo, WorkspaceConfig } from '../shared/protocol-enhanced';
+import { normalizePath, parentPath } from './address-bar.utils';
+
+declare const window: any;
 
 export interface FilePaneNavigationHost {
   paneId: 'left' | 'right';
@@ -18,9 +21,14 @@ export interface FilePaneNavigationHost {
   workspaceService: WorkspaceService;
   getDirSession(): DirSurfaceSession;
   isInArchive(): boolean;
+  exitArchive(): void;
   clearArchiveState(): void;
   pathIsInsideArchive(path: string): boolean;
   loadPathTransparently(path: string): Promise<void>;
+  loadDirectory(path: string, opts?: { preserveUI?: boolean; focusPath?: string }): Promise<void>;
+  navigateArchiveUp(): Promise<void>;
+  refreshCurrentPathTransparently(): Promise<void>;
+  refreshTreeNode(path: string): void;
   renderArchiveFrame(frame: ArchiveFrame): void;
   applyFilter(): void;
   emitPreviewTargetFromState(): void;
@@ -128,6 +136,38 @@ export class FilePaneNavigationController {
 
     await host.loadPathTransparently(restoredPath);
     host.emitActiveTabChange(tab);
+  }
+
+  onPathChange(host: FilePaneNavigationHost, path: string): void {
+    if (!path || path === host.currentPath) return;
+
+    host.currentPath = path;
+    host.exitArchive();
+    host.clearArchiveState();
+    void host.loadPathTransparently(path);
+  }
+
+  async onNavigateUp(host: FilePaneNavigationHost): Promise<void> {
+    if (host.isInArchive()) {
+      await host.navigateArchiveUp();
+      return;
+    }
+
+    const fromPath = host.currentPath;
+    try {
+      const listing = await window.go.main.App.NavGoUp(host.paneId);
+      await host.loadDirectory(listing.path, { focusPath: fromPath });
+    } catch {
+      const target = parentPath(normalizePath(fromPath));
+      if (target !== fromPath) {
+        await host.loadDirectory(target, { focusPath: fromPath });
+      }
+    }
+  }
+
+  onRefresh(host: FilePaneNavigationHost): void {
+    void host.refreshCurrentPathTransparently();
+    host.refreshTreeNode(host.currentPath);
   }
 
   private async resolveInitialPath(host: FilePaneNavigationHost, savedPath: string): Promise<string> {

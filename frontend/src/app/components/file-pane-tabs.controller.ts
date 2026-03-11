@@ -24,6 +24,8 @@ export interface FilePaneTabsHost {
   deleteDirTabState(tabId: string): void;
   loadPaneState(): Promise<void>;
   onTabChange(tab: TabInfo): Promise<void>;
+  onTabClose(tab: TabInfo): void;
+  onTabPin(tab: TabInfo): void;
 }
 
 export class FilePaneTabsController {
@@ -125,5 +127,39 @@ export class FilePaneTabsController {
     if (!newTab) return;
     host.tabs = host.workspaceService.getTabs(host.paneId);
     await host.onTabChange(newTab);
+  }
+
+  closeCurrentTab(host: FilePaneTabsHost): void {
+    const tab = this.getActiveTab(host);
+    if (tab) host.onTabClose(tab);
+  }
+
+  nextTab(host: FilePaneTabsHost): void {
+    const index = host.tabs.findIndex(tab => tab.isActive);
+    if (index >= 0) {
+      void host.onTabChange(host.tabs[(index + 1) % host.tabs.length]);
+    }
+  }
+
+  previousTab(host: FilePaneTabsHost): void {
+    const index = host.tabs.findIndex(tab => tab.isActive);
+    if (index >= 0) {
+      void host.onTabChange(host.tabs[index === 0 ? host.tabs.length - 1 : index - 1]);
+    }
+  }
+
+  jumpToTab(host: FilePaneTabsHost, position: number): void {
+    if (position > 0 && position <= host.tabs.length) {
+      void host.onTabChange(host.tabs[position - 1]);
+    }
+  }
+
+  togglePinCurrentTab(host: FilePaneTabsHost): void {
+    const tab = this.getActiveTab(host);
+    if (tab) host.onTabPin(tab);
+  }
+
+  private getActiveTab(host: FilePaneTabsHost): TabInfo | undefined {
+    return host.tabs.find(tab => tab.isActive);
   }
 }

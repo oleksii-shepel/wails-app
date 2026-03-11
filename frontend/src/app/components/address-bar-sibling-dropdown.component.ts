@@ -1,6 +1,8 @@
-import { Component, Input, Output, EventEmitter, ChangeDetectionStrategy, ChangeDetectorRef, ViewChild, ElementRef, OnDestroy } from '@angular/core';
+import { Component, Input, Output, EventEmitter, ChangeDetectionStrategy, ChangeDetectorRef, ViewChild, ElementRef, OnDestroy, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { SiblingEntry, PathSegment } from './address-bar.types';
+import { SiblingEntry } from './address-bar.types';
+import { InputContextService } from '../services/input-context.service';
+import { InputEngineService } from '../services/input-engine.service';
 
 @Component({
   selector: 'app-address-bar-sibling-dropdown',
@@ -32,10 +34,12 @@ import { SiblingEntry, PathSegment } from './address-bar.types';
         <!-- only the visible slice is rendered, translated into place -->
         <div class="ab-vs-window" [style.transform]="'translateY(' + vsTranslate + 'px)'">
           <div
-            *ngFor="let s of visibleEntries; trackBy: trackBy"
+            *ngFor="let s of visibleEntries; let i = index; trackBy: trackBy"
             class="ab-drop-item ab-sib-item"
             [class.ab-drop-item--active]="s.isCurrent"
+            [class.ab-drop-item--selected]="vsStart + i === selectedIndex"
             (click)="entryClick.emit(s)"
+            (mouseenter)="setSelectedIndex(vsStart + i)"
           >
             <span class="ab-sib-icon">{{ s.isArchive ? '🗜️' : '📁' }}</span>
             <span class="ab-sib-name">{{ s.name }}</span>
@@ -125,6 +129,10 @@ import { SiblingEntry, PathSegment } from './address-bar.types';
         color: var(--vsc-foreground-bright);
         border-left-color: var(--vsc-accent-blue);
       }
+
+      &.ab-drop-item--selected {
+        background: color-mix(in srgb, var(--vsc-list-hover-background) 80%, transparent);
+      }
     }
 
     .ab-drop-loading {
@@ -153,7 +161,7 @@ import { SiblingEntry, PathSegment } from './address-bar.types';
     .ab-drop-empty-icon { font-size: 24px; opacity: 0.5; margin-bottom: var(--vsc-padding-xs); }
   `],
 })
-export class AddressBarSiblingDropdownComponent implements OnDestroy {
+export class AddressBarSiblingDropdownComponent implements OnInit, OnDestroy {
   @ViewChild('scrollEl') scrollElRef?: ElementRef<HTMLElement>;
 
   private _entries: SiblingEntry[] = [];
@@ -162,10 +170,13 @@ export class AddressBarSiblingDropdownComponent implements OnDestroy {
   private readonly ROW_H = 28;
   private readonly MAX_H = 300;
   private readonly OVERSCAN = 4;
-  private vsStart = 0;
+  vsStart = 0;
   private vsEnd = 20;
   private scrollRAF: number | null = null;
   private scrollListener?: () => void;
+  selectedIndex = -1;
+  private readonly commandOwner = `overlay.addressBar.siblings:${Math.random().toString(36).slice(2, 8)}`;
+  private releaseOverlayContext: (() => void) | null = null;
 
   get totalHeight(): number { return this._entries.length * this.ROW_H; }
   get vsTranslate(): number { return this.vsStart * this.ROW_H; }
@@ -179,20 +190,41 @@ export class AddressBarSiblingDropdownComponent implements OnDestroy {
     this._entries = val || [];
     this.totalCount = this._entries.length;
     this.resetVS();
+    this.selectedIndex = this._entries.findIndex(entry => entry.isCurrent);
+    if (this.selectedIndex < 0 && this._entries.length > 0) {
+      this.selectedIndex = 0;
+    }
     // Re-attach scroll listener after Angular renders the scroll div
-    setTimeout(() => this.attachScrollListener(), 0);
+    setTimeout(() => {
+      this.attachScrollListener();
+      this.scrollSelectedIntoView();
+      this.cdr.markForCheck();
+    }, 0);
   }
   get entries(): SiblingEntry[] { return this._entries; }
 
   @Input() loading = false;
   @Input() headLabel = '';
   @Output() entryClick = new EventEmitter<SiblingEntry>();
+  @Output() closeRequested = new EventEmitter<void>();
 
-  constructor(private cdr: ChangeDetectorRef) {}
+  constructor(
+    private cdr: ChangeDetectorRef,
+    private inputContexts: InputContextService,
+    private inputEngine: InputEngineService,
+  ) {}
+
+  ngOnInit(): void {
+    this.registerInputCommands();
+    this.releaseOverlayContext ??= this.inputContexts.acquire('overlay.addressBar.siblings');
+  }
 
   ngOnDestroy(): void {
     this.detachScrollListener();
     if (this.scrollRAF) cancelAnimationFrame(this.scrollRAF);
+    this.releaseOverlayContext?.();
+    this.releaseOverlayContext = null;
+    this.unregisterInputCommands();
   }
 
   onScroll(): void {
@@ -233,5 +265,65 @@ export class AddressBarSiblingDropdownComponent implements OnDestroy {
     const el = this.scrollElRef?.nativeElement;
     if (el && this.scrollListener) el.removeEventListener('scroll', this.scrollListener);
     this.scrollListener = undefined;
+  }
+
+  setSelectedIndex(index: number): void {
+    if (index < 0 || index >= this._entries.length) return;
+    this.selectedIndex = index;
+  }
+
+  private moveSelection(delta: number): void {
+    if (this._entries.length === 0) return;
+
+    const baseIndex = this.selectedIndex >= 0 ? this.selectedIndex : 0;
+    this.selectedIndex = Math.max(0, Math.min(this._entries.length - 1, baseIndex + delta));
+    this.scrollSelectedIntoView();
+    this.cdr.markForCheck();
+  }
+
+  private openSelected(): void {
+    const selected = this._entries[this.selectedIndex];
+    if (!selected) return;
+    this.entryClick.emit(selected);
+  }
+
+  private scrollSelectedIntoView(): void {
+    const el = this.scrollElRef?.nativeElement;
+    if (!el || this.selectedIndex < 0) return;
+
+    const itemTop = this.selectedIndex * this.ROW_H;
+    const itemBottom = itemTop + this.ROW_H;
+    if (itemTop < el.scrollTop) {
+      el.scrollTop = itemTop;
+    } else if (itemBottom > el.scrollTop + this.MAX_H) {
+      el.scrollTop = itemBottom - this.MAX_H;
+    }
+
+    this.updateVS();
+  }
+
+  private registerInputCommands(): void {
+    this.inputEngine.registerCommand('overlay.addressBar.siblings.close', () => {
+      this.closeRequested.emit();
+    }, this.commandOwner);
+
+    this.inputEngine.registerCommand('overlay.addressBar.siblings.prevItem', () => {
+      this.moveSelection(-1);
+    }, this.commandOwner);
+
+    this.inputEngine.registerCommand('overlay.addressBar.siblings.nextItem', () => {
+      this.moveSelection(1);
+    }, this.commandOwner);
+
+    this.inputEngine.registerCommand('overlay.addressBar.siblings.openSelected', () => {
+      this.openSelected();
+    }, this.commandOwner);
+  }
+
+  private unregisterInputCommands(): void {
+    this.inputEngine.unregisterCommand('overlay.addressBar.siblings.close', this.commandOwner);
+    this.inputEngine.unregisterCommand('overlay.addressBar.siblings.prevItem', this.commandOwner);
+    this.inputEngine.unregisterCommand('overlay.addressBar.siblings.nextItem', this.commandOwner);
+    this.inputEngine.unregisterCommand('overlay.addressBar.siblings.openSelected', this.commandOwner);
   }
 }

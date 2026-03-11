@@ -2,7 +2,7 @@ import {
   Component, Input, Output, EventEmitter,
   OnInit, OnDestroy, OnChanges, SimpleChanges,
   ViewChild, ElementRef,
-  ChangeDetectorRef, HostListener,
+  ChangeDetectorRef,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -11,6 +11,8 @@ import { createSubject, debounce, distinctUntilChanged, takeUntil } from '@epiko
 import { FileInfo } from '../shared/protocol';
 import { FilterQuery } from '../shared/protocol-enhanced';
 import { FilterService, CriteriaGroup } from '../services/filter.service';
+import { InputContextService } from '../services/input-context.service';
+import { InputEngineService } from '../services/input-engine.service';
 
 import { DropdownDirective, DropdownTriggerDirective, DropdownMenuDirective } from '../directives/dropdown.directive';
 import { DropdownContainerComponent } from './dropdown-container.component';
@@ -57,10 +59,11 @@ import {
         </svg>
         <span class="fb-btn-chevron" [class.fb-btn-chevron--open]="showCategoryDropdown">›</span>
       </button>
-      <app-dropdown-container class="fb-drop-anchor" [(isOpen)]="showCategoryDropdown" [anchorEl]="categoryBtnRef?.nativeElement ?? null">
+      <app-dropdown-container class="fb-drop-anchor" [(isOpen)]="showCategoryDropdown" (isOpenChange)="onCategoryDropdownStateChange($event)" [anchorEl]="categoryBtnRef?.nativeElement ?? null">
         <app-filter-dropdown
           appDropdownMenu
           *ngIf="showCategoryDropdown"
+          [contextId]="'overlay.filter.category'"
           [presets]="allPresets"
           [selected]="selectedPresets"
           [hasDynamic]="hasDynamic"
@@ -68,6 +71,7 @@ import {
           (clearAll)="clearPresets()"
           (refresh)="refreshPresets()"
           (groupModeChange)="onGroupModeChange($event)"
+          (closeRequested)="onCategoryDropdownStateChange(false)"
         />
       </app-dropdown-container>
     </div>
@@ -96,14 +100,14 @@ import {
         #presetBtn
         class="fb-btn fb-btn--icon"
         [class.fb-btn--open]="showPresetDropdown"
-        (click)="showPresetDropdown = !showPresetDropdown"
+        (click)="togglePresetDropdown()"
         title="Saved presets"
       >
         <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
           <path d="M2 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v13.5a.5.5 0 0 1-.777.416L8 13.101l-5.223 2.815A.5.5 0 0 1 2 15.5V2zm2-1a1 1 0 0 0-1 1v12.566l4.723-2.482a.5.5 0 0 1 .554 0L13 14.566V2a1 1 0 0 0-1-1H4z"/>
         </svg>
       </button>
-    <app-dropdown-container class="fb-drop-anchor" [(isOpen)]="showPresetDropdown" [anchorEl]="presetBtnRef?.nativeElement ?? null">
+    <app-dropdown-container class="fb-drop-anchor" [(isOpen)]="showPresetDropdown" (isOpenChange)="onPresetDropdownStateChange($event)" [anchorEl]="presetBtnRef?.nativeElement ?? null">
         <div appDropdownMenu *ngIf="showPresetDropdown" class="fb-preset-dropdown">
           <div class="fb-preset-head">
             <span>Presets</span>
@@ -115,7 +119,7 @@ import {
             >+ Save</button>
           </div>
           <div class="fb-preset-list">
-            <div *ngFor="let p of savedPresets" class="fb-preset-item">
+            <div *ngFor="let p of savedPresets; let i = index" class="fb-preset-item" [class.fb-preset-item--selected]="i === selectedPresetIndex" (mouseenter)="setSelectedPresetIndex(i)">
               <span class="fb-preset-name" (click)="applyPreset(p)">{{ p.name }}</span>
               <button class="fb-preset-delete" (click)="deletePreset(p)" title="Delete">×</button>
             </div>
@@ -324,6 +328,9 @@ import {
       padding: var(--vsc-padding-sm) var(--vsc-padding-md);
       &:hover { background: var(--vsc-list-hover-background); }
     }
+    .fb-preset-item--selected {
+      background: var(--vsc-list-hover-background);
+    }
     .fb-preset-name {
       flex: 1; cursor: pointer; white-space: nowrap;
       overflow: hidden; text-overflow: ellipsis; font-size: var(--vsc-font-size);
@@ -455,6 +462,7 @@ export class FilterBarComponent implements OnInit, OnDestroy, OnChanges {
 
   showCategoryDropdown = false;
   showPresetDropdown   = false;
+  selectedPresetIndex = -1;
 
   savedPresets: { id: string; name: string; presetIds: string[] }[] = [];
 
@@ -464,6 +472,8 @@ export class FilterBarComponent implements OnInit, OnDestroy, OnChanges {
   private groupModes = new Map<string, 'AND' | 'OR'>();
   private destroy$   = createSubject<void>();
   private search$    = createSubject<string>();
+  private readonly presetCommandOwner = `overlay.filter.presets:${Math.random().toString(36).slice(2, 8)}`;
+  private releasePresetOverlayContext: (() => void) | null = null;
 
   // Groups that combine with OR (any one match is enough)
   private readonly orGroups  = new Set(['Basic', 'Extensions', 'Other']);
@@ -542,6 +552,8 @@ export class FilterBarComponent implements OnInit, OnDestroy, OnChanges {
     private filterService: FilterService,
     private elRef: ElementRef,
     private cdr: ChangeDetectorRef,
+    private inputContexts: InputContextService,
+    private inputEngine: InputEngineService,
   ) {}
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -550,6 +562,7 @@ export class FilterBarComponent implements OnInit, OnDestroy, OnChanges {
     this.searchText = this.initialSearch;
     this.loadSavedPresets();
     this.rebuildPresets();
+    this.registerPresetOverlayCommands();
 
     this.search$
       .pipe(debounce(200), distinctUntilChanged(), takeUntil(this.destroy$))
@@ -563,6 +576,9 @@ export class FilterBarComponent implements OnInit, OnDestroy, OnChanges {
   }
 
   ngOnDestroy(): void {
+    this.releasePresetOverlayContext?.();
+    this.releasePresetOverlayContext = null;
+    this.unregisterPresetOverlayCommands();
     this.destroy$.next();
     this.destroy$.complete();
   }
@@ -587,7 +603,27 @@ export class FilterBarComponent implements OnInit, OnDestroy, OnChanges {
   // ── Dropdown ──────────────────────────────────────────────────────────────
 
   toggleCategoryDropdown(): void {
-    this.showCategoryDropdown = !this.showCategoryDropdown;
+    this.onCategoryDropdownStateChange(!this.showCategoryDropdown);
+  }
+
+  onCategoryDropdownStateChange(show: boolean): void {
+    this.showCategoryDropdown = show;
+  }
+
+  togglePresetDropdown(): void {
+    this.onPresetDropdownStateChange(!this.showPresetDropdown);
+  }
+
+  onPresetDropdownStateChange(show: boolean): void {
+    this.showPresetDropdown = show;
+    if (show) {
+      this.selectedPresetIndex = this.savedPresets.length > 0 ? 0 : -1;
+      this.releasePresetOverlayContext ??= this.inputContexts.acquire('overlay.filter.presets');
+      return;
+    }
+
+    this.releasePresetOverlayContext?.();
+    this.releasePresetOverlayContext = null;
   }
 
   // ── Preset selection ──────────────────────────────────────────────────────
@@ -650,14 +686,14 @@ export class FilterBarComponent implements OnInit, OnDestroy, OnChanges {
       presetIds: this.selectedPresets.map(p => p.id),
     }];
     this.persistSavedPresets();
-    this.showPresetDropdown = false;
+    this.onPresetDropdownStateChange(false);
   }
 
   applyPreset(saved: { id: string; name: string; presetIds: string[] }): void {
     this.selectedPresets = saved.presetIds
       .map(id => this.allPresets.find(p => p.id === id))
       .filter(Boolean) as FilterPreset[];
-    this.showPresetDropdown = false;
+    this.onPresetDropdownStateChange(false);
     this.emitFilterChange();
     this.cdr.detectChanges();
   }
@@ -681,13 +717,59 @@ export class FilterBarComponent implements OnInit, OnDestroy, OnChanges {
     }
   }
 
-  @HostListener('document:keydown', ['$event'])
   onDocKey(e: KeyboardEvent): void {
     if (e.key === 'Escape') {
-      if (this.showCategoryDropdown) { this.showCategoryDropdown = false; e.preventDefault(); }
-      if (this.showPresetDropdown)   { this.showPresetDropdown   = false; e.preventDefault(); }
+      if (this.showCategoryDropdown) { this.onCategoryDropdownStateChange(false); e.preventDefault(); }
+      if (this.showPresetDropdown)   { this.onPresetDropdownStateChange(false); e.preventDefault(); }
       if (this.showCustomDialog)     { this.closeCustomDialog();          e.preventDefault(); }
     }
+  }
+
+  setSelectedPresetIndex(index: number): void {
+    if (index < 0 || index >= this.savedPresets.length) return;
+    this.selectedPresetIndex = index;
+  }
+
+  private movePresetSelection(delta: number): void {
+    if (this.savedPresets.length === 0) return;
+    const baseIndex = this.selectedPresetIndex >= 0 ? this.selectedPresetIndex : 0;
+    this.selectedPresetIndex = Math.max(0, Math.min(this.savedPresets.length - 1, baseIndex + delta));
+    this.cdr.markForCheck();
+  }
+
+  private applySelectedPreset(): void {
+    const preset = this.savedPresets[this.selectedPresetIndex];
+    if (!preset) return;
+    this.applyPreset(preset);
+  }
+
+  private registerPresetOverlayCommands(): void {
+    this.inputEngine.registerCommand('overlay.filter.presets.close', () => {
+      if (!this.showPresetDropdown) return;
+      this.onPresetDropdownStateChange(false);
+    }, this.presetCommandOwner);
+
+    this.inputEngine.registerCommand('overlay.filter.presets.prevItem', () => {
+      if (!this.showPresetDropdown) return;
+      this.movePresetSelection(-1);
+    }, this.presetCommandOwner);
+
+    this.inputEngine.registerCommand('overlay.filter.presets.nextItem', () => {
+      if (!this.showPresetDropdown) return;
+      this.movePresetSelection(1);
+    }, this.presetCommandOwner);
+
+    this.inputEngine.registerCommand('overlay.filter.presets.select', () => {
+      if (!this.showPresetDropdown) return;
+      this.applySelectedPreset();
+    }, this.presetCommandOwner);
+  }
+
+  private unregisterPresetOverlayCommands(): void {
+    this.inputEngine.unregisterCommand('overlay.filter.presets.close', this.presetCommandOwner);
+    this.inputEngine.unregisterCommand('overlay.filter.presets.prevItem', this.presetCommandOwner);
+    this.inputEngine.unregisterCommand('overlay.filter.presets.nextItem', this.presetCommandOwner);
+    this.inputEngine.unregisterCommand('overlay.filter.presets.select', this.presetCommandOwner);
   }
 
   // ── Emit ──────────────────────────────────────────────────────────────────

@@ -1,6 +1,8 @@
-import { Component, Input, Output, EventEmitter, ChangeDetectionStrategy } from '@angular/core';
+import { Component, Input, Output, EventEmitter, ChangeDetectionStrategy, OnChanges, OnDestroy, OnInit, SimpleChanges } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { DriveInfo } from '../shared/protocol';
+import { InputContextService } from '../services/input-context.service';
+import { InputEngineService } from '../services/input-engine.service';
 
 @Component({
   selector: 'app-address-bar-drive-dropdown',
@@ -30,8 +32,10 @@ import { DriveInfo } from '../shared/protocol';
           *ngFor="let d of drives"
           class="ab-drive-grid-item"
           [class.ab-drive-grid-item--active]="isActive(d)"
+          [class.ab-drive-grid-item--selected]="selectedIndex >= 0 && drives[selectedIndex].path === d.path"
           [title]="getDisplayPath(d.path)"
           (click)="driveClick.emit(d)"
+          (mouseenter)="setSelectedIndex(drives.indexOf(d))"
         >
           <div class="ab-drive-grid-top">
             <span class="ab-drive-grid-icon">{{ getIcon(d) }}</span>
@@ -122,6 +126,11 @@ import { DriveInfo } from '../shared/protocol';
         background: var(--vsc-panel-background) !important;
         border-color: var(--vsc-border);
       }
+
+      &.ab-drive-grid-item--selected {
+        border-color: var(--vsc-accent-blue);
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--vsc-accent-blue) 50%, transparent);
+      }
     }
 
     .ab-drive-grid-top { display: flex; align-items: center; gap: var(--vsc-padding-sm); }
@@ -201,6 +210,33 @@ export class AddressBarDriveDropdownComponent {
   @Input() loading = false;
   @Input() currentPath = '';
   @Output() driveClick = new EventEmitter<DriveInfo>();
+  @Output() closeRequested = new EventEmitter<void>();
+
+  selectedIndex = -1;
+
+  private readonly commandOwner = `overlay.addressBar.drives:${Math.random().toString(36).slice(2, 8)}`;
+  private releaseOverlayContext: (() => void) | null = null;
+
+  constructor(
+    private inputContexts: InputContextService,
+    private inputEngine: InputEngineService,
+  ) {}
+
+  ngOnInit(): void {
+    this.registerInputCommands();
+    this.releaseOverlayContext ??= this.inputContexts.acquire('overlay.addressBar.drives');
+    this.syncSelection();
+  }
+
+  ngOnChanges(_changes: SimpleChanges): void {
+    this.syncSelection();
+  }
+
+  ngOnDestroy(): void {
+    this.releaseOverlayContext?.();
+    this.releaseOverlayContext = null;
+    this.unregisterInputCommands();
+  }
 
   private normalizePath(path: string): string {
     const replaced = (path || '').replace(/\\/g, '/');
@@ -249,5 +285,58 @@ export class AddressBarDriveDropdownComponent {
     const units = ['B', 'KB', 'MB', 'GB', 'TB'];
     const i = Math.floor(Math.log(bytes) / Math.log(1024));
     return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + units[i];
+  }
+
+  setSelectedIndex(index: number): void {
+    if (index < 0 || index >= this.drives.length) return;
+    this.selectedIndex = index;
+  }
+
+  openSelected(): void {
+    const selected = this.drives[this.selectedIndex];
+    if (!selected) return;
+    this.driveClick.emit(selected);
+  }
+
+  private syncSelection(): void {
+    if (this.drives.length === 0) {
+      this.selectedIndex = -1;
+      return;
+    }
+
+    const activeIndex = this.drives.findIndex(drive => this.isActive(drive));
+    this.selectedIndex = activeIndex >= 0 ? activeIndex : 0;
+  }
+
+  private moveSelection(delta: number): void {
+    if (this.drives.length === 0) return;
+    const baseIndex = this.selectedIndex >= 0 ? this.selectedIndex : 0;
+    const next = Math.max(0, Math.min(this.drives.length - 1, baseIndex + delta));
+    this.selectedIndex = next;
+  }
+
+  private registerInputCommands(): void {
+    this.inputEngine.registerCommand('overlay.addressBar.drives.close', () => {
+      this.closeRequested.emit();
+    }, this.commandOwner);
+
+    this.inputEngine.registerCommand('overlay.addressBar.drives.prevItem', () => {
+      this.moveSelection(-1);
+    }, this.commandOwner);
+
+    this.inputEngine.registerCommand('overlay.addressBar.drives.nextItem', () => {
+      this.moveSelection(1);
+    }, this.commandOwner);
+
+    this.inputEngine.registerCommand('overlay.addressBar.drives.openSelected', () => {
+      this.openSelected();
+    }, this.commandOwner);
+  }
+
+  private unregisterInputCommands(): void {
+    this.inputEngine.unregisterCommand('overlay.addressBar.drives.close', this.commandOwner);
+    this.inputEngine.unregisterCommand('overlay.addressBar.drives.prevItem', this.commandOwner);
+    this.inputEngine.unregisterCommand('overlay.addressBar.drives.nextItem', this.commandOwner);
+    this.inputEngine.unregisterCommand('overlay.addressBar.drives.openSelected', this.commandOwner);
   }
 }

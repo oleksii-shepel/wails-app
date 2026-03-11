@@ -1,7 +1,10 @@
-import { Component, HostListener } from '@angular/core';
+import { Component, OnDestroy, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
+import { InputContextService } from '../services/input-context.service';
+import { InputEngineService } from '../services/input-engine.service';
 import type { Stream } from '@epikodelabs/streamix';
+import { createSubject, takeUntil } from '@epikodelabs/streamix';
 
 interface ConfirmDialogRequest {
   options: any;
@@ -315,21 +318,39 @@ interface ConfirmDialogRequest {
   `]
 })
 export class ConfirmDialogComponent {
+  private readonly destroy$ = createSubject<void>();
+  private releaseDialogContext: (() => void) | null = null;
   readonly request$: Stream<ConfirmDialogRequest | null> = this.confirmDialogService.activeRequest$;
 
-  constructor(private confirmDialogService: ConfirmDialogService) {}
+  constructor(
+    private confirmDialogService: ConfirmDialogService,
+    private inputContexts: InputContextService,
+    private inputEngine: InputEngineService,
+  ) {}
 
-  @HostListener('document:keydown.escape', ['$event'])
-  onEscape(event: Event): void {
-    if (!this.confirmDialogService) return;
-    event.preventDefault();
-    const active = this.confirmDialogService.activeRequest$.value;
-    // For alerts, ESC acts like OK
-    if (active?.options.isAlert) {
-      this.onConfirm();
-    } else {
-      this.onCancel();
-    }
+  ngOnInit(): void {
+    this.inputEngine.registerCommand('dialog.confirm.accept', () => this.onConfirm());
+    this.inputEngine.registerCommand('dialog.confirm.cancel', () => this.onCancel());
+
+    this.confirmDialogService.activeRequest$
+      .pipe(takeUntil(this.destroy$))
+      .subscribe(request => {
+        if (request) {
+          this.releaseDialogContext ??= this.inputContexts.acquire('dialog.confirm');
+          return;
+        }
+        this.releaseDialogContext?.();
+        this.releaseDialogContext = null;
+      });
+  }
+
+  ngOnDestroy(): void {
+    this.releaseDialogContext?.();
+    this.releaseDialogContext = null;
+    this.inputEngine.unregisterCommand('dialog.confirm.accept');
+    this.inputEngine.unregisterCommand('dialog.confirm.cancel');
+    this.destroy$.next();
+    this.destroy$.complete();
   }
 
   onCancel(): void {

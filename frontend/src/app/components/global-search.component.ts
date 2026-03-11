@@ -4,6 +4,8 @@ import { FormsModule } from '@angular/forms';
 import { createSubject } from '@epikodelabs/streamix';
 import { takeUntil, debounce } from '@epikodelabs/streamix';
 import { GlobalSearchService, SearchResultItem, IndexStats, SearchConfig } from '../services/global-search.service';
+import { InputContextService } from '../services/input-context.service';
+import { InputEngineService } from '../services/input-engine.service';
 import { FileType } from '../shared/protocol';
 
 @Component({
@@ -36,10 +38,18 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
 
   private destroy$ = createSubject<void>();
   private searchSubject = createSubject<string>();
+  private releaseSearchContext: (() => void) | null = null;
+  private releaseSearchSettingsContext: (() => void) | null = null;
 
-  constructor(private searchService: GlobalSearchService) {}
+  constructor(
+    private searchService: GlobalSearchService,
+    private inputContexts: InputContextService,
+    private inputEngine: InputEngineService,
+  ) {}
 
   ngOnInit(): void {
+    this.registerInputCommands();
+
     // Subscribe to index stats
     this.searchService.stats$
       .pipe(takeUntil(this.destroy$))
@@ -62,6 +72,11 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.releaseSearchSettingsContext?.();
+    this.releaseSearchSettingsContext = null;
+    this.releaseSearchContext?.();
+    this.releaseSearchContext = null;
+    this.unregisterInputCommands();
     this.destroy$.next();
     this.destroy$.complete();
   }
@@ -71,6 +86,7 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
    */
   show(): void {
     this.isVisible = true;
+    this.releaseSearchContext ??= this.inputContexts.acquire('dialog.globalSearch');
     this.searchQuery = '';
     this.results = [];
     this.selectedIndex = 0;
@@ -89,7 +105,9 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
     this.isVisible = false;
     this.searchQuery = '';
     this.results = [];
-    this.showSettingsModal = false;
+    this.hideSettings();
+    this.releaseSearchContext?.();
+    this.releaseSearchContext = null;
   }
 
   /**
@@ -268,6 +286,7 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
    */
   showSettings(): void {
     this.showSettingsModal = true;
+    this.releaseSearchSettingsContext ??= this.inputContexts.acquire('dialog.globalSearch.settings');
   }
 
   /**
@@ -275,6 +294,8 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
    */
   hideSettings(): void {
     this.showSettingsModal = false;
+    this.releaseSearchSettingsContext?.();
+    this.releaseSearchSettingsContext = null;
   }
 
   /**
@@ -306,45 +327,6 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
   /**
    * Handle keyboard navigation
    */
-  @HostListener('document:keydown', ['$event'])
-  handleKeyDown(event: KeyboardEvent): void {
-    if (!this.isVisible) return;
-
-    switch (event.key) {
-      case 'Escape':
-        event.preventDefault();
-        if (this.showSettingsModal) {
-          this.hideSettings();
-        } else {
-          this.hide();
-        }
-        break;
-
-      case 'ArrowDown':
-        event.preventDefault();
-        if (this.results.length > 0) {
-          this.selectedIndex = Math.min(this.selectedIndex + 1, this.results.length - 1);
-          this.scrollToSelected();
-        }
-        break;
-
-      case 'ArrowUp':
-        event.preventDefault();
-        if (this.results.length > 0) {
-          this.selectedIndex = Math.max(this.selectedIndex - 1, 0);
-          this.scrollToSelected();
-        }
-        break;
-
-      case 'Enter':
-        event.preventDefault();
-        if (this.results.length > 0 && this.selectedIndex < this.results.length) {
-          this.selectResult(this.results[this.selectedIndex]);
-        }
-        break;
-    }
-  }
-
   /**
    * Scroll to selected result
    */
@@ -355,6 +337,57 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
         selected.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
       }
     }, 0);
+  }
+
+  private registerInputCommands(): void {
+    this.inputEngine.registerCommand('dialog.globalSearch.close', () => {
+      if (!this.isVisible) return;
+      this.hide();
+    });
+
+    this.inputEngine.registerCommand('dialog.globalSearch.prevResult', () => {
+      if (!this.isVisible || this.showSettingsModal || this.results.length === 0) return;
+      this.selectedIndex = Math.max(this.selectedIndex - 1, 0);
+      this.scrollToSelected();
+    });
+
+    this.inputEngine.registerCommand('dialog.globalSearch.nextResult', () => {
+      if (!this.isVisible || this.showSettingsModal || this.results.length === 0) return;
+      this.selectedIndex = Math.min(this.selectedIndex + 1, this.results.length - 1);
+      this.scrollToSelected();
+    });
+
+    this.inputEngine.registerCommand('dialog.globalSearch.openSelected', () => {
+      if (!this.isVisible || this.showSettingsModal) return;
+      if (this.results.length === 0 || this.selectedIndex >= this.results.length) return;
+      this.selectResult(this.results[this.selectedIndex]);
+    });
+
+    this.inputEngine.registerCommand('dialog.globalSearch.openSettings', () => {
+      if (!this.isVisible) return;
+      this.showSettings();
+    });
+
+    this.inputEngine.registerCommand('dialog.globalSearch.settings.close', () => {
+      if (!this.showSettingsModal) return;
+      this.hideSettings();
+    });
+
+    this.inputEngine.registerCommand('dialog.globalSearch.settings.apply', () => {
+      if (!this.showSettingsModal) return;
+      this.updateSearchConfig();
+      this.hideSettings();
+    });
+  }
+
+  private unregisterInputCommands(): void {
+    this.inputEngine.unregisterCommand('dialog.globalSearch.close');
+    this.inputEngine.unregisterCommand('dialog.globalSearch.prevResult');
+    this.inputEngine.unregisterCommand('dialog.globalSearch.nextResult');
+    this.inputEngine.unregisterCommand('dialog.globalSearch.openSelected');
+    this.inputEngine.unregisterCommand('dialog.globalSearch.openSettings');
+    this.inputEngine.unregisterCommand('dialog.globalSearch.settings.close');
+    this.inputEngine.unregisterCommand('dialog.globalSearch.settings.apply');
   }
 }
 

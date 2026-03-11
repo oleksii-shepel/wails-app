@@ -1,9 +1,11 @@
 import {
   Component, Input, Output, EventEmitter,
-  ChangeDetectionStrategy, ChangeDetectorRef, OnChanges, SimpleChanges, OnInit
+  ChangeDetectionStrategy, ChangeDetectorRef, OnChanges, SimpleChanges, OnDestroy, OnInit
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FilterPreset, FilterGroup, GROUP_ORDER, GROUP_MODES } from './filter-bar.types';
+import { InputContextService } from '../services/input-context.service';
+import { InputEngineService } from '../services/input-engine.service';
 
 @Component({
   selector: 'app-filter-dropdown',
@@ -67,12 +69,14 @@ import { FilterPreset, FilterGroup, GROUP_ORDER, GROUP_MODES } from './filter-ba
             <!-- Items -->
             <div
               class="fd-item"
-              *ngFor="let preset of group.presets"
+              *ngFor="let preset of group.presets; let i = index"
               role="menuitemcheckbox"
               [attr.aria-checked]="isSelected(preset)"
               [class.fd-item--selected]="isSelected(preset)"
+              [class.fd-item--focused]="isFocused(group.name, preset.id)"
               [class.fd-item--dynamic]="preset.isDynamic"
               (click)="onItemClick(preset, $event)"
+              (mouseenter)="setFocusedItem(group.name, preset.id)"
             >
               <span class="fd-checkbox" [class.fd-checkbox--on]="isSelected(preset)" aria-hidden="true">
                 <svg *ngIf="isSelected(preset)" width="8" height="8" viewBox="0 0 16 16" fill="currentColor">
@@ -262,6 +266,9 @@ import { FilterPreset, FilterGroup, GROUP_ORDER, GROUP_MODES } from './filter-ba
     .fd-item--selected:hover {
       background: var(--vsc-list-active-background);
     }
+    .fd-item--focused:not(.fd-item--selected) {
+      background: var(--vsc-list-hover-background);
+    }
 
     /* ── Checkbox ────────────────────────────────────────── */
     .fd-checkbox {
@@ -318,34 +325,52 @@ import { FilterPreset, FilterGroup, GROUP_ORDER, GROUP_MODES } from './filter-ba
     }
   `],
 })
-export class FilterDropdownComponent implements OnChanges, OnInit {
+export class FilterDropdownComponent implements OnChanges, OnDestroy, OnInit {
 
   @Input() presets:    FilterPreset[] = [];
   @Input() selected:   FilterPreset[] = [];
   @Input() hasDynamic = false;
+  @Input() contextId = 'overlay.filter.category';
 
   @Output() itemToggle      = new EventEmitter<FilterPreset>();
   @Output() clearAll        = new EventEmitter<void>();
   @Output() refresh         = new EventEmitter<void>();
   @Output() groupModeChange = new EventEmitter<{ group: string; mode: 'AND' | 'OR' }>();
+  @Output() closeRequested  = new EventEmitter<void>();
 
   groups: FilterGroup[] = [];
   private groupModes = new Map<string, 'AND' | 'OR'>();
+  private focusedGroupName: string | null = null;
+  private focusedPresetId: string | null = null;
+  private readonly commandOwner = `filterDropdown:${Math.random().toString(36).slice(2, 8)}`;
+  private releaseOverlayContext: (() => void) | null = null;
 
   // Define which groups are OR vs AND
   private readonly orGroups = new Set(['Basic', 'Extensions', 'Other']);
   private readonly andGroups = new Set(['Date', 'Size', 'Special']);
 
-  constructor(private cdr: ChangeDetectorRef) {}
+  constructor(
+    private cdr: ChangeDetectorRef,
+    private inputContexts: InputContextService,
+    private inputEngine: InputEngineService,
+  ) {}
 
   ngOnInit(): void {
     this.initializeGroupModes();
+    this.registerInputCommands();
+    this.releaseOverlayContext ??= this.inputContexts.acquire(this.contextId);
   }
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['presets']) {
       this.buildGroups();
     }
+  }
+
+  ngOnDestroy(): void {
+    this.releaseOverlayContext?.();
+    this.releaseOverlayContext = null;
+    this.unregisterInputCommands();
   }
 
   private initializeGroupModes(): void {
@@ -381,6 +406,15 @@ export class FilterDropdownComponent implements OnChanges, OnInit {
     this.refresh.emit();
   }
 
+  isFocused(groupName: string, presetId: string): boolean {
+    return this.focusedGroupName === groupName && this.focusedPresetId === presetId;
+  }
+
+  setFocusedItem(groupName: string, presetId: string): void {
+    this.focusedGroupName = groupName;
+    this.focusedPresetId = presetId;
+  }
+
   private buildGroups(): void {
     const map = new Map<string, FilterPreset[]>();
     
@@ -409,6 +443,15 @@ export class FilterDropdownComponent implements OnChanges, OnInit {
         name, 
         presets: this.sortPresetsByCount(presets)
       }));
+
+    const firstPreset = this.groups[0]?.presets[0] ?? null;
+    if (firstPreset) {
+      this.focusedGroupName ??= this.groups[0].name;
+      this.focusedPresetId ??= firstPreset.id;
+    } else {
+      this.focusedGroupName = null;
+      this.focusedPresetId = null;
+    }
     
     this.cdr.markForCheck();
   }
@@ -420,5 +463,53 @@ export class FilterDropdownComponent implements OnChanges, OnInit {
       if (countA !== countB) return countB - countA;
       return a.name.localeCompare(b.name);
     });
+  }
+
+  private moveFocus(delta: number): void {
+    const items = this.groups.flatMap(group => group.presets.map(preset => ({ groupName: group.name, preset })));
+    if (items.length === 0) return;
+
+    const currentIndex = items.findIndex(item => this.isFocused(item.groupName, item.preset.id));
+    const baseIndex = currentIndex >= 0 ? currentIndex : 0;
+    const nextIndex = Math.max(0, Math.min(items.length - 1, baseIndex + delta));
+    this.focusedGroupName = items[nextIndex].groupName;
+    this.focusedPresetId = items[nextIndex].preset.id;
+    this.cdr.markForCheck();
+  }
+
+  private toggleFocused(): void {
+    const preset = this.groups
+      .flatMap(group => group.presets)
+      .find(item => item.id === this.focusedPresetId);
+    if (!preset) return;
+    this.itemToggle.emit(preset);
+  }
+
+  private registerInputCommands(): void {
+    const prefix = this.contextId === 'overlay.filter.presets' ? 'overlay.filter.presets' : 'overlay.filter.category';
+
+    this.inputEngine.registerCommand(`${prefix}.close`, () => {
+      this.closeRequested.emit();
+    }, this.commandOwner);
+
+    this.inputEngine.registerCommand(`${prefix}.prevItem`, () => {
+      this.moveFocus(-1);
+    }, this.commandOwner);
+
+    this.inputEngine.registerCommand(`${prefix}.nextItem`, () => {
+      this.moveFocus(1);
+    }, this.commandOwner);
+
+    this.inputEngine.registerCommand(`${prefix}.select`, () => {
+      this.toggleFocused();
+    }, this.commandOwner);
+  }
+
+  private unregisterInputCommands(): void {
+    const prefix = this.contextId === 'overlay.filter.presets' ? 'overlay.filter.presets' : 'overlay.filter.category';
+    this.inputEngine.unregisterCommand(`${prefix}.close`, this.commandOwner);
+    this.inputEngine.unregisterCommand(`${prefix}.prevItem`, this.commandOwner);
+    this.inputEngine.unregisterCommand(`${prefix}.nextItem`, this.commandOwner);
+    this.inputEngine.unregisterCommand(`${prefix}.select`, this.commandOwner);
   }
 }

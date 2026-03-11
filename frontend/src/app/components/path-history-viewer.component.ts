@@ -1,9 +1,11 @@
-import { Component, OnInit, OnDestroy } from '@angular/core';
+import { Component, OnInit, OnDestroy, ViewChild, ElementRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
 import { PathHistoryService, PathHistoryEntry } from '../services/path-history.service';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
+import { InputContextService } from '../services/input-context.service';
+import { InputEngineService } from '../services/input-engine.service';
 import { normalizePath } from './address-bar.utils';
 
 @Component({
@@ -37,6 +39,7 @@ import { normalizePath } from './address-bar.utils';
         <!-- Search Filter -->
         <div class="search-bar">
           <input
+            #filterInput
             type="text"
             [(ngModel)]="filterText"
             (ngModelChange)="applyFilter()"
@@ -56,7 +59,9 @@ import { normalizePath } from './address-bar.utils';
           <div
             *ngFor="let entry of filteredEntries; let i = index"
             class="history-entry"
+            [class.selected]="i === selectedIndex"
             [class.recent]="isRecent(entry)"
+            (mouseenter)="selectedIndex = i"
             (click)="selectPath(entry)"
           >
             <div class="entry-icon">📁</div>
@@ -298,6 +303,10 @@ import { normalizePath } from './address-bar.utils';
       background: var(--vsc-list-hover-background);
     }
 
+    .history-entry.selected {
+      background: var(--vsc-list-active-background, var(--vsc-list-hover-background));
+    }
+
     .history-entry.recent {
       border-left: 3px solid var(--vsc-accent-blue);
     }
@@ -441,19 +450,26 @@ import { normalizePath } from './address-bar.utils';
   `]
 })
 export class PathHistoryViewerComponent implements OnInit, OnDestroy {
+  @ViewChild('filterInput') filterInput?: ElementRef<HTMLInputElement>;
+
   isVisible = false;
   historyEntries: PathHistoryEntry[] = [];
   filteredEntries: PathHistoryEntry[] = [];
   filterText = '';
+  selectedIndex = 0;
 
   private destroy$ = createSubject<void>();
+  private releaseDialogContext: (() => void) | null = null;
 
   constructor(
     private pathHistoryService: PathHistoryService,
     private confirmDialog: ConfirmDialogService,
+    private inputContexts: InputContextService,
+    private inputEngine: InputEngineService,
   ) {}
 
   ngOnInit(): void {
+    this.registerInputCommands();
     // Subscribe to history changes
     this.pathHistoryService.history$
       .pipe(takeUntil(this.destroy$))
@@ -468,19 +484,27 @@ export class PathHistoryViewerComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.releaseDialogContext?.();
+    this.releaseDialogContext = null;
+    this.unregisterInputCommands();
     this.destroy$.next();
     this.destroy$.complete();
   }
 
   show(): void {
     this.isVisible = true;
+    this.releaseDialogContext ??= this.inputContexts.acquire('dialog.pathHistory');
     this.filterText = '';
     this.historyEntries = this.pathHistoryService.getAllHistory();
     this.applyFilter();
+    this.selectedIndex = 0;
+    setTimeout(() => this.filterInput?.nativeElement.focus(), 0);
   }
 
   hide(): void {
     this.isVisible = false;
+    this.releaseDialogContext?.();
+    this.releaseDialogContext = null;
   }
 
   normalizeEntryPath(path: string | null | undefined): string {
@@ -496,6 +520,13 @@ export class PathHistoryViewerComponent implements OnInit, OnDestroy {
         this.normalizeEntryPath(entry.path).toLowerCase().includes(filter)
       );
     }
+
+    if (this.filteredEntries.length === 0) {
+      this.selectedIndex = 0;
+      return;
+    }
+
+    this.selectedIndex = Math.max(0, Math.min(this.selectedIndex, this.filteredEntries.length - 1));
   }
 
   selectPath(entry: PathHistoryEntry): void {
@@ -569,6 +600,75 @@ export class PathHistoryViewerComponent implements OnInit, OnDestroy {
     a.download = `path-history-${Date.now()}.json`;
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  selectPathAt(index: number): void {
+    if (index < 0 || index >= this.filteredEntries.length) return;
+    this.selectedIndex = index;
+    this.selectPath(this.filteredEntries[index]);
+  }
+
+  async removeSelectedPath(): Promise<void> {
+    const entry = this.filteredEntries[this.selectedIndex];
+    if (!entry) return;
+
+    const normalizedPath = this.normalizeEntryPath(entry.path);
+    const confirmed = await this.confirmDialog.confirm({
+      title: 'Remove History Entry',
+      message: `Remove "${normalizedPath}" from history?`,
+      confirmText: 'Remove',
+      danger: true,
+    });
+    if (confirmed) {
+      this.pathHistoryService.removePath(normalizedPath);
+    }
+  }
+
+  private moveSelection(delta: number): void {
+    if (!this.isVisible || this.filteredEntries.length === 0) return;
+    this.selectedIndex = Math.max(0, Math.min(this.selectedIndex + delta, this.filteredEntries.length - 1));
+  }
+
+  private registerInputCommands(): void {
+    this.inputEngine.registerCommand('dialog.pathHistory.close', () => {
+      if (!this.isVisible) return;
+      this.hide();
+    });
+
+    this.inputEngine.registerCommand('dialog.pathHistory.focusFilter', () => {
+      if (!this.isVisible) return;
+      this.filterInput?.nativeElement.focus();
+      this.filterInput?.nativeElement.select();
+    });
+
+    this.inputEngine.registerCommand('dialog.pathHistory.prevItem', () => {
+      if (!this.isVisible) return;
+      this.moveSelection(-1);
+    });
+
+    this.inputEngine.registerCommand('dialog.pathHistory.nextItem', () => {
+      if (!this.isVisible) return;
+      this.moveSelection(1);
+    });
+
+    this.inputEngine.registerCommand('dialog.pathHistory.openSelected', () => {
+      if (!this.isVisible) return;
+      this.selectPathAt(this.selectedIndex);
+    });
+
+    this.inputEngine.registerCommand('dialog.pathHistory.removeSelected', () => {
+      if (!this.isVisible) return;
+      return this.removeSelectedPath();
+    });
+  }
+
+  private unregisterInputCommands(): void {
+    this.inputEngine.unregisterCommand('dialog.pathHistory.close');
+    this.inputEngine.unregisterCommand('dialog.pathHistory.focusFilter');
+    this.inputEngine.unregisterCommand('dialog.pathHistory.prevItem');
+    this.inputEngine.unregisterCommand('dialog.pathHistory.nextItem');
+    this.inputEngine.unregisterCommand('dialog.pathHistory.openSelected');
+    this.inputEngine.unregisterCommand('dialog.pathHistory.removeSelected');
   }
 }
 

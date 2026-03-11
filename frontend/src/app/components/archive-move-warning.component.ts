@@ -17,8 +17,10 @@
  *   </app-archive-move-warning>
  */
 
-import { Component, Input, Output, EventEmitter } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnChanges, OnDestroy, OnInit, SimpleChanges } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { InputContextService } from '../services/input-context.service';
+import { InputEngineService } from '../services/input-engine.service';
 
 @Component({
   selector: 'app-archive-move-warning',
@@ -134,15 +136,57 @@ import { CommonModule } from '@angular/common';
     .amw-btn--confirm:hover { filter: brightness(1.08); }
   `],
 })
-export class ArchiveMoveWarningComponent {
+export class ArchiveMoveWarningComponent implements OnInit, OnChanges, OnDestroy {
+  private releaseDialogContext: (() => void) | null = null;
+
   @Input()  visible    = false;
   @Input()  entryCount = 1;
   @Output() confirmed  = new EventEmitter<void>();
   @Output() cancelled  = new EventEmitter<void>();
 
+  constructor(
+    private inputContexts: InputContextService,
+    private inputEngine: InputEngineService,
+  ) {}
+
+  ngOnInit(): void {
+    this.inputEngine.registerCommand('dialog.archiveMoveWarning.confirm', () => {
+      if (!this.visible) return;
+      this.confirmed.emit();
+    });
+
+    this.inputEngine.registerCommand('dialog.archiveMoveWarning.cancel', () => {
+      if (!this.visible) return;
+      this.cancelled.emit();
+    });
+
+    this.syncContextLease();
+  }
+
+  ngOnChanges(_changes: SimpleChanges): void {
+    this.syncContextLease();
+  }
+
+  ngOnDestroy(): void {
+    this.releaseDialogContext?.();
+    this.releaseDialogContext = null;
+    this.inputEngine.unregisterCommand('dialog.archiveMoveWarning.confirm');
+    this.inputEngine.unregisterCommand('dialog.archiveMoveWarning.cancel');
+  }
+
   onBackdrop(e: MouseEvent): void {
     if ((e.target as HTMLElement).classList.contains('amw-backdrop')) {
       this.cancelled.emit();
     }
+  }
+
+  private syncContextLease(): void {
+    if (this.visible) {
+      this.releaseDialogContext ??= this.inputContexts.acquire('dialog.archiveMoveWarning');
+      return;
+    }
+
+    this.releaseDialogContext?.();
+    this.releaseDialogContext = null;
   }
 }

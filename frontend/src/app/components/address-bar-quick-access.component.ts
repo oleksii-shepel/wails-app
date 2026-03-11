@@ -1,7 +1,9 @@
-import { Component, Input, Output, EventEmitter, OnInit, OnDestroy, OnChanges, SimpleChanges, ChangeDetectionStrategy, HostListener, ChangeDetectorRef, ElementRef } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnInit, OnDestroy, OnChanges, SimpleChanges, ChangeDetectionStrategy, ChangeDetectorRef, ElementRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { SpecialFolder } from '../shared/protocol';
 import { PathHistoryService, PathHistoryEntry } from '../services/path-history.service';
+import { InputContextService } from '../services/input-context.service';
+import { InputEngineService } from '../services/input-engine.service';
 import { PinnedPath } from './address-bar.types';
 
 export interface QuickAccessSection {
@@ -511,6 +513,7 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChan
   @Input() preferredSectionTitle: string | null = null;
   @Output() navigate = new EventEmitter<string>();
   @Output() removePin = new EventEmitter<PinnedPath>();
+  @Output() closeRequested = new EventEmitter<void>();
 
   sections: QuickAccessSection[] = [];
   activeTabIdx = 0;
@@ -520,15 +523,22 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChan
   animationToSections: OrderedQuickAccessSection[] = [];
   highlightedItem: { sectionIdx: number; itemIdx: number } | null = null;
   private tabSpinTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly commandOwner = `overlay.quickAccess:${Math.random().toString(36).slice(2, 8)}`;
+  private releaseOverlayContext: (() => void) | null = null;
 
   constructor(
     private pathHistoryService: PathHistoryService,
     private cdr: ChangeDetectorRef,
     private hostEl: ElementRef<HTMLElement>,
+    private inputContexts: InputContextService,
+    private inputEngine: InputEngineService,
   ) {}
 
   ngOnInit(): void {
+    this.registerInputCommands();
+    this.releaseOverlayContext ??= this.inputContexts.acquire('overlay.quickAccess');
     this.buildSections();
+    this.focusMenuRoot();
   }
 
   ngOnChanges(changes: SimpleChanges): void {
@@ -542,6 +552,9 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChan
 
   ngOnDestroy(): void {
     if (this.tabSpinTimer) clearTimeout(this.tabSpinTimer);
+    this.releaseOverlayContext?.();
+    this.releaseOverlayContext = null;
+    this.unregisterInputCommands();
   }
 
   // no-op if no items
@@ -706,39 +719,6 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChan
     if (item.pin) this.removePin.emit(item.pin);
   }
 
-  @HostListener('document:keydown', ['$event'])
-  onKeyDown(event: KeyboardEvent): void {
-    // Tab switching logic
-    if (event.key === 'Tab') {
-      event.preventDefault();
-      event.stopPropagation();
-      const len = this.sections.length;
-      if (len <= 1) return;
-
-      const delta = event.shiftKey ? -1 : 1;
-      const next = (this.activeTabIdx + delta + len) % len;
-      this.setActiveTab(next);
-      return;
-    }
-
-    if (!this.highlightedItem) return;
-
-    switch (event.key) {
-      case 'ArrowDown':
-        event.preventDefault();
-        this.moveDown();
-        break;
-      case 'ArrowUp':
-        event.preventDefault();
-        this.moveUp();
-        break;
-      case 'Enter':
-        event.preventDefault();
-        this.selectItem(this.highlightedItem.sectionIdx, this.highlightedItem.itemIdx);
-        break;
-    }
-  }
-
   private moveDown(): void {
     if (!this.highlightedItem) return;
     const { sectionIdx, itemIdx } = this.highlightedItem;
@@ -758,6 +738,50 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChan
       this.highlightedItem = { sectionIdx, itemIdx: itemIdx - 1 };
     }
     // No wrapping to prev section; just stop at top of list
+  }
+
+  private registerInputCommands(): void {
+    this.inputEngine.registerCommand('overlay.quickAccess.close', () => {
+      this.closeRequested.emit();
+    }, this.commandOwner);
+
+    this.inputEngine.registerCommand('overlay.quickAccess.nextSection', () => {
+      const len = this.sections.length;
+      if (len <= 1) return;
+      const next = (this.activeTabIdx + 1) % len;
+      this.setActiveTab(next);
+    }, this.commandOwner);
+
+    this.inputEngine.registerCommand('overlay.quickAccess.prevSection', () => {
+      const len = this.sections.length;
+      if (len <= 1) return;
+      const next = (this.activeTabIdx - 1 + len) % len;
+      this.setActiveTab(next);
+    }, this.commandOwner);
+
+    this.inputEngine.registerCommand('overlay.quickAccess.prevItem', () => {
+      this.moveUp();
+      this.cdr.markForCheck();
+    }, this.commandOwner);
+
+    this.inputEngine.registerCommand('overlay.quickAccess.nextItem', () => {
+      this.moveDown();
+      this.cdr.markForCheck();
+    }, this.commandOwner);
+
+    this.inputEngine.registerCommand('overlay.quickAccess.openSelected', () => {
+      if (!this.highlightedItem) return;
+      this.selectItem(this.highlightedItem.sectionIdx, this.highlightedItem.itemIdx);
+    }, this.commandOwner);
+  }
+
+  private unregisterInputCommands(): void {
+    this.inputEngine.unregisterCommand('overlay.quickAccess.close', this.commandOwner);
+    this.inputEngine.unregisterCommand('overlay.quickAccess.nextSection', this.commandOwner);
+    this.inputEngine.unregisterCommand('overlay.quickAccess.prevSection', this.commandOwner);
+    this.inputEngine.unregisterCommand('overlay.quickAccess.prevItem', this.commandOwner);
+    this.inputEngine.unregisterCommand('overlay.quickAccess.nextItem', this.commandOwner);
+    this.inputEngine.unregisterCommand('overlay.quickAccess.openSelected', this.commandOwner);
   }
 
   private getFrequentFolders(limit: number): QuickAccessItem[] {

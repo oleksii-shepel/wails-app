@@ -71,6 +71,7 @@ import { DropdownContainerComponent } from './dropdown-container.component';
           [preferredSectionTitle]="quickAccessPreferredSection"
           (navigate)="navigateTo($event); showQuickAccess = false"
           (removePin)="removePin($event)"
+          (closeRequested)="showQuickAccess = false"
         />
       </app-dropdown-container>
 
@@ -237,6 +238,7 @@ import { DropdownContainerComponent } from './dropdown-container.component';
       [loading]="sibLoading"
       [headLabel]="segments[chevIdx].label"
       (entryClick)="onSibClick($event)"
+      (closeRequested)="onSibOpenChange(false)"
     />
   </app-dropdown-container>
 
@@ -252,6 +254,7 @@ import { DropdownContainerComponent } from './dropdown-container.component';
       [loading]="drivesLoading"
       [currentPath]="currentPath"
       (driveClick)="switchToDrive($event)"
+      (closeRequested)="showDriveMenu = false"
     />
   </app-dropdown-container>
 

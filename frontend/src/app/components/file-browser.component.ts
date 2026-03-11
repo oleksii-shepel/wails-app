@@ -29,6 +29,7 @@ import { OperationToastStackComponent } from './operation-stack.component';
 import { ArchiveService } from '../services/archive.service';
 import { ElevationStatusPillComponent } from './elevation-status-pill.component';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
+import { InputEngineService } from '../services/input-engine.service';
 import { TabInfo } from '../shared/protocol-enhanced';
 
 @Component({
@@ -94,6 +95,7 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
     public theme: ThemeService,
     private archiveService: ArchiveService,
     private confirmDialog: ConfirmDialogService,
+    private inputEngine: InputEngineService,
     private zone: NgZone,
     private cdr: ChangeDetectorRef,
   ) {

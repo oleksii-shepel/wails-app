@@ -1,8 +1,10 @@
-import { Component, Input, Output, EventEmitter, ViewChild, ElementRef, AfterViewInit, ChangeDetectorRef } from '@angular/core';
+import { Component, Input, Output, EventEmitter, ViewChild, ElementRef, AfterViewInit, ChangeDetectorRef, OnChanges, OnDestroy, OnInit, SimpleChanges } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { WorkspaceConfig } from '../shared/protocol-enhanced';
 import { DropdownDirective, DropdownTriggerDirective, DropdownMenuDirective } from '../directives/dropdown.directive';
 import { DropdownContainerComponent } from './dropdown-container.component';
+import { InputContextService } from '../services/input-context.service';
+import { InputEngineService } from '../services/input-engine.service';
 
 /**
  * Workspace Selector Component
@@ -22,7 +24,7 @@ import { DropdownContainerComponent } from './dropdown-container.component';
         <path d="M4 6l4 4 4-4H4z"/>
       </svg>
     </div>
-    <app-dropdown-container [(isOpen)]="showMenu" [anchorEl]="anchorElement">
+    <app-dropdown-container [(isOpen)]="showMenu" (isOpenChange)="onMenuStateChange($event)" [anchorEl]="anchorElement">
     
     <div appDropdownMenu class="ws-menu" *ngIf="showMenu">
       <div class="ws-menu-header">
@@ -36,9 +38,11 @@ import { DropdownContainerComponent } from './dropdown-container.component';
 
       <div class="ws-list">
         <div
-          *ngFor="let workspace of workspaces"
+          *ngFor="let workspace of workspaces; let i = index"
           class="ws-item"
           [class.ws-item--active]="workspace.id === activeWorkspace?.id"
+          [class.ws-item--selected]="i === selectedIndex"
+          (mouseenter)="setSelectedIndex(i)"
           (click)="onSelect(workspace)">
           <span class="ws-item-icon">{{ workspace.icon }}</span>
           <span class="ws-item-name">{{ workspace.name }}</span>
@@ -190,6 +194,10 @@ import { DropdownContainerComponent } from './dropdown-container.component';
         border-left-color: var(--vsc-accent-blue);
         font-weight: 500;
       }
+
+      &.ws-item--selected {
+        background: color-mix(in srgb, var(--vsc-list-hover-background) 80%, transparent);
+      }
     }
 
     .ws-item-icon { font-size: 15px; line-height: 1; flex-shrink: 0; }
@@ -228,7 +236,7 @@ import { DropdownContainerComponent } from './dropdown-container.component';
     }
   `]
 })
-export class WorkspaceSelectorComponent implements AfterViewInit {
+export class WorkspaceSelectorComponent implements AfterViewInit, OnChanges, OnDestroy, OnInit {
   @Input() workspaces: WorkspaceConfig[] = [];
   @Input() activeWorkspace: WorkspaceConfig | null = null;
   @Input() showMenu = false;
@@ -242,24 +250,126 @@ export class WorkspaceSelectorComponent implements AfterViewInit {
   @Output() menuToggle = new EventEmitter<boolean>();
 
   anchorElement: HTMLElement | null = null;
+  selectedIndex = -1;
 
-  constructor(private cdr: ChangeDetectorRef) {}
+  private readonly commandOwner = `overlay.workspaceSelector:${Math.random().toString(36).slice(2, 8)}`;
+  private releaseOverlayContext: (() => void) | null = null;
+
+  constructor(
+    private cdr: ChangeDetectorRef,
+    private inputContexts: InputContextService,
+    private inputEngine: InputEngineService,
+  ) {}
+
+  ngOnInit(): void {
+    this.registerInputCommands();
+    this.syncSelection();
+    this.syncContextLease();
+  }
 
   ngAfterViewInit(): void {
     this.anchorElement = this.wsSelectorRef?.nativeElement ?? null;
     this.cdr.detectChanges();
   }
 
+  ngOnChanges(_changes: SimpleChanges): void {
+    this.syncSelection();
+    this.syncContextLease();
+  }
+
+  ngOnDestroy(): void {
+    this.releaseOverlayContext?.();
+    this.releaseOverlayContext = null;
+    this.unregisterInputCommands();
+  }
+
   // isOpen is two-way bound to appDropdown — directive handles all close/outside-click logic
   toggleMenu(): void {
     this.showMenu = !this.showMenu;
+    this.syncSelection();
+    this.syncContextLease();
     this.menuToggle.emit(this.showMenu);
   }
 
   onSelect(workspace: WorkspaceConfig): void {
     this.workspaceChange.emit(workspace);
     this.showMenu = false;
+    this.syncContextLease();
     this.menuToggle.emit(false);
+  }
+
+  onMenuStateChange(show: boolean): void {
+    this.showMenu = show;
+    this.syncSelection();
+    this.syncContextLease();
+    this.menuToggle.emit(show);
+  }
+
+  setSelectedIndex(index: number): void {
+    if (index < 0 || index >= this.workspaces.length) return;
+    this.selectedIndex = index;
+  }
+
+  private moveSelection(delta: number): void {
+    if (this.workspaces.length === 0) return;
+    const baseIndex = this.selectedIndex >= 0 ? this.selectedIndex : 0;
+    this.selectedIndex = Math.max(0, Math.min(this.workspaces.length - 1, baseIndex + delta));
+    this.cdr.markForCheck();
+  }
+
+  private activateSelected(): void {
+    const workspace = this.workspaces[this.selectedIndex];
+    if (!workspace) return;
+    this.onSelect(workspace);
+  }
+
+  private syncSelection(): void {
+    if (this.workspaces.length === 0) {
+      this.selectedIndex = -1;
+      return;
+    }
+
+    const activeIndex = this.workspaces.findIndex(workspace => workspace.id === this.activeWorkspace?.id);
+    this.selectedIndex = activeIndex >= 0 ? activeIndex : 0;
+  }
+
+  private syncContextLease(): void {
+    if (this.showMenu) {
+      this.releaseOverlayContext ??= this.inputContexts.acquire('overlay.workspaceSelector');
+      return;
+    }
+
+    this.releaseOverlayContext?.();
+    this.releaseOverlayContext = null;
+  }
+
+  private registerInputCommands(): void {
+    this.inputEngine.registerCommand('overlay.workspaceSelector.close', () => {
+      if (!this.showMenu) return;
+      this.onMenuStateChange(false);
+    }, this.commandOwner);
+
+    this.inputEngine.registerCommand('overlay.workspaceSelector.prevItem', () => {
+      if (!this.showMenu) return;
+      this.moveSelection(-1);
+    }, this.commandOwner);
+
+    this.inputEngine.registerCommand('overlay.workspaceSelector.nextItem', () => {
+      if (!this.showMenu) return;
+      this.moveSelection(1);
+    }, this.commandOwner);
+
+    this.inputEngine.registerCommand('overlay.workspaceSelector.activateSelected', () => {
+      if (!this.showMenu) return;
+      this.activateSelected();
+    }, this.commandOwner);
+  }
+
+  private unregisterInputCommands(): void {
+    this.inputEngine.unregisterCommand('overlay.workspaceSelector.close', this.commandOwner);
+    this.inputEngine.unregisterCommand('overlay.workspaceSelector.prevItem', this.commandOwner);
+    this.inputEngine.unregisterCommand('overlay.workspaceSelector.nextItem', this.commandOwner);
+    this.inputEngine.unregisterCommand('overlay.workspaceSelector.activateSelected', this.commandOwner);
   }
 
   onCreateNew(): void { this.createNew.emit(); }

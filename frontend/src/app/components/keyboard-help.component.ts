@@ -1,9 +1,11 @@
-import { Component, OnInit, OnDestroy, HostListener } from '@angular/core';
+import { Component, OnInit, OnDestroy, ViewChild, ElementRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { createSubject } from '@epikodelabs/streamix';
 import { KeyboardService, ShortcutCategory } from '../services/keyboard.service';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
+import { InputContextService } from '../services/input-context.service';
+import { InputEngineService } from '../services/input-engine.service';
 
 @Component({
   selector: 'app-keyboard-help',
@@ -13,45 +15,34 @@ import { ConfirmDialogService } from '../services/confirm-dialog.service';
   styleUrls: ['./keyboard-help.component.scss']
 })
 export class KeyboardHelpComponent implements OnInit, OnDestroy {
+  @ViewChild('searchInput') searchInput?: ElementRef<HTMLInputElement>;
+
   isVisible = false;
   categories: ShortcutCategory[] = [];
   searchText = '';
   filteredCategories: ShortcutCategory[] = [];
 
   private destroy$ = createSubject<void>();
+  private releaseDialogContext: (() => void) | null = null;
 
   constructor(
     private keyboardService: KeyboardService,
     private confirmDialog: ConfirmDialogService,
+    private inputContexts: InputContextService,
+    private inputEngine: InputEngineService,
   ) {}
 
   ngOnInit(): void {
+    this.registerInputCommands();
     this.loadShortcuts();
   }
 
   ngOnDestroy(): void {
+    this.releaseDialogContext?.();
+    this.releaseDialogContext = null;
+    this.unregisterInputCommands();
     this.destroy$.next();
     this.destroy$.complete();
-  }
-
-  /**
-   * Listen for keyboard events to show/hide help
-   */
-  @HostListener('document:keydown', ['$event'])
-  handleKeyDown(event: KeyboardEvent): void {
-    // Show help with ? or Ctrl+/
-    if (event.key === '?' || (event.ctrlKey && event.key === '/')) {
-      if (!this.isVisible) {
-        event.preventDefault();
-        this.show();
-      }
-    }
-    
-    // Hide with Escape
-    if (event.key === 'Escape' && this.isVisible) {
-      event.preventDefault();
-      this.hide();
-    }
   }
 
   /**
@@ -67,8 +58,10 @@ export class KeyboardHelpComponent implements OnInit, OnDestroy {
    */
   show(): void {
     this.isVisible = true;
+    this.releaseDialogContext ??= this.inputContexts.acquire('dialog.keyboardHelp');
     this.searchText = '';
     this.loadShortcuts();
+    setTimeout(() => this.searchInput?.nativeElement.focus(), 0);
   }
 
   /**
@@ -76,6 +69,8 @@ export class KeyboardHelpComponent implements OnInit, OnDestroy {
    */
   hide(): void {
     this.isVisible = false;
+    this.releaseDialogContext?.();
+    this.releaseDialogContext = null;
   }
 
   /**
@@ -182,6 +177,30 @@ export class KeyboardHelpComponent implements OnInit, OnDestroy {
       // This would need to be implemented based on your default shortcuts
       this.confirmDialog.alert('Not Yet Implemented\nReset functionality is coming soon.');
     }
+  }
+
+  private registerInputCommands(): void {
+    this.inputEngine.registerCommand('dialog.keyboardHelp.close', () => {
+      if (!this.isVisible) return;
+      this.hide();
+    });
+
+    this.inputEngine.registerCommand('dialog.keyboardHelp.focusSearch', () => {
+      if (!this.isVisible) return;
+      this.searchInput?.nativeElement.focus();
+      this.searchInput?.nativeElement.select();
+    });
+
+    this.inputEngine.registerCommand('dialog.keyboardHelp.exportBindings', () => {
+      if (!this.isVisible) return;
+      this.exportConfig();
+    });
+  }
+
+  private unregisterInputCommands(): void {
+    this.inputEngine.unregisterCommand('dialog.keyboardHelp.close');
+    this.inputEngine.unregisterCommand('dialog.keyboardHelp.focusSearch');
+    this.inputEngine.unregisterCommand('dialog.keyboardHelp.exportBindings');
   }
 }
 

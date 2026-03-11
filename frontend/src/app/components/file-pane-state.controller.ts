@@ -22,6 +22,7 @@ export interface FilePaneStateHost {
   findEntry(path: string): FileInfo | undefined;
   emitPreviewTarget(path: string): void;
   setFindMatchCount(count: number): void;
+  promptForMask(mode: 'select' | 'unselect'): string | null;
   scrollToCursorPath(path: string): void;
   getGridColumns(): number;
   getApproxPageSize(): number;
@@ -265,6 +266,12 @@ export class FilePaneStateController {
     this.syncCursorFromSelection(host);
   }
 
+  onSelectByMaskWithPrompt(host: FilePaneStateHost): void {
+    const mask = host.promptForMask('select')?.trim();
+    if (!mask) return;
+    this.onSelectByMask(host, mask);
+  }
+
   onUnselectByMask(host: FilePaneStateHost, mask: string): void {
     const matcher = this.createMaskMatcher(mask);
     const next = new Set(host.selectedFiles);
@@ -273,6 +280,12 @@ export class FilePaneStateController {
     }
     host.selectedFiles = next;
     this.syncCursorFromSelection(host);
+  }
+
+  onUnselectByMaskWithPrompt(host: FilePaneStateHost): void {
+    const mask = host.promptForMask('unselect')?.trim();
+    if (!mask) return;
+    this.onUnselectByMask(host, mask);
   }
 
   onInvertSelection(host: FilePaneStateHost): void {

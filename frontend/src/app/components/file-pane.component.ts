@@ -166,26 +166,11 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     onArchiveMoveConfirmed = () => this.pane.executePendingMove();
     onArchiveMoveCancelled = () => { this.pane.archiveMoveWarning = false; };
   })(this);
-    /**
-     * Extract selected entries from the current archive frame.
-     * If all top-level entries are selected, extracts the whole archive (root forrest).
-     * Otherwise, extracts only the selected files/folders.
-     */
-    async onExtractSelected(destDir: string, flattenPaths = false): Promise<void> {
-      if (!this.isInArchive() || this.selectedFiles.size === 0) return;
-      const frame = this.archiveStack[this.archiveStack.length - 1];
-      const entries = Array.from(this.selectedFiles);
-      try {
-        const result = await this.archiveService.extractEntries(frame, entries, destDir, flattenPaths);
-        if (result.failed > 0) {
-          this.confirmDialog.alert('Extract Failed\n' + (result.errors ?? []).map((e: any) => e.error).join('\n'));
-        } else {
-          this.confirmDialog.alert(`Extraction Complete\n${result.succeeded} file(s) extracted to destination.`);
-        }
-      } catch (err: any) {
-        this.confirmDialog.alert(`Extract Failed\n${err.message}`);
-      }
-    }
+
+  async onExtractSelected(destDir: string, flattenPaths = false): Promise<void> {
+    await this.archiveController.extractSelected(this.archiveHost, flattenPaths, destDir);
+  }
+
   @ViewChild('surfaceOutlet') surfaceOutlet?: SurfaceOutletComponent;
 
   private get addressBar() { return this.surfaceOutlet?.addressBar; }
@@ -309,6 +294,10 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       findEntry: (path: string) => thisRef.entries.find(entry => entry.path === path),
       emitPreviewTarget: (path: string) => thisRef.previewTargetChange.emit(path),
       setFindMatchCount: (count: number) => thisRef.findWidget?.setMatchCount(count),
+      promptForMask: (mode: 'select' | 'unselect') => prompt(
+        mode === 'select' ? 'Select by mask (example: *.txt):' : 'Unselect by mask (example: *.txt):',
+        '*.*',
+      ),
       scrollToCursorPath: (path: string) => thisRef.scrollToCursorPath(path),
       getGridColumns: () => thisRef.fileViewContainer?.getGridColumns() ?? 1,
       getApproxPageSize: () => thisRef.fileViewContainer?.getApproxPageSize() ?? 10,
@@ -1054,15 +1043,11 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   onSelectByMask(): void {
-    const mask = prompt('Select by mask (example: *.txt):', '*.*')?.trim();
-    if (!mask) return;
-    this.stateController.onSelectByMask(this.stateHost, mask);
+    this.stateController.onSelectByMaskWithPrompt(this.stateHost);
   }
 
   onUnselectByMask(): void {
-    const mask = prompt('Unselect by mask (example: *.txt):', '*.*')?.trim();
-    if (!mask) return;
-    this.stateController.onUnselectByMask(this.stateHost, mask);
+    this.stateController.onUnselectByMaskWithPrompt(this.stateHost);
   }
 
   onInvertSelection(): void {

@@ -1,6 +1,6 @@
 import { Component, Input, Output, EventEmitter, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { DriveInfo } from '../shared/protocol-enhanced';
+import { DriveInfo } from '../shared/protocol';
 
 @Component({
   selector: 'app-address-bar-drive-dropdown',

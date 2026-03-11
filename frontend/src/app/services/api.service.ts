@@ -9,6 +9,7 @@ import {
   BatchSelectiveExtractResult,
   ConflictResolution,
   DirectoryListing,
+  DrivesList,
   FileContent,
   FileInfo,
   OperationResult,
@@ -19,6 +20,7 @@ import {
   ArchiveListing,
   OperationProgress,
   FileType,
+  DriveInfo,
   SpecialFolder,
 } from '../shared/protocol-enhanced';
 import { EventsEmit } from 'wailsjs/runtime/runtime';
@@ -48,7 +50,7 @@ declare global {
           // System
           Ping(): Promise<number>;
           GetOSInfo(): Promise<any>;
-          GetDrives(): Promise<any>;
+          GetDrives(): Promise<DrivesList>;
           GetSpecialFolders(): Promise<{ folders: SpecialFolder[] }>;
           
           // File System
@@ -126,8 +128,9 @@ export class ApiService {
      * Compatibility: Returns the list of drives (Windows only).
      * Use getDrives() internally.
      */
-    async listDrives(): Promise<any[]> {
-      return await this.getDrives();
+    async listDrives(): Promise<DriveInfo[]> {
+      const response = await this.getDrives();
+      return response.drives || [];
     }
 
     /**
@@ -175,7 +178,7 @@ export class ApiService {
     return await window.go.main.App.GetOSInfo();
   }
 
-  async getDrives(): Promise<any> {
+  async getDrives(): Promise<DrivesList> {
     return await window.go.main.App.GetDrives();
   }
 

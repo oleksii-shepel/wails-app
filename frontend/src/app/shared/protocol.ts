@@ -1,4 +1,3 @@
-export { ArchiveListing, ArchiveEntry } from './protocol-enhanced';
 /**
  * Shared protocol definitions between client and server.
  * These types define the command structure and responses.
@@ -35,13 +34,24 @@ export interface OSInfoResponse {
 // Drives
 // ============================================================================
 
+export type DriveType =
+  | 'fixed'
+  | 'removable'
+  | 'network'
+  | 'cdrom'
+  | 'ramdisk'
+  | 'unknown'
+  | 'cloud-onedrive'
+  | 'cloud-google'
+  | 'cloud-dropbox';
+
 export interface DriveInfo {
   /** Short label, e.g. "C:" on Windows or "sda1" on Linux */
   name: string;
   /** Mount/root path — always includes drive letter on Windows, e.g. "C:\\" */
   path: string;
-  /** "fixed" | "removable" | "network" | "cdrom" | "ramdisk" | "unknown" */
-  driveType: 'fixed' | 'removable' | 'network' | 'cdrom' | 'ramdisk' | 'unknown';
+  /** Physical drive kind or a synthetic cloud mount used by the frontend address bar. */
+  driveType: DriveType;
   /** Total capacity in bytes */
   totalSpace: number;
   /** Free space in bytes */
@@ -245,6 +255,29 @@ export interface SearchResult {
   path: string;
   matches: FileInfo[];
   totalMatches: number;
+}
+
+// ============================================================================
+// Archive Types
+// ============================================================================
+
+/** Represents a single file/folder inside an archive */
+export interface ArchiveEntry {
+  name: string;
+  path: string;
+  type: 'FILE' | 'DIRECTORY' | 'ARCHIVE';
+  size: number;
+  modified: number;
+  isNested: boolean;
+  nestedChain?: string[];
+}
+
+/** Represents the contents of an archive or a folder inside an archive */
+export interface ArchiveListing {
+  archivePath: string;
+  innerPath: string;
+  nestedChain?: string[];
+  entries: ArchiveEntry[];
 }
 
 // ============================================================================

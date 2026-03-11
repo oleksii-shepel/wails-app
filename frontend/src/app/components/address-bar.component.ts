@@ -8,8 +8,8 @@ import { CommonModule } from '@angular/common';
 import { DropdownTriggerDirective, DropdownMenuDirective } from '../directives/dropdown.directive';
 
 import { ApiService } from '../services/api.service';
-import { DirectoryListing, FileInfo, FileType } from '../shared/protocol';
-import { DriveInfo, SpecialFolder } from '../shared/protocol-enhanced';
+import { DirectoryListing, DriveInfo, DriveType, FileInfo, FileType } from '../shared/protocol';
+import { SpecialFolder } from '../shared/protocol-enhanced';
 import { ArchiveService, ArchiveFrame, isArchive } from '../services/archive.service';
 import { parsePathWithArchives, buildSegmentsFromParsedPath } from './address-bar.utils';
 import { EventsOn } from 'wailsjs/runtime';
@@ -934,7 +934,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
       return [];
     }
 
-    const providers: Array<{ name: string; driveType: string; paths: string[] }> = [
+    const providers: Array<{ name: string; driveType: DriveType; paths: string[] }> = [
       {
         name: 'OneDrive',
         driveType: 'cloud-onedrive',
@@ -978,10 +978,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
       cloudDrives.push({
         name: provider.name,
         path: foundPath,
-        type: 'DIRECTORY',
         driveType: provider.driveType,
-        totalSize: 0,
-        freeSize: 0,
         totalSpace: 0,
         freeSpace: 0,
         fileSystem: 'Cloud',

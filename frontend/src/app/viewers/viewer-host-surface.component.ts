@@ -55,6 +55,7 @@ export class ViewerHostSurfaceComponent implements OnChanges {
   outletInputs: Record<string, unknown> = {};
 
   private resolveSeq = 0;
+  private resolvedViewerKey: string | null = null;
 
   constructor(
     private registry: ViewerRegistryService,
@@ -62,7 +63,6 @@ export class ViewerHostSurfaceComponent implements OnChanges {
   ) {}
 
   ngOnChanges(): void {
-    const seq = ++this.resolveSeq;
     const req = {
       targetPath: this.targetPath ?? '',
       archiveContext: this.archiveContext ?? null,
@@ -74,7 +74,15 @@ export class ViewerHostSurfaceComponent implements OnChanges {
       archiveContext: req.archiveContext,
       viewerId: req.viewerId,
     };
-    this.component = null;
+
+    const viewerKey = this.registry.resolveId(req);
+    if (this.component && this.resolvedViewerKey === viewerKey) {
+      this.cdr.markForCheck();
+      return;
+    }
+
+    const seq = ++this.resolveSeq;
+    this.resolvedViewerKey = viewerKey;
     this.cdr.markForCheck();
 
     // Async resolve so we can lazy-load contributions.
@@ -84,6 +92,7 @@ export class ViewerHostSurfaceComponent implements OnChanges {
       this.cdr.markForCheck();
     }).catch(() => {
       if (seq !== this.resolveSeq) return;
+      this.resolvedViewerKey = null;
       this.component = null;
       this.cdr.markForCheck();
     });

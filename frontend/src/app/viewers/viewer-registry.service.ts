@@ -48,10 +48,19 @@ export class ViewerRegistryService {
    * If viewerId is provided and registered, it is forced.
    */
   async resolve(req: ViewerRequest): Promise<{ id: string; component: Type<unknown> }> {
+    const best = this.pickContribution(req);
+    return { id: best.id, component: await this.loadContribution(best) };
+  }
+
+  resolveId(req: ViewerRequest): string {
+    return this.pickContribution(req).id;
+  }
+
+  private pickContribution(req: ViewerRequest): ViewerContribution {
     const forced = (req.viewerId ?? '').trim();
     if (forced) {
       const c = this.contributions.find(x => x.id === forced);
-      if (c) return { id: c.id, component: await this.loadContribution(c) };
+      if (c) return c;
     }
 
     let best: ViewerContribution | null = null;
@@ -67,7 +76,7 @@ export class ViewerRegistryService {
       // Should be unreachable due to legacy fallback registration.
       best = this.contributions[0];
     }
-    return { id: best.id, component: await this.loadContribution(best) };
+    return best;
   }
 
   private async loadContribution(c: ViewerContribution): Promise<Type<unknown>> {

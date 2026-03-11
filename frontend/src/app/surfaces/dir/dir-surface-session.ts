@@ -28,4 +28,16 @@ export class DirSurfaceSession {
   directoriesFirst = true;
 
   lastPreviewTargetEmitted: string | null = null;
+
+  getEntriesPaths(): string[] {
+    return (this.entries ?? []).map((entry) => entry.path);
+  }
+
+  getOptimisticHiddenPaths(): string[] {
+    return Array.from(this.optimisticHiddenPaths ?? []);
+  }
+
+  setOptimisticHiddenPaths(paths: string[]): void {
+    this.optimisticHiddenPaths = new Set((paths ?? []).filter(Boolean));
+  }
 }

@@ -1,4 +1,4 @@
-import type { DirTabRuntime, DirTabStateController } from '../surfaces/dir/dir-tab-state-controller';
+import type { DirTabRestoreTarget, DirTabSessionState, DirTabStateController, DirTabUiRuntime } from '../surfaces/dir/dir-tab-state-controller';
 import { DirSurfaceSession } from '../surfaces/dir/dir-surface-session';
 import type { FileInfo } from '../shared/protocol';
 import type { TabInfo } from '../shared/protocol-enhanced';
@@ -36,8 +36,8 @@ export class FilePaneDirSessionController {
     return session;
   }
 
-  getActiveRuntime(host: FilePaneDirSessionHost): DirTabRuntime {
-    return this.createRuntime(host, this.getActiveSession(host));
+  getActiveRestoreTarget(host: FilePaneDirSessionHost): DirTabRestoreTarget {
+    return this.createRestoreTarget(host, this.getActiveSession(host));
   }
 
   restoreActiveState(host: FilePaneDirSessionHost): void {
@@ -52,7 +52,7 @@ export class FilePaneDirSessionController {
       return;
     }
 
-    host.dirTabStateController.finalizeAfterLoad(savedState, this.getActiveRuntime(host));
+    host.dirTabStateController.finalizeAfterLoad(savedState, this.getActiveRestoreTarget(host));
   }
 
   private createSession(host: FilePaneDirSessionHost, tabId: string): DirSurfaceSession {
@@ -71,24 +71,24 @@ export class FilePaneDirSessionController {
 
     const savedState = host.dirTabStateController.load(session.tabId);
     if (savedState) {
-      host.dirTabStateController.applyBeforeLoad(savedState, this.createRuntime(host, session));
+      host.dirTabStateController.applyBeforeLoad(savedState, this.createSessionState(session));
     }
 
     return session;
   }
 
-  private createRuntime(host: FilePaneDirSessionHost, session: DirSurfaceSession): DirTabRuntime {
+  private createRestoreTarget(host: FilePaneDirSessionHost, session: DirSurfaceSession): DirTabRestoreTarget {
     return {
-      isInArchive: () => host.isInArchive(),
-      getEntriesPaths: () => (session.entries ?? []).map((entry: FileInfo) => entry.path),
-      getSelectableEntriesPaths: () => host.getSelectableEntriesPaths(),
-      applyFilter: () => host.applyFilter(),
-      scrollToCursorPath: (path: string) => host.scrollToCursorPath(path),
-      emitPreviewTargetFromState: () => host.emitPreviewTargetFromState(),
-      getOptimisticHiddenPaths: () => Array.from(session.optimisticHiddenPaths ?? []),
-      setOptimisticHiddenPaths: (paths: string[]) => {
-        session.optimisticHiddenPaths = new Set((paths ?? []).filter(Boolean));
-      },
+      session: this.createSessionState(session),
+      ui: this.createUiRuntime(host),
+    };
+  }
+
+  private createSessionState(session: DirSurfaceSession): DirTabSessionState {
+    return {
+      getEntriesPaths: () => session.getEntriesPaths(),
+      getOptimisticHiddenPaths: () => session.getOptimisticHiddenPaths(),
+      setOptimisticHiddenPaths: (paths: string[]) => session.setOptimisticHiddenPaths(paths),
       get currentPath() { return session.currentPath; },
       set currentPath(value: string) { session.currentPath = value; },
       get showHidden() { return !!session.showHiddenLoaded; },
@@ -111,6 +111,16 @@ export class FilePaneDirSessionController {
       set selectionCursorPath(value: string | null) { session.selectionCursorPath = value; },
       get selectionAnchorPath() { return session.selectionAnchorPath; },
       set selectionAnchorPath(value: string | null) { session.selectionAnchorPath = value; },
+    };
+  }
+
+  private createUiRuntime(host: FilePaneDirSessionHost): DirTabUiRuntime {
+    return {
+      isInArchive: () => host.isInArchive(),
+      getSelectableEntriesPaths: () => host.getSelectableEntriesPaths(),
+      applyFilter: () => host.applyFilter(),
+      scrollToCursorPath: (path: string) => host.scrollToCursorPath(path),
+      emitPreviewTargetFromState: () => host.emitPreviewTargetFromState(),
     };
   }
 

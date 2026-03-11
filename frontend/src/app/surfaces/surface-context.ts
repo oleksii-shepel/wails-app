@@ -2,18 +2,24 @@ import type { TabInfo } from '../shared/protocol-enhanced';
 import type { ViewerArchiveContext } from '../components/viewer-surface.component';
 import type { DirSurfaceVm } from './dir/dir-surface.vm';
 
-export interface SurfaceContext {
+interface BaseSurfaceContext {
   paneId: 'left' | 'right';
   tab: TabInfo;
+}
 
-  // Dir surface VM (valid when tab.kind === 'dir')
+export interface DirSurfaceContext extends BaseSurfaceContext {
+  kind: 'dir';
   dirVm: DirSurfaceVm;
+}
 
-  // Viewer inputs (valid when tab.kind === 'viewer')
+export interface ViewerSurfaceContext extends BaseSurfaceContext {
+  kind: 'viewer';
   viewer: {
     targetPath: string;
     archiveContext: ViewerArchiveContext | null;
     viewerId: string | null;
   };
 }
+
+export type SurfaceContext = DirSurfaceContext | ViewerSurfaceContext;
 

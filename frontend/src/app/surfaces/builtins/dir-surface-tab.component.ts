@@ -1,7 +1,7 @@
 import { CommonModule } from '@angular/common';
 import { ChangeDetectionStrategy, Component, Input, ViewChild } from '@angular/core';
 import { DirSurfaceComponent } from '../../components/dir-surface.component';
-import { SurfaceContext } from '../surface-context';
+import { DirSurfaceContext } from '../surface-context';
 
 @Component({
   selector: 'app-dir-surface-tab',
@@ -32,7 +32,7 @@ import { SurfaceContext } from '../surface-context';
   `],
 })
 export class DirSurfaceTabComponent {
-  @Input({ required: true }) ctx!: SurfaceContext;
+  @Input({ required: true }) ctx!: DirSurfaceContext;
   @ViewChild('dir') private dir?: DirSurfaceComponent;
 
   // Exposed for SurfaceOutletComponent proxying.

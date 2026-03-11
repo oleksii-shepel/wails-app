@@ -1,7 +1,7 @@
 import { CommonModule } from '@angular/common';
 import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 import { ViewerHostSurfaceComponent } from '../../viewers/viewer-host-surface.component';
-import { SurfaceContext } from '../surface-context';
+import { ViewerSurfaceContext } from '../surface-context';
 
 @Component({
   selector: 'app-viewer-surface-tab',
@@ -36,6 +36,6 @@ import { SurfaceContext } from '../surface-context';
   `],
 })
 export class ViewerSurfaceTabComponent {
-  @Input({ required: true }) ctx!: SurfaceContext;
+  @Input({ required: true }) ctx!: ViewerSurfaceContext;
 }
 

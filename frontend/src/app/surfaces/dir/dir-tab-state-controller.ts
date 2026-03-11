@@ -2,17 +2,11 @@ import { DirTabState } from './dir-tab-state';
 import { FilterQuery } from '../../shared/protocol-enhanced';
 import { FileInfo } from '../../shared/protocol';
 
-export interface DirTabRuntime {
-  isInArchive(): boolean;
+export interface DirTabSessionState {
   getEntriesPaths(): string[];
-  getSelectableEntriesPaths(): string[];
-  applyFilter(): void;
-  scrollToCursorPath(path: string): void;
-  emitPreviewTargetFromState(): void;
   getOptimisticHiddenPaths(): string[];
   setOptimisticHiddenPaths(paths: string[]): void;
 
-  // State fields we snapshot/restore.
   currentPath: string;
   showHidden: boolean;
   entries: FileInfo[];
@@ -26,25 +20,38 @@ export interface DirTabRuntime {
   selectionAnchorPath: string | null;
 }
 
+export interface DirTabUiRuntime {
+  isInArchive(): boolean;
+  getSelectableEntriesPaths(): string[];
+  applyFilter(): void;
+  scrollToCursorPath(path: string): void;
+  emitPreviewTargetFromState(): void;
+}
+
+export interface DirTabRestoreTarget {
+  session: DirTabSessionState;
+  ui: DirTabUiRuntime;
+}
+
 export class DirTabStateController {
   private readonly stateByTabId = new Map<string, DirTabState>();
 
-  save(tabId: string, runtime: DirTabRuntime): void {
+  save(tabId: string, target: DirTabRestoreTarget): void {
     if (!tabId) return;
-    if (runtime.isInArchive()) return;
+    if (target.ui.isInArchive()) return;
     const state: DirTabState = {
-      path: runtime.currentPath || '',
-      showHidden: !!runtime.showHidden,
-      currentView: runtime.currentView,
-      sortField: runtime.sortField,
-      sortDirection: runtime.sortDirection,
-      directoriesFirst: runtime.directoriesFirst,
-      filterQuery: runtime.filterQuery ?? { text: '', criteria: [] },
-      selectedPaths: Array.from(runtime.selectedFiles ?? new Set<string>()),
-      cursorPath: runtime.selectionCursorPath,
-      anchorPath: runtime.selectionAnchorPath,
-      entries: Array.isArray(runtime.entries) ? [...runtime.entries] : [],
-      optimisticHiddenPaths: runtime.getOptimisticHiddenPaths(),
+      path: target.session.currentPath || '',
+      showHidden: !!target.session.showHidden,
+      currentView: target.session.currentView,
+      sortField: target.session.sortField,
+      sortDirection: target.session.sortDirection,
+      directoriesFirst: target.session.directoriesFirst,
+      filterQuery: target.session.filterQuery ?? { text: '', criteria: [] },
+      selectedPaths: Array.from(target.session.selectedFiles ?? new Set<string>()),
+      cursorPath: target.session.selectionCursorPath,
+      anchorPath: target.session.selectionAnchorPath,
+      entries: Array.isArray(target.session.entries) ? [...target.session.entries] : [],
+      optimisticHiddenPaths: target.session.getOptimisticHiddenPaths(),
     };
     this.stateByTabId.set(tabId, state);
   }
@@ -59,39 +66,39 @@ export class DirTabStateController {
     this.stateByTabId.delete(tabId);
   }
 
-  applyBeforeLoad(state: DirTabState, runtime: DirTabRuntime): void {
-    runtime.currentView = state.currentView;
-    runtime.sortField = state.sortField;
-    runtime.sortDirection = state.sortDirection;
-    runtime.directoriesFirst = state.directoriesFirst;
-    runtime.filterQuery = state.filterQuery ?? { text: '', criteria: [] };
+  applyBeforeLoad(state: DirTabState, session: DirTabSessionState): void {
+    session.currentView = state.currentView;
+    session.sortField = state.sortField;
+    session.sortDirection = state.sortDirection;
+    session.directoriesFirst = state.directoriesFirst;
+    session.filterQuery = state.filterQuery ?? { text: '', criteria: [] };
   }
 
-  finalizeAfterLoad(state: DirTabState, runtime: DirTabRuntime): void {
-    if (runtime.isInArchive()) return;
+  finalizeAfterLoad(state: DirTabState, target: DirTabRestoreTarget): void {
+    if (target.ui.isInArchive()) return;
 
-    runtime.setOptimisticHiddenPaths(state.optimisticHiddenPaths ?? []);
+    target.session.setOptimisticHiddenPaths(state.optimisticHiddenPaths ?? []);
 
-    const present = new Set(runtime.getEntriesPaths());
+    const present = new Set(target.session.getEntriesPaths());
     const restoredSelected = (state.selectedPaths ?? []).filter(p => present.has(p));
-    runtime.selectedFiles = new Set(restoredSelected);
+    target.session.selectedFiles = new Set(restoredSelected);
 
     if (state.cursorPath && present.has(state.cursorPath)) {
-      runtime.selectionCursorPath = state.cursorPath;
+      target.session.selectionCursorPath = state.cursorPath;
     } else if (restoredSelected.length > 0) {
-      runtime.selectionCursorPath = restoredSelected[restoredSelected.length - 1];
+      target.session.selectionCursorPath = restoredSelected[restoredSelected.length - 1];
     } else {
-      const selectable = runtime.getSelectableEntriesPaths();
-      runtime.selectionCursorPath = selectable.length ? selectable[0] : null;
+      const selectable = target.ui.getSelectableEntriesPaths();
+      target.session.selectionCursorPath = selectable.length ? selectable[0] : null;
     }
 
-    runtime.selectionAnchorPath =
+    target.session.selectionAnchorPath =
       state.anchorPath && present.has(state.anchorPath)
         ? state.anchorPath
-        : runtime.selectionCursorPath;
+        : target.session.selectionCursorPath;
 
-    runtime.applyFilter();
-    if (runtime.selectionCursorPath) runtime.scrollToCursorPath(runtime.selectionCursorPath);
-    runtime.emitPreviewTargetFromState();
+    target.ui.applyFilter();
+    if (target.session.selectionCursorPath) target.ui.scrollToCursorPath(target.session.selectionCursorPath);
+    target.ui.emitPreviewTargetFromState();
   }
 }

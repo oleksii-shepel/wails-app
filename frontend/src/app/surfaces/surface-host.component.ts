@@ -10,18 +10,18 @@ import { SurfaceContext } from './surface-context';
   imports: [CommonModule, DirSurfaceComponent, ViewerHostSurfaceComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <ng-container [ngSwitch]="(ctx.tab.kind || 'dir')">
+    <ng-container [ngSwitch]="ctx.kind">
       <app-dir-surface
         #dirSurface
         *ngSwitchCase="'dir'"
-        [vm]="ctx.dirVm">
+        [vm]="$any(ctx).dirVm">
       </app-dir-surface>
 
       <app-viewer-host-surface
         *ngSwitchCase="'viewer'"
-        [targetPath]="ctx.viewer.targetPath"
-        [archiveContext]="ctx.viewer.archiveContext"
-        [viewerId]="ctx.viewer.viewerId">
+        [targetPath]="$any(ctx).viewer.targetPath"
+        [archiveContext]="$any(ctx).viewer.archiveContext"
+        [viewerId]="$any(ctx).viewer.viewerId">
       </app-viewer-host-surface>
     </ng-container>
   `,

@@ -223,14 +223,24 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
   /**
    * Get file icon
    */
-  getFileIcon(file: any): string {
+  getFileIcon(file: SearchResultItem['file']): string {
     if (file.type === FileType.DIRECTORY) {
       return '📁';
-    } else if (file.type === FileType.SYMLINK) {
-      return '🔗'; // file symlink
     }
-    
-    const ext = file.name.split('.').pop()?.toLowerCase();
+
+    if (file.type === FileType.SYMLINK) {
+      return '📄';
+    }
+
+    return this.extIcon(file.name);
+  }
+
+  isSymlink(file: SearchResultItem['file']): boolean {
+    return file.type === FileType.SYMLINK || !!file.isSymlink;
+  }
+
+  private extIcon(name: string): string {
+    const ext = name.split('.').pop()?.toLowerCase();
     switch (ext) {
       case 'txt':
       case 'md':
@@ -239,24 +249,40 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
       case 'jpeg':
       case 'png':
       case 'gif':
+      case 'webp':
         return '🖼️';
       case 'pdf':
         return '📕';
       case 'zip':
       case 'tar':
       case 'gz':
+      case 'tgz':
+      case 'rar':
+      case '7z':
         return '📦';
       case 'mp3':
       case 'wav':
+      case 'flac':
         return '🎵';
       case 'mp4':
       case 'avi':
+      case 'mkv':
         return '🎬';
       case 'js':
       case 'ts':
-      case 'py':
-      case 'java':
+      case 'jsx':
+      case 'tsx':
         return '📝';
+      case 'json':
+      case 'yaml':
+      case 'yml':
+        return '📋';
+      case 'html':
+      case 'htm':
+        return '🌐';
+      case 'css':
+      case 'scss':
+        return '🎨';
       default:
         return '📄';
     }

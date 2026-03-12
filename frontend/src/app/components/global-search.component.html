@@ -10,7 +10,7 @@
           type="text"
           [(ngModel)]="searchQuery"
           (ngModelChange)="onSearchChange()"
-          placeholder="Search files and folders..."
+          placeholder="Search files and folders. Enter opens, Esc closes"
           class="search-input"
           autofocus
         />
@@ -26,15 +26,25 @@
 
       <!-- Search Stats -->
       <div class="search-stats" *ngIf="!isSearching">
-        <span *ngIf="results.length > 0">
-          {{ results.length }} result<span *ngIf="results.length !== 1">s</span>
-        </span>
-        <span *ngIf="indexStats">
-          · {{ indexStats.totalFiles + indexStats.totalDirectories }} items indexed
-        </span>
-        <span *ngIf="indexStats?.isIndexing" class="indexing-indicator">
-          · Indexing...
-        </span>
+        <div class="search-stats-primary">
+          <span *ngIf="results.length > 0">
+            {{ results.length }} result<span *ngIf="results.length !== 1">s</span>
+          </span>
+          <span *ngIf="indexStats">
+            {{ indexStats.totalFiles + indexStats.totalDirectories }} items indexed
+          </span>
+          <span *ngIf="indexStats?.isIndexing" class="indexing-indicator">
+            Indexing...
+          </span>
+        </div>
+        <div class="search-stats-actions">
+          <button (click)="refreshIndex()" class="stats-action" title="Refresh search index">
+            Refresh
+          </button>
+          <button (click)="showSettings()" class="stats-action" title="Search settings">
+            Settings
+          </button>
+        </div>
       </div>
     </div>
 
@@ -82,7 +92,7 @@
       <div *ngIf="!isSearching && results.length === 0 && searchQuery" class="search-empty">
         <span class="empty-icon">🔍</span>
         <p>No results found for "{{ searchQuery }}"</p>
-        <p class="empty-hint">Try a different search term or check your spelling</p>
+        <p class="empty-hint">Try a different term, adjust filters, or open Settings to loosen fuzzy matching</p>
       </div>
 
       <!-- Initial State -->
@@ -90,11 +100,11 @@
         <span class="initial-icon">⌨️</span>
         <p>Start typing to search</p>
         <div class="search-tips">
-          <h4>Search Tips:</h4>
+          <h4>Quick Open</h4>
           <ul>
             <li>Type any part of the file or folder name</li>
-            <li>Use filters to narrow results</li>
-            <li>Results are ranked by relevance</li>
+            <li>Use arrow keys to move and Enter to open</li>
+            <li>Use filters to narrow results and Settings to tune matching</li>
           </ul>
         </div>
       </div>
@@ -112,7 +122,11 @@
           (mouseenter)="selectedIndex = i"
         >
           <div class="result-icon">
-            {{ getFileIcon(result.file) }}
+            <span class="result-icon-glyph">{{ getFileIcon(result.file) }}</span>
+            <svg *ngIf="isSymlink(result.file)" class="symlink-badge" viewBox="0 0 10 10" fill="none" aria-label="symlink">
+              <path d="M2 8 C2 5 5 3 8 2" stroke="var(--vsc-icon-symlink,#5dade2)" stroke-width="2" stroke-linecap="round"/>
+              <path d="M6 1.2 L8.8 1.2 L8.8 4" stroke="var(--vsc-icon-symlink,#5dade2)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
           </div>
 
           <div class="result-info">
@@ -130,23 +144,6 @@
       </div>
     </div>
 
-    <!-- Search Footer -->
-    <div class="search-footer">
-      <div class="footer-left">
-        <kbd>↑</kbd><kbd>↓</kbd> Navigate
-        <kbd>Enter</kbd> Open
-        <kbd>Esc</kbd> Close
-      </div>
-
-      <div class="footer-right">
-        <button (click)="refreshIndex()" class="btn-footer" title="Refresh search index">
-          Refresh Index
-        </button>
-        <button (click)="showSettings()" class="btn-footer" title="Search settings">
-          Settings
-        </button>
-      </div>
-    </div>
   </div>
 </div>
 

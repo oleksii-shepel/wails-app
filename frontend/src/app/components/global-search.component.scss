@@ -69,16 +69,6 @@
     border-color: var(--vsc-input-focus-border);
   }
 
-  .search-icon {
-    width: 14px;
-    height: 14px;
-    color: var(--vsc-foreground-dim);
-    flex: 0 0 14px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
   .search-input {
     flex: 1;
     min-width: 0;

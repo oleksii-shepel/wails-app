@@ -1,4 +1,4 @@
-import { Component, Input, Output, EventEmitter, ChangeDetectionStrategy, OnChanges, OnDestroy, OnInit, SimpleChanges } from '@angular/core';
+import { ChangeDetectionStrategy, ChangeDetectorRef, Component, ElementRef, EventEmitter, Input, OnChanges, OnDestroy, OnInit, Output, SimpleChanges, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { DriveInfo } from '../shared/protocol';
 import { InputContextService } from '../services/input-context.service';
@@ -11,7 +11,11 @@ import { InputEngineService } from '../services/input-engine.service';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
+      #rootEl
       class="ab-dropdown ab-drive-drop"
+      role="listbox"
+      tabindex="-1"
+      aria-label="Available drives"
     >
       <div class="ab-drop-head">
         <span>Available Drives</span>
@@ -31,9 +35,13 @@ import { InputEngineService } from '../services/input-engine.service';
         <div
           *ngFor="let d of drives"
           class="ab-drive-grid-item"
+          role="option"
+          [attr.tabindex]="selectedIndex >= 0 && drives[selectedIndex].path === d.path ? 0 : -1"
+          [attr.aria-selected]="selectedIndex >= 0 && drives[selectedIndex].path === d.path"
           [class.ab-drive-grid-item--active]="isActive(d)"
           [class.ab-drive-grid-item--selected]="selectedIndex >= 0 && drives[selectedIndex].path === d.path"
           [title]="getDisplayPath(d.path)"
+          (focus)="setSelectedIndex(drives.indexOf(d))"
           (click)="driveClick.emit(d)"
           (mouseenter)="setSelectedIndex(drives.indexOf(d))"
         >
@@ -60,10 +68,6 @@ import { InputEngineService } from '../services/input-engine.service';
             </div>
           </div>
         </div>
-      </div>
-
-      <div class="ab-drop-footer" *ngIf="!loading && drives.length > 0">
-        <kbd>↑↓</kbd> navigate &nbsp; <kbd>⏎</kbd> select &nbsp; <kbd>Esc</kbd> close
       </div>
     </div>
   `,
@@ -206,6 +210,8 @@ import { InputEngineService } from '../services/input-engine.service';
   `],
 })
 export class AddressBarDriveDropdownComponent {
+  @ViewChild('rootEl') rootElRef?: ElementRef<HTMLElement>;
+
   @Input() drives: DriveInfo[] = [];
   @Input() loading = false;
   @Input() currentPath = '';
@@ -220,6 +226,7 @@ export class AddressBarDriveDropdownComponent {
   constructor(
     private inputContexts: InputContextService,
     private inputEngine: InputEngineService,
+    private cdr: ChangeDetectorRef,
   ) {}
 
   ngOnInit(): void {
@@ -290,6 +297,8 @@ export class AddressBarDriveDropdownComponent {
   setSelectedIndex(index: number): void {
     if (index < 0 || index >= this.drives.length) return;
     this.selectedIndex = index;
+    this.cdr.markForCheck();
+    this.focusSelectedItem();
   }
 
   openSelected(): void {
@@ -301,11 +310,14 @@ export class AddressBarDriveDropdownComponent {
   private syncSelection(): void {
     if (this.drives.length === 0) {
       this.selectedIndex = -1;
+      this.cdr.markForCheck();
       return;
     }
 
     const activeIndex = this.drives.findIndex(drive => this.isActive(drive));
     this.selectedIndex = activeIndex >= 0 ? activeIndex : 0;
+    this.cdr.markForCheck();
+    this.focusSelectedItem();
   }
 
   private moveSelection(delta: number): void {
@@ -313,6 +325,15 @@ export class AddressBarDriveDropdownComponent {
     const baseIndex = this.selectedIndex >= 0 ? this.selectedIndex : 0;
     const next = Math.max(0, Math.min(this.drives.length - 1, baseIndex + delta));
     this.selectedIndex = next;
+    this.cdr.markForCheck();
+    this.focusSelectedItem();
+  }
+
+  private focusSelectedItem(): void {
+    requestAnimationFrame(() => {
+      const item = this.rootElRef?.nativeElement.querySelector<HTMLElement>('.ab-drive-grid-item--selected');
+      item?.focus({ preventScroll: true });
+    });
   }
 
   private registerInputCommands(): void {
@@ -328,6 +349,14 @@ export class AddressBarDriveDropdownComponent {
       this.moveSelection(1);
     }, this.commandOwner);
 
+    this.inputEngine.registerCommand('overlay.addressBar.drives.prevColumn', () => {
+      this.moveSelection(-1);
+    }, this.commandOwner);
+
+    this.inputEngine.registerCommand('overlay.addressBar.drives.nextColumn', () => {
+      this.moveSelection(1);
+    }, this.commandOwner);
+
     this.inputEngine.registerCommand('overlay.addressBar.drives.openSelected', () => {
       this.openSelected();
     }, this.commandOwner);
@@ -337,6 +366,8 @@ export class AddressBarDriveDropdownComponent {
     this.inputEngine.unregisterCommand('overlay.addressBar.drives.close', this.commandOwner);
     this.inputEngine.unregisterCommand('overlay.addressBar.drives.prevItem', this.commandOwner);
     this.inputEngine.unregisterCommand('overlay.addressBar.drives.nextItem', this.commandOwner);
+    this.inputEngine.unregisterCommand('overlay.addressBar.drives.prevColumn', this.commandOwner);
+    this.inputEngine.unregisterCommand('overlay.addressBar.drives.nextColumn', this.commandOwner);
     this.inputEngine.unregisterCommand('overlay.addressBar.drives.openSelected', this.commandOwner);
   }
 }

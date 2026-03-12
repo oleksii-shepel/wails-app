@@ -7,6 +7,7 @@ import { GlobalSearchService, SearchResultItem, IndexStats, SearchConfig } from 
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
 import { FileType } from '../shared/protocol';
+import { trapFocusWithin } from '../shared/focus-trap.utils';
 
 @Component({
   selector: 'app-global-search',
@@ -17,6 +18,7 @@ import { FileType } from '../shared/protocol';
 })
 export class GlobalSearchComponent implements OnInit, OnDestroy {
   @ViewChild('searchInput') searchInput?: ElementRef<HTMLInputElement>;
+  @ViewChild('settingsFirstInput') settingsFirstInput?: ElementRef<HTMLInputElement>;
 
   isVisible = false;
   searchQuery = '';
@@ -287,6 +289,7 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
   showSettings(): void {
     this.showSettingsModal = true;
     this.releaseSearchSettingsContext ??= this.inputContexts.acquire('dialog.globalSearch.settings');
+    setTimeout(() => this.settingsFirstInput?.nativeElement.focus(), 0);
   }
 
   /**
@@ -296,6 +299,9 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
     this.showSettingsModal = false;
     this.releaseSearchSettingsContext?.();
     this.releaseSearchSettingsContext = null;
+    if (this.isVisible) {
+      setTimeout(() => this.searchInput?.nativeElement.focus(), 0);
+    }
   }
 
   /**
@@ -388,6 +394,24 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
     this.inputEngine.unregisterCommand('dialog.globalSearch.openSettings');
     this.inputEngine.unregisterCommand('dialog.globalSearch.settings.close');
     this.inputEngine.unregisterCommand('dialog.globalSearch.settings.apply');
+  }
+
+  onMainDialogKeyDown(event: KeyboardEvent): void {
+    const container = event.currentTarget;
+    if (!(container instanceof HTMLElement)) {
+      return;
+    }
+
+    trapFocusWithin(container, event);
+  }
+
+  onSettingsDialogKeyDown(event: KeyboardEvent): void {
+    const container = event.currentTarget;
+    if (!(container instanceof HTMLElement)) {
+      return;
+    }
+
+    trapFocusWithin(container, event);
   }
 }
 

@@ -7,6 +7,7 @@ import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
 import { normalizePath } from './address-bar.utils';
+import { trapFocusWithin } from '../shared/focus-trap.utils';
 
 @Component({
   selector: 'app-path-history-viewer',
@@ -14,7 +15,7 @@ import { normalizePath } from './address-bar.utils';
   imports: [CommonModule, FormsModule],
   template: `
     <div class="path-history-overlay" *ngIf="isVisible" (click)="hide()">
-      <div class="path-history-modal" (click)="$event.stopPropagation()">
+      <div class="path-history-modal" role="dialog" aria-modal="true" tabindex="-1" (click)="$event.stopPropagation()" (keydown)="onDialogKeyDown($event)">
         <!-- Header -->
         <div class="modal-header">
           <h2>Path History</h2>
@@ -61,6 +62,9 @@ import { normalizePath } from './address-bar.utils';
             class="history-entry"
             [class.selected]="i === selectedIndex"
             [class.recent]="isRecent(entry)"
+            tabindex="0"
+            role="button"
+            (focus)="selectedIndex = i"
             (mouseenter)="selectedIndex = i"
             (click)="selectPath(entry)"
           >
@@ -669,6 +673,15 @@ export class PathHistoryViewerComponent implements OnInit, OnDestroy {
     this.inputEngine.unregisterCommand('dialog.pathHistory.nextItem');
     this.inputEngine.unregisterCommand('dialog.pathHistory.openSelected');
     this.inputEngine.unregisterCommand('dialog.pathHistory.removeSelected');
+  }
+
+  onDialogKeyDown(event: KeyboardEvent): void {
+    const container = event.currentTarget;
+    if (!(container instanceof HTMLElement)) {
+      return;
+    }
+
+    trapFocusWithin(container, event);
   }
 }
 

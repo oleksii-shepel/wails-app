@@ -1,5 +1,5 @@
 <div class="keyboard-help-overlay" *ngIf="isVisible" (click)="hide()">
-  <div class="keyboard-help-modal" (click)="$event.stopPropagation()">
+  <div class="keyboard-help-modal" role="dialog" aria-modal="true" tabindex="-1" (click)="$event.stopPropagation()" (keydown)="onDialogKeyDown($event)">
     <!-- Header -->
     <div class="modal-header">
       <h2>⌨️ Keyboard Shortcuts</h2>

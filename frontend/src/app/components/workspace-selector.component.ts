@@ -26,7 +26,7 @@ import { InputEngineService } from '../services/input-engine.service';
     </div>
     <app-dropdown-container [(isOpen)]="showMenu" (isOpenChange)="onMenuStateChange($event)" [anchorEl]="anchorElement">
     
-    <div appDropdownMenu class="ws-menu" *ngIf="showMenu">
+    <div appDropdownMenu class="ws-menu" role="menu" tabindex="-1" *ngIf="showMenu">
       <div class="ws-menu-header">
         <span>Workspaces</span>
         <button (click)="onCreateNew()" class="ws-btn-icon" title="New workspace">
@@ -40,8 +40,12 @@ import { InputEngineService } from '../services/input-engine.service';
         <div
           *ngFor="let workspace of workspaces; let i = index"
           class="ws-item"
+          role="menuitemradio"
+          [attr.tabindex]="i === selectedIndex ? 0 : -1"
+          [attr.aria-checked]="workspace.id === activeWorkspace?.id"
           [class.ws-item--active]="workspace.id === activeWorkspace?.id"
           [class.ws-item--selected]="i === selectedIndex"
+          (focus)="setSelectedIndex(i)"
           (mouseenter)="setSelectedIndex(i)"
           (click)="onSelect(workspace)">
           <span class="ws-item-icon">{{ workspace.icon }}</span>
@@ -289,6 +293,9 @@ export class WorkspaceSelectorComponent implements AfterViewInit, OnChanges, OnD
     this.syncSelection();
     this.syncContextLease();
     this.menuToggle.emit(this.showMenu);
+    if (this.showMenu) {
+      this.focusSelectedItem();
+    }
   }
 
   onSelect(workspace: WorkspaceConfig): void {
@@ -303,11 +310,16 @@ export class WorkspaceSelectorComponent implements AfterViewInit, OnChanges, OnD
     this.syncSelection();
     this.syncContextLease();
     this.menuToggle.emit(show);
+    if (show) {
+      this.focusSelectedItem();
+    }
   }
 
   setSelectedIndex(index: number): void {
     if (index < 0 || index >= this.workspaces.length) return;
     this.selectedIndex = index;
+    this.cdr.markForCheck();
+    this.focusSelectedItem();
   }
 
   private moveSelection(delta: number): void {
@@ -315,6 +327,7 @@ export class WorkspaceSelectorComponent implements AfterViewInit, OnChanges, OnD
     const baseIndex = this.selectedIndex >= 0 ? this.selectedIndex : 0;
     this.selectedIndex = Math.max(0, Math.min(this.workspaces.length - 1, baseIndex + delta));
     this.cdr.markForCheck();
+    this.focusSelectedItem();
   }
 
   private activateSelected(): void {
@@ -331,6 +344,7 @@ export class WorkspaceSelectorComponent implements AfterViewInit, OnChanges, OnD
 
     const activeIndex = this.workspaces.findIndex(workspace => workspace.id === this.activeWorkspace?.id);
     this.selectedIndex = activeIndex >= 0 ? activeIndex : 0;
+    this.cdr.markForCheck();
   }
 
   private syncContextLease(): void {
@@ -375,4 +389,11 @@ export class WorkspaceSelectorComponent implements AfterViewInit, OnChanges, OnD
   onCreateNew(): void { this.createNew.emit(); }
   onRename(): void { this.rename.emit(); }
   onDelete(): void { this.deleteWorkspace.emit(); }
+
+  private focusSelectedItem(): void {
+    requestAnimationFrame(() => {
+      const item = document.querySelector<HTMLElement>('.ws-item.ws-item--selected');
+      item?.focus({ preventScroll: true });
+    });
+  }
 }

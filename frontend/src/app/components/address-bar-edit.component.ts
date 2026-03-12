@@ -332,9 +332,6 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
   private suggestionsTimer: ReturnType<typeof setTimeout> | undefined;
   private suggestionsRequestId = 0;
 
-  private idleSlashTimer: ReturnType<typeof setTimeout> | undefined;
-  private idleSlashLastValue = '';
-
   // ── Virtual scroll state ────────────────────────────────────────────────
   private readonly DROP_ROW_H = 26;   // must match .ab-item height in CSS
   private readonly DROP_OVERSCAN = 4;
@@ -387,7 +384,6 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
   ngOnDestroy(): void {
     clearTimeout(this.blurTimer);
     clearTimeout(this.suggestionsTimer);
-    clearTimeout(this.idleSlashTimer);
     this.cancelFetchStream();
     if (this.vsRAF) cancelAnimationFrame(this.vsRAF);
     this.detachDropScroll();
@@ -444,7 +440,6 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
 
       const immediate = (isDriveRootNow && wasBeforeDriveRoot) || justTypedSeparator;
       this.scheduleSuggestions(next, immediate);
-      this.scheduleIdleSlash(next);
     }
   }
 
@@ -468,7 +463,6 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
     this.lastInputValue = next;
     this.tabSession = null;
     this.scheduleSuggestions(next, true);
-    this.scheduleIdleSlash(next);
     this.cdr.detectChanges();
 
     const caret = before.length + insertText.length;
@@ -515,7 +509,6 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
     this.lastInputValue = next;
     this.tabSession = null;
     this.scheduleSuggestions(next, true);
-    this.scheduleIdleSlash(next);
     this.cdr.detectChanges();
 
     const caret = before.length + insertText.length;
@@ -624,7 +617,6 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
             this.writeProgrammaticValue(root);
             this.tabSession = null;
             this.scheduleSuggestions(root, true);
-            this.scheduleIdleSlash(root);
             this.cdr.detectChanges();
             break;
           }
@@ -663,7 +655,6 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
     this.tabSession = null;
     this.cancelFetchStream();
     this.scheduleSuggestions(finalVal, true);
-    this.scheduleIdleSlash(finalVal);
     this.cdr.detectChanges();
   }
 
@@ -749,23 +740,6 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
     }, delay);
   }
 
-  private scheduleIdleSlash(value: string): void {
-    clearTimeout(this.idleSlashTimer);
-    this.idleSlashLastValue = value;
-
-    this.idleSlashTimer = setTimeout(() => {
-      if (this.tabSession?.enteredDir) return;
-
-      const v = (this.idleSlashLastValue || '').trim();
-      const n = normalizePath(v);
-      if (!v) return;
-      if (n === '/' || n.endsWith('/')) return;
-      if (/^[A-Za-z]:\/$/.test(n)) return;
-
-      void this.tryAppendSlash(v);
-    }, 1000);
-  }
-
   private onOutsideClick = (e: MouseEvent): void => {
     if (!this.hostEl.nativeElement.contains(e.target as Node)) {
       this.cancelEdit();
@@ -816,7 +790,6 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
       this.acIdx       = idx;
       this.cdr.detectChanges();
 
-      this.scheduleIdleSlash(this.value);
       return;
     }
 
@@ -841,7 +814,6 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
     this.acIdx       = index;
     this.cdr.detectChanges();
 
-    this.scheduleIdleSlash(this.value);
   }
 
   private writeTabValue(value: string): void {
@@ -863,19 +835,6 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
     return (this.tabSession?.candidates ?? []).findIndex(
       c => normalizePath(c.path) === clean,
     );
-  }
-
-  private async tryAppendSlash(value: string): Promise<void> {
-    const children = await this.fetchChildren(value + '/');
-    if (children.length === 0) return;
-
-    const withSlash = value.endsWith('/') ? value : value + '/';
-
-    this.writeTabValue(this.toDisplayPath(withSlash));
-    this.tabSession  = { candidates: children, index: -1, enteredDir: true };
-    this.suggestions = children;
-    this.acIdx       = -1;
-    this.cdr.detectChanges();
   }
 
   private async fetchChildren(query: string): Promise<PathSuggestion[]> {
@@ -1039,7 +998,6 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
           this.writeProgrammaticValue(root);
           this.tabSession = null;
           this.scheduleSuggestions(root, true);
-          this.scheduleIdleSlash(root);
           this.cdr.detectChanges();
           return;
         }
@@ -1055,7 +1013,6 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
           this.writeProgrammaticValue(root);
           this.tabSession = null;
           this.scheduleSuggestions(root, true);
-          this.scheduleIdleSlash(root);
           this.cdr.detectChanges();
           return;
         }

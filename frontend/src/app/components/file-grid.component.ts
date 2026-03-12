@@ -68,6 +68,7 @@ import { parentPath } from './address-bar.utils';
           [attr.data-path]="entry.path"
           [class.dragging-source]="draggingPaths.has(entry.path)"
           [class.selected]="isSelected(entry)"
+          [class.cursor]="isCursor(entry)"
           [class.directory]="entry.type === FileType.DIRECTORY"
           [class.parent-dir]="isParentEntry(entry)"
           [class.drag-over]="isDragOverInside(entry)"
@@ -90,6 +91,7 @@ import { parentPath } from './address-bar.utils';
             <app-file-entry
               [entry]="entry"
               [selected]="isSelected(entry)"
+              [cursor]="isCursor(entry)"
               variant="grid"
               (rename)="onRename($event)">
             </app-file-entry>
@@ -227,6 +229,15 @@ import { parentPath } from './address-bar.utils';
         background: var(--vsc-list-active-background);
         border-color: var(--vsc-accent-blue);
         
+        .grid-name {
+          color: var(--vsc-foreground-bright);
+        }
+      }
+
+      &.cursor:not(.selected) {
+        background: color-mix(in srgb, var(--vsc-list-hover-background) 65%, transparent);
+        box-shadow: inset 0 0 0 1px var(--vsc-focus-border);
+
         .grid-name {
           color: var(--vsc-foreground-bright);
         }
@@ -765,16 +776,10 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
 
   private updateVirtualWindow(): void {
     const host = this.gridContainerRef?.nativeElement;
-    const width = Math.max(1, host?.clientWidth ?? 1);
     const viewportHeight = this.viewportHeight || host?.clientHeight || 0;
     const scrollTop = host?.scrollTop ?? 0;
 
-    // Calculate columns based on CSS grid logic
-    const cellMin = 100;
-    const gap = 8;
-    const pad = 16;
-    const contentWidth = Math.max(1, width - pad * 2);
-    const cols = Math.max(1, Math.floor((contentWidth + gap) / (cellMin + gap)));
+    const cols = this.measureGridColumns(host);
     
     if (cols !== this.virtualColumns) {
       this.virtualColumns = cols;
@@ -813,6 +818,10 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
     return this.selectedFiles.has(entry.path);
   }
 
+  isCursor(entry: FileInfo): boolean {
+    return entry.path === this.cursorPath;
+  }
+
   isDropTarget(entry: FileInfo): boolean {
     return this.dragOverPath === entry.path && this.dragOverPosition === 'inside';
   }
@@ -827,6 +836,33 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
 
   isDragOverInside(entry: FileInfo): boolean {
     return this.dragOverPath === entry.path && this.dragOverPosition === 'inside';
+  }
+
+  private measureGridColumns(host?: HTMLElement): number {
+    if (!host) {
+      return Math.max(1, this.virtualColumns);
+    }
+
+    const gridElement = this.virtualEnabled
+      ? host.querySelector<HTMLElement>('.grid-window.virtual-window')
+      : host;
+
+    const template = gridElement ? getComputedStyle(gridElement).gridTemplateColumns : '';
+    const resolvedColumns = template
+      .split(' ')
+      .map(value => value.trim())
+      .filter(value => value.length > 0 && value !== 'none');
+
+    if (resolvedColumns.length > 0) {
+      return resolvedColumns.length;
+    }
+
+    const compactMode = host.closest('.compact-mode') !== null;
+    const minCellWidth = compactMode ? 80 : 100;
+    const gap = compactMode ? 8 : 12;
+    const horizontalPadding = 24;
+    const contentWidth = Math.max(1, host.clientWidth - horizontalPadding * 2);
+    return Math.max(1, Math.floor((contentWidth + gap) / (minCellWidth + gap)));
   }
 
   onItemClick(entry: FileInfo, event: MouseEvent): void {

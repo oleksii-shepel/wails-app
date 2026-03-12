@@ -224,15 +224,17 @@ export class FilePaneStateController {
   }
 
   onMoveCursorLeft(host: FilePaneStateHost): void {
-    if (host.currentView !== 'grid') return;
     const selectable = host.getSelectableEntries();
-    this.moveCursorTo(host, this.getCursorIndex(host, selectable) - 1);
+    if (host.currentView === 'grid' || host.currentView === 'list' || host.currentView === 'details') {
+      this.moveCursorTo(host, this.getCursorIndex(host, selectable) - 1);
+    }
   }
 
   onMoveCursorRight(host: FilePaneStateHost): void {
-    if (host.currentView !== 'grid') return;
     const selectable = host.getSelectableEntries();
-    this.moveCursorTo(host, this.getCursorIndex(host, selectable) + 1);
+    if (host.currentView === 'grid' || host.currentView === 'list' || host.currentView === 'details') {
+      this.moveCursorTo(host, this.getCursorIndex(host, selectable) + 1);
+    }
   }
 
   onMoveCursorHome(host: FilePaneStateHost): void {

@@ -16,6 +16,7 @@ import { InputEngineService } from '../services/input-engine.service';
     <div
       class="fd-panel"
       role="menu"
+      tabindex="-1"
       (mousedown)="$event.preventDefault()"
       (click)="$event.stopPropagation()"
     >
@@ -71,10 +72,12 @@ import { InputEngineService } from '../services/input-engine.service';
               class="fd-item"
               *ngFor="let preset of group.presets; let i = index"
               role="menuitemcheckbox"
+              [attr.tabindex]="isFocused(group.name, preset.id) ? 0 : -1"
               [attr.aria-checked]="isSelected(preset)"
               [class.fd-item--selected]="isSelected(preset)"
               [class.fd-item--focused]="isFocused(group.name, preset.id)"
               [class.fd-item--dynamic]="preset.isDynamic"
+              (focus)="setFocusedItem(group.name, preset.id)"
               (click)="onItemClick(preset, $event)"
               (mouseenter)="setFocusedItem(group.name, preset.id)"
             >
@@ -413,6 +416,8 @@ export class FilterDropdownComponent implements OnChanges, OnDestroy, OnInit {
   setFocusedItem(groupName: string, presetId: string): void {
     this.focusedGroupName = groupName;
     this.focusedPresetId = presetId;
+    this.cdr.markForCheck();
+    this.focusFocusedItem();
   }
 
   private buildGroups(): void {
@@ -454,6 +459,7 @@ export class FilterDropdownComponent implements OnChanges, OnDestroy, OnInit {
     }
     
     this.cdr.markForCheck();
+    this.focusFocusedItem();
   }
 
   private sortPresetsByCount(presets: FilterPreset[]): FilterPreset[] {
@@ -475,6 +481,7 @@ export class FilterDropdownComponent implements OnChanges, OnDestroy, OnInit {
     this.focusedGroupName = items[nextIndex].groupName;
     this.focusedPresetId = items[nextIndex].preset.id;
     this.cdr.markForCheck();
+    this.focusFocusedItem();
   }
 
   private toggleFocused(): void {
@@ -511,5 +518,12 @@ export class FilterDropdownComponent implements OnChanges, OnDestroy, OnInit {
     this.inputEngine.unregisterCommand(`${prefix}.prevItem`, this.commandOwner);
     this.inputEngine.unregisterCommand(`${prefix}.nextItem`, this.commandOwner);
     this.inputEngine.unregisterCommand(`${prefix}.select`, this.commandOwner);
+  }
+
+  private focusFocusedItem(): void {
+    requestAnimationFrame(() => {
+      const item = document.querySelector<HTMLElement>('.fd-item.fd-item--focused');
+      item?.focus({ preventScroll: true });
+    });
   }
 }

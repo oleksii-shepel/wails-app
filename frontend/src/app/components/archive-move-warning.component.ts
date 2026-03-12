@@ -17,10 +17,11 @@
  *   </app-archive-move-warning>
  */
 
-import { Component, Input, Output, EventEmitter, OnChanges, OnDestroy, OnInit, SimpleChanges } from '@angular/core';
+import { Component, ElementRef, EventEmitter, Input, OnChanges, OnDestroy, OnInit, Output, SimpleChanges, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
+import { trapFocusWithin } from '../shared/focus-trap.utils';
 
 @Component({
   selector: 'app-archive-move-warning',
@@ -28,7 +29,7 @@ import { InputEngineService } from '../services/input-engine.service';
   imports: [CommonModule],
   template: `
 <div *ngIf="visible" class="amw-backdrop" (click)="onBackdrop($event)">
-  <div class="amw-panel" role="alertdialog" aria-modal="true">
+  <div class="amw-panel" role="alertdialog" aria-modal="true" tabindex="-1" (keydown)="onDialogKeyDown($event)">
 
     <div class="amw-icon" aria-hidden="true">
       <svg viewBox="0 0 20 20" fill="currentColor">
@@ -54,7 +55,7 @@ import { InputEngineService } from '../services/input-engine.service';
     </p>
 
     <div class="amw-actions">
-      <button class="amw-btn amw-btn--cancel"  (click)="cancelled.emit()">Cancel</button>
+      <button #cancelButton class="amw-btn amw-btn--cancel"  (click)="cancelled.emit()">Cancel</button>
       <button class="amw-btn amw-btn--confirm" (click)="confirmed.emit()">Move</button>
     </div>
 
@@ -137,6 +138,8 @@ import { InputEngineService } from '../services/input-engine.service';
   `],
 })
 export class ArchiveMoveWarningComponent implements OnInit, OnChanges, OnDestroy {
+  @ViewChild('cancelButton') cancelButton?: ElementRef<HTMLButtonElement>;
+
   private releaseDialogContext: (() => void) | null = null;
 
   @Input()  visible    = false;
@@ -183,10 +186,20 @@ export class ArchiveMoveWarningComponent implements OnInit, OnChanges, OnDestroy
   private syncContextLease(): void {
     if (this.visible) {
       this.releaseDialogContext ??= this.inputContexts.acquire('dialog.archiveMoveWarning');
+      setTimeout(() => this.cancelButton?.nativeElement.focus(), 0);
       return;
     }
 
     this.releaseDialogContext?.();
     this.releaseDialogContext = null;
+  }
+
+  onDialogKeyDown(event: KeyboardEvent): void {
+    const container = event.currentTarget;
+    if (!(container instanceof HTMLElement)) {
+      return;
+    }
+
+    trapFocusWithin(container, event);
   }
 }

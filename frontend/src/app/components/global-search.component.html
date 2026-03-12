@@ -1,5 +1,5 @@
 <div class="global-search-overlay" *ngIf="isVisible" (click)="hide()">
-  <div class="global-search-modal" (click)="$event.stopPropagation()">
+  <div class="global-search-modal" role="dialog" aria-modal="true" tabindex="-1" (click)="$event.stopPropagation()" (keydown)="onMainDialogKeyDown($event)">
     <!-- Search Header -->
     <div class="search-header">
       <div class="search-input-container">
@@ -104,7 +104,10 @@
           *ngFor="let result of results; let i = index"
           class="result-item"
           [class.selected]="i === selectedIndex"
+          tabindex="0"
+          role="button"
           (click)="selectResult(result)"
+          (focus)="selectedIndex = i"
           (mouseenter)="selectedIndex = i"
         >
           <div class="result-icon">
@@ -148,7 +151,7 @@
 
 <!-- Search Settings Modal -->
 <div class="settings-overlay" *ngIf="showSettingsModal" (click)="hideSettings()">
-  <div class="settings-modal" (click)="$event.stopPropagation()">
+  <div class="settings-modal" role="dialog" aria-modal="true" tabindex="-1" (click)="$event.stopPropagation()" (keydown)="onSettingsDialogKeyDown($event)">
     <div class="settings-header">
       <h3>Search Settings</h3>
       <button (click)="hideSettings()" class="btn-close">✕</button>
@@ -158,6 +161,7 @@
       <div class="setting-group">
         <label class="setting-label">
           <input
+            #settingsFirstInput
             type="checkbox"
             [(ngModel)]="searchConfig.enableTypoTolerance"
             (change)="updateSearchConfig()"

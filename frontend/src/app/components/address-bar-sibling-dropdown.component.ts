@@ -11,7 +11,11 @@ import { InputEngineService } from '../services/input-engine.service';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
+      #rootEl
       class="ab-dropdown ab-sib-drop"
+      role="listbox"
+      tabindex="-1"
+      aria-label="Sibling entries"
     >
       <div class="ab-drop-head">
         <span>{{ headLabel }}</span>
@@ -36,8 +40,12 @@ import { InputEngineService } from '../services/input-engine.service';
           <div
             *ngFor="let s of visibleEntries; let i = index; trackBy: trackBy"
             class="ab-drop-item ab-sib-item"
+            role="option"
+            [attr.tabindex]="vsStart + i === selectedIndex ? 0 : -1"
+            [attr.aria-selected]="vsStart + i === selectedIndex"
             [class.ab-drop-item--active]="s.isCurrent"
             [class.ab-drop-item--selected]="vsStart + i === selectedIndex"
+            (focus)="setSelectedIndex(vsStart + i)"
             (click)="entryClick.emit(s)"
             (mouseenter)="setSelectedIndex(vsStart + i)"
           >
@@ -162,6 +170,7 @@ import { InputEngineService } from '../services/input-engine.service';
   `],
 })
 export class AddressBarSiblingDropdownComponent implements OnInit, OnDestroy {
+  @ViewChild('rootEl') rootElRef?: ElementRef<HTMLElement>;
   @ViewChild('scrollEl') scrollElRef?: ElementRef<HTMLElement>;
 
   private _entries: SiblingEntry[] = [];
@@ -199,6 +208,7 @@ export class AddressBarSiblingDropdownComponent implements OnInit, OnDestroy {
       this.attachScrollListener();
       this.scrollSelectedIntoView();
       this.cdr.markForCheck();
+      this.focusSelectedItem();
     }, 0);
   }
   get entries(): SiblingEntry[] { return this._entries; }
@@ -270,6 +280,9 @@ export class AddressBarSiblingDropdownComponent implements OnInit, OnDestroy {
   setSelectedIndex(index: number): void {
     if (index < 0 || index >= this._entries.length) return;
     this.selectedIndex = index;
+    this.scrollSelectedIntoView();
+    this.cdr.markForCheck();
+    this.focusSelectedItem();
   }
 
   private moveSelection(delta: number): void {
@@ -279,6 +292,7 @@ export class AddressBarSiblingDropdownComponent implements OnInit, OnDestroy {
     this.selectedIndex = Math.max(0, Math.min(this._entries.length - 1, baseIndex + delta));
     this.scrollSelectedIntoView();
     this.cdr.markForCheck();
+    this.focusSelectedItem();
   }
 
   private openSelected(): void {
@@ -300,6 +314,13 @@ export class AddressBarSiblingDropdownComponent implements OnInit, OnDestroy {
     }
 
     this.updateVS();
+  }
+
+  private focusSelectedItem(): void {
+    requestAnimationFrame(() => {
+      const item = this.rootElRef?.nativeElement.querySelector<HTMLElement>('.ab-drop-item--selected');
+      item?.focus({ preventScroll: true });
+    });
   }
 
   private registerInputCommands(): void {

@@ -6,6 +6,7 @@ import { KeyboardService, ShortcutCategory } from '../services/keyboard.service'
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
+import { trapFocusWithin } from '../shared/focus-trap.utils';
 
 @Component({
   selector: 'app-keyboard-help',
@@ -201,6 +202,15 @@ export class KeyboardHelpComponent implements OnInit, OnDestroy {
     this.inputEngine.unregisterCommand('dialog.keyboardHelp.close');
     this.inputEngine.unregisterCommand('dialog.keyboardHelp.focusSearch');
     this.inputEngine.unregisterCommand('dialog.keyboardHelp.exportBindings');
+  }
+
+  onDialogKeyDown(event: KeyboardEvent): void {
+    const container = event.currentTarget;
+    if (!(container instanceof HTMLElement)) {
+      return;
+    }
+
+    trapFocusWithin(container, event);
   }
 }
 

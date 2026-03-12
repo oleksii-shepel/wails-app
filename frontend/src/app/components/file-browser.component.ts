@@ -187,6 +187,11 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
     return this.activePaneId === 'left' ? this.rightPane : this.leftPane;
   }
 
+  // Status bar data — read from the active pane reactively via template bindings
+  get statusFilteredEntries() { return this.getActivePane()?.filteredEntries ?? []; }
+  get statusAllEntries()      { return this.getActivePane()?.entries ?? []; }
+  get statusSelectedPaths()   { return this.getActivePane()?.selectedFiles ?? new Set<string>(); }
+
   private get transferHost(): FileBrowserTransferHost {
     return {
       leftPane: this.leftPane,

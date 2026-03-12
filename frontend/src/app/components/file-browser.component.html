@@ -101,7 +101,10 @@
   <app-operation-toast-stack #toastStack [collapsed]="toastCollapsed">
   </app-operation-toast-stack>
 
-  <app-status-bar>
+  <app-status-bar
+    [filteredEntries]="statusFilteredEntries"
+    [allEntries]="statusAllEntries"
+    [selectedPaths]="statusSelectedPaths">
     <app-elevation-status-pill></app-elevation-status-pill>
     <app-operation-status-bar
       [(toastCollapsed)]="toastCollapsed"

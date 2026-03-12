@@ -6,12 +6,12 @@ import { KeyboardService, ShortcutCategory } from '../services/keyboard.service'
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
-import { trapFocusWithin } from '../shared/focus-trap.utils';
+import { DialogFocusTrapDirective } from '../shared/dialog-focus-trap.directive';
 
 @Component({
   selector: 'app-keyboard-help',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, DialogFocusTrapDirective],
   templateUrl: './keyboard-help.component.html',
   styleUrls: ['./keyboard-help.component.scss']
 })
@@ -62,7 +62,6 @@ export class KeyboardHelpComponent implements OnInit, OnDestroy {
     this.releaseDialogContext ??= this.inputContexts.acquire('dialog.keyboardHelp');
     this.searchText = '';
     this.loadShortcuts();
-    setTimeout(() => this.searchInput?.nativeElement.focus(), 0);
   }
 
   /**
@@ -202,15 +201,6 @@ export class KeyboardHelpComponent implements OnInit, OnDestroy {
     this.inputEngine.unregisterCommand('dialog.keyboardHelp.close');
     this.inputEngine.unregisterCommand('dialog.keyboardHelp.focusSearch');
     this.inputEngine.unregisterCommand('dialog.keyboardHelp.exportBindings');
-  }
-
-  onDialogKeyDown(event: KeyboardEvent): void {
-    const container = event.currentTarget;
-    if (!(container instanceof HTMLElement)) {
-      return;
-    }
-
-    trapFocusWithin(container, event);
   }
 }
 

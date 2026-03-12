@@ -1,11 +1,12 @@
 <div class="global-search-overlay" *ngIf="isVisible" (click)="hide()">
-  <div class="global-search-modal" role="dialog" aria-modal="true" tabindex="-1" (click)="$event.stopPropagation()" (keydown)="onMainDialogKeyDown($event)">
+  <div class="global-search-modal" [appTrapFocus]="true" role="dialog" aria-modal="true" tabindex="-1" (click)="$event.stopPropagation()">
     <!-- Search Header -->
     <div class="search-header">
       <div class="search-input-container">
         <span class="search-icon">🔍</span>
         <input
           #searchInput
+          data-dialog-initial-focus
           type="text"
           [(ngModel)]="searchQuery"
           (ngModelChange)="onSearchChange()"
@@ -151,7 +152,7 @@
 
 <!-- Search Settings Modal -->
 <div class="settings-overlay" *ngIf="showSettingsModal" (click)="hideSettings()">
-  <div class="settings-modal" role="dialog" aria-modal="true" tabindex="-1" (click)="$event.stopPropagation()" (keydown)="onSettingsDialogKeyDown($event)">
+  <div class="settings-modal" [appTrapFocus]="true" role="dialog" aria-modal="true" tabindex="-1" (click)="$event.stopPropagation()">
     <div class="settings-header">
       <h3>Search Settings</h3>
       <button (click)="hideSettings()" class="btn-close">✕</button>
@@ -162,6 +163,7 @@
         <label class="setting-label">
           <input
             #settingsFirstInput
+            data-dialog-initial-focus
             type="checkbox"
             [(ngModel)]="searchConfig.enableTypoTolerance"
             (change)="updateSearchConfig()"

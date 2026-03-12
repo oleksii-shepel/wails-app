@@ -1,9 +1,9 @@
-import { Component, ElementRef, OnDestroy, OnInit, ViewChild } from '@angular/core';
+import { Component, OnDestroy, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
-import { trapFocusWithin } from '../shared/focus-trap.utils';
+import { DialogFocusTrapDirective } from '../shared/dialog-focus-trap.directive';
 import type { Stream } from '@epikodelabs/streamix';
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
 
@@ -15,7 +15,7 @@ interface ConfirmDialogRequest {
 @Component({
   selector: 'app-confirm-dialog',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, DialogFocusTrapDirective],
   template: `
     <ng-container *ngIf="request$ | async as request">
       <div 
@@ -26,12 +26,12 @@ interface ConfirmDialogRequest {
         <div
           class="confirm-panel"
           [class.confirm-panel--alert]="request.options.isAlert"
+          [appTrapFocus]="true"
           role="alertdialog"
           aria-modal="true"
           tabindex="-1"
           [attr.aria-label]="request.options.title || 'Confirmation'"
           (click)="$event.stopPropagation()"
-          (keydown)="onDialogKeyDown($event)"
         >
           <!-- Alert toast-style layout -->
           <ng-container *ngIf="request.options.isAlert">
@@ -46,7 +46,7 @@ interface ConfirmDialogRequest {
                 </div>
               </div>
               <div class="alert-actions">
-                <button #alertConfirmButton type="button" class="alert-btn" (click)="onConfirm()">
+                <button type="button" class="alert-btn" data-dialog-initial-focus (click)="onConfirm()">
                   {{ request.options.confirmText || 'OK' }}
                 </button>
               </div>
@@ -65,15 +65,14 @@ interface ConfirmDialogRequest {
 
             <div class="confirm-actions">
               <button 
-                #cancelButton
                 class="btn-cancel" 
+                data-dialog-initial-focus
                 type="button" 
                 (click)="onCancel()"
               >
                 {{ request.options.cancelText || 'Cancel' }}
               </button>
               <button
-                #confirmButton
                 type="button"
                 [class.btn-danger]="request.options.danger"
                 [class.btn-confirm]="!request.options.danger"
@@ -323,10 +322,6 @@ interface ConfirmDialogRequest {
   `]
 })
 export class ConfirmDialogComponent {
-  @ViewChild('alertConfirmButton') alertConfirmButton?: ElementRef<HTMLButtonElement>;
-  @ViewChild('cancelButton') cancelButton?: ElementRef<HTMLButtonElement>;
-  @ViewChild('confirmButton') confirmButton?: ElementRef<HTMLButtonElement>;
-
   private readonly destroy$ = createSubject<void>();
   private releaseDialogContext: (() => void) | null = null;
   readonly request$: Stream<ConfirmDialogRequest | null> = this.confirmDialogService.activeRequest$;
@@ -346,7 +341,6 @@ export class ConfirmDialogComponent {
       .subscribe(request => {
         if (request) {
           this.releaseDialogContext ??= this.inputContexts.acquire('dialog.confirm');
-          setTimeout(() => this.focusPrimaryAction(!!request.options?.isAlert), 0);
           return;
         }
         this.releaseDialogContext?.();
@@ -391,23 +385,5 @@ export class ConfirmDialogComponent {
     }
     const lines = options.message.split('\n');
     return lines.slice(1).join('\n');
-  }
-
-  private focusPrimaryAction(isAlert: boolean): void {
-    if (isAlert) {
-      this.alertConfirmButton?.nativeElement.focus();
-      return;
-    }
-
-    this.cancelButton?.nativeElement.focus();
-  }
-
-  onDialogKeyDown(event: KeyboardEvent): void {
-    const container = event.currentTarget;
-    if (!(container instanceof HTMLElement)) {
-      return;
-    }
-
-    trapFocusWithin(container, event);
   }
 }

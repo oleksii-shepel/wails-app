@@ -7,15 +7,15 @@ import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
 import { normalizePath } from './address-bar.utils';
-import { trapFocusWithin } from '../shared/focus-trap.utils';
+import { DialogFocusTrapDirective } from '../shared/dialog-focus-trap.directive';
 
 @Component({
   selector: 'app-path-history-viewer',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, DialogFocusTrapDirective],
   template: `
     <div class="path-history-overlay" *ngIf="isVisible" (click)="hide()">
-      <div class="path-history-modal" role="dialog" aria-modal="true" tabindex="-1" (click)="$event.stopPropagation()" (keydown)="onDialogKeyDown($event)">
+      <div class="path-history-modal" [appTrapFocus]="true" role="dialog" aria-modal="true" tabindex="-1" (click)="$event.stopPropagation()">
         <!-- Header -->
         <div class="modal-header">
           <h2>Path History</h2>
@@ -41,6 +41,7 @@ import { trapFocusWithin } from '../shared/focus-trap.utils';
         <div class="search-bar">
           <input
             #filterInput
+            data-dialog-initial-focus
             type="text"
             [(ngModel)]="filterText"
             (ngModelChange)="applyFilter()"
@@ -502,7 +503,6 @@ export class PathHistoryViewerComponent implements OnInit, OnDestroy {
     this.historyEntries = this.pathHistoryService.getAllHistory();
     this.applyFilter();
     this.selectedIndex = 0;
-    setTimeout(() => this.filterInput?.nativeElement.focus(), 0);
   }
 
   hide(): void {
@@ -673,15 +673,6 @@ export class PathHistoryViewerComponent implements OnInit, OnDestroy {
     this.inputEngine.unregisterCommand('dialog.pathHistory.nextItem');
     this.inputEngine.unregisterCommand('dialog.pathHistory.openSelected');
     this.inputEngine.unregisterCommand('dialog.pathHistory.removeSelected');
-  }
-
-  onDialogKeyDown(event: KeyboardEvent): void {
-    const container = event.currentTarget;
-    if (!(container instanceof HTMLElement)) {
-      return;
-    }
-
-    trapFocusWithin(container, event);
   }
 }
 

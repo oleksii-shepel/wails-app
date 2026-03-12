@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, HostListener, ViewChild, ElementRef } from '@angular/core';
+import { Component, OnInit, OnDestroy, ViewChild, ElementRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { createSubject } from '@epikodelabs/streamix';
@@ -7,18 +7,17 @@ import { GlobalSearchService, SearchResultItem, IndexStats, SearchConfig } from 
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
 import { FileType } from '../shared/protocol';
-import { trapFocusWithin } from '../shared/focus-trap.utils';
+import { DialogFocusTrapDirective } from '../shared/dialog-focus-trap.directive';
 
 @Component({
   selector: 'app-global-search',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, DialogFocusTrapDirective],
   templateUrl: './global-search.component.html',
   styleUrls: ['./global-search.component.scss']
 })
 export class GlobalSearchComponent implements OnInit, OnDestroy {
   @ViewChild('searchInput') searchInput?: ElementRef<HTMLInputElement>;
-  @ViewChild('settingsFirstInput') settingsFirstInput?: ElementRef<HTMLInputElement>;
 
   isVisible = false;
   searchQuery = '';
@@ -93,11 +92,6 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
     this.results = [];
     this.selectedIndex = 0;
     this.activeFilters = new Set(['all']);
-
-    // Focus input after render
-    setTimeout(() => {
-      this.searchInput?.nativeElement.focus();
-    }, 100);
   }
 
   /**
@@ -289,7 +283,6 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
   showSettings(): void {
     this.showSettingsModal = true;
     this.releaseSearchSettingsContext ??= this.inputContexts.acquire('dialog.globalSearch.settings');
-    setTimeout(() => this.settingsFirstInput?.nativeElement.focus(), 0);
   }
 
   /**
@@ -299,9 +292,6 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
     this.showSettingsModal = false;
     this.releaseSearchSettingsContext?.();
     this.releaseSearchSettingsContext = null;
-    if (this.isVisible) {
-      setTimeout(() => this.searchInput?.nativeElement.focus(), 0);
-    }
   }
 
   /**
@@ -394,24 +384,6 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
     this.inputEngine.unregisterCommand('dialog.globalSearch.openSettings');
     this.inputEngine.unregisterCommand('dialog.globalSearch.settings.close');
     this.inputEngine.unregisterCommand('dialog.globalSearch.settings.apply');
-  }
-
-  onMainDialogKeyDown(event: KeyboardEvent): void {
-    const container = event.currentTarget;
-    if (!(container instanceof HTMLElement)) {
-      return;
-    }
-
-    trapFocusWithin(container, event);
-  }
-
-  onSettingsDialogKeyDown(event: KeyboardEvent): void {
-    const container = event.currentTarget;
-    if (!(container instanceof HTMLElement)) {
-      return;
-    }
-
-    trapFocusWithin(container, event);
   }
 }
 

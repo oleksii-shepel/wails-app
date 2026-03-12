@@ -12,12 +12,48 @@ const FOCUSABLE_SELECTOR = [
   '[tabindex]:not([tabindex="-1"])',
 ].join(', ');
 
-function isFocusable(element: HTMLElement): boolean {
-  if (element.hasAttribute('disabled')) {
+function isHiddenByAncestor(element: HTMLElement): boolean {
+  return element.closest('[hidden], [inert], [aria-hidden="true"]') !== null;
+}
+
+function isRadioTabStop(element: HTMLElement): boolean {
+  if (!(element instanceof HTMLInputElement) || element.type !== 'radio' || !element.name || element.checked) {
+    return true;
+  }
+
+  const ownerDocument = element.ownerDocument;
+  const escapedName = typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+    ? CSS.escape(element.name)
+    : element.name.replace(/([\\"'\[\]#.:])/g, '\\$1');
+  const group = Array.from(ownerDocument.querySelectorAll<HTMLInputElement>(`input[type="radio"][name="${escapedName}"]`))
+    .filter(radio => radio.form === element.form);
+
+  return !group.some(radio => radio.checked);
+}
+
+export function isFocusableElement(element: HTMLElement): boolean {
+  if (!element.isConnected) {
     return false;
   }
 
-  if (element.getAttribute('aria-hidden') === 'true') {
+  if (element.hasAttribute('disabled') || element.getAttribute('aria-disabled') === 'true') {
+    return false;
+  }
+
+  if (isHiddenByAncestor(element)) {
+    return false;
+  }
+
+  if (element.tabIndex < 0) {
+    return false;
+  }
+
+  const style = getComputedStyle(element);
+  if (style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse') {
+    return false;
+  }
+
+  if (!isRadioTabStop(element)) {
     return false;
   }
 
@@ -26,7 +62,28 @@ function isFocusable(element: HTMLElement): boolean {
 
 export function getFocusableElements(container: HTMLElement): HTMLElement[] {
   return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR))
-    .filter(isFocusable);
+    .filter(isFocusableElement);
+}
+
+export function focusInitialElement(container: HTMLElement, preferredSelector?: string | null): void {
+  const selectorCandidates = [preferredSelector, '[data-dialog-initial-focus]', '[autofocus]']
+    .filter((selector): selector is string => typeof selector === 'string' && selector.trim().length > 0);
+
+  for (const selector of selectorCandidates) {
+    const candidate = container.querySelector<HTMLElement>(selector);
+    if (candidate && isFocusableElement(candidate)) {
+      candidate.focus();
+      return;
+    }
+  }
+
+  const firstFocusable = getFocusableElements(container)[0];
+  if (firstFocusable) {
+    firstFocusable.focus();
+    return;
+  }
+
+  container.focus();
 }
 
 export function trapFocusWithin(container: HTMLElement, event: KeyboardEvent): void {

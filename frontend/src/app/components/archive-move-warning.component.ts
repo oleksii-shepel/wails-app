@@ -17,19 +17,19 @@
  *   </app-archive-move-warning>
  */
 
-import { Component, ElementRef, EventEmitter, Input, OnChanges, OnDestroy, OnInit, Output, SimpleChanges, ViewChild } from '@angular/core';
+import { Component, EventEmitter, Input, OnChanges, OnDestroy, OnInit, Output, SimpleChanges } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
-import { trapFocusWithin } from '../shared/focus-trap.utils';
+import { DialogFocusTrapDirective } from '../shared/dialog-focus-trap.directive';
 
 @Component({
   selector: 'app-archive-move-warning',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, DialogFocusTrapDirective],
   template: `
 <div *ngIf="visible" class="amw-backdrop" (click)="onBackdrop($event)">
-  <div class="amw-panel" role="alertdialog" aria-modal="true" tabindex="-1" (keydown)="onDialogKeyDown($event)">
+  <div class="amw-panel" [appTrapFocus]="true" role="alertdialog" aria-modal="true" tabindex="-1">
 
     <div class="amw-icon" aria-hidden="true">
       <svg viewBox="0 0 20 20" fill="currentColor">
@@ -55,7 +55,7 @@ import { trapFocusWithin } from '../shared/focus-trap.utils';
     </p>
 
     <div class="amw-actions">
-      <button #cancelButton class="amw-btn amw-btn--cancel"  (click)="cancelled.emit()">Cancel</button>
+      <button class="amw-btn amw-btn--cancel" data-dialog-initial-focus (click)="cancelled.emit()">Cancel</button>
       <button class="amw-btn amw-btn--confirm" (click)="confirmed.emit()">Move</button>
     </div>
 
@@ -138,8 +138,6 @@ import { trapFocusWithin } from '../shared/focus-trap.utils';
   `],
 })
 export class ArchiveMoveWarningComponent implements OnInit, OnChanges, OnDestroy {
-  @ViewChild('cancelButton') cancelButton?: ElementRef<HTMLButtonElement>;
-
   private releaseDialogContext: (() => void) | null = null;
 
   @Input()  visible    = false;
@@ -186,20 +184,10 @@ export class ArchiveMoveWarningComponent implements OnInit, OnChanges, OnDestroy
   private syncContextLease(): void {
     if (this.visible) {
       this.releaseDialogContext ??= this.inputContexts.acquire('dialog.archiveMoveWarning');
-      setTimeout(() => this.cancelButton?.nativeElement.focus(), 0);
       return;
     }
 
     this.releaseDialogContext?.();
     this.releaseDialogContext = null;
-  }
-
-  onDialogKeyDown(event: KeyboardEvent): void {
-    const container = event.currentTarget;
-    if (!(container instanceof HTMLElement)) {
-      return;
-    }
-
-    trapFocusWithin(container, event);
   }
 }

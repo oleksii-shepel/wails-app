@@ -7,7 +7,7 @@ import { GlobalSearchService, SearchResultItem, IndexStats, SearchConfig } from 
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
 import { FileType } from '../shared/protocol';
-import { DialogFocusTrapDirective } from '../shared/dialog-focus-trap.directive';
+import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.directive';
 
 @Component({
   selector: 'app-global-search',

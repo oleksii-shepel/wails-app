@@ -21,7 +21,7 @@ import { Component, EventEmitter, Input, OnChanges, OnDestroy, OnInit, Output, S
 import { CommonModule } from '@angular/common';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
-import { DialogFocusTrapDirective } from '../shared/dialog-focus-trap.directive';
+import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.directive';
 
 @Component({
   selector: 'app-archive-move-warning',

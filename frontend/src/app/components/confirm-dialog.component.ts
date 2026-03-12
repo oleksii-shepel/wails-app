@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
-import { DialogFocusTrapDirective } from '../shared/dialog-focus-trap.directive';
+import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.directive';
 import type { Stream } from '@epikodelabs/streamix';
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
 

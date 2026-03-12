@@ -6,7 +6,7 @@ import { KeyboardService, ShortcutCategory } from '../services/keyboard.service'
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
-import { DialogFocusTrapDirective } from '../shared/dialog-focus-trap.directive';
+import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.directive';
 
 @Component({
   selector: 'app-keyboard-help',

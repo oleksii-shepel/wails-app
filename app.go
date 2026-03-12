@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
-
 	vfslib "wails-app/vfs"
 	"wails-app/vfs/archive/cache"
 )
@@ -15,6 +13,7 @@ import (
 type App struct {
 	ctx        context.Context
 	archive    *ArchiveService
+	runtime    *AppRuntimeService
 	filesystem *FilesystemService
 	batch      *BatchService
 	dirStream  *DirStreamService
@@ -43,6 +42,7 @@ func NewApp() *App {
 
 	app := &App{
 		archive:    nil,
+		runtime:    NewAppRuntimeService(),
 		operations: NewOperationManager(),
 		archCache:  cache.New(resolveChain),
 	}
@@ -64,62 +64,11 @@ func NewApp() *App {
 
 // startup is called by Wails when the app starts.
 func (a *App) startup(ctx context.Context) {
-	a.ctx = ctx
-	// Wire the App reference into the operation manager so it can emit
-	// Wails events. This replaces the old package-level appInstance global.
-	a.operations.SetApp(a)
-	a.dirWatch = NewPaneDirWatchManager(a)
-	a.initVFS()
-
-	// Listen for native Wails file drop events from the OS
-	runtime.EventsOn(ctx, "wails:file-drop", func(optionalData ...interface{}) {
-		fmt.Println("[wails:file-drop] Backend listener fired!")
-		if len(optionalData) > 0 {
-			// Extract the data map sent by Wails
-			if data, ok := optionalData[0].(map[string]interface{}); ok {
-				fmt.Printf("[wails:file-drop] Native event received: %+v\n", data)
-
-				// Extract x, y coordinates
-				x := 0
-				y := 0
-				if xVal, ok := data["x"].(float64); ok {
-					x = int(xVal)
-				}
-				if yVal, ok := data["y"].(float64); ok {
-					y = int(yVal)
-				}
-
-				// Extract paths array
-				paths := []string{}
-				if pathsVal, ok := data["paths"].([]interface{}); ok {
-					for _, p := range pathsVal {
-						if str, ok := p.(string); ok {
-							paths = append(paths, str)
-						}
-					}
-				}
-
-				fmt.Printf("[wails:file-drop] x=%d, y=%d, paths=%v\n", x, y, paths)
-
-				// Process the file drop
-				err := a.HandleFileDrop(x, y, paths)
-				if err != nil {
-					fmt.Printf("[wails:file-drop] HandleFileDrop error: %v\n", err)
-				}
-			}
-		}
-	})
+	a.runtime.Startup(a, ctx)
 }
 
-func (a *App) shutdown(ctx context.Context) {
-	if a.dirWatch != nil {
-		a.dirWatch.Close()
-	}
-	a.dirStream.CancelAll()
-	if a.elevation != nil {
-		a.elevation.StopSession()
-	}
-	a.archCache.CloseAll()
+func (a *App) shutdown(_ context.Context) {
+	a.runtime.Shutdown(a)
 }
 
 // ============================================================================
@@ -341,9 +290,7 @@ func (a *App) CancelListDirStream(streamID string) {
 }
 
 func (a *App) emitEvent(name string, data interface{}) {
-	if a.ctx != nil {
-		runtime.EventsEmit(a.ctx, name, data)
-	}
+	a.runtime.EmitEvent(a.ctx, name, data)
 }
 
 // ============================================================================

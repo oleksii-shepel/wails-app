@@ -31,6 +31,7 @@ import { ElevationStatusPillComponent } from './elevation-status-pill.component'
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { InputEngineService } from '../services/input-engine.service';
 import { TabInfo } from '../shared/protocol-enhanced';
+import type { InputBindingDefinition } from '../services/input-system.types';
 
 @Component({
   selector: 'app-file-browser',
@@ -52,6 +53,13 @@ import { TabInfo } from '../shared/protocol-enhanced';
   styleUrls: ['./file-browser.component.scss'],
 })
 export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
+  private static readonly mouseCommandOwner = 'file-browser-mouse';
+  private static readonly mouseBindingIds = [
+    'global.mouse.fileEntry.doubleClickOpen',
+    'global.mouse.viewer.ctrlWheelUp',
+    'global.mouse.viewer.ctrlWheelDown',
+  ] as const;
+
   @ViewChild(KeyboardHelpComponent) keyboardHelp?: KeyboardHelpComponent;
   @ViewChild(GlobalSearchComponent) globalSearch?: GlobalSearchComponent;
   @ViewChild(PathHistoryViewerComponent) pathHistoryViewer?: PathHistoryViewerComponent;
@@ -72,6 +80,7 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
   toastCollapsed = false;
   elevationActive = false;
   elevationBusy = false;
+  readonly pendingChord$ = this.inputEngine.pendingChord$;
 
   FileType = FileType;
   private readonly clipboardController = new FileBrowserClipboardController();
@@ -127,6 +136,7 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
       });
 
     this.registerKeyboardShortcuts();
+    this.registerMouseBindings();
     this.layoutController.loadPaneWidths(this.layoutHost);
     void this.runtimeController.initialize(this.runtimeHost);
   }
@@ -143,6 +153,7 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
     this.destroy$.complete();
     this.apiService.disconnectWebSocket();
 
+    this.unregisterMouseBindings();
     this.runtimeController.dispose();
   }
 
@@ -374,8 +385,8 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
     this.searchController.onPanePathChange(this.searchHost, paneId, path);
   }
 
-  onGlobalSearchResult(result: any): void {
-    this.searchController.onGlobalSearchResult(this.searchHost, result);
+  async onGlobalSearchResult(result: any): Promise<void> {
+    await this.searchController.onGlobalSearchResult(this.searchHost, result);
   }
 
   // ============================================================================
@@ -434,6 +445,112 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
       quickView:             () => this.previewController.openFrozenPreviewInOtherPane(this.previewHost),
     };
     this.shortcutRegistry.registerAllShortcuts(callbacks);
+  }
+
+  private registerMouseBindings(): void {
+    this.inputEngine.registerCommand('global.mouse.fileEntry.openSelected', () => {
+      this.getActivePane()?.browserCommands.navigation.openSelectedItem();
+    }, FileBrowserComponent.mouseCommandOwner);
+
+    this.inputEngine.registerCommand('global.mouse.viewer.zoomIn', () => {
+      this.getActivePane()?.browserCommands.preview.zoomInActiveViewer();
+    }, FileBrowserComponent.mouseCommandOwner);
+
+    this.inputEngine.registerCommand('global.mouse.viewer.zoomOut', () => {
+      this.getActivePane()?.browserCommands.preview.zoomOutActiveViewer();
+    }, FileBrowserComponent.mouseCommandOwner);
+
+    const bindings: InputBindingDefinition[] = [
+      {
+        id: 'global.mouse.fileEntry.doubleClickOpen',
+        contextId: 'global',
+        commandId: 'global.mouse.fileEntry.openSelected',
+        source: 'default',
+        description: 'Open the currently selected entry on double click',
+        when: 'fileEntry',
+        trigger: {
+          device: 'mouse',
+          gesture: { type: 'doubleClick', button: 'left' },
+        },
+      },
+      {
+        id: 'global.mouse.viewer.ctrlWheelUp',
+        contextId: 'global',
+        commandId: 'global.mouse.viewer.zoomIn',
+        source: 'default',
+        description: 'Zoom the active viewer in with Ctrl+wheel up',
+        when: 'viewerSurface',
+        trigger: {
+          device: 'mouse',
+          gesture: { type: 'wheel', direction: 'up', modifiers: ['ctrl'] },
+        },
+      },
+      {
+        id: 'global.mouse.viewer.ctrlWheelDown',
+        contextId: 'global',
+        commandId: 'global.mouse.viewer.zoomOut',
+        source: 'default',
+        description: 'Zoom the active viewer out with Ctrl+wheel down',
+        when: 'viewerSurface',
+        trigger: {
+          device: 'mouse',
+          gesture: { type: 'wheel', direction: 'down', modifiers: ['ctrl'] },
+        },
+      },
+    ];
+
+    for (const binding of bindings) {
+      this.inputEngine.registerBinding(binding);
+    }
+  }
+
+  private unregisterMouseBindings(): void {
+    this.inputEngine.unregisterCommand('global.mouse.fileEntry.openSelected', FileBrowserComponent.mouseCommandOwner);
+    this.inputEngine.unregisterCommand('global.mouse.viewer.zoomIn', FileBrowserComponent.mouseCommandOwner);
+    this.inputEngine.unregisterCommand('global.mouse.viewer.zoomOut', FileBrowserComponent.mouseCommandOwner);
+
+    for (const bindingId of FileBrowserComponent.mouseBindingIds) {
+      this.inputEngine.unregisterBinding(bindingId);
+    }
+  }
+
+  formatPendingChord(steps: unknown): string {
+    const sequence = Array.isArray((steps as { steps?: unknown } | null | undefined)?.steps)
+      ? (steps as { steps: unknown[] }).steps
+      : (Array.isArray(steps) ? steps : null);
+
+    if (!sequence) {
+      return '';
+    }
+
+    return sequence.map((step) => {
+      const record = (step && typeof step === 'object') ? step as { key?: unknown; modifiers?: unknown } : {};
+      const key = typeof record.key === 'string' ? record.key : '';
+      const modifiers = Array.isArray(record.modifiers)
+        ? record.modifiers.filter((value: unknown): value is string => typeof value === 'string')
+        : [];
+      const parts = [...modifiers.map((modifier: string) => {
+        switch (modifier) {
+          case 'ctrl': return 'Ctrl';
+          case 'shift': return 'Shift';
+          case 'alt': return 'Alt';
+          case 'meta': return 'Win';
+          default: return modifier;
+        }
+      })];
+
+      const keyMap: Record<string, string> = {
+        arrowup: 'Up',
+        arrowdown: 'Down',
+        arrowleft: 'Left',
+        arrowright: 'Right',
+        escape: 'Esc',
+        space: 'Space',
+      };
+
+      parts.push(keyMap[key] ?? key.toUpperCase());
+      return parts.join('+');
+    }).join(' ');
   }
 
   onPanePreviewTarget(fromPane: 'left' | 'right', targetPath: string): void {

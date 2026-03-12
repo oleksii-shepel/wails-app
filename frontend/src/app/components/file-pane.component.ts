@@ -47,6 +47,7 @@ import { FilePaneTabsController, type FilePaneTabsHost } from './file-pane-tabs.
 import { FilePaneStateController, type FilePaneStateHost } from './file-pane-state.controller';
 import { DirListStreamController } from '../surfaces/dir/dir-list-stream.controller';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
+import type { SearchResultItem } from '../services/global-search.service';
 
 declare const window: any;
 
@@ -161,6 +162,9 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       focusController: this.focusController,
       focusHost: this.focusHost,
       stateRuntime: this.stateRuntime,
+      zoomInActiveViewer: () => this.zoomActiveViewerIn(),
+      zoomOutActiveViewer: () => this.zoomActiveViewerOut(),
+      resetActiveViewerZoom: () => this.resetActiveViewerZoom(),
     };
   }
 
@@ -219,6 +223,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   private get addressBar() { return this.surfaceOutlet?.addressBar; }
   private get fileViewContainer() { return this.surfaceOutlet?.fileViewContainer; }
   private get findWidget() { return this.surfaceOutlet?.findWidget; }
+  private get viewer() { return this.surfaceOutlet?.viewer; }
 
   @Input() paneId: 'left' | 'right' = 'left';
   @Input() workspace: WorkspaceConfig | null = null;
@@ -728,6 +733,30 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
 
   onNodeDoubleClick(entry: FileInfo): void {
     this.openController.onNodeDoubleClick(this.openHost, entry, () => this.browserCommands.navigation.navigateUp());
+  }
+
+  zoomActiveViewerIn(): void {
+    this.viewer?.zoomIn?.();
+  }
+
+  zoomActiveViewerOut(): void {
+    this.viewer?.zoomOut?.();
+  }
+
+  resetActiveViewerZoom(): void {
+    this.viewer?.resetZoom?.();
+  }
+
+  async openSearchResult(result: SearchResultItem): Promise<void> {
+    const targetPath = normalizePath(result.file.path);
+    const focusPath = result.file.type === FileType.DIRECTORY ? targetPath : result.file.path;
+    const directoryPath = result.file.type === FileType.DIRECTORY
+      ? targetPath
+      : normalizePath(targetPath.replace(/[/\\][^/\\]+$/, '') || targetPath);
+
+    await this.loadDirectory(directoryPath, { focusPath });
+    this.focusController.focusCursorPath(this.focusHost, focusPath);
+    this.runtimeStateController.afterNavigationMutation(this.runtimeStateHost);
   }
 
   private withParentEntry(raw: FileInfo[], inArchive: boolean, fsPath: string): FileInfo[] {

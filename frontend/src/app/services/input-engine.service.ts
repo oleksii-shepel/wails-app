@@ -5,6 +5,7 @@ import type {
   BindingResolution,
   InputBindingDefinition,
   InputContextDefinition,
+  MouseGesture,
   InputSourceKind,
   KeyStroke,
   PluginInputContribution,
@@ -43,6 +44,8 @@ interface KeyboardEventContext {
   inQuickAccessMenu: boolean;
   hasActivePane: boolean;
   isFilterInput: boolean;
+  inFileEntry: boolean;
+  inViewerSurface: boolean;
 }
 
 const SOURCE_PRIORITY: Record<InputSourceKind, number> = {
@@ -91,6 +94,7 @@ export class InputEngineService {
     }
 
     this.initializeKeyboardListener();
+    this.initializeMouseListeners();
     this.emitBindings();
   }
 
@@ -253,6 +257,22 @@ export class InputEngineService {
     }
   }
 
+  async dispatchMouseGesture(gesture: MouseGesture): Promise<boolean> {
+    const resolution = this.resolveMouseGesture(gesture);
+    if (!resolution) return false;
+
+    const command = this.getCommandHandler(resolution.binding.commandId);
+    if (!command) return false;
+
+    try {
+      await command();
+      return true;
+    } catch (error) {
+      console.error('Input command failed:', error);
+      return false;
+    }
+  }
+
   private initializeKeyboardListener(): void {
     document.addEventListener('keydown', (event) => {
       if (!this.keyboardEnabled || event.isComposing) return;
@@ -280,6 +300,59 @@ export class InputEngineService {
         console.error('Input command failed:', error);
       }
     }, { capture: true });
+  }
+
+  private initializeMouseListeners(): void {
+    const listenerOptions = { capture: true } as AddEventListenerOptions;
+    const wheelOptions = { capture: true, passive: false } as AddEventListenerOptions;
+
+    document.addEventListener('click', (event) => this.handleMouseEvent('click', event), listenerOptions);
+    document.addEventListener('dblclick', (event) => this.handleMouseEvent('dblclick', event), listenerOptions);
+    document.addEventListener('auxclick', (event) => this.handleMouseEvent('auxclick', event), listenerOptions);
+    document.addEventListener('contextmenu', (event) => this.handleMouseEvent('contextmenu', event), listenerOptions);
+    document.addEventListener('mousedown', (event) => this.handleMouseEvent('mousedown', event), listenerOptions);
+    document.addEventListener('mouseup', (event) => this.handleMouseEvent('mouseup', event), listenerOptions);
+    document.addEventListener('wheel', (event) => this.handleMouseEvent('wheel', event), wheelOptions);
+  }
+
+  private handleMouseEvent(kind: string, event: MouseEvent | WheelEvent): void {
+    if (!this.keyboardEnabled) return;
+
+    const gesture = this.normalizeMouseGesture(kind, event);
+    if (!gesture) return;
+
+    const resolution = this.resolveMouseGesture(gesture, event);
+    if (!resolution) return;
+
+    const command = this.getCommandHandler(resolution.binding.commandId);
+    if (!command) return;
+
+    this.clearPendingChord();
+
+    if (resolution.binding.preventDefault !== false) {
+      event.preventDefault();
+    }
+    if (resolution.binding.stopPropagation !== false) {
+      event.stopPropagation();
+    }
+
+    try {
+      const result = command();
+      if (result instanceof Promise) {
+        result.catch(error => console.error('Input command failed:', error));
+      }
+    } catch (error) {
+      console.error('Input command failed:', error);
+    }
+  }
+
+  private resolveMouseGesture(gesture: MouseGesture, event?: MouseEvent | WheelEvent): BindingResolution | null {
+    const candidates = this.matchMouseBindings(gesture, event);
+    if (candidates.length === 0) {
+      return null;
+    }
+
+    return this.chooseBestBinding(candidates);
   }
 
   private normalizeKeyStroke(event: KeyboardEvent): KeyStroke {
@@ -310,8 +383,13 @@ export class InputEngineService {
       Escape: 'escape',
       Enter: 'enter',
       Tab: 'tab',
+      Insert: 'insert',
       Backspace: 'backspace',
       Delete: 'delete',
+      Home: 'home',
+      End: 'end',
+      PageUp: 'pageup',
+      PageDown: 'pagedown',
       ArrowUp: 'arrowup',
       ArrowDown: 'arrowdown',
       ArrowLeft: 'arrowleft',
@@ -340,6 +418,19 @@ export class InputEngineService {
       }
 
       return true;
+    });
+  }
+
+  private matchMouseBindings(gesture: MouseGesture, event?: MouseEvent | WheelEvent): RegisteredBinding[] {
+    const activeContextIds = this.getActiveContextIds();
+    const mouseContext = event ? this.getKeyboardEventContext(event) : null;
+
+    return Array.from(this.bindings.values()).filter(binding => {
+      if (!binding.enabled || binding.trigger.device !== 'mouse') return false;
+      if (!activeContextIds.has(binding.contextId)) return false;
+      if (!this.whenClauseAllows(binding.when, mouseContext)) return false;
+
+      return this.sameGesture(binding.trigger.gesture, gesture);
     });
   }
 
@@ -413,12 +504,16 @@ export class InputEngineService {
         return !!context?.hasActivePane;
       case 'filterInput':
         return !!context?.isFilterInput;
+      case 'fileEntry':
+        return !!context?.inFileEntry;
+      case 'viewerSurface':
+        return !!context?.inViewerSurface;
       default:
         return false;
     }
   }
 
-  private getKeyboardEventContext(event: KeyboardEvent): KeyboardEventContext {
+  private getKeyboardEventContext(event: { target: EventTarget | null }): KeyboardEventContext {
     const target = event.target as HTMLElement | null;
     const tagName = target?.tagName.toLowerCase() ?? '';
 
@@ -431,7 +526,66 @@ export class InputEngineService {
       inQuickAccessMenu: !!target?.closest('.ab-quick-access-drop'),
       hasActivePane: !!target?.closest('.pane'),
       isFilterInput: !!target?.classList.contains('filter-input'),
+      inFileEntry: !!target?.closest('.file-entry'),
+      inViewerSurface: !!target?.closest('.viewer-surface'),
     };
+  }
+
+  private normalizeMouseGesture(kind: string, event: MouseEvent | WheelEvent): MouseGesture | null {
+    const modifiers: MouseGesture['modifiers'] = [];
+    if (event.ctrlKey || event.metaKey) modifiers.push(event.ctrlKey ? 'ctrl' : 'meta');
+    if (event.shiftKey) modifiers.push('shift');
+    if (event.altKey) modifiers.push('alt');
+
+    switch (kind) {
+      case 'click':
+        return { type: 'click', button: this.normalizeMouseButton(event.button), modifiers: modifiers.length ? modifiers.sort() : undefined };
+      case 'dblclick':
+        return { type: 'doubleClick', button: this.normalizeMouseButton(event.button), modifiers: modifiers.length ? modifiers.sort() : undefined };
+      case 'auxclick':
+      case 'contextmenu':
+      case 'mousedown':
+      case 'mouseup':
+        return {
+          type: kind === 'contextmenu' ? 'click' : (kind as 'mousedown' | 'mouseup'),
+          button: this.normalizeMouseButton(event.button),
+          modifiers: modifiers.length ? modifiers.sort() : undefined,
+        };
+      case 'wheel': {
+        const wheelEvent = event as WheelEvent;
+        const direction = Math.abs(wheelEvent.deltaX) > Math.abs(wheelEvent.deltaY)
+          ? (wheelEvent.deltaX < 0 ? 'left' : 'right')
+          : (wheelEvent.deltaY < 0 ? 'up' : 'down');
+        return {
+          type: 'wheel',
+          modifiers: modifiers.length ? modifiers.sort() : undefined,
+          direction,
+        };
+      }
+      default:
+        return null;
+    }
+  }
+
+  private normalizeMouseButton(button: number): MouseGesture['button'] {
+    switch (button) {
+      case 1:
+        return 'middle';
+      case 2:
+        return 'right';
+      case 0:
+      default:
+        return 'left';
+    }
+  }
+
+  private sameGesture(left: MouseGesture, right: MouseGesture): boolean {
+    const leftMods = (left.modifiers ?? []).join('+');
+    const rightMods = (right.modifiers ?? []).join('+');
+    return left.type === right.type
+      && (left.button ?? null) === (right.button ?? null)
+      && (left.direction ?? null) === (right.direction ?? null)
+      && leftMods === rightMods;
   }
 
   private getActiveContextIds(): Set<string> {

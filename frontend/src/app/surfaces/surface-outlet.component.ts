@@ -84,4 +84,6 @@ export class SurfaceOutletComponent implements OnChanges {
   get addressBar() { return this.mountedInstance?.addressBar; }
   get fileViewContainer() { return this.mountedInstance?.fileViewContainer; }
   get findWidget() { return this.mountedInstance?.findWidget; }
+  get viewerHost() { return this.mountedInstance?.viewerHost; }
+  get viewer() { return this.viewerHost?.mountedViewer; }
 }

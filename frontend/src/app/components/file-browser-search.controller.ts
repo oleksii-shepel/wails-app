@@ -1,8 +1,11 @@
 import { FileType } from '../shared/protocol';
 import type { PathHistoryService } from '../services/path-history.service';
+import type { SearchResultItem } from '../services/global-search.service';
+import { parentPath } from './address-bar.utils';
 
 export interface FileBrowserSearchPane {
   onPathChange(path: string): void;
+  openSearchResult(result: SearchResultItem): Promise<void>;
 }
 
 export interface FileBrowserSearchHost {
@@ -15,31 +18,23 @@ export class FileBrowserSearchController {
     host.pathHistoryService.addPath(path, paneId);
   }
 
-  onGlobalSearchResult(host: FileBrowserSearchHost, result: any): void {
+  async onGlobalSearchResult(host: FileBrowserSearchHost, result: SearchResultItem): Promise<void> {
     const pane = host.getActivePane();
     if (!pane) {
       return;
     }
 
     if (result.file.type === FileType.DIRECTORY) {
-      pane.onPathChange(result.file.path);
+      await pane.openSearchResult(result);
       return;
     }
 
-    pane.onPathChange(this.getParentPath(result.file.path));
-  }
-
-  private getParentPath(path: string): string {
-    if (path === '/' || path === '') {
-      return '/';
+    const targetDir = parentPath(result.file.path);
+    if (targetDir === result.file.path) {
+      pane.onPathChange(targetDir);
+      return;
     }
 
-    const parts = path.split('/').filter(part => part.length > 0);
-    if (parts.length === 0) {
-      return '/';
-    }
-
-    parts.pop();
-    return '/' + parts.join('/');
+    await pane.openSearchResult(result);
   }
 }

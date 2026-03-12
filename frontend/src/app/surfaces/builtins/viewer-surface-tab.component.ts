@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input, ViewChild } from '@angular/core';
 import { ViewerHostSurfaceComponent } from '../../viewers/viewer-host-surface.component';
 import { ViewerSurfaceContext } from '../surface-context';
 
@@ -37,5 +37,7 @@ import { ViewerSurfaceContext } from '../surface-context';
 })
 export class ViewerSurfaceTabComponent {
   @Input({ required: true }) ctx!: ViewerSurfaceContext;
+
+  @ViewChild(ViewerHostSurfaceComponent) viewerHost?: ViewerHostSurfaceComponent;
 }
 

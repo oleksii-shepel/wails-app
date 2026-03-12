@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, ViewChild, ElementRef } from '@angular/core';
+import { Component, OnInit, OnDestroy, ViewChild, ElementRef, Output, EventEmitter } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { createSubject } from '@epikodelabs/streamix';
@@ -18,6 +18,7 @@ import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.direct
 })
 export class GlobalSearchComponent implements OnInit, OnDestroy {
   @ViewChild('searchInput') searchInput?: ElementRef<HTMLInputElement>;
+  @Output() resultSelected = new EventEmitter<SearchResultItem>();
 
   isVisible = false;
   searchQuery = '';
@@ -92,6 +93,7 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
     this.results = [];
     this.selectedIndex = 0;
     this.activeFilters = new Set(['all']);
+    setTimeout(() => this.searchInput?.nativeElement.focus(), 0);
   }
 
   /**
@@ -214,13 +216,8 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
    * Select a result
    */
   selectResult(result: SearchResultItem): void {
-    // Emit selection event (to be handled by parent component)
-    // For now, just log
-    console.log('Selected:', result.file.path);
+    this.resultSelected.emit(result);
     this.hide();
-    
-    // TODO: Navigate to the selected file/folder
-    // This should be handled by a callback passed from parent
   }
 
   /**

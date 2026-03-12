@@ -1,7 +1,8 @@
-import { Component, Input, Output, EventEmitter, OnInit, OnDestroy, OnChanges, SimpleChanges, ChangeDetectionStrategy, ChangeDetectorRef, ElementRef } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnInit, OnDestroy, OnChanges, SimpleChanges, ChangeDetectionStrategy, ChangeDetectorRef, ElementRef, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { SpecialFolder } from '../shared/protocol';
-import { PathHistoryService, PathHistoryEntry } from '../services/path-history.service';
+import { PathHistoryService } from '../services/path-history.service';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
 import { PinnedPath } from './address-bar.types';
@@ -13,6 +14,12 @@ export interface QuickAccessSection {
 
 interface OrderedQuickAccessSection {
   section: QuickAccessSection;
+  originalIndex: number;
+}
+
+interface RankedQuickAccessItem {
+  item: QuickAccessItem;
+  score: number;
   originalIndex: number;
 }
 
@@ -30,7 +37,7 @@ export interface QuickAccessItem {
 @Component({
   selector: 'app-address-bar-quick-access',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, FormsModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="ab-quick-access-drop" role="menu" tabindex="-1">
@@ -140,10 +147,31 @@ export interface QuickAccessItem {
         </div>
       </div>
 
+      <div class="ab-qa-filter-row" *ngIf="allSections.length > 0">
+        <span class="ab-qa-filter-icon" aria-hidden="true">⌕</span>
+        <input
+          #filterInput
+          type="text"
+          class="ab-qa-filter-input"
+          [(ngModel)]="filterQuery"
+          (ngModelChange)="onFilterChange($event)"
+          placeholder="Filter quick access"
+          aria-label="Filter quick access items"
+        />
+        <button
+          *ngIf="filterQuery"
+          class="ab-qa-filter-clear"
+          type="button"
+          (click)="clearFilter()"
+          title="Clear filter"
+          aria-label="Clear filter"
+        >✕</button>
+      </div>
+
       <!-- Empty State -->
       <div class="ab-drop-empty" *ngIf="sections.length === 0">
-        <span class="ab-drop-empty-icon">📂</span>
-        <span>No quick access items available</span>
+        <span class="ab-drop-empty-icon">{{ filterQuery ? '🔎' : '📂' }}</span>
+        <span>{{ filterQuery ? 'No quick access items match this filter' : 'No quick access items available' }}</span>
       </div>
 
       <!-- Active Section Items -->
@@ -405,6 +433,55 @@ export interface QuickAccessItem {
       }
     }
 
+    .ab-qa-filter-row {
+      display: flex;
+      align-items: center;
+      gap: var(--vsc-padding-sm);
+      padding: 8px var(--vsc-padding-lg);
+      border-bottom: 1px solid var(--vsc-border-subtle);
+      background: color-mix(in srgb, var(--vsc-panel-background, #252526) 88%, var(--vsc-sidebar-background) 12%);
+    }
+
+    .ab-qa-filter-icon {
+      flex: 0 0 auto;
+      color: var(--vsc-foreground-dim);
+      font-size: 12px;
+    }
+
+    .ab-qa-filter-input {
+      flex: 1 1 auto;
+      min-width: 0;
+      height: 26px;
+      padding: 0 var(--vsc-padding-sm);
+      border: 1px solid var(--vsc-border);
+      border-radius: var(--vsc-border-radius-sm, 2px);
+      background: var(--vsc-input-background);
+      color: var(--vsc-foreground);
+      font: inherit;
+
+      &:focus {
+        outline: 1px solid var(--vsc-input-focus-border, var(--vsc-accent-blue));
+        border-color: var(--vsc-input-focus-border, var(--vsc-accent-blue));
+      }
+    }
+
+    .ab-qa-filter-clear {
+      flex: 0 0 auto;
+      width: 22px;
+      height: 22px;
+      padding: 0;
+      border: none;
+      border-radius: var(--vsc-border-radius-sm, 2px);
+      background: transparent;
+      color: var(--vsc-foreground-dim);
+      cursor: pointer;
+
+      &:hover {
+        background: var(--vsc-list-hover-background);
+        color: var(--vsc-foreground);
+      }
+    }
+
     /* Common Styles */
     .ab-drop-empty {
       display: flex;
@@ -507,6 +584,7 @@ export interface QuickAccessItem {
   `]
 })
 export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChanges {
+  @ViewChild('filterInput') filterInput?: ElementRef<HTMLInputElement>;
   @Input() currentPath = '';
   @Input() specialFolders: SpecialFolder[] = [];
   @Input() pinnedPaths: PinnedPath[] = [];
@@ -515,8 +593,10 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChan
   @Output() removePin = new EventEmitter<PinnedPath>();
   @Output() closeRequested = new EventEmitter<void>();
 
+  allSections: QuickAccessSection[] = [];
   sections: QuickAccessSection[] = [];
   activeTabIdx = 0;
+  filterQuery = '';
   tabSpinDirection: TabSpinDirection = null;
   tabTransitionActive = false;
   animationFromSections: OrderedQuickAccessSection[] = [];
@@ -538,7 +618,7 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChan
     this.registerInputCommands();
     this.releaseOverlayContext ??= this.inputContexts.acquire('overlay.quickAccess');
     this.buildSections();
-    this.focusMenuRoot();
+    this.focusFilterField();
   }
 
   ngOnChanges(changes: SimpleChanges): void {
@@ -559,11 +639,12 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChan
 
   // no-op if no items
   private buildSections(): void {
-    this.sections = [];
+    const previousSectionTitle = this.sections[this.activeTabIdx]?.title ?? this.preferredSectionTitle;
+    this.allSections = [];
 
     // System Folders
     if (this.specialFolders.length > 0) {
-      this.sections.push({
+      this.allSections.push({
         title: 'System',
         items: this.specialFolders.map(f => ({
           name: f.name,
@@ -574,7 +655,7 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChan
     }
 
     // Pinned Folders
-    this.sections.push({
+    this.allSections.push({
       title: 'Pinned',
       items: this.pinnedPaths.map(p => ({
         name: p.label,
@@ -587,7 +668,7 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChan
     // Frequent Folders (top 5 by access count)
     const frequentItems = this.getFrequentFolders(5);
     if (frequentItems.length > 0) {
-      this.sections.push({
+      this.allSections.push({
         title: 'Frequent',
         items: frequentItems
       });
@@ -596,16 +677,13 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChan
     // Recent Folders (last 5)
     const recentItems = this.getRecentFolders(5);
     if (recentItems.length > 0) {
-      this.sections.push({
+      this.allSections.push({
         title: 'Recent',
         items: recentItems
       });
     }
 
-    // Reset initial state
-    this.activeTabIdx = 0;
-    this.applyPreferredSection();
-    this.updateHighlightForNewTab();
+    this.applyFilterQuery(this.filterQuery, previousSectionTitle ?? null);
   }
 
   private applyPreferredSection(): void {
@@ -621,8 +699,8 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChan
   }
 
   setActiveTab(idx: number): void {
+    if (idx < 0 || idx >= this.sections.length) return;
     if (this.activeTabIdx === idx) return;
-    this.focusMenuRoot();
     const previousIdx = this.activeTabIdx;
     this.animationFromSections = this.orderedSectionsFor(previousIdx);
     this.animationToSections = this.orderedSectionsFor(idx);
@@ -670,7 +748,7 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChan
     this.tabSpinDirection = direction;
     this.tabTransitionActive = true;
     this.cdr.markForCheck();
-    this.focusMenuRoot();
+    this.focusFilterField();
 
     this.tabSpinTimer = setTimeout(() => {
       this.tabSpinDirection = null;
@@ -679,15 +757,170 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChan
       this.animationToSections = [];
       this.tabSpinTimer = null;
       this.cdr.markForCheck();
-      this.focusMenuRoot();
+      this.focusFilterField();
     }, 260);
   }
 
-  private focusMenuRoot(): void {
+  onFilterChange(query: string): void {
+    this.applyFilterQuery(query, this.sections[this.activeTabIdx]?.title ?? null);
+  }
+
+  clearFilter(): void {
+    this.applyFilterQuery('', this.sections[this.activeTabIdx]?.title ?? null);
+    this.focusFilterField();
+  }
+
+  private focusFilterField(): void {
     requestAnimationFrame(() => {
+      const input = this.filterInput?.nativeElement;
+      if (input) {
+        input.focus({ preventScroll: true });
+        input.select();
+        return;
+      }
+
       const menu = this.hostEl.nativeElement.querySelector<HTMLElement>('.ab-quick-access-drop');
       menu?.focus({ preventScroll: true });
     });
+  }
+
+  private applyFilterQuery(query: string, preferredTitle: string | null): void {
+    this.filterQuery = query;
+    const normalized = query.trim().toLowerCase();
+    const nextSections = normalized
+      ? this.allSections
+          .map(section => ({
+            title: section.title,
+            items: this.rankItemsForQuery(section.items, normalized),
+          }))
+          .filter(section => section.items.length > 0)
+      : this.allSections.map(section => ({ title: section.title, items: [...section.items] }));
+
+    this.sections = nextSections;
+
+    if (this.sections.length === 0) {
+      this.activeTabIdx = 0;
+      this.highlightedItem = null;
+      this.cdr.markForCheck();
+      return;
+    }
+
+    const preferred = (preferredTitle || this.preferredSectionTitle || '').trim().toLowerCase();
+    const preferredIdx = preferred
+      ? this.sections.findIndex(section => section.title.toLowerCase() === preferred)
+      : -1;
+
+    if (preferredIdx >= 0) {
+      this.activeTabIdx = preferredIdx;
+    } else if (this.activeTabIdx >= this.sections.length) {
+      this.activeTabIdx = this.sections.length - 1;
+    }
+
+    this.updateHighlightForNewTab();
+    this.cdr.markForCheck();
+  }
+
+  private rankItemsForQuery(items: QuickAccessItem[], query: string): QuickAccessItem[] {
+    const ranked = items
+      .map((item, originalIndex): RankedQuickAccessItem => ({
+        item,
+        score: this.rankItemForQuery(item, query),
+        originalIndex,
+      }))
+      .filter(entry => entry.score > 0)
+      .sort((left, right) => right.score - left.score || left.originalIndex - right.originalIndex);
+
+    return ranked.map(entry => entry.item);
+  }
+
+  private rankItemForQuery(item: QuickAccessItem, query: string): number {
+    const tokens = query.split(/\s+/).filter(Boolean);
+    if (tokens.length === 0) {
+      return 1;
+    }
+
+    const fields = [
+      { text: item.name, weight: 8 },
+      { text: item.pin?.label, weight: 7 },
+      { text: item.path, weight: 4 },
+      { text: item.pin?.path, weight: 3 },
+    ];
+
+    let total = 0;
+    for (const token of tokens) {
+      let bestScore = 0;
+      for (const field of fields) {
+        bestScore = Math.max(bestScore, this.fuzzyFieldScore(field.text, token, field.weight));
+      }
+
+      if (bestScore <= 0) {
+        return 0;
+      }
+
+      total += bestScore;
+    }
+
+    total += Math.min(item.accessCount ?? 0, 25);
+    if (item.pin) {
+      total += 10;
+    }
+
+    return total;
+  }
+
+  private fuzzyFieldScore(value: string | undefined, query: string, weight: number): number {
+    if (!value) {
+      return 0;
+    }
+
+    const text = value.toLowerCase();
+    if (text === query) {
+      return 320 * weight;
+    }
+
+    if (text.startsWith(query)) {
+      return (220 - Math.min(text.length - query.length, 40)) * weight;
+    }
+
+    const containsIndex = text.indexOf(query);
+    if (containsIndex >= 0) {
+      const boundaryBonus = containsIndex === 0 || this.isBoundaryChar(text[containsIndex - 1]) ? 18 : 0;
+      return (150 - Math.min(containsIndex, 40) + boundaryBonus) * weight;
+    }
+
+    let queryIndex = 0;
+    let score = 0;
+    let contiguousRun = 0;
+
+    for (let textIndex = 0; textIndex < text.length && queryIndex < query.length; textIndex++) {
+      if (text[textIndex] !== query[queryIndex]) {
+        contiguousRun = 0;
+        continue;
+      }
+
+      const atBoundary = textIndex === 0 || this.isBoundaryChar(text[textIndex - 1]);
+      contiguousRun += 1;
+      score += 14;
+      score += contiguousRun * 10;
+      if (atBoundary) {
+        score += 18;
+      }
+      if (textIndex === queryIndex) {
+        score += 6;
+      }
+
+      queryIndex += 1;
+    }
+
+    if (queryIndex !== query.length) {
+      return 0;
+    }
+
+    return score * weight;
+  }
+
+  private isBoundaryChar(char: string | undefined): boolean {
+    return !char || char === '/' || char === '\\' || char === '-' || char === '_' || char === ' ' || char === '.';
   }
 
   private updateHighlightForNewTab(): void {
@@ -711,6 +944,14 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChan
       const item = this.sections[sectionIdx].items[itemIdx];
       this.navigate.emit(item.path);
     }
+  }
+
+  private selectActiveSlot(slotIndex: number): void {
+    const activeSection = this.sections[this.activeTabIdx];
+    const item = activeSection?.items[slotIndex];
+    if (!item) return;
+    this.highlightedItem = { sectionIdx: this.activeTabIdx, itemIdx: slotIndex };
+    this.selectItem(this.activeTabIdx, slotIndex);
   }
 
   removePinnedItem(item: QuickAccessItem, event: MouseEvent): void {
@@ -773,6 +1014,24 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChan
       if (!this.highlightedItem) return;
       this.selectItem(this.highlightedItem.sectionIdx, this.highlightedItem.itemIdx);
     }, this.commandOwner);
+
+    this.inputEngine.registerCommand('overlay.quickAccess.focusFilter', () => {
+      this.focusFilterField();
+    }, this.commandOwner);
+
+    this.inputEngine.registerCommand('overlay.quickAccess.removeSelected', () => {
+      if (!this.highlightedItem) return;
+      const activeSection = this.sections[this.highlightedItem.sectionIdx];
+      const item = activeSection?.items[this.highlightedItem.itemIdx];
+      if (!item?.pin) return;
+      this.removePin.emit(item.pin);
+    }, this.commandOwner);
+
+    for (let slot = 1; slot <= 9; slot++) {
+      this.inputEngine.registerCommand(`overlay.quickAccess.openSlot${slot}`, () => {
+        this.selectActiveSlot(slot - 1);
+      }, this.commandOwner);
+    }
   }
 
   private unregisterInputCommands(): void {
@@ -782,6 +1041,11 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChan
     this.inputEngine.unregisterCommand('overlay.quickAccess.prevItem', this.commandOwner);
     this.inputEngine.unregisterCommand('overlay.quickAccess.nextItem', this.commandOwner);
     this.inputEngine.unregisterCommand('overlay.quickAccess.openSelected', this.commandOwner);
+    this.inputEngine.unregisterCommand('overlay.quickAccess.focusFilter', this.commandOwner);
+    this.inputEngine.unregisterCommand('overlay.quickAccess.removeSelected', this.commandOwner);
+    for (let slot = 1; slot <= 9; slot++) {
+      this.inputEngine.unregisterCommand(`overlay.quickAccess.openSlot${slot}`, this.commandOwner);
+    }
   }
 
   private getFrequentFolders(limit: number): QuickAccessItem[] {

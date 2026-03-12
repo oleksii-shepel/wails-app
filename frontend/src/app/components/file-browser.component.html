@@ -21,6 +21,9 @@
       </div>
 
       <div class="toolbar-right">
+        <span *ngIf="pendingChord$ | async as pendingChord" class="pending-chord-indicator" title="Waiting for next key in shortcut sequence">
+          {{ formatPendingChord(pendingChord) }}
+        </span>
         <button
           (click)="toggleElevation()"
           [class.active]="elevationActive"

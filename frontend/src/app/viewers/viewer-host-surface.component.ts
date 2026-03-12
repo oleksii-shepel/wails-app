@@ -1,5 +1,5 @@
-import { CommonModule } from '@angular/common';
-import { ChangeDetectionStrategy, ChangeDetectorRef, Component, Input, OnChanges, Type } from '@angular/core';
+import { CommonModule, NgComponentOutlet } from '@angular/common';
+import { ChangeDetectionStrategy, ChangeDetectorRef, Component, Input, OnChanges, Type, ViewChild } from '@angular/core';
 import { ViewerRegistryService } from './viewer-registry.service';
 import { ViewerArchiveContext } from '../components/viewer-surface.component';
 
@@ -54,6 +54,8 @@ export class ViewerHostSurfaceComponent implements OnChanges {
   component: Type<unknown> | null = null;
   outletInputs: Record<string, unknown> = {};
 
+  @ViewChild(NgComponentOutlet) private outlet?: NgComponentOutlet;
+
   private resolveSeq = 0;
   private resolvedViewerKey: string | null = null;
 
@@ -96,6 +98,10 @@ export class ViewerHostSurfaceComponent implements OnChanges {
       this.component = null;
       this.cdr.markForCheck();
     });
+  }
+
+  get mountedViewer(): any {
+    return (this.outlet as any)?.componentInstance ?? null;
   }
 }
 

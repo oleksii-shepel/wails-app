@@ -22,7 +22,9 @@ export class ShortcutRegistryService {
 
   private registerNavigationShortcuts(callbacks: ShortcutCallbacks): void {
     this.keyboardService.register({ id: 'global-search', key: 'k', modifiers: ['ctrl'], action: callbacks.openGlobalSearch, context: 'global', category: 'navigation', description: 'Open global search' });
+    this.keyboardService.register({ id: 'global-search-chord', key: 'g', sequence: [{ key: 'g' }, { key: 's' }], action: callbacks.openGlobalSearch, context: 'global', category: 'navigation', description: 'Open global search (G then S)' });
     this.keyboardService.register({ id: 'path-history', key: 'h', modifiers: ['ctrl'], action: callbacks.showPathHistory, context: 'global', category: 'navigation', description: 'Show path history' });
+    this.keyboardService.register({ id: 'path-history-chord', key: 'g', sequence: [{ key: 'g' }, { key: 'h' }], action: callbacks.showPathHistory, context: 'global', category: 'navigation', description: 'Show path history (G then H)' });
     this.keyboardService.register({ id: 'quick-jump', key: 'p', modifiers: ['ctrl'], action: callbacks.quickPathJump, context: 'global', category: 'navigation', description: 'Quick path jump' });
     this.keyboardService.register({ id: 'navigate-up', key: 'backspace', modifiers: [], action: callbacks.navigateUp, context: 'global', category: 'navigation', description: 'Go to parent directory' });
     this.keyboardService.register({ id: 'refresh', key: 'r', modifiers: ['ctrl'], action: callbacks.refresh, context: 'global', category: 'navigation', description: 'Refresh current pane' });

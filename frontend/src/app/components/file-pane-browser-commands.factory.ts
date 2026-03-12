@@ -23,6 +23,9 @@ export interface FilePaneBrowserCommands {
     focusCursorPath(path: string): void;
     activateDirTabAndFocusPath(tabId: string, focusPath: string): Promise<void>;
     openQuickView(): Promise<void>;
+    zoomInActiveViewer(): void;
+    zoomOutActiveViewer(): void;
+    resetActiveViewerZoom(): void;
     openFrozenPreviewTab(
       targetPath: string,
       options?: { sourcePane: 'left' | 'right'; sourceTabId: string; sourceDir: string; autoFollow?: boolean },
@@ -43,6 +46,9 @@ export interface FilePaneBrowserCommandsSource {
   focusController: FilePaneFocusController;
   focusHost: FilePaneFocusHost;
   stateRuntime: FilePaneStateRuntimeAdapter;
+  zoomInActiveViewer(): void;
+  zoomOutActiveViewer(): void;
+  resetActiveViewerZoom(): void;
 }
 
 export class FilePaneBrowserCommandsFactory {
@@ -73,6 +79,9 @@ export class FilePaneBrowserCommandsFactory {
         activateDirTabAndFocusPath: (tabId: string, focusPath: string) =>
           source.focusController.activateDirTabAndFocusPath(source.focusHost, tabId, focusPath),
         openQuickView: () => source.previewController.openQuickView(source.previewHost),
+        zoomInActiveViewer: () => source.zoomInActiveViewer(),
+        zoomOutActiveViewer: () => source.zoomOutActiveViewer(),
+        resetActiveViewerZoom: () => source.resetActiveViewerZoom(),
         openFrozenPreviewTab: (targetPath: string, options?: { sourcePane: 'left' | 'right'; sourceTabId: string; sourceDir: string; autoFollow?: boolean }) =>
           source.previewController.openFrozenPreviewTab(source.previewHost, targetPath, options),
       },

@@ -1,7 +1,7 @@
 import { Injectable } from '@angular/core';
 import { createBehaviorSubject } from '@epikodelabs/streamix';
 import { InputEngineService } from './input-engine.service';
-import type { InputBindingDefinition } from './input-system.types';
+import type { InputBindingDefinition, KeyStroke } from './input-system.types';
 
 /**
  * Keyboard shortcut definition
@@ -10,6 +10,7 @@ export interface ShortcutDefinition {
   id: string;
   key: string;
   modifiers?: ('ctrl' | 'shift' | 'alt' | 'meta')[];
+  sequence?: KeyStroke[];
   action: () => void | Promise<void>;
   context?: 'global' | 'pane' | 'tab' | 'filter' | 'modal';
   category: 'navigation' | 'tabs' | 'files' | 'search' | 'workspace' | 'pane';
@@ -57,7 +58,8 @@ export class KeyboardService {
    */
   register(shortcut: ShortcutDefinition): void {
     const normalizedKey = this.normalizeKey(shortcut.key);
-    const key = this.buildShortcutKey(normalizedKey, shortcut.modifiers);
+    const normalizedSequence = this.normalizeShortcutSequence(shortcut, normalizedKey);
+    const key = this.buildShortcutKey(normalizedSequence);
     const previousShortcut = this.shortcuts.get(key);
 
     if (previousShortcut) {
@@ -68,6 +70,7 @@ export class KeyboardService {
     const normalizedShortcut: ShortcutDefinition = {
       ...shortcut,
       key: normalizedKey,
+      sequence: normalizedSequence.length > 1 ? normalizedSequence : undefined,
       enabled: shortcut.enabled !== false,
     };
 
@@ -91,17 +94,19 @@ export class KeyboardService {
   /**
    * Build shortcut key string
    */
-  private buildShortcutKey(key: string, modifiers?: string[]): string {
-    const parts: string[] = [];
+  private buildShortcutKey(sequence: KeyStroke[]): string {
+    return sequence
+      .map(step => {
+        const parts: string[] = [];
 
-    if (modifiers) {
-      const sorted = [...modifiers].sort();
-      parts.push(...sorted);
-    }
+        if (step.modifiers?.length) {
+          parts.push(...[...step.modifiers].sort());
+        }
 
-    parts.push(key.toLowerCase());
-
-    return parts.join('+');
+        parts.push(step.key.toLowerCase());
+        return parts.join('+');
+      })
+      .join(' ');
   }
 
   /**
@@ -208,11 +213,17 @@ export class KeyboardService {
    * Format shortcut for display
    */
   formatShortcut(shortcut: ShortcutDefinition): string {
-    const parts: string[] = [];
+    const sequence = this.getShortcutSequence(shortcut);
     const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
 
-    if (shortcut.modifiers) {
-      for (const mod of shortcut.modifiers) {
+    return sequence.map(step => this.formatShortcutStep(step, isMac)).join(' ');
+  }
+
+  private formatShortcutStep(step: KeyStroke, isMac: boolean): string {
+    const parts: string[] = [];
+
+    if (step.modifiers) {
+      for (const mod of step.modifiers) {
         switch (mod) {
           case 'ctrl':
             parts.push(isMac ? '⌃' : 'Ctrl');
@@ -230,7 +241,7 @@ export class KeyboardService {
       }
     }
 
-    const keyName = this.formatKeyName(shortcut.key);
+    const keyName = this.formatKeyName(step.key);
     parts.push(keyName);
 
     return parts.join(isMac ? '' : '+');
@@ -274,7 +285,11 @@ export class KeyboardService {
    * Check if a key combination is available
    */
   isAvailable(key: string, modifiers?: string[]): boolean {
-    const shortcutKey = this.buildShortcutKey(this.normalizeKey(key), modifiers);
+    const normalizedModifiers = modifiers?.length
+      ? modifiers.filter((modifier): modifier is 'ctrl' | 'shift' | 'alt' | 'meta' =>
+          modifier === 'ctrl' || modifier === 'shift' || modifier === 'alt' || modifier === 'meta')
+      : undefined;
+    const shortcutKey = this.buildShortcutKey([{ key: this.normalizeKey(key), modifiers: normalizedModifiers }]);
     return !this.shortcuts.has(shortcutKey);
   }
 
@@ -306,10 +321,10 @@ export class KeyboardService {
       trigger: {
         device: 'keyboard',
         chord: {
-          steps: [{
-            key: shortcut.key,
-            modifiers: shortcut.modifiers?.length ? [...shortcut.modifiers].sort() : undefined,
-          }],
+          steps: this.getShortcutSequence(shortcut).map(step => ({
+            key: step.key,
+            modifiers: step.modifiers?.length ? [...step.modifiers].sort() : undefined,
+          })),
         },
       },
     };
@@ -350,6 +365,28 @@ export class KeyboardService {
       default:
         return '!typing && !quickAccess';
     }
+  }
+
+  private getShortcutSequence(shortcut: ShortcutDefinition): KeyStroke[] {
+    if (shortcut.sequence?.length) {
+      return shortcut.sequence;
+    }
+
+    return [{
+      key: shortcut.key,
+      modifiers: shortcut.modifiers?.length ? [...shortcut.modifiers].sort() : undefined,
+    }];
+  }
+
+  private normalizeShortcutSequence(shortcut: ShortcutDefinition, normalizedKey: string): KeyStroke[] {
+    const rawSequence = shortcut.sequence?.length
+      ? shortcut.sequence
+      : [{ key: normalizedKey, modifiers: shortcut.modifiers }];
+
+    return rawSequence.map((step, index) => ({
+      key: this.normalizeKey(index === 0 && !shortcut.sequence?.length ? normalizedKey : step.key),
+      modifiers: step.modifiers?.length ? [...step.modifiers].sort() : undefined,
+    }));
   }
 
   /**

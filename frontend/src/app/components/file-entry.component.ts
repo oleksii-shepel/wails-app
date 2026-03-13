@@ -24,23 +24,39 @@ export const PARENT_ENTRY_PATH = '__parent__';
       (click)="onClick($event)"
       (dblclick)="onDoubleClick()">
 
-      <!-- Parent ".." — plain SVG arrow, no badge -->
+      <!-- Parent ".." — folder-up icon -->
       <span *ngIf="isParentEntry()" class="file-icon">
         <svg
-          width="16"
-          height="16"
-          viewBox="0 0 16 16"
+          width="15"
+          height="15"
+          viewBox="0 0 18 18"
           fill="none"
-          stroke="currentColor"
-          stroke-width="1.4"
-          stroke-linecap="round"
-          stroke-linejoin="round"
           aria-hidden="true">
-          <path d="M8 4v6"></path>
-          <path d="M5.5 7.5 8 4l2.5 3.5"></path>
-          <path d="M4 11h8"></path>
-          <circle cx="5.5" cy="12" r="0.9" fill="currentColor" stroke="none"></circle>
-          <circle cx="10.5" cy="12" r="0.9" fill="currentColor" stroke="none"></circle>
+          <!-- Folder body back-tab -->
+          <path
+            d="M1.5 4.5 C1.5 3.67 2.17 3 3 3 L6.5 3 L7.8 4.6 C8.1 5 8.55 5.25 9.05 5.25 L15 5.25 C15.83 5.25 16.5 5.92 16.5 6.75 L16.5 13.5 C16.5 14.33 15.83 15 15 15 L3 15 C2.17 15 1.5 14.33 1.5 13.5 Z"
+            fill="var(--vsc-icon-folder, #c8a94a)"
+            opacity="1"/>
+          <!-- Folder body front face -->
+          <path
+            d="M1.5 6.75 C1.5 5.92 2.17 5.25 3 5.25 L9.05 5.25 C9.55 5.25 10 5 10.3 4.6 L11.6 3 L15 3 C15.83 3 16.5 3.67 16.5 4.5 L16.5 13.5 C16.5 14.33 15.83 15 15 15 L3 15 C2.17 15 1.5 14.33 1.5 13.5 Z"
+            fill="var(--vsc-icon-folder, #c8a94a)"
+            opacity="1"/>
+          <!-- Up-arrow shaft -->
+          <line
+            x1="9" y1="12.5"
+            x2="9" y2="7.5"
+            stroke="var(--vsc-editor-background, #1e1e1e)"
+            stroke-width="1.6"
+            stroke-linecap="round"/>
+          <!-- Up-arrow head -->
+          <polyline
+            points="6.8,9.8 9,7.2 11.2,9.8"
+            fill="none"
+            stroke="var(--vsc-editor-background, #1e1e1e)"
+            stroke-width="1.6"
+            stroke-linecap="round"
+            stroke-linejoin="round"/>
         </svg>
       </span>
 
@@ -138,6 +154,7 @@ export const PARENT_ENTRY_PATH = '__parent__';
         &.selected { background: transparent; color: inherit; }
         .file-name { font-style: italic; letter-spacing: 0.02em; }
         .file-details { visibility: hidden; }
+        .file-icon { opacity: calc(1 / 0.65); }
       }
 
       .file-info { flex: 1; min-width: 0; }

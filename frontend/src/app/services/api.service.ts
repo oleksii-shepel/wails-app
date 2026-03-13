@@ -103,6 +103,7 @@ declare global {
           JoinPaths(parts: string[]): Promise<string>;
           GetParentPath(path: string): Promise<string>;
           ConfirmElevationRequest(requestID: string, approve: boolean): Promise<void>;
+          DirSizeRecursive(path: string): Promise<number>;
 
           // Elevation – persistent JWT-secured helper service
           IsProcessElevated(): Promise<boolean>;

@@ -137,7 +137,7 @@ app-file-tree .file-tree-container::-webkit-scrollbar-corner {
 /* === Selection === */
 ::selection {
   background: var(--vsc-list-active-background);
-  color: var(--vsc-foreground-bright);
+  color: var(--vsc-list-active-foreground);
 }
 
 /* === Links === */

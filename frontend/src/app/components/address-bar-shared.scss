@@ -99,7 +99,7 @@
 
   &.ab-drop-item--active {
     background: var(--vsc-list-active-background);
-    color: var(--vsc-foreground-bright);
+    color: var(--vsc-list-active-foreground);
     border-left-color: var(--vsc-accent-blue);
     &:hover { background: var(--vsc-list-active-background); }
   }
@@ -193,7 +193,7 @@
   flex-shrink: 0;
 
   &:hover { background: var(--vsc-list-hover-background); color: var(--vsc-foreground-bright); }
-  &:active { background: var(--vsc-list-active-background); color: var(--vsc-foreground-bright); }
+  &:active { background: var(--vsc-list-active-background); color: var(--vsc-list-active-foreground); }
   &:focus-visible { outline: 1px solid var(--vsc-focusBorder, var(--vsc-accent-blue)); outline-offset: -1px; }
 
   svg { width: 16px; height: 16px; fill: currentColor; opacity: 0.9; transition: opacity var(--vsc-transition-fast); }

@@ -135,17 +135,14 @@ func listDirectoryRaw(path string, showHidden bool) (*DirectoryListing, error) {
 // DirSizeRecursive returns the total byte size of all regular files under path
 // using breadth-first traversal.  Unreadable sub-directories are silently skipped
 // so that a single permission error does not abort the entire walk.
-func (a *App) DirSizeRecursive(ctx context.Context, path string) (int64, error) {
-	return a.filesystem.DirSizeRecursive(ctx, path)
+func (a *App) DirSizeRecursive(path string) (int64, error) {
+	return a.filesystem.DirSizeRecursive(path)
 }
 
-func (s *FilesystemService) DirSizeRecursive(ctx context.Context, path string) (int64, error) {
+func (s *FilesystemService) DirSizeRecursive(path string) (int64, error) {
 	var total int64
 	queue := []string{path}
 	for len(queue) > 0 {
-		if ctx.Err() != nil {
-			return total, ctx.Err()
-		}
 		current := queue[0]
 		queue = queue[1:]
 		entries, err := os.ReadDir(current)

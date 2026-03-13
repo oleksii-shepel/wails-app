@@ -111,7 +111,7 @@ type PillState = 'idle' | 'starting' | 'active' | 'stopping' | 'error';
       background:
         radial-gradient(120% 130% at 20% 10%, rgba(130, 219, 255, 0.3), transparent 45%),
         linear-gradient(135deg, #0e639c 0%, #007acc 55%, #0e639c 100%);
-      color: var(--vsc-badge-foreground, #fff);
+      color: var(--vsc-list-active-foreground, #fff);
       border-color: rgba(130, 219, 255, 0.45);
       box-shadow: 0 0 0 1px rgba(130, 219, 255, 0.2), 0 0 12px rgba(0, 122, 204, 0.45);
     }
@@ -120,7 +120,7 @@ type PillState = 'idle' | 'starting' | 'active' | 'stopping' | 'error';
         background:
           radial-gradient(120% 130% at 20% 10%, rgba(130, 219, 255, 0.35), transparent 45%),
           linear-gradient(135deg, #0e639c 0%, #007acc 55%, #0e639c 100%);
-        color: var(--vsc-badge-foreground, #fff);
+        color: var(--vsc-list-active-foreground, #fff);
         box-shadow: 0 0 0 1px rgba(130, 219, 255, 0.25), 0 0 12px rgba(0, 122, 204, 0.45);
         transform: translateY(0) scale(1);
       }
@@ -163,7 +163,7 @@ type PillState = 'idle' | 'starting' | 'active' | 'stopping' | 'error';
       25%  { background: var(--vsc-charts-orange, #ce9178); color: #111; }
       50%  { background: var(--vsc-charts-yellow, #dcdcaa); color: #111; }
       75%  { background: var(--vsc-charts-orange, #ce9178); color: #111; }
-      100% { background: var(--vsc-badge-background, #0e639c); color: var(--vsc-badge-foreground, #fff); }
+      100% { background: var(--vsc-badge-background, #0e639c); color: var(--vsc-list-active-foreground, #fff); }
     }
     @keyframes flash-err {
       0%   { background: var(--vsc-charts-red, #f44747); }

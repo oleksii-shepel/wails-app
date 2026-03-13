@@ -388,6 +388,19 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
     await this.clipboardController.moveToOtherPaneCurrent(this.clipboardHost);
   }
 
+  private openSizeManagerInOtherPane(): void {
+    const activePane = this.getActivePane();
+    const sourcePath = activePane?.currentPath ?? '';
+    if (!sourcePath) return;
+    const otherPaneId = this.activePaneId === 'left' ? 'right' : 'left';
+    const sourcePaneId = this.activePaneId as 'left' | 'right';
+    const tab = this.workspaceService.addSizeManagerTab(otherPaneId, sourcePath, sourcePaneId);
+    if (tab) {
+      const otherPane = this.getOtherPane();
+      void otherPane?.onTabChange(tab);
+    }
+  }
+
   onPanePathChange(paneId: string, path: string): void {
     this.searchController.onPanePathChange(this.searchHost, paneId, path);
   }
@@ -449,6 +462,7 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
       copyToOtherPane:       () => this.copyToOtherPaneCurrent(),
       moveToOtherPane:       () => this.moveToOtherPaneCurrent(),
       focusAddressBar:       () => this.getActivePane()?.shortcuts.focus.focusAddressBar(),
+      openSizeManager:       () => this.openSizeManagerInOtherPane(),
     };
     return registerFileBrowserCommands(this.inputEngine, handlers, 'file-browser');
   }

@@ -98,8 +98,8 @@ export function DeleteWorkspace(arg1) {
   return window['go']['main']['App']['DeleteWorkspace'](arg1);
 }
 
-export function DirSizeRecursive(arg1, arg2) {
-  return window['go']['main']['App']['DirSizeRecursive'](arg1, arg2);
+export function DirSizeRecursive(arg1) {
+  return window['go']['main']['App']['DirSizeRecursive'](arg1);
 }
 
 export function DismissOperation(arg1) {

@@ -321,7 +321,7 @@ export interface QuickAccessItem {
       color: var(--vsc-foreground-dim);
       border-bottom: 2px solid transparent;
       height: 100%;
-      padding: 0;
+      padding: 0 5px;
       cursor: pointer;
       font-size: 11px;
       font-weight: 600;
@@ -334,6 +334,7 @@ export interface QuickAccessItem {
 
       &:hover {
         color: var(--vsc-foreground);
+        background: var(--vsc-list-hover-background);
       }
 
       &.active {
@@ -344,8 +345,6 @@ export interface QuickAccessItem {
 
     .ab-qa-tab--active {
       flex: 0 0 auto;
-      padding-left: 0;
-      padding-right: 0;
       color: var(--vsc-foreground);
       border-bottom-color: var(--vsc-accent-blue);
       text-shadow: 0 0 10px color-mix(in srgb, var(--vsc-accent-blue) 22%, transparent);
@@ -354,7 +353,6 @@ export interface QuickAccessItem {
     .ab-qa-tab--trailing {
       flex: 0 0 auto;
       opacity: 0.72;
-      padding-left: 0;
     }
 
     .ab-qa-tab--trailing:hover {
@@ -533,7 +531,7 @@ export interface QuickAccessItem {
 
       &.ab-drop-item--active {
         background: var(--vsc-list-active-background);
-        color: var(--vsc-foreground-bright);
+        color: var(--vsc-list-active-foreground);
         border-left-color: var(--vsc-accent-blue);
         font-weight: 500;
       }

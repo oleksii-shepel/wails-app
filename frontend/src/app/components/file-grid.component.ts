@@ -230,7 +230,7 @@ import { parentPath } from './address-bar.utils';
         border-color: var(--vsc-accent-blue);
         
         .grid-name {
-          color: var(--vsc-foreground-bright);
+          color: var(--vsc-list-active-foreground);
         }
       }
 

@@ -76,7 +76,7 @@
     border: 1px solid color-mix(in srgb, var(--vsc-accent-blue) 60%, transparent);
     border-radius: 999px;
     background: color-mix(in srgb, var(--vsc-accent-blue) 14%, var(--vsc-titlebar-background));
-    color: var(--vsc-foreground-bright);
+    color: var(--vsc-list-active-foreground);
     font-size: var(--vsc-font-size-small);
     font-family: var(--vsc-font-family-mono);
     white-space: nowrap;
@@ -106,7 +106,7 @@
 
     &.active {
       background: var(--vsc-button-background);
-      color: var(--vsc-foreground-bright);
+      color: var(--vsc-list-active-foreground);
       border-color: var(--vsc-accent-blue);
     }
   }
@@ -236,7 +236,7 @@
 
     &.active {
       background: var(--vsc-list-active-background);
-      color: var(--vsc-foreground-bright);
+      color: var(--vsc-list-active-foreground);
       border-left-color: var(--vsc-accent-blue);
       font-weight: 500;
     }
@@ -540,7 +540,7 @@
   .tab-close:hover,
   .tab-pin:hover {
     opacity: 1 !important;
-    background: rgba(255,255,255,0.1);
+    background: var(--vsc-list-hover-background);
   }
 }
 
@@ -710,9 +710,7 @@
 
   &.selected {
     background: var(--vsc-list-active-background);
-    color: var(--vsc-foreground-bright);
-    border-left-color: var(--vsc-accent-blue);
-
+      color: var(--vsc-list-active-foreground);
     &:hover { background: var(--vsc-list-focus-background); }
     .file-name { font-weight: 500; }
   }

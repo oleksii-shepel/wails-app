@@ -32,15 +32,12 @@ export const PARENT_ENTRY_PATH = '__parent__';
             viewBox="0 0 20 20"
             fill="none"
             stroke="currentColor"
-            stroke-width="1.4"
+            stroke-width="1.6"
             stroke-linecap="round"
             stroke-linejoin="round"
             aria-hidden="true">
-            <path d="M10 4v7"></path>
-            <path d="M7.5 7 10 4l2.5 3"></path>
-            <path d="M4 11h12"></path>
-            <circle cx="6.5" cy="14" r="0.9" fill="currentColor"></circle>
-            <circle cx="13.5" cy="14" r="0.9" fill="currentColor"></circle>
+            <path d="M13 15 L7 15 L7 6"/>
+            <path d="M4.5 8.5 L7 6 L9.5 8.5"/>
           </svg>
         </ng-container>
         <ng-template #normalIcon>
@@ -93,15 +90,17 @@ export const PARENT_ENTRY_PATH = '__parent__';
       min-height: 28px;
       border-left: 3px solid transparent;
       position: relative; /* Add positioning context */
+      color: var(--vsc-foreground);
 
       &:hover {
         background: var(--vsc-list-hover-background);
+        color: var(--vsc-foreground);
         border-left-color: var(--vsc-border-bright);
       }
 
       &.selected {
         background: var(--vsc-list-active-background);
-        color: var(--vsc-foreground-bright);
+        color: var(--vsc-list-active-foreground);
         /* Fix border positioning */
         border-left-color: var(--vsc-accent-blue);
         border-left-width: 3px;
@@ -109,6 +108,8 @@ export const PARENT_ENTRY_PATH = '__parent__';
         /* Ensure border aligns perfectly */
         margin-left: 0;
         padding-left: var(--vsc-padding-md); /* Keep consistent padding */
+
+        .file-details { color: var(--vsc-list-active-foreground-dim); }
 
         &:hover { background: var(--vsc-list-focus-background); }
       }

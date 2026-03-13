@@ -211,7 +211,7 @@
   &.active {
     background: var(--vsc-list-active-background);
     border-color: var(--vsc-accent-blue);
-    color: var(--vsc-foreground-bright);
+    color: var(--vsc-list-active-foreground);
   }
 
   &:focus-visible {

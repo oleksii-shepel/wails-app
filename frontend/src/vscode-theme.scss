@@ -39,6 +39,8 @@
   /* === Selection Colors === */
   --vsc-list-hover-background: #2a2d2e;
   --vsc-list-active-background: #094771;
+  --vsc-list-active-foreground: #ffffff;
+  --vsc-list-active-foreground-dim: rgba(255,255,255,0.65);
   --vsc-list-focus-background: #062f4a;
   --vsc-list-inactive-selection: #37373d;
 
@@ -190,10 +192,12 @@
   --vsc-input-focus-border: #007acc;
 
   /* === Selection / List === */
-  --vsc-list-hover-background:   #e4e6f1;
-  --vsc-list-active-background:  #0060c0;
-  --vsc-list-focus-background:   #d6e4f7;  /* was absent */
-  --vsc-list-inactive-selection: #d9d9d9;  /* was absent */
+  --vsc-list-hover-background:    #e4e6f1;
+  --vsc-list-active-background:   #cce0f5;
+  --vsc-list-active-foreground:   #1a1a1a;
+  --vsc-list-active-foreground-dim: #4a4a4a;
+  --vsc-list-focus-background:    #b8d4ee;
+  --vsc-list-inactive-selection:  #d9d9d9;  /* was absent */
 
   /* === Accent Colors (darkened for light-bg legibility) === */
   --vsc-accent-blue:   #007acc;

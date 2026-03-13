@@ -26,6 +26,7 @@ export namespace main {
 	    source: string;
 	    destination?: string;
 	    error: string;
+	    code: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new BatchItemError(source);
@@ -36,6 +37,7 @@ export namespace main {
 	        this.source = source["source"];
 	        this.destination = source["destination"];
 	        this.error = source["error"];
+	        this.code = source["code"];
 	    }
 	}
 	export class ArchiveEntriesResult {

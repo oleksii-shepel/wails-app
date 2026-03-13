@@ -1,13 +1,37 @@
-# README
+# Wails File Manager
 
 ## About
 
-This is the official Wails Vanilla template.
+This repository is a Wails desktop file manager with an Angular frontend and a Go backend. It supports dual-pane browsing, multiple file views, archive browsing and mutation, batch operations, workspace persistence, and Windows-aware elevation fallbacks.
 
-Frontend implementation notes (including view-operation parity requirements) are documented in [frontend/README.md](frontend/README.md).
+Frontend implementation notes, including view-operation parity expectations and pane/surface architecture, are documented in [frontend/README.md](frontend/README.md).
 
-You can configure the project by editing `wails.json`. More information about the project settings can be found
-here: https://wails.io/docs/reference/project-config
+The staged refactor history and current architectural checkpoints are documented in [REFACTOR_ROADMAP.md](REFACTOR_ROADMAP.md).
+
+## Architecture
+
+The current backend structure is organized around explicit service boundaries, while `App` remains the Wails binding boundary and composition root.
+
+- Backend composition root: [app.go](app.go)
+- Archive domain facade: [archive_service.go](archive_service.go)
+- Filesystem orchestration: [filesystem_service.go](filesystem_service.go)
+- Batch orchestration: [batch_service.go](batch_service.go)
+- Navigation orchestration: [navigation_service.go](navigation_service.go)
+- Workspace/preferences orchestration: [workspace_service.go](workspace_service.go)
+- Elevated session lifecycle: [elevation_session_service.go](elevation_session_service.go)
+- Directory stream lifecycle: [dir_stream_service.go](dir_stream_service.go)
+- Small app-level utilities: [utility_service.go](utility_service.go)
+
+The frontend is organized around a thin pane host plus controller/factory layers rather than a single large smart component.
+
+- Pane host/facade: [frontend/src/app/components/file-pane.component.ts](frontend/src/app/components/file-pane.component.ts)
+- Surface/view host: [frontend/src/app/components/file-view-container.component.ts](frontend/src/app/components/file-view-container.component.ts)
+- Dynamic surface runtime: [frontend/src/app/surfaces](frontend/src/app/surfaces)
+- Viewer host/runtime: [frontend/src/app/viewers](frontend/src/app/viewers)
+
+## Configuration
+
+Project-level Wails configuration lives in [wails.json](wails.json). Wails project setting details are documented at https://wails.io/docs/reference/project-config.
 
 ## File View Operations Matrix
 
@@ -42,10 +66,7 @@ Tree view participates in the same operation flow as the other views (selection,
 
 ## Live Development
 
-To run in live development mode, run `wails dev` in the project directory. This will run a Vite development
-server that will provide very fast hot reload of your frontend changes. If you want to develop in a browser
-and have access to your Go methods, there is also a dev server that runs on http://localhost:34115. Connect
-to this in your browser, and you can call your Go code from devtools.
+To run in live development mode, run `wails dev` in the project directory. This launches the Angular frontend in Wails live-reload mode together with the Go backend so frontend and backend changes can be iterated together.
 
 ## Building
 

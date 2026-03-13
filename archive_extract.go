@@ -59,7 +59,7 @@ func extractZipSync(fsPath string, entries []string, stripPrefix string, destDir
 	var processed int64
 	for _, f := range matches {
 		if op.IsCancelled() {
-			errs = append(errs, BatchItemError{Source: f.Name, Error: "cancelled"})
+			errs = append(errs, batchErr(f.Name, "", fmt.Errorf("cancelled")))
 			failed++
 			continue
 		}
@@ -73,21 +73,21 @@ func extractZipSync(fsPath string, entries []string, stripPrefix string, destDir
 		}
 		destPath := extractDestPath(relPath, destDir, flatten)
 		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
-			errs = append(errs, BatchItemError{Source: f.Name, Error: err.Error()})
+			errs = append(errs, batchErr(f.Name, "", err))
 			failed++
 			continue
 		}
 
 		rc, err := f.Open()
 		if err != nil {
-			errs = append(errs, BatchItemError{Source: f.Name, Error: err.Error()})
+			errs = append(errs, batchErr(f.Name, "", err))
 			failed++
 			continue
 		}
 		n, writeErr := extractWriteFile(destPath, rc)
 		rc.Close()
 		if writeErr != nil {
-			errs = append(errs, BatchItemError{Source: f.Name, Error: writeErr.Error()})
+			errs = append(errs, batchErr(f.Name, "", writeErr))
 			failed++
 			continue
 		}
@@ -144,13 +144,13 @@ func extractTarSync(fsPath string, entries []string, stripPrefix string, destDir
 		}
 		destPath := extractDestPath(relPath, destDir, flatten)
 		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
-			errs = append(errs, BatchItemError{Source: hdr.Name, Error: err.Error()})
+			errs = append(errs, batchErr(hdr.Name, "", err))
 			failed++
 			continue
 		}
 		n, writeErr := extractWriteFile(destPath, tr)
 		if writeErr != nil {
-			errs = append(errs, BatchItemError{Source: hdr.Name, Error: writeErr.Error()})
+			errs = append(errs, batchErr(hdr.Name, "", writeErr))
 			failed++
 			continue
 		}
@@ -184,13 +184,13 @@ func extractTarXzViaArchiver(fsPath string, entries []string, stripPrefix, destD
 		}
 		destPath := extractDestPath(relPath, destDir, flatten)
 		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
-			errs = append(errs, BatchItemError{Source: hdr.Name, Error: err.Error()})
+			errs = append(errs, batchErr(hdr.Name, "", err))
 			failed++
 			return nil
 		}
 		n, writeErr := extractWriteFile(destPath, f)
 		if writeErr != nil {
-			errs = append(errs, BatchItemError{Source: hdr.Name, Error: writeErr.Error()})
+			errs = append(errs, batchErr(hdr.Name, "", writeErr))
 			failed++
 			return nil
 		}
@@ -259,7 +259,7 @@ func (a *App) extractArchiveReaderSync(fsPath string, entries []string, stripPre
 		}
 		destPath := extractDestPath(relPath, destDir, flatten)
 		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
-			errs = append(errs, BatchItemError{Source: entryName, Error: err.Error()})
+			errs = append(errs, batchErr(entryName, "", err))
 			failed++
 			entry.Close()
 			continue
@@ -267,7 +267,7 @@ func (a *App) extractArchiveReaderSync(fsPath string, entries []string, stripPre
 		n, writeErr := extractWriteFile(destPath, entry)
 		entry.Close()
 		if writeErr != nil {
-			errs = append(errs, BatchItemError{Source: entryName, Error: writeErr.Error()})
+			errs = append(errs, batchErr(entryName, "", writeErr))
 			failed++
 			continue
 		}
@@ -310,7 +310,7 @@ func extractFromBytesSync(data []byte, archiveName string, entries []string, str
 			}
 			destPath := extractDestPath(relPath, destDir, flatten)
 			if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
-				errs = append(errs, BatchItemError{Source: entryName, Error: err.Error()})
+				errs = append(errs, batchErr(entryName, "", err))
 				failed++
 				f.Close()
 				continue
@@ -318,7 +318,7 @@ func extractFromBytesSync(data []byte, archiveName string, entries []string, str
 			n, writeErr := extractWriteFile(destPath, f)
 			f.Close()
 			if writeErr != nil {
-				errs = append(errs, BatchItemError{Source: entryName, Error: writeErr.Error()})
+				errs = append(errs, batchErr(entryName, "", writeErr))
 				failed++
 				continue
 			}
@@ -344,7 +344,7 @@ func extractFromBytesSync(data []byte, archiveName string, entries []string, str
 		var processed int64
 		for _, f := range matches {
 			if op.IsCancelled() {
-				errs = append(errs, BatchItemError{Source: f.Name, Error: "cancelled"})
+				errs = append(errs, batchErr(f.Name, "", fmt.Errorf("cancelled")))
 				failed++
 				continue
 			}
@@ -357,20 +357,20 @@ func extractFromBytesSync(data []byte, archiveName string, entries []string, str
 			}
 			destPath := extractDestPath(relPath, destDir, flatten)
 			if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
-				errs = append(errs, BatchItemError{Source: f.Name, Error: err.Error()})
+				errs = append(errs, batchErr(f.Name, "", err))
 				failed++
 				continue
 			}
 			rc, err := f.Open()
 			if err != nil {
-				errs = append(errs, BatchItemError{Source: f.Name, Error: err.Error()})
+				errs = append(errs, batchErr(f.Name, "", err))
 				failed++
 				continue
 			}
 			n, writeErr := extractWriteFile(destPath, rc)
 			rc.Close()
 			if writeErr != nil {
-				errs = append(errs, BatchItemError{Source: f.Name, Error: writeErr.Error()})
+				errs = append(errs, batchErr(f.Name, "", writeErr))
 				failed++
 				continue
 			}
@@ -404,13 +404,13 @@ func extractFromBytesSync(data []byte, archiveName string, entries []string, str
 		}
 		destPath := extractDestPath(relPath, destDir, flatten)
 		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
-			errs = append(errs, BatchItemError{Source: hdr.Name, Error: err.Error()})
+			errs = append(errs, batchErr(hdr.Name, "", err))
 			failed++
 			continue
 		}
 		n, writeErr := extractWriteFile(destPath, tr)
 		if writeErr != nil {
-			errs = append(errs, BatchItemError{Source: hdr.Name, Error: writeErr.Error()})
+			errs = append(errs, batchErr(hdr.Name, "", writeErr))
 			failed++
 			continue
 		}

@@ -17,6 +17,17 @@ import (
 	"github.com/mholt/archiver/v3"
 )
 
+// batchErr builds a BatchItemError with the error message and its classified code.
+// Use this helper everywhere a BatchItemError needs to be recorded.
+func batchErr(source, destination string, err error) BatchItemError {
+	return BatchItemError{
+		Source:      source,
+		Destination: destination,
+		Error:       err.Error(),
+		Code:        classifyError(err),
+	}
+}
+
 // ============================================================================
 // Conflict registry
 // ============================================================================
@@ -340,7 +351,7 @@ func (s *BatchService) BatchCopy(req BatchRequest) (*BatchResult, error) {
 		_, err := os.Stat(item.Source)
 		if err != nil {
 			result.Failed++
-			result.Errors = append(result.Errors, BatchItemError{Source: item.Source, Error: err.Error()})
+			result.Errors = append(result.Errors, batchErr(item.Source, "", err))
 			continue
 		}
 
@@ -349,7 +360,7 @@ func (s *BatchService) BatchCopy(req BatchRequest) (*BatchResult, error) {
 		finalDst, skip, err := s.checkConflict(op, item.Source, dst, &blanket)
 		if err != nil {
 			result.Failed++
-			result.Errors = append(result.Errors, BatchItemError{Source: item.Source, Destination: dst, Error: err.Error()})
+			result.Errors = append(result.Errors, batchErr(item.Source, dst, err))
 			continue
 		}
 		if skip {
@@ -371,7 +382,7 @@ func (s *BatchService) BatchCopy(req BatchRequest) (*BatchResult, error) {
 				}
 			}
 			result.Failed++
-			result.Errors = append(result.Errors, BatchItemError{Source: item.Source, Destination: finalDst, Error: err.Error()})
+			result.Errors = append(result.Errors, batchErr(item.Source, finalDst, err))
 		} else {
 			result.Succeeded++
 		}
@@ -432,7 +443,7 @@ func (s *BatchService) BatchMove(req BatchRequest) (*BatchResult, error) {
 		srcInfo, err := os.Stat(item.Source)
 		if err != nil {
 			result.Failed++
-			result.Errors = append(result.Errors, BatchItemError{Source: item.Source, Error: err.Error()})
+			result.Errors = append(result.Errors, batchErr(item.Source, "", err))
 			continue
 		}
 
@@ -444,7 +455,7 @@ func (s *BatchService) BatchMove(req BatchRequest) (*BatchResult, error) {
 		finalDst, skip, err = s.checkConflict(op, item.Source, dst, &blanket)
 		if err != nil {
 			result.Failed++
-			result.Errors = append(result.Errors, BatchItemError{Source: item.Source, Destination: dst, Error: err.Error()})
+			result.Errors = append(result.Errors, batchErr(item.Source, dst, err))
 			continue
 		}
 		if skip {
@@ -478,7 +489,7 @@ func (s *BatchService) BatchMove(req BatchRequest) (*BatchResult, error) {
 					}
 				}
 				result.Failed++
-				result.Errors = append(result.Errors, BatchItemError{Source: item.Source, Destination: finalDst, Error: err2.Error()})
+				result.Errors = append(result.Errors, batchErr(item.Source, finalDst, err2))
 				continue
 			}
 			if err2 := os.RemoveAll(item.Source); err2 != nil {
@@ -496,7 +507,7 @@ func (s *BatchService) BatchMove(req BatchRequest) (*BatchResult, error) {
 					}
 				}
 				result.Failed++
-				result.Errors = append(result.Errors, BatchItemError{Source: item.Source, Error: err2.Error()})
+				result.Errors = append(result.Errors, batchErr(item.Source, "", err2))
 				continue
 			}
 		} else {
@@ -565,7 +576,7 @@ func (s *BatchService) BatchDelete(req BatchDeleteRequest) (*BatchResult, error)
 					}
 				}
 				result.Failed++
-				result.Errors = append(result.Errors, BatchItemError{Source: p, Error: err.Error()})
+				result.Errors = append(result.Errors, batchErr(p, "", err))
 				continue
 			}
 			bp.mu.Lock()
@@ -580,7 +591,7 @@ func (s *BatchService) BatchDelete(req BatchDeleteRequest) (*BatchResult, error)
 		info, err := os.Lstat(p)
 		if err != nil {
 			result.Failed++
-			result.Errors = append(result.Errors, BatchItemError{Source: p, Error: err.Error()})
+			result.Errors = append(result.Errors, batchErr(p, "", err))
 			continue
 		}
 
@@ -600,7 +611,7 @@ func (s *BatchService) BatchDelete(req BatchDeleteRequest) (*BatchResult, error)
 					}
 				}
 				result.Failed++
-				result.Errors = append(result.Errors, BatchItemError{Source: p, Error: err.Error()})
+				result.Errors = append(result.Errors, batchErr(p, "", err))
 				continue
 			}
 		} else {
@@ -626,7 +637,7 @@ func (s *BatchService) BatchDelete(req BatchDeleteRequest) (*BatchResult, error)
 					}
 				}
 				result.Failed++
-				result.Errors = append(result.Errors, BatchItemError{Source: p, Error: err.Error()})
+				result.Errors = append(result.Errors, batchErr(p, "", err))
 				continue
 			}
 			bp.mu.Lock()
@@ -672,7 +683,7 @@ func (s *BatchService) BatchExtract(req BatchExtractRequest) (*BatchExtractResul
 
 		if err != nil {
 			result.Failed++
-			result.Errors = append(result.Errors, BatchItemError{Source: archivePath, Destination: destRoot, Error: err.Error()})
+			result.Errors = append(result.Errors, batchErr(archivePath, destRoot, err))
 			continue
 		}
 		result.Succeeded++
@@ -722,7 +733,7 @@ func (s *BatchService) BatchSelectiveExtract(req BatchSelectiveExtractRequest) (
 		files, byt, err := s.selectiveExtractItem(item, dest, op, bp, &blanket)
 		if err != nil {
 			result.Failed++
-			result.Errors = append(result.Errors, BatchItemError{Source: item.ArchivePath, Error: err.Error()})
+			result.Errors = append(result.Errors, batchErr(item.ArchivePath, "", err))
 		} else {
 			result.Succeeded++
 			result.ExtractedFiles += files

@@ -9,6 +9,11 @@ import {
 } from '../shared/protocol-enhanced';
 import { ApiService } from './api.service';
 import { ArchiveFrame } from './archive.service';
+import {
+  GetWorkspaces,
+  SaveWorkspace,
+  DeleteWorkspace,
+} from 'wailsjs/go/main/App';
 
 /**
  * Archive tab state - stores the complete archive navigation state
@@ -192,19 +197,14 @@ export class WorkspaceService {
    * Maps the backend WorkspaceList model to our local type.
    */
   private async loadBackendWorkspaces(): Promise<WorkspaceList> {
-    const bridge = (window as any)?.go?.main?.App;
-    if (!bridge?.GetWorkspaces) throw new Error('Wails bridge not ready');
-    const raw = await bridge.GetWorkspaces() as WorkspaceList;
-    return raw;
+    const raw = await GetWorkspaces();
+    return raw as WorkspaceList;
   }
 
   /** Persist a single workspace to the Wails backend. */
   private async persistWorkspace(workspace: WorkspaceConfig): Promise<void> {
     try {
-      const bridge = (window as any)?.go?.main?.App;
-      if (bridge?.SaveWorkspace) {
-        await bridge.SaveWorkspace(workspace);
-      }
+      await SaveWorkspace(workspace as any);
     } catch (err) {
       console.warn('WorkspaceService: failed to persist workspace to backend', err);
     }
@@ -213,25 +213,16 @@ export class WorkspaceService {
   /** Delete a workspace from the Wails backend. */
   private async deleteBackendWorkspace(id: string): Promise<void> {
     try {
-      const bridge = (window as any)?.go?.main?.App;
-      if (bridge?.DeleteWorkspace) {
-        await bridge.DeleteWorkspace(id);
-      }
+      await DeleteWorkspace(id);
     } catch (err) {
       console.warn('WorkspaceService: failed to delete workspace from backend', err);
     }
   }
 
   /** Mark a workspace as active in the Wails backend. */
-  private async setActiveBackend(id: string): Promise<void> {
-    try {
-      const bridge = (window as any)?.go?.main?.App;
-      if (bridge?.SetActiveWorkspace) {
-        await bridge.SetActiveWorkspace(id);
-      }
-    } catch (err) {
-      console.warn('WorkspaceService: failed to set active workspace on backend', err);
-    }
+  private async setActiveBackend(_id: string): Promise<void> {
+    // SetActiveWorkspace is not exposed by the backend; state is derived from
+    // the saved workspace list on next load.
   }
 
   // ---------------------------------------------------------------------------

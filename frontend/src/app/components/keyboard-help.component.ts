@@ -180,8 +180,12 @@ export class KeyboardHelpComponent implements OnInit, OnDestroy {
       danger: true,
     });
     if (confirmed) {
-      // This would need to be implemented based on your default shortcuts
-      this.confirmDialog.alert('Not Yet Implemented\nReset functionality is coming soon.');
+      for (const b of this.inputEngine.getBindingSnapshot()) {
+        if (b.enabled === false) {
+          this.inputEngine.setBindingEnabled(b.id, true);
+        }
+      }
+      this.loadShortcuts();
     }
   }
 

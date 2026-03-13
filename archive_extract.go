@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +13,9 @@ import (
 
 	"github.com/mholt/archiver/v3"
 )
+
+// errCancelled is returned when the user cancels an in-progress extraction.
+var errCancelled = errors.New("cancelled")
 
 // extractEntriesSync extracts all matching entries to req.DestinationDir and
 // blocks until every file is fully written to disk.
@@ -59,7 +63,7 @@ func extractZipSync(fsPath string, entries []string, stripPrefix string, destDir
 	var processed int64
 	for _, f := range matches {
 		if op.IsCancelled() {
-			errs = append(errs, batchErr(f.Name, "", fmt.Errorf("cancelled")))
+			errs = append(errs, batchErr(f.Name, "", errCancelled))
 			failed++
 			continue
 		}
@@ -169,7 +173,7 @@ func extractTarXzViaArchiver(fsPath string, entries []string, stripPrefix, destD
 
 	walkErr := archiver.Walk(fsPath, func(f archiver.File) error {
 		if op.IsCancelled() {
-			return fmt.Errorf("cancelled")
+			return errCancelled
 		}
 		hdr, ok := f.Header.(*tar.Header)
 		if !ok || f.IsDir() {
@@ -199,7 +203,7 @@ func extractTarXzViaArchiver(fsPath string, entries []string, stripPrefix, destD
 		op.UpdateProgress(processed, n, hdr.Name, n)
 		return nil
 	})
-	if walkErr != nil && walkErr.Error() != "cancelled" {
+	if walkErr != nil && !errors.Is(walkErr, errCancelled) {
 		fatalErr = walkErr
 	}
 	return
@@ -344,7 +348,7 @@ func extractFromBytesSync(data []byte, archiveName string, entries []string, str
 		var processed int64
 		for _, f := range matches {
 			if op.IsCancelled() {
-				errs = append(errs, batchErr(f.Name, "", fmt.Errorf("cancelled")))
+				errs = append(errs, batchErr(f.Name, "", errCancelled))
 				failed++
 				continue
 			}

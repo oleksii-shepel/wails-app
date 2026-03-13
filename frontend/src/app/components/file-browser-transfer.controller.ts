@@ -2,6 +2,7 @@ import type { ApiService } from '../services/api.service';
 import type { ArchiveService, ArchiveFrame } from '../services/archive.service';
 import type { ConfirmDialogService } from '../services/confirm-dialog.service';
 import type { FilePaneBrowserCommands } from './file-pane-browser-commands.factory';
+import { BatchItemError, operationErrorMessage } from '../shared/protocol-enhanced';
 
 export interface FileBrowserTransferPane {
   selectedFiles: Set<string>;
@@ -104,7 +105,10 @@ export class FileBrowserTransferController {
 
   private archiveError(result: any): string | null {
     if (!result?.failed) return null;
-    return (result.errors ?? []).map((error: any) => error.error).join('\n');
+    return (result.errors as BatchItemError[] ?? []).map(e => {
+      const label = operationErrorMessage(e.code);
+      return `${e.source}: ${label}`;
+    }).join('\n');
   }
 
   private bothArchive(src?: FileBrowserTransferPane, dst?: FileBrowserTransferPane): boolean {

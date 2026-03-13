@@ -26,9 +26,21 @@ export const PARENT_ENTRY_PATH = '__parent__';
 
       <!-- Parent ".." — plain SVG arrow, no badge -->
       <span *ngIf="isParentEntry()" class="file-icon">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-          <path transform="rotate(45,8,8)"
-            d="M7.78 3.22a.75.75 0 0 1 0 1.06L4.56 7.5H13.25a.75.75 0 0 1 0 1.5H4.56l3.22 3.22a.75.75 0 1 1-1.06 1.06l-4.5-4.5a.75.75 0 0 1 0-1.06l4.5-4.5a.75.75 0 0 1 1.06 0z"/>
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.4"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true">
+          <path d="M8 4v6"></path>
+          <path d="M5.5 7.5 8 4l2.5 3.5"></path>
+          <path d="M4 11h8"></path>
+          <circle cx="5.5" cy="12" r="0.9" fill="currentColor" stroke="none"></circle>
+          <circle cx="10.5" cy="12" r="0.9" fill="currentColor" stroke="none"></circle>
         </svg>
       </span>
 
@@ -61,12 +73,13 @@ export const PARENT_ENTRY_PATH = '__parent__';
             (keydown)="onRenameKeyDown($event)" />
           <span *ngIf="!isRenaming">{{ entry.name }}</span>
         </div>
-        <div class="file-details" *ngIf="!isParentEntry()">
-          <span class="file-size">{{ formatSize(entry.size) }}</span>
-          <span class="file-date">{{ formatDate(entry.modified) }}</span>
+        <div class="file-details" [attr.aria-hidden]="isParentEntry() ? 'true' : null">
+          <span class="file-size" *ngIf="!isParentEntry(); else detailPlaceholder">{{ formatSize(entry.size) }}</span>
+          <span class="file-date" *ngIf="!isParentEntry(); else detailPlaceholder">{{ formatDate(entry.modified) }}</span>
         </div>
       </div>
     </div>
+    <ng-template #detailPlaceholder>&nbsp;</ng-template>
   `,
   styles: [`
     .file-entry {
@@ -124,6 +137,7 @@ export const PARENT_ENTRY_PATH = '__parent__';
         }
         &.selected { background: transparent; color: inherit; }
         .file-name { font-style: italic; letter-spacing: 0.02em; }
+        .file-details { visibility: hidden; }
       }
 
       .file-info { flex: 1; min-width: 0; }

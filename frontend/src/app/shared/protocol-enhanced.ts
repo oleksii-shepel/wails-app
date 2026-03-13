@@ -181,6 +181,22 @@ export type OperationErrorCode =
   | 'cancelled'
   | 'unknown';
 
+const ERROR_CODE_MESSAGES: Record<OperationErrorCode, string> = {
+  permission_denied: 'Permission denied',
+  not_found:         'File not found',
+  disk_full:         'Disk is full',
+  read_only:         'Destination is read-only',
+  already_exists:    'File already exists',
+  invalid_path:      'Invalid path',
+  cancelled:         'Cancelled',
+  unknown:           'Unexpected error',
+};
+
+/** Returns a short, user-friendly label for the given error code. */
+export function operationErrorMessage(code: OperationErrorCode): string {
+  return ERROR_CODE_MESSAGES[code] ?? 'Unexpected error';
+}
+
 export interface BatchItemError {
   source: string;
   destination?: string;

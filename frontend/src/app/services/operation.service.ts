@@ -10,6 +10,7 @@ import {
   shareReplay
 } from '@epikodelabs/streamix';
 import { EventsOn, EventsOff } from 'wailsjs/runtime';
+import { ResolveConflict } from 'wailsjs/go/main/App';
 import {
   OperationKind,
   OperationStatus,
@@ -127,22 +128,18 @@ export class OperationService implements OnDestroy {
     if (this.eventsSetup) return;
     
     const handleStart = (event: OpStartEvent) => {
-      console.log('Operation start event received:', event);
       this.zone.run(() => this.handleStart(event));
     };
 
     const handleProgress = (event: OpProgressEvent) => {
-      console.log('Operation progress event received:', event);
       this.zone.run(() => this.handleProgress(event));
     };
 
     const handleComplete = (event: OpCompleteEvent) => {
-      console.log('Operation complete event received:', event);
       this.zone.run(() => this.handleComplete(event));
     };
 
     const handleConflict = (event: ConflictEvent) => {
-      console.log('Operation conflict event received:', event);
       this.zone.run(() => this.handleConflict(event));
     };
 
@@ -153,7 +150,6 @@ export class OperationService implements OnDestroy {
     EventsOn('operation:conflict', handleConflict);
 
     this.eventsSetup = true;
-    console.log('Operation service event listeners registered');
 
     // Store handlers for cleanup
     (this as any)._eventHandlers = { 
@@ -254,8 +250,6 @@ export class OperationService implements OnDestroy {
   }
 
   private handleConflict(event: ConflictEvent): void {
-    console.log('Conflict detected:', event);
-    
     // Store the conflict
     this.pendingConflicts.set(event.conflictId, event);
     this.conflictsSubject.next(Array.from(this.pendingConflicts.values()));
@@ -310,10 +304,7 @@ export class OperationService implements OnDestroy {
    */
   async resolveConflict(conflictId: string, resolution: ConflictResolution, applyToAll: boolean): Promise<boolean> {
     try {
-      console.log(`Resolving conflict ${conflictId} with ${resolution}, applyToAll: ${applyToAll}`);
-      
-      // Call the backend to resolve the conflict
-      const result = await (window as any).go?.main?.App?.ResolveConflict(conflictId, resolution, applyToAll);
+      const result = await ResolveConflict(conflictId, resolution as any, applyToAll);
       
       if (result) {
         // Remove from pending conflicts

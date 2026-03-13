@@ -1,5 +1,6 @@
 import type { ApiService } from '../services/api.service';
 import type { ConfirmDialogService } from '../services/confirm-dialog.service';
+import { BatchItemError, operationErrorMessage } from '../shared/protocol-enhanced';
 
 export interface FileBrowserClipboardPane {
   currentPath: string;
@@ -57,7 +58,9 @@ export class FileBrowserClipboardController {
         : await host.apiService.batchMove(items, true);
 
       if (result.failed > 0) {
-        const errorMsg = result.errors?.map((error: any) => `${error.source}: ${error.error}`).join('\n');
+        const errorMsg = (result.errors as BatchItemError[] ?? []).map(e =>
+          `${e.source}: ${operationErrorMessage(e.code)}`
+        ).join('\n');
         host.confirmDialog.alert(`Paste Completed with ${result.failed} Errors\n${errorMsg}`);
       }
     } catch (error: any) {

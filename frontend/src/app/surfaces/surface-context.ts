@@ -21,11 +21,5 @@ export interface ViewerSurfaceContext extends BaseSurfaceContext {
   };
 }
 
-export interface SizeManagerSurfaceContext extends BaseSurfaceContext {
-  kind: 'size-manager';
-  sourcePath: string;
-  sourcePaneId: 'left' | 'right';
-}
-
-export type SurfaceContext = DirSurfaceContext | ViewerSurfaceContext | SizeManagerSurfaceContext;
+export type SurfaceContext = DirSurfaceContext | ViewerSurfaceContext;
 

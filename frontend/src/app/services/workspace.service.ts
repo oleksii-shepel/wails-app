@@ -861,38 +861,6 @@ export class WorkspaceService {
     return newTab;
   }
 
-  addSizeManagerTab(
-    paneId: string,
-    sourcePath: string,
-    sourcePaneId: 'left' | 'right',
-  ): TabInfo | null {
-    const workspace = this.activeWorkspaceSubject.value;
-    if (!workspace) return null;
-
-    const pane = paneId === 'left' ? workspace.leftPane : workspace.rightPane;
-
-    const newTab: TabInfo = {
-      id: this.generateId(),
-      title: 'Sizes: ' + (sourcePath.split(/[\\/]/).pop() || sourcePath),
-      path: sourcePath,
-      kind: 'size-manager',
-      sizeManager: { sourcePath, sourcePaneId },
-      isClosable: true,
-      isActive: true,
-      isPinned: false,
-      createdAt: Date.now(),
-    };
-
-    pane.tabs.forEach((t) => (t.isActive = false));
-    pane.activeTabId = newTab.id;
-    pane.tabs.push(newTab);
-    this.updateWorkspace(workspace.id, {
-      [paneId === 'left' ? 'leftPane' : 'rightPane']: pane,
-    });
-
-    return newTab;
-  }
-
   /**
    * Resolve the home path using the Wails OS info, falling back to '/'.
    */

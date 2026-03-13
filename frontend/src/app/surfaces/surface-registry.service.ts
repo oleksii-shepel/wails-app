@@ -2,7 +2,6 @@ import { Injectable, Type } from '@angular/core';
 import { SurfaceContribution, SurfaceRequest } from './surface-contribution';
 import { DirSurfaceTabComponent } from './builtins/dir-surface-tab.component';
 import { ViewerSurfaceTabComponent } from './builtins/viewer-surface-tab.component';
-import { SizeManagerSurfaceTabComponent } from './builtins/size-manager-surface-tab.component';
 
 @Injectable({ providedIn: 'root' })
 export class SurfaceRegistryService {
@@ -22,12 +21,6 @@ export class SurfaceRegistryService {
       id: 'viewer',
       score: (req) => ((req.tab.kind ?? 'dir') === 'viewer' ? 100 : 0),
       load: () => ViewerSurfaceTabComponent,
-    });
-
-    this.register({
-      id: 'size-manager',
-      score: (req) => (req.tab.kind === 'size-manager' ? 100 : 0),
-      load: () => SizeManagerSurfaceTabComponent,
     });
   }
 

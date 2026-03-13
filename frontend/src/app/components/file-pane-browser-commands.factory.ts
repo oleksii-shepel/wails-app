@@ -34,7 +34,7 @@ export interface FilePaneBrowserCommands {
 }
 
 export interface FilePaneBrowserCommandsSource {
-  activeTabKind: 'dir' | 'viewer' | 'size-manager';
+  activeTabKind: 'dir' | 'viewer';
   navigationController: FilePaneNavigationController;
   navigationHost: FilePaneNavigationHost;
   openController: FilePaneOpenController;

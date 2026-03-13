@@ -9,7 +9,7 @@ import { PARENT_ENTRY_PATH } from './file-entry.component';
 
 export interface FilePanePreviewHost {
   get paneId(): 'left' | 'right';
-  get activeTabKind(): 'dir' | 'viewer' | 'size-manager';
+  get activeTabKind(): 'dir' | 'viewer';
   get entries(): FileInfo[];
   get archiveStack(): ArchiveFrame[];
   get tabs(): any[];

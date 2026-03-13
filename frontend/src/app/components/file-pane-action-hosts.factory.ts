@@ -20,7 +20,7 @@ export interface FilePaneActionHostsSource {
   set currentPath(value: string);
   get fsParentDir(): string;
   set fsParentDir(value: string);
-  get activeTabKind(): 'dir' | 'viewer' | 'size-manager';
+  get activeTabKind(): 'dir' | 'viewer';
   get currentView(): ViewLayout;
   get showHidden(): boolean;
   get entries(): FileInfo[];

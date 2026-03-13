@@ -4,7 +4,11 @@ yarn-error.log*
 yarn.lock
 .vscode/
 .gocache/
+<<<<<<< HEAD
 .gomodcache/
+=======
+out-tsc/
+>>>>>>> a8cbd49f5e617a96e0559c73f37c3868122bb68d
 .idea/
 *.swp
 *.swo

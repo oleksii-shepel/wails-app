@@ -68,9 +68,10 @@ type BatchResult struct {
 }
 
 type BatchItemError struct {
-	Source      string `json:"source"`
-	Destination string `json:"destination,omitempty"`
-	Error       string `json:"error"`
+	Source      string       `json:"source"`
+	Destination string       `json:"destination,omitempty"`
+	Error       string       `json:"error"`
+	Code        AppErrorCode `json:"code"`
 }
 
 type BatchDeleteRequest struct {

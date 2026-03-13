@@ -47,6 +47,10 @@ export interface InputBindingDefinition {
   priority?: number;
   when?: string;
   description: string;
+  /** Display category used by the keybinding editor (e.g. 'Navigation', 'File Operations'). */
+  category?: string;
+  /** Runtime enable/disable state reflected in snapshots. */
+  enabled?: boolean;
   preventDefault?: boolean;
   stopPropagation?: boolean;
 }

@@ -133,6 +133,14 @@ func (u *Unified) Rename(ctx context.Context, oldPath, newPath string) error {
 	return fsOld.Rename(ctx, relOld, relNew)
 }
 
+// IsMounted reports whether path is currently served by a non-root (non-osfs)
+// mount — i.e. the path resolves inside an archive or other special FS.
+// Returns false for plain OS paths that resolve through the root osfs.
+func (u *Unified) IsMounted(path string) bool {
+	_, _, vol, err := u.mounts.Resolve(path)
+	return err == nil && vol != nil
+}
+
 func (u *Unified) Join(elem ...string) string { return strings.Join(elem, "/") }
 func (u *Unified) Split(path string) (string, string) {
 	i := strings.LastIndex(path, "/")

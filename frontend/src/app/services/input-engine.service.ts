@@ -200,7 +200,10 @@ export class InputEngineService {
   }
 
   getBindingSnapshot(): InputBindingDefinition[] {
-    return Array.from(this.bindings.values()).map(binding => ({ ...binding }));
+    return Array.from(this.bindings.values()).map(binding => ({
+      ...binding,
+      enabled: binding.enabled,
+    }));
   }
 
   getContextSnapshot(): InputContextDefinition[] {

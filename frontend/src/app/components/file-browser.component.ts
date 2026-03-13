@@ -7,7 +7,7 @@ import { FileType } from '../shared/protocol';
 import { WorkspaceConfig } from '../shared/protocol-enhanced';
 import { KeyboardHelpComponent } from './keyboard-help.component';
 import { WorkspaceSelectorComponent } from './workspace-selector.component';
-import { ShortcutCallbacks, ShortcutRegistryService } from '../services/shortcut-registry.service';
+import { FileBrowserCommandHandlers, registerFileBrowserCommands } from './file-browser-command-registry';
 import { GlobalSearchComponent } from './global-search.component';
 import { PathHistoryService } from '../services/path-history.service';
 import { ThemeService } from '../services/theme.service';
@@ -96,10 +96,11 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
   private destroy$ = createSubject<void>();
   private clipboard: { operation: 'copy' | 'cut'; paths: string[] } | null = null;
 
+  private browserCommandCleanup: (() => void) | null = null;
+
   constructor(
     private apiService: ApiService,
     private workspaceService: WorkspaceService,
-    private shortcutRegistry: ShortcutRegistryService,
     private pathHistoryService: PathHistoryService,
     public theme: ThemeService,
     private archiveService: ArchiveService,
@@ -135,7 +136,7 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
         });
       });
 
-    this.registerKeyboardShortcuts();
+    this.browserCommandCleanup = this.setupBrowserCommands();
     this.registerMouseBindings();
     this.layoutController.loadPaneWidths(this.layoutHost);
     void this.runtimeController.initialize(this.runtimeHost);
@@ -153,6 +154,7 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
     this.destroy$.complete();
     this.apiService.disconnectWebSocket();
 
+    this.browserCommandCleanup?.();
     this.unregisterMouseBindings();
     this.runtimeController.dispose();
   }
@@ -398,58 +400,57 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
   // Keyboard Shortcuts
   // ============================================================================
 
-  private registerKeyboardShortcuts(): void {
-    const callbacks: ShortcutCallbacks = {
+  private setupBrowserCommands(): () => void {
+    const handlers: FileBrowserCommandHandlers = {
       openGlobalSearch:      () => this.globalSearch?.show(),
       showPathHistory:       () => this.pathHistoryViewer?.show(),
-      quickPathJump:         () => console.log('Quick path jump - Phase 2'),
+      quickPathJump:         () => console.log('Quick path jump - to be implemented'),
       navigateUp:            () => this.getActivePane()?.browserCommands.navigation.navigateUp(),
       refresh:               () => this.getActivePane()?.browserCommands.navigation.refresh(),
       showKeyboardHelp:      () => this.keyboardHelp?.show(),
+      cursorUp:              () => this.getActivePane()?.shortcuts.selection.moveCursorUp(),
+      cursorDown:            () => this.getActivePane()?.shortcuts.selection.moveCursorDown(),
+      cursorLeft:            () => this.getActivePane()?.shortcuts.selection.moveCursorLeft(),
+      cursorRight:           () => this.getActivePane()?.shortcuts.selection.moveCursorRight(),
+      cursorHome:            () => this.getActivePane()?.shortcuts.selection.moveCursorHome(),
+      cursorEnd:             () => this.getActivePane()?.shortcuts.selection.moveCursorEnd(),
+      cursorPageUp:          () => this.getActivePane()?.shortcuts.selection.moveCursorPageUp(),
+      cursorPageDown:        () => this.getActivePane()?.shortcuts.selection.moveCursorPageDown(),
       newTab:                () => this.getActivePane()?.onNewTab(),
       closeTab:              () => this.getActivePane()?.shortcuts.tabs.closeCurrentTab(),
       nextTab:               () => this.getActivePane()?.shortcuts.tabs.nextTab(),
-      previousTab:           () => this.getActivePane()?.shortcuts.tabs.previousTab(),
+      prevTab:               () => this.getActivePane()?.shortcuts.tabs.previousTab(),
       jumpToTab:             (index) => this.getActivePane()?.shortcuts.tabs.jumpToTab(index),
       togglePinTab:          () => this.getActivePane()?.shortcuts.tabs.togglePinCurrentTab(),
       openItem:              () => this.getActivePane()?.browserCommands.navigation.openSelectedItem(),
-      deleteSelected:        () => this.getActivePane()?.browserCommands.selection.deleteSelected(),
-      copySelected:          () => this.copySelectedToClipboard(),
-      cutSelected:           () => this.cutSelectedToClipboard(),
+      quickView:             () => this.previewController.openFrozenPreviewInOtherPane(this.previewHost),
+      copy:                  () => this.copySelectedToClipboard(),
+      cut:                   () => this.cutSelectedToClipboard(),
       paste:                 () => this.pasteFromClipboard(),
+      deleteSelected:        () => this.getActivePane()?.browserCommands.selection.deleteSelected(),
       selectAll:             () => this.getActivePane()?.shortcuts.selection.selectAll(),
       deselectAll:           () => this.getActivePane()?.shortcuts.selection.deselectAll(),
       newFolder:             () => this.getActivePane()?.browserCommands.selection.createFolder(),
-      renameSelected:        () => this.getActivePane()?.browserCommands.selection.renameSelected(),
-      toggleCurrentAndMoveDown: () => this.getActivePane()?.shortcuts.selection.toggleCurrentAndMoveDown(),
-      extendSelectionUp:     () => this.getActivePane()?.shortcuts.selection.extendSelection(-1),
-      extendSelectionDown:   () => this.getActivePane()?.shortcuts.selection.extendSelection(1),
+      rename:                () => this.getActivePane()?.browserCommands.selection.renameSelected(),
+      toggleCurrent:         () => this.getActivePane()?.shortcuts.selection.toggleCurrentAndMoveDown(),
+      extendSelUp:           () => this.getActivePane()?.shortcuts.selection.extendSelection(-1),
+      extendSelDown:         () => this.getActivePane()?.shortcuts.selection.extendSelection(1),
       selectByMask:          () => this.getActivePane()?.shortcuts.selection.selectByMask(),
       unselectByMask:        () => this.getActivePane()?.shortcuts.selection.unselectByMask(),
       invertSelection:       () => this.getActivePane()?.shortcuts.selection.invertSelection(),
-      selectSameExtension:   () => this.getActivePane()?.shortcuts.selection.selectSameExtension(),
+      selectSameExt:         () => this.getActivePane()?.shortcuts.selection.selectSameExtension(),
       focusFilter:           () => this.getActivePane()?.shortcuts.focus.focusFilter(),
       advancedFilter:        () => console.log('Advanced filter - to be implemented'),
       clearFilter:           () => this.getActivePane()?.shortcuts.focus.clearFilter(),
       showWorkspaceSwitcher: () => this.toggleWorkspaceMenu(),
       newWorkspace:          () => this.createNewWorkspace(),
-      toggleHiddenFiles:     () => this.toggleShowHidden(),
+      toggleHidden:          () => this.toggleShowHidden(),
       switchPane:            () => this.previewController.switchActivePane(this.previewHost),
       copyToOtherPane:       () => this.copyToOtherPaneCurrent(),
       moveToOtherPane:       () => this.moveToOtherPaneCurrent(),
       focusAddressBar:       () => this.getActivePane()?.shortcuts.focus.focusAddressBar(),
-      moveCursorUp:          () => this.getActivePane()?.shortcuts.selection.moveCursorUp(),
-      moveCursorDown:        () => this.getActivePane()?.shortcuts.selection.moveCursorDown(),
-      moveCursorLeft:        () => this.getActivePane()?.shortcuts.selection.moveCursorLeft(),
-      moveCursorRight:       () => this.getActivePane()?.shortcuts.selection.moveCursorRight(),
-      moveCursorHome:        () => this.getActivePane()?.shortcuts.selection.moveCursorHome(),
-      moveCursorEnd:         () => this.getActivePane()?.shortcuts.selection.moveCursorEnd(),
-      moveCursorPageUp:      () => this.getActivePane()?.shortcuts.selection.moveCursorPageUp(),
-      moveCursorPageDown:    () => this.getActivePane()?.shortcuts.selection.moveCursorPageDown(),
-      markCurrentItem:       () => this.getActivePane()?.shortcuts.selection.markCurrentItem(),
-      quickView:             () => this.previewController.openFrozenPreviewInOtherPane(this.previewHost),
     };
-    this.shortcutRegistry.registerAllShortcuts(callbacks);
+    return registerFileBrowserCommands(this.inputEngine, handlers, 'file-browser');
   }
 
   private registerMouseBindings(): void {

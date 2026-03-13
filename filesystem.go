@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -21,6 +22,11 @@ func (a *App) ListDirectory(path string, showHidden bool) (*DirectoryListing, er
 }
 
 func (s *FilesystemService) ListDirectory(path string, showHidden bool) (*DirectoryListing, error) {
+	// Route through VFS if the path lives inside a mounted volume (e.g. an archive).
+	if s.vfs != nil && s.vfs.IsMounted(path) {
+		return s.listVFSDirectory(path)
+	}
+
 	listing, err := listDirectoryRaw(path, showHidden)
 	if err == nil {
 		return listing, nil
@@ -38,6 +44,25 @@ func (s *FilesystemService) ListDirectory(path string, showHidden bool) (*Direct
 		return nil, err
 	}
 	return resp.DirListing, nil
+}
+
+func (s *FilesystemService) listVFSDirectory(path string) (*DirectoryListing, error) {
+	entries, err := s.vfs.ReadDir(context.Background(), path)
+	if err != nil {
+		return nil, err
+	}
+	files := make([]FileInfo, 0, len(entries))
+	var total int64
+	for _, e := range entries {
+		fi := convertVFSInfo(e)
+		files = append(files, fi)
+		total += fi.Size
+	}
+	return &DirectoryListing{
+		Path:      path,
+		Entries:   files,
+		TotalSize: total,
+	}, nil
 }
 
 func listDirectoryRaw(path string, showHidden bool) (*DirectoryListing, error) {

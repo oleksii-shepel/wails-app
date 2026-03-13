@@ -1,9 +1,66 @@
 package main
 
 import (
+	"errors"
+	"io/fs"
+	"os"
 	"sync"
 	"time"
 )
+
+// ============================================================================
+// Typed Error Codes
+// ============================================================================
+
+// AppErrorCode is a stable machine-readable string sent with every
+// BatchItemError so the frontend can show localised / actionable messages.
+type AppErrorCode = string
+
+const (
+	ErrCodePermissionDenied AppErrorCode = "permission_denied"
+	ErrCodeNotFound         AppErrorCode = "not_found"
+	ErrCodeDiskFull         AppErrorCode = "disk_full"
+	ErrCodeReadOnly         AppErrorCode = "read_only"
+	ErrCodeAlreadyExists    AppErrorCode = "already_exists"
+	ErrCodeInvalidPath      AppErrorCode = "invalid_path"
+	ErrCodeCancelled        AppErrorCode = "cancelled"
+	ErrCodeUnknown          AppErrorCode = "unknown"
+)
+
+// classifyError maps a Go error to a stable AppErrorCode.
+func classifyError(err error) AppErrorCode {
+	if err == nil {
+		return ErrCodeUnknown
+	}
+	msg := err.Error()
+	switch {
+	case errors.Is(err, os.ErrNotExist), errors.Is(err, fs.ErrNotExist):
+		return ErrCodeNotFound
+	case errors.Is(err, os.ErrPermission), errors.Is(err, fs.ErrPermission):
+		return ErrCodePermissionDenied
+	case errors.Is(err, os.ErrExist), errors.Is(err, fs.ErrExist):
+		return ErrCodeAlreadyExists
+	case errors.Is(err, os.ErrInvalid), errors.Is(err, fs.ErrInvalid):
+		return ErrCodeInvalidPath
+	}
+	// Heuristic string-based classification for cases os.Is cannot reach.
+	for _, sub := range []string{"no space left", "disk full", "not enough space"} {
+		if containsFold(msg, sub) {
+			return ErrCodeDiskFull
+		}
+	}
+	for _, sub := range []string{"read-only", "read only", "write-protected"} {
+		if containsFold(msg, sub) {
+			return ErrCodeReadOnly
+		}
+	}
+	for _, sub := range []string{"cancelled", "canceled"} {
+		if containsFold(msg, sub) {
+			return ErrCodeCancelled
+		}
+	}
+	return ErrCodeUnknown
+}
 
 // ============================================================================
 // OS Info
@@ -159,22 +216,22 @@ type NavigationHistory struct {
 // ============================================================================
 
 type TabInfo struct {
-	ID         string        `json:"id"`
-	Title      string        `json:"title"`
-	Path       string        `json:"path"`
-	Kind       string        `json:"kind,omitempty"`       // "dir" (default) | "viewer"
-	Viewer     *ViewerTab    `json:"viewer,omitempty"`     // only for kind="viewer"
-	IsClosable *bool         `json:"isClosable,omitempty"` // nil => default true (back-compat)
-	IsActive   bool          `json:"isActive"`
-	IsPinned   bool          `json:"isPinned"`
-	CreatedAt  int64         `json:"createdAt"`
+	ID         string     `json:"id"`
+	Title      string     `json:"title"`
+	Path       string     `json:"path"`
+	Kind       string     `json:"kind,omitempty"`       // "dir" (default) | "viewer"
+	Viewer     *ViewerTab `json:"viewer,omitempty"`     // only for kind="viewer"
+	IsClosable *bool      `json:"isClosable,omitempty"` // nil => default true (back-compat)
+	IsActive   bool       `json:"isActive"`
+	IsPinned   bool       `json:"isPinned"`
+	CreatedAt  int64      `json:"createdAt"`
 }
 
 type ViewerTab struct {
-	TargetPath string `json:"targetPath"`
-	ViewerID   string `json:"viewerId,omitempty"`
-	AutoFollow bool   `json:"autoFollow,omitempty"`
-	SourcePane string `json:"sourcePane,omitempty"` // "left" | "right"
+	TargetPath  string `json:"targetPath"`
+	ViewerID    string `json:"viewerId,omitempty"`
+	AutoFollow  bool   `json:"autoFollow,omitempty"`
+	SourcePane  string `json:"sourcePane,omitempty"` // "left" | "right"
 	SourceTabID string `json:"sourceTabId,omitempty"`
 	SourceDir   string `json:"sourceDir,omitempty"` // directory path at time of preview creation
 }

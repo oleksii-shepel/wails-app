@@ -39,21 +39,21 @@
         
         <div class="shortcuts">
           <div 
-            *ngFor="let shortcut of category.shortcuts"
+            *ngFor="let binding of category.bindings"
             class="shortcut-item"
-            [class.disabled]="shortcut.enabled === false"
+            [class.disabled]="binding.enabled === false"
           >
             <div class="shortcut-left">
-              <span class="shortcut-key">{{ formatShortcut(shortcut) }}</span>
-              <span class="shortcut-description">{{ shortcut.description }}</span>
+              <span class="shortcut-key">{{ formatBinding(binding) }}</span>
+              <span class="shortcut-description">{{ binding.description }}</span>
             </div>
             
             <div class="shortcut-right">
               <label class="toggle-switch">
                 <input
                   type="checkbox"
-                  [checked]="shortcut.enabled !== false"
-                  (change)="toggleShortcut(shortcut)"
+                  [checked]="binding.enabled !== false"
+                  (change)="toggleBinding(binding)"
                 />
                 <span class="toggle-slider"></span>
               </label>

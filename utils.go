@@ -22,6 +22,11 @@ type Entry struct {
 	NestedChain []string `json:"nestedChain,omitempty"`
 }
 
+// containsFold reports whether s contains substr, case-insensitively.
+func containsFold(s, substr string) bool {
+	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
+}
+
 // archiveEntryPath returns the canonical inner path for an archiver.File,
 // preferring the typed header (which carries the full path) over f.Name()
 // (which may only be the base name for some formats).

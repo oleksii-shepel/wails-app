@@ -171,10 +171,21 @@ export interface BatchResult {
   errors?: BatchItemError[];
 }
 
+export type OperationErrorCode =
+  | 'permission_denied'
+  | 'not_found'
+  | 'disk_full'
+  | 'read_only'
+  | 'already_exists'
+  | 'invalid_path'
+  | 'cancelled'
+  | 'unknown';
+
 export interface BatchItemError {
   source: string;
   destination?: string;
   error: string;
+  code: OperationErrorCode;
 }
 
 export interface BatchDeleteRequest {

@@ -27,6 +27,8 @@ func (a *App) initVFS() {
 	if regFS, err := registry.New(); err == nil {
 		a.vfs.Mount("/registry", regFS, true, "Registry", vfslib.VolumeRegistry)
 	}
+
+	a.filesystem.SetVFS(a.vfs)
 }
 
 // ── Wails-exposed methods ─────────────────────────────────────────────────────

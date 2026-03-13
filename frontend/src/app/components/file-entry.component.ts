@@ -24,54 +24,37 @@ export const PARENT_ENTRY_PATH = '__parent__';
       (click)="onClick($event)"
       (dblclick)="onDoubleClick()">
 
-      <!-- Parent ".." — folder-up icon -->
-      <span *ngIf="isParentEntry()" class="file-icon">
-        <svg
-          width="15"
-          height="15"
-          viewBox="0 0 18 18"
-          fill="none"
-          aria-hidden="true">
-          <!-- Folder body back-tab -->
-          <path
-            d="M1.5 4.5 C1.5 3.67 2.17 3 3 3 L6.5 3 L7.8 4.6 C8.1 5 8.55 5.25 9.05 5.25 L15 5.25 C15.83 5.25 16.5 5.92 16.5 6.75 L16.5 13.5 C16.5 14.33 15.83 15 15 15 L3 15 C2.17 15 1.5 14.33 1.5 13.5 Z"
-            fill="var(--vsc-icon-folder, #c8a94a)"
-            opacity="1"/>
-          <!-- Folder body front face -->
-          <path
-            d="M1.5 6.75 C1.5 5.92 2.17 5.25 3 5.25 L9.05 5.25 C9.55 5.25 10 5 10.3 4.6 L11.6 3 L15 3 C15.83 3 16.5 3.67 16.5 4.5 L16.5 13.5 C16.5 14.33 15.83 15 15 15 L3 15 C2.17 15 1.5 14.33 1.5 13.5 Z"
-            fill="var(--vsc-icon-folder, #c8a94a)"
-            opacity="1"/>
-          <!-- Up-arrow shaft -->
-          <line
-            x1="9" y1="12.5"
-            x2="9" y2="7.5"
-            stroke="var(--vsc-editor-background, #1e1e1e)"
-            stroke-width="1.6"
-            stroke-linecap="round"/>
-          <!-- Up-arrow head -->
-          <polyline
-            points="6.8,9.8 9,7.2 11.2,9.8"
+      <span class="file-icon" [class.parent-icon]="isParentEntry()">
+        <ng-container *ngIf="isParentEntry(); else normalIcon">
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 20 20"
             fill="none"
-            stroke="var(--vsc-editor-background, #1e1e1e)"
-            stroke-width="1.6"
+            stroke="currentColor"
+            stroke-width="1.4"
             stroke-linecap="round"
-            stroke-linejoin="round"/>
-        </svg>
-      </span>
-
-      <!-- Normal entry: emoji + optional symlink badge -->
-      <span *ngIf="!isParentEntry()" class="file-icon">
-        <span class="icon-emoji">{{ getIconEmoji() }}</span>
-        <svg *ngIf="isSymlink()" class="symlink-badge" viewBox="0 0 10 10" fill="none" aria-label="symlink">
-          <!-- Curved arrow body -->
-          <path d="M2 8 C2 5 5 3 8 2"
-            stroke="var(--vsc-icon-symlink,#5dade2)" stroke-width="2" stroke-linecap="round"/>
-          <!-- Arrow corner/head -->
-          <path d="M6 1.2 L8.8 1.2 L8.8 4"
-            stroke="var(--vsc-icon-symlink,#5dade2)" stroke-width="2"
-            stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
+            stroke-linejoin="round"
+            aria-hidden="true">
+            <path d="M10 4v7"></path>
+            <path d="M7.5 7 10 4l2.5 3"></path>
+            <path d="M4 11h12"></path>
+            <circle cx="6.5" cy="14" r="0.9" fill="currentColor"></circle>
+            <circle cx="13.5" cy="14" r="0.9" fill="currentColor"></circle>
+          </svg>
+        </ng-container>
+        <ng-template #normalIcon>
+          <span class="icon-emoji">{{ getIconEmoji() }}</span>
+          <svg *ngIf="isSymlink()" class="symlink-badge" viewBox="0 0 10 10" fill="none" aria-label="symlink">
+            <!-- Curved arrow body -->
+            <path d="M2 8 C2 5 5 3 8 2"
+              stroke="var(--vsc-icon-symlink,#5dade2)" stroke-width="2" stroke-linecap="round"/>
+            <!-- Arrow corner/head -->
+            <path d="M6 1.2 L8.8 1.2 L8.8 4"
+              stroke="var(--vsc-icon-symlink,#5dade2)" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </ng-template>
       </span>
 
       <div class="file-info">
@@ -220,6 +203,12 @@ export const PARENT_ENTRY_PATH = '__parent__';
 
       /* Symlink arrow colour: accent-blue lightened slightly */
       --vsc-icon-symlink: color-mix(in srgb, var(--vsc-accent-blue, #4fc3f7) 80%, white 20%);
+    }
+
+    .parent-icon svg {
+      width: 100%;
+      height: 100%;
+      display: block;
     }
 
     .icon-emoji {

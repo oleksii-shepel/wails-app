@@ -23,8 +23,8 @@ export interface TabInfo {
   id: string;
   title: string;
   path: string;
-  /** "dir" (default) or "viewer". Old persisted workspaces omit this field. */
-  kind?: 'dir' | 'viewer';
+  /** "dir" (default), "viewer", or "size-manager". Old persisted workspaces omit this field. */
+  kind?: 'dir' | 'viewer' | 'size-manager';
   /** Viewer tab payload; only meaningful when kind === 'viewer'. */
   viewer?: {
     /** Absolute filesystem path to the viewed file (initially FS-only). */
@@ -51,6 +51,13 @@ export interface TabInfo {
       /** Entry path inside the innermost archive, e.g. "src/main.go" */
       entryPath: string;
     };
+  };
+  /** Size Manager tab payload; only meaningful when kind === 'size-manager'. */
+  sizeManager?: {
+    /** Directory path whose contents are being analysed. */
+    sourcePath: string;
+    /** Which pane was the source directory. */
+    sourcePaneId: 'left' | 'right';
   };
   /** If false, the UI hides the close button. Defaults to true when omitted. */
   isClosable?: boolean;

@@ -620,7 +620,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     this.dir.optimisticHiddenPaths = new Set((paths ?? []).filter(Boolean));
   }
 
-  get activeTabKind(): 'dir' | 'viewer' {
+  get activeTabKind(): 'dir' | 'viewer' | 'size-manager' {
     return this.surfaceContextFactory.getActiveTabKind(this.surfaceContextSource);
   }
 

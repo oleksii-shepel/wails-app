@@ -7,7 +7,7 @@ export interface FilePaneRuntimeStateHost {
   set fsParentDir(value: string);
   get activeDirTabId(): string | null;
   get currentTabId(): string;
-  get activeTabKind(): 'dir' | 'viewer';
+  get activeTabKind(): 'dir' | 'viewer' | 'size-manager';
   isInArchive(): boolean;
   restoreActiveDirTabState(): void;
   saveDirTabState(tabId: string): void;

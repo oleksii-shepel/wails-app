@@ -551,7 +551,10 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
 
   onSelect(event: FileEntrySelectEvent): void {
     const entry = event.entry;
-    if (this.isParentEntry(entry)) return;
+    if (this.isParentEntry(entry)) {
+      this.navigate.emit(entry);
+      return;
+    }
 
     const mouseEvent = event.mouseEvent;
     const isToggle = mouseEvent.ctrlKey || mouseEvent.metaKey;

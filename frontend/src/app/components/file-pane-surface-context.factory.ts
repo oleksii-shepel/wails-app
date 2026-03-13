@@ -1,6 +1,6 @@
 import type { ViewerArchiveContext } from './viewer-surface.component';
 import type { DirSurfaceVm } from '../surfaces/dir/dir-surface.vm';
-import type { DirSurfaceContext, SurfaceContext, ViewerSurfaceContext } from '../surfaces/surface-context';
+import type { DirSurfaceContext, SizeManagerSurfaceContext, SurfaceContext, ViewerSurfaceContext } from '../surfaces/surface-context';
 import type { TabInfo } from '../shared/protocol-enhanced';
 
 export interface FilePaneSurfaceContextSource {
@@ -15,7 +15,7 @@ export class FilePaneSurfaceContextFactory {
     return source.tabs.find((tab) => tab.id === source.currentTabId);
   }
 
-  getActiveTabKind(source: FilePaneSurfaceContextSource): 'dir' | 'viewer' {
+  getActiveTabKind(source: FilePaneSurfaceContextSource): 'dir' | 'viewer' | 'size-manager' {
     return this.getActiveTab(source)?.kind ?? 'dir';
   }
 
@@ -63,6 +63,16 @@ export class FilePaneSurfaceContextFactory {
           viewerId: this.getActiveViewerId(source),
         },
       } satisfies ViewerSurfaceContext;
+    }
+
+    if (tab.kind === 'size-manager') {
+      return {
+        paneId: source.paneId,
+        kind: 'size-manager',
+        tab,
+        sourcePath: tab.sizeManager?.sourcePath ?? '',
+        sourcePaneId: tab.sizeManager?.sourcePaneId ?? 'left',
+      } satisfies SizeManagerSurfaceContext;
     }
 
     return {

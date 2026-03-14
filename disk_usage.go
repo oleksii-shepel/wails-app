@@ -45,6 +45,13 @@ func (a *App) AnalyzeDiskUsage(path string) (*DiskUsageResult, error) {
 		return nil, err
 	}
 
+	// Debug: Print all child entries and their computed paths
+	for _, e := range all {
+		name := e.Name()
+		full := filepath.Join(path, name)
+		println("AnalyzeDiskUsage child:", name, "full path:", full)
+	}
+
 	// Exclude symlinks, junctions, and all other reparse points.
 	children := all[:0]
 	for _, e := range all {

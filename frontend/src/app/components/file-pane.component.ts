@@ -23,6 +23,7 @@ import { DirSurfaceRuntime } from '../surfaces/dir/dir-surface-runtime';
 import { FilePaneDirSurfaceRuntime } from '../surfaces/dir/file-pane-dir-surface-runtime';
 import { DirTabStateController } from '../surfaces/dir/dir-tab-state-controller';
 import { DirSurfaceContext, SurfaceContext, ViewerSurfaceContext } from '../surfaces/surface-context';
+import type { SizeManagerSurfaceVm } from '../surfaces/size-manager/size-manager-surface.vm';
 import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
 import { FilePaneArchiveController, type FilePaneArchiveHost } from './file-pane-archive.controller';
 import { FilePaneActionHostsFactory, type FilePaneActionHostsSource } from './file-pane-action-hosts.factory';
@@ -374,6 +375,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       get currentTabId() { return thisRef.currentTabId; },
       get tabs() { return thisRef.tabs; },
       dirVm: this.dirVm,
+      sizeManagerVm: this.buildSizeManagerVm(),
     };
   }
 
@@ -923,5 +925,46 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   // в”Ђв”Ђ Tab shortcuts в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+
+
+  // ── Disk Usage Analyzer ───────────────────────────────────────────────────
+
+  openDiskUsageAnalyzer(path?: string): void {
+    const analysisPath = path || this.currentPath || '/';
+    const tab = this.workspaceService.addSizeManagerTab(this.paneId, analysisPath, { activate: true });
+    if (tab) {
+      this.tabs = this.workspaceService.getTabs(this.paneId);
+      this.currentTabId = tab.id;
+      this.cdr.markForCheck();
+    }
+  }
+
+  /** Called by the other pane to sync the active size-manager tab to a new path. */
+  followSizeManagerNavigation(path: string): void {
+    const tab = this.tabs.find(t => t.id === this.currentTabId);
+    if (!tab || (tab.kind ?? 'dir') !== 'size-manager') return;
+    tab.path = path;
+    this.cdr.markForCheck();
+  }
+
+  private buildSizeManagerVm(): SizeManagerSurfaceVm | null {
+    const tab = this.tabs.find(t => t.id === this.currentTabId);
+    if (!tab || (tab.kind ?? 'dir') !== 'size-manager') return null;
+    const thisRef = this;
+    return {
+      paneId: this.paneId,
+      analysisPath: tab.path || this.currentPath || '/',
+      onAnalyse(p: string) {
+        tab.path = p;
+        thisRef.cdr.markForCheck();
+      },
+      onClose() {
+        thisRef.workspaceService.closeTab(thisRef.paneId, tab.id);
+        thisRef.tabs = thisRef.workspaceService.getTabs(thisRef.paneId);
+        thisRef.currentTabId = thisRef.workspaceService.getActiveTab(thisRef.paneId)?.id ?? thisRef.tabs[0]?.id ?? '';
+        thisRef.cdr.markForCheck();
+      },
+    };
+  }
 
 }

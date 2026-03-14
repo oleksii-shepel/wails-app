@@ -390,6 +390,8 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
 
   onPanePathChange(paneId: string, path: string): void {
     this.searchController.onPanePathChange(this.searchHost, paneId, path);
+    const otherPane = paneId === 'left' ? this.rightPane : this.leftPane;
+    otherPane?.followSizeManagerNavigation(path);
   }
 
   async onGlobalSearchResult(result: any): Promise<void> {
@@ -449,6 +451,7 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
       copyToOtherPane:       () => this.copyToOtherPaneCurrent(),
       moveToOtherPane:       () => this.moveToOtherPaneCurrent(),
       focusAddressBar:       () => this.getActivePane()?.shortcuts.focus.focusAddressBar(),
+      diskUsage:             () => this.getActivePane()?.openDiskUsageAnalyzer(),
     };
     return registerFileBrowserCommands(this.inputEngine, handlers, 'file-browser');
   }

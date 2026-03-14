@@ -64,6 +64,7 @@ export const BC = {
   copyToOtherPane:      'pane.ctrl.copyToOther',
   moveToOtherPane:      'pane.ctrl.moveToOther',
   focusAddressBar:      'pane.ctrl.focusAddressBar',
+  diskUsage:            'pane.tools.diskUsage',
 } as const;
 
 // ─── Binding helpers ──────────────────────────────────────────────────────────
@@ -216,6 +217,10 @@ export const BROWSER_BINDINGS: InputBindingDefinition[] = [
     { modifiers: ['ctrl'], stopPropagation: false, category: PANE }),
   kb('pane.ctrl.focusAddress.altD',  BC.focusAddressBar, 'd', 'Focus address bar (Alt+D)',
     { modifiers: ['alt'],  stopPropagation: false, category: PANE }),
+
+  // ── Tools ─────────────────────────────────────────────────────────────────
+  kb('pane.tools.diskUsage.ctrlShiftD', BC.diskUsage, 'd', 'Analyze disk usage',
+    { modifiers: ['ctrl', 'shift'], category: FILES }),
 ];
 
 // ─── Handler interface ────────────────────────────────────────────────────────
@@ -268,6 +273,7 @@ export interface FileBrowserCommandHandlers {
   copyToOtherPane:      () => void;
   moveToOtherPane:      () => void;
   focusAddressBar:      () => void;
+  diskUsage:            () => void;
 }
 
 // ─── Registration ─────────────────────────────────────────────────────────────
@@ -336,6 +342,7 @@ export function registerFileBrowserCommands(
   engine.registerCommand(BC.copyToOtherPane,        handlers.copyToOtherPane,        ownerId);
   engine.registerCommand(BC.moveToOtherPane,        handlers.moveToOtherPane,        ownerId);
   engine.registerCommand(BC.focusAddressBar,        handlers.focusAddressBar,        ownerId);
+  engine.registerCommand(BC.diskUsage,              handlers.diskUsage,              ownerId);
 
   return () => {
     for (const binding of BROWSER_BINDINGS) {
@@ -352,6 +359,7 @@ export function registerFileBrowserCommands(
       BC.invertSelection, BC.selectSameExt, BC.focusFilter, BC.advancedFilter,
       BC.clearFilter, BC.showWorkspaceSwitcher, BC.newWorkspace, BC.toggleHidden,
       BC.switchPane, BC.copyToOtherPane, BC.moveToOtherPane, BC.focusAddressBar,
+      BC.diskUsage,
     ];
     for (const cmd of allCommands) {
       engine.unregisterCommand(cmd, ownerId);

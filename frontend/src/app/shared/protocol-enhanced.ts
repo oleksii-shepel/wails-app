@@ -23,8 +23,8 @@ export interface TabInfo {
   id: string;
   title: string;
   path: string;
-  /** "dir" (default) or "viewer". Old persisted workspaces omit this field. */
-  kind?: 'dir' | 'viewer';
+  /** "dir" (default), "viewer", or "size-manager". Old persisted workspaces omit this field. */
+  kind?: 'dir' | 'viewer' | 'size-manager';
   /** Viewer tab payload; only meaningful when kind === 'viewer'. */
   viewer?: {
     /** Absolute filesystem path to the viewed file (initially FS-only). */
@@ -300,6 +300,29 @@ export interface OperationProgress {
   elapsedSeconds: number;
   etaSeconds: number;
   error?: string;
+}
+
+// ============================================================================
+// Disk Usage Analyzer
+// ============================================================================
+
+export interface DiskUsageEntry {
+  name: string;
+  path: string;
+  size: number;
+  isDir: boolean;
+  files: number;
+  dirs: number;
+  error?: string;
+}
+
+export interface DiskUsageResult {
+  path: string;
+  totalSize: number;
+  totalFiles: number;
+  totalDirs: number;
+  entries: DiskUsageEntry[];
+  elapsedMs: number;
 }
 
 // ============================================================================

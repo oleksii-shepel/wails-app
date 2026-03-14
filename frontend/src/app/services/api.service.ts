@@ -104,6 +104,7 @@ declare global {
           GetParentPath(path: string): Promise<string>;
           ConfirmElevationRequest(requestID: string, approve: boolean): Promise<void>;
           DirSizeRecursive(path: string): Promise<number>;
+          AnalyzeDiskUsage(path: string): Promise<any>;
 
           // Elevation – persistent JWT-secured helper service
           IsProcessElevated(): Promise<boolean>;
@@ -457,6 +458,14 @@ export class ApiService {
    */
   emitEvent(eventName: string, data: any): void {
     EventsEmit(eventName, data);
+  }
+
+  // ============================================================================
+  // Disk Usage Analyzer
+  // ============================================================================
+
+  async analyzeDiskUsage(path: string): Promise<import('../shared/protocol-enhanced').DiskUsageResult> {
+    return await window.go.main.App.AnalyzeDiskUsage(path);
   }
 
   async isDirectory(path: string): Promise<boolean> {

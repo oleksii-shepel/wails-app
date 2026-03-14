@@ -1,6 +1,7 @@
 import type { TabInfo } from '../shared/protocol-enhanced';
 import type { ViewerArchiveContext } from '../components/viewer-surface.component';
 import type { DirSurfaceVm } from './dir/dir-surface.vm';
+import type { SizeManagerSurfaceVm } from './size-manager/size-manager-surface.vm';
 
 interface BaseSurfaceContext {
   paneId: 'left' | 'right';
@@ -21,5 +22,10 @@ export interface ViewerSurfaceContext extends BaseSurfaceContext {
   };
 }
 
-export type SurfaceContext = DirSurfaceContext | ViewerSurfaceContext;
+export interface SizeManagerSurfaceContext extends BaseSurfaceContext {
+  kind: 'size-manager';
+  sizeVm: SizeManagerSurfaceVm;
+}
+
+export type SurfaceContext = DirSurfaceContext | ViewerSurfaceContext | SizeManagerSurfaceContext;
 

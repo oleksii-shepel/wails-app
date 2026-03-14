@@ -1,6 +1,7 @@
 import type { ViewerArchiveContext } from './viewer-surface.component';
 import type { DirSurfaceVm } from '../surfaces/dir/dir-surface.vm';
-import type { DirSurfaceContext, SurfaceContext, ViewerSurfaceContext } from '../surfaces/surface-context';
+import type { DirSurfaceContext, SurfaceContext, ViewerSurfaceContext, SizeManagerSurfaceContext } from '../surfaces/surface-context';
+import type { SizeManagerSurfaceVm } from '../surfaces/size-manager/size-manager-surface.vm';
 import type { TabInfo } from '../shared/protocol-enhanced';
 
 export interface FilePaneSurfaceContextSource {
@@ -8,6 +9,7 @@ export interface FilePaneSurfaceContextSource {
   get currentTabId(): string;
   get tabs(): TabInfo[];
   dirVm: DirSurfaceVm;
+  sizeManagerVm: SizeManagerSurfaceVm | null;
 }
 
 export class FilePaneSurfaceContextFactory {
@@ -50,6 +52,15 @@ export class FilePaneSurfaceContextFactory {
     const tab = this.getActiveTab(source);
     if (!tab) {
       return null;
+    }
+
+    if ((tab.kind ?? 'dir') === 'size-manager' && source.sizeManagerVm) {
+      return {
+        paneId: source.paneId,
+        kind: 'size-manager',
+        tab,
+        sizeVm: source.sizeManagerVm,
+      } satisfies SizeManagerSurfaceContext;
     }
 
     if ((tab.kind ?? 'dir') === 'viewer') {

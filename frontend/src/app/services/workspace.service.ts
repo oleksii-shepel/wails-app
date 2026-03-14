@@ -861,6 +861,41 @@ export class WorkspaceService {
     return newTab;
   }
 
+  addSizeManagerTab(
+    paneId: string,
+    analysisPath: string,
+    opts?: { activate?: boolean; closable?: boolean },
+  ): TabInfo | null {
+    const workspace = this.activeWorkspaceSubject.value;
+    if (!workspace) return null;
+
+    const pane = paneId === 'left' ? workspace.leftPane : workspace.rightPane;
+    const activate = opts?.activate !== false;
+
+    const newTab: TabInfo = {
+      id: this.generateId(),
+      title: 'Storage Dashboard',
+      path: analysisPath,
+      kind: 'size-manager',
+      isClosable: opts?.closable === false ? false : true,
+      isActive: activate,
+      isPinned: false,
+      createdAt: Date.now(),
+    };
+
+    if (activate) {
+      pane.tabs.forEach((t) => (t.isActive = false));
+      pane.activeTabId = newTab.id;
+    }
+
+    pane.tabs.push(newTab);
+    this.updateWorkspace(workspace.id, {
+      [paneId === 'left' ? 'leftPane' : 'rightPane']: pane,
+    });
+
+    return newTab;
+  }
+
   /**
    * Resolve the home path using the Wails OS info, falling back to '/'.
    */

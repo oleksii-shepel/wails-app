@@ -18,704 +18,831 @@ import type { SizeManagerSurfaceContext } from '../surface-context';
   imports: [CommonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="sm-root">
-      <div class="sm-hero">
-        <div class="sm-hero-main">
-          <div class="sm-kicker">Storage Dashboard</div>
-          <h1 class="sm-title">{{ currentLabel }}</h1>
-          <div class="sm-path" [title]="currentPath">{{ currentPath }}</div>
-          <p class="sm-subtitle">
-            Summary-first disk usage analysis with ranked hotspots, footprint metrics, and drill-down into heavy folders.
-          </p>
-        </div>
+    <!-- ── Header bar ─────────────────────────────────────── -->
+    <div class="sm-header">
+      <div class="sm-header-left">
+        <span class="sm-kicker">Disk Usage</span>
+        <span class="sm-sep">·</span>
+        <span class="sm-current-label">{{ currentLabel }}</span>
+        <span class="sm-path" [title]="currentPath">{{ currentPath }}</span>
+      </div>
+      <div class="sm-header-actions">
+        <button class="sm-btn" [disabled]="!parentPath" (click)="goUp()" title="Go to parent">↑ Parent</button>
+        <button class="sm-btn" (click)="refresh()">↺ Refresh</button>
+        <button class="sm-btn sm-btn--close" (click)="close()" title="Close">✕</button>
+      </div>
+    </div>
 
-        <div class="sm-hero-actions">
-          <button class="sm-btn sm-btn--ghost" (click)="close()" title="Close analyzer">Close</button>
-          <button
-            class="sm-btn sm-btn--ghost"
-            [disabled]="!parentPath"
-            (click)="goUp()"
-            title="Go to parent folder">Parent</button>
-          <button class="sm-btn sm-btn--primary" (click)="refresh()">Refresh</button>
+    <!-- ── Loading ────────────────────────────────────────── -->
+    <div class="sm-loading" *ngIf="loading">
+      <div class="sm-spinner"></div>
+      <span>Scanning <strong>{{ currentLabel }}</strong>…</span>
+    </div>
+
+    <!-- ── Error ──────────────────────────────────────────── -->
+    <div class="sm-error" *ngIf="error && !loading">
+      <span class="sm-error-icon">⚠</span>
+      <span>{{ error }}</span>
+      <button class="sm-btn sm-btn--primary" (click)="refresh()">Retry</button>
+    </div>
+
+    <!-- ── Dashboard ──────────────────────────────────────── -->
+    <div class="sm-body" *ngIf="result && !loading">
+
+      <!-- Metric strip -->
+      <div class="sm-metrics">
+        <div class="sm-metric">
+          <div class="sm-metric-val">{{ formatBytes(result.totalSize) }}</div>
+          <div class="sm-metric-lbl">Total size</div>
+        </div>
+        <div class="sm-metric">
+          <div class="sm-metric-val">{{ totalItems | number }}</div>
+          <div class="sm-metric-lbl">{{ result.totalFiles | number }} files · {{ result.totalDirs | number }} dirs</div>
+        </div>
+        <div class="sm-metric">
+          <div class="sm-metric-val">{{ averageEntrySizeLabel }}</div>
+          <div class="sm-metric-lbl">Avg child size</div>
+        </div>
+        <div class="sm-metric">
+          <div class="sm-metric-val">{{ result.elapsedMs }} ms</div>
+          <div class="sm-metric-lbl">{{ directoryMixLabel }}</div>
         </div>
       </div>
 
-      <div class="sm-loading" *ngIf="loading">
-        <div class="sm-spinner"></div>
-        <div>
-          <div class="sm-loading-title">Scanning footprint</div>
-          <div class="sm-loading-copy">Collecting size, file count, and folder density for {{ currentLabel }}.</div>
-        </div>
-      </div>
+      <!-- Two-col: spotlight + ranking -->
+      <div class="sm-cols">
 
-      <div class="sm-error" *ngIf="error && !loading">
-        <div>
-          <div class="sm-error-title">Analysis failed</div>
-          <div class="sm-error-copy">{{ error }}</div>
-        </div>
-        <button class="sm-btn sm-btn--primary" (click)="refresh()">Retry</button>
-      </div>
-
-      <div class="sm-dashboard" *ngIf="result && !loading">
-        <section class="sm-summary-grid">
-          <article class="sm-card sm-metric-card">
-            <div class="sm-card-label">Total footprint</div>
-            <div class="sm-card-value">{{ formatBytes(result.totalSize) }}</div>
-            <div class="sm-card-meta">{{ entries.length | number }} direct children analyzed</div>
-          </article>
-
-          <article class="sm-card sm-metric-card">
-            <div class="sm-card-label">Items scanned</div>
-            <div class="sm-card-value">{{ totalItems | number }}</div>
-            <div class="sm-card-meta">{{ result.totalFiles | number }} files · {{ result.totalDirs | number }} folders</div>
-          </article>
-
-          <article class="sm-card sm-metric-card">
-            <div class="sm-card-label">Average node size</div>
-            <div class="sm-card-value">{{ averageEntrySizeLabel }}</div>
-            <div class="sm-card-meta">Across visible children in this location</div>
-          </article>
-
-          <article class="sm-card sm-metric-card">
-            <div class="sm-card-label">Scan time</div>
-            <div class="sm-card-value">{{ result.elapsedMs }} ms</div>
-            <div class="sm-card-meta">{{ directoryMixLabel }}</div>
-          </article>
-        </section>
-
-        <section class="sm-main-grid">
-          <article class="sm-card sm-spotlight-card">
-            <div class="sm-card-header">
-              <div>
-                <div class="sm-card-label">Spotlight</div>
-                <div class="sm-card-title">{{ selectedEntry?.name || 'No dominant entry' }}</div>
-              </div>
-              <span class="sm-pill" [class.sm-pill--dir]="selectedEntry?.isDir">
-                {{ selectedEntry?.isDir ? 'Folder' : 'File' }}
-              </span>
-            </div>
-
-            <div class="sm-spotlight-value">{{ selectedEntry ? formatBytes(selectedEntry.size) : '0 B' }}</div>
-            <div class="sm-spotlight-share">{{ selectedEntry ? pct(selectedEntry) : '—' }} of current location</div>
-
-            <div class="sm-spotlight-bar" *ngIf="selectedEntry">
-              <div class="sm-spotlight-bar-fill" [style.width.%]="barPercent(selectedEntry)"></div>
-            </div>
-
-            <div class="sm-insight-grid" *ngIf="selectedEntry">
-              <div class="sm-insight-box">
-                <span class="sm-insight-label">Contained files</span>
-                <strong>{{ selectedEntry.files | number }}</strong>
-              </div>
-              <div class="sm-insight-box">
-                <span class="sm-insight-label">Contained folders</span>
-                <strong>{{ selectedEntry.dirs | number }}</strong>
-              </div>
-              <div class="sm-insight-box">
-                <span class="sm-insight-label">Path</span>
-                <strong class="sm-insight-path" [title]="selectedEntry.path">{{ selectedEntry.path }}</strong>
-              </div>
-            </div>
-
-            <div class="sm-empty-state" *ngIf="!selectedEntry">
-              No entries available for this location.
-            </div>
-          </article>
-
-          <article class="sm-card sm-ranking-card">
-            <div class="sm-card-header">
-              <div>
-                <div class="sm-card-label">Top consumers</div>
-                <div class="sm-card-title">Largest children</div>
-              </div>
-            </div>
-
-            <div class="sm-ranking-list" *ngIf="topEntries.length > 0; else noRanking">
-              <button
-                type="button"
-                class="sm-ranking-item"
-                *ngFor="let e of topEntries; let i = index; trackBy: trackEntry"
-                [class.sm-ranking-item--active]="selectedEntry?.path === e.path"
-                (click)="onEntryClick(e)"
-                (dblclick)="onEntryDblClick(e)">
-                <div class="sm-ranking-rank">{{ i + 1 }}</div>
-                <div class="sm-ranking-copy">
-                  <div class="sm-ranking-name" [title]="e.path">{{ e.name }}</div>
-                  <div class="sm-ranking-meta">{{ e.isDir ? 'Folder' : 'File' }} · {{ pct(e) }}</div>
-                </div>
-                <div class="sm-ranking-size">{{ formatBytes(e.size) }}</div>
-              </button>
-            </div>
-
-            <ng-template #noRanking>
-              <div class="sm-empty-state">Nothing to rank in this location.</div>
-            </ng-template>
-          </article>
-        </section>
-
-        <section class="sm-card sm-breakdown-card">
-          <div class="sm-card-header">
-            <div>
-              <div class="sm-card-label">Breakdown</div>
-              <div class="sm-card-title">Distribution by child entry</div>
-            </div>
-            <div class="sm-card-caption">Single-click highlights. Double-click drills into folders.</div>
+        <!-- Spotlight -->
+        <div class="sm-panel sm-spotlight">
+          <div class="sm-panel-head">
+            <span class="sm-panel-title">Spotlight</span>
+            <span class="sm-pill" [class.sm-pill--dir]="selectedEntry.isDir" *ngIf="selectedEntry">
+              {{ selectedEntry.isDir ? 'Folder' : 'File' }}
+            </span>
           </div>
 
-          <div class="sm-breakdown-head" *ngIf="entries.length > 0">
-            <span>Name</span>
-            <span>Composition</span>
-            <span>Size</span>
-            <span>Share</span>
+          <ng-container *ngIf="selectedEntry; else noSpotlight">
+            <div class="sm-spotlight-name" [title]="selectedEntry.path">{{ selectedEntry.name }}</div>
+            <div class="sm-spotlight-size">{{ formatBytes(selectedEntry.size) }}</div>
+            <div class="sm-spotlight-share">{{ pct(selectedEntry) }} of current location</div>
+
+            <!-- Animated bar -->
+            <div class="sm-bar-track">
+              <div class="sm-bar-fill" [style.width.%]="animatedBarPct" [style.transition]="barTransition"></div>
+            </div>
+
+            <div class="sm-insight-row">
+              <div class="sm-insight">
+                <div class="sm-insight-val">{{ selectedEntry.files | number }}</div>
+                <div class="sm-insight-lbl">Files</div>
+              </div>
+              <div class="sm-insight">
+                <div class="sm-insight-val">{{ selectedEntry.dirs | number }}</div>
+                <div class="sm-insight-lbl">Folders</div>
+              </div>
+              <div class="sm-insight sm-insight--path">
+                <div class="sm-insight-val sm-insight-path-val" [title]="selectedEntry.path">{{ selectedEntry.path }}</div>
+                <div class="sm-insight-lbl">Full path</div>
+              </div>
+            </div>
+          </ng-container>
+
+          <ng-template #noSpotlight>
+            <div class="sm-empty">No entries here.</div>
+          </ng-template>
+        </div>
+
+        <!-- Top 5 ranking -->
+        <div class="sm-panel sm-ranking">
+          <div class="sm-panel-head">
+            <span class="sm-panel-title">Top consumers</span>
           </div>
 
-          <div class="sm-breakdown-list" *ngIf="entries.length > 0; else emptyBreakdown">
+          <div class="sm-ranking-list" *ngIf="topEntries.length > 0; else noRanking">
             <button
-              type="button"
-              class="sm-entry"
-              *ngFor="let e of entries; trackBy: trackEntry"
-              [class.sm-entry--dir]="e.isDir"
-              [class.sm-entry--active]="selectedEntry?.path === e.path"
+              class="sm-rank-item"
+              *ngFor="let e of topEntries; let i = index; trackBy: trackEntry"
+              [class.sm-rank-item--active]="selectedEntry?.path === e.path"
               (click)="onEntryClick(e)"
               (dblclick)="onEntryDblClick(e)">
 
-              <div class="sm-entry-main">
-                <span class="sm-entry-icon">{{ e.isDir ? '▣' : '•' }}</span>
-                <span class="sm-entry-name" [title]="e.path">{{ e.name }}</span>
+              <span class="sm-rank-num">{{ i + 1 }}</span>
+
+              <div class="sm-rank-info">
+                <div class="sm-rank-name" [title]="e.path">{{ e.name }}</div>
+
+                <!-- Inline animated mini-bar -->
+                <div class="sm-mini-track">
+                  <div class="sm-mini-fill"
+                    [class.sm-mini-fill--active]="selectedEntry?.path === e.path"
+                    [style.width]="getMiniBarWidth(e)"></div>
+                </div>
               </div>
 
-              <span class="sm-entry-meta">{{ entryComposition(e) }}</span>
-              <span class="sm-entry-size">{{ formatBytes(e.size) }}</span>
-              <span class="sm-entry-pct">{{ pct(e) }}</span>
-
-              <div class="sm-entry-bar-track">
-                <div class="sm-entry-bar" [style.width.%]="barPercent(e)"></div>
+              <div class="sm-rank-right">
+                <div class="sm-rank-size">{{ formatBytes(e.size) }}</div>
+                <div class="sm-rank-pct">{{ pct(e) }}</div>
               </div>
             </button>
           </div>
 
-          <ng-template #emptyBreakdown>
-            <div class="sm-empty-state">Folder is empty.</div>
+          <ng-template #noRanking>
+            <div class="sm-empty">Nothing to rank.</div>
           </ng-template>
-        </section>
+        </div>
+      </div>
+
+      <!-- ── Breakdown table ──────────────────────────────── -->
+      <div class="sm-panel sm-breakdown">
+        <div class="sm-panel-head">
+          <span class="sm-panel-title">Breakdown</span>
+          <span class="sm-panel-hint">Single-click to inspect · double-click to drill into folders</span>
+        </div>
+
+        <div class="sm-table-head" *ngIf="entries.length > 0">
+          <span>Name</span>
+          <span>Composition</span>
+          <span class="sm-align-r">Size</span>
+          <span class="sm-align-r">Share</span>
+        </div>
+
+        <div class="sm-table-body" *ngIf="entries.length > 0; else emptyBreakdown">
+          <button
+            class="sm-row"
+            *ngFor="let e of entries; trackBy: trackEntry"
+            [class.sm-row--dir]="e.isDir"
+            [class.sm-row--active]="selectedEntry?.path === e.path"
+            (click)="onEntryClick(e)"
+            (dblclick)="onEntryDblClick(e)">
+
+            <div class="sm-row-name">
+              <span class="sm-row-icon" [class.sm-row-icon--dir]="e.isDir">{{ e.isDir ? '▣' : '•' }}</span>
+              <span class="sm-row-label" [title]="e.path">{{ e.name }}</span>
+            </div>
+
+            <span class="sm-row-meta">{{ entryComposition(e) }}</span>
+            <span class="sm-row-size sm-align-r">{{ formatBytes(e.size) }}</span>
+
+            <!-- Pct + inline bar -->
+            <div class="sm-row-pct-cell sm-align-r">
+              <span class="sm-row-pct">{{ pct(e) }}</span>
+              <div class="sm-row-track">
+                <div class="sm-row-bar" [style.width.%]="barPercent(e)"></div>
+              </div>
+            </div>
+          </button>
+        </div>
+
+        <ng-template #emptyBreakdown>
+          <div class="sm-empty">Folder is empty.</div>
+        </ng-template>
       </div>
     </div>
   `,
   styles: [`
+    /*
+     * All colours are driven by VS Code CSS tokens so the component
+     * automatically adapts when the host applies .vscode-light or the
+     * default dark theme.  No hardcoded hex values except for the two
+     * accent-gradient stops that have explicit light/dark overrides.
+     */
+
+    /* ── Token aliases ───────────────────────────────────── *
+     * Map the handful of tokens this component actually needs so that
+     * we only fall back in one place and the rest of the rules stay clean.
+     */
     :host {
+      /* Surfaces */
+      --_bg:        var(--vsc-editor-background,   #1e1e1e);
+      --_surface:   var(--vsc-panel-background,    #252526);
+      --_surface2:  var(--vsc-list-hover-background, #2a2d2e);
+      --_input-bg:  var(--vsc-input-background,    #3c3c3c);
+
+      /* Text */
+      --_text:      var(--vsc-foreground,          #cccccc);
+      --_text-dim:  var(--vsc-foreground-dim,      #888888);
+
+      /* Borders */
+      --_border:    var(--vsc-border,              #454545);
+      --_border-sub: var(--vsc-border-subtle,      #3a3a3a);
+
+      /* Interactive */
+      --_focus:     var(--vsc-input-focus-border,  #007acc);
+      --_btn-bg:    var(--vsc-button-background,   #0e639c);
+      --_btn-hover: var(--vsc-button-hover,        #1177bb);
+      --_hover-bg:  var(--vsc-list-hover-background, #2a2d2e);
+      --_active-bg: var(--vsc-list-active-background, #094771);
+
+      /* Accent — gradient stops, overridden for light below */
+      --_accent-a: #2ec4b6;
+      --_accent-b: #3a86ff;
+
+      /* Status */
+      --_error:     var(--vsc-error,               #f48771);
+      --_blue:      var(--vsc-accent-blue,         #007acc);
+
+      /* File / folder icon tints – dark defaults */
+      --_icon-file:   #8fd3ff;
+      --_icon-dir:    #dcb67a;
+      --_pill-file-text: #9bdcff;
+      --_pill-file-bg:   rgba(19, 108, 145, .18);
+      --_pill-dir-text:  #6aaa2a;
+      --_pill-dir-bg:    rgba(106, 142, 35, .15);
+      --_rank-badge-bg:  rgba(58, 134, 255, .14);
+
       display: flex;
       flex-direction: column;
       flex: 1 1 0%;
       min-height: 0;
       overflow: hidden;
+      font-size: var(--vsc-font-size, 13px);
+      font-family: var(--vsc-font-family, system-ui, sans-serif);
+      color: var(--_text);
+      background: var(--_bg);
     }
 
-    .sm-root {
+    /* ── Light-theme token overrides ─────────────────────── *
+     * The host applies class="vscode-light" which Angular's :host-context
+     * can read.  We re-point just the tokens that differ meaningfully in
+     * light mode so every rule below stays theme-agnostic.
+     */
+    :host-context(.vscode-light) {
+      --_bg:        var(--vsc-editor-background,   #ffffff);
+      --_surface:   var(--vsc-panel-background,    #f3f3f3);
+      --_surface2:  var(--vsc-list-hover-background, #e4e6f1);
+      --_input-bg:  var(--vsc-input-background,    #ffffff);
+      --_text:      var(--vsc-foreground,          #3b3b3b);
+      --_text-dim:  var(--vsc-foreground-dim,      #737373);
+      --_border:    var(--vsc-border,              #c4c4c4);
+      --_border-sub: var(--vsc-border-subtle,      #e5e5e5);
+      --_focus:     var(--vsc-input-focus-border,  #007acc);
+      --_btn-bg:    var(--vsc-button-background,   #007acc);
+      --_btn-hover: var(--vsc-button-hover,        #005ba1);
+      --_hover-bg:  var(--vsc-list-hover-background, #e4e6f1);
+      --_active-bg: var(--vsc-list-active-background, #cce0f5);
+      --_error:     var(--vsc-error,               #c7372f);
+      --_blue:      var(--vsc-accent-blue,         #007acc);
+
+      /* Slightly muted accent gradient — still visible on white */
+      --_accent-a: #0fa89e;
+      --_accent-b: #1a6fd4;
+
+      /* Icons/pills need darker tints on white backgrounds */
+      --_icon-file:   #1a6fd4;
+      --_icon-dir:    #a0700a;
+      --_pill-file-text: #0a5d8f;
+      --_pill-file-bg:   rgba(0, 122, 204, .10);
+      --_pill-dir-text:  #5a6e00;
+      --_pill-dir-bg:    rgba(90, 110, 0, .10);
+      --_rank-badge-bg:  rgba(0, 122, 204, .10);
+    }
+
+    /* ── Header ─────────────────────────────────────────── */
+
+    .sm-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 8px 14px;
+      flex-shrink: 0;
+      border-bottom: 1px solid var(--_border-sub);
+      background: var(--_surface);
+    }
+
+    .sm-header-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    .sm-kicker {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: .14em;
+      color: var(--_text-dim);
+      flex-shrink: 0;
+    }
+
+    .sm-sep { color: var(--_text-dim); flex-shrink: 0; }
+
+    .sm-current-label {
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      flex-shrink: 0;
+      max-width: 200px;
+    }
+
+    .sm-path {
+      font-size: 11px;
+      color: var(--_text-dim);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-width: 0;
+    }
+
+    .sm-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    /* ── Buttons ─────────────────────────────────────────── */
+
+    .sm-btn {
+      appearance: none;
+      border: 1px solid var(--_border);
+      border-radius: var(--vsc-border-radius-lg, 4px);
+      padding: 4px 10px;
+      font-size: 12px;
+      font-weight: 500;
+      font-family: inherit;
+      cursor: pointer;
+      color: var(--_text);
+      background: transparent;
+      transition:
+        background var(--vsc-transition-fast, .1s ease),
+        border-color var(--vsc-transition-fast, .1s ease);
+      white-space: nowrap;
+    }
+    .sm-btn:hover:not(:disabled) { background: var(--_hover-bg); border-color: var(--_border); }
+    .sm-btn:disabled { opacity: .35; cursor: default; }
+
+    .sm-btn--primary {
+      background: var(--_btn-bg);
+      color: #fff;
+      border-color: transparent;
+    }
+    .sm-btn--primary:hover:not(:disabled) { background: var(--_btn-hover); }
+
+    .sm-btn--close { padding: 4px 8px; }
+
+    /* ── Loading ─────────────────────────────────────────── */
+
+    .sm-loading {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 16px 14px;
+      flex-shrink: 0;
+      color: var(--_text-dim);
+    }
+
+    .sm-spinner {
+      width: 14px;
+      height: 14px;
+      border: 2px solid var(--_border);
+      border-top-color: var(--_blue);
+      border-radius: 50%;
+      animation: sm-spin .6s linear infinite;
+      flex-shrink: 0;
+    }
+    @keyframes sm-spin { to { transform: rotate(360deg); } }
+
+    /* ── Error ───────────────────────────────────────────── */
+
+    .sm-error {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 14px;
+      flex-shrink: 0;
+      color: var(--_error);
+      border-bottom: 1px solid color-mix(in srgb, var(--_error) 25%, transparent);
+      background: color-mix(in srgb, var(--_error) 8%, var(--_surface));
+    }
+    .sm-error-icon { font-size: 15px; flex-shrink: 0; }
+
+    /* ── Body scroll container ───────────────────────────── */
+
+    .sm-body {
       display: flex;
       flex-direction: column;
       flex: 1 1 0%;
       min-height: 0;
       overflow: auto;
-      padding: 20px;
-      gap: 18px;
-      font-size: 13px;
-      color: var(--vsc-foreground, #d4d4d4);
-      background:
-        radial-gradient(circle at top right, color-mix(in srgb, var(--vsc-charts-blue, #4da3ff) 16%, transparent) 0%, transparent 34%),
-        radial-gradient(circle at left center, color-mix(in srgb, var(--vsc-charts-green, #7ad87a) 12%, transparent) 0%, transparent 30%),
-        linear-gradient(180deg, color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 94%, #081018 6%) 0%, var(--vsc-editor-background, #1e1e1e) 100%);
+      padding: 12px 14px;
+      gap: 12px;
+      scrollbar-width: thin;
+      scrollbar-color: var(--vsc-scrollbar-thumb, #424242) transparent;
     }
 
-    .sm-hero {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 18px;
-      padding: 24px;
-      border: 1px solid color-mix(in srgb, var(--vsc-panel-border, #3c3c3c) 80%, transparent);
-      border-radius: 24px;
-      background:
-        linear-gradient(135deg, color-mix(in srgb, var(--vsc-editorWidget-background, #252526) 78%, #10232f 22%) 0%, color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 82%, #142018 18%) 100%);
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+    /* ── Metric strip ────────────────────────────────────── */
+
+    .sm-metrics {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 8px;
       flex-shrink: 0;
     }
 
-    .sm-hero-main {
+    .sm-metric {
+      padding: 10px 12px;
+      border-radius: var(--vsc-border-radius-lg, 4px);
+      border: 1px solid var(--_border-sub);
+      background: var(--_surface);
+    }
+
+    .sm-metric-val {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -.03em;
+      font-variant-numeric: tabular-nums;
+      line-height: 1.1;
+      color: var(--_text);
+    }
+
+    .sm-metric-lbl {
+      margin-top: 3px;
+      font-size: 11px;
+      color: var(--_text-dim);
+    }
+
+    /* ── Two-col layout ──────────────────────────────────── */
+
+    .sm-cols {
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.9fr);
+      gap: 12px;
+      flex-shrink: 0;
+    }
+
+    /* ── Panel base ──────────────────────────────────────── */
+
+    .sm-panel {
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 10px;
+      padding: 12px 14px;
+      border-radius: var(--vsc-border-radius-lg, 4px);
+      border: 1px solid var(--_border-sub);
+      background: var(--_surface);
       min-width: 0;
     }
 
-    .sm-kicker {
-      font-size: 11px;
+    .sm-panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .sm-panel-title {
+      font-size: 10px;
       text-transform: uppercase;
-      letter-spacing: 0.18em;
-      color: color-mix(in srgb, var(--vsc-descriptionForeground, #9aa0a6) 92%, white 8%);
+      letter-spacing: .12em;
+      color: var(--_text-dim);
     }
 
-    .sm-title {
-      margin: 0;
-      font-size: clamp(28px, 4vw, 42px);
-      line-height: 1;
-      font-weight: 700;
-      letter-spacing: -0.04em;
+    .sm-panel-hint {
+      font-size: 11px;
+      color: var(--_text-dim);
     }
 
-    .sm-path {
-      font-size: 13px;
-      color: var(--vsc-descriptionForeground, #9aa0a6);
+    /* ── Pills ───────────────────────────────────────────── */
+
+    .sm-pill {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      padding: 2px 7px;
+      border-radius: 999px;
+      color: var(--_pill-file-text);
+      background: var(--_pill-file-bg);
+    }
+    .sm-pill--dir {
+      color: var(--_pill-dir-text);
+      background: var(--_pill-dir-bg);
+    }
+
+    /* ── Spotlight ───────────────────────────────────────── */
+
+    .sm-spotlight-name {
+      font-weight: 600;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      min-width: 0;
+      color: var(--_text);
     }
 
-    .sm-subtitle {
-      margin: 0;
-      max-width: 72ch;
-      color: color-mix(in srgb, var(--vsc-descriptionForeground, #9aa0a6) 88%, white 12%);
-      line-height: 1.5;
-    }
-
-    .sm-hero-actions {
-      display: flex;
-      align-items: flex-start;
-      justify-content: flex-end;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
-
-    .sm-btn {
-      appearance: none;
-      border: 1px solid color-mix(in srgb, var(--vsc-button-border, #3c3c3c) 84%, transparent);
-      color: inherit;
-      border-radius: 999px;
-      padding: 10px 16px;
-      cursor: pointer;
-      font-size: 12px;
-      font-weight: 600;
-      letter-spacing: 0.02em;
-      white-space: nowrap;
-      background: color-mix(in srgb, var(--vsc-editorWidget-background, #252526) 86%, transparent);
-      transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
-    }
-    .sm-btn:hover {
-      transform: translateY(-1px);
-      border-color: color-mix(in srgb, var(--vsc-focusBorder, #007fd4) 72%, transparent);
-    }
-    .sm-btn--ghost:hover {
-      background: color-mix(in srgb, var(--vsc-list-hover-background, #2a2d2e) 88%, transparent);
-    }
-    .sm-btn--primary {
-      color: white;
-      border-color: transparent;
-      background: linear-gradient(135deg, #0f8a9d 0%, #2c5fa8 100%);
-      box-shadow: 0 12px 28px rgba(28, 96, 166, 0.28);
-    }
-    .sm-btn:disabled { opacity: 0.35; cursor: default; }
-
-    .sm-loading {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 14px;
-      min-height: 260px;
-      padding: 24px;
-      border-radius: 24px;
-      border: 1px solid color-mix(in srgb, var(--vsc-panel-border, #3c3c3c) 80%, transparent);
-      background: color-mix(in srgb, var(--vsc-editorWidget-background, #252526) 74%, transparent);
-    }
-    .sm-spinner {
-      width: 22px;
-      height: 22px;
-      border: 2px solid transparent;
-      border-top-color: var(--vsc-accent-blue, #007acc);
-      border-radius: 50%;
-      animation: spin .7s linear infinite;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
-
-    .sm-loading-title,
-    .sm-error-title {
-      font-size: 16px;
-      font-weight: 600;
-      margin-bottom: 4px;
-    }
-
-    .sm-loading-copy,
-    .sm-error-copy {
-      color: var(--vsc-descriptionForeground, #9aa0a6);
-    }
-
-    .sm-error {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-      min-height: 180px;
-      padding: 24px;
-      border-radius: 24px;
-      border: 1px solid color-mix(in srgb, #ff6b6b 38%, transparent);
-      background: linear-gradient(135deg, rgba(129, 28, 40, 0.25) 0%, rgba(54, 12, 18, 0.18) 100%);
-      color: var(--vsc-inputValidation-errorForeground, #f48771);
-    }
-
-    .sm-dashboard {
-      display: flex;
-      flex-direction: column;
-      gap: 18px;
-      min-height: 0;
-    }
-
-    .sm-summary-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-      gap: 14px;
-    }
-
-    .sm-main-grid {
-      display: grid;
-      grid-template-columns: minmax(340px, 1.4fr) minmax(280px, 0.9fr);
-      gap: 18px;
-    }
-
-    .sm-card {
-      display: flex;
-      flex-direction: column;
-      gap: 14px;
-      padding: 20px;
-      border-radius: 22px;
-      border: 1px solid color-mix(in srgb, var(--vsc-panel-border, #3c3c3c) 80%, transparent);
-      background: linear-gradient(180deg, color-mix(in srgb, var(--vsc-editorWidget-background, #252526) 92%, transparent) 0%, color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 96%, transparent) 100%);
-      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
-      min-width: 0;
-    }
-
-    .sm-card-header {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 12px;
-    }
-
-    .sm-card-label {
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.16em;
-      color: var(--vsc-descriptionForeground, #9aa0a6);
-    }
-
-    .sm-card-title {
-      font-size: 20px;
-      font-weight: 600;
-      letter-spacing: -0.02em;
-    }
-
-    .sm-card-caption,
-    .sm-card-meta {
-      color: var(--vsc-descriptionForeground, #9aa0a6);
-    }
-
-    .sm-card-value {
-      font-size: clamp(22px, 2.5vw, 34px);
+    .sm-spotlight-size {
+      font-size: 28px;
       font-weight: 700;
-      letter-spacing: -0.04em;
+      letter-spacing: -.05em;
       font-variant-numeric: tabular-nums;
-    }
-
-    .sm-pill {
-      align-self: flex-start;
-      padding: 6px 10px;
-      border-radius: 999px;
-      font-size: 11px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.12em;
-      color: #9bdcff;
-      background: rgba(19, 108, 145, 0.18);
-    }
-
-    .sm-pill--dir {
-      color: #b8d18f;
-      background: rgba(106, 142, 35, 0.18);
-    }
-
-    .sm-spotlight-card {
-      min-height: 0;
-    }
-
-    .sm-spotlight-value {
-      font-size: clamp(34px, 5vw, 56px);
-      line-height: 0.95;
-      font-weight: 700;
-      letter-spacing: -0.06em;
-      font-variant-numeric: tabular-nums;
+      line-height: 1;
+      color: var(--_text);
     }
 
     .sm-spotlight-share {
-      color: var(--vsc-descriptionForeground, #9aa0a6);
+      font-size: 11px;
+      color: var(--_text-dim);
     }
 
-    .sm-spotlight-bar,
-    .sm-entry-bar-track {
-      position: relative;
-      overflow: hidden;
-      width: 100%;
-      height: 10px;
+    /* ── Animated spotlight bar ──────────────────────────── */
+
+    .sm-bar-track {
+      height: 5px;
       border-radius: 999px;
-      background: color-mix(in srgb, var(--vsc-input-background, #2d2d30) 82%, transparent);
+      background: var(--_input-bg);
+      border: 1px solid var(--_border-sub);
+      overflow: hidden;
     }
 
-    .sm-spotlight-bar-fill,
-    .sm-entry-bar {
+    .sm-bar-fill {
       height: 100%;
       border-radius: inherit;
-      background: linear-gradient(90deg, #2ec4b6 0%, #3a86ff 100%);
+      background: linear-gradient(90deg, var(--_accent-a), var(--_accent-b));
+      width: 0%;
     }
 
-    .sm-insight-grid {
+    /* ── Insight boxes ───────────────────────────────────── */
+
+    .sm-insight-row {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 12px;
+      grid-template-columns: 1fr 1fr 2fr;
+      gap: 8px;
     }
 
-    .sm-insight-box {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-      padding: 14px;
-      border-radius: 18px;
-      background: color-mix(in srgb, var(--vsc-list-hover-background, #2a2d2e) 55%, transparent);
+    .sm-insight {
+      padding: 8px 10px;
+      border-radius: var(--vsc-border-radius-lg, 4px);
+      border: 1px solid var(--_border-sub);
+      background: var(--_bg);
       min-width: 0;
     }
 
-    .sm-insight-label {
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.14em;
-      color: var(--vsc-descriptionForeground, #9aa0a6);
+    .sm-insight-val {
+      font-size: 14px;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      color: var(--_text);
     }
 
-    .sm-insight-path {
+    .sm-insight-lbl {
+      font-size: 10px;
+      margin-top: 2px;
+      color: var(--_text-dim);
+    }
+
+    .sm-insight-path-val {
+      font-size: 11px;
+      font-weight: 400;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
+
+    /* ── Ranking list ────────────────────────────────────── */
 
     .sm-ranking-list {
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 3px;
     }
 
-    .sm-ranking-item,
-    .sm-entry {
+    .sm-rank-item {
       appearance: none;
-      width: 100%;
-      border: 0;
-      color: inherit;
-      background: transparent;
-      padding: 0;
-      text-align: left;
-    }
-
-    .sm-ranking-item {
+      border: 1px solid transparent;
+      border-radius: var(--vsc-border-radius-lg, 4px);
+      padding: 7px 10px;
       display: flex;
       align-items: center;
-      gap: 14px;
-      padding: 14px;
-      border-radius: 18px;
-      background: color-mix(in srgb, var(--vsc-list-hover-background, #2a2d2e) 40%, transparent);
+      gap: 10px;
       cursor: pointer;
-      transition: transform 0.18s ease, background 0.18s ease;
+      color: var(--_text);
+      background: transparent;
+      text-align: left;
+      transition: background var(--vsc-transition-fast, .1s ease);
+      width: 100%;
+      min-width: 0;
+      font-family: inherit;
+    }
+    .sm-rank-item:hover { background: var(--_hover-bg); }
+    .sm-rank-item--active {
+      background: color-mix(in srgb, var(--_focus) 10%, var(--_surface2) 90%);
+      border-color: color-mix(in srgb, var(--_focus) 40%, transparent);
     }
 
-    .sm-ranking-item:hover,
-    .sm-entry:hover {
-      transform: translateY(-1px);
-    }
-
-    .sm-ranking-item--active,
-    .sm-entry--active {
-      background: color-mix(in srgb, var(--vsc-focusBorder, #007fd4) 18%, var(--vsc-list-hover-background, #2a2d2e) 82%);
-      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--vsc-focusBorder, #007fd4) 44%, transparent);
-    }
-
-    .sm-ranking-rank {
-      width: 32px;
-      height: 32px;
+    .sm-rank-num {
+      width: 20px;
+      height: 20px;
       flex-shrink: 0;
       display: grid;
       place-items: center;
       border-radius: 50%;
+      font-size: 10px;
       font-weight: 700;
       font-variant-numeric: tabular-nums;
-      background: rgba(58, 134, 255, 0.14);
+      background: var(--_rank-badge-bg);
+      color: var(--_blue);
     }
 
-    .sm-ranking-copy {
+    .sm-rank-info {
       display: flex;
       flex-direction: column;
-      gap: 4px;
+      gap: 5px;
       flex: 1 1 auto;
       min-width: 0;
     }
 
-    .sm-ranking-name {
+    .sm-rank-name {
       font-weight: 600;
+      font-size: 12px;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+      color: var(--_text);
     }
 
-    .sm-ranking-meta {
-      font-size: 12px;
-      color: var(--vsc-descriptionForeground, #9aa0a6);
-    }
+    /* ── Mini bar ────────────────────────────────────────── */
 
-    .sm-ranking-size {
-      font-weight: 600;
-      font-variant-numeric: tabular-nums;
-      white-space: nowrap;
-    }
-
-    .sm-breakdown-card {
-      min-height: 0;
-    }
-
-    .sm-breakdown-head {
-      display: grid;
-      grid-template-columns: minmax(0, 2fr) minmax(140px, 1fr) 110px 90px;
-      gap: 14px;
-      padding: 0 10px;
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.14em;
-      color: var(--vsc-descriptionForeground, #9aa0a6);
-    }
-
-    .sm-breakdown-list {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-
-    .sm-entry {
-      position: relative;
-      display: grid;
-      grid-template-columns: minmax(0, 2fr) minmax(140px, 1fr) 110px 90px;
-      gap: 14px;
-      align-items: center;
-      padding: 12px 14px;
-      border-radius: 18px;
-      cursor: pointer;
-      background: color-mix(in srgb, var(--vsc-list-hover-background, #2a2d2e) 34%, transparent);
+    .sm-mini-track {
+      height: 3px;
+      border-radius: 999px;
+      background: var(--_input-bg);
+      border: 1px solid var(--_border-sub);
       overflow: hidden;
     }
 
-    .sm-entry-main {
-      position: relative;
-      z-index: 1;
+    .sm-mini-fill {
+      height: 100%;
+      border-radius: inherit;
+      background: color-mix(in srgb, var(--_blue) 55%, transparent);
+      transition: width .6s cubic-bezier(.4, 0, .2, 1);
+    }
+    .sm-mini-fill--active {
+      background: var(--_accent-b);
+    }
+
+    .sm-rank-right {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      flex-shrink: 0;
+      gap: 2px;
+    }
+
+    .sm-rank-size {
+      font-size: 12px;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+      color: var(--_text);
+    }
+
+    .sm-rank-pct {
+      font-size: 10px;
+      color: var(--_text-dim);
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* ── Breakdown table ─────────────────────────────────── */
+
+    .sm-breakdown { gap: 8px; }
+
+    .sm-table-head {
+      display: grid;
+      grid-template-columns: minmax(0, 2fr) minmax(100px, 1fr) 90px 110px;
+      gap: 10px;
+      padding: 0 8px 6px;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: .12em;
+      color: var(--_text-dim);
+      border-bottom: 1px solid var(--_border-sub);
+    }
+
+    .sm-table-body {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+    }
+
+    .sm-row {
+      appearance: none;
+      border: 1px solid transparent;
+      border-radius: var(--vsc-border-radius-lg, 4px);
+      display: grid;
+      grid-template-columns: minmax(0, 2fr) minmax(100px, 1fr) 90px 110px;
+      gap: 10px;
+      align-items: center;
+      padding: 6px 8px;
+      cursor: pointer;
+      color: var(--_text);
+      background: transparent;
+      text-align: left;
+      transition: background var(--vsc-transition-fast, .1s ease);
+      width: 100%;
+      min-width: 0;
+      font-family: inherit;
+    }
+    .sm-row:hover { background: var(--_hover-bg); }
+    .sm-row--active {
+      background: color-mix(in srgb, var(--_focus) 10%, var(--_surface2) 90%);
+      border-color: color-mix(in srgb, var(--_focus) 35%, transparent);
+    }
+
+    .sm-row-name {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
       min-width: 0;
     }
 
-    .sm-entry-icon {
+    .sm-row-icon {
       flex-shrink: 0;
-      width: 18px;
-      text-align: center;
-      font-size: 16px;
-      color: #8fd3ff;
+      font-size: 11px;
+      color: var(--_icon-file);
     }
+    .sm-row-icon--dir { color: var(--_icon-dir); }
 
-    .sm-entry--dir .sm-entry-icon {
-      color: #b8d18f;
-    }
-
-    .sm-entry-name {
-      position: relative;
-      z-index: 1;
-      font-weight: 600;
+    .sm-row-label {
+      font-weight: 500;
+      font-size: 12px;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
-    .sm-entry-meta {
-      position: relative;
-      z-index: 1;
-      color: var(--vsc-descriptionForeground, #9aa0a6);
-    }
-    .sm-entry-size {
-      position: relative;
-      z-index: 1;
-      text-align: right;
-      font-variant-numeric: tabular-nums;
+
+    .sm-row-meta {
+      font-size: 11px;
+      color: var(--_text-dim);
       white-space: nowrap;
-    }
-    .sm-entry-pct {
-      position: relative;
-      z-index: 1;
-      text-align: right;
-      color: var(--vsc-descriptionForeground, #9aa0a6);
-      font-variant-numeric: tabular-nums;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
-    .sm-empty-state {
+    .sm-row-size {
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+      color: var(--_text);
+    }
+
+    .sm-row-pct-cell {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      align-items: flex-end;
+    }
+
+    .sm-row-pct {
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
+      color: var(--_text-dim);
+    }
+
+    .sm-row-track {
+      width: 100%;
+      height: 3px;
+      border-radius: 999px;
+      background: var(--_input-bg);
+      border: 1px solid var(--_border-sub);
+      overflow: hidden;
+    }
+
+    .sm-row-bar {
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--_accent-a), var(--_accent-b));
+      transition: width .5s cubic-bezier(.4, 0, .2, 1);
+    }
+
+    /* ── Shared ──────────────────────────────────────────── */
+
+    .sm-align-r { text-align: right; }
+
+    .sm-empty {
       display: flex;
       align-items: center;
       justify-content: center;
-      min-height: 120px;
-      color: var(--vsc-descriptionForeground, #9aa0a6);
-      border-radius: 18px;
-      background: color-mix(in srgb, var(--vsc-list-hover-background, #2a2d2e) 28%, transparent);
+      min-height: 72px;
+      font-size: 12px;
+      color: var(--_text-dim);
     }
 
-    @media (max-width: 1080px) {
-      .sm-main-grid {
-        grid-template-columns: 1fr;
-      }
+    /* ── Responsive ──────────────────────────────────────── */
 
-      .sm-breakdown-head,
-      .sm-entry {
-        grid-template-columns: minmax(0, 1.8fr) minmax(120px, 1fr) 100px 70px;
-      }
+    @media (max-width: 900px) {
+      .sm-cols { grid-template-columns: 1fr; }
+      .sm-table-head,
+      .sm-row { grid-template-columns: minmax(0, 1.8fr) minmax(80px, 1fr) 80px 90px; }
     }
 
-    @media (max-width: 720px) {
-      .sm-root {
-        padding: 14px;
-      }
-
-      .sm-hero {
-        flex-direction: column;
-        padding: 18px;
-      }
-
-      .sm-hero-actions {
-        width: 100%;
-        justify-content: flex-start;
-      }
-
-      .sm-insight-grid {
-        grid-template-columns: 1fr;
-      }
-
-      .sm-breakdown-head {
-        display: none;
-      }
-
-      .sm-entry {
-        grid-template-columns: 1fr;
-      }
-
-      .sm-entry-meta,
-      .sm-entry-size,
-      .sm-entry-pct {
-        text-align: left;
-      }
+    @media (max-width: 640px) {
+      .sm-table-head { display: none; }
+      .sm-row { grid-template-columns: minmax(0, 1fr) auto; }
+      .sm-row-meta { display: none; }
+      .sm-insight-row { grid-template-columns: 1fr 1fr; }
+      .sm-insight--path { display: none; }
     }
   `],
 })
@@ -730,6 +857,10 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
   selectedEntry: DiskUsageEntry | null = null;
   currentPath = '';
   parentPath: string | null = null;
+
+  // Animated bar state
+  animatedBarPct = 0;
+  barTransition = 'none';
 
   private destroyed = false;
 
@@ -753,35 +884,26 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
 
   // ── Actions ──────────────────────────────────────────────────────────────
 
-  close(): void {
-    this.ctx?.sizeVm?.onClose();
-  }
+  close(): void { this.ctx?.sizeVm?.onClose(); }
 
   goUp(): void {
-    if (this.parentPath) {
-      this.analyse(this.parentPath);
-    }
+    if (this.parentPath) this.analyse(this.parentPath);
   }
 
   refresh(): void {
-    if (this.currentPath) {
-      this.analyse(this.currentPath);
-    }
+    if (this.currentPath) this.analyse(this.currentPath);
   }
 
   onEntryClick(e: DiskUsageEntry): void {
     this.selectedEntry = e;
+    this.triggerBarAnimation(e);
   }
 
   onEntryDblClick(e: DiskUsageEntry): void {
-    if (e.isDir) {
-      this.analyse(e.path);
-    }
+    if (e.isDir) this.analyse(e.path);
   }
 
-  trackEntry(_: number, e: DiskUsageEntry): string {
-    return e.path;
-  }
+  trackEntry(_: number, e: DiskUsageEntry): string { return e.path; }
 
   // ── View helpers ─────────────────────────────────────────────────────────
 
@@ -801,15 +923,20 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
 
   get directoryMixLabel(): string {
     const total = this.entries.length;
-    if (total === 0) return 'No children to categorize';
-    const folders = this.entries.filter((entry) => entry.isDir).length;
+    if (total === 0) return 'No children';
+    const folders = this.entries.filter(e => e.isDir).length;
     const share = (folders / total) * 100;
-    return share < 0.1 ? 'Mostly files' : `${share.toFixed(0)}% folders in current view`;
+    return share < 0.1 ? 'Mostly files' : `${share.toFixed(0)}% folders`;
   }
 
   barPercent(e: DiskUsageEntry): number {
     if (!this.result || this.result.totalSize === 0) return 0;
     return Math.max(0.3, (e.size / this.result.totalSize) * 100);
+  }
+
+  /** Returns a CSS width string for the animated mini-bar in the ranking list. */
+  getMiniBarWidth(e: DiskUsageEntry): string {
+    return this.barPercent(e).toFixed(1) + '%';
   }
 
   pct(e: DiskUsageEntry): string {
@@ -828,9 +955,22 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
   }
 
   entryComposition(entry: DiskUsageEntry): string {
-    return entry.isDir
-      ? `${entry.files} files · ${entry.dirs} folders`
-      : 'File';
+    return entry.isDir ? `${entry.files} files · ${entry.dirs} dirs` : 'File';
+  }
+
+  // ── Spotlight bar animation ───────────────────────────────────────────────
+
+  private triggerBarAnimation(e: DiskUsageEntry): void {
+    // Reset to 0 instantly, then animate to target on next frame
+    this.barTransition = 'none';
+    this.animatedBarPct = 0;
+    this.cdr.markForCheck();
+
+    requestAnimationFrame(() => {
+      this.barTransition = 'width .55s cubic-bezier(.4,0,.2,1)';
+      this.animatedBarPct = this.barPercent(e);
+      this.cdr.markForCheck();
+    });
   }
 
   // ── Core analysis ────────────────────────────────────────────────────────
@@ -841,6 +981,8 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
     this.parentPath = this.getParent(path);
     this.loading = true;
     this.error = null;
+    this.animatedBarPct = 0;
+    this.barTransition = 'none';
     this.cdr.markForCheck();
 
     try {
@@ -850,6 +992,12 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
       this.entries = result.entries;
       this.topEntries = result.entries.slice(0, 5);
       this.selectedEntry = this.topEntries[0] ?? null;
+      if (this.selectedEntry) {
+        // Kick off the bar animation after data arrives
+        setTimeout(() => {
+          this.triggerBarAnimation(this.selectedEntry!);
+        }, 60);
+      }
     } catch (err: any) {
       if (this.destroyed || this.currentPath !== path) return;
       this.error = err?.message || String(err);
@@ -865,13 +1013,9 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
 
   private getParent(path: string): string | null {
     const normalized = path.replace(/\\/g, '/').replace(/\/+$/, '');
-    // Drive root (e.g. "C:" or "/")
-    if (/^[a-zA-Z]:?\/?$/.test(normalized) || normalized === '' || normalized === '/') {
-      return null;
-    }
+    if (/^[a-zA-Z]:?\/?$/.test(normalized) || normalized === '' || normalized === '/') return null;
     const i = normalized.lastIndexOf('/');
     if (i <= 0) return normalized.charAt(0) === '/' ? '/' : null;
-    // Keep "C:/" for Windows drive roots
     const parent = normalized.substring(0, i) || '/';
     return /^[a-zA-Z]:$/.test(parent) ? parent + '/' : parent;
   }

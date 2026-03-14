@@ -451,7 +451,7 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
       copyToOtherPane:       () => this.copyToOtherPaneCurrent(),
       moveToOtherPane:       () => this.moveToOtherPaneCurrent(),
       focusAddressBar:       () => this.getActivePane()?.shortcuts.focus.focusAddressBar(),
-      diskUsage:             () => this.getActivePane()?.openDiskUsageAnalyzer(),
+      diskUsage:             () => this.getOtherPane()?.openDiskUsageAnalyzer(),
     };
     return registerFileBrowserCommands(this.inputEngine, handlers, 'file-browser');
   }

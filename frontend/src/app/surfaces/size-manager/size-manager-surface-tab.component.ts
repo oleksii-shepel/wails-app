@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output } from '@angular/core';
 import { SizeManagerSurfaceComponent } from './size-manager-surface.component';
 import type { SizeManagerSurfaceContext } from '../surface-context';
 
@@ -9,7 +9,10 @@ import type { SizeManagerSurfaceContext } from '../surface-context';
   imports: [CommonModule, SizeManagerSurfaceComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <app-size-manager-surface [ctx]="ctx"></app-size-manager-surface>
+    <app-size-manager-surface
+      [ctx]="ctx"
+      (firstEntryArrived)="firstEntryArrived.emit()">
+    </app-size-manager-surface>
   `,
   styles: [`
     :host {
@@ -24,4 +27,6 @@ import type { SizeManagerSurfaceContext } from '../surface-context';
 })
 export class SizeManagerSurfaceTabComponent {
   @Input({ required: true }) ctx!: SizeManagerSurfaceContext;
+  /** Bubbled up from the inner surface — parent uses this to drop its loader. */
+  @Output() firstEntryArrived = new EventEmitter<void>();
 }

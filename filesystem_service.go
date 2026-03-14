@@ -9,6 +9,7 @@ type FilesystemService struct {
 	emitEvent            func(string, interface{})
 	startElevatedSession func() (*ElevatedSessionStatus, error)
 	vfs                  *vfslib.Unified
+	duStreams            *duStreamRegistry
 }
 
 func NewFilesystemService(
@@ -20,6 +21,7 @@ func NewFilesystemService(
 		elevation:            elevation,
 		emitEvent:            emitEvent,
 		startElevatedSession: startElevatedSession,
+		duStreams:            newDuStreamRegistry(),
 	}
 }
 

@@ -105,6 +105,8 @@ declare global {
           ConfirmElevationRequest(requestID: string, approve: boolean): Promise<void>;
           DirSizeRecursive(path: string): Promise<number>;
           AnalyzeDiskUsage(path: string): Promise<any>;
+          StartDiskUsageStream(path: string): Promise<string>;
+          CancelDiskUsageStream(scanId: string): Promise<void>;
 
           // Elevation – persistent JWT-secured helper service
           IsProcessElevated(): Promise<boolean>;
@@ -464,8 +466,96 @@ export class ApiService {
   // Disk Usage Analyzer
   // ============================================================================
 
+  /**
+   * Legacy blocking call — waits for the full scan before resolving.
+   * Prefer streamDiskUsage for interactive use.
+   */
   async analyzeDiskUsage(path: string): Promise<import('../shared/protocol-enhanced').DiskUsageResult> {
     return await window.go.main.App.AnalyzeDiskUsage(path);
+  }
+
+  /**
+   * Streaming disk-usage scan.
+   *
+   * Returns an AsyncGenerator that yields DiskUsageEntry objects as each
+   * direct child finishes scanning, then yields the final DiskUsageResult
+   * summary as the last item.
+   *
+   * The generator handles its own cleanup: it cancels the Go-side scan if
+   * the caller breaks out of the for-await loop early (e.g. on navigation).
+   *
+   * Usage in the component:
+   *
+   *   for await (const item of this.api.streamDiskUsage(path)) {
+   *     if (isDiskUsageResult(item)) { ... } else { ... }
+   *   }
+   */
+  async *streamDiskUsage(
+    path: string,
+  ): AsyncGenerator<
+    import('../shared/protocol-enhanced').DiskUsageEntry |
+    import('../shared/protocol-enhanced').DiskUsageResult
+  > {
+    const scanId = await window.go.main.App.StartDiskUsageStream(path);
+
+    type Pending =
+      | { kind: 'entry';  value: import('../shared/protocol-enhanced').DiskUsageEntry }
+      | { kind: 'done';   value: import('../shared/protocol-enhanced').DiskUsageResult }
+      | { kind: 'error';  error: Error };
+
+    const queue: Pending[] = [];
+    let wake: (() => void) | null = null;
+    let finished = false;
+
+    const notify = () => { const r = wake; wake = null; r?.(); };
+
+    const onEntry = (payload: { scanId: string; entry: any }) => {
+      if (payload.scanId !== scanId) return;
+      queue.push({ kind: 'entry', value: payload.entry });
+      notify();
+    };
+
+    const onDone = (payload: { scanId: string; result: any }) => {
+      if (payload.scanId !== scanId) return;
+      queue.push({ kind: 'done', value: payload.result });
+      finished = true;
+      notify();
+    };
+
+    const onError = (payload: { scanId: string; error: string }) => {
+      if (payload.scanId !== scanId) return;
+      queue.push({ kind: 'error', error: new Error(payload.error) });
+      finished = true;
+      notify();
+    };
+
+    window.runtime.EventsOn('disk-usage:entry', onEntry);
+    window.runtime.EventsOn('disk-usage:done',  onDone);
+    window.runtime.EventsOn('disk-usage:error', onError);
+
+    const cleanup = () => {
+      window.runtime.EventsOff('disk-usage:entry', 'disk-usage:done', 'disk-usage:error');
+    };
+
+    try {
+      while (true) {
+        while (queue.length > 0) {
+          const item = queue.shift()!;
+          if (item.kind === 'error') throw item.error;
+          yield item.value;
+          if (item.kind === 'done') return;
+        }
+
+        if (finished) return;
+
+        // Park until the next event wakes us.
+        await new Promise<void>(res => { wake = res; });
+      }
+    } finally {
+      // Runs on break, return, or throw — cancel any in-progress Go scan.
+      cleanup();
+      window.go.main.App.CancelDiskUsageStream(scanId).catch(() => {/* best-effort */});
+    }
   }
 
   async isDirectory(path: string): Promise<boolean> {

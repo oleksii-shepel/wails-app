@@ -3,9 +3,11 @@ import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
+  EventEmitter,
   Input,
   OnChanges,
   OnDestroy,
+  Output,
   SimpleChanges,
 } from '@angular/core';
 import { ApiService } from '../../services/api.service';
@@ -33,38 +35,35 @@ import type { SizeManagerSurfaceContext } from '../surface-context';
       </div>
     </div>
 
-    <!-- ── Loading ────────────────────────────────────────── -->
-    <div class="sm-loading" *ngIf="loading">
-      <div class="sm-spinner"></div>
-      <span>Scanning <strong>{{ currentLabel }}</strong>…</span>
-    </div>
-
     <!-- ── Error ──────────────────────────────────────────── -->
-    <div class="sm-error" *ngIf="error && !loading">
+    <div class="sm-error" *ngIf="error">
       <span class="sm-error-icon">⚠</span>
       <span>{{ error }}</span>
       <button class="sm-btn sm-btn--primary" (click)="refresh()">Retry</button>
     </div>
 
-    <!-- ── Dashboard ──────────────────────────────────────── -->
-    <div class="sm-body" *ngIf="result && !loading">
+    <!-- ── Dashboard — shown as soon as the first entry arrives ── -->
+    <div class="sm-body" *ngIf="entries.length > 0">
 
       <!-- Metric strip -->
       <div class="sm-metrics">
         <div class="sm-metric">
-          <div class="sm-metric-val">{{ formatBytes(result.totalSize) }}</div>
-          <div class="sm-metric-lbl">Total size</div>
+          <div class="sm-metric-val">
+            {{ formatBytes(runningTotalSize) }}
+            <span class="sm-scanning-dot" *ngIf="scanning" title="Scanning…"></span>
+          </div>
+          <div class="sm-metric-lbl">Total size{{ scanning ? ' (counting…)' : '' }}</div>
         </div>
         <div class="sm-metric">
-          <div class="sm-metric-val">{{ totalItems | number }}</div>
-          <div class="sm-metric-lbl">{{ result.totalFiles | number }} files · {{ result.totalDirs | number }} dirs</div>
+          <div class="sm-metric-val">{{ runningTotalItems | number }}</div>
+          <div class="sm-metric-lbl">{{ runningTotalFiles | number }} files · {{ runningTotalDirs | number }} dirs</div>
         </div>
         <div class="sm-metric">
           <div class="sm-metric-val">{{ averageEntrySizeLabel }}</div>
           <div class="sm-metric-lbl">Avg child size</div>
         </div>
         <div class="sm-metric">
-          <div class="sm-metric-val">{{ result.elapsedMs }} ms</div>
+          <div class="sm-metric-val">{{ result ? result.elapsedMs + ' ms' : '…' }}</div>
           <div class="sm-metric-lbl">{{ directoryMixLabel }}</div>
         </div>
       </div>
@@ -82,9 +81,16 @@ import type { SizeManagerSurfaceContext } from '../surface-context';
           </div>
 
           <ng-container *ngIf="selectedEntry; else noSpotlight">
+
             <div class="sm-spotlight-name" [title]="selectedEntry.path">{{ selectedEntry.name }}</div>
             <div class="sm-spotlight-size">{{ formatBytes(selectedEntry.size) }}</div>
             <div class="sm-spotlight-share">{{ pct(selectedEntry) }} of current location</div>
+
+            <!-- Full path in new line -->
+            <div class="sm-spotlight-path" [title]="selectedEntry.path">
+              <span class="sm-spotlight-path-label">Full path:</span>
+              <span class="sm-spotlight-path-value">{{ selectedEntry.path }}</span>
+            </div>
 
             <!-- Animated bar -->
             <div class="sm-bar-track">
@@ -99,10 +105,6 @@ import type { SizeManagerSurfaceContext } from '../surface-context';
               <div class="sm-insight">
                 <div class="sm-insight-val">{{ selectedEntry.dirs | number }}</div>
                 <div class="sm-insight-lbl">Folders</div>
-              </div>
-              <div class="sm-insight sm-insight--path">
-                <div class="sm-insight-val sm-insight-path-val" [title]="selectedEntry.path">{{ selectedEntry.path }}</div>
-                <div class="sm-insight-lbl">Full path</div>
               </div>
             </div>
           </ng-container>
@@ -383,27 +385,22 @@ import type { SizeManagerSurfaceContext } from '../surface-context';
 
     .sm-btn--close { padding: 4px 8px; }
 
-    /* ── Loading ─────────────────────────────────────────── */
+    /* ── Scanning dot (replaces loader) ─────────────────── */
 
-    .sm-loading {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 16px 14px;
-      flex-shrink: 0;
-      color: var(--_text-dim);
-    }
-
-    .sm-spinner {
-      width: 14px;
-      height: 14px;
-      border: 2px solid var(--_border);
-      border-top-color: var(--_blue);
+    .sm-scanning-dot {
+      display: inline-block;
+      width: 6px;
+      height: 6px;
       border-radius: 50%;
-      animation: sm-spin .6s linear infinite;
-      flex-shrink: 0;
+      background: var(--_blue);
+      margin-left: 5px;
+      vertical-align: middle;
+      animation: sm-pulse 1s ease-in-out infinite;
     }
-    @keyframes sm-spin { to { transform: rotate(360deg); } }
+    @keyframes sm-pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: .35; transform: scale(.7); }
+    }
 
     /* ── Error ───────────────────────────────────────────── */
 
@@ -544,6 +541,29 @@ import type { SizeManagerSurfaceContext } from '../surface-context';
     .sm-spotlight-share {
       font-size: 11px;
       color: var(--_text-dim);
+    }
+
+    .sm-spotlight-path {
+      margin-top: 8px;
+      padding: 6px 0 0 0;
+      word-break: break-all;
+      font-size: 13px;
+      color: var(--_text-dim);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .sm-spotlight-path-label {
+      font-size: 11px;
+      color: var(--_text-dim);
+      margin-bottom: 2px;
+    }
+
+    .sm-spotlight-path-value {
+      font-size: 13px;
+      color: var(--_text);
+      word-break: break-all;
+      line-height: 1.3;
     }
 
     /* ── Animated spotlight bar ──────────────────────────── */
@@ -849,25 +869,41 @@ import type { SizeManagerSurfaceContext } from '../surface-context';
 export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
   @Input({ required: true }) ctx!: SizeManagerSurfaceContext;
 
-  loading = false;
+  /** Fired once when the first entry arrives — lets the parent drop its loader. */
+  @Output() firstEntryArrived = new EventEmitter<void>();
+
+  // True while the async iterator is still yielding entries
+  scanning = false;
   error: string | null = null;
+
+  // Final result — only set once the scan completes (used for elapsedMs)
   result: DiskUsageResult | null = null;
+
+  // Live-updated as entries stream in
   entries: DiskUsageEntry[] = [];
   topEntries: DiskUsageEntry[] = [];
   selectedEntry: DiskUsageEntry | null = null;
+
+  // Running totals recomputed on every batch
+  runningTotalSize = 0;
+  runningTotalFiles = 0;
+  runningTotalDirs = 0;
+
   currentPath = '';
   parentPath: string | null = null;
 
-  // Animated bar state
+  // Animated spotlight bar
   animatedBarPct = 0;
   barTransition = 'none';
 
   private destroyed = false;
+  // Token incremented on each new navigate/refresh so stale iterators self-cancel
+  private scanToken = 0;
 
   constructor(
     private api: ApiService,
     private cdr: ChangeDetectorRef,
-  ) {}
+  ) { }
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['ctx']) {
@@ -911,14 +947,13 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
     return this.labelFromPath(this.currentPath) || this.currentPath || 'Disk Usage';
   }
 
-  get totalItems(): number {
-    if (!this.result) return 0;
-    return this.result.totalFiles + this.result.totalDirs;
+  get runningTotalItems(): number {
+    return this.runningTotalFiles + this.runningTotalDirs;
   }
 
   get averageEntrySizeLabel(): string {
-    if (this.entries.length === 0 || !this.result) return '0 B';
-    return this.formatBytes(this.result.totalSize / this.entries.length);
+    if (this.entries.length === 0) return '0 B';
+    return this.formatBytes(this.runningTotalSize / this.entries.length);
   }
 
   get directoryMixLabel(): string {
@@ -930,18 +965,17 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
   }
 
   barPercent(e: DiskUsageEntry): number {
-    if (!this.result || this.result.totalSize === 0) return 0;
-    return Math.max(0.3, (e.size / this.result.totalSize) * 100);
+    if (this.runningTotalSize === 0) return 0;
+    return Math.max(0.3, (e.size / this.runningTotalSize) * 100);
   }
 
-  /** Returns a CSS width string for the animated mini-bar in the ranking list. */
   getMiniBarWidth(e: DiskUsageEntry): string {
     return this.barPercent(e).toFixed(1) + '%';
   }
 
   pct(e: DiskUsageEntry): string {
-    if (!this.result || this.result.totalSize === 0) return '—';
-    const p = (e.size / this.result.totalSize) * 100;
+    if (this.runningTotalSize === 0) return '—';
+    const p = (e.size / this.runningTotalSize) * 100;
     return p < 0.1 ? '<0.1%' : p.toFixed(1) + '%';
   }
 
@@ -961,11 +995,9 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
   // ── Spotlight bar animation ───────────────────────────────────────────────
 
   private triggerBarAnimation(e: DiskUsageEntry): void {
-    // Reset to 0 instantly, then animate to target on next frame
     this.barTransition = 'none';
     this.animatedBarPct = 0;
     this.cdr.markForCheck();
-
     requestAnimationFrame(() => {
       this.barTransition = 'width .55s cubic-bezier(.4,0,.2,1)';
       this.animatedBarPct = this.barPercent(e);
@@ -979,37 +1011,100 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
     this.ctx?.sizeVm?.onAnalyse(path);
     this.currentPath = path;
     this.parentPath = this.getParent(path);
-    this.loading = true;
+
+    // Cancel any in-flight scan
+    const token = ++this.scanToken;
+
+    // Reset state — keep previous entries visible until first new one arrives
+    this.scanning = true;
     this.error = null;
+    this.result = null;
     this.animatedBarPct = 0;
     this.barTransition = 'none';
     this.cdr.markForCheck();
 
+    // Clear stale data only after first entry arrives so the panel
+    // doesn't flash empty between navigations
+    let firstEntry = true;
+
     try {
-      const result = await this.api.analyzeDiskUsage(path);
-      if (this.destroyed || this.currentPath !== path) return;
-      this.result = result;
-      this.entries = result.entries;
-      this.topEntries = result.entries.slice(0, 5);
-      this.selectedEntry = this.topEntries[0] ?? null;
-      if (this.selectedEntry) {
-        // Kick off the bar animation after data arrives
-        setTimeout(() => {
-          this.triggerBarAnimation(this.selectedEntry!);
-        }, 60);
+      // api.streamDiskUsage yields DiskUsageEntry objects one-by-one (or in
+      // small batches) and finally yields a DiskUsageResult summary object.
+      // If your ApiService still only exposes analyzeDiskUsage, see note below.
+      for await (const item of this.api.streamDiskUsage(path)) {
+        if (this.destroyed || token !== this.scanToken) return;
+
+        if (isDiskUsageResult(item)) {
+          // Final summary item — scan complete
+          this.result = item;
+          this.scanning = false;
+        } else {
+          // Incoming entry
+          if (firstEntry) {
+            this.entries = [];
+            this.topEntries = [];
+            this.runningTotalSize = 0;
+            this.runningTotalFiles = 0;
+            this.runningTotalDirs = 0;
+            firstEntry = false;
+            // Signal the parent to drop whatever loader it is showing
+            this.firstEntryArrived.emit();
+          }
+
+          this.entries.push(item);
+          this.runningTotalSize += item.size;
+          if (item.isDir) {
+            this.runningTotalDirs += 1 + item.dirs;
+            this.runningTotalFiles += item.files;
+          } else {
+            this.runningTotalFiles++;
+          }
+
+          // Keep top-5 sorted by size
+          this.topEntries = [...this.entries]
+            .sort((a, b) => b.size - a.size)
+            .slice(0, 5);
+
+          // Auto-select the largest entry if nothing is selected yet
+          if (!this.selectedEntry) {
+            this.selectedEntry = this.topEntries[0] ?? null;
+            if (this.selectedEntry) {
+              setTimeout(() => this.triggerBarAnimation(this.selectedEntry!), 60);
+            }
+          } else {
+            // Re-animate bar as percentages shift during the scan
+            this.animatedBarPct = this.barPercent(this.selectedEntry);
+          }
+        }
+
+        this.cdr.markForCheck();
       }
     } catch (err: any) {
-      if (this.destroyed || this.currentPath !== path) return;
+      if (this.destroyed || token !== this.scanToken) return;
       this.error = err?.message || String(err);
-      this.result = null;
-      this.entries = [];
-      this.topEntries = [];
-      this.selectedEntry = null;
-    } finally {
-      this.loading = false;
+      this.scanning = false;
       this.cdr.markForCheck();
     }
   }
+
+  /*
+   * NOTE — ApiService contract:
+   * streamDiskUsage(path) must return an AsyncIterable that yields:
+   *   - DiskUsageEntry objects as they are discovered, then
+   *   - a single DiskUsageResult object as the final item.
+   *
+   * If your backend still only has analyzeDiskUsage (single await), you can
+   * adapt it without changing this component by adding a thin wrapper:
+   *
+   *   async *streamDiskUsage(path: string) {
+   *     const result = await this.analyzeDiskUsage(path);
+   *     for (const entry of result.entries) yield entry;
+   *     yield result;
+   *   }
+   *
+   * That gives you the correct shape today and you can replace the body with
+   * a real streaming IPC call later with no component changes.
+   */
 
   private getParent(path: string): string | null {
     const normalized = path.replace(/\\/g, '/').replace(/\/+$/, '');
@@ -1027,4 +1122,9 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
     const segments = normalized.split('/');
     return segments[segments.length - 1] || normalized;
   }
+}
+
+// Type guard to distinguish the final summary from an entry mid-stream
+function isDiskUsageResult(item: DiskUsageEntry | DiskUsageResult): item is DiskUsageResult {
+  return 'totalSize' in item && 'entries' in item;
 }

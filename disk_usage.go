@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -23,7 +24,8 @@ type DiskUsageEntry struct {
 	Error string `json:"error,omitempty"`
 }
 
-// DiskUsageResult is the wire payload returned by AnalyzeDiskUsage.
+// DiskUsageResult is the wire payload returned by AnalyzeDiskUsage and
+// emitted as the final event by StartDiskUsageStream.
 type DiskUsageResult struct {
 	Path       string           `json:"path"`
 	TotalSize  int64            `json:"totalSize"`
@@ -33,39 +35,44 @@ type DiskUsageResult struct {
 	ElapsedMs  int64            `json:"elapsedMs"`
 }
 
-// ── Wails-exposed method ─────────────────────────────────────────────────────
+// ── Wails-exposed App shims ───────────────────────────────────────────────────
+// Thin pass-throughs — all real logic lives on FilesystemService.
 
-// AnalyzeDiskUsage calculates the size of every direct child in path using a
-// parallel BFS worker pool. Returns per-child totals sorted descending by size.
 func (a *App) AnalyzeDiskUsage(path string) (*DiskUsageResult, error) {
+	return a.filesystem.AnalyzeDiskUsage(path)
+}
+
+// StartDiskUsageStream starts a streaming scan.
+//
+// Events emitted (scoped by scanId so concurrent scans never cross):
+//
+//	"disk-usage:entry"  — { scanId, entry: DiskUsageEntry }   one per child
+//	"disk-usage:done"   — { scanId, result: DiskUsageResult } final summary
+//	"disk-usage:error"  — { scanId, error: string }
+//
+// The returned scanId must be passed to CancelDiskUsageStream when the
+// caller navigates away, so the goroutine stops emitting to a dead surface.
+func (a *App) StartDiskUsageStream(path string) (string, error) {
+	return a.filesystem.StartDiskUsageStream(path)
+}
+
+func (a *App) CancelDiskUsageStream(scanId string) {
+	a.filesystem.CancelDiskUsageStream(scanId)
+}
+
+// ── FilesystemService methods ─────────────────────────────────────────────────
+
+// AnalyzeDiskUsage is the original blocking call — kept for compatibility.
+func (s *FilesystemService) AnalyzeDiskUsage(path string) (*DiskUsageResult, error) {
 	start := time.Now()
 
-	all, err := os.ReadDir(path)
+	children, err := readNonLinks(path)
 	if err != nil {
 		return nil, err
 	}
 
-	// Exclude symlinks, junctions, and all other reparse points.
-	children := all[:0]
-	for _, e := range all {
-		if !isLink(e) {
-			children = append(children, e)
-		}
-	}
-
 	entries := make([]DiskUsageEntry, len(children))
-
-	// Use a worker pool sized to GOMAXPROCS to walk children in parallel.
-	workers := runtime.GOMAXPROCS(0)
-	if workers < 2 {
-		workers = 2
-	}
-	if workers > len(children) {
-		workers = len(children)
-	}
-
 	var totalSize, totalFiles, totalDirs atomic.Int64
-	var wg sync.WaitGroup
 
 	type job struct {
 		idx   int
@@ -77,50 +84,21 @@ func (a *App) AnalyzeDiskUsage(path string) (*DiskUsageResult, error) {
 	}
 	close(jobs)
 
+	var wg sync.WaitGroup
+	workers := clampWorkers(len(children))
 	wg.Add(workers)
 	for w := 0; w < workers; w++ {
 		go func() {
 			defer wg.Done()
 			for j := range jobs {
-				e := j.entry
-				name := e.Name()
-				full := filepath.Join(path, name)
-
-				var du DiskUsageEntry
-				du.Name = name
-				du.Path = toSlash(full)
-				du.IsDir = e.IsDir()
-
-				if e.IsDir() {
-					sz, fc, dc, walkErr := bfsDirSize(full)
-					du.Size = sz
-					du.Files = fc
-					du.Dirs = dc
-					if walkErr != nil {
-						du.Error = walkErr.Error()
-					}
-					totalDirs.Add(1 + dc)
-					totalFiles.Add(fc)
-					totalSize.Add(sz)
-				} else {
-					info, infoErr := e.Info()
-					if infoErr != nil {
-						du.Error = infoErr.Error()
-					} else {
-						du.Size = info.Size()
-					}
-					totalFiles.Add(1)
-					totalSize.Add(du.Size)
-				}
-
+				du := walkEntry(path, j.entry)
+				accumulateTotals(&totalSize, &totalFiles, &totalDirs, du)
 				entries[j.idx] = du
 			}
 		}()
 	}
-
 	wg.Wait()
 
-	// Sort children descending by size (largest first).
 	sort.Slice(entries, func(i, j int) bool {
 		return entries[i].Size > entries[j].Size
 	})
@@ -135,11 +113,185 @@ func (a *App) AnalyzeDiskUsage(path string) (*DiskUsageResult, error) {
 	}, nil
 }
 
+// StartDiskUsageStream starts the parallel scan and emits events per-entry.
+func (s *FilesystemService) StartDiskUsageStream(path string) (string, error) {
+	children, err := readNonLinks(path)
+	if err != nil {
+		return "", err
+	}
+
+	scanId := fmt.Sprintf("du-%d", time.Now().UnixNano())
+	done := s.duStreams.register(scanId)
+
+	go func() {
+		start := time.Now()
+		var totalSize, totalFiles, totalDirs atomic.Int64
+
+		type job struct{ entry os.DirEntry }
+		jobs := make(chan job, len(children))
+		for _, child := range children {
+			jobs <- job{entry: child}
+		}
+		close(jobs)
+
+		var wg sync.WaitGroup
+		workers := clampWorkers(len(children))
+		wg.Add(workers)
+		for w := 0; w < workers; w++ {
+			go func() {
+				defer wg.Done()
+				for j := range jobs {
+					select {
+					case <-done:
+						return
+					default:
+					}
+
+					du := walkEntry(path, j.entry)
+					accumulateTotals(&totalSize, &totalFiles, &totalDirs, du)
+
+					select {
+					case <-done:
+						return
+					default:
+						s.emit("disk-usage:entry", map[string]interface{}{
+							"scanId": scanId,
+							"entry":  du,
+						})
+					}
+				}
+			}()
+		}
+
+		wg.Wait()
+		s.duStreams.unregister(scanId)
+
+		select {
+		case <-done:
+			return
+		default:
+			s.emit("disk-usage:done", map[string]interface{}{
+				"scanId": scanId,
+				"result": DiskUsageResult{
+					Path:       toSlash(path),
+					TotalSize:  totalSize.Load(),
+					TotalFiles: totalFiles.Load(),
+					TotalDirs:  totalDirs.Load(),
+					ElapsedMs:  time.Since(start).Milliseconds(),
+				},
+			})
+		}
+	}()
+
+	return scanId, nil
+}
+
+// CancelDiskUsageStream stops an in-progress stream. Safe to call after completion.
+func (s *FilesystemService) CancelDiskUsageStream(scanId string) {
+	s.duStreams.cancel(scanId)
+}
+
+// ── Stream registry ───────────────────────────────────────────────────────────
+// duStreamRegistry is a field on FilesystemService — see filesystem_service.go.
+
+type duStreamRegistry struct {
+	mu      sync.Mutex
+	cancels map[string]func()
+}
+
+func newDuStreamRegistry() *duStreamRegistry {
+	return &duStreamRegistry{cancels: make(map[string]func())}
+}
+
+// register creates a cancel channel for scanId and returns the done channel.
+func (r *duStreamRegistry) register(id string) <-chan struct{} {
+	ch := make(chan struct{})
+	var once sync.Once
+	cancel := func() { once.Do(func() { close(ch) }) }
+	r.mu.Lock()
+	r.cancels[id] = cancel
+	r.mu.Unlock()
+	return ch
+}
+
+func (r *duStreamRegistry) unregister(id string) {
+	r.mu.Lock()
+	delete(r.cancels, id)
+	r.mu.Unlock()
+}
+
+func (r *duStreamRegistry) cancel(id string) {
+	r.mu.Lock()
+	cancel, ok := r.cancels[id]
+	if ok {
+		delete(r.cancels, id)
+	}
+	r.mu.Unlock()
+	if ok {
+		cancel()
+	}
+}
+
+// ── Shared helpers ────────────────────────────────────────────────────────────
+
+func readNonLinks(path string) ([]os.DirEntry, error) {
+	all, err := os.ReadDir(path)
+	if err != nil {
+		return nil, err
+	}
+	out := all[:0]
+	for _, e := range all {
+		if !isLink(e) {
+			out = append(out, e)
+		}
+	}
+	return out, nil
+}
+
+func walkEntry(parent string, e os.DirEntry) DiskUsageEntry {
+	name := e.Name()
+	full := filepath.Join(parent, name)
+	du := DiskUsageEntry{Name: name, Path: toSlash(full), IsDir: e.IsDir()}
+	if e.IsDir() {
+		sz, fc, dc, walkErr := bfsDirSize(full)
+		du.Size, du.Files, du.Dirs = sz, fc, dc
+		if walkErr != nil {
+			du.Error = walkErr.Error()
+		}
+	} else {
+		info, err := e.Info()
+		if err != nil {
+			du.Error = err.Error()
+		} else {
+			du.Size = info.Size()
+		}
+	}
+	return du
+}
+
+func accumulateTotals(size, files, dirs *atomic.Int64, du DiskUsageEntry) {
+	size.Add(du.Size)
+	if du.IsDir {
+		dirs.Add(1 + du.Dirs)
+		files.Add(du.Files)
+	} else {
+		files.Add(1)
+	}
+}
+
+func clampWorkers(n int) int {
+	w := runtime.GOMAXPROCS(0)
+	if w < 2 {
+		w = 2
+	}
+	if w > n {
+		w = n
+	}
+	return w
+}
+
 // ── Internal BFS walk ────────────────────────────────────────────────────────
 
-// bfsDirSize computes the total byte size, file count and subdirectory count
-// of dir using breadth-first traversal. Unreadable directories are silently
-// skipped so a single permission error never aborts the whole walk.
 func bfsDirSize(dir string) (size int64, files int64, dirs int64, firstErr error) {
 	queue := []string{dir}
 	for len(queue) > 0 {

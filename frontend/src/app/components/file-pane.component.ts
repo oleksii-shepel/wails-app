@@ -78,7 +78,8 @@ declare const window: any;
       <ng-container *ngIf="surfaceCtx as ctx">
         <app-surface-outlet
           #surfaceOutlet
-          [ctx]="ctx">
+          [ctx]="ctx"
+          (firstEntryArrived)="onSurfaceFirstEntry()">
         </app-surface-outlet>
       </ng-container>
     </div>
@@ -713,6 +714,12 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
 
   get entriesForAnalysis(): FileInfo[] {
     return this.entries.filter(e => e.path !== PARENT_ENTRY_PATH);
+  }
+
+  // Fired when a dynamic surface notifies that first data arrived.
+  onSurfaceFirstEntry(): void {
+    // Trigger a change detection pass so parent UI (loaders/overlays) can update.
+    this.cdr.markForCheck();
   }
 
   // в”Ђв”Ђ View System Methods в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ

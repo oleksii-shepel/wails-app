@@ -32,6 +32,8 @@ export function BatchSelectiveExtract(arg1:main.BatchSelectiveExtractRequest):Pr
 
 export function Breadcrumbs(arg1:string):Promise<Array<Record<string, string>>>;
 
+export function CancelDiskUsageStream(arg1:string):Promise<void>;
+
 export function CancelListDirStream(arg1:string):Promise<void>;
 
 export function CancelOperation(arg1:string):Promise<boolean>;
@@ -141,6 +143,8 @@ export function SetPaneDirectory(arg1:string,arg2:string):Promise<void>;
 export function SetupFileDropHandler(arg1:number):Promise<void>;
 
 export function SplitPath(arg1:string):Promise<Record<string, string>>;
+
+export function StartDiskUsageStream(arg1:string):Promise<string>;
 
 export function StartElevatedSession():Promise<main.ElevatedSessionStatus>;
 

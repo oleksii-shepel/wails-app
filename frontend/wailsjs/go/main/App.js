@@ -62,6 +62,10 @@ export function Breadcrumbs(arg1) {
   return window['go']['main']['App']['Breadcrumbs'](arg1);
 }
 
+export function CancelDiskUsageStream(arg1) {
+  return window['go']['main']['App']['CancelDiskUsageStream'](arg1);
+}
+
 export function CancelListDirStream(arg1) {
   return window['go']['main']['App']['CancelListDirStream'](arg1);
 }
@@ -280,6 +284,10 @@ export function SetupFileDropHandler(arg1) {
 
 export function SplitPath(arg1) {
   return window['go']['main']['App']['SplitPath'](arg1);
+}
+
+export function StartDiskUsageStream(arg1) {
+  return window['go']['main']['App']['StartDiskUsageStream'](arg1);
 }
 
 export function StartElevatedSession() {

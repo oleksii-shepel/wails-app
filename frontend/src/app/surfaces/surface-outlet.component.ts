@@ -1,5 +1,5 @@
 import { CommonModule, NgComponentOutlet } from '@angular/common';
-import { ChangeDetectionStrategy, ChangeDetectorRef, Component, Input, OnChanges, Type, ViewChild } from '@angular/core';
+import { ChangeDetectionStrategy, ChangeDetectorRef, Component, EventEmitter, Input, OnChanges, Output, Type, ViewChild } from '@angular/core';
 import { SurfaceRegistryService } from './surface-registry.service';
 import { SurfaceContext } from './surface-context';
 
@@ -35,6 +35,8 @@ import { SurfaceContext } from './surface-context';
 })
 export class SurfaceOutletComponent implements OnChanges {
   @Input({ required: true }) ctx!: SurfaceContext;
+  /** Re-emits `firstEntryArrived` from dynamic surfaces so parents may react. */
+  @Output() firstEntryArrived = new EventEmitter<void>();
 
   component: Type<unknown> | null = null;
   outletInputs: Record<string, unknown> = {};
@@ -43,6 +45,7 @@ export class SurfaceOutletComponent implements OnChanges {
 
   private resolveSeq = 0;
   private resolvedSurfaceKey: string | null = null;
+  private mountedSubscription: { unsubscribe: () => void } | null = null;
 
   constructor(
     private registry: SurfaceRegistryService,
@@ -69,6 +72,17 @@ export class SurfaceOutletComponent implements OnChanges {
       if (seq !== this.resolveSeq) return;
       this.component = component;
       this.cdr.markForCheck();
+      // Give Angular a tick to create the component instance, then wire outputs
+      setTimeout(() => {
+        const inst = this.mountedInstance;
+        if (!inst) return;
+        // Clean up previous subscription
+        try { this.mountedSubscription?.unsubscribe(); } catch {}
+        if (inst.firstEntryArrived && typeof inst.firstEntryArrived.subscribe === 'function') {
+          const sub = inst.firstEntryArrived.subscribe(() => this.firstEntryArrived.emit());
+          this.mountedSubscription = { unsubscribe: () => sub.unsubscribe() };
+        }
+      }, 0);
     }).catch(() => {
       if (seq !== this.resolveSeq) return;
       this.resolvedSurfaceKey = null;

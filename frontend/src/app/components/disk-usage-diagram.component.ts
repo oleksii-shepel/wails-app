@@ -164,13 +164,13 @@ interface TooltipState {
       </button>
 
       <button
-        *ngIf="otherEntries.length > 0"
-        class="pie-legend-item pie-legend-item--other"
-        [class.pie-legend-item--hovered]="hoveredIndex === -1"
-        (click)="onOtherClick()"
-        (mouseenter)="hoveredIndex = -1; cdr.markForCheck()"
-        (mouseleave)="hoveredIndex = null; cdr.markForCheck()">
-        <span class="pie-swatch pie-swatch--other"></span>
+      *ngIf="otherEntries.length > 0"
+      class="pie-legend-item pie-legend-item--other"
+      [class.pie-legend-item--hovered]="hoveredIndex === -1"
+      (click)="onOtherClick()"
+      (mouseenter)="hoveredIndex = -1; cdr.markForCheck()"
+      (mouseleave)="hoveredIndex = null; cdr.markForCheck()">
+      <span class="pie-swatch pie-swatch--other" [style.background]="otherColor"></span>
         <span class="pie-legend-name">
           Other <span class="pie-other-count">({{ otherEntries.length }})</span>
         </span>
@@ -352,7 +352,6 @@ interface TooltipState {
                  translateY(calc(var(--ty) * var(--lift)));
     }
     .pie-slice-g--other { cursor: zoom-in; }
-    .pie-path--other    { stroke-dasharray: 3 2; }
 
     .pie-path {
       stroke: var(--vsc-panel-background, #252526);
@@ -417,7 +416,7 @@ interface TooltipState {
       border-color: color-mix(in srgb, var(--vsc-focus-border, #007acc) 40%, transparent);
     }
     .pie-legend-item--other {
-      border-style: dashed;
+      border-style: solid;
       border-color: color-mix(in srgb, var(--vsc-foreground-dim, #888) 30%, transparent);
     }
     .pie-legend-item--other:hover,
@@ -431,7 +430,7 @@ interface TooltipState {
       flex-shrink: 0;
     }
     .pie-swatch--other {
-      border: 1px dashed var(--vsc-foreground-dim, #888);
+      border: 1px solid transparent;
     }
     .pie-legend-name {
       flex: 1 1 0%;

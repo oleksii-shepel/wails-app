@@ -54,11 +54,12 @@ export class SurfaceOutletComponent implements OnChanges {
 
   ngOnChanges(): void {
     this.outletInputs = { ctx: this.ctx };
-    const surfaceKey = this.ctx?.kind ?? 'dir';
+    const surfaceKey = this.ctx ? `${this.ctx.kind}:${this.ctx.tab.id}` : 'dir';
 
     // FilePaneComponent rebuilds the surface context object on every change
     // detection pass. Reload the dynamic surface only when the surface kind
-    // actually changes; otherwise just push fresh inputs into the mounted one.
+    // or active tab actually changes; otherwise just push fresh inputs into the
+    // mounted one.
     if (this.component && this.resolvedSurfaceKey === surfaceKey) {
       this.cdr.markForCheck();
       return;

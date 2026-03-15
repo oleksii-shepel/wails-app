@@ -22,23 +22,45 @@ export interface FilePanePreviewHost {
   onTabChange(tab: any): Promise<void>;
 }
 
+export interface FilePanePreviewRequest {
+	path: string;
+	archiveContext: ViewerArchiveContext | null;
+}
+
 export class FilePanePreviewController {
-  async openQuickView(host: FilePanePreviewHost): Promise<void> {
-    if (host.activeTabKind !== 'dir') return;
+  getPreviewRequest(host: FilePanePreviewHost): FilePanePreviewRequest | null {
+    if (host.activeTabKind !== 'dir') return null;
 
     const selected = Array.from(host.getEffectiveSelection()).filter(path => path && path !== PARENT_ENTRY_PATH);
-    if (selected.length !== 1) return;
+    if (selected.length !== 1) return null;
 
-    await this.openViewerTab(host, selected[0], {
+    const path = selected[0];
+    if (host.isInArchive()) {
+      const archiveContext = this.buildArchiveViewerContext(host, path);
+      if (!archiveContext) return null;
+      return { path, archiveContext };
+    }
+
+    const entry = host.entries.find(candidate => candidate.path === path);
+    if (!entry || (entry.type !== FileType.FILE && entry.type !== FileType.SYMLINK)) return null;
+    return { path, archiveContext: null };
+  }
+
+  async openQuickView(host: FilePanePreviewHost): Promise<void> {
+    const request = this.getPreviewRequest(host);
+    if (!request) return;
+
+    await this.openViewerTab(host, request.path, {
       activate: true,
       closable: true,
+      archiveContext: request.archiveContext,
     });
   }
 
   async openFrozenPreviewTab(
     host: FilePanePreviewHost,
     targetPath: string,
-    opts?: { sourcePane: 'left' | 'right'; sourceTabId: string; sourceDir: string; autoFollow?: boolean },
+    opts?: { sourcePane: 'left' | 'right'; sourceTabId: string; sourceDir: string; autoFollow?: boolean; archiveContext?: ViewerArchiveContext | null },
   ): Promise<void> {
     const path = (targetPath || '').trim();
     if (!path) return;
@@ -50,17 +72,18 @@ export class FilePanePreviewController {
       sourcePane: opts?.sourcePane,
       sourceTabId: opts?.sourceTabId,
       sourceDir: opts?.sourceDir,
+      archiveContext: opts?.archiveContext ?? null,
     });
   }
 
   private async openViewerTab(
     host: FilePanePreviewHost,
     path: string,
-    opts: { activate: boolean; closable: boolean; autoFollow?: boolean; sourcePane?: 'left' | 'right'; sourceTabId?: string; sourceDir?: string },
+    opts: { activate: boolean; closable: boolean; autoFollow?: boolean; sourcePane?: 'left' | 'right'; sourceTabId?: string; sourceDir?: string; archiveContext?: ViewerArchiveContext | null },
   ): Promise<void> {
     try {
-      if (host.isInArchive()) {
-        const archiveContext = this.buildArchiveViewerContext(host, path);
+      if (host.isInArchive() || opts.archiveContext) {
+        const archiveContext = opts.archiveContext ?? this.buildArchiveViewerContext(host, path);
         if (!archiveContext) return;
 
         const tab = host.workspaceService.addViewerTab(host.paneId, path, {

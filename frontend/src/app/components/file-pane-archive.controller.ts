@@ -11,6 +11,7 @@ import {
 import { WorkspaceService } from '../services/workspace.service';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { FileType } from '../shared/protocol';
+import { parentPath, normalizePath } from './address-bar.utils';
 
 export interface FilePaneArchiveHost {
   get paneId(): 'left' | 'right';
@@ -57,6 +58,7 @@ export class FilePaneArchiveController {
     host.error = null;
     try {
       const { fsPath, nestedChain, innerPath } = parseArchivePath(path);
+      host.fsParentDir = parentPath(normalizePath(fsPath));
 
       let frame = await host.archiveService.openRootArchive(fsPath);
       const stack: ArchiveFrame[] = [frame];

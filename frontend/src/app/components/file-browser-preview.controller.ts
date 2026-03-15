@@ -1,11 +1,17 @@
 import type { WorkspaceService } from '../services/workspace.service';
 import type { TabInfo } from '../shared/protocol-enhanced';
 import type { FilePaneBrowserCommands } from './file-pane-browser-commands.factory';
+import type { ViewerArchiveContext } from './viewer-surface.component';
 
 export interface FileBrowserPreviewPane {
   currentTabId: string;
   currentPath: string;
   browserCommands: Pick<FilePaneBrowserCommands, 'preview'>;
+}
+
+interface FileBrowserPreviewRequest {
+	path: string;
+	archiveContext: ViewerArchiveContext | null;
 }
 
 export interface FileBrowserPreviewHost {
@@ -28,8 +34,8 @@ export class FileBrowserPreviewController {
       return;
     }
 
-    const target = fromPane.browserCommands.preview.getTargetPath();
-    if (!target) {
+    const request = fromPane.browserCommands.preview.getTargetRequest() as FileBrowserPreviewRequest | null;
+    if (!request?.path) {
       return;
     }
 
@@ -39,11 +45,12 @@ export class FileBrowserPreviewController {
       return;
     }
 
-    await toPane.browserCommands.preview.openFrozenPreviewTab(target, {
+    await toPane.browserCommands.preview.openFrozenPreviewTab(request.path, {
       sourcePane: host.getActivePaneId(),
       sourceTabId: fromPane.currentTabId,
       sourceDir: fromPane.currentPath,
       autoFollow: true,
+      archiveContext: request.archiveContext,
     });
   }
 

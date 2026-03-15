@@ -3,6 +3,7 @@ import type { FilePaneNavigationController, FilePaneNavigationHost } from './fil
 import type { FilePaneOpenController, FilePaneOpenHost } from './file-pane-open.controller';
 import type { FilePaneOperationsController, FilePaneOperationsHost } from './file-pane-operations.controller';
 import type { FilePanePreviewController, FilePanePreviewHost } from './file-pane-preview.controller';
+import type { FilePanePreviewRequest } from './file-pane-preview.controller';
 import type { FilePaneStateRuntimeAdapter } from './file-pane-state-runtime.factory';
 
 export interface FilePaneBrowserCommands {
@@ -20,6 +21,7 @@ export interface FilePaneBrowserCommands {
   };
   preview: {
     getTargetPath(): string;
+    getTargetRequest(): FilePanePreviewRequest | null;
     focusCursorPath(path: string): void;
     activateDirTabAndFocusPath(tabId: string, focusPath: string): Promise<void>;
     openQuickView(): Promise<void>;
@@ -28,7 +30,7 @@ export interface FilePaneBrowserCommands {
     resetActiveViewerZoom(): void;
     openFrozenPreviewTab(
       targetPath: string,
-      options?: { sourcePane: 'left' | 'right'; sourceTabId: string; sourceDir: string; autoFollow?: boolean },
+      options?: { sourcePane: 'left' | 'right'; sourceTabId: string; sourceDir: string; autoFollow?: boolean; archiveContext?: import('./viewer-surface.component').ViewerArchiveContext | null },
     ): Promise<void>;
   };
 }
@@ -70,6 +72,7 @@ export class FilePaneBrowserCommandsFactory {
       },
       preview: {
         getTargetPath: () => source.stateRuntime.getPreviewTargetPath(),
+        getTargetRequest: () => source.previewController.getPreviewRequest(source.previewHost),
         focusCursorPath: (path: string) => {
           if (source.activeTabKind !== 'dir') {
             return;

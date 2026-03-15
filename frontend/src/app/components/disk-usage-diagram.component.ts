@@ -87,6 +87,12 @@ interface NavFrame {
             (click)="onSvgClick($event)"
             (dblclick)="onSvgDblClick($event)">
 
+            <!--
+              Each slice is wrapped in a <g> for the radial hover translate.
+              When a slice spans the full 360° (single entry = 100%), the SVG
+              arc command is degenerate (start === end point), so we switch to
+              a plain <circle> + inner <circle> mask instead.
+            -->
             <g
               *ngFor="let s of slices; trackBy: trackSlice"
               class="pie-slice-g"
@@ -95,14 +101,37 @@ interface NavFrame {
               [class.pie-slice-g--other]="s.index === -1"
               [style.--tx]="s.tx"
               [style.--ty]="s.ty">
-              <path
-                class="pie-path"
-                [class.pie-path--other]="s.index === -1"
-                [attr.d]="getSlicePath(s)"
-                [attr.fill]="s.color"/>
+
+              <!-- Full-circle fallback (100% single slice) -->
+              <ng-container *ngIf="isFullCircle(s); else arcSlice">
+                <circle
+                  class="pie-path"
+                  [class.pie-path--other]="s.index === -1"
+                  cx="0" cy="0"
+                  [attr.r]="outerR"
+                  [attr.fill]="s.color"/>
+                <!-- inner mask to re-create the donut ring — the .pie-hole
+                     circle sits on top of all slices so this just needs
+                     to carry the correct stroke class -->
+                <circle
+                  class="pie-path pie-path--inner-mask"
+                  cx="0" cy="0"
+                  [attr.r]="innerR"
+                  fill="var(--vsc-panel-background, #252526)"/>
+              </ng-container>
+
+              <!-- Normal arc slice -->
+              <ng-template #arcSlice>
+                <path
+                  class="pie-path"
+                  [class.pie-path--other]="s.index === -1"
+                  [attr.d]="getSlicePath(s)"
+                  [attr.fill]="s.color"/>
+              </ng-template>
+
             </g>
 
-            <!-- Donut hole -->
+            <!-- Donut hole (always rendered on top of all slices) -->
             <circle cx="0" cy="0" [attr.r]="innerR"
                     class="pie-hole" pointer-events="none"/>
 
@@ -329,7 +358,14 @@ interface NavFrame {
       transition: stroke-width 0.15s ease, stroke 0.15s ease;
     }
 
-    .pie-slice-g--selected .pie-path {
+    /* The inner mask circle in the full-circle fallback should never
+       show a selection stroke — only the outer ring carries that */
+    .pie-path--inner-mask {
+      stroke: none !important;
+      pointer-events: none;
+    }
+
+    .pie-slice-g--selected .pie-path:not(.pie-path--inner-mask) {
       stroke: var(--vsc-focus-border, #007acc);
       stroke-width: 2.5;
     }
@@ -659,9 +695,13 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
 
   drillIntoOther(): void {
     if (!this.otherEntries.length) return;
+    // Use the sum of the Other entries as the new frame total so all slices
+    // at this level fill the full circle (100%) rather than being tiny
+    // fractions of the root total.
+    const otherTotal = this.otherEntries.reduce((s, e) => s + e.size, 0);
     this.navStack = [
       ...this.navStack,
-      { label: 'Other', entries: this.otherEntries, total: this.currentFrame.total },
+      { label: 'Other', entries: this.otherEntries, total: otherTotal },
     ];
     this.reset();
     this.applyCurrentFrame();
@@ -706,7 +746,11 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
   getColor(i: number): string { return this.palette[i % this.palette.length]; }
 
   pctStr(e: DiskUsageEntry): string {
-    const total = this.currentFrame?.total ?? this.totalSize;
+    // Recompute from entries so this is correct at every nav level.
+    const frame = this.currentFrame;
+    const total = frame
+      ? frame.entries.reduce((s, x) => s + x.size, 0)
+      : this.totalSize;
     if (!total) return '—';
     const p = (e.size / total) * 100;
     return p < 0.1 ? '<0.1%' : p.toFixed(1) + '%';
@@ -724,7 +768,18 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
 
   // ── Slice geometry ────────────────────────────────────────────────────────
 
+  /**
+   * Returns true when this slice spans a full 360°.
+   * SVG arc commands are degenerate when start === end coordinates,
+   * so the template renders a <circle> instead for this case.
+   */
+  isFullCircle(s: PieSlice): boolean {
+    return s.endAngle - s.startAngle >= Math.PI * 2 - 0.001;
+  }
+
+  /** Returns '' for full-circle slices — template uses <circle> fallback. */
   getSlicePath(s: PieSlice): string {
+    if (this.isFullCircle(s)) return '';
     const o = this.outerR, ir = this.innerR;
     const p = (a: number, r: number) =>
       ({ x: +(r * Math.cos(a)).toFixed(3), y: +(r * Math.sin(a)).toFixed(3) });
@@ -821,10 +876,9 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
   }
 
   private applyCurrentFrame(): void {
-    const frame      = this.currentFrame;
-    const isSubLevel = this.navStack.length > 1;
+    const frame = this.currentFrame;
 
-    if (!frame.total || !frame.entries.length) {
+    if (!frame.entries.length) {
       this.displayEntries = [];
       this.otherEntries   = [];
       this.otherSize      = 0;
@@ -834,27 +888,40 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
       return;
     }
 
-    if (isSubLevel) {
-      // Inside Other: show every entry, no further bucketing.
-      // If there are more entries than palette colours, overflow into a second Other.
-      const cap = this.palette.length * 2;
-      this.displayEntries = frame.entries.slice(0, cap);
-      this.otherEntries   = frame.entries.slice(cap);
-    } else {
-      // Root level: apply minPct bucketing
-      const threshold = this.minPct / 100;
-      const main: DiskUsageEntry[] = [];
-      const rest: DiskUsageEntry[] = [];
-      for (const e of frame.entries) {
-        (e.size / frame.total >= threshold ? main : rest).push(e);
-      }
-      this.displayEntries = main.slice(0, this.palette.length);
-      this.otherEntries   = rest;
+    // Recompute frame total from entries in case it was set to 0 or stale.
+    const frameTotal = frame.entries.reduce((s, e) => s + e.size, 0);
+    if (!frameTotal) {
+      // All entries have size 0 — just show them all, chart will be empty visually
+      // but at least no "no data" message.
+      this.displayEntries = frame.entries.slice(0, this.palette.length);
+      this.otherEntries   = frame.entries.slice(this.palette.length);
+      this.otherSize      = 0;
+      this.otherPct       = '';
+      this.buildSlices();
+      this.cdr.markForCheck();
+      return;
     }
+
+    // Apply minPct bucketing relative to THIS frame's own total.
+    const threshold = this.minPct / 100;
+    const main: DiskUsageEntry[] = [];
+    const rest: DiskUsageEntry[] = [];
+    for (const e of frame.entries) {
+      (e.size / frameTotal >= threshold ? main : rest).push(e);
+    }
+
+    // If nothing passes the threshold (e.g. 20 items each at ~5%), show
+    // everything without bucketing so the chart is never empty.
+    const visibleEntries = main.length > 0 ? main : frame.entries;
+    const restEntries    = main.length > 0 ? rest : [];
+
+    this.displayEntries = visibleEntries.slice(0, this.palette.length);
+    const overflow      = visibleEntries.slice(this.palette.length);
+    this.otherEntries   = [...overflow, ...restEntries];
 
     this.otherSize = this.otherEntries.reduce((s, e) => s + e.size, 0);
     this.otherPct  = this.otherSize
-      ? ((this.otherSize / frame.total) * 100).toFixed(1) + '%'
+      ? ((this.otherSize / frameTotal) * 100).toFixed(1) + '%'
       : '';
 
     this.buildSlices();
@@ -863,8 +930,8 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
 
   private buildSlices(): void {
     this.slices = [];
-    const total = this.currentFrame?.total;
-    if (!total) return;
+    const frame = this.currentFrame;
+    if (!frame?.total) return;
 
     const drawnTotal =
       this.displayEntries.reduce((s, e) => s + e.size, 0) + this.otherSize;
@@ -881,7 +948,8 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
         tx: +Math.cos(mid).toFixed(4),
         ty: +Math.sin(mid).toFixed(4),
         color,
-        pctNum: (size / total) * 100,
+        // pctNum relative to what's drawn at this level
+        pctNum: (size / drawnTotal) * 100,
       });
     };
 
@@ -923,6 +991,7 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
       if (this.destroyed) return;
       this.barTransition = 'width 0.5s cubic-bezier(0.4, 0, 0.2, 1)';
       if (this.selectedIndex !== null) {
+        // frame.total is the correct denominator at every level
         const total = this.currentFrame?.total ?? this.totalSize;
         this.animatedBarPct =
           (this.displayEntries[this.selectedIndex].size / total) * 100;

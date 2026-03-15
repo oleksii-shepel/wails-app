@@ -98,10 +98,22 @@ interface NavFrame {
              [class.pc-slice-g--selected]="selectedIndex === s.index"
              [class.pc-slice-g--other]="s.index === -1"
              [style.--tx]="s.tx" [style.--ty]="s.ty">
-            <path class="pc-path"
-                  [class.pc-path--other]="s.index === -1"
-                  [attr.d]="getSlicePath(s)"
-                  [attr.fill]="s.color"/>
+            <!-- Full-circle fallback: SVG arc is degenerate at exactly 360°,
+                 so we draw two concentric circles clipped via a mask instead. -->
+            <ng-container *ngIf="isFullCircle(s); else arcPath">
+              <circle cx="0" cy="0" [attr.r]="outerR"
+                      [attr.fill]="s.color"
+                      class="pc-path"
+                      [class.pc-path--other]="s.index === -1"/>
+              <!-- re-punch the donut hole — the .pc-hole circle on top will cover it,
+                   but we still need the ring to have correct stroke behaviour -->
+            </ng-container>
+            <ng-template #arcPath>
+              <path class="pc-path"
+                    [class.pc-path--other]="s.index === -1"
+                    [attr.d]="getSlicePath(s)"
+                    [attr.fill]="s.color"/>
+            </ng-template>
           </g>
 
           <!-- Hole -->
@@ -701,7 +713,9 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
 
   // ── Slice path ────────────────────────────────────────────────────────────
 
+  /** Returns '' when the slice spans the full circle (drawn as <circle> in template). */
   getSlicePath(s: PieSlice): string {
+    if (this.isFullCircle(s)) return '';
     const o = this.outerR, ir = this.innerR;
     const p = (a: number, r: number) =>
       ({ x: +(r * Math.cos(a)).toFixed(3), y: +(r * Math.sin(a)).toFixed(3) });
@@ -715,6 +729,10 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
       `A ${ir} ${ir} 0 ${large} 0 ${is_.x} ${is_.y}`,
       'Z',
     ].join(' ');
+  }
+
+  isFullCircle(s: PieSlice): boolean {
+    return s.endAngle - s.startAngle >= Math.PI * 2 - 0.001;
   }
 
   // ── SVG events ────────────────────────────────────────────────────────────

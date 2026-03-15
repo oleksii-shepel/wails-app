@@ -62,7 +62,7 @@ interface PieFrame {
     <!-- ── Loading ────────────────────────────────────────── -->
     <div class="sm-loading" *ngIf="isTraversing && !hasVisibleContent">
       <div class="sm-spinner"></div>
-      <span>Scanning <strong>{{ currentLabel }}</strong>…</span>
+      <span>Loading entries for <strong>{{ currentLabel }}</strong>…</span>
     </div>
 
     <!-- ── Error ──────────────────────────────────────────── -->
@@ -77,7 +77,7 @@ interface PieFrame {
 
       <div class="sm-inline-status" *ngIf="isTraversing">
         <div class="sm-spinner"></div>
-        <span>Scanning <strong>{{ currentLabel }}</strong>… showing live results.</span>
+        <span>Loading entries for <strong>{{ currentLabel }}</strong>… showing live results.</span>
       </div>
 
       <!-- Metric strip -->
@@ -389,8 +389,8 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
   }
 
   get headerProgressLabel(): string {
-    if (!this.entries.length) return 'Traversing...';
-    return `Traversing... ${this.entries.length} children loaded`;
+    if (!this.entries.length) return 'Loading entries...';
+    return `Loading entries... ${this.entries.length} loaded`;
   }
 
   get averageEntrySizeLabel(): string {
@@ -399,13 +399,13 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
   }
 
   get elapsedLabel(): string {
-    if (this.isTraversing) return 'Scanning';
+    if (this.isTraversing) return 'Live scan';
     return this.result ? `${this.result.elapsedMs} ms` : 'Idle';
   }
 
   get elapsedMetricLabel(): string {
     if (this.isTraversing) {
-      return this.entries.length ? `${this.entries.length} children loaded` : 'Starting traversal';
+      return this.entries.length ? 'Collecting sizes' : 'Preparing scan';
     }
     return this.result ? 'Scan completed' : 'Scan time';
   }

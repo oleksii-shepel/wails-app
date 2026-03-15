@@ -120,6 +120,8 @@ func (s *FilesystemService) StartDiskUsageStream(path string) (string, error) {
 		return "", err
 	}
 
+	entries := make([]DiskUsageEntry, len(children))
+
 	scanId := fmt.Sprintf("du-%d", time.Now().UnixNano())
 	done := s.duStreams.register(scanId)
 
@@ -127,10 +129,13 @@ func (s *FilesystemService) StartDiskUsageStream(path string) (string, error) {
 		start := time.Now()
 		var totalSize, totalFiles, totalDirs atomic.Int64
 
-		type job struct{ entry os.DirEntry }
+		type job struct {
+			idx   int
+			entry os.DirEntry
+		}
 		jobs := make(chan job, len(children))
-		for _, child := range children {
-			jobs <- job{entry: child}
+		for i, child := range children {
+			jobs <- job{idx: i, entry: child}
 		}
 		close(jobs)
 
@@ -149,6 +154,7 @@ func (s *FilesystemService) StartDiskUsageStream(path string) (string, error) {
 
 					du := walkEntry(path, j.entry)
 					accumulateTotals(&totalSize, &totalFiles, &totalDirs, du)
+					entries[j.idx] = du
 
 					select {
 					case <-done:
@@ -166,6 +172,10 @@ func (s *FilesystemService) StartDiskUsageStream(path string) (string, error) {
 		wg.Wait()
 		s.duStreams.unregister(scanId)
 
+		sort.Slice(entries, func(i, j int) bool {
+			return entries[i].Size > entries[j].Size
+		})
+
 		select {
 		case <-done:
 			return
@@ -177,6 +187,7 @@ func (s *FilesystemService) StartDiskUsageStream(path string) (string, error) {
 					TotalSize:  totalSize.Load(),
 					TotalFiles: totalFiles.Load(),
 					TotalDirs:  totalDirs.Load(),
+					Entries:    entries,
 					ElapsedMs:  time.Since(start).Milliseconds(),
 				},
 			})

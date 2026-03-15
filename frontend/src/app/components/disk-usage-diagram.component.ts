@@ -57,66 +57,96 @@ interface TooltipState {
   imports: [CommonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <!-- SVG donut -->
-    <svg
-      class="pie-svg"
-      viewBox="-120 -120 240 240"
-      (mousemove)="onSvgMouseMove($event)"
-      (mouseleave)="onSvgMouseLeave()"
-      (click)="onSvgClick($event)"
-      (dblclick)="onSvgDblClick($event)">
+    <!-- ── Top row: donut (+ spotlight when selected) ───────── -->
+    <div class="pie-top">
 
-      <g
-        *ngFor="let s of slices; trackBy: trackSlice"
-        class="pie-slice-g"
-        [class.pie-slice-g--hovered]="hoveredIndex === s.index"
-        [class.pie-slice-g--selected]="selectedIndex === s.index"
-        [class.pie-slice-g--other]="s.index === -1"
-        [style.--tx]="s.tx"
-        [style.--ty]="s.ty">
+      <svg
+        class="pie-svg"
+        viewBox="-120 -120 240 240"
+        (mousemove)="onSvgMouseMove($event)"
+        (mouseleave)="onSvgMouseLeave()"
+        (click)="onSvgClick($event)"
+        (dblclick)="onSvgDblClick($event)">
 
-        <!-- 100% full-circle fallback: arc command is degenerate at 360° -->
-        <ng-container *ngIf="isFullCircle(s); else arcSlice">
-          <circle class="pie-path" [class.pie-path--other]="s.index === -1"
-                  cx="0" cy="0" [attr.r]="outerR" [attr.fill]="s.color"/>
-          <circle class="pie-path pie-path--inner-mask"
-                  cx="0" cy="0" [attr.r]="innerR"
-                  fill="var(--vsc-panel-background, #252526)"/>
-        </ng-container>
-        <ng-template #arcSlice>
-          <path class="pie-path" [class.pie-path--other]="s.index === -1"
-                [attr.d]="getSlicePath(s)" [attr.fill]="s.color"/>
-        </ng-template>
+        <g
+          *ngFor="let s of slices; trackBy: trackSlice"
+          class="pie-slice-g"
+          [class.pie-slice-g--hovered]="hoveredIndex === s.index"
+          [class.pie-slice-g--selected]="selectedIndex === s.index"
+          [class.pie-slice-g--other]="s.index === -1"
+          [style.--tx]="s.tx"
+          [style.--ty]="s.ty">
 
-      </g>
+          <ng-container *ngIf="isFullCircle(s); else arcSlice">
+            <circle class="pie-path" [class.pie-path--other]="s.index === -1"
+                    cx="0" cy="0" [attr.r]="outerR" [attr.fill]="s.color"/>
+            <circle class="pie-path pie-path--inner-mask"
+                    cx="0" cy="0" [attr.r]="innerR"
+                    fill="var(--vsc-panel-background, #252526)"/>
+          </ng-container>
+          <ng-template #arcSlice>
+            <path class="pie-path" [class.pie-path--other]="s.index === -1"
+                  [attr.d]="getSlicePath(s)" [attr.fill]="s.color"/>
+          </ng-template>
 
-      <!-- Donut hole -->
-      <circle cx="0" cy="0" [attr.r]="innerR" class="pie-hole" pointer-events="none"/>
+        </g>
 
-      <!-- Center: selected entry name + pct -->
-      <g *ngIf="selectedIndex !== null && selectedIndex >= 0 && hoveredIndex !== -1"
-         class="pie-center" pointer-events="none">
-        <text y="-7"  text-anchor="middle" class="pie-center-name">{{ centerName }}</text>
-        <text y="10" text-anchor="middle" class="pie-center-pct">{{ centerPct }}</text>
-      </g>
+        <circle cx="0" cy="0" [attr.r]="innerR" class="pie-hole" pointer-events="none"/>
 
-      <!-- Center: Other hover hint -->
-      <g *ngIf="hoveredIndex === -1" class="pie-center" pointer-events="none">
-        <text y="-4" text-anchor="middle" class="pie-center-other1">Other</text>
-        <text y="11" text-anchor="middle" class="pie-center-other2">click to expand</text>
-      </g>
+        <g *ngIf="selectedIndex !== null && selectedIndex >= 0 && hoveredIndex !== -1"
+           class="pie-center" pointer-events="none">
+          <text y="-7"  text-anchor="middle" class="pie-center-name">{{ centerName }}</text>
+          <text y="10" text-anchor="middle" class="pie-center-pct">{{ centerPct }}</text>
+        </g>
 
-      <!-- SVG tooltip -->
-      <g *ngIf="tooltip.visible" class="pie-tip" pointer-events="none"
-         [attr.transform]="tooltipTransform">
-        <rect class="pie-tip-bg" x="-2" y="-14" [attr.width]="tooltipWidth" height="32" rx="3"/>
-        <text class="pie-tip-name" x="6" y="0">{{ tooltip.name }}</text>
-        <text class="pie-tip-meta" x="6" y="14">{{ tooltip.size }} · {{ tooltip.pct }}</text>
-      </g>
+        <g *ngIf="hoveredIndex === -1" class="pie-center" pointer-events="none">
+          <text y="-4" text-anchor="middle" class="pie-center-other1">Other</text>
+          <text y="11" text-anchor="middle" class="pie-center-other2">click to expand</text>
+        </g>
 
-    </svg>
+        <g *ngIf="tooltip.visible" class="pie-tip" pointer-events="none"
+           [attr.transform]="tooltipTransform">
+          <rect class="pie-tip-bg" x="-2" y="-14" [attr.width]="tooltipWidth" height="32" rx="3"/>
+          <text class="pie-tip-name" x="6" y="0">{{ tooltip.name }}</text>
+          <text class="pie-tip-meta" x="6" y="14">{{ tooltip.size }} · {{ tooltip.pct }}</text>
+        </g>
 
-    <!-- Legend -->
+      </svg>
+
+      <!-- Spotlight — always visible, shows heaviest slice by default -->
+      <div class="pie-spotlight">
+        <div class="pie-spot-header">
+          <span class="pie-spot-icon">{{ selectedEntry?.isDir ? '▣' : '•' }}</span>
+          <span class="pie-spot-name" [title]="selectedEntry?.path">{{ selectedEntry?.name }}</span>
+          <span class="pie-pill" [class.pie-pill--dir]="selectedEntry?.isDir">
+            {{ selectedEntry?.isDir ? 'Folder' : 'File' }}
+          </span>
+        </div>
+        <div class="pie-spot-size">{{ formatBytes(selectedEntry?.size ?? 0) }}</div>
+        <div class="pie-spot-share">{{ selectedEntry ? pctStr(selectedEntry) : '' }} of this location</div>
+        <div class="pie-bar-track">
+          <div class="pie-bar-fill"
+               [style.width.%]="animatedBarPct"
+               [style.background]="selectedIndex !== null ? getColor(selectedIndex) : ''"
+               [style.transition]="barTransition">
+          </div>
+        </div>
+        <div class="pie-spot-stats" *ngIf="selectedEntry?.isDir">
+          <div class="pie-stat">
+            <span class="pie-stat-val">{{ selectedEntry!.files | number }}</span>
+            <span class="pie-stat-lbl">files</span>
+          </div>
+          <div class="pie-stat">
+            <span class="pie-stat-val">{{ selectedEntry!.dirs | number }}</span>
+            <span class="pie-stat-lbl">folders</span>
+          </div>
+        </div>
+        <div class="pie-spot-path" [title]="selectedEntry?.path">{{ selectedEntry?.path }}</div>
+      </div>
+
+    </div>
+
+    <!-- ── Bottom: full-width legend ──────────────────────── -->
     <div class="pie-legend">
       <button
         *ngFor="let e of displayEntries; let i = index"
@@ -133,7 +163,6 @@ interface TooltipState {
         <span class="pie-legend-pct">{{ pctStr(e) }}</span>
       </button>
 
-      <!-- Other row -->
       <button
         *ngIf="otherEntries.length > 0"
         class="pie-legend-item pie-legend-item--other"
@@ -150,28 +179,6 @@ interface TooltipState {
         <span class="pie-drill-arrow">›</span>
       </button>
     </div>
-
-    <!-- Details strip -->
-    <div class="pie-details" *ngIf="selectedEntry">
-      <div class="pie-details-row">
-        <span class="pie-details-icon">{{ selectedEntry.isDir ? '▣' : '•' }}</span>
-        <span class="pie-details-name" [title]="selectedEntry.path">{{ selectedEntry.name }}</span>
-        <span class="pie-pill" [class.pie-pill--dir]="selectedEntry.isDir">
-          {{ selectedEntry.isDir ? 'Folder' : 'File' }}
-        </span>
-        <span class="pie-details-size">{{ formatBytes(selectedEntry.size) }}</span>
-      </div>
-      <div class="pie-bar-track">
-        <div class="pie-bar-fill"
-             [style.width.%]="animatedBarPct"
-             [style.background]="selectedIndex !== null ? getColor(selectedIndex) : ''"
-             [style.transition]="barTransition">
-        </div>
-      </div>
-      <div class="pie-details-meta" *ngIf="selectedEntry.isDir">
-        {{ selectedEntry.files | number }} files · {{ selectedEntry.dirs | number }} folders
-      </div>
-    </div>
   `,
   styles: [`
     :host {
@@ -184,12 +191,142 @@ interface TooltipState {
       min-width: 0;
     }
 
-    /* ── Layout ───────────────────────────────────────────── */
+    /* ── Top row ──────────────────────────────────────────── */
+
+    .pie-top {
+      display: flex;
+      align-items: stretch;
+      gap: 16px;
+      min-width: 0;
+    }
+
+    /* ── Spotlight ────────────────────────────────────────── */
+
+    .pie-spotlight {
+      flex: 1 1 0%;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 12px;
+      border-radius: var(--vsc-border-radius-lg, 4px);
+      border: 1px solid var(--vsc-border-subtle, #3a3a3a);
+      background: var(--vsc-editor-background, #1e1e1e);
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    /* Animate content swap when a different slice is selected */
+    .pie-spot-header,
+    .pie-spot-size,
+    .pie-spot-share,
+    .pie-spot-stats,
+    .pie-spot-path {
+      transition: opacity 0.15s ease;
+    }
+
+    /* ── Legend: full width below, auto-fill 2+ columns ─────  */
+
+    .pie-legend {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 2px;
+      min-width: 0;
+    }
+
+    .pie-spot-header {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      min-width: 0;
+    }
+
+    .pie-spot-icon {
+      font-size: 11px;
+      flex-shrink: 0;
+      color: var(--vsc-foreground-dim, #888);
+    }
+
+    .pie-spot-name {
+      flex: 1;
+      min-width: 0;
+      font-weight: 600;
+      font-size: 13px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .pie-pill {
+      font-size: 9px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      padding: 2px 6px;
+      border-radius: 999px;
+      background: rgba(157,220,252,.15);
+      color: #9ddcfc;
+      flex-shrink: 0;
+    }
+    .pie-pill--dir { background: rgba(184,209,143,.15); color: #b8d18f; }
+
+    .pie-spot-size {
+      font-size: 26px;
+      font-weight: 700;
+      letter-spacing: -.04em;
+      font-variant-numeric: tabular-nums;
+      line-height: 1;
+    }
+
+    .pie-spot-share {
+      font-size: 11px;
+      color: var(--vsc-foreground-dim, #888);
+    }
+
+    .pie-bar-track {
+      height: 4px;
+      border-radius: 999px;
+      background: var(--vsc-input-background, #3c3c3c);
+      border: 1px solid var(--vsc-border-subtle, #3a3a3a);
+      overflow: hidden;
+    }
+    .pie-bar-fill { height: 100%; border-radius: inherit; width: 0%; }
+
+    .pie-spot-stats {
+      display: flex;
+      gap: 16px;
+      margin-top: 2px;
+    }
+
+    .pie-stat {
+      display: flex;
+      align-items: baseline;
+      gap: 4px;
+    }
+    .pie-stat-val {
+      font-size: 13px;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
+    .pie-stat-lbl {
+      font-size: 10px;
+      color: var(--vsc-foreground-dim, #888);
+    }
+
+    .pie-spot-path {
+      margin-top: auto;
+      font-size: 10px;
+      color: var(--vsc-foreground-dim, #666);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* ── SVG ──────────────────────────────────────────────── */
 
     .pie-svg {
       flex-shrink: 0;
-      width: 220px;
-      height: 220px;
+      width: 200px;
+      height: 200px;
       cursor: pointer;
       overflow: visible;
       align-self: center;
@@ -311,32 +448,12 @@ interface TooltipState {
     .pie-legend-item--other:hover .pie-drill-arrow,
     .pie-legend-item--other.pie-legend-item--hovered .pie-drill-arrow { transform: translateX(2px); color: var(--vsc-foreground, #ccc); }
 
-    /* ── Details strip ────────────────────────────────────── */
-
-    .pie-details {
-      display: flex;
-      flex-direction: column;
-      gap: 7px;
-      padding: 10px 12px;
-      background: var(--vsc-editor-background, #1e1e1e);
-      border: 1px solid var(--vsc-border-subtle, #3a3a3a);
-      border-radius: var(--vsc-border-radius-lg, 4px);
-    }
-    .pie-details-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
-    .pie-details-icon { font-size: 11px; flex-shrink: 0; color: var(--vsc-foreground-dim, #888); }
-    .pie-details-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; font-size: 13px; }
-    .pie-pill { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; padding: 2px 6px; border-radius: 999px; background: rgba(157,220,252,.15); color: #9ddcfc; flex-shrink: 0; }
-    .pie-pill--dir { background: rgba(184,209,143,.15); color: #b8d18f; }
-    .pie-details-size { font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; flex-shrink: 0; }
-    .pie-bar-track { height: 4px; border-radius: 999px; background: var(--vsc-input-background, #3c3c3c); border: 1px solid var(--vsc-border-subtle, #3a3a3a); overflow: hidden; }
-    .pie-bar-fill  { height: 100%; border-radius: inherit; width: 0%; }
-    .pie-details-meta { font-size: 11px; color: var(--vsc-foreground-dim, #888); }
-
     /* Light theme */
     :host-context(.vscode-light) .pie-hole  { fill: var(--vsc-panel-background, #f3f3f3); }
     :host-context(.vscode-light) .pie-path  { stroke: var(--vsc-panel-background, #f3f3f3); }
     :host-context(.vscode-light) .pie-pill  { background: rgba(10,93,143,.12); color: #0a5d8f; }
     :host-context(.vscode-light) .pie-pill--dir { background: rgba(90,110,0,.12); color: #5a6e00; }
+    :host-context(.vscode-light) .pie-spotlight { background: var(--vsc-input-background, #ffffff); }
   `],
 })
 export class DiskPieChartComponent implements OnChanges, OnDestroy {
@@ -389,14 +506,22 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['entries'] || changes['totalSize'] || changes['minPct']) {
-      // Reset interaction state when the data changes (parent navigated)
-      this.selectedIndex  = null;
       this.hoveredIndex   = null;
       this.tooltip        = { ...this.tooltip, visible: false };
       this.animatedBarPct = 0;
       this.barTransition  = 'none';
       this.partition();
       this.buildSlices();
+      // Auto-select the heaviest (first) slice so spotlight is always visible.
+      // displayEntries is already sorted by size descending from partition().
+      if (this.displayEntries.length > 0) {
+        this.selectedIndex = 0;
+        this.triggerBarAnimation();
+        // Notify parent so breakdown table highlight stays in sync
+        this.select.emit(this.displayEntries[0]);
+      } else {
+        this.selectedIndex = null;
+      }
     }
   }
 

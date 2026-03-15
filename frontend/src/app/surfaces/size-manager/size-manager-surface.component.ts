@@ -42,17 +42,9 @@ interface PieFrame {
         <span class="sm-kicker">Disk Usage</span>
         <span class="sm-sep">·</span>
         <span class="sm-current-label">{{ currentLabel }}</span>
-        <span class="sm-path" [title]="currentPath">{{ currentPath }}</span>
+        <span class="sm-path" *ngIf="showCurrentPath" [title]="currentPath">{{ currentPath }}</span>
       </div>
       <div class="sm-header-actions">
-        <span
-          class="sm-header-activity"
-          *ngIf="isTraversing"
-          [attr.aria-label]="headerProgressLabel"
-          [title]="headerProgressLabel"
-          role="status">
-          <span class="sm-header-activity-dot"></span>
-        </span>
         <button class="sm-btn" [disabled]="!parentPath" (click)="goUp()" title="Go to parent">↑ Parent</button>
         <button class="sm-btn" (click)="refresh()">↺ Refresh</button>
         <button class="sm-btn sm-btn--close" (click)="close()" title="Close">✕</button>
@@ -61,7 +53,6 @@ interface PieFrame {
 
     <!-- ── Loading ────────────────────────────────────────── -->
     <div class="sm-loading" *ngIf="isTraversing && !hasVisibleContent">
-      <div class="sm-spinner"></div>
       <span>Loading entries for <strong>{{ currentLabel }}</strong>…</span>
     </div>
 
@@ -76,7 +67,13 @@ interface PieFrame {
     <div class="sm-body" *ngIf="hasVisibleContent">
 
       <div class="sm-inline-status" *ngIf="isTraversing">
-        <div class="sm-spinner"></div>
+        <span
+          class="sm-inline-activity"
+          [attr.aria-label]="headerProgressLabel"
+          [title]="headerProgressLabel"
+          role="status">
+          <span class="sm-inline-activity-dot"></span>
+        </span>
         <span>Loading entries for <strong>{{ currentLabel }}</strong>… showing live results.</span>
       </div>
 
@@ -216,8 +213,6 @@ interface PieFrame {
     .sm-header-left { display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden; }
     .sm-kicker { font-size: 10px; text-transform: uppercase; letter-spacing: .14em; color: var(--_text-dim); flex-shrink: 0; }
     .sm-sep { color: var(--_text-dim); flex-shrink: 0; }
-    .sm-header-activity { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; flex-shrink: 0; border-radius: 999px; background: color-mix(in srgb, #2bb24c 14%, transparent); border: 1px solid color-mix(in srgb, #2bb24c 35%, var(--_border)); }
-    .sm-header-activity-dot { width: 10px; height: 10px; border-radius: 999px; background: #2bb24c; border: 1px solid rgba(255, 255, 255, 0.35); box-shadow: 0 0 0 0 rgba(43, 178, 76, 0.45); animation: sm-pulse-green 1.3s ease-out infinite; }
     .sm-current-label { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; max-width: 200px; }
     .sm-path { font-size: 11px; color: var(--_text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
     .sm-header-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
@@ -230,8 +225,6 @@ interface PieFrame {
     .sm-btn--close { padding: 4px 8px; }
 
     .sm-loading { display: flex; align-items: center; gap: 10px; padding: 16px 14px; flex-shrink: 0; color: var(--_text-dim); }
-    .sm-spinner { width: 14px; height: 14px; border: 2px solid var(--_border); border-top-color: var(--_blue); border-radius: 50%; animation: sm-spin .6s linear infinite; flex-shrink: 0; }
-    @keyframes sm-spin { to { transform: rotate(360deg); } }
     @keyframes sm-pulse-green {
       0% { box-shadow: 0 0 0 0 rgba(43, 178, 76, 0.45); }
       70% { box-shadow: 0 0 0 8px rgba(43, 178, 76, 0); }
@@ -243,6 +236,8 @@ interface PieFrame {
 
     .sm-body { display: flex; flex-direction: column; flex: 1 1 0%; min-height: 0; overflow: auto; padding: 12px 14px; gap: 12px; scrollbar-width: thin; scrollbar-color: var(--vsc-scrollbar-thumb, #424242) transparent; }
     .sm-inline-status { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: var(--vsc-border-radius-lg, 4px); border: 1px solid var(--_border-sub); background: color-mix(in srgb, var(--_surface2) 65%, transparent); color: var(--_text-dim); }
+    .sm-inline-activity { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; flex-shrink: 0; border-radius: 999px; background: color-mix(in srgb, #2bb24c 14%, transparent); border: 1px solid color-mix(in srgb, #2bb24c 35%, var(--_border)); }
+    .sm-inline-activity-dot { width: 10px; height: 10px; border-radius: 999px; background: #2bb24c; border: 1px solid rgba(255, 255, 255, 0.35); box-shadow: 0 0 0 0 rgba(43, 178, 76, 0.45); animation: sm-pulse-green 1.3s ease-out infinite; }
 
     .sm-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; flex-shrink: 0; }
     .sm-metric { padding: 10px 12px; border-radius: var(--vsc-border-radius-lg, 4px); border: 1px solid var(--_border-sub); background: var(--_surface); }
@@ -363,6 +358,10 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
 
   get currentLabel(): string {
     return this.labelFromPath(this.currentPath) || this.currentPath || 'Disk Usage';
+  }
+
+  get showCurrentPath(): boolean {
+    return this.normalizePathDisplay(this.currentLabel) !== this.normalizePathDisplay(this.currentPath);
   }
 
   get hasVisibleContent(): boolean {
@@ -520,5 +519,9 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
     if (/^[a-zA-Z]:$/.test(n)) return n + '/';
     const segs = n.split('/');
     return segs[segs.length - 1] || n;
+  }
+
+  private normalizePathDisplay(path: string): string {
+    return path.replace(/\\/g, '/').replace(/\/+$/, '');
   }
 }

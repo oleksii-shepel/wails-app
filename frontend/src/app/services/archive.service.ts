@@ -114,13 +114,7 @@ async function goBrowse(
   const app = window.go?.main?.App;
   if (!app) throw new Error('Wails bridge not available');
 
-  if (app.ArchiveBrowse)
-    return app.ArchiveBrowse(fsPath, nestedChain, innerPath);
-
-  if (nestedChain.length === 0)
-    return app.ArchiveList(fsPath, innerPath);
-
-  return app.ArchiveListNested(fsPath, nestedChain, innerPath);
+  return app.ArchiveBrowse(fsPath, nestedChain, innerPath);
 }
 
 /* ─────────────────────────────────────────────────────────────

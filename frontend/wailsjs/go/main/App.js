@@ -18,24 +18,12 @@ export function ArchiveDeleteEntries(arg1) {
   return window['go']['main']['App']['ArchiveDeleteEntries'](arg1);
 }
 
-export function ArchiveList(arg1, arg2) {
-  return window['go']['main']['App']['ArchiveList'](arg1, arg2);
-}
-
-export function ArchiveListNested(arg1, arg2, arg3) {
-  return window['go']['main']['App']['ArchiveListNested'](arg1, arg2, arg3);
-}
-
 export function ArchiveMoveEntries(arg1) {
   return window['go']['main']['App']['ArchiveMoveEntries'](arg1);
 }
 
 export function ArchiveRead(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['ArchiveRead'](arg1, arg2, arg3, arg4);
-}
-
-export function ArchiveReadFile(arg1, arg2, arg3, arg4) {
-  return window['go']['main']['App']['ArchiveReadFile'](arg1, arg2, arg3, arg4);
 }
 
 export function BatchCopy(arg1) {

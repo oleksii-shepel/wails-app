@@ -17,9 +17,8 @@ interface ImageMeta { width: number; height: number }
 // ── Archive context passed in from FilePaneComponent ─────────────────────────
 //
 // When the viewer tab is opened for a file inside an archive, the pane passes
-// the current ArchiveFrame stack so the viewer can call ArchiveReadFile (which
-// extracts bytes into memory on the Go side) instead of trying to read a
-// virtual path from disk.
+// the current ArchiveFrame stack so the viewer can call ArchiveRead through the
+// same VFS-backed archive handler path used by archive browsing.
 export interface ViewerArchiveContext {
   /** Outermost archive on disk, e.g. "C:/foo/archive.zip" */
   fsPath: string;
@@ -547,8 +546,8 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
 
   /**
    * Optional — populated by FilePaneComponent when the viewer tab was opened
-   * for a file inside an archive.  When present, content is read by calling
-   * ArchiveReadFile (in-memory extraction on the Go side) rather than ReadFile.
+    * for a file inside an archive. When present, content is read through the
+    * archive service rather than a direct filesystem ReadFile call.
    */
   @Input() archiveContext: ViewerArchiveContext | null = null;
 
@@ -735,9 +734,8 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
   /**
    * Load a file from inside an archive.
    *
-   * The Go backend's ArchiveReadFile extracts the entry bytes entirely in
-   * memory (no temp files on disk for flat archives) and returns them encoded
-   * as requested.  This is the right approach — no temp-file round-trips.
+    * The Go backend's ArchiveRead uses the shared archive cache/VFS handler and
+    * returns the entry bytes encoded as requested.
    */
   private async loadFromArchive(ctx: ViewerArchiveContext): Promise<void> {
     // Build a synthetic FileInfo from the archive context so the header shows
@@ -749,14 +747,14 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
 
     await this.renderContent(ext, null /* size unknown yet */, {
       readText: async () => {
-        const r = await this.api.archiveReadFile(ctx.fsPath, ctx.nestedChain, ctx.entryPath, 'utf8');
+        const r = await this.api.archiveRead(ctx.fsPath, ctx.nestedChain, ctx.entryPath, 'utf8');
         if (!r) return null;
         // Backfill synthetic info now we have the size
         this.info = this.makeSyntheticInfo(entryName, ctx.entryPath, r.size ?? 0);
         return r.content;
       },
       readBase64: async () => {
-        const r = await this.api.archiveReadFile(ctx.fsPath, ctx.nestedChain, ctx.entryPath, 'base64');
+        const r = await this.api.archiveRead(ctx.fsPath, ctx.nestedChain, ctx.entryPath, 'base64');
         if (!r) return null;
         this.info = this.makeSyntheticInfo(entryName, ctx.entryPath, r.size ?? 0);
         return r.content;

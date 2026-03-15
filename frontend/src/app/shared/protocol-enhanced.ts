@@ -39,9 +39,9 @@ export interface TabInfo {
     sourceDir?: string;
     /**
      * Present when the viewed file lives inside an archive.
-     * The viewer uses this to call ArchiveReadFile (in-memory extraction)
-     * instead of ReadFile.  Cleared when autoFollow changes the target to a
-     * regular filesystem file.
+      * The viewer uses this to call ArchiveRead through the shared VFS-backed
+      * archive path instead of ReadFile. Cleared when autoFollow changes the
+      * target to a regular filesystem file.
      */
     archiveContext?: {
       /** Outermost archive on disk, e.g. "C:/foo/archive.zip" */

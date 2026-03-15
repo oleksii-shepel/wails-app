@@ -283,7 +283,7 @@ export class ApiService {
     return await window.go.main.App.ArchiveBrowse(fsPath, nestedChain, innerPath);
   }
 
-  async archiveReadFile(fsPath: string, nestedChain: string[] = [], entryPath: string, encoding: string = 'utf8'): Promise<FileContent> {
+  async archiveRead(fsPath: string, nestedChain: string[] = [], entryPath: string, encoding: string = 'utf8'): Promise<FileContent> {
     return await window.go.main.App.ArchiveRead(fsPath, nestedChain, entryPath, encoding);
   }
 

@@ -14,16 +14,8 @@ func (s *ArchiveService) Browse(fsPath string, nestedChain []string, innerPath s
 	return s.app.vfsBrowseArchive(fsPath, nestedChain, innerPath)
 }
 
-func (s *ArchiveService) List(fsPath string, innerPath string) (ArchiveListing, error) {
-	return s.app.archiveList(fsPath, innerPath)
-}
-
-func (s *ArchiveService) ListNested(fsPath string, nestedChain []string, innerPath string) (ArchiveListing, error) {
-	return s.app.archiveListNested(fsPath, nestedChain, innerPath)
-}
-
 func (s *ArchiveService) ReadFile(fsPath string, nestedChain []string, entryPath string, encoding string) (*FileContent, error) {
-	return s.app.archiveReadFile(fsPath, nestedChain, entryPath, encoding)
+	return s.app.readArchiveEntry(fsPath, nestedChain, entryPath, encoding)
 }
 
 func (s *ArchiveService) CopyEntries(req ArchiveEntriesRequest) (*ArchiveEntriesResult, error) {
@@ -42,19 +34,7 @@ func (a *App) ArchiveBrowse(fsPath string, nestedChain []string, innerPath strin
 	return a.archive.Browse(fsPath, nestedChain, innerPath)
 }
 
-func (a *App) ArchiveList(fsPath string, innerPath string) (ArchiveListing, error) {
-	return a.archive.List(fsPath, innerPath)
-}
-
-func (a *App) ArchiveListNested(fsPath string, nestedChain []string, innerPath string) (ArchiveListing, error) {
-	return a.archive.ListNested(fsPath, nestedChain, innerPath)
-}
-
 func (a *App) ArchiveRead(fsPath string, nestedChain []string, entryPath string, encoding string) (*FileContent, error) {
-	return a.archive.ReadFile(fsPath, nestedChain, entryPath, encoding)
-}
-
-func (a *App) ArchiveReadFile(fsPath string, nestedChain []string, entryPath string, encoding string) (*FileContent, error) {
 	return a.archive.ReadFile(fsPath, nestedChain, entryPath, encoding)
 }
 

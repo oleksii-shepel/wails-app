@@ -23,11 +23,16 @@ import { TabInfo } from "../shared/protocol-enhanced";
         <path d="M8 3c-4.2 0-7 5-7 5s2.8 5 7 5 7-5 7-5-2.8-5-7-5Zm0 8.2A3.2 3.2 0 1 1 8 4.8a3.2 3.2 0 0 1 0 6.4Zm0-1.8A1.4 1.4 0 1 0 8 6.6a1.4 1.4 0 0 0 0 2.8Z"/>
       </svg>
 
-      <svg *ngIf="tab?.kind !== 'viewer' && !isArchiveTab" width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-label="Folder" class="tab-icon tab-icon--folder">
+      <svg *ngIf="tab?.kind === 'size-manager'" width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-label="Disk Usage" class="tab-icon tab-icon--disk-usage">
+        <path d="M8 8 L8 2 A6 6 0 1 1 2 8 Z"/>
+        <path d="M8 8 L2 8 A6 6 0 0 0 8 2 Z" opacity="0.4"/>
+      </svg>
+
+      <svg *ngIf="tab?.kind !== 'viewer' && tab?.kind !== 'size-manager' && !isArchiveTab" width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-label="Folder" class="tab-icon tab-icon--folder">
         <path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h3.086a1.5 1.5 0 0 1 1.06.44l.915.914A.5.5 0 0 0 7.914 3.5H13.5A1.5 1.5 0 0 1 15 5v7.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 12.5v-9Z"/>
       </svg>
 
-      <svg *ngIf="tab?.kind !== 'viewer' && isArchiveTab" width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-label="Archive" class="tab-icon tab-icon--archive">
+      <svg *ngIf="tab?.kind !== 'viewer' && tab?.kind !== 'size-manager' && isArchiveTab" width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-label="Archive" class="tab-icon tab-icon--archive">
         <path d="M2 1a1 1 0 0 0-1 1v1a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1H2Z"/>
         <path d="M2 5v8a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V5H2Zm4 2.5h4a.5.5 0 0 1 0 1H8.5v1a.5.5 0 0 1-1 0v-1H6a.5.5 0 0 1 0-1Z"/>
       </svg>
@@ -127,6 +132,11 @@ import { TabInfo } from "../shared/protocol-enhanced";
 
     .tab-icon--archive {
       color: #ffb347;
+      opacity: 1;
+    }
+
+    .tab-icon--disk-usage {
+      color: #4ec9b0;
       opacity: 1;
     }
 

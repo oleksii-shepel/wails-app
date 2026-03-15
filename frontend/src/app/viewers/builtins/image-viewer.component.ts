@@ -310,7 +310,7 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
     const ext = this.extractExt(ctx.entryPath);
 
     if (ext === 'svg') {
-      const r = await this.api.archiveReadFile(ctx.fsPath, ctx.nestedChain, ctx.entryPath, 'utf8');
+      const r = await this.api.archiveRead(ctx.fsPath, ctx.nestedChain, ctx.entryPath, 'utf8');
       if (!r) { this.kind = 'unsupported'; return; }
       this.info = this.makeSyntheticInfo(entryName, ctx.entryPath, r.size ?? 0);
       if ((r.size ?? 0) > this.MAX_IMAGE_BYTES) { this.kind = 'toobig'; return; }
@@ -321,7 +321,7 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
 
     const mime = this.inferImageMime(ext);
     if (!mime) { this.kind = 'unsupported'; return; }
-    const r = await this.api.archiveReadFile(ctx.fsPath, ctx.nestedChain, ctx.entryPath, 'base64');
+    const r = await this.api.archiveRead(ctx.fsPath, ctx.nestedChain, ctx.entryPath, 'base64');
     if (!r) { this.kind = 'unsupported'; return; }
     this.info = this.makeSyntheticInfo(entryName, ctx.entryPath, r.size ?? 0);
     if ((r.size ?? 0) > this.MAX_IMAGE_BYTES) { this.kind = 'toobig'; return; }

@@ -1,26 +1,30 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
+	"io"
 )
 
-// ArchiveReadFile extracts a single entry from an archive into memory.
-func (a *App) archiveReadFile(fsPath string, nestedChain []string, entryPath string, encoding string) (*FileContent, error) {
+// readArchiveEntry reads a single archive entry through the shared VFS-backed
+// archive cache so browsing and preview use the same handler implementation.
+func (a *App) readArchiveEntry(fsPath string, nestedChain []string, entryPath string, encoding string) (*FileContent, error) {
 	entryPath = normalize(entryPath)
 
-	var data []byte
-	var err error
-
-	if len(nestedChain) == 0 {
-		data, err = a.extractFromFile(fsPath, entryPath)
-	} else {
-		archiveData, nestedErr := a.extractNestedArchive(fsPath, nestedChain)
-		if nestedErr != nil {
-			return nil, nestedErr
-		}
-		data, err = a.extractFromBytes(archiveData, entryPath, nestedChain[len(nestedChain)-1])
+	ctx := context.Background()
+	arch, err := a.archCache.Get(ctx, fsPath, nestedChain, "")
+	if err != nil {
+		return nil, fmt.Errorf("archive read: open %q: %w", fsPath, err)
 	}
+
+	f, err := arch.Open(ctx, entryPath)
+	if err != nil {
+		return nil, fmt.Errorf("archive read: open entry %q: %w", entryPath, err)
+	}
+	defer f.Close()
+
+	data, err := io.ReadAll(f)
 	if err != nil {
 		return nil, err
 	}

@@ -74,6 +74,8 @@ interface PieFrame {
           role="status">
           <span class="sm-inline-activity-dot"></span>
         </span>
+        <span class="sm-inline-elapsed">{{ liveElapsedLabel }}</span>
+        <span class="sm-inline-sep">·</span>
         <span>Loading entries for <strong>{{ currentLabel }}</strong>… showing live results.</span>
       </div>
 
@@ -235,7 +237,9 @@ interface PieFrame {
     .sm-error-icon { font-size: 15px; flex-shrink: 0; }
 
     .sm-body { display: flex; flex-direction: column; flex: 1 1 0%; min-height: 0; overflow: auto; padding: 12px 14px; gap: 12px; scrollbar-width: thin; scrollbar-color: var(--vsc-scrollbar-thumb, #424242) transparent; }
-    .sm-inline-status { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: var(--vsc-border-radius-lg, 4px); border: 1px solid var(--_border-sub); background: color-mix(in srgb, var(--_surface2) 65%, transparent); color: var(--_text-dim); }
+    .sm-inline-status { display: flex; align-items: center; gap: 10px; padding: 2px 0; color: var(--_text-dim); }
+    .sm-inline-elapsed { font-variant-numeric: tabular-nums; white-space: nowrap; color: #2bb24c; font-weight: 600; }
+    .sm-inline-sep { color: var(--_text-dim); }
     .sm-inline-activity { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; flex-shrink: 0; border-radius: 999px; background: color-mix(in srgb, #2bb24c 14%, transparent); border: 1px solid color-mix(in srgb, #2bb24c 35%, var(--_border)); }
     .sm-inline-activity-dot { width: 10px; height: 10px; border-radius: 999px; background: #2bb24c; border: 1px solid rgba(255, 255, 255, 0.35); box-shadow: 0 0 0 0 rgba(43, 178, 76, 0.45); animation: sm-pulse-green 1.3s ease-out infinite; }
 
@@ -291,6 +295,9 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
   loading = false;
   isTraversing = false;
   error: string | null = null;
+  private scanStartedAt = 0;
+  private tickInterval: ReturnType<typeof setInterval> | null = null;
+  liveElapsedMs = 0;
   result: DiskUsageResult | null = null;
   entries: DiskUsageEntry[] = [];
   selectedEntry: DiskUsageEntry | null = null;
@@ -319,7 +326,7 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
     }
   }
 
-  ngOnDestroy(): void { this.destroyed = true; }
+  ngOnDestroy(): void { this.destroyed = true; this.stopTick(); }
 
   // ── Actions ───────────────────────────────────────────────────────────────
 
@@ -397,6 +404,12 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
     return this.formatBytes((this.result?.totalSize ?? this.visibleEntriesSize) / this.entries.length);
   }
 
+  get liveElapsedLabel(): string {
+    const ms = this.liveElapsedMs;
+    if (ms < 1000) return `${ms} ms`;
+    return `${(ms / 1000).toFixed(1)} s`;
+  }
+
   get elapsedLabel(): string {
     if (this.isTraversing) return 'Live scan';
     return this.result ? `${this.result.elapsedMs} ms` : 'Idle';
@@ -466,6 +479,7 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
     this.entries     = [];
     this.selectedEntry = null;
     this.pieStack    = [];
+    this.startTick();
     this.cdr.markForCheck();
 
     let firstEntryArrived = false;
@@ -500,7 +514,25 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
     } finally {
       this.loading = false;
       this.isTraversing = false;
+      this.stopTick();
       this.cdr.markForCheck();
+    }
+  }
+
+  private startTick(): void {
+    this.stopTick();
+    this.scanStartedAt = Date.now();
+    this.liveElapsedMs = 0;
+    this.tickInterval = setInterval(() => {
+      this.liveElapsedMs = Date.now() - this.scanStartedAt;
+      this.cdr.markForCheck();
+    }, 100);
+  }
+
+  private stopTick(): void {
+    if (this.tickInterval !== null) {
+      clearInterval(this.tickInterval);
+      this.tickInterval = null;
     }
   }
 

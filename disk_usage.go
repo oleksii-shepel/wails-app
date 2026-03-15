@@ -71,43 +71,29 @@ func (s *FilesystemService) AnalyzeDiskUsage(path string) (*DiskUsageResult, err
 		return nil, err
 	}
 
-	entries := make([]DiskUsageEntry, len(children))
-	var totalSize, totalFiles, totalDirs atomic.Int64
-
-	type job struct {
-		idx   int
-		entry os.DirEntry
-	}
-	jobs := make(chan job, len(children))
-	for i, child := range children {
-		jobs <- job{idx: i, entry: child}
-	}
-	close(jobs)
-
-	var wg sync.WaitGroup
-	workers := clampWorkers(len(children))
-	wg.Add(workers)
-	for w := 0; w < workers; w++ {
-		go func() {
-			defer wg.Done()
-			for j := range jobs {
-				du := walkEntry(path, j.entry)
-				accumulateTotals(&totalSize, &totalFiles, &totalDirs, du)
-				entries[j.idx] = du
-			}
-		}()
-	}
-	wg.Wait()
+	never := make(chan struct{}) // never closed — scan always runs to completion
+	entries, _ := globalBFS(path, children, never, nil)
 
 	sort.Slice(entries, func(i, j int) bool {
 		return entries[i].Size > entries[j].Size
 	})
 
+	var totalSize, totalFiles, totalDirs int64
+	for _, e := range entries {
+		totalSize += e.Size
+		if e.IsDir {
+			totalDirs += 1 + e.Dirs
+			totalFiles += e.Files
+		} else {
+			totalFiles++
+		}
+	}
+
 	return &DiskUsageResult{
 		Path:       toSlash(path),
-		TotalSize:  totalSize.Load(),
-		TotalFiles: totalFiles.Load(),
-		TotalDirs:  totalDirs.Load(),
+		TotalSize:  totalSize,
+		TotalFiles: totalFiles,
+		TotalDirs:  totalDirs,
 		Entries:    entries,
 		ElapsedMs:  time.Since(start).Milliseconds(),
 	}, nil
@@ -120,61 +106,39 @@ func (s *FilesystemService) StartDiskUsageStream(path string) (string, error) {
 		return "", err
 	}
 
-	entries := make([]DiskUsageEntry, len(children))
-
 	scanId := fmt.Sprintf("du-%d", time.Now().UnixNano())
 	done := s.duStreams.register(scanId)
 
 	go func() {
 		start := time.Now()
-		var totalSize, totalFiles, totalDirs atomic.Int64
 
-		type job struct {
-			idx   int
-			entry os.DirEntry
-		}
-		jobs := make(chan job, len(children))
-		for i, child := range children {
-			jobs <- job{idx: i, entry: child}
-		}
-		close(jobs)
+		entries, _ := globalBFS(path, children, done, func(_ int, entry DiskUsageEntry) {
+			select {
+			case <-done:
+			default:
+				s.emit("disk-usage:entry", map[string]interface{}{
+					"scanId": scanId,
+					"entry":  entry,
+				})
+			}
+		})
 
-		var wg sync.WaitGroup
-		workers := clampWorkers(len(children))
-		wg.Add(workers)
-		for w := 0; w < workers; w++ {
-			go func() {
-				defer wg.Done()
-				for j := range jobs {
-					select {
-					case <-done:
-						return
-					default:
-					}
-
-					du := walkEntry(path, j.entry)
-					accumulateTotals(&totalSize, &totalFiles, &totalDirs, du)
-					entries[j.idx] = du
-
-					select {
-					case <-done:
-						return
-					default:
-						s.emit("disk-usage:entry", map[string]interface{}{
-							"scanId": scanId,
-							"entry":  du,
-						})
-					}
-				}
-			}()
-		}
-
-		wg.Wait()
 		s.duStreams.unregister(scanId)
 
 		sort.Slice(entries, func(i, j int) bool {
 			return entries[i].Size > entries[j].Size
 		})
+
+		var totalSize, totalFiles, totalDirs int64
+		for _, e := range entries {
+			totalSize += e.Size
+			if e.IsDir {
+				totalDirs += 1 + e.Dirs
+				totalFiles += e.Files
+			} else {
+				totalFiles++
+			}
+		}
 
 		select {
 		case <-done:
@@ -184,9 +148,9 @@ func (s *FilesystemService) StartDiskUsageStream(path string) (string, error) {
 				"scanId": scanId,
 				"result": DiskUsageResult{
 					Path:       toSlash(path),
-					TotalSize:  totalSize.Load(),
-					TotalFiles: totalFiles.Load(),
-					TotalDirs:  totalDirs.Load(),
+					TotalSize:  totalSize,
+					TotalFiles: totalFiles,
+					TotalDirs:  totalDirs,
 					Entries:    entries,
 					ElapsedMs:  time.Since(start).Milliseconds(),
 				},
@@ -259,76 +223,179 @@ func readNonLinks(path string) ([]os.DirEntry, error) {
 	return out, nil
 }
 
-func walkEntry(parent string, e os.DirEntry) DiskUsageEntry {
-	name := e.Name()
-	full := filepath.Join(parent, name)
-	du := DiskUsageEntry{Name: name, Path: toSlash(full), IsDir: e.IsDir()}
-	if e.IsDir() {
-		sz, fc, dc, walkErr := bfsDirSize(full)
-		du.Size, du.Files, du.Dirs = sz, fc, dc
-		if walkErr != nil {
-			du.Error = walkErr.Error()
-		}
-	} else {
-		info, err := e.Info()
-		if err != nil {
-			du.Error = err.Error()
-		} else {
-			du.Size = info.Size()
-		}
-	}
-	return du
+// ── Global concurrent BFS ────────────────────────────────────────────────────
+
+// scanJob is one directory to process, tagged with its top-level ancestor index.
+type scanJob struct {
+	dir     string
+	rootIdx int
 }
 
-func accumulateTotals(size, files, dirs *atomic.Int64, du DiskUsageEntry) {
-	size.Add(du.Size)
-	if du.IsDir {
-		dirs.Add(1 + du.Dirs)
-		files.Add(du.Files)
-	} else {
-		files.Add(1)
+// globalBFS scans all direct children of root using a single shared concurrent
+// work queue. All workers serve the entire tree so no worker idles while a
+// large subtree monopolises another — unlike the old two-tier approach.
+//
+// onChildDone is called exactly once per directory child when its entire
+// subtree is scanned; pass nil when immediate notification is not needed.
+func globalBFS(
+	root string,
+	children []os.DirEntry,
+	done <-chan struct{},
+	onChildDone func(idx int, entry DiskUsageEntry),
+) ([]DiskUsageEntry, error) {
+	n := len(children)
+	entries := make([]DiskUsageEntry, n)
+
+	// Per-root-child accumulators.
+	type rootAccum struct {
+		size     atomic.Int64
+		files    atomic.Int64
+		dirs     atomic.Int64
+		inFlight atomic.Int32
 	}
-}
+	accums := make([]rootAccum, n)
 
-func clampWorkers(n int) int {
-	w := runtime.GOMAXPROCS(0)
-	if w < 2 {
-		w = 2
-	}
-	if w > n {
-		w = n
-	}
-	return w
-}
+	var firstErr error
+	var errMu sync.Mutex
 
-// ── Internal BFS walk ────────────────────────────────────────────────────────
-
-func bfsDirSize(dir string) (size int64, files int64, dirs int64, firstErr error) {
-	queue := []string{dir}
-	for len(queue) > 0 {
-		current := queue[0]
-		queue = queue[1:]
-
-		entries, err := os.ReadDir(current)
-		if err != nil {
-			if firstErr == nil {
-				firstErr = err
-			}
-			continue
+	// Initialise entry metadata; plain-file children are handled immediately.
+	for i, ch := range children {
+		full := filepath.Join(root, ch.Name())
+		entries[i] = DiskUsageEntry{
+			Name:  ch.Name(),
+			Path:  toSlash(full),
+			IsDir: ch.IsDir(),
 		}
-
-		for _, e := range entries {
-			full := filepath.Join(current, e.Name())
-			if e.IsDir() {
-				dirs++
-				queue = append(queue, full)
+		if !ch.IsDir() {
+			if info, err := ch.Info(); err == nil {
+				entries[i].Size = info.Size()
 			} else {
-				files++
-				if info, err := e.Info(); err == nil {
-					size += info.Size()
+				entries[i].Error = err.Error()
+			}
+			if onChildDone != nil {
+				onChildDone(i, entries[i])
+			}
+		}
+	}
+
+	// ── Job queue ─────────────────────────────────────────────────────────────
+	// A relay goroutine bridges a buffered input channel and a buffered output
+	// channel with an in-memory overflow slice so workers never block on send.
+	jobsIn := make(chan scanJob, 1024)
+	jobsOut := make(chan scanJob, 1024)
+	go func() { // relay
+		defer close(jobsOut)
+		var buf []scanJob
+		for {
+			if len(buf) == 0 {
+				j, ok := <-jobsIn
+				if !ok {
+					return
+				}
+				buf = append(buf, j)
+			} else {
+				select {
+				case j, ok := <-jobsIn:
+					if !ok {
+						for _, bj := range buf {
+							jobsOut <- bj
+						}
+						return
+					}
+					buf = append(buf, j)
+				case jobsOut <- buf[0]:
+					buf = buf[1:]
 				}
 			}
 		}
+	}()
+
+	var wg sync.WaitGroup
+	go func() { wg.Wait(); close(jobsIn) }() // closer
+
+	submit := func(job scanJob) {
+		wg.Add(1)
+		accums[job.rootIdx].inFlight.Add(1)
+		select {
+		case jobsIn <- job:
+		default:
+			// Buffer full: park in a goroutine so the calling worker stays unblocked.
+			// wg.Add(1) is already done above so wg.Wait() accounts for this goroutine.
+			go func() { jobsIn <- job }()
+		}
 	}
-	return
+
+	// Seed with top-level directory children.
+	for i, ch := range children {
+		if ch.IsDir() {
+			submit(scanJob{filepath.Join(root, ch.Name()), i})
+		}
+	}
+
+	// ── Workers ───────────────────────────────────────────────────────────────
+	numWorkers := runtime.GOMAXPROCS(0) * 2
+	if numWorkers < 4 {
+		numWorkers = 4
+	}
+	if numWorkers > 64 {
+		numWorkers = 64
+	}
+
+	var workerWG sync.WaitGroup
+	workerWG.Add(numWorkers)
+	for w := 0; w < numWorkers; w++ {
+		go func() {
+			defer workerWG.Done()
+			for job := range jobsOut {
+				cancelled := false
+				select {
+				case <-done:
+					cancelled = true
+				default:
+				}
+
+				if !cancelled {
+					dirEntries, err := os.ReadDir(job.dir)
+					if err != nil {
+						errMu.Lock()
+						if firstErr == nil {
+							firstErr = err
+						}
+						errMu.Unlock()
+					} else {
+						for _, e := range dirEntries {
+							if isLink(e) {
+								continue
+							}
+							full := filepath.Join(job.dir, e.Name())
+							if e.IsDir() {
+								accums[job.rootIdx].dirs.Add(1)
+								submit(scanJob{full, job.rootIdx})
+							} else {
+								accums[job.rootIdx].files.Add(1)
+								if info, err := e.Info(); err == nil {
+									accums[job.rootIdx].size.Add(info.Size())
+								}
+							}
+						}
+					}
+				}
+
+				if accums[job.rootIdx].inFlight.Add(-1) == 0 {
+					// All work for this root child is done — materialise entry.
+					idx := job.rootIdx
+					entries[idx].Size = accums[idx].size.Load()
+					entries[idx].Files = accums[idx].files.Load()
+					entries[idx].Dirs = accums[idx].dirs.Load()
+					if onChildDone != nil {
+						onChildDone(idx, entries[idx])
+					}
+				}
+				wg.Done()
+			}
+		}()
+	}
+
+	workerWG.Wait()
+	return entries, firstErr
 }

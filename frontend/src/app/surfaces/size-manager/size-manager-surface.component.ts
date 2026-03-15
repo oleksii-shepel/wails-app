@@ -3,9 +3,11 @@ import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
+  EventEmitter,
   Input,
   OnChanges,
   OnDestroy,
+  Output,
   SimpleChanges,
 } from '@angular/core';
 import { ApiService } from '../../services/api.service';
@@ -43,6 +45,14 @@ interface PieFrame {
         <span class="sm-path" [title]="currentPath">{{ currentPath }}</span>
       </div>
       <div class="sm-header-actions">
+        <span
+          class="sm-header-activity"
+          *ngIf="isTraversing"
+          [attr.aria-label]="headerProgressLabel"
+          [title]="headerProgressLabel"
+          role="status">
+          <span class="sm-header-activity-dot"></span>
+        </span>
         <button class="sm-btn" [disabled]="!parentPath" (click)="goUp()" title="Go to parent">↑ Parent</button>
         <button class="sm-btn" (click)="refresh()">↺ Refresh</button>
         <button class="sm-btn sm-btn--close" (click)="close()" title="Close">✕</button>
@@ -50,38 +60,43 @@ interface PieFrame {
     </div>
 
     <!-- ── Loading ────────────────────────────────────────── -->
-    <div class="sm-loading" *ngIf="loading">
+    <div class="sm-loading" *ngIf="isTraversing && !hasVisibleContent">
       <div class="sm-spinner"></div>
       <span>Scanning <strong>{{ currentLabel }}</strong>…</span>
     </div>
 
     <!-- ── Error ──────────────────────────────────────────── -->
-    <div class="sm-error" *ngIf="error && !loading">
+    <div class="sm-error" *ngIf="error && !isTraversing">
       <span class="sm-error-icon">⚠</span>
       <span>{{ error }}</span>
       <button class="sm-btn sm-btn--primary" (click)="refresh()">Retry</button>
     </div>
 
     <!-- ── Dashboard ──────────────────────────────────────── -->
-    <div class="sm-body" *ngIf="result && !loading">
+    <div class="sm-body" *ngIf="hasVisibleContent">
+
+      <div class="sm-inline-status" *ngIf="isTraversing">
+        <div class="sm-spinner"></div>
+        <span>Scanning <strong>{{ currentLabel }}</strong>… showing live results.</span>
+      </div>
 
       <!-- Metric strip -->
       <div class="sm-metrics">
         <div class="sm-metric">
-          <div class="sm-metric-val">{{ formatBytes(result.totalSize) }}</div>
-          <div class="sm-metric-lbl">Total size</div>
+          <div class="sm-metric-val">{{ totalSizeLabel }}</div>
+          <div class="sm-metric-lbl">{{ totalSizeMetricLabel }}</div>
         </div>
         <div class="sm-metric">
           <div class="sm-metric-val">{{ totalItems | number }}</div>
-          <div class="sm-metric-lbl">{{ result.totalFiles | number }} files · {{ result.totalDirs | number }} dirs</div>
+          <div class="sm-metric-lbl">{{ itemMixLabel }}</div>
         </div>
         <div class="sm-metric">
           <div class="sm-metric-val">{{ averageEntrySizeLabel }}</div>
           <div class="sm-metric-lbl">Avg child size</div>
         </div>
         <div class="sm-metric">
-          <div class="sm-metric-val">{{ result.elapsedMs }} ms</div>
-          <div class="sm-metric-lbl">{{ directoryMixLabel }}</div>
+          <div class="sm-metric-val">{{ elapsedLabel }}</div>
+          <div class="sm-metric-lbl">{{ elapsedMetricLabel }}</div>
         </div>
       </div>
 
@@ -201,6 +216,8 @@ interface PieFrame {
     .sm-header-left { display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden; }
     .sm-kicker { font-size: 10px; text-transform: uppercase; letter-spacing: .14em; color: var(--_text-dim); flex-shrink: 0; }
     .sm-sep { color: var(--_text-dim); flex-shrink: 0; }
+    .sm-header-activity { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; flex-shrink: 0; border-radius: 999px; background: color-mix(in srgb, #2bb24c 14%, transparent); border: 1px solid color-mix(in srgb, #2bb24c 35%, var(--_border)); }
+    .sm-header-activity-dot { width: 10px; height: 10px; border-radius: 999px; background: #2bb24c; border: 1px solid rgba(255, 255, 255, 0.35); box-shadow: 0 0 0 0 rgba(43, 178, 76, 0.45); animation: sm-pulse-green 1.3s ease-out infinite; }
     .sm-current-label { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; max-width: 200px; }
     .sm-path { font-size: 11px; color: var(--_text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
     .sm-header-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
@@ -215,11 +232,17 @@ interface PieFrame {
     .sm-loading { display: flex; align-items: center; gap: 10px; padding: 16px 14px; flex-shrink: 0; color: var(--_text-dim); }
     .sm-spinner { width: 14px; height: 14px; border: 2px solid var(--_border); border-top-color: var(--_blue); border-radius: 50%; animation: sm-spin .6s linear infinite; flex-shrink: 0; }
     @keyframes sm-spin { to { transform: rotate(360deg); } }
+    @keyframes sm-pulse-green {
+      0% { box-shadow: 0 0 0 0 rgba(43, 178, 76, 0.45); }
+      70% { box-shadow: 0 0 0 8px rgba(43, 178, 76, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(43, 178, 76, 0); }
+    }
 
     .sm-error { display: flex; align-items: center; gap: 10px; padding: 12px 14px; flex-shrink: 0; color: var(--_error); border-bottom: 1px solid color-mix(in srgb, var(--_error) 25%, transparent); background: color-mix(in srgb, var(--_error) 8%, var(--_surface)); }
     .sm-error-icon { font-size: 15px; flex-shrink: 0; }
 
     .sm-body { display: flex; flex-direction: column; flex: 1 1 0%; min-height: 0; overflow: auto; padding: 12px 14px; gap: 12px; scrollbar-width: thin; scrollbar-color: var(--vsc-scrollbar-thumb, #424242) transparent; }
+    .sm-inline-status { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: var(--vsc-border-radius-lg, 4px); border: 1px solid var(--_border-sub); background: color-mix(in srgb, var(--_surface2) 65%, transparent); color: var(--_text-dim); }
 
     .sm-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; flex-shrink: 0; }
     .sm-metric { padding: 10px 12px; border-radius: var(--vsc-border-radius-lg, 4px); border: 1px solid var(--_border-sub); background: var(--_surface); }
@@ -268,8 +291,10 @@ interface PieFrame {
 })
 export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
   @Input({ required: true }) ctx!: SizeManagerSurfaceContext;
+  @Output() firstEntryArrived = new EventEmitter<void>();
 
   loading = false;
+  isTraversing = false;
   error: string | null = null;
   result: DiskUsageResult | null = null;
   entries: DiskUsageEntry[] = [];
@@ -340,30 +365,61 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
     return this.labelFromPath(this.currentPath) || this.currentPath || 'Disk Usage';
   }
 
+  get hasVisibleContent(): boolean {
+    return !!this.result || this.entries.length > 0;
+  }
+
+  get totalSizeLabel(): string {
+    return this.formatBytes(this.result?.totalSize ?? this.visibleEntriesSize);
+  }
+
+  get totalSizeMetricLabel(): string {
+    return this.result ? 'Total size' : 'Visible size so far';
+  }
+
   get totalItems(): number {
-    return this.result ? this.result.totalFiles + this.result.totalDirs : 0;
+    return this.result ? this.result.totalFiles + this.result.totalDirs : this.entries.length;
+  }
+
+  get itemMixLabel(): string {
+    if (this.result) return `${this.result.totalFiles} files · ${this.result.totalDirs} dirs`;
+    const files = this.entries.filter(e => !e.isDir).length;
+    const dirs = this.entries.filter(e => e.isDir).length;
+    return `${files} files · ${dirs} dirs loaded`;
+  }
+
+  get headerProgressLabel(): string {
+    if (!this.entries.length) return 'Traversing...';
+    return `Traversing... ${this.entries.length} children loaded`;
   }
 
   get averageEntrySizeLabel(): string {
-    if (!this.entries.length || !this.result) return '0 B';
-    return this.formatBytes(this.result.totalSize / this.entries.length);
+    if (!this.entries.length) return '0 B';
+    return this.formatBytes((this.result?.totalSize ?? this.visibleEntriesSize) / this.entries.length);
   }
 
-  get directoryMixLabel(): string {
-    const total = this.entries.length;
-    if (!total) return 'No children';
-    const share = (this.entries.filter(e => e.isDir).length / total) * 100;
-    return share < 0.1 ? 'Mostly files' : `${share.toFixed(0)}% folders`;
+  get elapsedLabel(): string {
+    if (this.isTraversing) return 'Scanning';
+    return this.result ? `${this.result.elapsedMs} ms` : 'Idle';
+  }
+
+  get elapsedMetricLabel(): string {
+    if (this.isTraversing) {
+      return this.entries.length ? `${this.entries.length} children loaded` : 'Starting traversal';
+    }
+    return this.result ? 'Scan completed' : 'Scan time';
   }
 
   barPercent(e: DiskUsageEntry): number {
-    if (!this.result?.totalSize) return 0;
-    return Math.max(0.3, (e.size / this.result.totalSize) * 100);
+    const totalSize = this.result?.totalSize ?? this.visibleEntriesSize;
+    if (!totalSize) return 0;
+    return Math.max(0.3, (e.size / totalSize) * 100);
   }
 
   pct(e: DiskUsageEntry): string {
-    if (!this.result?.totalSize) return '—';
-    const p = (e.size / this.result.totalSize) * 100;
+    const totalSize = this.result?.totalSize ?? this.visibleEntriesSize;
+    if (!totalSize) return '—';
+    const p = (e.size / totalSize) * 100;
     return p < 0.1 ? '<0.1%' : p.toFixed(1) + '%';
   }
 
@@ -379,6 +435,25 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
     return entry.isDir ? `${entry.files} files · ${entry.dirs} dirs` : 'File';
   }
 
+  private get visibleEntriesSize(): number {
+    return this.entries.reduce((sum, entry) => sum + entry.size, 0);
+  }
+
+  private isDiskUsageResult(item: DiskUsageEntry | DiskUsageResult): item is DiskUsageResult {
+    return Array.isArray((item as DiskUsageResult).entries);
+  }
+
+  private syncRootPieFrame(totalSize: number): void {
+    const rootFrame: PieFrame = {
+      label: 'Distribution',
+      entries: this.entries,
+      totalSize,
+    };
+    if (this.pieStack.length <= 1) {
+      this.pieStack = [rootFrame];
+    }
+  }
+
   // ── Core analysis ─────────────────────────────────────────────────────────
 
   async analyse(path: string): Promise<void> {
@@ -386,21 +461,37 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
     this.currentPath = path;
     this.parentPath  = this.getParent(path);
     this.loading     = true;
+    this.isTraversing = true;
     this.error       = null;
+    this.result      = null;
+    this.entries     = [];
+    this.selectedEntry = null;
+    this.pieStack    = [];
     this.cdr.markForCheck();
 
+    let firstEntryArrived = false;
     try {
-      const result = await this.api.analyzeDiskUsage(path);
-      if (this.destroyed || this.currentPath !== path) return;
-      this.result  = result;
-      this.entries = result.entries;
-      this.selectedEntry = null;
-      // Reset pie nav to root whenever new data arrives
-      this.pieStack = [{
-        label: 'Distribution',
-        entries: result.entries,
-        totalSize: result.totalSize,
-      }];
+      for await (const item of this.api.streamDiskUsage(path)) {
+        if (this.destroyed || this.currentPath !== path) break;
+        if (this.isDiskUsageResult(item)) {
+          this.result = item;
+          this.entries = item.entries?.length ? item.entries : this.entries;
+          this.syncRootPieFrame(item.totalSize);
+          if (!firstEntryArrived) {
+            firstEntryArrived = true;
+            this.firstEntryArrived.emit();
+          }
+          this.cdr.markForCheck();
+        } else {
+          this.entries = [...this.entries, item];
+          this.syncRootPieFrame(this.visibleEntriesSize);
+          if (!firstEntryArrived) {
+            firstEntryArrived = true;
+            this.firstEntryArrived.emit();
+          }
+          this.cdr.markForCheck();
+        }
+      }
     } catch (err: any) {
       if (this.destroyed || this.currentPath !== path) return;
       this.error   = err?.message || String(err);
@@ -409,6 +500,7 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
       this.pieStack = [];
     } finally {
       this.loading = false;
+      this.isTraversing = false;
       this.cdr.markForCheck();
     }
   }

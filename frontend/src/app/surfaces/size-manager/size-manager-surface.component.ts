@@ -401,6 +401,7 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
   }
 
   private destroyed = false;
+  private activeTabId = '';
 
   constructor(
     private api: ApiService,
@@ -409,8 +410,14 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['ctx']) {
+      const tabId = this.ctx?.tab?.id ?? '';
       const path = this.ctx?.sizeVm?.analysisPath;
-      if (path && path !== this.currentPath) this.analyse(path);
+      const tabChanged = !!tabId && tabId !== this.activeTabId;
+      if (tabChanged) {
+        this.activeTabId = tabId;
+        this.resetAnalysisState();
+      }
+      if (path && (tabChanged || path !== this.currentPath)) this.analyse(path);
     }
   }
 
@@ -709,8 +716,26 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
 
   // ── Core analysis ─────────────────────────────────────────────────────────
 
+  private resetAnalysisState(): void {
+    this.stopTick();
+    this.loading = false;
+    this.isTraversing = false;
+    this.error = null;
+    this.liveElapsedMs = 0;
+    this.liveProgress = null;
+    this.result = null;
+    this.entries = [];
+    this.fileTypeRows = [];
+    this.fileTypeSourceLabel = 'Current folder';
+    this.fileTypeSourceFileCount = 0;
+    this.fileTypeSourceBytes = 0;
+    this.selectedEntry = null;
+    this.currentPath = '';
+    this.parentPath = null;
+    this.pieStack = [];
+  }
+
   async analyse(path: string): Promise<void> {
-    this.ctx?.sizeVm?.onAnalyse(path);
     this.currentPath = path;
     this.parentPath  = this.getParent(path);
     this.loading     = true;

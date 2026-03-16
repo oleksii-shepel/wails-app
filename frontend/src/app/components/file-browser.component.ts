@@ -189,6 +189,28 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
     return this.activePaneId === 'left' ? this.rightPane : this.leftPane;
   }
 
+  private getPane(paneId: 'left' | 'right'): FilePaneComponent | undefined {
+    return paneId === 'left' ? this.leftPane : this.rightPane;
+  }
+
+  private getOppositePaneId(paneId: 'left' | 'right'): 'left' | 'right' {
+    return paneId === 'left' ? 'right' : 'left';
+  }
+
+  private getPaneTabKind(pane: FilePaneComponent | undefined): 'dir' | 'viewer' | 'size-manager' {
+    const tab = pane?.tabs.find((candidate) => candidate.id === pane.currentTabId);
+    return (tab?.kind ?? 'dir') as 'dir' | 'viewer' | 'size-manager';
+  }
+
+  private syncSizeManagerPane(targetPaneId: 'left' | 'right', path?: string): void {
+    const targetPane = this.getPane(targetPaneId);
+    if (this.getPaneTabKind(targetPane) !== 'size-manager') return;
+    const sourcePane = this.getPane(this.getOppositePaneId(targetPaneId));
+    const targetPath = path ?? sourcePane?.currentPath;
+    if (!targetPath) return;
+    targetPane?.followSizeManagerNavigation(targetPath);
+  }
+
   // Status bar data — read from the active pane reactively via template bindings
   get statusFilteredEntries() { return this.getActivePane()?.filteredEntries ?? []; }
   get statusAllEntries()      { return this.getActivePane()?.entries ?? []; }
@@ -390,8 +412,7 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
 
   onPanePathChange(paneId: string, path: string): void {
     this.searchController.onPanePathChange(this.searchHost, paneId, path);
-    const otherPane = paneId === 'left' ? this.rightPane : this.leftPane;
-    otherPane?.followSizeManagerNavigation(path);
+    this.syncSizeManagerPane(this.getOppositePaneId(paneId as 'left' | 'right'), path);
   }
 
   async onGlobalSearchResult(result: any): Promise<void> {
@@ -452,9 +473,10 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
       moveToOtherPane:       () => this.moveToOtherPaneCurrent(),
       focusAddressBar:       () => this.getActivePane()?.shortcuts.focus.focusAddressBar(),
       diskUsage:             () => {
-        const activePane = this.getActivePane();
-        const sourcePath = activePane?.currentPath;
-        this.getOtherPane()?.openDiskUsageAnalyzer(sourcePath ?? undefined);
+        const sourcePane = this.getActivePane();
+        const sourcePath = sourcePane?.currentPath;
+        const targetPane = this.getOtherPane();
+        targetPane?.openDiskUsageAnalyzer(sourcePath ?? undefined);
       },
     };
     return registerFileBrowserCommands(this.inputEngine, handlers, 'file-browser');
@@ -572,6 +594,8 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
 
   onPaneActiveTabChanged(fromPane: 'left' | 'right', tab: TabInfo): void {
     this.previewController.onPaneActiveTabChanged(this.previewHost, fromPane, tab);
+    this.syncSizeManagerPane(fromPane);
+    this.syncSizeManagerPane(this.getOppositePaneId(fromPane));
   }
 
   // NOTE: we intentionally do not auto-create live preview tabs on cursor move.

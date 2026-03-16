@@ -594,7 +594,10 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
 
   onPaneActiveTabChanged(fromPane: 'left' | 'right', tab: TabInfo): void {
     this.previewController.onPaneActiveTabChanged(this.previewHost, fromPane, tab);
-    this.syncSizeManagerPane(fromPane);
+    if ((tab.kind ?? 'dir') === 'size-manager') {
+      this.syncSizeManagerPane(fromPane);
+      return;
+    }
     this.syncSizeManagerPane(this.getOppositePaneId(fromPane));
   }
 

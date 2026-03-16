@@ -950,6 +950,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   followSizeManagerNavigation(path: string): void {
     const tab = this.tabs.find(t => t.id === this.currentTabId);
     if (!tab || (tab.kind ?? 'dir') !== 'size-manager') return;
+    if (tab.path === path) return;
     tab.path = path;
     this.workspaceService.updateTabPathAndTitle(this.paneId, tab.id, path, tab.title || 'Storage Footprint');
     this.tabs = this.workspaceService.getTabs(this.paneId);

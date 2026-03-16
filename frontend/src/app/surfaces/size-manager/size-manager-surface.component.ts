@@ -85,16 +85,6 @@ const SIZE_MANAGER_CATEGORY_BY_EXTENSION = new Map<string, FileCategory>(
       </div>
     </div>
 
-    <!-- ── Loading ────────────────────────────────────────── -->
-    <div class="sm-loading" *ngIf="isTraversing && !hasVisibleContent">
-      <span class="sm-inline-activity" role="status" aria-label="Scanning">
-        <span class="sm-inline-activity-dot"></span>
-      </span>
-      <span>Scanning…</span>
-      <span class="sm-inline-sep">·</span>
-      <span class="sm-inline-elapsed">{{ liveElapsedLabel }}</span>
-    </div>
-
     <!-- ── Error ──────────────────────────────────────────── -->
     <div class="sm-error" *ngIf="error && !isTraversing">
       <span class="sm-error-icon">⚠</span>
@@ -103,7 +93,7 @@ const SIZE_MANAGER_CATEGORY_BY_EXTENSION = new Map<string, FileCategory>(
     </div>
 
     <!-- ── Dashboard ──────────────────────────────────────── -->
-    <div class="sm-body" *ngIf="hasVisibleContent">
+    <div class="sm-body" *ngIf="!error || isTraversing">
 
       <div class="sm-inline-status" *ngIf="isTraversing">
         <span
@@ -157,7 +147,7 @@ const SIZE_MANAGER_CATEGORY_BY_EXTENSION = new Map<string, FileCategory>(
           [entries]="currentPieFrame.entries"
           [totalSize]="currentPieFrame.totalSize"
           [minPct]="10"
-          (select)="onEntryClick($event)"
+          (select)="onChartSelect($event)"
           (otherDrill)="onOtherDrill($event)"
           (drillDown)="onEntryDblClick($event)">
         </app-disk-pie-chart>
@@ -237,7 +227,7 @@ const SIZE_MANAGER_CATEGORY_BY_EXTENSION = new Map<string, FileCategory>(
         </div>
 
         <ng-template #emptyBreakdown>
-          <div class="sm-empty">Folder is empty.</div>
+          <div class="sm-empty">{{ breakdownEmptyLabel }}</div>
         </ng-template>
       </div>
     </div>
@@ -402,6 +392,7 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
 
   private destroyed = false;
   private activeTabId = '';
+  private activeScanRunId = 0;
 
   constructor(
     private api: ApiService,
@@ -428,6 +419,10 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
   close():   void { this.ctx?.sizeVm?.onClose(); }
   goUp():    void { if (this.parentPath) this.analyse(this.parentPath); }
   refresh(): void { if (this.currentPath) this.analyse(this.currentPath); }
+
+  onChartSelect(_: DiskUsageEntry): void {
+    this.cdr.markForCheck();
+  }
 
   onEntryClick(e: DiskUsageEntry): void {
     if (e.isDir) {
@@ -556,8 +551,14 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
   }
 
   get fileTypeEmptyLabel(): string {
+    if (this.isTraversing && !this.fileTypeSourceFileCount) return 'Scanning file types…';
     if (this.fileTypeSourceFileCount === 0) return 'No files found in the selected subtree.';
     return 'No common file types matched the selected subtree.';
+  }
+
+  get breakdownEmptyLabel(): string {
+    if (this.isTraversing && !this.entries.length) return 'Scanning folder…';
+    return 'Folder is empty.';
   }
 
   barPercent(e: DiskUsageEntry): number {
@@ -627,11 +628,11 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
   }
 
   private get totalFileCount(): number {
-    return this.result?.totalFiles ?? this.entries.reduce((sum, entry) => sum + (entry.isDir ? entry.files : 1), 0);
+    return this.result?.totalFiles ?? this.liveProgress?.totalFiles ?? this.entries.reduce((sum, entry) => sum + (entry.isDir ? entry.files : 1), 0);
   }
 
   private get rootDominantFileType(): FileTypeBreakdownRow | null {
-    return this.buildFileTypeRows(this.result?.types ?? this.mergeEntryTypes(this.entries))[0] ?? null;
+    return this.buildFileTypeRows(this.result?.types ?? this.liveProgress?.types ?? this.mergeEntryTypes(this.entries))[0] ?? null;
   }
 
   private buildFileTypeRows(types: Record<string, DiskUsageTypeStat>): FileTypeBreakdownRow[] {
@@ -683,9 +684,9 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
       };
     }
 
-    const rootTypes = this.result?.types ?? this.mergeEntryTypes(this.entries);
-    const rootFileCount = this.result?.totalFiles ?? this.entries.reduce((sum, entry) => sum + (entry.isDir ? entry.files : 1), 0);
-    const rootSize = this.result?.totalSize ?? this.visibleEntriesSize;
+    const rootTypes = this.result?.types ?? this.liveProgress?.types ?? this.mergeEntryTypes(this.entries);
+    const rootFileCount = this.result?.totalFiles ?? this.liveProgress?.totalFiles ?? this.entries.reduce((sum, entry) => sum + (entry.isDir ? entry.files : 1), 0);
+    const rootSize = this.result?.totalSize ?? this.liveProgress?.totalSize ?? this.visibleEntriesSize;
     return {
       label: this.currentLabel || 'Current folder',
       fileCount: rootFileCount,
@@ -736,6 +737,7 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
   }
 
   async analyse(path: string): Promise<void> {
+    const scanRunId = ++this.activeScanRunId;
     this.currentPath = path;
     this.parentPath  = this.getParent(path);
     this.loading     = true;
@@ -756,7 +758,7 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
     let firstEntryArrived = false;
     try {
       for await (const item of this.api.streamDiskUsage(path)) {
-        if (this.destroyed || this.currentPath !== path) break;
+        if (this.destroyed || this.activeScanRunId !== scanRunId || this.currentPath !== path) break;
         if (this.isDiskUsageResult(item)) {
           this.liveProgress = {
             totalSize: item.totalSize,
@@ -776,6 +778,7 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
           this.cdr.markForCheck();
         } else if (this.isDiskUsageProgress(item)) {
           this.liveProgress = item;
+          this.rebuildFileTypeBreakdown();
           this.cdr.markForCheck();
         } else {
           this.entries = [...this.entries, item];
@@ -790,7 +793,7 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
         }
       }
     } catch (err: any) {
-      if (this.destroyed || this.currentPath !== path) return;
+      if (this.destroyed || this.activeScanRunId !== scanRunId || this.currentPath !== path) return;
       this.error   = err?.message || String(err);
       this.liveProgress = null;
       this.result  = null;
@@ -801,6 +804,7 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
       this.fileTypeSourceBytes = 0;
       this.pieStack = [];
     } finally {
+      if (this.destroyed || this.activeScanRunId !== scanRunId || this.currentPath !== path) return;
       this.loading = false;
       this.isTraversing = false;
       this.stopTick();

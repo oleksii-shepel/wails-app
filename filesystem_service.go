@@ -10,6 +10,7 @@ type FilesystemService struct {
 	startElevatedSession func() (*ElevatedSessionStatus, error)
 	vfs                  *vfslib.Unified
 	duStreams            *duStreamRegistry
+	duCache              *diskUsageCache
 }
 
 func NewFilesystemService(
@@ -22,6 +23,7 @@ func NewFilesystemService(
 		emitEvent:            emitEvent,
 		startElevatedSession: startElevatedSession,
 		duStreams:            newDuStreamRegistry(),
+		duCache:              newDiskUsageCache(diskUsageCacheCapacity),
 	}
 }
 

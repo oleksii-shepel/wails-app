@@ -80,6 +80,10 @@ func (a *App) CancelDiskUsageStream(scanId string) {
 
 // AnalyzeDiskUsage is the original blocking call — kept for compatibility.
 func (s *FilesystemService) AnalyzeDiskUsage(path string) (*DiskUsageResult, error) {
+	if cached, ok := s.duCache.Get(path); ok {
+		return cached, nil
+	}
+
 	start := time.Now()
 
 	children, err := readNonLinks(path)
@@ -90,34 +94,15 @@ func (s *FilesystemService) AnalyzeDiskUsage(path string) (*DiskUsageResult, err
 	never := make(chan struct{}) // never closed — scan always runs to completion
 	entries, _ := globalBFS(path, children, never, nil, nil)
 
-	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].Size > entries[j].Size
-	})
-
-	var totalSize, totalFiles, totalDirs int64
-	for _, e := range entries {
-		totalSize += e.Size
-		if e.IsDir {
-			totalDirs += 1 + e.Dirs
-			totalFiles += e.Files
-		} else {
-			totalFiles++
-		}
-	}
-
-	return &DiskUsageResult{
-		Path:       toSlash(path),
-		TotalSize:  totalSize,
-		TotalFiles: totalFiles,
-		TotalDirs:  totalDirs,
-		Types:      mergeDiskUsageTypes(entries),
-		Entries:    entries,
-		ElapsedMs:  time.Since(start).Milliseconds(),
-	}, nil
+	result := buildDiskUsageResult(path, entries, start)
+	s.duCache.Set(result)
+	return result, nil
 }
 
 // StartDiskUsageStream starts the parallel scan and emits events per-entry.
 func (s *FilesystemService) StartDiskUsageStream(path string) (string, error) {
+	s.duCache.InvalidateSubtree(path)
+
 	children, err := readNonLinks(path)
 	if err != nil {
 		return "", err
@@ -151,20 +136,8 @@ func (s *FilesystemService) StartDiskUsageStream(path string) (string, error) {
 
 		s.duStreams.unregister(scanId)
 
-		sort.Slice(entries, func(i, j int) bool {
-			return entries[i].Size > entries[j].Size
-		})
-
-		var totalSize, totalFiles, totalDirs int64
-		for _, e := range entries {
-			totalSize += e.Size
-			if e.IsDir {
-				totalDirs += 1 + e.Dirs
-				totalFiles += e.Files
-			} else {
-				totalFiles++
-			}
-		}
+		result := buildDiskUsageResult(path, entries, start)
+		s.duCache.Set(result)
 
 		select {
 		case <-done:
@@ -172,15 +145,7 @@ func (s *FilesystemService) StartDiskUsageStream(path string) (string, error) {
 		default:
 			s.emit("disk-usage:done", map[string]interface{}{
 				"scanId": scanId,
-				"result": DiskUsageResult{
-					Path:       toSlash(path),
-					TotalSize:  totalSize,
-					TotalFiles: totalFiles,
-					TotalDirs:  totalDirs,
-					Types:      mergeDiskUsageTypes(entries),
-					Entries:    entries,
-					ElapsedMs:  time.Since(start).Milliseconds(),
-				},
+				"result": *result,
 			})
 		}
 	}()
@@ -536,4 +501,31 @@ func diskUsageExt(name string) string {
 		return ""
 	}
 	return strings.ToLower(ext[1:])
+}
+
+func buildDiskUsageResult(path string, entries []DiskUsageEntry, start time.Time) *DiskUsageResult {
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].Size > entries[j].Size
+	})
+
+	var totalSize, totalFiles, totalDirs int64
+	for _, e := range entries {
+		totalSize += e.Size
+		if e.IsDir {
+			totalDirs += 1 + e.Dirs
+			totalFiles += e.Files
+		} else {
+			totalFiles++
+		}
+	}
+
+	return &DiskUsageResult{
+		Path:       toSlash(path),
+		TotalSize:  totalSize,
+		TotalFiles: totalFiles,
+		TotalDirs:  totalDirs,
+		Types:      mergeDiskUsageTypes(entries),
+		Entries:    entries,
+		ElapsedMs:  time.Since(start).Milliseconds(),
+	}
 }

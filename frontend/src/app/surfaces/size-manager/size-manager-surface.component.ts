@@ -63,6 +63,8 @@ const SIZE_MANAGER_CATEGORY_BY_EXTENSION = new Map<string, FileCategory>(
   ),
 );
 
+const PIE_PREFETCH_LIMIT = 5;
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Component({
@@ -410,7 +412,9 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
   private activeScanRunId = 0;
   private syncedAnalysisPath = '';
   private readonly pieFrameCache = new Map<string, PieFrame>();
+  private readonly pendingPieFrames = new Map<string, Promise<PieFrame | null>>();
   private activePieRequestId = 0;
+  private piePrefetchRunId = 0;
   pieDistributionLoadingPath = '';
 
   constructor(
@@ -472,18 +476,11 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
     this.cdr.markForCheck();
 
     try {
-      const result = await this.api.analyzeDiskUsage(entry.path);
+      const frame = await this.loadPieFrame(entry);
       if (this.destroyed || requestId !== this.activePieRequestId || this.currentPath !== analysisRoot) return;
 
-      const frame: PieFrame = {
-        label: entry.name || this.labelFromPath(entry.path) || 'Folder',
-        path: entry.path,
-        entries: result.entries ?? [],
-        totalSize: result.totalSize ?? entry.size,
-      };
-      this.pieFrameCache.set(entry.path, frame);
       this.pieDistributionLoadingPath = '';
-      this.pushPieFrame(frame);
+      if (frame) this.pushPieFrame(frame);
     } catch {
       if (this.destroyed || requestId !== this.activePieRequestId || this.currentPath !== analysisRoot) return;
       this.pieDistributionLoadingPath = '';
@@ -721,7 +718,57 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
       this.pieStack = [...this.pieStack, frame];
     }
 
+    this.schedulePieFramePrefetch(frame.entries, frame.path);
     this.cdr.markForCheck();
+  }
+
+  private loadPieFrame(entry: DiskUsageEntry): Promise<PieFrame | null> {
+    const cachedFrame = this.pieFrameCache.get(entry.path);
+    if (cachedFrame) return Promise.resolve(cachedFrame);
+
+    const pendingFrame = this.pendingPieFrames.get(entry.path);
+    if (pendingFrame) return pendingFrame;
+
+    const promise = this.api.analyzeDiskUsage(entry.path)
+      .then((result) => {
+        const frame: PieFrame = {
+          label: entry.name || this.labelFromPath(entry.path) || 'Folder',
+          path: entry.path,
+          entries: result.entries ?? [],
+          totalSize: result.totalSize ?? entry.size,
+        };
+        this.pieFrameCache.set(entry.path, frame);
+        return frame;
+      })
+      .catch(() => null)
+      .finally(() => {
+        this.pendingPieFrames.delete(entry.path);
+      });
+
+    this.pendingPieFrames.set(entry.path, promise);
+    return promise;
+  }
+
+  private schedulePieFramePrefetch(entries: DiskUsageEntry[], framePath?: string): void {
+    if (this.isTraversing || !entries.length) return;
+
+    const candidates = entries
+      .filter((entry) => entry.isDir && entry.path !== framePath && !this.pieFrameCache.has(entry.path) && !this.pendingPieFrames.has(entry.path))
+      .sort((left, right) => right.size - left.size)
+      .slice(0, PIE_PREFETCH_LIMIT);
+
+    if (!candidates.length) return;
+
+    const runId = ++this.piePrefetchRunId;
+    const analysisRoot = this.currentPath;
+    void this.runPieFramePrefetch(candidates, runId, analysisRoot);
+  }
+
+  private async runPieFramePrefetch(entries: DiskUsageEntry[], runId: number, analysisRoot: string): Promise<void> {
+    for (const entry of entries) {
+      if (this.destroyed || runId !== this.piePrefetchRunId || this.currentPath !== analysisRoot) return;
+      await this.loadPieFrame(entry);
+    }
   }
 
   private get totalFileCount(): number {
@@ -832,7 +879,9 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
     this.parentPath = null;
     this.pieStack = [];
     this.pieFrameCache.clear();
+    this.pendingPieFrames.clear();
     this.activePieRequestId++;
+    this.piePrefetchRunId++;
     this.pieDistributionLoadingPath = '';
   }
 
@@ -853,7 +902,9 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
     this.selectedEntry = null;
     this.pieStack    = [];
     this.pieFrameCache.clear();
+    this.pendingPieFrames.clear();
     this.activePieRequestId++;
+    this.piePrefetchRunId++;
     this.pieDistributionLoadingPath = '';
     this.startTick();
     this.cdr.markForCheck();
@@ -911,6 +962,7 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
       this.loading = false;
       this.isTraversing = false;
       this.stopTick();
+      this.schedulePieFramePrefetch(this.currentPieFrame.entries, this.currentPieFrame.path);
       this.cdr.markForCheck();
     }
   }

@@ -12,7 +12,7 @@ import {
 } from '@angular/core';
 import { ApiService } from '../../services/api.service';
 import { DEFAULT_FILE_CATEGORIES, type FileCategory } from '../../components/filter-bar.types';
-import type { DiskUsageEntry, DiskUsageResult, DiskUsageTypeStat } from '../../shared/protocol-enhanced';
+import type { DiskUsageEntry, DiskUsageProgress, DiskUsageResult, DiskUsageTypeStat } from '../../shared/protocol-enhanced';
 import type { SizeManagerSurfaceContext } from '../surface-context';
 import { DiskPieChartComponent } from 'src/app/components/disk-usage-diagram.component';
 
@@ -87,7 +87,12 @@ const SIZE_MANAGER_CATEGORY_BY_EXTENSION = new Map<string, FileCategory>(
 
     <!-- ── Loading ────────────────────────────────────────── -->
     <div class="sm-loading" *ngIf="isTraversing && !hasVisibleContent">
-      <span>Loading entries…</span>
+      <span class="sm-inline-activity" role="status" aria-label="Scanning">
+        <span class="sm-inline-activity-dot"></span>
+      </span>
+      <span>Scanning…</span>
+      <span class="sm-inline-sep">·</span>
+      <span class="sm-inline-elapsed">{{ liveElapsedLabel }}</span>
     </div>
 
     <!-- ── Error ──────────────────────────────────────────── -->
@@ -110,7 +115,9 @@ const SIZE_MANAGER_CATEGORY_BY_EXTENSION = new Map<string, FileCategory>(
         </span>
         <span class="sm-inline-elapsed">{{ liveElapsedLabel }}</span>
         <span class="sm-inline-sep">·</span>
-        <span>Loading entries… showing live results.</span>
+        <span class="sm-inline-throughput">{{ liveThroughputLabel }}</span>
+        <span class="sm-inline-sep">·</span>
+        <span class="sm-inline-traversal">{{ liveTraversalSummary }}</span>
       </div>
 
       <!-- Metric strip -->
@@ -197,7 +204,7 @@ const SIZE_MANAGER_CATEGORY_BY_EXTENSION = new Map<string, FileCategory>(
       <div class="sm-panel sm-breakdown">
         <div class="sm-panel-head">
           <span class="sm-panel-title">Breakdown</span>
-          <span class="sm-panel-hint">Single-click to inspect · double-click to drill into folders</span>
+          <span class="sm-panel-hint">Click a folder to drill in · click a file to inspect</span>
         </div>
 
         <div class="sm-table-head" *ngIf="entries.length > 0">
@@ -213,8 +220,7 @@ const SIZE_MANAGER_CATEGORY_BY_EXTENSION = new Map<string, FileCategory>(
             *ngFor="let e of entries; trackBy: trackEntry"
             [class.sm-row--dir]="e.isDir"
             [class.sm-row--active]="selectedEntry?.path === e.path"
-            (click)="onEntryClick(e)"
-            (dblclick)="onEntryDblClick(e)">
+            (click)="onEntryClick(e)">
             <div class="sm-row-name">
               <span class="sm-row-icon" [class.sm-row-icon--dir]="e.isDir">{{ e.isDir ? '▣' : '•' }}</span>
               <span class="sm-row-label" [title]="e.path">{{ e.name }}</span>
@@ -308,6 +314,8 @@ const SIZE_MANAGER_CATEGORY_BY_EXTENSION = new Map<string, FileCategory>(
     .sm-body { display: flex; flex-direction: column; flex: 1 1 0%; min-height: 0; overflow: auto; padding: 12px 14px; gap: 12px; scrollbar-width: thin; scrollbar-color: var(--vsc-scrollbar-thumb, #424242) transparent; }
     .sm-inline-status { display: flex; align-items: center; gap: 10px; padding: 2px 0; color: var(--_text-dim); }
     .sm-inline-elapsed { font-variant-numeric: tabular-nums; white-space: nowrap; color: #2bb24c; font-weight: 600; }
+    .sm-inline-throughput { font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--_text-dim); }
+    .sm-inline-traversal { font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--_text-dim); }
     .sm-inline-sep { color: var(--_text-dim); }
     .sm-inline-activity { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; flex-shrink: 0; border-radius: 999px; background: color-mix(in srgb, #2bb24c 14%, transparent); border: 1px solid color-mix(in srgb, #2bb24c 35%, var(--_border)); }
     .sm-inline-activity-dot { width: 10px; height: 10px; border-radius: 999px; background: #2bb24c; border: 1px solid rgba(255, 255, 255, 0.35); box-shadow: 0 0 0 0 rgba(43, 178, 76, 0.45); animation: sm-pulse-green 1.3s ease-out infinite; }
@@ -373,6 +381,7 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
   private scanStartedAt = 0;
   private tickInterval: ReturnType<typeof setInterval> | null = null;
   liveElapsedMs = 0;
+  liveProgress: DiskUsageProgress | null = null;
   result: DiskUsageResult | null = null;
   entries: DiskUsageEntry[] = [];
   fileTypeRows: FileTypeBreakdownRow[] = [];
@@ -414,9 +423,11 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
   refresh(): void { if (this.currentPath) this.analyse(this.currentPath); }
 
   onEntryClick(e: DiskUsageEntry): void {
-    this.selectedEntry = e;
-    this.rebuildFileTypeBreakdown();
-    this.cdr.markForCheck();
+    if (e.isDir) {
+      this.analyse(e.path);
+    } else {
+      this.cdr.markForCheck();
+    }
   }
 
   onEntryDblClick(e: DiskUsageEntry): void {
@@ -470,12 +481,12 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
   }
 
   get totalFootprintLabel(): string {
-    return this.formatBytes(this.result?.totalSize ?? this.visibleEntriesSize);
+    return this.formatBytes(this.result?.totalSize ?? this.liveProgress?.totalSize ?? this.visibleEntriesSize);
   }
 
   get totalCompositionLabel(): string {
-    const files = this.result?.totalFiles ?? this.entries.reduce((sum, entry) => sum + (entry.isDir ? entry.files : 1), 0);
-    const dirs = this.result?.totalDirs ?? this.entries.reduce((sum, entry) => sum + (entry.isDir ? 1 + entry.dirs : 0), 0);
+    const files = this.result?.totalFiles ?? this.liveProgress?.totalFiles ?? this.entries.reduce((sum, entry) => sum + (entry.isDir ? entry.files : 1), 0);
+    const dirs = this.result?.totalDirs ?? this.liveProgress?.totalDirs ?? this.entries.reduce((sum, entry) => sum + (entry.isDir ? 1 + entry.dirs : 0), 0);
     return `${files.toLocaleString()} files · ${dirs.toLocaleString()} dirs`;
   }
 
@@ -485,9 +496,41 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
   }
 
   get liveElapsedLabel(): string {
-    const ms = this.liveElapsedMs;
+    const ms = this.result?.elapsedMs ?? this.liveProgress?.elapsedMs ?? this.liveElapsedMs;
     if (ms < 1000) return `${ms} ms`;
     return `${(ms / 1000).toFixed(1)} s`;
+  }
+
+  get liveThroughputLabel(): string {
+    const elapsedMs = this.result?.elapsedMs ?? this.liveProgress?.elapsedMs ?? this.liveElapsedMs;
+    const totalSize = this.result?.totalSize ?? this.liveProgress?.totalSize ?? this.visibleEntriesSize;
+    const secs = elapsedMs / 1000;
+    if (secs < 0.5 || !totalSize) return 'scanning…';
+    const bytesPerSec = totalSize / secs;
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const k = 1024;
+    const i = bytesPerSec > 0 ? Math.min(Math.floor(Math.log(bytesPerSec) / Math.log(k)), units.length - 1) : 0;
+    const val = bytesPerSec / Math.pow(k, i);
+    const fmt = i === 0 ? Math.round(val).toString() : val.toFixed(1);
+    return `${fmt} ${units[i]}/s`;
+  }
+
+  get liveTraversalSummary(): string {
+    let dirs: number;
+    let files: number;
+    if (this.result) {
+      dirs  = this.result.totalDirs;
+      files = this.result.totalFiles;
+    } else if (this.liveProgress) {
+      dirs  = this.liveProgress.totalDirs;
+      files = this.liveProgress.totalFiles;
+    } else {
+      dirs  = this.entries.reduce((s, e) => s + (e.isDir ? 1 + e.dirs  : 0), 0);
+      files = this.entries.reduce((s, e) => s + (e.isDir ? e.files     : 1), 0);
+    }
+    const total = dirs + files;
+    if (!total) return 'scanning…';
+    return `${total.toLocaleString()} entries (${dirs.toLocaleString()} dirs · ${files.toLocaleString()} files)`;
   }
 
   get dominantFileTypeValue(): string {
@@ -557,8 +600,12 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
     return this.entries.reduce((sum, entry) => sum + entry.size, 0);
   }
 
-  private isDiskUsageResult(item: DiskUsageEntry | DiskUsageResult): item is DiskUsageResult {
+  private isDiskUsageResult(item: DiskUsageEntry | DiskUsageProgress | DiskUsageResult): item is DiskUsageResult {
     return Array.isArray((item as DiskUsageResult).entries);
+  }
+
+  private isDiskUsageProgress(item: DiskUsageEntry | DiskUsageProgress | DiskUsageResult): item is DiskUsageProgress {
+    return !this.isDiskUsageResult(item) && 'elapsedMs' in item && 'totalFiles' in item && !('path' in item);
   }
 
   private syncRootPieFrame(totalSize: number): void {
@@ -669,6 +716,7 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
     this.loading     = true;
     this.isTraversing = true;
     this.error       = null;
+    this.liveProgress = null;
     this.result      = null;
     this.entries     = [];
     this.fileTypeRows = [];
@@ -685,6 +733,12 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
       for await (const item of this.api.streamDiskUsage(path)) {
         if (this.destroyed || this.currentPath !== path) break;
         if (this.isDiskUsageResult(item)) {
+          this.liveProgress = {
+            totalSize: item.totalSize,
+            totalFiles: item.totalFiles,
+            totalDirs: item.totalDirs,
+            elapsedMs: item.elapsedMs,
+          };
           this.result = item;
           this.entries = item.entries?.length ? item.entries : this.entries;
           this.syncRootPieFrame(item.totalSize);
@@ -694,6 +748,9 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
             firstEntryArrived = true;
             this.firstEntryArrived.emit();
           }
+          this.cdr.markForCheck();
+        } else if (this.isDiskUsageProgress(item)) {
+          this.liveProgress = item;
           this.cdr.markForCheck();
         } else {
           this.entries = [...this.entries, item];
@@ -710,6 +767,7 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
     } catch (err: any) {
       if (this.destroyed || this.currentPath !== path) return;
       this.error   = err?.message || String(err);
+      this.liveProgress = null;
       this.result  = null;
       this.entries = [];
       this.fileTypeRows = [];

@@ -937,7 +937,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   // ── Disk Usage Analyzer ───────────────────────────────────────────────────
 
   openDiskUsageAnalyzer(path?: string): void {
-    const analysisPath = path || this.currentPath || '/';
+    const analysisPath = this.resolveDiskUsageAnalysisPath(path);
     const tab = this.workspaceService.addSizeManagerTab(this.paneId, analysisPath, { activate: true });
     if (tab) {
       this.tabs = this.workspaceService.getTabs(this.paneId);
@@ -952,6 +952,21 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     if (!tab || (tab.kind ?? 'dir') !== 'size-manager') return;
     tab.path = path;
     this.cdr.markForCheck();
+  }
+
+  private resolveDiskUsageAnalysisPath(path?: string): string {
+    if (path) return path;
+    if (this.selectionCursorPath) return this.getPathParent(this.selectionCursorPath) ?? (this.currentPath || '/');
+    return this.currentPath || '/';
+  }
+
+  private getPathParent(path: string): string | null {
+    const normalized = path.replace(/\\/g, '/').replace(/\/+$/, '');
+    if (!normalized || normalized === '/' || /^[a-zA-Z]:\/?$/.test(normalized)) return null;
+    const lastSlash = normalized.lastIndexOf('/');
+    if (lastSlash <= 0) return normalized.charAt(0) === '/' ? '/' : null;
+    const parent = normalized.substring(0, lastSlash) || '/';
+    return /^[a-zA-Z]:$/.test(parent) ? parent + '/' : parent;
   }
 
   private buildSizeManagerVm(): SizeManagerSurfaceVm | null {

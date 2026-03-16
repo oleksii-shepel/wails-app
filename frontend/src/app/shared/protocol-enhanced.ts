@@ -332,6 +332,13 @@ export interface DiskUsageResult {
   elapsedMs: number;
 }
 
+export interface DiskUsageProgress {
+  totalSize: number;
+  totalFiles: number;
+  totalDirs: number;
+  elapsedMs: number;
+}
+
 // ============================================================================
 // Event Payloads (from backend)
 // ============================================================================

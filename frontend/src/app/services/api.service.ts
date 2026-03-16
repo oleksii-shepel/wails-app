@@ -18,6 +18,9 @@ import {
   UserPreferences,
   WorkspaceList,
   ArchiveListing,
+  DiskUsageEntry,
+  DiskUsageProgress,
+  DiskUsageResult,
   OperationProgress,
   FileType,
   DriveInfo,
@@ -493,14 +496,16 @@ export class ApiService {
   async *streamDiskUsage(
     path: string,
   ): AsyncGenerator<
-    import('../shared/protocol-enhanced').DiskUsageEntry |
-    import('../shared/protocol-enhanced').DiskUsageResult
+    DiskUsageEntry |
+    DiskUsageProgress |
+    DiskUsageResult
   > {
     const scanId = await window.go.main.App.StartDiskUsageStream(path);
 
     type Pending =
-      | { kind: 'entry';  value: import('../shared/protocol-enhanced').DiskUsageEntry }
-      | { kind: 'done';   value: import('../shared/protocol-enhanced').DiskUsageResult }
+      | { kind: 'entry'; value: DiskUsageEntry }
+      | { kind: 'progress'; value: DiskUsageProgress }
+      | { kind: 'done'; value: DiskUsageResult }
       | { kind: 'error';  error: Error };
 
     const queue: Pending[] = [];
@@ -522,6 +527,12 @@ export class ApiService {
       notify();
     };
 
+    const onProgress = (payload: { scanId: string; progress: any }) => {
+      if (payload.scanId !== scanId) return;
+      queue.push({ kind: 'progress', value: payload.progress });
+      notify();
+    };
+
     const onError = (payload: { scanId: string; error: string }) => {
       if (payload.scanId !== scanId) return;
       queue.push({ kind: 'error', error: new Error(payload.error) });
@@ -530,11 +541,12 @@ export class ApiService {
     };
 
     window.runtime.EventsOn('disk-usage:entry', onEntry);
+    window.runtime.EventsOn('disk-usage:progress', onProgress);
     window.runtime.EventsOn('disk-usage:done',  onDone);
     window.runtime.EventsOn('disk-usage:error', onError);
 
     const cleanup = () => {
-      window.runtime.EventsOff('disk-usage:entry', 'disk-usage:done', 'disk-usage:error');
+      window.runtime.EventsOff('disk-usage:entry', 'disk-usage:progress', 'disk-usage:done', 'disk-usage:error');
     };
 
     try {

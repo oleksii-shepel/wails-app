@@ -43,6 +43,13 @@ type DiskUsageResult struct {
 	ElapsedMs  int64                        `json:"elapsedMs"`
 }
 
+type DiskUsageProgress struct {
+	TotalSize  int64 `json:"totalSize"`
+	TotalFiles int64 `json:"totalFiles"`
+	TotalDirs  int64 `json:"totalDirs"`
+	ElapsedMs  int64 `json:"elapsedMs"`
+}
+
 // ── Wails-exposed App shims ───────────────────────────────────────────────────
 // Thin pass-throughs — all real logic lives on FilesystemService.
 
@@ -55,6 +62,7 @@ func (a *App) AnalyzeDiskUsage(path string) (*DiskUsageResult, error) {
 // Events emitted (scoped by scanId so concurrent scans never cross):
 //
 //	"disk-usage:entry"  — { scanId, entry: DiskUsageEntry }   one per child
+//	"disk-usage:progress" — { scanId, progress: DiskUsageProgress } live totals
 //	"disk-usage:done"   — { scanId, result: DiskUsageResult } final summary
 //	"disk-usage:error"  — { scanId, error: string }
 //
@@ -80,7 +88,7 @@ func (s *FilesystemService) AnalyzeDiskUsage(path string) (*DiskUsageResult, err
 	}
 
 	never := make(chan struct{}) // never closed — scan always runs to completion
-	entries, _ := globalBFS(path, children, never, nil)
+	entries, _ := globalBFS(path, children, never, nil, nil)
 
 	sort.Slice(entries, func(i, j int) bool {
 		return entries[i].Size > entries[j].Size
@@ -128,6 +136,15 @@ func (s *FilesystemService) StartDiskUsageStream(path string) (string, error) {
 				s.emit("disk-usage:entry", map[string]interface{}{
 					"scanId": scanId,
 					"entry":  entry,
+				})
+			}
+		}, func(progress DiskUsageProgress) {
+			select {
+			case <-done:
+			default:
+				s.emit("disk-usage:progress", map[string]interface{}{
+					"scanId":   scanId,
+					"progress": progress,
 				})
 			}
 		})
@@ -252,9 +269,14 @@ func globalBFS(
 	children []os.DirEntry,
 	done <-chan struct{},
 	onChildDone func(idx int, entry DiskUsageEntry),
+	onProgress func(progress DiskUsageProgress),
 ) ([]DiskUsageEntry, error) {
 	n := len(children)
 	entries := make([]DiskUsageEntry, n)
+	start := time.Now()
+	var progressSize atomic.Int64
+	var progressFiles atomic.Int64
+	var progressDirs atomic.Int64
 
 	// Per-root-child accumulators.
 	type rootAccum struct {
@@ -283,13 +305,41 @@ func globalBFS(
 			if info, err := ch.Info(); err == nil {
 				entries[i].Size = info.Size()
 				entries[i].Types = buildSingleFileTypes(ch.Name(), info.Size())
+				progressSize.Add(info.Size())
 			} else {
 				entries[i].Error = err.Error()
 			}
+			progressFiles.Add(1)
 			if onChildDone != nil {
 				onChildDone(i, entries[i])
 			}
+		} else {
+			progressDirs.Add(1)
 		}
+	}
+
+	if onProgress != nil {
+		emitProgress := func() {
+			onProgress(DiskUsageProgress{
+				TotalSize:  progressSize.Load(),
+				TotalFiles: progressFiles.Load(),
+				TotalDirs:  progressDirs.Load(),
+				ElapsedMs:  time.Since(start).Milliseconds(),
+			})
+		}
+		emitProgress()
+		go func() {
+			ticker := time.NewTicker(200 * time.Millisecond)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-done:
+					return
+				case <-ticker.C:
+					emitProgress()
+				}
+			}
+		}()
 	}
 
 	// ── Job queue ─────────────────────────────────────────────────────────────
@@ -381,11 +431,14 @@ func globalBFS(
 							full := filepath.Join(job.dir, e.Name())
 							if e.IsDir() {
 								accums[job.rootIdx].dirs.Add(1)
+								progressDirs.Add(1)
 								submit(scanJob{full, job.rootIdx})
 							} else {
 								accums[job.rootIdx].files.Add(1)
+								progressFiles.Add(1)
 								if info, err := e.Info(); err == nil {
 									accums[job.rootIdx].size.Add(info.Size())
+									progressSize.Add(info.Size())
 									addDiskUsageType(accums[job.rootIdx].types, &accums[job.rootIdx].typesMu, e.Name(), info.Size())
 								}
 							}
@@ -410,6 +463,14 @@ func globalBFS(
 	}
 
 	workerWG.Wait()
+	if onProgress != nil {
+		onProgress(DiskUsageProgress{
+			TotalSize:  progressSize.Load(),
+			TotalFiles: progressFiles.Load(),
+			TotalDirs:  progressDirs.Load(),
+			ElapsedMs:  time.Since(start).Milliseconds(),
+		})
+	}
 	return entries, firstErr
 }
 

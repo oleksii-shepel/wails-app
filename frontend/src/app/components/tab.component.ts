@@ -11,7 +11,7 @@ import { TabInfo } from "../shared/protocol-enhanced";
          [class.active]="isActive"
          [class.pinned]="tab.isPinned"
          [class.in-archive]="isArchiveTab"
-         [title]="tab.title"
+          [title]="tab.kind === 'size-manager' ? 'Storage Footprint' : tab.title"
           draggable="true"
          (click)="onClick()"
          (auxclick)="onMouseUp($event)"
@@ -137,8 +137,7 @@ import { TabInfo } from "../shared/protocol-enhanced";
     }
 
     .tab-icon--disk-usage {
-      color: #4ec9b0;
-      opacity: 1;
+      opacity: .75;
     }
 
     /* Title */
@@ -289,7 +288,7 @@ export class TabComponent {
   get shortTitle(): string {
     const t = this.tab?.title ?? '';
     if (!t) return '';
-    if ((this.tab?.kind ?? 'dir') === 'size-manager') return t;
+    if ((this.tab?.kind ?? 'dir') === 'size-manager') return 'Storage Footprint';
     const parts = t.replace(/\\/g, '/').split('/').filter(Boolean);
     if (parts.length === 0) return t;
     // Drive root: "C:" or "/"

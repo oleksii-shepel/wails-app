@@ -141,7 +141,9 @@ const PIE_PREFETCH_LIMIT = 5;
             *ngFor="let frame of pieStack; let i = index; let last = last"
             class="sm-pie-crumb"
             [class.sm-pie-crumb--active]="last"
-            [disabled]="last"
+            [attr.aria-disabled]="last ? 'true' : null"
+            [attr.aria-current]="last ? 'page' : null"
+            [attr.tabindex]="last ? -1 : 0"
             (click)="pieGoTo(i)">{{ frame.label }}</button>
           <span class="sm-pie-loading" *ngIf="pieDistributionLoadingPath">
             <span class="sm-pie-loading-dot"></span>
@@ -331,11 +333,14 @@ const PIE_PREFETCH_LIMIT = 5;
     .sm-panel-hint  { font-size: 11px; color: var(--_text-dim); }
 
     /* Pie breadcrumb nav */
-    .sm-pie-nav { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-    .sm-pie-crumb { appearance: none; border: none; background: none; font-family: inherit; font-size: 10px; text-transform: uppercase; letter-spacing: .12em; color: var(--_text-dim); cursor: pointer; padding: 0; transition: color .12s; }
-    .sm-pie-crumb:hover:not(:disabled) { color: var(--_text); text-decoration: underline; }
-    .sm-pie-crumb--active { color: var(--_text); cursor: default; }
-    .sm-pie-crumb:not(:last-child)::after { content: ' › '; color: var(--_text-dim); margin: 0 4px; }
+    .sm-pie-nav { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; user-select: none; -webkit-user-select: none; }
+    .sm-pie-nav::selection { background: transparent; color: inherit; }
+    .sm-pie-nav *::selection { background: transparent; color: inherit; }
+    .sm-pie-crumb { appearance: none; border: none; background: transparent; -webkit-text-fill-color: currentColor; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; caret-color: transparent; font-family: inherit; font-size: 10px; text-transform: uppercase; letter-spacing: .16em; color: var(--vsc-text-link, var(--_blue)); cursor: pointer; padding: 2px 6px; border-radius: var(--vsc-border-radius-sm, 2px); transition: color .12s, background-color .12s; user-select: none; -webkit-user-select: none; }
+    .sm-pie-crumb:not(.sm-pie-crumb--active):hover { color: var(--vsc-text-link, var(--_blue)); background: color-mix(in srgb, var(--vsc-text-link, var(--_blue)) 10%, transparent); text-decoration: none; }
+    .sm-pie-crumb:focus-visible { outline: 1px solid var(--_focus); outline-offset: 1px; color: var(--vsc-text-link, var(--_blue)); }
+    .sm-pie-crumb--active { color: var(--_text-dim); background: transparent; cursor: default; opacity: 1; text-decoration: none; pointer-events: none; }
+    .sm-pie-crumb:not(:last-child)::after { content: '›'; color: var(--_text-dim); margin-left: 8px; }
     .sm-pie-loading { display: inline-flex; align-items: center; gap: 8px; margin-left: 4px; min-width: 0; }
     .sm-pie-loading-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--_focus); box-shadow: 0 0 0 0 color-mix(in srgb, var(--_focus) 40%, transparent); animation: sm-pie-pulse 1.2s ease-out infinite; flex-shrink: 0; }
     .sm-pie-loading-copy { font-size: 11px; color: var(--_text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

@@ -157,7 +157,7 @@ const PIE_PREFETCH_LIMIT = 5;
           (select)="onChartSelect($event)"
           (activate)="onChartActivate($event)"
           (otherDrill)="onOtherDrill($event)"
-          (drillDown)="onEntryDblClick($event)">
+           (drillDown)="onChartActivate($event)">
         </app-disk-pie-chart>
 
       </div>

@@ -44,11 +44,10 @@ type DiskUsageResult struct {
 }
 
 type DiskUsageProgress struct {
-	TotalSize  int64                        `json:"totalSize"`
-	TotalFiles int64                        `json:"totalFiles"`
-	TotalDirs  int64                        `json:"totalDirs"`
-	Types      map[string]DiskUsageTypeStat `json:"types,omitempty"`
-	ElapsedMs  int64                        `json:"elapsedMs"`
+	TotalSize  int64 `json:"totalSize"`
+	TotalFiles int64 `json:"totalFiles"`
+	TotalDirs  int64 `json:"totalDirs"`
+	ElapsedMs  int64 `json:"elapsedMs"`
 }
 
 // ── Wails-exposed App shims ───────────────────────────────────────────────────
@@ -278,8 +277,6 @@ func globalBFS(
 	var progressSize atomic.Int64
 	var progressFiles atomic.Int64
 	var progressDirs atomic.Int64
-	var progressTypesMu sync.Mutex
-	progressTypes := make(map[string]DiskUsageTypeStat)
 	progressStop := make(chan struct{})
 
 	// Per-root-child accumulators.
@@ -310,7 +307,6 @@ func globalBFS(
 				entries[i].Size = info.Size()
 				entries[i].Types = buildSingleFileTypes(ch.Name(), info.Size())
 				progressSize.Add(info.Size())
-				addDiskUsageType(progressTypes, &progressTypesMu, ch.Name(), info.Size())
 			} else {
 				entries[i].Error = err.Error()
 			}
@@ -329,7 +325,6 @@ func globalBFS(
 				TotalSize:  progressSize.Load(),
 				TotalFiles: progressFiles.Load(),
 				TotalDirs:  progressDirs.Load(),
-				Types:      cloneDiskUsageTypes(progressTypes, &progressTypesMu),
 				ElapsedMs:  time.Since(start).Milliseconds(),
 			})
 		}
@@ -447,7 +442,6 @@ func globalBFS(
 								if info, err := e.Info(); err == nil {
 									accums[job.rootIdx].size.Add(info.Size())
 									progressSize.Add(info.Size())
-									addDiskUsageType(progressTypes, &progressTypesMu, e.Name(), info.Size())
 									addDiskUsageType(accums[job.rootIdx].types, &accums[job.rootIdx].typesMu, e.Name(), info.Size())
 								}
 							}
@@ -478,7 +472,6 @@ func globalBFS(
 			TotalSize:  progressSize.Load(),
 			TotalFiles: progressFiles.Load(),
 			TotalDirs:  progressDirs.Load(),
-			Types:      cloneDiskUsageTypes(progressTypes, &progressTypesMu),
 			ElapsedMs:  time.Since(start).Milliseconds(),
 		})
 	}

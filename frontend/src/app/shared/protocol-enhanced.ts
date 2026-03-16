@@ -336,7 +336,6 @@ export interface DiskUsageProgress {
   totalSize: number;
   totalFiles: number;
   totalDirs: number;
-  types?: Record<string, DiskUsageTypeStat>;
   elapsedMs: number;
 }
 

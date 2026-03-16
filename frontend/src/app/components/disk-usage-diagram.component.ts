@@ -47,6 +47,7 @@ interface TooltipState {
  *
  * Outputs:
  *   (select)     — user clicked a named slice
+ *   (activate)   — user explicitly activated a named slice/row
  *   (otherDrill) — user clicked the "Other" slice/row; parent should push a
  *                  new nav frame containing the bucketed entries
  *   (drillDown)  — user double-clicked a folder slice; parent navigates into it
@@ -148,6 +149,10 @@ interface TooltipState {
 
     <!-- ── Bottom: full-width legend ──────────────────────── -->
     <div class="pie-legend">
+      <div class="pie-legend-head">
+        <span class="pie-legend-kicker">Distribution</span>
+      </div>
+
       <button
         *ngFor="let e of displayEntries; let i = index"
         class="pie-legend-item"
@@ -213,6 +218,21 @@ interface TooltipState {
       background: var(--vsc-editor-background, #1e1e1e);
       min-width: 0;
       overflow: hidden;
+    }
+
+    .pie-legend-head {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding-bottom: 4px;
+      min-width: 0;
+    }
+
+    .pie-legend-kicker {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: .12em;
+      color: var(--vsc-foreground-dim, #888);
     }
 
     /* Animate content swap when a different slice is selected */
@@ -468,8 +488,8 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
   @Input() outerR  = 100;
   /** Entries below this % of totalSize are grouped into the Other bucket. */
   @Input() minPct  = 10;
-
   @Output() select     = new EventEmitter<DiskUsageEntry>();
+  @Output() activate   = new EventEmitter<DiskUsageEntry>();
   /** Emits the bucketed "Other" entries — parent pushes a new nav frame. */
   @Output() otherDrill = new EventEmitter<DiskUsageEntry[]>();
   @Output() drillDown  = new EventEmitter<DiskUsageEntry>();
@@ -643,7 +663,10 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
     this.selectedIndex = i;
     this.triggerBarAnimation();
     const e = this.displayEntries[i];
-    if (e) this.select.emit(e);
+    if (e) {
+      this.select.emit(e);
+      this.activate.emit(e);
+    }
     this.cdr.markForCheck();
   }
 

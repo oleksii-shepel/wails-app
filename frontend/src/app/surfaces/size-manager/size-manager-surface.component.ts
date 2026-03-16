@@ -20,6 +20,7 @@ import { DiskPieChartComponent } from 'src/app/components/disk-usage-diagram.com
 
 interface PieFrame {
   label: string;
+  path?: string;
   entries: DiskUsageEntry[];
   /**
    * Denominator for % calculations at this level.
@@ -75,8 +76,8 @@ const SIZE_MANAGER_CATEGORY_BY_EXTENSION = new Map<string, FileCategory>(
       <div class="sm-header-left">
         <span class="sm-kicker">Disk Usage</span>
         <span class="sm-sep">·</span>
-        <span class="sm-current-label">{{ currentLabel }}</span>
-        <span class="sm-path" *ngIf="showCurrentPath" [title]="currentPath">{{ currentPath }}</span>
+        <span class="sm-current-label">{{ headerLabel }}</span>
+        <span class="sm-path" *ngIf="showHeaderPath" [title]="headerPath">{{ headerPath }}</span>
       </div>
       <div class="sm-header-actions">
         <button class="sm-btn" [disabled]="!parentPath" (click)="goUp()" title="Go to parent">↑ Parent</button>
@@ -132,14 +133,18 @@ const SIZE_MANAGER_CATEGORY_BY_EXTENSION = new Map<string, FileCategory>(
       <!-- ── Pie panel ──────────────────────────────────────── -->
       <div class="sm-panel">
 
-        <!-- Breadcrumb nav — only visible when drilled into Other -->
-        <div class="sm-pie-nav" *ngIf="pieStack.length > 1">
+        <!-- Distribution breadcrumb nav -->
+        <div class="sm-pie-nav" *ngIf="pieStack.length > 0">
           <button
             *ngFor="let frame of pieStack; let i = index; let last = last"
             class="sm-pie-crumb"
             [class.sm-pie-crumb--active]="last"
             [disabled]="last"
             (click)="pieGoTo(i)">{{ frame.label }}</button>
+          <span class="sm-pie-loading" *ngIf="pieDistributionLoadingPath">
+            <span class="sm-pie-loading-dot"></span>
+            <span class="sm-pie-loading-copy">Loading children for {{ pieDistributionLoadingLabel }}</span>
+          </span>
         </div>
 
         <!-- Pure display chart — receives only the current frame's data -->
@@ -148,6 +153,7 @@ const SIZE_MANAGER_CATEGORY_BY_EXTENSION = new Map<string, FileCategory>(
           [totalSize]="currentPieFrame.totalSize"
           [minPct]="10"
           (select)="onChartSelect($event)"
+          (activate)="onChartActivate($event)"
           (otherDrill)="onOtherDrill($event)"
           (drillDown)="onEntryDblClick($event)">
         </app-disk-pie-chart>
@@ -323,11 +329,14 @@ const SIZE_MANAGER_CATEGORY_BY_EXTENSION = new Map<string, FileCategory>(
     .sm-panel-hint  { font-size: 11px; color: var(--_text-dim); }
 
     /* Pie breadcrumb nav */
-    .sm-pie-nav { display: flex; align-items: center; flex-wrap: wrap; }
+    .sm-pie-nav { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
     .sm-pie-crumb { appearance: none; border: none; background: none; font-family: inherit; font-size: 10px; text-transform: uppercase; letter-spacing: .12em; color: var(--_text-dim); cursor: pointer; padding: 0; transition: color .12s; }
     .sm-pie-crumb:hover:not(:disabled) { color: var(--_text); text-decoration: underline; }
     .sm-pie-crumb--active { color: var(--_text); cursor: default; }
     .sm-pie-crumb:not(:last-child)::after { content: ' › '; color: var(--_text-dim); margin: 0 4px; }
+    .sm-pie-loading { display: inline-flex; align-items: center; gap: 8px; margin-left: 4px; min-width: 0; }
+    .sm-pie-loading-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--_focus); box-shadow: 0 0 0 0 color-mix(in srgb, var(--_focus) 40%, transparent); animation: sm-pie-pulse 1.2s ease-out infinite; flex-shrink: 0; }
+    .sm-pie-loading-copy { font-size: 11px; color: var(--_text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
     /* Breakdown */
     .sm-breakdown { gap: 8px; }
@@ -352,6 +361,12 @@ const SIZE_MANAGER_CATEGORY_BY_EXTENSION = new Map<string, FileCategory>(
 
     .sm-align-r { text-align: right; }
     .sm-empty { display: flex; align-items: center; justify-content: center; min-height: 72px; font-size: 12px; color: var(--_text-dim); }
+
+    @keyframes sm-pie-pulse {
+      0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--_focus) 40%, transparent); }
+      70% { box-shadow: 0 0 0 8px color-mix(in srgb, var(--_focus) 0%, transparent); }
+      100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--_focus) 0%, transparent); }
+    }
 
     @media (max-width: 640px) {
       .sm-table-head { display: none; }
@@ -393,6 +408,10 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
   private destroyed = false;
   private activeTabId = '';
   private activeScanRunId = 0;
+  private syncedAnalysisPath = '';
+  private readonly pieFrameCache = new Map<string, PieFrame>();
+  private activePieRequestId = 0;
+  pieDistributionLoadingPath = '';
 
   constructor(
     private api: ApiService,
@@ -406,9 +425,13 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
       const tabChanged = !!tabId && tabId !== this.activeTabId;
       if (tabChanged) {
         this.activeTabId = tabId;
+        this.syncedAnalysisPath = '';
         this.resetAnalysisState();
       }
-      if (path && (tabChanged || path !== this.currentPath)) this.analyse(path);
+      if (path && (tabChanged || path !== this.syncedAnalysisPath)) {
+        this.syncedAnalysisPath = path;
+        this.analyse(path);
+      }
     }
   }
 
@@ -420,8 +443,52 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
   goUp():    void { if (this.parentPath) this.analyse(this.parentPath); }
   refresh(): void { if (this.currentPath) this.analyse(this.currentPath); }
 
+  returnToRoot(): void {
+    if (this.syncedAnalysisPath) this.analyse(this.syncedAnalysisPath);
+  }
+
   onChartSelect(_: DiskUsageEntry): void {
     this.cdr.markForCheck();
+  }
+
+  async onChartActivate(entry: DiskUsageEntry): Promise<void> {
+    if (!entry.isDir) {
+      this.cdr.markForCheck();
+      return;
+    }
+
+    const currentFrame = this.currentPieFrame;
+    if (currentFrame.path === entry.path) return;
+
+    const cachedFrame = this.pieFrameCache.get(entry.path);
+    if (cachedFrame) {
+      this.pushPieFrame(cachedFrame);
+      return;
+    }
+
+    const requestId = ++this.activePieRequestId;
+    const analysisRoot = this.currentPath;
+    this.pieDistributionLoadingPath = entry.path;
+    this.cdr.markForCheck();
+
+    try {
+      const result = await this.api.analyzeDiskUsage(entry.path);
+      if (this.destroyed || requestId !== this.activePieRequestId || this.currentPath !== analysisRoot) return;
+
+      const frame: PieFrame = {
+        label: entry.name || this.labelFromPath(entry.path) || 'Folder',
+        path: entry.path,
+        entries: result.entries ?? [],
+        totalSize: result.totalSize ?? entry.size,
+      };
+      this.pieFrameCache.set(entry.path, frame);
+      this.pieDistributionLoadingPath = '';
+      this.pushPieFrame(frame);
+    } catch {
+      if (this.destroyed || requestId !== this.activePieRequestId || this.currentPath !== analysisRoot) return;
+      this.pieDistributionLoadingPath = '';
+      this.cdr.markForCheck();
+    }
   }
 
   onEntryClick(e: DiskUsageEntry): void {
@@ -457,12 +524,16 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
 
   // ── View helpers ──────────────────────────────────────────────────────────
 
-  get currentLabel(): string {
-    return this.labelFromPath(this.currentPath) || this.currentPath || 'Disk Usage';
+  get headerPath(): string {
+    return this.syncedAnalysisPath || this.currentPath;
   }
 
-  get showCurrentPath(): boolean {
-    return this.normalizePathDisplay(this.currentLabel) !== this.normalizePathDisplay(this.currentPath);
+  get headerLabel(): string {
+    return this.labelFromPath(this.headerPath) || this.headerPath || 'Disk Usage';
+  }
+
+  get showHeaderPath(): boolean {
+    return this.normalizePathDisplay(this.headerLabel) !== this.normalizePathDisplay(this.headerPath);
   }
 
   get hasVisibleContent(): boolean {
@@ -561,6 +632,10 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
     return 'Folder is empty.';
   }
 
+  get pieDistributionLoadingLabel(): string {
+    return this.labelFromPath(this.pieDistributionLoadingPath) || this.pieDistributionLoadingPath || 'selected folder';
+  }
+
   barPercent(e: DiskUsageEntry): number {
     const totalSize = this.result?.totalSize ?? this.visibleEntriesSize;
     if (!totalSize) return 0;
@@ -618,13 +693,35 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
 
   private syncRootPieFrame(totalSize: number): void {
     const rootFrame: PieFrame = {
-      label: 'Distribution',
+      label: 'Subtree',
+      path: this.currentPath,
       entries: this.entries,
       totalSize,
     };
+    this.pieFrameCache.set(this.currentPath, rootFrame);
     if (this.pieStack.length <= 1) {
       this.pieStack = [rootFrame];
     }
+  }
+
+  private pushPieFrame(frame: PieFrame): void {
+    const currentFrame = this.currentPieFrame;
+    if (currentFrame.path === frame.path && currentFrame.entries === frame.entries && currentFrame.totalSize === frame.totalSize) {
+      this.cdr.markForCheck();
+      return;
+    }
+
+    const existingIndex = frame.path
+      ? this.pieStack.findIndex((item) => item.path === frame.path)
+      : -1;
+
+    if (existingIndex >= 0) {
+      this.pieStack = this.pieStack.slice(0, existingIndex + 1);
+    } else {
+      this.pieStack = [...this.pieStack, frame];
+    }
+
+    this.cdr.markForCheck();
   }
 
   private get totalFileCount(): number {
@@ -632,7 +729,7 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
   }
 
   private get rootDominantFileType(): FileTypeBreakdownRow | null {
-    return this.buildFileTypeRows(this.result?.types ?? this.liveProgress?.types ?? this.mergeEntryTypes(this.entries))[0] ?? null;
+    return this.buildFileTypeRows(this.result?.types ?? this.mergeEntryTypes(this.entries))[0] ?? null;
   }
 
   private buildFileTypeRows(types: Record<string, DiskUsageTypeStat>): FileTypeBreakdownRow[] {
@@ -684,11 +781,11 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
       };
     }
 
-    const rootTypes = this.result?.types ?? this.liveProgress?.types ?? this.mergeEntryTypes(this.entries);
+    const rootTypes = this.result?.types ?? this.mergeEntryTypes(this.entries);
     const rootFileCount = this.result?.totalFiles ?? this.liveProgress?.totalFiles ?? this.entries.reduce((sum, entry) => sum + (entry.isDir ? entry.files : 1), 0);
     const rootSize = this.result?.totalSize ?? this.liveProgress?.totalSize ?? this.visibleEntriesSize;
     return {
-      label: this.currentLabel || 'Current folder',
+      label: this.headerLabel || 'Current folder',
       fileCount: rootFileCount,
       totalSize: rootSize,
       types: rootTypes,
@@ -734,6 +831,9 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
     this.currentPath = '';
     this.parentPath = null;
     this.pieStack = [];
+    this.pieFrameCache.clear();
+    this.activePieRequestId++;
+    this.pieDistributionLoadingPath = '';
   }
 
   async analyse(path: string): Promise<void> {
@@ -752,6 +852,9 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
     this.fileTypeSourceBytes = 0;
     this.selectedEntry = null;
     this.pieStack    = [];
+    this.pieFrameCache.clear();
+    this.activePieRequestId++;
+    this.pieDistributionLoadingPath = '';
     this.startTick();
     this.cdr.markForCheck();
 
@@ -778,7 +881,6 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
           this.cdr.markForCheck();
         } else if (this.isDiskUsageProgress(item)) {
           this.liveProgress = item;
-          this.rebuildFileTypeBreakdown();
           this.cdr.markForCheck();
         } else {
           this.entries = [...this.entries, item];
@@ -803,6 +905,7 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
       this.fileTypeSourceFileCount = 0;
       this.fileTypeSourceBytes = 0;
       this.pieStack = [];
+      this.pieDistributionLoadingPath = '';
     } finally {
       if (this.destroyed || this.activeScanRunId !== scanRunId || this.currentPath !== path) return;
       this.loading = false;

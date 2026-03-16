@@ -11,7 +11,8 @@ import {
   SimpleChanges,
 } from '@angular/core';
 import { ApiService } from '../../services/api.service';
-import type { DiskUsageEntry, DiskUsageResult } from '../../shared/protocol-enhanced';
+import { DEFAULT_FILE_CATEGORIES, type FileCategory } from '../../components/filter-bar.types';
+import type { DiskUsageEntry, DiskUsageResult, DiskUsageTypeStat } from '../../shared/protocol-enhanced';
 import type { SizeManagerSurfaceContext } from '../surface-context';
 import { DiskPieChartComponent } from 'src/app/components/disk-usage-diagram.component';
 
@@ -27,6 +28,39 @@ interface PieFrame {
    */
   totalSize: number;
 }
+
+interface FileTypeBreakdownRow {
+  id: string;
+  name: string;
+  icon: string;
+  count: number;
+  totalSize: number;
+}
+
+interface FileTypeBreakdownSource {
+  label: string;
+  fileCount: number;
+  totalSize: number;
+  types: Record<string, DiskUsageTypeStat>;
+}
+
+const SIZE_MANAGER_FILE_CATEGORY_IDS = [
+  'video',
+  'images',
+  'audio',
+  'documents',
+  'archives',
+] as const;
+
+const SIZE_MANAGER_FILE_CATEGORIES: FileCategory[] = SIZE_MANAGER_FILE_CATEGORY_IDS
+  .map((id) => DEFAULT_FILE_CATEGORIES.find((category) => category.id === id))
+  .filter((category): category is FileCategory => !!category);
+
+const SIZE_MANAGER_CATEGORY_BY_EXTENSION = new Map<string, FileCategory>(
+  SIZE_MANAGER_FILE_CATEGORIES.flatMap((category) =>
+    category.extensions.map((extension) => [extension, category] as const),
+  ),
+);
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -53,7 +87,7 @@ interface PieFrame {
 
     <!-- ── Loading ────────────────────────────────────────── -->
     <div class="sm-loading" *ngIf="isTraversing && !hasVisibleContent">
-      <span>Loading entries for <strong>{{ currentLabel }}</strong>…</span>
+      <span>Loading entries…</span>
     </div>
 
     <!-- ── Error ──────────────────────────────────────────── -->
@@ -76,26 +110,25 @@ interface PieFrame {
         </span>
         <span class="sm-inline-elapsed">{{ liveElapsedLabel }}</span>
         <span class="sm-inline-sep">·</span>
-        <span>Loading entries for <strong>{{ currentLabel }}</strong>… showing live results.</span>
+        <span>Loading entries… showing live results.</span>
       </div>
 
       <!-- Metric strip -->
       <div class="sm-metrics">
         <div class="sm-metric">
-          <div class="sm-metric-val">{{ totalSizeLabel }}</div>
-          <div class="sm-metric-lbl">{{ totalSizeMetricLabel }}</div>
+          <div class="sm-metric-kicker">{{ scopeMetricTitle }}</div>
+          <div class="sm-metric-val">{{ directChildrenCount | number }}</div>
+          <div class="sm-metric-lbl">{{ scopeMetricHint }}</div>
         </div>
         <div class="sm-metric">
-          <div class="sm-metric-val">{{ totalItems | number }}</div>
-          <div class="sm-metric-lbl">{{ itemMixLabel }}</div>
+          <div class="sm-metric-kicker">Footprint</div>
+          <div class="sm-metric-val">{{ totalFootprintLabel }}</div>
+          <div class="sm-metric-lbl">{{ totalCompositionLabel }}</div>
         </div>
         <div class="sm-metric">
-          <div class="sm-metric-val">{{ averageEntrySizeLabel }}</div>
-          <div class="sm-metric-lbl">Avg child size</div>
-        </div>
-        <div class="sm-metric">
-          <div class="sm-metric-val">{{ elapsedLabel }}</div>
-          <div class="sm-metric-lbl">{{ elapsedMetricLabel }}</div>
+          <div class="sm-metric-kicker">Top File Type</div>
+          <div class="sm-metric-val">{{ dominantFileTypeValue }}</div>
+          <div class="sm-metric-lbl">{{ dominantFileTypeHint }}</div>
         </div>
       </div>
 
@@ -122,6 +155,42 @@ interface PieFrame {
           (drillDown)="onEntryDblClick($event)">
         </app-disk-pie-chart>
 
+      </div>
+
+      <!-- ── File type breakdown ─────────────────────────── -->
+      <div class="sm-panel sm-file-types">
+        <div class="sm-panel-head">
+          <span class="sm-panel-title">File Types</span>
+          <span class="sm-panel-hint">{{ fileTypePanelHint }}</span>
+        </div>
+
+        <div class="sm-table-head sm-type-table-head" *ngIf="fileTypeRows.length > 0">
+          <span>Type</span>
+          <span class="sm-align-r">Files</span>
+          <span class="sm-align-r">Size</span>
+          <span class="sm-align-r">Share</span>
+        </div>
+
+        <div class="sm-table-body" *ngIf="fileTypeRows.length > 0; else emptyFileTypes">
+          <div class="sm-type-row" *ngFor="let row of fileTypeRows; trackBy: trackFileTypeRow">
+            <div class="sm-row-name">
+              <span class="sm-row-icon">{{ row.icon }}</span>
+              <span class="sm-row-label">{{ row.name }}</span>
+            </div>
+            <span class="sm-row-size sm-align-r">{{ row.count | number }}</span>
+            <span class="sm-row-size sm-align-r">{{ formatBytes(row.totalSize) }}</span>
+            <div class="sm-row-pct-cell sm-align-r">
+              <span class="sm-row-pct">{{ fileTypePct(row) }}</span>
+              <div class="sm-row-track">
+                <div class="sm-row-bar" [style.width.%]="fileTypeBarPercent(row)"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <ng-template #emptyFileTypes>
+          <div class="sm-empty">{{ fileTypeEmptyLabel }}</div>
+        </ng-template>
       </div>
 
       <!-- ── Breakdown table ──────────────────────────────── -->
@@ -244,8 +313,10 @@ interface PieFrame {
     .sm-inline-activity-dot { width: 10px; height: 10px; border-radius: 999px; background: #2bb24c; border: 1px solid rgba(255, 255, 255, 0.35); box-shadow: 0 0 0 0 rgba(43, 178, 76, 0.45); animation: sm-pulse-green 1.3s ease-out infinite; }
 
     .sm-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; flex-shrink: 0; }
-    .sm-metric { padding: 10px 12px; border-radius: var(--vsc-border-radius-lg, 4px); border: 1px solid var(--_border-sub); background: var(--_surface); }
+    .sm-metric { padding: 10px 12px; border-radius: var(--vsc-border-radius-lg, 4px); border: 1px solid var(--_border-sub); background: var(--_surface); min-width: 0; }
+    .sm-metric-kicker { font-size: 10px; text-transform: uppercase; letter-spacing: .12em; color: var(--_text-dim); }
     .sm-metric-val { font-size: 18px; font-weight: 700; letter-spacing: -.03em; font-variant-numeric: tabular-nums; line-height: 1.1; }
+    .sm-metric-val--text { font-size: 16px; font-variant-numeric: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .sm-metric-lbl { margin-top: 3px; font-size: 11px; color: var(--_text-dim); }
 
     .sm-panel { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border-radius: var(--vsc-border-radius-lg, 4px); border: 1px solid var(--_border-sub); background: var(--_surface); min-width: 0; flex-shrink: 0; }
@@ -264,6 +335,9 @@ interface PieFrame {
     .sm-breakdown { gap: 8px; }
     .sm-table-head { display: grid; grid-template-columns: minmax(0,2fr) minmax(100px,1fr) 90px 110px; gap: 10px; padding: 0 8px 6px; font-size: 10px; text-transform: uppercase; letter-spacing: .12em; color: var(--_text-dim); border-bottom: 1px solid var(--_border-sub); }
     .sm-table-body { display: flex; flex-direction: column; gap: 1px; }
+    .sm-file-types { gap: 8px; }
+    .sm-type-table-head, .sm-type-row { grid-template-columns: minmax(0,2fr) 70px 90px 110px; }
+    .sm-type-row { display: grid; gap: 10px; align-items: center; padding: 6px 8px; min-width: 0; border-radius: var(--vsc-border-radius-lg, 4px); }
     .sm-row { appearance: none; border: 1px solid transparent; border-radius: var(--vsc-border-radius-lg, 4px); display: grid; grid-template-columns: minmax(0,2fr) minmax(100px,1fr) 90px 110px; gap: 10px; align-items: center; padding: 6px 8px; cursor: pointer; color: var(--_text); background: transparent; text-align: left; transition: background .1s; width: 100%; min-width: 0; font-family: inherit; }
     .sm-row:hover { background: var(--_hover-bg); }
     .sm-row--active { background: color-mix(in srgb, var(--_focus) 10%, var(--_surface2) 90%); border-color: color-mix(in srgb, var(--_focus) 35%, transparent); }
@@ -284,6 +358,7 @@ interface PieFrame {
     @media (max-width: 640px) {
       .sm-table-head { display: none; }
       .sm-row { grid-template-columns: minmax(0,1fr) auto; }
+      .sm-type-row { grid-template-columns: minmax(0,1fr) auto; }
       .sm-row-meta { display: none; }
     }
   `],
@@ -300,6 +375,10 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
   liveElapsedMs = 0;
   result: DiskUsageResult | null = null;
   entries: DiskUsageEntry[] = [];
+  fileTypeRows: FileTypeBreakdownRow[] = [];
+  fileTypeSourceLabel = 'Current folder';
+  fileTypeSourceFileCount = 0;
+  fileTypeSourceBytes = 0;
   selectedEntry: DiskUsageEntry | null = null;
   currentPath = '';
   parentPath: string | null = null;
@@ -336,6 +415,7 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
 
   onEntryClick(e: DiskUsageEntry): void {
     this.selectedEntry = e;
+    this.rebuildFileTypeBreakdown();
     this.cdr.markForCheck();
   }
 
@@ -360,6 +440,7 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
   }
 
   trackEntry(_: number, e: DiskUsageEntry): string { return e.path; }
+  trackFileTypeRow(_: number, row: FileTypeBreakdownRow): string { return row.id; }
 
   // ── View helpers ──────────────────────────────────────────────────────────
 
@@ -375,33 +456,32 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
     return !!this.result || this.entries.length > 0;
   }
 
-  get totalSizeLabel(): string {
+  get scopeMetricTitle(): string {
+    return 'Direct children';
+  }
+
+  get scopeMetricHint(): string {
+    if (this.isTraversing) return `${this.entries.length.toLocaleString()} direct children loaded so far`;
+    return `${this.entries.length.toLocaleString()} direct children in view`;
+  }
+
+  get directChildrenCount(): number {
+    return this.entries.length;
+  }
+
+  get totalFootprintLabel(): string {
     return this.formatBytes(this.result?.totalSize ?? this.visibleEntriesSize);
   }
 
-  get totalSizeMetricLabel(): string {
-    return this.result ? 'Total size' : 'Visible size so far';
-  }
-
-  get totalItems(): number {
-    return this.result ? this.result.totalFiles + this.result.totalDirs : this.entries.length;
-  }
-
-  get itemMixLabel(): string {
-    if (this.result) return `${this.result.totalFiles} files · ${this.result.totalDirs} dirs`;
-    const files = this.entries.filter(e => !e.isDir).length;
-    const dirs = this.entries.filter(e => e.isDir).length;
-    return `${files} files · ${dirs} dirs loaded`;
+  get totalCompositionLabel(): string {
+    const files = this.result?.totalFiles ?? this.entries.reduce((sum, entry) => sum + (entry.isDir ? entry.files : 1), 0);
+    const dirs = this.result?.totalDirs ?? this.entries.reduce((sum, entry) => sum + (entry.isDir ? 1 + entry.dirs : 0), 0);
+    return `${files.toLocaleString()} files · ${dirs.toLocaleString()} dirs`;
   }
 
   get headerProgressLabel(): string {
     if (!this.entries.length) return 'Loading entries...';
     return `Loading entries... ${this.entries.length} loaded`;
-  }
-
-  get averageEntrySizeLabel(): string {
-    if (!this.entries.length) return '0 B';
-    return this.formatBytes((this.result?.totalSize ?? this.visibleEntriesSize) / this.entries.length);
   }
 
   get liveElapsedLabel(): string {
@@ -410,16 +490,24 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
     return `${(ms / 1000).toFixed(1)} s`;
   }
 
-  get elapsedLabel(): string {
-    if (this.isTraversing) return 'Live scan';
-    return this.result ? `${this.result.elapsedMs} ms` : 'Idle';
+  get dominantFileTypeValue(): string {
+    return this.rootDominantFileType?.name ?? 'Uncategorized';
   }
 
-  get elapsedMetricLabel(): string {
-    if (this.isTraversing) {
-      return this.entries.length ? 'Collecting sizes' : 'Preparing scan';
-    }
-    return this.result ? 'Scan completed' : 'Scan time';
+  get dominantFileTypeHint(): string {
+    const topType = this.rootDominantFileType;
+    if (topType) return `${topType.count.toLocaleString()} files · ${this.rootFileTypePct(topType)}`;
+    if (this.totalFileCount === 0) return 'No files in this folder tree';
+    return 'No matched categories in this folder tree';
+  }
+
+  get fileTypePanelHint(): string {
+    return `${this.fileTypeSourceLabel} subtree · ${this.fileTypeSourceFileCount.toLocaleString()} files`;
+  }
+
+  get fileTypeEmptyLabel(): string {
+    if (this.fileTypeSourceFileCount === 0) return 'No files found in the selected subtree.';
+    return 'No common file types matched the selected subtree.';
   }
 
   barPercent(e: DiskUsageEntry): number {
@@ -433,6 +521,24 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
     if (!totalSize) return '—';
     const p = (e.size / totalSize) * 100;
     return p < 0.1 ? '<0.1%' : p.toFixed(1) + '%';
+  }
+
+  fileTypeBarPercent(row: FileTypeBreakdownRow): number {
+    if (!this.fileTypeSourceBytes) return 0;
+    return Math.max(0.3, (row.totalSize / this.fileTypeSourceBytes) * 100);
+  }
+
+  fileTypePct(row: FileTypeBreakdownRow): string {
+    if (!this.fileTypeSourceBytes) return '—';
+    const pct = (row.totalSize / this.fileTypeSourceBytes) * 100;
+    return pct < 0.1 ? '<0.1%' : pct.toFixed(1) + '%';
+  }
+
+  rootFileTypePct(row: FileTypeBreakdownRow): string {
+    const totalSize = this.result?.totalSize ?? this.visibleEntriesSize;
+    if (!totalSize) return '—';
+    const pct = (row.totalSize / totalSize) * 100;
+    return pct < 0.1 ? '<0.1%' : pct.toFixed(1) + '%';
   }
 
   formatBytes(bytes: number): string {
@@ -466,6 +572,94 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
     }
   }
 
+  private get totalFileCount(): number {
+    return this.result?.totalFiles ?? this.entries.reduce((sum, entry) => sum + (entry.isDir ? entry.files : 1), 0);
+  }
+
+  private get rootDominantFileType(): FileTypeBreakdownRow | null {
+    return this.buildFileTypeRows(this.result?.types ?? this.mergeEntryTypes(this.entries))[0] ?? null;
+  }
+
+  private buildFileTypeRows(types: Record<string, DiskUsageTypeStat>): FileTypeBreakdownRow[] {
+    const rows = new Map<string, FileTypeBreakdownRow>();
+
+    for (const [extension, stat] of Object.entries(types)) {
+      const category = SIZE_MANAGER_CATEGORY_BY_EXTENSION.get(extension);
+      if (!category) continue;
+
+      const existing = rows.get(category.id);
+      if (existing) {
+        existing.count += stat.count;
+        existing.totalSize += stat.size;
+      } else {
+        rows.set(category.id, {
+          id: category.id,
+          name: category.name,
+          icon: category.icon,
+          count: stat.count,
+          totalSize: stat.size,
+        });
+      }
+    }
+
+    return Array.from(rows.values()).sort((a, b) => {
+      if (b.totalSize !== a.totalSize) return b.totalSize - a.totalSize;
+      if (b.count !== a.count) return b.count - a.count;
+      return a.name.localeCompare(b.name);
+    });
+  }
+
+  private rebuildFileTypeBreakdown(): void {
+    const source = this.getFileTypeSource();
+
+    this.fileTypeSourceLabel = source.label;
+    this.fileTypeSourceFileCount = source.fileCount;
+    this.fileTypeSourceBytes = source.totalSize;
+    this.fileTypeRows = this.buildFileTypeRows(source.types);
+  }
+
+  private getFileTypeSource(): FileTypeBreakdownSource {
+    const selected = this.selectedEntry;
+    if (selected) {
+      return {
+        label: this.labelFromPath(selected.path) || selected.name || 'Selected item',
+        fileCount: selected.isDir ? selected.files : 1,
+        totalSize: selected.size,
+        types: selected.types ?? {},
+      };
+    }
+
+    const rootTypes = this.result?.types ?? this.mergeEntryTypes(this.entries);
+    const rootFileCount = this.result?.totalFiles ?? this.entries.reduce((sum, entry) => sum + (entry.isDir ? entry.files : 1), 0);
+    const rootSize = this.result?.totalSize ?? this.visibleEntriesSize;
+    return {
+      label: this.currentLabel || 'Current folder',
+      fileCount: rootFileCount,
+      totalSize: rootSize,
+      types: rootTypes,
+    };
+  }
+
+  private mergeEntryTypes(entries: DiskUsageEntry[]): Record<string, DiskUsageTypeStat> {
+    const merged: Record<string, DiskUsageTypeStat> = {};
+    for (const entry of entries) {
+      for (const [extension, stat] of Object.entries(entry.types ?? {})) {
+        const current = merged[extension] ?? { count: 0, size: 0 };
+        merged[extension] = {
+          count: current.count + stat.count,
+          size: current.size + stat.size,
+        };
+      }
+    }
+    return merged;
+  }
+
+  private syncSelectedEntry(): void {
+    if (!this.selectedEntry) return;
+    const match = this.entries.find((entry) => entry.path === this.selectedEntry?.path) ?? null;
+    this.selectedEntry = match;
+  }
+
   // ── Core analysis ─────────────────────────────────────────────────────────
 
   async analyse(path: string): Promise<void> {
@@ -477,6 +671,10 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
     this.error       = null;
     this.result      = null;
     this.entries     = [];
+    this.fileTypeRows = [];
+    this.fileTypeSourceLabel = 'Current folder';
+    this.fileTypeSourceFileCount = 0;
+    this.fileTypeSourceBytes = 0;
     this.selectedEntry = null;
     this.pieStack    = [];
     this.startTick();
@@ -490,6 +688,8 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
           this.result = item;
           this.entries = item.entries?.length ? item.entries : this.entries;
           this.syncRootPieFrame(item.totalSize);
+          this.syncSelectedEntry();
+          this.rebuildFileTypeBreakdown();
           if (!firstEntryArrived) {
             firstEntryArrived = true;
             this.firstEntryArrived.emit();
@@ -498,6 +698,8 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
         } else {
           this.entries = [...this.entries, item];
           this.syncRootPieFrame(this.visibleEntriesSize);
+          this.syncSelectedEntry();
+          this.rebuildFileTypeBreakdown();
           if (!firstEntryArrived) {
             firstEntryArrived = true;
             this.firstEntryArrived.emit();
@@ -510,6 +712,10 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
       this.error   = err?.message || String(err);
       this.result  = null;
       this.entries = [];
+      this.fileTypeRows = [];
+      this.fileTypeSourceLabel = 'Current folder';
+      this.fileTypeSourceFileCount = 0;
+      this.fileTypeSourceBytes = 0;
       this.pieStack = [];
     } finally {
       this.loading = false;

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -15,24 +16,31 @@ import (
 
 // DiskUsageEntry represents one direct child of the analysed directory.
 type DiskUsageEntry struct {
-	Name  string `json:"name"`
-	Path  string `json:"path"`
-	Size  int64  `json:"size"`
-	IsDir bool   `json:"isDir"`
-	Files int64  `json:"files"`
-	Dirs  int64  `json:"dirs"`
-	Error string `json:"error,omitempty"`
+	Name  string                       `json:"name"`
+	Path  string                       `json:"path"`
+	Size  int64                        `json:"size"`
+	IsDir bool                         `json:"isDir"`
+	Files int64                        `json:"files"`
+	Dirs  int64                        `json:"dirs"`
+	Types map[string]DiskUsageTypeStat `json:"types,omitempty"`
+	Error string                       `json:"error,omitempty"`
+}
+
+type DiskUsageTypeStat struct {
+	Count int64 `json:"count"`
+	Size  int64 `json:"size"`
 }
 
 // DiskUsageResult is the wire payload returned by AnalyzeDiskUsage and
 // emitted as the final event by StartDiskUsageStream.
 type DiskUsageResult struct {
-	Path       string           `json:"path"`
-	TotalSize  int64            `json:"totalSize"`
-	TotalFiles int64            `json:"totalFiles"`
-	TotalDirs  int64            `json:"totalDirs"`
-	Entries    []DiskUsageEntry `json:"entries"`
-	ElapsedMs  int64            `json:"elapsedMs"`
+	Path       string                       `json:"path"`
+	TotalSize  int64                        `json:"totalSize"`
+	TotalFiles int64                        `json:"totalFiles"`
+	TotalDirs  int64                        `json:"totalDirs"`
+	Types      map[string]DiskUsageTypeStat `json:"types,omitempty"`
+	Entries    []DiskUsageEntry             `json:"entries"`
+	ElapsedMs  int64                        `json:"elapsedMs"`
 }
 
 // ── Wails-exposed App shims ───────────────────────────────────────────────────
@@ -94,6 +102,7 @@ func (s *FilesystemService) AnalyzeDiskUsage(path string) (*DiskUsageResult, err
 		TotalSize:  totalSize,
 		TotalFiles: totalFiles,
 		TotalDirs:  totalDirs,
+		Types:      mergeDiskUsageTypes(entries),
 		Entries:    entries,
 		ElapsedMs:  time.Since(start).Milliseconds(),
 	}, nil
@@ -151,6 +160,7 @@ func (s *FilesystemService) StartDiskUsageStream(path string) (string, error) {
 					TotalSize:  totalSize,
 					TotalFiles: totalFiles,
 					TotalDirs:  totalDirs,
+					Types:      mergeDiskUsageTypes(entries),
 					Entries:    entries,
 					ElapsedMs:  time.Since(start).Milliseconds(),
 				},
@@ -252,6 +262,8 @@ func globalBFS(
 		files    atomic.Int64
 		dirs     atomic.Int64
 		inFlight atomic.Int32
+		typesMu  sync.Mutex
+		types    map[string]DiskUsageTypeStat
 	}
 	accums := make([]rootAccum, n)
 
@@ -261,6 +273,7 @@ func globalBFS(
 	// Initialise entry metadata; plain-file children are handled immediately.
 	for i, ch := range children {
 		full := filepath.Join(root, ch.Name())
+		accums[i].types = make(map[string]DiskUsageTypeStat)
 		entries[i] = DiskUsageEntry{
 			Name:  ch.Name(),
 			Path:  toSlash(full),
@@ -269,6 +282,7 @@ func globalBFS(
 		if !ch.IsDir() {
 			if info, err := ch.Info(); err == nil {
 				entries[i].Size = info.Size()
+				entries[i].Types = buildSingleFileTypes(ch.Name(), info.Size())
 			} else {
 				entries[i].Error = err.Error()
 			}
@@ -311,18 +325,11 @@ func globalBFS(
 	}()
 
 	var wg sync.WaitGroup
-	go func() { wg.Wait(); close(jobsIn) }() // closer
 
 	submit := func(job scanJob) {
 		wg.Add(1)
 		accums[job.rootIdx].inFlight.Add(1)
-		select {
-		case jobsIn <- job:
-		default:
-			// Buffer full: park in a goroutine so the calling worker stays unblocked.
-			// wg.Add(1) is already done above so wg.Wait() accounts for this goroutine.
-			go func() { jobsIn <- job }()
-		}
+		jobsIn <- job
 	}
 
 	// Seed with top-level directory children.
@@ -331,6 +338,10 @@ func globalBFS(
 			submit(scanJob{filepath.Join(root, ch.Name()), i})
 		}
 	}
+
+	// Start the closer only after the initial submissions have incremented the
+	// counter. Additional Add calls from workers are then safe while Wait blocks.
+	go func() { wg.Wait(); close(jobsIn) }()
 
 	// ── Workers ───────────────────────────────────────────────────────────────
 	numWorkers := runtime.GOMAXPROCS(0) * 2
@@ -375,6 +386,7 @@ func globalBFS(
 								accums[job.rootIdx].files.Add(1)
 								if info, err := e.Info(); err == nil {
 									accums[job.rootIdx].size.Add(info.Size())
+									addDiskUsageType(accums[job.rootIdx].types, &accums[job.rootIdx].typesMu, e.Name(), info.Size())
 								}
 							}
 						}
@@ -387,6 +399,7 @@ func globalBFS(
 					entries[idx].Size = accums[idx].size.Load()
 					entries[idx].Files = accums[idx].files.Load()
 					entries[idx].Dirs = accums[idx].dirs.Load()
+					entries[idx].Types = cloneDiskUsageTypes(accums[idx].types, &accums[idx].typesMu)
 					if onChildDone != nil {
 						onChildDone(idx, entries[idx])
 					}
@@ -398,4 +411,64 @@ func globalBFS(
 
 	workerWG.Wait()
 	return entries, firstErr
+}
+
+func buildSingleFileTypes(name string, size int64) map[string]DiskUsageTypeStat {
+	ext := diskUsageExt(name)
+	if ext == "" {
+		return nil
+	}
+	return map[string]DiskUsageTypeStat{
+		ext: {Count: 1, Size: size},
+	}
+}
+
+func addDiskUsageType(target map[string]DiskUsageTypeStat, mu *sync.Mutex, name string, size int64) {
+	ext := diskUsageExt(name)
+	if ext == "" {
+		return
+	}
+	mu.Lock()
+	stat := target[ext]
+	stat.Count++
+	stat.Size += size
+	target[ext] = stat
+	mu.Unlock()
+}
+
+func cloneDiskUsageTypes(source map[string]DiskUsageTypeStat, mu *sync.Mutex) map[string]DiskUsageTypeStat {
+	mu.Lock()
+	defer mu.Unlock()
+	if len(source) == 0 {
+		return nil
+	}
+	cloned := make(map[string]DiskUsageTypeStat, len(source))
+	for ext, stat := range source {
+		cloned[ext] = stat
+	}
+	return cloned
+}
+
+func mergeDiskUsageTypes(entries []DiskUsageEntry) map[string]DiskUsageTypeStat {
+	merged := make(map[string]DiskUsageTypeStat)
+	for _, entry := range entries {
+		for ext, stat := range entry.Types {
+			current := merged[ext]
+			current.Count += stat.Count
+			current.Size += stat.Size
+			merged[ext] = current
+		}
+	}
+	if len(merged) == 0 {
+		return nil
+	}
+	return merged
+}
+
+func diskUsageExt(name string) string {
+	ext := filepath.Ext(name)
+	if len(ext) <= 1 {
+		return ""
+	}
+	return strings.ToLower(ext[1:])
 }

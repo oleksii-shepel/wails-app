@@ -451,6 +451,20 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class DiskUsageTypeStat {
+	    count: number;
+	    size: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new DiskUsageTypeStat(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.count = source["count"];
+	        this.size = source["size"];
+	    }
+	}
 	export class DiskUsageEntry {
 	    name: string;
 	    path: string;
@@ -458,6 +472,7 @@ export namespace main {
 	    isDir: boolean;
 	    files: number;
 	    dirs: number;
+	    types?: Record<string, DiskUsageTypeStat>;
 	    error?: string;
 	
 	    static createFrom(source: any = {}) {
@@ -472,14 +487,34 @@ export namespace main {
 	        this.isDir = source["isDir"];
 	        this.files = source["files"];
 	        this.dirs = source["dirs"];
+	        this.types = this.convertValues(source["types"], DiskUsageTypeStat, true);
 	        this.error = source["error"];
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class DiskUsageResult {
 	    path: string;
 	    totalSize: number;
 	    totalFiles: number;
 	    totalDirs: number;
+	    types?: Record<string, DiskUsageTypeStat>;
 	    entries: DiskUsageEntry[];
 	    elapsedMs: number;
 	
@@ -493,6 +528,7 @@ export namespace main {
 	        this.totalSize = source["totalSize"];
 	        this.totalFiles = source["totalFiles"];
 	        this.totalDirs = source["totalDirs"];
+	        this.types = this.convertValues(source["types"], DiskUsageTypeStat, true);
 	        this.entries = this.convertValues(source["entries"], DiskUsageEntry);
 	        this.elapsedMs = source["elapsedMs"];
 	    }
@@ -515,6 +551,7 @@ export namespace main {
 		    return a;
 		}
 	}
+	
 	export class DriveInfo {
 	    name: string;
 	    path: string;

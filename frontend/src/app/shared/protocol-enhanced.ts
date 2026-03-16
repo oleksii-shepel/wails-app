@@ -306,6 +306,11 @@ export interface OperationProgress {
 // Disk Usage Analyzer
 // ============================================================================
 
+export interface DiskUsageTypeStat {
+  count: number;
+  size: number;
+}
+
 export interface DiskUsageEntry {
   name: string;
   path: string;
@@ -313,6 +318,7 @@ export interface DiskUsageEntry {
   isDir: boolean;
   files: number;
   dirs: number;
+  types?: Record<string, DiskUsageTypeStat>;
   error?: string;
 }
 
@@ -321,6 +327,7 @@ export interface DiskUsageResult {
   totalSize: number;
   totalFiles: number;
   totalDirs: number;
+  types?: Record<string, DiskUsageTypeStat>;
   entries: DiskUsageEntry[];
   elapsedMs: number;
 }

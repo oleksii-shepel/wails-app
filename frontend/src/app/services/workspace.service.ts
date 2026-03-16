@@ -874,7 +874,7 @@ export class WorkspaceService {
 
     const newTab: TabInfo = {
       id: this.generateId(),
-      title: 'Storage Dashboard',
+      title: 'Storage Footprint',
       path: analysisPath,
       kind: 'size-manager',
       isClosable: opts?.closable === false ? false : true,

@@ -102,9 +102,9 @@ const PIE_DISTRIBUTION_VISIBLE_LIMIT = 5;
           <text y="10" text-anchor="middle" class="pie-center-pct">{{ centerPct }}</text>
         </g>
 
-        <g *ngIf="hoveredIndex === -1" class="pie-center" pointer-events="none">
+        <g *ngIf="hoveredIndex === -1 || selectedIndex === -1" class="pie-center" pointer-events="none">
           <text y="-4" text-anchor="middle" class="pie-center-other1">Other</text>
-          <text y="11" text-anchor="middle" class="pie-center-other2">click to expand</text>
+          <text y="11" text-anchor="middle" class="pie-center-other2">{{ selectedIndex === -1 ? 'click again to expand' : 'click to expand' }}</text>
         </g>
 
         <g *ngIf="tooltip.visible" class="pie-tip" pointer-events="none"
@@ -118,6 +118,24 @@ const PIE_DISTRIBUTION_VISIBLE_LIMIT = 5;
 
       <!-- Spotlight — always visible, shows heaviest slice by default -->
       <div class="pie-spotlight">
+        <ng-container *ngIf="selectedIndex === -1; else entrySpotlight">
+          <div class="pie-spot-header">
+            <span class="pie-spot-icon">◌</span>
+            <span class="pie-spot-name">Other</span>
+            <span class="pie-pill">Bucket</span>
+          </div>
+          <div class="pie-spot-size">{{ formatBytes(otherSize) }}</div>
+          <div class="pie-spot-share">{{ otherPct }} of this location</div>
+          <div class="pie-bar-track">
+            <div class="pie-bar-fill"
+                 [style.width.%]="animatedBarPct"
+                 [style.background]="otherColor"
+                 [style.transition]="barTransition">
+            </div>
+          </div>
+          <div class="pie-spot-path">{{ otherEntries.length }} smaller items grouped into Other</div>
+        </ng-container>
+        <ng-template #entrySpotlight>
         <div class="pie-spot-header">
           <span class="pie-spot-icon">{{ selectedEntry?.isDir ? '▣' : '•' }}</span>
           <span class="pie-spot-name" [title]="selectedEntry?.path">{{ selectedEntry?.name }}</span>
@@ -145,6 +163,7 @@ const PIE_DISTRIBUTION_VISIBLE_LIMIT = 5;
           </div>
         </div>
         <div class="pie-spot-path" [title]="selectedEntry?.path">{{ selectedEntry?.path }}</div>
+        </ng-template>
       </div>
 
     </div>
@@ -172,6 +191,7 @@ const PIE_DISTRIBUTION_VISIBLE_LIMIT = 5;
       <button
       *ngIf="otherEntries.length > 0"
       class="pie-legend-item pie-legend-item--other"
+      [class.pie-legend-item--active]="selectedIndex === -1"
       [class.pie-legend-item--hovered]="hoveredIndex === -1"
       (click)="onOtherClick()"
       (mouseenter)="hoveredIndex = -1; cdr.markForCheck()"
@@ -688,8 +708,19 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
     this.cdr.markForCheck();
   }
 
+  private selectOtherBucket(): void {
+    this.selectedIndex = -1;
+    this.triggerBarAnimation();
+    this.cdr.markForCheck();
+  }
+
   onOtherClick(): void {
-    if (this.otherEntries.length) this.otherDrill.emit(this.otherEntries);
+    if (!this.otherEntries.length) return;
+    if (this.selectedIndex === -1) {
+      this.otherDrill.emit(this.otherEntries);
+      return;
+    }
+    this.selectOtherBucket();
   }
 
   onLegendClick(e: DiskUsageEntry, index: number): void {
@@ -792,7 +823,9 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
     requestAnimationFrame(() => {
       if (this.destroyed) return;
       this.barTransition = 'width 0.5s cubic-bezier(0.4, 0, 0.2, 1)';
-      if (this.selectedIndex !== null && this.totalSize) {
+      if (this.selectedIndex === -1 && this.totalSize) {
+        this.animatedBarPct = (this.otherSize / this.totalSize) * 100;
+      } else if (this.selectedIndex !== null && this.totalSize) {
         this.animatedBarPct = (this.displayEntries[this.selectedIndex].size / this.totalSize) * 100;
       }
       this.cdr.markForCheck();

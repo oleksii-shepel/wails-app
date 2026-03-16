@@ -24,8 +24,9 @@ import { TabInfo } from "../shared/protocol-enhanced";
       </svg>
 
       <svg *ngIf="tab.kind === 'size-manager'" width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-label="Disk Usage" class="tab-icon tab-icon--disk-usage">
-        <path d="M8 8 L8 2 A6 6 0 1 1 2 8 Z"/>
-        <path d="M8 8 L2 8 A6 6 0 0 0 8 2 Z" opacity="0.4"/>
+        <rect x="1" y="9" width="3" height="5" rx="0.5"/>
+        <rect x="6" y="5" width="3" height="9" rx="0.5"/>
+        <rect x="11" y="1" width="3" height="13" rx="0.5"/>
       </svg>
 
       <svg *ngIf="tab.kind !== 'viewer' && tab.kind !== 'size-manager' && !isArchiveTab" width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-label="Folder" class="tab-icon tab-icon--folder">

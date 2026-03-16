@@ -756,7 +756,6 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
           this.entries = [...this.entries, item];
           this.syncRootPieFrame(this.visibleEntriesSize);
           this.syncSelectedEntry();
-          this.rebuildFileTypeBreakdown();
           if (!firstEntryArrived) {
             firstEntryArrived = true;
             this.firstEntryArrived.emit();

@@ -48,7 +48,7 @@ export class FilePaneNavigationController {
     host.pathReady = true;
     if (activeTab) host.currentTabId = activeTab.id;
 
-    if (activeKind === 'viewer') {
+    if (activeKind === 'viewer' || activeKind === 'size-manager') {
       if (!host.activeDirTabId) {
         const firstDir = host.tabs.find(tab => (tab.kind ?? 'dir') === 'dir');
         if (firstDir) host.activeDirTabId = firstDir.id;

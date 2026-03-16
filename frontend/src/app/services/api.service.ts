@@ -480,9 +480,9 @@ export class ApiService {
   /**
    * Streaming disk-usage scan.
    *
-   * Returns an AsyncGenerator that yields DiskUsageEntry objects as each
-   * direct child finishes scanning, then yields the final DiskUsageResult
-   * summary as the last item.
+    * Returns an AsyncGenerator that yields DiskUsageEntry objects as direct
+    * child snapshots update during the scan, then yields the final
+    * DiskUsageResult summary as the last item.
    *
    * The generator handles its own cleanup: it cancels the Go-side scan if
    * the caller breaks out of the for-await loop early (e.g. on navigation).
@@ -495,11 +495,13 @@ export class ApiService {
    */
   async *streamDiskUsage(
     path: string,
+    options?: { signal?: AbortSignal },
   ): AsyncGenerator<
     DiskUsageEntry |
     DiskUsageProgress |
     DiskUsageResult
   > {
+    const signal = options?.signal;
     const scanId = await window.go.main.App.StartDiskUsageStream(path);
 
     type Pending =
@@ -511,8 +513,19 @@ export class ApiService {
     const queue: Pending[] = [];
     let wake: (() => void) | null = null;
     let finished = false;
+    let aborted = false;
 
     const notify = () => { const r = wake; wake = null; r?.(); };
+
+    const onAbort = () => {
+      aborted = true;
+      finished = true;
+      notify();
+    };
+
+    if (signal?.aborted) {
+      onAbort();
+    }
 
     const onEntry = (payload: { scanId: string; entry: any }) => {
       if (payload.scanId !== scanId) return;
@@ -545,6 +558,8 @@ export class ApiService {
     window.runtime.EventsOn('disk-usage:done',  onDone);
     window.runtime.EventsOn('disk-usage:error', onError);
 
+    signal?.addEventListener('abort', onAbort, { once: true });
+
     const cleanup = () => {
       window.runtime.EventsOff('disk-usage:entry', 'disk-usage:progress', 'disk-usage:done', 'disk-usage:error');
     };
@@ -565,6 +580,7 @@ export class ApiService {
       }
     } finally {
       // Runs on break, return, or throw — cancel any in-progress Go scan.
+      signal?.removeEventListener('abort', onAbort);
       cleanup();
       window.go.main.App.CancelDiskUsageStream(scanId).catch(() => {/* best-effort */});
     }

@@ -888,7 +888,7 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
   async analyse(path: string): Promise<void> {
     const scanRunId = ++this.activeScanRunId;
     this.currentPath = path;
-    this.parentPath  = this.getParent(path);
+    this.parentPath  = this.getScopedParent(path);
     this.loading     = true;
     this.isTraversing = true;
     this.error       = null;
@@ -991,6 +991,22 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
     if (i <= 0) return n.charAt(0) === '/' ? '/' : null;
     const p = n.substring(0, i) || '/';
     return /^[a-zA-Z]:$/.test(p) ? p + '/' : p;
+  }
+
+  private getScopedParent(path: string): string | null {
+    const parent = this.getParent(path);
+    if (!parent) return null;
+
+    const root = this.normalizePathDisplay(this.syncedAnalysisPath || '');
+    if (!root) return parent;
+
+    const current = this.normalizePathDisplay(path);
+    if (current === root) return null;
+
+    const normalizedParent = this.normalizePathDisplay(parent);
+    if (normalizedParent === root) return parent;
+    if (normalizedParent.startsWith(root + '/')) return parent;
+    return null;
   }
 
   private labelFromPath(path: string): string {

@@ -61,7 +61,7 @@ func (a *App) AnalyzeDiskUsage(path string) (*DiskUsageResult, error) {
 //
 // Events emitted (scoped by scanId so concurrent scans never cross):
 //
-//	"disk-usage:entry"  — { scanId, entry: DiskUsageEntry }   one per child
+//	"disk-usage:entry"  — { scanId, entry: DiskUsageEntry }   incremental child snapshots
 //	"disk-usage:progress" — { scanId, progress: DiskUsageProgress } live totals
 //	"disk-usage:done"   — { scanId, result: DiskUsageResult } final summary
 //	"disk-usage:error"  — { scanId, error: string }
@@ -227,13 +227,14 @@ type scanJob struct {
 // work queue. All workers serve the entire tree so no worker idles while a
 // large subtree monopolises another — unlike the old two-tier approach.
 //
-// onChildDone is called exactly once per directory child when its entire
-// subtree is scanned; pass nil when immediate notification is not needed.
+// onChildUpdate receives incremental snapshots for direct children as their
+// subtree stats accumulate, plus a final snapshot once a directory child is
+// fully scanned; pass nil when child notifications are not needed.
 func globalBFS(
 	root string,
 	children []os.DirEntry,
 	done <-chan struct{},
-	onChildDone func(idx int, entry DiskUsageEntry),
+	onChildUpdate func(idx int, entry DiskUsageEntry),
 	onProgress func(progress DiskUsageProgress),
 ) ([]DiskUsageEntry, error) {
 	n := len(children)
@@ -250,10 +251,26 @@ func globalBFS(
 		files    atomic.Int64
 		dirs     atomic.Int64
 		inFlight atomic.Int32
+		dirty    atomic.Bool
 		typesMu  sync.Mutex
 		types    map[string]DiskUsageTypeStat
 	}
 	accums := make([]rootAccum, n)
+
+	buildChildSnapshot := func(idx int) DiskUsageEntry {
+		snapshot := entries[idx]
+		snapshot.Size = accums[idx].size.Load()
+		snapshot.Files = accums[idx].files.Load()
+		snapshot.Dirs = accums[idx].dirs.Load()
+		snapshot.Types = cloneDiskUsageTypes(accums[idx].types, &accums[idx].typesMu)
+		return snapshot
+	}
+
+	emitChildSnapshot := func(idx int) {
+		if onChildUpdate != nil {
+			onChildUpdate(idx, buildChildSnapshot(idx))
+		}
+	}
 
 	var firstErr error
 	var errMu sync.Mutex
@@ -276,22 +293,32 @@ func globalBFS(
 				entries[i].Error = err.Error()
 			}
 			progressFiles.Add(1)
-			if onChildDone != nil {
-				onChildDone(i, entries[i])
+			if onChildUpdate != nil {
+				onChildUpdate(i, entries[i])
 			}
 		} else {
 			progressDirs.Add(1)
+			accums[i].dirty.Store(true)
 		}
 	}
 
-	if onProgress != nil {
+	if onProgress != nil || onChildUpdate != nil {
 		emitProgress := func() {
-			onProgress(DiskUsageProgress{
-				TotalSize:  progressSize.Load(),
-				TotalFiles: progressFiles.Load(),
-				TotalDirs:  progressDirs.Load(),
-				ElapsedMs:  time.Since(start).Milliseconds(),
-			})
+			if onProgress != nil {
+				onProgress(DiskUsageProgress{
+					TotalSize:  progressSize.Load(),
+					TotalFiles: progressFiles.Load(),
+					TotalDirs:  progressDirs.Load(),
+					ElapsedMs:  time.Since(start).Milliseconds(),
+				})
+			}
+			if onChildUpdate != nil {
+				for idx := range accums {
+					if entries[idx].IsDir && accums[idx].inFlight.Load() > 0 && accums[idx].dirty.Swap(false) {
+						emitChildSnapshot(idx)
+					}
+				}
+			}
 		}
 		emitProgress()
 		go func() {
@@ -399,10 +426,12 @@ func globalBFS(
 							full := filepath.Join(job.dir, e.Name())
 							if e.IsDir() {
 								accums[job.rootIdx].dirs.Add(1)
+								accums[job.rootIdx].dirty.Store(true)
 								progressDirs.Add(1)
 								submit(scanJob{full, job.rootIdx})
 							} else {
 								accums[job.rootIdx].files.Add(1)
+								accums[job.rootIdx].dirty.Store(true)
 								progressFiles.Add(1)
 								if info, err := e.Info(); err == nil {
 									accums[job.rootIdx].size.Add(info.Size())
@@ -415,15 +444,11 @@ func globalBFS(
 				}
 
 				if accums[job.rootIdx].inFlight.Add(-1) == 0 {
-					// All work for this root child is done — materialise entry.
+					// All work for this root child is done — materialise final entry.
 					idx := job.rootIdx
-					entries[idx].Size = accums[idx].size.Load()
-					entries[idx].Files = accums[idx].files.Load()
-					entries[idx].Dirs = accums[idx].dirs.Load()
-					entries[idx].Types = cloneDiskUsageTypes(accums[idx].types, &accums[idx].typesMu)
-					if onChildDone != nil {
-						onChildDone(idx, entries[idx])
-					}
+					accums[idx].dirty.Store(false)
+					entries[idx] = buildChildSnapshot(idx)
+					emitChildSnapshot(idx)
 				}
 				wg.Done()
 			}

@@ -38,6 +38,9 @@ interface TooltipState {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+
+const PIE_DISTRIBUTION_VISIBLE_LIMIT = 5;
+
 /**
  * Pure display component — renders a donut chart for a flat list of entries.
  *
@@ -46,11 +49,11 @@ interface TooltipState {
  * the current level's entries + totalSize down as inputs.
  *
  * Outputs:
- *   (select)     — user clicked a named slice
- *   (activate)   — user explicitly activated a named slice/row
+ *   (select)     — user clicked a file slice/row
+ *   (activate)   — user explicitly activated a file slice/row
  *   (otherDrill) — user clicked the "Other" slice/row; parent should push a
  *                  new nav frame containing the bucketed entries
- *   (drillDown)  — user double-clicked a folder slice; parent navigates into it
+ *   (drillDown)  — user clicked a folder slice/row; parent navigates into it
  */
 @Component({
   selector: 'app-disk-pie-chart',
@@ -66,8 +69,7 @@ interface TooltipState {
         viewBox="-120 -120 240 240"
         (mousemove)="onSvgMouseMove($event)"
         (mouseleave)="onSvgMouseLeave()"
-        (click)="onSvgClick($event)"
-        (dblclick)="onSvgDblClick($event)">
+        (click)="onSvgClick($event)">
 
         <g
           *ngFor="let s of slices; trackBy: trackSlice"
@@ -158,8 +160,7 @@ interface TooltipState {
         class="pie-legend-item"
         [class.pie-legend-item--active]="selectedIndex === i"
         [class.pie-legend-item--hovered]="hoveredIndex === i"
-        (click)="selectSlice(i)"
-        (dblclick)="onLegendDblClick(e)"
+        (click)="onLegendClick(e, i)"
         (mouseenter)="hoveredIndex = i; cdr.markForCheck()"
         (mouseleave)="hoveredIndex = null; cdr.markForCheck()">
         <span class="pie-swatch" [style.background]="getColor(i)"></span>
@@ -473,6 +474,24 @@ interface TooltipState {
     :host-context(.vscode-light) .pie-pill  { background: rgba(10,93,143,.12); color: #0a5d8f; }
     :host-context(.vscode-light) .pie-pill--dir { background: rgba(90,110,0,.12); color: #5a6e00; }
     :host-context(.vscode-light) .pie-spotlight { background: var(--vsc-input-background, #ffffff); }
+    :host-context(.vscode-light) .pie-tip-bg { fill: var(--vsc-input-background, #ffffff); stroke: var(--vsc-border, #c4c4c4); }
+    :host-context(.vscode-light) .pie-tip-name { fill: var(--vsc-foreground, #3b3b3b); }
+    :host-context(.vscode-light) .pie-tip-meta { fill: var(--vsc-foreground-dim, #737373); }
+    :host-context(.vscode-light) .pie-legend-item:hover,
+    :host-context(.vscode-light) .pie-legend-item--hovered { background: var(--vsc-list-hover-background, #e4e6f1); color: var(--vsc-foreground, #3b3b3b); }
+    :host-context(.vscode-light) .pie-legend-item--active {
+      background: color-mix(in srgb, var(--vsc-list-active-background, #cce0f5) 82%, white 18%) !important;
+      border-color: color-mix(in srgb, var(--vsc-focus-border, #007acc) 28%, var(--vsc-border, #c4c4c4));
+      color: var(--vsc-foreground, #3b3b3b);
+    }
+    :host-context(.vscode-light) .pie-legend-item--other { border-color: color-mix(in srgb, var(--vsc-foreground-dim, #737373) 34%, transparent); }
+    :host-context(.vscode-light) .pie-legend-size,
+    :host-context(.vscode-light) .pie-legend-pct,
+    :host-context(.vscode-light) .pie-other-count,
+    :host-context(.vscode-light) .pie-drill-arrow,
+    :host-context(.vscode-light) .pie-spot-share,
+    :host-context(.vscode-light) .pie-stat-lbl,
+    :host-context(.vscode-light) .pie-spot-path { color: var(--vsc-foreground-dim, #737373); }
   `],
 })
 export class DiskPieChartComponent implements OnChanges, OnDestroy {
@@ -646,26 +665,25 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
     if (!svgP) return;
     const idx = this.hitTest(svgP.x, svgP.y);
     if (idx === -1)             { this.onOtherClick(); return; }
-    if (idx !== null && idx >= 0) this.selectSlice(idx);
-  }
-
-  onSvgDblClick(event: MouseEvent): void {
-    const svgP = this.toSvgCoords(event);
-    if (!svgP) return;
-    const idx = this.hitTest(svgP.x, svgP.y);
     if (idx !== null && idx >= 0) {
       const e = this.displayEntries[idx];
-      if (e?.isDir) this.drillDown.emit(e);
+      if (e?.isDir) {
+        this.drillDown.emit(e);
+        return;
+      }
+      this.selectSlice(idx, true);
     }
   }
 
-  selectSlice(i: number): void {
+  selectSlice(i: number, activate: boolean = false): void {
     this.selectedIndex = i;
     this.triggerBarAnimation();
     const e = this.displayEntries[i];
     if (e) {
       this.select.emit(e);
-      this.activate.emit(e);
+      if (activate) {
+        this.activate.emit(e);
+      }
     }
     this.cdr.markForCheck();
   }
@@ -674,8 +692,12 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
     if (this.otherEntries.length) this.otherDrill.emit(this.otherEntries);
   }
 
-  onLegendDblClick(e: DiskUsageEntry): void {
-    if (e.isDir) this.drillDown.emit(e);
+  onLegendClick(e: DiskUsageEntry, index: number): void {
+    if (e.isDir) {
+      this.selectSlice(index, false);
+    } else {
+      this.selectSlice(index, false);
+    }
   }
 
   // ── Private ───────────────────────────────────────────────────────────────
@@ -688,8 +710,8 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
     const total = this.totalSize;
 
     if (!this.entries.length || !total) {
-      this.displayEntries = this.entries.slice(0, this.palette.length);
-      this.otherEntries   = this.entries.slice(this.palette.length);
+      this.displayEntries = this.entries.slice(0, PIE_DISTRIBUTION_VISIBLE_LIMIT);
+      this.otherEntries   = this.entries.slice(PIE_DISTRIBUTION_VISIBLE_LIMIT);
       this.otherSize      = this.otherEntries.reduce((s, e) => s + e.size, 0);
       this.otherPct       = '';
       return;
@@ -706,8 +728,8 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
     const visible = main.length > 0 ? main : this.entries;
     const leftover = main.length > 0 ? rest : [];
 
-    this.displayEntries = visible.slice(0, this.palette.length);
-    const overflow      = visible.slice(this.palette.length);
+    this.displayEntries = visible.slice(0, PIE_DISTRIBUTION_VISIBLE_LIMIT);
+    const overflow      = visible.slice(PIE_DISTRIBUTION_VISIBLE_LIMIT);
     this.otherEntries   = [...overflow, ...leftover];
 
     this.otherSize = this.otherEntries.reduce((s, e) => s + e.size, 0);

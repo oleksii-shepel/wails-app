@@ -456,6 +456,7 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
       newFolder:             () => this.getActivePane()?.browserCommands.selection.createFolder(),
       rename:                () => this.getActivePane()?.browserCommands.selection.renameSelected(),
       toggleCurrent:         () => this.getActivePane()?.shortcuts.selection.toggleCurrentAndMoveDown(),
+      inlineDirectorySize:   () => this.getActivePane()?.measureCurrentDirectorySizeAndMoveDown(),
       extendSelUp:           () => this.getActivePane()?.shortcuts.selection.extendSelection(-1),
       extendSelDown:         () => this.getActivePane()?.shortcuts.selection.extendSelection(1),
       selectByMask:          () => this.getActivePane()?.shortcuts.selection.selectByMask(),

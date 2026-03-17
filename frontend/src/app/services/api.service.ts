@@ -243,6 +243,10 @@ export class ApiService {
     return await window.go.main.App.Search(path, pattern, recursive);
   }
 
+  async dirSizeRecursive(path: string): Promise<number> {
+    return await window.go.main.App.DirSizeRecursive(path);
+  }
+
   // ============================================================================
   // Batch Operations
   // ============================================================================

@@ -76,6 +76,7 @@ export type ViewLayout = ViewMode;
           [currentPath]="currentPath"
           [selectedFiles]="selectedFiles"
           (selectionChange)="onTreeSelectionChange($event)"
+          (inlineSize)="onTreeInlineSize($event)"
           (nodeDoubleClick)="onTreeNodeDoubleClick($event)"
           (toggleExpand)="onTreeToggleExpand($event)"
           (loadChildren)="onLoadChildren($event)"
@@ -183,6 +184,7 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
 
   private loadRequest$ = createSubject<TreeNode>();
   private destroy$     = createSubject<void>();
+  private readonly pendingDirectorySizePaths = new Set<string>();
   private readonly eventsController = new FileViewEventsController();
   private readonly interactionController = new FileViewInteractionController();
   private readonly lifecycleController = new FileViewLifecycleController();
@@ -330,6 +332,10 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
     this.eventsController.onTreeSelectionChange(this.eventsHost, nodes);
   }
 
+  onTreeInlineSize(node: TreeNode): void {
+    void this.calculateDirectorySize(node.path);
+  }
+
   onTreeContextMenu(event: { event: MouseEvent; node: TreeNode }): void {
     this.eventsController.onTreeContextMenu(this.eventsHost, event);
   }
@@ -378,6 +384,24 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
 
   getVisibleTreeNodes(): TreeNode[] {
     return this.treeComponent?.getVisibleNodes() ?? [];
+  }
+
+  async calculateDirectorySize(path: string): Promise<void> {
+    if (!path || path === PARENT_ENTRY_PATH) return;
+    if (this.pendingDirectorySizePaths.has(path)) return;
+
+    const entry = this.entries.find(candidate => candidate.path === path);
+    if (!entry || entry.type !== FileType.DIRECTORY) return;
+
+    this.pendingDirectorySizePaths.add(path);
+    try {
+      const size = await this.apiService.dirSizeRecursive(path);
+      this.applyDirectorySize(path, size);
+    } catch (error) {
+      console.warn('Failed to calculate directory size inline:', path, error);
+    } finally {
+      this.pendingDirectorySizePaths.delete(path);
+    }
   }
 
   focusTreeNode(path: string): void {
@@ -451,5 +475,44 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
 
   private sortTreeNodes(nodes: TreeNode[]): TreeNode[] {
     return this.sortController.sortTreeNodes(this.sortHost, nodes);
+  }
+
+  private applyDirectorySize(path: string, size: number): void {
+    const entry = this.entries.find(candidate => candidate.path === path);
+    if (entry) {
+      entry.size = size;
+    }
+
+    const sortedEntry = this.sortedEntries.find(candidate => candidate.path === path);
+    if (sortedEntry && sortedEntry !== entry) {
+      sortedEntry.size = size;
+    }
+
+    const treeNode = this.findTreeNodeByPath(this.treeNodes, path);
+    if (treeNode) {
+      treeNode.size = size;
+    }
+
+    if (this.sortField === 'size') {
+      this.sortController.sortEntries(this.sortHost, PARENT_ENTRY_PATH);
+      this.sortController.resortAllLoadedTreeNodes(this.sortHost, this.treeNodes);
+    } else {
+      this.sortedEntries = [...this.sortedEntries];
+    }
+
+    this.treeNodes = [...this.treeNodes];
+    this.cdr.markForCheck();
+  }
+
+  private findTreeNodeByPath(nodes: TreeNode[], path: string): TreeNode | undefined {
+    for (const node of nodes) {
+      if (node.path === path) return node;
+      const childNodes = node.children;
+      if (!childNodes?.length) continue;
+      const match = this.findTreeNodeByPath(childNodes, path);
+      if (match) return match;
+    }
+
+    return undefined;
   }
 }

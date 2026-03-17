@@ -902,6 +902,23 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     this.stateController.onSelectionChange(this.stateHost, entries);
   }
 
+  measureCurrentDirectorySize(): void {
+    if (this.activeTabKind !== 'dir' || this.isInArchive()) return;
+
+    const path = this.selectionCursorPath ?? (this.selectedFiles.size === 1 ? Array.from(this.selectedFiles)[0] : null);
+    if (!path || path === PARENT_ENTRY_PATH) return;
+
+    const entry = this.entries.find(candidate => candidate.path === path);
+    if (!entry || entry.type !== FileType.DIRECTORY) return;
+
+    void this.fileViewContainer?.calculateDirectorySize(path);
+  }
+
+  measureCurrentDirectorySizeAndMoveDown(): void {
+    this.measureCurrentDirectorySize();
+    this.shortcuts.selection.toggleCurrentAndMoveDown();
+  }
+
   // в”Ђв”Ђ File operations в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
   /**

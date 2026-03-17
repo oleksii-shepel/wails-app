@@ -48,6 +48,7 @@ export const BC = {
   newFolder:            'pane.files.newFolder',
   rename:               'pane.files.rename',
   toggleCurrent:        'pane.files.toggleCurrent',
+  inlineDirectorySize:  'pane.files.inlineDirectorySize',
   extendSelUp:          'pane.files.extendSelectionUp',
   extendSelDown:        'pane.files.extendSelectionDown',
   selectByMask:         'pane.files.selectByMask',
@@ -183,7 +184,8 @@ export const BROWSER_BINDINGS: InputBindingDefinition[] = [
   kb('pane.files.delete.f8',           BC.deleteSelected, 'f8',       'Delete selected items (F8)',                   { category: FILES }),
   kb('pane.files.selectAll.ctrlA',     BC.selectAll,      'a',        'Select all items (Ctrl+A)',                    { modifiers: ['ctrl'], category: FILES }),
   kb('pane.files.deselectAll.ctrlD',   BC.deselectAll,    'd',        'Deselect all items (Ctrl+D)',                  { modifiers: ['ctrl'], category: FILES }),
-  kb('pane.files.toggleCurrent.space', BC.toggleCurrent,  'space',    'Mark current directory or toggle file and move down', { category: FILES }),
+  kb('pane.files.inlineDirectorySize.space', BC.inlineDirectorySize, 'space', 'Calculate current folder size inline, then mark item and move down', { category: FILES }),
+  kb('pane.files.toggleCurrent.insert', BC.toggleCurrent, 'insert',   'Mark current directory or toggle file and move down', { category: FILES }),
   kb('pane.files.extendUp.shiftUp',    BC.extendSelUp,    'arrowup',  'Extend selection upward (Shift+ArrowUp)',      { modifiers: ['shift'], category: FILES }),
   kb('pane.files.extendDown.shiftDown',BC.extendSelDown,  'arrowdown','Extend selection downward (Shift+ArrowDown)',  { modifiers: ['shift'], category: FILES }),
   kb('pane.files.selectByMask.altS',   BC.selectByMask,   's',        'Select by mask (Alt+S)',                       { modifiers: ['alt'], category: FILES }),
@@ -257,6 +259,7 @@ export interface FileBrowserCommandHandlers {
   newFolder:            () => void;
   rename:               () => void;
   toggleCurrent:        () => void;
+  inlineDirectorySize:  () => void;
   extendSelUp:          () => void;
   extendSelDown:        () => void;
   selectByMask:         () => void;
@@ -326,6 +329,7 @@ export function registerFileBrowserCommands(
   engine.registerCommand(BC.newFolder,              handlers.newFolder,              ownerId);
   engine.registerCommand(BC.rename,                 handlers.rename,                 ownerId);
   engine.registerCommand(BC.toggleCurrent,          handlers.toggleCurrent,          ownerId);
+  engine.registerCommand(BC.inlineDirectorySize,    handlers.inlineDirectorySize,    ownerId);
   engine.registerCommand(BC.extendSelUp,            handlers.extendSelUp,            ownerId);
   engine.registerCommand(BC.extendSelDown,          handlers.extendSelDown,          ownerId);
   engine.registerCommand(BC.selectByMask,           handlers.selectByMask,           ownerId);
@@ -355,6 +359,7 @@ export function registerFileBrowserCommands(
       BC.newTab, BC.closeTab, BC.nextTab, BC.prevTab, BC.togglePinTab,
       BC.openItem, BC.quickView, BC.copy, BC.cut, BC.paste, BC.deleteSelected,
       BC.selectAll, BC.deselectAll, BC.newFolder, BC.rename, BC.toggleCurrent,
+      BC.inlineDirectorySize,
       BC.extendSelUp, BC.extendSelDown, BC.selectByMask, BC.unselectByMask,
       BC.invertSelection, BC.selectSameExt, BC.focusFilter, BC.advancedFilter,
       BC.clearFilter, BC.showWorkspaceSwitcher, BC.newWorkspace, BC.toggleHidden,

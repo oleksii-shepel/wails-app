@@ -419,6 +419,7 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
   @Input() emptyMessage = 'No items';
 
   @Output() selectionChange = new EventEmitter<TreeNode[]>();
+  @Output() inlineSize = new EventEmitter<TreeNode>();
   @Output() nodeDoubleClick = new EventEmitter<TreeNode>();
   @Output() navigate = new EventEmitter<TreeNode>();
   @Output() openInNewTab = new EventEmitter<TreeNode>();
@@ -701,6 +702,19 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
 
   isFocusedNode(node: TreeNode): boolean {
     return this.focusedNodePath === node.path;
+  }
+
+  private selectNodeAndAdvance(node: TreeNode, visible: TreeNode[]): void {
+    this.selectNode(node, false, false);
+
+    const currentIdx = visible.findIndex(candidate => candidate.path === node.path);
+    if (currentIdx === -1) return;
+
+    const nextNode = visible[Math.min(currentIdx + 1, visible.length - 1)];
+    if (!nextNode || nextNode.path === node.path) return;
+
+    this.focusedNodePath = nextNode.path;
+    this.ensureVisible(nextNode);
   }
 
   private selectNode(node: TreeNode, addToSelection = false, range = false): void {
@@ -1457,7 +1471,25 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
       case ' ':
         event.preventDefault();
         if (current) {
-          this.selectNode(current, event.ctrlKey || event.metaKey, event.shiftKey);
+          if (!event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) {
+            if (current.type === FileType.DIRECTORY) {
+              this.inlineSize.emit(current);
+            }
+            this.selectNodeAndAdvance(current, visible);
+          } else {
+            this.selectNode(current, event.ctrlKey || event.metaKey, event.shiftKey);
+          }
+        }
+        break;
+
+      case 'Insert':
+        event.preventDefault();
+        if (current) {
+          if (!event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) {
+            this.selectNodeAndAdvance(current, visible);
+          } else {
+            this.selectNode(current, event.ctrlKey || event.metaKey, event.shiftKey);
+          }
         }
         break;
 

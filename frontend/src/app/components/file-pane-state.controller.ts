@@ -1,4 +1,4 @@
-import type { FileInfo, FileType } from '../shared/protocol';
+import { FileInfo, FileType } from '../shared/protocol';
 import type { FilterQuery } from '../shared/protocol-enhanced';
 import type { FindWidgetState } from './filter-widget.component';
 import type { ViewLayout } from './file-view-container.component';
@@ -147,10 +147,18 @@ export class FilePaneStateController {
     const index = this.getCursorIndex(host, selectable);
     if (index < 0) return;
 
-    const path = selectable[index].path;
+    const current = selectable[index];
+    const path = current.path;
     const next = new Set(host.selectedFiles);
-    if (next.has(path)) next.delete(path);
-    else next.add(path);
+
+    if (current.type === FileType.DIRECTORY) {
+      next.add(path);
+    } else if (next.has(path)) {
+      next.delete(path);
+    } else {
+      next.add(path);
+    }
+
     host.selectedFiles = next;
 
     const nextIndex = Math.min(index + 1, selectable.length - 1);
@@ -179,9 +187,17 @@ export class FilePaneStateController {
     if (!host.selectionCursorPath) return;
 
     const path = host.selectionCursorPath;
+    const current = host.findEntry(path);
     const next = new Set(host.selectedFiles);
-    if (next.has(path)) next.delete(path);
-    else next.add(path);
+
+    if (current?.type === FileType.DIRECTORY) {
+      next.add(path);
+    } else if (next.has(path)) {
+      next.delete(path);
+    } else {
+      next.add(path);
+    }
+
     host.selectedFiles = next;
 
     const selectable = host.getSelectableEntries();

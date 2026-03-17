@@ -41,6 +41,7 @@ interface TooltipState {
 
 const PIE_DISTRIBUTION_VISIBLE_LIMIT = 5;
 const PIE_DISTRIBUTION_FALLBACK_VISIBLE_LIMIT = 3;
+const OTHER_BUCKET_SELECTION_KEY = '__other__';
 
 /**
  * Pure display component — renders a donut chart for a flat list of entries.
@@ -606,6 +607,7 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
   slices: PieSlice[]   = [];
   selectedIndex: number | null = null;
   hoveredIndex:  number | null = null;
+  private selectedKey: string | null = null;
 
   tooltip: TooltipState = { visible: false, x: 0, y: 0, name: '', size: '', pct: '', side: 1 };
   tooltipWidth = 120;
@@ -632,12 +634,12 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
       this.barTransition  = 'none';
       this.partition();
       this.buildSlices();
-      this.syncSelectionFromInput();
+      this.reconcileSelection();
       return;
     }
 
     if (changes['selectedPath']) {
-      this.syncSelectionFromInput();
+      this.applyExternalSelection();
     }
   }
 
@@ -775,6 +777,7 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
 
   selectSlice(i: number, activate: boolean = false): void {
     this.selectedIndex = i;
+    this.selectedKey = this.displayEntries[i]?.path ?? null;
     this.triggerBarAnimation();
     const e = this.displayEntries[i];
     if (e) {
@@ -788,6 +791,7 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
 
   clearSelection(): void {
     this.selectedIndex = null;
+    this.selectedKey = null;
     this.animatedBarPct = 100;
     this.barTransition = 'none';
     this.select.emit(null);
@@ -796,6 +800,7 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
 
   private selectOtherBucket(): void {
     this.selectedIndex = -1;
+    this.selectedKey = OTHER_BUCKET_SELECTION_KEY;
     this.triggerBarAnimation();
     this.cdr.markForCheck();
   }
@@ -811,7 +816,9 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
 
   onLegendClick(e: DiskUsageEntry, index: number): void {
     if (this.selectedIndex === index) {
-      this.clearSelection();
+      if (e.isDir) {
+        this.drillDown.emit(e);
+      }
     } else {
       this.selectSlice(index, false);
     }
@@ -859,8 +866,9 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
       : '';
   }
 
-  private syncSelectionFromInput(): void {
+  private applyExternalSelection(): void {
     if (!this.selectedPath) {
+      this.selectedKey = null;
       this.selectedIndex = null;
       this.animatedBarPct = 100;
       this.barTransition = 'none';
@@ -870,6 +878,51 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
 
     const selectedIndex = this.displayEntries.findIndex((entry) => entry.path === this.selectedPath);
     if (selectedIndex === -1) {
+      this.selectedKey = null;
+      this.selectedIndex = null;
+      this.animatedBarPct = 100;
+      this.barTransition = 'none';
+      this.cdr.markForCheck();
+      return;
+    }
+
+    this.selectedKey = this.selectedPath;
+    this.selectedIndex = selectedIndex;
+    this.triggerBarAnimation();
+    this.cdr.markForCheck();
+  }
+
+  private reconcileSelection(): void {
+    if (this.selectedPath !== null) {
+      this.applyExternalSelection();
+      return;
+    }
+
+    if (this.selectedKey === OTHER_BUCKET_SELECTION_KEY) {
+      if (this.otherEntries.length > 0) {
+        this.selectedIndex = -1;
+        this.triggerBarAnimation();
+      } else {
+        this.selectedKey = null;
+        this.selectedIndex = null;
+        this.animatedBarPct = 100;
+        this.barTransition = 'none';
+      }
+      this.cdr.markForCheck();
+      return;
+    }
+
+    if (!this.selectedKey) {
+      this.selectedIndex = null;
+      this.animatedBarPct = 100;
+      this.barTransition = 'none';
+      this.cdr.markForCheck();
+      return;
+    }
+
+    const selectedIndex = this.displayEntries.findIndex((entry) => entry.path === this.selectedKey);
+    if (selectedIndex === -1) {
+      this.selectedKey = null;
       this.selectedIndex = null;
       this.animatedBarPct = 100;
       this.barTransition = 'none';

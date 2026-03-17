@@ -6,10 +6,11 @@ import { Directive, ElementRef, NgZone, OnDestroy, OnInit, Renderer2 } from '@an
 })
 export class VscodeScrollbarDirective implements OnInit, OnDestroy {
   private readonly host: HTMLElement;
-  private readonly anchor: HTMLElement;
+  private anchor: HTMLElement;
   private scrollbarEl: HTMLElement | null = null;
   private thumbEl: HTMLElement | null = null;
   private resizeObserver: ResizeObserver | null = null;
+  private mutationObserver: MutationObserver | null = null;
   private removeScrollListener: (() => void) | null = null;
   private removeMouseEnterListener: (() => void) | null = null;
   private removeMouseLeaveListener: (() => void) | null = null;
@@ -28,10 +29,11 @@ export class VscodeScrollbarDirective implements OnInit, OnDestroy {
     private ngZone: NgZone,
   ) {
     this.host = elementRef.nativeElement;
-    this.anchor = this.host.parentElement ?? this.host;
+    this.anchor = this.host;
   }
 
   ngOnInit(): void {
+    this.anchor = this.host.parentElement ?? this.host;
     this.renderer.addClass(this.host, 'vsc-scroll-host');
     this.renderer.addClass(this.anchor, 'vsc-scroll-anchor');
     this.createScrollbar();
@@ -42,6 +44,7 @@ export class VscodeScrollbarDirective implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     this.clearShowTimeout();
     this.resizeObserver?.disconnect();
+    this.mutationObserver?.disconnect();
     this.removeScrollListener?.();
     this.removeMouseEnterListener?.();
     this.removeMouseLeaveListener?.();
@@ -134,6 +137,16 @@ export class VscodeScrollbarDirective implements OnInit, OnDestroy {
         this.resizeObserver = new ResizeObserver(() => this.updateScrollbar());
         this.resizeObserver.observe(this.host);
         if (this.anchor !== this.host) this.resizeObserver.observe(this.anchor);
+      }
+
+      if (typeof MutationObserver !== 'undefined') {
+        this.mutationObserver = new MutationObserver(() => this.updateScrollbar());
+        this.mutationObserver.observe(this.host, {
+          childList: true,
+          subtree: true,
+          characterData: true,
+          attributes: true,
+        });
       }
     });
   }

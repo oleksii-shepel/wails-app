@@ -98,7 +98,7 @@ const PIE_DISTRIBUTION_VISIBLE_LIMIT = 5;
 
         <g *ngIf="selectedIndex !== null && selectedIndex >= 0 && hoveredIndex !== -1"
            class="pie-center" pointer-events="none">
-          <text y="-7"  text-anchor="middle" class="pie-center-name">{{ centerName }}</text>
+          <text y="-7" text-anchor="middle" class="pie-center-name">{{ centerName }}</text>
           <text y="10" text-anchor="middle" class="pie-center-pct">{{ centerPct }}</text>
         </g>
 
@@ -136,33 +136,47 @@ const PIE_DISTRIBUTION_VISIBLE_LIMIT = 5;
           <div class="pie-spot-path">{{ otherEntries.length }} smaller items grouped into Other</div>
         </ng-container>
         <ng-template #entrySpotlight>
-        <div class="pie-spot-header">
-          <span class="pie-spot-icon">{{ selectedEntry?.isDir ? '▣' : '•' }}</span>
-          <span class="pie-spot-name" [title]="selectedEntry?.path">{{ selectedEntry?.name }}</span>
-          <span class="pie-pill" [class.pie-pill--dir]="selectedEntry?.isDir">
-            {{ selectedEntry?.isDir ? 'Folder' : 'File' }}
-          </span>
-        </div>
-        <div class="pie-spot-size">{{ formatBytes(selectedEntry?.size ?? 0) }}</div>
-        <div class="pie-spot-share">{{ selectedEntry ? pctStr(selectedEntry) : '' }} of this location</div>
-        <div class="pie-bar-track">
-          <div class="pie-bar-fill"
-               [style.width.%]="animatedBarPct"
-               [style.background]="selectedIndex !== null ? getColor(selectedIndex) : ''"
-               [style.transition]="barTransition">
-          </div>
-        </div>
-        <div class="pie-spot-stats" *ngIf="selectedEntry?.isDir">
-          <div class="pie-stat">
-            <span class="pie-stat-val">{{ selectedEntry!.files | number }}</span>
-            <span class="pie-stat-lbl">files</span>
-          </div>
-          <div class="pie-stat">
-            <span class="pie-stat-val">{{ selectedEntry!.dirs | number }}</span>
-            <span class="pie-stat-lbl">folders</span>
-          </div>
-        </div>
-        <div class="pie-spot-path" [title]="selectedEntry?.path">{{ selectedEntry?.path }}</div>
+          <ng-container *ngIf="selectedEntry as currentEntry; else emptySpotlight">
+            <div class="pie-spot-header">
+              <span class="pie-spot-icon">{{ currentEntry.isDir ? '▣' : '•' }}</span>
+              <span class="pie-spot-name" [title]="currentEntry.path">{{ currentEntry.name }}</span>
+              <span class="pie-pill" [class.pie-pill--dir]="currentEntry.isDir">
+                {{ currentEntry.isDir ? 'Folder' : 'File' }}
+              </span>
+            </div>
+            <div class="pie-spot-size">{{ formatBytes(currentEntry.size) }}</div>
+            <div class="pie-spot-share">{{ pctStr(currentEntry) }} of this location</div>
+            <div class="pie-bar-track">
+              <div class="pie-bar-fill"
+                   [style.width.%]="animatedBarPct"
+                   [style.background]="selectedIndex !== null ? getColor(selectedIndex) : ''"
+                   [style.transition]="barTransition">
+              </div>
+            </div>
+            <div class="pie-spot-stats" *ngIf="currentEntry.isDir">
+              <div class="pie-stat">
+                <span class="pie-stat-val">{{ currentEntry.files | number }}</span>
+                <span class="pie-stat-lbl">files</span>
+              </div>
+              <div class="pie-stat">
+                <span class="pie-stat-val">{{ currentEntry.dirs | number }}</span>
+                <span class="pie-stat-lbl">folders</span>
+              </div>
+            </div>
+            <div class="pie-spot-path" [title]="currentEntry.path">{{ currentEntry.path }}</div>
+          </ng-container>
+          <ng-template #emptySpotlight>
+            <div class="pie-spot-header">
+              <span class="pie-spot-icon">○</span>
+              <span class="pie-spot-name">Nothing to show yet</span>
+              <span class="pie-pill">Empty</span>
+            </div>
+            <div class="pie-spot-size">0 B</div>
+            <div class="pie-spot-share">No files or folders available to visualize</div>
+            <div class="pie-bar-track">
+              <div class="pie-bar-fill" [style.width.%]="0"></div>
+            </div>
+          </ng-template>
         </ng-template>
       </div>
 

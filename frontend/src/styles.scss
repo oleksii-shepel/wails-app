@@ -51,9 +51,7 @@ code, pre {
 
 ::-webkit-scrollbar-thumb {
   background: var(--vsc-scrollbar-thumb);
-  border: var(--vsc-scrollbar-inset, 2px) solid transparent;
   border-radius: 0;
-  background-clip: content-box;
   min-height: 24px;
   transition: background-color var(--vsc-transition-fast, 0.1s ease);
 }

@@ -155,9 +155,9 @@ export class VscodeScrollbarDirective implements OnInit, OnDestroy {
     const hostRect = this.host.getBoundingClientRect();
     const anchorRect = this.anchor.getBoundingClientRect();
     const scrollbarWidth = 12;
-    const top = Math.max(0, hostRect.top - anchorRect.top + 2);
-    const left = Math.max(0, hostRect.left - anchorRect.left + hostRect.width - scrollbarWidth - 2);
-    const height = Math.max(0, hostRect.height - 4);
+    const top = Math.max(0, hostRect.top - anchorRect.top);
+    const left = Math.max(0, hostRect.left - anchorRect.left + hostRect.width - scrollbarWidth);
+    const height = Math.max(0, hostRect.height);
 
     this.renderer.setStyle(this.scrollbarEl, 'top', `${Math.round(top)}px`);
     this.renderer.setStyle(this.scrollbarEl, 'left', `${Math.round(left)}px`);

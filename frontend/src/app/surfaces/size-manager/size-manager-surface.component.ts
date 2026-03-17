@@ -160,6 +160,7 @@ const PIE_PREFETCH_LIMIT = 5;
             [totalSize]="currentPieFrame.totalSize"
             [minPct]="10"
             [isTraversing]="isTraversing"
+            [selectedPath]="selectedEntry?.path ?? null"
             (select)="onChartSelect($event)"
             (activate)="onChartActivate($event)"
             (otherDrill)="onOtherDrill($event)"
@@ -477,7 +478,7 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
     if (this.syncedAnalysisPath) this.navigateToAnalysisPath(this.syncedAnalysisPath);
   }
 
-  onChartSelect(entry: DiskUsageEntry): void {
+  onChartSelect(entry: DiskUsageEntry | null): void {
     this.selectEntry(entry);
   }
 

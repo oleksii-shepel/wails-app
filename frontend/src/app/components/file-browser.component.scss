@@ -215,9 +215,7 @@
     &::-webkit-scrollbar-track { background: var(--vsc-scrollbar-track); }
     &::-webkit-scrollbar-thumb {
       background: var(--vsc-scrollbar-thumb);
-      border: var(--vsc-scrollbar-inset, 2px) solid transparent;
       border-radius: 6px;
-      background-clip: content-box;
       &:hover { background: var(--vsc-scrollbar-thumb-hover); }
     }
   }

@@ -117,7 +117,7 @@ const PIE_DISTRIBUTION_FALLBACK_VISIBLE_LIMIT = 3;
 
       </svg>
 
-      <!-- Spotlight — always visible, shows heaviest slice by default -->
+      <!-- Spotlight — always visible, can reset to the full-folder view -->
       <div class="pie-spotlight">
         <ng-container *ngIf="selectedIndex === -1; else entrySpotlight">
           <div class="pie-spot-header">
@@ -137,7 +137,7 @@ const PIE_DISTRIBUTION_FALLBACK_VISIBLE_LIMIT = 3;
           <div class="pie-spot-path">{{ otherEntries.length }} smaller items grouped into Other</div>
         </ng-container>
         <ng-template #entrySpotlight>
-          <ng-container *ngIf="selectedEntry as currentEntry; else emptySpotlight">
+          <ng-container *ngIf="selectedEntry as currentEntry; else folderSpotlight">
             <div class="pie-spot-header">
               <span class="pie-spot-icon">{{ currentEntry.isDir ? '▣' : '•' }}</span>
               <span class="pie-spot-name" [title]="currentEntry.path">{{ currentEntry.name }}</span>
@@ -166,17 +166,22 @@ const PIE_DISTRIBUTION_FALLBACK_VISIBLE_LIMIT = 3;
             </div>
             <div class="pie-spot-path" [title]="currentEntry.path">{{ currentEntry.path }}</div>
           </ng-container>
-          <ng-template #emptySpotlight>
+          <ng-template #folderSpotlight>
             <div class="pie-spot-header">
-              <span class="pie-spot-icon">○</span>
-              <span class="pie-spot-name">Nothing to show yet</span>
-              <span class="pie-pill">Empty</span>
+              <span class="pie-spot-icon">▣</span>
+              <span class="pie-spot-name">Current folder</span>
+              <span class="pie-pill pie-pill--dir">Folder</span>
             </div>
-            <div class="pie-spot-size">0 B</div>
-            <div class="pie-spot-share">No files or folders available to visualize</div>
+            <div class="pie-spot-size">{{ formatBytes(totalSize) }}</div>
+            <div class="pie-spot-share">100% of this location</div>
             <div class="pie-bar-track">
-              <div class="pie-bar-fill" [style.width.%]="0"></div>
+              <div class="pie-bar-fill"
+                   [style.width.%]="100"
+                   [style.background]="folderBarColor"
+                   [style.transition]="barTransition">
+              </div>
             </div>
+            <div class="pie-spot-path">{{ folderSummaryLabel }}</div>
           </ng-template>
         </ng-template>
       </div>
@@ -187,6 +192,11 @@ const PIE_DISTRIBUTION_FALLBACK_VISIBLE_LIMIT = 3;
     <div class="pie-legend">
       <div class="pie-legend-head">
         <span class="pie-legend-kicker">Distribution</span>
+        <button
+          *ngIf="selectedIndex !== null"
+          class="sm-btn pie-legend-action"
+          type="button"
+          (click)="clearSelection()">Clear selection</button>
       </div>
 
       <button
@@ -258,7 +268,7 @@ const PIE_DISTRIBUTION_FALLBACK_VISIBLE_LIMIT = 3;
 
     .pie-legend-head {
       display: flex;
-      flex-direction: column;
+      align-items: center;
       gap: 8px;
       padding-bottom: 4px;
       min-width: 0;
@@ -269,6 +279,10 @@ const PIE_DISTRIBUTION_FALLBACK_VISIBLE_LIMIT = 3;
       text-transform: uppercase;
       letter-spacing: .12em;
       color: var(--vsc-foreground-dim, #888);
+    }
+
+    .pie-legend-action {
+      margin-left: auto;
     }
 
     /* Animate content swap when a different slice is selected */
@@ -294,6 +308,36 @@ const PIE_DISTRIBUTION_FALLBACK_VISIBLE_LIMIT = 3;
       align-items: center;
       gap: 7px;
       min-width: 0;
+    }
+
+    .sm-btn {
+      appearance: none;
+      border: 1px solid var(--vsc-border, #454545);
+      border-radius: var(--vsc-border-radius-lg, 4px);
+      padding: 4px 10px;
+      font-size: 12px;
+      font-weight: 500;
+      font-family: inherit;
+      cursor: pointer;
+      color: var(--vsc-foreground, #cccccc);
+      background: transparent;
+      transition: background .1s, border-color .1s;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .sm-btn:hover:not(:disabled) {
+      background: var(--vsc-list-hover-background, #2a2d2e);
+    }
+
+    .sm-btn:disabled {
+      opacity: .35;
+      cursor: default;
+    }
+
+    .sm-btn:focus-visible {
+      outline: 1px solid var(--vsc-input-focus-border, var(--vsc-focusBorder, #007acc));
+      outline-offset: 1px;
     }
 
     .pie-spot-icon {
@@ -543,7 +587,8 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
   /** Entries below this % of totalSize are grouped into the Other bucket. */
   @Input() minPct  = 10;
   @Input() isTraversing = false;
-  @Output() select     = new EventEmitter<DiskUsageEntry>();
+  @Input() selectedPath: string | null = null;
+  @Output() select     = new EventEmitter<DiskUsageEntry | null>();
   @Output() activate   = new EventEmitter<DiskUsageEntry>();
   /** Emits the bucketed "Other" entries — parent pushes a new nav frame. */
   @Output() otherDrill = new EventEmitter<DiskUsageEntry[]>();
@@ -556,6 +601,7 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
   otherSize = 0;
   otherPct  = '';
   readonly otherColor = '#555566';
+  readonly folderBarColor = '#7fba7a';
 
   slices: PieSlice[]   = [];
   selectedIndex: number | null = null;
@@ -586,16 +632,12 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
       this.barTransition  = 'none';
       this.partition();
       this.buildSlices();
-      // Auto-select the heaviest (first) slice so spotlight is always visible.
-      // displayEntries is already sorted by size descending from partition().
-      if (this.displayEntries.length > 0) {
-        this.selectedIndex = 0;
-        this.triggerBarAnimation();
-        // Notify parent so breakdown table highlight stays in sync
-        this.select.emit(this.displayEntries[0]);
-      } else {
-        this.selectedIndex = null;
-      }
+      this.syncSelectionFromInput();
+      return;
+    }
+
+    if (changes['selectedPath']) {
+      this.syncSelectionFromInput();
     }
   }
 
@@ -605,6 +647,18 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
 
   get selectedEntry(): DiskUsageEntry | null {
     return this.selectedIndex !== null ? (this.displayEntries[this.selectedIndex] ?? null) : null;
+  }
+
+  get folderSummaryLabel(): string {
+    const childCount = this.entries.length;
+    const label = childCount === 1 ? '1 child in this view' : `${childCount} children in this view`;
+    if (this.otherEntries.length === 0) {
+      return label;
+    }
+    const hiddenLabel = this.otherEntries.length === 1
+      ? '1 child grouped into Other'
+      : `${this.otherEntries.length} children grouped into Other`;
+    return `${label} • ${hiddenLabel}`;
   }
 
   get centerName(): string {
@@ -703,6 +757,10 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
     if (idx === -1)             { this.onOtherClick(); return; }
     if (idx !== null && idx >= 0) {
       const e = this.displayEntries[idx];
+      if (this.selectedIndex === idx && !e?.isDir) {
+        this.clearSelection();
+        return;
+      }
       if (e?.isDir) {
         if (this.selectedIndex === idx) {
           this.drillDown.emit(e);
@@ -728,6 +786,14 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
     this.cdr.markForCheck();
   }
 
+  clearSelection(): void {
+    this.selectedIndex = null;
+    this.animatedBarPct = 100;
+    this.barTransition = 'none';
+    this.select.emit(null);
+    this.cdr.markForCheck();
+  }
+
   private selectOtherBucket(): void {
     this.selectedIndex = -1;
     this.triggerBarAnimation();
@@ -744,8 +810,8 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
   }
 
   onLegendClick(e: DiskUsageEntry, index: number): void {
-    if (e.isDir && this.selectedIndex === index) {
-      this.drillDown.emit(e);
+    if (this.selectedIndex === index) {
+      this.clearSelection();
     } else {
       this.selectSlice(index, false);
     }
@@ -791,6 +857,29 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
     this.otherPct  = this.otherSize
       ? ((this.otherSize / total) * 100).toFixed(1) + '%'
       : '';
+  }
+
+  private syncSelectionFromInput(): void {
+    if (!this.selectedPath) {
+      this.selectedIndex = null;
+      this.animatedBarPct = 100;
+      this.barTransition = 'none';
+      this.cdr.markForCheck();
+      return;
+    }
+
+    const selectedIndex = this.displayEntries.findIndex((entry) => entry.path === this.selectedPath);
+    if (selectedIndex === -1) {
+      this.selectedIndex = null;
+      this.animatedBarPct = 100;
+      this.barTransition = 'none';
+      this.cdr.markForCheck();
+      return;
+    }
+
+    this.selectedIndex = selectedIndex;
+    this.triggerBarAnimation();
+    this.cdr.markForCheck();
   }
 
   private buildSlices(): void {

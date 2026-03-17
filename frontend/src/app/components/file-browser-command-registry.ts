@@ -183,7 +183,7 @@ export const BROWSER_BINDINGS: InputBindingDefinition[] = [
   kb('pane.files.delete.f8',           BC.deleteSelected, 'f8',       'Delete selected items (F8)',                   { category: FILES }),
   kb('pane.files.selectAll.ctrlA',     BC.selectAll,      'a',        'Select all items (Ctrl+A)',                    { modifiers: ['ctrl'], category: FILES }),
   kb('pane.files.deselectAll.ctrlD',   BC.deselectAll,    'd',        'Deselect all items (Ctrl+D)',                  { modifiers: ['ctrl'], category: FILES }),
-  kb('pane.files.toggleCurrent.space', BC.toggleCurrent,  'space',    'Toggle mark on current item and move down',    { category: FILES }),
+  kb('pane.files.toggleCurrent.space', BC.toggleCurrent,  'space',    'Mark current directory or toggle file and move down', { category: FILES }),
   kb('pane.files.extendUp.shiftUp',    BC.extendSelUp,    'arrowup',  'Extend selection upward (Shift+ArrowUp)',      { modifiers: ['shift'], category: FILES }),
   kb('pane.files.extendDown.shiftDown',BC.extendSelDown,  'arrowdown','Extend selection downward (Shift+ArrowDown)',  { modifiers: ['shift'], category: FILES }),
   kb('pane.files.selectByMask.altS',   BC.selectByMask,   's',        'Select by mask (Alt+S)',                       { modifiers: ['alt'], category: FILES }),

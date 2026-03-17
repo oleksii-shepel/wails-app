@@ -75,9 +75,12 @@
     drop-shadow(0 0 2.5px var(--vsc-icon-symlink-glow));
 
   /* === Scrollbar === */
-  --vsc-scrollbar-track: #1e1e1e;
-  --vsc-scrollbar-thumb: #424242;
-  --vsc-scrollbar-thumb-hover: #4f4f4f;
+  --vsc-scrollbar-size: 12px;
+  --vsc-scrollbar-inset: 2px;
+  --vsc-scrollbar-track: transparent;
+  --vsc-scrollbar-thumb: rgba(121, 121, 121, 0.4);
+  --vsc-scrollbar-thumb-hover: rgba(100, 100, 100, 0.7);
+  --vsc-scrollbar-thumb-active: rgba(191, 191, 191, 0.4);
 
   /* === Shadows === */
   --vsc-shadow: rgba(0, 0, 0, 0.36);
@@ -230,9 +233,12 @@
     drop-shadow(0 0 2.5px var(--vsc-icon-symlink-glow));
 
   /* === Scrollbar === */
-  --vsc-scrollbar-track:       #f3f3f3;
-  --vsc-scrollbar-thumb:       #b8b8b8;
-  --vsc-scrollbar-thumb-hover: #909090;
+  --vsc-scrollbar-size: 12px;
+  --vsc-scrollbar-inset: 2px;
+  --vsc-scrollbar-track:       transparent;
+  --vsc-scrollbar-thumb:       rgba(100, 100, 100, 0.4);
+  --vsc-scrollbar-thumb-hover: rgba(100, 100, 100, 0.7);
+  --vsc-scrollbar-thumb-active: rgba(0, 0, 0, 0.6);
 
   /* === Shadows === */
   --vsc-shadow:        rgba(0, 0, 0, 0.16);

@@ -20,6 +20,7 @@ import { FormsModule } from '@angular/forms';
 import { FileEntryComponent } from './file-entry.component';
 import { FileInfo, FileType } from '../shared/protocol';
 import { DEFAULT_FILE_CATEGORIES } from './filter-bar.types';
+import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directive';
 
 export interface TreeNode extends FileInfo {
   level: number;
@@ -43,12 +44,13 @@ export interface DropTarget {
 @Component({
   selector: 'app-file-tree',
   standalone: true,
-  imports: [CommonModule, FormsModule, FileEntryComponent],
+  imports: [CommonModule, FormsModule, FileEntryComponent, VscodeScrollbarDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
       #treeContainer
       class="file-tree-container"
+      appVscodeScrollbar
       role="tree"
       tabindex="0"
       [class.focused]="isFocused"
@@ -179,34 +181,6 @@ export interface DropTarget {
       height: 100%;
       user-select: none;
       color: var(--vsc-foreground);
-      scrollbar-width: thin;
-      scrollbar-color: rgba(121, 121, 121, 0.4) transparent;
-
-      &::-webkit-scrollbar {
-        width: 10px;
-        height: 10px;
-      }
-
-      &::-webkit-scrollbar-track {
-        background: transparent;
-      }
-
-      &::-webkit-scrollbar-thumb {
-        background: rgba(121, 121, 121, 0.4);
-        border-radius: 0;
-
-        &:hover {
-          background: rgba(100, 100, 100, 0.7);
-        }
-
-        &:active {
-          background: rgba(85, 85, 85, 0.8);
-        }
-      }
-
-      &::-webkit-scrollbar-corner {
-        background: transparent;
-      }
     }
     
     .tree-spacer {

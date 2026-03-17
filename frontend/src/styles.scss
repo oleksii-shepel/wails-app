@@ -39,27 +39,31 @@ code, pre {
   font-family: var(--vsc-font-family-mono);
 }
 
-/* === Global Scrollbar Styling === */
+/* === Native scrollbar fallback === */
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: var(--vsc-scrollbar-size, 10px);
+  height: var(--vsc-scrollbar-size, 10px);
 }
 
 ::-webkit-scrollbar-track {
-  background: transparent;
+  background: var(--vsc-scrollbar-track);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(121, 121, 121, 0.4);
+  background: var(--vsc-scrollbar-thumb);
+  border: var(--vsc-scrollbar-inset, 2px) solid transparent;
   border-radius: 0;
+  background-clip: content-box;
+  min-height: 24px;
+  transition: background-color var(--vsc-transition-fast, 0.1s ease);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(100, 100, 100, 0.7);
+  background: var(--vsc-scrollbar-thumb-hover);
 }
 
 ::-webkit-scrollbar-thumb:active {
-  background: rgba(85, 85, 85, 0.8);
+  background: var(--vsc-scrollbar-thumb-active, var(--vsc-scrollbar-thumb-hover));
 }
 
 ::-webkit-scrollbar-corner {
@@ -68,59 +72,67 @@ code, pre {
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(121, 121, 121, 0.4) transparent;
+  scrollbar-color: var(--vsc-scrollbar-thumb) transparent;
 }
 
-/* Force file-pane scrollbars to use VS Code-like flat corners */
-app-file-list .pane-content,
-app-file-grid .file-grid,
-app-file-details .details-body,
-app-file-tree .file-tree-container {
-  scrollbar-width: auto;
-  scrollbar-color: rgba(121, 121, 121, 0.4) transparent;
+/* VS Code-style pane scrollbars use an overlay thumb instead of the browser's
+   native scrollbar chrome. Apply through the shared directive so pane scroll
+   hosts stay DRY and visually consistent. */
+.vsc-scroll-host {
+  position: relative;
+  scrollbar-width: none !important;
+  -ms-overflow-style: none;
 }
 
-app-file-list .pane-content::-webkit-scrollbar,
-app-file-grid .file-grid::-webkit-scrollbar,
-app-file-details .details-body::-webkit-scrollbar,
-app-file-tree .file-tree-container::-webkit-scrollbar {
-  width: 12px !important;
-  height: 12px !important;
+.vsc-scroll-anchor {
+  position: relative;
 }
 
-app-file-list .pane-content::-webkit-scrollbar-track,
-app-file-grid .file-grid::-webkit-scrollbar-track,
-app-file-details .details-body::-webkit-scrollbar-track,
-app-file-tree .file-tree-container::-webkit-scrollbar-track {
-  background: transparent !important;
+.vsc-scroll-host::-webkit-scrollbar {
+  width: 0 !important;
+  height: 0 !important;
 }
 
-app-file-list .pane-content::-webkit-scrollbar-thumb,
-app-file-grid .file-grid::-webkit-scrollbar-thumb,
-app-file-details .details-body::-webkit-scrollbar-thumb,
-app-file-tree .file-tree-container::-webkit-scrollbar-thumb {
-  background: rgba(121, 121, 121, 0.4) !important;
-  border-radius: 0 !important;
+.vsc-scrollbar {
+  position: absolute;
+  width: 12px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--vsc-transition-fast, 0.1s ease);
+  z-index: 3;
 }
 
-app-file-list .pane-content::-webkit-scrollbar-thumb:hover,
-app-file-grid .file-grid::-webkit-scrollbar-thumb:hover,
-app-file-details .details-body::-webkit-scrollbar-thumb:hover,
-app-file-tree .file-tree-container::-webkit-scrollbar-thumb:hover {
-  background: rgba(100, 100, 100, 0.7) !important;
+.vsc-scroll-anchor--hover > .vsc-scrollbar,
+.vsc-scroll-anchor--visible > .vsc-scrollbar,
+.vsc-scroll-anchor--dragging > .vsc-scrollbar {
+  opacity: 1;
 }
 
-app-file-list .pane-content::-webkit-scrollbar-thumb:active,
-app-file-grid .file-grid::-webkit-scrollbar-thumb:active,
-app-file-details .details-body::-webkit-scrollbar-thumb:active,
-app-file-tree .file-tree-container::-webkit-scrollbar-thumb:active {
-  background: rgba(85, 85, 85, 0.8) !important;
+.vsc-scrollbar-thumb {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 12px;
+  min-height: 20px;
+  border-radius: 0;
+  background: var(--vsc-scrollbar-thumb);
+  pointer-events: auto;
+  transition: background-color var(--vsc-transition-fast, 0.1s ease);
+}
+
+.vsc-scrollbar-thumb:hover {
+  background: var(--vsc-scrollbar-thumb-hover);
+}
+
+.vsc-scroll-anchor--dragging .vsc-scrollbar-thumb {
+  background: var(--vsc-scrollbar-thumb-active, var(--vsc-scrollbar-thumb-hover));
 }
 
 app-file-list .pane-content::-webkit-scrollbar-corner,
 app-file-grid .file-grid::-webkit-scrollbar-corner,
 app-file-details .details-body::-webkit-scrollbar-corner,
-app-file-tree .file-tree-container::-webkit-scrollbar-corner {
+app-file-tree .file-tree-container::-webkit-scrollbar-corner,
+app-size-manager-surface .sm-body::-webkit-scrollbar-corner {
   background: transparent !important;
 }
 

@@ -15,6 +15,7 @@ import { DEFAULT_FILE_CATEGORIES, type FileCategory } from '../../components/fil
 import type { DiskUsageEntry, DiskUsageProgress, DiskUsageResult, DiskUsageTypeStat } from '../../shared/protocol-enhanced';
 import type { SizeManagerSurfaceContext } from '../surface-context';
 import { DiskPieChartComponent } from 'src/app/components/disk-usage-diagram.component';
+import { VscodeScrollbarDirective } from 'src/app/directives/vscode-scrollbar.directive';
 
 // ── Pie nav frame ─────────────────────────────────────────────────────────────
 
@@ -71,7 +72,7 @@ const PIE_PREFETCH_LIMIT = 5;
 @Component({
   selector: 'app-size-manager-surface',
   standalone: true,
-  imports: [CommonModule, DiskPieChartComponent],
+  imports: [CommonModule, DiskPieChartComponent, VscodeScrollbarDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <!-- ── Header bar ─────────────────────────────────────── -->
@@ -97,7 +98,7 @@ const PIE_PREFETCH_LIMIT = 5;
     </div>
 
     <!-- ── Dashboard ──────────────────────────────────────── -->
-    <div class="sm-body" *ngIf="!error || isTraversing">
+    <div class="sm-body" *ngIf="!error || isTraversing" appVscodeScrollbar>
 
       <div class="sm-inline-status" *ngIf="isTraversing">
         <span
@@ -312,7 +313,7 @@ const PIE_PREFETCH_LIMIT = 5;
     .sm-error { display: flex; align-items: center; gap: 10px; padding: 12px 14px; flex-shrink: 0; color: var(--_error); border-bottom: 1px solid color-mix(in srgb, var(--_error) 25%, transparent); background: color-mix(in srgb, var(--_error) 8%, var(--_surface)); }
     .sm-error-icon { font-size: 15px; flex-shrink: 0; }
 
-    .sm-body { display: flex; flex-direction: column; flex: 1 1 0%; min-height: 0; overflow: auto; padding: 12px 14px; gap: 12px; scrollbar-width: thin; scrollbar-color: var(--vsc-scrollbar-thumb, #424242) transparent; }
+    .sm-body { display: flex; flex-direction: column; flex: 1 1 0%; min-height: 0; overflow: auto; padding: 12px 14px; gap: 12px; scrollbar-width: thin; scrollbar-color: var(--vsc-scrollbar-thumb, rgba(255, 255, 255, 0.16)) transparent; }
     .sm-inline-status { display: flex; align-items: center; gap: 10px; padding: 2px 0; color: var(--_text-dim); }
     .sm-inline-elapsed { font-variant-numeric: tabular-nums; white-space: nowrap; color: #2bb24c; font-weight: 600; }
     .sm-inline-throughput { font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--_text-dim); }

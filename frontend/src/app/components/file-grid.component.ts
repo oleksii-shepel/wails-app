@@ -22,16 +22,18 @@ import { FileEntryComponent } from './file-entry.component';
 import { FileInfo, FileType } from '../shared/protocol';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
 import { parentPath } from './address-bar.utils';
+import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directive';
 
 @Component({
   selector: 'app-file-grid',
   standalone: true,
-  imports: [CommonModule, FileEntryComponent],
+  imports: [CommonModule, FileEntryComponent, VscodeScrollbarDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
       #gridContainer
       class="file-grid"
+      appVscodeScrollbar
       [class.virtual]="virtualEnabled"
       [class.drop-target-bg]="isBackgroundDropTarget"
       [class.dragging]="draggingPaths.size > 0"
@@ -136,33 +138,6 @@ import { parentPath } from './address-bar.utils';
       overflow-y: auto;
       overflow-x: hidden;
       background: var(--vsc-editor-background);
-      scrollbar-width: thin;
-      scrollbar-color: rgba(121, 121, 121, 0.4) transparent;
-
-      &::-webkit-scrollbar {
-        width: 10px;
-      }
-
-      &::-webkit-scrollbar-track {
-        background: transparent;
-      }
-
-      &::-webkit-scrollbar-thumb {
-        background: rgba(121, 121, 121, 0.4);
-        border-radius: 0;
-
-        &:hover {
-          background: rgba(100, 100, 100, 0.7);
-        }
-
-        &:active {
-          background: rgba(85, 85, 85, 0.8);
-        }
-      }
-
-      &::-webkit-scrollbar-corner {
-        background: transparent;
-      }
     }
 
     /* Performance hint while dragging (FLIP uses transforms). */

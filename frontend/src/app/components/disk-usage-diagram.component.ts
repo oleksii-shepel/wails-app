@@ -688,7 +688,11 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
     if (idx !== null && idx >= 0) {
       const e = this.displayEntries[idx];
       if (e?.isDir) {
-        this.drillDown.emit(e);
+        if (this.selectedIndex === idx) {
+          this.drillDown.emit(e);
+        } else {
+          this.selectSlice(idx, false);
+        }
         return;
       }
       this.selectSlice(idx, true);
@@ -724,8 +728,8 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
   }
 
   onLegendClick(e: DiskUsageEntry, index: number): void {
-    if (e.isDir) {
-      this.selectSlice(index, false);
+    if (e.isDir && this.selectedIndex === index) {
+      this.drillDown.emit(e);
     } else {
       this.selectSlice(index, false);
     }

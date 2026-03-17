@@ -21,6 +21,7 @@ import { DiskPieChartComponent } from 'src/app/components/disk-usage-diagram.com
 interface PieFrame {
   label: string;
   path?: string;
+  sourceEntry?: DiskUsageEntry | null;
   entries: DiskUsageEntry[];
   /**
    * Denominator for % calculations at this level.
@@ -409,7 +410,7 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
   pieStack: PieFrame[] = [];
 
   get currentPieFrame(): PieFrame {
-    return this.pieStack[this.pieStack.length - 1] ?? { label: '', entries: [], totalSize: 0 };
+    return this.pieStack[this.pieStack.length - 1] ?? { label: '', sourceEntry: null, entries: [], totalSize: 0 };
   }
 
   private destroyed = false;
@@ -449,15 +450,15 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
   // ── Actions ───────────────────────────────────────────────────────────────
 
   close():   void { this.ctx?.sizeVm?.onClose(); }
-  goUp():    void { if (this.parentPath) this.analyse(this.parentPath); }
-  refresh(): void { if (this.currentPath) this.analyse(this.currentPath); }
+  goUp():    void { if (this.parentPath) this.navigateToAnalysisPath(this.parentPath); }
+  refresh(): void { if (this.currentPath) this.navigateToAnalysisPath(this.currentPath); }
 
   returnToRoot(): void {
-    if (this.syncedAnalysisPath) this.analyse(this.syncedAnalysisPath);
+    if (this.syncedAnalysisPath) this.navigateToAnalysisPath(this.syncedAnalysisPath);
   }
 
-  onChartSelect(_: DiskUsageEntry): void {
-    this.cdr.markForCheck();
+  onChartSelect(entry: DiskUsageEntry): void {
+    this.selectEntry(entry);
   }
 
   async onChartActivate(entry: DiskUsageEntry): Promise<void> {
@@ -465,6 +466,8 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
       this.cdr.markForCheck();
       return;
     }
+
+    this.selectEntry(entry);
 
     const currentFrame = this.currentPieFrame;
     if (currentFrame.path === entry.path) return;
@@ -494,15 +497,16 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
   }
 
   onEntryClick(e: DiskUsageEntry): void {
+    this.selectEntry(e);
     if (e.isDir) {
-      this.analyse(e.path);
+      void this.onChartActivate(e);
     } else {
       this.cdr.markForCheck();
     }
   }
 
   onEntryDblClick(e: DiskUsageEntry): void {
-    if (e.isDir) this.analyse(e.path);
+    if (e.isDir) this.navigateToAnalysisPath(e.path);
   }
 
   /** Chart emits bucketed Other entries — we push a new pie frame. */
@@ -510,7 +514,8 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
     const depth = this.pieStack.length;
     const label = depth === 1 ? 'Other' : `Other (${depth})`;
     const totalSize = otherEntries.reduce((s, e) => s + e.size, 0);
-    this.pieStack = [...this.pieStack, { label, entries: otherEntries, totalSize }];
+    this.pieStack = [...this.pieStack, { label, sourceEntry: null, entries: otherEntries, totalSize }];
+    this.selectEntry(null);
     this.cdr.markForCheck();
   }
 
@@ -518,6 +523,19 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
   pieGoTo(index: number): void {
     if (index >= this.pieStack.length - 1) return;
     this.pieStack = this.pieStack.slice(0, index + 1);
+    this.selectEntry(this.currentPieFrame.sourceEntry ?? null);
+    this.cdr.markForCheck();
+  }
+
+  private navigateToAnalysisPath(path: string): void {
+    this.syncedAnalysisPath = path;
+    this.ctx?.sizeVm?.onAnalyse(path);
+    void this.analyse(path);
+  }
+
+  private selectEntry(entry: DiskUsageEntry | null): void {
+    this.selectedEntry = entry;
+    this.rebuildFileTypeBreakdown();
     this.cdr.markForCheck();
   }
 
@@ -697,6 +715,7 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
     const rootFrame: PieFrame = {
       label: 'Subtree',
       path: this.currentPath,
+      sourceEntry: null,
       entries: this.entries,
       totalSize,
     };
@@ -739,6 +758,7 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
         const frame: PieFrame = {
           label: entry.name || this.labelFromPath(entry.path) || 'Folder',
           path: entry.path,
+          sourceEntry: entry,
           entries: result.entries ?? [],
           totalSize: result.totalSize ?? entry.size,
         };
@@ -860,7 +880,9 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
 
   private syncSelectedEntry(): void {
     if (!this.selectedEntry) return;
-    const match = this.entries.find((entry) => entry.path === this.selectedEntry?.path) ?? null;
+    const match = this.entries.find((entry) => entry.path === this.selectedEntry?.path)
+      ?? this.currentPieFrame.entries.find((entry) => entry.path === this.selectedEntry?.path)
+      ?? null;
     this.selectedEntry = match;
   }
 

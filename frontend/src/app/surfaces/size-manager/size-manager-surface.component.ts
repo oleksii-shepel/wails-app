@@ -159,6 +159,7 @@ const PIE_PREFETCH_LIMIT = 5;
             [entries]="currentPieFrame.entries"
             [totalSize]="currentPieFrame.totalSize"
             [minPct]="10"
+            [isTraversing]="isTraversing"
             (select)="onChartSelect($event)"
             (activate)="onChartActivate($event)"
             (otherDrill)="onOtherDrill($event)"
@@ -995,7 +996,14 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
           this.liveProgress = item;
           this.cdr.markForCheck();
         } else {
-          this.entries = [...this.entries, item];
+          const existingIndex = this.entries.findIndex((entry) => entry.path === item.path);
+          if (existingIndex >= 0) {
+            const nextEntries = [...this.entries];
+            nextEntries[existingIndex] = item;
+            this.entries = nextEntries;
+          } else {
+            this.entries = [...this.entries, item];
+          }
           this.syncRootPieFrame(this.visibleEntriesSize);
           this.syncSelectedEntry();
           this.rebuildFileTypeBreakdown();

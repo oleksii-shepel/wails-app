@@ -542,6 +542,7 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
   @Input() outerR  = 100;
   /** Entries below this % of totalSize are grouped into the Other bucket. */
   @Input() minPct  = 10;
+  @Input() isTraversing = false;
   @Output() select     = new EventEmitter<DiskUsageEntry>();
   @Output() activate   = new EventEmitter<DiskUsageEntry>();
   /** Emits the bucketed "Other" entries — parent pushes a new nav frame. */
@@ -578,7 +579,7 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 
   ngOnChanges(changes: SimpleChanges): void {
-    if (changes['entries'] || changes['totalSize'] || changes['minPct']) {
+    if (changes['entries'] || changes['totalSize'] || changes['minPct'] || changes['isTraversing']) {
       this.hoveredIndex   = null;
       this.tooltip        = { ...this.tooltip, visible: false };
       this.animatedBarPct = 0;
@@ -841,6 +842,19 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
   }
 
   private triggerBarAnimation(): void {
+    if (this.isTraversing) {
+      this.barTransition = 'none';
+      if (this.selectedIndex === -1 && this.totalSize) {
+        this.animatedBarPct = (this.otherSize / this.totalSize) * 100;
+      } else if (this.selectedIndex !== null && this.totalSize) {
+        this.animatedBarPct = (this.displayEntries[this.selectedIndex].size / this.totalSize) * 100;
+      } else {
+        this.animatedBarPct = 0;
+      }
+      this.cdr.markForCheck();
+      return;
+    }
+
     this.barTransition = 'none'; this.animatedBarPct = 0;
     this.cdr.markForCheck();
     requestAnimationFrame(() => {

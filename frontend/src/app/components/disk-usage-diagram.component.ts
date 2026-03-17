@@ -201,7 +201,7 @@ const OTHER_BUCKET_SELECTION_KEY = '__other__';
       </div>
 
       <button
-        *ngFor="let e of displayEntries; let i = index"
+        *ngFor="let e of displayEntries; let i = index; trackBy: trackLegendEntry"
         class="pie-legend-item"
         [class.pie-legend-item--active]="selectedIndex === i"
         [class.pie-legend-item--hovered]="hoveredIndex === i"
@@ -701,6 +701,10 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
   }
 
   trackSlice(_: number, s: PieSlice): number { return s.index; }
+
+  trackLegendEntry(_: number, entry: DiskUsageEntry): string {
+    return entry.path || entry.name;
+  }
 
   isFullCircle(s: PieSlice): boolean {
     return s.endAngle - s.startAngle >= Math.PI * 2 - 0.001;

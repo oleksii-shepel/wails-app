@@ -40,6 +40,7 @@ interface TooltipState {
 
 
 const PIE_DISTRIBUTION_VISIBLE_LIMIT = 5;
+const PIE_DISTRIBUTION_FALLBACK_VISIBLE_LIMIT = 3;
 
 /**
  * Pure display component — renders a donut chart for a flat list of entries.
@@ -753,14 +754,15 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
 
   /**
    * Split entries into displayEntries (≥ minPct) and otherEntries (< minPct).
-   * If nothing clears the threshold, show everything — chart is never empty.
+   * If nothing clears the threshold, show only the largest few items and bucket the rest.
    */
   private partition(): void {
     const total = this.totalSize;
+    const sortedEntries = [...this.entries].sort((left, right) => right.size - left.size);
 
-    if (!this.entries.length || !total) {
-      this.displayEntries = this.entries.slice(0, PIE_DISTRIBUTION_VISIBLE_LIMIT);
-      this.otherEntries   = this.entries.slice(PIE_DISTRIBUTION_VISIBLE_LIMIT);
+    if (!sortedEntries.length || !total) {
+      this.displayEntries = sortedEntries.slice(0, PIE_DISTRIBUTION_VISIBLE_LIMIT);
+      this.otherEntries   = sortedEntries.slice(PIE_DISTRIBUTION_VISIBLE_LIMIT);
       this.otherSize      = this.otherEntries.reduce((s, e) => s + e.size, 0);
       this.otherPct       = '';
       return;
@@ -769,13 +771,16 @@ export class DiskPieChartComponent implements OnChanges, OnDestroy {
     const threshold = this.minPct / 100;
     const main: DiskUsageEntry[] = [];
     const rest: DiskUsageEntry[] = [];
-    for (const e of this.entries) {
+    for (const e of sortedEntries) {
       (e.size / total >= threshold ? main : rest).push(e);
     }
 
-    // If nothing passes the threshold, show everything without bucketing.
-    const visible = main.length > 0 ? main : this.entries;
-    const leftover = main.length > 0 ? rest : [];
+    const visible = main.length > 0
+      ? main
+      : sortedEntries.slice(0, PIE_DISTRIBUTION_FALLBACK_VISIBLE_LIMIT);
+    const leftover = main.length > 0
+      ? rest
+      : sortedEntries.slice(PIE_DISTRIBUTION_FALLBACK_VISIBLE_LIMIT);
 
     this.displayEntries = visible.slice(0, PIE_DISTRIBUTION_VISIBLE_LIMIT);
     const overflow      = visible.slice(PIE_DISTRIBUTION_VISIBLE_LIMIT);

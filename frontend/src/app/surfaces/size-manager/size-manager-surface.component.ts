@@ -153,16 +153,28 @@ const PIE_PREFETCH_LIMIT = 5;
           </span>
         </div>
 
-        <!-- Pure display chart — receives only the current frame's data -->
-        <app-disk-pie-chart
-          [entries]="currentPieFrame.entries"
-          [totalSize]="currentPieFrame.totalSize"
-          [minPct]="10"
-          (select)="onChartSelect($event)"
-          (activate)="onChartActivate($event)"
-          (otherDrill)="onOtherDrill($event)"
-           (drillDown)="onChartActivate($event)">
-        </app-disk-pie-chart>
+        <ng-container *ngIf="currentPieFrame.entries.length > 0; else emptyFootprintState">
+          <!-- Pure display chart — receives only the current frame's data -->
+          <app-disk-pie-chart
+            [entries]="currentPieFrame.entries"
+            [totalSize]="currentPieFrame.totalSize"
+            [minPct]="10"
+            (select)="onChartSelect($event)"
+            (activate)="onChartActivate($event)"
+            (otherDrill)="onOtherDrill($event)"
+             (drillDown)="onChartActivate($event)">
+          </app-disk-pie-chart>
+        </ng-container>
+
+        <ng-template #emptyFootprintState>
+          <div class="sm-pie-empty" [class.sm-pie-empty--loading]="isTraversing">
+            <div class="sm-pie-empty-icon" aria-hidden="true">{{ isTraversing ? '◌' : '○' }}</div>
+            <div class="sm-pie-empty-copy">
+              <div class="sm-pie-empty-title">{{ pieEmptyStateTitle }}</div>
+              <div class="sm-pie-empty-hint">{{ pieEmptyStateHint }}</div>
+            </div>
+          </div>
+        </ng-template>
 
       </div>
 
@@ -346,6 +358,12 @@ const PIE_PREFETCH_LIMIT = 5;
     .sm-pie-loading { display: inline-flex; align-items: center; gap: 8px; margin-left: 4px; min-width: 0; }
     .sm-pie-loading-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--_focus); box-shadow: 0 0 0 0 color-mix(in srgb, var(--_focus) 40%, transparent); animation: sm-pie-pulse 1.2s ease-out infinite; flex-shrink: 0; }
     .sm-pie-loading-copy { font-size: 11px; color: var(--_text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sm-pie-empty { display: flex; align-items: center; justify-content: center; gap: 14px; min-height: 254px; padding: 20px; border: 1px dashed color-mix(in srgb, var(--_border) 80%, transparent); border-radius: var(--vsc-border-radius-lg, 4px); background: color-mix(in srgb, var(--_surface2) 36%, transparent); color: var(--_text-dim); }
+    .sm-pie-empty--loading { border-style: solid; }
+    .sm-pie-empty-icon { display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--_border) 70%, transparent); background: color-mix(in srgb, var(--_surface) 70%, transparent); font-size: 18px; color: var(--_text); flex-shrink: 0; }
+    .sm-pie-empty-copy { display: flex; flex-direction: column; gap: 4px; max-width: 360px; }
+    .sm-pie-empty-title { font-size: 15px; font-weight: 600; color: var(--_text); }
+    .sm-pie-empty-hint { font-size: 12px; line-height: 1.45; }
 
     /* Breakdown */
     .sm-breakdown { gap: 8px; }
@@ -651,6 +669,21 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
   get breakdownEmptyLabel(): string {
     if (this.isTraversing && !this.entries.length) return 'Scanning folder…';
     return 'Folder is empty.';
+  }
+
+  get pieEmptyStateTitle(): string {
+    if (this.isTraversing) return 'Scanning folder footprint';
+    if (this.currentPieFrame.label && this.currentPieFrame.label !== 'Subtree') {
+      return `${this.currentPieFrame.label} is empty`;
+    }
+    return 'This folder is empty';
+  }
+
+  get pieEmptyStateHint(): string {
+    if (this.isTraversing) {
+      return 'Distribution will appear as soon as files or child folders are discovered.';
+    }
+    return 'No files or child folders are available to visualize in this location.';
   }
 
   get pieDistributionLoadingLabel(): string {

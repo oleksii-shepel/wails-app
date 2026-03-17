@@ -1,0 +1,1 @@
+Supported formats include PNG (including Apple CgBI), JPEG, JPEG 2000, PSD/PSB (Adobe Photoshop), AI (Adobe Illustrator), EPS, XCF (GIMP), GIF, SVG, TIFF, DNG, TARGA, ICO, ICNS (Apple Icon Image), BMP, PNM, DDS, XWD, SCR (ZX-Spectrum screen), XPM, WebP, OpenEXR, HEIF/HEIC, AVIF, AGE, and many more.

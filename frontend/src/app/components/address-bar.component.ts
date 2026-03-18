@@ -11,11 +11,11 @@ import { ApiService } from '../services/api.service';
 import { DirectorySourceService } from '../services/directory-source.service';
 import { DirectoryListing, DriveInfo, DriveType, FileInfo, FileType, SpecialFolder } from '../shared/protocol';
 import { ArchiveService, ArchiveFrame, isArchive } from '../services/archive.service';
-import { parsePathWithArchives, buildSegmentsFromParsedPath } from './address-bar.utils';
+import { parsePathWithArchives } from './address-bar.utils';
 import { EventsOn } from 'wailsjs/runtime';
 
 import { PathSegment, SiblingEntry, PinnedPath, ContextMenuState, PINNED_KEY, CTX_MENU_CLOSED } from './address-bar.types';
-import { isWindowsPath, normalizePath, parentPath, shortenPath, buildSegments } from './address-bar.utils';
+import { isWindowsPath, normalizePath, shortenPath } from './address-bar.utils';
 import { AddressBarEditComponent } from './address-bar-edit.component';
 import { AddressBarDriveDropdownComponent } from './address-bar-drive-dropdown.component';
 import { AddressBarSiblingDropdownComponent } from './address-bar-sibling-dropdown.component';
@@ -750,19 +750,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   // ── Segments ──────────────────────────────────────────────────────────────
 
   private rebuildSegments(): void {
-    const { fsDirPath, archiveInnerParts } = parsePathWithArchives(this.currentPath);
-
-    this.segments = archiveInnerParts.length > 0
-      ? buildSegmentsFromParsedPath(fsDirPath, archiveInnerParts)
-      : buildSegments(this.currentPath);
-
-    let insideArchive = false;
-    for (let i = 0; i < this.segments.length; i++) {
-      const seg = this.segments[i];
-      const isRealArchive = isArchive(seg.label);
-      this.segments[i] = { ...seg, isArchiveRoot: isRealArchive, isArchiveInner: insideArchive };
-      if (isRealArchive) insideArchive = true;
-    }
+    this.segments = this.directorySource.buildPathSegments(this.currentPath);
     // Animate scroll to end after segments update (next frame so DOM has rendered)
     requestAnimationFrame(() => this.animateScrollToEnd());
   }
@@ -1295,9 +1283,8 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
 
   goUp(): void {
     this.navigateUpClicked.emit();
-    const { archiveInnerParts } = parsePathWithArchives(this.currentPath);
-    if (archiveInnerParts.length === 0) {
-      const p = parentPath(this.currentPath);
+    if (!this.directorySource.isPathInsideArchive(this.currentPath)) {
+      const p = this.directorySource.getParentPath(this.currentPath);
       if (p !== this.currentPath) this.navigateTo(p);
     }
   }

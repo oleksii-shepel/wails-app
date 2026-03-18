@@ -1,5 +1,6 @@
 import type { ApiService } from '../services/api.service';
 import type { ArchiveFrame } from '../services/archive.service';
+import type { FileViewDirectorySource } from '../services/directory-source.service';
 import type { FilterService } from '../services/filter.service';
 import type { WorkspaceService } from '../services/workspace.service';
 import type { DirSurfaceSession } from '../surfaces/dir/dir-surface-session';
@@ -42,13 +43,13 @@ export interface FilePaneRuntimeHostsSource {
   get lastPreviewTargetEmitted(): string | null;
   set lastPreviewTargetEmitted(value: string | null);
   apiService: ApiService;
+  directorySource: FileViewDirectorySource;
   workspaceService: WorkspaceService;
   filterService: FilterService;
   getDirSession(): DirSurfaceSession;
   isInArchive(): boolean;
   exitArchive(): void;
   clearArchiveState(): void;
-  pathIsInsideArchive(path: string): boolean;
   loadPathTransparently(path: string): Promise<void>;
   loadDirectory(path: string, opts?: { preserveUI?: boolean; focusPath?: string }): Promise<void>;
   navigateArchiveUp(): Promise<void>;
@@ -90,12 +91,12 @@ export class FilePaneRuntimeHostsFactory {
       get archiveStack() { return source.archiveStack; },
       set archiveStack(value: ArchiveFrame[]) { source.archiveStack = value; },
       apiService: source.apiService,
+      directorySource: source.directorySource,
       workspaceService: source.workspaceService,
       getDirSession: () => source.getDirSession(),
       isInArchive: () => source.isInArchive(),
       exitArchive: () => source.exitArchive(),
       clearArchiveState: () => source.clearArchiveState(),
-      pathIsInsideArchive: (path: string) => source.pathIsInsideArchive(path),
       loadPathTransparently: (path: string) => source.loadPathTransparently(path),
       loadDirectory: (path: string, opts?: { preserveUI?: boolean; focusPath?: string }) => source.loadDirectory(path, opts),
       navigateArchiveUp: () => source.navigateArchiveUp(),

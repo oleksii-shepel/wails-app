@@ -1,12 +1,12 @@
 import { FileType, type FileInfo } from '../shared/protocol';
 import type { ArchiveFrame } from '../services/archive.service';
-import { isArchive, parseArchivePath } from '../services/archive.service';
-import { REGISTRY_ROOT } from '../services/registry.service';
+import type { FileViewDirectorySource } from '../services/directory-source.service';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
 
 export interface FilePanePathHost {
   get currentPath(): string;
   get archiveStack(): ArchiveFrame[];
+  directorySource: FileViewDirectorySource;
   isInArchive(): boolean;
   loadDirectory(path: string, opts?: { preserveUI?: boolean; focusPath?: string }): Promise<void>;
   restoreArchiveFromPath(path: string): Promise<void>;
@@ -14,24 +14,18 @@ export interface FilePanePathHost {
 }
 
 export class FilePanePathController {
-  withParentEntry(raw: FileInfo[], inArchive: boolean, fsPath: string): FileInfo[] {
+  withParentEntry(raw: FileInfo[], inArchive: boolean, fsPath: string, directorySource: FileViewDirectorySource): FileInfo[] {
     if (raw.some(entry => entry.path === PARENT_ENTRY_PATH)) {
       return raw;
     }
-    if (inArchive || !this.isAtFsRoot(fsPath)) {
+    if (inArchive || !directorySource.isRootPath(fsPath)) {
       return [this.makeParentEntry(), ...raw];
     }
     return raw;
   }
 
-  pathIsInsideArchive(path: string): boolean {
-    const { fsPath } = parseArchivePath(path);
-    const name = fsPath.replace(/\\/g, '/').split('/').filter(Boolean).pop() ?? '';
-    return isArchive(name);
-  }
-
   async loadPathTransparently(host: FilePanePathHost, path: string): Promise<void> {
-    if (this.pathIsInsideArchive(path)) {
+    if (host.directorySource.isPathInsideArchive(path)) {
       await host.restoreArchiveFromPath(path);
       return;
     }
@@ -52,17 +46,12 @@ export class FilePanePathController {
       }
     }
 
-    if (this.pathIsInsideArchive(host.currentPath)) {
+    if (host.directorySource.isPathInsideArchive(host.currentPath)) {
       await host.restoreArchiveFromPath(host.currentPath);
       return;
     }
 
     await host.loadDirectory(host.currentPath, { preserveUI: true });
-  }
-
-  private isAtFsRoot(path: string): boolean {
-    const normalized = path.replace(/\\/g, '/');
-    return normalized === '/' || normalized === REGISTRY_ROOT || /^[A-Za-z]:\/?\s*$/.test(normalized);
   }
 
   private makeParentEntry(): FileInfo {

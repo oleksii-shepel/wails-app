@@ -1,6 +1,9 @@
 import { Injectable } from '@angular/core';
 
 import type { ArchiveListing, FileInfo } from '../shared/protocol-enhanced';
+import type { PathSegment } from '../components/address-bar.types';
+import { buildSegments as buildBasicSegments, buildSegmentsFromParsedPath, normalizePath, parentPath, parsePathWithArchives } from '../components/address-bar.utils';
+import { isArchive } from './archive.service';
 import { ApiService } from './api.service';
 import { REGISTRY_ROOT, RegistryService, isRegistryPath, type RegistryFrame } from './registry.service';
 
@@ -26,6 +29,10 @@ export interface FileViewDirectorySource {
   browseArchive(fsPath: string, nestedChain?: string[], innerPath?: string): Promise<ArchiveListing>;
   getPathKind(path: string, entries?: FileInfo[]): DirectorySourceKind;
   getRootPath(path: string, entries?: FileInfo[]): string | null;
+  getParentPath(path: string): string;
+  isRootPath(path: string): boolean;
+  isPathInsideArchive(path: string): boolean;
+  buildPathSegments(path: string): PathSegment[];
   joinChildPath(basePath: string, childName: string): string;
   supportsStreaming(path: string): boolean;
 }
@@ -135,6 +142,63 @@ export class DirectorySourceService implements FileViewDirectorySource {
 
   getRootPath(path: string, entries: FileInfo[] = []): string | null {
     return this.providerFor(path, entries).getRootPath(path);
+  }
+
+  getParentPath(path: string): string {
+    const normalized = normalizePath(path);
+    const { fsDirPath, archiveInnerParts } = parsePathWithArchives(normalized);
+
+    if (archiveInnerParts.length > 0) {
+      const parentInnerParts = archiveInnerParts.slice(0, -1);
+      return parentInnerParts.length > 0
+        ? normalizePath(`${fsDirPath}/${parentInnerParts.join('/')}`)
+        : fsDirPath;
+    }
+
+    return parentPath(normalized);
+  }
+
+  isRootPath(path: string): boolean {
+    const normalized = normalizePath(path);
+    if (this.isPathInsideArchive(normalized)) {
+      return false;
+    }
+
+    const rootPath = this.getRootPath(normalized);
+    return !!rootPath && normalized === normalizePath(rootPath);
+  }
+
+  isPathInsideArchive(path: string): boolean {
+    const normalized = normalizePath(path);
+    if (isRegistryPath(normalized)) {
+      return false;
+    }
+
+    const { fsDirPath } = parsePathWithArchives(normalized);
+    const leafName = fsDirPath.replace(/\\/g, '/').split('/').filter(Boolean).pop() ?? '';
+    return isArchive(leafName);
+  }
+
+  buildPathSegments(path: string): PathSegment[] {
+    const normalized = normalizePath(path);
+    const { fsDirPath, archiveInnerParts } = parsePathWithArchives(normalized);
+    const baseSegments = archiveInnerParts.length > 0
+      ? buildSegmentsFromParsedPath(fsDirPath, archiveInnerParts)
+      : buildBasicSegments(normalized);
+
+    let insideArchive = false;
+    return baseSegments.map((segment) => {
+      const isArchiveRoot = isArchive(segment.label);
+      const nextSegment: PathSegment = {
+        ...segment,
+        isArchiveRoot,
+        isArchiveInner: insideArchive,
+      };
+      if (isArchiveRoot) {
+        insideArchive = true;
+      }
+      return nextSegment;
+    });
   }
 
   joinChildPath(basePath: string, childName: string): string {

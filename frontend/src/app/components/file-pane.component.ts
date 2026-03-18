@@ -312,11 +312,11 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       apiService: this.apiService,
       workspaceService: this.workspaceService,
       filterService: this.filterService,
+      directorySource: this.directorySource,
       getDirSession: () => thisRef.dir,
       isInArchive: () => thisRef.isInArchive(),
       exitArchive: () => thisRef.archiveController.exitArchive(thisRef.archiveHost),
       clearArchiveState: () => thisRef.clearArchiveState(),
-      pathIsInsideArchive: (path: string) => thisRef.pathIsInsideArchive(path),
       loadPathTransparently: (path: string) => thisRef.loadPathTransparently(path),
       loadDirectory: (path: string, opts?: { preserveUI?: boolean; focusPath?: string }) => thisRef.loadDirectory(path, opts),
       navigateArchiveUp: () => thisRef.archiveController.navigateArchiveUp(thisRef.archiveHost),
@@ -443,6 +443,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       set selectionCursorPath(value: string | null) { thisRef.selectionCursorPath = value; },
       get selectionAnchorPath() { return thisRef.selectionAnchorPath; },
       set selectionAnchorPath(value: string | null) { thisRef.selectionAnchorPath = value; },
+      directorySource: this.directorySource,
       workspaceService: this.workspaceService,
       dirTabStateController: this.dirTabStateController,
       getDirSession: (tabId: string) => thisRef.dirSessions.get(tabId),
@@ -772,11 +773,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   private withParentEntry(raw: FileInfo[], inArchive: boolean, fsPath: string): FileInfo[] {
-    return this.pathController.withParentEntry(raw, inArchive, fsPath);
-  }
-
-  private pathIsInsideArchive(path: string): boolean {
-    return this.pathController.pathIsInsideArchive(path);
+    return this.pathController.withParentEntry(raw, inArchive, fsPath, this.directorySource);
   }
 
   private async loadPathTransparently(path: string): Promise<void> {

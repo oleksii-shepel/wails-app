@@ -1,4 +1,5 @@
 import type { ArchiveFrame } from '../services/archive.service';
+import type { FileViewDirectorySource } from '../services/directory-source.service';
 import type { WorkspaceService } from '../services/workspace.service';
 import type { DirSurfaceSession } from '../surfaces/dir/dir-surface-session';
 import type { DirTabStateController } from '../surfaces/dir/dir-tab-state-controller';
@@ -40,6 +41,7 @@ export interface FilePaneSurfaceHostsSource {
   set selectionCursorPath(value: string | null);
   get selectionAnchorPath(): string | null;
   set selectionAnchorPath(value: string | null);
+  directorySource: FileViewDirectorySource;
   workspaceService: WorkspaceService;
   dirTabStateController: DirTabStateController;
   getDirSession(tabId: string): DirSurfaceSession | undefined;
@@ -140,6 +142,7 @@ export class FilePaneSurfaceHostsFactory {
     return {
       get currentPath() { return source.currentPath; },
       get archiveStack() { return source.archiveStack; },
+      directorySource: source.directorySource,
       isInArchive: () => source.isInArchive(),
       loadDirectory: (path: string, opts?: { preserveUI?: boolean; focusPath?: string }) => source.loadDirectory(path, opts),
       restoreArchiveFromPath: (path: string) => source.restoreArchiveFromPath(path),

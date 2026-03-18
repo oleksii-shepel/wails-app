@@ -1,10 +1,9 @@
 import type { ApiService } from '../services/api.service';
 import type { ArchiveFrame } from '../services/archive.service';
+import type { FileViewDirectorySource } from '../services/directory-source.service';
 import type { WorkspaceService } from '../services/workspace.service';
 import type { DirSurfaceSession } from '../surfaces/dir/dir-surface-session';
 import type { TabInfo, WorkspaceConfig } from '../shared/protocol-enhanced';
-import { normalizePath, parentPath } from './address-bar.utils';
-import { isRegistryPath, registryParentPath } from '../services/registry.service';
 
 declare const window: any;
 
@@ -19,12 +18,12 @@ export interface FilePaneNavigationHost {
   activeDirTabId: string | null;
   archiveStack: ArchiveFrame[];
   apiService: ApiService;
+  directorySource: FileViewDirectorySource;
   workspaceService: WorkspaceService;
   getDirSession(): DirSurfaceSession;
   isInArchive(): boolean;
   exitArchive(): void;
   clearArchiveState(): void;
-  pathIsInsideArchive(path: string): boolean;
   loadPathTransparently(path: string): Promise<void>;
   loadDirectory(path: string, opts?: { preserveUI?: boolean; focusPath?: string }): Promise<void>;
   navigateArchiveUp(): Promise<void>;
@@ -64,7 +63,7 @@ export class FilePaneNavigationController {
 
     const session = host.getDirSession();
     const cachedOk =
-      !host.pathIsInsideArchive(pathToLoad) &&
+      !host.directorySource.isPathInsideArchive(pathToLoad) &&
       session.currentPath === pathToLoad &&
       session.showHiddenLoaded === host.showHidden &&
       (session.entries?.length ?? 0) > 0;
@@ -123,7 +122,7 @@ export class FilePaneNavigationController {
 
     const session = host.getDirSession();
     const cachedOk =
-      !host.pathIsInsideArchive(restoredPath) &&
+      !host.directorySource.isPathInsideArchive(restoredPath) &&
       session.currentPath === restoredPath &&
       session.showHiddenLoaded === host.showHidden &&
       (session.entries?.length ?? 0) > 0;
@@ -155,8 +154,8 @@ export class FilePaneNavigationController {
     }
 
     const fromPath = host.currentPath;
-    if (isRegistryPath(fromPath)) {
-      const target = registryParentPath(normalizePath(fromPath));
+    const target = host.directorySource.getParentPath(fromPath);
+    if (host.directorySource.getPathKind(fromPath) === 'registry') {
       if (target && target !== fromPath) {
         await host.loadDirectory(target, { focusPath: fromPath });
       }
@@ -167,7 +166,6 @@ export class FilePaneNavigationController {
       const listing = await window.go.app.App.NavGoUp(host.paneId);
       await host.loadDirectory(listing.path, { focusPath: fromPath });
     } catch {
-      const target = parentPath(normalizePath(fromPath));
       if (target !== fromPath) {
         await host.loadDirectory(target, { focusPath: fromPath });
       }

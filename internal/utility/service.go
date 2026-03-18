@@ -1,4 +1,4 @@
-package main
+package utility
 
 import (
 	"fmt"
@@ -7,27 +7,24 @@ import (
 	internalplatform "wails-app/internal/platform"
 )
 
-// UtilityService owns small app-level utilities that don't belong to a larger
-// domain service.
-type UtilityService struct {
+type Service struct {
 	emitEvent func(string, interface{})
 }
 
-func NewUtilityService(emitEvent func(string, interface{})) *UtilityService {
-	return &UtilityService{emitEvent: emitEvent}
-}
-
-// ResolvedLink is the result returned by ResolveLink.
 type ResolvedLink struct {
 	Target string `json:"target"`
 	IsDir  bool   `json:"isDir"`
 }
 
-func (s *UtilityService) OpenFile(path string) error {
+func NewService(emitEvent func(string, interface{})) *Service {
+	return &Service{emitEvent: emitEvent}
+}
+
+func (s *Service) OpenFile(path string) error {
 	return internalplatform.OpenFileWithDefaultApp(path)
 }
 
-func (s *UtilityService) ResolveLink(path string) (*ResolvedLink, error) {
+func (s *Service) ResolveLink(path string) (*ResolvedLink, error) {
 	target, isDir, err := internalplatform.ResolveLinkPath(path)
 	if err != nil {
 		return nil, err
@@ -35,7 +32,7 @@ func (s *UtilityService) ResolveLink(path string) (*ResolvedLink, error) {
 	return &ResolvedLink{Target: target, IsDir: isDir}, nil
 }
 
-func (s *UtilityService) HandleFileDrop(x int, y int, paths []string) error {
+func (s *Service) HandleFileDrop(x int, y int, paths []string) error {
 	fmt.Printf("[HandleFileDrop] Called with x=%d, y=%d, %d paths: %v\n", x, y, len(paths), paths)
 
 	if len(paths) == 0 {
@@ -44,17 +41,17 @@ func (s *UtilityService) HandleFileDrop(x int, y int, paths []string) error {
 
 	providedPaths := paths
 	isRelativeOnly := false
-	for _, p := range paths {
-		if !isAbsolutePath(p) {
+	for _, path := range paths {
+		if !isAbsolutePath(path) {
 			isRelativeOnly = true
-			fmt.Printf("[HandleFileDrop] Path is relative: %s\n", p)
+			fmt.Printf("[HandleFileDrop] Path is relative: %s\n", path)
 			break
 		}
 	}
 
 	if isRelativeOnly {
 		fmt.Println("[HandleFileDrop] Detected filename-only paths, attempting clipboard fallback...")
-		clipboardPaths, err := GetClipboardFilePaths()
+		clipboardPaths, err := GetFilePaths()
 		if err == nil && len(clipboardPaths) > 0 {
 			fmt.Printf("[HandleFileDrop] Got %d paths from clipboard: %v\n", len(clipboardPaths), clipboardPaths)
 			providedPaths = clipboardPaths
@@ -65,16 +62,16 @@ func (s *UtilityService) HandleFileDrop(x int, y int, paths []string) error {
 	}
 
 	validPaths := make([]string, 0, len(providedPaths))
-	for _, p := range providedPaths {
-		if p == "" {
+	for _, path := range providedPaths {
+		if path == "" {
 			continue
 		}
-		fmt.Printf("[HandleFileDrop] Checking path: %s\n", p)
-		if stat, err := os.Stat(p); err == nil {
-			validPaths = append(validPaths, p)
-			fmt.Printf("[HandleFileDrop] Path exists: %s (isDir=%v)\n", p, stat.IsDir())
+		fmt.Printf("[HandleFileDrop] Checking path: %s\n", path)
+		if stat, err := os.Stat(path); err == nil {
+			validPaths = append(validPaths, path)
+			fmt.Printf("[HandleFileDrop] Path exists: %s (isDir=%v)\n", path, stat.IsDir())
 		} else {
-			fmt.Printf("[HandleFileDrop] Path does not exist: %s (%v)\n", p, err)
+			fmt.Printf("[HandleFileDrop] Path does not exist: %s (%v)\n", path, err)
 		}
 	}
 
@@ -104,8 +101,5 @@ func isAbsolutePath(path string) bool {
 	if len(path) > 1 && path[0] == '\\' && path[1] == '\\' {
 		return true
 	}
-	if path[0] == '/' {
-		return true
-	}
-	return false
+	return path[0] == '/'
 }

@@ -1,15 +1,15 @@
 //go:build !windows
 
-package main
+package utility
 
 import "errors"
 
 var errClipboardNotSupported = errors.New("clipboard: only supported on Windows")
 
-func GetClipboardFilePaths() ([]string, error) {
+func GetFilePaths() ([]string, error) {
 	return nil, errClipboardNotSupported
 }
 
-func ReadClipboardText() (string, error) {
+func ReadText() (string, error) {
 	return "", errClipboardNotSupported
 }

@@ -341,9 +341,14 @@ Owns small cross-domain helpers that do not justify larger domain packages.
 
 Current files that map here:
 
-- `utility_service.go`
-- `clipboard_windows.go`
-- `clipboard_stub.go`
+- `internal/utility/service.go`
+- `internal/utility/clipboard_windows.go`
+- `internal/utility/clipboard_stub.go`
+
+Current status:
+
+- file opening and link resolution now route from `App` into `internal/utility/service.go`, which in turn depends on `internal/platform`
+- file-drop normalization and clipboard-backed Explorer fallback now live under `internal/utility`, removing the last root-owned utility service implementation files
 
 ### `internal/contracts`
 
@@ -571,13 +576,11 @@ navigation*.go
 workspace*.go
 elevation*.go
 dir_stream*.go
-utility_service.go
 operations.go
 types.go
 
 platform_*.go
 platform_times_*.go
-special_folders*.go
 trash_*.go
 osinfo.go
 pathutils.go

@@ -12,6 +12,7 @@ import (
 	internalnav "wails-app/internal/navigation"
 	internalops "wails-app/internal/ops"
 	internalplatform "wails-app/internal/platform"
+	internalutility "wails-app/internal/utility"
 	internalworkspace "wails-app/internal/workspace"
 	vfslib "wails-app/vfs"
 	"wails-app/vfs/archive/cache"
@@ -25,7 +26,7 @@ type App struct {
 	filesystem *FilesystemService
 	batch      *internalbatch.Service
 	dirStream  *DirStreamService
-	utility    *UtilityService
+	utility    *internalutility.Service
 	navigation *internalnav.Service
 	workspace  *internalworkspace.Service
 	operations *OperationManager
@@ -81,7 +82,7 @@ func NewApp() *App {
 	})
 	app.filesystem = NewFilesystemService(app.elevation, app.emitEvent, app.StartElevatedSession)
 	app.dirStream = NewDirStreamService(app.emitEvent, app.filesystem.runElevatedWithEvents)
-	app.utility = NewUtilityService(app.emitEvent)
+	app.utility = internalutility.NewService(app.emitEvent)
 	app.archive = internalarchive.NewService(
 		app.archCache,
 		func(opType internalcontracts.OperationType, title, source, dest string) internalarchive.Operation {

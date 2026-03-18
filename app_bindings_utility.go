@@ -1,6 +1,12 @@
 package main
 
-import "time"
+import (
+	"time"
+
+	internalutility "wails-app/internal/utility"
+)
+
+type ResolvedLink = internalutility.ResolvedLink
 
 func (a *App) Ping() int64 {
 	return time.Now().UnixMilli()

@@ -1078,6 +1078,11 @@ export namespace main {
 		    return a;
 		}
 	}
+
+}
+
+export namespace utility {
+	
 	export class ResolvedLink {
 	    target: string;
 	    isDir: boolean;

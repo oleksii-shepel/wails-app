@@ -3,6 +3,7 @@
 import {main} from '../models';
 import {contracts} from '../models';
 import {elevation} from '../models';
+import {utility} from '../models';
 
 export function AnalyzeDiskUsage(arg1:string):Promise<main.DiskUsageResult>;
 
@@ -124,7 +125,7 @@ export function RegisterDropListener():Promise<void>;
 
 export function ResolveConflict(arg1:string,arg2:contracts.ConflictResolution,arg3:boolean):Promise<boolean>;
 
-export function ResolveLink(arg1:string):Promise<main.ResolvedLink>;
+export function ResolveLink(arg1:string):Promise<utility.ResolvedLink>;
 
 export function SavePreferences(arg1:contracts.UserPreferences):Promise<void>;
 

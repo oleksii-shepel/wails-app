@@ -40,6 +40,7 @@ export type DriveType =
   | 'network'
   | 'cdrom'
   | 'ramdisk'
+  | 'registry'
   | 'unknown'
   | 'cloud-onedrive'
   | 'cloud-google'

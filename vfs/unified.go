@@ -76,9 +76,9 @@ func (u *Unified) ReadDir(ctx context.Context, path string) ([]FileInfo, error) 
 		return nil, err
 	}
 	// Inject synthetic directory entries for sub-mounts under path.
-	cleanPath := filepath.ToSlash(filepath.Clean("/" + path))
+	cleanPath := cleanVFSPath(path)
 	for _, m := range u.mounts.ListMounts() {
-		if filepath.ToSlash(filepath.Dir(m.MountPoint)) == cleanPath {
+		if cleanVFSPath(filepath.Dir(m.MountPoint)) == cleanPath {
 			entries = append(entries, &mountPointInfo{
 				name: filepath.Base(m.MountPoint),
 				path: m.MountPoint,
@@ -156,6 +156,13 @@ func (u *Unified) RealPath(path string) (string, error) {
 		return "", err
 	}
 	return fsys.RealPath(rel)
+}
+
+func cleanVFSPath(path string) string {
+	if path == "" {
+		return "/"
+	}
+	return filepath.ToSlash(filepath.Clean("/" + strings.TrimPrefix(filepath.ToSlash(path), "/")))
 }
 
 // mountPointInfo is a synthetic FileInfo injected for each active sub-mount.

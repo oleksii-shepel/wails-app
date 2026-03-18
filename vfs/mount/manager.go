@@ -149,7 +149,10 @@ func (m *Manager) ListMounts() []vfs.MountedEntry {
 
 // clean normalises a mount point to an absolute clean slash-separated path.
 func clean(p string) string {
-	return filepath.ToSlash(filepath.Clean("/" + p))
+	if p == "" {
+		return "/"
+	}
+	return filepath.ToSlash(filepath.Clean("/" + strings.TrimPrefix(filepath.ToSlash(p), "/")))
 }
 
 // volume implements vfs.Volume.

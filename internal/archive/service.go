@@ -295,7 +295,7 @@ func vfsEntryToFileInfo(entry vfslib.FileInfo, parentChain []string) contracts.F
 		Path:        entry.Path(),
 		Type:        entryType,
 		Size:        entry.Size(),
-		Modified:    entry.ModTime().UnixMilli(),
+		Modified:    entry.ModTime().Unix(),
 		IsHidden:    entry.IsHidden(),
 		IsSymlink:   entry.IsSymlink(),
 		IsNested:    entryType == contracts.FileTypeArchive,

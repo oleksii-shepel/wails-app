@@ -500,6 +500,8 @@ export class FileEntryComponent {
   }
 
   formatDate(timestamp: number): string {
-    return new Date(timestamp * 1000).toLocaleString();
+    if (!Number.isFinite(timestamp) || timestamp <= 0) return '';
+    const date = new Date(timestamp * 1000);
+    return Number.isNaN(date.getTime()) ? '' : date.toLocaleString();
   }
 }

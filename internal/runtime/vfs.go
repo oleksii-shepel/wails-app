@@ -141,7 +141,7 @@ func convertVFSInfoWithChain(entry vfslib.FileInfo, parentChain []string) contra
 		Path:        entry.Path(),
 		Type:        fileType,
 		Size:        entry.Size(),
-		Modified:    entry.ModTime().UnixMilli(),
+		Modified:    entry.ModTime().Unix(),
 		IsHidden:    entry.IsHidden(),
 		IsSymlink:   entry.IsSymlink(),
 		IsNested:    fileType == contracts.FileTypeArchive,

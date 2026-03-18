@@ -53,10 +53,6 @@ type DiskUsageProgress struct {
 // ── Wails-exposed App shims ───────────────────────────────────────────────────
 // Thin pass-throughs — all real logic lives on FilesystemService.
 
-func (a *App) AnalyzeDiskUsage(path string) (*DiskUsageResult, error) {
-	return a.filesystem.AnalyzeDiskUsage(path)
-}
-
 // StartDiskUsageStream starts a streaming scan.
 //
 // Events emitted (scoped by scanId so concurrent scans never cross):
@@ -68,14 +64,6 @@ func (a *App) AnalyzeDiskUsage(path string) (*DiskUsageResult, error) {
 //
 // The returned scanId must be passed to CancelDiskUsageStream when the
 // caller navigates away, so the goroutine stops emitting to a dead surface.
-func (a *App) StartDiskUsageStream(path string) (string, error) {
-	return a.filesystem.StartDiskUsageStream(path)
-}
-
-func (a *App) CancelDiskUsageStream(scanId string) {
-	a.filesystem.CancelDiskUsageStream(scanId)
-}
-
 // ── FilesystemService methods ─────────────────────────────────────────────────
 
 // AnalyzeDiskUsage is the original blocking call — kept for compatibility.

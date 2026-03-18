@@ -124,6 +124,7 @@ Current files that belong here first:
 - `internal/app/services.go`
 - `internal/app/runtime.go`
 - `app_bindings_archive.go`
+- `app_bindings_batch.go`
 - `app_bindings_filesystem.go`
 - `app_bindings_navigation.go`
 - `app_bindings_workspace.go`
@@ -427,6 +428,7 @@ Current status:
 
 - `app.go` has already been reduced to composition-root and lifecycle responsibilities
 - Wails-facing filesystem, navigation, workspace, operations, runtime, utility, and elevation delegates now live in domain-specific `app_bindings_*.go` files
+- batch-facing Wails delegates now also live in `app_bindings_batch.go`, and path/system helper bindings have been consolidated into the existing filesystem and utility binding files
 - archive-specific VFS browse helpers now live outside `app.go` in `app_archive_vfs.go`
 
 Why this phase matters:
@@ -568,6 +570,7 @@ Before introducing `internal/*`, a cleaner root layout can already look like thi
 app.go
 app_archive_vfs.go
 app_bindings_archive.go
+app_bindings_batch.go
 app_bindings_filesystem.go
 app_bindings_navigation.go
 app_bindings_operations.go

@@ -15,10 +15,6 @@ import (
 // List Directory
 // ============================================================================
 
-func (a *App) ListDirectory(path string, showHidden bool) (*DirectoryListing, error) {
-	return a.filesystem.ListDirectory(path, showHidden)
-}
-
 func (s *FilesystemService) ListDirectory(path string, showHidden bool) (*DirectoryListing, error) {
 	// Route through VFS if the path lives inside a mounted volume (e.g. an archive).
 	if s.vfs != nil && s.vfs.IsMounted(path) {
@@ -59,10 +55,6 @@ func listDirectoryRaw(path string, showHidden bool) (*DirectoryListing, error) {
 // DirSizeRecursive returns the total byte size of all regular files under path
 // using breadth-first traversal.  Unreadable sub-directories are silently skipped
 // so that a single permission error does not abort the entire walk.
-func (a *App) DirSizeRecursive(path string) (int64, error) {
-	return a.filesystem.DirSizeRecursive(path)
-}
-
 func (s *FilesystemService) DirSizeRecursive(path string) (int64, error) {
 	var total int64
 	queue := []string{path}
@@ -92,10 +84,6 @@ func (s *FilesystemService) DirSizeRecursive(path string) (int64, error) {
 // Get File Info
 // ============================================================================
 
-func (a *App) GetFileInfo(path string) (*FileInfo, error) {
-	return a.filesystem.GetFileInfo(path)
-}
-
 func (s *FilesystemService) GetFileInfo(path string) (*FileInfo, error) {
 	info, err := os.Lstat(path)
 	if err != nil {
@@ -109,10 +97,6 @@ func (s *FilesystemService) GetFileInfo(path string) (*FileInfo, error) {
 // ============================================================================
 // Read File
 // ============================================================================
-
-func (a *App) ReadFile(path string, encoding string) (*FileContent, error) {
-	return a.filesystem.ReadFile(path, encoding)
-}
 
 func (s *FilesystemService) ReadFile(path string, encoding string) (*FileContent, error) {
 	file, err := readFileRaw(path, encoding)
@@ -141,10 +125,6 @@ func readFileRaw(path string, encoding string) (*FileContent, error) {
 // ============================================================================
 // Write File
 // ============================================================================
-
-func (a *App) WriteFile(path string, content string, encoding string) (*OperationResult, error) {
-	return a.filesystem.WriteFile(path, content, encoding)
-}
 
 func (s *FilesystemService) WriteFile(path string, content string, encoding string) (*OperationResult, error) {
 	op, err := writeFileRaw(path, content, encoding)
@@ -175,10 +155,6 @@ func writeFileRaw(path string, content string, encoding string) (*OperationResul
 // Delete File / Directory
 // ============================================================================
 
-func (a *App) DeleteFile(path string, recursive bool, useTrash *bool) (*OperationResult, error) {
-	return a.filesystem.DeleteFile(path, recursive, useTrash)
-}
-
 func (s *FilesystemService) DeleteFile(path string, recursive bool, useTrash *bool) (*OperationResult, error) {
 	op, err := deleteFileRaw(path, recursive, useTrash)
 	if err == nil {
@@ -208,10 +184,6 @@ func deleteFileRaw(path string, recursive bool, useTrash *bool) (*OperationResul
 // Create Directory
 // ============================================================================
 
-func (a *App) CreateDirectory(path string, recursive bool) (*OperationResult, error) {
-	return a.filesystem.CreateDirectory(path, recursive)
-}
-
 func (s *FilesystemService) CreateDirectory(path string, recursive bool) (*OperationResult, error) {
 	op, err := createDirectoryRaw(path, recursive)
 	if err == nil {
@@ -239,10 +211,6 @@ func createDirectoryRaw(path string, recursive bool) (*OperationResult, error) {
 // ============================================================================
 // Move / Rename
 // ============================================================================
-
-func (a *App) MoveFile(source, destination string) (*OperationResult, error) {
-	return a.filesystem.MoveFile(source, destination)
-}
 
 func (s *FilesystemService) MoveFile(source, destination string) (*OperationResult, error) {
 	op, err := moveFileRaw(source, destination)
@@ -272,10 +240,6 @@ func moveFileRaw(source, destination string) (*OperationResult, error) {
 // Copy
 // ============================================================================
 
-func (a *App) CopyFile(source, destination string, recursive bool) (*OperationResult, error) {
-	return a.filesystem.CopyFile(source, destination, recursive)
-}
-
 func (s *FilesystemService) CopyFile(source, destination string, recursive bool) (*OperationResult, error) {
 	op, err := copyFileRaw(source, destination, recursive)
 	if err == nil {
@@ -304,10 +268,6 @@ func copyFileRaw(source, destination string, recursive bool) (*OperationResult, 
 // ============================================================================
 // Search
 // ============================================================================
-
-func (a *App) SearchFiles(path, pattern string, recursive bool) (*SearchResult, error) {
-	return a.filesystem.SearchFiles(path, pattern, recursive)
-}
 
 func (s *FilesystemService) SearchFiles(path, pattern string, recursive bool) (*SearchResult, error) {
 	var matches []FileInfo

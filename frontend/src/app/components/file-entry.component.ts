@@ -404,12 +404,28 @@ export class FileEntryComponent {
   getIconEmoji(): string {
     if (!this.entry) return '📄';
 
+	if (this.isRegistryEntry()) {
+	  if (this.entry.path === 'registry://') return '🧭';
+	  return this.getRegistryIconEmoji();
+	}
+
     switch (this.entry.type) {
       case FileType.DIRECTORY: return '📁';
       // File symlink: render as a plain file so the badge does the talking
       case FileType.SYMLINK:   return '📄';
       default:                 return this.extIcon(this.entry.name);
     }
+  }
+
+  private isRegistryEntry(): boolean {
+    return !!this.entry && this.entry.path.startsWith('registry://');
+  }
+
+  private getRegistryIconEmoji(): string {
+    const kind = (this.entry.registryKind || '').toLowerCase();
+    if (kind === 'registry') return '🧭';
+    if (kind === 'key' || this.entry.type === FileType.DIRECTORY) return '🗂️';
+    return '📑';
   }
 
   onClick(mouseEvent: MouseEvent): void {

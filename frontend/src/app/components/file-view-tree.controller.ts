@@ -1,5 +1,7 @@
 import type { ApiService } from '../services/api.service';
 import { buildArchivePath, parseArchivePath } from '../services/archive.service';
+import { normalizePath as normalizePathReference } from './address-bar.utils';
+import { REGISTRY_ROOT, isRegistryPath } from '../services/registry.service';
 import { FileType, type FileInfo } from '../shared/protocol';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
 import type { TreeNode } from './file-tree.component';
@@ -106,10 +108,7 @@ export class FileViewTreeController {
   }
 
   normalizePath(path: string): string {
-    const normalized = (path || '/').replace(/\\/g, '/').replace(/\/+/g, '/');
-    if (/^[A-Za-z]:\/?$/.test(normalized)) return `${normalized.slice(0, 2)}/`;
-    if (normalized.length > 1 && normalized.endsWith('/')) return normalized.slice(0, -1);
-    return normalized || '/';
+  return normalizePathReference(path || '/');
   }
 
   private async populateNodeChildren(host: FileViewTreeHost, node: TreeNode): Promise<void> {
@@ -167,7 +166,7 @@ export class FileViewTreeController {
     }
 
     const childPath = context
-      ? `${node.path.replace(/\/+$/, '')}/${entry.name}`.replace(/\/+/, '/')
+      ? this.joinNodePath(node.path, entry.name)
       : entry.path;
 
     const existing = existingChildren.get(this.normalizePath(childPath));
@@ -187,9 +186,10 @@ export class FileViewTreeController {
 
   private createRootNode(rootPath: string, archivePath?: string): TreeNode {
     const isWindowsRoot = /^[A-Za-z]:\/$/.test(rootPath);
+  const isRegistryRoot = rootPath === REGISTRY_ROOT;
     const rootName = archivePath
       ? rootPath.split('/').filter(Boolean).pop() || rootPath
-      : (rootPath === '/' ? '/' : (isWindowsRoot ? rootPath.slice(0, 2) : rootPath));
+    : (isRegistryRoot ? 'Registry' : (rootPath === '/' ? '/' : (isWindowsRoot ? rootPath.slice(0, 2) : rootPath)));
     return {
       name: rootName,
       path: rootPath,
@@ -200,6 +200,7 @@ export class FileViewTreeController {
       accessed: 0,
       permissions: '',
       isHidden: false,
+      registryKind: isRegistryRoot ? 'Registry' : undefined,
       level: -1,
       syntheticRoot: rootPath,
       expandable: true,
@@ -214,6 +215,7 @@ export class FileViewTreeController {
 
   private getRootPath(path: string): string {
     const normalized = this.normalizePath(path || '/');
+  if (isRegistryPath(normalized)) return REGISTRY_ROOT;
     const winDrive = normalized.match(/^([A-Za-z]:)\//);
     if (winDrive) return `${winDrive[1]}/`;
     return '/';
@@ -224,6 +226,20 @@ export class FileViewTreeController {
     const target = this.normalizePath(targetPath || rootPath);
 
     const chain = [root];
+  if (root === REGISTRY_ROOT) {
+    if (target === root) return chain;
+    const relative = target.slice(root.length).replace(/^\/+/, '');
+    if (!relative) return chain;
+
+    let current = root;
+    for (const segment of relative.split('/').filter(Boolean)) {
+    current = `${current}${segment}`;
+    chain.push(this.normalizePath(current));
+    current = `${current}/`;
+    }
+    return chain;
+  }
+
     const rootForPrefix = root.endsWith('/') ? root : `${root}/`;
     const startsAtRoot = target === root || this.normalizePath(target).startsWith(rootForPrefix);
     if (!startsAtRoot) return chain;
@@ -239,6 +255,15 @@ export class FileViewTreeController {
     }
     return chain;
   }
+
+    private joinNodePath(basePath: string, childName: string): string {
+      const normalizedBase = this.normalizePath(basePath);
+      if (normalizedBase === REGISTRY_ROOT) {
+      return `${REGISTRY_ROOT}${childName}`;
+      }
+      const trimmedBase = normalizedBase.replace(/\/+$/, '');
+      return `${trimmedBase}/${childName}`;
+    }
 
   private findTreeNodeByPath(nodes: TreeNode[], target: string): TreeNode | undefined {
     for (const node of nodes) {

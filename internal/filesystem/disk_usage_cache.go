@@ -1,39 +1,41 @@
-package main
+package filesystem
 
 import (
 	"container/list"
 	"path/filepath"
 	"strings"
 	"sync"
+
+	contracts "wails-app/internal/contracts"
 )
 
-const diskUsageCacheCapacity = 500
+const DefaultDiskUsageCacheCapacity = 500
 
-type diskUsageCacheEntry struct {
+type DiskUsageCacheEntry struct {
 	path   string
-	result *DiskUsageResult
+	result *contracts.DiskUsageResult
 	elem   *list.Element
 }
 
-type diskUsageCache struct {
+type DiskUsageCache struct {
 	mu      sync.Mutex
-	entries map[string]*diskUsageCacheEntry
+	entries map[string]*DiskUsageCacheEntry
 	lru     *list.List
 	limit   int
 }
 
-func newDiskUsageCache(limit int) *diskUsageCache {
+func NewDiskUsageCache(limit int) *DiskUsageCache {
 	if limit < 1 {
-		limit = diskUsageCacheCapacity
+		limit = DefaultDiskUsageCacheCapacity
 	}
-	return &diskUsageCache{
-		entries: make(map[string]*diskUsageCacheEntry, limit),
+	return &DiskUsageCache{
+		entries: make(map[string]*DiskUsageCacheEntry, limit),
 		lru:     list.New(),
 		limit:   limit,
 	}
 }
 
-func (c *diskUsageCache) Get(path string) (*DiskUsageResult, bool) {
+func (c *DiskUsageCache) Get(path string) (*contracts.DiskUsageResult, bool) {
 	key := diskUsageCacheKey(path)
 
 	c.mu.Lock()
@@ -47,7 +49,7 @@ func (c *diskUsageCache) Get(path string) (*DiskUsageResult, bool) {
 	return entry.result, true
 }
 
-func (c *diskUsageCache) Set(result *DiskUsageResult) {
+func (c *DiskUsageCache) Set(result *contracts.DiskUsageResult) {
 	if result == nil {
 		return
 	}
@@ -63,15 +65,15 @@ func (c *diskUsageCache) Set(result *DiskUsageResult) {
 	}
 
 	if c.lru.Len() >= c.limit {
-		c.evict(c.lru.Back().Value.(*diskUsageCacheEntry))
+		c.evict(c.lru.Back().Value.(*DiskUsageCacheEntry))
 	}
 
-	entry := &diskUsageCacheEntry{path: key, result: result}
+	entry := &DiskUsageCacheEntry{path: key, result: result}
 	entry.elem = c.lru.PushFront(entry)
 	c.entries[key] = entry
 }
 
-func (c *diskUsageCache) InvalidateSubtree(path string) {
+func (c *DiskUsageCache) InvalidateSubtree(path string) {
 	root := diskUsageCacheKey(path)
 
 	c.mu.Lock()
@@ -84,11 +86,11 @@ func (c *diskUsageCache) InvalidateSubtree(path string) {
 	}
 }
 
-func (c *diskUsageCache) evict(entry *diskUsageCacheEntry) {
+func (c *DiskUsageCache) evict(entry *DiskUsageCacheEntry) {
 	delete(c.entries, entry.path)
 	c.lru.Remove(entry.elem)
 }
 
 func diskUsageCacheKey(path string) string {
-	return toSlash(filepath.Clean(path))
+	return filepath.ToSlash(filepath.Clean(path))
 }

@@ -219,6 +219,7 @@ Current status:
 
 - elevated request dispatch already routes through an `internal/filesystem` adapter
 - raw filesystem operations and their copy/file-info helper implementations now live behind `internal/filesystem/raw_service.go`
+- disk-usage caching now also lives under `internal/filesystem/disk_usage_cache.go`
 - the remaining root filesystem code is mostly Wails-facing delegation plus platform callback wiring
 
 ### `internal/platform`
@@ -251,6 +252,7 @@ Current status:
 - utility-facing shell open and link-resolution behavior now routes through `internal/platform/links_*.go`
 - OS info, drive enumeration, and special-folder discovery now route through `internal/platform/system*.go` and `internal/platform/special_folders_*.go`, with `main` only re-exporting contracts and Wails delegates
 - root files like `pathutils.go` and `utils.go` now mostly expose Wails-facing or package-local wrappers over that internal platform boundary
+- disk-usage wire types now also live under `internal/contracts/filesystem.go`, with `main` only re-exporting them via aliases
 
 ### `internal/navigation`
 

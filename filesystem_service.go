@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	internalelevation "wails-app/internal/elevation"
+	internalfilesystem "wails-app/internal/filesystem"
 	vfslib "wails-app/vfs"
 )
 
@@ -19,7 +20,7 @@ type FilesystemService struct {
 	startElevatedSession func() (*ElevatedSessionStatus, error)
 	vfs                  *vfslib.Unified
 	duStreams            *duStreamRegistry
-	duCache              *diskUsageCache
+	duCache              *internalfilesystem.DiskUsageCache
 }
 
 func NewFilesystemService(
@@ -32,7 +33,7 @@ func NewFilesystemService(
 		emitEvent:            emitEvent,
 		startElevatedSession: startElevatedSession,
 		duStreams:            newDuStreamRegistry(),
-		duCache:              newDiskUsageCache(diskUsageCacheCapacity),
+		duCache:              internalfilesystem.NewDiskUsageCache(internalfilesystem.DefaultDiskUsageCacheCapacity),
 	}
 }
 

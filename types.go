@@ -94,6 +94,14 @@ type OperationResult = internalcontracts.OperationResult
 
 type SearchResult = internalcontracts.SearchResult
 
+type DiskUsageEntry = internalcontracts.DiskUsageEntry
+
+type DiskUsageTypeStat = internalcontracts.DiskUsageTypeStat
+
+type DiskUsageResult = internalcontracts.DiskUsageResult
+
+type DiskUsageProgress = internalcontracts.DiskUsageProgress
+
 // ============================================================================
 // Response Envelope
 // ============================================================================

@@ -14,41 +14,8 @@ import (
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-// DiskUsageEntry represents one direct child of the analysed directory.
-type DiskUsageEntry struct {
-	Name  string                       `json:"name"`
-	Path  string                       `json:"path"`
-	Size  int64                        `json:"size"`
-	IsDir bool                         `json:"isDir"`
-	Files int64                        `json:"files"`
-	Dirs  int64                        `json:"dirs"`
-	Types map[string]DiskUsageTypeStat `json:"types,omitempty"`
-	Error string                       `json:"error,omitempty"`
-}
-
-type DiskUsageTypeStat struct {
-	Count int64 `json:"count"`
-	Size  int64 `json:"size"`
-}
-
-// DiskUsageResult is the wire payload returned by AnalyzeDiskUsage and
-// emitted as the final event by StartDiskUsageStream.
-type DiskUsageResult struct {
-	Path       string                       `json:"path"`
-	TotalSize  int64                        `json:"totalSize"`
-	TotalFiles int64                        `json:"totalFiles"`
-	TotalDirs  int64                        `json:"totalDirs"`
-	Types      map[string]DiskUsageTypeStat `json:"types,omitempty"`
-	Entries    []DiskUsageEntry             `json:"entries"`
-	ElapsedMs  int64                        `json:"elapsedMs"`
-}
-
-type DiskUsageProgress struct {
-	TotalSize  int64 `json:"totalSize"`
-	TotalFiles int64 `json:"totalFiles"`
-	TotalDirs  int64 `json:"totalDirs"`
-	ElapsedMs  int64 `json:"elapsedMs"`
-}
+// Disk usage wire types now live in internal/contracts and are re-exported
+// from types.go for the Wails-facing main package surface.
 
 // ── Wails-exposed App shims ───────────────────────────────────────────────────
 // Thin pass-throughs — all real logic lives on FilesystemService.

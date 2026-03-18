@@ -23,8 +23,8 @@ Quick Access currently provides:
 Quick Access depends on the special-folder backend boundary:
 
 - `special_folders.go`
-- `special_folders_windows.go`
-- `special_folders_unix.go`
+- `internal/platform/special_folders_windows.go`
+- `internal/platform/special_folders_unix.go`
 
 The Wails-facing API returns `SpecialFoldersResponse`, with `SpecialFolder` shared to the frontend through `frontend/src/app/shared/protocol.ts`.
 

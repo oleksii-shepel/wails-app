@@ -73,9 +73,9 @@ internal/
     service.go
     clipboard_windows.go
     clipboard_stub.go
-    special_folders*.go
   platform/
-    osinfo.go
+    system.go
+    special_folders*.go
     pathutils.go
     platform_*.go
     platform_times_*.go
@@ -224,15 +224,20 @@ Current files that map here:
 - `internal/platform/metadata_darwin.go`
 - `internal/platform/trash_windows.go`
 - `internal/platform/trash_unix.go`
+- `internal/platform/system.go`
+- `internal/platform/system_windows.go`
+- `internal/platform/system_unix.go`
+- `internal/platform/special_folders_windows.go`
+- `internal/platform/special_folders_unix.go`
 - `osinfo.go`
-- `platform_windows.go`
-- `platform_unix.go`
+- `special_folders.go`
 
 Current status:
 
 - generic slash-cleaning, normalized join, parent-path, split-path, and breadcrumb helpers now live in `internal/platform/paths.go`
 - filesystem metadata callbacks now route through `internal/platform/metadata_*.go`, and trash handling now routes through `internal/platform/trash_*.go`
 - utility-facing shell open and link-resolution behavior now routes through `internal/platform/links_*.go`
+- OS info, drive enumeration, and special-folder discovery now route through `internal/platform/system*.go` and `internal/platform/special_folders_*.go`, with `main` only re-exporting contracts and Wails delegates
 - root files like `pathutils.go` and `utils.go` now mostly expose Wails-facing or package-local wrappers over that internal platform boundary
 
 ### `internal/navigation`
@@ -339,9 +344,6 @@ Current files that map here:
 - `utility_service.go`
 - `clipboard_windows.go`
 - `clipboard_stub.go`
-- `special_folders.go`
-- `special_folders_windows.go`
-- `special_folders_unix.go`
 
 ### `internal/contracts`
 
@@ -352,6 +354,7 @@ Current files that likely contribute here:
 - `internal/contracts/filesystem.go`
 - `internal/contracts/errors.go`
 - `internal/contracts/batch.go`
+- `internal/contracts/platform.go`
 - `internal/contracts/workspace.go`
 - `internal/contracts/navigation.go`
 - `types.go` now re-exports selected contracts via type aliases

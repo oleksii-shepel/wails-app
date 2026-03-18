@@ -149,9 +149,9 @@ get virtualEnabled(): boolean {
 **Location:** [address-bar-quick-access.component.ts](frontend/src/app/components/address-bar-quick-access.component.ts)
 
 **Backend:** 
-- [special_folders.go](special_folders.go) - Cross-platform interface
-- [special_folders_windows.go](special_folders_windows.go) - Windows implementation (SHGetKnownFolderPath)
-- [special_folders_unix.go](special_folders_unix.go) - Unix/Linux implementation (XDG directories)
+- [special_folders.go](special_folders.go) - Wails-facing special-folder delegate
+- [internal/platform/special_folders_windows.go](internal/platform/special_folders_windows.go) - Windows implementation (SHGetKnownFolderPath)
+- [internal/platform/special_folders_unix.go](internal/platform/special_folders_unix.go) - Unix/Linux implementation (XDG directories)
 
 ### Features:
 
@@ -292,7 +292,7 @@ Navigation-related backend behavior is now split by responsibility instead of ac
 
 ### Quick Access (NEW):
 - **Frontend:** `address-bar-quick-access.component.ts`
-- **Backend:** `special_folders.go`, `special_folders_windows.go`, `special_folders_unix.go`
+- **Backend:** `special_folders.go`, `internal/platform/special_folders_windows.go`, `internal/platform/special_folders_unix.go`
 - **Types:** `protocol.ts` (SpecialFolder interface)
 
 ---

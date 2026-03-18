@@ -35,50 +35,39 @@ func classifyError(err error) AppErrorCode {
 // OS Info
 // ============================================================================
 
-type OSType string
+type OSType = internalcontracts.OSType
 
 const (
-	OSWindows OSType = "windows"
-	OSLinux   OSType = "linux"
-	OSDarwin  OSType = "macos"
-	OSUnknown OSType = "unknown"
+	OSWindows OSType = internalcontracts.OSWindows
+	OSLinux   OSType = internalcontracts.OSLinux
+	OSDarwin  OSType = internalcontracts.OSDarwin
+	OSUnknown OSType = internalcontracts.OSUnknown
 )
 
-type OSInfoResponse struct {
-	OS          OSType  `json:"os"`
-	Version     string  `json:"version"`
-	Arch        string  `json:"arch"`
-	Hostname    string  `json:"hostname"`
-	SystemDrive *string `json:"systemDrive"`
-}
+type OSInfoResponse = internalcontracts.OSInfoResponse
 
 // ============================================================================
 // Drives
 // ============================================================================
 
-type DriveType string
+type DriveType = internalcontracts.DriveType
 
 const (
-	DriveFixed     DriveType = "fixed"
-	DriveRemovable DriveType = "removable"
-	DriveNetwork   DriveType = "network"
-	DriveCDROM     DriveType = "cdrom"
-	DriveRAMDisk   DriveType = "ramdisk"
-	DriveUnknown   DriveType = "unknown"
+	DriveFixed     DriveType = internalcontracts.DriveFixed
+	DriveRemovable DriveType = internalcontracts.DriveRemovable
+	DriveNetwork   DriveType = internalcontracts.DriveNetwork
+	DriveCDROM     DriveType = internalcontracts.DriveCDROM
+	DriveRAMDisk   DriveType = internalcontracts.DriveRAMDisk
+	DriveUnknown   DriveType = internalcontracts.DriveUnknown
 )
 
-type DriveInfo struct {
-	Name       string    `json:"name"`
-	Path       string    `json:"path"`
-	DriveType  DriveType `json:"driveType"`
-	TotalSpace int64     `json:"totalSpace"`
-	FreeSpace  int64     `json:"freeSpace"`
-	FileSystem *string   `json:"fileSystem"`
-}
+type DriveInfo = internalcontracts.DriveInfo
 
-type DrivesList struct {
-	Drives []DriveInfo `json:"drives"`
-}
+type DrivesList = internalcontracts.DrivesList
+
+type SpecialFolder = internalcontracts.SpecialFolder
+
+type SpecialFoldersResponse = internalcontracts.SpecialFoldersResponse
 
 // ============================================================================
 // File System Data Types

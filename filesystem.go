@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	internalfilesystem "wails-app/internal/filesystem"
+	internalplatform "wails-app/internal/platform"
 )
 
 // ============================================================================
@@ -393,7 +394,7 @@ func copyPath(src, dst string) error {
 // isHiddenFile is the cross-platform hidden check stub —
 // platform-specific logic lives in platform_{windows,unix}.go
 func isHiddenFile(name, path string) bool {
-	return checkHidden(name, path)
+	return internalplatform.CheckHidden(name, path)
 }
 
 func matchesFilter(e FileInfo, q FilterQuery) bool {

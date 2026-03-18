@@ -1,6 +1,6 @@
 //go:build !windows
 
-package main
+package platform
 
 import (
 	"errors"
@@ -14,19 +14,7 @@ import (
 	"time"
 )
 
-// moveToTrash moves path to the platform trash / recycle location without
-// permanently deleting it.
-//
-//   - macOS  : moves to ~/.Trash/
-//   - Linux  : follows the FreeDesktop.org Trash specification
-//     (https://specifications.freedesktop.org/trash-spec/trashspec-latest.html)
-//     Files land in ~/.local/share/Trash/files/ and a corresponding
-//     .trashinfo metadata file is written to
-//     ~/.local/share/Trash/info/.
-//
-// Both implementations handle name collisions by appending a counter
-// (e.g. "report (2).pdf").
-func moveToTrash(path string) error {
+func MoveToTrash(path string) error {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return fmt.Errorf("trash: cannot resolve path %q: %w", path, err)
@@ -42,8 +30,6 @@ func moveToTrash(path string) error {
 		return moveToTrashFreedesktop(abs)
 	}
 }
-
-// ---- macOS ------------------------------------------------------------------
 
 func moveToTrashDarwin(abs string) error {
 	home, err := os.UserHomeDir()
@@ -62,8 +48,6 @@ func moveToTrashDarwin(abs string) error {
 	return nil
 }
 
-// ---- Linux / FreeDesktop ----------------------------------------------------
-
 func moveToTrashFreedesktop(abs string) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -73,18 +57,16 @@ func moveToTrashFreedesktop(abs string) error {
 	trashFilesDir := filepath.Join(home, ".local", "share", "Trash", "files")
 	trashInfoDir := filepath.Join(home, ".local", "share", "Trash", "info")
 
-	for _, d := range []string{trashFilesDir, trashInfoDir} {
-		if err := os.MkdirAll(d, 0700); err != nil {
-			return fmt.Errorf("trash: cannot create trash directory %s: %w", d, err)
+	for _, dir := range []string{trashFilesDir, trashInfoDir} {
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			return fmt.Errorf("trash: cannot create trash directory %s: %w", dir, err)
 		}
 	}
 
-	// Pick a unique base name (without collision in either files/ or info/).
 	baseName := uniqueTrashBaseName(trashFilesDir, trashInfoDir, filepath.Base(abs))
 	dst := filepath.Join(trashFilesDir, baseName)
 	infoPath := filepath.Join(trashInfoDir, baseName+".trashinfo")
 
-	// Write .trashinfo first so the entry is always consistent.
 	infoContent := fmt.Sprintf(
 		"[Trash Info]\nPath=%s\nDeletionDate=%s\n",
 		abs,
@@ -95,34 +77,25 @@ func moveToTrashFreedesktop(abs string) error {
 	}
 
 	if err := renameCrossDevice(abs, dst); err != nil {
-		// Clean up the orphaned .trashinfo on failure.
-		os.Remove(infoPath)
+		_ = os.Remove(infoPath)
 		return fmt.Errorf("trash: %w", err)
 	}
 	return nil
 }
 
-// ---- helpers ----------------------------------------------------------------
-
-// renameCrossDevice tries os.Rename first; if it fails with EXDEV (cross-device
-// link), it falls back to a recursive copy followed by removal of the source.
 func renameCrossDevice(src, dst string) error {
 	err := os.Rename(src, dst)
 	if err == nil {
 		return nil
 	}
 
-	// Unwrap to check for EXDEV (cross-device link).
 	linkErr := &os.LinkError{}
-	if errors.As(err, &linkErr) {
-		if errors.Is(linkErr.Err, syscall.EXDEV) {
-			return crossDeviceMoveToTrash(src, dst)
-		}
+	if errors.As(err, &linkErr) && errors.Is(linkErr.Err, syscall.EXDEV) {
+		return crossDeviceMoveToTrash(src, dst)
 	}
 	return err
 }
 
-// crossDeviceMoveToTrash copies src to dst across devices, then removes src.
 func crossDeviceMoveToTrash(src, dst string) error {
 	info, err := os.Lstat(src)
 	if err != nil {
@@ -132,12 +105,9 @@ func crossDeviceMoveToTrash(src, dst string) error {
 		if err := copyDirAll(src, dst); err != nil {
 			return fmt.Errorf("cross-device copy failed: %w", err)
 		}
-	} else {
-		if err := copyFileData(src, dst, info.Mode()); err != nil {
-			return fmt.Errorf("cross-device copy failed: %w", err)
-		}
+	} else if err := copyFileData(src, dst, info.Mode()); err != nil {
+		return fmt.Errorf("cross-device copy failed: %w", err)
 	}
-	// Remove the original after a successful copy.
 	return os.RemoveAll(src)
 }
 
@@ -169,14 +139,12 @@ func copyFileData(src, dst string, mode os.FileMode) error {
 	defer out.Close()
 
 	if _, err := io.Copy(out, in); err != nil {
-		os.Remove(dst)
+		_ = os.Remove(dst)
 		return err
 	}
 	return out.Close()
 }
 
-// uniqueTrashPath returns a path inside dir that does not yet exist, based on
-// baseName. Collisions are resolved by appending " (N)" before the extension.
 func uniqueTrashPath(dir, baseName string) string {
 	candidate := filepath.Join(dir, baseName)
 	if _, err := os.Lstat(candidate); os.IsNotExist(err) {
@@ -192,17 +160,15 @@ func uniqueTrashPath(dir, baseName string) string {
 	}
 }
 
-// uniqueTrashBaseName returns a base name that is free in both files/ and
-// info/ directories to keep the two directories in sync.
 func uniqueTrashBaseName(filesDir, infoDir, baseName string) string {
 	ext := filepath.Ext(baseName)
 	stem := strings.TrimSuffix(baseName, ext)
 
 	candidate := baseName
 	for i := 2; ; i++ {
-		_, errF := os.Lstat(filepath.Join(filesDir, candidate))
-		_, errI := os.Lstat(filepath.Join(infoDir, candidate+".trashinfo"))
-		if os.IsNotExist(errF) && os.IsNotExist(errI) {
+		_, errFiles := os.Lstat(filepath.Join(filesDir, candidate))
+		_, errInfo := os.Lstat(filepath.Join(infoDir, candidate+".trashinfo"))
+		if os.IsNotExist(errFiles) && os.IsNotExist(errInfo) {
 			return candidate
 		}
 		candidate = fmt.Sprintf("%s (%d)%s", stem, i, ext)

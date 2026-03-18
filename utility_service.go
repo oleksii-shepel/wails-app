@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"os"
+
+	internalplatform "wails-app/internal/platform"
 )
 
 // UtilityService owns small app-level utilities that don't belong to a larger
@@ -22,11 +24,11 @@ type ResolvedLink struct {
 }
 
 func (s *UtilityService) OpenFile(path string) error {
-	return openFileWithDefaultApp(path)
+	return internalplatform.OpenFileWithDefaultApp(path)
 }
 
 func (s *UtilityService) ResolveLink(path string) (*ResolvedLink, error) {
-	target, isDir, err := resolveLinkPath(path)
+	target, isDir, err := internalplatform.ResolveLinkPath(path)
 	if err != nil {
 		return nil, err
 	}

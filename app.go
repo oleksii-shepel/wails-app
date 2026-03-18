@@ -11,6 +11,7 @@ import (
 	internalelevation "wails-app/internal/elevation"
 	internalnav "wails-app/internal/navigation"
 	internalops "wails-app/internal/ops"
+	internalplatform "wails-app/internal/platform"
 	internalworkspace "wails-app/internal/workspace"
 	vfslib "wails-app/vfs"
 	"wails-app/vfs/archive/cache"
@@ -116,7 +117,7 @@ func NewApp() *App {
 			resp, err := app.filesystem.runElevatedWithEvents("delete", app.filesystem.elevationTargetSingle(path), elevatedRequest{Op: "delete", Path: path, Recursive: recursive, UseTrash: useTrash})
 			return err == nil && resp.Success, err
 		},
-		MoveToTrash:          moveToTrash,
+		MoveToTrash:          internalplatform.MoveToTrash,
 		CalculateSize:        calculateSize,
 		ExtractNestedArchive: app.archive.ExtractNestedArchive,
 		Normalize:            normalize,

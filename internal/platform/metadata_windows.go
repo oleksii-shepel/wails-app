@@ -1,6 +1,6 @@
 //go:build windows
 
-package main
+package platform
 
 import (
 	"os"
@@ -8,9 +8,7 @@ import (
 	"time"
 )
 
-func checkHidden(name, path string) bool {
-	// On Windows a file is hidden if the Hidden file attribute is set,
-	// OR if the name starts with '.' (by convention some tools use this too).
+func CheckHidden(_ string, path string) bool {
 	ptr, err := syscall.UTF16PtrFromString(path)
 	if err != nil {
 		return false
@@ -22,14 +20,14 @@ func checkHidden(name, path string) bool {
 	return attrs&syscall.FILE_ATTRIBUTE_HIDDEN != 0
 }
 
-func getCreatedTime(info os.FileInfo) int64 {
+func GetCreatedTime(info os.FileInfo) int64 {
 	if stat, ok := info.Sys().(*syscall.Win32FileAttributeData); ok {
 		return stat.CreationTime.Nanoseconds() / int64(time.Second)
 	}
 	return info.ModTime().Unix()
 }
 
-func getAccessedTime(info os.FileInfo) int64 {
+func GetAccessedTime(info os.FileInfo) int64 {
 	if stat, ok := info.Sys().(*syscall.Win32FileAttributeData); ok {
 		return stat.LastAccessTime.Nanoseconds() / int64(time.Second)
 	}

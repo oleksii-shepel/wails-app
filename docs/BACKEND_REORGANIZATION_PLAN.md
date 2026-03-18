@@ -216,19 +216,23 @@ Owns generic path normalization plus OS-specific helpers and low-level platform 
 Current files that map here:
 
 - `internal/platform/paths.go`
+- `internal/platform/links_windows.go`
+- `internal/platform/links_unix.go`
+- `internal/platform/metadata_windows.go`
+- `internal/platform/metadata_unix.go`
+- `internal/platform/metadata_linux.go`
+- `internal/platform/metadata_darwin.go`
+- `internal/platform/trash_windows.go`
+- `internal/platform/trash_unix.go`
 - `osinfo.go`
 - `platform_windows.go`
 - `platform_unix.go`
-- `platform_times_windows.go`
-- `platform_times_unix.go`
-- `platform_times_linux.go`
-- `platform_times_darwin.go`
-- `trash_windows.go`
-- `trash_unix.go`
 
 Current status:
 
 - generic slash-cleaning, normalized join, parent-path, split-path, and breadcrumb helpers now live in `internal/platform/paths.go`
+- filesystem metadata callbacks now route through `internal/platform/metadata_*.go`, and trash handling now routes through `internal/platform/trash_*.go`
+- utility-facing shell open and link-resolution behavior now routes through `internal/platform/links_*.go`
 - root files like `pathutils.go` and `utils.go` now mostly expose Wails-facing or package-local wrappers over that internal platform boundary
 
 ### `internal/navigation`

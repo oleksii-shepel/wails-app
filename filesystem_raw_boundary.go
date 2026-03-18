@@ -5,12 +5,13 @@ import (
 	"runtime"
 
 	internalfilesystem "wails-app/internal/filesystem"
+	internalplatform "wails-app/internal/platform"
 )
 
 var rawFilesystemOps = internalfilesystem.NewRawService(internalfilesystem.RawCallbacks{
 	Metadata: rawFilesystemMetadataCallbacks(),
 	MoveToTrash: func(path string) error {
-		return moveToTrash(path)
+		return internalplatform.MoveToTrash(path)
 	},
 })
 
@@ -19,10 +20,10 @@ func rawFilesystemMetadataCallbacks() internalfilesystem.MetadataCallbacks {
 		ToSlash:                      toSlash,
 		IsHiddenFile:                 isHiddenFile,
 		IsArchive:                    isArchive,
-		SymlinkPointsToDir:           symlinkPointsToDir,
-		IsUntrackedDirectoryJunction: isUntrackedDirectoryJunction,
-		GetCreatedTime:               getCreatedTime,
-		GetAccessedTime:              getAccessedTime,
+		SymlinkPointsToDir:           internalplatform.SymlinkPointsToDir,
+		IsUntrackedDirectoryJunction: internalplatform.IsUntrackedDirectoryJunction,
+		GetCreatedTime:               internalplatform.GetCreatedTime,
+		GetAccessedTime:              internalplatform.GetAccessedTime,
 		FormatPermissions:            formatPermissions,
 	}
 }

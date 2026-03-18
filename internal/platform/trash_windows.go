@@ -1,6 +1,6 @@
 //go:build windows
 
-package main
+package platform
 
 import (
 	"fmt"
@@ -15,27 +15,14 @@ var (
 	shFileOperation = shell32.NewProc("SHFileOperationW")
 )
 
-// shFileOpStruct mirrors SHFILEOPSTRUCTW.
-// Field layout on 64-bit Windows (Go follows the same ABI as MSVC):
-//
-//	offset  0 : hwnd                    (8 bytes)
-//	offset  8 : wFunc                   (4 bytes)
-//	offset 12 : [4 bytes padding]
-//	offset 16 : pFrom                   (8 bytes)
-//	offset 24 : pTo                     (8 bytes)
-//	offset 32 : fFlags                  (2 bytes)
-//	offset 34 : [2 bytes padding]
-//	offset 36 : fAnyOperationsAborted   (4 bytes)
-//	offset 40 : hNameMappings           (8 bytes)
-//	offset 48 : lpszProgressTitle       (8 bytes)
 type shFileOpStruct struct {
 	hwnd                  uintptr
 	wFunc                 uint32
-	_                     [4]byte // padding to align pFrom to 8 bytes
+	_                     [4]byte
 	pFrom                 uintptr
 	pTo                   uintptr
 	fFlags                uint16
-	_                     [2]byte // padding to align fAnyOperationsAborted to 4 bytes
+	_                     [2]byte
 	fAnyOperationsAborted int32
 	hNameMappings         uintptr
 	lpszProgressTitle     uintptr
@@ -47,23 +34,19 @@ const (
 	fofNoConfirm    uint16 = 0x0010
 	fofAllowUndo    uint16 = 0x0040
 	fofNoErrorUI    uint16 = 0x0400
-	fofWantNukeWarn uint16 = 0x4000 // warn before permanently deleting (too large for bin)
+	fofWantNukeWarn uint16 = 0x4000
 )
 
-// moveToTrash moves path to the Windows Recycle Bin using SHFileOperationW.
-// It works for both files and directories.
-func moveToTrash(path string) error {
+func MoveToTrash(path string) error {
 	path = normalizeShellTrashPath(path)
 	if path == "" {
 		return fmt.Errorf("trash: empty path")
 	}
 
-	// pFrom must be double-null-terminated UTF-16.
 	from, err := syscall.UTF16FromString(path)
 	if err != nil {
 		return fmt.Errorf("trash: invalid path %q: %w", path, err)
 	}
-	// syscall.UTF16FromString already appends one null; append a second.
 	from = append(from, 0)
 
 	op := shFileOpStruct{
@@ -87,10 +70,7 @@ func normalizeShellTrashPath(path string) string {
 	if p == "" {
 		return ""
 	}
-	// Shell APIs are picky about slash direction.
 	p = filepath.FromSlash(p)
 	p = filepath.Clean(p)
-	// SHFileOperationW does not support extended-length path prefixes.
-	p = strings.TrimPrefix(p, `\\?\`)
-	return p
+	return strings.TrimPrefix(p, `\\?\`)
 }

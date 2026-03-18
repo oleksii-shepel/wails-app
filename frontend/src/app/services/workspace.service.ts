@@ -922,6 +922,11 @@ export class WorkspaceService {
    */
   private getPathTitle(path: string): string {
     const normalized = this.normalizePath(path);
+    if (normalized === 'registry://') return 'Registry';
+    if (normalized.startsWith('registry://')) {
+      const rel = normalized.slice('registry://'.length);
+      return rel.split('/').filter(Boolean).pop() || 'Registry';
+    }
     // Drive roots: show "C:" not "C:/"
     if (/^[a-zA-Z]:\/?$/.test(normalized)) return normalized.slice(0, 2);
     return normalized;
@@ -929,6 +934,10 @@ export class WorkspaceService {
 
   private normalizePath(path: string): string {
     if (!path) return '/';
+    if (/^registry:\/\//i.test(path)) {
+      const rest = path.replace(/\\/g, '/').slice('registry://'.length).replace(/^\/+/, '').replace(/\/+/g, '/');
+      return rest ? `registry://${rest}` : 'registry://';
+    }
     let p = path.replace(/\\/g, '/').replace(/\/+/g, '/');
     if (p.length > 1 && p.endsWith('/')) p = p.slice(0, -1);
     return p || '/';
@@ -936,6 +945,7 @@ export class WorkspaceService {
 
   private getRootForPath(path: string): string {
     const normalized = this.normalizePath(path);
+    if (normalized.startsWith('registry://')) return 'registry://';
     const drive = normalized.match(/^([a-zA-Z]):/);
     return drive ? `${drive[1]}:/` : '/';
   }

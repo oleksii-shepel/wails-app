@@ -1,6 +1,7 @@
 import { FileType, type FileInfo } from '../shared/protocol';
 import type { ArchiveFrame } from '../services/archive.service';
 import { isArchive, parseArchivePath } from '../services/archive.service';
+import { REGISTRY_ROOT } from '../services/registry.service';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
 
 export interface FilePanePathHost {
@@ -61,7 +62,7 @@ export class FilePanePathController {
 
   private isAtFsRoot(path: string): boolean {
     const normalized = path.replace(/\\/g, '/');
-    return normalized === '/' || /^[A-Za-z]:\/?\s*$/.test(normalized);
+    return normalized === '/' || normalized === REGISTRY_ROOT || /^[A-Za-z]:\/?\s*$/.test(normalized);
   }
 
   private makeParentEntry(): FileInfo {

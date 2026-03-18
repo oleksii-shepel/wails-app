@@ -247,6 +247,10 @@ export class AddressBarDriveDropdownComponent {
 
   private normalizePath(path: string): string {
     const replaced = (path || '').replace(/\\/g, '/');
+    if (/^registry:\/\//i.test(replaced)) {
+      const rest = replaced.slice('registry://'.length).replace(/^\/+/, '').replace(/\/+/g, '/');
+      return rest ? `registry://${rest}` : 'registry://';
+    }
     const collapsed = replaced.startsWith('//')
       ? `//${replaced.slice(2).replace(/\/{2,}/g, '/')}`
       : replaced.replace(/\/{2,}/g, '/');
@@ -258,6 +262,9 @@ export class AddressBarDriveDropdownComponent {
   isActive(d: DriveInfo): boolean {
     const current = this.normalizePath(this.currentPath).toLowerCase();
     const root = this.normalizePath(d.path).toLowerCase();
+    if (root === 'registry://') {
+      return current === root || current.startsWith(root);
+    }
     return current === root || current.startsWith(`${root}/`);
   }
 

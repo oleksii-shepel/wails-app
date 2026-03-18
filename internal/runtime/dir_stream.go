@@ -1,4 +1,4 @@
-package main
+package runtime
 
 import (
 	"context"
@@ -7,7 +7,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
+
+	contracts "wails-app/internal/contracts"
+	internalplatform "wails-app/internal/platform"
 )
 
 const dirStreamBatchSize = 256
@@ -20,10 +24,10 @@ type dirStreamMetaEvent struct {
 }
 
 type dirStreamBatchEvent struct {
-	StreamID string     `json:"streamId"`
-	PaneID   string     `json:"paneId"`
-	Path     string     `json:"path"`
-	Entries  []FileInfo `json:"entries"`
+	StreamID string               `json:"streamId"`
+	PaneID   string               `json:"paneId"`
+	Path     string               `json:"path"`
+	Entries  []contracts.FileInfo `json:"entries"`
 }
 
 type dirStreamDoneEvent struct {
@@ -43,8 +47,50 @@ type dirStreamErrorEvent struct {
 	Error    string `json:"error"`
 }
 
-func (a *App) startListDirectoryStream(paneID, path string, showHidden bool) (string, error) {
-	return a.dirStream.Start(paneID, path, showHidden)
+type ElevatedListFunc func(path string, showHidden bool) ([]contracts.FileInfo, error)
+type BuildFileInfoFunc func(name, fullPath string, info os.FileInfo, hidden bool) contracts.FileInfo
+type IsHiddenFunc func(name, fullPath string) bool
+
+type DirStreamService struct {
+	mu           sync.Mutex
+	streams      map[string]context.CancelFunc
+	emitEvent    func(string, interface{})
+	elevatedList ElevatedListFunc
+	buildFile    BuildFileInfoFunc
+	isHidden     IsHiddenFunc
+}
+
+func NewDirStreamService(
+	emitEvent func(string, interface{}),
+	elevatedList ElevatedListFunc,
+	buildFile BuildFileInfoFunc,
+	isHidden IsHiddenFunc,
+) *DirStreamService {
+	return &DirStreamService{
+		streams:      make(map[string]context.CancelFunc),
+		emitEvent:    emitEvent,
+		elevatedList: elevatedList,
+		buildFile:    buildFile,
+		isHidden:     isHidden,
+	}
+}
+
+func (s *DirStreamService) Emit(name string, data interface{}) {
+	if s.emitEvent != nil {
+		s.emitEvent(name, data)
+	}
+}
+
+func (s *DirStreamService) Register(streamID string, cancel context.CancelFunc) {
+	s.mu.Lock()
+	s.streams[streamID] = cancel
+	s.mu.Unlock()
+}
+
+func (s *DirStreamService) Unregister(streamID string) {
+	s.mu.Lock()
+	delete(s.streams, streamID)
+	s.mu.Unlock()
 }
 
 func (s *DirStreamService) Start(paneID, path string, showHidden bool) (string, error) {
@@ -54,8 +100,36 @@ func (s *DirStreamService) Start(paneID, path string, showHidden bool) (string, 
 	streamID := fmt.Sprintf("%s-%d", paneID, time.Now().UnixNano())
 	ctx, cancel := context.WithCancel(context.Background())
 	s.Register(streamID, cancel)
-	go s.run(ctx, streamID, paneID, toSlash(path), showHidden)
+	go s.run(ctx, streamID, paneID, internalplatform.ToSlash(path), showHidden)
 	return streamID, nil
+}
+
+func (s *DirStreamService) Cancel(streamID string) {
+	if streamID == "" {
+		return
+	}
+	s.mu.Lock()
+	cancel := s.streams[streamID]
+	delete(s.streams, streamID)
+	s.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+func (s *DirStreamService) CancelAll() {
+	s.mu.Lock()
+	cancels := make([]context.CancelFunc, 0, len(s.streams))
+	for id, cancel := range s.streams {
+		delete(s.streams, id)
+		if cancel != nil {
+			cancels = append(cancels, cancel)
+		}
+	}
+	s.mu.Unlock()
+	for _, cancel := range cancels {
+		cancel()
+	}
 }
 
 func (s *DirStreamService) run(ctx context.Context, streamID, paneID, path string, showHidden bool) {
@@ -72,7 +146,7 @@ func (s *DirStreamService) run(ctx context.Context, streamID, paneID, path strin
 		ShowHidden: showHidden,
 	})
 
-	err := scanDirectoryStream(ctx, path, showHidden, dirStreamBatchSize, func(batch []FileInfo, batchSize int64) {
+	err := s.scanDirectoryStream(ctx, path, showHidden, dirStreamBatchSize, func(batch []contracts.FileInfo, batchSize int64) {
 		entryCount += len(batch)
 		totalSize += batchSize
 		s.Emit("fs:listStream:batch", dirStreamBatchEvent{
@@ -96,19 +170,11 @@ func (s *DirStreamService) run(ctx context.Context, streamID, paneID, path strin
 	if errors.Is(err, context.Canceled) {
 		return
 	}
-
-	// Permission denied fallback: stream one elevated listing batch so the UI
-	// still completes through the same streaming channel.
-	if shouldRetryDeleteWithElevation(err) {
-		resp, elevErr := s.runElevatedWithEvents("list", path, elevatedRequest{
-			Op:         "list",
-			Path:       path,
-			ShowHidden: showHidden,
-		})
-		if elevErr == nil && resp.DirListing != nil {
-			entries := resp.DirListing.Entries
+	if s.elevatedList != nil {
+		entries, elevErr := s.elevatedList(path, showHidden)
+		if elevErr == nil {
 			if entries == nil {
-				entries = []FileInfo{}
+				entries = []contracts.FileInfo{}
 			}
 			size := int64(0)
 			for _, fi := range entries {
@@ -141,12 +207,12 @@ func (s *DirStreamService) run(ctx context.Context, streamID, paneID, path strin
 	})
 }
 
-func scanDirectoryStream(
+func (s *DirStreamService) scanDirectoryStream(
 	ctx context.Context,
 	path string,
 	showHidden bool,
 	chunkSize int,
-	onBatch func(batch []FileInfo, batchSize int64),
+	onBatch func(batch []contracts.FileInfo, batchSize int64),
 ) error {
 	dir, err := os.Open(path)
 	if err != nil {
@@ -163,16 +229,16 @@ func scanDirectoryStream(
 
 		infos, readErr := dir.Readdir(chunkSize)
 		if len(infos) > 0 {
-			batch := make([]FileInfo, 0, len(infos))
+			batch := make([]contracts.FileInfo, 0, len(infos))
 			batchSize := int64(0)
 			for _, info := range infos {
 				name := info.Name()
-				fullPath := toSlash(filepath.Join(path, name))
-				hidden := isHiddenFile(name, fullPath)
+				fullPath := internalplatform.ToSlash(filepath.Join(path, name))
+				hidden := s.isHidden != nil && s.isHidden(name, fullPath)
 				if !showHidden && hidden {
 					continue
 				}
-				fi := buildFileInfoWithHidden(name, fullPath, info, hidden)
+				fi := s.buildFile(name, fullPath, info, hidden)
 				batch = append(batch, fi)
 				batchSize += fi.Size
 			}

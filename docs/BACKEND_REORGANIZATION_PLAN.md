@@ -201,7 +201,7 @@ Current files that map here:
 Files that may stay adjacent but depend on this package:
 
 - `app_bindings_filesystem.go`
-- `dir_stream_service.go`
+- `internal/runtime/dir_stream.go`
 
 Current status:
 
@@ -326,14 +326,13 @@ Owns runtime bridge behavior that exists because the app is a live desktop host.
 Current files that map here:
 
 - `app_runtime_service.go`
-- `dir_stream_service.go`
-- `dir_stream.go`
-- `pane_dir_watch.go`
+- `internal/runtime/dir_stream.go`
+- `internal/runtime/pane_watch.go`
 - `filedrop_windows.go`
 
 Important note:
 
-- `dir_stream_service.go` is close to filesystem behavior, but its lifecycle and event-stream semantics make it a better runtime-facing boundary than a pure domain package.
+- `internal/runtime/dir_stream.go` is close to filesystem behavior, but its lifecycle and event-stream semantics make it a better runtime-facing boundary than a pure domain package.
 
 ### `internal/utility`
 

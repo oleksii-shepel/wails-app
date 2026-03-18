@@ -1,4 +1,4 @@
-package main
+package runtime
 
 import (
 	"path/filepath"
@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+
+	internalplatform "wails-app/internal/platform"
 )
 
 type paneDirectoryChangedEvent struct {
@@ -14,12 +16,8 @@ type paneDirectoryChangedEvent struct {
 	Path   string `json:"path"`
 }
 
-// PaneDirWatchManager tracks currently opened pane directories and emits
-// fs:directoryChanged events when a watched directory receives filesystem
-// changes from any source (external process, shell copy, etc.).
-type PaneDirWatchManager struct {
-	app *App
-
+type PaneWatchManager struct {
+	emitEvent    func(string, interface{})
 	mu           sync.Mutex
 	watcher      *fsnotify.Watcher
 	panePaths    map[string]string
@@ -28,30 +26,29 @@ type PaneDirWatchManager struct {
 	closed       bool
 }
 
-func NewPaneDirWatchManager(app *App) *PaneDirWatchManager {
+func NewPaneWatchManager(emitEvent func(string, interface{})) *PaneWatchManager {
 	w, err := fsnotify.NewWatcher()
 	if err != nil {
-		return &PaneDirWatchManager{
-			app:          app,
+		return &PaneWatchManager{
+			emitEvent:    emitEvent,
 			panePaths:    make(map[string]string),
 			pathRef:      make(map[string]int),
 			paneDebounce: make(map[string]*time.Timer),
 		}
 	}
 
-	m := &PaneDirWatchManager{
-		app:          app,
+	manager := &PaneWatchManager{
+		emitEvent:    emitEvent,
 		watcher:      w,
 		panePaths:    make(map[string]string),
 		pathRef:      make(map[string]int),
 		paneDebounce: make(map[string]*time.Timer),
 	}
-
-	go m.loop()
-	return m
+	go manager.loop()
+	return manager
 }
 
-func (m *PaneDirWatchManager) Close() {
+func (m *PaneWatchManager) Close() {
 	m.mu.Lock()
 	if m.closed {
 		m.mu.Unlock()
@@ -71,7 +68,7 @@ func (m *PaneDirWatchManager) Close() {
 	}
 }
 
-func (m *PaneDirWatchManager) SetPaneDirectory(paneID, path string) error {
+func (m *PaneWatchManager) SetPaneDirectory(paneID, path string) error {
 	norm := normalizeWatchPath(path)
 
 	m.mu.Lock()
@@ -85,11 +82,9 @@ func (m *PaneDirWatchManager) SetPaneDirectory(paneID, path string) error {
 	if prev == norm {
 		return nil
 	}
-
 	if prev != "" {
 		m.removeWatchLocked(prev)
 	}
-
 	if norm == "" {
 		delete(m.panePaths, paneID)
 		return nil
@@ -99,7 +94,7 @@ func (m *PaneDirWatchManager) SetPaneDirectory(paneID, path string) error {
 	return m.addWatchLocked(norm)
 }
 
-func (m *PaneDirWatchManager) loop() {
+func (m *PaneWatchManager) loop() {
 	for {
 		m.mu.Lock()
 		w := m.watcher
@@ -126,12 +121,11 @@ func (m *PaneDirWatchManager) loop() {
 			if !ok {
 				return
 			}
-			// Non-fatal: continue listening.
 		}
 	}
 }
 
-func (m *PaneDirWatchManager) scheduleForAffectedDir(dir string) {
+func (m *PaneWatchManager) scheduleForAffectedDir(dir string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -149,15 +143,17 @@ func (m *PaneDirWatchManager) scheduleForAffectedDir(dir string) {
 		id := paneID
 		path := panePath
 		m.paneDebounce[paneID] = time.AfterFunc(200*time.Millisecond, func() {
-			m.app.emitEvent("fs:directoryChanged", paneDirectoryChangedEvent{
-				PaneID: id,
-				Path:   path,
-			})
+			if m.emitEvent != nil {
+				m.emitEvent("fs:directoryChanged", paneDirectoryChangedEvent{
+					PaneID: id,
+					Path:   path,
+				})
+			}
 		})
 	}
 }
 
-func (m *PaneDirWatchManager) addWatchLocked(path string) error {
+func (m *PaneWatchManager) addWatchLocked(path string) error {
 	if m.pathRef[path] > 0 {
 		m.pathRef[path]++
 		return nil
@@ -171,7 +167,7 @@ func (m *PaneDirWatchManager) addWatchLocked(path string) error {
 	return nil
 }
 
-func (m *PaneDirWatchManager) removeWatchLocked(path string) {
+func (m *PaneWatchManager) removeWatchLocked(path string) {
 	count := m.pathRef[path]
 	if count <= 1 {
 		delete(m.pathRef, path)
@@ -188,6 +184,5 @@ func normalizeWatchPath(path string) string {
 	if trimmed == "" {
 		return ""
 	}
-	clean := filepath.Clean(trimmed)
-	return toSlash(clean)
+	return internalplatform.ToSlash(filepath.Clean(trimmed))
 }

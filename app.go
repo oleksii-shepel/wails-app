@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 
 	internalapp "wails-app/internal/app"
 	internalarchive "wails-app/internal/archive"
@@ -12,6 +13,7 @@ import (
 	internalnav "wails-app/internal/navigation"
 	internalops "wails-app/internal/ops"
 	internalplatform "wails-app/internal/platform"
+	internalruntime "wails-app/internal/runtime"
 	internalutility "wails-app/internal/utility"
 	internalworkspace "wails-app/internal/workspace"
 	vfslib "wails-app/vfs"
@@ -25,12 +27,12 @@ type App struct {
 	runtime    *AppRuntimeService
 	filesystem *FilesystemService
 	batch      *internalbatch.Service
-	dirStream  *DirStreamService
+	dirStream  *internalruntime.DirStreamService
 	utility    *internalutility.Service
 	navigation *internalnav.Service
 	workspace  *internalworkspace.Service
 	operations *OperationManager
-	dirWatch   *PaneDirWatchManager
+	dirWatch   *internalruntime.PaneWatchManager
 	elevation  *internalelevation.Service
 	vfs        *vfslib.Unified
 	archCache  *cache.Cache // lazy-open, LRU cache of open archive.Archive objects
@@ -81,7 +83,24 @@ func NewApp() *App {
 		return StartElevatedServiceClient(exePath)
 	})
 	app.filesystem = NewFilesystemService(app.elevation, app.emitEvent, app.StartElevatedSession)
-	app.dirStream = NewDirStreamService(app.emitEvent, app.filesystem.runElevatedWithEvents)
+	app.dirStream = internalruntime.NewDirStreamService(
+		app.emitEvent,
+		func(path string, showHidden bool) ([]internalcontracts.FileInfo, error) {
+			resp, err := app.filesystem.runElevatedWithEvents("list", path, elevatedRequest{
+				Op:         "list",
+				Path:       path,
+				ShowHidden: showHidden,
+			})
+			if err != nil || resp.DirListing == nil {
+				return nil, err
+			}
+			return resp.DirListing.Entries, nil
+		},
+		func(name, fullPath string, info os.FileInfo, hidden bool) internalcontracts.FileInfo {
+			return buildFileInfoWithHidden(name, fullPath, info, hidden)
+		},
+		isHiddenFile,
+	)
 	app.utility = internalutility.NewService(app.emitEvent)
 	app.archive = internalarchive.NewService(
 		app.archCache,

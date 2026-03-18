@@ -21,7 +21,7 @@ The current backend structure is organized around explicit service boundaries, w
 - Navigation orchestration: [navigation_service.go](navigation_service.go)
 - Workspace/preferences orchestration: [workspace_service.go](workspace_service.go)
 - Elevated session lifecycle: [elevation_session_service.go](elevation_session_service.go)
-- Directory stream lifecycle: [dir_stream_service.go](dir_stream_service.go)
+- Directory stream lifecycle: [internal/runtime/dir_stream.go](internal/runtime/dir_stream.go)
 - Small app-level utilities: [internal/utility/service.go](internal/utility/service.go)
 
 The frontend is organized around a thin pane host plus controller/factory layers rather than a single large smart component.

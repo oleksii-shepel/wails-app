@@ -27,7 +27,7 @@
   - **Technique:** Window-based virtual scrolling with overscan
   - **Performance:** Only renders visible items + overscan buffer
   - **Streaming:** Backend supports streaming large directories via `StartListDirStream()`
-  - **Go Backend:** [dir_stream.go](dir_stream.go) for streaming scan flow and [dir_stream_service.go](dir_stream_service.go) for stream lifecycle/state
+  - **Go Backend:** [internal/runtime/dir_stream.go](internal/runtime/dir_stream.go) for streaming scan flow and stream lifecycle/state
 
 **Example from file-list.component.ts:**
 ```typescript
@@ -245,7 +245,7 @@ Navigation-related backend behavior is now split by responsibility instead of ac
 - Navigation history storage: [navigation.go](navigation.go)
 - Navigation orchestration: [navigation_service.go](navigation_service.go)
 - Filesystem listing/elevation fallback: [filesystem_service.go](filesystem_service.go)
-- Directory stream lifecycle: [dir_stream_service.go](dir_stream_service.go)
+- Directory stream lifecycle: [internal/runtime/dir_stream.go](internal/runtime/dir_stream.go)
 
 ## Recommendations for Further Enhancement
 
@@ -274,7 +274,7 @@ Navigation-related backend behavior is now split by responsibility instead of ac
 
 ### Go Backend:
 - **Navigation:** `navigation.go` (back/forward/history)
-- **Directory streaming:** `dir_stream.go`
+- **Directory streaming:** `internal/runtime/dir_stream.go`
 - **Path utilities:** `pathutils.go`
 
 ### Frontend Components:

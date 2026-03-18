@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
+
+	internalruntime "wails-app/internal/runtime"
 )
 
 // AppRuntimeService owns Wails lifecycle/runtime bridge concerns that don't
@@ -19,7 +21,7 @@ func NewAppRuntimeService() *AppRuntimeService {
 func (s *AppRuntimeService) Startup(app *App, ctx context.Context) {
 	app.ctx = ctx
 	app.operations.SetEmitter(app.emitEvent)
-	app.dirWatch = NewPaneDirWatchManager(app)
+	app.dirWatch = internalruntime.NewPaneWatchManager(app.emitEvent)
 	app.initVFS()
 	s.bindNativeFileDrop(app, ctx)
 }

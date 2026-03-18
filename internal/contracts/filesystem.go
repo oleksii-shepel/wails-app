@@ -22,6 +22,9 @@ type FileInfo struct {
 	IsSymlink   bool     `json:"isSymlink,omitempty"`
 	IsNested    bool     `json:"isNested"`
 	NestedChain []string `json:"nestedChain,omitempty"`
+	RegistryKind      string `json:"registryKind,omitempty"`
+	RegistryValueType string `json:"registryValueType,omitempty"`
+	RegistryPreview   string `json:"registryPreview,omitempty"`
 }
 
 type ArchiveListing struct {

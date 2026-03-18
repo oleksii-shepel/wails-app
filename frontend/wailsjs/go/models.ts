@@ -132,6 +132,9 @@ export namespace contracts {
 	    isSymlink?: boolean;
 	    isNested: boolean;
 	    nestedChain?: string[];
+	    registryKind?: string;
+	    registryValueType?: string;
+	    registryPreview?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new FileInfo(source);
@@ -151,6 +154,9 @@ export namespace contracts {
 	        this.isSymlink = source["isSymlink"];
 	        this.isNested = source["isNested"];
 	        this.nestedChain = source["nestedChain"];
+	        this.registryKind = source["registryKind"];
+	        this.registryValueType = source["registryValueType"];
+	        this.registryPreview = source["registryPreview"];
 	    }
 	}
 	export class ArchiveListing {

@@ -237,6 +237,9 @@ export interface FileInfo {
   isHidden: boolean;
   /** True for both dir-symlinks (type=DIRECTORY) and file-symlinks (type=SYMLINK). */
   isSymlink?: boolean;
+  registryKind?: string;
+  registryValueType?: string;
+  registryPreview?: string;
 }
 
 export interface DirectoryListing {

@@ -8,6 +8,7 @@ import (
 
 	contracts "wails-app/internal/contracts"
 	elevation "wails-app/internal/elevation"
+	"wails-app/internal/pathref"
 	internalruntime "wails-app/internal/runtime"
 	vfslib "wails-app/vfs"
 )
@@ -84,6 +85,10 @@ func (s *Service) elevationTargetPair(source, destination string) string {
 }
 
 func (s *Service) ListDirectory(path string, showHidden bool) (*contracts.DirectoryListing, error) {
+	path = pathref.Normalize(path)
+	if s.vfs != nil && pathref.IsRegistry(path) {
+		return internalruntime.VFSListDir(s.vfs, path)
+	}
 	if s.vfs != nil && s.vfs.IsMounted(path) {
 		return internalruntime.VFSListDir(s.vfs, path)
 	}

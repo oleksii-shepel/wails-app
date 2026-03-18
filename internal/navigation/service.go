@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 
 	contracts "wails-app/internal/contracts"
+	"wails-app/internal/pathref"
 )
 
 // Service owns pane navigation orchestration while delegating history storage
@@ -51,6 +52,9 @@ func (s *Service) GoUp(paneID string) (*contracts.DirectoryListing, error) {
 	current := s.manager.CurrentPath(paneID)
 	if current == "" {
 		return nil, fmt.Errorf("no current path for pane %q", paneID)
+	}
+	if parent, ok := pathref.Parent(current); ok {
+		return s.Navigate(paneID, parent)
 	}
 	parent := filepath.ToSlash(filepath.Dir(current))
 	if parent == filepath.ToSlash(current) {

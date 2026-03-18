@@ -1,15 +1,51 @@
 import { PathSegment } from './address-bar.types';
 import { ArchiveFrame, buildArchiveDisplayPath, isArchive } from '../services/archive.service';
+import { REGISTRY_ROOT } from '../services/registry.service';
 
 // ─── Path utilities ───────────────────────────────────────────────────────────
 
+function isRegistryReference(p: string): boolean {
+  return /^registry:\/\//i.test((p || '').trim().replace(/\\/g, '/'));
+}
+
+function normalizeRegistryReference(p: string): string {
+  const normalized = (p || '').trim().replace(/\\/g, '/');
+  const match = /^registry:\/\/(.*)?$/i.exec(normalized);
+  if (!match) return normalized;
+  const rest = (match[1] || '').replace(/^\/+/, '').replace(/\/+/g, '/');
+  return rest ? `${REGISTRY_ROOT}${rest}` : REGISTRY_ROOT;
+}
+
+export function canonicalizePathReference(p: string): string {
+  if (!p) return p;
+
+  const n = p.replace(/\\/g, '/');
+  const driveMatch = /^drive:\/\/([A-Za-z])(\/.*)?$/i.exec(n);
+  if (driveMatch) {
+    const drive = driveMatch[1].toUpperCase();
+    const rest = (driveMatch[2] || '/').replace(/\/+/g, '/');
+    return `${drive}:${rest.startsWith('/') ? rest : '/' + rest}`;
+  }
+
+  const registryMatch = /^registry:\/\/(.*)?$/i.exec(n);
+  if (registryMatch) {
+    const rest = (registryMatch[1] || '').replace(/^\/+/, '').replace(/\/+/g, '/');
+    return rest ? `${REGISTRY_ROOT}${rest}` : REGISTRY_ROOT;
+  }
+
+  return n;
+}
+
 export function isWindowsPath(p: string): boolean {
-  return /^[A-Za-z]:/.test(p);
+  return /^[A-Za-z]:/.test(canonicalizePathReference(p));
 }
 
 export function normalizePath(p: string): string {
   if (!p) return '/';
-  let n = p.replace(/\\/g, '/');
+  let n = canonicalizePathReference(p);
+  if (isRegistryReference(n)) {
+    return normalizeRegistryReference(n);
+  }
   if (isWindowsPath(n)) {
     const drive = n.slice(0, 2);
     const rest = n.slice(2).replace(/\/+/g, '/');
@@ -25,6 +61,12 @@ export function normalizePath(p: string): string {
 
 export function parentPath(p: string): string {
   const n = normalizePath(p);
+  if (isRegistryReference(n)) {
+    if (n === REGISTRY_ROOT) return n;
+    const rel = n.slice(REGISTRY_ROOT.length);
+    const idx = rel.lastIndexOf('/');
+    return idx < 0 ? REGISTRY_ROOT : `${REGISTRY_ROOT}${rel.slice(0, idx)}`;
+  }
   if (/^[A-Za-z]:\/$/.test(n) || /^[A-Za-z]:$/.test(n)) return n;
   if (n === '/') return '/';
   const parts = n.split('/').filter(Boolean);
@@ -41,6 +83,15 @@ export function parentPath(p: string): string {
 }
 
 export function shortenPath(p: string): string {
+  p = normalizePath(p);
+  if (isRegistryReference(p)) {
+    const rel = p.slice(REGISTRY_ROOT.length);
+    if (!rel) return 'Registry';
+    if (rel.length <= 28) return rel;
+    const parts = rel.split('/').filter(Boolean);
+    if (parts.length <= 2) return rel;
+    return '…/' + parts.slice(-2).join('/');
+  }
   if (p.length <= 28) return p;
   const parts = p.split('/').filter(Boolean);
   if (parts.length <= 2) return p;
@@ -50,7 +101,28 @@ export function shortenPath(p: string): string {
 // ─── Segment builders ─────────────────────────────────────────────────────────
 
 export function buildSegments(p: string): PathSegment[] {
+  p = normalizePath(p);
   if (!p) return [];
+
+  if (isRegistryReference(p)) {
+    const rel = p.slice(REGISTRY_ROOT.length);
+    const parts = rel ? rel.split('/').filter(Boolean) : [];
+    const segs: PathSegment[] = [{
+      label: 'Registry',
+      fullPath: REGISTRY_ROOT,
+      isRoot: true,
+      rootLabel: 'Registry',
+    }];
+
+    parts.forEach((part, i) => {
+      segs.push({
+        label: part,
+        fullPath: `${REGISTRY_ROOT}${parts.slice(0, i + 1).join('/')}`,
+        isRoot: false,
+      });
+    });
+    return segs;
+  }
 
   if (isWindowsPath(p)) {
     const drive = p.slice(0, 2).toUpperCase();
@@ -160,6 +232,7 @@ export function parsePathWithArchives(path: string): {
   fsDirPath: string;
   archiveInnerParts: string[];
 } {
+  path = normalizePath(path);
   const ARCHIVE_RE = /\.(zip|tar|tgz|tar\.gz|tar\.bz2|tar\.xz|gz|bz2|xz|rar|7z)$/i;
   const sep = path.includes('\\') ? '\\' : '/';
   const parts = path.replace(/\\/g, '/').split('/').filter(Boolean);

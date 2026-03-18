@@ -48,6 +48,7 @@ import { FilePaneTabsController, type FilePaneTabsHost } from './file-pane-tabs.
 import { FilePaneStateController, type FilePaneStateHost } from './file-pane-state.controller';
 import { DirListStreamController } from '../surfaces/dir/dir-list-stream.controller';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
+import { RegistryService } from '../services/registry.service';
 import type { SearchResultItem } from '../services/global-search.service';
 
 declare const window: any;
@@ -532,6 +533,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       archiveService: this.archiveService,
       workspaceService: this.workspaceService,
       pathHistoryService: this.pathHistoryService,
+      registryService: this.registryService,
       confirmDialog: this.confirmDialog,
       dirStream: this.dirStream,
       isInArchive: () => thisRef.isInArchive(),
@@ -644,6 +646,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     private workspaceService: WorkspaceService,
     private filterService: FilterService,
     private pathHistoryService: PathHistoryService,
+    private registryService: RegistryService,
     private confirmDialog: ConfirmDialogService,
     private zone: NgZone,
     private cdr: ChangeDetectorRef,

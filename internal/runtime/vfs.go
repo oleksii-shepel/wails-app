@@ -7,6 +7,7 @@ import (
 
 	internalarchive "wails-app/internal/archive"
 	contracts "wails-app/internal/contracts"
+	"wails-app/internal/pathref"
 	vfslib "wails-app/vfs"
 	"wails-app/vfs/mount"
 	"wails-app/vfs/osfs"
@@ -32,7 +33,8 @@ func InitVFS() (*vfslib.Unified, error) {
 }
 
 func VFSListDir(vfs *vfslib.Unified, path string) (*contracts.DirectoryListing, error) {
-	entries, err := vfs.ReadDir(context.Background(), path)
+	internalPath := pathref.ToVFS(path)
+	entries, err := vfs.ReadDir(context.Background(), internalPath)
 	if err != nil {
 		return nil, err
 	}
@@ -41,12 +43,18 @@ func VFSListDir(vfs *vfslib.Unified, path string) (*contracts.DirectoryListing, 
 	var total int64
 	for _, entry := range entries {
 		file := convertVFSInfo(entry)
+		file.Path = pathref.FromVFS(file.Path)
+		if len(file.NestedChain) > 0 {
+			for index, nested := range file.NestedChain {
+				file.NestedChain[index] = pathref.FromVFS(nested)
+			}
+		}
 		files = append(files, file)
 		total += file.Size
 	}
 
 	return &contracts.DirectoryListing{
-		Path:      path,
+		Path:      pathref.FromVFS(internalPath),
 		Entries:   files,
 		TotalSize: total,
 	}, nil

@@ -627,7 +627,7 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
   }
 
   private getDefaultRootForTab(): string | null {
-    const cp = (this.currentPath || '').trim();
+    const cp = normalizePath((this.currentPath || '').trim());
     if (/^[A-Za-z]:\//.test(cp)) {
       return cp.slice(0, 2).toUpperCase() + '/';
     }
@@ -671,8 +671,9 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
 
   private toDisplayPath(path: string): string {
     if (!path) return '';
-    if (!this.shouldNormalizeToForwardSlashes()) return path;
-    return path.replace(/\\/g, '/');
+    const display = normalizePath(path);
+    if (!this.shouldNormalizeToForwardSlashes() && !isWindowsPath(display)) return display;
+    return display.replace(/\\/g, '/');
   }
 
   private maybeFixSlashesWhileTyping(v: string): string {
@@ -931,7 +932,7 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
   }
 
   private splitQueryContext(query: string): { dirPath: string; prefix: string } {
-    const q = (query || '').replace(/\\/g, '/');
+    const q = normalizePath((query || '').replace(/\\/g, '/'));
     if (!q) return { dirPath: '/', prefix: '' };
     if (q.endsWith('/')) return { dirPath: q, prefix: '' };
 

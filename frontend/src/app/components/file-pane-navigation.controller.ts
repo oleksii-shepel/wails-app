@@ -4,6 +4,7 @@ import type { WorkspaceService } from '../services/workspace.service';
 import type { DirSurfaceSession } from '../surfaces/dir/dir-surface-session';
 import type { TabInfo, WorkspaceConfig } from '../shared/protocol-enhanced';
 import { normalizePath, parentPath } from './address-bar.utils';
+import { isRegistryPath, registryParentPath } from '../services/registry.service';
 
 declare const window: any;
 
@@ -154,6 +155,14 @@ export class FilePaneNavigationController {
     }
 
     const fromPath = host.currentPath;
+    if (isRegistryPath(fromPath)) {
+      const target = registryParentPath(normalizePath(fromPath));
+      if (target && target !== fromPath) {
+        await host.loadDirectory(target, { focusPath: fromPath });
+      }
+      return;
+    }
+
     try {
       const listing = await window.go.app.App.NavGoUp(host.paneId);
       await host.loadDirectory(listing.path, { focusPath: fromPath });

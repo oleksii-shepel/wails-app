@@ -1,6 +1,8 @@
 import { EventsOff, EventsOn } from 'wailsjs/runtime';
 import type { FileInfo } from '../shared/protocol';
 import { normalizePath } from './address-bar.utils';
+import type { RegistryService } from '../services/registry.service';
+import { REGISTRY_ROOT, isRegistryPath } from '../services/registry.service';
 import type { DirListStreamController, DirStreamBatchEvent, DirStreamDoneEvent, DirStreamErrorEvent, DirStreamMetaEvent } from '../surfaces/dir/dir-list-stream.controller';
 import type { WorkspaceService } from '../services/workspace.service';
 import type { PathHistoryService } from '../services/path-history.service';
@@ -30,6 +32,7 @@ export interface FilePaneDirectoryHost {
   set error(value: string | null);
   workspaceService: WorkspaceService;
   pathHistoryService: PathHistoryService;
+  registryService: RegistryService;
   dirStream: DirListStreamController;
   isInArchive(): boolean;
   exitArchive(): void;
@@ -92,6 +95,14 @@ export class FilePaneDirectoryController {
     }
 
     try {
+      if (isRegistryPath(path)) {
+        const frame = path === REGISTRY_ROOT
+          ? await host.registryService.openRoot()
+          : await host.registryService.navigateInto(path);
+        this.handleDirectDirectoryLoad(host, frame.path, frame.entries);
+        return;
+      }
+
       const streamId = await host.dirStream.start(path, host.showHidden);
       await host.dirStream.waitFor(streamId);
     } catch (error: any) {
@@ -104,6 +115,53 @@ export class FilePaneDirectoryController {
       this.pendingFocusPath = null;
       host.loading = false;
     }
+  }
+
+  private handleDirectDirectoryLoad(host: FilePaneDirectoryHost, path: string, entries: FileInfo[]): void {
+    host.currentPath = path;
+    host.fsParentDir = path;
+    host.setShowHiddenLoaded(!!host.showHidden);
+    host.workspaceService.updateTabPath(host.paneId, host.currentTabId, path);
+    host.pathHistoryService.addPath(path, host.paneId);
+    host.emitPathChange(path);
+
+    const nextEntries = host.withParentEntry(entries, false, path);
+    host.entries = nextEntries;
+
+    if (host.selectedFiles.size > 0) {
+      const present = new Set(nextEntries.map(entry => entry.path));
+      const nextSelected = new Set(host.selectedFiles);
+      for (const candidate of Array.from(nextSelected)) {
+        if (!present.has(candidate)) nextSelected.delete(candidate);
+      }
+      host.selectedFiles = nextSelected;
+    }
+
+    host.applyFilter();
+
+    if (this.pendingFocusPath) {
+      const focusNorm = normalizePath(this.pendingFocusPath);
+      const target = host.filteredEntries.find(entry => normalizePath(entry.path) === focusNorm);
+      if (target) {
+        host.selectionCursorPath = target.path;
+        host.selectionAnchorPath = target.path;
+        host.selectedFiles = new Set([target.path]);
+        setTimeout(() => host.scrollToCursorPath(target.path), 0);
+      }
+      this.pendingFocusPath = null;
+    } else if (host.hasSavedDirTabState()) {
+      host.restoreActiveDirTabState();
+    } else if (!host.selectionCursorPath) {
+      const firstReal = host.filteredEntries.find(entry => entry.path !== '..');
+      if (firstReal) {
+        host.selectionCursorPath = firstReal.path;
+        host.selectionAnchorPath = firstReal.path;
+      }
+    }
+
+    host.persistDirTabState();
+    setTimeout(() => host.focusTreeNode(path), 0);
+    void window.go?.app?.App?.SetPaneDirectory?.(host.paneId, path);
   }
 
   private handleFsDirectoryChanged(host: FilePaneDirectoryHost, event: { paneId?: string; path?: string } | null): void {

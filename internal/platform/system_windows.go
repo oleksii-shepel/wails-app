@@ -13,6 +13,7 @@ import (
 	"golang.org/x/sys/windows/registry"
 
 	contracts "wails-app/internal/contracts"
+	"wails-app/internal/pathref"
 )
 
 func getOSTypeAndVersion() (contracts.OSType, string) {
@@ -65,7 +66,7 @@ func listDrivesPlatform() []contracts.DriveInfo {
 
 	drives = append(drives, contracts.DriveInfo{
 		Name:      "Registry",
-		Path:      "/registry",
+		Path:      pathref.RegistryScheme,
 		DriveType: contracts.DriveRegistry,
 	})
 

@@ -8,6 +8,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
+	"wails-app/internal/pathref"
 	internalplatform "wails-app/internal/platform"
 )
 
@@ -182,6 +183,9 @@ func (m *PaneWatchManager) removeWatchLocked(path string) {
 func normalizeWatchPath(path string) string {
 	trimmed := strings.TrimSpace(path)
 	if trimmed == "" {
+		return ""
+	}
+	if pathref.IsRegistry(trimmed) {
 		return ""
 	}
 	return internalplatform.ToSlash(filepath.Clean(trimmed))

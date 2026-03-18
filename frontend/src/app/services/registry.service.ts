@@ -119,6 +119,9 @@ function toFileInfo(raw: any): FileInfo {
     accessed:    raw.modified ?? 0,
     permissions: raw.type === FileType.DIRECTORY ? 'drwxr-xr-x' : '-r--r--r--',
     isHidden:    false,
+    registryKind: raw.registryKind,
+    registryValueType: raw.registryValueType,
+    registryPreview: raw.registryPreview,
   };
 }
 

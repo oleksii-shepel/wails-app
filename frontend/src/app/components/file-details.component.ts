@@ -22,6 +22,7 @@ import { FileInfo, FileType } from '../shared/protocol';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
 import { parentPath } from './address-bar.utils';
 import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directive';
+import { isRegistryPath } from '../services/registry.service';
 
 export interface ColumnDef {
   field: keyof FileInfo | string;
@@ -424,6 +425,7 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   @ViewChildren(FileEntryComponent) fileEntryComponents?: QueryList<FileEntryComponent>;
 
   @Input() entries: FileInfo[] = [];
+  @Input() currentPath = '';
   @Input() selectedFiles: Set<string> = new Set();
   @Input() cursorPath: string | null = null;
   @Input() columns: ColumnDef[] | null = null;
@@ -591,11 +593,16 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   }
 
   private get isRegistryListing(): boolean {
+  if (isRegistryPath(this.currentPath)) {
+    return true;
+  }
   for (const entry of this.entries) {
     if (!entry || this.isParentEntry(entry)) {
     continue;
     }
-    return entry.path.startsWith('registry://');
+    if (isRegistryPath(entry.path) || !!entry.registryKind || !!entry.registryValueType || !!entry.registryPreview) {
+    return true;
+    }
   }
   return false;
   }

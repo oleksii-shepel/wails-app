@@ -91,6 +91,7 @@ export type ViewLayout = ViewMode;
         <app-file-details
           *ngIf="currentView === 'details'"
           [entries]="sortedEntries"
+          [currentPath]="currentPath"
           [selectedFiles]="selectedFiles"
           [cursorPath]="cursorPath"
           [sortField]="sortField"

@@ -152,6 +152,7 @@ First pre-migration cleanup batch:
 - elevation/filesystem coordination helpers: the old root `opTargetSingle` and `opTargetPair` helpers have been absorbed into `FilesystemService`; platform trash/elevation launch hooks still remain root-owned
 - cross-domain helpers that still couple composition to `main`: `classifyError` has moved into `internal/contracts/errors.go`, and nested archive chain resolution now lives in `internal/archive/resolve.go`
 - `NewApp` internal-service bootstrap now routes through `internal/app/services.go`, so `main` is no longer the only place that knows how to assemble archive, navigation, workspace, utility, and runtime-stream services
+- batch constructor wiring now also routes through `internal/app/services.go`, so `main` no longer owns the `internal/batch.ServiceConfig` assembly block
 
 Why this batch comes first:
 
@@ -303,7 +304,7 @@ Important note:
 - operation type, status, and progress wire models now live in `internal/contracts/operations.go`, and the live operation manager/runtime bookkeeping now live in `internal/ops/manager.go`; `main` only re-exports the types and wires the event emitter during startup.
 - the public batch composition root now lives in `internal/batch/service.go`; it owns conflict coordination, the conflict prompt adapter boundary, throttled progress tracking, streaming file operations, full-archive extraction, selective extraction, and transfer loop orchestration.
 - copy, move, and delete loop orchestration now also live under `internal/batch/transfers.go`, and `batch_service.go` has been reduced to Wails-facing method forwarding.
-- the former root batch core and `batch_operations.go` have been removed, so `main` no longer owns batch conflict resolution or callback assembly.
+- the former root batch core and `batch_operations.go` have been removed, and batch callback/config assembly now routes through `internal/app/services.go`, so `main` no longer owns batch conflict resolution or constructor wiring.
 
 ### `internal/elevation`
 

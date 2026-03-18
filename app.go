@@ -12,7 +12,6 @@ import (
 	internalelevation "wails-app/internal/elevation"
 	internalnav "wails-app/internal/navigation"
 	internalops "wails-app/internal/ops"
-	internalplatform "wails-app/internal/platform"
 	internalruntime "wails-app/internal/runtime"
 	internalutility "wails-app/internal/utility"
 	internalworkspace "wails-app/internal/workspace"
@@ -112,7 +111,7 @@ func NewApp() *App {
 	})
 	app.filesystem = NewFilesystemService(app.elevation, app.emitEvent, app.StartElevatedSession)
 	services := internalapp.NewServices(internalapp.ServiceConfig{
-		Core: core,
+		Core:      core,
 		EmitEvent: app.emitEvent,
 		StartElevatedClient: func(exePath string) (internalelevation.Client, error) {
 			return StartElevatedServiceClient(exePath)
@@ -134,22 +133,16 @@ func NewApp() *App {
 		BuildFileInfo: func(name, fullPath string, info os.FileInfo, hidden bool) internalcontracts.FileInfo {
 			return buildFileInfoWithHidden(name, fullPath, info, hidden)
 		},
-		IsHidden:      isHiddenFile,
-		ListDirectory: func(path string, showHidden bool) (*internalcontracts.DirectoryListing, error) { return app.filesystem.ListDirectory(path, showHidden) },
-	})
-	app.elevation = services.Elevation
-	app.archive = services.Archive
-	app.dirStream = services.DirStream
-	app.utility = services.Utility
-	app.navigation = services.Navigation
-	app.workspace = services.Workspace
-	app.batch = internalbatch.NewService(internalbatch.ServiceConfig{
+		IsHidden: isHiddenFile,
+		ListDirectory: func(path string, showHidden bool) (*internalcontracts.DirectoryListing, error) {
+			return app.filesystem.ListDirectory(path, showHidden)
+		},
 		StartOperation: func(kind internalcontracts.OperationType, title, source, dest string) *internalops.ActiveOperation {
 			return app.operations.StartOperation(kind, title, source, dest)
 		},
-		ConflictPrompter: internalbatch.ConflictPrompterFunc(func(event internalcontracts.ConflictEvent) {
+		PromptConflict: func(event internalcontracts.ConflictEvent) {
 			app.emitEvent("operation:conflict", event)
-		}),
+		},
 		BatchErr: func(source, destination string, err error) internalcontracts.BatchItemError {
 			return internalcontracts.BatchItemError{
 				Source:      source,
@@ -172,13 +165,21 @@ func NewApp() *App {
 			resp, err := app.filesystem.runElevatedWithEvents("delete", app.filesystem.elevationTargetSingle(path), elevatedRequest{Op: "delete", Path: path, Recursive: recursive, UseTrash: useTrash})
 			return err == nil && resp.Success, err
 		},
-		MoveToTrash:          internalplatform.MoveToTrash,
-		CalculateSize:        calculateSize,
-		ExtractNestedArchive: app.archive.ExtractNestedArchive,
-		Normalize:            normalize,
-		ArchiveEntryPath:     archiveEntryPath,
-		IsArchive:            isArchive,
+		CalculateSize: calculateSize,
+		ExtractNestedArchive: func(archivePath string, nestedChain []string) ([]byte, error) {
+			return app.archive.ExtractNestedArchive(archivePath, nestedChain)
+		},
+		Normalize:        normalize,
+		ArchiveEntryPath: archiveEntryPath,
+		IsArchive:        isArchive,
 	})
+	app.elevation = services.Elevation
+	app.archive = services.Archive
+	app.batch = services.Batch
+	app.dirStream = services.DirStream
+	app.utility = services.Utility
+	app.navigation = services.Navigation
+	app.workspace = services.Workspace
 	return app
 }
 

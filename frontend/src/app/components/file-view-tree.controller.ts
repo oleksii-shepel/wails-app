@@ -1,7 +1,6 @@
-import type { ApiService } from '../services/api.service';
 import { buildArchivePath, parseArchivePath } from '../services/archive.service';
 import { normalizePath as normalizePathReference } from './address-bar.utils';
-import { REGISTRY_ROOT, isRegistryPath } from '../services/registry.service';
+import type { FileViewDirectorySource } from '../services/directory-source.service';
 import { FileType, type FileInfo } from '../shared/protocol';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
 import type { TreeNode } from './file-tree.component';
@@ -11,9 +10,10 @@ export interface FileViewTreeHost {
   get currentPath(): string;
   get currentView(): ViewLayout;
   get showHidden(): boolean;
+  get entries(): FileInfo[];
   get treeNodes(): TreeNode[];
   set treeNodes(value: TreeNode[]);
-  apiService: ApiService;
+  directorySource: FileViewDirectorySource;
   markForCheck(): void;
   sortTreeNodes(nodes: TreeNode[]): TreeNode[];
   expandTreeNode(path: string): void;
@@ -65,7 +65,7 @@ export class FileViewTreeController {
   }
 
   buildTreeNodes(host: FileViewTreeHost): void {
-    const rootPath = this.getRootPath(host.currentPath);
+    const rootPath = this.getRootPath(host);
     if (!rootPath) {
       host.treeNodes = [];
       return;
@@ -108,7 +108,7 @@ export class FileViewTreeController {
   }
 
   normalizePath(path: string): string {
-  return normalizePathReference(path || '/');
+    return normalizePathReference(path || '/');
   }
 
   private async populateNodeChildren(host: FileViewTreeHost, node: TreeNode): Promise<void> {
@@ -119,8 +119,8 @@ export class FileViewTreeController {
     try {
       const context = node.archivePath ? parseArchivePath(node.archivePath) : null;
       const listing = context
-        ? await host.apiService.archiveBrowse(context.fsPath, context.nestedChain, context.innerPath)
-        : await host.apiService.listDirectory(node.path, host.showHidden);
+        ? await host.directorySource.browseArchive(context.fsPath, context.nestedChain, context.innerPath)
+        : await host.directorySource.listDirectory(node.path, host.showHidden);
       const childLevel = (node.level ?? 0) + 1;
       const existingChildren = new Map<string, TreeNode>();
       for (const child of node.children ?? []) {
@@ -129,7 +129,7 @@ export class FileViewTreeController {
 
       const rawChildren: TreeNode[] = (listing.entries || [])
         .filter((entry) => entry.path !== PARENT_ENTRY_PATH)
-        .map((entry) => this.toChildNode(entry as FileInfo, node, context, childLevel, existingChildren));
+        .map((entry) => this.toChildNode(host, entry as FileInfo, node, context, childLevel, existingChildren));
 
       node.children = host.sortTreeNodes(rawChildren);
       node.loaded = true;
@@ -144,6 +144,7 @@ export class FileViewTreeController {
   }
 
   private toChildNode(
+    host: FileViewTreeHost,
     entry: FileInfo,
     node: TreeNode,
     context: ReturnType<typeof parseArchivePath> | null,
@@ -166,7 +167,7 @@ export class FileViewTreeController {
     }
 
     const childPath = context
-      ? this.joinNodePath(node.path, entry.name)
+      ? host.directorySource.joinChildPath(node.path, entry.name)
       : entry.path;
 
     const existing = existingChildren.get(this.normalizePath(childPath));
@@ -186,10 +187,10 @@ export class FileViewTreeController {
 
   private createRootNode(rootPath: string, archivePath?: string): TreeNode {
     const isWindowsRoot = /^[A-Za-z]:\/$/.test(rootPath);
-  const isRegistryRoot = rootPath === REGISTRY_ROOT;
+    const isRegistryRoot = rootPath === 'registry://';
     const rootName = archivePath
       ? rootPath.split('/').filter(Boolean).pop() || rootPath
-    : (isRegistryRoot ? 'Registry' : (rootPath === '/' ? '/' : (isWindowsRoot ? rootPath.slice(0, 2) : rootPath)));
+      : (isRegistryRoot ? 'Registry' : (rootPath === '/' ? '/' : (isWindowsRoot ? rootPath.slice(0, 2) : rootPath)));
     return {
       name: rootName,
       path: rootPath,
@@ -213,12 +214,8 @@ export class FileViewTreeController {
     } as TreeNode;
   }
 
-  private getRootPath(path: string): string {
-    const normalized = this.normalizePath(path || '/');
-  if (isRegistryPath(normalized)) return REGISTRY_ROOT;
-    const winDrive = normalized.match(/^([A-Za-z]:)\//);
-    if (winDrive) return `${winDrive[1]}/`;
-    return '/';
+  private getRootPath(host: FileViewTreeHost): string {
+    return host.directorySource.getRootPath(this.normalizePath(host.currentPath || '/'), host.entries) ?? '/';
   }
 
   private buildPathChain(rootPath: string, targetPath: string): string[] {
@@ -226,19 +223,19 @@ export class FileViewTreeController {
     const target = this.normalizePath(targetPath || rootPath);
 
     const chain = [root];
-  if (root === REGISTRY_ROOT) {
-    if (target === root) return chain;
-    const relative = target.slice(root.length).replace(/^\/+/, '');
-    if (!relative) return chain;
+    if (root === 'registry://') {
+      if (target === root) return chain;
+      const relative = target.slice(root.length).replace(/^\/+/, '');
+      if (!relative) return chain;
 
-    let current = root;
-    for (const segment of relative.split('/').filter(Boolean)) {
-    current = `${current}${segment}`;
-    chain.push(this.normalizePath(current));
-    current = `${current}/`;
+      let current = root;
+      for (const segment of relative.split('/').filter(Boolean)) {
+        current = `${current}${segment}`;
+        chain.push(this.normalizePath(current));
+        current = `${current}/`;
+      }
+      return chain;
     }
-    return chain;
-  }
 
     const rootForPrefix = root.endsWith('/') ? root : `${root}/`;
     const startsAtRoot = target === root || this.normalizePath(target).startsWith(rootForPrefix);
@@ -255,15 +252,6 @@ export class FileViewTreeController {
     }
     return chain;
   }
-
-    private joinNodePath(basePath: string, childName: string): string {
-      const normalizedBase = this.normalizePath(basePath);
-      if (normalizedBase === REGISTRY_ROOT) {
-      return `${REGISTRY_ROOT}${childName}`;
-      }
-      const trimmedBase = normalizedBase.replace(/\/+$/, '');
-      return `${trimmedBase}/${childName}`;
-    }
 
   private findTreeNodeByPath(nodes: TreeNode[], target: string): TreeNode | undefined {
     for (const node of nodes) {

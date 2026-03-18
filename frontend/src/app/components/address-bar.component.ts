@@ -8,6 +8,7 @@ import { CommonModule } from '@angular/common';
 import { DropdownTriggerDirective, DropdownMenuDirective } from '../directives/dropdown.directive';
 
 import { ApiService } from '../services/api.service';
+import { DirectorySourceService } from '../services/directory-source.service';
 import { DirectoryListing, DriveInfo, DriveType, FileInfo, FileType, SpecialFolder } from '../shared/protocol';
 import { ArchiveService, ArchiveFrame, isArchive } from '../services/archive.service';
 import { parsePathWithArchives, buildSegmentsFromParsedPath } from './address-bar.utils';
@@ -694,6 +695,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
 
   constructor(
     private apiService: ApiService,
+    private directorySource: DirectorySourceService,
     private archiveService: ArchiveService,
     private elRef: ElementRef,
     private cdr: ChangeDetectorRef,
@@ -1034,6 +1036,27 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
         this.sibLoading = false;
         this.cdr.detectChanges();
         this.sibOpen = true;
+      }
+      return;
+    }
+
+    if (!this.directorySource.supportsStreaming(seg.fullPath)) {
+      try {
+        const listing = await this.directorySource.listDirectory(seg.fullPath, false);
+        this.siblings = (listing.entries || [])
+          .filter((entry) => entry.type === FileType.DIRECTORY)
+          .map((entry) => ({
+            name: entry.name,
+            path: entry.path,
+            isCurrent: entry.path === activeChildPath,
+          }))
+          .sort((a, b) => a.name.localeCompare(b.name));
+      } catch {
+        this.siblings = [];
+      } finally {
+        this.sibLoading = false;
+        this.sibOpen = true;
+        this.cdr.detectChanges();
       }
       return;
     }

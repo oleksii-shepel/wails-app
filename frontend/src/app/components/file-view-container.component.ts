@@ -15,6 +15,7 @@ import { FileDetailsComponent } from './file-details.component';
 import { ViewMode } from './action-bar.component';
 import { FileInfo, FileType } from '../shared/protocol';
 import { ApiService } from '../services/api.service';
+import { DirectorySourceService } from '../services/directory-source.service';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
 import { FileViewEventsController, type FileViewEventsHost } from './file-view-events.controller';
 import { FileViewInteractionController, type FileViewInteractionHost } from './file-view-interaction.controller';
@@ -193,7 +194,11 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
   private readonly runtimeController = new FileViewRuntimeController();
   private readonly sortController = new FileViewSortController();
 
-  constructor(private apiService: ApiService, private cdr: ChangeDetectorRef) {
+  constructor(
+    private apiService: ApiService,
+    private directorySource: DirectorySourceService,
+    private cdr: ChangeDetectorRef,
+  ) {
     this.loadRequest$
       .pipe(
         mergeMap(node => fromPromise(this.treeController.ensureNodeChildrenLoaded(this.treeHost, node))),
@@ -208,9 +213,10 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
       get currentPath() { return thisRef.currentPath; },
       get currentView() { return thisRef.currentView; },
       get showHidden() { return thisRef.showHidden; },
+      get entries() { return thisRef.entries; },
       get treeNodes() { return thisRef.treeNodes; },
       set treeNodes(value: TreeNode[]) { thisRef.treeNodes = value; },
-      apiService: this.apiService,
+      directorySource: this.directorySource,
       markForCheck: () => thisRef.cdr.markForCheck(),
       sortTreeNodes: (nodes: TreeNode[]) => thisRef.sortTreeNodes(nodes),
       expandTreeNode: (path: string) => thisRef.treeComponent?.expandNode(path),

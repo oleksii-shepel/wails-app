@@ -1,8 +1,8 @@
 import type { ApiService } from '../services/api.service';
 import type { ArchiveFrame, ArchiveService } from '../services/archive.service';
 import type { ConfirmDialogService } from '../services/confirm-dialog.service';
+import type { FileViewDirectorySource } from '../services/directory-source.service';
 import type { PathHistoryService } from '../services/path-history.service';
-import type { RegistryService } from '../services/registry.service';
 import type { WorkspaceService } from '../services/workspace.service';
 import type { DirListStreamController } from '../surfaces/dir/dir-list-stream.controller';
 import type { FileInfo } from '../shared/protocol';
@@ -51,7 +51,7 @@ export interface FilePaneActionHostsSource {
   archiveService: ArchiveService;
   workspaceService: WorkspaceService;
   pathHistoryService: PathHistoryService;
-  registryService: RegistryService;
+  directorySource: FileViewDirectorySource;
   confirmDialog: ConfirmDialogService;
   dirStream: DirListStreamController;
   isInArchive(): boolean;
@@ -144,7 +144,7 @@ export class FilePaneActionHostsFactory {
       set error(value: string | null) { source.error = value; },
       workspaceService: source.workspaceService,
       pathHistoryService: source.pathHistoryService,
-      registryService: source.registryService,
+      directorySource: source.directorySource,
       dirStream: source.dirStream,
       isInArchive: () => source.isInArchive(),
       exitArchive: () => source.exitArchive(),

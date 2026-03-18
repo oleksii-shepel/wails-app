@@ -20,6 +20,7 @@ import { FormsModule } from '@angular/forms';
 import { FileEntryComponent } from './file-entry.component';
 import { FileInfo, FileType } from '../shared/protocol';
 import { DEFAULT_FILE_CATEGORIES } from './filter-bar.types';
+import { normalizePath as normalizePathReference } from './address-bar.utils';
 import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directive';
 
 export interface TreeNode extends FileInfo {
@@ -1658,8 +1659,7 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
   }
 
   private normalizePath(path: string): string {
-    const normalized = path.replace(/\\/g, '/').replace(/\/+$/, '');
-    return normalized.length ? normalized : '/';
+    return normalizePathReference(path || '/');
   }
 
   notifyChildrenLoaded(node: TreeNode, children: TreeNode[]): void {

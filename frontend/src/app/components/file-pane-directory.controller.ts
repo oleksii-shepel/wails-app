@@ -1,8 +1,7 @@
 import { EventsOff, EventsOn } from 'wailsjs/runtime';
 import type { FileInfo } from '../shared/protocol';
 import { normalizePath } from './address-bar.utils';
-import type { RegistryService } from '../services/registry.service';
-import { REGISTRY_ROOT, isRegistryPath } from '../services/registry.service';
+import type { FileViewDirectorySource } from '../services/directory-source.service';
 import type { DirListStreamController, DirStreamBatchEvent, DirStreamDoneEvent, DirStreamErrorEvent, DirStreamMetaEvent } from '../surfaces/dir/dir-list-stream.controller';
 import type { WorkspaceService } from '../services/workspace.service';
 import type { PathHistoryService } from '../services/path-history.service';
@@ -32,7 +31,7 @@ export interface FilePaneDirectoryHost {
   set error(value: string | null);
   workspaceService: WorkspaceService;
   pathHistoryService: PathHistoryService;
-  registryService: RegistryService;
+  directorySource: FileViewDirectorySource;
   dirStream: DirListStreamController;
   isInArchive(): boolean;
   exitArchive(): void;
@@ -95,11 +94,9 @@ export class FilePaneDirectoryController {
     }
 
     try {
-      if (isRegistryPath(path)) {
-        const frame = path === REGISTRY_ROOT
-          ? await host.registryService.openRoot()
-          : await host.registryService.navigateInto(path);
-        this.handleDirectDirectoryLoad(host, frame.path, frame.entries);
+      if (!host.directorySource.supportsStreaming(path)) {
+        const listing = await host.directorySource.listDirectory(path, host.showHidden);
+        this.handleDirectDirectoryLoad(host, listing.path, listing.entries);
         return;
       }
 

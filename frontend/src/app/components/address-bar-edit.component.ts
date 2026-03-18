@@ -8,6 +8,7 @@ import { createSubject } from '@epikodelabs/streamix';
 import { PathSuggestion } from '../services/path-history.service';
 import { PathHistoryService } from '../services/path-history.service';
 import { ApiService } from '../services/api.service';
+import { DirectorySourceService } from '../services/directory-source.service';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
 import { FileType, FileInfo } from '../shared/protocol';
@@ -363,6 +364,7 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
   constructor(
     private pathHistoryService: PathHistoryService,
     private apiService: ApiService,
+    private directorySource: DirectorySourceService,
     private cdr: ChangeDetectorRef,
     private hostEl: ElementRef,
     private inputContexts: InputContextService,
@@ -870,6 +872,31 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
       const prefixLower = prefix.toLowerCase();
       const accumulated: PathSuggestion[] = [];
       const seenNames = new Set<string>();
+
+      if (!this.directorySource.supportsStreaming(dirPath)) {
+        try {
+          const listing = await this.directorySource.listDirectory(dirPath, false);
+          for (const entry of (listing.entries || [])) {
+            if (entry.type !== FileType.DIRECTORY) continue;
+            if (prefixLower && !entry.name.toLowerCase().startsWith(prefixLower)) continue;
+            if (seenNames.has(entry.name)) continue;
+            seenNames.add(entry.name);
+            accumulated.push({
+              path: this.toDisplayPath(entry.path),
+              displayName: entry.name,
+              matchType: 'directory' as const,
+              score: 100,
+              exists: true,
+            });
+          }
+          accumulated.sort((a, b) => a.path.localeCompare(b.path));
+          onBatch?.(accumulated.slice());
+          resolve(accumulated);
+        } catch {
+          resolve([]);
+        }
+        return;
+      }
 
       let streamId: string;
       try {

@@ -587,7 +587,6 @@ stat.go
 
 app_runtime_service.go
 app_vfs.go
-pane_dir_watch.go
 filedrop_windows.go
 main.go
 ```

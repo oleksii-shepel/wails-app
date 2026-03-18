@@ -2,15 +2,12 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
-	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
-	"time"
+
+	internalfilesystem "wails-app/internal/filesystem"
 )
 
 // ============================================================================
@@ -35,7 +32,7 @@ func (s *FilesystemService) ListDirectory(path string, showHidden bool) (*Direct
 		return nil, err
 	}
 
-	resp, elevErr := s.runElevatedWithEvents("list", opTargetSingle(path), elevatedRequest{
+	resp, elevErr := s.runElevatedWithEvents("list", s.elevationTargetSingle(path), elevatedRequest{
 		Op:         "list",
 		Path:       path,
 		ShowHidden: showHidden,
@@ -66,66 +63,7 @@ func (s *FilesystemService) listVFSDirectory(path string) (*DirectoryListing, er
 }
 
 func listDirectoryRaw(path string, showHidden bool) (*DirectoryListing, error) {
-	entries, err := os.ReadDir(path)
-	if err != nil {
-		// For Windows junctions/reparse-points (e.g. "Documents and Settings"),
-		// os.ReadDir may fail with access denied on the junction path itself even
-		// though the target directory is readable. Try resolving the reparse point
-		// and retrying on the real path.
-		if resolved, rerr := os.Readlink(path); rerr == nil {
-			if entries2, rerr2 := os.ReadDir(resolved); rerr2 == nil {
-				entries = entries2
-				path = toSlash(resolved)
-				err = nil
-			}
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	var files []FileInfo
-	var totalSize int64
-
-	for _, entry := range entries {
-		name := entry.Name()
-		fullPath := toSlash(filepath.Join(path, name))
-		hidden := isHiddenFile(name, fullPath)
-
-		// Hidden file filtering
-		if !showHidden && hidden {
-			continue
-		}
-
-		// Use Lstat so symlinks (including broken/inaccessible targets) still
-		// appear in listings; DirEntry.Info can fail for those and hide them.
-		info, err := os.Lstat(fullPath)
-		if err != nil {
-			if fallback, ok := buildFallbackLinkInfo(name, fullPath, entry, hidden); ok {
-				files = append(files, fallback)
-				if !fallback.IsHidden || showHidden {
-					totalSize += fallback.Size
-				}
-			}
-			continue
-		}
-
-		fi := buildFileInfoWithHidden(name, fullPath, info, hidden)
-		files = append(files, fi)
-		if !fi.IsHidden || showHidden {
-			totalSize += fi.Size
-		}
-	}
-
-	if files == nil {
-		files = []FileInfo{}
-	}
-
-	return &DirectoryListing{
-		Path:      toSlash(path),
-		Entries:   files,
-		TotalSize: totalSize,
-	}, nil
+	return rawFilesystemOps.ListDirectory(path, showHidden)
 }
 
 // ============================================================================
@@ -199,7 +137,7 @@ func (s *FilesystemService) ReadFile(path string, encoding string) (*FileContent
 		return nil, err
 	}
 
-	resp, elevErr := s.runElevatedWithEvents("read", opTargetSingle(path), elevatedRequest{
+	resp, elevErr := s.runElevatedWithEvents("read", s.elevationTargetSingle(path), elevatedRequest{
 		Op:       "read",
 		Path:     path,
 		Encoding: encoding,
@@ -211,34 +149,7 @@ func (s *FilesystemService) ReadFile(path string, encoding string) (*FileContent
 }
 
 func readFileRaw(path string, encoding string) (*FileContent, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-
-	info, err := os.Stat(path)
-	if err != nil {
-		return nil, err
-	}
-
-	if encoding == "" {
-		encoding = "utf8"
-	}
-
-	var content string
-	if encoding == "base64" {
-		content = base64.StdEncoding.EncodeToString(data)
-	} else {
-		content = string(data)
-		encoding = "utf8"
-	}
-
-	return &FileContent{
-		Path:     path,
-		Content:  content,
-		Encoding: encoding,
-		Size:     info.Size(),
-	}, nil
+	return rawFilesystemOps.ReadFile(path, encoding)
 }
 
 // ============================================================================
@@ -258,7 +169,7 @@ func (s *FilesystemService) WriteFile(path string, content string, encoding stri
 		return nil, err
 	}
 
-	resp, elevErr := s.runElevatedWithEvents("write", opTargetSingle(path), elevatedRequest{
+	resp, elevErr := s.runElevatedWithEvents("write", s.elevationTargetSingle(path), elevatedRequest{
 		Op:       "write",
 		Path:     path,
 		Content:  content,
@@ -271,27 +182,7 @@ func (s *FilesystemService) WriteFile(path string, content string, encoding stri
 }
 
 func writeFileRaw(path string, content string, encoding string) (*OperationResult, error) {
-	var data []byte
-	var err error
-
-	if encoding == "base64" {
-		data, err = base64.StdEncoding.DecodeString(content)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		data = []byte(content)
-	}
-
-	if err := os.WriteFile(path, data, 0644); err != nil {
-		return nil, err
-	}
-
-	return &OperationResult{
-		Success:       true,
-		Message:       "File written successfully",
-		AffectedPaths: []string{path},
-	}, nil
+	return rawFilesystemOps.WriteFile(path, content, encoding)
 }
 
 // ============================================================================
@@ -311,7 +202,7 @@ func (s *FilesystemService) DeleteFile(path string, recursive bool, useTrash *bo
 		return nil, err
 	}
 
-	resp, elevErr := s.runElevatedWithEvents("delete", opTargetSingle(path), elevatedRequest{
+	resp, elevErr := s.runElevatedWithEvents("delete", s.elevationTargetSingle(path), elevatedRequest{
 		Op:        "delete",
 		Path:      path,
 		Recursive: recursive,
@@ -324,42 +215,7 @@ func (s *FilesystemService) DeleteFile(path string, recursive bool, useTrash *bo
 }
 
 func deleteFileRaw(path string, recursive bool, useTrash *bool) (*OperationResult, error) {
-	trash := useTrash == nil || *useTrash
-	if trash {
-		if err := moveToTrash(path); err != nil {
-			return nil, err
-		}
-		return &OperationResult{
-			Success:       true,
-			Message:       "Moved to trash successfully",
-			AffectedPaths: []string{path},
-		}, nil
-	}
-
-	info, err := os.Lstat(path)
-	if err != nil {
-		return nil, err
-	}
-
-	if info.IsDir() {
-		if recursive {
-			err = os.RemoveAll(path)
-		} else {
-			err = os.Remove(path)
-		}
-	} else {
-		err = os.Remove(path)
-	}
-
-	if err != nil {
-		return nil, err
-	}
-
-	return &OperationResult{
-		Success:       true,
-		Message:       "Deleted successfully",
-		AffectedPaths: []string{path},
-	}, nil
+	return rawFilesystemOps.DeleteFile(path, recursive, useTrash)
 }
 
 // ============================================================================
@@ -379,7 +235,7 @@ func (s *FilesystemService) CreateDirectory(path string, recursive bool) (*Opera
 		return nil, err
 	}
 
-	resp, elevErr := s.runElevatedWithEvents("mkdir", opTargetSingle(path), elevatedRequest{
+	resp, elevErr := s.runElevatedWithEvents("mkdir", s.elevationTargetSingle(path), elevatedRequest{
 		Op:        "mkdir",
 		Path:      path,
 		Recursive: recursive,
@@ -391,21 +247,7 @@ func (s *FilesystemService) CreateDirectory(path string, recursive bool) (*Opera
 }
 
 func createDirectoryRaw(path string, recursive bool) (*OperationResult, error) {
-	var err error
-	if recursive {
-		err = os.MkdirAll(path, 0755)
-	} else {
-		err = os.Mkdir(path, 0755)
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	return &OperationResult{
-		Success:       true,
-		Message:       "Directory created",
-		AffectedPaths: []string{path},
-	}, nil
+	return rawFilesystemOps.CreateDirectory(path, recursive)
 }
 
 // ============================================================================
@@ -425,7 +267,7 @@ func (s *FilesystemService) MoveFile(source, destination string) (*OperationResu
 		return nil, err
 	}
 
-	resp, elevErr := s.runElevatedWithEvents("move", opTargetPair(source, destination), elevatedRequest{
+	resp, elevErr := s.runElevatedWithEvents("move", s.elevationTargetPair(source, destination), elevatedRequest{
 		Op:          "move",
 		Source:      source,
 		Destination: destination,
@@ -437,23 +279,7 @@ func (s *FilesystemService) MoveFile(source, destination string) (*OperationResu
 }
 
 func moveFileRaw(source, destination string) (*OperationResult, error) {
-	// Try atomic rename first
-	err := os.Rename(source, destination)
-	if err != nil {
-		// Cross-device: copy then delete
-		if err2 := copyPath(source, destination); err2 != nil {
-			return nil, err2
-		}
-		if err2 := os.RemoveAll(source); err2 != nil {
-			return nil, err2
-		}
-	}
-
-	return &OperationResult{
-		Success:       true,
-		Message:       "Moved successfully",
-		AffectedPaths: []string{source, destination},
-	}, nil
+	return rawFilesystemOps.MoveFile(source, destination)
 }
 
 // ============================================================================
@@ -473,7 +299,7 @@ func (s *FilesystemService) CopyFile(source, destination string, recursive bool)
 		return nil, err
 	}
 
-	resp, elevErr := s.runElevatedWithEvents("copy", opTargetPair(source, destination), elevatedRequest{
+	resp, elevErr := s.runElevatedWithEvents("copy", s.elevationTargetPair(source, destination), elevatedRequest{
 		Op:          "copy",
 		Source:      source,
 		Destination: destination,
@@ -486,27 +312,7 @@ func (s *FilesystemService) CopyFile(source, destination string, recursive bool)
 }
 
 func copyFileRaw(source, destination string, recursive bool) (*OperationResult, error) {
-	info, err := os.Stat(source)
-	if err != nil {
-		return nil, err
-	}
-
-	if info.IsDir() && !recursive {
-		return &OperationResult{
-			Success: false,
-			Message: "Source is a directory; set recursive=true to copy directories",
-		}, nil
-	}
-
-	if err := copyPath(source, destination); err != nil {
-		return nil, err
-	}
-
-	return &OperationResult{
-		Success:       true,
-		Message:       "Copied successfully",
-		AffectedPaths: []string{source, destination},
-	}, nil
+	return rawFilesystemOps.CopyFile(source, destination, recursive)
 }
 
 // ============================================================================
@@ -569,115 +375,19 @@ func (s *FilesystemService) SearchFiles(path, pattern string, recursive bool) (*
 // ============================================================================
 
 func buildFileInfo(name, fullPath string, info os.FileInfo) FileInfo {
-	return buildFileInfoWithHidden(name, fullPath, info, isHiddenFile(name, fullPath))
+	return internalfilesystem.BuildFileInfo(rawFilesystemMetadataCallbacks(), name, fullPath, info)
 }
 
 func buildFileInfoWithHidden(name, fullPath string, info os.FileInfo, hidden bool) FileInfo {
-	ft := FileTypeFile
-	isSymlink := false
-	mode := info.Mode()
-	if mode&os.ModeSymlink != 0 {
-		isSymlink = true
-		// Use the platform helper so that protected Windows junctions (e.g.
-		// "Documents and Settings") are correctly identified as directories
-		// without needing traversal access.
-		if symlinkPointsToDir(fullPath) {
-			ft = FileTypeDirectory
-		} else {
-			ft = FileTypeSymlink
-		}
-	} else if info.IsDir() {
-		ft = FileTypeDirectory
-	} else if isArchive(name) {
-		ft = FileTypeArchive
-	}
-
-	// Last-resort: some Windows junctions (e.g. "Documents and Settings")
-	// are reported by Go's os.Lstat with IsDir()=false and ModeSymlink=0
-	// because the reparse tag is not a plain symlink. GetFileAttributes still
-	// reports FILE_ATTRIBUTE_DIRECTORY|FILE_ATTRIBUTE_REPARSE_POINT for them.
-	// On Unix this is always a no-op (returns false immediately).
-	if !info.IsDir() && mode&os.ModeSymlink == 0 && isUntrackedDirectoryJunction(fullPath) {
-		ft = FileTypeDirectory
-		isSymlink = true
-	}
-
-	return FileInfo{
-		Name:        name,
-		Path:        fullPath,
-		Type:        ft,
-		Size:        info.Size(),
-		Created:     getCreatedTime(info),
-		Modified:    info.ModTime().Unix(),
-		Accessed:    getAccessedTime(info),
-		Permissions: formatPermissions(info),
-		IsHidden:    hidden,
-		IsSymlink:   isSymlink,
-	}
+	return internalfilesystem.BuildFileInfoWithHidden(rawFilesystemMetadataCallbacks(), name, fullPath, info, hidden)
 }
 
 func isHidden(name, dir string) bool {
 	return isHiddenFile(name, filepath.Join(dir, name))
 }
 
-func formatPermissions(info os.FileInfo) string {
-	if runtime.GOOS == "windows" {
-		// Simplified Windows permissions
-		if info.Mode()&0200 != 0 {
-			return "rw-"
-		}
-		return "r--"
-	}
-	return info.Mode().Perm().String()
-}
-
 func copyPath(src, dst string) error {
-	info, err := os.Stat(src)
-	if err != nil {
-		return err
-	}
-	if info.IsDir() {
-		return copyDir(src, dst)
-	}
-	return copyFile(src, dst)
-}
-
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-
-	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
-		return err
-	}
-
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	_, err = io.Copy(out, in)
-	return err
-}
-
-func copyDir(src, dst string) error {
-	return filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(src, p)
-		if err != nil {
-			return err
-		}
-		target := filepath.Join(dst, rel)
-		if d.IsDir() {
-			return os.MkdirAll(target, 0755)
-		}
-		return copyFile(p, target)
-	})
+	return rawFilesystemOps.CopyPath(src, dst)
 }
 
 // isHiddenFile is the cross-platform hidden check stub —
@@ -745,33 +455,7 @@ func compareStrings(a, b, operator string, caseSensitive bool) bool {
 }
 
 func buildFallbackLinkInfo(name, fullPath string, entry fs.DirEntry, hidden bool) (FileInfo, bool) {
-	// Include inaccessible reparse points/symlinks instead of silently dropping them.
-	mode := entry.Type()
-	isSymlink := mode&os.ModeSymlink != 0
-	isJunction := isUntrackedDirectoryJunction(fullPath)
-	isLinkLike := isSymlink || isJunction
-	if !isLinkLike {
-		return FileInfo{}, false
-	}
-
-	ft := FileTypeSymlink
-	if entry.IsDir() || isJunction || (isSymlink && symlinkPointsToDir(fullPath)) {
-		ft = FileTypeDirectory
-	}
-
-	now := time.Now().Unix()
-	return FileInfo{
-		Name:        name,
-		Path:        fullPath,
-		Type:        ft,
-		Size:        0,
-		Created:     now,
-		Modified:    now,
-		Accessed:    now,
-		Permissions: "",
-		IsHidden:    hidden,
-		IsSymlink:   true,
-	}, true
+	return internalfilesystem.BuildFallbackLinkInfo(rawFilesystemMetadataCallbacks(), name, fullPath, entry, hidden)
 }
 
 type elevationEvent struct {
@@ -861,10 +545,3 @@ func (s *FilesystemService) runElevatedWithEvents(op, target string, req elevate
 	return resp, nil
 }
 
-func opTargetSingle(path string) string {
-	return path
-}
-
-func opTargetPair(src, dst string) string {
-	return fmt.Sprintf("%s -> %s", src, dst)
-}

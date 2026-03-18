@@ -1,10 +1,6 @@
 package main
 
 import (
-	"errors"
-	"io/fs"
-	"os"
-
 	internalcontracts "wails-app/internal/contracts"
 	internalops "wails-app/internal/ops"
 )
@@ -32,37 +28,7 @@ const (
 
 // classifyError maps a Go error to a stable AppErrorCode.
 func classifyError(err error) AppErrorCode {
-	if err == nil {
-		return ErrCodeUnknown
-	}
-	msg := err.Error()
-	switch {
-	case errors.Is(err, os.ErrNotExist), errors.Is(err, fs.ErrNotExist):
-		return ErrCodeNotFound
-	case errors.Is(err, os.ErrPermission), errors.Is(err, fs.ErrPermission):
-		return ErrCodePermissionDenied
-	case errors.Is(err, os.ErrExist), errors.Is(err, fs.ErrExist):
-		return ErrCodeAlreadyExists
-	case errors.Is(err, os.ErrInvalid), errors.Is(err, fs.ErrInvalid):
-		return ErrCodeInvalidPath
-	}
-	// Heuristic string-based classification for cases os.Is cannot reach.
-	for _, sub := range []string{"no space left", "disk full", "not enough space"} {
-		if containsFold(msg, sub) {
-			return ErrCodeDiskFull
-		}
-	}
-	for _, sub := range []string{"read-only", "read only", "write-protected"} {
-		if containsFold(msg, sub) {
-			return ErrCodeReadOnly
-		}
-	}
-	for _, sub := range []string{"cancelled", "canceled"} {
-		if containsFold(msg, sub) {
-			return ErrCodeCancelled
-		}
-	}
-	return ErrCodeUnknown
+	return internalcontracts.ClassifyError(err)
 }
 
 // ============================================================================

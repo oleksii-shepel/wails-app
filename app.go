@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 
+	internalapp "wails-app/internal/app"
 	internalarchive "wails-app/internal/archive"
 	internalbatch "wails-app/internal/batch"
 	internalcontracts "wails-app/internal/contracts"
+	internalelevation "wails-app/internal/elevation"
 	internalnav "wails-app/internal/navigation"
 	internalops "wails-app/internal/ops"
 	internalworkspace "wails-app/internal/workspace"
@@ -27,7 +29,7 @@ type App struct {
 	workspace  *internalworkspace.Service
 	operations *OperationManager
 	dirWatch   *PaneDirWatchManager
-	elevation  *ElevationSessionService
+	elevation  *internalelevation.Service
 	vfs        *vfslib.Unified
 	archCache  *cache.Cache // lazy-open, LRU cache of open archive.Archive objects
 }
@@ -62,21 +64,20 @@ func (a *archiveOperationAdapter) IsCancelled() bool {
 
 // NewApp creates a new App application struct.
 func NewApp() *App {
-	wm, err := internalworkspace.NewManager()
+	core, err := internalapp.NewCore()
 	if err != nil {
 		fmt.Printf("Warning: could not initialize workspace manager: %v\n", err)
-		wm = internalworkspace.NewTransientManager()
 	}
-
-	navManager := internalnav.NewManager()
 
 	app := &App{
 		archive:    nil,
 		runtime:    NewAppRuntimeService(),
-		operations: internalops.NewManager(),
-		archCache:  cache.New(resolveChain),
+		operations: core.Operations,
+		archCache:  core.ArchiveCache,
 	}
-	app.elevation = NewElevationSessionService(app.emitEvent)
+	app.elevation = internalelevation.NewService(app.emitEvent, func(exePath string) (internalelevation.Client, error) {
+		return StartElevatedServiceClient(exePath)
+	})
 	app.filesystem = NewFilesystemService(app.elevation, app.emitEvent, app.StartElevatedSession)
 	app.dirStream = NewDirStreamService(app.emitEvent, app.filesystem.runElevatedWithEvents)
 	app.utility = NewUtilityService(app.emitEvent)
@@ -86,24 +87,46 @@ func NewApp() *App {
 			return &archiveOperationAdapter{op: app.operations.StartOperation(opType, title, source, dest)}
 		},
 	)
-	batchCore := newBatchCoreService(
-		app.operations,
-		app.emitEvent,
-		app.filesystem.runElevatedWithEvents,
-		app.archive.ExtractNestedArchive,
-	)
-	app.batch = internalbatch.NewService(
-		batchCore.BatchCopy,
-		batchCore.BatchMove,
-		batchCore.BatchDelete,
-		batchCore.BatchExtract,
-		batchCore.BatchSelectiveExtract,
-		batchCore.ResolveConflict,
-	)
-	app.navigation = internalnav.NewService(navManager, func(path string, showHidden bool) (*internalcontracts.DirectoryListing, error) {
+	app.batch = internalbatch.NewService(internalbatch.ServiceConfig{
+		StartOperation: func(kind internalcontracts.OperationType, title, source, dest string) *internalops.ActiveOperation {
+			return app.operations.StartOperation(kind, title, source, dest)
+		},
+		ConflictPrompter: internalbatch.ConflictPrompterFunc(func(event internalcontracts.ConflictEvent) {
+			app.emitEvent("operation:conflict", event)
+		}),
+		BatchErr: func(source, destination string, err error) internalcontracts.BatchItemError {
+			return internalcontracts.BatchItemError{
+				Source:      source,
+				Destination: destination,
+				Error:       err.Error(),
+				Code:        classifyError(err),
+			}
+		},
+		IsPermissionDenied:             isPermissionDenied,
+		ShouldRetryDeleteWithElevation: shouldRetryDeleteWithElevation,
+		RunElevatedCopy: func(src, dst string, recursive bool) (bool, error) {
+			resp, err := app.filesystem.runElevatedWithEvents("copy", app.filesystem.elevationTargetPair(src, dst), elevatedRequest{Op: "copy", Source: src, Destination: dst, Recursive: recursive})
+			return err == nil && resp.Success, err
+		},
+		RunElevatedMove: func(src, dst string) (bool, error) {
+			resp, err := app.filesystem.runElevatedWithEvents("move", app.filesystem.elevationTargetPair(src, dst), elevatedRequest{Op: "move", Source: src, Destination: dst})
+			return err == nil && resp.Success, err
+		},
+		RunElevatedDelete: func(path string, recursive bool, useTrash *bool) (bool, error) {
+			resp, err := app.filesystem.runElevatedWithEvents("delete", app.filesystem.elevationTargetSingle(path), elevatedRequest{Op: "delete", Path: path, Recursive: recursive, UseTrash: useTrash})
+			return err == nil && resp.Success, err
+		},
+		MoveToTrash:          moveToTrash,
+		CalculateSize:        calculateSize,
+		ExtractNestedArchive: app.archive.ExtractNestedArchive,
+		Normalize:            normalize,
+		ArchiveEntryPath:     archiveEntryPath,
+		IsArchive:            isArchive,
+	})
+	app.navigation = internalnav.NewService(core.NavigationManager, func(path string, showHidden bool) (*internalcontracts.DirectoryListing, error) {
 		return app.filesystem.ListDirectory(path, showHidden)
 	})
-	app.workspace = internalworkspace.NewService(wm)
+	app.workspace = internalworkspace.NewService(core.WorkspaceManager)
 	return app
 }
 

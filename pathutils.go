@@ -2,19 +2,20 @@ package main
 
 import (
 	"path/filepath"
-	"strings"
+
+	internalplatform "wails-app/internal/platform"
 )
 
 // toSlash converts any OS-native path separators to forward slashes.
 // This is the single point where the backend normalises paths before
 // returning them to the frontend, so the frontend never sees backslashes.
 func toSlash(path string) string {
-	return filepath.ToSlash(path)
+	return internalplatform.ToSlash(path)
 }
 
 // cleanPath normalises a path: resolves "..", cleans separators.
 func cleanPath(path string) string {
-	return toSlash(filepath.Clean(path))
+	return internalplatform.CleanPath(path)
 }
 
 // IsAbsPath returns true if the path is absolute.
@@ -24,19 +25,14 @@ func (a *App) IsAbsPath(path string) bool {
 
 // JoinPaths joins path segments safely.
 func (a *App) JoinPaths(parts []string) string {
-	if len(parts) == 0 {
-		return ""
-	}
-	return toSlash(filepath.Join(parts...))
+	return internalplatform.Join(parts...)
 }
 
 // SplitPath splits a path into directory and file components.
 func (a *App) SplitPath(path string) map[string]string {
-	dir, file := filepath.Split(path)
-	ext := filepath.Ext(file)
-	name := strings.TrimSuffix(file, ext)
+	dir, file, name, ext := internalplatform.SplitPath(path)
 	return map[string]string{
-		"dir":  toSlash(filepath.Clean(dir)),
+		"dir":  dir,
 		"base": file,
 		"name": name,
 		"ext":  ext,
@@ -46,11 +42,7 @@ func (a *App) SplitPath(path string) map[string]string {
 // GetParentPath returns the parent directory of the given path,
 // stopping at the filesystem root.
 func (a *App) GetParentPath(path string) string {
-	parent := filepath.Dir(path)
-	if parent == path {
-		return toSlash(path) // already at root
-	}
-	return toSlash(parent)
+	return internalplatform.ParentPath(path)
 }
 
 // PathExists checks whether a path exists.
@@ -82,58 +74,11 @@ func (a *App) IsRoot(path string) bool {
 //	"/home/user/docs" → [{label:"/", path:"/"}, {label:"home", path:"/home"}, ...]
 //	`C:\Users\alice` → [{label:`C:\`, path:`C:\`}, {label:"Users", path:`C:\Users`}, ...]
 func (a *App) Breadcrumbs(path string) []map[string]string {
-	path = filepath.Clean(path)
-
-	// Walk upward collecting segments, then reverse.
-	type segment struct {
-		label string
-		path  string
-	}
-	var segments []segment
-
-	current := path
-	for {
-		parent := filepath.Dir(current)
-		isRoot := parent == current
-
-		var label string
-		if isRoot {
-			// Root segment: use the root path itself as the label.
-			// On Unix this is "/"; on Windows "C:\".
-			label = current
-		} else {
-			label = filepath.Base(current)
-		}
-
-		segments = append(segments, segment{label: label, path: current})
-
-		if isRoot {
-			break
-		}
-		current = parent
-	}
-
-	// Reverse so we go root → leaf.
-	for i, j := 0, len(segments)-1; i < j; i, j = i+1, j-1 {
-		segments[i], segments[j] = segments[j], segments[i]
-	}
-
-	crumbs := make([]map[string]string, len(segments))
-	for i, s := range segments {
-		crumbs[i] = map[string]string{
-			"label": s.label,
-			"path":  toSlash(s.path),
-		}
-	}
-	return crumbs
+	return internalplatform.Breadcrumbs(path)
 }
 
 // parentPath returns the parent directory, stopping at filesystem root.
 // Use filepath.Dir which correctly handles both Unix "/" and Windows "C:\".
 func parentPath(path string) string {
-	parent := filepath.Dir(path)
-	if parent == path {
-		return toSlash(path) // already at root
-	}
-	return toSlash(parent)
+	return internalplatform.ParentPath(path)
 }

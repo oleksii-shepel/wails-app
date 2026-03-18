@@ -110,9 +110,17 @@ The current repository already has enough service seams to define a concrete tar
 
 Owns the Wails-facing composition root and binding surface.
 
+Practical constraint:
+
+- in Go, methods bound to `App` cannot be moved piecemeal into another package while `App` remains defined in `main`
+- that makes `internal/app` a whole-type migration target rather than a safe incremental move for individual binding files
+- until that broader move is justified, the compile-safe path is to keep Wails binding methods in `main` and continue shrinking the root by moving service ownership and composition helpers behind them
+
 Current files that belong here first:
 
 - `app.go`
+- `internal/app/core.go`
+- `internal/app/runner.go`
 - `app_bindings_archive.go`
 - `app_bindings_filesystem.go`
 - `app_bindings_navigation.go`
@@ -125,7 +133,27 @@ Current files that belong here first:
 Likely later additions:
 
 - app-level event adapter helpers
-- Wails binding setup glue if that grows beyond `main.go`
+- the Wails bootstrap/options glue has already started moving under `internal/app`, and the core manager/cache bootstrap now also lives there; the larger remaining move is relocating the `App` type and all of its bound methods together
+
+Suggested compile-safe batch plan for the full `App` move:
+
+1. move `NewApp`, startup/shutdown wiring, and composition-only helpers behind a new internal app facade while keeping the concrete `App` type in `main`
+2. move root-owned non-method helpers that are still referenced by many `App` methods into internal packages first, so the later package flip touches fewer files
+3. migrate the `App` type together with the full set of `func (a *App)` files in one package change, rather than moving binding files one by one
+4. keep `main.go` as the final thin bootstrap layer that instantiates the internal app package and binds the resulting app instance to Wails
+
+First pre-migration cleanup batch:
+
+- filesystem raw operation helpers: `listDirectoryRaw`, `readFileRaw`, `writeFileRaw`, `deleteFileRaw`, `createDirectoryRaw`, `moveFileRaw`, and `copyFileRaw` in `filesystem.go` now delegate to `internal/filesystem/raw_service.go`
+- filesystem support helpers that those raw ops still depend on: `buildFileInfoWithHidden`, `buildFallbackLinkInfo`, and `copyPath` now delegate to `internal/filesystem`; generic path normalization now lives in `internal/platform/paths.go`, with root wrappers delegating there
+- elevation/filesystem coordination helpers: the old root `opTargetSingle` and `opTargetPair` helpers have been absorbed into `FilesystemService`; platform trash/elevation launch hooks still remain root-owned
+- cross-domain helpers that still couple composition to `main`: `classifyError` has moved into `internal/contracts/errors.go`, and nested archive chain resolution now lives in `internal/archive/resolve.go`
+
+Why this batch comes first:
+
+- those helpers are shared by many `func (a *App)` methods indirectly through filesystem, batch, VFS, and elevation flows
+- moving them first reduces the number of mixed package references that would otherwise block a whole-type `App` package flip
+- the remaining `App` move then becomes closer to a package relocation than a behavior rewrite
 
 ### `internal/archive`
 
@@ -139,6 +167,7 @@ Current files that map here:
 - `internal/archive/extract_helpers.go`
 - `internal/archive/rewrite.go`
 - `internal/archive/nested.go`
+- `internal/archive/resolve.go`
 - `internal/contracts/archive.go`
 - `archive_types.go`
 
@@ -153,6 +182,7 @@ Important note:
 - the old root archive read-format implementation became redundant after the nested and read flows moved, and the last duplicate root archive helper files have now been removed as batch/archive ownership converges under `internal/archive`
 - archive request/result contracts have now started moving into `internal/contracts`, with `archive_types.go` reduced to aliases at the main-package boundary.
 - archive browse/list and archive read response contracts now share ownership with filesystem listing/read contracts under `internal/contracts/filesystem.go`, since the underlying wire shapes are the same `ArchiveListing`, `FileInfo`, and `FileContent` structures used across both domains.
+- VFS nested archive chain opening now also routes through `internal/archive/resolve.go`, so `main` no longer owns the temp-file nested-archive opener used by the archive cache and VFS mount flow.
 
 ### `internal/filesystem`
 
@@ -172,6 +202,34 @@ Files that may stay adjacent but depend on this package:
 
 - `app_bindings_filesystem.go`
 - `dir_stream_service.go`
+
+Current status:
+
+- elevated request dispatch already routes through an `internal/filesystem` adapter
+- raw filesystem operations and their copy/file-info helper implementations now live behind `internal/filesystem/raw_service.go`
+- the remaining root filesystem code is mostly Wails-facing delegation plus platform callback wiring
+
+### `internal/platform`
+
+Owns generic path normalization plus OS-specific helpers and low-level platform details.
+
+Current files that map here:
+
+- `internal/platform/paths.go`
+- `osinfo.go`
+- `platform_windows.go`
+- `platform_unix.go`
+- `platform_times_windows.go`
+- `platform_times_unix.go`
+- `platform_times_linux.go`
+- `platform_times_darwin.go`
+- `trash_windows.go`
+- `trash_unix.go`
+
+Current status:
+
+- generic slash-cleaning, normalized join, parent-path, split-path, and breadcrumb helpers now live in `internal/platform/paths.go`
+- root files like `pathutils.go` and `utils.go` now mostly expose Wails-facing or package-local wrappers over that internal platform boundary
 
 ### `internal/navigation`
 
@@ -220,9 +278,9 @@ Current files that map here:
 - `internal/batch/fileops.go`
 - `internal/batch/progress.go`
 - `internal/batch/selective_extract.go`
+- `internal/batch/transfers.go`
 - `internal/ops/manager.go`
 - `batch_service.go`
-- `batch_operations.go`
 - `batch_types.go`
 
 Important note:
@@ -230,8 +288,9 @@ Important note:
 - if `operations.go` remains the shared progress-operation registry rather than pure batch behavior, it can also live under `internal/ops`; the deciding factor should be whether non-batch domains need to own operation lifecycle directly.
 - batch request/result and conflict contracts now live in `internal/contracts/batch.go`, with `batch_types.go` reduced to main-package aliases plus internal-only helper types.
 - operation type, status, and progress wire models now live in `internal/contracts/operations.go`, and the live operation manager/runtime bookkeeping now live in `internal/ops/manager.go`; `main` only re-exports the types and wires the event emitter during startup.
-- the public batch service boundary has now moved into `internal/batch/service.go`; conflict coordination, conflict-resolution helpers, throttled progress tracking, streaming file operations, full-archive extraction, and selective extraction now live under `internal/batch` as well.
-- the heavy batch implementation still lives in the root package as a transitional core, but it is now mostly loop-level orchestration for copy/move/delete while delegating file mechanics and archive-oriented behavior into `internal/batch`.
+- the public batch composition root now lives in `internal/batch/service.go`; it owns conflict coordination, the conflict prompt adapter boundary, throttled progress tracking, streaming file operations, full-archive extraction, selective extraction, and transfer loop orchestration.
+- copy, move, and delete loop orchestration now also live under `internal/batch/transfers.go`, and `batch_service.go` has been reduced to Wails-facing method forwarding.
+- the former root batch core and `batch_operations.go` have been removed, so `main` no longer owns batch conflict resolution or callback assembly.
 
 ### `internal/elevation`
 
@@ -239,11 +298,17 @@ Owns elevated-session state, helper coordination, and platform-specific elevatio
 
 Current files that map here:
 
-- `elevation_session_service.go`
+- `internal/elevation/service.go`
 - `elevated_service.go`
 - `elevation_helper.go`
 - `elevation_windows.go`
 - `elevation_unix.go`
+
+Current status:
+
+- the elevated session lifecycle and approval wait-state now live in `internal/elevation/service.go`
+- the elevated IPC/client/helper control flow now lives under `internal/elevation`, with the root package reduced to the raw elevated request handler plus platform launch helpers
+- the remaining root elevation code is now mostly callback wiring into an `internal/filesystem` raw-operation adapter, rather than request-switch orchestration logic
 
 ### `internal/runtime`
 
@@ -273,24 +338,6 @@ Current files that map here:
 - `special_folders.go`
 - `special_folders_windows.go`
 - `special_folders_unix.go`
-
-### `internal/platform`
-
-Owns OS-specific helpers and low-level platform details.
-
-Current files that map here:
-
-- `platform_windows.go`
-- `platform_unix.go`
-- `platform_times_windows.go`
-- `platform_times_unix.go`
-- `platform_times_linux.go`
-- `platform_times_darwin.go`
-- `trash_windows.go`
-- `trash_unix.go`
-- `osinfo.go`
-- `pathutils.go`
-- `utils.go`
 
 ### `internal/contracts`
 

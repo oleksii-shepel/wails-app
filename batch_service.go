@@ -1,28 +1,5 @@
 package main
 
-// batchCoreService owns top-level batch orchestration while App remains the
-// Wails-facing boundary.
-type batchCoreService struct {
-	operations            *OperationManager
-	emitEvent             func(string, interface{})
-	runElevatedWithEvents func(op, target string, req elevatedRequest) (elevatedResponse, error)
-	extractNestedArchive  func(archivePath string, nestedChain []string) ([]byte, error)
-}
-
-func newBatchCoreService(
-	operations *OperationManager,
-	emitEvent func(string, interface{}),
-	runElevatedWithEvents func(op, target string, req elevatedRequest) (elevatedResponse, error),
-	extractNestedArchive func(archivePath string, nestedChain []string) ([]byte, error),
-) *batchCoreService {
-	return &batchCoreService{
-		operations:            operations,
-		emitEvent:             emitEvent,
-		runElevatedWithEvents: runElevatedWithEvents,
-		extractNestedArchive:  extractNestedArchive,
-	}
-}
-
 func (a *App) BatchCopy(req BatchRequest) (*BatchResult, error) {
 	return a.batch.BatchCopy(req)
 }

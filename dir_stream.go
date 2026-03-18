@@ -100,7 +100,7 @@ func (s *DirStreamService) run(ctx context.Context, streamID, paneID, path strin
 	// Permission denied fallback: stream one elevated listing batch so the UI
 	// still completes through the same streaming channel.
 	if shouldRetryDeleteWithElevation(err) {
-		resp, elevErr := s.runElevatedWithEvents("list", opTargetSingle(path), elevatedRequest{
+		resp, elevErr := s.runElevatedWithEvents("list", path, elevatedRequest{
 			Op:         "list",
 			Path:       path,
 			ShowHidden: showHidden,

@@ -49,7 +49,7 @@ import { InputEngineService } from '../services/input-engine.service';
             <span class="ab-drive-grid-icon">{{ getIcon(d) }}</span>
             <span class="ab-drive-grid-letter">{{ d.name }}</span>
             <span class="ab-drive-grid-label">{{ getDriveLabel(d) }}</span>
-            <svg *ngIf="isActive(d)" class="ab-drive-grid-dot" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <svg *ngIf="isSelected(d)" class="ab-drive-grid-dot" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
               <circle cx="8" cy="8" r="2.5" fill="currentColor" />
             </svg>
           </div>
@@ -261,9 +261,16 @@ export class AddressBarDriveDropdownComponent {
     return current === root || current.startsWith(`${root}/`);
   }
 
+  isSelected(d: DriveInfo): boolean {
+    return this.isActive(d) || (this.selectedIndex >= 0 && this.drives[this.selectedIndex]?.path === d.path);
+  }
+
   getDriveLabel(d: DriveInfo): string {
     if (d.driveType?.startsWith('cloud-')) {
       return 'Cloud Storage';
+    }
+    if (d.driveType === 'registry') {
+      return 'Registry';
     }
     if (d.driveType === 'network') {
       return 'Network Drive';
@@ -279,6 +286,7 @@ export class AddressBarDriveDropdownComponent {
     if (d.driveType === 'cloud-onedrive') return '☁️';
     if (d.driveType === 'cloud-google')   return '🗂️';
     if (d.driveType === 'cloud-dropbox')  return '📦';
+    if (d.driveType === 'registry')       return '🧩';
     if (d.driveType === 'fixed')    return '💽';
     if (d.driveType === 'removable') return '💾';
     if (d.driveType === 'cdrom')    return '💿';

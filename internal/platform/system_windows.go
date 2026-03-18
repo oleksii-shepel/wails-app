@@ -52,18 +52,22 @@ func listDrivesPlatform() []contracts.DriveInfo {
 
 	buf := make([]uint16, 256)
 	n, err := windows.GetLogicalDriveStrings(uint32(len(buf)), &buf[0])
-	if err != nil || n == 0 {
-		return drives
+	if err == nil && n > 0 {
+		roots := strings.Split(syscall.UTF16ToString(buf[:n]), "\x00")
+		for _, root := range roots {
+			root = strings.TrimSpace(root)
+			if root == "" {
+				continue
+			}
+			drives = append(drives, buildDriveInfo(root))
+		}
 	}
 
-	roots := strings.Split(syscall.UTF16ToString(buf[:n]), "\x00")
-	for _, root := range roots {
-		root = strings.TrimSpace(root)
-		if root == "" {
-			continue
-		}
-		drives = append(drives, buildDriveInfo(root))
-	}
+	drives = append(drives, contracts.DriveInfo{
+		Name:      "Registry",
+		Path:      "/registry",
+		DriveType: contracts.DriveRegistry,
+	})
 
 	return drives
 }

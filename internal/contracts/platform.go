@@ -25,6 +25,7 @@ const (
 	DriveNetwork   DriveType = "network"
 	DriveCDROM     DriveType = "cdrom"
 	DriveRAMDisk   DriveType = "ramdisk"
+	DriveRegistry  DriveType = "registry"
 	DriveUnknown   DriveType = "unknown"
 )
 

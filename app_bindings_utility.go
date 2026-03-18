@@ -15,11 +15,11 @@ func (a *App) Ping() int64 {
 }
 
 func (a *App) OpenFile(path string) error {
-	return a.utility.OpenFile(path)
+	return a.Utility.OpenFile(path)
 }
 
 func (a *App) ResolveLink(path string) (*ResolvedLink, error) {
-	return a.utility.ResolveLink(path)
+	return a.Utility.ResolveLink(path)
 }
 
 func (a *App) IsAbsPath(path string) bool {

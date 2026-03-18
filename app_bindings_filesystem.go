@@ -15,7 +15,7 @@ func (a *App) GetDrives() DrivesList {
 }
 
 func (a *App) ListDirectory(path string, showHidden bool) (*DirectoryListing, error) {
-	return a.filesystem.ListDirectory(path, showHidden)
+	return a.Filesystem.ListDirectory(path, showHidden)
 }
 
 func (a *App) ListDir(path string, showHidden bool) (*DirectoryListing, error) {
@@ -32,11 +32,11 @@ func (a *App) ListDirFiltered(path string, showHidden bool, filter FilterQuery) 
 }
 
 func (a *App) DirSizeRecursive(path string) (int64, error) {
-	return a.filesystem.DirSizeRecursive(path)
+	return a.Filesystem.DirSizeRecursive(path)
 }
 
 func (a *App) GetFileInfo(path string) (*FileInfo, error) {
-	return a.filesystem.GetFileInfo(path)
+	return a.Filesystem.GetFileInfo(path)
 }
 
 func (a *App) FileInfo(path string) (*FileInfo, error) {
@@ -44,7 +44,7 @@ func (a *App) FileInfo(path string) (*FileInfo, error) {
 }
 
 func (a *App) ReadFile(path string, encoding string) (*FileContent, error) {
-	return a.filesystem.ReadFile(path, encoding)
+	return a.Filesystem.ReadFile(path, encoding)
 }
 
 func (a *App) ReadFileContent(path string, encoding string) (*FileContent, error) {
@@ -52,7 +52,7 @@ func (a *App) ReadFileContent(path string, encoding string) (*FileContent, error
 }
 
 func (a *App) WriteFile(path string, content string, encoding string) (*OperationResult, error) {
-	return a.filesystem.WriteFile(path, content, encoding)
+	return a.Filesystem.WriteFile(path, content, encoding)
 }
 
 func (a *App) WriteFileContent(path string, content string, encoding string) (*OperationResult, error) {
@@ -60,7 +60,7 @@ func (a *App) WriteFileContent(path string, content string, encoding string) (*O
 }
 
 func (a *App) DeleteFile(path string, recursive bool, useTrash *bool) (*OperationResult, error) {
-	return a.filesystem.DeleteFile(path, recursive, useTrash)
+	return a.Filesystem.DeleteFile(path, recursive, useTrash)
 }
 
 func (a *App) Delete(path string, recursive bool, useTrash *bool) (*OperationResult, error) {
@@ -68,7 +68,7 @@ func (a *App) Delete(path string, recursive bool, useTrash *bool) (*OperationRes
 }
 
 func (a *App) CreateDirectory(path string, recursive bool) (*OperationResult, error) {
-	return a.filesystem.CreateDirectory(path, recursive)
+	return a.Filesystem.CreateDirectory(path, recursive)
 }
 
 func (a *App) CreateDir(path string, recursive bool) (*OperationResult, error) {
@@ -76,7 +76,7 @@ func (a *App) CreateDir(path string, recursive bool) (*OperationResult, error) {
 }
 
 func (a *App) MoveFile(source, destination string) (*OperationResult, error) {
-	return a.filesystem.MoveFile(source, destination)
+	return a.Filesystem.MoveFile(source, destination)
 }
 
 func (a *App) Move(source, destination string) (*OperationResult, error) {
@@ -84,7 +84,7 @@ func (a *App) Move(source, destination string) (*OperationResult, error) {
 }
 
 func (a *App) CopyFile(source, destination string, recursive bool) (*OperationResult, error) {
-	return a.filesystem.CopyFile(source, destination, recursive)
+	return a.Filesystem.CopyFile(source, destination, recursive)
 }
 
 func (a *App) Copy(source, destination string, recursive bool) (*OperationResult, error) {
@@ -92,7 +92,7 @@ func (a *App) Copy(source, destination string, recursive bool) (*OperationResult
 }
 
 func (a *App) SearchFiles(path, pattern string, recursive bool) (*SearchResult, error) {
-	return a.filesystem.SearchFiles(path, pattern, recursive)
+	return a.Filesystem.SearchFiles(path, pattern, recursive)
 }
 
 func (a *App) Search(path, pattern string, recursive bool) (*SearchResult, error) {
@@ -100,13 +100,13 @@ func (a *App) Search(path, pattern string, recursive bool) (*SearchResult, error
 }
 
 func (a *App) AnalyzeDiskUsage(path string) (*DiskUsageResult, error) {
-	return a.filesystem.AnalyzeDiskUsage(path)
+	return a.Filesystem.AnalyzeDiskUsage(path)
 }
 
 func (a *App) StartDiskUsageStream(path string) (string, error) {
-	return a.filesystem.StartDiskUsageStream(path)
+	return a.Filesystem.StartDiskUsageStream(path)
 }
 
 func (a *App) CancelDiskUsageStream(scanId string) {
-	a.filesystem.CancelDiskUsageStream(scanId)
+	a.Filesystem.CancelDiskUsageStream(scanId)
 }

@@ -160,6 +160,7 @@ First pre-migration cleanup batch:
 - the `App` filesystem port no longer exposes low-level elevation-target helpers or raw elevated dispatch methods, only the higher-level operations that the composition layer actually uses
 - `App` now stores narrow ports for archive, runtime, batch, dir-stream, utility, navigation, workspace, elevation, and pane-watch behavior as well, so most of the remaining concrete-type coupling has been collapsed to constructor-time assembly instead of struct ownership
 - `FilesystemService` now also depends on a narrow elevation client provider rather than the concrete elevation service type, which trims one more root-level concrete dependency from filesystem orchestration
+- `main.App` now wraps an `internal/app` state holder instead of owning the full concrete backend field set directly, so app state ownership has started moving behind the internal package boundary while the Wails-facing wrapper stays stable
 
 Why this batch comes first:
 

@@ -1,13 +1,13 @@
 package main
 
 func (a *App) GetActiveOperations() []OperationProgress {
-	return a.operations.ListActiveOperations()
+	return a.Operations.ListActiveOperations()
 }
 
 func (a *App) CancelOperation(id string) bool {
-	return a.operations.CancelOperation(id)
+	return a.Operations.CancelOperation(id)
 }
 
 func (a *App) DismissOperation(id string) {
-	a.operations.RemoveOperation(id)
+	a.Operations.RemoveOperation(id)
 }

@@ -14,29 +14,29 @@ func (a *App) startElevatedClient(exePath string) (internalelevation.Client, err
 }
 
 func (a *App) createPaneWatch() {
-	a.dirWatch = internalruntime.NewPaneWatchManager(a.emitEvent)
+	a.DirWatch = internalruntime.NewPaneWatchManager(a.emitEvent)
 }
 
 func (a *App) closePaneWatch() {
-	if a.dirWatch != nil {
-		a.dirWatch.Close()
+	if a.DirWatch != nil {
+		a.DirWatch.Close()
 	}
 }
 
 func (a *App) cancelDirStreams() {
-	if a.dirStream != nil {
-		a.dirStream.CancelAll()
+	if a.DirStream != nil {
+		a.DirStream.CancelAll()
 	}
 }
 
 func (a *App) stopElevationSession() {
-	if a.elevation != nil {
-		a.elevation.StopSession()
+	if a.Elevation != nil {
+		a.Elevation.StopSession()
 	}
 }
 
 func (a *App) closeArchiveCache() {
-	a.archCache.CloseAll()
+	a.ArchCache.CloseAll()
 }
 
 func (a *App) buildFileInfo(name, fullPath string, info os.FileInfo, hidden bool) internalcontracts.FileInfo {
@@ -44,7 +44,7 @@ func (a *App) buildFileInfo(name, fullPath string, info os.FileInfo, hidden bool
 }
 
 func (a *App) startOperation(kind internalcontracts.OperationType, title, source, dest string) *internalops.ActiveOperation {
-	return a.operations.StartOperation(kind, title, source, dest)
+	return a.Operations.StartOperation(kind, title, source, dest)
 }
 
 func (a *App) promptConflict(event internalcontracts.ConflictEvent) {
@@ -52,5 +52,5 @@ func (a *App) promptConflict(event internalcontracts.ConflictEvent) {
 }
 
 func (a *App) extractNestedArchive(archivePath string, nestedChain []string) ([]byte, error) {
-	return a.archive.ExtractNestedArchive(archivePath, nestedChain)
+	return a.Archive.ExtractNestedArchive(archivePath, nestedChain)
 }

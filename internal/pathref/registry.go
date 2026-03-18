@@ -7,6 +7,19 @@ const (
 	registryVFSRoot = "/registry"
 )
 
+var registryHivePrefixes = []string{
+	"HKEY_LOCAL_MACHINE",
+	"HKEY_CURRENT_USER",
+	"HKEY_CLASSES_ROOT",
+	"HKEY_USERS",
+	"HKEY_CURRENT_CONFIG",
+	"HKLM",
+	"HKCU",
+	"HKCR",
+	"HKU",
+	"HKCC",
+}
+
 func Normalize(path string) string {
 	trimmed := strings.TrimSpace(strings.ReplaceAll(path, "\\", "/"))
 	if trimmed == "" {
@@ -52,6 +65,27 @@ func FromVFS(path string) string {
 		return RegistryScheme + strings.TrimPrefix(normalized, registryVFSRoot+"/")
 	}
 	return normalized
+}
+
+func FromVFSEntry(basePublicPath, entryPath string) string {
+	basePublicPath = Normalize(basePublicPath)
+	entryPath = strings.TrimSpace(strings.ReplaceAll(entryPath, "\\", "/"))
+	if !IsRegistry(basePublicPath) {
+		return FromVFS(entryPath)
+	}
+	if IsRegistry(entryPath) || strings.HasPrefix(entryPath, registryVFSRoot) {
+		return FromVFS(entryPath)
+	}
+	for _, prefix := range registryHivePrefixes {
+		if strings.EqualFold(entryPath, prefix) || strings.HasPrefix(strings.ToUpper(entryPath), prefix+"/") {
+			return Normalize(RegistryScheme + entryPath)
+		}
+	}
+	if basePublicPath == RegistryScheme {
+		return Normalize(RegistryScheme + entryPath)
+	}
+	trimmedBase := strings.TrimSuffix(basePublicPath, "/")
+	return Normalize(trimmedBase + "/" + strings.TrimPrefix(entryPath, "/"))
 }
 
 func Parent(path string) (string, bool) {

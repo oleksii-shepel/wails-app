@@ -33,6 +33,7 @@ func InitVFS() (*vfslib.Unified, error) {
 }
 
 func VFSListDir(vfs *vfslib.Unified, path string) (*contracts.DirectoryListing, error) {
+	publicPath := pathref.Normalize(path)
 	internalPath := pathref.ToVFS(path)
 	entries, err := vfs.ReadDir(context.Background(), internalPath)
 	if err != nil {
@@ -43,10 +44,10 @@ func VFSListDir(vfs *vfslib.Unified, path string) (*contracts.DirectoryListing, 
 	var total int64
 	for _, entry := range entries {
 		file := convertVFSInfo(entry)
-		file.Path = pathref.FromVFS(file.Path)
+		file.Path = pathref.FromVFSEntry(publicPath, file.Path)
 		if len(file.NestedChain) > 0 {
 			for index, nested := range file.NestedChain {
-				file.NestedChain[index] = pathref.FromVFS(nested)
+				file.NestedChain[index] = pathref.FromVFSEntry(publicPath, nested)
 			}
 		}
 		files = append(files, file)

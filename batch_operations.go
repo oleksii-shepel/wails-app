@@ -502,8 +502,10 @@ func (s *batchCoreService) BatchSelectiveExtract(req BatchSelectiveExtractReques
 	bp := newBatchProgress(op)
 	extractor := internalbatch.NewSelectiveExtractor(
 		internalbatch.SelectiveExtractCallbacks{
-			IsCancelled:          op.IsCancelled,
-			CheckConflict:        func(srcLabel, dst string, blanket **ConflictResolution) (string, bool, error) { return s.checkConflict(op, srcLabel, dst, blanket) },
+			IsCancelled: op.IsCancelled,
+			CheckConflict: func(srcLabel, dst string, blanket **ConflictResolution) (string, bool, error) {
+				return s.checkConflict(op, srcLabel, dst, blanket)
+			},
 			ExtractNestedArchive: s.extractNestedArchive,
 			Normalize:            normalize,
 			ArchiveEntryPath:     archiveEntryPath,

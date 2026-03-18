@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	contracts "wails-app/internal/contracts"
+
 	"github.com/mholt/archiver/v3"
 )
 

@@ -17,12 +17,12 @@ import (
 )
 
 type ExtractCallbacks struct {
-	IsCancelled     func() bool
-	CheckConflict   func(srcLabel, dst string, blanket **contracts.ConflictResolution) (string, bool, error)
-	StreamToFile    func(r io.Reader, dst string, size int64, label string) (int64, error)
+	IsCancelled      func() bool
+	CheckConflict    func(srcLabel, dst string, blanket **contracts.ConflictResolution) (string, bool, error)
+	StreamToFile     func(r io.Reader, dst string, size int64, label string) (int64, error)
 	ArchiveEntryPath func(archiver.File) string
-	Normalize       func(string) string
-	IsArchive       func(string) bool
+	Normalize        func(string) string
+	IsArchive        func(string) bool
 }
 
 type ArchiveExtractor struct {

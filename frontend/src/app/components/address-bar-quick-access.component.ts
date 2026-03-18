@@ -25,6 +25,16 @@ interface RankedQuickAccessItem {
 
 type TabSpinDirection = 'left' | 'right' | null;
 
+const SPECIAL_FOLDER_ICONS: Record<string, string> = {
+  home: '🏠',
+  desktop: '🖥️',
+  documents: '📄',
+  downloads: '📥',
+  music: '🎵',
+  pictures: '🖼️',
+  videos: '🎬',
+};
+
 export interface QuickAccessItem {
   name: string;
   path: string;
@@ -647,7 +657,7 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChan
         items: this.specialFolders.map(f => ({
           name: f.name,
           path: f.path,
-          icon: f.icon,
+          icon: this.resolveQuickAccessIcon(f.icon),
         }))
       });
     }
@@ -1077,5 +1087,14 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChan
     if (path === '/' || path === '') return 'Root';
     const parts = path.split('/').filter(p => p.length > 0);
     return parts.length > 0 ? parts[parts.length - 1] : 'Root';
+  }
+
+  private resolveQuickAccessIcon(icon: string | undefined): string {
+    if (!icon) {
+      return '📁';
+    }
+
+    const normalized = icon.trim().toLowerCase();
+    return SPECIAL_FOLDER_ICONS[normalized] ?? icon;
   }
 }

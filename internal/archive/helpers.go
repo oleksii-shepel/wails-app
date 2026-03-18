@@ -85,6 +85,10 @@ func OpenArchiveReader(archiveName string, data []byte) (archiver.Reader, error)
 	return openArchiveReader(archiveName, data)
 }
 
+func ArchiveEntryPath(f archiver.File) string {
+	return archiveEntryPath(f)
+}
+
 func archiveEntryPath(f archiver.File) string {
 	switch hdr := f.Header.(type) {
 	case *zip.FileHeader:

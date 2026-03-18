@@ -1,9 +1,11 @@
-package main
+package app
 
 import (
+	"os"
 	"path/filepath"
 	"time"
 
+	contracts "wails-app/internal/contracts"
 	internalplatform "wails-app/internal/platform"
 	internalutility "wails-app/internal/utility"
 )
@@ -45,12 +47,12 @@ func (a *App) GetParentPath(path string) string {
 }
 
 func (a *App) PathExists(path string) bool {
-	_, err := statPath(path)
+	_, err := os.Lstat(path)
 	return err == nil
 }
 
 func (a *App) IsDirectory(path string) bool {
-	info, err := statPath(path)
+	info, err := os.Lstat(path)
 	if err != nil {
 		return false
 	}
@@ -65,6 +67,6 @@ func (a *App) Breadcrumbs(path string) []map[string]string {
 	return internalplatform.Breadcrumbs(path)
 }
 
-func (a *App) GetSpecialFolders() SpecialFoldersResponse {
+func (a *App) GetSpecialFolders() contracts.SpecialFoldersResponse {
 	return internalplatform.GetSpecialFolders()
 }

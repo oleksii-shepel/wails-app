@@ -30,13 +30,13 @@ func main() {
 		os.Exit(0)
 	}
 
-	app := NewApp()
+	app := buildApp()
 
 	err := internalapp.Run(
 		assets,
 		app,
-		func(ctx context.Context) { app.State.Startup(ctx) },
-		func(context.Context) { app.State.Shutdown() },
+		app.Startup,
+		func(context.Context) { app.Shutdown() },
 	)
 
 	if err != nil {

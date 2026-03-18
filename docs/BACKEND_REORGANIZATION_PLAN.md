@@ -14,13 +14,11 @@ The backend is in a better state than a typical single-file Wails app:
 - filesystem, navigation, workspace, batch, directory stream, runtime, and utility behavior already have service seams
 - `App` mostly acts as a composition root and Wails delegate surface
 
-The main weaknesses are structural rather than purely behavioral:
+The main weaknesses are now mostly residual rather than structural:
 
-- the repository root is still crowded with backend files
-- `app.go` is still the main Wails-facing method registry and remains the obvious hotspot
-- platform-specific concerns sit beside domain concerns in one flat layout
-- low-level helpers and domain logic are still mixed under the same package boundary
-- new contributors still have to learn the codebase by filename pattern rather than by package boundary
+- the repository root still holds thin bootstrap, alias, and OS-launch edge files
+- platform-specific process launch remains root-adjacent because it is tightly coupled to executable/bootstrap concerns
+- some compatibility aliases remain in `main` for wire-type stability
 
 ## Professional Target Shape
 
@@ -110,33 +108,42 @@ The current repository already has enough service seams to define a concrete tar
 
 Owns the Wails-facing composition root and binding surface.
 
-Practical constraint:
+Current status:
 
-- in Go, methods bound to `App` cannot be moved piecemeal into another package while `App` remains defined in `main`
-- that makes `internal/app` a whole-type migration target rather than a safe incremental move for individual binding files
-- until that broader move is justified, the compile-safe path is to keep Wails binding methods in `main` and continue shrinking the root by moving service ownership and composition helpers behind them
+- the whole-type `App` move is now done: the concrete binding type lives in `internal/app/app.go`
+- the Wails-facing receiver methods now live in `internal/app/bindings_*.go`
+- `main.go` is now the thin bootstrap that builds and binds an `internal/app.App` instance
+- the remaining root responsibility is constructor/bootstrap glue in `app_adapters.go`, thin filesystem/elevation adapters, and OS-specific elevation launch hooks
 
 Current files that belong here first:
 
-- `app.go`
+- `internal/app/app.go`
 - `internal/app/core.go`
+- `internal/app/state.go`
+- `internal/app/builder.go`
+- `internal/app/lifecycle.go`
+- `internal/app/state_actions.go`
+- `internal/app/state_ops.go`
 - `internal/app/runner.go`
 - `internal/app/services.go`
 - `internal/app/runtime.go`
-- `app_bindings_archive.go`
-- `app_bindings_batch.go`
-- `app_bindings_filesystem.go`
-- `app_bindings_navigation.go`
-- `app_bindings_workspace.go`
-- `app_bindings_operations.go`
-- `app_bindings_runtime.go`
-- `app_bindings_utility.go`
-- `app_bindings_elevation.go`
+- `internal/app/vfs.go`
+- `internal/app/filter.go`
+- `internal/app/bindings_archive.go`
+- `internal/app/bindings_batch.go`
+- `internal/app/bindings_filesystem.go`
+- `internal/app/bindings_navigation.go`
+- `internal/app/bindings_workspace.go`
+- `internal/app/bindings_operations.go`
+- `internal/app/bindings_runtime.go`
+- `internal/app/bindings_utility.go`
+- `internal/app/bindings_elevation.go`
+- `internal/app/bindings_vfs.go`
 
 Likely later additions:
 
-- app-level event adapter helpers
-- the Wails bootstrap/options glue has already started moving under `internal/app`, the core manager/cache bootstrap now also lives there, internal service assembly for `NewApp` has started moving there too, and startup/shutdown runtime coordination now also routes there; the larger remaining move is relocating the `App` type and all of its bound methods together
+- any further moves here would mostly be cosmetic and should be weighed against churn
+- app-level event adapter helpers may still be consolidated further if we decide to remove the last root construction layer
 
 Suggested compile-safe batch plan for the full `App` move:
 
@@ -148,7 +155,7 @@ Suggested compile-safe batch plan for the full `App` move:
 First pre-migration cleanup batch:
 
 - filesystem raw operation helpers: `listDirectoryRaw`, `readFileRaw`, `writeFileRaw`, `deleteFileRaw`, `createDirectoryRaw`, `moveFileRaw`, and `copyFileRaw` in `filesystem.go` now delegate to `internal/filesystem/raw_service.go`
-- filesystem support helpers that those raw ops still depend on: `buildFileInfoWithHidden`, `buildFallbackLinkInfo`, and `copyPath` now delegate to `internal/filesystem`; generic path normalization now lives in `internal/platform/paths.go`, with root wrappers delegating there
+- filesystem support helpers that those raw ops still depend on: `buildFileInfoWithHidden`, `buildFallbackLinkInfo`, and `copyPath` now delegate to `internal/filesystem`; generic path normalization now lives in `internal/platform/paths.go`, and the old root wrapper files for slash-cleaning and parent-path helpers have now been removed
 - elevation/filesystem coordination helpers: the old root `opTargetSingle` and `opTargetPair` helpers have been absorbed into `FilesystemService`; platform trash/elevation launch hooks still remain root-owned
 - cross-domain helpers that still couple composition to `main`: `classifyError` has moved into `internal/contracts/errors.go`, and nested archive chain resolution now lives in `internal/archive/resolve.go`
 - `NewApp` internal-service bootstrap now routes through `internal/app/services.go`, so `main` is no longer the only place that knows how to assemble archive, navigation, workspace, utility, and runtime-stream services
@@ -160,15 +167,16 @@ First pre-migration cleanup batch:
 - the `App` filesystem port no longer exposes low-level elevation-target helpers or raw elevated dispatch methods, only the higher-level operations that the composition layer actually uses
 - `App` now stores narrow ports for archive, runtime, batch, dir-stream, utility, navigation, workspace, elevation, and pane-watch behavior as well, so most of the remaining concrete-type coupling has been collapsed to constructor-time assembly instead of struct ownership
 - `FilesystemService` now also depends on a narrow elevation client provider rather than the concrete elevation service type, which trims one more root-level concrete dependency from filesystem orchestration
-- `main.App` now wraps an `internal/app` state holder instead of owning the full concrete backend field set directly, so app state ownership has started moving behind the internal package boundary while the Wails-facing wrapper stays stable
+- the whole concrete `App` binding type now lives in `internal/app/app.go`, so the Wails-facing surface no longer lives in `main`
 - the service-port definitions that `App` used to duplicate in `main` are now owned by `internal/app/state.go`, so the root wrapper no longer carries its own parallel state-interface layer
 - state/runtime/service assembly for `NewApp` now also routes through `internal/app/builder.go`, so root construction is down to core bootstrap, root-only adapter creation, and wrapper instantiation
-- VFS host state and mount/list/open/unmount behavior now also live on `internal/app.State`, with `app_vfs.go` reduced to Wails-facing wrapper methods
-- startup, shutdown, and event emission now also route through methods on `internal/app.State`, leaving root `app.go` with less direct lifecycle behavior
+- VFS host state and mount/list/open/unmount behavior now also live on `internal/app.State`, with VFS binding methods now owned by `internal/app/bindings_vfs.go`
+- startup, shutdown, and event emission now also route through `internal/app`, leaving root `main.go` as bootstrap-only code
 - pane-watch creation/cleanup, dir-stream cancellation, elevation session shutdown, and archive-cache close now also live on `internal/app.State`, trimming more state-only composition behavior out of the root wrapper
 - operation start, conflict-event emission, and nested-archive extraction callbacks now also route through `internal/app.State`, leaving fewer state behaviors behind in root helper files
 - the old root `App` composition-helper methods are now gone; the remaining root-only construction glue is down to plain package adapters such as the elevated-client launcher and file-info callback
-- root `app.go` no longer owns startup/shutdown/event wrapper methods either; `main.go` now passes direct closures into the internal state lifecycle, leaving `app.go` effectively as wrapper type plus constructor
+- `BuildConfig` assembly for `internal/app` now also lives in the root adapter layer
+- the `App` package flip is now complete: the old root `app.go`, `app_vfs.go`, and `app_bindings_*.go` files have been removed, and `main.go` now binds the internal app instance directly
 
 Why this batch comes first:
 
@@ -211,25 +219,26 @@ Owns real filesystem orchestration, listing, read/write operations, filtering, d
 
 Current files that map here:
 
-- `filesystem_service.go`
-- `filesystem.go`
-- `disk_usage.go`
-- `disk_usage_cache.go`
-- `disk_usage_windows.go`
-- `disk_usage_unix.go`
-- `stat.go`
+- `internal/filesystem/service.go`
+- `internal/filesystem/raw_service.go`
+- `internal/filesystem/elevated_handler.go`
+- `internal/filesystem/disk_usage.go`
+- `internal/filesystem/disk_usage_cache.go`
+- `internal/filesystem/disk_usage_windows.go`
+- `internal/filesystem/disk_usage_unix.go`
 
 Files that may stay adjacent but depend on this package:
 
-- `app_bindings_filesystem.go`
+- `internal/app/bindings_filesystem.go`
 - `internal/runtime/dir_stream.go`
 
 Current status:
 
 - elevated request dispatch already routes through an `internal/filesystem` adapter
+- the concrete filesystem orchestration service now also lives under `internal/filesystem/service.go`
 - raw filesystem operations and their copy/file-info helper implementations now live behind `internal/filesystem/raw_service.go`
-- disk-usage caching now also lives under `internal/filesystem/disk_usage_cache.go`
-- the remaining root filesystem code is mostly Wails-facing delegation plus platform callback wiring
+- disk-usage scanning and caching now both live under `internal/filesystem`
+- the remaining root filesystem code is now down to constructor/bootstrap wiring, metadata callback adapters, and the elevation-process edge
 
 ### `internal/platform`
 
@@ -260,7 +269,7 @@ Current status:
 - filesystem metadata callbacks now route through `internal/platform/metadata_*.go`, and trash handling now routes through `internal/platform/trash_*.go`
 - utility-facing shell open and link-resolution behavior now routes through `internal/platform/links_*.go`
 - OS info, drive enumeration, and special-folder discovery now route through `internal/platform/system*.go` and `internal/platform/special_folders_*.go`, with `main` only re-exporting contracts and Wails delegates
-- root files like `pathutils.go` and `utils.go` now mostly expose Wails-facing or package-local wrappers over that internal platform boundary
+- the old root path and archive helper wrapper files have now been removed; platform/path/archive helper ownership is internalized
 - disk-usage wire types now also live under `internal/contracts/filesystem.go`, with `main` only re-exporting them via aliases
 
 ### `internal/navigation`
@@ -353,14 +362,12 @@ Current files that map here:
 - `internal/runtime/native_filedrop.go`
 - `internal/runtime/filedrop_windows.go`
 - `internal/runtime/vfs.go`
-- `filedrop_windows.go`
-- `app_vfs.go`
 
 Important note:
 
 - `internal/runtime/dir_stream.go` is close to filesystem behavior, but its lifecycle and event-stream semantics make it a better runtime-facing boundary than a pure domain package.
-- native Wails file-drop event parsing and the Windows host drop helper now also live under `internal/runtime`, with `main` keeping only the bound wrapper methods
-- VFS mount/open/list orchestration now also lives under `internal/runtime/vfs.go`, with `app_vfs.go` reduced to thin `App` wrappers around the unified VFS host
+- native Wails file-drop event parsing and the Windows host drop helper now also live under `internal/runtime`, with the bound wrapper methods now owned by `internal/app`
+- VFS mount/open/list orchestration now also lives under `internal/runtime/vfs.go`, with the Wails-facing VFS methods now owned by `internal/app/bindings_vfs.go`
 
 ### `internal/utility`
 
@@ -445,10 +452,9 @@ Actions:
 
 Current status:
 
-- `app.go` has already been reduced to composition-root and lifecycle responsibilities
-- Wails-facing filesystem, navigation, workspace, operations, runtime, utility, and elevation delegates now live in domain-specific `app_bindings_*.go` files
-- batch-facing Wails delegates now also live in `app_bindings_batch.go`, and path/system helper bindings have been consolidated into the existing filesystem and utility binding files
-- archive-specific VFS browse helpers now live outside `app.go` in `app_archive_vfs.go`
+- this milestone is now complete and superseded by the package flip
+- the Wails-facing `App` type and domain-specific binding files now live under `internal/app`
+- `main.go` is down to thin bootstrap/bind flow, and the remaining root app-related code is constructor/adapter glue in `app_adapters.go`
 
 Why this phase matters:
 
@@ -457,8 +463,8 @@ Why this phase matters:
 
 Acceptance criteria:
 
-- `app.go` contains composition-root logic only
-- Wails-facing methods are grouped by domain in thin files
+- the root no longer owns the concrete `App` type
+- Wails-facing methods are grouped by domain under `internal/app/bindings_*.go`
 - `go build .` passes with no behavior changes
 
 ### Phase B: Introduce Internal Domain Packages
@@ -570,57 +576,34 @@ Avoid these common failure modes:
 - mixing platform helpers with domain orchestration in the same package
 - doing archive and filesystem package extraction in the same slice as large frontend changes
 
-## Immediate, Low-Risk Next Step
+## Completion Status
 
-The best next implementation slice is:
+The reorganization is now effectively complete.
 
-1. keep the current flat root temporarily
-2. split `app.go` into domain-specific Wails binding files
-3. document the intended package ownership in code comments and docs
-4. then start with `internal/navigation` and `internal/workspace`
+What remains in the repository root is intentional:
 
-That gives a visible improvement quickly and lowers the risk of later package moves.
+1. `main.go` as the desktop/bootstrap entrypoint.
+2. `app_adapters.go` as the small composition bridge from bootstrap into `internal/app`.
+3. thin filesystem/elevation adapters needed to connect OS launch edges and raw callbacks into internal packages.
+4. alias files such as `types.go`, `archive_types.go`, and `batch_types.go` that preserve stable exported wire names at the root boundary.
 
-## Proposed Near-Term File Layout
+That is materially different from the starting point: real backend ownership no longer lives in the root package.
 
-Before introducing `internal/*`, a cleaner root layout can already look like this:
+## Current Root Layout
+
+After the `App` package flip, the root is much thinner and now looks more like this:
 
 ```text
-app.go
-app_archive_vfs.go
-app_bindings_archive.go
-app_bindings_batch.go
-app_bindings_filesystem.go
-app_bindings_navigation.go
-app_bindings_operations.go
-app_bindings_workspace.go
-app_bindings_runtime.go
-app_bindings_utility.go
-app_bindings_elevation.go
+app_adapters.go
 
-archive_*.go
-batch_*.go
 filesystem*.go
-navigation*.go
-workspace*.go
 elevation*.go
-dir_stream*.go
-operations.go
 types.go
 
-platform_*.go
-platform_times_*.go
-trash_*.go
-osinfo.go
-pathutils.go
-stat.go
-
-app_vfs.go
-filedrop_windows.go
 main.go
 ```
 
-This is not the final state, but it makes ownership more obvious immediately.
+This is effectively the final intended root shape: bootstrap, thin adapters, and compatibility aliases.
 
 ## Suggested Decision
 
@@ -637,28 +620,13 @@ The right definition of “professional” here is:
 
 Do not treat this as a one-shot folder shuffle. Treat it as a controlled package-boundary program.
 
-## Recommended First Milestone
+## Outcome
 
-If you want to start now, the first milestone should be:
+The backend now matches the original structural intent:
 
-### Milestone 1: Binding Surface Cleanup
+- `internal/app` owns the Wails-facing app type and binding surface
+- `internal/filesystem`, `internal/archive`, `internal/batch`, `internal/navigation`, `internal/workspace`, `internal/runtime`, `internal/utility`, `internal/platform`, and `internal/elevation` own backend behavior
+- `main` no longer owns concrete backend orchestration
+- the root package is reduced to bootstrap, thin adapters, and compatibility aliases
 
-Scope:
-
-- split `app.go` into domain-specific binding files
-- keep `NewApp`, struct wiring, and lifecycle in `app.go`
-- leave all backend packages as-is for now
-
-Current result:
-
-- this milestone is now partially implemented in the current tree
-- the next step is no longer "split the bindings"; it is "start extracting the safest service packages"
-
-Success criteria:
-
-- `app.go` becomes short and boring
-- Wails binding methods become easy to locate by domain
-- no user-visible behavior changes
-- `go build .` passes
-
-That is the best foundation for the next package-level reorganization.
+Further cleanup from here should be treated as optional polish, not as unfinished core reorganization.

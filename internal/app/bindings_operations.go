@@ -1,6 +1,8 @@
-package main
+package app
 
-func (a *App) GetActiveOperations() []OperationProgress {
+import contracts "wails-app/internal/contracts"
+
+func (a *App) GetActiveOperations() []contracts.OperationProgress {
 	return a.Operations.ListActiveOperations()
 }
 

@@ -153,28 +153,20 @@ type WorkspaceList = internalcontracts.WorkspaceList
 // Filter System
 // ============================================================================
 
-type FilterType string
+type FilterType = internalcontracts.FilterType
 
 const (
-	FilterName      FilterType = "name"
-	FilterExtension FilterType = "ext"
-	FilterType_     FilterType = "type"
-	FilterSize      FilterType = "size"
-	FilterModified  FilterType = "modified"
-	FilterGlob      FilterType = "glob"
+	FilterName      FilterType = internalcontracts.FilterName
+	FilterExtension FilterType = internalcontracts.FilterExtension
+	FilterType_     FilterType = internalcontracts.FilterType_
+	FilterSize      FilterType = internalcontracts.FilterSize
+	FilterModified  FilterType = internalcontracts.FilterModified
+	FilterGlob      FilterType = internalcontracts.FilterGlob
 )
 
-type FilterCriteria struct {
-	Type     FilterType `json:"type"`
-	Value    string     `json:"value"`
-	Operator string     `json:"operator,omitempty"`
-}
+type FilterCriteria = internalcontracts.FilterCriteria
 
-type FilterQuery struct {
-	Text          string           `json:"text,omitempty"`
-	Criteria      []FilterCriteria `json:"criteria,omitempty"`
-	CaseSensitive bool             `json:"caseSensitive"`
-}
+type FilterQuery = internalcontracts.FilterQuery
 
 // ============================================================================
 // User Preferences

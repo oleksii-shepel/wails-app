@@ -1,4 +1,4 @@
-package main
+package app
 
 func (a *App) SetPaneDirectory(paneID, path string) error {
 	if a.DirWatch == nil {

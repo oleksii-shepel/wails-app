@@ -1,4 +1,4 @@
-package main
+package filesystem
 
 import (
 	"fmt"
@@ -10,43 +10,22 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	contracts "wails-app/internal/contracts"
 )
 
-// ── Types ────────────────────────────────────────────────────────────────────
-
-// Disk usage wire types now live in internal/contracts and are re-exported
-// from types.go for the Wails-facing main package surface.
-
-// ── Wails-exposed App shims ───────────────────────────────────────────────────
-// Thin pass-throughs — all real logic lives on FilesystemService.
-
-// StartDiskUsageStream starts a streaming scan.
-//
-// Events emitted (scoped by scanId so concurrent scans never cross):
-//
-//	"disk-usage:entry"  — { scanId, entry: DiskUsageEntry }   incremental child snapshots
-//	"disk-usage:progress" — { scanId, progress: DiskUsageProgress } live totals
-//	"disk-usage:done"   — { scanId, result: DiskUsageResult } final summary
-//	"disk-usage:error"  — { scanId, error: string }
-//
-// The returned scanId must be passed to CancelDiskUsageStream when the
-// caller navigates away, so the goroutine stops emitting to a dead surface.
-// ── FilesystemService methods ─────────────────────────────────────────────────
-
-// AnalyzeDiskUsage is the original blocking call — kept for compatibility.
-func (s *FilesystemService) AnalyzeDiskUsage(path string) (*DiskUsageResult, error) {
+func (s *Service) AnalyzeDiskUsage(path string) (*contracts.DiskUsageResult, error) {
 	if cached, ok := s.duCache.Get(path); ok {
 		return cached, nil
 	}
 
 	start := time.Now()
-
 	children, err := readNonLinks(path)
 	if err != nil {
 		return nil, err
 	}
 
-	never := make(chan struct{}) // never closed — scan always runs to completion
+	never := make(chan struct{})
 	entries, _ := globalBFS(path, children, never, nil, nil)
 
 	result := buildDiskUsageResult(path, entries, start)
@@ -54,8 +33,7 @@ func (s *FilesystemService) AnalyzeDiskUsage(path string) (*DiskUsageResult, err
 	return result, nil
 }
 
-// StartDiskUsageStream starts the parallel scan and emits events per-entry.
-func (s *FilesystemService) StartDiskUsageStream(path string) (string, error) {
+func (s *Service) StartDiskUsageStream(path string) (string, error) {
 	s.duCache.InvalidateSubtree(path)
 
 	children, err := readNonLinks(path)
@@ -63,33 +41,33 @@ func (s *FilesystemService) StartDiskUsageStream(path string) (string, error) {
 		return "", err
 	}
 
-	scanId := fmt.Sprintf("du-%d", time.Now().UnixNano())
-	done := s.duStreams.register(scanId)
+	scanID := fmt.Sprintf("du-%d", time.Now().UnixNano())
+	done := s.duStreams.register(scanID)
 
 	go func() {
 		start := time.Now()
 
-		entries, _ := globalBFS(path, children, done, func(_ int, entry DiskUsageEntry) {
+		entries, _ := globalBFS(path, children, done, func(_ int, entry contracts.DiskUsageEntry) {
 			select {
 			case <-done:
 			default:
 				s.emit("disk-usage:entry", map[string]interface{}{
-					"scanId": scanId,
+					"scanId": scanID,
 					"entry":  entry,
 				})
 			}
-		}, func(progress DiskUsageProgress) {
+		}, func(progress contracts.DiskUsageProgress) {
 			select {
 			case <-done:
 			default:
 				s.emit("disk-usage:progress", map[string]interface{}{
-					"scanId":   scanId,
+					"scanId":   scanID,
 					"progress": progress,
 				})
 			}
 		})
 
-		s.duStreams.unregister(scanId)
+		s.duStreams.unregister(scanID)
 
 		result := buildDiskUsageResult(path, entries, start)
 		s.duCache.Set(result)
@@ -99,22 +77,18 @@ func (s *FilesystemService) StartDiskUsageStream(path string) (string, error) {
 			return
 		default:
 			s.emit("disk-usage:done", map[string]interface{}{
-				"scanId": scanId,
+				"scanId": scanID,
 				"result": *result,
 			})
 		}
 	}()
 
-	return scanId, nil
+	return scanID, nil
 }
 
-// CancelDiskUsageStream stops an in-progress stream. Safe to call after completion.
-func (s *FilesystemService) CancelDiskUsageStream(scanId string) {
-	s.duStreams.cancel(scanId)
+func (s *Service) CancelDiskUsageStream(scanID string) {
+	s.duStreams.cancel(scanID)
 }
-
-// ── Stream registry ───────────────────────────────────────────────────────────
-// duStreamRegistry is a field on FilesystemService — see filesystem_service.go.
 
 type duStreamRegistry struct {
 	mu      sync.Mutex
@@ -125,7 +99,6 @@ func newDuStreamRegistry() *duStreamRegistry {
 	return &duStreamRegistry{cancels: make(map[string]func())}
 }
 
-// register creates a cancel channel for scanId and returns the done channel.
 func (r *duStreamRegistry) register(id string) <-chan struct{} {
 	ch := make(chan struct{})
 	var once sync.Once
@@ -154,53 +127,40 @@ func (r *duStreamRegistry) cancel(id string) {
 	}
 }
 
-// ── Shared helpers ────────────────────────────────────────────────────────────
-
 func readNonLinks(path string) ([]os.DirEntry, error) {
 	all, err := os.ReadDir(path)
 	if err != nil {
 		return nil, err
 	}
 	out := all[:0]
-	for _, e := range all {
-		if !isLink(e) {
-			out = append(out, e)
+	for _, entry := range all {
+		if !isLink(entry) {
+			out = append(out, entry)
 		}
 	}
 	return out, nil
 }
 
-// ── Global concurrent BFS ────────────────────────────────────────────────────
-
-// scanJob is one directory to process, tagged with its top-level ancestor index.
 type scanJob struct {
 	dir     string
 	rootIdx int
 }
 
-// globalBFS scans all direct children of root using a single shared concurrent
-// work queue. All workers serve the entire tree so no worker idles while a
-// large subtree monopolises another — unlike the old two-tier approach.
-//
-// onChildUpdate receives incremental snapshots for direct children as their
-// subtree stats accumulate, plus a final snapshot once a directory child is
-// fully scanned; pass nil when child notifications are not needed.
 func globalBFS(
 	root string,
 	children []os.DirEntry,
 	done <-chan struct{},
-	onChildUpdate func(idx int, entry DiskUsageEntry),
-	onProgress func(progress DiskUsageProgress),
-) ([]DiskUsageEntry, error) {
+	onChildUpdate func(idx int, entry contracts.DiskUsageEntry),
+	onProgress func(progress contracts.DiskUsageProgress),
+) ([]contracts.DiskUsageEntry, error) {
 	n := len(children)
-	entries := make([]DiskUsageEntry, n)
+	entries := make([]contracts.DiskUsageEntry, n)
 	start := time.Now()
 	var progressSize atomic.Int64
 	var progressFiles atomic.Int64
 	var progressDirs atomic.Int64
 	progressStop := make(chan struct{})
 
-	// Per-root-child accumulators.
 	type rootAccum struct {
 		size     atomic.Int64
 		files    atomic.Int64
@@ -208,11 +168,11 @@ func globalBFS(
 		inFlight atomic.Int32
 		dirty    atomic.Bool
 		typesMu  sync.Mutex
-		types    map[string]DiskUsageTypeStat
+		types    map[string]contracts.DiskUsageTypeStat
 	}
 	accums := make([]rootAccum, n)
 
-	buildChildSnapshot := func(idx int) DiskUsageEntry {
+	buildChildSnapshot := func(idx int) contracts.DiskUsageEntry {
 		snapshot := entries[idx]
 		snapshot.Size = accums[idx].size.Load()
 		snapshot.Files = accums[idx].files.Load()
@@ -230,19 +190,18 @@ func globalBFS(
 	var firstErr error
 	var errMu sync.Mutex
 
-	// Initialise entry metadata; plain-file children are handled immediately.
-	for i, ch := range children {
-		full := filepath.Join(root, ch.Name())
-		accums[i].types = make(map[string]DiskUsageTypeStat)
-		entries[i] = DiskUsageEntry{
-			Name:  ch.Name(),
-			Path:  toSlash(full),
-			IsDir: ch.IsDir(),
+	for i, child := range children {
+		full := filepath.Join(root, child.Name())
+		accums[i].types = make(map[string]contracts.DiskUsageTypeStat)
+		entries[i] = contracts.DiskUsageEntry{
+			Name:  child.Name(),
+			Path:  filepath.ToSlash(full),
+			IsDir: child.IsDir(),
 		}
-		if !ch.IsDir() {
-			if info, err := ch.Info(); err == nil {
+		if !child.IsDir() {
+			if info, err := child.Info(); err == nil {
 				entries[i].Size = info.Size()
-				entries[i].Types = buildSingleFileTypes(ch.Name(), info.Size())
+				entries[i].Types = buildSingleFileTypes(child.Name(), info.Size())
 				progressSize.Add(info.Size())
 			} else {
 				entries[i].Error = err.Error()
@@ -260,7 +219,7 @@ func globalBFS(
 	if onProgress != nil || onChildUpdate != nil {
 		emitProgress := func() {
 			if onProgress != nil {
-				onProgress(DiskUsageProgress{
+				onProgress(contracts.DiskUsageProgress{
 					TotalSize:  progressSize.Load(),
 					TotalFiles: progressFiles.Load(),
 					TotalDirs:  progressDirs.Load(),
@@ -292,31 +251,28 @@ func globalBFS(
 		}()
 	}
 
-	// ── Job queue ─────────────────────────────────────────────────────────────
-	// A relay goroutine bridges a buffered input channel and a buffered output
-	// channel with an in-memory overflow slice so workers never block on send.
 	jobsIn := make(chan scanJob, 1024)
 	jobsOut := make(chan scanJob, 1024)
-	go func() { // relay
+	go func() {
 		defer close(jobsOut)
 		var buf []scanJob
 		for {
 			if len(buf) == 0 {
-				j, ok := <-jobsIn
+				job, ok := <-jobsIn
 				if !ok {
 					return
 				}
-				buf = append(buf, j)
+				buf = append(buf, job)
 			} else {
 				select {
-				case j, ok := <-jobsIn:
+				case job, ok := <-jobsIn:
 					if !ok {
-						for _, bj := range buf {
-							jobsOut <- bj
+						for _, buffered := range buf {
+							jobsOut <- buffered
 						}
 						return
 					}
-					buf = append(buf, j)
+					buf = append(buf, job)
 				case jobsOut <- buf[0]:
 					buf = buf[1:]
 				}
@@ -332,18 +288,14 @@ func globalBFS(
 		jobsIn <- job
 	}
 
-	// Seed with top-level directory children.
-	for i, ch := range children {
-		if ch.IsDir() {
-			submit(scanJob{filepath.Join(root, ch.Name()), i})
+	for i, child := range children {
+		if child.IsDir() {
+			submit(scanJob{filepath.Join(root, child.Name()), i})
 		}
 	}
 
-	// Start the closer only after the initial submissions have incremented the
-	// counter. Additional Add calls from workers are then safe while Wait blocks.
 	go func() { wg.Wait(); close(jobsIn) }()
 
-	// ── Workers ───────────────────────────────────────────────────────────────
 	numWorkers := runtime.GOMAXPROCS(0) * 2
 	if numWorkers < 4 {
 		numWorkers = 4
@@ -374,12 +326,12 @@ func globalBFS(
 						}
 						errMu.Unlock()
 					} else {
-						for _, e := range dirEntries {
-							if isLink(e) {
+						for _, entry := range dirEntries {
+							if isLink(entry) {
 								continue
 							}
-							full := filepath.Join(job.dir, e.Name())
-							if e.IsDir() {
+							full := filepath.Join(job.dir, entry.Name())
+							if entry.IsDir() {
 								accums[job.rootIdx].dirs.Add(1)
 								accums[job.rootIdx].dirty.Store(true)
 								progressDirs.Add(1)
@@ -388,10 +340,10 @@ func globalBFS(
 								accums[job.rootIdx].files.Add(1)
 								accums[job.rootIdx].dirty.Store(true)
 								progressFiles.Add(1)
-								if info, err := e.Info(); err == nil {
+								if info, err := entry.Info(); err == nil {
 									accums[job.rootIdx].size.Add(info.Size())
 									progressSize.Add(info.Size())
-									addDiskUsageType(accums[job.rootIdx].types, &accums[job.rootIdx].typesMu, e.Name(), info.Size())
+									addDiskUsageType(accums[job.rootIdx].types, &accums[job.rootIdx].typesMu, entry.Name(), info.Size())
 								}
 							}
 						}
@@ -399,7 +351,6 @@ func globalBFS(
 				}
 
 				if accums[job.rootIdx].inFlight.Add(-1) == 0 {
-					// All work for this root child is done — materialise final entry.
 					idx := job.rootIdx
 					accums[idx].dirty.Store(false)
 					entries[idx] = buildChildSnapshot(idx)
@@ -413,7 +364,7 @@ func globalBFS(
 	workerWG.Wait()
 	close(progressStop)
 	if onProgress != nil {
-		onProgress(DiskUsageProgress{
+		onProgress(contracts.DiskUsageProgress{
 			TotalSize:  progressSize.Load(),
 			TotalFiles: progressFiles.Load(),
 			TotalDirs:  progressDirs.Load(),
@@ -423,17 +374,17 @@ func globalBFS(
 	return entries, firstErr
 }
 
-func buildSingleFileTypes(name string, size int64) map[string]DiskUsageTypeStat {
+func buildSingleFileTypes(name string, size int64) map[string]contracts.DiskUsageTypeStat {
 	ext := diskUsageExt(name)
 	if ext == "" {
 		return nil
 	}
-	return map[string]DiskUsageTypeStat{
+	return map[string]contracts.DiskUsageTypeStat{
 		ext: {Count: 1, Size: size},
 	}
 }
 
-func addDiskUsageType(target map[string]DiskUsageTypeStat, mu *sync.Mutex, name string, size int64) {
+func addDiskUsageType(target map[string]contracts.DiskUsageTypeStat, mu *sync.Mutex, name string, size int64) {
 	ext := diskUsageExt(name)
 	if ext == "" {
 		return
@@ -446,21 +397,21 @@ func addDiskUsageType(target map[string]DiskUsageTypeStat, mu *sync.Mutex, name 
 	mu.Unlock()
 }
 
-func cloneDiskUsageTypes(source map[string]DiskUsageTypeStat, mu *sync.Mutex) map[string]DiskUsageTypeStat {
+func cloneDiskUsageTypes(source map[string]contracts.DiskUsageTypeStat, mu *sync.Mutex) map[string]contracts.DiskUsageTypeStat {
 	mu.Lock()
 	defer mu.Unlock()
 	if len(source) == 0 {
 		return nil
 	}
-	cloned := make(map[string]DiskUsageTypeStat, len(source))
+	cloned := make(map[string]contracts.DiskUsageTypeStat, len(source))
 	for ext, stat := range source {
 		cloned[ext] = stat
 	}
 	return cloned
 }
 
-func mergeDiskUsageTypes(entries []DiskUsageEntry) map[string]DiskUsageTypeStat {
-	merged := make(map[string]DiskUsageTypeStat)
+func mergeDiskUsageTypes(entries []contracts.DiskUsageEntry) map[string]contracts.DiskUsageTypeStat {
+	merged := make(map[string]contracts.DiskUsageTypeStat)
 	for _, entry := range entries {
 		for ext, stat := range entry.Types {
 			current := merged[ext]
@@ -483,24 +434,24 @@ func diskUsageExt(name string) string {
 	return strings.ToLower(ext[1:])
 }
 
-func buildDiskUsageResult(path string, entries []DiskUsageEntry, start time.Time) *DiskUsageResult {
+func buildDiskUsageResult(path string, entries []contracts.DiskUsageEntry, start time.Time) *contracts.DiskUsageResult {
 	sort.Slice(entries, func(i, j int) bool {
 		return entries[i].Size > entries[j].Size
 	})
 
 	var totalSize, totalFiles, totalDirs int64
-	for _, e := range entries {
-		totalSize += e.Size
-		if e.IsDir {
-			totalDirs += 1 + e.Dirs
-			totalFiles += e.Files
+	for _, entry := range entries {
+		totalSize += entry.Size
+		if entry.IsDir {
+			totalDirs += 1 + entry.Dirs
+			totalFiles += entry.Files
 		} else {
 			totalFiles++
 		}
 	}
 
-	return &DiskUsageResult{
-		Path:       toSlash(path),
+	return &contracts.DiskUsageResult{
+		Path:       filepath.ToSlash(path),
 		TotalSize:  totalSize,
 		TotalFiles: totalFiles,
 		TotalDirs:  totalDirs,

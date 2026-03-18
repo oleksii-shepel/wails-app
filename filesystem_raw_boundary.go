@@ -6,6 +6,7 @@ import (
 
 	internalfilesystem "wails-app/internal/filesystem"
 	internalplatform "wails-app/internal/platform"
+	vfsarchive "wails-app/vfs/archive"
 )
 
 var rawFilesystemOps = internalfilesystem.NewRawService(internalfilesystem.RawCallbacks{
@@ -17,15 +18,23 @@ var rawFilesystemOps = internalfilesystem.NewRawService(internalfilesystem.RawCa
 
 func rawFilesystemMetadataCallbacks() internalfilesystem.MetadataCallbacks {
 	return internalfilesystem.MetadataCallbacks{
-		ToSlash:                      toSlash,
+		ToSlash:                      internalplatform.ToSlash,
 		IsHiddenFile:                 isHiddenFile,
-		IsArchive:                    isArchive,
+		IsArchive:                    vfsarchive.IsArchiveExt,
 		SymlinkPointsToDir:           internalplatform.SymlinkPointsToDir,
 		IsUntrackedDirectoryJunction: internalplatform.IsUntrackedDirectoryJunction,
 		GetCreatedTime:               internalplatform.GetCreatedTime,
 		GetAccessedTime:              internalplatform.GetAccessedTime,
 		FormatPermissions:            formatPermissions,
 	}
+}
+
+func buildFileInfoWithHidden(name, fullPath string, info os.FileInfo, hidden bool) FileInfo {
+	return internalfilesystem.BuildFileInfoWithHidden(rawFilesystemMetadataCallbacks(), name, fullPath, info, hidden)
+}
+
+func isHiddenFile(name, path string) bool {
+	return internalplatform.CheckHidden(name, path)
 }
 
 func formatPermissions(info os.FileInfo) string {

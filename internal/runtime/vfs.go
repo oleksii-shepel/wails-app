@@ -120,6 +120,12 @@ func convertVFSInfo(entry vfslib.FileInfo) contracts.FileInfo {
 	return convertVFSInfoWithChain(entry, nil)
 }
 
+type registryMetadata interface {
+	RegistryKind() string
+	RegistryValueType() string
+	RegistryPreview() string
+}
+
 func convertVFSInfoWithChain(entry vfslib.FileInfo, parentChain []string) contracts.FileInfo {
 	fileType := contracts.FileTypeFile
 	switch {
@@ -136,7 +142,7 @@ func convertVFSInfoWithChain(entry vfslib.FileInfo, parentChain []string) contra
 		nestedChain = append(append([]string{}, parentChain...), entry.Path())
 	}
 
-	return contracts.FileInfo{
+	file := contracts.FileInfo{
 		Name:        entry.Name(),
 		Path:        entry.Path(),
 		Type:        fileType,
@@ -147,4 +153,12 @@ func convertVFSInfoWithChain(entry vfslib.FileInfo, parentChain []string) contra
 		IsNested:    fileType == contracts.FileTypeArchive,
 		NestedChain: nestedChain,
 	}
+
+	if metadata, ok := entry.(registryMetadata); ok {
+		file.RegistryKind = metadata.RegistryKind()
+		file.RegistryValueType = metadata.RegistryValueType()
+		file.RegistryPreview = metadata.RegistryPreview()
+	}
+
+	return file
 }

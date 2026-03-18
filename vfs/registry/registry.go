@@ -197,18 +197,20 @@ func (f *FS) Open(_ context.Context, path string) (vfs.File, error) {
 		return nil, vfs.ErrNotFile
 	}
 
-	data, err := readValue(k, valName)
+	value, err := readRegistryValue(k, valName)
 	if err != nil {
 		return nil, err
 	}
 
 	info := &valueInfo{
-		path:    path,
-		name:    valName,
-		size:    int64(len(data)),
-		modTime: time.Time{},
+		path:      path,
+		name:      valName,
+		size:      int64(len(value.data)),
+		modTime:   time.Time{},
+		valueType: value.valueType,
+		preview:   value.preview,
 	}
-	return &regFile{reader: bytes.NewReader(data), info: info}, nil
+	return &regFile{reader: bytes.NewReader(value.data), info: info}, nil
 }
 
 func (f *FS) Stat(_ context.Context, path string) (vfs.FileInfo, error) {
@@ -263,11 +265,17 @@ func (f *FS) Stat(_ context.Context, path string) (vfs.FileInfo, error) {
 		valName = subkey[idx+1:]
 	}
 
-	data, err := readValue(parentKey, valName)
+	value, err := readRegistryValue(parentKey, valName)
 	if err != nil {
 		return nil, vfs.ErrNotFound
 	}
-	return &valueInfo{path: path, name: valName, size: int64(len(data))}, nil
+	return &valueInfo{
+		path:      path,
+		name:      valName,
+		size:      int64(len(value.data)),
+		valueType: value.valueType,
+		preview:   value.preview,
+	}, nil
 }
 
 func (f *FS) ReadDir(_ context.Context, path string) ([]vfs.FileInfo, error) {
@@ -325,12 +333,14 @@ func (f *FS) ReadDir(_ context.Context, path string) ([]vfs.FileInfo, error) {
 			if name == "" {
 				displayName = "(default)"
 			}
-			data, _ := readValue(k, name)
+			value, _ := readRegistryValue(k, name)
 			childPath := path + "/" + displayName
 			result = append(result, &valueInfo{
-				path: childPath,
-				name: displayName,
-				size: int64(len(data)),
+				path:      childPath,
+				name:      displayName,
+				size:      int64(len(value.data)),
+				valueType: value.valueType,
+				preview:   value.preview,
 			})
 		}
 	}
@@ -437,30 +447,55 @@ func (f *FS) Split(path string) (string, string) {
 
 // ── Value serialisation ───────────────────────────────────────────────────────
 
-// readValue reads a registry value and serialises it to UTF-8 bytes.
-func readValue(k registry.Key, name string) ([]byte, error) {
+type registryValueData struct {
+	data      []byte
+	valueType string
+	preview   string
+}
+
+// readRegistryValue reads a registry value and serialises it to UTF-8 bytes.
+func readRegistryValue(k registry.Key, name string) (registryValueData, error) {
 	// Try as string (REG_SZ, REG_EXPAND_SZ).
-	if s, _, err := k.GetStringValue(name); err == nil {
-		return []byte(s), nil
+	if s, valueType, err := k.GetStringValue(name); err == nil {
+		return registryValueData{
+			data:      []byte(s),
+			valueType: registryTypeName(valueType),
+			preview:   previewRegistryValue(s),
+		}, nil
 	}
 
 	// Try as integer (REG_DWORD, REG_QWORD).
-	if n, _, err := k.GetIntegerValue(name); err == nil {
-		return []byte(fmt.Sprintf("%d (0x%X)", n, n)), nil
+	if n, valueType, err := k.GetIntegerValue(name); err == nil {
+		serialized := fmt.Sprintf("%d (0x%X)", n, n)
+		return registryValueData{
+			data:      []byte(serialized),
+			valueType: registryTypeName(valueType),
+			preview:   serialized,
+		}, nil
 	}
 
 	// Try as multi-string (REG_MULTI_SZ).
-	if ss, _, err := k.GetStringsValue(name); err == nil {
-		return []byte(strings.Join(ss, "\n")), nil
+	if ss, valueType, err := k.GetStringsValue(name); err == nil {
+		serialized := strings.Join(ss, "\n")
+		return registryValueData{
+			data:      []byte(serialized),
+			valueType: registryTypeName(valueType),
+			preview:   previewRegistryValue(serialized),
+		}, nil
 	}
 
 	// Fall back to binary (REG_BINARY, REG_NONE, unknown).
-	b, _, err := k.GetBinaryValue(name)
+	b, valueType, err := k.GetBinaryValue(name)
 	if err != nil {
-		return nil, fmt.Errorf("registry: read value %q: %w", name, err)
+		return registryValueData{}, fmt.Errorf("registry: read value %q: %w", name, err)
 	}
+	serialized := "(empty)"
 	if len(b) == 0 {
-		return []byte("(empty)"), nil
+		return registryValueData{
+			data:      []byte(serialized),
+			valueType: registryTypeName(valueType),
+			preview:   serialized,
+		}, nil
 	}
 	var sb strings.Builder
 	for i, byt := range b {
@@ -469,7 +504,58 @@ func readValue(k registry.Key, name string) ([]byte, error) {
 		}
 		fmt.Fprintf(&sb, "%02X", byt)
 	}
-	return []byte(sb.String()), nil
+	serialized = sb.String()
+	return registryValueData{
+		data:      []byte(serialized),
+		valueType: registryTypeName(valueType),
+		preview:   previewRegistryValue(serialized),
+	}, nil
+}
+
+func registryTypeName(valueType uint32) string {
+	switch valueType {
+	case registry.NONE:
+		return "REG_NONE"
+	case registry.SZ:
+		return "REG_SZ"
+	case registry.EXPAND_SZ:
+		return "REG_EXPAND_SZ"
+	case registry.BINARY:
+		return "REG_BINARY"
+	case registry.DWORD:
+		return "REG_DWORD"
+	case registry.DWORD_BIG_ENDIAN:
+		return "REG_DWORD_BIG_ENDIAN"
+	case registry.LINK:
+		return "REG_LINK"
+	case registry.MULTI_SZ:
+		return "REG_MULTI_SZ"
+	case registry.RESOURCE_LIST:
+		return "REG_RESOURCE_LIST"
+	case registry.FULL_RESOURCE_DESCRIPTOR:
+		return "REG_FULL_RESOURCE_DESCRIPTOR"
+	case registry.RESOURCE_REQUIREMENTS_LIST:
+		return "REG_RESOURCE_REQUIREMENTS_LIST"
+	case registry.QWORD:
+		return "REG_QWORD"
+	default:
+		return fmt.Sprintf("REG_0x%X", valueType)
+	}
+}
+
+func previewRegistryValue(value string) string {
+	preview := strings.ReplaceAll(value, "\r\n", " | ")
+	preview = strings.ReplaceAll(preview, "\n", " | ")
+	preview = strings.ReplaceAll(preview, "\t", " ")
+	preview = strings.TrimSpace(preview)
+	if preview == "" {
+		return "(empty)"
+	}
+	const limit = 120
+	if len(preview) > limit {
+		return preview[:limit-1] + "..."
+	}
+	return preview
 }
 
 func lastName(path string) string {
@@ -503,14 +589,21 @@ func (k *keyInfo) IsHidden() bool       { return false }
 func (k *keyInfo) IsSymlink() bool      { return false }
 func (k *keyInfo) IsNested() bool       { return false }
 func (k *keyInfo) MountChain() []string { return nil }
+func (k *keyInfo) RegistryKind() string { return "Key" }
+func (k *keyInfo) RegistryValueType() string {
+	return ""
+}
+func (k *keyInfo) RegistryPreview() string { return "" }
 
 // ── valueInfo ─────────────────────────────────────────────────────────────────
 
 type valueInfo struct {
-	path    string
-	name    string
-	size    int64
-	modTime time.Time
+	path      string
+	name      string
+	size      int64
+	modTime   time.Time
+	valueType string
+	preview   string
 }
 
 func (v *valueInfo) Name() string       { return v.name }
@@ -528,6 +621,11 @@ func (v *valueInfo) IsHidden() bool       { return false }
 func (v *valueInfo) IsSymlink() bool      { return false }
 func (v *valueInfo) IsNested() bool       { return false }
 func (v *valueInfo) MountChain() []string { return nil }
+func (v *valueInfo) RegistryKind() string { return "Value" }
+func (v *valueInfo) RegistryValueType() string {
+	return v.valueType
+}
+func (v *valueInfo) RegistryPreview() string { return v.preview }
 
 // ── regFile (read) ────────────────────────────────────────────────────────────
 

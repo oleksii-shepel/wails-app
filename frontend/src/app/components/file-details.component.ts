@@ -42,7 +42,7 @@ export interface ColumnDef {
       <div class="details-header" role="rowgroup">
         <div class="details-row header-row" role="row">
           <div 
-            *ngFor="let col of columns; let i = index"
+            *ngFor="let col of activeColumns; let i = index"
             class="details-cell header-cell"
             [attr.data-col]="getColumnKey(col)"
             [class.sortable]="col.sortable"
@@ -61,7 +61,7 @@ export interface ColumnDef {
               </svg>
             </span>
             <div
-              *ngIf="i < columns.length - 1"
+              *ngIf="i < activeColumns.length - 1"
               class="view-divider"
               title="Resize column"
               (mousedown)="onColumnResizeStart($event, col)">
@@ -112,7 +112,7 @@ export interface ColumnDef {
             <div *ngIf="isDragOverAfter(entry)" class="drop-indicator drop-indicator-after"></div>
             
             <div 
-              *ngFor="let col of columns; let i = index"
+              *ngFor="let col of activeColumns; let i = index"
               class="details-cell"
               [style.width]="getColumnWidth(col)"
               [style.flex]="getColumnFlex(col)"
@@ -402,6 +402,18 @@ export interface ColumnDef {
 })
 export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit {
   FileType = FileType;
+  private readonly defaultColumns: ColumnDef[] = [
+    { field: 'name', header: 'Name', flex: 2, sortable: true },
+    { field: 'size', header: 'Size', width: '100px', sortable: true, formatter: (value) => this.formatSize(value) },
+    { field: 'modified', header: 'Modified', width: '150px', sortable: true, formatter: (value) => this.formatDate(value) },
+    { field: 'type', header: 'Type', width: '100px', formatter: (_, entry) => this.getFileTypeLabel(entry) }
+  ];
+  private readonly registryColumns: ColumnDef[] = [
+    { field: 'name', header: 'Name', flex: 1.7, sortable: true },
+    { field: 'registryKind', header: 'Kind', width: '110px', sortable: true, formatter: (_, entry) => this.getRegistryKind(entry) },
+    { field: 'registryValueType', header: 'Data Type', width: '150px', sortable: true, formatter: (value) => value?.toString() || '' },
+    { field: 'registryPreview', header: 'Data', flex: 2.3, sortable: true, formatter: (value) => value?.toString() || '' }
+  ];
   
   constructor(
     private zone: NgZone,
@@ -414,12 +426,7 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   @Input() entries: FileInfo[] = [];
   @Input() selectedFiles: Set<string> = new Set();
   @Input() cursorPath: string | null = null;
-  @Input() columns: ColumnDef[] = [
-    { field: 'name', header: 'Name', flex: 2, sortable: true },
-    { field: 'size', header: 'Size', width: '100px', sortable: true, formatter: (v) => this.formatSize(v) },
-    { field: 'modified', header: 'Modified', width: '150px', sortable: true, formatter: (v) => this.formatDate(v) },
-    { field: 'type', header: 'Type', width: '100px', formatter: (_, entry) => this.getFileTypeLabel(entry) }
-  ];
+  @Input() columns: ColumnDef[] | null = null;
   @Input() sortField: string = 'name';
   @Input() sortDirection: 'asc' | 'desc' = 'asc';
   @Input() paneActive = true;
@@ -574,6 +581,23 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   get virtualWindowTransform(): string {
     if (!this.virtualEnabled) return '';
     return `translateY(${this.virtualStart * this.rowHeight}px)`;
+  }
+
+  get activeColumns(): ColumnDef[] {
+  if (this.columns?.length) {
+    return this.columns;
+  }
+  return this.isRegistryListing ? this.registryColumns : this.defaultColumns;
+  }
+
+  private get isRegistryListing(): boolean {
+  for (const entry of this.entries) {
+    if (!entry || this.isParentEntry(entry)) {
+    continue;
+    }
+    return entry.path.startsWith('registry://');
+  }
+  return false;
   }
 
   getColumnKey(col: ColumnDef): string {
@@ -1036,6 +1060,11 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     if (entry.type === FileType.SYMLINK) return 'Shortcut';
     const ext = entry.name.split('.').pop()?.toUpperCase();
     return ext ? `${ext} File` : 'File';
+  }
+
+  getRegistryKind(entry: FileInfo): string {
+	if (entry.registryKind) return entry.registryKind;
+	return entry.type === FileType.DIRECTORY ? 'Key' : 'Value';
   }
 
   formatSize(bytes: number): string {

@@ -544,4 +544,3 @@ func (s *FilesystemService) runElevatedWithEvents(op, target string, req elevate
 	s.emit("elevation:auto-started", map[string]string{"op": op, "target": target})
 	return resp, nil
 }
-

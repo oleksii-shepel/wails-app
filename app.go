@@ -3,15 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
 
 	internalapp "wails-app/internal/app"
 	internalarchive "wails-app/internal/archive"
 	internalbatch "wails-app/internal/batch"
-	internalcontracts "wails-app/internal/contracts"
 	internalelevation "wails-app/internal/elevation"
 	internalnav "wails-app/internal/navigation"
-	internalops "wails-app/internal/ops"
 	internalruntime "wails-app/internal/runtime"
 	internalutility "wails-app/internal/utility"
 	internalworkspace "wails-app/internal/workspace"
@@ -24,45 +21,17 @@ type App struct {
 	ctx        context.Context
 	archive    *internalarchive.Service
 	runtime    *internalapp.RuntimeService
-	filesystem *FilesystemService
+	filesystem appFilesystem
 	batch      *internalbatch.Service
 	dirStream  *internalruntime.DirStreamService
 	utility    *internalutility.Service
 	navigation *internalnav.Service
 	workspace  *internalworkspace.Service
-	operations *OperationManager
+	operations appOperations
 	dirWatch   *internalruntime.PaneWatchManager
 	elevation  *internalelevation.Service
 	vfs        *vfslib.Unified
 	archCache  *cache.Cache // lazy-open, LRU cache of open archive.Archive objects
-}
-
-type archiveOperationAdapter struct {
-	op *internalops.ActiveOperation
-}
-
-func (a *archiveOperationAdapter) ID() string {
-	return a.op.ID
-}
-
-func (a *archiveOperationAdapter) Complete() {
-	a.op.Complete()
-}
-
-func (a *archiveOperationAdapter) SetError(err error) {
-	a.op.SetError(err)
-}
-
-func (a *archiveOperationAdapter) SetTotal(totalItems, totalBytes int64) {
-	a.op.SetTotal(totalItems, totalBytes)
-}
-
-func (a *archiveOperationAdapter) UpdateProgress(processedItems, processedBytes int64, currentFile string, currentFileSize int64) {
-	a.op.UpdateProgress(processedItems, processedBytes, currentFile, currentFileSize)
-}
-
-func (a *archiveOperationAdapter) IsCancelled() bool {
-	return a.op.IsCancelled()
 }
 
 // NewApp creates a new App application struct.
@@ -81,97 +50,38 @@ func NewApp() *App {
 		SetContext: func(ctx context.Context) {
 			app.ctx = ctx
 		},
-		SetOperationEmitter: app.operations.SetEmitter,
-		CreatePaneWatch: func() {
-			app.dirWatch = internalruntime.NewPaneWatchManager(app.emitEvent)
-		},
-		InitVFS: app.initVFS,
-		HandleFileDrop: func(x, y int, paths []string) error {
-			return app.HandleFileDrop(x, y, paths)
-		},
-		ClosePaneWatch: func() {
-			if app.dirWatch != nil {
-				app.dirWatch.Close()
-			}
-		},
-		CancelDirStreams: func() {
-			app.dirStream.CancelAll()
-		},
-		StopElevationSession: func() {
-			if app.elevation != nil {
-				app.elevation.StopSession()
-			}
-		},
-		CloseArchiveCache: func() {
-			app.archCache.CloseAll()
-		},
+		SetOperationEmitter:  app.operations.SetEmitter,
+		CreatePaneWatch:      app.createPaneWatch,
+		InitVFS:              app.initVFS,
+		HandleFileDrop:       app.HandleFileDrop,
+		ClosePaneWatch:       app.closePaneWatch,
+		CancelDirStreams:     app.cancelDirStreams,
+		StopElevationSession: app.stopElevationSession,
+		CloseArchiveCache:    app.closeArchiveCache,
 	})
-	app.elevation = internalelevation.NewService(app.emitEvent, func(exePath string) (internalelevation.Client, error) {
-		return StartElevatedServiceClient(exePath)
-	})
+	app.elevation = internalelevation.NewService(app.emitEvent, app.startElevatedClient)
 	app.filesystem = NewFilesystemService(app.elevation, app.emitEvent, app.StartElevatedSession)
 	services := internalapp.NewServices(internalapp.ServiceConfig{
-		Core:      core,
-		EmitEvent: app.emitEvent,
-		StartElevatedClient: func(exePath string) (internalelevation.Client, error) {
-			return StartElevatedServiceClient(exePath)
-		},
-		ArchiveOperationFactory: func(opType internalcontracts.OperationType, title, source, dest string) internalarchive.Operation {
-			return &archiveOperationAdapter{op: app.operations.StartOperation(opType, title, source, dest)}
-		},
-		ElevatedList: func(path string, showHidden bool) ([]internalcontracts.FileInfo, error) {
-			resp, err := app.filesystem.runElevatedWithEvents("list", path, elevatedRequest{
-				Op:         "list",
-				Path:       path,
-				ShowHidden: showHidden,
-			})
-			if err != nil || resp.DirListing == nil {
-				return nil, err
-			}
-			return resp.DirListing.Entries, nil
-		},
-		BuildFileInfo: func(name, fullPath string, info os.FileInfo, hidden bool) internalcontracts.FileInfo {
-			return buildFileInfoWithHidden(name, fullPath, info, hidden)
-		},
-		IsHidden: isHiddenFile,
-		ListDirectory: func(path string, showHidden bool) (*internalcontracts.DirectoryListing, error) {
-			return app.filesystem.ListDirectory(path, showHidden)
-		},
-		StartOperation: func(kind internalcontracts.OperationType, title, source, dest string) *internalops.ActiveOperation {
-			return app.operations.StartOperation(kind, title, source, dest)
-		},
-		PromptConflict: func(event internalcontracts.ConflictEvent) {
-			app.emitEvent("operation:conflict", event)
-		},
-		BatchErr: func(source, destination string, err error) internalcontracts.BatchItemError {
-			return internalcontracts.BatchItemError{
-				Source:      source,
-				Destination: destination,
-				Error:       err.Error(),
-				Code:        classifyError(err),
-			}
-		},
+		Core:                           core,
+		EmitEvent:                      app.emitEvent,
+		StartElevatedClient:            app.startElevatedClient,
+		ElevatedList:                   app.filesystem.ElevatedList,
+		BuildFileInfo:                  app.buildFileInfo,
+		IsHidden:                       isHiddenFile,
+		ListDirectory:                  app.filesystem.ListDirectory,
+		StartOperation:                 app.startOperation,
+		PromptConflict:                 app.promptConflict,
+		ClassifyError:                  classifyError,
 		IsPermissionDenied:             isPermissionDenied,
 		ShouldRetryDeleteWithElevation: shouldRetryDeleteWithElevation,
-		RunElevatedCopy: func(src, dst string, recursive bool) (bool, error) {
-			resp, err := app.filesystem.runElevatedWithEvents("copy", app.filesystem.elevationTargetPair(src, dst), elevatedRequest{Op: "copy", Source: src, Destination: dst, Recursive: recursive})
-			return err == nil && resp.Success, err
-		},
-		RunElevatedMove: func(src, dst string) (bool, error) {
-			resp, err := app.filesystem.runElevatedWithEvents("move", app.filesystem.elevationTargetPair(src, dst), elevatedRequest{Op: "move", Source: src, Destination: dst})
-			return err == nil && resp.Success, err
-		},
-		RunElevatedDelete: func(path string, recursive bool, useTrash *bool) (bool, error) {
-			resp, err := app.filesystem.runElevatedWithEvents("delete", app.filesystem.elevationTargetSingle(path), elevatedRequest{Op: "delete", Path: path, Recursive: recursive, UseTrash: useTrash})
-			return err == nil && resp.Success, err
-		},
-		CalculateSize: calculateSize,
-		ExtractNestedArchive: func(archivePath string, nestedChain []string) ([]byte, error) {
-			return app.archive.ExtractNestedArchive(archivePath, nestedChain)
-		},
-		Normalize:        normalize,
-		ArchiveEntryPath: archiveEntryPath,
-		IsArchive:        isArchive,
+		RunElevatedCopy:                app.filesystem.RunElevatedCopy,
+		RunElevatedMove:                app.filesystem.RunElevatedMove,
+		RunElevatedDelete:              app.filesystem.RunElevatedDelete,
+		CalculateSize:                  calculateSize,
+		ExtractNestedArchive:           app.extractNestedArchive,
+		Normalize:                      normalize,
+		ArchiveEntryPath:               archiveEntryPath,
+		IsArchive:                      isArchive,
 	})
 	app.elevation = services.Elevation
 	app.archive = services.Archive

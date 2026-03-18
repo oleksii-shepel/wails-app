@@ -48,6 +48,18 @@ func listDirectoryRaw(path string, showHidden bool) (*DirectoryListing, error) {
 	return rawFilesystemOps.ListDirectory(path, showHidden)
 }
 
+func (s *FilesystemService) ElevatedList(path string, showHidden bool) ([]FileInfo, error) {
+	resp, err := s.runElevatedWithEvents("list", path, elevatedRequest{
+		Op:         "list",
+		Path:       path,
+		ShowHidden: showHidden,
+	})
+	if err != nil || resp.DirListing == nil {
+		return nil, err
+	}
+	return resp.DirListing.Entries, nil
+}
+
 // ============================================================================
 // Dir Size Recursive (BFS)
 // ============================================================================
@@ -263,6 +275,35 @@ func (s *FilesystemService) CopyFile(source, destination string, recursive bool)
 
 func copyFileRaw(source, destination string, recursive bool) (*OperationResult, error) {
 	return rawFilesystemOps.CopyFile(source, destination, recursive)
+}
+
+func (s *FilesystemService) RunElevatedCopy(src, dst string, recursive bool) (bool, error) {
+	resp, err := s.runElevatedWithEvents("copy", s.elevationTargetPair(src, dst), elevatedRequest{
+		Op:          "copy",
+		Source:      src,
+		Destination: dst,
+		Recursive:   recursive,
+	})
+	return err == nil && resp.Success, err
+}
+
+func (s *FilesystemService) RunElevatedMove(src, dst string) (bool, error) {
+	resp, err := s.runElevatedWithEvents("move", s.elevationTargetPair(src, dst), elevatedRequest{
+		Op:          "move",
+		Source:      src,
+		Destination: dst,
+	})
+	return err == nil && resp.Success, err
+}
+
+func (s *FilesystemService) RunElevatedDelete(path string, recursive bool, useTrash *bool) (bool, error) {
+	resp, err := s.runElevatedWithEvents("delete", s.elevationTargetSingle(path), elevatedRequest{
+		Op:        "delete",
+		Path:      path,
+		Recursive: recursive,
+		UseTrash:  useTrash,
+	})
+	return err == nil && resp.Success, err
 }
 
 // ============================================================================

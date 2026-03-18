@@ -17,6 +17,34 @@ import (
 	internalworkspace "wails-app/internal/workspace"
 )
 
+type archiveOperationAdapter struct {
+	op *internalops.ActiveOperation
+}
+
+func (a *archiveOperationAdapter) ID() string {
+	return a.op.ID
+}
+
+func (a *archiveOperationAdapter) Complete() {
+	a.op.Complete()
+}
+
+func (a *archiveOperationAdapter) SetError(err error) {
+	a.op.SetError(err)
+}
+
+func (a *archiveOperationAdapter) SetTotal(totalItems, totalBytes int64) {
+	a.op.SetTotal(totalItems, totalBytes)
+}
+
+func (a *archiveOperationAdapter) UpdateProgress(processedItems, processedBytes int64, currentFile string, currentFileSize int64) {
+	a.op.UpdateProgress(processedItems, processedBytes, currentFile, currentFileSize)
+}
+
+func (a *archiveOperationAdapter) IsCancelled() bool {
+	return a.op.IsCancelled()
+}
+
 type Services struct {
 	Elevation  *internalelevation.Service
 	Archive    *internalarchive.Service
@@ -34,8 +62,6 @@ type ServiceConfig struct {
 
 	StartElevatedClient func(string) (internalelevation.Client, error)
 
-	ArchiveOperationFactory func(opType contracts.OperationType, title, source, dest string) internalarchive.Operation
-
 	ElevatedList  func(path string, showHidden bool) ([]contracts.FileInfo, error)
 	BuildFileInfo func(name, fullPath string, info os.FileInfo, hidden bool) contracts.FileInfo
 	IsHidden      func(name, fullPath string) bool
@@ -44,7 +70,7 @@ type ServiceConfig struct {
 
 	StartOperation                 func(kind contracts.OperationType, title, source, dest string) *internalops.ActiveOperation
 	PromptConflict                 func(event contracts.ConflictEvent)
-	BatchErr                       func(source, destination string, err error) contracts.BatchItemError
+	ClassifyError                  func(error) contracts.AppErrorCode
 	IsPermissionDenied             func(error) bool
 	ShouldRetryDeleteWithElevation func(error) bool
 	RunElevatedCopy                func(src, dst string, recursive bool) (bool, error)
@@ -62,12 +88,21 @@ func NewServices(config ServiceConfig) *Services {
 		Elevation: internalelevation.NewService(config.EmitEvent, config.StartElevatedClient),
 		Archive: internalarchive.NewService(
 			config.Core.ArchiveCache,
-			config.ArchiveOperationFactory,
+			func(opType contracts.OperationType, title, source, dest string) internalarchive.Operation {
+				return &archiveOperationAdapter{op: config.StartOperation(opType, title, source, dest)}
+			},
 		),
 		Batch: internalbatch.NewService(internalbatch.ServiceConfig{
-			StartOperation:                 config.StartOperation,
-			ConflictPrompter:               internalbatch.ConflictPrompterFunc(config.PromptConflict),
-			BatchErr:                       config.BatchErr,
+			StartOperation:   config.StartOperation,
+			ConflictPrompter: internalbatch.ConflictPrompterFunc(config.PromptConflict),
+			BatchErr: func(source, destination string, err error) contracts.BatchItemError {
+				return contracts.BatchItemError{
+					Source:      source,
+					Destination: destination,
+					Error:       err.Error(),
+					Code:        config.ClassifyError(err),
+				}
+			},
 			IsPermissionDenied:             config.IsPermissionDenied,
 			ShouldRetryDeleteWithElevation: config.ShouldRetryDeleteWithElevation,
 			RunElevatedCopy:                config.RunElevatedCopy,

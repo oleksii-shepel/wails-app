@@ -153,6 +153,10 @@ First pre-migration cleanup batch:
 - cross-domain helpers that still couple composition to `main`: `classifyError` has moved into `internal/contracts/errors.go`, and nested archive chain resolution now lives in `internal/archive/resolve.go`
 - `NewApp` internal-service bootstrap now routes through `internal/app/services.go`, so `main` is no longer the only place that knows how to assemble archive, navigation, workspace, utility, and runtime-stream services
 - batch constructor wiring now also routes through `internal/app/services.go`, so `main` no longer owns the `internal/batch.ServiceConfig` assembly block
+- `App` now depends on narrow filesystem and operation-manager ports instead of the root concrete types directly, which reduces the type-level coupling that still blocks the eventual package move
+- archive-operation adapter wiring and batch error-envelope construction now also live in `internal/app/services.go`, further reducing `NewApp` to callback binding rather than service-specific adapter code
+- elevated list/copy/move/delete callback assembly now routes through `FilesystemService` methods, so `NewApp` no longer rebuilds those elevated filesystem adapters inline
+- the remaining runtime/service composition hooks in `NewApp` now mostly use named `App` helper methods rather than anonymous closures, which further shrinks the eventual `App` relocation diff
 
 Why this batch comes first:
 

@@ -10,21 +10,21 @@ const (
 )
 
 type FileInfo struct {
-	Name        string   `json:"name"`
-	Path        string   `json:"path"`
-	Type        FileType `json:"type"`
-	Size        int64    `json:"size"`
-	Created     int64    `json:"created"`
-	Modified    int64    `json:"modified"`
-	Accessed    int64    `json:"accessed"`
-	Permissions string   `json:"permissions"`
-	IsHidden    bool     `json:"isHidden"`
-	IsSymlink   bool     `json:"isSymlink,omitempty"`
-	IsNested    bool     `json:"isNested"`
-	NestedChain []string `json:"nestedChain,omitempty"`
-	RegistryKind      string `json:"registryKind,omitempty"`
-	RegistryValueType string `json:"registryValueType,omitempty"`
-	RegistryPreview   string `json:"registryPreview,omitempty"`
+	Name              string   `json:"name"`
+	Path              string   `json:"path"`
+	Type              FileType `json:"type"`
+	Size              int64    `json:"size"`
+	Created           int64    `json:"created"`
+	Modified          int64    `json:"modified"`
+	Accessed          int64    `json:"accessed"`
+	Permissions       string   `json:"permissions"`
+	IsHidden          bool     `json:"isHidden"`
+	IsSymlink         bool     `json:"isSymlink,omitempty"`
+	IsNested          bool     `json:"isNested"`
+	NestedChain       []string `json:"nestedChain,omitempty"`
+	RegistryKind      string   `json:"registryKind,omitempty"`
+	RegistryValueType string   `json:"registryValueType,omitempty"`
+	RegistryPreview   string   `json:"registryPreview,omitempty"`
 }
 
 type ArchiveListing struct {

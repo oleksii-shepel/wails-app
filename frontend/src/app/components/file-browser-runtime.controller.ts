@@ -1,4 +1,4 @@
-import { EventsOff, EventsOn, OnFileDrop, OnFileDropOff } from 'wailsjs/runtime/runtime';
+import { EventsOff, EventsOn, OnFileDrop, OnFileDropOff } from 'wailsjs/runtime';
 import type { ApiService } from '../services/api.service';
 import type { ConfirmDialogService } from '../services/confirm-dialog.service';
 

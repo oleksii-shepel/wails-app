@@ -111,7 +111,7 @@ async function goBrowse(
   innerPath: string
 ): Promise<ArchiveListing> {
 
-  const app = window.go?.main?.App;
+  const app = window.go?.app?.App;
   if (!app) throw new Error('Wails bridge not available');
 
   return app.ArchiveBrowse(fsPath, nestedChain, innerPath);
@@ -202,7 +202,7 @@ export class ArchiveService {
 
     // Fallback to BatchExtract ONLY if at the root and everything is selected
     if (isAtArchiveRoot && isAllSelected) {
-      return window.go.main.App.BatchExtract({
+      return window.go.app.App.BatchExtract({
         archives: [frame.fsPath],
         destinationDir: destDir,
         createSubdirectory: false,
@@ -213,7 +213,7 @@ export class ArchiveService {
     
     // Otherwise, use Selective Extraction to ensure only the 
     // contents of the current folder/selection are processed
-    return window.go.main.App.BatchSelectiveExtract({
+    return window.go.app.App.BatchSelectiveExtract({
       items: [
         {
           archivePath: frame.fsPath,
@@ -352,7 +352,7 @@ export class ArchiveService {
       flattenPaths,
     };
 
-    return window.go.main.App.ArchiveCopyEntries(req);
+    return window.go.app.App.ArchiveCopyEntries(req);
   }
 
   move(
@@ -371,7 +371,7 @@ export class ArchiveService {
       flattenPaths,
     };
 
-    return window.go.main.App.ArchiveMoveEntries(req);
+    return window.go.app.App.ArchiveMoveEntries(req);
   }
 
   delete(
@@ -394,7 +394,7 @@ export class ArchiveService {
       flattenPaths: false,
     };
 
-    return window.go.main.App.ArchiveDeleteEntries(req);
+    return window.go.app.App.ArchiveDeleteEntries(req);
   }
 
   copyByContext(
@@ -411,7 +411,7 @@ export class ArchiveService {
       destinationDir: destDir,
       flattenPaths: false,
     };
-    return window.go.main.App.ArchiveCopyEntries(req);
+    return window.go.app.App.ArchiveCopyEntries(req);
   }
 
   moveByContext(
@@ -428,7 +428,7 @@ export class ArchiveService {
       destinationDir: destDir,
       flattenPaths: false,
     };
-    return window.go.main.App.ArchiveMoveEntries(req);
+    return window.go.app.App.ArchiveMoveEntries(req);
   }
 
   /* ─────────────── UTILITIES ─────────────── */

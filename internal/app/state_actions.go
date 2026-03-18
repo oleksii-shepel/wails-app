@@ -25,5 +25,5 @@ func (s *State) StopElevationSession() {
 }
 
 func (s *State) CloseArchiveCache() {
-	s.ArchCache.CloseAll()
+	s.archCache.CloseAll()
 }

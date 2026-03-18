@@ -10,7 +10,7 @@ import {
   shareReplay
 } from '@epikodelabs/streamix';
 import { EventsOn, EventsOff } from 'wailsjs/runtime';
-import { ResolveConflict } from 'wailsjs/go/main/App';
+import { ResolveConflict } from 'wailsjs/go/app/App';
 import {
   OperationKind,
   OperationStatus,
@@ -388,7 +388,7 @@ export class OperationService implements OnDestroy {
 
   async cancel(id: string): Promise<void> {
     try {
-      const result = await (window as any).go?.main?.App?.CancelOperation(id);
+      const result = await (window as any).go?.app?.App?.CancelOperation(id);
       if (!result) {
         console.warn('Cancel operation returned false');
       }

@@ -1,3 +1,42 @@
+export namespace app {
+	
+	export class State {
+	    Ctx: any;
+	    Archive: any;
+	    Runtime: any;
+	    Filesystem: any;
+	    Batch: any;
+	    DirStream: any;
+	    Utility: any;
+	    Navigation: any;
+	    Workspace: any;
+	    Operations: any;
+	    DirWatch: any;
+	    Elevation: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new State(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Ctx = source["Ctx"];
+	        this.Archive = source["Archive"];
+	        this.Runtime = source["Runtime"];
+	        this.Filesystem = source["Filesystem"];
+	        this.Batch = source["Batch"];
+	        this.DirStream = source["DirStream"];
+	        this.Utility = source["Utility"];
+	        this.Navigation = source["Navigation"];
+	        this.Workspace = source["Workspace"];
+	        this.Operations = source["Operations"];
+	        this.DirWatch = source["DirWatch"];
+	        this.Elevation = source["Elevation"];
+	    }
+	}
+
+}
+
 export namespace contracts {
 	
 	export class ArchiveEntriesRequest {
@@ -417,6 +456,34 @@ export namespace contracts {
 		    return a;
 		}
 	}
+	export class ConflictEvent {
+	    operationId: string;
+	    conflictId: string;
+	    sourcePath: string;
+	    destPath: string;
+	    sourceSize: number;
+	    destSize: number;
+	    sourceMtime: number;
+	    destMtime: number;
+	    isDirectory: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ConflictEvent(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.operationId = source["operationId"];
+	        this.conflictId = source["conflictId"];
+	        this.sourcePath = source["sourcePath"];
+	        this.destPath = source["destPath"];
+	        this.sourceSize = source["sourceSize"];
+	        this.destSize = source["destSize"];
+	        this.sourceMtime = source["sourceMtime"];
+	        this.destMtime = source["destMtime"];
+	        this.isDirectory = source["isDirectory"];
+	    }
+	}
 	export class DirectoryListing {
 	    path: string;
 	    entries: FileInfo[];
@@ -451,6 +518,107 @@ export namespace contracts {
 		    return a;
 		}
 	}
+	export class DiskUsageTypeStat {
+	    count: number;
+	    size: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new DiskUsageTypeStat(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.count = source["count"];
+	        this.size = source["size"];
+	    }
+	}
+	export class DiskUsageEntry {
+	    name: string;
+	    path: string;
+	    size: number;
+	    isDir: boolean;
+	    files: number;
+	    dirs: number;
+	    types?: Record<string, DiskUsageTypeStat>;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DiskUsageEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.path = source["path"];
+	        this.size = source["size"];
+	        this.isDir = source["isDir"];
+	        this.files = source["files"];
+	        this.dirs = source["dirs"];
+	        this.types = this.convertValues(source["types"], DiskUsageTypeStat, true);
+	        this.error = source["error"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class DiskUsageResult {
+	    path: string;
+	    totalSize: number;
+	    totalFiles: number;
+	    totalDirs: number;
+	    types?: Record<string, DiskUsageTypeStat>;
+	    entries: DiskUsageEntry[];
+	    elapsedMs: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new DiskUsageResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.totalSize = source["totalSize"];
+	        this.totalFiles = source["totalFiles"];
+	        this.totalDirs = source["totalDirs"];
+	        this.types = this.convertValues(source["types"], DiskUsageTypeStat, true);
+	        this.entries = this.convertValues(source["entries"], DiskUsageEntry);
+	        this.elapsedMs = source["elapsedMs"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
 	export class DriveInfo {
 	    name: string;
 	    path: string;
@@ -522,6 +690,56 @@ export namespace contracts {
 	    }
 	}
 	
+	export class FilterCriteria {
+	    type: string;
+	    value: string;
+	    operator?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new FilterCriteria(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.type = source["type"];
+	        this.value = source["value"];
+	        this.operator = source["operator"];
+	    }
+	}
+	export class FilterQuery {
+	    text?: string;
+	    criteria?: FilterCriteria[];
+	    caseSensitive: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new FilterQuery(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.text = source["text"];
+	        this.criteria = this.convertValues(source["criteria"], FilterCriteria);
+	        this.caseSensitive = source["caseSensitive"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class OSInfoResponse {
 	    os: string;
 	    version: string;
@@ -925,139 +1143,22 @@ export namespace elevation {
 
 }
 
-export namespace main {
+export namespace ops {
 	
-	export class DiskUsageTypeStat {
-	    count: number;
-	    size: number;
+	export class ActiveOperation {
+	    ID: string;
+	    Type: string;
+	    Progress: contracts.OperationProgress;
 	
 	    static createFrom(source: any = {}) {
-	        return new DiskUsageTypeStat(source);
+	        return new ActiveOperation(source);
 	    }
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.count = source["count"];
-	        this.size = source["size"];
-	    }
-	}
-	export class DiskUsageEntry {
-	    name: string;
-	    path: string;
-	    size: number;
-	    isDir: boolean;
-	    files: number;
-	    dirs: number;
-	    types?: Record<string, DiskUsageTypeStat>;
-	    error?: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new DiskUsageEntry(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.name = source["name"];
-	        this.path = source["path"];
-	        this.size = source["size"];
-	        this.isDir = source["isDir"];
-	        this.files = source["files"];
-	        this.dirs = source["dirs"];
-	        this.types = this.convertValues(source["types"], DiskUsageTypeStat, true);
-	        this.error = source["error"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class DiskUsageResult {
-	    path: string;
-	    totalSize: number;
-	    totalFiles: number;
-	    totalDirs: number;
-	    types?: Record<string, DiskUsageTypeStat>;
-	    entries: DiskUsageEntry[];
-	    elapsedMs: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new DiskUsageResult(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.path = source["path"];
-	        this.totalSize = source["totalSize"];
-	        this.totalFiles = source["totalFiles"];
-	        this.totalDirs = source["totalDirs"];
-	        this.types = this.convertValues(source["types"], DiskUsageTypeStat, true);
-	        this.entries = this.convertValues(source["entries"], DiskUsageEntry);
-	        this.elapsedMs = source["elapsedMs"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	
-	export class FilterCriteria {
-	    type: string;
-	    value: string;
-	    operator?: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new FilterCriteria(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.type = source["type"];
-	        this.value = source["value"];
-	        this.operator = source["operator"];
-	    }
-	}
-	export class FilterQuery {
-	    text?: string;
-	    criteria?: FilterCriteria[];
-	    caseSensitive: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new FilterQuery(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.text = source["text"];
-	        this.criteria = this.convertValues(source["criteria"], FilterCriteria);
-	        this.caseSensitive = source["caseSensitive"];
+	        this.ID = source["ID"];
+	        this.Type = source["Type"];
+	        this.Progress = this.convertValues(source["Progress"], contracts.OperationProgress);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

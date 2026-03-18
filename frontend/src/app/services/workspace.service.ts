@@ -13,7 +13,7 @@ import {
   GetWorkspaces,
   SaveWorkspace,
   DeleteWorkspace,
-} from 'wailsjs/go/main/App';
+} from 'wailsjs/go/app/App';
 
 /**
  * Archive tab state - stores the complete archive navigation state

@@ -26,7 +26,8 @@ import {
   DriveInfo,
 } from '../shared/protocol-enhanced';
 import { SpecialFolder } from '../shared/protocol';
-import { EventsEmit } from 'wailsjs/runtime/runtime';
+import { EventsEmit } from 'wailsjs/runtime';
+import { contracts, elevation } from '../../../wailsjs/go/models';
 
 /** Mirror of Go's ElevatedSessionStatus struct. */
 export interface ElevatedSessionStatus {
@@ -44,87 +45,19 @@ export interface ElevatedSessionStatus {
   error: string;
 }
 
-// Extend the Window interface to include Wails runtime objects
-declare global {
-  interface Window {
-    go: {
-      main: {
-        App: {
-          // System
-          Ping(): Promise<number>;
-          GetOSInfo(): Promise<any>;
-          GetDrives(): Promise<DrivesList>;
-          GetSpecialFolders(): Promise<{ folders: SpecialFolder[] }>;
-          
-          // File System
-          ListDir(path: string, showHidden: boolean): Promise<DirectoryListing>;
-          ListDirFiltered(path: string, showHidden: boolean, filter: any): Promise<DirectoryListing>;
-          StartListDirStream(paneId: string, path: string, showHidden: boolean): Promise<string>;
-          CancelListDirStream(streamId: string): Promise<void>;
-          FileInfo(path: string): Promise<FileInfo>;
-          OpenFile(path: string): Promise<void>;
-          ResolveLink(path: string): Promise<{ target: string; isDir: boolean }>;
-          ReadFileContent(path: string, encoding: string): Promise<FileContent>;
-          WriteFileContent(path: string, content: string, encoding: string): Promise<OperationResult>;
-          CreateDir(path: string, recursive: boolean): Promise<OperationResult>;
-          Search(path: string, pattern: string, recursive: boolean): Promise<SearchResult>;
-          
-          // Batch Operations
-          BatchCopy(request: { items: BatchItem[]; recursive: boolean }): Promise<BatchResult>;
-          BatchMove(request: { items: BatchItem[]; recursive: boolean }): Promise<BatchResult>;
-          BatchDelete(request: BatchDeleteRequest): Promise<BatchResult>;
-          BatchExtract(request: BatchExtractRequest): Promise<BatchExtractResult>;
-          BatchSelectiveExtract(request: BatchSelectiveExtractRequest): Promise<BatchSelectiveExtractResult>;
-          
-          // Archive Operations
-          ArchiveBrowse(fsPath: string, nestedChain: string[], innerPath: string): Promise<ArchiveListing>;
-          ArchiveRead(fsPath: string, nestedChain: string[], entryPath: string, encoding: string): Promise<FileContent>;
-          
-          // Navigation
-          NavNavigate(paneId: string, path: string): Promise<DirectoryListing>;
-          NavNavigateShowHidden(paneId: string, path: string, showHidden: boolean): Promise<DirectoryListing>;
-          NavBack(paneId: string): Promise<DirectoryListing>;
-          NavForward(paneId: string): Promise<DirectoryListing>;
-          NavGoUp(paneId: string): Promise<DirectoryListing>;
-          
-          // Workspace
-          GetWorkspaces(): Promise<WorkspaceList>;
-          SaveWorkspace(workspace: WorkspaceConfig): Promise<void>;
-          LoadWorkspace(id: string): Promise<WorkspaceConfig>;
-          DeleteWorkspace(id: string): Promise<void>;
-          GetPreferences(): Promise<UserPreferences>;
-          SavePreferences(prefs: UserPreferences): Promise<void>;
-          
-          // Operation Progress
-          GetActiveOperations(): Promise<OperationProgress[]>;
-          CancelOperation(id: string): Promise<boolean>;
-          DismissOperation(id: string): Promise<void>;
-          ResolveConflict(conflictId: string, resolution: ConflictResolution, applyToAll: boolean): Promise<boolean>;
-          
-          // Path Utilities
-          SplitPath(path: string): Promise<Record<string, string>>;
-          JoinPaths(parts: string[]): Promise<string>;
-          GetParentPath(path: string): Promise<string>;
-          ConfirmElevationRequest(requestID: string, approve: boolean): Promise<void>;
-          DirSizeRecursive(path: string): Promise<number>;
-          AnalyzeDiskUsage(path: string): Promise<any>;
-          StartDiskUsageStream(path: string): Promise<string>;
-          CancelDiskUsageStream(scanId: string): Promise<void>;
+function castProtocol<T>(value: unknown): T {
+  return value as T;
+}
 
-          // Elevation – persistent JWT-secured helper service
-          IsProcessElevated(): Promise<boolean>;
-          StartElevatedSession(): Promise<ElevatedSessionStatus>;
-          StopElevatedSession(): Promise<void>;
-          GetElevatedSessionStatus(): Promise<ElevatedSessionStatus>;
-        };
-      };
-    };
-    runtime: {
-      EventsOn(eventName: string, callback: (...args: any[]) => void): void;
-      EventsOff(eventName: string, ...additionalEventNames: string[]): void;
-      EventsEmit(eventName: string, ...data: any[]): void;
-    };
-  }
+function normalizeElevatedSessionStatus(status: elevation.SessionStatus): ElevatedSessionStatus {
+  return {
+    active: status.active,
+    pid: status.pid ?? 0,
+    startedAt: status.startedAt ?? 0,
+    port: status.port ?? 0,
+    opCount: status.opCount,
+    error: status.error ?? '',
+  };
 }
 
 @Injectable({
@@ -173,7 +106,7 @@ export class ApiService {
 
   async checkHealth(): Promise<boolean> {
     try {
-      const result = await window.go.main.App.Ping();
+	      const result = await window.go.app.App.Ping();
       return result > 0;
     } catch (error) {
       console.error('Health check failed:', error);
@@ -182,15 +115,15 @@ export class ApiService {
   }
 
   async getOSInfo(): Promise<any> {
-    return await window.go.main.App.GetOSInfo();
+	    return await window.go.app.App.GetOSInfo();
   }
 
   async getDrives(): Promise<DrivesList> {
-    return await window.go.main.App.GetDrives();
+	    return castProtocol<DrivesList>(await window.go.app.App.GetDrives());
   }
 
   async getSpecialFolders(): Promise<SpecialFolder[]> {
-    const response = await window.go.main.App.GetSpecialFolders();
+	    const response = await window.go.app.App.GetSpecialFolders();
     return response.folders || [];
   }
 
@@ -199,52 +132,52 @@ export class ApiService {
   // ============================================================================
 
   async listDirectory(path: string, showHidden: boolean = false): Promise<DirectoryListing> {
-    return await window.go.main.App.ListDir(path, showHidden);
+	    return castProtocol<DirectoryListing>(await window.go.app.App.ListDir(path, showHidden));
   }
 
   async startListDirectoryStream(paneId: string, path: string, showHidden: boolean = false): Promise<string> {
-    return await window.go.main.App.StartListDirStream(paneId, path, showHidden);
+	    return await window.go.app.App.StartListDirStream(paneId, path, showHidden);
   }
 
   async cancelListDirectoryStream(streamId: string): Promise<void> {
     if (!streamId) return;
-    await window.go.main.App.CancelListDirStream(streamId);
+	    await window.go.app.App.CancelListDirStream(streamId);
   }
 
   async listDirectoryFiltered(path: string, showHidden: boolean, filter: any): Promise<DirectoryListing> {
-    return await window.go.main.App.ListDirFiltered(path, showHidden, filter);
+	    return castProtocol<DirectoryListing>(await window.go.app.App.ListDirFiltered(path, showHidden, filter));
   }
 
   async getFileInfo(path: string): Promise<FileInfo> {
-    return await window.go.main.App.FileInfo(path);
+	    return castProtocol<FileInfo>(await window.go.app.App.FileInfo(path));
   }
 
   async openFile(path: string): Promise<void> {
-    return await window.go.main.App.OpenFile(path);
+    return await window.go.app.App.OpenFile(path);
   }
 
   async resolveLink(path: string): Promise<{ target: string; isDir: boolean }> {
-    return await window.go.main.App.ResolveLink(path);
+    return await window.go.app.App.ResolveLink(path);
   }
 
   async readFile(path: string, encoding: string = 'utf8'): Promise<FileContent> {
-    return await window.go.main.App.ReadFileContent(path, encoding);
+    return castProtocol<FileContent>(await window.go.app.App.ReadFileContent(path, encoding));
   }
 
   async writeFile(path: string, content: string, encoding: string = 'utf8'): Promise<OperationResult> {
-    return await window.go.main.App.WriteFileContent(path, content, encoding);
+    return await window.go.app.App.WriteFileContent(path, content, encoding);
   }
 
   async createDirectory(path: string, recursive: boolean = false): Promise<OperationResult> {
-    return await window.go.main.App.CreateDir(path, recursive);
+    return await window.go.app.App.CreateDir(path, recursive);
   }
 
   async search(path: string, pattern: string, recursive: boolean = true): Promise<SearchResult> {
-    return await window.go.main.App.Search(path, pattern, recursive);
+    return castProtocol<SearchResult>(await window.go.app.App.Search(path, pattern, recursive));
   }
 
   async dirSizeRecursive(path: string): Promise<number> {
-    return await window.go.main.App.DirSizeRecursive(path);
+    return await window.go.app.App.DirSizeRecursive(path);
   }
 
   // ============================================================================
@@ -252,17 +185,17 @@ export class ApiService {
   // ============================================================================
 
   async batchCopy(items: BatchItem[], recursive: boolean = true): Promise<BatchResult> {
-    return await window.go.main.App.BatchCopy({
+    return castProtocol<BatchResult>(await window.go.app.App.BatchCopy(contracts.BatchRequest.createFrom({
       items,
       recursive
-    });
+    })));
   }
 
   async batchMove(items: BatchItem[], recursive: boolean = true): Promise<BatchResult> {
-    return await window.go.main.App.BatchMove({
+    return castProtocol<BatchResult>(await window.go.app.App.BatchMove(contracts.BatchRequest.createFrom({
       items,
       recursive
-    });
+    })));
   }
 
   async batchDelete(paths: string[], recursive: boolean = true, useTrash: boolean = true): Promise<BatchResult> {
@@ -271,15 +204,30 @@ export class ApiService {
       recursive,
       useTrash
     };
-    return await window.go.main.App.BatchDelete(request);
+    return castProtocol<BatchResult>(await window.go.app.App.BatchDelete(request));
   }
 
   async batchExtract(request: BatchExtractRequest): Promise<BatchExtractResult> {
-    return await window.go.main.App.BatchExtract(request);
+    return castProtocol<BatchExtractResult>(await window.go.app.App.BatchExtract(contracts.BatchExtractRequest.createFrom({
+      ...request,
+      createSubdirectory: request.createSubdirectory ?? false,
+      expandNestedArchives: request.expandNestedArchives ?? false,
+      maxNestDepth: request.maxNestDepth ?? 0,
+      flattenSingleRoot: request.flattenSingleRoot ?? false,
+    })));
   }
 
   async batchSelectiveExtract(request: BatchSelectiveExtractRequest): Promise<BatchSelectiveExtractResult> {
-    return await window.go.main.App.BatchSelectiveExtract(request);
+    return castProtocol<BatchSelectiveExtractResult>(await window.go.app.App.BatchSelectiveExtract(contracts.BatchSelectiveExtractRequest.createFrom({
+      destinationDir: request.destinationDir,
+      items: request.items.map(item => ({
+        archivePath: item.archivePath,
+        nestedChain: item.nestedChain ?? [],
+        entries: item.entries ?? [],
+        destinationDir: item.destinationDir,
+        flattenPaths: item.flattenPaths ?? false,
+      })),
+    })));
   }
 
   // ============================================================================
@@ -287,11 +235,11 @@ export class ApiService {
   // ============================================================================
 
   async archiveBrowse(fsPath: string, nestedChain: string[] = [], innerPath: string = ''): Promise<ArchiveListing> {
-    return await window.go.main.App.ArchiveBrowse(fsPath, nestedChain, innerPath);
+    return castProtocol<ArchiveListing>(await window.go.app.App.ArchiveBrowse(fsPath, nestedChain, innerPath));
   }
 
   async archiveRead(fsPath: string, nestedChain: string[] = [], entryPath: string, encoding: string = 'utf8'): Promise<FileContent> {
-    return await window.go.main.App.ArchiveRead(fsPath, nestedChain, entryPath, encoding);
+    return castProtocol<FileContent>(await window.go.app.App.ArchiveRead(fsPath, nestedChain, entryPath, encoding));
   }
 
   // ============================================================================
@@ -300,14 +248,14 @@ export class ApiService {
 
   async navigate(paneId: string, path: string, showHidden: boolean = false): Promise<DirectoryListing> {
     if (showHidden) {
-      return await window.go.main.App.NavNavigateShowHidden(paneId, path, showHidden);
+      return castProtocol<DirectoryListing>(await window.go.app.App.NavNavigateShowHidden(paneId, path, showHidden));
     }
-    return await window.go.main.App.NavNavigate(paneId, path);
+    return castProtocol<DirectoryListing>(await window.go.app.App.NavNavigate(paneId, path));
   }
 
   async navigateBack(paneId: string): Promise<DirectoryListing | null> {
     try {
-      return await window.go.main.App.NavBack(paneId);
+      return castProtocol<DirectoryListing>(await window.go.app.App.NavBack(paneId));
     } catch (error) {
       console.warn('Cannot navigate back:', error);
       return null;
@@ -316,7 +264,7 @@ export class ApiService {
 
   async navigateForward(paneId: string): Promise<DirectoryListing | null> {
     try {
-      return await window.go.main.App.NavForward(paneId);
+      return castProtocol<DirectoryListing>(await window.go.app.App.NavForward(paneId));
     } catch (error) {
       console.warn('Cannot navigate forward:', error);
       return null;
@@ -325,7 +273,7 @@ export class ApiService {
 
   async navigateUp(paneId: string): Promise<DirectoryListing | null> {
     try {
-      return await window.go.main.App.NavGoUp(paneId);
+      return castProtocol<DirectoryListing>(await window.go.app.App.NavGoUp(paneId));
     } catch (error) {
       console.warn('Cannot navigate up:', error);
       return null;
@@ -337,27 +285,27 @@ export class ApiService {
   // ============================================================================
 
   async getWorkspaces(): Promise<WorkspaceList> {
-    return await window.go.main.App.GetWorkspaces();
+    return castProtocol<WorkspaceList>(await window.go.app.App.GetWorkspaces());
   }
 
   async saveWorkspace(workspace: WorkspaceConfig): Promise<void> {
-    return await window.go.main.App.SaveWorkspace(workspace);
+    return await window.go.app.App.SaveWorkspace(contracts.WorkspaceConfig.createFrom(workspace));
   }
 
   async loadWorkspace(id: string): Promise<WorkspaceConfig> {
-    return await window.go.main.App.LoadWorkspace(id);
+    return castProtocol<WorkspaceConfig>(await window.go.app.App.LoadWorkspace(id));
   }
 
   async deleteWorkspace(id: string): Promise<void> {
-    return await window.go.main.App.DeleteWorkspace(id);
+    return await window.go.app.App.DeleteWorkspace(id);
   }
 
   async getPreferences(): Promise<UserPreferences> {
-    return await window.go.main.App.GetPreferences();
+    return castProtocol<UserPreferences>(await window.go.app.App.GetPreferences());
   }
 
   async savePreferences(prefs: UserPreferences): Promise<void> {
-    return await window.go.main.App.SavePreferences(prefs);
+    return await window.go.app.App.SavePreferences(contracts.UserPreferences.createFrom(prefs));
   }
 
   // ============================================================================
@@ -365,19 +313,19 @@ export class ApiService {
   // ============================================================================
 
   async getActiveOperations(): Promise<OperationProgress[]> {
-    return await window.go.main.App.GetActiveOperations();
+    return castProtocol<OperationProgress[]>(await window.go.app.App.GetActiveOperations());
   }
 
   async cancelOperation(id: string): Promise<boolean> {
-    return await window.go.main.App.CancelOperation(id);
+    return await window.go.app.App.CancelOperation(id);
   }
 
   async dismissOperation(id: string): Promise<void> {
-    return await window.go.main.App.DismissOperation(id);
+    return await window.go.app.App.DismissOperation(id);
   }
 
   async resolveConflict(conflictId: string, resolution: ConflictResolution, applyToAll: boolean): Promise<boolean> {
-    return await window.go.main.App.ResolveConflict(conflictId, resolution, applyToAll);
+    return await window.go.app.App.ResolveConflict(conflictId, resolution, applyToAll);
   }
 
   // ============================================================================
@@ -417,7 +365,7 @@ export class ApiService {
   // ============================================================================
 
   async splitPath(path: string): Promise<{ dir: string; base: string }> {
-    const result = await window.go.main.App.SplitPath(path);
+    const result = await window.go.app.App.SplitPath(path);
     return {
       dir: result['dir'] || '',
       base: result['base'] || ''
@@ -425,33 +373,33 @@ export class ApiService {
   }
 
   async joinPaths(parts: string[]): Promise<string> {
-    return await window.go.main.App.JoinPaths(parts);
+    return await window.go.app.App.JoinPaths(parts);
   }
 
   async getParentPath(path: string): Promise<string> {
-    return await window.go.main.App.GetParentPath(path);
+    return await window.go.app.App.GetParentPath(path);
   }
 
   async confirmElevationRequest(requestID: string, approve: boolean): Promise<void> {
-    return await window.go.main.App.ConfirmElevationRequest(requestID, approve);
+    return await window.go.app.App.ConfirmElevationRequest(requestID, approve);
   }
 
   // ── Persistent elevated service session (JWT-secured helper process) ───────
 
   async isProcessElevated(): Promise<boolean> {
-    return window.go.main.App.IsProcessElevated();
+    return window.go.app.App.IsProcessElevated();
   }
 
   async startElevatedSession(): Promise<ElevatedSessionStatus> {
-    return window.go.main.App.StartElevatedSession();
+    return normalizeElevatedSessionStatus(await window.go.app.App.StartElevatedSession());
   }
 
   async stopElevatedSession(): Promise<void> {
-    return window.go.main.App.StopElevatedSession();
+    return window.go.app.App.StopElevatedSession();
   }
 
   async getElevatedSessionStatus(): Promise<ElevatedSessionStatus> {
-    return window.go.main.App.GetElevatedSessionStatus();
+    return normalizeElevatedSessionStatus(await window.go.app.App.GetElevatedSessionStatus());
   }
 
   /**
@@ -478,7 +426,7 @@ export class ApiService {
    * Prefer streamDiskUsage for interactive use.
    */
   async analyzeDiskUsage(path: string): Promise<import('../shared/protocol-enhanced').DiskUsageResult> {
-    return await window.go.main.App.AnalyzeDiskUsage(path);
+    return castProtocol<DiskUsageResult>(await window.go.app.App.AnalyzeDiskUsage(path));
   }
 
   /**
@@ -506,7 +454,7 @@ export class ApiService {
     DiskUsageResult
   > {
     const signal = options?.signal;
-    const scanId = await window.go.main.App.StartDiskUsageStream(path);
+    const scanId = await window.go.app.App.StartDiskUsageStream(path);
 
     type Pending =
       | { kind: 'entry'; value: DiskUsageEntry }
@@ -586,7 +534,7 @@ export class ApiService {
       // Runs on break, return, or throw — cancel any in-progress Go scan.
       signal?.removeEventListener('abort', onAbort);
       cleanup();
-      window.go.main.App.CancelDiskUsageStream(scanId).catch(() => {/* best-effort */});
+      window.go.app.App.CancelDiskUsageStream(scanId).catch(() => {/* best-effort */});
     }
   }
 

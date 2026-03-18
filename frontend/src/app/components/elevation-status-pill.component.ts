@@ -13,7 +13,7 @@ import {
   computed,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { EventsOn, EventsOff } from 'wailsjs/runtime/runtime';
+import { EventsOn, EventsOff } from 'wailsjs/runtime';
 import { ApiService, ElevatedSessionStatus } from '../services/api.service';
 
 type PillState = 'idle' | 'starting' | 'active' | 'stopping' | 'error';

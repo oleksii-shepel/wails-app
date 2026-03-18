@@ -137,7 +137,7 @@ export class FilePaneDirectoryController {
       host.applyFilter();
     }
 
-    void window.go?.main?.App?.SetPaneDirectory?.(host.paneId, event.path);
+    void window.go?.app?.App?.SetPaneDirectory?.(host.paneId, event.path);
   }
 
   private handleDirStreamBatch(host: FilePaneDirectoryHost, event: DirStreamBatchEvent, baseEntries: FileInfo[]): void {

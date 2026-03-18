@@ -120,13 +120,13 @@ type State struct {
 	Operations Operations
 	DirWatch   DirWatch
 	Elevation  Elevation
-	VFS        *vfslib.Unified
-	ArchCache  *cache.Cache
+	vfs        *vfslib.Unified
+	archCache  *cache.Cache
 }
 
 func NewState(core *Core) *State {
 	return &State{
 		Operations: core.Operations,
-		ArchCache:  core.ArchiveCache,
+		archCache:  core.ArchiveCache,
 	}
 }

@@ -155,7 +155,7 @@ export class FilePaneNavigationController {
 
     const fromPath = host.currentPath;
     try {
-      const listing = await window.go.main.App.NavGoUp(host.paneId);
+      const listing = await window.go.app.App.NavGoUp(host.paneId);
       await host.loadDirectory(listing.path, { focusPath: fromPath });
     } catch {
       const target = parentPath(normalizePath(fromPath));

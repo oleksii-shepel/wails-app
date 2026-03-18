@@ -54,7 +54,7 @@ export class FilePaneOperationsController {
     if (!folderName) return;
 
     try {
-      const newPath: string = await window.go.main.App.JoinPaths([host.currentPath, folderName]);
+      const newPath: string = await window.go.app.App.JoinPaths([host.currentPath, folderName]);
       await host.apiService.createDirectory(newPath, false);
       await host.loadDirectory(host.currentPath);
     } catch (error: any) {

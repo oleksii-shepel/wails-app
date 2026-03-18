@@ -25,7 +25,7 @@ export interface RegistryFrame {
 declare const window: any;
 
 function app(): any {
-  const a = window.go?.main?.App;
+  const a = window.go?.app?.App;
   if (!a) throw new Error('Wails bridge not available');
   return a;
 }

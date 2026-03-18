@@ -10,24 +10,24 @@ func (s *State) InitVFS() {
 	if err != nil {
 		return
 	}
-	s.VFS = vfs
+	s.vfs = vfs
 	if s.Filesystem != nil {
-		s.Filesystem.SetVFS(s.VFS)
+		s.Filesystem.SetVFS(s.vfs)
 	}
 }
 
 func (s *State) VFSListDir(path string) (*contracts.DirectoryListing, error) {
-	return internalruntime.VFSListDir(s.VFS, path)
+	return internalruntime.VFSListDir(s.vfs, path)
 }
 
 func (s *State) VFSOpenArchive(path string, nested []string) (contracts.ArchiveListing, error) {
-	return internalruntime.VFSOpenArchive(s.VFS, path, nested)
+	return internalruntime.VFSOpenArchive(s.vfs, path, nested)
 }
 
 func (s *State) VFSMountArchive(path string) (string, error) {
-	return internalruntime.VFSMountArchive(s.VFS, path)
+	return internalruntime.VFSMountArchive(s.vfs, path)
 }
 
 func (s *State) VFSUnmount(mountPoint string) error {
-	return internalruntime.VFSUnmount(s.VFS, mountPoint)
+	return internalruntime.VFSUnmount(s.vfs, mountPoint)
 }

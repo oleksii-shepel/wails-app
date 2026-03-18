@@ -21,20 +21,15 @@ func NewApp() *App {
 	}
 
 	app := &App{}
-	elevation := internalelevation.NewService(app.emitEvent, app.startElevatedClient)
-	filesystem := NewFilesystemService(elevation, app.emitEvent, app.StartElevatedSession)
+	emitEvent := emitAppEvent(app)
+	elevation := internalelevation.NewService(emitEvent, startElevatedClient)
+	filesystem := NewFilesystemService(elevation, emitEvent, app.StartElevatedSession)
 	app.State = internalapp.BuildState(core, filesystem, elevation, internalapp.BuildConfig{
 		SetContext:                     func(ctx context.Context) { app.Ctx = ctx },
-		CreatePaneWatch:                app.createPaneWatch,
 		InitVFS:                        app.initVFS,
 		HandleFileDrop:                 app.HandleFileDrop,
-		ClosePaneWatch:                 app.closePaneWatch,
-		CancelDirStreams:               app.cancelDirStreams,
-		StopElevationSession:           app.stopElevationSession,
-		CloseArchiveCache:              app.closeArchiveCache,
-		BuildFileInfo:                  app.buildFileInfo,
+		BuildFileInfo:                  buildFileInfoWithHidden,
 		IsHidden:                       isHiddenFile,
-		PromptConflict:                 app.promptConflict,
 		ClassifyError:                  classifyError,
 		IsPermissionDenied:             isPermissionDenied,
 		ShouldRetryDeleteWithElevation: shouldRetryDeleteWithElevation,
@@ -44,17 +39,4 @@ func NewApp() *App {
 		IsArchive:                      isArchive,
 	})
 	return app
-}
-
-// startup is called by Wails when the app starts.
-func (a *App) startup(ctx context.Context) {
-	a.Runtime.Startup(ctx)
-}
-
-func (a *App) shutdown(_ context.Context) {
-	a.Runtime.Shutdown()
-}
-
-func (a *App) emitEvent(name string, data interface{}) {
-	a.Runtime.EmitEvent(a.Ctx, name, data)
 }

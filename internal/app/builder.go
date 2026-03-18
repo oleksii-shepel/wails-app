@@ -13,18 +13,12 @@ import (
 type BuildConfig struct {
 	SetContext func(context.Context)
 
-	CreatePaneWatch      func()
-	InitVFS              func()
-	HandleFileDrop       func(int, int, []string) error
-	ClosePaneWatch       func()
-	CancelDirStreams     func()
-	StopElevationSession func()
-	CloseArchiveCache    func()
+	InitVFS        func()
+	HandleFileDrop func(int, int, []string) error
 
 	BuildFileInfo func(name, fullPath string, info os.FileInfo, hidden bool) contracts.FileInfo
 	IsHidden      func(name, fullPath string) bool
 
-	PromptConflict                 func(event contracts.ConflictEvent)
 	ClassifyError                  func(error) contracts.AppErrorCode
 	IsPermissionDenied             func(error) bool
 	ShouldRetryDeleteWithElevation func(error) bool
@@ -41,13 +35,13 @@ func BuildState(core *Core, filesystem Filesystem, elevation *internalelevation.
 	state.Runtime = NewRuntimeService(RuntimeConfig{
 		SetContext:           config.SetContext,
 		SetOperationEmitter:  state.Operations.SetEmitter,
-		CreatePaneWatch:      config.CreatePaneWatch,
+		CreatePaneWatch:      state.CreatePaneWatch,
 		InitVFS:              config.InitVFS,
 		HandleFileDrop:       config.HandleFileDrop,
-		ClosePaneWatch:       config.ClosePaneWatch,
-		CancelDirStreams:     config.CancelDirStreams,
-		StopElevationSession: config.StopElevationSession,
-		CloseArchiveCache:    config.CloseArchiveCache,
+		ClosePaneWatch:       state.ClosePaneWatch,
+		CancelDirStreams:     state.CancelDirStreams,
+		StopElevationSession: state.StopElevationSession,
+		CloseArchiveCache:    state.CloseArchiveCache,
 	})
 
 	services := NewServices(ServiceConfig{
@@ -58,8 +52,8 @@ func BuildState(core *Core, filesystem Filesystem, elevation *internalelevation.
 		BuildFileInfo:                  config.BuildFileInfo,
 		IsHidden:                       config.IsHidden,
 		ListDirectory:                  filesystem.ListDirectory,
-		StartOperation:                 state.Operations.StartOperation,
-		PromptConflict:                 config.PromptConflict,
+		StartOperation:                 state.StartOperation,
+		PromptConflict:                 state.PromptConflict,
 		ClassifyError:                  config.ClassifyError,
 		IsPermissionDenied:             config.IsPermissionDenied,
 		ShouldRetryDeleteWithElevation: config.ShouldRetryDeleteWithElevation,
@@ -67,12 +61,10 @@ func BuildState(core *Core, filesystem Filesystem, elevation *internalelevation.
 		RunElevatedMove:                filesystem.RunElevatedMove,
 		RunElevatedDelete:              filesystem.RunElevatedDelete,
 		CalculateSize:                  config.CalculateSize,
-		ExtractNestedArchive: func(archivePath string, nestedChain []string) ([]byte, error) {
-			return state.Archive.ExtractNestedArchive(archivePath, nestedChain)
-		},
-		Normalize:        config.Normalize,
-		ArchiveEntryPath: config.ArchiveEntryPath,
-		IsArchive:        config.IsArchive,
+		ExtractNestedArchive:           state.ExtractNestedArchive,
+		Normalize:                      config.Normalize,
+		ArchiveEntryPath:               config.ArchiveEntryPath,
+		IsArchive:                      config.IsArchive,
 	})
 
 	state.Archive = services.Archive

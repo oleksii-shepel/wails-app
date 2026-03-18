@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"os"
 
@@ -31,7 +32,12 @@ func main() {
 
 	app := NewApp()
 
-	err := internalapp.Run(assets, app, app.startup, app.shutdown)
+	err := internalapp.Run(
+		assets,
+		app,
+		func(ctx context.Context) { app.State.Startup(ctx) },
+		func(context.Context) { app.State.Shutdown() },
+	)
 
 	if err != nil {
 		println("Error:", err.Error())

@@ -164,6 +164,11 @@ First pre-migration cleanup batch:
 - the service-port definitions that `App` used to duplicate in `main` are now owned by `internal/app/state.go`, so the root wrapper no longer carries its own parallel state-interface layer
 - state/runtime/service assembly for `NewApp` now also routes through `internal/app/builder.go`, so root construction is down to core bootstrap, root-only adapter creation, and wrapper instantiation
 - VFS host state and mount/list/open/unmount behavior now also live on `internal/app.State`, with `app_vfs.go` reduced to Wails-facing wrapper methods
+- startup, shutdown, and event emission now also route through methods on `internal/app.State`, leaving root `app.go` with less direct lifecycle behavior
+- pane-watch creation/cleanup, dir-stream cancellation, elevation session shutdown, and archive-cache close now also live on `internal/app.State`, trimming more state-only composition behavior out of the root wrapper
+- operation start, conflict-event emission, and nested-archive extraction callbacks now also route through `internal/app.State`, leaving fewer state behaviors behind in root helper files
+- the old root `App` composition-helper methods are now gone; the remaining root-only construction glue is down to plain package adapters such as the elevated-client launcher and file-info callback
+- root `app.go` no longer owns startup/shutdown/event wrapper methods either; `main.go` now passes direct closures into the internal state lifecycle, leaving `app.go` effectively as wrapper type plus constructor
 
 Why this batch comes first:
 

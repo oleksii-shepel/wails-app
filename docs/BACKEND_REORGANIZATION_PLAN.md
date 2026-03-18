@@ -161,6 +161,7 @@ First pre-migration cleanup batch:
 - `App` now stores narrow ports for archive, runtime, batch, dir-stream, utility, navigation, workspace, elevation, and pane-watch behavior as well, so most of the remaining concrete-type coupling has been collapsed to constructor-time assembly instead of struct ownership
 - `FilesystemService` now also depends on a narrow elevation client provider rather than the concrete elevation service type, which trims one more root-level concrete dependency from filesystem orchestration
 - `main.App` now wraps an `internal/app` state holder instead of owning the full concrete backend field set directly, so app state ownership has started moving behind the internal package boundary while the Wails-facing wrapper stays stable
+- the service-port definitions that `App` used to duplicate in `main` are now owned by `internal/app/state.go`, so the root wrapper no longer carries its own parallel state-interface layer
 
 Why this batch comes first:
 

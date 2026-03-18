@@ -198,7 +198,6 @@ Current files that map here:
 - `internal/archive/nested.go`
 - `internal/archive/resolve.go`
 - `internal/contracts/archive.go`
-- `archive_types.go`
 
 Important note:
 
@@ -209,7 +208,7 @@ Important note:
 - archive extraction orchestration now also lives in `internal/archive/service.go`; nested-archive extraction plumbing moved there as a shared archive-domain helper and batch now depends on the archive service for chain resolution instead of calling an App-owned helper
 - concrete extraction helpers and extraction-specific helper functions also moved under `internal/archive`, and batch now imports archive-format helpers from that package directly instead of depending on duplicate root helpers
 - the old root archive read-format implementation became redundant after the nested and read flows moved, and the last duplicate root archive helper files have now been removed as batch/archive ownership converges under `internal/archive`
-- archive request/result contracts have now started moving into `internal/contracts`, with `archive_types.go` reduced to aliases at the main-package boundary.
+- archive request/result contracts have now started moving into `internal/contracts`, with the root package only re-exporting the necessary aliases through `types.go`.
 - archive browse/list and archive read response contracts now share ownership with filesystem listing/read contracts under `internal/contracts/filesystem.go`, since the underlying wire shapes are the same `ArchiveListing`, `FileInfo`, and `FileContent` structures used across both domains.
 - VFS nested archive chain opening now also routes through `internal/archive/resolve.go`, so `main` no longer owns the temp-file nested-archive opener used by the archive cache and VFS mount flow.
 
@@ -322,12 +321,11 @@ Current files that map here:
 - `internal/batch/transfers.go`
 - `internal/ops/manager.go`
 - `batch_service.go`
-- `batch_types.go`
 
 Important note:
 
 - if `operations.go` remains the shared progress-operation registry rather than pure batch behavior, it can also live under `internal/ops`; the deciding factor should be whether non-batch domains need to own operation lifecycle directly.
-- batch request/result and conflict contracts now live in `internal/contracts/batch.go`, with `batch_types.go` reduced to main-package aliases plus internal-only helper types.
+- batch request/result and conflict contracts now live in `internal/contracts/batch.go`, with the root package only re-exporting the necessary aliases through `types.go`.
 - operation type, status, and progress wire models now live in `internal/contracts/operations.go`, and the live operation manager/runtime bookkeeping now live in `internal/ops/manager.go`; `main` only re-exports the types and wires the event emitter during startup.
 - the public batch composition root now lives in `internal/batch/service.go`; it owns conflict coordination, the conflict prompt adapter boundary, throttled progress tracking, streaming file operations, full-archive extraction, selective extraction, and transfer loop orchestration.
 - copy, move, and delete loop orchestration now also live under `internal/batch/transfers.go`, and `batch_service.go` has been reduced to Wails-facing method forwarding.
@@ -340,7 +338,8 @@ Owns elevated-session state, helper coordination, and platform-specific elevatio
 Current files that map here:
 
 - `internal/elevation/service.go`
-- `elevated_service.go`
+- `internal/elevation/ipc.go`
+- `internal/elevation/errors.go`
 - `elevation_helper.go`
 - `elevation_windows.go`
 - `elevation_unix.go`
@@ -397,8 +396,7 @@ Current files that likely contribute here:
 - `internal/contracts/workspace.go`
 - `internal/contracts/navigation.go`
 - `types.go` now re-exports selected contracts via type aliases
-- parts of `archive_types.go`
-- parts of `batch_types.go`
+- additional wire aliases now consolidate into `types.go`
 
 Important note:
 
@@ -585,7 +583,7 @@ What remains in the repository root is intentional:
 1. `main.go` as the desktop/bootstrap entrypoint.
 2. `app_adapters.go` as the small composition bridge from bootstrap into `internal/app`.
 3. thin filesystem/elevation adapters needed to connect OS launch edges and raw callbacks into internal packages.
-4. alias files such as `types.go`, `archive_types.go`, and `batch_types.go` that preserve stable exported wire names at the root boundary.
+4. `types.go` as the primary compatibility alias file that preserves stable exported wire names at the root boundary.
 
 That is materially different from the starting point: real backend ownership no longer lives in the root package.
 

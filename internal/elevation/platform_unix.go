@@ -1,6 +1,6 @@
 //go:build linux || darwin
 
-package main
+package elevation
 
 import (
 	"fmt"
@@ -11,34 +11,26 @@ import (
 	"strings"
 )
 
-// isProcessElevated returns true when the current process is running as root.
-func isProcessElevated() bool {
+func IsProcessElevated() bool {
 	return os.Getuid() == 0
 }
 
-// launchElevatedService launches this executable as an elevated background
-// service and returns the PID of the launched process.
-// On Linux it uses pkexec (GUI prompt) or falls back to sudo.
-// On macOS it uses osascript's administrator privileges prompt.
-func launchElevatedService(exePath string, port int, secretB64 string) (int, error) {
+func LaunchService(exePath string, port int, secretB64 string) (int, error) {
 	args := []string{
-		elevatedServiceFlag,
+		ServiceFlag,
 		"--port", strconv.Itoa(port),
 		"--secret", secretB64,
 	}
 
 	if runtime.GOOS == "linux" {
 		script := detachedCommandScript(exePath, args)
-
-		// Try pkexec first (desktop polkit agent).
 		if out, err := exec.Command("pkexec", "sh", "-c", script).CombinedOutput(); err == nil {
-			if pid, perr := parseLaunchedPID(out); perr == nil {
+			if pid, parseErr := parseLaunchedPID(out); parseErr == nil {
 				return pid, nil
 			}
 			return 0, fmt.Errorf("elevation failed: could not parse elevated PID")
 		}
 
-		// Fall back to sudo.
 		out, err := exec.Command("sudo", "sh", "-c", script).CombinedOutput()
 		if err != nil {
 			msg := strings.TrimSpace(string(out))
@@ -47,8 +39,8 @@ func launchElevatedService(exePath string, port int, secretB64 string) (int, err
 			}
 			return 0, fmt.Errorf("elevation failed (pkexec/sudo): %s", msg)
 		}
-		pid, perr := parseLaunchedPID(out)
-		if perr != nil {
+		pid, parseErr := parseLaunchedPID(out)
+		if parseErr != nil {
 			return 0, fmt.Errorf("elevation failed: could not parse elevated PID")
 		}
 		return pid, nil
@@ -65,8 +57,8 @@ func launchElevatedService(exePath string, port int, secretB64 string) (int, err
 			}
 			return 0, fmt.Errorf("elevation failed: %s", msg)
 		}
-		pid, perr := parseLaunchedPID(out)
-		if perr != nil {
+		pid, parseErr := parseLaunchedPID(out)
+		if parseErr != nil {
 			return 0, fmt.Errorf("elevation failed: could not parse elevated PID")
 		}
 		return pid, nil
@@ -75,15 +67,13 @@ func launchElevatedService(exePath string, port int, secretB64 string) (int, err
 	return 0, fmt.Errorf("launchElevatedService: unsupported platform %q", runtime.GOOS)
 }
 
-func launchElevatedProcess(exePath, reqB64, resultPath string) error {
-	args := []string{elevatedHelperFlag, "--request", reqB64, "--result", resultPath}
+func LaunchProcess(exePath, reqB64, resultPath string) error {
+	args := []string{HelperFlag, "--request", reqB64, "--result", resultPath}
 
-	// Linux: prefer pkexec (GUI prompt), fallback sudo.
 	if runtime.GOOS == "linux" {
 		if out, err := exec.Command("pkexec", append([]string{exePath}, args...)...).CombinedOutput(); err == nil {
 			return nil
 		} else {
-			// If sudo succeeds, accept it. If both fail, return the sudo error below.
 			_, _ = out, err
 		}
 
@@ -98,11 +88,10 @@ func launchElevatedProcess(exePath, reqB64, resultPath string) error {
 		return nil
 	}
 
-	// macOS: AppleScript privilege prompt.
 	if runtime.GOOS == "darwin" {
 		command := shellEscape(exePath)
-		for _, a := range args {
-			command += " " + shellEscape(a)
+		for _, arg := range args {
+			command += " " + shellEscape(arg)
 		}
 
 		script := fmt.Sprintf(`do shell script %q with administrator privileges`, command)
@@ -126,10 +115,9 @@ func shellEscape(s string) string {
 
 func detachedCommandScript(exePath string, args []string) string {
 	command := shellEscape(exePath)
-	for _, a := range args {
-		command += " " + shellEscape(a)
+	for _, arg := range args {
+		command += " " + shellEscape(arg)
 	}
-	// Launch detached and print child PID so parent can track status.
 	return command + " >/dev/null 2>&1 & echo $!"
 }
 

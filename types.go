@@ -26,11 +26,6 @@ const (
 	ErrCodeUnknown          AppErrorCode = internalcontracts.ErrCodeUnknown
 )
 
-// classifyError maps a Go error to a stable AppErrorCode.
-func classifyError(err error) AppErrorCode {
-	return internalcontracts.ClassifyError(err)
-}
-
 // ============================================================================
 // OS Info
 // ============================================================================
@@ -72,7 +67,6 @@ type SpecialFoldersResponse = internalcontracts.SpecialFoldersResponse
 // ============================================================================
 // File System Data Types
 // ============================================================================
-
 type FileType = internalcontracts.FileType
 
 const (
@@ -106,26 +100,16 @@ type DiskUsageProgress = internalcontracts.DiskUsageProgress
 // Response Envelope
 // ============================================================================
 
-type ResponseStatus string
+type ResponseStatus = internalcontracts.ResponseStatus
 
 const (
-	ResponseStatusSuccess ResponseStatus = "SUCCESS"
-	ResponseStatusError   ResponseStatus = "ERROR"
+	ResponseStatusSuccess ResponseStatus = internalcontracts.ResponseStatusSuccess
+	ResponseStatusError   ResponseStatus = internalcontracts.ResponseStatusError
 )
 
-type ErrorDetail struct {
-	Code    string      `json:"code"`
-	Message string      `json:"message"`
-	Details interface{} `json:"details,omitempty"`
-}
+type ErrorDetail = internalcontracts.ErrorDetail
 
-type AppResponse struct {
-	CommandID string         `json:"commandId"`
-	Status    ResponseStatus `json:"status"`
-	Timestamp int64          `json:"timestamp"`
-	Data      interface{}    `json:"data,omitempty"`
-	Error     *ErrorDetail   `json:"error,omitempty"`
-}
+type AppResponse = internalcontracts.AppResponse
 
 // ============================================================================
 // Navigation History

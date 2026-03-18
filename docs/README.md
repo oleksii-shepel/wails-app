@@ -12,17 +12,19 @@ The next-step backend packaging and layout proposal is documented in [BACKEND_RE
 
 ## Architecture
 
-The current backend structure is organized around explicit service boundaries, while `App` remains the Wails binding boundary and composition root.
+The current backend structure is organized around explicit internal package boundaries, while `App` remains the Wails binding wrapper exposed to Wails.
 
-- Backend composition root: [app.go](app.go)
-- Archive domain facade: [archive_service.go](archive_service.go)
+- Wails-facing app wrapper: [app.go](app.go)
+- Internal app state/runtime/service assembly: [internal/app](internal/app)
+- Archive domain facade: [internal/archive/service.go](internal/archive/service.go)
 - Filesystem orchestration: [filesystem_service.go](filesystem_service.go)
-- Batch orchestration: [batch_service.go](batch_service.go)
-- Navigation orchestration: [navigation_service.go](navigation_service.go)
-- Workspace/preferences orchestration: [workspace_service.go](workspace_service.go)
-- Elevated session lifecycle: [elevation_session_service.go](elevation_session_service.go)
-- Directory stream lifecycle: [internal/runtime/dir_stream.go](internal/runtime/dir_stream.go)
-- Small app-level utilities: [internal/utility/service.go](internal/utility/service.go)
+- Batch orchestration: [internal/batch/service.go](internal/batch/service.go)
+- Navigation orchestration: [internal/navigation/service.go](internal/navigation/service.go)
+- Workspace/preferences orchestration: [internal/workspace/service.go](internal/workspace/service.go)
+- Elevated session lifecycle and IPC: [internal/elevation](internal/elevation)
+- Directory stream and pane watch runtime: [internal/runtime](internal/runtime)
+- Platform/path helpers: [internal/platform](internal/platform)
+- Small cross-domain utilities: [internal/utility/service.go](internal/utility/service.go)
 
 The frontend is organized around a thin pane host plus controller/factory layers rather than a single large smart component.
 

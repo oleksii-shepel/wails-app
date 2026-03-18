@@ -163,6 +163,7 @@ First pre-migration cleanup batch:
 - `main.App` now wraps an `internal/app` state holder instead of owning the full concrete backend field set directly, so app state ownership has started moving behind the internal package boundary while the Wails-facing wrapper stays stable
 - the service-port definitions that `App` used to duplicate in `main` are now owned by `internal/app/state.go`, so the root wrapper no longer carries its own parallel state-interface layer
 - state/runtime/service assembly for `NewApp` now also routes through `internal/app/builder.go`, so root construction is down to core bootstrap, root-only adapter creation, and wrapper instantiation
+- VFS host state and mount/list/open/unmount behavior now also live on `internal/app.State`, with `app_vfs.go` reduced to Wails-facing wrapper methods
 
 Why this batch comes first:
 

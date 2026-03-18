@@ -7,10 +7,14 @@ import (
 	vfslib "wails-app/vfs"
 )
 
+type filesystemElevation interface {
+	Client() internalelevation.Client
+}
+
 // FilesystemService owns filesystem orchestration, including permission
 // fallback through the elevated session service.
 type FilesystemService struct {
-	elevation            *internalelevation.Service
+	elevation            filesystemElevation
 	emitEvent            func(string, interface{})
 	startElevatedSession func() (*ElevatedSessionStatus, error)
 	vfs                  *vfslib.Unified
@@ -19,7 +23,7 @@ type FilesystemService struct {
 }
 
 func NewFilesystemService(
-	elevation *internalelevation.Service,
+	elevation filesystemElevation,
 	emitEvent func(string, interface{}),
 	startElevatedSession func() (*ElevatedSessionStatus, error),
 ) *FilesystemService {

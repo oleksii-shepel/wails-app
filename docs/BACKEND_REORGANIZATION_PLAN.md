@@ -157,6 +157,9 @@ First pre-migration cleanup batch:
 - archive-operation adapter wiring and batch error-envelope construction now also live in `internal/app/services.go`, further reducing `NewApp` to callback binding rather than service-specific adapter code
 - elevated list/copy/move/delete callback assembly now routes through `FilesystemService` methods, so `NewApp` no longer rebuilds those elevated filesystem adapters inline
 - the remaining runtime/service composition hooks in `NewApp` now mostly use named `App` helper methods rather than anonymous closures, which further shrinks the eventual `App` relocation diff
+- the `App` filesystem port no longer exposes low-level elevation-target helpers or raw elevated dispatch methods, only the higher-level operations that the composition layer actually uses
+- `App` now stores narrow ports for archive, runtime, batch, dir-stream, utility, navigation, workspace, elevation, and pane-watch behavior as well, so most of the remaining concrete-type coupling has been collapsed to constructor-time assembly instead of struct ownership
+- `FilesystemService` now also depends on a narrow elevation client provider rather than the concrete elevation service type, which trims one more root-level concrete dependency from filesystem orchestration
 
 Why this batch comes first:
 

@@ -5,13 +5,7 @@ import (
 	"fmt"
 
 	internalapp "wails-app/internal/app"
-	internalarchive "wails-app/internal/archive"
-	internalbatch "wails-app/internal/batch"
 	internalelevation "wails-app/internal/elevation"
-	internalnav "wails-app/internal/navigation"
-	internalruntime "wails-app/internal/runtime"
-	internalutility "wails-app/internal/utility"
-	internalworkspace "wails-app/internal/workspace"
 	vfslib "wails-app/vfs"
 	"wails-app/vfs/archive/cache"
 )
@@ -19,17 +13,17 @@ import (
 // App is the main application struct bound to the Wails frontend.
 type App struct {
 	ctx        context.Context
-	archive    *internalarchive.Service
-	runtime    *internalapp.RuntimeService
+	archive    appArchive
+	runtime    appRuntime
 	filesystem appFilesystem
-	batch      *internalbatch.Service
-	dirStream  *internalruntime.DirStreamService
-	utility    *internalutility.Service
-	navigation *internalnav.Service
-	workspace  *internalworkspace.Service
+	batch      appBatch
+	dirStream  appDirStream
+	utility    appUtility
+	navigation appNavigation
+	workspace  appWorkspace
 	operations appOperations
-	dirWatch   *internalruntime.PaneWatchManager
-	elevation  *internalelevation.Service
+	dirWatch   appDirWatch
+	elevation  appElevation
 	vfs        *vfslib.Unified
 	archCache  *cache.Cache // lazy-open, LRU cache of open archive.Archive objects
 }
@@ -59,8 +53,9 @@ func NewApp() *App {
 		StopElevationSession: app.stopElevationSession,
 		CloseArchiveCache:    app.closeArchiveCache,
 	})
-	app.elevation = internalelevation.NewService(app.emitEvent, app.startElevatedClient)
-	app.filesystem = NewFilesystemService(app.elevation, app.emitEvent, app.StartElevatedSession)
+	elevation := internalelevation.NewService(app.emitEvent, app.startElevatedClient)
+	app.elevation = elevation
+	app.filesystem = NewFilesystemService(elevation, app.emitEvent, app.StartElevatedSession)
 	services := internalapp.NewServices(internalapp.ServiceConfig{
 		Core:                           core,
 		EmitEvent:                      app.emitEvent,

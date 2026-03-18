@@ -1,4 +1,4 @@
-package main
+package archive
 
 import (
 	"archive/tar"
@@ -14,7 +14,7 @@ import (
 	"github.com/mholt/archiver/v3"
 )
 
-func rewriteZip(fsPath string, entries []string, op *ActiveOperation) (removed, kept int, err error) {
+func rewriteZip(fsPath string, entries []string, op Operation) (removed, kept int, err error) {
 	r, err := zip.OpenReader(fsPath)
 	if err != nil {
 		return 0, 0, err
@@ -84,11 +84,7 @@ func rewriteZip(fsPath string, entries []string, op *ActiveOperation) (removed, 
 	return removed, kept, os.Rename(tmpPath, fsPath)
 }
 
-// Reading .tar.bz2:  stdlib compress/bzip2 (read-only, correct).
-// Reading .tar.xz:   archiver.Walk (handles xz via its internal ulikunitz/xz dep).
-// Writing bz2 / xz:  Go stdlib has no bz2/xz write support; rewriting bz2/xz
-// archives is done via archiver's TarBz2/TarXz types.
-func rewriteTar(fsPath string, entries []string, compression string, op *ActiveOperation) (removed, kept int, err error) {
+func rewriteTar(fsPath string, entries []string, compression string, op Operation) (removed, kept int, err error) {
 	srcFile, err := os.Open(fsPath)
 	if err != nil {
 		return 0, 0, err
@@ -191,7 +187,7 @@ func rewriteTar(fsPath string, entries []string, compression string, op *ActiveO
 	return removed, kept, os.Rename(tmpPath, fsPath)
 }
 
-func rewriteTarXzViaArchiver(fsPath string, entries []string, op *ActiveOperation) (removed, kept int, err error) {
+func rewriteTarXzViaArchiver(fsPath string, entries []string, op Operation) (removed, kept int, err error) {
 	type keptEntry struct {
 		hdr  *tar.Header
 		data []byte

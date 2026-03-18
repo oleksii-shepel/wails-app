@@ -1,20 +1,12 @@
 package main
 
 import (
-	"archive/tar"
-	"archive/zip"
-	"bytes"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
-	"strings"
-	"sync"
-	"sync/atomic"
-	"time"
 
-	"github.com/mholt/archiver/v3"
+	internalbatch "wails-app/internal/batch"
 )
 
 // batchErr builds a BatchItemError with the error message and its classified code.
@@ -28,123 +20,38 @@ func batchErr(source, destination string, err error) BatchItemError {
 	}
 }
 
-// ============================================================================
-// Conflict registry
-// ============================================================================
-//
-// An operation goroutine registers a pendingConflict and blocks on its response
-// channel.  The frontend calls ResolveConflict which sends the user's decision,
-// unblocking the goroutine.
-
-type conflictRegistry struct {
-	mu      sync.Mutex
-	pending map[string]*pendingConflict
-}
-
-func newConflictRegistry() *conflictRegistry {
-	return &conflictRegistry{pending: make(map[string]*pendingConflict)}
-}
-
-func (cr *conflictRegistry) register(id string) *pendingConflict {
-	pc := &pendingConflict{response: make(chan ConflictResolutionRequest, 1)}
-	cr.mu.Lock()
-	cr.pending[id] = pc
-	cr.mu.Unlock()
-	return pc
-}
-
-func (cr *conflictRegistry) resolve(id string, req ConflictResolutionRequest) bool {
-	cr.mu.Lock()
-	pc, ok := cr.pending[id]
-	if ok {
-		delete(cr.pending, id)
-	}
-	cr.mu.Unlock()
-	if !ok {
-		return false
-	}
-	pc.response <- req
-	return true
-}
-
-func (cr *conflictRegistry) cancelAll() {
-	cr.mu.Lock()
-	defer cr.mu.Unlock()
-	for id, pc := range cr.pending {
-		pc.response <- ConflictResolutionRequest{Resolution: ConflictCancel}
-		delete(cr.pending, id)
-	}
-}
-
-var globalConflicts = newConflictRegistry()
+var globalConflicts = internalbatch.NewConflictManager()
 
 // ============================================================================
 // Throttled progress
 // ============================================================================
 
 type batchProgress struct {
-	op       *ActiveOperation
-	throttle time.Duration
-	lastEmit time.Time
-
-	mu             sync.Mutex
-	processedItems int64
-	processedBytes int64
-	currentFile    string
-	currentSize    int64
+	tracker *internalbatch.ProgressTracker
 }
 
 func newBatchProgress(op *ActiveOperation) *batchProgress {
-	return &batchProgress{
-		op:       op,
-		throttle: 100 * time.Millisecond,
-		lastEmit: time.Now(),
-	}
+	return &batchProgress{tracker: internalbatch.NewProgressTracker(op)}
 }
 
-// update stores counters and flushes to the frontend at most once per 100 ms.
-// Pass force=true to emit unconditionally (e.g. at operation end).
 func (bp *batchProgress) update(items, byt int64, file string, fileSize int64, force bool) {
-	bp.mu.Lock()
-	bp.processedItems = items
-	bp.processedBytes = byt
-	bp.currentFile = file
-	bp.currentSize = fileSize
-	now := time.Now()
-	emit := force || now.Sub(bp.lastEmit) >= bp.throttle
-	if emit {
-		bp.lastEmit = now
-	}
-	i, b, f, s := bp.processedItems, bp.processedBytes, bp.currentFile, bp.currentSize
-	bp.mu.Unlock()
-	if emit {
-		bp.op.UpdateProgress(i, b, f, s)
-	}
+	bp.tracker.Set(items, byt, file, fileSize, force)
 }
 
 func (bp *batchProgress) flush() {
-	bp.mu.Lock()
-	i, b, f, s := bp.processedItems, bp.processedBytes, bp.currentFile, bp.currentSize
-	bp.mu.Unlock()
-	bp.op.UpdateProgress(i, b, f, s)
+	bp.tracker.Flush()
+}
+
+func (bp *batchProgress) snapshot() (int64, int64) {
+	return bp.tracker.Snapshot()
+}
+
+func (bp *batchProgress) advance(itemDelta, byteDelta int64, file string, fileSize int64, force bool) (int64, int64) {
+	return bp.tracker.Advance(itemDelta, byteDelta, file, fileSize, force)
 }
 
 // ============================================================================
-// Conflict ID generator
-// ============================================================================
-
-var conflictCounter int64
-
-func nextConflictID(opID string) string {
-	return fmt.Sprintf("%s-conflict-%d", opID, atomic.AddInt64(&conflictCounter, 1))
-}
-
-// ============================================================================
-// Conflict helper — single entry point for all batch operations
-// ============================================================================
-//
 // checkConflict checks whether dst already exists and, if so, either applies
-// the stored blanket decision immediately or emits "operation:conflict" and
 // blocks until the frontend calls ResolveConflict.
 //
 // blanket is **ConflictResolution so the caller's variable is updated when
@@ -155,7 +62,7 @@ func nextConflictID(opID string) string {
 //   skip     — true: count as skipped and move on
 //   err      — non-nil only on stat error or uniqueDestination failure
 
-func (s *BatchService) checkConflict(
+func (s *batchCoreService) checkConflict(
 	op *ActiveOperation,
 	srcLabel, dst string,
 	blanket **ConflictResolution,
@@ -170,7 +77,7 @@ func (s *BatchService) checkConflict(
 
 	// Apply stored blanket without prompting.
 	if *blanket != nil {
-		return applyResolution(**blanket, dst)
+		return internalbatch.ApplyResolution(**blanket, dst)
 	}
 
 	// Gather source metadata for the event (best-effort).
@@ -180,7 +87,7 @@ func (s *BatchService) checkConflict(
 		srcMtime = info.ModTime().Unix()
 	}
 
-	conflictID := nextConflictID(op.ID)
+	conflictID := globalConflicts.NextID(op.ID)
 	evt := ConflictEvent{
 		OperationID: op.ID,
 		ConflictID:  conflictID,
@@ -194,141 +101,29 @@ func (s *BatchService) checkConflict(
 	}
 
 	// Register before emitting to avoid a race if the frontend responds instantly.
-	pc := globalConflicts.register(conflictID)
+	response := globalConflicts.Register(conflictID)
 	if s.emitEvent != nil {
 		s.emitEvent("operation:conflict", evt)
 	}
 
 	select {
-	case res := <-pc.response:
+	case res := <-response:
 		if res.ApplyToAll {
 			r := res.Resolution
 			*blanket = &r
 		}
-		return applyResolution(res.Resolution, dst)
-	case <-op.cancel:
-		globalConflicts.cancelAll()
+		return internalbatch.ApplyResolution(res.Resolution, dst)
+	case <-op.CancelSignal():
+		globalConflicts.CancelAll()
 		return "", true, fmt.Errorf("operation cancelled")
 	}
-}
-
-// applyResolution converts a ConflictResolution into the (finalDst, skip, err)
-// triple that checkConflict returns.
-func applyResolution(res ConflictResolution, dst string) (string, bool, error) {
-	switch res {
-	case ConflictSkip:
-		return dst, true, nil
-	case ConflictOverwrite:
-		return dst, false, nil
-	case ConflictRename:
-		renamed, err := uniqueDestination(dst)
-		return renamed, false, err
-	case ConflictCancel:
-		return "", true, fmt.Errorf("operation cancelled by user")
-	default:
-		return dst, true, nil
-	}
-}
-
-// uniqueDestination finds a free path by appending " (N)" before the extension.
-func uniqueDestination(dst string) (string, error) {
-	ext := filepath.Ext(dst)
-	base := dst[:len(dst)-len(ext)]
-
-	// Try the canonical "_copy" first, then numeric suffixes: _copy2, _copy3, ...
-	if candidate := fmt.Sprintf("%s_copy%s", base, ext); pathAvailable(candidate) {
-		return candidate, nil
-	}
-
-	for i := 2; i <= 999; i++ {
-		candidate := fmt.Sprintf("%s_copy%d%s", base, i, ext)
-		if pathAvailable(candidate) {
-			return candidate, nil
-		}
-	}
-	return "", fmt.Errorf("could not find a free name for %q", dst)
-}
-
-// pathAvailable reports whether a path does not already exist.
-func pathAvailable(path string) bool {
-	_, err := os.Lstat(path)
-	return os.IsNotExist(err)
-}
-
-// sameDir reports whether two directory paths refer to the same location,
-// using case-insensitive comparison on Windows and case-sensitive elsewhere.
-func sameDir(a, b string) bool {
-	ca := filepath.Clean(a)
-	cb := filepath.Clean(b)
-	if runtime.GOOS == "windows" {
-		return strings.EqualFold(ca, cb)
-	}
-	return ca == cb
-}
-
-// ============================================================================
-// Shared streaming writer
-// ============================================================================
-//
-// streamToFile is the single 32 KB copy loop used by both file copy and all
-// archive streaming paths.  It updates throttled progress on every chunk and
-// removes the partial destination file if the operation is cancelled mid-write.
-
-func (s *BatchService) streamToFile(r io.Reader, dst string, size int64, label string, op *ActiveOperation, bp *batchProgress) (int64, error) {
-	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
-		return 0, err
-	}
-	out, err := os.Create(dst)
-	if err != nil {
-		return 0, err
-	}
-	defer out.Close()
-
-	bp.mu.Lock()
-	baseItems := bp.processedItems
-	baseBytes := bp.processedBytes
-	bp.mu.Unlock()
-	bp.update(baseItems, baseBytes, label, size, false)
-
-	buf := make([]byte, 32*1024)
-	var written int64
-	for {
-		if op.IsCancelled() {
-			out.Close()
-			os.Remove(dst)
-			return 0, fmt.Errorf("operation cancelled")
-		}
-		nr, readErr := r.Read(buf)
-		if nr > 0 {
-			nw, writeErr := out.Write(buf[:nr])
-			if writeErr != nil {
-				return written, writeErr
-			}
-			written += int64(nw)
-			bp.update(baseItems, baseBytes+written, label, size, false)
-		}
-		if readErr == io.EOF {
-			break
-		}
-		if readErr != nil {
-			return written, readErr
-		}
-	}
-
-	bp.mu.Lock()
-	bp.processedItems = baseItems + 1
-	bp.processedBytes = baseBytes + written
-	i, b := bp.processedItems, bp.processedBytes
-	bp.mu.Unlock()
-	bp.update(i, b, "", 0, false)
-	return written, nil
 }
 
 // ============================================================================
 // Batch Copy
 // ============================================================================
 
-func (s *BatchService) BatchCopy(req BatchRequest) (*BatchResult, error) {
+func (s *batchCoreService) BatchCopy(req BatchRequest) (*BatchResult, error) {
 	op := s.operations.StartOperation(OpCopy, "Batch copy", "", "")
 
 	var totalItems, totalBytes int64
@@ -340,6 +135,7 @@ func (s *BatchService) BatchCopy(req BatchRequest) (*BatchResult, error) {
 	op.SetTotal(totalItems, totalBytes)
 
 	bp := newBatchProgress(op)
+	fileOps := internalbatch.NewFileOperator(op.IsCancelled, bp.tracker)
 	result := &BatchResult{OperationID: op.ID, Total: len(req.Items)}
 	var blanket *ConflictResolution
 
@@ -368,7 +164,7 @@ func (s *BatchService) BatchCopy(req BatchRequest) (*BatchResult, error) {
 			continue
 		}
 
-		if err := s.copyPath(item.Source, finalDst, req.Recursive, op, bp); err != nil {
+		if err := fileOps.CopyPath(item.Source, finalDst, req.Recursive); err != nil {
 			if isPermissionDenied(err) {
 				resp, elevErr := s.runElevatedWithEvents("copy", opTargetPair(item.Source, finalDst), elevatedRequest{
 					Op:          "copy",
@@ -397,13 +193,13 @@ func (s *BatchService) BatchCopy(req BatchRequest) (*BatchResult, error) {
 // Batch Move
 // ============================================================================
 
-func (s *BatchService) BatchMove(req BatchRequest) (*BatchResult, error) {
+func (s *batchCoreService) BatchMove(req BatchRequest) (*BatchResult, error) {
 	// Pre-scan: if every item is a no-op move within the same directory, skip the operation entirely.
 	allNoOp := true
 	for _, item := range req.Items {
 		srcDir := filepath.Dir(item.Source)
 		dstDir := filepath.Dir(item.Destination)
-		if !sameDir(srcDir, dstDir) {
+		if !internalbatch.SameDir(srcDir, dstDir) {
 			allNoOp = false
 			break
 		}
@@ -423,6 +219,7 @@ func (s *BatchService) BatchMove(req BatchRequest) (*BatchResult, error) {
 	op.SetTotal(totalItems, totalBytes)
 
 	bp := newBatchProgress(op)
+	fileOps := internalbatch.NewFileOperator(op.IsCancelled, bp.tracker)
 	result := &BatchResult{OperationID: op.ID, Total: len(req.Items)}
 	var blanket *ConflictResolution
 
@@ -435,7 +232,7 @@ func (s *BatchService) BatchMove(req BatchRequest) (*BatchResult, error) {
 		// This avoids surfacing a conflict dialog and mirrors common UX (skip silently).
 		srcDir := filepath.Dir(item.Source)
 		dstDir := filepath.Dir(item.Destination)
-		if sameDir(srcDir, dstDir) {
+		if internalbatch.SameDir(srcDir, dstDir) {
 			result.Skipped++
 			continue
 		}
@@ -476,7 +273,7 @@ func (s *BatchService) BatchMove(req BatchRequest) (*BatchResult, error) {
 					continue
 				}
 			}
-			if err2 := s.copyPath(item.Source, finalDst, true, op, bp); err2 != nil {
+			if err2 := fileOps.CopyPath(item.Source, finalDst, true); err2 != nil {
 				if isPermissionDenied(err2) {
 					resp, elevErr := s.runElevatedWithEvents("move", opTargetPair(item.Source, finalDst), elevatedRequest{
 						Op:          "move",
@@ -512,12 +309,7 @@ func (s *BatchService) BatchMove(req BatchRequest) (*BatchResult, error) {
 			}
 		} else {
 			// Atomic rename: advance counters without a byte loop.
-			bp.mu.Lock()
-			bp.processedItems++
-			bp.processedBytes += srcInfo.Size()
-			i, b := bp.processedItems, bp.processedBytes
-			bp.mu.Unlock()
-			bp.update(i, b, filepath.Base(item.Source), srcInfo.Size(), false)
+			bp.advance(1, srcInfo.Size(), filepath.Base(item.Source), srcInfo.Size(), false)
 		}
 		result.Succeeded++
 	}
@@ -531,7 +323,7 @@ func (s *BatchService) BatchMove(req BatchRequest) (*BatchResult, error) {
 // Batch Delete
 // ============================================================================
 
-func (s *BatchService) BatchDelete(req BatchDeleteRequest) (*BatchResult, error) {
+func (s *batchCoreService) BatchDelete(req BatchDeleteRequest) (*BatchResult, error) {
 	op := s.operations.StartOperation(OpDelete, "Batch delete", "", "")
 
 	var totalItems, totalBytes int64
@@ -543,6 +335,7 @@ func (s *BatchService) BatchDelete(req BatchDeleteRequest) (*BatchResult, error)
 	op.SetTotal(totalItems, totalBytes)
 
 	bp := newBatchProgress(op)
+	fileOps := internalbatch.NewFileOperator(op.IsCancelled, bp.tracker)
 	result := &BatchResult{OperationID: op.ID, Total: len(req.Paths)}
 
 	for _, p := range req.Paths {
@@ -563,11 +356,7 @@ func (s *BatchService) BatchDelete(req BatchDeleteRequest) (*BatchResult, error)
 						UseTrash: &useTrashElev,
 					})
 					if elevErr == nil && resp.Success {
-						bp.mu.Lock()
-						bp.processedItems++
-						i, b := bp.processedItems, bp.processedBytes
-						bp.mu.Unlock()
-						bp.update(i, b, filepath.Base(p), 0, false)
+						bp.advance(1, 0, filepath.Base(p), 0, false)
 						result.Succeeded++
 						continue
 					}
@@ -579,11 +368,7 @@ func (s *BatchService) BatchDelete(req BatchDeleteRequest) (*BatchResult, error)
 				result.Errors = append(result.Errors, batchErr(p, "", err))
 				continue
 			}
-			bp.mu.Lock()
-			bp.processedItems++
-			i, b := bp.processedItems, bp.processedBytes
-			bp.mu.Unlock()
-			bp.update(i, b, filepath.Base(p), 0, false)
+			bp.advance(1, 0, filepath.Base(p), 0, false)
 			result.Succeeded++
 			continue
 		}
@@ -596,7 +381,7 @@ func (s *BatchService) BatchDelete(req BatchDeleteRequest) (*BatchResult, error)
 		}
 
 		if info.IsDir() && req.Recursive {
-			if err := s.deleteDir(p, op, bp); err != nil {
+			if err := fileOps.DeleteDir(p); err != nil {
 				if shouldRetryDeleteWithElevation(err) {
 					useTrashElev := false
 					resp, elevErr := s.runElevatedWithEvents("delete", opTargetSingle(p), elevatedRequest{
@@ -626,12 +411,7 @@ func (s *BatchService) BatchDelete(req BatchDeleteRequest) (*BatchResult, error)
 						UseTrash:  &useTrashElev,
 					})
 					if elevErr == nil && resp.Success {
-						bp.mu.Lock()
-						bp.processedItems++
-						bp.processedBytes += size
-						i, b := bp.processedItems, bp.processedBytes
-						bp.mu.Unlock()
-						bp.update(i, b, filepath.Base(p), size, false)
+						bp.advance(1, size, filepath.Base(p), size, false)
 						result.Succeeded++
 						continue
 					}
@@ -640,12 +420,7 @@ func (s *BatchService) BatchDelete(req BatchDeleteRequest) (*BatchResult, error)
 				result.Errors = append(result.Errors, batchErr(p, "", err))
 				continue
 			}
-			bp.mu.Lock()
-			bp.processedItems++
-			bp.processedBytes += size
-			i, b := bp.processedItems, bp.processedBytes
-			bp.mu.Unlock()
-			bp.update(i, b, filepath.Base(p), size, false)
+			bp.advance(1, size, filepath.Base(p), size, false)
 		}
 		result.Succeeded++
 	}
@@ -659,11 +434,24 @@ func (s *BatchService) BatchDelete(req BatchDeleteRequest) (*BatchResult, error)
 // Batch Extract — full archives
 // ============================================================================
 
-func (s *BatchService) BatchExtract(req BatchExtractRequest) (*BatchExtractResult, error) {
+func (s *batchCoreService) BatchExtract(req BatchExtractRequest) (*BatchExtractResult, error) {
 	op := s.operations.StartOperation(OpExtract, "Batch extract", "", req.DestinationDir)
 	op.SetTotal(int64(len(req.Archives)), 0)
 
 	bp := newBatchProgress(op)
+	fileOps := internalbatch.NewFileOperator(op.IsCancelled, bp.tracker)
+	extractor := internalbatch.NewArchiveExtractor(internalbatch.ExtractCallbacks{
+		IsCancelled: op.IsCancelled,
+		CheckConflict: func(srcLabel, dst string, blanket **ConflictResolution) (string, bool, error) {
+			return s.checkConflict(op, srcLabel, dst, blanket)
+		},
+		StreamToFile: func(r io.Reader, dst string, size int64, label string) (int64, error) {
+			return fileOps.StreamToFile(r, dst, size, label)
+		},
+		ArchiveEntryPath: archiveEntryPath,
+		Normalize:        normalize,
+		IsArchive:        isArchive,
+	})
 	result := &BatchExtractResult{OperationID: op.ID, Total: len(req.Archives)}
 	var blanket *ConflictResolution
 
@@ -674,12 +462,11 @@ func (s *BatchService) BatchExtract(req BatchExtractRequest) (*BatchExtractResul
 
 		destRoot := req.DestinationDir
 		if req.CreateSubdirectory {
-			destRoot = filepath.Join(req.DestinationDir, archiveBaseName(archivePath))
+			destRoot = filepath.Join(req.DestinationDir, internalbatch.ArchiveBaseName(archivePath))
 		}
 
-		ec := extractCtx{op: op, bp: bp, req: &req, blanket: blanket, destRoot: destRoot, depth: 0}
-		files, byt, err := s.extractOnDisk(archivePath, &ec)
-		blanket = ec.blanket
+		files, byt, nextBlanket, err := extractor.ExtractOnDisk(archivePath, &req, destRoot, blanket)
+		blanket = nextBlanket
 
 		if err != nil {
 			result.Failed++
@@ -690,11 +477,7 @@ func (s *BatchService) BatchExtract(req BatchExtractRequest) (*BatchExtractResul
 		result.ExtractedFiles += files
 		result.ExtractedBytes += byt
 
-		bp.mu.Lock()
-		bp.processedItems++
-		i, b := bp.processedItems, bp.processedBytes
-		bp.mu.Unlock()
-		bp.update(i, b, filepath.Base(archivePath), 0, false)
+		bp.advance(1, 0, filepath.Base(archivePath), 0, false)
 	}
 
 	bp.flush()
@@ -712,11 +495,22 @@ func (s *BatchService) BatchExtract(req BatchExtractRequest) (*BatchExtractResul
 //                         handle exists), then only matched entries buffered.
 //                         Intermediate archive bytes released after collection.
 
-func (s *BatchService) BatchSelectiveExtract(req BatchSelectiveExtractRequest) (*BatchSelectiveExtractResult, error) {
+func (s *batchCoreService) BatchSelectiveExtract(req BatchSelectiveExtractRequest) (*BatchSelectiveExtractResult, error) {
 	op := s.operations.StartOperation(OpExtract, "Selective extract", "", req.DestinationDir)
 	op.SetTotal(int64(len(req.Items)), 0)
 
 	bp := newBatchProgress(op)
+	extractor := internalbatch.NewSelectiveExtractor(
+		internalbatch.SelectiveExtractCallbacks{
+			IsCancelled:          op.IsCancelled,
+			CheckConflict:        func(srcLabel, dst string, blanket **ConflictResolution) (string, bool, error) { return s.checkConflict(op, srcLabel, dst, blanket) },
+			ExtractNestedArchive: s.extractNestedArchive,
+			Normalize:            normalize,
+			ArchiveEntryPath:     archiveEntryPath,
+		},
+		bp.tracker,
+		op.AddTotalBytes,
+	)
 	result := &BatchSelectiveExtractResult{OperationID: op.ID, Total: len(req.Items)}
 	var blanket *ConflictResolution
 
@@ -725,12 +519,8 @@ func (s *BatchService) BatchSelectiveExtract(req BatchSelectiveExtractRequest) (
 			break
 		}
 
-		dest := item.DestinationDir
-		if dest == "" {
-			dest = req.DestinationDir
-		}
-
-		files, byt, err := s.selectiveExtractItem(item, dest, op, bp, &blanket)
+		files, byt, nextBlanket, err := extractor.ExtractItem(item, req.DestinationDir, blanket)
+		blanket = nextBlanket
 		if err != nil {
 			result.Failed++
 			result.Errors = append(result.Errors, batchErr(item.ArchivePath, "", err))
@@ -740,770 +530,12 @@ func (s *BatchService) BatchSelectiveExtract(req BatchSelectiveExtractRequest) (
 			result.ExtractedBytes += byt
 		}
 
-		bp.mu.Lock()
-		bp.processedItems++
-		i, b := bp.processedItems, bp.processedBytes
-		bp.mu.Unlock()
-		bp.update(i, b, filepath.Base(item.ArchivePath), 0, false)
+		bp.advance(1, 0, filepath.Base(item.ArchivePath), 0, false)
 	}
 
 	bp.flush()
 	op.Complete()
 	return result, nil
-}
-
-// selectiveExtractItem handles one SelectiveExtractItem end-to-end.
-func (s *BatchService) selectiveExtractItem(
-	item SelectiveExtractItem,
-	destRoot string,
-	op *ActiveOperation,
-	bp *batchProgress,
-	blanket **ConflictResolution,
-) (int64, int64, error) {
-	if op.IsCancelled() {
-		return 0, 0, fmt.Errorf("operation cancelled")
-	}
-
-	// Phase 1: collect matched entries into memory.
-	var collected []archiveEntry
-	var err error
-	if len(item.NestedChain) == 0 {
-		collected, err = s.collectFromDisk(item.ArchivePath, item.Entries)
-	} else {
-		collected, err = s.collectFromNested(item.ArchivePath, item.NestedChain, item.Entries)
-	}
-	if err != nil {
-		return 0, 0, err
-	}
-	if len(collected) == 0 {
-		return 0, 0, nil
-	}
-
-	// Update total byte estimate now that we know the collected sizes.
-	var totalSize int64
-	for _, e := range collected {
-		totalSize += e.size
-	}
-	op.mu.Lock()
-	op.Progress.TotalBytes += totalSize
-	op.mu.Unlock()
-
-	// Phase 2: write collected entries to disk.
-	return s.writeEntries(collected, destRoot, item.StripPrefix, item.FlattenPaths, op, bp, blanket)
-}
-
-// ============================================================================
-// Phase 1 — collect matched entries into memory
-// ============================================================================
-
-// wantEntry reports whether innerPath should be extracted given the entry list.
-// An empty list means "everything".  A directory prefix extracts its subtree.
-func wantEntry(innerPath string, entries []string) bool {
-	if len(entries) == 0 {
-		return true
-	}
-	for _, e := range entries {
-		e = normalize(e)
-		if e == "" || e == "." {
-			return true
-		}
-		if innerPath == e || strings.HasPrefix(innerPath, e+"/") {
-			return true
-		}
-	}
-	return false
-}
-
-func (s *BatchService) collectFromDisk(archivePath string, entries []string) ([]archiveEntry, error) {
-	if strings.HasSuffix(strings.ToLower(archivePath), ".zip") {
-		return collectZipFile(archivePath, entries)
-	}
-	return collectTarFile(archivePath, entries)
-}
-
-func collectZipFile(archivePath string, entries []string) ([]archiveEntry, error) {
-	r, err := zip.OpenReader(archivePath)
-	if err != nil {
-		return nil, err
-	}
-	defer r.Close()
-
-	var out []archiveEntry
-	for _, f := range r.File {
-		if f.FileInfo().IsDir() {
-			continue
-		}
-		ep := normalize(f.Name)
-		if !wantEntry(ep, entries) {
-			continue
-		}
-		rc, err := f.Open()
-		if err != nil {
-			return nil, fmt.Errorf("open %q: %w", f.Name, err)
-		}
-		data, err := io.ReadAll(rc)
-		rc.Close()
-		if err != nil {
-			return nil, fmt.Errorf("read %q: %w", f.Name, err)
-		}
-		out = append(out, archiveEntry{ep, data, int64(f.UncompressedSize64), f.Modified.Unix()})
-	}
-	return out, nil
-}
-
-func collectTarFile(archivePath string, entries []string) ([]archiveEntry, error) {
-	var out []archiveEntry
-	err := archiver.Walk(archivePath, func(f archiver.File) error {
-		if f.IsDir() {
-			return nil
-		}
-		ep := normalize(archiveEntryPath(f))
-		if !wantEntry(ep, entries) {
-			return nil
-		}
-		data, err := io.ReadAll(f)
-		if err != nil {
-			return fmt.Errorf("read %q: %w", ep, err)
-		}
-		var mtime int64
-		if hdr, ok := f.Header.(*tar.Header); ok {
-			mtime = hdr.ModTime.Unix()
-		}
-		out = append(out, archiveEntry{ep, data, f.Size(), mtime})
-		return nil
-	})
-	return out, err
-}
-
-// collectFromNested resolves a nested archive chain then collects only matched
-// entries from the innermost archive bytes.
-func (s *BatchService) collectFromNested(archivePath string, nestedChain []string, entries []string) ([]archiveEntry, error) {
-	// extractNestedArchive is defined in archive.go — resolves chain fully in memory.
-	data, err := s.extractNestedArchive(archivePath, nestedChain)
-	if err != nil {
-		return nil, fmt.Errorf("resolve nested chain: %w", err)
-	}
-	return collectFromBytes(data, nestedChain[len(nestedChain)-1], entries)
-}
-
-func collectFromBytes(data []byte, archiveName string, entries []string) ([]archiveEntry, error) {
-	if isZipMagic(data) {
-		return collectZipBytes(data, entries)
-	}
-	if isRarArchiveName(archiveName) {
-		return collectRarBytes(data, archiveName, entries)
-	}
-	return collectTarBytes(data, entries)
-}
-
-func collectZipBytes(data []byte, entries []string) ([]archiveEntry, error) {
-	r, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
-	if err != nil {
-		return nil, err
-	}
-	var out []archiveEntry
-	for _, f := range r.File {
-		if f.FileInfo().IsDir() {
-			continue
-		}
-		ep := normalize(f.Name)
-		if !wantEntry(ep, entries) {
-			continue
-		}
-		rc, err := f.Open()
-		if err != nil {
-			return nil, fmt.Errorf("open %q: %w", f.Name, err)
-		}
-		buf, err := io.ReadAll(rc)
-		rc.Close()
-		if err != nil {
-			return nil, fmt.Errorf("read %q: %w", f.Name, err)
-		}
-		out = append(out, archiveEntry{ep, buf, int64(f.UncompressedSize64), f.Modified.Unix()})
-	}
-	return out, nil
-}
-
-func collectTarBytes(data []byte, entries []string) ([]archiveEntry, error) {
-	tr := tar.NewReader(bytes.NewReader(data))
-	var out []archiveEntry
-	for {
-		h, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, err
-		}
-		if h.FileInfo().IsDir() {
-			io.Copy(io.Discard, tr) // drain required for sequential TAR
-			continue
-		}
-		ep := normalize(h.Name)
-		if !wantEntry(ep, entries) {
-			io.Copy(io.Discard, tr)
-			continue
-		}
-		buf, err := io.ReadAll(tr)
-		if err != nil {
-			return nil, fmt.Errorf("read %q: %w", h.Name, err)
-		}
-		out = append(out, archiveEntry{ep, buf, h.Size, h.ModTime.Unix()})
-	}
-	return out, nil
-}
-
-func collectRarBytes(data []byte, archiveName string, entries []string) ([]archiveEntry, error) {
-	reader, err := openArchiveReader(archiveName, data)
-	if err != nil {
-		return nil, err
-	}
-	defer reader.Close()
-
-	var out []archiveEntry
-	for {
-		f, err := reader.Read()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, err
-		}
-		ep := normalize(archiveEntryPath(f))
-		if f.IsDir() || !wantEntry(ep, entries) {
-			f.Close()
-			continue
-		}
-		buf, err := io.ReadAll(f)
-		f.Close()
-		if err != nil {
-			return nil, fmt.Errorf("read %q: %w", ep, err)
-		}
-		out = append(out, archiveEntry{ep, buf, f.Size(), f.ModTime().Unix()})
-	}
-	return out, nil
-}
-
-// ============================================================================
-// Phase 2 — write collected entries to disk
-// ============================================================================
-
-func (s *BatchService) writeEntries(
-	collected []archiveEntry,
-	destRoot string,
-	stripPrefix string,
-	flatten bool,
-	op *ActiveOperation,
-	bp *batchProgress,
-	blanket **ConflictResolution,
-) (int64, int64, error) {
-	var totalFiles, totalBytes int64
-	rebasePrefix := normalize(stripPrefix)
-
-	for _, entry := range collected {
-		if op.IsCancelled() {
-			return totalFiles, totalBytes, fmt.Errorf("operation cancelled")
-		}
-
-		relPath := normalize(entry.innerPath)
-		if rebasePrefix != "" {
-			if relPath == rebasePrefix {
-				continue
-			}
-			prefixWithSep := rebasePrefix + "/"
-			relPath = strings.TrimPrefix(relPath, prefixWithSep)
-		}
-		if relPath == "" {
-			continue
-		}
-
-		var destPath string
-		if flatten {
-			destPath = filepath.Join(destRoot, filepath.Base(filepath.FromSlash(relPath)))
-		} else {
-			destPath = filepath.Join(destRoot, filepath.FromSlash(relPath))
-		}
-
-		finalDst, skip, err := s.checkConflict(op, entry.innerPath, destPath, blanket)
-		if err != nil {
-			return totalFiles, totalBytes, err
-		}
-		if skip {
-			continue
-		}
-
-		if err := os.MkdirAll(filepath.Dir(finalDst), 0755); err != nil {
-			return totalFiles, totalBytes, err
-		}
-
-		// Buffered entry: single WriteFile call, still updates progress.
-		bp.mu.Lock()
-		baseItems := bp.processedItems
-		baseBytes := bp.processedBytes
-		bp.mu.Unlock()
-		bp.update(baseItems, baseBytes, filepath.Base(entry.innerPath), entry.size, false)
-
-		if err := os.WriteFile(finalDst, entry.data, 0644); err != nil {
-			return totalFiles, totalBytes, fmt.Errorf("write %q: %w", finalDst, err)
-		}
-
-		written := int64(len(entry.data))
-		bp.mu.Lock()
-		bp.processedItems = baseItems + 1
-		bp.processedBytes = baseBytes + written
-		i, b := bp.processedItems, bp.processedBytes
-		bp.mu.Unlock()
-		bp.update(i, b, "", 0, false)
-
-		totalFiles++
-		totalBytes += written
-	}
-	return totalFiles, totalBytes, nil
-}
-
-// ============================================================================
-// Full-archive extraction internals
-// ============================================================================
-
-type extractCtx struct {
-	op       *ActiveOperation
-	bp       *batchProgress
-	req      *BatchExtractRequest
-	blanket  *ConflictResolution
-	destRoot string
-	depth    int
-}
-
-func (ec *extractCtx) cancelled() bool { return ec.op.IsCancelled() }
-
-func (ec *extractCtx) tooDeep() bool {
-	if !ec.req.ExpandNestedArchives {
-		return true
-	}
-	if ec.req.MaxNestDepth < 0 {
-		return false // unlimited
-	}
-	return ec.depth >= ec.req.MaxNestDepth
-}
-
-func (s *BatchService) extractOnDisk(archivePath string, ec *extractCtx) (int64, int64, error) {
-	if strings.HasSuffix(strings.ToLower(archivePath), ".zip") {
-		return s.extractZipOnDisk(archivePath, ec)
-	}
-	return s.extractTarOnDisk(archivePath, ec)
-}
-
-func (s *BatchService) extractZipOnDisk(archivePath string, ec *extractCtx) (int64, int64, error) {
-	r, err := zip.OpenReader(archivePath)
-	if err != nil {
-		return 0, 0, err
-	}
-	defer r.Close()
-
-	rootStrip := zipRootPrefix(r.File, ec.req.FlattenSingleRoot)
-	var totalFiles, totalBytes int64
-
-	for _, f := range r.File {
-		if ec.cancelled() {
-			return totalFiles, totalBytes, fmt.Errorf("operation cancelled")
-		}
-
-		ep := normalize(f.Name)
-		if rootStrip != "" {
-			if ep = strings.TrimPrefix(ep, rootStrip); ep == "" {
-				continue
-			}
-		}
-		destPath := filepath.Join(ec.destRoot, filepath.FromSlash(ep))
-
-		if f.FileInfo().IsDir() {
-			os.MkdirAll(destPath, 0755)
-			continue
-		}
-
-		// Nested archive: recurse in memory.
-		if isArchive(f.Name) && !ec.tooDeep() {
-			rc, err := f.Open()
-			if err != nil {
-				return totalFiles, totalBytes, err
-			}
-			data, err := io.ReadAll(rc)
-			rc.Close()
-			if err != nil {
-				return totalFiles, totalBytes, err
-			}
-			child := extractCtx{op: ec.op, bp: ec.bp, req: ec.req, blanket: ec.blanket,
-				destRoot: filepath.Join(ec.destRoot, archiveBaseName(f.Name)), depth: ec.depth + 1}
-			nf, nb, nerr := s.extractNestedFromBytes(data, f.Name, &child)
-			ec.blanket = child.blanket
-			totalFiles += nf
-			totalBytes += nb
-			if nerr != nil {
-				return totalFiles, totalBytes, nerr
-			}
-			continue
-		}
-
-		rc, err := f.Open()
-		if err != nil {
-			return totalFiles, totalBytes, err
-		}
-		finalDst, skip, cerr := s.checkConflict(ec.op, f.Name, destPath, &ec.blanket)
-		if cerr != nil {
-			rc.Close()
-			return totalFiles, totalBytes, cerr
-		}
-		if skip {
-			rc.Close()
-			continue
-		}
-		written, werr := s.streamToFile(rc, finalDst, int64(f.UncompressedSize64), f.Name, ec.op, ec.bp)
-		rc.Close()
-		if werr != nil {
-			return totalFiles, totalBytes, werr
-		}
-		totalFiles++
-		totalBytes += written
-	}
-	return totalFiles, totalBytes, nil
-}
-
-func (s *BatchService) extractTarOnDisk(archivePath string, ec *extractCtx) (int64, int64, error) {
-	// Single-root detection requires a pre-scan when FlattenSingleRoot is set.
-	var rootStrip string
-	if ec.req.FlattenSingleRoot {
-		var tops []string
-		_ = archiver.Walk(archivePath, func(f archiver.File) error {
-			parts := strings.SplitN(normalize(archiveEntryPath(f)), "/", 2)
-			tops = appendUnique(tops, parts[0])
-			return nil
-		})
-		if len(tops) == 1 {
-			rootStrip = tops[0] + "/"
-		}
-	}
-
-	var totalFiles, totalBytes int64
-	err := archiver.Walk(archivePath, func(f archiver.File) error {
-		if ec.cancelled() {
-			return fmt.Errorf("operation cancelled")
-		}
-		ep := normalize(archiveEntryPath(f))
-		if rootStrip != "" {
-			if ep = strings.TrimPrefix(ep, rootStrip); ep == "" {
-				return nil
-			}
-		}
-		destPath := filepath.Join(ec.destRoot, filepath.FromSlash(ep))
-
-		if f.IsDir() {
-			return os.MkdirAll(destPath, 0755)
-		}
-		if isArchive(f.Name()) && !ec.tooDeep() {
-			data, err := io.ReadAll(f)
-			if err != nil {
-				return err
-			}
-			child := extractCtx{op: ec.op, bp: ec.bp, req: ec.req, blanket: ec.blanket,
-				destRoot: filepath.Join(ec.destRoot, archiveBaseName(f.Name())), depth: ec.depth + 1}
-			nf, nb, nerr := s.extractNestedFromBytes(data, f.Name(), &child)
-			ec.blanket = child.blanket
-			totalFiles += nf
-			totalBytes += nb
-			return nerr
-		}
-
-		finalDst, skip, err := s.checkConflict(ec.op, f.Name(), destPath, &ec.blanket)
-		if err != nil {
-			return err
-		}
-		if skip {
-			return nil
-		}
-		written, err := s.streamToFile(f, finalDst, f.Size(), f.Name(), ec.op, ec.bp)
-		if err != nil {
-			return err
-		}
-		totalFiles++
-		totalBytes += written
-		return nil
-	})
-	return totalFiles, totalBytes, err
-}
-
-// extractFromBytes handles a nested (in-memory) archive layer.
-func (s *BatchService) extractNestedFromBytes(data []byte, archiveName string, ec *extractCtx) (int64, int64, error) {
-	if isZipMagic(data) {
-		return s.extractZipBytes(data, ec)
-	}
-	if isRarArchiveName(archiveName) {
-		return s.extractRarBytes(data, archiveName, ec)
-	}
-	return s.extractTarBytes(data, ec)
-}
-
-func (s *BatchService) extractZipBytes(data []byte, ec *extractCtx) (int64, int64, error) {
-	r, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
-	if err != nil {
-		return 0, 0, err
-	}
-	var totalFiles, totalBytes int64
-	for _, f := range r.File {
-		if ec.cancelled() {
-			return totalFiles, totalBytes, fmt.Errorf("operation cancelled")
-		}
-		ep := normalize(f.Name)
-		destPath := filepath.Join(ec.destRoot, filepath.FromSlash(ep))
-		if f.FileInfo().IsDir() {
-			os.MkdirAll(destPath, 0755)
-			continue
-		}
-		if isArchive(f.Name) && !ec.tooDeep() {
-			rc, err := f.Open()
-			if err != nil {
-				return totalFiles, totalBytes, err
-			}
-			nested, err := io.ReadAll(rc)
-			rc.Close()
-			if err != nil {
-				return totalFiles, totalBytes, err
-			}
-			child := extractCtx{op: ec.op, bp: ec.bp, req: ec.req, blanket: ec.blanket,
-				destRoot: filepath.Join(ec.destRoot, archiveBaseName(f.Name)), depth: ec.depth + 1}
-			nf, nb, nerr := s.extractNestedFromBytes(nested, f.Name, &child)
-			ec.blanket = child.blanket
-			totalFiles += nf
-			totalBytes += nb
-			if nerr != nil {
-				return totalFiles, totalBytes, nerr
-			}
-			continue
-		}
-		rc, err := f.Open()
-		if err != nil {
-			return totalFiles, totalBytes, err
-		}
-		finalDst, skip, cerr := s.checkConflict(ec.op, f.Name, destPath, &ec.blanket)
-		if cerr != nil {
-			rc.Close()
-			return totalFiles, totalBytes, cerr
-		}
-		if skip {
-			rc.Close()
-			continue
-		}
-		written, werr := s.streamToFile(rc, finalDst, int64(f.UncompressedSize64), f.Name, ec.op, ec.bp)
-		rc.Close()
-		if werr != nil {
-			return totalFiles, totalBytes, werr
-		}
-		totalFiles++
-		totalBytes += written
-	}
-	return totalFiles, totalBytes, nil
-}
-
-func (s *BatchService) extractTarBytes(data []byte, ec *extractCtx) (int64, int64, error) {
-	tr := tar.NewReader(bytes.NewReader(data))
-	var totalFiles, totalBytes int64
-	for {
-		h, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return totalFiles, totalBytes, err
-		}
-		if ec.cancelled() {
-			return totalFiles, totalBytes, fmt.Errorf("operation cancelled")
-		}
-		ep := normalize(h.Name)
-		destPath := filepath.Join(ec.destRoot, filepath.FromSlash(ep))
-		if h.FileInfo().IsDir() {
-			os.MkdirAll(destPath, 0755)
-			continue
-		}
-		if isArchive(h.Name) && !ec.tooDeep() {
-			nested, err := io.ReadAll(tr)
-			if err != nil {
-				return totalFiles, totalBytes, err
-			}
-			child := extractCtx{op: ec.op, bp: ec.bp, req: ec.req, blanket: ec.blanket,
-				destRoot: filepath.Join(ec.destRoot, archiveBaseName(h.Name)), depth: ec.depth + 1}
-			nf, nb, nerr := s.extractNestedFromBytes(nested, h.Name, &child)
-			ec.blanket = child.blanket
-			totalFiles += nf
-			totalBytes += nb
-			if nerr != nil {
-				return totalFiles, totalBytes, nerr
-			}
-			continue
-		}
-		finalDst, skip, cerr := s.checkConflict(ec.op, h.Name, destPath, &ec.blanket)
-		if cerr != nil {
-			return totalFiles, totalBytes, cerr
-		}
-		if skip {
-			continue
-		}
-		written, werr := s.streamToFile(tr, finalDst, h.Size, h.Name, ec.op, ec.bp)
-		if werr != nil {
-			return totalFiles, totalBytes, werr
-		}
-		totalFiles++
-		totalBytes += written
-	}
-	return totalFiles, totalBytes, nil
-}
-
-func (s *BatchService) extractRarBytes(data []byte, archiveName string, ec *extractCtx) (int64, int64, error) {
-	reader, err := openArchiveReader(archiveName, data)
-	if err != nil {
-		return 0, 0, err
-	}
-	defer reader.Close()
-
-	var totalFiles, totalBytes int64
-	for {
-		f, err := reader.Read()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return totalFiles, totalBytes, err
-		}
-		if ec.cancelled() {
-			f.Close()
-			return totalFiles, totalBytes, fmt.Errorf("operation cancelled")
-		}
-		ep := normalize(archiveEntryPath(f))
-		destPath := filepath.Join(ec.destRoot, filepath.FromSlash(ep))
-		if f.IsDir() {
-			f.Close()
-			os.MkdirAll(destPath, 0755)
-			continue
-		}
-		if isArchive(f.Name()) && !ec.tooDeep() {
-			nested, err := io.ReadAll(f)
-			f.Close()
-			if err != nil {
-				return totalFiles, totalBytes, err
-			}
-			child := extractCtx{op: ec.op, bp: ec.bp, req: ec.req, blanket: ec.blanket,
-				destRoot: filepath.Join(ec.destRoot, archiveBaseName(f.Name())), depth: ec.depth + 1}
-			nf, nb, nerr := s.extractNestedFromBytes(nested, f.Name(), &child)
-			ec.blanket = child.blanket
-			totalFiles += nf
-			totalBytes += nb
-			f.Close()
-			if nerr != nil {
-				return totalFiles, totalBytes, nerr
-			}
-			continue
-		}
-		finalDst, skip, cerr := s.checkConflict(ec.op, f.Name(), destPath, &ec.blanket)
-		if cerr != nil {
-			f.Close()
-			return totalFiles, totalBytes, cerr
-		}
-		if skip {
-			f.Close()
-			continue
-		}
-		written, werr := s.streamToFile(f, finalDst, f.Size(), f.Name(), ec.op, ec.bp)
-		f.Close()
-		if werr != nil {
-			return totalFiles, totalBytes, werr
-		}
-		totalFiles++
-		totalBytes += written
-	}
-	return totalFiles, totalBytes, nil
-}
-
-// ============================================================================
-// File copy / delete internals
-// ============================================================================
-
-func (s *BatchService) copyPath(src, dst string, recursive bool, op *ActiveOperation, bp *batchProgress) error {
-	info, err := os.Stat(src)
-	if err != nil {
-		return err
-	}
-	if info.IsDir() {
-		if !recursive {
-			return fmt.Errorf("source is a directory; use recursive=true")
-		}
-		return walkDirOrdered(src, func(p string, isDir bool, size int64) error {
-			if op.IsCancelled() {
-				return fmt.Errorf("operation cancelled")
-			}
-			rel, _ := filepath.Rel(src, p)
-			target := filepath.Join(dst, rel)
-			if isDir {
-				return os.MkdirAll(target, 0755)
-			}
-			f, err := os.Open(p)
-			if err != nil {
-				return err
-			}
-			defer f.Close()
-			_, err = s.streamToFile(f, target, size, filepath.Base(p), op, bp)
-			return err
-		})
-	}
-	f, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	_, err = s.streamToFile(f, dst, info.Size(), filepath.Base(src), op, bp)
-	return err
-}
-
-func (s *BatchService) deleteDir(path string, op *ActiveOperation, bp *batchProgress) error {
-	var files, dirs []string
-	walkDirOrdered(path, func(p string, isDir bool, _ int64) error {
-		if p == path {
-			return nil
-		}
-		if isDir {
-			dirs = append(dirs, p)
-		} else {
-			files = append(files, p)
-		}
-		return nil
-	})
-
-	for _, f := range files {
-		if op.IsCancelled() {
-			return fmt.Errorf("operation cancelled")
-		}
-		var size int64
-		if info, err := os.Stat(f); err == nil {
-			size = info.Size()
-		}
-		os.Remove(f)
-		bp.mu.Lock()
-		bp.processedItems++
-		bp.processedBytes += size
-		i, b := bp.processedItems, bp.processedBytes
-		bp.mu.Unlock()
-		bp.update(i, b, filepath.Base(f), size, false)
-	}
-	for i := len(dirs) - 1; i >= 0; i-- {
-		os.Remove(dirs[i])
-	}
-	return os.Remove(path)
-}
-
-func walkDirOrdered(src string, fn func(path string, isDir bool, size int64) error) error {
-	return filepath.Walk(src, func(p string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil
-		}
-		return fn(p, info.IsDir(), info.Size())
-	})
 }
 
 // ============================================================================
@@ -1513,50 +545,9 @@ func walkDirOrdered(src string, fn func(path string, isDir bool, size int64) err
 // ResolveConflict unblocks a paused operation by supplying the user's decision.
 // conflictID comes from ConflictEvent.ConflictID emitted on "operation:conflict".
 // Returns false when the ID is not recognised (already resolved or cancelled).
-func (s *BatchService) ResolveConflict(conflictID string, resolution ConflictResolution, applyToAll bool) bool {
-	return globalConflicts.resolve(conflictID, ConflictResolutionRequest{
+func (s *batchCoreService) ResolveConflict(conflictID string, resolution ConflictResolution, applyToAll bool) bool {
+	return globalConflicts.Resolve(conflictID, ConflictResolutionRequest{
 		Resolution: resolution,
 		ApplyToAll: applyToAll,
 	})
-}
-
-// ============================================================================
-// Archive helpers
-// ============================================================================
-
-func archiveBaseName(name string) string {
-	base := filepath.Base(name)
-	for _, suffix := range []string{".tar.gz", ".tar.bz2", ".tar.xz"} {
-		if strings.HasSuffix(strings.ToLower(base), suffix) {
-			return base[:len(base)-len(suffix)]
-		}
-	}
-	if ext := filepath.Ext(base); ext != "" {
-		return base[:len(base)-len(ext)]
-	}
-	return base
-}
-
-func zipRootPrefix(files []*zip.File, flatten bool) string {
-	if !flatten {
-		return ""
-	}
-	var tops []string
-	for _, f := range files {
-		parts := strings.SplitN(normalize(f.Name), "/", 2)
-		tops = appendUnique(tops, parts[0])
-	}
-	if len(tops) == 1 {
-		return tops[0] + "/"
-	}
-	return ""
-}
-
-func appendUnique(slice []string, s string) []string {
-	for _, v := range slice {
-		if v == s {
-			return slice
-		}
-	}
-	return append(slice, s)
 }

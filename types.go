@@ -4,8 +4,9 @@ import (
 	"errors"
 	"io/fs"
 	"os"
-	"sync"
-	"time"
+
+	internalcontracts "wails-app/internal/contracts"
+	internalops "wails-app/internal/ops"
 )
 
 // ============================================================================
@@ -14,17 +15,19 @@ import (
 
 // AppErrorCode is a stable machine-readable string sent with every
 // BatchItemError so the frontend can show localised / actionable messages.
-type AppErrorCode = string
+type AppErrorCode = internalcontracts.AppErrorCode
+
+type BatchItemError = internalcontracts.BatchItemError
 
 const (
-	ErrCodePermissionDenied AppErrorCode = "permission_denied"
-	ErrCodeNotFound         AppErrorCode = "not_found"
-	ErrCodeDiskFull         AppErrorCode = "disk_full"
-	ErrCodeReadOnly         AppErrorCode = "read_only"
-	ErrCodeAlreadyExists    AppErrorCode = "already_exists"
-	ErrCodeInvalidPath      AppErrorCode = "invalid_path"
-	ErrCodeCancelled        AppErrorCode = "cancelled"
-	ErrCodeUnknown          AppErrorCode = "unknown"
+	ErrCodePermissionDenied AppErrorCode = internalcontracts.ErrCodePermissionDenied
+	ErrCodeNotFound         AppErrorCode = internalcontracts.ErrCodeNotFound
+	ErrCodeDiskFull         AppErrorCode = internalcontracts.ErrCodeDiskFull
+	ErrCodeReadOnly         AppErrorCode = internalcontracts.ErrCodeReadOnly
+	ErrCodeAlreadyExists    AppErrorCode = internalcontracts.ErrCodeAlreadyExists
+	ErrCodeInvalidPath      AppErrorCode = internalcontracts.ErrCodeInvalidPath
+	ErrCodeCancelled        AppErrorCode = internalcontracts.ErrCodeCancelled
+	ErrCodeUnknown          AppErrorCode = internalcontracts.ErrCodeUnknown
 )
 
 // classifyError maps a Go error to a stable AppErrorCode.
@@ -115,61 +118,26 @@ type DrivesList struct {
 // File System Data Types
 // ============================================================================
 
-type FileType string
+type FileType = internalcontracts.FileType
 
 const (
-	FileTypeFile      FileType = "FILE"
-	FileTypeArchive   FileType = "ARCHIVE"
-	FileTypeDirectory FileType = "DIRECTORY"
-	FileTypeSymlink   FileType = "SYMLINK"
+	FileTypeFile      FileType = internalcontracts.FileTypeFile
+	FileTypeArchive   FileType = internalcontracts.FileTypeArchive
+	FileTypeDirectory FileType = internalcontracts.FileTypeDirectory
+	FileTypeSymlink   FileType = internalcontracts.FileTypeSymlink
 )
 
-type FileInfo struct {
-	Name        string   `json:"name"`
-	Path        string   `json:"path"`
-	Type        FileType `json:"type"`
-	Size        int64    `json:"size"`
-	Created     int64    `json:"created"`
-	Modified    int64    `json:"modified"`
-	Accessed    int64    `json:"accessed"`
-	Permissions string   `json:"permissions"`
-	IsHidden    bool     `json:"isHidden"`
-	IsSymlink   bool     `json:"isSymlink,omitempty"`
-	IsNested    bool     `json:"isNested"`
-	NestedChain []string `json:"nestedChain,omitempty"`
-}
+type FileInfo = internalcontracts.FileInfo
 
-type ArchiveListing struct {
-	ArchivePath string     `json:"archivePath"`
-	InnerPath   string     `json:"innerPath"`
-	NestedChain []string   `json:"nestedChain,omitempty"`
-	Entries     []FileInfo `json:"entries"`
-}
+type ArchiveListing = internalcontracts.ArchiveListing
 
-type DirectoryListing struct {
-	Path      string     `json:"path"`
-	Entries   []FileInfo `json:"entries"`
-	TotalSize int64      `json:"totalSize"`
-}
+type DirectoryListing = internalcontracts.DirectoryListing
 
-type FileContent struct {
-	Path     string `json:"path"`
-	Content  string `json:"content"`
-	Encoding string `json:"encoding"`
-	Size     int64  `json:"size"`
-}
+type FileContent = internalcontracts.FileContent
 
-type OperationResult struct {
-	Success       bool     `json:"success"`
-	Message       string   `json:"message,omitempty"`
-	AffectedPaths []string `json:"affectedPaths,omitempty"`
-}
+type OperationResult = internalcontracts.OperationResult
 
-type SearchResult struct {
-	Path         string     `json:"path"`
-	Matches      []FileInfo `json:"matches"`
-	TotalMatches int        `json:"totalMatches"`
-}
+type SearchResult = internalcontracts.SearchResult
 
 // ============================================================================
 // Response Envelope
@@ -200,64 +168,23 @@ type AppResponse struct {
 // Navigation History
 // ============================================================================
 
-type HistoryEntry struct {
-	Path      string `json:"path"`
-	Timestamp int64  `json:"timestamp"`
-	PaneID    string `json:"paneId"`
-}
+type HistoryEntry = internalcontracts.HistoryEntry
 
-type NavigationHistory struct {
-	Entries    []HistoryEntry `json:"entries"`
-	MaxEntries int            `json:"maxEntries"`
-}
+type NavigationHistory = internalcontracts.NavigationHistory
 
 // ============================================================================
 // Tabs & Workspace
 // ============================================================================
 
-type TabInfo struct {
-	ID         string     `json:"id"`
-	Title      string     `json:"title"`
-	Path       string     `json:"path"`
-	Kind       string     `json:"kind,omitempty"`       // "dir" (default) | "viewer"
-	Viewer     *ViewerTab `json:"viewer,omitempty"`     // only for kind="viewer"
-	IsClosable *bool      `json:"isClosable,omitempty"` // nil => default true (back-compat)
-	IsActive   bool       `json:"isActive"`
-	IsPinned   bool       `json:"isPinned"`
-	CreatedAt  int64      `json:"createdAt"`
-}
+type TabInfo = internalcontracts.TabInfo
 
-type ViewerTab struct {
-	TargetPath  string `json:"targetPath"`
-	ViewerID    string `json:"viewerId,omitempty"`
-	AutoFollow  bool   `json:"autoFollow,omitempty"`
-	SourcePane  string `json:"sourcePane,omitempty"` // "left" | "right"
-	SourceTabID string `json:"sourceTabId,omitempty"`
-	SourceDir   string `json:"sourceDir,omitempty"` // directory path at time of preview creation
-}
+type ViewerTab = internalcontracts.ViewerTab
 
-type PaneState struct {
-	ID          string    `json:"id"`
-	Tabs        []TabInfo `json:"tabs"`
-	ActiveTabID string    `json:"activeTabId"`
-}
+type PaneState = internalcontracts.PaneState
 
-type WorkspaceConfig struct {
-	ID             string    `json:"id"`
-	Name           string    `json:"name"`
-	Icon           string    `json:"icon,omitempty"`
-	Color          string    `json:"color,omitempty"`
-	LeftPane       PaneState `json:"leftPane"`
-	RightPane      PaneState `json:"rightPane"`
-	ShowHidden     bool      `json:"showHidden"`
-	CreatedAt      int64     `json:"createdAt"`
-	LastAccessedAt int64     `json:"lastAccessedAt"`
-}
+type WorkspaceConfig = internalcontracts.WorkspaceConfig
 
-type WorkspaceList struct {
-	Workspaces        []WorkspaceConfig `json:"workspaces"`
-	ActiveWorkspaceID string            `json:"activeWorkspaceId"`
-}
+type WorkspaceList = internalcontracts.WorkspaceList
 
 // ============================================================================
 // Filter System
@@ -290,123 +217,38 @@ type FilterQuery struct {
 // User Preferences
 // ============================================================================
 
-type UserPreferences struct {
-	Theme                   string `json:"theme"`
-	DefaultShowHidden       bool   `json:"defaultShowHidden"`
-	DefaultSortBy           string `json:"defaultSortBy"`
-	DefaultSortOrder        string `json:"defaultSortOrder"`
-	EnableKeyboardShortcuts bool   `json:"enableKeyboardShortcuts"`
-	DoubleClickAction       string `json:"doubleClickAction"`
-	ConfirmDelete           bool   `json:"confirmDelete"`
-}
+type UserPreferences = internalcontracts.UserPreferences
 
 // ============================================================================
 // Operations
 // ============================================================================
 
-// OperationType categorizes long-running operations.
-type OperationType string
+type OperationType = internalcontracts.OperationType
 
 const (
-	OpCopy      OperationType = "COPY"
-	OpMove      OperationType = "MOVE"
-	OpDelete    OperationType = "DELETE"
-	OpArchive   OperationType = "ARCHIVE"
-	OpExtract   OperationType = "EXTRACT"
-	OpSearch    OperationType = "SEARCH"
-	OpCalculate OperationType = "CALCULATE"
+	OpCopy      OperationType = internalcontracts.OpCopy
+	OpMove      OperationType = internalcontracts.OpMove
+	OpDelete    OperationType = internalcontracts.OpDelete
+	OpArchive   OperationType = internalcontracts.OpArchive
+	OpExtract   OperationType = internalcontracts.OpExtract
+	OpSearch    OperationType = internalcontracts.OpSearch
+	OpCalculate OperationType = internalcontracts.OpCalculate
 )
 
-// OperationStatus represents the current state.
-type OperationStatus string
+type OperationStatus = internalcontracts.OperationStatus
 
 const (
-	StatusPending   OperationStatus = "PENDING"
-	StatusRunning   OperationStatus = "RUNNING"
-	StatusPaused    OperationStatus = "PAUSED"
-	StatusCompleted OperationStatus = "COMPLETED"
-	StatusCancelled OperationStatus = "CANCELLED"
-	StatusError     OperationStatus = "ERROR"
+	StatusPending   OperationStatus = internalcontracts.StatusPending
+	StatusRunning   OperationStatus = internalcontracts.StatusRunning
+	StatusPaused    OperationStatus = internalcontracts.StatusPaused
+	StatusCompleted OperationStatus = internalcontracts.StatusCompleted
+	StatusCancelled OperationStatus = internalcontracts.StatusCancelled
+	StatusError     OperationStatus = internalcontracts.StatusError
 )
 
-// OperationProgress holds all progress state for an operation.
-// This is the internal struct; wire events use the typed op*Event structs.
-type OperationProgress struct {
-	ID              string          `json:"id"`
-	Type            OperationType   `json:"type"`
-	Status          OperationStatus `json:"status"`
-	Title           string          `json:"title"`
-	SourcePath      string          `json:"sourcePath"`
-	DestinationPath string          `json:"destinationPath,omitempty"`
+// OperationProgress is the shared wire model; ActiveOperation keeps runtime-only
+// bookkeeping locally via progressSnapshot.
+type OperationProgress = internalcontracts.OperationProgress
+type ActiveOperation = internalops.ActiveOperation
 
-	TotalItems      int64  `json:"totalItems"`
-	ProcessedItems  int64  `json:"processedItems"`
-	TotalBytes      int64  `json:"totalBytes"`
-	ProcessedBytes  int64  `json:"processedBytes"`
-	CurrentFile     string `json:"currentFile"`
-	CurrentFileSize int64  `json:"currentFileSize"`
-
-	PercentComplete     float64 `json:"percentComplete"`
-	SpeedBytesPerSec    float64 `json:"speedBytesPerSec"`
-	AvgSpeedBytesPerSec float64 `json:"avgSpeedBytesPerSec"`
-	ETASeconds          int64   `json:"etaSeconds"`
-
-	// StartTime is stored in milliseconds to match frontend expectations.
-	StartTime      int64  `json:"startTime"`
-	ElapsedSeconds int64  `json:"elapsedSeconds"`
-	EndTime        *int64 `json:"endTime,omitempty"`
-
-	Error *string `json:"error,omitempty"`
-}
-
-// progressSnapshot holds the internal bookkeeping needed for speed/ETA
-// calculations and is never serialised to the frontend.
-type progressSnapshot struct {
-	bytesAtStart    int64
-	timeAtStart     time.Time
-	lastUpdateTime  time.Time
-	lastUpdateBytes int64
-	speedSamples    []float64
-}
-
-// ActiveOperation tracks a running operation internally.
-type ActiveOperation struct {
-	ID       string
-	Type     OperationType
-	Progress OperationProgress
-	snapshot progressSnapshot
-	cancel   chan struct{}
-	mu       sync.RWMutex
-
-	// app holds a reference to the App so we can emit Wails events without
-	// relying on a package-level global variable.
-	app *App
-}
-
-// OperationManager manages all active operations.
-type OperationManager struct {
-	operations map[string]*ActiveOperation
-	mu         sync.RWMutex
-	nextID     int
-
-	// app is set once by NewOperationManager and propagated to every
-	// ActiveOperation so they can emit events.
-	app *App
-}
-
-// NewOperationManager creates a manager. Call SetApp once the Wails context
-// is available (i.e. from App.startup).
-func NewOperationManager() *OperationManager {
-	return &OperationManager{
-		operations: make(map[string]*ActiveOperation),
-		nextID:     1,
-	}
-}
-
-// SetApp wires the App reference into the manager (and all future operations).
-// Must be called before any file operations start.
-func (om *OperationManager) SetApp(a *App) {
-	om.mu.Lock()
-	defer om.mu.Unlock()
-	om.app = a
-}
+type OperationManager = internalops.Manager

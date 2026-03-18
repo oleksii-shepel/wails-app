@@ -8,6 +8,8 @@ Frontend implementation notes, including view-operation parity expectations and 
 
 The staged refactor history and current architectural checkpoints are documented in [REFACTOR_ROADMAP.md](REFACTOR_ROADMAP.md).
 
+The next-step backend packaging and layout proposal is documented in [BACKEND_REORGANIZATION_PLAN.md](BACKEND_REORGANIZATION_PLAN.md).
+
 ## Architecture
 
 The current backend structure is organized around explicit service boundaries, while `App` remains the Wails binding boundary and composition root.

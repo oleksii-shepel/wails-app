@@ -1,6 +1,8 @@
-package main
+package archive
 
 import (
+	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"fmt"
 	"strings"
@@ -10,8 +12,6 @@ import (
 
 var archiveStdlibSuffixes = []string{".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tar.xz", ".gz", ".bz2", ".xz", ".zip"}
 
-// isZipMagic returns true when data starts with the ZIP local file header
-// signature "PK\x03\x04" or the empty-archive signature "PK\x05\x06".
 func isZipMagic(data []byte) bool {
 	return len(data) >= 4 &&
 		data[0] == 'P' && data[1] == 'K' &&
@@ -19,8 +19,10 @@ func isZipMagic(data []byte) bool {
 			(data[2] == 0x05 && data[3] == 0x06))
 }
 
-// needsArchiveReader returns true for any format whose in-memory bytes must be
-// decoded via archiver.Reader rather than the stdlib zip or tar packages.
+func IsZipMagic(data []byte) bool {
+	return isZipMagic(data)
+}
+
 func needsArchiveReader(name string) bool {
 	if name == "" {
 		return false
@@ -28,13 +30,19 @@ func needsArchiveReader(name string) bool {
 	return !usesStdlibArchiveHandling(name)
 }
 
-// isRarArchiveName is kept for the batch/nested extraction path that chooses
-// between ZIP, TAR-family, and reader-based archive handling.
+func NeedsArchiveReader(name string) bool {
+	return needsArchiveReader(name)
+}
+
 func isRarArchiveName(name string) bool {
 	if name == "" {
 		return false
 	}
 	return strings.HasSuffix(strings.ToLower(name), ".rar")
+}
+
+func IsRarArchiveName(name string) bool {
+	return isRarArchiveName(name)
 }
 
 func isZipArchiveName(name string) bool {
@@ -71,4 +79,34 @@ func openArchiveReader(archiveName string, data []byte) (archiver.Reader, error)
 		return nil, err
 	}
 	return reader, nil
+}
+
+func OpenArchiveReader(archiveName string, data []byte) (archiver.Reader, error) {
+	return openArchiveReader(archiveName, data)
+}
+
+func archiveEntryPath(f archiver.File) string {
+	switch hdr := f.Header.(type) {
+	case *zip.FileHeader:
+		return strings.TrimSuffix(hdr.Name, "/")
+	case *tar.Header:
+		return strings.TrimSuffix(hdr.Name, "/")
+	}
+	return f.Name()
+}
+
+func normalizeArchiveEntryPath(path string) string {
+	path = strings.ReplaceAll(path, "\\", "/")
+	return strings.TrimPrefix(path, "/")
+}
+
+func matchesEntries(innerPath string, entries []string) bool {
+	cleanInner := normalizePath(innerPath)
+	for _, entry := range entries {
+		entry = normalizePath(entry)
+		if entry == "" || cleanInner == entry || strings.HasPrefix(cleanInner, entry+"/") {
+			return true
+		}
+	}
+	return false
 }

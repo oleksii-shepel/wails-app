@@ -18,9 +18,7 @@ func NewAppRuntimeService() *AppRuntimeService {
 
 func (s *AppRuntimeService) Startup(app *App, ctx context.Context) {
 	app.ctx = ctx
-	// Wire the App reference into the operation manager so it can emit
-	// Wails events. This replaces the old package-level appInstance global.
-	app.operations.SetApp(app)
+	app.operations.SetEmitter(app.emitEvent)
 	app.dirWatch = NewPaneDirWatchManager(app)
 	app.initVFS()
 	s.bindNativeFileDrop(app, ctx)

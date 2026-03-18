@@ -1,4 +1,4 @@
-package main
+package archive
 
 import (
 	"archive/tar"
@@ -11,21 +11,39 @@ import (
 	"github.com/mholt/archiver/v3"
 )
 
-func (a *App) extractFromFile(fsPath, entryPath string) ([]byte, error) {
-	want := normalize(entryPath)
-
-	if isZipArchiveName(fsPath) {
-		return a.extractFromFileZip(fsPath, want)
+func (s *Service) ExtractNestedArchive(fsPath string, nestedChain []string) ([]byte, error) {
+	if len(nestedChain) == 0 {
+		return nil, fmt.Errorf("empty nested chain")
 	}
 
-	if needsArchiveReader(fsPath) {
-		return a.extractFromFileArchiveReader(fsPath, want)
+	current, err := s.extractFromFile(fsPath, nestedChain[0])
+	if err != nil {
+		return nil, fmt.Errorf("extracting %q from %q: %w", nestedChain[0], fsPath, err)
 	}
 
-	return a.extractFromFileViaArchiver(fsPath, want)
+	for index := 1; index < len(nestedChain); index++ {
+		next, err := s.extractFromBytes(current, nestedChain[index], nestedChain[index])
+		if err != nil {
+			return nil, fmt.Errorf("extracting %q (chain depth %d): %w", nestedChain[index], index, err)
+		}
+		current = next
+	}
+	return current, nil
 }
 
-func (a *App) extractFromFileZip(fsPath, want string) ([]byte, error) {
+func (s *Service) extractFromFile(fsPath, entryPath string) ([]byte, error) {
+	want := normalizePath(entryPath)
+
+	if isZipArchiveName(fsPath) {
+		return s.extractFromFileZip(fsPath, want)
+	}
+	if needsArchiveReader(fsPath) {
+		return s.extractFromFileArchiveReader(fsPath, want)
+	}
+	return s.extractFromFileViaArchiver(fsPath, want)
+}
+
+func (s *Service) extractFromFileZip(fsPath, want string) ([]byte, error) {
 	r, err := zip.OpenReader(fsPath)
 	if err != nil {
 		return nil, err
@@ -33,7 +51,7 @@ func (a *App) extractFromFileZip(fsPath, want string) ([]byte, error) {
 	defer r.Close()
 
 	for _, f := range r.File {
-		if normalize(f.Name) == want {
+		if normalizePath(f.Name) == want {
 			rc, err := f.Open()
 			if err != nil {
 				return nil, err
@@ -45,10 +63,10 @@ func (a *App) extractFromFileZip(fsPath, want string) ([]byte, error) {
 	return nil, fmt.Errorf("entry %q not found in %q", want, fsPath)
 }
 
-func (a *App) extractFromFileViaArchiver(fsPath, want string) ([]byte, error) {
+func (s *Service) extractFromFileViaArchiver(fsPath, want string) ([]byte, error) {
 	var buf []byte
 	err := archiver.Walk(fsPath, func(f archiver.File) error {
-		if normalize(archiveEntryPath(f)) == want {
+		if normalizePath(archiveEntryPath(f)) == want {
 			var readErr error
 			buf, readErr = io.ReadAll(f)
 			if readErr != nil {
@@ -67,7 +85,7 @@ func (a *App) extractFromFileViaArchiver(fsPath, want string) ([]byte, error) {
 	return buf, nil
 }
 
-func (a *App) extractFromFileArchiveReader(fsPath, want string) ([]byte, error) {
+func (s *Service) extractFromFileArchiveReader(fsPath, want string) ([]byte, error) {
 	f, err := os.Open(fsPath)
 	if err != nil {
 		return nil, err
@@ -100,7 +118,7 @@ func (a *App) extractFromFileArchiveReader(fsPath, want string) ([]byte, error) 
 		if err != nil {
 			return nil, err
 		}
-		if normalize(archiveEntryPath(entry)) == want {
+		if normalizePath(archiveEntryPath(entry)) == want {
 			buf, readErr := io.ReadAll(entry)
 			entry.Close()
 			if readErr != nil {
@@ -113,27 +131,25 @@ func (a *App) extractFromFileArchiveReader(fsPath, want string) ([]byte, error) 
 	return nil, fmt.Errorf("entry %q not found in %q", want, fsPath)
 }
 
-func (a *App) extractFromBytes(data []byte, entryPath string, archiveName string) ([]byte, error) {
-	want := normalize(entryPath)
+func (s *Service) extractFromBytes(data []byte, entryPath string, archiveName string) ([]byte, error) {
+	want := normalizePath(entryPath)
 
 	if isZipMagic(data) {
-		return a.extractFromZipBytes(data, want)
+		return s.extractFromZipBytes(data, want)
 	}
-
 	if archiveName != "" && needsArchiveReader(archiveName) {
-		return a.extractFromArchiveReader(data, archiveName, want)
+		return s.extractFromArchiveReader(data, archiveName, want)
 	}
-
-	return a.extractFromTarBytes(data, want)
+	return s.extractFromTarBytes(data, want)
 }
 
-func (a *App) extractFromZipBytes(data []byte, want string) ([]byte, error) {
+func (s *Service) extractFromZipBytes(data []byte, want string) ([]byte, error) {
 	r, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		return nil, err
 	}
 	for _, f := range r.File {
-		if normalize(f.Name) == want {
+		if normalizePath(f.Name) == want {
 			rc, err := f.Open()
 			if err != nil {
 				return nil, err
@@ -145,7 +161,7 @@ func (a *App) extractFromZipBytes(data []byte, want string) ([]byte, error) {
 	return nil, fmt.Errorf("entry %q not found in ZIP", want)
 }
 
-func (a *App) extractFromTarBytes(data []byte, want string) ([]byte, error) {
+func (s *Service) extractFromTarBytes(data []byte, want string) ([]byte, error) {
 	tr := tar.NewReader(bytes.NewReader(data))
 	for {
 		h, err := tr.Next()
@@ -155,14 +171,14 @@ func (a *App) extractFromTarBytes(data []byte, want string) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		if normalize(h.Name) == want {
+		if normalizePath(h.Name) == want {
 			return io.ReadAll(tr)
 		}
 	}
 	return nil, fmt.Errorf("entry %q not found in archive", want)
 }
 
-func (a *App) extractFromArchiveReader(data []byte, archiveName, want string) ([]byte, error) {
+func (s *Service) extractFromArchiveReader(data []byte, archiveName, want string) ([]byte, error) {
 	reader, err := openArchiveReader(archiveName, data)
 	if err != nil {
 		return nil, err
@@ -177,7 +193,7 @@ func (a *App) extractFromArchiveReader(data []byte, archiveName, want string) ([
 		if err != nil {
 			return nil, err
 		}
-		if normalize(archiveEntryPath(f)) == want {
+		if normalizePath(archiveEntryPath(f)) == want {
 			buf, readErr := io.ReadAll(f)
 			f.Close()
 			if readErr != nil {

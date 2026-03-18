@@ -20,52 +20,29 @@ func NewApp() *App {
 		fmt.Printf("Warning: could not initialize workspace manager: %v\n", err)
 	}
 
-	app := &App{State: internalapp.NewState(core)}
-	app.Runtime = internalapp.NewRuntimeService(internalapp.RuntimeConfig{
-		SetContext: func(ctx context.Context) {
-			app.Ctx = ctx
-		},
-		SetOperationEmitter:  app.Operations.SetEmitter,
-		CreatePaneWatch:      app.createPaneWatch,
-		InitVFS:              app.initVFS,
-		HandleFileDrop:       app.HandleFileDrop,
-		ClosePaneWatch:       app.closePaneWatch,
-		CancelDirStreams:     app.cancelDirStreams,
-		StopElevationSession: app.stopElevationSession,
-		CloseArchiveCache:    app.closeArchiveCache,
-	})
+	app := &App{}
 	elevation := internalelevation.NewService(app.emitEvent, app.startElevatedClient)
-	app.Elevation = elevation
-	app.Filesystem = NewFilesystemService(elevation, app.emitEvent, app.StartElevatedSession)
-	services := internalapp.NewServices(internalapp.ServiceConfig{
-		Core:                           core,
-		EmitEvent:                      app.emitEvent,
-		StartElevatedClient:            app.startElevatedClient,
-		ElevatedList:                   app.Filesystem.ElevatedList,
+	filesystem := NewFilesystemService(elevation, app.emitEvent, app.StartElevatedSession)
+	app.State = internalapp.BuildState(core, filesystem, elevation, internalapp.BuildConfig{
+		SetContext:                     func(ctx context.Context) { app.Ctx = ctx },
+		CreatePaneWatch:                app.createPaneWatch,
+		InitVFS:                        app.initVFS,
+		HandleFileDrop:                 app.HandleFileDrop,
+		ClosePaneWatch:                 app.closePaneWatch,
+		CancelDirStreams:               app.cancelDirStreams,
+		StopElevationSession:           app.stopElevationSession,
+		CloseArchiveCache:              app.closeArchiveCache,
 		BuildFileInfo:                  app.buildFileInfo,
 		IsHidden:                       isHiddenFile,
-		ListDirectory:                  app.Filesystem.ListDirectory,
-		StartOperation:                 app.startOperation,
 		PromptConflict:                 app.promptConflict,
 		ClassifyError:                  classifyError,
 		IsPermissionDenied:             isPermissionDenied,
 		ShouldRetryDeleteWithElevation: shouldRetryDeleteWithElevation,
-		RunElevatedCopy:                app.Filesystem.RunElevatedCopy,
-		RunElevatedMove:                app.Filesystem.RunElevatedMove,
-		RunElevatedDelete:              app.Filesystem.RunElevatedDelete,
 		CalculateSize:                  calculateSize,
-		ExtractNestedArchive:           app.extractNestedArchive,
 		Normalize:                      normalize,
 		ArchiveEntryPath:               archiveEntryPath,
 		IsArchive:                      isArchive,
 	})
-	app.Elevation = services.Elevation
-	app.Archive = services.Archive
-	app.Batch = services.Batch
-	app.DirStream = services.DirStream
-	app.Utility = services.Utility
-	app.Navigation = services.Navigation
-	app.Workspace = services.Workspace
 	return app
 }
 

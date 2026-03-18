@@ -58,9 +58,8 @@ type Services struct {
 type ServiceConfig struct {
 	Core *Core
 
+	Elevation *internalelevation.Service
 	EmitEvent func(string, interface{})
-
-	StartElevatedClient func(string) (internalelevation.Client, error)
 
 	ElevatedList  func(path string, showHidden bool) ([]contracts.FileInfo, error)
 	BuildFileInfo func(name, fullPath string, info os.FileInfo, hidden bool) contracts.FileInfo
@@ -85,7 +84,7 @@ type ServiceConfig struct {
 
 func NewServices(config ServiceConfig) *Services {
 	return &Services{
-		Elevation: internalelevation.NewService(config.EmitEvent, config.StartElevatedClient),
+		Elevation: config.Elevation,
 		Archive: internalarchive.NewService(
 			config.Core.ArchiveCache,
 			func(opType contracts.OperationType, title, source, dest string) internalarchive.Operation {

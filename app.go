@@ -24,7 +24,7 @@ import (
 type App struct {
 	ctx        context.Context
 	archive    *internalarchive.Service
-	runtime    *AppRuntimeService
+	runtime    *internalapp.RuntimeService
 	filesystem *FilesystemService
 	batch      *internalbatch.Service
 	dirStream  *internalruntime.DirStreamService
@@ -75,17 +75,52 @@ func NewApp() *App {
 
 	app := &App{
 		archive:    nil,
-		runtime:    NewAppRuntimeService(),
 		operations: core.Operations,
 		archCache:  core.ArchiveCache,
 	}
+	app.runtime = internalapp.NewRuntimeService(internalapp.RuntimeConfig{
+		SetContext: func(ctx context.Context) {
+			app.ctx = ctx
+		},
+		SetOperationEmitter: app.operations.SetEmitter,
+		CreatePaneWatch: func() {
+			app.dirWatch = internalruntime.NewPaneWatchManager(app.emitEvent)
+		},
+		InitVFS: app.initVFS,
+		HandleFileDrop: func(x, y int, paths []string) error {
+			return app.HandleFileDrop(x, y, paths)
+		},
+		ClosePaneWatch: func() {
+			if app.dirWatch != nil {
+				app.dirWatch.Close()
+			}
+		},
+		CancelDirStreams: func() {
+			app.dirStream.CancelAll()
+		},
+		StopElevationSession: func() {
+			if app.elevation != nil {
+				app.elevation.StopSession()
+			}
+		},
+		CloseArchiveCache: func() {
+			app.archCache.CloseAll()
+		},
+	})
 	app.elevation = internalelevation.NewService(app.emitEvent, func(exePath string) (internalelevation.Client, error) {
 		return StartElevatedServiceClient(exePath)
 	})
 	app.filesystem = NewFilesystemService(app.elevation, app.emitEvent, app.StartElevatedSession)
-	app.dirStream = internalruntime.NewDirStreamService(
-		app.emitEvent,
-		func(path string, showHidden bool) ([]internalcontracts.FileInfo, error) {
+	services := internalapp.NewServices(internalapp.ServiceConfig{
+		Core: core,
+		EmitEvent: app.emitEvent,
+		StartElevatedClient: func(exePath string) (internalelevation.Client, error) {
+			return StartElevatedServiceClient(exePath)
+		},
+		ArchiveOperationFactory: func(opType internalcontracts.OperationType, title, source, dest string) internalarchive.Operation {
+			return &archiveOperationAdapter{op: app.operations.StartOperation(opType, title, source, dest)}
+		},
+		ElevatedList: func(path string, showHidden bool) ([]internalcontracts.FileInfo, error) {
 			resp, err := app.filesystem.runElevatedWithEvents("list", path, elevatedRequest{
 				Op:         "list",
 				Path:       path,
@@ -96,18 +131,18 @@ func NewApp() *App {
 			}
 			return resp.DirListing.Entries, nil
 		},
-		func(name, fullPath string, info os.FileInfo, hidden bool) internalcontracts.FileInfo {
+		BuildFileInfo: func(name, fullPath string, info os.FileInfo, hidden bool) internalcontracts.FileInfo {
 			return buildFileInfoWithHidden(name, fullPath, info, hidden)
 		},
-		isHiddenFile,
-	)
-	app.utility = internalutility.NewService(app.emitEvent)
-	app.archive = internalarchive.NewService(
-		app.archCache,
-		func(opType internalcontracts.OperationType, title, source, dest string) internalarchive.Operation {
-			return &archiveOperationAdapter{op: app.operations.StartOperation(opType, title, source, dest)}
-		},
-	)
+		IsHidden:      isHiddenFile,
+		ListDirectory: func(path string, showHidden bool) (*internalcontracts.DirectoryListing, error) { return app.filesystem.ListDirectory(path, showHidden) },
+	})
+	app.elevation = services.Elevation
+	app.archive = services.Archive
+	app.dirStream = services.DirStream
+	app.utility = services.Utility
+	app.navigation = services.Navigation
+	app.workspace = services.Workspace
 	app.batch = internalbatch.NewService(internalbatch.ServiceConfig{
 		StartOperation: func(kind internalcontracts.OperationType, title, source, dest string) *internalops.ActiveOperation {
 			return app.operations.StartOperation(kind, title, source, dest)
@@ -144,20 +179,16 @@ func NewApp() *App {
 		ArchiveEntryPath:     archiveEntryPath,
 		IsArchive:            isArchive,
 	})
-	app.navigation = internalnav.NewService(core.NavigationManager, func(path string, showHidden bool) (*internalcontracts.DirectoryListing, error) {
-		return app.filesystem.ListDirectory(path, showHidden)
-	})
-	app.workspace = internalworkspace.NewService(core.WorkspaceManager)
 	return app
 }
 
 // startup is called by Wails when the app starts.
 func (a *App) startup(ctx context.Context) {
-	a.runtime.Startup(a, ctx)
+	a.runtime.Startup(ctx)
 }
 
 func (a *App) shutdown(_ context.Context) {
-	a.runtime.Shutdown(a)
+	a.runtime.Shutdown()
 }
 
 func (a *App) emitEvent(name string, data interface{}) {

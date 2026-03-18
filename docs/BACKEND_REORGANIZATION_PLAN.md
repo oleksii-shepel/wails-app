@@ -121,6 +121,8 @@ Current files that belong here first:
 - `app.go`
 - `internal/app/core.go`
 - `internal/app/runner.go`
+- `internal/app/services.go`
+- `internal/app/runtime.go`
 - `app_bindings_archive.go`
 - `app_bindings_filesystem.go`
 - `app_bindings_navigation.go`
@@ -133,7 +135,7 @@ Current files that belong here first:
 Likely later additions:
 
 - app-level event adapter helpers
-- the Wails bootstrap/options glue has already started moving under `internal/app`, and the core manager/cache bootstrap now also lives there; the larger remaining move is relocating the `App` type and all of its bound methods together
+- the Wails bootstrap/options glue has already started moving under `internal/app`, the core manager/cache bootstrap now also lives there, internal service assembly for `NewApp` has started moving there too, and startup/shutdown runtime coordination now also routes there; the larger remaining move is relocating the `App` type and all of its bound methods together
 
 Suggested compile-safe batch plan for the full `App` move:
 
@@ -148,6 +150,7 @@ First pre-migration cleanup batch:
 - filesystem support helpers that those raw ops still depend on: `buildFileInfoWithHidden`, `buildFallbackLinkInfo`, and `copyPath` now delegate to `internal/filesystem`; generic path normalization now lives in `internal/platform/paths.go`, with root wrappers delegating there
 - elevation/filesystem coordination helpers: the old root `opTargetSingle` and `opTargetPair` helpers have been absorbed into `FilesystemService`; platform trash/elevation launch hooks still remain root-owned
 - cross-domain helpers that still couple composition to `main`: `classifyError` has moved into `internal/contracts/errors.go`, and nested archive chain resolution now lives in `internal/archive/resolve.go`
+- `NewApp` internal-service bootstrap now routes through `internal/app/services.go`, so `main` is no longer the only place that knows how to assemble archive, navigation, workspace, utility, and runtime-stream services
 
 Why this batch comes first:
 
@@ -325,14 +328,16 @@ Owns runtime bridge behavior that exists because the app is a live desktop host.
 
 Current files that map here:
 
-- `app_runtime_service.go`
 - `internal/runtime/dir_stream.go`
 - `internal/runtime/pane_watch.go`
+- `internal/runtime/native_filedrop.go`
+- `internal/runtime/filedrop_windows.go`
 - `filedrop_windows.go`
 
 Important note:
 
 - `internal/runtime/dir_stream.go` is close to filesystem behavior, but its lifecycle and event-stream semantics make it a better runtime-facing boundary than a pure domain package.
+- native Wails file-drop event parsing and the Windows host drop helper now also live under `internal/runtime`, with `main` keeping only the bound wrapper methods
 
 ### `internal/utility`
 
@@ -585,7 +590,6 @@ osinfo.go
 pathutils.go
 stat.go
 
-app_runtime_service.go
 app_vfs.go
 filedrop_windows.go
 main.go

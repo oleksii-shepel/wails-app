@@ -332,12 +332,15 @@ Current files that map here:
 - `internal/runtime/pane_watch.go`
 - `internal/runtime/native_filedrop.go`
 - `internal/runtime/filedrop_windows.go`
+- `internal/runtime/vfs.go`
 - `filedrop_windows.go`
+- `app_vfs.go`
 
 Important note:
 
 - `internal/runtime/dir_stream.go` is close to filesystem behavior, but its lifecycle and event-stream semantics make it a better runtime-facing boundary than a pure domain package.
 - native Wails file-drop event parsing and the Windows host drop helper now also live under `internal/runtime`, with `main` keeping only the bound wrapper methods
+- VFS mount/open/list orchestration now also lives under `internal/runtime/vfs.go`, with `app_vfs.go` reduced to thin `App` wrappers around the unified VFS host
 
 ### `internal/utility`
 

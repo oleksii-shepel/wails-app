@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -9,6 +8,7 @@ import (
 
 	internalfilesystem "wails-app/internal/filesystem"
 	internalplatform "wails-app/internal/platform"
+	internalruntime "wails-app/internal/runtime"
 )
 
 // ============================================================================
@@ -45,22 +45,7 @@ func (s *FilesystemService) ListDirectory(path string, showHidden bool) (*Direct
 }
 
 func (s *FilesystemService) listVFSDirectory(path string) (*DirectoryListing, error) {
-	entries, err := s.vfs.ReadDir(context.Background(), path)
-	if err != nil {
-		return nil, err
-	}
-	files := make([]FileInfo, 0, len(entries))
-	var total int64
-	for _, e := range entries {
-		fi := convertVFSInfo(e)
-		files = append(files, fi)
-		total += fi.Size
-	}
-	return &DirectoryListing{
-		Path:      path,
-		Entries:   files,
-		TotalSize: total,
-	}, nil
+	return internalruntime.VFSListDir(s.vfs, path)
 }
 
 func listDirectoryRaw(path string, showHidden bool) (*DirectoryListing, error) {

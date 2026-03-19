@@ -63,8 +63,8 @@ export class FileViewSortController {
   private compareByField(
     sortField: string,
     multiplier: number,
-    left: Pick<FileInfo, 'name' | 'type' | 'size' | 'modified' | 'registryKind' | 'registryValueType' | 'registryPreview'>,
-    right: Pick<FileInfo, 'name' | 'type' | 'size' | 'modified' | 'registryKind' | 'registryValueType' | 'registryPreview'>,
+    left: Pick<FileInfo, 'name' | 'type' | 'size' | 'modified' | 'registryKind' | 'registryValueType' | 'registryPreview' | 'searchParentPath'>,
+    right: Pick<FileInfo, 'name' | 'type' | 'size' | 'modified' | 'registryKind' | 'registryValueType' | 'registryPreview' | 'searchParentPath'>,
   ): number {
     let comparison = 0;
     switch (sortField) {
@@ -91,6 +91,9 @@ export class FileViewSortController {
         break;
       case 'registryPreview':
         comparison = (left.registryPreview || '').localeCompare(right.registryPreview || '');
+        break;
+      case 'searchParentPath':
+        comparison = (left.searchParentPath || '').localeCompare(right.searchParentPath || '');
         break;
       default:
         comparison = left.name.localeCompare(right.name);

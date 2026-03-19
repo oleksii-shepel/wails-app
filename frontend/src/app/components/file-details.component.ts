@@ -415,6 +415,13 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     { field: 'registryValueType', header: 'Data Type', width: '150px', sortable: true, formatter: (value) => value?.toString() || '' },
     { field: 'registryPreview', header: 'Data', flex: 2.3, sortable: true, formatter: (value) => value?.toString() || '' }
   ];
+  private readonly searchColumns: ColumnDef[] = [
+    { field: 'name', header: 'Name', flex: 1.5, sortable: true },
+    { field: 'searchParentPath', header: 'Folder', flex: 1.8, sortable: true, formatter: (_, entry) => this.getSearchParentPath(entry) },
+    { field: 'modified', header: 'Modified', width: '150px', sortable: true, formatter: (value) => this.formatDate(value) },
+    { field: 'size', header: 'Size', width: '100px', sortable: true, formatter: (value) => this.formatSize(value) },
+    { field: 'type', header: 'Type', width: '100px', formatter: (_, entry) => this.getFileTypeLabel(entry) }
+  ];
   
   constructor(
     private zone: NgZone,
@@ -586,25 +593,46 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   }
 
   get activeColumns(): ColumnDef[] {
-  if (this.columns?.length) {
-    return this.columns;
-  }
-  return this.isRegistryListing ? this.registryColumns : this.defaultColumns;
+    if (this.columns?.length) {
+      return this.columns;
+    }
+    if (this.isRegistryListing) {
+      return this.registryColumns;
+    }
+    if (this.isSearchListing) {
+      return this.searchColumns;
+    }
+    return this.defaultColumns;
   }
 
   private get isRegistryListing(): boolean {
-  if (isRegistryPath(this.currentPath)) {
-    return true;
-  }
-  for (const entry of this.entries) {
-    if (!entry || this.isParentEntry(entry)) {
-    continue;
+    if (isRegistryPath(this.currentPath)) {
+	  return true;
     }
-    if (isRegistryPath(entry.path) || !!entry.registryKind || !!entry.registryValueType || !!entry.registryPreview) {
-    return true;
-    }
+	for (const entry of this.entries) {
+	  if (!entry || this.isParentEntry(entry)) {
+	    continue;
+	  }
+	  if (isRegistryPath(entry.path) || !!entry.registryKind || !!entry.registryValueType || !!entry.registryPreview) {
+	    return true;
+	  }
+	}
+	return false;
   }
-  return false;
+
+  private get isSearchListing(): boolean {
+    if ((this.currentPath || '').toLowerCase().startsWith('search://')) {
+      return true;
+    }
+    for (const entry of this.entries) {
+      if (!entry || this.isParentEntry(entry)) {
+        continue;
+      }
+      if (!!entry.searchParentPath || !!entry.searchPattern || !!entry.searchBasePath) {
+        return true;
+      }
+    }
+    return false;
   }
 
   getColumnKey(col: ColumnDef): string {
@@ -1072,6 +1100,11 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   getRegistryKind(entry: FileInfo): string {
 	if (entry.registryKind) return entry.registryKind;
 	return entry.type === FileType.DIRECTORY ? 'Key' : 'Value';
+  }
+
+  getSearchParentPath(entry: FileInfo): string {
+	if (entry.searchParentPath) return entry.searchParentPath;
+	return parentPath(entry.path);
   }
 
   formatSize(bytes: number): string {

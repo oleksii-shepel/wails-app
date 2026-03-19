@@ -927,6 +927,12 @@ export class WorkspaceService {
       const rel = normalized.slice('registry://'.length);
       return rel.split('/').filter(Boolean).pop() || 'Registry';
     }
+    const aliasMatch = /^([a-z][a-z0-9+.-]*):\/\/(.*)?$/i.exec(normalized);
+    if (aliasMatch) {
+      const scheme = aliasMatch[1].toLowerCase();
+      const rel = (aliasMatch[2] || '').replace(/^\/+/, '');
+      return rel.split('/').filter(Boolean).pop() || scheme;
+    }
     // Drive roots: show "C:" not "C:/"
     if (/^[a-zA-Z]:\/?$/.test(normalized)) return normalized.slice(0, 2);
     return normalized;
@@ -938,6 +944,12 @@ export class WorkspaceService {
       const rest = path.replace(/\\/g, '/').slice('registry://'.length).replace(/^\/+/, '').replace(/\/+/g, '/');
       return rest ? `registry://${rest}` : 'registry://';
     }
+    const aliasMatch = /^([a-z][a-z0-9+.-]*):\/\/(.*)?$/i.exec(path.replace(/\\/g, '/'));
+    if (aliasMatch) {
+      const scheme = aliasMatch[1].toLowerCase();
+      const rest = (aliasMatch[2] || '').replace(/^\/+/, '').replace(/\/+/g, '/');
+      return rest ? `${scheme}://${rest}` : `${scheme}://`;
+    }
     let p = path.replace(/\\/g, '/').replace(/\/+/g, '/');
     if (p.length > 1 && p.endsWith('/')) p = p.slice(0, -1);
     return p || '/';
@@ -946,6 +958,8 @@ export class WorkspaceService {
   private getRootForPath(path: string): string {
     const normalized = this.normalizePath(path);
     if (normalized.startsWith('registry://')) return 'registry://';
+    const aliasMatch = /^([a-z][a-z0-9+.-]*):\/\//i.exec(normalized);
+    if (aliasMatch) return `${aliasMatch[1].toLowerCase()}://`;
     const drive = normalized.match(/^([a-zA-Z]):/);
     return drive ? `${drive[1]}:/` : '/';
   }

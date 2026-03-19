@@ -96,7 +96,7 @@
 
   <!-- Overlays and modals (not part of flex sizing) -->
   <app-path-history-viewer></app-path-history-viewer>
-  <app-global-search (resultSelected)="onGlobalSearchResult($event)"></app-global-search>
+  <app-global-search (resultSelected)="onGlobalSearchResult($event)" (searchFolderRequested)="onGlobalSearchFolder($event)"></app-global-search>
   <app-keyboard-help></app-keyboard-help>
   <app-operation-toast-stack #toastStack [collapsed]="toastCollapsed">
   </app-operation-toast-stack>

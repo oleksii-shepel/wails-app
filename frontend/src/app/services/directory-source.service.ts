@@ -2,7 +2,7 @@ import { Injectable } from '@angular/core';
 
 import type { ArchiveListing, FileInfo } from '../shared/protocol-enhanced';
 import type { PathSegment } from '../components/address-bar.types';
-import { buildSegments as buildBasicSegments, buildSegmentsFromParsedPath, normalizePath, parentPath, parsePathWithArchives } from '../components/address-bar.utils';
+import { buildSegments as buildBasicSegments, buildSegmentsFromParsedPath, isAliasPath, normalizePath, parentPath, parsePathWithArchives } from '../components/address-bar.utils';
 import { ArchiveService, type ArchiveBrowseTarget, type ArchiveFrame, isArchive } from './archive.service';
 import { ApiService } from './api.service';
 import { REGISTRY_ROOT, RegistryService, isRegistryPath, type RegistryFrame } from './registry.service';
@@ -63,6 +63,8 @@ class FilesystemDirectoryProvider implements DirectoryListingProvider {
 
   getRootPath(path: string): string | null {
     const normalized = (path || '/').replace(/\\/g, '/');
+    const aliasMatch = /^([a-z][a-z0-9+.-]*):\/\//i.exec(normalized);
+    if (aliasMatch) return `${aliasMatch[1].toLowerCase()}://`;
     const winDrive = normalized.match(/^([A-Za-z]:)\//);
     if (winDrive) return `${winDrive[1]}/`;
     return '/';
@@ -75,6 +77,42 @@ class FilesystemDirectoryProvider implements DirectoryListingProvider {
 
   supportsStreaming(_path: string): boolean {
     return true;
+  }
+}
+
+class AliasDirectoryProvider implements DirectoryListingProvider {
+  readonly kind: DirectorySourceKind = 'filesystem';
+
+  constructor(private readonly apiService: ApiService) {}
+
+  canHandlePath(path: string): boolean {
+    return isAliasPath(path) && !isRegistryPath(path);
+  }
+
+  canHandleEntries(_entries: FileInfo[]): boolean {
+    return false;
+  }
+
+  listDirectory(path: string, showHidden: boolean): Promise<DirectorySourceListing> {
+    return this.apiService.listDirectory(path, showHidden);
+  }
+
+  getRootPath(path: string): string | null {
+    const normalized = normalizePath(path);
+    if (/^search:\/\//i.test(normalized) && normalized.toLowerCase() !== 'search://') {
+      return normalized;
+    }
+    const aliasMatch = /^([a-z][a-z0-9+.-]*):\/\//i.exec(normalized);
+    return aliasMatch ? `${aliasMatch[1].toLowerCase()}://` : null;
+  }
+
+  joinChildPath(basePath: string, childName: string): string {
+    const normalizedBase = normalizePath(basePath).replace(/\/+$/, '');
+    return `${normalizedBase}/${childName}`;
+  }
+
+  supportsStreaming(_path: string): boolean {
+    return false;
   }
 }
 
@@ -132,6 +170,7 @@ export class DirectorySourceService implements FileViewDirectorySource {
   ) {
     this.providers = [
       new RegistryDirectoryProvider(this.registryService),
+      new AliasDirectoryProvider(this.apiService),
       new FilesystemDirectoryProvider(this.apiService),
     ];
   }

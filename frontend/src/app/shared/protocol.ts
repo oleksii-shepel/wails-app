@@ -240,6 +240,9 @@ export interface FileInfo {
   registryKind?: string;
   registryValueType?: string;
   registryPreview?: string;
+  searchBasePath?: string;
+  searchPattern?: string;
+  searchParentPath?: string;
 }
 
 export interface DirectoryListing {

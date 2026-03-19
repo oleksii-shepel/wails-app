@@ -4,6 +4,28 @@ import { REGISTRY_ROOT } from '../services/registry.service';
 
 // ─── Path utilities ───────────────────────────────────────────────────────────
 
+const ALIAS_SCHEMES = ['search://', 'memory://', 'smb://', 'ftp://', 'sftp://', 'webdav://'] as const;
+
+type AliasScheme = typeof ALIAS_SCHEMES[number];
+
+function aliasSchemeFor(p: string): AliasScheme | null {
+  const normalized = (p || '').trim().replace(/\\/g, '/').toLowerCase();
+  for (const scheme of ALIAS_SCHEMES) {
+    if (normalized.startsWith(scheme)) return scheme;
+  }
+  return null;
+}
+
+function normalizeAliasReference(p: string, scheme: AliasScheme): string {
+  const normalized = (p || '').trim().replace(/\\/g, '/');
+  const rest = normalized.slice(scheme.length).replace(/^\/+/, '').replace(/\/+/g, '/');
+  return rest ? `${scheme}${rest}` : scheme;
+}
+
+export function isAliasPath(p: string): boolean {
+  return aliasSchemeFor(p) !== null;
+}
+
 function isRegistryReference(p: string): boolean {
   return /^registry:\/\//i.test((p || '').trim().replace(/\\/g, '/'));
 }
@@ -33,6 +55,11 @@ export function canonicalizePathReference(p: string): string {
     return rest ? `${REGISTRY_ROOT}${rest}` : REGISTRY_ROOT;
   }
 
+  const aliasScheme = aliasSchemeFor(n);
+  if (aliasScheme) {
+    return normalizeAliasReference(n, aliasScheme);
+  }
+
   return n;
 }
 
@@ -45,6 +72,10 @@ export function normalizePath(p: string): string {
   let n = canonicalizePathReference(p);
   if (isRegistryReference(n)) {
     return normalizeRegistryReference(n);
+  }
+  const aliasScheme = aliasSchemeFor(n);
+  if (aliasScheme) {
+    return normalizeAliasReference(n, aliasScheme);
   }
   if (isWindowsPath(n)) {
     const drive = n.slice(0, 2);
@@ -66,6 +97,13 @@ export function parentPath(p: string): string {
     const rel = n.slice(REGISTRY_ROOT.length);
     const idx = rel.lastIndexOf('/');
     return idx < 0 ? REGISTRY_ROOT : `${REGISTRY_ROOT}${rel.slice(0, idx)}`;
+  }
+  const aliasScheme = aliasSchemeFor(n);
+  if (aliasScheme) {
+    const rel = n.slice(aliasScheme.length);
+    if (!rel) return aliasScheme;
+    const idx = rel.lastIndexOf('/');
+    return idx < 0 ? aliasScheme : `${aliasScheme}${rel.slice(0, idx)}`;
   }
   if (/^[A-Za-z]:\/$/.test(n) || /^[A-Za-z]:$/.test(n)) return n;
   if (n === '/') return '/';
@@ -91,6 +129,15 @@ export function shortenPath(p: string): string {
     const parts = rel.split('/').filter(Boolean);
     if (parts.length <= 2) return rel;
     return '…/' + parts.slice(-2).join('/');
+  }
+  const aliasScheme = aliasSchemeFor(p);
+  if (aliasScheme) {
+    const rel = p.slice(aliasScheme.length);
+    if (!rel) return aliasScheme.slice(0, -3);
+    if (rel.length <= 28) return `${aliasScheme}${rel}`;
+    const parts = rel.split('/').filter(Boolean);
+    if (parts.length <= 2) return `${aliasScheme}${rel}`;
+    return `${aliasScheme}…/${parts.slice(-2).join('/')}`;
   }
   if (p.length <= 28) return p;
   const parts = p.split('/').filter(Boolean);
@@ -118,6 +165,28 @@ export function buildSegments(p: string): PathSegment[] {
       segs.push({
         label: part,
         fullPath: `${REGISTRY_ROOT}${parts.slice(0, i + 1).join('/')}`,
+        isRoot: false,
+      });
+    });
+    return segs;
+  }
+
+  const aliasScheme = aliasSchemeFor(p);
+  if (aliasScheme) {
+    const rel = p.slice(aliasScheme.length);
+    const parts = rel ? rel.split('/').filter(Boolean) : [];
+    const rootLabel = aliasScheme.slice(0, -3);
+    const segs: PathSegment[] = [{
+      label: rootLabel,
+      fullPath: aliasScheme,
+      isRoot: true,
+      rootLabel,
+    }];
+
+    parts.forEach((part, i) => {
+      segs.push({
+        label: part,
+        fullPath: `${aliasScheme}${parts.slice(0, i + 1).join('/')}`,
         isRoot: false,
       });
     });

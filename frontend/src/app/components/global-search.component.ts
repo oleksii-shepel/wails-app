@@ -19,6 +19,7 @@ import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.direct
 export class GlobalSearchComponent implements OnInit, OnDestroy {
   @ViewChild('searchInput') searchInput?: ElementRef<HTMLInputElement>;
   @Output() resultSelected = new EventEmitter<SearchResultItem>();
+  @Output() searchFolderRequested = new EventEmitter<string>();
 
   isVisible = false;
   searchQuery = '';
@@ -220,6 +221,16 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
     this.hide();
   }
 
+  openSearchFolder(): void {
+    const trimmedQuery = this.searchQuery.trim();
+    if (!trimmedQuery) {
+      return;
+    }
+
+    this.searchFolderRequested.emit(trimmedQuery);
+    this.hide();
+  }
+
   /**
    * Get file icon
    */
@@ -382,6 +393,12 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
       this.selectResult(this.results[this.selectedIndex]);
     });
 
+    this.inputEngine.registerCommand('dialog.globalSearch.openFolder', () => {
+      if (!this.isVisible || this.showSettingsModal) return;
+      if (!this.searchQuery.trim()) return;
+      this.openSearchFolder();
+    });
+
     this.inputEngine.registerCommand('dialog.globalSearch.openSettings', () => {
       if (!this.isVisible) return;
       this.showSettings();
@@ -404,6 +421,7 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
     this.inputEngine.unregisterCommand('dialog.globalSearch.prevResult');
     this.inputEngine.unregisterCommand('dialog.globalSearch.nextResult');
     this.inputEngine.unregisterCommand('dialog.globalSearch.openSelected');
+    this.inputEngine.unregisterCommand('dialog.globalSearch.openFolder');
     this.inputEngine.unregisterCommand('dialog.globalSearch.openSettings');
     this.inputEngine.unregisterCommand('dialog.globalSearch.settings.close');
     this.inputEngine.unregisterCommand('dialog.globalSearch.settings.apply');

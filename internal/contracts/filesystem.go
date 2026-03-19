@@ -25,6 +25,9 @@ type FileInfo struct {
 	RegistryKind      string   `json:"registryKind,omitempty"`
 	RegistryValueType string   `json:"registryValueType,omitempty"`
 	RegistryPreview   string   `json:"registryPreview,omitempty"`
+	SearchBasePath    string   `json:"searchBasePath,omitempty"`
+	SearchPattern     string   `json:"searchPattern,omitempty"`
+	SearchParentPath  string   `json:"searchParentPath,omitempty"`
 }
 
 type ArchiveListing struct {

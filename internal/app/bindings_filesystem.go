@@ -2,6 +2,7 @@ package app
 
 import (
 	contracts "wails-app/internal/contracts"
+	"wails-app/internal/pathref"
 	internalplatform "wails-app/internal/platform"
 )
 
@@ -100,6 +101,10 @@ func (a *App) SearchFiles(path, pattern string, recursive bool) (*contracts.Sear
 
 func (a *App) Search(path, pattern string, recursive bool) (*contracts.SearchResult, error) {
 	return a.SearchFiles(path, pattern, recursive)
+}
+
+func (a *App) BuildSearchAlias(path, pattern string, recursive bool) (string, error) {
+	return pathref.BuildSearch(path, pattern, recursive)
 }
 
 func (a *App) AnalyzeDiskUsage(path string) (*contracts.DiskUsageResult, error) {

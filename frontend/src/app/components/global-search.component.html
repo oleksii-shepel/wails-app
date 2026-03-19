@@ -37,6 +37,9 @@
           </span>
         </div>
         <div class="search-stats-actions">
+            <button *ngIf="searchQuery.trim()" (click)="openSearchFolder()" class="stats-action" title="Open results as a virtual folder">
+              Open Folder
+            </button>
           <button (click)="refreshIndex()" class="stats-action" title="Refresh search index">
             Refresh
           </button>
@@ -91,7 +94,8 @@
       <div *ngIf="!isSearching && results.length === 0 && searchQuery" class="search-empty">
         <span class="empty-icon">🔍</span>
         <p>No results found for "{{ searchQuery }}"</p>
-        <p class="empty-hint">Try a different term, adjust filters, or open Settings to loosen fuzzy matching</p>
+        <p class="empty-hint">Try a different term, adjust filters, open Settings to loosen fuzzy matching, or open a search folder anyway</p>
+        <button class="stats-action" (click)="openSearchFolder()">Open Search Folder</button>
       </div>
 
       <!-- Initial State -->
@@ -103,6 +107,7 @@
           <ul>
             <li>Type any part of the file or folder name</li>
             <li>Use arrow keys to move and Enter to open</li>
+            <li>Use Ctrl+Enter to open the query as a virtual search folder</li>
             <li>Use filters to narrow results and Settings to tune matching</li>
           </ul>
         </div>

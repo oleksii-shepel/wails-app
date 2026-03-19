@@ -176,6 +176,10 @@ export class ApiService {
     return castProtocol<SearchResult>(await window.go.app.App.Search(path, pattern, recursive));
   }
 
+  async buildSearchAlias(path: string, pattern: string, recursive: boolean = true): Promise<string> {
+    return await window.go.app.App.BuildSearchAlias(path, pattern, recursive);
+  }
+
   async dirSizeRecursive(path: string): Promise<number> {
     return await window.go.app.App.DirSizeRecursive(path);
   }

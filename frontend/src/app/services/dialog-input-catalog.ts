@@ -57,6 +57,7 @@ export const DIALOG_INPUT_CATALOG: DialogBindingCatalogEntry[] = [
       keyBinding('dialog.globalSearch.prev.arrowUp', 'dialog.globalSearch', 'dialog.globalSearch.prevResult', 'arrowup', 'Select previous result'),
       keyBinding('dialog.globalSearch.next.arrowDown', 'dialog.globalSearch', 'dialog.globalSearch.nextResult', 'arrowdown', 'Select next result'),
       keyBinding('dialog.globalSearch.open.enter', 'dialog.globalSearch', 'dialog.globalSearch.openSelected', 'enter', 'Open selected result'),
+      keyBinding('dialog.globalSearch.openFolder.ctrlEnter', 'dialog.globalSearch', 'dialog.globalSearch.openFolder', 'enter', 'Open virtual search folder', ['ctrl']),
       keyBinding('dialog.globalSearch.settings.ctrlComma', 'dialog.globalSearch', 'dialog.globalSearch.openSettings', ',', 'Open search settings', ['ctrl']),
     ],
   },

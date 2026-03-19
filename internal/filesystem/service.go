@@ -86,6 +86,9 @@ func (s *Service) elevationTargetPair(source, destination string) string {
 
 func (s *Service) ListDirectory(path string, showHidden bool) (*contracts.DirectoryListing, error) {
 	path = pathref.Normalize(path)
+	if pathref.IsSearch(path) {
+		return s.listSearchAlias(path)
+	}
 	if s.vfs != nil && pathref.IsRegistry(path) {
 		listing, err := internalruntime.VFSListDir(s.vfs, path)
 		if err == nil {
@@ -126,6 +129,38 @@ func (s *Service) ListDirectory(path string, showHidden bool) (*contracts.Direct
 		return nil, err
 	}
 	return resp.DirListing, nil
+}
+
+func (s *Service) listSearchAlias(path string) (*contracts.DirectoryListing, error) {
+	if path == pathref.SearchScheme {
+		return &contracts.DirectoryListing{
+			Path:      pathref.SearchScheme,
+			Entries:   []contracts.FileInfo{},
+			TotalSize: 0,
+		}, nil
+	}
+
+	query, ok := pathref.ParseSearch(path)
+	if !ok {
+		return nil, fmt.Errorf("invalid search alias path")
+	}
+
+	result, err := s.SearchFiles(query.BasePath, query.Pattern, query.Recursive)
+	if err != nil {
+		return nil, err
+	}
+
+	entries := append([]contracts.FileInfo{}, result.Matches...)
+	var total int64
+	for _, entry := range entries {
+		total += entry.Size
+	}
+
+	return &contracts.DirectoryListing{
+		Path:      path,
+		Entries:   entries,
+		TotalSize: total,
+	}, nil
 }
 
 func (s *Service) ElevatedList(path string, showHidden bool) ([]contracts.FileInfo, error) {
@@ -414,6 +449,7 @@ func (s *Service) RunElevatedDelete(path string, recursive bool, useTrash *bool)
 
 func (s *Service) SearchFiles(path, pattern string, recursive bool) (*contracts.SearchResult, error) {
 	var matches []contracts.FileInfo
+	basePath := filepath.ToSlash(pathref.Normalize(path))
 
 	walkFn := func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -439,7 +475,11 @@ func (s *Service) SearchFiles(path, pattern string, recursive bool) (*contracts.
 		if err != nil {
 			return nil
 		}
-		matches = append(matches, BuildFileInfo(s.metadata, name, filepath.ToSlash(p), info))
+		entry := BuildFileInfo(s.metadata, name, filepath.ToSlash(p), info)
+		entry.SearchBasePath = basePath
+		entry.SearchPattern = pattern
+		entry.SearchParentPath = filepath.ToSlash(filepath.Dir(entry.Path))
+		matches = append(matches, entry)
 		return nil
 	}
 

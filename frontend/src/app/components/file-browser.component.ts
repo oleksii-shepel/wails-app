@@ -317,6 +317,7 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
   private get searchHost(): FileBrowserSearchHost {
 	return {
 	  pathHistoryService: this.pathHistoryService,
+    apiService: this.apiService,
 	  getActivePane: () => this.getActivePane(),
 	};
   }
@@ -417,6 +418,10 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
 
   async onGlobalSearchResult(result: any): Promise<void> {
     await this.searchController.onGlobalSearchResult(this.searchHost, result);
+  }
+
+  async onGlobalSearchFolder(query: string): Promise<void> {
+    await this.searchController.openGlobalSearchAsFolder(this.searchHost, query);
   }
 
   // ============================================================================

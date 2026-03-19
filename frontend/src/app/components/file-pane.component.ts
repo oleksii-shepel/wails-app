@@ -818,7 +818,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     this.tabsController.onNewTab(this.tabsHost);
   }
 
-  private async openPathInNewTab(path: string): Promise<void> {
+  async openPathInNewTab(path: string): Promise<void> {
     await this.tabsController.openPathInNewTab(this.tabsHost, path);
   }
 

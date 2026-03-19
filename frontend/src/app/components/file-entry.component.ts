@@ -67,11 +67,16 @@ export const PARENT_ENTRY_PATH = '__parent__';
             (input)="onRenameInput($event)"
             (blur)="onRenameBlur()"
             (keydown)="onRenameKeyDown($event)" />
-          <span *ngIf="!isRenaming">{{ entry.name }}</span>
+          <ng-container *ngIf="!isRenaming">
+            <span>{{ entry.name }}</span>
+            <span *ngIf="showSearchBadge()" class="entry-chip search-chip">Search</span>
+          </ng-container>
         </div>
+        <div class="file-context-grid" *ngIf="showSearchContextInGrid()">{{ getSearchParentPath() }}</div>
         <div class="file-details" [attr.aria-hidden]="isParentEntry() ? 'true' : null">
           <span class="file-size" *ngIf="!isParentEntry(); else detailPlaceholder">{{ formatSize(entry.size) }}</span>
           <span class="file-date" *ngIf="!isParentEntry(); else detailPlaceholder">{{ formatDate(entry.modified) }}</span>
+          <span class="file-context" *ngIf="showSearchContextInRow()">{{ getSearchParentPath() }}</span>
         </div>
       </div>
     </div>
@@ -146,6 +151,7 @@ export const PARENT_ENTRY_PATH = '__parent__';
       .file-name {
         display: flex;
         align-items: center;
+        gap: 6px;
         font-size: var(--vsc-font-size);
         overflow: hidden;
         text-overflow: ellipsis;
@@ -178,8 +184,39 @@ export const PARENT_ENTRY_PATH = '__parent__';
         font-size: var(--vsc-font-size-small);
         color: var(--vsc-foreground-dim);
         margin-top: 2px;
+        min-width: 0;
 
         .file-size, .file-date { white-space: nowrap; }
+
+        .file-context {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+      }
+
+      .entry-chip {
+        display: inline-flex;
+        align-items: center;
+        height: 16px;
+        padding: 0 6px;
+        border-radius: 999px;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        white-space: nowrap;
+      }
+
+      .search-chip {
+        background: color-mix(in srgb, var(--vsc-accent-blue) 18%, transparent);
+        color: var(--vsc-accent-blue);
+        border: 1px solid color-mix(in srgb, var(--vsc-accent-blue) 35%, transparent);
+      }
+
+      .file-context-grid {
+        display: none;
       }
     }
 
@@ -290,6 +327,11 @@ export const PARENT_ENTRY_PATH = '__parent__';
       display: none;
     }
 
+    :host(.variant-inline) .entry-chip,
+    :host(.variant-inline) .file-context-grid {
+      display: none;
+    }
+
     :host(.variant-inline) .file-icon {
       width: 16px;
       height: 16px;
@@ -334,10 +376,31 @@ export const PARENT_ENTRY_PATH = '__parent__';
     }
 
     :host(.variant-grid) .file-name {
+      display: inline-flex;
+      flex-wrap: wrap;
       font-size: var(--vsc-font-size-small);
       line-height: 1.3;
       justify-content: center;
       text-align: center;
+      white-space: normal;
+    }
+
+    :host(.variant-grid) .entry-chip {
+      margin-top: 2px;
+      justify-content: center;
+    }
+
+    :host(.variant-grid) .file-context-grid {
+      display: block;
+      margin-top: 4px;
+      font-size: 11px;
+      line-height: 1.25;
+      color: var(--vsc-foreground-dim);
+      overflow: hidden;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      word-break: break-word;
     }
 
     :host(.variant-grid).renaming .file-entry {
@@ -394,6 +457,26 @@ export class FileEntryComponent {
   /** True for file-symlinks (type === SYMLINK) and dir-symlinks (type === DIRECTORY, isSymlink === true). */
   isSymlink(): boolean {
     return this.entry?.type === FileType.SYMLINK || !!this.entry?.isSymlink;
+  }
+
+  isSearchEntry(): boolean {
+    return !!this.entry && !!(this.entry.searchParentPath || this.entry.searchPattern || this.entry.searchBasePath);
+  }
+
+  showSearchBadge(): boolean {
+    return !this.isParentEntry() && this.variant !== 'inline' && this.isSearchEntry();
+  }
+
+  showSearchContextInRow(): boolean {
+    return !this.isParentEntry() && this.variant === 'row' && this.isSearchEntry();
+  }
+
+  showSearchContextInGrid(): boolean {
+    return !this.isParentEntry() && this.variant === 'grid' && this.isSearchEntry();
+  }
+
+  getSearchParentPath(): string {
+    return this.entry?.searchParentPath || '';
   }
 
   /**

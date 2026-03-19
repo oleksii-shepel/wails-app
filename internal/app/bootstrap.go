@@ -15,8 +15,8 @@ import (
 	"wails-app/internal/pathref"
 	internalplatform "wails-app/internal/platform"
 	internalruntime "wails-app/internal/runtime"
-	vfsarchive "wails-app/vfs/archive"
 	vfslib "wails-app/vfs"
+	vfsarchive "wails-app/vfs/archive"
 )
 
 type filesystemElevation interface {
@@ -96,8 +96,8 @@ var elevatedRawHandler = internalfilesystem.NewElevatedHandler(internalfilesyste
 		}
 		return rawFilesystemOps.CreateDirectory(path, recursive)
 	},
-	MoveFile:        rawFilesystemOps.MoveFile,
-	CopyFile:        rawFilesystemOps.CopyFile,
+	MoveFile: rawFilesystemOps.MoveFile,
+	CopyFile: rawFilesystemOps.CopyFile,
 })
 
 func MaybeRunElevatedService(args []string) (bool, error) {

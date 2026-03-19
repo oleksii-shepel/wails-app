@@ -156,8 +156,23 @@ func ParseSearch(path string) (SearchQuery, bool) {
 	return query, true
 }
 
+func NormalizeSearchPattern(pattern string) string {
+	trimmed := strings.TrimSpace(pattern)
+	if trimmed == "" {
+		return ""
+	}
+	if strings.ContainsAny(trimmed, "*?[") {
+		return trimmed
+	}
+	return "*" + trimmed + "*"
+}
+
 func MatchSearchPattern(pattern, name string) (bool, error) {
-	return filepath.Match(strings.ToLower(pattern), strings.ToLower(name))
+	normalizedPattern := NormalizeSearchPattern(pattern)
+	if normalizedPattern == "" {
+		return false, nil
+	}
+	return filepath.Match(strings.ToLower(normalizedPattern), strings.ToLower(name))
 }
 
 func ToVFS(path string) string {

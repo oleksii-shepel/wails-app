@@ -17,6 +17,7 @@ type OSInfoResponse struct {
 	SystemDrive *string `json:"systemDrive"`
 }
 
+
 type DriveType string
 
 const (

@@ -87,7 +87,23 @@ func (s *Service) elevationTargetPair(source, destination string) string {
 func (s *Service) ListDirectory(path string, showHidden bool) (*contracts.DirectoryListing, error) {
 	path = pathref.Normalize(path)
 	if s.vfs != nil && pathref.IsRegistry(path) {
-		return internalruntime.VFSListDir(s.vfs, path)
+		listing, err := internalruntime.VFSListDir(s.vfs, path)
+		if err == nil {
+			return listing, nil
+		}
+		if !s.isPermissionDenied(err) {
+			return nil, err
+		}
+
+		resp, elevErr := s.runElevatedWithEvents("list", s.elevationTargetSingle(path), elevation.Request{
+			Op:         "list",
+			Path:       path,
+			ShowHidden: showHidden,
+		})
+		if elevErr != nil {
+			return nil, err
+		}
+		return resp.DirListing, nil
 	}
 	if s.vfs != nil && s.vfs.IsMounted(path) {
 		return internalruntime.VFSListDir(s.vfs, path)
@@ -160,6 +176,27 @@ func (s *Service) GetFileInfo(path string) (*contracts.FileInfo, error) {
 }
 
 func (s *Service) ReadFile(path string, encoding string) (*contracts.FileContent, error) {
+	path = pathref.Normalize(path)
+	if s.vfs != nil && pathref.IsRegistry(path) {
+		file, err := internalruntime.VFSReadFile(s.vfs, path, encoding)
+		if err == nil {
+			return file, nil
+		}
+		if !s.isPermissionDenied(err) {
+			return nil, err
+		}
+
+		resp, elevErr := s.runElevatedWithEvents("read", s.elevationTargetSingle(path), elevation.Request{
+			Op:       "read",
+			Path:     path,
+			Encoding: encoding,
+		})
+		if elevErr != nil {
+			return nil, err
+		}
+		return resp.File, nil
+	}
+
 	file, err := s.raw.ReadFile(path, encoding)
 	if err == nil {
 		return file, nil
@@ -180,6 +217,28 @@ func (s *Service) ReadFile(path string, encoding string) (*contracts.FileContent
 }
 
 func (s *Service) WriteFile(path string, content string, encoding string) (*contracts.OperationResult, error) {
+	path = pathref.Normalize(path)
+	if s.vfs != nil && pathref.IsRegistry(path) {
+		op, err := internalruntime.VFSWriteFile(s.vfs, path, content, encoding)
+		if err == nil {
+			return op, nil
+		}
+		if !s.isPermissionDenied(err) {
+			return nil, err
+		}
+
+		resp, elevErr := s.runElevatedWithEvents("write", s.elevationTargetSingle(path), elevation.Request{
+			Op:       "write",
+			Path:     path,
+			Content:  content,
+			Encoding: encoding,
+		})
+		if elevErr != nil {
+			return nil, err
+		}
+		return resp.Operation, nil
+	}
+
 	op, err := s.raw.WriteFile(path, content, encoding)
 	if err == nil {
 		return op, nil
@@ -201,6 +260,28 @@ func (s *Service) WriteFile(path string, content string, encoding string) (*cont
 }
 
 func (s *Service) DeleteFile(path string, recursive bool, useTrash *bool) (*contracts.OperationResult, error) {
+	path = pathref.Normalize(path)
+	if s.vfs != nil && pathref.IsRegistry(path) {
+		op, err := internalruntime.VFSRemove(s.vfs, path)
+		if err == nil {
+			return op, nil
+		}
+		if !s.isPermissionDenied(err) {
+			return nil, err
+		}
+
+		resp, elevErr := s.runElevatedWithEvents("delete", s.elevationTargetSingle(path), elevation.Request{
+			Op:        "delete",
+			Path:      path,
+			Recursive: recursive,
+			UseTrash:  useTrash,
+		})
+		if elevErr != nil {
+			return nil, err
+		}
+		return resp.Operation, nil
+	}
+
 	op, err := s.raw.DeleteFile(path, recursive, useTrash)
 	if err == nil {
 		return op, nil
@@ -222,6 +303,26 @@ func (s *Service) DeleteFile(path string, recursive bool, useTrash *bool) (*cont
 }
 
 func (s *Service) CreateDirectory(path string, recursive bool) (*contracts.OperationResult, error) {
+	path = pathref.Normalize(path)
+	if s.vfs != nil && pathref.IsRegistry(path) {
+		op, err := internalruntime.VFSMkdir(s.vfs, path)
+		if err == nil {
+			return op, nil
+		}
+		if !s.isPermissionDenied(err) {
+			return nil, err
+		}
+
+		resp, elevErr := s.runElevatedWithEvents("mkdir", s.elevationTargetSingle(path), elevation.Request{
+			Op:   "mkdir",
+			Path: path,
+		})
+		if elevErr != nil {
+			return nil, err
+		}
+		return resp.Operation, nil
+	}
+
 	op, err := s.raw.CreateDirectory(path, recursive)
 	if err == nil {
 		return op, nil

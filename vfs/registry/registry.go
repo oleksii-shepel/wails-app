@@ -48,6 +48,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"os"
 	"strings"
 	"time"
 
@@ -139,6 +140,41 @@ func rootKey(hiveName string) (registry.Key, bool) {
 	return 0, false
 }
 
+func isPermissionError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if os.IsPermission(err) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "permission denied") ||
+		strings.Contains(msg, "access is denied") ||
+		strings.Contains(msg, "operation not permitted") ||
+		strings.Contains(msg, "eacces") ||
+		strings.Contains(msg, "eperm")
+}
+
+func mapLookupError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if isPermissionError(err) {
+		return fs.ErrPermission
+	}
+	return vfs.ErrNotFound
+}
+
+func mapAccessError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if isPermissionError(err) {
+		return fs.ErrPermission
+	}
+	return err
+}
+
 // openKey opens the registry key for path with the requested access mask.
 // It returns the open key and the value name component (empty if path is a key).
 // Caller must close the returned key when done (unless it is a hive root).
@@ -163,6 +199,9 @@ func openKey(path string, access uint32) (key registry.Key, valueName string, is
 	if err == nil {
 		return k, "", false, nil
 	}
+	if isPermissionError(err) {
+		return 0, "", false, fs.ErrPermission
+	}
 
 	// If that failed, maybe the last component is a value name.
 	idx := strings.LastIndex(subkey, "/")
@@ -176,7 +215,7 @@ func openKey(path string, access uint32) (key registry.Key, valueName string, is
 	valName := subkey[idx+1:]
 	pk, err2 := registry.OpenKey(root, strings.ReplaceAll(parentSubkey, "/", "\\"), access)
 	if err2 != nil {
-		return 0, "", false, vfs.ErrNotFound
+		return 0, "", false, mapLookupError(err2)
 	}
 	return pk, valName, false, nil
 }
@@ -247,6 +286,9 @@ func (f *FS) Stat(_ context.Context, path string) (vfs.FileInfo, error) {
 		defer k.Close()
 		return &keyInfo{path: path, name: lastName(path)}, nil
 	}
+	if isPermissionError(err) {
+		return nil, fs.ErrPermission
+	}
 
 	// Try as a value.
 	idx := strings.LastIndex(subkey, "/")
@@ -258,7 +300,7 @@ func (f *FS) Stat(_ context.Context, path string) (vfs.FileInfo, error) {
 	} else {
 		pk, err2 := registry.OpenKey(root, strings.ReplaceAll(subkey[:idx], "/", "\\"), registry.QUERY_VALUE)
 		if err2 != nil {
-			return nil, vfs.ErrNotFound
+			return nil, mapLookupError(err2)
 		}
 		defer pk.Close()
 		parentKey = pk
@@ -267,7 +309,7 @@ func (f *FS) Stat(_ context.Context, path string) (vfs.FileInfo, error) {
 
 	value, err := readRegistryValue(parentKey, valName)
 	if err != nil {
-		return nil, vfs.ErrNotFound
+		return nil, mapLookupError(err)
 	}
 	return &valueInfo{
 		path:      path,
@@ -309,7 +351,7 @@ func (f *FS) ReadDir(_ context.Context, path string) ([]vfs.FileInfo, error) {
 		k, err = registry.OpenKey(root, strings.ReplaceAll(subkey, "/", "\\"),
 			registry.ENUMERATE_SUB_KEYS|registry.QUERY_VALUE)
 		if err != nil {
-			return nil, vfs.ErrNotFound
+			return nil, mapLookupError(err)
 		}
 		defer k.Close()
 	}
@@ -323,6 +365,8 @@ func (f *FS) ReadDir(_ context.Context, path string) ([]vfs.FileInfo, error) {
 			childPath := path + "/" + name
 			result = append(result, &keyInfo{path: childPath, name: name})
 		}
+	} else if isPermissionError(err) {
+		return nil, fs.ErrPermission
 	}
 
 	// Values → files.
@@ -343,6 +387,8 @@ func (f *FS) ReadDir(_ context.Context, path string) ([]vfs.FileInfo, error) {
 				preview:   value.preview,
 			})
 		}
+	} else if isPermissionError(err) {
+		return nil, fs.ErrPermission
 	}
 
 	return result, nil
@@ -381,7 +427,7 @@ func (f *FS) Mkdir(_ context.Context, path string, _ fs.FileMode) error {
 	}
 	k, _, err := registry.CreateKey(root, strings.ReplaceAll(subkey, "/", "\\"), registry.SET_VALUE)
 	if err != nil {
-		return fmt.Errorf("registry mkdir %q: %w", path, err)
+		return fmt.Errorf("registry mkdir %q: %w", path, mapAccessError(err))
 	}
 	k.Close()
 	return nil
@@ -414,14 +460,14 @@ func (f *FS) Remove(_ context.Context, path string) error {
 	} else {
 		pk, err2 := registry.OpenKey(root, strings.ReplaceAll(subkey[:idx], "/", "\\"), registry.SET_VALUE)
 		if err2 != nil {
-			return vfs.ErrNotFound
+			return mapLookupError(err2)
 		}
 		defer pk.Close()
 		parentKey = pk
 		valName = subkey[idx+1:]
 	}
 	if err2 := parentKey.DeleteValue(valName); err2 != nil {
-		return fmt.Errorf("registry remove value %q: %w", valName, err2)
+		return fmt.Errorf("registry remove value %q: %w", valName, mapAccessError(err2))
 	}
 	return nil
 }

@@ -3,7 +3,7 @@ import { Injectable } from '@angular/core';
 import type { ArchiveListing, FileInfo } from '../shared/protocol-enhanced';
 import type { PathSegment } from '../components/address-bar.types';
 import { buildSegments as buildBasicSegments, buildSegmentsFromParsedPath, normalizePath, parentPath, parsePathWithArchives } from '../components/address-bar.utils';
-import { isArchive } from './archive.service';
+import { ArchiveService, type ArchiveBrowseTarget, type ArchiveFrame, isArchive } from './archive.service';
 import { ApiService } from './api.service';
 import { REGISTRY_ROOT, RegistryService, isRegistryPath, type RegistryFrame } from './registry.service';
 
@@ -27,6 +27,13 @@ interface DirectoryListingProvider {
 export interface FileViewDirectorySource {
   listDirectory(path: string, showHidden?: boolean): Promise<DirectorySourceListing>;
   browseArchive(fsPath: string, nestedChain?: string[], innerPath?: string): Promise<ArchiveListing>;
+  getArchiveFrame(fsPath: string, nestedChain?: string[], innerPath?: string): Promise<ArchiveFrame>;
+  openNestedArchive(frame: ArchiveFrame, nestedChain: string[]): Promise<ArchiveFrame>;
+  navigateArchive(frame: ArchiveFrame, folderInnerPath: string): Promise<ArchiveFrame>;
+  navigateArchiveUp(frame: ArchiveFrame): Promise<ArchiveFrame | null>;
+  refreshArchive(frame: ArchiveFrame): Promise<ArchiveFrame>;
+  resolveArchiveBrowseTarget(seg: { name: string; fullPath: string }, stack: ArchiveFrame[]): ArchiveBrowseTarget | null;
+  archiveListingToFileInfos(listing: ArchiveListing): FileInfo[];
   getPathKind(path: string, entries?: FileInfo[]): DirectorySourceKind;
   getRootPath(path: string, entries?: FileInfo[]): string | null;
   getParentPath(path: string): string;
@@ -120,6 +127,7 @@ export class DirectorySourceService implements FileViewDirectorySource {
 
   constructor(
     private readonly apiService: ApiService,
+    private readonly archiveService: ArchiveService,
     private readonly registryService: RegistryService,
   ) {
     this.providers = [
@@ -134,6 +142,44 @@ export class DirectorySourceService implements FileViewDirectorySource {
 
   async browseArchive(fsPath: string, nestedChain: string[] = [], innerPath: string = ''): Promise<ArchiveListing> {
     return this.apiService.archiveBrowse(fsPath, nestedChain, innerPath);
+  }
+
+  async getArchiveFrame(fsPath: string, nestedChain: string[] = [], innerPath: string = ''): Promise<ArchiveFrame> {
+    let frame = await this.archiveService.openRootArchive(fsPath);
+
+    for (let index = 0; index < nestedChain.length; index += 1) {
+      frame = await this.archiveService.openNestedArchive(frame, nestedChain.slice(0, index + 1));
+    }
+
+    if (innerPath) {
+      frame = await this.archiveService.navigateInto(frame, innerPath);
+    }
+
+    return frame;
+  }
+
+  openNestedArchive(frame: ArchiveFrame, nestedChain: string[]): Promise<ArchiveFrame> {
+    return this.archiveService.openNestedArchive(frame, nestedChain);
+  }
+
+  navigateArchive(frame: ArchiveFrame, folderInnerPath: string): Promise<ArchiveFrame> {
+    return this.archiveService.navigateInto(frame, folderInnerPath);
+  }
+
+  navigateArchiveUp(frame: ArchiveFrame): Promise<ArchiveFrame | null> {
+    return this.archiveService.navigateUp(frame);
+  }
+
+  refreshArchive(frame: ArchiveFrame): Promise<ArchiveFrame> {
+    return this.archiveService.refreshFrame(frame);
+  }
+
+  resolveArchiveBrowseTarget(seg: { name: string; fullPath: string }, stack: ArchiveFrame[]): ArchiveBrowseTarget | null {
+    return this.archiveService.resolveBrowseTarget(seg, stack);
+  }
+
+  archiveListingToFileInfos(listing: ArchiveListing): FileInfo[] {
+    return this.archiveService.listingToFileInfos(listing);
   }
 
   getPathKind(path: string, entries: FileInfo[] = []): DirectorySourceKind {

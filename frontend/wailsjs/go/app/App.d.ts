@@ -177,11 +177,19 @@ export function StopElevationSession():Promise<void>;
 
 export function VFSListDir(arg1:string):Promise<contracts.DirectoryListing>;
 
+export function VFSMkdir(arg1:string):Promise<contracts.OperationResult>;
+
 export function VFSMountArchive(arg1:string):Promise<string>;
 
 export function VFSOpenArchive(arg1:string,arg2:Array<string>):Promise<contracts.ArchiveListing>;
 
+export function VFSReadFile(arg1:string,arg2:string):Promise<contracts.FileContent>;
+
+export function VFSRemove(arg1:string):Promise<contracts.OperationResult>;
+
 export function VFSUnmount(arg1:string):Promise<void>;
+
+export function VFSWriteFile(arg1:string,arg2:string,arg3:string):Promise<contracts.OperationResult>;
 
 export function WaitForElevationApproval(arg1:string,arg2:time.Duration):Promise<boolean>;
 

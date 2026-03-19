@@ -1,8 +1,10 @@
 package runtime
 
 import (
+	"encoding/base64"
 	"context"
 	"fmt"
+	"io"
 	"path/filepath"
 
 	internalarchive "wails-app/internal/archive"
@@ -83,6 +85,102 @@ func VFSOpenArchive(vfs *vfslib.Unified, path string, nested []string) (contract
 		InnerPath:   mountPoint,
 		NestedChain: nested,
 		Entries:     files,
+	}, nil
+}
+
+func VFSReadFile(vfs *vfslib.Unified, path string, encoding string) (*contracts.FileContent, error) {
+	publicPath := pathref.Normalize(path)
+	internalPath := pathref.ToVFS(path)
+	file, err := vfs.Open(context.Background(), internalPath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return nil, err
+	}
+
+	if encoding == "" {
+		encoding = "utf8"
+	}
+
+	content := string(data)
+	if encoding == "base64" {
+		content = base64.StdEncoding.EncodeToString(data)
+	} else {
+		encoding = "utf8"
+	}
+
+	return &contracts.FileContent{
+		Path:     publicPath,
+		Content:  content,
+		Encoding: encoding,
+		Size:     int64(len(data)),
+	}, nil
+}
+
+func VFSWriteFile(vfs *vfslib.Unified, path string, content string, encoding string) (*contracts.OperationResult, error) {
+	publicPath := pathref.Normalize(path)
+	internalPath := pathref.ToVFS(path)
+
+	var data []byte
+	var err error
+	if encoding == "base64" {
+		data, err = base64.StdEncoding.DecodeString(content)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		data = []byte(content)
+	}
+
+	file, err := vfs.Create(context.Background(), internalPath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	if _, err := file.Write(data); err != nil {
+		return nil, err
+	}
+	if err := file.Sync(); err != nil {
+		return nil, err
+	}
+
+	return &contracts.OperationResult{
+		Success:       true,
+		Message:       "File written successfully",
+		AffectedPaths: []string{publicPath},
+	}, nil
+}
+
+func VFSMkdir(vfs *vfslib.Unified, path string) (*contracts.OperationResult, error) {
+	publicPath := pathref.Normalize(path)
+	internalPath := pathref.ToVFS(path)
+	if err := vfs.Mkdir(context.Background(), internalPath, 0755); err != nil {
+		return nil, err
+	}
+
+	return &contracts.OperationResult{
+		Success:       true,
+		Message:       "Directory created successfully",
+		AffectedPaths: []string{publicPath},
+	}, nil
+}
+
+func VFSRemove(vfs *vfslib.Unified, path string) (*contracts.OperationResult, error) {
+	publicPath := pathref.Normalize(path)
+	internalPath := pathref.ToVFS(path)
+	if err := vfs.Remove(context.Background(), internalPath); err != nil {
+		return nil, err
+	}
+
+	return &contracts.OperationResult{
+		Success:       true,
+		Message:       "Deleted successfully",
+		AffectedPaths: []string{publicPath},
 	}, nil
 }
 

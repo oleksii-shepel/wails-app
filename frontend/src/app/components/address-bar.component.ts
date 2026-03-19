@@ -1106,13 +1106,13 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
       listing: { archivePath: fsDirPath, innerPath: archiveInnerParts.join('/'), entries: [] },
     }];
 
-    const target = this.archiveService.resolveBrowseTarget(
+    const target = this.directorySource.resolveArchiveBrowseTarget(
       { name: seg.label, fullPath: seg.fullPath }, syntheticStack,
     );
     if (!target) { this.sibLoading = false; return; }
 
     try {
-      const listing = await this.archiveService.navigateInto(
+      const listing = await this.directorySource.navigateArchive(
         { ...target.frame, nestedChain: target.browseChain }, target.browseInnerPath,
       );
       const activeChildVirtual = activeChildPath?.replace(/\\/g, '/') ?? null;

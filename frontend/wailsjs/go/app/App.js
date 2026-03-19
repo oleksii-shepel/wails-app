@@ -342,6 +342,10 @@ export function VFSListDir(arg1) {
   return window['go']['app']['App']['VFSListDir'](arg1);
 }
 
+export function VFSMkdir(arg1) {
+  return window['go']['app']['App']['VFSMkdir'](arg1);
+}
+
 export function VFSMountArchive(arg1) {
   return window['go']['app']['App']['VFSMountArchive'](arg1);
 }
@@ -350,8 +354,20 @@ export function VFSOpenArchive(arg1, arg2) {
   return window['go']['app']['App']['VFSOpenArchive'](arg1, arg2);
 }
 
+export function VFSReadFile(arg1, arg2) {
+  return window['go']['app']['App']['VFSReadFile'](arg1, arg2);
+}
+
+export function VFSRemove(arg1) {
+  return window['go']['app']['App']['VFSRemove'](arg1);
+}
+
 export function VFSUnmount(arg1) {
   return window['go']['app']['App']['VFSUnmount'](arg1);
+}
+
+export function VFSWriteFile(arg1, arg2, arg3) {
+  return window['go']['app']['App']['VFSWriteFile'](arg1, arg2, arg3);
 }
 
 export function WaitForElevationApproval(arg1, arg2) {

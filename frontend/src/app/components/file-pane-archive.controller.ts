@@ -10,6 +10,7 @@ import {
 } from '../services/archive.service';
 import { WorkspaceService } from '../services/workspace.service';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
+import type { FileViewDirectorySource } from '../services/directory-source.service';
 import { FileType } from '../shared/protocol';
 import { parentPath, normalizePath } from './address-bar.utils';
 
@@ -39,6 +40,7 @@ export interface FilePaneArchiveHost {
   get archivePendingMoveDestDir(): string;
   set archivePendingMoveDestDir(value: string);
   archiveService: ArchiveService;
+  directorySource: FileViewDirectorySource;
   workspaceService: WorkspaceService;
   confirmDialog: ConfirmDialogService;
   withParentEntry(raw: FileInfo[], inArchive: boolean, fsPath: string): FileInfo[];
@@ -60,16 +62,16 @@ export class FilePaneArchiveController {
       const { fsPath, nestedChain, innerPath } = parseArchivePath(path);
       host.fsParentDir = parentPath(normalizePath(fsPath));
 
-      let frame = await host.archiveService.openRootArchive(fsPath);
+      let frame = await host.directorySource.getArchiveFrame(fsPath);
       const stack: ArchiveFrame[] = [frame];
 
       for (let index = 0; index < nestedChain.length; index += 1) {
-        frame = await host.archiveService.openNestedArchive(frame, nestedChain.slice(0, index + 1));
+        frame = await host.directorySource.openNestedArchive(frame, nestedChain.slice(0, index + 1));
         stack.push(frame);
       }
 
       if (innerPath) {
-        frame = await host.archiveService.navigateInto(frame, innerPath);
+        frame = await host.directorySource.navigateArchive(frame, innerPath);
         stack[stack.length - 1] = frame;
       }
 
@@ -99,7 +101,7 @@ export class FilePaneArchiveController {
       const rootFrame = host.archiveStack[0];
       host.loading = true;
       try {
-        const frame = await host.archiveService.navigateInto(rootFrame, '');
+        const frame = await host.directorySource.navigateArchive(rootFrame, '');
         host.archiveStack = [{ ...frame, innerPath: '' }];
         this.renderArchiveFrame(host, { ...frame, innerPath: '' });
       } catch (err: any) {
@@ -113,7 +115,7 @@ export class FilePaneArchiveController {
     const parts = afterFs.split('/').filter(Boolean);
     host.loading = true;
     try {
-      let frame = await host.archiveService.navigateInto(host.archiveStack[0], '');
+      let frame = await host.directorySource.navigateArchive(host.archiveStack[0], '');
       let stack: ArchiveFrame[] = [{ ...frame, innerPath: '' }];
 
       for (const part of parts) {
@@ -122,11 +124,11 @@ export class FilePaneArchiveController {
         );
         if (isNested) {
           const nestedChain = [...frame.nestedChain, part];
-          frame = await host.archiveService.openNestedArchive(frame, nestedChain);
+          frame = await host.directorySource.openNestedArchive(frame, nestedChain);
           stack.push(frame);
         } else {
           const innerPath = frame.innerPath ? `${frame.innerPath}/${part}` : part;
-          frame = await host.archiveService.navigateInto(stack[stack.length - 1], innerPath);
+          frame = await host.directorySource.navigateArchive(stack[stack.length - 1], innerPath);
           stack = [...stack.slice(0, -1), frame];
         }
       }
@@ -145,7 +147,7 @@ export class FilePaneArchiveController {
     host.error = null;
     const exitPath = host.currentPath;
     try {
-      const frame = await host.archiveService.openRootArchive(fsPath);
+      const frame = await host.directorySource.getArchiveFrame(fsPath);
       host.archiveStack = [frame];
       host.fsParentDir = exitPath;
       this.renderArchiveFrame(host, frame);
@@ -161,7 +163,7 @@ export class FilePaneArchiveController {
     host.loading = true;
     host.error = null;
     try {
-      const newFrame = await host.archiveService.navigateInto(currentFrame, folderInnerPath);
+      const newFrame = await host.directorySource.navigateArchive(currentFrame, folderInnerPath);
       host.archiveStack = [...host.archiveStack.slice(0, -1), newFrame];
       this.renderArchiveFrame(host, newFrame);
     } catch (err: any) {
@@ -176,7 +178,7 @@ export class FilePaneArchiveController {
     host.loading = true;
     host.error = null;
     try {
-      const newFrame = await host.archiveService.openNestedArchive(currentFrame, nestedChain);
+      const newFrame = await host.directorySource.openNestedArchive(currentFrame, nestedChain);
       host.archiveStack = [...host.archiveStack, newFrame];
       this.renderArchiveFrame(host, newFrame);
     } catch (err: any) {
@@ -191,7 +193,7 @@ export class FilePaneArchiveController {
     host.loading = true;
     host.error = null;
     try {
-      const parentFrame = await host.archiveService.navigateUp(currentFrame);
+      const parentFrame = await host.directorySource.navigateArchiveUp(currentFrame);
       if (parentFrame !== null) {
         host.archiveStack = [...host.archiveStack.slice(0, -1), parentFrame];
         this.renderArchiveFrame(host, parentFrame);
@@ -233,7 +235,7 @@ export class FilePaneArchiveController {
     host.loading = true;
     host.error = null;
     try {
-      const refreshed = await host.archiveService.refreshFrame(frame);
+      const refreshed = await host.directorySource.refreshArchive(frame);
       host.archiveStack = [...host.archiveStack.slice(0, -1), refreshed];
       this.renderArchiveFrame(host, refreshed);
     } catch (err: any) {
@@ -244,7 +246,7 @@ export class FilePaneArchiveController {
   }
 
   renderArchiveFrame(host: FilePaneArchiveHost, frame: ArchiveFrame): void {
-    const rawEntries = host.archiveService.listingToFileInfos(frame.listing);
+    const rawEntries = host.directorySource.archiveListingToFileInfos(frame.listing);
     host.entries = host.withParentEntry(rawEntries, true, '');
     host.selectedFiles = new Set<string>();
     host.applyFilter();

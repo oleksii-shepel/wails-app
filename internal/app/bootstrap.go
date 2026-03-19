@@ -5,14 +5,18 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"sync"
 
 	internalarchive "wails-app/internal/archive"
 	contracts "wails-app/internal/contracts"
 	internalelevation "wails-app/internal/elevation"
 	internalfilesystem "wails-app/internal/filesystem"
 	internalops "wails-app/internal/ops"
+	"wails-app/internal/pathref"
 	internalplatform "wails-app/internal/platform"
+	internalruntime "wails-app/internal/runtime"
 	vfsarchive "wails-app/vfs/archive"
+	vfslib "wails-app/vfs"
 )
 
 type filesystemElevation interface {
@@ -28,12 +32,70 @@ var rawFilesystemOps = internalfilesystem.NewRawService(internalfilesystem.RawCa
 	},
 })
 
+var (
+	elevatedVFSOnce sync.Once
+	elevatedVFS     *vfslib.Unified
+	elevatedVFSErr  error
+)
+
+func getElevatedVFS() (*vfslib.Unified, error) {
+	elevatedVFSOnce.Do(func() {
+		elevatedVFS, elevatedVFSErr = internalruntime.InitVFS()
+	})
+	return elevatedVFS, elevatedVFSErr
+}
+
 var elevatedRawHandler = internalfilesystem.NewElevatedHandler(internalfilesystem.RawOperations{
-	ListDirectory:   rawFilesystemOps.ListDirectory,
-	ReadFile:        rawFilesystemOps.ReadFile,
-	WriteFile:       rawFilesystemOps.WriteFile,
-	DeleteFile:      rawFilesystemOps.DeleteFile,
-	CreateDirectory: rawFilesystemOps.CreateDirectory,
+	ListDirectory: func(path string, showHidden bool) (*contracts.DirectoryListing, error) {
+		if pathref.IsRegistry(path) {
+			vfs, err := getElevatedVFS()
+			if err != nil {
+				return nil, err
+			}
+			return internalruntime.VFSListDir(vfs, path)
+		}
+		return rawFilesystemOps.ListDirectory(path, showHidden)
+	},
+	ReadFile: func(path string, encoding string) (*contracts.FileContent, error) {
+		if pathref.IsRegistry(path) {
+			vfs, err := getElevatedVFS()
+			if err != nil {
+				return nil, err
+			}
+			return internalruntime.VFSReadFile(vfs, path, encoding)
+		}
+		return rawFilesystemOps.ReadFile(path, encoding)
+	},
+	WriteFile: func(path string, content string, encoding string) (*contracts.OperationResult, error) {
+		if pathref.IsRegistry(path) {
+			vfs, err := getElevatedVFS()
+			if err != nil {
+				return nil, err
+			}
+			return internalruntime.VFSWriteFile(vfs, path, content, encoding)
+		}
+		return rawFilesystemOps.WriteFile(path, content, encoding)
+	},
+	DeleteFile: func(path string, recursive bool, useTrash *bool) (*contracts.OperationResult, error) {
+		if pathref.IsRegistry(path) {
+			vfs, err := getElevatedVFS()
+			if err != nil {
+				return nil, err
+			}
+			return internalruntime.VFSRemove(vfs, path)
+		}
+		return rawFilesystemOps.DeleteFile(path, recursive, useTrash)
+	},
+	CreateDirectory: func(path string, recursive bool) (*contracts.OperationResult, error) {
+		if pathref.IsRegistry(path) {
+			vfs, err := getElevatedVFS()
+			if err != nil {
+				return nil, err
+			}
+			return internalruntime.VFSMkdir(vfs, path)
+		}
+		return rawFilesystemOps.CreateDirectory(path, recursive)
+	},
 	MoveFile:        rawFilesystemOps.MoveFile,
 	CopyFile:        rawFilesystemOps.CopyFile,
 })

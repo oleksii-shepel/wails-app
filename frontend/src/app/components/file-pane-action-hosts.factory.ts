@@ -110,6 +110,7 @@ export class FilePaneActionHostsFactory {
       get archivePendingMoveDestDir() { return source.archivePendingMoveDestDir; },
       set archivePendingMoveDestDir(value: string) { source.archivePendingMoveDestDir = value; },
       archiveService: source.archiveService,
+      directorySource: source.directorySource,
       workspaceService: source.workspaceService,
       confirmDialog: source.confirmDialog,
       withParentEntry: (raw: FileInfo[], inArchive: boolean, fsPath: string) => source.withParentEntry(raw, inArchive, fsPath),

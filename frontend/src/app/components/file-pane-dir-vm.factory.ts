@@ -7,6 +7,7 @@ export interface FilePaneDirVmSource {
   get paneId(): 'left' | 'right';
   get pathReady(): boolean;
   get currentPath(): string;
+  get loading(): boolean;
   get showHidden(): boolean;
   get paneActive(): boolean;
   get filteredEntries(): FileInfo[];
@@ -50,6 +51,7 @@ export class FilePaneDirVmFactory {
       get paneId() { return source.paneId; }
       get pathReady() { return source.pathReady; }
       get currentPath() { return source.currentPath; }
+      get loading() { return source.loading; }
       get showHidden() { return source.showHidden; }
       get paneActive() { return source.paneActive; }
       get entries() { return source.filteredEntries; }

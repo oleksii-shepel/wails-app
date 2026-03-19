@@ -1,4 +1,4 @@
-import { normalizePath } from './address-bar.utils';
+import { pathIdentityKey } from './address-bar.utils';
 import type { TabInfo } from '../shared/protocol-enhanced';
 
 export interface FilePaneFocusHost {
@@ -39,9 +39,9 @@ export class FilePaneFocusController {
   focusCursorPath(host: FilePaneFocusHost, path: string): void {
     if (!path) return;
 
-    const normalized = normalizePath(path);
+    const normalized = pathIdentityKey(path);
     const selectable = host.getSelectableEntries();
-    const index = selectable.findIndex(entry => normalizePath(entry.path) === normalized);
+    const index = selectable.findIndex(entry => pathIdentityKey(entry.path) === normalized);
     if (index < 0) return;
 
     host.selectionCursorPath = selectable[index].path;

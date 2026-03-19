@@ -463,7 +463,7 @@ func (s *Service) SearchFiles(path, pattern string, recursive bool) (*contracts.
 		}
 
 		name := d.Name()
-		matched, err := filepath.Match(pattern, name)
+		matched, err := pathref.MatchSearchPattern(pattern, name)
 		if err != nil {
 			return err
 		}

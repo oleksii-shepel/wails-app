@@ -15,7 +15,7 @@ import { parsePathWithArchives } from './address-bar.utils';
 import { EventsOn } from 'wailsjs/runtime';
 
 import { PathSegment, SiblingEntry, PinnedPath, ContextMenuState, PINNED_KEY, CTX_MENU_CLOSED } from './address-bar.types';
-import { isWindowsPath, normalizePath, shortenPath } from './address-bar.utils';
+import { isWindowsPath, normalizePath, pathIdentityKey, samePath, shortenPath } from './address-bar.utils';
 import { AddressBarEditComponent } from './address-bar-edit.component';
 import { AddressBarDriveDropdownComponent } from './address-bar-drive-dropdown.component';
 import { AddressBarSiblingDropdownComponent } from './address-bar-sibling-dropdown.component';
@@ -191,6 +191,17 @@ import { DropdownContainerComponent } from './dropdown-container.component';
       </div>
     </div>
 
+    <div
+      class="ab-status"
+      *ngIf="loading || showLoadComplete"
+      [attr.aria-label]="loading ? 'Loading' : 'Load complete'"
+      [attr.title]="loading ? 'Loading' : 'Load complete'">
+      <span *ngIf="loading" class="ab-loading-spinner"></span>
+      <svg *ngIf="!loading && showLoadComplete" class="ab-status-check" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <path d="M3 8.5 L6.2 11.5 L13 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+
     <!-- Right cluster: Up / Refresh / Copy -->
     <div class="ab-cluster ab-cluster--right">
       <button class="ab-btn" (click)="goUp()" title="Parent directory" aria-label="Go up">
@@ -322,7 +333,7 @@ import { DropdownContainerComponent } from './dropdown-container.component';
     .ab-bar {
       /* use grid so the middle (breadcrumbs) reliably fills remaining space */
       display: grid;
-      grid-template-columns: auto 1fr auto;
+      grid-template-columns: auto 1fr auto auto;
       align-items: center;
       /* reduced height */
       height: 32px;
@@ -356,6 +367,46 @@ import { DropdownContainerComponent } from './dropdown-container.component';
       padding-left: var(--vsc-padding-sm);
       border-left: 1px solid var(--vsc-border-subtle);
       margin-left: var(--vsc-padding-sm);
+    }
+
+    .ab-status {
+      width: 20px;
+      height: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      color: var(--vsc-accent-blue);
+      margin-left: var(--vsc-padding-xs);
+      margin-right: calc(var(--vsc-padding-xs) * -1);
+      transition: color var(--vsc-transition-fast), opacity var(--vsc-transition-fast);
+    }
+
+    .ab-loading-spinner {
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      border: 2px solid color-mix(in srgb, var(--vsc-accent-blue) 22%, transparent);
+      border-top-color: var(--vsc-accent-blue);
+      box-sizing: border-box;
+      animation: ab-spin 0.9s linear infinite;
+    }
+
+    .ab-status-check {
+      width: 12px;
+      height: 12px;
+      color: var(--vsc-success, #4caf50);
+      animation: ab-status-pop 160ms ease-out;
+    }
+
+    @keyframes ab-spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    @keyframes ab-status-pop {
+      from { transform: scale(0.82); opacity: 0.45; }
+      to { transform: scale(1); opacity: 1; }
     }
 
     .ab-btn {
@@ -634,6 +685,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   @ViewChild('crumbsEl') crumbsEl?: ElementRef<HTMLDivElement>;
 
   @Input() initialPath = '/';
+  @Input() loading = false;
   @Input() placeholder = 'Enter path…';
   @Input() paneId = 'left';
   @Input() tabId = '';
@@ -673,7 +725,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
 
   // ── Pinned paths ─────────────────────────────────────────────────────────
   pinnedPaths: PinnedPath[] = [];
-  get isPinned(): boolean { return this.pinnedPaths.some(p => p.path === this.currentPath); }
+  get isPinned(): boolean { return this.pinnedPaths.some(p => samePath(p.path, this.currentPath)); }
 
   // ── Edit mode ────────────────────────────────────────────────────────────
   editMode  = false;
@@ -685,9 +737,11 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   // ── Misc ─────────────────────────────────────────────────────────────────
   justCopied = false;
   compact    = false;
+  showLoadComplete = false;
 
   // ── Timers ───────────────────────────────────────────────────────────────
   private copiedTimer: ReturnType<typeof setTimeout> | undefined;
+  private loadCompleteTimer: ReturnType<typeof setTimeout> | undefined;
 
   // ── Scroll ───────────────────────────────────────────────────────────────
   private scrollAnimFrame: number | null = null;
@@ -718,6 +772,16 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   ngAfterViewChecked(): void {}
 
   ngOnChanges(changes: SimpleChanges): void {
+    if (changes['loading'] && !changes['loading'].firstChange) {
+      const previous = !!changes['loading'].previousValue;
+      const current = !!changes['loading'].currentValue;
+      if (previous && !current) {
+        this.showTransientLoadComplete();
+      } else if (current) {
+        this.clearTransientLoadComplete();
+      }
+    }
+
     if (changes['tabId'] && !changes['tabId'].firstChange) {
       this.closeAll();
       if (this.editMode) {
@@ -732,7 +796,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
 
     if (changes['initialPath'] && !changes['initialPath'].firstChange) {
       const next = normalizePath(changes['initialPath'].currentValue);
-      if (next !== this.currentPath) {
+      if (!samePath(next, this.currentPath)) {
         this.currentPath = next;
         this.rebuildSegments();
       }
@@ -741,10 +805,33 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
 
   ngOnDestroy(): void {
     clearTimeout(this.copiedTimer);
+    this.clearTransientLoadComplete();
     if (this.scrollAnimFrame !== null) cancelAnimationFrame(this.scrollAnimFrame);
     const el = this.crumbsEl?.nativeElement;
     if (el && this.wheelListener) el.removeEventListener('wheel', this.wheelListener);
     this.closeSiblingStream();
+  }
+
+  private showTransientLoadComplete(): void {
+    this.clearTransientLoadComplete();
+    this.showLoadComplete = true;
+    this.cdr.markForCheck();
+    this.loadCompleteTimer = setTimeout(() => {
+      this.showLoadComplete = false;
+      this.loadCompleteTimer = undefined;
+      this.cdr.markForCheck();
+    }, 900);
+  }
+
+  private clearTransientLoadComplete(): void {
+    if (this.loadCompleteTimer) {
+      clearTimeout(this.loadCompleteTimer);
+      this.loadCompleteTimer = undefined;
+    }
+    if (this.showLoadComplete) {
+      this.showLoadComplete = false;
+      this.cdr.markForCheck();
+    }
   }
 
   // ── Segments ──────────────────────────────────────────────────────────────
@@ -899,7 +986,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
       target = parts.length >= 2 ? `//${parts[0]}/${parts[1]}` : normalized;
     }
 
-    if (target && target !== this.currentPath) this.navigateTo(target);
+    if (target && !samePath(target, this.currentPath)) this.navigateTo(target);
   }
 
   private async pathExists(path: string): Promise<boolean> {
@@ -1036,7 +1123,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
           .map((entry) => ({
             name: entry.name,
             path: entry.path,
-            isCurrent: entry.path === activeChildPath,
+            isCurrent: samePath(entry.path, activeChildPath),
           }))
           .sort((a, b) => a.name.localeCompare(b.name));
       } catch {
@@ -1066,7 +1153,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
       if (ev?.streamId !== streamId) return;
       for (const entry of (ev.entries as FileInfo[] || [])) {
         if (entry.type !== FileType.DIRECTORY) continue;
-        this.siblings.push({ name: entry.name, path: entry.path, isCurrent: entry.path === activeChildPath });
+        this.siblings.push({ name: entry.name, path: entry.path, isCurrent: samePath(entry.path, activeChildPath) });
       }
       this.siblings = this.siblings.slice().sort((a, b) => a.name.localeCompare(b.name));
       if (this.sibLoading) { this.sibLoading = false; this.sibOpen = true; }
@@ -1221,12 +1308,12 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
 
   removePin(p: PinnedPath, e?: MouseEvent): void {
     e?.stopPropagation();
-    this.pinnedPaths = this.pinnedPaths.filter(x => x.path !== p.path);
+    this.pinnedPaths = this.pinnedPaths.filter(x => !samePath(x.path, p.path));
     this.savePins();
   }
 
   isSegmentPinned(seg: PathSegment | null): boolean {
-    return !!seg && this.pinnedPaths.some(p => p.path === seg.fullPath);
+    return !!seg && this.pinnedPaths.some(p => samePath(p.path, seg.fullPath));
   }
 
   // ── Edit mode ─────────────────────────────────────────────────────────────
@@ -1247,7 +1334,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   onEditCommit(path: string): void {
     this.exitEditMode(false);
     const np = normalizePath(path);
-    if (np && np !== this.currentPath) this.navigateTo(np);
+    if (np && !samePath(np, this.currentPath)) this.navigateTo(np);
   }
 
   // ── Context menu ──────────────────────────────────────────────────────────
@@ -1267,9 +1354,9 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   ctxPinPath(): void {
     const seg = this.ctxMenu.segment;
     if (!seg) { this.closeCtx(); return; }
-    const already = this.pinnedPaths.some(p => p.path === seg.fullPath);
+    const already = this.pinnedPaths.some(p => samePath(p.path, seg.fullPath));
     if (already) {
-      this.pinnedPaths = this.pinnedPaths.filter(p => p.path !== seg.fullPath);
+      this.pinnedPaths = this.pinnedPaths.filter(p => !samePath(p.path, seg.fullPath));
     } else {
       this.pinnedPaths.push({ path: seg.fullPath, label: seg.label, icon: '📁', addedAt: Date.now() });
     }
@@ -1285,7 +1372,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     this.navigateUpClicked.emit();
     if (!this.directorySource.isPathInsideArchive(this.currentPath)) {
       const p = this.directorySource.getParentPath(this.currentPath);
-      if (p !== this.currentPath) this.navigateTo(p);
+      if (!samePath(p, this.currentPath)) this.navigateTo(p);
     }
   }
 
@@ -1301,7 +1388,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   navigateTo(p: string): void {
     const np = normalizePath(p);
     this.closeAll();
-    if (np === this.currentPath) return;
+    if (samePath(np, this.currentPath)) return;
 
     this.currentPath = np;
     this.rebuildSegments();

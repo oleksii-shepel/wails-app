@@ -1,6 +1,6 @@
 import { EventsOff, EventsOn } from 'wailsjs/runtime';
 import type { FileInfo } from '../shared/protocol';
-import { normalizePath } from './address-bar.utils';
+import { normalizePath, pathIdentityKey, samePath } from './address-bar.utils';
 import type { FileViewDirectorySource } from '../services/directory-source.service';
 import type { DirListStreamController, DirStreamBatchEvent, DirStreamDoneEvent, DirStreamErrorEvent, DirStreamMetaEvent } from '../surfaces/dir/dir-list-stream.controller';
 import type { WorkspaceService } from '../services/workspace.service';
@@ -138,7 +138,7 @@ export class FilePaneDirectoryController {
 
     if (this.pendingFocusPath) {
       const focusNorm = normalizePath(this.pendingFocusPath);
-      const target = host.filteredEntries.find(entry => normalizePath(entry.path) === focusNorm);
+      const target = host.filteredEntries.find(entry => pathIdentityKey(entry.path) === pathIdentityKey(focusNorm));
       if (target) {
         host.selectionCursorPath = target.path;
         host.selectionAnchorPath = target.path;
@@ -167,7 +167,7 @@ export class FilePaneDirectoryController {
 
     const current = (host.currentPath || '').replace(/\\/g, '/');
     const changed = (event.path || '').replace(/\\/g, '/');
-    if (!current || !changed || current !== changed) return;
+    if (!current || !changed || !samePath(current, changed)) return;
 
     if (this.fsChangeDebounceTimer) {
       clearTimeout(this.fsChangeDebounceTimer);
@@ -216,7 +216,7 @@ export class FilePaneDirectoryController {
 
     if (this.pendingFocusPath) {
       const focusNorm = normalizePath(this.pendingFocusPath);
-      const target = host.filteredEntries.find(entry => normalizePath(entry.path) === focusNorm);
+      const target = host.filteredEntries.find(entry => pathIdentityKey(entry.path) === pathIdentityKey(focusNorm));
       if (target) {
         host.selectionCursorPath = target.path;
         host.selectionAnchorPath = target.path;

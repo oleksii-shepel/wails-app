@@ -4,6 +4,7 @@ import type { FileViewDirectorySource } from '../services/directory-source.servi
 import type { WorkspaceService } from '../services/workspace.service';
 import type { DirSurfaceSession } from '../surfaces/dir/dir-surface-session';
 import type { TabInfo, WorkspaceConfig } from '../shared/protocol-enhanced';
+import { samePath } from './address-bar.utils';
 
 declare const window: any;
 
@@ -123,7 +124,7 @@ export class FilePaneNavigationController {
     const session = host.getDirSession();
     const cachedOk =
       !host.directorySource.isPathInsideArchive(restoredPath) &&
-      session.currentPath === restoredPath &&
+      samePath(session.currentPath, restoredPath) &&
       session.showHiddenLoaded === host.showHidden &&
       (session.entries?.length ?? 0) > 0;
 
@@ -139,7 +140,7 @@ export class FilePaneNavigationController {
   }
 
   onPathChange(host: FilePaneNavigationHost, path: string): void {
-    if (!path || path === host.currentPath) return;
+    if (!path || samePath(path, host.currentPath)) return;
 
     host.currentPath = path;
     host.exitArchive();

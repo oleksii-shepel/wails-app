@@ -135,6 +135,9 @@ export namespace contracts {
 	    registryKind?: string;
 	    registryValueType?: string;
 	    registryPreview?: string;
+	    searchBasePath?: string;
+	    searchPattern?: string;
+	    searchParentPath?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new FileInfo(source);
@@ -157,6 +160,9 @@ export namespace contracts {
 	        this.registryKind = source["registryKind"];
 	        this.registryValueType = source["registryValueType"];
 	        this.registryPreview = source["registryPreview"];
+	        this.searchBasePath = source["searchBasePath"];
+	        this.searchPattern = source["searchPattern"];
+	        this.searchParentPath = source["searchParentPath"];
 	    }
 	}
 	export class ArchiveListing {

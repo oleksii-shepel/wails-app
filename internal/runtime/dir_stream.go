@@ -5,12 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
 
 	contracts "wails-app/internal/contracts"
+	"wails-app/internal/pathref"
 	internalplatform "wails-app/internal/platform"
 )
 
@@ -146,7 +148,12 @@ func (s *DirStreamService) run(ctx context.Context, streamID, paneID, path strin
 		ShowHidden: showHidden,
 	})
 
-	err := s.scanDirectoryStream(ctx, path, showHidden, dirStreamBatchSize, func(batch []contracts.FileInfo, batchSize int64) {
+	scan := s.scanDirectoryStream
+	if pathref.IsSearch(path) {
+		scan = s.scanSearchStream
+	}
+
+	err := scan(ctx, path, showHidden, dirStreamBatchSize, func(batch []contracts.FileInfo, batchSize int64) {
 		entryCount += len(batch)
 		totalSize += batchSize
 		s.Emit("fs:listStream:batch", dirStreamBatchEvent{
@@ -253,4 +260,97 @@ func (s *DirStreamService) scanDirectoryStream(
 			return readErr
 		}
 	}
+}
+
+func (s *DirStreamService) scanSearchStream(
+	ctx context.Context,
+	path string,
+	showHidden bool,
+	chunkSize int,
+	onBatch func(batch []contracts.FileInfo, batchSize int64),
+) error {
+	if path == pathref.SearchScheme {
+		return nil
+	}
+
+	query, ok := pathref.ParseSearch(path)
+	if !ok {
+		return fmt.Errorf("invalid search alias path")
+	}
+
+	basePath := internalplatform.ToSlash(query.BasePath)
+	batch := make([]contracts.FileInfo, 0, chunkSize)
+	batchSize := int64(0)
+	flush := func() {
+		if len(batch) == 0 {
+			return
+		}
+		out := append([]contracts.FileInfo(nil), batch...)
+		onBatch(out, batchSize)
+		batch = batch[:0]
+		batchSize = 0
+	}
+
+	err := filepath.WalkDir(query.BasePath, func(currentPath string, entry fs.DirEntry, walkErr error) error {
+		select {
+		case <-ctx.Done():
+			return context.Canceled
+		default:
+		}
+
+		if walkErr != nil {
+			if errors.Is(walkErr, fs.ErrPermission) || errors.Is(walkErr, os.ErrPermission) {
+				if entry != nil && entry.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			return nil
+		}
+
+		if currentPath == query.BasePath {
+			return nil
+		}
+
+		name := entry.Name()
+		fullPath := internalplatform.ToSlash(currentPath)
+		hidden := s.isHidden != nil && s.isHidden(name, fullPath)
+		if !showHidden && hidden {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		matched, matchErr := pathref.MatchSearchPattern(query.Pattern, name)
+		if matchErr != nil {
+			return matchErr
+		}
+		if matched {
+			info, infoErr := entry.Info()
+			if infoErr == nil {
+				fi := s.buildFile(name, fullPath, info, hidden)
+				fi.SearchBasePath = basePath
+				fi.SearchPattern = query.Pattern
+				fi.SearchParentPath = internalplatform.ToSlash(filepath.Dir(fullPath))
+				batch = append(batch, fi)
+				batchSize += fi.Size
+				if len(batch) >= chunkSize {
+					flush()
+				}
+			}
+		}
+
+		if !query.Recursive && entry.IsDir() {
+			return filepath.SkipDir
+		}
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	flush()
+	return nil
 }

@@ -1,3 +1,5 @@
+import { samePath } from './address-bar.utils';
+
 import type { ArchiveFrame } from '../services/archive.service';
 import type { WorkspaceService } from '../services/workspace.service';
 import type { TabInfo, WorkspaceConfig } from '../shared/protocol-enhanced';
@@ -42,7 +44,7 @@ export class FilePaneTabsController {
       return;
     }
 
-    const activeChanged = nextActiveId !== host.lastSeenActiveTabId || nextActivePath !== host.lastSeenActiveTabPath;
+    const activeChanged = nextActiveId !== host.lastSeenActiveTabId || !samePath(nextActivePath, host.lastSeenActiveTabPath);
     host.lastSeenActiveTabId = nextActiveId;
     host.lastSeenActiveTabPath = nextActivePath;
 
@@ -51,7 +53,7 @@ export class FilePaneTabsController {
       return;
     }
 
-    if (host.currentTabId === nextActiveId && host.currentPath === nextActivePath) {
+    if (host.currentTabId === nextActiveId && samePath(host.currentPath, nextActivePath)) {
       host.tabs = host.workspaceService.getTabs(host.paneId);
       return;
     }

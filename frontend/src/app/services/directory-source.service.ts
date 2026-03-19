@@ -112,7 +112,7 @@ class AliasDirectoryProvider implements DirectoryListingProvider {
   }
 
   supportsStreaming(_path: string): boolean {
-    return false;
+    return /^search:\/\//i.test(_path);
   }
 }
 

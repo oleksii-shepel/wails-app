@@ -179,6 +179,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       get paneId() { return thisRef.paneId; },
       get pathReady() { return thisRef.pathReady; },
       get currentPath() { return thisRef.currentPath; },
+      get loading() { return thisRef.loading; },
       get showHidden() { return thisRef.showHidden; },
       get paneActive() { return thisRef.paneActive; },
       get filteredEntries() { return thisRef.filteredEntries; },

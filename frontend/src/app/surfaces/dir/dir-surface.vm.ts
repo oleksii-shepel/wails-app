@@ -6,6 +6,7 @@ export interface DirSurfaceVm {
   paneId: 'left' | 'right';
   pathReady: boolean;
   currentPath: string;
+  loading: boolean;
   showHidden: boolean;
   paneActive: boolean;
 

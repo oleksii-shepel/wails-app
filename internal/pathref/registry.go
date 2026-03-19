@@ -1,8 +1,9 @@
 package pathref
 
 import (
-	"encoding/base64"
-	"encoding/json"
+	"net/url"
+	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -108,15 +109,26 @@ func IsSearch(path string) bool {
 }
 
 func BuildSearch(basePath, pattern string, recursive bool) (string, error) {
-	payload, err := json.Marshal(SearchQuery{
-		BasePath:  Normalize(basePath),
-		Pattern:   pattern,
-		Recursive: recursive,
-	})
-	if err != nil {
-		return "", err
+	basePath = Normalize(basePath)
+	if basePath == "" || pattern == "" {
+		return "", nil
 	}
-	return SearchScheme + base64.RawURLEncoding.EncodeToString(payload), nil
+	parts := []string{
+		"path=" + readableSearchValue(basePath),
+		"pattern=" + readableSearchValue(pattern),
+		"recursive=" + strconv.FormatBool(recursive),
+	}
+	return SearchScheme + "?" + strings.Join(parts, "&"), nil
+}
+
+func readableSearchValue(value string) string {
+	escaped := url.QueryEscape(value)
+	replacer := strings.NewReplacer(
+		"%2F", "/",
+		"%3A", ":",
+		"%2A", "*",
+	)
+	return replacer.Replace(escaped)
 }
 
 func ParseSearch(path string) (SearchQuery, bool) {
@@ -124,20 +136,28 @@ func ParseSearch(path string) (SearchQuery, bool) {
 	if !IsSearch(normalized) || normalized == SearchScheme {
 		return SearchQuery{}, false
 	}
-	token := strings.TrimPrefix(normalized, SearchScheme)
-	payload, err := base64.RawURLEncoding.DecodeString(token)
+	raw := strings.TrimPrefix(normalized, SearchScheme)
+	if !strings.HasPrefix(raw, "?") {
+		return SearchQuery{}, false
+	}
+	values, err := url.ParseQuery(strings.TrimPrefix(raw, "?"))
 	if err != nil {
 		return SearchQuery{}, false
 	}
-	var query SearchQuery
-	if err := json.Unmarshal(payload, &query); err != nil {
-		return SearchQuery{}, false
+	query := SearchQuery{
+		BasePath:  Normalize(values.Get("path")),
+		Pattern:   values.Get("pattern"),
+		Recursive: strings.EqualFold(values.Get("recursive"), "true") || values.Get("recursive") == "1",
 	}
 	query.BasePath = Normalize(query.BasePath)
 	if query.BasePath == "" || query.Pattern == "" {
 		return SearchQuery{}, false
 	}
 	return query, true
+}
+
+func MatchSearchPattern(pattern, name string) (bool, error) {
+	return filepath.Match(strings.ToLower(pattern), strings.ToLower(name))
 }
 
 func ToVFS(path string) string {

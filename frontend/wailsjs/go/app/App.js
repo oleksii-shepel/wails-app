@@ -54,6 +54,10 @@ export function Breadcrumbs(arg1) {
   return window['go']['app']['App']['Breadcrumbs'](arg1);
 }
 
+export function BuildSearchAlias(arg1, arg2, arg3) {
+  return window['go']['app']['App']['BuildSearchAlias'](arg1, arg2, arg3);
+}
+
 export function CancelDirStreams() {
   return window['go']['app']['App']['CancelDirStreams']();
 }

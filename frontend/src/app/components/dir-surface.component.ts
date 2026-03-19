@@ -22,6 +22,7 @@ import { DirSurfaceVm } from '../surfaces/dir/dir-surface.vm';
     <app-address-bar
       *ngIf="vm.pathReady"
       [initialPath]="vm.currentPath"
+      [loading]="vm.loading"
       [paneId]="vm.paneId"
       (pathChange)="vm.onPathChange($event)"
       (archiveSegmentClick)="vm.onArchiveSegmentClick($event)"

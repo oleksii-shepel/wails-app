@@ -8,6 +8,12 @@ const ALIAS_SCHEMES = ['search://', 'memory://', 'smb://', 'ftp://', 'sftp://', 
 
 type AliasScheme = typeof ALIAS_SCHEMES[number];
 
+export interface SearchAliasQuery {
+  path: string;
+  pattern: string;
+  recursive: boolean;
+}
+
 function aliasSchemeFor(p: string): AliasScheme | null {
   const normalized = (p || '').trim().replace(/\\/g, '/').toLowerCase();
   for (const scheme of ALIAS_SCHEMES) {
@@ -18,8 +24,69 @@ function aliasSchemeFor(p: string): AliasScheme | null {
 
 function normalizeAliasReference(p: string, scheme: AliasScheme): string {
   const normalized = (p || '').trim().replace(/\\/g, '/');
+  if (scheme === 'search://' && normalized.slice(scheme.length).startsWith('?')) {
+    return normalizeSearchAliasReference(normalized);
+  }
   const rest = normalized.slice(scheme.length).replace(/^\/+/, '').replace(/\/+/g, '/');
   return rest ? `${scheme}${rest}` : scheme;
+}
+
+function normalizeSearchAliasReference(p: string): string {
+  const normalized = (p || '').trim().replace(/\\/g, '/');
+  const raw = normalized.slice('search://'.length);
+  if (!raw || raw === '?') return 'search://';
+  if (!raw.startsWith('?')) return normalized;
+
+  const params = new URLSearchParams(raw.slice(1));
+  const path = normalizePath(params.get('path') || '/');
+  const pattern = (params.get('pattern') || '').trim();
+  const recursiveRaw = (params.get('recursive') || '').trim().toLowerCase();
+  const recursive = recursiveRaw === '' || recursiveRaw === '1' || recursiveRaw === 'true';
+
+  if (!pattern) {
+    return 'search://';
+  }
+
+  const next = new URLSearchParams();
+  void next;
+  return buildReadableSearchAlias(path, pattern, recursive);
+}
+
+function buildReadableSearchAlias(path: string, pattern: string, recursive: boolean): string {
+  const parts = [
+    `path=${readableSearchValue(path)}`,
+    `pattern=${readableSearchValue(pattern)}`,
+    `recursive=${recursive ? 'true' : 'false'}`,
+  ];
+  return `search://?${parts.join('&')}`;
+}
+
+function readableSearchValue(value: string): string {
+  return encodeURIComponent(value)
+    .replace(/%2F/gi, '/')
+    .replace(/%3A/gi, ':')
+    .replace(/%2A/gi, '*');
+}
+
+export function parseSearchAliasQuery(p: string): SearchAliasQuery | null {
+  const normalized = normalizePath(p);
+  if (!normalized.toLowerCase().startsWith('search://?')) {
+    return null;
+  }
+
+  const params = new URLSearchParams(normalized.slice('search://?'.length));
+  const path = params.get('path');
+  const pattern = params.get('pattern');
+  if (!path || !pattern) {
+    return null;
+  }
+
+  const recursiveRaw = (params.get('recursive') || '').trim().toLowerCase();
+  return {
+    path: normalizePath(path),
+    pattern,
+    recursive: recursiveRaw === '' || recursiveRaw === '1' || recursiveRaw === 'true',
+  };
 }
 
 export function isAliasPath(p: string): boolean {
@@ -90,8 +157,37 @@ export function normalizePath(p: string): string {
   return n || '/';
 }
 
+export function pathIdentityKey(p: string): string {
+  const normalized = normalizePath(p);
+  const searchQuery = parseSearchAliasQuery(normalized);
+  if (searchQuery) {
+    return buildReadableSearchAlias(pathIdentityKey(searchQuery.path), searchQuery.pattern, searchQuery.recursive);
+  }
+  if (isRegistryReference(normalized)) {
+    return normalized.toLowerCase();
+  }
+  if (/^[A-Za-z]:/.test(normalized) || normalized.startsWith('//')) {
+    return normalized.toLowerCase();
+  }
+  return normalized;
+}
+
+export function samePath(left: string | null | undefined, right: string | null | undefined): boolean {
+  if (!left && !right) {
+    return true;
+  }
+  if (!left || !right) {
+    return false;
+  }
+  return pathIdentityKey(left) === pathIdentityKey(right);
+}
+
 export function parentPath(p: string): string {
   const n = normalizePath(p);
+  const searchQuery = parseSearchAliasQuery(n);
+  if (searchQuery) {
+    return searchQuery.path;
+  }
   if (isRegistryReference(n)) {
     if (n === REGISTRY_ROOT) return n;
     const rel = n.slice(REGISTRY_ROOT.length);
@@ -122,6 +218,10 @@ export function parentPath(p: string): string {
 
 export function shortenPath(p: string): string {
   p = normalizePath(p);
+  const searchQuery = parseSearchAliasQuery(p);
+  if (searchQuery) {
+    return `search://${searchQuery.pattern} @ ${shortenPath(searchQuery.path)}`;
+  }
   if (isRegistryReference(p)) {
     const rel = p.slice(REGISTRY_ROOT.length);
     if (!rel) return 'Registry';
@@ -150,6 +250,23 @@ export function shortenPath(p: string): string {
 export function buildSegments(p: string): PathSegment[] {
   p = normalizePath(p);
   if (!p) return [];
+
+  const searchQuery = parseSearchAliasQuery(p);
+  if (searchQuery) {
+    return [
+      {
+        label: 'search://',
+        fullPath: 'search://',
+        isRoot: true,
+        rootLabel: 'search://',
+      },
+      {
+        label: searchQuery.pattern,
+        fullPath: p,
+        isRoot: false,
+      },
+    ];
+  }
 
   if (isRegistryReference(p)) {
     const rel = p.slice(REGISTRY_ROOT.length);

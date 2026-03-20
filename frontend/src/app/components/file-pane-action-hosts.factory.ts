@@ -207,6 +207,7 @@ export class FilePaneActionHostsFactory {
       set currentPath(value: string) { source.currentPath = value; },
       get currentView() { return source.currentView; },
       get entries() { return source.entries; },
+      get selectionCursorPath() { return source.selectionCursorPath; },
       apiService: source.apiService,
       isInArchive: () => source.isInArchive(),
       exitArchive: () => source.exitArchive(),

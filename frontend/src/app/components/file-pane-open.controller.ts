@@ -11,6 +11,7 @@ export interface FilePaneOpenHost {
   currentView: ViewLayout;
   entries: FileInfo[];
   apiService: ApiService;
+  selectionCursorPath: string | null;
   isInArchive(): boolean;
   exitArchive(): void;
   clearArchiveState(): void;

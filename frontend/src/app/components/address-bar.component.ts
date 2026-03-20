@@ -17,7 +17,7 @@ import { EventsOn } from 'wailsjs/runtime';
 import { PathSegment, SiblingEntry, PinnedPath, ContextMenuState, PINNED_KEY, CTX_MENU_CLOSED } from './address-bar.types';
 import { buildSegments, isWindowsPath, normalizePath, pathIdentityKey, samePath, shortenPath } from './address-bar.utils';
 import { AddressBarEditComponent } from './address-bar-edit.component';
-import { AddressBarDriveDropdownComponent } from './address-bar-drive-dropdown.component';
+import { AddressBarSchemeDropdownComponent } from './address-bar-scheme-dropdown.component';
 import { AddressBarSiblingDropdownComponent } from './address-bar-sibling-dropdown.component';
 import { AddressBarQuickAccessComponent } from './address-bar-quick-access.component';
 import { DropdownContainerComponent } from './dropdown-container.component';
@@ -31,7 +31,7 @@ import { DropdownContainerComponent } from './dropdown-container.component';
     DropdownTriggerDirective,
     DropdownMenuDirective,
     AddressBarSiblingDropdownComponent,
-    AddressBarDriveDropdownComponent,
+    AddressBarSchemeDropdownComponent,
     AddressBarEditComponent,
     AddressBarQuickAccessComponent,
   ],
@@ -86,28 +86,27 @@ import { DropdownContainerComponent } from './dropdown-container.component';
 
     <!-- Breadcrumb trail -->
     <div class="ab-crumbs" (click)="onCrumbsClick($event)">
-      <!-- Drive letter stays fixed, outside the scroll -->
-      <ng-container *ngIf="isWin && segments.length > 0">
+      <!-- Scheme root stays fixed, outside the scroll -->
+      <ng-container *ngIf="(isWin || isSchemeRoot) && segments.length > 0">
         <span
-          class="ab-seg ab-drive-letter"
+          class="ab-seg ab-scheme"
           [class.ab-seg--last]="segments.length === 1"
-          [class.ab-drive-letter--synthetic]="isCurrentRootSynthetic()"
-          [class.ab-drive-letter--open]="showDriveMenu"
-          (click)="onDriveLetterClick(segments[0], segments.length === 1, $event)"
+          [class.ab-scheme--synthetic]="isSchemeRoot || isCurrentRootSynthetic()"
+          [class.ab-scheme--open]="showSchemeMenu"
+          (click)="onSchemeClick(segments[0], segments.length === 1, $event)"
           (contextmenu)="onSegRightClick(segments[0], 0, $event)"
-          title="Switch drives"
+          title="Switch schemes"
         >
-          <span *ngIf="currentDriveButtonIcon() as icon" class="ab-drive-letter-icon" aria-hidden="true">{{ icon }}</span>
-          <span class="ab-drive-letter-text">{{ currentDriveButtonLabel() }}</span>
+          <span class="ab-scheme-text">{{ currentSchemeLabel() }}</span>
         </span>
 
-        <div class="ab-drive-chevron-wrap" *ngIf="segments.length > 1">
+        <div class="ab-scheme-chevron-wrap" *ngIf="segments.length > 1">
           <button
-            class="ab-chev ab-drive-chevron"
+            class="ab-chev ab-scheme-chevron"
             [class.ab-chev--open]="chevIdx === 0"
             (click)="toggleChev(0, segments[0], $event)"
             [title]="'Show contents of ' + segments[0].fullPath"
-            aria-label="Show drive contents"
+            aria-label="Show root contents"
           ><svg viewBox="0 0 16 16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="2"/></svg></button>
         </div>
       </ng-container>
@@ -115,8 +114,8 @@ import { DropdownContainerComponent } from './dropdown-container.component';
       <!-- Everything else scrolls -->
       <div class="ab-crumbs-inner" #crumbsEl>
         <ng-container *ngFor="let seg of segments; let i = index; let last = last">
-          <!-- skip index 0 on Windows (drive letter rendered above) -->
-          <ng-container *ngIf="!isWin || i > 0">
+          <!-- skip index 0 on Windows or scheme roots (rendered above as fixed badge) -->
+          <ng-container *ngIf="(!isWin && !isSchemeRoot) || i > 0">
 
             <!-- 
               ARCHIVE FILE (can be both root AND inner)
@@ -257,19 +256,19 @@ import { DropdownContainerComponent } from './dropdown-container.component';
     />
   </app-dropdown-container>
 
-  <!-- ── DRIVE DROPDOWN ────────────────────────────────────────────────── -->
+  <!-- ── SCHEME DROPDOWN ────────────────────────────────────────────────── -->
   <app-dropdown-container
-    [(isOpen)]="showDriveMenu"
-    [anchorEl]="driveAnchorEl"
-    *ngIf="showDriveMenu"
+    [(isOpen)]="showSchemeMenu"
+    [anchorEl]="schemeAnchorEl"
+    *ngIf="showSchemeMenu"
   >
-    <app-address-bar-drive-dropdown
+    <app-address-bar-scheme-dropdown
       appDropdownMenu
-      [drives]="drives"
-      [loading]="drivesLoading"
+      [schemes]="schemes"
+      [loading]="schemesLoading"
       [currentPath]="currentPath"
-      (driveClick)="switchToDrive($event)"
-      (closeRequested)="showDriveMenu = false"
+      (schemeClick)="switchToScheme($event)"
+      (closeRequested)="showSchemeMenu = false"
     />
   </app-dropdown-container>
 
@@ -470,7 +469,7 @@ import { DropdownContainerComponent } from './dropdown-container.component';
       > * { flex-shrink: 0; }
     }
 
-    .ab-drive-letter {
+    .ab-scheme {
       flex-shrink: 0;
     }
 
@@ -531,8 +530,8 @@ import { DropdownContainerComponent } from './dropdown-container.component';
       }
     }
 
-    .ab-drive-letter {
-      /* Softer drive letter styling: lower opacity and subtler border */
+    .ab-scheme {
+      /* Softer scheme styling: lower opacity and subtler border */
       background: color-mix(in srgb, #007fd4 12%, transparent);
       border: 1px solid rgba(0,127,212,0.25);
       border-radius: 4px;
@@ -542,25 +541,39 @@ import { DropdownContainerComponent } from './dropdown-container.component';
       cursor: pointer; transition: background 0.12s, border-color 0.12s, color 120ms;
       &:hover { background: color-mix(in srgb, #007fd4 20%, transparent); border-color: rgba(0,127,212,0.38); }
       &.ab-seg--last { background: color-mix(in srgb, #007fd4 10%, transparent); cursor: pointer; }
-      &.ab-drive-letter--open { background: color-mix(in srgb, #007fd4 22%, transparent); border-color: rgba(0,127,212,0.45); }
-      &.ab-drive-letter--synthetic {
+      &.ab-scheme--open { background: color-mix(in srgb, #007fd4 22%, transparent); border-color: rgba(0,127,212,0.45); }
+      &.ab-scheme--synthetic {
         gap: 6px;
         font-family: var(--vsc-font-family);
         max-width: 180px;
       }
     }
 
-    .ab-drive-letter-icon {
-      flex: 0 0 auto;
-      font-size: 13px;
-      line-height: 1;
+    .ab-scheme--physical {
+      /* match synthetic look for simple physical schemes like C: */
+      background: color-mix(in srgb, var(--vsc-accent-blue, #007acc) 14%, transparent);
+      border-color: color-mix(in srgb, var(--vsc-accent-blue, #007acc) 32%, transparent);
+      color: color-mix(in srgb, var(--vsc-accent-blue, #007acc) 54%, var(--vsc-foreground-bright, #ffffff));
+
+      &:hover {
+        background: color-mix(in srgb, var(--vsc-accent-blue, #007acc) 22%, transparent);
+        border-color: color-mix(in srgb, var(--vsc-accent-blue, #007acc) 44%, transparent);
+        color: var(--vsc-foreground-bright, #ffffff);
+      }
+
+      &.ab-scheme--open {
+        background: color-mix(in srgb, var(--vsc-accent-blue, #007acc) 26%, transparent);
+        border-color: color-mix(in srgb, var(--vsc-accent-blue, #007acc) 52%, transparent);
+        color: var(--vsc-foreground-bright, #ffffff);
+      }
     }
 
-    .ab-drive-letter-text {
+    .ab-scheme-text {
       min-width: 0;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+      padding-right: 0.05em;
     }
 
 
@@ -601,8 +614,8 @@ import { DropdownContainerComponent } from './dropdown-container.component';
       }
     }
 
-    .ab-drive-chevron-wrap { display: inline-flex; align-items: center; margin-right: var(--vsc-padding-xs); }
-    .ab-drive-chevron {
+    .ab-scheme-chevron-wrap { display: inline-flex; align-items: center; margin-right: var(--vsc-padding-xs); }
+    .ab-scheme-chevron {
       border-radius: 0 var(--vsc-border-radius-sm) var(--vsc-border-radius-sm) 0; margin-left: -2px;
       background: transparent !important;
       &.ab-chev--open { background: transparent !important; color: var(--vsc-foreground-dim); }
@@ -675,8 +688,8 @@ import { DropdownContainerComponent } from './dropdown-container.component';
 
     /* Light theme adjustments */
     :host-context(.vscode-light) {
-      .ab-drive-letter { background: color-mix(in srgb, #0060c0 10%, transparent); border-color: rgba(0,96,192,0.28); color: #0a6fb0;
-        &.ab-drive-letter--open { background: color-mix(in srgb, #0060c0 18%, transparent); border-color: rgba(0,96,192,0.42); }
+      .ab-scheme { background: color-mix(in srgb, #0060c0 10%, transparent); border-color: rgba(0,96,192,0.28); color: #0a6fb0;
+        &.ab-scheme--open { background: color-mix(in srgb, #0060c0 18%, transparent); border-color: rgba(0,96,192,0.42); }
       }
       
       .ab-seg--archive-root {
@@ -721,12 +734,18 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   currentPath = '/';
   segments: PathSegment[] = [];
   get isWin(): boolean { return isWindowsPath(this.currentPath); }
+  /** True when the first segment is a non-Windows scheme root (memory://, ftp://, Registry, etc.) */
+  get isSchemeRoot(): boolean {
+    if (this.isWin || this.segments.length === 0) return false;
+    const seg = this.segments[0];
+    return seg.isRoot === true && seg.label !== '/';
+  }
 
-  // ── Drive switcher ───────────────────────────────────────────────────────
-  drives: DriveInfo[] = [];
-  showDriveMenu = false;
-  driveAnchorEl: HTMLElement | null = null;
-  drivesLoading = false;
+  // ── Scheme switcher ───────────────────────────────────────────────────────
+  schemes: DriveInfo[] = [];
+  showSchemeMenu = false;
+  schemeAnchorEl: HTMLElement | null = null;
+  schemesLoading = false;
 
   // ── Chevron / sibling dropdown ───────────────────────────────────────────
   chevIdx     = -1;
@@ -783,7 +802,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     this.rebuildSegments();
     this.loadPins();
     this.loadSpecialFolders();
-    if (this.isWin) this.loadDrives();
+    if (this.isWin) this.loadschemes();
   }
 
   ngAfterViewInit(): void {
@@ -868,28 +887,43 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     return normalizePath(root || '');
   }
 
-  private findCurrentRootDrive(): DriveInfo | null {
+  private findCurrentRootEntry(): DriveInfo | null {
     const rootPath = this.currentRootPath();
     if (!rootPath) return null;
-    return this.drives.find((drive) => normalizePath(drive.path) === rootPath) ?? null;
+    return this.schemes.find((drive) => normalizePath(drive.path) === rootPath) ?? null;
   }
 
   isCurrentRootSynthetic(): boolean {
-    const drive = this.findCurrentRootDrive();
+    const drive = this.findCurrentRootEntry();
     if (!drive) return false;
     return /^(memory|registry|search|smb|ftp|sftp|webdav)$/.test(drive.driveType);
   }
 
-  currentDriveButtonLabel(): string {
-    const drive = this.findCurrentRootDrive();
+  isCurrentRootPhysical(): boolean {
+    // Draw simple Windows drive letters (e.g. "C:") with blue styling
+    const lbl = this.segments[0]?.label || '';
+    return this.isWin && /^[A-Za-z]:$/.test(lbl);
+  }
+
+  currentSchemeLabel(): string {
+    const drive = this.findCurrentRootEntry();
     if (!drive) {
       return this.segments[0]?.label || '';
     }
-    return this.isCurrentRootSynthetic() ? drive.name : (this.segments[0]?.label || drive.name);
+    // If synthetic scheme root, show scheme name + ':'
+    if (this.isCurrentRootSynthetic()) {
+      // Extract scheme from drive.path
+      const path = drive.path || '';
+      const match = /^([a-z][a-z0-9+.-]*)/i.exec(path);
+      if (match) return match[1].toLowerCase() + '\u2009:';
+      return drive.name;
+    }
+    // For Windows drive, show drive letter (e.g. 'C:')
+    return this.segments[0]?.label || drive.name;
   }
 
-  currentDriveButtonIcon(): string | null {
-    const drive = this.findCurrentRootDrive();
+  currentSchemeIcon(): string | null {
+    const drive = this.findCurrentRootEntry();
     if (!drive || !this.isCurrentRootSynthetic()) return null;
 
     if (drive.driveType === 'memory') return '🧠';
@@ -935,16 +969,15 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     this.navigateTo(seg.fullPath);
   }
 
-  onDriveLetterClick(seg: PathSegment, isLast: boolean, e: MouseEvent): void {
-    // Drive letter always opens the drive switcher — even when at the root
-    // of a drive (isLast=true). Unlike regular segments, there is no useful
-    // "edit the last crumb" behaviour for a drive letter.
+  onSchemeClick(seg: PathSegment, isLast: boolean, e: MouseEvent): void {
+    // Scheme root always opens the scheme switcher — even when at the root.
+    // Unlike regular segments, there is no useful "edit the last crumb" behaviour.
     e.stopPropagation();
-    if (this.showDriveMenu) { this.showDriveMenu = false; return; }
+    if (this.showSchemeMenu) { this.showSchemeMenu = false; return; }
     this.closeAll();
-    this.driveAnchorEl = e.currentTarget as HTMLElement;
-    this.showDriveMenu = true;
-    if (this.drives.length === 0 && !this.drivesLoading) this.loadDrives();
+    this.schemeAnchorEl = e.currentTarget as HTMLElement;
+    this.showSchemeMenu = true;
+    if (this.schemes.length === 0 && !this.schemesLoading) this.loadschemes();
   }
 
   onCrumbsClick(e: MouseEvent): void {
@@ -1027,10 +1060,10 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     this.animateScrollTo(el, target);
   }
 
-  // ── Drive handling ────────────────────────────────────────────────────────
+  // ── Scheme handling ────────────────────────────────────────────────────────
 
-  switchToDrive(drive: DriveInfo): void {
-    this.showDriveMenu = false;
+  switchToScheme(drive: DriveInfo): void {
+    this.showSchemeMenu = false;
     const raw = (drive.path || drive.name || '').toString();
     const normalized = normalizePath(raw);
     let target = normalized;
@@ -1058,7 +1091,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     return home ? normalizePath(home) : null;
   }
 
-  private async getCloudDrives(): Promise<DriveInfo[]> {
+  private async getCloudschemes(): Promise<DriveInfo[]> {
     if (!this.specialFolders.length) {
       await this.loadSpecialFolders();
     }
@@ -1095,7 +1128,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
       },
     ];
 
-    const cloudDrives: DriveInfo[] = [];
+    const cloudschemes: DriveInfo[] = [];
     for (const provider of providers) {
       let foundPath: string | null = null;
       for (const candidate of provider.paths.map(normalizePath)) {
@@ -1109,7 +1142,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
         continue;
       }
 
-      cloudDrives.push({
+      cloudschemes.push({
         name: provider.name,
         path: foundPath,
         driveType: provider.driveType,
@@ -1119,20 +1152,20 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
       });
     }
 
-    return cloudDrives;
+    return cloudschemes;
   }
 
-  async loadDrives(): Promise<void> {
-    this.drivesLoading = true;
+  async loadschemes(): Promise<void> {
+    this.schemesLoading = true;
     try { 
-      const drivesList = this.isWin ? await this.apiService.getDrives() : { drives: [] };
-      const systemDrives = drivesList?.drives || [];
-      const cloudDrives = await this.getCloudDrives();
-      this.drives = [...systemDrives, ...cloudDrives];
+      const schemesList = this.isWin ? await this.apiService.getDrives() : { drives: [] };
+      const systemschemes = schemesList?.drives || [];
+      const cloudschemes = await this.getCloudschemes();
+      this.schemes = [...systemschemes, ...cloudschemes];
     } catch {
-      this.drives = [];
+      this.schemes = [];
     } finally { 
-      this.drivesLoading = false; 
+      this.schemesLoading = false; 
       this.cdr.detectChanges(); 
     }
   }
@@ -1141,7 +1174,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
 
   async toggleChev(idx: number, seg: PathSegment, e: MouseEvent): Promise<void> {
     e.stopPropagation();
-    this.showDriveMenu = false;
+    this.showSchemeMenu = false;
 
     if (this.chevIdx === idx) {
       this.closeSiblingStream();
@@ -1354,7 +1387,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     this.quickAccessPreferredSection = preferredSectionTitle;
     if (this.showQuickAccess) {
       this.chevIdx = -1;
-      this.showDriveMenu = false;
+      this.showSchemeMenu = false;
     }
   }
 
@@ -1455,7 +1488,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     this.siblings      = [];
     this.showQuickAccess = false;
     this.quickAccessPreferredSection = null;
-    this.showDriveMenu = false;
+    this.showSchemeMenu = false;
     this.closeCtx();
   }
 
@@ -1473,7 +1506,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     if (e.key !== 'Escape') return;
     if (this.ctxMenu.visible)                                                        { this.closeCtx();         e.preventDefault(); }
     else if (this.editMode)                                                          { this.exitEditMode(false); e.preventDefault(); }
-    else if (this.chevIdx >= 0 || this.showQuickAccess || this.showDriveMenu) { this.closeAll();          e.preventDefault(); }
+    else if (this.chevIdx >= 0 || this.showQuickAccess || this.showSchemeMenu) { this.closeAll();          e.preventDefault(); }
   }
 }
 

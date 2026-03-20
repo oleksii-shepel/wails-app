@@ -256,7 +256,7 @@ export function shortenPath(p: string): string {
   }
   if (isRegistryReference(p)) {
     const rel = p.slice(REGISTRY_ROOT.length);
-    if (!rel) return 'Registry';
+    if (!rel) return 'registry:';
     if (rel.length <= 28) return rel;
     const parts = rel.split('/').filter(Boolean);
     if (parts.length <= 2) return rel;
@@ -265,7 +265,7 @@ export function shortenPath(p: string): string {
   const aliasScheme = aliasSchemeFor(p);
   if (aliasScheme) {
     const rel = p.slice(aliasScheme.length);
-    if (!rel) return aliasScheme.slice(0, -3);
+    if (!rel) return aliasScheme.slice(0, -2);
     if (rel.length <= 28) return `${aliasScheme}${rel}`;
     const parts = rel.split('/').filter(Boolean);
     if (parts.length <= 2) return `${aliasScheme}${rel}`;
@@ -291,10 +291,10 @@ export function buildSegments(p: string): PathSegment[] {
   if (searchQuery) {
     return [
       {
-        label: 'search://',
+        label: 'search:',
         fullPath: 'search://',
         isRoot: true,
-        rootLabel: 'search://',
+        rootLabel: 'search:',
       },
       {
         label: searchQuery.pattern,
@@ -308,10 +308,10 @@ export function buildSegments(p: string): PathSegment[] {
     const rel = p.slice(REGISTRY_ROOT.length);
     const parts = rel ? rel.split('/').filter(Boolean) : [];
     const segs: PathSegment[] = [{
-      label: 'Registry',
+      label: 'registry:',
       fullPath: REGISTRY_ROOT,
       isRoot: true,
-      rootLabel: 'Registry',
+      rootLabel: 'registry:',
     }];
 
     parts.forEach((part, i) => {
@@ -328,7 +328,7 @@ export function buildSegments(p: string): PathSegment[] {
   if (aliasScheme) {
     const rel = p.slice(aliasScheme.length);
     const parts = rel ? rel.split('/').filter(Boolean) : [];
-    const rootLabel = aliasScheme.slice(0, -3);
+    const rootLabel = aliasScheme.slice(0, -2);
     const segs: PathSegment[] = [{
       label: rootLabel,
       fullPath: aliasScheme,

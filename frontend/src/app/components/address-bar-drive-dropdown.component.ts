@@ -13,58 +13,58 @@ import { normalizePath as normalizeAddressBarPath } from './address-bar.utils';
   template: `
     <div
       #rootEl
-      class="ab-dropdown ab-drive-drop"
+      class="ab-dropdown ab-scheme-drop"
       role="listbox"
       tabindex="-1"
-      aria-label="Available drives"
+      aria-label="Available schemes"
     >
       <div class="ab-drop-head">
-        <span>Available Drives</span>
-        <span class="ab-badge">{{ drives.length }}</span>
+        <span>Available schemes</span>
+        <span class="ab-badge">{{ schemes.length }}</span>
       </div>
 
       <div class="ab-drop-loading" *ngIf="loading">
-        <span class="ab-spinner"></span>Loading drives…
+        <span class="ab-spinner"></span>Loading schemes…
       </div>
 
-      <div class="ab-drop-empty" *ngIf="!loading && drives.length === 0">
+      <div class="ab-drop-empty" *ngIf="!loading && schemes.length === 0">
         <span class="ab-drop-empty-icon">💽</span>
-        <span>No drives found</span>
+        <span>No schemes found</span>
       </div>
 
-      <div class="ab-drive-grid" *ngIf="!loading && drives.length > 0">
+      <div class="ab-scheme" *ngIf="!loading && schemes.length > 0">
         <div
-          *ngFor="let d of drives"
-          class="ab-drive-grid-item"
+          *ngFor="let d of schemes"
+          class="ab-scheme-item"
           role="option"
-          [attr.tabindex]="selectedIndex >= 0 && drives[selectedIndex].path === d.path ? 0 : -1"
-          [attr.aria-selected]="selectedIndex >= 0 && drives[selectedIndex].path === d.path"
-          [class.ab-drive-grid-item--active]="isActive(d)"
-          [class.ab-drive-grid-item--selected]="selectedIndex >= 0 && drives[selectedIndex].path === d.path"
+          [attr.tabindex]="selectedIndex >= 0 && schemes[selectedIndex].path === d.path ? 0 : -1"
+          [attr.aria-selected]="selectedIndex >= 0 && schemes[selectedIndex].path === d.path"
+          [class.ab-scheme-item--active]="isActive(d)"
+          [class.ab-scheme-item--selected]="selectedIndex >= 0 && schemes[selectedIndex].path === d.path"
           [title]="getDisplayPath(d.path)"
-          (focus)="setSelectedIndex(drives.indexOf(d))"
-          (click)="driveClick.emit(d)"
-          (mouseenter)="setSelectedIndex(drives.indexOf(d))"
+          (focus)="setSelectedIndex(schemes.indexOf(d))"
+          (click)="schemeClick.emit(d)"
+          (mouseenter)="setSelectedIndex(schemes.indexOf(d))"
         >
-          <div class="ab-drive-grid-top">
-            <span class="ab-drive-grid-icon">{{ getIcon(d) }}</span>
-            <span class="ab-drive-grid-letter">{{ d.name }}</span>
-            <span class="ab-drive-grid-label">{{ getDriveLabel(d) }}</span>
-            <svg *ngIf="isSelected(d)" class="ab-drive-grid-dot" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <div class="ab-scheme-top">
+            <span class="ab-scheme-icon">{{ getIcon(d) }}</span>
+            <span class="ab-scheme-letter">{{ getSchemeRootLabel(d) }}</span>
+            <span class="ab-scheme-label">{{ getSchemeTypeLabel(d) }}</span>
+            <svg *ngIf="isSelected(d)" class="ab-scheme-dot" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
               <circle cx="8" cy="8" r="2.5" fill="currentColor" />
             </svg>
           </div>
-          <div class="ab-drive-grid-details">
-            <div class="ab-drive-grid-path" [title]="getDisplayPath(d.path)">
+          <div class="ab-scheme-details">
+            <div class="ab-scheme-path" [title]="getDisplayPath(d.path)">
               {{ getDisplayPath(d.path) }}
             </div>
-            <div class="ab-drive-grid-space" *ngIf="d.totalSpace > 0">
-              <div class="ab-drive-grid-space-labels">
-                <span class="ab-drive-grid-space-free">{{ formatSize(d.freeSpace) }} free</span>
+            <div class="ab-scheme-space" *ngIf="d.totalSpace > 0">
+              <div class="ab-scheme-space-labels">
+                <span class="ab-scheme-space-free">{{ formatSize(d.freeSpace) }} free</span>
                 <span>of {{ formatSize(d.totalSpace) }}</span>
               </div>
-              <div class="ab-drive-space-bar">
-                <div class="ab-drive-space-fill" [style.width.%]="(d.freeSpace / d.totalSpace) * 100"></div>
+              <div class="ab-scheme-space-bar">
+                <div class="ab-scheme-space-fill" [style.width.%]="(d.freeSpace / d.totalSpace) * 100"></div>
               </div>
             </div>
           </div>
@@ -75,7 +75,7 @@ import { normalizePath as normalizeAddressBarPath } from './address-bar.utils';
   styles: [`
     :host { display: contents; }
 
-    .ab-drive-drop {
+    .ab-scheme-drop {
       position: static;
       min-width: 320px; max-width: 500px; padding: 0;
       z-index: 9999 !important;
@@ -103,7 +103,7 @@ import { normalizePath as normalizeAddressBarPath } from './address-bar.utils';
       border-radius: 10px; font-size: 11px; font-weight: 600;
     }
 
-    .ab-drive-grid {
+    .ab-scheme {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
       gap: var(--vsc-padding-sm);
@@ -112,7 +112,7 @@ import { normalizePath as normalizeAddressBarPath } from './address-bar.utils';
       background-color: var(--vsc-panel-background, #252526) !important;
     }
 
-    .ab-drive-grid-item {
+    .ab-scheme-item {
       display: flex; flex-direction: column;
       padding: var(--vsc-padding-lg);
       background: var(--vsc-sidebar-background, #1e1e1e) !important;
@@ -127,24 +127,24 @@ import { normalizePath as normalizeAddressBarPath } from './address-bar.utils';
         border-color: var(--vsc-border);
       }
 
-      &.ab-drive-grid-item--active {
+      &.ab-scheme-item--active {
         background: var(--vsc-panel-background) !important;
         border-color: var(--vsc-border);
       }
 
-      &.ab-drive-grid-item--selected {
+      &.ab-scheme-item--selected {
         border-color: var(--vsc-accent-blue);
         box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--vsc-accent-blue) 50%, transparent);
       }
     }
 
-    .ab-drive-grid-top { display: flex; align-items: center; gap: var(--vsc-padding-sm); }
-    .ab-drive-grid-icon { font-size: 20px; flex-shrink: 0; }
-    .ab-drive-grid-letter { font-family: var(--vsc-font-family-mono); font-size: 14px; font-weight: 700; color: var(--vsc-foreground-dim); }
-    .ab-drive-grid-label { font-size: var(--vsc-font-size); font-weight: 500; color: var(--vsc-foreground); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .ab-drive-grid-dot { color: var(--vsc-accent-blue); margin-left: auto; flex-shrink: 0; }
+    .ab-scheme-top { display: flex; align-items: center; gap: var(--vsc-padding-sm); }
+    .ab-scheme-icon { font-size: 20px; flex-shrink: 0; }
+    .ab-scheme-letter { font-family: var(--vsc-font-family-mono); font-size: 14px; font-weight: 700; color: var(--vsc-foreground-dim); }
+    .ab-scheme-label { font-size: var(--vsc-font-size); font-weight: 500; color: var(--vsc-foreground); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ab-scheme-dot { color: var(--vsc-accent-blue); margin-left: auto; flex-shrink: 0; }
 
-    .ab-drive-grid-details {
+    .ab-scheme-details {
       display: flex;
       flex-direction: column;
       gap: 5px;
@@ -153,7 +153,7 @@ import { normalizePath as normalizeAddressBarPath } from './address-bar.utils';
       margin-top: 2px;
       min-height: 32px;
     }
-    .ab-drive-grid-path {
+    .ab-scheme-path {
       font-family: var(--vsc-font-family-mono);
       font-size: 10px;
       color: var(--vsc-foreground-dim);
@@ -163,12 +163,12 @@ import { normalizePath as normalizeAddressBarPath } from './address-bar.utils';
       max-width: 100%;
       opacity: 0.95;
     }
-    .ab-drive-grid-space { display: flex; flex-direction: column; gap: 4px; }
-    .ab-drive-grid-space--placeholder { min-height: 18px; }
-    .ab-drive-grid-space-labels { display: flex; align-items: center; justify-content: space-between; font-size: 10px; color: var(--vsc-foreground-dim); }
-    .ab-drive-grid-space-free { font-weight: 600; color: var(--vsc-foreground); }
-    .ab-drive-space-bar { width: 100%; height: 4px; background: var(--vsc-border-subtle); border-radius: 2px; overflow: hidden; }
-    .ab-drive-space-fill { height: 100%; background: var(--vsc-accent-blue); border-radius: 2px; transition: width var(--vsc-transition-normal); }
+    .ab-scheme-space { display: flex; flex-direction: column; gap: 4px; }
+    .ab-scheme-space--placeholder { min-height: 18px; }
+    .ab-scheme-space-labels { display: flex; align-items: center; justify-content: space-between; font-size: 10px; color: var(--vsc-foreground-dim); }
+    .ab-scheme-space-free { font-weight: 600; color: var(--vsc-foreground); }
+    .ab-scheme-space-bar { width: 100%; height: 4px; background: var(--vsc-border-subtle); border-radius: 2px; overflow: hidden; }
+    .ab-scheme-space-fill { height: 100%; background: var(--vsc-accent-blue); border-radius: 2px; transition: width var(--vsc-transition-normal); }
 
     .ab-drop-footer {
       display: flex; align-items: center; gap: var(--vsc-padding-sm);
@@ -213,15 +213,15 @@ import { normalizePath as normalizeAddressBarPath } from './address-bar.utils';
 export class AddressBarDriveDropdownComponent {
   @ViewChild('rootEl') rootElRef?: ElementRef<HTMLElement>;
 
-  @Input() drives: DriveInfo[] = [];
+  @Input() schemes: DriveInfo[] = [];
   @Input() loading = false;
   @Input() currentPath = '';
-  @Output() driveClick = new EventEmitter<DriveInfo>();
+  @Output() schemeClick = new EventEmitter<DriveInfo>();
   @Output() closeRequested = new EventEmitter<void>();
 
   selectedIndex = -1;
 
-  private readonly commandOwner = `overlay.addressBar.drives:${Math.random().toString(36).slice(2, 8)}`;
+  private readonly commandOwner = `overlay.addressBar.schemes:${Math.random().toString(36).slice(2, 8)}`;
   private releaseOverlayContext: (() => void) | null = null;
 
   constructor(
@@ -232,7 +232,7 @@ export class AddressBarDriveDropdownComponent {
 
   ngOnInit(): void {
     this.registerInputCommands();
-    this.releaseOverlayContext ??= this.inputContexts.acquire('overlay.addressBar.drives');
+    this.releaseOverlayContext ??= this.inputContexts.acquire('overlay.addressBar.schemes');
     this.syncSelection();
   }
 
@@ -260,10 +260,19 @@ export class AddressBarDriveDropdownComponent {
   }
 
   isSelected(d: DriveInfo): boolean {
-    return this.isActive(d) || (this.selectedIndex >= 0 && this.drives[this.selectedIndex]?.path === d.path);
+    return this.isActive(d) || (this.selectedIndex >= 0 && this.schemes[this.selectedIndex]?.path === d.path);
   }
 
-  getDriveLabel(d: DriveInfo): string {
+  getSchemeRootLabel(d: DriveInfo): string {
+    const path = this.normalizePath(d.path || '');
+    const match = /^([a-z][a-z0-9+.-]*):\/\//i.exec(path);
+    if (match && match[1].toLowerCase() !== 'drive') {
+      return match[1].toLowerCase() + ':';
+    }
+    return d.name;
+  }
+
+  getSchemeTypeLabel(d: DriveInfo): string {
     if (d.driveType?.startsWith('cloud-')) {
       return 'Cloud Storage';
     }
@@ -325,35 +334,35 @@ export class AddressBarDriveDropdownComponent {
   }
 
   setSelectedIndex(index: number): void {
-    if (index < 0 || index >= this.drives.length) return;
+    if (index < 0 || index >= this.schemes.length) return;
     this.selectedIndex = index;
     this.cdr.markForCheck();
     this.focusSelectedItem();
   }
 
   openSelected(): void {
-    const selected = this.drives[this.selectedIndex];
+    const selected = this.schemes[this.selectedIndex];
     if (!selected) return;
-    this.driveClick.emit(selected);
+    this.schemeClick.emit(selected);
   }
 
   private syncSelection(): void {
-    if (this.drives.length === 0) {
+    if (this.schemes.length === 0) {
       this.selectedIndex = -1;
       this.cdr.markForCheck();
       return;
     }
 
-    const activeIndex = this.drives.findIndex(drive => this.isActive(drive));
+    const activeIndex = this.schemes.findIndex(drive => this.isActive(drive));
     this.selectedIndex = activeIndex >= 0 ? activeIndex : 0;
     this.cdr.markForCheck();
     this.focusSelectedItem();
   }
 
   private moveSelection(delta: number): void {
-    if (this.drives.length === 0) return;
+    if (this.schemes.length === 0) return;
     const baseIndex = this.selectedIndex >= 0 ? this.selectedIndex : 0;
-    const next = Math.max(0, Math.min(this.drives.length - 1, baseIndex + delta));
+    const next = Math.max(0, Math.min(this.schemes.length - 1, baseIndex + delta));
     this.selectedIndex = next;
     this.cdr.markForCheck();
     this.focusSelectedItem();
@@ -361,43 +370,43 @@ export class AddressBarDriveDropdownComponent {
 
   private focusSelectedItem(): void {
     requestAnimationFrame(() => {
-      const item = this.rootElRef?.nativeElement.querySelector<HTMLElement>('.ab-drive-grid-item--selected');
+      const item = this.rootElRef?.nativeElement.querySelector<HTMLElement>('.ab-scheme-item--selected');
       item?.focus({ preventScroll: true });
     });
   }
 
   private registerInputCommands(): void {
-    this.inputEngine.registerCommand('overlay.addressBar.drives.close', () => {
+    this.inputEngine.registerCommand('overlay.addressBar.schemes.close', () => {
       this.closeRequested.emit();
     }, this.commandOwner);
 
-    this.inputEngine.registerCommand('overlay.addressBar.drives.prevItem', () => {
+    this.inputEngine.registerCommand('overlay.addressBar.schemes.prevItem', () => {
       this.moveSelection(-1);
     }, this.commandOwner);
 
-    this.inputEngine.registerCommand('overlay.addressBar.drives.nextItem', () => {
+    this.inputEngine.registerCommand('overlay.addressBar.schemes.nextItem', () => {
       this.moveSelection(1);
     }, this.commandOwner);
 
-    this.inputEngine.registerCommand('overlay.addressBar.drives.prevColumn', () => {
+    this.inputEngine.registerCommand('overlay.addressBar.schemes.prevColumn', () => {
       this.moveSelection(-1);
     }, this.commandOwner);
 
-    this.inputEngine.registerCommand('overlay.addressBar.drives.nextColumn', () => {
+    this.inputEngine.registerCommand('overlay.addressBar.schemes.nextColumn', () => {
       this.moveSelection(1);
     }, this.commandOwner);
 
-    this.inputEngine.registerCommand('overlay.addressBar.drives.openSelected', () => {
+    this.inputEngine.registerCommand('overlay.addressBar.schemes.openSelected', () => {
       this.openSelected();
     }, this.commandOwner);
   }
 
   private unregisterInputCommands(): void {
-    this.inputEngine.unregisterCommand('overlay.addressBar.drives.close', this.commandOwner);
-    this.inputEngine.unregisterCommand('overlay.addressBar.drives.prevItem', this.commandOwner);
-    this.inputEngine.unregisterCommand('overlay.addressBar.drives.nextItem', this.commandOwner);
-    this.inputEngine.unregisterCommand('overlay.addressBar.drives.prevColumn', this.commandOwner);
-    this.inputEngine.unregisterCommand('overlay.addressBar.drives.nextColumn', this.commandOwner);
-    this.inputEngine.unregisterCommand('overlay.addressBar.drives.openSelected', this.commandOwner);
+    this.inputEngine.unregisterCommand('overlay.addressBar.schemes.close', this.commandOwner);
+    this.inputEngine.unregisterCommand('overlay.addressBar.schemes.prevItem', this.commandOwner);
+    this.inputEngine.unregisterCommand('overlay.addressBar.schemes.nextItem', this.commandOwner);
+    this.inputEngine.unregisterCommand('overlay.addressBar.schemes.prevColumn', this.commandOwner);
+    this.inputEngine.unregisterCommand('overlay.addressBar.schemes.nextColumn', this.commandOwner);
+    this.inputEngine.unregisterCommand('overlay.addressBar.schemes.openSelected', this.commandOwner);
   }
 }

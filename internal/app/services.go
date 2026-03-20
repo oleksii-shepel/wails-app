@@ -109,6 +109,8 @@ func NewServices(config ServiceConfig) *Services {
 			RunElevatedDelete:              config.RunElevatedDelete,
 			MoveToTrash:                    internalplatform.MoveToTrash,
 			CalculateSize:                  config.CalculateSize,
+			ResolvePath:                    resolveMemoryAlias,
+			ToPublicPath:                   toPublicMemoryPath,
 			ExtractNestedArchive:           config.ExtractNestedArchive,
 			Normalize:                      config.Normalize,
 			ArchiveEntryPath:               config.ArchiveEntryPath,
@@ -130,5 +132,9 @@ func NewServices(config ServiceConfig) *Services {
 }
 
 func (c ServiceConfig) newUtility() *internalutility.Service {
-	return internalutility.NewService(c.EmitEvent)
+	resolver, _ := getMemoryPathResolver()
+	return internalutility.NewService(internalutility.ServiceConfig{
+		EmitEvent:      c.EmitEvent,
+		MemoryResolver: resolver,
+	})
 }

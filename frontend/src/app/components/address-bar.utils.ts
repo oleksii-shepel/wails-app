@@ -4,25 +4,22 @@ import { REGISTRY_ROOT } from '../services/registry.service';
 
 // ─── Path utilities ───────────────────────────────────────────────────────────
 
-const ALIAS_SCHEMES = ['search://', 'memory://', 'smb://', 'ftp://', 'sftp://', 'webdav://'] as const;
-
-type AliasScheme = typeof ALIAS_SCHEMES[number];
-
 export interface SearchAliasQuery {
   path: string;
   pattern: string;
   recursive: boolean;
 }
 
-function aliasSchemeFor(p: string): AliasScheme | null {
+function aliasSchemeFor(p: string): string | null {
   const normalized = (p || '').trim().replace(/\\/g, '/').toLowerCase();
-  for (const scheme of ALIAS_SCHEMES) {
-    if (normalized.startsWith(scheme)) return scheme;
-  }
-  return null;
+  const match = /^([a-z][a-z0-9+.-]*):\/\//i.exec(normalized);
+  if (!match) return null;
+  const scheme = `${match[1].toLowerCase()}://`;
+  if (scheme === 'drive://') return null;
+  return scheme;
 }
 
-function normalizeAliasReference(p: string, scheme: AliasScheme): string {
+function normalizeAliasReference(p: string, scheme: string): string {
   const normalized = (p || '').trim().replace(/\\/g, '/');
   if (scheme === 'search://' && normalized.slice(scheme.length).startsWith('?')) {
     return normalizeSearchAliasReference(normalized);

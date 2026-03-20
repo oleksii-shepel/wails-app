@@ -9,6 +9,7 @@ import {
 } from '../shared/protocol-enhanced';
 import { ApiService } from './api.service';
 import { ArchiveFrame } from './archive.service';
+import { normalizePath as normalizeReferencePath } from '../components/address-bar.utils';
 import {
   GetWorkspaces,
   SaveWorkspace,
@@ -939,20 +940,7 @@ export class WorkspaceService {
   }
 
   private normalizePath(path: string): string {
-    if (!path) return '/';
-    if (/^registry:\/\//i.test(path)) {
-      const rest = path.replace(/\\/g, '/').slice('registry://'.length).replace(/^\/+/, '').replace(/\/+/g, '/');
-      return rest ? `registry://${rest}` : 'registry://';
-    }
-    const aliasMatch = /^([a-z][a-z0-9+.-]*):\/\/(.*)?$/i.exec(path.replace(/\\/g, '/'));
-    if (aliasMatch) {
-      const scheme = aliasMatch[1].toLowerCase();
-      const rest = (aliasMatch[2] || '').replace(/^\/+/, '').replace(/\/+/g, '/');
-      return rest ? `${scheme}://${rest}` : `${scheme}://`;
-    }
-    let p = path.replace(/\\/g, '/').replace(/\/+/g, '/');
-    if (p.length > 1 && p.endsWith('/')) p = p.slice(0, -1);
-    return p || '/';
+    return normalizeReferencePath(path);
   }
 
   private getRootForPath(path: string): string {

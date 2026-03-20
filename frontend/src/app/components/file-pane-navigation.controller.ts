@@ -4,7 +4,7 @@ import type { FileViewDirectorySource } from '../services/directory-source.servi
 import type { WorkspaceService } from '../services/workspace.service';
 import type { DirSurfaceSession } from '../surfaces/dir/dir-surface-session';
 import type { TabInfo, WorkspaceConfig } from '../shared/protocol-enhanced';
-import { samePath } from './address-bar.utils';
+import { normalizePath, samePath } from './address-bar.utils';
 
 declare const window: any;
 
@@ -189,8 +189,7 @@ export class FilePaneNavigationController {
       try {
         const osInfo = await host.apiService.getOSInfo();
         if (osInfo?.systemDrive) {
-          const drive = (osInfo.systemDrive as string).replace(/\\/g, '/').toUpperCase();
-          platformRoot = drive.endsWith('/') ? drive : drive + '/';
+          platformRoot = normalizePath(osInfo.systemDrive as string);
         }
       } catch {
         // Keep the generic root when OS info isn't available.

@@ -7,8 +7,19 @@ import (
 	internalplatform "wails-app/internal/platform"
 )
 
+type memoryPathResolver interface {
+	ResolvePublicPath(path string) (string, bool, error)
+	ToPublicPath(path string) string
+}
+
+type ServiceConfig struct {
+	EmitEvent      func(string, interface{})
+	MemoryResolver memoryPathResolver
+}
+
 type Service struct {
-	emitEvent func(string, interface{})
+	emitEvent      func(string, interface{})
+	memoryResolver memoryPathResolver
 }
 
 type ResolvedLink struct {
@@ -16,20 +27,46 @@ type ResolvedLink struct {
 	IsDir  bool   `json:"isDir"`
 }
 
-func NewService(emitEvent func(string, interface{})) *Service {
-	return &Service{emitEvent: emitEvent}
+func NewService(config ServiceConfig) *Service {
+	return &Service{
+		emitEvent:      config.EmitEvent,
+		memoryResolver: config.MemoryResolver,
+	}
+}
+
+func (s *Service) resolvePublicPath(path string) (string, error) {
+	if s.memoryResolver == nil {
+		return path, nil
+	}
+	resolved, _, err := s.memoryResolver.ResolvePublicPath(path)
+	return resolved, err
+}
+
+func (s *Service) toPublicPath(path string) string {
+	if s.memoryResolver == nil {
+		return path
+	}
+	return s.memoryResolver.ToPublicPath(path)
 }
 
 func (s *Service) OpenFile(path string) error {
-	return internalplatform.OpenFileWithDefaultApp(path)
+	resolvedPath, err := s.resolvePublicPath(path)
+	if err != nil {
+		return err
+	}
+	return internalplatform.OpenFileWithDefaultApp(resolvedPath)
 }
 
 func (s *Service) ResolveLink(path string) (*ResolvedLink, error) {
-	target, isDir, err := internalplatform.ResolveLinkPath(path)
+	resolvedPath, err := s.resolvePublicPath(path)
 	if err != nil {
 		return nil, err
 	}
-	return &ResolvedLink{Target: target, IsDir: isDir}, nil
+	target, isDir, err := internalplatform.ResolveLinkPath(resolvedPath)
+	if err != nil {
+		return nil, err
+	}
+	return &ResolvedLink{Target: s.toPublicPath(target), IsDir: isDir}, nil
 }
 
 func (s *Service) HandleFileDrop(x int, y int, paths []string) error {

@@ -22,7 +22,6 @@ import { AddressBarSiblingDropdownComponent } from './address-bar-sibling-dropdo
 import { AddressBarQuickAccessComponent } from './address-bar-quick-access.component';
 import { DropdownContainerComponent } from './dropdown-container.component';
 
-
 @Component({
   selector: 'app-address-bar',
   standalone: true,
@@ -92,11 +91,15 @@ import { DropdownContainerComponent } from './dropdown-container.component';
         <span
           class="ab-seg ab-drive-letter"
           [class.ab-seg--last]="segments.length === 1"
+          [class.ab-drive-letter--synthetic]="isCurrentRootSynthetic()"
           [class.ab-drive-letter--open]="showDriveMenu"
           (click)="onDriveLetterClick(segments[0], segments.length === 1, $event)"
           (contextmenu)="onSegRightClick(segments[0], 0, $event)"
           title="Switch drives"
-        >{{ segments[0].label }}</span>
+        >
+          <span *ngIf="currentDriveButtonIcon() as icon" class="ab-drive-letter-icon" aria-hidden="true">{{ icon }}</span>
+          <span class="ab-drive-letter-text">{{ currentDriveButtonLabel() }}</span>
+        </span>
 
         <div class="ab-drive-chevron-wrap" *ngIf="segments.length > 1">
           <button
@@ -540,6 +543,24 @@ import { DropdownContainerComponent } from './dropdown-container.component';
       &:hover { background: color-mix(in srgb, #007fd4 20%, transparent); border-color: rgba(0,127,212,0.38); }
       &.ab-seg--last { background: color-mix(in srgb, #007fd4 10%, transparent); cursor: pointer; }
       &.ab-drive-letter--open { background: color-mix(in srgb, #007fd4 22%, transparent); border-color: rgba(0,127,212,0.45); }
+      &.ab-drive-letter--synthetic {
+        gap: 6px;
+        font-family: var(--vsc-font-family);
+        max-width: 180px;
+      }
+    }
+
+    .ab-drive-letter-icon {
+      flex: 0 0 auto;
+      font-size: 13px;
+      line-height: 1;
+    }
+
+    .ab-drive-letter-text {
+      min-width: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
 
@@ -842,6 +863,45 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     requestAnimationFrame(() => this.animateScrollToEnd());
   }
 
+  private currentRootPath(): string {
+    const root = this.directorySource.getRootPath(this.currentPath) || this.segments[0]?.fullPath || this.currentPath;
+    return normalizePath(root || '');
+  }
+
+  private findCurrentRootDrive(): DriveInfo | null {
+    const rootPath = this.currentRootPath();
+    if (!rootPath) return null;
+    return this.drives.find((drive) => normalizePath(drive.path) === rootPath) ?? null;
+  }
+
+  isCurrentRootSynthetic(): boolean {
+    const drive = this.findCurrentRootDrive();
+    if (!drive) return false;
+    return /^(memory|registry|search|smb|ftp|sftp|webdav)$/.test(drive.driveType);
+  }
+
+  currentDriveButtonLabel(): string {
+    const drive = this.findCurrentRootDrive();
+    if (!drive) {
+      return this.segments[0]?.label || '';
+    }
+    return this.isCurrentRootSynthetic() ? drive.name : (this.segments[0]?.label || drive.name);
+  }
+
+  currentDriveButtonIcon(): string | null {
+    const drive = this.findCurrentRootDrive();
+    if (!drive || !this.isCurrentRootSynthetic()) return null;
+
+    if (drive.driveType === 'memory') return '🧠';
+    if (drive.driveType === 'registry') return '🧩';
+    if (drive.driveType === 'search') return '🔎';
+    if (drive.driveType === 'smb') return '🖧';
+    if (drive.driveType === 'ftp') return '📡';
+    if (drive.driveType === 'sftp') return '🔐';
+    if (drive.driveType === 'webdav') return '🌍';
+    return null;
+  }
+
   // ── Segment click handlers ────────────────────────────────────────────────
 
   onSegClick(seg: PathSegment, e: MouseEvent): void {
@@ -1073,28 +1133,9 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
       const drivesList = this.isWin ? await this.apiService.getDrives() : { drives: [] };
       const systemDrives = drivesList?.drives || [];
       const cloudDrives = await this.getCloudDrives();
-      const syntheticDrives: DriveInfo[] = [
-        {
-          name: 'Memory',
-          path: 'memory://',
-          driveType: 'memory',
-          totalSpace: 0,
-          freeSpace: 0,
-          fileSystem: 'MemFS',
-        },
-      ];
-      this.drives = [...systemDrives, ...syntheticDrives, ...cloudDrives];
+      this.drives = [...systemDrives, ...cloudDrives];
     } catch {
-      this.drives = [
-        {
-          name: 'Memory',
-          path: 'memory://',
-          driveType: 'memory',
-          totalSpace: 0,
-          freeSpace: 0,
-          fileSystem: 'MemFS',
-        },
-      ];
+      this.drives = [];
     } finally { 
       this.drivesLoading = false; 
       this.cdr.detectChanges(); 

@@ -24,8 +24,8 @@ export interface OSInfoResponse {
   /** Machine hostname */
   hostname: string;
   /**
-   * On Windows: the system drive root that all absolute paths are
-   * relative to (e.g. "C:\\").  null on non-Windows platforms.
+   * On Windows: the system drive root reference, exposed as a public path
+   * token such as "drive://c". null on non-Windows platforms.
    */
   systemDrive: string | null;
 }
@@ -42,6 +42,11 @@ export type DriveType =
   | 'ramdisk'
   | 'memory'
   | 'registry'
+  | 'search'
+  | 'smb'
+  | 'ftp'
+  | 'sftp'
+  | 'webdav'
   | 'unknown'
   | 'cloud-onedrive'
   | 'cloud-google'

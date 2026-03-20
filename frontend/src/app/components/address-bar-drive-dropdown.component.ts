@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { DriveInfo } from '../shared/protocol';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
+import { normalizePath as normalizeAddressBarPath } from './address-bar.utils';
 
 @Component({
   selector: 'app-address-bar-drive-dropdown',
@@ -246,27 +247,13 @@ export class AddressBarDriveDropdownComponent {
   }
 
   private normalizePath(path: string): string {
-    const replaced = (path || '').replace(/\\/g, '/');
-    if (/^registry:\/\//i.test(replaced)) {
-      const rest = replaced.slice('registry://'.length).replace(/^\/+/, '').replace(/\/+/g, '/');
-      return rest ? `registry://${rest}` : 'registry://';
-    }
-    if (/^memory:\/\//i.test(replaced)) {
-      const rest = replaced.slice('memory://'.length).replace(/^\/+/, '').replace(/\/+/g, '/');
-      return rest ? `memory://${rest}` : 'memory://';
-    }
-    const collapsed = replaced.startsWith('//')
-      ? `//${replaced.slice(2).replace(/\/{2,}/g, '/')}`
-      : replaced.replace(/\/{2,}/g, '/');
-    return collapsed.length > 1 && collapsed.endsWith('/') && !/^[A-Za-z]:\/$/.test(collapsed)
-      ? collapsed.slice(0, -1)
-      : collapsed;
+    return normalizeAddressBarPath(path || '');
   }
 
   isActive(d: DriveInfo): boolean {
     const current = this.normalizePath(this.currentPath).toLowerCase();
     const root = this.normalizePath(d.path).toLowerCase();
-    if (root === 'registry://' || root === 'memory://') {
+    if (/^[a-z][a-z0-9+.-]*:\/\//.test(root)) {
       return current === root || current.startsWith(root);
     }
     return current === root || current.startsWith(`${root}/`);
@@ -286,6 +273,21 @@ export class AddressBarDriveDropdownComponent {
     if (d.driveType === 'registry') {
       return 'Registry';
     }
+    if (d.driveType === 'search') {
+      return 'Search FS';
+    }
+    if (d.driveType === 'smb') {
+      return 'SMB Share';
+    }
+    if (d.driveType === 'ftp') {
+      return 'FTP';
+    }
+    if (d.driveType === 'sftp') {
+      return 'SFTP';
+    }
+    if (d.driveType === 'webdav') {
+      return 'WebDAV';
+    }
     if (d.driveType === 'network') {
       return 'Network Drive';
     }
@@ -302,6 +304,11 @@ export class AddressBarDriveDropdownComponent {
     if (d.driveType === 'cloud-dropbox')  return '📦';
     if (d.driveType === 'memory')         return '🧠';
     if (d.driveType === 'registry')       return '🧩';
+    if (d.driveType === 'search')         return '🔎';
+    if (d.driveType === 'smb')            return '🖧';
+    if (d.driveType === 'ftp')            return '📡';
+    if (d.driveType === 'sftp')           return '🔐';
+    if (d.driveType === 'webdav')         return '🌍';
     if (d.driveType === 'fixed')    return '💽';
     if (d.driveType === 'removable') return '💾';
     if (d.driveType === 'cdrom')    return '💿';

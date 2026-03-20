@@ -4,7 +4,7 @@ import type { FileInfo } from '../shared/protocol';
 import { FileType } from '../shared/protocol';
 import type { ViewLayout } from './file-view-container.component';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
-import { parentPath } from './address-bar.utils';
+import { normalizePath, parentPath } from './address-bar.utils';
 import { buildArchivePath, parseArchivePath } from '../services/archive.service';
 
 declare const window: any;
@@ -236,6 +236,6 @@ export class FilePaneOperationsController {
   }
 
   private normalizePath(path: string): string {
-    return path.replace(/\\/g, '/');
+    return normalizePath(path);
   }
 }

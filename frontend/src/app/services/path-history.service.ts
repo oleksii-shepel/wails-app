@@ -2,6 +2,7 @@ import { Injectable } from '@angular/core';
 import { createBehaviorSubject, type Stream } from '@epikodelabs/streamix';
 import { ApiService } from './api.service';
 import { FileType } from '../shared/protocol';
+import { normalizePath as normalizeReferencePath } from '../components/address-bar.utils';
 
 /**
  * Path history entry
@@ -267,30 +268,7 @@ export class PathHistoryService {
   }
 
   private normalizePath(path: string): string {
-    const rawPath = (path ?? '').trim();
-    if (!rawPath) {
-      return '/';
-    }
-
-    let normalized = rawPath.replace(/\\/g, '/');
-    const isUncPath = normalized.startsWith('//');
-    normalized = isUncPath
-      ? `//${normalized.slice(2).replace(/\/{2,}/g, '/')}`
-      : normalized.replace(/\/{2,}/g, '/');
-
-    if (/^[a-zA-Z]:/.test(normalized)) {
-      normalized = normalized[0].toUpperCase() + normalized.slice(1);
-      if (/^[A-Za-z]:$/.test(normalized)) {
-        normalized = `${normalized}/`;
-      }
-    }
-
-    const isDriveRoot = /^[A-Za-z]:\/$/.test(normalized);
-    if (normalized.length > 1 && normalized.endsWith('/') && !isDriveRoot && normalized !== '//') {
-      normalized = normalized.slice(0, -1);
-    }
-
-    return normalized || '/';
+    return normalizeReferencePath(path);
   }
 
   /**

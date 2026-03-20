@@ -25,7 +25,13 @@ const (
 	DriveNetwork   DriveType = "network"
 	DriveCDROM     DriveType = "cdrom"
 	DriveRAMDisk   DriveType = "ramdisk"
+	DriveMemory    DriveType = "memory"
 	DriveRegistry  DriveType = "registry"
+	DriveSearch    DriveType = "search"
+	DriveSMB       DriveType = "smb"
+	DriveFTP       DriveType = "ftp"
+	DriveSFTP      DriveType = "sftp"
+	DriveWebDAV    DriveType = "webdav"
 	DriveUnknown   DriveType = "unknown"
 )
 

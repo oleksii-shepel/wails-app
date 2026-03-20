@@ -35,6 +35,8 @@ type ServiceConfig struct {
 	RunElevatedDelete              func(path string, recursive bool, useTrash *bool) (bool, error)
 	MoveToTrash                    func(path string) error
 	CalculateSize                  func(path string) (int64, int64)
+	ResolvePath                    func(path string) (string, error)
+	ToPublicPath                   func(path string) string
 	ExtractNestedArchive           func(archivePath string, nestedChain []string) ([]byte, error)
 	Normalize                      func(string) string
 	ArchiveEntryPath               func(archiver.File) string
@@ -50,25 +52,50 @@ func NewService(config ServiceConfig) *Service {
 	return &Service{config: config, conflicts: NewConflictManager()}
 }
 
+func (s *Service) resolvePath(path string) (string, error) {
+	if s.config.ResolvePath == nil {
+		return path, nil
+	}
+	return s.config.ResolvePath(path)
+}
+
+func (s *Service) toPublicPath(path string) string {
+	if s.config.ToPublicPath == nil {
+		return path
+	}
+	return s.config.ToPublicPath(path)
+}
+
 func (s *Service) checkConflict(
 	op *internalops.ActiveOperation,
 	srcLabel, dst string,
 	blanket **contracts.ConflictResolution,
 ) (finalDst string, skip bool, err error) {
-	dstInfo, statErr := os.Lstat(dst)
+	resolvedDst, err := s.resolvePath(dst)
+	if err != nil {
+		return "", false, err
+	}
+
+	dstInfo, statErr := os.Lstat(resolvedDst)
 	if os.IsNotExist(statErr) {
-		return dst, false, nil
+		return resolvedDst, false, nil
 	}
 	if statErr != nil {
 		return "", false, statErr
 	}
 
 	if *blanket != nil {
-		return ApplyResolution(**blanket, dst)
+		return ApplyResolution(**blanket, resolvedDst)
 	}
 
 	var srcSize, srcMtime int64
-	if info, sourceErr := os.Lstat(srcLabel); sourceErr == nil {
+	resolvedSrc, resolveErr := s.resolvePath(srcLabel)
+	if resolveErr == nil {
+		if info, sourceErr := os.Lstat(resolvedSrc); sourceErr == nil {
+			srcSize = info.Size()
+			srcMtime = info.ModTime().Unix()
+		}
+	} else if info, sourceErr := os.Lstat(srcLabel); sourceErr == nil {
 		srcSize = info.Size()
 		srcMtime = info.ModTime().Unix()
 	}
@@ -115,6 +142,8 @@ func (s *Service) newTransferRunner(op *internalops.ActiveOperation) *TransferRu
 		RunElevatedDelete:              s.config.RunElevatedDelete,
 		MoveToTrash:                    s.config.MoveToTrash,
 		CalculateSize:                  s.config.CalculateSize,
+		ResolvePath:                    s.config.ResolvePath,
+		ToPublicPath:                   s.config.ToPublicPath,
 	})
 }
 

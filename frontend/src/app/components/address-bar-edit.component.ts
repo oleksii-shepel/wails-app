@@ -358,6 +358,7 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
   private scrollListener?: () => void;
   private readonly commandOwner = `widget.addressBar.edit:${Math.random().toString(36).slice(2, 8)}`;
   private releaseWidgetContext: (() => void) | null = null;
+  private syntheticRootSuggestions: ReadonlyArray<{ path: string; displayName: string }> = [];
 
   highlight = highlightMatch;
 
@@ -376,6 +377,7 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
     this.releaseWidgetContext ??= this.inputContexts.acquire('widget.addressBar.edit');
     this.value = this.toDisplayPath(this.currentPath || '');
     this.lastInputValue = this.value;
+    void this.loadSyntheticRootSuggestions();
 
     // Keep existing UX: show suggestions shortly after entering edit mode.
     if (this.value?.trim()) this.scheduleSuggestions(this.value, true);
@@ -717,10 +719,11 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
       // Load history immediately (local/fast)
       // We are skipping history suggestions as per user request
       const hist: PathSuggestion[] = [];
+      const aliasRoots = this.buildAliasRootSuggestions(q);
       if (requestId !== this.suggestionsRequestId) return;
 
       // Show history right away
-      this.suggestions = this.buildMergedSuggestions([], hist);
+      this.suggestions = this.buildMergedSuggestions([], hist, aliasRoots);
       this.acIdx = -1;
       this.resetVirtualScroll();
       this.cdr.detectChanges();
@@ -733,7 +736,7 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
         if (dirPath) {
           await this.streamDirChildren(dirPath, prefix, (fsBatch) => {
             if (requestId !== this.suggestionsRequestId) return;
-            this.suggestions = this.buildMergedSuggestions(fsBatch, hist);
+            this.suggestions = this.buildMergedSuggestions(fsBatch, hist, aliasRoots);
             this.updateVirtualWindow();
             this.cdr.detectChanges();
             setTimeout(() => this.attachDropScroll(), 0);
@@ -841,9 +844,11 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
   }
 
   private async fetchChildren(query: string): Promise<PathSuggestion[]> {
+    const aliasRoots = this.buildAliasRootSuggestions(query);
     const { dirPath, prefix } = this.splitQueryContext(query);
-    if (!dirPath) return [];
-    return this.streamDirChildren(dirPath, prefix);
+    if (!dirPath) return aliasRoots;
+    const fsSuggestions = await this.streamDirChildren(dirPath, prefix);
+    return this.buildMergedSuggestions(fsSuggestions, [], aliasRoots);
   }
 
   private cancelFetchStream(): void {
@@ -995,19 +1000,79 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
     return false;
   }
 
-  private buildMergedSuggestions(fs: PathSuggestion[], hist: PathSuggestion[]): PathSuggestion[] {
+  private buildAliasRootSuggestions(query: string): PathSuggestion[] {
+    const normalizedQuery = (query || '').trim().replace(/\\/g, '/').toLowerCase();
+    if (!normalizedQuery) return [];
+
+    const suggestions: PathSuggestion[] = [];
+
+    for (const entry of this.syntheticRootSuggestions) {
+      const rootPath = entry.path.toLowerCase();
+      const schemeName = entry.path.slice(0, -3).toLowerCase();
+      const schemeNameWithColon = `${schemeName}:`;
+
+      let score = 0;
+      if (normalizedQuery === rootPath || normalizedQuery === schemeName || normalizedQuery === schemeNameWithColon) {
+        score = 180;
+      } else if (rootPath.startsWith(normalizedQuery)) {
+        score = 160;
+      } else if (schemeName.startsWith(normalizedQuery) || schemeNameWithColon.startsWith(normalizedQuery)) {
+        score = 150;
+      }
+
+      if (!score) continue;
+
+      suggestions.push({
+        path: entry.path,
+        displayName: entry.displayName,
+        matchType: 'directory',
+        score,
+        exists: true,
+      });
+    }
+
+    suggestions.sort((left, right) => right.score - left.score || left.path.localeCompare(right.path));
+    return suggestions;
+  }
+
+  private async loadSyntheticRootSuggestions(): Promise<void> {
+    try {
+      const drives = await this.apiService.listDrives();
+      this.syntheticRootSuggestions = drives
+        .filter((drive) => /^[a-z][a-z0-9+.-]*:\/\/$/i.test((drive.path || '').trim().replace(/\\/g, '/')))
+        .map((drive) => ({
+          path: normalizePath(drive.path),
+          displayName: drive.name || drive.path,
+        }));
+
+      if (this.value?.trim()) {
+        this.scheduleSuggestions(this.value, true);
+      }
+    } catch {
+      this.syntheticRootSuggestions = [];
+    }
+  }
+
+  private buildMergedSuggestions(fs: PathSuggestion[], hist: PathSuggestion[], aliasRoots: PathSuggestion[] = []): PathSuggestion[] {
     const seen = new Set<string>();
+    const aliases: PathSuggestion[] = [];
     const dirs: PathSuggestion[] = [];
     const rest: PathSuggestion[] = [];
 
-    for (const s of [...fs, ...hist]) {
+    const aliasRootPaths = new Set(aliasRoots.map((entry) => normalizePath(entry.path).toLowerCase()));
+
+    for (const s of [...aliasRoots, ...fs, ...hist]) {
       const key = normalizePath(s?.path || '').toLowerCase();
       if (!key || seen.has(key)) continue;
       seen.add(key);
       const entry = this.shouldNormalizeToForwardSlashes() ? { ...s, path: this.toDisplayPath(s.path) } : s;
+      if (aliasRootPaths.has(key)) {
+        aliases.push(entry);
+        continue;
+      }
       (entry.matchType === 'directory' ? dirs : rest).push(entry);
     }
-    return [...dirs, ...rest];
+    return [...aliases, ...dirs, ...rest];
   }
 
   private registerInputCommands(): void {

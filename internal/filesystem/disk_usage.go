@@ -12,31 +12,42 @@ import (
 	"time"
 
 	contracts "wails-app/internal/contracts"
+	"wails-app/internal/pathref"
 )
 
 func (s *Service) AnalyzeDiskUsage(path string) (*contracts.DiskUsageResult, error) {
-	if cached, ok := s.duCache.Get(path); ok {
+	requestedPath := pathref.Normalize(path)
+	if cached, ok := s.duCache.Get(requestedPath); ok {
 		return cached, nil
+	}
+	resolvedPath, err := s.resolvePublicPath(requestedPath)
+	if err != nil {
+		return nil, err
 	}
 
 	start := time.Now()
-	children, err := readNonLinks(path)
+	children, err := readNonLinks(resolvedPath)
 	if err != nil {
 		return nil, err
 	}
 
 	never := make(chan struct{})
-	entries, _ := globalBFS(path, children, never, nil, nil)
+	entries, _ := globalBFS(resolvedPath, children, never, nil, nil)
 
-	result := buildDiskUsageResult(path, entries, start)
+	result := s.mapDiskUsageResult(buildDiskUsageResult(resolvedPath, entries, start), requestedPath)
 	s.duCache.Set(result)
 	return result, nil
 }
 
 func (s *Service) StartDiskUsageStream(path string) (string, error) {
-	s.duCache.InvalidateSubtree(path)
+	requestedPath := pathref.Normalize(path)
+	s.duCache.InvalidateSubtree(requestedPath)
+	resolvedPath, err := s.resolvePublicPath(requestedPath)
+	if err != nil {
+		return "", err
+	}
 
-	children, err := readNonLinks(path)
+	children, err := readNonLinks(resolvedPath)
 	if err != nil {
 		return "", err
 	}
@@ -47,13 +58,13 @@ func (s *Service) StartDiskUsageStream(path string) (string, error) {
 	go func() {
 		start := time.Now()
 
-		entries, _ := globalBFS(path, children, done, func(_ int, entry contracts.DiskUsageEntry) {
+		entries, _ := globalBFS(resolvedPath, children, done, func(_ int, entry contracts.DiskUsageEntry) {
 			select {
 			case <-done:
 			default:
 				s.emit("disk-usage:entry", map[string]interface{}{
 					"scanId": scanID,
-					"entry":  entry,
+					"entry":  s.mapDiskUsageEntry(entry),
 				})
 			}
 		}, func(progress contracts.DiskUsageProgress) {
@@ -69,7 +80,7 @@ func (s *Service) StartDiskUsageStream(path string) (string, error) {
 
 		s.duStreams.unregister(scanID)
 
-		result := buildDiskUsageResult(path, entries, start)
+		result := s.mapDiskUsageResult(buildDiskUsageResult(resolvedPath, entries, start), requestedPath)
 		s.duCache.Set(result)
 
 		select {
@@ -88,6 +99,26 @@ func (s *Service) StartDiskUsageStream(path string) (string, error) {
 
 func (s *Service) CancelDiskUsageStream(scanID string) {
 	s.duStreams.cancel(scanID)
+}
+
+func (s *Service) mapDiskUsageEntry(entry contracts.DiskUsageEntry) contracts.DiskUsageEntry {
+	entry.Path = s.toPublicPath(entry.Path)
+	return entry
+}
+
+func (s *Service) mapDiskUsageResult(result *contracts.DiskUsageResult, requestedPath string) *contracts.DiskUsageResult {
+	if result == nil {
+		return nil
+	}
+	if requestedPath != "" {
+		result.Path = pathref.Normalize(requestedPath)
+	} else {
+		result.Path = s.toPublicPath(result.Path)
+	}
+	for index := range result.Entries {
+		result.Entries[index] = s.mapDiskUsageEntry(result.Entries[index])
+	}
+	return result
 }
 
 type duStreamRegistry struct {

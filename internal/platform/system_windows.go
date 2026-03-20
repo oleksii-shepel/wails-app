@@ -14,7 +14,6 @@ import (
 	"golang.org/x/sys/windows/registry"
 
 	contracts "wails-app/internal/contracts"
-	"wails-app/internal/pathref"
 )
 
 func getOSTypeAndVersion() (contracts.OSType, string) {
@@ -44,9 +43,9 @@ func getOSTypeAndVersion() (contracts.OSType, string) {
 
 func getSystemDrive() string {
 	if drive := os.Getenv("SystemDrive"); drive != "" {
-		return filepath.ToSlash(drive) + "/"
+		return driveRootReference(drive)
 	}
-	return "C:/"
+	return "drive://c"
 }
 
 func listDrivesPlatform() []contracts.DriveInfo {
@@ -76,12 +75,6 @@ func listDrivesPlatform() []contracts.DriveInfo {
 			drives = append(drives, info)
 		}
 	}
-
-	drives = append(drives, contracts.DriveInfo{
-		Name:      "Registry",
-		Path:      pathref.RegistryScheme,
-		DriveType: contracts.DriveRegistry,
-	})
 
 	return drives
 }
@@ -118,12 +111,20 @@ func buildDriveInfo(root string) contracts.DriveInfo {
 
 	return contracts.DriveInfo{
 		Name:       name,
-		Path:       filepath.ToSlash(root),
+		Path:       driveRootReference(root),
 		DriveType:  driveType,
 		TotalSpace: int64(totalBytes),
 		FreeSpace:  int64(totalFreeBytes),
 		FileSystem: fsName,
 	}
+}
+
+func driveRootReference(root string) string {
+	normalized := strings.TrimSpace(filepath.ToSlash(root))
+	if len(normalized) >= 2 && normalized[1] == ':' {
+		return "drive://" + strings.ToLower(normalized[:1])
+	}
+	return normalized
 }
 
 func toDriveType(kind uint32) contracts.DriveType {

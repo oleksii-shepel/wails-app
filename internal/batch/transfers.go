@@ -18,6 +18,8 @@ type TransferCallbacks struct {
 	RunElevatedDelete              func(path string, recursive bool, useTrash *bool) (bool, error)
 	MoveToTrash                    func(path string) error
 	CalculateSize                  func(path string) (int64, int64)
+	ResolvePath                    func(path string) (string, error)
+	ToPublicPath                   func(path string) string
 }
 
 type TransferRunner struct {
@@ -28,10 +30,28 @@ func NewTransferRunner(callbacks TransferCallbacks) *TransferRunner {
 	return &TransferRunner{callbacks: callbacks}
 }
 
+func (r *TransferRunner) resolvePath(path string) (string, error) {
+	if r.callbacks.ResolvePath == nil {
+		return path, nil
+	}
+	return r.callbacks.ResolvePath(path)
+}
+
+func (r *TransferRunner) toPublicPath(path string) string {
+	if r.callbacks.ToPublicPath == nil {
+		return path
+	}
+	return r.callbacks.ToPublicPath(path)
+}
+
 func (r *TransferRunner) Copy(op *internalops.ActiveOperation, req contracts.BatchRequest) (*contracts.BatchResult, error) {
 	var totalItems, totalBytes int64
 	for _, item := range req.Items {
-		n, b := r.callbacks.CalculateSize(item.Source)
+		resolvedSource, err := r.resolvePath(item.Source)
+		if err != nil {
+			continue
+		}
+		n, b := r.callbacks.CalculateSize(resolvedSource)
 		totalItems += n
 		totalBytes += b
 	}
@@ -47,7 +67,14 @@ func (r *TransferRunner) Copy(op *internalops.ActiveOperation, req contracts.Bat
 			break
 		}
 
-		if _, err := os.Stat(item.Source); err != nil {
+		resolvedSource, err := r.resolvePath(item.Source)
+		if err != nil {
+			result.Failed++
+			result.Errors = append(result.Errors, r.callbacks.BatchErr(item.Source, item.Destination, err))
+			continue
+		}
+
+		if _, err := os.Stat(resolvedSource); err != nil {
 			result.Failed++
 			result.Errors = append(result.Errors, r.callbacks.BatchErr(item.Source, "", err))
 			continue
@@ -63,17 +90,18 @@ func (r *TransferRunner) Copy(op *internalops.ActiveOperation, req contracts.Bat
 			result.Skipped++
 			continue
 		}
+		publicDst := r.toPublicPath(finalDst)
 
-		if err := fileOps.CopyPath(item.Source, finalDst, req.Recursive); err != nil {
+		if err := fileOps.CopyPath(resolvedSource, finalDst, req.Recursive); err != nil {
 			if r.callbacks.IsPermissionDenied(err) {
-				success, elevErr := r.callbacks.RunElevatedCopy(item.Source, finalDst, req.Recursive)
+				success, elevErr := r.callbacks.RunElevatedCopy(resolvedSource, finalDst, req.Recursive)
 				if elevErr == nil && success {
 					result.Succeeded++
 					continue
 				}
 			}
 			result.Failed++
-			result.Errors = append(result.Errors, r.callbacks.BatchErr(item.Source, finalDst, err))
+			result.Errors = append(result.Errors, r.callbacks.BatchErr(item.Source, publicDst, err))
 			continue
 		}
 		result.Succeeded++
@@ -87,7 +115,9 @@ func (r *TransferRunner) Copy(op *internalops.ActiveOperation, req contracts.Bat
 func (r *TransferRunner) Move(op *internalops.ActiveOperation, req contracts.BatchRequest) (*contracts.BatchResult, error) {
 	allNoOp := true
 	for _, item := range req.Items {
-		if !SameDir(filepath.Dir(item.Source), filepath.Dir(item.Destination)) {
+		resolvedSource, srcErr := r.resolvePath(item.Source)
+		resolvedDestination, dstErr := r.resolvePath(item.Destination)
+		if srcErr != nil || dstErr != nil || !SameDir(filepath.Dir(resolvedSource), filepath.Dir(resolvedDestination)) {
 			allNoOp = false
 			break
 		}
@@ -98,7 +128,11 @@ func (r *TransferRunner) Move(op *internalops.ActiveOperation, req contracts.Bat
 
 	var totalItems, totalBytes int64
 	for _, item := range req.Items {
-		n, b := r.callbacks.CalculateSize(item.Source)
+		resolvedSource, err := r.resolvePath(item.Source)
+		if err != nil {
+			continue
+		}
+		n, b := r.callbacks.CalculateSize(resolvedSource)
 		totalItems += n
 		totalBytes += b
 	}
@@ -114,12 +148,25 @@ func (r *TransferRunner) Move(op *internalops.ActiveOperation, req contracts.Bat
 			break
 		}
 
-		if SameDir(filepath.Dir(item.Source), filepath.Dir(item.Destination)) {
+		resolvedSource, err := r.resolvePath(item.Source)
+		if err != nil {
+			result.Failed++
+			result.Errors = append(result.Errors, r.callbacks.BatchErr(item.Source, item.Destination, err))
+			continue
+		}
+		resolvedDestination, err := r.resolvePath(item.Destination)
+		if err != nil {
+			result.Failed++
+			result.Errors = append(result.Errors, r.callbacks.BatchErr(item.Source, item.Destination, err))
+			continue
+		}
+
+		if SameDir(filepath.Dir(resolvedSource), filepath.Dir(resolvedDestination)) {
 			result.Skipped++
 			continue
 		}
 
-		srcInfo, err := os.Stat(item.Source)
+		srcInfo, err := os.Stat(resolvedSource)
 		if err != nil {
 			result.Failed++
 			result.Errors = append(result.Errors, r.callbacks.BatchErr(item.Source, "", err))
@@ -136,31 +183,32 @@ func (r *TransferRunner) Move(op *internalops.ActiveOperation, req contracts.Bat
 			result.Skipped++
 			continue
 		}
+		publicDst := r.toPublicPath(finalDst)
 
-		if err = os.Rename(item.Source, finalDst); err != nil {
+		if err = os.Rename(resolvedSource, finalDst); err != nil {
 			if r.callbacks.IsPermissionDenied(err) {
-				success, elevErr := r.callbacks.RunElevatedMove(item.Source, finalDst)
+				success, elevErr := r.callbacks.RunElevatedMove(resolvedSource, finalDst)
 				if elevErr == nil && success {
 					result.Succeeded++
 					continue
 				}
 			}
-			if err2 := fileOps.CopyPath(item.Source, finalDst, true); err2 != nil {
+			if err2 := fileOps.CopyPath(resolvedSource, finalDst, true); err2 != nil {
 				if r.callbacks.IsPermissionDenied(err2) {
-					success, elevErr := r.callbacks.RunElevatedMove(item.Source, finalDst)
+					success, elevErr := r.callbacks.RunElevatedMove(resolvedSource, finalDst)
 					if elevErr == nil && success {
 						result.Succeeded++
 						continue
 					}
 				}
 				result.Failed++
-				result.Errors = append(result.Errors, r.callbacks.BatchErr(item.Source, finalDst, err2))
+				result.Errors = append(result.Errors, r.callbacks.BatchErr(item.Source, publicDst, err2))
 				continue
 			}
-			if err2 := os.RemoveAll(item.Source); err2 != nil {
+			if err2 := os.RemoveAll(resolvedSource); err2 != nil {
 				if r.callbacks.IsPermissionDenied(err2) {
 					useTrash := false
-					success, elevErr := r.callbacks.RunElevatedDelete(item.Source, true, &useTrash)
+					success, elevErr := r.callbacks.RunElevatedDelete(resolvedSource, true, &useTrash)
 					if elevErr == nil && success {
 						result.Succeeded++
 						continue
@@ -184,7 +232,11 @@ func (r *TransferRunner) Move(op *internalops.ActiveOperation, req contracts.Bat
 func (r *TransferRunner) Delete(op *internalops.ActiveOperation, req contracts.BatchDeleteRequest) (*contracts.BatchResult, error) {
 	var totalItems, totalBytes int64
 	for _, path := range req.Paths {
-		n, b := r.callbacks.CalculateSize(path)
+		resolvedPath, err := r.resolvePath(path)
+		if err != nil {
+			continue
+		}
+		n, b := r.callbacks.CalculateSize(resolvedPath)
 		totalItems += n
 		totalBytes += b
 	}
@@ -199,12 +251,19 @@ func (r *TransferRunner) Delete(op *internalops.ActiveOperation, req contracts.B
 			break
 		}
 
+		resolvedPath, err := r.resolvePath(path)
+		if err != nil {
+			result.Failed++
+			result.Errors = append(result.Errors, r.callbacks.BatchErr(path, "", err))
+			continue
+		}
+
 		useTrash := req.UseTrash == nil || *req.UseTrash
 		if useTrash {
-			if err := r.callbacks.MoveToTrash(path); err != nil {
+			if err := r.callbacks.MoveToTrash(resolvedPath); err != nil {
 				if r.callbacks.ShouldRetryDeleteWithElevation(err) {
 					useTrashElev := true
-					success, elevErr := r.callbacks.RunElevatedDelete(path, false, &useTrashElev)
+					success, elevErr := r.callbacks.RunElevatedDelete(resolvedPath, false, &useTrashElev)
 					if elevErr == nil && success {
 						progress.Advance(1, 0, filepath.Base(path), 0, false)
 						result.Succeeded++
@@ -223,7 +282,7 @@ func (r *TransferRunner) Delete(op *internalops.ActiveOperation, req contracts.B
 			continue
 		}
 
-		info, err := os.Lstat(path)
+		info, err := os.Lstat(resolvedPath)
 		if err != nil {
 			result.Failed++
 			result.Errors = append(result.Errors, r.callbacks.BatchErr(path, "", err))
@@ -231,10 +290,10 @@ func (r *TransferRunner) Delete(op *internalops.ActiveOperation, req contracts.B
 		}
 
 		if info.IsDir() && req.Recursive {
-			if err := fileOps.DeleteDir(path); err != nil {
+			if err := fileOps.DeleteDir(resolvedPath); err != nil {
 				if r.callbacks.ShouldRetryDeleteWithElevation(err) {
 					useTrashElev := false
-					success, elevErr := r.callbacks.RunElevatedDelete(path, true, &useTrashElev)
+					success, elevErr := r.callbacks.RunElevatedDelete(resolvedPath, true, &useTrashElev)
 					if elevErr == nil && success {
 						result.Succeeded++
 						continue
@@ -246,10 +305,10 @@ func (r *TransferRunner) Delete(op *internalops.ActiveOperation, req contracts.B
 			}
 		} else {
 			size := info.Size()
-			if err := os.Remove(path); err != nil {
+			if err := os.Remove(resolvedPath); err != nil {
 				if r.callbacks.ShouldRetryDeleteWithElevation(err) {
 					useTrashElev := false
-					success, elevErr := r.callbacks.RunElevatedDelete(path, req.Recursive, &useTrashElev)
+					success, elevErr := r.callbacks.RunElevatedDelete(resolvedPath, req.Recursive, &useTrashElev)
 					if elevErr == nil && success {
 						progress.Advance(1, size, filepath.Base(path), size, false)
 						result.Succeeded++

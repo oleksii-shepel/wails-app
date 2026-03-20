@@ -6,6 +6,7 @@ import (
 	"runtime"
 
 	contracts "wails-app/internal/contracts"
+	"wails-app/internal/pathref"
 )
 
 func GetOSInfo() contracts.OSInfoResponse {
@@ -36,7 +37,7 @@ func GetOSInfo() contracts.OSInfoResponse {
 }
 
 func ListDrives() contracts.DrivesList {
-	return contracts.DrivesList{Drives: listDrivesPlatform()}
+	return contracts.DrivesList{Drives: append(listDrivesPlatform(), syntheticDrives()...)}
 }
 
 func GetSpecialFolders() contracts.SpecialFoldersResponse {
@@ -49,4 +50,44 @@ func getHomeDir() string {
 		return ""
 	}
 	return filepath.ToSlash(home)
+}
+
+func syntheticDrives() []contracts.DriveInfo {
+	return []contracts.DriveInfo{
+		{
+			Name:      "Memory",
+			Path:      pathref.MemoryScheme,
+			DriveType: contracts.DriveMemory,
+		},
+		{
+			Name:      "Registry",
+			Path:      pathref.RegistryScheme,
+			DriveType: contracts.DriveRegistry,
+		},
+		{
+			Name:      "Search",
+			Path:      pathref.SearchScheme,
+			DriveType: contracts.DriveSearch,
+		},
+		{
+			Name:      "SMB",
+			Path:      pathref.SMBScheme,
+			DriveType: contracts.DriveSMB,
+		},
+		{
+			Name:      "FTP",
+			Path:      pathref.FTPScheme,
+			DriveType: contracts.DriveFTP,
+		},
+		{
+			Name:      "SFTP",
+			Path:      pathref.SFTPScheme,
+			DriveType: contracts.DriveSFTP,
+		},
+		{
+			Name:      "WebDAV",
+			Path:      pathref.WebDAVScheme,
+			DriveType: contracts.DriveWebDAV,
+		},
+	}
 }

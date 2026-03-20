@@ -155,7 +155,7 @@ export class PathHistoryService {
    */
   private async getDirectorySuggestions(query: string): Promise<PathSuggestion[]> {
     try {
-      const normalizedQuery = query.replace(/\\/g, '/');
+      const normalizedQuery = this.normalizePath(query);
       // Extract the directory part
       const lastSlash = normalizedQuery.lastIndexOf('/');
       if (lastSlash < 0) {
@@ -193,12 +193,12 @@ export class PathHistoryService {
   }
 
   private canUseDirectoryAutocomplete(query: string): boolean {
-    const normalized = query.replace(/\\/g, '/');
+    const normalized = this.normalizePath(query);
     return (
       normalized.startsWith('/') ||
       normalized.startsWith('./') ||
       normalized.startsWith('../') ||
-      /^[a-zA-Z]:\//.test(normalized) ||
+      /^drive:\/\/[a-z](?:\/.*)?$/i.test(normalized) ||
       normalized.startsWith('//')
     );
   }

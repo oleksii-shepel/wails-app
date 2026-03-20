@@ -27,6 +27,9 @@ func (a *App) ResolveLink(path string) (*ResolvedLink, error) {
 }
 
 func (a *App) IsAbsPath(path string) bool {
+	if pathref.IsDrive(pathref.Normalize(path)) {
+		return true
+	}
 	return filepath.IsAbs(path)
 }
 
@@ -43,7 +46,7 @@ func joinAliasParts(parts []string) (string, bool) {
 	}
 
 	first := pathref.Normalize(parts[0])
-	if !pathref.IsAlias(first) {
+	if !pathref.IsAlias(first) && !pathref.IsDrive(first) {
 		return "", false
 	}
 
@@ -60,9 +63,13 @@ func joinAliasParts(parts []string) (string, bool) {
 }
 
 func (a *App) SplitPath(path string) map[string]string {
-	dir, file, name, ext := internalplatform.SplitPath(path)
+	resolvedPath, err := resolveMemoryAlias(path)
+	if err != nil {
+		resolvedPath = pathref.ToNativePath(pathref.Normalize(path))
+	}
+	dir, file, name, ext := internalplatform.SplitPath(resolvedPath)
 	return map[string]string{
-		"dir":  dir,
+		"dir":  toPublicMemoryPath(dir),
 		"base": file,
 		"name": name,
 		"ext":  ext,
@@ -70,7 +77,11 @@ func (a *App) SplitPath(path string) map[string]string {
 }
 
 func (a *App) GetParentPath(path string) string {
-	return internalplatform.ParentPath(path)
+	resolvedPath, err := resolveMemoryAlias(path)
+	if err != nil {
+		resolvedPath = pathref.ToNativePath(pathref.Normalize(path))
+	}
+	return toPublicMemoryPath(internalplatform.ParentPath(resolvedPath))
 }
 
 func (a *App) PathExists(path string) bool {

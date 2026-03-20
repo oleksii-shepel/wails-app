@@ -186,11 +186,11 @@ export class FileViewTreeController {
   }
 
   private createRootNode(rootPath: string, archivePath?: string): TreeNode {
-    const isWindowsRoot = /^[A-Za-z]:\/$/.test(rootPath);
+    const isWindowsRoot = /^drive:\/\/[a-z]$/i.test(rootPath);
     const isRegistryRoot = rootPath === 'registry://';
     const rootName = archivePath
       ? rootPath.split('/').filter(Boolean).pop() || rootPath
-      : (isRegistryRoot ? 'Registry' : (rootPath === '/' ? '/' : (isWindowsRoot ? rootPath.slice(0, 2) : rootPath)));
+      : (isRegistryRoot ? 'Registry' : (rootPath === '/' ? '/' : (isWindowsRoot ? `${rootPath.slice(-1).toUpperCase()}:` : rootPath)));
     return {
       name: rootName,
       path: rootPath,

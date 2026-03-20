@@ -180,9 +180,11 @@ export class FilePaneNavigationController {
 
   private async resolveInitialPath(host: FilePaneNavigationHost, savedPath: string): Promise<string> {
     const allPaths = host.workspaceService.getAllTabPaths();
-    const windowsRoot = allPaths.find(path => /^[A-Za-z]:[/\\]/.test(path));
+    const windowsRoot = allPaths
+      .map(path => normalizePath(path))
+      .find(path => /^drive:\/\/[a-z](?:\/.*)?$/i.test(path));
     let platformRoot = windowsRoot
-      ? windowsRoot.replace(/\\/g, '/').replace(/^([A-Za-z]:).*$/, '$1/')
+      ? windowsRoot.replace(/^(drive:\/\/[a-z]).*$/i, '$1')
       : '/';
 
     if (platformRoot === '/') {

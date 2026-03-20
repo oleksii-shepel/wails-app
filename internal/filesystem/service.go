@@ -75,18 +75,20 @@ func NewService(config ServiceConfig) *Service {
 }
 
 func (s *Service) resolvePublicPath(path string) (string, error) {
+	normalized := pathref.Normalize(path)
+	nativePath := pathref.ToNativePath(normalized)
 	if s.memoryResolver == nil {
-		return pathref.Normalize(path), nil
+		return nativePath, nil
 	}
-	resolved, _, err := s.memoryResolver.ResolvePublicPath(path)
+	resolved, _, err := s.memoryResolver.ResolvePublicPath(nativePath)
 	return resolved, err
 }
 
 func (s *Service) toPublicPath(path string) string {
 	if s.memoryResolver == nil {
-		return filepath.ToSlash(path)
+		return pathref.FromNativePath(filepath.ToSlash(path))
 	}
-	return s.memoryResolver.ToPublicPath(path)
+	return pathref.FromNativePath(s.memoryResolver.ToPublicPath(path))
 }
 
 func (s *Service) mapFileInfo(info contracts.FileInfo) contracts.FileInfo {

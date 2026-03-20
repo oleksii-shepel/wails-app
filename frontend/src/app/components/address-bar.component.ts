@@ -1035,11 +1035,6 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     const normalized = normalizePath(raw);
     let target = normalized;
 
-    // Collapse only true drive roots like "C:" or "C:/".
-    if (/^[A-Za-z]:\/?$/.test(normalized)) {
-      target = normalized.slice(0, 2) + '/';
-    }
-
     // For UNC, keep/share root form (//server/share).
     if (normalized.startsWith('//')) {
       const parts = normalized.split('/').filter(Boolean);

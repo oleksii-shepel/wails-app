@@ -8,6 +8,7 @@ import (
 )
 
 const (
+	DriveScheme     = "drive://"
 	RegistryScheme  = "registry://"
 	SearchScheme    = "search://"
 	MemoryScheme    = "memory://"
@@ -84,6 +85,9 @@ func Normalize(path string) string {
 	if trimmed == "" {
 		return ""
 	}
+	if drivePath, ok := normalizeDrivePath(trimmed); ok {
+		return drivePath
+	}
 	if spec, ok := aliasSpecFor(trimmed); ok {
 		return normalizeAliasPath(trimmed, spec)
 	}
@@ -91,6 +95,68 @@ func Normalize(path string) string {
 		return trimmed
 	}
 	return normalizeAliasPath(trimmed, aliasSpec{scheme: RegistryScheme, vfsRoot: registryVFSRoot})
+}
+
+func normalizeDrivePath(path string) (string, bool) {
+	trimmed := strings.TrimSpace(strings.ReplaceAll(path, "\\", "/"))
+	if len(trimmed) >= len(DriveScheme)+1 && strings.EqualFold(trimmed[:len(DriveScheme)], DriveScheme) {
+		rest := strings.TrimLeft(trimmed[len(DriveScheme):], "/")
+		if len(rest) == 0 || !isAlpha(rest[0]) {
+			return "", false
+		}
+		drive := strings.ToLower(rest[:1])
+		remainder := strings.Trim(rest[1:], "/")
+		if remainder == "" {
+			return DriveScheme + drive, true
+		}
+		return DriveScheme + drive + "/" + strings.ReplaceAll(remainder, "//", "/"), true
+	}
+	if len(trimmed) >= 2 && isAlpha(trimmed[0]) && trimmed[1] == ':' {
+		drive := strings.ToLower(trimmed[:1])
+		remainder := strings.Trim(trimmed[2:], "/")
+		if remainder == "" {
+			return DriveScheme + drive, true
+		}
+		remainder = strings.Join(strings.FieldsFunc(remainder, func(r rune) bool { return r == '/' }), "/")
+		if remainder == "" {
+			return DriveScheme + drive, true
+		}
+		return DriveScheme + drive + "/" + remainder, true
+	}
+	return "", false
+}
+
+func isAlpha(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
+}
+
+func IsDrive(path string) bool {
+	_, ok := normalizeDrivePath(path)
+	return ok
+}
+
+func ToNativePath(path string) string {
+	normalized := Normalize(path)
+	if !strings.HasPrefix(strings.ToLower(normalized), DriveScheme) {
+		return normalized
+	}
+	rest := normalized[len(DriveScheme):]
+	if len(rest) == 0 {
+		return normalized
+	}
+	drive := strings.ToUpper(rest[:1])
+	remainder := strings.TrimPrefix(rest[1:], "/")
+	if remainder == "" {
+		return drive + ":/"
+	}
+	return drive + ":/" + remainder
+}
+
+func FromNativePath(path string) string {
+	if drivePath, ok := normalizeDrivePath(path); ok {
+		return drivePath
+	}
+	return strings.TrimSpace(strings.ReplaceAll(path, "\\", "/"))
 }
 
 func IsRegistry(path string) bool {

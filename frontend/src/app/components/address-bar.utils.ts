@@ -10,6 +10,36 @@ export interface SearchAliasQuery {
   recursive: boolean;
 }
 
+function canonicalDriveReference(p: string): string | null {
+  const normalized = (p || '').trim().replace(/\\/g, '/');
+  const driveRef = /^drive:\/\/([a-z])(\/.*)?$/i.exec(normalized);
+  if (driveRef) {
+    const drive = driveRef[1].toLowerCase();
+    const rest = (driveRef[2] || '').replace(/^\/+/, '').replace(/\/+/, '/');
+    return rest ? `drive://${drive}/${rest}` : `drive://${drive}`;
+  }
+  const windowsRef = /^([a-z]):(\/.*)?$/i.exec(normalized);
+  if (windowsRef) {
+    const drive = windowsRef[1].toLowerCase();
+    const rest = (windowsRef[2] || '').replace(/^\/+/, '').replace(/\/+/g, '/');
+    return rest ? `drive://${drive}/${rest}` : `drive://${drive}`;
+  }
+  return null;
+}
+
+function isDriveReference(p: string): boolean {
+  return canonicalDriveReference(p) !== null;
+}
+
+function toShortDriveDisplayPath(p: string): string {
+  const canonical = canonicalDriveReference(p);
+  if (!canonical) return p;
+  const rest = canonical.slice('drive://'.length);
+  const drive = rest.slice(0, 1).toUpperCase();
+  const suffix = rest.slice(1).replace(/^\/+/, '');
+  return suffix ? `${drive}:/${suffix}` : `${drive}:/`;
+}
+
 function aliasSchemeFor(p: string): string | null {
   const normalized = (p || '').trim().replace(/\\/g, '/').toLowerCase();
   const match = /^([a-z][a-z0-9+.-]*):\/\//i.exec(normalized);
@@ -105,13 +135,12 @@ function normalizeRegistryReference(p: string): string {
 export function canonicalizePathReference(p: string): string {
   if (!p) return p;
 
-  const n = p.replace(/\\/g, '/');
-  const driveMatch = /^drive:\/\/([A-Za-z])(\/.*)?$/i.exec(n);
-  if (driveMatch) {
-    const drive = driveMatch[1].toUpperCase();
-    const rest = (driveMatch[2] || '/').replace(/\/+/g, '/');
-    return `${drive}:${rest.startsWith('/') ? rest : '/' + rest}`;
+  const driveReference = canonicalDriveReference(p);
+  if (driveReference) {
+    return driveReference;
   }
+
+  const n = p.replace(/\\/g, '/');
 
   const registryMatch = /^registry:\/\/(.*)?$/i.exec(n);
   if (registryMatch) {
@@ -128,7 +157,7 @@ export function canonicalizePathReference(p: string): string {
 }
 
 export function isWindowsPath(p: string): boolean {
-  return /^[A-Za-z]:/.test(canonicalizePathReference(p));
+  return isDriveReference(canonicalizePathReference(p));
 }
 
 export function normalizePath(p: string): string {
@@ -141,14 +170,12 @@ export function normalizePath(p: string): string {
   if (aliasScheme) {
     return normalizeAliasReference(n, aliasScheme);
   }
-  if (isWindowsPath(n)) {
-    const drive = n.slice(0, 2);
-    const rest = n.slice(2).replace(/\/+/g, '/');
-    n = drive + (rest.startsWith('/') ? rest : '/' + rest);
+  if (isDriveReference(n)) {
+    return canonicalDriveReference(n) || n;
   } else {
     n = n.replace(/\/+/g, '/');
   }
-  if (n.length > 1 && n.endsWith('/') && !(/^[A-Za-z]:\//.test(n) && n.length === 3)) {
+  if (n.length > 1 && n.endsWith('/')) {
     n = n.slice(0, -1);
   }
   return n || '/';
@@ -163,7 +190,7 @@ export function pathIdentityKey(p: string): string {
   if (isRegistryReference(normalized)) {
     return normalized.toLowerCase();
   }
-  if (/^[A-Za-z]:/.test(normalized) || normalized.startsWith('//')) {
+  if (isDriveReference(normalized) || normalized.startsWith('//')) {
     return normalized.toLowerCase();
   }
   return normalized;
@@ -198,7 +225,15 @@ export function parentPath(p: string): string {
     const idx = rel.lastIndexOf('/');
     return idx < 0 ? aliasScheme : `${aliasScheme}${rel.slice(0, idx)}`;
   }
-  if (/^[A-Za-z]:\/$/.test(n) || /^[A-Za-z]:$/.test(n)) return n;
+  const driveReference = canonicalDriveReference(n);
+  if (driveReference) {
+    const rest = driveReference.slice('drive://'.length);
+    const drive = rest.slice(0, 1).toLowerCase();
+    const rel = rest.slice(1).replace(/^\/+/, '');
+    if (!rel) return `drive://${drive}`;
+    const idx = rel.lastIndexOf('/');
+    return idx < 0 ? `drive://${drive}` : `drive://${drive}/${rel.slice(0, idx)}`;
+  }
   if (n === '/') return '/';
   const parts = n.split('/').filter(Boolean);
   if (parts.length <= 1) {
@@ -235,6 +270,10 @@ export function shortenPath(p: string): string {
     const parts = rel.split('/').filter(Boolean);
     if (parts.length <= 2) return `${aliasScheme}${rel}`;
     return `${aliasScheme}…/${parts.slice(-2).join('/')}`;
+  }
+  const driveReference = canonicalDriveReference(p);
+  if (driveReference) {
+    return toShortDriveDisplayPath(driveReference);
   }
   if (p.length <= 28) return p;
   const parts = p.split('/').filter(Boolean);
@@ -301,6 +340,30 @@ export function buildSegments(p: string): PathSegment[] {
       segs.push({
         label: part,
         fullPath: `${aliasScheme}${parts.slice(0, i + 1).join('/')}`,
+        isRoot: false,
+      });
+    });
+    return segs;
+  }
+
+  const driveReference = canonicalDriveReference(p);
+  if (driveReference) {
+    const rest = driveReference.slice('drive://'.length);
+    const drive = rest.slice(0, 1).toUpperCase() + ':';
+    const rel = rest.slice(1).replace(/^\/+/, '');
+    const parts = rel ? rel.split('/').filter(Boolean) : [];
+
+    const segs: PathSegment[] = [{
+      label: drive,
+      fullPath: `drive://${drive[0].toLowerCase()}`,
+      isRoot: true,
+      rootLabel: drive,
+    }];
+
+    parts.forEach((part, i) => {
+      segs.push({
+        label: part,
+        fullPath: `drive://${drive[0].toLowerCase()}/${parts.slice(0, i + 1).join('/')}`,
         isRoot: false,
       });
     });
@@ -417,11 +480,15 @@ export function parsePathWithArchives(path: string): {
 } {
   path = normalizePath(path);
   const ARCHIVE_RE = /\.(zip|tar|tgz|tar\.gz|tar\.bz2|tar\.xz|gz|bz2|xz|rar|7z)$/i;
-  const sep = path.includes('\\') ? '\\' : '/';
-  const parts = path.replace(/\\/g, '/').split('/').filter(Boolean);
+  const driveReference = canonicalDriveReference(path);
+  const withoutDrive = driveReference ? driveReference.slice('drive://'.length) : '';
+  const driveLetter = driveReference ? withoutDrive.slice(0, 1).toLowerCase() : '';
+  const driveRemainder = driveReference ? withoutDrive.slice(1).replace(/^\/+/, '') : '';
+  const parts = driveReference
+    ? (driveRemainder ? driveRemainder.split('/').filter(Boolean) : [])
+    : path.replace(/\\/g, '/').split('/').filter(Boolean);
 
-  // Windows UNC or drive-letter prefix reconstruction
-  const isWin = /^[A-Za-z]:/.test(path) || path.startsWith('//') || path.startsWith('\\\\');
+  const isWin = !!driveReference || path.startsWith('//') || path.startsWith('\\');
 
   let archiveBoundary = -1;
   for (let i = 0; i < parts.length; i++) {
@@ -437,7 +504,9 @@ export function parsePathWithArchives(path: string): {
 
   // Reconstruct the FS prefix correctly for Windows vs POSIX
   let fsDirPath: string;
-  if (isWin && /^[A-Za-z]:/.test(parts[0])) {
+  if (driveReference) {
+    fsDirPath = `drive://${driveLetter}` + (fsParts.length ? `/${fsParts.join('/')}` : '');
+  } else if (isWin && /^[A-Za-z]:/.test(parts[0])) {
     fsDirPath = fsParts.join('/');
   } else if (path.startsWith('//') || path.startsWith('\\\\')) {
     fsDirPath = '//' + fsParts.join('/');

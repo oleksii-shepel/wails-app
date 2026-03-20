@@ -928,14 +928,17 @@ export class WorkspaceService {
       const rel = normalized.slice('registry://'.length);
       return rel.split('/').filter(Boolean).pop() || 'Registry';
     }
+    const driveMatch = /^drive:\/\/([a-z])(\/.*)?$/i.exec(normalized);
+    if (driveMatch) {
+      const rel = (driveMatch[2] || '').replace(/^\/+/, '');
+      return rel.split('/').filter(Boolean).pop() || `${driveMatch[1].toUpperCase()}:`;
+    }
     const aliasMatch = /^([a-z][a-z0-9+.-]*):\/\/(.*)?$/i.exec(normalized);
     if (aliasMatch) {
       const scheme = aliasMatch[1].toLowerCase();
       const rel = (aliasMatch[2] || '').replace(/^\/+/, '');
       return rel.split('/').filter(Boolean).pop() || scheme;
     }
-    // Drive roots: show "C:" not "C:/"
-    if (/^[a-zA-Z]:\/?$/.test(normalized)) return normalized.slice(0, 2);
     return normalized;
   }
 
@@ -946,10 +949,11 @@ export class WorkspaceService {
   private getRootForPath(path: string): string {
     const normalized = this.normalizePath(path);
     if (normalized.startsWith('registry://')) return 'registry://';
+    const driveMatch = /^drive:\/\/([a-z])(?:\/.*)?$/i.exec(normalized);
+    if (driveMatch) return `drive://${driveMatch[1].toLowerCase()}`;
     const aliasMatch = /^([a-z][a-z0-9+.-]*):\/\//i.exec(normalized);
     if (aliasMatch) return `${aliasMatch[1].toLowerCase()}://`;
-    const drive = normalized.match(/^([a-zA-Z]):/);
-    return drive ? `${drive[1]}:/` : '/';
+    return '/';
   }
 
   getAllTabPaths(): string[] {

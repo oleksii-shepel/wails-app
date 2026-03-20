@@ -1071,7 +1071,7 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
       const file = files[i];
       const filePath = (file as any).path as string | undefined;
       if (filePath) {
-        paths.add(filePath);
+        paths.add(this.normalizePath(filePath));
       }
     }
 
@@ -1092,9 +1092,9 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
     if (!value) return null;
     const trimmed = value.trim();
     if (!/^file:\/\//i.test(trimmed)) {
-      if (/^[A-Za-z]:[\\/]/.test(trimmed)) return trimmed;
-      if (/^\\\\/.test(trimmed)) return trimmed;
-      if (trimmed.startsWith('/')) return trimmed;
+      if (/^[A-Za-z]:[\\/]/.test(trimmed)) return this.normalizePath(trimmed);
+      if (/^\\\\/.test(trimmed)) return this.normalizePath(trimmed);
+      if (trimmed.startsWith('/')) return this.normalizePath(trimmed);
       return null;
     }
 
@@ -1106,14 +1106,14 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
       }
 
       if (/^[A-Za-z]:\//.test(decoded)) {
-        return decoded.replace(/\//g, '\\');
+        return this.normalizePath(decoded.replace(/\//g, '\\'));
       }
 
       if (!decoded.startsWith('/')) {
-        return ('//' + decoded).replace(/\//g, '\\');
+        return this.normalizePath(('//' + decoded).replace(/\//g, '\\'));
       }
 
-      return decoded;
+      return this.normalizePath(decoded);
     } catch {
       return null;
     }

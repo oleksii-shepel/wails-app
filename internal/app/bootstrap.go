@@ -88,23 +88,25 @@ func getMemoryPathResolver() (*internalmemoryfs.PathResolver, error) {
 }
 
 func resolveMemoryAlias(path string) (string, error) {
-	if !pathref.IsMemory(path) {
-		return path, nil
+	normalized := pathref.Normalize(path)
+	nativePath := pathref.ToNativePath(normalized)
+	if !pathref.IsMemory(normalized) {
+		return nativePath, nil
 	}
 	resolver, err := getMemoryPathResolver()
 	if err != nil {
 		return "", err
 	}
-	resolved, _, err := resolver.ResolvePublicPath(path)
+	resolved, _, err := resolver.ResolvePublicPath(nativePath)
 	return resolved, err
 }
 
 func toPublicMemoryPath(path string) string {
 	resolver, err := getMemoryPathResolver()
 	if err != nil || resolver == nil {
-		return path
+		return pathref.FromNativePath(path)
 	}
-	return resolver.ToPublicPath(path)
+	return pathref.FromNativePath(resolver.ToPublicPath(path))
 }
 
 func mapMemoryListing(listing *contracts.DirectoryListing, requestedPath string) *contracts.DirectoryListing {

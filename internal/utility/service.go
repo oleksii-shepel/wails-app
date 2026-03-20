@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"wails-app/internal/pathref"
 	internalplatform "wails-app/internal/platform"
 )
 
@@ -35,18 +36,19 @@ func NewService(config ServiceConfig) *Service {
 }
 
 func (s *Service) resolvePublicPath(path string) (string, error) {
+	nativePath := pathref.ToNativePath(pathref.Normalize(path))
 	if s.memoryResolver == nil {
-		return path, nil
+		return nativePath, nil
 	}
-	resolved, _, err := s.memoryResolver.ResolvePublicPath(path)
+	resolved, _, err := s.memoryResolver.ResolvePublicPath(nativePath)
 	return resolved, err
 }
 
 func (s *Service) toPublicPath(path string) string {
 	if s.memoryResolver == nil {
-		return path
+		return pathref.FromNativePath(path)
 	}
-	return s.memoryResolver.ToPublicPath(path)
+	return pathref.FromNativePath(s.memoryResolver.ToPublicPath(path))
 }
 
 func (s *Service) OpenFile(path string) error {

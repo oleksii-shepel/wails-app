@@ -21,6 +21,15 @@ interface TabSession {
   enteredDir: boolean;
 }
 
+function toEditorDriveDisplay(path: string): string {
+  const normalized = normalizePath(path);
+  const match = /^drive:\/\/([a-z])(\/.*)?$/i.exec(normalized);
+  if (!match) return normalized;
+  const drive = match[1].toUpperCase();
+  const rest = (match[2] || '').replace(/^\/+/, '');
+  return rest ? `${drive}:/${rest}` : `${drive}:/`;
+}
+
 @Component({
   selector: 'address-bar-edit',
   standalone: true,
@@ -632,8 +641,9 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
 
   private getDefaultRootForTab(): string | null {
     const cp = normalizePath((this.currentPath || '').trim());
-    if (/^[A-Za-z]:\//.test(cp)) {
-      return cp.slice(0, 2).toUpperCase() + '/';
+    const driveMatch = /^drive:\/\/([a-z])(?:\/.*)?$/i.exec(cp);
+    if (driveMatch) {
+      return `${driveMatch[1].toUpperCase()}:/`;
     }
     return null;
   }
@@ -675,7 +685,7 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
 
   private toDisplayPath(path: string): string {
     if (!path) return '';
-    const display = normalizePath(path);
+    const display = toEditorDriveDisplay(path);
     if (!this.shouldNormalizeToForwardSlashes() && !isWindowsPath(display)) return display;
     return display.replace(/\\/g, '/');
   }
@@ -1008,7 +1018,8 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
 
     for (const entry of this.syntheticRootSuggestions) {
       const rootPath = entry.path.toLowerCase();
-      const schemeName = entry.path.slice(0, -3).toLowerCase();
+      const schemeMatch = /^([a-z][a-z0-9+.-]*:\/\/)/i.exec(entry.path);
+      const schemeName = (schemeMatch?.[1] || entry.path).toLowerCase();
       const schemeNameWithColon = `${schemeName}:`;
 
       let score = 0;
@@ -1039,7 +1050,7 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
     try {
       const drives = await this.apiService.listDrives();
       this.syntheticRootSuggestions = drives
-        .filter((drive) => /^[a-z][a-z0-9+.-]*:\/\/$/i.test((drive.path || '').trim().replace(/\\/g, '/')))
+        .filter((drive) => /^[a-z][a-z0-9+.-]*:\/\/(?:[a-z0-9._~-]+)?$/i.test((drive.path || '').trim().replace(/\\/g, '/')))
         .map((drive) => ({
           path: normalizePath(drive.path),
           displayName: drive.name || drive.path,

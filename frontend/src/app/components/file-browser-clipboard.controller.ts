@@ -59,7 +59,7 @@ export class FileBrowserClipboardController {
 
       if (result.failed > 0) {
         const errorMsg = (result.errors as BatchItemError[] ?? []).map(e =>
-          `${e.source}: ${operationErrorMessage(e.code)}`
+          `${e.source}: ${operationErrorMessage(e.code)}${e.code === 'unknown' && e.error ? ` (${e.error})` : ''}`
         ).join('\n');
         host.confirmDialog.alert(`Paste Completed with ${result.failed} Errors\n${errorMsg}`);
       }

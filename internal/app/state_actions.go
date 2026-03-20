@@ -3,7 +3,7 @@ package app
 import internalruntime "wails-app/internal/runtime"
 
 func (s *State) CreatePaneWatch() {
-	s.DirWatch = internalruntime.NewPaneWatchManager(s.EmitEvent)
+	s.DirWatch = internalruntime.NewPaneWatchManager(s.EmitEvent, resolveMemoryAlias, toPublicMemoryPath)
 }
 
 func (s *State) ClosePaneWatch() {

@@ -107,7 +107,8 @@ export class FileBrowserTransferController {
     if (!result?.failed) return null;
     return (result.errors as BatchItemError[] ?? []).map(e => {
       const label = operationErrorMessage(e.code);
-      return `${e.source}: ${label}`;
+      const detail = e.code === 'unknown' && e.error ? ` (${e.error})` : '';
+      return `${e.source}: ${label}${detail}`;
     }).join('\n');
   }
 

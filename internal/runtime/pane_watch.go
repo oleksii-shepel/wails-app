@@ -19,20 +19,26 @@ type paneDirectoryChangedEvent struct {
 
 type PaneWatchManager struct {
 	emitEvent    func(string, interface{})
+	resolvePath  func(string) (string, error)
+	toPublicPath func(string) string
 	mu           sync.Mutex
 	watcher      *fsnotify.Watcher
 	panePaths    map[string]string
+	panePublic   map[string]string
 	pathRef      map[string]int
 	paneDebounce map[string]*time.Timer
 	closed       bool
 }
 
-func NewPaneWatchManager(emitEvent func(string, interface{})) *PaneWatchManager {
+func NewPaneWatchManager(emitEvent func(string, interface{}), resolvePath func(string) (string, error), toPublicPath func(string) string) *PaneWatchManager {
 	w, err := fsnotify.NewWatcher()
 	if err != nil {
 		return &PaneWatchManager{
 			emitEvent:    emitEvent,
+			resolvePath:  resolvePath,
+			toPublicPath: toPublicPath,
 			panePaths:    make(map[string]string),
+			panePublic:   make(map[string]string),
 			pathRef:      make(map[string]int),
 			paneDebounce: make(map[string]*time.Timer),
 		}
@@ -40,8 +46,11 @@ func NewPaneWatchManager(emitEvent func(string, interface{})) *PaneWatchManager 
 
 	manager := &PaneWatchManager{
 		emitEvent:    emitEvent,
+		resolvePath:  resolvePath,
+		toPublicPath: toPublicPath,
 		watcher:      w,
 		panePaths:    make(map[string]string),
+		panePublic:   make(map[string]string),
 		pathRef:      make(map[string]int),
 		paneDebounce: make(map[string]*time.Timer),
 	}
@@ -70,7 +79,11 @@ func (m *PaneWatchManager) Close() {
 }
 
 func (m *PaneWatchManager) SetPaneDirectory(paneID, path string) error {
-	norm := normalizeWatchPath(path)
+	watchPath, err := m.normalizeWatchPath(path)
+	if err != nil {
+		return err
+	}
+	publicPath := m.toEventPath(watchPath)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -80,19 +93,21 @@ func (m *PaneWatchManager) SetPaneDirectory(paneID, path string) error {
 	}
 
 	prev := m.panePaths[paneID]
-	if prev == norm {
+	if prev == watchPath && m.panePublic[paneID] == publicPath {
 		return nil
 	}
 	if prev != "" {
 		m.removeWatchLocked(prev)
 	}
-	if norm == "" {
+	if watchPath == "" {
 		delete(m.panePaths, paneID)
+		delete(m.panePublic, paneID)
 		return nil
 	}
 
-	m.panePaths[paneID] = norm
-	return m.addWatchLocked(norm)
+	m.panePaths[paneID] = watchPath
+	m.panePublic[paneID] = publicPath
+	return m.addWatchLocked(watchPath)
 }
 
 func (m *PaneWatchManager) loop() {
@@ -113,7 +128,7 @@ func (m *PaneWatchManager) loop() {
 			if evt.Op&(fsnotify.Create|fsnotify.Write|fsnotify.Remove|fsnotify.Rename|fsnotify.Chmod) == 0 {
 				continue
 			}
-			affectedDir := normalizeWatchPath(filepath.Dir(evt.Name))
+			affectedDir := normalizeNativeWatchPath(filepath.Dir(evt.Name))
 			if affectedDir == "" {
 				continue
 			}
@@ -135,14 +150,14 @@ func (m *PaneWatchManager) scheduleForAffectedDir(dir string) {
 	}
 
 	for paneID, panePath := range m.panePaths {
-		if normalizeWatchPath(panePath) != dir {
+		if panePath != dir {
 			continue
 		}
 		if existing := m.paneDebounce[paneID]; existing != nil {
 			existing.Stop()
 		}
 		id := paneID
-		path := panePath
+		path := m.panePublic[paneID]
 		m.paneDebounce[paneID] = time.AfterFunc(200*time.Millisecond, func() {
 			if m.emitEvent != nil {
 				m.emitEvent("fs:directoryChanged", paneDirectoryChangedEvent{
@@ -180,7 +195,38 @@ func (m *PaneWatchManager) removeWatchLocked(path string) {
 	m.pathRef[path] = count - 1
 }
 
-func normalizeWatchPath(path string) string {
+func (m *PaneWatchManager) normalizeWatchPath(path string) (string, error) {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return "", nil
+	}
+	if pathref.IsRegistry(trimmed) {
+		return "", nil
+	}
+	if m.resolvePath != nil {
+		resolved, err := m.resolvePath(trimmed)
+		if err != nil {
+			return "", err
+		}
+		trimmed = resolved
+	}
+	return normalizeNativeWatchPath(trimmed), nil
+}
+
+func (m *PaneWatchManager) toEventPath(path string) string {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return ""
+	}
+	if m.toPublicPath != nil {
+		if publicPath := strings.TrimSpace(m.toPublicPath(trimmed)); publicPath != "" {
+			return pathref.Normalize(publicPath)
+		}
+	}
+	return normalizeNativeWatchPath(trimmed)
+}
+
+func normalizeNativeWatchPath(path string) string {
 	trimmed := strings.TrimSpace(path)
 	if trimmed == "" {
 		return ""

@@ -98,6 +98,7 @@ import { DropdownContainerComponent } from './dropdown-container.component';
           title="Switch schemes"
         >
           <span class="ab-scheme-text">{{ currentSchemeLabel() }}</span>
+          <span *ngIf="showCurrentSchemeSeparator()" class="ab-scheme-separator">:</span>
         </span>
 
         <div class="ab-scheme-chevron-wrap" *ngIf="segments.length > 1">
@@ -569,10 +570,18 @@ import { DropdownContainerComponent } from './dropdown-container.component';
     }
 
     .ab-scheme-text {
+      display: block;
+      flex: 0 1 auto;
       min-width: 0;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+      padding-right: 0.05em;
+    }
+
+    .ab-scheme-separator {
+      flex: 0 0 auto;
+      margin-left: 0.14em;
       padding-right: 0.05em;
     }
 
@@ -905,18 +914,22 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     return this.isWin && /^[A-Za-z]:$/.test(lbl);
   }
 
+  showCurrentSchemeSeparator(): boolean {
+    return this.isSchemeRoot || this.isCurrentRootSynthetic();
+  }
+
   currentSchemeLabel(): string {
     const drive = this.findCurrentRootEntry();
+    if (this.showCurrentSchemeSeparator()) {
+      const path = drive?.path || '';
+      const match = /^([a-z][a-z0-9+.-]*):\/\//i.exec(path);
+      if (match) return match[1].toLowerCase();
+
+      const raw = this.segments[0]?.label || drive?.name || '';
+      return raw.replace(/\s*:\s*$/, '');
+    }
     if (!drive) {
       return this.segments[0]?.label || '';
-    }
-    // If synthetic scheme root, show scheme name + ':'
-    if (this.isCurrentRootSynthetic()) {
-      // Extract scheme from drive.path
-      const path = drive.path || '';
-      const match = /^([a-z][a-z0-9+.-]*)/i.exec(path);
-      if (match) return match[1].toLowerCase() + '\u2009:';
-      return drive.name;
     }
     // For Windows drive, show drive letter (e.g. 'C:')
     return this.segments[0]?.label || drive.name;

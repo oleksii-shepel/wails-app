@@ -17,6 +17,11 @@ type elevationClientProvider interface {
 	Client() elevation.Client
 }
 
+type memoryPathResolver interface {
+	ResolvePublicPath(path string) (string, bool, error)
+	ToPublicPath(path string) string
+}
+
 type ServiceConfig struct {
 	Elevation            elevationClientProvider
 	EmitEvent            func(string, interface{})
@@ -30,6 +35,7 @@ type ServiceConfig struct {
 	RunElevatedRequest             func(elevation.Request) (elevation.Response, error)
 	IsPermissionDenied             func(error) bool
 	ShouldRetryDeleteWithElevation func(error) bool
+	MemoryResolver                 memoryPathResolver
 }
 
 type Service struct {
@@ -47,6 +53,7 @@ type Service struct {
 	runElevatedRequest             func(elevation.Request) (elevation.Response, error)
 	isPermissionDenied             func(error) bool
 	shouldRetryDeleteWithElevation func(error) bool
+	memoryResolver                 memoryPathResolver
 }
 
 func NewService(config ServiceConfig) *Service {
@@ -63,7 +70,71 @@ func NewService(config ServiceConfig) *Service {
 		runElevatedRequest:             config.RunElevatedRequest,
 		isPermissionDenied:             config.IsPermissionDenied,
 		shouldRetryDeleteWithElevation: config.ShouldRetryDeleteWithElevation,
+		memoryResolver:                 config.MemoryResolver,
 	}
+}
+
+func (s *Service) resolvePublicPath(path string) (string, error) {
+	if s.memoryResolver == nil {
+		return pathref.Normalize(path), nil
+	}
+	resolved, _, err := s.memoryResolver.ResolvePublicPath(path)
+	return resolved, err
+}
+
+func (s *Service) toPublicPath(path string) string {
+	if s.memoryResolver == nil {
+		return filepath.ToSlash(path)
+	}
+	return s.memoryResolver.ToPublicPath(path)
+}
+
+func (s *Service) mapFileInfo(info contracts.FileInfo) contracts.FileInfo {
+	info.Path = s.toPublicPath(info.Path)
+	if info.SearchBasePath != "" {
+		info.SearchBasePath = s.toPublicPath(info.SearchBasePath)
+	}
+	if info.SearchParentPath != "" {
+		info.SearchParentPath = s.toPublicPath(info.SearchParentPath)
+	}
+	return info
+}
+
+func (s *Service) mapListing(listing *contracts.DirectoryListing, requestedPath string) *contracts.DirectoryListing {
+	if listing == nil {
+		return nil
+	}
+	if requestedPath != "" {
+		listing.Path = pathref.Normalize(requestedPath)
+	} else {
+		listing.Path = s.toPublicPath(listing.Path)
+	}
+	for index := range listing.Entries {
+		listing.Entries[index] = s.mapFileInfo(listing.Entries[index])
+	}
+	return listing
+}
+
+func (s *Service) mapFileContent(file *contracts.FileContent, requestedPath string) *contracts.FileContent {
+	if file == nil {
+		return nil
+	}
+	if requestedPath != "" {
+		file.Path = pathref.Normalize(requestedPath)
+	} else {
+		file.Path = s.toPublicPath(file.Path)
+	}
+	return file
+}
+
+func (s *Service) mapOperation(op *contracts.OperationResult) *contracts.OperationResult {
+	if op == nil {
+		return nil
+	}
+	for index := range op.AffectedPaths {
+		op.AffectedPaths[index] = s.toPublicPath(op.AffectedPaths[index])
+	}
+	return op
 }
 
 func (s *Service) SetVFS(v *vfslib.Unified) {
@@ -112,9 +183,13 @@ func (s *Service) ListDirectory(path string, showHidden bool) (*contracts.Direct
 		return internalruntime.VFSListDir(s.vfs, path)
 	}
 
-	listing, err := s.raw.ListDirectory(path, showHidden)
+	resolvedPath, err := s.resolvePublicPath(path)
+	if err != nil {
+		return nil, err
+	}
+	listing, err := s.raw.ListDirectory(resolvedPath, showHidden)
 	if err == nil {
-		return listing, nil
+		return s.mapListing(listing, path), nil
 	}
 	if !s.shouldRetryDeleteWithElevation(err) {
 		return nil, err
@@ -122,13 +197,13 @@ func (s *Service) ListDirectory(path string, showHidden bool) (*contracts.Direct
 
 	resp, elevErr := s.runElevatedWithEvents("list", s.elevationTargetSingle(path), elevation.Request{
 		Op:         "list",
-		Path:       path,
+		Path:       resolvedPath,
 		ShowHidden: showHidden,
 	})
 	if elevErr != nil {
 		return nil, err
 	}
-	return resp.DirListing, nil
+	return s.mapListing(resp.DirListing, path), nil
 }
 
 func (s *Service) listSearchAlias(path string) (*contracts.DirectoryListing, error) {
@@ -176,8 +251,12 @@ func (s *Service) ElevatedList(path string, showHidden bool) ([]contracts.FileIn
 }
 
 func (s *Service) DirSizeRecursive(path string) (int64, error) {
+	resolvedPath, err := s.resolvePublicPath(path)
+	if err != nil {
+		return 0, err
+	}
 	var total int64
-	queue := []string{path}
+	queue := []string{resolvedPath}
 	for len(queue) > 0 {
 		current := queue[0]
 		queue = queue[1:]
@@ -201,12 +280,17 @@ func (s *Service) DirSizeRecursive(path string) (int64, error) {
 }
 
 func (s *Service) GetFileInfo(path string) (*contracts.FileInfo, error) {
-	info, err := os.Lstat(path)
+	resolvedPath, err := s.resolvePublicPath(path)
 	if err != nil {
 		return nil, err
 	}
-	name := filepath.Base(path)
-	fi := BuildFileInfo(s.metadata, name, path, info)
+	info, err := os.Lstat(resolvedPath)
+	if err != nil {
+		return nil, err
+	}
+	name := filepath.Base(resolvedPath)
+	fi := BuildFileInfo(s.metadata, name, filepath.ToSlash(resolvedPath), info)
+	fi.Path = path
 	return &fi, nil
 }
 
@@ -232,9 +316,13 @@ func (s *Service) ReadFile(path string, encoding string) (*contracts.FileContent
 		return resp.File, nil
 	}
 
-	file, err := s.raw.ReadFile(path, encoding)
+	resolvedPath, err := s.resolvePublicPath(path)
+	if err != nil {
+		return nil, err
+	}
+	file, err := s.raw.ReadFile(resolvedPath, encoding)
 	if err == nil {
-		return file, nil
+		return s.mapFileContent(file, path), nil
 	}
 	if !s.isPermissionDenied(err) {
 		return nil, err
@@ -242,13 +330,13 @@ func (s *Service) ReadFile(path string, encoding string) (*contracts.FileContent
 
 	resp, elevErr := s.runElevatedWithEvents("read", s.elevationTargetSingle(path), elevation.Request{
 		Op:       "read",
-		Path:     path,
+		Path:     resolvedPath,
 		Encoding: encoding,
 	})
 	if elevErr != nil {
 		return nil, err
 	}
-	return resp.File, nil
+	return s.mapFileContent(resp.File, path), nil
 }
 
 func (s *Service) WriteFile(path string, content string, encoding string) (*contracts.OperationResult, error) {
@@ -274,9 +362,13 @@ func (s *Service) WriteFile(path string, content string, encoding string) (*cont
 		return resp.Operation, nil
 	}
 
-	op, err := s.raw.WriteFile(path, content, encoding)
+	resolvedPath, err := s.resolvePublicPath(path)
+	if err != nil {
+		return nil, err
+	}
+	op, err := s.raw.WriteFile(resolvedPath, content, encoding)
 	if err == nil {
-		return op, nil
+		return s.mapOperation(op), nil
 	}
 	if !s.isPermissionDenied(err) {
 		return nil, err
@@ -284,14 +376,14 @@ func (s *Service) WriteFile(path string, content string, encoding string) (*cont
 
 	resp, elevErr := s.runElevatedWithEvents("write", s.elevationTargetSingle(path), elevation.Request{
 		Op:       "write",
-		Path:     path,
+		Path:     resolvedPath,
 		Content:  content,
 		Encoding: encoding,
 	})
 	if elevErr != nil {
 		return nil, err
 	}
-	return resp.Operation, nil
+	return s.mapOperation(resp.Operation), nil
 }
 
 func (s *Service) DeleteFile(path string, recursive bool, useTrash *bool) (*contracts.OperationResult, error) {
@@ -317,9 +409,13 @@ func (s *Service) DeleteFile(path string, recursive bool, useTrash *bool) (*cont
 		return resp.Operation, nil
 	}
 
-	op, err := s.raw.DeleteFile(path, recursive, useTrash)
+	resolvedPath, err := s.resolvePublicPath(path)
+	if err != nil {
+		return nil, err
+	}
+	op, err := s.raw.DeleteFile(resolvedPath, recursive, useTrash)
 	if err == nil {
-		return op, nil
+		return s.mapOperation(op), nil
 	}
 	if !s.isPermissionDenied(err) {
 		return nil, err
@@ -327,14 +423,14 @@ func (s *Service) DeleteFile(path string, recursive bool, useTrash *bool) (*cont
 
 	resp, elevErr := s.runElevatedWithEvents("delete", s.elevationTargetSingle(path), elevation.Request{
 		Op:        "delete",
-		Path:      path,
+		Path:      resolvedPath,
 		Recursive: recursive,
 		UseTrash:  useTrash,
 	})
 	if elevErr != nil {
 		return nil, err
 	}
-	return resp.Operation, nil
+	return s.mapOperation(resp.Operation), nil
 }
 
 func (s *Service) CreateDirectory(path string, recursive bool) (*contracts.OperationResult, error) {
@@ -358,9 +454,13 @@ func (s *Service) CreateDirectory(path string, recursive bool) (*contracts.Opera
 		return resp.Operation, nil
 	}
 
-	op, err := s.raw.CreateDirectory(path, recursive)
+	resolvedPath, err := s.resolvePublicPath(path)
+	if err != nil {
+		return nil, err
+	}
+	op, err := s.raw.CreateDirectory(resolvedPath, recursive)
 	if err == nil {
-		return op, nil
+		return s.mapOperation(op), nil
 	}
 	if !s.isPermissionDenied(err) {
 		return nil, err
@@ -368,19 +468,27 @@ func (s *Service) CreateDirectory(path string, recursive bool) (*contracts.Opera
 
 	resp, elevErr := s.runElevatedWithEvents("mkdir", s.elevationTargetSingle(path), elevation.Request{
 		Op:        "mkdir",
-		Path:      path,
+		Path:      resolvedPath,
 		Recursive: recursive,
 	})
 	if elevErr != nil {
 		return nil, err
 	}
-	return resp.Operation, nil
+	return s.mapOperation(resp.Operation), nil
 }
 
 func (s *Service) MoveFile(source, destination string) (*contracts.OperationResult, error) {
-	op, err := s.raw.MoveFile(source, destination)
+	resolvedSource, err := s.resolvePublicPath(source)
+	if err != nil {
+		return nil, err
+	}
+	resolvedDestination, err := s.resolvePublicPath(destination)
+	if err != nil {
+		return nil, err
+	}
+	op, err := s.raw.MoveFile(resolvedSource, resolvedDestination)
 	if err == nil {
-		return op, nil
+		return s.mapOperation(op), nil
 	}
 	if !s.isPermissionDenied(err) {
 		return nil, err
@@ -388,19 +496,27 @@ func (s *Service) MoveFile(source, destination string) (*contracts.OperationResu
 
 	resp, elevErr := s.runElevatedWithEvents("move", s.elevationTargetPair(source, destination), elevation.Request{
 		Op:          "move",
-		Source:      source,
-		Destination: destination,
+		Source:      resolvedSource,
+		Destination: resolvedDestination,
 	})
 	if elevErr != nil {
 		return nil, err
 	}
-	return resp.Operation, nil
+	return s.mapOperation(resp.Operation), nil
 }
 
 func (s *Service) CopyFile(source, destination string, recursive bool) (*contracts.OperationResult, error) {
-	op, err := s.raw.CopyFile(source, destination, recursive)
+	resolvedSource, err := s.resolvePublicPath(source)
+	if err != nil {
+		return nil, err
+	}
+	resolvedDestination, err := s.resolvePublicPath(destination)
+	if err != nil {
+		return nil, err
+	}
+	op, err := s.raw.CopyFile(resolvedSource, resolvedDestination, recursive)
 	if err == nil {
-		return op, nil
+		return s.mapOperation(op), nil
 	}
 	if !s.isPermissionDenied(err) {
 		return nil, err
@@ -408,14 +524,14 @@ func (s *Service) CopyFile(source, destination string, recursive bool) (*contrac
 
 	resp, elevErr := s.runElevatedWithEvents("copy", s.elevationTargetPair(source, destination), elevation.Request{
 		Op:          "copy",
-		Source:      source,
-		Destination: destination,
+		Source:      resolvedSource,
+		Destination: resolvedDestination,
 		Recursive:   recursive,
 	})
 	if elevErr != nil {
 		return nil, err
 	}
-	return resp.Operation, nil
+	return s.mapOperation(resp.Operation), nil
 }
 
 func (s *Service) RunElevatedCopy(src, dst string, recursive bool) (bool, error) {
@@ -450,15 +566,19 @@ func (s *Service) RunElevatedDelete(path string, recursive bool, useTrash *bool)
 func (s *Service) SearchFiles(path, pattern string, recursive bool) (*contracts.SearchResult, error) {
 	var matches []contracts.FileInfo
 	basePath := filepath.ToSlash(pathref.Normalize(path))
+	resolvedPath, err := s.resolvePublicPath(path)
+	if err != nil {
+		return nil, err
+	}
 
 	walkFn := func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
-		if p == path {
+		if p == resolvedPath {
 			return nil
 		}
-		if !recursive && d.IsDir() && p != path {
+		if !recursive && d.IsDir() && p != resolvedPath {
 			return filepath.SkipDir
 		}
 
@@ -476,14 +596,15 @@ func (s *Service) SearchFiles(path, pattern string, recursive bool) (*contracts.
 			return nil
 		}
 		entry := BuildFileInfo(s.metadata, name, filepath.ToSlash(p), info)
+		entry.Path = s.toPublicPath(entry.Path)
 		entry.SearchBasePath = basePath
 		entry.SearchPattern = pattern
-		entry.SearchParentPath = filepath.ToSlash(filepath.Dir(entry.Path))
+		entry.SearchParentPath = s.toPublicPath(filepath.ToSlash(filepath.Dir(p)))
 		matches = append(matches, entry)
 		return nil
 	}
 
-	if err := filepath.WalkDir(path, walkFn); err != nil {
+	if err := filepath.WalkDir(resolvedPath, walkFn); err != nil {
 		return nil, err
 	}
 
@@ -492,7 +613,7 @@ func (s *Service) SearchFiles(path, pattern string, recursive bool) (*contracts.
 	}
 
 	return &contracts.SearchResult{
-		Path:         filepath.ToSlash(path),
+		Path:         basePath,
 		Matches:      matches,
 		TotalMatches: len(matches),
 	}, nil

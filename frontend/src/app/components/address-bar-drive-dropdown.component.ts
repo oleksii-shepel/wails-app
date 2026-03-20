@@ -251,6 +251,10 @@ export class AddressBarDriveDropdownComponent {
       const rest = replaced.slice('registry://'.length).replace(/^\/+/, '').replace(/\/+/g, '/');
       return rest ? `registry://${rest}` : 'registry://';
     }
+    if (/^memory:\/\//i.test(replaced)) {
+      const rest = replaced.slice('memory://'.length).replace(/^\/+/, '').replace(/\/+/g, '/');
+      return rest ? `memory://${rest}` : 'memory://';
+    }
     const collapsed = replaced.startsWith('//')
       ? `//${replaced.slice(2).replace(/\/{2,}/g, '/')}`
       : replaced.replace(/\/{2,}/g, '/');
@@ -262,7 +266,7 @@ export class AddressBarDriveDropdownComponent {
   isActive(d: DriveInfo): boolean {
     const current = this.normalizePath(this.currentPath).toLowerCase();
     const root = this.normalizePath(d.path).toLowerCase();
-    if (root === 'registry://') {
+    if (root === 'registry://' || root === 'memory://') {
       return current === root || current.startsWith(root);
     }
     return current === root || current.startsWith(`${root}/`);
@@ -275,6 +279,9 @@ export class AddressBarDriveDropdownComponent {
   getDriveLabel(d: DriveInfo): string {
     if (d.driveType?.startsWith('cloud-')) {
       return 'Cloud Storage';
+    }
+    if (d.driveType === 'memory') {
+      return 'In-Memory FS';
     }
     if (d.driveType === 'registry') {
       return 'Registry';
@@ -293,6 +300,7 @@ export class AddressBarDriveDropdownComponent {
     if (d.driveType === 'cloud-onedrive') return '☁️';
     if (d.driveType === 'cloud-google')   return '🗂️';
     if (d.driveType === 'cloud-dropbox')  return '📦';
+    if (d.driveType === 'memory')         return '🧠';
     if (d.driveType === 'registry')       return '🧩';
     if (d.driveType === 'fixed')    return '💽';
     if (d.driveType === 'removable') return '💾';

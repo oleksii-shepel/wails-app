@@ -105,6 +105,8 @@ export function IsProcessElevated():Promise<boolean>;
 
 export function IsRoot(arg1:string):Promise<boolean>;
 
+export function JoinMountNamespace(arg1:string):Promise<void>;
+
 export function JoinPaths(arg1:Array<string>):Promise<string>;
 
 export function ListDir(arg1:string,arg2:boolean):Promise<contracts.DirectoryListing>;

@@ -12,6 +12,8 @@ import (
 	"strings"
 	"syscall"
 
+	"golang.org/x/sys/unix"
+
 	contracts "wails-app/internal/contracts"
 )
 
@@ -185,6 +187,21 @@ func listDrivesDarwin() []contracts.DriveInfo {
 	}
 
 	return drives
+}
+
+// JoinMountNamespace makes the calling process join the specified mount namespace.
+// The nsPath should be a path like "/proc/<pid>/ns/mnt".
+func JoinMountNamespace(nsPath string) error {
+	f, err := os.Open(nsPath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	if err := unix.Setns(int(f.Fd()), unix.CLONE_NEWNS); err != nil {
+		return err
+	}
+	return nil
 }
 
 func getFSTypeDarwin(mount string) string {

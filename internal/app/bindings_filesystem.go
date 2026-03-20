@@ -115,6 +115,12 @@ func (a *App) StartDiskUsageStream(path string) (string, error) {
 	return a.Filesystem.StartDiskUsageStream(path)
 }
 
+// JoinMountNamespace instructs the backend to join a mount namespace (Unix only).
+// The expected argument is the namespace path printed by memfs, e.g. /proc/<pid>/ns/mnt.
+func (a *App) JoinMountNamespace(nsPath string) error {
+	return internalplatform.JoinMountNamespace(nsPath)
+}
+
 func (a *App) CancelDiskUsageStream(scanID string) {
 	a.Filesystem.CancelDiskUsageStream(scanID)
 }

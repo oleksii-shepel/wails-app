@@ -444,6 +444,7 @@ export interface UserPreferences {
   enableKeyboardShortcuts: boolean;
   doubleClickAction: 'open' | 'preview';
   confirmDelete: boolean;
+  memoryRoot?: string;
 }
 
 // ============================================================================

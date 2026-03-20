@@ -191,6 +191,7 @@ func DefaultPreferences() contracts.UserPreferences {
 		EnableKeyboardShortcuts: true,
 		DoubleClickAction:       "open",
 		ConfirmDelete:           true,
+		MemoryRoot:              "",
 	}
 }
 
@@ -307,6 +308,7 @@ func toStoragePreferences(source contracts.UserPreferences) Preferences {
 		EnableKeyboardShortcuts: source.EnableKeyboardShortcuts,
 		DoubleClickAction:       source.DoubleClickAction,
 		ConfirmDelete:           source.ConfirmDelete,
+		MemoryRoot:              source.MemoryRoot,
 	}
 }
 
@@ -319,5 +321,6 @@ func fromStoragePreferences(source Preferences) contracts.UserPreferences {
 		EnableKeyboardShortcuts: source.EnableKeyboardShortcuts,
 		DoubleClickAction:       source.DoubleClickAction,
 		ConfirmDelete:           source.ConfirmDelete,
+		MemoryRoot:              source.MemoryRoot,
 	}
 }

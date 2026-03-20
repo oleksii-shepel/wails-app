@@ -54,4 +54,5 @@ type Preferences struct {
 	EnableKeyboardShortcuts bool   `json:"enableKeyboardShortcuts"`
 	DoubleClickAction       string `json:"doubleClickAction"`
 	ConfirmDelete           bool   `json:"confirmDelete"`
+	MemoryRoot              string `json:"memoryRoot,omitempty"`
 }

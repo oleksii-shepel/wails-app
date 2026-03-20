@@ -1068,15 +1068,33 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   }
 
   async loadDrives(): Promise<void> {
-    if (!this.isWin) return;
     this.drivesLoading = true;
     try { 
-      const drivesList = await this.apiService.getDrives();
+      const drivesList = this.isWin ? await this.apiService.getDrives() : { drives: [] };
       const systemDrives = drivesList?.drives || [];
       const cloudDrives = await this.getCloudDrives();
-      this.drives = [...systemDrives, ...cloudDrives];
+      const syntheticDrives: DriveInfo[] = [
+        {
+          name: 'Memory',
+          path: 'memory://',
+          driveType: 'memory',
+          totalSpace: 0,
+          freeSpace: 0,
+          fileSystem: 'MemFS',
+        },
+      ];
+      this.drives = [...systemDrives, ...syntheticDrives, ...cloudDrives];
     } catch {
-      this.drives = [];
+      this.drives = [
+        {
+          name: 'Memory',
+          path: 'memory://',
+          driveType: 'memory',
+          totalSpace: 0,
+          freeSpace: 0,
+          fileSystem: 'MemFS',
+        },
+      ];
     } finally { 
       this.drivesLoading = false; 
       this.cdr.detectChanges(); 

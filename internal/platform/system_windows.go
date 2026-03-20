@@ -3,6 +3,7 @@
 package platform
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -60,7 +61,19 @@ func listDrivesPlatform() []contracts.DriveInfo {
 			if root == "" {
 				continue
 			}
-			drives = append(drives, buildDriveInfo(root))
+			// Build drive info and skip virtual/WinFsp mounts so they are hidden from the UI.
+			// Some WinFSP-backed filesystems expose a filesystem name or volume name
+			// containing "winfsp"; detect and skip those drives here.
+			info := buildDriveInfo(root)
+			fsName := ""
+			if info.FileSystem != nil {
+				fsName = strings.ToLower(*info.FileSystem)
+			}
+			if strings.Contains(fsName, "winfsp") || strings.Contains(strings.ToLower(info.Name), "winfsp") {
+				// skip this drive
+				continue
+			}
+			drives = append(drives, info)
 		}
 	}
 
@@ -154,4 +167,9 @@ func intToStr(n int) string {
 		buf = append([]byte{'-'}, buf...)
 	}
 	return string(buf)
+}
+
+// JoinMountNamespace is not supported on Windows. Return an informative error.
+func JoinMountNamespace(nsPath string) error {
+	return fmt.Errorf("join mount namespace not supported on Windows: %s", nsPath)
 }

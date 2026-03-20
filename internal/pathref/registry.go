@@ -108,6 +108,11 @@ func IsSearch(path string) bool {
 	return ok && spec.scheme == SearchScheme
 }
 
+func IsMemory(path string) bool {
+	spec, ok := aliasSpecFor(path)
+	return ok && spec.scheme == MemoryScheme
+}
+
 func BuildSearch(basePath, pattern string, recursive bool) (string, error) {
 	basePath = Normalize(basePath)
 	if basePath == "" || pattern == "" {

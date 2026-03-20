@@ -102,12 +102,12 @@ export class FilePaneOpenController {
   }
 
   onOpenSelectedItem(host: FilePaneOpenHost, navigateUp: () => void): void {
-    const selected = Array.from(host.getEffectiveSelection());
-    if (selected.length !== 1) {
+    // Always use the entry at selectionCursorPath for keyboard navigation (Enter)
+    const cursorPath = host.selectionCursorPath;
+    if (!cursorPath) {
       return;
     }
-
-    const entry = host.entries.find(candidate => candidate.path === selected[0]);
+    const entry = host.entries.find(candidate => candidate.path === cursorPath);
     if (entry) {
       this.onNavigate(host, entry, navigateUp);
     }

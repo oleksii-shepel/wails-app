@@ -4,17 +4,8 @@ export class FileBrowserPathHelper {
   constructor(private readonly apiService: ApiService) {}
 
   async buildDestinationPath(sourcePath: string, targetDir: string): Promise<string> {
-    try {
-      const isTargetDir = await this.apiService.isDirectory(targetDir);
-      if (isTargetDir) {
-        const fileName = await this.getFileName(sourcePath);
-        return await this.apiService.joinPaths([targetDir, fileName]);
-      }
-      return targetDir;
-    } catch (error) {
-      console.warn('Error building destination path, falling back to target dir:', error);
-      return targetDir;
-    }
+    const fileName = await this.getFileName(sourcePath);
+    return await this.apiService.joinPaths([targetDir, fileName]);
   }
 
   private async getFileName(path: string): Promise<string> {

@@ -44,6 +44,13 @@ export interface FileViewDirectorySource {
   supportsStreaming(path: string): boolean;
 }
 
+function trimPathForChild(basePath: string): string {
+  const normalized = normalizePath(basePath || '/');
+  return /^[a-z][a-z0-9+.-]*:\/\/$/i.test(normalized)
+    ? normalized
+    : normalized.replace(/\/+$/, '');
+}
+
 class FilesystemDirectoryProvider implements DirectoryListingProvider {
   readonly kind: DirectorySourceKind = 'filesystem';
 
@@ -71,7 +78,7 @@ class FilesystemDirectoryProvider implements DirectoryListingProvider {
   }
 
   joinChildPath(basePath: string, childName: string): string {
-    const trimmedBase = (basePath || '/').replace(/\\/g, '/').replace(/\/+$/, '');
+    const trimmedBase = trimPathForChild(basePath);
     return `${trimmedBase}/${childName}`;
   }
 
@@ -107,7 +114,7 @@ class AliasDirectoryProvider implements DirectoryListingProvider {
   }
 
   joinChildPath(basePath: string, childName: string): string {
-    const normalizedBase = normalizePath(basePath).replace(/\/+$/, '');
+    const normalizedBase = trimPathForChild(basePath);
     return `${normalizedBase}/${childName}`;
   }
 
@@ -151,7 +158,7 @@ class RegistryDirectoryProvider implements DirectoryListingProvider {
     if (basePath === REGISTRY_ROOT) {
       return `${REGISTRY_ROOT}${childName}`;
     }
-    return `${basePath.replace(/\/+$/, '')}/${childName}`;
+    return `${trimPathForChild(basePath)}/${childName}`;
   }
 
   supportsStreaming(_path: string): boolean {

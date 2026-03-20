@@ -3,6 +3,7 @@ package app
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -56,10 +57,20 @@ func joinAliasParts(parts []string) (string, bool) {
 		if normalizedPart == "" {
 			continue
 		}
-		joined = strings.TrimRight(joined, "/") + "/" + normalizedPart
+		joined = trimAliasChildBase(joined) + "/" + normalizedPart
 	}
 
 	return pathref.Normalize(joined), true
+}
+
+var aliasRootPattern = regexp.MustCompile(`^[a-z][a-z0-9+.-]*://$`)
+
+func trimAliasChildBase(path string) string {
+	trimmed := strings.TrimSpace(strings.ReplaceAll(path, "\\", "/"))
+	if aliasRootPattern.MatchString(strings.ToLower(trimmed)) {
+		return trimmed
+	}
+	return strings.TrimRight(trimmed, "/")
 }
 
 func (a *App) SplitPath(path string) map[string]string {

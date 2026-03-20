@@ -44,6 +44,25 @@ func (r *TransferRunner) toPublicPath(path string) string {
 	return r.callbacks.ToPublicPath(path)
 }
 
+func (r *TransferRunner) normalizeItemDestination(sourceLabel, destinationLabel, resolvedSource string) (string, error) {
+	resolvedDestination, err := r.resolvePath(destinationLabel)
+	if err != nil {
+		return "", err
+	}
+
+	info, statErr := os.Stat(resolvedDestination)
+	if statErr == nil && info.IsDir() {
+		normalized := r.toPublicPath(filepath.Join(resolvedDestination, filepath.Base(resolvedSource)))
+		return normalized, nil
+	}
+
+	if statErr != nil && !os.IsNotExist(statErr) {
+		return "", statErr
+	}
+
+	return destinationLabel, nil
+}
+
 func (r *TransferRunner) Copy(op *internalops.ActiveOperation, req contracts.BatchRequest) (*contracts.BatchResult, error) {
 	var totalItems, totalBytes int64
 	for _, item := range req.Items {
@@ -80,10 +99,17 @@ func (r *TransferRunner) Copy(op *internalops.ActiveOperation, req contracts.Bat
 			continue
 		}
 
-		finalDst, skip, err := r.callbacks.CheckConflict(item.Source, item.Destination, &blanket)
+		destinationLabel, err := r.normalizeItemDestination(item.Source, item.Destination, resolvedSource)
 		if err != nil {
 			result.Failed++
 			result.Errors = append(result.Errors, r.callbacks.BatchErr(item.Source, item.Destination, err))
+			continue
+		}
+
+		finalDst, skip, err := r.callbacks.CheckConflict(item.Source, destinationLabel, &blanket)
+		if err != nil {
+			result.Failed++
+			result.Errors = append(result.Errors, r.callbacks.BatchErr(item.Source, destinationLabel, err))
 			continue
 		}
 		if skip {
@@ -154,10 +180,16 @@ func (r *TransferRunner) Move(op *internalops.ActiveOperation, req contracts.Bat
 			result.Errors = append(result.Errors, r.callbacks.BatchErr(item.Source, item.Destination, err))
 			continue
 		}
-		resolvedDestination, err := r.resolvePath(item.Destination)
+		destinationLabel, err := r.normalizeItemDestination(item.Source, item.Destination, resolvedSource)
 		if err != nil {
 			result.Failed++
 			result.Errors = append(result.Errors, r.callbacks.BatchErr(item.Source, item.Destination, err))
+			continue
+		}
+		resolvedDestination, err := r.resolvePath(destinationLabel)
+		if err != nil {
+			result.Failed++
+			result.Errors = append(result.Errors, r.callbacks.BatchErr(item.Source, destinationLabel, err))
 			continue
 		}
 
@@ -173,10 +205,10 @@ func (r *TransferRunner) Move(op *internalops.ActiveOperation, req contracts.Bat
 			continue
 		}
 
-		finalDst, skip, err := r.callbacks.CheckConflict(item.Source, item.Destination, &blanket)
+		finalDst, skip, err := r.callbacks.CheckConflict(item.Source, destinationLabel, &blanket)
 		if err != nil {
 			result.Failed++
-			result.Errors = append(result.Errors, r.callbacks.BatchErr(item.Source, item.Destination, err))
+			result.Errors = append(result.Errors, r.callbacks.BatchErr(item.Source, destinationLabel, err))
 			continue
 		}
 		if skip {

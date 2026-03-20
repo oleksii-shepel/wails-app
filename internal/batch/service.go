@@ -122,7 +122,7 @@ func (s *Service) checkConflict(
 			r := res.Resolution
 			*blanket = &r
 		}
-		return ApplyResolution(res.Resolution, dst)
+		return ApplyResolution(res.Resolution, resolvedDst)
 	case <-op.CancelSignal():
 		s.conflicts.CancelAll()
 		return "", true, fmt.Errorf("operation cancelled")

@@ -16,6 +16,7 @@ import type { DiskUsageEntry, DiskUsageProgress, DiskUsageResult, DiskUsageTypeS
 import type { SizeManagerSurfaceContext } from '../surface-context';
 import { DiskPieChartComponent } from 'src/app/components/disk-usage-diagram.component';
 import { VscodeScrollbarDirective } from 'src/app/directives/vscode-scrollbar.directive';
+import { buildSegments, normalizePath, parentPath } from '../../components/address-bar.utils';
 
 // ── Pie nav frame ─────────────────────────────────────────────────────────────
 
@@ -1055,12 +1056,10 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
   }
 
   private getParent(path: string): string | null {
-    const n = path.replace(/\\/g, '/').replace(/\/+$/, '');
-    if (/^[a-zA-Z]:?\/?$/.test(n) || !n || n === '/') return null;
-    const i = n.lastIndexOf('/');
-    if (i <= 0) return n.charAt(0) === '/' ? '/' : null;
-    const p = n.substring(0, i) || '/';
-    return /^[a-zA-Z]:$/.test(p) ? p + '/' : p;
+    const normalized = normalizePath(path || '');
+    if (!normalized || normalized === '/') return null;
+    const parent = parentPath(normalized);
+    return parent === normalized ? null : parent;
   }
 
   private getScopedParent(path: string): string | null {
@@ -1080,14 +1079,13 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
   }
 
   private labelFromPath(path: string): string {
-    const n = path.replace(/\\/g, '/').replace(/\/+$/, '');
-    if (!n) return '';
-    if (/^[a-zA-Z]:$/.test(n)) return n + '/';
-    const segs = n.split('/');
-    return segs[segs.length - 1] || n;
+    const normalized = normalizePath(path || '');
+    if (!normalized || normalized === '/') return '';
+    const segments = buildSegments(normalized);
+    return segments[segments.length - 1]?.label || normalized;
   }
 
   private normalizePathDisplay(path: string): string {
-    return path.replace(/\\/g, '/').replace(/\/+$/, '');
+    return normalizePath(path || '');
   }
 }

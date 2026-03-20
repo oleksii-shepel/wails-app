@@ -26,6 +26,7 @@ import {
   DriveInfo,
 } from '../shared/protocol-enhanced';
 import { SpecialFolder } from '../shared/protocol';
+import { normalizePath } from '../components/address-bar.utils';
 import { EventsEmit } from 'wailsjs/runtime';
 import { contracts, elevation } from '../../../wailsjs/go/models';
 
@@ -64,6 +65,26 @@ function normalizeElevatedSessionStatus(status: elevation.SessionStatus): Elevat
   providedIn: 'root'
 })
 export class ApiService {
+    private normalizeCanonicalPath(path: string): string {
+      return normalizePath(path);
+    }
+
+    private normalizeCanonicalPathList(paths: string[]): string[] {
+      return paths.map((path) => this.normalizeCanonicalPath(path));
+    }
+
+    private normalizeOptionalCanonicalPath(path: string | undefined): string | undefined {
+      return path ? this.normalizeCanonicalPath(path) : path;
+    }
+
+    private normalizeBatchItems(items: BatchItem[]): BatchItem[] {
+      return items.map((item) => ({
+        ...item,
+        source: this.normalizeCanonicalPath(item.source),
+        destination: this.normalizeCanonicalPath(item.destination),
+      }));
+    }
+
     /**
      * Compatibility: Returns the list of drives (Windows only).
      * Use getDrives() internally.
@@ -78,7 +99,10 @@ export class ApiService {
      * Uses batchCopy under the hood.
      */
     async copyFileWithProgress(source: string, destination: string, recursive: boolean = true): Promise<any> {
-      const items = [{ source, destination }];
+      const items = [{
+        source: this.normalizeCanonicalPath(source),
+        destination: this.normalizeCanonicalPath(destination),
+      }];
       return await this.batchCopy(items, recursive);
     }
 
@@ -87,7 +111,10 @@ export class ApiService {
      * Uses batchMove under the hood.
      */
     async moveFileWithProgress(source: string, destination: string, recursive: boolean = true): Promise<any> {
-      const items = [{ source, destination }];
+      const items = [{
+        source: this.normalizeCanonicalPath(source),
+        destination: this.normalizeCanonicalPath(destination),
+      }];
       return await this.batchMove(items, recursive);
     }
 
@@ -96,7 +123,7 @@ export class ApiService {
      * Uses batchDelete under the hood.
      */
     async deleteFile(path: string, recursive: boolean = true, useTrash: boolean = true): Promise<any> {
-      return await this.batchDelete([path], recursive, useTrash);
+      return await this.batchDelete([this.normalizeCanonicalPath(path)], recursive, useTrash);
     }
   private ws: WebSocket | null = null;
 
@@ -132,11 +159,11 @@ export class ApiService {
   // ============================================================================
 
   async listDirectory(path: string, showHidden: boolean = false): Promise<DirectoryListing> {
-	    return castProtocol<DirectoryListing>(await window.go.app.App.ListDir(path, showHidden));
+	    return castProtocol<DirectoryListing>(await window.go.app.App.ListDir(this.normalizeCanonicalPath(path), showHidden));
   }
 
   async startListDirectoryStream(paneId: string, path: string, showHidden: boolean = false): Promise<string> {
-	    return await window.go.app.App.StartListDirStream(paneId, path, showHidden);
+	    return await window.go.app.App.StartListDirStream(paneId, this.normalizeCanonicalPath(path), showHidden);
   }
 
   async cancelListDirectoryStream(streamId: string): Promise<void> {
@@ -145,43 +172,43 @@ export class ApiService {
   }
 
   async listDirectoryFiltered(path: string, showHidden: boolean, filter: any): Promise<DirectoryListing> {
-	    return castProtocol<DirectoryListing>(await window.go.app.App.ListDirFiltered(path, showHidden, filter));
+	    return castProtocol<DirectoryListing>(await window.go.app.App.ListDirFiltered(this.normalizeCanonicalPath(path), showHidden, filter));
   }
 
   async getFileInfo(path: string): Promise<FileInfo> {
-	    return castProtocol<FileInfo>(await window.go.app.App.FileInfo(path));
+	    return castProtocol<FileInfo>(await window.go.app.App.FileInfo(this.normalizeCanonicalPath(path)));
   }
 
   async openFile(path: string): Promise<void> {
-    return await window.go.app.App.OpenFile(path);
+    return await window.go.app.App.OpenFile(this.normalizeCanonicalPath(path));
   }
 
   async resolveLink(path: string): Promise<{ target: string; isDir: boolean }> {
-    return await window.go.app.App.ResolveLink(path);
+    return await window.go.app.App.ResolveLink(this.normalizeCanonicalPath(path));
   }
 
   async readFile(path: string, encoding: string = 'utf8'): Promise<FileContent> {
-    return castProtocol<FileContent>(await window.go.app.App.ReadFileContent(path, encoding));
+    return castProtocol<FileContent>(await window.go.app.App.ReadFileContent(this.normalizeCanonicalPath(path), encoding));
   }
 
   async writeFile(path: string, content: string, encoding: string = 'utf8'): Promise<OperationResult> {
-    return await window.go.app.App.WriteFileContent(path, content, encoding);
+    return await window.go.app.App.WriteFileContent(this.normalizeCanonicalPath(path), content, encoding);
   }
 
   async createDirectory(path: string, recursive: boolean = false): Promise<OperationResult> {
-    return await window.go.app.App.CreateDir(path, recursive);
+    return await window.go.app.App.CreateDir(this.normalizeCanonicalPath(path), recursive);
   }
 
   async search(path: string, pattern: string, recursive: boolean = true): Promise<SearchResult> {
-    return castProtocol<SearchResult>(await window.go.app.App.Search(path, pattern, recursive));
+    return castProtocol<SearchResult>(await window.go.app.App.Search(this.normalizeCanonicalPath(path), pattern, recursive));
   }
 
   async buildSearchAlias(path: string, pattern: string, recursive: boolean = true): Promise<string> {
-    return await window.go.app.App.BuildSearchAlias(path, pattern, recursive);
+    return await window.go.app.App.BuildSearchAlias(this.normalizeCanonicalPath(path), pattern, recursive);
   }
 
   async dirSizeRecursive(path: string): Promise<number> {
-    return await window.go.app.App.DirSizeRecursive(path);
+    return await window.go.app.App.DirSizeRecursive(this.normalizeCanonicalPath(path));
   }
 
   // ============================================================================
@@ -190,21 +217,21 @@ export class ApiService {
 
   async batchCopy(items: BatchItem[], recursive: boolean = true): Promise<BatchResult> {
     return castProtocol<BatchResult>(await window.go.app.App.BatchCopy(contracts.BatchRequest.createFrom({
-      items,
+      items: this.normalizeBatchItems(items),
       recursive
     })));
   }
 
   async batchMove(items: BatchItem[], recursive: boolean = true): Promise<BatchResult> {
     return castProtocol<BatchResult>(await window.go.app.App.BatchMove(contracts.BatchRequest.createFrom({
-      items,
+      items: this.normalizeBatchItems(items),
       recursive
     })));
   }
 
   async batchDelete(paths: string[], recursive: boolean = true, useTrash: boolean = true): Promise<BatchResult> {
     const request: BatchDeleteRequest = {
-      paths,
+      paths: this.normalizeCanonicalPathList(paths),
       recursive,
       useTrash
     };
@@ -214,6 +241,8 @@ export class ApiService {
   async batchExtract(request: BatchExtractRequest): Promise<BatchExtractResult> {
     return castProtocol<BatchExtractResult>(await window.go.app.App.BatchExtract(contracts.BatchExtractRequest.createFrom({
       ...request,
+      archives: this.normalizeCanonicalPathList(request.archives),
+      destinationDir: this.normalizeCanonicalPath(request.destinationDir),
       createSubdirectory: request.createSubdirectory ?? false,
       expandNestedArchives: request.expandNestedArchives ?? false,
       maxNestDepth: request.maxNestDepth ?? 0,
@@ -223,12 +252,12 @@ export class ApiService {
 
   async batchSelectiveExtract(request: BatchSelectiveExtractRequest): Promise<BatchSelectiveExtractResult> {
     return castProtocol<BatchSelectiveExtractResult>(await window.go.app.App.BatchSelectiveExtract(contracts.BatchSelectiveExtractRequest.createFrom({
-      destinationDir: request.destinationDir,
+      destinationDir: this.normalizeCanonicalPath(request.destinationDir),
       items: request.items.map(item => ({
-        archivePath: item.archivePath,
+        archivePath: this.normalizeCanonicalPath(item.archivePath),
         nestedChain: item.nestedChain ?? [],
         entries: item.entries ?? [],
-        destinationDir: item.destinationDir,
+        destinationDir: this.normalizeOptionalCanonicalPath(item.destinationDir),
         flattenPaths: item.flattenPaths ?? false,
       })),
     })));
@@ -239,11 +268,11 @@ export class ApiService {
   // ============================================================================
 
   async archiveBrowse(fsPath: string, nestedChain: string[] = [], innerPath: string = ''): Promise<ArchiveListing> {
-    return castProtocol<ArchiveListing>(await window.go.app.App.ArchiveBrowse(fsPath, nestedChain, innerPath));
+    return castProtocol<ArchiveListing>(await window.go.app.App.ArchiveBrowse(this.normalizeCanonicalPath(fsPath), nestedChain, innerPath));
   }
 
   async archiveRead(fsPath: string, nestedChain: string[] = [], entryPath: string, encoding: string = 'utf8'): Promise<FileContent> {
-    return castProtocol<FileContent>(await window.go.app.App.ArchiveRead(fsPath, nestedChain, entryPath, encoding));
+    return castProtocol<FileContent>(await window.go.app.App.ArchiveRead(this.normalizeCanonicalPath(fsPath), nestedChain, entryPath, encoding));
   }
 
   // ============================================================================
@@ -252,9 +281,9 @@ export class ApiService {
 
   async navigate(paneId: string, path: string, showHidden: boolean = false): Promise<DirectoryListing> {
     if (showHidden) {
-      return castProtocol<DirectoryListing>(await window.go.app.App.NavNavigateShowHidden(paneId, path, showHidden));
+	      return castProtocol<DirectoryListing>(await window.go.app.App.NavNavigateShowHidden(paneId, this.normalizeCanonicalPath(path), showHidden));
     }
-    return castProtocol<DirectoryListing>(await window.go.app.App.NavNavigate(paneId, path));
+    return castProtocol<DirectoryListing>(await window.go.app.App.NavNavigate(paneId, this.normalizeCanonicalPath(path)));
   }
 
   async navigateBack(paneId: string): Promise<DirectoryListing | null> {
@@ -369,7 +398,7 @@ export class ApiService {
   // ============================================================================
 
   async splitPath(path: string): Promise<{ dir: string; base: string }> {
-    const result = await window.go.app.App.SplitPath(path);
+    const result = await window.go.app.App.SplitPath(this.normalizeCanonicalPath(path));
     return {
       dir: result['dir'] || '',
       base: result['base'] || ''
@@ -377,11 +406,11 @@ export class ApiService {
   }
 
   async joinPaths(parts: string[]): Promise<string> {
-    return await window.go.app.App.JoinPaths(parts);
+    return await window.go.app.App.JoinPaths(this.normalizeCanonicalPathList(parts));
   }
 
   async getParentPath(path: string): Promise<string> {
-    return await window.go.app.App.GetParentPath(path);
+    return await window.go.app.App.GetParentPath(this.normalizeCanonicalPath(path));
   }
 
   async confirmElevationRequest(requestID: string, approve: boolean): Promise<void> {
@@ -430,7 +459,7 @@ export class ApiService {
    * Prefer streamDiskUsage for interactive use.
    */
   async analyzeDiskUsage(path: string): Promise<import('../shared/protocol-enhanced').DiskUsageResult> {
-    return castProtocol<DiskUsageResult>(await window.go.app.App.AnalyzeDiskUsage(path));
+    return castProtocol<DiskUsageResult>(await window.go.app.App.AnalyzeDiskUsage(this.normalizeCanonicalPath(path)));
   }
 
   /**
@@ -458,7 +487,8 @@ export class ApiService {
     DiskUsageResult
   > {
     const signal = options?.signal;
-    const scanId = await window.go.app.App.StartDiskUsageStream(path);
+    const normalizedPath = this.normalizeCanonicalPath(path);
+    const scanId = await window.go.app.App.StartDiskUsageStream(normalizedPath);
 
     type Pending =
       | { kind: 'entry'; value: DiskUsageEntry }

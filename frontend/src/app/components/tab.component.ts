@@ -253,7 +253,7 @@ export class TabComponent {
   get isArchiveTab(): boolean {
     const p = this.tab?.path ?? '';
     // Archive virtual paths contain a known archive extension followed by a slash.
-    // e.g. "C:/foo/bar.zip/src" or "/home/user/backup.tar.gz/etc"
+    // e.g. "drive://c/foo/bar.zip/src" or "/home/user/backup.tar.gz/etc"
     return /\.(zip|tar|gz|bz2|xz|7z|rar|iso|dmg|tgz|tbz2)([\/\\]|$)/i.test(p);
   }
 

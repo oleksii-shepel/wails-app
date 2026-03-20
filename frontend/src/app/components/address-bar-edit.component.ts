@@ -665,7 +665,7 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
     const isDir = s.matchType === 'directory';
     const finalVal = isDir && !val.endsWith('/') ? val + '/' : val;
 
-    this.writeProgrammaticValue(this.toDisplayPath(finalVal));
+    this.writeProgrammaticValue(this.formatEditorPath(finalVal, s.path));
     this.tabSession = null;
     this.cancelFetchStream();
     this.scheduleSuggestions(finalVal, true);
@@ -683,11 +683,35 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
     return false;
   }
 
+  private prefersCanonicalDriveDisplay(reference?: string): boolean {
+    const raw = ((reference ?? this.value) || '').trim().replace(/\\/g, '/').toLowerCase();
+    return raw === 'drive://' || raw.startsWith('drive://');
+  }
+
   private toDisplayPath(path: string): string {
     if (!path) return '';
     const display = toEditorDriveDisplay(path);
     if (!this.shouldNormalizeToForwardSlashes() && !isWindowsPath(display)) return display;
     return display.replace(/\\/g, '/');
+  }
+
+  private formatEditorPath(path: string, reference?: string): string {
+    const normalized = normalizePath(path);
+    if (!normalized) return '';
+    if (this.prefersCanonicalDriveDisplay(reference) && /^drive:\/\/[a-z](?:\/.*)?$/i.test(normalized)) {
+      return normalized;
+    }
+    return this.toDisplayPath(normalized);
+  }
+
+  private formatSuggestionPath(path: string, query: string, isAliasRoot: boolean): string {
+    const normalized = normalizePath(path);
+    if (!normalized) return '';
+    if (isAliasRoot) return normalized;
+    if (this.prefersCanonicalDriveDisplay(query) && /^drive:\/\/[a-z](?:\/.*)?$/i.test(normalized)) {
+      return normalized;
+    }
+    return this.toDisplayPath(normalized);
   }
 
   private maybeFixSlashesWhileTyping(v: string): string {
@@ -718,8 +742,9 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
 
     this.suggestionsTimer = setTimeout(async () => {
       const q = (query || '').trim();
+      const aliasRoots = this.buildAliasRootSuggestions(q);
       if (!q) {
-        this.suggestions = [];
+        this.suggestions = this.buildMergedSuggestions([], [], aliasRoots, q);
         this.acIdx = -1;
         this.resetVirtualScroll();
         this.cdr.detectChanges();
@@ -729,11 +754,10 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
       // Load history immediately (local/fast)
       // We are skipping history suggestions as per user request
       const hist: PathSuggestion[] = [];
-      const aliasRoots = this.buildAliasRootSuggestions(q);
       if (requestId !== this.suggestionsRequestId) return;
 
       // Show history right away
-      this.suggestions = this.buildMergedSuggestions([], hist, aliasRoots);
+      this.suggestions = this.buildMergedSuggestions([], hist, aliasRoots, q);
       this.acIdx = -1;
       this.resetVirtualScroll();
       this.cdr.detectChanges();
@@ -746,7 +770,7 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
         if (dirPath) {
           await this.streamDirChildren(dirPath, prefix, (fsBatch) => {
             if (requestId !== this.suggestionsRequestId) return;
-            this.suggestions = this.buildMergedSuggestions(fsBatch, hist, aliasRoots);
+            this.suggestions = this.buildMergedSuggestions(fsBatch, hist, aliasRoots, q);
             this.updateVirtualWindow();
             this.cdr.detectChanges();
             setTimeout(() => this.attachDropScroll(), 0);
@@ -824,7 +848,7 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
     if (!candidate) return;
     const index = sessionCandidates.indexOf(candidate);
 
-    this.writeTabValue(this.toDisplayPath(candidate.path));
+    this.writeTabValue(this.formatEditorPath(candidate.path, candidate.path));
     this.tabSession  = { candidates: sessionCandidates, index, enteredDir };
     this.suggestions = sessionCandidates;
     this.acIdx       = index;
@@ -858,7 +882,7 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
     const { dirPath, prefix } = this.splitQueryContext(query);
     if (!dirPath) return aliasRoots;
     const fsSuggestions = await this.streamDirChildren(dirPath, prefix);
-    return this.buildMergedSuggestions(fsSuggestions, [], aliasRoots);
+    return this.buildMergedSuggestions(fsSuggestions, [], aliasRoots, query);
   }
 
   private cancelFetchStream(): void {
@@ -897,7 +921,7 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
             if (seenNames.has(entry.name)) continue;
             seenNames.add(entry.name);
             accumulated.push({
-              path: this.toDisplayPath(entry.path),
+              path: normalizePath(entry.path),
               displayName: entry.name,
               matchType: 'directory' as const,
               score: 100,
@@ -937,7 +961,7 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
           if (seenNames.has(entry.name)) continue;
           seenNames.add(entry.name);
           accumulated.push({
-            path:        this.toDisplayPath(entry.path),
+            path:        normalizePath(entry.path),
             displayName: entry.name,
             matchType:   'directory' as const,
             score:       100,
@@ -976,6 +1000,8 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
   private splitQueryContext(query: string): { dirPath: string; prefix: string } {
     const q = normalizePath((query || '').replace(/\\/g, '/'));
     if (!q) return { dirPath: '/', prefix: '' };
+    const driveRootMatch = /^drive:\/\/[a-z]$/i.exec(q);
+    if (driveRootMatch) return { dirPath: `${q}/`, prefix: '' };
     if (q.endsWith('/')) return { dirPath: q, prefix: '' };
 
     const lastSlash = q.lastIndexOf('/');
@@ -1002,6 +1028,9 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
 
     // Avoid listing the full filesystem root on short inputs.
     if (n === '/') return false;
+    if (n.toLowerCase() === 'drive://') return false;
+
+    if (/^drive:\/\/[a-z](?:\/.*)?$/i.test(n)) return true;
 
     // Any slash-based path, or Windows drive prefix, should show dir suggestions.
     if (n.includes('/')) return true;
@@ -1011,23 +1040,24 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
   }
 
   private buildAliasRootSuggestions(query: string): PathSuggestion[] {
-    const normalizedQuery = (query || '').trim().replace(/\\/g, '/').toLowerCase();
-    if (!normalizedQuery) return [];
+    const normalizedQuery = normalizePath((query || '').trim().replace(/\\/g, '/')).toLowerCase();
 
     const suggestions: PathSuggestion[] = [];
 
     for (const entry of this.syntheticRootSuggestions) {
-      const rootPath = entry.path.toLowerCase();
-      const schemeMatch = /^([a-z][a-z0-9+.-]*:\/\/)/i.exec(entry.path);
-      const schemeName = (schemeMatch?.[1] || entry.path).toLowerCase();
-      const schemeNameWithColon = `${schemeName}:`;
+      const rootPath = normalizePath(entry.path).toLowerCase();
+      const schemeMatch = /^([a-z][a-z0-9+.-]*):\/\//i.exec(rootPath);
+      const schemeName = (schemeMatch?.[1] || rootPath).toLowerCase();
+      const schemePrefix = schemeMatch ? `${schemeName}://` : rootPath;
 
       let score = 0;
-      if (normalizedQuery === rootPath || normalizedQuery === schemeName || normalizedQuery === schemeNameWithColon) {
+      if (!normalizedQuery) {
+        score = 120;
+      } else if (normalizedQuery === rootPath || normalizedQuery === schemePrefix || normalizedQuery === schemeName) {
         score = 180;
       } else if (rootPath.startsWith(normalizedQuery)) {
         score = 160;
-      } else if (schemeName.startsWith(normalizedQuery) || schemeNameWithColon.startsWith(normalizedQuery)) {
+      } else if (schemePrefix.startsWith(normalizedQuery) || schemeName.startsWith(normalizedQuery)) {
         score = 150;
       }
 
@@ -1064,7 +1094,7 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
     }
   }
 
-  private buildMergedSuggestions(fs: PathSuggestion[], hist: PathSuggestion[], aliasRoots: PathSuggestion[] = []): PathSuggestion[] {
+  private buildMergedSuggestions(fs: PathSuggestion[], hist: PathSuggestion[], aliasRoots: PathSuggestion[] = [], query: string = ''): PathSuggestion[] {
     const seen = new Set<string>();
     const aliases: PathSuggestion[] = [];
     const dirs: PathSuggestion[] = [];
@@ -1076,8 +1106,9 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
       const key = normalizePath(s?.path || '').toLowerCase();
       if (!key || seen.has(key)) continue;
       seen.add(key);
-      const entry = this.shouldNormalizeToForwardSlashes() ? { ...s, path: this.toDisplayPath(s.path) } : s;
-      if (aliasRootPaths.has(key)) {
+      const isAliasRoot = aliasRootPaths.has(key);
+      const entry = { ...s, path: this.formatSuggestionPath(s.path, query, isAliasRoot) };
+      if (isAliasRoot) {
         aliases.push(entry);
         continue;
       }

@@ -55,7 +55,7 @@ export type DriveType =
 export interface DriveInfo {
   /** Short label, e.g. "C:" on Windows or "sda1" on Linux */
   name: string;
-  /** Mount/root path — always includes drive letter on Windows, e.g. "C:\\" */
+  /** Canonical mount/root path, e.g. "drive://c" on Windows */
   path: string;
   /** Physical drive kind or a synthetic cloud mount used by the frontend address bar. */
   driveType: DriveType;

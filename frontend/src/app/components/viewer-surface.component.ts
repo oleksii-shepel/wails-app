@@ -20,7 +20,7 @@ interface ImageMeta { width: number; height: number }
 // the current ArchiveFrame stack so the viewer can call ArchiveRead through the
 // same VFS-backed archive handler path used by archive browsing.
 export interface ViewerArchiveContext {
-  /** Outermost archive on disk, e.g. "C:/foo/archive.zip" */
+  /** Outermost archive on disk, e.g. "drive://c/foo/archive.zip" */
   fsPath: string;
   /** Nested archive chain, e.g. ["inner.tar.gz"] — empty for flat archives */
   nestedChain: string[];

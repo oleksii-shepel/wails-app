@@ -15,7 +15,7 @@ import { parsePathWithArchives } from './address-bar.utils';
 import { EventsOn } from 'wailsjs/runtime';
 
 import { PathSegment, SiblingEntry, PinnedPath, ContextMenuState, PINNED_KEY, CTX_MENU_CLOSED } from './address-bar.types';
-import { isWindowsPath, normalizePath, pathIdentityKey, samePath, shortenPath } from './address-bar.utils';
+import { buildSegments, isWindowsPath, normalizePath, pathIdentityKey, samePath, shortenPath } from './address-bar.utils';
 import { AddressBarEditComponent } from './address-bar-edit.component';
 import { AddressBarDriveDropdownComponent } from './address-bar-drive-dropdown.component';
 import { AddressBarSiblingDropdownComponent } from './address-bar-sibling-dropdown.component';
@@ -1332,10 +1332,8 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     if (this.isPinned) {
       this.pinnedPaths = this.pinnedPaths.filter(p => p.path !== this.currentPath);
     } else {
-      const parts = this.currentPath.split('/').filter(Boolean);
-      const label = parts.length
-        ? parts[parts.length - 1]
-        : (isWindowsPath(this.currentPath) ? this.currentPath.slice(0, 2) : '/');
+      const segments = buildSegments(this.currentPath);
+      const label = segments[segments.length - 1]?.label || (isWindowsPath(this.currentPath) ? shortenPath(this.currentPath) : '/');
       this.pinnedPaths.push({ path: this.currentPath, label, icon: '📁', addedAt: Date.now() });
     }
     this.savePins();

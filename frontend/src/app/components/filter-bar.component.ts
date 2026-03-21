@@ -11,6 +11,7 @@ import { createSubject, debounce, distinctUntilChanged, takeUntil } from '@epiko
 import { FileInfo } from '../shared/protocol';
 import { FilterQuery } from '../shared/protocol-enhanced';
 import { FilterService, CriteriaGroup } from '../services/filter.service';
+import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
 
@@ -552,6 +553,7 @@ export class FilterBarComponent implements OnInit, OnDestroy, OnChanges {
     private filterService: FilterService,
     private elRef: ElementRef,
     private cdr: ChangeDetectorRef,
+    private confirmDialog: ConfirmDialogService,
     private inputContexts: InputContextService,
     private inputEngine: InputEngineService,
   ) {}
@@ -677,12 +679,19 @@ export class FilterBarComponent implements OnInit, OnDestroy, OnChanges {
     try { localStorage.setItem(FILTER_PRESETS_KEY, JSON.stringify(this.savedPresets)); } catch {}
   }
 
-  onSavePreset(): void {
-    const name = prompt('Preset name:');
-    if (!name?.trim()) return;
+  async onSavePreset(): Promise<void> {
+    const name = (await this.confirmDialog.prompt({
+      title: 'Save Preset',
+      message: 'Enter preset name.',
+      confirmText: 'Save',
+      cancelText: 'Cancel',
+      placeholder: 'Preset name',
+      defaultValue: '',
+    }))?.trim();
+    if (!name) return;
     this.savedPresets = [...this.savedPresets, {
       id: `preset-${Date.now()}`,
-      name: name.trim(),
+      name,
       presetIds: this.selectedPresets.map(p => p.id),
     }];
     this.persistSavedPresets();

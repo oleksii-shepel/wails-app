@@ -65,7 +65,7 @@ export interface FilePaneRuntimeHostsSource {
   findEntry(path: string): FileInfo | undefined;
   emitPreviewTarget(path: string): void;
   setFindMatchCount(count: number): void;
-  promptForMask(mode: 'select' | 'unselect'): string | null;
+  promptForMask(mode: 'select' | 'unselect'): Promise<string | null>;
   scrollToCursorPath(path: string): void;
   getGridColumns(): number;
   getApproxPageSize(): number;

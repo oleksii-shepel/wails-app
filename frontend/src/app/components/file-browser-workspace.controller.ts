@@ -15,7 +15,14 @@ export interface FileBrowserWorkspaceHost {
 
 export class FileBrowserWorkspaceController {
   async createNewWorkspace(host: FileBrowserWorkspaceHost): Promise<void> {
-    const name = prompt('Enter workspace name:');
+    const name = (await host.confirmDialog.prompt({
+      title: 'New Workspace',
+      message: 'Enter workspace name.',
+      confirmText: 'Create',
+      cancelText: 'Cancel',
+      placeholder: 'Workspace name',
+      defaultValue: '',
+    }))?.trim();
     if (!name) {
       return;
     }
@@ -58,13 +65,20 @@ export class FileBrowserWorkspaceController {
     host.workspaceService.deleteWorkspace(activeWorkspace.id);
   }
 
-  renameCurrentWorkspace(host: FileBrowserWorkspaceHost): void {
+  async renameCurrentWorkspace(host: FileBrowserWorkspaceHost): Promise<void> {
     const activeWorkspace = host.getActiveWorkspace();
     if (!activeWorkspace) {
       return;
     }
 
-    const name = prompt('Enter new workspace name:', activeWorkspace.name);
+    const name = (await host.confirmDialog.prompt({
+      title: 'Rename Workspace',
+      message: 'Enter new workspace name.',
+      confirmText: 'Rename',
+      cancelText: 'Cancel',
+      placeholder: 'Workspace name',
+      defaultValue: activeWorkspace.name,
+    }))?.trim();
     if (!name) {
       return;
     }

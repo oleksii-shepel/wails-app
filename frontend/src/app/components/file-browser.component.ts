@@ -346,8 +346,8 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
     await this.workspaceController.deleteCurrentWorkspace(this.workspaceHost);
   }
 
-  renameCurrentWorkspace(): void {
-    this.workspaceController.renameCurrentWorkspace(this.workspaceHost);
+  async renameCurrentWorkspace(): Promise<void> {
+    await this.workspaceController.renameCurrentWorkspace(this.workspaceHost);
   }
 
   async toggleShowHidden(): Promise<void> {

@@ -333,10 +333,16 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       findEntry: (path: string) => thisRef.entries.find((entry) => entry.path === path),
       emitPreviewTarget: (path: string) => thisRef.previewTargetChange.emit(path),
       setFindMatchCount: (count: number) => thisRef.findWidget?.setMatchCount(count),
-      promptForMask: (mode: 'select' | 'unselect') => prompt(
-        mode === 'select' ? 'Select by mask (example: *.txt):' : 'Unselect by mask (example: *.txt):',
-        '*.*',
-      ),
+      promptForMask: (mode: 'select' | 'unselect') => thisRef.confirmDialog.prompt({
+        title: mode === 'select' ? 'Select By Mask' : 'Unselect By Mask',
+        message: mode === 'select'
+          ? 'Enter a mask, for example *.txt.'
+          : 'Enter a mask to remove from the selection, for example *.txt.',
+        confirmText: mode === 'select' ? 'Select' : 'Unselect',
+        cancelText: 'Cancel',
+        placeholder: '*.txt',
+        defaultValue: '*.*',
+      }),
       scrollToCursorPath: (path: string) => thisRef.stateRuntime.scrollToCursorPath(path),
       getGridColumns: () => thisRef.fileViewContainer?.getGridColumns() ?? 1,
       getApproxPageSize: () => thisRef.fileViewContainer?.getApproxPageSize() ?? 10,

@@ -3,6 +3,7 @@ import {
   Component, Input, OnChanges, OnDestroy,
   ChangeDetectionStrategy, ChangeDetectorRef,
 } from '@angular/core';
+import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { ApiService } from '../services/api.service';
 import { FileInfo, FileType } from '../shared/protocol';
 
@@ -126,8 +127,11 @@ export interface ViewerArchiveContext {
 
         <!-- Video -->
         <div *ngIf="kind === 'video'" class="media-host">
-          <video class="preview-video" controls preload="auto" playsinline (loadeddata)="onVideoLoadedData($event)" (error)="onMediaError('video', $event)">
-            <source [src]="mediaSrc!" [type]="mediaMime || undefined">
+          <video class="preview-video" controls preload="auto" playsinline
+                 [src]="mediaSrc!"
+                 (loadedmetadata)="onMediaMetadata('video', $event)"
+                 (loadeddata)="onVideoLoadedData($event)"
+                 (error)="onMediaError('video', $event)">
             Your browser does not support video.
           </video>
         </div>
@@ -136,8 +140,10 @@ export interface ViewerArchiveContext {
         <div *ngIf="kind === 'audio'" class="audio-host">
           <div class="audio-icon">&#x1F3B5;</div>
           <div class="state-label">{{ info?.name }}</div>
-          <audio class="preview-audio" controls preload="auto" (error)="onMediaError('audio', $event)">
-            <source [src]="mediaSrc!" [type]="mediaMime || undefined">
+          <audio class="preview-audio" controls preload="auto"
+                 [src]="mediaSrc!"
+                 (loadedmetadata)="onMediaMetadata('audio', $event)"
+                 (error)="onMediaError('audio', $event)">
             Your browser does not support audio.
           </audio>
         </div>
@@ -567,7 +573,7 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
   mediaSrc:         string | null        = null;
   mediaMime:        string | null        = null;
   /** Blob URL for binary content — no SafeResourceUrl needed with streaming */
-  pdfSrc:           string | null        = null;
+  pdfSrc:           SafeResourceUrl | null = null;
   textContent:      string | null        = null;
   highlightedJson:  string | null        = null;
   renderedMarkdown: string | null        = null;
@@ -577,6 +583,7 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
   zoomLevel   = 0;
   showCheckerboard = false;
   wordWrap = false;
+  private mediaProbeTimer: ReturnType<typeof setTimeout> | null = null;
 
 
 
@@ -641,6 +648,7 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
   constructor(
     private api: ApiService,
     private cdr: ChangeDetectorRef,
+    private sanitizer: DomSanitizer,
   ) {}
 
   async ngOnChanges(): Promise<void> {
@@ -670,7 +678,9 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
     this.cdr.markForCheck();
   }
 
-  ngOnDestroy(): void {}
+  ngOnDestroy(): void {
+    this.clearMediaProbe();
+  }
 
   // ── Toolbar controls ──────────────────────────────────────────────────────
 
@@ -694,6 +704,7 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
   }
 
   onMediaError(kind: 'video' | 'audio', event: Event): void {
+    this.clearMediaProbe();
     const media = event.target as HTMLMediaElement | null;
     const code = media?.error?.code;
     const currentSrc = media?.currentSrc || this.mediaSrc || '';
@@ -707,7 +718,12 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
     this.cdr.markForCheck();
   }
 
+  onMediaMetadata(kind: 'video' | 'audio', event: Event): void {
+    this.armMediaProbe(kind, event.target as HTMLMediaElement | null);
+  }
+
   onVideoLoadedData(event: Event): void {
+    this.clearMediaProbe();
     const video = event.target as HTMLVideoElement | null;
     if (video && video.videoWidth === 0 && video.videoHeight === 0) {
       this.error = `video loaded but no decodable video track (${this.mediaMime ?? 'unknown mime'})`;
@@ -849,7 +865,8 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
       if (ext === 'pdf') {
         if (sizeHint !== null && sizeHint > this.MAX_MEDIA_BYTES) { this.kind = 'toobig'; return; }
         try {
-          this.pdfSrc = await readers.streamBinary('application/pdf');
+          const pdfUrl = await readers.streamBinary('application/pdf');
+          this.pdfSrc = this.sanitizer.bypassSecurityTrustResourceUrl(pdfUrl);
           this.kind = 'pdf';
           return;
         } catch { this.kind = 'error'; this.error = 'Failed to stream PDF'; return; }
@@ -898,6 +915,7 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
   // ── Private helpers ──────────────────────────────────────────────────────
 
   private resetState(): void {
+    this.clearMediaProbe();
     this.info            = null;
     this.error           = null;
     this.imageSrc        = null;
@@ -912,6 +930,38 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
     this.lineCount       = null;
     this.zoomLevel       = 0;
     this.showCheckerboard = false;
+  }
+
+  private armMediaProbe(kind: 'video' | 'audio', media: HTMLMediaElement | null): void {
+    this.clearMediaProbe();
+    if (!media) {
+      return;
+    }
+
+    this.mediaProbeTimer = setTimeout(() => {
+      if (kind === 'video') {
+        const video = media as HTMLVideoElement;
+        if (this.kind === 'video' && (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || video.videoWidth === 0)) {
+          this.error = `video stream did not produce a frame (readyState=${video.readyState}, networkState=${video.networkState}, mime=${this.mediaMime ?? 'unknown'})`;
+          this.kind = 'error';
+          this.cdr.markForCheck();
+        }
+        return;
+      }
+
+      if (this.kind === 'audio' && media.readyState === HTMLMediaElement.HAVE_NOTHING) {
+        this.error = `audio stream did not load media data (networkState=${media.networkState}, mime=${this.mediaMime ?? 'unknown'})`;
+        this.kind = 'error';
+        this.cdr.markForCheck();
+      }
+    }, 2000);
+  }
+
+  private clearMediaProbe(): void {
+    if (this.mediaProbeTimer !== null) {
+      clearTimeout(this.mediaProbeTimer);
+      this.mediaProbeTimer = null;
+    }
   }
 
   private makeSyntheticInfo(name: string, path: string, size: number): FileInfo {

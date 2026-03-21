@@ -74,6 +74,7 @@ export interface FilePaneActionHostsSource {
   emitCopyToOther(paths: string[]): void;
   emitMoveToOther(paths: string[]): void;
   startRenameSelected(): void;
+  startRenamePath(path: string): void;
   getVisibleTreeNodes(): any[];
   onTabChange(tab: TabInfo): Promise<void>;
   archiveNavigateInto(path: string): Promise<void>;
@@ -176,10 +177,11 @@ export class FilePaneActionHostsFactory {
       isInArchive: () => source.isInArchive(),
       deleteSelectedFromArchive: (effective: Set<string>) => source.deleteSelectedFromArchive(effective),
       getEffectiveSelection: () => source.getEffectiveSelection(),
-      loadDirectory: (path: string) => source.loadDirectory(path),
+      loadDirectory: (path: string, opts?: { preserveUI?: boolean; focusPath?: string }) => source.loadDirectory(path, opts),
       emitCopyToOther: (paths: string[]) => source.emitCopyToOther(paths),
       emitMoveToOther: (paths: string[]) => source.emitMoveToOther(paths),
       startRenameSelected: () => source.startRenameSelected(),
+      startRenamePath: (path: string) => source.startRenamePath(path),
       getVisibleTreeNodes: () => source.getVisibleTreeNodes(),
     };
   }

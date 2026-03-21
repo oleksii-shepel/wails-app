@@ -20,10 +20,11 @@ export interface FilePaneOperationsHost {
   isInArchive(): boolean;
   deleteSelectedFromArchive(effective: Set<string>): Promise<boolean>;
   getEffectiveSelection(): Set<string>;
-  loadDirectory(path: string): Promise<void>;
+  loadDirectory(path: string, opts?: { preserveUI?: boolean; focusPath?: string }): Promise<void>;
   emitCopyToOther(paths: string[]): void;
   emitMoveToOther(paths: string[]): void;
   startRenameSelected(): void;
+  startRenamePath(path: string): void;
   getVisibleTreeNodes(): any[];
 }
 
@@ -50,22 +51,17 @@ export class FilePaneOperationsController {
       return;
     }
 
-    const folderName = (await host.confirmDialog.prompt({
-      title: 'Create Folder',
-      message: 'Enter folder name.',
-      confirmText: 'Create',
-      cancelText: 'Cancel',
-      placeholder: 'Folder name',
-      defaultValue: '',
-    }))?.trim();
-    if (!folderName) return;
-
     try {
-      const newPath: string = await window.go.app.App.JoinPaths([host.currentPath, folderName]);
-      await host.apiService.createDirectory(newPath, false);
-      await host.loadDirectory(host.currentPath);
+      const newPath = await this.createNewFolderForInlineRename(host);
+      await host.loadDirectory(host.currentPath, { focusPath: newPath });
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => {
+          host.startRenamePath(newPath);
+          resolve();
+        });
+      });
     } catch (error: any) {
-      host.confirmDialog.alert(`Create Folder Failed\n${error.message}`);
+      host.confirmDialog.alert(`Create Folder Failed\n${this.getErrorMessage(error, 'Unknown error')}`);
     }
   }
 
@@ -215,6 +211,61 @@ export class FilePaneOperationsController {
     if (host.selectedFiles.size > 0) {
       host.emitMoveToOther(Array.from(host.selectedFiles));
     }
+  }
+
+  private async createNewFolderForInlineRename(host: FilePaneOperationsHost): Promise<string> {
+    const existingNames = new Set(
+      host.entries
+        .filter((entry) => entry.path !== PARENT_ENTRY_PATH)
+        .map((entry) => entry.name.trim().toLowerCase())
+    );
+
+    for (let attempt = 1; attempt <= 100; attempt += 1) {
+      const folderName = attempt === 1 ? 'New Folder' : `New Folder (${attempt})`;
+      const folderKey = folderName.toLowerCase();
+      if (existingNames.has(folderKey)) continue;
+
+      const newPath: string = await window.go.app.App.JoinPaths([host.currentPath, folderName]);
+      try {
+        const result = await host.apiService.createDirectory(newPath, false);
+        if (!result?.success) {
+          throw new Error(result?.message || 'Create directory failed');
+        }
+        return newPath;
+      } catch (error: any) {
+        if (this.isAlreadyExistsError(error)) {
+          existingNames.add(folderKey);
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    throw new Error('Unable to create a unique folder name.');
+  }
+
+  private isAlreadyExistsError(error: any): boolean {
+    const message = this.getErrorMessage(error).toLowerCase();
+    return message.includes('already exists') || message.includes('exists');
+  }
+
+  private getErrorMessage(error: any, fallback: string = 'Operation failed'): string {
+    if (error instanceof Error) {
+      return error.message || fallback;
+    }
+    if (typeof error === 'string') {
+      return error || fallback;
+    }
+    if (typeof error?.message === 'string' && error.message) {
+      return error.message;
+    }
+    if (typeof error?.error === 'string' && error.error) {
+      return error.error;
+    }
+    if (typeof error?.cause?.message === 'string' && error.cause.message) {
+      return error.cause.message;
+    }
+    return fallback;
   }
 
   private async renameEntry(host: FilePaneOperationsHost, entry: FileInfo, forcedName?: string): Promise<void> {

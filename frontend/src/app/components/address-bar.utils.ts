@@ -281,6 +281,21 @@ export function shortenPath(p: string): string {
   return '…/' + parts.slice(-2).join('/');
 }
 
+export function formatPathForDisplay(path: string): string {
+  const normalized = normalizePath(path);
+  const driveReference = canonicalDriveReference(normalized);
+  if (driveReference) {
+    return toShortDriveDisplayPath(driveReference);
+  }
+  return normalized;
+}
+
+export function formatPathsInText(text: string): string {
+  if (!text) return text;
+
+  return text.replace(/drive:\/\/[a-z](?:\/[^:\n\r]*)?/gi, (match) => formatPathForDisplay(match));
+}
+
 // ─── Segment builders ─────────────────────────────────────────────────────────
 
 export function buildSegments(p: string): PathSegment[] {

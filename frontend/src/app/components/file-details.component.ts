@@ -491,6 +491,10 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     this.startRenameByPath(selectedPath);
   }
 
+  startRenamePath(path: string): void {
+    this.startRenameByPath(path);
+  }
+
   /** Scroll so the given path is visible. */
   scrollToPath(path: string): void {
     if (!path || path === PARENT_ENTRY_PATH) return;

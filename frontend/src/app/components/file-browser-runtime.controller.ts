@@ -17,6 +17,9 @@ export class FileBrowserRuntimeController {
     await this.checkServerConnection(host);
     await this.syncElevationState(host);
 
+    EventsOn('elevation:uac-requested', () => {
+      host.setElevationBusy(true);
+    });
     EventsOn('elevation:session-starting', () => {
       host.setElevationBusy(true);
     });
@@ -28,6 +31,12 @@ export class FileBrowserRuntimeController {
       host.setElevationActive(false);
       host.setElevationBusy(false);
     });
+    EventsOn('elevation:auto-started', () => {
+      host.setElevationBusy(false);
+    });
+    EventsOn('elevation:auto-failed', () => {
+      host.setElevationBusy(false);
+    });
 
     OnFileDrop((x: number, y: number, paths: string[]) => {
       console.log('[FileBrowser] 🎯🎯🎯 wails:file-drop received! x:', x, 'y:', y, 'paths:', paths);
@@ -36,7 +45,7 @@ export class FileBrowserRuntimeController {
   }
 
   dispose(): void {
-    EventsOff('elevation:session-starting', 'elevation:session-started', 'elevation:session-stopped');
+    EventsOff('elevation:uac-requested', 'elevation:session-starting', 'elevation:session-started', 'elevation:session-stopped', 'elevation:auto-started', 'elevation:auto-failed');
     OnFileDropOff();
   }
 

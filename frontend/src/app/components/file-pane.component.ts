@@ -568,6 +568,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       emitCopyToOther: (paths: string[]) => thisRef.copyToOther.emit(paths),
       emitMoveToOther: (paths: string[]) => thisRef.moveToOther.emit(paths),
       startRenameSelected: () => thisRef.fileViewContainer?.startRenameSelected(),
+      startRenamePath: (path: string) => thisRef.fileViewContainer?.startRenamePath(path),
       getVisibleTreeNodes: () => thisRef.fileViewContainer?.getVisibleTreeNodes() ?? [],
       onTabChange: (tab: TabInfo) => thisRef.onTabChange(tab),
       archiveNavigateInto: (path: string) => thisRef.archiveController.archiveNavigateInto(thisRef.archiveHost, path),

@@ -10,6 +10,10 @@ export interface FileViewRuntimeHost {
   startRenameInGrid(): void;
   startRenameInDetails(): void;
   startRenameInTree(): void;
+  startRenamePathInList(path: string): void;
+  startRenamePathInGrid(path: string): void;
+  startRenamePathInDetails(path: string): void;
+  startRenamePathInTree(path: string): void;
   scrollListToPath(path: string): void;
   scrollDetailsToPath(path: string): void;
   scrollGridToPath(path: string): void;
@@ -34,6 +38,25 @@ export class FileViewRuntimeController {
         return;
       case 'tree':
         host.startRenameInTree();
+        return;
+      default:
+        return;
+    }
+  }
+
+  startRenamePath(host: FileViewRuntimeHost, path: string): void {
+    switch (host.currentView) {
+      case 'list':
+        host.startRenamePathInList(path);
+        return;
+      case 'grid':
+        host.startRenamePathInGrid(path);
+        return;
+      case 'details':
+        host.startRenamePathInDetails(path);
+        return;
+      case 'tree':
+        host.startRenamePathInTree(path);
         return;
       default:
         return;

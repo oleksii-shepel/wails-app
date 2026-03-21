@@ -261,8 +261,14 @@ export class ElevationStatusPillComponent implements OnInit, OnDestroy {
       .catch(() => { /* method not yet available in runtime - ignore */ });
 
     // Backend events
+    EventsOn('elevation:uac-requested', () => {
+      this._errorMsg.set('');
+      this._state.set('starting');
+      this.cdr.markForCheck();
+    });
     EventsOn('elevation:session-starting', () => {
       // Auto-start triggered by a permission-denied operation; show UAC is pending.
+      this._errorMsg.set('');
       this._state.set('starting');
       this.cdr.markForCheck();
     });
@@ -277,6 +283,10 @@ export class ElevationStatusPillComponent implements OnInit, OnDestroy {
     });
     EventsOn('elevation:auto-started', () => {
       this._opCount.update(n => n + 1);
+      if (this._state() !== 'active') {
+        this._state.set('idle');
+        this.triggerFlash('ok');
+      }
       this.triggerBlinkOp();
       this.cdr.markForCheck();
     });
@@ -290,6 +300,7 @@ export class ElevationStatusPillComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     EventsOff(
+      'elevation:uac-requested',
       'elevation:session-starting',
       'elevation:session-started',
       'elevation:session-stopped',

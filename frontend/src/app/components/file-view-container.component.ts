@@ -299,6 +299,10 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
           // ignore
         }
       },
+      startRenamePathInList: (path: string) => thisRef.listComponent?.startRenamePath(path),
+      startRenamePathInGrid: (path: string) => thisRef.gridComponent?.startRenamePath(path),
+      startRenamePathInDetails: (path: string) => thisRef.detailsComponent?.startRenamePath(path),
+      startRenamePathInTree: (path: string) => thisRef.treeComponent?.startRenamePath(path),
       scrollListToPath: (path: string) => thisRef.listComponent?.scrollToPath(path),
       scrollDetailsToPath: (path: string) => thisRef.detailsComponent?.scrollToPath(path),
       scrollGridToPath: (path: string) => thisRef.gridComponent?.scrollToPath(path),
@@ -378,6 +382,10 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
   /** Trigger in-place rename for the currently selected item in the active view (eg. on F2). */
   startRenameSelected(): void {
     this.runtimeController.startRenameSelected(this.runtimeHost);
+  }
+
+  startRenamePath(path: string): void {
+    this.runtimeController.startRenamePath(this.runtimeHost, path);
   }
 
   /** Scroll the active view to bring the given path into view. */

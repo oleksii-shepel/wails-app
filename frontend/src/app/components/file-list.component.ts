@@ -561,6 +561,10 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
     this.startRenameByPath(selectedPath);
   }
 
+  startRenamePath(path: string): void {
+    this.startRenameByPath(path);
+  }
+
   private getFirstSelectedPathInOrder(): string | null {
     if (!this.selectedFiles?.size) return null;
     for (const entry of this.entries) {

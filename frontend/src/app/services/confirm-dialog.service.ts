@@ -1,5 +1,6 @@
 import { Injectable } from '@angular/core';
 import { createBehaviorSubject, type Stream } from '@epikodelabs/streamix';
+import { formatPathsInText } from '../components/address-bar.utils';
 
 export interface ConfirmDialogOptions {
   title?: string;
@@ -81,7 +82,7 @@ export class ConfirmDialogService {
   private normalizeOptions(options: ConfirmDialogOptions | string): Required<Pick<ConfirmDialogOptions, 'message'>> & ConfirmDialogOptions {
     if (typeof options === 'string') {
       return {
-        message: options,
+        message: formatPathsInText(options),
         confirmText: 'Confirm',
         cancelText: 'Cancel',
       };
@@ -89,7 +90,8 @@ export class ConfirmDialogService {
 
     return {
       ...options,
-      message: options.message,
+      title: options.title ? formatPathsInText(options.title) : options.title,
+      message: formatPathsInText(options.message),
       confirmText: options.confirmText ?? 'Confirm',
       cancelText: options.cancelText ?? 'Cancel',
     };

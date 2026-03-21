@@ -1367,6 +1367,18 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
     if (current) this.startRename(current);
   }
 
+  startRenamePath(path: string): void {
+    if (!path) return;
+
+    this.focusNode(path);
+    this.centerNode(path);
+
+    requestAnimationFrame(() => {
+      const target = this.getVisibleNodes().find((node) => node.path === path);
+      if (target) this.startRename(target);
+    });
+  }
+
   onRenameBlur(node: TreeNode): void {
     this.commitRename(node);
   }

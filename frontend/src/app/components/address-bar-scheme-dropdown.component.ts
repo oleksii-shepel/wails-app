@@ -48,8 +48,7 @@ import { normalizePath as normalizeAddressBarPath } from './address-bar.utils';
         >
           <div class="ab-scheme-top">
             <span class="ab-scheme-icon">{{ getIcon(d) }}</span>
-            <span class="ab-scheme-letter">{{ getSchemeRootLabel(d) }}</span>
-            <span *ngIf="showSchemeRootSeparator(d)" class="ab-scheme-letter-separator">:</span>
+            <span>{{ getSchemeRootLabel(d) }}</span>
             <span class="ab-scheme-label">{{ getSchemeTypeLabel(d) }}</span>
             <svg *ngIf="isSelected(d)" class="ab-scheme-dot" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
               <circle cx="8" cy="8" r="2.5" fill="currentColor" />
@@ -141,8 +140,6 @@ import { normalizePath as normalizeAddressBarPath } from './address-bar.utils';
 
     .ab-scheme-top { display: flex; align-items: center; gap: var(--vsc-padding-sm); }
     .ab-scheme-icon { font-size: 20px; flex-shrink: 0; }
-    .ab-scheme-letter { font-family: var(--vsc-font-family-mono); font-size: 14px; font-weight: 700; color: var(--vsc-foreground-dim); }
-    .ab-scheme-letter-separator { margin-left: -0.06em; color: var(--vsc-foreground-dim); flex-shrink: 0; }
     .ab-scheme-label { font-size: var(--vsc-font-size); font-weight: 500; color: var(--vsc-foreground); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .ab-scheme-dot { color: var(--vsc-accent-blue); margin-left: auto; flex-shrink: 0; }
 
@@ -265,17 +262,11 @@ export class AddressBarSchemeDropdownComponent {
     return this.isActive(d) || (this.selectedIndex >= 0 && this.schemes[this.selectedIndex]?.path === d.path);
   }
 
-  showSchemeRootSeparator(d: DriveInfo): boolean {
-    const path = this.normalizePath(d.path || '');
-    const match = /^([a-z][a-z0-9+.-]*):\/\//i.exec(path);
-    return !!match && match[1].toLowerCase() !== 'drive';
-  }
-
   getSchemeRootLabel(d: DriveInfo): string {
     const path = this.normalizePath(d.path || '');
     const match = /^([a-z][a-z0-9+.-]*):\/\//i.exec(path);
     if (match && match[1].toLowerCase() !== 'drive') {
-      return match[1].toLowerCase();
+      return `${match[1].toLowerCase()}:`;
     }
     return d.name;
   }

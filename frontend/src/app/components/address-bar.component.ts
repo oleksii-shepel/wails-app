@@ -544,28 +544,8 @@ import { DropdownContainerComponent } from './dropdown-container.component';
       &.ab-seg--last { background: color-mix(in srgb, #007fd4 10%, transparent); cursor: pointer; }
       &.ab-scheme--open { background: color-mix(in srgb, #007fd4 22%, transparent); border-color: rgba(0,127,212,0.45); }
       &.ab-scheme--synthetic {
-        gap: 6px;
-        font-family: var(--vsc-font-family);
+        gap: 0;
         max-width: 180px;
-      }
-    }
-
-    .ab-scheme--physical {
-      /* match synthetic look for simple physical schemes like C: */
-      background: color-mix(in srgb, var(--vsc-accent-blue, #007acc) 14%, transparent);
-      border-color: color-mix(in srgb, var(--vsc-accent-blue, #007acc) 32%, transparent);
-      color: color-mix(in srgb, var(--vsc-accent-blue, #007acc) 54%, var(--vsc-foreground-bright, #ffffff));
-
-      &:hover {
-        background: color-mix(in srgb, var(--vsc-accent-blue, #007acc) 22%, transparent);
-        border-color: color-mix(in srgb, var(--vsc-accent-blue, #007acc) 44%, transparent);
-        color: var(--vsc-foreground-bright, #ffffff);
-      }
-
-      &.ab-scheme--open {
-        background: color-mix(in srgb, var(--vsc-accent-blue, #007acc) 26%, transparent);
-        border-color: color-mix(in srgb, var(--vsc-accent-blue, #007acc) 52%, transparent);
-        color: var(--vsc-foreground-bright, #ffffff);
       }
     }
 
@@ -576,13 +556,15 @@ import { DropdownContainerComponent } from './dropdown-container.component';
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      padding-right: 0.05em;
+      padding-right: 0;
     }
 
     .ab-scheme-separator {
       flex: 0 0 auto;
-      margin-left: 0.14em;
-      padding-right: 0.05em;
+      margin-left: 0.12em;
+      padding-right: 0;
+      color: inherit;
+      line-height: 1;
     }
 
 
@@ -915,12 +897,17 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   }
 
   showCurrentSchemeSeparator(): boolean {
-    return this.isSchemeRoot || this.isCurrentRootSynthetic();
+    return this.isSchemeRoot || this.isCurrentRootSynthetic() || this.isCurrentRootPhysical();
   }
 
   currentSchemeLabel(): string {
     const drive = this.findCurrentRootEntry();
     if (this.showCurrentSchemeSeparator()) {
+      if (this.isCurrentRootPhysical()) {
+        const rawPhysical = this.segments[0]?.label || drive?.name || '';
+        return rawPhysical.replace(/\s*:\s*$/, '');
+      }
+
       const path = drive?.path || '';
       const match = /^([a-z][a-z0-9+.-]*):\/\//i.exec(path);
       if (match) return match[1].toLowerCase();

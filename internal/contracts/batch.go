@@ -27,8 +27,9 @@ type ConflictResolutionRequest struct {
 }
 
 type BatchItem struct {
-	Source      string `json:"source"`
-	Destination string `json:"destination"`
+	Source           string `json:"source"`
+	Destination      string `json:"destination"`
+	ExactDestination bool   `json:"exactDestination,omitempty"`
 }
 
 type BatchRequest struct {

@@ -155,6 +155,7 @@ export interface ConflictResolutionRequest {
 export interface BatchItem {
   source: string;
   destination: string;
+  exactDestination?: boolean;
 }
 
 export interface BatchRequest {

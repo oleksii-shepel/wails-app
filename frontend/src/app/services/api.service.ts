@@ -82,6 +82,7 @@ export class ApiService {
         ...item,
         source: this.normalizeCanonicalPath(item.source),
         destination: this.normalizeCanonicalPath(item.destination),
+        exactDestination: item.exactDestination,
       }));
     }
 

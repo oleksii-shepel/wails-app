@@ -44,10 +44,15 @@ func (r *TransferRunner) toPublicPath(path string) string {
 	return r.callbacks.ToPublicPath(path)
 }
 
-func (r *TransferRunner) normalizeItemDestination(sourceLabel, destinationLabel, resolvedSource string) (string, error) {
+func (r *TransferRunner) normalizeItemDestination(item contracts.BatchItem, resolvedSource string) (string, error) {
+	destinationLabel := item.Destination
 	resolvedDestination, err := r.resolvePath(destinationLabel)
 	if err != nil {
 		return "", err
+	}
+
+	if item.ExactDestination {
+		return destinationLabel, nil
 	}
 
 	info, statErr := os.Stat(resolvedDestination)
@@ -99,7 +104,7 @@ func (r *TransferRunner) Copy(op *internalops.ActiveOperation, req contracts.Bat
 			continue
 		}
 
-		destinationLabel, err := r.normalizeItemDestination(item.Source, item.Destination, resolvedSource)
+		destinationLabel, err := r.normalizeItemDestination(item, resolvedSource)
 		if err != nil {
 			result.Failed++
 			result.Errors = append(result.Errors, r.callbacks.BatchErr(item.Source, item.Destination, err))
@@ -181,7 +186,7 @@ func (r *TransferRunner) Move(op *internalops.ActiveOperation, req contracts.Bat
 			result.Errors = append(result.Errors, r.callbacks.BatchErr(item.Source, item.Destination, err))
 			continue
 		}
-		destinationLabel, err := r.normalizeItemDestination(item.Source, item.Destination, resolvedSource)
+		destinationLabel, err := r.normalizeItemDestination(item, resolvedSource)
 		if err != nil {
 			result.Failed++
 			result.Errors = append(result.Errors, r.callbacks.BatchErr(item.Source, item.Destination, err))

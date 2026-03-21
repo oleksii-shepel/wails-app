@@ -286,6 +286,7 @@ export namespace contracts {
 	export class BatchItem {
 	    source: string;
 	    destination: string;
+	    exactDestination?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new BatchItem(source);
@@ -295,6 +296,7 @@ export namespace contracts {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.source = source["source"];
 	        this.destination = source["destination"];
+	        this.exactDestination = source["exactDestination"];
 	    }
 	}
 	

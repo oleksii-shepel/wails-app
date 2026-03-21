@@ -50,7 +50,14 @@ export class FilePaneOperationsController {
       return;
     }
 
-    const folderName = prompt('Enter folder name:');
+    const folderName = (await host.confirmDialog.prompt({
+      title: 'Create Folder',
+      message: 'Enter folder name.',
+      confirmText: 'Create',
+      cancelText: 'Cancel',
+      placeholder: 'Folder name',
+      defaultValue: '',
+    }))?.trim();
     if (!folderName) return;
 
     try {

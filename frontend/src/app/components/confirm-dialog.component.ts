@@ -1,5 +1,6 @@
 import { Component, OnDestroy, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
@@ -9,13 +10,13 @@ import { createSubject, takeUntil } from '@epikodelabs/streamix';
 
 interface ConfirmDialogRequest {
   options: any;
-  resolve: (value: boolean) => void;
+  resolve: (value: boolean | string | null) => void;
 }
 
 @Component({
   selector: 'app-confirm-dialog',
   standalone: true,
-  imports: [CommonModule, DialogFocusTrapDirective],
+  imports: [CommonModule, FormsModule, DialogFocusTrapDirective],
   template: `
     <ng-container *ngIf="request$ | async as request">
       <div 
@@ -26,8 +27,9 @@ interface ConfirmDialogRequest {
         <div
           class="confirm-panel"
           [class.confirm-panel--alert]="request.options.isAlert"
+          [class.confirm-panel--prompt]="request.options.isPrompt && !request.options.isAlert"
           [appTrapFocus]="true"
-          role="alertdialog"
+          [attr.role]="request.options.isAlert ? 'alertdialog' : 'dialog'"
           aria-modal="true"
           tabindex="-1"
           [attr.aria-label]="request.options.title || 'Confirmation'"
@@ -60,13 +62,24 @@ interface ConfirmDialogRequest {
             </div>
 
             <div class="confirm-body">
-              <p>{{ request.options.message }}</p>
+              <p [class.confirm-body-text--prompt]="request.options.isPrompt">{{ request.options.message }}</p>
+
+              <div class="prompt-block" *ngIf="request.options.isPrompt">
+                <input
+                  class="prompt-input"
+                  type="text"
+                  [(ngModel)]="draftValue"
+                  [placeholder]="request.options.placeholder || ''"
+                  data-dialog-initial-focus
+                  (keydown)="onPromptKeyDown($event)"
+                />
+              </div>
             </div>
 
             <div class="confirm-actions">
               <button 
                 class="btn-cancel" 
-                data-dialog-initial-focus
+                [attr.data-dialog-initial-focus]="request.options.isPrompt ? null : ''"
                 type="button" 
                 (click)="onCancel()"
               >
@@ -253,6 +266,29 @@ interface ConfirmDialogRequest {
       }
     }
 
+    .prompt-block {
+      margin-top: var(--vsc-padding-md);
+      padding-top: var(--vsc-padding-md);
+      border-top: 1px solid var(--vsc-border-subtle);
+    }
+
+    .prompt-input {
+      width: 100%;
+      height: 30px;
+      padding: 0 var(--vsc-padding-md);
+      border-radius: var(--vsc-border-radius-sm);
+      border: 1px solid var(--vsc-input-border);
+      background: var(--vsc-input-background);
+      color: var(--vsc-input-foreground);
+      font: inherit;
+      box-sizing: border-box;
+      outline: none;
+
+      &:focus {
+        border-color: var(--vsc-input-focus-border);
+      }
+    }
+
     .confirm-actions {
       display: flex;
       justify-content: flex-end;
@@ -324,6 +360,7 @@ interface ConfirmDialogRequest {
 export class ConfirmDialogComponent {
   private readonly destroy$ = createSubject<void>();
   private releaseDialogContext: (() => void) | null = null;
+  draftValue = '';
   readonly request$: Stream<ConfirmDialogRequest | null> = this.confirmDialogService.activeRequest$;
 
   constructor(
@@ -340,9 +377,11 @@ export class ConfirmDialogComponent {
       .pipe(takeUntil(this.destroy$))
       .subscribe(request => {
         if (request) {
+          this.draftValue = request.options.defaultValue ?? '';
           this.releaseDialogContext ??= this.inputContexts.acquire('dialog.confirm');
           return;
         }
+        this.draftValue = '';
         this.releaseDialogContext?.();
         this.releaseDialogContext = null;
       });
@@ -362,13 +401,33 @@ export class ConfirmDialogComponent {
     // Clicking overlay on alert should close it
     if (active?.options.isAlert) {
       this.onConfirm();
+    } else if (active?.options.isPrompt) {
+      this.confirmDialogService.resolveActive(null);
     } else {
       this.confirmDialogService.resolveActive(false);
     }
   }
 
   onConfirm(): void {
+    const active = this.confirmDialogService.activeRequest$.value;
+    if (active?.options.isPrompt) {
+      this.confirmDialogService.resolveActive(this.draftValue);
+      return;
+    }
     this.confirmDialogService.resolveActive(true);
+  }
+
+  onPromptKeyDown(event: KeyboardEvent): void {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      this.onConfirm();
+      return;
+    }
+
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      this.onCancel();
+    }
   }
 
   getAlertTitle(options: any): string {

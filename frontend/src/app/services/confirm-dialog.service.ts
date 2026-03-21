@@ -8,11 +8,14 @@ export interface ConfirmDialogOptions {
   cancelText?: string;
   danger?: boolean;
   isAlert?: boolean; // If true, only shows OK button (no cancel)
+  isPrompt?: boolean;
+  defaultValue?: string;
+  placeholder?: string;
 }
 
 interface ConfirmDialogRequest {
   options: Required<Pick<ConfirmDialogOptions, 'message'>> & ConfirmDialogOptions;
-  resolve: (value: boolean) => void;
+  resolve: (value: boolean | string | null) => void;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -25,7 +28,10 @@ export class ConfirmDialogService {
     const normalized = this.normalizeOptions(options);
 
     return new Promise<boolean>((resolve) => {
-      this.queue.push({ options: normalized, resolve });
+      this.queue.push({
+        options: normalized,
+        resolve: (value) => resolve(value === true),
+      });
       this.tryOpenNext();
     });
   }
@@ -44,11 +50,24 @@ export class ConfirmDialogService {
     });
   }
 
-  resolveActive(confirmed: boolean): void {
+  prompt(options: ConfirmDialogOptions | string): Promise<string | null> {
+    const normalized = this.normalizeOptions(options);
+    normalized.isPrompt = true;
+
+    return new Promise<string | null>((resolve) => {
+      this.queue.push({
+        options: normalized,
+        resolve: (value) => resolve(typeof value === 'string' ? value : null),
+      });
+      this.tryOpenNext();
+    });
+  }
+
+  resolveActive(result: boolean | string | null): void {
     const active = this.activeRequest$.value;
     if (!active) return;
 
-    active.resolve(confirmed);
+    active.resolve(result);
     this.activeRequest$.next(null);
     this.tryOpenNext();
   }

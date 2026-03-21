@@ -29,6 +29,15 @@ func SameDir(a, b string) bool {
 	return cleanA == cleanB
 }
 
+func SamePath(a, b string) bool {
+	cleanA := filepath.Clean(a)
+	cleanB := filepath.Clean(b)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(cleanA, cleanB)
+	}
+	return cleanA == cleanB
+}
+
 func ApplyResolution(res contracts.ConflictResolution, dst string) (string, bool, error) {
 	switch res {
 	case contracts.ConflictSkip:

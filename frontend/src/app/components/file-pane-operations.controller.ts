@@ -4,7 +4,7 @@ import type { FileInfo } from '../shared/protocol';
 import { FileType } from '../shared/protocol';
 import type { ViewLayout } from './file-view-container.component';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
-import { normalizePath, parentPath } from './address-bar.utils';
+import { normalizePath, parentPath, samePath } from './address-bar.utils';
 import { buildArchivePath, parseArchivePath } from '../services/archive.service';
 
 declare const window: any;
@@ -281,10 +281,36 @@ export class FilePaneOperationsController {
 
     try {
       const destination = await host.apiService.joinPaths([parentPath(entry.path), nextName]);
-      await host.apiService.batchMove([{ source: entry.path, destination }], true);
+
+      if (samePath(entry.path, destination)) {
+        return;
+      }
+
+      if (this.hasPresentedRenameCollision(host, entry, destination)) {
+        const result = await host.apiService.batchMove([{ source: entry.path, destination }], true);
+        if (result?.failed && result.failed > 0) {
+          const firstError = result.errors?.[0];
+          throw new Error(firstError?.error || 'Rename failed');
+        }
+      } else {
+        const result = await host.apiService.moveFile(entry.path, destination);
+        if (!result?.success) {
+          throw new Error(result?.message || 'Rename failed');
+        }
+      }
+
+      await host.loadDirectory(host.currentPath, { preserveUI: true, focusPath: destination });
     } catch (error: any) {
-      host.confirmDialog.alert(`Rename Failed\n${error.message}`);
+      host.confirmDialog.alert(`Rename Failed\n${this.getErrorMessage(error, 'Unknown error')}`);
     }
+  }
+
+  private hasPresentedRenameCollision(host: FilePaneOperationsHost, entry: FileInfo, destination: string): boolean {
+    return host.entries.some((candidate) => {
+      if (!candidate || candidate.path === PARENT_ENTRY_PATH) return false;
+      if (samePath(candidate.path, entry.path)) return false;
+      return samePath(candidate.path, destination);
+    });
   }
 
   private async buildDestinationPath(host: FilePaneOperationsHost, sourcePath: string, targetDir: string): Promise<string> {

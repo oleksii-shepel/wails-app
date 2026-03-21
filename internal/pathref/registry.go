@@ -147,9 +147,9 @@ func ToNativePath(path string) string {
 	drive := strings.ToUpper(rest[:1])
 	remainder := strings.TrimPrefix(rest[1:], "/")
 	if remainder == "" {
-		return drive + ":/"
+		return filepath.FromSlash(drive + ":/")
 	}
-	return drive + ":/" + remainder
+	return filepath.FromSlash(drive + ":/" + remainder)
 }
 
 func FromNativePath(path string) string {

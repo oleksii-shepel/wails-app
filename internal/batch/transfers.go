@@ -143,12 +143,13 @@ func (r *TransferRunner) Move(op *internalops.ActiveOperation, req contracts.Bat
 	for _, item := range req.Items {
 		resolvedSource, srcErr := r.resolvePath(item.Source)
 		resolvedDestination, dstErr := r.resolvePath(item.Destination)
-		if srcErr != nil || dstErr != nil || !SameDir(filepath.Dir(resolvedSource), filepath.Dir(resolvedDestination)) {
+		if srcErr != nil || dstErr != nil || !SamePath(resolvedSource, resolvedDestination) {
 			allNoOp = false
 			break
 		}
 	}
 	if allNoOp {
+		op.Complete()
 		return &contracts.BatchResult{OperationID: op.ID, Total: len(req.Items), Skipped: len(req.Items)}, nil
 	}
 
@@ -193,7 +194,7 @@ func (r *TransferRunner) Move(op *internalops.ActiveOperation, req contracts.Bat
 			continue
 		}
 
-		if SameDir(filepath.Dir(resolvedSource), filepath.Dir(resolvedDestination)) {
+		if SamePath(resolvedSource, resolvedDestination) {
 			result.Skipped++
 			continue
 		}

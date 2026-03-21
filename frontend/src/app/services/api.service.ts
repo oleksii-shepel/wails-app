@@ -118,6 +118,13 @@ export class ApiService {
       return await this.batchMove(items, recursive);
     }
 
+    async moveFile(source: string, destination: string): Promise<OperationResult> {
+      return await window.go.app.App.MoveFile(
+        this.normalizeCanonicalPath(source),
+        this.normalizeCanonicalPath(destination)
+      );
+    }
+
     /**
      * Progress-aware file delete (single file).
      * Uses batchDelete under the hood.

@@ -77,7 +77,7 @@ func NewService(config ServiceConfig) *Service {
 func (s *Service) resolvePublicPath(path string) (string, error) {
 	normalized := pathref.Normalize(path)
 	nativePath := pathref.ToNativePath(normalized)
-	if s.memoryResolver == nil {
+	if s.memoryResolver == nil || !pathref.IsMemory(normalized) {
 		return nativePath, nil
 	}
 	resolved, _, err := s.memoryResolver.ResolvePublicPath(nativePath)

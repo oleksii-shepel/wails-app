@@ -69,7 +69,7 @@ import { createSubject } from '@epikodelabs/streamix';
         <div class="file-compare">
           <div class="file-side">
             <div class="side-label">Source</div>
-            <div class="side-path">{{conflictFileName(operation.conflictData?.sourcePath)}}</div>
+            <div class="side-path">{{conflictSourceFileName()}}</div>
             <div class="side-dir">{{conflictDir(operation.conflictData?.sourcePath)}}</div>
             <div class="side-meta">{{svc.formatBytes(operation.conflictData?.sourceSize || 0)}}</div>
           </div>
@@ -473,6 +473,13 @@ export class OperationToastComponent implements OnChanges, OnInit, OnDestroy {
     return p.split(/[\\/]/).pop() || p;
   }
 
+  conflictSourceFileName(): string {
+    if (this.isSameDirectoryRenameConflict()) {
+      return this.conflictFileName(this.operation.conflictData?.destPath);
+    }
+    return this.conflictFileName(this.operation.conflictData?.sourcePath);
+  }
+
   conflictFileName(path?: string): string {
     if (!path) return '';
     return path.split(/[\\/]/).pop() || path;
@@ -488,6 +495,16 @@ export class OperationToastComponent implements OnChanges, OnInit, OnDestroy {
     const parts = path.split(/[\\/]/);
     parts.pop();
     return parts.join('/') || '/';
+  }
+
+  private isSameDirectoryRenameConflict(): boolean {
+    if (this.operation?.config?.kind !== 'move') return false;
+
+    const src = this.operation.conflictData?.sourcePath;
+    const dst = this.operation.conflictData?.destPath;
+    if (!src || !dst) return false;
+
+    return this.parentDir(src) === this.parentDir(dst);
   }
 
   onCancel(e: Event)  { e.stopPropagation(); this.cancel.emit(this.operation.id); }

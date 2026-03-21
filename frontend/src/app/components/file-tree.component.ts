@@ -1390,7 +1390,7 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
   startRenamePath(path: string): void {
     if (!path) return;
 
-    this.tryStartRenamePath(path, 6);
+    this.tryStartRenamePath(path, Date.now() + 3000);
   }
 
   setPendingRenameDisplayName(path: string, displayName: string | null): void {
@@ -1411,19 +1411,19 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
     return this.pendingRenameDisplayNames.size > 0 || this.hasRenamingNode(this.nodes);
   }
 
-  private tryStartRenamePath(path: string, attemptsRemaining: number): void {
+  private tryStartRenamePath(path: string, deadline: number): void {
     this.focusNode(path);
-    this.centerNode(path);
 
     requestAnimationFrame(() => {
       const target = this.getVisibleNodes().find((node) => node.path === path);
       if (target) {
+        this.centerNode(path);
         this.startRename(target);
         return;
       }
 
-      if (attemptsRemaining > 1) {
-        this.tryStartRenamePath(path, attemptsRemaining - 1);
+      if (Date.now() < deadline) {
+        setTimeout(() => this.tryStartRenamePath(path, deadline), 50);
       }
     });
   }

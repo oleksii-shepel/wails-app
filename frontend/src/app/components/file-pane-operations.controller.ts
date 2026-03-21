@@ -87,7 +87,7 @@ export class FilePaneOperationsController {
   }
 
   async onDeleteSelected(host: FilePaneOperationsHost): Promise<void> {
-    const effective = host.getEffectiveSelection();
+    const effective = this.pruneNestedSelection(host.getEffectiveSelection());
     if (effective.size === 0) return;
     const postDeletePath = this.getPostDeletePath(host.currentPath, effective);
     const treeRefreshParents = host.currentView === 'tree'
@@ -111,6 +111,10 @@ export class FilePaneOperationsController {
     if (!deleteConfirmed) return;
 
     try {
+      if (postDeletePath) {
+        await host.loadDirectory(postDeletePath, { preserveUI: true });
+      }
+
       const result = await host.apiService.batchDelete(Array.from(effective), true);
       if (result.failed > 0) {
         const msg = (result.errors ?? []).map((error: any) => `${error.source}: ${error.error}`).join('\n');
@@ -371,5 +375,21 @@ export class FilePaneOperationsController {
 
   private normalizePath(path: string): string {
     return normalizePath(path);
+  }
+
+  private pruneNestedSelection(paths: Set<string>): Set<string> {
+    const ordered = Array.from(paths)
+      .filter(Boolean)
+      .sort((left, right) => normalizePath(left).length - normalizePath(right).length);
+
+    const kept: string[] = [];
+    for (const candidate of ordered) {
+      if (kept.some((existing) => this.isSameOrDescendantPath(candidate, existing))) {
+        continue;
+      }
+      kept.push(candidate);
+    }
+
+    return new Set(kept);
   }
 }

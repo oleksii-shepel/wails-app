@@ -18,6 +18,10 @@ const (
 	WebDAVScheme    = "webdav://"
 	memoryVFSRoot   = "/memory"
 	registryVFSRoot = "/registry"
+	ftpVFSRoot      = "/remote/ftp"
+	sftpVFSRoot     = "/remote/sftp"
+	smbVFSRoot      = "/remote/smb"
+	webdavVFSRoot   = "/remote/webdav"
 )
 
 type aliasSpec struct {
@@ -35,10 +39,10 @@ var aliasSpecs = []aliasSpec{
 	{scheme: RegistryScheme, vfsRoot: registryVFSRoot},
 	{scheme: SearchScheme},
 	{scheme: MemoryScheme, vfsRoot: memoryVFSRoot},
-	{scheme: SMBScheme},
-	{scheme: FTPScheme},
-	{scheme: SFTPScheme},
-	{scheme: WebDAVScheme},
+	{scheme: SMBScheme, vfsRoot: smbVFSRoot},
+	{scheme: FTPScheme, vfsRoot: ftpVFSRoot},
+	{scheme: SFTPScheme, vfsRoot: sftpVFSRoot},
+	{scheme: WebDAVScheme, vfsRoot: webdavVFSRoot},
 }
 
 var registryHivePrefixes = []string{

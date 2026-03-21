@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	contracts "wails-app/internal/contracts"
@@ -122,11 +123,14 @@ type State struct {
 	Elevation  Elevation
 	vfs        *vfslib.Unified
 	archCache  *cache.Cache
+	remotesMu  sync.Mutex
+	remotes    map[string]contracts.RemoteMount // keyed by VFS mount point
 }
 
 func NewState(core *Core) *State {
 	return &State{
 		Operations: core.Operations,
 		archCache:  core.ArchiveCache,
+		remotes:    make(map[string]contracts.RemoteMount),
 	}
 }

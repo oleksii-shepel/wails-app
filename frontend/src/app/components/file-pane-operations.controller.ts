@@ -284,13 +284,13 @@ export class FilePaneOperationsController {
     if (!nextName || nextName === entry.name) return;
 
     try {
+      host.setPendingRenameDisplayName(entry.path, nextName);
       const destination = await host.apiService.joinPaths([parentPath(entry.path), nextName]);
 
       if (samePath(entry.path, destination)) {
         return;
       }
 
-      host.setPendingRenameDisplayName(entry.path, nextName);
       const result = await host.apiService.batchMove([{ source: entry.path, destination, exactDestination: true }], true);
       if (result?.failed && result.failed > 0) {
         const firstError = result.errors?.[0];

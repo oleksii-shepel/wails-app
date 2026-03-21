@@ -47,6 +47,7 @@ export interface FilePaneDirectoryHost {
   persistDirTabState(): void;
   scrollToCursorPath(path: string): void;
   focusTreeNode(path: string): void;
+  shouldSuppressFsRefresh(): boolean;
 }
 
 export class FilePaneDirectoryController {
@@ -164,6 +165,7 @@ export class FilePaneDirectoryController {
   private handleFsDirectoryChanged(host: FilePaneDirectoryHost, event: { paneId?: string; path?: string } | null): void {
     if (!event || event.paneId !== host.paneId) return;
     if (host.isInArchive()) return;
+    if (host.shouldSuppressFsRefresh()) return;
 
     const current = (host.currentPath || '').replace(/\\/g, '/');
     const changed = (event.path || '').replace(/\\/g, '/');

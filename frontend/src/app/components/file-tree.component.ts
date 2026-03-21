@@ -1393,6 +1393,10 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
     return this.pendingRenameDisplayNames.get(path) ?? null;
   }
 
+  hasPendingRenameState(): boolean {
+    return this.pendingRenameDisplayNames.size > 0 || this.hasRenamingNode(this.nodes);
+  }
+
   private tryStartRenamePath(path: string, attemptsRemaining: number): void {
     this.focusNode(path);
     this.centerNode(path);
@@ -1703,6 +1707,18 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
 
   private normalizePath(path: string): string {
     return normalizePathReference(path || '/');
+  }
+
+  private hasRenamingNode(nodes: TreeNode[]): boolean {
+    for (const node of nodes) {
+      if (node.renaming) {
+        return true;
+      }
+      if (node.children?.length && this.hasRenamingNode(node.children)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   notifyChildrenLoaded(node: TreeNode, children: TreeNode[]): void {

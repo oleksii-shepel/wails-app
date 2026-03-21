@@ -68,6 +68,7 @@ export interface FilePaneActionHostsSource {
   persistDirTabState(): void;
   scrollToCursorPath(path: string): void;
   focusTreeNode(path: string): void;
+  shouldSuppressFsRefresh(): boolean;
   loadDirectory(path: string, opts?: { preserveUI?: boolean; focusPath?: string }): Promise<void>;
   deleteSelectedFromArchive(effective: Set<string>): Promise<boolean>;
   getEffectiveSelection(): Set<string>;
@@ -164,6 +165,7 @@ export class FilePaneActionHostsFactory {
       persistDirTabState: () => source.persistDirTabState(),
       scrollToCursorPath: (path: string) => source.scrollToCursorPath(path),
       focusTreeNode: (path: string) => source.focusTreeNode(path),
+      shouldSuppressFsRefresh: () => source.shouldSuppressFsRefresh(),
     };
   }
 

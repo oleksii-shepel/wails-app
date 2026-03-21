@@ -359,7 +359,7 @@ export class OperationService implements OnDestroy {
 
   async waitForOperationSettlement(
     operationId: string,
-    appearanceTimeoutMs: number = 250,
+    appearanceTimeoutMs: number = 2000,
     overallTimeoutMs: number = 300000,
   ): Promise<OperationStatus | 'dismissed' | 'missing'> {
     return await new Promise<OperationStatus | 'dismissed' | 'missing'>((resolve) => {

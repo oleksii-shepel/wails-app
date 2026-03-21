@@ -421,6 +421,10 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
     }
   }
 
+  hasPendingTreeRename(): boolean {
+    return this.treeComponent?.hasPendingRenameState() ?? false;
+  }
+
   refreshTreeNode(path: string): void {
     if (!path) return;
     this.treeController.refreshTreeNode(this.treeHost, path);

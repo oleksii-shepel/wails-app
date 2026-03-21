@@ -10,6 +10,15 @@ func (a *App) ArchiveRead(fsPath string, nestedChain []string, entryPath string,
 	return a.Archive.ReadFile(fsPath, nestedChain, entryPath, encoding)
 }
 
+func (a *App) ArchiveReadStream(fsPath string, nestedChain []string, entryPath string, chunkSize int) (string, error) {
+	streamID, err := a.Archive.ReadFileStream(fsPath, nestedChain, entryPath, chunkSize, a.EmitEvent)
+	return streamID, err
+}
+
+func (a *App) CancelArchiveReadStream(streamID string) {
+	a.Archive.CancelReadStream(streamID)
+}
+
 func (a *App) ArchiveCopyEntries(req contracts.ArchiveEntriesRequest) (*contracts.ArchiveEntriesResult, error) {
 	return a.Archive.CopyEntries(req)
 }

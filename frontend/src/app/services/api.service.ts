@@ -283,6 +283,22 @@ export class ApiService {
     return castProtocol<FileContent>(await window.go.app.App.ArchiveRead(this.normalizeCanonicalPath(fsPath), nestedChain, entryPath, encoding));
   }
 
+  async readFileStream(path: string, chunkSize: number = 64 * 1024): Promise<string> {
+    return await window.go.app.App.ReadFileStream(this.normalizeCanonicalPath(path), chunkSize);
+  }
+
+  async archiveReadStream(fsPath: string, nestedChain: string[] = [], entryPath: string, chunkSize: number = 64 * 1024): Promise<string> {
+    return await window.go.app.App.ArchiveReadStream(this.normalizeCanonicalPath(fsPath), nestedChain, entryPath, chunkSize);
+  }
+
+  cancelReadFileStream(streamID: string): void {
+    window.go.app.App.CancelReadFileStream(streamID).catch(() => {}); // Ignore errors
+  }
+
+  cancelArchiveReadStream(streamID: string): void {
+    window.go.app.App.CancelArchiveReadStream(streamID).catch(() => {}); // Ignore errors
+  }
+
   // ============================================================================
   // Navigation
   // ============================================================================

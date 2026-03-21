@@ -1,6 +1,10 @@
 package app
 
-import "context"
+import (
+	"context"
+
+	"wails-app/vfs/archive/cache"
+)
 
 // App is the Wails binding surface and thin wrapper around internal state.
 type App struct {
@@ -42,4 +46,13 @@ func (a *App) InitVFS() {
 
 func (a *App) IsProcessElevated() bool {
 	return a.isProcessElevated != nil && a.isProcessElevated()
+}
+
+// ArchCache returns the shared archive LRU cache so the stream middleware
+// can open archive entries without buffering them in JS.
+func (a *App) ArchCache() *cache.Cache {
+	if a.State == nil {
+		return nil
+	}
+	return a.State.archCache
 }

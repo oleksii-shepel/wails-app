@@ -16,6 +16,8 @@ import (
 type Archive interface {
 	Browse(fsPath string, nestedChain []string, innerPath string) (contracts.ArchiveListing, error)
 	ReadFile(fsPath string, nestedChain []string, entryPath string, encoding string) (*contracts.FileContent, error)
+	ReadFileStream(fsPath string, nestedChain []string, entryPath string, chunkSize int, emitEvent func(string, interface{})) (string, error)
+	CancelReadStream(streamID string)
 	CopyEntries(req contracts.ArchiveEntriesRequest) (*contracts.ArchiveEntriesResult, error)
 	MoveEntries(req contracts.ArchiveEntriesRequest) (*contracts.ArchiveEntriesResult, error)
 	DeleteEntries(req contracts.ArchiveEntriesRequest) (*contracts.ArchiveEntriesResult, error)
@@ -35,6 +37,8 @@ type Filesystem interface {
 	DirSizeRecursive(path string) (int64, error)
 	GetFileInfo(path string) (*contracts.FileInfo, error)
 	ReadFile(path string, encoding string) (*contracts.FileContent, error)
+	ReadFileStream(path string, chunkSize int, emitEvent func(string, interface{})) (string, error)
+	CancelReadStream(streamID string)
 	WriteFile(path string, content string, encoding string) (*contracts.OperationResult, error)
 	DeleteFile(path string, recursive bool, useTrash *bool) (*contracts.OperationResult, error)
 	CreateDirectory(path string, recursive bool) (*contracts.OperationResult, error)

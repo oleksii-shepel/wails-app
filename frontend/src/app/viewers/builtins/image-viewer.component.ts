@@ -10,6 +10,7 @@ import {
 import { ApiService } from '../../services/api.service';
 import { FileInfo, FileType } from '../../shared/protocol';
 import { ViewerArchiveContext } from '../../components/viewer-surface.component';
+import { EventsOn, EventsOff } from 'wailsjs/runtime';
 
 type ImageViewerKind = 'empty' | 'loading' | 'image' | 'svg' | 'directory' | 'toobig' | 'unsupported' | 'error';
 interface ImageMeta { width: number; height: number }
@@ -202,8 +203,11 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
   showCheckerboard = false;
 
   private destroyed = false;
+  private blobUrls: string[] = [];
+  private activeStreamID: string | null = null;
 
-  private readonly MAX_IMAGE_BYTES = 20 * 1024 * 1024; // 20 MB
+  // With streaming support, no size limits needed
+  private readonly MAX_IMAGE_BYTES = Infinity;
 
   constructor(
     private api: ApiService,
@@ -264,6 +268,21 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
 
   ngOnDestroy(): void {
     this.destroyed = true;
+    this.cancelActiveStream();
+    this.revokeBlobUrls();
+  }
+
+  private revokeBlobUrls(): void {
+    for (const url of this.blobUrls) URL.revokeObjectURL(url);
+    this.blobUrls = [];
+  }
+
+  private cancelActiveStream(): void {
+    if (this.activeStreamID) {
+      this.api.cancelReadFileStream(this.activeStreamID);
+      this.api.cancelArchiveReadStream(this.activeStreamID);
+      this.activeStreamID = null;
+    }
   }
 
   zoomIn(): void { this.zoomLevel = this.zoomLevel === 0 ? 1.25 : Math.min(this.zoomLevel * 1.25, 8); this.cdr.markForCheck(); }
@@ -285,7 +304,6 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
 
     const ext = this.extractExt(path);
     if (ext === 'svg') {
-      if (info.size > this.MAX_IMAGE_BYTES) { this.kind = 'toobig'; return; }
       const r = await this.api.readFile(path, 'utf8');
       const text = r?.content ?? null;
       if (text === null) { this.kind = 'unsupported'; return; }
@@ -296,13 +314,15 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
 
     const mime = this.inferImageMime(ext);
     if (!mime) { this.kind = 'unsupported'; return; }
-    if (info.size > this.MAX_IMAGE_BYTES) { this.kind = 'toobig'; return; }
 
-    const r = await this.api.readFile(path, 'base64');
-    const raw = r?.content ?? '';
-    if (!raw) { this.kind = 'unsupported'; return; }
-    this.imageSrc = `data:${mime};base64,${raw}`;
-    this.kind = 'image';
+    // Stream binary image as blob
+    try {
+      this.imageSrc = await this.streamFileAsBlob(path, mime);
+      this.kind = 'image';
+    } catch (err) {
+      this.error = err instanceof Error ? err.message : 'Failed to load image';
+      this.kind = 'error';
+    }
   }
 
   private async loadFromArchive(ctx: ViewerArchiveContext): Promise<void> {
@@ -313,7 +333,6 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
       const r = await this.api.archiveRead(ctx.fsPath, ctx.nestedChain, ctx.entryPath, 'utf8');
       if (!r) { this.kind = 'unsupported'; return; }
       this.info = this.makeSyntheticInfo(entryName, ctx.entryPath, r.size ?? 0);
-      if ((r.size ?? 0) > this.MAX_IMAGE_BYTES) { this.kind = 'toobig'; return; }
       this.svgContent = this.sanitizeSvg(r.content ?? '');
       this.kind = 'svg';
       return;
@@ -321,14 +340,111 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
 
     const mime = this.inferImageMime(ext);
     if (!mime) { this.kind = 'unsupported'; return; }
-    const r = await this.api.archiveRead(ctx.fsPath, ctx.nestedChain, ctx.entryPath, 'base64');
-    if (!r) { this.kind = 'unsupported'; return; }
-    this.info = this.makeSyntheticInfo(entryName, ctx.entryPath, r.size ?? 0);
-    if ((r.size ?? 0) > this.MAX_IMAGE_BYTES) { this.kind = 'toobig'; return; }
-    const raw = r.content ?? '';
-    if (!raw) { this.kind = 'unsupported'; return; }
-    this.imageSrc = `data:${mime};base64,${raw}`;
-    this.kind = 'image';
+    
+    try {
+      const r = await this.api.archiveRead(ctx.fsPath, ctx.nestedChain, ctx.entryPath, 'utf8');
+      if (!r) { this.kind = 'unsupported'; return; }
+      this.info = this.makeSyntheticInfo(entryName, ctx.entryPath, r.size ?? 0);
+      
+      // Get file info for size before streaming
+      const imageUrl = await this.streamArchiveAsBlob(ctx, mime);
+      this.imageSrc = imageUrl;
+      this.kind = 'image';
+    } catch (err) {
+      this.error = err instanceof Error ? err.message : 'Failed to load image from archive';
+      this.kind = 'error';
+    }
+  }
+
+  private async streamFileAsBlob(path: string, mimeType: string): Promise<string> {
+    this.cancelActiveStream();
+    
+    const streamID = await this.api.readFileStream(path, 64 * 1024);
+    this.activeStreamID = streamID;
+
+    return new Promise((resolve, reject) => {
+      const chunks: Uint8Array[] = [];
+
+      const unsubscribeChunk = this.listenEvent('file:read:chunk', (event: any) => {
+        if (event.streamID !== streamID) return;
+        if (event.data) {
+          const chunk = new Uint8Array(Object.values(event.data as any));
+          chunks.push(chunk);
+        }
+        this.cdr.markForCheck();
+      });
+
+      const unsubscribeDone = this.listenEvent('file:read:done', (event: any) => {
+        if (event.streamID !== streamID) return;
+        cleanup();
+        const blob = new Blob(chunks, { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        this.blobUrls.push(url);
+        this.activeStreamID = null;
+        resolve(url);
+      });
+
+      const unsubscribeError = this.listenEvent('file:read:error', (event: any) => {
+        if (event.streamID !== streamID) return;
+        cleanup();
+        this.activeStreamID = null;
+        reject(new Error(event.error || 'Stream error'));
+      });
+
+      const cleanup = () => {
+        EventsOff('file:read:chunk', unsubscribeChunk);
+        EventsOff('file:read:done', unsubscribeDone);
+        EventsOff('file:read:error', unsubscribeError);
+      };
+    });
+  }
+
+  private async streamArchiveAsBlob(ctx: ViewerArchiveContext, mimeType: string): Promise<string> {
+    this.cancelActiveStream();
+    
+    const streamID = await this.api.archiveReadStream(ctx.fsPath, ctx.nestedChain, ctx.entryPath, 64 * 1024);
+    this.activeStreamID = streamID;
+
+    return new Promise((resolve, reject) => {
+      const chunks: Uint8Array[] = [];
+
+      const unsubscribeChunk = this.listenEvent('archive:read:chunk', (event: any) => {
+        if (event.streamID !== streamID) return;
+        if (event.data) {
+          const chunk = new Uint8Array(Object.values(event.data as any));
+          chunks.push(chunk);
+        }
+        this.cdr.markForCheck();
+      });
+
+      const unsubscribeDone = this.listenEvent('archive:read:done', (event: any) => {
+        if (event.streamID !== streamID) return;
+        cleanup();
+        const blob = new Blob(chunks, { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        this.blobUrls.push(url);
+        this.activeStreamID = null;
+        resolve(url);
+      });
+
+      const unsubscribeError = this.listenEvent('archive:read:error', (event: any) => {
+        if (event.streamID !== streamID) return;
+        cleanup();
+        this.activeStreamID = null;
+        reject(new Error(event.error || 'Stream error'));
+      });
+
+      const cleanup = () => {
+        EventsOff('archive:read:chunk', unsubscribeChunk);
+        EventsOff('archive:read:done', unsubscribeDone);
+        EventsOff('archive:read:error', unsubscribeError);
+      };
+    });
+  }
+
+  private listenEvent(eventName: string, handler: (event: any) => void): string {
+    EventsOn(eventName, handler);
+    return eventName;
   }
 
   private resetState(): void {

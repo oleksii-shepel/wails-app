@@ -3,7 +3,6 @@ import {
   Component, Input, OnChanges, OnDestroy,
   ChangeDetectionStrategy, ChangeDetectorRef,
 } from '@angular/core';
-import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { ApiService } from '../services/api.service';
 import { FileInfo, FileType } from '../shared/protocol';
 
@@ -14,7 +13,6 @@ type ViewerKind =
 
 interface ImageMeta { width: number; height: number }
 
-// ── Archive context passed in from FilePaneComponent ─────────────────────────
 //
 // When the viewer tab is opened for a file inside an archive, the pane passes
 // the current ArchiveFrame stack so the viewer can call ArchiveRead through the
@@ -128,7 +126,8 @@ export interface ViewerArchiveContext {
 
         <!-- Video -->
         <div *ngIf="kind === 'video'" class="media-host">
-          <video class="preview-video" controls [src]="mediaSrc!">
+          <video class="preview-video" controls preload="auto" playsinline (loadeddata)="onVideoLoadedData($event)" (error)="onMediaError('video', $event)">
+            <source [src]="mediaSrc!" [type]="mediaMime || undefined">
             Your browser does not support video.
           </video>
         </div>
@@ -137,18 +136,17 @@ export interface ViewerArchiveContext {
         <div *ngIf="kind === 'audio'" class="audio-host">
           <div class="audio-icon">&#x1F3B5;</div>
           <div class="state-label">{{ info?.name }}</div>
-          <audio class="preview-audio" controls [src]="mediaSrc!">
+          <audio class="preview-audio" controls preload="auto" (error)="onMediaError('audio', $event)">
+            <source [src]="mediaSrc!" [type]="mediaMime || undefined">
             Your browser does not support audio.
           </audio>
         </div>
 
         <!--
-          PDF — IMPORTANT: Angular sanitizes raw blob: URLs on <iframe [src]>.
-          The binding must use a SafeResourceUrl produced by DomSanitizer,
-          otherwise the iframe src becomes "unsafe:blob:…" and shows nothing.
+          PDF — served via blob URL from streaming chunks
         -->
         <div *ngIf="kind === 'pdf'" class="pdf-host">
-          <iframe class="preview-pdf" [src]="safePdfSrc!" frameborder="0"></iframe>
+          <iframe class="preview-pdf" [src]="pdfSrc!" frameborder="0"></iframe>
         </div>
 
         <!-- JSON -->
@@ -551,6 +549,13 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
    */
   @Input() archiveContext: ViewerArchiveContext | null = null;
 
+  /**
+   * Optional viewer registry id passed by the host surface. The built-in
+   * preview currently doesn't need it directly, but it is part of the viewer
+   * component contract and must be accepted by Angular.
+   */
+  @Input() viewerId: string | null = null;
+
   // ── State ────────────────────────────────────────────────────────────────
 
   info: FileInfo | null = null;
@@ -560,8 +565,9 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
   imageSrc:         string | null        = null;
   svgContent:       string | null        = null;
   mediaSrc:         string | null        = null;
-  /** SafeResourceUrl — required by Angular for blob: URLs on <iframe [src]> */
-  safePdfSrc:       SafeResourceUrl | null = null;
+  mediaMime:        string | null        = null;
+  /** Blob URL for binary content — no SafeResourceUrl needed with streaming */
+  pdfSrc:           string | null        = null;
   textContent:      string | null        = null;
   highlightedJson:  string | null        = null;
   renderedMarkdown: string | null        = null;
@@ -572,8 +578,7 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
   showCheckerboard = false;
   wordWrap = false;
 
-  /** Blob URLs created for PDF/media — revoked on destroy or reload */
-  private blobUrls: string[] = [];
+
 
   FileType = FileType;
 
@@ -628,14 +633,13 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
   }
 
   // ── Size limits ──────────────────────────────────────────────────────────
-
-  private readonly MAX_TEXT_BYTES  = 512 * 1024;       // 512 KB
-  private readonly MAX_IMAGE_BYTES = 20  * 1024 * 1024; // 20 MB
-  private readonly MAX_MEDIA_BYTES = 50  * 1024 * 1024; // 50 MB
+  // With streaming, there are no practical limits - files are streamed progressively
+  private readonly MAX_TEXT_BYTES  = Infinity;
+  private readonly MAX_IMAGE_BYTES = Infinity;
+  private readonly MAX_MEDIA_BYTES = Infinity;
 
   constructor(
     private api: ApiService,
-    private sanitizer: DomSanitizer,
     private cdr: ChangeDetectorRef,
   ) {}
 
@@ -666,9 +670,7 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
     this.cdr.markForCheck();
   }
 
-  ngOnDestroy(): void {
-    this.revokeBlobUrls();
-  }
+  ngOnDestroy(): void {}
 
   // ── Toolbar controls ──────────────────────────────────────────────────────
 
@@ -688,6 +690,29 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
   onImageError(): void {
     this.error = 'Image failed to render.';
     this.kind  = 'error';
+    this.cdr.markForCheck();
+  }
+
+  onMediaError(kind: 'video' | 'audio', event: Event): void {
+    const media = event.target as HTMLMediaElement | null;
+    const code = media?.error?.code;
+    const currentSrc = media?.currentSrc || this.mediaSrc || '';
+    const reason = code === MediaError.MEDIA_ERR_ABORTED ? 'load aborted'
+      : code === MediaError.MEDIA_ERR_NETWORK ? 'network error'
+      : code === MediaError.MEDIA_ERR_DECODE ? 'decode error or unsupported codec'
+      : code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED ? 'source not supported'
+      : 'playback failed';
+    this.error = `${kind} failed to play: ${reason}${currentSrc ? ` (${currentSrc})` : ''}`;
+    this.kind = 'error';
+    this.cdr.markForCheck();
+  }
+
+  onVideoLoadedData(event: Event): void {
+    const video = event.target as HTMLVideoElement | null;
+    if (video && video.videoWidth === 0 && video.videoHeight === 0) {
+      this.error = `video loaded but no decodable video track (${this.mediaMime ?? 'unknown mime'})`;
+      this.kind = 'error';
+    }
     this.cdr.markForCheck();
   }
 
@@ -720,49 +745,40 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
 
     const ext = this.extractExt(path);
     await this.renderContent(ext, info.size, {
-      readText:   async () => {
+      readText: async () => {
         const r = await this.api.readFile(path, 'utf8');
         return r?.content ?? null;
       },
-      readBase64: async () => {
-        const r = await this.api.readFile(path, 'base64');
-        return r?.content ?? null;
+      streamBinary: (_mimeType: string) => {
+        // Return a /wails-stream URL — the browser fetches it directly.
+        // For disk files this uses http.ServeContent which supports range
+        // requests (video seek, partial load) without any JS buffering.
+        return Promise.resolve(streamFileURL(path));
       },
     });
   }
 
   /**
-   * Load a file from inside an archive.
-   *
-    * The Go backend's ArchiveRead uses the shared archive cache/VFS handler and
-    * returns the entry bytes encoded as requested.
+   * Load a file from inside an archive using streaming.
    */
   private async loadFromArchive(ctx: ViewerArchiveContext): Promise<void> {
-    // Build a synthetic FileInfo from the archive context so the header shows
-    // the correct name and size without needing a separate stat call.
     const entryName = ctx.entryPath.replace(/\\/g, '/').split('/').pop() ?? ctx.entryPath;
-
-    // We don't have a size before reading, so we read first and size afterwards.
     const ext = this.extractExt(ctx.entryPath);
 
-    await this.renderContent(ext, null /* size unknown yet */, {
+    await this.renderContent(ext, null, {
       readText: async () => {
         const r = await this.api.archiveRead(ctx.fsPath, ctx.nestedChain, ctx.entryPath, 'utf8');
         if (!r) return null;
-        // Backfill synthetic info now we have the size
         this.info = this.makeSyntheticInfo(entryName, ctx.entryPath, r.size ?? 0);
         return r.content;
       },
-      readBase64: async () => {
-        const r = await this.api.archiveRead(ctx.fsPath, ctx.nestedChain, ctx.entryPath, 'base64');
-        if (!r) return null;
-        this.info = this.makeSyntheticInfo(entryName, ctx.entryPath, r.size ?? 0);
-        return r.content;
+      streamBinary: (_mimeType: string) => {
+        // Return a /wails-stream URL — the browser fetches the archive entry
+        // directly through the Go middleware without any JS buffering.
+        return Promise.resolve(streamArchiveURL(ctx.fsPath, ctx.nestedChain, ctx.entryPath));
       },
     });
 
-    // If info wasn't set (unsupported / too-big bail-out paths), set it now
-    // with zero size so the header at least shows the filename.
     if (!this.info) {
       this.info = this.makeSyntheticInfo(entryName, ctx.entryPath, 0);
     }
@@ -770,128 +786,125 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
 
   /**
    * Core rendering logic — shared between disk and archive paths.
-   *
-   * `sizeHint` is null when reading from an archive (size unknown before read).
-   * Binary readers (readBase64) are only called when the format needs them.
+   * Uses streaming for binary content and direct read for text.
    */
   private async renderContent(
     ext: string,
     sizeHint: number | null,
     readers: {
-      readText:   () => Promise<string | null>;
-      readBase64: () => Promise<string | null>;
+      readText: () => Promise<string | null>;
+      streamBinary: (mimeType: string) => Promise<string>;
     },
   ): Promise<void> {
+    try {
+      // ── SVG ────────────────────────────────────────────────────────────────
+      if (ext === 'svg') {
+        if (sizeHint !== null && sizeHint > this.MAX_IMAGE_BYTES) { this.kind = 'toobig'; return; }
+        const text = await readers.readText();
+        if (text === null) { this.kind = 'unsupported'; return; }
+        this.svgContent = text
+          .replace(/<\?xml[^>]*\?>/gi, '')
+          .replace(/<!DOCTYPE[^>]*>/gi, '')
+          .trim();
+        this.kind = 'svg';
+        return;
+      }
 
-    // ── SVG ────────────────────────────────────────────────────────────────
-    if (ext === 'svg') {
-      if (sizeHint !== null && sizeHint > this.MAX_IMAGE_BYTES) { this.kind = 'toobig'; return; }
+      // ── Raster images ───────────────────────────────────────────────────────
+      const imageMime = this.inferImageMime(ext);
+      if (imageMime) {
+        if (sizeHint !== null && sizeHint > this.MAX_IMAGE_BYTES) { this.kind = 'toobig'; return; }
+        try {
+          this.imageSrc = await readers.streamBinary(imageMime);
+          this.kind = 'image';
+          return;
+        } catch { this.kind = 'error'; this.error = 'Failed to stream image'; return; }
+      }
+
+      // ── Video ────────────────────────────────────────────────────────────────
+      const videoMime = this.inferVideoMime(ext);
+      if (videoMime) {
+        if (sizeHint !== null && sizeHint > this.MAX_MEDIA_BYTES) { this.kind = 'toobig'; return; }
+        try {
+          this.mediaSrc = await readers.streamBinary(videoMime);
+          this.mediaMime = videoMime;
+          this.kind = 'video';
+          return;
+        } catch { this.kind = 'error'; this.error = 'Failed to stream video'; return; }
+      }
+
+      // ── Audio ────────────────────────────────────────────────────────────────
+      const audioMime = this.inferAudioMime(ext);
+      if (audioMime) {
+        if (sizeHint !== null && sizeHint > this.MAX_MEDIA_BYTES) { this.kind = 'toobig'; return; }
+        try {
+          this.mediaSrc = await readers.streamBinary(audioMime);
+          this.mediaMime = audioMime;
+          this.kind = 'audio';
+          return;
+        } catch { this.kind = 'error'; this.error = 'Failed to stream audio'; return; }
+      }
+
+      // ── PDF ──────────────────────────────────────────────────────────────────
+      if (ext === 'pdf') {
+        if (sizeHint !== null && sizeHint > this.MAX_MEDIA_BYTES) { this.kind = 'toobig'; return; }
+        try {
+          this.pdfSrc = await readers.streamBinary('application/pdf');
+          this.kind = 'pdf';
+          return;
+        } catch { this.kind = 'error'; this.error = 'Failed to stream PDF'; return; }
+      }
+
+      // ── Text-based types ─────────────────────────────────────────────────────
+      if (sizeHint !== null && sizeHint > this.MAX_TEXT_BYTES) { this.kind = 'toobig'; return; }
+
       const text = await readers.readText();
       if (text === null) { this.kind = 'unsupported'; return; }
-      this.svgContent = text
-        .replace(/<\?xml[^>]*\?>/gi, '')
-        .replace(/<!DOCTYPE[^>]*>/gi, '')
-        .trim();
-      this.kind = 'svg';
-      return;
-    }
 
-    // ── Raster images ───────────────────────────────────────────────────────
-    const imageMime = this.inferImageMime(ext);
-    if (imageMime) {
-      if (sizeHint !== null && sizeHint > this.MAX_IMAGE_BYTES) { this.kind = 'toobig'; return; }
-      const raw = await readers.readBase64();
-      if (!raw) { this.kind = 'unsupported'; return; }
-      this.imageSrc = `data:${imageMime};base64,${raw}`;
-      this.kind = 'image';
-      return;
-    }
+      // JSON
+      if (ext === 'json' || ext === 'jsonc') {
+        try {
+          const pretty = JSON.stringify(JSON.parse(text), null, 2);
+          this.highlightedJson = this.syntaxHighlightJson(pretty);
+          this.lineCount = pretty.split('\n').length;
+          this.kind = 'json';
+          return;
+        } catch { /* fall through to plain text */ }
+      }
 
-    // ── Video ────────────────────────────────────────────────────────────────
-    const videoMime = this.inferVideoMime(ext);
-    if (videoMime) {
-      if (sizeHint !== null && sizeHint > this.MAX_MEDIA_BYTES) { this.kind = 'toobig'; return; }
-      const raw = await readers.readBase64();
-      if (!raw) { this.kind = 'unsupported'; return; }
-      this.mediaSrc = `data:${videoMime};base64,${raw}`;
-      this.kind = 'video';
-      return;
-    }
-
-    // ── Audio ────────────────────────────────────────────────────────────────
-    const audioMime = this.inferAudioMime(ext);
-    if (audioMime) {
-      if (sizeHint !== null && sizeHint > this.MAX_MEDIA_BYTES) { this.kind = 'toobig'; return; }
-      const raw = await readers.readBase64();
-      if (!raw) { this.kind = 'unsupported'; return; }
-      this.mediaSrc = `data:${audioMime};base64,${raw}`;
-      this.kind = 'audio';
-      return;
-    }
-
-    // ── PDF ──────────────────────────────────────────────────────────────────
-    if (ext === 'pdf') {
-      if (sizeHint !== null && sizeHint > this.MAX_MEDIA_BYTES) { this.kind = 'toobig'; return; }
-      const raw = await readers.readBase64();
-      if (!raw) { this.kind = 'unsupported'; return; }
-      // Decode base64 → Uint8Array → Blob → blob URL
-      // The blob URL is then wrapped in SafeResourceUrl so Angular doesn't
-      // strip it to "unsafe:blob:…" when bound to <iframe [src]>.
-      const bytes = Uint8Array.from(atob(raw), c => c.charCodeAt(0));
-      const blob  = new Blob([bytes], { type: 'application/pdf' });
-      const url   = URL.createObjectURL(blob);
-      this.blobUrls.push(url);
-      this.safePdfSrc = this.sanitizer.bypassSecurityTrustResourceUrl(url);
-      this.kind = 'pdf';
-      return;
-    }
-
-    // ── Text-based types ─────────────────────────────────────────────────────
-    if (sizeHint !== null && sizeHint > this.MAX_TEXT_BYTES) { this.kind = 'toobig'; return; }
-
-    const text = await readers.readText();
-    if (text === null) { this.kind = 'unsupported'; return; }
-
-    // JSON
-    if (ext === 'json' || ext === 'jsonc') {
-      try {
-        const pretty = JSON.stringify(JSON.parse(text), null, 2);
-        this.highlightedJson = this.syntaxHighlightJson(pretty);
-        this.lineCount = pretty.split('\n').length;
-        this.kind = 'json';
+      // Markdown
+      if (ext === 'md' || ext === 'markdown' || ext === 'mdx') {
+        this.renderedMarkdown = this.renderMarkdown(text);
+        this.lineCount = text.split('\n').length;
+        this.kind = 'markdown';
         return;
-      } catch { /* fall through to plain text */ }
-    }
+      }
 
-    // Markdown
-    if (ext === 'md' || ext === 'markdown' || ext === 'mdx') {
-      this.renderedMarkdown = this.renderMarkdown(text);
-      this.lineCount = text.split('\n').length;
-      this.kind = 'markdown';
-      return;
-    }
+      // Plain text
+      if (this.isTextExtension(ext) || this.looksLikeText(text)) {
+        this.textContent = text;
+        this.lineCount   = text.split('\n').length;
+        this.kind        = 'text';
+        return;
+      }
 
-    // Plain text
-    if (this.isTextExtension(ext) || this.looksLikeText(text)) {
-      this.textContent = text;
-      this.lineCount   = text.split('\n').length;
-      this.kind        = 'text';
-      return;
+      this.kind = 'unsupported';
+    } catch (err) {
+      this.kind = 'error';
+      this.error = err instanceof Error ? err.message : String(err);
     }
-
-    this.kind = 'unsupported';
   }
 
   // ── Private helpers ──────────────────────────────────────────────────────
 
   private resetState(): void {
-    this.revokeBlobUrls();
     this.info            = null;
     this.error           = null;
     this.imageSrc        = null;
     this.svgContent      = null;
     this.mediaSrc        = null;
-    this.safePdfSrc      = null;
+    this.mediaMime       = null;
+    this.pdfSrc          = null;
     this.textContent     = null;
     this.highlightedJson = null;
     this.renderedMarkdown = null;
@@ -899,11 +912,6 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
     this.lineCount       = null;
     this.zoomLevel       = 0;
     this.showCheckerboard = false;
-  }
-
-  private revokeBlobUrls(): void {
-    for (const url of this.blobUrls) URL.revokeObjectURL(url);
-    this.blobUrls = [];
   }
 
   private makeSyntheticInfo(name: string, path: string, size: number): FileInfo {
@@ -931,6 +939,9 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
   private inferVideoMime(ext: string): string | null {
     return ({
       mp4: 'video/mp4', webm: 'video/webm', ogv: 'video/ogg', mov: 'video/quicktime',
+      mkv: 'video/x-matroska', avi: 'video/x-msvideo', flv: 'video/x-flv',
+      ts: 'video/mp2t', m3u8: 'application/x-mpegURL', mts: 'video/mp2t',
+      mxf: 'application/mxf', wmv: 'video/x-ms-wmv',
     } as Record<string, string>)[ext] ?? null;
   }
 
@@ -1009,4 +1020,21 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
       html = `<p>${html}</p>`;
     return html;
   }
+}
+
+// ── Module-level helpers: build /wails-stream URLs ────────────────────────────
+
+/** Returns a /wails-stream URL for a disk file (range-request / seeking supported). */
+function streamFileURL(publicPath: string): string {
+  return '/wails-stream?path=' + encodeURIComponent(publicPath);
+}
+
+/** Returns a /wails-stream URL for a file inside an archive. */
+function streamArchiveURL(fsPath: string, nestedChain: string[], entryPath: string): string {
+  let url = '/wails-stream?fsPath=' + encodeURIComponent(fsPath)
+          + '&entry=' + encodeURIComponent(entryPath);
+  if (nestedChain && nestedChain.length > 0) {
+    url += '&nested=' + encodeURIComponent(nestedChain.join(','));
+  }
+  return url;
 }

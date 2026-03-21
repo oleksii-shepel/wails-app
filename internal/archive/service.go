@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	contracts "wails-app/internal/contracts"
 	"wails-app/internal/pathref"
@@ -20,6 +22,8 @@ import (
 type Service struct {
 	archCache      *cache.Cache
 	startOperation func(opType contracts.OperationType, title, source, dest string) Operation
+	streamsMu      sync.RWMutex
+	streamsCancel  map[string]context.CancelFunc
 }
 
 type Operation interface {
@@ -38,6 +42,7 @@ func NewService(
 	return &Service{
 		archCache:      archCache,
 		startOperation: startOperation,
+		streamsCancel:  make(map[string]context.CancelFunc),
 	}
 }
 
@@ -110,6 +115,106 @@ func (s *Service) ReadFile(fsPath string, nestedChain []string, entryPath string
 		Encoding: encoding,
 		Size:     int64(len(data)),
 	}, nil
+}
+
+func (s *Service) ReadFileStream(fsPath string, nestedChain []string, entryPath string, chunkSize int, emitEvent func(string, interface{})) (string, error) {
+	entryPath = normalizePath(entryPath)
+
+	if chunkSize <= 0 {
+		chunkSize = 64 * 1024 // 64KB default chunk size
+	}
+
+	// Generate streamID
+	streamID := fmt.Sprintf("archive-read-%d", time.Now().UnixNano())
+
+	// Create cancellation context
+	ctx, cancel := context.WithCancel(context.Background())
+	s.streamsMu.Lock()
+	s.streamsCancel[streamID] = cancel
+	s.streamsMu.Unlock()
+
+	// Start streaming in background goroutine
+	go func() {
+		defer func() {
+			s.streamsMu.Lock()
+			delete(s.streamsCancel, streamID)
+			s.streamsMu.Unlock()
+		}()
+
+		// Convert drive:// scheme paths to native OS paths
+		nativePath := pathref.ToNativePath(fsPath)
+
+		arch, err := s.archCache.Get(ctx, nativePath, nestedChain, "")
+		if err != nil {
+			emitEvent("archive:read:error", map[string]interface{}{
+				"streamID": streamID,
+				"error":    fmt.Sprintf("archive read: open %q: %v", nativePath, err),
+			})
+			return
+		}
+
+		f, err := arch.Open(ctx, entryPath)
+		if err != nil {
+			emitEvent("archive:read:error", map[string]interface{}{
+				"streamID": streamID,
+				"error":    fmt.Sprintf("archive read: open entry %q: %v", entryPath, err),
+			})
+			return
+		}
+		defer f.Close()
+
+		// Stream file in chunks
+		bytesRead := int64(0)
+		for {
+			select {
+			case <-ctx.Done():
+				emitEvent("archive:read:cancelled", map[string]interface{}{
+					"streamID": streamID,
+				})
+				return
+			default:
+			}
+
+			chunk := make([]byte, chunkSize)
+			n, err := f.Read(chunk)
+			if err != nil && err != io.EOF {
+				emitEvent("archive:read:error", map[string]interface{}{
+					"streamID": streamID,
+					"error":    fmt.Sprintf("archive read: failed to read chunk: %v", err),
+				})
+				return
+			}
+
+			if n > 0 {
+				bytesRead += int64(n)
+				emitEvent("archive:read:chunk", map[string]interface{}{
+					"streamID":  streamID,
+					"data":      chunk[:n],
+					"bytesRead": bytesRead,
+				})
+			}
+
+			if err == io.EOF {
+				emitEvent("archive:read:done", map[string]interface{}{
+					"streamID":   streamID,
+					"totalBytes": bytesRead,
+				})
+				return
+			}
+		}
+	}()
+
+	return streamID, nil
+}
+
+func (s *Service) CancelReadStream(streamID string) {
+	s.streamsMu.Lock()
+	defer s.streamsMu.Unlock()
+
+	if cancel, exists := s.streamsCancel[streamID]; exists {
+		cancel()
+		delete(s.streamsCancel, streamID)
+	}
 }
 
 func (s *Service) CopyEntries(req contracts.ArchiveEntriesRequest) (*contracts.ArchiveEntriesResult, error) {

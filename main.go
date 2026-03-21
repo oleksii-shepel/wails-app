@@ -35,6 +35,7 @@ func main() {
 	err := internalapp.Run(
 		assets,
 		app,
+		app.ArchCache(),
 		app.Startup,
 		func(context.Context) { app.Shutdown() },
 	)

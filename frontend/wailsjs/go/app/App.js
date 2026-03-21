@@ -6,6 +6,10 @@ export function AnalyzeDiskUsage(arg1) {
   return window['go']['app']['App']['AnalyzeDiskUsage'](arg1);
 }
 
+export function ArchCache() {
+  return window['go']['app']['App']['ArchCache']();
+}
+
 export function ArchiveBrowse(arg1, arg2, arg3) {
   return window['go']['app']['App']['ArchiveBrowse'](arg1, arg2, arg3);
 }
@@ -24,6 +28,10 @@ export function ArchiveMoveEntries(arg1) {
 
 export function ArchiveRead(arg1, arg2, arg3, arg4) {
   return window['go']['app']['App']['ArchiveRead'](arg1, arg2, arg3, arg4);
+}
+
+export function ArchiveReadStream(arg1, arg2, arg3, arg4) {
+  return window['go']['app']['App']['ArchiveReadStream'](arg1, arg2, arg3, arg4);
 }
 
 export function BatchCopy(arg1) {
@@ -58,6 +66,10 @@ export function BuildSearchAlias(arg1, arg2, arg3) {
   return window['go']['app']['App']['BuildSearchAlias'](arg1, arg2, arg3);
 }
 
+export function CancelArchiveReadStream(arg1) {
+  return window['go']['app']['App']['CancelArchiveReadStream'](arg1);
+}
+
 export function CancelDirStreams() {
   return window['go']['app']['App']['CancelDirStreams']();
 }
@@ -72,6 +84,10 @@ export function CancelListDirStream(arg1) {
 
 export function CancelOperation(arg1) {
   return window['go']['app']['App']['CancelOperation'](arg1);
+}
+
+export function CancelReadFileStream(arg1) {
+  return window['go']['app']['App']['CancelReadFileStream'](arg1);
 }
 
 export function CloseArchiveCache() {
@@ -142,6 +158,10 @@ export function GetActiveOperations() {
   return window['go']['app']['App']['GetActiveOperations']();
 }
 
+export function GetArchiveStreamURL(arg1, arg2, arg3) {
+  return window['go']['app']['App']['GetArchiveStreamURL'](arg1, arg2, arg3);
+}
+
 export function GetDrives() {
   return window['go']['app']['App']['GetDrives']();
 }
@@ -168,6 +188,10 @@ export function GetPreferences() {
 
 export function GetSpecialFolders() {
   return window['go']['app']['App']['GetSpecialFolders']();
+}
+
+export function GetStreamURL(arg1) {
+  return window['go']['app']['App']['GetStreamURL'](arg1);
 }
 
 export function GetWorkspaces() {
@@ -276,6 +300,10 @@ export function ReadFile(arg1, arg2) {
 
 export function ReadFileContent(arg1, arg2) {
   return window['go']['app']['App']['ReadFileContent'](arg1, arg2);
+}
+
+export function ReadFileStream(arg1, arg2) {
+  return window['go']['app']['App']['ReadFileStream'](arg1, arg2);
 }
 
 export function RegisterDropListener() {

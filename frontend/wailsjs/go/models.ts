@@ -37,6 +37,23 @@ export namespace app {
 
 }
 
+export namespace cache {
+	
+	export class Cache {
+	
+	
+	    static createFrom(source: any = {}) {
+	        return new Cache(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	
+	    }
+	}
+
+}
+
 export namespace contracts {
 	
 	export class ArchiveEntriesRequest {

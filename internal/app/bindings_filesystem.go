@@ -55,6 +55,15 @@ func (a *App) ReadFileContent(path string, encoding string) (*contracts.FileCont
 	return a.ReadFile(path, encoding)
 }
 
+func (a *App) ReadFileStream(path string, chunkSize int) (string, error) {
+	streamID, err := a.Filesystem.ReadFileStream(path, chunkSize, a.EmitEvent)
+	return streamID, err
+}
+
+func (a *App) CancelReadFileStream(streamID string) {
+	a.Filesystem.CancelReadStream(streamID)
+}
+
 func (a *App) WriteFile(path string, content string, encoding string) (*contracts.OperationResult, error) {
 	return a.Filesystem.WriteFile(path, content, encoding)
 }

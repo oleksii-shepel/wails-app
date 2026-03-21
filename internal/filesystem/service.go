@@ -1,10 +1,14 @@
 package filesystem
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sync"
+	"time"
 
 	contracts "wails-app/internal/contracts"
 	elevation "wails-app/internal/elevation"
@@ -47,6 +51,8 @@ type Service struct {
 	vfs                  *vfslib.Unified
 	duStreams            *duStreamRegistry
 	duCache              *DiskUsageCache
+	streamsMu            sync.RWMutex
+	streamsCancel        map[string]context.CancelFunc
 
 	isProcessElevated              func() bool
 	executeElevatedRequest         func(elevation.Request) elevation.Response
@@ -65,6 +71,7 @@ func NewService(config ServiceConfig) *Service {
 		metadata:                       config.Metadata,
 		duStreams:                      newDuStreamRegistry(),
 		duCache:                        NewDiskUsageCache(DefaultDiskUsageCacheCapacity),
+		streamsCancel:                  make(map[string]context.CancelFunc),
 		isProcessElevated:              config.IsProcessElevated,
 		executeElevatedRequest:         config.ExecuteElevatedRequest,
 		runElevatedRequest:             config.RunElevatedRequest,
@@ -350,6 +357,105 @@ func (s *Service) ReadFile(path string, encoding string) (*contracts.FileContent
 		return nil, err
 	}
 	return s.mapFileContent(resp.File, path), nil
+}
+
+func (s *Service) ReadFileStream(path string, chunkSize int, emitEvent func(string, interface{})) (string, error) {
+	path = pathref.Normalize(path)
+
+	if chunkSize <= 0 {
+		chunkSize = 64 * 1024 // 64KB default chunk size
+	}
+
+	// Generate streamID
+	streamID := fmt.Sprintf("file-read-%d", time.Now().UnixNano())
+
+	// Create cancellation context
+	ctx, cancel := context.WithCancel(context.Background())
+	s.streamsMu.Lock()
+	s.streamsCancel[streamID] = cancel
+	s.streamsMu.Unlock()
+
+	// Start streaming in background goroutine
+	go func() {
+		defer func() {
+			s.streamsMu.Lock()
+			delete(s.streamsCancel, streamID)
+			s.streamsMu.Unlock()
+		}()
+
+		// Resolve path
+		resolvedPath, resolveErr := s.resolvePublicPath(path)
+		if resolveErr != nil {
+			emitEvent("file:read:error", map[string]interface{}{
+				"streamID": streamID,
+				"error":    fmt.Sprintf("resolve path: %v", resolveErr),
+			})
+			return
+		}
+
+		// Open file
+		file, err := os.Open(resolvedPath)
+		if err != nil {
+			emitEvent("file:read:error", map[string]interface{}{
+				"streamID": streamID,
+				"error":    fmt.Sprintf("open file: %v", err),
+			})
+			return
+		}
+		defer file.Close()
+
+		// Stream file in chunks
+		bytesRead := int64(0)
+		for {
+			select {
+			case <-ctx.Done():
+				emitEvent("file:read:cancelled", map[string]interface{}{
+					"streamID": streamID,
+				})
+				return
+			default:
+			}
+
+			chunk := make([]byte, chunkSize)
+			n, err := file.Read(chunk)
+			if err != nil && err != io.EOF {
+				emitEvent("file:read:error", map[string]interface{}{
+					"streamID": streamID,
+					"error":    fmt.Sprintf("read chunk: %v", err),
+				})
+				return
+			}
+
+			if n > 0 {
+				bytesRead += int64(n)
+				emitEvent("file:read:chunk", map[string]interface{}{
+					"streamID":  streamID,
+					"data":      chunk[:n],
+					"bytesRead": bytesRead,
+				})
+			}
+
+			if err == io.EOF {
+				emitEvent("file:read:done", map[string]interface{}{
+					"streamID":   streamID,
+					"totalBytes": bytesRead,
+				})
+				return
+			}
+		}
+	}()
+
+	return streamID, nil
+}
+
+func (s *Service) CancelReadStream(streamID string) {
+	s.streamsMu.Lock()
+	defer s.streamsMu.Unlock()
+
+	if cancel, exists := s.streamsCancel[streamID]; exists {
+		cancel()
+		delete(s.streamsCancel, streamID)
+	}
 }
 
 func (s *Service) WriteFile(path string, content string, encoding string) (*contracts.OperationResult, error) {

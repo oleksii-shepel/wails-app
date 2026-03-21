@@ -545,10 +545,16 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
     } else {
       this.anchorPath = entry.path;
       this.selectionChange.emit([entry]);
+      if (entry.type === FileType.FILE || entry.type === FileType.SYMLINK) {
+        this.navigate.emit(entry);
+      }
     }
   }
 
   onNavigate(entry: FileInfo): void {
+    if (entry.type === FileType.FILE || entry.type === FileType.SYMLINK) {
+      return;
+    }
     this.navigate.emit(entry);
   }
 

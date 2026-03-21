@@ -823,6 +823,10 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
     this.selectNode(node, isCtrl, isShift);
     this.isMouseDownSelecting = false;
 
+    if (!isCtrl && !isShift && (node.type === FileType.FILE || node.type === FileType.SYMLINK)) {
+      this.nodeDoubleClick.emit(node);
+    }
+
     this.clickTimer = window.setTimeout(() => {
       this.clickTimer = null;
     }, 250);
@@ -837,6 +841,10 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
     }
 
     this.isMouseDownSelecting = false;
+
+    if (node.type === FileType.FILE || node.type === FileType.SYMLINK) {
+      return;
+    }
 
     if ((node.type === FileType.DIRECTORY || node.type === FileType.ARCHIVE) && node.expandable) {
       this.toggleNode(node);

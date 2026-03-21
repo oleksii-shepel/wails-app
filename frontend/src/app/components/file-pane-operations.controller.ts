@@ -22,6 +22,7 @@ export interface FilePaneOperationsHost {
   deleteSelectedFromArchive(effective: Set<string>): Promise<boolean>;
   getEffectiveSelection(): Set<string>;
   loadDirectory(path: string, opts?: { preserveUI?: boolean; focusPath?: string }): Promise<void>;
+  refreshTreeNode(path: string): void;
   emitCopyToOther(paths: string[]): void;
   emitMoveToOther(paths: string[]): void;
   startRenameSelected(): void;
@@ -56,8 +57,15 @@ export class FilePaneOperationsController {
     }
 
     try {
-      const newPath = await this.createNewFolderForInlineRename(host);
-      await host.loadDirectory(host.currentPath, { focusPath: newPath });
+      const targetDir = this.getDestinationDir(host);
+      const newPath = await this.createNewFolderForInlineRename(host, targetDir);
+
+      if (host.currentView === 'tree' && !samePath(targetDir, host.currentPath)) {
+        host.refreshTreeNode(targetDir);
+      } else {
+        await host.loadDirectory(host.currentPath, { preserveUI: true, focusPath: newPath });
+      }
+
       await new Promise<void>((resolve) => {
         requestAnimationFrame(() => {
           host.startRenamePath(newPath);
@@ -72,6 +80,14 @@ export class FilePaneOperationsController {
   async onDeleteSelected(host: FilePaneOperationsHost): Promise<void> {
     const effective = host.getEffectiveSelection();
     if (effective.size === 0) return;
+    const postDeletePath = this.getPostDeletePath(host.currentPath, effective);
+    const treeRefreshParents = host.currentView === 'tree'
+      ? Array.from(new Set(
+          Array.from(effective)
+            .map((path) => parentPath(path))
+            .filter((path) => !!path)
+        ))
+      : [];
 
     if (await host.deleteSelectedFromArchive(effective)) {
       return;
@@ -91,7 +107,10 @@ export class FilePaneOperationsController {
         const msg = (result.errors ?? []).map((error: any) => `${error.source}: ${error.error}`).join('\n');
         host.confirmDialog.alert(`Delete Completed With Errors\n${result.failed} item(s) failed:\n${msg}`);
       }
-      await host.loadDirectory(host.currentPath);
+      await host.loadDirectory(postDeletePath ?? host.currentPath, { preserveUI: true });
+      for (const path of treeRefreshParents) {
+        host.refreshTreeNode(path);
+      }
     } catch (error: any) {
       host.confirmDialog.alert(`Delete Failed\n${error.message}`);
     }
@@ -217,19 +236,10 @@ export class FilePaneOperationsController {
     }
   }
 
-  private async createNewFolderForInlineRename(host: FilePaneOperationsHost): Promise<string> {
-    const existingNames = new Set(
-      host.entries
-        .filter((entry) => entry.path !== PARENT_ENTRY_PATH)
-        .map((entry) => entry.name.trim().toLowerCase())
-    );
-
+  private async createNewFolderForInlineRename(host: FilePaneOperationsHost, targetDir: string): Promise<string> {
     for (let attempt = 1; attempt <= 100; attempt += 1) {
       const folderName = attempt === 1 ? 'New Folder' : `New Folder (${attempt})`;
-      const folderKey = folderName.toLowerCase();
-      if (existingNames.has(folderKey)) continue;
-
-      const newPath: string = await window.go.app.App.JoinPaths([host.currentPath, folderName]);
+      const newPath: string = await window.go.app.App.JoinPaths([targetDir, folderName]);
       try {
         const result = await host.apiService.createDirectory(newPath, false);
         if (!result?.success) {
@@ -238,7 +248,6 @@ export class FilePaneOperationsController {
         return newPath;
       } catch (error: any) {
         if (this.isAlreadyExistsError(error)) {
-          existingNames.add(folderKey);
           continue;
         }
         throw error;
@@ -272,6 +281,29 @@ export class FilePaneOperationsController {
     return fallback;
   }
 
+  private getPostDeletePath(currentPath: string, deletedPaths: Set<string>): string | null {
+    const affectedAncestor = Array.from(deletedPaths)
+      .filter((deletedPath) => this.isSameOrDescendantPath(currentPath, deletedPath))
+      .sort((left, right) => normalizePath(right).length - normalizePath(left).length)[0];
+
+    if (!affectedAncestor) {
+      return null;
+    }
+
+    return parentPath(affectedAncestor);
+  }
+
+  private isSameOrDescendantPath(targetPath: string, candidateAncestorPath: string): boolean {
+    if (samePath(targetPath, candidateAncestorPath)) {
+      return true;
+    }
+
+    const target = normalizePath(targetPath);
+    const ancestor = normalizePath(candidateAncestorPath);
+    const prefix = ancestor.endsWith('/') ? ancestor : `${ancestor}/`;
+    return target.startsWith(prefix);
+  }
+
   private async renameEntry(host: FilePaneOperationsHost, entry: FileInfo, forcedName?: string): Promise<void> {
     if (host.isInArchive()) {
       host.confirmDialog.alert('Archive Limitation\nRename is not supported inside archives.');
@@ -302,6 +334,9 @@ export class FilePaneOperationsController {
         : (result?.succeeded && result.succeeded > 0 ? 'completed' : 'missing');
 
       if (finalStatus === 'completed') {
+        if (host.currentView === 'tree') {
+          host.refreshTreeNode(parentPath(entry.path));
+        }
         await host.loadDirectory(host.currentPath, { preserveUI: true, focusPath: destination });
         return;
       }

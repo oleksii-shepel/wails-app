@@ -75,6 +75,7 @@ export type ViewLayout = ViewMode;
           *ngIf="currentView === 'tree'"
           [nodes]="treeNodes"
           [currentPath]="currentPath"
+          [paneActive]="paneActive"
           [selectedFiles]="selectedFiles"
           (selectionChange)="onTreeSelectionChange($event)"
           (inlineSize)="onTreeInlineSize($event)"
@@ -187,6 +188,7 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
   private loadRequest$ = createSubject<TreeNode>();
   private destroy$     = createSubject<void>();
   private readonly pendingDirectorySizePaths = new Set<string>();
+  private lastTreeRefreshPath: string | null = null;
   private readonly eventsController = new FileViewEventsController();
   private readonly interactionController = new FileViewInteractionController();
   private readonly lifecycleController = new FileViewLifecycleController();
@@ -270,8 +272,17 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
         thisRef.sortController.sortEntries(thisRef.sortHost, PARENT_ENTRY_PATH);
       },
       syncTreeToCurrentPath: () => {
+        thisRef.lastTreeRefreshPath = thisRef.currentPath;
         thisRef.treeController.buildTreeNodes(thisRef.treeHost);
         void thisRef.treeController.syncToCurrentPath(thisRef.treeHost);
+      },
+      refreshCurrentTreePath: () => {
+        const targetPath = thisRef.currentPath;
+        if (!targetPath || thisRef.lastTreeRefreshPath === targetPath) {
+          return;
+        }
+        thisRef.lastTreeRefreshPath = targetPath;
+        thisRef.treeController.refreshTreeNode(thisRef.treeHost, targetPath);
       },
       resortTreeNodes: () => {
         thisRef.sortController.resortAllLoadedTreeNodes(thisRef.sortHost, thisRef.treeNodes);
@@ -328,6 +339,9 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
   }
 
   ngOnChanges(changes: SimpleChanges): void {
+    if (changes['entries']) {
+      this.lastTreeRefreshPath = null;
+    }
     this.lifecycleController.onChanges(this.lifecycleHost, changes);
   }
 
@@ -399,9 +413,17 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
       case 'details':
         this.detailsComponent?.setPendingRenameDisplayName(path, displayName);
         return;
+      case 'tree':
+        this.treeComponent?.setPendingRenameDisplayName(path, displayName);
+        return;
       default:
         return;
     }
+  }
+
+  refreshTreeNode(path: string): void {
+    if (!path) return;
+    this.treeController.refreshTreeNode(this.treeHost, path);
   }
 
   /** Scroll the active view to bring the given path into view. */

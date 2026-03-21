@@ -73,6 +73,7 @@ export interface FilePaneActionHostsSource {
   getEffectiveSelection(): Set<string>;
   emitCopyToOther(paths: string[]): void;
   emitMoveToOther(paths: string[]): void;
+  refreshTreeNode(path: string): void;
   startRenameSelected(): void;
   startRenamePath(path: string): void;
   setPendingRenameDisplayName(path: string, displayName: string | null): void;
@@ -179,6 +180,7 @@ export class FilePaneActionHostsFactory {
       deleteSelectedFromArchive: (effective: Set<string>) => source.deleteSelectedFromArchive(effective),
       getEffectiveSelection: () => source.getEffectiveSelection(),
       loadDirectory: (path: string, opts?: { preserveUI?: boolean; focusPath?: string }) => source.loadDirectory(path, opts),
+      refreshTreeNode: (path: string) => source.refreshTreeNode(path),
       emitCopyToOther: (paths: string[]) => source.emitCopyToOther(paths),
       emitMoveToOther: (paths: string[]) => source.emitMoveToOther(paths),
       startRenameSelected: () => source.startRenameSelected(),

@@ -5,6 +5,7 @@ export interface FileViewLifecycleHost {
   get currentView(): ViewLayout;
   sortEntries(): void;
   syncTreeToCurrentPath(): void;
+  refreshCurrentTreePath(): void;
   resortTreeNodes(): void;
   markTreeNodesChanged(): void;
   markForCheck(): void;
@@ -16,11 +17,17 @@ export class FileViewLifecycleController {
 
     const switchedToTree = !!changes['currentView'] && host.currentView === 'tree';
     const treeRelevantChange = switchedToTree || !!changes['currentPath'] || !!changes['showHidden'];
+    const treeEntriesChanged = host.currentView === 'tree' && !!changes['entries'];
     const treeSortChanged = host.currentView === 'tree' &&
       (!!changes['sortField'] || !!changes['sortDirection'] || !!changes['directoriesFirst']);
 
     if (host.currentView === 'tree' && treeRelevantChange) {
       host.syncTreeToCurrentPath();
+      return;
+    }
+
+    if (treeEntriesChanged) {
+      host.refreshCurrentTreePath();
       return;
     }
 

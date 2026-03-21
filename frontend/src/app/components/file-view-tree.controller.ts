@@ -104,6 +104,8 @@ export class FileViewTreeController {
     const node = this.findTreeNodeByPath(host.treeNodes, target);
     if (!node || !node.loaded) return;
     node.loaded = false;
+    host.treeNodes = [...host.treeNodes];
+    host.markForCheck();
     void this.ensureNodeChildrenLoaded(host, node);
   }
 
@@ -134,11 +136,13 @@ export class FileViewTreeController {
       node.children = host.sortTreeNodes(rawChildren);
       node.loaded = true;
       node.loading = false;
+      host.treeNodes = [...host.treeNodes];
       host.markForCheck();
     } catch {
       node.children = [];
       node.loading = false;
       node.loaded = true;
+      host.treeNodes = [...host.treeNodes];
       host.markForCheck();
     }
   }
@@ -180,6 +184,8 @@ export class FileViewTreeController {
       children: existing?.children ?? ((entry.type === FileType.DIRECTORY || entry.type === FileType.ARCHIVE) ? [] : undefined),
       loaded: existing?.loaded ?? false,
       loading: false,
+      renaming: existing?.renaming ?? false,
+      editingName: existing?.editingName,
       parent: node,
       archivePath: childArchivePath,
     } as TreeNode;

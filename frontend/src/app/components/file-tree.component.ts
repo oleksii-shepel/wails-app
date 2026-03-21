@@ -54,7 +54,7 @@ export interface DropTarget {
       appVscodeScrollbar
       role="tree"
       tabindex="0"
-      [class.focused]="isFocused"
+      [class.focused]="paneActive || isFocused"
       [class.dragging]="dragState.isDragging"
       (focus)="onFocus()"
       (blur)="onBlur()"
@@ -129,6 +129,7 @@ export interface DropTarget {
               class="tree-entry"
               [entry]="node"
               [selected]="isSelected(node)"
+              [displayNameOverride]="getDisplayNameOverride(node.path)"
               variant="inline">
             </app-file-entry>
             
@@ -203,6 +204,8 @@ export interface DropTarget {
 
     .file-tree-container.focused .tree-node.selected {
       outline: none;
+      background-color: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 26%, var(--vsc-list-focus-background, var(--vsc-list-active-background)) 74%);
+      box-shadow: inset 2px 0 0 var(--vsc-accent-blue, #0078d4);
     }
 
     .tree-node-wrapper { 
@@ -220,8 +223,9 @@ export interface DropTarget {
     }
 
     .tree-node.selected {
-      background-color: var(--vsc-list-active-background);
-      color: var(--vsc-foreground-bright);
+      background-color: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 18%, var(--vsc-list-active-background) 82%);
+      color: var(--vsc-list-active-foreground, var(--vsc-foreground-bright));
+      box-shadow: inset 2px 0 0 color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 82%, white 18%);
     }
 
     .tree-node:hover:not(.selected) {
@@ -415,6 +419,7 @@ export interface DropTarget {
 export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
   @Input() nodes: TreeNode[] = [];
   @Input() currentPath = '';
+  @Input() paneActive = true;
   @Input() selectedFiles: Set<string> = new Set();
   @Input() loading = false;
   @Input() emptyMessage = 'No items';
@@ -436,6 +441,7 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
   @ViewChild('treeContainer') treeContainer?: ElementRef<HTMLElement>;
 
   private expansionState = new Map<string, boolean>();
+  private pendingRenameDisplayNames = new Map<string, string>();
   private focusedNodePath: string | null = null;
   private anchorNodePath: string | null = null;
   private clickTimer: number | null = null;
@@ -1370,12 +1376,37 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
   startRenamePath(path: string): void {
     if (!path) return;
 
+    this.tryStartRenamePath(path, 6);
+  }
+
+  setPendingRenameDisplayName(path: string, displayName: string | null): void {
+    if (!path) return;
+    if (displayName && displayName.trim()) {
+      this.pendingRenameDisplayNames.set(path, displayName.trim());
+    } else {
+      this.pendingRenameDisplayNames.delete(path);
+    }
+    this.cdr.markForCheck();
+  }
+
+  getDisplayNameOverride(path: string): string | null {
+    return this.pendingRenameDisplayNames.get(path) ?? null;
+  }
+
+  private tryStartRenamePath(path: string, attemptsRemaining: number): void {
     this.focusNode(path);
     this.centerNode(path);
 
     requestAnimationFrame(() => {
       const target = this.getVisibleNodes().find((node) => node.path === path);
-      if (target) this.startRename(target);
+      if (target) {
+        this.startRename(target);
+        return;
+      }
+
+      if (attemptsRemaining > 1) {
+        this.tryStartRenamePath(path, attemptsRemaining - 1);
+      }
     });
   }
 

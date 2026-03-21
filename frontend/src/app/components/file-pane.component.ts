@@ -564,6 +564,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
         thisRef.fileViewContainer?.focusTreeNode(path);
       },
       loadDirectory: (path: string, opts?: { preserveUI?: boolean; focusPath?: string }) => thisRef.loadDirectory(path, opts),
+      refreshTreeNode: (path: string) => thisRef.fileViewContainer?.refreshTreeNode(path),
       deleteSelectedFromArchive: (effective: Set<string>) => thisRef.archiveController.deleteSelectedFromArchive(thisRef.archiveHost, effective),
       getEffectiveSelection: () => thisRef.stateRuntime.getEffectiveSelection(),
       emitCopyToOther: (paths: string[]) => thisRef.copyToOther.emit(paths),

@@ -1,5 +1,6 @@
 import type { ApiService } from '../services/api.service';
 import type { ConfirmDialogService } from '../services/confirm-dialog.service';
+import { OperationService } from '../services/operation.service';
 import type { FileInfo } from '../shared/protocol';
 import { FileType } from '../shared/protocol';
 import type { ViewLayout } from './file-view-container.component';
@@ -25,10 +26,13 @@ export interface FilePaneOperationsHost {
   emitMoveToOther(paths: string[]): void;
   startRenameSelected(): void;
   startRenamePath(path: string): void;
+  setPendingRenameDisplayName(path: string, displayName: string | null): void;
   getVisibleTreeNodes(): any[];
 }
 
 export class FilePaneOperationsController {
+  constructor(private readonly operationService: OperationService) {}
+
   getDestinationDir(host: FilePaneOperationsHost): string {
     if (host.selectedFiles.size !== 1) return host.currentPath;
     const [selectedPath] = host.selectedFiles;
@@ -286,15 +290,27 @@ export class FilePaneOperationsController {
         return;
       }
 
+      host.setPendingRenameDisplayName(entry.path, nextName);
       const result = await host.apiService.batchMove([{ source: entry.path, destination, exactDestination: true }], true);
       if (result?.failed && result.failed > 0) {
         const firstError = result.errors?.[0];
         throw new Error(firstError?.error || 'Rename failed');
       }
 
-      await host.loadDirectory(host.currentPath, { preserveUI: true, focusPath: destination });
+      const finalStatus = result?.operationId
+        ? await this.operationService.waitForOperationSettlement(result.operationId)
+        : (result?.succeeded && result.succeeded > 0 ? 'completed' : 'missing');
+
+      if (finalStatus === 'completed') {
+        await host.loadDirectory(host.currentPath, { preserveUI: true, focusPath: destination });
+        return;
+      }
+
+      await host.loadDirectory(host.currentPath, { preserveUI: true, focusPath: entry.path });
     } catch (error: any) {
       host.confirmDialog.alert(`Rename Failed\n${this.getErrorMessage(error, 'Unknown error')}`);
+    } finally {
+      host.setPendingRenameDisplayName(entry.path, null);
     }
   }
 

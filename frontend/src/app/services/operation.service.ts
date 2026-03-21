@@ -357,6 +357,55 @@ export class OperationService implements OnDestroy {
     return Array.from(this.pendingConflicts.values());
   }
 
+  async waitForOperationSettlement(
+    operationId: string,
+    appearanceTimeoutMs: number = 250,
+    overallTimeoutMs: number = 300000,
+  ): Promise<OperationStatus | 'dismissed' | 'missing'> {
+    return await new Promise<OperationStatus | 'dismissed' | 'missing'>((resolve) => {
+      let settled = false;
+      let seenOperation = false;
+      let appearanceTimer: ReturnType<typeof setTimeout> | null = null;
+      let overallTimer: ReturnType<typeof setTimeout> | null = null;
+      let subscription: { unsubscribe(): void } | null = null;
+
+      const finish = (status: OperationStatus | 'dismissed' | 'missing') => {
+        if (settled) return;
+        settled = true;
+        if (appearanceTimer) clearTimeout(appearanceTimer);
+        if (overallTimer) clearTimeout(overallTimer);
+        try { subscription?.unsubscribe(); } catch {}
+        resolve(status);
+      };
+
+      appearanceTimer = setTimeout(() => {
+        const op = this.operationsMap.get(operationId);
+        if (!seenOperation && !op && !this.hasPendingConflictsForOperation(operationId)) {
+          finish('missing');
+        }
+      }, appearanceTimeoutMs);
+
+      overallTimer = setTimeout(() => {
+        finish(seenOperation ? 'dismissed' : 'missing');
+      }, overallTimeoutMs);
+
+      subscription = this.operations$.subscribe((ops) => {
+        const op = ops.get(operationId);
+        if (op) {
+          seenOperation = true;
+          if (op.status === 'completed' || op.status === 'error' || op.status === 'cancelled') {
+            finish(op.status);
+          }
+          return;
+        }
+
+        if (seenOperation && !this.hasPendingConflictsForOperation(operationId)) {
+          finish('dismissed');
+        }
+      });
+    });
+  }
+
   /**
    * Get a specific pending conflict by ID
    */

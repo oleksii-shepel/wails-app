@@ -22,7 +22,7 @@ func TestNormalizeItemDestinationKeepsExactDestination(t *testing.T) {
 	}
 
 	runner := NewTransferRunner(TransferCallbacks{
-		ResolvePath: func(path string) (string, error) { return path, nil },
+		ResolvePath:  func(path string) (string, error) { return path, nil },
 		ToPublicPath: func(path string) string { return path },
 	})
 
@@ -61,8 +61,8 @@ func TestBatchMoveExactDestinationReportsConflict(t *testing.T) {
 			return contracts.BatchItemError{Source: source, Destination: destination, Error: err.Error(), Code: "unknown"}
 		},
 		CalculateSize: func(path string) (int64, int64) { return 1, 0 },
-		ResolvePath: func(path string) (string, error) { return path, nil },
-		ToPublicPath: func(path string) string { return path },
+		ResolvePath:   func(path string) (string, error) { return path, nil },
+		ToPublicPath:  func(path string) string { return path },
 		ConflictPrompter: ConflictPrompterFunc(func(event contracts.ConflictEvent) {
 			service.ResolveConflict(event.ConflictID, contracts.ConflictSkip, false)
 		}),

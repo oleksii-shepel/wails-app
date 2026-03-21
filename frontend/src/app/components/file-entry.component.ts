@@ -68,7 +68,7 @@ export const PARENT_ENTRY_PATH = '__parent__';
             (blur)="onRenameBlur()"
             (keydown)="onRenameKeyDown($event)" />
           <ng-container *ngIf="!isRenaming">
-            <span>{{ entry.name }}</span>
+            <span>{{ displayName }}</span>
             <span *ngIf="showSearchBadge()" class="entry-chip search-chip">Search</span>
           </ng-container>
         </div>
@@ -425,6 +425,7 @@ export class FileEntryComponent {
   @Input() entry!: FileInfo;
   @Input() selected = false;
   @Input() cursor = false;
+  @Input() displayNameOverride: string | null = null;
   @Input() variant: 'row' | 'inline' | 'grid' = 'row';
 
   @Output() select   = new EventEmitter<FileEntrySelectEvent>();
@@ -437,6 +438,10 @@ export class FileEntryComponent {
   editingName = '';
 
   FileType = FileType;
+
+  get displayName(): string {
+    return this.displayNameOverride?.trim() || this.entry?.name || '';
+  }
 
   @HostBinding('class.variant-inline') get isInlineVariant(): boolean {
     return this.variant === 'inline';

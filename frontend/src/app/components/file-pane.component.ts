@@ -49,6 +49,7 @@ import { FilePaneStateController, type FilePaneStateHost } from './file-pane-sta
 import { DirListStreamController } from '../surfaces/dir/dir-list-stream.controller';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { DirectorySourceService } from '../services/directory-source.service';
+import { OperationService } from '../services/operation.service';
 import type { SearchResultItem } from '../services/global-search.service';
 
 declare const window: any;
@@ -253,7 +254,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   private readonly navigationController = new FilePaneNavigationController();
   private readonly archiveController = new FilePaneArchiveController();
   private readonly openController = new FilePaneOpenController();
-  private readonly operationsController = new FilePaneOperationsController();
+  private readonly operationsController: FilePaneOperationsController;
   private readonly previewController = new FilePanePreviewController();
   private readonly directoryController = new FilePaneDirectoryController();
   private readonly dirSessionController = new FilePaneDirSessionController();
@@ -569,6 +570,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       emitMoveToOther: (paths: string[]) => thisRef.moveToOther.emit(paths),
       startRenameSelected: () => thisRef.fileViewContainer?.startRenameSelected(),
       startRenamePath: (path: string) => thisRef.fileViewContainer?.startRenamePath(path),
+      setPendingRenameDisplayName: (path: string, displayName: string | null) => thisRef.fileViewContainer?.setPendingRenameDisplayName(path, displayName),
       getVisibleTreeNodes: () => thisRef.fileViewContainer?.getVisibleTreeNodes() ?? [],
       onTabChange: (tab: TabInfo) => thisRef.onTabChange(tab),
       archiveNavigateInto: (path: string) => thisRef.archiveController.archiveNavigateInto(thisRef.archiveHost, path),
@@ -657,11 +659,13 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     private pathHistoryService: PathHistoryService,
     private directorySource: DirectorySourceService,
     private confirmDialog: ConfirmDialogService,
+    private operationService: OperationService,
     private zone: NgZone,
     private cdr: ChangeDetectorRef,
     private archiveService: ArchiveService
   ) {
     this.dirStream = new DirListStreamController(this.apiService);
+    this.operationsController = new FilePaneOperationsController(this.operationService);
   }
 
   get surfaceCtx(): SurfaceContext | null {

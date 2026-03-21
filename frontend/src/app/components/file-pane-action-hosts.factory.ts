@@ -75,6 +75,7 @@ export interface FilePaneActionHostsSource {
   emitMoveToOther(paths: string[]): void;
   startRenameSelected(): void;
   startRenamePath(path: string): void;
+  setPendingRenameDisplayName(path: string, displayName: string | null): void;
   getVisibleTreeNodes(): any[];
   onTabChange(tab: TabInfo): Promise<void>;
   archiveNavigateInto(path: string): Promise<void>;
@@ -182,6 +183,7 @@ export class FilePaneActionHostsFactory {
       emitMoveToOther: (paths: string[]) => source.emitMoveToOther(paths),
       startRenameSelected: () => source.startRenameSelected(),
       startRenamePath: (path: string) => source.startRenamePath(path),
+      setPendingRenameDisplayName: (path: string, displayName: string | null) => source.setPendingRenameDisplayName(path, displayName),
       getVisibleTreeNodes: () => source.getVisibleTreeNodes(),
     };
   }

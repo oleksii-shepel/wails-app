@@ -102,6 +102,7 @@ import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directi
               [entry]="entry"
               [selected]="isSelected(entry)"
               [cursor]="entry.path === cursorPath"
+              [displayNameOverride]="getDisplayNameOverride(entry.path)"
               (select)="onSelect($event)"
               (navigate)="onNavigate($event)"
               (rename)="onRename($event)">
@@ -307,6 +308,7 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
   private windowMouseMove?: (event: MouseEvent) => void;
   private windowMouseUp?: (event: MouseEvent) => void;
   private windowContextMenu?: (event: MouseEvent) => void;
+  private pendingRenameDisplayNames = new Map<string, string>();
 
   selectionRect = {
     active: false,
@@ -563,6 +565,20 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
 
   startRenamePath(path: string): void {
     this.startRenameByPath(path);
+  }
+
+  setPendingRenameDisplayName(path: string, displayName: string | null): void {
+    if (!path || path === PARENT_ENTRY_PATH) return;
+    if (displayName && displayName.trim()) {
+      this.pendingRenameDisplayNames.set(path, displayName.trim());
+    } else {
+      this.pendingRenameDisplayNames.delete(path);
+    }
+    this.cdr.markForCheck();
+  }
+
+  getDisplayNameOverride(path: string): string | null {
+    return this.pendingRenameDisplayNames.get(path) ?? null;
   }
 
   private getFirstSelectedPathInOrder(): string | null {

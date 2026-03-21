@@ -388,6 +388,22 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
     this.runtimeController.startRenamePath(this.runtimeHost, path);
   }
 
+  setPendingRenameDisplayName(path: string, displayName: string | null): void {
+    switch (this.currentView) {
+      case 'list':
+        this.listComponent?.setPendingRenameDisplayName(path, displayName);
+        return;
+      case 'grid':
+        this.gridComponent?.setPendingRenameDisplayName(path, displayName);
+        return;
+      case 'details':
+        this.detailsComponent?.setPendingRenameDisplayName(path, displayName);
+        return;
+      default:
+        return;
+    }
+  }
+
   /** Scroll the active view to bring the given path into view. */
   scrollToCursorPath(path: string): void {
     this.runtimeController.scrollToCursorPath(this.runtimeHost, path);

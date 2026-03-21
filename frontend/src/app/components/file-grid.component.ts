@@ -94,6 +94,7 @@ import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directi
               [entry]="entry"
               [selected]="isSelected(entry)"
               [cursor]="isCursor(entry)"
+              [displayNameOverride]="getDisplayNameOverride(entry.path)"
               variant="grid"
               (rename)="onRename($event)">
             </app-file-entry>
@@ -440,6 +441,7 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
   private windowMouseMove?: (event: MouseEvent) => void;
   private windowMouseUp?: (event: MouseEvent) => void;
   private windowContextMenu?: (event: MouseEvent) => void;
+  private pendingRenameDisplayNames = new Map<string, string>();
 
   selectionRect = {
     active: false,
@@ -518,6 +520,20 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
 
   startRenamePath(path: string): void {
     this.startRenameByPath(path);
+  }
+
+  setPendingRenameDisplayName(path: string, displayName: string | null): void {
+    if (!path || path === PARENT_ENTRY_PATH) return;
+    if (displayName && displayName.trim()) {
+      this.pendingRenameDisplayNames.set(path, displayName.trim());
+    } else {
+      this.pendingRenameDisplayNames.delete(path);
+    }
+    this.cdr.markForCheck();
+  }
+
+  getDisplayNameOverride(path: string): string | null {
+    return this.pendingRenameDisplayNames.get(path) ?? null;
   }
 
   private getFirstSelectedPathInOrder(): string | null {

@@ -124,6 +124,7 @@ export interface ColumnDef {
                   [entry]="entry"
                   [selected]="isSelected(entry)"
                   [cursor]="entry.path === cursorPath"
+                  [displayNameOverride]="getDisplayNameOverride(entry.path)"
                   variant="inline"
                   (rename)="onRename($event)">
                 </app-file-entry>
@@ -479,6 +480,7 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   private windowMouseUp?: (event: MouseEvent) => void;
   private windowContextMenu?: (event: MouseEvent) => void;
   private readonly MIN_COLUMN_WIDTH = 80;
+  private pendingRenameDisplayNames = new Map<string, string>();
 
   onRename(event: { entry: FileInfo; newName: string }): void {
     this.rename.emit(event);
@@ -493,6 +495,20 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
 
   startRenamePath(path: string): void {
     this.startRenameByPath(path);
+  }
+
+  setPendingRenameDisplayName(path: string, displayName: string | null): void {
+    if (!path || path === PARENT_ENTRY_PATH) return;
+    if (displayName && displayName.trim()) {
+      this.pendingRenameDisplayNames.set(path, displayName.trim());
+    } else {
+      this.pendingRenameDisplayNames.delete(path);
+    }
+    this.cdr.markForCheck();
+  }
+
+  getDisplayNameOverride(path: string): string | null {
+    return this.pendingRenameDisplayNames.get(path) ?? null;
   }
 
   /** Scroll so the given path is visible. */

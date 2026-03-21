@@ -5,7 +5,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"wails-app/vfs"
@@ -19,11 +18,12 @@ func DefaultRootProvider() string {
 	if root := os.Getenv("MEMFS_HIDDEN_PATH"); strings.TrimSpace(root) != "" {
 		return root
 	}
-	if runtime.GOOS == "windows" {
-		if info, err := GetConnectionInfo(); err == nil {
-			if root := strings.TrimSpace(info.HiddenPath); root != "" {
-				return root
-			}
+	// GetConnectionInfo works on all platforms: Windows uses a named pipe,
+	// Unix uses a domain socket. Failure is non-fatal — fall through to the
+	// store-backed default.
+	if info, err := GetConnectionInfo(); err == nil {
+		if root := strings.TrimSpace(info.HiddenPath); root != "" {
+			return root
 		}
 	}
 	return ""

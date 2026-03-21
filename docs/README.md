@@ -68,6 +68,29 @@ All file views share the same operation pipeline and are treated as equivalent i
 
 Tree view participates in the same operation flow as the other views (selection, keyboard actions, and drag/drop routing).
 
+## Memory Filesystem (VFS sidecar)
+
+The app uses an out-of-process sidecar (`in-memory-fs`) to host a persistent in-memory filesystem that is mounted into the app's virtual filesystem at the path `/memory`.
+
+The sidecar is launched by `ProcessManager` ([vfs/memory/process_unix.go](../vfs/memory/process_unix.go) / Windows equivalent) and communicates with the app via a platform-specific IPC channel:
+
+| Platform | IPC channel | Details |
+|---|---|---|
+| Windows | Named pipe `\\\\.\\ pipe\\memfs-control` | Restricted to the current user via a Windows security descriptor |
+| Linux | Unix socket `/tmp/memfs-control-<uid>.sock` | `chmod 0600`; removed on clean exit |
+| macOS | Unix socket `/tmp/memfs-control-<uid>.sock` | `chmod 0600`; removed on clean exit |
+
+Both Unix platforms rely on macFUSE (macOS) or the kernel FUSE driver (Linux) and require the sidecar binary to be present on `PATH` or at the path configured in preferences.
+
+**Startup sequence (all platforms)**:
+
+1. `DefaultRootProvider` ([vfs/memory/fs.go](../vfs/memory/fs.go)) checks `WAILS_MEMFS_ROOT` / `MEMFS_HIDDEN_PATH` env vars and the saved workspace preference first.
+2. If no path is found, it connects to the IPC channel and calls `get-connection-info`.
+3. If the sidecar is not yet running, `ProcessManager.Start()` spawns it and polls for the FUSE mount to become visible.
+4. The resolved root path is wrapped as `osfs.FS` and registered at VFS path `/memory` by `InitVFS` ([internal/runtime/vfs.go](../internal/runtime/vfs.go)).
+
+**macOS prerequisites**: macFUSE must be installed (`/Library/Filesystems/macfuse.fs`). The preflight check in [vfs/memory/preflight_unix.go](../vfs/memory/preflight_unix.go) will return a user-friendly error if it is absent.
+
 ## Live Development
 
 To run in live development mode, run `wails dev` in the project directory. This launches the Angular frontend in Wails live-reload mode together with the Go backend so frontend and backend changes can be iterated together.

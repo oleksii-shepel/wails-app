@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"wails-app/internal/pathref"
-	"wails-app/vfs/archive/cache"
 	vfslib "wails-app/vfs"
+	"wails-app/vfs/archive/cache"
 )
 
 // NewStreamMiddleware returns an http.Handler that intercepts requests to

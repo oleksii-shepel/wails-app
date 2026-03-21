@@ -176,6 +176,7 @@ export class FilePaneDirectoryController {
     }
     this.fsChangeDebounceTimer = setTimeout(() => {
       this.fsChangeDebounceTimer = null;
+      if (host.shouldSuppressFsRefresh()) return;
       host.onRefresh();
     }, 150);
   }

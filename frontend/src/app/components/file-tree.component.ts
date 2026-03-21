@@ -442,6 +442,7 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
 
   private expansionState = new Map<string, boolean>();
   private pendingRenameDisplayNames = new Map<string, string>();
+  private suppressNextAutoExpand = false;
   private focusedNodePath: string | null = null;
   private anchorNodePath: string | null = null;
   private clickTimer: number | null = null;
@@ -533,8 +534,12 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
     if (changes['nodes']) {
       this.updateNodeHierarchy(this.nodes);
     }
-    if (changes['nodes'] || changes['currentPath']) {
+    const shouldExpandToCurrentPath = !!changes['currentPath'] || (!!changes['nodes'] && !this.suppressNextAutoExpand);
+    if (shouldExpandToCurrentPath) {
       this.expandToCurrentPath();
+    }
+    if (changes['nodes'] && this.suppressNextAutoExpand) {
+      this.suppressNextAutoExpand = false;
     }
     this.refreshVisibleNodes();
     this.updateVirtualWindow();
@@ -664,6 +669,15 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
     };
     traverse(this.renderedNodes);
     return result;
+  }
+
+  isNodeExpanded(path: string): boolean {
+    const node = this.findNodeByPath(this.nodes, path);
+    return !!node && this.isExpanded(node);
+  }
+
+  suppressNextAutoExpandToCurrentPath(): void {
+    this.suppressNextAutoExpand = true;
   }
 
   getGuides(node: TreeNode): { active: boolean; last: boolean; skip: boolean }[] {
@@ -1419,6 +1433,8 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
   }
 
   onRenameKeyDown(event: KeyboardEvent, node: TreeNode): void {
+    event.stopPropagation();
+
     if (event.key === 'Enter') {
       event.preventDefault();
       this.commitRename(node);

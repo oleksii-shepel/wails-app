@@ -79,6 +79,9 @@ export interface FilePaneActionHostsSource {
   startRenamePath(path: string): void;
   setPendingRenameDisplayName(path: string, displayName: string | null): void;
   getVisibleTreeNodes(): any[];
+  isTreeNodeExpanded(path: string): boolean;
+  suppressNextTreeAutoExpand(): void;
+  focusTreeNode(path: string): void;
   onTabChange(tab: TabInfo): Promise<void>;
   archiveNavigateInto(path: string): Promise<void>;
   openNestedArchive(chain: string[]): Promise<void>;
@@ -189,6 +192,9 @@ export class FilePaneActionHostsFactory {
       startRenamePath: (path: string) => source.startRenamePath(path),
       setPendingRenameDisplayName: (path: string, displayName: string | null) => source.setPendingRenameDisplayName(path, displayName),
       getVisibleTreeNodes: () => source.getVisibleTreeNodes(),
+      isTreeNodeExpanded: (path: string) => source.isTreeNodeExpanded(path),
+      suppressNextTreeAutoExpand: () => source.suppressNextTreeAutoExpand(),
+      focusTreeNode: (path: string) => source.focusTreeNode(path),
     };
   }
 

@@ -443,6 +443,14 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
     return this.treeComponent?.getVisibleNodes() ?? [];
   }
 
+  isTreeNodeExpanded(path: string): boolean {
+    return this.treeComponent?.isNodeExpanded(path) ?? false;
+  }
+
+  suppressNextTreeAutoExpand(): void {
+    this.treeComponent?.suppressNextAutoExpandToCurrentPath();
+  }
+
   async calculateDirectorySize(path: string): Promise<void> {
     if (!path || path === PARENT_ENTRY_PATH) return;
     if (this.pendingDirectorySizePaths.has(path)) return;

@@ -29,6 +29,9 @@ export interface FilePaneOperationsHost {
   startRenamePath(path: string): void;
   setPendingRenameDisplayName(path: string, displayName: string | null): void;
   getVisibleTreeNodes(): any[];
+  isTreeNodeExpanded(path: string): boolean;
+  suppressNextTreeAutoExpand(): void;
+  focusTreeNode(path: string): void;
 }
 
 export class FilePaneOperationsController {
@@ -38,14 +41,19 @@ export class FilePaneOperationsController {
     if (host.selectedFiles.size !== 1) return host.currentPath;
     const [selectedPath] = host.selectedFiles;
 
-    const entry = host.entries.find(candidate => candidate.path === selectedPath);
-    if (entry?.type === FileType.DIRECTORY) return selectedPath;
-
     if (host.currentView === 'tree') {
       const nodes = host.getVisibleTreeNodes() ?? [];
       const node = nodes.find((candidate: any) => candidate.path === selectedPath);
-      if (node?.type === FileType.DIRECTORY) return selectedPath;
+      if (node?.type === FileType.DIRECTORY) {
+        if (host.isTreeNodeExpanded(selectedPath)) {
+          return selectedPath;
+        }
+        return parentPath(selectedPath) || selectedPath;
+      }
     }
+
+    const entry = host.entries.find(candidate => candidate.path === selectedPath);
+    if (entry?.type === FileType.DIRECTORY) return selectedPath;
 
     return host.currentPath;
   }
@@ -61,6 +69,7 @@ export class FilePaneOperationsController {
       const newPath = await this.createNewFolderForInlineRename(host, targetDir);
 
       if (host.currentView === 'tree' && !samePath(targetDir, host.currentPath)) {
+        host.suppressNextTreeAutoExpand();
         host.refreshTreeNode(targetDir);
       } else {
         await host.loadDirectory(host.currentPath, { preserveUI: true, focusPath: newPath });
@@ -341,6 +350,11 @@ export class FilePaneOperationsController {
         return;
       }
 
+      host.setPendingRenameDisplayName(entry.path, null);
+      if (host.currentView === 'tree') {
+        host.focusTreeNode(entry.path);
+        return;
+      }
       await host.loadDirectory(host.currentPath, { preserveUI: true, focusPath: entry.path });
     } catch (error: any) {
       host.confirmDialog.alert(`Rename Failed\n${this.getErrorMessage(error, 'Unknown error')}`);

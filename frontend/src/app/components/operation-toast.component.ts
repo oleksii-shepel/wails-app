@@ -61,7 +61,7 @@ import { createSubject } from '@epikodelabs/streamix';
             <path d="M7.56 1h.88l6.54 12.26-.44.74H1.44L1 13.26Zm.44 2L2.28 13h11.44ZM8 11a.75.75 0 1 1 0 1.5A.75.75 0 0 1 8 11zm.75-5v4.5h-1.5V6h1.5z"/>
           </svg>
           <div>
-            <div class="conflict-title">File already exists</div>
+            <div class="conflict-title">{{ conflictTitle() }}</div>
             <div class="conflict-sub">Choose how to handle this conflict</div>
           </div>
         </div>
@@ -71,7 +71,10 @@ import { createSubject } from '@epikodelabs/streamix';
             <div class="side-label">Source</div>
             <div class="side-path">{{conflictSourceFileName()}}</div>
             <div class="side-dir">{{conflictDir(operation.conflictData?.sourcePath)}}</div>
-            <div class="side-meta">{{svc.formatBytes(operation.conflictData?.sourceSize || 0)}}</div>
+            <div class="side-meta">
+              {{svc.formatBytes(operation.conflictData?.sourceSize || 0)}}
+              <span *ngIf="operation.conflictData?.isDirectory" class="folder-badge">folder</span>
+            </div>
           </div>
 
           <div class="compare-arrow">
@@ -471,6 +474,10 @@ export class OperationToastComponent implements OnChanges, OnInit, OnDestroy {
   get currentFileName() {
     const p = this.operation.metrics.currentFile || '';
     return p.split(/[\\/]/).pop() || p;
+  }
+
+  conflictTitle(): string {
+    return this.operation.conflictData?.isDirectory ? 'Folder already exists' : 'File already exists';
   }
 
   conflictSourceFileName(): string {

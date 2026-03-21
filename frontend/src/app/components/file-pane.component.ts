@@ -560,9 +560,6 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       restoreActiveDirTabState: () => thisRef.restoreActiveDirTabState(),
       persistDirTabState: () => thisRef.persistDirTabState(),
       scrollToCursorPath: (path: string) => thisRef.stateRuntime.scrollToCursorPath(path),
-      focusTreeNode: (path: string) => {
-        thisRef.fileViewContainer?.focusTreeNode(path);
-      },
       shouldSuppressFsRefresh: () => thisRef.fileViewContainer?.hasPendingTreeRename() ?? false,
       loadDirectory: (path: string, opts?: { preserveUI?: boolean; focusPath?: string }) => thisRef.loadDirectory(path, opts),
       refreshTreeNode: (path: string) => thisRef.fileViewContainer?.refreshTreeNode(path),
@@ -574,6 +571,9 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       startRenamePath: (path: string) => thisRef.fileViewContainer?.startRenamePath(path),
       setPendingRenameDisplayName: (path: string, displayName: string | null) => thisRef.fileViewContainer?.setPendingRenameDisplayName(path, displayName),
       getVisibleTreeNodes: () => thisRef.fileViewContainer?.getVisibleTreeNodes() ?? [],
+      isTreeNodeExpanded: (path: string) => thisRef.fileViewContainer?.isTreeNodeExpanded(path) ?? false,
+      suppressNextTreeAutoExpand: () => thisRef.fileViewContainer?.suppressNextTreeAutoExpand(),
+      focusTreeNode: (path: string) => thisRef.fileViewContainer?.focusTreeNode(path),
       onTabChange: (tab: TabInfo) => thisRef.onTabChange(tab),
       archiveNavigateInto: (path: string) => thisRef.archiveController.archiveNavigateInto(thisRef.archiveHost, path),
       openNestedArchive: (chain: string[]) => thisRef.archiveController.openNestedArchive(thisRef.archiveHost, chain),

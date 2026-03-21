@@ -1,6 +1,6 @@
 //go:build !windows
 
-package memoryfs
+package memory
 
 import "fmt"
 

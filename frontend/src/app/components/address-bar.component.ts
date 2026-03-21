@@ -793,7 +793,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     this.rebuildSegments();
     this.loadPins();
     this.loadSpecialFolders();
-    if (this.isWin) this.loadschemes();
+    this.loadSchemes();
   }
 
   ngAfterViewInit(): void {
@@ -977,7 +977,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     this.closeAll();
     this.schemeAnchorEl = e.currentTarget as HTMLElement;
     this.showSchemeMenu = true;
-    if (this.schemes.length === 0 && !this.schemesLoading) this.loadschemes();
+    if (this.schemes.length === 0 && !this.schemesLoading) this.loadSchemes();
   }
 
   onCrumbsClick(e: MouseEvent): void {
@@ -1155,10 +1155,10 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     return cloudschemes;
   }
 
-  async loadschemes(): Promise<void> {
+  async loadSchemes(): Promise<void> {
     this.schemesLoading = true;
     try { 
-      const schemesList = this.isWin ? await this.apiService.getDrives() : { drives: [] };
+      const schemesList = await this.apiService.getDrives();
       const systemschemes = schemesList?.drives || [];
       const cloudschemes = await this.getCloudschemes();
       this.schemes = [...systemschemes, ...cloudschemes];

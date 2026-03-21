@@ -12,13 +12,13 @@ import (
 	contracts "wails-app/internal/contracts"
 	internalelevation "wails-app/internal/elevation"
 	internalfilesystem "wails-app/internal/filesystem"
-	internalmemoryfs "wails-app/internal/memoryfs"
 	internalops "wails-app/internal/ops"
 	"wails-app/internal/pathref"
 	internalplatform "wails-app/internal/platform"
 	internalruntime "wails-app/internal/runtime"
 	vfslib "wails-app/vfs"
 	vfsarchive "wails-app/vfs/archive"
+	vfsmemory "wails-app/vfs/memory"
 )
 
 type filesystemElevation interface {
@@ -38,34 +38,17 @@ var (
 	elevatedVFSOnce sync.Once
 	elevatedVFS     *vfslib.Unified
 	elevatedVFSErr  error
-	memoryPathOnce  sync.Once
-	memoryPath      *internalmemoryfs.PathResolver
-	memoryPathErr   error
-	memoryRootFn    = defaultMemoryRootProvider
+	memoryFSOnce    sync.Once
+	memoryFS        *vfsmemory.FS
+	memoryFSErr     error
+	memoryRootFn    = vfsmemory.DefaultRootProvider
 )
 
 const memoryAppName = "wails-file-manager"
 
-func defaultMemoryRootProvider() string {
-	if root := os.Getenv("WAILS_MEMFS_ROOT"); strings.TrimSpace(root) != "" {
-		return root
-	}
-	if root := os.Getenv("MEMFS_HIDDEN_PATH"); strings.TrimSpace(root) != "" {
-		return root
-	}
-	if runtime.GOOS == "windows" {
-		if info, err := internalmemoryfs.GetConnectionInfo(); err == nil {
-			if root := strings.TrimSpace(info.HiddenPath); root != "" {
-				return root
-			}
-		}
-	}
-	return ""
-}
-
 func configureMemoryRootProvider(provider func() string) {
 	if provider == nil {
-		memoryRootFn = defaultMemoryRootProvider
+		memoryRootFn = vfsmemory.DefaultRootProvider
 		return
 	}
 	memoryRootFn = provider
@@ -73,18 +56,23 @@ func configureMemoryRootProvider(provider func() string) {
 
 func getElevatedVFS() (*vfslib.Unified, error) {
 	elevatedVFSOnce.Do(func() {
-		elevatedVFS, elevatedVFSErr = internalruntime.InitVFS()
+		memoryPlugin, err := getMemoryFS()
+		if err != nil {
+			elevatedVFSErr = err
+			return
+		}
+		elevatedVFS, elevatedVFSErr = internalruntime.InitVFS(memoryPlugin)
 	})
 	return elevatedVFS, elevatedVFSErr
 }
 
-func getMemoryPathResolver() (*internalmemoryfs.PathResolver, error) {
-	memoryPathOnce.Do(func() {
-		memoryPath, memoryPathErr = internalmemoryfs.NewPathResolver(memoryAppName, func() string {
+func getMemoryFS() (*vfsmemory.FS, error) {
+	memoryFSOnce.Do(func() {
+		memoryFS, memoryFSErr = vfsmemory.New(memoryAppName, func() string {
 			return memoryRootFn()
 		})
 	})
-	return memoryPath, memoryPathErr
+	return memoryFS, memoryFSErr
 }
 
 func resolveMemoryAlias(path string) (string, error) {
@@ -93,20 +81,20 @@ func resolveMemoryAlias(path string) (string, error) {
 	if !pathref.IsMemory(normalized) {
 		return nativePath, nil
 	}
-	resolver, err := getMemoryPathResolver()
+	memoryPlugin, err := getMemoryFS()
 	if err != nil {
 		return "", err
 	}
-	resolved, _, err := resolver.ResolvePublicPath(nativePath)
+	resolved, _, err := memoryPlugin.ResolvePublicPath(nativePath)
 	return resolved, err
 }
 
 func toPublicMemoryPath(path string) string {
-	resolver, err := getMemoryPathResolver()
-	if err != nil || resolver == nil {
+	memoryPlugin, err := getMemoryFS()
+	if err != nil || memoryPlugin == nil {
 		return pathref.FromNativePath(path)
 	}
-	return pathref.FromNativePath(resolver.ToPublicPath(path))
+	return pathref.FromNativePath(memoryPlugin.ToPublicPath(path))
 }
 
 func mapMemoryListing(listing *contracts.DirectoryListing, requestedPath string) *contracts.DirectoryListing {
@@ -297,7 +285,7 @@ func newFilesystemService(
 	emitEvent func(string, interface{}),
 	startElevatedSession func() (*internalelevation.SessionStatus, error),
 ) *FilesystemService {
-	resolver, _ := getMemoryPathResolver()
+	memoryPlugin, _ := getMemoryFS()
 	return internalfilesystem.NewService(internalfilesystem.ServiceConfig{
 		Elevation:                      elevation,
 		EmitEvent:                      emitEvent,
@@ -309,7 +297,7 @@ func newFilesystemService(
 		RunElevatedRequest:             runElevatedRequest,
 		IsPermissionDenied:             internalelevation.IsPermissionDenied,
 		ShouldRetryDeleteWithElevation: internalelevation.ShouldRetryDeleteWithElevation,
-		MemoryResolver:                 resolver,
+		MemoryResolver:                 memoryPlugin,
 	})
 }
 
@@ -353,7 +341,7 @@ func BuildApp() *App {
 	}
 
 	configureMemoryRootProvider(func() string {
-		if root := defaultMemoryRootProvider(); root != "" {
+		if root := vfsmemory.DefaultRootProvider(); root != "" {
 			return root
 		}
 		if core != nil && core.WorkspaceManager != nil {

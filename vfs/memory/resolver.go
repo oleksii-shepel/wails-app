@@ -1,4 +1,4 @@
-package memoryfs
+package memory
 
 import (
 	"fmt"
@@ -49,10 +49,6 @@ func (r *PathResolver) currentRoot() string {
 		}
 	}
 	return filepath.Clean(r.store.DataPath())
-}
-
-func (r *PathResolver) currentRootKey() string {
-	return pathKey(r.currentRoot())
 }
 
 func (r *PathResolver) joinUnderRoot(root string, child string) string {

@@ -11,6 +11,7 @@ import (
 	contracts "wails-app/internal/contracts"
 	"wails-app/internal/pathref"
 	vfslib "wails-app/vfs"
+	"wails-app/vfs/memory"
 	"wails-app/vfs/mount"
 	"wails-app/vfs/osfs"
 	"wails-app/vfs/registry"
@@ -21,9 +22,15 @@ import (
 	_ "wails-app/vfs/archive/zip"
 )
 
-func InitVFS() (*vfslib.Unified, error) {
+func InitVFS(memoryFS *memory.FS) (*vfslib.Unified, error) {
 	manager := mount.NewManager(osfs.New("/"))
 	vfs := vfslib.NewUnified(manager)
+
+	if memoryFS != nil {
+		if _, err := vfs.Mount("/memory", memoryFS, false, "Memory", vfslib.VolumeMemory); err != nil {
+			return nil, err
+		}
+	}
 
 	if regFS, err := registry.New(); err == nil {
 		if _, err := vfs.Mount("/registry", regFS, true, "Registry", vfslib.VolumeRegistry); err != nil {
@@ -218,12 +225,6 @@ func convertVFSInfo(entry vfslib.FileInfo) contracts.FileInfo {
 	return convertVFSInfoWithChain(entry, nil)
 }
 
-type registryMetadata interface {
-	RegistryKind() string
-	RegistryValueType() string
-	RegistryPreview() string
-}
-
 func convertVFSInfoWithChain(entry vfslib.FileInfo, parentChain []string) contracts.FileInfo {
 	fileType := contracts.FileTypeFile
 	switch {
@@ -252,11 +253,7 @@ func convertVFSInfoWithChain(entry vfslib.FileInfo, parentChain []string) contra
 		NestedChain: nestedChain,
 	}
 
-	if metadata, ok := entry.(registryMetadata); ok {
-		file.RegistryKind = metadata.RegistryKind()
-		file.RegistryValueType = metadata.RegistryValueType()
-		file.RegistryPreview = metadata.RegistryPreview()
-	}
+	registry.ApplyFileInfoMetadata(&file, entry)
 
 	return file
 }

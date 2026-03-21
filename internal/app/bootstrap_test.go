@@ -15,20 +15,20 @@ import (
 func resetMemoryResolverForTest(t *testing.T, root string) {
 	t.Helper()
 
-	prevOnce := memoryPathOnce
-	prevPath := memoryPath
-	prevErr := memoryPathErr
+	prevOnce := memoryFSOnce
+	prevPath := memoryFS
+	prevErr := memoryFSErr
 	prevRootFn := memoryRootFn
 
 	configureMemoryRootProvider(func() string { return root })
-	memoryPathOnce = sync.Once{}
-	memoryPath = nil
-	memoryPathErr = nil
+	memoryFSOnce = sync.Once{}
+	memoryFS = nil
+	memoryFSErr = nil
 
 	t.Cleanup(func() {
-		memoryPathOnce = prevOnce
-		memoryPath = prevPath
-		memoryPathErr = prevErr
+		memoryFSOnce = prevOnce
+		memoryFS = prevPath
+		memoryFSErr = prevErr
 		memoryRootFn = prevRootFn
 	})
 }

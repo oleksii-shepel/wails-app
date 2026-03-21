@@ -143,6 +143,17 @@ func (s *Service) SetVFS(v *vfslib.Unified) {
 	s.vfs = v
 }
 
+func (s *Service) handlesVFSPath(path string) bool {
+	if s.vfs == nil {
+		return false
+	}
+	normalized := pathref.Normalize(path)
+	if pathref.IsAlias(normalized) {
+		return s.vfs.IsMounted(pathref.ToVFS(normalized))
+	}
+	return s.vfs.IsMounted(normalized)
+}
+
 func (s *Service) emit(name string, data interface{}) {
 	if s.emitEvent != nil {
 		s.emitEvent(name, data)
@@ -162,12 +173,12 @@ func (s *Service) ListDirectory(path string, showHidden bool) (*contracts.Direct
 	if pathref.IsSearch(path) {
 		return s.listSearchAlias(path)
 	}
-	if s.vfs != nil && pathref.IsRegistry(path) {
+	if s.handlesVFSPath(path) {
 		listing, err := internalruntime.VFSListDir(s.vfs, path)
 		if err == nil {
 			return listing, nil
 		}
-		if !s.isPermissionDenied(err) {
+		if !pathref.IsRegistry(path) || !s.isPermissionDenied(err) {
 			return nil, err
 		}
 
@@ -298,12 +309,12 @@ func (s *Service) GetFileInfo(path string) (*contracts.FileInfo, error) {
 
 func (s *Service) ReadFile(path string, encoding string) (*contracts.FileContent, error) {
 	path = pathref.Normalize(path)
-	if s.vfs != nil && pathref.IsRegistry(path) {
+	if s.handlesVFSPath(path) {
 		file, err := internalruntime.VFSReadFile(s.vfs, path, encoding)
 		if err == nil {
 			return file, nil
 		}
-		if !s.isPermissionDenied(err) {
+		if !pathref.IsRegistry(path) || !s.isPermissionDenied(err) {
 			return nil, err
 		}
 
@@ -343,12 +354,12 @@ func (s *Service) ReadFile(path string, encoding string) (*contracts.FileContent
 
 func (s *Service) WriteFile(path string, content string, encoding string) (*contracts.OperationResult, error) {
 	path = pathref.Normalize(path)
-	if s.vfs != nil && pathref.IsRegistry(path) {
+	if s.handlesVFSPath(path) {
 		op, err := internalruntime.VFSWriteFile(s.vfs, path, content, encoding)
 		if err == nil {
 			return op, nil
 		}
-		if !s.isPermissionDenied(err) {
+		if !pathref.IsRegistry(path) || !s.isPermissionDenied(err) {
 			return nil, err
 		}
 
@@ -390,12 +401,12 @@ func (s *Service) WriteFile(path string, content string, encoding string) (*cont
 
 func (s *Service) DeleteFile(path string, recursive bool, useTrash *bool) (*contracts.OperationResult, error) {
 	path = pathref.Normalize(path)
-	if s.vfs != nil && pathref.IsRegistry(path) {
+	if s.handlesVFSPath(path) {
 		op, err := internalruntime.VFSRemove(s.vfs, path)
 		if err == nil {
 			return op, nil
 		}
-		if !s.isPermissionDenied(err) {
+		if !pathref.IsRegistry(path) || !s.isPermissionDenied(err) {
 			return nil, err
 		}
 
@@ -437,12 +448,12 @@ func (s *Service) DeleteFile(path string, recursive bool, useTrash *bool) (*cont
 
 func (s *Service) CreateDirectory(path string, recursive bool) (*contracts.OperationResult, error) {
 	path = pathref.Normalize(path)
-	if s.vfs != nil && pathref.IsRegistry(path) {
+	if s.handlesVFSPath(path) {
 		op, err := internalruntime.VFSMkdir(s.vfs, path)
 		if err == nil {
 			return op, nil
 		}
-		if !s.isPermissionDenied(err) {
+		if !pathref.IsRegistry(path) || !s.isPermissionDenied(err) {
 			return nil, err
 		}
 

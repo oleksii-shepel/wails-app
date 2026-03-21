@@ -1,4 +1,4 @@
-package memoryfs
+package memory
 
 import (
 	"os"

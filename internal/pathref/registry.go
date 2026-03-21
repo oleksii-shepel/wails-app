@@ -16,6 +16,7 @@ const (
 	FTPScheme       = "ftp://"
 	SFTPScheme      = "sftp://"
 	WebDAVScheme    = "webdav://"
+	memoryVFSRoot   = "/memory"
 	registryVFSRoot = "/registry"
 )
 
@@ -33,7 +34,7 @@ type SearchQuery struct {
 var aliasSpecs = []aliasSpec{
 	{scheme: RegistryScheme, vfsRoot: registryVFSRoot},
 	{scheme: SearchScheme},
-	{scheme: MemoryScheme},
+	{scheme: MemoryScheme, vfsRoot: memoryVFSRoot},
 	{scheme: SMBScheme},
 	{scheme: FTPScheme},
 	{scheme: SFTPScheme},

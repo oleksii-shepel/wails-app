@@ -132,9 +132,9 @@ func NewServices(config ServiceConfig) *Services {
 }
 
 func (c ServiceConfig) newUtility() *internalutility.Service {
-	resolver, _ := getMemoryPathResolver()
+	memoryPlugin, _ := getMemoryFS()
 	return internalutility.NewService(internalutility.ServiceConfig{
 		EmitEvent:      c.EmitEvent,
-		MemoryResolver: resolver,
+		MemoryResolver: memoryPlugin,
 	})
 }

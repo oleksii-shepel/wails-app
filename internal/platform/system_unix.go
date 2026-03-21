@@ -12,8 +12,6 @@ import (
 	"strings"
 	"syscall"
 
-	"golang.org/x/sys/unix"
-
 	contracts "wails-app/internal/contracts"
 )
 
@@ -134,13 +132,59 @@ func guessDriveTypeLinux(device string) contracts.DriveType {
 	}
 
 	name := filepath.Base(device)
-	base := strings.TrimRight(name, "0123456789")
-	removablePath := fmt.Sprintf("/sys/block/%s/removable", base)
-	data, err := os.ReadFile(removablePath)
-	if err == nil && strings.TrimSpace(string(data)) == "1" {
-		return contracts.DriveRemovable
+	for _, candidate := range linuxBlockDeviceCandidates(name) {
+		removablePath := fmt.Sprintf("/sys/block/%s/removable", candidate)
+		data, err := os.ReadFile(removablePath)
+		if err == nil && strings.TrimSpace(string(data)) == "1" {
+			return contracts.DriveRemovable
+		}
 	}
 	return contracts.DriveFixed
+}
+
+func linuxBlockDeviceCandidates(name string) []string {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return nil
+	}
+
+	candidates := []string{trimmed}
+	if prefix, ok := trimLinuxPSuffix(trimmed); ok {
+		candidates = append(candidates, prefix)
+	}
+	if prefix := strings.TrimRight(trimmed, "0123456789"); prefix != "" && prefix != trimmed {
+		candidates = append(candidates, prefix)
+	}
+
+	unique := make([]string, 0, len(candidates))
+	seen := make(map[string]struct{}, len(candidates))
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		if _, ok := seen[candidate]; ok {
+			continue
+		}
+		seen[candidate] = struct{}{}
+		unique = append(unique, candidate)
+	}
+	return unique
+}
+
+func trimLinuxPSuffix(name string) (string, bool) {
+	idx := strings.LastIndex(name, "p")
+	if idx <= 0 || idx >= len(name)-1 {
+		return "", false
+	}
+	suffix := name[idx+1:]
+	if strings.Trim(suffix, "0123456789") != "" {
+		return "", false
+	}
+	prefix := name[:idx]
+	if !strings.ContainsAny(prefix, "0123456789") {
+		return "", false
+	}
+	return prefix, true
 }
 
 func listDrivesDarwin() []contracts.DriveInfo {
@@ -161,7 +205,7 @@ func listDrivesDarwin() []contracts.DriveInfo {
 			continue
 		}
 		device := fields[0]
-		mount := fields[8]
+		mount := strings.Join(fields[8:], " ")
 		if !strings.HasPrefix(device, "/dev/") && !strings.HasPrefix(device, "//") {
 			continue
 		}
@@ -187,21 +231,6 @@ func listDrivesDarwin() []contracts.DriveInfo {
 	}
 
 	return drives
-}
-
-// JoinMountNamespace makes the calling process join the specified mount namespace.
-// The nsPath should be a path like "/proc/<pid>/ns/mnt".
-func JoinMountNamespace(nsPath string) error {
-	f, err := os.Open(nsPath)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	if err := unix.Setns(int(f.Fd()), unix.CLONE_NEWNS); err != nil {
-		return err
-	}
-	return nil
 }
 
 func getFSTypeDarwin(mount string) string {

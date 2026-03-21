@@ -7,7 +7,11 @@ import (
 )
 
 func (s *State) InitVFS() {
-	vfs, err := internalruntime.InitVFS()
+	memoryPlugin, err := getMemoryFS()
+	if err != nil {
+		return
+	}
+	vfs, err := internalruntime.InitVFS(memoryPlugin)
 	if err != nil {
 		return
 	}

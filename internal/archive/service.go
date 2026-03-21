@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	contracts "wails-app/internal/contracts"
+	"wails-app/internal/pathref"
 	vfslib "wails-app/vfs"
 	"wails-app/vfs/archive/cache"
 )
@@ -43,9 +44,12 @@ func NewService(
 func (s *Service) Browse(fsPath string, nestedChain []string, innerPath string) (contracts.ArchiveListing, error) {
 	ctx := context.Background()
 
-	arch, err := s.archCache.Get(ctx, fsPath, nestedChain, "")
+	// Convert drive:// scheme paths to native OS paths
+	nativePath := pathref.ToNativePath(fsPath)
+
+	arch, err := s.archCache.Get(ctx, nativePath, nestedChain, "")
 	if err != nil {
-		return contracts.ArchiveListing{}, fmt.Errorf("vfs: open %q: %w", fsPath, err)
+		return contracts.ArchiveListing{}, fmt.Errorf("vfs: open %q: %w", nativePath, err)
 	}
 
 	vfsEntries, err := arch.ReadDir(ctx, normalizePath(innerPath))
@@ -70,9 +74,12 @@ func (s *Service) ReadFile(fsPath string, nestedChain []string, entryPath string
 	entryPath = normalizePath(entryPath)
 
 	ctx := context.Background()
-	arch, err := s.archCache.Get(ctx, fsPath, nestedChain, "")
+	// Convert drive:// scheme paths to native OS paths
+	nativePath := pathref.ToNativePath(fsPath)
+
+	arch, err := s.archCache.Get(ctx, nativePath, nestedChain, "")
 	if err != nil {
-		return nil, fmt.Errorf("archive read: open %q: %w", fsPath, err)
+		return nil, fmt.Errorf("archive read: open %q: %w", nativePath, err)
 	}
 
 	f, err := arch.Open(ctx, entryPath)

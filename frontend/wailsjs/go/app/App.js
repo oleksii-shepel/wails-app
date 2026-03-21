@@ -282,6 +282,18 @@ export function RegisterDropListener() {
   return window['go']['app']['App']['RegisterDropListener']();
 }
 
+export function RemoteConnect(arg1) {
+  return window['go']['app']['App']['RemoteConnect'](arg1);
+}
+
+export function RemoteDisconnect(arg1) {
+  return window['go']['app']['App']['RemoteDisconnect'](arg1);
+}
+
+export function RemoteListConnections() {
+  return window['go']['app']['App']['RemoteListConnections']();
+}
+
 export function ResolveConflict(arg1, arg2, arg3) {
   return window['go']['app']['App']['ResolveConflict'](arg1, arg2, arg3);
 }

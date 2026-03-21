@@ -942,6 +942,62 @@ export namespace contracts {
 		    return a;
 		}
 	}
+	export class RemoteConfig {
+	    protocol: string;
+	    host: string;
+	    port?: number;
+	    username?: string;
+	    password?: string;
+	    privateKey?: string;
+	    ignoreHostKey?: boolean;
+	    domain?: string;
+	    share?: string;
+	    schema?: string;
+	    basePath?: string;
+	    insecure?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new RemoteConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.protocol = source["protocol"];
+	        this.host = source["host"];
+	        this.port = source["port"];
+	        this.username = source["username"];
+	        this.password = source["password"];
+	        this.privateKey = source["privateKey"];
+	        this.ignoreHostKey = source["ignoreHostKey"];
+	        this.domain = source["domain"];
+	        this.share = source["share"];
+	        this.schema = source["schema"];
+	        this.basePath = source["basePath"];
+	        this.insecure = source["insecure"];
+	    }
+	}
+	export class RemoteMount {
+	    protocol: string;
+	    host: string;
+	    name: string;
+	    publicPath: string;
+	    mountPoint: string;
+	    readOnly: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new RemoteMount(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.protocol = source["protocol"];
+	        this.host = source["host"];
+	        this.name = source["name"];
+	        this.publicPath = source["publicPath"];
+	        this.mountPoint = source["mountPoint"];
+	        this.readOnly = source["readOnly"];
+	    }
+	}
 	export class SearchResult {
 	    path: string;
 	    matches: FileInfo[];

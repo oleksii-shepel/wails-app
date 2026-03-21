@@ -147,6 +147,12 @@ export function ReadFileContent(arg1:string,arg2:string):Promise<contracts.FileC
 
 export function RegisterDropListener():Promise<void>;
 
+export function RemoteConnect(arg1:contracts.RemoteConfig):Promise<contracts.RemoteMount>;
+
+export function RemoteDisconnect(arg1:string):Promise<void>;
+
+export function RemoteListConnections():Promise<Array<contracts.RemoteMount>>;
+
 export function ResolveConflict(arg1:string,arg2:contracts.ConflictResolution,arg3:boolean):Promise<boolean>;
 
 export function ResolveLink(arg1:string):Promise<utility.ResolvedLink>;

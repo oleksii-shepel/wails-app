@@ -93,7 +93,8 @@ interface ImageMeta { width: number; height: number }
                [src]="imageSrc!"
                [alt]="displayName || 'Image preview'"
                [style.transform]="imageTransform"
-               (load)="onImageLoad($event)" />
+           (load)="onImageLoad($event)"
+           (error)="onImageError()" />
         </div>
       </div>
     </div>
@@ -189,6 +190,7 @@ interface ImageMeta { width: number; height: number }
 export class ImageViewerComponent implements OnChanges, OnDestroy {
   @Input() targetPath = '';
   @Input() archiveContext: ViewerArchiveContext | null = null;
+  @Input() viewerId: string | null = null;
 
   kind: ImageViewerKind = 'empty';
   error: string | null = null;
@@ -276,6 +278,12 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
   onImageLoad(event: Event): void {
     const img = event.target as HTMLImageElement;
     this.imageMeta = { width: img.naturalWidth, height: img.naturalHeight };
+    this.cdr.markForCheck();
+  }
+
+  onImageError(): void {
+    this.error = 'Image failed to render.';
+    this.kind = 'error';
     this.cdr.markForCheck();
   }
 

@@ -127,9 +127,10 @@ export interface ViewerArchiveContext {
 
         <!-- Video -->
         <div *ngIf="kind === 'video'" class="media-host">
-          <video class="preview-video" controls preload="auto" playsinline
+          <video class="preview-video" controls preload="auto" playsinline autoplay
                  [src]="mediaSrc!"
                  (loadedmetadata)="onMediaMetadata('video', $event)"
+                 (canplay)="onMediaCanPlay('video', $event)"
                  (loadeddata)="onVideoLoadedData($event)"
                  (error)="onMediaError('video', $event)">
             Your browser does not support video.
@@ -140,19 +141,29 @@ export interface ViewerArchiveContext {
         <div *ngIf="kind === 'audio'" class="audio-host">
           <div class="audio-icon">&#x1F3B5;</div>
           <div class="state-label">{{ info?.name }}</div>
-          <audio class="preview-audio" controls preload="auto"
+          <audio class="preview-audio" controls preload="auto" autoplay
                  [src]="mediaSrc!"
                  (loadedmetadata)="onMediaMetadata('audio', $event)"
+                 (canplay)="onMediaCanPlay('audio', $event)"
                  (error)="onMediaError('audio', $event)">
             Your browser does not support audio.
           </audio>
         </div>
 
-        <!--
-          PDF — served via blob URL from streaming chunks
-        -->
+        <!-- PDF — the embedded renderer becomes ready only after the full document load -->
         <div *ngIf="kind === 'pdf'" class="pdf-host">
-          <iframe class="preview-pdf" [src]="pdfSrc!" frameborder="0"></iframe>
+          <object class="preview-pdf" [data]="pdfSrc!" type="application/pdf" (load)="onPdfLoad()">
+            <div class="pdf-fallback">
+              <div class="state-label">Embedded PDF preview is unavailable</div>
+              <div class="state-sub">The stream loaded, but the embedded renderer could not display this PDF.</div>
+              <button *ngIf="!archiveContext && targetPath" class="tool-btn" (click)="openCurrentFileExternally()">Open externally</button>
+            </div>
+          </object>
+          <div *ngIf="pdfLoading" class="pdf-loading">
+            <div class="spinner"></div>
+            <div class="state-label">Loading PDF preview…</div>
+            <div class="state-sub">Embedded PDF rendering starts after the full document is loaded.</div>
+          </div>
         </div>
 
         <!-- JSON -->
@@ -453,8 +464,33 @@ export interface ViewerArchiveContext {
 
     /* ── PDF ─────────────────────────────────────────────────────────────── */
 
-    .pdf-host { display: flex; flex-direction: column; height: 100%; }
+    .pdf-host { display: flex; flex-direction: column; height: 100%; min-height: 0; background: white; position: relative; }
     .preview-pdf { flex: 1; width: 100%; height: 100%; border: none; background: white; }
+    .pdf-loading {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 24px;
+      text-align: center;
+      color: #222;
+      background: rgba(255, 255, 255, 0.92);
+    }
+    .pdf-fallback {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      padding: 24px;
+      text-align: center;
+      color: #222;
+      background: white;
+    }
 
     /* ── Text / JSON / Markdown ──────────────────────────────────────────── */
 
@@ -572,8 +608,9 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
   svgContent:       string | null        = null;
   mediaSrc:         string | null        = null;
   mediaMime:        string | null        = null;
-  /** Blob URL for binary content — no SafeResourceUrl needed with streaming */
+  /** Stream URL for embedded PDF rendering. */
   pdfSrc:           SafeResourceUrl | null = null;
+  pdfLoading        = false;
   textContent:      string | null        = null;
   highlightedJson:  string | null        = null;
   renderedMarkdown: string | null        = null;
@@ -584,6 +621,7 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
   showCheckerboard = false;
   wordWrap = false;
   private mediaProbeTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastAutoplayKey: string | null = null;
 
 
 
@@ -722,14 +760,37 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
     this.armMediaProbe(kind, event.target as HTMLMediaElement | null);
   }
 
+  onMediaCanPlay(kind: 'video' | 'audio', event: Event): void {
+    this.attemptMediaAutoplay(kind, event.target as HTMLMediaElement | null);
+  }
+
   onVideoLoadedData(event: Event): void {
     this.clearMediaProbe();
     const video = event.target as HTMLVideoElement | null;
+    this.attemptMediaAutoplay('video', video);
     if (video && video.videoWidth === 0 && video.videoHeight === 0) {
       this.error = `video loaded but no decodable video track (${this.mediaMime ?? 'unknown mime'})`;
       this.kind = 'error';
     }
     this.cdr.markForCheck();
+  }
+
+  onPdfLoad(): void {
+    this.pdfLoading = false;
+    this.cdr.markForCheck();
+  }
+
+  async openCurrentFileExternally(): Promise<void> {
+    if (this.archiveContext || !this.targetPath) {
+      return;
+    }
+    try {
+      await this.api.openFile(this.targetPath);
+    } catch (err) {
+      this.error = err instanceof Error ? err.message : 'Failed to open file externally';
+      this.kind = 'error';
+      this.cdr.markForCheck();
+    }
   }
 
   baseName(path: string): string {
@@ -867,6 +928,7 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
         try {
           const pdfUrl = await readers.streamBinary('application/pdf');
           this.pdfSrc = this.sanitizer.bypassSecurityTrustResourceUrl(pdfUrl);
+          this.pdfLoading = true;
           this.kind = 'pdf';
           return;
         } catch { this.kind = 'error'; this.error = 'Failed to stream PDF'; return; }
@@ -923,6 +985,7 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
     this.mediaSrc        = null;
     this.mediaMime       = null;
     this.pdfSrc          = null;
+    this.pdfLoading      = false;
     this.textContent     = null;
     this.highlightedJson = null;
     this.renderedMarkdown = null;
@@ -930,6 +993,26 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
     this.lineCount       = null;
     this.zoomLevel       = 0;
     this.showCheckerboard = false;
+    this.lastAutoplayKey = null;
+  }
+
+  private attemptMediaAutoplay(kind: 'video' | 'audio', media: HTMLMediaElement | null): void {
+    if (!media || !this.mediaSrc || this.kind !== kind) {
+      return;
+    }
+
+    const sourceKey = `${kind}:${media.currentSrc || this.mediaSrc}`;
+    if (this.lastAutoplayKey === sourceKey) {
+      return;
+    }
+    this.lastAutoplayKey = sourceKey;
+
+    const playPromise = media.play();
+    if (playPromise && typeof playPromise.catch === 'function') {
+      playPromise.catch(() => {
+        // Best-effort autoplay only. Embedded runtimes may still enforce policies.
+      });
+    }
   }
 
   private armMediaProbe(kind: 'video' | 'audio', media: HTMLMediaElement | null): void {

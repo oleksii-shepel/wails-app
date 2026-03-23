@@ -54,8 +54,8 @@ export class MediaPlaybackController {
   private PREFETCH_DURATION_MS = 2000; // Keep 2 seconds buffered
   private PACKET_BATCH_SIZE = 50;
 
-  private playbackTimer: any = null;
-  private lastFrameTimestampUs = 0;
+  private rafHandle: number | null = null;
+  private rafLastTime: number | null = null;
 
   constructor(
     private protocol: MediaSessionProtocol,
@@ -169,6 +169,9 @@ export class MediaPlaybackController {
       this.updatePlaybackState({ isBuffering: true, currentTimeMs: timeMs });
       this.stopPlaybackTimer();
 
+      // Flush decoder and clear frame queue; decoder will wait for next keyframe
+      await this.decoder.resetForSeek();
+
       // For each active track, seek and rebuffer
       if (this.videoTrackId !== null) {
         const seekResult = await this.protocol.seek(this.sessionId!, this.videoTrackId, timeMs);
@@ -187,8 +190,6 @@ export class MediaPlaybackController {
           buffer.clear();
         }
       }
-
-      this.lastFrameTimestampUs = timeMs * 1000;
 
       // Resume playback if it was playing before seek
       if (state.isPlaying) {
@@ -258,38 +259,44 @@ export class MediaPlaybackController {
   // ============ PRIVATE IMPLEMENTATION ============
 
   private startPlaybackTimer(): void {
-    if (this.playbackTimer) {
-      return;
-    }
+    if (this.rafHandle !== null) return;
 
-    const startTime = performance.now();
-    const playbackStartMs = this.playbackState$.value.currentTimeMs;
-
-    this.playbackTimer = setInterval(() => {
+    const tick = (now: number) => {
       const state = this.playbackState$.value;
-
       if (!state.isPlaying) {
+        this.rafHandle = null;
         return;
       }
 
-      const elapsed = performance.now() - startTime;
-      const newTimeMs = playbackStartMs + elapsed;
+      const delta = this.rafLastTime !== null ? now - this.rafLastTime : 0;
+      this.rafLastTime = now;
+
+      const newTimeMs = Math.min(state.currentTimeMs + delta, state.durationMs);
+
+      // Render the video frame whose timestamp is due at current playback time
+      this.decoder.renderFrameAtTime(newTimeMs * 1000);
 
       if (newTimeMs >= state.durationMs) {
-        // Playback finished
         this.pause();
         this.updatePlaybackState({ currentTimeMs: state.durationMs });
-      } else {
-        this.updatePlaybackState({ currentTimeMs: newTimeMs });
+        this.rafHandle = null;
+        return;
       }
-    }, 30); // Update every 30ms (≈33 FPS)
+
+      this.updatePlaybackState({ currentTimeMs: newTimeMs });
+      this.rafHandle = requestAnimationFrame(tick);
+    };
+
+    this.rafLastTime = null;
+    this.rafHandle = requestAnimationFrame(tick);
   }
 
   private stopPlaybackTimer(): void {
-    if (this.playbackTimer) {
-      clearInterval(this.playbackTimer);
-      this.playbackTimer = null;
+    if (this.rafHandle !== null) {
+      cancelAnimationFrame(this.rafHandle);
+      this.rafHandle = null;
     }
+    this.rafLastTime = null;
   }
 
   private prefetchTimer: any = null;
@@ -423,7 +430,7 @@ class PacketBuffer {
       return 0;
     }
 
-    const totalDurationUs = this.packets.reduce((sum, p) => sum + (p.durationUs || 0), 0);
+    const totalDurationUs = this.packets.reduce((sum, p) => sum + (p.duration_us || 0), 0);
     return totalDurationUs / 1000;
   }
 

@@ -56,6 +56,14 @@ export class WebCodecsDecoderService {
   private isVideoReady = false;
   private isAudioReady = false;
 
+  // After flush() or configure() the decoder MUST receive a keyframe first.
+  // Set to true on init and after every seek-flush so delta frames are dropped.
+  private awaitingKeyframe = true;
+
+  // Decoded frames queued for timestamp-paced rendering
+  private videoFrameQueue: VideoFrame[] = [];
+  private readonly MAX_VIDEO_QUEUE_FRAMES = 120; // ~4s at 30fps
+
   private pendingVideoFrames: DecodedVideoFrameInfo[] = [];
   private pendingAudioData: DecodedAudioDataInfo[] = [];
 
@@ -100,6 +108,7 @@ export class WebCodecsDecoderService {
 
       this.videoDecoder.configure(videoConfig);
       this.isVideoReady = true;
+      this.awaitingKeyframe = true;
     } catch (error) {
       throw new Error(`Video decoder initialization failed: ${error}`);
     }
@@ -152,6 +161,12 @@ export class WebCodecsDecoderService {
       throw new Error('Video decoder not initialized');
     }
 
+    // Must not feed delta frames before the first keyframe after configure/flush
+    if (this.awaitingKeyframe) {
+      if (!isKeyframe) return; // silently drop until keyframe arrives
+      this.awaitingKeyframe = false;
+    }
+
     const chunk = new EncodedVideoChunk({
       type: isKeyframe ? 'key' : 'delta',
       timestamp: timestamp,
@@ -194,6 +209,22 @@ export class WebCodecsDecoderService {
   }
 
   /**
+   * Flush the decoder pipeline after a seek without destroying it.
+   * Sets awaitingKeyframe so delta frames are dropped until the first keyframe.
+   */
+  async resetForSeek(): Promise<void> {
+    this.clearVideoQueue();
+    if (this.videoDecoder && this.isVideoReady) {
+      try {
+        await this.videoDecoder.flush();
+      } catch {
+        // flush can reject if decoder is in an error state; safe to ignore
+      }
+      this.awaitingKeyframe = true;
+    }
+  }
+
+  /**
    * Flush and close video decoder
    */
   async closeVideoDecoder(): Promise<void> {
@@ -207,6 +238,7 @@ export class WebCodecsDecoderService {
       this.videoDecoder = null;
       this.isVideoReady = false;
     }
+    this.clearVideoQueue();
   }
 
   /**
@@ -243,19 +275,27 @@ export class WebCodecsDecoderService {
   }
 
   /**
-   * Handle decoded video frame (render to canvas)
+   * Render the video frame whose timestamp is closest to timeUs.
+   * Called from the requestAnimationFrame render loop.
    */
-  private handleDecodedVideoFrame(frame: VideoFrame): void {
-    if (!this.videoCtx) {
-      console.warn('Canvas context not available');
-      frame.close();
-      return;
+  renderFrameAtTime(timeUs: number): void {
+    if (!this.videoCtx || this.videoFrameQueue.length === 0) return;
+
+    // Find the last frame with timestamp <= timeUs
+    let renderIdx = -1;
+    for (let i = 0; i < this.videoFrameQueue.length; i++) {
+      if (this.videoFrameQueue[i].timestamp <= timeUs) {
+        renderIdx = i;
+      } else {
+        break;
+      }
     }
 
-    try {
-      // Draw frame to canvas
-      this.videoCtx.drawImage(frame as any, 0, 0);
+    if (renderIdx < 0) return; // No frame is due yet
 
+    const frame = this.videoFrameQueue[renderIdx];
+    try {
+      this.videoCtx.drawImage(frame as any, 0, 0);
       this.pendingVideoFrames.push({
         timestamp: frame.timestamp,
         codedWidth: frame.codedWidth,
@@ -264,9 +304,35 @@ export class WebCodecsDecoderService {
       });
     } catch (error) {
       console.error(`Error rendering frame: ${error}`);
-    } finally {
-      // Always close the frame to free resources
+    }
+
+    // Close and discard all frames up to and including the rendered one
+    for (let i = 0; i <= renderIdx; i++) {
+      this.videoFrameQueue[i].close();
+    }
+    this.videoFrameQueue.splice(0, renderIdx + 1);
+  }
+
+  /**
+   * Discard all queued frames (called on seek or close).
+   */
+  clearVideoQueue(): void {
+    for (const frame of this.videoFrameQueue) {
       frame.close();
+    }
+    this.videoFrameQueue = [];
+  }
+
+  /**
+   * Handle decoded video frame — queue it for timestamp-paced rendering.
+   */
+  private handleDecodedVideoFrame(frame: VideoFrame): void {
+    this.videoFrameQueue.push(frame);
+
+    // Drop oldest frame if the queue grows too large
+    if (this.videoFrameQueue.length > this.MAX_VIDEO_QUEUE_FRAMES) {
+      const dropped = this.videoFrameQueue.shift();
+      dropped?.close();
     }
   }
 

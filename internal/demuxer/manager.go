@@ -179,10 +179,10 @@ func (m *FFmpegSessionManager) ReadPackets(sessionID string, trackID int, cursor
 		return nil, fmt.Errorf("track %d not found in session", trackID)
 	}
 
-	// Start cursor position (0 if not specified)
-	startPos := 0
-	if cursor != "" {
-		fmt.Sscanf(cursor, "%d", &startPos)
+	// Pass the opaque cursor directly to the extract functions.
+	// Cursor format: "seekMs:nalOffset" or legacy "nalOffset".
+	if cursor == "" {
+		cursor = "0"
 	}
 
 	// Extract packets based on track type
@@ -192,9 +192,9 @@ func (m *FFmpegSessionManager) ReadPackets(sessionID string, trackID int, cursor
 	var err error
 
 	if track.Kind == "video" {
-		packets, payload, nextCursor, err = m.extractVideoPackets(sess.path, trackID, startPos, limit)
+		packets, payload, nextCursor, err = m.extractVideoPackets(sess.path, trackID, cursor, limit)
 	} else if track.Kind == "audio" {
-		packets, payload, nextCursor, err = m.extractAudioPackets(sess.path, trackID, startPos, limit)
+		packets, payload, nextCursor, err = m.extractAudioPackets(sess.path, trackID, cursor, limit)
 	} else {
 		return nil, fmt.Errorf("unsupported track kind: %s", track.Kind)
 	}
@@ -338,149 +338,262 @@ func decodeB64(s string) ([]byte, error) {
 	return base64.StdEncoding.DecodeString(s)
 }
 
-// extractVideoPackets extracts H.264/HEVC packets from a video file
-func (m *FFmpegSessionManager) extractVideoPackets(filePath string, trackID int, startPos int, limit int) ([]PacketMeta, []byte, string, error) {
-	// Use ffmpeg to output raw H.264/HEVC bitstream
-	// Convert MP4 to Annex B format (NAL units with start codes)
-	cmd := exec.Command("ffmpeg",
+// extractVideoPackets extracts H.264/HEVC packets from a video file.
+// cursor format: "seekMs:nalOffset" or legacy "nalOffset" (seekMs=0 means start of file).
+func (m *FFmpegSessionManager) extractVideoPackets(filePath string, trackID int, cursor string, limit int) ([]PacketMeta, []byte, string, error) {
+	// Parse cursor
+	var seekMs int64
+	var startPos int
+	if n, _ := fmt.Sscanf(cursor, "%d:%d", &seekMs, &startPos); n < 2 {
+		seekMs = 0
+		fmt.Sscanf(cursor, "%d", &startPos)
+	}
+
+	// Build ffmpeg args; place -ss before -i for fast keyframe-aligned seek
+	var args []string
+	if seekMs > 0 {
+		args = append(args, "-ss", fmt.Sprintf("%.3f", float64(seekMs)/1000.0))
+	}
+	args = append(args,
 		"-i", filePath,
 		"-map", fmt.Sprintf("0:%d", trackID),
 		"-c:v", "copy",
-		"-bsf:v", "h264_mp4toannexb", // Converts to Annex B; works for H.264
+		"-bsf:v", "h264_mp4toannexb",
 		"-f", "rawvideo",
 		"-",
 	)
+	cmd := exec.Command("ffmpeg", args...)
 
 	output, err := cmd.Output()
 	if err != nil {
-		// Fallback for non-H.264 codecs (HEVC, etc.)
-		// Return empty batch for now; would need codec-specific handling
 		return nil, nil, "", fmt.Errorf("video packet extraction: %w", err)
 	}
 
 	// Parse NAL units from bitstream
 	packets, payload := parseNALUnits(output, startPos, limit)
+
+	// Remap cursors to include the seek time so subsequent ReadPackets calls
+	// continue from the correct ffmpeg seek context.
+	for i := range packets {
+		var nalIdx int
+		fmt.Sscanf(packets[i].Cursor, "%d", &nalIdx)
+		packets[i].Cursor = fmt.Sprintf("%d:%d", seekMs, nalIdx)
+	}
 	nextCursor := ""
 	if len(packets) > 0 && startPos+len(packets) < countNALUnits(output) {
-		nextCursor = fmt.Sprintf("%d", startPos+len(packets))
+		nextCursor = fmt.Sprintf("%d:%d", seekMs, startPos+len(packets))
 	}
 
 	return packets, payload, nextCursor, nil
 }
 
-// extractAudioPackets extracts ADTS audio packets from an audio track
-func (m *FFmpegSessionManager) extractAudioPackets(filePath string, trackID int, startPos int, limit int) ([]PacketMeta, []byte, string, error) {
-	// Use ffmpeg to output raw ADTS audio
-	cmd := exec.Command("ffmpeg",
+// extractAudioPackets extracts ADTS audio packets from an audio track.
+// cursor format: "seekMs:frameOffset" or legacy "frameOffset".
+func (m *FFmpegSessionManager) extractAudioPackets(filePath string, trackID int, cursor string, limit int) ([]PacketMeta, []byte, string, error) {
+	// Parse cursor
+	var seekMs int64
+	var startPos int
+	if n, _ := fmt.Sscanf(cursor, "%d:%d", &seekMs, &startPos); n < 2 {
+		seekMs = 0
+		fmt.Sscanf(cursor, "%d", &startPos)
+	}
+
+	// Build ffmpeg args
+	var args []string
+	if seekMs > 0 {
+		args = append(args, "-ss", fmt.Sprintf("%.3f", float64(seekMs)/1000.0))
+	}
+	args = append(args,
 		"-i", filePath,
 		"-map", fmt.Sprintf("0:%d", trackID),
 		"-c:a", "copy",
 		"-f", "adts",
 		"-",
 	)
+	cmd := exec.Command("ffmpeg", args...)
 
 	output, err := cmd.Output()
 	if err != nil {
-		// Fallback for non-AAC codecs
 		return nil, nil, "", fmt.Errorf("audio packet extraction: %w", err)
 	}
 
-	// Parse ADTS frames
 	packets, payload := parseADTSFrames(output, startPos, limit)
+
+	// Remap cursors to include the seek time
+	for i := range packets {
+		var frameIdx int
+		fmt.Sscanf(packets[i].Cursor, "%d", &frameIdx)
+		packets[i].Cursor = fmt.Sprintf("%d:%d", seekMs, frameIdx)
+	}
 	nextCursor := ""
 	if len(packets) > 0 && startPos+len(packets) < countADTSFrames(output) {
-		nextCursor = fmt.Sprintf("%d", startPos+len(packets))
+		nextCursor = fmt.Sprintf("%d:%d", seekMs, startPos+len(packets))
 	}
 
 	return packets, payload, nextCursor, nil
 }
 
-// parseNALUnits parses H.264 NAL units from Annex B bitstream
-func parseNALUnits(data []byte, startPos int, limit int) ([]PacketMeta, []byte) {
-	var packets []PacketMeta
-	var payload []byte
-	packetCount := 0
-	offset := 0
+type h264NALUnit struct {
+	start  int
+	end    int
+	typeID byte
+}
 
-	// Find start codes and group NAL units
-	i := 0
-	nalStart := -1
-	count := 0
-
-	for i < len(data) {
-		// Look for 0x00 0x00 0x00 0x01 or 0x00 0x00 0x01 start code
-		isStartCode := false
+func findH264NALUnits(data []byte) []h264NALUnit {
+	var units []h264NALUnit
+	for i := 0; i < len(data); {
 		codeLen := 0
-
-		if i+4 <= len(data) && data[i] == 0x00 && data[i+1] == 0x00 && data[i+2] == 0x00 && data[i+3] == 0x01 {
-			isStartCode = true
+		switch {
+		case i+4 <= len(data) && data[i] == 0x00 && data[i+1] == 0x00 && data[i+2] == 0x00 && data[i+3] == 0x01:
 			codeLen = 4
-		} else if i+3 <= len(data) && data[i] == 0x00 && data[i+1] == 0x00 && data[i+2] == 0x01 {
-			isStartCode = true
+		case i+3 <= len(data) && data[i] == 0x00 && data[i+1] == 0x00 && data[i+2] == 0x01:
 			codeLen = 3
+		default:
+			i++
+			continue
 		}
 
-		if isStartCode {
-			// Found a start code
-			if nalStart >= 0 && count >= startPos {
-				// Save previous NAL unit
-				nalEnd := i
-				nalData := data[nalStart+codeLen : nalEnd]
+		nalStart := i
+		headerIndex := i + codeLen
+		if headerIndex >= len(data) {
+			break
+		}
 
-				// Determine if keyframe (I-slice NAL type)
-				var nalType byte
-				if nalStart+codeLen < len(data) {
-					nalType = data[nalStart+codeLen] & 0x1F
-				}
-				isKeyframe := nalType == 5 || nalType == 7 || nalType == 8 // IDR (5), SPS (7), PPS (8)
-
-				packet := PacketMeta{
-					Cursor:      fmt.Sprintf("%d", count),
-					Offset:      offset,
-					Size:        len(nalData),
-					IsKeyframe:  isKeyframe,
-					TimestampUs: 0, // Placeholder; would need temporal info
-					DurationUs:  0,
-				}
-				packets = append(packets, packet)
-				payload = append(payload, nalData...)
-				offset += len(nalData)
-				packetCount++
-
-				if packetCount >= limit {
-					break
-				}
+		i = headerIndex
+		nalEnd := len(data)
+		for j := i; j < len(data); j++ {
+			if j+4 <= len(data) && data[j] == 0x00 && data[j+1] == 0x00 && data[j+2] == 0x00 && data[j+3] == 0x01 {
+				nalEnd = j
+				break
 			}
+			if j+3 <= len(data) && data[j] == 0x00 && data[j+1] == 0x00 && data[j+2] == 0x01 {
+				nalEnd = j
+				break
+			}
+		}
 
-			nalStart = i
+		units = append(units, h264NALUnit{
+			start:  nalStart,
+			end:    nalEnd,
+			typeID: data[headerIndex] & 0x1F,
+		})
+		i = nalEnd
+	}
+
+	return units
+}
+
+func isH264VCLNAL(typeID byte) bool {
+	return typeID == 1 || typeID == 5
+}
+
+func countH264AccessUnits(data []byte) int {
+	units := findH264NALUnits(data)
+	if len(units) == 0 {
+		return 0
+	}
+
+	count := 0
+	hasCurrent := false
+	currentHasVCL := false
+
+	flushCurrent := func() {
+		if hasCurrent {
 			count++
-			i += codeLen
-		} else {
-			i++
+			hasCurrent = false
+			currentHasVCL = false
 		}
 	}
 
-	// Handle last NAL unit
-	if nalStart >= 0 && count >= startPos && packetCount < limit {
-		codeLen := 3 // Assume 3-byte or 4-byte start code
-		nalData := data[nalStart+codeLen:]
-
-		var nalType byte
-		if nalStart+codeLen < len(data) {
-			nalType = data[nalStart+codeLen] & 0x1F
+	for _, unit := range units {
+		if hasCurrent {
+			if unit.typeID == 9 || (currentHasVCL && isH264VCLNAL(unit.typeID)) {
+				flushCurrent()
+			}
 		}
-		isKeyframe := nalType == 5 || nalType == 7 || nalType == 8
 
-		packet := PacketMeta{
-			Cursor:      fmt.Sprintf("%d", count),
-			Offset:      offset,
-			Size:        len(nalData),
-			IsKeyframe:  isKeyframe,
-			TimestampUs: 0,
-			DurationUs:  0,
+		hasCurrent = true
+		if isH264VCLNAL(unit.typeID) {
+			currentHasVCL = true
 		}
-		packets = append(packets, packet)
-		payload = append(payload, nalData...)
+	}
+
+	flushCurrent()
+	return count
+}
+
+// parseNALUnits parses H.264 Annex B into access units suitable for WebCodecs.
+func parseNALUnits(data []byte, startPos int, limit int) ([]PacketMeta, []byte) {
+	units := findH264NALUnits(data)
+	if len(units) == 0 || limit <= 0 {
+		return nil, nil
+	}
+
+	var packets []PacketMeta
+	var payload []byte
+	offset := 0
+	accessUnitCount := 0
+	packetCount := 0
+
+	currentStart := -1
+	currentEnd := -1
+	currentHasVCL := false
+	currentIsKeyframe := false
+
+	flushCurrent := func() bool {
+		if currentStart < 0 || currentEnd <= currentStart {
+			return false
+		}
+		if accessUnitCount >= startPos {
+			unitData := data[currentStart:currentEnd]
+			packets = append(packets, PacketMeta{
+				Cursor:      fmt.Sprintf("%d", accessUnitCount),
+				Offset:      offset,
+				Size:        len(unitData),
+				IsKeyframe:  currentIsKeyframe,
+				TimestampUs: 0,
+				DurationUs:  0,
+			})
+			payload = append(payload, unitData...)
+			offset += len(unitData)
+			packetCount++
+		}
+		accessUnitCount++
+		currentStart = -1
+		currentEnd = -1
+		currentHasVCL = false
+		currentIsKeyframe = false
+		return packetCount >= limit
+	}
+
+	for _, unit := range units {
+		startNewUnit := false
+		if currentStart >= 0 {
+			if unit.typeID == 9 {
+				startNewUnit = true
+			} else if currentHasVCL && isH264VCLNAL(unit.typeID) {
+				startNewUnit = true
+			}
+		}
+
+		if startNewUnit && flushCurrent() {
+			break
+		}
+
+		if currentStart < 0 {
+			currentStart = unit.start
+		}
+		currentEnd = unit.end
+		if isH264VCLNAL(unit.typeID) {
+			currentHasVCL = true
+			if unit.typeID == 5 {
+				currentIsKeyframe = true
+			}
+		}
+	}
+
+	if packetCount < limit {
+		flushCurrent()
 	}
 
 	return packets, payload
@@ -534,21 +647,9 @@ func parseADTSFrames(data []byte, startPos int, limit int) ([]PacketMeta, []byte
 	return packets, payload
 }
 
-// countNALUnits counts total NAL units in Annex B bitstream (for cursor validation)
+// countNALUnits counts total H.264 access units in Annex B bitstream (for cursor validation).
 func countNALUnits(data []byte) int {
-	count := 0
-	for i := 0; i < len(data); {
-		if i+4 <= len(data) && data[i] == 0x00 && data[i+1] == 0x00 && data[i+2] == 0x00 && data[i+3] == 0x01 {
-			count++
-			i += 4
-		} else if i+3 <= len(data) && data[i] == 0x00 && data[i+1] == 0x00 && data[i+2] == 0x01 {
-			count++
-			i += 3
-		} else {
-			i++
-		}
-	}
-	return count
+	return countH264AccessUnits(data)
 }
 
 // countADTSFrames counts total ADTS frames (for cursor validation)
@@ -565,59 +666,33 @@ func countADTSFrames(data []byte) int {
 	return count
 }
 
-// seekVideoPackets seeks to a time position and extracts video packets
+// seekVideoPackets seeks to a time position by delegating to extractVideoPackets
+// with a seek-encoded cursor, and returns the first actual IDR packet cursor.
 func (m *FFmpegSessionManager) seekVideoPackets(filePath string, trackID int, timeMs int64) ([]PacketMeta, []byte, int64, error) {
-	// Convert milliseconds to seconds for ffmpeg -ss parameter
-	seekSeconds := float64(timeMs) / 1000.0
-
-	// Use ffmpeg to seek and output bitstream
-	cmd := exec.Command("ffmpeg",
-		"-ss", fmt.Sprintf("%.3f", seekSeconds),
-		"-i", filePath,
-		"-map", fmt.Sprintf("0:%d", trackID),
-		"-c:v", "copy",
-		"-bsf:v", "h264_mp4toannexb",
-		"-f", "rawvideo",
-		"-",
-	)
-
-	output, err := cmd.Output()
+	cursor := fmt.Sprintf("%d:0", timeMs)
+	packets, payload, _, err := m.extractVideoPackets(filePath, trackID, cursor, 128)
 	if err != nil {
-		return nil, nil, timeMs, fmt.Errorf("ffmpeg seek failed: %w", err)
+		return nil, nil, timeMs, err
 	}
 
-	// Parse NAL units starting from position 0
-	packets, payload := parseNALUnits(output, 0, 100) // Extract up to 100 packets after seek
-	resolvedTimeMs := timeMs                          // Assumed time (would need frame timestamp from ffmpeg)
+	for _, packet := range packets {
+		if packet.IsKeyframe {
+			return []PacketMeta{packet}, payload, timeMs, nil
+		}
+	}
 
-	return packets, payload, resolvedTimeMs, nil
+	if len(packets) > 0 {
+		return []PacketMeta{packets[0]}, payload, timeMs, nil
+	}
+
+	return nil, payload, timeMs, nil
 }
 
-// seekAudioPackets seeks to a time position and extracts audio packets
+// seekAudioPackets seeks to a time position by delegating to extractAudioPackets.
 func (m *FFmpegSessionManager) seekAudioPackets(filePath string, trackID int, timeMs int64) ([]PacketMeta, []byte, int64, error) {
-	// Convert milliseconds to seconds for ffmpeg -ss parameter
-	seekSeconds := float64(timeMs) / 1000.0
-
-	// Use ffmpeg to seek and output ADTS audio
-	cmd := exec.Command("ffmpeg",
-		"-ss", fmt.Sprintf("%.3f", seekSeconds),
-		"-i", filePath,
-		"-map", fmt.Sprintf("0:%d", trackID),
-		"-c:a", "copy",
-		"-f", "adts",
-		"-",
-	)
-
-	output, err := cmd.Output()
-	if err != nil {
-		return nil, nil, timeMs, fmt.Errorf("ffmpeg audio seek failed: %w", err)
-	}
-
-	// Parse ADTS frames starting from position 0
-	packets, payload := parseADTSFrames(output, 0, 100) // Extract up to 100 frames after seek
-	resolvedTimeMs := timeMs                            // Assumed time (would need frame timestamp from ffmpeg)
-
-	return packets, payload, resolvedTimeMs, nil
+	cursor := fmt.Sprintf("%d:0", timeMs)
+	packets, payload, _, err := m.extractAudioPackets(filePath, trackID, cursor, 1)
+	return packets, payload, timeMs, err
 }
 
 // Helper: convert codec name from ffprobe to WebCodecs codec string

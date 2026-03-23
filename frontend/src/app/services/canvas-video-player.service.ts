@@ -1208,6 +1208,11 @@ export class CanvasVideoPlayer {
     this.decoder = new VideoDecoder({
       output: (frame) => this.onDecodedFrame(frame),
       error: (error) => {
+        if (this.isExpectedKeyFrameRecoveryError(error)) {
+          this.awaitingKeyFrame = true;
+          return;
+        }
+
         console.error('[WebCodecs] VideoDecoder error:', error);
         const message = error instanceof Error ? error.message : String(error);
         this.error$.next(`Video decode error: ${message}`);
@@ -1395,6 +1400,11 @@ export class CanvasVideoPlayer {
             this.awaitingKeyFrame = false;
           }
         } catch (error) {
+          if (this.isExpectedKeyFrameRecoveryError(error)) {
+            this.awaitingKeyFrame = true;
+            continue;
+          }
+
           const message = error instanceof Error ? error.message : String(error);
           this.error$.next(`Failed to decode packet ${packet.index}: ${message}`);
           break;
@@ -1498,6 +1508,14 @@ export class CanvasVideoPlayer {
     }
 
     return null;
+  }
+
+  private isExpectedKeyFrameRecoveryError(error: unknown): boolean {
+    if (!(error instanceof DOMException)) {
+      return false;
+    }
+
+    return error.message.includes('A key frame is required after configure() or flush().');
   }
 
   private drawForTime(currentTimeMs: number): void {

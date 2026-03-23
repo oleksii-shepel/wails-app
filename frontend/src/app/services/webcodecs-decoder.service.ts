@@ -163,7 +163,7 @@ export class WebCodecsDecoderService {
 
     // Must not feed delta frames before the first keyframe after configure/flush
     if (this.awaitingKeyframe) {
-      if (!isKeyframe) return; // silently drop until keyframe arrives
+      if (!isKeyframe) return;
       this.awaitingKeyframe = false;
     }
 
@@ -177,7 +177,9 @@ export class WebCodecsDecoderService {
     try {
       this.videoDecoder.decode(chunk);
     } catch (error) {
-      console.error(`Failed to decode video chunk: ${error}`);
+      if (!this.isExpectedKeyframeRecoveryError(error)) {
+        console.error(`Failed to decode video chunk: ${error}`);
+      }
       // Will trigger error handler with recovery via keyframe
     }
   }
@@ -213,6 +215,10 @@ export class WebCodecsDecoderService {
    * Sets awaitingKeyframe so delta frames are dropped until the first keyframe.
    */
   async resetForSeek(): Promise<void> {
+    // Set the flag BEFORE flush so any concurrent feedVideoChunk calls
+    // immediately drop delta frames — avoids the race where packets are
+    // queued into the decoder after flush() is invoked but before it resolves.
+    this.awaitingKeyframe = true;
     this.clearVideoQueue();
     if (this.videoDecoder && this.isVideoReady) {
       try {
@@ -220,7 +226,6 @@ export class WebCodecsDecoderService {
       } catch {
         // flush can reject if decoder is in an error state; safe to ignore
       }
-      this.awaitingKeyframe = true;
     }
   }
 
@@ -358,9 +363,21 @@ export class WebCodecsDecoderService {
    * Handle video decoder errors (request keyframe for recovery)
    */
   private handleVideoDecoderError(error: DOMException): void {
+    if (this.isExpectedKeyframeRecoveryError(error)) {
+      return;
+    }
+
     console.error(`Video decoder error: ${error.message}`);
     // Signal to playback controller: need to seek to nearest keyframe
     // This is typically handled at a higher level via seek() operation
+  }
+
+  private isExpectedKeyframeRecoveryError(error: unknown): boolean {
+    if (!(error instanceof DOMException)) {
+      return false;
+    }
+
+    return error.message.includes('A key frame is required after configure() or flush().');
   }
 
   /**

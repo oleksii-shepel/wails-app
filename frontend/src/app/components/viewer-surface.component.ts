@@ -1,11 +1,14 @@
 import { CommonModule } from '@angular/common';
 import {
-  Component, Input, OnChanges, OnDestroy,
+  Component, Input, OnChanges, OnDestroy, ViewChild, ElementRef, Inject,
   ChangeDetectionStrategy, ChangeDetectorRef,
 } from '@angular/core';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { ApiService } from '../services/api.service';
 import { FileInfo, FileType } from '../shared/protocol';
+import { CanvasVideoPlayer, CanvasVideoPlayerService, VideoMetadata } from '../services/canvas-video-player.service';
+import { Subject } from 'rxjs';
+import { takeUntil } from 'rxjs/operators';
 
 type ViewerKind =
   | 'image' | 'video' | 'audio' | 'pdf' | 'svg'
@@ -125,16 +128,112 @@ export interface ViewerArchiveContext {
                [innerHTML]="svgContent"></div>
         </div>
 
-        <!-- Video -->
-        <div *ngIf="kind === 'video'" class="media-host">
-          <video class="preview-video" controls preload="auto" playsinline autoplay
-                 [src]="mediaSrc!"
-                 (loadedmetadata)="onMediaMetadata('video', $event)"
-                 (canplay)="onMediaCanPlay('video', $event)"
-                 (loadeddata)="onVideoLoadedData($event)"
-                 (error)="onMediaError('video', $event)">
-            Your browser does not support video.
-          </video>
+        <!-- Canvas Video Player -->
+        <div *ngIf="kind === 'video'" class="video-player-wrapper">
+          <div class="canvas-video-container" 
+               #videoContainer
+               (mousemove)="onVideoMouseMove()"
+               (mouseleave)="onVideoMouseLeave()"
+               [class.playing]="videoIsPlaying"
+               [class.show-controls]="videoShowControls">
+            
+            <!-- Loading indicator -->
+            <div class="video-loading" *ngIf="videoLoading">
+              <div class="spinner"></div>
+              <div class="loading-text">Loading video...</div>
+            </div>
+            
+            <!-- Play overlay (shown when paused) -->
+            <div class="play-overlay" 
+                 *ngIf="!videoIsPlaying && !videoLoading && videoReady"
+                 (click)="videoPlayPause()"
+                 title="Click to play">
+              <div class="play-icon">▶</div>
+            </div>
+          </div>
+          
+          <!-- Video Controls (fade in/out on hover) -->
+          <div class="video-control-bar" [class.show]="videoShowControls || !videoIsPlaying">
+            <!-- Progress bar with hover preview -->
+            <div class="progress-section">
+              <div class="progress-container">
+                <input 
+                  type="range" 
+                  min="0" 
+                  [max]="videoDuration"
+                  [value]="videoCurrentTime"
+                  (input)="onVideoSeek($event)"
+                  class="seek-slider"
+                  [disabled]="!videoReady"
+                  title="Seek video">
+                <div class="progress-fill" [style.width.%]="(videoCurrentTime / videoDuration) * 100 || 0"></div>
+              </div>
+            </div>
+
+            <!-- Control buttons row -->
+            <div class="controls-row">
+              <!-- Play/Pause -->
+              <button 
+                class="control-btn play-pause-btn" 
+                (click)="videoPlayPause()"
+                [disabled]="!videoReady"
+                [title]="videoIsPlaying ? 'Pause (Space)' : 'Play (Space)'">
+                <span class="icon">{{ videoIsPlaying ? '⏸' : '▶' }}</span>
+              </button>
+
+              <!-- Time display -->
+              <div class="time-display">
+                <span class="current-time">{{ formatTime(videoCurrentTime) }}</span>
+                <span class="separator">/</span>
+                <span class="duration">{{ formatTime(videoDuration) }}</span>
+              </div>
+
+              <!-- Video info chip -->
+              <div class="video-info-chip">
+                <span class="codec-badge" [title]="'Video codec: ' + videoCodecInfo">
+                  {{ videoCodecInfo || '?' }}
+                </span>
+                <span class="resolution-badge" [title]="videoResolution" *ngIf="videoResolution">
+                  {{ videoResolution }}
+                </span>
+                <span class="framerate-badge" [title]="'Frame rate: ' + videoFrameRate + ' fps'" *ngIf="videoFrameRate">
+                  {{ videoFrameRate }}fps
+                </span>
+              </div>
+
+              <!-- Spacer -->
+              <div class="spacer"></div>
+
+              <!-- Volume control -->
+              <div class="volume-control" title="Volume">
+                <span class="volume-icon">🔊</span>
+                <input 
+                  type="range" 
+                  min="0" 
+                  max="100"
+                  value="100"
+                  class="volume-slider"
+                  disabled
+                  title="Volume (not yet implemented)">
+              </div>
+
+              <!-- Fullscreen button -->
+              <button 
+                class="control-btn fullscreen-btn" 
+                (click)="toggleFullscreen()"
+                [disabled]="!videoReady"
+                title="Fullscreen (F)">
+                <span class="icon">⛶</span>
+              </button>
+            </div>
+          </div>
+          
+          <!-- Error display -->
+          <div class="video-error-banner" *ngIf="videoError">
+            <span class="error-icon">⚠️</span>
+            <span class="error-message">{{ videoError }}</span>
+            <button class="close-btn" (click)="dismissVideoError()" title="Dismiss">✕</button>
+          </div>
         </div>
 
         <!-- Audio -->
@@ -445,7 +544,443 @@ export interface ViewerArchiveContext {
       box-sizing: border-box;
     }
 
-    .preview-video { max-width: 100%; max-height: 100%; border-radius: 4px; outline: none; }
+    /* ── Video (Canvas Player) ────────────────────────────────────────────── */
+
+    .video-player-wrapper {
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      height: 100%;
+      background: #000;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    }
+
+    .canvas-video-container {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 300px;
+      background: linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%);
+      position: relative;
+      overflow: hidden;
+      cursor: pointer;
+    }
+
+    .canvas-video-container:hover {
+      cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="white" stroke-width="1.5"/><polygon points="10,7 16,12 10,17" fill="white"/></svg>') 12 12, pointer;
+    }
+
+    .canvas-video-container.playing:hover {
+      cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="white" stroke-width="1.5"/><rect x="9" y="8" width="2" height="8" fill="white"/><rect x="13" y="8" width="2" height="8" fill="white"/></svg>') 12 12, pointer;
+    }
+
+    .canvas-video-container ::ng-deep canvas {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+    }
+
+    /* Loading indicator */
+    .video-loading {
+      position: absolute;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      z-index: 100;
+    }
+
+    .video-loading .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid rgba(255, 255, 255, 0.2);
+      border-top-color: var(--vsc-accent-blue, #0078d4);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    .loading-text {
+      color: #aaa;
+      font-size: 13px;
+      letter-spacing: 0.3px;
+    }
+
+    /* Play overlay */
+    .play-overlay {
+      position: absolute;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.3);
+      backdrop-filter: blur(2px);
+      cursor: pointer;
+      z-index: 50;
+      transition: background 0.2s ease;
+    }
+
+    .play-overlay:hover {
+      background: rgba(0, 0, 0, 0.5);
+    }
+
+    .play-icon {
+      width: 80px;
+      height: 80px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--vsc-accent-blue, #0078d4);
+      border-radius: 50%;
+      font-size: 32px;
+      color: white;
+      box-shadow: 0 8px 32px rgba(0, 120, 212, 0.4);
+      transition: all 0.2s ease;
+      font-weight: bold;
+    }
+
+    .play-overlay:hover .play-icon {
+      background: #1084d7;
+      transform: scale(1.1);
+      box-shadow: 0 12px 48px rgba(0, 120, 212, 0.6);
+    }
+
+    /* Control bar */
+    .video-control-bar {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 12px;
+      background: linear-gradient(to bottom, rgba(0,0,0,0.01), rgba(0,0,0,0.9));
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      backdrop-filter: blur(10px);
+      opacity: 0;
+      transition: opacity 0.3s ease;
+      pointer-events: none;
+    }
+
+    .video-control-bar.show {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .canvas-video-container:hover ~ .video-control-bar,
+    .video-control-bar:hover {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    /* Progress section */
+    .progress-section {
+      display: flex;
+      align-items: center;
+      height: 24px;
+      gap: 8px;
+    }
+
+    .progress-container {
+      flex: 1;
+      position: relative;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 2px;
+      cursor: pointer;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      position: absolute;
+      height: 100%;
+      background: linear-gradient(90deg, var(--vsc-accent-blue, #0078d4), #00a4ef);
+      border-radius: 2px;
+      pointer-events: none;
+      transition: width 0.05s linear;
+    }
+
+    .seek-slider {
+      position: absolute;
+      width: 100%;
+      height: 24px;
+      cursor: pointer;
+      appearance: none;
+      -webkit-appearance: none;
+      background: transparent;
+      outline: none;
+      margin: -10px 0;
+      z-index: 10;
+    }
+
+    .seek-slider::-webkit-slider-thumb {
+      appearance: none;
+      -webkit-appearance: none;
+      width: 12px;
+      height: 12px;
+      background: white;
+      border: none;
+      border-radius: 50%;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+      transition: all 0.1s ease;
+    }
+
+    .seek-slider::-webkit-slider-thumb:hover {
+      width: 16px;
+      height: 16px;
+      box-shadow: 0 4px 16px rgba(0, 120, 212, 0.8);
+    }
+
+    .seek-slider::-moz-range-thumb {
+      width: 12px;
+      height: 12px;
+      background: white;
+      border: none;
+      border-radius: 50%;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+      transition: all 0.1s ease;
+    }
+
+    .seek-slider::-moz-range-thumb:hover {
+      width: 16px;
+      height: 16px;
+      box-shadow: 0 4px 16px rgba(0, 120, 212, 0.8);
+    }
+
+    .seek-slider:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    /* Controls row */
+    .controls-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0 4px;
+    }
+
+    /* Control buttons */
+    .control-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 36px;
+      height: 36px;
+      padding: 0 8px;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: white;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+      transition: all 0.2s ease;
+      font-weight: 600;
+      backdrop-filter: blur(4px);
+    }
+
+    .control-btn:hover:not(:disabled) {
+      background: rgba(255, 255, 255, 0.2);
+      border-color: rgba(255, 255, 255, 0.3);
+      transform: scale(1.05);
+    }
+
+    .control-btn:active:not(:disabled) {
+      transform: scale(0.95);
+    }
+
+    .control-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .control-btn .icon {
+      display: inline-block;
+    }
+
+    .play-pause-btn {
+      min-width: 44px;
+      background: var(--vsc-accent-blue, #0078d4);
+      border: 1px solid rgba(0, 120, 212, 0.3);
+    }
+
+    .play-pause-btn:hover:not(:disabled) {
+      background: #1084d7;
+      box-shadow: 0 0 12px rgba(0, 120, 212, 0.5);
+    }
+
+    /* Time display */
+    .time-display {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 12px;
+      color: #ccc;
+      font-variant-numeric: tabular-nums;
+      font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+      padding: 4px 8px;
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 3px;
+      min-width: 90px;
+      justify-content: center;
+    }
+
+    .current-time {
+      color: white;
+      font-weight: 500;
+    }
+
+    .separator {
+      opacity: 0.5;
+    }
+
+    /* Video info chip */
+    .video-info-chip {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      background: rgba(0, 0, 0, 0.3);
+      border-radius: 12px;
+      font-size: 11px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .codec-badge, .resolution-badge, .framerate-badge {
+      display: inline-block;
+      padding: 2px 6px;
+      background: rgba(0, 120, 212, 0.2);
+      border: 0.5px solid rgba(0, 120, 212, 0.4);
+      border-radius: 3px;
+      color: #4da8ff;
+      font-weight: 500;
+      cursor: help;
+      white-space: nowrap;
+    }
+
+    .resolution-badge {
+      background: rgba(0, 150, 100, 0.2);
+      border-color: rgba(0, 150, 100, 0.4);
+      color: #4fcc9f;
+    }
+
+    .framerate-badge {
+      background: rgba(255, 100, 0, 0.2);
+      border-color: rgba(255, 100, 0, 0.4);
+      color: #ffb86c;
+    }
+
+    /* Spacer */
+    .spacer {
+      flex: 1;
+    }
+
+    /* Volume control */
+    .volume-control {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 4px;
+    }
+
+    .volume-icon {
+      display: inline-block;
+      font-size: 16px;
+    }
+
+    .volume-slider {
+      width: 80px;
+      height: 4px;
+      cursor: pointer;
+      appearance: none;
+      -webkit-appearance: none;
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 2px;
+      outline: none;
+    }
+
+    .volume-slider::-webkit-slider-thumb {
+      appearance: none;
+      -webkit-appearance: none;
+      width: 10px;
+      height: 10px;
+      background: white;
+      border-radius: 50%;
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+    }
+
+    .volume-slider::-moz-range-thumb {
+      width: 10px;
+      height: 10px;
+      background: white;
+      border: none;
+      border-radius: 50%;
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+    }
+
+    .volume-slider:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .fullscreen-btn {
+      min-width: 40px;
+    }
+
+    /* Error banner */
+    .video-error-banner {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px;
+      background: linear-gradient(135deg, rgba(255, 100, 100, 0.15) 0%, rgba(200, 50, 50, 0.1) 100%);
+      border-top: 1px solid rgba(255, 112, 112, 0.3);
+      backdrop-filter: blur(8px);
+      color: #ff8888;
+      font-size: 12px;
+      animation: slideDown 0.3s ease;
+    }
+
+    .error-icon {
+      display: inline-block;
+      font-size: 16px;
+      flex-shrink: 0;
+    }
+
+    .error-message {
+      flex: 1;
+      line-height: 1.4;
+    }
+
+    .close-btn {
+      background: none;
+      border: none;
+      color: #ff8888;
+      cursor: pointer;
+      font-size: 16px;
+      padding: 0 4px;
+      flex-shrink: 0;
+      transition: color 0.2s ease;
+    }
+
+    .close-btn:hover {
+      color: #ffaaaa;
+    }
+
+    @keyframes slideDown {
+      from {
+        transform: translateY(-100%);
+        opacity: 0;
+      }
+      to {
+        transform: translateY(0);
+        opacity: 1;
+      }
+    }
 
     /* ── Audio ───────────────────────────────────────────────────────────── */
 
@@ -597,8 +1132,25 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
    * component contract and must be accepted by Angular.
    */
   @Input() viewerId: string | null = null;
+  @ViewChild('videoContainer') videoContainerRef?: ElementRef<HTMLDivElement>;
 
   // ── State ────────────────────────────────────────────────────────────────
+
+  private destroy$ = new Subject<void>();
+  canvasPlayer: CanvasVideoPlayer | null = null;
+  
+  // Video player state
+  videoReady = false;
+  videoIsPlaying = false;
+  videoLoading = false;
+  videoShowControls = true;
+  videoCurrentTime = 0;
+  videoDuration = 0;
+  videoCodecInfo = '';
+  videoFrameRate = 0;
+  videoResolution = '';
+  videoError: string | null = null;
+  private videoControlsTimeout: ReturnType<typeof setTimeout> | null = null;
 
   info: FileInfo | null = null;
   kind: ViewerKind = 'empty';
@@ -687,6 +1239,7 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
     private api: ApiService,
     private cdr: ChangeDetectorRef,
     private sanitizer: DomSanitizer,
+    @Inject(CanvasVideoPlayerService) private videoPlayerService: CanvasVideoPlayerService,
   ) {}
 
   async ngOnChanges(): Promise<void> {
@@ -718,6 +1271,12 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
 
   ngOnDestroy(): void {
     this.clearMediaProbe();
+    if (this.canvasPlayer) {
+      this.canvasPlayer.destroy();
+      this.canvasPlayer = null;
+    }
+    this.destroy$.next();
+    this.destroy$.complete();
   }
 
   // ── Toolbar controls ──────────────────────────────────────────────────────
@@ -780,6 +1339,180 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
     this.cdr.markForCheck();
   }
 
+  // ── Canvas Video Player Controls ──────────────────────────────────────────
+
+  async videoPlayPause(): Promise<void> {
+    if (!this.canvasPlayer) return;
+
+    try {
+      if (this.videoIsPlaying) {
+        this.canvasPlayer.pause();
+      } else {
+        this.videoLoading = true;
+        this.cdr.markForCheck();
+        await this.canvasPlayer.play();
+        this.videoLoading = false;
+      }
+      this.cdr.markForCheck();
+    } catch (err: any) {
+      console.error('Playback control error:', err);
+      this.videoError = err.message || 'Playback error';
+      this.videoLoading = false;
+      this.cdr.markForCheck();
+    }
+  }
+
+  async onVideoSeek(event: Event): Promise<void> {
+    const target = event.target as HTMLInputElement;
+    const timeMs = parseFloat(target.value) * 1000;
+
+    if (!this.canvasPlayer) return;
+
+    try {
+      await this.canvasPlayer.seek(timeMs);
+      this.videoCurrentTime = timeMs / 1000;
+      this.cdr.markForCheck();
+    } catch (err: any) {
+      console.error('Seek error:', err);
+      this.videoError = err.message || 'Seek failed';
+      this.cdr.markForCheck();
+    }
+  }
+
+  onVideoMouseMove(): void {
+    this.videoShowControls = true;
+    
+    // Auto-hide controls after 3 seconds of inactivity when playing
+    if (this.videoControlsTimeout) {
+      clearTimeout(this.videoControlsTimeout);
+    }
+
+    if (this.videoIsPlaying) {
+      this.videoControlsTimeout = setTimeout(() => {
+        this.videoShowControls = false;
+        this.cdr.markForCheck();
+      }, 3000);
+    }
+  }
+
+  onVideoMouseLeave(): void {
+    if (this.videoIsPlaying) {
+      this.videoShowControls = false;
+      if (this.videoControlsTimeout) {
+        clearTimeout(this.videoControlsTimeout);
+        this.videoControlsTimeout = null;
+      }
+    }
+  }
+
+  toggleFullscreen(): void {
+    const container = this.videoContainerRef?.nativeElement;
+    if (!container) return;
+
+    const isFullscreen = document.fullscreenElement === container;
+
+    if (isFullscreen) {
+      document.exitFullscreen?.().catch(() => {});
+    } else {
+      container.requestFullscreen?.().catch(() => {
+        this.videoError = 'Fullscreen not supported';
+        this.cdr.markForCheck();
+      });
+    }
+  }
+
+  dismissVideoError(): void {
+    this.videoError = null;
+    this.cdr.markForCheck();
+  }
+
+  private initializeCanvasVideoPlayer(): void {
+    if (!this.videoContainerRef?.nativeElement || !this.mediaSrc || this.kind !== 'video') return;
+
+    if (this.canvasPlayer) {
+      this.canvasPlayer.destroy();
+      this.canvasPlayer = null;
+    }
+
+    this.videoReady = false;
+    this.videoError = null;
+    this.videoCurrentTime = 0;
+
+    this.videoPlayerService.createPlayer(this.videoContainerRef.nativeElement)
+      .then((player: CanvasVideoPlayer) => {
+        this.canvasPlayer = player;
+
+        // Subscribe to state changes
+        this.canvasPlayer.stateChanged$
+          .pipe(takeUntil(this.destroy$))
+          .subscribe((state: 'idle' | 'paused' | 'playing' | 'ended') => {
+            this.videoIsPlaying = state === 'playing';
+            if (state === 'ended') {
+              this.videoCurrentTime = this.videoDuration;
+            }
+            if (state !== 'playing') {
+              this.videoShowControls = true;
+              if (this.videoControlsTimeout) {
+                clearTimeout(this.videoControlsTimeout);
+                this.videoControlsTimeout = null;
+              }
+            }
+            this.cdr.markForCheck();
+          });
+
+        // Subscribe to metadata ready
+        this.canvasPlayer.metadataReady$
+          .pipe(takeUntil(this.destroy$))
+          .subscribe((metadata: VideoMetadata) => {
+            this.videoDuration = metadata.duration / 1000;
+            this.videoCodecInfo = metadata.videoCodec || 'Unknown codec';
+            this.videoFrameRate = metadata.frameRate || 0;
+            this.videoResolution = `${metadata.width}×${metadata.height}`;
+            this.videoReady = true;
+            this.videoCurrentTime = 0;
+            this.videoLoading = false;
+            this.cdr.markForCheck();
+          });
+
+        this.canvasPlayer.currentTime$
+          .pipe(takeUntil(this.destroy$))
+          .subscribe((seconds: number) => {
+            this.videoCurrentTime = seconds;
+            this.cdr.markForCheck();
+          });
+
+        // Subscribe to errors
+        this.canvasPlayer.error$
+          .pipe(takeUntil(this.destroy$))
+          .subscribe((error: string) => {
+            this.videoError = error;
+            this.videoReady = false;
+            this.videoLoading = false;
+            this.cdr.markForCheck();
+          });
+
+        // Load the video
+        if (this.mediaSrc) {
+          this.videoLoading = true;
+          this.cdr.markForCheck();
+          
+          this.canvasPlayer.loadFromUrl(this.mediaSrc)
+            .catch((err: unknown) => {
+              console.error('Video load error:', err);
+              this.videoError = err instanceof Error ? err.message : 'Failed to load video';
+              this.videoReady = false;
+              this.videoLoading = false;
+              this.cdr.markForCheck();
+            });
+        }
+      })
+      .catch((err: unknown) => {
+        console.error('Failed to create video player:', err);
+        this.videoError = err instanceof Error ? err.message : 'Failed to initialize video player';
+        this.cdr.markForCheck();
+      });
+  }
+
   async openCurrentFileExternally(): Promise<void> {
     if (this.archiveContext || !this.targetPath) {
       return;
@@ -803,6 +1536,20 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
     const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
     const v = bytes / Math.pow(1024, i);
     return `${i === 0 ? v : v.toFixed(1)} ${units[i]}`;
+  }
+
+  formatTime(seconds: number): string {
+    if (!seconds || seconds < 0) return '0:00';
+    const totalSecs = Math.floor(seconds);
+    const mins = Math.floor(totalSecs / 60);
+    const secs = totalSecs % 60;
+    const hours = Math.floor(mins / 60);
+    const displayMins = mins % 60;
+    
+    if (hours > 0) {
+      return `${hours}:${displayMins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+    return `${displayMins}:${secs.toString().padStart(2, '0')}`;
   }
 
   // ── Private: loading paths ────────────────────────────────────────────────
@@ -906,6 +1653,9 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
           this.mediaSrc = await readers.streamBinary(videoMime);
           this.mediaMime = videoMime;
           this.kind = 'video';
+          
+          // Initialize Canvas video player after view renders
+          setTimeout(() => this.initializeCanvasVideoPlayer(), 50);
           return;
         } catch { this.kind = 'error'; this.error = 'Failed to stream video'; return; }
       }
@@ -978,6 +1728,14 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
 
   private resetState(): void {
     this.clearMediaProbe();
+    if (this.canvasPlayer) {
+      this.canvasPlayer.destroy();
+      this.canvasPlayer = null;
+    }
+    if (this.videoControlsTimeout) {
+      clearTimeout(this.videoControlsTimeout);
+      this.videoControlsTimeout = null;
+    }
     this.info            = null;
     this.error           = null;
     this.imageSrc        = null;
@@ -994,6 +1752,16 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
     this.zoomLevel       = 0;
     this.showCheckerboard = false;
     this.lastAutoplayKey = null;
+    this.videoReady      = false;
+    this.videoIsPlaying  = false;
+    this.videoLoading    = false;
+    this.videoShowControls = true;
+    this.videoCurrentTime = 0;
+    this.videoDuration   = 0;
+    this.videoCodecInfo  = '';
+    this.videoFrameRate  = 0;
+    this.videoResolution = '';
+    this.videoError      = null;
   }
 
   private attemptMediaAutoplay(kind: 'video' | 'audio', media: HTMLMediaElement | null): void {

@@ -109,6 +109,7 @@ export interface ViewerArchiveContext {
           <div class="state-icon">&#x1F6AB;</div>
           <div class="state-label">No preview for this file type</div>
           <div class="state-sub" *ngIf="fileExt">.{{ fileExt }}</div>
+          <div class="error-detail" *ngIf="error">{{ error }}</div>
         </div>
 
         <!-- Image -->
@@ -1649,6 +1650,11 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
       const videoMime = this.inferVideoMime(ext);
       if (videoMime) {
         if (sizeHint !== null && sizeHint > this.MAX_MEDIA_BYTES) { this.kind = 'toobig'; return; }
+        if (!this.supportsCanvasVideoFormat(ext)) {
+          this.kind = 'unsupported';
+          this.error = this.getUnsupportedVideoMessage(ext);
+          return;
+        }
         try {
           this.mediaSrc = await readers.streamBinary(videoMime);
           this.mediaMime = videoMime;
@@ -1839,11 +1845,20 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
 
   private inferVideoMime(ext: string): string | null {
     return ({
-      mp4: 'video/mp4', webm: 'video/webm', ogv: 'video/ogg', mov: 'video/quicktime',
+      mp4: 'video/mp4', m4v: 'video/mp4', webm: 'video/webm', ogv: 'video/ogg', mov: 'video/quicktime',
       mkv: 'video/x-matroska', avi: 'video/x-msvideo', flv: 'video/x-flv',
       ts: 'video/mp2t', m3u8: 'application/x-mpegURL', mts: 'video/mp2t',
       mxf: 'application/mxf', wmv: 'video/x-ms-wmv',
     } as Record<string, string>)[ext] ?? null;
+  }
+
+  private supportsCanvasVideoFormat(ext: string): boolean {
+    return new Set(['mp4', 'm4v', 'mov']).has(ext);
+  }
+
+  private getUnsupportedVideoMessage(ext: string): string {
+    const upperExt = ext.toUpperCase();
+    return `${upperExt} is detected as a video file, but the current canvas player only implements MP4/MOV demuxing. ${upperExt} support needs a container-specific demuxer before WebCodecs can decode it.`;
   }
 
   private inferAudioMime(ext: string): string | null {

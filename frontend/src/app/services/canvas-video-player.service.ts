@@ -17,6 +17,12 @@ export interface VideoMetadata {
 
 type PlayerState = 'idle' | 'paused' | 'playing' | 'ended';
 
+type ExtendedVideoDecoderConfig = VideoDecoderConfig & {
+  avc?: {
+    format: 'annexb' | 'avc';
+  };
+};
+
 interface TrackInfo {
   id: number;
   codec: string;
@@ -45,6 +51,12 @@ interface DecodedFrame {
   frame: VideoFrame;
 }
 
+interface AvcSampleConfig {
+  lengthSize: number;
+  sps: Uint8Array[];
+  pps: Uint8Array[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class CanvasVideoPlayerService {
   async createPlayer(container: HTMLElement): Promise<CanvasVideoPlayer> {
@@ -57,8 +69,9 @@ export class CanvasVideoPlayer {
   private readonly ctx: CanvasRenderingContext2D;
 
   private decoder?: VideoDecoder;
-  private decoderConfig?: VideoDecoderConfig;
+  private decoderConfig?: ExtendedVideoDecoderConfig;
   private metadata?: VideoMetadata;
+  private avcSampleConfig?: AvcSampleConfig;
   private samples: SampleInfo[] = [];
   private static readonly MAX_DECODED_FRAMES = 24;
   private static readonly MAX_DECODE_QUEUE = 16;
@@ -182,6 +195,7 @@ export class CanvasVideoPlayer {
     const videoTrack = this.pickVideoTrack(info);
     const audioTrack = info.audioTracks?.[0] ?? null;
     const sampleEntry = this.getSampleEntry(mp4File, videoTrack.id);
+    this.avcSampleConfig = this.getAvcSampleConfig(sampleEntry);
     const decoderConfig = await this.buildDecoderConfig(videoTrack, sampleEntry);
 
     this.decoderConfig = decoderConfig;
@@ -251,7 +265,7 @@ export class CanvasVideoPlayer {
     return entry;
   }
 
-  private async buildDecoderConfig(track: TrackInfo, sampleEntry: any): Promise<VideoDecoderConfig> {
+  private async buildDecoderConfig(track: TrackInfo, sampleEntry: any): Promise<ExtendedVideoDecoderConfig> {
     if (!('VideoDecoder' in window)) {
       throw new Error('This browser runtime does not expose WebCodecs VideoDecoder.');
     }
@@ -275,17 +289,29 @@ export class CanvasVideoPlayer {
     codedWidth: number,
     codedHeight: number,
     description?: Uint8Array,
-  ): VideoDecoderConfig[] {
+  ): ExtendedVideoDecoderConfig[] {
     const codecCandidates = this.expandCodecCandidates(codec);
-    const configs: VideoDecoderConfig[] = [];
+    const configs: ExtendedVideoDecoderConfig[] = [];
+    const isAvcCodec = codec.startsWith('avc1') || codec.startsWith('avc3');
 
     for (const codecCandidate of codecCandidates) {
+      if (isAvcCodec) {
+        configs.push({
+          codec: codecCandidate,
+          codedWidth,
+          codedHeight,
+          avc: { format: 'annexb' },
+          optimizeForLatency: true,
+        });
+      }
+
       if (description) {
         configs.push({
           codec: codecCandidate,
           codedWidth,
           codedHeight,
           description,
+          ...(isAvcCodec ? { avc: { format: 'avc' as const } } : {}),
           optimizeForLatency: true,
         });
       }
@@ -360,6 +386,23 @@ export class CanvasVideoPlayer {
     return new Uint8Array(stream.buffer.slice(8, stream.position));
   }
 
+  private getAvcSampleConfig(sampleEntry: any): AvcSampleConfig | undefined {
+    const avcC = sampleEntry?.avcC;
+    if (!avcC) {
+      return undefined;
+    }
+
+    return {
+      lengthSize: (avcC.lengthSizeMinusOne ?? 3) + 1,
+      sps: (Array.isArray(avcC.SPS) ? avcC.SPS : [])
+        .map((entry: any) => this.normalizeNaluBytes(entry))
+        .filter((entry: Uint8Array) => entry.byteLength > 0),
+      pps: (Array.isArray(avcC.PPS) ? avcC.PPS : [])
+        .map((entry: any) => this.normalizeNaluBytes(entry))
+        .filter((entry: Uint8Array) => entry.byteLength > 0),
+    };
+  }
+
   private serializeAvcC(avcC: any): Uint8Array {
     const spsList = Array.isArray(avcC.SPS) ? avcC.SPS : [];
     const ppsList = Array.isArray(avcC.PPS) ? avcC.PPS : [];
@@ -427,6 +470,50 @@ export class CanvasVideoPlayer {
     return new Uint8Array(0);
   }
 
+  private convertAvcSampleToAnnexB(sample: Uint8Array, isKeyFrame: boolean): Uint8Array {
+    if (!this.avcSampleConfig) {
+      return sample;
+    }
+
+    const nalUnits: Uint8Array[] = [];
+    if (isKeyFrame) {
+      nalUnits.push(...this.avcSampleConfig.sps, ...this.avcSampleConfig.pps);
+    }
+
+    let offset = 0;
+    while (offset + this.avcSampleConfig.lengthSize <= sample.byteLength) {
+      let nalLength = 0;
+      for (let index = 0; index < this.avcSampleConfig.lengthSize; index++) {
+        nalLength = (nalLength << 8) | sample[offset + index];
+      }
+      offset += this.avcSampleConfig.lengthSize;
+
+      if (nalLength <= 0 || offset + nalLength > sample.byteLength) {
+        break;
+      }
+
+      nalUnits.push(sample.subarray(offset, offset + nalLength));
+      offset += nalLength;
+    }
+
+    if (!nalUnits.length) {
+      return sample;
+    }
+
+    const annexB = new Uint8Array(nalUnits.reduce((total, unit) => total + 4 + unit.byteLength, 0));
+    let writeOffset = 0;
+    for (const unit of nalUnits) {
+      annexB[writeOffset++] = 0x00;
+      annexB[writeOffset++] = 0x00;
+      annexB[writeOffset++] = 0x00;
+      annexB[writeOffset++] = 0x01;
+      annexB.set(unit, writeOffset);
+      writeOffset += unit.byteLength;
+    }
+
+    return annexB;
+  }
+
   private async rebuildDecoder(): Promise<void> {
     if (!this.decoderConfig) {
       return;
@@ -454,12 +541,15 @@ export class CanvasVideoPlayer {
 
       mp4File.onSamples = (_id: number, _user: unknown, samples: any[]) => {
         for (const sample of samples) {
+          const sampleBytes = sample.data instanceof Uint8Array ? sample.data : new Uint8Array(sample.data);
           extracted.push({
             index: extracted.length,
             timestampMs: this.toMilliseconds(sample.cts, sample.timescale),
             durationMs: Math.max(1, this.toMilliseconds(sample.duration, sample.timescale)),
             isRap: Boolean(sample.is_rap || sample.is_sync),
-            data: sample.data instanceof Uint8Array ? sample.data : new Uint8Array(sample.data),
+            data: this.avcSampleConfig
+              ? this.convertAvcSampleToAnnexB(sampleBytes, Boolean(sample.is_rap || sample.is_sync))
+              : sampleBytes,
           });
         }
 

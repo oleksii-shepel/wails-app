@@ -60,6 +60,8 @@ export class CanvasVideoPlayer {
   private decoderConfig?: VideoDecoderConfig;
   private metadata?: VideoMetadata;
   private samples: SampleInfo[] = [];
+  private static readonly MAX_DECODED_FRAMES = 24;
+  private static readonly MAX_DECODE_QUEUE = 16;
   private keyframeSampleIndexes: number[] = [];
   private decodedFrames: DecodedFrame[] = [];
   private sampleCursor = 0;
@@ -139,7 +141,7 @@ export class CanvasVideoPlayer {
     await this.rebuildDecoder();
     this.sampleCursor = this.findDecodeStartIndex(clampedTimeMs);
     this.clearDecodedFrames();
-    this.decodeAhead(clampedTimeMs + 500);
+    this.decodeAhead();
     this.drawForTime(clampedTimeMs);
 
     if (wasPlaying) {
@@ -481,7 +483,7 @@ export class CanvasVideoPlayer {
     this.decodedFrames.push({ timestampMs, frame });
     this.decodedFrames.sort((left, right) => left.timestampMs - right.timestampMs);
 
-    while (this.decodedFrames.length > 12) {
+    while (this.decodedFrames.length > CanvasVideoPlayer.MAX_DECODED_FRAMES) {
       const stale = this.decodedFrames.shift();
       stale?.frame.close();
     }
@@ -496,7 +498,7 @@ export class CanvasVideoPlayer {
 
     const currentTimeMs = this.getCurrentTimeMs();
     this.currentTime$.next(currentTimeMs / 1000);
-    this.decodeAhead(currentTimeMs + 500);
+    this.decodeAhead();
     this.drawForTime(currentTimeMs);
 
     if (currentTimeMs >= this.getDurationMs()) {
@@ -509,15 +511,15 @@ export class CanvasVideoPlayer {
     this.rafId = requestAnimationFrame(() => this.renderLoop());
   }
 
-  private decodeAhead(targetTimeMs: number): void {
+  private decodeAhead(): void {
     if (!this.decoder || !this.samples.length) {
       return;
     }
 
     while (
       this.sampleCursor < this.samples.length &&
-      this.samples[this.sampleCursor].timestampMs <= targetTimeMs &&
-      this.decoder.decodeQueueSize < 8
+      this.decoder.decodeQueueSize < CanvasVideoPlayer.MAX_DECODE_QUEUE &&
+      this.decodedFrames.length + this.decoder.decodeQueueSize < CanvasVideoPlayer.MAX_DECODED_FRAMES
     ) {
       const sample = this.samples[this.sampleCursor];
 

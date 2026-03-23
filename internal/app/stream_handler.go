@@ -17,43 +17,27 @@ import (
 
 const streamPath = "/wails-stream"
 
-func NewStreamHandler(app *App, archCache *cache.Cache) http.Handler {
+// NewUnifiedHandler creates a server that handles:
+// - Video streaming via /wails-stream
+// - Archive entry streaming
+// - Range requests for seeking
+func NewUnifiedHandler(app *App, archCache *cache.Cache) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != streamPath {
-			http.NotFound(w, r)
-			return
-		}
-
+		// Handle OPTIONS requests for CORS
 		if r.Method == http.MethodOptions {
 			setCORSHeaders(w)
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 
-		serveStreamRequest(w, r, app, archCache)
-	})
-}
-
-// NewStreamMiddleware returns an http.Handler that intercepts requests to
-// /wails-stream and pipes file content directly to the browser.
-//
-// Two modes:
-//
-//  1. Disk file  — GET /wails-stream?path=drive://c/foo/bar.mkv
-//     Uses os.Open + http.ServeContent → full range-request support (video seek).
-//
-//  2. Archive entry — GET /wails-stream?fsPath=drive://c/foo.zip&entry=dir/file.mp4&nested=inner.tar.gz
-//     Opens archive via cache, pipes entry with io.Copy.
-//     nested is optional comma-separated chain of intermediate archive paths.
-//
-// All other requests are forwarded to next.
-func NewStreamMiddleware(app *App, archCache *cache.Cache, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != streamPath {
-			next.ServeHTTP(w, r)
+		// Route to appropriate handler
+		if r.URL.Path == streamPath {
+			serveStreamRequest(w, r, app, archCache)
 			return
 		}
-		serveStreamRequest(w, r, app, archCache)
+
+		// Other paths return 404
+		http.NotFound(w, r)
 	})
 }
 
@@ -197,6 +181,8 @@ func serveArchiveEntry(w http.ResponseWriter, r *http.Request, archCache *cache.
 func setCORSHeaders(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Range, Accept-Ranges")
+	w.Header().Set("Access-Control-Expose-Headers", "Content-Length, Content-Range, Content-Type")
 }
 
 func setContentType(w http.ResponseWriter, name string) {

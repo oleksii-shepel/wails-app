@@ -1657,9 +1657,9 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
       const videoMime = this.inferVideoMime(ext);
       if (videoMime) {
         if (sizeHint !== null && sizeHint > this.MAX_MEDIA_BYTES) { this.kind = 'toobig'; return; }
-        if (!this.supportsCanvasVideoFormat(ext)) {
+        if (!this.videoPlayerService.supportsCanvasVideoFormat(ext)) {
           this.kind = 'unsupported';
-          this.error = this.getUnsupportedVideoMessage(ext);
+          this.error = this.videoPlayerService.getUnsupportedVideoMessage(ext);
           return;
         }
         try {
@@ -1857,19 +1857,6 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
       ts: 'video/mp2t', m3u8: 'application/x-mpegURL', mts: 'video/mp2t',
       mxf: 'application/mxf', wmv: 'video/x-ms-wmv',
     } as Record<string, string>)[ext] ?? null;
-  }
-
-  private supportsCanvasVideoFormat(ext: string): boolean {
-    return new Set(['mp4', 'm4v', 'mov']).has(ext);
-  }
-
-  private getUnsupportedVideoMessage(ext: string): string {
-    const upperExt = ext.toUpperCase();
-    if (ext === 'mkv' || ext === 'webm') {
-      return `${upperExt} is detected correctly, but the current canvas player does not have a Matroska/WebM demuxer wired in yet. The playback pipeline now has a container routing seam, so ${upperExt} support can be added by integrating a dedicated demuxer.`;
-    }
-
-    return `${upperExt} is detected as a video file, but the current canvas player only implements MP4/MOV demuxing. ${upperExt} support needs a container-specific demuxer before WebCodecs can decode it.`;
   }
 
   private inferAudioMime(ext: string): string | null {

@@ -499,8 +499,25 @@ class Mp4DemuxedSource {
 
 @Injectable({ providedIn: 'root' })
 export class CanvasVideoPlayerService {
+  private static readonly DEMUXER_BACKED_EXTENSIONS = new Set(['mp4', 'm4v', 'mov']);
+
   async createPlayer(container: HTMLElement): Promise<CanvasVideoPlayer> {
     return new CanvasVideoPlayer(container);
+  }
+
+  supportsCanvasVideoFormat(ext: string): boolean {
+    return CanvasVideoPlayerService.DEMUXER_BACKED_EXTENSIONS.has(ext.toLowerCase());
+  }
+
+  getUnsupportedVideoMessage(ext: string): string {
+    const normalizedExt = ext.toLowerCase();
+    const upperExt = normalizedExt.toUpperCase();
+
+    if (normalizedExt === 'mkv' || normalizedExt === 'webm') {
+      return `${upperExt} is detected correctly, but the current canvas player does not have a Matroska/WebM demuxer wired in yet. The playback pipeline now has a shared demuxed-source architecture, so ${upperExt} support can be added by implementing another demux backend.`;
+    }
+
+    return `${upperExt} is detected as a video file, but the current canvas player only has demux backends for MP4/MOV right now. ${upperExt} support needs a container-specific demuxer before WebCodecs can decode it.`;
   }
 }
 

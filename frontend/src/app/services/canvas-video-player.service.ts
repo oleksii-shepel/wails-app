@@ -497,6 +497,14 @@ class Mp4DemuxedSource {
   }
 }
 
+class MkvDemuxedSource {
+  static async load(_buffer: ArrayBuffer): Promise<DemuxedVideoSource> {
+    throw new Error(
+      'Matroska/WebM demux backend is not implemented yet. Add an MKV/WebM demuxer that returns DemuxedVideoSource to enable these containers.',
+    );
+  }
+}
+
 @Injectable({ providedIn: 'root' })
 export class CanvasVideoPlayerService {
   private static readonly DEMUXER_BACKED_EXTENSIONS = new Set(['mp4', 'm4v', 'mov']);
@@ -658,7 +666,7 @@ export class CanvasVideoPlayer {
       case 'mp4':
         return Mp4DemuxedSource.load(buffer);
       case 'mkv':
-        throw new Error('MKV is detected correctly, but the canvas player does not have a Matroska demuxer wired in yet. Add a dedicated MKV demuxer before routing MKV files into WebCodecs.');
+        return MkvDemuxedSource.load(buffer);
       default:
         throw new Error('Canvas playback currently supports MP4/MOV sources only. Other containers need a demuxer implementation before WebCodecs can decode them.');
     }

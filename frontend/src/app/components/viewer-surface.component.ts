@@ -212,10 +212,11 @@ export interface ViewerArchiveContext {
                   type="range" 
                   min="0" 
                   max="100"
-                  value="100"
+                  [value]="videoVolume"
                   class="volume-slider"
-                  disabled
-                  title="Volume (not yet implemented)">
+                  [disabled]="!videoReady || !canvasPlayer"
+                  (input)="onVideoVolumeChange($event)"
+                  title="Volume">
               </div>
 
               <!-- Fullscreen button -->
@@ -1150,6 +1151,7 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
   videoCodecInfo = '';
   videoFrameRate = 0;
   videoResolution = '';
+  videoVolume = 100;
   videoError: string | null = null;
   private videoControlsTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -1380,6 +1382,15 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
     }
   }
 
+  onVideoVolumeChange(event: Event): void {
+    const target = event.target as HTMLInputElement;
+    const nextVolume = Math.max(0, Math.min(100, Number(target.value)));
+
+    this.videoVolume = nextVolume;
+    this.canvasPlayer?.setVolume(nextVolume / 100);
+    this.cdr.markForCheck();
+  }
+
   onVideoMouseMove(): void {
     this.videoShowControls = true;
     
@@ -1442,10 +1453,12 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
     this.videoCodecInfo = '';
     this.videoFrameRate = 0;
     this.videoResolution = '';
+    this.videoVolume = 100;
 
     this.videoPlayerService.createPlayer(this.videoContainerRef.nativeElement)
       .then((player: CanvasVideoPlayer) => {
         this.canvasPlayer = player;
+        this.canvasPlayer.setVolume(this.videoVolume / 100);
 
         // Subscribe to state changes
         this.canvasPlayer.stateChanged$

@@ -75,10 +75,21 @@ interface DemuxedPacketCursor {
   packet: SampleInfo;
 }
 
+interface DemuxedAudioTrackSource {
+  decoderConfig: AudioDecoderConfig;
+  codec?: string;
+  sampleRate: number;
+  numberOfChannels: number;
+  getFirstPacket(): Promise<DemuxedPacketCursor | null>;
+  getPacketForTime(timeMs: number): Promise<DemuxedPacketCursor | null>;
+  getNextPacket(cursor: DemuxedPacketCursor): Promise<DemuxedPacketCursor | null>;
+}
+
 interface DemuxedVideoSource {
   metadata: VideoMetadata;
   decoderConfig: ExtendedVideoDecoderConfig;
   avcSampleConfig?: AvcSampleConfig;
+  audio?: DemuxedAudioTrackSource;
   getFirstPacket(): Promise<DemuxedPacketCursor | null>;
   getPacketForTime(timeMs: number, options?: { keyframe?: boolean }): Promise<DemuxedPacketCursor | null>;
   getNextPacket(cursor: DemuxedPacketCursor): Promise<DemuxedPacketCursor | null>;
@@ -609,11 +620,13 @@ class MediaBunnyDemuxedSource {
       }
 
       const packetSink = new EncodedPacketSink(videoTrack);
+      const audioPacketSink = audioTrack ? new EncodedPacketSink(audioTrack) : null;
 
-      const [decoderConfig, videoCodec, audioCodec, stats, trackDurationSec, firstPacket] = await Promise.all([
+      const [decoderConfig, videoCodec, audioCodec, audioDecoderConfig, stats, trackDurationSec, firstPacket] = await Promise.all([
         videoTrack.getDecoderConfig(),
         videoTrack.getCodecParameterString(),
         audioTrack?.getCodecParameterString() ?? Promise.resolve(null),
+        audioTrack?.getDecoderConfig() ?? Promise.resolve(null),
         videoTrack.computePacketStats(120),
         videoTrack.computeDuration(),
         packetSink.getFirstPacket({ metadataOnly: true }),
@@ -664,9 +677,23 @@ class MediaBunnyDemuxedSource {
         hasVideo: true,
       };
 
+      let demuxedAudioTrack: DemuxedAudioTrackSource | undefined;
+      if (audioTrack && audioPacketSink && audioDecoderConfig && await this.canUseAudioDecoderConfig(audioDecoderConfig)) {
+        demuxedAudioTrack = {
+          decoderConfig: audioDecoderConfig,
+          codec: audioCodec ?? undefined,
+          sampleRate: audioTrack.sampleRate,
+          numberOfChannels: audioTrack.numberOfChannels,
+          getFirstPacket: async () => this.getFirstUsableCursor(audioPacketSink, timestampOffsetMs),
+          getPacketForTime: async (timeMs) => this.getCursorForTime(audioPacketSink, timeMs, timestampOffsetMs),
+          getNextPacket: async (cursor) => this.getNextCursor(audioPacketSink, cursor, timestampOffsetMs),
+        };
+      }
+
       return {
         metadata,
         decoderConfig: normalizedDecoderConfig,
+        audio: demuxedAudioTrack,
         getFirstPacket: async () => this.getFirstUsableCursor(packetSink, timestampOffsetMs),
         getPacketForTime: async (timeMs, options) => this.getCursorForTime(packetSink, timeMs, timestampOffsetMs, options),
         getNextPacket: async (cursor) => this.getNextCursor(packetSink, cursor, timestampOffsetMs),
@@ -759,6 +786,35 @@ class MediaBunnyDemuxedSource {
     try {
       const probe = new VideoDecoder({
         output: (frame) => frame.close(),
+        error: () => undefined,
+      });
+      probe.configure(config);
+      probe.close();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private static async canUseAudioDecoderConfig(config: AudioDecoderConfig): Promise<boolean> {
+    if (!("AudioDecoder" in window)) {
+      return false;
+    }
+
+    try {
+      if (typeof AudioDecoder.isConfigSupported === 'function') {
+        const support = await AudioDecoder.isConfigSupported(config);
+        if (support.supported) {
+          return true;
+        }
+      }
+    } catch {
+      // Fall through to a configure probe for embedded runtimes.
+    }
+
+    try {
+      const probe = new AudioDecoder({
+        output: (audioData) => audioData.close(),
         error: () => undefined,
       });
       probe.configure(config);
@@ -877,6 +933,11 @@ export class CanvasVideoPlayer {
   private source?: DemuxedVideoSource;
   private decoder?: VideoDecoder;
   private decoderConfig?: ExtendedVideoDecoderConfig;
+  private audioSource?: DemuxedAudioTrackSource;
+  private audioDecoder?: AudioDecoder;
+  private audioDecoderConfig?: AudioDecoderConfig;
+  private audioContext?: AudioContext;
+  private audioGainNode?: GainNode;
   private metadata?: VideoMetadata;
   
   /** Max decoded frames - adaptive based on resolution to limit memory usage */
@@ -896,16 +957,26 @@ export class CanvasVideoPlayer {
   }
   
   private static readonly MAX_DECODE_QUEUE = 48;
+  private static readonly MAX_AUDIO_DECODE_QUEUE = 24;
+  private static readonly AUDIO_SCHEDULE_LEAD_SEC = 0.1;
+  private static readonly AUDIO_BUFFER_AHEAD_SEC = 1.25;
   private maxDecodedFrames = 60; // Updated when video loads
   private decodedFrames: DecodedFrame[] = [];
   private nextPacketCursor: DemuxedPacketCursor | null = null;
+  private nextAudioPacketCursor: DemuxedPacketCursor | null = null;
   private reachedEndOfStream = false;
   private decodeAheadInFlight = false;
   private decodeAheadQueued = false;
+  private audioDecodeAheadInFlight = false;
+  private audioDecodeAheadQueued = false;
   private awaitingKeyFrame = true;
   private rafId: number | null = null;
   private playbackBaseMs = 0;
   private playbackStartPerfMs = 0;
+  private audioPlaybackStartContextSec = 0;
+  private scheduledAudioUntilSec = 0;
+  private scheduledAudioNodes: Array<{ node: AudioBufferSourceNode; endTime: number }> = [];
+  private volume = 1;
   private lastDrawnTimestampMs = -1;
   private isLoaded = false;
 
@@ -954,6 +1025,7 @@ export class CanvasVideoPlayer {
       await this.seek(0);
     }
 
+    await this.prepareAudioPlayback(this.playbackBaseMs);
     this.playbackStartPerfMs = performance.now();
     this.stateChanged$.next('playing');
     this.renderLoop();
@@ -966,6 +1038,7 @@ export class CanvasVideoPlayer {
 
     this.playbackBaseMs = this.getCurrentTimeMs();
     this.cancelRenderLoop();
+    this.resetAudioPlaybackState();
     this.stateChanged$.next('paused');
     this.currentTime$.next(this.playbackBaseMs / 1000);
   }
@@ -983,6 +1056,7 @@ export class CanvasVideoPlayer {
     this.currentTime$.next(clampedTimeMs / 1000);
     await this.rebuildDecoder();
     this.clearDecodedFrames();
+    this.resetAudioPlaybackState();
     this.nextPacketCursor = await this.getSeekCursor(clampedTimeMs);
     this.reachedEndOfStream = this.nextPacketCursor === null;
     await this.decodeAhead();
@@ -1005,13 +1079,31 @@ export class CanvasVideoPlayer {
     return this.metadata;
   }
 
+  setVolume(volume: number): void {
+    this.volume = Math.max(0, Math.min(1, volume));
+    if (this.audioGainNode) {
+      this.audioGainNode.gain.value = this.volume;
+    }
+  }
+
   destroy(): void {
     this.cancelRenderLoop();
     this.clearDecodedFrames();
+    this.resetAudioPlaybackState();
     this.source?.destroy?.();
     this.source = undefined;
     this.decoder?.close();
     this.decoder = undefined;
+    this.audioSource = undefined;
+    this.audioDecoderConfig = undefined;
+    if (this.audioGainNode) {
+      this.audioGainNode.disconnect();
+      this.audioGainNode = undefined;
+    }
+    if (this.audioContext) {
+      void this.audioContext.close().catch(() => undefined);
+      this.audioContext = undefined;
+    }
     this.stateChanged$.complete();
     this.frameReady$.complete();
     this.error$.complete();
@@ -1063,6 +1155,7 @@ export class CanvasVideoPlayer {
   }
 
   private async initializeDemuxedSource(source: DemuxedVideoSource): Promise<VideoMetadata> {
+    this.resetAudioPlaybackState();
     this.source?.destroy?.();
     this.source = source;
     this.canvas.width = source.metadata.width;
@@ -1077,10 +1170,13 @@ export class CanvasVideoPlayer {
     this.metadata = source.metadata;
     this.metadataReady$.next(this.metadata);
     this.decoderConfig = source.decoderConfig;
+    this.audioSource = source.audio;
+    this.audioDecoderConfig = source.audio?.decoderConfig;
 
     await this.rebuildDecoder();
     this.isLoaded = true;
     this.nextPacketCursor = null;
+    this.nextAudioPacketCursor = null;
     this.reachedEndOfStream = false;
     this.playbackBaseMs = 0;
     this.currentTime$.next(0);
@@ -1121,6 +1217,31 @@ export class CanvasVideoPlayer {
     this.awaitingKeyFrame = true;
   }
 
+  private async rebuildAudioDecoder(): Promise<void> {
+    if (!this.audioDecoderConfig || !("AudioDecoder" in window)) {
+      this.audioDecoder = undefined;
+      return;
+    }
+
+    if (this.audioDecoder) {
+      try {
+        await this.audioDecoder.flush();
+      } catch {
+        // Ignore flush failures while replacing the decoder.
+      }
+      this.audioDecoder.close();
+    }
+
+    this.audioDecoder = new AudioDecoder({
+      output: (audioData) => this.onDecodedAudio(audioData),
+      error: (error) => {
+        console.error('[WebCodecs] AudioDecoder error:', error);
+        this.disableAudioPlayback();
+      },
+    });
+    this.audioDecoder.configure(this.audioDecoderConfig);
+  }
+
   private onDecodedFrame(frame: VideoFrame): void {
     if (this.canvas.width !== frame.displayWidth || this.canvas.height !== frame.displayHeight) {
       this.canvas.width = frame.displayWidth;
@@ -1147,6 +1268,44 @@ export class CanvasVideoPlayer {
     }
   }
 
+  private onDecodedAudio(audioData: AudioData): void {
+    if (this.stateChanged$.value !== 'playing' || !this.audioContext || !this.audioGainNode) {
+      audioData.close();
+      return;
+    }
+
+    try {
+      const audioBuffer = this.createAudioBuffer(audioData);
+      const timestampSec = audioData.timestamp / 1_000_000;
+      const playbackBaseSec = this.playbackBaseMs / 1000;
+      const targetStartTime = this.audioPlaybackStartContextSec + (timestampSec - playbackBaseSec);
+      const startTime = Math.max(targetStartTime, this.scheduledAudioUntilSec);
+      audioData.close();
+
+      if (startTime + audioBuffer.duration <= this.audioContext.currentTime) {
+        return;
+      }
+
+      const sourceNode = this.audioContext.createBufferSource();
+      sourceNode.buffer = audioBuffer;
+      sourceNode.connect(this.audioGainNode);
+      sourceNode.onended = () => {
+        this.scheduledAudioNodes = this.scheduledAudioNodes.filter((entry) => entry.node !== sourceNode);
+      };
+      sourceNode.start(startTime);
+
+      this.scheduledAudioNodes.push({
+        node: sourceNode,
+        endTime: startTime + audioBuffer.duration,
+      });
+      this.scheduledAudioUntilSec = Math.max(this.scheduledAudioUntilSec, startTime + audioBuffer.duration);
+    } catch (error) {
+      console.error('[WebCodecs] Failed to schedule decoded audio:', error);
+      audioData.close();
+      this.disableAudioPlayback();
+    }
+  }
+
   private renderLoop(): void {
     if (this.stateChanged$.value !== 'playing') {
       return;
@@ -1155,6 +1314,7 @@ export class CanvasVideoPlayer {
     const currentTimeMs = this.getPlaybackTimeMs();
     this.currentTime$.next(currentTimeMs / 1000);
     this.requestDecodeAhead();
+    this.requestAudioDecodeAhead();
     this.drawForTime(currentTimeMs);
 
     if (currentTimeMs >= this.getDurationMs() && this.isPlaybackExhausted()) {
@@ -1174,6 +1334,19 @@ export class CanvasVideoPlayer {
     }
 
     void this.decodeAhead();
+  }
+
+  private requestAudioDecodeAhead(): void {
+    if (!this.audioDecoder || !this.audioSource || this.stateChanged$.value !== 'playing') {
+      return;
+    }
+
+    if (this.audioDecodeAheadInFlight) {
+      this.audioDecodeAheadQueued = true;
+      return;
+    }
+
+    void this.decodeAudioAhead();
   }
 
   private async decodeAhead(): Promise<void> {
@@ -1237,6 +1410,59 @@ export class CanvasVideoPlayer {
     }
   }
 
+  private async decodeAudioAhead(): Promise<void> {
+    if (
+      this.audioDecodeAheadInFlight ||
+      !this.audioDecoder ||
+      !this.audioSource ||
+      !this.nextAudioPacketCursor ||
+      !this.audioContext ||
+      this.stateChanged$.value !== 'playing'
+    ) {
+      return;
+    }
+
+    this.audioDecodeAheadInFlight = true;
+
+    try {
+      this.pruneScheduledAudioNodes();
+
+      while (
+        this.nextAudioPacketCursor &&
+        this.audioDecoder &&
+        this.audioDecoder.decodeQueueSize < CanvasVideoPlayer.MAX_AUDIO_DECODE_QUEUE &&
+        this.scheduledAudioUntilSec - this.audioContext.currentTime < CanvasVideoPlayer.AUDIO_BUFFER_AHEAD_SEC
+      ) {
+        const cursor = this.nextAudioPacketCursor;
+        this.nextAudioPacketCursor = await this.audioSource.getNextPacket(cursor);
+
+        try {
+          this.audioDecoder.decode(new EncodedAudioChunk({
+            type: cursor.packet.isRap ? 'key' : 'delta',
+            timestamp: cursor.packet.timestampMs * 1000,
+            duration: cursor.packet.durationMs * 1000,
+            data: cursor.packet.data,
+          }));
+        } catch (error) {
+          console.error('[WebCodecs] Failed to decode audio packet:', error);
+          this.disableAudioPlayback();
+          break;
+        }
+
+        if (!this.nextAudioPacketCursor) {
+          break;
+        }
+      }
+    } finally {
+      this.audioDecodeAheadInFlight = false;
+
+      if (this.audioDecodeAheadQueued) {
+        this.audioDecodeAheadQueued = false;
+        this.requestAudioDecodeAhead();
+      }
+    }
+  }
+
   private async getSeekCursor(timeMs: number): Promise<DemuxedPacketCursor | null> {
     if (!this.source) {
       return null;
@@ -1244,6 +1470,14 @@ export class CanvasVideoPlayer {
 
     const keyframeCursor = await this.source.getPacketForTime(timeMs, { keyframe: true });
     return keyframeCursor ?? this.source.getFirstPacket();
+  }
+
+  private async getAudioSeekCursor(timeMs: number): Promise<DemuxedPacketCursor | null> {
+    if (!this.audioSource) {
+      return null;
+    }
+
+    return (await this.audioSource.getPacketForTime(timeMs)) ?? this.audioSource.getFirstPacket();
   }
 
   private async findNextKeyframeCursor(cursor: DemuxedPacketCursor): Promise<DemuxedPacketCursor | null> {
@@ -1311,6 +1545,56 @@ export class CanvasVideoPlayer {
     this.lastDrawnTimestampMs = -1;
   }
 
+  private pruneScheduledAudioNodes(): void {
+    if (!this.audioContext) {
+      this.scheduledAudioNodes = [];
+      return;
+    }
+
+    const now = this.audioContext.currentTime;
+    this.scheduledAudioNodes = this.scheduledAudioNodes.filter((entry) => entry.endTime > now - 0.05);
+    this.scheduledAudioUntilSec = this.scheduledAudioNodes.reduce(
+      (maxTime, entry) => Math.max(maxTime, entry.endTime),
+      this.audioPlaybackStartContextSec,
+    );
+  }
+
+  private clearScheduledAudioNodes(): void {
+    for (const entry of this.scheduledAudioNodes) {
+      try {
+        entry.node.stop();
+      } catch {
+        // Ignore nodes that already ended.
+      }
+      entry.node.disconnect();
+    }
+    this.scheduledAudioNodes = [];
+    this.scheduledAudioUntilSec = 0;
+  }
+
+  private resetAudioPlaybackState(): void {
+    this.clearScheduledAudioNodes();
+    this.audioDecodeAheadInFlight = false;
+    this.audioDecodeAheadQueued = false;
+    this.audioPlaybackStartContextSec = 0;
+    this.nextAudioPacketCursor = null;
+
+    if (this.audioDecoder) {
+      this.audioDecoder.close();
+      this.audioDecoder = undefined;
+    }
+
+    if (this.audioContext?.state === 'running') {
+      void this.audioContext.suspend().catch(() => undefined);
+    }
+  }
+
+  private disableAudioPlayback(): void {
+    this.resetAudioPlaybackState();
+    this.audioSource = undefined;
+    this.audioDecoderConfig = undefined;
+  }
+
   private cancelRenderLoop(): void {
     if (this.rafId !== null) {
       cancelAnimationFrame(this.rafId);
@@ -1321,6 +1605,11 @@ export class CanvasVideoPlayer {
   private getCurrentTimeMs(): number {
     if (this.stateChanged$.value !== 'playing') {
       return this.playbackBaseMs;
+    }
+
+    if (this.audioContext?.state === 'running' && this.audioPlaybackStartContextSec > 0) {
+      const elapsedMs = Math.max(0, (this.audioContext.currentTime - this.audioPlaybackStartContextSec) * 1000);
+      return Math.min(this.getDurationMs(), this.playbackBaseMs + elapsedMs);
     }
 
     const elapsedMs = performance.now() - this.playbackStartPerfMs;
@@ -1449,6 +1738,73 @@ export class CanvasVideoPlayer {
     if (!this.isLoaded || !this.metadata) {
       throw new Error('Video player is not initialized.');
     }
+  }
+
+  private async prepareAudioPlayback(startTimeMs: number): Promise<void> {
+    if (!this.audioSource || !this.audioDecoderConfig) {
+      return;
+    }
+
+    const audioContext = this.getOrCreateAudioContext();
+    if (!audioContext) {
+      this.disableAudioPlayback();
+      return;
+    }
+
+    try {
+      if (audioContext.state !== 'running') {
+        await audioContext.resume();
+      }
+      await this.rebuildAudioDecoder();
+      this.nextAudioPacketCursor = await this.getAudioSeekCursor(startTimeMs);
+      this.clearScheduledAudioNodes();
+      this.audioPlaybackStartContextSec = audioContext.currentTime + CanvasVideoPlayer.AUDIO_SCHEDULE_LEAD_SEC;
+      this.scheduledAudioUntilSec = this.audioPlaybackStartContextSec;
+      await this.decodeAudioAhead();
+    } catch (error) {
+      console.error('[WebCodecs] Audio playback initialization failed:', error);
+      this.disableAudioPlayback();
+    }
+  }
+
+  private getOrCreateAudioContext(): AudioContext | undefined {
+    if (this.audioContext) {
+      return this.audioContext;
+    }
+
+    const AudioContextCtor = window.AudioContext ?? (window as Window & typeof globalThis & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextCtor) {
+      return undefined;
+    }
+
+    this.audioContext = new AudioContextCtor({ latencyHint: 'interactive' });
+    this.audioGainNode = this.audioContext.createGain();
+    this.audioGainNode.gain.value = this.volume;
+    this.audioGainNode.connect(this.audioContext.destination);
+    return this.audioContext;
+  }
+
+  private createAudioBuffer(audioData: AudioData): AudioBuffer {
+    const audioContext = this.getOrCreateAudioContext();
+    if (!audioContext) {
+      throw new Error('AudioContext is unavailable.');
+    }
+
+    const audioBuffer = audioContext.createBuffer(
+      audioData.numberOfChannels,
+      audioData.numberOfFrames,
+      audioData.sampleRate,
+    );
+
+    for (let channelIndex = 0; channelIndex < audioData.numberOfChannels; channelIndex += 1) {
+      const channelData = audioBuffer.getChannelData(channelIndex);
+      audioData.copyTo(channelData, {
+        planeIndex: channelIndex,
+        format: 'f32-planar',
+      } as AudioDataCopyToOptions);
+    }
+
+    return audioBuffer;
   }
 
   private requireContext(canvas: HTMLCanvasElement): CanvasRenderingContext2D {

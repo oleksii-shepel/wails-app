@@ -2,7 +2,7 @@
 
 ## Overview
 
-The file manager now uses a pure **Canvas-based video player** for all video formats, replacing the HTML5 `<video>` tag entirely. This enables support for a much wider range of video formats through WebCodecs API.
+The file manager now includes a pure **Canvas-based video player** path for MP4/MOV-style sources, replacing the HTML5 `<video>` tag in the main preview surface. Playback uses WebCodecs for video decode and renders frames into a canvas.
 
 ## Changes Made
 
@@ -10,20 +10,20 @@ The file manager now uses a pure **Canvas-based video player** for all video for
 📄 `frontend/src/app/services/canvas-video-player.service.ts`
 
 - **CanvasVideoPlayer class**: Core video player using Canvas + WebCodecs
-  - Supports demuxing multiple container formats (MP4, MKV, AVI, WebM, FLV, TS, MOV, etc.)
+  - Supports real MP4 sample extraction through `mp4box`
   - Hardware-accelerated decoding via WebCodecs API
   - Frame buffering and canvas rendering
-  - Playback control: play(), pause(), seek(timeMs)
-  - Real-time state broadcasting (playing, paused, ended)
-  - Format detection via magic byte parsing
-  - Audio support infrastructure (ready for future implementation)
+  - Playback control: `play()`, `pause()`, `seek(timeMs)`
+  - Real-time state and time broadcasting
+  - MP4/MOV container detection from file headers
+  - Audio track metadata detection only; audio playback is not implemented
 
 **Key Features:**
-- ✅ Format Detection: Auto-detects container type from file header
-- ✅ Codec Support: H.264, HEVC, VP8, VP9, AV1, AAC, Opus, Vorbis, etc.
+- ✅ Format Detection: Auto-detects MP4/MOV-style containers from file header
+- ✅ Codec Support: Whatever WebCodecs accepts for MP4 in the current browser/runtime
 - ✅ Streaming: Works with existing `/wails-stream` HTTP range requests
 - ✅ Error Handling: Detailed error messages for unsupported codecs or network issues
-- ✅ Memory Efficient: Circular frame buffer (max 5 frames)
+- ✅ Memory Efficient: Small decoded frame buffer with cleanup during playback and seek
 
 ### 2. **Updated Viewer Component**
 📄 `frontend/src/app/components/viewer-surface.component.ts`
@@ -110,13 +110,13 @@ Decode frames → Buffer → Draw to canvas
 
 | Container | Video Codecs | Audio Codecs | Support |
 |-----------|-------------|-------------|---------|
-| MP4 | H.264, H.265, VP9 | AAC, MP3 | ✅ Excellent |
-| WebM | VP8, VP9, AV1 | Opus, Vorbis | ✅ Excellent |
-| Matroska (MKV) | H.264, H.265, VP8, VP9, AV1 | AAC, Opus, Vorbis | ✅ Full |
-| MOV | H.264, H.265 | AAC | ✅ Good |
-| AVI | MPEG-4, Xvid | MP3, PCM | ✅ Good |
-| TS | H.264, H.265 | AAC, MP3 | ✅ Good |
-| FLV | H.264 | MP3, AAC | ✅ Good |
+| MP4 | Browser-supported MP4 codecs via WebCodecs | Detected only | ✅ Implemented |
+| MOV | Browser-supported MP4-style codecs via WebCodecs | Detected only | ✅ Implemented when parsed like MP4 |
+| WebM | N/A in current service | N/A | ⚠ Planned |
+| Matroska (MKV) | N/A in current service | N/A | ⚠ Planned |
+| AVI | N/A in current service | N/A | ⚠ Planned |
+| TS | N/A in current service | N/A | ⚠ Planned |
+| FLV | N/A in current service | N/A | ⚠ Planned |
 
 ## Browser Requirements
 
@@ -173,10 +173,12 @@ Current implementation includes magic byte detection for:
 - [x] Template renders correctly
 - [x] Styling applied
 - [x] Canvas container properly sized
+- [x] Real MP4 sample extraction wired through `mp4box`
+- [x] Real WebCodecs video decode wired to the canvas player
 
 ### 📋 Manual Testing Needed
 - [ ] Load MP4 file → Play/Pause
-- [ ] Load MKV file → Verify codec detection
+- [ ] Load MOV file → Verify codec detection
 - [ ] Seek to different timestamps
 - [ ] Test with various resolutions (480p, 1080p, 4K)
 - [ ] Test error handling (unsupported codec)
@@ -290,6 +292,6 @@ HTML5 fallback code still exists in docs for reference.
 
 ---
 
-**Status**: ✅ Production Ready
+**Status**: Beta - MP4 canvas playback implemented, broader container support still pending
 **Created**: 2026-03-23
 **Last Updated**: 2026-03-23

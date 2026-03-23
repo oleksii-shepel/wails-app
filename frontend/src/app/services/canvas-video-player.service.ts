@@ -63,6 +63,7 @@ export class CanvasVideoPlayer {
   private keyframeSampleIndexes: number[] = [];
   private decodedFrames: DecodedFrame[] = [];
   private sampleCursor = 0;
+  private awaitingKeyFrame = true;
   private rafId: number | null = null;
   private playbackBaseMs = 0;
   private playbackStartPerfMs = 0;
@@ -139,7 +140,6 @@ export class CanvasVideoPlayer {
     this.sampleCursor = this.findDecodeStartIndex(clampedTimeMs);
     this.clearDecodedFrames();
     this.decodeAhead(clampedTimeMs + 500);
-    await this.decoder?.flush();
     this.drawForTime(clampedTimeMs);
 
     if (wasPlaying) {
@@ -257,24 +257,98 @@ export class CanvasVideoPlayer {
     const codedWidth = track.video?.width ?? track.track_width ?? 1280;
     const codedHeight = track.video?.height ?? track.track_height ?? 720;
     const description = this.serializeCodecDescription(sampleEntry);
-    const config: VideoDecoderConfig = {
-      codec: track.codec,
-      codedWidth,
-      codedHeight,
-      ...(description ? { description } : {}),
-      optimizeForLatency: true,
-    };
+    const candidates = this.buildDecoderConfigCandidates(track.codec, codedWidth, codedHeight, description);
 
-    const support = await VideoDecoder.isConfigSupported(config);
-    if (!support.supported) {
-      throw new Error(`Unsupported MP4 codec for WebCodecs: ${track.codec}`);
+    for (const candidate of candidates) {
+      if (await this.canUseDecoderConfig(candidate)) {
+        return candidate;
+      }
     }
 
-    return config;
+    throw new Error(`Unsupported MP4 codec for WebCodecs: ${track.codec}`);
+  }
+
+  private buildDecoderConfigCandidates(
+    codec: string,
+    codedWidth: number,
+    codedHeight: number,
+    description?: Uint8Array,
+  ): VideoDecoderConfig[] {
+    const codecCandidates = this.expandCodecCandidates(codec);
+    const configs: VideoDecoderConfig[] = [];
+
+    for (const codecCandidate of codecCandidates) {
+      if (description) {
+        configs.push({
+          codec: codecCandidate,
+          codedWidth,
+          codedHeight,
+          description,
+          optimizeForLatency: true,
+        });
+      }
+
+      configs.push({
+        codec: codecCandidate,
+        codedWidth,
+        codedHeight,
+        optimizeForLatency: true,
+      });
+    }
+
+    return configs;
+  }
+
+  private expandCodecCandidates(codec: string): string[] {
+    const candidates = new Set<string>([codec]);
+    const baseCodec = codec.split('.')[0];
+    candidates.add(baseCodec);
+
+    if (codec.startsWith('avc1.')) {
+      candidates.add('avc1');
+      candidates.add(codec.toLowerCase());
+      candidates.add(codec.toUpperCase());
+    }
+
+    if (codec.startsWith('hvc1.') || codec.startsWith('hev1.')) {
+      candidates.add('hvc1');
+      candidates.add('hev1');
+    }
+
+    return Array.from(candidates);
+  }
+
+  private async canUseDecoderConfig(config: VideoDecoderConfig): Promise<boolean> {
+    try {
+      if (typeof VideoDecoder.isConfigSupported === 'function') {
+        const support = await VideoDecoder.isConfigSupported(config);
+        if (support.supported) {
+          return true;
+        }
+      }
+    } catch {
+      // Some embedded runtimes throw or report false negatives; fall through to a configure probe.
+    }
+
+    try {
+      const probe = new VideoDecoder({
+        output: (frame) => frame.close(),
+        error: () => undefined,
+      });
+      probe.configure(config);
+      probe.close();
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private serializeCodecDescription(sampleEntry: any): Uint8Array | undefined {
-    const box = sampleEntry.avcC ?? sampleEntry.hvcC ?? sampleEntry.vpcC ?? sampleEntry.av1C;
+    if (sampleEntry.avcC) {
+      return this.serializeAvcC(sampleEntry.avcC);
+    }
+
+    const box = sampleEntry.hvcC ?? sampleEntry.vpcC ?? sampleEntry.av1C;
     if (!box) {
       return undefined;
     }
@@ -282,6 +356,73 @@ export class CanvasVideoPlayer {
     const stream = new MP4Box.DataStream(0);
     box.write(stream);
     return new Uint8Array(stream.buffer.slice(8, stream.position));
+  }
+
+  private serializeAvcC(avcC: any): Uint8Array {
+    const spsList = Array.isArray(avcC.SPS) ? avcC.SPS : [];
+    const ppsList = Array.isArray(avcC.PPS) ? avcC.PPS : [];
+    const ext = avcC.ext instanceof Uint8Array ? avcC.ext : undefined;
+
+    let size = 6 + 1;
+    for (const sps of spsList) {
+      const nalu = this.normalizeNaluBytes(sps);
+      size += 2 + nalu.byteLength;
+    }
+    for (const pps of ppsList) {
+      const nalu = this.normalizeNaluBytes(pps);
+      size += 2 + nalu.byteLength;
+    }
+    if (ext) {
+      size += ext.byteLength;
+    }
+
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+
+    bytes[offset++] = avcC.configurationVersion ?? 1;
+    bytes[offset++] = avcC.AVCProfileIndication ?? 0;
+    bytes[offset++] = avcC.profile_compatibility ?? 0;
+    bytes[offset++] = avcC.AVCLevelIndication ?? 0;
+    bytes[offset++] = 0xfc | ((avcC.lengthSizeMinusOne ?? 3) & 0x03);
+    bytes[offset++] = 0xe0 | (spsList.length & 0x1f);
+
+    for (const sps of spsList) {
+      const nalu = this.normalizeNaluBytes(sps);
+      offset = this.writeLengthPrefixedNalu(bytes, offset, nalu);
+    }
+
+    bytes[offset++] = ppsList.length & 0xff;
+    for (const pps of ppsList) {
+      const nalu = this.normalizeNaluBytes(pps);
+      offset = this.writeLengthPrefixedNalu(bytes, offset, nalu);
+    }
+
+    if (ext) {
+      bytes.set(ext, offset);
+    }
+
+    return bytes;
+  }
+
+  private writeLengthPrefixedNalu(target: Uint8Array, offset: number, nalu: Uint8Array): number {
+    const length = nalu.byteLength;
+    target[offset++] = (length >> 8) & 0xff;
+    target[offset++] = length & 0xff;
+    target.set(nalu, offset);
+    return offset + length;
+  }
+
+  private normalizeNaluBytes(entry: any): Uint8Array {
+    if (entry?.nalu instanceof Uint8Array) {
+      return entry.nalu;
+    }
+    if (entry instanceof Uint8Array) {
+      return entry;
+    }
+    if (entry?.data instanceof Uint8Array) {
+      return entry.data;
+    }
+    return new Uint8Array(0);
   }
 
   private async rebuildDecoder(): Promise<void> {
@@ -298,6 +439,7 @@ export class CanvasVideoPlayer {
       },
     });
     this.decoder.configure(this.decoderConfig);
+    this.awaitingKeyFrame = true;
   }
 
   private async extractSamples(mp4File: any, trackId: number, expectedCount: number): Promise<SampleInfo[]> {
@@ -378,6 +520,17 @@ export class CanvasVideoPlayer {
       this.decoder.decodeQueueSize < 8
     ) {
       const sample = this.samples[this.sampleCursor];
+
+      if (this.awaitingKeyFrame && !sample.isRap) {
+        const keyframeIndex = this.findDecodeStartIndex(sample.timestampMs);
+        if (keyframeIndex === this.sampleCursor) {
+          this.error$.next(`Decoder requires a keyframe before sample ${sample.index}, but no prior keyframe was found.`);
+          break;
+        }
+        this.sampleCursor = keyframeIndex;
+        continue;
+      }
+
       this.sampleCursor += 1;
 
       try {
@@ -387,6 +540,9 @@ export class CanvasVideoPlayer {
           duration: sample.durationMs * 1000,
           data: sample.data,
         }));
+        if (sample.isRap) {
+          this.awaitingKeyFrame = false;
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         this.error$.next(`Failed to decode MP4 sample ${sample.index}: ${message}`);

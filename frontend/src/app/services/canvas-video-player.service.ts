@@ -194,16 +194,6 @@ export class CanvasVideoPlayer {
     const info = await this.parseInfo(mp4File, buffer);
     const videoTrack = this.pickVideoTrack(info);
     const audioTrack = info.audioTracks?.[0] ?? null;
-    const sampleEntry = this.getSampleEntry(mp4File, videoTrack.id);
-    this.avcSampleConfig = this.getAvcSampleConfig(sampleEntry);
-    const decoderConfig = await this.buildDecoderConfig(videoTrack, sampleEntry);
-
-    this.decoderConfig = decoderConfig;
-    await this.rebuildDecoder();
-
-    this.samples = await this.extractSamples(mp4File, videoTrack.id, videoTrack.nb_samples);
-    this.keyframeSampleIndexes = this.samples.filter((sample) => sample.isRap).map((sample) => sample.index);
-
     const width = videoTrack.video?.width ?? videoTrack.track_width ?? this.canvas.clientWidth ?? 1280;
     const height = videoTrack.video?.height ?? videoTrack.track_height ?? this.canvas.clientHeight ?? 720;
     const durationMs = this.toMilliseconds(videoTrack.duration, videoTrack.timescale);
@@ -223,12 +213,22 @@ export class CanvasVideoPlayer {
       hasAudio: Boolean(audioTrack),
       hasVideo: true,
     };
+    this.metadataReady$.next(this.metadata);
+
+    const sampleEntry = this.getSampleEntry(mp4File, videoTrack.id);
+    this.avcSampleConfig = this.getAvcSampleConfig(sampleEntry);
+    const decoderConfig = await this.buildDecoderConfig(videoTrack, sampleEntry);
+
+    this.decoderConfig = decoderConfig;
+    await this.rebuildDecoder();
+
+    this.samples = await this.extractSamples(mp4File, videoTrack.id, videoTrack.nb_samples);
+    this.keyframeSampleIndexes = this.samples.filter((sample) => sample.isRap).map((sample) => sample.index);
     this.isLoaded = true;
     this.sampleCursor = 0;
     this.playbackBaseMs = 0;
     this.currentTime$.next(0);
     this.stateChanged$.next('paused');
-    this.metadataReady$.next(this.metadata);
 
     await this.seek(0);
     return this.metadata;

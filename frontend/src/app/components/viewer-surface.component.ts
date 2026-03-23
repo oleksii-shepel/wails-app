@@ -1438,6 +1438,10 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
     this.videoReady = false;
     this.videoError = null;
     this.videoCurrentTime = 0;
+    this.videoDuration = 0;
+    this.videoCodecInfo = '';
+    this.videoFrameRate = 0;
+    this.videoResolution = '';
 
     this.videoPlayerService.createPlayer(this.videoContainerRef.nativeElement)
       .then((player: CanvasVideoPlayer) => {
@@ -1469,9 +1473,7 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
             this.videoCodecInfo = metadata.videoCodec || 'Unknown codec';
             this.videoFrameRate = metadata.frameRate || 0;
             this.videoResolution = `${metadata.width}×${metadata.height}`;
-            this.videoReady = true;
             this.videoCurrentTime = 0;
-            this.videoLoading = false;
             this.cdr.markForCheck();
           });
 
@@ -1498,6 +1500,11 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
           this.cdr.markForCheck();
           
           this.canvasPlayer.loadFromUrl(this.mediaSrc)
+            .then(() => {
+              this.videoReady = true;
+              this.videoLoading = false;
+              this.cdr.markForCheck();
+            })
             .catch((err: unknown) => {
               console.error('Video load error:', err);
               this.videoError = err instanceof Error ? err.message : 'Failed to load video';

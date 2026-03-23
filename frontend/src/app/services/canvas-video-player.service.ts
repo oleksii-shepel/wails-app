@@ -1,6 +1,6 @@
 import { Injectable } from '@angular/core';
 import { BehaviorSubject, Subject } from 'rxjs';
-import { BufferSource, EncodedPacketSink, Input, MATROSKA, WEBM } from 'mediabunny';
+import { BufferSource, EncodedPacketSink, Input, MATROSKA, MP4, QTFF, UrlSource, WEBM } from 'mediabunny';
 import * as MP4Box from 'mp4box';
 
 export interface VideoMetadata {
@@ -64,12 +64,18 @@ interface AvcSampleConfig {
   pps: Uint8Array[];
 }
 
+interface DemuxedPacketCursor {
+  token: unknown;
+  packet: SampleInfo;
+}
+
 interface DemuxedVideoSource {
   metadata: VideoMetadata;
   decoderConfig: ExtendedVideoDecoderConfig;
   avcSampleConfig?: AvcSampleConfig;
-  samples: SampleInfo[];
-  keyframeSampleIndexes: number[];
+  getFirstPacket(): Promise<DemuxedPacketCursor | null>;
+  getPacketForTime(timeMs: number, options?: { keyframe?: boolean }): Promise<DemuxedPacketCursor | null>;
+  getNextPacket(cursor: DemuxedPacketCursor): Promise<DemuxedPacketCursor | null>;
   destroy?(): void;
 }
 
@@ -105,17 +111,20 @@ class Mp4DemuxedSource {
     const samples = await this.extractSamples(mp4File, videoTrack.id, videoTrack.nb_samples, avcSampleConfig, decoderConfig);
     const keyframeSampleIndexes = samples.filter((sample) => sample.isRap).map((sample) => sample.index);
 
-    return {
+    return ArrayBackedDemuxedSource.create({
       metadata,
       decoderConfig,
       avcSampleConfig,
       samples,
-      keyframeSampleIndexes,
       destroy: () => {
         mp4File.stop?.();
         mp4File.unsetExtractionOptions?.(videoTrack.id);
       },
-    };
+    });
+  }
+
+  static async loadFromUrl(url: string): Promise<DemuxedVideoSource> {
+    return MediaBunnyDemuxedSource.loadFromUrl(url, [MP4, QTFF], (inputFormat) => inputFormat === QTFF ? 'mov' : 'mp4');
   }
 
   private static async parseInfo(mp4File: any, buffer: ArrayBuffer): Promise<any> {
@@ -498,14 +507,88 @@ class Mp4DemuxedSource {
   }
 }
 
-class MkvDemuxedSource {
-  static async load(buffer: ArrayBuffer): Promise<DemuxedVideoSource> {
-    this.ensureMatroska(buffer);
+class ArrayBackedDemuxedSource {
+  static create(options: {
+    metadata: VideoMetadata;
+    decoderConfig: ExtendedVideoDecoderConfig;
+    avcSampleConfig?: AvcSampleConfig;
+    samples: SampleInfo[];
+    destroy?(): void;
+  }): DemuxedVideoSource {
+    const keyframeSampleIndexes = options.samples
+      .filter((sample) => sample.isRap)
+      .map((sample) => sample.index);
 
+    const getCursorAt = (index: number): DemuxedPacketCursor | null => {
+      const packet = options.samples[index];
+      return packet ? { token: index, packet } : null;
+    };
+
+    return {
+      metadata: options.metadata,
+      decoderConfig: options.decoderConfig,
+      avcSampleConfig: options.avcSampleConfig,
+      getFirstPacket: async () => getCursorAt(0),
+      getPacketForTime: async (timeMs, requestOptions) => {
+        if (!options.samples.length) {
+          return null;
+        }
+
+        if (requestOptions?.keyframe) {
+          let selectedIndex = keyframeSampleIndexes[0] ?? 0;
+          for (const keyframeIndex of keyframeSampleIndexes) {
+            if (options.samples[keyframeIndex].timestampMs > timeMs) {
+              break;
+            }
+            selectedIndex = keyframeIndex;
+          }
+          return getCursorAt(selectedIndex);
+        }
+
+        for (let index = 0; index < options.samples.length; index += 1) {
+          if (options.samples[index].timestampMs >= timeMs) {
+            return getCursorAt(index);
+          }
+        }
+
+        return getCursorAt(options.samples.length - 1);
+      },
+      getNextPacket: async (cursor) => getCursorAt((cursor.token as number) + 1),
+      destroy: options.destroy,
+    };
+  }
+}
+
+class MediaBunnyDemuxedSource {
+  static async loadFromUrl(
+    url: string,
+    formats: unknown[],
+    resolveFormatName: (inputFormat: unknown) => string,
+  ): Promise<DemuxedVideoSource> {
+    return this.loadInput(new UrlSource(url, {
+      maxCacheSize: 64 * 1024 * 1024,
+      parallelism: 2,
+    }), formats, resolveFormatName);
+  }
+
+  static async loadFromBuffer(
+    buffer: ArrayBuffer,
+    formats: unknown[],
+    resolveFormatName: (inputFormat: unknown) => string,
+  ): Promise<DemuxedVideoSource> {
+    return this.loadInput(new BufferSource(buffer), formats, resolveFormatName);
+  }
+
+  private static async loadInput(
+    source: BufferSource | UrlSource,
+    formats: unknown[],
+    resolveFormatName: (inputFormat: unknown) => string,
+  ): Promise<DemuxedVideoSource> {
     const input = new Input({
-      formats: [MATROSKA, WEBM],
-      source: new BufferSource(buffer),
+      formats: formats as any,
+      source,
     });
+    const normalizeFormatName = (inputFormat: unknown) => resolveFormatName(inputFormat).toUpperCase();
 
     try {
       const [inputFormat, videoTrack, audioTrack, inputDurationSec] = await Promise.all([
@@ -516,21 +599,23 @@ class MkvDemuxedSource {
       ]);
 
       if (!videoTrack) {
-        throw new Error('No decodable video track was found in this Matroska/WebM file.');
+        throw new Error(`No decodable video track was found in this ${normalizeFormatName(inputFormat)} file.`);
       }
 
-      const [decoderConfig, videoCodec, audioCodec, stats, trackDurationSec, samples] = await Promise.all([
+      const packetSink = new EncodedPacketSink(videoTrack);
+
+      const [decoderConfig, videoCodec, audioCodec, stats, trackDurationSec, firstPacket] = await Promise.all([
         videoTrack.getDecoderConfig(),
         videoTrack.getCodecParameterString(),
         audioTrack?.getCodecParameterString() ?? Promise.resolve(null),
         videoTrack.computePacketStats(120),
         videoTrack.computeDuration(),
-        this.extractSamples(videoTrack),
+        packetSink.getFirstPacket({ metadataOnly: true }),
       ]);
 
       if (!decoderConfig) {
         const codecLabel = videoCodec ?? String(videoTrack.internalCodecId ?? 'unknown');
-        throw new Error(`Unsupported ${this.describeContainer(inputFormat)} video codec for WebCodecs: ${codecLabel}`);
+        throw new Error(`Unsupported ${normalizeFormatName(inputFormat)} video codec for WebCodecs: ${codecLabel}`);
       }
 
       const normalizedDecoderConfig: ExtendedVideoDecoderConfig = {
@@ -542,17 +627,18 @@ class MkvDemuxedSource {
         throw new Error(`This runtime cannot configure WebCodecs for ${videoCodec ?? normalizedDecoderConfig.codec}.`);
       }
 
-      if (!samples.length) {
-        throw new Error('The Matroska/WebM file has a video track, but no decodable packets were extracted.');
+      const timestampOffsetMs = Math.max(0, firstPacket ? this.toMilliseconds(firstPacket.timestamp) : 0);
+      const durationMs = Math.max(
+        0,
+        this.toMilliseconds(inputDurationSec) - timestampOffsetMs,
+        this.toMilliseconds(trackDurationSec) - timestampOffsetMs,
+      );
+
+      const firstCursor = await this.getFirstUsableCursor(packetSink, timestampOffsetMs);
+      if (!firstCursor) {
+        throw new Error(`The ${normalizeFormatName(inputFormat)} file has a video track, but no decodable packets were extracted.`);
       }
 
-      const keyframeSampleIndexes = samples.filter((sample) => sample.isRap).map((sample) => sample.index);
-      const lastSample = samples[samples.length - 1];
-      const durationMs = Math.max(
-        Math.max(0, this.toMilliseconds(trackDurationSec)),
-        Math.max(0, this.toMilliseconds(inputDurationSec)),
-        lastSample.timestampMs + Math.max(1, lastSample.durationMs),
-      );
       const frameRate = Number.isFinite(stats.averagePacketRate)
         ? Math.max(1, Math.round(stats.averagePacketRate))
         : 0;
@@ -563,7 +649,7 @@ class MkvDemuxedSource {
         width: videoTrack.displayWidth || videoTrack.codedWidth || 1280,
         height: videoTrack.displayHeight || videoTrack.codedHeight || 720,
         duration: durationMs,
-        format: inputFormat === WEBM ? 'webm' : 'mkv',
+        format: resolveFormatName(inputFormat),
         videoCodec: videoCodec ?? String(videoTrack.internalCodecId ?? normalizedDecoderConfig.codec),
         audioCodec: audioCodec ?? undefined,
         bitrate,
@@ -575,8 +661,9 @@ class MkvDemuxedSource {
       return {
         metadata,
         decoderConfig: normalizedDecoderConfig,
-        samples,
-        keyframeSampleIndexes,
+        getFirstPacket: async () => this.getFirstUsableCursor(packetSink, timestampOffsetMs),
+        getPacketForTime: async (timeMs, options) => this.getCursorForTime(packetSink, timeMs, timestampOffsetMs, options),
+        getNextPacket: async (cursor) => this.getNextCursor(packetSink, cursor, timestampOffsetMs),
         destroy: () => input.dispose(),
       };
     } catch (error) {
@@ -585,33 +672,70 @@ class MkvDemuxedSource {
     }
   }
 
-  private static async extractSamples(videoTrack: any): Promise<SampleInfo[]> {
-    const sink = new EncodedPacketSink(videoTrack);
-    const samples: SampleInfo[] = [];
-    let timestampOffsetMs: number | null = null;
+  private static async getFirstUsableCursor(packetSink: EncodedPacketSink, timestampOffsetMs: number): Promise<DemuxedPacketCursor | null> {
+    const packet = await packetSink.getFirstPacket();
+    return this.findUsableCursor(packetSink, packet, timestampOffsetMs);
+  }
 
-    for await (const packet of sink.packets(undefined, undefined, { verifyKeyPackets: true })) {
-      const packetTimestampMs = this.toMilliseconds(packet.timestamp);
-      const packetDurationMs = Math.max(1, this.toMilliseconds(packet.duration));
+  private static async getCursorForTime(
+    packetSink: EncodedPacketSink,
+    timeMs: number,
+    timestampOffsetMs: number,
+    options?: { keyframe?: boolean },
+  ): Promise<DemuxedPacketCursor | null> {
+    const targetSeconds = (timeMs + timestampOffsetMs) / 1000;
+    const packet = options?.keyframe
+      ? await packetSink.getKeyPacket(targetSeconds, { verifyKeyPackets: true })
+      : await packetSink.getPacket(targetSeconds);
+    const fallback = options?.keyframe
+      ? await packetSink.getFirstKeyPacket({ verifyKeyPackets: true })
+      : await packetSink.getFirstPacket();
 
-      if (packetTimestampMs + packetDurationMs <= 0) {
-        continue;
+    return this.findUsableCursor(packetSink, packet ?? fallback, timestampOffsetMs);
+  }
+
+  private static async getNextCursor(
+    packetSink: EncodedPacketSink,
+    cursor: DemuxedPacketCursor,
+    timestampOffsetMs: number,
+  ): Promise<DemuxedPacketCursor | null> {
+    const packet = await packetSink.getNextPacket(cursor.token as any);
+    return this.findUsableCursor(packetSink, packet, timestampOffsetMs);
+  }
+
+  private static async findUsableCursor(
+    packetSink: EncodedPacketSink,
+    packet: any,
+    timestampOffsetMs: number,
+  ): Promise<DemuxedPacketCursor | null> {
+    let currentPacket = packet;
+
+    while (currentPacket) {
+      const normalizedPacket = this.normalizePacket(currentPacket, timestampOffsetMs);
+      if (normalizedPacket.timestampMs + normalizedPacket.durationMs > 0) {
+        return {
+          token: currentPacket,
+          packet: normalizedPacket,
+        };
       }
 
-      if (timestampOffsetMs === null) {
-        timestampOffsetMs = Math.max(0, packetTimestampMs);
-      }
-
-      samples.push({
-        index: samples.length,
-        timestampMs: Math.max(0, packetTimestampMs - timestampOffsetMs),
-        durationMs: packetDurationMs,
-        isRap: packet.type === 'key',
-        data: packet.data.slice(),
-      });
+      currentPacket = await packetSink.getNextPacket(currentPacket);
     }
 
-    return samples;
+    return null;
+  }
+
+  private static normalizePacket(packet: any, timestampOffsetMs: number): SampleInfo {
+    const packetTimestampMs = this.toMilliseconds(packet.timestamp);
+    const packetDurationMs = Math.max(1, this.toMilliseconds(packet.duration));
+
+    return {
+      index: packet.sequenceNumber ?? -1,
+      timestampMs: Math.max(0, packetTimestampMs - timestampOffsetMs),
+      durationMs: packetDurationMs,
+      isRap: packet.type === 'key',
+      data: packet.data.slice(),
+    };
   }
 
   private static async canUseDecoderConfig(config: VideoDecoderConfig): Promise<boolean> {
@@ -639,12 +763,20 @@ class MkvDemuxedSource {
     }
   }
 
-  private static describeContainer(inputFormat: unknown): string {
-    return inputFormat === WEBM ? 'WebM' : 'Matroska';
-  }
-
   private static toMilliseconds(valueSec: number): number {
     return Math.round(valueSec * 1000);
+  }
+}
+
+class MkvDemuxedSource {
+  static async load(buffer: ArrayBuffer): Promise<DemuxedVideoSource> {
+    this.ensureMatroska(buffer);
+
+    return MediaBunnyDemuxedSource.loadFromBuffer(buffer, [MATROSKA, WEBM], (inputFormat) => inputFormat === WEBM ? 'webm' : 'mkv');
+  }
+
+  static async loadFromUrl(url: string): Promise<DemuxedVideoSource> {
+    return MediaBunnyDemuxedSource.loadFromUrl(url, [MATROSKA, WEBM], (inputFormat) => inputFormat === WEBM ? 'webm' : 'mkv');
   }
 
   private static ensureMatroska(buffer: ArrayBuffer): void {
@@ -683,13 +815,13 @@ export class CanvasVideoPlayer {
   private decoder?: VideoDecoder;
   private decoderConfig?: ExtendedVideoDecoderConfig;
   private metadata?: VideoMetadata;
-  private avcSampleConfig?: AvcSampleConfig;
-  private samples: SampleInfo[] = [];
   private static readonly MAX_DECODED_FRAMES = 180;
   private static readonly MAX_DECODE_QUEUE = 96;
-  private keyframeSampleIndexes: number[] = [];
   private decodedFrames: DecodedFrame[] = [];
-  private sampleCursor = 0;
+  private nextPacketCursor: DemuxedPacketCursor | null = null;
+  private reachedEndOfStream = false;
+  private decodeAheadInFlight = false;
+  private decodeAheadQueued = false;
   private awaitingKeyFrame = true;
   private rafId: number | null = null;
   private playbackBaseMs = 0;
@@ -715,6 +847,11 @@ export class CanvasVideoPlayer {
 
   async loadFromUrl(url: string): Promise<VideoMetadata> {
     try {
+      const hintedFormat = this.detectContainerFormatFromUrl(url);
+      if (hintedFormat === 'mp4' || hintedFormat === 'mkv') {
+        return await this.loadFromStreamUrl(url, hintedFormat);
+      }
+
       const buffer = await this.fetchFile(url);
       const containerFormat = this.detectContainerFormat(buffer, url);
       const metadata = await this.loadFromBuffer(buffer, containerFormat);
@@ -765,9 +902,10 @@ export class CanvasVideoPlayer {
     this.playbackBaseMs = clampedTimeMs;
     this.currentTime$.next(clampedTimeMs / 1000);
     await this.rebuildDecoder();
-    this.sampleCursor = this.findDecodeStartIndex(clampedTimeMs);
     this.clearDecodedFrames();
-    this.decodeAhead();
+    this.nextPacketCursor = await this.getSeekCursor(clampedTimeMs);
+    this.reachedEndOfStream = this.nextPacketCursor === null;
+    await this.decodeAhead();
     this.drawForTime(clampedTimeMs);
 
     if (wasPlaying) {
@@ -807,6 +945,11 @@ export class CanvasVideoPlayer {
     return this.initializeDemuxedSource(source);
   }
 
+  private async loadFromStreamUrl(url: string, containerFormat: ContainerFormat): Promise<VideoMetadata> {
+    const source = await this.demuxUrl(url, containerFormat);
+    return this.initializeDemuxedSource(source);
+  }
+
   private async demuxBuffer(buffer: ArrayBuffer, containerFormat: ContainerFormat): Promise<DemuxedVideoSource> {
     switch (containerFormat) {
       case 'mp4':
@@ -818,6 +961,17 @@ export class CanvasVideoPlayer {
     }
   }
 
+  private async demuxUrl(url: string, containerFormat: ContainerFormat): Promise<DemuxedVideoSource> {
+    switch (containerFormat) {
+      case 'mp4':
+        return Mp4DemuxedSource.loadFromUrl(url);
+      case 'mkv':
+        return MkvDemuxedSource.loadFromUrl(url);
+      default:
+        throw new Error('Streaming URL demux is currently implemented for MP4/MOV/MKV/WebM only. Other containers still use the buffered load path.');
+    }
+  }
+
   private async initializeDemuxedSource(source: DemuxedVideoSource): Promise<VideoMetadata> {
     this.source?.destroy?.();
     this.source = source;
@@ -825,15 +979,12 @@ export class CanvasVideoPlayer {
     this.canvas.height = source.metadata.height;
     this.metadata = source.metadata;
     this.metadataReady$.next(this.metadata);
-    this.avcSampleConfig = source.avcSampleConfig;
     this.decoderConfig = source.decoderConfig;
-    this.samples = source.samples;
-    this.updateMetadataFromSamples();
-    this.keyframeSampleIndexes = source.keyframeSampleIndexes;
 
     await this.rebuildDecoder();
     this.isLoaded = true;
-    this.sampleCursor = 0;
+    this.nextPacketCursor = null;
+    this.reachedEndOfStream = false;
     this.playbackBaseMs = 0;
     this.currentTime$.next(0);
     this.stateChanged$.next('paused');
@@ -882,7 +1033,7 @@ export class CanvasVideoPlayer {
     // or the canvas will remain empty black.
     if (this.stateChanged$.value !== 'playing') {
       this.drawForTime(this.getCurrentTimeMs());
-      this.decodeAhead();
+      this.requestDecodeAhead();
     }
   }
 
@@ -893,7 +1044,7 @@ export class CanvasVideoPlayer {
 
     const currentTimeMs = this.getPlaybackTimeMs();
     this.currentTime$.next(currentTimeMs / 1000);
-    this.decodeAhead();
+    this.requestDecodeAhead();
     this.drawForTime(currentTimeMs);
 
     if (currentTimeMs >= this.getDurationMs() && this.isPlaybackExhausted()) {
@@ -906,46 +1057,103 @@ export class CanvasVideoPlayer {
     this.rafId = requestAnimationFrame(() => this.renderLoop());
   }
 
-  private decodeAhead(): void {
-    if (!this.decoder || !this.samples.length) {
+  private requestDecodeAhead(): void {
+    if (this.decodeAheadInFlight) {
+      this.decodeAheadQueued = true;
       return;
     }
 
-    while (
-      this.sampleCursor < this.samples.length &&
-      this.decoder.decodeQueueSize < CanvasVideoPlayer.MAX_DECODE_QUEUE &&
-      this.decodedFrames.length + this.decoder.decodeQueueSize < CanvasVideoPlayer.MAX_DECODED_FRAMES
-    ) {
-      const sample = this.samples[this.sampleCursor];
+    void this.decodeAhead();
+  }
 
-      if (this.awaitingKeyFrame && !sample.isRap) {
-        const keyframeIndex = this.findDecodeStartIndex(sample.timestampMs);
-        if (keyframeIndex === this.sampleCursor) {
-          this.error$.next(`Decoder requires a keyframe before sample ${sample.index}, but no prior keyframe was found.`);
+  private async decodeAhead(): Promise<void> {
+    if (this.decodeAheadInFlight || !this.decoder || !this.source || !this.nextPacketCursor) {
+      return;
+    }
+
+    this.decodeAheadInFlight = true;
+
+    try {
+      while (
+        this.nextPacketCursor &&
+        this.decoder &&
+        this.decoder.decodeQueueSize < CanvasVideoPlayer.MAX_DECODE_QUEUE &&
+        this.decodedFrames.length + this.decoder.decodeQueueSize < CanvasVideoPlayer.MAX_DECODED_FRAMES
+      ) {
+        let cursor = this.nextPacketCursor;
+        let packet = cursor.packet;
+
+        if (this.awaitingKeyFrame && !packet.isRap) {
+          const keyframeCursor = await this.findNextKeyframeCursor(cursor);
+          if (!keyframeCursor) {
+            this.error$.next('Decoder requires a keyframe before playback can continue, but no keyframe was found.');
+            this.nextPacketCursor = null;
+            this.reachedEndOfStream = true;
+            break;
+          }
+          cursor = keyframeCursor;
+          this.nextPacketCursor = cursor;
+          packet = cursor.packet;
+        }
+
+        this.nextPacketCursor = await this.source.getNextPacket(cursor);
+        if (!this.nextPacketCursor) {
+          this.reachedEndOfStream = true;
+        }
+
+        try {
+          this.decoder.decode(new EncodedVideoChunk({
+            type: packet.isRap ? 'key' : 'delta',
+            timestamp: packet.timestampMs * 1000,
+            duration: packet.durationMs * 1000,
+            data: packet.data,
+          }));
+          if (packet.isRap) {
+            this.awaitingKeyFrame = false;
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          this.error$.next(`Failed to decode packet ${packet.index}: ${message}`);
           break;
         }
-        this.sampleCursor = keyframeIndex;
-        continue;
       }
+    } finally {
+      this.decodeAheadInFlight = false;
 
-      this.sampleCursor += 1;
-
-      try {
-        this.decoder.decode(new EncodedVideoChunk({
-          type: sample.isRap ? 'key' : 'delta',
-          timestamp: sample.timestampMs * 1000,
-          duration: sample.durationMs * 1000,
-          data: sample.data,
-        }));
-        if (sample.isRap) {
-          this.awaitingKeyFrame = false;
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        this.error$.next(`Failed to decode MP4 sample ${sample.index}: ${message}`);
-        break;
+      if (this.decodeAheadQueued) {
+        this.decodeAheadQueued = false;
+        this.requestDecodeAhead();
       }
     }
+  }
+
+  private async getSeekCursor(timeMs: number): Promise<DemuxedPacketCursor | null> {
+    if (!this.source) {
+      return null;
+    }
+
+    const keyframeCursor = await this.source.getPacketForTime(timeMs, { keyframe: true });
+    return keyframeCursor ?? this.source.getFirstPacket();
+  }
+
+  private async findNextKeyframeCursor(cursor: DemuxedPacketCursor): Promise<DemuxedPacketCursor | null> {
+    if (cursor.packet.isRap) {
+      return cursor;
+    }
+
+    if (!this.source) {
+      return null;
+    }
+
+    let nextCursor = await this.source.getNextPacket(cursor);
+    while (nextCursor) {
+      if (nextCursor.packet.isRap) {
+        return nextCursor;
+      }
+      nextCursor = await this.source.getNextPacket(nextCursor);
+    }
+
+    return null;
   }
 
   private drawForTime(currentTimeMs: number): void {
@@ -1000,32 +1208,6 @@ export class CanvasVideoPlayer {
     }
   }
 
-  private findDecodeStartIndex(timeMs: number): number {
-    if (!this.samples.length) {
-      return 0;
-    }
-
-    // Samples are stored in decode order, but H.264 with B-frames can expose
-    // non-monotonic composition timestamps. A binary search over timestampMs is
-    // therefore unsafe for seek targeting.
-    let sampleIndex = this.samples.length - 1;
-    for (let index = 0; index < this.samples.length; index += 1) {
-      if (this.samples[index].timestampMs >= timeMs) {
-        sampleIndex = index;
-        break;
-      }
-    }
-
-    let rapIndex = 0;
-    for (const keyframeIndex of this.keyframeSampleIndexes) {
-      if (keyframeIndex > sampleIndex) {
-        break;
-      }
-      rapIndex = keyframeIndex;
-    }
-    return rapIndex;
-  }
-
   private getCurrentTimeMs(): number {
     if (this.stateChanged$.value !== 'playing') {
       return this.playbackBaseMs;
@@ -1045,9 +1227,6 @@ export class CanvasVideoPlayer {
       targetTimeMs > bufferedUntilMs + frameIntervalMs &&
       !this.isPlaybackExhausted()
     ) {
-      // Hold the playback clock at the latest decoded timestamp until more
-      // frames arrive. Without this, wall-clock playback can outrun WebCodecs
-      // decoding and prematurely hit the artificial end of the timeline.
       this.playbackBaseMs = bufferedUntilMs;
       this.playbackStartPerfMs = performance.now();
       return bufferedUntilMs;
@@ -1066,7 +1245,7 @@ export class CanvasVideoPlayer {
 
   private isPlaybackExhausted(): boolean {
     return Boolean(
-      this.sampleCursor >= this.samples.length &&
+      this.reachedEndOfStream &&
       (!this.decoder || this.decoder.decodeQueueSize === 0) &&
       this.decodedFrames.length <= 1,
     );
@@ -1074,55 +1253,6 @@ export class CanvasVideoPlayer {
 
   private getDurationMs(): number {
     return this.metadata?.duration ?? 0;
-  }
-
-  private resolveTrackDurationMs(track: TrackInfo): number {
-    const candidates = [
-      this.toMilliseconds(track.duration, track.timescale),
-      this.toMilliseconds(track.samples_duration ?? 0, track.timescale),
-      this.toMilliseconds(track.movie_duration ?? 0, track.movie_timescale ?? 0),
-      this.toMilliseconds((track.sample_duration ?? 0) * (track.nb_samples ?? 0), track.timescale),
-    ];
-
-    return candidates.find((value) => value > 0) ?? 0;
-  }
-
-  private updateMetadataFromSamples(): void {
-    if (!this.metadata || !this.samples.length) {
-      return;
-    }
-
-    const lastSample = this.samples[this.samples.length - 1];
-    const durationFromSamples = lastSample.timestampMs + Math.max(1, lastSample.durationMs);
-    const nextDuration = Math.max(this.metadata.duration, durationFromSamples);
-    const nextFrameRate = this.inferFrameRateFromSamples(nextDuration);
-
-    if (nextDuration === this.metadata.duration && nextFrameRate === (this.metadata.frameRate ?? 0)) {
-      return;
-    }
-
-    this.metadata = {
-      ...this.metadata,
-      duration: nextDuration,
-      frameRate: nextFrameRate,
-    };
-    this.metadataReady$.next(this.metadata);
-  }
-
-  private inferFrameRate(track: TrackInfo, durationMs: number): number {
-    if (!track.nb_samples || durationMs <= 0) {
-      return 0;
-    }
-
-    return Math.max(1, Math.round((track.nb_samples * 1000) / durationMs));
-  }
-
-  private inferFrameRateFromSamples(durationMs: number): number {
-    if (!this.samples.length || durationMs <= 0) {
-      return this.metadata?.frameRate ?? 0;
-    }
-
-    return Math.max(1, Math.round((this.samples.length * 1000) / durationMs));
   }
 
   private toMilliseconds(value: number, timescale: number): number {
@@ -1149,6 +1279,39 @@ export class CanvasVideoPlayer {
     }
     if (/\.(mkv|webm)(?:$|[?#])/.test(normalizedUrl)) {
       return 'mkv';
+    }
+
+    return 'unknown';
+  }
+
+  private detectContainerFormatFromUrl(url: string): ContainerFormat {
+    const candidates: string[] = [];
+
+    try {
+      const resolvedUrl = new URL(url, window.location.href);
+      candidates.push(resolvedUrl.pathname);
+
+      const streamPath = resolvedUrl.searchParams.get('path');
+      if (streamPath) {
+        candidates.push(streamPath);
+      }
+
+      const archiveEntry = resolvedUrl.searchParams.get('entry');
+      if (archiveEntry) {
+        candidates.push(archiveEntry);
+      }
+    } catch {
+      candidates.push(url);
+    }
+
+    for (const candidate of candidates) {
+      const normalized = candidate.toLowerCase();
+      if (/\.(mp4|m4v|mov)(?:$|[?#])/.test(normalized)) {
+        return 'mp4';
+      }
+      if (/\.(mkv|webm)(?:$|[?#])/.test(normalized)) {
+        return 'mkv';
+      }
     }
 
     return 'unknown';

@@ -28,6 +28,10 @@ interface TrackInfo {
   codec: string;
   timescale: number;
   duration: number;
+  movie_duration?: number;
+  movie_timescale?: number;
+  samples_duration?: number;
+  sample_duration?: number;
   bitrate?: number;
   nb_samples: number;
   track_width?: number;
@@ -196,7 +200,7 @@ export class CanvasVideoPlayer {
     const audioTrack = info.audioTracks?.[0] ?? null;
     const width = videoTrack.video?.width ?? videoTrack.track_width ?? this.canvas.clientWidth ?? 1280;
     const height = videoTrack.video?.height ?? videoTrack.track_height ?? this.canvas.clientHeight ?? 720;
-    const durationMs = this.toMilliseconds(videoTrack.duration, videoTrack.timescale);
+    const durationMs = this.resolveTrackDurationMs(videoTrack);
     const frameRate = this.inferFrameRate(videoTrack, durationMs);
 
     this.canvas.width = width;
@@ -223,6 +227,7 @@ export class CanvasVideoPlayer {
     await this.rebuildDecoder();
 
     this.samples = await this.extractSamples(mp4File, videoTrack.id, videoTrack.nb_samples);
+  this.updateMetadataFromSamples();
     this.keyframeSampleIndexes = this.samples.filter((sample) => sample.isRap).map((sample) => sample.index);
     this.isLoaded = true;
     this.sampleCursor = 0;
@@ -295,16 +300,7 @@ export class CanvasVideoPlayer {
     const isAvcCodec = codec.startsWith('avc1') || codec.startsWith('avc3');
 
     for (const codecCandidate of codecCandidates) {
-      if (isAvcCodec) {
-        configs.push({
-          codec: codecCandidate,
-          codedWidth,
-          codedHeight,
-          avc: { format: 'annexb' },
-          optimizeForLatency: true,
-        });
-      }
-
+      // 1. FIRST: AVC format WITH description (for MP4 files)
       if (description) {
         configs.push({
           codec: codecCandidate,
@@ -312,6 +308,29 @@ export class CanvasVideoPlayer {
           codedHeight,
           description,
           ...(isAvcCodec ? { avc: { format: 'avc' as const } } : {}),
+          optimizeForLatency: true,
+        });
+
+        // 2. SECOND: AnnexB format WITH description
+        if (isAvcCodec) {
+          configs.push({
+            codec: codecCandidate,
+            codedWidth,
+            codedHeight,
+            description,
+            avc: { format: 'annexb' as const },
+            optimizeForLatency: true,
+          });
+        }
+      }
+
+      // 3. LAST: AnnexB without description (for raw streams)
+      if (isAvcCodec) {
+        configs.push({
+          codec: codecCandidate,
+          codedWidth,
+          codedHeight,
+          avc: { format: 'annexb' as const },
           optimizeForLatency: true,
         });
       }
@@ -753,12 +772,53 @@ export class CanvasVideoPlayer {
     return this.metadata?.duration ?? 0;
   }
 
+  private resolveTrackDurationMs(track: TrackInfo): number {
+    const candidates = [
+      this.toMilliseconds(track.duration, track.timescale),
+      this.toMilliseconds(track.samples_duration ?? 0, track.timescale),
+      this.toMilliseconds(track.movie_duration ?? 0, track.movie_timescale ?? 0),
+      this.toMilliseconds((track.sample_duration ?? 0) * (track.nb_samples ?? 0), track.timescale),
+    ];
+
+    return candidates.find((value) => value > 0) ?? 0;
+  }
+
+  private updateMetadataFromSamples(): void {
+    if (!this.metadata || !this.samples.length) {
+      return;
+    }
+
+    const lastSample = this.samples[this.samples.length - 1];
+    const durationFromSamples = lastSample.timestampMs + Math.max(1, lastSample.durationMs);
+    const nextDuration = Math.max(this.metadata.duration, durationFromSamples);
+    const nextFrameRate = this.inferFrameRateFromSamples(nextDuration);
+
+    if (nextDuration === this.metadata.duration && nextFrameRate === (this.metadata.frameRate ?? 0)) {
+      return;
+    }
+
+    this.metadata = {
+      ...this.metadata,
+      duration: nextDuration,
+      frameRate: nextFrameRate,
+    };
+    this.metadataReady$.next(this.metadata);
+  }
+
   private inferFrameRate(track: TrackInfo, durationMs: number): number {
     if (!track.nb_samples || durationMs <= 0) {
       return 0;
     }
 
     return Math.max(1, Math.round((track.nb_samples * 1000) / durationMs));
+  }
+
+  private inferFrameRateFromSamples(durationMs: number): number {
+    if (!this.samples.length || durationMs <= 0) {
+      return this.metadata?.frameRate ?? 0;
+    }
+
+    return Math.max(1, Math.round((this.samples.length * 1000) / durationMs));
   }
 
   private toMilliseconds(value: number, timescale: number): number {

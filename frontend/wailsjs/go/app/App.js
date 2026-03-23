@@ -250,6 +250,10 @@ export function LoadWorkspace(arg1) {
   return window['go']['app']['App']['LoadWorkspace'](arg1);
 }
 
+export function MediaSessionManager() {
+  return window['go']['app']['App']['MediaSessionManager']();
+}
+
 export function Move(arg1, arg2) {
   return window['go']['app']['App']['Move'](arg1, arg2);
 }

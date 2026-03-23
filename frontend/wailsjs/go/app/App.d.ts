@@ -4,6 +4,7 @@ import {contracts} from '../models';
 import {cache} from '../models';
 import {app} from '../models';
 import {elevation} from '../models';
+import {demuxer} from '../models';
 import {utility} from '../models';
 import {ops} from '../models';
 import {time} from '../models';
@@ -131,6 +132,8 @@ export function ListDirectory(arg1:string,arg2:boolean):Promise<contracts.Direct
 export function ListDrives():Promise<contracts.DrivesList>;
 
 export function LoadWorkspace(arg1:string):Promise<contracts.WorkspaceConfig>;
+
+export function MediaSessionManager():Promise<demuxer.SessionManager>;
 
 export function Move(arg1:string,arg2:string):Promise<contracts.OperationResult>;
 

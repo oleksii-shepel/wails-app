@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"sync"
 
 	"wails-app/vfs/archive/cache"
 )
@@ -10,6 +11,8 @@ import (
 type App struct {
 	*State
 	isProcessElevated func() bool
+	streamBaseURL     string
+	streamBaseURLMu   sync.RWMutex
 }
 
 func NewApp(isProcessElevated func() bool) *App {
@@ -46,6 +49,18 @@ func (a *App) InitVFS() {
 
 func (a *App) IsProcessElevated() bool {
 	return a.isProcessElevated != nil && a.isProcessElevated()
+}
+
+func (a *App) SetStreamBaseURL(baseURL string) {
+	a.streamBaseURLMu.Lock()
+	a.streamBaseURL = baseURL
+	a.streamBaseURLMu.Unlock()
+}
+
+func (a *App) StreamBaseURL() string {
+	a.streamBaseURLMu.RLock()
+	defer a.streamBaseURLMu.RUnlock()
+	return a.streamBaseURL
 }
 
 // ArchCache returns the shared archive LRU cache so the stream middleware

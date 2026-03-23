@@ -182,6 +182,8 @@ export function SearchFiles(arg1:string,arg2:string,arg3:boolean):Promise<contra
 
 export function SetPaneDirectory(arg1:string,arg2:string):Promise<void>;
 
+export function SetStreamBaseURL(arg1:string):Promise<void>;
+
 export function SetupFileDropHandler(arg1:number):Promise<void>;
 
 export function Shutdown():Promise<void>;
@@ -199,6 +201,8 @@ export function StartOperation(arg1:contracts.OperationType,arg2:string,arg3:str
 export function StopElevatedSession():Promise<void>;
 
 export function StopElevationSession():Promise<void>;
+
+export function StreamBaseURL():Promise<string>;
 
 export function VFSListDir(arg1:string):Promise<contracts.DirectoryListing>;
 

@@ -1582,10 +1582,9 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
         return r?.content ?? null;
       },
       streamBinary: (_mimeType: string) => {
-        // Return a /wails-stream URL — the browser fetches it directly.
-        // For disk files this uses http.ServeContent which supports range
-        // requests (video seek, partial load) without any JS buffering.
-        return Promise.resolve(streamFileURL(path));
+    // Return a dedicated localhost stream URL so large media avoids
+    // Wails' buffered asset server path on Windows.
+    return this.api.getStreamURL(path);
       },
     });
   }
@@ -1605,9 +1604,9 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
         return r.content;
       },
       streamBinary: (_mimeType: string) => {
-        // Return a /wails-stream URL — the browser fetches the archive entry
-        // directly through the Go middleware without any JS buffering.
-        return Promise.resolve(streamArchiveURL(ctx.fsPath, ctx.nestedChain, ctx.entryPath));
+    // Archive streams use the same dedicated localhost server to avoid
+    // WebView buffering for large binary responses.
+    return this.api.getArchiveStreamURL(ctx.fsPath, ctx.nestedChain, ctx.entryPath);
       },
     });
 
@@ -1934,21 +1933,4 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
       html = `<p>${html}</p>`;
     return html;
   }
-}
-
-// ── Module-level helpers: build /wails-stream URLs ────────────────────────────
-
-/** Returns a /wails-stream URL for a disk file (range-request / seeking supported). */
-function streamFileURL(publicPath: string): string {
-  return '/wails-stream?path=' + encodeURIComponent(publicPath);
-}
-
-/** Returns a /wails-stream URL for a file inside an archive. */
-function streamArchiveURL(fsPath: string, nestedChain: string[], entryPath: string): string {
-  let url = '/wails-stream?fsPath=' + encodeURIComponent(fsPath)
-          + '&entry=' + encodeURIComponent(entryPath);
-  if (nestedChain && nestedChain.length > 0) {
-    url += '&nested=' + encodeURIComponent(nestedChain.join(','));
-  }
-  return url;
 }

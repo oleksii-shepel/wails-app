@@ -350,6 +350,10 @@ export function SetPaneDirectory(arg1, arg2) {
   return window['go']['app']['App']['SetPaneDirectory'](arg1, arg2);
 }
 
+export function SetStreamBaseURL(arg1) {
+  return window['go']['app']['App']['SetStreamBaseURL'](arg1);
+}
+
 export function SetupFileDropHandler(arg1) {
   return window['go']['app']['App']['SetupFileDropHandler'](arg1);
 }
@@ -384,6 +388,10 @@ export function StopElevatedSession() {
 
 export function StopElevationSession() {
   return window['go']['app']['App']['StopElevationSession']();
+}
+
+export function StreamBaseURL() {
+  return window['go']['app']['App']['StreamBaseURL']();
 }
 
 export function VFSListDir(arg1) {

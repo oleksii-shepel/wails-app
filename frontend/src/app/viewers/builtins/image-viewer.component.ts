@@ -306,7 +306,7 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
     if (!mime) { this.kind = 'unsupported'; return; }
 
     try {
-      this.imageSrc = streamFileURL(path);
+      this.imageSrc = await this.api.getStreamURL(path);
       this.kind = 'image';
     } catch (err) {
       this.error = err instanceof Error ? err.message : 'Failed to load image';
@@ -335,7 +335,7 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
       if (!r) { this.kind = 'unsupported'; return; }
       this.info = this.makeSyntheticInfo(entryName, ctx.entryPath, r.size ?? 0);
 
-      this.imageSrc = streamArchiveURL(ctx.fsPath, ctx.nestedChain, ctx.entryPath);
+      this.imageSrc = await this.api.getArchiveStreamURL(ctx.fsPath, ctx.nestedChain, ctx.entryPath);
       this.kind = 'image';
     } catch (err) {
       this.error = err instanceof Error ? err.message : 'Failed to load image from archive';
@@ -406,18 +406,5 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
     const v = bytes / Math.pow(1024, i);
     return `${i === 0 ? v : v.toFixed(1)} ${units[i]}`;
   }
-}
-
-function streamFileURL(publicPath: string): string {
-  return '/wails-stream?path=' + encodeURIComponent(publicPath);
-}
-
-function streamArchiveURL(fsPath: string, nestedChain: string[], entryPath: string): string {
-  let url = '/wails-stream?fsPath=' + encodeURIComponent(fsPath)
-          + '&entry=' + encodeURIComponent(entryPath);
-  if (nestedChain && nestedChain.length > 0) {
-    url += '&nested=' + encodeURIComponent(nestedChain.join(','));
-  }
-  return url;
 }
 

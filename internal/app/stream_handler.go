@@ -15,6 +15,25 @@ import (
 	"wails-app/vfs/archive/cache"
 )
 
+const streamPath = "/wails-stream"
+
+func NewStreamHandler(app *App, archCache *cache.Cache) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != streamPath {
+			http.NotFound(w, r)
+			return
+		}
+
+		if r.Method == http.MethodOptions {
+			setCORSHeaders(w)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		serveStreamRequest(w, r, app, archCache)
+	})
+}
+
 // NewStreamMiddleware returns an http.Handler that intercepts requests to
 // /wails-stream and pipes file content directly to the browser.
 //
@@ -30,29 +49,32 @@ import (
 // All other requests are forwarded to next.
 func NewStreamMiddleware(app *App, archCache *cache.Cache, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.HasPrefix(r.URL.Path, "/wails-stream") {
+		if r.URL.Path != streamPath {
 			next.ServeHTTP(w, r)
 			return
 		}
-
-		q := r.URL.Query()
-
-		// ── Archive entry ─────────────────────────────────────────────────────
-		fsPath := q.Get("fsPath")
-		entry := q.Get("entry")
-		if fsPath != "" && entry != "" {
-			serveArchiveEntry(w, r, archCache, fsPath, entry, q.Get("nested"))
-			return
-		}
-
-		// ── Disk / VFS path ───────────────────────────────────────────────────
-		path := q.Get("path")
-		if path == "" {
-			http.Error(w, "missing path parameter", http.StatusBadRequest)
-			return
-		}
-		servePath(w, r, app, path)
+		serveStreamRequest(w, r, app, archCache)
 	})
+}
+
+func serveStreamRequest(w http.ResponseWriter, r *http.Request, app *App, archCache *cache.Cache) {
+	q := r.URL.Query()
+
+	// ── Archive entry ─────────────────────────────────────────────────────
+	fsPath := q.Get("fsPath")
+	entry := q.Get("entry")
+	if fsPath != "" && entry != "" {
+		serveArchiveEntry(w, r, archCache, fsPath, entry, q.Get("nested"))
+		return
+	}
+
+	// ── Disk / VFS path ───────────────────────────────────────────────────
+	path := q.Get("path")
+	if path == "" {
+		http.Error(w, "missing path parameter", http.StatusBadRequest)
+		return
+	}
+	servePath(w, r, app, path)
 }
 
 func servePath(w http.ResponseWriter, r *http.Request, app *App, publicPath string) {
@@ -208,18 +230,22 @@ func extMIME(ext string) string {
 }
 
 // StreamURLForFile builds the /wails-stream URL for a disk path.
-// Called from the frontend via Wails binding or constructed directly in JS.
-func StreamURLForFile(publicPath string) string {
-	return "/wails-stream?path=" + urlEncode(publicPath)
+// Called from the frontend via Wails binding.
+func StreamURLForFile(baseURL, publicPath string) string {
+	return joinStreamBaseURL(baseURL) + streamPath + "?path=" + urlEncode(publicPath)
 }
 
 // StreamURLForEntry builds the /wails-stream URL for an archive entry.
-func StreamURLForEntry(fsPath string, nestedChain []string, entryPath string) string {
-	u := "/wails-stream?fsPath=" + urlEncode(fsPath) + "&entry=" + urlEncode(entryPath)
+func StreamURLForEntry(baseURL, fsPath string, nestedChain []string, entryPath string) string {
+	u := joinStreamBaseURL(baseURL) + streamPath + "?fsPath=" + urlEncode(fsPath) + "&entry=" + urlEncode(entryPath)
 	if len(nestedChain) > 0 {
 		u += "&nested=" + urlEncode(strings.Join(nestedChain, ","))
 	}
 	return u
+}
+
+func joinStreamBaseURL(baseURL string) string {
+	return strings.TrimRight(baseURL, "/")
 }
 
 func urlEncode(s string) string {
@@ -248,10 +274,10 @@ func hexByte(b byte) string {
 // GetStreamURL is a Wails-bound method that returns the stream URL for any path.
 // Exposed so the frontend can call App.GetStreamURL(path) to get a ready-to-use src.
 func (a *App) GetStreamURL(publicPath string) string {
-	return StreamURLForFile(publicPath)
+	return StreamURLForFile(a.StreamBaseURL(), publicPath)
 }
 
 // GetArchiveStreamURL is a Wails-bound method for archive entries.
 func (a *App) GetArchiveStreamURL(fsPath string, nestedChain []string, entryPath string) string {
-	return StreamURLForEntry(fsPath, nestedChain, entryPath)
+	return StreamURLForEntry(a.StreamBaseURL(), fsPath, nestedChain, entryPath)
 }

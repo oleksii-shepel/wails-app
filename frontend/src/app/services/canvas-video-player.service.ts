@@ -3,6 +3,12 @@ import { BehaviorSubject, Subject } from 'rxjs';
 import { BufferSource, EncodedPacketSink, Input, MATROSKA, MP4, MPEG_TS, QTFF, UrlSource, WEBM } from 'mediabunny';
 import * as MP4Box from 'mp4box';
 
+/**
+ * All mediabunny format parsers - try these in order for generic format handling.
+ * This allows us to support any format that mediabunny can demux.
+ */
+const MEDIABUNNY_FORMAT_PARSERS = [MP4, QTFF, MATROSKA, WEBM, MPEG_TS];
+
 export interface VideoMetadata {
   width: number;
   height: number;
@@ -807,9 +813,46 @@ class TsDemuxedSource {
   }
 }
 
+/**
+ * Generic demuxer that tries all mediabunny format parsers.
+ * This allows us to support any format mediabunny can handle, including AVI, FLV, MXF, etc.
+ */
+class GenericMediaBunnyDemuxedSource {
+  static async load(buffer: ArrayBuffer): Promise<DemuxedVideoSource> {
+    return MediaBunnyDemuxedSource.loadFromBuffer(buffer, MEDIABUNNY_FORMAT_PARSERS, (inputFormat) => {
+      // Return a friendly format name based on the detected format
+      if (inputFormat === MP4 || inputFormat === QTFF) return 'mp4';
+      if (inputFormat === MATROSKA) return 'mkv';
+      if (inputFormat === WEBM) return 'webm';
+      if (inputFormat === MPEG_TS) return 'ts';
+      return 'unknown';
+    });
+  }
+
+  static async loadFromUrl(url: string): Promise<DemuxedVideoSource> {
+    return MediaBunnyDemuxedSource.loadFromUrl(url, MEDIABUNNY_FORMAT_PARSERS, (inputFormat) => {
+      if (inputFormat === MP4 || inputFormat === QTFF) return 'mp4';
+      if (inputFormat === MATROSKA) return 'mkv';
+      if (inputFormat === WEBM) return 'webm';
+      if (inputFormat === MPEG_TS) return 'ts';
+      return 'unknown';
+    });
+  }
+}
+
 @Injectable({ providedIn: 'root' })
 export class CanvasVideoPlayerService {
-  private static readonly DEMUXER_BACKED_EXTENSIONS = new Set(['mp4', 'm4v', 'mov', 'mkv', 'webm', 'ts', 'mts', 'm2ts']);
+  /** All video extensions that WebCodecs can handle (via mediabunny demuxing) */
+  private static readonly DEMUXER_BACKED_EXTENSIONS = new Set([
+    // MP4 family
+    'mp4', 'm4v', 'mov',
+    // Matroska/WebM family
+    'mkv', 'webm',
+    // MPEG-TS family
+    'ts', 'mts', 'm2ts',
+    // Other formats supported by mediabunny
+    'avi', 'flv', 'mxf', 'ogv'
+  ]);
 
   async createPlayer(container: HTMLElement): Promise<CanvasVideoPlayer> {
     return new CanvasVideoPlayer(container);
@@ -823,7 +866,7 @@ export class CanvasVideoPlayerService {
     const normalizedExt = ext.toLowerCase();
     const upperExt = normalizedExt.toUpperCase();
 
-    return `${upperExt} is detected as a video file, but the current canvas player only has demux backends for MP4/MOV/MKV/WebM/TS right now. ${upperExt} support still needs a container-specific demuxer before WebCodecs can decode it.`;
+    return `${upperExt} is detected as a video file, but the browser's WebCodecs API does not support the video codec used in this file, or the container format is not recognized by mediabunny. Try with a different video or contact support if you believe this is an error.`;
   }
 }
 
@@ -995,8 +1038,11 @@ export class CanvasVideoPlayer {
         return MkvDemuxedSource.load(buffer);
       case 'ts':
         return TsDemuxedSource.load(buffer);
+      case 'unknown':
+        // Try all mediabunny format parsers for unknown containers
+        return GenericMediaBunnyDemuxedSource.load(buffer);
       default:
-        throw new Error('Canvas playback currently supports MP4/MOV/MKV/WebM/TS sources only. Other containers need a demuxer implementation before WebCodecs can decode them.');
+        throw new Error('Canvas playback container format is unknown and could not be determined.');
     }
   }
 
@@ -1008,8 +1054,11 @@ export class CanvasVideoPlayer {
         return MkvDemuxedSource.loadFromUrl(url);
       case 'ts':
         return TsDemuxedSource.loadFromUrl(url);
+      case 'unknown':
+        // Try all mediabunny format parsers for unknown containers
+        return GenericMediaBunnyDemuxedSource.loadFromUrl(url);
       default:
-        throw new Error('Streaming URL demux is currently implemented for MP4/MOV/MKV/WebM/TS only. Other containers still use the buffered load path.');
+        throw new Error('Canvas playback container format is unknown and could not be determined.');
     }
   }
 

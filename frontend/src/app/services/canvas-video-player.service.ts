@@ -15,6 +15,8 @@ export interface VideoMetadata {
   hasVideo: boolean;
 }
 
+type ContainerFormat = 'mp4' | 'mkv' | 'unknown';
+
 type PlayerState = 'idle' | 'paused' | 'playing' | 'ended';
 
 type ExtendedVideoDecoderConfig = VideoDecoderConfig & {
@@ -59,6 +61,13 @@ interface AvcSampleConfig {
   lengthSize: number;
   sps: Uint8Array[];
   pps: Uint8Array[];
+}
+
+interface DemuxedVideoSource {
+  metadata: VideoMetadata;
+  decoderConfig: ExtendedVideoDecoderConfig;
+  avcSampleConfig?: AvcSampleConfig;
+  samples: SampleInfo[];
 }
 
 @Injectable({ providedIn: 'root' })
@@ -108,7 +117,8 @@ export class CanvasVideoPlayer {
   async loadFromUrl(url: string): Promise<VideoMetadata> {
     try {
       const buffer = await this.fetchFile(url);
-      const metadata = await this.loadFromBuffer(buffer);
+      const containerFormat = this.detectContainerFormat(buffer, url);
+      const metadata = await this.loadFromBuffer(buffer, containerFormat);
       return metadata;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to load video';
@@ -191,7 +201,23 @@ export class CanvasVideoPlayer {
     this.canvas.remove();
   }
 
-  private async loadFromBuffer(buffer: ArrayBuffer): Promise<VideoMetadata> {
+  private async loadFromBuffer(buffer: ArrayBuffer, containerFormat: ContainerFormat): Promise<VideoMetadata> {
+    const source = await this.demuxBuffer(buffer, containerFormat);
+    return this.initializeDemuxedSource(source);
+  }
+
+  private async demuxBuffer(buffer: ArrayBuffer, containerFormat: ContainerFormat): Promise<DemuxedVideoSource> {
+    switch (containerFormat) {
+      case 'mp4':
+        return this.demuxMp4Buffer(buffer);
+      case 'mkv':
+        throw new Error('MKV is detected correctly, but the canvas player does not have a Matroska demuxer wired in yet. Add a dedicated MKV demuxer before routing MKV files into WebCodecs.');
+      default:
+        throw new Error('Canvas playback currently supports MP4/MOV sources only. Other containers need a demuxer implementation before WebCodecs can decode them.');
+    }
+  }
+
+  private async demuxMp4Buffer(buffer: ArrayBuffer): Promise<DemuxedVideoSource> {
     this.ensureMp4(buffer);
 
     const mp4File = MP4Box.createFile();
@@ -203,9 +229,7 @@ export class CanvasVideoPlayer {
     const durationMs = this.resolveTrackDurationMs(videoTrack);
     const frameRate = this.inferFrameRate(videoTrack, durationMs);
 
-    this.canvas.width = width;
-    this.canvas.height = height;
-    this.metadata = {
+    const metadata: VideoMetadata = {
       width,
       height,
       duration: durationMs,
@@ -217,18 +241,41 @@ export class CanvasVideoPlayer {
       hasAudio: Boolean(audioTrack),
       hasVideo: true,
     };
-    this.metadataReady$.next(this.metadata);
 
     const sampleEntry = this.getSampleEntry(mp4File, videoTrack.id);
-    this.avcSampleConfig = this.getAvcSampleConfig(sampleEntry);
+    const avcSampleConfig = this.getAvcSampleConfig(sampleEntry);
     const decoderConfig = await this.buildDecoderConfig(videoTrack, sampleEntry);
 
+    const previousAvcSampleConfig = this.avcSampleConfig;
+    const previousDecoderConfig = this.decoderConfig;
+    this.avcSampleConfig = avcSampleConfig;
     this.decoderConfig = decoderConfig;
-    await this.rebuildDecoder();
+    try {
+      const samples = await this.extractSamples(mp4File, videoTrack.id, videoTrack.nb_samples);
+      return {
+        metadata,
+        decoderConfig,
+        avcSampleConfig,
+        samples,
+      };
+    } finally {
+      this.avcSampleConfig = previousAvcSampleConfig;
+      this.decoderConfig = previousDecoderConfig;
+    }
+  }
 
-    this.samples = await this.extractSamples(mp4File, videoTrack.id, videoTrack.nb_samples);
-  this.updateMetadataFromSamples();
+  private async initializeDemuxedSource(source: DemuxedVideoSource): Promise<VideoMetadata> {
+    this.canvas.width = source.metadata.width;
+    this.canvas.height = source.metadata.height;
+    this.metadata = source.metadata;
+    this.metadataReady$.next(this.metadata);
+    this.avcSampleConfig = source.avcSampleConfig;
+    this.decoderConfig = source.decoderConfig;
+    this.samples = source.samples;
+    this.updateMetadataFromSamples();
     this.keyframeSampleIndexes = this.samples.filter((sample) => sample.isRap).map((sample) => sample.index);
+
+    await this.rebuildDecoder();
     this.isLoaded = true;
     this.sampleCursor = 0;
     this.playbackBaseMs = 0;
@@ -869,6 +916,31 @@ export class CanvasVideoPlayer {
 
   private toMilliseconds(value: number, timescale: number): number {
     return Math.round((value * 1000) / Math.max(1, timescale));
+  }
+
+  private detectContainerFormat(buffer: ArrayBuffer, url?: string): ContainerFormat {
+    const bytes = new Uint8Array(buffer.slice(0, 16));
+    const boxType = bytes.byteLength >= 8
+      ? String.fromCharCode(bytes[4], bytes[5], bytes[6], bytes[7])
+      : '';
+
+    if (boxType === 'ftyp' || boxType === 'moov' || boxType === 'mdat') {
+      return 'mp4';
+    }
+
+    if (bytes.byteLength >= 4 && bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3) {
+      return 'mkv';
+    }
+
+    const normalizedUrl = (url ?? '').toLowerCase();
+    if (/\.(mp4|m4v|mov)(?:$|[?#])/.test(normalizedUrl)) {
+      return 'mp4';
+    }
+    if (/\.(mkv|webm)(?:$|[?#])/.test(normalizedUrl)) {
+      return 'mkv';
+    }
+
+    return 'unknown';
   }
 
   private ensureMp4(buffer: ArrayBuffer): void {

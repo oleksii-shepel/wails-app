@@ -1865,6 +1865,10 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
 
   private getUnsupportedVideoMessage(ext: string): string {
     const upperExt = ext.toUpperCase();
+    if (ext === 'mkv' || ext === 'webm') {
+      return `${upperExt} is detected correctly, but the current canvas player does not have a Matroska/WebM demuxer wired in yet. The playback pipeline now has a container routing seam, so ${upperExt} support can be added by integrating a dedicated demuxer.`;
+    }
+
     return `${upperExt} is detected as a video file, but the current canvas player only implements MP4/MOV demuxing. ${upperExt} support needs a container-specific demuxer before WebCodecs can decode it.`;
   }
 

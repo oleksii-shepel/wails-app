@@ -1,542 +1,540 @@
-# Media Pipeline Redesign: Backend Demux + Packet Streaming
+# Media Pipeline Redesign: Backend Demux + Frontend Decode
 
 ## Executive Summary
 
-**Goal**: Go handles demuxing + indexing; frontend consumes codec packets and decodes via WebCodecs.
+**Goal**: Go owns source access, indexing, demuxing, and packet delivery. The frontend owns decoding, A/V scheduling, and rendering via WebCodecs.
 
-**Benefits**:
-- ✅ **Performance**: CPU-heavy demuxing (index building, packet extraction) in native Go
-- ✅ **Reduced frontend complexity**: No mediabunny, no internal demuxing state machine
-- ✅ **Reuses infrastructure**: Existing stream handler, archive cache, VFS layer
-- ✅ **Smart seeking**: Backend can seek packet-perfectly without re-scanning files
+**What this improves**:
+- Lower frontend complexity: container parsing and seek logic move out of TypeScript.
+- Better playback behavior: backend can build indexes, jump to keyframes, and avoid repeated browser-side scans.
+- Better source coverage: the same backend path can serve disk files, mounted VFS sources, and archives when the source can be made seekable.
+- Better runtime characteristics: less JS CPU and memory pressure on the UI thread.
 
-**Timeline**: Moderate effort (2–4 weeks full implementation + testing)
+**What this does not automatically improve**:
+- It does **not** guarantee dramatically lower byte volume. Packetized elementary streams are often in the same order of magnitude as the original media payload. The win is smarter access and less frontend work, not a guaranteed 75% traffic reduction.
+- It does **not** remove the need for a custom media endpoint. Wails asset serving is still the wrong abstraction for a stateful media protocol.
 
----
-
-## Architecture Overview
-
-```
-User clicks play on video.mkv
-    ↓
-Frontend → /wails-stream?path=/video.mkv&init=true
-    ↓
-[Go Stream Handler]
-    ├─ Opens file via VFS (disk, archive, SMB, etc.)
-    ├─ Runs ffmpeg demuxer
-    ├─ Extracts codec init data (SPS/PPS for H.264, extradata)
-    ├─ Sends: JSON init packet {duration, codecs, keyframes, init_data}
-    ↓
-Frontend receives init → sets up WebCodecs decoder
-    ↓
-Frontend → /wails-stream?path=/video.mkv&range=packets&from=0&count=100
-    ↓
-[Go Stream Handler]
-    ├─ Seeks demuxer to packet offset
-    ├─ Extracts N codec packets (binary arena)
-    ├─ Sends: {packets: [uint8_array], timestamps: [], is_keyframe: []}
-    ↓
-Frontend decodes packets → renders to Canvas
-    ↓
-Repeat: for smooth playback, prefetch packets ahead
-```
+**Effort**: moderate. The hard parts are seekability, packet/index caching, codec-specific bitstream packaging, and audio/video sync.
 
 ---
 
-## Custom Streaming Protocol
+## Decision: AssetHandler vs App-Owned Media Endpoint
 
-### Phase 1: Initialization
-**Request**: `GET /wails-stream?path=/video.mkv&init=true`
+If by `AssetHandler` you mean Wails' embedded asset serving path, **do not build the media protocol on top of it as if it were a static file server**.
 
-**Response** (JSON):
+Use the existing app-managed HTTP surface for media requests instead:
+- Keep a dedicated app-owned route such as `/wails-stream`.
+- Keep it tied to the app lifecycle, not to a separately deployed service.
+- Treat it as a custom protocol endpoint with its own handlers, session state, and caches.
+
+That gives you the benefit you want:
+- no separate external media server to deploy,
+- but still full control over routing, binary framing, sessions, and backend caches.
+
+So the answer is:
+- **Yes**, you can avoid a separate standalone service.
+- **No**, `AssetHandler` by itself is not the right primitive for demux/index/packet protocol logic.
+
+---
+
+## Recommended Architecture
+
+```
+Frontend viewer
+    -> open media session
+    -> receive track metadata + codec config + seek map summary
+    -> request packet batches by cursor
+    -> decode with WebCodecs
+    -> render video / schedule audio
+
+Go media pipeline
+    -> resolve path via disk / VFS / archive layer
+    -> ensure source is seekable
+    -> open demux session
+    -> build or load packet/keyframe index
+    -> serve packet batches and seek results
+    -> close/evict idle sessions
+```
+
+### Why session-based instead of plain stateless requests
+
+Re-opening a demuxer on every request is the wrong cost profile.
+
+You want a session because it lets the backend keep:
+- the opened demux context,
+- stream metadata,
+- keyframe index,
+- packet cursors,
+- temporary spool/cache state for non-native sources.
+
+Without a session, seek and packet requests either become expensive or force you to rebuild too much state per call.
+
+---
+
+## Protocol Shape
+
+Keep `/wails-stream`, but evolve it into a session protocol.
+
+### 1. Open Session
+
+**Request**
+
+`POST /wails-stream/session/open`
+
+Body:
+
 ```json
 {
+  "path": "drive://C:/video.mkv"
+}
+```
+
+Archive/VFS variants can use a different source descriptor:
+
+```json
+{
+  "fs_path": "drive://C:/archive.zip",
+  "nested": ["inner.tar"],
+  "entry": "movie.mkv"
+}
+```
+
+**Response**
+
+```json
+{
+  "session_id": "m_8f3b6b8d",
+  "title": "video.mkv",
   "duration_ms": 120000,
-  "streams": [
+  "seekable": true,
+  "tracks": [
     {
       "id": 0,
-      "type": "video",
-      "codec": "h264",
+      "kind": "video",
+      "codec": "avc1.640028",
+      "bitstream_format": "annexb",
       "width": 1920,
       "height": 1080,
       "fps": 30.0,
-      "bitrate": 5000000,
-      "init_data": "<base64-encoded SPS/PPS or extradata>",
-      "keyframe_indices": [0, 120, 240, 360, ...],
-      "packet_count": 3600
+      "description_b64": "...",
+      "has_b_frames": true,
+      "keyframe_count": 312
     },
     {
       "id": 1,
-      "type": "audio",
-      "codec": "aac",
-      "channels": 2,
+      "kind": "audio",
+      "codec": "mp4a.40.2",
       "sample_rate": 48000,
-      "init_data": "<base64-encoded AudioSpecificConfig>",
-      "packet_count": 5760
+      "channels": 2,
+      "description_b64": "..."
     }
   ],
-  "title": "video.mkv"
+  "seek_points_ms": [0, 2033, 4010, 6021]
 }
 ```
 
-**Benefits**:
-- Frontend knows filesize, duration, seek points upfront
-- Pre-allocates decoder with correct codec params
-- Can build seek UI instantly
+Notes:
+- Return **WebCodecs-usable codec strings**, not generic labels like `h264` or `aac`.
+- Return whether the delivered bitstream is `annexb`, `avcc`, or another codec-specific format the frontend must honor.
+- `description_b64` is codec-specific initialization data, not always required and not always sufficient on its own.
 
-### Phase 2: Packet Streaming
-**Request**: `GET /wails-stream?path=/video.mkv&range=packets&stream_id=0&from=100&count=50`
+### 2. Read Packets
 
-**Response** (Binary with JSON header):
-```
-[JSON Header]
-{
-  "stream_id": 0,
-  "packets": [
-    {
-      "index": 100,
-      "size": 2048,
-      "timestamp": 3333,
-      "duration": 33,
-      "is_keyframe": false,
-      "offset": 0
-    },
-    ...
-  ],
-  "data_offset": 512
-}
+**Request**
 
-[Binary Data]
-<raw packet 1 bytes><raw packet 2 bytes>...
-```
+`GET /wails-stream/session/packets?session_id=m_8f3b6b8d&track_id=0&cursor=120&limit=64`
 
-**Why binary?**
-- Packets are 1–50 KB each; JSON overhead is 10x+ worse
-- Single HTTP request for batch of packets reduces latency
-- Direct memory mapping possible (mmap on backend → zero-copy to frontend)
+**Response**
 
-### Phase 3: Seeking
-**Request**: `GET /wails-stream?path=/video.mkv&seek_to_ms=45000&stream_id=0`
+Use binary framing, not text splitting.
 
-**Response**:
+Recommended wire format:
+- 4-byte little-endian header length
+- JSON header bytes
+- concatenated packet payload bytes
+
+Header example:
+
 ```json
 {
-  "keyframe_before_ms": 44988,
-  "keyframe_before_index": 449,
-  "estimated_packets_to_keyframe": 15,
-  "message": "Seek to keyframe 449 (44.988s)"
+  "session_id": "m_8f3b6b8d",
+  "track_id": 0,
+  "next_cursor": 184,
+  "packets": [
+    {
+      "cursor": 120,
+      "offset": 0,
+      "size": 2048,
+      "timestamp_us": 3333000,
+      "duration_us": 33333,
+      "is_keyframe": false
+    },
+    {
+      "cursor": 121,
+      "offset": 2048,
+      "size": 834,
+      "timestamp_us": 3366333,
+      "duration_us": 33333,
+      "is_keyframe": false
+    }
+  ]
 }
 ```
 
-**Frontend then**:
-- Requests packets from keyframe onwards
-- Decoder skips/discards until target time
-- No buffering entire file
+Notes:
+- Use microseconds in the protocol because that matches WebCodecs timestamps directly.
+- `cursor` should be a backend-defined opaque packet position or stable index within the session.
+- For audio/video playback, track packets can be fetched independently, but the shared session timeline must stay authoritative.
+
+### 3. Seek
+
+**Request**
+
+`POST /wails-stream/session/seek`
+
+```json
+{
+  "session_id": "m_8f3b6b8d",
+  "track_id": 0,
+  "time_ms": 45000
+}
+```
+
+**Response**
+
+```json
+{
+  "session_id": "m_8f3b6b8d",
+  "resolved_time_ms": 44988,
+  "cursor": 449,
+  "is_keyframe": true
+}
+```
+
+Notes:
+- Seek should resolve to the nearest decodable point, usually the prior random access point.
+- The frontend should flush and rebuild decoders as needed, then resume from the returned cursor.
+
+### 4. Close Session
+
+**Request**
+
+`POST /wails-stream/session/close`
+
+```json
+{
+  "session_id": "m_8f3b6b8d"
+}
+```
+
+Also expire sessions automatically after an idle timeout.
+
+---
+
+## Source Layer Requirements
+
+This is the main architectural constraint.
+
+Most demuxers expect a source that behaves like:
+- `Read`,
+- `Seek`,
+- often effectively `ReadAt` or equivalent random access.
+
+That has consequences for your existing source types.
+
+### Disk files
+
+Easy case. Native file access is already seekable.
+
+### Mounted VFS sources
+
+Depends on the adapter.
+
+If the VFS adapter supports efficient random access, it can back demuxing directly.
+
+If it is only sequential or expensive to seek remotely, you will likely need:
+- a bounded local spool file, or
+- a random-access block cache.
+
+### Archive entries
+
+This is the biggest correction to the draft.
+
+Your current archive stream path explicitly serves archive entries as non-seekable streams. That is fine for raw file download, but **not** fine for a general demux/seek pipeline.
+
+For archive-backed media, you need one of these:
+- archive implementation with efficient random access into the entry,
+- temporary extraction to a local spool file,
+- indexed block cache that can emulate seekable reads.
+
+Without that, backend demuxing for archive entries will be fragile or impossible for many formats.
 
 ---
 
 ## Backend Implementation
 
-### 1. **Choose FFmpeg Binding**
+### 1. Demux backend choice
 
-**Option A**: `github.com/u2takey/ffmpeg-go`
-- Pure Go wrappers around ffmpeg CLI
-- Simple, but spawns subprocess per query (slower)
-- Good for quick MVP
+The original draft listed `ffmpeg-go` and `go-echarts/video`. That is not a good basis for this design.
 
-**Option B**: `github.com/go-echarts/go-echarts/video` (ffmpeg via CGO)
-- CVCodec, libavformat bindings (C FFmpeg)
-- Fast, but requires C compilation (`gcc` on Windows)
-- Better for production
+#### `ffmpeg-go`
 
-**Recommendation**: Start with Option A (quick MVP), migrate to Option B for performance.
+Do **not** treat it as the core demux API for packet streaming.
 
-### 2. **Demuxer Service Package**
+Why:
+- it is oriented around building ffmpeg command graphs,
+- it is process-based,
+- it is poor for maintaining an in-process packet/session model,
+- it is awkward for repeated packet-range reads and stable cursors.
 
-Create `internal/demuxer/service.go`:
+It may still be useful for quick probing or experiments, but not as the real transport engine.
+
+#### Better production options
+
+Use one of these approaches:
+
+1. **Direct libavformat/libavcodec bindings in-process**
+   - Example family: `go-astiav`.
+   - Best fit for session-based demux, indexing, packet reads, and seek control.
+   - Cost: CGO, FFmpeg binaries/libs, Windows toolchain complexity.
+
+2. **Long-lived helper process you own**
+   - A separate local helper process, started by the app, not a separately deployed server.
+   - Communicates over pipes or localhost IPC.
+   - Better operational isolation than CGO in the main process.
+   - Good fallback if Windows FFmpeg linking becomes painful.
+
+Recommendation:
+- If you want the cleanest long-term architecture, use direct libav bindings.
+- If you want lower risk on Windows, consider a long-lived helper process before committing to deep CGO in the main app.
+
+### 2. Core interfaces
+
+The interface should be session-oriented, not `Init(filePath)` on every call.
 
 ```go
-package demuxer
-
-type MediaDemuxer interface {
-	// Open file and scan metadata
-	Init(ctx context.Context, filePath string) (*InitData, error)
-	
-	// Extract codec init data (SPS/PPS, extradata)
-	GetInitPacket(ctx context.Context, streamID int) ([]byte, error)
-	
-	// Extract batch of codec packets
-	GetPackets(ctx context.Context, streamID, from, count int) (*PacketBatch, error)
-	
-	// Seek to time, return nearest keyframe info
-	SeekToTime(ctx context.Context, streamID int, ms int64) (*SeekInfo, error)
-	
-	Close() error
+type SessionManager interface {
+    OpenPath(ctx context.Context, source SourceDescriptor) (*SessionInfo, error)
+    ReadPackets(ctx context.Context, sessionID string, trackID int, cursor string, limit int) (*PacketBatch, error)
+    Seek(ctx context.Context, sessionID string, trackID int, timeMs int64) (*SeekResult, error)
+    Close(ctx context.Context, sessionID string) error
 }
 
-type InitData struct {
-	Duration      int64
-	Streams       []StreamInfo
-	KeyframeIndex []int64 // millisecond timestamps
+type SessionInfo struct {
+    SessionID   string
+    DurationMs  int64
+    Seekable    bool
+    Tracks      []TrackInfo
+    SeekPoints  []int64
 }
 
-type StreamInfo struct {
-	ID          int
-	Type        string // "video", "audio"
-	Codec       string // "h264", "aac", etc.
-	CodecParams map[string]interface{} // width, height, fps, channels, etc.
-	InitData    []byte // base64-encoded SPS/PPS
-	PacketCount int
+type TrackInfo struct {
+    ID              int
+    Kind            string
+    Codec           string
+    BitstreamFormat string
+    Width           int
+    Height          int
+    SampleRate      int
+    Channels        int
+    Description     []byte
 }
 
 type PacketBatch struct {
-	StreamID int
-	Packets  []Packet
-	Raw      []byte // Concatenated packet data
+    NextCursor string
+    Packets    []PacketMeta
+    Payload    []byte
 }
 
-type Packet struct {
-	Index      int
-	Size       int
-	Timestamp  int64 // milliseconds
-	Duration   int64
-	IsKeyframe bool
-	Offset     int // Byte offset in Raw
-}
-
-type SeekInfo struct {
-	KeyframeMs        int64
-	KeyframeIndex     int
-	PacketsToKeyframe int
+type PacketMeta struct {
+    Cursor       string
+    Offset       int
+    Size         int
+    TimestampUs  int64
+    DurationUs   int64
+    IsKeyframe   bool
 }
 ```
 
-### 3. **Caching Layer**
+### 3. Caching
 
-Reuse existing `vfs/archive/cache.Cache`:
-- Store demuxer instance + index per file
-- TTL: 5 minutes idle
-- Evict on file change
+Do **not** reuse the archive cache as the primary demuxer cache.
 
-```go
-// In stream_handler.go
-demuxerCache := &DemuxerCache{
-	cache:    archCache, // reuse archive cache
-	demuxers: make(map[string]MediaDemuxer),
-	mu:       sync.RWMutex{},
-}
+Use separate caches for separate lifetimes:
+- archive/source cache,
+- demux session cache,
+- packet index cache,
+- optional spool/block cache for non-native sources.
 
-func (dc *DemuxerCache) GetOrCreate(path string) (MediaDemuxer, error) {
-	// Check if already cached + valid
-	// If not, create new demuxer + cache it
-	// Return 5min TTL
-}
-```
+That separation matters because they have different memory pressure and eviction behavior.
 
-### 4. **Stream Handler Updates**
+### 4. Stream handler changes
 
-Extend `stream_handler.go`:
+Keep the current file-streaming behavior as a fallback path.
 
-```go
-func serveStreamRequest(w http.ResponseWriter, r *http.Request, app *App, archCache *cache.Cache) {
-	q := r.URL.Query()
-	path := q.Get("path")
+Add a new protocol branch under the same route family, for example:
+- `/wails-stream/session/open`
+- `/wails-stream/session/packets`
+- `/wails-stream/session/seek`
+- `/wails-stream/session/close`
 
-	demuxer, err := getOrCreateDemuxer(path, archCache)
-	if err != nil {
-		http.Error(w, "demuxer error", http.StatusInternalServerError)
-		return
-	}
-
-	// Initialization phase
-	if q.Get("init") == "true" {
-		init, err := demuxer.Init(r.Context(), path)
-		respondJSON(w, init)
-		return
-	}
-
-	// Packet streaming phase
-	if q.Get("range") == "packets" {
-		streamID := parseInt(q.Get("stream_id"), 0)
-		from := parseInt(q.Get("from"), 0)
-		count := parseInt(q.Get("count"), 100)
-
-		batch, err := demuxer.GetPackets(r.Context(), streamID, from, count)
-		respondBinary(w, batch) // Binary + header
-		return
-	}
-
-	// Seeking phase
-	if q.Get("seek_to_ms") != "" {
-		ms, _ := strconv.ParseInt(q.Get("seek_to_ms"), 10, 64)
-		streamID := parseInt(q.Get("stream_id"), 0)
-
-		seek, err := demuxer.SeekToTime(r.Context(), streamID, ms)
-		respondJSON(w, seek)
-		return
-	}
-
-	http.Error(w, "unknown request type", http.StatusBadRequest)
-}
-```
+That lets legacy viewers continue to use raw file URLs while the new canvas player opts into the session protocol.
 
 ---
 
-## Frontend Implementation
+## Frontend Implementation Notes
 
-### 1. **Protocol Handler**
+### 1. Binary parsing
 
-Create `src/app/services/media-protocol.ts`:
+The original draft used `resp.text()` and `Buffer.from(...)`. That is wrong for browser-side binary protocol handling.
+
+Use `arrayBuffer()` and parse the framed payload explicitly.
 
 ```typescript
-export class MediaProtocol {
-  async init(path: string): Promise<MediaInit> {
-    const resp = await fetch(
-      `/wails-stream?path=${encodeURIComponent(path)}&init=true`
-    );
-    return resp.json();
-  }
+async function readPacketBatch(url: string): Promise<PacketBatch> {
+  const response = await fetch(url);
+  const buffer = await response.arrayBuffer();
+  const view = new DataView(buffer);
+  const headerLength = view.getUint32(0, true);
 
-  async getPackets(
-    path: string,
-    streamId: number,
-    from: number,
-    count: number
-  ): Promise<PacketBatch> {
-    const resp = await fetch(
-      `/wails-stream?path=${encodeURIComponent(path)}&range=packets&stream_id=${streamId}&from=${from}&count=${count}`
-    );
-    // Parse JSON header + binary data
-    const text = await resp.text();
-    const [headerStr, ...dataParts] = text.split('\n\n');
-    const header = JSON.parse(headerStr);
-    const data = dataParts.join('\n\n');
-    
-    return {
-      packets: header.packets,
-      data: new Uint8Array(Buffer.from(data, 'binary'))
-    };
-  }
+  const headerBytes = new Uint8Array(buffer, 4, headerLength);
+  const payload = new Uint8Array(buffer, 4 + headerLength);
+  const headerText = new TextDecoder().decode(headerBytes);
+  const header = JSON.parse(headerText);
 
-  async seekTo(
-    path: string,
-    streamId: number,
-    ms: number
-  ): Promise<SeekInfo> {
-    const resp = await fetch(
-      `/wails-stream?path=${encodeURIComponent(path)}&seek_to_ms=${ms}&stream_id=${streamId}`
-    );
-    return resp.json();
-  }
+  return {
+    packets: header.packets,
+    nextCursor: header.next_cursor,
+    payload,
+  };
 }
 ```
 
-### 2. **Simplified Decoder**
+### 2. WebCodecs config details
 
-Create `src/app/services/webcodecs-player.ts`:
+Do not assume:
+- `codec: "h264"` is enough,
+- `codec: "aac"` is enough,
+- `description` is always required,
+- one config shape works across AVC/HEVC/AV1/VP9.
 
-```typescript
-export class WebCodecsPlayer {
-  private video: HTMLCanvasElement;
-  private decoder: VideoDecoder;
-  private packets: Map<number, Uint8Array> = new Map();
+Instead:
+- return canonical codec strings such as `avc1.640028` or `mp4a.40.2`,
+- return codec initialization data only when required,
+- return whether the payload is `annexb` or length-prefixed,
+- keep codec-specific mapping logic in one frontend adapter layer.
 
-  async initialize(init: MediaInit): Promise<void> {
-    const stream = init.streams.find(s => s.type === 'video');
-    if (!stream) throw new Error('No video stream');
+### 3. Decoder API behavior
 
-    const codec = `${stream.codec}`;
-    const config: VideoDecoderConfig = {
-      codec,
-      codedWidth: stream.width,
-      codedHeight: stream.height,
-      description: this.base64ToBuffer(stream.init_data)
-    };
+`VideoDecoder.decode()` and `AudioDecoder.decode()` are synchronous calls that enqueue work. Do not `await` them.
 
-    this.decoder = new VideoDecoder({
-      output: (frame) => this.renderFrame(frame),
-      error: (err) => console.error('Decode error:', err)
-    });
+The async boundaries are around:
+- `flush()`,
+- stream fetches,
+- your own scheduling and seek orchestration.
 
-    this.decoder.configure(config);
-  }
+### 4. Audio/video sync
 
-  async feedPackets(batch: PacketBatch): Promise<void> {
-    for (const packet of batch.packets) {
-      const data = batch.data.slice(packet.offset, packet.offset + packet.size);
-      const chunk = new EncodedVideoChunk({
-        type: packet.is_keyframe ? 'key' : 'delta',
-        timestamp: packet.timestamp * 1000, // Convert ms → µs
-        duration: packet.duration * 1000,
-        data
-      });
-      await this.decoder.decode(chunk);
-    }
-  }
+Moving demuxing to Go does **not** remove the need for frontend scheduling.
 
-  private renderFrame(frame: VideoFrame): void {
-    const ctx = this.video.getContext('2d');
-    ctx.drawImage(frame, 0, 0);
-    frame.close();
-  }
+The frontend still needs to:
+- manage a playback clock,
+- feed decoders ahead of time,
+- render decoded frames at the correct moment,
+- schedule decoded audio against `AudioContext`.
 
-  private base64ToBuffer(b64: string): Uint8Array {
-    const str = atob(b64);
-    return new Uint8Array(str.split('').map(c => c.charCodeAt(0)));
-  }
-}
-```
-
-### 3. **Playback Controller**
-
-```typescript
-export class PlaybackController {
-  private protocol: MediaProtocol;
-  private player: WebCodecsPlayer;
-  private prefetchBuffer: number = 300; // Prefetch 300 packets ahead
-
-  async play(path: string): Promise<void> {
-    const init = await this.protocol.init(path);
-    await this.player.initialize(init);
-
-    // Initial batch
-    await this.prefetchPackets(0, this.prefetchBuffer);
-  }
-
-  private async prefetchPackets(from: number, count: number): Promise<void> {
-    const batch = await this.protocol.getPackets(
-      this.currentPath,
-      0, // Video stream
-      from,
-      count
-    );
-    await this.player.feedPackets(batch);
-  }
-
-  async seek(ms: number): Promise<void> {
-    const seekInfo = await this.protocol.seekTo(this.currentPath, 0, ms);
-    
-    // Clear decoder, feed packets from keyframe
-    const batch = await this.protocol.getPackets(
-      this.currentPath,
-      0,
-      seekInfo.keyframe_index,
-      seekInfo.estimated_packets_to_keyframe + 100
-    );
-    await this.player.feedPackets(batch);
-  }
-}
-```
+The backend simplifies packet acquisition and seek correctness. It does not replace playback control.
 
 ---
 
-## Implementation Roadmap
+## Migration Path
 
-### Phase 1: MVP (Week 1–2)
-- [ ] Integrate ffmpeg-go (Option A)
-- [ ] Implement basic Init endpoint
-- [ ] Implement Packet batch endpoint
-- [ ] Simple frontend decoder test
+### Current state
 
-### Phase 2: Optimization (Week 2–3)
-- [ ] Add keyframe indexing
-- [ ] Implement seeking (SeekToTime)
-- [ ] Cache demuxer instances
-- [ ] Binary protocol (avoid JSON for packets)
+- Browser-side container parsing and packet extraction live in the canvas player.
+- `/wails-stream` already exists for raw file/archive access.
+- Archive entry streaming is currently non-seekable.
 
-### Phase 3: Polish (Week 3–4)
-- [ ] Archive integration (demux from .zip, .rar, etc.)
-- [ ] Audio stream support
-- [ ] Playback controller + scrubbing
-- [ ] Performance profiling + tuning
+### Target state
 
-### Phase 4: Production (Week 4+)
-- [ ] Migrate to FFmpeg CGO (Option B)
-- [ ] Adaptive bitrate (stream resolution-dependent packets?)
-- [ ] HDR/codec negotiation
+- Existing raw streaming remains for simple viewers and fallback.
+- New canvas player uses media sessions under `/wails-stream/session/*`.
+- Media demux/index logic moves to Go.
+- Frontend keeps decode/render responsibilities only.
 
----
+### Suggested rollout
 
-## Migration Path from Current Setup
+1. Implement session open + metadata only.
+2. Implement video packet fetch for seekable disk files only.
+3. Switch one video path in the canvas player behind a feature flag.
+4. Add keyframe seek.
+5. Add audio.
+6. Add VFS sources that are truly seekable.
+7. Add archive-backed playback only after you have a spool/cache strategy.
 
-### Current State
-- mediabunny demuxes in browser
-- Large JS demuxing code
-- Network bandwidth: full file
-
-### New State
-- mediabunny removed
-- Minimal JS (decode only)
-- Network bandwidth: codec packets only (~20% of file for H.264)
-
-### How to Migrate
-1. **Keep stream_handler.go as-is** for legacy/fallback
-2. **Add new `/wails-stream?init=true` path** (v2 protocol)
-3. **Frontend detects protocol version** (graceful degradation)
-4. **No breaking changes** to existing code
+This sequence avoids overcommitting before the hardest I/O case is solved.
 
 ---
 
-## Performance Characteristics
+## Performance Expectations
 
-| Metric | Current (Browser Demux) | New (Backend Demux) |
-|--------|------------------------|---------------------|
-| **JS bundle size** | +600 KB (mediabunny) | –600 KB |
-| **Demuxing CPU** | 100% on main thread | 0% (Go worker) |
-| **Network traffic** | Full file | 15–25% (packets only) |
-| **Time to first frame** | 2–3s (demux overhead) | 500–800ms (network only) |
-| **Seek latency** | 1–2s (rescan + demux) | 200–300ms (direct keyframe) |
+The realistic wins are:
+- lower JS parse/demux cost,
+- smaller frontend code surface,
+- more reliable seeks,
+- better reuse of cached indexes,
+- less duplicate work between seeks/reloads.
+
+The wins that should be treated as conditional, not promised:
+- time-to-first-frame depends on how quickly session open can probe metadata and acquire init data,
+- seek latency depends on whether the index is already cached,
+- byte volume depends on whether you skip unused tracks and how much framing overhead you add.
+
+So avoid hard promises like:
+- fixed `500-800ms` startup,
+- fixed `200-300ms` seek,
+- fixed `15-25%` network usage.
+
+Those numbers may be achievable in some cases, but they are not architectural guarantees.
 
 ---
 
-## Risk & Mitigation
+## Main Risks
 
 | Risk | Impact | Mitigation |
-|------|--------|-----------|
-| FFmpeg compilation (Windows) | Medium | Start with ffmpeg-go (CLI), test before CGO |
-| File handle leaks | High | Strict demuxer cache TTL, explicit Close() |
-| Large file indexing | High | Cache keyframe index in VFS cache, lazy-build |
-| Audio sync | Medium | Use packet timestamps, adjust for drift |
+|------|--------|------------|
+| Non-seekable archive and remote sources | High | Add spool file or random-access block cache before supporting them |
+| Windows FFmpeg integration complexity | High | Prefer one validated binding/helper approach early and test packaging immediately |
+| Codec-specific bitstream packaging | High | Normalize per codec: AVC, HEVC, AV1, VP9, AAC |
+| Session/file handle leaks | High | Idle TTL, explicit close path, bounded cache sizes |
+| Audio/video drift | Medium | Keep shared timestamps authoritative and schedule audio from decoded output clock |
+| Overly chatty HTTP packet fetches | Medium | Batch packets and prefetch ahead |
 
 ---
 
-## Decision Points
+## Recommended Next Step
 
-### 1. FFmpeg Binding Library
-- **Option A** (ffmpeg-go): 2–3 days, lower perf, easier debugging
-- **Option B** (libavformat CGO): 4–5 days, 3–5x faster, requires C toolchain
+Build the narrowest useful slice first:
 
-**Recommendation**: Start with A, migrate to B after MVP validates architecture.
+1. Disk-file-only media session open.
+2. Video-track packet fetch for one codec path you already know works in WebCodecs.
+3. Frontend adapter that consumes framed binary packet batches.
+4. Keyframe seek for that same path.
 
-### 2. Binary vs JSON for Packets
-- **Pure JSON**: 10x larger overhead, simpler debugging
-- **Binary**: 90% smaller, faster parsing, zero-copy possible
-
-**Recommendation**: Hybrid = JSON header (debug-friendly) + binary data.
-
-### 3. Caching Strategy
-- **Per-file demuxer instance**: ~5MB RAM per 2hr video, reusable across seeks
-- **Shared archive cache**: Demuxer competes with archive entry buffers
-
-**Recommendation**: Dedicated demuxer cache + archive cache separate.
-
----
-
-## Questions to Resolve Before Implementation
-
-1. **Audio support?** (Currently no audio preview; OK to defer?)
-2. **Subtitle support?** (Same timeline as audio?)
-3. **Custom codecs?** (VP9, AV1 support needed, or H.264/H.265 sufficient?)
-4. **Adaptive streaming?** (Multiple resolutions, or fixed bitrate?)
-5. **DRM?** (Encrypted containers like Widevine, or unencrypted only?)
+That will validate the architecture without forcing archive/VFS/audio complexity on day one.
 
 ---
 
 ## Conclusion
 
-✅ **Feasible**: Uses existing patterns + reusable infrastructure  
-✅ **High ROI**: ~40% reduction in frontend complexity, 3–5x perf gain  
-✅ **Low risk**: Gradual migration, no breaking changes  
-⚠️ **Effort**: 2–4 weeks for full implementation + testing
+The architecture direction is sound:
+- Go as media pipeline engine,
+- frontend as decoder + renderer,
+- custom protocol over the app-owned `/wails-stream` surface.
 
-**Next step**: Choose FFmpeg binding library + start Phase 1.
+The corrected version of the plan is:
+- **do not** rely on Wails asset serving as the media engine,
+- **do not** use per-request stateless demuxing,
+- **do not** assume archive entries are ready for seek-heavy demuxing,
+- **do** build a session-based protocol with explicit source, seek, packet, and close semantics,
+- **do** keep the frontend focused on WebCodecs decode and playback scheduling.

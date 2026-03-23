@@ -77,8 +77,8 @@ export class CanvasVideoPlayer {
   private metadata?: VideoMetadata;
   private avcSampleConfig?: AvcSampleConfig;
   private samples: SampleInfo[] = [];
-  private static readonly MAX_DECODED_FRAMES = 64;
-  private static readonly MAX_DECODE_QUEUE = 32;
+  private static readonly MAX_DECODED_FRAMES = 180;
+  private static readonly MAX_DECODE_QUEUE = 96;
   private keyframeSampleIndexes: number[] = [];
   private decodedFrames: DecodedFrame[] = [];
   private sampleCursor = 0;
@@ -553,9 +553,24 @@ export class CanvasVideoPlayer {
 
   private async extractSamples(mp4File: any, trackId: number, expectedCount: number): Promise<SampleInfo[]> {
     return new Promise((resolve, reject) => {
+      const batchSize = 1000;
       const extracted: SampleInfo[] = [];
+      let resolved = false;
+
+      const finish = () => {
+        if (resolved) {
+          return;
+        }
+        resolved = true;
+        mp4File.stop();
+        mp4File.unsetExtractionOptions(trackId);
+        resolve(extracted);
+      };
 
       mp4File.onError = (error: unknown) => {
+        if (resolved) {
+          return;
+        }
         reject(new Error(`MP4 sample extraction failed: ${String(error)}`));
       };
 
@@ -574,18 +589,13 @@ export class CanvasVideoPlayer {
           });
         }
 
-        if (extracted.length >= expectedCount) {
-          mp4File.stop();
-          mp4File.unsetExtractionOptions(trackId);
-          resolve(extracted);
-        } else {
-          mp4File.setExtractionOptions(trackId, null, { nbSamples: 1000 });
-          mp4File.start();
+        if (extracted.length >= expectedCount || samples.length < batchSize) {
+          finish();
         }
       };
 
       mp4File.setExtractionOptions(trackId, null, {
-        nbSamples: 1000,
+        nbSamples: batchSize,
       });
       mp4File.start();
       mp4File.flush();
@@ -623,12 +633,12 @@ export class CanvasVideoPlayer {
       return;
     }
 
-    const currentTimeMs = this.getCurrentTimeMs();
+    const currentTimeMs = this.getPlaybackTimeMs();
     this.currentTime$.next(currentTimeMs / 1000);
     this.decodeAhead();
     this.drawForTime(currentTimeMs);
 
-    if (currentTimeMs >= this.getDurationMs()) {
+    if (currentTimeMs >= this.getDurationMs() && this.isPlaybackExhausted()) {
       this.playbackBaseMs = this.getDurationMs();
       this.cancelRenderLoop();
       this.stateChanged$.next('ended');
@@ -737,18 +747,17 @@ export class CanvasVideoPlayer {
       return 0;
     }
 
-    let low = 0;
-    let high = this.samples.length - 1;
-    while (low < high) {
-      const mid = Math.floor((low + high) / 2);
-      if (this.samples[mid].timestampMs < timeMs) {
-        low = mid + 1;
-      } else {
-        high = mid;
+    // Samples are stored in decode order, but H.264 with B-frames can expose
+    // non-monotonic composition timestamps. A binary search over timestampMs is
+    // therefore unsafe for seek targeting.
+    let sampleIndex = this.samples.length - 1;
+    for (let index = 0; index < this.samples.length; index += 1) {
+      if (this.samples[index].timestampMs >= timeMs) {
+        sampleIndex = index;
+        break;
       }
     }
 
-    const sampleIndex = this.samples[low].timestampMs > timeMs && low > 0 ? low - 1 : low;
     let rapIndex = 0;
     for (const keyframeIndex of this.keyframeSampleIndexes) {
       if (keyframeIndex > sampleIndex) {
@@ -766,6 +775,43 @@ export class CanvasVideoPlayer {
 
     const elapsedMs = performance.now() - this.playbackStartPerfMs;
     return Math.min(this.getDurationMs(), this.playbackBaseMs + elapsedMs);
+  }
+
+  private getPlaybackTimeMs(): number {
+    const targetTimeMs = this.getCurrentTimeMs();
+    const bufferedUntilMs = this.getBufferedUntilMs();
+    const frameIntervalMs = this.metadata ? 1000 / (this.metadata.frameRate || 30) : 16.67;
+
+    if (
+      bufferedUntilMs >= 0 &&
+      targetTimeMs > bufferedUntilMs + frameIntervalMs &&
+      !this.isPlaybackExhausted()
+    ) {
+      // Hold the playback clock at the latest decoded timestamp until more
+      // frames arrive. Without this, wall-clock playback can outrun WebCodecs
+      // decoding and prematurely hit the artificial end of the timeline.
+      this.playbackBaseMs = bufferedUntilMs;
+      this.playbackStartPerfMs = performance.now();
+      return bufferedUntilMs;
+    }
+
+    return targetTimeMs;
+  }
+
+  private getBufferedUntilMs(): number {
+    if (this.decodedFrames.length > 0) {
+      return this.decodedFrames[this.decodedFrames.length - 1].timestampMs;
+    }
+
+    return this.lastDrawnTimestampMs;
+  }
+
+  private isPlaybackExhausted(): boolean {
+    return Boolean(
+      this.sampleCursor >= this.samples.length &&
+      (!this.decoder || this.decoder.decodeQueueSize === 0) &&
+      this.decodedFrames.length <= 1,
+    );
   }
 
   private getDurationMs(): number {

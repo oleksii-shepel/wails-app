@@ -1,6 +1,6 @@
 import { Injectable } from '@angular/core';
 import { BehaviorSubject, Subject } from 'rxjs';
-import { BufferSource, EncodedPacketSink, Input, MATROSKA, MP4, QTFF, UrlSource, WEBM } from 'mediabunny';
+import { BufferSource, EncodedPacketSink, Input, MATROSKA, MP4, MPEG_TS, QTFF, UrlSource, WEBM } from 'mediabunny';
 import * as MP4Box from 'mp4box';
 
 export interface VideoMetadata {
@@ -16,7 +16,7 @@ export interface VideoMetadata {
   hasVideo: boolean;
 }
 
-type ContainerFormat = 'mp4' | 'mkv' | 'unknown';
+type ContainerFormat = 'mp4' | 'mkv' | 'ts' | 'unknown';
 
 type PlayerState = 'idle' | 'paused' | 'playing' | 'ended';
 
@@ -787,9 +787,29 @@ class MkvDemuxedSource {
   }
 }
 
+class TsDemuxedSource {
+  static async load(buffer: ArrayBuffer): Promise<DemuxedVideoSource> {
+    this.ensureTsFormat(buffer);
+
+    return MediaBunnyDemuxedSource.loadFromBuffer(buffer, [MPEG_TS], () => 'ts');
+  }
+
+  static async loadFromUrl(url: string): Promise<DemuxedVideoSource> {
+    return MediaBunnyDemuxedSource.loadFromUrl(url, [MPEG_TS], () => 'ts');
+  }
+
+  private static ensureTsFormat(buffer: ArrayBuffer): void {
+    const bytes = new Uint8Array(buffer.slice(0, 1));
+    // TS/M2TS streams typically start with sync byte 0x47
+    if (bytes.byteLength < 1 || bytes[0] !== 0x47) {
+      throw new Error('Canvas playback expected an MPEG-TS source, but the file does not start with a TS sync byte.');
+    }
+  }
+}
+
 @Injectable({ providedIn: 'root' })
 export class CanvasVideoPlayerService {
-  private static readonly DEMUXER_BACKED_EXTENSIONS = new Set(['mp4', 'm4v', 'mov', 'mkv', 'webm']);
+  private static readonly DEMUXER_BACKED_EXTENSIONS = new Set(['mp4', 'm4v', 'mov', 'mkv', 'webm', 'ts', 'mts', 'm2ts']);
 
   async createPlayer(container: HTMLElement): Promise<CanvasVideoPlayer> {
     return new CanvasVideoPlayer(container);
@@ -803,7 +823,7 @@ export class CanvasVideoPlayerService {
     const normalizedExt = ext.toLowerCase();
     const upperExt = normalizedExt.toUpperCase();
 
-    return `${upperExt} is detected as a video file, but the current canvas player only has demux backends for MP4/MOV/MKV/WebM right now. ${upperExt} support still needs a container-specific demuxer before WebCodecs can decode it.`;
+    return `${upperExt} is detected as a video file, but the current canvas player only has demux backends for MP4/MOV/MKV/WebM/TS right now. ${upperExt} support still needs a container-specific demuxer before WebCodecs can decode it.`;
   }
 }
 
@@ -815,8 +835,25 @@ export class CanvasVideoPlayer {
   private decoder?: VideoDecoder;
   private decoderConfig?: ExtendedVideoDecoderConfig;
   private metadata?: VideoMetadata;
-  private static readonly MAX_DECODED_FRAMES = 180;
-  private static readonly MAX_DECODE_QUEUE = 96;
+  
+  /** Max decoded frames - adaptive based on resolution to limit memory usage */
+  private static calculateMaxDecodedFrames(width: number, height: number): number {
+    // Each frame consumes approximately (width * height * 4 bytes) for RGBA
+    // Estimate frame size in MB
+    const frameSizeMB = (width * height * 4) / (1024 * 1024);
+    
+    // Target: Keep total decoded frame buffer under ~256 MB (reasonable for modern browsers)
+    const targetBufferMB = 256;
+    const maxFrames = Math.floor(targetBufferMB / frameSizeMB);
+    
+    // Clamp between 12 and 90 frames for safety
+    // Minimum 12 frames (~0.4s at 30fps) for smooth playback
+    // Maximum 90 frames (~3s at 30fps) to prevent excessive memory use
+    return Math.max(12, Math.min(90, maxFrames));
+  }
+  
+  private static readonly MAX_DECODE_QUEUE = 48;
+  private maxDecodedFrames = 60; // Updated when video loads
   private decodedFrames: DecodedFrame[] = [];
   private nextPacketCursor: DemuxedPacketCursor | null = null;
   private reachedEndOfStream = false;
@@ -848,7 +885,7 @@ export class CanvasVideoPlayer {
   async loadFromUrl(url: string): Promise<VideoMetadata> {
     try {
       const hintedFormat = this.detectContainerFormatFromUrl(url);
-      if (hintedFormat === 'mp4' || hintedFormat === 'mkv') {
+      if (hintedFormat === 'mp4' || hintedFormat === 'mkv' || hintedFormat === 'ts') {
         return await this.loadFromStreamUrl(url, hintedFormat);
       }
 
@@ -956,8 +993,10 @@ export class CanvasVideoPlayer {
         return Mp4DemuxedSource.load(buffer);
       case 'mkv':
         return MkvDemuxedSource.load(buffer);
+      case 'ts':
+        return TsDemuxedSource.load(buffer);
       default:
-        throw new Error('Canvas playback currently supports MP4/MOV/MKV/WebM sources only. Other containers need a demuxer implementation before WebCodecs can decode them.');
+        throw new Error('Canvas playback currently supports MP4/MOV/MKV/WebM/TS sources only. Other containers need a demuxer implementation before WebCodecs can decode them.');
     }
   }
 
@@ -967,8 +1006,10 @@ export class CanvasVideoPlayer {
         return Mp4DemuxedSource.loadFromUrl(url);
       case 'mkv':
         return MkvDemuxedSource.loadFromUrl(url);
+      case 'ts':
+        return TsDemuxedSource.loadFromUrl(url);
       default:
-        throw new Error('Streaming URL demux is currently implemented for MP4/MOV/MKV/WebM only. Other containers still use the buffered load path.');
+        throw new Error('Streaming URL demux is currently implemented for MP4/MOV/MKV/WebM/TS only. Other containers still use the buffered load path.');
     }
   }
 
@@ -977,6 +1018,13 @@ export class CanvasVideoPlayer {
     this.source = source;
     this.canvas.width = source.metadata.width;
     this.canvas.height = source.metadata.height;
+    
+    // Calculate adaptive frame buffer based on resolution to prevent memory issues
+    this.maxDecodedFrames = CanvasVideoPlayer.calculateMaxDecodedFrames(
+      source.metadata.width,
+      source.metadata.height
+    );
+    
     this.metadata = source.metadata;
     this.metadataReady$.next(this.metadata);
     this.decoderConfig = source.decoderConfig;
@@ -998,7 +1046,20 @@ export class CanvasVideoPlayer {
       return;
     }
 
-    this.decoder?.close();
+    // Clear any previously decoded frames to free memory
+    this.clearDecodedFrames();
+
+    // Close old decoder - flush pending operations first to ensure clean shutdown
+    if (this.decoder) {
+      try {
+        await this.decoder.flush();
+      } catch {
+        // Flush may fail if decoder is already closed or in error state
+        // This is acceptable - we still want to close it
+      }
+      this.decoder.close();
+    }
+
     this.decoder = new VideoDecoder({
       output: (frame) => this.onDecodedFrame(frame),
       error: (error) => {
@@ -1021,7 +1082,7 @@ export class CanvasVideoPlayer {
     this.decodedFrames.push({ timestampMs, frame });
     this.decodedFrames.sort((left, right) => left.timestampMs - right.timestampMs);
 
-    while (this.decodedFrames.length > CanvasVideoPlayer.MAX_DECODED_FRAMES) {
+    while (this.decodedFrames.length > this.maxDecodedFrames) {
       const stale = this.decodedFrames.shift();
       stale?.frame.close();
     }
@@ -1078,7 +1139,7 @@ export class CanvasVideoPlayer {
         this.nextPacketCursor &&
         this.decoder &&
         this.decoder.decodeQueueSize < CanvasVideoPlayer.MAX_DECODE_QUEUE &&
-        this.decodedFrames.length + this.decoder.decodeQueueSize < CanvasVideoPlayer.MAX_DECODED_FRAMES
+        this.decodedFrames.length + this.decoder.decodeQueueSize < this.maxDecodedFrames
       ) {
         let cursor = this.nextPacketCursor;
         let packet = cursor.packet;
@@ -1273,12 +1334,19 @@ export class CanvasVideoPlayer {
       return 'mkv';
     }
 
+    if (bytes.byteLength >= 1 && bytes[0] === 0x47) {
+      return 'ts';
+    }
+
     const normalizedUrl = (url ?? '').toLowerCase();
     if (/\.(mp4|m4v|mov)(?:$|[?#])/.test(normalizedUrl)) {
       return 'mp4';
     }
     if (/\.(mkv|webm)(?:$|[?#])/.test(normalizedUrl)) {
       return 'mkv';
+    }
+    if (/\.(ts|mts|m2ts)(?:$|[?#])/.test(normalizedUrl)) {
+      return 'ts';
     }
 
     return 'unknown';
@@ -1311,6 +1379,9 @@ export class CanvasVideoPlayer {
       }
       if (/\.(mkv|webm)(?:$|[?#])/.test(normalized)) {
         return 'mkv';
+      }
+      if (/\.(ts|mts|m2ts)(?:$|[?#])/.test(normalized)) {
+        return 'ts';
       }
     }
 

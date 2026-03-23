@@ -53,7 +53,6 @@ export class SurfaceOutletComponent implements OnChanges {
   ) {}
 
   ngOnChanges(): void {
-    this.outletInputs = { ctx: this.ctx };
     const surfaceKey = this.ctx ? `${this.ctx.kind}:${this.ctx.tab.id}` : 'dir';
 
     // FilePaneComponent rebuilds the surface context object on every change
@@ -61,16 +60,19 @@ export class SurfaceOutletComponent implements OnChanges {
     // or active tab actually changes; otherwise just push fresh inputs into the
     // mounted one.
     if (this.component && this.resolvedSurfaceKey === surfaceKey) {
+      this.outletInputs = { ctx: this.ctx };
       this.cdr.markForCheck();
       return;
     }
 
     const seq = ++this.resolveSeq;
     this.resolvedSurfaceKey = surfaceKey;
+    const targetCtx = this.ctx;
     this.cdr.markForCheck();
 
-    void this.registry.resolve({ tab: this.ctx.tab }).then(({ component }) => {
+    void this.registry.resolve({ tab: targetCtx.tab }).then(({ component }) => {
       if (seq !== this.resolveSeq) return;
+      this.outletInputs = { ctx: targetCtx };
       this.component = component;
       this.cdr.markForCheck();
       // Give Angular a tick to create the component instance, then wire outputs

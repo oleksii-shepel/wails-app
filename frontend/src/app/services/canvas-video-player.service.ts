@@ -73,8 +73,8 @@ export class CanvasVideoPlayer {
   private metadata?: VideoMetadata;
   private avcSampleConfig?: AvcSampleConfig;
   private samples: SampleInfo[] = [];
-  private static readonly MAX_DECODED_FRAMES = 24;
-  private static readonly MAX_DECODE_QUEUE = 16;
+  private static readonly MAX_DECODED_FRAMES = 64;
+  private static readonly MAX_DECODE_QUEUE = 32;
   private keyframeSampleIndexes: number[] = [];
   private decodedFrames: DecodedFrame[] = [];
   private sampleCursor = 0;
@@ -523,6 +523,7 @@ export class CanvasVideoPlayer {
     this.decoder = new VideoDecoder({
       output: (frame) => this.onDecodedFrame(frame),
       error: (error) => {
+        console.error('[WebCodecs] VideoDecoder error:', error);
         const message = error instanceof Error ? error.message : String(error);
         this.error$.next(`Video decode error: ${message}`);
       },
@@ -540,6 +541,7 @@ export class CanvasVideoPlayer {
       };
 
       mp4File.onSamples = (_id: number, _user: unknown, samples: any[]) => {
+        const expectsAnnexB = this.decoderConfig?.avc?.format === 'annexb';
         for (const sample of samples) {
           const sampleBytes = sample.data instanceof Uint8Array ? sample.data : new Uint8Array(sample.data);
           extracted.push({
@@ -547,7 +549,7 @@ export class CanvasVideoPlayer {
             timestampMs: this.toMilliseconds(sample.cts, sample.timescale),
             durationMs: Math.max(1, this.toMilliseconds(sample.duration, sample.timescale)),
             isRap: Boolean(sample.is_rap || sample.is_sync),
-            data: this.avcSampleConfig
+            data: (this.avcSampleConfig && expectsAnnexB)
               ? this.convertAvcSampleToAnnexB(sampleBytes, Boolean(sample.is_rap || sample.is_sync))
               : sampleBytes,
           });
@@ -557,11 +559,14 @@ export class CanvasVideoPlayer {
           mp4File.stop();
           mp4File.unsetExtractionOptions(trackId);
           resolve(extracted);
+        } else {
+          mp4File.setExtractionOptions(trackId, null, { nbSamples: 1000 });
+          mp4File.start();
         }
       };
 
       mp4File.setExtractionOptions(trackId, null, {
-        nbSamples: Math.min(250, Math.max(1, expectedCount)),
+        nbSamples: 1000,
       });
       mp4File.start();
       mp4File.flush();
@@ -569,6 +574,11 @@ export class CanvasVideoPlayer {
   }
 
   private onDecodedFrame(frame: VideoFrame): void {
+    if (this.canvas.width !== frame.displayWidth || this.canvas.height !== frame.displayHeight) {
+      this.canvas.width = frame.displayWidth;
+      this.canvas.height = frame.displayHeight;
+    }
+
     const timestampMs = Math.round(frame.timestamp / 1000);
     this.decodedFrames.push({ timestampMs, frame });
     this.decodedFrames.sort((left, right) => left.timestampMs - right.timestampMs);
@@ -579,6 +589,14 @@ export class CanvasVideoPlayer {
     }
 
     this.frameReady$.next(timestampMs);
+
+    // If playback is paused (e.g. during initial load or explicit seek),
+    // the render loop is stopped, so we must manually draw incoming frames
+    // or the canvas will remain empty black.
+    if (this.stateChanged$.value !== 'playing') {
+      this.drawForTime(this.getCurrentTimeMs());
+      this.decodeAhead();
+    }
   }
 
   private renderLoop(): void {
@@ -657,8 +675,14 @@ export class CanvasVideoPlayer {
       return;
     }
 
-    if (frame.timestampMs > currentTimeMs + 40) {
-      return;
+    const frameIntervalMs = this.metadata ? 1000 / (this.metadata.frameRate || 30) : 16.67;
+    if (frame.timestampMs > currentTimeMs + frameIntervalMs * 1.5) {
+      if (this.lastDrawnTimestampMs < 0) {
+        // Unconditionally draw the VERY FIRST decoded frame even if its PTS is slightly ahead of 0.
+        // This prevents black screen when paused at the beginning without audio sync yet.
+      } else {
+        return;
+      }
     }
 
     if (frame.timestampMs === this.lastDrawnTimestampMs) {

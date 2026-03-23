@@ -1,5 +1,6 @@
 import { Injectable } from '@angular/core';
 import { BehaviorSubject, Subject } from 'rxjs';
+import { BufferSource, EncodedPacketSink, Input, MATROSKA, WEBM } from 'mediabunny';
 import * as MP4Box from 'mp4box';
 
 export interface VideoMetadata {
@@ -498,16 +499,165 @@ class Mp4DemuxedSource {
 }
 
 class MkvDemuxedSource {
-  static async load(_buffer: ArrayBuffer): Promise<DemuxedVideoSource> {
-    throw new Error(
-      'Matroska/WebM demux backend is not implemented yet. Add an MKV/WebM demuxer that returns DemuxedVideoSource to enable these containers.',
-    );
+  static async load(buffer: ArrayBuffer): Promise<DemuxedVideoSource> {
+    this.ensureMatroska(buffer);
+
+    const input = new Input({
+      formats: [MATROSKA, WEBM],
+      source: new BufferSource(buffer),
+    });
+
+    try {
+      const [inputFormat, videoTrack, audioTrack, inputDurationSec] = await Promise.all([
+        input.getFormat(),
+        input.getPrimaryVideoTrack(),
+        input.getPrimaryAudioTrack(),
+        input.computeDuration(),
+      ]);
+
+      if (!videoTrack) {
+        throw new Error('No decodable video track was found in this Matroska/WebM file.');
+      }
+
+      const [decoderConfig, videoCodec, audioCodec, stats, trackDurationSec, samples] = await Promise.all([
+        videoTrack.getDecoderConfig(),
+        videoTrack.getCodecParameterString(),
+        audioTrack?.getCodecParameterString() ?? Promise.resolve(null),
+        videoTrack.computePacketStats(120),
+        videoTrack.computeDuration(),
+        this.extractSamples(videoTrack),
+      ]);
+
+      if (!decoderConfig) {
+        const codecLabel = videoCodec ?? String(videoTrack.internalCodecId ?? 'unknown');
+        throw new Error(`Unsupported ${this.describeContainer(inputFormat)} video codec for WebCodecs: ${codecLabel}`);
+      }
+
+      const normalizedDecoderConfig: ExtendedVideoDecoderConfig = {
+        ...decoderConfig,
+        optimizeForLatency: true,
+      };
+
+      if (!await this.canUseDecoderConfig(normalizedDecoderConfig)) {
+        throw new Error(`This runtime cannot configure WebCodecs for ${videoCodec ?? normalizedDecoderConfig.codec}.`);
+      }
+
+      if (!samples.length) {
+        throw new Error('The Matroska/WebM file has a video track, but no decodable packets were extracted.');
+      }
+
+      const keyframeSampleIndexes = samples.filter((sample) => sample.isRap).map((sample) => sample.index);
+      const lastSample = samples[samples.length - 1];
+      const durationMs = Math.max(
+        Math.max(0, this.toMilliseconds(trackDurationSec)),
+        Math.max(0, this.toMilliseconds(inputDurationSec)),
+        lastSample.timestampMs + Math.max(1, lastSample.durationMs),
+      );
+      const frameRate = Number.isFinite(stats.averagePacketRate)
+        ? Math.max(1, Math.round(stats.averagePacketRate))
+        : 0;
+      const bitrate = Number.isFinite(stats.averageBitrate)
+        ? Math.max(0, Math.round(stats.averageBitrate))
+        : undefined;
+      const metadata: VideoMetadata = {
+        width: videoTrack.displayWidth || videoTrack.codedWidth || 1280,
+        height: videoTrack.displayHeight || videoTrack.codedHeight || 720,
+        duration: durationMs,
+        format: inputFormat === WEBM ? 'webm' : 'mkv',
+        videoCodec: videoCodec ?? String(videoTrack.internalCodecId ?? normalizedDecoderConfig.codec),
+        audioCodec: audioCodec ?? undefined,
+        bitrate,
+        frameRate,
+        hasAudio: Boolean(audioTrack),
+        hasVideo: true,
+      };
+
+      return {
+        metadata,
+        decoderConfig: normalizedDecoderConfig,
+        samples,
+        keyframeSampleIndexes,
+        destroy: () => input.dispose(),
+      };
+    } catch (error) {
+      input.dispose();
+      throw error;
+    }
+  }
+
+  private static async extractSamples(videoTrack: any): Promise<SampleInfo[]> {
+    const sink = new EncodedPacketSink(videoTrack);
+    const samples: SampleInfo[] = [];
+    let timestampOffsetMs: number | null = null;
+
+    for await (const packet of sink.packets(undefined, undefined, { verifyKeyPackets: true })) {
+      const packetTimestampMs = this.toMilliseconds(packet.timestamp);
+      const packetDurationMs = Math.max(1, this.toMilliseconds(packet.duration));
+
+      if (packetTimestampMs + packetDurationMs <= 0) {
+        continue;
+      }
+
+      if (timestampOffsetMs === null) {
+        timestampOffsetMs = Math.max(0, packetTimestampMs);
+      }
+
+      samples.push({
+        index: samples.length,
+        timestampMs: Math.max(0, packetTimestampMs - timestampOffsetMs),
+        durationMs: packetDurationMs,
+        isRap: packet.type === 'key',
+        data: packet.data.slice(),
+      });
+    }
+
+    return samples;
+  }
+
+  private static async canUseDecoderConfig(config: VideoDecoderConfig): Promise<boolean> {
+    try {
+      if (typeof VideoDecoder.isConfigSupported === 'function') {
+        const support = await VideoDecoder.isConfigSupported(config);
+        if (support.supported) {
+          return true;
+        }
+      }
+    } catch {
+      // Fall through to a configure probe for embedded runtimes.
+    }
+
+    try {
+      const probe = new VideoDecoder({
+        output: (frame) => frame.close(),
+        error: () => undefined,
+      });
+      probe.configure(config);
+      probe.close();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private static describeContainer(inputFormat: unknown): string {
+    return inputFormat === WEBM ? 'WebM' : 'Matroska';
+  }
+
+  private static toMilliseconds(valueSec: number): number {
+    return Math.round(valueSec * 1000);
+  }
+
+  private static ensureMatroska(buffer: ArrayBuffer): void {
+    const bytes = new Uint8Array(buffer.slice(0, 4));
+    if (bytes.byteLength < 4 || bytes[0] !== 0x1a || bytes[1] !== 0x45 || bytes[2] !== 0xdf || bytes[3] !== 0xa3) {
+      throw new Error('Canvas playback expected a Matroska/WebM source, but the file does not start with an EBML header.');
+    }
   }
 }
 
 @Injectable({ providedIn: 'root' })
 export class CanvasVideoPlayerService {
-  private static readonly DEMUXER_BACKED_EXTENSIONS = new Set(['mp4', 'm4v', 'mov']);
+  private static readonly DEMUXER_BACKED_EXTENSIONS = new Set(['mp4', 'm4v', 'mov', 'mkv', 'webm']);
 
   async createPlayer(container: HTMLElement): Promise<CanvasVideoPlayer> {
     return new CanvasVideoPlayer(container);
@@ -521,11 +671,7 @@ export class CanvasVideoPlayerService {
     const normalizedExt = ext.toLowerCase();
     const upperExt = normalizedExt.toUpperCase();
 
-    if (normalizedExt === 'mkv' || normalizedExt === 'webm') {
-      return `${upperExt} is detected correctly, but the current canvas player does not have a Matroska/WebM demuxer wired in yet. The playback pipeline now has a shared demuxed-source architecture, so ${upperExt} support can be added by implementing another demux backend.`;
-    }
-
-    return `${upperExt} is detected as a video file, but the current canvas player only has demux backends for MP4/MOV right now. ${upperExt} support needs a container-specific demuxer before WebCodecs can decode it.`;
+    return `${upperExt} is detected as a video file, but the current canvas player only has demux backends for MP4/MOV/MKV/WebM right now. ${upperExt} support still needs a container-specific demuxer before WebCodecs can decode it.`;
   }
 }
 
@@ -668,7 +814,7 @@ export class CanvasVideoPlayer {
       case 'mkv':
         return MkvDemuxedSource.load(buffer);
       default:
-        throw new Error('Canvas playback currently supports MP4/MOV sources only. Other containers need a demuxer implementation before WebCodecs can decode them.');
+        throw new Error('Canvas playback currently supports MP4/MOV/MKV/WebM sources only. Other containers need a demuxer implementation before WebCodecs can decode them.');
     }
   }
 

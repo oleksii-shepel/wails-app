@@ -4,6 +4,15 @@
 
 A backend image conversion service has been implemented to support preview of extended image formats beyond what browsers natively support. The system uses **ImageMagick** as the primary converter (when available) and falls back to Go's native image decoders for basic formats.
 
+## Current State
+
+The current implementation is intentionally split into two paths:
+
+1. **Native browser preview** for formats that can already be rendered by the browser.
+2. **Backend conversion preview** for formats that need server-side decoding before display.
+
+The converted preview path now uses the existing local stream server. Earlier iterations used base64 transport over the Wails bridge, but that was replaced because it inflated payload size and duplicated memory usage in both Go and the browser.
+
 ## Architecture
 
 ### Backend Components
@@ -53,6 +62,11 @@ CanConvertImage(fileExt string) bool
 - Initialized in `NewCore()` → `NewServices()` → `BuildState()`
 - Follows existing service pattern with dependency injection
 
+#### 4. Unified Stream Handler Integration (`internal/app/stream_handler.go`)
+- Added on-demand converted preview support through `/wails-stream`
+- New request shape: `/wails-stream?path=<path>&convert=png`
+- Converted images are served with normal HTTP semantics instead of being marshalled through Wails IPC
+
 ### Frontend Updates
 
 #### 1. Image Viewer Component (`image-viewer.component.ts`)
@@ -64,6 +78,10 @@ CanConvertImage(fileExt string) bool
 - Extended image file scoring to include convertible formats
 - Score: 50 for native formats, 40 for convertible formats
 - Routes files like `.psd`, `.ai`, `.eps`, `.xcf` to image viewer
+
+#### 3. API Service (`api.service.ts`)
+- Added `getConvertedImageURL()` helper
+- Keeps converted preview loading consistent with other streamed preview URLs
 
 ## How It Works
 
@@ -79,6 +97,17 @@ CanConvertImage(fileExt string) bool
    - Falls back to Go decoder if ImageMagick unavailable
 7. Streams the converted PNG bytes from `/wails-stream`
 8. Component displays the returned preview URL in `<img src="...">`
+
+### Why The Base64 Path Was Removed
+
+The original conversion transport returned a base64-encoded image string to the frontend. That approach was removed because it had several downsides:
+
+- Base64 adds measurable payload overhead.
+- The full image had to cross the Wails bridge as one large string.
+- The browser then had to decode the same payload again into a data URL.
+- Large images caused unnecessary memory duplication on both sides.
+
+The current streamed-preview approach avoids those issues while preserving the existing viewer model.
 
 ### Data Flow
 
@@ -194,6 +223,7 @@ await window.go.app.App.GetConversionCapabilities("psd")
 - **Subsequent conversions:** Faster as process is reused
 - **Transport:** Converted previews are streamed over HTTP instead of sent through the Wails bridge
 - **Memory:** This avoids duplicating image payloads as base64 strings in JS memory
+- **Still in-memory per request:** The converter currently produces the final preview bytes in memory before the stream handler serves them
 
 ## Limitations
 
@@ -242,7 +272,7 @@ Common errors and resolutions:
 
 1. **Thumbnail Generation:** Create small previews for thumbnails
 2. **Caching:** Cache converted images to avoid re-converting
-3. **Streaming:** Support streaming for very large images
+3. **True conversion streaming:** Stream conversion output directly instead of buffering the full converted file first
 4. **EXIF Extraction:** Extract metadata from image headers
 5. **Archive Support:** Temp-extract and convert image entries
 6. **Web Format Optimization:** Auto-convert to WebP for faster loading
@@ -260,6 +290,7 @@ Backend:
 Frontend:
 - `frontend/src/app/viewers/builtins/image-viewer.component.ts` - Conversion integration
 - `frontend/src/app/viewers/viewer-registry.service.ts` - Format routing
+- `frontend/src/app/services/api.service.ts` - Converted preview URL helper
 
 ## References
 

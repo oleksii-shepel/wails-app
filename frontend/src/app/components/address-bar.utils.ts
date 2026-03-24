@@ -10,6 +10,8 @@ export interface SearchAliasQuery {
   recursive: boolean;
 }
 
+const SEARCH_SCHEME = 'search://';
+
 function canonicalDriveReference(p: string): string | null {
   const normalized = (p || '').trim().replace(/\\/g, '/');
   const driveRef = /^drive:\/\/([a-z])(\/.*)?$/i.exec(normalized);
@@ -51,7 +53,7 @@ function aliasSchemeFor(p: string): string | null {
 
 function normalizeAliasReference(p: string, scheme: string): string {
   const normalized = (p || '').trim().replace(/\\/g, '/');
-  if (scheme === 'search://' && normalized.slice(scheme.length).startsWith('?')) {
+  if (scheme === SEARCH_SCHEME && normalized.slice(scheme.length).startsWith('?')) {
     return normalizeSearchAliasReference(normalized);
   }
   const rest = normalized.slice(scheme.length).replace(/^\/+/, '').replace(/\/+/g, '/');
@@ -60,8 +62,8 @@ function normalizeAliasReference(p: string, scheme: string): string {
 
 function normalizeSearchAliasReference(p: string): string {
   const normalized = (p || '').trim().replace(/\\/g, '/');
-  const raw = normalized.slice('search://'.length);
-  if (!raw || raw === '?') return 'search://';
+  const raw = normalized.slice(SEARCH_SCHEME.length);
+  if (!raw || raw === '?') return SEARCH_SCHEME;
   if (!raw.startsWith('?')) return normalized;
 
   const params = new URLSearchParams(raw.slice(1));
@@ -71,11 +73,9 @@ function normalizeSearchAliasReference(p: string): string {
   const recursive = recursiveRaw === '' || recursiveRaw === '1' || recursiveRaw === 'true';
 
   if (!pattern) {
-    return 'search://';
+    return SEARCH_SCHEME;
   }
 
-  const next = new URLSearchParams();
-  void next;
   return buildReadableSearchAlias(path, pattern, recursive);
 }
 
@@ -95,13 +95,103 @@ function readableSearchValue(value: string): string {
     .replace(/%2A/gi, '*');
 }
 
-export function parseSearchAliasQuery(p: string): SearchAliasQuery | null {
-  const normalized = normalizePath(p);
-  if (!normalized.toLowerCase().startsWith('search://?')) {
+function unquoteSearchToken(value: string): string {
+  const trimmed = (value || '').trim();
+  if (trimmed.length >= 2) {
+    const first = trimmed[0];
+    const last = trimmed[trimmed.length - 1];
+    if ((first === '"' || first === "'") && first === last) {
+      return trimmed.slice(1, -1).trim();
+    }
+  }
+  return trimmed;
+}
+
+function parseSearchAddressBody(rawBody: string, fallbackPath?: string): SearchAliasQuery | null {
+  const body = (rawBody || '').trim();
+  if (!body) return null;
+
+  if (body.startsWith('?')) {
+    const params = new URLSearchParams(body.slice(1));
+    const pattern = unquoteSearchToken(params.get('pattern') || '');
+    const rawPath = unquoteSearchToken(params.get('path') || fallbackPath || '');
+    const recursiveRaw = (params.get('recursive') || '').trim().toLowerCase();
+    const recursive = recursiveRaw === '' || recursiveRaw === '1' || recursiveRaw === 'true';
+    if (!pattern || !rawPath) return null;
+    return {
+      path: normalizePath(rawPath),
+      pattern,
+      recursive,
+    };
+  }
+
+  const explicitNonRecursiveIndex = body.lastIndexOf(' @@ ');
+  const explicitRecursiveIndex = body.lastIndexOf(' @ ');
+  let separatorIndex = -1;
+  let separatorLength = 0;
+  let recursive = true;
+
+  if (explicitNonRecursiveIndex >= 0 && explicitNonRecursiveIndex >= explicitRecursiveIndex) {
+    separatorIndex = explicitNonRecursiveIndex;
+    separatorLength = 4;
+    recursive = false;
+  } else if (explicitRecursiveIndex >= 0) {
+    separatorIndex = explicitRecursiveIndex;
+    separatorLength = 3;
+    recursive = true;
+  }
+
+  let pattern = body;
+  let rawPath = fallbackPath || '';
+  if (separatorIndex >= 0) {
+    pattern = body.slice(0, separatorIndex);
+    rawPath = body.slice(separatorIndex + separatorLength);
+  }
+
+  pattern = unquoteSearchToken(pattern);
+  rawPath = unquoteSearchToken(rawPath);
+  if (!pattern || !rawPath) return null;
+
+  return {
+    path: normalizePath(rawPath),
+    pattern,
+    recursive,
+  };
+}
+
+export function parseSearchAddressInput(input: string, fallbackPath?: string): SearchAliasQuery | null {
+  const normalized = (input || '').trim().replace(/\\/g, '/');
+  if (!normalized.toLowerCase().startsWith(SEARCH_SCHEME)) {
     return null;
   }
 
-  const params = new URLSearchParams(normalized.slice('search://?'.length));
+  const fallbackQuery = fallbackPath ? parseSearchAliasQuery(fallbackPath) : null;
+  const resolvedFallback = fallbackQuery?.path ?? fallbackPath;
+  return parseSearchAddressBody(normalized.slice(SEARCH_SCHEME.length), resolvedFallback);
+}
+
+export function normalizeAddressBarPathInput(input: string, fallbackPath?: string): string {
+  const searchQuery = parseSearchAddressInput(input, fallbackPath);
+  if (searchQuery) {
+    return buildReadableSearchAlias(searchQuery.path, searchQuery.pattern, searchQuery.recursive);
+  }
+  return normalizePath(input);
+}
+
+export function formatSearchAliasForEdit(path: string): string | null {
+  const query = parseSearchAliasQuery(path);
+  if (!query) return null;
+  const separator = query.recursive ? ' @ ' : ' @@ ';
+  return `${SEARCH_SCHEME}${query.pattern}${separator}${formatPathForDisplay(query.path)}`;
+}
+
+export function parseSearchAliasQuery(p: string): SearchAliasQuery | null {
+  const normalized = normalizePath(p);
+  if (!normalized.toLowerCase().startsWith(`${SEARCH_SCHEME}?`)) {
+    return null;
+  }
+
+  const params = new URLSearchParams(normalized.slice(`${SEARCH_SCHEME}?`.length));
   const path = params.get('path');
   const pattern = params.get('pattern');
   if (!path || !pattern) {

@@ -12,7 +12,7 @@ import { DirectorySourceService } from '../services/directory-source.service';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
 import { FileType, FileInfo } from '../shared/protocol';
-import { highlightMatch, isWindowsPath, normalizePath } from './address-bar.utils';
+import { formatSearchAliasForEdit, highlightMatch, isWindowsPath, normalizeAddressBarPathInput, normalizePath } from './address-bar.utils';
 import { EventsOn } from 'wailsjs/runtime';
 
 interface TabSession {
@@ -590,7 +590,7 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
       return;
     }
 
-    const val = normalizePath(this.value);
+    const val = normalizeAddressBarPathInput(this.value, this.currentPath);
     if (val) this.commit.emit(val);
     else this.cancelEdit();
   }
@@ -690,6 +690,8 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
 
   private toDisplayPath(path: string): string {
     if (!path) return '';
+    const searchDisplay = formatSearchAliasForEdit(path);
+    if (searchDisplay) return searchDisplay;
     const display = toEditorDriveDisplay(path);
     if (!this.shouldNormalizeToForwardSlashes() && !isWindowsPath(display)) return display;
     return display.replace(/\\/g, '/');

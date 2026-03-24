@@ -57,6 +57,14 @@ get virtualEnabled(): boolean {
     - Tab completion for directory navigation
     - Supports Windows and Unix paths
     - Smart path normalization
+    - Search alias parsing for `search://` queries entered directly in the address bar
+
+  - **Search Scheme Support:**
+    - Canonical backend form: `search://?path=drive://c/Work&pattern=invoice&recursive=true`
+    - Friendly address-bar form: `search://invoice @ C:/Work`
+    - Non-recursive form: `search://invoice @@ C:/Work`
+    - If no path is supplied, the current pane path is used as the search root
+    - Existing search aliases are reformatted into the friendly edit form while editing
 
   - **Advanced Features:**
     - Copy path button
@@ -226,6 +234,7 @@ os.Getenv("XDG_DESKTOP_DIR")           // Unix/Linux
 | Virtual scrolling | ✅ Complete | file-list/grid/details/tree components | Auto (100+ items) |
 | Breadcrumb | ✅ Complete | address-bar.component | Click segments |
 | Editable address bar | ✅ Complete | address-bar.component | `Ctrl+L` or `Alt+D` |
+| Search scheme parser | ✅ Complete | address-bar.utils + address-bar-edit.component | `search://query @ path` |
 | Tab support | ✅ Complete | tab-bar + workspace.service | `Ctrl+T`, `Ctrl+W` |
 | Navigate up | ✅ Complete | file-pane + keyboard.service | `Backspace` |
 | Path history viewer | ✅ Complete | path-history-viewer.component | `Ctrl+H` |

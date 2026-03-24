@@ -1,4 +1,4 @@
-Supported formats include # Image Viewer - Supported Formats
+# Image Viewer - Supported Formats
 
 ## Browser-Native Formats
 These formats are rendered directly by the browser without conversion:
@@ -46,6 +46,8 @@ The image viewer uses a two-tier approach:
 
 1. **Tier 1 (Native):** Browser directly renders supported formats
 2. **Tier 2 (Conversion):** For unsupported formats, backend converts to PNG via ImageMagick
+
+Converted previews are not sent through the Wails bridge as base64 payloads. They are served from the local preview stream as regular image URLs, which keeps transport overhead lower and lets the browser load them normally.
 
 See [IMAGE_CONVERTER_PIPELINE.md](IMAGE_CONVERTER_PIPELINE.md) for detailed architecture and setup instructions.
 

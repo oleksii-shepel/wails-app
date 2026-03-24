@@ -132,6 +132,24 @@ Current migration status:
 | **Arrow Up** | Edit Mode | Navigate up in suggestions list |
 | **Arrow Down** | Edit Mode | Navigate down in suggestions list |
 
+#### Search Scheme Input
+
+The address bar accepts direct `search://` expressions in edit mode.
+
+Supported forms:
+
+- `search://invoice @ C:/Work`
+- `search://invoice @@ C:/Work`
+- `search://invoice`
+- `search://?path=drive://c/Work&pattern=invoice&recursive=true`
+
+Rules:
+
+- `@` means recursive search.
+- `@@` means non-recursive search.
+- If no path is supplied, the current pane location is used.
+- Enter normalizes these expressions to the canonical search alias consumed by the backend.
+
 ### Tree View Navigation
 
 | Shortcut | Context | Description |
@@ -528,6 +546,7 @@ Current migration status:
 - **Tab:** Cycle forward through suggestions, restart idle timer
 - **Shift+Tab:** Cycle backward through suggestions or go up to parent
 - Typing any key clears tab session and returns to normal mode
+- Search expressions are parsed on commit rather than treated as filesystem paths
 
 ### Mouse Selection Modes
 1. **Single Click:** Select item (Ctrl for multi-select, Shift for range)

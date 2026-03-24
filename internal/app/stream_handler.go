@@ -20,7 +20,6 @@ const streamPath = "/wails-stream"
 // NewUnifiedHandler creates a server that handles:
 // - Video streaming via /wails-stream (legacy)
 // - Archive entry streaming (legacy)
-// - Media sessions via /wails-stream/session/* (new)
 // - Range requests for seeking
 func NewUnifiedHandler(app *App, archCache *cache.Cache) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -28,12 +27,6 @@ func NewUnifiedHandler(app *App, archCache *cache.Cache) http.Handler {
 		if r.Method == http.MethodOptions {
 			setCORSHeaders(w)
 			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-
-		// Route to session handler for new protocol
-		if strings.HasPrefix(r.URL.Path, "/wails-stream/session/") {
-			serveSessionRequest(w, r, app)
 			return
 		}
 

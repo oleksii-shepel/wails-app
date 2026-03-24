@@ -3,9 +3,7 @@ package app
 import (
 	"context"
 	"sync"
-	"time"
 
-	"wails-app/internal/demuxer"
 	"wails-app/vfs/archive/cache"
 )
 
@@ -15,13 +13,11 @@ type App struct {
 	isProcessElevated func() bool
 	streamBaseURL     string
 	streamBaseURLMu   sync.RWMutex
-	mediaSessionMgr   demuxer.SessionManager
 }
 
 func NewApp(isProcessElevated func() bool) *App {
 	return &App{
 		isProcessElevated: isProcessElevated,
-		mediaSessionMgr:   demuxer.NewFFmpegSessionManager(5 * time.Minute),
 	}
 }
 
@@ -76,9 +72,4 @@ func (a *App) ArchCache() *cache.Cache {
 		return nil
 	}
 	return a.State.archCache
-}
-
-// MediaSessionManager returns the media demuxer session manager
-func (a *App) MediaSessionManager() demuxer.SessionManager {
-	return a.mediaSessionMgr
 }

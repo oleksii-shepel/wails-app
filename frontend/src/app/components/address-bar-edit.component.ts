@@ -9,6 +9,7 @@ import { PathSuggestion } from '../services/path-history.service';
 import { PathHistoryService } from '../services/path-history.service';
 import { ApiService } from '../services/api.service';
 import { DirectorySourceService } from '../services/directory-source.service';
+import { SchemeAutocompleteService } from '../services/scheme-autocomplete.service';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
 import { FileType, FileInfo } from '../shared/protocol';
@@ -375,6 +376,7 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
     private pathHistoryService: PathHistoryService,
     private apiService: ApiService,
     private directorySource: DirectorySourceService,
+    private schemeAutocomplete: SchemeAutocompleteService,
     private cdr: ChangeDetectorRef,
     private hostEl: ElementRef,
     private inputContexts: InputContextService,
@@ -766,8 +768,8 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
       // Attach scroll listener after Angular renders the .ab-scroll div
       setTimeout(() => this.attachDropScroll(), 0);
 
-      // Stream FS children progressively
-      if (this.shouldFetchFsSuggestions(q)) {
+      // Stream children progressively for any scheme
+      if (this.shouldFetchSuggestions(q)) {
         const { dirPath, prefix } = this.splitQueryContext(q);
         if (dirPath) {
           await this.streamDirChildren(dirPath, prefix, (fsBatch) => {
@@ -901,15 +903,25 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
   ): Promise<PathSuggestion[]> {
     return new Promise<PathSuggestion[]>(async (resolve) => {
       // Cancel any prior fetch stream
-      if (this.activeFetchStreamId) {
-        void this.apiService.cancelListDirectoryStream(this.activeFetchStreamId);
-        this.activeFetchStreamId = null;
-      }
-      if (this.fetchStreamCancel) {
-        this.fetchStreamCancel();
-        this.fetchStreamCancel = null;
+      this.cancelFetchStream();
+
+      // Check if this scheme supports streaming via the DirectoryView's API
+      const supportsDirectoryStreaming = this.directorySource.supportsStreaming(dirPath);
+
+      if (!supportsDirectoryStreaming) {
+        // Fall back to batch fetch for schemes that don't support streaming
+        try {
+          const suggestions = await this.schemeAutocomplete.fetchSuggestions(dirPath, prefix);
+          onBatch?.(suggestions);
+          resolve(suggestions);
+        } catch {
+          resolve([]);
+        }
+        return;
       }
 
+      // For schemes that support streaming (filesystem, search, etc.)
+      // Use the backend streaming API
       const prefixLower = prefix.toLowerCase();
       const accumulated: PathSuggestion[] = [];
       const seenNames = new Set<string>();
@@ -1000,18 +1012,7 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
   }
 
   private splitQueryContext(query: string): { dirPath: string; prefix: string } {
-    const q = normalizePath((query || '').replace(/\\/g, '/'));
-    if (!q) return { dirPath: '/', prefix: '' };
-    const driveRootMatch = /^drive:\/\/[a-z]$/i.exec(q);
-    if (driveRootMatch) return { dirPath: `${q}/`, prefix: '' };
-    if (q.endsWith('/')) return { dirPath: q, prefix: '' };
-
-    const lastSlash = q.lastIndexOf('/');
-    if (lastSlash >= 0) {
-      return { dirPath: q.slice(0, lastSlash + 1), prefix: q.slice(lastSlash + 1) };
-    }
-    if (/^[A-Za-z]:$/.test(q)) return { dirPath: `${q}/`, prefix: '' };
-    return { dirPath: '/', prefix: q };
+    return this.schemeAutocomplete.splitQueryContext(query);
   }
 
   private joinPath(dirPath: string, name: string): string {
@@ -1021,24 +1022,8 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
     return joined.replace(/\/{2,}/g, '/');
   }
 
-  private shouldFetchFsSuggestions(query: string): boolean {
-    const q = (query || '').trim();
-    if (!q) return false;
-
-    const n = normalizePath(q);
-    if (!n) return false;
-
-    // Avoid listing the full filesystem root on short inputs.
-    if (n === '/') return false;
-    if (n.toLowerCase() === 'drive://') return false;
-
-    if (/^drive:\/\/[a-z](?:\/.*)?$/i.test(n)) return true;
-
-    // Any slash-based path, or Windows drive prefix, should show dir suggestions.
-    if (n.includes('/')) return true;
-    if (/^[A-Za-z]:/.test(n)) return true;
-
-    return false;
+  private shouldFetchSuggestions(query: string): boolean {
+    return this.schemeAutocomplete.shouldFetchSuggestions(query);
   }
 
   private buildAliasRootSuggestions(query: string): PathSuggestion[] {

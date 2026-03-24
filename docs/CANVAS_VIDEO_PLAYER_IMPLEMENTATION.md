@@ -10,7 +10,7 @@ The file manager now includes a pure **Canvas-based video player** path for MP4/
 📄 `frontend/src/app/services/canvas-video-player.service.ts`
 
 - **CanvasVideoPlayer class**: Core video player using Canvas + WebCodecs
-  - Supports real MP4 sample extraction through `mp4box`
+  - Supports real MP4 sample extraction through `mediabunny`
   - Hardware-accelerated decoding via WebCodecs API
   - Frame buffering and canvas rendering
   - Playback control: `play()`, `pause()`, `seek(timeMs)`
@@ -173,7 +173,7 @@ Current implementation includes magic byte detection for:
 - [x] Template renders correctly
 - [x] Styling applied
 - [x] Canvas container properly sized
-- [x] Real MP4 sample extraction wired through `mp4box`
+- [x] Real MP4 sample extraction wired through `mediabunny`
 - [x] Real WebCodecs video decode wired to the canvas player
 
 ### 📋 Manual Testing Needed

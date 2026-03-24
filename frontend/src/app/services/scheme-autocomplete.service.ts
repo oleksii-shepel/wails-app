@@ -1,6 +1,6 @@
 import { Injectable } from '@angular/core';
 import { DirectorySourceService } from './directory-source.service';
-import { PathHistoryService, PathSuggestion } from './path-history.service';
+import { PathSuggestion } from './path-history.service';
 import { normalizePath } from '../components/address-bar.utils';
 import { FileType, FileInfo } from '../shared/protocol';
 
@@ -202,8 +202,6 @@ class FilesystemAutocompleteProvider implements SchemeAutocompleteProvider {
 class SearchAutocompleteProvider implements SchemeAutocompleteProvider {
   scheme = 'search';
 
-  constructor(private readonly directorySource: DirectorySourceService) {}
-
   canHandle(query: string): boolean {
     const normalized = normalizePath((query || '').trim().replace(/\\/g, '/'));
     return /^search:\/\//i.test(normalized);
@@ -223,15 +221,14 @@ class SearchAutocompleteProvider implements SchemeAutocompleteProvider {
       return { dirPath: 'search://', prefix: '' };
     }
 
-    // Parse search query parameters
+    // Validate search query parameters when present.
     try {
       const urlPart = q.slice('search://'.length);
       if (!urlPart.startsWith('?')) {
         return { dirPath: 'search://', prefix: '' };
       }
 
-      const params = new URLSearchParams(urlPart.slice(1));
-      const path = normalizePath(params.get('path') || '/');
+      void new URLSearchParams(urlPart.slice(1));
       
       // For search://?, we don't really have a "prefix" like filesystem
       // The entire query is the "context"
@@ -269,13 +266,18 @@ class SearchAutocompleteProvider implements SchemeAutocompleteProvider {
   }
 
   joinChildPath(basePath: string, childName: string): string {
-    // For search scheme, joining doesn't make traditional sense
-    // Could be used to build more complex search queries
-    const trimmed = (basePath || 'search://').replace(/\/+$/, '');
-    if (trimmed === 'search://') {
-      return basePath;
+    const value = (childName || '').trim();
+    if (!value) return basePath || 'search://';
+
+    const normalized = normalizePath((basePath || 'search://').replace(/\\/g, '/'));
+    if (!normalized.toLowerCase().startsWith('search://')) {
+      return normalized;
     }
-    return basePath;
+
+    const urlPart = normalized.slice('search://'.length);
+    const params = new URLSearchParams(urlPart.startsWith('?') ? urlPart.slice(1) : '');
+    params.set('pattern', value);
+    return `search://?${params.toString()}`;
   }
 
   /**
@@ -302,11 +304,64 @@ class SearchAutocompleteProvider implements SchemeAutocompleteProvider {
    */
   private getSearchFilterSuggestions(dirPath: string): PathSuggestion[] {
     const suggestions: PathSuggestion[] = [];
-    
+
     // Parse current query if provided
     const params = this.parseSearchParams(dirPath);
     const hasPattern = !!params['pattern'];
-    
+    const currentUrl = dirPath;
+
+    // 1. Suggest search parameters if user is typing them
+    if (currentUrl.endsWith('&') || currentUrl.endsWith('?')) {
+      const paramSuggestions = [
+        { key: 'pattern=', label: 'pattern (glob/regex)', score: 95 },
+        { key: 'path=', label: 'path (base directory)', score: 90 },
+        { key: 'minSize=', label: 'minSize (bytes)', score: 85 },
+        { key: 'maxSize=', label: 'maxSize (bytes)', score: 85 },
+        { key: 'extensions=', label: 'extensions (.txt,.md)', score: 80 },
+        { key: 'modifiedAfter=', label: 'modifiedAfter (YYYY-MM-DD)', score: 75 },
+        { key: 'fileTypes=', label: 'fileTypes (file,directory)', score: 70 },
+        { key: 'recursive=', label: 'recursive (true/false)', score: 65 },
+        { key: 'regex=', label: 'regex (true/false)', score: 60 },
+      ];
+
+      for (const p of paramSuggestions) {
+        suggestions.push({
+          path: currentUrl + p.key,
+          displayName: `Param: ${p.label}`,
+          matchType: 'directory',
+          score: p.score,
+          exists: true,
+        });
+      }
+    }
+
+    // Suggest common values for specific parameters being typed
+    if (currentUrl.endsWith('fileTypes=')) {
+      const types = ['file', 'directory', 'file,directory', 'symlink'];
+      types.forEach((t, i) => {
+        suggestions.push({
+          path: currentUrl + t,
+          displayName: `Type: ${t}`,
+          matchType: 'directory',
+          score: 100 - i,
+          exists: true,
+        });
+      });
+    }
+
+    if (currentUrl.endsWith('recursive=') || currentUrl.endsWith('regex=') || currentUrl.endsWith('caseSensitive=') || currentUrl.endsWith('searchHidden=') || currentUrl.endsWith('contentSearch=')) {
+      ['true', 'false'].forEach((v, i) => {
+        suggestions.push({
+          path: currentUrl + v,
+          displayName: v,
+          matchType: 'directory',
+          score: 100 - i,
+          exists: true,
+        });
+      });
+    }
+
+    // 2. Original filter logic
     // Suggest common filter combinations if user hasn't added them yet
     if (hasPattern && !params['extensions']) {
       suggestions.push({
@@ -1064,14 +1119,16 @@ class GenericSchemeAutocompleteProvider implements SchemeAutocompleteProvider {
 @Injectable({ providedIn: 'root' })
 export class SchemeAutocompleteService {
   private readonly providers: SchemeAutocompleteProvider[];
+  private readonly filesystemProvider: SchemeAutocompleteProvider;
   private readonly providerCache = new Map<string, SchemeAutocompleteProvider>();
 
   constructor(
     private readonly directorySource: DirectorySourceService,
   ) {
+    this.filesystemProvider = new FilesystemAutocompleteProvider(directorySource);
     this.providers = [
       // Specialized providers for specific schemes (order matters for canHandle matching)
-      new SearchAutocompleteProvider(directorySource),
+      new SearchAutocompleteProvider(),
       new RegistryAutocompleteProvider(directorySource),
       new FtpAutocompleteProvider(directorySource),
       new SmbAutocompleteProvider(directorySource),
@@ -1079,7 +1136,7 @@ export class SchemeAutocompleteService {
       new WebdavAutocompleteProvider(directorySource),
       new ArchiveAutocompleteProvider(directorySource),
       // Generic filesystem provider (catch-all for drive://, local paths, etc.)
-      new FilesystemAutocompleteProvider(directorySource),
+      this.filesystemProvider,
     ];
   }
 
@@ -1116,8 +1173,8 @@ export class SchemeAutocompleteService {
       return this.providerCache.get(scheme)!;
     }
 
-    // Fallback to filesystem provider
-    return this.providers[1]!;
+    // Fallback to filesystem provider for no-scheme address bar values.
+    return this.filesystemProvider;
   }
 
   /**

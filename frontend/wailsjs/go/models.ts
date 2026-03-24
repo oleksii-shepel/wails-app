@@ -6,6 +6,7 @@ export namespace app {
 	    Runtime: any;
 	    Filesystem: any;
 	    Batch: any;
+	    Converter: any;
 	    DirStream: any;
 	    Utility: any;
 	    Navigation: any;
@@ -25,6 +26,7 @@ export namespace app {
 	        this.Runtime = source["Runtime"];
 	        this.Filesystem = source["Filesystem"];
 	        this.Batch = source["Batch"];
+	        this.Converter = source["Converter"];
 	        this.DirStream = source["DirStream"];
 	        this.Utility = source["Utility"];
 	        this.Navigation = source["Navigation"];

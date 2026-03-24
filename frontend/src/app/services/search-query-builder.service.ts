@@ -49,175 +49,144 @@ export interface SearchQueryParams {
   metadata?: string;
 }
 
-/**
- * Builder service for constructing search:// URLs with complex filters.
- * Eliminates the need for custom search dialogs by encoding filters in URL parameters.
- *
- * Usage:
- *   builder
- *     .setPath('C:/Users')
- *     .setPattern('*.log')
- *     .setMinSize(1024 * 1024) // 1MB
- *     .setModifiedAfter('2024-01-01')
- *     .build()
- *
- *   // Returns: search://?path=C%3A%2FUsers&pattern=*.log&minSize=1048576&modifiedAfter=2024-01-01
- */
-@Injectable({ providedIn: 'root' })
-export class SearchQueryBuilderService {
-  private params: Partial<SearchQueryParams> = {};
+const BOOLEAN_KEYS: ReadonlySet<keyof SearchQueryParams> = new Set([
+  'recursive',
+  'regex',
+  'caseSensitive',
+  'searchHidden',
+  'contentSearch',
+]);
 
-  /**
-   * Create a new builder (or reset existing).
-   */
-  reset(): SearchQueryBuilderService {
+const NUMBER_KEYS: ReadonlySet<keyof SearchQueryParams> = new Set([
+  'minSize',
+  'maxSize',
+]);
+
+/**
+ * Per-use fluent builder for constructing search:// URLs with complex filters.
+ */
+export class SearchQueryBuilder {
+  private params: Partial<SearchQueryParams>;
+
+  constructor(initial: Partial<SearchQueryParams> = {}) {
+    this.params = { ...initial };
+  }
+
+  /** Create a new builder state. */
+  reset(): SearchQueryBuilder {
     this.params = {};
     return this;
   }
 
-  /**
-   * Set the base search path.
-   */
-  setPath(path: string): SearchQueryBuilderService {
+  /** Set the base search path. */
+  setPath(path: string): SearchQueryBuilder {
     if (path) {
       this.params.path = normalizePath(path);
     }
     return this;
   }
 
-  /**
-   * Set the search pattern (glob-style or regex).
-   */
-  setPattern(pattern: string): SearchQueryBuilderService {
+  /** Set the search pattern (glob-style or regex). */
+  setPattern(pattern: string): SearchQueryBuilder {
     if (pattern) {
       this.params.pattern = pattern;
     }
     return this;
   }
 
-  /**
-   * Set whether to search recursively.
-   */
-  setRecursive(recursive: boolean): SearchQueryBuilderService {
+  /** Set whether to search recursively. */
+  setRecursive(recursive: boolean): SearchQueryBuilder {
     this.params.recursive = recursive;
     return this;
   }
 
-  /**
-   * Enable regex pattern matching.
-   */
-  setRegex(useRegex: boolean): SearchQueryBuilderService {
+  /** Enable regex pattern matching. */
+  setRegex(useRegex: boolean): SearchQueryBuilder {
     this.params.regex = useRegex;
     return this;
   }
 
-  /**
-   * Set case sensitivity.
-   */
-  setCaseSensitive(caseSensitive: boolean): SearchQueryBuilderService {
+  /** Set case sensitivity. */
+  setCaseSensitive(caseSensitive: boolean): SearchQueryBuilder {
     this.params.caseSensitive = caseSensitive;
     return this;
   }
 
-  /**
-   * Set file types to include (file, directory, symlink).
-   * Pass multiple: 'file,directory'
-   */
-  setFileTypes(types: string): SearchQueryBuilderService {
+  /** Set file types to include (file, directory, symlink). */
+  setFileTypes(types: string): SearchQueryBuilder {
     if (types) {
       this.params.fileTypes = types;
     }
     return this;
   }
 
-  /**
-   * Set minimum file size in bytes.
-   */
-  setMinSize(bytes: number): SearchQueryBuilderService {
+  /** Set minimum file size in bytes. */
+  setMinSize(bytes: number): SearchQueryBuilder {
     if (bytes > 0) {
       this.params.minSize = bytes;
     }
     return this;
   }
 
-  /**
-   * Set maximum file size in bytes.
-   */
-  setMaxSize(bytes: number): SearchQueryBuilderService {
+  /** Set maximum file size in bytes. */
+  setMaxSize(bytes: number): SearchQueryBuilder {
     if (bytes > 0) {
       this.params.maxSize = bytes;
     }
     return this;
   }
 
-  /**
-   * Set modified date lower bound (inclusive).
-   * Format: ISO 8601 (2024-01-01 or 2024-01-01T12:00:00Z)
-   */
-  setModifiedAfter(date: string | Date): SearchQueryBuilderService {
+  /** Set modified date lower bound (inclusive). */
+  setModifiedAfter(date: string | Date): SearchQueryBuilder {
     if (date) {
       this.params.modifiedAfter = this.formatDate(date);
     }
     return this;
   }
 
-  /**
-   * Set modified date upper bound (inclusive).
-   * Format: ISO 8601 (2024-12-31 or 2024-12-31T23:59:59Z)
-   */
-  setModifiedBefore(date: string | Date): SearchQueryBuilderService {
+  /** Set modified date upper bound (inclusive). */
+  setModifiedBefore(date: string | Date): SearchQueryBuilder {
     if (date) {
       this.params.modifiedBefore = this.formatDate(date);
     }
     return this;
   }
 
-  /**
-   * Include hidden files in search.
-   */
-  setSearchHidden(hidden: boolean): SearchQueryBuilderService {
+  /** Include hidden files in search. */
+  setSearchHidden(hidden: boolean): SearchQueryBuilder {
     this.params.searchHidden = hidden;
     return this;
   }
 
-  /**
-   * Enable content search (search inside file contents).
-   */
-  setContentSearch(enabled: boolean): SearchQueryBuilderService {
+  /** Enable content search (search inside file contents). */
+  setContentSearch(enabled: boolean): SearchQueryBuilder {
     this.params.contentSearch = enabled;
     return this;
   }
 
-  /**
-   * Set file extensions to match (e.g., '.txt,.md,.log').
-   */
-  setExtensions(extensions: string): SearchQueryBuilderService {
+  /** Set file extensions to match (e.g., '.txt,.md,.log'). */
+  setExtensions(extensions: string): SearchQueryBuilder {
     if (extensions) {
       this.params.extensions = extensions;
     }
     return this;
   }
 
-  /**
-   * Set custom metadata filter (backend-specific).
-   */
-  setMetadata(metadata: string): SearchQueryBuilderService {
+  /** Set custom metadata filter (backend-specific). */
+  setMetadata(metadata: string): SearchQueryBuilder {
     if (metadata) {
       this.params.metadata = metadata;
     }
     return this;
   }
 
-  /**
-   * Build the search:// URL.
-   */
+  /** Build the search:// URL. */
   build(): string {
     if (!this.params.pattern) {
       return 'search://';
     }
 
     const params = new URLSearchParams();
-
     for (const [key, value] of Object.entries(this.params)) {
       if (value !== null && value !== undefined) {
         params.append(key, String(value));
@@ -227,107 +196,82 @@ export class SearchQueryBuilderService {
     return `search://?${params.toString()}`;
   }
 
-  /**
-   * Load parameters from an existing search:// URL.
-   */
-  fromUrl(url: string): SearchQueryBuilderService {
+  /** Load parameters from an existing search:// URL. */
+  fromUrl(url: string): SearchQueryBuilder {
     this.reset();
+    const parsed = SearchQueryBuilder.parseParams(url);
+    this.params = parsed;
+    return this;
+  }
+
+  /** Convert current state to human-readable description. */
+  toDescription(): string {
+    return SearchQueryBuilder.describeParams(this.params);
+  }
+
+  /** Get current parameters. */
+  getParams(): Readonly<Partial<SearchQueryParams>> {
+    return { ...this.params };
+  }
+
+  static parseParams(url: string): Partial<SearchQueryParams> {
     try {
       const normalized = normalizePath((url || '').trim().replace(/\\/g, '/'));
       if (!normalized.startsWith('search://')) {
-        return this;
+        return {};
       }
 
       const urlPart = normalized.slice('search://'.length);
       if (!urlPart.startsWith('?')) {
-        return this;
+        return {};
       }
 
       const parsed = new URLSearchParams(urlPart.slice(1));
-      this.params = {};
+      const params: Partial<SearchQueryParams> = {};
 
       parsed.forEach((value, key) => {
-        if (key === 'recursive' || key === 'regex' || key === 'caseSensitive' || key === 'searchHidden' || key === 'contentSearch') {
-          (this.params as any)[key] = value.toLowerCase() === 'true';
-        } else if (key === 'minSize' || key === 'maxSize') {
-          (this.params as any)[key] = parseInt(value, 10);
-        } else {
-          (this.params as any)[key] = value;
-        }
-      });
-    } catch {
-      this.reset();
-    }
+        const typedKey = key as keyof SearchQueryParams;
 
-    return this;
+        if (BOOLEAN_KEYS.has(typedKey)) {
+          (params[typedKey] as boolean | undefined) = value.toLowerCase() === 'true';
+          return;
+        }
+
+        if (NUMBER_KEYS.has(typedKey)) {
+          const numberValue = Number.parseInt(value, 10);
+          if (Number.isFinite(numberValue)) {
+            (params[typedKey] as number | undefined) = numberValue;
+          }
+          return;
+        }
+
+        (params[typedKey] as string | undefined) = value;
+      });
+
+      return params;
+    } catch {
+      return {};
+    }
   }
 
-  /**
-   * Convert URL to human-readable description.
-   */
-  toDescription(): string {
+  static describeParams(params: Partial<SearchQueryParams>): string {
     const parts: string[] = [];
 
-    if (this.params.pattern) {
-      parts.push(`Pattern: ${this.params.pattern}`);
-    }
-
-    if (this.params.path) {
-      parts.push(`In: ${this.params.path}`);
-    }
-
-    if (this.params.recursive === false) {
-      parts.push('Non-recursive');
-    }
-
-    if (this.params.regex) {
-      parts.push('Regex mode');
-    }
-
-    if (this.params.caseSensitive) {
-      parts.push('Case-sensitive');
-    }
-
-    if (this.params.fileTypes) {
-      parts.push(`Types: ${this.params.fileTypes}`);
-    }
-
-    if (this.params.extensions) {
-      parts.push(`Extensions: ${this.params.extensions}`);
-    }
-
-    if (this.params.minSize) {
-      parts.push(`Min size: ${this.formatBytes(this.params.minSize)}`);
-    }
-
-    if (this.params.maxSize) {
-      parts.push(`Max size: ${this.formatBytes(this.params.maxSize)}`);
-    }
-
-    if (this.params.modifiedAfter) {
-      parts.push(`Modified after: ${this.params.modifiedAfter}`);
-    }
-
-    if (this.params.modifiedBefore) {
-      parts.push(`Modified before: ${this.params.modifiedBefore}`);
-    }
-
-    if (this.params.searchHidden) {
-      parts.push('Include hidden');
-    }
-
-    if (this.params.contentSearch) {
-      parts.push('Search content');
-    }
+    if (params.pattern) parts.push(`Pattern: ${params.pattern}`);
+    if (params.path) parts.push(`In: ${params.path}`);
+    if (params.recursive === false) parts.push('Non-recursive');
+    if (params.regex) parts.push('Regex mode');
+    if (params.caseSensitive) parts.push('Case-sensitive');
+    if (params.fileTypes) parts.push(`Types: ${params.fileTypes}`);
+    if (params.extensions) parts.push(`Extensions: ${params.extensions}`);
+    if (params.minSize) parts.push(`Min size: ${SearchQueryBuilder.formatBytes(params.minSize)}`);
+    if (params.maxSize) parts.push(`Max size: ${SearchQueryBuilder.formatBytes(params.maxSize)}`);
+    if (params.modifiedAfter) parts.push(`Modified after: ${params.modifiedAfter}`);
+    if (params.modifiedBefore) parts.push(`Modified before: ${params.modifiedBefore}`);
+    if (params.searchHidden) parts.push('Include hidden');
+    if (params.contentSearch) parts.push('Search content');
 
     return parts.join(' | ');
-  }
-
-  /**
-   * Get current parameters.
-   */
-  getParams(): Readonly<Partial<SearchQueryParams>> {
-    return { ...this.params };
   }
 
   private formatDate(date: string | Date): string {
@@ -337,10 +281,36 @@ export class SearchQueryBuilderService {
     return date.toISOString().split('T')[0];
   }
 
-  private formatBytes(bytes: number): string {
+  private static formatBytes(bytes: number): string {
     if (bytes < 1024) return `${bytes}B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
     if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
     return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)}GB`;
+  }
+}
+
+/**
+ * Stateless service facade that creates isolated builder instances.
+ */
+@Injectable({ providedIn: 'root' })
+export class SearchQueryBuilderService {
+  create(initial: Partial<SearchQueryParams> = {}): SearchQueryBuilder {
+    return new SearchQueryBuilder(initial);
+  }
+
+  fromUrl(url: string): SearchQueryBuilder {
+    return new SearchQueryBuilder().fromUrl(url);
+  }
+
+  build(params: Partial<SearchQueryParams>): string {
+    return new SearchQueryBuilder(params).build();
+  }
+
+  parse(url: string): Partial<SearchQueryParams> {
+    return SearchQueryBuilder.parseParams(url);
+  }
+
+  toDescription(params: Partial<SearchQueryParams>): string {
+    return SearchQueryBuilder.describeParams(params);
   }
 }

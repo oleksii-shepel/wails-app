@@ -894,6 +894,12 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
       this.fetchStreamCancel();
       this.fetchStreamCancel = null;
     }
+
+    // Safety net: cancel backend stream even if callback has not been wired yet.
+    if (this.activeFetchStreamId) {
+      void this.apiService.cancelListDirectoryStream(this.activeFetchStreamId);
+      this.activeFetchStreamId = null;
+    }
   }
 
   private streamDirChildren(
@@ -925,31 +931,6 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
       const prefixLower = prefix.toLowerCase();
       const accumulated: PathSuggestion[] = [];
       const seenNames = new Set<string>();
-
-      if (!this.directorySource.supportsStreaming(dirPath)) {
-        try {
-          const listing = await this.directorySource.listDirectory(dirPath, false);
-          for (const entry of (listing.entries || [])) {
-            if (entry.type !== FileType.DIRECTORY) continue;
-            if (prefixLower && !entry.name.toLowerCase().startsWith(prefixLower)) continue;
-            if (seenNames.has(entry.name)) continue;
-            seenNames.add(entry.name);
-            accumulated.push({
-              path: normalizePath(entry.path),
-              displayName: entry.name,
-              matchType: 'directory' as const,
-              score: 100,
-              exists: true,
-            });
-          }
-          accumulated.sort((a, b) => a.path.localeCompare(b.path));
-          onBatch?.(accumulated.slice());
-          resolve(accumulated);
-        } catch {
-          resolve([]);
-        }
-        return;
-      }
 
       let streamId: string;
       try {

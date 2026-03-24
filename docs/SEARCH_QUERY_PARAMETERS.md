@@ -77,7 +77,7 @@ constructor(private searchBuilder: SearchQueryBuilderService) {}
 
 buildComplexSearch() {
   const url = this.searchBuilder
-    .reset()
+    .create()
     .setPath('C:/Users/Documents')
     .setPattern('*.log')
     .setMinSize(1024 * 1024) // 1MB
@@ -140,7 +140,7 @@ New approach:
 ```typescript
 // Use builder to create URL and navigate
 const url = this.searchBuilder
-  .reset()
+  .create()
   .setPath('C:/logs')
   .setPattern('*.log')
   .setMinSize(1048576)

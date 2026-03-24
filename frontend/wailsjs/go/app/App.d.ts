@@ -40,6 +40,8 @@ export function Breadcrumbs(arg1:string):Promise<Array<Record<string, string>>>;
 
 export function BuildSearchAlias(arg1:string,arg2:string,arg3:boolean):Promise<string>;
 
+export function CanConvertImage(arg1:string):Promise<boolean>;
+
 export function CancelArchiveReadStream(arg1:string):Promise<void>;
 
 export function CancelDirStreams():Promise<void>;
@@ -87,6 +89,10 @@ export function FileInfo(arg1:string):Promise<contracts.FileInfo>;
 export function GetActiveOperations():Promise<Array<contracts.OperationProgress>>;
 
 export function GetArchiveStreamURL(arg1:string,arg2:Array<string>,arg3:string):Promise<string>;
+
+export function GetConversionCapabilities(arg1:string):Promise<Record<string, any>>;
+
+export function GetConvertedImageURL(arg1:string,arg2:string):Promise<string>;
 
 export function GetDrives():Promise<contracts.DrivesList>;
 

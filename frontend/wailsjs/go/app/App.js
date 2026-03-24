@@ -66,6 +66,10 @@ export function BuildSearchAlias(arg1, arg2, arg3) {
   return window['go']['app']['App']['BuildSearchAlias'](arg1, arg2, arg3);
 }
 
+export function CanConvertImage(arg1) {
+  return window['go']['app']['App']['CanConvertImage'](arg1);
+}
+
 export function CancelArchiveReadStream(arg1) {
   return window['go']['app']['App']['CancelArchiveReadStream'](arg1);
 }
@@ -160,6 +164,14 @@ export function GetActiveOperations() {
 
 export function GetArchiveStreamURL(arg1, arg2, arg3) {
   return window['go']['app']['App']['GetArchiveStreamURL'](arg1, arg2, arg3);
+}
+
+export function GetConversionCapabilities(arg1) {
+  return window['go']['app']['App']['GetConversionCapabilities'](arg1);
+}
+
+export function GetConvertedImageURL(arg1, arg2) {
+  return window['go']['app']['App']['GetConvertedImageURL'](arg1, arg2);
 }
 
 export function GetDrives() {

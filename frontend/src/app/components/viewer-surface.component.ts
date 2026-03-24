@@ -8,7 +8,7 @@ import { ApiService } from '../services/api.service';
 import { FileInfo, FileType } from '../shared/protocol';
 import { CanvasVideoPlayer, CanvasVideoPlayerService, VideoMetadata } from '../services/canvas-video-player.service';
 import { Subject } from 'rxjs';
-import { takeUntil, throttleTime } from 'rxjs/operators';
+import { takeUntil } from 'rxjs/operators';
 
 type ViewerKind =
   | 'image' | 'video' | 'audio' | 'pdf' | 'svg'
@@ -162,6 +162,7 @@ export interface ViewerArchiveContext {
                   type="range" 
                   min="0" 
                   [max]="videoDuration"
+                  step="any"
                   [value]="videoCurrentTime"
                   (input)="onVideoSeek($event)"
                   class="seek-slider"
@@ -1503,14 +1504,8 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
             this.cdr.markForCheck();
           });
 
-        // Smooth playhead movement: throttle updates to ~50ms (match CSS transition timing)
-        // This ensures the slider thumb moves smoothly with the progress bar
         this.canvasPlayer.currentTime$
-          .pipe(
-            takeUntil(this.destroy$),
-            // Throttle to 50ms intervals for smooth visual motion
-            throttleTime(50, undefined, { leading: true, trailing: true })
-          )
+          .pipe(takeUntil(this.destroy$))
           .subscribe((seconds: number) => {
             this.videoCurrentTime = seconds;
             this.cdr.markForCheck();

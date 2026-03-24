@@ -8,6 +8,7 @@ import (
 	internalarchive "wails-app/internal/archive"
 	internalbatch "wails-app/internal/batch"
 	contracts "wails-app/internal/contracts"
+	internalconverter "wails-app/internal/converter"
 	internalelevation "wails-app/internal/elevation"
 	internalnav "wails-app/internal/navigation"
 	internalops "wails-app/internal/ops"
@@ -49,6 +50,7 @@ type Services struct {
 	Elevation  *internalelevation.Service
 	Archive    *internalarchive.Service
 	Batch      *internalbatch.Service
+	Converter  *internalconverter.Service
 	DirStream  *internalruntime.DirStreamService
 	Utility    *internalutility.Service
 	Navigation *internalnav.Service
@@ -116,6 +118,7 @@ func NewServices(config ServiceConfig) *Services {
 			ArchiveEntryPath:               config.ArchiveEntryPath,
 			IsArchive:                      config.IsArchive,
 		}),
+		Converter: config.Core.Converter,
 		DirStream: internalruntime.NewDirStreamService(
 			config.EmitEvent,
 			config.ElevatedList,

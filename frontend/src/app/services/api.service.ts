@@ -291,6 +291,10 @@ export class ApiService {
 	return await window.go.app.App.GetArchiveStreamURL(this.normalizeCanonicalPath(fsPath), nestedChain, entryPath);
   }
 
+  async getConvertedImageURL(path: string, targetFormat: string = 'png'): Promise<string> {
+	return await (window as any).go.app.App.GetConvertedImageURL(this.normalizeCanonicalPath(path), targetFormat);
+  }
+
   async readFileStream(path: string, chunkSize: number = 64 * 1024): Promise<string> {
     return await window.go.app.App.ReadFileStream(this.normalizeCanonicalPath(path), chunkSize);
   }

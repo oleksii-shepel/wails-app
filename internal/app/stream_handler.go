@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"mime"
@@ -44,6 +45,14 @@ func NewUnifiedHandler(app *App, archCache *cache.Cache) http.Handler {
 func serveStreamRequest(w http.ResponseWriter, r *http.Request, app *App, archCache *cache.Cache) {
 	q := r.URL.Query()
 
+	// ── Converted disk image ───────────────────────────────────────────────
+	path := q.Get("path")
+	convertFormat := q.Get("convert")
+	if path != "" && convertFormat != "" {
+		serveConvertedPath(w, r, app, path, convertFormat)
+		return
+	}
+
 	// ── Archive entry ─────────────────────────────────────────────────────
 	fsPath := q.Get("fsPath")
 	entry := q.Get("entry")
@@ -53,12 +62,37 @@ func serveStreamRequest(w http.ResponseWriter, r *http.Request, app *App, archCa
 	}
 
 	// ── Disk / VFS path ───────────────────────────────────────────────────
-	path := q.Get("path")
+	path = q.Get("path")
 	if path == "" {
 		http.Error(w, "missing path parameter", http.StatusBadRequest)
 		return
 	}
 	servePath(w, r, app, path)
+}
+
+func serveConvertedPath(w http.ResponseWriter, r *http.Request, app *App, publicPath string, targetFormat string) {
+	if app == nil || app.State == nil || app.State.Converter == nil {
+		http.Error(w, "converter unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	publicPath = pathref.Normalize(publicPath)
+	nativePath := pathref.ToNativePath(publicPath)
+	if strings.Contains(nativePath, "..") {
+		http.Error(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+
+	converted, err := app.State.Converter.ConvertFormat(nativePath, targetFormat)
+	if err != nil {
+		http.Error(w, "conversion failed: "+err.Error(), http.StatusUnsupportedMediaType)
+		return
+	}
+
+	setCORSHeaders(w)
+	setContentType(w, "preview."+targetFormat)
+	w.Header().Set("Cache-Control", "no-store")
+	http.ServeContent(w, r, "preview."+targetFormat, time.Time{}, bytes.NewReader(converted))
 }
 
 func servePath(w http.ResponseWriter, r *http.Request, app *App, publicPath string) {
@@ -228,6 +262,11 @@ func StreamURLForEntry(baseURL, fsPath string, nestedChain []string, entryPath s
 		u += "&nested=" + urlEncode(strings.Join(nestedChain, ","))
 	}
 	return u
+}
+
+// ConvertedStreamURLForFile builds the /wails-stream URL for a disk path that should be converted on demand.
+func ConvertedStreamURLForFile(baseURL, publicPath, targetFormat string) string {
+	return joinStreamBaseURL(baseURL) + streamPath + "?path=" + urlEncode(publicPath) + "&convert=" + urlEncode(targetFormat)
 }
 
 func joinStreamBaseURL(baseURL string) string {

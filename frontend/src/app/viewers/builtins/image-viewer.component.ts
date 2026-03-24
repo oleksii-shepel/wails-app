@@ -303,14 +303,23 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
     }
 
     const mime = this.inferImageMime(ext);
-    if (!mime) { this.kind = 'unsupported'; return; }
+    if (mime) {
+      try {
+        this.imageSrc = await this.api.getStreamURL(path);
+        this.kind = 'image';
+      } catch (err) {
+        this.error = err instanceof Error ? err.message : 'Failed to load image';
+        this.kind = 'error';
+      }
+      return;
+    }
 
+    // Try backend conversion for unsupported formats
     try {
-      this.imageSrc = await this.api.getStreamURL(path);
-      this.kind = 'image';
+      await this.convertImageAndDisplay(path, ext);
     } catch (err) {
-      this.error = err instanceof Error ? err.message : 'Failed to load image';
-      this.kind = 'error';
+      this.error = err instanceof Error ? err.message : 'Unsupported image format';
+      this.kind = 'unsupported';
     }
   }
 
@@ -328,19 +337,33 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
     }
 
     const mime = this.inferImageMime(ext);
-    if (!mime) { this.kind = 'unsupported'; return; }
-    
-    try {
-      const r = await this.api.archiveRead(ctx.fsPath, ctx.nestedChain, ctx.entryPath, 'utf8');
-      if (!r) { this.kind = 'unsupported'; return; }
-      this.info = this.makeSyntheticInfo(entryName, ctx.entryPath, r.size ?? 0);
-
-      this.imageSrc = await this.api.getArchiveStreamURL(ctx.fsPath, ctx.nestedChain, ctx.entryPath);
-      this.kind = 'image';
-    } catch (err) {
-      this.error = err instanceof Error ? err.message : 'Failed to load image from archive';
-      this.kind = 'error';
+    if (mime) {
+      try {
+        const r = await this.api.archiveRead(ctx.fsPath, ctx.nestedChain, ctx.entryPath, 'utf8');
+        if (!r) { this.kind = 'unsupported'; return; }
+        this.info = this.makeSyntheticInfo(entryName, ctx.entryPath, r.size ?? 0);
+        this.imageSrc = await this.api.getArchiveStreamURL(ctx.fsPath, ctx.nestedChain, ctx.entryPath);
+        this.kind = 'image';
+      } catch (err) {
+        this.error = err instanceof Error ? err.message : 'Failed to load image from archive';
+        this.kind = 'error';
+      }
+      return;
     }
+
+    // Archive conversion not supported yet (would require temp extraction)
+    this.error = `Format ${ext.toUpperCase()} in archives is not yet supported`;
+    this.kind = 'unsupported';
+  }
+
+  private async convertImageAndDisplay(path: string, ext: string): Promise<void> {
+    const canConvert = await (window as any).go.app.App.CanConvertImage(ext);
+    if (!canConvert) {
+      throw new Error(`Format .${ext} cannot be converted`);
+    }
+
+    this.imageSrc = await this.api.getConvertedImageURL(path, 'png');
+    this.kind = 'image';
   }
 
   private resetState(): void {

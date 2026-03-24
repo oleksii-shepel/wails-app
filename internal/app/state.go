@@ -70,6 +70,12 @@ type Batch interface {
 	ResolveConflict(conflictID string, resolution contracts.ConflictResolution, applyToAll bool) bool
 }
 
+type Converter interface {
+	ConvertFormat(inputPath string, outputFormat string) ([]byte, error)
+	IsSupportedSourceFormat(extension string) bool
+	GetAvailableConversionFormats(sourceExt string) []string
+}
+
 type DirStream interface {
 	Start(paneID, path string, showHidden bool) (string, error)
 	Cancel(streamID string)
@@ -118,6 +124,7 @@ type State struct {
 	Runtime    Runtime
 	Filesystem Filesystem
 	Batch      Batch
+	Converter  Converter
 	DirStream  DirStream
 	Utility    Utility
 	Navigation Navigation

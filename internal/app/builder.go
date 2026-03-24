@@ -69,6 +69,7 @@ func BuildState(core *Core, filesystem Filesystem, elevation *internalelevation.
 
 	state.Archive = services.Archive
 	state.Batch = services.Batch
+	state.Converter = services.Converter
 	state.DirStream = services.DirStream
 	state.Utility = services.Utility
 	state.Navigation = services.Navigation

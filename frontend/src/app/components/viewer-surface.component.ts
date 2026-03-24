@@ -8,7 +8,7 @@ import { ApiService } from '../services/api.service';
 import { FileInfo, FileType } from '../shared/protocol';
 import { CanvasVideoPlayer, CanvasVideoPlayerService, VideoMetadata } from '../services/canvas-video-player.service';
 import { Subject } from 'rxjs';
-import { takeUntil } from 'rxjs/operators';
+import { takeUntil, throttleTime } from 'rxjs/operators';
 
 type ViewerKind =
   | 'image' | 'video' | 'audio' | 'pdf' | 'svg'
@@ -713,6 +713,7 @@ export interface ViewerArchiveContext {
       outline: none;
       margin: -10px 0;
       z-index: 10;
+      transition: background 0.05s linear;
     }
 
     .seek-slider::-webkit-slider-thumb {
@@ -725,7 +726,7 @@ export interface ViewerArchiveContext {
       border-radius: 50%;
       cursor: pointer;
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
-      transition: all 0.1s ease;
+      transition: width 0.05s ease, height 0.05s ease, box-shadow 0.05s ease;
     }
 
     .seek-slider::-webkit-slider-thumb:hover {
@@ -742,7 +743,7 @@ export interface ViewerArchiveContext {
       border-radius: 50%;
       cursor: pointer;
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
-      transition: all 0.1s ease;
+      transition: width 0.05s ease, height 0.05s ease, box-shadow 0.05s ease;
     }
 
     .seek-slider::-moz-range-thumb:hover {
@@ -1502,8 +1503,14 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
             this.cdr.markForCheck();
           });
 
+        // Smooth playhead movement: throttle updates to ~50ms (match CSS transition timing)
+        // This ensures the slider thumb moves smoothly with the progress bar
         this.canvasPlayer.currentTime$
-          .pipe(takeUntil(this.destroy$))
+          .pipe(
+            takeUntil(this.destroy$),
+            // Throttle to 50ms intervals for smooth visual motion
+            throttleTime(50, undefined, { leading: true, trailing: true })
+          )
           .subscribe((seconds: number) => {
             this.videoCurrentTime = seconds;
             this.cdr.markForCheck();

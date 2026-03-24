@@ -408,7 +408,7 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     { field: 'name', header: 'Name', flex: 2, sortable: true },
     { field: 'size', header: 'Size', width: '100px', sortable: true, formatter: (value) => this.formatSize(value) },
     { field: 'modified', header: 'Modified', width: '150px', sortable: true, formatter: (value) => this.formatDate(value) },
-    { field: 'type', header: 'Type', width: '100px', formatter: (_, entry) => this.getFileTypeLabel(entry) }
+    { field: 'type', header: 'Type', width: '100px', sortable: true, formatter: (_, entry) => this.getFileTypeLabel(entry) }
   ];
   private readonly registryColumns: ColumnDef[] = [
     { field: 'name', header: 'Name', flex: 1.7, sortable: true },
@@ -421,7 +421,7 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     { field: 'searchParentPath', header: 'Folder', flex: 1.8, sortable: true, formatter: (_, entry) => this.getSearchParentPath(entry) },
     { field: 'modified', header: 'Modified', width: '150px', sortable: true, formatter: (value) => this.formatDate(value) },
     { field: 'size', header: 'Size', width: '100px', sortable: true, formatter: (value) => this.formatSize(value) },
-    { field: 'type', header: 'Type', width: '100px', formatter: (_, entry) => this.getFileTypeLabel(entry) }
+    { field: 'type', header: 'Type', width: '100px', sortable: true, formatter: (_, entry) => this.getFileTypeLabel(entry) }
   ];
   
   constructor(

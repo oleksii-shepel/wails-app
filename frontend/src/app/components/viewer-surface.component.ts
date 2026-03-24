@@ -1297,7 +1297,19 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
     this.cdr.markForCheck();
   }
 
-  onImageError(): void {
+  async onImageError(): Promise<void> {
+    // If a normal image stream fails, check if we can convert it as a fallback
+    if (!this.archiveContext && this.kind === 'image') {
+      const convertible = await this.api.canConvertImage(this.targetPath || '');
+      if (convertible) {
+        try {
+          this.imageSrc = await this.api.getConvertedImageURL(this.targetPath || '', 'png');
+          this.cdr.markForCheck();
+          return;
+        } catch { /* proceed to error */ }
+      }
+    }
+
     this.error = 'Image failed to render.';
     this.kind  = 'error';
     this.cdr.markForCheck();
@@ -1665,6 +1677,23 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
         } catch { this.kind = 'error'; this.error = 'Failed to stream image'; return; }
       }
 
+      // ── Image Conversion Fallback ────────────────────────────────────────────
+      // Not an archive stream and is convertible?
+      if (!this.archiveContext) {
+        const convertible = await this.api.canConvertImage(this.targetPath || '');
+        if (convertible) {
+          try {
+            // Ask Go to convert and give us a temporary preview URL
+            this.imageSrc = await this.api.getConvertedImageURL(this.targetPath || '', 'png');
+            this.kind = 'image';
+            return;
+          } catch (err) {
+            console.warn('Conversion failed', err);
+            // Fall through to other types
+          }
+        }
+      }
+
       // ── Video ────────────────────────────────────────────────────────────────
       const videoMime = this.inferVideoMime(ext);
       if (videoMime) {
@@ -1859,6 +1888,9 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
       png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
       gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp',
       ico: 'image/x-icon', tif: 'image/tiff', tiff: 'image/tiff', avif: 'image/avif',
+      // High-end formats that usually need conversion
+      psd: 'image/vnd.adobe.photoshop', ai: 'image/application/postscript',
+      heic: 'image/heic', heif: 'image/heif',
     } as Record<string, string>)[ext] ?? null;
   }
 

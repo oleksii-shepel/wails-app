@@ -292,7 +292,13 @@ export class ApiService {
   }
 
   async getConvertedImageURL(path: string, targetFormat: string = 'png'): Promise<string> {
-	return await (window as any).go.app.App.GetConvertedImageURL(this.normalizeCanonicalPath(path), targetFormat);
+    return await (window as any).go.app.App.GetConvertedImageURL(this.normalizeCanonicalPath(path), targetFormat);
+  }
+
+  async canConvertImage(path: string): Promise<boolean> {
+    const ext = path.split('.').pop()?.toLowerCase() || '';
+    if (!ext) return false;
+    return await (window as any).go.app.App.CanConvertImage(ext);
   }
 
   async readFileStream(path: string, chunkSize: number = 64 * 1024): Promise<string> {

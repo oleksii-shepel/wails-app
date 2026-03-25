@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { BehaviorSubject, Subject } from 'rxjs';
+import { createBehaviorSubject, createSubject } from '@epikodelabs/streamix';
 import { BufferSource, EncodedPacketSink, Input, MATROSKA, MP4, MPEG_TS, QTFF, UrlSource, WEBM, ReadableStreamSource } from 'mediabunny';
 
 /**
@@ -625,12 +625,13 @@ export class CanvasVideoPlayer {
   private lastDrawnTimestampMs = -1;
   private isLoaded = false;
   private sourceLoadGeneration = 0;
+  private pendingLoad: Promise<VideoMetadata> | null = null;
 
-  readonly stateChanged$ = new BehaviorSubject<PlayerState>('idle');
-  readonly frameReady$ = new Subject<number>();
-  readonly error$ = new Subject<string>();
-  readonly metadataReady$ = new Subject<VideoMetadata>();
-  readonly currentTime$ = new BehaviorSubject<number>(0);
+  readonly stateChanged$ = createBehaviorSubject<PlayerState>('idle');
+  readonly frameReady$ = createSubject<number>();
+  readonly error$ = createSubject<string>();
+  readonly metadataReady$ = createSubject<VideoMetadata>();
+  readonly currentTime$ = createBehaviorSubject<number>(0);
 
   constructor(private readonly container: HTMLElement) {
     this.container.replaceChildren();
@@ -643,33 +644,42 @@ export class CanvasVideoPlayer {
   }
 
   async loadFromUrl(url: string): Promise<VideoMetadata> {
-    const generation = ++this.sourceLoadGeneration;
-    this.prepareForSourceReload();
-    this.sourceUrl = url;
-    const durationHintSec = this.parseDurationHintFromUrl(url);
+    let currentLoad: Promise<VideoMetadata> | null = null;
+    currentLoad = (async () => {
+      const generation = ++this.sourceLoadGeneration;
+      this.prepareForSourceReload();
+      this.sourceUrl = url;
+      const durationHintSec = this.parseDurationHintFromUrl(url);
 
-    try {
-      const hintedFormat = this.detectContainerFormatFromUrl(url);
-      if (hintedFormat === 'mp4' || hintedFormat === 'mkv' || hintedFormat === 'ts') {
-        return await this.loadFromStreamUrl(url, hintedFormat, generation, durationHintSec);
-      }
+      try {
+        const hintedFormat = this.detectContainerFormatFromUrl(url);
+        if (hintedFormat === 'mp4' || hintedFormat === 'mkv' || hintedFormat === 'ts') {
+          return await this.loadFromStreamUrl(url, hintedFormat, generation, durationHintSec);
+        }
 
-      const buffer = await this.fetchFile(url);
-      const containerFormat = this.detectContainerFormat(buffer, url);
-      const metadata = await this.loadFromBuffer(buffer, containerFormat, generation);
-      return metadata;
-    } catch (error) {
-      if (generation !== this.sourceLoadGeneration) {
+        const buffer = await this.fetchFile(url);
+        const containerFormat = this.detectContainerFormat(buffer, url);
+        return await this.loadFromBuffer(buffer, containerFormat, generation);
+      } catch (error) {
+        if (generation !== this.sourceLoadGeneration) {
+          throw error;
+        }
+        const message = error instanceof Error ? error.message : 'Failed to load video';
+        this.error$.next(message);
         throw error;
+      } finally {
+        if (this.pendingLoad === currentLoad) {
+          this.pendingLoad = null;
+        }
       }
-      const message = error instanceof Error ? error.message : 'Failed to load video';
-      this.error$.next(message);
-      throw error;
-    }
+    })();
+
+    this.pendingLoad = currentLoad;
+    return currentLoad;
   }
 
   async play(): Promise<void> {
-    this.ensureLoaded();
+    await this.ensureLoaded();
 
     if (this.stateChanged$.value === 'playing') {
       return;
@@ -698,7 +708,7 @@ export class CanvasVideoPlayer {
   }
 
   async seek(timeMs: number): Promise<void> {
-    this.ensureLoaded();
+    await this.ensureLoaded();
 
     const clampedTimeMs = Math.max(0, Math.min(timeMs, this.getDurationMs()));
     const wasPlaying = this.stateChanged$.value === 'playing';
@@ -738,6 +748,10 @@ export class CanvasVideoPlayer {
 
   getMetadata(): VideoMetadata | undefined {
     return this.metadata;
+  }
+
+  isPlaying(): boolean {
+    return this.stateChanged$.value === 'playing';
   }
 
   setVolume(volume: number): void {
@@ -1533,7 +1547,15 @@ export class CanvasVideoPlayer {
     }
   }
 
-  private ensureLoaded(): void {
+  private async ensureLoaded(): Promise<void> {
+    if (!this.isLoaded && this.pendingLoad) {
+      await this.pendingLoad;
+    }
+
+    if (!this.isLoaded && this.sourceUrl && !this.pendingLoad) {
+      await this.loadFromUrl(this.sourceUrl);
+    }
+
     if (!this.isLoaded || !this.metadata) {
       throw new Error('Video player is not initialized.');
     }

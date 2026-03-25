@@ -7,8 +7,7 @@ import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { ApiService } from '../services/api.service';
 import { FileInfo, FileType } from '../shared/protocol';
 import { CanvasVideoPlayer, CanvasVideoPlayerService, VideoMetadata } from '../services/canvas-video-player.service';
-import { Subject } from 'rxjs';
-import { takeUntil } from 'rxjs/operators';
+import { createSubject, takeUntil } from '@epikodelabs/streamix';
 
 type ViewerKind =
   | 'image' | 'video' | 'audio' | 'pdf' | 'svg'
@@ -181,7 +180,7 @@ export interface ViewerArchiveContext {
                   (input)="onVideoSeekInput($event)"
                   (change)="onVideoSeek($event)"
                   class="seek-slider"
-                  [disabled]="!videoSeekable"
+                  [disabled]="!videoSeekable || !videoReady || videoLoading"
                   title="Seek video">
                 <div class="progress-fill" [style.width.%]="((videoIsSeeking ? videoSeekTarget : videoCurrentTime) / videoDuration) * 100 || 0"></div>
               </div>
@@ -200,7 +199,7 @@ export interface ViewerArchiveContext {
 
               <!-- Time display -->
               <div class="time-display">
-                <span class="current-time">{{ formatTime(videoCurrentTime) }}</span>
+                <span class="current-time">{{ formatTime(videoIsSeeking ? videoSeekTarget : videoCurrentTime) }}</span>
                 <span class="separator">/</span>
                 <span class="duration">{{ formatTime(videoDuration) }}</span>
               </div>
@@ -1203,7 +1202,7 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
 
   // ── State ────────────────────────────────────────────────────────────────
 
-  private destroy$ = new Subject<void>();
+  private destroy$ = createSubject<void>();
   canvasPlayer: CanvasVideoPlayer | null = null;
   
   // Video player state
@@ -1505,36 +1504,41 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
   }
 
   onVideoSeekStart(): void {
-    if (!this.videoSeekable) return;
+    if (!this.videoSeekable || !this.videoReady || this.videoLoading) return;
     this.videoIsSeeking = true;
     this.videoSeekTarget = this.videoCurrentTime;
     this.cdr.markForCheck();
   }
 
   onVideoSeekInput(event: Event): void {
+    if (!this.videoSeekable || !this.videoReady || this.videoLoading) return;
     const target = event.target as HTMLInputElement;
     this.videoSeekTarget = parseFloat(target.value);
     this.cdr.markForCheck();
   }
 
   async onVideoSeek(event: Event): Promise<void> {
-    this.videoIsSeeking = false;
     const target = event.target as HTMLInputElement;
     const seekSeconds = parseFloat(target.value);
-    const shouldResumePlayback = this.videoIsPlaying;
-
-    if (!this.canvasPlayer || !this.videoSeekable) return;
+    if (!this.canvasPlayer || !this.videoSeekable || !this.videoReady || this.videoLoading) return;
+    const shouldResumePlayback = this.canvasPlayer.isPlaying() || this.isVideoAtEnd();
 
     try {
+      this.videoIsSeeking = true;
+      this.videoSeekTarget = seekSeconds;
+      this.videoCurrentTime = seekSeconds;
+      this.cdr.markForCheck();
+
       if (this.shouldRestartVideoStreamOnSeek(seekSeconds)) {
         await this.restartCanvasVideoAt(seekSeconds, { autoplay: shouldResumePlayback, accurate: true });
       } else {
+        const playerSeekSeconds = this.shouldUseWindowedVideoStreaming()
+          ? Math.max(0, seekSeconds - this.videoTimelineOffsetSeconds)
+          : seekSeconds;
+
         this.cdr.markForCheck();
 
-        await this.canvasPlayer.seek(seekSeconds * 1000);
-        if (shouldResumePlayback) {
-          await this.canvasPlayer.play();
-        }
+        await this.canvasPlayer.seek(playerSeekSeconds * 1000);
 
         this.videoReady = true;
         this.videoError = null;
@@ -1544,6 +1548,9 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
       console.error('Seek error:', err);
       this.videoError = err.message || 'Seek failed';
       this.videoLoading = false;
+      this.cdr.markForCheck();
+    } finally {
+      this.videoIsSeeking = false;
       this.cdr.markForCheck();
     }
   }
@@ -1664,6 +1671,9 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
         this.canvasPlayer.currentTime$
           .pipe(takeUntil(this.destroy$))
           .subscribe((seconds: number) => {
+            if (this.videoIsSeeking || this.videoLoading) {
+              return;
+            }
             this.videoCurrentTime = this.getDisplayedVideoCurrentTime(seconds);
             this.cdr.markForCheck();
           });
@@ -2196,6 +2206,10 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
 
   private shouldAutoAdvanceWindowedPlayback(): boolean {
     return this.shouldUseWindowedVideoStreaming() && this.videoCurrentTime + 0.5 < this.videoDuration;
+  }
+
+  private isVideoAtEnd(): boolean {
+    return this.videoDuration > 0 && this.videoCurrentTime >= this.videoDuration - 0.25;
   }
 
   private async restartCanvasVideoAt(seekSeconds: number, options?: { autoplay?: boolean; accurate?: boolean }): Promise<void> {

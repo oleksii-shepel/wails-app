@@ -1,6 +1,6 @@
 import { Injectable } from '@angular/core';
 import { BehaviorSubject, Subject } from 'rxjs';
-import { BufferSource, EncodedPacketSink, Input, MATROSKA, MP4, MPEG_TS, QTFF, UrlSource, WEBM } from 'mediabunny';
+import { BufferSource, EncodedPacketSink, Input, MATROSKA, MP4, MPEG_TS, QTFF, UrlSource, WEBM, ReadableStreamSource } from 'mediabunny';
 
 /**
  * All mediabunny format parsers - try these in order for generic format handling.
@@ -89,6 +89,7 @@ interface DemuxedVideoSource {
   decoderConfig: ExtendedVideoDecoderConfig;
   avcSampleConfig?: AvcSampleConfig;
   audio?: DemuxedAudioTrackSource;
+  supportsRandomAccess?: boolean;
   getFirstPacket(): Promise<DemuxedPacketCursor | null>;
   getPacketForTime(timeMs: number, options?: { keyframe?: boolean }): Promise<DemuxedPacketCursor | null>;
   getNextPacket(cursor: DemuxedPacketCursor): Promise<DemuxedPacketCursor | null>;
@@ -101,8 +102,8 @@ class Mp4DemuxedSource {
     return MediaBunnyDemuxedSource.loadFromBuffer(buffer, [MP4, QTFF], (inputFormat) => inputFormat === QTFF ? 'mov' : 'mp4');
   }
 
-  static async loadFromUrl(url: string): Promise<DemuxedVideoSource> {
-    return MediaBunnyDemuxedSource.loadFromUrl(url, [MP4, QTFF], (inputFormat) => inputFormat === QTFF ? 'mov' : 'mp4');
+  static async loadFromUrl(url: string, durationHintSec = 0): Promise<DemuxedVideoSource> {
+    return MediaBunnyDemuxedSource.loadFromUrl(url, [MP4, QTFF], (inputFormat) => inputFormat === QTFF ? 'mov' : 'mp4', durationHintSec);
   }
 
   private static ensureMp4(buffer: ArrayBuffer): void {
@@ -135,6 +136,7 @@ class ArrayBackedDemuxedSource {
       metadata: options.metadata,
       decoderConfig: options.decoderConfig,
       avcSampleConfig: options.avcSampleConfig,
+      supportsRandomAccess: true,
       getFirstPacket: async () => getCursorAt(0),
       getPacketForTime: async (timeMs, requestOptions) => {
         if (!options.samples.length) {
@@ -171,11 +173,45 @@ class MediaBunnyDemuxedSource {
     url: string,
     formats: unknown[],
     resolveFormatName: (inputFormat: unknown) => string,
+    durationHintSec = 0,
   ): Promise<DemuxedVideoSource> {
-    return this.loadInput(new UrlSource(url, {
-      maxCacheSize: 64 * 1024 * 1024,
-      parallelism: 2,
-    }), formats, resolveFormatName);
+    const controller = new AbortController();
+    const response = await fetch(url, {
+      headers: { Range: 'bytes=0-' },
+      signal: controller.signal
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to stream from URL (status ${response.status})`);
+    }
+
+    const isPartial = response.status === 206;
+    const hasContentLength = response.headers.has('Content-Length');
+
+    // If server supports ranges or knows final size, use UrlSource to allow proper random-access seeking.
+    // This solves issues with MKV files that need to parse cue metadata at the end of the file.
+    if (isPartial || hasContentLength) {
+      controller.abort();
+      const source = await this.loadInput(new UrlSource(url, {
+        maxCacheSize: 64 * 1024 * 1024,
+        parallelism: 2,
+      }), formats, resolveFormatName, durationHintSec);
+      source.supportsRandomAccess = true;
+      return source;
+    }
+
+    if (!response.body) {
+      throw new Error('Failed to read response body for sequential stream');
+    }
+
+    // Server doesn't support ranges or size (e.g., live transcode or piped stream).
+    // Use ReadableStreamSource to incrementally consume the stream, with a large cache
+    // to handle minimal backwards-seeking requirements.
+    const source = await this.loadInput(new ReadableStreamSource(response.body, {
+      maxCacheSize: 256 * 1024 * 1024, // 256MB cache
+    }), formats, resolveFormatName, durationHintSec);
+    source.supportsRandomAccess = false;
+    return source;
   }
 
   static async loadFromBuffer(
@@ -187,9 +223,10 @@ class MediaBunnyDemuxedSource {
   }
 
   private static async loadInput(
-    source: BufferSource | UrlSource,
+    source: BufferSource | UrlSource | ReadableStreamSource,
     formats: unknown[],
     resolveFormatName: (inputFormat: unknown) => string,
+    durationHintSec = 0,
   ): Promise<DemuxedVideoSource> {
     const input = new Input({
       formats: formats as any,
@@ -202,7 +239,7 @@ class MediaBunnyDemuxedSource {
         input.getFormat(),
         input.getPrimaryVideoTrack(),
         input.getPrimaryAudioTrack(),
-        input.computeDuration(),
+        durationHintSec > 0 ? Promise.resolve(durationHintSec) : input.computeDuration(),
       ]);
 
       if (!videoTrack) {
@@ -218,7 +255,7 @@ class MediaBunnyDemuxedSource {
         audioTrack?.getCodecParameterString() ?? Promise.resolve(null),
         audioTrack?.getDecoderConfig() ?? Promise.resolve(null),
         videoTrack.computePacketStats(120),
-        videoTrack.computeDuration(),
+        durationHintSec > 0 ? Promise.resolve(durationHintSec) : videoTrack.computeDuration(),
         packetSink.getFirstPacket({ metadataOnly: true }),
       ]);
 
@@ -239,7 +276,7 @@ class MediaBunnyDemuxedSource {
       const timestampOffsetMs = Math.max(0, firstPacket ? this.toMilliseconds(firstPacket.timestamp) : 0);
       const durationMs = Math.max(
         0,
-        this.toMilliseconds(inputDurationSec) - timestampOffsetMs,
+        durationHintSec > 0 ? this.toMilliseconds(durationHintSec) : this.toMilliseconds(inputDurationSec),
         this.toMilliseconds(trackDurationSec) - timestampOffsetMs,
       );
 
@@ -427,8 +464,8 @@ class MkvDemuxedSource {
     return MediaBunnyDemuxedSource.loadFromBuffer(buffer, [MATROSKA, WEBM], (inputFormat) => inputFormat === WEBM ? 'webm' : 'mkv');
   }
 
-  static async loadFromUrl(url: string): Promise<DemuxedVideoSource> {
-    return MediaBunnyDemuxedSource.loadFromUrl(url, [MATROSKA, WEBM], (inputFormat) => inputFormat === WEBM ? 'webm' : 'mkv');
+  static async loadFromUrl(url: string, durationHintSec = 0): Promise<DemuxedVideoSource> {
+    return MediaBunnyDemuxedSource.loadFromUrl(url, [MATROSKA, WEBM], (inputFormat) => inputFormat === WEBM ? 'webm' : 'mkv', durationHintSec);
   }
 
   private static ensureMatroska(buffer: ArrayBuffer): void {
@@ -446,8 +483,8 @@ class TsDemuxedSource {
     return MediaBunnyDemuxedSource.loadFromBuffer(buffer, [MPEG_TS], () => 'ts');
   }
 
-  static async loadFromUrl(url: string): Promise<DemuxedVideoSource> {
-    return MediaBunnyDemuxedSource.loadFromUrl(url, [MPEG_TS], () => 'ts');
+  static async loadFromUrl(url: string, durationHintSec = 0): Promise<DemuxedVideoSource> {
+    return MediaBunnyDemuxedSource.loadFromUrl(url, [MPEG_TS], () => 'ts', durationHintSec);
   }
 
   private static ensureTsFormat(buffer: ArrayBuffer): void {
@@ -475,14 +512,14 @@ class GenericMediaBunnyDemuxedSource {
     });
   }
 
-  static async loadFromUrl(url: string): Promise<DemuxedVideoSource> {
+  static async loadFromUrl(url: string, durationHintSec = 0): Promise<DemuxedVideoSource> {
     return MediaBunnyDemuxedSource.loadFromUrl(url, MEDIABUNNY_FORMAT_PARSERS, (inputFormat) => {
       if (inputFormat === MP4 || inputFormat === QTFF) return 'mp4';
       if (inputFormat === MATROSKA) return 'mkv';
       if (inputFormat === WEBM) return 'webm';
       if (inputFormat === MPEG_TS) return 'ts';
       return 'unknown';
-    });
+    }, durationHintSec);
   }
 }
 
@@ -544,6 +581,8 @@ export class CanvasVideoPlayer {
   private audioContext?: AudioContext;
   private audioGainNode?: GainNode;
   private metadata?: VideoMetadata;
+  private sourceUrl: string | null = null;
+  private sourceSupportsRandomAccess = true;
   
   /** Max decoded frames - adaptive based on resolution to limit memory usage */
   private static calculateMaxDecodedFrames(width: number, height: number): number {
@@ -563,7 +602,7 @@ export class CanvasVideoPlayer {
   
   private static readonly MAX_DECODE_QUEUE = 48;
   private static readonly MAX_AUDIO_DECODE_QUEUE = 24;
-  private static readonly AUDIO_SCHEDULE_LEAD_SEC = 0.1;
+  private static readonly AUDIO_SCHEDULE_LEAD_SEC = 0.02;
   private static readonly AUDIO_BUFFER_AHEAD_SEC = 1.25;
   private maxDecodedFrames = 60; // Updated when video loads
   private decodedFrames: DecodedFrame[] = [];
@@ -572,6 +611,7 @@ export class CanvasVideoPlayer {
   private reachedEndOfStream = false;
   private decodeAheadInFlight = false;
   private decodeAheadQueued = false;
+  private decodeGeneration = 0;
   private audioDecodeAheadInFlight = false;
   private audioDecodeAheadQueued = false;
   private awaitingKeyFrame = true;
@@ -584,6 +624,7 @@ export class CanvasVideoPlayer {
   private volume = 1;
   private lastDrawnTimestampMs = -1;
   private isLoaded = false;
+  private sourceLoadGeneration = 0;
 
   readonly stateChanged$ = new BehaviorSubject<PlayerState>('idle');
   readonly frameReady$ = new Subject<number>();
@@ -602,17 +643,25 @@ export class CanvasVideoPlayer {
   }
 
   async loadFromUrl(url: string): Promise<VideoMetadata> {
+    const generation = ++this.sourceLoadGeneration;
+    this.prepareForSourceReload();
+    this.sourceUrl = url;
+    const durationHintSec = this.parseDurationHintFromUrl(url);
+
     try {
       const hintedFormat = this.detectContainerFormatFromUrl(url);
       if (hintedFormat === 'mp4' || hintedFormat === 'mkv' || hintedFormat === 'ts') {
-        return await this.loadFromStreamUrl(url, hintedFormat);
+        return await this.loadFromStreamUrl(url, hintedFormat, generation, durationHintSec);
       }
 
       const buffer = await this.fetchFile(url);
       const containerFormat = this.detectContainerFormat(buffer, url);
-      const metadata = await this.loadFromBuffer(buffer, containerFormat);
+      const metadata = await this.loadFromBuffer(buffer, containerFormat, generation);
       return metadata;
     } catch (error) {
+      if (generation !== this.sourceLoadGeneration) {
+        throw error;
+      }
       const message = error instanceof Error ? error.message : 'Failed to load video';
       this.error$.next(message);
       throw error;
@@ -653,10 +702,17 @@ export class CanvasVideoPlayer {
 
     const clampedTimeMs = Math.max(0, Math.min(timeMs, this.getDurationMs()));
     const wasPlaying = this.stateChanged$.value === 'playing';
+    const currentTimeMs = this.getCurrentTimeMs();
     if (wasPlaying) {
       this.pause();
     }
 
+    if (clampedTimeMs < currentTimeMs && await this.shouldReloadSourceForReverseSeek()) {
+      await this.reloadCurrentStreamSource(clampedTimeMs, wasPlaying);
+      return;
+    }
+
+    this.decodeGeneration++;
     this.playbackBaseMs = clampedTimeMs;
     this.currentTime$.next(clampedTimeMs / 1000);
     await this.rebuildDecoder();
@@ -697,6 +753,7 @@ export class CanvasVideoPlayer {
     this.resetAudioPlaybackState();
     this.source?.destroy?.();
     this.source = undefined;
+    this.sourceUrl = null;
     this.decoder?.close();
     this.decoder = undefined;
     this.audioSource = undefined;
@@ -717,14 +774,14 @@ export class CanvasVideoPlayer {
     this.canvas.remove();
   }
 
-  private async loadFromBuffer(buffer: ArrayBuffer, containerFormat: ContainerFormat): Promise<VideoMetadata> {
+  private async loadFromBuffer(buffer: ArrayBuffer, containerFormat: ContainerFormat, generation: number): Promise<VideoMetadata> {
     const source = await this.demuxBuffer(buffer, containerFormat);
-    return this.initializeDemuxedSource(source);
+    return this.initializeDemuxedSource(source, generation);
   }
 
-  private async loadFromStreamUrl(url: string, containerFormat: ContainerFormat): Promise<VideoMetadata> {
-    const source = await this.demuxUrl(url, containerFormat);
-    return this.initializeDemuxedSource(source);
+  private async loadFromStreamUrl(url: string, containerFormat: ContainerFormat, generation: number, durationHintSec = 0): Promise<VideoMetadata> {
+    const source = await this.demuxUrl(url, containerFormat, durationHintSec);
+    return this.initializeDemuxedSource(source, generation, durationHintSec);
   }
 
   private async demuxBuffer(buffer: ArrayBuffer, containerFormat: ContainerFormat): Promise<DemuxedVideoSource> {
@@ -743,24 +800,28 @@ export class CanvasVideoPlayer {
     }
   }
 
-  private async demuxUrl(url: string, containerFormat: ContainerFormat): Promise<DemuxedVideoSource> {
+  private async demuxUrl(url: string, containerFormat: ContainerFormat, durationHintSec = 0): Promise<DemuxedVideoSource> {
     switch (containerFormat) {
       case 'mp4':
-        return Mp4DemuxedSource.loadFromUrl(url);
+        return Mp4DemuxedSource.loadFromUrl(url, durationHintSec);
       case 'mkv':
-        return MkvDemuxedSource.loadFromUrl(url);
+        return MkvDemuxedSource.loadFromUrl(url, durationHintSec);
       case 'ts':
-        return TsDemuxedSource.loadFromUrl(url);
+        return TsDemuxedSource.loadFromUrl(url, durationHintSec);
       case 'unknown':
         // Try all mediabunny format parsers for unknown containers
-        return GenericMediaBunnyDemuxedSource.loadFromUrl(url);
+        return GenericMediaBunnyDemuxedSource.loadFromUrl(url, durationHintSec);
       default:
         throw new Error('Canvas playback container format is unknown and could not be determined.');
     }
   }
 
-  private async initializeDemuxedSource(source: DemuxedVideoSource): Promise<VideoMetadata> {
-    this.resetAudioPlaybackState();
+  private async initializeDemuxedSource(source: DemuxedVideoSource, generation: number, durationHintSec = 0): Promise<VideoMetadata> {
+    if (generation !== this.sourceLoadGeneration) {
+      source.destroy?.();
+      throw new Error('Video load superseded by a newer request.');
+    }
+
     this.source?.destroy?.();
     this.source = source;
     this.canvas.width = source.metadata.width;
@@ -777,8 +838,15 @@ export class CanvasVideoPlayer {
     this.decoderConfig = source.decoderConfig;
     this.audioSource = source.audio;
     this.audioDecoderConfig = source.audio?.decoderConfig;
+    this.sourceSupportsRandomAccess = source.supportsRandomAccess !== false;
 
     await this.rebuildDecoder();
+
+    if (generation !== this.sourceLoadGeneration) {
+      source.destroy?.();
+      throw new Error('Video load superseded by a newer request.');
+    }
+
     this.isLoaded = true;
     this.nextPacketCursor = null;
     this.nextAudioPacketCursor = null;
@@ -789,6 +857,23 @@ export class CanvasVideoPlayer {
 
     await this.seek(0);
     return this.metadata;
+  }
+
+  private prepareForSourceReload(): void {
+    this.decodeGeneration++;
+    this.cancelRenderLoop();
+    this.clearDecodedFrames();
+    this.resetAudioPlaybackState();
+    this.source?.destroy?.();
+    this.source = undefined;
+    this.sourceUrl = null;
+    this.isLoaded = false;
+    this.nextPacketCursor = null;
+    this.nextAudioPacketCursor = null;
+    this.reachedEndOfStream = false;
+    this.playbackBaseMs = 0;
+    this.playbackStartPerfMs = 0;
+    this.stateChanged$.next('paused');
   }
 
   private async rebuildDecoder(): Promise<void> {
@@ -965,19 +1050,25 @@ export class CanvasVideoPlayer {
     }
 
     this.decodeAheadInFlight = true;
+    const generation = this.decodeGeneration;
 
     try {
       while (
         this.nextPacketCursor &&
         this.decoder &&
         this.decoder.decodeQueueSize < CanvasVideoPlayer.MAX_DECODE_QUEUE &&
-        this.decodedFrames.length + this.decoder.decodeQueueSize < this.maxDecodedFrames
+        this.decodedFrames.length + this.decoder.decodeQueueSize < this.maxDecodedFrames &&
+        generation === this.decodeGeneration
       ) {
         let cursor = this.nextPacketCursor;
         let packet = cursor.packet;
 
         if (this.awaitingKeyFrame && !packet.isRap) {
-          const keyframeCursor = await this.findNextKeyframeCursor(cursor);
+          const keyframeCursor = await this.findNextKeyframeCursor(cursor, generation);
+          // If generation changed while scanning, bail out.
+          if (generation !== this.decodeGeneration) {
+            break;
+          }
           if (!keyframeCursor) {
             this.error$.next('Decoder requires a keyframe before playback can continue, but no keyframe was found.');
             this.nextPacketCursor = null;
@@ -990,6 +1081,11 @@ export class CanvasVideoPlayer {
         }
 
         this.nextPacketCursor = await this.source.getNextPacket(cursor);
+        // If generation changed while getting the next packet, bail out before using the wrong decoder.
+        if (generation !== this.decodeGeneration) {
+          break;
+        }
+
         if (!this.nextPacketCursor) {
           this.reachedEndOfStream = true;
         }
@@ -1095,7 +1191,7 @@ export class CanvasVideoPlayer {
     return (await this.audioSource.getPacketForTime(timeMs)) ?? this.audioSource.getFirstPacket();
   }
 
-  private async findNextKeyframeCursor(cursor: DemuxedPacketCursor): Promise<DemuxedPacketCursor | null> {
+  private async findNextKeyframeCursor(cursor: DemuxedPacketCursor, generation: number): Promise<DemuxedPacketCursor | null> {
     if (cursor.packet.isRap) {
       return cursor;
     }
@@ -1105,7 +1201,7 @@ export class CanvasVideoPlayer {
     }
 
     let nextCursor = await this.source.getNextPacket(cursor);
-    while (nextCursor) {
+    while (nextCursor && generation === this.decodeGeneration) {
       if (nextCursor.packet.isRap) {
         return nextCursor;
       }
@@ -1137,8 +1233,8 @@ export class CanvasVideoPlayer {
       return;
     }
 
-    const frameIntervalMs = this.metadata ? 1000 / (this.metadata.frameRate || 30) : 16.67;
-    if (frame.timestampMs > currentTimeMs + frameIntervalMs * 1.5) {
+    const presentationToleranceMs = this.getPresentationToleranceMs();
+    if (frame.timestampMs > currentTimeMs + presentationToleranceMs) {
       if (this.lastDrawnTimestampMs < 0) {
         // Unconditionally draw the VERY FIRST decoded frame even if its PTS is slightly ahead of 0.
         // This prevents black screen when paused at the beginning without audio sync yet.
@@ -1242,7 +1338,7 @@ export class CanvasVideoPlayer {
   private getPlaybackTimeMs(): number {
     const targetTimeMs = this.getCurrentTimeMs();
     const bufferedUntilMs = this.getBufferedUntilMs();
-    const frameIntervalMs = this.metadata ? 1000 / (this.metadata.frameRate || 30) : 16.67;
+    const frameIntervalMs = this.getFrameIntervalEstimateMs();
 
     if (
       bufferedUntilMs >= 0 &&
@@ -1271,6 +1367,53 @@ export class CanvasVideoPlayer {
       (!this.decoder || this.decoder.decodeQueueSize === 0) &&
       this.decodedFrames.length <= 1,
     );
+  }
+
+  private getFrameIntervalEstimateMs(): number {
+    if (this.decodedFrames.length > 1) {
+      const delta = this.decodedFrames[1].timestampMs - this.decodedFrames[0].timestampMs;
+      if (delta > 0) {
+        return Math.min(250, Math.max(16, delta));
+      }
+    }
+
+    if (this.decodedFrames.length > 0 && this.lastDrawnTimestampMs >= 0) {
+      const delta = this.decodedFrames[0].timestampMs - this.lastDrawnTimestampMs;
+      if (delta > 0) {
+        return Math.min(250, Math.max(16, delta));
+      }
+    }
+
+    if (this.metadata?.frameRate && Number.isFinite(this.metadata.frameRate) && this.metadata.frameRate > 0) {
+      return Math.min(250, Math.max(16, 1000 / this.metadata.frameRate));
+    }
+
+    return 33.33;
+  }
+
+  private getPresentationToleranceMs(): number {
+    return Math.min(12, this.getFrameIntervalEstimateMs() * 0.25);
+  }
+
+  private async shouldReloadSourceForReverseSeek(): Promise<boolean> {
+    return !this.sourceSupportsRandomAccess && this.sourceUrl !== null;
+  }
+
+  private async reloadCurrentStreamSource(targetTimeMs: number, resumePlayback: boolean): Promise<void> {
+    if (!this.sourceUrl) {
+      return;
+    }
+
+    const sourceUrl = this.sourceUrl;
+    await this.loadFromUrl(sourceUrl);
+
+    if (targetTimeMs > 0) {
+      await this.seek(targetTimeMs);
+    }
+
+    if (resumePlayback) {
+      await this.play();
+    }
   }
 
   private getDurationMs(): number {
@@ -1370,6 +1513,16 @@ export class CanvasVideoPlayer {
     }
 
     return 'unknown';
+  }
+
+  private parseDurationHintFromUrl(url: string): number {
+    try {
+      const resolvedUrl = new URL(url, window.location.href);
+      const rawDuration = Number(resolvedUrl.searchParams.get('duration') ?? '0');
+      return Number.isFinite(rawDuration) && rawDuration > 0 ? rawDuration : 0;
+    } catch {
+      return 0;
+    }
   }
 
   private ensureMp4(buffer: ArrayBuffer): void {

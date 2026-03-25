@@ -1,140 +1,117 @@
 # Video Player Implementation Options
 
+## Current Direction
+
+The codebase has already committed to a canvas-only playback surface for video preview. The main architectural question is no longer whether to use HTML5 video, but how to transport media in a way that preserves reliable seeking.
+
+The current conclusion is:
+
+
 ## Comparison Matrix
 
 ### Option 1: **Stick with HTML5 Video (Baseline)**
 Pros:
-- ✅ Minimal code, already works
-- ✅ Excellent performance out-of-box
-- ✅ Works in older browsers
-- ✅ Custom controls easy to add
 
 Cons:
-- ❌ Limited to browser's native codec support
-- ❌ MKV, MXF, AVI often fail
-- ❌ No container flexibility
 
 **Effort**: Zero  
 **Format Support**: ~60% (mp4, webm, mov)  
 **Perf**: Best  
 **User Experience**: Common formats work, exotic formats fail
 
----
 
-### Option 2: **Canvas + WebCodecs (Recommended)**
+### Option 2: **Canvas + WebCodecs (Current Baseline)**
 Pros:
-- ✅ Supports 95%+ of video formats
-- ✅ Hardware acceleration (native WebCodecs)
-- ✅ Modern, performant, web standard
-- ✅ Can fall back to HTML5 video
-- ✅ Progressive enhancement
 
 Cons:
-- ❌ Moderate implementation effort
-- ❌ Need to build playback UI
-- ❌ Requires `navigator.mediaCapabilities` API
-- ❌ Older browsers fall back to HTML5
 
 **Effort**: 2-4 weeks  
 **Format Support**: ~95% (everything with modern browser)  
 **Perf**: Good (hardware accelerated most of the time)  
-**User Experience**: "Just Works" for almost everything
+**User Experience**: Broad format support, but seek quality depends on transport mode
 
----
+
+### Option 2A: **Canvas + WebCodecs + Seekable File Transport**
+
+Pros:
+
+Cons:
+
+**Effort**: Low incremental effort  
+**Format Support**: High, bounded by WebCodecs and demux support  
+**Perf**: Best within the current architecture  
+**User Experience**: Good scrubbing and stable decode recovery
+
+
+### Option 2B: **Canvas + WebCodecs + Restart-On-Seek Transcoding**
+
+Pros:
+
+Cons:
+
+**Effort**: Moderate  
+**Format Support**: High for transcoded content  
+**Perf**: Good for playback, acceptable for discrete seeks  
+**User Experience**: Predictable seek behavior instead of partial/random success
+
 
 ### Option 3: **Canvas + FFmpeg.wasm (Maximum Compatibility)**
 Pros:
-- ✅ Supports literally every format
-- ✅ Pure software codec (no browser limitations)
-- ✅ Works even in older browsers (IE11 fallback possible)
 
 Cons:
-- ❌ Heavy library (8-20 MB download)
-- ❌ Slow software decoding (1080p = 10-20ms per frame)
-- ❌ High CPU usage (fans spin up)
-- ❌ Poor mobile experience
-- ❌ Privacy concerns (file reading in JS)
 
 **Effort**: 1-2 weeks (simpler demuxing)  
 **Format Support**: 100%  
 **Perf**: Poor (software decoding)  
 **User Experience**: Works everywhere but might be laggy
 
----
 
 ### Option 4: **Hybrid (WebCodecs + FFmpeg.wasm Fallback)**
 Pros:
-- ✅ Best of both worlds
-- ✅ 95%+ formats with hardware accel (WebCodecs)
-- ✅ 100% format support with fallback (FFmpeg)
-- ✅ Graceful degradation
 
 Cons:
-- ❌ Most complex implementation
-- ❌ Large bundle size (if both included)
-- ❌ Complex error handling & fallback logic
 
 **Effort**: 3-5 weeks  
 **Format Support**: 100%  
 **Perf**: Good (hybrid strategy)  
 **User Experience**: Excellent, but heavy
 
----
 
-## Recommendation: **Option 2 (Canvas + WebCodecs)**
+## Recommendation: **Hybrid by Source Seekability**
 
 ### Why?
-1. **Sweet Spot**: 95% format support without bloat
-2. **Performance**: Hardware acceleration on modern browsers (95%+ market share)
-3. **Maintainability**: Standard web APIs, no vendor lock-in
-4. **User Experience**: Progressive enhancement—works great for 95%, HTML5 fallback for legacy
-5. **Effort/Reward**: Best ROI for your file manager use case
+1. **Root cause fit**: The current seek issues are transport-related, not just decoder-related.
+2. **Direct files already have the right shape**: HTTP range requests map naturally to demuxer seeking.
+3. **Sequential transcodes do not**: A single ffmpeg pipe cannot reliably support arbitrary back-and-forth seeking.
+4. **Smaller change surface**: Restart-on-seek is much simpler than inventing a chunk protocol or moving immediately to HLS/DASH.
+5. **Clear UX contract**: Sources can advertise whether they support full scrubbing or restart-based seeking.
 
 ### Decision Tree
 
 ```
 User opens video file
-    ├─ MP4/WebM/MOV?
-    │   └─ Use HTML5 video (existing code)
-    │
-    ├─ MKV/AVI/TS/FLV?
-    │   ├─ Modern browser? → Canvas + WebCodecs
-    │   └─ Old browser? → Try HTML5, show "unsupported"
-    │
-    └─ Exotic? (MXF, etc)
-        └─ Canvas + WebCodecs only
+  ├─ Source is byte-seekable?
+  │   └─ Use canvas player with range-backed transport
+  │
+  ├─ Source requires live transcode?
+  │   ├─ Initial playback → sequential transcode stream
+  │   └─ Seek → restart transcode near requested timestamp
+  │
+  └─ Source is neither seekable nor restartable?
+    └─ Offer limited preview semantics or disable scrubbing
 ```
 
----
 
 ## Implementation Checklist for Option 2
 
 ### Stage 1: Infrastructure (1 week)
-- [ ] Research @vscode/webdemuxer or tsdemux library
-- [ ] Create `CanvasVideoPlayer` service
-- [ ] Implement MediaCapabilities codec detection
-- [ ] Build frame buffer management
 
 ### Stage 2: Core Playback (1 week)
-- [ ] Demux container → extract video/audio tracks
-- [ ] Initialize VideoDecoder for primary codec
-- [ ] Implement frame decoding loop
-- [ ] Sync audio track (AudioContext)
-- [ ] Basic canvas rendering
 
 ### Stage 3: Playback Controls (1 week)
-- [ ] Custom playback UI (play, pause, seek)
-- [ ] Time display & progress bar
-- [ ] Volume control
-- [ ] Fullscreen support
 
-### Stage 4: Polish & Fallback (1 week)
-- [ ] Error handling (unsupported codec → show error)
-- [ ] Fallback to HTML5 video when WebCodecs unavailable
-- [ ] Format detection & auto-selection
-- [ ] Performance monitoring
+### Stage 4: Transport Semantics (1 week)
 
----
 
 ## Code Structure for Option 2
 
@@ -155,7 +132,6 @@ frontend/src/app/components/
 │   └── canvas-video-player.component.scss
 ```
 
----
 
 ## Library Recommendations for Option 2
 
@@ -170,11 +146,7 @@ frontend/src/app/components/
 ```
 
 ### No Heavy Downloads Needed
-- WebCodecs API is built-in to modern browsers
-- Canvas 2D is built-in
-- AudioContext is built-in
 
----
 
 ## Risk Analysis
 
@@ -182,9 +154,10 @@ frontend/src/app/components/
 | Risk | Mitigation |
 |------|-----------|
 | Audio sync drift | Timestamp-based sync, periodic resync |
-| Seeking precision | Build keyframe index on file load |
+| Seeking precision | Use range-backed demuxing for seekable sources; restart transcode for sequential sources |
 | Codec not available | Check MediaCapabilities before init |
 | Container parsing fails | Validate file format, show error |
+| Sequential stream scrub instability | Do not promise full random seek inside one ffmpeg pipe |
 
 ### Testing Strategy
 1. Test each format category (MP4, WebM, MKV, AVI, etc.)
@@ -194,7 +167,6 @@ frontend/src/app/components/
 5. High bitrate (4K)
 6. Edge cases (corrupted files, truncated)
 
----
 
 ## Timeline Estimate
 
@@ -206,7 +178,6 @@ frontend/src/app/components/
 | Testing & Polish | 3-5 days | Error handling, edge cases |
 | **Total** | **2-3 weeks** | Production ready |
 
----
 
 ## File Manager Integration Points
 
@@ -242,20 +213,32 @@ private inferVideoMime(ext: string): string | null {
 ### 3. Streaming URL Logic
 ```typescript
 async getRawStreamUrl(path: string): Promise<string> {
-  // Existing: /wails-stream URL for range requests
-  // Canvas player can use same URL and fetch chunks!
+  // Existing: /wails-stream URL for direct seekable playback
   return `${API_BASE}/wails-stream?path=${path}`;
 }
 ```
 
----
+For transcoded playback, the URL shape needs to express playback mode explicitly:
 
-## Go Backend Changes (Minimal)
+```typescript
+// Initial playback
+`${API_BASE}/wails-stream?path=${path}&transcode=mp4&mode=transcode`
 
-Your `/wails-stream` endpoint already supports range requests—perfect for Canvas player!
+// Restart-based seek
+`${API_BASE}/wails-stream?path=${path}&transcode=mp4&mode=transcode&start=${seconds}`
+```
+
+
+## Go Backend Changes
+
+The backend already supports both of the transport classes the frontend needs, but they should be treated differently:
+
+
+That means the main change is not low-level chunk formatting. The main change is making seek behavior mode-aware.
+
 ```go
-// No changes needed—Canvas player can fetch file in chunks
-// using Range: bytes=0-1024 headers
+// Direct file path: true byte-range seek support
+// Transcode path: sequential output, optional restart with ?start=<seconds>
 ```
 
 ### Optional Enhancement
@@ -265,7 +248,6 @@ GET /api/video-metadata/{path}
 └─ Returns: { format: "mkv", width: 1920, height: 1080, duration: 120000, codec: "h264" }
 ```
 
----
 
 ## Next Steps
 
@@ -276,11 +258,5 @@ GET /api/video-metadata/{path}
 4. Estimate final effort
 
 ### This Week
-- [ ] Decision: Go with Option 2?
-- [ ] Create detailed task breakdown
-- [ ] Plan sprint schedule
 
 ### Implementation
-- [ ] Start with Proto or Stage 1
-- [ ] Get playback working for MKV
-- [ ] Iterate with feedback

@@ -2,7 +2,13 @@
 
 ## Overview
 
-The file manager now includes a pure **Canvas-based video player** path for MP4/MOV-style sources, replacing the HTML5 `<video>` tag in the main preview surface. Playback uses WebCodecs for video decode and renders frames into a canvas.
+The file manager now uses a pure canvas-based video player in the main preview surface. Playback is driven by WebCodecs, frames are rendered into a canvas, and container demuxing is handled through `mediabunny`.
+
+The player is no longer modeled as a browser-native media element replacement. It has its own transport constraints:
+
+- Seekable sources work best when the backend can serve random-access byte ranges.
+- Sequential live transcodes can start quickly, but they do not provide full random seeking semantics.
+- Decoder recovery after seek must restart from a valid keyframe, which makes stream topology as important as codec support.
 
 ## Changes Made
 
@@ -10,20 +16,21 @@ The file manager now includes a pure **Canvas-based video player** path for MP4/
 📄 `frontend/src/app/services/canvas-video-player.service.ts`
 
 - **CanvasVideoPlayer class**: Core video player using Canvas + WebCodecs
-  - Supports real MP4 sample extraction through `mediabunny`
+  - Supports demuxed playback through `mediabunny`
   - Hardware-accelerated decoding via WebCodecs API
   - Frame buffering and canvas rendering
   - Playback control: `play()`, `pause()`, `seek(timeMs)`
   - Real-time state and time broadcasting
-  - MP4/MOV container detection from file headers
-  - Audio track metadata detection only; audio playback is not implemented
+  - Container probing for MP4, MOV, MKV, WebM, TS, and generic formats
+  - Audio decode and scheduling when the runtime supports `AudioDecoder`
 
 **Key Features:**
-- ✅ Format Detection: Auto-detects MP4/MOV-style containers from file header
-- ✅ Codec Support: Whatever WebCodecs accepts for MP4 in the current browser/runtime
-- ✅ Streaming: Works with existing `/wails-stream` HTTP range requests
-- ✅ Error Handling: Detailed error messages for unsupported codecs or network issues
-- ✅ Memory Efficient: Small decoded frame buffer with cleanup during playback and seek
+- ✅ Format detection across the current canvas playback pipeline
+- ✅ Codec support for whatever WebCodecs accepts in the current runtime
+- ✅ Direct playback from `/wails-stream` for range-seekable files
+- ✅ Sequential playback from live transcoded streams without requiring `Content-Length`
+- ✅ Detailed error messages for unsupported codecs, demux failures, or decoder recovery failures
+- ✅ Bounded frame buffering with cleanup during playback and seek
 
 ### 2. **Updated Viewer Component**
 📄 `frontend/src/app/components/viewer-surface.component.ts`
@@ -91,9 +98,7 @@ setTimeout → initializeCanvasVideoPlayer()
   ↓
 CanvasVideoPlayer.loadFromUrl(mediaSrc)
   ↓
-Fetch ArrayBuffer via HTTP GET
-  ↓
-Probe format (magic bytes) → MP4 | MKV | WebM | etc.
+Probe stream/container → MP4 | MOV | MKV | WebM | TS | generic fallback
   ↓
 Check codec support via MediaCapabilities
   ↓
@@ -106,17 +111,41 @@ User clicks Play → renderFrame() loop via RAF
 Decode frames → Buffer → Draw to canvas
 ```
 
+## Transport Model
+
+The player currently uses two transport modes depending on what the backend can provide.
+
+### 1. Seekable File Transport
+
+Used when the server can satisfy byte-range requests or expose a stable content length.
+
+- Frontend uses `UrlSource`
+- Backend can serve `206 Partial Content`
+- Demuxer can perform real random-access reads
+- This is the preferred path for local files and other seekable sources
+
+### 2. Sequential Transcode Transport
+
+Used when ffmpeg is producing a live fragmented MP4 stream and the backend does not know the final size.
+
+- Frontend uses `ReadableStreamSource`
+- No stable `Content-Length`
+- No true random byte seeking
+- Works well for linear playback and short forward movement inside cache
+- Does not guarantee reliable arbitrary backward/forward scrubbing
+
+This distinction is architectural, not just an implementation detail. A sequential transcode stream cannot reliably behave like a fully seekable file.
+
 ## Supported Video Formats
 
 | Container | Video Codecs | Audio Codecs | Support |
 |-----------|-------------|-------------|---------|
-| MP4 | Browser-supported MP4 codecs via WebCodecs | Detected only | ✅ Implemented |
-| MOV | Browser-supported MP4-style codecs via WebCodecs | Detected only | ✅ Implemented when parsed like MP4 |
-| WebM | N/A in current service | N/A | ⚠ Planned |
-| Matroska (MKV) | N/A in current service | N/A | ⚠ Planned |
-| AVI | N/A in current service | N/A | ⚠ Planned |
-| TS | N/A in current service | N/A | ⚠ Planned |
-| FLV | N/A in current service | N/A | ⚠ Planned |
+| MP4 | WebCodecs-supported codecs | Runtime-dependent | ✅ Implemented |
+| MOV | WebCodecs-supported MP4-style codecs | Runtime-dependent | ✅ Implemented |
+| WebM | WebCodecs-supported codecs | Runtime-dependent | ✅ Implemented through `mediabunny` |
+| Matroska (MKV) | WebCodecs-supported codecs | Runtime-dependent | ✅ Implemented through `mediabunny` |
+| MPEG-TS | WebCodecs-supported codecs | Runtime-dependent | ✅ Implemented through `mediabunny` |
+| Other containers | Runtime-dependent | Runtime-dependent | ⚠ Best-effort generic probing |
 
 ## Browser Requirements
 
@@ -128,9 +157,9 @@ Decode frames → Buffer → Draw to canvas
 ## Technical Details
 
 ### WebCodecs API
-- Hardware-accelerated video decoding
+- Hardware-accelerated video decoding where supported
 - Queries `navigator.mediaCapabilities.decodingInfo()` to check codec support
-- Automatic fallback if unsupported
+- Decoder resets after seek must restart from a valid keyframe
 
 ### Canvas Rendering
 - `canvas.getContext('2d')` for frame drawing
@@ -138,11 +167,7 @@ Decode frames → Buffer → Draw to canvas
 - `ImageBitmap` for efficient frame storage
 
 ### Container Parsing
-Current implementation includes magic byte detection for:
-- EBML signature: `1A 45 DF A3` (MKV, WebM)
-- RIFF/AVI signature: `52 49 46 46` + `41 56 49 20` (AVI)
-- FLV signature: `46 4C 56` (FLV)
-- MP4 signature: `66 74 79 70` at offset 4 (MP4, MOV)
+Current implementation probes the stream, selects a parser, and demuxes packets for the canvas player. For direct file playback this runs over a random-access source. For live transcodes it runs over a sequential stream source with bounded cache.
 
 ### Frame Buffering
 - Circular buffer of up to 5 decoded frames
@@ -153,16 +178,16 @@ Current implementation includes magic byte detection for:
 ## Known Limitations
 
 ### Currently Out of Scope
-- 🔇 **Audio**: Not yet implemented in Canvas player (HTML5 audio fallback available for audio files)
-- 📹 **Subtitle Handling**: No SRT/ASS rendering yet
-- 🎨 **Filters/Effects**: No built-in video filters
-- 📊 **Adaptive Bitrate**: No HLS/DASH streaming
-- 🔐 **DRM**: No copy protection support
+- Subtitle rendering
+- Video filters and effects
+- Adaptive bitrate packaging such as HLS or DASH
+- DRM-protected playback
 
 ### Performance Notes
-- Seeking requires decoding from nearest keyframe
-- Software decoding fallback possible on very old CPUs
-- Typical: 1080p @ 30fps = 10-30ms per frame decode time
+- Seeking requires decoding from a valid preceding keyframe
+- Back-and-forth scrubbing is reliable only when the transport is truly seekable
+- Sequential ffmpeg output is optimized for startup latency, not arbitrary random seeking
+- Software decoding fallback is possible when hardware acceleration is unavailable
 
 ## Testing Checklist
 
@@ -179,7 +204,9 @@ Current implementation includes magic byte detection for:
 ### 📋 Manual Testing Needed
 - [ ] Load MP4 file → Play/Pause
 - [ ] Load MOV file → Verify codec detection
-- [ ] Seek to different timestamps
+- [ ] Seek to different timestamps in direct/range mode
+- [ ] Seek after a decoder rebuild and verify keyframe recovery
+- [ ] Verify behavior difference between direct, remux, and live transcode modes
 - [ ] Test with various resolutions (480p, 1080p, 4K)
 - [ ] Test error handling (unsupported codec)
 - [ ] Test with network timeouts
@@ -197,6 +224,11 @@ Current implementation includes magic byte detection for:
 - Frame extraction for preview thumbnails
 - Video filters (brightness, contrast, etc.)
 - Subtitle rendering support
+
+### Phase 4: Transport Improvements
+- Treat transcoded seek as a stream restart instead of in-stream random access
+- Add explicit capability flags so the UI can distinguish full seeking from limited sequential seeking
+- Evaluate segmented CMAF/HLS-style delivery if arbitrary seek within transcoded playback becomes a product requirement
 
 ### Phase 4: Optimization
 - Chunked demuxing (lazy-load large files)
@@ -251,12 +283,22 @@ player.metadataReady$.subscribe(meta => {
 ## Integration with Existing Systems
 
 ### Backend (/wails-stream endpoint)
-✅ No changes needed. Canvas player uses existing range request support.
+
+The backend now serves two distinct classes of video transport:
+
+- Direct files and seekable sources through normal HTTP content serving with range support
+- Live transcoded fragmented MP4 output through a sequential ffmpeg pipe
+
+That means the frontend must not assume that all `/wails-stream` URLs are equally seekable.
 
 ```go
-// Already supports:
+// Seekable direct source:
 // GET /wails-stream?path=/path/to/file.mp4
 // Range: bytes=0-1048575
+
+// Sequential transcode source:
+// GET /wails-stream?path=/path/to/file.mxf&transcode=mp4&mode=transcode
+// No stable Content-Length, no true byte-range seek semantics
 ```
 
 ### Frontend Router & Navigation

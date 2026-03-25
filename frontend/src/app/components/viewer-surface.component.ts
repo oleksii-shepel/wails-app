@@ -156,6 +156,7 @@ export interface ViewerArchiveContext {
               class="native-video-element"
               [src]="mediaSrc!"
               preload="auto"
+              autoplay
               playsinline
               (loadedmetadata)="onNativeVideoLoadedMetadata($event)"
               (canplay)="onNativeVideoCanPlay($event)"
@@ -219,6 +220,18 @@ export interface ViewerArchiveContext {
 
               <!-- Video info chip -->
               <div class="video-info-chip">
+                <span class="mode-badge" [title]="videoPlaybackModeTitle" *ngIf="videoPlaybackModeLabel">
+                  {{ videoPlaybackModeLabel }}
+                </span>
+                <span class="path-badge" [title]="videoPlaybackPathTitle" *ngIf="kind === 'video'">
+                  {{ videoPlaybackPathLabel }}
+                </span>
+                <span class="latency-badge" title="Low-startup FFmpeg playback path" *ngIf="videoPlaybackZeroDelay">
+                  zero-delay
+                </span>
+                <span class="seek-badge" [title]="videoSeekable ? 'Seeking is available' : 'Seeking is not available for this playback path'" *ngIf="kind === 'video'">
+                  {{ videoSeekable ? 'seek' : 'stream-only' }}
+                </span>
                 <span class="codec-badge" [title]="'Video codec: ' + videoCodecInfo">
                   {{ videoCodecInfo || '?' }}
                 </span>
@@ -887,7 +900,7 @@ export interface ViewerArchiveContext {
       border: 1px solid rgba(255, 255, 255, 0.1);
     }
 
-    .codec-badge, .resolution-badge, .framerate-badge {
+    .mode-badge, .path-badge, .latency-badge, .seek-badge, .codec-badge, .resolution-badge, .framerate-badge {
       display: inline-block;
       padding: 2px 6px;
       background: rgba(0, 120, 212, 0.2);
@@ -897,6 +910,32 @@ export interface ViewerArchiveContext {
       font-weight: 500;
       cursor: help;
       white-space: nowrap;
+    }
+
+    .mode-badge {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: rgba(255, 255, 255, 0.22);
+      color: #f2f2f2;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+
+    .path-badge {
+      background: rgba(168, 85, 247, 0.18);
+      border-color: rgba(168, 85, 247, 0.35);
+      color: #d8b4fe;
+    }
+
+    .latency-badge {
+      background: rgba(34, 197, 94, 0.18);
+      border-color: rgba(34, 197, 94, 0.35);
+      color: #86efac;
+    }
+
+    .seek-badge {
+      background: rgba(250, 204, 21, 0.18);
+      border-color: rgba(250, 204, 21, 0.35);
+      color: #fde68a;
     }
 
     .resolution-badge {
@@ -1240,6 +1279,46 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
            this.kind === 'text'  || this.kind === 'json' || this.kind === 'markdown';
   }
 
+  get videoPlaybackModeLabel(): string {
+    switch (this.videoPlaybackPlan?.mode) {
+      case 'direct':
+        return 'direct';
+      case 'remux':
+        return 'remux';
+      case 'transcode':
+        return 'transcode';
+      default:
+        return '';
+    }
+  }
+
+  get videoPlaybackModeTitle(): string {
+    switch (this.videoPlaybackPlan?.mode) {
+      case 'direct':
+        return 'Direct playback: preview uses the original stream without FFmpeg rewriting.';
+      case 'remux':
+        return 'Remux playback: FFmpeg repackages the stream into MP4 without re-encoding when possible.';
+      case 'transcode':
+        return 'Transcode playback: FFmpeg re-encodes the media for compatibility in preview.';
+      default:
+        return 'Playback mode unavailable.';
+    }
+  }
+
+  get videoPlaybackPathLabel(): string {
+    return this.useNativeVideoPlayback ? 'native' : 'canvas';
+  }
+
+  get videoPlaybackPathTitle(): string {
+    return this.useNativeVideoPlayback
+      ? 'Preview is using the native video element playback path.'
+      : 'Preview is using the canvas/WebCodecs playback path.';
+  }
+
+  get videoPlaybackZeroDelay(): boolean {
+    return Boolean(this.videoPlaybackPlan?.zeroDelay);
+  }
+
   get fileExt(): string {
     return this.extractExt(this.archiveContext?.entryPath ?? this.targetPath);
   }
@@ -1437,6 +1516,24 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
     }
 
     this.cdr.markForCheck();
+  }
+
+  private attemptCanvasAutoplay(): void {
+    if (!this.canvasPlayer || this.kind !== 'video' || this.useNativeVideoPlayback) {
+      return;
+    }
+
+    this.canvasPlayer.play()
+      .then(() => {
+        this.videoIsPlaying = true;
+        this.videoLoading = false;
+        this.cdr.markForCheck();
+      })
+      .catch((error: unknown) => {
+        this.videoLoading = false;
+        this.videoError = error instanceof Error ? error.message : 'Playback failed';
+        this.cdr.markForCheck();
+      });
   }
 
   onNativeVideoTimeUpdate(event: Event): void {
@@ -1689,7 +1786,7 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
           this.canvasPlayer.loadFromUrl(this.mediaSrc)
             .then(() => {
               this.videoReady = true;
-              this.videoLoading = false;
+              this.attemptCanvasAutoplay();
               this.cdr.markForCheck();
             })
             .catch((err: unknown) => {
@@ -1871,7 +1968,7 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
           this.useNativeVideoPlayback = playbackPlan.useNativePlayer;
           this.videoSeekable = playbackPlan.seekable;
           this.nativeVideoStartSeconds = 0;
-          this.nativeVideoShouldAutoplay = false;
+          this.nativeVideoShouldAutoplay = true;
           this.mediaSrc = playbackPlan.url;
           this.mediaMime = playbackPlan.useNativePlayer ? 'video/mp4' : videoMime;
           this.videoDuration = playbackPlan.durationSeconds > 0 ? playbackPlan.durationSeconds : 0;
@@ -2099,16 +2196,33 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
   }
 
   private normalizeVideoPlaybackPlan(rawPlan: any, fallbackUrl: string): VideoPlaybackPlan {
+    const readPlanValue = <T>(camelKey: string, pascalKey: string): T | undefined => {
+      if (!rawPlan || typeof rawPlan !== 'object') {
+        return undefined;
+      }
+      if (rawPlan[camelKey] !== undefined) {
+        return rawPlan[camelKey] as T;
+      }
+      if (rawPlan[pascalKey] !== undefined) {
+        return rawPlan[pascalKey] as T;
+      }
+      return undefined;
+    };
+
+    const rawMode = readPlanValue<string>('mode', 'Mode');
     const normalized: VideoPlaybackPlan = {
-      mode: rawPlan?.mode === 'remux' || rawPlan?.mode === 'transcode' ? rawPlan.mode : 'direct',
-      format: String(rawPlan?.format ?? ''),
-      videoCodec: rawPlan?.videoCodec ?? undefined,
-      audioCodec: rawPlan?.audioCodec ?? undefined,
-      durationSeconds: Number(rawPlan?.durationSeconds ?? 0),
-      zeroDelay: Boolean(rawPlan?.zeroDelay),
-      seekable: rawPlan?.seekable !== false,
-      useNativePlayer: Boolean(rawPlan?.useNativePlayer),
-      url: typeof rawPlan?.url === 'string' && rawPlan.url ? rawPlan.url : fallbackUrl,
+      mode: rawMode === 'remux' || rawMode === 'transcode' ? rawMode : 'direct',
+      format: String(readPlanValue<string>('format', 'Format') ?? ''),
+      videoCodec: readPlanValue<string>('videoCodec', 'VideoCodec') ?? undefined,
+      audioCodec: readPlanValue<string>('audioCodec', 'AudioCodec') ?? undefined,
+      durationSeconds: Number(readPlanValue<number>('durationSeconds', 'DurationSeconds') ?? 0),
+      zeroDelay: Boolean(readPlanValue<boolean>('zeroDelay', 'ZeroDelay')),
+      seekable: readPlanValue<boolean>('seekable', 'Seekable') !== false,
+      useNativePlayer: Boolean(readPlanValue<boolean>('useNativePlayer', 'UseNativePlayer')),
+      url: (() => {
+        const planUrl = readPlanValue<string>('url', 'URL');
+        return typeof planUrl === 'string' && planUrl ? planUrl : fallbackUrl;
+      })(),
     };
 
     if (!normalized.url) {

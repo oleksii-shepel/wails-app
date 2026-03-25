@@ -384,15 +384,19 @@ func startFFmpegTranscode(ctx context.Context, inputArgs []string, playbackMode 
 		return nil, nil, nil, err
 	}
 
-	args := append([]string{
+	args := []string{
 		"-hide_banner",
 		"-loglevel", "error",
 		"-fflags", "+nobuffer",
-		"-flags", "+low_delay",
-		"-muxdelay", "0",
-		"-muxpreload", "0",
-	}, inputArgs...)
-	args = append(args, "-map", "0:v:0", "-map", "0:a?:0", "-sn", "-dn")
+	}
+	if playbackMode != VideoPlaybackModeRemux {
+		args = append(args,
+			"-probesize", "32k",
+			"-analyzeduration", "0",
+		)
+	}
+	args = append(args, inputArgs...)
+	args = append(args, "-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn")
 	if playbackMode == VideoPlaybackModeRemux {
 		args = append(args,
 			"-c:v", "copy",
@@ -401,8 +405,7 @@ func startFFmpegTranscode(ctx context.Context, inputArgs []string, playbackMode 
 		)
 	} else {
 		args = append(args,
-			"-probesize", "32k",
-			"-analyzeduration", "0",
+			"-flags", "+low_delay",
 			"-c:v", "libx264",
 			"-preset", "ultrafast",
 			"-tune", "zerolatency",
@@ -416,6 +419,8 @@ func startFFmpegTranscode(ctx context.Context, inputArgs []string, playbackMode 
 		)
 	}
 	args = append(args,
+		"-muxdelay", "0",
+		"-muxpreload", "0",
 		"-movflags", "frag_keyframe+empty_moov+default_base_moof+faststart",
 		"-f", "mp4",
 		"pipe:1",
@@ -445,10 +450,36 @@ func handleTranscodeStartError(w http.ResponseWriter, err error) {
 }
 
 func streamTranscodedOutput(w http.ResponseWriter, r *http.Request, cmd *exec.Cmd, stdout io.ReadCloser, stderr *bytes.Buffer) {
+	firstChunk := make([]byte, 32*1024)
+	n, readErr := stdout.Read(firstChunk)
+	if n == 0 {
+		waitErr := cmd.Wait()
+		if r.Context().Err() != nil {
+			return
+		}
+
+		if waitErr != nil || (readErr != nil && readErr != io.EOF) {
+			message := strings.TrimSpace(stderr.String())
+			if message == "" {
+				message = "ffmpeg transcode failed before producing output"
+			}
+			http.Error(w, message, http.StatusInternalServerError)
+			return
+		}
+
+		http.Error(w, "ffmpeg transcode produced no output", http.StatusInternalServerError)
+		return
+	}
+
 	setCORSHeaders(w)
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "video/mp4")
 	w.WriteHeader(http.StatusOK)
+
+	if _, err := w.Write(firstChunk[:n]); err != nil {
+		_ = cmd.Wait()
+		return
+	}
 
 	_, copyErr := io.Copy(w, stdout)
 	waitErr := cmd.Wait()

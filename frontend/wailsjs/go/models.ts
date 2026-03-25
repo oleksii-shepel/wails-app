@@ -36,6 +36,34 @@ export namespace app {
 	        this.Elevation = source["Elevation"];
 	    }
 	}
+	export class VideoPlaybackPlan {
+	    mode: string;
+	    format: string;
+	    videoCodec?: string;
+	    audioCodec?: string;
+	    durationSeconds: number;
+	    zeroDelay: boolean;
+	    seekable: boolean;
+	    useNativePlayer: boolean;
+	    url: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new VideoPlaybackPlan(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.mode = source["mode"];
+	        this.format = source["format"];
+	        this.videoCodec = source["videoCodec"];
+	        this.audioCodec = source["audioCodec"];
+	        this.durationSeconds = source["durationSeconds"];
+	        this.zeroDelay = source["zeroDelay"];
+	        this.seekable = source["seekable"];
+	        this.useNativePlayer = source["useNativePlayer"];
+	        this.url = source["url"];
+	    }
+	}
 
 }
 

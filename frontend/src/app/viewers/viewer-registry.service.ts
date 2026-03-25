@@ -37,6 +37,57 @@ export class ViewerRegistryService {
       },
       load: async () => (await import('./builtins/image-viewer.component')).ImageViewerComponent,
     });
+
+    this.register({
+      id: 'video',
+      title: 'Video Viewer',
+      score: (req) => {
+        const ext = extLower(req.archiveContext?.entryPath ?? req.targetPath);
+        return ['mp4', 'm4v', 'webm', 'ogv', 'mov', 'qt', 'mkv', 'avi', 'divx', 'xvid', 'flv', 'ts', 'm2ts', 'mts', 'mpg', 'mpeg', 'vob', 'm2p', 'm2v', 'mjpeg', 'mjpg', 'm3u8', 'mxf', 'wmv'].includes(ext) ? 50 : 0;
+      },
+      load: async () => (await import('./builtins/video-viewer.component')).VideoViewerComponent,
+    });
+
+    this.register({
+      id: 'audio',
+      title: 'Audio Viewer',
+      score: (req) => {
+        const ext = extLower(req.archiveContext?.entryPath ?? req.targetPath);
+        return ['mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a'].includes(ext) ? 50 : 0;
+      },
+      load: async () => (await import('./builtins/audio-viewer.component')).AudioViewerComponent,
+    });
+
+    this.register({
+      id: 'pdf',
+      title: 'PDF Viewer',
+      score: (req) => extLower(req.archiveContext?.entryPath ?? req.targetPath) === 'pdf' ? 50 : 0,
+      load: async () => (await import('./builtins/pdf-viewer.component')).PdfViewerComponent,
+    });
+
+    this.register({
+      id: 'json',
+      title: 'JSON Viewer',
+      score: (req) => ['json', 'jsonc'].includes(extLower(req.archiveContext?.entryPath ?? req.targetPath)) ? 60 : 0,
+      load: async () => (await import('./builtins/json-viewer.component')).JsonViewerComponent,
+    });
+
+    this.register({
+      id: 'markdown',
+      title: 'Markdown Viewer',
+      score: (req) => ['md', 'markdown', 'mdx'].includes(extLower(req.archiveContext?.entryPath ?? req.targetPath)) ? 60 : 0,
+      load: async () => (await import('./builtins/markdown-viewer.component')).MarkdownViewerComponent,
+    });
+
+    this.register({
+      id: 'text',
+      title: 'Text Viewer',
+      score: (req) => {
+        const ext = extLower(req.archiveContext?.entryPath ?? req.targetPath);
+        return ['txt', 'log', 'csv', 'tsv', 'ini', 'cfg', 'conf', 'yaml', 'yml', 'toml', 'xml', 'html', 'htm', 'css', 'scss', 'sass', 'less', 'js', 'ts', 'jsx', 'tsx', 'vue', 'svelte', 'py', 'rb', 'go', 'rs', 'java', 'kt', 'swift', 'c', 'cpp', 'h', 'hpp', 'cs', 'php', 'sh', 'bash', 'zsh', 'fish', 'ps1', 'bat', 'cmd', 'sql', 'graphql', 'gql', 'proto', 'dockerfile', 'gitignore', 'env', 'lock', 'diff', 'patch', 'r', 'lua', 'm', 'pl', 'ex', 'exs'].includes(ext) ? 40 : 0;
+      },
+      load: async () => (await import('./builtins/text-viewer.component')).TextViewerComponent,
+    });
   }
 
   register(c: ViewerContribution): void {

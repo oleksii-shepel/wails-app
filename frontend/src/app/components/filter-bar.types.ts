@@ -69,7 +69,7 @@ export const DEFAULT_FILE_CATEGORIES: FileCategory[] = [
   { id: 'data',          name: 'Data',          icon: '🗄️', extensions: ['json','yaml','yml','toml','ini','sql','graphql','proto'] },
   { id: 'archives',      name: 'Archives',      icon: '📦',  extensions: ['zip','tar','gz','bz2','xz','7z','rar','iso','dmg'] },
   { id: 'audio',         name: 'Audio',         icon: '🎵',  extensions: ['mp3','wav','flac','aac','ogg','m4a','wma'] },
-  { id: 'video',         name: 'Video',         icon: '🎬',  extensions: ['mp4','mov','avi','mkv','wmv','flv','webm','m4v'] },
+  { id: 'video',         name: 'Video',         icon: '🎬',  extensions: ['mp4','mov','qt','avi','divx','xvid','mkv','wmv','flv','webm','m4v','ts','mts','m2ts','mpg','mpeg','vob','m2p','m2v','mjpeg','mjpg'] },
   { id: 'fonts',         name: 'Fonts',         icon: '🔤',  extensions: ['ttf','otf','woff','woff2','eot'] },
   { id: 'markdown',      name: 'Markdown',      icon: '📝',  extensions: ['md','mdx','rst','adoc'] },
   { id: 'scripts',       name: 'Scripts',       icon: '⌨️', extensions: ['sh','bash','zsh','fish','ps1','bat','cmd'] },

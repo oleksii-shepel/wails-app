@@ -166,6 +166,10 @@ export function GetArchiveStreamURL(arg1, arg2, arg3) {
   return window['go']['app']['App']['GetArchiveStreamURL'](arg1, arg2, arg3);
 }
 
+export function GetArchiveVideoPreviewURL(arg1, arg2, arg3) {
+  return window['go']['app']['App']['GetArchiveVideoPreviewURL'](arg1, arg2, arg3);
+}
+
 export function GetConversionCapabilities(arg1) {
   return window['go']['app']['App']['GetConversionCapabilities'](arg1);
 }
@@ -204,6 +208,10 @@ export function GetSpecialFolders() {
 
 export function GetStreamURL(arg1) {
   return window['go']['app']['App']['GetStreamURL'](arg1);
+}
+
+export function GetVideoPreviewURL(arg1) {
+  return window['go']['app']['App']['GetVideoPreviewURL'](arg1);
 }
 
 export function GetWorkspaces() {

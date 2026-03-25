@@ -291,6 +291,22 @@ export class ApiService {
 	return await window.go.app.App.GetArchiveStreamURL(this.normalizeCanonicalPath(fsPath), nestedChain, entryPath);
   }
 
+  async getVideoPreviewURL(path: string): Promise<string> {
+    return await (window as any).go.app.App.GetVideoPreviewURL(this.normalizeCanonicalPath(path));
+  }
+
+  async getArchiveVideoPreviewURL(fsPath: string, nestedChain: string[] = [], entryPath: string): Promise<string> {
+    return await (window as any).go.app.App.GetArchiveVideoPreviewURL(this.normalizeCanonicalPath(fsPath), nestedChain, entryPath);
+  }
+
+  async getVideoPlaybackPlan(path: string): Promise<any> {
+    return await (window as any).go.app.App.GetVideoPlaybackPlan(this.normalizeCanonicalPath(path));
+  }
+
+  async getArchiveVideoPlaybackPlan(fsPath: string, nestedChain: string[] = [], entryPath: string): Promise<any> {
+    return await (window as any).go.app.App.GetArchiveVideoPlaybackPlan(this.normalizeCanonicalPath(fsPath), nestedChain, entryPath);
+  }
+
   async getConvertedImageURL(path: string, targetFormat: string = 'png'): Promise<string> {
     return await (window as any).go.app.App.GetConvertedImageURL(this.normalizeCanonicalPath(path), targetFormat);
   }

@@ -496,8 +496,19 @@ export class CanvasVideoPlayerService {
     'mkv', 'webm',
     // MPEG-TS family
     'ts', 'mts', 'm2ts',
-    // Other formats supported by mediabunny
-    'avi', 'flv', 'mxf', 'ogv'
+    // Other direct formats supported by mediabunny
+    'avi', 'flv', 'mxf', 'ogv',
+    // Legacy formats routed through FFmpeg transcoding
+    'divx', 'xvid', 'mpg', 'mpeg', 'vob', 'm2p', 'm2v', 'qt', 'mjpeg', 'mjpg'
+  ]);
+
+  private static readonly FFMPEG_TRANSCODE_EXTENSIONS = new Set([
+    'avi', 'divx', 'xvid',
+    'flv',
+    'mov', 'qt',
+    'mpg', 'mpeg', 'vob', 'm2p', 'm2v',
+    'ts', 'mts', 'm2ts',
+    'mjpeg', 'mjpg',
   ]);
 
   async createPlayer(container: HTMLElement): Promise<CanvasVideoPlayer> {
@@ -506,6 +517,10 @@ export class CanvasVideoPlayerService {
 
   supportsCanvasVideoFormat(ext: string): boolean {
     return CanvasVideoPlayerService.DEMUXER_BACKED_EXTENSIONS.has(ext.toLowerCase());
+  }
+
+  requiresTranscodedPreview(ext: string): boolean {
+    return CanvasVideoPlayerService.FFMPEG_TRANSCODE_EXTENSIONS.has(ext.toLowerCase());
   }
 
   getUnsupportedVideoMessage(ext: string): string {
@@ -1267,6 +1282,10 @@ export class CanvasVideoPlayer {
   }
 
   private detectContainerFormat(buffer: ArrayBuffer, url?: string): ContainerFormat {
+    if (url && this.detectTranscodedContainerHint(url) === 'mp4') {
+      return 'mp4';
+    }
+
     const bytes = new Uint8Array(buffer.slice(0, 16));
     const boxType = bytes.byteLength >= 8
       ? String.fromCharCode(bytes[4], bytes[5], bytes[6], bytes[7])
@@ -1303,6 +1322,11 @@ export class CanvasVideoPlayer {
 
     try {
       const resolvedUrl = new URL(url, window.location.href);
+      const transcoded = this.detectTranscodedContainerHint(resolvedUrl.toString());
+      if (transcoded !== 'unknown') {
+        return transcoded;
+      }
+
       candidates.push(resolvedUrl.pathname);
 
       const streamPath = resolvedUrl.searchParams.get('path');
@@ -1329,6 +1353,20 @@ export class CanvasVideoPlayer {
       if (/\.(ts|mts|m2ts)(?:$|[?#])/.test(normalized)) {
         return 'ts';
       }
+    }
+
+    return 'unknown';
+  }
+
+  private detectTranscodedContainerHint(url: string): ContainerFormat {
+    try {
+      const resolvedUrl = new URL(url, window.location.href);
+      const transcodeFormat = (resolvedUrl.searchParams.get('transcode') ?? '').toLowerCase();
+      if (transcodeFormat === 'mp4') {
+        return 'mp4';
+      }
+    } catch {
+      // Ignore malformed URLs and fall back to content sniffing.
     }
 
     return 'unknown';

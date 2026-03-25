@@ -90,6 +90,8 @@ export function GetActiveOperations():Promise<Array<contracts.OperationProgress>
 
 export function GetArchiveStreamURL(arg1:string,arg2:Array<string>,arg3:string):Promise<string>;
 
+export function GetArchiveVideoPreviewURL(arg1:string,arg2:Array<string>,arg3:string):Promise<string>;
+
 export function GetConversionCapabilities(arg1:string):Promise<Record<string, any>>;
 
 export function GetConvertedImageURL(arg1:string,arg2:string):Promise<string>;
@@ -109,6 +111,8 @@ export function GetPreferences():Promise<contracts.UserPreferences>;
 export function GetSpecialFolders():Promise<contracts.SpecialFoldersResponse>;
 
 export function GetStreamURL(arg1:string):Promise<string>;
+
+export function GetVideoPreviewURL(arg1:string):Promise<string>;
 
 export function GetWorkspaces():Promise<contracts.WorkspaceList>;
 

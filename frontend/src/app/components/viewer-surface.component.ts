@@ -17,6 +17,18 @@ type ViewerKind =
 
 interface ImageMeta { width: number; height: number }
 
+interface VideoPlaybackPlan {
+  mode: 'direct' | 'remux' | 'transcode';
+  format: string;
+  videoCodec?: string;
+  audioCodec?: string;
+  durationSeconds: number;
+  zeroDelay: boolean;
+  seekable: boolean;
+  useNativePlayer: boolean;
+  url: string;
+}
+
 //
 // When the viewer tab is opened for a file inside an archive, the pane passes
 // the current ArchiveFrame stack so the viewer can call ArchiveRead through the
@@ -137,6 +149,21 @@ export interface ViewerArchiveContext {
                (mouseleave)="onVideoMouseLeave()"
                [class.playing]="videoIsPlaying"
                [class.show-controls]="videoShowControls">
+
+            <video
+              *ngIf="useNativeVideoPlayback"
+              #nativeVideo
+              class="native-video-element"
+              [src]="mediaSrc!"
+              preload="auto"
+              playsinline
+              (loadedmetadata)="onNativeVideoLoadedMetadata($event)"
+              (canplay)="onNativeVideoCanPlay($event)"
+              (timeupdate)="onNativeVideoTimeUpdate($event)"
+              (play)="onNativeVideoPlay()"
+              (pause)="onNativeVideoPause()"
+              (ended)="onNativeVideoEnded()"
+              (error)="onMediaError('video', $event)"></video>
             
             <!-- Loading indicator -->
             <div class="video-loading" *ngIf="videoLoading">
@@ -166,7 +193,7 @@ export interface ViewerArchiveContext {
                   [value]="videoCurrentTime"
                   (input)="onVideoSeek($event)"
                   class="seek-slider"
-                  [disabled]="!videoReady"
+                  [disabled]="!videoReady || (useNativeVideoPlayback && !videoSeekable)"
                   title="Seek video">
                 <div class="progress-fill" [style.width.%]="(videoCurrentTime / videoDuration) * 100 || 0"></div>
               </div>
@@ -215,7 +242,7 @@ export interface ViewerArchiveContext {
                   max="100"
                   [value]="videoVolume"
                   class="volume-slider"
-                  [disabled]="!videoReady || !canvasPlayer"
+                  [disabled]="!videoReady || (!canvasPlayer && !nativeVideoRef?.nativeElement)"
                   (input)="onVideoVolumeChange($event)"
                   title="Volume">
               </div>
@@ -583,6 +610,14 @@ export interface ViewerArchiveContext {
       height: 100%;
       object-fit: contain;
       display: block;
+    }
+
+    .native-video-element {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+      background: #000;
     }
 
     /* Loading indicator */
@@ -1137,6 +1172,7 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
    */
   @Input() viewerId: string | null = null;
   @ViewChild('videoContainer') videoContainerRef?: ElementRef<HTMLDivElement>;
+  @ViewChild('nativeVideo') nativeVideoRef?: ElementRef<HTMLVideoElement>;
 
   // ── State ────────────────────────────────────────────────────────────────
 
@@ -1155,7 +1191,12 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
   videoResolution = '';
   videoVolume = 100;
   videoError: string | null = null;
+  videoSeekable = true;
+  useNativeVideoPlayback = false;
   private videoControlsTimeout: ReturnType<typeof setTimeout> | null = null;
+  private videoPlaybackPlan: VideoPlaybackPlan | null = null;
+  private nativeVideoStartSeconds = 0;
+  private nativeVideoShouldAutoplay = false;
 
   info: FileInfo | null = null;
   kind: ViewerKind = 'empty';
@@ -1356,9 +1397,98 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
     this.cdr.markForCheck();
   }
 
+  onNativeVideoLoadedMetadata(event: Event): void {
+    this.clearMediaProbe();
+    const video = event.target as HTMLVideoElement | null;
+    if (!video) return;
+
+    this.videoReady = true;
+    this.videoLoading = false;
+    this.videoResolution = video.videoWidth > 0 && video.videoHeight > 0
+      ? `${video.videoWidth}×${video.videoHeight}`
+      : this.videoResolution;
+    this.videoCurrentTime = this.nativeVideoStartSeconds + Math.max(0, video.currentTime || 0);
+    if ((this.videoDuration <= 0 || !Number.isFinite(this.videoDuration)) && Number.isFinite(video.duration)) {
+      this.videoDuration = this.nativeVideoStartSeconds + video.duration;
+    }
+    video.volume = this.videoVolume / 100;
+    this.cdr.markForCheck();
+  }
+
+  onNativeVideoCanPlay(event: Event): void {
+    const video = event.target as HTMLVideoElement | null;
+    if (!video) return;
+
+    this.videoReady = true;
+    this.videoLoading = false;
+
+    if (this.nativeVideoShouldAutoplay) {
+      this.nativeVideoShouldAutoplay = false;
+      video.play()
+        .then(() => {
+          this.videoIsPlaying = true;
+          this.cdr.markForCheck();
+        })
+        .catch((error: unknown) => {
+          this.videoError = error instanceof Error ? error.message : 'Playback failed';
+          this.cdr.markForCheck();
+        });
+      return;
+    }
+
+    this.cdr.markForCheck();
+  }
+
+  onNativeVideoTimeUpdate(event: Event): void {
+    const video = event.target as HTMLVideoElement | null;
+    if (!video) return;
+    this.videoCurrentTime = this.nativeVideoStartSeconds + Math.max(0, video.currentTime || 0);
+    this.cdr.markForCheck();
+  }
+
+  onNativeVideoPlay(): void {
+    this.videoIsPlaying = true;
+    this.videoLoading = false;
+    this.cdr.markForCheck();
+  }
+
+  onNativeVideoPause(): void {
+    this.videoIsPlaying = false;
+    this.cdr.markForCheck();
+  }
+
+  onNativeVideoEnded(): void {
+    this.videoIsPlaying = false;
+    this.videoCurrentTime = this.videoDuration;
+    this.cdr.markForCheck();
+  }
+
   // ── Canvas Video Player Controls ──────────────────────────────────────────
 
   async videoPlayPause(): Promise<void> {
+    if (this.useNativeVideoPlayback) {
+      const video = this.nativeVideoRef?.nativeElement;
+      if (!video) return;
+
+      try {
+        if (!video.paused && !video.ended) {
+          video.pause();
+        } else {
+          this.videoLoading = true;
+          this.cdr.markForCheck();
+          await video.play();
+          this.videoLoading = false;
+        }
+        this.cdr.markForCheck();
+      } catch (err: any) {
+        console.error('Playback control error:', err);
+        this.videoError = err?.message || 'Playback error';
+        this.videoLoading = false;
+        this.cdr.markForCheck();
+      }
+      return;
+    }
+
     if (!this.canvasPlayer) return;
 
     try {
@@ -1381,7 +1511,30 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
 
   async onVideoSeek(event: Event): Promise<void> {
     const target = event.target as HTMLInputElement;
-    const timeMs = parseFloat(target.value) * 1000;
+    const seekSeconds = parseFloat(target.value);
+    const timeMs = seekSeconds * 1000;
+
+    if (this.useNativeVideoPlayback) {
+      if (!this.videoSeekable || !this.videoPlaybackPlan) {
+        return;
+      }
+
+      try {
+        const wasPlaying = this.videoIsPlaying;
+        this.videoLoading = true;
+        this.videoReady = false;
+        this.videoCurrentTime = seekSeconds;
+        this.nativeVideoStartSeconds = seekSeconds;
+        this.nativeVideoShouldAutoplay = wasPlaying;
+        this.mediaSrc = this.buildNativeSeekURL(seekSeconds);
+        this.cdr.markForCheck();
+      } catch (err: any) {
+        console.error('Seek error:', err);
+        this.videoError = err?.message || 'Seek failed';
+        this.cdr.markForCheck();
+      }
+      return;
+    }
 
     if (!this.canvasPlayer) return;
 
@@ -1401,7 +1554,14 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
     const nextVolume = Math.max(0, Math.min(100, Number(target.value)));
 
     this.videoVolume = nextVolume;
-    this.canvasPlayer?.setVolume(nextVolume / 100);
+    if (this.useNativeVideoPlayback) {
+      const video = this.nativeVideoRef?.nativeElement;
+      if (video) {
+        video.volume = nextVolume / 100;
+      }
+    } else {
+      this.canvasPlayer?.setVolume(nextVolume / 100);
+    }
     this.cdr.markForCheck();
   }
 
@@ -1453,7 +1613,7 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
   }
 
   private initializeCanvasVideoPlayer(): void {
-    if (!this.videoContainerRef?.nativeElement || !this.mediaSrc || this.kind !== 'video') return;
+    if (this.useNativeVideoPlayback || !this.videoContainerRef?.nativeElement || !this.mediaSrc || this.kind !== 'video') return;
 
     if (this.canvasPlayer) {
       this.canvasPlayer.destroy();
@@ -1706,12 +1866,23 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
           return;
         }
         try {
-          this.mediaSrc = await readers.streamBinary(videoMime);
-          this.mediaMime = videoMime;
+          const playbackPlan = await this.resolveVideoPlaybackPlan(videoMime, readers);
+          this.videoPlaybackPlan = playbackPlan;
+          this.useNativeVideoPlayback = playbackPlan.useNativePlayer;
+          this.videoSeekable = playbackPlan.seekable;
+          this.nativeVideoStartSeconds = 0;
+          this.nativeVideoShouldAutoplay = false;
+          this.mediaSrc = playbackPlan.url;
+          this.mediaMime = playbackPlan.useNativePlayer ? 'video/mp4' : videoMime;
+          this.videoDuration = playbackPlan.durationSeconds > 0 ? playbackPlan.durationSeconds : 0;
+          this.videoCodecInfo = playbackPlan.videoCodec || '';
           this.kind = 'video';
+          this.videoLoading = true;
           
           // Initialize Canvas video player after view renders
-          setTimeout(() => this.initializeCanvasVideoPlayer(), 50);
+          if (!this.useNativeVideoPlayback) {
+            setTimeout(() => this.initializeCanvasVideoPlayer(), 50);
+          }
           return;
         } catch { this.kind = 'error'; this.error = 'Failed to stream video'; return; }
       }
@@ -1818,6 +1989,11 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
     this.videoFrameRate  = 0;
     this.videoResolution = '';
     this.videoError      = null;
+    this.videoSeekable   = true;
+    this.useNativeVideoPlayback = false;
+    this.videoPlaybackPlan = null;
+    this.nativeVideoStartSeconds = 0;
+    this.nativeVideoShouldAutoplay = false;
   }
 
   private attemptMediaAutoplay(kind: 'video' | 'audio', media: HTMLMediaElement | null): void {
@@ -1898,11 +2074,67 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
 
   private inferVideoMime(ext: string): string | null {
     return ({
-      mp4: 'video/mp4', m4v: 'video/mp4', webm: 'video/webm', ogv: 'video/ogg', mov: 'video/quicktime',
-      mkv: 'video/x-matroska', avi: 'video/x-msvideo', flv: 'video/x-flv',
-      ts: 'video/mp2t', m3u8: 'application/x-mpegURL', mts: 'video/mp2t',
-      mxf: 'application/mxf', wmv: 'video/x-ms-wmv',
+      mp4: 'video/mp4', m4v: 'video/mp4', webm: 'video/webm', ogv: 'video/ogg', mov: 'video/quicktime', qt: 'video/quicktime',
+      mkv: 'video/x-matroska', avi: 'video/x-msvideo', divx: 'video/x-msvideo', xvid: 'video/x-msvideo', flv: 'video/x-flv',
+      ts: 'video/mp2t', m2ts: 'video/mp2t', mts: 'video/mp2t',
+      mpg: 'video/mpeg', mpeg: 'video/mpeg', vob: 'video/mpeg', m2p: 'video/mpeg', m2v: 'video/mpeg',
+      mjpeg: 'video/x-motion-jpeg', mjpg: 'video/x-motion-jpeg',
+      m3u8: 'application/x-mpegURL', mxf: 'application/mxf', wmv: 'video/x-ms-wmv',
     } as Record<string, string>)[ext] ?? null;
+  }
+
+  private async resolveVideoPlaybackPlan(
+    videoMime: string,
+    readers: { streamBinary: (mimeType: string) => Promise<string> },
+  ): Promise<VideoPlaybackPlan> {
+    const fallbackUrl = await readers.streamBinary(videoMime);
+
+    if (this.archiveContext) {
+      const rawPlan = await this.api.getArchiveVideoPlaybackPlan(this.archiveContext.fsPath, this.archiveContext.nestedChain, this.archiveContext.entryPath);
+      return this.normalizeVideoPlaybackPlan(rawPlan, fallbackUrl);
+    }
+
+    const rawPlan = await this.api.getVideoPlaybackPlan(this.targetPath || '');
+    return this.normalizeVideoPlaybackPlan(rawPlan, fallbackUrl);
+  }
+
+  private normalizeVideoPlaybackPlan(rawPlan: any, fallbackUrl: string): VideoPlaybackPlan {
+    const normalized: VideoPlaybackPlan = {
+      mode: rawPlan?.mode === 'remux' || rawPlan?.mode === 'transcode' ? rawPlan.mode : 'direct',
+      format: String(rawPlan?.format ?? ''),
+      videoCodec: rawPlan?.videoCodec ?? undefined,
+      audioCodec: rawPlan?.audioCodec ?? undefined,
+      durationSeconds: Number(rawPlan?.durationSeconds ?? 0),
+      zeroDelay: Boolean(rawPlan?.zeroDelay),
+      seekable: rawPlan?.seekable !== false,
+      useNativePlayer: Boolean(rawPlan?.useNativePlayer),
+      url: typeof rawPlan?.url === 'string' && rawPlan.url ? rawPlan.url : fallbackUrl,
+    };
+
+    if (!normalized.url) {
+      normalized.url = fallbackUrl;
+    }
+    if (normalized.mode === 'direct') {
+      normalized.useNativePlayer = false;
+    }
+    return normalized;
+  }
+
+  private buildNativeSeekURL(startSeconds: number): string {
+    const currentUrl = this.videoPlaybackPlan?.url ?? this.mediaSrc ?? '';
+    if (!currentUrl) return '';
+
+    try {
+      const resolved = new URL(currentUrl, window.location.href);
+      if (startSeconds > 0) {
+        resolved.searchParams.set('start', startSeconds.toFixed(3));
+      } else {
+        resolved.searchParams.delete('start');
+      }
+      return resolved.toString();
+    } catch {
+      return currentUrl;
+    }
   }
 
   private inferAudioMime(ext: string): string | null {

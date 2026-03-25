@@ -20,6 +20,7 @@ import (
 )
 
 const streamPath = "/wails-stream"
+const defaultPreviewWindowSeconds = 90.0
 
 type VideoPlaybackMode string
 
@@ -113,6 +114,7 @@ func serveStreamRequest(w http.ResponseWriter, r *http.Request, app *App, archCa
 	transcodeFormat := strings.ToLower(q.Get("transcode"))
 	playbackMode := strings.ToLower(q.Get("mode"))
 	startSeconds := parseStartSeconds(q.Get("start"))
+	windowSeconds := parseWindowSeconds(q.Get("window"))
 
 	// ── Converted disk image ───────────────────────────────────────────────
 	path := q.Get("path")
@@ -122,7 +124,7 @@ func serveStreamRequest(w http.ResponseWriter, r *http.Request, app *App, archCa
 		return
 	}
 	if path != "" && transcodeFormat != "" {
-		serveTranscodedPath(w, r, path, transcodeFormat, playbackMode, startSeconds)
+		serveTranscodedPath(w, r, path, transcodeFormat, playbackMode, startSeconds, windowSeconds)
 		return
 	}
 
@@ -172,7 +174,7 @@ func serveConvertedPath(w http.ResponseWriter, r *http.Request, app *App, public
 	http.ServeContent(w, r, "preview."+targetFormat, time.Time{}, bytes.NewReader(converted))
 }
 
-func serveTranscodedPath(w http.ResponseWriter, r *http.Request, publicPath string, targetFormat string, playbackMode string, startSeconds float64) {
+func serveTranscodedPath(w http.ResponseWriter, r *http.Request, publicPath string, targetFormat string, playbackMode string, startSeconds float64, windowSeconds float64) {
 	if strings.ToLower(targetFormat) != "mp4" {
 		http.Error(w, "unsupported transcode target", http.StatusBadRequest)
 		return
@@ -193,12 +195,16 @@ func serveTranscodedPath(w http.ResponseWriter, r *http.Request, publicPath stri
 		return
 	}
 
-	stdout, stderr, cmd, err := startFFmpegTranscode(r.Context(), buildFFmpegInputArgs(nativePath, startSeconds), normalizePlaybackMode(playbackMode))
+	stdout, stderr, cmd, err := startFFmpegTranscode(r.Context(), buildFFmpegInputArgs(nativePath, startSeconds, windowSeconds), normalizePlaybackMode(playbackMode))
 	if err != nil {
 		handleTranscodeStartError(w, err)
 		return
 	}
 	defer stdout.Close()
+
+	if durationSeconds := probeFileDurationSeconds(nativePath); durationSeconds > 0 {
+		w.Header().Set("X-Video-Duration-Seconds", strconv.FormatFloat(durationSeconds, 'f', 3, 64))
+	}
 
 	streamTranscodedOutput(w, r, cmd, stdout, stderr)
 }
@@ -406,6 +412,7 @@ func startFFmpegTranscode(ctx context.Context, inputArgs []string, playbackMode 
 	} else {
 		args = append(args,
 			"-flags", "+low_delay",
+			"-fps_mode", "vfr",
 			"-c:v", "libx264",
 			"-preset", "ultrafast",
 			"-tune", "zerolatency",
@@ -421,7 +428,8 @@ func startFFmpegTranscode(ctx context.Context, inputArgs []string, playbackMode 
 	args = append(args,
 		"-muxdelay", "0",
 		"-muxpreload", "0",
-		"-movflags", "frag_keyframe+empty_moov+default_base_moof+faststart",
+		"-movflags", "frag_every_frame+empty_moov+default_base_moof+faststart",
+		"-timecode_frame_start", "0",
 		"-f", "mp4",
 		"pipe:1",
 	)
@@ -503,12 +511,26 @@ func parseStartSeconds(raw string) float64 {
 	return seconds
 }
 
-func buildFFmpegInputArgs(inputPath string, startSeconds float64) []string {
-	args := make([]string, 0, 4)
+func parseWindowSeconds(raw string) float64 {
+	if raw == "" {
+		return 0
+	}
+	seconds, err := strconv.ParseFloat(raw, 64)
+	if err != nil || seconds <= 0 {
+		return 0
+	}
+	return seconds
+}
+
+func buildFFmpegInputArgs(inputPath string, startSeconds float64, windowSeconds float64) []string {
+	args := make([]string, 0, 6)
 	if startSeconds > 0 {
 		args = append(args, "-ss", strconv.FormatFloat(startSeconds, 'f', 3, 64))
 	}
 	args = append(args, "-i", inputPath)
+	if windowSeconds > 0 {
+		args = append(args, "-t", strconv.FormatFloat(windowSeconds, 'f', 3, 64))
+	}
 	return args
 }
 
@@ -643,15 +665,11 @@ func (a *App) GetArchiveVideoPlaybackPlan(fsPath string, nestedChain []string, e
 
 func buildDiskVideoPlaybackPlan(baseURL, publicPath string) VideoPlaybackPlan {
 	plan := VideoPlaybackPlan{
-		Mode:            VideoPlaybackModeDirect,
+		Mode:            VideoPlaybackModeRemux,
 		Format:          strings.TrimPrefix(strings.ToLower(filepath.Ext(publicPath)), "."),
-		ZeroDelay:       false,
+		ZeroDelay:       true,
 		Seekable:        true,
 		UseNativePlayer: false,
-		URL:             StreamURLForFile(baseURL, publicPath),
-	}
-	if directPreviewExtensions[strings.ToLower(filepath.Ext(publicPath))] {
-		return plan
 	}
 
 	probe, err := probeVideo(pathref.ToNativePath(pathref.Normalize(publicPath)))
@@ -661,14 +679,8 @@ func buildDiskVideoPlaybackPlan(baseURL, publicPath string) VideoPlaybackPlan {
 		plan.DurationSeconds = parseProbeDuration(probe.Format.Duration)
 	}
 
-	plan.Mode = decidePlaybackMode(publicPath, plan.VideoCodec, plan.AudioCodec)
-	plan.ZeroDelay = plan.Mode != VideoPlaybackModeDirect
-	plan.UseNativePlayer = plan.Mode != VideoPlaybackModeDirect
-	plan.Seekable = true
-	if plan.Mode == VideoPlaybackModeDirect {
-		return plan
-	}
-	plan.URL = FFmpegPreviewURLForFile(baseURL, publicPath, "mp4", string(plan.Mode), 0)
+	plan.Mode = decideDiskPlaybackMode(publicPath, plan.VideoCodec, plan.AudioCodec)
+	plan.URL = FFmpegPreviewURLForFile(baseURL, publicPath, "mp4", string(plan.Mode), 0, defaultPreviewWindowSeconds, plan.DurationSeconds)
 	return plan
 }
 
@@ -688,8 +700,8 @@ func buildArchiveVideoPlaybackPlan(baseURL, fsPath string, nestedChain []string,
 		Format:          strings.TrimPrefix(strings.ToLower(filepath.Ext(entryPath)), "."),
 		ZeroDelay:       true,
 		Seekable:        false,
-		UseNativePlayer: true,
-		URL:             FFmpegPreviewURLForEntry(baseURL, fsPath, nestedChain, entryPath, "mp4", string(mode), 0),
+		UseNativePlayer: false, // FORCE CANVAS FOR ALL FORMATS
+		URL:             FFmpegPreviewURLForEntry(baseURL, fsPath, nestedChain, entryPath, "mp4", string(mode), 0, 0, 0),
 	}
 }
 
@@ -711,6 +723,21 @@ func decidePlaybackMode(name, videoCodec, audioCodec string) VideoPlaybackMode {
 		return VideoPlaybackModeTranscode
 	}
 	return VideoPlaybackModeDirect
+}
+
+func decideDiskPlaybackMode(name, videoCodec, audioCodec string) VideoPlaybackMode {
+	vc := strings.ToLower(videoCodec)
+	ac := strings.ToLower(audioCodec)
+	// Remux when both streams can be copied into fragmented MP4 without re-encode.
+	if remuxableVideoCodecs[vc] && remuxableAudioCodecs[ac] {
+		return VideoPlaybackModeRemux
+	}
+	// Must transcode for legacy or codec-incompatible formats.
+	if transcodePreferredVideoCodecs[vc] || shouldTranscodeVideoPreview(name) {
+		return VideoPlaybackModeTranscode
+	}
+	// Unknown codec: attempt remux and let FFmpeg decide.
+	return VideoPlaybackModeRemux
 }
 
 func probeVideo(nativePath string) (*ffprobeOutput, error) {
@@ -787,7 +814,7 @@ func shouldTranscodeVideoPreview(name string) bool {
 	}
 }
 
-func FFmpegPreviewURLForFile(baseURL, publicPath, targetFormat, playbackMode string, startSeconds float64) string {
+func FFmpegPreviewURLForFile(baseURL, publicPath, targetFormat, playbackMode string, startSeconds float64, windowSeconds float64, durationSeconds float64) string {
 	u := joinStreamBaseURL(baseURL) + streamPath + "?path=" + urlEncode(publicPath) + "&transcode=" + urlEncode(targetFormat)
 	if playbackMode != "" {
 		u += "&mode=" + urlEncode(playbackMode)
@@ -795,10 +822,16 @@ func FFmpegPreviewURLForFile(baseURL, publicPath, targetFormat, playbackMode str
 	if startSeconds > 0 {
 		u += "&start=" + urlEncode(strconv.FormatFloat(startSeconds, 'f', 3, 64))
 	}
+	if windowSeconds > 0 {
+		u += "&window=" + urlEncode(strconv.FormatFloat(windowSeconds, 'f', 3, 64))
+	}
+	if durationSeconds > 0 {
+		u += "&duration=" + urlEncode(strconv.FormatFloat(durationSeconds, 'f', 3, 64))
+	}
 	return u
 }
 
-func FFmpegPreviewURLForEntry(baseURL, fsPath string, nestedChain []string, entryPath string, targetFormat, playbackMode string, startSeconds float64) string {
+func FFmpegPreviewURLForEntry(baseURL, fsPath string, nestedChain []string, entryPath string, targetFormat, playbackMode string, startSeconds float64, windowSeconds float64, durationSeconds float64) string {
 	u := joinStreamBaseURL(baseURL) + streamPath + "?fsPath=" + urlEncode(fsPath) + "&entry=" + urlEncode(entryPath) + "&transcode=" + urlEncode(targetFormat)
 	if playbackMode != "" {
 		u += "&mode=" + urlEncode(playbackMode)
@@ -806,8 +839,22 @@ func FFmpegPreviewURLForEntry(baseURL, fsPath string, nestedChain []string, entr
 	if startSeconds > 0 {
 		u += "&start=" + urlEncode(strconv.FormatFloat(startSeconds, 'f', 3, 64))
 	}
+	if windowSeconds > 0 {
+		u += "&window=" + urlEncode(strconv.FormatFloat(windowSeconds, 'f', 3, 64))
+	}
+	if durationSeconds > 0 {
+		u += "&duration=" + urlEncode(strconv.FormatFloat(durationSeconds, 'f', 3, 64))
+	}
 	if len(nestedChain) > 0 {
 		u += "&nested=" + urlEncode(strings.Join(nestedChain, ","))
 	}
 	return u
+}
+
+func probeFileDurationSeconds(nativePath string) float64 {
+	probe, err := probeVideo(nativePath)
+	if err != nil {
+		return 0
+	}
+	return parseProbeDuration(probe.Format.Duration)
 }

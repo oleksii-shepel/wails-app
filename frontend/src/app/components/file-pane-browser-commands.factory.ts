@@ -30,7 +30,7 @@ export interface FilePaneBrowserCommands {
     resetActiveViewerZoom(): void;
     openFrozenPreviewTab(
       targetPath: string,
-      options?: { sourcePane: 'left' | 'right'; sourceTabId: string; sourceDir: string; autoFollow?: boolean; archiveContext?: import('./viewer-surface.component').ViewerArchiveContext | null },
+      options?: { sourcePane: 'left' | 'right'; sourceTabId: string; sourceDir: string; autoFollow?: boolean; archiveContext?: import('../viewers/viewer-archive-context').ViewerArchiveContext | null },
     ): Promise<void>;
   };
 }

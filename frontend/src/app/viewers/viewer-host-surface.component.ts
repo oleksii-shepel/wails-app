@@ -1,7 +1,7 @@
 import { CommonModule, NgComponentOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, ChangeDetectorRef, Component, Input, OnChanges, Type, ViewChild } from '@angular/core';
 import { ViewerRegistryService } from './viewer-registry.service';
-import { ViewerArchiveContext } from '../components/viewer-surface.component';
+import { ViewerArchiveContext } from './viewer-archive-context';
 
 @Component({
   selector: 'app-viewer-host-surface',

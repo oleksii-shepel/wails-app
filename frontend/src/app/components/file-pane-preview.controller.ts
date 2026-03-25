@@ -4,7 +4,7 @@ import type { ConfirmDialogService } from '../services/confirm-dialog.service';
 import type { FileInfo } from '../shared/protocol';
 import { FileType } from '../shared/protocol';
 import type { ArchiveFrame } from '../services/archive.service';
-import type { ViewerArchiveContext } from './viewer-surface.component';
+import type { ViewerArchiveContext } from '../viewers/viewer-archive-context';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
 
 export interface FilePanePreviewHost {

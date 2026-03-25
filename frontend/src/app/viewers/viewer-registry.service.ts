@@ -1,6 +1,6 @@
 import { Injectable, Type } from '@angular/core';
 import { ViewerContribution, ViewerRequest } from './viewer-contribution';
-import { ViewerSurfaceComponent } from '../components/viewer-surface.component';
+import { ViewerSurfaceComponent } from '../surfaces/viewer/viewer-surface.component';
 
 function extLower(path: string): string {
   const p = (path ?? '').replace(/\\/g, '/');

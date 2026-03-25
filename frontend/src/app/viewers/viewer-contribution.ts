@@ -1,5 +1,5 @@
 import type { Type } from '@angular/core';
-import type { ViewerArchiveContext } from '../components/viewer-surface.component';
+import type { ViewerArchiveContext } from './viewer-archive-context';
 
 export interface ViewerRequest {
   targetPath: string;

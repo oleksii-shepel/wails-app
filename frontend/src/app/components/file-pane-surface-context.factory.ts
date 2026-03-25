@@ -1,4 +1,4 @@
-import type { ViewerArchiveContext } from './viewer-surface.component';
+import type { ViewerArchiveContext } from '../viewers/viewer-archive-context';
 import type { DirSurfaceVm } from '../surfaces/dir/dir-surface.vm';
 import type { DirSurfaceContext, SurfaceContext, ViewerSurfaceContext, SizeManagerSurfaceContext } from '../surfaces/surface-context';
 import type { SizeManagerSurfaceVm } from '../surfaces/size-manager/size-manager-surface.vm';

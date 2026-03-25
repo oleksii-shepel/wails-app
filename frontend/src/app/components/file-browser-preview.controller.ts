@@ -1,7 +1,7 @@
 import type { WorkspaceService } from '../services/workspace.service';
 import type { TabInfo } from '../shared/protocol-enhanced';
 import type { FilePaneBrowserCommands } from './file-pane-browser-commands.factory';
-import type { ViewerArchiveContext } from './viewer-surface.component';
+import type { ViewerArchiveContext } from '../viewers/viewer-archive-context';
 
 export interface FileBrowserPreviewPane {
   currentTabId: string;

@@ -711,14 +711,14 @@ export class CanvasVideoPlayer {
     await this.ensureLoaded();
 
     const clampedTimeMs = Math.max(0, Math.min(timeMs, this.getDurationMs()));
-    const wasPlaying = this.stateChanged$.value === 'playing';
+    const shouldResumePlayback = this.stateChanged$.value === 'playing' || this.stateChanged$.value === 'ended';
     const currentTimeMs = this.getCurrentTimeMs();
-    if (wasPlaying) {
-      this.pause();
+    if (this.stateChanged$.value === 'playing') {
+      this.suspendPlaybackForSeek();
     }
 
     if (clampedTimeMs < currentTimeMs && await this.shouldReloadSourceForReverseSeek()) {
-      await this.reloadCurrentStreamSource(clampedTimeMs, wasPlaying);
+      await this.reloadCurrentStreamSource(clampedTimeMs, shouldResumePlayback);
       return;
     }
 
@@ -733,8 +733,8 @@ export class CanvasVideoPlayer {
     await this.decodeAhead();
     this.drawForTime(clampedTimeMs);
 
-    if (wasPlaying) {
-      await this.play();
+    if (shouldResumePlayback) {
+      await this.resumePlaybackAfterSeek();
     }
   }
 
@@ -1559,6 +1559,19 @@ export class CanvasVideoPlayer {
     if (!this.isLoaded || !this.metadata) {
       throw new Error('Video player is not initialized.');
     }
+  }
+
+  private suspendPlaybackForSeek(): void {
+    this.playbackBaseMs = this.getCurrentTimeMs();
+    this.cancelRenderLoop();
+    this.resetAudioPlaybackState();
+  }
+
+  private async resumePlaybackAfterSeek(): Promise<void> {
+    await this.prepareAudioPlayback(this.playbackBaseMs);
+    this.playbackStartPerfMs = performance.now();
+    this.stateChanged$.next('playing');
+    this.renderLoop();
   }
 
   private async prepareAudioPlayback(startTimeMs: number): Promise<void> {

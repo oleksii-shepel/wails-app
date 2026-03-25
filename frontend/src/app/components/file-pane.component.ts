@@ -16,7 +16,7 @@ import {
 import { normalizePath } from './address-bar.utils';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
 import { FileViewContainerComponent, ViewLayout } from './file-view-container.component';
-import { ViewerArchiveContext } from './viewer-surface.component';
+import { ViewerArchiveContext } from '../viewers/viewer-archive-context';
 import { DirSurfaceVm } from '../surfaces/dir/dir-surface.vm';
 import { DirSurfaceSession } from '../surfaces/dir/dir-surface-session';
 import { DirSurfaceRuntime } from '../surfaces/dir/dir-surface-runtime';

@@ -1,13 +1,14 @@
-import { CommonModule } from '@angular/common';
+﻿import { CommonModule } from '@angular/common';
 import {
   Component, Input, OnChanges, OnDestroy, ViewChild, ElementRef, Inject,
   ChangeDetectionStrategy, ChangeDetectorRef,
 } from '@angular/core';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
-import { ApiService } from '../services/api.service';
-import { FileInfo, FileType } from '../shared/protocol';
-import { CanvasVideoPlayer, CanvasVideoPlayerService, VideoMetadata } from '../services/canvas-video-player.service';
+import { ApiService } from '../../services/api.service';
+import { FileInfo, FileType } from '../../shared/protocol';
+import { CanvasVideoPlayer, CanvasVideoPlayerService, VideoMetadata } from '../../services/canvas-video-player.service';
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
+import { ViewerArchiveContext } from '../../viewers/viewer-archive-context';
 
 type ViewerKind =
   | 'image' | 'video' | 'audio' | 'pdf' | 'svg'
@@ -26,19 +27,6 @@ interface VideoPlaybackPlan {
   seekable: boolean;
   useNativePlayer: boolean;
   url: string;
-}
-
-//
-// When the viewer tab is opened for a file inside an archive, the pane passes
-// the current ArchiveFrame stack so the viewer can call ArchiveRead through the
-// same VFS-backed archive handler path used by archive browsing.
-export interface ViewerArchiveContext {
-  /** Outermost archive on disk, e.g. "drive://c/foo/archive.zip" */
-  fsPath: string;
-  /** Nested archive chain, e.g. ["inner.tar.gz"] — empty for flat archives */
-  nestedChain: string[];
-  /** Entry path inside the innermost archive, e.g. "src/main.go" */
-  entryPath: string;
 }
 
 @Component({

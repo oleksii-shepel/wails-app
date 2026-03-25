@@ -1,5 +1,5 @@
 import type { TabInfo } from '../shared/protocol-enhanced';
-import type { ViewerArchiveContext } from '../components/viewer-surface.component';
+import type { ViewerArchiveContext } from '../viewers/viewer-archive-context';
 import type { DirSurfaceVm } from './dir/dir-surface.vm';
 import type { SizeManagerSurfaceVm } from './size-manager/size-manager-surface.vm';
 

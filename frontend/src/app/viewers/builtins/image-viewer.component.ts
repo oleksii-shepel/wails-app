@@ -9,7 +9,7 @@ import {
 } from '@angular/core';
 import { ApiService } from '../../services/api.service';
 import { FileInfo, FileType } from '../../shared/protocol';
-import { ViewerArchiveContext } from '../../components/viewer-surface.component';
+import { ViewerArchiveContext } from '../viewer-archive-context';
 
 type ImageViewerKind = 'empty' | 'loading' | 'image' | 'svg' | 'directory' | 'toobig' | 'unsupported' | 'error';
 interface ImageMeta { width: number; height: number }

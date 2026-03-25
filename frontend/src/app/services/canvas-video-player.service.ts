@@ -25,7 +25,7 @@ type ContainerFormat = 'mp4' | 'mkv' | 'ts' | 'unknown';
 
 type PlayerState = 'idle' | 'paused' | 'playing' | 'ended';
 
-type ExtendedVideoDecoderConfig = VideoDecoderConfig & {
+export type ExtendedVideoDecoderConfig = VideoDecoderConfig & {
   avc?: {
     format: 'annexb' | 'avc';
   };
@@ -50,7 +50,7 @@ interface TrackInfo {
   };
 }
 
-interface SampleInfo {
+export interface SampleInfo {
   index: number;
   timestampMs: number;
   durationMs: number;
@@ -69,12 +69,12 @@ interface AvcSampleConfig {
   pps: Uint8Array[];
 }
 
-interface DemuxedPacketCursor {
+export interface DemuxedPacketCursor {
   token: unknown;
   packet: SampleInfo;
 }
 
-interface DemuxedAudioTrackSource {
+export interface DemuxedAudioTrackSource {
   decoderConfig: AudioDecoderConfig;
   codec?: string;
   sampleRate: number;
@@ -84,7 +84,7 @@ interface DemuxedAudioTrackSource {
   getNextPacket(cursor: DemuxedPacketCursor): Promise<DemuxedPacketCursor | null>;
 }
 
-interface DemuxedVideoSource {
+export interface DemuxedVideoSource {
   metadata: VideoMetadata;
   decoderConfig: ExtendedVideoDecoderConfig;
   avcSampleConfig?: AvcSampleConfig;
@@ -113,6 +113,10 @@ class Mp4DemuxedSource {
       throw new Error('Canvas playback currently supports MP4/MOV sources only.');
     }
   }
+}
+
+export async function loadMp4DemuxedSourceFromBuffer(buffer: ArrayBuffer): Promise<DemuxedVideoSource> {
+  return Mp4DemuxedSource.load(buffer);
 }
 
 class ArrayBackedDemuxedSource {
@@ -667,6 +671,25 @@ export class CanvasVideoPlayer {
         const message = error instanceof Error ? error.message : 'Failed to load video';
         this.error$.next(message);
         throw error;
+      } finally {
+        if (this.pendingLoad === currentLoad) {
+          this.pendingLoad = null;
+        }
+      }
+    })();
+
+    this.pendingLoad = currentLoad;
+    return currentLoad;
+  }
+
+  async loadFromDemuxedSource(source: DemuxedVideoSource): Promise<VideoMetadata> {
+    const generation = ++this.sourceLoadGeneration;
+    this.prepareForSourceReload();
+
+    let currentLoad: Promise<VideoMetadata> | null = null;
+    currentLoad = (async () => {
+      try {
+        return await this.initializeDemuxedSource(source, generation);
       } finally {
         if (this.pendingLoad === currentLoad) {
           this.pendingLoad = null;

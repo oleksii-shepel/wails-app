@@ -3,7 +3,9 @@ package app
 import (
 	"bytes"
 	"context"
+	"crypto/sha1"
 	"encoding/json"
+	"fmt"
 	"io"
 	"mime"
 	"net/http"
@@ -21,11 +23,13 @@ import (
 
 const streamPath = "/wails-stream"
 const defaultPreviewWindowSeconds = 90.0
+const segmentedPreviewSegmentSeconds = 2.0
 
 type VideoPlaybackMode string
 
 const (
 	VideoPlaybackModeDirect    VideoPlaybackMode = "direct"
+	VideoPlaybackModeSegmented VideoPlaybackMode = "segmented"
 	VideoPlaybackModeRemux     VideoPlaybackMode = "remux"
 	VideoPlaybackModeTranscode VideoPlaybackMode = "transcode"
 )
@@ -40,6 +44,31 @@ type VideoPlaybackPlan struct {
 	Seekable        bool              `json:"seekable"`
 	UseNativePlayer bool              `json:"useNativePlayer"`
 	URL             string            `json:"url"`
+}
+
+type segmentedVideoManifest struct {
+	Mode            string                       `json:"mode"`
+	Format          string                       `json:"format"`
+	DurationSeconds float64                      `json:"durationSeconds"`
+	SegmentDuration float64                      `json:"segmentDuration"`
+	TotalSegments   int                          `json:"totalSegments"`
+	InitSegmentURL  string                       `json:"initSegmentUrl"`
+	Segments        []segmentedVideoManifestItem `json:"segments"`
+}
+
+type segmentedVideoManifestItem struct {
+	Index           int     `json:"index"`
+	StartTime       float64 `json:"startTime"`
+	DurationSeconds float64 `json:"durationSeconds"`
+	URL             string  `json:"url"`
+}
+
+type segmentedVideoCacheEntry struct {
+	CacheKey        string  `json:"cacheKey"`
+	Format          string  `json:"format"`
+	DurationSeconds float64 `json:"durationSeconds"`
+	SegmentDuration float64 `json:"segmentDuration"`
+	TotalSegments   int     `json:"totalSegments"`
 }
 
 type ffprobeOutput struct {
@@ -118,6 +147,25 @@ func serveStreamRequest(w http.ResponseWriter, r *http.Request, app *App, archCa
 
 	// ── Converted disk image ───────────────────────────────────────────────
 	path := q.Get("path")
+	if path != "" && q.Get("segmentManifest") == "1" {
+		serveSegmentManifest(w, r, path)
+		return
+	}
+	if segmentKey := q.Get("segmentKey"); segmentKey != "" {
+		if q.Get("segmentInit") == "1" {
+			serveSegmentFile(w, r, segmentKey, "init.mp4")
+			return
+		}
+		if rawIndex := q.Get("segmentIndex"); rawIndex != "" {
+			segmentIndex, err := strconv.Atoi(rawIndex)
+			if err != nil || segmentIndex < 0 {
+				http.Error(w, "invalid segment index", http.StatusBadRequest)
+				return
+			}
+			serveSegmentFile(w, r, segmentKey, segmentedVideoFileName(segmentIndex))
+			return
+		}
+	}
 	convertFormat := q.Get("convert")
 	if path != "" && convertFormat != "" {
 		serveConvertedPath(w, r, app, path, convertFormat)
@@ -172,6 +220,45 @@ func serveConvertedPath(w http.ResponseWriter, r *http.Request, app *App, public
 	setContentType(w, "preview."+targetFormat)
 	w.Header().Set("Cache-Control", "no-store")
 	http.ServeContent(w, r, "preview."+targetFormat, time.Time{}, bytes.NewReader(converted))
+}
+
+func serveSegmentManifest(w http.ResponseWriter, r *http.Request, publicPath string) {
+	entry, err := ensureSegmentedVideoCacheEntry(publicPath)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	manifest := buildSegmentedVideoManifest(requestBaseURL(r), entry)
+	setCORSHeaders(w)
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(manifest)
+}
+
+func serveSegmentFile(w http.ResponseWriter, r *http.Request, cacheKey string, fileName string) {
+	segmentPath := filepath.Join(segmentedVideoCacheRoot(), cacheKey, fileName)
+	f, err := os.Open(segmentPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "cannot open segment", http.StatusInternalServerError)
+		return
+	}
+	defer f.Close()
+
+	fi, err := f.Stat()
+	if err != nil || fi.IsDir() {
+		http.Error(w, "not a file", http.StatusBadRequest)
+		return
+	}
+
+	setCORSHeaders(w)
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Type", "video/mp4")
+	http.ServeContent(w, r, fi.Name(), fi.ModTime(), f)
 }
 
 func serveTranscodedPath(w http.ResponseWriter, r *http.Request, publicPath string, targetFormat string, playbackMode string, startSeconds float64, windowSeconds float64) {
@@ -535,10 +622,174 @@ func buildFFmpegInputArgs(inputPath string, startSeconds float64, windowSeconds 
 }
 
 func normalizePlaybackMode(raw string) VideoPlaybackMode {
+	if strings.EqualFold(raw, string(VideoPlaybackModeSegmented)) {
+		return VideoPlaybackModeSegmented
+	}
 	if strings.EqualFold(raw, string(VideoPlaybackModeRemux)) {
 		return VideoPlaybackModeRemux
 	}
 	return VideoPlaybackModeTranscode
+}
+
+func requestBaseURL(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	return scheme + "://" + r.Host
+}
+
+func segmentedVideoCacheRoot() string {
+	root := filepath.Join(os.TempDir(), "wails-app", "video-segments")
+	_ = os.MkdirAll(root, 0o755)
+	return root
+}
+
+func segmentedVideoManifestPath(cacheKey string) string {
+	return filepath.Join(segmentedVideoCacheRoot(), cacheKey, "manifest.json")
+}
+
+func segmentedVideoFileName(index int) string {
+	return fmt.Sprintf("segment_%05d.m4s", index+1)
+}
+
+func segmentManifestURLForFile(baseURL, publicPath string) string {
+	return joinStreamBaseURL(baseURL) + streamPath + "?path=" + urlEncode(publicPath) + "&segmentManifest=1"
+}
+
+func segmentInitURL(baseURL, cacheKey string) string {
+	return joinStreamBaseURL(baseURL) + streamPath + "?segmentKey=" + urlEncode(cacheKey) + "&segmentInit=1"
+}
+
+func segmentFileURL(baseURL, cacheKey string, index int) string {
+	return joinStreamBaseURL(baseURL) + streamPath + "?segmentKey=" + urlEncode(cacheKey) + "&segmentIndex=" + urlEncode(strconv.Itoa(index))
+}
+
+func buildSegmentedVideoManifest(baseURL string, entry segmentedVideoCacheEntry) segmentedVideoManifest {
+	segments := make([]segmentedVideoManifestItem, 0, entry.TotalSegments)
+	for index := 0; index < entry.TotalSegments; index++ {
+		startTime := float64(index) * entry.SegmentDuration
+		segmentDuration := entry.SegmentDuration
+		if remaining := entry.DurationSeconds - startTime; remaining < segmentDuration {
+			segmentDuration = remaining
+		}
+		if segmentDuration < 0 {
+			segmentDuration = 0
+		}
+		segments = append(segments, segmentedVideoManifestItem{
+			Index:           index,
+			StartTime:       startTime,
+			DurationSeconds: segmentDuration,
+			URL:             segmentFileURL(baseURL, entry.CacheKey, index),
+		})
+	}
+
+	return segmentedVideoManifest{
+		Mode:            string(VideoPlaybackModeSegmented),
+		Format:          entry.Format,
+		DurationSeconds: entry.DurationSeconds,
+		SegmentDuration: entry.SegmentDuration,
+		TotalSegments:   entry.TotalSegments,
+		InitSegmentURL:  segmentInitURL(baseURL, entry.CacheKey),
+		Segments:        segments,
+	}
+}
+
+func ensureSegmentedVideoCacheEntry(publicPath string) (segmentedVideoCacheEntry, error) {
+	publicPath = pathref.Normalize(publicPath)
+	nativePath := pathref.ToNativePath(publicPath)
+	if strings.Contains(nativePath, "..") {
+		return segmentedVideoCacheEntry{}, fmt.Errorf("invalid path")
+	}
+
+	fi, err := os.Stat(nativePath)
+	if err != nil {
+		return segmentedVideoCacheEntry{}, err
+	}
+
+	cacheKey := segmentedVideoCacheKey(nativePath, fi)
+	manifestPath := segmentedVideoManifestPath(cacheKey)
+	if manifestBytes, err := os.ReadFile(manifestPath); err == nil {
+		var entry segmentedVideoCacheEntry
+		if json.Unmarshal(manifestBytes, &entry) == nil {
+			return entry, nil
+		}
+	}
+
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		return segmentedVideoCacheEntry{}, fmt.Errorf("ffmpeg is not installed or not available on PATH")
+	}
+
+	probe, err := probeVideo(nativePath)
+	if err != nil {
+		return segmentedVideoCacheEntry{}, err
+	}
+	durationSeconds := parseProbeDuration(probe.Format.Duration)
+	totalSegments := int(durationSeconds / segmentedPreviewSegmentSeconds)
+	if durationSeconds > float64(totalSegments)*segmentedPreviewSegmentSeconds {
+		totalSegments++
+	}
+	if totalSegments <= 0 {
+		totalSegments = 1
+	}
+
+	cacheDir := filepath.Join(segmentedVideoCacheRoot(), cacheKey)
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		return segmentedVideoCacheEntry{}, err
+	}
+
+	args := []string{
+		"-hide_banner",
+		"-loglevel", "error",
+		"-i", nativePath,
+		"-map", "0:v:0",
+		"-map", "0:a:0?",
+		"-sn",
+		"-dn",
+		"-c:v", "libx264",
+		"-preset", "ultrafast",
+		"-tune", "zerolatency",
+		"-crf", "23",
+		"-pix_fmt", "yuv420p",
+		"-g", "60",
+		"-keyint_min", "60",
+		"-sc_threshold", "0",
+		"-c:a", "aac",
+		"-b:a", "128k",
+		"-f", "dash",
+		"-seg_duration", strconv.FormatFloat(segmentedPreviewSegmentSeconds, 'f', 3, 64),
+		"-streaming", "0",
+		"-use_template", "1",
+		"-use_timeline", "0",
+		"-init_seg_name", "init.mp4",
+		"-media_seg_name", "segment_$Number%05d$.m4s",
+		filepath.Join(cacheDir, "manifest.mpd"),
+	}
+	cmd := exec.Command("ffmpeg", args...)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return segmentedVideoCacheEntry{}, fmt.Errorf("failed to build segmented preview: %s", strings.TrimSpace(string(output)))
+	}
+
+	entry := segmentedVideoCacheEntry{
+		CacheKey:        cacheKey,
+		Format:          "mp4",
+		DurationSeconds: durationSeconds,
+		SegmentDuration: segmentedPreviewSegmentSeconds,
+		TotalSegments:   totalSegments,
+	}
+	manifestBytes, _ := json.Marshal(entry)
+	if err := os.WriteFile(manifestPath, manifestBytes, 0o644); err != nil {
+		return segmentedVideoCacheEntry{}, err
+	}
+	return entry, nil
+}
+
+func segmentedVideoCacheKey(nativePath string, fi os.FileInfo) string {
+	hash := sha1.Sum([]byte(strings.Join([]string{nativePath, strconv.FormatInt(fi.Size(), 10), strconv.FormatInt(fi.ModTime().UnixNano(), 10)}, "|")))
+	return fmt.Sprintf("%x", hash)
 }
 
 func setCORSHeaders(w http.ResponseWriter) {
@@ -664,6 +915,18 @@ func (a *App) GetArchiveVideoPlaybackPlan(fsPath string, nestedChain []string, e
 }
 
 func buildDiskVideoPlaybackPlan(baseURL, publicPath string) VideoPlaybackPlan {
+	if entry, err := ensureSegmentedVideoCacheEntry(publicPath); err == nil {
+		return VideoPlaybackPlan{
+			Mode:            VideoPlaybackModeSegmented,
+			Format:          entry.Format,
+			DurationSeconds: entry.DurationSeconds,
+			ZeroDelay:       false,
+			Seekable:        true,
+			UseNativePlayer: false,
+			URL:             segmentManifestURLForFile(baseURL, publicPath),
+		}
+	}
+
 	plan := VideoPlaybackPlan{
 		Mode:            VideoPlaybackModeRemux,
 		Format:          strings.TrimPrefix(strings.ToLower(filepath.Ext(publicPath)), "."),

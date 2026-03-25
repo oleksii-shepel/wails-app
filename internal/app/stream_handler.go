@@ -12,8 +12,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"wails-app/internal/pathref"
@@ -24,6 +26,8 @@ import (
 const streamPath = "/wails-stream"
 const defaultPreviewWindowSeconds = 90.0
 const segmentedPreviewSegmentSeconds = 2.0
+const segmentedVideoCacheTTL = 5 * time.Minute
+const segmentedVideoMaxResidentSegments = 6
 
 type VideoPlaybackMode string
 
@@ -70,6 +74,39 @@ type segmentedVideoCacheEntry struct {
 	SegmentDuration float64 `json:"segmentDuration"`
 	TotalSegments   int     `json:"totalSegments"`
 }
+
+type segmentedVideoPlaybackCacheEntry struct {
+	mu          sync.Mutex
+	manifest    segmentedVideoCacheEntry
+	nativePath  string
+	initSegment []byte
+	segments    map[int][]byte
+	segmentSeen map[int]time.Time
+	inflight    map[int]*segmentedVideoSegmentBuild
+	createdAt   time.Time
+	lastAccess  time.Time
+}
+
+type segmentedVideoPlaybackBuild struct {
+	done  chan struct{}
+	entry *segmentedVideoPlaybackCacheEntry
+	err   error
+}
+
+type segmentedVideoSegmentBuild struct {
+	done    chan struct{}
+	init    []byte
+	segment []byte
+	err     error
+}
+
+type segmentedVideoPlaybackCache struct {
+	mu       sync.Mutex
+	entries  map[string]*segmentedVideoPlaybackCacheEntry
+	inflight map[string]*segmentedVideoPlaybackBuild
+}
+
+var segmentedPlaybackCache = newSegmentedVideoPlaybackCache()
 
 type ffprobeOutput struct {
 	Format struct {
@@ -237,28 +274,20 @@ func serveSegmentManifest(w http.ResponseWriter, r *http.Request, publicPath str
 }
 
 func serveSegmentFile(w http.ResponseWriter, r *http.Request, cacheKey string, fileName string) {
-	segmentPath := filepath.Join(segmentedVideoCacheRoot(), cacheKey, fileName)
-	f, err := os.Open(segmentPath)
+	content, modTime, ok, err := segmentedPlaybackCache.File(cacheKey, fileName)
 	if err != nil {
-		if os.IsNotExist(err) {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
-		http.Error(w, "cannot open segment", http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	defer f.Close()
-
-	fi, err := f.Stat()
-	if err != nil || fi.IsDir() {
-		http.Error(w, "not a file", http.StatusBadRequest)
+	if !ok {
+		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
 
 	setCORSHeaders(w)
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "video/mp4")
-	http.ServeContent(w, r, fi.Name(), fi.ModTime(), f)
+	http.ServeContent(w, r, fileName, modTime, bytes.NewReader(content))
 }
 
 func serveTranscodedPath(w http.ResponseWriter, r *http.Request, publicPath string, targetFormat string, playbackMode string, startSeconds float64, windowSeconds float64) {
@@ -642,16 +671,6 @@ func requestBaseURL(r *http.Request) string {
 	return scheme + "://" + r.Host
 }
 
-func segmentedVideoCacheRoot() string {
-	root := filepath.Join(os.TempDir(), "wails-app", "video-segments")
-	_ = os.MkdirAll(root, 0o755)
-	return root
-}
-
-func segmentedVideoManifestPath(cacheKey string) string {
-	return filepath.Join(segmentedVideoCacheRoot(), cacheKey, "manifest.json")
-}
-
 func segmentedVideoFileName(index int) string {
 	return fmt.Sprintf("segment_%05d.m4s", index+1)
 }
@@ -711,21 +730,23 @@ func ensureSegmentedVideoCacheEntry(publicPath string) (segmentedVideoCacheEntry
 	}
 
 	cacheKey := segmentedVideoCacheKey(nativePath, fi)
-	manifestPath := segmentedVideoManifestPath(cacheKey)
-	if manifestBytes, err := os.ReadFile(manifestPath); err == nil {
-		var entry segmentedVideoCacheEntry
-		if json.Unmarshal(manifestBytes, &entry) == nil {
-			return entry, nil
-		}
+	entry, err := segmentedPlaybackCache.Ensure(cacheKey, func() (*segmentedVideoPlaybackCacheEntry, error) {
+		return buildSegmentedVideoCache(nativePath, cacheKey)
+	})
+	if err != nil {
+		return segmentedVideoCacheEntry{}, err
 	}
+	return entry.manifest, nil
+}
 
+func buildSegmentedVideoCache(nativePath string, cacheKey string) (*segmentedVideoPlaybackCacheEntry, error) {
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
-		return segmentedVideoCacheEntry{}, fmt.Errorf("ffmpeg is not installed or not available on PATH")
+		return nil, fmt.Errorf("ffmpeg is not installed or not available on PATH")
 	}
 
 	probe, err := probeVideo(nativePath)
 	if err != nil {
-		return segmentedVideoCacheEntry{}, err
+		return nil, err
 	}
 	durationSeconds := parseProbeDuration(probe.Format.Duration)
 	totalSegments := int(durationSeconds / segmentedPreviewSegmentSeconds)
@@ -736,15 +757,55 @@ func ensureSegmentedVideoCacheEntry(publicPath string) (segmentedVideoCacheEntry
 		totalSegments = 1
 	}
 
-	cacheDir := filepath.Join(segmentedVideoCacheRoot(), cacheKey)
-	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
-		return segmentedVideoCacheEntry{}, err
+	manifest := segmentedVideoCacheEntry{
+		CacheKey:        cacheKey,
+		Format:          "mp4",
+		DurationSeconds: durationSeconds,
+		SegmentDuration: segmentedPreviewSegmentSeconds,
+		TotalSegments:   totalSegments,
 	}
 
+	firstSegmentDuration := segmentedPreviewSegmentSeconds
+	if durationSeconds > 0 && durationSeconds < firstSegmentDuration {
+		firstSegmentDuration = durationSeconds
+	}
+	if firstSegmentDuration <= 0 {
+		firstSegmentDuration = segmentedPreviewSegmentSeconds
+	}
+
+	initSegment, firstSegment, err := buildSegmentedVideoFragment(nativePath, 0, firstSegmentDuration)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+	return &segmentedVideoPlaybackCacheEntry{
+		manifest:    manifest,
+		nativePath:  nativePath,
+		initSegment: initSegment,
+		segments: map[int][]byte{
+			0: firstSegment,
+		},
+		segmentSeen: map[int]time.Time{
+			0: now,
+		},
+		inflight:   make(map[int]*segmentedVideoSegmentBuild),
+		createdAt:  now,
+		lastAccess: now,
+	}, nil
+}
+
+func buildSegmentedVideoFragment(nativePath string, startSeconds float64, durationSeconds float64) ([]byte, []byte, error) {
 	args := []string{
 		"-hide_banner",
 		"-loglevel", "error",
+	}
+	if startSeconds > 0 {
+		args = append(args, "-ss", strconv.FormatFloat(startSeconds, 'f', 3, 64))
+	}
+	args = append(args,
 		"-i", nativePath,
+		"-t", strconv.FormatFloat(durationSeconds, 'f', 3, 64),
 		"-map", "0:v:0",
 		"-map", "0:a:0?",
 		"-sn",
@@ -759,37 +820,278 @@ func ensureSegmentedVideoCacheEntry(publicPath string) (segmentedVideoCacheEntry
 		"-sc_threshold", "0",
 		"-c:a", "aac",
 		"-b:a", "128k",
-		"-f", "dash",
-		"-seg_duration", strconv.FormatFloat(segmentedPreviewSegmentSeconds, 'f', 3, 64),
-		"-streaming", "0",
-		"-use_template", "1",
-		"-use_timeline", "0",
-		"-init_seg_name", "init.mp4",
-		"-media_seg_name", "segment_$Number%05d$.m4s",
-		filepath.Join(cacheDir, "manifest.mpd"),
-	}
+		"-movflags", "frag_keyframe+empty_moov+default_base_moof",
+		"-f", "mp4",
+		"pipe:1",
+	)
 	cmd := exec.Command("ffmpeg", args...)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return segmentedVideoCacheEntry{}, fmt.Errorf("failed to build segmented preview: %s", strings.TrimSpace(string(output)))
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to build segmented preview: %s", strings.TrimSpace(string(output)))
+	}
+	initSegment, mediaSegment, err := splitFragmentedMP4(output)
+	if err != nil {
+		return nil, nil, err
+	}
+	return initSegment, mediaSegment, nil
+}
+
+func splitFragmentedMP4(data []byte) ([]byte, []byte, error) {
+	if len(data) < 8 {
+		return nil, nil, fmt.Errorf("failed to build segmented preview: fragmented mp4 output too small")
 	}
 
-	entry := segmentedVideoCacheEntry{
-		CacheKey:        cacheKey,
-		Format:          "mp4",
-		DurationSeconds: durationSeconds,
-		SegmentDuration: segmentedPreviewSegmentSeconds,
-		TotalSegments:   totalSegments,
+	splitOffset := -1
+	for offset := 0; offset+8 <= len(data); {
+		boxSize := int(uint32(data[offset])<<24 | uint32(data[offset+1])<<16 | uint32(data[offset+2])<<8 | uint32(data[offset+3]))
+		headerSize := 8
+		if boxSize == 1 {
+			if offset+16 > len(data) {
+				return nil, nil, fmt.Errorf("failed to build segmented preview: invalid extended mp4 box")
+			}
+			largeSize := uint64(data[offset+8])<<56 | uint64(data[offset+9])<<48 | uint64(data[offset+10])<<40 | uint64(data[offset+11])<<32 |
+				uint64(data[offset+12])<<24 | uint64(data[offset+13])<<16 | uint64(data[offset+14])<<8 | uint64(data[offset+15])
+			if largeSize > uint64(len(data)-offset) || largeSize < 16 {
+				return nil, nil, fmt.Errorf("failed to build segmented preview: invalid extended mp4 size")
+			}
+			boxSize = int(largeSize)
+			headerSize = 16
+		} else if boxSize == 0 {
+			boxSize = len(data) - offset
+		}
+		if boxSize < headerSize || offset+boxSize > len(data) {
+			return nil, nil, fmt.Errorf("failed to build segmented preview: invalid mp4 box size")
+		}
+
+		boxType := string(data[offset+4 : offset+8])
+		if boxType == "sidx" || boxType == "styp" || boxType == "moof" || boxType == "mdat" {
+			splitOffset = offset
+			break
+		}
+		offset += boxSize
 	}
-	manifestBytes, _ := json.Marshal(entry)
-	if err := os.WriteFile(manifestPath, manifestBytes, 0o644); err != nil {
-		return segmentedVideoCacheEntry{}, err
+
+	if splitOffset <= 0 || splitOffset >= len(data) {
+		return nil, nil, fmt.Errorf("failed to build segmented preview: could not split initialization segment")
 	}
-	return entry, nil
+
+	initSegment := append([]byte(nil), data[:splitOffset]...)
+	mediaSegment := append([]byte(nil), data[splitOffset:]...)
+	if len(mediaSegment) == 0 {
+		return nil, nil, fmt.Errorf("failed to build segmented preview: empty media segment")
+	}
+	return initSegment, mediaSegment, nil
 }
 
 func segmentedVideoCacheKey(nativePath string, fi os.FileInfo) string {
 	hash := sha1.Sum([]byte(strings.Join([]string{nativePath, strconv.FormatInt(fi.Size(), 10), strconv.FormatInt(fi.ModTime().UnixNano(), 10)}, "|")))
 	return fmt.Sprintf("%x", hash)
+}
+
+func newSegmentedVideoPlaybackCache() *segmentedVideoPlaybackCache {
+	return &segmentedVideoPlaybackCache{
+		entries:  make(map[string]*segmentedVideoPlaybackCacheEntry),
+		inflight: make(map[string]*segmentedVideoPlaybackBuild),
+	}
+}
+
+func (c *segmentedVideoPlaybackCache) Ensure(cacheKey string, build func() (*segmentedVideoPlaybackCacheEntry, error)) (*segmentedVideoPlaybackCacheEntry, error) {
+	for {
+		c.mu.Lock()
+		c.evictExpiredLocked(time.Now())
+		if entry, ok := c.entries[cacheKey]; ok {
+			entry.lastAccess = time.Now()
+			c.mu.Unlock()
+			return entry, nil
+		}
+		if pending, ok := c.inflight[cacheKey]; ok {
+			c.mu.Unlock()
+			<-pending.done
+			if pending.err != nil {
+				return nil, pending.err
+			}
+			continue
+		}
+
+		pending := &segmentedVideoPlaybackBuild{done: make(chan struct{})}
+		c.inflight[cacheKey] = pending
+		c.mu.Unlock()
+
+		entry, err := build()
+
+		c.mu.Lock()
+		if err == nil && entry != nil {
+			entry.lastAccess = time.Now()
+			c.entries[cacheKey] = entry
+		}
+		pending.entry = entry
+		pending.err = err
+		delete(c.inflight, cacheKey)
+		close(pending.done)
+		c.mu.Unlock()
+
+		return entry, err
+	}
+}
+
+func (c *segmentedVideoPlaybackCache) File(cacheKey string, fileName string) ([]byte, time.Time, bool, error) {
+	now := time.Now()
+	c.mu.Lock()
+	c.evictExpiredLocked(now)
+	entry, ok := c.entries[cacheKey]
+	if ok {
+		entry.lastAccess = now
+	}
+	c.mu.Unlock()
+	if !ok {
+		return nil, time.Time{}, false, nil
+	}
+
+	content, err := entry.file(fileName)
+	if err != nil {
+		return nil, time.Time{}, false, err
+	}
+	if len(content) == 0 {
+		return nil, time.Time{}, false, nil
+	}
+
+	c.mu.Lock()
+	entry.lastAccess = time.Now()
+	c.mu.Unlock()
+	return content, entry.createdAt, true, nil
+}
+
+func (c *segmentedVideoPlaybackCache) Clear() {
+	c.mu.Lock()
+	clear(c.entries)
+	clear(c.inflight)
+	c.mu.Unlock()
+}
+
+func (c *segmentedVideoPlaybackCache) evictExpiredLocked(now time.Time) {
+	for cacheKey, entry := range c.entries {
+		if now.Sub(entry.lastAccess) > segmentedVideoCacheTTL {
+			delete(c.entries, cacheKey)
+		}
+	}
+}
+
+func cleanupSegmentedVideoPlaybackCache() {
+	segmentedPlaybackCache.Clear()
+}
+
+func (e *segmentedVideoPlaybackCacheEntry) file(fileName string) ([]byte, error) {
+	if fileName == "init.mp4" {
+		initSegment, _, err := e.ensureSegment(0)
+		return initSegment, err
+	}
+
+	segmentIndex, ok := parseSegmentedVideoFileName(fileName)
+	if !ok {
+		return nil, nil
+	}
+	_, segment, err := e.ensureSegment(segmentIndex)
+	return segment, err
+}
+
+func (e *segmentedVideoPlaybackCacheEntry) ensureSegment(segmentIndex int) ([]byte, []byte, error) {
+	if segmentIndex < 0 || segmentIndex >= e.manifest.TotalSegments {
+		return nil, nil, nil
+	}
+
+	for {
+		now := time.Now()
+		e.mu.Lock()
+		if len(e.initSegment) > 0 {
+			if segment, ok := e.segments[segmentIndex]; ok {
+				e.segmentSeen[segmentIndex] = now
+				e.lastAccess = now
+				initSegment := append([]byte(nil), e.initSegment...)
+				mediaSegment := append([]byte(nil), segment...)
+				e.mu.Unlock()
+				return initSegment, mediaSegment, nil
+			}
+		}
+		if pending, ok := e.inflight[segmentIndex]; ok {
+			e.mu.Unlock()
+			<-pending.done
+			if pending.err != nil {
+				return nil, nil, pending.err
+			}
+			continue
+		}
+
+		pending := &segmentedVideoSegmentBuild{done: make(chan struct{})}
+		e.inflight[segmentIndex] = pending
+		e.mu.Unlock()
+
+		startSeconds := float64(segmentIndex) * e.manifest.SegmentDuration
+		durationSeconds := e.manifest.SegmentDuration
+		if remaining := e.manifest.DurationSeconds - startSeconds; remaining > 0 && remaining < durationSeconds {
+			durationSeconds = remaining
+		}
+		if durationSeconds <= 0 {
+			durationSeconds = e.manifest.SegmentDuration
+		}
+
+		initSegment, mediaSegment, err := buildSegmentedVideoFragment(e.nativePath, startSeconds, durationSeconds)
+
+		e.mu.Lock()
+		if err == nil {
+			now = time.Now()
+			if len(e.initSegment) == 0 {
+				e.initSegment = initSegment
+			}
+			e.segments[segmentIndex] = mediaSegment
+			e.segmentSeen[segmentIndex] = now
+			e.lastAccess = now
+			e.pruneSegmentsLocked()
+		}
+		pending.init = initSegment
+		pending.segment = mediaSegment
+		pending.err = err
+		delete(e.inflight, segmentIndex)
+		close(pending.done)
+		e.mu.Unlock()
+
+		return initSegment, mediaSegment, err
+	}
+}
+
+func (e *segmentedVideoPlaybackCacheEntry) pruneSegmentsLocked() {
+	if len(e.segments) <= segmentedVideoMaxResidentSegments {
+		return
+	}
+
+	type residentSegment struct {
+		index int
+		seen  time.Time
+	}
+	resident := make([]residentSegment, 0, len(e.segments))
+	for index, seenAt := range e.segmentSeen {
+		resident = append(resident, residentSegment{index: index, seen: seenAt})
+	}
+	sort.Slice(resident, func(left int, right int) bool {
+		return resident[left].seen.Before(resident[right].seen)
+	})
+	for len(resident) > segmentedVideoMaxResidentSegments {
+		oldest := resident[0]
+		delete(e.segments, oldest.index)
+		delete(e.segmentSeen, oldest.index)
+		resident = resident[1:]
+	}
+}
+
+func parseSegmentedVideoFileName(fileName string) (int, bool) {
+	if !strings.HasPrefix(fileName, "segment_") || !strings.HasSuffix(fileName, ".m4s") {
+		return 0, false
+	}
+	rawIndex := strings.TrimSuffix(strings.TrimPrefix(fileName, "segment_"), ".m4s")
+	segmentNumber, err := strconv.Atoi(rawIndex)
+	if err != nil || segmentNumber <= 0 {
+		return 0, false
+	}
+	return segmentNumber - 1, true
 }
 
 func setCORSHeaders(w http.ResponseWriter) {
@@ -915,18 +1217,6 @@ func (a *App) GetArchiveVideoPlaybackPlan(fsPath string, nestedChain []string, e
 }
 
 func buildDiskVideoPlaybackPlan(baseURL, publicPath string) VideoPlaybackPlan {
-	if entry, err := ensureSegmentedVideoCacheEntry(publicPath); err == nil {
-		return VideoPlaybackPlan{
-			Mode:            VideoPlaybackModeSegmented,
-			Format:          entry.Format,
-			DurationSeconds: entry.DurationSeconds,
-			ZeroDelay:       false,
-			Seekable:        true,
-			UseNativePlayer: false,
-			URL:             segmentManifestURLForFile(baseURL, publicPath),
-		}
-	}
-
 	plan := VideoPlaybackPlan{
 		Mode:            VideoPlaybackModeRemux,
 		Format:          strings.TrimPrefix(strings.ToLower(filepath.Ext(publicPath)), "."),
@@ -940,6 +1230,20 @@ func buildDiskVideoPlaybackPlan(baseURL, publicPath string) VideoPlaybackPlan {
 		plan.Format = firstNonEmpty(plan.Format, primaryFormatName(probe.Format.FormatName))
 		plan.VideoCodec, plan.AudioCodec = extractProbeCodecs(probe)
 		plan.DurationSeconds = parseProbeDuration(probe.Format.Duration)
+	}
+
+	if shouldAttemptSegmentedDiskPlayback(publicPath, plan.VideoCodec, plan.AudioCodec) {
+		if entry, err := ensureSegmentedVideoCacheEntry(publicPath); err == nil {
+			return VideoPlaybackPlan{
+				Mode:            VideoPlaybackModeSegmented,
+				Format:          entry.Format,
+				DurationSeconds: entry.DurationSeconds,
+				ZeroDelay:       false,
+				Seekable:        true,
+				UseNativePlayer: false,
+				URL:             segmentManifestURLForFile(baseURL, publicPath),
+			}
+		}
 	}
 
 	plan.Mode = decideDiskPlaybackMode(publicPath, plan.VideoCodec, plan.AudioCodec)
@@ -1001,6 +1305,14 @@ func decideDiskPlaybackMode(name, videoCodec, audioCodec string) VideoPlaybackMo
 	}
 	// Unknown codec: attempt remux and let FFmpeg decide.
 	return VideoPlaybackModeRemux
+}
+
+func shouldAttemptSegmentedDiskPlayback(name, videoCodec, audioCodec string) bool {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".avi", ".divx", ".xvid":
+		return true
+	}
+	return false
 }
 
 func probeVideo(nativePath string) (*ffprobeOutput, error) {

@@ -36,6 +36,10 @@ interface PacketToken {
   packetIndex: number;
 }
 
+const SEGMENT_PREFETCH_AHEAD = 1;
+const SEGMENT_RETENTION_BEHIND = 1;
+const SEGMENT_RETENTION_AHEAD = 2;
+
 export class SegmentVideoLoader {
   private manifest: SegmentedVideoManifest | null = null;
   private initSegment: ArrayBuffer | null = null;
@@ -60,6 +64,7 @@ export class SegmentVideoLoader {
     this.initSegment = await initResponse.arrayBuffer();
 
     const firstSegment = await this.ensureSegmentLoaded(0);
+    this.prefetchAround(0);
     if (!this.metadata || !this.decoderConfig) {
       throw new Error('Segmented preview did not provide video metadata.');
     }
@@ -96,6 +101,8 @@ export class SegmentVideoLoader {
     try {
       const segment = await loadPromise;
       this.loadedSegments.set(index, segment);
+      this.prefetchAround(index);
+      this.pruneLoadedSegments(index);
       return segment;
     } finally {
       this.pendingSegments.delete(index);
@@ -226,6 +233,33 @@ export class SegmentVideoLoader {
     return nextSegment.audioPackets.length > 0
       ? this.makeCursor(token.segmentIndex + 1, 0, nextSegment.audioPackets)
       : null;
+  }
+
+  private prefetchAround(anchorIndex: number): void {
+    if (!this.manifest) {
+      return;
+    }
+
+    for (let offset = 1; offset <= SEGMENT_PREFETCH_AHEAD; offset += 1) {
+      const nextIndex = anchorIndex + offset;
+      if (nextIndex >= this.manifest.totalSegments) {
+        break;
+      }
+      if (this.loadedSegments.has(nextIndex) || this.pendingSegments.has(nextIndex)) {
+        continue;
+      }
+      void this.ensureSegmentLoaded(nextIndex).catch(() => {});
+    }
+  }
+
+  private pruneLoadedSegments(anchorIndex: number): void {
+    const minIndex = Math.max(0, anchorIndex - SEGMENT_RETENTION_BEHIND);
+    const maxIndex = anchorIndex + SEGMENT_RETENTION_AHEAD;
+    for (const index of Array.from(this.loadedSegments.keys())) {
+      if (index < minIndex || index > maxIndex) {
+        this.loadedSegments.delete(index);
+      }
+    }
   }
 
   private findSegmentIndex(timeMs: number): number {

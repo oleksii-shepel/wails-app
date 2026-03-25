@@ -666,7 +666,16 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
   @Input() targetPath = '';
   @Input() archiveContext: ViewerArchiveContext | null = null;
   @Input() viewerId: string | null = null;
-  @ViewChild('videoContainer') videoContainerRef?: ElementRef<HTMLDivElement>;
+
+  @ViewChild('videoContainer')
+  set videoContainerRef(value: ElementRef<HTMLDivElement> | undefined) {
+    this._videoContainerRef = value;
+    this.requestSegmentedPlaybackInitialization();
+  }
+
+  get videoContainerRef(): ElementRef<HTMLDivElement> | undefined {
+    return this._videoContainerRef;
+  }
 
   useLegacySurface = false;
   loading = false;
@@ -686,6 +695,8 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
   fileSize = 0;
 
   private pendingManifestUrl: string | null = null;
+  private _videoContainerRef?: ElementRef<HTMLDivElement>;
+  private initializingManifestUrl: string | null = null;
   private videoControlsTimeout: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
@@ -705,9 +716,7 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
   }
 
   ngAfterViewInit(): void {
-    if (!this.useLegacySurface && this.pendingManifestUrl) {
-      void this.initializeSegmentedPlayback(this.pendingManifestUrl);
-    }
+    this.requestSegmentedPlaybackInitialization();
   }
 
   async ngOnChanges(): Promise<void> {
@@ -737,9 +746,7 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
         this.useLegacySurface = true;
       } else {
         this.pendingManifestUrl = url;
-        if (this.videoContainerRef?.nativeElement) {
-          await this.initializeSegmentedPlayback(url);
-        }
+        this.requestSegmentedPlaybackInitialization();
       }
     } catch (err: unknown) {
       this.error = err instanceof Error ? err.message : String(err);
@@ -926,11 +933,35 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
     this.cdr.markForCheck();
   }
 
+  private requestSegmentedPlaybackInitialization(): void {
+    const manifestUrl = this.pendingManifestUrl;
+    if (!manifestUrl || this.useLegacySurface || !this.videoContainerRef?.nativeElement) {
+      return;
+    }
+    if (this.initializingManifestUrl === manifestUrl || this.canvasPlayer) {
+      return;
+    }
+
+    this.initializingManifestUrl = manifestUrl;
+    void this.initializeSegmentedPlayback(manifestUrl)
+      .catch((err: unknown) => {
+        this.error = err instanceof Error ? err.message : String(err);
+        this.videoLoading = false;
+        this.cdr.markForCheck();
+      })
+      .finally(() => {
+        if (this.initializingManifestUrl === manifestUrl) {
+          this.initializingManifestUrl = null;
+        }
+      });
+  }
+
   private resetState(): void {
     this.useLegacySurface = false;
     this.loading = false;
     this.error = null;
     this.pendingManifestUrl = null;
+    this.initializingManifestUrl = null;
     this.fileSize = 0;
     this.videoReady = false;
     this.videoIsPlaying = false;

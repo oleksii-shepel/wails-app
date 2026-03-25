@@ -35,6 +35,7 @@ func (a *App) Shutdown() {
 	if a.State != nil {
 		a.State.Shutdown()
 	}
+	cleanupSegmentedVideoPlaybackCache()
 }
 
 func (a *App) EmitEvent(name string, data interface{}) {

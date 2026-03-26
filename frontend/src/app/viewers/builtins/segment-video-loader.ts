@@ -37,9 +37,9 @@ interface PacketToken {
   packetIndex: number;
 }
 
-const SEGMENT_PREFETCH_AHEAD = 3; // Increased from 1 to better support backward seeks
-const SEGMENT_RETENTION_BEHIND = 8; // Increased from 6 to keep more segments for backward seeks
-const SEGMENT_RETENTION_AHEAD = 8; // Increased from 6 to keep more segments for forward seeks
+const SEGMENT_PREFETCH_AHEAD = 1;
+const SEGMENT_RETENTION_BEHIND = 6;
+const SEGMENT_RETENTION_AHEAD = 6;
 
 export class SegmentVideoLoader {
   private manifest: SegmentedVideoManifest | null = null;
@@ -56,6 +56,10 @@ export class SegmentVideoLoader {
   private currentAnchorIndex = 0;
   private disposed = false;
   private loadController: AbortController | null = null;
+  // Segments that recently failed to load — keyed to the failure timestamp.
+  // Prevents the render loop from hammering the server on permanent errors.
+  private readonly failedSegments = new Map<number, number>();
+  private static readonly SEGMENT_FAILURE_COOLDOWN_MS = 5000;
 
   constructor() {
     // Anchor changes cancel stale prefetch work and update window
@@ -123,6 +127,16 @@ export class SegmentVideoLoader {
       return existing;
     }
 
+    // Refuse to retry a recently-failed segment so the render loop
+    // cannot hammer the server at 60 fps on a permanent 500 error.
+    const failedAt = this.failedSegments.get(index);
+    if (failedAt !== undefined) {
+      if (Date.now() - failedAt < SegmentVideoLoader.SEGMENT_FAILURE_COOLDOWN_MS) {
+        throw new Error(`Segment ${index} failed to load recently`);
+      }
+      this.failedSegments.delete(index);
+    }
+
     const pending = this.pendingSegments.get(index);
     if (pending) {
       return pending;
@@ -133,13 +147,18 @@ export class SegmentVideoLoader {
     const loadPromise = this.loadSegment(index);
     this.pendingSegments.set(index, loadPromise);
 
-    // Emit to stream for concurrency management and logging
     this.segmentFetches$.next(index);
 
     try {
       const segment = await loadPromise;
       this.loadedSegments.set(index, segment);
       return segment;
+    } catch (err) {
+      // Cache the failure unless it was an intentional abort (seek/dispose).
+      if (!(err instanceof DOMException && err.name === 'AbortError')) {
+        this.failedSegments.set(index, Date.now());
+      }
+      throw err;
     } finally {
       this.pendingSegments.delete(index);
     }
@@ -216,13 +235,23 @@ export class SegmentVideoLoader {
 
     let segmentIndex = this.findSegmentIndex(timeMs);
     const windowGeneration = this.activateWindow(segmentIndex);
-    
-    // For backward seeks, we may need to check previous segments
-    const maxBackwardSegments = options?.keyframe ? 5 : 1; // Increased from 3 to 5 for better backward seeking
+    const maxBackwardSegments = options?.keyframe ? 5 : 1;
     let backwardAttempts = 0;
-    
+
     while (segmentIndex >= 0 && backwardAttempts <= maxBackwardSegments) {
-      const segment = await this.ensureSegmentLoaded(segmentIndex, windowGeneration);
+      let segment: LoadedSegment;
+      try {
+        segment = await this.ensureSegmentLoaded(segmentIndex, windowGeneration);
+      } catch {
+        // Segment failed to load — if we're searching for a keyframe walk
+        // backward to the previous segment rather than propagating the error.
+        if (!options?.keyframe) {
+          break;
+        }
+        segmentIndex -= 1;
+        backwardAttempts += 1;
+        continue;
+      }
       const packetIndex = findPacketIndex(segment.videoPackets, timeMs, options?.keyframe === true);
       if (packetIndex >= 0) {
         if (this.isActiveWindow(windowGeneration)) {
@@ -230,12 +259,11 @@ export class SegmentVideoLoader {
         }
         return this.makeCursor(segmentIndex, packetIndex, segment.videoPackets);
       }
-      
+
       if (!options?.keyframe) {
         break;
       }
-      
-      // For backward seek requiring keyframe, try previous segment
+
       segmentIndex -= 1;
       backwardAttempts += 1;
     }
@@ -419,6 +447,7 @@ export class SegmentVideoLoader {
     this.pendingSegmentControllers.clear();
     this.pendingSegments.clear();
     this.loadedSegments.clear();
+    this.failedSegments.clear();
     this.currentAnchorIndex = 0;
     this.manifest = null;
     this.initSegment = null;

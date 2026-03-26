@@ -766,16 +766,17 @@ export class CanvasVideoPlayer {
     }
     this.resetAudioPlaybackState();
     
-    // For backward seeks, get the keyframe BEFORE the target time
-    this.nextPacketCursor = await this.getSeekCursor(clampedTimeMs, isSeekingBackward);
+    this.nextPacketCursor = await this.getSeekCursor(clampedTimeMs);
     if (!this.isCurrentSeek(seekGeneration)) {
       return;
     }
     this.reachedEndOfStream = this.nextPacketCursor === null;
     
-    // Decode more frames for backward seeks to fill the buffer
+    // Decode packets up to the target time so the correct frame is ready to draw.
+    // A fixed maxFrames count is wrong because the keyframe may be a full segment
+    // duration behind the target (e.g. keyframe at 0ms, target at 1800ms).
     await this.decodeAhead({
-      maxFrames: isSeekingBackward ? CanvasVideoPlayer.SEEK_PRIME_FRAME_COUNT * 2 : CanvasVideoPlayer.SEEK_PRIME_FRAME_COUNT,
+      seekUntilTimeMs: clampedTimeMs,
       allowPausedPriming: true,
     });
     
@@ -1151,7 +1152,7 @@ export class CanvasVideoPlayer {
     void this.decodeAudioAhead();
   }
 
-  private async decodeAhead(options?: { maxFrames?: number; allowPausedPriming?: boolean }): Promise<void> {
+  private async decodeAhead(options?: { maxFrames?: number; allowPausedPriming?: boolean; seekUntilTimeMs?: number }): Promise<void> {
     if (this.decodeAheadInFlight || !this.decoder || !this.source || !this.nextPacketCursor) {
       return;
     }
@@ -1159,14 +1160,17 @@ export class CanvasVideoPlayer {
     this.decodeAheadInFlight = true;
     const generation = this.decodeGeneration;
     const stateAtStart = this.stateChanged$.value;
+    // When decoding to a specific seek target, bypass the normal capacity guards so
+    // all frames from the prior keyframe up to the target are submitted to the decoder.
+    const isSeekPriming = options?.seekUntilTimeMs !== undefined;
     let decodedFrameCount = 0;
 
     try {
       while (
         this.nextPacketCursor &&
         this.decoder &&
-        this.decoder.decodeQueueSize < CanvasVideoPlayer.MAX_DECODE_QUEUE &&
-        this.decodedFrames.length + this.decoder.decodeQueueSize < this.maxDecodedFrames &&
+        (isSeekPriming || this.decoder.decodeQueueSize < CanvasVideoPlayer.MAX_DECODE_QUEUE) &&
+        (isSeekPriming || this.decodedFrames.length + this.decoder.decodeQueueSize < this.maxDecodedFrames) &&
         generation === this.decodeGeneration
       ) {
         // Exit if we were playing but user paused (interrupted playback during decode)
@@ -1199,14 +1203,22 @@ export class CanvasVideoPlayer {
           packet = cursor.packet;
         }
 
-        this.nextPacketCursor = await this.source.getNextPacket(cursor);
+        let getNextError: unknown = undefined;
+        try {
+          this.nextPacketCursor = await this.source.getNextPacket(cursor);
+        } catch (err) {
+          getNextError = err;
+        }
         // If generation changed while getting the next packet, bail out before using the wrong decoder.
         if (generation !== this.decodeGeneration) {
           break;
         }
-
-        if (!this.nextPacketCursor) {
+        if (getNextError !== undefined) {
+          // Segment failed to load (e.g. server 500). Treat as end-of-stream so
+          // the render loop does not retry the same broken segment every frame.
           this.reachedEndOfStream = true;
+          this.nextPacketCursor = null;
+          break;
         }
 
         try {
@@ -1220,7 +1232,12 @@ export class CanvasVideoPlayer {
           if (packet.isRap) {
             this.awaitingKeyFrame = false;
           }
-          if (options?.maxFrames !== undefined && decodedFrameCount >= options.maxFrames) {
+          if (isSeekPriming) {
+            // Stop once we've submitted the packet that covers the target time.
+            if (packet.timestampMs >= options!.seekUntilTimeMs!) {
+              break;
+            }
+          } else if (options?.maxFrames !== undefined && decodedFrameCount >= options.maxFrames) {
             break;
           }
         } catch (error) {
@@ -1303,26 +1320,10 @@ export class CanvasVideoPlayer {
     }
   }
 
-  private async getSeekCursor(timeMs: number, preferPreviousKeyframe: boolean = false): Promise<DemuxedPacketCursor | null> {
+  private async getSeekCursor(timeMs: number): Promise<DemuxedPacketCursor | null> {
     if (!this.source) {
       return null;
     }
-
-    // For backward seeks, we want the keyframe BEFORE the target time
-    if (preferPreviousKeyframe) {
-      const keyframeCursor = await this.source.getPacketForTime(timeMs, { keyframe: true });
-      if (keyframeCursor && keyframeCursor.packet.timestampMs <= timeMs) {
-        return keyframeCursor;
-      }
-      // If we couldn't get a keyframe before, fall back to the first packet
-      const firstPacket = await this.source.getFirstPacket();
-      if (firstPacket && firstPacket.packet.timestampMs <= timeMs) {
-        return firstPacket;
-      }
-      return null;
-    }
-    
-    // For forward seeks, get the keyframe at or after the target
     const keyframeCursor = await this.source.getPacketForTime(timeMs, { keyframe: true });
     return keyframeCursor ?? this.source.getFirstPacket();
   }

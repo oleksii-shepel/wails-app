@@ -760,9 +760,16 @@ export class CanvasVideoPlayer {
     this.decodeGeneration++;
     this.playbackBaseMs = clampedTimeMs;
     this.currentTime$.next(clampedTimeMs / 1000);
-    await this.resetDecoderForSeek();
-    if (!this.isCurrentSeek(seekGeneration)) {
-      return;
+    
+    // For backward seeks on sources with random access (e.g. segmented video),
+    // skip the decoder reset — just seek the packet cursor directly.
+    // This avoids the expensive decoder.configure() call and gets instant visual feedback.
+    const needsDecoderReset = !isSeekingBackward || !this.source?.supportsRandomAccess;
+    if (needsDecoderReset) {
+      await this.resetDecoderForSeek();
+      if (!this.isCurrentSeek(seekGeneration)) {
+        return;
+      }
     }
     this.resetAudioPlaybackState();
     

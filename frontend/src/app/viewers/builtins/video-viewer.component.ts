@@ -739,14 +739,9 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
 
   async ngOnChanges(): Promise<void> {
     this.resetState();
-    if (this.archiveContext) {
-      this.useLegacySurface = true;
-      this.cdr.markForCheck();
-      return;
-    }
 
     const path = (this.targetPath ?? '').trim();
-    if (!path) {
+    if (!path && !this.archiveContext) {
       this.useLegacySurface = true;
       this.cdr.markForCheck();
       return;
@@ -755,9 +750,18 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
     this.loading = true;
     this.cdr.markForCheck();
     try {
-      const info = await this.api.getFileInfo(path);
-      this.fileSize = info.size ?? 0;
-      const rawPlan = await this.api.getVideoPlaybackPlan(path);
+      let rawPlan: any;
+      if (this.archiveContext) {
+        rawPlan = await this.api.getArchiveVideoPlaybackPlan(
+          this.archiveContext.fsPath,
+          this.archiveContext.nestedChain,
+          this.archiveContext.entryPath,
+        );
+      } else {
+        const info = await this.api.getFileInfo(path);
+        this.fileSize = info.size ?? 0;
+        rawPlan = await this.api.getVideoPlaybackPlan(path);
+      }
       const mode = String(rawPlan?.mode ?? rawPlan?.Mode ?? '').toLowerCase();
       const url = String(rawPlan?.url ?? rawPlan?.URL ?? '');
       this.playbackMode = mode || 'video';

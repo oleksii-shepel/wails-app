@@ -156,12 +156,12 @@ func (s *Service) RealPath(path string) (string, error) {
 	if path == "" {
 		return "", fmt.Errorf("empty path")
 	}
-	
+
 	if s.vfs == nil {
 		// No VFS available, return path as-is (shouldn't happen in normal usage)
 		return path, nil
 	}
-	
+
 	// Delegate to VFS to handle scheme-to-real-path conversion
 	return s.vfs.ResolvePublicPath(path)
 }

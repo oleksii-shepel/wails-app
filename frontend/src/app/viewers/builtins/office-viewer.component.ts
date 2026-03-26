@@ -42,6 +42,8 @@ type OfficeViewerKind = 'empty' | 'loading' | 'pdf' | 'error' | 'unavailable' | 
         <span class="conversion-status-activity" aria-hidden="true">
           <span class="conversion-status-activity-dot"></span>
         </span>
+        <span class="conversion-status-elapsed">{{ conversionElapsedLabel }}</span>
+        <span class="conversion-status-sep">·</span>
         <span class="conversion-status-text">Converting to PDF...</span>
       </div>
 
@@ -49,12 +51,6 @@ type OfficeViewerKind = 'empty' | 'loading' | 'pdf' | 'error' | 'unavailable' | 
         <div *ngIf="kind === 'empty'" class="state-container">
           <div class="state-icon">🔍</div>
           <div class="state-label">Select a file to preview</div>
-        </div>
-
-        <div *ngIf="kind === 'loading'" class="state-container">
-          <div class="spinner"></div>
-          <div class="state-label">Converting document to PDF...</div>
-          <div class="state-sub">This may take a moment</div>
         </div>
 
         <div *ngIf="kind === 'pdf' && pdfPath" class="pdf-viewer-host">
@@ -111,19 +107,46 @@ type OfficeViewerKind = 'empty' | 'loading' | 'pdf' | 'error' | 'unavailable' | 
     .header-main { display: flex; align-items: center; gap: 10px; min-width: 0; }
     .file-icon { font-size: 18px; opacity: 0.9; }
     .header-text { min-width: 0; }
-    .title { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .path { font-size: 11px; opacity: 0.75; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .header-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
-    .badge { font-size: 10px; padding: 2px 6px; border: 1px solid var(--vsc-border, #444); border-radius: 999px; opacity: 0.9; }
-    .archive-badge { border-color: color-mix(in srgb, var(--vsc-accent-orange, #f90) 60%, var(--vsc-border, #444)); }
-    .type-badge { border-color: var(--vsc-accent-blue, #0078d4); }
-    .format-badge { color: var(--vsc-accent-green, #107c10); border-color: var(--vsc-accent-green, #107c10); }
+    .title {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      text-transform: uppercase;
+      opacity: 0.9;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .path { font-family: var(--vsc-font-family-mono, ui-monospace, 'Courier New', monospace); font-size: 11px; opacity: 0.6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+    .header-meta { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+    .badge {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 3px;
+      white-space: nowrap;
+      letter-spacing: 0.3px;
+    }
+    .archive-badge {
+      background: color-mix(in srgb, var(--vsc-accent-orange, #d4a000) 20%, transparent);
+      color: var(--vsc-accent-orange, #e8c040);
+      border: 1px solid color-mix(in srgb, var(--vsc-accent-orange, #d4a000) 40%, transparent);
+    }
+    .type-badge {
+      background: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 20%, transparent);
+      color: var(--vsc-accent-blue, #4da8ff);
+      border: 1px solid color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 40%, transparent);
+    }
+    .format-badge {
+      background: color-mix(in srgb, var(--vsc-accent-green, #107c10) 18%, transparent);
+      color: color-mix(in srgb, var(--vsc-accent-green, #107c10) 78%, white);
+      border: 1px solid color-mix(in srgb, var(--vsc-accent-green, #107c10) 40%, transparent);
+    }
     .conversion-status {
       display: flex;
       align-items: center;
       gap: 8px;
       padding: 8px 12px;
-      border-bottom: 1px solid var(--vsc-border, #333);
       background: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 96%, #000);
       color: var(--vsc-foreground, #ccc);
       flex-shrink: 0;
@@ -148,6 +171,14 @@ type OfficeViewerKind = 'empty' | 'loading' | 'pdf' | 'error' | 'unavailable' | 
       box-shadow: 0 0 0 0 rgba(43, 178, 76, 0.45);
       animation: office-pulse-green 1.3s ease-out infinite;
     }
+    .conversion-status-elapsed {
+      font-size: 11px;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+      color: #2bb24c;
+    }
+    .conversion-status-sep { opacity: 0.5; }
     .conversion-status-text { font-size: 11px; font-weight: 600; letter-spacing: 0.02em; opacity: 0.9; }
     .viewer-body { flex: 1 1 auto; min-height: 0; position: relative; overflow: hidden; display: flex; flex-direction: column; }
     .pdf-viewer-host { flex: 1 1 0%; min-height: 0; min-width: 0; display: flex; overflow: hidden; }
@@ -200,8 +231,11 @@ export class OfficeViewerComponent implements OnChanges, OnDestroy {
   fileTypeLabel = '';
   pdfPath = '';
   error = '';
+  conversionElapsedMs = 0;
 
   private abortController: AbortController | null = null;
+  private conversionStartedAt = 0;
+  private conversionElapsedTimer: number | null = null;
 
   constructor(
     private api: ApiService,
@@ -217,14 +251,22 @@ export class OfficeViewerComponent implements OnChanges, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.stopConversionTimer();
     if (this.abortController) {
       this.abortController.abort();
     }
   }
 
+  get conversionElapsedLabel(): string {
+    if (this.conversionElapsedMs < 1000) return `${this.conversionElapsedMs} ms`;
+    return `${(this.conversionElapsedMs / 1000).toFixed(1)} s`;
+  }
+
   private loadDocument(): void {
+    this.stopConversionTimer();
     if (!this.targetPath) {
       this.kind = 'empty';
+      this.conversionElapsedMs = 0;
       this.cdr.markForCheck();
       return;
     }
@@ -235,11 +277,14 @@ export class OfficeViewerComponent implements OnChanges, OnDestroy {
 
     this.kind = 'loading';
     this.error = '';
+    this.conversionElapsedMs = 0;
+    this.startConversionTimer();
     this.cdr.markForCheck();
 
     // Check file extension first for quick validation
     const supportedExts = ['doc', 'docx', 'docm', 'xls', 'xlsx', 'xlsm', 'ppt', 'pptx', 'pptm', 'odt', 'ods', 'odp', 'rtf'];
     if (!supportedExts.includes(this.fileExt)) {
+      this.stopConversionTimer();
       this.kind = 'unsupported';
       this.cdr.markForCheck();
       return;
@@ -253,6 +298,7 @@ export class OfficeViewerComponent implements OnChanges, OnDestroy {
 
     this.api.ConvertOfficeDocument(this.targetPath)
       .then((result: any) => {
+        this.stopConversionTimer();
         if (result.success) {
           this.pdfPath = result.pdfPath;
           this.kind = 'pdf';
@@ -268,10 +314,32 @@ export class OfficeViewerComponent implements OnChanges, OnDestroy {
         this.cdr.markForCheck();
       })
       .catch((err: any) => {
+        this.stopConversionTimer();
         this.kind = 'error';
         this.error = err?.error?.message || err?.message || 'Failed to convert document';
         this.cdr.markForCheck();
       });
+  }
+
+  private startConversionTimer(): void {
+    this.stopConversionTimer();
+    this.conversionStartedAt = Date.now();
+    this.conversionElapsedMs = 0;
+    this.conversionElapsedTimer = window.setInterval(() => {
+      this.conversionElapsedMs = Date.now() - this.conversionStartedAt;
+      this.cdr.markForCheck();
+    }, 100);
+  }
+
+  private stopConversionTimer(): void {
+    if (this.conversionStartedAt) {
+      this.conversionElapsedMs = Date.now() - this.conversionStartedAt;
+    }
+    this.conversionStartedAt = 0;
+    if (this.conversionElapsedTimer !== null) {
+      window.clearInterval(this.conversionElapsedTimer);
+      this.conversionElapsedTimer = null;
+    }
   }
 
   private getFileTypeLabel(ext: string): string {

@@ -157,9 +157,9 @@ func (u *Unified) ResolvePublicPath(path string) (string, error) {
 	if path == "" {
 		return "", fmt.Errorf("empty path")
 	}
-	
+
 	trimmed := strings.TrimSpace(strings.ReplaceAll(path, "\\", "/"))
-	
+
 	// Special handling for drive:// scheme paths
 	if strings.HasPrefix(strings.ToLower(trimmed), "drive://") {
 		rest := strings.TrimLeft(trimmed[8:], "/")
@@ -173,7 +173,7 @@ func (u *Unified) ResolvePublicPath(path string) (string, error) {
 			return filepath.FromSlash(drive + ":/" + remainder), nil
 		}
 	}
-	
+
 	// For other paths, use normal VFS mount resolution
 	vfsPath := u.pathrefToVFS(trimmed)
 	return u.RealPath(vfsPath)
@@ -188,7 +188,7 @@ func isWindowsDriveLetter(r rune) bool {
 // We can't import pathref here due to circular deps, so we handle drive:// locally.
 func (u *Unified) pathrefToVFS(path string) string {
 	trimmed := strings.TrimSpace(strings.ReplaceAll(path, "\\", "/"))
-	
+
 	// Handle drive://c/ scheme paths
 	if strings.HasPrefix(strings.ToLower(trimmed), "drive://") {
 		rest := strings.TrimLeft(trimmed[8:], "/")
@@ -197,7 +197,7 @@ func (u *Unified) pathrefToVFS(path string) string {
 			return "/" + rest
 		}
 	}
-	
+
 	// Handle alias schemes (registry://, smb://, etc)
 	// For now, pass through as-is
 	return trimmed

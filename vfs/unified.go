@@ -150,6 +150,59 @@ func (u *Unified) Split(path string) (string, string) {
 	return path[:i], path[i+1:]
 }
 func (u *Unified) IsAbs(path string) bool { return strings.HasPrefix(path, "/") }
+
+// ResolvePublicPath converts a public/scheme path (e.g., "drive://c/Users/...") to a real filesystem path.
+// This handles the conversion from user-facing paths to actual filesystem paths.
+func (u *Unified) ResolvePublicPath(path string) (string, error) {
+	if path == "" {
+		return "", fmt.Errorf("empty path")
+	}
+	
+	trimmed := strings.TrimSpace(strings.ReplaceAll(path, "\\", "/"))
+	
+	// Special handling for drive:// scheme paths
+	if strings.HasPrefix(strings.ToLower(trimmed), "drive://") {
+		rest := strings.TrimLeft(trimmed[8:], "/")
+		if len(rest) > 0 && isWindowsDriveLetter(rune(rest[0])) {
+			// Convert drive://c/Users/... to C:\Users\...
+			drive := strings.ToUpper(rest[:1])
+			remainder := strings.TrimPrefix(rest[1:], "/")
+			if remainder == "" {
+				return drive + ":/", nil
+			}
+			return filepath.FromSlash(drive + ":/" + remainder), nil
+		}
+	}
+	
+	// For other paths, use normal VFS mount resolution
+	vfsPath := u.pathrefToVFS(trimmed)
+	return u.RealPath(vfsPath)
+}
+
+// isWindowsDriveLetter checks if a rune is a valid Windows drive letter.
+func isWindowsDriveLetter(r rune) bool {
+	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')
+}
+
+// pathrefToVFS converts a path using pathref semantics.
+// We can't import pathref here due to circular deps, so we handle drive:// locally.
+func (u *Unified) pathrefToVFS(path string) string {
+	trimmed := strings.TrimSpace(strings.ReplaceAll(path, "\\", "/"))
+	
+	// Handle drive://c/ scheme paths
+	if strings.HasPrefix(strings.ToLower(trimmed), "drive://") {
+		rest := strings.TrimLeft(trimmed[8:], "/")
+		if len(rest) > 0 {
+			// drive://c/Users/... -> /c/Users/...
+			return "/" + rest
+		}
+	}
+	
+	// Handle alias schemes (registry://, smb://, etc)
+	// For now, pass through as-is
+	return trimmed
+}
+
 func (u *Unified) RealPath(path string) (string, error) {
 	fsys, rel, _, err := u.mounts.Resolve(path)
 	if err != nil {

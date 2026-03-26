@@ -60,6 +60,8 @@ export function ClosePaneWatch():Promise<void>;
 
 export function ConfirmElevationRequest(arg1:string,arg2:boolean):Promise<void>;
 
+export function ConvertOfficeDocument(arg1:string):Promise<Record<string, any>>;
+
 export function Copy(arg1:string,arg2:string,arg3:boolean):Promise<contracts.OperationResult>;
 
 export function CopyFile(arg1:string,arg2:string,arg3:boolean):Promise<contracts.OperationResult>;
@@ -127,6 +129,8 @@ export function InitVFS():Promise<void>;
 export function IsAbsPath(arg1:string):Promise<boolean>;
 
 export function IsDirectory(arg1:string):Promise<boolean>;
+
+export function IsOfficeDocumentAvailable():Promise<boolean>;
 
 export function IsProcessElevated():Promise<boolean>;
 

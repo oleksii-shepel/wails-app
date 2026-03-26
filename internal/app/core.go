@@ -15,6 +15,7 @@ type Core struct {
 	Operations        *internalops.Manager
 	ArchiveCache      *cache.Cache
 	Converter         *internalconverter.Service
+	OfficeConverter   *internalconverter.OfficeService
 }
 
 func NewCore() (*Core, error) {
@@ -28,6 +29,7 @@ func NewCore() (*Core, error) {
 		NavigationManager: internalnav.NewManager(),
 		Operations:        internalops.NewManager(),
 		Converter:         internalconverter.NewService(),
+		OfficeConverter:   internalconverter.NewOfficeService(),
 		ArchiveCache:      cache.New(internalarchive.ResolveChain),
 	}, err
 }

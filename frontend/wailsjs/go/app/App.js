@@ -106,6 +106,10 @@ export function ConfirmElevationRequest(arg1, arg2) {
   return window['go']['app']['App']['ConfirmElevationRequest'](arg1, arg2);
 }
 
+export function ConvertOfficeDocument(arg1) {
+  return window['go']['app']['App']['ConvertOfficeDocument'](arg1);
+}
+
 export function Copy(arg1, arg2, arg3) {
   return window['go']['app']['App']['Copy'](arg1, arg2, arg3);
 }
@@ -240,6 +244,10 @@ export function IsAbsPath(arg1) {
 
 export function IsDirectory(arg1) {
   return window['go']['app']['App']['IsDirectory'](arg1);
+}
+
+export function IsOfficeDocumentAvailable() {
+  return window['go']['app']['App']['IsOfficeDocumentAvailable']();
 }
 
 export function IsProcessElevated() {

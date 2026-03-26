@@ -37,7 +37,7 @@ interface VideoPlaybackPlan {
   template: `
     <div class="viewer-surface">
       <!-- Header -->
-      <div class="viewer-header">
+      <div class="viewer-header" *ngIf="!hideHeader">
         <div class="header-main">
           <span class="file-icon">{{ fileIcon }}</span>
           <div class="header-text">
@@ -457,6 +457,8 @@ interface VideoPlaybackPlan {
 
     .viewer-body {
       flex: 1 1 0%;
+      display: flex;
+      flex-direction: column;
       min-height: 0;
       overflow: auto;
       position: relative;
@@ -1051,7 +1053,7 @@ interface VideoPlaybackPlan {
 
     /* ── PDF ─────────────────────────────────────────────────────────────── */
 
-    .pdf-host { display: flex; flex-direction: column; height: 100%; min-height: 0; background: white; position: relative; }
+    .pdf-host { display: flex; flex-direction: column; flex: 1 1 0%; min-height: 0; min-width: 0; background: white; position: relative; }
     .preview-pdf { flex: 1; width: 100%; height: 100%; border: none; background: white; }
     .pdf-loading {
       position: absolute;
@@ -1172,6 +1174,8 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
    * context takes precedence for reading content.
    */
   @Input() targetPath = '';
+
+  @Input() hideHeader = false;
 
   /**
    * Optional — populated by FilePaneComponent when the viewer tab was opened

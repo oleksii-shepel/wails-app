@@ -150,6 +150,22 @@ func (s *Service) SetVFS(v *vfslib.Unified) {
 	s.vfs = v
 }
 
+// RealPath resolves a public path to the underlying real filesystem path.
+// Delegates to the VFS layer's ResolvePublicPath for all conversions.
+func (s *Service) RealPath(path string) (string, error) {
+	if path == "" {
+		return "", fmt.Errorf("empty path")
+	}
+	
+	if s.vfs == nil {
+		// No VFS available, return path as-is (shouldn't happen in normal usage)
+		return path, nil
+	}
+	
+	// Delegate to VFS to handle scheme-to-real-path conversion
+	return s.vfs.ResolvePublicPath(path)
+}
+
 func (s *Service) handlesVFSPath(path string) bool {
 	if s.vfs == nil {
 		return false

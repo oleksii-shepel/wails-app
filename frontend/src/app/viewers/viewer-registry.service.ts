@@ -59,6 +59,16 @@ export class ViewerRegistryService {
     });
 
     this.register({
+      id: 'office',
+      title: 'Office Document Viewer',
+      score: (req) => {
+        const ext = extLower(req.archiveContext?.entryPath ?? req.targetPath);
+        return ['doc', 'docx', 'docm', 'xls', 'xlsx', 'xlsm', 'ppt', 'pptx', 'pptm', 'odt', 'ods', 'odp', 'rtf'].includes(ext) ? 45 : 0;
+      },
+      load: async () => (await import('./builtins/office-viewer.component')).OfficeViewerComponent,
+    });
+
+    this.register({
       id: 'pdf',
       title: 'PDF Viewer',
       score: (req) => extLower(req.archiveContext?.entryPath ?? req.targetPath) === 'pdf' ? 50 : 0,

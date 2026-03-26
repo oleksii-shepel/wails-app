@@ -317,6 +317,14 @@ export class ApiService {
     return await (window as any).go.app.App.CanConvertImage(ext);
   }
 
+  async ConvertOfficeDocument(path: string): Promise<any> {
+    return await (window as any).go.app.App.ConvertOfficeDocument(this.normalizeCanonicalPath(path));
+  }
+
+  async IsOfficeDocumentAvailable(): Promise<boolean> {
+    return await (window as any).go.app.App.IsOfficeDocumentAvailable();
+  }
+
   async readFileStream(path: string, chunkSize: number = 64 * 1024): Promise<string> {
     return await window.go.app.App.ReadFileStream(this.normalizeCanonicalPath(path), chunkSize);
   }

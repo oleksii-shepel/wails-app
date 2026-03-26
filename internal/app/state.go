@@ -51,6 +51,7 @@ type Filesystem interface {
 	RunElevatedCopy(src, dst string, recursive bool) (bool, error)
 	RunElevatedMove(src, dst string) (bool, error)
 	RunElevatedDelete(path string, recursive bool, useTrash *bool) (bool, error)
+	RealPath(path string) (string, error)
 }
 
 type Operations interface {
@@ -74,6 +75,12 @@ type Converter interface {
 	ConvertFormat(inputPath string, outputFormat string) ([]byte, error)
 	IsSupportedSourceFormat(extension string) bool
 	GetAvailableConversionFormats(sourceExt string) []string
+}
+
+type OfficeConverter interface {
+	ConvertToPDF(inputPath string) (string, error)
+	IsSupportedFormat(ext string) bool
+	IsAvailable() bool
 }
 
 type DirStream interface {
@@ -119,23 +126,24 @@ type Elevation interface {
 }
 
 type State struct {
-	Ctx        context.Context
-	Archive    Archive
-	Runtime    Runtime
-	Filesystem Filesystem
-	Batch      Batch
-	Converter  Converter
-	DirStream  DirStream
-	Utility    Utility
-	Navigation Navigation
-	Workspace  Workspace
-	Operations Operations
-	DirWatch   DirWatch
-	Elevation  Elevation
-	vfs        *vfslib.Unified
-	archCache  *cache.Cache
-	remotesMu  sync.Mutex
-	remotes    map[string]contracts.RemoteMount // keyed by VFS mount point
+	Ctx             context.Context
+	Archive         Archive
+	Runtime         Runtime
+	Filesystem      Filesystem
+	Batch           Batch
+	Converter       Converter
+	OfficeConverter OfficeConverter
+	DirStream       DirStream
+	Utility         Utility
+	Navigation      Navigation
+	Workspace       Workspace
+	Operations      Operations
+	DirWatch        DirWatch
+	Elevation       Elevation
+	vfs             *vfslib.Unified
+	archCache       *cache.Cache
+	remotesMu       sync.Mutex
+	remotes         map[string]contracts.RemoteMount // keyed by VFS mount point
 }
 
 func NewState(core *Core) *State {

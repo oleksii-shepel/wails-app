@@ -7,6 +7,7 @@ export namespace app {
 	    Filesystem: any;
 	    Batch: any;
 	    Converter: any;
+	    OfficeConverter: any;
 	    DirStream: any;
 	    Utility: any;
 	    Navigation: any;
@@ -27,6 +28,7 @@ export namespace app {
 	        this.Filesystem = source["Filesystem"];
 	        this.Batch = source["Batch"];
 	        this.Converter = source["Converter"];
+	        this.OfficeConverter = source["OfficeConverter"];
 	        this.DirStream = source["DirStream"];
 	        this.Utility = source["Utility"];
 	        this.Navigation = source["Navigation"];

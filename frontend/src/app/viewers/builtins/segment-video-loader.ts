@@ -37,7 +37,7 @@ interface PacketToken {
   packetIndex: number;
 }
 
-const SEGMENT_PREFETCH_AHEAD = 1;
+const SEGMENT_PREFETCH_AHEAD = 3;
 const SEGMENT_RETENTION_BEHIND = 6;
 const SEGMENT_RETENTION_AHEAD = 6;
 

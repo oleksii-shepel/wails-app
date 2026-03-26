@@ -1375,7 +1375,10 @@ export class CanvasVideoPlayer {
       return undefined;
     }
 
-    if (timeMs > lastFrame.timestampMs + (frameIntervalMs * toleranceMultiplier)) {
+    // Allow seeking further ahead in buffered frames for smoother scrubbing
+    // Use 2x frame interval for forward tolerance to cover more ground during slider drags
+    const forwardTolerance = Math.max(frameIntervalMs * 2, frameIntervalMs * toleranceMultiplier);
+    if (timeMs > lastFrame.timestampMs + forwardTolerance) {
       return undefined;
     }
 
@@ -1597,7 +1600,12 @@ export class CanvasVideoPlayer {
   }
 
   private getPresentationToleranceMs(): number {
-    return Math.min(12, this.getFrameIntervalEstimateMs() * 0.25);
+    // For files with uncertain or variable frame rates (e.g., AVI),
+    // allow slightly higher tolerance for smoother buffered frame matching.
+    // This helps with slider scrubbing responsiveness.
+    const frameInterval = this.getFrameIntervalEstimateMs();
+    // Use up to 50ms tolerance or 33% of frame interval, whichever is lower
+    return Math.min(50, frameInterval * 0.33);
   }
 
   private async shouldReloadSourceForReverseSeek(): Promise<boolean> {

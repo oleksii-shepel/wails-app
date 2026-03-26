@@ -737,7 +737,7 @@ export class CanvasVideoPlayer {
     const seekGeneration = ++this.seekGeneration;
 
     const clampedTimeMs = Math.max(0, Math.min(timeMs, this.getDurationMs()));
-    const shouldResumePlayback = this.stateChanged$.value === 'playing' || this.stateChanged$.value === 'ended';
+	const shouldResumePlayback = this.stateChanged$.value === 'playing';
     const currentTimeMs = this.getCurrentTimeMs();
     if (this.stateChanged$.value === 'playing') {
       this.suspendPlaybackForSeek();

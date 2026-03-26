@@ -7,6 +7,7 @@ import {
   VideoMetadata,
   loadMp4DemuxedSourceFromBuffer,
 } from '../../services/canvas-video-player.service';
+import { createSubject, distinctUntilChanged } from '@epikodelabs/streamix';
 
 interface SegmentedVideoManifestItem {
   index: number;
@@ -36,7 +37,7 @@ interface PacketToken {
   packetIndex: number;
 }
 
-const SEGMENT_PREFETCH_AHEAD = 2;
+const SEGMENT_PREFETCH_AHEAD = 1;
 const SEGMENT_RETENTION_BEHIND = 6;
 const SEGMENT_RETENTION_AHEAD = 6;
 
@@ -46,12 +47,25 @@ export class SegmentVideoLoader {
   private readonly loadedSegments = new Map<number, LoadedSegment>();
   private readonly pendingSegments = new Map<number, Promise<LoadedSegment>>();
   private readonly pendingSegmentControllers = new Map<number, AbortController>();
+  private readonly anchorRequests$ = createSubject<number>();
   private metadata: VideoMetadata | null = null;
   private decoderConfig: ExtendedVideoDecoderConfig | null = null;
   private audioMeta: Omit<DemuxedAudioTrackSource, 'getFirstPacket' | 'getPacketForTime' | 'getNextPacket'> | null = null;
   private activeWindowGeneration = 0;
+  private currentAnchorIndex = 0;
   private disposed = false;
   private loadController: AbortController | null = null;
+
+  constructor() {
+    this.anchorRequests$
+      .pipe(distinctUntilChanged())
+      .subscribe((anchorIndex: number) => {
+        this.currentAnchorIndex = anchorIndex;
+        this.activeWindowGeneration += 1;
+        this.abortPendingOutsideWindow(anchorIndex);
+        this.pruneLoadedSegments(anchorIndex);
+      });
+  }
 
   async load(manifestUrl: string): Promise<DemuxedVideoSource> {
     this.dispose();
@@ -112,7 +126,7 @@ export class SegmentVideoLoader {
       const segment = await loadPromise;
       this.loadedSegments.set(index, segment);
       if (this.isActiveWindow(windowGeneration)) {
-        this.pruneLoadedSegments(index);
+		this.pruneLoadedSegments(this.currentAnchorIndex);
       }
       return segment;
     } finally {
@@ -195,9 +209,9 @@ export class SegmentVideoLoader {
       const segment = await this.ensureSegmentLoaded(segmentIndex, windowGeneration);
       const packetIndex = findPacketIndex(segment.videoPackets, timeMs, options?.keyframe === true);
       if (packetIndex >= 0) {
-		if (this.isActiveWindow(windowGeneration)) {
-		  this.prefetchAround(segmentIndex, windowGeneration);
-		}
+        if (this.isActiveWindow(windowGeneration)) {
+          this.prefetchAround(segmentIndex, windowGeneration);
+        }
         return this.makeCursor(segmentIndex, packetIndex, segment.videoPackets);
       }
       if (!options?.keyframe) {
@@ -210,7 +224,8 @@ export class SegmentVideoLoader {
 
   private async getNextPacket(cursor: DemuxedPacketCursor): Promise<DemuxedPacketCursor | null> {
     const token = cursor.token as PacketToken;
-    const segment = await this.ensureSegmentLoaded(token.segmentIndex, this.activeWindowGeneration);
+    const windowGeneration = this.activeWindowGeneration;
+    const segment = await this.ensureSegmentLoaded(token.segmentIndex, windowGeneration);
     const nextPacketIndex = token.packetIndex + 1;
     if (nextPacketIndex < segment.videoPackets.length) {
       return this.makeCursor(token.segmentIndex, nextPacketIndex, segment.videoPackets);
@@ -220,18 +235,19 @@ export class SegmentVideoLoader {
       return null;
     }
 
-    const nextSegment = await this.ensureSegmentLoaded(token.segmentIndex + 1, this.activeWindowGeneration);
-	if (this.isActiveWindow(this.activeWindowGeneration)) {
-	  this.prefetchAround(token.segmentIndex + 1, this.activeWindowGeneration);
-	}
+    const nextSegmentIndex = token.segmentIndex + 1;
+    const nextWindowGeneration = this.activateWindow(nextSegmentIndex);
+    const nextSegment = await this.ensureSegmentLoaded(nextSegmentIndex, nextWindowGeneration);
+    if (this.isActiveWindow(nextWindowGeneration)) {
+      this.prefetchAround(nextSegmentIndex, nextWindowGeneration);
+      }
     return nextSegment.videoPackets.length > 0
-      ? this.makeCursor(token.segmentIndex + 1, 0, nextSegment.videoPackets)
+      ? this.makeCursor(nextSegmentIndex, 0, nextSegment.videoPackets)
       : null;
   }
 
   private async getFirstAudioPacket(): Promise<DemuxedPacketCursor | null> {
-    const windowGeneration = this.activateWindow(0);
-    const segment = await this.ensureSegmentLoaded(0, windowGeneration);
+      const segment = await this.ensureSegmentLoaded(0, this.activeWindowGeneration);
     return segment.audioPackets.length > 0 ? this.makeCursor(0, 0, segment.audioPackets) : null;
   }
 
@@ -241,18 +257,19 @@ export class SegmentVideoLoader {
     }
 
     const segmentIndex = this.findSegmentIndex(timeMs);
-    const windowGeneration = this.activateWindow(segmentIndex);
-    const segment = await this.ensureSegmentLoaded(segmentIndex, windowGeneration);
+      const windowGeneration = this.activeWindowGeneration;
+      const segment = await this.ensureSegmentLoaded(segmentIndex, windowGeneration);
     const packetIndex = findPacketIndex(segment.audioPackets, timeMs, false);
-	if (packetIndex >= 0 && this.isActiveWindow(windowGeneration)) {
-	  this.prefetchAround(segmentIndex, windowGeneration);
-	}
+      if (packetIndex >= 0 && this.isActiveWindow(windowGeneration)) {
+        this.prefetchAround(segmentIndex, windowGeneration);
+      }
     return packetIndex >= 0 ? this.makeCursor(segmentIndex, packetIndex, segment.audioPackets) : null;
   }
 
   private async getNextAudioPacket(cursor: DemuxedPacketCursor): Promise<DemuxedPacketCursor | null> {
     const token = cursor.token as PacketToken;
-    const segment = await this.ensureSegmentLoaded(token.segmentIndex, this.activeWindowGeneration);
+      const windowGeneration = this.activeWindowGeneration;
+      const segment = await this.ensureSegmentLoaded(token.segmentIndex, windowGeneration);
     const nextPacketIndex = token.packetIndex + 1;
     if (nextPacketIndex < segment.audioPackets.length) {
       return this.makeCursor(token.segmentIndex, nextPacketIndex, segment.audioPackets);
@@ -262,12 +279,14 @@ export class SegmentVideoLoader {
       return null;
     }
 
-    const nextSegment = await this.ensureSegmentLoaded(token.segmentIndex + 1, this.activeWindowGeneration);
-	if (this.isActiveWindow(this.activeWindowGeneration)) {
-	  this.prefetchAround(token.segmentIndex + 1, this.activeWindowGeneration);
-	}
+    const nextSegmentIndex = token.segmentIndex + 1;
+    const nextWindowGeneration = this.activateWindow(nextSegmentIndex);
+    const nextSegment = await this.ensureSegmentLoaded(nextSegmentIndex, nextWindowGeneration);
+    if (this.isActiveWindow(nextWindowGeneration)) {
+      this.prefetchAround(nextSegmentIndex, nextWindowGeneration);
+      }
     return nextSegment.audioPackets.length > 0
-      ? this.makeCursor(token.segmentIndex + 1, 0, nextSegment.audioPackets)
+      ? this.makeCursor(nextSegmentIndex, 0, nextSegment.audioPackets)
       : null;
   }
 
@@ -332,9 +351,9 @@ export class SegmentVideoLoader {
   }
 
   private activateWindow(anchorIndex: number): number {
-    this.activeWindowGeneration += 1;
-    this.abortPendingOutsideWindow(anchorIndex);
-    this.pruneLoadedSegments(anchorIndex);
+    if (this.activeWindowGeneration == 0 || this.currentAnchorIndex !== anchorIndex) {
+      this.anchorRequests$.next(anchorIndex);
+    }
     return this.activeWindowGeneration;
   }
 
@@ -365,6 +384,7 @@ export class SegmentVideoLoader {
     this.pendingSegmentControllers.clear();
     this.pendingSegments.clear();
     this.loadedSegments.clear();
+    this.currentAnchorIndex = 0;
     this.manifest = null;
     this.initSegment = null;
     this.metadata = null;

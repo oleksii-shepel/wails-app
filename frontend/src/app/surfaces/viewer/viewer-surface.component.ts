@@ -166,7 +166,7 @@ interface VideoPlaybackPlan {
                   (mousedown)="onVideoSeekStart()"
                   (touchstart)="onVideoSeekStart()"
                   (input)="onVideoSeekInput($event)"
-                  (change)="onVideoSeek($event)"
+                  (change)="onVideoSeekCommit($event)"
                   class="seek-slider"
                   [disabled]="!videoSeekable || !videoReady || videoLoading"
                   title="Seek video">
@@ -1212,6 +1212,10 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
   private videoPlaybackPlan: VideoPlaybackPlan | null = null;
   private videoTimelineOffsetSeconds = 0;
   private restartLoadGeneration = 0;
+  private seekGeneration = 0;
+  private seekDragActive = false;
+  private seekInFlight = false;
+  private queuedSeekSeconds: number | null = null;
 
   info: FileInfo | null = null;
   kind: ViewerKind = 'empty';
@@ -1493,7 +1497,8 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
 
   onVideoSeekStart(): void {
     if (!this.videoSeekable || !this.videoReady || this.videoLoading) return;
-    this.videoIsSeeking = true;
+    this.seekDragActive = true;
+    this.updateVideoSeekingState();
     this.videoSeekTarget = this.videoCurrentTime;
     this.cdr.markForCheck();
   }
@@ -1501,46 +1506,84 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
   onVideoSeekInput(event: Event): void {
     if (!this.videoSeekable || !this.videoReady || this.videoLoading) return;
     const target = event.target as HTMLInputElement;
-    this.videoSeekTarget = parseFloat(target.value);
+    const seekSeconds = parseFloat(target.value);
+    this.videoSeekTarget = seekSeconds;
+    this.videoCurrentTime = seekSeconds;
+    this.queueVideoSeek(seekSeconds);
     this.cdr.markForCheck();
   }
 
-  async onVideoSeek(event: Event): Promise<void> {
+  onVideoSeekCommit(event: Event): void {
     const target = event.target as HTMLInputElement;
     const seekSeconds = parseFloat(target.value);
+    if (!this.videoSeekable || !this.videoReady || this.videoLoading) return;
+    this.seekDragActive = false;
+    this.videoSeekTarget = seekSeconds;
+    this.videoCurrentTime = seekSeconds;
+    this.queueVideoSeek(seekSeconds);
+    this.updateVideoSeekingState();
+    this.cdr.markForCheck();
+  }
+
+  private queueVideoSeek(seekSeconds: number): void {
     if (!this.canvasPlayer || !this.videoSeekable || !this.videoReady || this.videoLoading) return;
-    const shouldResumePlayback = this.canvasPlayer.isPlaying() || this.isVideoAtEnd();
+    this.queuedSeekSeconds = seekSeconds;
+    this.updateVideoSeekingState();
+    if (this.seekInFlight) {
+      return;
+    }
 
+    void this.flushQueuedVideoSeek();
+  }
+
+  private async flushQueuedVideoSeek(): Promise<void> {
+    if (!this.canvasPlayer || !this.videoSeekable || !this.videoReady || this.videoLoading || this.seekInFlight) return;
+
+    this.seekInFlight = true;
     try {
-      this.videoIsSeeking = true;
-      this.videoSeekTarget = seekSeconds;
-      this.videoCurrentTime = seekSeconds;
-      this.cdr.markForCheck();
+      while (this.queuedSeekSeconds !== null) {
+        const seekSeconds = this.queuedSeekSeconds;
+        this.queuedSeekSeconds = null;
+        const generation = ++this.seekGeneration;
+        const shouldResumePlayback = this.canvasPlayer.isPlaying() || this.isVideoAtEnd();
 
-      if (this.shouldRestartVideoStreamOnSeek(seekSeconds)) {
-        await this.restartCanvasVideoAt(seekSeconds, { autoplay: shouldResumePlayback, accurate: true });
-      } else {
-        const playerSeekSeconds = this.shouldUseWindowedVideoStreaming()
-          ? Math.max(0, seekSeconds - this.videoTimelineOffsetSeconds)
-          : seekSeconds;
-
+        this.videoSeekTarget = seekSeconds;
+        this.videoCurrentTime = seekSeconds;
+        this.updateVideoSeekingState();
         this.cdr.markForCheck();
 
-        await this.canvasPlayer.seek(playerSeekSeconds * 1000);
+        try {
+          if (this.shouldRestartVideoStreamOnSeek(seekSeconds)) {
+            await this.restartCanvasVideoAt(seekSeconds, { autoplay: shouldResumePlayback, accurate: true });
+          } else {
+            const playerSeekSeconds = this.shouldUseWindowedVideoStreaming()
+              ? Math.max(0, seekSeconds - this.videoTimelineOffsetSeconds)
+              : seekSeconds;
 
-        this.videoReady = true;
-        this.videoError = null;
-        this.cdr.markForCheck();
+            await this.canvasPlayer.seek(playerSeekSeconds * 1000);
+
+            this.videoReady = true;
+            this.videoError = null;
+            this.cdr.markForCheck();
+          }
+        } catch (err: any) {
+          if (generation === this.seekGeneration) {
+            console.error('Seek error:', err);
+            this.videoError = err.message || 'Seek failed';
+            this.videoLoading = false;
+            this.cdr.markForCheck();
+          }
+        }
       }
-    } catch (err: any) {
-      console.error('Seek error:', err);
-      this.videoError = err.message || 'Seek failed';
-      this.videoLoading = false;
-      this.cdr.markForCheck();
     } finally {
-      this.videoIsSeeking = false;
+      this.seekInFlight = false;
+      this.updateVideoSeekingState();
       this.cdr.markForCheck();
     }
+  }
+
+  private updateVideoSeekingState(): void {
+    this.videoIsSeeking = this.seekDragActive || this.seekInFlight || this.queuedSeekSeconds !== null;
   }
 
   onVideoVolumeChange(event: Event): void {

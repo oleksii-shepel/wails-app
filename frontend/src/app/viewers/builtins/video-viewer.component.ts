@@ -87,16 +87,16 @@ import { SegmentVideoLoader } from './segment-video-loader';
                   min="0"
                   [max]="videoDuration"
                   step="any"
-                  [value]="videoIsSeeking ? videoSeekTarget : videoCurrentTime"
-                  [disabled]="!videoReady || videoLoading"
+                  [value]="displayedCurrentTime"
+                  [disabled]="!videoReady"
                   class="seek-slider"
                   (mousedown)="onVideoSeekStart()"
                   (touchstart)="onVideoSeekStart()"
                   (input)="onVideoSeekInput($event)"
-                  (change)="onVideoSeek($event)">
+                  (change)="onVideoSeekCommit($event)">
                 <div
                   class="progress-fill"
-                  [style.width.%]="((videoIsSeeking ? videoSeekTarget : videoCurrentTime) / videoDuration) * 100 || 0"></div>
+                  [style.width.%]="(displayedCurrentTime / videoDuration) * 100 || 0"></div>
               </div>
             </div>
 
@@ -106,7 +106,7 @@ import { SegmentVideoLoader } from './segment-video-loader';
               </button>
 
               <div class="time-display">
-                <span class="current-time">{{ formatTime(videoIsSeeking ? videoSeekTarget : videoCurrentTime) }}</span>
+                <span class="current-time">{{ formatTime(displayedCurrentTime) }}</span>
                 <span class="separator">/</span>
                 <span class="duration">{{ formatTime(videoDuration) }}</span>
               </div>
@@ -663,6 +663,8 @@ import { SegmentVideoLoader } from './segment-video-loader';
   `],
 })
 export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy {
+  private static readonly WINDOWED_VIDEO_STREAM_SECONDS = 90;
+
   @Input() targetPath = '';
   @Input() archiveContext: ViewerArchiveContext | null = null;
   @Input() viewerId: string | null = null;
@@ -700,9 +702,14 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
   private initializingManifestUrl: string | null = null;
   private seekGeneration = 0;
   private initializingStreamUrl: string | null = null;
+  private currentStreamUrl: string | null = null;
+  private loadingStreamUrl: string | null = null;
+  private videoTimelineOffsetSeconds = 0;
   private videoControlsTimeout: ReturnType<typeof setTimeout> | null = null;
-  private seekInFlight = false;
-  private queuedSeekSeconds: number | null = null;
+  private seekDragActive = false;
+  private seekPending = false;
+  private seekOriginSeconds = 0;
+  private seekRequestGeneration = 0;
   playbackMode = '';
 
   constructor(
@@ -719,6 +726,10 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
   get typeBadge(): string {
     const ext = (this.targetPath.split('.').pop() ?? 'video').toUpperCase();
     return ext || 'VIDEO';
+  }
+
+  get displayedCurrentTime(): number {
+    return this.seekDragActive ? this.videoSeekTarget : this.videoCurrentTime;
   }
 
   ngAfterViewInit(): void {
@@ -804,58 +815,175 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
   }
 
   onVideoSeekStart(): void {
-    if (!this.videoReady || this.videoLoading) {
+    if (!this.videoReady) {
       return;
     }
-    this.videoIsSeeking = true;
+    this.seekDragActive = true;
+    if (!this.videoLoading) {
+      this.seekOriginSeconds = this.videoCurrentTime;
+    }
+    this.updateVideoSeekingState();
     this.videoSeekTarget = this.videoCurrentTime;
     this.cdr.markForCheck();
   }
 
   onVideoSeekInput(event: Event): void {
-    if (!this.videoReady || this.videoLoading) {
+    if (!this.videoReady) {
       return;
     }
-    this.videoSeekTarget = parseFloat((event.target as HTMLInputElement).value);
+    const seekSeconds = parseFloat((event.target as HTMLInputElement).value);
+    this.videoSeekTarget = seekSeconds;
+    this.videoCurrentTime = seekSeconds;
+    // Keep the thumb and time display responsive while dragging, but defer the
+    // actual decoder seek until release so a long scrub does not queue many
+    // expensive re-seeks.
+    this.updateVideoSeekingState();
     this.cdr.markForCheck();
   }
 
-  async onVideoSeek(event: Event): Promise<void> {
-    if (!this.canvasPlayer || !this.videoReady || this.videoLoading) {
+  onVideoSeekCommit(event: Event): void {
+    if (!this.videoReady) {
       return;
     }
 
-    this.queuedSeekSeconds = parseFloat((event.target as HTMLInputElement).value);
-    if (this.seekInFlight) {
-      return;
-    }
-
-    this.seekInFlight = true;
-    try {
-    while (this.queuedSeekSeconds !== null) {
-    const seekSeconds = this.queuedSeekSeconds;
-    this.queuedSeekSeconds = null;
-    const generation = ++this.seekGeneration;
-
-    this.videoIsSeeking = true;
+    const seekSeconds = parseFloat((event.target as HTMLInputElement).value);
+    this.seekDragActive = false;
     this.videoSeekTarget = seekSeconds;
     this.videoCurrentTime = seekSeconds;
+    void this.performSeek(seekSeconds);
+    this.cdr.markForCheck();
+  }
+
+  private async performSeek(seekSeconds: number): Promise<void> {
+    if (!this.canvasPlayer || !this.videoReady) {
+      return;
+    }
+
+    const generation = ++this.seekRequestGeneration;
+    const shouldResumePlayback = this.canvasPlayer.isPlaying() || this.videoIsPlaying;
+    const needsRestart = this.shouldRestartStreamOnSeek(seekSeconds);
+
+    this.seekPending = true;
+    this.videoLoading = needsRestart;
+    this.updateVideoSeekingState();
     this.cdr.markForCheck();
 
     try {
-      await this.canvasPlayer.seek(seekSeconds * 1000);
+      if (needsRestart) {
+        await this.restartVideoAt(seekSeconds, { autoplay: shouldResumePlayback, generation });
+      } else {
+        const playerSeekSeconds = this.shouldUseWindowedVideoStreaming()
+          ? Math.max(0, seekSeconds - this.videoTimelineOffsetSeconds)
+          : seekSeconds;
+        await this.canvasPlayer.seek(playerSeekSeconds * 1000);
+      }
     } catch (err: unknown) {
-      if (generation === this.seekGeneration) {
-      this.error = err instanceof Error ? err.message : 'Seek failed';
+      if (generation === this.seekRequestGeneration) {
+        this.error = err instanceof Error ? err.message : 'Seek failed';
+      }
+    } finally {
+      if (generation === this.seekRequestGeneration) {
+        this.seekPending = false;
+        if (!needsRestart) {
+          this.videoLoading = false;
+        }
+        this.updateVideoSeekingState();
+        this.cdr.markForCheck();
       }
     }
+  }
+
+  private updateVideoSeekingState(): void {
+    this.videoIsSeeking = this.seekDragActive || this.seekPending || this.videoLoading;
+  }
+
+  private shouldUseWindowedVideoStreaming(): boolean {
+    return this.playbackMode === 'transcode';
+  }
+
+  private shouldRestartStreamOnSeek(seekSeconds: number): boolean {
+    if (!this.shouldUseWindowedVideoStreaming()) {
+      return false;
     }
-    } catch (err: unknown) {
-    this.error = err instanceof Error ? err.message : 'Seek failed';
-    } finally {
-    this.seekInFlight = false;
-    this.videoIsSeeking = false;
+
+    const windowStart = this.videoTimelineOffsetSeconds;
+    const windowEnd = windowStart + VideoViewerComponent.WINDOWED_VIDEO_STREAM_SECONDS;
+    return seekSeconds < windowStart || seekSeconds >= windowEnd;
+  }
+
+  private buildSeekUrl(startSeconds: number): string | null {
+    const sourceUrl = this.pendingStreamUrl;
+    if (!sourceUrl) {
+      return null;
+    }
+
+    try {
+      const resolved = new URL(sourceUrl, window.location.href);
+      if (startSeconds > 0) {
+        resolved.searchParams.set('start', startSeconds.toFixed(3));
+      } else {
+        resolved.searchParams.delete('start');
+      }
+      resolved.searchParams.set('window', VideoViewerComponent.WINDOWED_VIDEO_STREAM_SECONDS.toFixed(3));
+      return resolved.toString();
+    } catch {
+      return sourceUrl;
+    }
+  }
+
+  private parseVideoStartOffsetSeconds(url: string): number {
+    try {
+      const resolved = new URL(url, window.location.href);
+      const rawStart = Number(resolved.searchParams.get('start') ?? '0');
+      return Number.isFinite(rawStart) && rawStart > 0 ? rawStart : 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  private async restartVideoAt(seekSeconds: number, options?: { autoplay?: boolean; generation?: number }): Promise<void> {
+    if (!this.canvasPlayer) {
+      return;
+    }
+
+    const nextUrl = this.buildSeekUrl(seekSeconds);
+    if (!nextUrl) {
+      return;
+    }
+    if (this.loadingStreamUrl === nextUrl) {
+      return;
+    }
+
+    const shouldResumePlayback = options?.autoplay ?? this.canvasPlayer.isPlaying();
+    this.error = null;
+    this.videoLoading = true;
+    this.loadingStreamUrl = nextUrl;
+    this.videoTimelineOffsetSeconds = seekSeconds;
+    this.videoCurrentTime = seekSeconds;
+    this.videoSeekTarget = seekSeconds;
     this.cdr.markForCheck();
+
+    try {
+      await this.canvasPlayer.loadFromUrl(nextUrl);
+      if (options?.generation === undefined || options.generation === this.seekRequestGeneration) {
+        this.currentStreamUrl = nextUrl;
+        this.videoReady = true;
+      }
+      if (shouldResumePlayback && (options?.generation === undefined || options.generation === this.seekRequestGeneration)) {
+        await this.canvasPlayer.play();
+      }
+    } catch (err: unknown) {
+      if (options?.generation === undefined || options.generation === this.seekRequestGeneration) {
+        this.error = err instanceof Error ? err.message : 'Seek failed';
+      }
+    } finally {
+      if (this.loadingStreamUrl === nextUrl) {
+        this.loadingStreamUrl = null;
+      }
+      if (options?.generation === undefined || options.generation === this.seekRequestGeneration) {
+        this.videoLoading = false;
+        this.cdr.markForCheck();
+      }
     }
   }
 
@@ -935,16 +1063,20 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
       this.cdr.markForCheck();
     });
     player.metadataReady$.subscribe((metadata: VideoMetadata) => {
-      this.videoDuration = metadata.duration / 1000;
+      this.videoDuration = this.shouldUseWindowedVideoStreaming()
+        ? Math.max(this.videoDuration, this.videoTimelineOffsetSeconds + metadata.duration / 1000)
+        : metadata.duration / 1000;
       this.videoCodecInfo = metadata.videoCodec || '';
       this.videoResolution = `${metadata.width}\u00d7${metadata.height}`;
       this.cdr.markForCheck();
     });
     player.currentTime$.subscribe((seconds: number) => {
-      if (this.videoIsSeeking) {
+      if (this.seekDragActive) {
         return;
       }
-      this.videoCurrentTime = seconds;
+      this.videoCurrentTime = this.shouldUseWindowedVideoStreaming()
+        ? this.videoTimelineOffsetSeconds + seconds
+        : seconds;
       this.cdr.markForCheck();
     });
     player.error$.subscribe((message: string) => {
@@ -976,13 +1108,22 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
       return;
     }
     this.videoLoading = true;
+    this.loadingStreamUrl = streamUrl;
+    this.videoTimelineOffsetSeconds = this.parseVideoStartOffsetSeconds(streamUrl);
     this.error = null;
     this.cdr.markForCheck();
     const player = await this.createAndAttachCanvasPlayer();
-    await player.loadFromUrl(streamUrl);
-    this.videoReady = true;
-    this.videoLoading = false;
-    this.cdr.markForCheck();
+    try {
+      await player.loadFromUrl(streamUrl);
+      this.currentStreamUrl = streamUrl;
+      this.videoReady = true;
+    } finally {
+      if (this.loadingStreamUrl === streamUrl) {
+        this.loadingStreamUrl = null;
+      }
+      this.videoLoading = false;
+      this.cdr.markForCheck();
+    }
   }
 
   private requestSegmentedPlaybackInitialization(): void {
@@ -1039,6 +1180,8 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
     this.pendingStreamUrl = null;
     this.initializingManifestUrl = null;
     this.initializingStreamUrl = null;
+    this.currentStreamUrl = null;
+    this.loadingStreamUrl = null;
     this.playbackMode = '';
     this.fileSize = 0;
     this.videoReady = false;
@@ -1047,12 +1190,14 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
     this.videoShowControls = true;
     this.videoCurrentTime = 0;
     this.videoDuration = 0;
+    this.videoTimelineOffsetSeconds = 0;
     this.videoCodecInfo = '';
     this.videoResolution = '';
     this.videoIsSeeking = false;
     this.videoSeekTarget = 0;
-    this.seekInFlight = false;
-    this.queuedSeekSeconds = null;
+    this.seekPending = false;
+    this.seekOriginSeconds = 0;
+    this.seekRequestGeneration = 0;
     this.seekGeneration++;
     if (this.canvasPlayer) {
       this.canvasPlayer.destroy();

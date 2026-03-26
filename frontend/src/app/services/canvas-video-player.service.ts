@@ -573,6 +573,7 @@ export class CanvasVideoPlayerService {
 }
 
 export class CanvasVideoPlayer {
+  private static readonly SEEK_PRIME_FRAME_COUNT = 2;
   private readonly canvas: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D;
 
@@ -713,10 +714,10 @@ export class CanvasVideoPlayer {
       await this.seek(0);
     }
 
-    await this.prepareAudioPlayback(this.playbackBaseMs);
     this.playbackStartPerfMs = performance.now();
     this.stateChanged$.next('playing');
     this.renderLoop();
+    void this.prepareAudioPlayback(this.playbackBaseMs);
   }
 
   pause(): void {
@@ -742,33 +743,31 @@ export class CanvasVideoPlayer {
       this.suspendPlaybackForSeek();
     }
 
-    if (!this.isCurrentSeek(seekGeneration)) {
+    if (!shouldResumePlayback && this.tryBufferedSeekPreview(clampedTimeMs)) {
       return;
     }
 
-    if (clampedTimeMs < currentTimeMs && await this.shouldReloadSourceForReverseSeek()) {
-      if (!this.isCurrentSeek(seekGeneration)) {
-        return;
-      }
-      await this.reloadCurrentStreamSource(clampedTimeMs, shouldResumePlayback);
+    if (!this.isCurrentSeek(seekGeneration)) {
       return;
     }
 
     this.decodeGeneration++;
     this.playbackBaseMs = clampedTimeMs;
     this.currentTime$.next(clampedTimeMs / 1000);
-    await this.rebuildDecoder();
+    await this.resetDecoderForSeek();
     if (!this.isCurrentSeek(seekGeneration)) {
       return;
     }
-    this.clearDecodedFrames();
     this.resetAudioPlaybackState();
     this.nextPacketCursor = await this.getSeekCursor(clampedTimeMs);
     if (!this.isCurrentSeek(seekGeneration)) {
       return;
     }
     this.reachedEndOfStream = this.nextPacketCursor === null;
-    await this.decodeAhead();
+    await this.decodeAhead({
+      maxFrames: CanvasVideoPlayer.SEEK_PRIME_FRAME_COUNT,
+      allowPausedPriming: true,
+    });
     if (!this.isCurrentSeek(seekGeneration)) {
       return;
     }
@@ -920,7 +919,7 @@ export class CanvasVideoPlayer {
     this.decodeGeneration++;
     this.cancelRenderLoop();
     this.clearDecodedFrames();
-    this.resetAudioPlaybackState();
+    this.resetAudioPlaybackState({ hard: true, suspendContext: true });
     this.source?.destroy?.();
     this.source = undefined;
     this.sourceUrl = null;
@@ -933,7 +932,7 @@ export class CanvasVideoPlayer {
     this.stateChanged$.next('paused');
   }
 
-  private async rebuildDecoder(): Promise<void> {
+  private async rebuildDecoder(options?: { fast?: boolean }): Promise<void> {
     if (!this.decoderConfig) {
       return;
     }
@@ -941,13 +940,15 @@ export class CanvasVideoPlayer {
     // Clear any previously decoded frames to free memory
     this.clearDecodedFrames();
 
-    // Close old decoder - flush pending operations first to ensure clean shutdown
+    // During seek we want replacement to win immediately; waiting for flush can
+    // stall playback for seconds while old decode work drains.
     if (this.decoder) {
-      try {
-        await this.decoder.flush();
-      } catch {
-        // Flush may fail if decoder is already closed or in error state
-        // This is acceptable - we still want to close it
+      if (!options?.fast) {
+        try {
+          await this.decoder.flush();
+        } catch {
+          // Flush may fail if decoder is already closed or in error state.
+        }
       }
       this.decoder.close();
     }
@@ -967,6 +968,23 @@ export class CanvasVideoPlayer {
     });
     this.decoder.configure(this.decoderConfig);
     this.awaitingKeyFrame = true;
+  }
+
+  private async resetDecoderForSeek(): Promise<void> {
+    this.clearDecodedFrames();
+
+    if (!this.decoder || !this.decoderConfig) {
+      await this.rebuildDecoder({ fast: true });
+      return;
+    }
+
+    try {
+      this.decoder.reset();
+      this.decoder.configure(this.decoderConfig);
+      this.awaitingKeyFrame = true;
+    } catch {
+      await this.rebuildDecoder({ fast: true });
+    }
   }
 
   private async rebuildAudioDecoder(): Promise<void> {
@@ -992,6 +1010,25 @@ export class CanvasVideoPlayer {
       },
     });
     this.audioDecoder.configure(this.audioDecoderConfig);
+  }
+
+  private async resetAudioDecoderForSeek(): Promise<void> {
+    if (!this.audioDecoderConfig || !("AudioDecoder" in window)) {
+      this.audioDecoder = undefined;
+      return;
+    }
+
+    if (!this.audioDecoder) {
+      await this.rebuildAudioDecoder();
+      return;
+    }
+
+    try {
+      this.audioDecoder.reset();
+      this.audioDecoder.configure(this.audioDecoderConfig);
+    } catch {
+      await this.rebuildAudioDecoder();
+    }
   }
 
   private onDecodedFrame(frame: VideoFrame): void {
@@ -1103,7 +1140,7 @@ export class CanvasVideoPlayer {
     void this.decodeAudioAhead();
   }
 
-  private async decodeAhead(): Promise<void> {
+  private async decodeAhead(options?: { maxFrames?: number; allowPausedPriming?: boolean }): Promise<void> {
     if (this.decodeAheadInFlight || !this.decoder || !this.source || !this.nextPacketCursor) {
       return;
     }
@@ -1111,6 +1148,7 @@ export class CanvasVideoPlayer {
     this.decodeAheadInFlight = true;
     const generation = this.decodeGeneration;
     const stateAtStart = this.stateChanged$.value;
+    let decodedFrameCount = 0;
 
     try {
       while (
@@ -1122,7 +1160,11 @@ export class CanvasVideoPlayer {
       ) {
         // Exit if we were playing but user paused (interrupted playback during decode)
         // But allow decoding if we started paused (seek pre-loading)
-        if (stateAtStart === 'playing' && this.stateChanged$.value !== 'playing') {
+        if (
+          !options?.allowPausedPriming &&
+          stateAtStart === 'playing' &&
+          this.stateChanged$.value !== 'playing'
+        ) {
           break;
         }
 
@@ -1163,8 +1205,12 @@ export class CanvasVideoPlayer {
             duration: packet.durationMs * 1000,
             data: packet.data,
           }));
+          decodedFrameCount += 1;
           if (packet.isRap) {
             this.awaitingKeyFrame = false;
+          }
+          if (options?.maxFrames !== undefined && decodedFrameCount >= options.maxFrames) {
+            break;
           }
         } catch (error) {
           if (this.isExpectedKeyFrameRecoveryError(error)) {
@@ -1263,6 +1309,52 @@ export class CanvasVideoPlayer {
     return (await this.audioSource.getPacketForTime(timeMs)) ?? this.audioSource.getFirstPacket();
   }
 
+  private tryBufferedSeekPreview(timeMs: number): boolean {
+    if (this.decodedFrames.length === 0) {
+      return false;
+    }
+
+    const frame = this.findBufferedFrameForTime(timeMs);
+    if (!frame) {
+      return false;
+    }
+
+    this.playbackBaseMs = timeMs;
+    this.currentTime$.next(timeMs / 1000);
+    this.drawForTime(timeMs, { preserveBuffer: true });
+    return true;
+  }
+
+  private findBufferedFrameForTime(timeMs: number): DecodedFrame | undefined {
+    if (this.decodedFrames.length === 0) {
+      return undefined;
+    }
+
+    const presentationToleranceMs = this.getPresentationToleranceMs();
+    const firstFrame = this.decodedFrames[0];
+    const lastFrame = this.decodedFrames[this.decodedFrames.length - 1];
+    const frameIntervalMs = this.getFrameIntervalEstimateMs();
+
+    if (timeMs < firstFrame.timestampMs - presentationToleranceMs) {
+      return undefined;
+    }
+
+    if (timeMs > lastFrame.timestampMs + frameIntervalMs) {
+      return undefined;
+    }
+
+    let selectedFrame = firstFrame;
+    for (const frame of this.decodedFrames) {
+      if (frame.timestampMs <= timeMs + presentationToleranceMs) {
+        selectedFrame = frame;
+        continue;
+      }
+      break;
+    }
+
+    return selectedFrame;
+  }
+
   private async findNextKeyframeCursor(cursor: DemuxedPacketCursor, generation: number): Promise<DemuxedPacketCursor | null> {
     if (cursor.packet.isRap) {
       return cursor;
@@ -1291,13 +1383,17 @@ export class CanvasVideoPlayer {
     return error.message.includes('A key frame is required after configure() or flush().');
   }
 
-  private drawForTime(currentTimeMs: number): void {
-    while (this.decodedFrames.length > 1 && this.decodedFrames[1].timestampMs <= currentTimeMs) {
-      const stale = this.decodedFrames.shift();
-      stale?.frame.close();
+  private drawForTime(currentTimeMs: number, options?: { preserveBuffer?: boolean }): void {
+    if (!options?.preserveBuffer) {
+      while (this.decodedFrames.length > 1 && this.decodedFrames[1].timestampMs <= currentTimeMs) {
+        const stale = this.decodedFrames.shift();
+        stale?.frame.close();
+      }
     }
 
-    const frame = this.decodedFrames[0];
+    const frame = options?.preserveBuffer
+      ? this.findBufferedFrameForTime(currentTimeMs)
+      : this.decodedFrames[0];
     if (!frame) {
       if (this.lastDrawnTimestampMs < 0) {
         this.drawPlaceholder();
@@ -1363,25 +1459,25 @@ export class CanvasVideoPlayer {
     this.scheduledAudioUntilSec = 0;
   }
 
-  private resetAudioPlaybackState(): void {
+  private resetAudioPlaybackState(options?: { hard?: boolean; suspendContext?: boolean }): void {
     this.clearScheduledAudioNodes();
     this.audioDecodeAheadInFlight = false;
     this.audioDecodeAheadQueued = false;
     this.audioPlaybackStartContextSec = 0;
     this.nextAudioPacketCursor = null;
 
-    if (this.audioDecoder) {
+    if (options?.hard && this.audioDecoder) {
       this.audioDecoder.close();
       this.audioDecoder = undefined;
     }
 
-    if (this.audioContext?.state === 'running') {
+    if (options?.suspendContext && this.audioContext?.state === 'running') {
       void this.audioContext.suspend().catch(() => undefined);
     }
   }
 
   private disableAudioPlayback(): void {
-    this.resetAudioPlaybackState();
+    this.resetAudioPlaybackState({ hard: true, suspendContext: true });
     this.audioSource = undefined;
     this.audioDecoderConfig = undefined;
   }
@@ -1627,10 +1723,10 @@ export class CanvasVideoPlayer {
   }
 
   private async resumePlaybackAfterSeek(): Promise<void> {
-    await this.prepareAudioPlayback(this.playbackBaseMs);
     this.playbackStartPerfMs = performance.now();
     this.stateChanged$.next('playing');
     this.renderLoop();
+    void this.prepareAudioPlayback(this.playbackBaseMs);
   }
 
   private isCurrentSeek(generation: number): boolean {
@@ -1652,7 +1748,7 @@ export class CanvasVideoPlayer {
       if (audioContext.state !== 'running') {
         await audioContext.resume();
       }
-      await this.rebuildAudioDecoder();
+      await this.resetAudioDecoderForSeek();
       this.nextAudioPacketCursor = await this.getAudioSeekCursor(startTimeMs);
       this.clearScheduledAudioNodes();
       this.audioPlaybackStartContextSec = audioContext.currentTime + CanvasVideoPlayer.AUDIO_SCHEDULE_LEAD_SEC;

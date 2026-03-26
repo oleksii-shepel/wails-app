@@ -26,7 +26,7 @@ import (
 
 const streamPath = "/wails-stream"
 const defaultPreviewWindowSeconds = 90.0
-const segmentedPreviewSegmentSeconds = 2.0
+const segmentedPreviewSegmentSeconds = 5.0
 const segmentedVideoCacheTTL = 5 * time.Minute
 const segmentedVideoMaxResidentSegments = 24
 

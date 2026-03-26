@@ -630,6 +630,8 @@ export class CanvasVideoPlayer {
   private isLoaded = false;
   private sourceLoadGeneration = 0;
   private seekGeneration = 0;
+  private seekInFlight = false;
+  private pendingSeekTimeMs: number | null = null;
   private pendingLoad: Promise<VideoMetadata> | null = null;
 
   readonly stateChanged$ = createBehaviorSubject<PlayerState>('idle');
@@ -734,6 +736,35 @@ export class CanvasVideoPlayer {
   async seek(timeMs: number): Promise<void> {
     await this.ensureLoaded();
 
+    // Queue pending seek if one is already in flight
+    // The pending seek will be applied after current seek completes
+    if (this.seekInFlight) {
+      this.pendingSeekTimeMs = timeMs;
+      return;
+    }
+
+    this.seekInFlight = true;
+
+    try {
+      let nextSeekTimeMs: number | null = timeMs;
+      
+      while (nextSeekTimeMs !== null) {
+        const seekTimeMs = nextSeekTimeMs;
+        nextSeekTimeMs = null;
+        this.pendingSeekTimeMs = null;
+        
+        await this.seekInternal(seekTimeMs);
+        
+        // If a new seek was queued while we were seeking, apply it
+        nextSeekTimeMs = this.pendingSeekTimeMs;
+      }
+    } finally {
+      this.seekInFlight = false;
+      this.pendingSeekTimeMs = null;
+    }
+  }
+
+  private async seekInternal(timeMs: number): Promise<void> {
     const seekGeneration = ++this.seekGeneration;
 
     const clampedTimeMs = Math.max(0, Math.min(timeMs, this.getDurationMs()));
@@ -1092,7 +1123,7 @@ export class CanvasVideoPlayer {
   }
 
   private requestAudioDecodeAhead(): void {
-    if (!this.audioDecoder || !this.audioSource || this.stateChanged$.value !== 'playing') {
+    if (!this.audioDecoder || !this.audioSource) {
       return;
     }
 
@@ -1111,6 +1142,7 @@ export class CanvasVideoPlayer {
 
     this.decodeAheadInFlight = true;
     const generation = this.decodeGeneration;
+    const stateAtStart = this.stateChanged$.value;
 
     try {
       while (
@@ -1120,6 +1152,12 @@ export class CanvasVideoPlayer {
         this.decodedFrames.length + this.decoder.decodeQueueSize < this.maxDecodedFrames &&
         generation === this.decodeGeneration
       ) {
+        // Exit if we were playing but user paused (interrupted playback during decode)
+        // But allow decoding if we started paused (seek pre-loading)
+        if (stateAtStart === 'playing' && this.stateChanged$.value !== 'playing') {
+          break;
+        }
+
         let cursor = this.nextPacketCursor;
         let packet = cursor.packet;
 
@@ -1187,13 +1225,13 @@ export class CanvasVideoPlayer {
       !this.audioDecoder ||
       !this.audioSource ||
       !this.nextAudioPacketCursor ||
-      !this.audioContext ||
-      this.stateChanged$.value !== 'playing'
+      !this.audioContext
     ) {
       return;
     }
 
     this.audioDecodeAheadInFlight = true;
+    const stateAtStart = this.stateChanged$.value;
 
     try {
       this.pruneScheduledAudioNodes();
@@ -1204,6 +1242,12 @@ export class CanvasVideoPlayer {
         this.audioDecoder.decodeQueueSize < CanvasVideoPlayer.MAX_AUDIO_DECODE_QUEUE &&
         this.scheduledAudioUntilSec - this.audioContext.currentTime < CanvasVideoPlayer.AUDIO_BUFFER_AHEAD_SEC
       ) {
+        // Exit if we were playing but user paused (interrupted playback during decode)
+        // But allow decoding if we started paused (seek pre-loading)
+        if (stateAtStart === 'playing' && this.stateChanged$.value !== 'playing') {
+          break;
+        }
+
         const cursor = this.nextAudioPacketCursor;
         this.nextAudioPacketCursor = await this.audioSource.getNextPacket(cursor);
 
@@ -1611,6 +1655,7 @@ export class CanvasVideoPlayer {
     this.playbackBaseMs = this.getCurrentTimeMs();
     this.cancelRenderLoop();
     this.resetAudioPlaybackState();
+    this.stateChanged$.next('paused');
   }
 
   private async resumePlaybackAfterSeek(): Promise<void> {

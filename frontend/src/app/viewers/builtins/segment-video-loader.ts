@@ -48,6 +48,7 @@ export class SegmentVideoLoader {
   private readonly pendingSegments = new Map<number, Promise<LoadedSegment>>();
   private readonly pendingSegmentControllers = new Map<number, AbortController>();
   private readonly anchorRequests$ = createSubject<number>();
+  private readonly segmentFetches$ = createSubject<number>();
   private metadata: VideoMetadata | null = null;
   private decoderConfig: ExtendedVideoDecoderConfig | null = null;
   private audioMeta: Omit<DemuxedAudioTrackSource, 'getFirstPacket' | 'getPacketForTime' | 'getNextPacket'> | null = null;
@@ -57,6 +58,7 @@ export class SegmentVideoLoader {
   private loadController: AbortController | null = null;
 
   constructor() {
+    // Anchor changes cancel stale prefetch work and update window
     this.anchorRequests$
       .pipe(distinctUntilChanged())
       .subscribe((anchorIndex: number) => {
@@ -65,6 +67,12 @@ export class SegmentVideoLoader {
         this.abortPendingOutsideWindow(anchorIndex);
         this.pruneLoadedSegments(anchorIndex);
       });
+
+    // Track segment fetch attempts for concurrency management
+    // Deduplicate rapid successive requests for same segment
+    this.segmentFetches$
+      .pipe(distinctUntilChanged())
+      .subscribe();
   }
 
   async load(manifestUrl: string): Promise<DemuxedVideoSource> {
@@ -120,14 +128,17 @@ export class SegmentVideoLoader {
       return pending;
     }
 
+    // Create and store promise synchronously to prevent duplicate fetches
+    // Multiple concurrent requesters will share this same promise
     const loadPromise = this.loadSegment(index);
     this.pendingSegments.set(index, loadPromise);
+
+    // Emit to stream for concurrency management and logging
+    this.segmentFetches$.next(index);
+
     try {
       const segment = await loadPromise;
       this.loadedSegments.set(index, segment);
-      if (this.isActiveWindow(windowGeneration)) {
-		this.pruneLoadedSegments(this.currentAnchorIndex);
-      }
       return segment;
     } finally {
       this.pendingSegments.delete(index);

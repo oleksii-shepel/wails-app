@@ -90,6 +90,7 @@ type DirStream interface {
 }
 
 type Utility interface {
+	SetVFS(*vfslib.Unified)
 	OpenFile(path string) error
 	ResolveLink(path string) (*internalutility.ResolvedLink, error)
 	HandleFileDrop(x int, y int, paths []string) error

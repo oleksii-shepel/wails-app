@@ -6,6 +6,7 @@ import (
 
 	"wails-app/internal/pathref"
 	internalplatform "wails-app/internal/platform"
+	vfslib "wails-app/vfs"
 )
 
 type memoryPathResolver interface {
@@ -21,6 +22,7 @@ type ServiceConfig struct {
 type Service struct {
 	emitEvent      func(string, interface{})
 	memoryResolver memoryPathResolver
+	vfs            *vfslib.Unified
 }
 
 type ResolvedLink struct {
@@ -35,8 +37,16 @@ func NewService(config ServiceConfig) *Service {
 	}
 }
 
+func (s *Service) SetVFS(v *vfslib.Unified) {
+	s.vfs = v
+}
+
 func (s *Service) resolvePublicPath(path string) (string, error) {
-	nativePath := pathref.ToNativePath(pathref.Normalize(path))
+	normalized := pathref.Normalize(path)
+	if s.vfs != nil {
+		return s.vfs.ResolvePublicPath(normalized)
+	}
+	nativePath := pathref.ToNativePath(normalized)
 	if s.memoryResolver == nil {
 		return nativePath, nil
 	}

@@ -19,6 +19,9 @@ func (s *State) InitVFS() {
 	if s.Filesystem != nil {
 		s.Filesystem.SetVFS(s.vfs)
 	}
+	if s.Utility != nil {
+		s.Utility.SetVFS(s.vfs)
+	}
 }
 
 func (s *State) VFSListDir(path string) (*contracts.DirectoryListing, error) {

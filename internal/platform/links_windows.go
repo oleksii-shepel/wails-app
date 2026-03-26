@@ -13,17 +13,48 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+const (
+	swShownormal = 1
+	seErrNoAssoc = 31
+)
+
 func OpenFileWithDefaultApp(path string) error {
-	verb, err := syscall.UTF16PtrFromString("open")
+	ret, callErr, err := shellExecute("open", path)
 	if err != nil {
 		return err
+	}
+	if ret > 32 {
+		return nil
+	}
+	if ret == seErrNoAssoc {
+		fallbackRet, fallbackCallErr, fallbackErr := shellExecute("openas", path)
+		if fallbackErr != nil {
+			return fallbackErr
+		}
+		if fallbackRet > 32 {
+			return nil
+		}
+		if fallbackCallErr != nil && fallbackCallErr != syscall.Errno(0) {
+			return fmt.Errorf("ShellExecuteW failed: %w", fallbackCallErr)
+		}
+		return fmt.Errorf("ShellExecuteW failed with code %d", fallbackRet)
+	}
+	if callErr != nil && callErr != syscall.Errno(0) {
+		return fmt.Errorf("ShellExecuteW failed: %w", callErr)
+	}
+	return fmt.Errorf("ShellExecuteW failed with code %d", ret)
+}
+
+func shellExecute(verbValue string, path string) (uintptr, error, error) {
+	verb, err := syscall.UTF16PtrFromString(verbValue)
+	if err != nil {
+		return 0, nil, err
 	}
 	target, err := syscall.UTF16PtrFromString(path)
 	if err != nil {
-		return err
+		return 0, nil, err
 	}
 
-	const swShownormal = 1
 	shell32 := windows.NewLazySystemDLL("shell32.dll")
 	shellExecute := shell32.NewProc("ShellExecuteW")
 	ret, _, callErr := shellExecute.Call(
@@ -34,13 +65,10 @@ func OpenFileWithDefaultApp(path string) error {
 		0,
 		swShownormal,
 	)
-	if ret <= 32 {
-		if callErr != nil && callErr != syscall.Errno(0) {
-			return fmt.Errorf("ShellExecuteW failed: %w", callErr)
-		}
-		return fmt.Errorf("ShellExecuteW failed with code %d", ret)
+	if callErr != nil && callErr != syscall.Errno(0) {
+		return ret, callErr, nil
 	}
-	return nil
+	return ret, nil, nil
 }
 
 func SymlinkPointsToDir(path string) bool {

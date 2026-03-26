@@ -36,35 +36,44 @@ interface PacketToken {
   packetIndex: number;
 }
 
-const SEGMENT_PREFETCH_AHEAD = 1;
-const SEGMENT_RETENTION_BEHIND = 1;
-const SEGMENT_RETENTION_AHEAD = 2;
+const SEGMENT_PREFETCH_AHEAD = 2;
+const SEGMENT_RETENTION_BEHIND = 6;
+const SEGMENT_RETENTION_AHEAD = 6;
 
 export class SegmentVideoLoader {
   private manifest: SegmentedVideoManifest | null = null;
   private initSegment: ArrayBuffer | null = null;
   private readonly loadedSegments = new Map<number, LoadedSegment>();
   private readonly pendingSegments = new Map<number, Promise<LoadedSegment>>();
+  private readonly pendingSegmentControllers = new Map<number, AbortController>();
   private metadata: VideoMetadata | null = null;
   private decoderConfig: ExtendedVideoDecoderConfig | null = null;
   private audioMeta: Omit<DemuxedAudioTrackSource, 'getFirstPacket' | 'getPacketForTime' | 'getNextPacket'> | null = null;
+  private activeWindowGeneration = 0;
+  private disposed = false;
+  private loadController: AbortController | null = null;
 
   async load(manifestUrl: string): Promise<DemuxedVideoSource> {
-    const manifestResponse = await fetch(manifestUrl);
+    this.dispose();
+    this.disposed = false;
+    this.loadController = new AbortController();
+
+    const manifestResponse = await fetch(manifestUrl, { signal: this.loadController.signal });
     if (!manifestResponse.ok) {
       throw new Error(`Failed to load segment manifest: ${manifestResponse.status}`);
     }
 
     this.manifest = await manifestResponse.json() as SegmentedVideoManifest;
 
-    const initResponse = await fetch(this.manifest.initSegmentUrl);
+    const initResponse = await fetch(this.manifest.initSegmentUrl, { signal: this.loadController.signal });
     if (!initResponse.ok) {
       throw new Error(`Failed to load init segment: ${initResponse.status}`);
     }
     this.initSegment = await initResponse.arrayBuffer();
 
-    const firstSegment = await this.ensureSegmentLoaded(0);
-    this.prefetchAround(0);
+    const initialWindowGeneration = this.activateWindow(0);
+    const firstSegment = await this.ensureSegmentLoaded(0, initialWindowGeneration);
+    this.prefetchAround(0, initialWindowGeneration);
     if (!this.metadata || !this.decoderConfig) {
       throw new Error('Segmented preview did not provide video metadata.');
     }
@@ -82,10 +91,11 @@ export class SegmentVideoLoader {
       getFirstPacket: async () => firstSegment.videoPackets.length > 0 ? this.makeCursor(0, 0, firstSegment.videoPackets) : null,
       getPacketForTime: async (timeMs: number, options?: { keyframe?: boolean }) => this.getPacketForTime(timeMs, options),
       getNextPacket: async (cursor: DemuxedPacketCursor) => this.getNextPacket(cursor),
+      destroy: () => this.dispose(),
     };
   }
 
-  private async ensureSegmentLoaded(index: number): Promise<LoadedSegment> {
+  private async ensureSegmentLoaded(index: number, windowGeneration = this.activeWindowGeneration): Promise<LoadedSegment> {
     const existing = this.loadedSegments.get(index);
     if (existing) {
       return existing;
@@ -101,8 +111,9 @@ export class SegmentVideoLoader {
     try {
       const segment = await loadPromise;
       this.loadedSegments.set(index, segment);
-      this.prefetchAround(index);
-      this.pruneLoadedSegments(index);
+      if (this.isActiveWindow(windowGeneration)) {
+        this.pruneLoadedSegments(index);
+      }
       return segment;
     } finally {
       this.pendingSegments.delete(index);
@@ -113,54 +124,64 @@ export class SegmentVideoLoader {
     if (!this.manifest || !this.initSegment) {
       throw new Error('Segment loader not initialized.');
     }
+    if (this.disposed) {
+      throw new DOMException('Segment loader disposed', 'AbortError');
+    }
 
     const segment = this.manifest.segments[index];
     if (!segment) {
       throw new Error(`Segment ${index} is not available.`);
     }
 
-    const segmentResponse = await fetch(segment.url);
-    if (!segmentResponse.ok) {
-      throw new Error(`Failed to load segment ${index}: ${segmentResponse.status}`);
-    }
+    const controller = new AbortController();
+    this.pendingSegmentControllers.set(index, controller);
 
-    const segmentBytes = await segmentResponse.arrayBuffer();
-    const combined = concatenateBuffers(this.initSegment, segmentBytes);
-    const source = await loadMp4DemuxedSourceFromBuffer(combined);
-
-    if (!this.metadata) {
-      this.metadata = {
-        ...source.metadata,
-        duration: this.manifest.durationSeconds * 1000,
-        format: this.manifest.format || source.metadata.format,
-      };
-      this.decoderConfig = source.decoderConfig;
-      if (source.audio) {
-        this.audioMeta = {
-          decoderConfig: source.audio.decoderConfig,
-          codec: source.audio.codec,
-          sampleRate: source.audio.sampleRate,
-          numberOfChannels: source.audio.numberOfChannels,
-        };
+    try {
+      const segmentResponse = await fetch(segment.url, { signal: controller.signal });
+      if (!segmentResponse.ok) {
+        throw new Error(`Failed to load segment ${index}: ${segmentResponse.status}`);
       }
+
+      const segmentBytes = await segmentResponse.arrayBuffer();
+      const combined = concatenateBuffers(this.initSegment, segmentBytes);
+      const source = await loadMp4DemuxedSourceFromBuffer(combined);
+
+      if (!this.metadata) {
+        this.metadata = {
+          ...source.metadata,
+          duration: this.manifest.durationSeconds * 1000,
+          format: this.manifest.format || source.metadata.format,
+        };
+        this.decoderConfig = source.decoderConfig;
+        if (source.audio) {
+          this.audioMeta = {
+            decoderConfig: source.audio.decoderConfig,
+            codec: source.audio.codec,
+            sampleRate: source.audio.sampleRate,
+            numberOfChannels: source.audio.numberOfChannels,
+          };
+        }
+      }
+
+      const startOffsetMs = Math.round(segment.startTime * 1000);
+      const videoPackets = await collectPackets(
+        () => source.getFirstPacket(),
+        (cursor) => source.getNextPacket(cursor),
+        startOffsetMs,
+      );
+      const audioPackets = source.audio
+        ? await collectPackets(
+            () => source.audio!.getFirstPacket(),
+            (cursor) => source.audio!.getNextPacket(cursor),
+            startOffsetMs,
+          )
+        : [];
+      source.destroy?.();
+
+      return { index, videoPackets, audioPackets };
+    } finally {
+      this.pendingSegmentControllers.delete(index);
     }
-
-    const startOffsetMs = Math.round(segment.startTime * 1000);
-    const videoPackets = await collectPackets(
-      () => source.getFirstPacket(),
-      (cursor) => source.getNextPacket(cursor),
-      startOffsetMs,
-    );
-    const audioPackets = source.audio
-      ? await collectPackets(
-          () => source.audio!.getFirstPacket(),
-          (cursor) => source.audio!.getNextPacket(cursor),
-          startOffsetMs,
-        )
-      : [];
-    source.destroy?.();
-
-    return { index, videoPackets, audioPackets };
   }
 
   private async getPacketForTime(timeMs: number, options?: { keyframe?: boolean }): Promise<DemuxedPacketCursor | null> {
@@ -169,10 +190,14 @@ export class SegmentVideoLoader {
     }
 
     let segmentIndex = this.findSegmentIndex(timeMs);
+    const windowGeneration = this.activateWindow(segmentIndex);
     while (segmentIndex >= 0) {
-      const segment = await this.ensureSegmentLoaded(segmentIndex);
+      const segment = await this.ensureSegmentLoaded(segmentIndex, windowGeneration);
       const packetIndex = findPacketIndex(segment.videoPackets, timeMs, options?.keyframe === true);
       if (packetIndex >= 0) {
+		if (this.isActiveWindow(windowGeneration)) {
+		  this.prefetchAround(segmentIndex, windowGeneration);
+		}
         return this.makeCursor(segmentIndex, packetIndex, segment.videoPackets);
       }
       if (!options?.keyframe) {
@@ -185,7 +210,7 @@ export class SegmentVideoLoader {
 
   private async getNextPacket(cursor: DemuxedPacketCursor): Promise<DemuxedPacketCursor | null> {
     const token = cursor.token as PacketToken;
-    const segment = await this.ensureSegmentLoaded(token.segmentIndex);
+    const segment = await this.ensureSegmentLoaded(token.segmentIndex, this.activeWindowGeneration);
     const nextPacketIndex = token.packetIndex + 1;
     if (nextPacketIndex < segment.videoPackets.length) {
       return this.makeCursor(token.segmentIndex, nextPacketIndex, segment.videoPackets);
@@ -195,14 +220,18 @@ export class SegmentVideoLoader {
       return null;
     }
 
-    const nextSegment = await this.ensureSegmentLoaded(token.segmentIndex + 1);
+    const nextSegment = await this.ensureSegmentLoaded(token.segmentIndex + 1, this.activeWindowGeneration);
+	if (this.isActiveWindow(this.activeWindowGeneration)) {
+	  this.prefetchAround(token.segmentIndex + 1, this.activeWindowGeneration);
+	}
     return nextSegment.videoPackets.length > 0
       ? this.makeCursor(token.segmentIndex + 1, 0, nextSegment.videoPackets)
       : null;
   }
 
   private async getFirstAudioPacket(): Promise<DemuxedPacketCursor | null> {
-    const segment = await this.ensureSegmentLoaded(0);
+    const windowGeneration = this.activateWindow(0);
+    const segment = await this.ensureSegmentLoaded(0, windowGeneration);
     return segment.audioPackets.length > 0 ? this.makeCursor(0, 0, segment.audioPackets) : null;
   }
 
@@ -212,14 +241,18 @@ export class SegmentVideoLoader {
     }
 
     const segmentIndex = this.findSegmentIndex(timeMs);
-    const segment = await this.ensureSegmentLoaded(segmentIndex);
+    const windowGeneration = this.activateWindow(segmentIndex);
+    const segment = await this.ensureSegmentLoaded(segmentIndex, windowGeneration);
     const packetIndex = findPacketIndex(segment.audioPackets, timeMs, false);
+	if (packetIndex >= 0 && this.isActiveWindow(windowGeneration)) {
+	  this.prefetchAround(segmentIndex, windowGeneration);
+	}
     return packetIndex >= 0 ? this.makeCursor(segmentIndex, packetIndex, segment.audioPackets) : null;
   }
 
   private async getNextAudioPacket(cursor: DemuxedPacketCursor): Promise<DemuxedPacketCursor | null> {
     const token = cursor.token as PacketToken;
-    const segment = await this.ensureSegmentLoaded(token.segmentIndex);
+    const segment = await this.ensureSegmentLoaded(token.segmentIndex, this.activeWindowGeneration);
     const nextPacketIndex = token.packetIndex + 1;
     if (nextPacketIndex < segment.audioPackets.length) {
       return this.makeCursor(token.segmentIndex, nextPacketIndex, segment.audioPackets);
@@ -229,14 +262,21 @@ export class SegmentVideoLoader {
       return null;
     }
 
-    const nextSegment = await this.ensureSegmentLoaded(token.segmentIndex + 1);
+    const nextSegment = await this.ensureSegmentLoaded(token.segmentIndex + 1, this.activeWindowGeneration);
+	if (this.isActiveWindow(this.activeWindowGeneration)) {
+	  this.prefetchAround(token.segmentIndex + 1, this.activeWindowGeneration);
+	}
     return nextSegment.audioPackets.length > 0
       ? this.makeCursor(token.segmentIndex + 1, 0, nextSegment.audioPackets)
       : null;
   }
 
-  private prefetchAround(anchorIndex: number): void {
+  private prefetchAround(anchorIndex: number, windowGeneration: number): void {
     if (!this.manifest) {
+      return;
+    }
+
+    if (!this.isActiveWindow(windowGeneration)) {
       return;
     }
 
@@ -248,7 +288,7 @@ export class SegmentVideoLoader {
       if (this.loadedSegments.has(nextIndex) || this.pendingSegments.has(nextIndex)) {
         continue;
       }
-      void this.ensureSegmentLoaded(nextIndex).catch(() => {});
+      void this.ensureSegmentLoaded(nextIndex, windowGeneration).catch(() => {});
     }
   }
 
@@ -289,6 +329,47 @@ export class SegmentVideoLoader {
       token: { segmentIndex, packetIndex },
       packet,
     };
+  }
+
+  private activateWindow(anchorIndex: number): number {
+    this.activeWindowGeneration += 1;
+    this.abortPendingOutsideWindow(anchorIndex);
+    this.pruneLoadedSegments(anchorIndex);
+    return this.activeWindowGeneration;
+  }
+
+  private isActiveWindow(windowGeneration: number): boolean {
+    return windowGeneration === this.activeWindowGeneration;
+  }
+
+  private abortPendingOutsideWindow(anchorIndex: number): void {
+    const minIndex = Math.max(0, anchorIndex - SEGMENT_RETENTION_BEHIND);
+    const maxIndex = anchorIndex + SEGMENT_RETENTION_AHEAD + SEGMENT_PREFETCH_AHEAD;
+    for (const [index, controller] of this.pendingSegmentControllers.entries()) {
+      if (index < minIndex || index > maxIndex) {
+        controller.abort();
+      }
+    }
+  }
+
+  private dispose(): void {
+    if (this.loadController) {
+      this.loadController.abort();
+      this.loadController = null;
+    }
+    this.disposed = true;
+    this.activeWindowGeneration += 1;
+    for (const controller of this.pendingSegmentControllers.values()) {
+      controller.abort();
+    }
+    this.pendingSegmentControllers.clear();
+    this.pendingSegments.clear();
+    this.loadedSegments.clear();
+    this.manifest = null;
+    this.initSegment = null;
+    this.metadata = null;
+    this.decoderConfig = null;
+    this.audioMeta = null;
   }
 }
 

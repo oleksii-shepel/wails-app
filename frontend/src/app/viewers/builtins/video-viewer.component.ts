@@ -698,8 +698,11 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
   private pendingStreamUrl: string | null = null;
   private _videoContainerRef?: ElementRef<HTMLDivElement>;
   private initializingManifestUrl: string | null = null;
+  private seekGeneration = 0;
   private initializingStreamUrl: string | null = null;
   private videoControlsTimeout: ReturnType<typeof setTimeout> | null = null;
+  private seekInFlight = false;
+  private queuedSeekSeconds: number | null = null;
   playbackMode = '';
 
   constructor(
@@ -822,18 +825,37 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
       return;
     }
 
-    const seekSeconds = parseFloat((event.target as HTMLInputElement).value);
+    this.queuedSeekSeconds = parseFloat((event.target as HTMLInputElement).value);
+    if (this.seekInFlight) {
+      return;
+    }
+
+    this.seekInFlight = true;
     try {
-      this.videoIsSeeking = true;
-      this.videoSeekTarget = seekSeconds;
-      this.videoCurrentTime = seekSeconds;
-      this.cdr.markForCheck();
+    while (this.queuedSeekSeconds !== null) {
+    const seekSeconds = this.queuedSeekSeconds;
+    this.queuedSeekSeconds = null;
+    const generation = ++this.seekGeneration;
+
+    this.videoIsSeeking = true;
+    this.videoSeekTarget = seekSeconds;
+    this.videoCurrentTime = seekSeconds;
+    this.cdr.markForCheck();
+
+    try {
       await this.canvasPlayer.seek(seekSeconds * 1000);
     } catch (err: unknown) {
+      if (generation === this.seekGeneration) {
       this.error = err instanceof Error ? err.message : 'Seek failed';
+      }
+    }
+    }
+    } catch (err: unknown) {
+    this.error = err instanceof Error ? err.message : 'Seek failed';
     } finally {
-      this.videoIsSeeking = false;
-      this.cdr.markForCheck();
+    this.seekInFlight = false;
+    this.videoIsSeeking = false;
+    this.cdr.markForCheck();
     }
   }
 
@@ -1029,6 +1051,9 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
     this.videoResolution = '';
     this.videoIsSeeking = false;
     this.videoSeekTarget = 0;
+    this.seekInFlight = false;
+    this.queuedSeekSeconds = null;
+    this.seekGeneration++;
     if (this.canvasPlayer) {
       this.canvasPlayer.destroy();
       this.canvasPlayer = null;

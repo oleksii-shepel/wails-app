@@ -629,6 +629,7 @@ export class CanvasVideoPlayer {
   private lastDrawnTimestampMs = -1;
   private isLoaded = false;
   private sourceLoadGeneration = 0;
+  private seekGeneration = 0;
   private pendingLoad: Promise<VideoMetadata> | null = null;
 
   readonly stateChanged$ = createBehaviorSubject<PlayerState>('idle');
@@ -733,6 +734,8 @@ export class CanvasVideoPlayer {
   async seek(timeMs: number): Promise<void> {
     await this.ensureLoaded();
 
+    const seekGeneration = ++this.seekGeneration;
+
     const clampedTimeMs = Math.max(0, Math.min(timeMs, this.getDurationMs()));
     const shouldResumePlayback = this.stateChanged$.value === 'playing' || this.stateChanged$.value === 'ended';
     const currentTimeMs = this.getCurrentTimeMs();
@@ -740,7 +743,14 @@ export class CanvasVideoPlayer {
       this.suspendPlaybackForSeek();
     }
 
+    if (!this.isCurrentSeek(seekGeneration)) {
+      return;
+    }
+
     if (clampedTimeMs < currentTimeMs && await this.shouldReloadSourceForReverseSeek()) {
+      if (!this.isCurrentSeek(seekGeneration)) {
+        return;
+      }
       await this.reloadCurrentStreamSource(clampedTimeMs, shouldResumePlayback);
       return;
     }
@@ -749,11 +759,20 @@ export class CanvasVideoPlayer {
     this.playbackBaseMs = clampedTimeMs;
     this.currentTime$.next(clampedTimeMs / 1000);
     await this.rebuildDecoder();
+    if (!this.isCurrentSeek(seekGeneration)) {
+      return;
+    }
     this.clearDecodedFrames();
     this.resetAudioPlaybackState();
     this.nextPacketCursor = await this.getSeekCursor(clampedTimeMs);
+    if (!this.isCurrentSeek(seekGeneration)) {
+      return;
+    }
     this.reachedEndOfStream = this.nextPacketCursor === null;
     await this.decodeAhead();
+    if (!this.isCurrentSeek(seekGeneration)) {
+      return;
+    }
     this.drawForTime(clampedTimeMs);
 
     if (shouldResumePlayback) {
@@ -785,6 +804,7 @@ export class CanvasVideoPlayer {
   }
 
   destroy(): void {
+    this.seekGeneration++;
     this.cancelRenderLoop();
     this.clearDecodedFrames();
     this.resetAudioPlaybackState();
@@ -897,6 +917,7 @@ export class CanvasVideoPlayer {
   }
 
   private prepareForSourceReload(): void {
+    this.seekGeneration++;
     this.decodeGeneration++;
     this.cancelRenderLoop();
     this.clearDecodedFrames();
@@ -993,10 +1014,12 @@ export class CanvasVideoPlayer {
 
     // If playback is paused (e.g. during initial load or explicit seek),
     // the render loop is stopped, so we must manually draw incoming frames
-    // or the canvas will remain empty black.
+    // or the canvas will remain empty black. Do not request more decode-ahead
+    // here: during startup that causes a fetch cascade while the player is
+    // still paused, repeatedly pulling future segments before playback even
+    // begins.
     if (this.stateChanged$.value !== 'playing') {
       this.drawForTime(this.getCurrentTimeMs());
-      this.requestDecodeAhead();
     }
   }
 
@@ -1595,6 +1618,10 @@ export class CanvasVideoPlayer {
     this.playbackStartPerfMs = performance.now();
     this.stateChanged$.next('playing');
     this.renderLoop();
+  }
+
+  private isCurrentSeek(generation: number): boolean {
+    return generation === this.seekGeneration;
   }
 
   private async prepareAudioPlayback(startTimeMs: number): Promise<void> {

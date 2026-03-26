@@ -55,7 +55,6 @@ import type { InputBindingDefinition } from '../services/input-system.types';
 export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
   private static readonly mouseCommandOwner = 'file-browser-mouse';
   private static readonly mouseBindingIds = [
-    'global.mouse.fileEntry.doubleClickOpen',
     'global.mouse.viewer.ctrlWheelUp',
     'global.mouse.viewer.ctrlWheelDown',
   ] as const;
@@ -489,10 +488,6 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   private registerMouseBindings(): void {
-    this.inputEngine.registerCommand('global.mouse.fileEntry.openSelected', () => {
-      this.getActivePane()?.browserCommands.navigation.openSelectedItem();
-    }, FileBrowserComponent.mouseCommandOwner);
-
     this.inputEngine.registerCommand('global.mouse.viewer.zoomIn', () => {
       this.getActivePane()?.browserCommands.preview.zoomInActiveViewer();
     }, FileBrowserComponent.mouseCommandOwner);
@@ -502,18 +497,6 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
     }, FileBrowserComponent.mouseCommandOwner);
 
     const bindings: InputBindingDefinition[] = [
-      {
-        id: 'global.mouse.fileEntry.doubleClickOpen',
-        contextId: 'global',
-        commandId: 'global.mouse.fileEntry.openSelected',
-        source: 'default',
-        description: 'Open the currently selected entry on double click',
-        when: 'fileEntry',
-        trigger: {
-          device: 'mouse',
-          gesture: { type: 'doubleClick', button: 'left' },
-        },
-      },
       {
         id: 'global.mouse.viewer.ctrlWheelUp',
         contextId: 'global',

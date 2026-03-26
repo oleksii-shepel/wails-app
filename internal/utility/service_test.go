@@ -129,3 +129,16 @@ func TestResolvePublicPathPrefersVFSForMountedAlias(t *testing.T) {
 		t.Fatal("expected VFS resolver to be used")
 	}
 }
+
+func TestResolvePublicPathRejectsVirtualOnlyAlias(t *testing.T) {
+	service := NewService(ServiceConfig{})
+	service.SetVFS(vfslib.NewUnified(&stubMounter{resolvedPath: ""}))
+
+	_, err := service.resolvePublicPath("memory://demo.txt")
+	if err == nil {
+		t.Fatal("expected error for virtual-only path")
+	}
+	if got := err.Error(); got != "path \"memory://demo.txt\" is virtual-only and not available to the OS" {
+		t.Fatalf("unexpected error: %q", got)
+	}
+}

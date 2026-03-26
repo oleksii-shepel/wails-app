@@ -44,7 +44,14 @@ func (s *Service) SetVFS(v *vfslib.Unified) {
 func (s *Service) resolvePublicPath(path string) (string, error) {
 	normalized := pathref.Normalize(path)
 	if s.vfs != nil {
-		return s.vfs.ResolvePublicPath(normalized)
+		resolvedPath, err := s.vfs.ResolvePublicPath(normalized)
+		if err != nil {
+			return "", err
+		}
+		if resolvedPath == "" {
+			return "", fmt.Errorf("path %q is virtual-only and not available to the OS", normalized)
+		}
+		return resolvedPath, nil
 	}
 	nativePath := pathref.ToNativePath(normalized)
 	if s.memoryResolver == nil {

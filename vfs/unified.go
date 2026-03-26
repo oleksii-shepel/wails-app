@@ -37,6 +37,22 @@ type Unified struct {
 	mounts Mounter
 }
 
+const (
+	registryScheme = "registry://"
+	memoryScheme   = "memory://"
+	smbScheme      = "smb://"
+	ftpScheme      = "ftp://"
+	sftpScheme     = "sftp://"
+	webdavScheme   = "webdav://"
+
+	registryVFSRoot = "/registry"
+	memoryVFSRoot   = "/memory"
+	smbVFSRoot      = "/remote/smb"
+	ftpVFSRoot      = "/remote/ftp"
+	sftpVFSRoot     = "/remote/sftp"
+	webdavVFSRoot   = "/remote/webdav"
+)
+
 // NewUnified creates a Unified VFS backed by the given Mounter.
 func NewUnified(mounts Mounter) *Unified {
 	return &Unified{mounts: mounts}
@@ -198,9 +214,37 @@ func (u *Unified) pathrefToVFS(path string) string {
 		}
 	}
 
-	// Handle alias schemes (registry://, smb://, etc)
-	// For now, pass through as-is
+	if converted, ok := publicAliasToVFS(trimmed, registryScheme, registryVFSRoot); ok {
+		return converted
+	}
+	if converted, ok := publicAliasToVFS(trimmed, memoryScheme, memoryVFSRoot); ok {
+		return converted
+	}
+	if converted, ok := publicAliasToVFS(trimmed, smbScheme, smbVFSRoot); ok {
+		return converted
+	}
+	if converted, ok := publicAliasToVFS(trimmed, ftpScheme, ftpVFSRoot); ok {
+		return converted
+	}
+	if converted, ok := publicAliasToVFS(trimmed, sftpScheme, sftpVFSRoot); ok {
+		return converted
+	}
+	if converted, ok := publicAliasToVFS(trimmed, webdavScheme, webdavVFSRoot); ok {
+		return converted
+	}
+
 	return trimmed
+}
+
+func publicAliasToVFS(path string, scheme string, vfsRoot string) (string, bool) {
+	if !strings.HasPrefix(strings.ToLower(path), scheme) {
+		return "", false
+	}
+	rest := strings.Trim(strings.TrimPrefix(path, scheme), "/")
+	if rest == "" {
+		return vfsRoot, true
+	}
+	return vfsRoot + "/" + rest, true
 }
 
 func (u *Unified) RealPath(path string) (string, error) {

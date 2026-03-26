@@ -45,7 +45,7 @@ import { SegmentVideoLoader } from './segment-video-loader';
         <div class="header-meta">
           <span class="badge type-badge">{{ typeBadge }}</span>
           <span class="badge size-badge" *ngIf="fileSize > 0">{{ formatSize(fileSize) }}</span>
-          <span class="badge seek-badge">segmented</span>
+          <span class="badge seek-badge">{{ playbackMode }}</span>
           <span class="badge codec-badge" *ngIf="videoCodecInfo">{{ videoCodecInfo }}</span>
           <span class="badge resolution-badge" *ngIf="videoResolution">{{ videoResolution }}</span>
         </div>
@@ -695,9 +695,12 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
   fileSize = 0;
 
   private pendingManifestUrl: string | null = null;
+  private pendingStreamUrl: string | null = null;
   private _videoContainerRef?: ElementRef<HTMLDivElement>;
   private initializingManifestUrl: string | null = null;
+  private initializingStreamUrl: string | null = null;
   private videoControlsTimeout: ReturnType<typeof setTimeout> | null = null;
+  playbackMode = '';
 
   constructor(
     private readonly api: ApiService,
@@ -717,6 +720,7 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
 
   ngAfterViewInit(): void {
     this.requestSegmentedPlaybackInitialization();
+    this.requestUrlPlaybackInitialization();
   }
 
   async ngOnChanges(): Promise<void> {
@@ -742,11 +746,18 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
       const rawPlan = await this.api.getVideoPlaybackPlan(path);
       const mode = String(rawPlan?.mode ?? rawPlan?.Mode ?? '').toLowerCase();
       const url = String(rawPlan?.url ?? rawPlan?.URL ?? '');
-      if (mode !== 'segmented' || !url) {
+      this.playbackMode = mode || 'video';
+      if (!url) {
         this.useLegacySurface = true;
-      } else {
+      } else if (mode === 'segmented') {
         this.pendingManifestUrl = url;
         this.requestSegmentedPlaybackInitialization();
+      } else {
+        // remux / transcode / direct — use canvas player with URL-based loading;
+        // the canvas player handles range-based seeking when the server supports it,
+        // and falls back to stream-reload seeking for piped sources.
+        this.pendingStreamUrl = url;
+        this.requestUrlPlaybackInitialization();
       }
     } catch (err: unknown) {
       this.error = err instanceof Error ? err.message : String(err);
@@ -883,51 +894,70 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
     return `${unitIndex === 0 ? value : value.toFixed(1)} ${units[unitIndex]}`;
   }
 
-  private async initializeSegmentedPlayback(manifestUrl: string): Promise<void> {
+  private async createAndAttachCanvasPlayer(): Promise<CanvasVideoPlayer> {
     if (!this.videoContainerRef?.nativeElement) {
-      return;
+      throw new Error('Video container is not available.');
     }
-
     if (this.canvasPlayer) {
       this.canvasPlayer.destroy();
       this.canvasPlayer = null;
     }
-
-    this.videoLoading = true;
-    this.error = null;
-    this.cdr.markForCheck();
-
-    const loader = new SegmentVideoLoader();
-    const source = await loader.load(manifestUrl);
     const player = await this.videoPlayerService.createPlayer(this.videoContainerRef.nativeElement);
     this.canvasPlayer = player;
-    this.canvasPlayer.setVolume(this.videoVolume / 100);
-    this.canvasPlayer.stateChanged$.subscribe((state) => {
+    player.setVolume(this.videoVolume / 100);
+    player.stateChanged$.subscribe((state) => {
       this.videoIsPlaying = state === 'playing';
       if (state !== 'playing') {
         this.videoShowControls = true;
       }
       this.cdr.markForCheck();
     });
-    this.canvasPlayer.metadataReady$.subscribe((metadata: VideoMetadata) => {
+    player.metadataReady$.subscribe((metadata: VideoMetadata) => {
       this.videoDuration = metadata.duration / 1000;
       this.videoCodecInfo = metadata.videoCodec || '';
-      this.videoResolution = `${metadata.width}×${metadata.height}`;
+      this.videoResolution = `${metadata.width}\u00d7${metadata.height}`;
       this.cdr.markForCheck();
     });
-    this.canvasPlayer.currentTime$.subscribe((seconds: number) => {
+    player.currentTime$.subscribe((seconds: number) => {
       if (this.videoIsSeeking) {
         return;
       }
       this.videoCurrentTime = seconds;
       this.cdr.markForCheck();
     });
-    this.canvasPlayer.error$.subscribe((message: string) => {
+    player.error$.subscribe((message: string) => {
       this.error = message;
       this.videoLoading = false;
       this.cdr.markForCheck();
     });
-    await this.canvasPlayer.loadFromDemuxedSource(source);
+    return player;
+  }
+
+  private async initializeSegmentedPlayback(manifestUrl: string): Promise<void> {
+    if (!this.videoContainerRef?.nativeElement) {
+      return;
+    }
+    this.videoLoading = true;
+    this.error = null;
+    this.cdr.markForCheck();
+    const loader = new SegmentVideoLoader();
+    const source = await loader.load(manifestUrl);
+    const player = await this.createAndAttachCanvasPlayer();
+    await player.loadFromDemuxedSource(source);
+    this.videoReady = true;
+    this.videoLoading = false;
+    this.cdr.markForCheck();
+  }
+
+  private async initializeUrlPlayback(streamUrl: string): Promise<void> {
+    if (!this.videoContainerRef?.nativeElement) {
+      return;
+    }
+    this.videoLoading = true;
+    this.error = null;
+    this.cdr.markForCheck();
+    const player = await this.createAndAttachCanvasPlayer();
+    await player.loadFromUrl(streamUrl);
     this.videoReady = true;
     this.videoLoading = false;
     this.cdr.markForCheck();
@@ -956,12 +986,38 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
       });
   }
 
+  private requestUrlPlaybackInitialization(): void {
+    const streamUrl = this.pendingStreamUrl;
+    if (!streamUrl || this.useLegacySurface || !this.videoContainerRef?.nativeElement) {
+      return;
+    }
+    if (this.initializingStreamUrl === streamUrl || this.canvasPlayer) {
+      return;
+    }
+
+    this.initializingStreamUrl = streamUrl;
+    void this.initializeUrlPlayback(streamUrl)
+      .catch((err: unknown) => {
+        this.error = err instanceof Error ? err.message : String(err);
+        this.videoLoading = false;
+        this.cdr.markForCheck();
+      })
+      .finally(() => {
+        if (this.initializingStreamUrl === streamUrl) {
+          this.initializingStreamUrl = null;
+        }
+      });
+  }
+
   private resetState(): void {
     this.useLegacySurface = false;
     this.loading = false;
     this.error = null;
     this.pendingManifestUrl = null;
+    this.pendingStreamUrl = null;
     this.initializingManifestUrl = null;
+    this.initializingStreamUrl = null;
+    this.playbackMode = '';
     this.fileSize = 0;
     this.videoReady = false;
     this.videoIsPlaying = false;

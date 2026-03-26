@@ -1309,7 +1309,12 @@ func decideDiskPlaybackMode(name, videoCodec, audioCodec string) VideoPlaybackMo
 
 func shouldAttemptSegmentedDiskPlayback(name, videoCodec, audioCodec string) bool {
 	switch strings.ToLower(filepath.Ext(name)) {
-	case ".avi", ".divx", ".xvid":
+	case ".mp4", ".m4v", ".mkv", ".webm", ".mov", ".qt",
+		".avi", ".divx", ".xvid",
+		".flv", ".ts", ".mts", ".m2ts",
+		".mpg", ".mpeg", ".vob", ".m2v", ".m2p",
+		".wmv", ".asf", ".ogv", ".mxf",
+		".mjpeg", ".mjpg":
 		return true
 	}
 	return false

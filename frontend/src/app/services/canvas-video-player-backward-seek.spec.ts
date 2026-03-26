@@ -1,56 +1,18 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 /**
- * Canvas video player backward seek optimization tests
+ * Canvas video player backward seek tests
  * 
  * Tests to ensure:
- * 1. Backward seeks skip decoder reset for random-access sources
- * 2. Buffered frame detection works properly
- * 3. Backward seeking latency is minimized
- * 4. No discrepancies in decoded frames vs buffered frames
+ * 1. Buffered frame detection works properly for backward seeks
+ * 2. Frame tolerance is correctly applied
+ * 3. No discrepancies in decoded frames vs buffered frames
  */
 
 interface MockDecodedFrame {
   timestampMs: number;
   frameId: string;
 }
-
-interface MockSource {
-  supportsRandomAccess: boolean;
-}
-
-/**
- * Test: backward seek should skip decoder reset for random-access sources
- */
-describe('Backward seek decoder optimization', () => {
-  it('backward seek with random access should not reset decoder', () => {
-    // Simulate the seek logic
-    const isSeekingBackward = true;
-    const source: MockSource = { supportsRandomAccess: true };
-    
-    const needsDecoderReset = !isSeekingBackward || !source.supportsRandomAccess;
-    
-    expect(needsDecoderReset).toBe(false);
-  });
-
-  it('backward seek without random access should reset decoder', () => {
-    const isSeekingBackward = true;
-    const source: MockSource = { supportsRandomAccess: false };
-    
-    const needsDecoderReset = !isSeekingBackward || !source.supportsRandomAccess;
-    
-    expect(needsDecoderReset).toBe(true);
-  });
-
-  it('forward seek should always reset decoder', () => {
-    const isSeekingBackward = false;
-    const source: MockSource = { supportsRandomAccess: true };
-    
-    const needsDecoderReset = !isSeekingBackward || !source.supportsRandomAccess;
-    
-    expect(needsDecoderReset).toBe(true);
-  });
-});
 
 /**
  * Test: buffered frame detection tolerance for backward seeks
@@ -87,15 +49,14 @@ describe('Buffered frame detection for backward seeks', () => {
     const lastFrame = decodedFrames[decodedFrames.length - 1];
     const frameIntervalMs = getFrameIntervalEstimateMs();
 
-    // For backward seeks, allow larger tolerance
-    const toleranceMultiplier = isSeekingBackward ? 1.5 : 1.0;
-    const effectiveTolerance = presentationToleranceMs * toleranceMultiplier;
+    // Both backward and forward seeks use standard tolerance
+    const effectiveTolerance = presentationToleranceMs;
 
     if (targetTimeMs < firstFrame.timestampMs - effectiveTolerance) {
       return undefined;
     }
 
-    if (targetTimeMs > lastFrame.timestampMs + (frameIntervalMs * toleranceMultiplier)) {
+    if (targetTimeMs > lastFrame.timestampMs + (frameIntervalMs * 0.25)) {
       return undefined;
     }
 
@@ -123,29 +84,28 @@ describe('Buffered frame detection for backward seeks', () => {
     expect(frame).toBeUndefined();
   });
 
-  it('should allow larger tolerance for backward seeks', () => {
-    // Backward seeks apply 1.5x tolerance multiplier vs 1.0x for forward
-    // This allows backward seeks to reach slightly further for buffered frames
-    
+  it('should find buffered frames for backward and forward seeks', () => {
+    // Both backward and forward seeks use the same tolerance logic
     const presentationToleranceMs = getPresentationToleranceMs();
-    const backwardTolerance = presentationToleranceMs * 1.5;
-    const forwardTolerance = presentationToleranceMs * 1.0;
     
-    // Backward tolerance should be larger
-    expect(backwardTolerance).toBeGreaterThan(forwardTolerance);
+    // Tolerance should be applied consistently
+    expect(presentationToleranceMs).toBeGreaterThan(0);
     
-    // Both should still find valid frames
+    // Both should find valid frames at same target time
     const backwardFrame = findBufferedFrameForTime(1050, true);
     const forwardFrame = findBufferedFrameForTime(1050, false);
     
     expect(backwardFrame).toBeDefined();
     expect(forwardFrame).toBeDefined();
+    // Since we removed the tolerance multiplier, both should find the same frame
+    expect(backwardFrame?.frameId).toBe(forwardFrame?.frameId);
   });
 
-  it('should return last decoded frame when target is beyond last', () => {
+  it('should return last decoded frame when target is near last', () => {
     const frameIntervalMs = getFrameIntervalEstimateMs();
     const lastFrame = decodedFrames[decodedFrames.length - 1];
-    const targetTime = lastFrame.timestampMs + (frameIntervalMs * 0.5); // within tolerance
+    // Target within tolerance of last frame
+    const targetTime = lastFrame.timestampMs + 5;
 
     const frame = findBufferedFrameForTime(targetTime, true);
     expect(frame?.frameId).toBe('f4');

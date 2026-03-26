@@ -631,7 +631,6 @@ export class CanvasVideoPlayer {
   private sourceLoadGeneration = 0;
   private seekGeneration = 0;
   private seekInFlight = false;
-  private pendingSeekTimeMs: number | null = null;
   private pendingLoad: Promise<VideoMetadata> | null = null;
 
   readonly stateChanged$ = createBehaviorSubject<PlayerState>('idle');
@@ -736,31 +735,17 @@ export class CanvasVideoPlayer {
   async seek(timeMs: number): Promise<void> {
     await this.ensureLoaded();
 
-    // Queue pending seek if one is already in flight
-    // The pending seek will be applied after current seek completes
+    // Prevent concurrent seeks - only one seek operation at a time
     if (this.seekInFlight) {
-      this.pendingSeekTimeMs = timeMs;
       return;
     }
 
     this.seekInFlight = true;
 
     try {
-      let nextSeekTimeMs: number | null = timeMs;
-      
-      while (nextSeekTimeMs !== null) {
-        const seekTimeMs = nextSeekTimeMs;
-        nextSeekTimeMs = null;
-        this.pendingSeekTimeMs = null;
-        
-        await this.seekInternal(seekTimeMs);
-        
-        // If a new seek was queued while we were seeking, apply it
-        nextSeekTimeMs = this.pendingSeekTimeMs;
-      }
+      await this.seekInternal(timeMs);
     } finally {
       this.seekInFlight = false;
-      this.pendingSeekTimeMs = null;
     }
   }
 

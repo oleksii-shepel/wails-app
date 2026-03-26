@@ -37,9 +37,9 @@ interface PacketToken {
   packetIndex: number;
 }
 
-const SEGMENT_PREFETCH_AHEAD = 1;
-const SEGMENT_RETENTION_BEHIND = 6;
-const SEGMENT_RETENTION_AHEAD = 6;
+const SEGMENT_PREFETCH_AHEAD = 3; // Increased from 1 to better support backward seeks
+const SEGMENT_RETENTION_BEHIND = 8; // Increased from 6 to keep more segments for backward seeks
+const SEGMENT_RETENTION_AHEAD = 8; // Increased from 6 to keep more segments for forward seeks
 
 export class SegmentVideoLoader {
   private manifest: SegmentedVideoManifest | null = null;
@@ -216,7 +216,12 @@ export class SegmentVideoLoader {
 
     let segmentIndex = this.findSegmentIndex(timeMs);
     const windowGeneration = this.activateWindow(segmentIndex);
-    while (segmentIndex >= 0) {
+    
+    // For backward seeks, we may need to check previous segments
+    const maxBackwardSegments = options?.keyframe ? 5 : 1; // Increased from 3 to 5 for better backward seeking
+    let backwardAttempts = 0;
+    
+    while (segmentIndex >= 0 && backwardAttempts <= maxBackwardSegments) {
       const segment = await this.ensureSegmentLoaded(segmentIndex, windowGeneration);
       const packetIndex = findPacketIndex(segment.videoPackets, timeMs, options?.keyframe === true);
       if (packetIndex >= 0) {
@@ -225,10 +230,14 @@ export class SegmentVideoLoader {
         }
         return this.makeCursor(segmentIndex, packetIndex, segment.videoPackets);
       }
+      
       if (!options?.keyframe) {
         break;
       }
+      
+      // For backward seek requiring keyframe, try previous segment
       segmentIndex -= 1;
+      backwardAttempts += 1;
     }
     return null;
   }
@@ -310,6 +319,7 @@ export class SegmentVideoLoader {
       return;
     }
 
+    // Prefetch forward
     for (let offset = 1; offset <= SEGMENT_PREFETCH_AHEAD; offset += 1) {
       const nextIndex = anchorIndex + offset;
       if (nextIndex >= this.manifest.totalSegments) {
@@ -319,6 +329,20 @@ export class SegmentVideoLoader {
         continue;
       }
       void this.ensureSegmentLoaded(nextIndex, windowGeneration).catch(() => {});
+    }
+    
+    // Also prefetch backward when we're in the middle of the video
+    if (anchorIndex > SEGMENT_PREFETCH_AHEAD) {
+      for (let offset = 1; offset <= SEGMENT_PREFETCH_AHEAD; offset += 1) {
+        const prevIndex = anchorIndex - offset;
+        if (prevIndex < 0) {
+          break;
+        }
+        if (this.loadedSegments.has(prevIndex) || this.pendingSegments.has(prevIndex)) {
+          continue;
+        }
+        void this.ensureSegmentLoaded(prevIndex, windowGeneration).catch(() => {});
+      }
     }
   }
 
@@ -423,19 +447,34 @@ async function collectPackets(
 
 function findPacketIndex(packets: SampleInfo[], timeMs: number, requireKeyframe: boolean): number {
   let bestIndex = -1;
+  
+  if (requireKeyframe) {
+    // Find the keyframe with timestamp <= timeMs (for backward seeks)
+    for (let index = 0; index < packets.length; index += 1) {
+      const packet = packets[index];
+      if (packet.isRap && packet.timestampMs <= timeMs) {
+        bestIndex = index;
+      } else if (packet.timestampMs > timeMs && bestIndex >= 0) {
+        break;
+      }
+    }
+    
+    if (bestIndex >= 0) {
+      return bestIndex;
+    }
+    
+    // If no keyframe before, find first keyframe
+    return packets.findIndex(packet => packet.isRap);
+  }
+  
+  // Regular forward seek - find first packet >= timeMs
   for (let index = 0; index < packets.length; index += 1) {
-    const packet = packets[index];
-    if (!requireKeyframe && packet.timestampMs >= timeMs) {
+    if (packets[index].timestampMs >= timeMs) {
       return index;
     }
-    if (packet.timestampMs <= timeMs && (!requireKeyframe || packet.isRap)) {
-      bestIndex = index;
-    }
   }
-  if (bestIndex >= 0) {
-    return bestIndex;
-  }
-  return requireKeyframe ? packets.findIndex(packet => packet.isRap) : (packets.length > 0 ? 0 : -1);
+  
+  return packets.length > 0 ? packets.length - 1 : -1;
 }
 
 function concatenateBuffers(first: ArrayBuffer, second: ArrayBuffer): ArrayBuffer {

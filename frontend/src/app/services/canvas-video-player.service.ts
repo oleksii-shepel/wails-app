@@ -737,13 +737,19 @@ export class CanvasVideoPlayer {
     const seekGeneration = ++this.seekGeneration;
 
     const clampedTimeMs = Math.max(0, Math.min(timeMs, this.getDurationMs()));
-	const shouldResumePlayback = this.stateChanged$.value === 'playing';
+    const shouldResumePlayback = this.stateChanged$.value === 'playing';
     const currentTimeMs = this.getCurrentTimeMs();
+    const isSeekingBackward = clampedTimeMs < currentTimeMs;
+
     if (this.stateChanged$.value === 'playing') {
       this.suspendPlaybackForSeek();
     }
 
-    if (!shouldResumePlayback && this.tryBufferedSeekPreview(clampedTimeMs)) {
+    // For backward seeks, try to use buffered frames first
+    if (isSeekingBackward && this.tryBufferedSeekPreview(clampedTimeMs)) {
+      if (shouldResumePlayback) {
+        await this.resumePlaybackAfterSeek();
+      }
       return;
     }
 
@@ -759,15 +765,20 @@ export class CanvasVideoPlayer {
       return;
     }
     this.resetAudioPlaybackState();
-    this.nextPacketCursor = await this.getSeekCursor(clampedTimeMs);
+    
+    // For backward seeks, get the keyframe BEFORE the target time
+    this.nextPacketCursor = await this.getSeekCursor(clampedTimeMs, isSeekingBackward);
     if (!this.isCurrentSeek(seekGeneration)) {
       return;
     }
     this.reachedEndOfStream = this.nextPacketCursor === null;
+    
+    // Decode more frames for backward seeks to fill the buffer
     await this.decodeAhead({
-      maxFrames: CanvasVideoPlayer.SEEK_PRIME_FRAME_COUNT,
+      maxFrames: isSeekingBackward ? CanvasVideoPlayer.SEEK_PRIME_FRAME_COUNT * 2 : CanvasVideoPlayer.SEEK_PRIME_FRAME_COUNT,
       allowPausedPriming: true,
     });
+    
     if (!this.isCurrentSeek(seekGeneration)) {
       return;
     }
@@ -1292,11 +1303,26 @@ export class CanvasVideoPlayer {
     }
   }
 
-  private async getSeekCursor(timeMs: number): Promise<DemuxedPacketCursor | null> {
+  private async getSeekCursor(timeMs: number, preferPreviousKeyframe: boolean = false): Promise<DemuxedPacketCursor | null> {
     if (!this.source) {
       return null;
     }
 
+    // For backward seeks, we want the keyframe BEFORE the target time
+    if (preferPreviousKeyframe) {
+      const keyframeCursor = await this.source.getPacketForTime(timeMs, { keyframe: true });
+      if (keyframeCursor && keyframeCursor.packet.timestampMs <= timeMs) {
+        return keyframeCursor;
+      }
+      // If we couldn't get a keyframe before, fall back to the first packet
+      const firstPacket = await this.source.getFirstPacket();
+      if (firstPacket && firstPacket.packet.timestampMs <= timeMs) {
+        return firstPacket;
+      }
+      return null;
+    }
+    
+    // For forward seeks, get the keyframe at or after the target
     const keyframeCursor = await this.source.getPacketForTime(timeMs, { keyframe: true });
     return keyframeCursor ?? this.source.getFirstPacket();
   }
@@ -1335,21 +1361,27 @@ export class CanvasVideoPlayer {
     const lastFrame = this.decodedFrames[this.decodedFrames.length - 1];
     const frameIntervalMs = this.getFrameIntervalEstimateMs();
 
-    if (timeMs < firstFrame.timestampMs - presentationToleranceMs) {
+    // For backward seeks, allow a larger tolerance
+    const isSeekingBackward = timeMs < (this.getCurrentTimeMs());
+    const toleranceMultiplier = isSeekingBackward ? 1.5 : 1.0;
+    const effectiveTolerance = presentationToleranceMs * toleranceMultiplier;
+
+    if (timeMs < firstFrame.timestampMs - effectiveTolerance) {
       return undefined;
     }
 
-    if (timeMs > lastFrame.timestampMs + frameIntervalMs) {
+    if (timeMs > lastFrame.timestampMs + (frameIntervalMs * toleranceMultiplier)) {
       return undefined;
     }
 
+    // Find the frame with timestamp closest to but not exceeding target
     let selectedFrame = firstFrame;
     for (const frame of this.decodedFrames) {
-      if (frame.timestampMs <= timeMs + presentationToleranceMs) {
+      if (frame.timestampMs <= timeMs + effectiveTolerance) {
         selectedFrame = frame;
-        continue;
+      } else {
+        break;
       }
-      break;
     }
 
     return selectedFrame;

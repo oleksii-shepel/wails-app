@@ -716,7 +716,7 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
     private readonly api: ApiService,
     private readonly cdr: ChangeDetectorRef,
     private readonly videoPlayerService: CanvasVideoPlayerService,
-  ) {}
+  ) { }
 
   get displayName(): string {
     const normalized = (this.targetPath ?? '').replace(/\\/g, '/');
@@ -850,6 +850,17 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
     this.seekDragActive = false;
     this.videoSeekTarget = seekSeconds;
     this.videoCurrentTime = seekSeconds;
+
+    // For backward seeks, we want immediate visual feedback
+    const isBackwardSeek = seekSeconds < this.videoCurrentTime;
+    if (isBackwardSeek && this.canvasPlayer) {
+      // Try to show buffered frame immediately for backward seek
+      const currentFrame = this.canvasPlayer['findBufferedFrameForTime']?.(seekSeconds * 1000);
+      if (currentFrame) {
+        // Visual feedback already provided by displayedCurrentTime
+      }
+    }
+
     void this.performSeek(seekSeconds);
     this.cdr.markForCheck();
   }
@@ -861,7 +872,12 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
 
     const generation = ++this.seekRequestGeneration;
     const shouldResumePlayback = this.canvasPlayer.isPlaying() || this.videoIsPlaying;
-    const needsRestart = this.shouldRestartStreamOnSeek(seekSeconds);
+    const currentTimeMs = this.videoCurrentTime * 1000;
+    const targetTimeMs = seekSeconds * 1000;
+    const isSeekingBackward = targetTimeMs < currentTimeMs;
+
+    // For segmented video, we don't need to restart stream for backward seeks
+    const needsRestart = this.shouldRestartStreamOnSeek(seekSeconds) && !isSeekingBackward;
 
     this.seekPending = true;
     this.videoLoading = needsRestart;
@@ -908,6 +924,18 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
 
     const windowStart = this.videoTimelineOffsetSeconds;
     const windowEnd = windowStart + VideoViewerComponent.WINDOWED_VIDEO_STREAM_SECONDS;
+    const isSeekingBackward = seekSeconds < this.videoCurrentTime;
+
+    // For backward seeks, we can often reuse the existing stream
+    // Only restart if seeking far backward beyond a threshold
+    if (isSeekingBackward) {
+      const seekDistance = this.videoCurrentTime - seekSeconds;
+      // If seeking backward within the last 30 seconds, don't restart
+      if (seekDistance <= 30) {
+        return false;
+      }
+    }
+
     return seekSeconds < windowStart || seekSeconds >= windowEnd;
   }
 

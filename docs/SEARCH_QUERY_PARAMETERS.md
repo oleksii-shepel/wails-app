@@ -12,7 +12,7 @@ search://?path=C:/Users&pattern=*.log
 
 ### With Multiple Filters
 ```
-search://?path=drive://c&pattern=*.log&minSize=1048576&modifiedAfter=2024-01-01
+search://?path=filesystem://c&pattern=*.log&minSize=1048576&modifiedAfter=2024-01-01
 ```
 
 ## Available Parameters

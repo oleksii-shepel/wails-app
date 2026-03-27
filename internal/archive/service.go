@@ -50,7 +50,7 @@ func NewService(
 func (s *Service) Browse(fsPath string, nestedChain []string, innerPath string) (contracts.ArchiveListing, error) {
 	ctx := context.Background()
 
-	// Convert drive:// scheme paths to native OS paths
+	// Convert filesystem:// scheme paths to native OS paths
 	nativePath := pathref.ToNativePath(fsPath)
 
 	arch, err := s.archCache.Get(ctx, nativePath, nestedChain, "")
@@ -80,7 +80,7 @@ func (s *Service) ReadFile(fsPath string, nestedChain []string, entryPath string
 	entryPath = normalizePath(entryPath)
 
 	ctx := context.Background()
-	// Convert drive:// scheme paths to native OS paths
+	// Convert filesystem:// scheme paths to native OS paths
 	nativePath := pathref.ToNativePath(fsPath)
 
 	arch, err := s.archCache.Get(ctx, nativePath, nestedChain, "")
@@ -174,7 +174,7 @@ func (s *Service) ReadFileStream(fsPath string, nestedChain []string, entryPath 
 			s.streamsMu.Unlock()
 		}()
 
-		// Convert drive:// scheme paths to native OS paths
+		// Convert filesystem:// scheme paths to native OS paths
 		nativePath := pathref.ToNativePath(fsPath)
 
 		arch, err := s.archCache.Get(ctx, nativePath, nestedChain, "")

@@ -14,17 +14,17 @@ const SEARCH_SCHEME = 'search://';
 
 function canonicalDriveReference(p: string): string | null {
   const normalized = (p || '').trim().replace(/\\/g, '/');
-  const driveRef = /^drive:\/\/([a-z])(\/.*)?$/i.exec(normalized);
+  const driveRef = /^filesystem:\/\/([a-z])(\/.*)?$/i.exec(normalized);
   if (driveRef) {
     const drive = driveRef[1].toLowerCase();
     const rest = (driveRef[2] || '').replace(/^\/+/, '').replace(/\/+/, '/');
-    return rest ? `drive://${drive}/${rest}` : `drive://${drive}`;
+    return rest ? `filesystem://${drive}/${rest}` : `filesystem://${drive}`;
   }
   const windowsRef = /^([a-z]):(\/.*)?$/i.exec(normalized);
   if (windowsRef) {
     const drive = windowsRef[1].toLowerCase();
     const rest = (windowsRef[2] || '').replace(/^\/+/, '').replace(/\/+/g, '/');
-    return rest ? `drive://${drive}/${rest}` : `drive://${drive}`;
+    return rest ? `filesystem://${drive}/${rest}` : `filesystem://${drive}`;
   }
   return null;
 }
@@ -36,7 +36,7 @@ function isDriveReference(p: string): boolean {
 function toShortDriveDisplayPath(p: string): string {
   const canonical = canonicalDriveReference(p);
   if (!canonical) return p;
-  const rest = canonical.slice('drive://'.length);
+  const rest = canonical.slice('filesystem://'.length);
   const drive = rest.slice(0, 1).toUpperCase();
   const suffix = rest.slice(1).replace(/^\/+/, '');
   return suffix ? `${drive}:/${suffix}` : `${drive}:/`;
@@ -47,7 +47,7 @@ function aliasSchemeFor(p: string): string | null {
   const match = /^([a-z][a-z0-9+.-]*):\/\//i.exec(normalized);
   if (!match) return null;
   const scheme = `${match[1].toLowerCase()}://`;
-  if (scheme === 'drive://') return null;
+  if (scheme === 'filesystem://') return null;
   return scheme;
 }
 
@@ -317,12 +317,12 @@ export function parentPath(p: string): string {
   }
   const driveReference = canonicalDriveReference(n);
   if (driveReference) {
-    const rest = driveReference.slice('drive://'.length);
+    const rest = driveReference.slice('filesystem://'.length);
     const drive = rest.slice(0, 1).toLowerCase();
     const rel = rest.slice(1).replace(/^\/+/, '');
-    if (!rel) return `drive://${drive}`;
+    if (!rel) return `filesystem://${drive}`;
     const idx = rel.lastIndexOf('/');
-    return idx < 0 ? `drive://${drive}` : `drive://${drive}/${rel.slice(0, idx)}`;
+    return idx < 0 ? `filesystem://${drive}` : `filesystem://${drive}/${rel.slice(0, idx)}`;
   }
   if (n === '/') return '/';
   const parts = n.split('/').filter(Boolean);
@@ -383,7 +383,7 @@ export function formatPathForDisplay(path: string): string {
 export function formatPathsInText(text: string): string {
   if (!text) return text;
 
-  return text.replace(/drive:\/\/[a-z](?:\/[^:\n\r]*)?/gi, (match) => formatPathForDisplay(match));
+  return text.replace(/filesystem:\/\/[a-z](?:\/[^:\n\r]*)?/gi, (match) => formatPathForDisplay(match));
 }
 
 // ─── Segment builders ─────────────────────────────────────────────────────────
@@ -453,14 +453,14 @@ export function buildSegments(p: string): PathSegment[] {
 
   const driveReference = canonicalDriveReference(p);
   if (driveReference) {
-    const rest = driveReference.slice('drive://'.length);
+    const rest = driveReference.slice('filesystem://'.length);
     const drive = rest.slice(0, 1).toUpperCase() + ':';
     const rel = rest.slice(1).replace(/^\/+/, '');
     const parts = rel ? rel.split('/').filter(Boolean) : [];
 
     const segs: PathSegment[] = [{
       label: drive,
-      fullPath: `drive://${drive[0].toLowerCase()}`,
+      fullPath: `filesystem://${drive[0].toLowerCase()}`,
       isRoot: true,
       rootLabel: drive,
     }];
@@ -468,7 +468,7 @@ export function buildSegments(p: string): PathSegment[] {
     parts.forEach((part, i) => {
       segs.push({
         label: part,
-        fullPath: `drive://${drive[0].toLowerCase()}/${parts.slice(0, i + 1).join('/')}`,
+        fullPath: `filesystem://${drive[0].toLowerCase()}/${parts.slice(0, i + 1).join('/')}`,
         isRoot: false,
       });
     });
@@ -586,7 +586,7 @@ export function parsePathWithArchives(path: string): {
   path = normalizePath(path);
   const ARCHIVE_RE = /\.(zip|tar|tgz|tar\.gz|tar\.bz2|tar\.xz|gz|bz2|xz|rar|7z)$/i;
   const driveReference = canonicalDriveReference(path);
-  const withoutDrive = driveReference ? driveReference.slice('drive://'.length) : '';
+  const withoutDrive = driveReference ? driveReference.slice('filesystem://'.length) : '';
   const driveLetter = driveReference ? withoutDrive.slice(0, 1).toLowerCase() : '';
   const driveRemainder = driveReference ? withoutDrive.slice(1).replace(/^\/+/, '') : '';
   const parts = driveReference
@@ -610,7 +610,7 @@ export function parsePathWithArchives(path: string): {
   // Reconstruct the FS prefix correctly for Windows vs POSIX
   let fsDirPath: string;
   if (driveReference) {
-    fsDirPath = `drive://${driveLetter}` + (fsParts.length ? `/${fsParts.join('/')}` : '');
+    fsDirPath = `filesystem://${driveLetter}` + (fsParts.length ? `/${fsParts.join('/')}` : '');
   } else if (isWin && /^[A-Za-z]:/.test(parts[0])) {
     fsDirPath = fsParts.join('/');
   } else if (path.startsWith('//') || path.startsWith('\\\\')) {

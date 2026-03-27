@@ -167,7 +167,7 @@ func (u *Unified) Split(path string) (string, string) {
 }
 func (u *Unified) IsAbs(path string) bool { return strings.HasPrefix(path, "/") }
 
-// ResolvePublicPath converts a public/scheme path (e.g., "drive://c/Users/...") to a real filesystem path.
+// ResolvePublicPath converts a public/scheme path (e.g., "filesystem://c/Users/...") to a real filesystem path.
 // This handles the conversion from user-facing paths to actual filesystem paths.
 func (u *Unified) ResolvePublicPath(path string) (string, error) {
 	if path == "" {
@@ -176,11 +176,11 @@ func (u *Unified) ResolvePublicPath(path string) (string, error) {
 
 	trimmed := strings.TrimSpace(strings.ReplaceAll(path, "\\", "/"))
 
-	// Special handling for drive:// scheme paths
-	if strings.HasPrefix(strings.ToLower(trimmed), "drive://") {
-		rest := strings.TrimLeft(trimmed[8:], "/")
+	// Special handling for filesystem:// scheme paths
+	if strings.HasPrefix(strings.ToLower(trimmed), "filesystem://") {
+		rest := strings.TrimLeft(trimmed[len("filesystem://"):], "/")
 		if len(rest) > 0 && isWindowsDriveLetter(rune(rest[0])) {
-			// Convert drive://c/Users/... to C:\Users\...
+			// Convert filesystem://c/Users/... to C:\Users\...
 			drive := strings.ToUpper(rest[:1])
 			remainder := strings.TrimPrefix(rest[1:], "/")
 			if remainder == "" {
@@ -201,15 +201,15 @@ func isWindowsDriveLetter(r rune) bool {
 }
 
 // pathrefToVFS converts a path using pathref semantics.
-// We can't import pathref here due to circular deps, so we handle drive:// locally.
+	// We can't import pathref here due to circular deps, so we handle filesystem:// locally.
 func (u *Unified) pathrefToVFS(path string) string {
 	trimmed := strings.TrimSpace(strings.ReplaceAll(path, "\\", "/"))
 
-	// Handle drive://c/ scheme paths
-	if strings.HasPrefix(strings.ToLower(trimmed), "drive://") {
-		rest := strings.TrimLeft(trimmed[8:], "/")
+	// Handle filesystem://c/ scheme paths
+	if strings.HasPrefix(strings.ToLower(trimmed), "filesystem://") {
+		rest := strings.TrimLeft(trimmed[len("filesystem://"):], "/")
 		if len(rest) > 0 {
-			// drive://c/Users/... -> /c/Users/...
+			// filesystem://c/Users/... -> /c/Users/...
 			return "/" + rest
 		}
 	}

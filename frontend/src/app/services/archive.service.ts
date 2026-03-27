@@ -123,9 +123,9 @@ async function goBrowse(
 
 /**
  * Decomposes a global archive path like
- *   "drive://c/foo/bar.zip/nested.zip/dir/file.txt"
+ *   "filesystem://c/foo/bar.zip/nested.zip/dir/file.txt"
  * into the three components expected by the backend:
- *   fsPath      = "drive://c/foo/bar.zip"
+ *   fsPath      = "filesystem://c/foo/bar.zip"
  *   nestedChain = ["nested.zip"]
  *   innerPath   = "dir/file.txt"
  */

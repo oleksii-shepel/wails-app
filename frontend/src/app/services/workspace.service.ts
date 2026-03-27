@@ -571,7 +571,7 @@ export class WorkspaceService {
    * Update both the path and title of a tab explicitly, without any derivation.
    *
    * Used for archive navigation where path and title are virtual
-    * (e.g. "drive://c/Desktop.zip/src") and must not be processed by getPathTitle.
+    * (e.g. "filesystem://c/Desktop.zip/src") and must not be processed by getPathTitle.
    * Also used on archive exit to restore the real FS path + basename title.
    */
   updateTabPathAndTitle(paneId: string, tabId: string, path: string, title: string): boolean {
@@ -931,9 +931,9 @@ export class WorkspaceService {
    *
    * Rules:
    *   /                     → /
-    *   drive://c             → C:
+    *   filesystem://c             → C:
    *   /home/user/documents  → documents
-    *   drive://c/Users/Alice/docs → docs
+    *   filesystem://c/Users/Alice/docs → docs
    */
   private getPathTitle(path: string): string {
     const normalized = this.normalizePath(path);
@@ -964,7 +964,7 @@ export class WorkspaceService {
     const normalized = this.normalizePath(path);
     if (normalized.startsWith('registry://')) return 'registry://';
     const driveMatch = /^drive:\/\/([a-z])(?:\/.*)?$/i.exec(normalized);
-    if (driveMatch) return `drive://${driveMatch[1].toLowerCase()}`;
+    if (driveMatch) return `filesystem://${driveMatch[1].toLowerCase()}`;
     const aliasMatch = /^([a-z][a-z0-9+.-]*):\/\//i.exec(normalized);
     if (aliasMatch) return `${aliasMatch[1].toLowerCase()}://`;
     return '/';

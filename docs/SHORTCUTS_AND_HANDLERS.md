@@ -141,7 +141,7 @@ Supported forms:
 - `search://invoice @ C:/Work`
 - `search://invoice @@ C:/Work`
 - `search://invoice`
-- `search://?path=drive://c/Work&pattern=invoice&recursive=true`
+- `search://?path=filesystem://c/Work&pattern=invoice&recursive=true`
 
 Rules:
 

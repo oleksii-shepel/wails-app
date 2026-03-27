@@ -687,7 +687,7 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
 
   private prefersCanonicalDriveDisplay(reference?: string): boolean {
     const raw = ((reference ?? this.value) || '').trim().replace(/\\/g, '/').toLowerCase();
-    return raw === 'drive://' || raw.startsWith('drive://');
+    return raw === 'filesystem://' || raw.startsWith('filesystem://');
   }
 
   private toDisplayPath(path: string): string {

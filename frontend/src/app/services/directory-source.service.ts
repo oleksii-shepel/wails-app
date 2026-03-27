@@ -71,7 +71,7 @@ class FilesystemDirectoryProvider implements DirectoryListingProvider {
   getRootPath(path: string): string | null {
     const normalized = normalizePath(path || '/');
     const driveMatch = /^drive:\/\/([a-z])(?:\/.*)?$/i.exec(normalized);
-    if (driveMatch) return `drive://${driveMatch[1].toLowerCase()}`;
+    if (driveMatch) return `filesystem://${driveMatch[1].toLowerCase()}`;
     const aliasMatch = /^([a-z][a-z0-9+.-]*):\/\//i.exec(normalized);
     if (aliasMatch) return `${aliasMatch[1].toLowerCase()}://`;
     return '/';

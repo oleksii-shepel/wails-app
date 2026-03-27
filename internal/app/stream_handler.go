@@ -460,7 +460,7 @@ func serveVFSFile(w http.ResponseWriter, r *http.Request, vfs *vfslib.Unified, p
 	http.ServeContent(w, r, fi.Name(), fi.ModTime(), f)
 }
 
-// serveDiskFile resolves the public path (drive:// scheme) to a native OS path
+// serveDiskFile resolves the public path (filesystem:// scheme) to a native OS path
 // and lets http.ServeContent handle range requests.
 func serveDiskFile(w http.ResponseWriter, r *http.Request, publicPath string) {
 	nativePath := pathref.ToNativePath(publicPath)

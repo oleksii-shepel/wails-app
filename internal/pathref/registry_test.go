@@ -6,7 +6,7 @@ import (
 )
 
 func TestToNativePathDriveRootUsesPlatformSeparator(t *testing.T) {
-	got := ToNativePath("drive://c")
+	got := ToNativePath("filesystem://c")
 	want := filepath.FromSlash("C:/")
 	if got != want {
 		t.Fatalf("ToNativePath(drive root) mismatch\nwant: %q\n got: %q", want, got)
@@ -14,7 +14,7 @@ func TestToNativePathDriveRootUsesPlatformSeparator(t *testing.T) {
 }
 
 func TestToNativePathDriveChildUsesPlatformSeparator(t *testing.T) {
-	got := ToNativePath("drive://c/New Folder")
+	got := ToNativePath("filesystem://c/New Folder")
 	want := filepath.FromSlash("C:/New Folder")
 	if got != want {
 		t.Fatalf("ToNativePath(drive child) mismatch\nwant: %q\n got: %q", want, got)

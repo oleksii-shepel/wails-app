@@ -60,7 +60,7 @@ get virtualEnabled(): boolean {
     - Search alias parsing for `search://` queries entered directly in the address bar
 
   - **Search Scheme Support:**
-    - Canonical backend form: `search://?path=drive://c/Work&pattern=invoice&recursive=true`
+    - Canonical backend form: `search://?path=filesystem://c/Work&pattern=invoice&recursive=true`
     - Friendly address-bar form: `search://invoice @ C:/Work`
     - Non-recursive form: `search://invoice @@ C:/Work`
     - If no path is supplied, the current pane path is used as the search root

@@ -23,7 +23,7 @@ func TestResolvePublicPathKeepsDrivePathsNative(t *testing.T) {
 	resolver := &stubMemoryResolver{}
 	service := NewService(ServiceConfig{MemoryResolver: resolver})
 
-	got, err := service.resolvePublicPath("drive://c/New Folder")
+	got, err := service.resolvePublicPath("filesystem://c/New Folder")
 	if err != nil {
 		t.Fatalf("resolvePublicPath returned error: %v", err)
 	}

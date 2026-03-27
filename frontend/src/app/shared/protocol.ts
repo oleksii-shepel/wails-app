@@ -25,7 +25,7 @@ export interface OSInfoResponse {
   hostname: string;
   /**
    * On Windows: the system drive root reference, exposed as a public path
-   * token such as "drive://c". null on non-Windows platforms.
+  * token such as "filesystem://c". null on non-Windows platforms.
    */
   systemDrive: string | null;
 }
@@ -55,7 +55,7 @@ export type DriveType =
 export interface DriveInfo {
   /** Short label, e.g. "C:" on Windows or "sda1" on Linux */
   name: string;
-  /** Canonical mount/root path, e.g. "drive://c" on Windows */
+  /** Canonical mount/root path, e.g. "filesystem://c" on Windows */
   path: string;
   /** Physical drive kind or a synthetic cloud mount used by the frontend address bar. */
   driveType: DriveType;

@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	DriveScheme     = "drive://"
+	DriveScheme     = "filesystem://"
 	RegistryScheme  = "registry://"
 	SearchScheme    = "search://"
 	MemoryScheme    = "memory://"

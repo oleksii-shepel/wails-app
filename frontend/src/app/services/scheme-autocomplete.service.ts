@@ -57,7 +57,7 @@ export interface SchemeAutocompleteProvider {
 }
 
 /**
- * Default filesystem provider (covers drive://, local paths, Windows paths).
+ * Default filesystem provider (covers filesystem://, local paths, Windows paths).
  */
 class FilesystemAutocompleteProvider implements SchemeAutocompleteProvider {
   scheme = 'filesystem';
@@ -66,7 +66,8 @@ class FilesystemAutocompleteProvider implements SchemeAutocompleteProvider {
 
   canHandle(query: string): boolean {
     const scheme = this.extractScheme(query);
-    return !scheme || scheme === 'drive';
+    // Support legacy 'drive' scheme and new 'filesystem' scheme
+    return !scheme || scheme === 'drive' || scheme === 'filesystem';
   }
 
   shouldFetch(query: string): boolean {
@@ -78,7 +79,7 @@ class FilesystemAutocompleteProvider implements SchemeAutocompleteProvider {
 
     // Avoid listing the full filesystem root on short inputs.
     if (n === '/') return false;
-    if (n.toLowerCase() === 'drive://') return false;
+    if (n.toLowerCase() === 'filesystem://') return false;
 
     // Any slash-based path, or Windows drive prefix
     if (n.includes('/')) return true;
@@ -91,8 +92,8 @@ class FilesystemAutocompleteProvider implements SchemeAutocompleteProvider {
     const q = normalizePath((query || '').replace(/\\/g, '/'));
     if (!q) return { dirPath: '/', prefix: '' };
 
-    // Handle drive roots (e.g., "C:", "drive://X")
-    const driveRootMatch = /^drive:\/\/[a-z]$/i.exec(q);
+    // Handle drive roots (e.g., "C:", "filesystem://X")
+    const driveRootMatch = /^filesystem:\/\/[a-z]$/i.exec(q);
     if (driveRootMatch) return { dirPath: `${q}/`, prefix: '' };
 
     // If path ends with slash, it's a directory
@@ -197,7 +198,7 @@ class FilesystemAutocompleteProvider implements SchemeAutocompleteProvider {
  * - contentSearch: Search inside file contents (default: false)
  * - extensions: Comma-separated file extensions to match (.txt,.md)
  *
- * Example: search://?path=drive://c&pattern=*.log&minSize=1000&modifiedAfter=2024-01-01
+ * Example: search://?path=filesystem://c&pattern=*.log&minSize=1000&modifiedAfter=2024-01-01
  */
 class SearchAutocompleteProvider implements SchemeAutocompleteProvider {
   scheme = 'search';
@@ -1135,7 +1136,7 @@ export class SchemeAutocompleteService {
       new SftpAutocompleteProvider(directorySource),
       new WebdavAutocompleteProvider(directorySource),
       new ArchiveAutocompleteProvider(directorySource),
-      // Generic filesystem provider (catch-all for drive://, local paths, etc.)
+      // Generic filesystem provider (catch-all for filesystem://, local paths, etc.)
       this.filesystemProvider,
     ];
   }

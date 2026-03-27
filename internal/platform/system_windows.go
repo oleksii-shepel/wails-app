@@ -45,7 +45,7 @@ func getSystemDrive() string {
 	if drive := os.Getenv("SystemDrive"); drive != "" {
 		return driveRootReference(drive)
 	}
-	return "drive://c"
+	return "filesystem://c"
 }
 
 func listDrivesPlatform() []contracts.DriveInfo {
@@ -122,7 +122,7 @@ func buildDriveInfo(root string) contracts.DriveInfo {
 func driveRootReference(root string) string {
 	normalized := strings.TrimSpace(filepath.ToSlash(root))
 	if len(normalized) >= 2 && normalized[1] == ':' {
-		return "drive://" + strings.ToLower(normalized[:1])
+		return "filesystem://" + strings.ToLower(normalized[:1])
 	}
 	return normalized
 }

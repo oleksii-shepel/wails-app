@@ -241,6 +241,7 @@ const codePreviewLightTheme = createCodePreviewTheme(false);
         <button class="tool-btn" type="button" (click)="openGoToLine()">
           Go to line
         </button>
+        <span class="toolbar-divider"></span>
         <button class="tool-btn" type="button" (click)="copyPath()" [class.active]="copiedPath">
           {{ copiedPath ? 'Copied' : 'Copy path' }}
         </button>
@@ -252,7 +253,7 @@ const codePreviewLightTheme = createCodePreviewTheme(false);
       <div class="viewer-body">
         <div *ngIf="kind === 'loading'" class="state-container">
           <div class="spinner"></div>
-          <div class="state-label">Loading preview...</div>
+          <div class="state-label">Loading preview…</div>
         </div>
 
         <div *ngIf="kind === 'empty'" class="state-container">
@@ -262,18 +263,19 @@ const codePreviewLightTheme = createCodePreviewTheme(false);
 
         <div *ngIf="kind === 'directory'" class="state-container">
           <div class="state-icon">&#x1F4C1;</div>
-          <div class="state-label">Directory preview is unavailable</div>
+          <div class="state-label">Directory — no preview available</div>
         </div>
 
         <div *ngIf="kind === 'unsupported'" class="state-container state-error">
           <div class="state-icon">&#x26A0;</div>
           <div class="state-label">Text preview is unavailable</div>
-          <div class="error-detail">The file could not be decoded as UTF-8 text.</div>
+          <div class="state-sub">The file could not be decoded as UTF-8 text.</div>
         </div>
 
         <div *ngIf="kind === 'error'" class="state-container state-error">
           <div class="state-icon">&#x274C;</div>
           <div class="state-label">Failed to load preview</div>
+          <div class="state-sub">The source could not be rendered in the code preview.</div>
           <div class="error-detail">{{ error }}</div>
         </div>
 
@@ -304,77 +306,115 @@ const codePreviewLightTheme = createCodePreviewTheme(false);
     }
     .viewer-header {
       display: flex;
-      justify-content: space-between;
       align-items: center;
-      gap: 10px;
-      padding: 10px 12px;
-      border-bottom: 1px solid var(--vsc-code-border, var(--vsc-border, #333));
-      background: var(--vsc-code-header-background, color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 92%, #000));
+      justify-content: space-between;
+      gap: 8px;
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--vsc-border, #454545);
+      background: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 92%, black);
+      flex-shrink: 0;
+      min-width: 0;
     }
     .header-main {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
       min-width: 0;
+      flex: 1;
     }
     .file-icon {
       font-size: 18px;
-      opacity: 0.9;
+      flex-shrink: 0;
+      line-height: 1;
     }
     .header-text {
       min-width: 0;
+      flex: 1;
     }
     .title {
-      font-weight: 600;
-      font-size: 13px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      text-transform: uppercase;
+      opacity: 0.9;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
     .path {
+      font-family: var(--vsc-font-family-mono, ui-monospace, 'Courier New', monospace);
       font-size: 11px;
-      opacity: 0.75;
+      opacity: 0.6;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+      margin-top: 1px;
     }
     .header-meta {
       display: flex;
       align-items: center;
-      gap: 6px;
-      flex-wrap: wrap;
-      justify-content: flex-end;
+      gap: 4px;
+      flex-shrink: 0;
     }
     .badge {
       font-size: 10px;
+      font-weight: 600;
       padding: 2px 6px;
-      border: 1px solid var(--vsc-border, #444);
-      border-radius: 999px;
-      opacity: 0.9;
+      border-radius: 3px;
+      white-space: nowrap;
+      letter-spacing: 0.3px;
     }
     .archive-badge {
-      border-color: color-mix(in srgb, var(--vsc-accent-orange, #f90) 60%, var(--vsc-code-border, var(--vsc-border, #444)));
+      background: color-mix(in srgb, var(--vsc-accent-orange, #f90) 20%, transparent);
+      color: var(--vsc-accent-orange, #e8c040);
+      border: 1px solid color-mix(in srgb, var(--vsc-accent-orange, #f90) 40%, transparent);
+    }
+    .type-badge {
+      background: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 20%, transparent);
+      color: var(--vsc-accent-blue, #4da8ff);
+      border: 1px solid color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 40%, transparent);
+    }
+    .size-badge,
+    .line-badge {
+      background: color-mix(in srgb, var(--vsc-foreground, #ccc) 8%, transparent);
+      color: color-mix(in srgb, var(--vsc-foreground, #ccc) 60%, transparent);
+      border: 1px solid color-mix(in srgb, var(--vsc-border, #454545) 50%, transparent);
     }
     .viewer-toolbar {
       display: flex;
       align-items: center;
-      gap: 6px;
-      padding: 6px 10px;
-      border-bottom: 1px solid var(--vsc-code-border, var(--vsc-border, #333));
-      background: var(--vsc-code-toolbar-background, color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 95%, #000));
+      gap: 2px;
+      padding: 4px 8px;
+      border-bottom: 1px solid var(--vsc-border, #454545);
+      background: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 96%, black);
+      flex-shrink: 0;
     }
     .tool-btn {
-      font: inherit;
-      font-size: 12px;
-      padding: 4px 8px;
       background: transparent;
+      border: 1px solid transparent;
       color: var(--vsc-foreground, #ccc);
-      border: 1px solid var(--vsc-code-border, var(--vsc-border, #444));
-      border-radius: 6px;
+      font-size: 12px;
+      padding: 2px 8px;
+      border-radius: 3px;
       cursor: pointer;
+      line-height: 1.4;
+      min-width: 24px;
+      transition: background 0.1s, border-color 0.1s;
+    }
+    .tool-btn:hover {
+      background: var(--vsc-list-hover-background, rgba(255,255,255,0.05));
+      border-color: var(--vsc-border, #454545);
     }
     .tool-btn.active {
       background: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 20%, transparent);
+      border-color: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 50%, transparent);
+      color: var(--vsc-accent-blue, #4da8ff);
+    }
+    .toolbar-divider {
+      width: 1px;
+      height: 16px;
+      background: var(--vsc-border, #454545);
+      margin: 0 4px;
     }
     .viewer-body {
       flex: 1 1 auto;
@@ -396,42 +436,58 @@ const codePreviewLightTheme = createCodePreviewTheme(false);
       overflow: hidden;
     }
     .state-container {
-      height: 100%;
-      width: 100%;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      gap: 10px;
-      color: var(--vsc-foreground, #ccc);
-      opacity: 0.85;
-      user-select: none;
-      padding: 20px;
+      height: 100%;
+      min-height: 160px;
+      gap: 8px;
+      padding: 24px;
       text-align: center;
     }
     .state-icon {
-      font-size: 22px;
+      font-size: 36px;
+      line-height: 1;
+      opacity: 0.55;
     }
     .state-label {
       font-size: 13px;
-      font-weight: 600;
+      opacity: 0.65;
+    }
+    .state-sub {
+      font-size: 11px;
+      opacity: 0.4;
     }
     .state-error {
-      color: color-mix(in srgb, var(--vsc-accent-red, #f14c4c) 70%, var(--vsc-foreground, #ccc));
+      color: inherit;
+    }
+    .state-error .state-icon {
+      opacity: 1;
+    }
+    .state-error .state-label {
+      color: #ff7070;
+      opacity: 1;
     }
     .error-detail {
-      font-size: 12px;
-      opacity: 0.9;
-      max-width: 680px;
+      font-size: 11px;
+      font-family: var(--vsc-font-family-mono, ui-monospace, monospace);
+      color: color-mix(in srgb, #ff7070 70%, var(--vsc-foreground, #ccc));
+      background: rgba(255, 0, 0, 0.07);
+      border: 1px solid rgba(255, 112, 112, 0.2);
+      border-radius: 4px;
+      padding: 8px 12px;
+      max-width: 480px;
       white-space: pre-wrap;
+      word-break: break-word;
     }
     .spinner {
-      width: 22px;
-      height: 22px;
+      width: 26px;
+      height: 26px;
+      border: 2px solid color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 25%, transparent);
+      border-top-color: var(--vsc-accent-blue, #0078d4);
       border-radius: 50%;
-      border: 2px solid color-mix(in srgb, var(--vsc-foreground, #ccc) 20%, transparent);
-      border-top-color: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 80%, transparent);
-      animation: spin 0.9s linear infinite;
+      animation: spin 0.65s linear infinite;
     }
     @keyframes spin {
       to { transform: rotate(360deg); }

@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"io"
 	"io/fs"
+	"mime"
 	"os"
 	"path/filepath"
 	"time"
@@ -333,6 +334,7 @@ func BuildFileInfoWithHidden(callbacks MetadataCallbacks, name, fullPath string,
 		Name:        name,
 		Path:        fullPath,
 		Type:        fileType,
+		MimeType:    inferMimeTypeFromName(name),
 		Size:        info.Size(),
 		Created:     callCreated(callbacks, info),
 		Modified:    info.ModTime().Unix(),
@@ -361,6 +363,7 @@ func BuildFallbackLinkInfo(callbacks MetadataCallbacks, name, fullPath string, e
 		Name:        name,
 		Path:        fullPath,
 		Type:        fileType,
+		MimeType:    inferMimeTypeFromName(name),
 		Size:        0,
 		Created:     now,
 		Modified:    now,
@@ -415,4 +418,8 @@ func callPermissions(callbacks MetadataCallbacks, info os.FileInfo) string {
 		return info.Mode().Perm().String()
 	}
 	return callbacks.FormatPermissions(info)
+}
+
+func inferMimeTypeFromName(name string) string {
+	return mime.TypeByExtension(filepath.Ext(name))
 }

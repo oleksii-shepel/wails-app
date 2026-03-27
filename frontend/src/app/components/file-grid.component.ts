@@ -56,6 +56,7 @@ import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directi
             <app-file-entry
               [entry]="dragPreviewEntry"
               [selected]="false"
+              [colorizeByMime]="colorizeByMime"
               variant="grid">
             </app-file-entry>
             <div class="grid-meta" *ngIf="!isParentEntry(dragPreviewEntry)">
@@ -95,6 +96,7 @@ import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directi
               [selected]="isSelected(entry)"
               [cursor]="isCursor(entry)"
               [displayNameOverride]="getDisplayNameOverride(entry.path)"
+              [colorizeByMime]="colorizeByMime"
               variant="grid"
               (rename)="onRename($event)">
             </app-file-entry>
@@ -387,6 +389,7 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
   @Input() selectedFiles: Set<string> = new Set();
   @Input() cursorPath: string | null = null;
   @Input() paneActive = true;
+  @Input() colorizeByMime = false;
   
   @Output() selectionChange = new EventEmitter<FileInfo[]>();
   @Output() cursorPathChange = new EventEmitter<string | null>();

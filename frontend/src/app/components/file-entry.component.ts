@@ -1,6 +1,7 @@
 import { Component, Input, Output, EventEmitter, HostBinding, ElementRef, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FileInfo, FileType } from '../shared/protocol';
+import { getFileMimeColorKind } from './file-entry-color.util';
 
 export interface FileEntrySelectEvent {
   entry: FileInfo;
@@ -68,7 +69,7 @@ export const PARENT_ENTRY_PATH = '__parent__';
             (blur)="onRenameBlur()"
             (keydown)="onRenameKeyDown($event)" />
           <ng-container *ngIf="!isRenaming">
-            <span>{{ displayName }}</span>
+            <span class="file-name-text" [attr.data-mime-kind]="mimeColorKind">{{ displayName }}</span>
             <span *ngIf="showSearchBadge()" class="entry-chip search-chip">Search</span>
           </ng-container>
         </div>
@@ -115,6 +116,7 @@ export const PARENT_ENTRY_PATH = '__parent__';
         padding-left: var(--vsc-padding-md); /* Keep consistent padding */
 
         .file-details { color: var(--vsc-list-active-foreground-dim); }
+        .file-name-text { --entry-name-color: currentColor; }
 
         &:hover { background: var(--vsc-list-focus-background); }
       }
@@ -158,6 +160,23 @@ export const PARENT_ENTRY_PATH = '__parent__';
         white-space: nowrap;
         line-height: 1.4;
       }
+
+      .file-name-text {
+        color: var(--entry-name-color, inherit);
+      }
+
+      .file-name-text[data-mime-kind='default'] { --entry-name-color: inherit; }
+      .file-name-text[data-mime-kind='directory'] { --entry-name-color: var(--vsc-entry-directory); }
+      .file-name-text[data-mime-kind='archive'] { --entry-name-color: var(--vsc-entry-archive); }
+      .file-name-text[data-mime-kind='symlink'] { --entry-name-color: var(--vsc-entry-symlink); }
+      .file-name-text[data-mime-kind='text'] { --entry-name-color: var(--vsc-entry-text); }
+      .file-name-text[data-mime-kind='code'] { --entry-name-color: var(--vsc-entry-code); }
+      .file-name-text[data-mime-kind='image'] { --entry-name-color: var(--vsc-entry-image); }
+      .file-name-text[data-mime-kind='video'] { --entry-name-color: var(--vsc-entry-video); }
+      .file-name-text[data-mime-kind='audio'] { --entry-name-color: var(--vsc-entry-audio); }
+      .file-name-text[data-mime-kind='document'] { --entry-name-color: var(--vsc-entry-document); }
+      .file-name-text[data-mime-kind='data'] { --entry-name-color: var(--vsc-entry-data); }
+      .file-name-text[data-mime-kind='executable'] { --entry-name-color: var(--vsc-entry-executable); }
 
       .rename-input {
         width: 100%;
@@ -427,6 +446,7 @@ export class FileEntryComponent {
   @Input() cursor = false;
   @Input() displayNameOverride: string | null = null;
   @Input() variant: 'row' | 'inline' | 'grid' = 'row';
+  @Input() colorizeByMime = false;
 
   @Output() select   = new EventEmitter<FileEntrySelectEvent>();
   @Output() navigate = new EventEmitter<FileInfo>();
@@ -436,6 +456,10 @@ export class FileEntryComponent {
 
   isRenaming = false;
   editingName = '';
+
+  get mimeColorKind(): string {
+    return getFileMimeColorKind(this.entry, this.colorizeByMime);
+  }
 
   FileType = FileType;
 

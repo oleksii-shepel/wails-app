@@ -230,6 +230,7 @@ export interface FileInfo {
   /** Absolute path — always includes drive letter on Windows */
   path: string;
   type: FileType;
+  mimeType?: string;
   /** Size in bytes */
   size: number;
   /** Unix timestamp */

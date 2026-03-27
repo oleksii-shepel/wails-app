@@ -55,13 +55,13 @@ export type ViewMode = 'list' | 'grid' | 'tree' | 'details';
 
         <div class="view-divider"></div>
 
-        <app-dropdown-container [(isOpen)]="sortMenuOpen">
+        <app-dropdown-container [(isOpen)]="arrangeMenuOpen">
           <button
             appDropdownTrigger
-            class="view-btn sort-btn"
-            [class.active]="sortMenuOpen"
-            (click)="toggleSortMenu($event)"
-            title="Sort by">
+            class="view-btn arrange-btn"
+            [class.active]="arrangeMenuOpen"
+            (click)="toggleArrangeMenu($event)"
+            title="Arrange">
             <svg width="20" height="20" viewBox="0 0 16 16" fill="none">
               <line x1="2" y1="5"  x2="9" y2="5"  stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
               <line x1="2" y1="8"  x2="7" y2="8"  stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
@@ -69,22 +69,22 @@ export type ViewMode = 'list' | 'grid' | 'tree' | 'details';
               <path d="M12 2 L12 13 M10 11 L12 13 L14 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
           </button>
-          <div appDropdownMenu class="sort-menu">
+          <div appDropdownMenu class="arrange-menu">
             <div
-              class="sort-item"
-              *ngFor="let sort of sortOptions"
+              class="arrange-option"
+              *ngFor="let sort of arrangeSortOptions"
               [class.active]="currentSort === sort.value"
               (click)="onSortChange(sort.value)">
-              <span class="sort-check">
+              <span class="arrange-option-indicator">
                 <svg *ngIf="currentSort === sort.value" width="20" height="20" viewBox="0 0 16 16" fill="none">
                   <path d="M2 8L6 12L14 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
                 </svg>
               </span>
-              <span class="sort-label">{{ sort.label }}</span>
+              <span class="arrange-option-label">{{ sort.label }}</span>
             </div>
-            <div class="sort-divider"></div>
-            <div class="sort-item" (click)="toggleSortDirection()">
-              <span class="sort-check">
+            <div class="arrange-divider"></div>
+            <div class="arrange-option" (click)="toggleSortDirection()">
+              <span class="arrange-option-indicator">
                 <svg *ngIf="sortDirection === 'asc'" width="20" height="20" viewBox="0 0 16 16" fill="none">
                   <path d="M8 13 L8 3 M4 7 L8 3 L12 7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
                 </svg>
@@ -92,17 +92,26 @@ export type ViewMode = 'list' | 'grid' | 'tree' | 'details';
                   <path d="M8 3 L8 13 M4 9 L8 13 L12 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
                 </svg>
               </span>
-              <span class="sort-label">{{ sortDirection === 'asc' ? 'Ascending' : 'Descending' }}</span>
+              <span class="arrange-option-label">{{ sortDirection === 'asc' ? 'Ascending' : 'Descending' }}</span>
             </div>
 
-            <div class="sort-divider"></div>
-            <div class="sort-item" [class.active]="directoriesFirst" (click)="toggleDirectoriesFirst()">
-              <span class="sort-check">
+            <div class="arrange-divider"></div>
+            <div class="arrange-option" [class.active]="directoriesFirst" (click)="toggleDirectoriesFirst()">
+              <span class="arrange-option-indicator">
                 <svg *ngIf="directoriesFirst" width="20" height="20" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                   <circle cx="8" cy="8" r="2.5" fill="currentColor" />
                 </svg>
               </span>
-              <span class="sort-label">Directories first</span>
+              <span class="arrange-option-label">Directories first</span>
+            </div>
+
+            <div class="arrange-option" [class.active]="colorizeByMime" (click)="toggleColorizeByMime()">
+              <span class="arrange-option-indicator">
+                <svg *ngIf="colorizeByMime" width="20" height="20" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <circle cx="8" cy="8" r="2.5" fill="currentColor" />
+                </svg>
+              </span>
+              <span class="arrange-option-label">Colorize by MIME</span>
             </div>
           </div>
         </app-dropdown-container>
@@ -195,12 +204,13 @@ export type ViewMode = 'list' | 'grid' | 'tree' | 'details';
 
     .view-divider { width:1px; height:20px; background:var(--vsc-border); margin:0 var(--vsc-padding-sm); }
 
-    .sort-menu { min-width:160px; background:var(--vsc-input-background); border:1px solid var(--vsc-border); border-radius:var(--vsc-border-radius); box-shadow:var(--vsc-widget-shadow); z-index:var(--vsc-z-dropdown); padding:var(--vsc-padding-xs) 0; }
-    .sort-item { display:flex; align-items:center; gap:var(--vsc-padding-sm); padding:var(--vsc-padding-sm) var(--vsc-padding-md); cursor:pointer; color:var(--vsc-foreground); font-size:var(--vsc-font-size); }
-    .sort-item:hover { background: var(--vsc-list-hover-background); }
-    .sort-item.active { color: var(--vsc-accent-blue); }
-    .sort-check { width:16px; height:16px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
-    .sort-divider { height:1px; background:var(--vsc-border); margin: var(--vsc-padding-xs) 0; }
+    .arrange-menu { min-width:192px; background:var(--vsc-input-background); border:1px solid var(--vsc-border); border-radius:var(--vsc-border-radius); box-shadow:var(--vsc-widget-shadow); z-index:var(--vsc-z-dropdown); padding:var(--vsc-padding-xs) 0; }
+    .arrange-option { display:flex; align-items:center; gap:var(--vsc-padding-sm); padding:var(--vsc-padding-sm) var(--vsc-padding-md); cursor:pointer; color:var(--vsc-foreground); font-size:var(--vsc-font-size); }
+    .arrange-option:hover { background: var(--vsc-list-hover-background); }
+    .arrange-option.active { color: var(--vsc-accent-blue); }
+    .arrange-option-indicator { width:16px; height:16px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+    .arrange-option-label { min-width:0; }
+    .arrange-divider { height:1px; background:var(--vsc-border); margin: var(--vsc-padding-xs) 0; }
 
     .legacy-actions { display:flex; gap: var(--vsc-padding-sm); }
 
@@ -226,11 +236,13 @@ export class ActionBarComponent {
   @Input() currentSort: string = 'name';
   @Input() sortDirection: 'asc' | 'desc' = 'asc';
   @Input() directoriesFirst = true;
+  @Input() colorizeByMime = false;
 
   // Outputs: view/sort
   @Output() viewChange = new EventEmitter<ViewMode>();
   @Output() sortChange = new EventEmitter<{ field: string; direction: 'asc' | 'desc' }>();
   @Output() directoriesFirstChange = new EventEmitter<boolean>();
+  @Output() colorizeByMimeChange = new EventEmitter<boolean>();
 
   // Legacy outputs kept for existing wiring
   @Output() createFolder = new EventEmitter<void>();
@@ -245,7 +257,7 @@ export class ActionBarComponent {
   @Output() move = new EventEmitter<void>();
   @Output() refresh = new EventEmitter<void>();
 
-  sortMenuOpen = false;
+  arrangeMenuOpen = false;
 
   viewOptions = [
     { mode: 'list' as ViewMode, label: 'List View', shortcut: 'Ctrl+1' },
@@ -254,7 +266,7 @@ export class ActionBarComponent {
     { mode: 'details' as ViewMode, label: 'Details View', shortcut: 'Ctrl+4' },
   ];
 
-  sortOptions = [
+  arrangeSortOptions = [
     { value: 'name',     label: 'Name' },
     { value: 'size',     label: 'Size' },
     { value: 'modified', label: 'Date Modified' },
@@ -269,31 +281,36 @@ export class ActionBarComponent {
     }
   }
 
-  toggleSortMenu(event: Event): void {
+  toggleArrangeMenu(event: Event): void {
     event.stopPropagation();
-    this.sortMenuOpen = !this.sortMenuOpen;
-    if (this.sortMenuOpen) {
-      setTimeout(() => document.addEventListener('click', this.closeSortMenu, { once: true }));
+    this.arrangeMenuOpen = !this.arrangeMenuOpen;
+    if (this.arrangeMenuOpen) {
+      setTimeout(() => document.addEventListener('click', this.closeArrangeMenu, { once: true }));
     }
   }
 
-  private closeSortMenu = (): void => { this.sortMenuOpen = false; };
+  private closeArrangeMenu = (): void => { this.arrangeMenuOpen = false; };
 
   onSortChange(field: string): void {
     this.sortChange.emit({ field, direction: this.sortDirection });
-    this.sortMenuOpen = false;
+    this.arrangeMenuOpen = false;
   }
 
   toggleSortDirection(): void {
     const newDir = this.sortDirection === 'asc' ? 'desc' : 'asc';
     this.sortChange.emit({ field: this.currentSort, direction: newDir });
-    this.sortMenuOpen = false;
+    this.arrangeMenuOpen = false;
   }
 
   toggleDirectoriesFirst(): void {
     this.directoriesFirst = !this.directoriesFirst;
     this.directoriesFirstChange.emit(this.directoriesFirst);
     // Keep menu open (checkbox-style)
+  }
+
+  toggleColorizeByMime(): void {
+    this.colorizeByMime = !this.colorizeByMime;
+    this.colorizeByMimeChange.emit(this.colorizeByMime);
   }
 
 

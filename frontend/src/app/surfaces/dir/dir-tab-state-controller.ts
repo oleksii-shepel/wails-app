@@ -14,6 +14,7 @@ export interface DirTabSessionState {
   sortField: string;
   sortDirection: 'asc' | 'desc';
   directoriesFirst: boolean;
+  colorizeByMime: boolean;
   filterQuery: FilterQuery;
   selectedFiles: Set<string>;
   selectionCursorPath: string | null;
@@ -46,6 +47,7 @@ export class DirTabStateController {
       sortField: target.session.sortField,
       sortDirection: target.session.sortDirection,
       directoriesFirst: target.session.directoriesFirst,
+      colorizeByMime: target.session.colorizeByMime,
       filterQuery: target.session.filterQuery ?? { text: '', criteria: [] },
       selectedPaths: Array.from(target.session.selectedFiles ?? new Set<string>()),
       cursorPath: target.session.selectionCursorPath,
@@ -71,6 +73,7 @@ export class DirTabStateController {
     session.sortField = state.sortField;
     session.sortDirection = state.sortDirection;
     session.directoriesFirst = state.directoriesFirst;
+    session.colorizeByMime = state.colorizeByMime ?? false;
     session.filterQuery = state.filterQuery ?? { text: '', criteria: [] };
   }
 

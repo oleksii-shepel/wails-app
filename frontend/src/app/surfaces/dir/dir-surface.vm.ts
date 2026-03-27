@@ -19,6 +19,7 @@ export interface DirSurfaceVm {
   sortField: string;
   sortDirection: 'asc' | 'desc';
   directoriesFirst: boolean;
+  colorizeByMime: boolean;
 
   archiveMoveWarning: boolean;
   archiveMoveEntryCount: number;
@@ -31,6 +32,7 @@ export interface DirSurfaceVm {
   onViewChange(view: ViewLayout): void;
   onSortChange(sort: { field: string; direction: 'asc' | 'desc' }): void;
   onDirectoriesFirstChange(v: boolean): void;
+  onColorizeByMimeChange(v: boolean): void;
 
   onCreateFolder(): void;
   onDeleteSelected(): void;

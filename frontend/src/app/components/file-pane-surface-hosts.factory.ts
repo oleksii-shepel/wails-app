@@ -35,6 +35,8 @@ export interface FilePaneSurfaceHostsSource {
   set sortDirection(value: 'asc' | 'desc');
   get directoriesFirst(): boolean;
   set directoriesFirst(value: boolean);
+  get colorizeByMime(): boolean;
+  set colorizeByMime(value: boolean);
   get selectedFiles(): Set<string>;
   set selectedFiles(value: Set<string>);
   get selectionCursorPath(): string | null;
@@ -128,6 +130,8 @@ export class FilePaneSurfaceHostsFactory {
       set sortDirection(value: 'asc' | 'desc') { source.sortDirection = value; },
       get directoriesFirst() { return source.directoriesFirst; },
       set directoriesFirst(value: boolean) { source.directoriesFirst = value; },
+      get colorizeByMime() { return source.colorizeByMime; },
+      set colorizeByMime(value: boolean) { source.colorizeByMime = value; },
       get selectedFiles() { return source.selectedFiles; },
       set selectedFiles(value: Set<string>) { source.selectedFiles = value; },
       getOptimisticHiddenPaths: () => source.getOptimisticHiddenPaths(),

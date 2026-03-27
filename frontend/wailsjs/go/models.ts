@@ -172,6 +172,7 @@ export namespace contracts {
 	    name: string;
 	    path: string;
 	    type: string;
+	    mimeType?: string;
 	    size: number;
 	    created: number;
 	    modified: number;
@@ -197,6 +198,7 @@ export namespace contracts {
 	        this.name = source["name"];
 	        this.path = source["path"];
 	        this.type = source["type"];
+	        this.mimeType = source["mimeType"];
 	        this.size = source["size"];
 	        this.created = source["created"];
 	        this.modified = source["modified"];

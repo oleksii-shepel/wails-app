@@ -125,6 +125,7 @@ export interface ColumnDef {
                   [selected]="isSelected(entry)"
                   [cursor]="entry.path === cursorPath"
                   [displayNameOverride]="getDisplayNameOverride(entry.path)"
+                  [colorizeByMime]="colorizeByMime"
                   variant="inline"
                   (rename)="onRename($event)">
                 </app-file-entry>
@@ -440,6 +441,7 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   @Input() sortField: string = 'name';
   @Input() sortDirection: 'asc' | 'desc' = 'asc';
   @Input() paneActive = true;
+  @Input() colorizeByMime = false;
   
   @Output() selectionChange = new EventEmitter<FileInfo[]>();
   @Output() navigate = new EventEmitter<FileInfo>();

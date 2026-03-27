@@ -130,6 +130,7 @@ export interface DropTarget {
               [entry]="node"
               [selected]="isSelected(node)"
               [displayNameOverride]="getDisplayNameOverride(node.path)"
+              [colorizeByMime]="colorizeByMime"
               variant="inline">
             </app-file-entry>
             
@@ -420,6 +421,7 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
   @Input() nodes: TreeNode[] = [];
   @Input() currentPath = '';
   @Input() paneActive = true;
+  @Input() colorizeByMime = false;
   @Input() selectedFiles: Set<string> = new Set();
   @Input() loading = false;
   @Input() emptyMessage = 'No items';

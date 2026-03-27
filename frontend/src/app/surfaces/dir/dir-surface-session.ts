@@ -26,6 +26,7 @@ export class DirSurfaceSession {
   sortField: string = 'name';
   sortDirection: 'asc' | 'desc' = 'asc';
   directoriesFirst = true;
+  colorizeByMime = false;
 
   lastPreviewTargetEmitted: string | null = null;
 

@@ -13,6 +13,7 @@ type FileInfo struct {
 	Name              string   `json:"name"`
 	Path              string   `json:"path"`
 	Type              FileType `json:"type"`
+	MimeType          string   `json:"mimeType,omitempty"`
 	Size              int64    `json:"size"`
 	Created           int64    `json:"created"`
 	Modified          int64    `json:"modified"`

@@ -68,6 +68,7 @@ import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directi
             [entry]="parentEntry"
             [selected]="isSelected(parentEntry)"
             [cursor]="parentEntry.path === cursorPath"
+            [colorizeByMime]="colorizeByMime"
             (select)="onSelect($event)"
             (navigate)="onNavigate($event)"
             (rename)="onRename($event)">
@@ -103,6 +104,7 @@ import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directi
               [selected]="isSelected(entry)"
               [cursor]="entry.path === cursorPath"
               [displayNameOverride]="getDisplayNameOverride(entry.path)"
+              [colorizeByMime]="colorizeByMime"
               (select)="onSelect($event)"
               (navigate)="onNavigate($event)"
               (rename)="onRename($event)">
@@ -267,6 +269,7 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
   @Input() loading = false;
   @Input() error: string | null = null;
   @Input() paneActive = true;
+  @Input() colorizeByMime = false;
   
   @Output() selectionChange = new EventEmitter<FileInfo[]>();
   @Output() navigate = new EventEmitter<FileInfo>();

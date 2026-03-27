@@ -191,6 +191,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       get sortField() { return thisRef.sortField; },
       get sortDirection() { return thisRef.sortDirection; },
       get directoriesFirst() { return thisRef.directoriesFirst; },
+      get colorizeByMime() { return thisRef.colorizeByMime; },
       get archiveMoveWarning() { return thisRef.archiveMoveWarning; },
       set archiveMoveWarning(value: boolean) { thisRef.archiveMoveWarning = value; },
       get archivePendingMoveEntries() { return thisRef.archivePendingMoveEntries; },
@@ -201,6 +202,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       onViewChange: (view: ViewLayout) => thisRef.onViewChange(view),
       onSortChange: (sort: { field: string; direction: 'asc' | 'desc' }) => thisRef.onSortChange(sort),
       onDirectoriesFirstChange: (value: boolean) => thisRef.onDirectoriesFirstChange(value),
+      onColorizeByMimeChange: (value: boolean) => thisRef.onColorizeByMimeChange(value),
       onCreateFolder: () => thisRef.browserCommands.selection.createFolder(),
       onDeleteSelected: () => thisRef.browserCommands.selection.deleteSelected(),
       onCopyToOther: () => thisRef.browserCommands.selection.copyToOther(),
@@ -446,6 +448,8 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       set sortDirection(value: 'asc' | 'desc') { thisRef.sortDirection = value; },
       get directoriesFirst() { return thisRef.directoriesFirst; },
       set directoriesFirst(value: boolean) { thisRef.directoriesFirst = value; },
+      get colorizeByMime() { return thisRef.colorizeByMime; },
+      set colorizeByMime(value: boolean) { thisRef.colorizeByMime = value; },
       get selectedFiles() { return thisRef.selectedFiles; },
       set selectedFiles(value: Set<string>) { thisRef.selectedFiles = value; },
       get selectionCursorPath() { return thisRef.selectionCursorPath; },
@@ -628,6 +632,9 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   get directoriesFirst(): boolean { return this.dir.directoriesFirst; }
   set directoriesFirst(v: boolean) { this.dir.directoriesFirst = v; }
 
+  get colorizeByMime(): boolean { return this.dir.colorizeByMime; }
+  set colorizeByMime(v: boolean) { this.dir.colorizeByMime = v; }
+
   get selectionCursorPath(): string | null { return this.dir.selectionCursorPath; }
   set selectionCursorPath(v: string | null) { this.dir.selectionCursorPath = v; }
 
@@ -753,6 +760,10 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
 
   onDirectoriesFirstChange(value: boolean): void {
     this.uiController.onDirectoriesFirstChange(this.uiHost, value);
+  }
+
+  onColorizeByMimeChange(value: boolean): void {
+    this.uiController.onColorizeByMimeChange(this.uiHost, value);
   }
 
   onContextMenu(event: { event: MouseEvent; entry: FileInfo }): void {

@@ -18,6 +18,7 @@ export interface FilePaneDirVmSource {
   get sortField(): string;
   get sortDirection(): 'asc' | 'desc';
   get directoriesFirst(): boolean;
+  get colorizeByMime(): boolean;
   get archiveMoveWarning(): boolean;
   get archivePendingMoveEntries(): string[];
   set archiveMoveWarning(value: boolean);
@@ -28,6 +29,7 @@ export interface FilePaneDirVmSource {
   onViewChange(view: ViewLayout): void;
   onSortChange(sort: { field: string; direction: 'asc' | 'desc' }): void;
   onDirectoriesFirstChange(value: boolean): void;
+  onColorizeByMimeChange(value: boolean): void;
   onCreateFolder(): void;
   onDeleteSelected(): void;
   onCopyToOther(): void;
@@ -62,6 +64,7 @@ export class FilePaneDirVmFactory {
       get sortField() { return source.sortField; }
       get sortDirection() { return source.sortDirection; }
       get directoriesFirst() { return source.directoriesFirst; }
+      get colorizeByMime() { return source.colorizeByMime; }
       get archiveMoveWarning() { return source.archiveMoveWarning; }
       get archiveMoveEntryCount() { return source.archivePendingMoveEntries.length; }
 
@@ -72,6 +75,7 @@ export class FilePaneDirVmFactory {
       onViewChange = (view: ViewLayout) => source.onViewChange(view);
       onSortChange = (sort: { field: string; direction: 'asc' | 'desc' }) => source.onSortChange(sort);
       onDirectoriesFirstChange = (value: boolean) => source.onDirectoriesFirstChange(value);
+      onColorizeByMimeChange = (value: boolean) => source.onColorizeByMimeChange(value);
       onCreateFolder = () => source.onCreateFolder();
       onDeleteSelected = () => source.onDeleteSelected();
       onCopyToOther = () => source.onCopyToOther();

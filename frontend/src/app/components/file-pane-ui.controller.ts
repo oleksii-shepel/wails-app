@@ -11,6 +11,8 @@ export interface FilePaneUiHost {
   set sortDirection(value: 'asc' | 'desc');
   get directoriesFirst(): boolean;
   set directoriesFirst(value: boolean);
+  get colorizeByMime(): boolean;
+  set colorizeByMime(value: boolean);
   get selectedFiles(): Set<string>;
   set selectedFiles(value: Set<string>);
   getOptimisticHiddenPaths(): string[];
@@ -39,6 +41,11 @@ export class FilePaneUiController {
     if (savedDirsFirst === 'true' || savedDirsFirst === 'false') {
       host.directoriesFirst = savedDirsFirst === 'true';
     }
+
+    const savedColorizeByMime = localStorage.getItem('fileManager_colorizeByMime');
+    if (savedColorizeByMime === 'true' || savedColorizeByMime === 'false') {
+      host.colorizeByMime = savedColorizeByMime === 'true';
+    }
   }
 
   async onViewChange(host: FilePaneUiHost, view: ViewLayout): Promise<void> {
@@ -65,6 +72,13 @@ export class FilePaneUiController {
 
   onDirectoriesFirstChange(host: FilePaneUiHost, value: boolean): void {
     host.directoriesFirst = value;
+    this.saveViewPreference(host);
+    host.applyFilter();
+    host.persistDirTabState();
+  }
+
+  onColorizeByMimeChange(host: FilePaneUiHost, value: boolean): void {
+    host.colorizeByMime = value;
     this.saveViewPreference(host);
     host.applyFilter();
     host.persistDirTabState();
@@ -121,5 +135,6 @@ export class FilePaneUiController {
     localStorage.setItem('fileManager_sortField', host.sortField);
     localStorage.setItem('fileManager_sortDirection', host.sortDirection);
     localStorage.setItem('fileManager_directoriesFirst', String(host.directoriesFirst));
+    localStorage.setItem('fileManager_colorizeByMime', String(host.colorizeByMime));
   }
 }

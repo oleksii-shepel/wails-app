@@ -69,6 +69,11 @@ export class FilePaneDirSessionController {
       session.directoriesFirst = savedDirsFirst === 'true';
     }
 
+    const savedColorizeByMime = localStorage.getItem('fileManager_colorizeByMime');
+    if (savedColorizeByMime === 'true' || savedColorizeByMime === 'false') {
+      session.colorizeByMime = savedColorizeByMime === 'true';
+    }
+
     const savedState = host.dirTabStateController.load(session.tabId);
     if (savedState) {
       host.dirTabStateController.applyBeforeLoad(savedState, this.createSessionState(session));
@@ -103,6 +108,8 @@ export class FilePaneDirSessionController {
       set sortDirection(value: 'asc' | 'desc') { session.sortDirection = value; },
       get directoriesFirst() { return session.directoriesFirst; },
       set directoriesFirst(value: boolean) { session.directoriesFirst = value; },
+      get colorizeByMime() { return session.colorizeByMime; },
+      set colorizeByMime(value: boolean) { session.colorizeByMime = value; },
       get filterQuery() { return session.filterQuery; },
       set filterQuery(value) { session.filterQuery = value; },
       get selectedFiles() { return session.selectedFiles; },

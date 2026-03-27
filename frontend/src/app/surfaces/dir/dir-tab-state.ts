@@ -11,6 +11,7 @@ export interface DirTabState {
   sortField: string;
   sortDirection: 'asc' | 'desc';
   directoriesFirst: boolean;
+  colorizeByMime: boolean;
   filterQuery: FilterQuery;
   selectedPaths: string[];
   cursorPath: string | null;

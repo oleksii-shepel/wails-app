@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"mime"
 	"os"
 	"path/filepath"
 	"strings"
@@ -438,6 +439,7 @@ func vfsEntryToFileInfo(entry vfslib.FileInfo, parentChain []string) contracts.F
 		Name:        entry.Name(),
 		Path:        entry.Path(),
 		Type:        entryType,
+		MimeType:    mime.TypeByExtension(filepath.Ext(entry.Name())),
 		Size:        entry.Size(),
 		Modified:    entry.ModTime().Unix(),
 		IsHidden:    entry.IsHidden(),

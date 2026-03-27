@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"mime"
 	"path/filepath"
 
 	internalarchive "wails-app/internal/archive"
@@ -268,6 +269,7 @@ func convertVFSInfoWithChain(entry vfslib.FileInfo, parentChain []string) contra
 		Name:        entry.Name(),
 		Path:        entry.Path(),
 		Type:        fileType,
+		MimeType:    mime.TypeByExtension(filepath.Ext(entry.Name())),
 		Size:        entry.Size(),
 		Modified:    entry.ModTime().Unix(),
 		IsHidden:    entry.IsHidden(),

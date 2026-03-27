@@ -171,6 +171,20 @@
   --vsc-file-fill: #3c3c3c;
   --vsc-file-stroke: #5a5a5a;
 
+  /* === File Entry Palette === */
+  --vsc-entry-default: #cccccc;
+  --vsc-entry-directory: #d7ba7d;
+  --vsc-entry-archive: #c586c0;
+  --vsc-entry-symlink: #4fc3f7;
+  --vsc-entry-text: #b5cea8;
+  --vsc-entry-code: #569cd6;
+  --vsc-entry-image: #4ec9b0;
+  --vsc-entry-video: #d16d9e;
+  --vsc-entry-audio: #ce9178;
+  --vsc-entry-document: #e3d08f;
+  --vsc-entry-data: #7ad97a;
+  --vsc-entry-executable: #f44747;
+
   /* === Legacy compatibility === */
   --vsc-background: var(--vsc-editor-background);
   --vsc-text: var(--vsc-foreground);
@@ -318,6 +332,20 @@
   --vsc-tree-indent-guide-stroke:        #c8c8c8;
   --vsc-tree-indent-guide-active-stroke: #707070;
   --vsc-folder-fill:      #dcb67a;
+
+  /* === File Entry Palette === */
+  --vsc-entry-default: #3b3b3b;
+  --vsc-entry-directory: #8c5a12;
+  --vsc-entry-archive: #7c3f99;
+  --vsc-entry-symlink: #0277bd;
+  --vsc-entry-text: #4f6b45;
+  --vsc-entry-code: #005fb8;
+  --vsc-entry-image: #0f7f6d;
+  --vsc-entry-video: #9f3a67;
+  --vsc-entry-audio: #9a5a1a;
+  --vsc-entry-document: #8b6a00;
+  --vsc-entry-data: #0b7285;
+  --vsc-entry-executable: #b42318;
   --vsc-folder-open-fill: #dcb67a;
   --vsc-file-fill:        #f5f5f5;
   --vsc-file-stroke:      #c4c4c4;

@@ -201,7 +201,7 @@ func isWindowsDriveLetter(r rune) bool {
 }
 
 // pathrefToVFS converts a path using pathref semantics.
-	// We can't import pathref here due to circular deps, so we handle filesystem:// locally.
+// We can't import pathref here due to circular deps, so we handle filesystem:// locally.
 func (u *Unified) pathrefToVFS(path string) string {
 	trimmed := strings.TrimSpace(strings.ReplaceAll(path, "\\", "/"))
 

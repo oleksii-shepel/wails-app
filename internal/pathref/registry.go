@@ -104,17 +104,26 @@ func Normalize(path string) string {
 
 func normalizeDrivePath(path string) (string, bool) {
 	trimmed := strings.TrimSpace(strings.ReplaceAll(path, "\\", "/"))
-	if len(trimmed) >= len(DriveScheme)+1 && strings.EqualFold(trimmed[:len(DriveScheme)], DriveScheme) {
-		rest := strings.TrimLeft(trimmed[len(DriveScheme):], "/")
-		if len(rest) == 0 || !isAlpha(rest[0]) {
+	if len(trimmed) >= len(DriveScheme) && strings.EqualFold(trimmed[:len(DriveScheme)], DriveScheme) {
+		// If the character immediately following the scheme is a slash,
+		// treat this as a unix-style absolute path (filesystem:///...) and
+		// do not normalize as a Windows drive reference.
+		if len(trimmed) > len(DriveScheme) && trimmed[len(DriveScheme)] == '/' {
 			return "", false
 		}
-		drive := strings.ToLower(rest[:1])
-		remainder := strings.Trim(rest[1:], "/")
-		if remainder == "" {
-			return DriveScheme + drive, true
+		// drive form: filesystem://c or filesystem://c/...
+		if len(trimmed) >= len(DriveScheme)+1 {
+			rest := trimmed[len(DriveScheme):]
+			if len(rest) == 0 || !isAlpha(rest[0]) {
+				return "", false
+			}
+			drive := strings.ToLower(rest[:1])
+			remainder := strings.Trim(rest[1:], "/")
+			if remainder == "" {
+				return DriveScheme + drive, true
+			}
+			return DriveScheme + drive + "/" + strings.ReplaceAll(remainder, "//", "/"), true
 		}
-		return DriveScheme + drive + "/" + strings.ReplaceAll(remainder, "//", "/"), true
 	}
 	if len(trimmed) >= 2 && isAlpha(trimmed[0]) && trimmed[1] == ':' {
 		drive := strings.ToLower(trimmed[:1])

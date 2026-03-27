@@ -198,7 +198,7 @@ export class PathHistoryService {
       normalized.startsWith('/') ||
       normalized.startsWith('./') ||
       normalized.startsWith('../') ||
-      /^drive:\/\/[a-z](?:\/.*)?$/i.test(normalized) ||
+      /^filesystem:\/\/[a-z](?:\/.*)?$/i.test(normalized) ||
       normalized.startsWith('//')
     );
   }

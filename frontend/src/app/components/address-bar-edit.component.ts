@@ -24,7 +24,7 @@ interface TabSession {
 
 function toEditorDriveDisplay(path: string): string {
   const normalized = normalizePath(path);
-  const match = /^drive:\/\/([a-z])(\/.*)?$/i.exec(normalized);
+  const match = /^filesystem:\/\/([a-z])(\/.*)?$/i.exec(normalized);
   if (!match) return normalized;
   const drive = match[1].toUpperCase();
   const rest = (match[2] || '').replace(/^\/+/, '');
@@ -643,7 +643,7 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
 
   private getDefaultRootForTab(): string | null {
     const cp = normalizePath((this.currentPath || '').trim());
-    const driveMatch = /^drive:\/\/([a-z])(?:\/.*)?$/i.exec(cp);
+    const driveMatch = /^filesystem:\/\/([a-z])(?:\/.*)?$/i.exec(cp);
     if (driveMatch) {
       return `${driveMatch[1].toUpperCase()}:/`;
     }
@@ -702,7 +702,7 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
   private formatEditorPath(path: string, reference?: string): string {
     const normalized = normalizePath(path);
     if (!normalized) return '';
-    if (this.prefersCanonicalDriveDisplay(reference) && /^drive:\/\/[a-z](?:\/.*)?$/i.test(normalized)) {
+    if (this.prefersCanonicalDriveDisplay(reference) && /^filesystem:\/\/[a-z](?:\/.*)?$/i.test(normalized)) {
       return normalized;
     }
     return this.toDisplayPath(normalized);
@@ -712,7 +712,7 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
     const normalized = normalizePath(path);
     if (!normalized) return '';
     if (isAliasRoot) return normalized;
-    if (this.prefersCanonicalDriveDisplay(query) && /^drive:\/\/[a-z](?:\/.*)?$/i.test(normalized)) {
+    if (this.prefersCanonicalDriveDisplay(query) && /^filesystem:\/\/[a-z](?:\/.*)?$/i.test(normalized)) {
       return normalized;
     }
     return this.toDisplayPath(normalized);
@@ -1027,6 +1027,16 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
         score = 160;
       } else if (schemePrefix.startsWith(normalizedQuery) || schemeName.startsWith(normalizedQuery)) {
         score = 150;
+      }
+
+      // If the user prefers the short display (e.g. "C:/" or "/"), push
+      // the canonical `filesystem://` suggestion to the end so short forms
+      // are preferred in the dropdown.
+      const isFilesystemScheme = schemeName === 'filesystem';
+      if (isFilesystemScheme && !this.prefersCanonicalDriveDisplay(query)) {
+        // Keep the suggestion but give it a low score so it sorts last.
+        if (score) score = Math.min(score, 10);
+        else score = 10;
       }
 
       if (!score) continue;

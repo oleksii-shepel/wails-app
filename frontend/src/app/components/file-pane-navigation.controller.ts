@@ -182,9 +182,9 @@ export class FilePaneNavigationController {
     const allPaths = host.workspaceService.getAllTabPaths();
     const windowsRoot = allPaths
       .map(path => normalizePath(path))
-      .find(path => /^drive:\/\/[a-z](?:\/.*)?$/i.test(path));
+      .find(path => /^filesystem:\/\/[a-z](?:\/.*)?$/i.test(path));
     let platformRoot = windowsRoot
-      ? windowsRoot.replace(/^(drive:\/\/[a-z]).*$/i, '$1')
+      ? windowsRoot.replace(/^(filesystem:\/\/[a-z]).*$/i, '$1')
       : '/';
 
     if (platformRoot === '/') {

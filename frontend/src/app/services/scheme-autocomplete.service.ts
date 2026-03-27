@@ -66,8 +66,8 @@ class FilesystemAutocompleteProvider implements SchemeAutocompleteProvider {
 
   canHandle(query: string): boolean {
     const scheme = this.extractScheme(query);
-    // Support legacy 'drive' scheme and new 'filesystem' scheme
-    return !scheme || scheme === 'drive' || scheme === 'filesystem';
+    // Handle only filesystem and local (no explicit scheme)
+    return !scheme || scheme === 'filesystem';
   }
 
   shouldFetch(query: string): boolean {

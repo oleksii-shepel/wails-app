@@ -14,7 +14,6 @@ import {
   bracketMatching,
   foldGutter,
   foldKeymap,
-  HighlightStyle,
   LanguageDescription,
   syntaxHighlighting,
 } from '@codemirror/language';
@@ -30,7 +29,7 @@ import {
 } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { gotoLine, highlightSelectionMatches, openSearchPanel, searchKeymap } from '@codemirror/search';
-import { tags } from '@lezer/highlight';
+import { classHighlighter } from '@lezer/highlight';
 import { ApiService } from '../../services/api.service';
 import { Theme, ThemeService } from '../../services/theme.service';
 import { FileInfo, FileProbe, FileType } from '../../shared/protocol';
@@ -48,46 +47,29 @@ function createFoldMarker(open: boolean): HTMLElement {
   return marker;
 }
 
-const codeHighlightStyle = HighlightStyle.define([
-  { tag: [tags.keyword, tags.modifier, tags.controlKeyword], color: 'var(--vsc-code-keyword)' },
-  { tag: [tags.operatorKeyword], color: 'var(--vsc-code-keyword-operator)' },
-  { tag: [tags.string, tags.special(tags.string)], color: 'var(--vsc-code-string)' },
-  { tag: [tags.number, tags.integer, tags.float, tags.bool, tags.null], color: 'var(--vsc-code-number)' },
-  { tag: [tags.comment, tags.lineComment, tags.blockComment, tags.docComment], color: 'var(--vsc-code-comment)', fontStyle: 'italic' },
-  { tag: [tags.function(tags.variableName), tags.function(tags.propertyName), tags.labelName], color: 'var(--vsc-code-function)' },
-  { tag: [tags.typeName, tags.className, tags.namespace, tags.macroName, tags.definition(tags.typeName)], color: 'var(--vsc-code-type)' },
-  { tag: [tags.variableName, tags.definition(tags.variableName)], color: 'var(--vsc-code-variable)' },
-  { tag: [tags.propertyName, tags.attributeName], color: 'var(--vsc-code-property)' },
-  { tag: [tags.operator, tags.punctuation, tags.separator, tags.bracket], color: 'var(--vsc-code-operator)' },
-  { tag: [tags.regexp, tags.escape], color: 'var(--vsc-code-regexp)' },
-  { tag: [tags.meta, tags.annotation], color: 'var(--vsc-code-meta)' },
-  { tag: [tags.heading], color: 'var(--vsc-code-heading)', fontWeight: '600' },
-  { tag: [tags.invalid], color: 'var(--vsc-code-invalid)', textDecoration: 'wavy underline' },
-]);
-
 function createCodePreviewTheme(isDark: boolean) {
   return EditorView.theme({
   '&': {
     height: '100%',
-    backgroundColor: 'var(--vsc-code-background, var(--vsc-editor-background, #1e1e1e))',
-    color: 'var(--vsc-foreground, #cccccc)',
+    backgroundColor: 'var(--vsc-code-background)',
+    color: 'var(--vsc-foreground)',
     fontSize: '13px',
   },
   '.cm-editor': {
-    backgroundColor: 'var(--vsc-code-background, var(--vsc-editor-background, #1e1e1e))',
+    backgroundColor: 'var(--vsc-code-background)',
   },
   '.cm-scroller': {
     overflow: 'auto',
-    color: 'var(--vsc-foreground, #cccccc)',
+    color: 'var(--vsc-foreground)',
     fontFamily: "var(--vsc-font-family-mono, ui-monospace, 'Cascadia Code', 'SFMono-Regular', Consolas, monospace)",
     lineHeight: '1.6',
-    scrollbarColor: 'color-mix(in srgb, var(--vsc-scrollbarSlider-background, #5a5a5a) 82%, transparent) transparent',
+    scrollbarColor: 'var(--vsc-scrollbar-thumb) transparent',
   },
   '.cm-content': {
     padding: '10px 0 24px',
     minHeight: '100%',
     caretColor: 'transparent',
-    color: 'var(--vsc-foreground, #cccccc)',
+    color: 'var(--vsc-foreground)',
   },
   '.cm-line': {
     padding: '0 16px',
@@ -96,7 +78,7 @@ function createCodePreviewTheme(isDark: boolean) {
   '.cm-gutters': {
     backgroundColor: 'var(--vsc-code-gutter-background)',
     color: 'var(--vsc-code-gutter-foreground)',
-    borderRight: '1px solid var(--vsc-code-border, var(--vsc-border, #333))',
+    borderRight: '1px solid var(--vsc-code-border)',
   },
   '.cm-gutterElement': {
     padding: '0 10px 0 8px',
@@ -122,29 +104,29 @@ function createCodePreviewTheme(isDark: boolean) {
     display: 'block',
   },
   '.cm-foldGutter .cm-gutterElement:hover .cm-fold-marker': {
-    color: 'var(--vsc-foreground, #cccccc)',
+    color: 'var(--vsc-foreground)',
     opacity: '1',
   },
   '.cm-activeLine': {
     backgroundColor: 'var(--vsc-code-active-line)',
   },
   '.cm-activeLineGutter': {
-    color: 'var(--vsc-editorLineNumber-activeForeground, var(--vsc-foreground, #ffffff))',
+    color: 'var(--vsc-foreground)',
     backgroundColor: 'var(--vsc-code-active-line-gutter)',
   },
   '.cm-foldPlaceholder': {
-    backgroundColor: 'color-mix(in srgb, var(--vsc-badge-background, #4d4d4d) 50%, transparent)',
-    border: '1px solid color-mix(in srgb, var(--vsc-border, #333) 80%, transparent)',
-    color: 'var(--vsc-descriptionForeground, #a0a0a0)',
+    backgroundColor: 'color-mix(in srgb, var(--vsc-code-active-line-gutter) 80%, transparent)',
+    border: '1px solid var(--vsc-code-border)',
+    color: 'var(--vsc-foreground-dim)',
   },
   '.cm-panels': {
     backgroundColor: 'var(--vsc-code-panel-background)',
-    color: 'var(--vsc-foreground, #cccccc)',
-    borderBottom: '1px solid var(--vsc-code-border, var(--vsc-border, #333))',
+    color: 'var(--vsc-foreground)',
+    borderBottom: '1px solid var(--vsc-code-border)',
     boxShadow: '0 10px 24px rgba(0, 0, 0, 0.18)',
   },
   '.cm-panels-top': {
-    borderBottom: '1px solid var(--vsc-code-border, var(--vsc-border, #333))',
+    borderBottom: '1px solid var(--vsc-code-border)',
   },
   '.cm-search': {
     padding: '8px 10px',
@@ -155,14 +137,14 @@ function createCodePreviewTheme(isDark: boolean) {
   '.cm-search input, .cm-search button, .cm-gotoLine input, .cm-gotoLine button': {
     font: 'inherit',
     fontSize: '12px',
-    color: 'var(--vsc-foreground, #cccccc)',
-    backgroundColor: 'color-mix(in srgb, var(--vsc-input-background, #252526) 94%, #000)',
-    border: '1px solid var(--vsc-border, #3c3c3c)',
+    color: 'var(--vsc-input-foreground)',
+    backgroundColor: 'var(--vsc-input-background)',
+    border: '1px solid var(--vsc-input-border)',
     borderRadius: '6px',
   },
   '.cm-search input:focus, .cm-gotoLine input:focus': {
-    outline: '1px solid var(--vsc-focusBorder, #007fd4)',
-    borderColor: 'var(--vsc-focusBorder, #007fd4)',
+    outline: '1px solid var(--vsc-input-focus-border)',
+    borderColor: 'var(--vsc-input-focus-border)',
   },
   '.cm-search input, .cm-gotoLine input': {
     minWidth: '180px',
@@ -173,7 +155,7 @@ function createCodePreviewTheme(isDark: boolean) {
     cursor: 'pointer',
   },
   '.cm-search button:hover, .cm-gotoLine button:hover': {
-    backgroundColor: 'color-mix(in srgb, var(--vsc-toolbar-hoverBackground, #2a2d2e) 80%, transparent)',
+    backgroundColor: 'var(--vsc-list-hover-background)',
   },
   '.cm-search label': {
     fontSize: '11px',
@@ -188,12 +170,27 @@ function createCodePreviewTheme(isDark: boolean) {
     outline: '1px solid color-mix(in srgb, var(--vsc-code-search-match-selected) 92%, transparent)',
   },
   '.cm-selectionBackground, &.cm-focused .cm-selectionBackground, ::selection': {
-    backgroundColor: 'color-mix(in srgb, var(--vsc-editor-selectionBackground, #264f78) 70%, transparent)',
+    backgroundColor: 'var(--vsc-list-active-background)',
   },
   '.cm-matchingBracket, .cm-nonmatchingBracket': {
     backgroundColor: 'var(--vsc-code-bracket-match)',
     outline: '1px solid color-mix(in srgb, var(--vsc-code-bracket-match) 92%, transparent)',
   },
+  // Syntax token colours — driven by classHighlighter .tok-* classes
+  '.tok-keyword': { color: 'var(--vsc-code-keyword)' },
+  '.tok-string': { color: 'var(--vsc-code-string)' },
+  '.tok-string2': { color: 'var(--vsc-code-regexp)' },
+  '.tok-number, .tok-literal, .tok-bool, .tok-atom': { color: 'var(--vsc-code-number)' },
+  '.tok-comment': { color: 'var(--vsc-code-comment)', fontStyle: 'italic' },
+  '.tok-variableName': { color: 'var(--vsc-code-variable)' },
+  '.tok-variableName.tok-definition': { color: 'var(--vsc-code-function)' },
+  '.tok-variableName2': { color: 'var(--vsc-code-function)' },
+  '.tok-typeName, .tok-className, .tok-namespace, .tok-macroName': { color: 'var(--vsc-code-type)' },
+  '.tok-propertyName, .tok-labelName': { color: 'var(--vsc-code-property)' },
+  '.tok-operator, .tok-punctuation': { color: 'var(--vsc-code-operator)' },
+  '.tok-meta, .tok-link, .tok-url': { color: 'var(--vsc-code-meta)' },
+  '.tok-heading': { color: 'var(--vsc-code-heading)', fontWeight: '600' },
+  '.tok-invalid': { color: 'var(--vsc-code-invalid)', textDecoration: 'wavy underline' },
   '.cm-cursor, .cm-dropCursor': {
     display: 'none',
   },
@@ -752,7 +749,7 @@ export class TextViewerComponent implements OnChanges, OnDestroy {
       history(),
       foldGutter({ markerDOM: createFoldMarker }),
       drawSelection(),
-      syntaxHighlighting(codeHighlightStyle),
+      syntaxHighlighting(classHighlighter),
       bracketMatching(),
       highlightActiveLine(),
       highlightSelectionMatches(),

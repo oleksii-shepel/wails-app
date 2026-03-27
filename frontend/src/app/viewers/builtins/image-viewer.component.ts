@@ -25,8 +25,8 @@ interface ImageMeta { width: number; height: number }
         <div class="header-main">
           <span class="file-icon">&#x1F5BC;</span>
           <div class="header-text">
-            <div class="title" [title]="displayName">{{ displayName || 'Preview' }}</div>
-            <div class="path" [title]="targetPath">{{ targetPath || 'Select a file to preview' }}</div>
+            <div class="title" [title]="displayName">{{ displayName || 'Image Preview' }}</div>
+            <div class="path" [title]="displayPath">{{ displayPath || 'Select a file to preview' }}</div>
           </div>
         </div>
         <div class="header-meta" *ngIf="info && kind !== 'empty' && kind !== 'loading'">
@@ -40,13 +40,13 @@ interface ImageMeta { width: number; height: number }
       </div>
 
       <div class="viewer-toolbar" *ngIf="kind === 'image' || kind === 'svg'">
-        <button class="tool-btn" (click)="zoomOut()" title="Zoom out">&#x2212;</button>
+        <button class="tool-btn" type="button" (click)="zoomOut()" title="Zoom out">&#x2212;</button>
         <span class="zoom-label">{{ zoomLabel }}</span>
-        <button class="tool-btn" (click)="zoomIn()" title="Zoom in">+</button>
-        <button class="tool-btn" (click)="resetZoom()" title="Fit to window">Fit</button>
-        <button class="tool-btn" (click)="zoom100()" title="Actual size">1:1</button>
+        <button class="tool-btn" type="button" (click)="zoomIn()" title="Zoom in">+</button>
+        <button class="tool-btn" type="button" (click)="resetZoom()" title="Fit to window">Fit</button>
+        <button class="tool-btn" type="button" (click)="zoom100()" title="Actual size">1:1</button>
         <span class="toolbar-divider"></span>
-        <button class="tool-btn" (click)="toggleCheckerboard()" [class.active]="showCheckerboard"
+        <button class="tool-btn" type="button" (click)="toggleCheckerboard()" [class.active]="showCheckerboard"
                 title="Toggle transparency grid">Grid</button>
       </div>
 
@@ -69,7 +69,7 @@ interface ImageMeta { width: number; height: number }
 
         <div *ngIf="kind === 'directory'" class="state-container">
           <div class="state-icon">&#x1F4C1;</div>
-          <div class="state-label">Directory вЂ” no preview available</div>
+          <div class="state-label">Directory - no preview available</div>
         </div>
 
         <div *ngIf="kind === 'toobig'" class="state-container">
@@ -100,45 +100,144 @@ interface ImageMeta { width: number; height: number }
     </div>
   `,
   styles: [`
-    .viewer-surface { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+    :host {
+      display: flex;
+      flex-direction: column;
+      flex: 1 1 0%;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .viewer-surface {
+      display: flex;
+      flex-direction: column;
+      flex: 1 1 0%;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+      background: var(--vsc-code-background, var(--vsc-editor-background, #1e1e1e));
+      color: var(--vsc-foreground, #cccccc);
+    }
     .viewer-header {
       display: flex;
-      justify-content: space-between;
       align-items: center;
-      gap: 10px;
-      padding: 10px 12px;
-      border-bottom: 1px solid var(--vsc-border, #333);
-      background: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 92%, #000);
+      justify-content: space-between;
+      gap: 8px;
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--vsc-border, #454545);
+      background: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 92%, black);
+      flex-shrink: 0;
+      min-width: 0;
     }
-    .header-main { display: flex; align-items: center; gap: 10px; min-width: 0; }
-    .file-icon { font-size: 18px; opacity: 0.9; }
-    .header-text { min-width: 0; }
-    .title { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .path { font-size: 11px; opacity: 0.75; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .header-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
-    .badge { font-size: 10px; padding: 2px 6px; border: 1px solid var(--vsc-border, #444); border-radius: 999px; opacity: 0.9; }
-    .archive-badge { border-color: color-mix(in srgb, var(--vsc-accent-orange, #f90) 60%, var(--vsc-border, #444)); }
+    .header-main {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      flex: 1;
+    }
+    .file-icon {
+      font-size: 18px;
+      flex-shrink: 0;
+      line-height: 1;
+    }
+    .header-text {
+      min-width: 0;
+      flex: 1;
+    }
+    .title {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      text-transform: uppercase;
+      opacity: 0.9;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .path {
+      font-family: var(--vsc-font-family-mono, ui-monospace, 'Courier New', monospace);
+      font-size: 11px;
+      opacity: 0.6;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-top: 1px;
+    }
+    .header-meta {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+    .badge {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 3px;
+      white-space: nowrap;
+      letter-spacing: 0.3px;
+    }
+    .archive-badge {
+      background: color-mix(in srgb, var(--vsc-accent-orange, #f90) 20%, transparent);
+      color: var(--vsc-accent-orange, #e8c040);
+      border: 1px solid color-mix(in srgb, var(--vsc-accent-orange, #f90) 40%, transparent);
+    }
+    .type-badge {
+      background: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 20%, transparent);
+      color: var(--vsc-accent-blue, #4da8ff);
+      border: 1px solid color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 40%, transparent);
+    }
+    .size-badge,
+    .dim-badge {
+      background: color-mix(in srgb, var(--vsc-foreground, #ccc) 8%, transparent);
+      color: color-mix(in srgb, var(--vsc-foreground, #ccc) 60%, transparent);
+      border: 1px solid color-mix(in srgb, var(--vsc-border, #454545) 50%, transparent);
+    }
     .viewer-toolbar {
       display: flex;
       align-items: center;
-      gap: 6px;
-      padding: 6px 10px;
-      border-bottom: 1px solid var(--vsc-border, #333);
-      background: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 95%, #000);
+      gap: 2px;
+      padding: 4px 8px;
+      border-bottom: 1px solid var(--vsc-border, #454545);
+      background: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 96%, black);
+      flex-shrink: 0;
     }
     .tool-btn {
       font: inherit;
       font-size: 12px;
-      padding: 4px 8px;
       background: transparent;
       color: var(--vsc-foreground, #ccc);
-      border: 1px solid var(--vsc-border, #444);
-      border-radius: 6px;
+      border: 1px solid transparent;
+      padding: 2px 8px;
+      border-radius: 3px;
       cursor: pointer;
+      line-height: 1.4;
+      min-width: 24px;
+      transition: background 0.1s, border-color 0.1s;
     }
-    .tool-btn.active { background: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 20%, transparent); }
-    .zoom-label { font-size: 11px; opacity: 0.85; min-width: 44px; text-align: center; }
-    .toolbar-divider { width: 1px; height: 18px; background: var(--vsc-border, #333); margin: 0 4px; opacity: 0.9; }
+    .tool-btn:hover {
+      background: var(--vsc-list-hover-background, rgba(255,255,255,0.05));
+      border-color: var(--vsc-border, #454545);
+    }
+    .tool-btn.active {
+      background: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 20%, transparent);
+      border-color: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 50%, transparent);
+      color: var(--vsc-accent-blue, #4da8ff);
+    }
+    .zoom-label {
+      font-size: 11px;
+      opacity: 0.85;
+      min-width: 44px;
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+    }
+    .toolbar-divider {
+      width: 1px;
+      height: 16px;
+      background: var(--vsc-border, #454545);
+      margin: 0 4px;
+    }
     .viewer-body { flex: 1 1 auto; min-height: 0; position: relative; overflow: hidden; }
     .state-container {
       height: 100%;
@@ -148,22 +247,34 @@ interface ImageMeta { width: number; height: number }
       justify-content: center;
       gap: 10px;
       color: var(--vsc-foreground, #ccc);
-      opacity: 0.85;
       user-select: none;
       padding: 20px;
       text-align: center;
+      opacity: 0.85;
     }
     .state-icon { font-size: 22px; }
     .state-label { font-size: 13px; font-weight: 600; }
     .state-sub { font-size: 12px; opacity: 0.8; }
     .state-error { color: color-mix(in srgb, var(--vsc-accent-red, #f14c4c) 70%, var(--vsc-foreground, #ccc)); }
-    .error-detail { font-size: 12px; opacity: 0.9; max-width: 680px; }
+    .error-detail {
+      font-size: 11px;
+      font-family: var(--vsc-font-family-mono, ui-monospace, monospace);
+      color: color-mix(in srgb, #ff7070 70%, var(--vsc-foreground, #ccc));
+      background: rgba(255, 0, 0, 0.07);
+      border: 1px solid rgba(255, 112, 112, 0.2);
+      border-radius: 4px;
+      padding: 8px 12px;
+      max-width: 480px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
     .spinner {
-      width: 22px; height: 22px;
+      width: 26px;
+      height: 26px;
       border-radius: 50%;
-      border: 2px solid color-mix(in srgb, var(--vsc-foreground, #ccc) 20%, transparent);
-      border-top-color: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 80%, transparent);
-      animation: spin 0.9s linear infinite;
+      border: 2px solid color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 25%, transparent);
+      border-top-color: var(--vsc-accent-blue, #0078d4);
+      animation: spin 0.65s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
     .checkerboard {
@@ -182,9 +293,20 @@ interface ImageMeta { width: number; height: number }
       align-items: center;
       justify-content: center;
       padding: 18px;
+      background: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 96%, black);
     }
-    .preview-image { max-width: 100%; max-height: 100%; transform-origin: center; }
-    .svg-wrap { transform-origin: center; }
+    .preview-image {
+      max-width: 100%;
+      max-height: 100%;
+      transform-origin: center;
+      box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
+      border-radius: 6px;
+    }
+    .svg-wrap {
+      transform-origin: center;
+      box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22);
+      border-radius: 6px;
+    }
   `],
 })
 export class ImageViewerComponent implements OnChanges, OnDestroy {
@@ -219,6 +341,13 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
       return this.archiveContext.entryPath.replace(/\\/g, '/').split('/').pop() ?? '';
     }
     return this.targetPath ? this.baseName(this.targetPath) : '';
+  }
+
+  get displayPath(): string {
+    if (this.archiveContext) {
+      return `${this.archiveContext.fsPath} :: ${this.archiveContext.entryPath}`;
+    }
+    return this.targetPath;
   }
 
   get fileExt(): string {

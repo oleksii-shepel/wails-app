@@ -170,6 +170,10 @@ export function PathExists(arg1:string):Promise<boolean>;
 
 export function Ping():Promise<number>;
 
+export function ProbeArchiveFile(arg1:string,arg2:Array<string>,arg3:string):Promise<contracts.FileProbe>;
+
+export function ProbeFile(arg1:string):Promise<contracts.FileProbe>;
+
 export function PromptConflict(arg1:contracts.ConflictEvent):Promise<void>;
 
 export function ReadFile(arg1:string,arg2:string):Promise<contracts.FileContent>;

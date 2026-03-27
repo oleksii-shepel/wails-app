@@ -1,9 +1,11 @@
 import type { Type } from '@angular/core';
+import type { FileProbe } from '../shared/protocol';
 import type { ViewerArchiveContext } from './viewer-archive-context';
 
 export interface ViewerRequest {
   targetPath: string;
   archiveContext?: ViewerArchiveContext | null;
+  probe?: FileProbe | null;
   /** Optional explicit viewer id (from tab metadata). */
   viewerId?: string | null;
 }

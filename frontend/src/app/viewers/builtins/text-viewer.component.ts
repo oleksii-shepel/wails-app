@@ -33,7 +33,7 @@ import { gotoLine, highlightSelectionMatches, openSearchPanel, searchKeymap } fr
 import { tags } from '@lezer/highlight';
 import { ApiService } from '../../services/api.service';
 import { Theme, ThemeService } from '../../services/theme.service';
-import { FileInfo, FileType } from '../../shared/protocol';
+import { FileInfo, FileProbe, FileType } from '../../shared/protocol';
 import { ViewerArchiveContext } from '../viewer-archive-context';
 
 type TextViewerKind = 'empty' | 'loading' | 'editor' | 'directory' | 'unsupported' | 'error';
@@ -498,6 +498,7 @@ export class TextViewerComponent implements OnChanges, OnDestroy {
   @Input() targetPath = '';
   @Input() archiveContext: ViewerArchiveContext | null = null;
   @Input() viewerId: string | null = null;
+  @Input() probe: FileProbe | null = null;
 
   @ViewChild('editorHost')
   set editorHostRef(value: ElementRef<HTMLDivElement> | undefined) {
@@ -697,7 +698,8 @@ export class TextViewerComponent implements OnChanges, OnDestroy {
       return { kind: 'directory', text: '', filename: info.name };
     }
 
-    const file = await this.api.readFile(path, 'utf8');
+    const encoding = this.normalizeEncoding(this.probe?.encoding ?? '');
+    const file = await this.api.readFile(path, encoding);
     if (!file || typeof file.content !== 'string') {
       throw new Error('The file could not be read as UTF-8 text.');
     }
@@ -710,7 +712,8 @@ export class TextViewerComponent implements OnChanges, OnDestroy {
   }
 
   private async loadFromArchive(ctx: ViewerArchiveContext): Promise<{ kind: 'editor'; text: string; filename: string }> {
-    const response = await this.api.archiveRead(ctx.fsPath, ctx.nestedChain, ctx.entryPath, 'utf8');
+    const encoding = this.normalizeEncoding(this.probe?.encoding ?? '');
+    const response = await this.api.archiveRead(ctx.fsPath, ctx.nestedChain, ctx.entryPath, encoding);
     if (!response || typeof response.content !== 'string') {
       throw new Error('The archive entry could not be read as UTF-8 text.');
     }
@@ -782,6 +785,13 @@ export class TextViewerComponent implements OnChanges, OnDestroy {
     } catch {
       return null;
     }
+  }
+
+  private normalizeEncoding(raw: string): string {
+    const encoding = (raw ?? '').trim().toLowerCase();
+    if (!encoding || encoding === 'utf-8') return '';
+    if (encoding === 'utf16' || encoding === 'utf-16') return 'utf16le';
+    return encoding;
   }
 
   private resolveThemeExtension(theme: Theme) {

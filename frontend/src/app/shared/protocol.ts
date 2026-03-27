@@ -251,6 +251,13 @@ export interface FileInfo {
   searchParentPath?: string;
 }
 
+export interface FileProbe {
+  mimeType: string;
+  encoding?: string;
+  isText: boolean;
+  isArchive: boolean;
+}
+
 export interface DirectoryListing {
   path: string;
   entries: FileInfo[];

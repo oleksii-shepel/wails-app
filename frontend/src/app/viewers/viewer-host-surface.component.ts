@@ -1,7 +1,16 @@
 import { CommonModule, NgComponentOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, ChangeDetectorRef, Component, Input, OnChanges, Type, ViewChild } from '@angular/core';
+import { ApiService } from '../services/api.service';
 import { ViewerRegistryService } from './viewer-registry.service';
 import { ViewerArchiveContext } from './viewer-archive-context';
+import type { FileProbe } from '../shared/protocol';
+
+function extLower(path: string): string {
+  const p = (path ?? '').replace(/\\/g, '/');
+  const i = p.lastIndexOf('.');
+  if (i < 0) return '';
+  return p.slice(i + 1).toLowerCase();
+}
 
 @Component({
   selector: 'app-viewer-host-surface',
@@ -62,21 +71,52 @@ export class ViewerHostSurfaceComponent implements OnChanges {
 
   constructor(
     private registry: ViewerRegistryService,
+    private api: ApiService,
     private cdr: ChangeDetectorRef,
   ) {}
 
   ngOnChanges(): void {
+    void this.refresh();
+  }
+
+  private async refresh(): Promise<void> {
     const req = {
       targetPath: this.targetPath ?? '',
       archiveContext: this.archiveContext ?? null,
       viewerId: this.viewerId ?? null,
+      probe: null as FileProbe | null,
     };
+    const seq = ++this.resolveSeq;
+
+    if (!req.targetPath && !req.archiveContext) {
+      this.resolvedViewerKey = null;
+      this.renderedInputSignature = '';
+      this.component = null;
+      this.outletInputs = {};
+      this.cdr.markForCheck();
+      return;
+    }
+
+    const ext = extLower(req.archiveContext?.entryPath ?? req.targetPath);
+    if (ext === 'ts') {
+      try {
+        req.probe = req.archiveContext
+          ? await this.api.probeArchiveFile(req.archiveContext.fsPath, req.archiveContext.nestedChain, req.archiveContext.entryPath)
+          : await this.api.probeFile(req.targetPath);
+      } catch {
+        req.probe = null;
+      }
+    }
+
+    if (seq !== this.resolveSeq) return;
+
     const inputSignature = JSON.stringify(req);
 
     this.outletInputs = {
       targetPath: req.targetPath,
       archiveContext: req.archiveContext,
       viewerId: req.viewerId,
+      probe: req.probe,
     };
 
     const viewerKey = this.registry.resolveId(req);
@@ -100,7 +140,6 @@ export class ViewerHostSurfaceComponent implements OnChanges {
       return;
     }
 
-    const seq = ++this.resolveSeq;
     this.resolvedViewerKey = viewerKey;
     this.renderedInputSignature = inputSignature;
     this.cdr.markForCheck();

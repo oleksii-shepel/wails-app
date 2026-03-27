@@ -55,6 +55,10 @@ func (a *App) ReadFileContent(path string, encoding string) (*contracts.FileCont
 	return a.ReadFile(path, encoding)
 }
 
+func (a *App) ProbeFile(path string) (*contracts.FileProbe, error) {
+	return a.Filesystem.ProbeFile(path)
+}
+
 func (a *App) ReadFileStream(path string, chunkSize int) (string, error) {
 	streamID, err := a.Filesystem.ReadFileStream(path, chunkSize, a.EmitEvent)
 	return streamID, err

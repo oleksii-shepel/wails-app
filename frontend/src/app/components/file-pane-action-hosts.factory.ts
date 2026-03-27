@@ -210,6 +210,7 @@ export class FilePaneActionHostsFactory {
       workspaceService: source.workspaceService,
       confirmDialog: source.confirmDialog,
       isInArchive: () => source.isInArchive(),
+      openRootArchive: (path: string) => source.openRootArchive(path),
       getEffectiveSelection: () => source.getEffectiveSelection(),
       onTabChange: (tab: any) => source.onTabChange(tab as TabInfo),
     };

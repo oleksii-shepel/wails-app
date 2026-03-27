@@ -30,6 +30,13 @@ type FileInfo struct {
 	SearchParentPath  string   `json:"searchParentPath,omitempty"`
 }
 
+type FileProbe struct {
+	MimeType string `json:"mimeType"`
+	Encoding string `json:"encoding,omitempty"`
+	IsText   bool   `json:"isText"`
+	IsArchive bool  `json:"isArchive"`
+}
+
 type ArchiveListing struct {
 	ArchivePath string     `json:"archivePath"`
 	InnerPath   string     `json:"innerPath"`

@@ -10,6 +10,10 @@ func (a *App) ArchiveRead(fsPath string, nestedChain []string, entryPath string,
 	return a.Archive.ReadFile(fsPath, nestedChain, entryPath, encoding)
 }
 
+func (a *App) ProbeArchiveFile(fsPath string, nestedChain []string, entryPath string) (*contracts.FileProbe, error) {
+	return a.Archive.ProbeFile(fsPath, nestedChain, entryPath)
+}
+
 func (a *App) ArchiveReadStream(fsPath string, nestedChain []string, entryPath string, chunkSize int) (string, error) {
 	streamID, err := a.Archive.ReadFileStream(fsPath, nestedChain, entryPath, chunkSize, a.EmitEvent)
 	return streamID, err

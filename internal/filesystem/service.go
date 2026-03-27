@@ -375,6 +375,26 @@ func (s *Service) ReadFile(path string, encoding string) (*contracts.FileContent
 	return s.mapFileContent(resp.File, path), nil
 }
 
+func (s *Service) ProbeFile(path string) (*contracts.FileProbe, error) {
+	path = pathref.Normalize(path)
+	if s.handlesVFSPath(path) {
+		probe, err := internalruntime.VFSProbeFile(s.vfs, path)
+		if err == nil {
+			return probe, nil
+		}
+		if !pathref.IsRegistry(path) || !s.isPermissionDenied(err) {
+			return nil, err
+		}
+		return nil, err
+	}
+
+	resolvedPath, err := s.resolvePublicPath(path)
+	if err != nil {
+		return nil, err
+	}
+	return s.raw.ProbeFile(resolvedPath)
+}
+
 func (s *Service) ReadFileStream(path string, chunkSize int, emitEvent func(string, interface{})) (string, error) {
 	path = pathref.Normalize(path)
 

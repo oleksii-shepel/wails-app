@@ -9,6 +9,22 @@ function extLower(path: string): string {
   return p.slice(i + 1).toLowerCase();
 }
 
+function normalizeMime(mime: string | null | undefined): string {
+  return (mime ?? '').split(';', 1)[0].trim().toLowerCase();
+}
+
+function probeLooksText(req: ViewerRequest): boolean {
+  const mime = normalizeMime(req.probe?.mimeType);
+  if (mime.startsWith('text/')) return true;
+  if (mime.endsWith('+json') || mime.endsWith('+xml')) return true;
+  return !!req.probe?.encoding;
+}
+
+function probeLooksTransportStream(req: ViewerRequest): boolean {
+  const mime = normalizeMime(req.probe?.mimeType);
+  return mime === 'video/mp2t' || mime === 'application/mp2t';
+}
+
 @Injectable({ providedIn: 'root' })
 export class ViewerRegistryService {
   private readonly contributions: ViewerContribution[] = [];
@@ -43,6 +59,10 @@ export class ViewerRegistryService {
       title: 'Video Viewer',
       score: (req) => {
         const ext = extLower(req.archiveContext?.entryPath ?? req.targetPath);
+        if (ext === 'ts') {
+          if (probeLooksText(req)) return 0;
+          if (probeLooksTransportStream(req)) return 70;
+        }
         return ['mp4', 'm4v', 'webm', 'ogv', 'mov', 'qt', 'mkv', 'avi', 'divx', 'xvid', 'flv', 'ts', 'm2ts', 'mts', 'mpg', 'mpeg', 'vob', 'm2p', 'm2v', 'mjpeg', 'mjpg', 'm3u8', 'mxf', 'wmv'].includes(ext) ? 50 : 0;
       },
       load: async () => (await import('./builtins/video-viewer.component')).VideoViewerComponent,
@@ -94,6 +114,10 @@ export class ViewerRegistryService {
       title: 'Code Viewer',
       score: (req) => {
         const ext = extLower(req.archiveContext?.entryPath ?? req.targetPath);
+        if (ext === 'ts') {
+          if (probeLooksTransportStream(req)) return 0;
+          if (probeLooksText(req)) return 65;
+        }
         return ['txt', 'log', 'csv', 'tsv', 'ini', 'cfg', 'conf', 'yaml', 'yml', 'toml', 'xml', 'html', 'htm', 'css', 'scss', 'sass', 'less', 'js', 'ts', 'jsx', 'tsx', 'vue', 'svelte', 'py', 'rb', 'go', 'rs', 'java', 'kt', 'swift', 'c', 'cpp', 'h', 'hpp', 'cs', 'php', 'sh', 'bash', 'zsh', 'fish', 'ps1', 'bat', 'cmd', 'sql', 'graphql', 'gql', 'proto', 'dockerfile', 'gitignore', 'env', 'lock', 'diff', 'patch', 'r', 'lua', 'm', 'pl', 'ex', 'exs'].includes(ext) ? 40 : 0;
       },
       load: async () => (await import('./builtins/text-viewer.component')).TextViewerComponent,

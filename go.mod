@@ -11,9 +11,11 @@ require (
 	github.com/mholt/archiver/v3 v3.5.1
 	github.com/nwaples/rardecode v1.1.0
 	github.com/pkg/sftp v1.13.10
+	github.com/wailsapp/mimetype v1.4.1
 	github.com/wailsapp/wails/v2 v2.11.0
 	golang.org/x/crypto v0.41.0
 	golang.org/x/sys v0.35.0
+	golang.org/x/text v0.28.0
 )
 
 require (
@@ -54,11 +56,9 @@ require (
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasttemplate v1.2.2 // indirect
 	github.com/wailsapp/go-webview2 v1.0.22 // indirect
-	github.com/wailsapp/mimetype v1.4.1 // indirect
 	github.com/xi2/xz v0.0.0-20171230120015-48954b6210f8 // indirect
 	go4.org v0.0.0-20200411211856-f5505b9728dd // indirect
 	golang.org/x/net v0.42.0 // indirect
-	golang.org/x/text v0.28.0 // indirect
 )
 
 // replace github.com/wailsapp/wails/v2 v2.11.0 => C:\Users\oleks\go\pkg\mod

@@ -2,7 +2,6 @@ package archive
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +11,7 @@ import (
 	"time"
 
 	contracts "wails-app/internal/contracts"
+	"wails-app/internal/contentprobe"
 	"wails-app/internal/pathref"
 	vfslib "wails-app/vfs"
 	"wails-app/vfs/archive/cache"
@@ -98,15 +98,17 @@ func (s *Service) ReadFile(fsPath string, nestedChain []string, entryPath string
 		return nil, err
 	}
 
+	probe := contentprobe.ProbeBytes(data)
 	if encoding == "" {
 		encoding = "utf8"
+		if probe.IsText && probe.Encoding != "" {
+			encoding = probe.Encoding
+		}
 	}
 
-	content := string(data)
-	if encoding == "base64" {
-		content = base64.StdEncoding.EncodeToString(data)
-	} else {
-		encoding = "utf8"
+	content, err := contentprobe.Decode(data, encoding)
+	if err != nil {
+		return nil, err
 	}
 
 	return &contracts.FileContent{
@@ -114,6 +116,36 @@ func (s *Service) ReadFile(fsPath string, nestedChain []string, entryPath string
 		Content:  content,
 		Encoding: encoding,
 		Size:     int64(len(data)),
+	}, nil
+}
+
+func (s *Service) ProbeFile(fsPath string, nestedChain []string, entryPath string) (*contracts.FileProbe, error) {
+	entryPath = normalizePath(entryPath)
+
+	ctx := context.Background()
+	nativePath := pathref.ToNativePath(fsPath)
+
+	arch, err := s.archCache.Get(ctx, nativePath, nestedChain, "")
+	if err != nil {
+		return nil, fmt.Errorf("archive probe: open %q: %w", nativePath, err)
+	}
+
+	f, err := arch.Open(ctx, entryPath)
+	if err != nil {
+		return nil, fmt.Errorf("archive probe: open entry %q: %w", entryPath, err)
+	}
+	defer f.Close()
+
+	_, probe, err := contentprobe.ProbeReader(f)
+	if err != nil {
+		return nil, err
+	}
+
+	return &contracts.FileProbe{
+		MimeType: probe.MimeType,
+		Encoding: probe.Encoding,
+		IsText:   probe.IsText,
+		IsArchive: probe.IsArchive,
 	}, nil
 }
 

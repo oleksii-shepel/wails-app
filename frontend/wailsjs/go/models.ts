@@ -753,6 +753,24 @@ export namespace contracts {
 	    }
 	}
 	
+	export class FileProbe {
+	    mimeType: string;
+	    encoding?: string;
+	    isText: boolean;
+	    isArchive: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new FileProbe(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.mimeType = source["mimeType"];
+	        this.encoding = source["encoding"];
+	        this.isText = source["isText"];
+	        this.isArchive = source["isArchive"];
+	    }
+	}
 	export class FilterCriteria {
 	    type: string;
 	    value: string;

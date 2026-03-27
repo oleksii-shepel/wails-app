@@ -5,7 +5,7 @@ import {
 } from '@angular/core';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { ApiService } from '../../services/api.service';
-import { FileInfo, FileType } from '../../shared/protocol';
+import { FileInfo, FileProbe, FileType } from '../../shared/protocol';
 import { CanvasVideoPlayer, CanvasVideoPlayerService, VideoMetadata } from '../../services/canvas-video-player.service';
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
 import { ViewerArchiveContext } from '../../viewers/viewer-archive-context';
@@ -27,6 +27,22 @@ interface VideoPlaybackPlan {
   seekable: boolean;
   useNativePlayer: boolean;
   url: string;
+}
+
+function normalizeMime(mime: string | null | undefined): string {
+  return (mime ?? '').split(';', 1)[0].trim().toLowerCase();
+}
+
+function probeLooksText(probe: FileProbe | null | undefined): boolean {
+  const mime = normalizeMime(probe?.mimeType);
+  if (mime.startsWith('text/')) return true;
+  if (mime.endsWith('+json') || mime.endsWith('+xml')) return true;
+  return !!probe?.encoding;
+}
+
+function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean {
+  const mime = normalizeMime(probe?.mimeType);
+  return mime === 'video/mp2t' || mime === 'application/mp2t';
 }
 
 @Component({
@@ -1190,6 +1206,7 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
    * component contract and must be accepted by Angular.
    */
   @Input() viewerId: string | null = null;
+  @Input() probe: FileProbe | null = null;
   @ViewChild('videoContainer') videoContainerRef?: ElementRef<HTMLDivElement>;
 
   // ── State ────────────────────────────────────────────────────────────────
@@ -1804,9 +1821,10 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
     }
 
     const ext = this.extractExt(path);
+    const probe = this.probe ?? (ext === 'ts' ? await this.api.probeFile(path).catch(() => null) : null);
     await this.renderContent(ext, info.size, {
       readText: async () => {
-        const r = await this.api.readFile(path, 'utf8');
+        const r = await this.api.readFile(path, '');
         return r?.content ?? null;
       },
       streamBinary: (_mimeType: string) => {
@@ -1814,7 +1832,7 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
     // Wails' buffered asset server path on Windows.
     return this.api.getStreamURL(path);
       },
-    });
+    }, probe);
   }
 
   /**
@@ -1823,10 +1841,12 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
   private async loadFromArchive(ctx: ViewerArchiveContext): Promise<void> {
     const entryName = ctx.entryPath.replace(/\\/g, '/').split('/').pop() ?? ctx.entryPath;
     const ext = this.extractExt(ctx.entryPath);
+    const probe = this.probe ?? await this.api.probeArchiveFile(ctx.fsPath, ctx.nestedChain, ctx.entryPath).catch(() => null);
 
     await this.renderContent(ext, null, {
       readText: async () => {
-        const r = await this.api.archiveRead(ctx.fsPath, ctx.nestedChain, ctx.entryPath, 'utf8');
+        const encoding = this.normalizeEncoding(probe?.encoding ?? '');
+        const r = await this.api.archiveRead(ctx.fsPath, ctx.nestedChain, ctx.entryPath, encoding);
         if (!r) return null;
         this.info = this.makeSyntheticInfo(entryName, ctx.entryPath, r.size ?? 0);
         return r.content;
@@ -1836,7 +1856,7 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
     // WebView buffering for large binary responses.
     return this.api.getArchiveStreamURL(ctx.fsPath, ctx.nestedChain, ctx.entryPath);
       },
-    });
+    }, probe);
 
     if (!this.info) {
       this.info = this.makeSyntheticInfo(entryName, ctx.entryPath, 0);
@@ -1854,8 +1874,12 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
       readText: () => Promise<string | null>;
       streamBinary: (mimeType: string) => Promise<string>;
     },
+    probe: FileProbe | null = null,
   ): Promise<void> {
     try {
+      const tsLooksText = ext === 'ts' && probeLooksText(probe);
+      const tsLooksTransportStream = ext === 'ts' && probeLooksTransportStream(probe);
+
       // ── SVG ────────────────────────────────────────────────────────────────
       if (ext === 'svg') {
         if (sizeHint !== null && sizeHint > this.MAX_IMAGE_BYTES) { this.kind = 'toobig'; return; }
@@ -1899,7 +1923,7 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
 
       // ── Video ────────────────────────────────────────────────────────────────
       const videoMime = this.inferVideoMime(ext);
-      if (videoMime) {
+      if (videoMime && (!tsLooksText || tsLooksTransportStream || ext !== 'ts')) {
         if (sizeHint !== null && sizeHint > this.MAX_MEDIA_BYTES) { this.kind = 'toobig'; return; }
         if (!this.videoPlayerService.supportsCanvasVideoFormat(ext)) {
           this.kind = 'unsupported';
@@ -2096,6 +2120,13 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
   private extractExt(path: string): string {
     const idx = (path ?? '').lastIndexOf('.');
     return (idx >= 0 ? path.slice(idx + 1) : '').toLowerCase();
+  }
+
+  private normalizeEncoding(raw: string): string {
+    const encoding = (raw ?? '').trim().toLowerCase();
+    if (!encoding || encoding === 'utf-8') return '';
+    if (encoding === 'utf16' || encoding === 'utf-16') return 'utf16le';
+    return encoding;
   }
 
   private inferImageMime(ext: string): string | null {

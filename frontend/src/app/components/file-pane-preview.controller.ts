@@ -18,6 +18,7 @@ export interface FilePanePreviewHost {
   workspaceService: WorkspaceService;
   confirmDialog: ConfirmDialogService;
   isInArchive(): boolean;
+  openRootArchive(path: string): Promise<void>;
   getEffectiveSelection(): Set<string>;
   onTabChange(tab: any): Promise<void>;
 }
@@ -94,6 +95,12 @@ export class FilePanePreviewController {
         if (!tab) return;
         host.tabs = host.workspaceService.getTabs(host.paneId);
         await host.onTabChange(tab);
+        return;
+      }
+
+      const probe = await host.apiService.probeFile(path).catch(() => null);
+      if (probe?.isArchive) {
+        await host.openRootArchive(path);
         return;
       }
 

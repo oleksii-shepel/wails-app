@@ -25,6 +25,22 @@ export interface FilePaneOpenHost {
 }
 
 export class FilePaneOpenController {
+  private async openDetectedArchiveOrFile(host: FilePaneOpenHost, path: string): Promise<void> {
+    try {
+      const probe = await host.apiService.probeFile(path);
+      if (probe?.isArchive) {
+        await host.openRootArchive(path);
+        return;
+      }
+    } catch {
+      // fall back to the extension-based path below
+    }
+
+    host.apiService.openFile(path).catch(err =>
+      console.error('Failed to open file:', err)
+    );
+  }
+
   onNodeDoubleClick(host: FilePaneOpenHost, entry: FileInfo, navigateUp: () => void): void {
     if (entry.path === PARENT_ENTRY_PATH) {
       navigateUp();
@@ -40,9 +56,7 @@ export class FilePaneOpenController {
         this.resolveAndOpen(host, entry.path);
         return;
       }
-      host.apiService.openFile(entry.path).catch(err =>
-        console.error('Failed to open file:', err)
-      );
+      void this.openDetectedArchiveOrFile(host, entry.path);
       return;
     }
 
@@ -97,9 +111,7 @@ export class FilePaneOpenController {
       return;
     }
 
-    host.apiService.openFile(entry.path).catch(err =>
-      console.error('Failed to open file:', err)
-    );
+    void this.openDetectedArchiveOrFile(host, entry.path);
   }
 
   onOpenSelectedItem(host: FilePaneOpenHost, navigateUp: () => void): void {
@@ -128,7 +140,10 @@ export class FilePaneOpenController {
 
     if (entry.type === FileType.ARCHIVE || isArchive(entry.name)) {
       await host.openPathInNewTab(entry.path);
+      return;
     }
+
+    await this.openDetectedArchiveOrFile(host, entry.path);
   }
 
   private resolveAndOpen(host: FilePaneOpenHost, path: string): void {

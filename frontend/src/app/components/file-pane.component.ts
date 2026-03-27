@@ -833,6 +833,16 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   async openPathInNewTab(path: string): Promise<void> {
+    try {
+      const probe = await this.apiService.probeFile(path);
+      if (probe?.isArchive) {
+        await this.archiveController.openRootArchive(this.archiveHost, path);
+        return;
+      }
+    } catch {
+      // fall back to the standard tab path
+    }
+
     await this.tabsController.openPathInNewTab(this.tabsHost, path);
   }
 

@@ -9,6 +9,7 @@ import (
 
 	internalarchive "wails-app/internal/archive"
 	contracts "wails-app/internal/contracts"
+	"wails-app/internal/contentprobe"
 	"wails-app/internal/pathref"
 	vfslib "wails-app/vfs"
 	"wails-app/vfs/memory"
@@ -109,15 +110,17 @@ func VFSReadFile(vfs *vfslib.Unified, path string, encoding string) (*contracts.
 		return nil, err
 	}
 
+	probe := contentprobe.ProbeBytes(data)
 	if encoding == "" {
 		encoding = "utf8"
+		if probe.IsText && probe.Encoding != "" {
+			encoding = probe.Encoding
+		}
 	}
 
-	content := string(data)
-	if encoding == "base64" {
-		content = base64.StdEncoding.EncodeToString(data)
-	} else {
-		encoding = "utf8"
+	content, err := contentprobe.Decode(data, encoding)
+	if err != nil {
+		return nil, err
 	}
 
 	return &contracts.FileContent{
@@ -125,6 +128,26 @@ func VFSReadFile(vfs *vfslib.Unified, path string, encoding string) (*contracts.
 		Content:  content,
 		Encoding: encoding,
 		Size:     int64(len(data)),
+	}, nil
+}
+
+func VFSProbeFile(vfs *vfslib.Unified, path string) (*contracts.FileProbe, error) {
+	internalPath := pathref.ToVFS(path)
+	file, err := vfs.Open(context.Background(), internalPath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	_, probe, err := contentprobe.ProbeReader(file)
+	if err != nil {
+		return nil, err
+	}
+	return &contracts.FileProbe{
+		MimeType: probe.MimeType,
+		Encoding: probe.Encoding,
+		IsText:   probe.IsText,
+		IsArchive: probe.IsArchive,
 	}, nil
 }
 

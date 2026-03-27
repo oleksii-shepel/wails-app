@@ -12,6 +12,7 @@ import {
   DrivesList,
   FileContent,
   FileInfo,
+  FileProbe,
   OperationResult,
   SearchResult,
   WorkspaceConfig,
@@ -187,6 +188,10 @@ export class ApiService {
 	    return castProtocol<FileInfo>(await window.go.app.App.FileInfo(this.normalizeCanonicalPath(path)));
   }
 
+  async probeFile(path: string): Promise<FileProbe> {
+	    return castProtocol<FileProbe>(await window.go.app.App.ProbeFile(this.normalizeCanonicalPath(path)));
+  }
+
   async openFile(path: string): Promise<void> {
     return await window.go.app.App.OpenFile(this.normalizeCanonicalPath(path));
   }
@@ -281,6 +286,10 @@ export class ApiService {
 
   async archiveRead(fsPath: string, nestedChain: string[] = [], entryPath: string, encoding: string = 'utf8'): Promise<FileContent> {
     return castProtocol<FileContent>(await window.go.app.App.ArchiveRead(this.normalizeCanonicalPath(fsPath), nestedChain, entryPath, encoding));
+  }
+
+  async probeArchiveFile(fsPath: string, nestedChain: string[] = [], entryPath: string): Promise<FileProbe> {
+	    return castProtocol<FileProbe>(await window.go.app.App.ProbeArchiveFile(this.normalizeCanonicalPath(fsPath), nestedChain, entryPath));
   }
 
   async getStreamURL(path: string): Promise<string> {

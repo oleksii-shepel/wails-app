@@ -9,75 +9,142 @@ import {
   OnDestroy,
   ViewChild,
 } from '@angular/core';
-import { basicSetup } from 'codemirror';
 import { Compartment, EditorState } from '@codemirror/state';
 import {
+  bracketMatching,
+  foldGutter,
+  foldKeymap,
   HighlightStyle,
   LanguageDescription,
   syntaxHighlighting,
 } from '@codemirror/language';
 import { languages } from '@codemirror/language-data';
-import { EditorView, keymap } from '@codemirror/view';
-import { defaultKeymap, historyKeymap } from '@codemirror/commands';
-import { gotoLine, openSearchPanel, searchKeymap } from '@codemirror/search';
+import {
+  drawSelection,
+  EditorView,
+  highlightActiveLine,
+  highlightActiveLineGutter,
+  highlightSpecialChars,
+  keymap,
+  lineNumbers,
+} from '@codemirror/view';
+import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
+import { gotoLine, highlightSelectionMatches, openSearchPanel, searchKeymap } from '@codemirror/search';
 import { tags } from '@lezer/highlight';
 import { ApiService } from '../../services/api.service';
+import { Theme, ThemeService } from '../../services/theme.service';
 import { FileInfo, FileType } from '../../shared/protocol';
 import { ViewerArchiveContext } from '../viewer-archive-context';
 
 type TextViewerKind = 'empty' | 'loading' | 'editor' | 'directory' | 'unsupported' | 'error';
 
+function createFoldMarker(open: boolean): HTMLElement {
+  const marker = document.createElement('span');
+  marker.className = `cm-fold-marker ${open ? 'is-open' : 'is-closed'}`;
+  marker.setAttribute('aria-hidden', 'true');
+  marker.innerHTML = open
+    ? '<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+    : '<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  return marker;
+}
+
 const codeHighlightStyle = HighlightStyle.define([
-  { tag: [tags.keyword, tags.modifier], color: 'var(--vsc-syntax-keyword, #569cd6)' },
-  { tag: [tags.string, tags.special(tags.string)], color: 'var(--vsc-syntax-string, #ce9178)' },
-  { tag: [tags.number, tags.bool, tags.null], color: 'var(--vsc-syntax-number, #b5cea8)' },
-  { tag: [tags.comment, tags.lineComment, tags.blockComment], color: 'var(--vsc-syntax-comment, #6a9955)', fontStyle: 'italic' },
-  { tag: [tags.function(tags.variableName), tags.function(tags.propertyName)], color: 'var(--vsc-syntax-function, #dcdcaa)' },
-  { tag: [tags.typeName, tags.className, tags.namespace, tags.macroName], color: 'var(--vsc-syntax-type, #4ec9b0)' },
-  { tag: [tags.variableName, tags.propertyName, tags.attributeName], color: 'var(--vsc-syntax-variable, #9cdcfe)' },
-  { tag: [tags.operator, tags.punctuation, tags.separator], color: 'var(--vsc-syntax-operator, #d4d4d4)' },
-  { tag: [tags.regexp, tags.escape], color: 'var(--vsc-syntax-regexp, #d16969)' },
-  { tag: [tags.heading, tags.labelName], color: 'var(--vsc-syntax-heading, #569cd6)', fontWeight: '600' },
+  { tag: [tags.keyword, tags.modifier, tags.controlKeyword], color: 'var(--vsc-code-keyword)' },
+  { tag: [tags.operatorKeyword], color: 'var(--vsc-code-keyword-operator)' },
+  { tag: [tags.string, tags.special(tags.string)], color: 'var(--vsc-code-string)' },
+  { tag: [tags.number, tags.integer, tags.float, tags.bool, tags.null], color: 'var(--vsc-code-number)' },
+  { tag: [tags.comment, tags.lineComment, tags.blockComment, tags.docComment], color: 'var(--vsc-code-comment)', fontStyle: 'italic' },
+  { tag: [tags.function(tags.variableName), tags.function(tags.propertyName), tags.labelName], color: 'var(--vsc-code-function)' },
+  { tag: [tags.typeName, tags.className, tags.namespace, tags.macroName, tags.definition(tags.typeName)], color: 'var(--vsc-code-type)' },
+  { tag: [tags.variableName, tags.definition(tags.variableName)], color: 'var(--vsc-code-variable)' },
+  { tag: [tags.propertyName, tags.attributeName], color: 'var(--vsc-code-property)' },
+  { tag: [tags.operator, tags.punctuation, tags.separator, tags.bracket], color: 'var(--vsc-code-operator)' },
+  { tag: [tags.regexp, tags.escape], color: 'var(--vsc-code-regexp)' },
+  { tag: [tags.meta, tags.annotation], color: 'var(--vsc-code-meta)' },
+  { tag: [tags.heading], color: 'var(--vsc-code-heading)', fontWeight: '600' },
+  { tag: [tags.invalid], color: 'var(--vsc-code-invalid)', textDecoration: 'wavy underline' },
 ]);
 
-const codePreviewTheme = EditorView.theme({
+function createCodePreviewTheme(isDark: boolean) {
+  return EditorView.theme({
   '&': {
     height: '100%',
-    backgroundColor: 'var(--vsc-editor-background, #1e1e1e)',
+    backgroundColor: 'var(--vsc-code-background, var(--vsc-editor-background, #1e1e1e))',
     color: 'var(--vsc-foreground, #cccccc)',
     fontSize: '13px',
   },
+  '.cm-editor': {
+    backgroundColor: 'var(--vsc-code-background, var(--vsc-editor-background, #1e1e1e))',
+  },
   '.cm-scroller': {
     overflow: 'auto',
+    color: 'var(--vsc-foreground, #cccccc)',
     fontFamily: "var(--vsc-font-family-mono, ui-monospace, 'Cascadia Code', 'SFMono-Regular', Consolas, monospace)",
     lineHeight: '1.6',
+    scrollbarColor: 'color-mix(in srgb, var(--vsc-scrollbarSlider-background, #5a5a5a) 82%, transparent) transparent',
   },
   '.cm-content': {
     padding: '10px 0 24px',
     minHeight: '100%',
     caretColor: 'transparent',
+    color: 'var(--vsc-foreground, #cccccc)',
   },
   '.cm-line': {
     padding: '0 16px',
+    color: 'inherit',
   },
   '.cm-gutters': {
-    backgroundColor: 'color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 94%, #000)',
-    color: 'color-mix(in srgb, var(--vsc-foreground, #cccccc) 55%, transparent)',
-    borderRight: '1px solid var(--vsc-border, #333)',
+    backgroundColor: 'var(--vsc-code-gutter-background)',
+    color: 'var(--vsc-code-gutter-foreground)',
+    borderRight: '1px solid var(--vsc-code-border, var(--vsc-border, #333))',
+  },
+  '.cm-gutterElement': {
+    padding: '0 10px 0 8px',
+  },
+  '.cm-lineNumbers .cm-gutterElement': {
+    minWidth: '28px',
+  },
+  '.cm-foldGutter .cm-gutterElement': {
+    padding: '0 4px',
+  },
+  '.cm-fold-marker': {
+    display: 'inline-flex',
+    width: '14px',
+    height: '14px',
+    alignItems: 'center',
+    justifyContent: 'center',
+    color: 'var(--vsc-code-gutter-foreground)',
+    opacity: '0.85',
+  },
+  '.cm-fold-marker svg': {
+    width: '12px',
+    height: '12px',
+    display: 'block',
+  },
+  '.cm-foldGutter .cm-gutterElement:hover .cm-fold-marker': {
+    color: 'var(--vsc-foreground, #cccccc)',
+    opacity: '1',
   },
   '.cm-activeLine': {
-    backgroundColor: 'color-mix(in srgb, var(--vsc-editor-selectionBackground, #264f78) 28%, transparent)',
+    backgroundColor: 'var(--vsc-code-active-line)',
   },
   '.cm-activeLineGutter': {
-    backgroundColor: 'color-mix(in srgb, var(--vsc-editor-selectionBackground, #264f78) 20%, transparent)',
+    color: 'var(--vsc-editorLineNumber-activeForeground, var(--vsc-foreground, #ffffff))',
+    backgroundColor: 'var(--vsc-code-active-line-gutter)',
+  },
+  '.cm-foldPlaceholder': {
+    backgroundColor: 'color-mix(in srgb, var(--vsc-badge-background, #4d4d4d) 50%, transparent)',
+    border: '1px solid color-mix(in srgb, var(--vsc-border, #333) 80%, transparent)',
+    color: 'var(--vsc-descriptionForeground, #a0a0a0)',
   },
   '.cm-panels': {
-    backgroundColor: 'color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 88%, #000)',
+    backgroundColor: 'var(--vsc-code-panel-background)',
     color: 'var(--vsc-foreground, #cccccc)',
-    borderBottom: '1px solid var(--vsc-border, #333)',
+    borderBottom: '1px solid var(--vsc-code-border, var(--vsc-border, #333))',
+    boxShadow: '0 10px 24px rgba(0, 0, 0, 0.18)',
   },
   '.cm-panels-top': {
-    borderBottom: '1px solid var(--vsc-border, #333)',
+    borderBottom: '1px solid var(--vsc-code-border, var(--vsc-border, #333))',
   },
   '.cm-search': {
     padding: '8px 10px',
@@ -93,6 +160,10 @@ const codePreviewTheme = EditorView.theme({
     border: '1px solid var(--vsc-border, #3c3c3c)',
     borderRadius: '6px',
   },
+  '.cm-search input:focus, .cm-gotoLine input:focus': {
+    outline: '1px solid var(--vsc-focusBorder, #007fd4)',
+    borderColor: 'var(--vsc-focusBorder, #007fd4)',
+  },
   '.cm-search input, .cm-gotoLine input': {
     minWidth: '180px',
     padding: '5px 8px',
@@ -101,20 +172,27 @@ const codePreviewTheme = EditorView.theme({
     padding: '5px 9px',
     cursor: 'pointer',
   },
+  '.cm-search button:hover, .cm-gotoLine button:hover': {
+    backgroundColor: 'color-mix(in srgb, var(--vsc-toolbar-hoverBackground, #2a2d2e) 80%, transparent)',
+  },
   '.cm-search label': {
     fontSize: '11px',
     opacity: '0.85',
   },
   '.cm-searchMatch': {
-    backgroundColor: 'color-mix(in srgb, #d7ba7d 38%, transparent)',
-    outline: '1px solid color-mix(in srgb, #d7ba7d 65%, transparent)',
+    backgroundColor: 'var(--vsc-code-search-match)',
+    outline: '1px solid color-mix(in srgb, var(--vsc-code-search-match) 85%, transparent)',
   },
   '.cm-searchMatch.cm-searchMatch-selected': {
-    backgroundColor: 'color-mix(in srgb, #c586c0 42%, transparent)',
-    outline: '1px solid color-mix(in srgb, #c586c0 70%, transparent)',
+    backgroundColor: 'var(--vsc-code-search-match-selected)',
+    outline: '1px solid color-mix(in srgb, var(--vsc-code-search-match-selected) 92%, transparent)',
   },
   '.cm-selectionBackground, &.cm-focused .cm-selectionBackground, ::selection': {
     backgroundColor: 'color-mix(in srgb, var(--vsc-editor-selectionBackground, #264f78) 70%, transparent)',
+  },
+  '.cm-matchingBracket, .cm-nonmatchingBracket': {
+    backgroundColor: 'var(--vsc-code-bracket-match)',
+    outline: '1px solid color-mix(in srgb, var(--vsc-code-bracket-match) 92%, transparent)',
   },
   '.cm-cursor, .cm-dropCursor': {
     display: 'none',
@@ -122,7 +200,11 @@ const codePreviewTheme = EditorView.theme({
   '.cm-focused': {
     outline: 'none',
   },
-}, { dark: true });
+  }, { dark: isDark });
+}
+
+const codePreviewDarkTheme = createCodePreviewTheme(true);
+const codePreviewLightTheme = createCodePreviewTheme(false);
 
 @Component({
   selector: 'app-text-viewer',
@@ -217,7 +299,7 @@ const codePreviewTheme = EditorView.theme({
       min-width: 0;
       min-height: 0;
       overflow: hidden;
-      background: var(--vsc-editor-background, #1e1e1e);
+      background: var(--vsc-code-background, var(--vsc-editor-background, #1e1e1e));
       color: var(--vsc-foreground, #cccccc);
     }
     .viewer-header {
@@ -226,8 +308,8 @@ const codePreviewTheme = EditorView.theme({
       align-items: center;
       gap: 10px;
       padding: 10px 12px;
-      border-bottom: 1px solid var(--vsc-border, #333);
-      background: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 92%, #000);
+      border-bottom: 1px solid var(--vsc-code-border, var(--vsc-border, #333));
+      background: var(--vsc-code-header-background, color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 92%, #000));
     }
     .header-main {
       display: flex;
@@ -271,15 +353,15 @@ const codePreviewTheme = EditorView.theme({
       opacity: 0.9;
     }
     .archive-badge {
-      border-color: color-mix(in srgb, var(--vsc-accent-orange, #f90) 60%, var(--vsc-border, #444));
+      border-color: color-mix(in srgb, var(--vsc-accent-orange, #f90) 60%, var(--vsc-code-border, var(--vsc-border, #444)));
     }
     .viewer-toolbar {
       display: flex;
       align-items: center;
       gap: 6px;
       padding: 6px 10px;
-      border-bottom: 1px solid var(--vsc-border, #333);
-      background: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 95%, #000);
+      border-bottom: 1px solid var(--vsc-code-border, var(--vsc-border, #333));
+      background: var(--vsc-code-toolbar-background, color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 95%, #000));
     }
     .tool-btn {
       font: inherit;
@@ -287,7 +369,7 @@ const codePreviewTheme = EditorView.theme({
       padding: 4px 8px;
       background: transparent;
       color: var(--vsc-foreground, #ccc);
-      border: 1px solid var(--vsc-border, #444);
+      border: 1px solid var(--vsc-code-border, var(--vsc-border, #444));
       border-radius: 6px;
       cursor: pointer;
     }
@@ -387,11 +469,25 @@ export class TextViewerComponent implements OnChanges, OnDestroy {
 
   private readonly languageCompartment = new Compartment();
   private readonly wrapCompartment = new Compartment();
+  private readonly themeCompartment = new Compartment();
+  private readonly themeSubscription: { unsubscribe(): void };
+  private currentTheme: Theme;
 
   constructor(
     private api: ApiService,
     private cdr: ChangeDetectorRef,
-  ) {}
+    private themeService: ThemeService,
+  ) {
+    this.currentTheme = this.themeService.getTheme$().value;
+    this.themeSubscription = this.themeService.getTheme$().subscribe((theme: Theme) => {
+      this.currentTheme = theme;
+      if (this.editorView) {
+        this.editorView.dispatch({
+          effects: this.themeCompartment.reconfigure(this.resolveThemeExtension(theme)),
+        });
+      }
+    });
+  }
 
   get displayName(): string {
     if (this.info?.name) return this.info.name;
@@ -421,6 +517,7 @@ export class TextViewerComponent implements OnChanges, OnDestroy {
 
   ngOnDestroy(): void {
     this.destroyed = true;
+    this.themeSubscription.unsubscribe();
     if (this.copyResetTimer !== null) {
       window.clearTimeout(this.copyResetTimer);
       this.copyResetTimer = null;
@@ -590,12 +687,20 @@ export class TextViewerComponent implements OnChanges, OnDestroy {
     if (!this.editorHost || this.destroyed || loadId !== this.loadId) return;
 
     const extensions = [
-      basicSetup,
-      syntaxHighlighting(codeHighlightStyle, { fallback: true }),
-      codePreviewTheme,
+      lineNumbers(),
+      highlightActiveLineGutter(),
+      highlightSpecialChars(),
+      history(),
+      foldGutter({ markerDOM: createFoldMarker }),
+      drawSelection(),
+      syntaxHighlighting(codeHighlightStyle),
+      bracketMatching(),
+      highlightActiveLine(),
+      highlightSelectionMatches(),
+      this.themeCompartment.of(this.resolveThemeExtension(this.currentTheme)),
       EditorState.readOnly.of(true),
       EditorView.editable.of(false),
-      keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap]),
+      keymap.of([...defaultKeymap, ...historyKeymap, ...foldKeymap, ...searchKeymap]),
       this.wrapCompartment.of(this.wordWrap ? EditorView.lineWrapping : []),
       this.languageCompartment.of(languageExtension ?? []),
     ];
@@ -621,6 +726,10 @@ export class TextViewerComponent implements OnChanges, OnDestroy {
     } catch {
       return null;
     }
+  }
+
+  private resolveThemeExtension(theme: Theme) {
+    return theme === 'light' ? codePreviewLightTheme : codePreviewDarkTheme;
   }
 
   private baseName(path: string): string {

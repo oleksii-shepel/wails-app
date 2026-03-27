@@ -62,6 +62,34 @@
   --vsc-badge-background: #4d4d4d;
   --vsc-badge-foreground: var(--vsc-foreground-bright);
 
+  /* === Code Preview / Syntax Tokens === */
+  --vsc-code-keyword: #569cd6;
+  --vsc-code-keyword-operator: #c586c0;
+  --vsc-code-string: #ce9178;
+  --vsc-code-number: #b5cea8;
+  --vsc-code-comment: #7fa26b;
+  --vsc-code-function: #e3d08f;
+  --vsc-code-type: #69c3b0;
+  --vsc-code-variable: #a8d6ff;
+  --vsc-code-property: #c7d9ee;
+  --vsc-code-operator: #d8d8d8;
+  --vsc-code-regexp: #d16969;
+  --vsc-code-meta: #d7ba7d;
+  --vsc-code-heading: #569cd6;
+  --vsc-code-invalid: #f48771;
+  --vsc-code-background: #242628;
+  --vsc-code-header-background: #2a2c2f;
+  --vsc-code-toolbar-background: #27292c;
+  --vsc-code-border: #3e4248;
+  --vsc-code-active-line: rgba(255, 255, 255, 0.055);
+  --vsc-code-active-line-gutter: rgba(255, 255, 255, 0.08);
+  --vsc-code-search-match: rgba(215, 186, 125, 0.28);
+  --vsc-code-search-match-selected: rgba(197, 134, 192, 0.32);
+  --vsc-code-bracket-match: rgba(81, 92, 106, 0.38);
+  --vsc-code-panel-background: #2d3034;
+  --vsc-code-gutter-background: #212325;
+  --vsc-code-gutter-foreground: rgba(214, 214, 214, 0.68);
+
   /* === Symlink Badge (dark) ===
      Arrow icon colour: accent-blue lightened for legibility on dark bg.
      Two-layer filter: dark halo punches badge from bg, cyan glow signals identity.
@@ -218,6 +246,34 @@
   /* === Badge === */
   --vsc-badge-background: #c2c2c2;
   --vsc-badge-foreground: #1a1a1a;
+
+  /* === Code Preview / Syntax Tokens === */
+  --vsc-code-keyword: #0000ff;
+  --vsc-code-keyword-operator: #af00db;
+  --vsc-code-string: #a31515;
+  --vsc-code-number: #098658;
+  --vsc-code-comment: #008000;
+  --vsc-code-function: #795e26;
+  --vsc-code-type: #267f99;
+  --vsc-code-variable: #001080;
+  --vsc-code-property: #795e26;
+  --vsc-code-operator: #202020;
+  --vsc-code-regexp: #811f3f;
+  --vsc-code-meta: #af00db;
+  --vsc-code-heading: #0451a5;
+  --vsc-code-invalid: #cd3131;
+  --vsc-code-background: #fbfbfc;
+  --vsc-code-header-background: #f2f3f5;
+  --vsc-code-toolbar-background: #f6f7f8;
+  --vsc-code-border: #d7dbe0;
+  --vsc-code-active-line: rgba(0, 0, 0, 0.035);
+  --vsc-code-active-line-gutter: rgba(0, 0, 0, 0.06);
+  --vsc-code-search-match: rgba(173, 138, 28, 0.24);
+  --vsc-code-search-match-selected: rgba(175, 0, 219, 0.16);
+  --vsc-code-bracket-match: rgba(0, 122, 204, 0.16);
+  --vsc-code-panel-background: #f3f3f3;
+  --vsc-code-gutter-background: #f7f7f7;
+  --vsc-code-gutter-foreground: rgba(59, 59, 59, 0.62);
 
   /* === Symlink Badge (light) ===
      Deeper cyan (#0288d1) stays legible on white and light-grey backgrounds.

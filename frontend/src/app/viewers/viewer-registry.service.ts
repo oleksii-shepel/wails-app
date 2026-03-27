@@ -91,7 +91,7 @@ export class ViewerRegistryService {
 
     this.register({
       id: 'text',
-      title: 'Text Viewer',
+      title: 'Code Viewer',
       score: (req) => {
         const ext = extLower(req.archiveContext?.entryPath ?? req.targetPath);
         return ['txt', 'log', 'csv', 'tsv', 'ini', 'cfg', 'conf', 'yaml', 'yml', 'toml', 'xml', 'html', 'htm', 'css', 'scss', 'sass', 'less', 'js', 'ts', 'jsx', 'tsx', 'vue', 'svelte', 'py', 'rb', 'go', 'rs', 'java', 'kt', 'swift', 'c', 'cpp', 'h', 'hpp', 'cs', 'php', 'sh', 'bash', 'zsh', 'fish', 'ps1', 'bat', 'cmd', 'sql', 'graphql', 'gql', 'proto', 'dockerfile', 'gitignore', 'env', 'lock', 'diff', 'patch', 'r', 'lua', 'm', 'pl', 'ex', 'exs'].includes(ext) ? 40 : 0;

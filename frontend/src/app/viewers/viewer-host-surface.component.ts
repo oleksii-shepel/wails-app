@@ -58,6 +58,7 @@ export class ViewerHostSurfaceComponent implements OnChanges {
 
   private resolveSeq = 0;
   private resolvedViewerKey: string | null = null;
+  private renderedInputSignature = '';
 
   constructor(
     private registry: ViewerRegistryService,
@@ -70,6 +71,7 @@ export class ViewerHostSurfaceComponent implements OnChanges {
       archiveContext: this.archiveContext ?? null,
       viewerId: this.viewerId ?? null,
     };
+    const inputSignature = JSON.stringify(req);
 
     this.outletInputs = {
       targetPath: req.targetPath,
@@ -79,12 +81,28 @@ export class ViewerHostSurfaceComponent implements OnChanges {
 
     const viewerKey = this.registry.resolveId(req);
     if (this.component && this.resolvedViewerKey === viewerKey) {
+      if (this.renderedInputSignature !== inputSignature) {
+        const mountedComponent = this.component;
+        const seq = ++this.resolveSeq;
+        this.component = null;
+        this.renderedInputSignature = inputSignature;
+        this.cdr.markForCheck();
+
+        queueMicrotask(() => {
+          if (seq !== this.resolveSeq) return;
+          this.component = mountedComponent;
+          this.cdr.markForCheck();
+        });
+        return;
+      }
+
       this.cdr.markForCheck();
       return;
     }
 
     const seq = ++this.resolveSeq;
     this.resolvedViewerKey = viewerKey;
+    this.renderedInputSignature = inputSignature;
     this.cdr.markForCheck();
 
     // Async resolve so we can lazy-load contributions.
@@ -95,6 +113,7 @@ export class ViewerHostSurfaceComponent implements OnChanges {
     }).catch(() => {
       if (seq !== this.resolveSeq) return;
       this.resolvedViewerKey = null;
+      this.renderedInputSignature = '';
       this.component = null;
       this.cdr.markForCheck();
     });

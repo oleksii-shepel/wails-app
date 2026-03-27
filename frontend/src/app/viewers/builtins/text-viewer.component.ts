@@ -12,19 +12,33 @@ import {
 import { basicSetup } from 'codemirror';
 import { Compartment, EditorState } from '@codemirror/state';
 import {
-  defaultHighlightStyle,
+  HighlightStyle,
   LanguageDescription,
   syntaxHighlighting,
 } from '@codemirror/language';
 import { languages } from '@codemirror/language-data';
 import { EditorView, keymap } from '@codemirror/view';
 import { defaultKeymap, historyKeymap } from '@codemirror/commands';
-import { searchKeymap } from '@codemirror/search';
+import { gotoLine, openSearchPanel, searchKeymap } from '@codemirror/search';
+import { tags } from '@lezer/highlight';
 import { ApiService } from '../../services/api.service';
 import { FileInfo, FileType } from '../../shared/protocol';
 import { ViewerArchiveContext } from '../viewer-archive-context';
 
 type TextViewerKind = 'empty' | 'loading' | 'editor' | 'directory' | 'unsupported' | 'error';
+
+const codeHighlightStyle = HighlightStyle.define([
+  { tag: [tags.keyword, tags.modifier], color: 'var(--vsc-syntax-keyword, #569cd6)' },
+  { tag: [tags.string, tags.special(tags.string)], color: 'var(--vsc-syntax-string, #ce9178)' },
+  { tag: [tags.number, tags.bool, tags.null], color: 'var(--vsc-syntax-number, #b5cea8)' },
+  { tag: [tags.comment, tags.lineComment, tags.blockComment], color: 'var(--vsc-syntax-comment, #6a9955)', fontStyle: 'italic' },
+  { tag: [tags.function(tags.variableName), tags.function(tags.propertyName)], color: 'var(--vsc-syntax-function, #dcdcaa)' },
+  { tag: [tags.typeName, tags.className, tags.namespace, tags.macroName], color: 'var(--vsc-syntax-type, #4ec9b0)' },
+  { tag: [tags.variableName, tags.propertyName, tags.attributeName], color: 'var(--vsc-syntax-variable, #9cdcfe)' },
+  { tag: [tags.operator, tags.punctuation, tags.separator], color: 'var(--vsc-syntax-operator, #d4d4d4)' },
+  { tag: [tags.regexp, tags.escape], color: 'var(--vsc-syntax-regexp, #d16969)' },
+  { tag: [tags.heading, tags.labelName], color: 'var(--vsc-syntax-heading, #569cd6)', fontWeight: '600' },
+]);
 
 const codePreviewTheme = EditorView.theme({
   '&': {
@@ -41,6 +55,7 @@ const codePreviewTheme = EditorView.theme({
   '.cm-content': {
     padding: '10px 0 24px',
     minHeight: '100%',
+    caretColor: 'transparent',
   },
   '.cm-line': {
     padding: '0 16px',
@@ -55,6 +70,48 @@ const codePreviewTheme = EditorView.theme({
   },
   '.cm-activeLineGutter': {
     backgroundColor: 'color-mix(in srgb, var(--vsc-editor-selectionBackground, #264f78) 20%, transparent)',
+  },
+  '.cm-panels': {
+    backgroundColor: 'color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 88%, #000)',
+    color: 'var(--vsc-foreground, #cccccc)',
+    borderBottom: '1px solid var(--vsc-border, #333)',
+  },
+  '.cm-panels-top': {
+    borderBottom: '1px solid var(--vsc-border, #333)',
+  },
+  '.cm-search': {
+    padding: '8px 10px',
+    gap: '8px',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+  },
+  '.cm-search input, .cm-search button, .cm-gotoLine input, .cm-gotoLine button': {
+    font: 'inherit',
+    fontSize: '12px',
+    color: 'var(--vsc-foreground, #cccccc)',
+    backgroundColor: 'color-mix(in srgb, var(--vsc-input-background, #252526) 94%, #000)',
+    border: '1px solid var(--vsc-border, #3c3c3c)',
+    borderRadius: '6px',
+  },
+  '.cm-search input, .cm-gotoLine input': {
+    minWidth: '180px',
+    padding: '5px 8px',
+  },
+  '.cm-search button, .cm-gotoLine button': {
+    padding: '5px 9px',
+    cursor: 'pointer',
+  },
+  '.cm-search label': {
+    fontSize: '11px',
+    opacity: '0.85',
+  },
+  '.cm-searchMatch': {
+    backgroundColor: 'color-mix(in srgb, #d7ba7d 38%, transparent)',
+    outline: '1px solid color-mix(in srgb, #d7ba7d 65%, transparent)',
+  },
+  '.cm-searchMatch.cm-searchMatch-selected': {
+    backgroundColor: 'color-mix(in srgb, #c586c0 42%, transparent)',
+    outline: '1px solid color-mix(in srgb, #c586c0 70%, transparent)',
   },
   '.cm-selectionBackground, &.cm-focused .cm-selectionBackground, ::selection': {
     backgroundColor: 'color-mix(in srgb, var(--vsc-editor-selectionBackground, #264f78) 70%, transparent)',
@@ -95,6 +152,15 @@ const codePreviewTheme = EditorView.theme({
       <div class="viewer-toolbar" *ngIf="kind === 'editor'">
         <button class="tool-btn" type="button" (click)="toggleWordWrap()" [class.active]="wordWrap">
           Wrap
+        </button>
+        <button class="tool-btn" type="button" (click)="openSearch()">
+          Search
+        </button>
+        <button class="tool-btn" type="button" (click)="openGoToLine()">
+          Go to line
+        </button>
+        <button class="tool-btn" type="button" (click)="copyPath()" [class.active]="copiedPath">
+          {{ copiedPath ? 'Copied' : 'Copy path' }}
         </button>
         <button class="tool-btn" type="button" *ngIf="!archiveContext && targetPath" (click)="openExternally()">
           Open externally
@@ -308,6 +374,7 @@ export class TextViewerComponent implements OnChanges, OnDestroy {
   error = '';
   lineCount: number | null = null;
   wordWrap = false;
+  copiedPath = false;
 
   private editorHost: ElementRef<HTMLDivElement> | null = null;
   private editorView: EditorView | null = null;
@@ -316,6 +383,7 @@ export class TextViewerComponent implements OnChanges, OnDestroy {
   private pendingLoadId = 0;
   private destroyed = false;
   private loadId = 0;
+  private copyResetTimer: number | null = null;
 
   private readonly languageCompartment = new Compartment();
   private readonly wrapCompartment = new Compartment();
@@ -353,6 +421,10 @@ export class TextViewerComponent implements OnChanges, OnDestroy {
 
   ngOnDestroy(): void {
     this.destroyed = true;
+    if (this.copyResetTimer !== null) {
+      window.clearTimeout(this.copyResetTimer);
+      this.copyResetTimer = null;
+    }
     this.editorView?.destroy();
     this.editorView = null;
   }
@@ -370,6 +442,35 @@ export class TextViewerComponent implements OnChanges, OnDestroy {
   async openExternally(): Promise<void> {
     if (!this.targetPath || this.archiveContext) return;
     await this.api.openFile(this.targetPath);
+  }
+
+  openSearch(): void {
+    if (!this.editorView) return;
+    this.editorView.focus();
+    openSearchPanel(this.editorView);
+  }
+
+  openGoToLine(): void {
+    if (!this.editorView) return;
+    this.editorView.focus();
+    gotoLine(this.editorView);
+  }
+
+  async copyPath(): Promise<void> {
+    const path = this.displayPath?.trim();
+    if (!path) return;
+
+    await navigator.clipboard.writeText(path).catch(() => {});
+    this.copiedPath = true;
+    if (this.copyResetTimer !== null) {
+      window.clearTimeout(this.copyResetTimer);
+    }
+    this.copyResetTimer = window.setTimeout(() => {
+      this.copiedPath = false;
+      this.copyResetTimer = null;
+      this.cdr.markForCheck();
+    }, 1200);
+    this.cdr.markForCheck();
   }
 
   formatSize(bytes: number): string {
@@ -490,7 +591,7 @@ export class TextViewerComponent implements OnChanges, OnDestroy {
 
     const extensions = [
       basicSetup,
-      syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+      syntaxHighlighting(codeHighlightStyle, { fallback: true }),
       codePreviewTheme,
       EditorState.readOnly.of(true),
       EditorView.editable.of(false),

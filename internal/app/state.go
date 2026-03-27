@@ -39,6 +39,7 @@ type Filesystem interface {
 	GetFileInfo(path string) (*contracts.FileInfo, error)
 	ProbeFile(path string) (*contracts.FileProbe, error)
 	ReadFile(path string, encoding string) (*contracts.FileContent, error)
+	ReadFileRange(path string, offset int64, length int) (*contracts.FileContent, error)
 	ReadFileStream(path string, chunkSize int, emitEvent func(string, interface{})) (string, error)
 	CancelReadStream(streamID string)
 	WriteFile(path string, content string, encoding string) (*contracts.OperationResult, error)

@@ -375,6 +375,23 @@ func (s *Service) ReadFile(path string, encoding string) (*contracts.FileContent
 	return s.mapFileContent(resp.File, path), nil
 }
 
+func (s *Service) ReadFileRange(path string, offset int64, length int) (*contracts.FileContent, error) {
+	path = pathref.Normalize(path)
+	if s.handlesVFSPath(path) {
+		return internalruntime.VFSReadFileRange(s.vfs, path, offset, length)
+	}
+
+	resolvedPath, err := s.resolvePublicPath(path)
+	if err != nil {
+		return nil, err
+	}
+	file, err := s.raw.ReadFileRange(resolvedPath, offset, length)
+	if err != nil {
+		return nil, err
+	}
+	return s.mapFileContent(file, path), nil
+}
+
 func (s *Service) ProbeFile(path string) (*contracts.FileProbe, error) {
 	path = pathref.Normalize(path)
 	if s.handlesVFSPath(path) {

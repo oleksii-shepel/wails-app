@@ -115,6 +115,52 @@ func (s *RawService) ReadFile(path string, encoding string) (*contracts.FileCont
 	}, nil
 }
 
+func (s *RawService) ReadFileRange(path string, offset int64, length int) (*contracts.FileContent, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	fileSize := info.Size()
+
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > fileSize {
+		offset = fileSize
+	}
+	available := fileSize - offset
+	if int64(length) > available {
+		length = int(available)
+	}
+	if length <= 0 {
+		return &contracts.FileContent{
+			Path:     path,
+			Content:  "",
+			Encoding: "base64",
+			Size:     fileSize,
+		}, nil
+	}
+
+	buf := make([]byte, length)
+	n, err := file.ReadAt(buf, offset)
+	if err != nil && err != io.EOF {
+		return nil, err
+	}
+
+	return &contracts.FileContent{
+		Path:     path,
+		Content:  base64.StdEncoding.EncodeToString(buf[:n]),
+		Encoding: "base64",
+		Size:     fileSize,
+	}, nil
+}
+
 func (s *RawService) ProbeFile(path string) (*contracts.FileProbe, error) {
 	file, err := os.Open(path)
 	if err != nil {

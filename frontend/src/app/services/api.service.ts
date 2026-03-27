@@ -204,6 +204,10 @@ export class ApiService {
     return castProtocol<FileContent>(await window.go.app.App.ReadFileContent(this.normalizeCanonicalPath(path), encoding));
   }
 
+  async readFileRange(path: string, offset: number, length: number): Promise<FileContent> {
+    return castProtocol<FileContent>(await window.go.app.App.ReadFileRange(this.normalizeCanonicalPath(path), offset, length));
+  }
+
   async writeFile(path: string, content: string, encoding: string = 'utf8'): Promise<OperationResult> {
     return await window.go.app.App.WriteFileContent(this.normalizeCanonicalPath(path), content, encoding);
   }

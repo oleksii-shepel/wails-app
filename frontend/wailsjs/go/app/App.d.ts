@@ -180,6 +180,8 @@ export function ReadFile(arg1:string,arg2:string):Promise<contracts.FileContent>
 
 export function ReadFileContent(arg1:string,arg2:string):Promise<contracts.FileContent>;
 
+export function ReadFileRange(arg1:string,arg2:number,arg3:number):Promise<contracts.FileContent>;
+
 export function ReadFileStream(arg1:string,arg2:number):Promise<string>;
 
 export function RegisterDropListener():Promise<void>;

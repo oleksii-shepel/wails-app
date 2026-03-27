@@ -346,6 +346,10 @@ export function ReadFileContent(arg1, arg2) {
   return window['go']['app']['App']['ReadFileContent'](arg1, arg2);
 }
 
+export function ReadFileRange(arg1, arg2, arg3) {
+  return window['go']['app']['App']['ReadFileRange'](arg1, arg2, arg3);
+}
+
 export function ReadFileStream(arg1, arg2) {
   return window['go']['app']['App']['ReadFileStream'](arg1, arg2);
 }

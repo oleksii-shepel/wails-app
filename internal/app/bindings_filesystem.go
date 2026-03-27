@@ -59,6 +59,10 @@ func (a *App) ProbeFile(path string) (*contracts.FileProbe, error) {
 	return a.Filesystem.ProbeFile(path)
 }
 
+func (a *App) ReadFileRange(path string, offset int64, length int) (*contracts.FileContent, error) {
+	return a.Filesystem.ReadFileRange(path, offset, length)
+}
+
 func (a *App) ReadFileStream(path string, chunkSize int) (string, error) {
 	streamID, err := a.Filesystem.ReadFileStream(path, chunkSize, a.EmitEvent)
 	return streamID, err

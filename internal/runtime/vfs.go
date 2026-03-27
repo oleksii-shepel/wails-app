@@ -97,6 +97,58 @@ func VFSOpenArchive(vfs *vfslib.Unified, path string, nested []string) (contract
 	}, nil
 }
 
+func VFSReadFileRange(vfs *vfslib.Unified, path string, offset int64, length int) (*contracts.FileContent, error) {
+	publicPath := pathref.Normalize(path)
+	internalPath := pathref.ToVFS(path)
+	file, err := vfs.Open(context.Background(), internalPath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	fileSize := info.Size()
+
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > fileSize {
+		offset = fileSize
+	}
+	available := fileSize - offset
+	if int64(length) > available {
+		length = int(available)
+	}
+	if length <= 0 {
+		return &contracts.FileContent{
+			Path:     publicPath,
+			Content:  "",
+			Encoding: "base64",
+			Size:     fileSize,
+		}, nil
+	}
+
+	if _, seekErr := file.Seek(offset, io.SeekStart); seekErr != nil {
+		return nil, seekErr
+	}
+
+	buf := make([]byte, length)
+	n, err := io.ReadFull(file, buf)
+	if err != nil && err != io.ErrUnexpectedEOF {
+		return nil, err
+	}
+
+	return &contracts.FileContent{
+		Path:     publicPath,
+		Content:  base64.StdEncoding.EncodeToString(buf[:n]),
+		Encoding: "base64",
+		Size:     fileSize,
+	}, nil
+}
+
 func VFSReadFile(vfs *vfslib.Unified, path string, encoding string) (*contracts.FileContent, error) {
 	publicPath := pathref.Normalize(path)
 	internalPath := pathref.ToVFS(path)

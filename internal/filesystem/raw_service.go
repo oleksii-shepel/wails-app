@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"time"
 
-	contracts "wails-app/internal/contracts"
 	"wails-app/internal/contentprobe"
+	contracts "wails-app/internal/contracts"
 )
 
 type MetadataCallbacks struct {
@@ -128,9 +128,9 @@ func (s *RawService) ProbeFile(path string) (*contracts.FileProbe, error) {
 	}
 
 	return &contracts.FileProbe{
-		MimeType: probe.MimeType,
-		Encoding: probe.Encoding,
-		IsText:   probe.IsText,
+		MimeType:  probe.MimeType,
+		Encoding:  probe.Encoding,
+		IsText:    probe.IsText,
 		IsArchive: probe.IsArchive,
 	}, nil
 }

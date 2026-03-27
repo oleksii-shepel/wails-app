@@ -45,6 +45,7 @@ export class SurfaceOutletComponent implements OnChanges {
 
   private resolveSeq = 0;
   private resolvedSurfaceKey: string | null = null;
+  private renderedInputSignature = '';
   private mountedSubscription: { unsubscribe: () => void } | null = null;
 
   constructor(
@@ -54,12 +55,27 @@ export class SurfaceOutletComponent implements OnChanges {
 
   ngOnChanges(): void {
     const surfaceKey = this.ctx ? `${this.ctx.kind}:${this.ctx.tab.id}` : 'dir';
+    const inputSignature = JSON.stringify(this.ctx ?? null);
 
     // FilePaneComponent rebuilds the surface context object on every change
     // detection pass. Reload the dynamic surface only when the surface kind
     // or active tab actually changes; otherwise just push fresh inputs into the
     // mounted one.
     if (this.component && this.resolvedSurfaceKey === surfaceKey) {
+      if (this.renderedInputSignature !== inputSignature) {
+        const mountedComponent = this.component;
+        this.component = null;
+        this.outletInputs = { ctx: this.ctx };
+        this.renderedInputSignature = inputSignature;
+        this.cdr.markForCheck();
+
+        queueMicrotask(() => {
+          this.component = mountedComponent;
+          this.cdr.markForCheck();
+        });
+        return;
+      }
+
       this.outletInputs = { ctx: this.ctx };
       this.cdr.markForCheck();
       return;
@@ -68,6 +84,7 @@ export class SurfaceOutletComponent implements OnChanges {
     const seq = ++this.resolveSeq;
     this.resolvedSurfaceKey = surfaceKey;
     const targetCtx = this.ctx;
+    this.renderedInputSignature = inputSignature;
     this.cdr.markForCheck();
 
     void this.registry.resolve({ tab: targetCtx.tab }).then(({ component }) => {
@@ -89,6 +106,7 @@ export class SurfaceOutletComponent implements OnChanges {
     }).catch(() => {
       if (seq !== this.resolveSeq) return;
       this.resolvedSurfaceKey = null;
+      this.renderedInputSignature = '';
       this.component = null;
       this.cdr.markForCheck();
     });

@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	contracts "wails-app/internal/contracts"
 	"wails-app/internal/contentprobe"
+	contracts "wails-app/internal/contracts"
 	"wails-app/internal/pathref"
 	vfslib "wails-app/vfs"
 	"wails-app/vfs/archive/cache"
@@ -143,9 +143,9 @@ func (s *Service) ProbeFile(fsPath string, nestedChain []string, entryPath strin
 	}
 
 	return &contracts.FileProbe{
-		MimeType: probe.MimeType,
-		Encoding: probe.Encoding,
-		IsText:   probe.IsText,
+		MimeType:  probe.MimeType,
+		Encoding:  probe.Encoding,
+		IsText:    probe.IsText,
 		IsArchive: probe.IsArchive,
 	}, nil
 }

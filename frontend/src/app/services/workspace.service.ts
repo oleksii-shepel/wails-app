@@ -783,26 +783,40 @@ export class WorkspaceService {
     const workspace = this.activeWorkspaceSubject.value;
     if (!workspace) return false;
 
-    const pane = paneId === 'left' ? workspace.leftPane : workspace.rightPane;
-    const tab = pane.tabs.find((t) => t.id === tabId);
-    if (!tab) return false;
-    if ((tab.kind ?? 'dir') !== 'viewer') return false;
-
     const next = targetPath || '';
-    tab.path = next;
-    tab.title = next || 'Preview';
-    tab.viewer = {
-      targetPath: next,
-      viewerId: tab.viewer?.viewerId,
-      autoFollow: tab.viewer?.autoFollow,
-      sourcePane: source?.sourcePane ?? tab.viewer?.sourcePane,
-      sourceTabId: source?.sourceTabId ?? tab.viewer?.sourceTabId,
-      sourceDir: source?.sourceDir ?? tab.viewer?.sourceDir,
-      // archiveContext intentionally omitted — auto-follow always points to FS files
+    const pane = paneId === 'left' ? workspace.leftPane : workspace.rightPane;
+    const tabIndex = pane.tabs.findIndex((t) => t.id === tabId);
+    if (tabIndex === -1) return false;
+
+    const currentTab = pane.tabs[tabIndex];
+    if ((currentTab.kind ?? 'dir') !== 'viewer') return false;
+
+    const updatedTab: TabInfo = {
+      ...currentTab,
+      path: next,
+      title: next || 'Preview',
+      viewer: {
+        targetPath: next,
+        viewerId: currentTab.viewer?.viewerId,
+        autoFollow: currentTab.viewer?.autoFollow,
+        sourcePane: source?.sourcePane ?? currentTab.viewer?.sourcePane,
+        sourceTabId: source?.sourceTabId ?? currentTab.viewer?.sourceTabId,
+        sourceDir: source?.sourceDir ?? currentTab.viewer?.sourceDir,
+        // archiveContext intentionally omitted — auto-follow always points to FS files
+      },
     };
+
+    const updatedTabs = [...pane.tabs];
+    updatedTabs[tabIndex] = updatedTab;
+
+    const updatedPane: PaneState = {
+      ...pane,
+      tabs: updatedTabs,
+    };
+
     this.updateWorkspace(
       workspace.id,
-      { [paneId === 'left' ? 'leftPane' : 'rightPane']: pane },
+      { [paneId === 'left' ? 'leftPane' : 'rightPane']: updatedPane },
       false,
     );
     return true;

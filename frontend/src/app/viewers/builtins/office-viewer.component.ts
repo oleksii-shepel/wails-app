@@ -9,6 +9,7 @@ import {
   SimpleChanges,
 } from '@angular/core';
 import { ApiService } from '../../services/api.service';
+import type { FileProbe } from '../../shared/protocol';
 import { ViewerArchiveContext } from '../viewer-archive-context';
 import { PdfViewerComponent } from './pdf-viewer.component';
 
@@ -66,15 +67,15 @@ type OfficeViewerKind = 'empty' | 'loading' | 'pdf' | 'error' | 'unavailable' | 
           <div class="state-icon">⛔</div>
           <div class="state-label">Unsupported document format</div>
           <div class="error-detail" *ngIf="fileExt">.{{ fileExt }}</div>
-          <div class="state-sub">Supported formats: .doc, .docx, .xls, .xlsx, .ppt, .pptx, .odt, .ods, .odp, .rtf</div>
+          <div class="state-sub">Supported formats: .doc, .docx, .xls, .xlsx, .ppt, .pptx, .odt, .ods, .odp, .rtf, .epub, .djvu, .djv</div>
         </div>
 
         <div *ngIf="kind === 'unavailable'" class="state-container state-error">
           <div class="state-icon">⚠️</div>
-          <div class="state-label">LibreOffice not installed</div>
+          <div class="state-label">Converter not available</div>
           <div class="error-detail">{{ error }}</div>
           <div class="state-sub">
-            Install LibreOffice to convert Office documents to PDF:
+            Install the required converter to generate a PDF preview:
             <ul>
               <li>Windows: <a href="https://www.libreoffice.org/download/" target="_blank">https://www.libreoffice.org/download/</a></li>
               <li>macOS: <code>brew install libreoffice</code></li>
@@ -224,6 +225,7 @@ export class OfficeViewerComponent implements OnChanges, OnDestroy {
   @Input() targetPath = '';
   @Input() archiveContext: ViewerArchiveContext | null = null;
   @Input() viewerId: string | null = null;
+  @Input() probe: FileProbe | null = null;
 
   kind: OfficeViewerKind = 'empty';
   displayName = '';
@@ -282,7 +284,7 @@ export class OfficeViewerComponent implements OnChanges, OnDestroy {
     this.cdr.markForCheck();
 
     // Check file extension first for quick validation
-    const supportedExts = ['doc', 'docx', 'docm', 'xls', 'xlsx', 'xlsm', 'ppt', 'pptx', 'pptm', 'odt', 'ods', 'odp', 'rtf'];
+    const supportedExts = ['doc', 'docx', 'docm', 'xls', 'xlsx', 'xlsm', 'ppt', 'pptx', 'pptm', 'odt', 'ods', 'odp', 'rtf', 'epub', 'djvu', 'djv'];
     if (!supportedExts.includes(this.fileExt)) {
       this.stopConversionTimer();
       this.kind = 'unsupported';
@@ -305,7 +307,7 @@ export class OfficeViewerComponent implements OnChanges, OnDestroy {
         } else {
           if (result.availability === false) {
             this.kind = 'unavailable';
-            this.error = result.instructions || 'LibreOffice is not available';
+            this.error = result.instructions || 'Required converter is not available';
           } else {
             this.kind = 'error';
             this.error = result.error || 'Unknown conversion error';
@@ -349,7 +351,9 @@ export class OfficeViewerComponent implements OnChanges, OnDestroy {
       ppt: 'PowerPoint', pptx: 'PowerPoint', pptm: 'PowerPoint',
       odt: 'OpenDoc Text', ods: 'OpenDoc Spreadsheet', odp: 'OpenDoc Presentation',
       rtf: 'Rich Text',
+      epub: 'EPUB',
+      djvu: 'DjVu', djv: 'DjVu',
     };
-    return typeMap[ext] || 'Office Document';
+    return typeMap[ext] || 'Document';
   }
 }

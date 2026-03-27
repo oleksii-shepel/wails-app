@@ -71,19 +71,19 @@ func (a *App) ConvertOfficeDocument(path string) (map[string]interface{}, error)
 	ext = strings.ToLower(ext)
 
 	if !a.State.OfficeConverter.IsSupportedFormat(ext) {
-		return nil, fmt.Errorf("unsupported office document format: .%s", ext)
+		return nil, fmt.Errorf("unsupported document format: .%s", ext)
 	}
 
-	if !a.State.OfficeConverter.IsAvailable() {
+	if !a.State.OfficeConverter.IsAvailableForFormat(ext) {
 		return map[string]interface{}{
 			"success":      false,
-			"error":        "LibreOffice not available",
+			"error":        "Document converter not available",
 			"availability": false,
-			"instructions": "Please install LibreOffice to view Office documents",
+			"instructions": a.State.OfficeConverter.AvailabilityInstructions(ext),
 		}, nil
 	}
 
-	// Resolve VFS path to real filesystem path for LibreOffice
+	// Resolve VFS path to a real filesystem path for the selected converter.
 	realPath, err := a.State.Filesystem.RealPath(path)
 	if err != nil {
 		return map[string]interface{}{
@@ -106,7 +106,7 @@ func (a *App) ConvertOfficeDocument(path string) (map[string]interface{}, error)
 	}, nil
 }
 
-// IsOfficeDocumentAvailable checks if office documents can be converted
+// IsOfficeDocumentAvailable checks if any document conversion backend is available.
 func (a *App) IsOfficeDocumentAvailable() bool {
 	if a.State.OfficeConverter == nil {
 		return false

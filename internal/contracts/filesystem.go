@@ -32,10 +32,10 @@ type FileInfo struct {
 }
 
 type FileProbe struct {
-	MimeType string `json:"mimeType"`
-	Encoding string `json:"encoding,omitempty"`
-	IsText   bool   `json:"isText"`
-	IsArchive bool  `json:"isArchive"`
+	MimeType  string `json:"mimeType"`
+	Encoding  string `json:"encoding,omitempty"`
+	IsText    bool   `json:"isText"`
+	IsArchive bool   `json:"isArchive"`
 }
 
 type ArchiveListing struct {

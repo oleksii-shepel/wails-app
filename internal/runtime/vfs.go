@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 
 	internalarchive "wails-app/internal/archive"
-	contracts "wails-app/internal/contracts"
 	"wails-app/internal/contentprobe"
+	contracts "wails-app/internal/contracts"
 	"wails-app/internal/pathref"
 	vfslib "wails-app/vfs"
 	"wails-app/vfs/memory"
@@ -145,9 +145,9 @@ func VFSProbeFile(vfs *vfslib.Unified, path string) (*contracts.FileProbe, error
 		return nil, err
 	}
 	return &contracts.FileProbe{
-		MimeType: probe.MimeType,
-		Encoding: probe.Encoding,
-		IsText:   probe.IsText,
+		MimeType:  probe.MimeType,
+		Encoding:  probe.Encoding,
+		IsText:    probe.IsText,
 		IsArchive: probe.IsArchive,
 	}, nil
 }

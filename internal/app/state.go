@@ -83,6 +83,8 @@ type OfficeConverter interface {
 	ConvertToPDF(inputPath string) (string, error)
 	IsSupportedFormat(ext string) bool
 	IsAvailable() bool
+	IsAvailableForFormat(ext string) bool
+	AvailabilityInstructions(ext string) string
 }
 
 type DirStream interface {

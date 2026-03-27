@@ -19,6 +19,7 @@ import {
 import { ViewerSurfaceComponent } from '../../surfaces/viewer/viewer-surface.component';
 import { ViewerArchiveContext } from '../viewer-archive-context';
 import { SegmentVideoLoader } from './segment-video-loader';
+import type { FileProbe } from '../../shared/protocol';
 
 @Component({
   selector: 'app-video-viewer',
@@ -668,6 +669,7 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
   @Input() targetPath = '';
   @Input() archiveContext: ViewerArchiveContext | null = null;
   @Input() viewerId: string | null = null;
+  @Input() probe: FileProbe | null = null;
 
   @ViewChild('videoContainer')
   set videoContainerRef(value: ElementRef<HTMLDivElement> | undefined) {
@@ -1131,6 +1133,12 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
     const player = await this.createAndAttachCanvasPlayer();
     await player.loadFromDemuxedSource(source);
     this.videoReady = true;
+    // Attempt to autoplay the preview (unmuted) when ready
+    try {
+      await player.play();
+    } catch {
+      // Ignore autoplay errors; user can manually start playback
+    }
     this.videoLoading = false;
     this.cdr.markForCheck();
   }
@@ -1149,6 +1157,12 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
       await player.loadFromUrl(streamUrl);
       this.currentStreamUrl = streamUrl;
       this.videoReady = true;
+      // Attempt to autoplay the preview (unmuted) when ready
+      try {
+        await player.play();
+      } catch {
+        // Ignore autoplay errors
+      }
     } finally {
       if (this.loadingStreamUrl === streamUrl) {
         this.loadingStreamUrl = null;

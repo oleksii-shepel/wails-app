@@ -129,7 +129,10 @@ export class ViewerHostSurfaceComponent implements OnChanges {
         this.cdr.markForCheck();
 
         queueMicrotask(() => {
-          if (seq !== this.resolveSeq) return;
+          // Always restore the component type on the next microtask so Angular
+          // re-creates the component instance with the updated `outletInputs`.
+          // Previously the early-`resolveSeq` exit could leave `component` null
+          // if another refresh incremented `resolveSeq` before the microtask ran.
           this.component = mountedComponent;
           this.cdr.markForCheck();
         });

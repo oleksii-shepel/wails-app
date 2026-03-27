@@ -70,6 +70,23 @@ export class FileBrowserPreviewController {
     const sourceTabId = sourcePane?.currentTabId ?? '';
     const sourceDir = sourcePane?.currentPath ?? '';
 
+    // If the active tab in the same pane is a viewer and set to auto-follow,
+    // update it directly so the viewer reloads when the cursor moves.
+    const sameActive = host.workspaceService.getActiveTab(fromPane);
+    const sameSourceTabId = sourcePane?.currentTabId ?? '';
+    const sameDedupeKey = `${fromPane}:${next}:${fromPane}:${sameSourceTabId}`;
+    if (sameActive && (sameActive.kind ?? 'dir') === 'viewer' && sameActive.viewer?.autoFollow) {
+      if (this.lastCrossPreviewTarget === sameDedupeKey) return;
+      this.lastCrossPreviewTarget = sameDedupeKey;
+
+      host.workspaceService.updateViewerTabTargetPath(fromPane, sameActive.id, next, {
+        sourcePane: fromPane,
+        sourceTabId: sameSourceTabId,
+        sourceDir,
+      });
+      return;
+    }
+
     const dedupeKey = `${otherPane}:${next}:${fromPane}:${sourceTabId}`;
     if (this.lastCrossPreviewTarget === dedupeKey) {
       return;

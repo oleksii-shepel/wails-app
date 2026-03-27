@@ -329,6 +329,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       emitPreviewTargetFromState: () => thisRef.stateRuntime.emitPreviewTargetFromState(),
       emitActiveTabChange: (tab: TabInfo) => thisRef.activeTabChange.emit(tab),
       getSelectableEntries: () => thisRef.dirRuntime.getSelectableEntries(),
+      getCursorEntries: () => thisRef.dirRuntime.getCursorEntries(),
       getOptimisticHiddenPaths: () => thisRef.getOptimisticHiddenPaths(),
       setOptimisticHiddenPaths: (paths: string[]) => thisRef.setOptimisticHiddenPaths(paths),
       findEntry: (path: string) => thisRef.entries.find((entry) => entry.path === path),

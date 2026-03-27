@@ -82,14 +82,14 @@ export class FileViewRuntimeController {
     }
   }
 
-  getSelectableEntries(host: FileViewRuntimeHost, parentEntryPath: string): FileInfo[] {
+  getSelectableEntries(host: FileViewRuntimeHost, parentEntryPath: string, includeParent = false): FileInfo[] {
     if (host.currentView === 'tree') {
       return host.getVisibleTreeNodes()
         .filter((node) => node.path !== parentEntryPath && (node.level ?? 0) >= 0)
         .map((node) => this.treeNodeToFileInfo(node));
     }
 
-    return (host.sortedEntries ?? []).filter((entry) => entry.path !== parentEntryPath);
+    return (host.sortedEntries ?? []).filter((entry) => includeParent || entry.path !== parentEntryPath);
   }
 
   getApproxPageSize(host: FileViewRuntimeHost): number {

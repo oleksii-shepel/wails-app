@@ -7,6 +7,6 @@ import type { FileInfo } from '../../shared/protocol';
  */
 export interface DirSurfaceRuntime {
   getSelectableEntries(): FileInfo[];
+  getCursorEntries(): FileInfo[];
   scrollToCursorPath(path: string): void;
 }
-

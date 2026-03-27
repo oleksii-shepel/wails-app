@@ -60,6 +60,7 @@ export interface FilePaneRuntimeHostsSource {
   emitPreviewTargetFromState(): void;
   emitActiveTabChange(tab: TabInfo): void;
   getSelectableEntries(): FileInfo[];
+  getCursorEntries(): FileInfo[];
   getOptimisticHiddenPaths(): string[];
   setOptimisticHiddenPaths(paths: string[]): void;
   findEntry(path: string): FileInfo | undefined;
@@ -129,6 +130,7 @@ export class FilePaneRuntimeHostsFactory {
       set lastPreviewTargetEmitted(value: string | null) { source.lastPreviewTargetEmitted = value; },
       isInArchive: () => source.isInArchive(),
       getSelectableEntries: () => source.getSelectableEntries(),
+      getCursorEntries: () => source.getCursorEntries(),
       getOptimisticHiddenPaths: () => source.getOptimisticHiddenPaths(),
       setOptimisticHiddenPaths: (paths: string[]) => source.setOptimisticHiddenPaths(paths),
       parseFilterText: (text: string) => source.filterService.parseFilterText(text),

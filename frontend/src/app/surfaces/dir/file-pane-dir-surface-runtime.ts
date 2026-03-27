@@ -3,7 +3,7 @@ import type { TreeNode } from '../../components/file-tree.component';
 import type { DirSurfaceRuntime } from './dir-surface-runtime';
 
 type FileViewContainerLike = {
-  getSelectableEntries(parentEntryPath: string): FileInfo[];
+  getSelectableEntries(parentEntryPath: string, includeParent?: boolean): FileInfo[];
   getVisibleTreeNodes(): TreeNode[];
   focusTreeNode(path: string): void;
   scrollToCursorPath(path: string): void;
@@ -25,9 +25,12 @@ export class FilePaneDirSurfaceRuntime implements DirSurfaceRuntime {
     return this.getFileViewContainer()?.getSelectableEntries(this.parentEntryPath) ?? [];
   }
 
+  getCursorEntries(): FileInfo[] {
+    return this.getFileViewContainer()?.getSelectableEntries(this.parentEntryPath, true) ?? [];
+  }
+
   scrollToCursorPath(path: string): void {
     if (!path) return;
     this.getFileViewContainer()?.scrollToCursorPath(path);
   }
 }
-

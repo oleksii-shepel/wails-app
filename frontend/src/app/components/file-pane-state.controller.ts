@@ -15,6 +15,7 @@ export interface FilePaneStateHost {
 
   isInArchive(): boolean;
   getSelectableEntries(): FileInfo[];
+  getCursorEntries(): FileInfo[];
   getOptimisticHiddenPaths(): string[];
   setOptimisticHiddenPaths(paths: string[]): void;
   parseFilterText(text: string): FilterQuery;
@@ -229,27 +230,27 @@ export class FilePaneStateController {
 
   onMoveCursorUp(host: FilePaneStateHost): void {
     const cols = host.getGridColumns();
-    const selectable = host.getSelectableEntries();
-    this.moveCursorTo(host, this.getCursorIndex(host, selectable) - cols);
+    const cursorEntries = host.getCursorEntries();
+    this.moveCursorTo(host, this.getCursorIndex(host, cursorEntries) - cols);
   }
 
   onMoveCursorDown(host: FilePaneStateHost): void {
     const cols = host.getGridColumns();
-    const selectable = host.getSelectableEntries();
-    this.moveCursorTo(host, this.getCursorIndex(host, selectable) + cols);
+    const cursorEntries = host.getCursorEntries();
+    this.moveCursorTo(host, this.getCursorIndex(host, cursorEntries) + cols);
   }
 
   onMoveCursorLeft(host: FilePaneStateHost): void {
-    const selectable = host.getSelectableEntries();
+    const cursorEntries = host.getCursorEntries();
     if (host.currentView === 'grid' || host.currentView === 'list' || host.currentView === 'details') {
-      this.moveCursorTo(host, this.getCursorIndex(host, selectable) - 1);
+      this.moveCursorTo(host, this.getCursorIndex(host, cursorEntries) - 1);
     }
   }
 
   onMoveCursorRight(host: FilePaneStateHost): void {
-    const selectable = host.getSelectableEntries();
+    const cursorEntries = host.getCursorEntries();
     if (host.currentView === 'grid' || host.currentView === 'list' || host.currentView === 'details') {
-      this.moveCursorTo(host, this.getCursorIndex(host, selectable) + 1);
+      this.moveCursorTo(host, this.getCursorIndex(host, cursorEntries) + 1);
     }
   }
 
@@ -258,20 +259,20 @@ export class FilePaneStateController {
   }
 
   onMoveCursorEnd(host: FilePaneStateHost): void {
-    const selectable = host.getSelectableEntries();
-    this.moveCursorTo(host, selectable.length - 1);
+    const cursorEntries = host.getCursorEntries();
+    this.moveCursorTo(host, cursorEntries.length - 1);
   }
 
   onMoveCursorPageUp(host: FilePaneStateHost): void {
     const pageSize = host.getApproxPageSize();
-    const selectable = host.getSelectableEntries();
-    this.moveCursorTo(host, this.getCursorIndex(host, selectable) - pageSize);
+    const cursorEntries = host.getCursorEntries();
+    this.moveCursorTo(host, this.getCursorIndex(host, cursorEntries) - pageSize);
   }
 
   onMoveCursorPageDown(host: FilePaneStateHost): void {
     const pageSize = host.getApproxPageSize();
-    const selectable = host.getSelectableEntries();
-    this.moveCursorTo(host, this.getCursorIndex(host, selectable) + pageSize);
+    const cursorEntries = host.getCursorEntries();
+    this.moveCursorTo(host, this.getCursorIndex(host, cursorEntries) + pageSize);
   }
 
   onSelectByMask(host: FilePaneStateHost, mask: string): void {
@@ -336,10 +337,10 @@ export class FilePaneStateController {
   }
 
   private moveCursorTo(host: FilePaneStateHost, index: number): void {
-    const selectable = host.getSelectableEntries();
-    if (!selectable.length) return;
-    const clamped = Math.max(0, Math.min(selectable.length - 1, index));
-    host.selectionCursorPath = selectable[clamped].path;
+    const cursorEntries = host.getCursorEntries();
+    if (!cursorEntries.length) return;
+    const clamped = Math.max(0, Math.min(cursorEntries.length - 1, index));
+    host.selectionCursorPath = cursorEntries[clamped].path;
     host.selectionAnchorPath = host.selectionCursorPath;
     host.scrollToCursorPath(host.selectionCursorPath);
     this.emitPreviewTargetFromState(host);
@@ -347,13 +348,13 @@ export class FilePaneStateController {
   }
 
   private moveToAdjacentMatch(host: FilePaneStateHost, delta: -1 | 1): void {
-    const selectable = host.getSelectableEntries();
-    if (!selectable.length) return;
+    const cursorEntries = host.getCursorEntries();
+    if (!cursorEntries.length) return;
 
-    const currentIndex = this.getCursorIndex(host, selectable);
+    const currentIndex = this.getCursorIndex(host, cursorEntries);
     const nextIndex = currentIndex < 0
       ? 0
-      : (currentIndex + delta + selectable.length) % selectable.length;
+      : (currentIndex + delta + cursorEntries.length) % cursorEntries.length;
 
     this.moveCursorTo(host, nextIndex);
   }
@@ -394,7 +395,7 @@ export class FilePaneStateController {
   }
 
   private getCurrentCursorEntry(host: FilePaneStateHost): FileInfo | null {
-    const entries = host.getSelectableEntries();
+    const entries = host.getCursorEntries();
     const index = this.getCursorIndex(host, entries);
     return index >= 0 ? entries[index] : null;
   }

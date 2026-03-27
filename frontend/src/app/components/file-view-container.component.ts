@@ -435,8 +435,8 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
     this.runtimeController.scrollToCursorPath(this.runtimeHost, path);
   }
 
-  getSelectableEntries(parentEntryPath: string): FileInfo[] {
-    return this.runtimeController.getSelectableEntries(this.runtimeHost, parentEntryPath);
+  getSelectableEntries(parentEntryPath: string, includeParent = false): FileInfo[] {
+    return this.runtimeController.getSelectableEntries(this.runtimeHost, parentEntryPath, includeParent);
   }
 
   getVisibleTreeNodes(): TreeNode[] {

@@ -25,6 +25,13 @@ function probeLooksTransportStream(req: ViewerRequest): boolean {
   return mime === 'video/mp2t' || mime === 'application/mp2t';
 }
 
+function probeLooksBinary(req: ViewerRequest): boolean {
+  const probe = req.probe;
+  if (!probe) return false;
+  if (probe.isArchive) return false;
+  return !probe.isText;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ViewerRegistryService {
   private readonly contributions: ViewerContribution[] = [];
@@ -107,6 +114,13 @@ export class ViewerRegistryService {
       title: 'Markdown Viewer',
       score: (req) => ['md', 'markdown', 'mdx'].includes(extLower(req.archiveContext?.entryPath ?? req.targetPath)) ? 60 : 0,
       load: async () => (await import('./builtins/markdown-viewer.component')).MarkdownViewerComponent,
+    });
+
+    this.register({
+      id: 'binary',
+      title: 'Binary Viewer',
+      score: (req) => probeLooksBinary(req) ? 30 : 0,
+      load: async () => (await import('./builtins/binary-viewer.component')).BinaryViewerComponent,
     });
 
     this.register({

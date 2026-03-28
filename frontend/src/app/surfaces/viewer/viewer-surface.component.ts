@@ -92,7 +92,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
       </div>
 
       <!-- Body -->
-      <div class="viewer-body" appVscodeScrollbar>
+      <div class="viewer-body" [class.viewer-body--json]="kind === 'json'" appVscodeScrollbar>
 
         <div *ngIf="kind === 'loading'" class="state-container">
           <div class="spinner"></div>
@@ -300,8 +300,10 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
         </div>
 
         <!-- JSON -->
-        <pre *ngIf="kind === 'json'"
+           <pre *ngIf="kind === 'json'"
              class="preview-text json-text"
+             appVscodeScrollbar
+             appVscodeScrollbarAnchor="self"
              [class.word-wrap]="wordWrap"><code [innerHTML]="highlightedJson"></code></pre>
 
         <!-- Markdown -->
@@ -479,6 +481,10 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
       min-height: 0;
       overflow: auto;
       position: relative;
+    }
+
+    .viewer-body--json {
+      overflow: hidden;
     }
 
     /* ── State containers ────────────────────────────────────────────────── */
@@ -1114,6 +1120,14 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
     }
 
     .json-text {
+      display: block;
+      flex: 1 1 auto;
+      min-height: 0;
+      min-width: 0;
+      width: 100%;
+      box-sizing: border-box;
+      overflow: auto;
+
       .json-key  { color: #9cdcfe; }
       .json-str  { color: #ce9178; }
       .json-num  { color: #b5cea8; }

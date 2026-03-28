@@ -5,8 +5,10 @@ import {
   Component,
   ElementRef,
   Input,
+  NgZone,
   OnChanges,
   OnDestroy,
+  Renderer2,
   ViewChild,
 } from '@angular/core';
 import { Compartment, EditorState } from '@codemirror/state';
@@ -30,6 +32,7 @@ import {
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { gotoLine, highlightSelectionMatches, openSearchPanel, searchKeymap } from '@codemirror/search';
 import { classHighlighter } from '@lezer/highlight';
+import { VscodeScrollbarController } from '../../directives/vscode-scrollbar.directive';
 import { ApiService } from '../../services/api.service';
 import { Theme, ThemeService } from '../../services/theme.service';
 import { FileInfo, FileProbe, FileType } from '../../shared/protocol';
@@ -513,6 +516,7 @@ export class TextViewerComponent implements OnChanges, OnDestroy {
 
   private editorHost: ElementRef<HTMLDivElement> | null = null;
   private editorView: EditorView | null = null;
+  private editorScrollbar: VscodeScrollbarController | null = null;
   private pendingDocument: string | null = null;
   private pendingFilename = 'untitled.txt';
   private pendingLoadId = 0;
@@ -530,6 +534,8 @@ export class TextViewerComponent implements OnChanges, OnDestroy {
     private api: ApiService,
     private cdr: ChangeDetectorRef,
     private themeService: ThemeService,
+    private renderer: Renderer2,
+    private ngZone: NgZone,
   ) {
     this.currentTheme = this.themeService.getTheme$().value;
     this.themeSubscription = this.themeService.getTheme$().subscribe((theme: Theme) => {
@@ -577,6 +583,8 @@ export class TextViewerComponent implements OnChanges, OnDestroy {
     }
     this.editorView?.destroy();
     this.editorView = null;
+    this.editorScrollbar?.destroy();
+    this.editorScrollbar = null;
   }
 
   toggleWordWrap(): void {
@@ -642,6 +650,8 @@ export class TextViewerComponent implements OnChanges, OnDestroy {
 
     if (!path && !this.archiveContext) {
       this.kind = 'empty';
+      this.editorScrollbar?.destroy();
+      this.editorScrollbar = null;
       this.editorView?.destroy();
       this.editorView = null;
       this.cdr.markForCheck();
@@ -660,6 +670,8 @@ export class TextViewerComponent implements OnChanges, OnDestroy {
 
       if (result.kind === 'directory') {
         this.kind = 'directory';
+        this.editorScrollbar?.destroy();
+        this.editorScrollbar = null;
         this.editorView?.destroy();
         this.editorView = null;
         this.cdr.markForCheck();
@@ -680,6 +692,8 @@ export class TextViewerComponent implements OnChanges, OnDestroy {
       if (this.destroyed || currentLoad !== this.loadId) return;
       this.kind = 'error';
       this.error = error instanceof Error ? error.message : String(error);
+      this.editorScrollbar?.destroy();
+      this.editorScrollbar = null;
       this.editorView?.destroy();
       this.editorView = null;
       this.cdr.markForCheck();
@@ -765,10 +779,24 @@ export class TextViewerComponent implements OnChanges, OnDestroy {
         state: EditorState.create({ doc: text, extensions }),
         parent: host,
       });
+      this.attachEditorScrollbar();
       return;
     }
 
     this.editorView.setState(EditorState.create({ doc: text, extensions }));
+    this.attachEditorScrollbar();
+  }
+
+  private attachEditorScrollbar(): void {
+    if (!this.editorView) return;
+
+    const editorRoot = this.editorView.dom;
+    const scrollHost = editorRoot.querySelector<HTMLElement>('.cm-scroller');
+    if (!scrollHost) return;
+
+    this.editorScrollbar?.destroy();
+    this.editorScrollbar = new VscodeScrollbarController(scrollHost, this.renderer, this.ngZone, editorRoot);
+    this.editorScrollbar.init();
   }
 
   private async resolveLanguage(filename: string): Promise<any[] | null> {

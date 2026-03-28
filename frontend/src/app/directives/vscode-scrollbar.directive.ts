@@ -1,12 +1,8 @@
-import { Directive, ElementRef, NgZone, OnDestroy, OnInit, Renderer2 } from '@angular/core';
+import { Directive, ElementRef, Input, NgZone, OnDestroy, OnInit, Renderer2 } from '@angular/core';
 
-@Directive({
-  selector: '[appVscodeScrollbar]',
-  standalone: true,
-})
-export class VscodeScrollbarDirective implements OnInit, OnDestroy {
+export class VscodeScrollbarController {
   private readonly host: HTMLElement;
-  private anchor: HTMLElement;
+  private readonly anchor: HTMLElement;
   private scrollbarEl: HTMLElement | null = null;
   private thumbEl: HTMLElement | null = null;
   private resizeObserver: ResizeObserver | null = null;
@@ -24,16 +20,16 @@ export class VscodeScrollbarDirective implements OnInit, OnDestroy {
   private dragStartScrollTop = 0;
 
   constructor(
-    elementRef: ElementRef<HTMLElement>,
-    private renderer: Renderer2,
-    private ngZone: NgZone,
+    host: HTMLElement,
+    private readonly renderer: Renderer2,
+    private readonly ngZone: NgZone,
+    anchor?: HTMLElement,
   ) {
-    this.host = elementRef.nativeElement;
-    this.anchor = this.host;
+    this.host = host;
+    this.anchor = anchor ?? host.parentElement ?? host;
   }
 
-  ngOnInit(): void {
-    this.anchor = this.host.parentElement ?? this.host;
+  init(): void {
     this.renderer.addClass(this.host, 'vsc-scroll-host');
     this.renderer.addClass(this.anchor, 'vsc-scroll-anchor');
     this.createScrollbar();
@@ -41,7 +37,7 @@ export class VscodeScrollbarDirective implements OnInit, OnDestroy {
     this.updateScrollbar();
   }
 
-  ngOnDestroy(): void {
+  destroy(): void {
     this.clearShowTimeout();
     this.resizeObserver?.disconnect();
     this.mutationObserver?.disconnect();
@@ -52,6 +48,20 @@ export class VscodeScrollbarDirective implements OnInit, OnDestroy {
     this.removeTrackPointerDownListener?.();
     this.removeWindowPointerMoveListener?.();
     this.removeWindowPointerUpListener?.();
+    if (this.scrollbarEl) {
+      this.renderer.removeChild(this.anchor, this.scrollbarEl);
+      this.scrollbarEl = null;
+      this.thumbEl = null;
+    }
+    this.renderer.removeClass(this.host, 'vsc-scroll-host');
+    this.renderer.removeClass(this.anchor, 'vsc-scroll-anchor');
+    this.renderer.removeClass(this.anchor, 'vsc-scroll-anchor--hover');
+    this.renderer.removeClass(this.anchor, 'vsc-scroll-anchor--visible');
+    this.renderer.removeClass(this.anchor, 'vsc-scroll-anchor--dragging');
+  }
+
+  update(): void {
+    this.updateScrollbar();
   }
 
   private createScrollbar(): void {
@@ -200,5 +210,39 @@ export class VscodeScrollbarDirective implements OnInit, OnDestroy {
       clearTimeout(this.showTimeout);
       this.showTimeout = null;
     }
+  }
+}
+
+@Directive({
+  selector: '[appVscodeScrollbar]',
+  standalone: true,
+})
+export class VscodeScrollbarDirective implements OnInit, OnDestroy {
+  private readonly host: HTMLElement;
+  private controller: VscodeScrollbarController | null = null;
+
+  @Input() appVscodeScrollbarAnchor: 'parent' | 'self' = 'parent';
+
+  constructor(
+    elementRef: ElementRef<HTMLElement>,
+    private renderer: Renderer2,
+    private ngZone: NgZone,
+  ) {
+    this.host = elementRef.nativeElement;
+  }
+
+  ngOnInit(): void {
+    this.controller = new VscodeScrollbarController(
+      this.host,
+      this.renderer,
+      this.ngZone,
+      this.appVscodeScrollbarAnchor === 'self' ? this.host : undefined,
+    );
+    this.controller.init();
+  }
+
+  ngOnDestroy(): void {
+    this.controller?.destroy();
+    this.controller = null;
   }
 }

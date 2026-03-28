@@ -103,13 +103,6 @@ export class ViewerRegistryService {
     });
 
     this.register({
-      id: 'json',
-      title: 'JSON Viewer',
-      score: (req) => ['json', 'jsonc'].includes(extLower(req.archiveContext?.entryPath ?? req.targetPath)) ? 60 : 0,
-      load: async () => (await import('./builtins/json-viewer.component')).JsonViewerComponent,
-    });
-
-    this.register({
       id: 'markdown',
       title: 'Markdown Viewer',
       score: (req) => ['md', 'markdown', 'mdx'].includes(extLower(req.archiveContext?.entryPath ?? req.targetPath)) ? 60 : 0,
@@ -132,6 +125,7 @@ export class ViewerRegistryService {
           if (probeLooksTransportStream(req)) return 0;
           if (probeLooksText(req)) return 65;
         }
+        if (['json', 'jsonc'].includes(ext)) return 60;
         return ['txt', 'log', 'csv', 'tsv', 'ini', 'cfg', 'conf', 'yaml', 'yml', 'toml', 'xml', 'html', 'htm', 'css', 'scss', 'sass', 'less', 'js', 'ts', 'jsx', 'tsx', 'vue', 'svelte', 'py', 'rb', 'go', 'rs', 'java', 'kt', 'swift', 'c', 'cpp', 'h', 'hpp', 'cs', 'php', 'sh', 'bash', 'zsh', 'fish', 'ps1', 'bat', 'cmd', 'sql', 'graphql', 'gql', 'proto', 'dockerfile', 'gitignore', 'env', 'lock', 'diff', 'patch', 'r', 'lua', 'm', 'pl', 'ex', 'exs'].includes(ext) ? 40 : 0;
       },
       load: async () => (await import('./builtins/text-viewer.component')).TextViewerComponent,

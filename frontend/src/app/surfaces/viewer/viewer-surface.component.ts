@@ -4,6 +4,7 @@ import {
   ChangeDetectionStrategy, ChangeDetectorRef,
 } from '@angular/core';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
+import { VscodeScrollbarDirective } from '../../directives/vscode-scrollbar.directive';
 import { ApiService } from '../../services/api.service';
 import { FileInfo, FileProbe, FileType } from '../../shared/protocol';
 import { CanvasVideoPlayer, CanvasVideoPlayerService, VideoMetadata } from '../../services/canvas-video-player.service';
@@ -48,7 +49,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
 @Component({
   selector: 'app-viewer-surface',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, VscodeScrollbarDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="viewer-surface">
@@ -91,7 +92,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
       </div>
 
       <!-- Body -->
-      <div class="viewer-body">
+      <div class="viewer-body" appVscodeScrollbar>
 
         <div *ngIf="kind === 'loading'" class="state-container">
           <div class="spinner"></div>

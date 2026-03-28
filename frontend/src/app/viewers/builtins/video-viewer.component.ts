@@ -10,6 +10,7 @@ import {
   OnDestroy,
   ViewChild,
 } from '@angular/core';
+import { VscodeScrollbarDirective } from '../../directives/vscode-scrollbar.directive';
 import { ApiService } from '../../services/api.service';
 import {
   CanvasVideoPlayer,
@@ -24,7 +25,7 @@ import type { FileProbe } from '../../shared/protocol';
 @Component({
   selector: 'app-video-viewer',
   standalone: true,
-  imports: [CommonModule, ViewerSurfaceComponent],
+  imports: [CommonModule, ViewerSurfaceComponent, VscodeScrollbarDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <app-viewer-surface
@@ -52,7 +53,7 @@ import type { FileProbe } from '../../shared/protocol';
         </div>
       </div>
 
-      <div class="viewer-body">
+      <div class="viewer-body" appVscodeScrollbar>
         <div *ngIf="loading" class="state-container">
           <div class="spinner"></div>
           <div class="state-label">Loading segmented preview...</div>

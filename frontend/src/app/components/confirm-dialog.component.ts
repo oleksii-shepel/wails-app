@@ -48,7 +48,13 @@ interface ConfirmDialogRequest {
                 </div>
               </div>
               <div class="alert-actions">
-                <button type="button" class="alert-btn" data-dialog-initial-focus (click)="onConfirm()">
+                <button
+                  type="button"
+                  class="alert-btn"
+                  data-dialog-initial-focus
+                  data-dialog-action="confirm"
+                  (click)="onConfirm()"
+                >
                   {{ request.options.confirmText || 'OK' }}
                 </button>
               </div>
@@ -80,6 +86,7 @@ interface ConfirmDialogRequest {
               <button 
                 class="btn-cancel" 
                 [attr.data-dialog-initial-focus]="request.options.isPrompt ? null : ''"
+                data-dialog-action="cancel"
                 type="button" 
                 (click)="onCancel()"
               >
@@ -87,6 +94,7 @@ interface ConfirmDialogRequest {
               </button>
               <button
                 type="button"
+                data-dialog-action="confirm"
                 [class.btn-danger]="request.options.danger"
                 [class.btn-confirm]="!request.options.danger"
                 (click)="onConfirm()"
@@ -370,7 +378,7 @@ export class ConfirmDialogComponent {
   ) {}
 
   ngOnInit(): void {
-    this.inputEngine.registerCommand('dialog.confirm.accept', () => this.onConfirm());
+    this.inputEngine.registerCommand('dialog.confirm.accept', () => this.onKeyboardAccept());
     this.inputEngine.registerCommand('dialog.confirm.cancel', () => this.onCancel());
 
     this.confirmDialogService.activeRequest$
@@ -415,6 +423,41 @@ export class ConfirmDialogComponent {
       return;
     }
     this.confirmDialogService.resolveActive(true);
+  }
+
+  private onKeyboardAccept(): void {
+    const active = this.confirmDialogService.activeRequest$.value;
+    if (!active) {
+      return;
+    }
+
+    if (active.options.isPrompt) {
+      this.onConfirm();
+      return;
+    }
+
+    const focusedAction = this.getFocusedDialogAction();
+    if (focusedAction === 'cancel') {
+      this.onCancel();
+      return;
+    }
+
+    this.onConfirm();
+  }
+
+  private getFocusedDialogAction(): 'confirm' | 'cancel' | null {
+    const activeElement = document.activeElement;
+    if (!(activeElement instanceof HTMLElement)) {
+      return null;
+    }
+
+    const actionElement = activeElement.closest('[data-dialog-action]');
+    if (!(actionElement instanceof HTMLElement)) {
+      return null;
+    }
+
+    const action = actionElement.dataset['dialogAction'];
+    return action === 'cancel' || action === 'confirm' ? action : null;
   }
 
   onPromptKeyDown(event: KeyboardEvent): void {

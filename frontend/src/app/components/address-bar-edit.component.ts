@@ -690,6 +690,28 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
     return raw === 'filesystem://' || raw.startsWith('filesystem://');
   }
 
+  private isFriendlyDirectPathInput(reference?: string): boolean {
+    const raw = ((reference ?? this.value) || '').trim().replace(/\\/g, '/');
+    if (!raw) return false;
+    if (this.prefersCanonicalDriveDisplay(raw)) return false;
+    if (/^[A-Za-z]:/.test(raw)) return true;
+    if (raw.startsWith('/')) return true;
+    if (raw.startsWith('//')) return true;
+    return false;
+  }
+
+  private isFilesystemRootSuggestion(path: string): boolean {
+    const normalized = ((path || '').trim().replace(/\\/g, '/')).toLowerCase();
+    return /^filesystem:\/\/[a-z]$/.test(normalized) || normalized === 'filesystem://' || normalized === 'filesystem:///';
+  }
+
+  private normalizeSuggestionIdentityPath(path: string): string {
+    const normalized = ((path || '').trim().replace(/\\/g, '/')).toLowerCase();
+    if (!normalized) return '';
+    if (this.isFilesystemRootSuggestion(normalized)) return normalized;
+    return normalizePath(path).toLowerCase();
+  }
+
   private toDisplayPath(path: string): string {
     if (!path) return '';
     const searchDisplay = formatSearchAliasForEdit(path);
@@ -1013,7 +1035,7 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
     const suggestions: PathSuggestion[] = [];
 
     for (const entry of this.syntheticRootSuggestions) {
-      const rootPath = normalizePath(entry.path).toLowerCase();
+      const rootPath = this.normalizeSuggestionIdentityPath(entry.path);
       const schemeMatch = /^([a-z][a-z0-9+.-]*):\/\//i.exec(rootPath);
       const schemeName = (schemeMatch?.[1] || rootPath).toLowerCase();
       const schemePrefix = schemeMatch ? `${schemeName}://` : rootPath;
@@ -1029,11 +1051,10 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
         score = 150;
       }
 
-      // If the user prefers the short display (e.g. "C:/" or "/"), push
-      // the canonical `filesystem://` suggestion to the end so short forms
-      // are preferred in the dropdown.
-      const isFilesystemScheme = schemeName === 'filesystem';
-      if (isFilesystemScheme && !this.prefersCanonicalDriveDisplay(query)) {
+      // When the user is typing a friendly direct path (e.g. "C:/" or "/"),
+      // keep only the bare filesystem root aliases at the end so friendlier
+      // path forms remain ahead of the raw scheme roots.
+      if (this.isFilesystemRootSuggestion(entry.path) && this.isFriendlyDirectPathInput(query)) {
         // Keep the suggestion but give it a low score so it sorts last.
         if (score) score = Math.min(score, 10);
         else score = 10;
@@ -1058,9 +1079,12 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
     try {
       const drives = await this.apiService.listDrives();
       this.syntheticRootSuggestions = drives
-        .filter((drive) => /^[a-z][a-z0-9+.-]*:\/\/(?:[a-z0-9._~-]+)?$/i.test((drive.path || '').trim().replace(/\\/g, '/')))
+        .filter((drive) => {
+          const normalized = (drive.path || '').trim().replace(/\\/g, '/');
+          return /^[a-z][a-z0-9+.-]*:\/\/(?:[a-z0-9._~-]+)?$/i.test(normalized) || /^filesystem:\/\/\/?$/i.test(normalized);
+        })
         .map((drive) => ({
-          path: normalizePath(drive.path),
+          path: this.isFilesystemRootSuggestion(drive.path) ? (drive.path || '').trim().replace(/\\/g, '/') : normalizePath(drive.path),
           displayName: drive.name || drive.path,
         }));
 
@@ -1075,24 +1099,29 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
   private buildMergedSuggestions(fs: PathSuggestion[], hist: PathSuggestion[], aliasRoots: PathSuggestion[] = [], query: string = ''): PathSuggestion[] {
     const seen = new Set<string>();
     const aliases: PathSuggestion[] = [];
+    const deferredAliases: PathSuggestion[] = [];
     const dirs: PathSuggestion[] = [];
     const rest: PathSuggestion[] = [];
 
-    const aliasRootPaths = new Set(aliasRoots.map((entry) => normalizePath(entry.path).toLowerCase()));
+    const aliasRootPaths = new Set(aliasRoots.map((entry) => this.normalizeSuggestionIdentityPath(entry.path)));
 
     for (const s of [...aliasRoots, ...fs, ...hist]) {
-      const key = normalizePath(s?.path || '').toLowerCase();
+      const key = this.normalizeSuggestionIdentityPath(s?.path || '');
       if (!key || seen.has(key)) continue;
       seen.add(key);
       const isAliasRoot = aliasRootPaths.has(key);
       const entry = { ...s, path: this.formatSuggestionPath(s.path, query, isAliasRoot) };
       if (isAliasRoot) {
-        aliases.push(entry);
+        if (this.isFilesystemRootSuggestion(s.path) && this.isFriendlyDirectPathInput(query)) {
+          deferredAliases.push(entry);
+        } else {
+          aliases.push(entry);
+        }
         continue;
       }
       (entry.matchType === 'directory' ? dirs : rest).push(entry);
     }
-    return [...aliases, ...dirs, ...rest];
+    return [...aliases, ...dirs, ...rest, ...deferredAliases];
   }
 
   private registerInputCommands(): void {

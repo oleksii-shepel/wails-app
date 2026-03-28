@@ -179,6 +179,7 @@ export class FilePaneActionHostsFactory {
       get currentView() { return source.currentView; },
       get entries() { return source.entries; },
       get selectedFiles() { return source.selectedFiles; },
+      get selectionCursorPath() { return source.selectionCursorPath; },
       apiService: source.apiService,
       confirmDialog: source.confirmDialog,
       isInArchive: () => source.isInArchive(),

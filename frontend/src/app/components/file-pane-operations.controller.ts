@@ -16,6 +16,7 @@ export interface FilePaneOperationsHost {
   get currentView(): ViewLayout;
   get entries(): FileInfo[];
   get selectedFiles(): Set<string>;
+  get selectionCursorPath(): string | null;
   apiService: ApiService;
   confirmDialog: ConfirmDialogService;
   isInArchive(): boolean;
@@ -90,6 +91,7 @@ export class FilePaneOperationsController {
     const effective = this.pruneNestedSelection(host.getEffectiveSelection());
     if (effective.size === 0) return;
     const postDeletePath = this.getPostDeletePath(host.currentPath, effective);
+    const focusPath = postDeletePath ? null : this.getPostDeleteFocusPath(host, effective);
     const treeRefreshParents = host.currentView === 'tree'
       ? Array.from(new Set(
           Array.from(effective)
@@ -120,7 +122,7 @@ export class FilePaneOperationsController {
         const msg = (result.errors ?? []).map((error: any) => `${error.source}: ${error.error}`).join('\n');
         host.confirmDialog.alert(`Delete Completed With Errors\n${result.failed} item(s) failed:\n${msg}`);
       }
-      await host.loadDirectory(postDeletePath ?? host.currentPath, { preserveUI: true });
+      await host.loadDirectory(postDeletePath ?? host.currentPath, { preserveUI: true, focusPath: focusPath ?? undefined });
       for (const path of treeRefreshParents) {
         host.refreshTreeNode(path);
       }
@@ -304,6 +306,49 @@ export class FilePaneOperationsController {
     }
 
     return parentPath(affectedAncestor);
+  }
+
+  private getPostDeleteFocusPath(host: FilePaneOperationsHost, deletedPaths: Set<string>): string | null {
+    const visibleEntries = host.entries.filter((entry) => entry.path !== PARENT_ENTRY_PATH);
+    if (visibleEntries.length === 0) return null;
+
+    const anchorPath = this.getDeleteAnchorPath(host, visibleEntries, deletedPaths);
+    const anchorIndex = visibleEntries.findIndex((entry) => samePath(entry.path, anchorPath));
+    if (anchorIndex < 0) return null;
+
+    for (let index = anchorIndex + 1; index < visibleEntries.length; index += 1) {
+      const candidate = visibleEntries[index];
+      if (!this.pathSetHas(deletedPaths, candidate.path)) return candidate.path;
+    }
+
+    for (let index = anchorIndex - 1; index >= 0; index -= 1) {
+      const candidate = visibleEntries[index];
+      if (!this.pathSetHas(deletedPaths, candidate.path)) return candidate.path;
+    }
+
+    return null;
+  }
+
+  private getDeleteAnchorPath(host: FilePaneOperationsHost, visibleEntries: FileInfo[], deletedPaths: Set<string>): string {
+    const cursorPath = host.selectionCursorPath;
+    if (cursorPath && this.pathSetHas(deletedPaths, cursorPath)) {
+      return cursorPath;
+    }
+
+    for (const entry of visibleEntries) {
+      if (this.pathSetHas(deletedPaths, entry.path)) {
+        return entry.path;
+      }
+    }
+
+    return visibleEntries[0].path;
+  }
+
+  private pathSetHas(paths: Set<string>, candidate: string): boolean {
+    for (const path of paths) {
+      if (samePath(path, candidate)) return true;
+    }
+    return false;
   }
 
   private isSameOrDescendantPath(targetPath: string, candidateAncestorPath: string): boolean {

@@ -146,6 +146,75 @@ describe('Seek time accuracy and discrepancies', () => {
   });
 });
 
+describe('Timestamp precision retention', () => {
+  it('preserves fractional frame timestamps from WebCodecs output', () => {
+    const frameTimestampUs = 33_366;
+    const timestampMs = frameTimestampUs / 1000;
+
+    expect(timestampMs).toBe(33.366);
+    expect(timestampMs).not.toBe(Math.round(frameTimestampUs / 1000));
+  });
+
+  it('preserves fractional segment offsets when stitching packet timelines', () => {
+    const segmentStartSeconds = 2.002;
+    const packetTimestampMs = 33.366;
+    const stitchedTimestampMs = packetTimestampMs + (segmentStartSeconds * 1000);
+
+    expect(stitchedTimestampMs).toBeCloseTo(2035.366, 6);
+  });
+});
+
+describe('Audio-clock playback sync', () => {
+  type ScheduledAudioEntry = {
+    startTime: number;
+    endTime: number;
+    mediaStartSec: number;
+  };
+
+  function getScheduledAudioPlaybackTimeMs(
+    scheduledAudioNodes: ScheduledAudioEntry[],
+    nowSec: number,
+    playbackBaseMs: number,
+  ): number | null {
+    if (scheduledAudioNodes.length === 0) {
+      return null;
+    }
+
+    const firstScheduledNode = scheduledAudioNodes[0];
+    if (nowSec < firstScheduledNode.startTime) {
+      return playbackBaseMs;
+    }
+
+    let anchor = firstScheduledNode;
+    for (const entry of scheduledAudioNodes) {
+      if (entry.startTime > nowSec) {
+        break;
+      }
+      anchor = entry;
+    }
+
+    const elapsedSec = Math.max(0, Math.min(nowSec, anchor.endTime) - anchor.startTime);
+    return (anchor.mediaStartSec + elapsedSec) * 1000;
+  }
+
+  it('keeps video at the playback base before the first scheduled audio chunk starts', () => {
+    const scheduled = [
+      { startTime: 10.05, endTime: 10.15, mediaStartSec: 5.0 },
+    ];
+
+    expect(getScheduledAudioPlaybackTimeMs(scheduled, 10.02, 5000)).toBe(5000);
+  });
+
+  it('follows actual scheduled audio timing when chunks start later than the ideal clock', () => {
+    const scheduled = [
+      { startTime: 10.05, endTime: 10.15, mediaStartSec: 5.0 },
+      { startTime: 10.15, endTime: 10.25, mediaStartSec: 5.1 },
+    ];
+
+    expect(getScheduledAudioPlaybackTimeMs(scheduled, 10.20, 5000)).toBeCloseTo(5150, 6);
+  });
+});
+
 /**
  * Test: format & codec support consistency
  */

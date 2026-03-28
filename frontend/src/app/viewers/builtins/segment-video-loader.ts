@@ -207,7 +207,7 @@ export class SegmentVideoLoader {
         }
       }
 
-      const startOffsetMs = Math.round(segment.startTime * 1000);
+      const startOffsetMs = segment.startTime * 1000;
       const videoPackets = await collectPackets(
         () => source.getFirstPacket(),
         (cursor) => source.getNextPacket(cursor),
@@ -391,8 +391,8 @@ export class SegmentVideoLoader {
 
     for (let index = 0; index < this.manifest.segments.length; index += 1) {
       const segment = this.manifest.segments[index];
-      const startMs = Math.round(segment.startTime * 1000);
-      const endMs = startMs + Math.round(segment.durationSeconds * 1000);
+      const startMs = segment.startTime * 1000;
+      const endMs = startMs + (segment.durationSeconds * 1000);
       if (timeMs < endMs) {
         return index;
       }

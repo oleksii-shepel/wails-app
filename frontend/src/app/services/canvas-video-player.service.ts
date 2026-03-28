@@ -625,7 +625,12 @@ export class CanvasVideoPlayer {
   private playbackStartPerfMs = 0;
   private audioPlaybackStartContextSec = 0;
   private scheduledAudioUntilSec = 0;
-  private scheduledAudioNodes: Array<{ node: AudioBufferSourceNode; endTime: number }> = [];
+  private scheduledAudioNodes: Array<{
+    node: AudioBufferSourceNode;
+    startTime: number;
+    endTime: number;
+    mediaStartSec: number;
+  }> = [];
   private volume = 1;
   private lastDrawnTimestampMs = -1;
   private isLoaded = false;
@@ -1053,7 +1058,7 @@ export class CanvasVideoPlayer {
       this.canvas.height = frame.displayHeight;
     }
 
-    const timestampMs = Math.round(frame.timestamp / 1000);
+    const timestampMs = frame.timestamp / 1000;
     this.decodedFrames.push({ timestampMs, frame });
     this.decodedFrames.sort((left, right) => left.timestampMs - right.timestampMs);
 
@@ -1103,7 +1108,9 @@ export class CanvasVideoPlayer {
 
       this.scheduledAudioNodes.push({
         node: sourceNode,
+        startTime,
         endTime: startTime + audioBuffer.duration,
+        mediaStartSec: timestampSec,
       });
       this.scheduledAudioUntilSec = Math.max(this.scheduledAudioUntilSec, startTime + audioBuffer.duration);
     } catch (error) {
@@ -1535,12 +1542,40 @@ export class CanvasVideoPlayer {
     }
 
     if (this.audioContext?.state === 'running' && this.audioPlaybackStartContextSec > 0) {
+      const scheduledAudioTimeMs = this.getScheduledAudioPlaybackTimeMs();
+      if (scheduledAudioTimeMs !== null) {
+        return Math.min(this.getDurationMs(), scheduledAudioTimeMs);
+      }
+
       const elapsedMs = Math.max(0, (this.audioContext.currentTime - this.audioPlaybackStartContextSec) * 1000);
       return Math.min(this.getDurationMs(), this.playbackBaseMs + elapsedMs);
     }
 
     const elapsedMs = performance.now() - this.playbackStartPerfMs;
     return Math.min(this.getDurationMs(), this.playbackBaseMs + elapsedMs);
+  }
+
+  private getScheduledAudioPlaybackTimeMs(): number | null {
+    if (!this.audioContext || this.scheduledAudioNodes.length === 0) {
+      return null;
+    }
+
+    const now = this.audioContext.currentTime;
+    const firstScheduledNode = this.scheduledAudioNodes[0];
+    if (now < firstScheduledNode.startTime) {
+      return this.playbackBaseMs;
+    }
+
+    let anchor = firstScheduledNode;
+    for (const entry of this.scheduledAudioNodes) {
+      if (entry.startTime > now) {
+        break;
+      }
+      anchor = entry;
+    }
+
+    const elapsedSec = Math.max(0, Math.min(now, anchor.endTime) - anchor.startTime);
+    return (anchor.mediaStartSec + elapsedSec) * 1000;
   }
 
   private getPlaybackTimeMs(): number {

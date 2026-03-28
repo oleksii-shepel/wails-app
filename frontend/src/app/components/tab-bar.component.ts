@@ -85,6 +85,14 @@ interface TabDragPayload {
       display: flex;
       overflow-x: auto;
       height: 100%;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+    }
+
+    .tabs-scroll-viewport::-webkit-scrollbar {
+      width: 0;
+      height: 0;
+      display: none;
     }
 
     .tabs-list {

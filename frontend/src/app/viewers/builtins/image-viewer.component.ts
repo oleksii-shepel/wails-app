@@ -8,7 +8,7 @@ import {
   OnDestroy,
 } from '@angular/core';
 import { ApiService } from '../../services/api.service';
-import { FileInfo, FileType } from '../../shared/protocol';
+import { FileInfo, FileProbe, FileType } from '../../shared/protocol';
 import { ViewerArchiveContext } from '../viewer-archive-context';
 
 type ImageViewerKind = 'empty' | 'loading' | 'image' | 'svg' | 'directory' | 'toobig' | 'unsupported' | 'error';
@@ -85,7 +85,12 @@ interface ImageMeta { width: number; height: number }
         </div>
 
         <div *ngIf="kind === 'svg'" class="svg-host" [class.checkerboard]="showCheckerboard">
-          <div class="svg-wrap" [style.transform]="imageTransform" [innerHTML]="svgContent"></div>
+          <img class="preview-image"
+               [src]="imageSrc!"
+               [alt]="displayName || 'SVG preview'"
+               [style.transform]="imageTransform"
+               (load)="onImageLoad($event)"
+               (error)="onImageError()" />
         </div>
 
         <div *ngIf="kind === 'image'" class="image-host" [class.checkerboard]="showCheckerboard">
@@ -313,13 +318,13 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
   @Input() targetPath = '';
   @Input() archiveContext: ViewerArchiveContext | null = null;
   @Input() viewerId: string | null = null;
+  @Input() probe: FileProbe | null = null;
 
   kind: ImageViewerKind = 'empty';
   error: string | null = null;
   info: FileInfo | null = null;
 
   imageSrc: string | null = null;
-  svgContent: string | null = null;
   imageMeta: ImageMeta | null = null;
 
   zoomLevel = 0;
@@ -423,10 +428,7 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
 
     const ext = this.extractExt(path);
     if (ext === 'svg') {
-      const r = await this.api.readFile(path, 'utf8');
-      const text = r?.content ?? null;
-      if (text === null) { this.kind = 'unsupported'; return; }
-      this.svgContent = this.sanitizeSvg(text);
+      this.imageSrc = await this.api.getStreamURL(path);
       this.kind = 'svg';
       return;
     }
@@ -460,7 +462,7 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
       const r = await this.api.archiveRead(ctx.fsPath, ctx.nestedChain, ctx.entryPath, 'utf8');
       if (!r) { this.kind = 'unsupported'; return; }
       this.info = this.makeSyntheticInfo(entryName, ctx.entryPath, r.size ?? 0);
-      this.svgContent = this.sanitizeSvg(r.content ?? '');
+      this.imageSrc = await this.api.getArchiveStreamURL(ctx.fsPath, ctx.nestedChain, ctx.entryPath);
       this.kind = 'svg';
       return;
     }
@@ -499,7 +501,6 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
     this.error = null;
     this.info = null;
     this.imageSrc = null;
-    this.svgContent = null;
     this.imageMeta = null;
     // Keep zoom/checkerboard as user-set knobs.
   }
@@ -517,14 +518,6 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
     };
     return map[ext] ?? null;
   }
-
-  private sanitizeSvg(text: string): string {
-    return (text ?? '')
-      .replace(/<\?xml[^>]*\?>/gi, '')
-      .replace(/<!DOCTYPE[^>]*>/gi, '')
-      .trim();
-  }
-
   private extractExt(path: string): string {
     const p = (path ?? '').replace(/\\/g, '/');
     const last = p.split('/').pop() ?? p;

@@ -7,6 +7,7 @@ import {
   OnChanges,
   OnDestroy,
 } from '@angular/core';
+import { VscodeScrollbarDirective } from '../../directives/vscode-scrollbar.directive';
 import { ApiService } from '../../services/api.service';
 import { FileInfo, FileProbe, FileType } from '../../shared/protocol';
 import { ViewerArchiveContext } from '../viewer-archive-context';
@@ -17,7 +18,7 @@ interface ImageMeta { width: number; height: number }
 @Component({
   selector: 'app-image-viewer',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, VscodeScrollbarDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="viewer-surface">
@@ -84,7 +85,7 @@ interface ImageMeta { width: number; height: number }
           <div class="state-sub" *ngIf="fileExt">.{{ fileExt }}</div>
         </div>
 
-        <div *ngIf="kind === 'svg'" class="svg-host" [class.checkerboard]="showCheckerboard">
+        <div *ngIf="kind === 'svg'" class="svg-host" [class.checkerboard]="showCheckerboard" appVscodeScrollbar>
           <img class="preview-image"
                [src]="imageSrc!"
                [alt]="displayName || 'SVG preview'"
@@ -93,7 +94,7 @@ interface ImageMeta { width: number; height: number }
                (error)="onImageError()" />
         </div>
 
-        <div *ngIf="kind === 'image'" class="image-host" [class.checkerboard]="showCheckerboard">
+        <div *ngIf="kind === 'image'" class="image-host" [class.checkerboard]="showCheckerboard" appVscodeScrollbar>
           <img class="preview-image"
                [src]="imageSrc!"
                [alt]="displayName || 'Image preview'"

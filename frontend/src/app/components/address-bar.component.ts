@@ -465,6 +465,7 @@ import { DropdownContainerComponent } from './dropdown-container.component';
       scroll-behavior: auto;
       scrollbar-width: none;
       -ms-overflow-style: none;
+
       &::-webkit-scrollbar { display: none; }
 
       > * { flex-shrink: 0; }

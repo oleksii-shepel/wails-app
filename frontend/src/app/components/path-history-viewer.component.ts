@@ -8,11 +8,12 @@ import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
 import { normalizePath } from './address-bar.utils';
 import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.directive';
+import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directive';
 
 @Component({
   selector: 'app-path-history-viewer',
   standalone: true,
-  imports: [CommonModule, FormsModule, DialogFocusTrapDirective],
+  imports: [CommonModule, FormsModule, DialogFocusTrapDirective, VscodeScrollbarDirective],
   template: `
     <div class="path-history-overlay" *ngIf="isVisible" (click)="hide()">
       <div class="path-history-modal" [appTrapFocus]="true" role="dialog" aria-modal="true" tabindex="-1" (click)="$event.stopPropagation()">
@@ -51,7 +52,7 @@ import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.direct
         </div>
 
         <!-- History List -->
-        <div class="history-list">
+        <div class="history-list" appVscodeScrollbar>
           <div *ngIf="filteredEntries.length === 0" class="empty-state">
             <span class="empty-icon">📭</span>
             <p>No history entries found</p>

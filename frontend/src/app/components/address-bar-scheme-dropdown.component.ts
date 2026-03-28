@@ -110,6 +110,14 @@ import { normalizePath as normalizeAddressBarPath } from './address-bar.utils';
       padding: var(--vsc-padding-lg);
       max-height: 350px; overflow-y: auto;
       background-color: var(--vsc-panel-background, #252526) !important;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+
+      &::-webkit-scrollbar {
+        display: none;
+        width: 0;
+        height: 0;
+      }
     }
 
     .ab-scheme-item {

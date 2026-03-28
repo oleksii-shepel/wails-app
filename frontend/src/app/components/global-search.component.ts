@@ -8,11 +8,12 @@ import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
 import { FileType } from '../shared/protocol';
 import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.directive';
+import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directive';
 
 @Component({
   selector: 'app-global-search',
   standalone: true,
-  imports: [CommonModule, FormsModule, DialogFocusTrapDirective],
+  imports: [CommonModule, FormsModule, DialogFocusTrapDirective, VscodeScrollbarDirective],
   templateUrl: './global-search.component.html',
   styleUrls: ['./global-search.component.scss']
 })

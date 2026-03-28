@@ -83,7 +83,7 @@
     </div>
 
     <!-- Search Results -->
-    <div class="search-results">
+    <div class="search-results" appVscodeScrollbar>
       <!-- Loading -->
       <div *ngIf="isSearching" class="search-loading">
         <div class="spinner"></div>
@@ -159,7 +159,7 @@
       <button (click)="hideSettings()" class="btn-close">✕</button>
     </div>
 
-    <div class="settings-content">
+    <div class="settings-content" appVscodeScrollbar>
       <div class="setting-group">
         <label class="setting-label">
           <input

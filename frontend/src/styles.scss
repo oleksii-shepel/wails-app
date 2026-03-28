@@ -39,40 +39,6 @@ code, pre {
   font-family: var(--vsc-font-family-mono);
 }
 
-/* === Native scrollbar fallback === */
-::-webkit-scrollbar {
-  width: var(--vsc-scrollbar-size, 10px);
-  height: var(--vsc-scrollbar-size, 10px);
-}
-
-::-webkit-scrollbar-track {
-  background: var(--vsc-scrollbar-track);
-}
-
-::-webkit-scrollbar-thumb {
-  background: var(--vsc-scrollbar-thumb);
-  border-radius: 0;
-  min-height: 24px;
-  transition: background-color var(--vsc-transition-fast, 0.1s ease);
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: var(--vsc-scrollbar-thumb-hover);
-}
-
-::-webkit-scrollbar-thumb:active {
-  background: var(--vsc-scrollbar-thumb-active, var(--vsc-scrollbar-thumb-hover));
-}
-
-::-webkit-scrollbar-corner {
-  background: transparent;
-}
-
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--vsc-scrollbar-thumb) transparent;
-}
-
 /* VS Code-style pane scrollbars use an overlay thumb instead of the browser's
    native scrollbar chrome. Apply through the shared directive so pane scroll
    hosts stay DRY and visually consistent. */
@@ -124,14 +90,6 @@ code, pre {
 
 .vsc-scroll-anchor--dragging .vsc-scrollbar-thumb {
   background: var(--vsc-scrollbar-thumb-active, var(--vsc-scrollbar-thumb-hover));
-}
-
-app-file-list .pane-content::-webkit-scrollbar-corner,
-app-file-grid .file-grid::-webkit-scrollbar-corner,
-app-file-details .details-body::-webkit-scrollbar-corner,
-app-file-tree .file-tree-container::-webkit-scrollbar-corner,
-app-size-manager-surface .sm-body::-webkit-scrollbar-corner {
-  background: transparent !important;
 }
 
 /* === Focus Outline === */

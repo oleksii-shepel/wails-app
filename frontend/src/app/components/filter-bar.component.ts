@@ -385,19 +385,6 @@ import {
       padding: var(--vsc-padding-xs) 0;
       flex: 1;
       min-width: 0;
-      
-      /* Hide scrollbar for Firefox */
-      scrollbar-width: none;
-      
-      /* Hide scrollbar for Chrome/Safari/Edge */
-      &::-webkit-scrollbar {
-        display: none;
-        width: 0;
-        height: 0;
-      }
-      
-      /* Hide scrollbar for IE/Edge legacy */
-      -ms-overflow-style: none;
     }
 
     /* Search chip — inline, no component */

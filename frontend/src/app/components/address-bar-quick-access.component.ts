@@ -420,24 +420,13 @@ export interface QuickAccessItem {
       overflow-y: auto;
       padding: 4px 0;
       background-color: var(--vsc-panel-background, #252526) !important;
-      scrollbar-width: thin;
-      scrollbar-color: var(--vsc-scrollbar-thumb) var(--vsc-scrollbar-track);
+      scrollbar-width: none;
+      -ms-overflow-style: none;
 
       &::-webkit-scrollbar {
-        width: 10px;
-      }
-
-      &::-webkit-scrollbar-track {
-        background: var(--vsc-scrollbar-track);
-      }
-
-      &::-webkit-scrollbar-thumb {
-        background: var(--vsc-scrollbar-thumb);
-        border-radius: 5px;
-
-        &:hover {
-          background: var(--vsc-scrollbar-thumb-hover);
-        }
+        display: none;
+        width: 0;
+        height: 0;
       }
     }
 

@@ -135,11 +135,6 @@
   padding: var(--vsc-padding-md) 0;
 }
 
-.shortcuts-list::-webkit-scrollbar { width: 10px; }
-.shortcuts-list::-webkit-scrollbar-track { background: var(--vsc-scrollbar-track); }
-.shortcuts-list::-webkit-scrollbar-thumb { background: var(--vsc-scrollbar-thumb); border-radius: 5px; }
-.shortcuts-list::-webkit-scrollbar-thumb:hover { background: var(--vsc-scrollbar-thumb-hover); }
-
 .no-results {
   text-align: center;
   padding: 2.5rem 1.5rem;

@@ -6,11 +6,12 @@ import { CommonModule } from '@angular/common';
 import { FilterPreset, FilterGroup, GROUP_ORDER, GROUP_MODES } from './filter-bar.types';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
+import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directive';
 
 @Component({
   selector: 'app-filter-dropdown',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, VscodeScrollbarDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
@@ -52,7 +53,7 @@ import { InputEngineService } from '../services/input-engine.service';
       </div>
 
       <!-- ── Scrollable body ───────────────────────────────────── -->
-      <div class="fd-body" *ngIf="groups.length > 0">
+      <div class="fd-body" *ngIf="groups.length > 0" appVscodeScrollbar>
         <ng-container *ngFor="let group of groups">
           <ng-container *ngIf="group.presets.length > 0">
 
@@ -186,14 +187,6 @@ import { InputEngineService } from '../services/input-engine.service';
       min-height: 0;
       overflow-y: auto;
       padding: var(--vsc-padding-xs) 0;
-      scrollbar-width: thin;
-      scrollbar-color: var(--vsc-scrollbar-thumb) var(--vsc-scrollbar-track);
-    }
-    .fd-body::-webkit-scrollbar { width: 4px; }
-    .fd-body::-webkit-scrollbar-track { background: var(--vsc-scrollbar-track); }
-    .fd-body::-webkit-scrollbar-thumb {
-      background: var(--vsc-scrollbar-thumb);
-      border-radius: var(--vsc-border-radius);
     }
 
     /* ── Group header ────────────────────────────────────── */

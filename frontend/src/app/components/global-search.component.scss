@@ -174,15 +174,6 @@
   border-bottom: 1px solid var(--vsc-border-subtle);
   overflow-x: auto;
   align-items: center;
-
-  &::-webkit-scrollbar {
-    height: 4px;
-  }
-
-  &::-webkit-scrollbar-thumb {
-    background: var(--vsc-scrollbar-thumb);
-    border-radius: 2px;
-  }
 }
 
 .filter-btn {

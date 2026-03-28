@@ -210,14 +210,6 @@
   .workspace-list {
     max-height: 300px;
     overflow-y: auto;
-
-    &::-webkit-scrollbar { width: var(--vsc-scrollbar-size, 10px); }
-    &::-webkit-scrollbar-track { background: var(--vsc-scrollbar-track); }
-    &::-webkit-scrollbar-thumb {
-      background: var(--vsc-scrollbar-thumb);
-      border-radius: 6px;
-      &:hover { background: var(--vsc-scrollbar-thumb-hover); }
-    }
   }
 
   .workspace-item {

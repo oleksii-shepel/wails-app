@@ -73,13 +73,13 @@
   max-height: 300px;
   overflow-y: auto;
   padding: var(--vsc-padding-xs) 0;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 
-  &::-webkit-scrollbar { width: 10px; }
-  &::-webkit-scrollbar-track { background: var(--vsc-scrollbar-track); }
-  &::-webkit-scrollbar-thumb {
-    background: var(--vsc-scrollbar-thumb);
-    border-radius: 5px;
-    &:hover { background: var(--vsc-scrollbar-thumb-hover); }
+  &::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
   }
 }
 

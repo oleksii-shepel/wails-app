@@ -106,11 +106,14 @@ import { InputEngineService } from '../services/input-engine.service';
       max-height: 300px; overflow-y: auto; padding: var(--vsc-padding-xs) 0;
       position: relative;
       background-color: var(--vsc-panel-background, #252526) !important;
-      scrollbar-width: thin;
-      scrollbar-color: var(--vsc-scrollbar-thumb, #424242) transparent;
-      &::-webkit-scrollbar { width: 6px; }
-      &::-webkit-scrollbar-track { background: transparent; }
-      &::-webkit-scrollbar-thumb { background: var(--vsc-scrollbar-thumb, #424242); border-radius: 3px; }
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+
+      &::-webkit-scrollbar {
+        display: none;
+        width: 0;
+        height: 0;
+      }
     }
 
     .ab-vs-spacer {

@@ -105,9 +105,9 @@
   /* === Scrollbar === */
   --vsc-scrollbar-size: 12px;
   --vsc-scrollbar-track: transparent;
-  --vsc-scrollbar-thumb: rgba(121, 121, 121, 0.4);
-  --vsc-scrollbar-thumb-hover: rgba(100, 100, 100, 0.7);
-  --vsc-scrollbar-thumb-active: rgba(191, 191, 191, 0.4);
+  --vsc-scrollbar-thumb: rgba(121, 121, 121, 0.42);
+  --vsc-scrollbar-thumb-hover: rgba(121, 121, 121, 0.58);
+  --vsc-scrollbar-thumb-active: rgba(121, 121, 121, 0.72);
 
   /* === Shadows === */
   --vsc-shadow: rgba(0, 0, 0, 0.36);
@@ -304,9 +304,9 @@
   /* === Scrollbar === */
   --vsc-scrollbar-size: 12px;
   --vsc-scrollbar-track:       transparent;
-  --vsc-scrollbar-thumb:       rgba(100, 100, 100, 0.4);
-  --vsc-scrollbar-thumb-hover: rgba(100, 100, 100, 0.7);
-  --vsc-scrollbar-thumb-active: rgba(0, 0, 0, 0.6);
+  --vsc-scrollbar-thumb:       rgba(100, 100, 100, 0.36);
+  --vsc-scrollbar-thumb-hover: rgba(100, 100, 100, 0.5);
+  --vsc-scrollbar-thumb-active: rgba(100, 100, 100, 0.64);
 
   /* === Shadows === */
   --vsc-shadow:        rgba(0, 0, 0, 0.16);

@@ -235,15 +235,13 @@ function toEditorDriveDisplay(path: string): string {
       overflow-y: auto;
       padding: 3px 0 4px;
       position: relative;
-      scrollbar-width: thin;
-      scrollbar-color: var(--vsc-scrollbar-thumb, #424242) transparent;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
 
-      &::-webkit-scrollbar       { width: 6px; }
-      &::-webkit-scrollbar-track { background: transparent; }
-      &::-webkit-scrollbar-thumb {
-        background: var(--vsc-scrollbar-thumb, #424242);
-        border-radius: 3px;
-        &:hover { background: var(--vsc-scrollbar-thumb-hover, #4f4f4f); }
+      &::-webkit-scrollbar {
+        display: none;
+        width: 0;
+        height: 0;
       }
     }
 

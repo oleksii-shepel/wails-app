@@ -1,6 +1,7 @@
 import { Injectable, Type } from '@angular/core';
-import { ViewerContribution, ViewerRequest } from './viewer-contribution';
 import { ViewerSurfaceComponent } from '../surfaces/viewer/viewer-surface.component';
+import { AudioViewerComponent } from './builtins/audio-viewer.component';
+import { ViewerContribution, ViewerRequest } from './viewer-contribution';
 
 function extLower(path: string): string {
   const p = (path ?? '').replace(/\\/g, '/');
@@ -82,7 +83,7 @@ export class ViewerRegistryService {
         const ext = extLower(req.archiveContext?.entryPath ?? req.targetPath);
         return ['mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a'].includes(ext) ? 50 : 0;
       },
-      load: async () => (await import('./builtins/audio-viewer.component')).AudioViewerComponent,
+      load: () => AudioViewerComponent,
     });
 
     this.register({

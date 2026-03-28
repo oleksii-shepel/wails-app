@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 import { ViewerArchiveContext } from '../viewer-archive-context';
 import { ViewerSurfaceComponent } from '../../surfaces/viewer/viewer-surface.component';
+import type { FileProbe } from '../../shared/protocol';
 
 @Component({
   selector: 'app-pdf-viewer',
@@ -33,6 +34,7 @@ import { ViewerSurfaceComponent } from '../../surfaces/viewer/viewer-surface.com
       [targetPath]="targetPath"
       [archiveContext]="archiveContext"
       [hideHeader]="hideHeader"
+      [probe]="probe"
       [viewerId]="viewerId">
     </app-viewer-surface>
   `,
@@ -41,5 +43,6 @@ export class PdfViewerComponent {
   @Input() targetPath = '';
   @Input() archiveContext: ViewerArchiveContext | null = null;
   @Input() hideHeader = false;
+  @Input() probe: FileProbe | null = null;
   @Input() viewerId: string | null = null;
 }

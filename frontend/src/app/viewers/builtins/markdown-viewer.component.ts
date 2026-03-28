@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 import { ViewerArchiveContext } from '../viewer-archive-context';
 import { ViewerSurfaceComponent } from '../../surfaces/viewer/viewer-surface.component';
+import type { FileProbe } from '../../shared/protocol';
 
 @Component({
   selector: 'app-markdown-viewer',
@@ -11,6 +12,7 @@ import { ViewerSurfaceComponent } from '../../surfaces/viewer/viewer-surface.com
     <app-viewer-surface
       [targetPath]="targetPath"
       [archiveContext]="archiveContext"
+      [probe]="probe"
       [viewerId]="viewerId">
     </app-viewer-surface>
   `,
@@ -18,5 +20,6 @@ import { ViewerSurfaceComponent } from '../../surfaces/viewer/viewer-surface.com
 export class MarkdownViewerComponent {
   @Input() targetPath = '';
   @Input() archiveContext: ViewerArchiveContext | null = null;
+  @Input() probe: FileProbe | null = null;
   @Input() viewerId: string | null = null;
 }

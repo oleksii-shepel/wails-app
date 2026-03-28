@@ -13,7 +13,7 @@ import { ViewerArchiveContext } from '../../viewers/viewer-archive-context';
 
 type ViewerKind =
   | 'image' | 'video' | 'audio' | 'pdf' | 'svg'
-  | 'json' | 'markdown' | 'text'
+  | 'json' | 'markdown' | 'html' | 'text'
   | 'directory' | 'toobig' | 'unsupported' | 'error' | 'empty' | 'loading';
 
 interface ImageMeta { width: number; height: number }
@@ -85,7 +85,14 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
           <button class="tool-btn" (click)="toggleCheckerboard()" [class.active]="showCheckerboard"
                   title="Toggle transparency grid">Grid</button>
         </ng-container>
-        <ng-container *ngIf="kind === 'text' || kind === 'json' || kind === 'markdown'">
+          <ng-container *ngIf="isMarkupKind">
+            <button class="tool-btn" (click)="setMarkupViewMode('rendered')" [class.active]="markupViewMode === 'rendered'"
+              title="Rendered preview">Preview</button>
+            <button class="tool-btn" (click)="setMarkupViewMode('source')" [class.active]="markupViewMode === 'source'"
+              title="Source view">Source</button>
+            <span class="toolbar-divider"></span>
+          </ng-container>
+          <ng-container *ngIf="kind === 'text' || kind === 'json' || kind === 'markdown' || kind === 'html'">
           <button class="tool-btn" (click)="toggleWrap()" [class.active]="wordWrap"
                   title="Toggle word wrap">Wrap</button>
         </ng-container>
@@ -307,13 +314,20 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
              [class.word-wrap]="wordWrap"><code [innerHTML]="highlightedJson"></code></pre>
 
         <!-- Markdown -->
-        <div *ngIf="kind === 'markdown'"
+        <div *ngIf="kind === 'markdown' && markupViewMode === 'rendered'"
              class="markdown-body"
              [class.word-wrap]="wordWrap"
              [innerHTML]="renderedMarkdown"></div>
 
-        <!-- Plain text -->
-        <pre *ngIf="kind === 'text'"
+        <!-- HTML -->
+        <iframe *ngIf="kind === 'html' && markupViewMode === 'rendered'"
+          class="html-preview-frame"
+          sandbox
+          referrerpolicy="no-referrer"
+          [attr.srcdoc]="renderedHtmlDocument"></iframe>
+
+        <!-- Plain text / source -->
+        <pre *ngIf="kind === 'text' || ((kind === 'markdown' || kind === 'html') && markupViewMode === 'source')"
              class="preview-text"
              [class.word-wrap]="wordWrap">{{ textContent }}</pre>
 
@@ -1136,13 +1150,40 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
     }
 
     .markdown-body {
+      display: block;
+      width: 100%;
+      min-height: 100%;
+      box-sizing: border-box;
       padding: 16px 20px;
       line-height: 1.65;
-      max-width: 780px;
       font-size: 13px;
 
       &.word-wrap { word-break: break-word; }
 
+      img {
+        max-width: 100%;
+        height: auto;
+      }
+    }
+
+    .html-preview-frame {
+      display: block;
+      width: 100%;
+      height: 100%;
+      border: 0;
+      background: white;
+    }
+
+    .viewer-body > .html-preview-frame {
+      flex: 1 1 auto;
+      min-height: 100%;
+    }
+
+    .viewer-body > .markdown-body {
+      flex: 1 1 auto;
+    }
+
+    .markdown-body {
       h1, h2, h3, h4, h5, h6 {
         color: var(--vsc-foreground-bright, #fff);
         margin: 1.2em 0 0.4em;
@@ -1267,6 +1308,8 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
   textContent:      string | null        = null;
   highlightedJson:  string | null        = null;
   renderedMarkdown: string | null        = null;
+  renderedHtmlDocument: string | null    = null;
+  markupViewMode: 'rendered' | 'source'  = 'rendered';
 
   imageMeta:  ImageMeta | null = null;
   lineCount:  number | null    = null;
@@ -1292,7 +1335,11 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
 
   get hasToolbar(): boolean {
     return this.kind === 'image' || this.kind === 'svg' ||
-           this.kind === 'text'  || this.kind === 'json' || this.kind === 'markdown';
+           this.kind === 'text'  || this.kind === 'json' || this.kind === 'markdown' || this.kind === 'html';
+  }
+
+  get isMarkupKind(): boolean {
+    return this.kind === 'markdown' || this.kind === 'html';
   }
 
   get videoPlaybackModeLabel(): string {
@@ -1426,6 +1473,11 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
   zoom100():   void { this.zoomLevel = 1; this.cdr.markForCheck(); }
   toggleCheckerboard(): void { this.showCheckerboard = !this.showCheckerboard; this.cdr.markForCheck(); }
   toggleWrap():         void { this.wordWrap = !this.wordWrap; this.cdr.markForCheck(); }
+  setMarkupViewMode(mode: 'rendered' | 'source'): void {
+    if (this.markupViewMode === mode) return;
+    this.markupViewMode = mode;
+    this.cdr.markForCheck();
+  }
 
   onImageLoad(event: Event): void {
     const img = event.target as HTMLImageElement;
@@ -2006,9 +2058,19 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
 
       // Markdown
       if (ext === 'md' || ext === 'markdown' || ext === 'mdx') {
+        this.textContent = text;
         this.renderedMarkdown = this.renderMarkdown(text);
         this.lineCount = text.split('\n').length;
         this.kind = 'markdown';
+        return;
+      }
+
+      // HTML
+      if (ext === 'html' || ext === 'htm') {
+        this.textContent = text;
+        this.renderedHtmlDocument = this.renderHTMLDocument(text);
+        this.lineCount = text.split('\n').length;
+        this.kind = 'html';
         return;
       }
 
@@ -2050,6 +2112,7 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
     this.textContent     = null;
     this.highlightedJson = null;
     this.renderedMarkdown = null;
+    this.renderedHtmlDocument = null;
     this.imageMeta       = null;
     this.lineCount       = null;
     this.zoomLevel       = 0;
@@ -2441,5 +2504,27 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
     if (!/^<(h[1-6]|ul|ol|pre|blockquote|hr)/.test(html.trim()))
       html = `<p>${html}</p>`;
     return html;
+  }
+
+  private renderHTMLDocument(source: string): string {
+    if (/<!doctype/i.test(source) || /<html[\s>]/i.test(source)) {
+      return source;
+    }
+
+    return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+      body {
+        margin: 16px;
+        font-family: Segoe UI, system-ui, sans-serif;
+        line-height: 1.5;
+      }
+    </style>
+  </head>
+  <body>${source}</body>
+</html>`;
   }
 }

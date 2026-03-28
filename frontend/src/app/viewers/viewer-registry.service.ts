@@ -104,8 +104,8 @@ export class ViewerRegistryService {
 
     this.register({
       id: 'markdown',
-      title: 'Markdown Viewer',
-      score: (req) => ['md', 'markdown', 'mdx'].includes(extLower(req.archiveContext?.entryPath ?? req.targetPath)) ? 60 : 0,
+      title: 'Markup Viewer',
+      score: (req) => ['md', 'markdown', 'mdx', 'html', 'htm'].includes(extLower(req.archiveContext?.entryPath ?? req.targetPath)) ? 60 : 0,
       load: async () => (await import('./builtins/markdown-viewer.component')).MarkdownViewerComponent,
     });
 

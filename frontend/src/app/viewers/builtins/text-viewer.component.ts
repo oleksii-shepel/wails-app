@@ -63,7 +63,6 @@ function createCodePreviewTheme(isDark: boolean) {
     color: 'var(--vsc-foreground)',
     fontFamily: "var(--vsc-font-family-mono, ui-monospace, 'Cascadia Code', 'SFMono-Regular', Consolas, monospace)",
     lineHeight: '1.6',
-    scrollbarColor: 'var(--vsc-scrollbar-thumb) transparent',
   },
   '.cm-content': {
     padding: '10px 0 24px',

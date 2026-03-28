@@ -7,7 +7,6 @@ import {
   OnChanges,
   OnDestroy,
 } from '@angular/core';
-import { VscodeScrollbarDirective } from '../../directives/vscode-scrollbar.directive';
 import { ApiService } from '../../services/api.service';
 import { FileInfo, FileProbe, FileType } from '../../shared/protocol';
 import { ViewerArchiveContext } from '../viewer-archive-context';
@@ -18,7 +17,7 @@ interface ImageMeta { width: number; height: number }
 @Component({
   selector: 'app-image-viewer',
   standalone: true,
-  imports: [CommonModule, VscodeScrollbarDirective],
+  imports: [CommonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="viewer-surface">
@@ -51,7 +50,7 @@ interface ImageMeta { width: number; height: number }
                 title="Toggle transparency grid">Grid</button>
       </div>
 
-      <div class="viewer-body" appVscodeScrollbar>
+      <div class="viewer-body">
         <div *ngIf="kind === 'loading'" class="state-container">
           <div class="spinner"></div>
           <div class="state-label">Loading preview&#x2026;</div>

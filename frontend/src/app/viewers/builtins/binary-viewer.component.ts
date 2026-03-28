@@ -10,7 +10,6 @@ import {
   OnDestroy,
   ViewChild,
 } from '@angular/core';
-import { VscodeScrollbarDirective } from '../../directives/vscode-scrollbar.directive';
 import { ApiService } from '../../services/api.service';
 import { FileInfo, FileProbe, FileType } from '../../shared/protocol';
 import { ViewerArchiveContext } from '../viewer-archive-context';
@@ -30,7 +29,7 @@ const MEMORY_THRESHOLD = 8 * 1024 * 1024;  // files в‰¤ 8 MB loaded fully in
 @Component({
   selector: 'app-binary-viewer',
   standalone: true,
-  imports: [CommonModule, FormsModule, VscodeScrollbarDirective],
+  imports: [CommonModule, FormsModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="viewer-surface">
@@ -95,7 +94,7 @@ const MEMORY_THRESHOLD = 8 * 1024 * 1024;  // files в‰¤ 8 MB loaded fully in
       </div>
 
       <!-- в”Ђв”Ђ body в”Ђв”Ђ -->
-      <div class="viewer-body" appVscodeScrollbar>
+      <div class="viewer-body">
         <div *ngIf="kind === 'loading'" class="state-container">
           <div class="spinner"></div>
           <div class="state-label">Loading binary previewвЂ¦</div>

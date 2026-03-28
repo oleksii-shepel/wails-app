@@ -414,7 +414,7 @@ export interface ColumnDef {
       border-top-color: var(--vsc-accent-blue);
       box-sizing: border-box;
       animation: details-size-spin 0.9s linear infinite;
-      margin-left: auto;
+      flex-shrink: 0;
     }
 
     .details-body.drop-target-bg {

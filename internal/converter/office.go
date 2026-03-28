@@ -14,10 +14,13 @@ import (
 type OfficeService struct {
 	sofficeExePath     string
 	calibreExePath     string
+	djvuLibreExePath   string
 	imagemagickExePath string
 	hasLibreOffice     bool
 	hasCalibre         bool
+	hasDjVuLibre       bool
 	hasImagemagick     bool
+	hasDjvuDecode      bool
 }
 
 // NewOfficeService creates a new document converter service.
@@ -25,6 +28,7 @@ func NewOfficeService() *OfficeService {
 	svc := &OfficeService{}
 	svc.detectLibreOffice()
 	svc.detectCalibre()
+	svc.detectDjVuLibre()
 	svc.detectImagemagick()
 	return svc
 }
@@ -61,6 +65,15 @@ func (s *OfficeService) detectCalibre() {
 	}
 }
 
+func (s *OfficeService) detectDjVuLibre() {
+	possiblePaths := []string{"ddjvu", "ddjvu.exe"}
+	possiblePaths = append(possiblePaths, localDjVuLibrePaths("ddjvu.exe")...)
+	if path, ok := findExecutable(possiblePaths); ok {
+		s.djvuLibreExePath = path
+		s.hasDjVuLibre = true
+	}
+}
+
 func (s *OfficeService) detectImagemagick() {
 	possiblePaths := []string{"magick", "magick.exe"}
 	if runtime.GOOS != "windows" {
@@ -75,7 +88,45 @@ func (s *OfficeService) detectImagemagick() {
 	if path, ok := findExecutable(possiblePaths); ok {
 		s.imagemagickExePath = path
 		s.hasImagemagick = true
+		s.hasDjvuDecode = s.detectImagemagickReadSupport("DJVU")
 	}
+}
+
+func (s *OfficeService) detectImagemagickReadSupport(format string) bool {
+	if !s.hasImagemagick || s.imagemagickExePath == "" {
+		return false
+	}
+
+	cmd := exec.Command(s.imagemagickExePath, "-list", "format")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return false
+	}
+
+	return imagemagickFormatCanRead(string(output), format)
+}
+
+func imagemagickFormatCanRead(output string, format string) bool {
+	target := strings.ToUpper(strings.TrimSpace(format))
+	if target == "" {
+		return false
+	}
+
+	for _, line := range strings.Split(output, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+
+		name := strings.TrimSuffix(strings.ToUpper(fields[0]), "*")
+		if name != target {
+			continue
+		}
+
+		return strings.Contains(fields[2], "r")
+	}
+
+	return false
 }
 
 func findExecutable(paths []string) (string, bool) {
@@ -92,8 +143,34 @@ func findExecutable(paths []string) (string, bool) {
 	return "", false
 }
 
+func localDjVuLibrePaths(executableName string) []string {
+	paths := []string{}
+	appendCandidate := func(base string) {
+		if strings.TrimSpace(base) == "" {
+			return
+		}
+		for _, relative := range []string{
+			filepath.Join("DjVuLibre", executableName),
+			filepath.Join("..", "DjVuLibre", executableName),
+			filepath.Join("..", "..", "DjVuLibre", executableName),
+			filepath.Join("..", "..", "..", "DjVuLibre", executableName),
+		} {
+			paths = append(paths, filepath.Join(base, relative))
+		}
+	}
+
+	if cwd, err := oslib.Getwd(); err == nil {
+		appendCandidate(cwd)
+	}
+	if exePath, err := oslib.Executable(); err == nil {
+		appendCandidate(filepath.Dir(exePath))
+	}
+
+	return paths
+}
+
 func (s *OfficeService) IsAvailable() bool {
-	return s.hasLibreOffice || s.hasCalibre || s.hasImagemagick
+	return s.hasLibreOffice || s.hasCalibre || s.hasDjVuLibre || s.hasImagemagick
 }
 
 func (s *OfficeService) IsAvailableForFormat(ext string) bool {
@@ -103,7 +180,7 @@ func (s *OfficeService) IsAvailableForFormat(ext string) bool {
 	case documentFormatEpub:
 		return s.hasCalibre
 	case documentFormatDjvu:
-		return s.hasImagemagick
+		return s.hasDjVuLibre || (s.hasImagemagick && s.hasDjvuDecode)
 	default:
 		return false
 	}
@@ -148,9 +225,15 @@ Install Calibre:
 • macOS: brew install --cask calibre
 • Linux: sudo -v ; wget -nv -O- https://download.calibre-ebook.com/linux-installer.sh | sh /dev/stdin`
 	case documentFormatDjvu:
-		return `ImageMagick with DjVu support is required for DjVu previews.
+		return `DjVuLibre or ImageMagick with readable DjVu support is required for DjVu previews.
 
-Install ImageMagick:
+Recommended local install path: C:\Users\oleks\Desktop\file-manager\DjVuLibre
+
+Install DjVuLibre:
+• Windows: https://sourceforge.net/projects/djvu/files/latest/download
+• The converter looks for ddjvu.exe on PATH and in nearby DjVuLibre folders.
+
+Alternative: install ImageMagick with DjVu support:
 • Windows: https://imagemagick.org/script/download.php#windows
 • macOS: brew install imagemagick
 • Linux: sudo apt install imagemagick`
@@ -187,8 +270,14 @@ func (s *OfficeService) ConvertToPDF(inputPath string) (string, error) {
 		}
 		return s.convertWithCalibre(inputPath, outputPath)
 	case documentFormatDjvu:
+		if s.hasDjVuLibre {
+			return s.convertWithDjVuLibre(inputPath, outputPath)
+		}
 		if !s.hasImagemagick {
-			return "", fmt.Errorf("ImageMagick not found")
+			return "", fmt.Errorf("DjVuLibre and ImageMagick are both unavailable")
+		}
+		if !s.hasDjvuDecode {
+			return "", fmt.Errorf("DjVuLibre is unavailable and ImageMagick does not include readable DjVu support")
 		}
 		return s.convertWithImagemagick(inputPath, outputPath)
 	default:
@@ -235,6 +324,17 @@ func (s *OfficeService) convertWithCalibre(inputPath, outputPath string) (string
 	cmd := exec.Command(s.calibreExePath, inputPath, outputPath)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("Calibre conversion failed: %v%s", err, formatCommandOutput(output))
+	}
+	if _, err := oslib.Stat(outputPath); err != nil {
+		return "", fmt.Errorf("PDF output file not created: %w", err)
+	}
+	return outputPath, nil
+}
+
+func (s *OfficeService) convertWithDjVuLibre(inputPath, outputPath string) (string, error) {
+	cmd := exec.Command(s.djvuLibreExePath, "-format=pdf", inputPath, outputPath)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("DjVuLibre conversion failed: %v%s", err, formatCommandOutput(output))
 	}
 	if _, err := oslib.Stat(outputPath); err != nil {
 		return "", fmt.Errorf("PDF output file not created: %w", err)

@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
+import type { FileProbe } from '../../shared/protocol';
 import { ViewerArchiveContext } from '../viewer-archive-context';
 import { ViewerSurfaceComponent } from '../../surfaces/viewer/viewer-surface.component';
-import type { FileProbe } from '../../shared/protocol';
 
 @Component({
   selector: 'app-pdf-viewer',

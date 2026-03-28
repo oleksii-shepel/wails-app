@@ -51,6 +51,11 @@ function castProtocol<T>(value: unknown): T {
   return value as T;
 }
 
+interface StreamTextResult {
+  content: string;
+  size: number;
+}
+
 function normalizeElevatedSessionStatus(status: elevation.SessionStatus): ElevatedSessionStatus {
   return {
     active: status.active,
@@ -68,6 +73,49 @@ function normalizeElevatedSessionStatus(status: elevation.SessionStatus): Elevat
 export class ApiService {
     private normalizeCanonicalPath(path: string): string {
       return normalizePath(path);
+    }
+
+    private normalizeTextEncoding(encoding: string): string {
+      const normalized = (encoding ?? '').trim().toLowerCase().replace(/_/g, '-');
+      switch (normalized) {
+        case '':
+        case 'utf8':
+        case 'utf-8':
+          return 'utf-8';
+        case 'utf16':
+        case 'utf-16':
+        case 'utf16le':
+        case 'utf-16le':
+          return 'utf-16le';
+        case 'utf16be':
+        case 'utf-16be':
+          return 'utf-16be';
+        case 'windows1252':
+        case 'cp1252':
+        case 'windows-1252':
+          return 'windows-1252';
+        case 'latin1':
+        case 'latin-1':
+        case 'iso8859-1':
+        case 'iso-8859-1':
+          return 'iso-8859-1';
+        default:
+          return normalized;
+      }
+    }
+
+    private decodeTextBytes(bytes: ArrayBuffer, encoding: string): string {
+      const decoder = new TextDecoder(this.normalizeTextEncoding(encoding));
+      const decoded = decoder.decode(bytes);
+      return decoded.charCodeAt(0) === 0xfeff ? decoded.slice(1) : decoded;
+    }
+
+    private async fetchStreamResponse(url: string): Promise<Response> {
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      return response;
     }
 
     private normalizeCanonicalPathList(paths: string[]): string[] {
@@ -322,6 +370,20 @@ export class ApiService {
 
   async getConvertedImageURL(path: string, targetFormat: string = 'png'): Promise<string> {
     return await (window as any).go.app.App.GetConvertedImageURL(this.normalizeCanonicalPath(path), targetFormat);
+  }
+
+  async fetchTextFromURL(url: string, encoding: string = 'utf8'): Promise<StreamTextResult> {
+    const response = await this.fetchStreamResponse(url);
+    const bytes = await response.arrayBuffer();
+    return {
+      content: this.decodeTextBytes(bytes, encoding),
+      size: bytes.byteLength,
+    };
+  }
+
+  async fetchBytesFromURL(url: string): Promise<Uint8Array> {
+    const response = await this.fetchStreamResponse(url);
+    return new Uint8Array(await response.arrayBuffer());
   }
 
   async canConvertImage(path: string): Promise<boolean> {

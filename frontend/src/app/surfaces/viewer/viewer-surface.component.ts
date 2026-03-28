@@ -1839,8 +1839,9 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
     const probe = this.probe ?? (ext === 'ts' ? await this.api.probeFile(path).catch(() => null) : null);
     await this.renderContent(ext, info.size, {
       readText: async () => {
-        const r = await this.api.readFile(path, '');
-        return r?.content ?? null;
+        const streamURL = await this.api.getStreamURL(path);
+        const result = await this.api.fetchTextFromURL(streamURL, this.normalizeEncoding(probe?.encoding ?? ''));
+        return result.content;
       },
       streamBinary: (_mimeType: string) => {
     // Return a dedicated localhost stream URL so large media avoids
@@ -1861,10 +1862,10 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
     await this.renderContent(ext, null, {
       readText: async () => {
         const encoding = this.normalizeEncoding(probe?.encoding ?? '');
-        const r = await this.api.archiveRead(ctx.fsPath, ctx.nestedChain, ctx.entryPath, encoding);
-        if (!r) return null;
-        this.info = this.makeSyntheticInfo(entryName, ctx.entryPath, r.size ?? 0);
-        return r.content;
+        const streamURL = await this.api.getArchiveStreamURL(ctx.fsPath, ctx.nestedChain, ctx.entryPath);
+        const result = await this.api.fetchTextFromURL(streamURL, encoding);
+        this.info = this.makeSyntheticInfo(entryName, ctx.entryPath, result.size);
+        return result.content;
       },
       streamBinary: (_mimeType: string) => {
     // Archive streams use the same dedicated localhost server to avoid
@@ -1880,7 +1881,7 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
 
   /**
    * Core rendering logic — shared between disk and archive paths.
-   * Uses streaming for binary content and direct read for text.
+    * Uses stream URLs for all viewable content.
    */
   private async renderContent(
     ext: string,

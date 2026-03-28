@@ -804,9 +804,10 @@ export class BinaryViewerComponent implements OnChanges, OnDestroy {
   }
 
   private async loadFromArchive(ctx: ViewerArchiveContext, loadId: number): Promise<void> {
-    const response = await this.api.archiveRead(ctx.fsPath, ctx.nestedChain, ctx.entryPath, 'base64');
+    const streamURL = await this.api.getArchiveStreamURL(ctx.fsPath, ctx.nestedChain, ctx.entryPath);
+    const bytes = await this.api.fetchBytesFromURL(streamURL);
     if (loadId !== this.loadId) return;
-    const size = response.size ?? 0;
+    const size = bytes.byteLength;
     this.info = {
       name: this.baseName(ctx.entryPath), path: ctx.entryPath,
       type: FileType.FILE, size,
@@ -814,7 +815,7 @@ export class BinaryViewerComponent implements OnChanges, OnDestroy {
     };
     this.totalFileSize = size;
     this.totalRows = Math.ceil(size / this.bytesPerRow);
-    this.memBytes = this.decodeBase64(response.content);
+    this.memBytes = bytes;
     this.isRangeMode = false;
     this.kind = 'grid';
     this.cdr.markForCheck();
@@ -841,13 +842,6 @@ export class BinaryViewerComponent implements OnChanges, OnDestroy {
       rows.push({ offsetStr, cells, ascii: cells.map(c => c.ascii).join('') });
     }
     return rows;
-  }
-
-  private decodeBase64(content: string): Uint8Array {
-    const decoded = atob(content ?? '');
-    const bytes = new Uint8Array(decoded.length);
-    for (let i = 0; i < decoded.length; i++) bytes[i] = decoded.charCodeAt(i);
-    return bytes;
   }
 
   private baseName(path: string): string {

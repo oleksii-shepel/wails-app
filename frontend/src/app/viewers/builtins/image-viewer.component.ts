@@ -458,12 +458,11 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
   private async loadFromArchive(ctx: ViewerArchiveContext): Promise<void> {
     const entryName = ctx.entryPath.replace(/\\/g, '/').split('/').pop() ?? ctx.entryPath;
     const ext = this.extractExt(ctx.entryPath);
+    const streamURL = await this.api.getArchiveStreamURL(ctx.fsPath, ctx.nestedChain, ctx.entryPath);
+    this.info = this.makeSyntheticInfo(entryName, ctx.entryPath, 0);
 
     if (ext === 'svg') {
-      const r = await this.api.archiveRead(ctx.fsPath, ctx.nestedChain, ctx.entryPath, 'utf8');
-      if (!r) { this.kind = 'unsupported'; return; }
-      this.info = this.makeSyntheticInfo(entryName, ctx.entryPath, r.size ?? 0);
-      this.imageSrc = await this.api.getArchiveStreamURL(ctx.fsPath, ctx.nestedChain, ctx.entryPath);
+      this.imageSrc = streamURL;
       this.kind = 'svg';
       return;
     }
@@ -471,10 +470,7 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
     const mime = this.inferImageMime(ext);
     if (mime) {
       try {
-        const r = await this.api.archiveRead(ctx.fsPath, ctx.nestedChain, ctx.entryPath, 'utf8');
-        if (!r) { this.kind = 'unsupported'; return; }
-        this.info = this.makeSyntheticInfo(entryName, ctx.entryPath, r.size ?? 0);
-        this.imageSrc = await this.api.getArchiveStreamURL(ctx.fsPath, ctx.nestedChain, ctx.entryPath);
+        this.imageSrc = streamURL;
         this.kind = 'image';
       } catch (err) {
         this.error = err instanceof Error ? err.message : 'Failed to load image from archive';

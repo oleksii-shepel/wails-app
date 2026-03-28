@@ -709,10 +709,8 @@ export class TextViewerComponent implements OnChanges, OnDestroy {
     }
 
     const encoding = this.normalizeEncoding(this.probe?.encoding ?? '');
-    const file = await this.api.readFile(path, encoding);
-    if (!file || typeof file.content !== 'string') {
-      throw new Error('The file could not be read as UTF-8 text.');
-    }
+    const streamURL = await this.api.getStreamURL(path);
+    const file = await this.api.fetchTextFromURL(streamURL, encoding);
 
     return {
       kind: 'editor',
@@ -723,17 +721,15 @@ export class TextViewerComponent implements OnChanges, OnDestroy {
 
   private async loadFromArchive(ctx: ViewerArchiveContext): Promise<{ kind: 'editor'; text: string; filename: string }> {
     const encoding = this.normalizeEncoding(this.probe?.encoding ?? '');
-    const response = await this.api.archiveRead(ctx.fsPath, ctx.nestedChain, ctx.entryPath, encoding);
-    if (!response || typeof response.content !== 'string') {
-      throw new Error('The archive entry could not be read as UTF-8 text.');
-    }
+    const streamURL = await this.api.getArchiveStreamURL(ctx.fsPath, ctx.nestedChain, ctx.entryPath);
+    const response = await this.api.fetchTextFromURL(streamURL, encoding);
 
     const entryName = this.baseName(ctx.entryPath);
     this.info = {
       name: entryName,
       path: ctx.entryPath,
       type: FileType.FILE,
-      size: response.size ?? 0,
+      size: response.size,
       created: 0,
       modified: 0,
       accessed: 0,

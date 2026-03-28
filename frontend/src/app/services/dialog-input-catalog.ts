@@ -41,6 +41,8 @@ export const DIALOG_INPUT_CATALOG: DialogBindingCatalogEntry[] = [
       keyBinding('dialog.confirm.cancel.escape', 'dialog.confirm', 'dialog.confirm.cancel', 'escape', 'Cancel confirm dialog'),
       keyBinding('dialog.confirm.focus.next', 'dialog.confirm', 'dialog.confirm.focusNext', 'tab', 'Move focus to next action'),
       keyBinding('dialog.confirm.focus.prev', 'dialog.confirm', 'dialog.confirm.focusPrev', 'tab', 'Move focus to previous action', ['shift']),
+      keyBinding('dialog.confirm.focus.next.arrowRight', 'dialog.confirm', 'dialog.confirm.focusNextArrow', 'arrowright', 'Move focus to next action with arrows'),
+      keyBinding('dialog.confirm.focus.prev.arrowLeft', 'dialog.confirm', 'dialog.confirm.focusPrevArrow', 'arrowleft', 'Move focus to previous action with arrows'),
     ],
   },
   {
@@ -48,6 +50,10 @@ export const DIALOG_INPUT_CATALOG: DialogBindingCatalogEntry[] = [
     bindings: [
       keyBinding('dialog.archiveMoveWarning.confirm.enter', 'dialog.archiveMoveWarning', 'dialog.archiveMoveWarning.confirm', 'enter', 'Confirm archive move'),
       keyBinding('dialog.archiveMoveWarning.cancel.escape', 'dialog.archiveMoveWarning', 'dialog.archiveMoveWarning.cancel', 'escape', 'Cancel archive move'),
+      keyBinding('dialog.archiveMoveWarning.focus.next', 'dialog.archiveMoveWarning', 'dialog.archiveMoveWarning.focusNext', 'tab', 'Move focus to next action'),
+      keyBinding('dialog.archiveMoveWarning.focus.prev', 'dialog.archiveMoveWarning', 'dialog.archiveMoveWarning.focusPrev', 'tab', 'Move focus to previous action', ['shift']),
+      keyBinding('dialog.archiveMoveWarning.focus.next.arrowRight', 'dialog.archiveMoveWarning', 'dialog.archiveMoveWarning.focusNextArrow', 'arrowright', 'Move focus to next action with arrows'),
+      keyBinding('dialog.archiveMoveWarning.focus.prev.arrowLeft', 'dialog.archiveMoveWarning', 'dialog.archiveMoveWarning.focusPrevArrow', 'arrowleft', 'Move focus to previous action with arrows'),
     ],
   },
   {
@@ -66,6 +72,8 @@ export const DIALOG_INPUT_CATALOG: DialogBindingCatalogEntry[] = [
     bindings: [
       keyBinding('dialog.globalSearch.settings.close.escape', 'dialog.globalSearch.settings', 'dialog.globalSearch.settings.close', 'escape', 'Close search settings'),
       keyBinding('dialog.globalSearch.settings.apply.enter', 'dialog.globalSearch.settings', 'dialog.globalSearch.settings.apply', 'enter', 'Apply settings'),
+      keyBinding('dialog.globalSearch.settings.focus.next.arrowRight', 'dialog.globalSearch.settings', 'dialog.globalSearch.settings.focusNextArrow', 'arrowright', 'Move focus to next setting control'),
+      keyBinding('dialog.globalSearch.settings.focus.prev.arrowLeft', 'dialog.globalSearch.settings', 'dialog.globalSearch.settings.focusPrevArrow', 'arrowleft', 'Move focus to previous setting control'),
     ],
   },
   {
@@ -74,6 +82,8 @@ export const DIALOG_INPUT_CATALOG: DialogBindingCatalogEntry[] = [
       keyBinding('dialog.keyboardHelp.close.escape', 'dialog.keyboardHelp', 'dialog.keyboardHelp.close', 'escape', 'Close keyboard help'),
       keyBinding('dialog.keyboardHelp.focus.ctrlF', 'dialog.keyboardHelp', 'dialog.keyboardHelp.focusSearch', 'f', 'Focus shortcut search', ['ctrl']),
       keyBinding('dialog.keyboardHelp.export.ctrlS', 'dialog.keyboardHelp', 'dialog.keyboardHelp.exportBindings', 's', 'Export bindings', ['ctrl']),
+      keyBinding('dialog.keyboardHelp.focus.next.arrowRight', 'dialog.keyboardHelp', 'dialog.keyboardHelp.focusNextArrow', 'arrowright', 'Move focus to next help control'),
+      keyBinding('dialog.keyboardHelp.focus.prev.arrowLeft', 'dialog.keyboardHelp', 'dialog.keyboardHelp.focusPrevArrow', 'arrowleft', 'Move focus to previous help control'),
     ],
   },
   {

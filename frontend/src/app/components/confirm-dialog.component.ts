@@ -1,10 +1,11 @@
-import { Component, OnDestroy, OnInit } from '@angular/core';
+import { Component, ElementRef, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
 import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.directive';
+import { moveFocusWithin } from '../directives/focus-trap.utils';
 import type { Stream } from '@epikodelabs/streamix';
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
 
@@ -25,6 +26,7 @@ interface ConfirmDialogRequest {
         (click)="onCancel()"
       >
         <div
+          #dialogPanel
           class="confirm-panel"
           [class.confirm-panel--alert]="request.options.isAlert"
           [class.confirm-panel--prompt]="request.options.isPrompt && !request.options.isAlert"
@@ -366,6 +368,8 @@ interface ConfirmDialogRequest {
   `]
 })
 export class ConfirmDialogComponent {
+  @ViewChild('dialogPanel') private dialogPanel?: ElementRef<HTMLElement>;
+
   private readonly destroy$ = createSubject<void>();
   private releaseDialogContext: (() => void) | null = null;
   draftValue = '';
@@ -380,6 +384,10 @@ export class ConfirmDialogComponent {
   ngOnInit(): void {
     this.inputEngine.registerCommand('dialog.confirm.accept', () => this.onKeyboardAccept());
     this.inputEngine.registerCommand('dialog.confirm.cancel', () => this.onCancel());
+    this.inputEngine.registerCommand('dialog.confirm.focusNext', () => this.moveDialogFocus(1));
+    this.inputEngine.registerCommand('dialog.confirm.focusPrev', () => this.moveDialogFocus(-1));
+    this.inputEngine.registerCommand('dialog.confirm.focusNextArrow', () => this.moveDialogFocusWithArrows(1));
+    this.inputEngine.registerCommand('dialog.confirm.focusPrevArrow', () => this.moveDialogFocusWithArrows(-1));
 
     this.confirmDialogService.activeRequest$
       .pipe(takeUntil(this.destroy$))
@@ -400,6 +408,10 @@ export class ConfirmDialogComponent {
     this.releaseDialogContext = null;
     this.inputEngine.unregisterCommand('dialog.confirm.accept');
     this.inputEngine.unregisterCommand('dialog.confirm.cancel');
+    this.inputEngine.unregisterCommand('dialog.confirm.focusNext');
+    this.inputEngine.unregisterCommand('dialog.confirm.focusPrev');
+    this.inputEngine.unregisterCommand('dialog.confirm.focusNextArrow');
+    this.inputEngine.unregisterCommand('dialog.confirm.focusPrevArrow');
     this.destroy$.next();
     this.destroy$.complete();
   }
@@ -487,5 +499,41 @@ export class ConfirmDialogComponent {
     }
     const lines = options.message.split('\n');
     return lines.slice(1).join('\n');
+  }
+
+  private moveDialogFocus(delta: number): void {
+    const panel = this.dialogPanel?.nativeElement;
+    if (!panel) {
+      return;
+    }
+
+    moveFocusWithin(panel, delta);
+  }
+
+  private moveDialogFocusWithArrows(delta: number): void {
+    if (!this.shouldUseActionArrowNavigation()) {
+      return;
+    }
+
+    this.moveActionFocus(delta);
+  }
+
+  private moveActionFocus(delta: number): void {
+    const panel = this.dialogPanel?.nativeElement;
+    if (!panel) {
+      return;
+    }
+
+    moveFocusWithin(panel, delta, '[data-dialog-action]');
+  }
+
+  private shouldUseActionArrowNavigation(): boolean {
+    const panel = this.dialogPanel?.nativeElement;
+    const activeElement = document.activeElement;
+    if (!panel || !(activeElement instanceof HTMLElement) || !panel.contains(activeElement)) {
+      return false;
+    }
+
+    return !!activeElement.closest('[data-dialog-action]');
   }
 }

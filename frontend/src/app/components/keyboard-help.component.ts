@@ -7,6 +7,7 @@ import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
 import { InputBindingDefinition } from '../services/input-system.types';
 import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.directive';
+import { moveFocusWithin } from '../directives/focus-trap.utils';
 import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directive';
 
 interface BindingCategory {
@@ -22,6 +23,7 @@ interface BindingCategory {
   styleUrls: ['./keyboard-help.component.scss']
 })
 export class KeyboardHelpComponent implements OnInit, OnDestroy {
+  @ViewChild('dialogPanel') dialogPanel?: ElementRef<HTMLElement>;
   @ViewChild('searchInput') searchInput?: ElementRef<HTMLInputElement>;
 
   isVisible = false;
@@ -206,12 +208,43 @@ export class KeyboardHelpComponent implements OnInit, OnDestroy {
       if (!this.isVisible) return;
       this.exportConfig();
     });
+
+    this.inputEngine.registerCommand('dialog.keyboardHelp.focusNextArrow', () => {
+      if (!this.isVisible || !this.shouldUseArrowFocusNavigation()) return;
+      this.moveDialogFocus(1);
+    });
+
+    this.inputEngine.registerCommand('dialog.keyboardHelp.focusPrevArrow', () => {
+      if (!this.isVisible || !this.shouldUseArrowFocusNavigation()) return;
+      this.moveDialogFocus(-1);
+    });
   }
 
   private unregisterInputCommands(): void {
     this.inputEngine.unregisterCommand('dialog.keyboardHelp.close');
     this.inputEngine.unregisterCommand('dialog.keyboardHelp.focusSearch');
     this.inputEngine.unregisterCommand('dialog.keyboardHelp.exportBindings');
+    this.inputEngine.unregisterCommand('dialog.keyboardHelp.focusNextArrow');
+    this.inputEngine.unregisterCommand('dialog.keyboardHelp.focusPrevArrow');
+  }
+
+  private moveDialogFocus(delta: number): void {
+    const panel = this.dialogPanel?.nativeElement;
+    if (!panel) {
+      return;
+    }
+
+    moveFocusWithin(panel, delta, '.modal-footer button');
+  }
+
+  private shouldUseArrowFocusNavigation(): boolean {
+    const panel = this.dialogPanel?.nativeElement;
+    const activeElement = document.activeElement;
+    if (!panel || !(activeElement instanceof HTMLElement) || !panel.contains(activeElement)) {
+      return false;
+    }
+
+    return !!activeElement.closest('.modal-footer button');
   }
 }
 

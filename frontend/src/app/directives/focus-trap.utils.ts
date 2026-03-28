@@ -86,6 +86,28 @@ export function focusInitialElement(container: HTMLElement, preferredSelector?: 
   container.focus();
 }
 
+export function moveFocusWithin(container: HTMLElement, delta: number, selector?: string): boolean {
+  const focusable = selector
+    ? Array.from(container.querySelectorAll<HTMLElement>(selector)).filter(isFocusableElement)
+    : getFocusableElements(container);
+  if (focusable.length === 0) {
+    container.focus();
+    return false;
+  }
+
+  const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  const currentIndex = activeElement && container.contains(activeElement)
+    ? focusable.indexOf(activeElement)
+    : -1;
+
+  const nextIndex = currentIndex >= 0
+    ? (currentIndex + delta + focusable.length) % focusable.length
+    : (delta >= 0 ? 0 : focusable.length - 1);
+
+  focusable[nextIndex]?.focus();
+  return true;
+}
+
 export function trapFocusWithin(container: HTMLElement, event: KeyboardEvent): void {
   if (event.key !== 'Tab') {
     return;

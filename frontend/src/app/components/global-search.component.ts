@@ -8,6 +8,7 @@ import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
 import { FileType } from '../shared/protocol';
 import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.directive';
+import { moveFocusWithin } from '../directives/focus-trap.utils';
 import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directive';
 
 @Component({
@@ -19,6 +20,7 @@ import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directi
 })
 export class GlobalSearchComponent implements OnInit, OnDestroy {
   @ViewChild('searchInput') searchInput?: ElementRef<HTMLInputElement>;
+  @ViewChild('settingsPanel') settingsPanel?: ElementRef<HTMLElement>;
   @Output() resultSelected = new EventEmitter<SearchResultItem>();
   @Output() searchFolderRequested = new EventEmitter<string>();
 
@@ -415,6 +417,16 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
       this.updateSearchConfig();
       this.hideSettings();
     });
+
+    this.inputEngine.registerCommand('dialog.globalSearch.settings.focusNextArrow', () => {
+      if (!this.showSettingsModal || !this.shouldUseSettingsArrowFocusNavigation()) return;
+      this.moveSettingsFocus(1);
+    });
+
+    this.inputEngine.registerCommand('dialog.globalSearch.settings.focusPrevArrow', () => {
+      if (!this.showSettingsModal || !this.shouldUseSettingsArrowFocusNavigation()) return;
+      this.moveSettingsFocus(-1);
+    });
   }
 
   private unregisterInputCommands(): void {
@@ -426,6 +438,27 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
     this.inputEngine.unregisterCommand('dialog.globalSearch.openSettings');
     this.inputEngine.unregisterCommand('dialog.globalSearch.settings.close');
     this.inputEngine.unregisterCommand('dialog.globalSearch.settings.apply');
+    this.inputEngine.unregisterCommand('dialog.globalSearch.settings.focusNextArrow');
+    this.inputEngine.unregisterCommand('dialog.globalSearch.settings.focusPrevArrow');
+  }
+
+  private moveSettingsFocus(delta: number): void {
+    const panel = this.settingsPanel?.nativeElement;
+    if (!panel) {
+      return;
+    }
+
+    moveFocusWithin(panel, delta, '.settings-footer button');
+  }
+
+  private shouldUseSettingsArrowFocusNavigation(): boolean {
+    const panel = this.settingsPanel?.nativeElement;
+    const activeElement = document.activeElement;
+    if (!panel || !(activeElement instanceof HTMLElement) || !panel.contains(activeElement)) {
+      return false;
+    }
+
+    return !!activeElement.closest('.settings-footer button');
   }
 }
 

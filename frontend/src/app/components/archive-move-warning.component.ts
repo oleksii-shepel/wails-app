@@ -17,11 +17,12 @@
  *   </app-archive-move-warning>
  */
 
-import { Component, EventEmitter, Input, OnChanges, OnDestroy, OnInit, Output, SimpleChanges } from '@angular/core';
+import { Component, ElementRef, EventEmitter, Input, OnChanges, OnDestroy, OnInit, Output, SimpleChanges, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
 import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.directive';
+import { moveFocusWithin } from '../directives/focus-trap.utils';
 
 @Component({
   selector: 'app-archive-move-warning',
@@ -29,7 +30,7 @@ import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.direct
   imports: [CommonModule, DialogFocusTrapDirective],
   template: `
 <div *ngIf="visible" class="amw-backdrop" (click)="onBackdrop($event)">
-  <div class="amw-panel" [appTrapFocus]="true" role="alertdialog" aria-modal="true" tabindex="-1">
+  <div #dialogPanel class="amw-panel" [appTrapFocus]="true" role="alertdialog" aria-modal="true" tabindex="-1">
 
     <div class="amw-icon" aria-hidden="true">
       <svg viewBox="0 0 20 20" fill="currentColor">
@@ -55,8 +56,8 @@ import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.direct
     </p>
 
     <div class="amw-actions">
-      <button class="amw-btn amw-btn--cancel" data-dialog-initial-focus (click)="cancelled.emit()">Cancel</button>
-      <button class="amw-btn amw-btn--confirm" (click)="confirmed.emit()">Move</button>
+      <button class="amw-btn amw-btn--cancel" data-dialog-initial-focus data-dialog-action="cancel" (click)="cancelled.emit()">Cancel</button>
+      <button class="amw-btn amw-btn--confirm" data-dialog-action="confirm" (click)="confirmed.emit()">Move</button>
     </div>
 
   </div>
@@ -138,6 +139,8 @@ import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.direct
   `],
 })
 export class ArchiveMoveWarningComponent implements OnInit, OnChanges, OnDestroy {
+  @ViewChild('dialogPanel') private dialogPanel?: ElementRef<HTMLElement>;
+
   private releaseDialogContext: (() => void) | null = null;
 
   @Input()  visible    = false;
@@ -161,6 +164,26 @@ export class ArchiveMoveWarningComponent implements OnInit, OnChanges, OnDestroy
       this.cancelled.emit();
     });
 
+    this.inputEngine.registerCommand('dialog.archiveMoveWarning.focusNext', () => {
+      if (!this.visible) return;
+      this.moveDialogFocus(1);
+    });
+
+    this.inputEngine.registerCommand('dialog.archiveMoveWarning.focusPrev', () => {
+      if (!this.visible) return;
+      this.moveDialogFocus(-1);
+    });
+
+    this.inputEngine.registerCommand('dialog.archiveMoveWarning.focusNextArrow', () => {
+      if (!this.visible || !this.shouldUseActionArrowNavigation()) return;
+      this.moveActionFocus(1);
+    });
+
+    this.inputEngine.registerCommand('dialog.archiveMoveWarning.focusPrevArrow', () => {
+      if (!this.visible || !this.shouldUseActionArrowNavigation()) return;
+      this.moveActionFocus(-1);
+    });
+
     this.syncContextLease();
   }
 
@@ -173,6 +196,10 @@ export class ArchiveMoveWarningComponent implements OnInit, OnChanges, OnDestroy
     this.releaseDialogContext = null;
     this.inputEngine.unregisterCommand('dialog.archiveMoveWarning.confirm');
     this.inputEngine.unregisterCommand('dialog.archiveMoveWarning.cancel');
+    this.inputEngine.unregisterCommand('dialog.archiveMoveWarning.focusNext');
+    this.inputEngine.unregisterCommand('dialog.archiveMoveWarning.focusPrev');
+    this.inputEngine.unregisterCommand('dialog.archiveMoveWarning.focusNextArrow');
+    this.inputEngine.unregisterCommand('dialog.archiveMoveWarning.focusPrevArrow');
   }
 
   onBackdrop(e: MouseEvent): void {
@@ -189,5 +216,33 @@ export class ArchiveMoveWarningComponent implements OnInit, OnChanges, OnDestroy
 
     this.releaseDialogContext?.();
     this.releaseDialogContext = null;
+  }
+
+  private moveDialogFocus(delta: number): void {
+    const panel = this.dialogPanel?.nativeElement;
+    if (!panel) {
+      return;
+    }
+
+    moveFocusWithin(panel, delta);
+  }
+
+  private moveActionFocus(delta: number): void {
+    const panel = this.dialogPanel?.nativeElement;
+    if (!panel) {
+      return;
+    }
+
+    moveFocusWithin(panel, delta, '[data-dialog-action]');
+  }
+
+  private shouldUseActionArrowNavigation(): boolean {
+    const panel = this.dialogPanel?.nativeElement;
+    const activeElement = document.activeElement;
+    if (!panel || !(activeElement instanceof HTMLElement) || !panel.contains(activeElement)) {
+      return false;
+    }
+
+    return !!activeElement.closest('[data-dialog-action]');
   }
 }

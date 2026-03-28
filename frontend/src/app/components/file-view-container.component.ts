@@ -42,6 +42,7 @@ export type ViewLayout = ViewMode;
         <app-file-list
           *ngIf="currentView === 'list'"
           [entries]="sortedEntries"
+          [pendingDirectorySizePaths]="pendingDirectorySizePaths"
           [selectedFiles]="selectedFiles"
           [cursorPath]="cursorPath"
           [error]="error"
@@ -59,6 +60,7 @@ export type ViewLayout = ViewMode;
         <app-file-grid
           *ngIf="currentView === 'grid'"
           [entries]="sortedEntries"
+          [pendingDirectorySizePaths]="pendingDirectorySizePaths"
           [selectedFiles]="selectedFiles"
           [cursorPath]="cursorPath"
           [colorizeByMime]="colorizeByMime"
@@ -76,6 +78,7 @@ export type ViewLayout = ViewMode;
           #fileTree
           *ngIf="currentView === 'tree'"
           [nodes]="treeNodes"
+          [pendingDirectorySizePaths]="pendingDirectorySizePaths"
           [currentPath]="currentPath"
           [colorizeByMime]="colorizeByMime"
           [paneActive]="paneActive"
@@ -96,6 +99,7 @@ export type ViewLayout = ViewMode;
         <app-file-details
           *ngIf="currentView === 'details'"
           [entries]="sortedEntries"
+          [pendingDirectorySizePaths]="pendingDirectorySizePaths"
           [currentPath]="currentPath"
           [selectedFiles]="selectedFiles"
           [cursorPath]="cursorPath"
@@ -192,7 +196,7 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
 
   private loadRequest$ = createSubject<TreeNode>();
   private destroy$     = createSubject<void>();
-  private readonly pendingDirectorySizePaths = new Set<string>();
+  pendingDirectorySizePaths: ReadonlySet<string> = new Set<string>();
   private lastTreeRefreshPath: string | null = null;
   private readonly eventsController = new FileViewEventsController();
   private readonly interactionController = new FileViewInteractionController();
@@ -463,14 +467,14 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
     const entry = this.entries.find(candidate => candidate.path === path);
     if (!entry || entry.type !== FileType.DIRECTORY) return;
 
-    this.pendingDirectorySizePaths.add(path);
+    this.setDirectorySizePending(path, true);
     try {
       const size = await this.apiService.dirSizeRecursive(path);
       this.applyDirectorySize(path, size);
     } catch (error) {
       console.warn('Failed to calculate directory size inline:', path, error);
     } finally {
-      this.pendingDirectorySizePaths.delete(path);
+      this.setDirectorySizePending(path, false);
     }
   }
 
@@ -545,6 +549,17 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
 
   private sortTreeNodes(nodes: TreeNode[]): TreeNode[] {
     return this.sortController.sortTreeNodes(this.sortHost, nodes);
+  }
+
+  private setDirectorySizePending(path: string, pending: boolean): void {
+    const next = new Set(this.pendingDirectorySizePaths);
+    if (pending) {
+      next.add(path);
+    } else {
+      next.delete(path);
+    }
+    this.pendingDirectorySizePaths = next;
+    this.cdr.markForCheck();
   }
 
   private applyDirectorySize(path: string, size: number): void {

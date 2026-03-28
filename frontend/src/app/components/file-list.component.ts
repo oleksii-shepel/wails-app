@@ -68,6 +68,7 @@ import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directi
             [entry]="parentEntry"
             [selected]="isSelected(parentEntry)"
             [cursor]="parentEntry.path === cursorPath"
+            [directorySizePending]="isDirectorySizePending(parentEntry.path)"
             [colorizeByMime]="colorizeByMime"
             (select)="onSelect($event)"
             (navigate)="onNavigate($event)"
@@ -104,6 +105,7 @@ import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directi
               [selected]="isSelected(entry)"
               [cursor]="entry.path === cursorPath"
               [displayNameOverride]="getDisplayNameOverride(entry.path)"
+              [directorySizePending]="isDirectorySizePending(entry.path)"
               [colorizeByMime]="colorizeByMime"
               (select)="onSelect($event)"
               (navigate)="onNavigate($event)"
@@ -265,6 +267,7 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
 
   @Input() entries: FileInfo[] = [];
   @Input() selectedFiles: Set<string> = new Set();
+  @Input() pendingDirectorySizePaths: ReadonlySet<string> = new Set();
   @Input() cursorPath: string | null = null;
   @Input() loading = false;
   @Input() error: string | null = null;
@@ -527,6 +530,10 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
 
   isSelected(entry: FileInfo): boolean {
     return this.selectedFiles.has(entry.path);
+  }
+
+  isDirectorySizePending(path: string): boolean {
+    return this.pendingDirectorySizePaths.has(path);
   }
 
   onSelect(event: FileEntrySelectEvent): void {

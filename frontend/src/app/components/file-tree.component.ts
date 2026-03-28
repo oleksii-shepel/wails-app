@@ -130,6 +130,8 @@ export interface DropTarget {
               [entry]="node"
               [selected]="isSelected(node)"
               [displayNameOverride]="getDisplayNameOverride(node.path)"
+              [directorySizePending]="isDirectorySizePending(node.path)"
+              [showDirectorySizeSpinnerInName]="true"
               [colorizeByMime]="colorizeByMime"
               variant="inline">
             </app-file-entry>
@@ -419,6 +421,7 @@ export interface DropTarget {
 })
 export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
   @Input() nodes: TreeNode[] = [];
+  @Input() pendingDirectorySizePaths: ReadonlySet<string> = new Set();
   @Input() currentPath = '';
   @Input() paneActive = true;
   @Input() colorizeByMime = false;
@@ -458,6 +461,10 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
 
   isFocused = false;
   FileType = FileType;
+
+  isDirectorySizePending(path: string): boolean {
+    return this.pendingDirectorySizePaths.has(path);
+  }
 
   // OPTIMIZED: Virtual scroll for massive trees
   private readonly VIRTUAL_THRESHOLD = 500;

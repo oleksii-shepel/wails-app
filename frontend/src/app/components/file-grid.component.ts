@@ -60,7 +60,13 @@ import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directi
               variant="grid">
             </app-file-entry>
             <div class="grid-meta" *ngIf="!isParentEntry(dragPreviewEntry)">
-              {{ formatSize(dragPreviewEntry.size) }}
+              <span
+                *ngIf="isDirectorySizePending(dragPreviewEntry.path); else dragPreviewSize"
+                class="grid-meta-spinner"
+                aria-label="Calculating folder size"
+                title="Calculating folder size">
+              </span>
+              <ng-template #dragPreviewSize>{{ formatSize(dragPreviewEntry.size) }}</ng-template>
             </div>
           </div>
         </div>
@@ -101,7 +107,13 @@ import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directi
               (rename)="onRename($event)">
             </app-file-entry>
             <div class="grid-meta" *ngIf="!isParentEntry(entry)">
-              {{ formatSize(entry.size) }}
+              <span
+                *ngIf="isDirectorySizePending(entry.path); else gridMetaSize"
+                class="grid-meta-spinner"
+                aria-label="Calculating folder size"
+                title="Calculating folder size">
+              </span>
+              <ng-template #gridMetaSize>{{ formatSize(entry.size) }}</ng-template>
             </div>
           </div>
         </div>
@@ -346,6 +358,20 @@ import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directi
       font-size: 11px;
       color: var(--vsc-foreground-dim);
       margin-top: 2px;
+      min-height: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .grid-meta-spinner {
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      border: 2px solid color-mix(in srgb, var(--vsc-accent-blue) 22%, transparent);
+      border-top-color: var(--vsc-accent-blue);
+      box-sizing: border-box;
+      animation: grid-meta-spin 0.9s linear infinite;
     }
 
     :host-context(.compact-mode) {
@@ -374,6 +400,11 @@ import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directi
       outline-offset: -2px;
       background: color-mix(in srgb, var(--vsc-list-hover-background) 30%, transparent);
     }
+
+    @keyframes grid-meta-spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
   `]
 })
 export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterViewInit {
@@ -386,6 +417,7 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
   @ViewChildren(FileEntryComponent) fileEntryComponents?: QueryList<FileEntryComponent>;
 
   @Input() entries: FileInfo[] = [];
+  @Input() pendingDirectorySizePaths: ReadonlySet<string> = new Set();
   @Input() selectedFiles: Set<string> = new Set();
   @Input() cursorPath: string | null = null;
   @Input() paneActive = true;
@@ -537,6 +569,10 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
 
   getDisplayNameOverride(path: string): string | null {
     return this.pendingRenameDisplayNames.get(path) ?? null;
+  }
+
+  isDirectorySizePending(path: string): boolean {
+    return this.pendingDirectorySizePaths.has(path);
   }
 
   private getFirstSelectedPathInOrder(): string | null {

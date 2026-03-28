@@ -131,9 +131,19 @@ export interface ColumnDef {
                 </app-file-entry>
               </ng-container>
               
+              <ng-container *ngIf="col.field === 'size' && isDirectorySizePending(entry.path); else defaultCellContent">
+                <span
+                  class="details-size-spinner"
+                  aria-label="Calculating folder size"
+                  title="Calculating folder size">
+                </span>
+              </ng-container>
+
+              <ng-template #defaultCellContent>
               <ng-container *ngIf="col.field !== 'name'">
                 {{ getCellValue(entry, col) }}
               </ng-container>
+              </ng-template>
             </div>
           </div>
         </div>
@@ -396,10 +406,26 @@ export interface ColumnDef {
     .col-date { width: 150px; }
     .col-type { width: 100px; }
 
+    .details-size-spinner {
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      border: 2px solid color-mix(in srgb, var(--vsc-accent-blue) 22%, transparent);
+      border-top-color: var(--vsc-accent-blue);
+      box-sizing: border-box;
+      animation: details-size-spin 0.9s linear infinite;
+      margin-left: auto;
+    }
+
     .details-body.drop-target-bg {
       outline: 2px dashed var(--vsc-focus-border);
       outline-offset: -2px;
       background: color-mix(in srgb, var(--vsc-list-hover-background) 30%, transparent);
+    }
+
+    @keyframes details-size-spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
     }
   `]
 })
@@ -434,6 +460,7 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   @ViewChildren(FileEntryComponent) fileEntryComponents?: QueryList<FileEntryComponent>;
 
   @Input() entries: FileInfo[] = [];
+  @Input() pendingDirectorySizePaths: ReadonlySet<string> = new Set();
   @Input() currentPath = '';
   @Input() selectedFiles: Set<string> = new Set();
   @Input() cursorPath: string | null = null;
@@ -1103,6 +1130,10 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
       return col.formatter(value, entry);
     }
     return value?.toString() || '';
+  }
+
+  isDirectorySizePending(path: string): boolean {
+    return this.pendingDirectorySizePaths.has(path);
   }
 
   getIcon(entry: FileInfo): string {

@@ -70,13 +70,30 @@ export const PARENT_ENTRY_PATH = '__parent__';
             (keydown)="onRenameKeyDown($event)" />
           <ng-container *ngIf="!isRenaming">
             <span class="file-name-text" [attr.data-mime-kind]="mimeColorKind">{{ displayName }}</span>
+            <span
+              *ngIf="showDirectorySizeSpinnerInName && shouldShowDirectorySizeSpinner()"
+              class="file-size-spinner file-size-spinner--inline"
+              aria-label="Calculating folder size"
+              title="Calculating folder size">
+            </span>
             <span *ngIf="showSearchBadge()" class="entry-chip search-chip">Search</span>
           </ng-container>
         </div>
         <div class="file-context-grid" *ngIf="showSearchContextInGrid()">{{ getSearchParentPath() }}</div>
         <div class="file-details" [attr.aria-hidden]="isParentEntry() ? 'true' : null">
-          <span class="file-size" *ngIf="!isParentEntry(); else detailPlaceholder">{{ formatSize(entry.size) }}</span>
-          <span class="file-date" *ngIf="!isParentEntry(); else detailPlaceholder">{{ formatDate(entry.modified) }}</span>
+          <ng-container *ngIf="!isParentEntry(); else detailPlaceholder">
+            <span class="file-size file-size--pending" *ngIf="shouldShowDirectorySizeSpinner(); else fileSizeValue">
+              <span
+                class="file-size-spinner"
+                aria-label="Calculating folder size"
+                title="Calculating folder size">
+              </span>
+            </span>
+            <ng-template #fileSizeValue>
+              <span class="file-size">{{ formatSize(entry.size) }}</span>
+            </ng-template>
+            <span class="file-date">{{ formatDate(entry.modified) }}</span>
+          </ng-container>
           <span class="file-context" *ngIf="showSearchContextInRow()">{{ getSearchParentPath() }}</span>
         </div>
       </div>
@@ -207,12 +224,34 @@ export const PARENT_ENTRY_PATH = '__parent__';
 
         .file-size, .file-date { white-space: nowrap; }
 
+        .file-size--pending {
+          display: inline-flex;
+          align-items: center;
+          min-height: 12px;
+        }
+
         .file-context {
           min-width: 0;
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
         }
+      }
+
+      .file-size-spinner {
+        width: 12px;
+        height: 12px;
+        border-radius: 999px;
+        border: 2px solid color-mix(in srgb, var(--vsc-accent-blue) 22%, transparent);
+        border-top-color: var(--vsc-accent-blue);
+        box-sizing: border-box;
+        animation: file-size-spin 0.9s linear infinite;
+        flex-shrink: 0;
+      }
+
+      .file-size-spinner--inline {
+        width: 11px;
+        height: 11px;
       }
 
       .entry-chip {
@@ -351,6 +390,10 @@ export const PARENT_ENTRY_PATH = '__parent__';
       display: none;
     }
 
+    :host(.variant-inline) .file-size-spinner--inline {
+      margin-left: 2px;
+    }
+
     :host(.variant-inline) .file-icon {
       width: 16px;
       height: 16px;
@@ -438,6 +481,11 @@ export const PARENT_ENTRY_PATH = '__parent__';
     :host(.variant-grid) .icon-emoji {
       font-size: 32px;
     }
+
+    @keyframes file-size-spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
   `]
 })
 export class FileEntryComponent {
@@ -447,6 +495,8 @@ export class FileEntryComponent {
   @Input() displayNameOverride: string | null = null;
   @Input() variant: 'row' | 'inline' | 'grid' = 'row';
   @Input() colorizeByMime = false;
+  @Input() directorySizePending = false;
+  @Input() showDirectorySizeSpinnerInName = false;
 
   @Output() select   = new EventEmitter<FileEntrySelectEvent>();
   @Output() navigate = new EventEmitter<FileInfo>();
@@ -502,6 +552,10 @@ export class FileEntryComponent {
 
   showSearchContextInGrid(): boolean {
     return !this.isParentEntry() && this.variant === 'grid' && this.isSearchEntry();
+  }
+
+  shouldShowDirectorySizeSpinner(): boolean {
+    return this.directorySizePending && !this.isParentEntry() && this.entry?.type === FileType.DIRECTORY;
   }
 
   getSearchParentPath(): string {

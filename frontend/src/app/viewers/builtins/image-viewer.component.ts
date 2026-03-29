@@ -580,6 +580,10 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
   previewCenterIndex = 0;
   private previewCommitTimer: number | null = null;
   private readonly previewCommitDelay = 150;
+  private suppressPreviewCommit = false;
+  private suppressPreviewCommitTimer: number | null = null;
+  private explicitSelectionLockIndex: number | null = null;
+  private explicitSelectionLockTimer: number | null = null;
   
   // Pointer gesture properties for natural scrolling
   private pointerDragActive = false;
@@ -743,6 +747,8 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
     this.destroyed = true;
     this.detachCarouselScrollListener();
     this.clearPreviewCommitTimer();
+    this.clearSuppressPreviewCommitTimer();
+    this.clearExplicitSelectionLockTimer();
   }
 
   private attachCarouselScrollListener(el: HTMLDivElement): void {
@@ -774,6 +780,12 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
       visible.push(idx);
     }
     this.hydrateThumbnailsForIndices(visible);
+    if (this.explicitSelectionLockIndex !== null) {
+      return;
+    }
+    if (this.suppressPreviewCommit) {
+      return;
+    }
     const centerIndex = this.computeCenterIndex(el);
     this.updatePreviewCenterIndex(centerIndex);
     this.schedulePreviewCommit();
@@ -797,12 +809,48 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
     }
   }
 
+  private armSuppressPreviewCommit(durationMs: number): void {
+    this.suppressPreviewCommit = true;
+    this.clearSuppressPreviewCommitTimer();
+    this.suppressPreviewCommitTimer = window.setTimeout(() => {
+      this.suppressPreviewCommit = false;
+      this.suppressPreviewCommitTimer = null;
+    }, durationMs);
+  }
+
+  private clearSuppressPreviewCommitTimer(): void {
+    if (this.suppressPreviewCommitTimer !== null) {
+      window.clearTimeout(this.suppressPreviewCommitTimer);
+      this.suppressPreviewCommitTimer = null;
+    }
+  }
+
+  private lockExplicitSelection(index: number, durationMs = 320): void {
+    this.explicitSelectionLockIndex = index;
+    this.clearExplicitSelectionLockTimer();
+    this.explicitSelectionLockTimer = window.setTimeout(() => {
+      this.explicitSelectionLockIndex = null;
+      this.explicitSelectionLockTimer = null;
+    }, durationMs);
+  }
+
+  private clearExplicitSelectionLockTimer(): void {
+    if (this.explicitSelectionLockTimer !== null) {
+      window.clearTimeout(this.explicitSelectionLockTimer);
+      this.explicitSelectionLockTimer = null;
+    }
+  }
+
   private commitPreviewSelection(): void {
     if (!this.hasCarousel) {
       return;
     }
     const candidate = this.previewCenterIndex;
-    if (candidate < 0 || candidate === this.currentCarouselIndex) {
+    if (candidate < 0) {
+      return;
+    }
+    this.centerCarouselItem(candidate, 'smooth');
+    if (candidate === this.currentCarouselIndex) {
       return;
     }
     void this.displayCarouselIndex(candidate, this.contextToken);
@@ -845,11 +893,12 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
     event.preventDefault();
   }
 
-  private centerCarouselItem(index: number): void {
+  private centerCarouselItem(index: number, behavior: ScrollBehavior = 'auto'): void {
     const el = this.carouselListElement;
     if (!el) {
       return;
     }
+    this.armSuppressPreviewCommit(behavior === 'smooth' ? 280 : 80);
     const stride = this.getCarouselItemStride();
     const paddingLeft = this.getCarouselPaddingLeft(el);
     const viewportWidth = el.clientWidth;
@@ -857,7 +906,7 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
     const target = paddingLeft + index * stride - lead;
     const maxScroll = Math.max(0, el.scrollWidth - viewportWidth);
     const clamped = Math.max(0, Math.min(target, maxScroll));
-    el.scrollTo({ left: clamped, behavior: 'auto' });
+    el.scrollTo({ left: clamped, behavior });
   }
 
   private scrollPreviewListBy(delta: number): void {
@@ -1173,6 +1222,9 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
   }
 
   selectCarouselIndex(index: number): void {
+    this.clearPreviewCommitTimer();
+    this.lockExplicitSelection(index);
+    this.previewCenterIndex = index;
     void this.displayCarouselIndex(index, this.contextToken);
   }
 
@@ -1490,6 +1542,8 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
   }
 
   private resetState(): void {
+    this.explicitSelectionLockIndex = null;
+    this.clearExplicitSelectionLockTimer();
     this.error = null;
     this.info = null;
     this.imageSrc = null;

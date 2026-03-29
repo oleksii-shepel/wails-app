@@ -113,19 +113,18 @@ interface CarouselImageItem {
             <div class="state-sub" *ngIf="fileExt">.{{ fileExt }}</div>
           </div>
 
-          <div *ngIf="kind === 'svg'" class="image-host" [class.checkerboard]="showCheckerboard" #imageHost (wheel)="onImageHostWheel($event)">
+          <div *ngIf="kind === 'image' || kind === 'svg'"
+               class="image-host"
+               [class.checkerboard]="showCheckerboard"
+               #imageHost
+               (wheel)="onImageHostWheel($event)"
+               (pointerdown)="onImageHostPointerDown($event)"
+               (pointermove)="onImageHostPointerMove($event)"
+               (pointerup)="onImageHostPointerUp($event)"
+               (pointercancel)="onImageHostPointerUp($event)">
             <img class="preview-image"
                  [src]="imageSrc || undefined"
-                 [alt]="displayName || 'SVG preview'"
-                 [style.transform]="imageTransform"
-                 (load)="onImageLoad($event)"
-                 (error)="onImageError()" />
-          </div>
-
-          <div *ngIf="kind === 'image'" class="image-host" [class.checkerboard]="showCheckerboard" #imageHost (wheel)="onImageHostWheel($event)">
-            <img class="preview-image"
-                 [src]="imageSrc || undefined"
-                 [alt]="displayName || 'Image preview'"
+                 [attr.alt]="kind === 'svg' ? 'SVG preview' : 'Image preview'"
                  [style.transform]="imageTransform"
                  (load)="onImageLoad($event)"
                  (error)="onImageError()" />
@@ -134,24 +133,26 @@ interface CarouselImageItem {
 
         <div class="carousel-strip" *ngIf="hasCarousel">
           <button class="carousel-nav" type="button" (click)="showPrevious()" [disabled]="!hasPrevious" title="Previous image">&#x2039;</button>
-          <div class="carousel-list" #carouselList>
-            <button
-              *ngFor="let item of carouselItems; let index = index; trackBy: trackCarouselItem"
-              class="carousel-item"
-              type="button"
-              [class.active]="index === currentCarouselIndex"
-              [title]="item.name"
-              (click)="selectCarouselIndex(index)">
-              <span class="carousel-thumb" [class.carousel-thumb--placeholder]="!item.thumbnailSrc || item.thumbnailFailed">
-                <img *ngIf="item.thumbnailSrc && !item.thumbnailFailed"
-                     [src]="item.thumbnailSrc"
-                     [alt]="item.name"
-                     loading="lazy"
-                     (error)="onThumbnailError(item)" />
-                <span *ngIf="!item.thumbnailSrc || item.thumbnailFailed" class="carousel-fallback">{{ thumbnailFallback(item) }}</span>
-              </span>
-              <span class="carousel-name">{{ item.name }}</span>
-            </button>
+          <div class="carousel-list-wrapper">
+            <div class="carousel-list" #carouselList>
+              <button
+                *ngFor="let item of carouselItems; let index = index; trackBy: trackCarouselItem"
+                class="carousel-item"
+                type="button"
+                [class.active]="index === currentCarouselIndex"
+                [title]="item.name"
+                (click)="selectCarouselIndex(index)">
+                <span class="carousel-thumb" [class.carousel-thumb--placeholder]="!item.thumbnailSrc || item.thumbnailFailed">
+                  <img *ngIf="item.thumbnailSrc && !item.thumbnailFailed"
+                       [src]="item.thumbnailSrc"
+                       [alt]="item.name"
+                       loading="lazy"
+                       (error)="onThumbnailError(item)" />
+                  <span *ngIf="!item.thumbnailSrc || item.thumbnailFailed" class="carousel-fallback">{{ thumbnailFallback(item) }}</span>
+                </span>
+                <span class="carousel-name">{{ item.name }}</span>
+              </button>
+            </div>
           </div>
           <button class="carousel-nav" type="button" (click)="showNext()" [disabled]="!hasNext" title="Next image">&#x203A;</button>
         </div>
@@ -364,12 +365,14 @@ interface CarouselImageItem {
     }
     .image-host {
       height: 100%;
-      overflow: auto;
+      overflow: hidden;
       display: flex;
       align-items: center;
       justify-content: center;
       padding: 18px;
       background: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 96%, black);
+      touch-action: none;
+      user-select: none;
     }
     .preview-image {
       max-width: 100%;
@@ -401,14 +404,27 @@ interface CarouselImageItem {
       opacity: 0.35;
       cursor: default;
     }
+    .carousel-list-wrapper {
+      position: relative;
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+    }
     .carousel-list {
       display: flex;
-      gap: 10px;
+      gap: 12px;
       overflow-x: auto;
       overflow-y: hidden;
       min-width: 0;
       padding-bottom: 4px;
       scrollbar-width: none;
+      scroll-snap-type: x mandatory;
+      -webkit-overflow-scrolling: touch;
+      padding-inline: max(0px, calc((100% - 112px) / 2));
+      position: relative;
+      z-index: 0;
     }
     .carousel-list::-webkit-scrollbar {
       height: 0;
@@ -426,15 +442,16 @@ interface CarouselImageItem {
       color: var(--vsc-foreground, #ccc);
       cursor: pointer;
       text-align: left;
-      transition: background 0.12s, border-color 0.12s, transform 0.12s;
+      transition: transform 0.2s ease, border-color 0.2s ease;
+      scroll-snap-align: center;
     }
     .carousel-item:hover {
       background: var(--vsc-list-hover-background, rgba(255,255,255,0.05));
       border-color: color-mix(in srgb, var(--vsc-border, #454545) 70%, transparent);
     }
     .carousel-item.active {
-      background: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 14%, transparent);
-      border-color: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 50%, transparent);
+      transform: scale(1.03);
+      border-color: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 40%, transparent);
     }
     .carousel-thumb {
       width: 100%;
@@ -477,13 +494,39 @@ interface CarouselImageItem {
       opacity: 0.9;
       width: 100%;
     }
+    .carousel-selection-indicator {
+      position: absolute;
+      inset: 4px auto 8px;
+      left: 50%;
+      width: 128px;
+      transform: translateX(-50%);
+      border-radius: 12px;
+      border: 1px solid color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 70%, transparent);
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(17, 116, 255, 0.08));
+      pointer-events: none;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+      transition: border-color 0.15s;
+      z-index: 2;
+    }
   `],
 })
 export class ImageViewerComponent implements OnChanges, OnDestroy {
   private carouselListElement: HTMLDivElement | null = null;
   private scrollListenerCleanup: (() => void) | null = null;
-  private selectionDebounceTimer: number | null = null;
-  private readonly selectionDebounceDelay = 180;
+  previewCenterIndex = 0;
+  private previewCommitTimer: number | null = null;
+  private readonly previewCommitDelay = 150;
+  
+  // Pointer gesture properties for natural scrolling
+  private pointerDragActive = false;
+  private pointerLastY: number | null = null;
+  private pointerScrollAccumulator = 0;
+  private readonly previewStep = 100; // Requires more finger movement to trigger one step
+  private pendingPreviewIndex: number | null = null;
+  private pointerGestureSteps = 0;
+  private readonly pointerMaxGestureSteps = 3; // Max 3 items per gesture
+  private readonly pointerScrollSensitivity = 0.005; // Slower response to finger movement
+  private pointerGestureCompletedSteps = 0; // Track completed steps in current gesture
 
   @ViewChild('carouselList', { static: false })
   set carouselListRef(value: ElementRef<HTMLDivElement> | undefined) {
@@ -601,6 +644,7 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
 
       this.carouselItems = prepared.items;
       this.currentCarouselIndex = prepared.index;
+      this.previewCenterIndex = prepared.index;
       this.cdr.markForCheck();
       this.onCarouselScroll();
 
@@ -618,10 +662,7 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
   ngOnDestroy(): void {
     this.destroyed = true;
     this.detachCarouselScrollListener();
-    if (this.selectionDebounceTimer !== null) {
-      window.clearTimeout(this.selectionDebounceTimer);
-      this.selectionDebounceTimer = null;
-    }
+    this.clearPreviewCommitTimer();
   }
 
   private attachCarouselScrollListener(el: HTMLDivElement): void {
@@ -641,9 +682,9 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
   private onCarouselScroll(): void {
     const el = this.carouselListElement;
     if (!el) return;
-    const children = Array.from(el.children) as HTMLElement[];
+    const children = Array.from(el.querySelectorAll<HTMLButtonElement>('.carousel-item'));
     const visible: number[] = [];
-    const buffer = 32; // px, preload just outside viewport
+    const buffer = 32;
     const { left, right } = el.getBoundingClientRect();
     children.forEach((child, idx) => {
       const cRect = child.getBoundingClientRect();
@@ -652,40 +693,56 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
       }
     });
     this.hydrateThumbnailsForIndices(visible);
-    this.scheduleCenterSelection();
+    const centerIndex = this.findCenterVisibleIndex(children, el);
+    this.updatePreviewCenterIndex(centerIndex);
+    this.schedulePreviewCommit();
   }
 
-  onImageHostWheel(event: WheelEvent): void {
-    const el = this.carouselListElement;
-    if (!el) {
+  private schedulePreviewCommit(): void {
+    if (this.pointerDragActive) {
       return;
     }
-    const delta = this.normalizeWheelDelta(event, el);
-    if (!delta) {
-      return;
-    }
-    this.scrollPreviewListBy(delta);
-    this.scheduleCenterSelection();
-    event.preventDefault();
+    this.clearPreviewCommitTimer();
+    this.previewCommitTimer = window.setTimeout(() => {
+      this.previewCommitTimer = null;
+      this.commitPreviewSelection();
+    }, this.previewCommitDelay);
   }
 
-  private scheduleCenterSelection(): void {
-    if (this.selectionDebounceTimer !== null) {
-      window.clearTimeout(this.selectionDebounceTimer);
+  private clearPreviewCommitTimer(): void {
+    if (this.previewCommitTimer !== null) {
+      window.clearTimeout(this.previewCommitTimer);
+      this.previewCommitTimer = null;
     }
-    this.selectionDebounceTimer = window.setTimeout(() => {
-      this.selectionDebounceTimer = null;
-      this.selectCenterVisibleItem();
-    }, this.selectionDebounceDelay);
   }
 
-  private selectCenterVisibleItem(): void {
-    const el = this.carouselListElement;
-    if (!el || !this.hasCarousel) {
+  private commitPreviewSelection(): void {
+    if (!this.hasCarousel) {
       return;
+    }
+    const candidate = this.previewCenterIndex;
+    if (candidate < 0 || candidate === this.currentCarouselIndex) {
+      return;
+    }
+    void this.displayCarouselIndex(candidate, this.contextToken);
+  }
+
+  private updatePreviewCenterIndex(centerIndex: number): void {
+    if (centerIndex < 0 || centerIndex >= this.carouselItems.length) {
+      return;
+    }
+    if (centerIndex === this.previewCenterIndex) {
+      return;
+    }
+    this.previewCenterIndex = centerIndex;
+    this.cdr.markForCheck();
+  }
+
+  private findCenterVisibleIndex(children: HTMLElement[], el: HTMLDivElement): number {
+    if (!children.length) {
+      return -1;
     }
     const centerX = el.getBoundingClientRect().left + el.clientWidth / 2;
-    const children = Array.from(el.children) as HTMLElement[];
     let bestIndex = -1;
     let bestDistance = Number.POSITIVE_INFINITY;
     children.forEach((child, idx) => {
@@ -697,9 +754,17 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
         bestIndex = idx;
       }
     });
-    if (bestIndex >= 0 && bestIndex !== this.currentCarouselIndex) {
-      void this.displayCarouselIndex(bestIndex, this.contextToken);
+    return bestIndex;
+  }
+
+  onImageHostWheel(event: WheelEvent): void {
+    const delta = this.normalizeWheelDelta(event);
+    if (!delta) {
+      return;
     }
+    this.scrollPreviewListBy(delta);
+    this.schedulePreviewCommit();
+    event.preventDefault();
   }
 
   private centerCarouselItem(index: number): void {
@@ -722,10 +787,14 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
     if (!el) {
       return;
     }
-    el.scrollBy({ left: delta, top: 0, behavior: 'auto' });
+    const scaled = delta * 0.03;
+    if (Math.abs(scaled) < 0.1) {
+      return;
+    }
+    el.scrollBy({ left: scaled, top: 0, behavior: 'auto' });
   }
 
-  private normalizeWheelDelta(event: WheelEvent, el: HTMLDivElement): number {
+  private normalizeWheelDelta(event: WheelEvent): number {
     if (!event.deltaY) {
       return 0;
     }
@@ -733,9 +802,105 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
     if (event.deltaMode === 1) {
       multiplier = 20;
     } else if (event.deltaMode === 2) {
-      multiplier = el.clientWidth;
+      multiplier = this.carouselListElement?.clientWidth ?? 40;
     }
     return event.deltaY * multiplier;
+  }
+
+  onImageHostPointerDown(event: PointerEvent): void {
+    if (event.pointerType === 'mouse') {
+      return;
+    }
+    const host = event.currentTarget as HTMLElement | null;
+    if (!host) {
+      return;
+    }
+    this.pointerDragActive = true;
+    this.pointerLastY = event.clientY;
+    this.pointerScrollAccumulator = 0;
+    this.pendingPreviewIndex = this.previewCenterIndex;
+    this.pointerGestureSteps = 0;
+    this.pointerGestureCompletedSteps = 0;
+    host.setPointerCapture?.(event.pointerId);
+    this.clearPreviewCommitTimer();
+    event.preventDefault();
+  }
+
+  onImageHostPointerMove(event: PointerEvent): void {
+    if (!this.pointerDragActive || this.pointerLastY === null) {
+      return;
+    }
+    const deltaY = this.pointerLastY - event.clientY;
+    this.pointerLastY = event.clientY;
+    
+    // Only accumulate if we haven't reached max steps for this gesture
+    if (this.pointerGestureCompletedSteps < this.pointerMaxGestureSteps && Math.abs(deltaY) > 0.2) {
+      const scaled = deltaY * this.pointerScrollSensitivity;
+      this.pointerScrollAccumulator += scaled;
+      this.consumePointerScroll();
+    }
+    event.preventDefault();
+  }
+
+  onImageHostPointerUp(event: PointerEvent): void {
+    if (!this.pointerDragActive) {
+      return;
+    }
+    const host = event.currentTarget as HTMLElement | null;
+    host?.releasePointerCapture?.(event.pointerId);
+    this.pointerDragActive = false;
+    this.pointerLastY = null;
+    
+    // Only commit if we actually changed the preview index
+    if (this.pendingPreviewIndex !== null && this.pendingPreviewIndex !== this.currentCarouselIndex) {
+      this.commitPreviewSelection();
+    }
+    
+    this.pointerScrollAccumulator = 0;
+    this.pendingPreviewIndex = null;
+    this.pointerGestureSteps = 0;
+    this.pointerGestureCompletedSteps = 0;
+    event.preventDefault();
+  }
+
+  private consumePointerScroll(): void {
+    const stepThreshold = this.previewStep;
+    // Only consume if we haven't reached max steps for this gesture
+    while (Math.abs(this.pointerScrollAccumulator) >= stepThreshold && 
+           this.pointerGestureCompletedSteps < this.pointerMaxGestureSteps) {
+      const direction = Math.sign(this.pointerScrollAccumulator);
+      const moved = this.tryAdvancePreview(direction);
+      if (moved) {
+        this.pointerScrollAccumulator -= direction * stepThreshold;
+        this.pointerGestureCompletedSteps++;
+      } else {
+        // Can't move further (at edge of carousel), break out
+        break;
+      }
+      this.pointerGestureSteps++;
+    }
+    
+    // Reset accumulator if we've reached max steps to prevent further movement
+    if (this.pointerGestureCompletedSteps >= this.pointerMaxGestureSteps) {
+      this.pointerScrollAccumulator = 0;
+    }
+  }
+
+  private tryAdvancePreview(direction: number): boolean {
+    if (!this.hasCarousel || direction === 0) {
+      return false;
+    }
+    const length = this.carouselItems.length;
+    const current = this.pendingPreviewIndex ?? this.previewCenterIndex;
+    const nextIndex = Math.max(0, Math.min(length - 1, current + direction));
+    if (nextIndex === current) {
+      return false; // At edge, couldn't move
+    }
+    this.pendingPreviewIndex = nextIndex;
+    this.previewCenterIndex = nextIndex;
+    this.centerCarouselItem(nextIndex);
+    this.cdr.markForCheck();
+    return true; // Successfully moved
   }
 
   private async hydrateThumbnailsForIndices(indices: number[]): Promise<void> {
@@ -835,6 +1000,7 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
     const item = this.carouselItems[index];
     const displayToken = ++this.displayToken;
     this.currentCarouselIndex = index;
+    this.previewCenterIndex = index;
     void this.scheduleThumbnailHydration(contextToken, index);
     this.kind = 'loading';
     this.error = null;
@@ -988,13 +1154,11 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
   }
 
   private async scheduleThumbnailHydration(contextToken: number, centerIndex: number): Promise<void> {
-    // Hydrate thumbnails in a window around the center index, and also trigger scroll-based hydration
     const start = Math.max(0, centerIndex - this.thumbnailHydrationRadius);
     const end = Math.min(this.carouselItems.length - 1, centerIndex + this.thumbnailHydrationRadius);
     const indices = [];
     for (let i = start; i <= end; i++) indices.push(i);
     await this.hydrateThumbnailsForIndices(indices);
-    // Also hydrate visible on scroll (in case user scrolls before selection)
     this.onCarouselScroll();
   }
 
@@ -1163,4 +1327,3 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
     };
   }
 }
-

@@ -586,7 +586,6 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
   private pointerScrollAccumulator = 0;
   private readonly previewStep = 1000; // Requires more finger movement to trigger one step
   private pendingPreviewIndex: number | null = null;
-  private pointerGestureSteps = 0;
   private readonly pointerMaxGestureSteps = 3; // Max 3 items per gesture
   private readonly pointerScrollSensitivity = 0.005; // Slower response to finger movement
   private pointerGestureCompletedSteps = 0; // Track completed steps in current gesture
@@ -956,7 +955,6 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
     this.pointerLastY = event.clientY;
     this.pointerScrollAccumulator = 0;
     this.pendingPreviewIndex = this.previewCenterIndex;
-    this.pointerGestureSteps = 0;
     this.pointerGestureCompletedSteps = 0;
     this.focusViewerSurface();
     host.setPointerCapture?.(event.pointerId);
@@ -996,13 +994,12 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
     
     this.pointerScrollAccumulator = 0;
     this.pendingPreviewIndex = null;
-    this.pointerGestureSteps = 0;
     this.pointerGestureCompletedSteps = 0;
     event.preventDefault();
   }
 
   @HostListener('window:keydown.delete', ['$event'])
-  onDeleteKey(event: any): void {
+  onDeleteKey(event: Event): void {
     if (!this.isEventInsideViewerSurface(event) || !this.canDeleteCurrentTarget()) {
       return;
     }
@@ -1011,10 +1008,10 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
     void this.deleteCurrentTarget();
   }
 
-  private isEventInsideViewerSurface(event: KeyboardEvent): boolean {
-    const target = event.target as HTMLElement | null;
+  private isEventInsideViewerSurface(event: Event): boolean {
+    const target = event.target;
     const host = this.viewerSurfaceElement;
-    return !!target && !!host && host.contains(target);
+    return !!host && target instanceof Node && host.contains(target);
   }
 
   private canDeleteCurrentTarget(): boolean {
@@ -1080,7 +1077,6 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
         // Can't move further (at edge of carousel), break out
         break;
       }
-      this.pointerGestureSteps++;
     }
     
     // Reset accumulator if we've reached max steps to prevent further movement
@@ -1508,6 +1504,9 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
   }
 
   focusViewerSurface(): void {
+    if (document.activeElement === this.viewerSurfaceElement) {
+      return;
+    }
     this.viewerSurfaceElement?.focus({ preventScroll: true });
   }
 

@@ -26,6 +26,7 @@ import (
 
 const streamPath = "/wails-stream"
 const defaultPreviewWindowSeconds = 90.0
+const defaultThumbnailSize = 256
 const segmentedPreviewSegmentSeconds = 2.0
 const segmentedVideoCacheTTL = 5 * time.Minute
 const segmentedVideoMaxResidentSegments = 24
@@ -214,6 +215,13 @@ func serveStreamRequest(w http.ResponseWriter, r *http.Request, app *App, archCa
 		}
 	}
 	convertFormat := q.Get("convert")
+	thumbnailFormat := q.Get("thumb")
+	thumbnailWidth := parseThumbnailDimension(q.Get("thumbWidth"))
+	thumbnailHeight := parseThumbnailDimension(q.Get("thumbHeight"))
+	if path != "" && thumbnailFormat != "" {
+		serveThumbnailPath(w, r, app, path, thumbnailFormat, thumbnailWidth, thumbnailHeight)
+		return
+	}
 	if path != "" && convertFormat != "" {
 		serveConvertedPath(w, r, app, path, convertFormat)
 		return
@@ -228,6 +236,10 @@ func serveStreamRequest(w http.ResponseWriter, r *http.Request, app *App, archCa
 	entry := q.Get("entry")
 	if fsPath != "" && entry != "" && transcodeFormat != "" {
 		serveTranscodedArchiveEntry(w, r, archCache, fsPath, entry, q.Get("nested"), transcodeFormat, playbackMode, startSeconds)
+		return
+	}
+	if fsPath != "" && entry != "" && thumbnailFormat != "" {
+		serveThumbnailArchiveEntry(w, r, app, archCache, fsPath, entry, q.Get("nested"), thumbnailFormat, thumbnailWidth, thumbnailHeight)
 		return
 	}
 	if fsPath != "" && entry != "" {
@@ -267,6 +279,97 @@ func serveConvertedPath(w http.ResponseWriter, r *http.Request, app *App, public
 	setContentType(w, "preview."+targetFormat)
 	w.Header().Set("Cache-Control", "no-store")
 	http.ServeContent(w, r, "preview."+targetFormat, time.Time{}, bytes.NewReader(converted))
+}
+
+func serveThumbnailPath(w http.ResponseWriter, r *http.Request, app *App, publicPath string, targetFormat string, maxWidth int, maxHeight int) {
+	if app == nil || app.State == nil || app.State.Converter == nil {
+		http.Error(w, "converter unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	publicPath = pathref.Normalize(publicPath)
+	nativePath := pathref.ToNativePath(publicPath)
+	if strings.Contains(nativePath, "..") {
+		http.Error(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+
+	thumbnail, err := app.State.Converter.CreateThumbnail(nativePath, targetFormat, maxWidth, maxHeight)
+	if err != nil {
+		http.Error(w, "thumbnail failed: "+err.Error(), http.StatusUnsupportedMediaType)
+		return
+	}
+
+	setCORSHeaders(w)
+	setContentType(w, "thumbnail."+targetFormat)
+	w.Header().Set("Cache-Control", "no-store")
+	http.ServeContent(w, r, "thumbnail."+targetFormat, time.Time{}, bytes.NewReader(thumbnail))
+}
+
+func serveThumbnailArchiveEntry(w http.ResponseWriter, r *http.Request, app *App, archCache *cache.Cache, fsPath string, entryPath string, nestedRaw string, targetFormat string, maxWidth int, maxHeight int) {
+	if app == nil || app.State == nil || app.State.Converter == nil {
+		http.Error(w, "converter unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	nativeFsPath := pathref.ToNativePath(fsPath)
+	if strings.Contains(nativeFsPath, "..") || strings.Contains(entryPath, "..") {
+		http.Error(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+
+	var nestedChain []string
+	if nestedRaw != "" {
+		nestedChain = strings.Split(nestedRaw, ",")
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+	defer cancel()
+
+	arch, err := archCache.Get(ctx, nativeFsPath, nestedChain, "")
+	if err != nil {
+		http.Error(w, "cannot open archive: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	entryFile, err := arch.Open(ctx, entryPath)
+	if err != nil {
+		http.Error(w, "cannot open entry: "+err.Error(), http.StatusNotFound)
+		return
+	}
+	defer entryFile.Close()
+
+	tempPattern := "wails-thumb-*" + filepath.Ext(entryPath)
+	tempFile, err := os.CreateTemp("", tempPattern)
+	if err != nil {
+		http.Error(w, "failed to prepare thumbnail input", http.StatusInternalServerError)
+		return
+	}
+	tempPath := tempFile.Name()
+	defer func() {
+		tempFile.Close()
+		_ = os.Remove(tempPath)
+	}()
+
+	if _, err := io.Copy(tempFile, entryFile); err != nil {
+		http.Error(w, "failed to read archive entry", http.StatusInternalServerError)
+		return
+	}
+	if err := tempFile.Close(); err != nil {
+		http.Error(w, "failed to finalize thumbnail input", http.StatusInternalServerError)
+		return
+	}
+
+	thumbnail, err := app.State.Converter.CreateThumbnail(tempPath, targetFormat, maxWidth, maxHeight)
+	if err != nil {
+		http.Error(w, "thumbnail failed: "+err.Error(), http.StatusUnsupportedMediaType)
+		return
+	}
+
+	setCORSHeaders(w)
+	setContentType(w, "thumbnail."+targetFormat)
+	w.Header().Set("Cache-Control", "no-store")
+	http.ServeContent(w, r, "thumbnail."+targetFormat, time.Time{}, bytes.NewReader(thumbnail))
 }
 
 func serveSegmentManifest(w http.ResponseWriter, r *http.Request, publicPath string) {
@@ -665,6 +768,20 @@ func parseWindowSeconds(raw string) float64 {
 		return 0
 	}
 	return seconds
+}
+
+func parseThumbnailDimension(raw string) int {
+	if raw == "" {
+		return defaultThumbnailSize
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value <= 0 {
+		return defaultThumbnailSize
+	}
+	if value > 2048 {
+		return 2048
+	}
+	return value
 }
 
 func buildFFmpegInputArgs(inputPath string, startSeconds float64, windowSeconds float64) []string {
@@ -1355,6 +1472,18 @@ func StreamURLForEntry(baseURL, fsPath string, nestedChain []string, entryPath s
 // ConvertedStreamURLForFile builds the /wails-stream URL for a disk path that should be converted on demand.
 func ConvertedStreamURLForFile(baseURL, publicPath, targetFormat string) string {
 	return joinStreamBaseURL(baseURL) + streamPath + "?path=" + urlEncode(publicPath) + "&convert=" + urlEncode(targetFormat)
+}
+
+func ThumbnailStreamURLForFile(baseURL, publicPath, targetFormat string, maxWidth int, maxHeight int) string {
+	return joinStreamBaseURL(baseURL) + streamPath + "?path=" + urlEncode(publicPath) + "&thumb=" + urlEncode(targetFormat) + "&thumbWidth=" + strconv.Itoa(maxWidth) + "&thumbHeight=" + strconv.Itoa(maxHeight)
+}
+
+func ThumbnailStreamURLForEntry(baseURL, fsPath string, nestedChain []string, entryPath string, targetFormat string, maxWidth int, maxHeight int) string {
+	u := joinStreamBaseURL(baseURL) + streamPath + "?fsPath=" + urlEncode(fsPath) + "&entry=" + urlEncode(entryPath) + "&thumb=" + urlEncode(targetFormat) + "&thumbWidth=" + strconv.Itoa(maxWidth) + "&thumbHeight=" + strconv.Itoa(maxHeight)
+	if len(nestedChain) > 0 {
+		u += "&nested=" + urlEncode(strings.Join(nestedChain, ","))
+	}
+	return u
 }
 
 func joinStreamBaseURL(baseURL string) string {

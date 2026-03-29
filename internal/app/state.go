@@ -76,6 +76,7 @@ type Batch interface {
 
 type Converter interface {
 	ConvertFormat(inputPath string, outputFormat string) ([]byte, error)
+	CreateThumbnail(inputPath string, outputFormat string, maxWidth int, maxHeight int) ([]byte, error)
 	IsSupportedSourceFormat(extension string) bool
 	GetAvailableConversionFormats(sourceExt string) []string
 }

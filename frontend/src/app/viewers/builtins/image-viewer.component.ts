@@ -6,19 +6,37 @@ import {
   Input,
   OnChanges,
   OnDestroy,
+  ViewChild,
+  ElementRef,
 } from '@angular/core';
-import { VscodeScrollbarDirective } from '../../directives/vscode-scrollbar.directive';
 import { ApiService } from '../../services/api.service';
-import { FileInfo, FileProbe, FileType } from '../../shared/protocol';
+import { ArchiveEntry, FileInfo, FileProbe, FileType } from '../../shared/protocol';
 import { ViewerArchiveContext } from '../viewer-archive-context';
 
 type ImageViewerKind = 'empty' | 'loading' | 'image' | 'svg' | 'directory' | 'toobig' | 'unsupported' | 'error';
-interface ImageMeta { width: number; height: number }
+
+interface ImageMeta {
+  width: number;
+  height: number;
+}
+
+interface CarouselImageItem {
+  id: string;
+  name: string;
+  ext: string;
+  source: 'disk' | 'archive';
+  diskPath: string | null;
+  archiveContext: ViewerArchiveContext | null;
+  info: FileInfo | null;
+  thumbnailSrc: string | null;
+  thumbnailFailed: boolean;
+  thumbnailLoading: boolean;
+}
 
 @Component({
   selector: 'app-image-viewer',
   standalone: true,
-  imports: [CommonModule, VscodeScrollbarDirective],
+  imports: [CommonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="viewer-surface">
@@ -31,7 +49,7 @@ interface ImageMeta { width: number; height: number }
           </div>
         </div>
         <div class="header-meta" *ngIf="info && kind !== 'empty' && kind !== 'loading'">
-          <span class="badge archive-badge" *ngIf="archiveContext" title="Extracted from archive into memory">
+          <span class="badge archive-badge" *ngIf="activeContext" title="Extracted from archive into memory">
             &#x1F4E6; archive
           </span>
           <span class="badge type-badge">{{ typeBadge }}</span>
@@ -40,67 +58,102 @@ interface ImageMeta { width: number; height: number }
         </div>
       </div>
 
-      <div class="viewer-toolbar" *ngIf="kind === 'image' || kind === 'svg'">
-        <button class="tool-btn" type="button" (click)="zoomOut()" title="Zoom out">&#x2212;</button>
-        <span class="zoom-label">{{ zoomLabel }}</span>
-        <button class="tool-btn" type="button" (click)="zoomIn()" title="Zoom in">+</button>
-        <button class="tool-btn" type="button" (click)="resetZoom()" title="Fit to window">Fit</button>
-        <button class="tool-btn" type="button" (click)="zoom100()" title="Actual size">1:1</button>
-        <span class="toolbar-divider"></span>
-        <button class="tool-btn" type="button" (click)="toggleCheckerboard()" [class.active]="showCheckerboard"
-                title="Toggle transparency grid">Grid</button>
+      <div class="viewer-toolbar" *ngIf="kind === 'image' || kind === 'svg' || hasCarousel">
+        <ng-container *ngIf="kind === 'image' || kind === 'svg'">
+          <button class="tool-btn" type="button" (click)="zoomOut()" title="Zoom out">&#x2212;</button>
+          <span class="zoom-label">{{ zoomLabel }}</span>
+          <button class="tool-btn" type="button" (click)="zoomIn()" title="Zoom in">+</button>
+          <button class="tool-btn" type="button" (click)="resetZoom()" title="Fit to window">Fit</button>
+          <button class="tool-btn" type="button" (click)="zoom100()" title="Actual size">1:1</button>
+          <span class="toolbar-divider"></span>
+          <button class="tool-btn" type="button" (click)="toggleCheckerboard()" [class.active]="showCheckerboard"
+                  title="Toggle transparency grid">Grid</button>
+        </ng-container>
+
+        <ng-container *ngIf="hasCarousel">
+          <span class="toolbar-divider" *ngIf="kind === 'image' || kind === 'svg'"></span>
+          <button class="tool-btn" type="button" (click)="showPrevious()" [disabled]="!hasPrevious" title="Previous image">&#x2039;</button>
+          <span class="carousel-counter">{{ currentCarouselIndex + 1 }} / {{ carouselItems.length }}</span>
+          <button class="tool-btn" type="button" (click)="showNext()" [disabled]="!hasNext" title="Next image">&#x203A;</button>
+        </ng-container>
       </div>
 
       <div class="viewer-body">
-        <div *ngIf="kind === 'loading'" class="state-container">
-          <div class="spinner"></div>
-          <div class="state-label">Loading preview&#x2026;</div>
+        <div class="viewer-main">
+          <div *ngIf="kind === 'loading'" class="state-container">
+            <div class="spinner"></div>
+            <div class="state-label">Loading preview&#x2026;</div>
+          </div>
+
+          <div *ngIf="kind === 'empty'" class="state-container">
+            <div class="state-icon">&#x1F50D;</div>
+            <div class="state-label">Select a file to preview</div>
+          </div>
+
+          <div *ngIf="kind === 'error'" class="state-container state-error">
+            <div class="state-icon">&#x26A0;</div>
+            <div class="state-label">Preview failed</div>
+            <div class="error-detail">{{ error }}</div>
+          </div>
+
+          <div *ngIf="kind === 'directory'" class="state-container">
+            <div class="state-icon">&#x1F4C1;</div>
+            <div class="state-label">Directory - no preview available</div>
+          </div>
+
+          <div *ngIf="kind === 'toobig'" class="state-container">
+            <div class="state-icon">&#x1F4E6;</div>
+            <div class="state-label">Image too large to preview</div>
+            <div class="state-sub">{{ formatSize(info?.size ?? 0) }}</div>
+          </div>
+
+          <div *ngIf="kind === 'unsupported'" class="state-container">
+            <div class="state-icon">&#x1F6AB;</div>
+            <div class="state-label">No image preview for this file type</div>
+            <div class="state-sub" *ngIf="fileExt">.{{ fileExt }}</div>
+          </div>
+
+          <div *ngIf="kind === 'svg'" class="image-host" [class.checkerboard]="showCheckerboard">
+            <img class="preview-image"
+                 [src]="imageSrc || undefined"
+                 [alt]="displayName || 'SVG preview'"
+                 [style.transform]="imageTransform"
+                 (load)="onImageLoad($event)"
+                 (error)="onImageError()" />
+          </div>
+
+          <div *ngIf="kind === 'image'" class="image-host" [class.checkerboard]="showCheckerboard">
+            <img class="preview-image"
+                 [src]="imageSrc || undefined"
+                 [alt]="displayName || 'Image preview'"
+                 [style.transform]="imageTransform"
+                 (load)="onImageLoad($event)"
+                 (error)="onImageError()" />
+          </div>
         </div>
 
-        <div *ngIf="kind === 'empty'" class="state-container">
-          <div class="state-icon">&#x1F50D;</div>
-          <div class="state-label">Select a file to preview</div>
-        </div>
-
-        <div *ngIf="kind === 'error'" class="state-container state-error">
-          <div class="state-icon">&#x26A0;</div>
-          <div class="state-label">Preview failed</div>
-          <div class="error-detail">{{ error }}</div>
-        </div>
-
-        <div *ngIf="kind === 'directory'" class="state-container">
-          <div class="state-icon">&#x1F4C1;</div>
-          <div class="state-label">Directory - no preview available</div>
-        </div>
-
-        <div *ngIf="kind === 'toobig'" class="state-container">
-          <div class="state-icon">&#x1F4E6;</div>
-          <div class="state-label">Image too large to preview</div>
-          <div class="state-sub">{{ formatSize(info?.size ?? 0) }}</div>
-        </div>
-
-        <div *ngIf="kind === 'unsupported'" class="state-container">
-          <div class="state-icon">&#x1F6AB;</div>
-          <div class="state-label">No image preview for this file type</div>
-          <div class="state-sub" *ngIf="fileExt">.{{ fileExt }}</div>
-        </div>
-
-        <div *ngIf="kind === 'svg'" class="svg-host" [class.checkerboard]="showCheckerboard" appVscodeScrollbar>
-          <img class="preview-image"
-               [src]="imageSrc!"
-               [alt]="displayName || 'SVG preview'"
-               [style.transform]="imageTransform"
-               (load)="onImageLoad($event)"
-               (error)="onImageError()" />
-        </div>
-
-        <div *ngIf="kind === 'image'" class="image-host" [class.checkerboard]="showCheckerboard" appVscodeScrollbar>
-          <img class="preview-image"
-               [src]="imageSrc!"
-               [alt]="displayName || 'Image preview'"
-               [style.transform]="imageTransform"
-           (load)="onImageLoad($event)"
-           (error)="onImageError()" />
+        <div class="carousel-strip" *ngIf="hasCarousel">
+          <button class="carousel-nav" type="button" (click)="showPrevious()" [disabled]="!hasPrevious" title="Previous image">&#x2039;</button>
+          <div class="carousel-list" #carouselList>
+            <button
+              *ngFor="let item of carouselItems; let index = index; trackBy: trackCarouselItem"
+              class="carousel-item"
+              type="button"
+              [class.active]="index === currentCarouselIndex"
+              [title]="item.name"
+              (click)="selectCarouselIndex(index)">
+              <span class="carousel-thumb" [class.carousel-thumb--placeholder]="!item.thumbnailSrc || item.thumbnailFailed">
+                <img *ngIf="item.thumbnailSrc && !item.thumbnailFailed"
+                     [src]="item.thumbnailSrc"
+                     [alt]="item.name"
+                     loading="lazy"
+                     (error)="onThumbnailError(item)" />
+                <span *ngIf="!item.thumbnailSrc || item.thumbnailFailed" class="carousel-fallback">{{ thumbnailFallback(item) }}</span>
+              </span>
+              <span class="carousel-name">{{ item.name }}</span>
+            </button>
+          </div>
+          <button class="carousel-nav" type="button" (click)="showNext()" [disabled]="!hasNext" title="Next image">&#x203A;</button>
         </div>
       </div>
     </div>
@@ -222,16 +275,21 @@ interface ImageMeta { width: number; height: number }
       min-width: 24px;
       transition: background 0.1s, border-color 0.1s;
     }
-    .tool-btn:hover {
+    .tool-btn:hover:not(:disabled) {
       background: var(--vsc-list-hover-background, rgba(255,255,255,0.05));
       border-color: var(--vsc-border, #454545);
+    }
+    .tool-btn:disabled {
+      opacity: 0.4;
+      cursor: default;
     }
     .tool-btn.active {
       background: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 20%, transparent);
       border-color: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 50%, transparent);
       color: var(--vsc-accent-blue, #4da8ff);
     }
-    .zoom-label {
+    .zoom-label,
+    .carousel-counter {
       font-size: 11px;
       opacity: 0.85;
       min-width: 44px;
@@ -244,7 +302,19 @@ interface ImageMeta { width: number; height: number }
       background: var(--vsc-border, #454545);
       margin: 0 4px;
     }
-    .viewer-body { flex: 1 1 auto; min-height: 0; position: relative; overflow: hidden; }
+    .viewer-body {
+      display: flex;
+      flex-direction: column;
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .viewer-main {
+      flex: 1 1 auto;
+      min-height: 0;
+      position: relative;
+      overflow: hidden;
+    }
     .state-container {
       height: 100%;
       display: flex;
@@ -292,7 +362,7 @@ interface ImageMeta { width: number; height: number }
       background-size: 18px 18px;
       background-position: 0 0, 0 9px, 9px -9px, -9px 0px;
     }
-    .image-host, .svg-host {
+    .image-host {
       height: 100%;
       overflow: auto;
       display: flex;
@@ -308,14 +378,123 @@ interface ImageMeta { width: number; height: number }
       box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
       border-radius: 6px;
     }
-    .svg-wrap {
-      transform-origin: center;
-      box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22);
+    .carousel-strip {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: stretch;
+      padding: 10px 12px 12px;
+      border-top: 1px solid var(--vsc-border, #454545);
+      background: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 94%, black);
+      flex-shrink: 0;
+      min-height: 118px;
+    }
+    .carousel-nav {
+      width: 28px;
       border-radius: 6px;
+      border: 1px solid var(--vsc-border, #454545);
+      background: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 88%, white 2%);
+      color: var(--vsc-foreground, #ccc);
+      cursor: pointer;
+    }
+    .carousel-nav:disabled {
+      opacity: 0.35;
+      cursor: default;
+    }
+    .carousel-list {
+      display: flex;
+      gap: 10px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      min-width: 0;
+      padding-bottom: 4px;
+      scrollbar-width: none;
+    }
+    .carousel-list::-webkit-scrollbar {
+      height: 0;
+    }
+    .carousel-item {
+      width: 112px;
+      min-width: 112px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 6px;
+      border-radius: 8px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--vsc-foreground, #ccc);
+      cursor: pointer;
+      text-align: left;
+      transition: background 0.12s, border-color 0.12s, transform 0.12s;
+    }
+    .carousel-item:hover {
+      background: var(--vsc-list-hover-background, rgba(255,255,255,0.05));
+      border-color: color-mix(in srgb, var(--vsc-border, #454545) 70%, transparent);
+    }
+    .carousel-item.active {
+      background: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 14%, transparent);
+      border-color: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 50%, transparent);
+    }
+    .carousel-thumb {
+      width: 100%;
+      aspect-ratio: 4 / 3;
+      border-radius: 6px;
+      overflow: hidden;
+      border: 1px solid color-mix(in srgb, var(--vsc-border, #454545) 70%, transparent);
+      background: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 88%, white 3%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .carousel-thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .carousel-thumb--placeholder {
+      background:
+        linear-gradient(135deg,
+          color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 22%, transparent),
+          color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 92%, black));
+    }
+    .carousel-fallback {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      opacity: 0.8;
+      text-transform: uppercase;
+    }
+    .carousel-name {
+      font-size: 11px;
+      line-height: 1.3;
+      display: block;
+      width: 100%;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      opacity: 0.9;
     }
   `],
 })
 export class ImageViewerComponent implements OnChanges, OnDestroy {
+  private carouselListElement: HTMLDivElement | null = null;
+  private scrollListenerCleanup: (() => void) | null = null;
+
+  @ViewChild('carouselList', { static: false })
+  set carouselListRef(value: ElementRef<HTMLDivElement> | undefined) {
+    const element = value?.nativeElement ?? null;
+    if (element === this.carouselListElement) {
+      return;
+    }
+    this.detachCarouselScrollListener();
+    this.carouselListElement = element;
+    if (element) {
+      this.attachCarouselScrollListener(element);
+    }
+  }
+
   @Input() targetPath = '';
   @Input() archiveContext: ViewerArchiveContext | null = null;
   @Input() viewerId: string | null = null;
@@ -324,40 +503,49 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
   kind: ImageViewerKind = 'empty';
   error: string | null = null;
   info: FileInfo | null = null;
-
   imageSrc: string | null = null;
   imageMeta: ImageMeta | null = null;
-
   zoomLevel = 0;
   showCheckerboard = false;
+  carouselItems: CarouselImageItem[] = [];
+  currentCarouselIndex = 0;
 
+  private activeTargetPath = '';
+  private activeArchiveContext: ViewerArchiveContext | null = null;
   private destroyed = false;
+  private contextToken = 0;
+  private displayToken = 0;
 
-  // With streaming support, no size limits needed
-  private readonly MAX_IMAGE_BYTES = Infinity;
+  private readonly nativeImageExts = new Set(['svg', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'avif']);
+  private readonly convertibleImageExts = new Set(['psd', 'ai', 'eps', 'xcf', 'tiff', 'tif', 'dng', 'tga', 'icns', 'pnm', 'dds', 'xwd', 'scr', 'xpm', 'exr', 'heif', 'heic', 'jp2', 'j2k', 'age']);
+  private readonly thumbnailWidth = 160;
+  private readonly thumbnailHeight = 120;
+  private readonly thumbnailHydrationRadius = 4;
 
   constructor(
     private api: ApiService,
     private cdr: ChangeDetectorRef,
   ) {}
 
+  get activeContext(): ViewerArchiveContext | null {
+    return this.activeArchiveContext;
+  }
+
   get displayName(): string {
     if (this.info?.name) return this.info.name;
-    if (this.archiveContext?.entryPath) {
-      return this.archiveContext.entryPath.replace(/\\/g, '/').split('/').pop() ?? '';
-    }
-    return this.targetPath ? this.baseName(this.targetPath) : '';
+    if (this.activeArchiveContext?.entryPath) return this.baseName(this.activeArchiveContext.entryPath);
+    return this.activeTargetPath ? this.baseName(this.activeTargetPath) : '';
   }
 
   get displayPath(): string {
-    if (this.archiveContext) {
-      return `${this.archiveContext.fsPath} :: ${this.archiveContext.entryPath}`;
+    if (this.activeArchiveContext) {
+      return `${this.activeArchiveContext.fsPath} :: ${this.activeArchiveContext.entryPath}`;
     }
-    return this.targetPath;
+    return this.activeTargetPath;
   }
 
   get fileExt(): string {
-    return this.extractExt(this.archiveContext?.entryPath ?? this.targetPath);
+    return this.extractExt(this.activeArchiveContext?.entryPath ?? this.activeTargetPath);
   }
 
   get typeBadge(): string {
@@ -373,10 +561,23 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
     return this.zoomLevel === 0 ? 'Fit' : `${Math.round(this.zoomLevel * 100)}%`;
   }
 
-  async ngOnChanges(): Promise<void> {
-    this.resetState();
-    const path = (this.targetPath ?? '').trim();
+  get hasCarousel(): boolean {
+    return this.carouselItems.length > 1;
+  }
 
+  get hasPrevious(): boolean {
+    return this.currentCarouselIndex > 0;
+  }
+
+  get hasNext(): boolean {
+    return this.currentCarouselIndex >= 0 && this.currentCarouselIndex < this.carouselItems.length - 1;
+  }
+
+  async ngOnChanges(): Promise<void> {
+    const token = ++this.contextToken;
+    this.resetState();
+
+    const path = (this.targetPath ?? '').trim();
     if (!path && !this.archiveContext) {
       this.kind = 'empty';
       this.cdr.markForCheck();
@@ -387,28 +588,102 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
     this.cdr.markForCheck();
 
     try {
-      if (this.archiveContext) {
-        await this.loadFromArchive(this.archiveContext);
-      } else {
-        await this.loadFromDisk(path);
+      const prepared = this.archiveContext
+        ? await this.prepareArchiveCarousel(this.archiveContext)
+        : await this.prepareDiskCarousel(path);
+
+      if (token !== this.contextToken || this.destroyed) {
+        return;
       }
+
+      this.carouselItems = prepared.items;
+      this.currentCarouselIndex = prepared.index;
+      this.cdr.markForCheck();
+      this.onCarouselScroll();
+
+      await this.displayCarouselIndex(prepared.index, token);
     } catch (err: any) {
+      if (token !== this.contextToken || this.destroyed) {
+        return;
+      }
       this.error = err?.message || String(err);
       this.kind = 'error';
+      this.cdr.markForCheck();
     }
-
-    this.cdr.markForCheck();
   }
 
   ngOnDestroy(): void {
     this.destroyed = true;
+    this.detachCarouselScrollListener();
   }
 
-  zoomIn(): void { this.zoomLevel = this.zoomLevel === 0 ? 1.25 : Math.min(this.zoomLevel * 1.25, 8); this.cdr.markForCheck(); }
-  zoomOut(): void { this.zoomLevel = this.zoomLevel === 0 ? 0.8 : Math.max(this.zoomLevel * 0.8, 0.1); this.cdr.markForCheck(); }
-  resetZoom(): void { this.zoomLevel = 0; this.cdr.markForCheck(); }
-  zoom100(): void { this.zoomLevel = 1; this.cdr.markForCheck(); }
-  toggleCheckerboard(): void { this.showCheckerboard = !this.showCheckerboard; this.cdr.markForCheck(); }
+  private attachCarouselScrollListener(el: HTMLDivElement): void {
+    const handler = () => this.onCarouselScroll();
+    el.addEventListener('scroll', handler, { passive: true });
+    this.scrollListenerCleanup = () => el.removeEventListener('scroll', handler);
+    this.onCarouselScroll();
+  }
+
+  private detachCarouselScrollListener(): void {
+    if (this.scrollListenerCleanup) {
+      this.scrollListenerCleanup();
+      this.scrollListenerCleanup = null;
+    }
+  }
+
+  private onCarouselScroll(): void {
+    const el = this.carouselListElement;
+    if (!el) return;
+    const children = Array.from(el.children) as HTMLElement[];
+    const visible: number[] = [];
+    const buffer = 32; // px, preload just outside viewport
+    const { left, right } = el.getBoundingClientRect();
+    children.forEach((child, idx) => {
+      const cRect = child.getBoundingClientRect();
+      if (cRect.right >= left - buffer && cRect.left <= right + buffer) {
+        visible.push(idx);
+      }
+    });
+    this.hydrateThumbnailsForIndices(visible);
+  }
+
+  private async hydrateThumbnailsForIndices(indices: number[]): Promise<void> {
+    const token = this.contextToken;
+    const tasks: Array<Promise<void>> = [];
+    for (const idx of indices) {
+      const item = this.carouselItems[idx];
+      if (item) {
+        tasks.push(this.hydrateThumbnailUrl(item, token));
+      }
+    }
+    await Promise.all(tasks);
+    this.cdr.markForCheck();
+  }
+
+  zoomIn(): void {
+    this.zoomLevel = this.zoomLevel === 0 ? 1.25 : Math.min(this.zoomLevel * 1.25, 8);
+    this.cdr.markForCheck();
+  }
+
+  zoomOut(): void {
+    this.zoomLevel = this.zoomLevel === 0 ? 0.8 : Math.max(this.zoomLevel * 0.8, 0.1);
+    this.cdr.markForCheck();
+  }
+
+  resetZoom(): void {
+    this.zoomLevel = 0;
+    this.cdr.markForCheck();
+  }
+
+  zoom100(): void {
+    this.zoomLevel = 1;
+    this.cdr.markForCheck();
+  }
+
+  toggleCheckerboard(): void {
+    this.showCheckerboard = !this.showCheckerboard;
+    this.cdr.markForCheck();
+  }
 
   onImageLoad(event: Event): void {
     const img = event.target as HTMLImageElement;
@@ -422,76 +697,325 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
     this.cdr.markForCheck();
   }
 
-  private async loadFromDisk(path: string): Promise<void> {
-    const info = await this.api.getFileInfo(path);
-    this.info = info;
-    if (info.type === FileType.DIRECTORY) { this.kind = 'directory'; return; }
+  onThumbnailError(item: CarouselImageItem): void {
+    item.thumbnailFailed = true;
+    item.thumbnailSrc = null;
+    this.cdr.markForCheck();
+  }
 
-    const ext = this.extractExt(path);
+  thumbnailFallback(item: CarouselImageItem): string {
+    const base = item.name.trim();
+    return (base[0] ?? '?').toUpperCase();
+  }
+
+  trackCarouselItem(_index: number, item: CarouselImageItem): string {
+    return item.id;
+  }
+
+  selectCarouselIndex(index: number): void {
+    void this.displayCarouselIndex(index, this.contextToken);
+  }
+
+  showPrevious(): void {
+    if (!this.hasPrevious) return;
+    void this.displayCarouselIndex(this.currentCarouselIndex - 1, this.contextToken);
+  }
+
+  showNext(): void {
+    if (!this.hasNext) return;
+    void this.displayCarouselIndex(this.currentCarouselIndex + 1, this.contextToken);
+  }
+
+  formatSize(bytes: number): string {
+    if (!bytes || bytes <= 0) return '';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+    const value = bytes / Math.pow(1024, index);
+    return `${index === 0 ? value : value.toFixed(1)} ${units[index]}`;
+  }
+
+  private async displayCarouselIndex(index: number, contextToken: number): Promise<void> {
+    if (index < 0 || index >= this.carouselItems.length) {
+      return;
+    }
+
+    const item = this.carouselItems[index];
+    const displayToken = ++this.displayToken;
+    this.currentCarouselIndex = index;
+    void this.scheduleThumbnailHydration(contextToken, index);
+    this.kind = 'loading';
+    this.error = null;
+    this.imageSrc = null;
+    this.imageMeta = null;
+    this.cdr.markForCheck();
+
+    try {
+      if (item.source === 'archive' && item.archiveContext) {
+        await this.displayArchiveItem(item, contextToken, displayToken);
+      } else if (item.diskPath) {
+        await this.displayDiskItem(item, contextToken, displayToken);
+      }
+    } catch (err: any) {
+      if (!this.isDisplayCurrent(contextToken, displayToken)) {
+        return;
+      }
+      this.error = err?.message || String(err);
+      this.kind = 'error';
+      this.cdr.markForCheck();
+    }
+  }
+
+  private async displayDiskItem(item: CarouselImageItem, contextToken: number, displayToken: number): Promise<void> {
+    const path = item.diskPath ?? '';
+    const info = item.info ?? await this.api.getFileInfo(path);
+    if (!this.isDisplayCurrent(contextToken, displayToken)) {
+      return;
+    }
+
+    this.info = info;
+    this.activeTargetPath = path;
+    this.activeArchiveContext = null;
+
+    if (info.type === FileType.DIRECTORY) {
+      this.kind = 'directory';
+      this.cdr.markForCheck();
+      return;
+    }
+
+    const ext = item.ext || this.extractExt(path);
     if (ext === 'svg') {
       this.imageSrc = await this.api.getStreamURL(path);
-      this.kind = 'svg';
-      return;
-    }
-
-    const mime = this.inferImageMime(ext);
-    if (mime) {
-      try {
-        this.imageSrc = await this.api.getStreamURL(path);
-        this.kind = 'image';
-      } catch (err) {
-        this.error = err instanceof Error ? err.message : 'Failed to load image';
-        this.kind = 'error';
+      if (!this.isDisplayCurrent(contextToken, displayToken)) {
+        return;
       }
-      return;
-    }
-
-    // Try backend conversion for unsupported formats
-    try {
-      await this.convertImageAndDisplay(path, ext);
-    } catch (err) {
-      this.error = err instanceof Error ? err.message : 'Unsupported image format';
-      this.kind = 'unsupported';
-    }
-  }
-
-  private async loadFromArchive(ctx: ViewerArchiveContext): Promise<void> {
-    const entryName = ctx.entryPath.replace(/\\/g, '/').split('/').pop() ?? ctx.entryPath;
-    const ext = this.extractExt(ctx.entryPath);
-    const streamURL = await this.api.getArchiveStreamURL(ctx.fsPath, ctx.nestedChain, ctx.entryPath);
-    this.info = this.makeSyntheticInfo(entryName, ctx.entryPath, 0);
-
-    if (ext === 'svg') {
-      this.imageSrc = streamURL;
       this.kind = 'svg';
+      this.cdr.markForCheck();
       return;
     }
 
-    const mime = this.inferImageMime(ext);
-    if (mime) {
-      try {
-        this.imageSrc = streamURL;
-        this.kind = 'image';
-      } catch (err) {
-        this.error = err instanceof Error ? err.message : 'Failed to load image from archive';
-        this.kind = 'error';
+    if (this.inferImageMime(ext)) {
+      this.imageSrc = await this.api.getStreamURL(path);
+      if (!this.isDisplayCurrent(contextToken, displayToken)) {
+        return;
       }
+      this.kind = 'image';
+      this.cdr.markForCheck();
       return;
-    }
-
-    // Archive conversion not supported yet (would require temp extraction)
-    this.error = `Format ${ext.toUpperCase()} in archives is not yet supported`;
-    this.kind = 'unsupported';
-  }
-
-  private async convertImageAndDisplay(path: string, ext: string): Promise<void> {
-    const canConvert = await (window as any).go.app.App.CanConvertImage(ext);
-    if (!canConvert) {
-      throw new Error(`Format .${ext} cannot be converted`);
     }
 
     this.imageSrc = await this.api.getConvertedImageURL(path, 'png');
+    if (!this.isDisplayCurrent(contextToken, displayToken)) {
+      return;
+    }
     this.kind = 'image';
+    this.cdr.markForCheck();
+  }
+
+  private async displayArchiveItem(item: CarouselImageItem, contextToken: number, displayToken: number): Promise<void> {
+    const archiveContext = item.archiveContext;
+    if (!archiveContext) {
+      return;
+    }
+
+    this.info = item.info ?? this.makeSyntheticInfo(item.name, archiveContext.entryPath, 0);
+    this.activeTargetPath = archiveContext.fsPath;
+    this.activeArchiveContext = archiveContext;
+
+    const ext = item.ext || this.extractExt(archiveContext.entryPath);
+    if (ext === 'svg') {
+      this.imageSrc = await this.api.getArchiveStreamURL(archiveContext.fsPath, archiveContext.nestedChain, archiveContext.entryPath);
+      if (!this.isDisplayCurrent(contextToken, displayToken)) {
+        return;
+      }
+      this.kind = 'svg';
+      this.cdr.markForCheck();
+      return;
+    }
+
+    if (this.inferImageMime(ext)) {
+      this.imageSrc = await this.api.getArchiveStreamURL(archiveContext.fsPath, archiveContext.nestedChain, archiveContext.entryPath);
+      if (!this.isDisplayCurrent(contextToken, displayToken)) {
+        return;
+      }
+      this.kind = 'image';
+      this.cdr.markForCheck();
+      return;
+    }
+
+    this.error = `Format ${ext.toUpperCase()} in archives is not yet supported`;
+    this.kind = 'unsupported';
+    this.cdr.markForCheck();
+  }
+
+  private async prepareDiskCarousel(path: string): Promise<{ items: CarouselImageItem[]; index: number }> {
+    const info = await this.api.getFileInfo(path);
+    if (info.type === FileType.DIRECTORY) {
+      return { items: [this.makeDiskCarouselItem(info)], index: 0 };
+    }
+
+    const currentItem = this.makeDiskCarouselItem(info);
+    try {
+      const parentPath = await this.api.getParentPath(path);
+      const listing = await this.api.listDirectory(parentPath, false);
+      const items = listing.entries
+        .filter(entry => this.isDiskCarouselCandidate(entry))
+        .map(entry => this.makeDiskCarouselItem(entry));
+
+      const currentIndex = items.findIndex(item => item.diskPath === path);
+      if (currentIndex >= 0) {
+        return { items, index: currentIndex };
+      }
+      return { items: [currentItem, ...items], index: 0 };
+    } catch {
+      return { items: [currentItem], index: 0 };
+    }
+  }
+
+  private async prepareArchiveCarousel(ctx: ViewerArchiveContext): Promise<{ items: CarouselImageItem[]; index: number }> {
+    const currentItem = this.makeArchiveCarouselItem(ctx, null);
+    try {
+      const innerPath = this.parentArchivePath(ctx.entryPath);
+      const listing = await this.api.archiveBrowse(ctx.fsPath, ctx.nestedChain, innerPath);
+      const items = listing.entries
+        .filter(entry => this.isArchiveCarouselCandidate(entry))
+        .map(entry => this.makeArchiveCarouselItem({
+          fsPath: ctx.fsPath,
+          nestedChain: ctx.nestedChain,
+          entryPath: entry.path,
+        }, entry));
+
+      const currentIndex = items.findIndex(item => item.archiveContext?.entryPath === ctx.entryPath);
+      if (currentIndex >= 0) {
+        return { items, index: currentIndex };
+      }
+      return { items: [currentItem, ...items], index: 0 };
+    } catch {
+      return { items: [currentItem], index: 0 };
+    }
+  }
+
+  private async scheduleThumbnailHydration(contextToken: number, centerIndex: number): Promise<void> {
+    // Hydrate thumbnails in a window around the center index, and also trigger scroll-based hydration
+    const start = Math.max(0, centerIndex - this.thumbnailHydrationRadius);
+    const end = Math.min(this.carouselItems.length - 1, centerIndex + this.thumbnailHydrationRadius);
+    const indices = [];
+    for (let i = start; i <= end; i++) indices.push(i);
+    await this.hydrateThumbnailsForIndices(indices);
+    // Also hydrate visible on scroll (in case user scrolls before selection)
+    this.onCarouselScroll();
+  }
+
+  private async hydrateThumbnailUrl(item: CarouselImageItem, contextToken: number): Promise<void> {
+    if (item.thumbnailSrc || item.thumbnailFailed || item.thumbnailLoading || this.destroyed || contextToken !== this.contextToken) {
+      return;
+    }
+
+    item.thumbnailLoading = true;
+    try {
+      if (item.source === 'archive' && item.archiveContext) {
+        item.thumbnailSrc = await this.buildArchiveThumbnailURL(item.archiveContext, item.ext);
+      } else if (item.diskPath) {
+        item.thumbnailSrc = await this.buildDiskThumbnailURL(item.diskPath, item.ext);
+      }
+      if (!item.thumbnailSrc) {
+        item.thumbnailFailed = true;
+      }
+    } catch {
+      item.thumbnailFailed = true;
+      item.thumbnailSrc = null;
+    } finally {
+      item.thumbnailLoading = false;
+    }
+
+    if (contextToken === this.contextToken && !this.destroyed) {
+      this.cdr.markForCheck();
+    }
+  }
+
+  private async buildDiskThumbnailURL(path: string, ext: string): Promise<string | null> {
+    if (ext === 'svg') {
+      return await this.api.getStreamURL(path);
+    }
+    try {
+      return await this.api.getImageThumbnailURL(path, this.thumbnailWidth, this.thumbnailHeight);
+    } catch {
+      return null;
+    }
+  }
+
+  private async buildArchiveThumbnailURL(ctx: ViewerArchiveContext, ext: string): Promise<string | null> {
+    if (ext === 'svg') {
+      return await this.api.getArchiveStreamURL(ctx.fsPath, ctx.nestedChain, ctx.entryPath);
+    }
+    try {
+      return await this.api.getArchiveImageThumbnailURL(ctx.fsPath, ctx.nestedChain, ctx.entryPath, this.thumbnailWidth, this.thumbnailHeight);
+    } catch {
+      return null;
+    }
+  }
+
+  private isDisplayCurrent(contextToken: number, displayToken: number): boolean {
+    return !this.destroyed && contextToken === this.contextToken && displayToken === this.displayToken;
+  }
+
+  private isDiskCarouselCandidate(entry: FileInfo): boolean {
+    if (entry.type === FileType.DIRECTORY || entry.type === FileType.ARCHIVE) {
+      return false;
+    }
+    return this.isPreviewableImageExt(this.extractExt(entry.path || entry.name));
+  }
+
+  private isArchiveCarouselCandidate(entry: ArchiveEntry): boolean {
+    if (entry.type === FileType.DIRECTORY || entry.type === FileType.ARCHIVE) {
+      return false;
+    }
+    return this.isArchiveDisplayableExt(this.extractExt(entry.path || entry.name));
+  }
+
+  private isPreviewableImageExt(ext: string): boolean {
+    return this.nativeImageExts.has(ext) || this.convertibleImageExts.has(ext);
+  }
+
+  private isArchiveDisplayableExt(ext: string): boolean {
+    return ext === 'svg' || !!this.inferImageMime(ext);
+  }
+
+  private makeDiskCarouselItem(info: FileInfo): CarouselImageItem {
+    const path = info.path;
+    return {
+      id: `disk:${path}`,
+      name: info.name || this.baseName(path),
+      ext: this.extractExt(path),
+      source: 'disk',
+      diskPath: path,
+      archiveContext: null,
+      info,
+      thumbnailSrc: null,
+      thumbnailFailed: false,
+      thumbnailLoading: false,
+    };
+  }
+
+  private makeArchiveCarouselItem(ctx: ViewerArchiveContext, info: ArchiveEntry | null): CarouselImageItem {
+    const name = info?.name || this.baseName(ctx.entryPath);
+    return {
+      id: `archive:${ctx.fsPath}:${ctx.nestedChain.join('|')}:${ctx.entryPath}`,
+      name,
+      ext: this.extractExt(ctx.entryPath),
+      source: 'archive',
+      diskPath: null,
+      archiveContext: { fsPath: ctx.fsPath, nestedChain: [...ctx.nestedChain], entryPath: ctx.entryPath },
+      info: info ? this.makeSyntheticInfo(name, ctx.entryPath, info.size) : this.makeSyntheticInfo(name, ctx.entryPath, 0),
+      thumbnailSrc: null,
+      thumbnailFailed: false,
+      thumbnailLoading: false,
+    };
+  }
+
+  private parentArchivePath(path: string): string {
+    const normalized = (path ?? '').replace(/\\/g, '/');
+    const index = normalized.lastIndexOf('/');
+    return index >= 0 ? normalized.slice(0, index) : '';
   }
 
   private resetState(): void {
@@ -499,7 +1023,11 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
     this.info = null;
     this.imageSrc = null;
     this.imageMeta = null;
-    // Keep zoom/checkerboard as user-set knobs.
+    this.kind = 'empty';
+    this.carouselItems = [];
+    this.currentCarouselIndex = 0;
+    this.activeTargetPath = '';
+    this.activeArchiveContext = null;
   }
 
   private inferImageMime(ext: string): string | null {
@@ -515,16 +1043,17 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
     };
     return map[ext] ?? null;
   }
+
   private extractExt(path: string): string {
-    const p = (path ?? '').replace(/\\/g, '/');
-    const last = p.split('/').pop() ?? p;
-    const i = last.lastIndexOf('.');
-    return i >= 0 ? last.slice(i + 1).toLowerCase() : '';
+    const normalized = (path ?? '').replace(/\\/g, '/');
+    const last = normalized.split('/').pop() ?? normalized;
+    const index = last.lastIndexOf('.');
+    return index >= 0 ? last.slice(index + 1).toLowerCase() : '';
   }
 
   private baseName(path: string): string {
-    const p = (path ?? '').replace(/\\/g, '/');
-    return p.split('/').pop() ?? p;
+    const normalized = (path ?? '').replace(/\\/g, '/');
+    return normalized.split('/').pop() ?? normalized;
   }
 
   private makeSyntheticInfo(name: string, path: string, size: number): FileInfo {
@@ -539,14 +1068,6 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
       permissions: '-rw-r--r--',
       isHidden: false,
     };
-  }
-
-  formatSize(bytes: number): string {
-    if (!bytes || bytes <= 0) return '';
-    const units = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
-    const v = bytes / Math.pow(1024, i);
-    return `${i === 0 ? v : v.toFixed(1)} ${units[i]}`;
   }
 }
 

@@ -29,6 +29,37 @@ func (a *App) GetConvertedImageURL(path string, targetFormat string) (string, er
 	return ConvertedStreamURLForFile(a.StreamBaseURL(), path, targetFormat), nil
 }
 
+// GetImageThumbnailURL returns a stream URL that serves a bounded thumbnail image.
+func (a *App) GetImageThumbnailURL(path string, maxWidth int, maxHeight int) (string, error) {
+	info, err := a.State.Filesystem.GetFileInfo(path)
+	if err != nil {
+		return "", fmt.Errorf("cannot access file: %w", err)
+	}
+
+	if info.Type == contracts.FileTypeDirectory {
+		return "", fmt.Errorf("cannot thumbnail directory")
+	}
+
+	ext := strings.TrimPrefix(filepath.Ext(path), ".")
+	ext = strings.ToLower(ext)
+	if !a.State.Converter.IsSupportedSourceFormat(ext) {
+		return "", fmt.Errorf("unsupported source format: .%s", ext)
+	}
+
+	return ThumbnailStreamURLForFile(a.StreamBaseURL(), path, "png", maxWidth, maxHeight), nil
+}
+
+// GetArchiveImageThumbnailURL returns a thumbnail stream URL for an archive entry.
+func (a *App) GetArchiveImageThumbnailURL(fsPath string, nestedChain []string, entryPath string, maxWidth int, maxHeight int) (string, error) {
+	ext := strings.TrimPrefix(filepath.Ext(entryPath), ".")
+	ext = strings.ToLower(ext)
+	if !a.State.Converter.IsSupportedSourceFormat(ext) {
+		return "", fmt.Errorf("unsupported source format: .%s", ext)
+	}
+
+	return ThumbnailStreamURLForEntry(a.StreamBaseURL(), fsPath, nestedChain, entryPath, "png", maxWidth, maxHeight), nil
+}
+
 // GetConversionCapabilities returns what formats are supported for a given source format.
 func (a *App) GetConversionCapabilities(sourceFileExt string) map[string]interface{} {
 	ext := strings.ToLower(sourceFileExt)

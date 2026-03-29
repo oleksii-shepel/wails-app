@@ -166,6 +166,10 @@ export function GetActiveOperations() {
   return window['go']['app']['App']['GetActiveOperations']();
 }
 
+export function GetArchiveImageThumbnailURL(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['app']['App']['GetArchiveImageThumbnailURL'](arg1, arg2, arg3, arg4, arg5);
+}
+
 export function GetArchiveStreamURL(arg1, arg2, arg3) {
   return window['go']['app']['App']['GetArchiveStreamURL'](arg1, arg2, arg3);
 }
@@ -196,6 +200,10 @@ export function GetElevatedSessionStatus() {
 
 export function GetFileInfo(arg1) {
   return window['go']['app']['App']['GetFileInfo'](arg1);
+}
+
+export function GetImageThumbnailURL(arg1, arg2, arg3) {
+  return window['go']['app']['App']['GetImageThumbnailURL'](arg1, arg2, arg3);
 }
 
 export function GetOSInfo() {

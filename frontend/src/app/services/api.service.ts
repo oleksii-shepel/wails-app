@@ -372,6 +372,14 @@ export class ApiService {
     return await (window as any).go.app.App.GetConvertedImageURL(this.normalizeCanonicalPath(path), targetFormat);
   }
 
+  async getImageThumbnailURL(path: string, maxWidth: number = 256, maxHeight: number = 256): Promise<string> {
+    return await (window as any).go.app.App.GetImageThumbnailURL(this.normalizeCanonicalPath(path), maxWidth, maxHeight);
+  }
+
+  async getArchiveImageThumbnailURL(fsPath: string, nestedChain: string[] = [], entryPath: string, maxWidth: number = 256, maxHeight: number = 256): Promise<string> {
+    return await (window as any).go.app.App.GetArchiveImageThumbnailURL(this.normalizeCanonicalPath(fsPath), nestedChain, entryPath, maxWidth, maxHeight);
+  }
+
   async fetchTextFromURL(url: string, encoding: string = 'utf8'): Promise<StreamTextResult> {
     const response = await this.fetchStreamResponse(url);
     const bytes = await response.arrayBuffer();

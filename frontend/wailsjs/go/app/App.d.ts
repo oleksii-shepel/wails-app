@@ -90,6 +90,8 @@ export function FileInfo(arg1:string):Promise<contracts.FileInfo>;
 
 export function GetActiveOperations():Promise<Array<contracts.OperationProgress>>;
 
+export function GetArchiveImageThumbnailURL(arg1:string,arg2:Array<string>,arg3:string,arg4:number,arg5:number):Promise<string>;
+
 export function GetArchiveStreamURL(arg1:string,arg2:Array<string>,arg3:string):Promise<string>;
 
 export function GetArchiveVideoPlaybackPlan(arg1:string,arg2:Array<string>,arg3:string):Promise<app.VideoPlaybackPlan>;
@@ -105,6 +107,8 @@ export function GetDrives():Promise<contracts.DrivesList>;
 export function GetElevatedSessionStatus():Promise<elevation.SessionStatus>;
 
 export function GetFileInfo(arg1:string):Promise<contracts.FileInfo>;
+
+export function GetImageThumbnailURL(arg1:string,arg2:number,arg3:number):Promise<string>;
 
 export function GetOSInfo():Promise<contracts.OSInfoResponse>;
 

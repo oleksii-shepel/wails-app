@@ -8,6 +8,7 @@ import (
 	_ "image/jpeg"
 	"image/png"
 	_ "image/png"
+	"math"
 	"os"
 	"os/exec"
 	"strings"
@@ -57,6 +58,22 @@ func (s *Service) ConvertFormat(inputPath string, outputFormat string) ([]byte, 
 	return s.convertWithGoImage(inputPath, outputFormat)
 }
 
+// CreateThumbnail converts and resizes an image to fit within the provided bounds.
+func (s *Service) CreateThumbnail(inputPath string, outputFormat string, maxWidth int, maxHeight int) ([]byte, error) {
+	outputFormat = strings.ToLower(outputFormat)
+	maxWidth, maxHeight = normalizeThumbnailBounds(maxWidth, maxHeight)
+
+	if !isSupportedOutputFormat(outputFormat) {
+		return nil, fmt.Errorf("unsupported output format: %s", outputFormat)
+	}
+
+	if s.hasImagemagick {
+		return s.thumbnailWithImagemagick(inputPath, outputFormat, maxWidth, maxHeight)
+	}
+
+	return s.thumbnailWithGoImage(inputPath, outputFormat, maxWidth, maxHeight)
+}
+
 // convertWithImagemagick uses ImageMagick to convert the image.
 func (s *Service) convertWithImagemagick(inputPath string, outputFormat string) ([]byte, error) {
 	cmd := exec.Command(s.imagemagickPath, inputPath, fmt.Sprintf("%s:-", outputFormat))
@@ -68,6 +85,22 @@ func (s *Service) convertWithImagemagick(inputPath string, outputFormat string) 
 
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("imagemagick conversion failed: %v - %s", err, errOut.String())
+	}
+
+	return out.Bytes(), nil
+}
+
+func (s *Service) thumbnailWithImagemagick(inputPath string, outputFormat string, maxWidth int, maxHeight int) ([]byte, error) {
+	geometry := fmt.Sprintf("%dx%d>", maxWidth, maxHeight)
+	cmd := exec.Command(s.imagemagickPath, inputPath, "-auto-orient", "-thumbnail", geometry, fmt.Sprintf("%s:-", outputFormat))
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errOut
+
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("imagemagick thumbnail failed: %v - %s", err, errOut.String())
 	}
 
 	return out.Bytes(), nil
@@ -99,6 +132,77 @@ func (s *Service) convertWithGoImage(inputPath string, outputFormat string) ([]b
 	}
 
 	return out.Bytes(), nil
+}
+
+func (s *Service) thumbnailWithGoImage(inputPath string, outputFormat string, maxWidth int, maxHeight int) ([]byte, error) {
+	file, err := os.Open(inputPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open source image: %w", err)
+	}
+	defer file.Close()
+
+	img, _, err := image.Decode(file)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode image: %w", err)
+	}
+
+	thumb := resizeToFit(img, maxWidth, maxHeight)
+
+	var out bytes.Buffer
+	switch outputFormat {
+	case "png":
+		if err := png.Encode(&out, thumb); err != nil {
+			return nil, fmt.Errorf("failed to encode PNG: %w", err)
+		}
+	default:
+		return nil, fmt.Errorf("go native thumbnail: unsupported format %s (install ImageMagick for broader format support)", outputFormat)
+	}
+
+	return out.Bytes(), nil
+}
+
+func normalizeThumbnailBounds(maxWidth int, maxHeight int) (int, int) {
+	if maxWidth <= 0 {
+		maxWidth = 256
+	}
+	if maxHeight <= 0 {
+		maxHeight = 256
+	}
+	if maxWidth > 2048 {
+		maxWidth = 2048
+	}
+	if maxHeight > 2048 {
+		maxHeight = 2048
+	}
+	return maxWidth, maxHeight
+}
+
+func resizeToFit(src image.Image, maxWidth int, maxHeight int) image.Image {
+	bounds := src.Bounds()
+	srcWidth := bounds.Dx()
+	srcHeight := bounds.Dy()
+	if srcWidth <= 0 || srcHeight <= 0 {
+		return src
+	}
+
+	scale := math.Min(float64(maxWidth)/float64(srcWidth), float64(maxHeight)/float64(srcHeight))
+	if scale >= 1 {
+		return src
+	}
+
+	dstWidth := int(math.Max(1, math.Round(float64(srcWidth)*scale)))
+	dstHeight := int(math.Max(1, math.Round(float64(srcHeight)*scale)))
+	dst := image.NewRGBA(image.Rect(0, 0, dstWidth, dstHeight))
+
+	for y := 0; y < dstHeight; y++ {
+		srcY := bounds.Min.Y + (y*srcHeight)/dstHeight
+		for x := 0; x < dstWidth; x++ {
+			srcX := bounds.Min.X + (x*srcWidth)/dstWidth
+			dst.Set(x, y, src.At(srcX, srcY))
+		}
+	}
+
+	return dst
 }
 
 // isSupportedOutputFormat checks if the format can be converted to.

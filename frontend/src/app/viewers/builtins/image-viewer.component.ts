@@ -469,8 +469,8 @@ interface CarouselVirtualFrame {
       left: 50%;
       top: 0;
       bottom: 12px;
-      width: 124px;
-      transform: translateX(-50%);
+      width: 112px;
+      transform: translateX(calc(-50% + 8px));
       border-radius: 10px;
       border: 1px solid color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 68%, transparent);
       background: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 10%, transparent);
@@ -506,6 +506,7 @@ interface CarouselVirtualFrame {
       width: 0;
     }
     .carousel-item {
+      box-sizing: border-box;
       width: 112px;
       min-width: 112px;
       display: flex;
@@ -852,7 +853,7 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
     const stride = this.getCarouselItemStride();
     const paddingLeft = this.getCarouselPaddingLeft(el);
     const viewportWidth = el.clientWidth;
-    const lead = Math.max(0, (viewportWidth - stride) / 2);
+    const lead = Math.max(0, (viewportWidth - this.carouselItemDefaultWidth) / 2);
     const target = paddingLeft + index * stride - lead;
     const maxScroll = Math.max(0, el.scrollWidth - viewportWidth);
     const clamped = Math.max(0, Math.min(target, maxScroll));
@@ -938,8 +939,8 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
     const stride = this.getCarouselItemStride();
     const paddingLeft = this.getCarouselPaddingLeft(el);
     const effectiveScroll = Math.max(0, el.scrollLeft - paddingLeft);
-    const center = effectiveScroll + el.clientWidth / 2;
-    const index = Math.floor(center / stride);
+    const centeredItemOrigin = effectiveScroll + Math.max(0, (el.clientWidth - this.carouselItemDefaultWidth) / 2);
+    const index = Math.round(centeredItemOrigin / stride);
     return Math.max(0, Math.min(this.carouselItems.length - 1, index));
   }
 

@@ -228,7 +228,7 @@ type AudioViewerKind = 'empty' | 'loading' | 'ready' | 'directory' | 'unsupporte
       position: relative;
       width: 156px;
       aspect-ratio: 1;
-      border-radius: 12px;
+      border-radius: 50%;
       background:
         radial-gradient(circle at center, rgba(0, 122, 204, 0.16) 0 14%, transparent 14% 16%),
         radial-gradient(circle at center, rgba(255, 255, 255, 0.05) 0 27%, transparent 27% 29%),
@@ -555,7 +555,8 @@ type AudioViewerKind = 'empty' | 'loading' | 'ready' | 'directory' | 'unsupporte
     }
 
     .volume-slider {
-      width: 80px;
+      width: 120px;
+      max-width: 100%;
       height: 4px;
       appearance: none;
       -webkit-appearance: none;
@@ -648,6 +649,11 @@ type AudioViewerKind = 'empty' | 'loading' | 'ready' | 'directory' | 'unsupporte
 
       .volume-control {
         width: 100%;
+      }
+
+      .volume-slider {
+        width: 100%;
+        max-width: 100%;
       }
     }
   `],

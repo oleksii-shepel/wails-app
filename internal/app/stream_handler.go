@@ -27,6 +27,7 @@ import (
 const streamPath = "/wails-stream"
 const defaultPreviewWindowSeconds = 90.0
 const defaultThumbnailSize = 256
+const defaultVideoFramePreviewSeconds = 1.0
 const segmentedPreviewSegmentSeconds = 2.0
 const segmentedVideoCacheTTL = 5 * time.Minute
 const segmentedVideoMaxResidentSegments = 24
@@ -218,8 +219,14 @@ func serveStreamRequest(w http.ResponseWriter, r *http.Request, app *App, archCa
 	thumbnailFormat := q.Get("thumb")
 	thumbnailWidth := parseThumbnailDimension(q.Get("thumbWidth"))
 	thumbnailHeight := parseThumbnailDimension(q.Get("thumbHeight"))
+	frameFormat := strings.ToLower(q.Get("frame"))
+	frameSeconds := parseStartSeconds(q.Get("frameTime"))
 	if path != "" && thumbnailFormat != "" {
 		serveThumbnailPath(w, r, app, path, thumbnailFormat, thumbnailWidth, thumbnailHeight)
+		return
+	}
+	if path != "" && frameFormat != "" {
+		serveVideoFramePath(w, r, path, frameFormat, frameSeconds)
 		return
 	}
 	if path != "" && convertFormat != "" {
@@ -240,6 +247,10 @@ func serveStreamRequest(w http.ResponseWriter, r *http.Request, app *App, archCa
 	}
 	if fsPath != "" && entry != "" && thumbnailFormat != "" {
 		serveThumbnailArchiveEntry(w, r, app, archCache, fsPath, entry, q.Get("nested"), thumbnailFormat, thumbnailWidth, thumbnailHeight)
+		return
+	}
+	if fsPath != "" && entry != "" && frameFormat != "" {
+		serveVideoFrameArchiveEntry(w, r, archCache, fsPath, entry, q.Get("nested"), frameFormat, frameSeconds)
 		return
 	}
 	if fsPath != "" && entry != "" {
@@ -370,6 +381,87 @@ func serveThumbnailArchiveEntry(w http.ResponseWriter, r *http.Request, app *App
 	setContentType(w, "thumbnail."+targetFormat)
 	w.Header().Set("Cache-Control", "no-store")
 	http.ServeContent(w, r, "thumbnail."+targetFormat, time.Time{}, bytes.NewReader(thumbnail))
+}
+
+func serveVideoFramePath(w http.ResponseWriter, r *http.Request, publicPath string, targetFormat string, frameSeconds float64) {
+	publicPath = pathref.Normalize(publicPath)
+	nativePath := pathref.ToNativePath(publicPath)
+	if strings.Contains(nativePath, "..") {
+		http.Error(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+
+	frame, err := extractVideoFrame(r.Context(), nativePath, targetFormat, frameSeconds)
+	if err != nil {
+		handleTranscodeStartError(w, err)
+		return
+	}
+
+	setCORSHeaders(w)
+	setContentType(w, "frame."+targetFormat)
+	w.Header().Set("Cache-Control", "no-store")
+	http.ServeContent(w, r, "frame."+targetFormat, time.Time{}, bytes.NewReader(frame))
+}
+
+func serveVideoFrameArchiveEntry(w http.ResponseWriter, r *http.Request, archCache *cache.Cache, fsPath string, entryPath string, nestedRaw string, targetFormat string, frameSeconds float64) {
+	nativeFsPath := pathref.ToNativePath(fsPath)
+	if strings.Contains(nativeFsPath, "..") || strings.Contains(entryPath, "..") {
+		http.Error(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+
+	var nestedChain []string
+	if nestedRaw != "" {
+		nestedChain = strings.Split(nestedRaw, ",")
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+	defer cancel()
+
+	arch, err := archCache.Get(ctx, nativeFsPath, nestedChain, "")
+	if err != nil {
+		http.Error(w, "cannot open archive: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	entryFile, err := arch.Open(ctx, entryPath)
+	if err != nil {
+		http.Error(w, "cannot open entry: "+err.Error(), http.StatusNotFound)
+		return
+	}
+	defer entryFile.Close()
+
+	tempPattern := "wails-vframe-*" + filepath.Ext(entryPath)
+	tempFile, err := os.CreateTemp("", tempPattern)
+	if err != nil {
+		http.Error(w, "failed to prepare frame input", http.StatusInternalServerError)
+		return
+	}
+	tempPath := tempFile.Name()
+	defer func() {
+		tempFile.Close()
+		_ = os.Remove(tempPath)
+	}()
+
+	if _, err := io.Copy(tempFile, entryFile); err != nil {
+		http.Error(w, "failed to read archive entry", http.StatusInternalServerError)
+		return
+	}
+	if err := tempFile.Close(); err != nil {
+		http.Error(w, "failed to finalize frame input", http.StatusInternalServerError)
+		return
+	}
+
+	frame, err := extractVideoFrame(r.Context(), tempPath, targetFormat, frameSeconds)
+	if err != nil {
+		handleTranscodeStartError(w, err)
+		return
+	}
+
+	setCORSHeaders(w)
+	setContentType(w, "frame."+targetFormat)
+	w.Header().Set("Cache-Control", "no-store")
+	http.ServeContent(w, r, "frame."+targetFormat, time.Time{}, bytes.NewReader(frame))
 }
 
 func serveSegmentManifest(w http.ResponseWriter, r *http.Request, publicPath string) {
@@ -695,6 +787,44 @@ func startFFmpegTranscode(ctx context.Context, inputArgs []string, playbackMode 
 	}
 
 	return stdout, stderr, cmd, nil
+}
+
+func extractVideoFrame(ctx context.Context, inputPath string, targetFormat string, frameSeconds float64) ([]byte, error) {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		return nil, fmt.Errorf("ffmpeg is not installed or not available on PATH")
+	}
+
+	targetFormat = strings.ToLower(strings.TrimPrefix(targetFormat, "."))
+	if targetFormat == "" {
+		targetFormat = "png"
+	}
+	if frameSeconds < 0 {
+		frameSeconds = 0
+	}
+
+	args := []string{
+		"-hide_banner",
+		"-loglevel", "error",
+		"-ss", strconv.FormatFloat(frameSeconds, 'f', 3, 64),
+		"-i", inputPath,
+		"-frames:v", "1",
+		"-f", "image2pipe",
+		"-vcodec", targetFormat,
+		"pipe:1",
+	}
+
+	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errOut
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("failed to extract video frame: %v - %s", err, strings.TrimSpace(errOut.String()))
+	}
+	if out.Len() == 0 {
+		return nil, fmt.Errorf("ffmpeg produced no preview frame")
+	}
+	return out.Bytes(), nil
 }
 
 func handleTranscodeStartError(w http.ResponseWriter, err error) {
@@ -1486,6 +1616,25 @@ func ThumbnailStreamURLForEntry(baseURL, fsPath string, nestedChain []string, en
 	return u
 }
 
+func VideoFramePreviewURLForFile(baseURL, publicPath, targetFormat string, frameSeconds float64) string {
+	u := joinStreamBaseURL(baseURL) + streamPath + "?path=" + urlEncode(publicPath) + "&frame=" + urlEncode(targetFormat)
+	if frameSeconds > 0 {
+		u += "&frameTime=" + strconv.FormatFloat(frameSeconds, 'f', 3, 64)
+	}
+	return u
+}
+
+func VideoFramePreviewURLForEntry(baseURL, fsPath string, nestedChain []string, entryPath string, targetFormat string, frameSeconds float64) string {
+	u := joinStreamBaseURL(baseURL) + streamPath + "?fsPath=" + urlEncode(fsPath) + "&entry=" + urlEncode(entryPath) + "&frame=" + urlEncode(targetFormat)
+	if frameSeconds > 0 {
+		u += "&frameTime=" + strconv.FormatFloat(frameSeconds, 'f', 3, 64)
+	}
+	if len(nestedChain) > 0 {
+		u += "&nested=" + urlEncode(strings.Join(nestedChain, ","))
+	}
+	return u
+}
+
 func joinStreamBaseURL(baseURL string) string {
 	return strings.TrimRight(baseURL, "/")
 }
@@ -1525,11 +1674,11 @@ func (a *App) GetArchiveStreamURL(fsPath string, nestedChain []string, entryPath
 }
 
 func (a *App) GetVideoPreviewURL(publicPath string) string {
-	return a.GetVideoPlaybackPlan(publicPath).URL
+	return VideoFramePreviewURLForFile(a.StreamBaseURL(), publicPath, "png", defaultVideoFramePreviewSeconds)
 }
 
 func (a *App) GetArchiveVideoPreviewURL(fsPath string, nestedChain []string, entryPath string) string {
-	return a.GetArchiveVideoPlaybackPlan(fsPath, nestedChain, entryPath).URL
+	return VideoFramePreviewURLForEntry(a.StreamBaseURL(), fsPath, nestedChain, entryPath, "png", defaultVideoFramePreviewSeconds)
 }
 
 func (a *App) GetVideoPlaybackPlan(publicPath string) VideoPlaybackPlan {

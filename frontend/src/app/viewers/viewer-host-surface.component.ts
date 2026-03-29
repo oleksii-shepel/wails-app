@@ -4,6 +4,7 @@ import { ApiService } from '../services/api.service';
 import { ViewerRegistryService } from './viewer-registry.service';
 import { ViewerArchiveContext } from './viewer-archive-context';
 import type { FileProbe } from '../shared/protocol';
+import type { ViewerFileListItem } from '../shared/protocol-enhanced';
 
 function extLower(path: string): string {
   const p = (path ?? '').replace(/\\/g, '/');
@@ -56,6 +57,7 @@ function extLower(path: string): string {
 })
 export class ViewerHostSurfaceComponent implements OnChanges {
   @Input() targetPath = '';
+  @Input() fileList: ViewerFileListItem[] = [];
   @Input() archiveContext: ViewerArchiveContext | null = null;
   /** Optional explicit viewer id (from tab metadata) */
   @Input() viewerId: string | null = null;
@@ -82,6 +84,7 @@ export class ViewerHostSurfaceComponent implements OnChanges {
   private async refresh(): Promise<void> {
     const req = {
       targetPath: this.targetPath ?? '',
+      fileList: this.fileList ?? [],
       archiveContext: this.archiveContext ?? null,
       viewerId: this.viewerId ?? null,
       probe: null as FileProbe | null,
@@ -114,6 +117,7 @@ export class ViewerHostSurfaceComponent implements OnChanges {
 
     this.outletInputs = {
       targetPath: req.targetPath,
+      fileList: req.fileList,
       archiveContext: req.archiveContext,
       viewerId: req.viewerId,
       probe: req.probe,

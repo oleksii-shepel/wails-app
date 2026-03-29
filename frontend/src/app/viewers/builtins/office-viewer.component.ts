@@ -10,6 +10,7 @@ import {
 } from '@angular/core';
 import { ApiService } from '../../services/api.service';
 import type { FileProbe } from '../../shared/protocol';
+import type { ViewerFileListItem } from '../../shared/protocol-enhanced';
 import { ViewerArchiveContext } from '../viewer-archive-context';
 import { PdfViewerComponent } from './pdf-viewer.component';
 
@@ -57,6 +58,7 @@ type OfficeViewerKind = 'empty' | 'loading' | 'pdf' | 'error' | 'unavailable' | 
         <div *ngIf="kind === 'pdf' && pdfPath" class="pdf-viewer-host">
           <app-pdf-viewer
             [targetPath]="pdfPath"
+            [fileList]="fileList"
             [archiveContext]="archiveContext"
             [hideHeader]="true"
             [viewerId]="viewerId">
@@ -223,6 +225,7 @@ type OfficeViewerKind = 'empty' | 'loading' | 'pdf' | 'error' | 'unavailable' | 
 })
 export class OfficeViewerComponent implements OnChanges, OnDestroy {
   @Input() targetPath = '';
+  @Input() fileList: ViewerFileListItem[] = [];
   @Input() archiveContext: ViewerArchiveContext | null = null;
   @Input() viewerId: string | null = null;
   @Input() probe: FileProbe | null = null;

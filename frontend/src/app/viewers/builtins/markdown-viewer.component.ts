@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 import type { FileProbe } from '../../shared/protocol';
+import type { ViewerFileListItem } from '../../shared/protocol-enhanced';
 import { ViewerArchiveContext } from '../viewer-archive-context';
 import { ViewerSurfaceComponent } from '../../surfaces/viewer/viewer-surface.component';
 
@@ -32,6 +33,7 @@ import { ViewerSurfaceComponent } from '../../surfaces/viewer/viewer-surface.com
   template: `
     <app-viewer-surface
       [targetPath]="targetPath"
+      [fileList]="fileList"
       [archiveContext]="archiveContext"
       [probe]="probe"
       [viewerId]="viewerId">
@@ -40,6 +42,7 @@ import { ViewerSurfaceComponent } from '../../surfaces/viewer/viewer-surface.com
 })
 export class MarkdownViewerComponent {
   @Input() targetPath = '';
+  @Input() fileList: ViewerFileListItem[] = [];
   @Input() archiveContext: ViewerArchiveContext | null = null;
   @Input() probe: FileProbe | null = null;
   @Input() viewerId: string | null = null;

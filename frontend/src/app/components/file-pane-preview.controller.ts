@@ -3,6 +3,7 @@ import type { WorkspaceService } from '../services/workspace.service';
 import type { ConfirmDialogService } from '../services/confirm-dialog.service';
 import type { FileInfo } from '../shared/protocol';
 import { FileType } from '../shared/protocol';
+import type { ViewerFileListItem } from '../shared/protocol-enhanced';
 import type { ArchiveFrame } from '../services/archive.service';
 import type { ViewerArchiveContext } from '../viewers/viewer-archive-context';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
@@ -25,6 +26,7 @@ export interface FilePanePreviewHost {
 
 export interface FilePanePreviewRequest {
 	path: string;
+	fileList: ViewerFileListItem[];
 	archiveContext: ViewerArchiveContext | null;
 }
 
@@ -39,12 +41,12 @@ export class FilePanePreviewController {
     if (host.isInArchive()) {
       const archiveContext = this.buildArchiveViewerContext(host, path);
       if (!archiveContext) return null;
-      return { path, archiveContext };
+      return { path, fileList: [], archiveContext };
     }
 
     const entry = host.entries.find(candidate => candidate.path === path);
     if (!entry || (entry.type !== FileType.FILE && entry.type !== FileType.SYMLINK)) return null;
-    return { path, archiveContext: null };
+    return { path, fileList: this.buildViewerFileList(host), archiveContext: null };
   }
 
   async openQuickView(host: FilePanePreviewHost): Promise<void> {
@@ -54,6 +56,7 @@ export class FilePanePreviewController {
     await this.openViewerTab(host, request.path, {
       activate: true,
       closable: true,
+      fileList: request.fileList,
       archiveContext: request.archiveContext,
     });
   }
@@ -61,7 +64,7 @@ export class FilePanePreviewController {
   async openFrozenPreviewTab(
     host: FilePanePreviewHost,
     targetPath: string,
-    opts?: { sourcePane: 'left' | 'right'; sourceTabId: string; sourceDir: string; autoFollow?: boolean; archiveContext?: ViewerArchiveContext | null },
+    opts?: { sourcePane: 'left' | 'right'; sourceTabId: string; sourceDir: string; autoFollow?: boolean; fileList?: ViewerFileListItem[]; archiveContext?: ViewerArchiveContext | null },
   ): Promise<void> {
     const path = (targetPath || '').trim();
     if (!path) return;
@@ -73,6 +76,7 @@ export class FilePanePreviewController {
       sourcePane: opts?.sourcePane,
       sourceTabId: opts?.sourceTabId,
       sourceDir: opts?.sourceDir,
+      fileList: opts?.fileList ?? [],
       archiveContext: opts?.archiveContext ?? null,
     });
   }
@@ -80,7 +84,7 @@ export class FilePanePreviewController {
   private async openViewerTab(
     host: FilePanePreviewHost,
     path: string,
-    opts: { activate: boolean; closable: boolean; autoFollow?: boolean; sourcePane?: 'left' | 'right'; sourceTabId?: string; sourceDir?: string; archiveContext?: ViewerArchiveContext | null },
+    opts: { activate: boolean; closable: boolean; autoFollow?: boolean; sourcePane?: 'left' | 'right'; sourceTabId?: string; sourceDir?: string; fileList?: ViewerFileListItem[]; archiveContext?: ViewerArchiveContext | null },
   ): Promise<void> {
     try {
       if (host.isInArchive() || opts.archiveContext) {
@@ -90,6 +94,7 @@ export class FilePanePreviewController {
         const tab = host.workspaceService.addViewerTab(host.paneId, path, {
           activate: opts.activate,
           closable: opts.closable,
+          fileList: [],
           archiveContext,
         });
         if (!tab) return;
@@ -114,6 +119,7 @@ export class FilePanePreviewController {
         sourcePane: opts.sourcePane,
         sourceTabId: opts.sourceTabId,
         sourceDir: opts.sourceDir,
+        fileList: opts.fileList ?? [],
       });
       if (!tab) return;
 
@@ -136,5 +142,14 @@ export class FilePanePreviewController {
       nestedChain: frame.nestedChain ?? [],
       entryPath: entry.path,
     };
+  }
+
+  private buildViewerFileList(host: FilePanePreviewHost): ViewerFileListItem[] {
+    return host.entries
+      .filter(entry => entry.path && (entry.type === FileType.FILE || entry.type === FileType.SYMLINK))
+      .map(entry => ({
+        path: entry.path,
+        name: entry.name || entry.path.split(/[/\\]/).pop() || entry.path,
+      }));
   }
 }

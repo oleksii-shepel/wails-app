@@ -29,6 +29,8 @@ export interface TabInfo {
   viewer?: {
     /** Absolute filesystem path to the viewed file (initially FS-only). */
     targetPath: string;
+    /** Sibling filesystem files from the source pane, used for viewer next/previous navigation. */
+    fileList?: ViewerFileListItem[];
     /** Optional explicit viewer selection override. */
     viewerId?: string;
     /** When true, this tab's target auto-follows selection in dir tabs. */
@@ -57,6 +59,11 @@ export interface TabInfo {
   isActive: boolean;
   isPinned: boolean;
   createdAt: number;
+}
+
+export interface ViewerFileListItem {
+  path: string;
+  name: string;
 }
 
 export interface PaneState {

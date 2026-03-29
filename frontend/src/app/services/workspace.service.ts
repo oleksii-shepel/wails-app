@@ -5,6 +5,7 @@ import {
   WorkspaceList,
   PaneState,
   TabInfo,
+  ViewerFileListItem,
   STORAGE_KEYS,
 } from '../shared/protocol-enhanced';
 import { ApiService } from './api.service';
@@ -778,7 +779,7 @@ export class WorkspaceService {
     paneId: string,
     tabId: string,
     targetPath: string,
-    source?: { sourcePane: 'left' | 'right'; sourceTabId: string; sourceDir: string },
+    source?: { sourcePane: 'left' | 'right'; sourceTabId: string; sourceDir: string; fileList?: ViewerFileListItem[] },
   ): boolean {
     const workspace = this.activeWorkspaceSubject.value;
     if (!workspace) return false;
@@ -797,6 +798,7 @@ export class WorkspaceService {
       title: next || 'Preview',
       viewer: {
         targetPath: next,
+        fileList: source?.fileList ?? currentTab.viewer?.fileList ?? [],
         viewerId: currentTab.viewer?.viewerId,
         autoFollow: currentTab.viewer?.autoFollow,
         sourcePane: source?.sourcePane ?? currentTab.viewer?.sourcePane,
@@ -834,6 +836,7 @@ export class WorkspaceService {
       sourcePane?: 'left' | 'right';
       sourceTabId?: string;
       sourceDir?: string;
+      fileList?: ViewerFileListItem[];
       archiveContext?: { fsPath: string; nestedChain: string[]; entryPath: string };
     },
   ): TabInfo | null {
@@ -850,6 +853,7 @@ export class WorkspaceService {
       kind: 'viewer',
       viewer: {
         targetPath: targetPath || '',
+        fileList: opts?.fileList ?? [],
         viewerId: opts?.viewerId,
         autoFollow: !!opts?.autoFollow,
         sourcePane: opts?.sourcePane,

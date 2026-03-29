@@ -18,6 +18,7 @@ import {
   VideoMetadata,
 } from '../../services/canvas-video-player.service';
 import { ViewerSurfaceComponent } from '../../surfaces/viewer/viewer-surface.component';
+import type { ViewerFileListItem } from '../../shared/protocol-enhanced';
 import { ViewerArchiveContext } from '../viewer-archive-context';
 import { SegmentVideoLoader } from './segment-video-loader';
 import type { FileProbe } from '../../shared/protocol';
@@ -31,6 +32,7 @@ import type { FileProbe } from '../../shared/protocol';
     <app-viewer-surface
       *ngIf="useLegacySurface"
       [targetPath]="targetPath"
+      [fileList]="fileList"
       [archiveContext]="archiveContext"
       [viewerId]="viewerId">
     </app-viewer-surface>
@@ -668,6 +670,7 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
   private static readonly WINDOWED_VIDEO_STREAM_SECONDS = 90;
 
   @Input() targetPath = '';
+  @Input() fileList: ViewerFileListItem[] = [];
   @Input() archiveContext: ViewerArchiveContext | null = null;
   @Input() viewerId: string | null = null;
   @Input() probe: FileProbe | null = null;

@@ -7,6 +7,7 @@ import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { VscodeScrollbarDirective } from '../../directives/vscode-scrollbar.directive';
 import { ApiService } from '../../services/api.service';
 import { FileInfo, FileProbe, FileType } from '../../shared/protocol';
+import type { ViewerFileListItem } from '../../shared/protocol-enhanced';
 import { CanvasVideoPlayer, CanvasVideoPlayerService, VideoMetadata } from '../../services/canvas-video-player.service';
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
 import { ViewerArchiveContext } from '../../viewers/viewer-archive-context';
@@ -1246,6 +1247,7 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
    * context takes precedence for reading content.
    */
   @Input() targetPath = '';
+  @Input() fileList: ViewerFileListItem[] = [];
 
   @Input() hideHeader = false;
 

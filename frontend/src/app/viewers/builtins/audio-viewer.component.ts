@@ -12,6 +12,7 @@ import {
 import { VscodeScrollbarDirective } from '../../directives/vscode-scrollbar.directive';
 import { ApiService } from '../../services/api.service';
 import { FileInfo, FileProbe, FileType } from '../../shared/protocol';
+import type { ViewerFileListItem } from '../../shared/protocol-enhanced';
 import { ViewerArchiveContext } from '../viewer-archive-context';
 import {
   VIEWER_BASE_STYLES,
@@ -660,6 +661,7 @@ type AudioViewerKind = 'empty' | 'loading' | 'ready' | 'directory' | 'unsupporte
 })
 export class AudioViewerComponent implements OnChanges, OnDestroy {
   @Input() targetPath = '';
+  @Input() fileList: ViewerFileListItem[] = [];
   @Input() archiveContext: ViewerArchiveContext | null = null;
   @Input() probe: FileProbe | null = null;
   @Input() viewerId: string | null = null;

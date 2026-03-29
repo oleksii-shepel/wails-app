@@ -1,5 +1,5 @@
 import type { WorkspaceService } from '../services/workspace.service';
-import type { TabInfo } from '../shared/protocol-enhanced';
+import type { TabInfo, ViewerFileListItem } from '../shared/protocol-enhanced';
 import type { FilePaneBrowserCommands } from './file-pane-browser-commands.factory';
 import type { ViewerArchiveContext } from '../viewers/viewer-archive-context';
 
@@ -11,6 +11,7 @@ export interface FileBrowserPreviewPane {
 
 interface FileBrowserPreviewRequest {
 	path: string;
+	fileList: ViewerFileListItem[];
 	archiveContext: ViewerArchiveContext | null;
 }
 
@@ -50,6 +51,7 @@ export class FileBrowserPreviewController {
       sourceTabId: fromPane.currentTabId,
       sourceDir: fromPane.currentPath,
       autoFollow: true,
+      fileList: request.fileList,
       archiveContext: request.archiveContext,
     });
   }
@@ -69,6 +71,7 @@ export class FileBrowserPreviewController {
     const sourcePane = fromPane === 'left' ? host.getLeftPane() : host.getRightPane();
     const sourceTabId = sourcePane?.currentTabId ?? '';
     const sourceDir = sourcePane?.currentPath ?? '';
+    const fileList = this.getSourceFileList(sourcePane, next);
 
     // If the active tab in the same pane is a viewer and set to auto-follow,
     // update it directly so the viewer reloads when the cursor moves.
@@ -83,6 +86,7 @@ export class FileBrowserPreviewController {
         sourcePane: fromPane,
         sourceTabId: sameSourceTabId,
         sourceDir,
+        fileList,
       });
       return;
     }
@@ -102,7 +106,19 @@ export class FileBrowserPreviewController {
       sourcePane: fromPane,
       sourceTabId,
       sourceDir,
+      fileList,
     });
+  }
+
+  private getSourceFileList(sourcePane: FileBrowserPreviewPane | undefined, targetPath: string): ViewerFileListItem[] {
+    if (!sourcePane || !targetPath) {
+      return [];
+    }
+    const request = sourcePane.browserCommands.preview.getTargetRequest() as FileBrowserPreviewRequest | null;
+    if (!request?.path || request.path !== targetPath) {
+      return [];
+    }
+    return request.fileList ?? [];
   }
 
   onPaneActiveTabChanged(host: FileBrowserPreviewHost, fromPane: 'left' | 'right', tab: TabInfo): void {

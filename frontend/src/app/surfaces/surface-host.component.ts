@@ -20,6 +20,7 @@ import { SurfaceContext } from './surface-context';
       <app-viewer-host-surface
         *ngSwitchCase="'viewer'"
         [targetPath]="$any(ctx).viewer.targetPath"
+        [fileList]="$any(ctx).viewer.fileList"
         [archiveContext]="$any(ctx).viewer.archiveContext"
         [viewerId]="$any(ctx).viewer.viewerId">
       </app-viewer-host-surface>

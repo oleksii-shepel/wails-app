@@ -11,6 +11,7 @@ import { ViewerSurfaceContext } from '../surface-context';
   template: `
     <app-viewer-host-surface
       [targetPath]="ctx.viewer.targetPath"
+      [fileList]="ctx.viewer.fileList"
       [archiveContext]="ctx.viewer.archiveContext"
       [viewerId]="ctx.viewer.viewerId">
     </app-viewer-host-surface>

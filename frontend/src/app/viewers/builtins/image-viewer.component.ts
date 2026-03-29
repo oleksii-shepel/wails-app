@@ -12,6 +12,7 @@ import {
 } from '@angular/core';
 import { ApiService } from '../../services/api.service';
 import { ArchiveEntry, FileInfo, FileProbe, FileType } from '../../shared/protocol';
+import type { ViewerFileListItem } from '../../shared/protocol-enhanced';
 import { ViewerArchiveContext } from '../viewer-archive-context';
 
 type ImageViewerKind = 'empty' | 'loading' | 'image' | 'svg' | 'directory' | 'toobig' | 'unsupported' | 'error';
@@ -567,6 +568,7 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
   private carouselListElement: HTMLDivElement | null = null;
   private viewerSurfaceElement: HTMLDivElement | null = null;
   private scrollListenerCleanup: (() => void) | null = null;
+  private pendingInitialCenterFrame: number | null = null;
   previewCenterIndex = 0;
   private previewCommitTimer: number | null = null;
   private readonly previewCommitDelay = 150;
@@ -579,11 +581,18 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
   private pointerDragActive = false;
   private pointerLastY: number | null = null;
   private pointerScrollAccumulator = 0;
-  private readonly previewStep = 1000; // Requires more finger movement to trigger one step
+  private readonly previewStep = 800; // Reduced from 1000 for slightly more responsive feel
   private pendingPreviewIndex: number | null = null;
   private readonly pointerMaxGestureSteps = 3; // Max 3 items per gesture
-  private readonly pointerScrollSensitivity = 0.005; // Slower response to finger movement
+  private readonly pointerScrollSensitivity = 0.008; // Increased slightly for better responsiveness
   private pointerGestureCompletedSteps = 0; // Track completed steps in current gesture
+
+  // Wheel-based scrolling properties
+  private wheelScrollAccumulator = 0;
+  private readonly wheelStepThreshold = 150; // Lower threshold for wheel vs touch
+  private wheelDebounceTimer: number | null = null;
+  private lastWheelTimestamp = 0;
+  private readonly wheelCooldownMs = 100;
 
   visibleCarouselItems: CarouselVirtualFrame[] = [];
   private virtualStartIndex = 0;
@@ -606,11 +615,13 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
     this.detachCarouselScrollListener();
     this.carouselListElement = element;
     if (element) {
+      this.scheduleCenterOnCurrentItem();
       this.attachCarouselScrollListener(element);
     }
   }
 
   @Input() targetPath = '';
+  @Input() fileList: ViewerFileListItem[] = [];
   @Input() archiveContext: ViewerArchiveContext | null = null;
   @Input() viewerId: string | null = null;
   @Input() probe: FileProbe | null = null;
@@ -698,8 +709,15 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
     this.resetState();
 
     const path = (this.targetPath ?? '').trim();
-    if (!path && !this.archiveContext) {
+    if (!path) {
       this.kind = 'empty';
+      this.cdr.markForCheck();
+      return;
+    }
+
+    if (this.archiveContext) {
+      this.kind = 'unsupported';
+      this.error = 'Preview inside archives is disabled.';
       this.cdr.markForCheck();
       return;
     }
@@ -708,9 +726,7 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
     this.cdr.markForCheck();
 
     try {
-      const prepared = this.archiveContext
-        ? await this.prepareArchiveCarousel(this.archiveContext)
-        : await this.prepareDiskCarousel(path);
+      const prepared = await this.prepareDiskCarousel(path);
 
       if (token !== this.contextToken || this.destroyed) {
         return;
@@ -719,10 +735,13 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
       this.carouselItems = prepared.items;
       this.currentCarouselIndex = prepared.index;
       this.previewCenterIndex = prepared.index;
+      this.lockExplicitSelection(prepared.index, 400);
+      this.seedVirtualWindowAround(prepared.index);
       this.cdr.markForCheck();
-      this.onCarouselScroll();
+      this.scheduleCenterOnCurrentItem();
 
       await this.displayCarouselIndex(prepared.index, token);
+      this.onCarouselScroll();
     } catch (err: any) {
       if (token !== this.contextToken || this.destroyed) {
         return;
@@ -736,9 +755,17 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
   ngOnDestroy(): void {
     this.destroyed = true;
     this.detachCarouselScrollListener();
+    if (this.pendingInitialCenterFrame !== null) {
+      cancelAnimationFrame(this.pendingInitialCenterFrame);
+      this.pendingInitialCenterFrame = null;
+    }
     this.clearPreviewCommitTimer();
     this.clearSuppressPreviewCommitTimer();
     this.clearExplicitSelectionLockTimer();
+    if (this.wheelDebounceTimer) {
+      window.clearTimeout(this.wheelDebounceTimer);
+      this.wheelDebounceTimer = null;
+    }
   }
 
   private attachCarouselScrollListener(el: HTMLDivElement): void {
@@ -874,13 +901,84 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
   }
 
   onImageHostWheel(event: WheelEvent): void {
-    const delta = this.normalizeWheelDelta(event);
-    if (!delta) {
+    event.preventDefault();
+    
+    // Get vertical scroll delta
+    let delta = event.deltaY;
+    
+    // Normalize delta based on delta mode
+    if (event.deltaMode === 1) { // LINE mode
+      delta = delta * 40; // Approximate line height
+    } else if (event.deltaMode === 2) { // PAGE mode
+      delta = delta * 200;
+    }
+    
+    // Apply sensitivity
+    const scaledDelta = delta * 0.5;
+    
+    // Accumulate wheel movement
+    this.wheelScrollAccumulator += scaledDelta;
+    
+    // Debounce rapid wheel events to prevent overwhelming
+    const now = Date.now();
+    if (now - this.lastWheelTimestamp < this.wheelCooldownMs) {
       return;
     }
-    this.scrollPreviewListBy(delta);
-    this.schedulePreviewCommit();
-    event.preventDefault();
+    this.lastWheelTimestamp = now;
+    
+    // Clear previous debounce timer
+    if (this.wheelDebounceTimer) {
+      window.clearTimeout(this.wheelDebounceTimer);
+    }
+    
+    // Process the accumulated scroll
+    this.processWheelScroll();
+    
+    // Set debounce to process any remaining accumulation after wheel stops
+    this.wheelDebounceTimer = window.setTimeout(() => {
+      this.processWheelScroll(true); // Force final processing
+      this.wheelDebounceTimer = null;
+    }, this.wheelCooldownMs);
+  }
+
+  private processWheelScroll(isFinal: boolean = false): void {
+    if (!this.hasCarousel) return;
+    
+    const threshold = isFinal ? this.wheelStepThreshold / 2 : this.wheelStepThreshold;
+    
+    // Determine direction and magnitude
+    const steps = Math.floor(Math.abs(this.wheelScrollAccumulator) / threshold);
+    
+    if (steps > 0) {
+      const direction = Math.sign(this.wheelScrollAccumulator);
+      const maxSteps = Math.min(steps, this.pointerMaxGestureSteps);
+      
+      let movedSteps = 0;
+      for (let i = 0; i < maxSteps; i++) {
+        const moved = this.tryAdvancePreview(direction);
+        if (moved) {
+          movedSteps++;
+        } else {
+          break; // Can't move further (at edge)
+        }
+      }
+      
+      // Reduce accumulator by the amount we processed
+      this.wheelScrollAccumulator -= direction * movedSteps * threshold;
+    }
+    
+    // If this is the final call and there's still some accumulation but not enough for a full step,
+    // check if we should round up based on velocity/speed
+    if (isFinal && Math.abs(this.wheelScrollAccumulator) > threshold * 0.3) {
+      const direction = Math.sign(this.wheelScrollAccumulator);
+      this.tryAdvancePreview(direction);
+      this.wheelScrollAccumulator = 0;
+    }
+    
+    // Reset accumulator if it's very small
+    if (Math.abs(this.wheelScrollAccumulator) < threshold * 0.1) {
+      this.wheelScrollAccumulator = 0;
+    }
   }
 
   private centerCarouselItem(index: number, behavior: ScrollBehavior = 'auto'): void {
@@ -889,40 +987,17 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
       return;
     }
     this.armSuppressPreviewCommit(behavior === 'smooth' ? 280 : 80);
+    const itemEl = el.querySelector<HTMLElement>(`.carousel-item[data-index="${index}"]`);
+    if (itemEl) {
+      const itemCenter = itemEl.offsetLeft + itemEl.offsetWidth / 2;
+      const targetLeft = itemCenter - el.clientWidth / 2;
+      const nativeMaxScroll = Math.max(0, el.scrollWidth - el.clientWidth);
+      const clampedLeft = Math.max(0, Math.min(targetLeft, nativeMaxScroll));
+      el.scrollTo({ left: clampedLeft, behavior });
+      return;
+    }
+
     el.scrollTo({ left: this.getAlignedScrollLeftForIndex(el, index), behavior });
-  }
-
-  private scrollPreviewListBy(delta: number): void {
-    const el = this.carouselListElement;
-    if (!el || this.carouselItems.length <= 1) {
-      return;
-    }
-    const direction = Math.sign(delta);
-    if (!direction || Math.abs(delta) < 8) {
-      return;
-    }
-
-    const stride = this.getCarouselItemStride();
-    const visibleItems = Math.max(1, Math.ceil(el.clientWidth / stride));
-    const rawItems = Math.max(1, Math.round(Math.abs(delta) / 40));
-    const maxItems = Math.min(5, visibleItems);
-    const availableItems = Math.max(1, this.carouselItems.length - 1);
-    const scrollItems = Math.min(availableItems, Math.max(1, Math.min(maxItems, rawItems)));
-    if (scrollItems <= 0) {
-      return;
-    }
-
-    const nextLeft = el.scrollLeft + direction * scrollItems * stride;
-    const clampedLeft = Math.max(0, Math.min(nextLeft, this.getAlignedScrollLeftForIndex(el, this.carouselItems.length - 1)));
-    el.scrollTo({ left: clampedLeft, top: 0, behavior: 'auto' });
-  }
-
-  private normalizeWheelDelta(event: WheelEvent): number {
-    if (!event.deltaY) {
-      return 0;
-    }
-    const multiplier = event.deltaMode === 1 ? 12 : event.deltaMode === 2 ? 32 : 1;
-    return event.deltaY * multiplier;
   }
 
   private getCarouselItemStride(): number {
@@ -1069,6 +1144,45 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
     event.preventDefault();
   }
 
+  private consumePointerScroll(): void {
+    const stepThreshold = this.previewStep;
+    // Only consume if we haven't reached max steps for this gesture
+    while (Math.abs(this.pointerScrollAccumulator) >= stepThreshold && 
+           this.pointerGestureCompletedSteps < this.pointerMaxGestureSteps) {
+      const direction = Math.sign(this.pointerScrollAccumulator);
+      const moved = this.tryAdvancePreview(direction);
+      if (moved) {
+        this.pointerScrollAccumulator -= direction * stepThreshold;
+        this.pointerGestureCompletedSteps++;
+      } else {
+        // Can't move further (at edge of carousel), break out
+        break;
+      }
+    }
+    
+    // Reset accumulator if we've reached max steps to prevent further movement
+    if (this.pointerGestureCompletedSteps >= this.pointerMaxGestureSteps) {
+      this.pointerScrollAccumulator = 0;
+    }
+  }
+
+  private tryAdvancePreview(direction: number): boolean {
+    if (!this.hasCarousel || direction === 0) {
+      return false;
+    }
+    const length = this.carouselItems.length;
+    const current = this.pendingPreviewIndex ?? this.previewCenterIndex;
+    const nextIndex = Math.max(0, Math.min(length - 1, current + direction));
+    if (nextIndex === current) {
+      return false; // At edge, couldn't move
+    }
+    this.pendingPreviewIndex = nextIndex;
+    this.previewCenterIndex = nextIndex;
+    this.centerCarouselItem(nextIndex);
+    this.cdr.markForCheck();
+    return true; // Successfully moved
+  }
+
   @HostListener('window:keydown.delete', ['$event'])
   onDeleteKey(event: Event): void {
     if (!this.isEventInsideViewerSurface(event) || !this.canDeleteCurrentTarget()) {
@@ -1112,6 +1226,7 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
         return;
       }
 
+      this.fileList = this.fileList.filter(item => item.path !== targetPath);
       this.carouselItems.splice(currentIndex, 1);
       if (!this.carouselItems.length) {
         this.resetState();
@@ -1120,7 +1235,9 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
         return;
       }
 
-      const nextIndex = Math.min(currentIndex, this.carouselItems.length - 1);
+      const nextIndex = currentIndex < this.carouselItems.length
+        ? currentIndex
+        : this.carouselItems.length - 1;
       this.currentCarouselIndex = nextIndex;
       this.previewCenterIndex = nextIndex;
       await this.displayCarouselIndex(nextIndex, this.contextToken, { preserveCurrentImage: true });
@@ -1132,45 +1249,6 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
     } finally {
       this.deletionInProgress = false;
     }
-  }
-
-  private consumePointerScroll(): void {
-    const stepThreshold = this.previewStep;
-    // Only consume if we haven't reached max steps for this gesture
-    while (Math.abs(this.pointerScrollAccumulator) >= stepThreshold && 
-           this.pointerGestureCompletedSteps < this.pointerMaxGestureSteps) {
-      const direction = Math.sign(this.pointerScrollAccumulator);
-      const moved = this.tryAdvancePreview(direction);
-      if (moved) {
-        this.pointerScrollAccumulator -= direction * stepThreshold;
-        this.pointerGestureCompletedSteps++;
-      } else {
-        // Can't move further (at edge of carousel), break out
-        break;
-      }
-    }
-    
-    // Reset accumulator if we've reached max steps to prevent further movement
-    if (this.pointerGestureCompletedSteps >= this.pointerMaxGestureSteps) {
-      this.pointerScrollAccumulator = 0;
-    }
-  }
-
-  private tryAdvancePreview(direction: number): boolean {
-    if (!this.hasCarousel || direction === 0) {
-      return false;
-    }
-    const length = this.carouselItems.length;
-    const current = this.pendingPreviewIndex ?? this.previewCenterIndex;
-    const nextIndex = Math.max(0, Math.min(length - 1, current + direction));
-    if (nextIndex === current) {
-      return false; // At edge, couldn't move
-    }
-    this.pendingPreviewIndex = nextIndex;
-    this.previewCenterIndex = nextIndex;
-    this.centerCarouselItem(nextIndex);
-    this.cdr.markForCheck();
-    return true; // Successfully moved
   }
 
   private async hydrateThumbnailsForIndices(indices: number[]): Promise<void> {
@@ -1296,10 +1374,11 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
     this.cdr.markForCheck();
 
     try {
-      if (item.source === 'archive' && item.archiveContext) {
-        await this.displayArchiveItem(item, contextToken, displayToken);
-      } else if (item.diskPath) {
+      if (item.diskPath) {
         await this.displayDiskItem(item, contextToken, displayToken);
+      } else {
+        this.error = 'Preview inside archives is disabled.';
+        this.kind = 'unsupported';
       }
     } catch (err: any) {
       if (!this.isDisplayCurrent(contextToken, displayToken)) {
@@ -1394,6 +1473,11 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
   }
 
   private async prepareDiskCarousel(path: string): Promise<{ items: CarouselImageItem[]; index: number }> {
+    const fileListItems = this.buildCarouselItemsFromFileList(path);
+    if (fileListItems) {
+      return fileListItems;
+    }
+
     const info = await this.api.getFileInfo(path);
     if (info.type === FileType.DIRECTORY) {
       return { items: [this.makeDiskCarouselItem(info)], index: 0 };
@@ -1415,6 +1499,73 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
     } catch {
       return { items: [currentItem], index: 0 };
     }
+  }
+
+  private seedVirtualWindowAround(index: number): void {
+    const totalItems = this.carouselItems.length;
+    if (!totalItems) {
+      this.visibleCarouselItems = [];
+      this.virtualStartIndex = 0;
+      this.virtualEndIndex = 0;
+      this.virtualLeadingWidth = 0;
+      this.virtualTrailingWidth = 0;
+      return;
+    }
+
+    const visibleCount = Math.min(totalItems, this.virtualBuffer * 2 + 3);
+    const start = Math.max(0, Math.min(index - this.virtualBuffer, totalItems - visibleCount));
+    const end = Math.min(totalItems, start + visibleCount);
+    const stride = this.getCarouselItemStride();
+    const frames: CarouselVirtualFrame[] = [];
+    for (let idx = start; idx < end; idx++) {
+      const item = this.carouselItems[idx];
+      if (item) {
+        frames.push({ item, index: idx });
+      }
+    }
+
+    this.virtualStartIndex = start;
+    this.virtualEndIndex = end;
+    this.visibleCarouselItems = frames;
+    this.virtualLeadingWidth = start * stride;
+    this.virtualTrailingWidth = Math.max(0, (totalItems - end) * stride);
+  }
+
+  private scheduleCenterOnCurrentItem(): void {
+    if (this.pendingInitialCenterFrame !== null) {
+      cancelAnimationFrame(this.pendingInitialCenterFrame);
+      this.pendingInitialCenterFrame = null;
+    }
+    this.pendingInitialCenterFrame = requestAnimationFrame(() => {
+      this.pendingInitialCenterFrame = null;
+      if (!this.carouselListElement || !this.carouselItems.length) {
+        return;
+      }
+      this.centerCarouselItem(this.currentCarouselIndex);
+    });
+  }
+
+  private buildCarouselItemsFromFileList(path: string): { items: CarouselImageItem[]; index: number } | null {
+    if (!this.fileList.length) {
+      return null;
+    }
+
+    const normalizedTarget = path.trim();
+    const items = this.fileList
+      .filter(item => item.path && this.isPreviewableImageExt(this.extractExt(item.path)))
+      .map(item => this.makeDiskCarouselItemFromPath(item.path, item.name));
+
+    if (!items.length) {
+      return null;
+    }
+
+    const currentIndex = items.findIndex(item => item.diskPath === normalizedTarget);
+    if (currentIndex >= 0) {
+      return { items, index: currentIndex };
+    }
+
+    const targetItem = this.makeDiskCarouselItemFromPath(normalizedTarget);
+    return { items: [targetItem, ...items], index: 0 };
   }
 
   private async prepareArchiveCarousel(ctx: ViewerArchiveContext): Promise<{ items: CarouselImageItem[]; index: number }> {
@@ -1534,6 +1685,21 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
       diskPath: path,
       archiveContext: null,
       info,
+      thumbnailSrc: null,
+      thumbnailFailed: false,
+      thumbnailLoading: false,
+    };
+  }
+
+  private makeDiskCarouselItemFromPath(path: string, name?: string): CarouselImageItem {
+    return {
+      id: `disk:${path}`,
+      name: name || this.baseName(path),
+      ext: this.extractExt(path),
+      source: 'disk',
+      diskPath: path,
+      archiveContext: null,
+      info: null,
       thumbnailSrc: null,
       thumbnailFailed: false,
       thumbnailLoading: false,

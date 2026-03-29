@@ -39,6 +39,15 @@ export class FilePaneSurfaceContextFactory {
     return tab.viewer?.viewerId ?? null;
   }
 
+  getActiveViewerFileList(source: FilePaneSurfaceContextSource) {
+    const tab = this.getActiveTab(source);
+    if (!tab || (tab.kind ?? 'dir') !== 'viewer') {
+      return [];
+    }
+
+    return tab.viewer?.fileList ?? [];
+  }
+
   getActiveViewerArchiveContext(source: FilePaneSurfaceContextSource): ViewerArchiveContext | null {
     const tab = this.getActiveTab(source);
     if (!tab || (tab.kind ?? 'dir') !== 'viewer') {
@@ -70,6 +79,7 @@ export class FilePaneSurfaceContextFactory {
         tab,
         viewer: {
           targetPath: this.getActiveViewerTargetPath(source),
+          fileList: this.getActiveViewerFileList(source),
           archiveContext: this.getActiveViewerArchiveContext(source),
           viewerId: this.getActiveViewerId(source),
         },

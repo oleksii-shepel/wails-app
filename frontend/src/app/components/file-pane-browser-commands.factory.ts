@@ -5,6 +5,7 @@ import type { FilePaneOperationsController, FilePaneOperationsHost } from './fil
 import type { FilePanePreviewController, FilePanePreviewHost } from './file-pane-preview.controller';
 import type { FilePanePreviewRequest } from './file-pane-preview.controller';
 import type { FilePaneStateRuntimeAdapter } from './file-pane-state-runtime.factory';
+import type { ViewerFileListItem } from '../shared/protocol-enhanced';
 
 export interface FilePaneBrowserCommands {
   navigation: {
@@ -30,7 +31,7 @@ export interface FilePaneBrowserCommands {
     resetActiveViewerZoom(): void;
     openFrozenPreviewTab(
       targetPath: string,
-      options?: { sourcePane: 'left' | 'right'; sourceTabId: string; sourceDir: string; autoFollow?: boolean; archiveContext?: import('../viewers/viewer-archive-context').ViewerArchiveContext | null },
+      options?: { sourcePane: 'left' | 'right'; sourceTabId: string; sourceDir: string; autoFollow?: boolean; fileList?: ViewerFileListItem[]; archiveContext?: import('../viewers/viewer-archive-context').ViewerArchiveContext | null },
     ): Promise<void>;
   };
 }

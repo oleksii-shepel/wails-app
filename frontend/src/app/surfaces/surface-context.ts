@@ -1,4 +1,5 @@
 import type { TabInfo } from '../shared/protocol-enhanced';
+import type { ViewerFileListItem } from '../shared/protocol-enhanced';
 import type { ViewerArchiveContext } from '../viewers/viewer-archive-context';
 import type { DirSurfaceVm } from './dir/dir-surface.vm';
 import type { SizeManagerSurfaceVm } from './size-manager/size-manager-surface.vm';
@@ -17,6 +18,7 @@ export interface ViewerSurfaceContext extends BaseSurfaceContext {
   kind: 'viewer';
   viewer: {
     targetPath: string;
+    fileList: ViewerFileListItem[];
     archiveContext: ViewerArchiveContext | null;
     viewerId: string | null;
   };

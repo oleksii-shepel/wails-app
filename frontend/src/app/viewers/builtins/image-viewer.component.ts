@@ -84,7 +84,7 @@ interface CarouselVirtualFrame {
         <ng-container *ngIf="hasCarousel">
           <span class="toolbar-divider" *ngIf="kind === 'image' || kind === 'svg'"></span>
           <button class="tool-btn" type="button" (click)="showPrevious()" [disabled]="!hasPrevious" title="Previous image">&#x2039;</button>
-          <span class="carousel-counter">{{ currentCarouselIndex + 1 }} / {{ carouselItems.length }}</span>
+          <span class="carousel-counter">{{ previewCenterIndex + 1 }} / {{ carouselItems.length }}</span>
           <button class="tool-btn" type="button" (click)="showNext()" [disabled]="!hasNext" title="Next image">&#x203A;</button>
         </ng-container>
       </div>
@@ -148,14 +148,13 @@ interface CarouselVirtualFrame {
         <div class="carousel-strip" *ngIf="hasCarousel">
           <button class="carousel-nav" type="button" (click)="showPrevious()" [disabled]="!hasPrevious" title="Previous image">&#x2039;</button>
           <div class="carousel-list-wrapper">
-            <div class="carousel-selection-indicator" aria-hidden="true"></div>
             <div class="carousel-list" #carouselList>
               <div class="carousel-virtual-spacer" [style.width.px]="virtualLeadingWidth" aria-hidden="true"></div>
               <button
                 *ngFor="let frame of visibleCarouselItems; trackBy: trackCarouselItem"
                 class="carousel-item"
                 type="button"
-                [class.active]="frame.index === currentCarouselIndex"
+                [class.active]="frame.index === previewCenterIndex"
                 [title]="frame.item.name"
                 [attr.data-index]="frame.index"
                 (click)="selectCarouselIndex(frame.index)">
@@ -464,20 +463,6 @@ interface CarouselVirtualFrame {
       display: flex;
       align-items: center;
     }
-    .carousel-selection-indicator {
-      position: absolute;
-      left: 50%;
-      top: 0;
-      bottom: 12px;
-      width: 112px;
-      transform: translateX(calc(-50% + 8px));
-      border-radius: 10px;
-      border: 1px solid color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 68%, transparent);
-      background: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 10%, transparent);
-      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
-      pointer-events: none;
-      z-index: 1;
-    }
     .carousel-list {
       display: flex;
       gap: 12px;
@@ -526,6 +511,11 @@ interface CarouselVirtualFrame {
     .carousel-item:hover {
       background: var(--vsc-list-hover-background, rgba(255,255,255,0.05));
       border-color: color-mix(in srgb, var(--vsc-border, #454545) 70%, transparent);
+    }
+    .carousel-item.active {
+      border-color: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 90%, transparent);
+      background: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 12%, transparent);
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 35%, transparent);
     }
     .carousel-item.active .carousel-name {
       color: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 70%, var(--vsc-foreground, #ccc));
@@ -899,14 +889,7 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
       return;
     }
     this.armSuppressPreviewCommit(behavior === 'smooth' ? 280 : 80);
-    const stride = this.getCarouselItemStride();
-    const paddingLeft = this.getCarouselPaddingLeft(el);
-    const viewportWidth = el.clientWidth;
-    const lead = Math.max(0, (viewportWidth - this.carouselItemDefaultWidth) / 2);
-    const target = paddingLeft + index * stride - lead;
-    const maxScroll = Math.max(0, el.scrollWidth - viewportWidth);
-    const clamped = Math.max(0, Math.min(target, maxScroll));
-    el.scrollTo({ left: clamped, behavior });
+    el.scrollTo({ left: this.getAlignedScrollLeftForIndex(el, index), behavior });
   }
 
   private scrollPreviewListBy(delta: number): void {
@@ -929,7 +912,9 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
       return;
     }
 
-    el.scrollBy({ left: direction * scrollItems * stride, top: 0, behavior: 'auto' });
+    const nextLeft = el.scrollLeft + direction * scrollItems * stride;
+    const clampedLeft = Math.max(0, Math.min(nextLeft, this.getAlignedScrollLeftForIndex(el, this.carouselItems.length - 1)));
+    el.scrollTo({ left: clampedLeft, top: 0, behavior: 'auto' });
   }
 
   private normalizeWheelDelta(event: WheelEvent): number {
@@ -947,6 +932,16 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
   private getCarouselPaddingLeft(el: HTMLDivElement): number {
     const style = getComputedStyle(el);
     return parseFloat(style.paddingInlineStart) || parseFloat(style.paddingLeft) || 0;
+  }
+
+  private getAlignedScrollLeftForIndex(el: HTMLDivElement, index: number): number {
+    const stride = this.getCarouselItemStride();
+    const paddingLeft = this.getCarouselPaddingLeft(el);
+    const viewportWidth = el.clientWidth;
+    const lead = Math.max(0, (viewportWidth - this.carouselItemDefaultWidth) / 2);
+    const target = paddingLeft + index * stride - lead;
+    const nativeMaxScroll = Math.max(0, el.scrollWidth - viewportWidth);
+    return Math.max(0, Math.min(target, nativeMaxScroll));
   }
 
   private updateVirtualWindow(): void {
@@ -985,12 +980,38 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
     if (!this.carouselItems.length) {
       return -1;
     }
+    const wrapper = el.parentElement;
+    const itemElements = Array.from(el.querySelectorAll<HTMLElement>('.carousel-item[data-index]'));
+    if (wrapper && itemElements.length > 0) {
+      const wrapperRect = wrapper.getBoundingClientRect();
+      const indicatorCenterX = wrapperRect.left + wrapperRect.width / 2;
+      let bestIndex = -1;
+      let bestDistance = Number.POSITIVE_INFINITY;
+
+      for (const itemEl of itemElements) {
+        const rawIndex = Number(itemEl.dataset['index']);
+        if (!Number.isFinite(rawIndex)) {
+          continue;
+        }
+        const rect = itemEl.getBoundingClientRect();
+        const itemCenterX = rect.left + rect.width / 2;
+        const distance = Math.abs(itemCenterX - indicatorCenterX);
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          bestIndex = rawIndex;
+        }
+      }
+
+      if (bestIndex >= 0) {
+        return Math.max(0, Math.min(this.carouselItems.length - 1, bestIndex));
+      }
+    }
+
     const stride = this.getCarouselItemStride();
     const paddingLeft = this.getCarouselPaddingLeft(el);
     const effectiveScroll = Math.max(0, el.scrollLeft - paddingLeft);
     const centeredItemOrigin = effectiveScroll + Math.max(0, (el.clientWidth - this.carouselItemDefaultWidth) / 2);
-    const index = Math.round(centeredItemOrigin / stride);
-    return Math.max(0, Math.min(this.carouselItems.length - 1, index));
+    return Math.max(0, Math.min(this.carouselItems.length - 1, Math.round(centeredItemOrigin / stride)));
   }
 
   onImageHostPointerDown(event: PointerEvent): void {

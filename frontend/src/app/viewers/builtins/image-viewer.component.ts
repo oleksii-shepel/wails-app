@@ -113,7 +113,7 @@ interface CarouselImageItem {
             <div class="state-sub" *ngIf="fileExt">.{{ fileExt }}</div>
           </div>
 
-          <div *ngIf="kind === 'svg'" class="image-host" [class.checkerboard]="showCheckerboard">
+          <div *ngIf="kind === 'svg'" class="image-host" [class.checkerboard]="showCheckerboard" #imageHost (wheel)="onImageHostWheel($event)">
             <img class="preview-image"
                  [src]="imageSrc || undefined"
                  [alt]="displayName || 'SVG preview'"
@@ -122,7 +122,7 @@ interface CarouselImageItem {
                  (error)="onImageError()" />
           </div>
 
-          <div *ngIf="kind === 'image'" class="image-host" [class.checkerboard]="showCheckerboard">
+          <div *ngIf="kind === 'image'" class="image-host" [class.checkerboard]="showCheckerboard" #imageHost (wheel)="onImageHostWheel($event)">
             <img class="preview-image"
                  [src]="imageSrc || undefined"
                  [alt]="displayName || 'Image preview'"
@@ -469,18 +469,21 @@ interface CarouselImageItem {
     .carousel-name {
       font-size: 11px;
       line-height: 1.3;
-      display: block;
-      width: 100%;
-      white-space: nowrap;
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
       overflow: hidden;
       text-overflow: ellipsis;
       opacity: 0.9;
+      width: 100%;
     }
   `],
 })
 export class ImageViewerComponent implements OnChanges, OnDestroy {
   private carouselListElement: HTMLDivElement | null = null;
   private scrollListenerCleanup: (() => void) | null = null;
+  private selectionDebounceTimer: number | null = null;
+  private readonly selectionDebounceDelay = 180;
 
   @ViewChild('carouselList', { static: false })
   set carouselListRef(value: ElementRef<HTMLDivElement> | undefined) {
@@ -615,6 +618,10 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
   ngOnDestroy(): void {
     this.destroyed = true;
     this.detachCarouselScrollListener();
+    if (this.selectionDebounceTimer !== null) {
+      window.clearTimeout(this.selectionDebounceTimer);
+      this.selectionDebounceTimer = null;
+    }
   }
 
   private attachCarouselScrollListener(el: HTMLDivElement): void {
@@ -645,6 +652,90 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
       }
     });
     this.hydrateThumbnailsForIndices(visible);
+    this.scheduleCenterSelection();
+  }
+
+  onImageHostWheel(event: WheelEvent): void {
+    const el = this.carouselListElement;
+    if (!el) {
+      return;
+    }
+    const delta = this.normalizeWheelDelta(event, el);
+    if (!delta) {
+      return;
+    }
+    this.scrollPreviewListBy(delta);
+    this.scheduleCenterSelection();
+    event.preventDefault();
+  }
+
+  private scheduleCenterSelection(): void {
+    if (this.selectionDebounceTimer !== null) {
+      window.clearTimeout(this.selectionDebounceTimer);
+    }
+    this.selectionDebounceTimer = window.setTimeout(() => {
+      this.selectionDebounceTimer = null;
+      this.selectCenterVisibleItem();
+    }, this.selectionDebounceDelay);
+  }
+
+  private selectCenterVisibleItem(): void {
+    const el = this.carouselListElement;
+    if (!el || !this.hasCarousel) {
+      return;
+    }
+    const centerX = el.getBoundingClientRect().left + el.clientWidth / 2;
+    const children = Array.from(el.children) as HTMLElement[];
+    let bestIndex = -1;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    children.forEach((child, idx) => {
+      const childRect = child.getBoundingClientRect();
+      const childCenter = childRect.left + childRect.width / 2;
+      const distance = Math.abs(childCenter - centerX);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestIndex = idx;
+      }
+    });
+    if (bestIndex >= 0 && bestIndex !== this.currentCarouselIndex) {
+      void this.displayCarouselIndex(bestIndex, this.contextToken);
+    }
+  }
+
+  private centerCarouselItem(index: number): void {
+    const el = this.carouselListElement;
+    if (!el) {
+      return;
+    }
+    const child = el.children.item(index) as HTMLElement | null;
+    if (!child) {
+      return;
+    }
+    const target = child.offsetLeft + child.offsetWidth / 2 - el.clientWidth / 2;
+    const maxScroll = Math.max(0, el.scrollWidth - el.clientWidth);
+    const clamped = Math.max(0, Math.min(target, maxScroll));
+    el.scrollTo({ left: clamped, behavior: 'auto' });
+  }
+
+  private scrollPreviewListBy(delta: number): void {
+    const el = this.carouselListElement;
+    if (!el) {
+      return;
+    }
+    el.scrollBy({ left: delta, top: 0, behavior: 'auto' });
+  }
+
+  private normalizeWheelDelta(event: WheelEvent, el: HTMLDivElement): number {
+    if (!event.deltaY) {
+      return 0;
+    }
+    let multiplier = 1;
+    if (event.deltaMode === 1) {
+      multiplier = 20;
+    } else if (event.deltaMode === 2) {
+      multiplier = el.clientWidth;
+    }
+    return event.deltaY * multiplier;
   }
 
   private async hydrateThumbnailsForIndices(indices: number[]): Promise<void> {
@@ -738,6 +829,8 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
     if (index < 0 || index >= this.carouselItems.length) {
       return;
     }
+
+    this.centerCarouselItem(index);
 
     const item = this.carouselItems[index];
     const displayToken = ++this.displayToken;

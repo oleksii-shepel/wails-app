@@ -454,7 +454,15 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
       copy:                  () => this.copySelectedToClipboard(),
       cut:                   () => this.cutSelectedToClipboard(),
       paste:                 () => this.pasteFromClipboard(),
-      deleteSelected:        () => this.getActivePane()?.browserCommands.selection.deleteSelected(),
+      deleteSelected:        () => {
+        const pane = this.getActivePane();
+        if (!pane) return;
+        if (this.getPaneTabKind(pane) === 'viewer') {
+          pane.deleteInActiveViewer();
+          return;
+        }
+        pane.browserCommands.selection.deleteSelected();
+      },
       selectAll:             () => this.getActivePane()?.shortcuts.selection.selectAll(),
       deselectAll:           () => this.getActivePane()?.shortcuts.selection.deselectAll(),
       newFolder:             () => this.getActivePane()?.browserCommands.selection.createFolder(),

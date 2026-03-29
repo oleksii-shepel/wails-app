@@ -158,7 +158,8 @@ interface CarouselVirtualFrame {
                 [class.active]="frame.index === previewCenterIndex"
                 [title]="frame.item.name"
                 [attr.data-index]="frame.index"
-                (click)="selectCarouselIndex(frame.index)">
+                (click)="selectCarouselIndex(frame.index)"
+                (keydown)="onCarouselItemKeyDown($event, frame.index)">
                 <span class="carousel-thumb" [class.carousel-thumb--placeholder]="!frame.item.thumbnailSrc || frame.item.thumbnailFailed">
                   <img *ngIf="frame.item.thumbnailSrc && !frame.item.thumbnailFailed"
                        [src]="frame.item.thumbnailSrc"
@@ -901,25 +902,26 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
   }
 
   onImageHostWheel(event: WheelEvent): void {
+    if (!this.hasCarousel) {
+      return;
+    }
     event.preventDefault();
-    
-    // Get vertical scroll delta
+
+    // Use vertical wheel movement to switch the active image.
     let delta = event.deltaY;
-    
-    // Normalize delta based on delta mode
-    if (event.deltaMode === 1) { // LINE mode
-      delta = delta * 40; // Approximate line height
-    } else if (event.deltaMode === 2) { // PAGE mode
+    if (delta === 0 || Math.abs(delta) < Math.abs(event.deltaX)) {
+      return;
+    }
+
+    if (event.deltaMode === 1) {
+      delta = delta * 40;
+    } else if (event.deltaMode === 2) {
       delta = delta * 200;
     }
-    
-    // Apply sensitivity
+
     const scaledDelta = delta * 0.5;
-    
-    // Accumulate wheel movement
     this.wheelScrollAccumulator += scaledDelta;
-    
-    // Debounce rapid wheel events to prevent overwhelming
+
     const now = Date.now();
     if (now - this.lastWheelTimestamp < this.wheelCooldownMs) {
       return;
@@ -943,16 +945,14 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
 
   private processWheelScroll(isFinal: boolean = false): void {
     if (!this.hasCarousel) return;
-    
+
     const threshold = isFinal ? this.wheelStepThreshold / 2 : this.wheelStepThreshold;
-    
-    // Determine direction and magnitude
     const steps = Math.floor(Math.abs(this.wheelScrollAccumulator) / threshold);
-    
+    let shouldCommit = false;
+
     if (steps > 0) {
       const direction = Math.sign(this.wheelScrollAccumulator);
       const maxSteps = Math.min(steps, this.pointerMaxGestureSteps);
-      
       let movedSteps = 0;
       for (let i = 0; i < maxSteps; i++) {
         const moved = this.tryAdvancePreview(direction);
@@ -962,20 +962,22 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
           break; // Can't move further (at edge)
         }
       }
-      
-      // Reduce accumulator by the amount we processed
+
       this.wheelScrollAccumulator -= direction * movedSteps * threshold;
+      shouldCommit = movedSteps > 0;
     }
-    
-    // If this is the final call and there's still some accumulation but not enough for a full step,
-    // check if we should round up based on velocity/speed
+
     if (isFinal && Math.abs(this.wheelScrollAccumulator) > threshold * 0.3) {
       const direction = Math.sign(this.wheelScrollAccumulator);
-      this.tryAdvancePreview(direction);
+      shouldCommit = this.tryAdvancePreview(direction) || shouldCommit;
       this.wheelScrollAccumulator = 0;
     }
-    
-    // Reset accumulator if it's very small
+
+    if (shouldCommit && this.pendingPreviewIndex !== null && this.pendingPreviewIndex !== this.currentCarouselIndex) {
+      this.commitPreviewSelection();
+      this.pendingPreviewIndex = null;
+    }
+
     if (Math.abs(this.wheelScrollAccumulator) < threshold * 0.1) {
       this.wheelScrollAccumulator = 0;
     }
@@ -1183,8 +1185,11 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
     return true; // Successfully moved
   }
 
-  @HostListener('window:keydown.delete', ['$event'])
-  onDeleteKey(event: Event): void {
+  @HostListener('window:keydown', ['$event'])
+  onDeleteKey(event: KeyboardEvent): void {
+    if (event.key !== 'Delete') {
+      return;
+    }
     if (!this.isEventInsideViewerSurface(event) || !this.canDeleteCurrentTarget()) {
       return;
     }
@@ -1200,14 +1205,16 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
   }
 
   private canDeleteCurrentTarget(): boolean {
-    return !!this.activeTargetPath && !this.activeArchiveContext && !this.deletionInProgress && (this.kind === 'image' || this.kind === 'svg');
+    const selectedItem = this.carouselItems[this.previewCenterIndex] ?? null;
+    return !!selectedItem?.diskPath && !selectedItem.archiveContext && !this.deletionInProgress;
   }
 
   private async deleteCurrentTarget(): Promise<void> {
     if (!this.canDeleteCurrentTarget()) {
       return;
     }
-    const targetPath = this.activeTargetPath;
+    const selectedItem = this.carouselItems[this.previewCenterIndex] ?? null;
+    const targetPath = selectedItem?.diskPath ?? '';
     if (!targetPath) {
       return;
     }
@@ -1240,6 +1247,8 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
         : this.carouselItems.length - 1;
       this.currentCarouselIndex = nextIndex;
       this.previewCenterIndex = nextIndex;
+      this.seedVirtualWindowAround(nextIndex);
+      this.scheduleCenterOnCurrentItem();
       await this.displayCarouselIndex(nextIndex, this.contextToken, { preserveCurrentImage: true });
       this.onCarouselScroll();
     } catch (err: any) {
@@ -1325,6 +1334,20 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
     this.lockExplicitSelection(index);
     this.previewCenterIndex = index;
     void this.displayCarouselIndex(index, this.contextToken);
+  }
+
+  deleteSelected(): void {
+    void this.deleteCurrentTarget();
+  }
+
+  onCarouselItemKeyDown(event: KeyboardEvent, index: number): void {
+    if (event.key !== 'Delete') {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    this.previewCenterIndex = index;
+    void this.deleteCurrentTarget();
   }
 
   showPrevious(): void {

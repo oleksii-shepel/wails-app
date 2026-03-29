@@ -786,6 +786,10 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     this.viewer?.resetZoom?.();
   }
 
+  deleteInActiveViewer(): void {
+    this.viewer?.deleteSelected?.();
+  }
+
   async openSearchResult(result: SearchResultItem): Promise<void> {
     const targetPath = normalizePath(result.file.path);
     const focusPath = result.file.type === FileType.DIRECTORY ? targetPath : result.file.path;

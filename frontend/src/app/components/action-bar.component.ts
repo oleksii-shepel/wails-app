@@ -111,7 +111,7 @@ export type ViewMode = 'list' | 'grid' | 'tree' | 'details';
                   <circle cx="8" cy="8" r="2.5" fill="currentColor" />
                 </svg>
               </span>
-              <span class="arrange-option-label">Colorize by MIME</span>
+              <span class="arrange-option-label">Colorize by Category</span>
             </div>
           </div>
         </app-dropdown-container>

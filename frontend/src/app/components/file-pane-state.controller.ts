@@ -109,11 +109,10 @@ export class FilePaneStateController {
   getPreviewTargetPath(host: FilePaneStateHost): string {
     if (host.isInArchive()) return '';
 
-    const effective = this.getEffectiveSelection(host);
-    const selected = Array.from(effective).filter(path => path && path !== this.parentEntryPath);
-    if (selected.length !== 1) return '';
+    const path = this.getPreviewCandidatePath(host);
+    if (!path) return '';
 
-    const entry = host.findEntry(selected[0]);
+    const entry = host.findEntry(path);
     if (!entry) return '';
     if (entry.type !== this.fileTypeFile && entry.type !== this.fileTypeSymlink) return '';
     return entry.path;
@@ -131,16 +130,30 @@ export class FilePaneStateController {
     host.selectedFiles = new Set(selectable.map(entry => entry.path));
     host.selectionCursorPath = selectable.length ? selectable[selectable.length - 1].path : null;
     host.selectionAnchorPath = host.selectionCursorPath;
+    this.emitPreviewTargetFromState(host);
+    host.persistDirTabState();
   }
 
   onDeselectAll(host: FilePaneStateHost): void {
     host.selectedFiles = new Set();
+    this.emitPreviewTargetFromState(host);
+    host.persistDirTabState();
   }
 
   getEffectiveSelection(host: FilePaneStateHost): Set<string> {
     if (host.selectedFiles.size > 0) return host.selectedFiles;
     if (host.selectionCursorPath) return new Set([host.selectionCursorPath]);
     return new Set();
+  }
+
+  private getPreviewCandidatePath(host: FilePaneStateHost): string | null {
+    const cursorPath = host.selectionCursorPath;
+    if (cursorPath && cursorPath !== this.parentEntryPath) {
+      return cursorPath;
+    }
+
+    const selected = Array.from(this.getEffectiveSelection(host)).filter(path => path && path !== this.parentEntryPath);
+    return selected.length === 1 ? selected[0] : null;
   }
 
   onToggleCurrentAndMoveDown(host: FilePaneStateHost): void {

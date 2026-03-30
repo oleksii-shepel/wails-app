@@ -13,6 +13,7 @@ export interface FilePanePreviewHost {
   get activeTabKind(): 'dir' | 'viewer';
   get entries(): FileInfo[];
   get sortedEntries(): FileInfo[];
+  get selectionCursorPath(): string | null;
   get archiveStack(): ArchiveFrame[];
   get tabs(): any[];
   set tabs(value: any[]);
@@ -35,10 +36,13 @@ export class FilePanePreviewController {
   getPreviewRequest(host: FilePanePreviewHost): FilePanePreviewRequest | null {
     if (host.activeTabKind !== 'dir') return null;
 
+    const cursorPath = host.selectionCursorPath;
     const selected = Array.from(host.getEffectiveSelection()).filter(path => path && path !== PARENT_ENTRY_PATH);
-    if (selected.length !== 1) return null;
+    const path = cursorPath && cursorPath !== PARENT_ENTRY_PATH
+      ? cursorPath
+      : (selected.length === 1 ? selected[0] : '');
+    if (!path) return null;
 
-    const path = selected[0];
     if (host.isInArchive()) {
       const archiveContext = this.buildArchiveViewerContext(host, path);
       if (!archiveContext) return null;

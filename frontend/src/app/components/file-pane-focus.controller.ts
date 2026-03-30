@@ -34,6 +34,7 @@ export class FilePaneFocusController {
     host.selectionCursorPath = selectable[0].path;
     host.selectionAnchorPath = selectable[0].path;
     host.scrollToCursorPath(selectable[0].path);
+    host.emitPreviewTargetFromState();
   }
 
   focusCursorPath(host: FilePaneFocusHost, path: string): void {

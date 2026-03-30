@@ -206,6 +206,7 @@ export class FilePaneActionHostsFactory {
       get activeTabKind() { return source.activeTabKind; },
       get entries() { return source.entries; },
       get sortedEntries() { return source.getSortedEntries(); },
+      get selectionCursorPath() { return source.selectionCursorPath; },
       get archiveStack() { return source.archiveStack; },
       get tabs() { return source.tabs; },
       set tabs(value: any[]) { source.tabs = value as TabInfo[]; },

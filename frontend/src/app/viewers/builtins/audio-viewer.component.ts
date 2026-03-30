@@ -198,7 +198,6 @@ interface AudioPlaylistItem {
               <span class="time-edge">{{ formatTime(displayedCurrentTime) }}</span>
               <div class="prog-track">
                 <div class="prog-fill" [style.width.%]="progressPercent"></div>
-                <div class="prog-thumb" [style.left.%]="progressPercent"></div>
                 <input
                   type="range"
                   class="seek-input"
@@ -907,7 +906,8 @@ interface AudioPlaylistItem {
     .progress-row {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
+      min-height: 24px;
     }
 
     .time-edge {
@@ -926,9 +926,10 @@ interface AudioPlaylistItem {
       flex: 1;
       position: relative;
       height: 4px;
-      background: color-mix(in srgb, var(--av-text) 14%, transparent);
+      background: color-mix(in srgb, var(--av-text) 20%, transparent);
       border-radius: 2px;
       cursor: pointer;
+      overflow: hidden;
     }
 
     .prog-fill {
@@ -936,34 +937,60 @@ interface AudioPlaylistItem {
       left: 0;
       top: 0;
       height: 100%;
-      background: linear-gradient(90deg, var(--av-accent), color-mix(in srgb, var(--av-accent) 72%, white));
+      background: linear-gradient(90deg, var(--vsc-accent-blue, #0078d4), #00a4ef);
       border-radius: 2px;
-      transition: width 0.06s linear;
-      pointer-events: none;
-    }
-
-    .prog-thumb {
-      position: absolute;
-      top: 50%;
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-      background: var(--av-accent-foreground);
-      border: 2px solid var(--av-accent);
-      transform: translate(-50%, -50%);
-      box-shadow: 0 0 8px color-mix(in srgb, var(--av-accent) 38%, transparent);
-      transition: left 0.06s linear;
+      transition: width 0.05s linear;
       pointer-events: none;
     }
 
     .seek-input {
       position: absolute;
-      inset: -10px 0;
       width: 100%;
-      opacity: 0;
+      height: 24px;
+      width: 100%;
+      margin: -10px 0;
+      appearance: none;
+      -webkit-appearance: none;
+      background: transparent;
+      outline: none;
       cursor: pointer;
       z-index: 2;
-      margin: 0;
+    }
+
+    .seek-input::-webkit-slider-thumb {
+      appearance: none;
+      -webkit-appearance: none;
+      width: 12px;
+      height: 12px;
+      background: white;
+      border: none;
+      border-radius: 50%;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+      transition: all 0.2s ease;
+    }
+
+    .seek-input::-webkit-slider-thumb:hover {
+      width: 16px;
+      height: 16px;
+      box-shadow: 0 4px 16px rgba(0, 120, 212, 0.8);
+    }
+
+    .seek-input::-moz-range-thumb {
+      width: 12px;
+      height: 12px;
+      background: white;
+      border: none;
+      border-radius: 50%;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+      transition: all 0.2s ease;
+    }
+
+    .seek-input::-moz-range-thumb:hover {
+      width: 16px;
+      height: 16px;
+      box-shadow: 0 4px 16px rgba(0, 120, 212, 0.8);
     }
 
     /* controls row */

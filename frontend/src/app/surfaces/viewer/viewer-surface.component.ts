@@ -947,9 +947,9 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
     }
 
     .seek-badge {
-      background: rgba(250, 204, 21, 0.18);
-      border-color: rgba(250, 204, 21, 0.35);
-      color: #fde68a;
+      background: color-mix(in srgb, var(--vsc-editorWarning-foreground, #b89500) 14%, transparent);
+      border-color: color-mix(in srgb, var(--vsc-editorWarning-foreground, #b89500) 34%, transparent);
+      color: var(--vsc-editorWarning-foreground, #8a6d00);
     }
 
     .resolution-badge {

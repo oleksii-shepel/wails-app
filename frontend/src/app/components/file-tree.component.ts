@@ -17,7 +17,7 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { FileEntryComponent } from './file-entry.component';
+import { FileEntryInlineComponent } from './file-entry-inline.component';
 import { FileInfo, FileType } from '../shared/protocol';
 import { DEFAULT_FILE_CATEGORIES } from './filter-bar.types';
 import { normalizePath as normalizePathReference } from './address-bar.utils';
@@ -45,7 +45,7 @@ export interface DropTarget {
 @Component({
   selector: 'app-file-tree',
   standalone: true,
-  imports: [CommonModule, FormsModule, FileEntryComponent, VscodeScrollbarDirective],
+  imports: [CommonModule, FormsModule, FileEntryInlineComponent, VscodeScrollbarDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
@@ -124,17 +124,16 @@ export interface DropTarget {
               <span *ngIf="!node.expandable" class="twistie-placeholder"></span>
             </span>
 
-            <app-file-entry
+            <app-file-entry-inline
               *ngIf="!node.renaming"
               class="tree-entry"
               [entry]="node"
-              [selected]="isSelected(node)"
               [displayNameOverride]="getDisplayNameOverride(node.path)"
               [directorySizePending]="isDirectorySizePending(node.path)"
               [showDirectorySizeSpinnerInName]="true"
               [colorizeByMime]="colorizeByMime"
-              variant="inline">
-            </app-file-entry>
+              >
+            </app-file-entry-inline>
             
             <input
               *ngIf="node.renaming"
@@ -1002,6 +1001,9 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
       }
       // Set simple drop target for external files
       const position = node.type === FileType.DIRECTORY ? 'inside' : 'after';
+      if (this.dragState.dropTarget?.node.path === node.path && this.dragState.dropTarget.position === position) {
+        return;
+      }
       this.dragState.dropTarget = { node, position };
       this.cdr.markForCheck();
       return;
@@ -1033,6 +1035,9 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
       if (!isValidDrop) return;
     }
 
+    if (this.dragState.dropTarget?.node.path === node.path && this.dragState.dropTarget.position === position) {
+      return;
+    }
     this.dragState.dropTarget = { node, position };
     if (event.dataTransfer) {
       event.dataTransfer.dropEffect = event.ctrlKey || event.metaKey ? 'copy' : 'move';
@@ -1323,26 +1328,16 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
 
   private emitMarqueeSelection(): void {
     if (!this.marqueeContainer) return;
-
-    const containerRect = this.marqueeContainer.getBoundingClientRect();
     const selectionPaths = new Set<string>();
-    const rows = this.marqueeContainer.querySelectorAll<HTMLElement>('.tree-node-wrapper[data-path]');
+    const selectionBottom = this.selectionRect.top + this.selectionRect.height;
+    const startIndex = Math.max(0, Math.floor(this.selectionRect.top / this.VIRTUAL_ROW_HEIGHT));
+    const endIndex = Math.min(this.flatVisibleNodes.length - 1, Math.floor(Math.max(0, selectionBottom - 1) / this.VIRTUAL_ROW_HEIGHT));
 
-    for (const row of Array.from(rows)) {
-      const path = row.dataset['path'];
-      if (!path) continue;
-
-      const rowRect = row.getBoundingClientRect();
-      const rowLeft = rowRect.left - containerRect.left + this.marqueeContainer.scrollLeft;
-      const rowTop = rowRect.top - containerRect.top + this.marqueeContainer.scrollTop;
-
-      const intersects =
-        rowLeft < this.selectionRect.left + this.selectionRect.width &&
-        rowLeft + rowRect.width > this.selectionRect.left &&
-        rowTop < this.selectionRect.top + this.selectionRect.height &&
-        rowTop + rowRect.height > this.selectionRect.top;
-
-      if (intersects) selectionPaths.add(path);
+    for (let i = startIndex; i <= endIndex; i++) {
+      const node = this.flatVisibleNodes[i];
+      if (node) {
+        selectionPaths.add(node.path);
+      }
     }
 
     if (this.marqueeAppend) {

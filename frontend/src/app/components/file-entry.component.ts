@@ -1,7 +1,7 @@
 import { Component, Input, Output, EventEmitter, HostBinding, ElementRef, ViewChild, ChangeDetectionStrategy, OnChanges, SimpleChanges } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FileInfo, FileType } from '../shared/protocol';
-import { getFileMimeColorKind } from './file-entry-color.util';
+import { getFileEntryPresentation } from './file-entry-presentation.util';
 
 export interface FileEntrySelectEvent {
   entry: FileInfo;
@@ -22,83 +22,103 @@ export const PARENT_ENTRY_PATH = '__parent__';
       [class.selected]="selected"
       [class.cursor]="cursor"
         [class.directory]="entry.type === FileType.DIRECTORY"
-        [class.parent-dir]="isParent"
+      [class.parent-dir]="isParent"
       (click)="onClick($event)"
       (dblclick)="onDoubleClick()">
+      <ng-container *ngIf="isInlineVariant; else defaultLayout">
+        <span class="file-icon" [class.parent-icon]="isParent">
+          <ng-container *ngTemplateOutlet="entryIcon"></ng-container>
+        </span>
 
-      <span class="file-icon" [class.parent-icon]="isParent">
-        <ng-container *ngIf="isParent; else normalIcon">
-          <svg
-            width="20"
-            height="20"
-            viewBox="0 0 20 20"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.6"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true">
-            <path d="M13 15 L7 15 L7 6"/>
-            <path d="M4.5 8.5 L7 6 L9.5 8.5"/>
-          </svg>
-        </ng-container>
-        <ng-template #normalIcon>
-          <span class="icon-emoji">{{ iconEmoji }}</span>
-          <svg *ngIf="isSymlinkEntry" class="symlink-badge" viewBox="0 0 10 10" fill="none" aria-label="symlink">
-            <!-- Curved arrow body -->
-            <path d="M2 8 C2 5 5 3 8 2"
-              stroke="var(--vsc-icon-symlink,#5dade2)" stroke-width="2" stroke-linecap="round"/>
-            <!-- Arrow corner/head -->
-            <path d="M6 1.2 L8.8 1.2 L8.8 4"
-              stroke="var(--vsc-icon-symlink,#5dade2)" stroke-width="2"
-              stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </ng-template>
-      </span>
+        <div class="file-info">
+          <div class="file-name">
+            <ng-container *ngTemplateOutlet="entryName"></ng-container>
+          </div>
+        </div>
+      </ng-container>
 
-      <div class="file-info">
-        <div class="file-name">
-          <input
-            *ngIf="isRenaming"
-            #renameInput
-            class="rename-input"
-            [value]="editingName"
-            (click)="$event.stopPropagation()"
-            (dblclick)="$event.stopPropagation()"
-            (mousedown)="$event.stopPropagation()"
-            (input)="onRenameInput($event)"
-            (blur)="onRenameBlur()"
-            (keydown)="onRenameKeyDown($event)" />
-          <ng-container *ngIf="!isRenaming">
-            <span class="file-name-text" [attr.data-mime-kind]="mimeColorKind">{{ displayName }}</span>
-            <span
-              *ngIf="showDirectorySizeSpinnerInName && showDirectorySizeSpinner"
-              class="file-size-spinner file-size-spinner--inline"
-              aria-label="Calculating folder size"
-              title="Calculating folder size">
-            </span>
+      <ng-template #defaultLayout>
+        <span class="file-icon" [class.parent-icon]="isParent">
+          <ng-container *ngTemplateOutlet="entryIcon"></ng-container>
+        </span>
+
+        <div class="file-info">
+          <div class="file-name">
+            <ng-container *ngTemplateOutlet="entryName"></ng-container>
             <span *ngIf="showSearchBadgeInVariant" class="entry-chip search-chip">Search</span>
-          </ng-container>
-        </div>
-        <div class="file-context-grid" *ngIf="showSearchContextGrid">{{ searchParentPath }}</div>
-        <div class="file-details" [attr.aria-hidden]="isParent ? 'true' : null">
-          <ng-container *ngIf="!isParent; else detailPlaceholder">
-            <span class="file-size file-size--pending" *ngIf="showDirectorySizeSpinner; else fileSizeValue">
-              <span
-                class="file-size-spinner"
-                aria-label="Calculating folder size"
-                title="Calculating folder size">
+          </div>
+          <div class="file-context-grid" *ngIf="showSearchContextGrid">{{ searchParentPath }}</div>
+          <div class="file-details" [attr.aria-hidden]="isParent ? 'true' : null">
+            <ng-container *ngIf="!isParent; else detailPlaceholder">
+              <span class="file-size file-size--pending" *ngIf="showDirectorySizeSpinner; else fileSizeValue">
+                <span
+                  class="file-size-spinner"
+                  aria-label="Calculating folder size"
+                  title="Calculating folder size">
+                </span>
               </span>
-            </span>
-            <ng-template #fileSizeValue>
-              <span class="file-size">{{ formatSize(entry.size) }}</span>
-            </ng-template>
-            <span class="file-date">{{ formatDate(entry.modified) }}</span>
-          </ng-container>
-          <span class="file-context" *ngIf="showSearchContextRow">{{ searchParentPath }}</span>
+              <ng-template #fileSizeValue>
+                <span class="file-size">{{ formatSize(entry.size) }}</span>
+              </ng-template>
+              <span class="file-date">{{ formatDate(entry.modified) }}</span>
+            </ng-container>
+            <span class="file-context" *ngIf="showSearchContextRow">{{ searchParentPath }}</span>
+          </div>
         </div>
-      </div>
+      </ng-template>
     </div>
+
+    <ng-template #entryIcon>
+      <ng-container *ngIf="isParent; else normalIcon">
+        <svg
+          width="20"
+          height="20"
+          viewBox="0 0 20 20"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.6"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true">
+          <path d="M13 15 L7 15 L7 6"/>
+          <path d="M4.5 8.5 L7 6 L9.5 8.5"/>
+        </svg>
+      </ng-container>
+      <ng-template #normalIcon>
+        <span class="icon-emoji">{{ iconEmoji }}</span>
+        <svg *ngIf="isSymlinkEntry" class="symlink-badge" viewBox="0 0 10 10" fill="none" aria-label="symlink">
+          <path d="M2 8 C2 5 5 3 8 2"
+            stroke="var(--vsc-icon-symlink,#5dade2)" stroke-width="2" stroke-linecap="round"/>
+          <path d="M6 1.2 L8.8 1.2 L8.8 4"
+            stroke="var(--vsc-icon-symlink,#5dade2)" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </ng-template>
+    </ng-template>
+
+    <ng-template #entryName>
+      <input
+        *ngIf="isRenaming"
+        #renameInput
+        class="rename-input"
+        [value]="editingName"
+        (click)="$event.stopPropagation()"
+        (dblclick)="$event.stopPropagation()"
+        (mousedown)="$event.stopPropagation()"
+        (input)="onRenameInput($event)"
+        (blur)="onRenameBlur()"
+        (keydown)="onRenameKeyDown($event)" />
+      <ng-container *ngIf="!isRenaming">
+        <span class="file-name-text" [attr.data-mime-kind]="mimeColorKind">{{ displayName }}</span>
+        <span
+          *ngIf="showDirectorySizeSpinnerInName && showDirectorySizeSpinner"
+          class="file-size-spinner file-size-spinner--inline"
+          aria-label="Calculating folder size"
+          title="Calculating folder size">
+        </span>
+      </ng-container>
+    </ng-template>
+
     <ng-template #detailPlaceholder>&nbsp;</ng-template>
   `,
   styles: [`
@@ -580,17 +600,18 @@ export class FileEntryComponent implements OnChanges {
 
   private rebuildRenderState(): void {
     const entry = this.entry;
-    this.isParent = entry?.path === PARENT_ENTRY_PATH;
-    this.isSymlinkEntry = entry?.type === FileType.SYMLINK || !!entry?.isSymlink;
+    const presentation = getFileEntryPresentation(entry, this.colorizeByMime);
+    this.isParent = presentation.isParent;
+    this.isSymlinkEntry = presentation.isSymlink;
     this.displayName = this.displayNameOverride?.trim() || entry?.name || '';
-    this.mimeColorKind = getFileMimeColorKind(entry, this.colorizeByMime);
+    this.mimeColorKind = presentation.mimeColorKind;
     this.searchParentPath = entry?.searchParentPath || '';
     const isSearchEntry = !!entry && !!(entry.searchParentPath || entry.searchPattern || entry.searchBasePath);
     this.showSearchBadgeInVariant = !this.isParent && this.variant !== 'inline' && isSearchEntry;
     this.showSearchContextRow = !this.isParent && this.variant === 'row' && isSearchEntry;
     this.showSearchContextGrid = !this.isParent && this.variant === 'grid' && isSearchEntry;
     this.showDirectorySizeSpinner = this.directorySizePending && !this.isParent && entry?.type === FileType.DIRECTORY;
-    this.iconEmoji = this.resolveIconEmoji(entry);
+    this.iconEmoji = presentation.iconEmoji;
   }
 
   private resolveIconEmoji(entry: FileInfo | undefined): string {

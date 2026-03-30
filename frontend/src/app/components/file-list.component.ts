@@ -32,6 +32,7 @@ type VisibleRowVm = {
   dragOverInside: boolean;
   dragOverBefore: boolean;
   dragOverAfter: boolean;
+  columnVersion?: number;
 };
 
 @Component({
@@ -303,6 +304,7 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
   private cachedVirtualEntries: FileInfo[] = [];
   visibleEntries: FileInfo[] = [];
   visibleRowVms: VisibleRowVm[] = [];
+  private rowVmCache = new Map<string, VisibleRowVm>();
   private pathToVirtualIndex = new Map<string, number>();
 
   private virtualStart = 0;
@@ -456,7 +458,7 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
     this.scrollRAF = requestAnimationFrame(() => {
       this.scrollRAF = null;
       if (this.updateVirtualWindow()) {
-        this.zone.run(() => this.cdr.markForCheck());
+        this.cdr.markForCheck();
       }
     });
   }
@@ -473,7 +475,16 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
   private refreshDerivedEntries(): void {
     this.cachedVirtualEntries = this.parentEntry ? this.entries.slice(1) : this.entries;
     this.pathToVirtualIndex.clear();
-    this.cachedVirtualEntries.forEach((entry, index) => this.pathToVirtualIndex.set(entry.path, index));
+    const pathSet = new Set<string>();
+    this.cachedVirtualEntries.forEach((entry, index) => {
+      this.pathToVirtualIndex.set(entry.path, index);
+      pathSet.add(entry.path);
+    });
+    for (const key of this.rowVmCache.keys()) {
+      if (!pathSet.has(key)) {
+        this.rowVmCache.delete(key);
+      }
+    }
     this.updateVirtualWindow(true);
   }
 
@@ -490,16 +501,40 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
 
   private buildRowVm(entry: FileInfo): VisibleRowVm {
     const path = entry.path;
-    return {
+    const selected = this.selectedFiles.has(path);
+    const cursor = path === this.cursorPath;
+    const displayNameOverride = this.pendingRenameDisplayNames.get(path) ?? null;
+    const directorySizePending = this.pendingDirectorySizePaths.has(path);
+    const dragOverInside = this.dragOverPath === path && this.dragOverPosition === 'inside';
+    const dragOverBefore = this.dragOverPath === path && this.dragOverPosition === 'before';
+    const dragOverAfter = this.dragOverPath === path && this.dragOverPosition === 'after';
+    const existing = this.rowVmCache.get(path);
+    if (
+      existing &&
+      existing.entry === entry &&
+      existing.selected === selected &&
+      existing.cursor === cursor &&
+      existing.displayNameOverride === displayNameOverride &&
+      existing.directorySizePending === directorySizePending &&
+      existing.dragOverInside === dragOverInside &&
+      existing.dragOverBefore === dragOverBefore &&
+      existing.dragOverAfter === dragOverAfter
+    ) {
+      return existing;
+    }
+
+    const vm: VisibleRowVm = {
       entry,
-      selected: this.selectedFiles.has(path),
-      cursor: path === this.cursorPath,
-      displayNameOverride: this.pendingRenameDisplayNames.get(path) ?? null,
-      directorySizePending: this.pendingDirectorySizePaths.has(path),
-      dragOverInside: this.dragOverPath === path && this.dragOverPosition === 'inside',
-      dragOverBefore: this.dragOverPath === path && this.dragOverPosition === 'before',
-      dragOverAfter: this.dragOverPath === path && this.dragOverPosition === 'after',
+      selected,
+      cursor,
+      displayNameOverride,
+      directorySizePending,
+      dragOverInside,
+      dragOverBefore,
+      dragOverAfter,
     };
+    this.rowVmCache.set(path, vm);
+    return vm;
   }
 
   private updateVirtualWindow(forceRebuild = false): boolean {
@@ -898,27 +933,29 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
 
   private emitMarqueeSelection(): void {
     if (!this.marqueeContainer) return;
-    
-    const containerRect = this.marqueeContainer.getBoundingClientRect();
     const selectionPaths = new Set<string>();
-    const items = this.marqueeContainer.querySelectorAll<HTMLElement>('.file-list-row[data-path]');
+    const selectionBottom = this.selectionRect.top + this.selectionRect.height;
 
-    for (const item of Array.from(items)) {
-      const path = item.dataset['path'];
-      if (!path || path === PARENT_ENTRY_PATH) continue;
-      
-      const itemRect = item.getBoundingClientRect();
-      const itemLeft = itemRect.left - containerRect.left + this.marqueeContainer.scrollLeft;
-      const itemTop = itemRect.top - containerRect.top + this.marqueeContainer.scrollTop;
-      
-      const intersects =
-        itemLeft < this.selectionRect.left + this.selectionRect.width &&
-        itemLeft + itemRect.width > this.selectionRect.left &&
-        itemTop < this.selectionRect.top + this.selectionRect.height &&
-        itemTop + itemRect.height > this.selectionRect.top;
-
-      if (intersects) {
-        selectionPaths.add(path);
+    if (this.virtualEnabled) {
+      const parentOffset = this.parentEntry ? this.parentRowHeight : 0;
+      const contentTop = Math.max(0, this.selectionRect.top - parentOffset);
+      const contentBottom = Math.max(0, selectionBottom - parentOffset);
+      const startIndex = Math.max(0, Math.floor(contentTop / this.rowHeight));
+      const endIndex = Math.min(this.cachedVirtualEntries.length - 1, Math.floor(Math.max(0, contentBottom - 1) / this.rowHeight));
+      for (let i = startIndex; i <= endIndex; i++) {
+        const entry = this.cachedVirtualEntries[i];
+        if (entry && entry.path !== PARENT_ENTRY_PATH) {
+          selectionPaths.add(entry.path);
+        }
+      }
+    } else {
+      const startIndex = Math.max(0, Math.floor(this.selectionRect.top / this.rowHeight));
+      const endIndex = Math.min(this.entries.length - 1, Math.floor(Math.max(0, selectionBottom - 1) / this.rowHeight));
+      for (let i = startIndex; i <= endIndex; i++) {
+        const entry = this.entries[i];
+        if (entry && entry.path !== PARENT_ENTRY_PATH) {
+          selectionPaths.add(entry.path);
+        }
       }
     }
 
@@ -1018,8 +1055,12 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
     } else {
       position = entry.type === FileType.DIRECTORY ? 'inside' : (fraction < 0.5 ? 'before' : 'after');
     }
+    if (this.dragOverPath === entry.path && this.dragOverPosition === position) {
+      return;
+    }
     this.dragOverPath = entry.path;
     this.dragOverPosition = position;
+    this.rebuildVisibleRowVms();
     this.cdr.markForCheck();
   }
 
@@ -1027,6 +1068,7 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
     if (this.dragOverPath === entry.path) {
       this.dragOverPath = null;
       this.dragOverPosition = null;
+      this.rebuildVisibleRowVms();
       this.cdr.markForCheck();
     }
   }
@@ -1039,6 +1081,7 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
     if (this.hasExternalFiles(event)) {
       this.dragOverPath = null;
       this.dragOverPosition = null;
+      this.rebuildVisibleRowVms();
       this.cdr.markForCheck();
       return;
     }
@@ -1047,6 +1090,7 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
     const capturedPosition = this.dragOverPosition;
     this.dragOverPath = null;
     this.dragOverPosition = null;
+    this.rebuildVisibleRowVms();
     this.cdr.markForCheck();
 
     const draggedEntries = this.readDraggedEntries(event);

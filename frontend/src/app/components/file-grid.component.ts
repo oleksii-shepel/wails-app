@@ -783,7 +783,7 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
           }
         }
         if (shouldMark) {
-          this.zone.run(() => this.cdr.markForCheck());
+          this.cdr.markForCheck();
         }
       });
 
@@ -816,7 +816,7 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
     this.scrollRAF = requestAnimationFrame(() => {
       this.scrollRAF = null;
       if (this.updateVirtualWindow()) {
-        this.zone.run(() => this.cdr.markForCheck());
+        this.cdr.markForCheck();
       }
     });
   }
@@ -1132,26 +1132,47 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
   private emitMarqueeSelection(): void {
     if (!this.marqueeContainer) return;
 
-    const containerRect = this.marqueeContainer.getBoundingClientRect();
     const selectionPaths = new Set<string>();
-    const items = this.marqueeContainer.querySelectorAll<HTMLElement>('.grid-item[data-path]');
+    const metrics = this.getGridMarqueeMetrics();
 
-    for (const item of Array.from(items)) {
-      const path = item.dataset['path'];
-      if (!path || path === PARENT_ENTRY_PATH) continue;
+    if (metrics) {
+      const selectionRight = this.selectionRect.left + this.selectionRect.width;
+      const selectionBottom = this.selectionRect.top + this.selectionRect.height;
+      const startColumn = Math.max(0, Math.floor((this.selectionRect.left - metrics.paddingLeft) / metrics.cellStrideX));
+      const endColumn = Math.min(metrics.columns - 1, Math.floor(Math.max(0, selectionRight - metrics.paddingLeft - 1) / metrics.cellStrideX));
+      const startRow = Math.max(0, Math.floor((this.selectionRect.top - metrics.paddingTop) / metrics.cellStrideY));
+      const endRow = Math.max(0, Math.floor(Math.max(0, selectionBottom - metrics.paddingTop - 1) / metrics.cellStrideY));
 
-      const itemRect = item.getBoundingClientRect();
-      const itemLeft = itemRect.left - containerRect.left + this.marqueeContainer.scrollLeft;
-      const itemTop = itemRect.top - containerRect.top + this.marqueeContainer.scrollTop;
-      
-      const intersects =
-        itemLeft < this.selectionRect.left + this.selectionRect.width &&
-        itemLeft + itemRect.width > this.selectionRect.left &&
-        itemTop < this.selectionRect.top + this.selectionRect.height &&
-        itemTop + itemRect.height > this.selectionRect.top;
+      for (let row = startRow; row <= endRow; row++) {
+        for (let column = startColumn; column <= endColumn; column++) {
+          const index = row * metrics.columns + column;
+          const entry = this.entries[index];
+          if (entry && entry.path !== PARENT_ENTRY_PATH) {
+            selectionPaths.add(entry.path);
+          }
+        }
+      }
+    } else {
+      const containerRect = this.marqueeContainer.getBoundingClientRect();
+      const items = this.marqueeContainer.querySelectorAll<HTMLElement>('.grid-item[data-path]');
 
-      if (intersects) {
-        selectionPaths.add(path);
+      for (const item of Array.from(items)) {
+        const path = item.dataset['path'];
+        if (!path || path === PARENT_ENTRY_PATH) continue;
+
+        const itemRect = item.getBoundingClientRect();
+        const itemLeft = itemRect.left - containerRect.left + this.marqueeContainer.scrollLeft;
+        const itemTop = itemRect.top - containerRect.top + this.marqueeContainer.scrollTop;
+        
+        const intersects =
+          itemLeft < this.selectionRect.left + this.selectionRect.width &&
+          itemLeft + itemRect.width > this.selectionRect.left &&
+          itemTop < this.selectionRect.top + this.selectionRect.height &&
+          itemTop + itemRect.height > this.selectionRect.top;
+
+        if (intersects) {
+          selectionPaths.add(path);
+        }
       }
     }
 
@@ -1165,6 +1186,29 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
 
     const selectedEntries = this.entries.filter(entry => selectionPaths.has(entry.path));
     this.selectionChange.emit(selectedEntries);
+  }
+
+  private getGridMarqueeMetrics(): { columns: number; paddingLeft: number; paddingTop: number; cellStrideX: number; cellStrideY: number } | null {
+    const host = this.gridContainerRef?.nativeElement;
+    if (!host) return null;
+
+    const columns = Math.max(1, this.virtualColumns);
+    const style = getComputedStyle(host);
+    const paddingLeft = parseFloat(style.paddingLeft || '0') || 0;
+    const paddingRight = parseFloat(style.paddingRight || '0') || 0;
+    const paddingTop = parseFloat(style.paddingTop || '0') || 0;
+    const columnGap = parseFloat(style.columnGap || style.gap || '0') || 0;
+    const rowGap = parseFloat(style.rowGap || style.gap || '0') || 0;
+    const contentWidth = Math.max(1, host.clientWidth - paddingLeft - paddingRight);
+    const cellWidth = Math.max(1, (contentWidth - columnGap * (columns - 1)) / columns);
+
+    return {
+      columns,
+      paddingLeft,
+      paddingTop,
+      cellStrideX: cellWidth + columnGap,
+      cellStrideY: this.rowHeight + rowGap,
+    };
   }
 
   private finishMarqueeSelection(): void {

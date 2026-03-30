@@ -10,14 +10,12 @@ import {
   SimpleChanges,
   ElementRef,
   ViewChild,
-  ViewChildren,
-  QueryList,
   NgZone,
   ChangeDetectionStrategy,
   ChangeDetectorRef,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { FileEntryComponent } from './file-entry.component';
+import { FileEntryInlineComponent } from './file-entry-inline.component';
 import { FileInfo, FileType } from '../shared/protocol';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
 import { parentPath } from './address-bar.utils';
@@ -33,28 +31,62 @@ export interface ColumnDef {
   formatter?: (value: any, entry: FileInfo) => string;
 }
 
+interface DetailsColumnVm {
+  column: ColumnDef;
+  key: string;
+  width: string | null;
+  flex: string;
+}
+
+interface DetailsCellVm {
+  column: ColumnDef;
+  key: string;
+  width: string | null;
+  flex: string;
+  value: string;
+  isName: boolean;
+  showDirectorySizePending: boolean;
+}
+
+interface DetailsRowVm {
+  entry: FileInfo;
+  selected: boolean;
+  cursor: boolean;
+  parentDir: boolean;
+  renaming: boolean;
+  editingName: string;
+  directorySizePending: boolean;
+  dragOverInside: boolean;
+  dragOverBefore: boolean;
+  dragOverAfter: boolean;
+  draggable: boolean;
+  displayNameOverride: string | null;
+  columnVersion: number;
+  cells: DetailsCellVm[];
+}
+
 @Component({
   selector: 'app-file-details',
   standalone: true,
-  imports: [CommonModule, FileEntryComponent, VscodeScrollbarDirective],
+  imports: [CommonModule, FileEntryInlineComponent, VscodeScrollbarDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="file-details" role="table">
       <div class="details-header" role="rowgroup">
         <div class="details-row header-row" role="row">
           <div 
-            *ngFor="let col of activeColumns; let i = index"
+            *ngFor="let col of activeColumnVms; let i = index; trackBy: trackByColumnKey"
             class="details-cell header-cell"
-            [attr.data-col]="getColumnKey(col)"
-            [class.sortable]="col.sortable"
-            [style.width]="getColumnWidth(col)"
-            [style.flex]="getColumnFlex(col)"
+            [attr.data-col]="col.key"
+            [class.sortable]="col.column.sortable"
+            [style.width]="col.width"
+            [style.flex]="col.flex"
             [attr.role]="'columnheader'"
-            [attr.aria-sort]="getSortState(col.field)"
-            (click)="col.sortable && onSort(col.field)">
+            [attr.aria-sort]="getSortState(col.column.field)"
+            (click)="col.column.sortable && onSort(col.column.field)">
             
-            <span class="header-label">{{ col.header }}</span>
-            <span class="sort-indicator" *ngIf="sortField === col.field"
+            <span class="header-label">{{ col.column.header }}</span>
+            <span class="sort-indicator" *ngIf="sortField === col.column.field"
                   [class.sort-asc]="sortDirection === 'asc'"
                   [class.sort-desc]="sortDirection === 'desc'">
               <svg viewBox="0 0 16 16">
@@ -62,10 +94,10 @@ export interface ColumnDef {
               </svg>
             </span>
             <div
-              *ngIf="i < activeColumns.length - 1"
+              *ngIf="i < activeColumnVms.length - 1"
               class="view-divider"
               title="Resize column"
-              (mousedown)="onColumnResizeStart($event, col)">
+              (mousedown)="onColumnResizeStart($event, col.column)">
             </div>
           </div>
         </div>
@@ -88,50 +120,59 @@ export interface ColumnDef {
         
         <div class="details-window" [class.virtual-window]="virtualEnabled" [style.transform]="virtualWindowTransform">
           <div 
-            *ngFor="let entry of visibleEntries; trackBy: trackByPath"
+            *ngFor="let row of visibleRowVms; trackBy: trackByRowPath"
             class="details-row"
-            [attr.data-path]="entry.path"
+            [attr.data-path]="row.entry.path"
             [style.height.px]="virtualEnabled ? rowHeight : null"
-            [class.selected]="isSelected(entry)"
-            [class.cursor]="entry.path === cursorPath"
-            [class.parent-dir]="isParentEntry(entry)"
-            [class.drag-over]="isDragOverInside(entry)"
-            [class.drag-over-before]="isDragOverBefore(entry)"
-            [class.drag-over-after]="isDragOverAfter(entry)"
+            [class.selected]="row.selected"
+            [class.cursor]="row.cursor"
+            [class.parent-dir]="row.parentDir"
+            [class.drag-over]="row.dragOverInside"
+            [class.drag-over-before]="row.dragOverBefore"
+            [class.drag-over-after]="row.dragOverAfter"
             [attr.role]="'row'"
-            [attr.aria-selected]="isSelected(entry)"
-            [draggable]="!isParentEntry(entry)"
-            (click)="onRowClick(entry, $event)"
-            (auxclick)="onRowAuxClick($event, entry)"
-            (dblclick)="onRowDoubleClick(entry)"
-            (contextmenu)="onContextMenu($event, entry)"
-            (dragstart)="onDragStart($event, entry)"
-            (dragover)="onDragOver($event, entry)"
-            (dragleave)="onDragLeave(entry)"
-            (drop)="onDrop($event, entry)">
-            <div *ngIf="isDragOverBefore(entry)" class="drop-indicator drop-indicator-before"></div>
-            <div *ngIf="isDragOverAfter(entry)" class="drop-indicator drop-indicator-after"></div>
+            [attr.aria-selected]="row.selected"
+            [draggable]="row.draggable"
+            (click)="onRowClick(row.entry, $event)"
+            (auxclick)="onRowAuxClick($event, row.entry)"
+            (dblclick)="onRowDoubleClick(row.entry)"
+            (contextmenu)="onContextMenu($event, row.entry)"
+            (dragstart)="onDragStart($event, row.entry)"
+            (dragover)="onDragOver($event, row.entry)"
+            (dragleave)="onDragLeave(row.entry)"
+            (drop)="onDrop($event, row.entry)">
+            <div *ngIf="row.dragOverBefore" class="drop-indicator drop-indicator-before"></div>
+            <div *ngIf="row.dragOverAfter" class="drop-indicator drop-indicator-after"></div>
             
             <div 
-              *ngFor="let col of activeColumns; let i = index"
+              *ngFor="let cell of row.cells; trackBy: trackByCellKey"
               class="details-cell"
-              [style.width]="getColumnWidth(col)"
-              [style.flex]="getColumnFlex(col)"
+              [style.width]="cell.width"
+              [style.flex]="cell.flex"
               [attr.role]="'cell'">
               
-              <ng-container *ngIf="col.field === 'name'">
-                <app-file-entry
-                  [entry]="entry"
-                  [selected]="isSelected(entry)"
-                  [cursor]="entry.path === cursorPath"
-                  [displayNameOverride]="getDisplayNameOverride(entry.path)"
-                  [colorizeByMime]="colorizeByMime"
-                  variant="inline"
-                  (rename)="onRename($event)">
-                </app-file-entry>
+              <ng-container *ngIf="cell.isName">
+                <input
+                  *ngIf="row.renaming; else detailsNameDisplay"
+                  class="details-rename-input"
+                  [value]="row.editingName"
+                  (click)="$event.stopPropagation()"
+                  (dblclick)="$event.stopPropagation()"
+                  (mousedown)="$event.stopPropagation()"
+                  (input)="onRenameInput(row.entry, $event)"
+                  (blur)="onRenameBlur(row.entry)"
+                  (keydown)="onRenameKeyDown(row.entry, $event)" />
+
+                <ng-template #detailsNameDisplay>
+                  <app-file-entry-inline
+                    [entry]="row.entry"
+                    [displayNameOverride]="row.displayNameOverride"
+                    [colorizeByMime]="colorizeByMime">
+                  </app-file-entry-inline>
+                </ng-template>
               </ng-container>
               
-              <ng-container *ngIf="col.field === 'size' && isDirectorySizePending(entry.path); else defaultCellContent">
+              <ng-container *ngIf="cell.showDirectorySizePending; else defaultCellContent">
                 <span
                   class="details-size-spinner"
                   aria-label="Calculating folder size"
@@ -140,8 +181,8 @@ export interface ColumnDef {
               </ng-container>
 
               <ng-template #defaultCellContent>
-              <ng-container *ngIf="col.field !== 'name'">
-                {{ getCellValue(entry, col) }}
+              <ng-container *ngIf="!cell.isName">
+                {{ cell.value }}
               </ng-container>
               </ng-template>
             </div>
@@ -377,10 +418,23 @@ export interface ColumnDef {
       background: color-mix(in srgb, var(--vsc-list-active-background) 45%, transparent);
     }
 
-    .file-icon {
-      margin-right: var(--vsc-padding-sm);
-      font-size: 14px;
-      flex-shrink: 0;
+    .details-rename-input {
+      width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
+      font: inherit;
+      line-height: inherit;
+      color: var(--vsc-input-foreground);
+      background: var(--vsc-input-background);
+      border: 1px solid var(--vsc-input-border);
+      border-radius: var(--vsc-border-radius-sm);
+      padding: 0 6px;
+      outline: none;
+    }
+
+    .details-rename-input:focus {
+      border-color: var(--vsc-input-focus-border);
+      box-shadow: 0 0 0 1px var(--vsc-input-focus-border);
     }
 
     .dir-symlink-icon {
@@ -394,11 +448,6 @@ export interface ColumnDef {
         line-height: 1;
         opacity: 0.8;
       }
-    }
-
-    .file-name-text {
-      overflow: hidden;
-      text-overflow: ellipsis;
     }
 
     .col-name { flex: 2; }
@@ -457,8 +506,6 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   ) {}
 
   @ViewChild('detailsBody') detailsBodyRef?: ElementRef<HTMLElement>;
-  @ViewChildren(FileEntryComponent) fileEntryComponents?: QueryList<FileEntryComponent>;
-
   @Input() entries: FileInfo[] = [];
   @Input() pendingDirectorySizePaths: ReadonlySet<string> = new Set();
   @Input() currentPath = '';
@@ -492,6 +539,11 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   private viewportHeight = 0;
   private visibleEntriesCache: FileInfo[] = [];
   private pathToEntryIndex = new Map<string, number>();
+  activeColumnVms: DetailsColumnVm[] = [];
+  visibleRowVms: DetailsRowVm[] = [];
+  private resolvedActiveColumns: ColumnDef[] = [];
+  private rowVmCache = new Map<string, DetailsRowVm>();
+  private columnVmVersion = 0;
 
   private anchorPath: string | null = null;
   dragOverPath: string | null = null;
@@ -512,10 +564,8 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   private windowContextMenu?: (event: MouseEvent) => void;
   private readonly MIN_COLUMN_WIDTH = 80;
   private pendingRenameDisplayNames = new Map<string, string>();
-
-  onRename(event: { entry: FileInfo; newName: string }): void {
-    this.rename.emit(event);
-  }
+  private renamingPath: string | null = null;
+  private editingName = '';
 
   /** Called by parent (eg. on F2) to begin in-place rename for the current selection. */
   startRenameSelected(): void {
@@ -535,6 +585,7 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     } else {
       this.pendingRenameDisplayNames.delete(path);
     }
+    this.rebuildVisibleRowVms();
     this.cdr.markForCheck();
   }
 
@@ -603,8 +654,11 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     }
 
     requestAnimationFrame(() => {
-      const comp = this.fileEntryComponents?.find(c => c.entry?.path === path);
-      comp?.beginRename();
+      const target = this.entries.find((entry) => entry.path === path);
+      if (!target || this.isParentEntry(target)) return;
+      this.renamingPath = path;
+      this.editingName = target.name;
+      this.rebuildVisibleRowVms();
       this.cdr.markForCheck();
     });
   }
@@ -645,46 +699,7 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   }
 
   get activeColumns(): ColumnDef[] {
-    if (this.columns?.length) {
-      return this.columns;
-    }
-    if (this.isRegistryListing) {
-      return this.registryColumns;
-    }
-    if (this.isSearchListing) {
-      return this.searchColumns;
-    }
-    return this.defaultColumns;
-  }
-
-  private get isRegistryListing(): boolean {
-    if (isRegistryPath(this.currentPath)) {
-	  return true;
-    }
-	for (const entry of this.entries) {
-	  if (!entry || this.isParentEntry(entry)) {
-	    continue;
-	  }
-	  if (isRegistryPath(entry.path) || !!entry.registryKind || !!entry.registryValueType || !!entry.registryPreview) {
-	    return true;
-	  }
-	}
-	return false;
-  }
-
-  private get isSearchListing(): boolean {
-    if ((this.currentPath || '').toLowerCase().startsWith('search://')) {
-      return true;
-    }
-    for (const entry of this.entries) {
-      if (!entry || this.isParentEntry(entry)) {
-        continue;
-      }
-      if (!!entry.searchParentPath || !!entry.searchPattern || !!entry.searchBasePath) {
-        return true;
-      }
-    }
-    return false;
+    return this.resolvedActiveColumns;
   }
 
   getColumnKey(col: ColumnDef): string {
@@ -711,6 +726,7 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   ngAfterViewInit(): void {
     const element = this.detailsBodyRef?.nativeElement;
     this.viewportHeight = element?.clientHeight || 0;
+    this.refreshColumnState();
     this.setupResizeObserver();
     this.setupScrollListener();
     this.rebuildDerivedEntries();
@@ -719,7 +735,8 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   }
 
   ngOnChanges(changes: SimpleChanges): void {
-    if (changes['entries'] || changes['columns']) {
+    if (changes['entries'] || changes['columns'] || changes['currentPath']) {
+      this.refreshColumnState();
       const entriesChange = changes['entries'];
       if (entriesChange) {
         const prevLen = entriesChange.previousValue?.length || 0;
@@ -733,6 +750,7 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
       queueMicrotask(() => requestAnimationFrame(() => this.measureRowHeight()));
       this.cdr.markForCheck();
     } else if (changes['pendingDirectorySizePaths'] || changes['selectedFiles'] || changes['cursorPath']) {
+      this.rebuildVisibleRowVms();
       this.cdr.markForCheck();
     }
   }
@@ -775,6 +793,8 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     const delta = event.clientX - this.resizeStartX;
     const next = Math.max(this.MIN_COLUMN_WIDTH, this.resizeStartWidth + delta);
     this.columnWidths.set(this.resizingColumnKey, next);
+    this.rebuildColumnVms();
+    this.rebuildVisibleRowVms();
     this.cdr.markForCheck();
   }
 
@@ -783,6 +803,8 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     this.cleanupColumnResizeListeners();
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
+    this.rebuildColumnVms();
+    this.rebuildVisibleRowVms();
     this.cdr.markForCheck();
   }
 
@@ -811,7 +833,7 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
           }
         }
         if (shouldMark) {
-          this.zone.run(() => this.cdr.markForCheck());
+          this.cdr.markForCheck();
         }
       });
 
@@ -844,7 +866,7 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     this.scrollRAF = requestAnimationFrame(() => {
       this.scrollRAF = null;
       if (this.updateVirtualWindow()) {
-        this.zone.run(() => this.cdr.markForCheck());
+        this.cdr.markForCheck();
       }
     });
   }
@@ -922,7 +944,16 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
 
   private rebuildDerivedEntries(): void {
     this.pathToEntryIndex.clear();
-    this.entries.forEach((entry, index) => this.pathToEntryIndex.set(entry.path, index));
+    const pathSet = new Set<string>();
+    this.entries.forEach((entry, index) => {
+      this.pathToEntryIndex.set(entry.path, index);
+      pathSet.add(entry.path);
+    });
+    for (const key of this.rowVmCache.keys()) {
+      if (!pathSet.has(key)) {
+        this.rowVmCache.delete(key);
+      }
+    }
     this.rebuildVisibleEntries();
   }
 
@@ -930,10 +961,189 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     this.visibleEntriesCache = this.virtualEnabled
       ? this.entries.slice(this.virtualStart, this.virtualEnd)
       : this.entries;
+    this.rebuildVisibleRowVms();
+  }
+
+  private refreshColumnState(): void {
+    this.resolvedActiveColumns = this.resolveActiveColumns();
+    this.rebuildColumnVms();
+  }
+
+  private resolveActiveColumns(): ColumnDef[] {
+    if (this.columns?.length) {
+      return this.columns;
+    }
+    if (this.computeIsRegistryListing()) {
+      return this.registryColumns;
+    }
+    if (this.computeIsSearchListing()) {
+      return this.searchColumns;
+    }
+    return this.defaultColumns;
+  }
+
+  private rebuildColumnVms(): void {
+    this.columnVmVersion += 1;
+    this.activeColumnVms = this.resolvedActiveColumns.map((column) => ({
+      column,
+      key: this.getColumnKey(column),
+      width: this.getColumnWidth(column),
+      flex: this.getColumnFlex(column),
+    }));
+  }
+
+  private rebuildVisibleRowVms(): void {
+    this.visibleRowVms = this.visibleEntriesCache.map((entry) => this.buildRowVm(entry));
+  }
+
+  private buildRowVm(entry: FileInfo): DetailsRowVm {
+    const selected = this.selectedFiles.has(entry.path);
+    const cursor = entry.path === this.cursorPath;
+    const directorySizePending = this.pendingDirectorySizePaths.has(entry.path);
+    const dragOverInside = this.dragOverPath === entry.path && this.dragOverPosition === 'inside';
+    const dragOverBefore = this.dragOverPath === entry.path && this.dragOverPosition === 'before';
+    const dragOverAfter = this.dragOverPath === entry.path && this.dragOverPosition === 'after';
+    const displayNameOverride = this.pendingRenameDisplayNames.get(entry.path) ?? null;
+    const existing = this.rowVmCache.get(entry.path);
+
+    if (
+      existing &&
+      existing.entry === entry &&
+      existing.selected === selected &&
+      existing.cursor === cursor &&
+      existing.directorySizePending === directorySizePending &&
+      existing.dragOverInside === dragOverInside &&
+      existing.dragOverBefore === dragOverBefore &&
+      existing.dragOverAfter === dragOverAfter &&
+      existing.displayNameOverride === displayNameOverride &&
+      existing.columnVersion === this.columnVmVersion
+    ) {
+      return existing;
+    }
+
+    const vm: DetailsRowVm = {
+      entry,
+      selected,
+      cursor,
+      parentDir: this.isParentEntry(entry),
+      renaming: this.renamingPath === entry.path,
+      editingName: this.renamingPath === entry.path ? this.editingName : '',
+      directorySizePending,
+      dragOverInside,
+      dragOverBefore,
+      dragOverAfter,
+      draggable: !this.isParentEntry(entry),
+      displayNameOverride,
+      columnVersion: this.columnVmVersion,
+      cells: this.activeColumnVms.map((columnVm) => this.buildCellVm(entry, columnVm, directorySizePending)),
+    };
+    this.rowVmCache.set(entry.path, vm);
+    return vm;
+  }
+
+  private buildCellVm(entry: FileInfo, columnVm: DetailsColumnVm, directorySizePending: boolean): DetailsCellVm {
+    const isName = columnVm.column.field === 'name';
+    return {
+      column: columnVm.column,
+      key: `${entry.path}:${columnVm.key}`,
+      width: columnVm.width,
+      flex: columnVm.flex,
+      value: isName ? '' : this.getCellValue(entry, columnVm.column),
+      isName,
+      showDirectorySizePending: columnVm.column.field === 'size' && directorySizePending,
+    };
+  }
+
+  trackByRowPath(_i: number, row: DetailsRowVm): string {
+    return row.entry.path;
+  }
+
+  trackByColumnKey(_i: number, column: DetailsColumnVm): string {
+    return column.key;
+  }
+
+  trackByCellKey(_i: number, cell: DetailsCellVm): string {
+    return cell.key;
+  }
+
+  private computeIsRegistryListing(): boolean {
+    if (isRegistryPath(this.currentPath)) {
+      return true;
+    }
+    for (const entry of this.entries) {
+      if (!entry || this.isParentEntry(entry)) {
+        continue;
+      }
+      if (isRegistryPath(entry.path) || !!entry.registryKind || !!entry.registryValueType || !!entry.registryPreview) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private computeIsSearchListing(): boolean {
+    if ((this.currentPath || '').toLowerCase().startsWith('search://')) {
+      return true;
+    }
+    for (const entry of this.entries) {
+      if (!entry || this.isParentEntry(entry)) {
+        continue;
+      }
+      if (!!entry.searchParentPath || !!entry.searchPattern || !!entry.searchBasePath) {
+        return true;
+      }
+    }
+    return false;
   }
 
   trackByPath(_i: number, entry: FileInfo): string {
     return entry.path;
+  }
+
+  onRenameInput(entry: FileInfo, event: Event): void {
+    if (this.renamingPath !== entry.path) return;
+    const target = event.target as HTMLInputElement | null;
+    this.editingName = target?.value ?? '';
+    this.rebuildVisibleRowVms();
+  }
+
+  onRenameBlur(entry: FileInfo): void {
+    this.commitRename(entry);
+  }
+
+  onRenameKeyDown(entry: FileInfo, event: KeyboardEvent): void {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      event.stopPropagation();
+      this.commitRename(entry);
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      this.cancelRename();
+    } else {
+      event.stopPropagation();
+    }
+  }
+
+  private commitRename(entry: FileInfo): void {
+    if (this.renamingPath !== entry.path) return;
+    const newName = (this.editingName ?? '').trim();
+    this.renamingPath = null;
+    this.editingName = '';
+    this.rebuildVisibleRowVms();
+    if (!newName || newName === entry.name) {
+      this.cdr.markForCheck();
+      return;
+    }
+    this.rename.emit({ entry, newName });
+    this.cdr.markForCheck();
+  }
+
+  private cancelRename(): void {
+    this.renamingPath = null;
+    this.editingName = '';
+    this.rebuildVisibleRowVms();
+    this.cdr.markForCheck();
   }
 
   isParentEntry(entry: FileInfo): boolean {
@@ -1100,26 +1310,16 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
 
   private emitMarqueeSelection(): void {
     if (!this.marqueeContainer) return;
-
-    const containerRect = this.marqueeContainer.getBoundingClientRect();
     const selectionPaths = new Set<string>();
-    const rows = this.marqueeContainer.querySelectorAll<HTMLElement>('.details-row[data-path]');
+    const selectionBottom = this.selectionRect.top + this.selectionRect.height;
+    const startIndex = Math.max(0, Math.floor(this.selectionRect.top / this.rowHeight));
+    const endIndex = Math.min(this.entries.length - 1, Math.floor(Math.max(0, selectionBottom - 1) / this.rowHeight));
 
-    for (const row of Array.from(rows)) {
-      const path = row.dataset['path'];
-      if (!path || path === PARENT_ENTRY_PATH) continue;
-
-      const rowRect = row.getBoundingClientRect();
-      const rowLeft = rowRect.left - containerRect.left + this.marqueeContainer.scrollLeft;
-      const rowTop = rowRect.top - containerRect.top + this.marqueeContainer.scrollTop;
-      
-      const intersects =
-        rowLeft < this.selectionRect.left + this.selectionRect.width &&
-        rowLeft + rowRect.width > this.selectionRect.left &&
-        rowTop < this.selectionRect.top + this.selectionRect.height &&
-        rowTop + rowRect.height > this.selectionRect.top;
-
-      if (intersects) selectionPaths.add(path);
+    for (let i = startIndex; i <= endIndex; i++) {
+      const entry = this.entries[i];
+      if (entry && entry.path !== PARENT_ENTRY_PATH) {
+        selectionPaths.add(entry.path);
+      }
     }
 
     if (this.marqueeAppend) {
@@ -1286,8 +1486,12 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     } else {
       position = entry.type === FileType.DIRECTORY ? 'inside' : (fraction < 0.5 ? 'before' : 'after');
     }
+    if (this.dragOverPath === entry.path && this.dragOverPosition === position) {
+      return;
+    }
     this.dragOverPath = entry.path;
     this.dragOverPosition = position;
+    this.rebuildVisibleRowVms();
     this.cdr.markForCheck();
   }
 
@@ -1295,6 +1499,7 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     if (this.dragOverPath === entry.path) {
       this.dragOverPath = null;
       this.dragOverPosition = null;
+      this.rebuildVisibleRowVms();
       this.cdr.markForCheck();
     }
   }
@@ -1307,6 +1512,7 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     if (this.hasExternalFiles(event)) {
       this.dragOverPath = null;
       this.dragOverPosition = null;
+      this.rebuildVisibleRowVms();
       this.cdr.markForCheck();
       return;
     }
@@ -1315,6 +1521,7 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     const capturedPosition = this.dragOverPosition;
     this.dragOverPath = null;
     this.dragOverPosition = null;
+    this.rebuildVisibleRowVms();
     this.cdr.markForCheck();
 
     const draggedEntries = this.readDraggedEntries(event);

@@ -470,6 +470,14 @@ interface VideoNavItem {
     }
 
     .video-nav-hotspot--prev {
+      z-index: 70;
+    }
+
+    .video-nav-hotspot--next {
+      z-index: 71;
+    }
+
+    .video-nav-hotspot--prev {
       left: 0;
       background: linear-gradient(
         90deg,
@@ -517,6 +525,12 @@ interface VideoNavItem {
       opacity: 1;
       outline: 2px solid var(--vsc-focusBorder, #007fd4);
       outline-offset: -2px;
+    }
+
+    .video-nav-hotspot:hover,
+    .video-nav-hotspot:focus,
+    .video-nav-hotspot:focus-visible {
+      z-index: 74;
     }
 
     .video-nav-card {
@@ -669,7 +683,7 @@ interface VideoNavItem {
     }
 
     .video-nav-hotspot:hover .video-nav-name {
-      color: rgba(255, 255, 255, 0.94);
+      color: rgba(255, 255, 255, 0.88);
     }
 
     /* Loading State */

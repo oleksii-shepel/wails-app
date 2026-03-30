@@ -120,6 +120,7 @@ interface AudioPlaylistItem {
             class="native-audio"
             [src]="streamUrl || undefined"
             preload="metadata"
+            crossorigin="anonymous"
             (loadedmetadata)="onLoadedMetadata($event)"
             (canplay)="onCanPlay()"
             (timeupdate)="onTimeUpdate($event)"
@@ -310,7 +311,6 @@ interface AudioPlaylistItem {
       --av-surface-alt: color-mix(in srgb, var(--vsc-panel-background, #252526) 88%, var(--vsc-editor-background, #1e1e1e));
       --av-surface-muted: color-mix(in srgb, var(--vsc-panel-background, #252526) 72%, black);
       --av-border: color-mix(in srgb, var(--vsc-border, #454545) 70%, transparent);
-      --av-border-strong: var(--vsc-border, #454545);
       --av-text: var(--vsc-foreground, #cccccc);
       --av-text-muted: color-mix(in srgb, var(--vsc-foreground, #cccccc) 58%, transparent);
       --av-text-dim: color-mix(in srgb, var(--vsc-foreground, #cccccc) 36%, transparent);
@@ -318,11 +318,11 @@ interface AudioPlaylistItem {
       --av-accent-foreground: var(--vsc-button-foreground, #ffffff);
       --av-focus: var(--vsc-focusBorder, #007fd4);
       --av-shadow: var(--vsc-widget-shadow, 0 5px 8px 0 rgba(0, 0, 0, 0.36));
+      --av-button: var(--vsc-button-secondary, #3a3d41);
+      --av-button-hover: var(--vsc-button-secondary-hover, #45494e);
       --av-list-hover: var(--vsc-list-hover-background, #2a2d2e);
       --av-list-active: var(--vsc-list-active-background, #094771);
       --av-list-active-foreground: var(--vsc-list-active-foreground, #ffffff);
-      --av-button-secondary: var(--vsc-button-secondary, #3a3d41);
-      --av-button-secondary-hover: var(--vsc-button-secondary-hover, #45494e);
       display: flex;
       flex-direction: column;
       flex: 1 1 0%;
@@ -477,18 +477,18 @@ interface AudioPlaylistItem {
 
     .state-icon-folder {
       background: color-mix(in srgb, var(--vsc-accent-yellow, #d7ba7d) 14%, transparent);
-      border-color: color-mix(in srgb, var(--vsc-accent-yellow, #d7ba7d) 34%, transparent);
+      border-color: color-mix(in srgb, var(--vsc-accent-yellow, #d7ba7d) 28%, transparent);
       color: var(--vsc-accent-yellow, #d7ba7d);
     }
 
     .state-icon-warn {
-      background: color-mix(in srgb, var(--vsc-warning, #cca700) 12%, transparent);
+      background: color-mix(in srgb, var(--vsc-warning, #cca700) 14%, transparent);
       border-color: color-mix(in srgb, var(--vsc-warning, #cca700) 28%, transparent);
       color: var(--vsc-warning, #cca700);
     }
 
     .state-icon-error {
-      background: color-mix(in srgb, var(--vsc-error, #f48771) 12%, transparent);
+      background: color-mix(in srgb, var(--vsc-error, #f48771) 14%, transparent);
       border-color: color-mix(in srgb, var(--vsc-error, #f48771) 28%, transparent);
       color: var(--vsc-error, #f48771);
     }
@@ -511,7 +511,7 @@ interface AudioPlaylistItem {
     .error-detail {
       font-size: 11px;
       font-family: ui-monospace, monospace;
-      color: color-mix(in srgb, var(--vsc-error, #f48771) 84%, var(--av-text));
+      color: color-mix(in srgb, var(--vsc-error, #f48771) 82%, var(--av-text));
       background: color-mix(in srgb, var(--vsc-error, #f48771) 10%, transparent);
       border: 1px solid color-mix(in srgb, var(--vsc-error, #f48771) 24%, transparent);
       border-radius: 6px;
@@ -583,11 +583,11 @@ interface AudioPlaylistItem {
         #1a1a22 120deg, #222230 150deg, #1a1a22 180deg, #222230 210deg,
         #1a1a22 240deg, #222230 270deg, #1a1a22 300deg, #222230 330deg, #1a1a22 360deg
       );
-      border: 1px solid var(--av-border);
+      border: 1px solid rgba(255, 255, 255, 0.1);
       position: relative;
       box-shadow:
-        inset 0 0 0 1px color-mix(in srgb, var(--av-text) 6%, transparent),
-        0 12px 32px color-mix(in srgb, var(--vsc-shadow, rgba(0, 0, 0, 0.36)) 100%, transparent);
+        inset 0 0 0 1px rgba(255, 255, 255, 0.04),
+        0 12px 32px rgba(0, 0, 0, 0.6);
     }
 
     .disc.spinning {
@@ -604,7 +604,7 @@ interface AudioPlaylistItem {
       position: absolute;
       inset: 14px;
       border-radius: 50%;
-      border: 1px solid color-mix(in srgb, var(--av-text) 7%, transparent);
+      border: 1px solid rgba(255, 255, 255, 0.05);
       box-shadow:
         0 0 0 12px rgba(0, 0, 0, 0.15),
         0 0 0 24px rgba(255, 255, 255, 0.025),
@@ -647,7 +647,7 @@ interface AudioPlaylistItem {
       right: -18px;
       width: 54px;
       height: 2px;
-      background: linear-gradient(90deg, color-mix(in srgb, var(--av-text) 58%, transparent), color-mix(in srgb, var(--av-text) 18%, transparent));
+      background: linear-gradient(90deg, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.2));
       border-radius: 1px;
       transform-origin: right center;
       transform: rotate(-34deg);
@@ -664,8 +664,8 @@ interface AudioPlaylistItem {
       width: 7px;
       height: 7px;
       border-radius: 50%;
-      background: color-mix(in srgb, var(--av-text) 78%, transparent);
-      box-shadow: 0 0 6px color-mix(in srgb, var(--av-text) 20%, transparent);
+      background: rgba(255, 255, 255, 0.75);
+      box-shadow: 0 0 6px rgba(255, 255, 255, 0.3);
     }
 
     .disc-wrap.playing .needle {
@@ -931,22 +931,22 @@ interface AudioPlaylistItem {
       min-width: 36px;
       height: 36px;
       padding: 0 10px;
-      border-radius: 6px;
-      border: 1px solid var(--av-border-strong);
-      background: var(--av-button-secondary);
+      border-radius: 8px;
+      border: 1px solid var(--av-border);
+      background: var(--av-button);
       color: var(--av-text);
       font-size: 12px;
       font-weight: 600;
       cursor: pointer;
-      transition: background 0.15s, border-color 0.15s, transform 0.1s;
+      transition: background 0.15s, transform 0.1s;
       white-space: nowrap;
       letter-spacing: 0.02em;
       font-family: inherit;
     }
 
     .cbtn:hover:not(:disabled) {
-      background: var(--av-button-secondary-hover);
-      border-color: color-mix(in srgb, var(--av-text) 24%, var(--av-border-strong));
+      background: var(--av-button-hover);
+      border-color: color-mix(in srgb, var(--av-text) 24%, var(--av-border));
     }
 
     .cbtn:active:not(:disabled) {
@@ -963,7 +963,7 @@ interface AudioPlaylistItem {
       height: 40px;
       background: var(--av-accent);
       border: 1px solid color-mix(in srgb, var(--av-accent) 72%, black);
-      border-radius: 6px;
+      border-radius: 10px;
       font-size: 16px;
       box-shadow: 0 0 0 1px color-mix(in srgb, var(--av-accent) 16%, transparent);
       color: var(--av-accent-foreground);
@@ -1148,7 +1148,7 @@ interface AudioPlaylistItem {
       gap: 10px;
       width: 100%;
       padding: 8px 10px;
-      border-radius: 6px;
+      border-radius: 8px;
       border: 1px solid transparent;
       background: transparent;
       color: var(--av-text-muted);
@@ -1161,12 +1161,12 @@ interface AudioPlaylistItem {
 
     .playlist-item:hover {
       background: var(--av-list-hover);
-      border-color: color-mix(in srgb, var(--av-border-strong) 72%, transparent);
+      border-color: var(--av-border);
     }
 
     .playlist-item.active {
       background: var(--av-list-active);
-      border-color: color-mix(in srgb, var(--av-accent) 40%, transparent);
+      border-color: color-mix(in srgb, var(--av-accent) 36%, transparent);
       color: var(--av-list-active-foreground);
     }
 
@@ -1270,6 +1270,11 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
       this.destroyAudioAnalysis();
     }
     this.audioElement = nextElement;
+    if (this.audioElement) {
+      // Ensure audio element doesn't have its own volume control
+      this.audioElement.volume = 1;
+    }
+    this.setupAudioAnalysis();
     this.syncAudioElement();
   }
 
@@ -1299,7 +1304,8 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
 
   private audioElement: HTMLAudioElement | null = null;
   private audioContext: AudioContext | null = null;
-  private mediaSourceNode: MediaStreamAudioSourceNode | null = null;
+  private mediaSourceNode: MediaElementAudioSourceNode | null = null;
+  private outputGainNode: GainNode | null = null;
   private splitterNode: ChannelSplitterNode | null = null;
   private spectrumAnalyser: AnalyserNode | null = null;
   private leftLevelAnalyser: AnalyserNode | null = null;
@@ -1405,7 +1411,8 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
     if (!audio || !this.audioReady) { return; }
     try {
       if (audio.paused) {
-        if (this.audioContext?.state === 'suspended') {
+        // Resume audio context if suspended (browser autoplay policy)
+        if (this.audioContext && this.audioContext.state === 'suspended') {
           await this.audioContext.resume();
         }
         this.isBuffering = true;
@@ -1414,7 +1421,8 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
       } else {
         audio.pause();
       }
-    } catch {
+    } catch (err) {
+      console.warn('Playback error:', err);
       this.isBuffering = false;
       this.cdr.markForCheck();
     }
@@ -1502,29 +1510,31 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
   onPlay(): void {
     this.isPlaying = true;
     this.isBuffering = false;
+    this.setupAudioAnalysis();
+    this.syncAudioElement();
+    // Resume audio context if needed
+    if (this.audioContext && this.audioContext.state === 'suspended') {
+      void this.audioContext.resume();
+    }
+    this.startVuLoop();
     this.cdr.markForCheck();
   }
 
   onPause(): void {
     this.isPlaying = false;
     this.isBuffering = false;
+    this.stopVuLoop();
+    this.drainVu();
     this.cdr.markForCheck();
   }
 
   onEnded(): void {
-    if (this.hasPlaylist) {
-      this.isPlaying = false;
-      this.isBuffering = false;
-      this.currentTime = this.duration;
-      this.seekTarget = this.duration;
-      const nextIndex = (this.currentPlaylistIndex + 1) % this.playlistItems.length;
-      void this.displayPlaylistIndex(nextIndex);
-      return;
-    }
     this.isPlaying = false;
     this.isBuffering = false;
     this.currentTime = this.duration;
     this.seekTarget = this.duration;
+    this.stopVuLoop();
+    this.drainVu();
     this.cdr.markForCheck();
   }
 
@@ -1536,6 +1546,7 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
   }
 
   onAudioError(): void {
+    console.error('Audio error occurred');
     this.error = 'Audio stream failed to load.';
     this.kind = 'error';
     this.audioReady = false;
@@ -1586,7 +1597,7 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
 
   // ── VU METER LOOP ──────────────────────────────────────
 
-    private startVuLoop(): void {
+  private startVuLoop(): void {
     if (this.vuRafId !== null) { return; }
     const tick = () => {
       const lv = this.readLevelPercent(this.leftLevelAnalyser, this.leftTimeDomainData);
@@ -1732,23 +1743,33 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
   private syncAudioElement(): void {
     const audio = this.audioElement;
     if (!audio) { return; }
-    audio.volume = this.volume / 100;
+    // Set native audio volume to 1 (full) - we control volume via gain node
+    audio.volume = 1;
+    if (this.outputGainNode) {
+      this.outputGainNode.gain.value = Math.max(0, Math.min(1, this.volume / 100));
+    }
   }
 
   private async tryAutoplay(): Promise<void> {
     const audio = this.audioElement;
     if (!audio) { return; }
     try {
+      // Resume audio context if needed
+      if (this.audioContext && this.audioContext.state === 'suspended') {
+        await this.audioContext.resume();
+      }
       this.isBuffering = true;
       this.cdr.markForCheck();
       await audio.play();
-    } catch {
+    } catch (err) {
+      console.warn('Autoplay failed:', err);
       this.isBuffering = false;
       this.cdr.markForCheck();
     }
   }
 
   private resetState(): void {
+    this.stopVuLoop();
     this.pauseAndDetachAudio();
     this.kind = 'empty';
     this.info = null;
@@ -1775,23 +1796,103 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
     const audio = this.audioElement;
     if (!audio) { return; }
     audio.pause();
-    audio.removeAttribute('src');
-    audio.load();
+    // Don't remove src immediately, just pause
   }
 
   private setupAudioAnalysis(): void {
-    this.destroyAudioAnalysis();
+    const audio = this.audioElement;
+    if (!audio || this.mediaSourceNode) { return; }
+
+    const AudioContextCtor = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextCtor) { return; }
+
+    try {
+      const audioContext = new AudioContextCtor();
+      const mediaSourceNode = audioContext.createMediaElementSource(audio);
+      const outputGainNode = audioContext.createGain();
+      outputGainNode.gain.value = this.volume / 100;
+      
+      // Connect: audio element -> media source -> gain -> destination
+      mediaSourceNode.connect(outputGainNode);
+      outputGainNode.connect(audioContext.destination);
+
+      this.audioContext = audioContext;
+      this.mediaSourceNode = mediaSourceNode;
+      this.outputGainNode = outputGainNode;
+      
+      // Create analyser nodes for visualization
+      const spectrumAnalyser = audioContext.createAnalyser();
+      spectrumAnalyser.fftSize = 256;
+      spectrumAnalyser.smoothingTimeConstant = 0.82;
+
+      const leftLevelAnalyser = audioContext.createAnalyser();
+      leftLevelAnalyser.fftSize = 2048;
+      leftLevelAnalyser.smoothingTimeConstant = 0.7;
+
+      const rightLevelAnalyser = audioContext.createAnalyser();
+      rightLevelAnalyser.fftSize = 2048;
+      rightLevelAnalyser.smoothingTimeConstant = 0.7;
+
+      const splitterNode = audioContext.createChannelSplitter(2);
+
+      // Connect gain to analysers
+      outputGainNode.connect(spectrumAnalyser);
+      outputGainNode.connect(splitterNode);
+      splitterNode.connect(leftLevelAnalyser, 0);
+      splitterNode.connect(rightLevelAnalyser, 1);
+
+      this.spectrumAnalyser = spectrumAnalyser;
+      this.leftLevelAnalyser = leftLevelAnalyser;
+      this.rightLevelAnalyser = rightLevelAnalyser;
+      this.splitterNode = splitterNode;
+      this.frequencyData = new Uint8Array(spectrumAnalyser.frequencyBinCount);
+      this.leftTimeDomainData = new Uint8Array(leftLevelAnalyser.fftSize);
+      this.rightTimeDomainData = new Uint8Array(rightLevelAnalyser.fftSize);
+    } catch (err) {
+      console.warn('Failed to setup audio analysis:', err);
+      this.destroyAudioAnalysis();
+    }
   }
 
   private destroyAudioAnalysis(): void {
-    try { this.mediaSourceNode?.disconnect(); } catch {}
-    try { this.splitterNode?.disconnect(); } catch {}
-    try { this.spectrumAnalyser?.disconnect(); } catch {}
-    try { this.leftLevelAnalyser?.disconnect(); } catch {}
-    try { this.rightLevelAnalyser?.disconnect(); } catch {}
-    try { void this.audioContext?.close(); } catch {}
+    try { 
+      if (this.mediaSourceNode) {
+        this.mediaSourceNode.disconnect();
+      }
+    } catch {}
+    try { 
+      if (this.outputGainNode) {
+        this.outputGainNode.disconnect();
+      }
+    } catch {}
+    try { 
+      if (this.splitterNode) {
+        this.splitterNode.disconnect();
+      }
+    } catch {}
+    try { 
+      if (this.spectrumAnalyser) {
+        this.spectrumAnalyser.disconnect();
+      }
+    } catch {}
+    try { 
+      if (this.leftLevelAnalyser) {
+        this.leftLevelAnalyser.disconnect();
+      }
+    } catch {}
+    try { 
+      if (this.rightLevelAnalyser) {
+        this.rightLevelAnalyser.disconnect();
+      }
+    } catch {}
+    try { 
+      if (this.audioContext) {
+        void this.audioContext.close();
+      }
+    } catch {}
     this.audioContext = null;
     this.mediaSourceNode = null;
+    this.outputGainNode = null;
     this.splitterNode = null;
     this.spectrumAnalyser = null;
     this.leftLevelAnalyser = null;
@@ -1833,6 +1934,6 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
       sumSquares += normalized * normalized;
     }
     const rms = Math.sqrt(sumSquares / data.length);
-    return Math.max(0, Math.min(100, rms * 220));
+    return Math.max(0, Math.min(100, rms * 200));
   }
 }

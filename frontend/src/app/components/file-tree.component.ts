@@ -19,7 +19,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { FileEntryInlineComponent } from './file-entry-inline.component';
 import { FileInfo, FileType } from '../shared/protocol';
-import { DEFAULT_FILE_CATEGORIES } from './filter-bar.types';
+import { DEFAULT_FILE_CATEGORIES } from '../shared/file-categories';
 import { normalizePath as normalizePathReference } from './address-bar.utils';
 import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directive';
 

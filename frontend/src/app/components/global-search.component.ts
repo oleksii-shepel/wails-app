@@ -7,6 +7,7 @@ import { GlobalSearchService, SearchResultItem, IndexStats, SearchConfig } from 
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
 import { FileType } from '../shared/protocol';
+import { getFileEntryPresentation } from './file-entry-presentation.util';
 import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.directive';
 import { moveFocusWithin } from '../directives/focus-trap.utils';
 import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directive';
@@ -238,68 +239,11 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
    * Get file icon
    */
   getFileIcon(file: SearchResultItem['file']): string {
-    if (file.type === FileType.DIRECTORY) {
-      return '📁';
-    }
-
-    if (file.type === FileType.SYMLINK) {
-      return '📄';
-    }
-
-    return this.extIcon(file.name);
+    return getFileEntryPresentation(file as any, false).iconEmoji;
   }
 
   isSymlink(file: SearchResultItem['file']): boolean {
-    return file.type === FileType.SYMLINK || !!file.isSymlink;
-  }
-
-  private extIcon(name: string): string {
-    const ext = name.split('.').pop()?.toLowerCase();
-    switch (ext) {
-      case 'txt':
-      case 'md':
-        return '📄';
-      case 'jpg':
-      case 'jpeg':
-      case 'png':
-      case 'gif':
-      case 'webp':
-        return '🖼️';
-      case 'pdf':
-        return '📕';
-      case 'zip':
-      case 'tar':
-      case 'gz':
-      case 'tgz':
-      case 'rar':
-      case '7z':
-        return '📦';
-      case 'mp3':
-      case 'wav':
-      case 'flac':
-        return '🎵';
-      case 'mp4':
-      case 'avi':
-      case 'mkv':
-        return '🎬';
-      case 'js':
-      case 'ts':
-      case 'jsx':
-      case 'tsx':
-        return '📝';
-      case 'json':
-      case 'yaml':
-      case 'yml':
-        return '📋';
-      case 'html':
-      case 'htm':
-        return '🌐';
-      case 'css':
-      case 'scss':
-        return '🎨';
-      default:
-        return '📄';
-    }
+    return getFileEntryPresentation(file as any, false).isSymlink;
   }
 
   /**
@@ -461,6 +405,8 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
     return !!activeElement.closest('.settings-footer button');
   }
 }
+
+
 
 
 

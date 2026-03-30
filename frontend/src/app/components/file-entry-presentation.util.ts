@@ -1,6 +1,6 @@
 import { FileType, type FileInfo } from '../shared/protocol';
 import { getFileMimeColorKind, type FileMimeColorKind } from './file-entry-color.util';
-import { DEFAULT_FILE_CATEGORIES } from './filter-bar.types';
+import { DEFAULT_FILE_CATEGORIES } from '../shared/file-categories';
 
 export interface FileEntryPresentation {
   iconEmoji: string;

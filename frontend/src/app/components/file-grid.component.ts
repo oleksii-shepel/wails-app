@@ -23,6 +23,7 @@ import { FileInfo, FileType } from '../shared/protocol';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
 import { parentPath } from './address-bar.utils';
 import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directive';
+import { getFileEntryPresentation } from './file-entry-presentation.util';
 
 @Component({
   selector: 'app-file-grid',
@@ -1731,18 +1732,7 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
   }
 
   getIcon(entry: FileInfo): string {
-    if (this.isParentEntry(entry)) return '↩';
-    if (entry.type === FileType.DIRECTORY) return '📁';
-    if (entry.type === FileType.SYMLINK) return '🔗';
-    
-    const ext = entry.name.split('.').pop()?.toLowerCase();
-    const iconMap: Record<string, string> = {
-      'txt': '📄', 'md': '📝', 'js': '📜', 'ts': '🔷',
-      'json': '📋', 'html': '🌐', 'css': '🎨', 'scss': '🎨',
-      'jpg': '🖼️', 'png': '🖼️', 'gif': '🖼️', 'svg': '🎭',
-      'pdf': '📕', 'zip': '📦', 'mp3': '🎵', 'mp4': '🎬'
-    };
-    return iconMap[ext || ''] || '📄';
+    return getFileEntryPresentation(entry, false).iconEmoji;
   }
 
   formatSize(bytes: number): string {
@@ -1753,3 +1743,5 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
     return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
   }
 }
+
+

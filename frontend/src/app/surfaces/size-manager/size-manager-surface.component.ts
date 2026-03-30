@@ -11,7 +11,7 @@ import {
   SimpleChanges,
 } from '@angular/core';
 import { ApiService } from '../../services/api.service';
-import { DEFAULT_FILE_CATEGORIES, type FileCategory } from '../../components/filter-bar.types';
+import { DEFAULT_FILE_CATEGORIES, type FileCategory } from '../../shared/file-categories';
 import type { DiskUsageEntry, DiskUsageProgress, DiskUsageResult, DiskUsageTypeStat } from '../../shared/protocol-enhanced';
 import type { SizeManagerSurfaceContext } from '../surface-context';
 import { DiskPieChartComponent } from 'src/app/components/disk-usage-diagram.component';

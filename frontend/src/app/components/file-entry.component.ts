@@ -614,33 +614,6 @@ export class FileEntryComponent implements OnChanges {
     this.iconEmoji = presentation.iconEmoji;
   }
 
-  private resolveIconEmoji(entry: FileInfo | undefined): string {
-    if (!entry) return '📄';
-
-    if (this.isRegistryEntry()) {
-      if (entry.path === 'registry://') return '🧭';
-      return this.getRegistryIconEmoji();
-    }
-
-    switch (entry.type) {
-      case FileType.DIRECTORY: return '📁';
-      // File symlink: render as a plain file so the badge does the talking
-      case FileType.SYMLINK:   return '📄';
-      default:                 return this.extIcon(entry.name);
-    }
-  }
-
-  private isRegistryEntry(): boolean {
-    return !!this.entry && this.entry.path.startsWith('registry://');
-  }
-
-  private getRegistryIconEmoji(): string {
-    const kind = (this.entry.registryKind || '').toLowerCase();
-    if (kind === 'registry') return '🧭';
-    if (kind === 'key' || this.entry.type === FileType.DIRECTORY) return '🗂️';
-    return '📑';
-  }
-
   onClick(mouseEvent: MouseEvent): void {
     if (this.isRenaming) return;
     this.select.emit({ entry: this.entry, mouseEvent });
@@ -701,26 +674,6 @@ export class FileEntryComponent implements OnChanges {
     }
   }
 
-  private extIcon(name: string): string {
-    const ext = name.split('.').pop()?.toLowerCase();
-    switch (ext) {
-      case 'txt': case 'md':                return '📄';
-      case 'jpg': case 'jpeg': case 'png':
-      case 'gif': case 'webp':              return '🖼️';
-      case 'pdf':                           return '📕';
-      case 'zip': case 'tar': case 'gz':
-      case 'tgz': case 'rar': case '7z':   return '📦';
-      case 'mp3': case 'wav': case 'flac': return '🎵';
-      case 'mp4': case 'avi': case 'mkv':  return '🎬';
-      case 'js':  case 'ts':  case 'jsx':
-      case 'tsx':                           return '📝';
-      case 'json': case 'yaml': case 'yml':return '📋';
-      case 'html': case 'htm':             return '🌐';
-      case 'css':  case 'scss':            return '🎨';
-      default:                             return '📄';
-    }
-  }
-
   formatSize(bytes: number): string {
     if (bytes === 0) return '0 B';
     const k = 1024, sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -734,3 +687,4 @@ export class FileEntryComponent implements OnChanges {
     return Number.isNaN(date.getTime()) ? '' : date.toLocaleString();
   }
 }
+

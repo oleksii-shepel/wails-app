@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -21,16 +22,21 @@ type OfficeService struct {
 	hasDjVuLibre       bool
 	hasImagemagick     bool
 	hasDjvuDecode      bool
+	detectOnce         sync.Once
 }
 
 // NewOfficeService creates a new document converter service.
 func NewOfficeService() *OfficeService {
-	svc := &OfficeService{}
-	svc.detectLibreOffice()
-	svc.detectCalibre()
-	svc.detectDjVuLibre()
-	svc.detectImagemagick()
-	return svc
+	return &OfficeService{}
+}
+
+func (s *OfficeService) ensureDetected() {
+	s.detectOnce.Do(func() {
+		s.detectLibreOffice()
+		s.detectCalibre()
+		s.detectDjVuLibre()
+		s.detectImagemagick()
+	})
 }
 
 func (s *OfficeService) detectLibreOffice() {
@@ -170,10 +176,12 @@ func localDjVuLibrePaths(executableName string) []string {
 }
 
 func (s *OfficeService) IsAvailable() bool {
+	s.ensureDetected()
 	return s.hasLibreOffice || s.hasCalibre || s.hasDjVuLibre || s.hasImagemagick
 }
 
 func (s *OfficeService) IsAvailableForFormat(ext string) bool {
+	s.ensureDetected()
 	switch classifyDocumentFormat(ext) {
 	case documentFormatOffice:
 		return s.hasLibreOffice
@@ -243,6 +251,8 @@ Alternative: install ImageMagick with DjVu support:
 }
 
 func (s *OfficeService) ConvertToPDF(inputPath string) (string, error) {
+	s.ensureDetected()
+
 	if _, err := oslib.Stat(inputPath); err != nil {
 		return "", fmt.Errorf("input file not found: %w", err)
 	}

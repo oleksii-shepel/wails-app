@@ -12,19 +12,19 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 )
 
 // Service handles image format conversion for preview.
 type Service struct {
 	imagemagickPath string
 	hasImagemagick  bool
+	detectOnce      sync.Once
 }
 
 // NewService creates a new image converter service.
 func NewService() *Service {
-	s := &Service{}
-	s.detectImagemagick()
-	return s
+	return &Service{}
 }
 
 func (s *Service) detectImagemagick() {
@@ -39,6 +39,10 @@ func (s *Service) detectImagemagick() {
 	}
 }
 
+func (s *Service) ensureDetected() {
+	s.detectOnce.Do(s.detectImagemagick)
+}
+
 // ConvertFormat converts image from one format to another.
 // Supported output formats: png, jpg, jpeg, webp, bmp, gif, avif
 func (s *Service) ConvertFormat(inputPath string, outputFormat string) ([]byte, error) {
@@ -50,6 +54,7 @@ func (s *Service) ConvertFormat(inputPath string, outputFormat string) ([]byte, 
 	}
 
 	// Try ImageMagick first (best compatibility)
+	s.ensureDetected()
 	if s.hasImagemagick {
 		return s.convertWithImagemagick(inputPath, outputFormat)
 	}
@@ -67,6 +72,7 @@ func (s *Service) CreateThumbnail(inputPath string, outputFormat string, maxWidt
 		return nil, fmt.Errorf("unsupported output format: %s", outputFormat)
 	}
 
+	s.ensureDetected()
 	if s.hasImagemagick {
 		return s.thumbnailWithImagemagick(inputPath, outputFormat, maxWidth, maxHeight)
 	}
@@ -239,6 +245,7 @@ func (s *Service) IsSupportedSourceFormat(extension string) bool {
 	}
 
 	// Extended support with ImageMagick
+	s.ensureDetected()
 	if s.hasImagemagick {
 		extended := map[string]bool{
 			"psd":  true, // Photoshop

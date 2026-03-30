@@ -307,9 +307,9 @@ interface AudioPlaylistItem {
   styles: [VIEWER_BASE_STYLES, `
     /* ── SURFACE ───────────────────────────────────────── */
     .viewer-surface {
-      --av-surface: var(--vsc-panel-background, #252526);
-      --av-surface-alt: color-mix(in srgb, var(--vsc-panel-background, #252526) 88%, var(--vsc-editor-background, #1e1e1e));
-      --av-surface-muted: color-mix(in srgb, var(--vsc-panel-background, #252526) 72%, black);
+      --av-surface: var(--vsc-editor-background, #1e1e1e);
+      --av-surface-alt: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 92%, black);
+      --av-surface-muted: var(--vsc-editor-background, #1e1e1e);
       --av-border: color-mix(in srgb, var(--vsc-border, #454545) 70%, transparent);
       --av-text: var(--vsc-foreground, #cccccc);
       --av-text-muted: color-mix(in srgb, var(--vsc-foreground, #cccccc) 58%, transparent);
@@ -328,9 +328,24 @@ interface AudioPlaylistItem {
       flex: 1 1 0%;
       min-height: 0;
       overflow: hidden;
-      background: var(--av-surface-muted);
+      background: var(--av-surface);
       color: var(--av-text);
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    :host-context(.vscode-light) .viewer-surface {
+      --av-surface: var(--vsc-editor-background, #ffffff);
+      --av-surface-alt: color-mix(in srgb, var(--vsc-editor-background, #ffffff) 94%, var(--vsc-panel-background, #f3f3f3));
+      --av-surface-muted: var(--vsc-editor-background, #ffffff);
+      --av-border: color-mix(in srgb, var(--vsc-border, #c4c4c4) 88%, transparent);
+      --av-text: var(--vsc-foreground, #3b3b3b);
+      --av-text-muted: color-mix(in srgb, var(--vsc-foreground, #3b3b3b) 78%, white);
+      --av-text-dim: color-mix(in srgb, var(--vsc-foreground, #3b3b3b) 64%, white);
+      --av-button: color-mix(in srgb, var(--vsc-input-background, #ffffff) 86%, var(--vsc-panel-background, #f3f3f3));
+      --av-button-hover: var(--vsc-list-hover-background, #e4e6f1);
+      --av-list-hover: var(--vsc-list-hover-background, #e4e6f1);
+      --av-list-active: color-mix(in srgb, var(--vsc-list-active-background, #cce0f5) 84%, white);
+      --av-list-active-foreground: var(--vsc-list-active-foreground, #1a1a1a);
     }
 
     /* ── HEADER ────────────────────────────────────────── */
@@ -341,9 +356,18 @@ interface AudioPlaylistItem {
       gap: 8px;
       padding: 9px 14px;
       border-bottom: 1px solid var(--av-border);
-      background: var(--av-surface-muted);
+      background: color-mix(in srgb, var(--av-surface) 92%, black);
       flex-shrink: 0;
       min-width: 0;
+    }
+
+    :host-context(.vscode-light) .viewer-header {
+      background: color-mix(in srgb, var(--av-surface) 99%, var(--vsc-panel-background, #f3f3f3));
+    }
+
+    :host-context(.vscode-light) .hdr-icon {
+      background: color-mix(in srgb, var(--av-accent) 9%, white);
+      border-color: color-mix(in srgb, var(--av-accent) 22%, var(--av-border));
     }
 
     .header-main {
@@ -364,7 +388,7 @@ interface AudioPlaylistItem {
       align-items: center;
       justify-content: center;
       flex-shrink: 0;
-      color: color-mix(in srgb, var(--av-accent) 70%, white);
+      color: color-mix(in srgb, var(--av-accent) 78%, var(--av-text));
     }
 
     .hdr-icon svg {
@@ -381,7 +405,7 @@ interface AudioPlaylistItem {
       font-size: 12px;
       font-weight: 700;
       letter-spacing: 0.3px;
-      color: color-mix(in srgb, var(--av-text) 90%, white);
+      color: var(--av-text);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -397,6 +421,10 @@ interface AudioPlaylistItem {
       margin-top: 1px;
     }
 
+    :host-context(.vscode-light) .path {
+      color: var(--av-text-dim);
+    }
+
     .header-meta {
       display: flex;
       align-items: center;
@@ -408,27 +436,42 @@ interface AudioPlaylistItem {
       font-size: 10px;
       font-weight: 600;
       padding: 2px 7px;
-      border-radius: 4px;
+      border-radius: 3px;
       white-space: nowrap;
       letter-spacing: 0.3px;
     }
 
     .type-badge {
       background: color-mix(in srgb, var(--av-accent) 16%, transparent);
-      color: color-mix(in srgb, var(--av-accent) 70%, white);
-      border: 1px solid color-mix(in srgb, var(--av-accent) 34%, transparent);
+      color: var(--vsc-accent-blue, #4da8ff);
+      border: 1px solid color-mix(in srgb, var(--av-accent) 40%, transparent);
     }
 
     .size-badge {
       background: color-mix(in srgb, var(--av-text) 7%, transparent);
-      color: var(--av-text-muted);
-      border: 1px solid var(--av-border);
+      color: color-mix(in srgb, var(--av-text) 60%, transparent);
+      border: 1px solid color-mix(in srgb, var(--vsc-border, #454545) 50%, transparent);
+    }
+
+    :host-context(.vscode-light) .size-badge,
+    :host-context(.vscode-light) .mime-badge {
+      background: color-mix(in srgb, var(--av-text) 6%, white);
+      color: var(--av-text);
+      border-color: color-mix(in srgb, var(--vsc-border, #c4c4c4) 78%, transparent);
+    }
+
+    :host-context(.vscode-light) .dur-badge {
+      color: color-mix(in srgb, var(--av-focus) 72%, #113355);
+    }
+
+    :host-context(.vscode-light) .type-badge {
+      color: color-mix(in srgb, var(--av-accent) 78%, #12314a);
     }
 
     .mime-badge {
       background: color-mix(in srgb, var(--av-text) 7%, transparent);
-      color: var(--av-text-muted);
-      border: 1px solid var(--av-border);
+      color: color-mix(in srgb, var(--av-text) 60%, transparent);
+      border: 1px solid color-mix(in srgb, var(--vsc-border, #454545) 50%, transparent);
     }
 
     .dur-badge {
@@ -452,9 +495,9 @@ interface AudioPlaylistItem {
       align-items: center;
       justify-content: center;
       height: 100%;
-      min-height: 200px;
-      gap: 10px;
-      padding: 32px;
+      min-height: 160px;
+      gap: 8px;
+      padding: 24px;
       text-align: center;
     }
 
@@ -495,6 +538,12 @@ interface AudioPlaylistItem {
 
     .state-label {
       font-size: 13px;
+      opacity: 0.65;
+      color: inherit;
+    }
+
+    :host-context(.vscode-light) .state-label {
+      opacity: 1;
       color: var(--av-text-muted);
     }
 
@@ -505,17 +554,18 @@ interface AudioPlaylistItem {
     }
 
     .state-error .state-label {
-      color: var(--vsc-error, #f48771);
+      color: #ff7070;
+      opacity: 1;
     }
 
     .error-detail {
       font-size: 11px;
-      font-family: ui-monospace, monospace;
-      color: color-mix(in srgb, var(--vsc-error, #f48771) 82%, var(--av-text));
-      background: color-mix(in srgb, var(--vsc-error, #f48771) 10%, transparent);
-      border: 1px solid color-mix(in srgb, var(--vsc-error, #f48771) 24%, transparent);
-      border-radius: 6px;
-      padding: 8px 14px;
+      font-family: var(--vsc-font-family-mono, ui-monospace, monospace);
+      color: color-mix(in srgb, #ff7070 70%, var(--vsc-foreground, #ccc));
+      background: rgba(255, 0, 0, 0.07);
+      border: 1px solid rgba(255, 112, 112, 0.2);
+      border-radius: 4px;
+      padding: 8px 12px;
       max-width: 480px;
       white-space: pre-wrap;
       word-break: break-word;
@@ -543,7 +593,7 @@ interface AudioPlaylistItem {
       display: flex;
       flex-direction: column;
       min-height: 100%;
-      background: var(--av-surface-muted);
+      background: var(--av-surface);
     }
 
     /* ── ART STAGE ─────────────────────────────────────── */
@@ -588,6 +638,10 @@ interface AudioPlaylistItem {
       box-shadow:
         inset 0 0 0 1px rgba(255, 255, 255, 0.04),
         0 12px 32px rgba(0, 0, 0, 0.6);
+    }
+
+    :host-context(.vscode-light) .disc-panel {
+      background: linear-gradient(160deg, color-mix(in srgb, var(--av-surface-alt) 92%, white) 0%, var(--av-surface-muted) 100%);
     }
 
     .disc.spinning {
@@ -685,13 +739,13 @@ interface AudioPlaylistItem {
       font-weight: 700;
       letter-spacing: 0.18em;
       text-transform: uppercase;
-      color: color-mix(in srgb, var(--av-accent) 72%, white);
+      color: color-mix(in srgb, var(--av-accent) 82%, var(--av-text));
     }
 
     .dc-title {
       font-size: 14px;
       font-weight: 700;
-      color: color-mix(in srgb, var(--av-text) 92%, white);
+      color: var(--av-text);
       line-height: 1.3;
       word-break: break-word;
       overflow: hidden;
@@ -785,7 +839,7 @@ interface AudioPlaylistItem {
 
     .freq-labels span {
       font-size: 9px;
-      color: color-mix(in srgb, var(--av-text) 22%, transparent);
+      color: var(--av-text-dim);
       font-family: ui-monospace, monospace;
       letter-spacing: 0.02em;
     }
@@ -800,7 +854,7 @@ interface AudioPlaylistItem {
     .vu-channel {
       font-size: 9px;
       font-weight: 700;
-      color: color-mix(in srgb, var(--av-text) 28%, transparent);
+      color: var(--av-text-dim);
       letter-spacing: 0.1em;
       min-width: 10px;
       font-family: ui-monospace, monospace;
@@ -1028,8 +1082,12 @@ interface AudioPlaylistItem {
       white-space: nowrap;
     }
 
+    :host-context(.vscode-light) .time-display {
+      background: color-mix(in srgb, var(--av-text) 9%, white);
+    }
+
     .time-cur {
-      color: color-mix(in srgb, var(--av-text) 90%, white);
+      color: var(--av-text);
       font-weight: 600;
     }
 
@@ -1104,7 +1162,7 @@ interface AudioPlaylistItem {
     /* ── PLAYLIST ───────────────────────────────────────── */
     .playlist-panel {
       border-top: 1px solid var(--av-border);
-      background: var(--av-surface-alt);
+      background: var(--av-surface);
       padding: 12px 14px 14px;
       display: flex;
       flex-direction: column;
@@ -1190,6 +1248,34 @@ interface AudioPlaylistItem {
       min-width: 18px;
       color: var(--av-text-dim);
       font-family: ui-monospace, monospace;
+    }
+
+    :host-context(.vscode-light) .playlist-item {
+      color: var(--av-text);
+      border-color: color-mix(in srgb, var(--av-border) 72%, transparent);
+    }
+
+    :host-context(.vscode-light) .playlist-item.active {
+      border-color: color-mix(in srgb, var(--av-accent) 30%, var(--av-border));
+      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--av-accent) 10%, transparent);
+    }
+
+    :host-context(.vscode-light) .playlist-count,
+    :host-context(.vscode-light) .pl-counter,
+    :host-context(.vscode-light) .time-edge,
+    :host-context(.vscode-light) .time-dur,
+    :host-context(.vscode-light) .sig-label,
+    :host-context(.vscode-light) .dc-status {
+      color: var(--av-text-muted);
+    }
+
+    :host-context(.vscode-light) .sig-sub,
+    :host-context(.vscode-light) .freq-labels span,
+    :host-context(.vscode-light) .vu-channel,
+    :host-context(.vscode-light) .playlist-title,
+    :host-context(.vscode-light) .pl-num,
+    :host-context(.vscode-light) .path {
+      color: var(--av-text-dim);
     }
 
     .pl-name {

@@ -919,10 +919,10 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
       align-items: center;
       justify-content: center;
       padding: 2px 6px;
-      background: rgba(0, 120, 212, 0.2);
-      border: 0.5px solid rgba(0, 120, 212, 0.4);
+      background: color-mix(in srgb, #1f6fb2 10%, transparent);
+      border: 0.5px solid color-mix(in srgb, #1f6fb2 24%, transparent);
       border-radius: 3px;
-      color: #1f6fb2;
+      color: #195f98;
       font-weight: 500;
       line-height: 1;
       cursor: help;
@@ -956,9 +956,9 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
     }
 
     .resolution-badge {
-      background: rgba(0, 150, 100, 0.2);
-      border-color: rgba(0, 150, 100, 0.4);
-      color: #218a66;
+      background: color-mix(in srgb, #218a66 10%, transparent);
+      border-color: color-mix(in srgb, #218a66 24%, transparent);
+      color: #1b6f53;
     }
 
     .framerate-badge {

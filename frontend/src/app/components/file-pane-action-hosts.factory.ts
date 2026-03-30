@@ -25,6 +25,7 @@ export interface FilePaneActionHostsSource {
   get currentView(): ViewLayout;
   get showHidden(): boolean;
   get entries(): FileInfo[];
+  getSortedEntries(): FileInfo[];
   set entries(value: FileInfo[]);
   get filteredEntries(): FileInfo[];
   get selectedFiles(): Set<string>;
@@ -204,6 +205,7 @@ export class FilePaneActionHostsFactory {
       get paneId() { return source.paneId; },
       get activeTabKind() { return source.activeTabKind; },
       get entries() { return source.entries; },
+      get sortedEntries() { return source.getSortedEntries(); },
       get archiveStack() { return source.archiveStack; },
       get tabs() { return source.tabs; },
       set tabs(value: any[]) { source.tabs = value as TabInfo[]; },

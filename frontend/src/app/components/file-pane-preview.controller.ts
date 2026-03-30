@@ -12,6 +12,7 @@ export interface FilePanePreviewHost {
   get paneId(): 'left' | 'right';
   get activeTabKind(): 'dir' | 'viewer';
   get entries(): FileInfo[];
+  get sortedEntries(): FileInfo[];
   get archiveStack(): ArchiveFrame[];
   get tabs(): any[];
   set tabs(value: any[]);
@@ -145,7 +146,8 @@ export class FilePanePreviewController {
   }
 
   private buildViewerFileList(host: FilePanePreviewHost): ViewerFileListItem[] {
-    return host.entries
+    const orderedEntries = host.sortedEntries?.length ? host.sortedEntries : host.entries;
+    return orderedEntries
       .filter(entry => entry.path && (entry.type === FileType.FILE || entry.type === FileType.SYMLINK))
       .map(entry => ({
         path: entry.path,

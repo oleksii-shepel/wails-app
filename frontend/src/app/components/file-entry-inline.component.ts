@@ -120,13 +120,21 @@ import { getFileEntryPresentation } from './file-entry-presentation.util';
     .file-name-text[data-mime-kind='directory'] { --entry-name-color: var(--vsc-entry-directory); }
     .file-name-text[data-mime-kind='archive'] { --entry-name-color: var(--vsc-entry-archive); }
     .file-name-text[data-mime-kind='symlink'] { --entry-name-color: var(--vsc-entry-symlink); }
-    .file-name-text[data-mime-kind='text'] { --entry-name-color: var(--vsc-entry-text); }
+    .file-name-text[data-mime-kind='images'] { --entry-name-color: var(--vsc-entry-images); }
+    .file-name-text[data-mime-kind='documents'] { --entry-name-color: var(--vsc-entry-documents); }
+    .file-name-text[data-mime-kind='spreadsheets'] { --entry-name-color: var(--vsc-entry-spreadsheets); }
+    .file-name-text[data-mime-kind='presentations'] { --entry-name-color: var(--vsc-entry-presentations); }
     .file-name-text[data-mime-kind='code'] { --entry-name-color: var(--vsc-entry-code); }
-    .file-name-text[data-mime-kind='image'] { --entry-name-color: var(--vsc-entry-image); }
-    .file-name-text[data-mime-kind='video'] { --entry-name-color: var(--vsc-entry-video); }
-    .file-name-text[data-mime-kind='audio'] { --entry-name-color: var(--vsc-entry-audio); }
-    .file-name-text[data-mime-kind='document'] { --entry-name-color: var(--vsc-entry-document); }
+    .file-name-text[data-mime-kind='web'] { --entry-name-color: var(--vsc-entry-web); }
     .file-name-text[data-mime-kind='data'] { --entry-name-color: var(--vsc-entry-data); }
+    .file-name-text[data-mime-kind='archives'] { --entry-name-color: var(--vsc-entry-archives); }
+    .file-name-text[data-mime-kind='audio'] { --entry-name-color: var(--vsc-entry-audio); }
+    .file-name-text[data-mime-kind='video'] { --entry-name-color: var(--vsc-entry-video); }
+    .file-name-text[data-mime-kind='fonts'] { --entry-name-color: var(--vsc-entry-fonts); }
+    .file-name-text[data-mime-kind='markdown'] { --entry-name-color: var(--vsc-entry-markdown); }
+    .file-name-text[data-mime-kind='scripts'] { --entry-name-color: var(--vsc-entry-scripts); }
+    .file-name-text[data-mime-kind='3d'] { --entry-name-color: var(--vsc-entry-3d); }
+    .file-name-text[data-mime-kind='design'] { --entry-name-color: var(--vsc-entry-design); }
     .file-name-text[data-mime-kind='executable'] { --entry-name-color: var(--vsc-entry-executable); }
 
     .file-size-spinner {

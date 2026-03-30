@@ -205,6 +205,10 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
   private readonly runtimeController = new FileViewRuntimeController();
   private readonly sortController = new FileViewSortController();
 
+  getSortedEntries(): FileInfo[] {
+    return this.sortedEntries;
+  }
+
   constructor(
     private apiService: ApiService,
     private directorySource: DirectorySourceService,

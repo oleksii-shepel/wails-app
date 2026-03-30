@@ -521,6 +521,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       get currentView() { return thisRef.currentView; },
       get showHidden() { return thisRef.showHidden; },
       get entries() { return thisRef.entries; },
+      getSortedEntries: () => thisRef.fileViewContainer?.getSortedEntries() ?? thisRef.entries,
       set entries(value: FileInfo[]) { thisRef.entries = value; },
       get filteredEntries() { return thisRef.filteredEntries; },
       get selectedFiles() { return thisRef.selectedFiles; },

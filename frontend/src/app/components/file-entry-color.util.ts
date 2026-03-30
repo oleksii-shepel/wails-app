@@ -1,87 +1,34 @@
 import { FileType, type FileInfo } from '../shared/protocol';
+import { DEFAULT_FILE_CATEGORIES } from '../shared/file-categories';
 
 export type FileMimeColorKind =
   | 'default'
   | 'directory'
   | 'archive'
   | 'symlink'
-  | 'text'
+  | 'executable'
+  | 'images'
+  | 'documents'
+  | 'spreadsheets'
+  | 'presentations'
   | 'code'
-  | 'image'
-  | 'video'
-  | 'audio'
-  | 'document'
+  | 'web'
   | 'data'
-  | 'executable';
+  | 'archives'
+  | 'audio'
+  | 'video'
+  | 'fonts'
+  | 'markdown'
+  | 'scripts'
+  | '3d'
+  | 'design';
 
-const CODE_MIME_SET = new Set([
-  'application/javascript',
-  'application/ecmascript',
-  'application/json',
-  'application/ld+json',
-  'application/manifest+json',
-  'application/typescript',
-  'application/vnd.api+json',
-  'application/x-httpd-php',
-  'application/x-javascript',
-  'application/x-sh',
-  'application/x-shellscript',
-  'application/xml',
-  'application/x-yaml',
-  'application/yaml',
-  'text/css',
-  'text/html',
-  'text/javascript',
-  'text/jsx',
-  'text/markdown',
-  'text/mdx',
-  'text/typescript',
-  'text/x-c',
-  'text/x-c++',
-  'text/x-csharp',
-  'text/x-go',
-  'text/x-java-source',
-  'text/x-kotlin',
-  'text/x-lua',
-  'text/x-python',
-  'text/x-ruby',
-  'text/x-rust',
-  'text/x-sass',
-  'text/x-scss',
-  'text/x-shellscript',
-  'text/x-sql',
-  'text/x-swift',
-  'text/xml',
-]);
-
-const DOCUMENT_MIME_SET = new Set([
-  'application/msword',
-  'application/pdf',
-  'application/postscript',
-  'application/rtf',
-  'application/vnd.ms-excel',
-  'application/vnd.ms-powerpoint',
-  'application/vnd.oasis.opendocument.presentation',
-  'application/vnd.oasis.opendocument.spreadsheet',
-  'application/vnd.oasis.opendocument.text',
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'text/csv',
-  'text/plain',
-  'text/rtf',
-]);
-
-const DATA_MIME_SET = new Set([
-  'application/sql',
-  'application/x-sql',
-  'application/x-sqlite3',
-  'application/xml',
-  'application/yaml',
-  'application/x-yaml',
-  'text/csv',
-  'text/tab-separated-values',
-]);
+const categoryByExtension = new Map<string, FileMimeColorKind>();
+for (const category of DEFAULT_FILE_CATEGORIES) {
+  for (const ext of category.extensions) {
+    categoryByExtension.set(ext.toLowerCase(), category.id as FileMimeColorKind);
+  }
+}
 
 const EXECUTABLE_MIME_SET = new Set([
   'application/java-archive',
@@ -96,38 +43,8 @@ const EXECUTABLE_MIME_SET = new Set([
   'application/x-rpm',
 ]);
 
-const TEXT_EXT_SET = new Set([
-  '.txt', '.text', '.log', '.cfg', '.conf', '.ini', '.nfo', '.asc', '.rst'
-]);
-
-const CODE_EXT_SET = new Set([
-  '.c', '.cc', '.cpp', '.cxx', '.cs', '.css', '.go', '.h', '.hpp', '.htm', '.html', '.java', '.js', '.json',
-  '.jsx', '.kt', '.kts', '.less', '.lua', '.mjs', '.php', '.pl', '.ps1', '.py', '.rb', '.rs', '.sass', '.scss',
-  '.sh', '.sql', '.svelte', '.swift', '.toml', '.ts', '.tsx', '.vue', '.xml', '.yaml', '.yml'
-]);
-
-const IMAGE_EXT_SET = new Set([
-  '.avif', '.bmp', '.gif', '.heic', '.ico', '.jpeg', '.jpg', '.png', '.svg', '.tif', '.tiff', '.webp'
-]);
-
-const VIDEO_EXT_SET = new Set([
-  '.3gp', '.avi', '.flv', '.m4v', '.mkv', '.mov', '.mp4', '.mpeg', '.mpg', '.mts', '.m2ts', '.webm', '.wmv'
-]);
-
-const AUDIO_EXT_SET = new Set([
-  '.aac', '.aiff', '.alac', '.flac', '.m4a', '.mid', '.midi', '.mp3', '.ogg', '.opus', '.wav', '.wma'
-]);
-
-const DOCUMENT_EXT_SET = new Set([
-  '.csv', '.doc', '.docx', '.epub', '.odp', '.ods', '.odt', '.pdf', '.ppt', '.pptx', '.rtf', '.xls', '.xlsx'
-]);
-
-const DATA_EXT_SET = new Set([
-  '.db', '.db3', '.jsonl', '.parquet', '.sqlite', '.sqlite3', '.tsv'
-]);
-
 const EXECUTABLE_EXT_SET = new Set([
-  '.apk', '.appimage', '.bat', '.cmd', '.com', '.dll', '.exe', '.jar', '.msi', '.scr'
+  'apk', 'appimage', 'bat', 'cmd', 'com', 'dll', 'exe', 'jar', 'msi', 'scr',
 ]);
 
 function normalizeMime(mime: string | null | undefined): string {
@@ -137,20 +54,107 @@ function normalizeMime(mime: string | null | undefined): string {
 function getNormalizedExtension(name: string | null | undefined): string {
   const value = (name ?? '').trim().toLowerCase();
   const lastDot = value.lastIndexOf('.');
-  return lastDot >= 0 ? value.slice(lastDot) : '';
+  return lastDot >= 0 ? value.slice(lastDot + 1) : '';
 }
 
-function getKindFromExtension(name: string | null | undefined): FileMimeColorKind | null {
+function getCategoryFromExtension(name: string | null | undefined): FileMimeColorKind | null {
   const ext = getNormalizedExtension(name);
   if (!ext) return null;
-  if (IMAGE_EXT_SET.has(ext)) return 'image';
-  if (VIDEO_EXT_SET.has(ext)) return 'video';
-  if (AUDIO_EXT_SET.has(ext)) return 'audio';
   if (EXECUTABLE_EXT_SET.has(ext)) return 'executable';
-  if (DOCUMENT_EXT_SET.has(ext)) return 'document';
-  if (DATA_EXT_SET.has(ext)) return 'data';
-  if (CODE_EXT_SET.has(ext)) return 'code';
-  if (TEXT_EXT_SET.has(ext)) return 'text';
+  return categoryByExtension.get(ext) ?? null;
+}
+
+function getCategoryFromMime(mime: string): FileMimeColorKind | null {
+  if (!mime) return null;
+  if (EXECUTABLE_MIME_SET.has(mime)) return 'executable';
+
+  if (mime === 'text/markdown') return 'markdown';
+  if (mime.startsWith('image/')) return 'images';
+  if (mime.startsWith('video/')) return 'video';
+  if (mime.startsWith('audio/')) return 'audio';
+  if (mime.startsWith('font/')) return 'fonts';
+
+  if (
+    mime === 'text/html' ||
+    mime === 'text/css' ||
+    mime.includes('xml') ||
+    mime.includes('svg')
+  ) {
+    return 'web';
+  }
+
+  if (
+    mime.includes('json') ||
+    mime.includes('yaml') ||
+    mime.includes('toml') ||
+    mime.includes('sql') ||
+    mime === 'text/csv' ||
+    mime === 'text/tab-separated-values'
+  ) {
+    return 'data';
+  }
+
+  if (
+    mime.includes('javascript') ||
+    mime.includes('typescript') ||
+    mime.includes('shellscript') ||
+    mime.includes('x-sh') ||
+    mime.includes('python') ||
+    mime.includes('ruby') ||
+    mime.includes('rust') ||
+    mime.includes('java') ||
+    mime.includes('kotlin') ||
+    mime.includes('swift') ||
+    mime.includes('php')
+  ) {
+    return 'code';
+  }
+
+  if (
+    mime === 'application/pdf' ||
+    mime === 'application/msword' ||
+    mime === 'application/rtf' ||
+    mime === 'application/postscript' ||
+    mime.includes('wordprocessingml') ||
+    mime.includes('opendocument.text') ||
+    mime === 'text/plain' ||
+    mime === 'text/rtf' ||
+    mime === 'application/epub+zip'
+  ) {
+    return 'documents';
+  }
+
+  if (
+    mime.includes('excel') ||
+    mime.includes('spreadsheetml') ||
+    mime.includes('opendocument.spreadsheet')
+  ) {
+    return 'spreadsheets';
+  }
+
+  if (
+    mime.includes('powerpoint') ||
+    mime.includes('presentationml') ||
+    mime.includes('opendocument.presentation') ||
+    mime === 'application/vnd.apple.keynote'
+  ) {
+    return 'presentations';
+  }
+
+  if (
+    mime.includes('zip') ||
+    mime.includes('rar') ||
+    mime.includes('7z') ||
+    mime.includes('tar') ||
+    mime.includes('gzip') ||
+    mime.includes('bzip') ||
+    mime.includes('xz') ||
+    mime.includes('dmg') ||
+    mime.includes('iso')
+  ) {
+    return 'archives';
+  }
+
   return null;
 }
 
@@ -161,25 +165,11 @@ export function getFileMimeColorKind(entry: FileInfo, colorizeByMime: boolean): 
   if (entry.type === FileType.DIRECTORY) return 'directory';
   if (entry.type === FileType.ARCHIVE) return 'archive';
 
-  const extKind = getKindFromExtension(entry.name);
+  const extKind = getCategoryFromExtension(entry.name);
   if (extKind) return extKind;
 
-  const mime = normalizeMime(entry.mimeType);
-  if (!mime) return 'default';
+  const mimeKind = getCategoryFromMime(normalizeMime(entry.mimeType));
+  if (mimeKind) return mimeKind;
 
-  if (mime.startsWith('image/')) return 'image';
-  if (mime.startsWith('video/')) return 'video';
-  if (mime.startsWith('audio/')) return 'audio';
-  if (mime.startsWith('text/')) {
-    if (mime === 'text/plain' || mime === 'text/rtf' || mime === 'text/csv') return 'document';
-    if (CODE_MIME_SET.has(mime)) return 'code';
-    return 'text';
-  }
-  if (mime.endsWith('+json') || mime.endsWith('+xml')) return 'code';
-  if (CODE_MIME_SET.has(mime)) return 'code';
-  if (DOCUMENT_MIME_SET.has(mime)) return 'document';
-  if (DATA_MIME_SET.has(mime)) return 'data';
-  if (EXECUTABLE_MIME_SET.has(mime)) return 'executable';
-  if (mime.startsWith('font/')) return 'data';
   return 'default';
 }

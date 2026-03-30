@@ -124,6 +124,7 @@ func NewServices(config ServiceConfig) *Services {
 			config.ElevatedList,
 			config.BuildFileInfo,
 			config.IsHidden,
+			resolveMemoryAlias,
 		),
 		Utility: config.newUtility(),
 		Navigation: internalnav.NewService(

@@ -5,6 +5,7 @@ import (
 	"context"
 	"io/fs"
 	"os"
+	"runtime"
 	"path/filepath"
 	"strings"
 
@@ -22,6 +23,17 @@ func New(osRoot string) *FS {
 // abs translates a VFS path to an absolute OS path, preventing path traversal.
 func (f *FS) abs(p string) string {
 	clean := filepath.FromSlash(filepath.Clean("/" + p))
+	if runtime.GOOS == "windows" && (f.root == filepath.Clean("/") || f.root == `\`) {
+		trimmed := strings.TrimPrefix(filepath.ToSlash(clean), "/")
+		if len(trimmed) >= 2 && isWindowsDriveSegment(trimmed) {
+			drivePath := strings.ToUpper(trimmed[:1]) + ":"
+			remainder := strings.TrimPrefix(trimmed[1:], "/")
+			if remainder == "" {
+				return filepath.Clean(drivePath + `/`)
+			}
+			return filepath.FromSlash(drivePath + `/` + remainder)
+		}
+	}
 	return filepath.Join(f.root, clean)
 }
 
@@ -155,4 +167,13 @@ func mapErr(err error) error {
 		return vfs.ErrReadOnly
 	}
 	return err
+}
+
+func isWindowsDriveSegment(path string) bool {
+	if len(path) < 1 {
+		return false
+	}
+	drive := path[0]
+	return ((drive >= 'a' && drive <= 'z') || (drive >= 'A' && drive <= 'Z')) &&
+		(len(path) == 1 || path[1] == '/')
 }

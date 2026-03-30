@@ -29,7 +29,7 @@ import {
 import { SpecialFolder } from '../shared/protocol';
 import { normalizePath } from '../components/address-bar.utils';
 import { EventsEmit } from 'wailsjs/runtime';
-import { contracts, elevation } from '../../../wailsjs/go/models';
+import { app, contracts, elevation } from '../../../wailsjs/go/models';
 
 /** Mirror of Go's ElevatedSessionStatus struct. */
 export interface ElevatedSessionStatus {
@@ -54,6 +54,19 @@ function castProtocol<T>(value: unknown): T {
 interface StreamTextResult {
   content: string;
   size: number;
+}
+
+export interface VideoInfo {
+  size: number;
+  format: string;
+  playbackMode: string;
+  manifestUrl?: string;
+  streamUrl?: string;
+  durationSeconds?: number;
+  videoCodec?: string;
+  audioCodec?: string;
+  seekable?: boolean;
+  useNativePlayer?: boolean;
 }
 
 function normalizeElevatedSessionStatus(status: elevation.SessionStatus): ElevatedSessionStatus {
@@ -360,12 +373,36 @@ export class ApiService {
     return await (window as any).go.app.App.GetArchiveVideoPreviewURL(this.normalizeCanonicalPath(fsPath), nestedChain, entryPath);
   }
 
-  async getVideoPlaybackPlan(path: string): Promise<any> {
-    return await (window as any).go.app.App.GetVideoPlaybackPlan(this.normalizeCanonicalPath(path));
+  async getVideoPlaybackPlan(path: string): Promise<app.VideoPlaybackPlan> {
+    return app.VideoPlaybackPlan.createFrom(
+      await (window as any).go.app.App.GetVideoPlaybackPlan(this.normalizeCanonicalPath(path))
+    );
   }
 
-  async getArchiveVideoPlaybackPlan(fsPath: string, nestedChain: string[] = [], entryPath: string): Promise<any> {
-    return await (window as any).go.app.App.GetArchiveVideoPlaybackPlan(this.normalizeCanonicalPath(fsPath), nestedChain, entryPath);
+  async getArchiveVideoPlaybackPlan(fsPath: string, nestedChain: string[] = [], entryPath: string): Promise<app.VideoPlaybackPlan> {
+    return app.VideoPlaybackPlan.createFrom(
+      await (window as any).go.app.App.GetArchiveVideoPlaybackPlan(this.normalizeCanonicalPath(fsPath), nestedChain, entryPath)
+    );
+  }
+
+  async getVideoInfo(path: string): Promise<VideoInfo> {
+    const [info, plan] = await Promise.all([
+      this.getFileInfo(path),
+      this.getVideoPlaybackPlan(path),
+    ]);
+
+    return {
+      size: info.size ?? 0,
+      format: plan.format || path.split('.').pop()?.toLowerCase() || '',
+      playbackMode: plan.mode ?? '',
+      manifestUrl: plan.mode === 'direct' ? plan.url : undefined,
+      streamUrl: plan.mode !== 'direct' ? plan.url : undefined,
+      durationSeconds: plan.durationSeconds,
+      videoCodec: plan.videoCodec,
+      audioCodec: plan.audioCodec,
+      seekable: plan.seekable,
+      useNativePlayer: plan.useNativePlayer,
+    };
   }
 
   async getConvertedImageURL(path: string, targetFormat: string = 'png'): Promise<string> {

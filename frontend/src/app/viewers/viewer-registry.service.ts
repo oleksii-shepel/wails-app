@@ -51,7 +51,7 @@ export class ViewerRegistryService {
       id: 'image',
       title: 'Image Viewer',
       score: (req) => {
-        const ext = extLower(req.archiveContext?.entryPath ?? req.targetPath);
+        const ext = extLower(req.targetPath);
         // Native browser support
         if (ext === 'svg') return 50;
         if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'avif'].includes(ext)) return 50;
@@ -66,7 +66,7 @@ export class ViewerRegistryService {
       id: 'video',
       title: 'Video Viewer',
       score: (req) => {
-        const ext = extLower(req.archiveContext?.entryPath ?? req.targetPath);
+        const ext = extLower(req.targetPath);
         if (ext === 'ts') {
           if (probeLooksText(req)) return 0;
           if (probeLooksTransportStream(req)) return 70;
@@ -80,7 +80,7 @@ export class ViewerRegistryService {
       id: 'audio',
       title: 'Audio Viewer',
       score: (req) => {
-        const ext = extLower(req.archiveContext?.entryPath ?? req.targetPath);
+        const ext = extLower(req.targetPath);
         return ['mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a'].includes(ext) ? 50 : 0;
       },
       load: () => AudioViewerComponent,
@@ -90,7 +90,7 @@ export class ViewerRegistryService {
       id: 'office',
       title: 'Document Viewer',
       score: (req) => {
-        const ext = extLower(req.archiveContext?.entryPath ?? req.targetPath);
+        const ext = extLower(req.targetPath);
         return ['doc', 'docx', 'docm', 'xls', 'xlsx', 'xlsm', 'ppt', 'pptx', 'pptm', 'odt', 'ods', 'odp', 'rtf', 'epub', 'djvu', 'djv'].includes(ext) ? 45 : 0;
       },
       load: async () => (await import('./builtins/office-viewer.component')).OfficeViewerComponent,
@@ -99,14 +99,14 @@ export class ViewerRegistryService {
     this.register({
       id: 'pdf',
       title: 'PDF Viewer',
-      score: (req) => extLower(req.archiveContext?.entryPath ?? req.targetPath) === 'pdf' ? 50 : 0,
+      score: (req) => extLower(req.targetPath) === 'pdf' ? 50 : 0,
       load: async () => (await import('./builtins/pdf-viewer.component')).PdfViewerComponent,
     });
 
     this.register({
       id: 'markdown',
       title: 'Markup Viewer',
-      score: (req) => ['md', 'markdown', 'mdx', 'html', 'htm'].includes(extLower(req.archiveContext?.entryPath ?? req.targetPath)) ? 60 : 0,
+      score: (req) => ['md', 'markdown', 'mdx', 'html', 'htm'].includes(extLower(req.targetPath)) ? 60 : 0,
       load: async () => (await import('./builtins/markdown-viewer.component')).MarkdownViewerComponent,
     });
 
@@ -121,7 +121,7 @@ export class ViewerRegistryService {
       id: 'text',
       title: 'Code Viewer',
       score: (req) => {
-        const ext = extLower(req.archiveContext?.entryPath ?? req.targetPath);
+        const ext = extLower(req.targetPath);
         if (ext === 'ts') {
           if (probeLooksTransportStream(req)) return 0;
           if (probeLooksText(req)) return 65;

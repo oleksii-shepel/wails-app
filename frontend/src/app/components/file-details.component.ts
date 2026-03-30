@@ -490,6 +490,8 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   private virtualStart = 0;
   private virtualEnd = 0;
   private viewportHeight = 0;
+  private visibleEntriesCache: FileInfo[] = [];
+  private pathToEntryIndex = new Map<string, number>();
 
   private anchorPath: string | null = null;
   dragOverPath: string | null = null;
@@ -546,7 +548,7 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     const host = this.detailsBodyRef?.nativeElement;
     if (!host) return;
     if (this.virtualEnabled) {
-      const idx = this.entries.findIndex(e => e.path === path);
+      const idx = this.pathToEntryIndex.get(path) ?? -1;
       if (idx >= 0) {
         const itemTop = idx * this.rowHeight;
         const itemBottom = itemTop + this.rowHeight;
@@ -554,8 +556,9 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
           const centerOffset = host.clientHeight / 2 - this.rowHeight / 2;
           host.scrollTop = Math.max(0, itemTop - centerOffset);
         }
-        this.updateVirtualWindow();
-        this.cdr.markForCheck();
+        if (this.updateVirtualWindow()) {
+          this.cdr.markForCheck();
+        }
       }
     } else {
       const el = host.querySelector<HTMLElement>(`.details-row[data-path="${CSS.escape(path)}"]`);
@@ -584,13 +587,14 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     const host = this.detailsBodyRef?.nativeElement;
     if (host) {
       if (this.virtualEnabled) {
-        const idx = this.entries.findIndex(e => e.path === path);
+        const idx = this.pathToEntryIndex.get(path) ?? -1;
         if (idx >= 0) {
           const targetTop = idx * this.rowHeight;
           const centerOffset = host.clientHeight / 2 - this.rowHeight / 2;
           host.scrollTop = Math.max(0, targetTop - centerOffset);
-          this.updateVirtualWindow();
-          this.cdr.markForCheck();
+          if (this.updateVirtualWindow()) {
+            this.cdr.markForCheck();
+          }
         }
       } else {
         const el = host.querySelector<HTMLElement>(`.details-row[data-path="${CSS.escape(path)}"]`);
@@ -628,8 +632,7 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   }
 
   get visibleEntries(): FileInfo[] {
-    if (!this.virtualEnabled) return this.entries;
-    return this.entries.slice(this.virtualStart, this.virtualEnd);
+    return this.visibleEntriesCache;
   }
 
   get totalContentHeight(): number {
@@ -710,7 +713,8 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     this.viewportHeight = element?.clientHeight || 0;
     this.setupResizeObserver();
     this.setupScrollListener();
-    this.updateVirtualWindow();
+    this.rebuildDerivedEntries();
+    this.updateVirtualWindow(true);
     requestAnimationFrame(() => this.measureRowHeight());
   }
 
@@ -724,8 +728,11 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
           this.resetScroll();
         }
       }
-      this.updateVirtualWindow();
+      this.rebuildDerivedEntries();
+      this.updateVirtualWindow(true);
       queueMicrotask(() => requestAnimationFrame(() => this.measureRowHeight()));
+      this.cdr.markForCheck();
+    } else if (changes['pendingDirectorySizePaths'] || changes['selectedFiles'] || changes['cursorPath']) {
       this.cdr.markForCheck();
     }
   }
@@ -791,17 +798,25 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   }
 
   private setupResizeObserver(): void {
-    if (!this.detailsBodyRef?.nativeElement) return;
-    
-    this.resizeObserver = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        this.viewportHeight = entry.contentRect.height;
-        this.updateVirtualWindow();
-        this.cdr.markForCheck();
-      }
+    const element = this.detailsBodyRef?.nativeElement;
+    if (!element) return;
+
+    this.zone.runOutsideAngular(() => {
+      this.resizeObserver = new ResizeObserver((entries) => {
+        let shouldMark = false;
+        for (const entry of entries) {
+          if (this.viewportHeight !== entry.contentRect.height) {
+            this.viewportHeight = entry.contentRect.height;
+            shouldMark = this.updateVirtualWindow() || shouldMark;
+          }
+        }
+        if (shouldMark) {
+          this.zone.run(() => this.cdr.markForCheck());
+        }
+      });
+
+      this.resizeObserver.observe(element);
     });
-    
-    this.resizeObserver.observe(this.detailsBodyRef.nativeElement);
   }
 
   private cleanupResizeObserver(): void {
@@ -812,7 +827,9 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     const element = this.detailsBodyRef?.nativeElement;
     if (!element) return;
     this.boundScrollListener = () => this.onScroll();
-    element.addEventListener('scroll', this.boundScrollListener, { passive: true });
+    this.zone.runOutsideAngular(() => {
+      element.addEventListener('scroll', this.boundScrollListener!, { passive: true });
+    });
   }
 
   private cleanupScrollListener(): void {
@@ -826,8 +843,9 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     if (this.scrollRAF) return;
     this.scrollRAF = requestAnimationFrame(() => {
       this.scrollRAF = null;
-      this.updateVirtualWindow();
-      this.cdr.markForCheck();
+      if (this.updateVirtualWindow()) {
+        this.zone.run(() => this.cdr.markForCheck());
+      }
     });
   }
 
@@ -838,13 +856,21 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     }
     this.virtualStart = 0;
     this.virtualEnd = Math.min(this.overscan * 2, this.entries.length);
+    this.rebuildVisibleEntries();
   }
 
-  private updateVirtualWindow(): void {
+  private updateVirtualWindow(forceRebuild = false): boolean {
+    let changed = forceRebuild;
     if (!this.virtualEnabled) {
-      this.virtualStart = 0;
-      this.virtualEnd = this.entries.length;
-      return;
+      if (this.virtualStart !== 0 || this.virtualEnd !== this.entries.length) {
+        this.virtualStart = 0;
+        this.virtualEnd = this.entries.length;
+        changed = true;
+      }
+      if (changed) {
+        this.rebuildVisibleEntries();
+      }
+      return changed;
     }
 
     const element = this.detailsBodyRef?.nativeElement;
@@ -852,9 +878,17 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
 
     const viewportHeight = this.viewportHeight || element?.clientHeight || 0;
     if (viewportHeight <= 0) {
-      this.virtualStart = 0;
-      this.virtualEnd = Math.min(this.entries.length, this.overscan * 4);
-      return;
+      const nextStart = 0;
+      const nextEnd = Math.min(this.entries.length, this.overscan * 4);
+      if (this.virtualStart !== nextStart || this.virtualEnd !== nextEnd) {
+        this.virtualStart = nextStart;
+        this.virtualEnd = nextEnd;
+        changed = true;
+      }
+      if (changed) {
+        this.rebuildVisibleEntries();
+      }
+      return changed;
     }
     const visibleCount = Math.max(1, Math.ceil(viewportHeight / this.rowHeight));
     
@@ -864,7 +898,12 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     if (start !== this.virtualStart || end !== this.virtualEnd) {
       this.virtualStart = start;
       this.virtualEnd = end;
+      changed = true;
     }
+    if (changed) {
+      this.rebuildVisibleEntries();
+    }
+    return changed;
   }
 
   private measureRowHeight(): void {
@@ -877,8 +916,20 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     const next = Math.max(this.DEFAULT_ROW_HEIGHT, measured);
     if (Math.abs(next - this.rowHeight) < 1) return;
     this.rowHeight = next;
-    this.updateVirtualWindow();
+    this.updateVirtualWindow(true);
     this.cdr.markForCheck();
+  }
+
+  private rebuildDerivedEntries(): void {
+    this.pathToEntryIndex.clear();
+    this.entries.forEach((entry, index) => this.pathToEntryIndex.set(entry.path, index));
+    this.rebuildVisibleEntries();
+  }
+
+  private rebuildVisibleEntries(): void {
+    this.visibleEntriesCache = this.virtualEnabled
+      ? this.entries.slice(this.virtualStart, this.virtualEnd)
+      : this.entries;
   }
 
   trackByPath(_i: number, entry: FileInfo): string {
@@ -1478,8 +1529,8 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
 
   /** Build source entries; uses pane entries for same-pane drag or constructs minimal FileInfo for cross-pane drags. */
   private buildSourceFromEntries(dragged: { path: string; type: FileType; name: string }[]): FileInfo[] {
-    const paths = dragged.map(d => d.path);
-    const fromEntries = this.entries.filter(e => paths.includes(e.path) && !this.isParentEntry(e));
+    const pathSet = new Set(dragged.map(d => d.path));
+    const fromEntries = this.entries.filter(e => pathSet.has(e.path) && !this.isParentEntry(e));
     if (fromEntries.length > 0) return fromEntries;
     return dragged.filter(d => d.path && d.path !== PARENT_ENTRY_PATH).map(d => ({
       name: d.name,

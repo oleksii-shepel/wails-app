@@ -471,6 +471,7 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
   private readonly VIRTUAL_ROW_HEIGHT = 22;
   private readonly VIRTUAL_OVERSCAN = 20;
   private scrollRAF: number | null = null;
+  private boundScrollListener?: () => void;
   private resizeObserver?: ResizeObserver;
   
   private flatVisibleNodes: TreeNode[] = [];
@@ -478,6 +479,8 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
   private virtualEnd = 0;
   private lastScrollTop = 0;
   private viewportHeight = 0;
+  private visibleWindowNodesCache: TreeNode[] = [];
+  private visibleNodeIndex = new Map<string, number>();
 
   constructor(private cdr: ChangeDetectorRef, private zone: NgZone) {}
 
@@ -511,8 +514,7 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
   }
 
   get visibleWindowNodes(): TreeNode[] {
-    if (!this.virtualEnabled) return this.flatVisibleNodes;
-    return this.flatVisibleNodes.slice(this.virtualStart, this.virtualEnd);
+    return this.visibleWindowNodesCache;
   }
 
   get totalContentHeight(): number {
@@ -536,7 +538,7 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
     this.setupResizeObserver();
     this.setupScrollListener();
     this.refreshVisibleNodes();
-    this.updateVirtualWindow();
+    this.updateVirtualWindow(true);
   }
 
   ngOnChanges(changes: SimpleChanges): void {
@@ -551,7 +553,7 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
       this.suppressNextAutoExpand = false;
     }
     this.refreshVisibleNodes();
-    this.updateVirtualWindow();
+    this.updateVirtualWindow(true);
     this.cdr.markForCheck();
   }
 
@@ -565,17 +567,25 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
   }
 
   private setupResizeObserver(): void {
-    if (!this.treeContainer?.nativeElement) return;
-    
-    this.resizeObserver = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        this.viewportHeight = entry.contentRect.height;
-        this.updateVirtualWindow();
-        this.cdr.markForCheck();
-      }
+    const element = this.treeContainer?.nativeElement;
+    if (!element) return;
+
+    this.zone.runOutsideAngular(() => {
+      this.resizeObserver = new ResizeObserver((entries) => {
+        let shouldMark = false;
+        for (const entry of entries) {
+          if (this.viewportHeight !== entry.contentRect.height) {
+            this.viewportHeight = entry.contentRect.height;
+            shouldMark = this.updateVirtualWindow() || shouldMark;
+          }
+        }
+        if (shouldMark) {
+          this.zone.run(() => this.cdr.markForCheck());
+        }
+      });
+
+      this.resizeObserver.observe(element);
     });
-    
-    this.resizeObserver.observe(this.treeContainer.nativeElement);
   }
 
   private cleanupResizeObserver(): void {
@@ -585,27 +595,41 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
   private setupScrollListener(): void {
     const element = this.treeContainer?.nativeElement;
     if (!element) return;
-    element.addEventListener('scroll', this.onScroll.bind(this), { passive: true });
+    this.boundScrollListener = () => this.onScroll();
+    this.zone.runOutsideAngular(() => {
+      element.addEventListener('scroll', this.boundScrollListener!, { passive: true });
+    });
   }
 
   private cleanupScrollListener(): void {
-    // Auto-removed
+    const element = this.treeContainer?.nativeElement;
+    if (!element || !this.boundScrollListener) return;
+    element.removeEventListener('scroll', this.boundScrollListener);
+    this.boundScrollListener = undefined;
   }
 
   private onScroll(): void {
     if (this.scrollRAF) return;
     this.scrollRAF = requestAnimationFrame(() => {
       this.scrollRAF = null;
-      this.updateVirtualWindow();
-      this.cdr.markForCheck();
+      if (this.updateVirtualWindow()) {
+        this.zone.run(() => this.cdr.markForCheck());
+      }
     });
   }
 
-  private updateVirtualWindow(): void {
+  private updateVirtualWindow(forceRebuild = false): boolean {
+    let changed = forceRebuild;
     if (!this.virtualEnabled) {
-      this.virtualStart = 0;
-      this.virtualEnd = this.flatVisibleNodes.length;
-      return;
+      if (this.virtualStart !== 0 || this.virtualEnd !== this.flatVisibleNodes.length) {
+        this.virtualStart = 0;
+        this.virtualEnd = this.flatVisibleNodes.length;
+        changed = true;
+      }
+      if (changed) {
+        this.rebuildVisibleWindowNodes();
+      }
+      return changed;
     }
 
     const host = this.treeContainer?.nativeElement;
@@ -613,7 +637,10 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
     const scrollTop = host?.scrollTop ?? 0;
 
     if (Math.abs(scrollTop - this.lastScrollTop) < this.VIRTUAL_ROW_HEIGHT && this.virtualEnd > 0) {
-      return;
+      if (changed) {
+        this.rebuildVisibleWindowNodes();
+      }
+      return changed;
     }
     
     this.lastScrollTop = scrollTop;
@@ -625,15 +652,29 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
     if (start !== this.virtualStart || end !== this.virtualEnd) {
       this.virtualStart = start;
       this.virtualEnd = end;
+      changed = true;
     }
+    if (changed) {
+      this.rebuildVisibleWindowNodes();
+    }
+    return changed;
   }
 
   private refreshVisibleNodes(): void {
     this.flatVisibleNodes = this.getVisibleNodes();
+    this.visibleNodeIndex.clear();
+    this.flatVisibleNodes.forEach((node, index) => this.visibleNodeIndex.set(node.path, index));
     if (!this.virtualEnabled) {
       this.virtualStart = 0;
       this.virtualEnd = this.flatVisibleNodes.length;
     }
+    this.rebuildVisibleWindowNodes();
+  }
+
+  private rebuildVisibleWindowNodes(): void {
+    this.visibleWindowNodesCache = this.virtualEnabled
+      ? this.flatVisibleNodes.slice(this.virtualStart, this.virtualEnd)
+      : this.flatVisibleNodes;
   }
 
   isExpanded(node: TreeNode): boolean {
@@ -647,7 +688,7 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
       this.loadChildren.emit(node);
     }
     this.refreshVisibleNodes();
-    this.updateVirtualWindow();
+    this.updateVirtualWindow(true);
   }
 
   toggleNode(node: TreeNode): void {
@@ -1604,7 +1645,7 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
       if (!host) return;
       
       if (this.virtualEnabled) {
-        const idx = this.flatVisibleNodes.findIndex(n => n.path === node.path);
+        const idx = this.visibleNodeIndex.get(node.path) ?? -1;
         if (idx >= 0) {
           const nodeTop = idx * this.VIRTUAL_ROW_HEIGHT;
           const nodeBottom = nodeTop + this.VIRTUAL_ROW_HEIGHT;
@@ -1661,7 +1702,7 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
 
     requestAnimationFrame(() => {
       if (this.virtualEnabled) {
-        const idx = this.flatVisibleNodes.findIndex(n => n.path === node.path);
+        const idx = this.visibleNodeIndex.get(node.path) ?? -1;
         if (idx >= 0) {
           const nodeTop = idx * this.VIRTUAL_ROW_HEIGHT;
           const centerOffset = host.clientHeight / 2 - this.VIRTUAL_ROW_HEIGHT / 2;

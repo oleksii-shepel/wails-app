@@ -11,6 +11,7 @@ import (
 
 	"wails-app/internal/contentprobe"
 	contracts "wails-app/internal/contracts"
+	"wails-app/internal/pathref"
 )
 
 type MetadataCallbacks struct {
@@ -38,6 +39,7 @@ func NewRawService(callbacks RawCallbacks) *RawService {
 }
 
 func (s *RawService) ListDirectory(path string, showHidden bool) (*contracts.DirectoryListing, error) {
+	path = resolveRawPath(path)
 	entries, err := os.ReadDir(path)
 	if err != nil {
 		if resolved, readLinkErr := os.Readlink(path); readLinkErr == nil {
@@ -84,6 +86,7 @@ func (s *RawService) ListDirectory(path string, showHidden bool) (*contracts.Dir
 }
 
 func (s *RawService) ReadFile(path string, encoding string) (*contracts.FileContent, error) {
+	path = resolveRawPath(path)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -116,6 +119,7 @@ func (s *RawService) ReadFile(path string, encoding string) (*contracts.FileCont
 }
 
 func (s *RawService) ReadFileRange(path string, offset int64, length int) (*contracts.FileContent, error) {
+	path = resolveRawPath(path)
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -162,6 +166,7 @@ func (s *RawService) ReadFileRange(path string, offset int64, length int) (*cont
 }
 
 func (s *RawService) ProbeFile(path string) (*contracts.FileProbe, error) {
+	path = resolveRawPath(path)
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -182,6 +187,7 @@ func (s *RawService) ProbeFile(path string) (*contracts.FileProbe, error) {
 }
 
 func (s *RawService) WriteFile(path string, content string, encoding string) (*contracts.OperationResult, error) {
+	path = resolveRawPath(path)
 	var data []byte
 	var err error
 	if encoding == "base64" {
@@ -205,6 +211,7 @@ func (s *RawService) WriteFile(path string, content string, encoding string) (*c
 }
 
 func (s *RawService) DeleteFile(path string, recursive bool, useTrash *bool) (*contracts.OperationResult, error) {
+	path = resolveRawPath(path)
 	trash := useTrash == nil || *useTrash
 	if trash {
 		if err := s.moveToTrash(path); err != nil {
@@ -243,6 +250,7 @@ func (s *RawService) DeleteFile(path string, recursive bool, useTrash *bool) (*c
 }
 
 func (s *RawService) CreateDirectory(path string, recursive bool) (*contracts.OperationResult, error) {
+	path = resolveRawPath(path)
 	var err error
 	if recursive {
 		err = os.MkdirAll(path, 0755)
@@ -261,6 +269,8 @@ func (s *RawService) CreateDirectory(path string, recursive bool) (*contracts.Op
 }
 
 func (s *RawService) MoveFile(source, destination string) (*contracts.OperationResult, error) {
+	source = resolveRawPath(source)
+	destination = resolveRawPath(destination)
 	if err := os.Rename(source, destination); err != nil {
 		if copyErr := s.CopyPath(source, destination); copyErr != nil {
 			return nil, copyErr
@@ -278,6 +288,8 @@ func (s *RawService) MoveFile(source, destination string) (*contracts.OperationR
 }
 
 func (s *RawService) CopyFile(source, destination string, recursive bool) (*contracts.OperationResult, error) {
+	source = resolveRawPath(source)
+	destination = resolveRawPath(destination)
 	info, err := os.Stat(source)
 	if err != nil {
 		return nil, err
@@ -302,6 +314,8 @@ func (s *RawService) CopyFile(source, destination string, recursive bool) (*cont
 }
 
 func (s *RawService) CopyPath(src, dst string) error {
+	src = resolveRawPath(src)
+	dst = resolveRawPath(dst)
 	info, err := os.Stat(src)
 	if err != nil {
 		return err
@@ -432,10 +446,15 @@ func (s *RawService) isHiddenFile(name, path string) bool {
 }
 
 func (s *RawService) moveToTrash(path string) error {
+	path = resolveRawPath(path)
 	if s.callbacks.MoveToTrash == nil {
 		return os.RemoveAll(path)
 	}
 	return s.callbacks.MoveToTrash(path)
+}
+
+func resolveRawPath(path string) string {
+	return pathref.ToNativePath(pathref.Normalize(path))
 }
 
 func callHidden(callbacks MetadataCallbacks, name, path string) bool {

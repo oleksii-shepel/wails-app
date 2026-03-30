@@ -13,17 +13,20 @@ import { VscodeScrollbarDirective } from '../../directives/vscode-scrollbar.dire
 import { ApiService } from '../../services/api.service';
 import { FileInfo, FileProbe, FileType } from '../../shared/protocol';
 import type { ViewerFileListItem } from '../../shared/protocol-enhanced';
-import { ViewerArchiveContext } from '../viewer-archive-context';
 import {
   VIEWER_BASE_STYLES,
   buildDisplayName,
   extractExt,
   formatSize,
   inferAudioMime,
-  makeSyntheticInfo,
 } from './builtin-viewer.shared';
 
 type AudioViewerKind = 'empty' | 'loading' | 'ready' | 'directory' | 'unsupported' | 'error';
+
+interface AudioPlaylistItem {
+  path: string;
+  name: string;
+}
 
 @Component({
   selector: 'app-audio-viewer',
@@ -42,14 +45,17 @@ type AudioViewerKind = 'empty' | 'loading' | 'ready' | 'directory' | 'unsupporte
         </div>
 
         <div class="header-meta" *ngIf="kind !== 'empty' && kind !== 'loading' && info">
-          <span class="badge archive-badge" *ngIf="archiveContext" title="Streaming from archive entry">
-            archive
-          </span>
           <span class="badge type-badge">{{ typeBadge }}</span>
           <span class="badge size-badge" *ngIf="info.size > 0">{{ formatBytes(info.size) }}</span>
           <span class="badge meta-badge" *ngIf="mimeLabel">{{ mimeLabel }}</span>
           <span class="badge meta-badge" *ngIf="duration > 0">{{ formatTime(duration) }}</span>
         </div>
+      </div>
+
+      <div class="viewer-toolbar" *ngIf="hasPlaylist">
+        <button class="tool-btn" type="button" (click)="showPrevious()" [disabled]="!hasPrevious" title="Previous audio file">&#x2039;</button>
+        <span class="playlist-counter">{{ currentPlaylistIndex + 1 }} / {{ playlistItems.length }}</span>
+        <button class="tool-btn" type="button" (click)="showNext()" [disabled]="!hasNext" title="Next audio file">&#x203A;</button>
       </div>
 
       <div class="viewer-body" appVscodeScrollbar>
@@ -114,7 +120,7 @@ type AudioViewerKind = 'empty' | 'loading' | 'ready' | 'directory' | 'unsupporte
             <div class="wave-panel">
               <div class="wave-copy">
                 <span class="wave-heading">Signal</span>
-                <span class="wave-sub">{{ archiveContext ? 'Archive stream' : 'Direct stream' }}</span>
+                <span class="wave-sub">Direct stream</span>
               </div>
 
               <div class="waveform" [class.playing]="isPlaying">
@@ -181,6 +187,25 @@ type AudioViewerKind = 'empty' | 'loading' | 'ready' | 'directory' | 'unsupporte
               </div>
             </div>
           </div>
+
+          <section class="playlist-panel" *ngIf="hasPlaylist">
+            <div class="playlist-header">
+              <span class="playlist-title">Playlist</span>
+              <span class="playlist-summary">{{ playlistItems.length }} tracks</span>
+            </div>
+
+            <div class="playlist-list">
+              <button
+                *ngFor="let item of playlistItems; let index = index; trackBy: trackPlaylistItem"
+                class="playlist-item"
+                type="button"
+                [class.active]="index === currentPlaylistIndex"
+                (click)="selectPlaylistIndex(index)">
+                <span class="playlist-index">{{ index + 1 }}</span>
+                <span class="playlist-name" [title]="item.name">{{ item.name }}</span>
+              </button>
+            </div>
+          </section>
         </div>
       </div>
     </div>
@@ -191,6 +216,47 @@ type AudioViewerKind = 'empty' | 'loading' | 'ready' | 'directory' | 'unsupporte
       flex-direction: column;
       min-height: 100%;
       background: var(--vsc-editor-background, #1e1e1e);
+    }
+
+    .viewer-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      border-bottom: 1px solid var(--vsc-border, #454545);
+      background: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 96%, black);
+      flex-shrink: 0;
+    }
+
+    .tool-btn {
+      font: inherit;
+      font-size: 12px;
+      line-height: 1.4;
+      min-width: 28px;
+      padding: 3px 8px;
+      border-radius: 3px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--vsc-foreground, #ccc);
+      cursor: pointer;
+    }
+
+    .tool-btn:hover:not(:disabled) {
+      background: var(--vsc-list-hover-background, rgba(255,255,255,0.05));
+      border-color: var(--vsc-border, #454545);
+    }
+
+    .tool-btn:disabled {
+      opacity: 0.4;
+      cursor: default;
+    }
+
+    .playlist-counter {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: color-mix(in srgb, var(--vsc-foreground, #ccc) 70%, transparent);
     }
 
     .native-audio {
@@ -592,6 +658,82 @@ type AudioViewerKind = 'empty' | 'loading' | 'ready' | 'directory' | 'unsupporte
       cursor: not-allowed;
     }
 
+    .playlist-panel {
+      border-top: 1px solid var(--vsc-border, #454545);
+      background: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 94%, black);
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .playlist-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .playlist-title {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--vsc-accent-blue, #4da8ff);
+    }
+
+    .playlist-summary {
+      font-size: 11px;
+      color: color-mix(in srgb, var(--vsc-foreground, #ccc) 60%, transparent);
+    }
+
+    .playlist-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-height: 240px;
+      overflow: auto;
+    }
+
+    .playlist-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid color-mix(in srgb, var(--vsc-border, #454545) 75%, transparent);
+      border-radius: 8px;
+      background: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 92%, black);
+      color: var(--vsc-foreground, #ccc);
+      cursor: pointer;
+      text-align: left;
+    }
+
+    .playlist-item:hover {
+      background: var(--vsc-list-hover-background, rgba(255,255,255,0.05));
+      border-color: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 35%, transparent);
+    }
+
+    .playlist-item.active {
+      background: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 18%, transparent);
+      border-color: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 48%, transparent);
+    }
+
+    .playlist-index {
+      min-width: 24px;
+      font-size: 11px;
+      font-weight: 700;
+      color: color-mix(in srgb, var(--vsc-foreground, #ccc) 62%, transparent);
+    }
+
+    .playlist-name {
+      min-width: 0;
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
     @keyframes spin-record {
       to {
         transform: rotate(360deg);
@@ -662,7 +804,6 @@ type AudioViewerKind = 'empty' | 'loading' | 'ready' | 'directory' | 'unsupporte
 export class AudioViewerComponent implements OnChanges, OnDestroy {
   @Input() targetPath = '';
   @Input() fileList: ViewerFileListItem[] = [];
-  @Input() archiveContext: ViewerArchiveContext | null = null;
   @Input() probe: FileProbe | null = null;
   @Input() viewerId: string | null = null;
 
@@ -684,6 +825,8 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
   seekTarget = 0;
   duration = 0;
   volume = 90;
+  playlistItems: AudioPlaylistItem[] = [];
+  currentPlaylistIndex = 0;
 
   readonly waveformBars = [38, 62, 48, 76, 52, 90, 44, 82, 58, 68, 40, 86, 54, 72, 46, 80];
 
@@ -691,6 +834,7 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
   private loadVersion = 0;
   private autoplayPending = false;
   private lastNonZeroVolume = 90;
+  private activeTargetPath = '';
 
   constructor(
     private readonly api: ApiService,
@@ -698,17 +842,15 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
   ) {}
 
   get displayName(): string {
-    return buildDisplayName(this.info, this.targetPath, this.archiveContext);
+    return buildDisplayName(this.info, this.activeTargetPath, null);
   }
 
   get displayPath(): string {
-    return this.archiveContext
-      ? `${this.archiveContext.fsPath} :: ${this.archiveContext.entryPath}`
-      : this.targetPath;
+    return this.activeTargetPath;
   }
 
   get fileExt(): string {
-    return extractExt(this.archiveContext?.entryPath ?? this.targetPath);
+    return extractExt(this.activeTargetPath);
   }
 
   get typeBadge(): string {
@@ -717,7 +859,7 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
   }
 
   get mimeLabel(): string {
-    return this.resolveAudioMime() ?? '';
+    return this.resolveAudioMime(this.activeTargetPath, this.activeTargetPath === this.targetPath) ?? '';
   }
 
   get displayedCurrentTime(): number {
@@ -760,12 +902,24 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
     return '🔊';
   }
 
+  get hasPlaylist(): boolean {
+    return this.playlistItems.length > 1;
+  }
+
+  get hasPrevious(): boolean {
+    return this.currentPlaylistIndex > 0;
+  }
+
+  get hasNext(): boolean {
+    return this.currentPlaylistIndex >= 0 && this.currentPlaylistIndex < this.playlistItems.length - 1;
+  }
+
   async ngOnChanges(): Promise<void> {
     const currentLoad = ++this.loadVersion;
     this.resetState();
 
     const path = (this.targetPath ?? '').trim();
-    if (!path && !this.archiveContext) {
+    if (!path) {
       this.kind = 'empty';
       this.cdr.markForCheck();
       return;
@@ -775,11 +929,11 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
     this.cdr.markForCheck();
 
     try {
-      if (this.archiveContext) {
-        await this.loadFromArchive(this.archiveContext, currentLoad);
-      } else {
-        await this.loadFromDisk(path, currentLoad);
-      }
+      const prepared = this.preparePlaylist(path);
+      this.playlistItems = prepared.items;
+      this.currentPlaylistIndex = prepared.index;
+      this.activeTargetPath = prepared.items[prepared.index]?.path ?? path;
+      await this.loadFromDisk(this.activeTargetPath, currentLoad);
     } catch (err: unknown) {
       if (currentLoad !== this.loadVersion) {
         return;
@@ -965,11 +1119,37 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
     return index;
   }
 
+  showPrevious(): void {
+    if (!this.hasPrevious) {
+      return;
+    }
+    void this.displayPlaylistIndex(this.currentPlaylistIndex - 1);
+  }
+
+  showNext(): void {
+    if (!this.hasNext) {
+      return;
+    }
+    void this.displayPlaylistIndex(this.currentPlaylistIndex + 1);
+  }
+
+  selectPlaylistIndex(index: number): void {
+    if (index === this.currentPlaylistIndex) {
+      return;
+    }
+    void this.displayPlaylistIndex(index);
+  }
+
+  trackPlaylistItem(_index: number, item: AudioPlaylistItem): string {
+    return item.path;
+  }
+
   private async loadFromDisk(path: string, loadVersion: number): Promise<void> {
     const info = await this.api.getFileInfo(path);
     if (loadVersion !== this.loadVersion) {
       return;
     }
+    this.activeTargetPath = path;
     this.info = info;
 
     if (info.type === FileType.DIRECTORY) {
@@ -977,7 +1157,7 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
       return;
     }
 
-    if (!this.resolveAudioMime()) {
+    if (!this.resolveAudioMime(path, path === this.targetPath)) {
       this.kind = 'unsupported';
       return;
     }
@@ -991,28 +1171,84 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
     this.autoplayPending = true;
   }
 
-  private async loadFromArchive(ctx: ViewerArchiveContext, loadVersion: number): Promise<void> {
-    if (!this.resolveAudioMime()) {
-      this.kind = 'unsupported';
-      return;
-    }
-
-    this.streamUrl = await this.api.getArchiveStreamURL(ctx.fsPath, ctx.nestedChain, ctx.entryPath);
-    if (loadVersion !== this.loadVersion) {
-      return;
-    }
-
-    this.info = makeSyntheticInfo(buildDisplayName(null, '', ctx), ctx.entryPath, 0);
-    this.kind = 'ready';
-    this.autoplayPending = true;
-  }
-
-  private resolveAudioMime(): string | null {
-    const normalizedProbeMime = (this.probe?.mimeType ?? '').split(';', 1)[0].trim().toLowerCase();
+  private resolveAudioMime(path: string, allowProbe: boolean): string | null {
+    const normalizedProbeMime = allowProbe ? (this.probe?.mimeType ?? '').split(';', 1)[0].trim().toLowerCase() : '';
     if (normalizedProbeMime.startsWith('audio/')) {
       return normalizedProbeMime;
     }
-    return inferAudioMime(this.fileExt);
+    return inferAudioMime(extractExt(path));
+  }
+
+  private preparePlaylist(path: string): { items: AudioPlaylistItem[]; index: number } {
+    const normalizedTarget = (path ?? '').trim();
+    const items = this.fileList
+      .filter(item => item.path && this.isAudioCandidate(item.path))
+      .map(item => ({ path: item.path, name: item.name || this.baseName(item.path) }));
+
+    if (!items.length) {
+      return {
+        items: [{ path: normalizedTarget, name: this.baseName(normalizedTarget) }],
+        index: 0,
+      };
+    }
+
+    const currentIndex = items.findIndex(item => item.path === normalizedTarget);
+    if (currentIndex >= 0) {
+      return { items, index: currentIndex };
+    }
+
+    return {
+      items: [{ path: normalizedTarget, name: this.baseName(normalizedTarget) }, ...items],
+      index: 0,
+    };
+  }
+
+  private isAudioCandidate(path: string): boolean {
+    return !!inferAudioMime(extractExt(path));
+  }
+
+  private async displayPlaylistIndex(index: number): Promise<void> {
+    const item = this.playlistItems[index];
+    if (!item) {
+      return;
+    }
+
+    const currentLoad = ++this.loadVersion;
+    this.pauseAndDetachAudio();
+    this.currentPlaylistIndex = index;
+    this.kind = 'loading';
+    this.info = null;
+    this.error = '';
+    this.streamUrl = null;
+    this.audioReady = false;
+    this.isPlaying = false;
+    this.isBuffering = false;
+    this.isSeeking = false;
+    this.currentTime = 0;
+    this.seekTarget = 0;
+    this.duration = 0;
+    this.autoplayPending = false;
+    this.activeTargetPath = item.path;
+    this.cdr.markForCheck();
+
+    try {
+      await this.loadFromDisk(item.path, currentLoad);
+    } catch (err: unknown) {
+      if (currentLoad !== this.loadVersion) {
+        return;
+      }
+      this.error = err instanceof Error ? err.message : String(err);
+      this.kind = 'error';
+    }
+
+    if (currentLoad === this.loadVersion) {
+      this.cdr.markForCheck();
+    }
+  }
+
+  private baseName(path: string): string {
+    const normalized = (path ?? '').replace(/\\/g, '/');
+    return normalized.split('/').pop() ?? normalized;
   }
 
   private syncAudioElement(): void {
@@ -1052,6 +1288,9 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
     this.seekTarget = 0;
     this.duration = 0;
     this.autoplayPending = false;
+    this.playlistItems = [];
+    this.currentPlaylistIndex = 0;
+    this.activeTargetPath = '';
   }
 
   private pauseAndDetachAudio(): void {

@@ -439,6 +439,7 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
   private readonly rowHeight = 124;
   private readonly overscanRows = 2;
   private scrollRAF: number | null = null;
+  private boundScrollListener?: () => void;
   private resizeObserver?: ResizeObserver;
 
   private virtualStart = 0;
@@ -446,6 +447,8 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
   private virtualColumns = 1;
   private lastScrollTop = 0;
   private viewportHeight = 0;
+  private visibleEntriesCache: FileInfo[] = [];
+  private pathToEntryIndex = new Map<string, number>();
 
   private anchorPath: string | null = null;
 
@@ -502,8 +505,7 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
   }
 
   get visibleEntries(): FileInfo[] {
-    if (!this.virtualEnabled) return this.entries;
-    return this.entries.slice(this.virtualStart, this.virtualEnd);
+    return this.visibleEntriesCache;
   }
 
   onRename(event: { entry: FileInfo; newName: string }): void {
@@ -528,7 +530,7 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
     if (!path || path === PARENT_ENTRY_PATH) return;
     const host = this.gridContainerRef?.nativeElement;
     if (!host) return;
-    const idx = this.entries.findIndex(e => e.path === path);
+    const idx = this.pathToEntryIndex.get(path) ?? -1;
     if (idx < 0) return;
     if (this.virtualEnabled) {
       const row = Math.floor(idx / Math.max(1, this.virtualColumns));
@@ -538,8 +540,9 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
         const centerOffset = host.clientHeight / 2 - this.rowHeight / 2;
         host.scrollTop = Math.max(0, itemTop - centerOffset);
       }
-      this.updateVirtualWindow();
-      this.cdr.markForCheck();
+      if (this.updateVirtualWindow()) {
+        this.cdr.markForCheck();
+      }
     } else {
       const el = host.querySelector<HTMLElement>(`.grid-item[data-path="${CSS.escape(path)}"]`);
       el?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -590,14 +593,15 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
     const host = this.gridContainerRef?.nativeElement;
     if (host) {
       if (this.virtualEnabled) {
-        const idx = this.entries.findIndex(e => e.path === path);
+        const idx = this.pathToEntryIndex.get(path) ?? -1;
         if (idx >= 0) {
           const row = Math.floor(idx / Math.max(1, this.virtualColumns));
           const targetTop = row * this.rowHeight;
           const centerOffset = host.clientHeight / 2 - this.rowHeight / 2;
           host.scrollTop = Math.max(0, targetTop - centerOffset);
-          this.updateVirtualWindow();
-          this.cdr.markForCheck();
+          if (this.updateVirtualWindow()) {
+            this.cdr.markForCheck();
+          }
         }
       } else {
         const el = host.querySelector<HTMLElement>(`.grid-item[data-path="${CSS.escape(path)}"]`);
@@ -640,7 +644,8 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
   ngAfterViewInit(): void {
     this.setupResizeObserver();
     this.setupScrollListener();
-    this.updateVirtualWindow();
+    this.rebuildDerivedEntries();
+    this.updateVirtualWindow(true);
   }
 
   ngOnChanges(changes: SimpleChanges): void {
@@ -655,7 +660,10 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
       if (Math.abs(prevLen - currLen) > 1000) {
         this.resetScroll();
       }
-      this.updateVirtualWindow();
+      this.rebuildDerivedEntries();
+      this.updateVirtualWindow(true);
+      this.cdr.markForCheck();
+    } else if (changes['pendingDirectorySizePaths'] || changes['selectedFiles'] || changes['cursorPath']) {
       this.cdr.markForCheck();
     }
   }
@@ -762,17 +770,25 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
   }
 
   private setupResizeObserver(): void {
-    if (!this.gridContainerRef?.nativeElement) return;
-    
-    this.resizeObserver = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        this.viewportHeight = entry.contentRect.height;
-        this.updateVirtualWindow();
-        this.cdr.markForCheck();
-      }
+    const element = this.gridContainerRef?.nativeElement;
+    if (!element) return;
+
+    this.zone.runOutsideAngular(() => {
+      this.resizeObserver = new ResizeObserver((entries) => {
+        let shouldMark = false;
+        for (const entry of entries) {
+          if (this.viewportHeight !== entry.contentRect.height) {
+            this.viewportHeight = entry.contentRect.height;
+            shouldMark = this.updateVirtualWindow() || shouldMark;
+          }
+        }
+        if (shouldMark) {
+          this.zone.run(() => this.cdr.markForCheck());
+        }
+      });
+
+      this.resizeObserver.observe(element);
     });
-    
-    this.resizeObserver.observe(this.gridContainerRef.nativeElement);
   }
 
   private cleanupResizeObserver(): void {
@@ -782,19 +798,26 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
   private setupScrollListener(): void {
     const element = this.gridContainerRef?.nativeElement;
     if (!element) return;
-    element.addEventListener('scroll', this.onScroll.bind(this), { passive: true });
+    this.boundScrollListener = () => this.onScroll();
+    this.zone.runOutsideAngular(() => {
+      element.addEventListener('scroll', this.boundScrollListener!, { passive: true });
+    });
   }
 
   private cleanupScrollListener(): void {
-    // Auto-removed with element destruction
+    const element = this.gridContainerRef?.nativeElement;
+    if (!element || !this.boundScrollListener) return;
+    element.removeEventListener('scroll', this.boundScrollListener);
+    this.boundScrollListener = undefined;
   }
 
   private onScroll(): void {
     if (this.scrollRAF) return;
     this.scrollRAF = requestAnimationFrame(() => {
       this.scrollRAF = null;
-      this.updateVirtualWindow();
-      this.cdr.markForCheck();
+      if (this.updateVirtualWindow()) {
+        this.zone.run(() => this.cdr.markForCheck());
+      }
     });
   }
 
@@ -806,25 +829,34 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
     }
     this.virtualStart = 0;
     this.virtualEnd = Math.min(this.overscanRows * this.virtualColumns * 2, this.entries.length);
+    this.rebuildVisibleEntries();
   }
 
-  private updateVirtualWindow(): void {
+  private updateVirtualWindow(forceRebuild = false): boolean {
     const host = this.gridContainerRef?.nativeElement;
     const viewportHeight = this.viewportHeight || host?.clientHeight || 0;
     const scrollTop = host?.scrollTop ?? 0;
 
     const cols = this.measureGridColumns(host);
-    
+    let changed = forceRebuild;
+
     if (cols !== this.virtualColumns) {
       this.virtualColumns = cols;
+      changed = true;
     }
 
     if (!this.virtualEnabled) {
       // Even without virtualization, keep the computed column count so keyboard navigation
       // (Up/Down by row) behaves correctly in grid view.
-      this.virtualStart = 0;
-      this.virtualEnd = this.entries.length;
-      return;
+      if (this.virtualStart !== 0 || this.virtualEnd !== this.entries.length) {
+        this.virtualStart = 0;
+        this.virtualEnd = this.entries.length;
+        changed = true;
+      }
+      if (changed) {
+        this.rebuildVisibleEntries();
+      }
+      return changed;
     }
 
     const startRow = Math.max(0, Math.floor(scrollTop / this.rowHeight) - this.overscanRows);
@@ -837,7 +869,24 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
     if (start !== this.virtualStart || end !== this.virtualEnd) {
       this.virtualStart = start;
       this.virtualEnd = end;
+      changed = true;
     }
+    if (changed) {
+      this.rebuildVisibleEntries();
+    }
+    return changed;
+  }
+
+  private rebuildDerivedEntries(): void {
+    this.pathToEntryIndex.clear();
+    this.entries.forEach((entry, index) => this.pathToEntryIndex.set(entry.path, index));
+    this.rebuildVisibleEntries();
+  }
+
+  private rebuildVisibleEntries(): void {
+    this.visibleEntriesCache = this.virtualEnabled
+      ? this.entries.slice(this.virtualStart, this.virtualEnd)
+      : this.entries;
   }
 
   trackByPath(_i: number, entry: FileInfo): string {
@@ -1548,8 +1597,8 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
 
   /** Build source entries; uses pane entries for same-pane drag or constructs minimal FileInfo for cross-pane drags. */
   private buildSourceFromEntries(dragged: { path: string; type: FileType; name: string }[]): FileInfo[] {
-    const paths = dragged.map(d => d.path);
-    const fromEntries = this.entries.filter(e => paths.includes(e.path) && !this.isParentEntry(e));
+    const pathSet = new Set(dragged.map(d => d.path));
+    const fromEntries = this.entries.filter(e => pathSet.has(e.path) && !this.isParentEntry(e));
     if (fromEntries.length > 0) return fromEntries;
     return dragged.filter(d => d.path && d.path !== PARENT_ENTRY_PATH).map(d => ({
       name: d.name,

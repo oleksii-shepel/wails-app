@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -52,6 +53,7 @@ type dirStreamErrorEvent struct {
 type ElevatedListFunc func(path string, showHidden bool) ([]contracts.FileInfo, error)
 type BuildFileInfoFunc func(name, fullPath string, info os.FileInfo, hidden bool) contracts.FileInfo
 type IsHiddenFunc func(name, fullPath string) bool
+type ResolvePublicPathFunc func(path string) (string, error)
 
 type DirStreamService struct {
 	mu           sync.Mutex
@@ -60,6 +62,7 @@ type DirStreamService struct {
 	elevatedList ElevatedListFunc
 	buildFile    BuildFileInfoFunc
 	isHidden     IsHiddenFunc
+	resolvePath  ResolvePublicPathFunc
 }
 
 func NewDirStreamService(
@@ -67,6 +70,7 @@ func NewDirStreamService(
 	elevatedList ElevatedListFunc,
 	buildFile BuildFileInfoFunc,
 	isHidden IsHiddenFunc,
+	resolvePath ResolvePublicPathFunc,
 ) *DirStreamService {
 	return &DirStreamService{
 		streams:      make(map[string]context.CancelFunc),
@@ -74,6 +78,7 @@ func NewDirStreamService(
 		elevatedList: elevatedList,
 		buildFile:    buildFile,
 		isHidden:     isHidden,
+		resolvePath:  resolvePath,
 	}
 }
 
@@ -221,7 +226,12 @@ func (s *DirStreamService) scanDirectoryStream(
 	chunkSize int,
 	onBatch func(batch []contracts.FileInfo, batchSize int64),
 ) error {
-	dir, err := os.Open(path)
+	nativePath, err := s.resolveNativePath(path)
+	if err != nil {
+		return err
+	}
+
+	dir, err := os.Open(nativePath)
 	if err != nil {
 		return err
 	}
@@ -240,12 +250,14 @@ func (s *DirStreamService) scanDirectoryStream(
 			batchSize := int64(0)
 			for _, info := range infos {
 				name := info.Name()
-				fullPath := internalplatform.ToSlash(filepath.Join(path, name))
-				hidden := s.isHidden != nil && s.isHidden(name, fullPath)
+				nativeFullPath := internalplatform.ToSlash(filepath.Join(nativePath, name))
+				publicFullPath := joinPublicPath(path, name)
+				hidden := s.isHidden != nil && s.isHidden(name, nativeFullPath)
 				if !showHidden && hidden {
 					continue
 				}
-				fi := s.buildFile(name, fullPath, info, hidden)
+				fi := s.buildFile(name, nativeFullPath, info, hidden)
+				fi.Path = publicFullPath
 				batch = append(batch, fi)
 				batchSize += fi.Size
 			}
@@ -279,6 +291,10 @@ func (s *DirStreamService) scanSearchStream(
 	}
 
 	basePath := internalplatform.ToSlash(query.BasePath)
+	nativeBasePath, err := s.resolveNativePath(query.BasePath)
+	if err != nil {
+		return err
+	}
 	batch := make([]contracts.FileInfo, 0, chunkSize)
 	batchSize := int64(0)
 	flush := func() {
@@ -291,7 +307,7 @@ func (s *DirStreamService) scanSearchStream(
 		batchSize = 0
 	}
 
-	err := filepath.WalkDir(query.BasePath, func(currentPath string, entry fs.DirEntry, walkErr error) error {
+	err = filepath.WalkDir(nativeBasePath, func(currentPath string, entry fs.DirEntry, walkErr error) error {
 		select {
 		case <-ctx.Done():
 			return context.Canceled
@@ -308,12 +324,13 @@ func (s *DirStreamService) scanSearchStream(
 			return nil
 		}
 
-		if currentPath == query.BasePath {
+		if currentPath == nativeBasePath {
 			return nil
 		}
 
 		name := entry.Name()
 		fullPath := internalplatform.ToSlash(currentPath)
+		publicFullPath := pathref.FromNativePath(fullPath)
 		hidden := s.isHidden != nil && s.isHidden(name, fullPath)
 		if !showHidden && hidden {
 			if entry.IsDir() {
@@ -330,9 +347,10 @@ func (s *DirStreamService) scanSearchStream(
 			info, infoErr := entry.Info()
 			if infoErr == nil {
 				fi := s.buildFile(name, fullPath, info, hidden)
+				fi.Path = publicFullPath
 				fi.SearchBasePath = basePath
 				fi.SearchPattern = query.Pattern
-				fi.SearchParentPath = internalplatform.ToSlash(filepath.Dir(fullPath))
+				fi.SearchParentPath = pathref.FromNativePath(internalplatform.ToSlash(filepath.Dir(fullPath)))
 				batch = append(batch, fi)
 				batchSize += fi.Size
 				if len(batch) >= chunkSize {
@@ -353,4 +371,19 @@ func (s *DirStreamService) scanSearchStream(
 
 	flush()
 	return nil
+}
+
+func (s *DirStreamService) resolveNativePath(path string) (string, error) {
+	if s.resolvePath != nil {
+		return s.resolvePath(path)
+	}
+	return pathref.ToNativePath(path), nil
+}
+
+func joinPublicPath(basePath string, name string) string {
+	trimmedBase := strings.TrimRight(internalplatform.ToSlash(basePath), "/")
+	if trimmedBase == "" || trimmedBase == "/" {
+		return "/" + name
+	}
+	return trimmedBase + "/" + name
 }

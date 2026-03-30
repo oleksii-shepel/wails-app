@@ -85,13 +85,12 @@ export class ViewerHostSurfaceComponent implements OnChanges {
     const req = {
       targetPath: this.targetPath ?? '',
       fileList: this.fileList ?? [],
-      archiveContext: this.archiveContext ?? null,
       viewerId: this.viewerId ?? null,
       probe: null as FileProbe | null,
     };
     const seq = ++this.resolveSeq;
 
-    if (!req.targetPath && !req.archiveContext) {
+    if (!req.targetPath) {
       this.resolvedViewerKey = null;
       this.renderedInputSignature = '';
       this.component = null;
@@ -100,12 +99,10 @@ export class ViewerHostSurfaceComponent implements OnChanges {
       return;
     }
 
-    const ext = extLower(req.archiveContext?.entryPath ?? req.targetPath);
-    if (ext || req.targetPath || req.archiveContext) {
+    const ext = extLower(req.targetPath);
+    if (ext || req.targetPath) {
       try {
-        req.probe = req.archiveContext
-          ? await this.api.probeArchiveFile(req.archiveContext.fsPath, req.archiveContext.nestedChain, req.archiveContext.entryPath)
-          : await this.api.probeFile(req.targetPath);
+        req.probe = await this.api.probeFile(req.targetPath);
       } catch {
         req.probe = null;
       }
@@ -118,7 +115,6 @@ export class ViewerHostSurfaceComponent implements OnChanges {
     this.outletInputs = {
       targetPath: req.targetPath,
       fileList: req.fileList,
-      archiveContext: req.archiveContext,
       viewerId: req.viewerId,
       probe: req.probe,
     };

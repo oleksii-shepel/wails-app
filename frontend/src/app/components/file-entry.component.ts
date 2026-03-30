@@ -1,4 +1,4 @@
-import { Component, Input, Output, EventEmitter, HostBinding, ElementRef, ViewChild } from '@angular/core';
+import { Component, Input, Output, EventEmitter, HostBinding, ElementRef, ViewChild, ChangeDetectionStrategy, OnChanges, SimpleChanges } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FileInfo, FileType } from '../shared/protocol';
 import { getFileMimeColorKind } from './file-entry-color.util';
@@ -15,18 +15,19 @@ export const PARENT_ENTRY_PATH = '__parent__';
   selector: 'app-file-entry',
   standalone: true,
   imports: [CommonModule],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
       class="file-entry"
       [class.selected]="selected"
       [class.cursor]="cursor"
-      [class.directory]="entry.type === FileType.DIRECTORY"
-      [class.parent-dir]="isParentEntry()"
+        [class.directory]="entry.type === FileType.DIRECTORY"
+        [class.parent-dir]="isParent"
       (click)="onClick($event)"
       (dblclick)="onDoubleClick()">
 
-      <span class="file-icon" [class.parent-icon]="isParentEntry()">
-        <ng-container *ngIf="isParentEntry(); else normalIcon">
+      <span class="file-icon" [class.parent-icon]="isParent">
+        <ng-container *ngIf="isParent; else normalIcon">
           <svg
             width="20"
             height="20"
@@ -42,8 +43,8 @@ export const PARENT_ENTRY_PATH = '__parent__';
           </svg>
         </ng-container>
         <ng-template #normalIcon>
-          <span class="icon-emoji">{{ getIconEmoji() }}</span>
-          <svg *ngIf="isSymlink()" class="symlink-badge" viewBox="0 0 10 10" fill="none" aria-label="symlink">
+          <span class="icon-emoji">{{ iconEmoji }}</span>
+          <svg *ngIf="isSymlinkEntry" class="symlink-badge" viewBox="0 0 10 10" fill="none" aria-label="symlink">
             <!-- Curved arrow body -->
             <path d="M2 8 C2 5 5 3 8 2"
               stroke="var(--vsc-icon-symlink,#5dade2)" stroke-width="2" stroke-linecap="round"/>
@@ -71,18 +72,18 @@ export const PARENT_ENTRY_PATH = '__parent__';
           <ng-container *ngIf="!isRenaming">
             <span class="file-name-text" [attr.data-mime-kind]="mimeColorKind">{{ displayName }}</span>
             <span
-              *ngIf="showDirectorySizeSpinnerInName && shouldShowDirectorySizeSpinner()"
+              *ngIf="showDirectorySizeSpinnerInName && showDirectorySizeSpinner"
               class="file-size-spinner file-size-spinner--inline"
               aria-label="Calculating folder size"
               title="Calculating folder size">
             </span>
-            <span *ngIf="showSearchBadge()" class="entry-chip search-chip">Search</span>
+            <span *ngIf="showSearchBadgeInVariant" class="entry-chip search-chip">Search</span>
           </ng-container>
         </div>
-        <div class="file-context-grid" *ngIf="showSearchContextInGrid()">{{ getSearchParentPath() }}</div>
-        <div class="file-details" [attr.aria-hidden]="isParentEntry() ? 'true' : null">
-          <ng-container *ngIf="!isParentEntry(); else detailPlaceholder">
-            <span class="file-size file-size--pending" *ngIf="shouldShowDirectorySizeSpinner(); else fileSizeValue">
+        <div class="file-context-grid" *ngIf="showSearchContextGrid">{{ searchParentPath }}</div>
+        <div class="file-details" [attr.aria-hidden]="isParent ? 'true' : null">
+          <ng-container *ngIf="!isParent; else detailPlaceholder">
+            <span class="file-size file-size--pending" *ngIf="showDirectorySizeSpinner; else fileSizeValue">
               <span
                 class="file-size-spinner"
                 aria-label="Calculating folder size"
@@ -94,7 +95,7 @@ export const PARENT_ENTRY_PATH = '__parent__';
             </ng-template>
             <span class="file-date">{{ formatDate(entry.modified) }}</span>
           </ng-container>
-          <span class="file-context" *ngIf="showSearchContextInRow()">{{ getSearchParentPath() }}</span>
+          <span class="file-context" *ngIf="showSearchContextRow">{{ searchParentPath }}</span>
         </div>
       </div>
     </div>
@@ -488,7 +489,7 @@ export const PARENT_ENTRY_PATH = '__parent__';
     }
   `]
 })
-export class FileEntryComponent {
+export class FileEntryComponent implements OnChanges {
   @Input() entry!: FileInfo;
   @Input() selected = false;
   @Input() cursor = false;
@@ -506,16 +507,18 @@ export class FileEntryComponent {
 
   isRenaming = false;
   editingName = '';
-
-  get mimeColorKind(): string {
-    return getFileMimeColorKind(this.entry, this.colorizeByMime);
-  }
+  isParent = false;
+  isSymlinkEntry = false;
+  displayName = '';
+  mimeColorKind = 'default';
+  iconEmoji = '📄';
+  searchParentPath = '';
+  showSearchBadgeInVariant = false;
+  showSearchContextRow = false;
+  showSearchContextGrid = false;
+  showDirectorySizeSpinner = false;
 
   FileType = FileType;
-
-  get displayName(): string {
-    return this.displayNameOverride?.trim() || this.entry?.name || '';
-  }
 
   @HostBinding('class.variant-inline') get isInlineVariant(): boolean {
     return this.variant === 'inline';
@@ -529,13 +532,17 @@ export class FileEntryComponent {
     return this.isRenaming;
   }
 
+  ngOnChanges(_changes: SimpleChanges): void {
+    this.rebuildRenderState();
+  }
+
   isParentEntry(): boolean {
-    return this.entry?.path === PARENT_ENTRY_PATH;
+    return this.isParent;
   }
 
   /** True for file-symlinks (type === SYMLINK) and dir-symlinks (type === DIRECTORY, isSymlink === true). */
   isSymlink(): boolean {
-    return this.entry?.type === FileType.SYMLINK || !!this.entry?.isSymlink;
+    return this.isSymlinkEntry;
   }
 
   isSearchEntry(): boolean {
@@ -543,23 +550,23 @@ export class FileEntryComponent {
   }
 
   showSearchBadge(): boolean {
-    return !this.isParentEntry() && this.variant !== 'inline' && this.isSearchEntry();
+    return this.showSearchBadgeInVariant;
   }
 
   showSearchContextInRow(): boolean {
-    return !this.isParentEntry() && this.variant === 'row' && this.isSearchEntry();
+    return this.showSearchContextRow;
   }
 
   showSearchContextInGrid(): boolean {
-    return !this.isParentEntry() && this.variant === 'grid' && this.isSearchEntry();
+    return this.showSearchContextGrid;
   }
 
   shouldShowDirectorySizeSpinner(): boolean {
-    return this.directorySizePending && !this.isParentEntry() && this.entry?.type === FileType.DIRECTORY;
+    return this.showDirectorySizeSpinner;
   }
 
   getSearchParentPath(): string {
-    return this.entry?.searchParentPath || '';
+    return this.searchParentPath;
   }
 
   /**
@@ -568,18 +575,37 @@ export class FileEntryComponent {
    * is the only indicator that distinguishes them from real entries.
    */
   getIconEmoji(): string {
-    if (!this.entry) return '📄';
+    return this.iconEmoji;
+  }
 
-	if (this.isRegistryEntry()) {
-	  if (this.entry.path === 'registry://') return '🧭';
-	  return this.getRegistryIconEmoji();
-	}
+  private rebuildRenderState(): void {
+    const entry = this.entry;
+    this.isParent = entry?.path === PARENT_ENTRY_PATH;
+    this.isSymlinkEntry = entry?.type === FileType.SYMLINK || !!entry?.isSymlink;
+    this.displayName = this.displayNameOverride?.trim() || entry?.name || '';
+    this.mimeColorKind = getFileMimeColorKind(entry, this.colorizeByMime);
+    this.searchParentPath = entry?.searchParentPath || '';
+    const isSearchEntry = !!entry && !!(entry.searchParentPath || entry.searchPattern || entry.searchBasePath);
+    this.showSearchBadgeInVariant = !this.isParent && this.variant !== 'inline' && isSearchEntry;
+    this.showSearchContextRow = !this.isParent && this.variant === 'row' && isSearchEntry;
+    this.showSearchContextGrid = !this.isParent && this.variant === 'grid' && isSearchEntry;
+    this.showDirectorySizeSpinner = this.directorySizePending && !this.isParent && entry?.type === FileType.DIRECTORY;
+    this.iconEmoji = this.resolveIconEmoji(entry);
+  }
 
-    switch (this.entry.type) {
+  private resolveIconEmoji(entry: FileInfo | undefined): string {
+    if (!entry) return '📄';
+
+    if (this.isRegistryEntry()) {
+      if (entry.path === 'registry://') return '🧭';
+      return this.getRegistryIconEmoji();
+    }
+
+    switch (entry.type) {
       case FileType.DIRECTORY: return '📁';
       // File symlink: render as a plain file so the badge does the talking
       case FileType.SYMLINK:   return '📄';
-      default:                 return this.extIcon(this.entry.name);
+      default:                 return this.extIcon(entry.name);
     }
   }
 

@@ -306,13 +306,30 @@ interface AudioPlaylistItem {
   styles: [VIEWER_BASE_STYLES, `
     /* ── SURFACE ───────────────────────────────────────── */
     .viewer-surface {
+      --av-surface: var(--vsc-panel-background, #252526);
+      --av-surface-alt: color-mix(in srgb, var(--vsc-panel-background, #252526) 88%, var(--vsc-editor-background, #1e1e1e));
+      --av-surface-muted: color-mix(in srgb, var(--vsc-panel-background, #252526) 72%, black);
+      --av-border: color-mix(in srgb, var(--vsc-border, #454545) 70%, transparent);
+      --av-border-strong: var(--vsc-border, #454545);
+      --av-text: var(--vsc-foreground, #cccccc);
+      --av-text-muted: color-mix(in srgb, var(--vsc-foreground, #cccccc) 58%, transparent);
+      --av-text-dim: color-mix(in srgb, var(--vsc-foreground, #cccccc) 36%, transparent);
+      --av-accent: var(--vsc-button-background, #0e639c);
+      --av-accent-foreground: var(--vsc-button-foreground, #ffffff);
+      --av-focus: var(--vsc-focusBorder, #007fd4);
+      --av-shadow: var(--vsc-widget-shadow, 0 5px 8px 0 rgba(0, 0, 0, 0.36));
+      --av-list-hover: var(--vsc-list-hover-background, #2a2d2e);
+      --av-list-active: var(--vsc-list-active-background, #094771);
+      --av-list-active-foreground: var(--vsc-list-active-foreground, #ffffff);
+      --av-button-secondary: var(--vsc-button-secondary, #3a3d41);
+      --av-button-secondary-hover: var(--vsc-button-secondary-hover, #45494e);
       display: flex;
       flex-direction: column;
       flex: 1 1 0%;
       min-height: 0;
       overflow: hidden;
-      background: #0c0c0f;
-      color: #cccccc;
+      background: var(--av-surface-muted);
+      color: var(--av-text);
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     }
 
@@ -323,8 +340,8 @@ interface AudioPlaylistItem {
       justify-content: space-between;
       gap: 8px;
       padding: 9px 14px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.07);
-      background: #0c0c0f;
+      border-bottom: 1px solid var(--av-border);
+      background: var(--av-surface-muted);
       flex-shrink: 0;
       min-width: 0;
     }
@@ -341,13 +358,13 @@ interface AudioPlaylistItem {
       width: 30px;
       height: 30px;
       border-radius: 50%;
-      background: rgba(99, 102, 241, 0.18);
-      border: 1px solid rgba(99, 102, 241, 0.32);
+      background: color-mix(in srgb, var(--av-accent) 16%, transparent);
+      border: 1px solid color-mix(in srgb, var(--av-accent) 32%, transparent);
       display: flex;
       align-items: center;
       justify-content: center;
       flex-shrink: 0;
-      color: rgba(165, 163, 255, 0.9);
+      color: color-mix(in srgb, var(--av-accent) 70%, white);
     }
 
     .hdr-icon svg {
@@ -364,7 +381,7 @@ interface AudioPlaylistItem {
       font-size: 12px;
       font-weight: 700;
       letter-spacing: 0.3px;
-      color: rgba(255, 255, 255, 0.88);
+      color: color-mix(in srgb, var(--av-text) 90%, white);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -373,7 +390,7 @@ interface AudioPlaylistItem {
     .path {
       font-family: ui-monospace, 'Cascadia Code', 'Fira Code', monospace;
       font-size: 11px;
-      color: rgba(255, 255, 255, 0.35);
+      color: var(--av-text-dim);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -397,27 +414,27 @@ interface AudioPlaylistItem {
     }
 
     .type-badge {
-      background: rgba(99, 102, 241, 0.2);
-      color: #a5a3ff;
-      border: 1px solid rgba(99, 102, 241, 0.35);
+      background: color-mix(in srgb, var(--av-accent) 16%, transparent);
+      color: color-mix(in srgb, var(--av-accent) 70%, white);
+      border: 1px solid color-mix(in srgb, var(--av-accent) 34%, transparent);
     }
 
     .size-badge {
-      background: rgba(255, 255, 255, 0.06);
-      color: rgba(255, 255, 255, 0.4);
-      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: color-mix(in srgb, var(--av-text) 7%, transparent);
+      color: var(--av-text-muted);
+      border: 1px solid var(--av-border);
     }
 
     .mime-badge {
-      background: rgba(255, 255, 255, 0.06);
-      color: rgba(255, 255, 255, 0.4);
-      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: color-mix(in srgb, var(--av-text) 7%, transparent);
+      color: var(--av-text-muted);
+      border: 1px solid var(--av-border);
     }
 
     .dur-badge {
-      background: rgba(16, 185, 129, 0.14);
-      color: #6ee7b7;
-      border: 1px solid rgba(16, 185, 129, 0.28);
+      background: color-mix(in srgb, var(--av-focus) 12%, transparent);
+      color: color-mix(in srgb, var(--av-focus) 64%, white);
+      border: 1px solid color-mix(in srgb, var(--av-focus) 26%, transparent);
     }
 
     /* ── BODY ──────────────────────────────────────────── */
@@ -445,12 +462,12 @@ interface AudioPlaylistItem {
       width: 48px;
       height: 48px;
       border-radius: 50%;
-      background: rgba(255, 255, 255, 0.06);
-      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: color-mix(in srgb, var(--av-text) 10%, transparent);
+      border: 1px solid var(--av-border);
       display: flex;
       align-items: center;
       justify-content: center;
-      color: rgba(255, 255, 255, 0.35);
+      color: var(--av-text-dim);
     }
 
     .state-icon-wrap svg {
@@ -459,44 +476,44 @@ interface AudioPlaylistItem {
     }
 
     .state-icon-folder {
-      background: rgba(250, 204, 21, 0.1);
-      border-color: rgba(250, 204, 21, 0.25);
-      color: rgba(250, 204, 21, 0.7);
+      background: color-mix(in srgb, var(--vsc-accent-yellow, #d7ba7d) 14%, transparent);
+      border-color: color-mix(in srgb, var(--vsc-accent-yellow, #d7ba7d) 34%, transparent);
+      color: var(--vsc-accent-yellow, #d7ba7d);
     }
 
     .state-icon-warn {
-      background: rgba(99, 102, 241, 0.1);
-      border-color: rgba(99, 102, 241, 0.25);
-      color: rgba(165, 163, 255, 0.8);
+      background: color-mix(in srgb, var(--vsc-warning, #cca700) 12%, transparent);
+      border-color: color-mix(in srgb, var(--vsc-warning, #cca700) 28%, transparent);
+      color: var(--vsc-warning, #cca700);
     }
 
     .state-icon-error {
-      background: rgba(239, 68, 68, 0.1);
-      border-color: rgba(239, 68, 68, 0.25);
-      color: rgba(252, 165, 165, 0.9);
+      background: color-mix(in srgb, var(--vsc-error, #f48771) 12%, transparent);
+      border-color: color-mix(in srgb, var(--vsc-error, #f48771) 28%, transparent);
+      color: var(--vsc-error, #f48771);
     }
 
     .state-label {
       font-size: 13px;
-      color: rgba(255, 255, 255, 0.45);
+      color: var(--av-text-muted);
     }
 
     .state-sub {
       font-size: 11px;
-      color: rgba(255, 255, 255, 0.3);
+      color: var(--av-text-dim);
       font-family: ui-monospace, monospace;
     }
 
     .state-error .state-label {
-      color: rgba(252, 165, 165, 0.9);
+      color: var(--vsc-error, #f48771);
     }
 
     .error-detail {
       font-size: 11px;
       font-family: ui-monospace, monospace;
-      color: rgba(252, 165, 165, 0.7);
-      background: rgba(239, 68, 68, 0.07);
-      border: 1px solid rgba(239, 68, 68, 0.2);
+      color: color-mix(in srgb, var(--vsc-error, #f48771) 84%, var(--av-text));
+      background: color-mix(in srgb, var(--vsc-error, #f48771) 10%, transparent);
+      border: 1px solid color-mix(in srgb, var(--vsc-error, #f48771) 24%, transparent);
       border-radius: 6px;
       padding: 8px 14px;
       max-width: 480px;
@@ -507,8 +524,8 @@ interface AudioPlaylistItem {
     .spinner {
       width: 26px;
       height: 26px;
-      border: 2px solid rgba(99, 102, 241, 0.25);
-      border-top-color: #6366f1;
+      border: 2px solid color-mix(in srgb, var(--av-accent) 24%, transparent);
+      border-top-color: var(--av-accent);
       border-radius: 50%;
       animation: spin-basic 0.65s linear infinite;
     }
@@ -526,7 +543,7 @@ interface AudioPlaylistItem {
       display: flex;
       flex-direction: column;
       min-height: 100%;
-      background: #0c0c0f;
+      background: var(--av-surface-muted);
     }
 
     /* ── ART STAGE ─────────────────────────────────────── */
@@ -539,8 +556,8 @@ interface AudioPlaylistItem {
 
     /* ── DISC PANEL ────────────────────────────────────── */
     .disc-panel {
-      background: linear-gradient(160deg, #111116 0%, #0f0f14 100%);
-      border-right: 1px solid rgba(255, 255, 255, 0.06);
+      background: linear-gradient(160deg, var(--av-surface-alt) 0%, var(--av-surface-muted) 100%);
+      border-right: 1px solid var(--av-border);
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -566,11 +583,11 @@ interface AudioPlaylistItem {
         #1a1a22 120deg, #222230 150deg, #1a1a22 180deg, #222230 210deg,
         #1a1a22 240deg, #222230 270deg, #1a1a22 300deg, #222230 330deg, #1a1a22 360deg
       );
-      border: 1px solid rgba(255, 255, 255, 0.1);
+      border: 1px solid var(--av-border);
       position: relative;
       box-shadow:
-        inset 0 0 0 1px rgba(255, 255, 255, 0.04),
-        0 12px 32px rgba(0, 0, 0, 0.6);
+        inset 0 0 0 1px color-mix(in srgb, var(--av-text) 6%, transparent),
+        0 12px 32px color-mix(in srgb, var(--vsc-shadow, rgba(0, 0, 0, 0.36)) 100%, transparent);
     }
 
     .disc.spinning {
@@ -587,7 +604,7 @@ interface AudioPlaylistItem {
       position: absolute;
       inset: 14px;
       border-radius: 50%;
-      border: 1px solid rgba(255, 255, 255, 0.05);
+      border: 1px solid color-mix(in srgb, var(--av-text) 7%, transparent);
       box-shadow:
         0 0 0 12px rgba(0, 0, 0, 0.15),
         0 0 0 24px rgba(255, 255, 255, 0.025),
@@ -603,11 +620,11 @@ interface AudioPlaylistItem {
       width: 44px;
       height: 44px;
       border-radius: 50%;
-      background: linear-gradient(135deg, #6366f1, #4f46e5);
-      border: 2px solid rgba(255, 255, 255, 0.15);
+      background: linear-gradient(135deg, color-mix(in srgb, var(--av-accent) 82%, white), var(--av-accent));
+      border: 2px solid color-mix(in srgb, var(--av-accent-foreground) 18%, transparent);
       box-shadow:
-        0 0 18px rgba(99, 102, 241, 0.5),
-        0 0 0 3px rgba(99, 102, 241, 0.12);
+        0 0 18px color-mix(in srgb, var(--av-accent) 40%, transparent),
+        0 0 0 3px color-mix(in srgb, var(--av-accent) 12%, transparent);
       z-index: 2;
     }
 
@@ -630,7 +647,7 @@ interface AudioPlaylistItem {
       right: -18px;
       width: 54px;
       height: 2px;
-      background: linear-gradient(90deg, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.2));
+      background: linear-gradient(90deg, color-mix(in srgb, var(--av-text) 58%, transparent), color-mix(in srgb, var(--av-text) 18%, transparent));
       border-radius: 1px;
       transform-origin: right center;
       transform: rotate(-34deg);
@@ -647,8 +664,8 @@ interface AudioPlaylistItem {
       width: 7px;
       height: 7px;
       border-radius: 50%;
-      background: rgba(255, 255, 255, 0.75);
-      box-shadow: 0 0 6px rgba(255, 255, 255, 0.3);
+      background: color-mix(in srgb, var(--av-text) 78%, transparent);
+      box-shadow: 0 0 6px color-mix(in srgb, var(--av-text) 20%, transparent);
     }
 
     .disc-wrap.playing .needle {
@@ -668,13 +685,13 @@ interface AudioPlaylistItem {
       font-weight: 700;
       letter-spacing: 0.18em;
       text-transform: uppercase;
-      color: rgba(99, 102, 241, 0.85);
+      color: color-mix(in srgb, var(--av-accent) 72%, white);
     }
 
     .dc-title {
       font-size: 14px;
       font-weight: 700;
-      color: rgba(255, 255, 255, 0.9);
+      color: color-mix(in srgb, var(--av-text) 92%, white);
       line-height: 1.3;
       word-break: break-word;
       overflow: hidden;
@@ -686,7 +703,7 @@ interface AudioPlaylistItem {
 
     .dc-status {
       font-size: 11px;
-      color: rgba(255, 255, 255, 0.35);
+      color: var(--av-text-dim);
       margin-top: 2px;
     }
 
@@ -694,7 +711,7 @@ interface AudioPlaylistItem {
     .signal-panel {
       display: flex;
       flex-direction: column;
-      background: #0d0d12;
+      background: var(--av-surface);
       padding: 16px 18px 14px;
       gap: 10px;
     }
@@ -715,12 +732,12 @@ interface AudioPlaylistItem {
       font-weight: 700;
       letter-spacing: 0.15em;
       text-transform: uppercase;
-      color: rgba(255, 255, 255, 0.45);
+      color: var(--av-text-muted);
     }
 
     .sig-sub {
       font-size: 10px;
-      color: rgba(255, 255, 255, 0.22);
+      color: var(--av-text-dim);
       letter-spacing: 0.04em;
     }
 
@@ -738,7 +755,7 @@ interface AudioPlaylistItem {
       flex: 1;
       min-width: 5px;
       border-radius: 3px 3px 2px 2px;
-      background: linear-gradient(180deg, #6366f1 0%, rgba(99, 102, 241, 0.3) 100%);
+      background: linear-gradient(180deg, color-mix(in srgb, var(--av-accent) 82%, white) 0%, color-mix(in srgb, var(--av-accent) 30%, transparent) 100%);
       transform-origin: bottom;
       animation: s-idle 1.6s ease-in-out infinite;
       animation-play-state: paused;
@@ -768,7 +785,7 @@ interface AudioPlaylistItem {
 
     .freq-labels span {
       font-size: 9px;
-      color: rgba(255, 255, 255, 0.18);
+      color: color-mix(in srgb, var(--av-text) 22%, transparent);
       font-family: ui-monospace, monospace;
       letter-spacing: 0.02em;
     }
@@ -783,7 +800,7 @@ interface AudioPlaylistItem {
     .vu-channel {
       font-size: 9px;
       font-weight: 700;
-      color: rgba(255, 255, 255, 0.25);
+      color: color-mix(in srgb, var(--av-text) 28%, transparent);
       letter-spacing: 0.1em;
       min-width: 10px;
       font-family: ui-monospace, monospace;
@@ -792,7 +809,7 @@ interface AudioPlaylistItem {
     .vu-track {
       flex: 1;
       height: 6px;
-      background: rgba(255, 255, 255, 0.07);
+      background: color-mix(in srgb, var(--av-text) 10%, transparent);
       border-radius: 3px;
       overflow: visible;
       position: relative;
@@ -803,11 +820,11 @@ interface AudioPlaylistItem {
       border-radius: 3px;
       width: 0%;
       transition: width 0.08s linear;
-      background: linear-gradient(90deg, #6366f1 0%, #a78bfa 75%, #f472b6 100%);
+      background: linear-gradient(90deg, var(--av-accent) 0%, color-mix(in srgb, var(--av-accent) 72%, white) 100%);
     }
 
     .vu-fill.vu-hot {
-      background: linear-gradient(90deg, #6366f1 0%, #f472b6 60%, #f87171 100%);
+      background: linear-gradient(90deg, var(--av-accent) 0%, var(--vsc-editorWarning-foreground, #b89500) 100%);
     }
 
     .vu-peak {
@@ -816,7 +833,7 @@ interface AudioPlaylistItem {
       right: 0;
       width: 2px;
       height: 100%;
-      background: rgba(255, 255, 255, 0.55);
+      background: color-mix(in srgb, var(--av-text) 58%, transparent);
       border-radius: 1px;
       transition: right 0.05s linear;
     }
@@ -824,8 +841,8 @@ interface AudioPlaylistItem {
     /* ── CONTROLS ──────────────────────────────────────── */
     .ctrl-bar {
       padding: 11px 14px 13px;
-      background: #0a0a0e;
-      border-top: 1px solid rgba(255, 255, 255, 0.07);
+      background: var(--av-surface-alt);
+      border-top: 1px solid var(--av-border);
       display: flex;
       flex-direction: column;
       gap: 10px;
@@ -841,7 +858,7 @@ interface AudioPlaylistItem {
 
     .time-edge {
       font-size: 10px;
-      color: rgba(255, 255, 255, 0.38);
+      color: var(--av-text-muted);
       font-family: ui-monospace, monospace;
       white-space: nowrap;
       min-width: 34px;
@@ -855,7 +872,7 @@ interface AudioPlaylistItem {
       flex: 1;
       position: relative;
       height: 4px;
-      background: rgba(255, 255, 255, 0.12);
+      background: color-mix(in srgb, var(--av-text) 14%, transparent);
       border-radius: 2px;
       cursor: pointer;
     }
@@ -865,7 +882,7 @@ interface AudioPlaylistItem {
       left: 0;
       top: 0;
       height: 100%;
-      background: linear-gradient(90deg, #6366f1, #a78bfa);
+      background: linear-gradient(90deg, var(--av-accent), color-mix(in srgb, var(--av-accent) 72%, white));
       border-radius: 2px;
       transition: width 0.06s linear;
       pointer-events: none;
@@ -877,10 +894,10 @@ interface AudioPlaylistItem {
       width: 12px;
       height: 12px;
       border-radius: 50%;
-      background: #fff;
-      border: 2px solid #6366f1;
+      background: var(--av-accent-foreground);
+      border: 2px solid var(--av-accent);
       transform: translate(-50%, -50%);
-      box-shadow: 0 0 8px rgba(99, 102, 241, 0.6);
+      box-shadow: 0 0 8px color-mix(in srgb, var(--av-accent) 38%, transparent);
       transition: left 0.06s linear;
       pointer-events: none;
     }
@@ -914,22 +931,22 @@ interface AudioPlaylistItem {
       min-width: 36px;
       height: 36px;
       padding: 0 10px;
-      border-radius: 8px;
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      background: rgba(255, 255, 255, 0.06);
-      color: rgba(255, 255, 255, 0.8);
+      border-radius: 6px;
+      border: 1px solid var(--av-border-strong);
+      background: var(--av-button-secondary);
+      color: var(--av-text);
       font-size: 12px;
       font-weight: 600;
       cursor: pointer;
-      transition: background 0.15s, transform 0.1s;
+      transition: background 0.15s, border-color 0.15s, transform 0.1s;
       white-space: nowrap;
       letter-spacing: 0.02em;
       font-family: inherit;
     }
 
     .cbtn:hover:not(:disabled) {
-      background: rgba(255, 255, 255, 0.13);
-      border-color: rgba(255, 255, 255, 0.22);
+      background: var(--av-button-secondary-hover);
+      border-color: color-mix(in srgb, var(--av-text) 24%, var(--av-border-strong));
     }
 
     .cbtn:active:not(:disabled) {
@@ -944,16 +961,18 @@ interface AudioPlaylistItem {
     .cbtn-play {
       min-width: 44px;
       height: 40px;
-      background: linear-gradient(135deg, #6366f1, #4f46e5);
-      border: 1px solid rgba(99, 102, 241, 0.4);
-      border-radius: 10px;
+      background: var(--av-accent);
+      border: 1px solid color-mix(in srgb, var(--av-accent) 72%, black);
+      border-radius: 6px;
       font-size: 16px;
-      box-shadow: 0 4px 16px rgba(99, 102, 241, 0.3);
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--av-accent) 16%, transparent);
+      color: var(--av-accent-foreground);
     }
 
     .cbtn-play:hover:not(:disabled) {
-      background: linear-gradient(135deg, #7173f3, #5855e8);
-      box-shadow: 0 6px 22px rgba(99, 102, 241, 0.45);
+      background: var(--vsc-button-hover, #1177bb);
+      border-color: color-mix(in srgb, var(--vsc-button-hover, #1177bb) 72%, black);
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--vsc-button-hover, #1177bb) 16%, transparent);
     }
 
     .cbtn-icon {
@@ -984,7 +1003,7 @@ interface AudioPlaylistItem {
       padding: 0 6px;
       border: none;
       background: transparent;
-      color: rgba(255, 255, 255, 0.55);
+      color: var(--av-text-muted);
     }
 
     .cbtn-vol-icon svg {
@@ -993,24 +1012,24 @@ interface AudioPlaylistItem {
     }
 
     .cbtn-vol-icon:hover:not(:disabled) {
-      background: rgba(255, 255, 255, 0.08);
-      color: rgba(255, 255, 255, 0.8);
+      background: color-mix(in srgb, var(--av-text) 10%, transparent);
+      color: color-mix(in srgb, var(--av-text) 86%, transparent);
     }
 
     .time-display {
       font-size: 11px;
       font-family: ui-monospace, monospace;
-      color: rgba(255, 255, 255, 0.45);
+      color: var(--av-text-muted);
       padding: 4px 8px;
       border-radius: 5px;
-      background: rgba(255, 255, 255, 0.05);
+      background: color-mix(in srgb, var(--av-text) 7%, transparent);
       min-width: 88px;
       text-align: center;
       white-space: nowrap;
     }
 
     .time-cur {
-      color: rgba(255, 255, 255, 0.88);
+      color: color-mix(in srgb, var(--av-text) 90%, white);
       font-weight: 600;
     }
 
@@ -1020,7 +1039,7 @@ interface AudioPlaylistItem {
     }
 
     .time-dur {
-      color: rgba(255, 255, 255, 0.4);
+      color: var(--av-text-muted);
     }
 
     /* playlist nav */
@@ -1033,7 +1052,7 @@ interface AudioPlaylistItem {
     .pl-counter {
       font-size: 10px;
       font-weight: 600;
-      color: rgba(255, 255, 255, 0.38);
+      color: var(--av-text-muted);
       letter-spacing: 0.06em;
       min-width: 28px;
       text-align: center;
@@ -1053,7 +1072,7 @@ interface AudioPlaylistItem {
       border-radius: 2px;
       appearance: none;
       -webkit-appearance: none;
-      background: rgba(255, 255, 255, 0.15);
+      background: color-mix(in srgb, var(--av-text) 18%, transparent);
       outline: none;
       cursor: pointer;
     }
@@ -1064,7 +1083,7 @@ interface AudioPlaylistItem {
       width: 10px;
       height: 10px;
       border-radius: 50%;
-      background: #fff;
+      background: var(--av-accent-foreground);
       box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
     }
 
@@ -1073,7 +1092,7 @@ interface AudioPlaylistItem {
       height: 10px;
       border-radius: 50%;
       border: none;
-      background: #fff;
+      background: var(--av-accent-foreground);
       box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
     }
 
@@ -1084,8 +1103,8 @@ interface AudioPlaylistItem {
 
     /* ── PLAYLIST ───────────────────────────────────────── */
     .playlist-panel {
-      border-top: 1px solid rgba(255, 255, 255, 0.06);
-      background: #0a0a0e;
+      border-top: 1px solid var(--av-border);
+      background: var(--av-surface-alt);
       padding: 12px 14px 14px;
       display: flex;
       flex-direction: column;
@@ -1104,20 +1123,23 @@ interface AudioPlaylistItem {
       font-weight: 700;
       letter-spacing: 0.14em;
       text-transform: uppercase;
-      color: rgba(99, 102, 241, 0.8);
+      color: var(--av-text-muted);
     }
 
     .playlist-count {
       font-size: 10px;
-      color: rgba(255, 255, 255, 0.28);
+      color: var(--av-text-dim);
     }
 
     .playlist-list {
       display: flex;
       flex-direction: column;
       gap: 4px;
-      max-height: 220px;
-      overflow: auto;
+      max-height: min(320px, 36vh);
+      overflow-y: auto;
+      overflow-x: hidden;
+      overscroll-behavior: contain;
+      scrollbar-gutter: stable;
     }
 
     .playlist-item {
@@ -1126,10 +1148,10 @@ interface AudioPlaylistItem {
       gap: 10px;
       width: 100%;
       padding: 8px 10px;
-      border-radius: 8px;
-      border: 1px solid rgba(255, 255, 255, 0.06);
-      background: rgba(255, 255, 255, 0.03);
-      color: rgba(255, 255, 255, 0.6);
+      border-radius: 6px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--av-text-muted);
       cursor: pointer;
       text-align: left;
       font-size: 12px;
@@ -1138,21 +1160,21 @@ interface AudioPlaylistItem {
     }
 
     .playlist-item:hover {
-      background: rgba(255, 255, 255, 0.07);
-      border-color: rgba(255, 255, 255, 0.12);
+      background: var(--av-list-hover);
+      border-color: color-mix(in srgb, var(--av-border-strong) 72%, transparent);
     }
 
     .playlist-item.active {
-      background: rgba(99, 102, 241, 0.14);
-      border-color: rgba(99, 102, 241, 0.4);
-      color: rgba(255, 255, 255, 0.9);
+      background: var(--av-list-active);
+      border-color: color-mix(in srgb, var(--av-accent) 40%, transparent);
+      color: var(--av-list-active-foreground);
     }
 
     .pl-dot {
       width: 7px;
       height: 7px;
       border-radius: 50%;
-      background: #6366f1;
+      background: var(--av-accent);
       flex-shrink: 0;
       animation: pl-blink 1s ease-in-out infinite;
     }
@@ -1166,7 +1188,7 @@ interface AudioPlaylistItem {
       font-size: 10px;
       font-weight: 600;
       min-width: 18px;
-      color: rgba(255, 255, 255, 0.25);
+      color: var(--av-text-dim);
       font-family: ui-monospace, monospace;
     }
 
@@ -1186,7 +1208,7 @@ interface AudioPlaylistItem {
 
       .disc-panel {
         border-right: none;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        border-bottom: 1px solid var(--av-border);
         min-height: 200px;
         padding: 20px;
         flex-direction: row;
@@ -1243,7 +1265,11 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
 
   @ViewChild('audioElement')
   set audioElementRef(value: ElementRef<HTMLAudioElement> | undefined) {
-    this.audioElement = value?.nativeElement ?? null;
+    const nextElement = value?.nativeElement ?? null;
+    if (this.audioElement && this.audioElement !== nextElement) {
+      this.destroyAudioAnalysis();
+    }
+    this.audioElement = nextElement;
     this.syncAudioElement();
   }
 
@@ -1260,7 +1286,7 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
   duration = 0;
   volume = 90;
 
-  // VU meter state (driven by a rAF loop when playing)
+  // Live meter state (driven by Web Audio analyser data while playing)
   vuLeft = 0;
   vuRight = 0;
   vuPeakLeft = 0;
@@ -1269,9 +1295,18 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
   playlistItems: AudioPlaylistItem[] = [];
   currentPlaylistIndex = 0;
 
-  readonly spectrumBars = [28, 55, 42, 72, 38, 88, 50, 80, 44, 66, 36, 82, 52, 70, 40, 76, 46, 60, 32, 90];
+  spectrumBars = new Array<number>(20).fill(0);
 
   private audioElement: HTMLAudioElement | null = null;
+  private audioContext: AudioContext | null = null;
+  private mediaSourceNode: MediaStreamAudioSourceNode | null = null;
+  private splitterNode: ChannelSplitterNode | null = null;
+  private spectrumAnalyser: AnalyserNode | null = null;
+  private leftLevelAnalyser: AnalyserNode | null = null;
+  private rightLevelAnalyser: AnalyserNode | null = null;
+  private frequencyData: Uint8Array<ArrayBuffer> | null = null;
+  private leftTimeDomainData: Uint8Array<ArrayBuffer> | null = null;
+  private rightTimeDomainData: Uint8Array<ArrayBuffer> | null = null;
   private loadVersion = 0;
   private autoplayPending = false;
   private lastNonZeroVolume = 90;
@@ -1362,6 +1397,7 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
   ngOnDestroy(): void {
     this.stopVuLoop();
     this.pauseAndDetachAudio();
+    this.destroyAudioAnalysis();
   }
 
   async togglePlayPause(): Promise<void> {
@@ -1369,6 +1405,9 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
     if (!audio || !this.audioReady) { return; }
     try {
       if (audio.paused) {
+        if (this.audioContext?.state === 'suspended') {
+          await this.audioContext.resume();
+        }
         this.isBuffering = true;
         this.cdr.markForCheck();
         await audio.play();
@@ -1463,25 +1502,29 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
   onPlay(): void {
     this.isPlaying = true;
     this.isBuffering = false;
-    this.startVuLoop();
     this.cdr.markForCheck();
   }
 
   onPause(): void {
     this.isPlaying = false;
     this.isBuffering = false;
-    this.stopVuLoop();
-    this.drainVu();
     this.cdr.markForCheck();
   }
 
   onEnded(): void {
+    if (this.hasPlaylist) {
+      this.isPlaying = false;
+      this.isBuffering = false;
+      this.currentTime = this.duration;
+      this.seekTarget = this.duration;
+      const nextIndex = (this.currentPlaylistIndex + 1) % this.playlistItems.length;
+      void this.displayPlaylistIndex(nextIndex);
+      return;
+    }
     this.isPlaying = false;
     this.isBuffering = false;
     this.currentTime = this.duration;
     this.seekTarget = this.duration;
-    this.stopVuLoop();
-    this.drainVu();
     this.cdr.markForCheck();
   }
 
@@ -1543,11 +1586,12 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
 
   // ── VU METER LOOP ──────────────────────────────────────
 
-  private startVuLoop(): void {
+    private startVuLoop(): void {
     if (this.vuRafId !== null) { return; }
     const tick = () => {
-      const lv = (0.35 + Math.random() * 0.6) * 100;
-      const rv = (0.35 + Math.random() * 0.55) * 100;
+      const lv = this.readLevelPercent(this.leftLevelAnalyser, this.leftTimeDomainData);
+      const rv = this.readLevelPercent(this.rightLevelAnalyser, this.rightTimeDomainData);
+      this.updateSpectrumBars();
       this.vuLeft = lv;
       this.vuRight = rv;
       const now = performance.now();
@@ -1572,6 +1616,7 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
     const step = () => {
       this.vuLeft = 0;
       this.vuRight = 0;
+      this.spectrumBars = this.spectrumBars.map(() => 0);
       this.vuPeakLeft = Math.max(0, this.vuPeakLeft - 3);
       this.vuPeakRight = Math.max(0, this.vuPeakRight - 3);
       this.cdr.markForCheck();
@@ -1661,6 +1706,7 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
     this.vuRight = 0;
     this.vuPeakLeft = 0;
     this.vuPeakRight = 0;
+    this.spectrumBars = this.spectrumBars.map(() => 0);
     this.autoplayPending = false;
     this.activeTargetPath = item.path;
     this.cdr.markForCheck();
@@ -1703,7 +1749,6 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
   }
 
   private resetState(): void {
-    this.stopVuLoop();
     this.pauseAndDetachAudio();
     this.kind = 'empty';
     this.info = null;
@@ -1732,5 +1777,62 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
     audio.pause();
     audio.removeAttribute('src');
     audio.load();
+  }
+
+  private setupAudioAnalysis(): void {
+    this.destroyAudioAnalysis();
+  }
+
+  private destroyAudioAnalysis(): void {
+    try { this.mediaSourceNode?.disconnect(); } catch {}
+    try { this.splitterNode?.disconnect(); } catch {}
+    try { this.spectrumAnalyser?.disconnect(); } catch {}
+    try { this.leftLevelAnalyser?.disconnect(); } catch {}
+    try { this.rightLevelAnalyser?.disconnect(); } catch {}
+    try { void this.audioContext?.close(); } catch {}
+    this.audioContext = null;
+    this.mediaSourceNode = null;
+    this.splitterNode = null;
+    this.spectrumAnalyser = null;
+    this.leftLevelAnalyser = null;
+    this.rightLevelAnalyser = null;
+    this.frequencyData = null;
+    this.leftTimeDomainData = null;
+    this.rightTimeDomainData = null;
+  }
+
+  private updateSpectrumBars(): void {
+    const analyser = this.spectrumAnalyser;
+    const data = this.frequencyData;
+    if (!analyser || !data) { return; }
+
+    analyser.getByteFrequencyData(data);
+    const bars = new Array<number>(this.spectrumBars.length).fill(0);
+    const binsPerBar = Math.max(1, Math.floor(data.length / bars.length));
+
+    for (let i = 0; i < bars.length; i += 1) {
+      const start = i * binsPerBar;
+      const end = i === bars.length - 1 ? data.length : Math.min(data.length, start + binsPerBar);
+      let sum = 0;
+      for (let j = start; j < end; j += 1) {
+        sum += data[j];
+      }
+      const avg = end > start ? sum / (end - start) : 0;
+      bars[i] = Math.max(6, Math.min(100, (avg / 255) * 100));
+    }
+
+    this.spectrumBars = bars;
+  }
+
+  private readLevelPercent(analyser: AnalyserNode | null, data: Uint8Array<ArrayBuffer> | null): number {
+    if (!analyser || !data) { return 0; }
+    analyser.getByteTimeDomainData(data);
+    let sumSquares = 0;
+    for (let i = 0; i < data.length; i += 1) {
+      const normalized = (data[i] - 128) / 128;
+      sumSquares += normalized * normalized;
+    }
+    const rms = Math.sqrt(sumSquares / data.length);
+    return Math.max(0, Math.min(100, rms * 220));
   }
 }

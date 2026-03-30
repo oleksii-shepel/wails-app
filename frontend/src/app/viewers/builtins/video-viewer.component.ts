@@ -17,11 +17,20 @@ import {
   CanvasVideoPlayerService,
   VideoMetadata,
 } from '../../services/canvas-video-player.service';
+import { WorkspaceService } from '../../services/workspace.service';
 import { ViewerSurfaceComponent } from '../../surfaces/viewer/viewer-surface.component';
 import type { ViewerFileListItem } from '../../shared/protocol-enhanced';
 import { ViewerArchiveContext } from '../viewer-archive-context';
 import { SegmentVideoLoader } from './segment-video-loader';
 import type { FileProbe } from '../../shared/protocol';
+
+interface VideoNavItem {
+  path: string;
+  name: string;
+  thumbSrc: string | null;
+  thumbLoading: boolean;
+  thumbFailed: boolean;
+}
 
 @Component({
   selector: 'app-video-viewer',
@@ -69,11 +78,79 @@ import type { FileProbe } from '../../shared/protocol';
 
         <div *ngIf="!loading && !error" class="video-player-wrapper">
           <div
-            #videoContainer
-            class="canvas-video-container"
-            [class.playing]="videoIsPlaying"
+            class="video-stage"
             (mousemove)="onVideoMouseMove()"
             (mouseleave)="onVideoMouseLeave()">
+            <div
+              #videoContainer
+              class="canvas-video-container"
+              [class.playing]="videoIsPlaying">
+            </div>
+            
+            <!-- Previous Video Navigation -->
+            <button
+              *ngIf="previousVideo"
+              type="button"
+              class="video-nav-hotspot video-nav-hotspot--prev"
+              [attr.aria-label]="'Open previous video: ' + previousVideo.name"
+              (click)="navigateToSibling(previousVideo, $event)">
+              <div class="video-nav-card">
+                <div class="video-nav-thumb-wrapper">
+                  <div class="video-nav-thumb" [class.video-nav-thumb--empty]="!previousVideo.thumbSrc || previousVideo.thumbFailed">
+                    <img
+                      *ngIf="previousVideo.thumbSrc && !previousVideo.thumbFailed"
+                      [src]="previousVideo.thumbSrc"
+                      [alt]="previousVideo.name"
+                      loading="lazy">
+                    <div *ngIf="!previousVideo.thumbSrc || previousVideo.thumbFailed" class="video-nav-fallback">
+                      {{ thumbnailFallback(previousVideo.name) }}
+                    </div>
+                    <div class="video-nav-overlay">
+                      <svg class="video-nav-arrow-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M15 18L9 12L15 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+                <div class="video-nav-info">
+                  <span class="video-nav-label">Previous</span>
+                  <span class="video-nav-name" [title]="previousVideo.name">{{ previousVideo.name }}</span>
+                </div>
+              </div>
+            </button>
+
+            <!-- Next Video Navigation -->
+            <button
+              *ngIf="nextVideo"
+              type="button"
+              class="video-nav-hotspot video-nav-hotspot--next"
+              [attr.aria-label]="'Open next video: ' + nextVideo.name"
+              (click)="navigateToSibling(nextVideo, $event)">
+              <div class="video-nav-card">
+                <div class="video-nav-thumb-wrapper">
+                  <div class="video-nav-thumb" [class.video-nav-thumb--empty]="!nextVideo.thumbSrc || nextVideo.thumbFailed">
+                    <img
+                      *ngIf="nextVideo.thumbSrc && !nextVideo.thumbFailed"
+                      [src]="nextVideo.thumbSrc"
+                      [alt]="nextVideo.name"
+                      loading="lazy">
+                    <div *ngIf="!nextVideo.thumbSrc || nextVideo.thumbFailed" class="video-nav-fallback">
+                      {{ thumbnailFallback(nextVideo.name) }}
+                    </div>
+                    <div class="video-nav-overlay">
+                      <svg class="video-nav-arrow-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M9 18L15 12L9 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+                <div class="video-nav-info">
+                  <span class="video-nav-label">Next</span>
+                  <span class="video-nav-name" [title]="nextVideo.name">{{ nextVideo.name }}</span>
+                </div>
+              </div>
+            </button>
+
             <div class="video-loading" *ngIf="videoLoading">
               <div class="spinner"></div>
               <div class="loading-text">Loading video...</div>
@@ -214,8 +291,12 @@ import type { FileProbe } from '../../shared/protocol';
     }
 
     .badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
       font-size: 10px;
       font-weight: 600;
+      line-height: 1;
       padding: 2px 6px;
       border-radius: 3px;
       white-space: nowrap;
@@ -237,29 +318,32 @@ import type { FileProbe } from '../../shared/protocol';
     .seek-badge,
     .codec-badge,
     .resolution-badge {
-      display: inline-block;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
       padding: 2px 6px;
       border-radius: 3px;
       font-weight: 500;
+      line-height: 1;
       white-space: nowrap;
     }
 
     .seek-badge {
-      background: rgba(250, 204, 21, 0.18);
-      border: 1px solid rgba(250, 204, 21, 0.35);
-      color: #fde68a;
+      background: color-mix(in srgb, var(--vsc-editorWarning-foreground, #b89500) 14%, transparent);
+      border: 1px solid color-mix(in srgb, var(--vsc-editorWarning-foreground, #b89500) 34%, transparent);
+      color: var(--vsc-editorWarning-foreground, #8a6d00);
     }
 
     .codec-badge {
-      background: rgba(0, 120, 212, 0.2);
-      border: 1px solid rgba(0, 120, 212, 0.4);
-      color: #4da8ff;
+      background: color-mix(in srgb, #1f6fb2 10%, transparent);
+      border: 1px solid color-mix(in srgb, #1f6fb2 24%, transparent);
+      color: #195f98;
     }
 
     .resolution-badge {
-      background: rgba(0, 150, 100, 0.2);
-      border: 1px solid rgba(0, 150, 100, 0.4);
-      color: #4fcc9f;
+      background: color-mix(in srgb, #218a66 10%, transparent);
+      border: 1px solid color-mix(in srgb, #218a66 24%, transparent);
+      color: #1b6f53;
     }
 
     .viewer-body {
@@ -338,24 +422,23 @@ import type { FileProbe } from '../../shared/protocol';
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
     }
 
-    .canvas-video-container {
+    .video-stage {
+      position: relative;
       flex: 1;
+      min-height: 300px;
+      overflow: hidden;
+      background: #000;
+    }
+
+    .canvas-video-container {
+      position: absolute;
+      inset: 0;
       display: flex;
       align-items: center;
       justify-content: center;
-      min-height: 300px;
       background: linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%);
-      position: relative;
       overflow: hidden;
       cursor: pointer;
-    }
-
-    .canvas-video-container:hover {
-      cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="white" stroke-width="1.5"/><polygon points="10,7 16,12 10,17" fill="white"/></svg>') 12 12, pointer;
-    }
-
-    .canvas-video-container.playing:hover {
-      cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="white" stroke-width="1.5"/><rect x="9" y="8" width="2" height="8" fill="white"/><rect x="13" y="8" width="2" height="8" fill="white"/></svg>') 12 12, pointer;
     }
 
     .canvas-video-container ::ng-deep canvas {
@@ -365,8 +448,236 @@ import type { FileProbe } from '../../shared/protocol';
       display: block;
     }
 
+    /* Professional Video Navigation Styles */
+    .video-nav-hotspot {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 320px;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+      z-index: 70;
+      opacity: 0;
+      transition: opacity 0.3s cubic-bezier(0.2, 0.9, 0.4, 1.1);
+      appearance: none;
+      -webkit-appearance: none;
+      border-radius: 0;
+      outline: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .video-nav-hotspot--prev {
+      left: 0;
+      background: linear-gradient(
+        90deg,
+        rgba(0, 0, 0, 0.92) 0%,
+        rgba(0, 0, 0, 0.42) 50%,
+        rgba(0, 0, 0, 0) 100%
+      );
+    }
+
+    .video-nav-hotspot--next {
+      right: 0;
+      background: linear-gradient(
+        270deg,
+        rgba(0, 0, 0, 0.92) 0%,
+        rgba(0, 0, 0, 0.42) 50%,
+        rgba(0, 0, 0, 0) 100%
+      );
+    }
+
+    .video-stage:hover .video-nav-hotspot {
+      opacity: 1;
+    }
+
+    .video-nav-hotspot--prev:hover,
+    .video-nav-hotspot--prev:focus-visible {
+      background: linear-gradient(
+        90deg,
+        rgba(0, 0, 0, 0.96) 0%,
+        rgba(0, 0, 0, 0.56) 52%,
+        transparent 100%
+      );
+    }
+
+    .video-nav-hotspot--next:hover,
+    .video-nav-hotspot--next:focus-visible {
+      background: linear-gradient(
+        270deg,
+        rgba(0, 0, 0, 0.96) 0%,
+        rgba(0, 0, 0, 0.56) 52%,
+        transparent 100%
+      );
+    }
+
+    .video-nav-hotspot:focus-visible {
+      opacity: 1;
+      outline: 2px solid var(--vsc-focusBorder, #007fd4);
+      outline-offset: -2px;
+    }
+
+    .video-nav-card {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 260px;
+      pointer-events: none;
+      transition: all 0.3s cubic-bezier(0.2, 0.9, 0.4, 1.1);
+    }
+
+    .video-nav-hotspot--prev .video-nav-card {
+      left: 24px;
+      transform: translateY(-50%) translateX(-20px);
+    }
+
+    .video-nav-hotspot--next .video-nav-card {
+      right: 24px;
+      transform: translateY(-50%) translateX(20px);
+    }
+
+    .video-stage:hover .video-nav-hotspot--prev .video-nav-card {
+      transform: translateY(-50%) translateX(0);
+    }
+
+    .video-stage:hover .video-nav-hotspot--next .video-nav-card {
+      transform: translateY(-50%) translateX(0);
+    }
+
+    .video-nav-thumb-wrapper {
+      position: relative;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: var(--vsc-widget-shadow, 0 5px 8px 0 rgba(0, 0, 0, 0.36));
+      border: 1px solid color-mix(in srgb, var(--vsc-border, #454545) 55%, transparent);
+      transition: all 0.3s cubic-bezier(0.2, 0.9, 0.4, 1.1);
+    }
+
+    .video-nav-hotspot:hover .video-nav-thumb-wrapper,
+    .video-nav-hotspot:focus-visible .video-nav-thumb-wrapper {
+      box-shadow:
+        0 0 0 1px color-mix(in srgb, var(--vsc-focusBorder, #007fd4) 40%, transparent),
+        var(--vsc-widget-shadow, 0 5px 8px 0 rgba(0, 0, 0, 0.36));
+    }
+
+    .video-nav-hotspot:hover .video-nav-thumb-wrapper {
+      transform: scale(1.02);
+    }
+
+    .video-nav-thumb {
+      position: relative;
+      width: 260px;
+      aspect-ratio: 16 / 9;
+      background: linear-gradient(
+        135deg,
+        color-mix(in srgb, var(--vsc-editorWidget-background, #252526) 94%, black) 0%,
+        color-mix(in srgb, var(--vsc-editorWidget-background, #252526) 74%, black) 100%
+      );
+      overflow: hidden;
+    }
+
+    .video-nav-thumb img {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: cover;
+      transition: transform 0.3s cubic-bezier(0.2, 0.9, 0.4, 1.1);
+    }
+
+    .video-nav-hotspot:hover .video-nav-thumb img {
+      transform: scale(1.05);
+    }
+
+    .video-nav-thumb--empty {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(
+        135deg,
+        color-mix(in srgb, var(--vsc-editorWidget-background, #252526) 94%, black) 0%,
+        color-mix(in srgb, var(--vsc-editorWidget-background, #252526) 74%, black) 100%
+      );
+    }
+
+    .video-nav-fallback {
+      font-size: 48px;
+      font-weight: 600;
+      color: var(--vsc-foreground, #cccccc);
+      opacity: 0.5;
+      text-transform: uppercase;
+    }
+
+    .video-nav-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      transition: opacity 0.3s cubic-bezier(0.2, 0.9, 0.4, 1.1);
+      backdrop-filter: blur(4px);
+    }
+
+    .video-nav-hotspot:hover .video-nav-overlay {
+      opacity: 1;
+    }
+
+    .video-nav-arrow-icon {
+      width: 48px;
+      height: 48px;
+      color: white;
+      filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.5));
+    }
+
+    .video-nav-info {
+      margin-top: 12px;
+      padding: 0 8px;
+      text-align: left;
+    }
+
+    .video-nav-hotspot--next .video-nav-info {
+      text-align: right;
+    }
+
+    .video-nav-label {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: rgba(255, 255, 255, 0.56);
+      background: rgba(255, 255, 255, 0.1);
+      padding: 2px 8px;
+      border-radius: 12px;
+      margin-bottom: 6px;
+    }
+
+    .video-nav-name {
+      display: block;
+      font-size: 14px;
+      font-weight: 500;
+      color: rgba(255, 255, 255, 0.86);
+      line-height: 1.3;
+      word-break: break-word;
+      text-shadow: 0 1px 4px rgba(0, 0, 0, 0.24);
+    }
+
+    .video-nav-hotspot:hover .video-nav-name {
+      color: rgba(255, 255, 255, 0.94);
+    }
+
+    /* Loading State */
     .video-loading {
       position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -390,6 +701,7 @@ import type { FileProbe } from '../../shared/protocol';
       letter-spacing: 0.3px;
     }
 
+    /* Play Overlay */
     .play-overlay {
       position: absolute;
       display: flex;
@@ -397,15 +709,16 @@ import type { FileProbe } from '../../shared/protocol';
       justify-content: center;
       width: 100%;
       height: 100%;
-      background: rgba(0, 0, 0, 0.3);
-      backdrop-filter: blur(2px);
+      background: rgba(0, 0, 0, 0.4);
+      backdrop-filter: blur(4px);
       cursor: pointer;
       z-index: 50;
-      transition: background 0.2s ease;
+      transition: all 0.3s ease;
     }
 
     .play-overlay:hover {
-      background: rgba(0, 0, 0, 0.5);
+      background: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(8px);
     }
 
     .play-icon {
@@ -419,7 +732,7 @@ import type { FileProbe } from '../../shared/protocol';
       font-size: 32px;
       color: white;
       box-shadow: 0 8px 32px rgba(0, 120, 212, 0.4);
-      transition: all 0.2s ease;
+      transition: all 0.3s cubic-bezier(0.2, 0.9, 0.4, 1.1);
       font-weight: bold;
     }
 
@@ -429,14 +742,14 @@ import type { FileProbe } from '../../shared/protocol';
       box-shadow: 0 12px 48px rgba(0, 120, 212, 0.6);
     }
 
+    /* Video Controls */
     .video-control-bar {
       display: flex;
       flex-direction: column;
       gap: 8px;
-      padding: 12px;
-      background: linear-gradient(to bottom, rgba(0,0,0,0.01), rgba(0,0,0,0.9));
+      padding: 12px 16px;
+      background: linear-gradient(to top, rgba(0, 0, 0, 0.9) 0%, rgba(0, 0, 0, 0.7) 50%, rgba(0, 0, 0, 0.4) 80%, transparent 100%);
       border-top: 1px solid rgba(255, 255, 255, 0.1);
-      backdrop-filter: blur(10px);
       opacity: 0;
       transition: opacity 0.3s ease;
       pointer-events: none;
@@ -447,7 +760,7 @@ import type { FileProbe } from '../../shared/protocol';
       pointer-events: auto;
     }
 
-    .canvas-video-container:hover ~ .video-control-bar,
+    .video-stage:hover ~ .video-control-bar,
     .video-control-bar:hover {
       opacity: 1;
       pointer-events: auto;
@@ -502,7 +815,7 @@ import type { FileProbe } from '../../shared/protocol';
       border-radius: 50%;
       cursor: pointer;
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
-      transition: width 0.05s ease, height 0.05s ease, box-shadow 0.05s ease;
+      transition: all 0.2s ease;
     }
 
     .seek-slider::-webkit-slider-thumb:hover {
@@ -519,7 +832,7 @@ import type { FileProbe } from '../../shared/protocol';
       border-radius: 50%;
       cursor: pointer;
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
-      transition: width 0.05s ease, height 0.05s ease, box-shadow 0.05s ease;
+      transition: all 0.2s ease;
     }
 
     .seek-slider::-moz-range-thumb:hover {
@@ -550,7 +863,7 @@ import type { FileProbe } from '../../shared/protocol';
       background: rgba(255, 255, 255, 0.1);
       border: 1px solid rgba(255, 255, 255, 0.15);
       color: white;
-      border-radius: 4px;
+      border-radius: 6px;
       cursor: pointer;
       font-size: 16px;
       transition: all 0.2s ease;
@@ -598,7 +911,7 @@ import type { FileProbe } from '../../shared/protocol';
       font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
       padding: 4px 8px;
       background: rgba(0, 0, 0, 0.2);
-      border-radius: 3px;
+      border-radius: 4px;
       min-width: 90px;
       justify-content: center;
     }
@@ -664,10 +977,40 @@ import type { FileProbe } from '../../shared/protocol';
       opacity: 0.5;
       cursor: not-allowed;
     }
+
+    /* Responsive adjustments */
+    @media (max-width: 768px) {
+      .video-nav-hotspot {
+        width: 200px;
+      }
+      
+      .video-nav-card {
+        width: 160px;
+      }
+      
+      .video-nav-thumb {
+        width: 160px;
+      }
+      
+      .video-nav-name {
+        font-size: 12px;
+      }
+      
+      .video-nav-arrow-icon {
+        width: 32px;
+        height: 32px;
+      }
+    }
   `],
 })
 export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy {
   private static readonly WINDOWED_VIDEO_STREAM_SECONDS = 90;
+  private static readonly AMBIGUOUS_VIDEO_EXTENSIONS = new Set(['ts']);
+  private static readonly VIDEO_EXTENSIONS = new Set([
+    'mp4', 'm4v', 'mov', 'qt', 'avi', 'divx', 'xvid', 'mkv', 'wmv', 'asf', 'flv', 'f4v',
+    'webm', 'ogv', 'ts', 'mts', 'm2ts', 'mpg', 'mpeg', 'mpe', 'mpv', 'mp2', 'm2p', 'm2v',
+    'vob', 'evo', 'mjpeg', 'mjpg', '3gp', '3g2', 'rm', 'rmvb',
+  ]);
 
   @Input() targetPath = '';
   @Input() fileList: ViewerFileListItem[] = [];
@@ -701,6 +1044,8 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
   videoIsSeeking = false;
   videoSeekTarget = 0;
   fileSize = 0;
+  previousVideo: VideoNavItem | null = null;
+  nextVideo: VideoNavItem | null = null;
 
   private pendingManifestUrl: string | null = null;
   private pendingStreamUrl: string | null = null;
@@ -716,12 +1061,14 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
   private seekPending = false;
   private seekOriginSeconds = 0;
   private seekRequestGeneration = 0;
+  private navThumbnailGeneration = 0;
   playbackMode = '';
 
   constructor(
     private readonly api: ApiService,
     private readonly cdr: ChangeDetectorRef,
     private readonly videoPlayerService: CanvasVideoPlayerService,
+    private readonly workspaceService: WorkspaceService,
   ) { }
 
   get displayName(): string {
@@ -748,10 +1095,14 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
 
     const path = (this.targetPath ?? '').trim();
     if (!path && !this.archiveContext) {
+      this.previousVideo = null;
+      this.nextVideo = null;
       this.useLegacySurface = true;
       this.cdr.markForCheck();
       return;
     }
+
+    await this.refreshSiblingNavigation();
 
     this.loading = true;
     this.cdr.markForCheck();
@@ -777,9 +1128,6 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
         this.pendingManifestUrl = url;
         this.requestSegmentedPlaybackInitialization();
       } else {
-        // remux / transcode / direct — use canvas player with URL-based loading;
-        // the canvas player handles range-based seeking when the server supports it,
-        // and falls back to stream-reload seeking for piped sources.
         this.pendingStreamUrl = url;
         this.requestUrlPlaybackInitialization();
       }
@@ -844,9 +1192,6 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
     const seekSeconds = parseFloat((event.target as HTMLInputElement).value);
     this.videoSeekTarget = seekSeconds;
     this.videoCurrentTime = seekSeconds;
-    // Keep the thumb and time display responsive while dragging, but defer the
-    // actual decoder seek until release so a long scrub does not queue many
-    // expensive re-seeks.
     this.updateVideoSeekingState();
     this.cdr.markForCheck();
   }
@@ -861,7 +1206,6 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
     this.videoSeekTarget = seekSeconds;
     this.videoCurrentTime = seekSeconds;
 
-    // For backward seeks, we want immediate visual feedback
     const isBackwardSeek = seekSeconds < this.videoCurrentTime;
     if (isBackwardSeek && this.canvasPlayer) {
       // Try to show buffered frame immediately for backward seek
@@ -886,7 +1230,6 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
     const targetTimeMs = seekSeconds * 1000;
     const isSeekingBackward = targetTimeMs < currentTimeMs;
 
-    // For segmented video, we don't need to restart stream for backward seeks
     const needsRestart = this.shouldRestartStreamOnSeek(seekSeconds) && !isSeekingBackward;
 
     this.seekPending = true;
@@ -936,11 +1279,8 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
     const windowEnd = windowStart + VideoViewerComponent.WINDOWED_VIDEO_STREAM_SECONDS;
     const isSeekingBackward = seekSeconds < this.videoCurrentTime;
 
-    // For backward seeks, we can often reuse the existing stream
-    // Only restart if seeking far backward beyond a threshold
     if (isSeekingBackward) {
       const seekDistance = this.videoCurrentTime - seekSeconds;
-      // If seeking backward within the last 30 seconds, don't restart
       if (seekDistance <= 30) {
         return false;
       }
@@ -1082,6 +1422,37 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
     return `${unitIndex === 0 ? value : value.toFixed(1)} ${units[unitIndex]}`;
   }
 
+  thumbnailFallback(name: string): string {
+    const source = (name ?? '').trim();
+    const first = source.charAt(0).toUpperCase();
+    return first || 'V';
+  }
+
+  navigateToSibling(item: VideoNavItem, event?: Event): void {
+    event?.preventDefault();
+    event?.stopPropagation();
+    if (!item.path || this.archiveContext) {
+      return;
+    }
+
+    const workspace = this.workspaceService.getActiveWorkspace();
+    if (!workspace) {
+      return;
+    }
+
+    const current = this.findViewerTab(workspace, this.targetPath);
+    if (!current) {
+      return;
+    }
+
+    this.workspaceService.updateViewerTabTargetPath(current.paneId, current.tab.id, item.path, {
+      sourcePane: current.tab.viewer?.sourcePane ?? current.paneId,
+      sourceTabId: current.tab.viewer?.sourceTabId ?? '',
+      sourceDir: current.tab.viewer?.sourceDir ?? '',
+      fileList: this.fileList,
+    });
+  }
+
   private async createAndAttachCanvasPlayer(): Promise<CanvasVideoPlayer> {
     if (!this.videoContainerRef?.nativeElement) {
       throw new Error('Video container is not available.');
@@ -1137,7 +1508,6 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
     const player = await this.createAndAttachCanvasPlayer();
     await player.loadFromDemuxedSource(source);
     this.videoReady = true;
-    // Attempt to autoplay the preview (unmuted) when ready
     try {
       await player.play();
     } catch {
@@ -1161,7 +1531,6 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
       await player.loadFromUrl(streamUrl);
       this.currentStreamUrl = streamUrl;
       this.videoReady = true;
-      // Attempt to autoplay the preview (unmuted) when ready
       try {
         await player.play();
       } catch {
@@ -1253,5 +1622,171 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
       this.canvasPlayer.destroy();
       this.canvasPlayer = null;
     }
+  }
+
+  private async refreshSiblingNavigation(): Promise<void> {
+    const generation = ++this.navThumbnailGeneration;
+    this.previousVideo = null;
+    this.nextVideo = null;
+    this.cdr.markForCheck();
+
+    if (this.archiveContext) {
+      return;
+    }
+
+    let siblings = await this.buildVideoNavItems(this.fileList, generation);
+
+    if (!siblings.length && this.targetPath) {
+      siblings = await this.loadSiblingVideosFromDirectory(generation);
+    }
+
+    if (!siblings.length) {
+      return;
+    }
+
+    const currentIndex = siblings.findIndex(item => this.samePath(item.path, this.targetPath));
+    if (currentIndex < 0) {
+      return;
+    }
+
+    this.previousVideo = currentIndex > 0 ? siblings[currentIndex - 1] : null;
+    this.nextVideo = currentIndex < siblings.length - 1 ? siblings[currentIndex + 1] : null;
+    this.cdr.markForCheck();
+
+    void this.hydrateNavThumbnail(this.previousVideo, generation);
+    void this.hydrateNavThumbnail(this.nextVideo, generation);
+  }
+
+  private async loadSiblingVideosFromDirectory(generation: number): Promise<VideoNavItem[]> {
+    try {
+      const parentPath = await this.api.getParentPath(this.targetPath);
+      if (!parentPath || generation !== this.navThumbnailGeneration) {
+        return [];
+      }
+
+      const listing = await this.api.listDirectory(parentPath, false);
+      if (generation !== this.navThumbnailGeneration) {
+        return [];
+      }
+
+      return await this.buildVideoNavItems((listing.entries ?? []).map(entry => ({
+          path: entry.path,
+          name: entry.name || this.baseName(entry.path),
+        })), generation);
+    } catch {
+      return [];
+    }
+  }
+
+  private async buildVideoNavItems(items: Array<{ path: string; name: string }>, generation: number): Promise<VideoNavItem[]> {
+    const resolved = await Promise.all(items.map(async item => {
+      if (!item.path || generation !== this.navThumbnailGeneration) {
+        return null;
+      }
+      return await this.isVideoNavCandidate(item.path)
+        ? this.makeNavItem(item)
+        : null;
+    }));
+
+    if (generation !== this.navThumbnailGeneration) {
+      return [];
+    }
+
+    return resolved.filter((item): item is VideoNavItem => !!item);
+  }
+
+  private makeNavItem(item: ViewerFileListItem): VideoNavItem {
+    return {
+      path: item.path,
+      name: item.name || this.baseName(item.path),
+      thumbSrc: null,
+      thumbLoading: false,
+      thumbFailed: false,
+    };
+  }
+
+  private async hydrateNavThumbnail(item: VideoNavItem | null, generation: number): Promise<void> {
+    if (!item || item.thumbLoading || item.thumbSrc || item.thumbFailed) {
+      return;
+    }
+
+    item.thumbLoading = true;
+    try {
+      if (generation !== this.navThumbnailGeneration) {
+        return;
+      }
+      item.thumbSrc = await this.api.getVideoPreviewURL(item.path);
+      item.thumbFailed = !item.thumbSrc;
+    } catch {
+      item.thumbFailed = true;
+      item.thumbSrc = null;
+    } finally {
+      item.thumbLoading = false;
+      if (generation === this.navThumbnailGeneration) {
+        this.cdr.markForCheck();
+      }
+    }
+  }
+
+  private isVideoPath(path: string): boolean {
+    return VideoViewerComponent.VIDEO_EXTENSIONS.has(this.extractExt(path));
+  }
+
+  private async isVideoNavCandidate(path: string): Promise<boolean> {
+    const ext = this.extractExt(path);
+    if (!VideoViewerComponent.VIDEO_EXTENSIONS.has(ext)) {
+      return false;
+    }
+
+    if (!VideoViewerComponent.AMBIGUOUS_VIDEO_EXTENSIONS.has(ext)) {
+      return true;
+    }
+
+    try {
+      const probe = this.samePath(path, this.targetPath) && this.probe
+        ? this.probe
+        : await this.api.probeFile(path);
+      const mime = (probe?.mimeType ?? '').toLowerCase();
+      return mime.startsWith('video/') || mime === 'application/mp2t';
+    } catch {
+      return false;
+    }
+  }
+
+  private extractExt(path: string): string {
+    const normalized = (path ?? '').replace(/\\/g, '/');
+    const idx = normalized.lastIndexOf('.');
+    return idx >= 0 ? normalized.slice(idx + 1).toLowerCase() : '';
+  }
+
+  private baseName(path: string): string {
+    const normalized = (path ?? '').replace(/\\/g, '/');
+    return normalized.split('/').pop() ?? normalized;
+  }
+
+  private samePath(left: string, right: string): boolean {
+    return left.trim().replace(/\\/g, '/').toLowerCase() === right.trim().replace(/\\/g, '/').toLowerCase();
+  }
+
+  private findViewerTab(workspace: ReturnType<WorkspaceService['getActiveWorkspace']>, targetPath: string): { paneId: 'left' | 'right'; tab: NonNullable<typeof workspace>['leftPane']['tabs'][number] } | null {
+    if (!workspace) {
+      return null;
+    }
+
+    const leftTab = workspace.leftPane.tabs.find(tab =>
+      (tab.kind ?? 'dir') === 'viewer' && this.samePath(tab.viewer?.targetPath ?? '', targetPath)
+    );
+    if (leftTab) {
+      return { paneId: 'left', tab: leftTab };
+    }
+
+    const rightTab = workspace.rightPane.tabs.find(tab =>
+      (tab.kind ?? 'dir') === 'viewer' && this.samePath(tab.viewer?.targetPath ?? '', targetPath)
+    );
+    if (rightTab) {
+      return { paneId: 'right', tab: rightTab };
+    }
+
+    return null;
   }
 }

@@ -11,7 +11,7 @@ import {
   SimpleChanges,
 } from '@angular/core';
 import { ApiService } from '../../services/api.service';
-import { DEFAULT_FILE_CATEGORIES, type FileCategory } from '../../shared/file-categories';
+import { DEFAULT_FILE_CATEGORIES, getFileCategoriesForExtension, type FileCategory } from '../../shared/file-categories';
 import type { DiskUsageEntry, DiskUsageProgress, DiskUsageResult, DiskUsageTypeStat } from '../../shared/protocol-enhanced';
 import type { SizeManagerSurfaceContext } from '../surface-context';
 import { DiskPieChartComponent } from 'src/app/components/disk-usage-diagram.component';
@@ -59,12 +59,6 @@ const SIZE_MANAGER_FILE_CATEGORY_IDS = [
 const SIZE_MANAGER_FILE_CATEGORIES: FileCategory[] = SIZE_MANAGER_FILE_CATEGORY_IDS
   .map((id) => DEFAULT_FILE_CATEGORIES.find((category) => category.id === id))
   .filter((category): category is FileCategory => !!category);
-
-const SIZE_MANAGER_CATEGORY_BY_EXTENSION = new Map<string, FileCategory>(
-  SIZE_MANAGER_FILE_CATEGORIES.flatMap((category) =>
-    category.extensions.map((extension) => [extension, category] as const),
-  ),
-);
 
 const PIE_PREFETCH_LIMIT = 5;
 
@@ -843,23 +837,25 @@ export class SizeManagerSurfaceComponent implements OnChanges, OnDestroy {
 
   private buildFileTypeRows(types: Record<string, DiskUsageTypeStat>): FileTypeBreakdownRow[] {
     const rows = new Map<string, FileTypeBreakdownRow>();
+    const allowedCategoryIds = new Set(SIZE_MANAGER_FILE_CATEGORIES.map((category) => category.id));
 
     for (const [extension, stat] of Object.entries(types)) {
-      const category = SIZE_MANAGER_CATEGORY_BY_EXTENSION.get(extension);
-      if (!category) continue;
+      for (const category of getFileCategoriesForExtension(extension)) {
+        if (!allowedCategoryIds.has(category.id)) continue;
 
-      const existing = rows.get(category.id);
-      if (existing) {
-        existing.count += stat.count;
-        existing.totalSize += stat.size;
-      } else {
-        rows.set(category.id, {
-          id: category.id,
-          name: category.name,
-          icon: category.icon,
-          count: stat.count,
-          totalSize: stat.size,
-        });
+        const existing = rows.get(category.id);
+        if (existing) {
+          existing.count += stat.count;
+          existing.totalSize += stat.size;
+        } else {
+          rows.set(category.id, {
+            id: category.id,
+            name: category.name,
+            icon: category.icon,
+            count: stat.count,
+            totalSize: stat.size,
+          });
+        }
       }
     }
 

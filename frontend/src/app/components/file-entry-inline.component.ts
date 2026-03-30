@@ -1,7 +1,8 @@
-import { ChangeDetectionStrategy, Component, Input, Output, EventEmitter } from '@angular/core';
+import { ChangeDetectionStrategy, ChangeDetectorRef, Component, EventEmitter, Input, OnChanges, OnDestroy, Output, SimpleChanges } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FileInfo, FileType } from '../shared/protocol';
 import { getFileEntryPresentation } from './file-entry-presentation.util';
+import { FileCategoryResolverService } from '../services/file-category-resolver.service';
 
 @Component({
   selector: 'app-file-entry-inline',
@@ -154,7 +155,7 @@ import { getFileEntryPresentation } from './file-entry-presentation.util';
     }
   `]
 })
-export class FileEntryInlineComponent {
+export class FileEntryInlineComponent implements OnChanges, OnDestroy {
   @Input({ required: true }) entry!: FileInfo;
   @Input() displayNameOverride: string | null = null;
   @Input() colorizeByMime = false;
@@ -164,12 +165,28 @@ export class FileEntryInlineComponent {
   @Output() select = new EventEmitter<MouseEvent>();
   @Output() navigate = new EventEmitter<void>();
 
+  private resolvedCategoryId: string | null | undefined;
+  private unwatchResolvedCategory: (() => void) | null = null;
+
+  constructor(
+    private readonly categoryResolver: FileCategoryResolverService,
+    private readonly cdr: ChangeDetectorRef,
+  ) {}
+
+  ngOnChanges(_changes: SimpleChanges): void {
+    this.bindResolvedCategory();
+  }
+
+  ngOnDestroy(): void {
+    this.unwatchResolvedCategory?.();
+  }
+
   get isParent(): boolean {
-    return getFileEntryPresentation(this.entry, this.colorizeByMime).isParent;
+    return getFileEntryPresentation(this.entry, this.colorizeByMime, this.resolvedCategoryId ?? null).isParent;
   }
 
   get isSymlink(): boolean {
-    return getFileEntryPresentation(this.entry, this.colorizeByMime).isSymlink;
+    return getFileEntryPresentation(this.entry, this.colorizeByMime, this.resolvedCategoryId ?? null).isSymlink;
   }
 
   get displayName(): string {
@@ -177,7 +194,7 @@ export class FileEntryInlineComponent {
   }
 
   get mimeColorKind(): string {
-    return getFileEntryPresentation(this.entry, this.colorizeByMime).mimeColorKind;
+    return getFileEntryPresentation(this.entry, this.colorizeByMime, this.resolvedCategoryId ?? null).mimeColorKind;
   }
 
   get showDirectorySizeSpinner(): boolean {
@@ -185,6 +202,22 @@ export class FileEntryInlineComponent {
   }
 
   get iconEmoji(): string {
-    return getFileEntryPresentation(this.entry, this.colorizeByMime).iconEmoji;
+    return getFileEntryPresentation(this.entry, this.colorizeByMime, this.resolvedCategoryId ?? null).iconEmoji;
+  }
+
+  private bindResolvedCategory(): void {
+    this.unwatchResolvedCategory?.();
+    this.unwatchResolvedCategory = null;
+    this.resolvedCategoryId = undefined;
+
+    const path = this.entry?.path;
+    if (!path) return;
+
+    this.resolvedCategoryId = this.categoryResolver.getResolvedCategory(path);
+    this.unwatchResolvedCategory = this.categoryResolver.watch(path, () => {
+      this.resolvedCategoryId = this.categoryResolver.getResolvedCategory(path);
+      this.cdr.markForCheck();
+    });
+    this.categoryResolver.ensureResolved(this.entry);
   }
 }

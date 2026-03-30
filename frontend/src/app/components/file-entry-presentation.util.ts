@@ -1,6 +1,6 @@
 import { FileType, type FileInfo } from '../shared/protocol';
 import { getFileMimeColorKind, type FileMimeColorKind } from './file-entry-color.util';
-import { DEFAULT_FILE_CATEGORIES } from '../shared/file-categories';
+import { FILE_CATEGORY_BY_ID, getPrimaryFileCategoryForExtension } from '../shared/file-categories';
 
 export interface FileEntryPresentation {
   iconEmoji: string;
@@ -11,7 +11,11 @@ export interface FileEntryPresentation {
 
 const presentationCache = new Map<string, FileEntryPresentation>();
 
-export function getFileEntryPresentation(entry: FileInfo | undefined, colorizeByMime: boolean): FileEntryPresentation {
+export function getFileEntryPresentation(
+  entry: FileInfo | undefined,
+  colorizeByMime: boolean,
+  resolvedCategoryId?: string | null,
+): FileEntryPresentation {
   if (!entry) {
     return {
       iconEmoji: '📄',
@@ -29,7 +33,7 @@ export function getFileEntryPresentation(entry: FileInfo | undefined, colorizeBy
     isSymlink ? '1' : '0',
     entry.type,
     entry.name ?? '',
-    entry.mimeType ?? '',
+    resolvedCategoryId ?? '',
     entry.registryKind ?? '',
     entry.path.startsWith('registry://') ? 'registry' : '',
     entry.path === 'registry://' ? 'root' : '',
@@ -39,8 +43,8 @@ export function getFileEntryPresentation(entry: FileInfo | undefined, colorizeBy
   if (cached) return cached;
 
   const presentation: FileEntryPresentation = {
-    iconEmoji: resolveIconEmoji(entry, isParent),
-    mimeColorKind: getFileMimeColorKind(entry, colorizeByMime),
+    iconEmoji: resolveIconEmoji(entry, isParent, resolvedCategoryId),
+    mimeColorKind: getFileMimeColorKind(entry, colorizeByMime, resolvedCategoryId),
     isSymlink,
     isParent,
   };
@@ -48,7 +52,7 @@ export function getFileEntryPresentation(entry: FileInfo | undefined, colorizeBy
   return presentation;
 }
 
-function resolveIconEmoji(entry: FileInfo, isParent: boolean): string {
+function resolveIconEmoji(entry: FileInfo, isParent: boolean, resolvedCategoryId?: string | null): string {
   if (isParent) return '📄';
   if (entry.path.startsWith('registry://')) {
     const kind = (entry.registryKind || '').toLowerCase();
@@ -63,13 +67,24 @@ function resolveIconEmoji(entry: FileInfo, isParent: boolean): string {
     case FileType.SYMLINK:
       return '📄';
     default:
-      return extIcon(entry.name);
+      return fileIcon(entry, resolvedCategoryId);
   }
 }
 
 function extIcon(name: string): string {
   const ext = name.split('.').pop()?.toLowerCase();
   if (!ext) return '📄';
-  const category = DEFAULT_FILE_CATEGORIES.find((candidate) => candidate.extensions.includes(ext));
+  const category = getPrimaryFileCategoryForExtension(ext);
   return category?.icon || '📄';
+}
+
+function fileIcon(entry: FileInfo, resolvedCategoryId?: string | null): string {
+  const ext = entry.name.split('.').pop()?.toLowerCase();
+  if (!ext) return '📄';
+
+  if (resolvedCategoryId) {
+    return FILE_CATEGORY_BY_ID.get(resolvedCategoryId)?.icon ?? extIcon(entry.name);
+  }
+
+  return extIcon(entry.name);
 }

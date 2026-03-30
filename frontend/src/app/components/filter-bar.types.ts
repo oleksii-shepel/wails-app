@@ -1,4 +1,4 @@
-import { DEFAULT_FILE_CATEGORIES, type FileCategory } from '../shared/file-categories';
+import { DEFAULT_FILE_CATEGORIES, FILE_CATEGORY_EXTENSIONS, type FileCategory } from '../shared/file-categories';
 import { FileInfo, FileType } from '../shared/protocol';
 
 export { DEFAULT_FILE_CATEGORIES, type FileCategory } from '../shared/file-categories';
@@ -140,9 +140,8 @@ export function buildPresetsFromDataset(dataset: FileInfo[]): FilterPreset[] {
     });
   }
 
-  const covered = new Set(DEFAULT_FILE_CATEGORIES.flatMap((category) => category.extensions));
   Array.from(extMap.entries())
-    .filter(([ext, count]) => count >= 2 && !covered.has(ext))
+    .filter(([ext, count]) => count >= 2 && !FILE_CATEGORY_EXTENSIONS.has(ext))
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5)
     .forEach(([ext, count]) => {

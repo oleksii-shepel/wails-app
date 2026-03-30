@@ -19,9 +19,10 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { FileEntryInlineComponent } from './file-entry-inline.component';
 import { FileInfo, FileType } from '../shared/protocol';
-import { DEFAULT_FILE_CATEGORIES } from '../shared/file-categories';
+import { getPrimaryFileCategoryForExtension } from '../shared/file-categories';
 import { normalizePath as normalizePathReference } from './address-bar.utils';
 import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directive';
+import { FileCategoryResolverService } from '../services/file-category-resolver.service';
 
 export interface TreeNode extends FileInfo {
   level: number;
@@ -481,7 +482,11 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
   private visibleWindowNodesCache: TreeNode[] = [];
   private visibleNodeIndex = new Map<string, number>();
 
-  constructor(private cdr: ChangeDetectorRef, private zone: NgZone) {}
+  constructor(
+    private cdr: ChangeDetectorRef,
+    private zone: NgZone,
+    private categoryResolver: FileCategoryResolverService,
+  ) {}
 
   // ── Marquee selection state ───────────────────────────────────────────────
   selectionRect = { active: false, left: 0, top: 0, width: 0, height: 0 };
@@ -542,6 +547,7 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['nodes']) {
+      this.prewarmCollisionResolutions(this.nodes);
       this.updateNodeHierarchy(this.nodes);
     }
     const shouldExpandToCurrentPath = !!changes['currentPath'] || (!!changes['nodes'] && !this.suppressNextAutoExpand);
@@ -554,6 +560,15 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
     this.refreshVisibleNodes();
     this.updateVirtualWindow(true);
     this.cdr.markForCheck();
+  }
+
+  private prewarmCollisionResolutions(nodes: TreeNode[]): void {
+    for (const node of nodes) {
+      this.categoryResolver.ensureResolved(node);
+      if (node.children?.length) {
+        this.prewarmCollisionResolutions(node.children);
+      }
+    }
   }
 
   ngOnDestroy(): void {
@@ -762,7 +777,7 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
 
   getCategoryIcon(filename: string): string {
     const ext = filename.split('.').pop()?.toLowerCase() || '';
-    const cat = DEFAULT_FILE_CATEGORIES.find(c => c.extensions.includes(ext));
+    const cat = getPrimaryFileCategoryForExtension(ext);
     return cat ? cat.icon : '📄';
   }
 
@@ -1193,71 +1208,6 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
     } catch {
       return null;
     }
-  }
-
-  private handleExternalDrop(event: DragEvent, targetNode: TreeNode): void {
-    const externalPaths = this.extractExternalPaths(event);
-    if (externalPaths.length === 0) return;
-
-    // Convert external paths to TreeNodes
-    const sourceNodes: TreeNode[] = externalPaths.map(path => ({
-      name: path.split(/[/\\]/).pop() || '',
-      path: path,
-      type: FileType.FILE,
-      size: 0,
-      created: 0,
-      modified: 0,
-      accessed: 0,
-      permissions: '',
-      isHidden: false,
-      level: 0,
-    }));
-
-    // Create drop target
-    const dropTarget: DropTarget = {
-      node: targetNode,
-      position: targetNode.type === FileType.DIRECTORY ? 'inside' : 'after'
-    };
-
-    this.dragDrop.emit({
-      event,
-      source: sourceNodes,
-      target: dropTarget
-    });
-  }
-
-  private handleExternalBackgroundDrop(event: DragEvent): void {
-    const externalPaths = this.extractExternalPaths(event);
-    if (externalPaths.length === 0) return;
-
-    // For background drops, use current path or root node as target
-    if (this.nodes.length === 0) return;
-
-    const sourceNodes: TreeNode[] = externalPaths.map(path => ({
-      name: path.split(/[/\\]/).pop() || '',
-      path: path,
-      type: FileType.FILE,
-      size: 0,
-      created: 0,
-      modified: 0,
-      accessed: 0,
-      permissions: '',
-      isHidden: false,
-      level: 0,
-    }));
-
-    // Find the current directory node or use first node
-    const targetNode = this.nodes[0];
-    const dropTarget: DropTarget = {
-      node: targetNode,
-      position: 'inside'
-    };
-
-    this.dragDrop.emit({
-      event,
-      source: sourceNodes,
-      target: dropTarget
-    });
   }
 
   onContainerMouseDown(event: MouseEvent): void {

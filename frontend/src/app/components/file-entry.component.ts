@@ -1,7 +1,8 @@
-import { Component, Input, Output, EventEmitter, HostBinding, ElementRef, ViewChild, ChangeDetectionStrategy, OnChanges, SimpleChanges } from '@angular/core';
+import { ChangeDetectionStrategy, ChangeDetectorRef, Component, ElementRef, EventEmitter, HostBinding, Input, OnChanges, OnDestroy, Output, SimpleChanges, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FileInfo, FileType } from '../shared/protocol';
 import { getFileEntryPresentation } from './file-entry-presentation.util';
+import { FileCategoryResolverService } from '../services/file-category-resolver.service';
 
 export interface FileEntrySelectEvent {
   entry: FileInfo;
@@ -517,7 +518,7 @@ export const PARENT_ENTRY_PATH = '__parent__';
     }
   `]
 })
-export class FileEntryComponent implements OnChanges {
+export class FileEntryComponent implements OnChanges, OnDestroy {
   @Input() entry!: FileInfo;
   @Input() selected = false;
   @Input() cursor = false;
@@ -545,6 +546,8 @@ export class FileEntryComponent implements OnChanges {
   showSearchContextRow = false;
   showSearchContextGrid = false;
   showDirectorySizeSpinner = false;
+  private resolvedCategoryId: string | null | undefined;
+  private unwatchResolvedCategory: (() => void) | null = null;
 
   FileType = FileType;
 
@@ -560,8 +563,18 @@ export class FileEntryComponent implements OnChanges {
     return this.isRenaming;
   }
 
+  constructor(
+    private readonly categoryResolver: FileCategoryResolverService,
+    private readonly cdr: ChangeDetectorRef,
+  ) {}
+
   ngOnChanges(_changes: SimpleChanges): void {
+    this.bindResolvedCategory();
     this.rebuildRenderState();
+  }
+
+  ngOnDestroy(): void {
+    this.unwatchResolvedCategory?.();
   }
 
   isParentEntry(): boolean {
@@ -608,7 +621,7 @@ export class FileEntryComponent implements OnChanges {
 
   private rebuildRenderState(): void {
     const entry = this.entry;
-    const presentation = getFileEntryPresentation(entry, this.colorizeByMime);
+    const presentation = getFileEntryPresentation(entry, this.colorizeByMime, this.resolvedCategoryId ?? null);
     this.isParent = presentation.isParent;
     this.isSymlinkEntry = presentation.isSymlink;
     this.displayName = this.displayNameOverride?.trim() || entry?.name || '';
@@ -620,6 +633,23 @@ export class FileEntryComponent implements OnChanges {
     this.showSearchContextGrid = !this.isParent && this.variant === 'grid' && isSearchEntry;
     this.showDirectorySizeSpinner = this.directorySizePending && !this.isParent && entry?.type === FileType.DIRECTORY;
     this.iconEmoji = presentation.iconEmoji;
+  }
+
+  private bindResolvedCategory(): void {
+    this.unwatchResolvedCategory?.();
+    this.unwatchResolvedCategory = null;
+    this.resolvedCategoryId = undefined;
+
+    const path = this.entry?.path;
+    if (!path) return;
+
+    this.resolvedCategoryId = this.categoryResolver.getResolvedCategory(path);
+    this.unwatchResolvedCategory = this.categoryResolver.watch(path, () => {
+      this.resolvedCategoryId = this.categoryResolver.getResolvedCategory(path);
+      this.rebuildRenderState();
+      this.cdr.markForCheck();
+    });
+    this.categoryResolver.ensureResolved(this.entry);
   }
 
   onClick(mouseEvent: MouseEvent): void {

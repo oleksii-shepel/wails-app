@@ -22,6 +22,7 @@ import { FileInfo, FileType } from '../shared/protocol';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
 import { parentPath } from './address-bar.utils';
 import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directive';
+import { FileCategoryResolverService } from '../services/file-category-resolver.service';
 
 type VisibleRowVm = {
   entry: FileInfo;
@@ -270,7 +271,8 @@ type VisibleRowVm = {
 export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
   constructor(
     private zone: NgZone,
-    private cdr: ChangeDetectorRef
+    private cdr: ChangeDetectorRef,
+    private categoryResolver: FileCategoryResolverService,
   ) {}
 
   @ViewChild('paneContent') paneContentRef?: ElementRef<HTMLElement>;
@@ -378,6 +380,7 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['entries'] || changes['loading'] || changes['error']) {
+      this.prewarmCollisionResolutions();
       if (changes['entries'] && !changes['entries'].firstChange) {
         const prevLen = changes['entries'].previousValue?.length || 0;
         const currLen = changes['entries'].currentValue?.length || 0;
@@ -398,6 +401,12 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
     ) {
       this.rebuildVisibleRowVms();
       this.cdr.markForCheck();
+    }
+  }
+
+  private prewarmCollisionResolutions(): void {
+    for (const entry of this.entries) {
+      this.categoryResolver.ensureResolved(entry);
     }
   }
 
@@ -1234,64 +1243,6 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
     } catch {
       return null;
     }
-  }
-
-  private handleExternalDrop(event: DragEvent, targetEntry: FileInfo): void {
-    const externalPaths = this.extractExternalPaths(event);
-    if (externalPaths.length === 0) return;
-
-    const source: FileInfo[] = externalPaths.map(path => ({
-      name: path.split(/[/\\]/).pop() || '',
-      path: path,
-      type: FileType.FILE,
-      size: 0,
-      created: 0,
-      modified: 0,
-      accessed: 0,
-      permissions: '',
-      isHidden: false,
-    }));
-
-    const target = targetEntry.type === FileType.DIRECTORY
-      ? targetEntry
-      : ({ ...targetEntry, path: parentPath(targetEntry.path), type: FileType.DIRECTORY } as FileInfo);
-
-    this.dragDrop.emit({ event, source, target });
-  }
-
-  private handleExternalBackgroundDrop(event: DragEvent): void {
-    const externalPaths = this.extractExternalPaths(event);
-    if (externalPaths.length === 0) return;
-
-    const source: FileInfo[] = externalPaths.map(path => ({
-      name: path.split(/[/\\]/).pop() || '',
-      path: path,
-      type: FileType.FILE,
-      size: 0,
-      created: 0,
-      modified: 0,
-      accessed: 0,
-      permissions: '',
-      isHidden: false,
-    }));
-
-    const currentDir = this.entries.length > 0 && !this.isParentEntry(this.entries[0])
-      ? parentPath(this.entries[0].path)
-      : '';
-    
-    const target: FileInfo = {
-      name: '',
-      path: currentDir,
-      type: FileType.DIRECTORY,
-      size: 0,
-      created: 0,
-      modified: 0,
-      accessed: 0,
-      permissions: '',
-      isHidden: false,
-    };
-
-    this.dragDrop.emit({ event, source, target });
   }
 
   private buildRangeSelection(entry: FileInfo): FileInfo[] {

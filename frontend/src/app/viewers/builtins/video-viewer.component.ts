@@ -105,11 +105,6 @@ interface VideoNavItem {
                     <div *ngIf="!previousVideo.thumbSrc || previousVideo.thumbFailed" class="video-nav-fallback">
                       {{ thumbnailFallback(previousVideo.name) }}
                     </div>
-                    <div class="video-nav-overlay">
-                      <svg class="video-nav-arrow-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M15 18L9 12L15 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                      </svg>
-                    </div>
                   </div>
                 </div>
                 <div class="video-nav-info">
@@ -136,11 +131,6 @@ interface VideoNavItem {
                       loading="lazy">
                     <div *ngIf="!nextVideo.thumbSrc || nextVideo.thumbFailed" class="video-nav-fallback">
                       {{ thumbnailFallback(nextVideo.name) }}
-                    </div>
-                    <div class="video-nav-overlay">
-                      <svg class="video-nav-arrow-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M9 18L15 12L9 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                      </svg>
                     </div>
                   </div>
                 </div>
@@ -569,17 +559,6 @@ interface VideoNavItem {
       transition: all 0.3s cubic-bezier(0.2, 0.9, 0.4, 1.1);
     }
 
-    .video-nav-hotspot:hover .video-nav-thumb-wrapper,
-    .video-nav-hotspot:focus-visible .video-nav-thumb-wrapper {
-      box-shadow:
-        0 0 0 1px color-mix(in srgb, var(--vsc-focusBorder, #007fd4) 40%, transparent),
-        var(--vsc-widget-shadow, 0 5px 8px 0 rgba(0, 0, 0, 0.36));
-    }
-
-    .video-nav-hotspot:hover .video-nav-thumb-wrapper {
-      transform: scale(1.02);
-    }
-
     .video-nav-thumb {
       position: relative;
       width: 260px;
@@ -597,11 +576,6 @@ interface VideoNavItem {
       height: 100%;
       display: block;
       object-fit: cover;
-      transition: transform 0.3s cubic-bezier(0.2, 0.9, 0.4, 1.1);
-    }
-
-    .video-nav-hotspot:hover .video-nav-thumb img {
-      transform: scale(1.05);
     }
 
     .video-nav-thumb--empty {
@@ -621,32 +595,6 @@ interface VideoNavItem {
       color: var(--vsc-foreground, #cccccc);
       opacity: 0.5;
       text-transform: uppercase;
-    }
-
-    .video-nav-overlay {
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: rgba(0, 0, 0, 0.5);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      opacity: 0;
-      transition: opacity 0.3s cubic-bezier(0.2, 0.9, 0.4, 1.1);
-      backdrop-filter: blur(4px);
-    }
-
-    .video-nav-hotspot:hover .video-nav-overlay {
-      opacity: 1;
-    }
-
-    .video-nav-arrow-icon {
-      width: 48px;
-      height: 48px;
-      color: white;
-      filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.5));
     }
 
     .video-nav-info {
@@ -680,10 +628,6 @@ interface VideoNavItem {
       line-height: 1.3;
       word-break: break-word;
       text-shadow: 0 1px 4px rgba(0, 0, 0, 0.24);
-    }
-
-    .video-nav-hotspot:hover .video-nav-name {
-      color: rgba(255, 255, 255, 0.88);
     }
 
     /* Loading State */
@@ -1008,11 +952,6 @@ interface VideoNavItem {
       
       .video-nav-name {
         font-size: 12px;
-      }
-      
-      .video-nav-arrow-icon {
-        width: 32px;
-        height: 32px;
       }
     }
   `],

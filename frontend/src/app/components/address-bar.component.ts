@@ -193,18 +193,17 @@ import { DropdownContainerComponent } from './dropdown-container.component';
         </ng-container>
       </div>
       <span class="ab-crumbs-filler" aria-hidden="true"></span>
-    </div>
-
-    <div
-      class="ab-status"
-      [class.ab-status--visible]="loading || showLoadComplete"
-      [attr.aria-hidden]="!(loading || showLoadComplete)"
-      [attr.aria-label]="loading ? 'Loading' : (showLoadComplete ? 'Load complete' : null)"
-      [attr.title]="loading ? 'Loading' : (showLoadComplete ? 'Load complete' : null)">
-      <span *ngIf="loading" class="ab-loading-spinner"></span>
-      <svg *ngIf="!loading && showLoadComplete" class="ab-status-check" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-        <path d="M3 8.5 L6.2 11.5 L13 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
+      <span
+        class="ab-status"
+        [class.ab-status--visible]="loading || showLoadComplete"
+        [attr.aria-hidden]="!(loading || showLoadComplete)"
+        [attr.aria-label]="loading ? 'Loading' : (showLoadComplete ? 'Load complete' : null)"
+        [attr.title]="loading ? 'Loading' : (showLoadComplete ? 'Load complete' : null)">
+        <span *ngIf="loading" class="ab-loading-spinner"></span>
+        <svg *ngIf="!loading && showLoadComplete" class="ab-status-check" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M3 8.5 L6.2 11.5 L13 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </span>
     </div>
 
     <!-- Right cluster: Up / Refresh / Copy -->
@@ -338,7 +337,7 @@ import { DropdownContainerComponent } from './dropdown-container.component';
     .ab-bar {
       /* use grid so the middle (breadcrumbs) reliably fills remaining space */
       display: grid;
-      grid-template-columns: auto 1fr auto auto;
+      grid-template-columns: auto 1fr auto;
       align-items: center;
       /* reduced height */
       height: 32px;
@@ -383,7 +382,6 @@ import { DropdownContainerComponent } from './dropdown-container.component';
       flex-shrink: 0;
       color: var(--vsc-accent-blue);
       margin-left: var(--vsc-padding-xs);
-      margin-right: calc(var(--vsc-padding-xs) * -1);
       opacity: 0;
       visibility: hidden;
       pointer-events: none;
@@ -485,7 +483,6 @@ import { DropdownContainerComponent } from './dropdown-container.component';
       flex: 1 1 auto;
       min-width: 12px;
       height: 100%;
-      pointer-events: none;
     }
 
     .ab-scheme {
@@ -999,11 +996,13 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   }
 
   onCrumbsClick(e: MouseEvent): void {
-    const t = e.target as HTMLElement;
-    if (t.classList.contains('ab-crumbs') || t.classList.contains('ab-crumbs-inner')) {
-      e.stopPropagation();
-      this.enterEditMode();
+    const target = e.target as HTMLElement | null;
+    if (target?.closest('.ab-seg, .ab-chev, .ab-scheme-chevron')) {
+      return;
     }
+
+    e.stopPropagation();
+    this.enterEditMode();
   }
 
   private setupWheelScroll(): void {

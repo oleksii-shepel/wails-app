@@ -632,6 +632,7 @@ export class CanvasVideoPlayer {
     endTime: number;
     mediaStartSec: number;
   }> = [];
+  private audioSessionGeneration = 0;
   private volume = 1;
   private lastDrawnTimestampMs = -1;
   private isLoaded = false;
@@ -1082,6 +1083,7 @@ export class CanvasVideoPlayer {
   }
 
   private onDecodedAudio(audioData: AudioData): void {
+    const sessionGeneration = this.audioSessionGeneration;
     if (this.stateChanged$.value !== 'playing' || !this.audioContext || !this.audioGainNode) {
       audioData.close();
       return;
@@ -1089,6 +1091,10 @@ export class CanvasVideoPlayer {
 
     try {
       const audioBuffer = this.createAudioBuffer(audioData);
+      if (sessionGeneration !== this.audioSessionGeneration) {
+        audioData.close();
+        return;
+      }
       const timestampSec = audioData.timestamp / 1_000_000;
       const playbackBaseSec = this.playbackBaseMs / 1000;
       const targetStartTime = this.audioPlaybackStartContextSec + (timestampSec - playbackBaseSec);
@@ -1167,7 +1173,7 @@ export class CanvasVideoPlayer {
       return;
     }
 
-    void this.decodeAudioAhead();
+    void this.decodeAudioAhead(this.audioSessionGeneration);
   }
 
   private async decodeAhead(options?: { maxFrames?: number; allowPausedPriming?: boolean; seekUntilTimeMs?: number }): Promise<void> {
@@ -1279,13 +1285,14 @@ export class CanvasVideoPlayer {
     }
   }
 
-  private async decodeAudioAhead(): Promise<void> {
+  private async decodeAudioAhead(sessionGeneration = this.audioSessionGeneration): Promise<void> {
     if (
       this.audioDecodeAheadInFlight ||
       !this.audioDecoder ||
       !this.audioSource ||
       !this.nextAudioPacketCursor ||
-      !this.audioContext
+      !this.audioContext ||
+      sessionGeneration !== this.audioSessionGeneration
     ) {
       return;
     }
@@ -1300,7 +1307,8 @@ export class CanvasVideoPlayer {
         this.nextAudioPacketCursor &&
         this.audioDecoder &&
         this.audioDecoder.decodeQueueSize < CanvasVideoPlayer.MAX_AUDIO_DECODE_QUEUE &&
-        this.scheduledAudioUntilSec - this.audioContext.currentTime < CanvasVideoPlayer.AUDIO_BUFFER_AHEAD_SEC
+        this.scheduledAudioUntilSec - this.audioContext.currentTime < CanvasVideoPlayer.AUDIO_BUFFER_AHEAD_SEC &&
+        sessionGeneration === this.audioSessionGeneration
       ) {
         // Exit if we were playing but user paused (interrupted playback during decode)
         // But allow decoding if we started paused (seek pre-loading)
@@ -1310,6 +1318,9 @@ export class CanvasVideoPlayer {
 
         const cursor = this.nextAudioPacketCursor;
         this.nextAudioPacketCursor = await this.audioSource.getNextPacket(cursor);
+        if (sessionGeneration !== this.audioSessionGeneration) {
+          break;
+        }
 
         try {
           this.audioDecoder.decode(new EncodedAudioChunk({
@@ -1331,9 +1342,9 @@ export class CanvasVideoPlayer {
     } finally {
       this.audioDecodeAheadInFlight = false;
 
-      if (this.audioDecodeAheadQueued) {
+      if (this.audioDecodeAheadQueued && sessionGeneration === this.audioSessionGeneration) {
         this.audioDecodeAheadQueued = false;
-        this.requestAudioDecodeAhead();
+        void this.decodeAudioAhead(sessionGeneration);
       }
     }
   }
@@ -1514,6 +1525,7 @@ export class CanvasVideoPlayer {
   }
 
   private resetAudioPlaybackState(options?: { hard?: boolean; suspendContext?: boolean }): void {
+    this.audioSessionGeneration += 1;
     this.clearScheduledAudioNodes();
     this.audioDecodeAheadInFlight = false;
     this.audioDecodeAheadQueued = false;
@@ -1832,6 +1844,7 @@ export class CanvasVideoPlayer {
       return;
     }
 
+    const sessionGeneration = this.audioSessionGeneration;
     const audioContext = this.getOrCreateAudioContext();
     if (!audioContext) {
       this.disableAudioPlayback();
@@ -1842,12 +1855,21 @@ export class CanvasVideoPlayer {
       if (audioContext.state !== 'running') {
         await audioContext.resume();
       }
+      if (sessionGeneration !== this.audioSessionGeneration) {
+        return;
+      }
       await this.resetAudioDecoderForSeek();
+      if (sessionGeneration !== this.audioSessionGeneration) {
+        return;
+      }
       this.nextAudioPacketCursor = await this.getAudioSeekCursor(startTimeMs);
+      if (sessionGeneration !== this.audioSessionGeneration) {
+        return;
+      }
       this.clearScheduledAudioNodes();
       this.audioPlaybackStartContextSec = audioContext.currentTime + CanvasVideoPlayer.AUDIO_SCHEDULE_LEAD_SEC;
       this.scheduledAudioUntilSec = this.audioPlaybackStartContextSec;
-      await this.decodeAudioAhead();
+      await this.decodeAudioAhead(sessionGeneration);
     } catch (error) {
       console.error('[WebCodecs] Audio playback initialization failed:', error);
       this.disableAudioPlayback();

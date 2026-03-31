@@ -621,6 +621,7 @@ export class CanvasVideoPlayer {
   private audioDecodeAheadQueued = false;
   private awaitingKeyFrame = true;
   private rafId: number | null = null;
+  private renderLoopToken = 0;
   private playbackBaseMs = 0;
   private playbackStartPerfMs = 0;
   private audioPlaybackStartContextSec = 0;
@@ -721,7 +722,7 @@ export class CanvasVideoPlayer {
 
     this.playbackStartPerfMs = performance.now();
     this.stateChanged$.next('playing');
-    this.renderLoop();
+    this.startRenderLoop();
     void this.prepareAudioPlayback(this.playbackBaseMs);
   }
 
@@ -1138,7 +1139,13 @@ export class CanvasVideoPlayer {
       return;
     }
 
-    this.rafId = requestAnimationFrame(() => this.renderLoop());
+    const token = this.renderLoopToken;
+    this.rafId = requestAnimationFrame(() => {
+      if (token !== this.renderLoopToken) {
+        return;
+      }
+      this.renderLoop();
+    });
   }
 
   private requestDecodeAhead(): void {
@@ -1530,10 +1537,17 @@ export class CanvasVideoPlayer {
   }
 
   private cancelRenderLoop(): void {
+    this.renderLoopToken += 1;
     if (this.rafId !== null) {
       cancelAnimationFrame(this.rafId);
       this.rafId = null;
     }
+  }
+
+  private startRenderLoop(): void {
+    this.cancelRenderLoop();
+    this.renderLoopToken += 1;
+    this.renderLoop();
   }
 
   private getCurrentTimeMs(): number {
@@ -1805,7 +1819,7 @@ export class CanvasVideoPlayer {
   private async resumePlaybackAfterSeek(): Promise<void> {
     this.playbackStartPerfMs = performance.now();
     this.stateChanged$.next('playing');
-    this.renderLoop();
+    this.startRenderLoop();
     void this.prepareAudioPlayback(this.playbackBaseMs);
   }
 

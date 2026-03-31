@@ -192,13 +192,15 @@ import { DropdownContainerComponent } from './dropdown-container.component';
           </ng-container>
         </ng-container>
       </div>
+      <span class="ab-crumbs-filler" aria-hidden="true"></span>
     </div>
 
     <div
       class="ab-status"
-      *ngIf="loading || showLoadComplete"
-      [attr.aria-label]="loading ? 'Loading' : 'Load complete'"
-      [attr.title]="loading ? 'Loading' : 'Load complete'">
+      [class.ab-status--visible]="loading || showLoadComplete"
+      [attr.aria-hidden]="!(loading || showLoadComplete)"
+      [attr.aria-label]="loading ? 'Loading' : (showLoadComplete ? 'Load complete' : null)"
+      [attr.title]="loading ? 'Loading' : (showLoadComplete ? 'Load complete' : null)">
       <span *ngIf="loading" class="ab-loading-spinner"></span>
       <svg *ngIf="!loading && showLoadComplete" class="ab-status-check" viewBox="0 0 16 16" fill="none" aria-hidden="true">
         <path d="M3 8.5 L6.2 11.5 L13 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -382,7 +384,15 @@ import { DropdownContainerComponent } from './dropdown-container.component';
       color: var(--vsc-accent-blue);
       margin-left: var(--vsc-padding-xs);
       margin-right: calc(var(--vsc-padding-xs) * -1);
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
       transition: color var(--vsc-transition-fast), opacity var(--vsc-transition-fast);
+    }
+
+    .ab-status--visible {
+      opacity: 1;
+      visibility: visible;
     }
 
     .ab-loading-spinner {
@@ -449,14 +459,14 @@ import { DropdownContainerComponent } from './dropdown-container.component';
       display: flex;
       align-items: center;
       overflow: hidden;
+      gap: 0;
     }
 
     .ab-crumbs-inner {
-      /* fill the crumbs container so breadcrumbs use available width
-         while still allowing horizontal scrolling when content overflows */
-      flex: 1 1 auto;
+      /* size to breadcrumb content and scroll only when content exceeds space */
+      flex: 0 1 auto;
       min-width: 0;
-      width: 100%;
+      max-width: 100%;
       display: flex;
       align-items: center;
       height: 100%;
@@ -469,6 +479,13 @@ import { DropdownContainerComponent } from './dropdown-container.component';
       &::-webkit-scrollbar { display: none; }
 
       > * { flex-shrink: 0; }
+    }
+
+    .ab-crumbs-filler {
+      flex: 1 1 auto;
+      min-width: 12px;
+      height: 100%;
+      pointer-events: none;
     }
 
     .ab-scheme {

@@ -429,6 +429,11 @@ interface VideoNavItem {
       background: linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%);
       overflow: hidden;
       cursor: pointer;
+      transition: filter 0.2s ease;
+    }
+
+    .video-stage:hover .canvas-video-container {
+      filter: brightness(1.12);
     }
 
     .canvas-video-container ::ng-deep canvas {
@@ -495,8 +500,8 @@ interface VideoNavItem {
     .video-nav-hotspot--prev:focus-visible {
       background: linear-gradient(
         90deg,
-        rgba(0, 0, 0, 0.92) 0%,
-        rgba(0, 0, 0, 0.42) 50%,
+        rgba(0, 0, 0, 0.82) 0%,
+        rgba(0, 0, 0, 0.32) 50%,
         rgba(0, 0, 0, 0) 100%
       );
     }
@@ -505,8 +510,8 @@ interface VideoNavItem {
     .video-nav-hotspot--next:focus-visible {
       background: linear-gradient(
         270deg,
-        rgba(0, 0, 0, 0.92) 0%,
-        rgba(0, 0, 0, 0.42) 50%,
+        rgba(0, 0, 0, 0.82) 0%,
+        rgba(0, 0, 0, 0.32) 50%,
         rgba(0, 0, 0, 0) 100%
       );
       

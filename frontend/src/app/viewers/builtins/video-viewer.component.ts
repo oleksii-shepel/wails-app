@@ -24,6 +24,8 @@ import { ViewerArchiveContext } from '../viewer-archive-context';
 import { SegmentVideoLoader } from './segment-video-loader';
 import type { FileProbe } from '../../shared/protocol';
 
+type Unsubscribable = { unsubscribe(): void };
+
 interface VideoNavItem {
   path: string;
   name: string;
@@ -1014,6 +1016,8 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
   private seekOriginSeconds = 0;
   private seekRequestGeneration = 0;
   private navThumbnailGeneration = 0;
+  private initGeneration = 0;
+  private playerSubscriptions: Unsubscribable[] = [];
   playbackMode = '';
 
   constructor(
@@ -1092,6 +1096,7 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
   }
 
   ngOnDestroy(): void {
+    this.clearPlayerSubscriptions();
     if (this.canvasPlayer) {
       this.canvasPlayer.destroy();
       this.canvasPlayer = null;
@@ -1405,10 +1410,11 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
     });
   }
 
-  private async createAndAttachCanvasPlayer(): Promise<CanvasVideoPlayer> {
+  private async createAndAttachCanvasPlayer(generation: number): Promise<CanvasVideoPlayer> {
     if (!this.videoContainerRef?.nativeElement) {
       throw new Error('Video container is not available.');
     }
+    this.clearPlayerSubscriptions();
     if (this.canvasPlayer) {
       this.canvasPlayer.destroy();
       this.canvasPlayer = null;
@@ -1416,22 +1422,25 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
     const player = await this.videoPlayerService.createPlayer(this.videoContainerRef.nativeElement);
     this.canvasPlayer = player;
     player.setVolume(this.videoVolume / 100);
-    player.stateChanged$.subscribe((state) => {
+    this.playerSubscriptions.push(player.stateChanged$.subscribe((state) => {
+      if (generation !== this.initGeneration || this.canvasPlayer !== player) return;
       this.videoIsPlaying = state === 'playing';
       if (state !== 'playing') {
         this.videoShowControls = true;
       }
       this.cdr.markForCheck();
-    });
-    player.metadataReady$.subscribe((metadata: VideoMetadata) => {
+    }));
+    this.playerSubscriptions.push(player.metadataReady$.subscribe((metadata: VideoMetadata) => {
+      if (generation !== this.initGeneration || this.canvasPlayer !== player) return;
       this.videoDuration = this.shouldUseWindowedVideoStreaming()
         ? Math.max(this.videoDuration, this.videoTimelineOffsetSeconds + metadata.duration / 1000)
         : metadata.duration / 1000;
       this.videoCodecInfo = metadata.videoCodec || '';
       this.videoResolution = `${metadata.width}\u00d7${metadata.height}`;
       this.cdr.markForCheck();
-    });
-    player.currentTime$.subscribe((seconds: number) => {
+    }));
+    this.playerSubscriptions.push(player.currentTime$.subscribe((seconds: number) => {
+      if (generation !== this.initGeneration || this.canvasPlayer !== player) return;
       if (this.seekDragActive) {
         return;
       }
@@ -1439,16 +1448,18 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
         ? this.videoTimelineOffsetSeconds + seconds
         : seconds;
       this.cdr.markForCheck();
-    });
-    player.error$.subscribe((message: string) => {
+    }));
+    this.playerSubscriptions.push(player.error$.subscribe((message: string) => {
+      if (generation !== this.initGeneration || this.canvasPlayer !== player) return;
       this.error = message;
       this.videoLoading = false;
       this.cdr.markForCheck();
-    });
+    }));
     return player;
   }
 
-  private async initializeSegmentedPlayback(manifestUrl: string): Promise<void> {
+  private async initializeSegmentedPlayback(manifestUrl: string, generation: number): Promise<void> {
+    if (generation !== this.initGeneration) return;
     if (!this.videoContainerRef?.nativeElement) {
       return;
     }
@@ -1457,8 +1468,11 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
     this.cdr.markForCheck();
     const loader = new SegmentVideoLoader();
     const source = await loader.load(manifestUrl);
-    const player = await this.createAndAttachCanvasPlayer();
+    if (generation !== this.initGeneration) return;
+    const player = await this.createAndAttachCanvasPlayer(generation);
+    if (generation !== this.initGeneration || this.canvasPlayer !== player) return;
     await player.loadFromDemuxedSource(source);
+    if (generation !== this.initGeneration || this.canvasPlayer !== player) return;
     this.videoReady = true;
     try {
       await player.play();
@@ -1469,7 +1483,8 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
     this.cdr.markForCheck();
   }
 
-  private async initializeUrlPlayback(streamUrl: string): Promise<void> {
+  private async initializeUrlPlayback(streamUrl: string, generation: number): Promise<void> {
+    if (generation !== this.initGeneration) return;
     if (!this.videoContainerRef?.nativeElement) {
       return;
     }
@@ -1478,9 +1493,11 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
     this.videoTimelineOffsetSeconds = this.parseVideoStartOffsetSeconds(streamUrl);
     this.error = null;
     this.cdr.markForCheck();
-    const player = await this.createAndAttachCanvasPlayer();
+    const player = await this.createAndAttachCanvasPlayer(generation);
     try {
+      if (generation !== this.initGeneration || this.canvasPlayer !== player) return;
       await player.loadFromUrl(streamUrl);
+      if (generation !== this.initGeneration || this.canvasPlayer !== player) return;
       this.currentStreamUrl = streamUrl;
       this.videoReady = true;
       try {
@@ -1507,8 +1524,10 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
     }
 
     this.initializingManifestUrl = manifestUrl;
-    void this.initializeSegmentedPlayback(manifestUrl)
+    const generation = this.initGeneration;
+    void this.initializeSegmentedPlayback(manifestUrl, generation)
       .catch((err: unknown) => {
+        if (generation !== this.initGeneration) return;
         this.error = err instanceof Error ? err.message : String(err);
         this.videoLoading = false;
         this.cdr.markForCheck();
@@ -1530,8 +1549,10 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
     }
 
     this.initializingStreamUrl = streamUrl;
-    void this.initializeUrlPlayback(streamUrl)
+    const generation = this.initGeneration;
+    void this.initializeUrlPlayback(streamUrl, generation)
       .catch((err: unknown) => {
+        if (generation !== this.initGeneration) return;
         this.error = err instanceof Error ? err.message : String(err);
         this.videoLoading = false;
         this.cdr.markForCheck();
@@ -1544,6 +1565,7 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
   }
 
   private resetState(): void {
+    this.initGeneration += 1;
     this.useLegacySurface = false;
     this.loading = false;
     this.error = null;
@@ -1570,10 +1592,22 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
     this.seekOriginSeconds = 0;
     this.seekRequestGeneration = 0;
     this.seekGeneration++;
+    this.clearPlayerSubscriptions();
     if (this.canvasPlayer) {
       this.canvasPlayer.destroy();
       this.canvasPlayer = null;
     }
+  }
+
+  private clearPlayerSubscriptions(): void {
+    for (const sub of this.playerSubscriptions) {
+      try {
+        sub.unsubscribe();
+      } catch {
+        // no-op
+      }
+    }
+    this.playerSubscriptions = [];
   }
 
   private async refreshSiblingNavigation(): Promise<void> {

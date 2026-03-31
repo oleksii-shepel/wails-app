@@ -191,26 +191,6 @@ interface AudioPlaylistItem {
           </section>
 
           <!-- ── TRANSPORT CONTROLS ─────────────────────── -->
-          <section class="audio-summary-card">
-            <div class="summary-icon" [class.summary-icon--active]="isPlaying">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="4"></circle>
-                <path d="M16 8V4l5-2v4l-5 2z"></path>
-              </svg>
-            </div>
-
-            <div class="summary-copy">
-              <div class="summary-label">Audio preview</div>
-              <div class="summary-title" [title]="displayName">{{ displayName || 'Unknown track' }}</div>
-              <div class="summary-status">{{ playbackLabel }}</div>
-            </div>
-
-            <div class="summary-aside" *ngIf="hasPlaylist">
-              <div class="summary-aside-label">Playlist</div>
-              <div class="summary-aside-value">{{ currentPlaylistIndex + 1 }} / {{ playlistItems.length }}</div>
-            </div>
-          </section>
-
           <div class="ctrl-bar">
 
             <!-- progress row -->
@@ -1387,90 +1367,6 @@ interface AudioPlaylistItem {
       .time-display {
         min-width: 80px;
       }
-    }
-    .art-stage {
-      display: none !important;
-    }
-
-    .audio-summary-card {
-      display: grid;
-      grid-template-columns: auto minmax(0, 1fr) auto;
-      align-items: center;
-      gap: 14px;
-      margin: 16px;
-      padding: 16px 18px;
-      border: 1px solid var(--av-border);
-      border-radius: 18px;
-      background: linear-gradient(180deg, color-mix(in srgb, var(--av-panel-raised) 90%, white 10%), var(--av-panel));
-      box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.04),
-        0 14px 28px rgba(0, 0, 0, 0.12);
-    }
-
-    .summary-icon {
-      width: 44px;
-      height: 44px;
-      border-radius: 14px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: color-mix(in srgb, var(--av-accent) 82%, var(--av-text));
-      background: color-mix(in srgb, var(--av-accent) 14%, transparent);
-      border: 1px solid color-mix(in srgb, var(--av-accent) 28%, transparent);
-    }
-
-    .summary-icon svg {
-      width: 22px;
-      height: 22px;
-    }
-
-    .summary-icon--active {
-      box-shadow: 0 0 0 4px color-mix(in srgb, var(--av-accent) 12%, transparent);
-    }
-
-    .summary-copy {
-      min-width: 0;
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
-
-    .summary-label,
-    .summary-aside-label {
-      font-size: 10px;
-      font-weight: 700;
-      letter-spacing: 0.16em;
-      text-transform: uppercase;
-      color: var(--av-text-dim);
-    }
-
-    .summary-title {
-      font-size: 15px;
-      font-weight: 700;
-      color: var(--av-text);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .summary-status {
-      font-size: 12px;
-      color: var(--av-text-muted);
-    }
-
-    .summary-aside {
-      display: flex;
-      flex-direction: column;
-      align-items: flex-end;
-      gap: 4px;
-      text-align: right;
-      white-space: nowrap;
-    }
-
-    .summary-aside-value {
-      font-size: 13px;
-      font-weight: 700;
-      color: var(--av-text);
     }
   `],
 })

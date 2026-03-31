@@ -471,9 +471,9 @@ interface VideoNavItem {
       left: 0;
       background: linear-gradient(
         90deg,
-        rgba(0, 0, 0, 0.92) 0%,
-        rgba(0, 0, 0, 0.42) 50%,
-        rgba(0, 0, 0, 0) 100%
+        rgba(0, 0, 0, 0.96) 0%,
+        rgba(0, 0, 0, 0.56) 52%,
+        transparent 100%
       );
     }
 
@@ -481,9 +481,9 @@ interface VideoNavItem {
       right: 0;
       background: linear-gradient(
         270deg,
-        rgba(0, 0, 0, 0.92) 0%,
-        rgba(0, 0, 0, 0.42) 50%,
-        rgba(0, 0, 0, 0) 100%
+        rgba(0, 0, 0, 0.96) 0%,
+        rgba(0, 0, 0, 0.56) 52%,
+        transparent 100%
       );
     }
 
@@ -495,9 +495,9 @@ interface VideoNavItem {
     .video-nav-hotspot--prev:focus-visible {
       background: linear-gradient(
         90deg,
-        rgba(0, 0, 0, 0.96) 0%,
-        rgba(0, 0, 0, 0.56) 52%,
-        transparent 100%
+        rgba(0, 0, 0, 0.92) 0%,
+        rgba(0, 0, 0, 0.42) 50%,
+        rgba(0, 0, 0, 0) 100%
       );
     }
 
@@ -505,18 +505,12 @@ interface VideoNavItem {
     .video-nav-hotspot--next:focus-visible {
       background: linear-gradient(
         270deg,
-        rgba(0, 0, 0, 0.96) 0%,
-        rgba(0, 0, 0, 0.56) 52%,
-        transparent 100%
+        rgba(0, 0, 0, 0.92) 0%,
+        rgba(0, 0, 0, 0.42) 50%,
+        rgba(0, 0, 0, 0) 100%
       );
+      
     }
-
-    .video-nav-hotspot:focus-visible {
-      opacity: 1;
-      outline: 2px solid var(--vsc-focusBorder, #007fd4);
-      outline-offset: -2px;
-    }
-
     .video-nav-hotspot:hover,
     .video-nav-hotspot:focus,
     .video-nav-hotspot:focus-visible {

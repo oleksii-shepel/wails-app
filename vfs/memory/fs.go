@@ -11,6 +11,8 @@ import (
 	"wails-app/vfs/osfs"
 )
 
+var connectionInfoFn = GetConnectionInfo
+
 func DefaultRootProvider() string {
 	if root := os.Getenv("WAILS_MEMFS_ROOT"); strings.TrimSpace(root) != "" {
 		return root
@@ -21,7 +23,7 @@ func DefaultRootProvider() string {
 	// GetConnectionInfo works on all platforms: Windows uses a named pipe,
 	// Unix uses a domain socket. Failure is non-fatal — fall through to the
 	// store-backed default.
-	if info, err := GetConnectionInfo(); err == nil {
+	if info, err := connectionInfoFn(); err == nil {
 		if root := strings.TrimSpace(info.HiddenPath); root != "" {
 			return root
 		}

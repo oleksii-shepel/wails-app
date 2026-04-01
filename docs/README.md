@@ -46,7 +46,7 @@ Project-level Wails configuration lives in [wails.json](wails.json). Wails proje
 
 ## Bundled External Tools
 
-The app can resolve external executables from a single bundled tools root before checking the system `PATH`.
+The app resolves external executables from a bundled tools directory relative to the shipped executable before checking the system `PATH`.
 
 Supported root discovery order:
 
@@ -54,7 +54,8 @@ Supported root discovery order:
 2. `WAILS_EXTERNAL_TOOLS_DIR`
 3. `tools` next to the built executable
 4. `portable-tools` next to the built executable
-5. `tools` in the current working directory
+5. `tools` one level above the built executable
+6. `tools` in the current working directory
 
 Recommended layout:
 
@@ -78,7 +79,7 @@ tools/
 		...runtime files...
 ```
 
-The resolver checks the root directly and then each first-level subdirectory, so the executables can live either directly under `tools/` or inside per-tool folders.
+For packaged builds, `tools/` next to the executable is the intended delivery layout. The resolver checks the root directly and then each first-level subdirectory, so the executables can live either directly under `tools/` or inside per-tool folders.
 
 For portable delivery on Windows, copy each tool's full install/runtime directory, not just the `.exe`, because tools such as ImageMagick, Calibre, and LibreOffice depend on adjacent DLLs and support files.
 
@@ -119,6 +120,8 @@ Tree view participates in the same operation flow as the other views (selection,
 
 The app uses an out-of-process sidecar (`in-memory-fs`) to host a persistent in-memory filesystem that is mounted into the app's virtual filesystem at the path `/memory`.
 
+The sidecar is intended to outlive the Wails UI process. When the app starts again, it reconnects to an already running memfs instance through the control IPC channel and reuses the existing hidden backing path instead of starting with a fresh store.
+
 The sidecar is launched by `ProcessManager` ([vfs/memory/process_unix.go](../vfs/memory/process_unix.go) / Windows equivalent) and communicates with the app via a platform-specific IPC channel:
 
 | Platform | IPC channel | Details |
@@ -129,12 +132,13 @@ The sidecar is launched by `ProcessManager` ([vfs/memory/process_unix.go](../vfs
 
 Both Unix platforms rely on macFUSE (macOS) or the kernel FUSE driver (Linux) and require the sidecar binary to be present on `PATH` or at the path configured in preferences.
 
-**Startup sequence (all platforms)**:
+**Startup and reconnect sequence (all platforms)**:
 
-1. `DefaultRootProvider` ([vfs/memory/fs.go](../vfs/memory/fs.go)) checks `WAILS_MEMFS_ROOT` / `MEMFS_HIDDEN_PATH` env vars and the saved workspace preference first.
-2. If no path is found, it connects to the IPC channel and calls `get-connection-info`.
-3. If the sidecar is not yet running, `ProcessManager.Start()` spawns it and polls for the FUSE mount to become visible.
-4. The resolved root path is wrapped as `osfs.FS` and registered at VFS path `/memory` by `InitVFS` ([internal/runtime/vfs.go](../internal/runtime/vfs.go)).
+1. `DefaultRootProvider` ([vfs/memory/fs.go](../vfs/memory/fs.go)) checks `WAILS_MEMFS_ROOT` and `MEMFS_HIDDEN_PATH` first.
+2. If neither env override is set, it connects to the sidecar IPC channel and calls `get-connection-info`.
+3. If memfs is already running, the returned `hiddenPath` is reused, so restarting the Wails app reconnects to the same memfs instance.
+4. If the sidecar is not running, startup code can launch it and wait for the mount to become visible.
+5. The resolved root path is wrapped as `osfs.FS` and registered at VFS path `/memory` by `InitVFS` ([internal/runtime/vfs.go](../internal/runtime/vfs.go)).
 
 **macOS prerequisites**: macFUSE must be installed (`/Library/Filesystems/macfuse.fs`). The preflight check in [vfs/memory/preflight_unix.go](../vfs/memory/preflight_unix.go) will return a user-friendly error if it is absent.
 

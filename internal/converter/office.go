@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"wails-app/internal/utility"
 )
 
 // OfficeService handles conversion of supported documents to PDF.
@@ -137,17 +139,7 @@ func imagemagickFormatCanRead(output string, format string) bool {
 }
 
 func findExecutable(paths []string) (string, bool) {
-	for _, path := range paths {
-		if _, err := exec.LookPath(path); err == nil {
-			return path, true
-		}
-		if filepath.IsAbs(path) {
-			if _, err := oslib.Stat(path); err == nil {
-				return path, true
-			}
-		}
-	}
-	return "", false
+	return utility.ResolveExecutable(paths...)
 }
 
 func localDjVuLibrePaths(executableName string) []string {

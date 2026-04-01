@@ -13,6 +13,8 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+
+	"wails-app/internal/utility"
 )
 
 // Service handles image format conversion for preview.
@@ -30,12 +32,10 @@ func NewService() *Service {
 func (s *Service) detectImagemagick() {
 	// Try to locate ImageMagick's convert command
 	paths := []string{"magick", "convert"}
-	for _, cmd := range paths {
-		if _, err := exec.LookPath(cmd); err == nil {
-			s.imagemagickPath = cmd
-			s.hasImagemagick = true
-			return
-		}
+	if path, ok := utility.ResolveExecutable(paths...); ok {
+		s.imagemagickPath = path
+		s.hasImagemagick = true
+		return
 	}
 }
 

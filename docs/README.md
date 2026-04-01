@@ -44,6 +44,46 @@ The frontend is organized around a thin pane host plus controller/factory layers
 
 Project-level Wails configuration lives in [wails.json](wails.json). Wails project setting details are documented at https://wails.io/docs/reference/project-config.
 
+## Bundled External Tools
+
+The app can resolve external executables from a single bundled tools root before checking the system `PATH`.
+
+Supported root discovery order:
+
+1. `WAILS_TOOLS_DIR`
+2. `WAILS_EXTERNAL_TOOLS_DIR`
+3. `tools` next to the built executable
+4. `portable-tools` next to the built executable
+5. `tools` in the current working directory
+
+Recommended layout:
+
+```text
+tools/
+	ffmpeg/
+		ffmpeg.exe
+		ffprobe.exe
+		...runtime DLLs...
+	imagemagick/
+		magick.exe
+		...runtime DLLs / config...
+	calibre/
+		ebook-convert.exe
+		...runtime files...
+	libreoffice/
+		soffice.exe
+		...runtime files...
+	djvulibre/
+		ddjvu.exe
+		...runtime files...
+```
+
+The resolver checks the root directly and then each first-level subdirectory, so the executables can live either directly under `tools/` or inside per-tool folders.
+
+For portable delivery on Windows, copy each tool's full install/runtime directory, not just the `.exe`, because tools such as ImageMagick, Calibre, and LibreOffice depend on adjacent DLLs and support files.
+
+To refresh the bundled tool directory from the current machine, run [scripts/collect-portable-tools.ps1](scripts/collect-portable-tools.ps1).
+
 ## File View Operations Matrix
 
 All file views share the same operation pipeline and are treated as equivalent interaction surfaces.

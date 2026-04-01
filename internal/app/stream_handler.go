@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"wails-app/internal/pathref"
+	"wails-app/internal/utility"
 	vfslib "wails-app/vfs"
 	"wails-app/vfs/archive/cache"
 )
@@ -726,8 +727,9 @@ func serveArchiveEntry(w http.ResponseWriter, r *http.Request, archCache *cache.
 }
 
 func startFFmpegTranscode(ctx context.Context, inputArgs []string, playbackMode VideoPlaybackMode) (io.ReadCloser, *bytes.Buffer, *exec.Cmd, error) {
-	if _, err := exec.LookPath("ffmpeg"); err != nil {
-		return nil, nil, nil, err
+	ffmpegPath, ok := utility.ResolveExecutable("ffmpeg", "ffmpeg.exe")
+	if !ok {
+		return nil, nil, nil, exec.ErrNotFound
 	}
 
 	args := []string{
@@ -774,7 +776,7 @@ func startFFmpegTranscode(ctx context.Context, inputArgs []string, playbackMode 
 		"pipe:1",
 	)
 
-	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+	cmd := exec.CommandContext(ctx, ffmpegPath, args...)
 	hideWindow(cmd)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -791,7 +793,8 @@ func startFFmpegTranscode(ctx context.Context, inputArgs []string, playbackMode 
 }
 
 func extractVideoFrame(ctx context.Context, inputPath string, targetFormat string, frameSeconds float64) ([]byte, error) {
-	if _, err := exec.LookPath("ffmpeg"); err != nil {
+	ffmpegPath, ok := utility.ResolveExecutable("ffmpeg", "ffmpeg.exe")
+	if !ok {
 		return nil, fmt.Errorf("ffmpeg is not installed or not available on PATH")
 	}
 
@@ -814,7 +817,7 @@ func extractVideoFrame(ctx context.Context, inputPath string, targetFormat strin
 		"pipe:1",
 	}
 
-	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+	cmd := exec.CommandContext(ctx, ffmpegPath, args...)
 	hideWindow(cmd)
 	var out bytes.Buffer
 	var errOut bytes.Buffer
@@ -1091,7 +1094,7 @@ func buildArchiveSegmentedVideoCache(ctx context.Context, archCache *cache.Cache
 }
 
 func buildSegmentedVideoCache(ctx context.Context, nativePath string, cacheKey string) (*segmentedVideoPlaybackCacheEntry, error) {
-	if _, err := exec.LookPath("ffmpeg"); err != nil {
+	if _, ok := utility.ResolveExecutable("ffmpeg", "ffmpeg.exe"); !ok {
 		return nil, fmt.Errorf("ffmpeg is not installed or not available on PATH")
 	}
 
@@ -1147,6 +1150,11 @@ func buildSegmentedVideoCache(ctx context.Context, nativePath string, cacheKey s
 }
 
 func buildSegmentedVideoFragment(ctx context.Context, nativePath string, startSeconds float64, durationSeconds float64) ([]byte, []byte, error) {
+	ffmpegPath, ok := utility.ResolveExecutable("ffmpeg", "ffmpeg.exe")
+	if !ok {
+		return nil, nil, fmt.Errorf("ffmpeg is not installed or not available on PATH")
+	}
+
 	accurateSeek := requiresAccurateSegmentSeek(nativePath)
 	args := []string{
 		"-hide_banner",
@@ -1185,7 +1193,7 @@ func buildSegmentedVideoFragment(ctx context.Context, nativePath string, startSe
 		"-f", "mp4",
 		"pipe:1",
 	)
-	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+	cmd := exec.CommandContext(ctx, ffmpegPath, args...)
 	hideWindow(cmd)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -1815,10 +1823,11 @@ func shouldAttemptSegmentedDiskPlayback(name, videoCodec, audioCodec string) boo
 }
 
 func probeVideo(nativePath string) (*ffprobeOutput, error) {
-	if _, err := exec.LookPath("ffprobe"); err != nil {
-		return nil, err
+	ffprobePath, ok := utility.ResolveExecutable("ffprobe", "ffprobe.exe")
+	if !ok {
+		return nil, exec.ErrNotFound
 	}
-	cmd := exec.Command("ffprobe", "-v", "error", "-print_format", "json", "-show_format", "-show_streams", nativePath)
+	cmd := exec.Command(ffprobePath, "-v", "error", "-print_format", "json", "-show_format", "-show_streams", nativePath)
 	hideWindow(cmd)
 	out, err := cmd.Output()
 	if err != nil {

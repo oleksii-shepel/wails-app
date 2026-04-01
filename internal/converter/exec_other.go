@@ -2,6 +2,11 @@
 
 package converter
 
-import "os/exec"
+import (
+	"os/exec"
+	"syscall"
+)
 
-func hideWindow(_ *exec.Cmd) {}
+func hideWindow(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+}

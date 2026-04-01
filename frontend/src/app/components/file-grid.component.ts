@@ -147,7 +147,7 @@ import { FileCategoryResolverService } from '../services/file-category-resolver.
       flex: 1 1 0%;
       min-height: 0;
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(100px, max-content));
       align-content: start;
       gap: var(--vsc-padding-md);
       padding: var(--vsc-padding-md);
@@ -180,7 +180,7 @@ import { FileCategoryResolverService } from '../services/file-category-resolver.
       right: 0;
       top: var(--vsc-padding-md);
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(100px, max-content));
       align-content: start;
       gap: var(--vsc-padding-md);
       padding: 0 var(--vsc-padding-md);
@@ -199,9 +199,10 @@ import { FileCategoryResolverService } from '../services/file-category-resolver.
       display: flex;
       flex-direction: column;
       align-items: center;
-      padding: var(--vsc-padding-md);
+      padding: 6px;
       border-radius: var(--vsc-border-radius);
       cursor: pointer;
+      height: fit-content;
       transition:
         background-color var(--vsc-transition-fast),
         border-color var(--vsc-transition-fast),
@@ -317,7 +318,7 @@ import { FileCategoryResolverService } from '../services/file-category-resolver.
       display: flex;
       align-items: center;
       justify-content: center;
-      margin-bottom: var(--vsc-padding-sm);
+      margin-bottom: 3px;
     }
 
     .file-emoji {
@@ -352,14 +353,14 @@ import { FileCategoryResolverService } from '../services/file-category-resolver.
       text-overflow: ellipsis;
       white-space: nowrap;
       max-width: 100%;
-      line-height: 1.4;
+      line-height: 1.2;
     }
 
     .grid-meta {
       font-size: 11px;
       color: var(--vsc-foreground-dim);
-      margin-top: 2px;
-      min-height: 12px;
+      margin-top: 1px;
+      min-height: 11px;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -378,7 +379,7 @@ import { FileCategoryResolverService } from '../services/file-category-resolver.
     :host-context(.compact-mode) {
       .file-grid,
       .grid-window.virtual-window {
-        grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+        grid-template-columns: repeat(auto-fill, minmax(80px, max-content));
         gap: var(--vsc-padding-sm);
       }
       
@@ -392,7 +393,7 @@ import { FileCategoryResolverService } from '../services/file-category-resolver.
       }
       
       .grid-item {
-        padding: var(--vsc-padding-sm);
+        padding: 4px;
       }
     }
 

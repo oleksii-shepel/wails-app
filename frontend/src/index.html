@@ -6,6 +6,17 @@
   <base href="/">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <!-- Prevent flash of wrong background by applying theme before first paint -->
+  <script>
+    (function () {
+      var stored;
+      try { stored = localStorage.getItem('app-theme'); } catch (_) {}
+      var dark = stored === 'dark' || (!stored && !(window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches));
+      var html = document.documentElement;
+      html.classList.add(dark ? 'vscode-dark' : 'vscode-light');
+      html.style.background = dark ? '#1e1e1e' : '#ffffff';
+    })();
+  </script>
 </head>
 <body>
   <svg style="display: none;">

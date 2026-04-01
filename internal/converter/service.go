@@ -83,6 +83,7 @@ func (s *Service) CreateThumbnail(inputPath string, outputFormat string, maxWidt
 // convertWithImagemagick uses ImageMagick to convert the image.
 func (s *Service) convertWithImagemagick(inputPath string, outputFormat string) ([]byte, error) {
 	cmd := exec.Command(s.imagemagickPath, inputPath, fmt.Sprintf("%s:-", outputFormat))
+	hideWindow(cmd)
 
 	var out bytes.Buffer
 	var errOut bytes.Buffer
@@ -99,6 +100,7 @@ func (s *Service) convertWithImagemagick(inputPath string, outputFormat string) 
 func (s *Service) thumbnailWithImagemagick(inputPath string, outputFormat string, maxWidth int, maxHeight int) ([]byte, error) {
 	geometry := fmt.Sprintf("%dx%d>", maxWidth, maxHeight)
 	cmd := exec.Command(s.imagemagickPath, inputPath, "-auto-orient", "-thumbnail", geometry, fmt.Sprintf("%s:-", outputFormat))
+	hideWindow(cmd)
 
 	var out bytes.Buffer
 	var errOut bytes.Buffer

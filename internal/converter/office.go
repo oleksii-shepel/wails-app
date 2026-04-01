@@ -104,6 +104,7 @@ func (s *OfficeService) detectImagemagickReadSupport(format string) bool {
 	}
 
 	cmd := exec.Command(s.imagemagickExePath, "-list", "format")
+	hideWindow(cmd)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return false
@@ -321,6 +322,7 @@ func (s *OfficeService) convertWithLibreOffice(inputPath, outputDir string) (str
 		"--outdir", outputDir,
 		inputPath,
 	)
+	hideWindow(cmd)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("LibreOffice conversion failed: %v%s", err, formatCommandOutput(output))
 	}
@@ -332,6 +334,7 @@ func (s *OfficeService) convertWithLibreOffice(inputPath, outputDir string) (str
 
 func (s *OfficeService) convertWithCalibre(inputPath, outputPath string) (string, error) {
 	cmd := exec.Command(s.calibreExePath, inputPath, outputPath)
+	hideWindow(cmd)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("Calibre conversion failed: %v%s", err, formatCommandOutput(output))
 	}
@@ -343,6 +346,7 @@ func (s *OfficeService) convertWithCalibre(inputPath, outputPath string) (string
 
 func (s *OfficeService) convertWithDjVuLibre(inputPath, outputPath string) (string, error) {
 	cmd := exec.Command(s.djvuLibreExePath, "-format=pdf", inputPath, outputPath)
+	hideWindow(cmd)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("DjVuLibre conversion failed: %v%s", err, formatCommandOutput(output))
 	}
@@ -354,6 +358,7 @@ func (s *OfficeService) convertWithDjVuLibre(inputPath, outputPath string) (stri
 
 func (s *OfficeService) convertWithImagemagick(inputPath, outputPath string) (string, error) {
 	cmd := exec.Command(s.imagemagickExePath, inputPath, outputPath)
+	hideWindow(cmd)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("ImageMagick conversion failed: %v%s", err, formatCommandOutput(output))
 	}

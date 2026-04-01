@@ -439,18 +439,20 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
   // OPTIMIZED: Lower threshold for earlier virtualization activation
   private readonly VIRTUAL_THRESHOLD = 200;
   private readonly rowHeight = 124;
-  private readonly overscanRows = 2;
+  private readonly overscanRows = 5; // Increased for smoother scrolling in large folders
   private scrollRAF: number | null = null;
   private boundScrollListener?: () => void;
   private resizeObserver?: ResizeObserver;
 
   private virtualStart = 0;
   private virtualEnd = 0;
-  private virtualColumns = 1;
+  private cachedVirtualColumns = 1; // Cache column count to avoid repeated getComputedStyle
   private lastScrollTop = 0;
+  private lastScrollTime = 0;
   private viewportHeight = 0;
   private visibleEntriesCache: FileInfo[] = [];
   private pathToEntryIndex = new Map<string, number>();
+  private columnsMeasureRAF: number | null = null; // Coalesce column measurements
 
   private anchorPath: string | null = null;
 
@@ -496,13 +498,13 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
   }
 
   get totalContentHeight(): number {
-    const rows = Math.ceil(this.entries.length / this.virtualColumns);
+    const rows = Math.ceil(this.entries.length / this.cachedVirtualColumns);
     return rows * this.rowHeight;
   }
 
   get virtualWindowTransform(): string {
     if (!this.virtualEnabled) return '';
-    const startRow = Math.floor(this.virtualStart / this.virtualColumns);
+    const startRow = Math.floor(this.virtualStart / this.cachedVirtualColumns);
     return `translateY(${startRow * this.rowHeight}px)`;
   }
 
@@ -516,7 +518,7 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
 
   /** Number of columns currently visible in the grid. */
   getColumns(): number {
-    return Math.max(1, this.virtualColumns);
+    return Math.max(1, this.cachedVirtualColumns);
   }
 
   /** Approximate number of grid items visible in the viewport. */
@@ -524,7 +526,7 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
     const host = this.gridContainerRef?.nativeElement;
     if (!host) return 5;
     const rows = Math.max(1, Math.floor(host.clientHeight / this.rowHeight) - 1);
-    return rows * Math.max(1, this.virtualColumns);
+    return rows * Math.max(1, this.cachedVirtualColumns);
   }
 
   /** Scroll the grid to bring the given path into view. */
@@ -535,7 +537,7 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
     const idx = this.pathToEntryIndex.get(path) ?? -1;
     if (idx < 0) return;
     if (this.virtualEnabled) {
-      const row = Math.floor(idx / Math.max(1, this.virtualColumns));
+      const row = Math.floor(idx / Math.max(1, this.cachedVirtualColumns));
       const itemTop = row * this.rowHeight;
       const itemBottom = itemTop + this.rowHeight;
       if (itemTop < host.scrollTop || itemBottom > host.scrollTop + host.clientHeight) {
@@ -597,7 +599,7 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
       if (this.virtualEnabled) {
         const idx = this.pathToEntryIndex.get(path) ?? -1;
         if (idx >= 0) {
-          const row = Math.floor(idx / Math.max(1, this.virtualColumns));
+          const row = Math.floor(idx / Math.max(1, this.cachedVirtualColumns));
           const targetTop = row * this.rowHeight;
           const centerOffset = host.clientHeight / 2 - this.rowHeight / 2;
           host.scrollTop = Math.max(0, targetTop - centerOffset);
@@ -644,6 +646,11 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
   }
 
   ngAfterViewInit(): void {
+    const host = this.gridContainerRef?.nativeElement;
+    if (host) {
+      // Initialize cached columns from actual render
+      this.cachedVirtualColumns = this.measureGridColumns(host);
+    }
     this.setupResizeObserver();
     this.setupScrollListener();
     this.rebuildDerivedEntries();
@@ -790,6 +797,14 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
             this.viewportHeight = entry.contentRect.height;
             shouldMark = this.updateVirtualWindow() || shouldMark;
           }
+          // Also remeasure columns on width changes (more efficient)
+          if (entry.contentRect.width > 0) {
+            const cols = this.measureGridColumns(element);
+            if (cols !== this.cachedVirtualColumns) {
+              this.cachedVirtualColumns = cols;
+              shouldMark = this.updateVirtualWindow(true) || shouldMark;
+            }
+          }
         }
         if (shouldMark) {
           this.cdr.markForCheck();
@@ -824,6 +839,9 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
     if (this.scrollRAF) return;
     this.scrollRAF = requestAnimationFrame(() => {
       this.scrollRAF = null;
+      const now = performance.now();
+      const scrollDelta = Math.abs((this.gridContainerRef?.nativeElement?.scrollTop ?? 0) - this.lastScrollTop);
+      this.lastScrollTime = now;
       if (this.updateVirtualWindow()) {
         this.cdr.markForCheck();
       }
@@ -837,7 +855,7 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
       this.lastScrollTop = 0;
     }
     this.virtualStart = 0;
-    this.virtualEnd = Math.min(this.overscanRows * this.virtualColumns * 2, this.entries.length);
+    this.virtualEnd = Math.min(this.overscanRows * this.cachedVirtualColumns * 2, this.entries.length);
     this.rebuildVisibleEntries();
   }
 
@@ -846,13 +864,17 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
     const viewportHeight = this.viewportHeight || host?.clientHeight || 0;
     const scrollTop = host?.scrollTop ?? 0;
 
-    const cols = this.measureGridColumns(host);
     let changed = forceRebuild;
 
-    if (cols !== this.virtualColumns) {
-      this.virtualColumns = cols;
-      changed = true;
+    // Coalesce column measurements - only measure on resize or force
+    if (forceRebuild) {
+      const cols = this.measureGridColumns(host);
+      if (cols !== this.cachedVirtualColumns) {
+        this.cachedVirtualColumns = cols;
+        changed = true;
+      }
     }
+    const cols = this.cachedVirtualColumns;
 
     if (!this.virtualEnabled) {
       // Even without virtualization, keep the computed column count so keyboard navigation
@@ -878,6 +900,7 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
     if (start !== this.virtualStart || end !== this.virtualEnd) {
       this.virtualStart = start;
       this.virtualEnd = end;
+      this.lastScrollTop = scrollTop;
       changed = true;
     }
     if (changed) {
@@ -932,14 +955,19 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
 
   private measureGridColumns(host?: HTMLElement): number {
     if (!host) {
-      return Math.max(1, this.virtualColumns);
+      return Math.max(1, this.cachedVirtualColumns);
     }
 
     const gridElement = this.virtualEnabled
       ? host.querySelector<HTMLElement>('.grid-window.virtual-window')
       : host;
 
-    const template = gridElement ? getComputedStyle(gridElement).gridTemplateColumns : '';
+    if (!gridElement) {
+      return Math.max(1, this.cachedVirtualColumns);
+    }
+
+    // Cache style lookup - only get it once per measurement
+    const template = getComputedStyle(gridElement).gridTemplateColumns;
     const resolvedColumns = template
       .split(' ')
       .map(value => value.trim())
@@ -949,6 +977,7 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
       return resolvedColumns.length;
     }
 
+    // Fallback calculation for when grid-template-columns can't be parsed
     const compactMode = host.closest('.compact-mode') !== null;
     const minCellWidth = compactMode ? 80 : 100;
     const gap = compactMode ? 8 : 12;
@@ -1201,7 +1230,7 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
     const host = this.gridContainerRef?.nativeElement;
     if (!host) return null;
 
-    const columns = Math.max(1, this.virtualColumns);
+    const columns = Math.max(1, this.cachedVirtualColumns);
     const style = getComputedStyle(host);
     const paddingLeft = parseFloat(style.paddingLeft || '0') || 0;
     const paddingRight = parseFloat(style.paddingRight || '0') || 0;

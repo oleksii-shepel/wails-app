@@ -17,6 +17,38 @@ export class FilePaneSurfaceContextFactory {
     return source.tabs.find((tab) => tab.id === source.currentTabId);
   }
 
+  getSurfaceContextForTab(source: FilePaneSurfaceContextSource, tab: TabInfo): SurfaceContext {
+    if ((tab.kind ?? 'dir') === 'size-manager' && source.sizeManagerVm) {
+      return {
+        paneId: source.paneId,
+        kind: 'size-manager',
+        tab,
+        sizeVm: source.sizeManagerVm,
+      } satisfies SizeManagerSurfaceContext;
+    }
+
+    if ((tab.kind ?? 'dir') === 'viewer') {
+      return {
+        paneId: source.paneId,
+        kind: 'viewer',
+        tab,
+        viewer: {
+          targetPath: tab.viewer?.targetPath ?? '',
+          fileList: tab.viewer?.fileList ?? [],
+          archiveContext: (tab.viewer?.archiveContext as ViewerArchiveContext) ?? null,
+          viewerId: tab.viewer?.viewerId ?? null,
+        },
+      } satisfies ViewerSurfaceContext;
+    }
+
+    return {
+      paneId: source.paneId,
+      kind: 'dir',
+      tab,
+      dirVm: source.dirVm,
+    } satisfies DirSurfaceContext;
+  }
+
   getActiveTabKind(source: FilePaneSurfaceContextSource): 'dir' | 'viewer' {
     return (this.getActiveTab(source)?.kind ?? 'dir') === 'viewer' ? 'viewer' : 'dir';
   }
@@ -63,34 +95,6 @@ export class FilePaneSurfaceContextFactory {
       return null;
     }
 
-    if ((tab.kind ?? 'dir') === 'size-manager' && source.sizeManagerVm) {
-      return {
-        paneId: source.paneId,
-        kind: 'size-manager',
-        tab,
-        sizeVm: source.sizeManagerVm,
-      } satisfies SizeManagerSurfaceContext;
-    }
-
-    if ((tab.kind ?? 'dir') === 'viewer') {
-      return {
-        paneId: source.paneId,
-        kind: 'viewer',
-        tab,
-        viewer: {
-          targetPath: this.getActiveViewerTargetPath(source),
-          fileList: this.getActiveViewerFileList(source),
-          archiveContext: this.getActiveViewerArchiveContext(source),
-          viewerId: this.getActiveViewerId(source),
-        },
-      } satisfies ViewerSurfaceContext;
-    }
-
-    return {
-      paneId: source.paneId,
-      kind: 'dir',
-      tab,
-      dirVm: source.dirVm,
-    } satisfies DirSurfaceContext;
+    return this.getSurfaceContextForTab(source, tab);
   }
 }

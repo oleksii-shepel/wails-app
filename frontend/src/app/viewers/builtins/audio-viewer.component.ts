@@ -4,6 +4,7 @@ import {
   ChangeDetectorRef,
   Component,
   ElementRef,
+  HostListener,
   Input,
   OnChanges,
   OnDestroy,
@@ -170,7 +171,7 @@ interface AudioTagRow {
             </div>
 
             <!-- right: signal panel -->
-            <div class="signal-panel">
+            <div class="signal-panel" #signalPanel>
               <div class="sig-header">
                 <span class="sig-label">Spectrum</span>
                 <span class="sig-sub">Direct stream · {{ typeBadge }}</span>
@@ -1327,6 +1328,12 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
     this.syncAudioElement();
   }
 
+  @ViewChild('signalPanel')
+  set signalPanelRef(value: ElementRef<HTMLElement> | undefined) {
+    this.signalPanelElement = value?.nativeElement ?? null;
+    this.attachSignalPanelObserver();
+  }
+
   kind: AudioViewerKind = 'empty';
   info: FileInfo | null = null;
   activeProbe: FileProbe | null = null;
@@ -1368,6 +1375,9 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
   private vuRafId: ReturnType<typeof requestAnimationFrame> | null = null;
   private vuPeakLeftTs = 0;
   private vuPeakRightTs = 0;
+  private signalPanelElement: HTMLElement | null = null;
+  private signalPanelObserver: IntersectionObserver | null = null;
+  private signalPanelVisible = true;
 
   constructor(
     private readonly api: ApiService,
@@ -1478,8 +1488,14 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
 
   ngOnDestroy(): void {
     this.stopVuLoop();
+    this.detachSignalPanelObserver();
     this.pauseAndDetachAudio();
     this.destroyAudioAnalysis();
+  }
+
+  @HostListener('document:visibilitychange')
+  onDocumentVisibilityChange(): void {
+    this.updateVisualizerLoopState();
   }
 
   async togglePlayPause(): Promise<void> {
@@ -1592,14 +1608,14 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
     if (this.audioContext && this.audioContext.state === 'suspended') {
       void this.audioContext.resume();
     }
-    this.startVuLoop();
+    this.updateVisualizerLoopState();
     this.cdr.markForCheck();
   }
 
   onPause(): void {
     this.isPlaying = false;
     this.isBuffering = false;
-    this.stopVuLoop();
+    this.updateVisualizerLoopState();
     this.drainVu();
     this.cdr.markForCheck();
   }
@@ -1609,7 +1625,7 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
     this.isBuffering = false;
     this.currentTime = this.duration;
     this.seekTarget = this.duration;
-    this.stopVuLoop();
+    this.updateVisualizerLoopState();
     this.drainVu();
     this.cdr.markForCheck();
   }
@@ -1628,7 +1644,7 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
     this.audioReady = false;
     this.isPlaying = false;
     this.isBuffering = false;
-    this.stopVuLoop();
+    this.updateVisualizerLoopState();
     this.cdr.markForCheck();
   }
 
@@ -1659,8 +1675,12 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
   // ── VU METER LOOP ──────────────────────────────────────
 
   private startVuLoop(): void {
-    if (this.vuRafId !== null) { return; }
+    if (this.vuRafId !== null || !this.shouldAnimateVisualizers()) { return; }
     const tick = () => {
+      if (!this.shouldAnimateVisualizers()) {
+        this.vuRafId = null;
+        return;
+      }
       const lv = this.readLevelPercent(this.leftLevelAnalyser, this.leftTimeDomainData);
       const rv = this.readLevelPercent(this.rightLevelAnalyser, this.rightTimeDomainData);
       this.updateSpectrumBars();
@@ -1685,6 +1705,15 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
   }
 
   private drainVu(): void {
+    if (!this.signalPanelVisible || document.hidden) {
+      this.vuLeft = 0;
+      this.vuRight = 0;
+      this.spectrumBars = this.spectrumBars.map(() => 0);
+      this.vuPeakLeft = 0;
+      this.vuPeakRight = 0;
+      this.cdr.markForCheck();
+      return;
+    }
     const step = () => {
       this.vuLeft = 0;
       this.vuRight = 0;
@@ -1866,6 +1895,54 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
     }
   }
 
+  private shouldAnimateVisualizers(): boolean {
+    return this.isPlaying && this.signalPanelVisible && !document.hidden;
+  }
+
+  private updateVisualizerLoopState(): void {
+    if (this.shouldAnimateVisualizers()) {
+      this.startVuLoop();
+      return;
+    }
+    this.stopVuLoop();
+  }
+
+  private attachSignalPanelObserver(): void {
+    this.detachSignalPanelObserver();
+    const target = this.signalPanelElement;
+    if (!target) {
+      this.signalPanelVisible = true;
+      this.updateVisualizerLoopState();
+      return;
+    }
+
+    if (typeof IntersectionObserver === 'undefined') {
+      this.signalPanelVisible = true;
+      this.updateVisualizerLoopState();
+      return;
+    }
+
+    this.signalPanelObserver = new IntersectionObserver((entries) => {
+      const nextVisible = entries.some(entry => entry.isIntersecting && entry.intersectionRatio > 0);
+      if (this.signalPanelVisible === nextVisible) {
+        return;
+      }
+      this.signalPanelVisible = nextVisible;
+      this.updateVisualizerLoopState();
+    }, {
+      threshold: 0.01,
+    });
+    this.signalPanelObserver.observe(target);
+  }
+
+  private detachSignalPanelObserver(): void {
+    if (!this.signalPanelObserver) {
+      return;
+    }
+    this.signalPanelObserver.disconnect();
+    this.signalPanelObserver = null;
+  }
+
   private async tryAutoplay(): Promise<void> {
     const audio = this.audioElement;
     if (!audio) { return; }
@@ -1904,6 +1981,7 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
     this.vuRight = 0;
     this.vuPeakLeft = 0;
     this.vuPeakRight = 0;
+    this.spectrumBars = this.spectrumBars.map(() => 0);
     this.autoplayPending = false;
     this.activeTargetPath = '';
   }

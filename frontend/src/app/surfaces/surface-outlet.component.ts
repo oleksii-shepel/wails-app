@@ -60,19 +60,13 @@ export class SurfaceOutletComponent implements OnChanges {
     // FilePaneComponent rebuilds the surface context object on every change
     // detection pass. Reload the dynamic surface only when the surface kind
     // or active tab actually changes; otherwise just push fresh inputs into the
-    // mounted one.
+    // mounted one so long-running viewers keep their runtime state.
     if (this.component && this.resolvedSurfaceKey === surfaceKey) {
       if (this.renderedInputSignature !== inputSignature) {
-        const mountedComponent = this.component;
-        this.component = null;
         this.outletInputs = { ctx: this.ctx };
         this.renderedInputSignature = inputSignature;
         this.cdr.markForCheck();
 
-        queueMicrotask(() => {
-          this.component = mountedComponent;
-          this.cdr.markForCheck();
-        });
         return;
       }
 

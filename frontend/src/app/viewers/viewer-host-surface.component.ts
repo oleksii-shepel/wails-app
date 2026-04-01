@@ -122,20 +122,10 @@ export class ViewerHostSurfaceComponent implements OnChanges {
     const viewerKey = this.registry.resolveId(req);
     if (this.component && this.resolvedViewerKey === viewerKey) {
       if (this.renderedInputSignature !== inputSignature) {
-        const mountedComponent = this.component;
-        const seq = ++this.resolveSeq;
-        this.component = null;
+        // Preserve the mounted viewer instance on routine input churn so
+        // active media playback survives host refreshes.
         this.renderedInputSignature = inputSignature;
         this.cdr.markForCheck();
-
-        queueMicrotask(() => {
-          // Always restore the component type on the next microtask so Angular
-          // re-creates the component instance with the updated `outletInputs`.
-          // Previously the early-`resolveSeq` exit could leave `component` null
-          // if another refresh incremented `resolveSeq` before the microtask ran.
-          this.component = mountedComponent;
-          this.cdr.markForCheck();
-        });
         return;
       }
 

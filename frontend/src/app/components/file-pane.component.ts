@@ -84,6 +84,14 @@ declare const window: any;
           (firstEntryArrived)="onSurfaceFirstEntry()">
         </app-surface-outlet>
       </ng-container>
+
+      <div class="retained-viewer-surfaces" aria-hidden="true">
+        <app-surface-outlet
+          *ngFor="let ctx of retainedViewerSurfaceCtxs; trackBy: trackRetainedViewerSurface"
+          class="retained-viewer-surface"
+          [ctx]="ctx">
+        </app-surface-outlet>
+      </div>
     </div>
   `,
   styles: [`
@@ -121,6 +129,21 @@ declare const window: any;
       flex: 1 1 0%;
       min-height: 0;
       min-width: 0;
+      overflow: hidden;
+    }
+
+    .retained-viewer-surfaces {
+      width: 0;
+      height: 0;
+      overflow: hidden;
+      pointer-events: none;
+      position: absolute;
+    }
+
+    .retained-viewer-surface {
+      display: block;
+      width: 0;
+      height: 0;
       overflow: hidden;
     }
   `]
@@ -681,6 +704,17 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
 
   get surfaceCtx(): SurfaceContext | null {
     return this.surfaceContextFactory.createSurfaceContext(this.surfaceContextSource);
+  }
+
+  get retainedViewerSurfaceCtxs(): ViewerSurfaceContext[] {
+    return this.tabs
+      .filter((tab) => tab.id !== this.currentTabId && (tab.kind ?? 'dir') === 'viewer')
+      .map((tab) => this.surfaceContextFactory.getSurfaceContextForTab(this.surfaceContextSource, tab))
+      .filter((ctx): ctx is ViewerSurfaceContext => ctx.kind === 'viewer');
+  }
+
+  trackRetainedViewerSurface(_index: number, ctx: ViewerSurfaceContext): string {
+    return ctx.tab.id;
   }
 
   ngOnInit(): void  { 

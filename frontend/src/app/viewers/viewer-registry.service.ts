@@ -91,16 +91,9 @@ export class ViewerRegistryService {
       title: 'Document Viewer',
       score: (req) => {
         const ext = extLower(req.targetPath);
-        return ['doc', 'docx', 'docm', 'xls', 'xlsx', 'xlsm', 'ppt', 'pptx', 'pptm', 'odt', 'ods', 'odp', 'rtf', 'epub', 'djvu', 'djv'].includes(ext) ? 45 : 0;
+        return ['pdf', 'doc', 'docx', 'docm', 'xls', 'xlsx', 'xlsm', 'ppt', 'pptx', 'pptm', 'odt', 'ods', 'odp', 'rtf', 'epub', 'djvu', 'djv'].includes(ext) ? 45 : 0;
       },
       load: async () => (await import('./builtins/office-viewer.component')).OfficeViewerComponent,
-    });
-
-    this.register({
-      id: 'pdf',
-      title: 'PDF Viewer',
-      score: (req) => extLower(req.targetPath) === 'pdf' ? 50 : 0,
-      load: async () => (await import('./builtins/pdf-viewer.component')).PdfViewerComponent,
     });
 
     this.register({

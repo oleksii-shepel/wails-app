@@ -69,7 +69,7 @@ type OfficeViewerKind = 'empty' | 'loading' | 'pdf' | 'error' | 'unavailable' | 
           <div class="state-icon">⛔</div>
           <div class="state-label">Unsupported document format</div>
           <div class="error-detail" *ngIf="fileExt">.{{ fileExt }}</div>
-          <div class="state-sub">Supported formats: .doc, .docx, .xls, .xlsx, .ppt, .pptx, .odt, .ods, .odp, .rtf, .epub, .djvu, .djv</div>
+          <div class="state-sub">Supported formats: .pdf, .doc, .docx, .xls, .xlsx, .ppt, .pptx, .odt, .ods, .odp, .rtf, .epub, .djvu, .djv</div>
         </div>
 
         <div *ngIf="kind === 'unavailable'" class="state-container state-error">
@@ -269,6 +269,7 @@ export class OfficeViewerComponent implements OnChanges, OnDestroy {
 
   private loadDocument(): void {
     this.stopConversionTimer();
+    this.pdfPath = '';
     if (!this.targetPath) {
       this.kind = 'empty';
       this.conversionElapsedMs = 0;
@@ -280,6 +281,15 @@ export class OfficeViewerComponent implements OnChanges, OnDestroy {
     this.fileExt = this.displayName.split('.').pop()?.toLowerCase() || '';
     this.fileTypeLabel = this.getFileTypeLabel(this.fileExt);
 
+    if (this.fileExt === 'pdf') {
+      this.kind = 'pdf';
+      this.error = '';
+      this.conversionElapsedMs = 0;
+      this.pdfPath = this.targetPath;
+      this.cdr.markForCheck();
+      return;
+    }
+
     this.kind = 'loading';
     this.error = '';
     this.conversionElapsedMs = 0;
@@ -287,7 +297,7 @@ export class OfficeViewerComponent implements OnChanges, OnDestroy {
     this.cdr.markForCheck();
 
     // Check file extension first for quick validation
-    const supportedExts = ['doc', 'docx', 'docm', 'xls', 'xlsx', 'xlsm', 'ppt', 'pptx', 'pptm', 'odt', 'ods', 'odp', 'rtf', 'epub', 'djvu', 'djv'];
+    const supportedExts = ['pdf', 'doc', 'docx', 'docm', 'xls', 'xlsx', 'xlsm', 'ppt', 'pptx', 'pptm', 'odt', 'ods', 'odp', 'rtf', 'epub', 'djvu', 'djv'];
     if (!supportedExts.includes(this.fileExt)) {
       this.stopConversionTimer();
       this.kind = 'unsupported';

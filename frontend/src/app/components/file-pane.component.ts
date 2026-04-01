@@ -1,5 +1,5 @@
 ﻿// file-pane.component.ts
-import { Component, Input, Output, EventEmitter, OnInit, OnChanges, OnDestroy, ViewChild, SimpleChanges, NgZone, ChangeDetectorRef } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnInit, OnChanges, OnDestroy, ViewChild, ViewChildren, QueryList, SimpleChanges, NgZone, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { TabBarComponent, type TabDropEvent } from './tab-bar.component';
 import { FindWidgetState } from './filter-widget.component';
@@ -22,7 +22,7 @@ import { DirSurfaceSession } from '../surfaces/dir/dir-surface-session';
 import { DirSurfaceRuntime } from '../surfaces/dir/dir-surface-runtime';
 import { FilePaneDirSurfaceRuntime } from '../surfaces/dir/file-pane-dir-surface-runtime';
 import { DirTabStateController } from '../surfaces/dir/dir-tab-state-controller';
-import { DirSurfaceContext, SurfaceContext, ViewerSurfaceContext } from '../surfaces/surface-context';
+import { SurfaceContext } from '../surfaces/surface-context';
 import type { SizeManagerSurfaceVm } from '../surfaces/size-manager/size-manager-surface.vm';
 import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
 import { FilePaneArchiveController, type FilePaneArchiveHost } from './file-pane-archive.controller';
@@ -77,21 +77,14 @@ declare const window: any;
         (newTab)="onNewTab()">
       </app-tab-bar>
 
-      <ng-container *ngIf="surfaceCtx as ctx">
-        <app-surface-outlet
-          #surfaceOutlet
-          [ctx]="ctx"
-          (firstEntryArrived)="onSurfaceFirstEntry()">
-        </app-surface-outlet>
-      </ng-container>
-
-      <div class="retained-viewer-surfaces" aria-hidden="true">
-        <app-surface-outlet
-          *ngFor="let ctx of retainedViewerSurfaceCtxs; trackBy: trackRetainedViewerSurface"
-          class="retained-viewer-surface"
-          [ctx]="ctx">
-        </app-surface-outlet>
-      </div>
+      <app-surface-outlet
+        *ngFor="let item of allTabSurfaceCtxs; trackBy: trackTabSurface"
+        #surfaceOutlet
+        [ctx]="item.ctx"
+        [class.tab-surface--inactive]="!item.active"
+        [attr.aria-hidden]="!item.active ? true : null"
+        (firstEntryArrived)="item.active && onSurfaceFirstEntry()">
+      </app-surface-outlet>
     </div>
   `,
   styles: [`
@@ -132,19 +125,12 @@ declare const window: any;
       overflow: hidden;
     }
 
-    .retained-viewer-surfaces {
+    .tab-surface--inactive {
+      position: absolute;
       width: 0;
       height: 0;
       overflow: hidden;
       pointer-events: none;
-      position: absolute;
-    }
-
-    .retained-viewer-surface {
-      display: block;
-      width: 0;
-      height: 0;
-      overflow: hidden;
     }
   `]
 })
@@ -248,7 +234,10 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     await this.archiveController.extractSelected(this.archiveHost, flattenPaths, destDir);
   }
 
-  @ViewChild('surfaceOutlet') surfaceOutlet?: SurfaceOutletComponent;
+  @ViewChildren('surfaceOutlet') private surfaceOutletList?: QueryList<SurfaceOutletComponent>;
+  private get surfaceOutlet(): SurfaceOutletComponent | undefined {
+    return this.surfaceOutletList?.find((o) => o.ctx?.tab?.id === this.currentTabId);
+  }
 
   private get addressBar() { return this.surfaceOutlet?.addressBar; }
   private get fileViewContainer() { return this.surfaceOutlet?.fileViewContainer; }
@@ -702,19 +691,15 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     this.operationsController = new FilePaneOperationsController(this.operationService);
   }
 
-  get surfaceCtx(): SurfaceContext | null {
-    return this.surfaceContextFactory.createSurfaceContext(this.surfaceContextSource);
+  get allTabSurfaceCtxs(): Array<{ ctx: SurfaceContext; active: boolean }> {
+    return this.tabs.map((tab) => ({
+      ctx: this.surfaceContextFactory.getSurfaceContextForTab(this.surfaceContextSource, tab),
+      active: tab.id === this.currentTabId,
+    }));
   }
 
-  get retainedViewerSurfaceCtxs(): ViewerSurfaceContext[] {
-    return this.tabs
-      .filter((tab) => tab.id !== this.currentTabId && (tab.kind ?? 'dir') === 'viewer')
-      .map((tab) => this.surfaceContextFactory.getSurfaceContextForTab(this.surfaceContextSource, tab))
-      .filter((ctx): ctx is ViewerSurfaceContext => ctx.kind === 'viewer');
-  }
-
-  trackRetainedViewerSurface(_index: number, ctx: ViewerSurfaceContext): string {
-    return ctx.tab.id;
+  trackTabSurface(_index: number, item: { ctx: SurfaceContext; active: boolean }): string {
+    return item.ctx.tab.id;
   }
 
   ngOnInit(): void  { 

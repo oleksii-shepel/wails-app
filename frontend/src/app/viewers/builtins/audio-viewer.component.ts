@@ -11,7 +11,7 @@ import {
 } from '@angular/core';
 import { VscodeScrollbarDirective } from '../../directives/vscode-scrollbar.directive';
 import { ApiService } from '../../services/api.service';
-import { FileInfo, FileProbe, FileType } from '../../shared/protocol';
+import { AudioTags, FileInfo, FileProbe, FileType } from '../../shared/protocol';
 import type { ViewerFileListItem } from '../../shared/protocol-enhanced';
 import {
   VIEWER_BASE_STYLES,
@@ -23,9 +23,10 @@ import {
 
 type AudioViewerKind = 'empty' | 'loading' | 'ready' | 'directory' | 'unsupported' | 'error';
 
-interface AudioPlaylistItem {
-  path: string;
-  name: string;
+interface AudioTagRow {
+  key: keyof AudioTags;
+  label: string;
+  value: string;
 }
 
 @Component({
@@ -34,84 +35,90 @@ interface AudioPlaylistItem {
   imports: [CommonModule, VscodeScrollbarDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="av-root">
+    <div class="viewer-surface">
 
-      <!-- HEADER -->
-      <div class="av-header">
-        <svg class="av-hdr-icon" viewBox="0 0 16 16" fill="currentColor">
-          <circle cx="8" cy="8" r="3"/><path d="M11 5V2l3-1v3l-3 1z"/>
-        </svg>
-        <div class="av-hdr-main">
-          <div class="av-hdr-text">
-            <div class="av-hdr-title" [title]="displayName">{{ displayName || 'Audio' }}</div>
-            <div class="av-hdr-path" [title]="displayPath" *ngIf="displayPath">{{ displayPath }}</div>
+      <!-- ── HEADER ─────────────────────────────────────── -->
+      <div class="viewer-header">
+        <div class="header-main">
+          <div class="hdr-icon">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="8" cy="8" r="3"/>
+              <path d="M11 5V2l3-1v3l-3 1z"/>
+            </svg>
+          </div>
+          <div class="header-text">
+            <div class="title" [title]="displayName">{{ displayName || 'Audio Preview' }}</div>
+            <div class="path" [title]="displayPath">{{ displayPath || 'Select a file to preview' }}</div>
           </div>
         </div>
-        <div class="av-hdr-meta" *ngIf="kind === 'ready'">
-          <span class="av-badge av-badge-type">{{ typeBadge }}</span>
-          <span class="av-badge av-badge-size" *ngIf="info?.size">{{ formatBytes(info!.size) }}</span>
-          <span class="av-badge av-badge-duration" *ngIf="duration > 0">{{ formatTime(duration) }}</span>
+
+        <div class="header-meta" *ngIf="kind !== 'empty' && kind !== 'loading' && info">
+          <span class="badge type-badge">{{ typeBadge }}</span>
+          <span class="badge size-badge" *ngIf="info.size > 0">{{ formatBytes(info.size) }}</span>
+          <span class="badge mime-badge" *ngIf="mimeLabel">{{ mimeLabel }}</span>
+          <span class="badge dur-badge" *ngIf="duration > 0">{{ formatTime(duration) }}</span>
         </div>
       </div>
 
-      <!-- BODY -->
-      <div class="av-body" appVscodeScrollbar>
+      <!-- ── BODY ───────────────────────────────────────── -->
+      <div class="viewer-body" appVscodeScrollbar>
 
         <!-- loading -->
-        <div *ngIf="kind === 'loading'" class="av-state">
-          <div class="av-spinner"></div>
-          <span class="av-state-label">Loading audio...</span>
+        <div *ngIf="kind === 'loading'" class="state-container">
+          <div class="spinner"></div>
+          <div class="state-label">Loading audio preview...</div>
         </div>
 
         <!-- empty -->
-        <div *ngIf="kind === 'empty'" class="av-state">
-          <div class="av-state-icon">
+        <div *ngIf="kind === 'empty'" class="state-container">
+          <div class="state-icon-wrap">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="4"/><path d="M16 8V4l5-2v4l-5 2z"/>
             </svg>
           </div>
-          <span class="av-state-label">Select a file to preview</span>
+          <div class="state-label">Select a file to preview</div>
         </div>
 
         <!-- directory -->
-        <div *ngIf="kind === 'directory'" class="av-state">
-          <div class="av-state-icon av-state-icon--warn">
+        <div *ngIf="kind === 'directory'" class="state-container">
+          <div class="state-icon-wrap state-icon-folder">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
             </svg>
           </div>
-          <span class="av-state-label">Directory вЂ” no preview</span>
+          <div class="state-label">Directory — no preview available</div>
         </div>
 
         <!-- unsupported -->
-        <div *ngIf="kind === 'unsupported'" class="av-state">
-          <div class="av-state-icon av-state-icon--warn">
+        <div *ngIf="kind === 'unsupported'" class="state-container">
+          <div class="state-icon-wrap state-icon-warn">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
             </svg>
           </div>
-          <span class="av-state-label">No audio preview for this file type</span>
-          <code class="av-state-ext" *ngIf="fileExt">.{{ fileExt }}</code>
+          <div class="state-label">No audio preview for this file type</div>
+          <div class="state-sub" *ngIf="fileExt">.{{ fileExt }}</div>
         </div>
 
         <!-- error -->
-        <div *ngIf="kind === 'error'" class="av-state">
-          <div class="av-state-icon av-state-icon--error">
+        <div *ngIf="kind === 'error'" class="state-container state-error">
+          <div class="state-icon-wrap state-icon-error">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
               <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
             </svg>
           </div>
-          <span class="av-state-label av-state-label--error">Preview failed</span>
-          <code class="av-error-detail">{{ error }}</code>
+          <div class="state-label">Preview failed</div>
+          <div class="error-detail">{{ error }}</div>
         </div>
 
-        <!-- READY -->
-        <div *ngIf="kind === 'ready'" class="av-player">
+        <!-- ── READY STATE ──────────────────────────────── -->
+        <div *ngIf="kind === 'ready'" class="audio-player-shell">
 
+          <!-- hidden native audio element -->
           <audio
             #audioElement
-            class="av-audio-el"
+            class="native-audio"
             [src]="streamUrl || undefined"
             preload="metadata"
             crossorigin="anonymous"
@@ -125,221 +132,347 @@ interface AudioPlaylistItem {
             (error)="onAudioError()">
           </audio>
 
-          <!-- Mini Spectrum -->
-          <div class="av-spectrum-min" [class.av-spectrum-min--live]="isPlaying">
-            <span
-              *ngFor="let bar of spectrumBars; let i = index; trackBy: trackByIndex"
-              class="av-bar-min"
-              [style.height.%]="bar"
-              [style.animation-delay.ms]="i * -80"></span>
-          </div>
+          <!-- ── ART STAGE ──────────────────────────────── -->
+          <section class="art-stage">
 
-          <!-- Progress -->
-          <div class="av-progress-min">
-            <div class="av-rail">
-              <div class="av-rail-fill" [style.width.%]="progressPercent"></div>
-              <input
-                type="range"
-                class="av-seek"
-                min="0"
-                [max]="duration || 0"
-                step="any"
-                [value]="displayedCurrentTime"
+            <!-- left: disc panel -->
+            <div class="disc-panel">
+              <div class="disc-wrap" [class.playing]="isPlaying" [class.has-cover]="!!coverArtDataUrl">
+                <ng-container *ngIf="coverArtDataUrl; else discFallback">
+                  <div class="cover-art-frame">
+                    <img class="cover-art-image" [src]="coverArtDataUrl" [alt]="displayTitle">
+                  </div>
+                </ng-container>
+                <ng-template #discFallback>
+                  <div class="disc" [class.spinning]="isPlaying">
+                    <div class="disc-label"></div>
+                  </div>
+                  <div class="needle"></div>
+                </ng-template>
+              </div>
+
+              <div class="disc-copy">
+                <div class="dc-eyebrow">Audio preview</div>
+                <div class="dc-title" [title]="displayTitle">{{ displayTitle }}</div>
+                <div class="dc-meta" *ngIf="displaySubtitle" [title]="displaySubtitle">{{ displaySubtitle }}</div>
+                <div class="dc-status">{{ playbackLabel }}</div>
+              </div>
+            </div>
+
+            <!-- right: signal panel -->
+            <div class="signal-panel">
+              <div class="sig-header">
+                <span class="sig-label">Spectrum</span>
+                <span class="sig-sub">Direct stream · {{ typeBadge }}</span>
+              </div>
+
+              <div class="spectrum" [class.live]="isPlaying">
+                <span
+                  *ngFor="let bar of spectrumBars; let i = index; trackBy: trackByIndex"
+                  class="s-bar"
+                  [style.height.%]="bar"
+                  [style.animation-delay.ms]="i * -120">
+                </span>
+              </div>
+
+              <div class="freq-labels">
+                <span>20Hz</span><span>200Hz</span><span>2kHz</span><span>10kHz</span><span>20kHz</span>
+              </div>
+
+              <div class="sig-header vu-header">
+                <span class="sig-label">Level</span>
+              </div>
+              <div class="vu-strip">
+                <span class="vu-channel">L</span>
+                <div class="vu-track">
+                  <div class="vu-fill" [class.vu-hot]="vuLeft > 80" [style.width.%]="vuLeft"></div>
+                  <div class="vu-peak" [style.right.%]="100 - vuPeakLeft"></div>
+                </div>
+              </div>
+              <div class="vu-strip">
+                <span class="vu-channel">R</span>
+                <div class="vu-track">
+                  <div class="vu-fill" [class.vu-hot]="vuRight > 80" [style.width.%]="vuRight"></div>
+                  <div class="vu-peak" [style.right.%]="100 - vuPeakRight"></div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- ── TRANSPORT CONTROLS ─────────────────────── -->
+          <div class="ctrl-bar">
+
+            <!-- progress row -->
+            <div class="progress-row">
+              <span class="time-edge">{{ formatTime(displayedCurrentTime) }}</span>
+              <div class="prog-track">
+                <div class="prog-fill" [style.width.%]="progressPercent"></div>
+                <input
+                  type="range"
+                  class="seek-input"
+                  min="0"
+                  [max]="duration || 0"
+                  step="any"
+                  [value]="displayedCurrentTime"
+                  [disabled]="!audioReady"
+                  (mousedown)="onSeekStart()"
+                  (touchstart)="onSeekStart()"
+                  (input)="onSeekInput($event)"
+                  (change)="onSeekCommit($event)">
+              </div>
+              <span class="time-edge time-edge--right">{{ formatTime(duration) }}</span>
+            </div>
+
+            <!-- buttons row -->
+            <div class="controls-row">
+              <button
+                class="cbtn cbtn-play"
+                type="button"
                 [disabled]="!audioReady"
-                (mousedown)="onSeekStart()"
-                (touchstart)="onSeekStart()"
-                (input)="onSeekInput($event)"
-                (change)="onSeekCommit($event)">
-            </div>
-            <div class="av-time-min">
-              <span class="av-time-cur">{{ formatTime(displayedCurrentTime) }}</span>
-              <span class="av-time-sep">/</span>
-              <span>{{ formatTime(duration) }}</span>
-            </div>
-          </div>
+                (click)="togglePlayPause()">
+                <span class="cbtn-icon">{{ isPlaying ? '⏸' : '▶' }}</span>
+              </button>
 
-          <!-- Controls -->
-          <div class="av-controls-min">
-            <button
-              class="av-btn av-btn-prev"
-              type="button"
-              [disabled]="!hasPrevious"
-              [title]="'Previous track'"
-              (click)="showPrevious()">
-              <svg viewBox="0 0 24 24" fill="currentColor">
-                <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/>
-              </svg>
-            </button>
+              <button class="cbtn cbtn-skip" type="button" [disabled]="!audioReady" (click)="seekRelative(-10)">-10s</button>
+              <button class="cbtn cbtn-skip" type="button" [disabled]="!audioReady" (click)="seekRelative(10)">+10s</button>
 
-            <button
-              class="av-btn-play-min"
-              type="button"
-              [disabled]="!audioReady"
-              [title]="isPlaying ? 'Pause' : 'Play'"
-              (click)="togglePlayPause()">
-              <svg *ngIf="!isPlaying" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M8 6.5v11l9-5.5-9-5.5z"/>
-              </svg>
-              <svg *ngIf="isPlaying" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M8 6h3.5v12H8zM12.5 6H16v12h-3.5z"/>
-              </svg>
-            </button>
+              <div class="time-display">
+                <b class="time-cur">{{ formatTime(displayedCurrentTime) }}</b>
+                <span class="time-sep">/</span>
+                <span class="time-dur">{{ formatTime(duration) }}</span>
+              </div>
 
-            <button
-              class="av-btn av-btn-next"
-              type="button"
-              [disabled]="!hasNext"
-              [title]="'Next track'"
-              (click)="showNext()">
-              <svg viewBox="0 0 24 24" fill="currentColor">
-                <path d="M16 6h2v12h-2zM6 6v12l8.5-6z"/>
-              </svg>
-            </button>
+              <div class="spacer"></div>
 
-            <div class="av-vol-min">
-              <span class="av-vol-icon" [title]="'Volume: ' + volume + '%'">{{ volume === 0 ? '🔇' : '🔊' }}</span>
-              <input
-                type="range"
-                class="av-vol-slider-min"
-                min="0"
-                max="100"
-                [value]="volume"
-                [disabled]="!audioReady"
-                [title]="'Volume: ' + volume + '%'"
-                (input)="onVolumeChange($event)">
+              <!-- volume -->
+              <div class="vol-wrap">
+                <button
+                  class="cbtn cbtn-vol-icon"
+                  type="button"
+                  (click)="toggleMute()"
+                  [attr.aria-label]="volume <= 0 ? 'Unmute' : 'Mute'">
+                  <svg *ngIf="volume <= 0" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M9 5v6l-4-3H3V8h2L9 5z"/><line x1="12" y1="5" x2="15" y2="8"/><line x1="15" y1="5" x2="12" y2="8"/>
+                  </svg>
+                  <svg *ngIf="volume > 0 && volume < 50" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M9 5v6l-4-3H3V8h2L9 5z"/><path d="M11.5 6.5a2.5 2.5 0 0 1 0 3"/>
+                  </svg>
+                  <svg *ngIf="volume >= 50" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M9 5v6l-4-3H3V8h2L9 5z"/><path d="M11.5 6.5a2.5 2.5 0 0 1 0 3"/><path d="M13.5 4.5a5 5 0 0 1 0 7"/>
+                  </svg>
+                </button>
+                <input
+                  type="range"
+                  class="vol-slider"
+                  min="0"
+                  max="100"
+                  [value]="volume"
+                  [disabled]="!audioReady"
+                  (input)="onVolumeChange($event)">
+              </div>
             </div>
           </div>
 
-          <!-- Compact Playlist -->
-          <div class="av-pl-min" *ngIf="hasPlaylist">
-            <div class="av-pl-item-min" *ngFor="let item of playlistItems; let idx = index; trackBy: trackPlaylistItem"
-              [class.active]="idx === currentPlaylistIndex"
-              (click)="selectPlaylistIndex(idx)">
-              {{ idx + 1 }}. {{ item.name }}
+          <section class="av-tags" *ngIf="audioTagRows.length > 0">
+            <div class="av-tags-title">Audio tags</div>
+            <div class="av-tags-grid">
+              <div class="av-tag-row" *ngFor="let tag of audioTagRows; trackBy: trackTagRow">
+                <span class="av-tag-key">{{ tag.label }}</span>
+                <span class="av-tag-value" [title]="tag.value">{{ tag.value }}</span>
+              </div>
             </div>
-          </div>
+          </section>
 
-        </div><!-- /av-player -->
-      </div><!-- /av-body -->
-    </div><!-- /av-root -->
+        </div><!-- /audio-player-shell -->
+      </div><!-- /viewer-body -->
+    </div><!-- /viewer-surface -->
   `,
   styles: [VIEWER_BASE_STYLES, `
-    :host {
+    /* ── SURFACE ───────────────────────────────────────── */
+    .viewer-surface {
+      --av-surface: var(--vsc-editor-background, #1e1e1e);
+      --av-surface-alt: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 92%, black);
+      --av-surface-muted: var(--vsc-editor-background, #1e1e1e);
+      --av-border: color-mix(in srgb, var(--vsc-border, #454545) 70%, transparent);
+      --av-text: var(--vsc-foreground, #cccccc);
+      --av-text-muted: color-mix(in srgb, var(--vsc-foreground, #cccccc) 58%, transparent);
+      --av-text-dim: color-mix(in srgb, var(--vsc-foreground, #cccccc) 36%, transparent);
+      --av-accent: var(--vsc-button-background, #0e639c);
+      --av-accent-foreground: var(--vsc-button-foreground, #ffffff);
+      --av-focus: var(--vsc-focusBorder, #007fd4);
+      --av-shadow: var(--vsc-widget-shadow, 0 5px 8px 0 rgba(0, 0, 0, 0.36));
+      --av-button: var(--vsc-button-secondary, #3a3d41);
+      --av-button-hover: var(--vsc-button-secondary-hover, #45494e);
+      --av-list-hover: var(--vsc-list-hover-background, #2a2d2e);
+      --av-list-active: var(--vsc-list-active-background, #094771);
+      --av-list-active-foreground: var(--vsc-list-active-foreground, #ffffff);
       display: flex;
       flex-direction: column;
       flex: 1 1 0%;
       min-height: 0;
-      min-width: 0;
       overflow: hidden;
+      background: var(--av-surface);
+      color: var(--av-text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     }
 
-    .av-root {
-      display: flex;
-      flex-direction: column;
-      flex: 1 1 0%;
-      min-height: 0;
-      overflow: hidden;
-      background: var(--vsc-editor-background, #1e1e1e);
-      color: var(--vsc-foreground, #cccccc);
+    :host-context(.vscode-light) .viewer-surface {
+      --av-surface: var(--vsc-editor-background, #ffffff);
+      --av-surface-alt: color-mix(in srgb, var(--vsc-editor-background, #ffffff) 94%, var(--vsc-panel-background, #f3f3f3));
+      --av-surface-muted: var(--vsc-editor-background, #ffffff);
+      --av-border: color-mix(in srgb, var(--vsc-border, #c4c4c4) 88%, transparent);
+      --av-text: var(--vsc-foreground, #3b3b3b);
+      --av-text-muted: color-mix(in srgb, var(--vsc-foreground, #3b3b3b) 78%, white);
+      --av-text-dim: color-mix(in srgb, var(--vsc-foreground, #3b3b3b) 64%, white);
+      --av-button: color-mix(in srgb, var(--vsc-input-background, #ffffff) 86%, var(--vsc-panel-background, #f3f3f3));
+      --av-button-hover: var(--vsc-list-hover-background, #e4e6f1);
+      --av-list-hover: var(--vsc-list-hover-background, #e4e6f1);
+      --av-list-active: color-mix(in srgb, var(--vsc-list-active-background, #cce0f5) 84%, white);
+      --av-list-active-foreground: var(--vsc-list-active-foreground, #1a1a1a);
     }
 
-    .av-header {
+    /* ── HEADER ────────────────────────────────────────── */
+    .viewer-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 12px;
-      padding: 10px 12px;
-      border-bottom: 1px solid var(--vsc-border, #454545);
-      background: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 92%, black);
-      flex-shrink: 0;
-      min-width: 0;
-    }
-
-    .av-hdr-icon {
-      width: 16px;
-      height: 16px;
-      flex-shrink: 0;
-      color: var(--vsc-entry-audio, #00ff00);
-    }
-
-    .av-hdr-main {
-      flex: 1;
-      min-width: 0;
-      display: flex;
-      align-items: center;
       gap: 8px;
-    }
-
-    .av-hdr-text {
-      flex: 1;
+      padding: 9px 14px;
+      border-bottom: 1px solid var(--av-border);
+      background: color-mix(in srgb, var(--av-surface) 92%, black);
+      flex-shrink: 0;
       min-width: 0;
     }
 
-    .av-hdr-title {
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--vsc-foreground, #cccccc);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      letter-spacing: 0.3px;
+    :host-context(.vscode-light) .viewer-header {
+      background: color-mix(in srgb, var(--av-surface) 99%, var(--vsc-panel-background, #f3f3f3));
     }
 
-    .av-hdr-path {
-      font-size: 10px;
-      color: color-mix(in srgb, var(--vsc-foreground, #ccc) 55%, transparent);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      margin-top: 2px;
+    :host-context(.vscode-light) .hdr-icon {
+      background: color-mix(in srgb, var(--av-accent) 9%, white);
+      border-color: color-mix(in srgb, var(--av-accent) 22%, var(--av-border));
     }
 
-    .av-hdr-meta {
+    .header-main {
       display: flex;
-      gap: 6px;
-      flex-shrink: 0;
       align-items: center;
+      gap: 10px;
+      min-width: 0;
+      flex: 1;
     }
 
-    .av-badge {
-      padding: 3px 8px;
-      font-size: 9px;
-      font-weight: 500;
-      border-radius: 4px;
-      border: 1px solid transparent;
+    .hdr-icon {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      background: color-mix(in srgb, var(--av-accent) 16%, transparent);
+      border: 1px solid color-mix(in srgb, var(--av-accent) 32%, transparent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      color: color-mix(in srgb, var(--av-accent) 78%, var(--av-text));
+    }
+
+    .hdr-icon svg {
+      width: 14px;
+      height: 14px;
+    }
+
+    .header-text {
+      min-width: 0;
+      flex: 1;
+    }
+
+    .title {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      color: var(--av-text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .path {
+      font-family: ui-monospace, 'Cascadia Code', 'Fira Code', monospace;
+      font-size: 11px;
+      color: var(--av-text-dim);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-top: 1px;
+    }
+
+    :host-context(.vscode-light) .path {
+      color: var(--av-text-dim);
+    }
+
+    .header-meta {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      flex-shrink: 0;
+    }
+
+    .badge {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 3px;
       white-space: nowrap;
       letter-spacing: 0.3px;
-      text-transform: uppercase;
     }
 
-    .av-badge-type {
-      background: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 18%, transparent);
-      border-color: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 32%, transparent);
-      color: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 90%, var(--vsc-foreground, #ccc));
+    .type-badge {
+      background: color-mix(in srgb, var(--av-accent) 16%, transparent);
+      color: var(--vsc-accent-blue, #4da8ff);
+      border: 1px solid color-mix(in srgb, var(--av-accent) 40%, transparent);
     }
 
-    .av-badge-size {
-      background: color-mix(in srgb, var(--vsc-foreground, #ccc) 10%, transparent);
-      border-color: color-mix(in srgb, var(--vsc-foreground, #ccc) 24%, transparent);
-      color: color-mix(in srgb, var(--vsc-foreground, #ccc) 65%, transparent);
+    .size-badge {
+      background: color-mix(in srgb, var(--av-text) 7%, transparent);
+      color: color-mix(in srgb, var(--av-text) 60%, transparent);
+      border: 1px solid color-mix(in srgb, var(--vsc-border, #454545) 50%, transparent);
     }
 
-    .av-badge-duration {
-      background: color-mix(in srgb, var(--vsc-foreground, #ccc) 10%, transparent);
-      border-color: color-mix(in srgb, var(--vsc-foreground, #ccc) 24%, transparent);
-      color: color-mix(in srgb, var(--vsc-foreground, #ccc) 65%, transparent);
+    :host-context(.vscode-light) .size-badge,
+    :host-context(.vscode-light) .mime-badge {
+      background: color-mix(in srgb, var(--av-text) 6%, white);
+      color: var(--av-text);
+      border-color: color-mix(in srgb, var(--vsc-border, #c4c4c4) 78%, transparent);
     }
 
-    .av-body {
+    :host-context(.vscode-light) .dur-badge {
+      color: color-mix(in srgb, var(--av-focus) 72%, #113355);
+    }
+
+    :host-context(.vscode-light) .type-badge {
+      color: color-mix(in srgb, var(--av-accent) 78%, #12314a);
+    }
+
+    .mime-badge {
+      background: color-mix(in srgb, var(--av-text) 7%, transparent);
+      color: color-mix(in srgb, var(--av-text) 60%, transparent);
+      border: 1px solid color-mix(in srgb, var(--vsc-border, #454545) 50%, transparent);
+    }
+
+    .dur-badge {
+      background: color-mix(in srgb, var(--av-focus) 12%, transparent);
+      color: color-mix(in srgb, var(--av-focus) 64%, white);
+      border: 1px solid color-mix(in srgb, var(--av-focus) 26%, transparent);
+    }
+
+    /* ── BODY ──────────────────────────────────────────── */
+    .viewer-body {
       flex: 1 1 0%;
       min-height: 0;
       overflow: auto;
-      display: flex;
-      flex-direction: column;
       position: relative;
     }
 
-    .av-state {
+    /* ── STATE CONTAINERS ──────────────────────────────── */
+    .state-container {
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -351,53 +484,119 @@ interface AudioPlaylistItem {
       text-align: center;
     }
 
-    .av-state-icon {
+    .state-icon-wrap {
       width: 48px;
       height: 48px;
       border-radius: 50%;
-      border: 1px solid var(--vsc-border, #454545);
-      background: color-mix(in srgb, var(--vsc-foreground, #ccc) 8%, transparent);
+      background: color-mix(in srgb, var(--av-text) 10%, transparent);
+      border: 1px solid var(--av-border);
       display: flex;
       align-items: center;
       justify-content: center;
-      color: color-mix(in srgb, var(--vsc-foreground, #ccc) 60%, transparent);
+      color: var(--av-text-dim);
     }
 
-    .av-state-icon svg { width: 22px; height: 22px; }
-
-    .av-state-icon--warn {
-      background: color-mix(in srgb, var(--vsc-editorWarning-foreground, #b89500) 14%, transparent);
-      border-color: color-mix(in srgb, var(--vsc-editorWarning-foreground, #b89500) 34%, transparent);
-      color: var(--vsc-editorWarning-foreground, #8a6d00);
+    .state-icon-wrap svg {
+      width: 22px;
+      height: 22px;
     }
 
-    .av-state-icon--error {
-      background: color-mix(in srgb, var(--vsc-editorError-foreground, #f48771) 14%, transparent);
-      border-color: color-mix(in srgb, var(--vsc-editorError-foreground, #f48771) 34%, transparent);
-      color: var(--vsc-editorError-foreground, #f48771);
+    .state-icon-folder {
+      background: color-mix(in srgb, var(--vsc-accent-yellow, #d7ba7d) 14%, transparent);
+      border-color: color-mix(in srgb, var(--vsc-accent-yellow, #d7ba7d) 28%, transparent);
+      color: var(--vsc-accent-yellow, #d7ba7d);
     }
 
-    .av-state-label {
+    .state-icon-warn {
+      background: color-mix(in srgb, var(--vsc-warning, #cca700) 14%, transparent);
+      border-color: color-mix(in srgb, var(--vsc-warning, #cca700) 28%, transparent);
+      color: var(--vsc-warning, #cca700);
+    }
+
+    .state-icon-error {
+      background: color-mix(in srgb, var(--vsc-error, #f48771) 14%, transparent);
+      border-color: color-mix(in srgb, var(--vsc-error, #f48771) 28%, transparent);
+      color: var(--vsc-error, #f48771);
+    }
+
+    .state-label {
       font-size: 13px;
-      color: color-mix(in srgb, var(--vsc-foreground, #ccc) 65%, transparent);
+      opacity: 0.65;
+      color: inherit;
     }
 
-    .av-state-label--error {
-      color: var(--vsc-editorError-foreground, #f48771);
+    .av-tags {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 12px;
+      border: 1px solid color-mix(in srgb, var(--vsc-border, #454545) 55%, transparent);
+      border-radius: 8px;
+      background: color-mix(in srgb, var(--vsc-editorWidget-background, #252526) 92%, black);
     }
 
-    .av-state-ext {
-      font-family: var(--vsc-font-family-mono, 'Courier New', monospace);
+    .av-tags-title {
       font-size: 11px;
-      color: color-mix(in srgb, var(--vsc-foreground, #ccc) 55%, transparent);
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: color-mix(in srgb, var(--vsc-foreground, #ccc) 68%, transparent);
     }
 
-    .av-error-detail {
-      font-family: var(--vsc-font-family-mono, 'Courier New', monospace);
+    .av-tags-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 8px;
+    }
+
+    .av-tag-row {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 0;
+      padding: 8px 10px;
+      border-radius: 6px;
+      background: color-mix(in srgb, var(--vsc-foreground, #ccc) 6%, transparent);
+      border: 1px solid color-mix(in srgb, var(--vsc-border, #454545) 38%, transparent);
+    }
+
+    .av-tag-key {
+      font-size: 10px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: color-mix(in srgb, var(--vsc-foreground, #ccc) 56%, transparent);
+    }
+
+    .av-tag-value {
+      font-size: 12px;
+      color: var(--vsc-foreground, #cccccc);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    :host-context(.vscode-light) .state-label {
+      opacity: 1;
+      color: var(--av-text-muted);
+    }
+
+    .state-sub {
       font-size: 11px;
-      color: color-mix(in srgb, var(--vsc-editorError-foreground, #f48771) 80%, var(--vsc-foreground, #ccc));
-      background: color-mix(in srgb, var(--vsc-editorError-foreground, #f48771) 8%, transparent);
-      border: 1px solid color-mix(in srgb, var(--vsc-editorError-foreground, #f48771) 20%, transparent);
+      color: var(--av-text-dim);
+      font-family: ui-monospace, monospace;
+    }
+
+    .state-error .state-label {
+      color: #ff7070;
+      opacity: 1;
+    }
+
+    .error-detail {
+      font-size: 11px;
+      font-family: var(--vsc-font-family-mono, ui-monospace, monospace);
+      color: color-mix(in srgb, #ff7070 70%, var(--vsc-foreground, #ccc));
+      background: rgba(255, 0, 0, 0.07);
+      border: 1px solid rgba(255, 112, 112, 0.2);
       border-radius: 4px;
       padding: 8px 12px;
       max-width: 480px;
@@ -405,104 +604,411 @@ interface AudioPlaylistItem {
       word-break: break-word;
     }
 
-    .av-spinner {
-      width: 24px;
-      height: 24px;
-      border: 2px solid color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 25%, transparent);
-      border-top-color: var(--vsc-accent-blue, #0078d4);
+    .spinner {
+      width: 26px;
+      height: 26px;
+      border: 2px solid color-mix(in srgb, var(--av-accent) 24%, transparent);
+      border-top-color: var(--av-accent);
       border-radius: 50%;
-      animation: av-spin 0.7s linear infinite;
+      animation: spin-basic 0.65s linear infinite;
     }
 
-    @keyframes av-spin {
+    @keyframes spin-basic {
       to { transform: rotate(360deg); }
     }
 
-    .av-audio-el { display: none; }
+    /* ── PLAYER SHELL ──────────────────────────────────── */
+    .native-audio {
+      display: none;
+    }
 
-    .av-player {
+    .audio-player-shell {
       display: flex;
       flex-direction: column;
-      gap: 16px;
-      padding: 16px;
-      flex: 1 1 0%;
-      overflow-y: auto;
-      max-width: 860px;
-      margin: 0 auto;
+      min-height: 100%;
+      background: var(--av-surface);
+    }
+
+    /* ── ART STAGE ─────────────────────────────────────── */
+    .art-stage {
+      display: grid;
+      grid-template-columns: minmax(210px, 270px) 1fr;
+      flex: 1 1 auto;
+      min-height: 0;
+    }
+
+    /* ── DISC PANEL ────────────────────────────────────── */
+    .disc-panel {
+      background: linear-gradient(160deg, var(--av-surface-alt) 0%, var(--av-surface-muted) 100%);
+      border-right: 1px solid var(--av-border);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 18px;
+      padding: 24px 20px;
+      min-height: 230px;
+    }
+
+    .disc-wrap {
+      position: relative;
+      width: 148px;
+      height: 148px;
+      flex-shrink: 0;
+    }
+
+    .cover-art-frame {
+      width: 148px;
+      height: 148px;
+      border-radius: 18px;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow:
+        inset 0 0 0 1px rgba(255, 255, 255, 0.04),
+        0 12px 32px rgba(0, 0, 0, 0.45);
+      background: color-mix(in srgb, var(--av-surface-alt) 84%, black);
+    }
+
+    .cover-art-image {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .disc {
+      width: 148px;
+      height: 148px;
+      border-radius: 50%;
+      background: conic-gradient(
+        #1a1a22 0deg, #222230 30deg, #1a1a22 60deg, #222230 90deg,
+        #1a1a22 120deg, #222230 150deg, #1a1a22 180deg, #222230 210deg,
+        #1a1a22 240deg, #222230 270deg, #1a1a22 300deg, #222230 330deg, #1a1a22 360deg
+      );
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      position: relative;
+      box-shadow:
+        inset 0 0 0 1px rgba(255, 255, 255, 0.04),
+        0 12px 32px rgba(0, 0, 0, 0.6);
+    }
+
+    :host-context(.vscode-light) .disc-panel {
+      background: linear-gradient(160deg, color-mix(in srgb, var(--av-surface-alt) 92%, white) 0%, var(--av-surface-muted) 100%);
+    }
+
+    .disc.spinning {
+      animation: spin-disc 6s linear infinite;
+    }
+
+    @keyframes spin-disc {
+      to { transform: rotate(360deg); }
+    }
+
+    /* grooves */
+    .disc::before {
+      content: '';
+      position: absolute;
+      inset: 14px;
+      border-radius: 50%;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      box-shadow:
+        0 0 0 12px rgba(0, 0, 0, 0.15),
+        0 0 0 24px rgba(255, 255, 255, 0.025),
+        0 0 0 38px rgba(0, 0, 0, 0.1);
+    }
+
+    /* label center */
+    .disc-label {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, color-mix(in srgb, var(--av-accent) 82%, white), var(--av-accent));
+      border: 2px solid color-mix(in srgb, var(--av-accent-foreground) 18%, transparent);
+      box-shadow:
+        0 0 18px color-mix(in srgb, var(--av-accent) 40%, transparent),
+        0 0 0 3px color-mix(in srgb, var(--av-accent) 12%, transparent);
+      z-index: 2;
+    }
+
+    .disc-label::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.9);
+    }
+
+    /* needle */
+    .needle {
+      position: absolute;
+      top: -6px;
+      right: -18px;
+      width: 54px;
+      height: 2px;
+      background: linear-gradient(90deg, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.2));
+      border-radius: 1px;
+      transform-origin: right center;
+      transform: rotate(-34deg);
+      transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+      z-index: 5;
+    }
+
+    .needle::before {
+      content: '';
+      position: absolute;
+      right: -1px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.75);
+      box-shadow: 0 0 6px rgba(255, 255, 255, 0.3);
+    }
+
+    .disc-wrap.playing .needle {
+      transform: rotate(-22deg);
+    }
+
+    .disc-copy {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      text-align: center;
       width: 100%;
     }
 
-    /* Spectrum Visualization */
-    .av-spectrum-min {
-      display: flex;
-      align-items: flex-end;
-      gap: 2px;
-      height: 48px;
-      padding: 0 4px;
-      background: color-mix(in srgb, black 94%, var(--vsc-editor-background, #1e1e1e));
-      border: 1px solid color-mix(in srgb, var(--vsc-border, #454545) 55%, transparent);
-      border-radius: 6px;
+    .dc-meta {
+      font-size: 11px;
+      color: var(--av-text-muted);
+      line-height: 1.35;
+      word-break: break-word;
+    }
+
+    .dc-eyebrow {
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: color-mix(in srgb, var(--av-accent) 82%, var(--av-text));
+    }
+
+    .dc-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--av-text);
+      line-height: 1.3;
+      word-break: break-word;
       overflow: hidden;
+      text-overflow: ellipsis;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
     }
 
-    .av-bar-min {
-      flex: 1;
-      min-width: 3px;
-      border-radius: 1px 1px 0 0;
-      background: linear-gradient(to top, var(--vsc-entry-audio, #00ff00), color-mix(in srgb, var(--vsc-entry-audio, #00ff00) 56%, transparent));
-      opacity: 0.5;
-      transform-origin: bottom;
-      animation: av-bar-idle-min 1.8s ease-in-out infinite;
-      animation-play-state: paused;
+    .dc-status {
+      font-size: 11px;
+      color: var(--av-text-dim);
+      margin-top: 2px;
     }
 
-    .av-spectrum-min--live .av-bar-min {
-      animation-name: av-bar-live-min;
-      animation-play-state: running;
-      opacity: 0.9;
-    }
-
-    @keyframes av-bar-idle-min {
-      0%, 100% { transform: scaleY(0.2); }
-      50% { transform: scaleY(0.35); }
-    }
-
-    @keyframes av-bar-live-min {
-      0%, 100% { transform: scaleY(0.3); }
-      40% { transform: scaleY(1); }
-      70% { transform: scaleY(0.55); }
-    }
-
-    /* Progress & Time */
-    .av-progress-min {
+    /* ── SIGNAL PANEL ──────────────────────────────────── */
+    .signal-panel {
       display: flex;
       flex-direction: column;
+      background: var(--av-surface);
+      padding: 16px 18px 14px;
+      gap: 10px;
+    }
+
+    .sig-header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
       gap: 8px;
     }
 
-    .av-rail {
+    .vu-header {
+      margin-top: 4px;
+    }
+
+    .sig-label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--av-text-muted);
+    }
+
+    .sig-sub {
+      font-size: 10px;
+      color: var(--av-text-dim);
+      letter-spacing: 0.04em;
+    }
+
+    /* spectrum */
+    .spectrum {
+      display: flex;
+      align-items: flex-end;
+      gap: 3px;
+      height: 80px;
+      flex: 1;
+      padding-bottom: 4px;
+    }
+
+    .s-bar {
+      flex: 1;
+      min-width: 5px;
+      border-radius: 3px 3px 2px 2px;
+      background: linear-gradient(180deg, color-mix(in srgb, var(--av-accent) 82%, white) 0%, color-mix(in srgb, var(--av-accent) 30%, transparent) 100%);
+      transform-origin: bottom;
+      animation: s-idle 1.6s ease-in-out infinite;
+      animation-play-state: paused;
+    }
+
+    .spectrum.live .s-bar {
+      animation-name: s-live;
+      animation-play-state: running;
+    }
+
+    @keyframes s-idle {
+      0%, 100% { transform: scaleY(0.28); }
+      50% { transform: scaleY(0.42); }
+    }
+
+    @keyframes s-live {
+      0%, 100% { transform: scaleY(0.32); }
+      35% { transform: scaleY(1); }
+      70% { transform: scaleY(0.55); }
+    }
+
+    .freq-labels {
+      display: flex;
+      justify-content: space-between;
+      padding: 0 2px;
+    }
+
+    .freq-labels span {
+      font-size: 9px;
+      color: var(--av-text-dim);
+      font-family: ui-monospace, monospace;
+      letter-spacing: 0.02em;
+    }
+
+    /* VU meters */
+    .vu-strip {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .vu-channel {
+      font-size: 9px;
+      font-weight: 700;
+      color: var(--av-text-dim);
+      letter-spacing: 0.1em;
+      min-width: 10px;
+      font-family: ui-monospace, monospace;
+    }
+
+    .vu-track {
+      flex: 1;
+      height: 6px;
+      background: color-mix(in srgb, var(--av-text) 10%, transparent);
+      border-radius: 3px;
+      overflow: visible;
       position: relative;
-      height: 5px;
-      border-radius: 999px;
-      background: color-mix(in srgb, var(--vsc-border, #454545) 90%, transparent);
+    }
+
+    .vu-fill {
+      height: 100%;
+      border-radius: 3px;
+      width: 0%;
+      transition: width 0.08s linear;
+      background: linear-gradient(90deg, var(--av-accent) 0%, color-mix(in srgb, var(--av-accent) 72%, white) 100%);
+    }
+
+    .vu-fill.vu-hot {
+      background: linear-gradient(90deg, var(--av-accent) 0%, var(--vsc-editorWarning-foreground, #b89500) 100%);
+    }
+
+    .vu-peak {
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 2px;
+      height: 100%;
+      background: color-mix(in srgb, var(--av-text) 58%, transparent);
+      border-radius: 1px;
+      transition: right 0.05s linear;
+    }
+
+    /* ── CONTROLS ──────────────────────────────────────── */
+    .ctrl-bar {
+      padding: 11px 14px 13px;
+      background: var(--av-surface-alt);
+      border-top: 1px solid var(--av-border);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+
+    /* progress */
+    .progress-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 24px;
+    }
+
+    .time-edge {
+      font-size: 10px;
+      color: var(--av-text-muted);
+      font-family: ui-monospace, monospace;
+      white-space: nowrap;
+      min-width: 34px;
+    }
+
+    .time-edge--right {
+      text-align: right;
+    }
+
+    .prog-track {
+      flex: 1;
+      position: relative;
+      height: 4px;
+      background: color-mix(in srgb, var(--av-text) 20%, transparent);
+      border-radius: 2px;
+      cursor: pointer;
       overflow: hidden;
     }
 
-    .av-rail-fill {
+    .prog-fill {
       position: absolute;
-      inset: 0 auto 0 0;
+      left: 0;
+      top: 0;
       height: 100%;
-      background: linear-gradient(90deg, var(--vsc-entry-audio, #00ff00), color-mix(in srgb, var(--vsc-entry-audio, #00ff00) 70%, transparent));
-      border-radius: inherit;
-      transition: width 70ms linear;
+      background: linear-gradient(90deg, var(--vsc-accent-blue, #0078d4), #00a4ef);
+      border-radius: 2px;
+      transition: width 0.05s linear;
       pointer-events: none;
     }
 
-    .av-seek {
+    .seek-input {
       position: absolute;
-      inset: -8px 0;
       width: 100%;
-      margin: 0;
+      height: 24px;
+      width: 100%;
+      margin: -10px 0;
       appearance: none;
       -webkit-appearance: none;
       background: transparent;
@@ -511,245 +1017,303 @@ interface AudioPlaylistItem {
       z-index: 2;
     }
 
-    .av-seek::-webkit-slider-thumb {
+    .seek-input::-webkit-slider-thumb {
       appearance: none;
       -webkit-appearance: none;
       width: 12px;
       height: 12px;
-      border-radius: 50%;
-      background: #fff;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
-      cursor: pointer;
-      transition: all 0.2s ease;
-    }
-
-    .av-seek::-webkit-slider-thumb:hover {
-      width: 16px;
-      height: 16px;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
-    }
-
-    .av-seek::-moz-range-thumb {
-      width: 12px;
-      height: 12px;
+      background: white;
       border: none;
       border-radius: 50%;
-      background: #fff;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
       cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
       transition: all 0.2s ease;
     }
 
-    .av-seek::-moz-range-thumb:hover {
+    .seek-input::-webkit-slider-thumb:hover {
       width: 16px;
       height: 16px;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
+      box-shadow: 0 4px 16px rgba(0, 120, 212, 0.8);
     }
 
-    .av-seek:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
+    .seek-input::-moz-range-thumb {
+      width: 12px;
+      height: 12px;
+      background: white;
+      border: none;
+      border-radius: 50%;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+      transition: all 0.2s ease;
     }
 
-    .av-time-min {
+    .seek-input::-moz-range-thumb:hover {
+      width: 16px;
+      height: 16px;
+      box-shadow: 0 4px 16px rgba(0, 120, 212, 0.8);
+    }
+
+    /* controls row */
+    .controls-row {
       display: flex;
       align-items: center;
-      gap: 4px;
-      font-size: 12px;
-      color: #ccc;
-      font-variant-numeric: tabular-nums;
-      font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-      padding: 4px 8px;
-      background: rgba(0, 0, 0, 0.2);
-      border-radius: 4px;
-      min-width: 90px;
-      justify-content: center;
+      gap: 8px;
+      min-width: 0;
     }
 
-    .av-time-cur {
-      color: white;
-      font-weight: 500;
+    .spacer {
+      flex: 1 1 auto;
     }
 
-    .av-time-sep { opacity: 0.5; }
-
-    /* Controls */
-    .av-controls-min {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 12px;
-      background: rgba(0, 0, 0, 0.3);
-      backdrop-filter: blur(8px);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 8px;
-    }
-
-    .av-btn {
+    .cbtn {
       display: inline-flex;
       align-items: center;
       justify-content: center;
       min-width: 36px;
       height: 36px;
-      padding: 0 8px;
-      background: rgba(255, 255, 255, 0.1);
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      color: white;
-      border-radius: 6px;
-      cursor: pointer;
-      flex-shrink: 0;
-      transition: all 0.2s ease;
-    }
-
-    .av-btn:hover:not(:disabled) {
-      background: rgba(255, 255, 255, 0.2);
-      border-color: rgba(255, 255, 255, 0.3);
-      transform: scale(1.05);
-    }
-
-    .av-btn:active:not(:disabled) {
-      transform: scale(0.95);
-    }
-
-    .av-btn:disabled {
-      opacity: 0.4;
-      cursor: not-allowed;
-    }
-
-    .av-btn svg { width: 16px; height: 16px; }
-
-    .av-btn-play-min {
-      min-width: 44px;
-      height: 36px;
-      background: var(--vsc-accent-blue, #0078d4);
-      border: 1px solid rgba(0, 120, 212, 0.3);
-      color: white;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      flex-shrink: 0;
-      transition: all 0.2s ease;
-      font-weight: 600;
-      border-radius: 6px;
-      padding: 0;
-    }
-
-    .av-btn-play-min:hover:not(:disabled) {
-      background: #1084d7;
-      box-shadow: 0 0 12px rgba(0, 120, 212, 0.5);
-      transform: scale(1.05);
-    }
-
-    .av-btn-play-min:active:not(:disabled) {
-      transform: scale(0.95);
-    }
-
-    .av-btn-play-min:disabled {
-      opacity: 0.4;
-      cursor: not-allowed;
-    }
-
-    .av-btn-play-min svg { width: 18px; height: 18px; }
-
-    .av-vol-min {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-left: auto;
-      padding: 0 4px;
-    }
-
-    .av-vol-icon {
-      display: inline-block;
-      font-size: 16px;
-      line-height: 1;
-      min-width: 16px;
-      text-align: center;
-    }
-
-    .av-vol-slider-min {
-      width: 80px;
-      height: 4px;
-      cursor: pointer;
-      appearance: none;
-      -webkit-appearance: none;
-      background: rgba(255, 255, 255, 0.2);
-      border-radius: 2px;
-      outline: none;
-    }
-
-    .av-vol-slider-min::-webkit-slider-thumb {
-      appearance: none;
-      -webkit-appearance: none;
-      width: 10px;
-      height: 10px;
-      background: white;
-      border-radius: 50%;
-      cursor: pointer;
-      transition: all 0.2s ease;
-    }
-
-    .av-vol-slider-min::-webkit-slider-thumb:hover {
-      width: 12px;
-      height: 12px;
-    }
-
-    .av-vol-slider-min::-moz-range-thumb {
-      width: 10px;
-      height: 10px;
-      border: none;
-      border-radius: 50%;
-      background: white;
-      cursor: pointer;
-      transition: all 0.2s ease;
-    }
-
-    .av-vol-slider-min::-moz-range-thumb:hover {
-      width: 12px;
-      height: 12px;
-    }
-
-    .av-vol-slider-min:disabled {
-      opacity: 0.4;
-      cursor: not-allowed;
-    }
-
-    /* Playlist */
-    .av-pl-min {
-      display: flex;
-      flex-direction: column;
-      gap: 1px;
-      max-height: 240px;
-      overflow-y: auto;
-      border: 1px solid color-mix(in srgb, var(--vsc-border, #454545) 55%, transparent);
-      border-radius: 6px;
-      background: color-mix(in srgb, var(--vsc-editorWidget-background, #252526) 94%, black);
-      padding: 4px;
-    }
-
-    .av-pl-item-min {
-      padding: 6px 10px;
+      padding: 0 10px;
+      border-radius: 8px;
+      border: 1px solid var(--av-border);
+      background: var(--av-button);
+      color: var(--av-text);
       font-size: 12px;
-      color: color-mix(in srgb, var(--vsc-foreground, #ccc) 65%, transparent);
-      border-radius: 4px;
+      font-weight: 600;
       cursor: pointer;
+      transition: background 0.15s, transform 0.1s;
       white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      transition: all 0.15s ease;
-      border: 1px solid transparent;
+      letter-spacing: 0.02em;
+      font-family: inherit;
     }
 
-    .av-pl-item-min:hover {
-      background: var(--vsc-list-hover-background, rgba(255, 255, 255, 0.08));
-      color: var(--vsc-foreground, #cccccc);
+    .cbtn:hover:not(:disabled) {
+      background: var(--av-button-hover);
+      border-color: color-mix(in srgb, var(--av-text) 24%, var(--av-border));
     }
 
-    .av-pl-item-min.active {
-      background: var(--vsc-list-active-background, rgba(0, 120, 212, 0.5));
-      color: var(--vsc-list-active-foreground, #ffffff);
-      border-color: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 40%, transparent);
+    .cbtn:active:not(:disabled) {
+      transform: scale(0.94);
+    }
+
+    .cbtn:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+    }
+
+    .cbtn-play {
+      min-width: 44px;
+      height: 40px;
+      background: var(--av-accent);
+      border: 1px solid color-mix(in srgb, var(--av-accent) 72%, black);
+      border-radius: 10px;
+      font-size: 16px;
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--av-accent) 16%, transparent);
+      color: var(--av-accent-foreground);
+    }
+
+    .cbtn-play:hover:not(:disabled) {
+      background: var(--vsc-button-hover, #1177bb);
+      border-color: color-mix(in srgb, var(--vsc-button-hover, #1177bb) 72%, black);
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--vsc-button-hover, #1177bb) 16%, transparent);
+    }
+
+    .cbtn-icon {
+      display: inline-block;
+    }
+
+    .cbtn-skip {
+      min-width: 40px;
+      font-size: 11px;
+      font-family: ui-monospace, monospace;
+    }
+
+    .cbtn-nav {
+      min-width: 28px;
+      height: 28px;
+      padding: 0 6px;
+      border-radius: 6px;
+    }
+
+    .cbtn-nav svg {
+      width: 14px;
+      height: 14px;
+    }
+
+    .cbtn-vol-icon {
+      min-width: 32px;
+      height: 32px;
+      padding: 0 6px;
+      border: none;
+      background: transparent;
+      color: var(--av-text-muted);
+    }
+
+    .cbtn-vol-icon svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    .cbtn-vol-icon:hover:not(:disabled) {
+      background: color-mix(in srgb, var(--av-text) 10%, transparent);
+      color: color-mix(in srgb, var(--av-text) 86%, transparent);
+    }
+
+    .time-display {
+      font-size: 11px;
+      font-family: ui-monospace, monospace;
+      color: var(--av-text-muted);
+      padding: 4px 8px;
+      border-radius: 5px;
+      background: color-mix(in srgb, var(--av-text) 7%, transparent);
+      min-width: 88px;
+      text-align: center;
+      white-space: nowrap;
+    }
+
+    :host-context(.vscode-light) .time-display {
+      background: color-mix(in srgb, var(--av-text) 9%, white);
+    }
+
+    .time-cur {
+      color: var(--av-text);
+      font-weight: 600;
+    }
+
+    .time-sep {
+      opacity: 0.45;
+      margin: 0 2px;
+    }
+
+    .time-dur {
+      color: var(--av-text-muted);
+    }
+
+    /* volume */
+    .vol-wrap {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .vol-slider {
+      width: 72px;
+      height: 4px;
+      border-radius: 2px;
+      appearance: none;
+      -webkit-appearance: none;
+      background: color-mix(in srgb, var(--av-text) 18%, transparent);
+      outline: none;
+      cursor: pointer;
+    }
+
+    .vol-slider::-webkit-slider-thumb {
+      appearance: none;
+      -webkit-appearance: none;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--av-accent-foreground);
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+    }
+
+    .vol-slider::-moz-range-thumb {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      border: none;
+      background: var(--av-accent-foreground);
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+    }
+
+    .vol-slider:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    :host-context(.vscode-light) .av-tags {
+      background: color-mix(in srgb, var(--av-surface-alt) 96%, white);
+      border-color: color-mix(in srgb, var(--av-border) 82%, transparent);
+    }
+
+    :host-context(.vscode-light) .av-tag-row {
+      background: color-mix(in srgb, var(--av-text) 5%, white);
+      border-color: color-mix(in srgb, var(--av-border) 74%, transparent);
+    }
+
+    :host-context(.vscode-light) .av-tags-title,
+    :host-context(.vscode-light) .time-edge,
+    :host-context(.vscode-light) .time-dur,
+    :host-context(.vscode-light) .sig-label,
+    :host-context(.vscode-light) .dc-status {
+      color: var(--av-text-muted);
+    }
+
+    :host-context(.vscode-light) .sig-sub,
+    :host-context(.vscode-light) .freq-labels span,
+    :host-context(.vscode-light) .vu-channel,
+    :host-context(.vscode-light) .av-tag-key,
+    :host-context(.vscode-light) .path {
+      color: var(--av-text-dim);
+    }
+
+    /* ── RESPONSIVE ─────────────────────────────────────── */
+    @media (max-width: 820px) {
+      .art-stage {
+        grid-template-columns: 1fr;
+      }
+
+      .disc-panel {
+        border-right: none;
+        border-bottom: 1px solid var(--av-border);
+        min-height: 200px;
+        padding: 20px;
+        flex-direction: row;
+        gap: 20px;
+        align-items: center;
+        justify-content: flex-start;
+      }
+
+      .disc-wrap {
+        width: 110px;
+        height: 110px;
+        flex-shrink: 0;
+      }
+
+      .cover-art-frame {
+        width: 110px;
+        height: 110px;
+      }
+
+      .disc {
+        width: 110px;
+        height: 110px;
+      }
+
+      .disc-copy {
+        text-align: left;
+      }
+    }
+
+    @media (max-width: 560px) {
+      .controls-row {
+        flex-wrap: wrap;
+      }
+
+      .spacer {
+        display: none;
+      }
+
+      .vol-wrap {
+        width: 100%;
+      }
+
+      .vol-slider {
+        flex: 1;
+        width: auto;
+      }
+
+      .time-display {
+        min-width: 80px;
+      }
     }
   `],
 })
@@ -776,6 +1340,7 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
 
   kind: AudioViewerKind = 'empty';
   info: FileInfo | null = null;
+  activeProbe: FileProbe | null = null;
   error = '';
   streamUrl: string | null = null;
   audioReady = false;
@@ -793,10 +1358,7 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
   vuPeakLeft = 0;
   vuPeakRight = 0;
 
-  playlistItems: AudioPlaylistItem[] = [];
-  currentPlaylistIndex = 0;
-
-  spectrumBars = new Array<number>(40).fill(0);
+  spectrumBars = new Array<number>(20).fill(0);
 
   private audioElement: HTMLAudioElement | null = null;
   private audioContext: AudioContext | null = null;
@@ -840,7 +1402,42 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
   }
 
   get mimeLabel(): string {
-    return this.resolveAudioMime(this.activeTargetPath, this.activeTargetPath === this.targetPath) ?? '';
+    return this.resolveAudioMime(this.activeTargetPath, this.activeProbe) ?? '';
+  }
+
+  get coverArtDataUrl(): string | null {
+    return this.activeProbe?.audioTags?.coverArtDataUrl ?? null;
+  }
+
+  get displayTitle(): string {
+    return this.activeProbe?.audioTags?.title?.trim() || this.displayName || 'Unknown track';
+  }
+
+  get displaySubtitle(): string {
+    const tags = this.activeProbe?.audioTags;
+    if (!tags) {
+      return '';
+    }
+    const parts = [tags.artist, tags.album].map(part => part?.trim() || '').filter(part => part.length > 0);
+    return parts.join(' • ');
+  }
+
+  get audioTagRows(): AudioTagRow[] {
+    const tags = this.activeProbe?.audioTags;
+    if (!tags) {
+      return [];
+    }
+    const rows: AudioTagRow[] = [
+      { key: 'title', label: 'Title', value: tags.title ?? '' },
+      { key: 'artist', label: 'Artist', value: tags.artist ?? '' },
+      { key: 'album', label: 'Album', value: tags.album ?? '' },
+      { key: 'albumArtist', label: 'Album artist', value: tags.albumArtist ?? '' },
+      { key: 'genre', label: 'Genre', value: tags.genre ?? '' },
+      { key: 'year', label: 'Year', value: tags.year ?? '' },
+      { key: 'track', label: 'Track', value: tags.track ?? '' },
+      { key: 'composer', label: 'Composer', value: tags.composer ?? '' },
+    ];
+    return rows.filter(tag => tag.value.trim().length > 0);
   }
 
   get displayedCurrentTime(): number {
@@ -861,10 +1458,6 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
     return 'Ready to play';
   }
 
-  get hasPlaylist(): boolean { return this.playlistItems.length > 1; }
-  get hasPrevious(): boolean { return this.currentPlaylistIndex > 0; }
-  get hasNext(): boolean { return this.currentPlaylistIndex >= 0 && this.currentPlaylistIndex < this.playlistItems.length - 1; }
-
   async ngOnChanges(): Promise<void> {
     const currentLoad = ++this.loadVersion;
     this.resetState();
@@ -880,11 +1473,8 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
     this.cdr.markForCheck();
 
     try {
-      const prepared = this.preparePlaylist(path);
-      this.playlistItems = prepared.items;
-      this.currentPlaylistIndex = prepared.index;
-      this.activeTargetPath = prepared.items[prepared.index]?.path ?? path;
-      await this.loadFromDisk(this.activeTargetPath, currentLoad);
+      this.activeTargetPath = path;
+      await this.loadFromDisk(path, currentLoad);
     } catch (err: unknown) {
       if (currentLoad !== this.loadVersion) { return; }
       this.error = err instanceof Error ? err.message : String(err);
@@ -1072,26 +1662,11 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
     return index;
   }
 
-  showPrevious(): void {
-    if (!this.hasPrevious) { return; }
-    void this.displayPlaylistIndex(this.currentPlaylistIndex - 1);
+  trackTagRow(_index: number, item: AudioTagRow): string {
+    return item.key;
   }
 
-  showNext(): void {
-    if (!this.hasNext) { return; }
-    void this.displayPlaylistIndex(this.currentPlaylistIndex + 1);
-  }
-
-  selectPlaylistIndex(index: number): void {
-    if (index === this.currentPlaylistIndex) { return; }
-    void this.displayPlaylistIndex(index);
-  }
-
-  trackPlaylistItem(_index: number, item: AudioPlaylistItem): string {
-    return item.path;
-  }
-
-  // в”Ђв”Ђ VU METER LOOP в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+  // ── VU METER LOOP ──────────────────────────────────────
 
   private startVuLoop(): void {
     if (this.vuRafId !== null) { return; }
@@ -1134,7 +1709,7 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
     requestAnimationFrame(step);
   }
 
-  // в”Ђв”Ђ PRIVATE HELPERS в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+  // ── PRIVATE HELPERS ────────────────────────────────────
 
   private async loadFromDisk(path: string, loadVersion: number): Promise<void> {
     const info = await this.api.getFileInfo(path);
@@ -1142,12 +1717,23 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
     this.activeTargetPath = path;
     this.info = info;
 
+    let probe: FileProbe | null = path === this.targetPath ? this.probe : null;
+    if (!probe) {
+      try {
+        probe = await this.api.probeFile(path);
+      } catch {
+        probe = null;
+      }
+    }
+    if (loadVersion !== this.loadVersion) { return; }
+    this.activeProbe = probe;
+
     if (info.type === FileType.DIRECTORY) {
       this.kind = 'directory';
       return;
     }
 
-    if (!this.resolveAudioMime(path, path === this.targetPath)) {
+    if (!this.resolveAudioMime(path, probe)) {
       this.kind = 'unsupported';
       return;
     }
@@ -1159,81 +1745,10 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
     this.autoplayPending = true;
   }
 
-  private resolveAudioMime(path: string, allowProbe: boolean): string | null {
-    const normalizedProbeMime = allowProbe
-      ? (this.probe?.mimeType ?? '').split(';', 1)[0].trim().toLowerCase()
-      : '';
+  private resolveAudioMime(path: string, probe: FileProbe | null): string | null {
+    const normalizedProbeMime = (probe?.mimeType ?? '').split(';', 1)[0].trim().toLowerCase();
     if (normalizedProbeMime.startsWith('audio/')) { return normalizedProbeMime; }
     return inferAudioMime(extractExt(path));
-  }
-
-  private preparePlaylist(path: string): { items: AudioPlaylistItem[]; index: number } {
-    const normalizedTarget = (path ?? '').trim();
-    const items = this.fileList
-      .filter(item => item.path && this.isAudioCandidate(item.path))
-      .map(item => ({ path: item.path, name: item.name || this.baseName(item.path) }));
-
-    if (!items.length) {
-      return { items: [{ path: normalizedTarget, name: this.baseName(normalizedTarget) }], index: 0 };
-    }
-
-    const currentIndex = items.findIndex(item => item.path === normalizedTarget);
-    if (currentIndex >= 0) { return { items, index: currentIndex }; }
-
-    return {
-      items: [{ path: normalizedTarget, name: this.baseName(normalizedTarget) }, ...items],
-      index: 0,
-    };
-  }
-
-  private isAudioCandidate(path: string): boolean {
-    return !!inferAudioMime(extractExt(path));
-  }
-
-  private async displayPlaylistIndex(index: number): Promise<void> {
-    const item = this.playlistItems[index];
-    if (!item) { return; }
-
-    const currentLoad = ++this.loadVersion;
-    this.stopVuLoop();
-    this.pauseAndDetachAudio();
-    this.currentPlaylistIndex = index;
-    this.kind = 'loading';
-    this.info = null;
-    this.error = '';
-    this.streamUrl = null;
-    this.audioReady = false;
-    this.isPlaying = false;
-    this.isBuffering = false;
-    this.isSeeking = false;
-    this.currentTime = 0;
-    this.seekTarget = 0;
-    this.duration = 0;
-    this.vuLeft = 0;
-    this.vuRight = 0;
-    this.vuPeakLeft = 0;
-    this.vuPeakRight = 0;
-    this.spectrumBars = this.spectrumBars.map(() => 0);
-    this.autoplayPending = false;
-    this.activeTargetPath = item.path;
-    this.cdr.markForCheck();
-
-    try {
-      await this.loadFromDisk(item.path, currentLoad);
-    } catch (err: unknown) {
-      if (currentLoad !== this.loadVersion) { return; }
-      this.error = err instanceof Error ? err.message : String(err);
-      this.kind = 'error';
-    }
-
-    if (currentLoad === this.loadVersion) {
-      this.cdr.markForCheck();
-    }
-  }
-
-  private baseName(path: string): string {
-    const normalized = (path ?? '').replace(/\\/g, '/');
-    return normalized.split('/').pop() ?? normalized;
   }
 
   private syncAudioElement(): void {
@@ -1269,6 +1784,7 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
     this.pauseAndDetachAudio();
     this.kind = 'empty';
     this.info = null;
+    this.activeProbe = null;
     this.error = '';
     this.streamUrl = null;
     this.audioReady = false;
@@ -1283,8 +1799,6 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
     this.vuPeakLeft = 0;
     this.vuPeakRight = 0;
     this.autoplayPending = false;
-    this.playlistItems = [];
-    this.currentPlaylistIndex = 0;
     this.activeTargetPath = '';
   }
 

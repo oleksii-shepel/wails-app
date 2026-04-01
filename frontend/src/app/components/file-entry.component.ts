@@ -12,6 +12,35 @@ export interface FileEntrySelectEvent {
 /** Sentinel path for the virtual ".." parent-directory entry. */
 export const PARENT_ENTRY_PATH = '__parent__';
 
+/** Smart truncate file names while preserving extension. */
+function truncateFileName(name: string, maxLength: number): string {
+  if (!name || name.length <= maxLength) {
+    return name;
+  }
+
+  // Find the last dot to separate name from extension
+  const lastDotIndex = name.lastIndexOf('.');
+  const hasExtension = lastDotIndex > 0 && lastDotIndex < name.length - 1;
+
+  if (!hasExtension || lastDotIndex < 3) {
+    // No extension or very short base name, just truncate at end
+    return name.slice(0, Math.max(1, maxLength - 1)) + '…';
+  }
+
+  const baseName = name.slice(0, lastDotIndex);
+  const extension = name.slice(lastDotIndex);
+  const maxBaseLength = Math.max(1, maxLength - extension.length - 1); // -1 for ellipsis
+
+  if (maxBaseLength < 3) {
+    // Not enough space to show meaningful base + extension
+    return name.slice(0, maxLength - 1) + '…';
+  }
+
+  // Truncate base name and add ellipsis in the middle to hint at full length
+  const keep = Math.max(1, Math.floor(maxBaseLength / 2) - 1);
+  return baseName.slice(0, keep) + '…' + extension;
+}
+
 @Component({
   selector: 'app-file-entry',
   standalone: true,
@@ -110,7 +139,7 @@ export const PARENT_ENTRY_PATH = '__parent__';
         (blur)="onRenameBlur()"
         (keydown)="onRenameKeyDown($event)" />
       <ng-container *ngIf="!isRenaming">
-        <span class="file-name-text" [attr.data-mime-kind]="mimeColorKind">{{ displayName }}</span>
+        <span class="file-name-text" [attr.data-mime-kind]="mimeColorKind" [title]="fullName">{{ displayName }}</span>
         <span
           *ngIf="showDirectorySizeSpinnerInName && showDirectorySizeSpinner"
           class="file-size-spinner file-size-spinner--inline"
@@ -539,6 +568,7 @@ export class FileEntryComponent implements OnChanges, OnDestroy {
   isParent = false;
   isSymlinkEntry = false;
   displayName = '';
+  fullName = ''; // Store original name for tooltip
   mimeColorKind = 'default';
   iconEmoji = '📄';
   searchParentPath = '';
@@ -624,7 +654,17 @@ export class FileEntryComponent implements OnChanges, OnDestroy {
     const presentation = getFileEntryPresentation(entry, this.colorizeByMime, this.resolvedCategoryId ?? null);
     this.isParent = presentation.isParent;
     this.isSymlinkEntry = presentation.isSymlink;
-    this.displayName = this.displayNameOverride?.trim() || entry?.name || '';
+    
+    let displayName = this.displayNameOverride?.trim() || entry?.name || '';
+    this.fullName = displayName; // Store original for tooltip
+    
+    // Apply smart truncation based on variant
+    if (displayName && !this.isParent) {
+      const maxLengthByVariant = this.variant === 'row' ? 85 : this.variant === 'inline' ? 65 : 55;
+      displayName = truncateFileName(displayName, maxLengthByVariant);
+    }
+    this.displayName = displayName;
+    
     this.mimeColorKind = presentation.mimeColorKind;
     this.searchParentPath = entry?.searchParentPath || '';
     const isSearchEntry = !!entry && !!(entry.searchParentPath || entry.searchPattern || entry.searchBasePath);

@@ -4,6 +4,35 @@ import { FileInfo, FileType } from '../shared/protocol';
 import { getFileEntryPresentation } from './file-entry-presentation.util';
 import { FileCategoryResolverService } from '../services/file-category-resolver.service';
 
+/** Smart truncate file names while preserving extension. */
+function truncateFileName(name: string, maxLength: number): string {
+  if (!name || name.length <= maxLength) {
+    return name;
+  }
+
+  // Find the last dot to separate name from extension
+  const lastDotIndex = name.lastIndexOf('.');
+  const hasExtension = lastDotIndex > 0 && lastDotIndex < name.length - 1;
+
+  if (!hasExtension || lastDotIndex < 3) {
+    // No extension or very short base name, just truncate at end
+    return name.slice(0, Math.max(1, maxLength - 1)) + '…';
+  }
+
+  const baseName = name.slice(0, lastDotIndex);
+  const extension = name.slice(lastDotIndex);
+  const maxBaseLength = Math.max(1, maxLength - extension.length - 1); // -1 for ellipsis
+
+  if (maxBaseLength < 3) {
+    // Not enough space to show meaningful base + extension
+    return name.slice(0, maxLength - 1) + '…';
+  }
+
+  // Truncate base name and add ellipsis in the middle to hint at full length
+  const keep = Math.max(1, Math.floor(maxBaseLength / 2) - 1);
+  return baseName.slice(0, keep) + '…' + extension;
+}
+
 @Component({
   selector: 'app-file-entry-inline',
   standalone: true,
@@ -40,7 +69,7 @@ import { FileCategoryResolverService } from '../services/file-category-resolver.
       </span>
 
       <div class="file-name">
-        <span class="file-name-text" [attr.data-mime-kind]="mimeColorKind">{{ displayName }}</span>
+        <span class="file-name-text" [attr.data-mime-kind]="mimeColorKind" [title]="fullName">{{ displayName }}</span>
         <span
           *ngIf="showDirectorySizeSpinnerInName && showDirectorySizeSpinner"
           class="file-size-spinner"
@@ -190,6 +219,14 @@ export class FileEntryInlineComponent implements OnChanges, OnDestroy {
   }
 
   get displayName(): string {
+    const fullName = this.displayNameOverride?.trim() || this.entry?.name || '';
+    if (fullName && !this.isParent) {
+      return truncateFileName(fullName, 70); // Inline variant allows more space
+    }
+    return fullName;
+  }
+
+  get fullName(): string {
     return this.displayNameOverride?.trim() || this.entry?.name || '';
   }
 

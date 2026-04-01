@@ -775,6 +775,7 @@ func startFFmpegTranscode(ctx context.Context, inputArgs []string, playbackMode 
 	)
 
 	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+	hideWindow(cmd)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, nil, nil, err
@@ -814,6 +815,7 @@ func extractVideoFrame(ctx context.Context, inputPath string, targetFormat strin
 	}
 
 	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+	hideWindow(cmd)
 	var out bytes.Buffer
 	var errOut bytes.Buffer
 	cmd.Stdout = &out
@@ -1184,6 +1186,7 @@ func buildSegmentedVideoFragment(ctx context.Context, nativePath string, startSe
 		"pipe:1",
 	)
 	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+	hideWindow(cmd)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		if ctx != nil && ctx.Err() != nil {
@@ -1816,6 +1819,7 @@ func probeVideo(nativePath string) (*ffprobeOutput, error) {
 		return nil, err
 	}
 	cmd := exec.Command("ffprobe", "-v", "error", "-print_format", "json", "-show_format", "-show_streams", nativePath)
+	hideWindow(cmd)
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, err

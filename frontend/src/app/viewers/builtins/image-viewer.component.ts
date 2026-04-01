@@ -147,7 +147,6 @@ interface CarouselVirtualFrame {
         </div>
 
         <div class="carousel-strip" *ngIf="hasCarousel">
-          <button class="carousel-nav" type="button" (click)="showPrevious()" [disabled]="!hasPrevious" title="Previous image">&#x2039;</button>
           <div class="carousel-list-wrapper">
             <div class="carousel-list" #carouselList>
               <div class="carousel-virtual-spacer" [style.width.px]="virtualLeadingWidth" aria-hidden="true"></div>
@@ -173,7 +172,6 @@ interface CarouselVirtualFrame {
               <div class="carousel-virtual-spacer" [style.width.px]="virtualTrailingWidth" aria-hidden="true"></div>
             </div>
           </div>
-          <button class="carousel-nav" type="button" (click)="showNext()" [disabled]="!hasNext" title="Next image">&#x203A;</button>
         </div>
       </div>
     </div>
@@ -304,7 +302,6 @@ interface CarouselVirtualFrame {
       border-color: var(--vsc-border, #454545);
     }
     .tool-btn:focus-visible,
-    .carousel-nav:focus-visible,
     .carousel-item:focus-visible {
       outline: none;
       border-color: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 70%, transparent);
@@ -435,27 +432,12 @@ interface CarouselVirtualFrame {
       box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
     }
     .carousel-strip {
-      display: grid;
-      grid-template-columns: auto minmax(0, 1fr) auto;
-      gap: 8px;
-      align-items: stretch;
+      display: flex;
       padding: 12px 12px 18px;
       border-top: 1px solid var(--vsc-border, #454545);
       background: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 94%, black);
       flex-shrink: 0;
       min-height: calc(118px * 1.05);
-    }
-    .carousel-nav {
-      width: 28px;
-      border-radius: 6px;
-      border: 1px solid var(--vsc-border, #454545);
-      background: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 88%, white 2%);
-      color: var(--vsc-foreground, #ccc);
-      cursor: pointer;
-    }
-    .carousel-nav:disabled {
-      opacity: 0.35;
-      cursor: default;
     }
     .carousel-list-wrapper {
       position: relative;

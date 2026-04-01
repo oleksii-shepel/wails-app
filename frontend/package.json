@@ -24,6 +24,7 @@
     "@epikodelabs/streamix": "^2.0.37",
     "codemirror": "^6.0.2",
     "mediabunny": "^1.40.0",
+    "music-metadata": "^11.12.3",
     "zone.js": "~0.15.0"
   },
   "devDependencies": {

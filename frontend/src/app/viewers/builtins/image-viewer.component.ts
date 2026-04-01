@@ -54,7 +54,7 @@ interface CarouselVirtualFrame {
          (keydown.arrowright)="onViewerArrowRight($event)">
       <div class="viewer-header">
         <div class="header-main">
-          <span class="file-icon">&#x1F5BC;</span>
+          <span class="file-icon" aria-hidden="true">🖼️</span>
           <div class="header-text">
             <div class="title" [title]="displayName">{{ displayName || 'Image Preview' }}</div>
             <div class="path" [title]="displayPath">{{ displayPath || 'Select a file to preview' }}</div>

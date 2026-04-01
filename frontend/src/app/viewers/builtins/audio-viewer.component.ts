@@ -9,9 +9,10 @@ import {
   OnDestroy,
   ViewChild,
 } from '@angular/core';
+import { parseBuffer, selectCover, type IPicture } from 'music-metadata';
 import { VscodeScrollbarDirective } from '../../directives/vscode-scrollbar.directive';
 import { ApiService } from '../../services/api.service';
-import { AudioTags, FileInfo, FileProbe, FileType } from '../../shared/protocol';
+import { FileInfo, FileProbe, FileType } from '../../shared/protocol';
 import type { ViewerFileListItem } from '../../shared/protocol-enhanced';
 import {
   VIEWER_BASE_STYLES,
@@ -23,8 +24,22 @@ import {
 
 type AudioViewerKind = 'empty' | 'loading' | 'ready' | 'directory' | 'unsupported' | 'error';
 
+type AudioTagKey = 'title' | 'artist' | 'album' | 'albumArtist' | 'genre' | 'year' | 'track' | 'composer';
+
+interface AudioViewerTags {
+  title?: string;
+  artist?: string;
+  album?: string;
+  albumArtist?: string;
+  genre?: string;
+  year?: string;
+  track?: string;
+  composer?: string;
+  coverArtDataUrl?: string;
+}
+
 interface AudioTagRow {
-  key: keyof AudioTags;
+  key: AudioTagKey;
   label: string;
   value: string;
 }
@@ -40,12 +55,7 @@ interface AudioTagRow {
       <!-- ── HEADER ─────────────────────────────────────── -->
       <div class="viewer-header">
         <div class="header-main">
-          <div class="hdr-icon">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="8" cy="8" r="3"/>
-              <path d="M11 5V2l3-1v3l-3 1z"/>
-            </svg>
-          </div>
+            <div class="hdr-icon" aria-hidden="true">🎵</div>
           <div class="header-text">
             <div class="title" [title]="displayName">{{ displayName || 'Audio Preview' }}</div>
             <div class="path" [title]="displayPath">{{ displayPath || 'Select a file to preview' }}</div>
@@ -196,6 +206,16 @@ interface AudioTagRow {
                   <div class="vu-peak" [style.right.%]="100 - vuPeakRight"></div>
                 </div>
               </div>
+
+              <section class="av-tags av-tags-inline" *ngIf="audioTagRows.length > 0">
+                <div class="av-tags-title">Audio tags</div>
+                <div class="av-tags-grid">
+                  <div class="av-tag-row" *ngFor="let tag of audioTagRows; trackBy: trackTagRow">
+                    <span class="av-tag-key">{{ tag.label }}</span>
+                    <span class="av-tag-value" [title]="tag.value">{{ tag.value }}</span>
+                  </div>
+                </div>
+              </section>
             </div>
           </section>
 
@@ -245,25 +265,18 @@ interface AudioTagRow {
               <div class="spacer"></div>
 
               <!-- volume -->
-              <div class="vol-wrap">
+              <div class="volume-control">
                 <button
-                  class="cbtn cbtn-vol-icon"
+                  class="volume-icon-btn"
                   type="button"
                   (click)="toggleMute()"
-                  [attr.aria-label]="volume <= 0 ? 'Unmute' : 'Mute'">
-                  <svg *ngIf="volume <= 0" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M9 5v6l-4-3H3V8h2L9 5z"/><line x1="12" y1="5" x2="15" y2="8"/><line x1="15" y1="5" x2="12" y2="8"/>
-                  </svg>
-                  <svg *ngIf="volume > 0 && volume < 50" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M9 5v6l-4-3H3V8h2L9 5z"/><path d="M11.5 6.5a2.5 2.5 0 0 1 0 3"/>
-                  </svg>
-                  <svg *ngIf="volume >= 50" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M9 5v6l-4-3H3V8h2L9 5z"/><path d="M11.5 6.5a2.5 2.5 0 0 1 0 3"/><path d="M13.5 4.5a5 5 0 0 1 0 7"/>
-                  </svg>
+                  [attr.aria-label]="volume <= 0 ? 'Unmute' : 'Mute'"
+                  [title]="volume <= 0 ? 'Unmute' : 'Mute'">
+                  <span class="volume-icon">{{ volume <= 0 ? '🔇' : '🔊' }}</span>
                 </button>
                 <input
                   type="range"
-                  class="vol-slider"
+                  class="volume-slider"
                   min="0"
                   max="100"
                   [value]="volume"
@@ -272,16 +285,6 @@ interface AudioTagRow {
               </div>
             </div>
           </div>
-
-          <section class="av-tags" *ngIf="audioTagRows.length > 0">
-            <div class="av-tags-title">Audio tags</div>
-            <div class="av-tags-grid">
-              <div class="av-tag-row" *ngFor="let tag of audioTagRows; trackBy: trackTagRow">
-                <span class="av-tag-key">{{ tag.label }}</span>
-                <span class="av-tag-value" [title]="tag.value">{{ tag.value }}</span>
-              </div>
-            </div>
-          </section>
 
         </div><!-- /audio-player-shell -->
       </div><!-- /viewer-body -->
@@ -348,11 +351,6 @@ interface AudioTagRow {
       background: color-mix(in srgb, var(--av-surface) 99%, var(--vsc-panel-background, #f3f3f3));
     }
 
-    :host-context(.vscode-light) .hdr-icon {
-      background: color-mix(in srgb, var(--av-accent) 9%, white);
-      border-color: color-mix(in srgb, var(--av-accent) 22%, var(--av-border));
-    }
-
     .header-main {
       display: flex;
       align-items: center;
@@ -362,21 +360,10 @@ interface AudioTagRow {
     }
 
     .hdr-icon {
-      width: 30px;
-      height: 30px;
-      border-radius: 50%;
-      background: color-mix(in srgb, var(--av-accent) 16%, transparent);
-      border: 1px solid color-mix(in srgb, var(--av-accent) 32%, transparent);
-      display: flex;
-      align-items: center;
-      justify-content: center;
       flex-shrink: 0;
       color: color-mix(in srgb, var(--av-accent) 78%, var(--av-text));
-    }
-
-    .hdr-icon svg {
-      width: 14px;
-      height: 14px;
+      font-size: 18px;
+      line-height: 1;
     }
 
     .header-text {
@@ -533,6 +520,10 @@ interface AudioTagRow {
       border: 1px solid color-mix(in srgb, var(--vsc-border, #454545) 55%, transparent);
       border-radius: 8px;
       background: color-mix(in srgb, var(--vsc-editorWidget-background, #252526) 92%, black);
+    }
+
+    .av-tags-inline {
+      margin-top: 8px;
     }
 
     .av-tags-title {
@@ -953,12 +944,13 @@ interface AudioTagRow {
 
     /* ── CONTROLS ──────────────────────────────────────── */
     .ctrl-bar {
-      padding: 11px 14px 13px;
-      background: var(--av-surface-alt);
-      border-top: 1px solid var(--av-border);
+      padding: 12px 14px 14px;
+      background: rgba(0, 0, 0, 0.28);
+      backdrop-filter: blur(8px);
+      border-top: 1px solid color-mix(in srgb, var(--av-text) 12%, transparent);
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 12px;
       flex-shrink: 0;
     }
 
@@ -1057,8 +1049,9 @@ interface AudioTagRow {
     .controls-row {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 12px;
       min-width: 0;
+      padding: 0 4px;
     }
 
     .spacer {
@@ -1071,49 +1064,48 @@ interface AudioTagRow {
       justify-content: center;
       min-width: 36px;
       height: 36px;
-      padding: 0 10px;
-      border-radius: 8px;
-      border: 1px solid var(--av-border);
-      background: var(--av-button);
-      color: var(--av-text);
-      font-size: 12px;
+      padding: 0 8px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      background: rgba(255, 255, 255, 0.1);
+      color: white;
+      font-size: 16px;
       font-weight: 600;
       cursor: pointer;
-      transition: background 0.15s, transform 0.1s;
+      transition: all 0.2s ease;
       white-space: nowrap;
       letter-spacing: 0.02em;
       font-family: inherit;
+      backdrop-filter: blur(4px);
     }
 
     .cbtn:hover:not(:disabled) {
-      background: var(--av-button-hover);
-      border-color: color-mix(in srgb, var(--av-text) 24%, var(--av-border));
+      background: rgba(255, 255, 255, 0.2);
+      border-color: rgba(255, 255, 255, 0.3);
+      transform: scale(1.05);
     }
 
     .cbtn:active:not(:disabled) {
-      transform: scale(0.94);
+      transform: scale(0.95);
     }
 
     .cbtn:disabled {
-      opacity: 0.35;
+      opacity: 0.4;
       cursor: not-allowed;
     }
 
     .cbtn-play {
       min-width: 44px;
-      height: 40px;
-      background: var(--av-accent);
-      border: 1px solid color-mix(in srgb, var(--av-accent) 72%, black);
-      border-radius: 10px;
+      height: 36px;
+      background: var(--vsc-accent-blue, #0078d4);
+      border: 1px solid rgba(0, 120, 212, 0.3);
       font-size: 16px;
-      box-shadow: 0 0 0 1px color-mix(in srgb, var(--av-accent) 16%, transparent);
-      color: var(--av-accent-foreground);
+      color: white;
     }
 
     .cbtn-play:hover:not(:disabled) {
-      background: var(--vsc-button-hover, #1177bb);
-      border-color: color-mix(in srgb, var(--vsc-button-hover, #1177bb) 72%, black);
-      box-shadow: 0 0 0 1px color-mix(in srgb, var(--vsc-button-hover, #1177bb) 16%, transparent);
+      background: #1084d7;
+      box-shadow: 0 0 12px rgba(0, 120, 212, 0.5);
     }
 
     .cbtn-icon {
@@ -1126,105 +1118,102 @@ interface AudioTagRow {
       font-family: ui-monospace, monospace;
     }
 
-    .cbtn-nav {
-      min-width: 28px;
-      height: 28px;
-      padding: 0 6px;
-      border-radius: 6px;
-    }
-
-    .cbtn-nav svg {
-      width: 14px;
-      height: 14px;
-    }
-
-    .cbtn-vol-icon {
-      min-width: 32px;
-      height: 32px;
-      padding: 0 6px;
-      border: none;
-      background: transparent;
-      color: var(--av-text-muted);
-    }
-
-    .cbtn-vol-icon svg {
-      width: 16px;
-      height: 16px;
-    }
-
-    .cbtn-vol-icon:hover:not(:disabled) {
-      background: color-mix(in srgb, var(--av-text) 10%, transparent);
-      color: color-mix(in srgb, var(--av-text) 86%, transparent);
-    }
-
     .time-display {
-      font-size: 11px;
-      font-family: ui-monospace, monospace;
-      color: var(--av-text-muted);
-      padding: 4px 8px;
-      border-radius: 5px;
-      background: color-mix(in srgb, var(--av-text) 7%, transparent);
-      min-width: 88px;
-      text-align: center;
-      white-space: nowrap;
-    }
-
-    :host-context(.vscode-light) .time-display {
-      background: color-mix(in srgb, var(--av-text) 9%, white);
-    }
-
-    .time-cur {
-      color: var(--av-text);
-      font-weight: 600;
-    }
-
-    .time-sep {
-      opacity: 0.45;
-      margin: 0 2px;
-    }
-
-    .time-dur {
-      color: var(--av-text-muted);
-    }
-
-    /* volume */
-    .vol-wrap {
       display: flex;
       align-items: center;
       gap: 4px;
+      font-size: 12px;
+      font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+      color: #ccc;
+      padding: 4px 8px;
+      border-radius: 4px;
+      background: rgba(0, 0, 0, 0.2);
+      min-width: 90px;
+      justify-content: center;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
     }
 
-    .vol-slider {
-      width: 72px;
+    :host-context(.vscode-light) .time-display {
+      background: rgba(0, 0, 0, 0.08);
+    }
+
+    .time-cur {
+      color: white;
+      font-weight: 500;
+    }
+
+    .time-sep {
+      opacity: 0.5;
+    }
+
+    .time-dur {
+      color: #ccc;
+    }
+
+    /* volume */
+    .volume-control {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 4px;
+    }
+
+    .volume-icon-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 24px;
+      height: 24px;
+      padding: 0;
+      border: none;
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+    }
+
+    .volume-icon-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .volume-icon {
+      display: inline-block;
+      font-size: 16px;
+      line-height: 1;
+    }
+
+    .volume-slider {
+      width: 80px;
       height: 4px;
       border-radius: 2px;
       appearance: none;
       -webkit-appearance: none;
-      background: color-mix(in srgb, var(--av-text) 18%, transparent);
+      background: rgba(255, 255, 255, 0.2);
       outline: none;
       cursor: pointer;
     }
 
-    .vol-slider::-webkit-slider-thumb {
+    .volume-slider::-webkit-slider-thumb {
       appearance: none;
       -webkit-appearance: none;
       width: 10px;
       height: 10px;
       border-radius: 50%;
-      background: var(--av-accent-foreground);
-      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+      background: white;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
     }
 
-    .vol-slider::-moz-range-thumb {
+    .volume-slider::-moz-range-thumb {
       width: 10px;
       height: 10px;
       border-radius: 50%;
       border: none;
-      background: var(--av-accent-foreground);
-      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+      background: white;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
     }
 
-    .vol-slider:disabled {
+    .volume-slider:disabled {
       opacity: 0.4;
       cursor: not-allowed;
     }
@@ -1302,11 +1291,11 @@ interface AudioTagRow {
         display: none;
       }
 
-      .vol-wrap {
+      .volume-control {
         width: 100%;
       }
 
-      .vol-slider {
+      .volume-slider {
         flex: 1;
         width: auto;
       }
@@ -1341,6 +1330,7 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
   kind: AudioViewerKind = 'empty';
   info: FileInfo | null = null;
   activeProbe: FileProbe | null = null;
+  activeAudioTags: AudioViewerTags | null = null;
   error = '';
   streamUrl: string | null = null;
   audioReady = false;
@@ -1406,15 +1396,15 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
   }
 
   get coverArtDataUrl(): string | null {
-    return this.activeProbe?.audioTags?.coverArtDataUrl ?? null;
+    return this.activeAudioTags?.coverArtDataUrl ?? null;
   }
 
   get displayTitle(): string {
-    return this.activeProbe?.audioTags?.title?.trim() || this.displayName || 'Unknown track';
+    return this.activeAudioTags?.title?.trim() || this.displayName || 'Unknown track';
   }
 
   get displaySubtitle(): string {
-    const tags = this.activeProbe?.audioTags;
+    const tags = this.activeAudioTags;
     if (!tags) {
       return '';
     }
@@ -1423,7 +1413,7 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
   }
 
   get audioTagRows(): AudioTagRow[] {
-    const tags = this.activeProbe?.audioTags;
+    const tags = this.activeAudioTags;
     if (!tags) {
       return [];
     }
@@ -1663,7 +1653,7 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
   }
 
   trackTagRow(_index: number, item: AudioTagRow): string {
-    return item.key;
+    return String(item.key);
   }
 
   // ── VU METER LOOP ──────────────────────────────────────
@@ -1716,6 +1706,7 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
     if (loadVersion !== this.loadVersion) { return; }
     this.activeTargetPath = path;
     this.info = info;
+    this.activeAudioTags = null;
 
     let probe: FileProbe | null = path === this.targetPath ? this.probe : null;
     if (!probe) {
@@ -1743,12 +1734,126 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
 
     this.kind = 'ready';
     this.autoplayPending = true;
+    void this.loadAudioTagsFromFile(path, info.size, probe, loadVersion);
   }
 
   private resolveAudioMime(path: string, probe: FileProbe | null): string | null {
     const normalizedProbeMime = (probe?.mimeType ?? '').split(';', 1)[0].trim().toLowerCase();
     if (normalizedProbeMime.startsWith('audio/')) { return normalizedProbeMime; }
     return inferAudioMime(extractExt(path));
+  }
+
+  private async loadAudioTagsFromFile(path: string, fileSize: number, probe: FileProbe | null, loadVersion: number): Promise<void> {
+    const mimeType = (probe?.mimeType ?? '').split(';', 1)[0].trim().toLowerCase() || this.resolveAudioMime(path, probe) || 'audio/mpeg';
+    const initialChunkSize = Math.min(fileSize || 0, 512 * 1024);
+    if (initialChunkSize <= 0) {
+      return;
+    }
+
+    try {
+      const initialChunk = await this.api.readFileRange(path, 0, initialChunkSize);
+      const initialBytes = this.base64ToUint8Array(initialChunk.content);
+      const metadata = await parseBuffer(initialBytes, { mimeType, size: fileSize });
+      if (loadVersion !== this.loadVersion) {
+        return;
+      }
+
+      let tags = this.mapMetadataToAudioTags(metadata.common);
+      if (!tags && fileSize > initialChunkSize && fileSize <= 16 * 1024 * 1024) {
+        const fullFile = await this.api.readFile(path, 'base64');
+        if (loadVersion !== this.loadVersion) {
+          return;
+        }
+        const fullBytes = this.base64ToUint8Array(fullFile.content);
+        const fullMetadata = await parseBuffer(fullBytes, { mimeType, size: fileSize });
+        if (loadVersion !== this.loadVersion) {
+          return;
+        }
+        tags = this.mapMetadataToAudioTags(fullMetadata.common);
+      }
+
+      this.activeAudioTags = tags;
+      this.cdr.markForCheck();
+    } catch (error) {
+      console.debug('Audio tag parsing failed', error);
+    }
+  }
+
+  private base64ToUint8Array(content: string): Uint8Array {
+    const binary = atob(content);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+    return bytes;
+  }
+
+  private mapMetadataToAudioTags(common: {
+    title?: string;
+    artist?: string;
+    album?: string;
+    albumartist?: string;
+    genre?: string[];
+    year?: number;
+    date?: string;
+    composer?: string[];
+    picture?: IPicture[];
+    track?: { no?: number | null; of?: number | null };
+  }): AudioViewerTags | null {
+    const pictures = common.picture ?? [];
+    const cover = pictures.length > 0 ? selectCover(pictures) : null;
+    const tags: AudioViewerTags = {
+      title: this.cleanTagText(common.title),
+      artist: this.cleanTagText(common.artist),
+      album: this.cleanTagText(common.album),
+      albumArtist: this.cleanTagText(common.albumartist),
+      genre: this.joinTagValues(common.genre),
+      year: common.year ? String(common.year) : this.cleanTagText(common.date),
+      track: this.formatTrack(common.track),
+      composer: this.joinTagValues(common.composer),
+      coverArtDataUrl: this.pictureToDataUrl(cover),
+    };
+
+    if (!tags.title && !tags.artist && !tags.album && !tags.albumArtist && !tags.genre && !tags.year && !tags.track && !tags.composer && !tags.coverArtDataUrl) {
+      return null;
+    }
+
+    return tags;
+  }
+
+  private cleanTagText(value: string | null | undefined): string {
+    return (value ?? '').trim();
+  }
+
+  private joinTagValues(values: string[] | null | undefined): string {
+    if (!values?.length) {
+      return '';
+    }
+    return values.map(value => value.trim()).filter(value => value.length > 0).join(', ');
+  }
+
+  private formatTrack(track: { no?: number | null; of?: number | null } | null | undefined): string {
+    const number = track?.no ?? 0;
+    const total = track?.of ?? 0;
+    if (!number) {
+      return '';
+    }
+    return total ? `${number}/${total}` : String(number);
+  }
+
+  private pictureToDataUrl(picture: IPicture | null | undefined): string {
+    if (!picture?.data?.length || !picture.format) {
+      return '';
+    }
+
+    const chunkSize = 0x8000;
+    let binary = '';
+    for (let offset = 0; offset < picture.data.length; offset += chunkSize) {
+      const chunk = picture.data.subarray(offset, offset + chunkSize);
+      binary += String.fromCharCode(...chunk);
+    }
+
+    return `data:${picture.format};base64,${btoa(binary)}`;
   }
 
   private syncAudioElement(): void {
@@ -1785,6 +1890,7 @@ export class AudioViewerComponent implements OnChanges, OnDestroy {
     this.kind = 'empty';
     this.info = null;
     this.activeProbe = null;
+    this.activeAudioTags = null;
     this.error = '';
     this.streamUrl = null;
     this.audioReady = false;

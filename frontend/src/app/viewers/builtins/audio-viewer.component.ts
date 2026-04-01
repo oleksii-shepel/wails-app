@@ -946,9 +946,8 @@ interface AudioTagRow {
     /* ── CONTROLS ──────────────────────────────────────── */
     .ctrl-bar {
       padding: 12px 14px 14px;
-      background: rgba(0, 0, 0, 0.28);
-      backdrop-filter: blur(8px);
-      border-top: 1px solid color-mix(in srgb, var(--av-text) 12%, transparent);
+      background: color-mix(in srgb, var(--av-surface) 96%, black);
+      border-top: 1px solid var(--av-border);
       display: flex;
       flex-direction: column;
       gap: 12px;
@@ -979,7 +978,7 @@ interface AudioTagRow {
       flex: 1;
       position: relative;
       height: 4px;
-      background: color-mix(in srgb, var(--av-text) 20%, transparent);
+      background: color-mix(in srgb, var(--vsc-border, #454545) 80%, transparent);
       border-radius: 2px;
       cursor: pointer;
       overflow: hidden;
@@ -1064,30 +1063,28 @@ interface AudioTagRow {
       align-items: center;
       justify-content: center;
       min-width: 36px;
-      height: 36px;
-      padding: 0 8px;
-      border-radius: 6px;
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      background: rgba(255, 255, 255, 0.1);
-      color: white;
-      font-size: 16px;
+      height: 32px;
+      padding: 0 10px;
+      border-radius: 4px;
+      border: 1px solid var(--av-border);
+      background: var(--vsc-input-background, var(--av-button));
+      color: var(--av-text);
+      font-size: 13px;
       font-weight: 600;
       cursor: pointer;
-      transition: all 0.2s ease;
+      transition: background 0.12s, border-color 0.12s;
       white-space: nowrap;
       letter-spacing: 0.02em;
       font-family: inherit;
-      backdrop-filter: blur(4px);
     }
 
     .cbtn:hover:not(:disabled) {
-      background: rgba(255, 255, 255, 0.2);
-      border-color: rgba(255, 255, 255, 0.3);
-      transform: scale(1.05);
+      background: var(--av-button-hover);
+      border-color: color-mix(in srgb, var(--av-border) 100%, var(--av-text) 20%);
     }
 
     .cbtn:active:not(:disabled) {
-      transform: scale(0.95);
+      background: color-mix(in srgb, var(--av-button-hover) 90%, black);
     }
 
     .cbtn:disabled {
@@ -1096,17 +1093,17 @@ interface AudioTagRow {
     }
 
     .cbtn-play {
-      min-width: 44px;
-      height: 36px;
-      background: var(--vsc-accent-blue, #0078d4);
-      border: 1px solid rgba(0, 120, 212, 0.3);
-      font-size: 16px;
-      color: white;
+      min-width: 40px;
+      height: 32px;
+      background: var(--vsc-button-background, #0e639c);
+      border-color: color-mix(in srgb, var(--vsc-button-background, #0e639c) 60%, transparent);
+      color: var(--vsc-button-foreground, #ffffff);
+      font-size: 14px;
     }
 
     .cbtn-play:hover:not(:disabled) {
-      background: #1084d7;
-      box-shadow: 0 0 12px rgba(0, 120, 212, 0.5);
+      background: var(--vsc-button-hover-background, #1177bb);
+      border-color: color-mix(in srgb, var(--vsc-button-hover-background, #1177bb) 70%, transparent);
     }
 
     .cbtn-icon {
@@ -1114,7 +1111,7 @@ interface AudioTagRow {
     }
 
     .cbtn-skip {
-      min-width: 40px;
+      min-width: 44px;
       font-size: 11px;
       font-family: ui-monospace, monospace;
     }
@@ -1125,10 +1122,11 @@ interface AudioTagRow {
       gap: 4px;
       font-size: 12px;
       font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-      color: #ccc;
-      padding: 4px 8px;
+      color: var(--av-text-muted);
+      padding: 3px 8px;
       border-radius: 4px;
-      background: rgba(0, 0, 0, 0.2);
+      border: 1px solid var(--av-border);
+      background: var(--vsc-input-background, var(--av-button));
       min-width: 90px;
       justify-content: center;
       white-space: nowrap;
@@ -1136,20 +1134,20 @@ interface AudioTagRow {
     }
 
     :host-context(.vscode-light) .time-display {
-      background: rgba(0, 0, 0, 0.08);
+      background: var(--vsc-input-background, #fff);
     }
 
     .time-cur {
-      color: white;
-      font-weight: 500;
+      color: var(--av-text);
+      font-weight: 600;
     }
 
     .time-sep {
-      opacity: 0.5;
+      opacity: 0.45;
     }
 
     .time-dur {
-      color: #ccc;
+      color: var(--av-text-muted);
     }
 
     /* volume */
@@ -1190,7 +1188,7 @@ interface AudioTagRow {
       border-radius: 2px;
       appearance: none;
       -webkit-appearance: none;
-      background: rgba(255, 255, 255, 0.2);
+      background: color-mix(in srgb, var(--vsc-border, #454545) 80%, transparent);
       outline: none;
       cursor: pointer;
     }

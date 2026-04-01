@@ -5,6 +5,7 @@ import type { FilePaneBrowserCommands } from './file-pane-browser-commands.facto
 import { BatchItemError, operationErrorMessage } from '../shared/protocol-enhanced';
 
 export interface FileBrowserTransferPane {
+  currentPath: string;
   selectedFiles: Set<string>;
   archiveStack: ArchiveFrame[];
   getDestinationDir(): string;
@@ -27,7 +28,7 @@ export class FileBrowserTransferController {
   async copy(host: FileBrowserTransferHost, sourceSide: 'left' | 'right', paths: string[]): Promise<void> {
     const { src, dst } = this.resolvePanes(host, sourceSide);
     if (!src || !dst || paths.length === 0) return;
-    const destDir = dst.getDestinationDir();
+    const destDir = this.resolveCrossPaneDestination(dst);
 
     if (src.isInArchive()) {
       if (this.bothArchive(src, dst)) {
@@ -65,7 +66,7 @@ export class FileBrowserTransferController {
   async move(host: FileBrowserTransferHost, sourceSide: 'left' | 'right', paths: string[]): Promise<void> {
     const { src, dst } = this.resolvePanes(host, sourceSide);
     if (!src || !dst || paths.length === 0) return;
-    const destDir = dst.getDestinationDir();
+    const destDir = this.resolveCrossPaneDestination(dst);
 
     if (src.isInArchive()) {
       if (this.bothArchive(src, dst)) {
@@ -101,6 +102,10 @@ export class FileBrowserTransferController {
     return sourceSide === 'left'
       ? { src: host.leftPane, dst: host.rightPane }
       : { src: host.rightPane, dst: host.leftPane };
+  }
+
+  private resolveCrossPaneDestination(pane: FileBrowserTransferPane): string {
+    return pane.currentPath || pane.getDestinationDir();
   }
 
   private archiveError(result: any): string | null {

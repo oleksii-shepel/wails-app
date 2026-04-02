@@ -5,6 +5,7 @@ go 1.23.1
 require (
 	github.com/bodgit/sevenzip v1.6.1
 	github.com/fsnotify/fsnotify v1.9.0
+	github.com/go-gst/go-gst v1.4.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/hirochachacha/go-smb2 v1.1.0
 	github.com/jlaffaye/ftp v0.2.0
@@ -26,7 +27,6 @@ require (
 	github.com/dsnet/compress v0.0.2-0.20210315054119-f66993602bf5 // indirect
 	github.com/geoffgarside/ber v1.1.0 // indirect
 	github.com/go-gst/go-glib v1.4.0 // indirect
-	github.com/go-gst/go-gst v1.4.0 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
 	github.com/golang/snappy v0.0.2 // indirect

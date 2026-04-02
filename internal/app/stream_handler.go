@@ -11,7 +11,6 @@ import (
 	"mime"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -20,7 +19,6 @@ import (
 	"time"
 
 	"wails-app/internal/pathref"
-	"wails-app/internal/utility"
 	vfslib "wails-app/vfs"
 	"wails-app/vfs/archive/cache"
 )
@@ -117,7 +115,7 @@ type segmentedVideoPlaybackCache struct {
 
 var segmentedPlaybackCache = newSegmentedVideoPlaybackCache()
 
-type ffprobeOutput struct {
+type mediaProbeOutput struct {
 	Format struct {
 		FormatName string `json:"format_name"`
 		Duration   string `json:"duration"`
@@ -243,7 +241,7 @@ func serveStreamRequest(w http.ResponseWriter, r *http.Request, app *App, archCa
 	fsPath := q.Get("fsPath")
 	entry := q.Get("entry")
 	if fsPath != "" && entry != "" && transcodeFormat != "" {
-		serveTranscodedArchiveEntry(w, r, archCache, fsPath, entry, q.Get("nested"), transcodeFormat, playbackMode, startSeconds)
+		serveTranscodedArchiveEntry(w, r, archCache, fsPath, entry, q.Get("nested"), transcodeFormat, playbackMode, startSeconds, windowSeconds)
 		return
 	}
 	if fsPath != "" && entry != "" && thumbnailFormat != "" {
@@ -536,27 +534,25 @@ func serveTranscodedPath(w http.ResponseWriter, r *http.Request, publicPath stri
 		return
 	}
 
-	stdout, stderr, cmd, err := startFFmpegTranscode(r.Context(), buildFFmpegInputArgs(nativePath, startSeconds, windowSeconds), normalizePlaybackMode(playbackMode))
+	output, err := buildGStreamerFragmentedMP4(r.Context(), nativePath, startSeconds, windowSeconds, normalizePlaybackMode(playbackMode))
 	if err != nil {
 		handleTranscodeStartError(w, err)
 		return
 	}
-	defer stdout.Close()
 
 	if durationSeconds := probeFileDurationSeconds(nativePath); durationSeconds > 0 {
 		w.Header().Set("X-Video-Duration-Seconds", strconv.FormatFloat(durationSeconds, 'f', 3, 64))
 	}
 
-	streamTranscodedOutput(w, r, cmd, stdout, stderr)
+	setCORSHeaders(w)
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Type", "video/mp4")
+	http.ServeContent(w, r, filepath.Base(nativePath)+".mp4", time.Time{}, bytes.NewReader(output))
 }
 
-func serveTranscodedArchiveEntry(w http.ResponseWriter, r *http.Request, archCache *cache.Cache, fsPath, entryPath, nestedRaw string, targetFormat string, playbackMode string, startSeconds float64) {
+func serveTranscodedArchiveEntry(w http.ResponseWriter, r *http.Request, archCache *cache.Cache, fsPath, entryPath, nestedRaw string, targetFormat string, playbackMode string, startSeconds float64, windowSeconds float64) {
 	if strings.ToLower(targetFormat) != "mp4" {
 		http.Error(w, "unsupported transcode target", http.StatusBadRequest)
-		return
-	}
-	if startSeconds > 0 {
-		http.Error(w, "seeking is not available for archive video previews", http.StatusBadRequest)
 		return
 	}
 
@@ -587,26 +583,41 @@ func serveTranscodedArchiveEntry(w http.ResponseWriter, r *http.Request, archCac
 	}
 	defer entryFile.Close()
 
-	stdout, stderr, cmd, err := startFFmpegTranscode(r.Context(), []string{"-i", "pipe:0"}, normalizePlaybackMode(playbackMode))
+	tempPattern := "wails-transcode-*" + filepath.Ext(entryPath)
+	tempFile, err := os.CreateTemp("", tempPattern)
+	if err != nil {
+		http.Error(w, "failed to prepare transcode input", http.StatusInternalServerError)
+		return
+	}
+	tempPath := tempFile.Name()
+	defer func() {
+		tempFile.Close()
+		_ = os.Remove(tempPath)
+	}()
+
+	if _, err := io.Copy(tempFile, entryFile); err != nil {
+		http.Error(w, "failed to read archive entry", http.StatusInternalServerError)
+		return
+	}
+	if err := tempFile.Close(); err != nil {
+		http.Error(w, "failed to finalize transcode input", http.StatusInternalServerError)
+		return
+	}
+
+	output, err := buildGStreamerFragmentedMP4(r.Context(), tempPath, startSeconds, windowSeconds, normalizePlaybackMode(playbackMode))
 	if err != nil {
 		handleTranscodeStartError(w, err)
 		return
 	}
 
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		stdout.Close()
-		http.Error(w, "failed to prepare transcode input", http.StatusInternalServerError)
-		return
+	if durationSeconds := probeFileDurationSeconds(tempPath); durationSeconds > 0 {
+		w.Header().Set("X-Video-Duration-Seconds", strconv.FormatFloat(durationSeconds, 'f', 3, 64))
 	}
 
-	go func() {
-		defer stdin.Close()
-		_, _ = io.Copy(stdin, entryFile)
-	}()
-
-	defer stdout.Close()
-	streamTranscodedOutput(w, r, cmd, stdout, stderr)
+	setCORSHeaders(w)
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Type", "video/mp4")
+	http.ServeContent(w, r, filepath.Base(entryPath)+".mp4", time.Time{}, bytes.NewReader(output))
 }
 
 func servePath(w http.ResponseWriter, r *http.Request, app *App, publicPath string) {
@@ -726,161 +737,20 @@ func serveArchiveEntry(w http.ResponseWriter, r *http.Request, archCache *cache.
 	io.Copy(w, f) //nolint:errcheck — client disconnect is not an error
 }
 
-func startFFmpegTranscode(ctx context.Context, inputArgs []string, playbackMode VideoPlaybackMode) (io.ReadCloser, *bytes.Buffer, *exec.Cmd, error) {
-	ffmpegPath, ok := utility.ResolveExecutable("ffmpeg", "ffmpeg.exe")
-	if !ok {
-		return nil, nil, nil, exec.ErrNotFound
-	}
-
-	args := []string{
-		"-hide_banner",
-		"-loglevel", "error",
-		"-fflags", "+nobuffer",
-	}
-	if playbackMode != VideoPlaybackModeRemux {
-		args = append(args,
-			"-probesize", "32k",
-			"-analyzeduration", "0",
-		)
-	}
-	args = append(args, inputArgs...)
-	args = append(args, "-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn")
-	if playbackMode == VideoPlaybackModeRemux {
-		args = append(args,
-			"-c:v", "copy",
-			"-c:a", "copy",
-			"-bsf:a", "aac_adtstoasc",
-		)
-	} else {
-		args = append(args,
-			"-flags", "+low_delay",
-			"-fps_mode", "vfr",
-			"-c:v", "libx264",
-			"-preset", "ultrafast",
-			"-tune", "zerolatency",
-			"-crf", "23",
-			"-pix_fmt", "yuv420p",
-			"-g", "30",
-			"-keyint_min", "30",
-			"-sc_threshold", "0",
-			"-c:a", "aac",
-			"-b:a", "128k",
-		)
-	}
-	args = append(args,
-		"-muxdelay", "0",
-		"-muxpreload", "0",
-		"-movflags", "frag_every_frame+empty_moov+default_base_moof+faststart",
-		"-timecode_frame_start", "0",
-		"-f", "mp4",
-		"pipe:1",
-	)
-
-	cmd := exec.CommandContext(ctx, ffmpegPath, args...)
-	hideWindow(cmd)
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	stderr := &bytes.Buffer{}
-	cmd.Stderr = stderr
-	if err := cmd.Start(); err != nil {
-		stdout.Close()
-		return nil, nil, nil, err
-	}
-
-	return stdout, stderr, cmd, nil
-}
-
 func extractVideoFrame(ctx context.Context, inputPath string, targetFormat string, frameSeconds float64) ([]byte, error) {
-	ffmpegPath, ok := utility.ResolveExecutable("ffmpeg", "ffmpeg.exe")
-	if !ok {
-		return nil, fmt.Errorf("ffmpeg is not installed or not available on PATH")
-	}
-
-	targetFormat = strings.ToLower(strings.TrimPrefix(targetFormat, "."))
-	if targetFormat == "" {
-		targetFormat = "png"
-	}
-	if frameSeconds < 0 {
-		frameSeconds = 0
-	}
-
-	args := []string{
-		"-hide_banner",
-		"-loglevel", "error",
-		"-ss", strconv.FormatFloat(frameSeconds, 'f', 3, 64),
-		"-i", inputPath,
-		"-frames:v", "1",
-		"-f", "image2pipe",
-		"-vcodec", targetFormat,
-		"pipe:1",
-	}
-
-	cmd := exec.CommandContext(ctx, ffmpegPath, args...)
-	hideWindow(cmd)
-	var out bytes.Buffer
-	var errOut bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &errOut
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("failed to extract video frame: %v - %s", err, strings.TrimSpace(errOut.String()))
-	}
-	if out.Len() == 0 {
-		return nil, fmt.Errorf("ffmpeg produced no preview frame")
-	}
-	return out.Bytes(), nil
+	return extractVideoFrameWithGStreamer(ctx, inputPath, targetFormat, frameSeconds)
 }
 
 func handleTranscodeStartError(w http.ResponseWriter, err error) {
-	if execErr, ok := err.(*exec.Error); ok && execErr.Err != nil {
-		http.Error(w, "ffmpeg is not installed or not available on PATH", http.StatusServiceUnavailable)
-		return
+	status := http.StatusInternalServerError
+	message := strings.TrimSpace(err.Error())
+	if message == "" {
+		message = "gstreamer media pipeline failed"
 	}
-	http.Error(w, "failed to start ffmpeg transcoder", http.StatusInternalServerError)
-}
-
-func streamTranscodedOutput(w http.ResponseWriter, r *http.Request, cmd *exec.Cmd, stdout io.ReadCloser, stderr *bytes.Buffer) {
-	firstChunk := make([]byte, 32*1024)
-	n, readErr := stdout.Read(firstChunk)
-	if n == 0 {
-		waitErr := cmd.Wait()
-		if r.Context().Err() != nil {
-			return
-		}
-
-		if waitErr != nil || (readErr != nil && readErr != io.EOF) {
-			message := strings.TrimSpace(stderr.String())
-			if message == "" {
-				message = "ffmpeg transcode failed before producing output"
-			}
-			http.Error(w, message, http.StatusInternalServerError)
-			return
-		}
-
-		http.Error(w, "ffmpeg transcode produced no output", http.StatusInternalServerError)
-		return
+	if strings.Contains(strings.ToLower(message), "requires cgo") {
+		status = http.StatusServiceUnavailable
 	}
-
-	setCORSHeaders(w)
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Content-Type", "video/mp4")
-	w.WriteHeader(http.StatusOK)
-
-	if _, err := w.Write(firstChunk[:n]); err != nil {
-		_ = cmd.Wait()
-		return
-	}
-
-	_, copyErr := io.Copy(w, stdout)
-	waitErr := cmd.Wait()
-	if copyErr == nil && waitErr == nil {
-		return
-	}
-
-	if r.Context().Err() != nil {
-		return
-	}
+	http.Error(w, message, status)
 }
 
 func parseStartSeconds(raw string) float64 {
@@ -917,18 +787,6 @@ func parseThumbnailDimension(raw string) int {
 		return 2048
 	}
 	return value
-}
-
-func buildFFmpegInputArgs(inputPath string, startSeconds float64, windowSeconds float64) []string {
-	args := make([]string, 0, 6)
-	if startSeconds > 0 {
-		args = append(args, "-ss", strconv.FormatFloat(startSeconds, 'f', 3, 64))
-	}
-	args = append(args, "-i", inputPath)
-	if windowSeconds > 0 {
-		args = append(args, "-t", strconv.FormatFloat(windowSeconds, 'f', 3, 64))
-	}
-	return args
 }
 
 func normalizePlaybackMode(raw string) VideoPlaybackMode {
@@ -1094,10 +952,6 @@ func buildArchiveSegmentedVideoCache(ctx context.Context, archCache *cache.Cache
 }
 
 func buildSegmentedVideoCache(ctx context.Context, nativePath string, cacheKey string) (*segmentedVideoPlaybackCacheEntry, error) {
-	if _, ok := utility.ResolveExecutable("ffmpeg", "ffmpeg.exe"); !ok {
-		return nil, fmt.Errorf("ffmpeg is not installed or not available on PATH")
-	}
-
 	probe, err := probeVideo(nativePath)
 	if err != nil {
 		return nil, err
@@ -1150,63 +1004,7 @@ func buildSegmentedVideoCache(ctx context.Context, nativePath string, cacheKey s
 }
 
 func buildSegmentedVideoFragment(ctx context.Context, nativePath string, startSeconds float64, durationSeconds float64) ([]byte, []byte, error) {
-	ffmpegPath, ok := utility.ResolveExecutable("ffmpeg", "ffmpeg.exe")
-	if !ok {
-		return nil, nil, fmt.Errorf("ffmpeg is not installed or not available on PATH")
-	}
-
-	accurateSeek := requiresAccurateSegmentSeek(nativePath)
-	args := []string{
-		"-hide_banner",
-		"-loglevel", "error",
-	}
-	if startSeconds > 0 && !accurateSeek {
-		args = append(args, "-ss", strconv.FormatFloat(startSeconds, 'f', 3, 64))
-	}
-	args = append(args, "-i", nativePath)
-	if startSeconds > 0 && accurateSeek {
-		// AVI-style containers often lack a reliable index for input seeking.
-		// Seeking after -i forces FFmpeg to decode up to the exact frame and
-		// avoids the frozen frame issue when jumping backward.
-		args = append(args, "-ss", strconv.FormatFloat(startSeconds, 'f', 3, 64))
-	}
-	args = append(args,
-		"-t", strconv.FormatFloat(durationSeconds, 'f', 3, 64),
-		"-map", "0:v:0",
-		"-map", "0:a:0?",
-		"-sn",
-		"-dn",
-		"-c:v", "libx264",
-		"-preset", "ultrafast",
-		"-tune", "zerolatency",
-		"-crf", "23",
-		"-pix_fmt", "yuv420p",
-		// Force the segment to start on a keyframe without turning the whole
-		// fragment into all-I frames, which makes repeated seeks much slower.
-		"-g", "60",
-		"-keyint_min", "1",
-		"-force_key_frames", "expr:eq(n,0)",
-		"-sc_threshold", "0",
-		"-c:a", "aac",
-		"-b:a", "128k",
-		"-movflags", "frag_keyframe+empty_moov+default_base_moof",
-		"-f", "mp4",
-		"pipe:1",
-	)
-	cmd := exec.CommandContext(ctx, ffmpegPath, args...)
-	hideWindow(cmd)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		if ctx != nil && ctx.Err() != nil {
-			return nil, nil, ctx.Err()
-		}
-		return nil, nil, fmt.Errorf("failed to build segmented preview: %s", strings.TrimSpace(string(output)))
-	}
-	initSegment, mediaSegment, err := splitFragmentedMP4(output)
-	if err != nil {
-		return nil, nil, err
-	}
-	return initSegment, mediaSegment, nil
+	return buildGStreamerSegmentedVideoFragment(ctx, nativePath, startSeconds, durationSeconds)
 }
 
 func requiresAccurateSegmentSeek(nativePath string) bool {
@@ -1713,7 +1511,7 @@ func buildDiskVideoPlaybackPlan(baseURL, publicPath string) VideoPlaybackPlan {
 		}
 	}
 
-	// Segmented failed (e.g. ffmpeg not installed, unsupported format).
+	// Segmented playback failed or is unsupported.
 	// Fall back to transcoded streaming.
 	probe, _ := probeVideo(pathref.ToNativePath(pathref.Normalize(publicPath)))
 	format := strings.TrimPrefix(strings.ToLower(filepath.Ext(publicPath)), ".")
@@ -1734,7 +1532,7 @@ func buildDiskVideoPlaybackPlan(baseURL, publicPath string) VideoPlaybackPlan {
 		ZeroDelay:       true,
 		Seekable:        true,
 		UseNativePlayer: false,
-		URL:             FFmpegPreviewURLForFile(baseURL, publicPath, "mp4", string(mode), 0, defaultPreviewWindowSeconds, durationSeconds),
+		URL:             TranscodedPreviewURLForFile(baseURL, publicPath, "mp4", string(mode), 0, defaultPreviewWindowSeconds, durationSeconds),
 	}
 }
 
@@ -1770,7 +1568,7 @@ func buildArchiveVideoPlaybackPlan(baseURL string, archCache *cache.Cache, fsPat
 		ZeroDelay:       true,
 		Seekable:        false,
 		UseNativePlayer: false,
-		URL:             FFmpegPreviewURLForEntry(baseURL, fsPath, nestedChain, entryPath, "mp4", string(mode), 0, 0, 0),
+		URL:             TranscodedPreviewURLForEntry(baseURL, fsPath, nestedChain, entryPath, "mp4", string(mode), 0, 0, 0),
 	}
 }
 
@@ -1822,25 +1620,11 @@ func shouldAttemptSegmentedDiskPlayback(name, videoCodec, audioCodec string) boo
 	return false
 }
 
-func probeVideo(nativePath string) (*ffprobeOutput, error) {
-	ffprobePath, ok := utility.ResolveExecutable("ffprobe", "ffprobe.exe")
-	if !ok {
-		return nil, exec.ErrNotFound
-	}
-	cmd := exec.Command(ffprobePath, "-v", "error", "-print_format", "json", "-show_format", "-show_streams", nativePath)
-	hideWindow(cmd)
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, err
-	}
-	var parsed ffprobeOutput
-	if err := json.Unmarshal(out, &parsed); err != nil {
-		return nil, err
-	}
-	return &parsed, nil
+func probeVideo(nativePath string) (*mediaProbeOutput, error) {
+	return probeVideoWithGStreamer(nativePath)
 }
 
-func extractProbeCodecs(probe *ffprobeOutput) (string, string) {
+func extractProbeCodecs(probe *mediaProbeOutput) (string, string) {
 	if probe == nil {
 		return "", ""
 	}
@@ -1898,7 +1682,7 @@ func shouldTranscodeVideoPreview(name string) bool {
 	}
 }
 
-func FFmpegPreviewURLForFile(baseURL, publicPath, targetFormat, playbackMode string, startSeconds float64, windowSeconds float64, durationSeconds float64) string {
+func TranscodedPreviewURLForFile(baseURL, publicPath, targetFormat, playbackMode string, startSeconds float64, windowSeconds float64, durationSeconds float64) string {
 	u := joinStreamBaseURL(baseURL) + streamPath + "?path=" + urlEncode(publicPath) + "&transcode=" + urlEncode(targetFormat)
 	if playbackMode != "" {
 		u += "&mode=" + urlEncode(playbackMode)
@@ -1915,7 +1699,7 @@ func FFmpegPreviewURLForFile(baseURL, publicPath, targetFormat, playbackMode str
 	return u
 }
 
-func FFmpegPreviewURLForEntry(baseURL, fsPath string, nestedChain []string, entryPath string, targetFormat, playbackMode string, startSeconds float64, windowSeconds float64, durationSeconds float64) string {
+func TranscodedPreviewURLForEntry(baseURL, fsPath string, nestedChain []string, entryPath string, targetFormat, playbackMode string, startSeconds float64, windowSeconds float64, durationSeconds float64) string {
 	u := joinStreamBaseURL(baseURL) + streamPath + "?fsPath=" + urlEncode(fsPath) + "&entry=" + urlEncode(entryPath) + "&transcode=" + urlEncode(targetFormat)
 	if playbackMode != "" {
 		u += "&mode=" + urlEncode(playbackMode)

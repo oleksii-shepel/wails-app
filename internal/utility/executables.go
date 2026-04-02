@@ -124,6 +124,8 @@ func bundledToolsRoots() []string {
 		if cwd, err := os.Getwd(); err == nil {
 			appendRoot(filepath.Join(cwd, "tools"))
 			appendRoot(filepath.Join(cwd, "portable-tools"))
+			appendRoot(filepath.Join(cwd, "..", "tools"))
+			appendRoot(filepath.Join(cwd, "..", "portable-tools"))
 		}
 	})
 

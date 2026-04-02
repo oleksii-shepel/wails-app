@@ -40,7 +40,7 @@ func buildGStreamerSegmentedVideoFragment(ctx context.Context, nativePath string
 	if err != nil {
 		return nil, nil, err
 	}
-	defer pipeline.SetState(gst.StateNull)
+	defer shutdownGStreamerPipeline(pipeline)
 
 	var out bytes.Buffer
 	var outMu sync.Mutex
@@ -50,6 +50,7 @@ func buildGStreamerSegmentedVideoFragment(ctx context.Context, nativePath string
 			if sample == nil {
 				return gst.FlowEOS
 			}
+			defer sample.Unref()
 			buffer := sample.GetBuffer()
 			if buffer == nil {
 				return gst.FlowError
@@ -110,15 +111,22 @@ func buildGStreamerSegmentedVideoFragment(ctx context.Context, nativePath string
 		case gst.MessageEOS:
 			data := out.Bytes()
 			if len(data) == 0 {
+				msg.Unref()
 				return nil, nil, fmt.Errorf("gstreamer produced no fragmented mp4 output")
 			}
 			initSegment, mediaSegment, err := splitFragmentedMP4(data)
 			if err != nil {
+				msg.Unref()
 				return nil, nil, err
 			}
+			msg.Unref()
 			return initSegment, mediaSegment, nil
 		case gst.MessageError:
-			return nil, nil, fmt.Errorf("gstreamer segment build failed: %w", msg.ParseError())
+			err := fmt.Errorf("gstreamer segment build failed: %w", msg.ParseError())
+			msg.Unref()
+			return nil, nil, err
+		default:
+			msg.Unref()
 		}
 	}
 }

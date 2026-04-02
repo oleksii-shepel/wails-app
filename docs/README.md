@@ -85,6 +85,26 @@ For portable delivery on Windows, copy each tool's full install/runtime director
 
 To refresh the bundled tool directory from the current machine, run [scripts/collect-portable-tools.ps1](scripts/collect-portable-tools.ps1).
 
+## GStreamer Build Helper
+
+The Go backend now uses GStreamer through `go-gst`, so Windows builds need the GStreamer SDK's `bin` directory on `PATH` and its `lib/pkgconfig` directory in `PKG_CONFIG_PATH`.
+
+The portable runtime under `..\tools\gstreamer` is used by the app at runtime. It is not a build SDK and does not include `pkg-config.exe`, headers, or `.pc` files.
+
+For the default local install at `C:\Users\oleks\AppData\Local\Programs\gstreamer\1.0\msvc_x86_64`, use:
+
+```powershell
+.\scripts\build-with-gstreamer.ps1
+.\scripts\dev-with-gstreamer.ps1
+```
+
+To override the SDK location or build a narrower package set:
+
+```powershell
+.\scripts\build-with-gstreamer.ps1 -GStreamerSdkRoot 'C:\path\to\gstreamer\1.0\msvc_x86_64' -GoArgs ./internal/app
+.\scripts\dev-with-gstreamer.ps1 -GStreamerSdkRoot 'C:\path\to\gstreamer\1.0\msvc_x86_64'
+```
+
 ## File View Operations Matrix
 
 All file views share the same operation pipeline and are treated as equivalent interaction surfaces.

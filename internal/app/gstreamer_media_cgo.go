@@ -25,7 +25,7 @@ func buildGStreamerFragmentedMP4(ctx context.Context, nativePath string, startSe
 	if err != nil {
 		return nil, err
 	}
-	defer pipeline.SetState(gst.StateNull)
+	defer shutdownGStreamerPipeline(pipeline)
 
 	var out bytes.Buffer
 	sink.SetCallbacks(&app.SinkCallbacks{
@@ -34,6 +34,7 @@ func buildGStreamerFragmentedMP4(ctx context.Context, nativePath string, startSe
 			if sample == nil {
 				return gst.FlowEOS
 			}
+			defer sample.Unref()
 			buffer := sample.GetBuffer()
 			if buffer == nil {
 				return gst.FlowError
@@ -94,11 +95,17 @@ func buildGStreamerFragmentedMP4(ctx context.Context, nativePath string, startSe
 		switch msg.Type() {
 		case gst.MessageEOS:
 			if out.Len() == 0 {
+				msg.Unref()
 				return nil, fmt.Errorf("gstreamer produced no transcoded output")
 			}
+			msg.Unref()
 			return out.Bytes(), nil
 		case gst.MessageError:
-			return nil, fmt.Errorf("gstreamer transcode failed: %w", msg.ParseError())
+			err := fmt.Errorf("gstreamer transcode failed: %w", msg.ParseError())
+			msg.Unref()
+			return nil, err
+		default:
+			msg.Unref()
 		}
 	}
 }
@@ -127,7 +134,7 @@ func extractVideoFrameWithGStreamer(ctx context.Context, inputPath string, targe
 	if err != nil {
 		return nil, fmt.Errorf("failed to create gstreamer frame pipeline: %w", err)
 	}
-	defer pipeline.SetState(gst.StateNull)
+	defer shutdownGStreamerPipeline(pipeline)
 
 	sinkElem, err := pipeline.GetElementByName("framesink")
 	if err != nil {
@@ -170,6 +177,7 @@ func extractVideoFrameWithGStreamer(ctx context.Context, inputPath string, targe
 		}
 		return nil, fmt.Errorf("gstreamer produced no preview frame")
 	}
+	defer sample.Unref()
 	buffer := sample.GetBuffer()
 	if buffer == nil {
 		return nil, fmt.Errorf("gstreamer produced no preview frame")
@@ -225,4 +233,12 @@ func normalizeFrameFormat(value string) string {
 		return "png"
 	}
 	return value
+}
+
+func shutdownGStreamerPipeline(pipeline *gst.Pipeline) {
+	if pipeline == nil {
+		return
+	}
+	_ = pipeline.SetState(gst.StateNull)
+	_, _ = pipeline.GetState(gst.StateNull, gst.ClockTime(5*time.Second))
 }

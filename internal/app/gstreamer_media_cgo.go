@@ -6,14 +6,20 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"runtime"
 	"strings"
+	"sync"
 	"time"
+	"unsafe"
 
 	"github.com/go-gst/go-gst/gst"
 	"github.com/go-gst/go-gst/gst/app"
 )
 
 func buildGStreamerFragmentedMP4(ctx context.Context, nativePath string, startSeconds float64, windowSeconds float64, playbackMode VideoPlaybackMode) ([]byte, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if err := ensureGStreamerRuntime(); err != nil {
 		return nil, err
 	}
@@ -28,20 +34,23 @@ func buildGStreamerFragmentedMP4(ctx context.Context, nativePath string, startSe
 	defer shutdownGStreamerPipeline(pipeline)
 
 	var out bytes.Buffer
+	var outMu sync.Mutex
 	sink.SetCallbacks(&app.SinkCallbacks{
 		NewSampleFunc: func(s *app.Sink) gst.FlowReturn {
 			sample := s.PullSample()
 			if sample == nil {
 				return gst.FlowEOS
 			}
-			defer sample.Unref()
+			defer releaseGstSample(sample)
 			buffer := sample.GetBuffer()
 			if buffer == nil {
 				return gst.FlowError
 			}
 			chunk := buffer.Bytes()
 			if len(chunk) > 0 {
+				outMu.Lock()
 				out.Write(chunk)
+				outMu.Unlock()
 			}
 			return gst.FlowOK
 		},
@@ -50,7 +59,7 @@ func buildGStreamerFragmentedMP4(ctx context.Context, nativePath string, startSe
 	if err := pipeline.SetState(gst.StatePaused); err != nil {
 		return nil, fmt.Errorf("failed to preroll gstreamer transcode pipeline: %w", err)
 	}
-	if stateChange, state := pipeline.GetState(gst.StatePaused, gst.ClockTime(20*time.Second)); stateChange == gst.StateChangeFailure || state != gst.StatePaused {
+	if stateChange, state := pipeline.GetState(gst.StatePaused, gstClockTime(20*time.Second)); stateChange == gst.StateChangeFailure || state != gst.StatePaused {
 		return nil, fmt.Errorf("gstreamer transcode pipeline failed to enter paused state")
 	}
 
@@ -87,30 +96,36 @@ func buildGStreamerFragmentedMP4(ctx context.Context, nativePath string, startSe
 		default:
 		}
 
-		msg := bus.TimedPop(gst.ClockTime(250 * time.Millisecond))
+		msg := bus.TimedPop(gstClockTime(250 * time.Millisecond))
 		if msg == nil {
 			continue
 		}
 
-		switch msg.Type() {
-		case gst.MessageEOS:
-			if out.Len() == 0 {
-				msg.Unref()
+		msgType := msg.Type()
+		if msgType == gst.MessageEOS {
+			outMu.Lock()
+			data := append([]byte(nil), out.Bytes()...)
+			outMu.Unlock()
+			if len(data) == 0 {
+				releaseGstMessage(msg)
 				return nil, fmt.Errorf("gstreamer produced no transcoded output")
 			}
-			msg.Unref()
-			return out.Bytes(), nil
-		case gst.MessageError:
-			err := fmt.Errorf("gstreamer transcode failed: %w", msg.ParseError())
-			msg.Unref()
-			return nil, err
-		default:
-			msg.Unref()
+			releaseGstMessage(msg)
+			return data, nil
 		}
+		if msgType == gst.MessageError {
+			err := fmt.Errorf("gstreamer transcode failed: %w", msg.ParseError())
+			releaseGstMessage(msg)
+			return nil, err
+		}
+		releaseGstMessage(msg)
 	}
 }
 
 func extractVideoFrameWithGStreamer(ctx context.Context, inputPath string, targetFormat string, frameSeconds float64) ([]byte, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if err := ensureGStreamerRuntime(); err != nil {
 		return nil, err
 	}
@@ -151,7 +166,7 @@ func extractVideoFrameWithGStreamer(ctx context.Context, inputPath string, targe
 	if err := pipeline.SetState(gst.StatePaused); err != nil {
 		return nil, fmt.Errorf("failed to preroll gstreamer frame pipeline: %w", err)
 	}
-	if stateChange, state := pipeline.GetState(gst.StatePaused, gst.ClockTime(20*time.Second)); stateChange == gst.StateChangeFailure || state != gst.StatePaused {
+	if stateChange, state := pipeline.GetState(gst.StatePaused, gstClockTime(20*time.Second)); stateChange == gst.StateChangeFailure || state != gst.StatePaused {
 		return nil, fmt.Errorf("gstreamer frame pipeline failed to enter paused state")
 	}
 
@@ -170,14 +185,18 @@ func extractVideoFrameWithGStreamer(ctx context.Context, inputPath string, targe
 		return nil, fmt.Errorf("gstreamer frame pipeline rejected seek")
 	}
 
-	sample := sink.TryPullPreroll(gst.ClockTime(10 * time.Second))
+	if err := pipeline.SetState(gst.StatePlaying); err != nil {
+		return nil, fmt.Errorf("failed to start gstreamer frame pipeline: %w", err)
+	}
+
+	sample, err := pullFrameSample(ctx, pipeline, sink, 10*time.Second)
+	if err != nil {
+		return nil, err
+	}
 	if sample == nil {
-		if ctx != nil && ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
 		return nil, fmt.Errorf("gstreamer produced no preview frame")
 	}
-	defer sample.Unref()
+	defer releaseGstSample(sample)
 	buffer := sample.GetBuffer()
 	if buffer == nil {
 		return nil, fmt.Errorf("gstreamer produced no preview frame")
@@ -235,10 +254,66 @@ func normalizeFrameFormat(value string) string {
 	return value
 }
 
+func pullFrameSample(ctx context.Context, pipeline *gst.Pipeline, sink *app.Sink, timeout time.Duration) (*gst.Sample, error) {
+	deadline := time.Now().Add(timeout)
+	bus := pipeline.GetPipelineBus()
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if remaining := time.Until(deadline); remaining <= 0 {
+			return nil, nil
+		}
+
+		sample := sink.TryPullSample(gstClockTime(100 * time.Millisecond))
+		if sample != nil {
+			return sample, nil
+		}
+
+		for {
+			msg := bus.TimedPop(gstClockTime(0))
+			if msg == nil {
+				break
+			}
+			msgType := msg.Type()
+			if msgType == gst.MessageError {
+				err := fmt.Errorf("gstreamer frame extraction failed: %w", msg.ParseError())
+				releaseGstMessage(msg)
+				return nil, err
+			}
+			if msgType == gst.MessageEOS {
+				releaseGstMessage(msg)
+				return nil, fmt.Errorf("gstreamer produced no preview frame")
+			}
+			releaseGstMessage(msg)
+		}
+	}
+}
+
 func shutdownGStreamerPipeline(pipeline *gst.Pipeline) {
 	if pipeline == nil {
 		return
 	}
 	_ = pipeline.SetState(gst.StateNull)
-	_, _ = pipeline.GetState(gst.StateNull, gst.ClockTime(5*time.Second))
+	_, _ = pipeline.GetState(gst.StateNull, gstClockTime(5*time.Second))
+}
+
+func gstClockTime(duration time.Duration) gst.ClockTime {
+	return *(*gst.ClockTime)(unsafe.Pointer(&duration))
+}
+
+func releaseGstSample(sample *gst.Sample) {
+	if sample == nil {
+		return
+	}
+	runtime.SetFinalizer(sample, nil)
+	sample.Unref()
+}
+
+func releaseGstMessage(message *gst.Message) {
+	if message == nil {
+		return
+	}
+	runtime.SetFinalizer(message, nil)
+	message.Unref()
 }

@@ -20,7 +20,7 @@ type ViewerKind =
 interface ImageMeta { width: number; height: number }
 
 interface VideoPlaybackPlan {
-  mode: 'direct' | 'remux' | 'transcode';
+  mode: 'direct' | 'remux' | 'transcode' | 'segmented';
   format: string;
   videoCodec?: string;
   audioCodec?: string;
@@ -1349,6 +1349,8 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
 
   get videoPlaybackModeLabel(): string {
     switch (this.videoPlaybackPlan?.mode) {
+      case 'segmented':
+        return 'segmented';
       case 'direct':
         return 'direct';
       case 'remux':
@@ -1362,12 +1364,14 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
 
   get videoPlaybackModeTitle(): string {
     switch (this.videoPlaybackPlan?.mode) {
+      case 'segmented':
+        return 'Segmented playback: preview uses fragmented MP4 segments for random access.';
       case 'direct':
-        return 'Direct playback: preview uses the original stream without FFmpeg rewriting.';
+        return 'Direct playback: preview uses the original stream without rewriting.';
       case 'remux':
-        return 'Remux playback: FFmpeg repackages the stream into MP4 without re-encoding when possible.';
+        return 'Remux playback: preview repackages the stream into MP4 without re-encoding when possible.';
       case 'transcode':
-        return 'Transcode playback: FFmpeg re-encodes the media for compatibility in preview.';
+        return 'Transcode playback: preview re-encodes the media for compatibility.';
       default:
         return 'Playback mode unavailable.';
     }
@@ -2265,8 +2269,12 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
     };
 
     const rawMode = readPlanValue<string>('mode', 'Mode');
+    const normalizedMode =
+      rawMode === 'segmented' || rawMode === 'remux' || rawMode === 'transcode'
+        ? rawMode
+        : 'direct';
     const normalized: VideoPlaybackPlan = {
-      mode: rawMode === 'remux' || rawMode === 'transcode' ? rawMode : 'direct',
+      mode: normalizedMode,
       format: String(readPlanValue<string>('format', 'Format') ?? ''),
       videoCodec: readPlanValue<string>('videoCodec', 'VideoCodec') ?? undefined,
       audioCodec: readPlanValue<string>('audioCodec', 'AudioCodec') ?? undefined,
@@ -2286,6 +2294,13 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
     if (normalized.mode === 'direct') {
       normalized.useNativePlayer = false;
     }
+    console.debug('[viewer-surface] video playback plan', {
+      targetPath: this.targetPath,
+      archiveContext: this.archiveContext,
+      rawPlan,
+      normalized,
+      fallbackUrl,
+    });
     return normalized;
   }
 

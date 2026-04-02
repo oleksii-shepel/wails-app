@@ -22,6 +22,9 @@ import (
 var gstInitOnce sync.Once
 
 func buildGStreamerSegmentedVideoFragment(ctx context.Context, nativePath string, startSeconds float64, durationSeconds float64) ([]byte, []byte, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if err := ensureGStreamerRuntime(); err != nil {
 		return nil, nil, err
 	}
@@ -50,7 +53,7 @@ func buildGStreamerSegmentedVideoFragment(ctx context.Context, nativePath string
 			if sample == nil {
 				return gst.FlowEOS
 			}
-			defer sample.Unref()
+			defer releaseGstSample(sample)
 			buffer := sample.GetBuffer()
 			if buffer == nil {
 				return gst.FlowError
@@ -69,7 +72,7 @@ func buildGStreamerSegmentedVideoFragment(ctx context.Context, nativePath string
 	if err := pipeline.SetState(gst.StatePaused); err != nil {
 		return nil, nil, fmt.Errorf("failed to preroll gstreamer pipeline: %w", err)
 	}
-	if stateChange, state := pipeline.GetState(gst.StatePaused, gst.ClockTime(15*time.Second)); stateChange == gst.StateChangeFailure || state != gst.StatePaused {
+	if stateChange, state := pipeline.GetState(gst.StatePaused, gstClockTime(15*time.Second)); stateChange == gst.StateChangeFailure || state != gst.StatePaused {
 		return nil, nil, fmt.Errorf("gstreamer pipeline failed to enter paused state")
 	}
 
@@ -94,7 +97,7 @@ func buildGStreamerSegmentedVideoFragment(ctx context.Context, nativePath string
 	}
 
 	bus := pipeline.GetPipelineBus()
-	tick := gst.ClockTime(250 * time.Millisecond)
+	tick := gstClockTime(250 * time.Millisecond)
 	for {
 		select {
 		case <-ctx.Done():
@@ -107,27 +110,29 @@ func buildGStreamerSegmentedVideoFragment(ctx context.Context, nativePath string
 			continue
 		}
 
-		switch msg.Type() {
-		case gst.MessageEOS:
-			data := out.Bytes()
+		msgType := msg.Type()
+		if msgType == gst.MessageEOS {
+			outMu.Lock()
+			data := append([]byte(nil), out.Bytes()...)
+			outMu.Unlock()
 			if len(data) == 0 {
-				msg.Unref()
+				releaseGstMessage(msg)
 				return nil, nil, fmt.Errorf("gstreamer produced no fragmented mp4 output")
 			}
 			initSegment, mediaSegment, err := splitFragmentedMP4(data)
 			if err != nil {
-				msg.Unref()
+				releaseGstMessage(msg)
 				return nil, nil, err
 			}
-			msg.Unref()
+			releaseGstMessage(msg)
 			return initSegment, mediaSegment, nil
-		case gst.MessageError:
-			err := fmt.Errorf("gstreamer segment build failed: %w", msg.ParseError())
-			msg.Unref()
-			return nil, nil, err
-		default:
-			msg.Unref()
 		}
+		if msgType == gst.MessageError {
+			err := fmt.Errorf("gstreamer segment build failed: %w", msg.ParseError())
+			releaseGstMessage(msg)
+			return nil, nil, err
+		}
+		releaseGstMessage(msg)
 	}
 }
 

@@ -1499,20 +1499,6 @@ func (a *App) GetArchiveVideoPlaybackPlan(fsPath string, nestedChain []string, e
 }
 
 func buildDiskVideoPlaybackPlan(baseURL, publicPath string) VideoPlaybackPlan {
-	if entry, err := ensureSegmentedVideoCacheEntry(context.Background(), publicPath); err == nil {
-		return VideoPlaybackPlan{
-			Mode:            VideoPlaybackModeSegmented,
-			Format:          entry.Format,
-			DurationSeconds: entry.DurationSeconds,
-			ZeroDelay:       false,
-			Seekable:        true,
-			UseNativePlayer: false,
-			URL:             segmentManifestURLForFile(baseURL, publicPath),
-		}
-	}
-
-	// Segmented playback failed or is unsupported.
-	// Fall back to transcoded streaming.
 	probe, _ := probeVideo(pathref.ToNativePath(pathref.Normalize(publicPath)))
 	format := strings.TrimPrefix(strings.ToLower(filepath.Ext(publicPath)), ".")
 	var videoCodec, audioCodec string
@@ -1537,21 +1523,6 @@ func buildDiskVideoPlaybackPlan(baseURL, publicPath string) VideoPlaybackPlan {
 }
 
 func buildArchiveVideoPlaybackPlan(baseURL string, archCache *cache.Cache, fsPath string, nestedChain []string, entryPath string) VideoPlaybackPlan {
-	if shouldAttemptSegmentedDiskPlayback(entryPath, "", "") {
-		if entry, err := ensureArchiveSegmentedVideoCacheEntry(context.Background(), archCache, fsPath, nestedChain, entryPath); err == nil {
-			return VideoPlaybackPlan{
-				Mode:            VideoPlaybackModeSegmented,
-				Format:          entry.Format,
-				DurationSeconds: entry.DurationSeconds,
-				ZeroDelay:       false,
-				Seekable:        true,
-				UseNativePlayer: false,
-				URL:             segmentManifestURLForKey(baseURL, entry.CacheKey),
-			}
-		}
-	}
-
-	// Segmented not available — fall back to transcoded streaming.
 	mode := decidePlaybackMode(entryPath, "", "")
 	if mode == VideoPlaybackModeDirect {
 		return VideoPlaybackPlan{
@@ -1577,34 +1548,16 @@ func decidePlaybackMode(name, videoCodec, audioCodec string) VideoPlaybackMode {
 	if directPreviewExtensions[ext] {
 		return VideoPlaybackModeDirect
 	}
-	if remuxableVideoCodecs[strings.ToLower(videoCodec)] && remuxableAudioCodecs[strings.ToLower(audioCodec)] {
-		switch ext {
-		case ".mov", ".qt", ".flv", ".ts", ".mts", ".m2ts":
-			return VideoPlaybackModeRemux
-		}
-	}
-	if transcodePreferredVideoCodecs[strings.ToLower(videoCodec)] {
-		return VideoPlaybackModeTranscode
-	}
-	if shouldTranscodeVideoPreview(name) {
-		return VideoPlaybackModeTranscode
-	}
-	return VideoPlaybackModeDirect
+	_ = videoCodec
+	_ = audioCodec
+	return VideoPlaybackModeTranscode
 }
 
 func decideDiskPlaybackMode(name, videoCodec, audioCodec string) VideoPlaybackMode {
-	vc := strings.ToLower(videoCodec)
-	ac := strings.ToLower(audioCodec)
-	// Remux when both streams can be copied into fragmented MP4 without re-encode.
-	if remuxableVideoCodecs[vc] && remuxableAudioCodecs[ac] {
-		return VideoPlaybackModeRemux
-	}
-	// Must transcode for legacy or codec-incompatible formats.
-	if transcodePreferredVideoCodecs[vc] || shouldTranscodeVideoPreview(name) {
-		return VideoPlaybackModeTranscode
-	}
-	// Unknown codec: attempt remux and let FFmpeg decide.
-	return VideoPlaybackModeRemux
+	_ = name
+	_ = videoCodec
+	_ = audioCodec
+	return VideoPlaybackModeTranscode
 }
 
 func shouldAttemptSegmentedDiskPlayback(name, videoCodec, audioCodec string) bool {

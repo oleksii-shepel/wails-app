@@ -1078,6 +1078,13 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
       const mode = String(rawPlan?.mode ?? rawPlan?.Mode ?? '').toLowerCase();
       const url = String(rawPlan?.url ?? rawPlan?.URL ?? '');
       this.playbackMode = mode || 'video';
+      console.debug('[video-viewer] playback plan resolved', {
+        targetPath: this.targetPath,
+        archiveContext: this.archiveContext,
+        rawPlan,
+        mode,
+        url,
+      });
       if (!url) {
         this.useLegacySurface = true;
       } else if (mode === 'segmented') {
@@ -1463,6 +1470,11 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
     if (!this.videoContainerRef?.nativeElement) {
       return;
     }
+    console.debug('[video-viewer] initialize segmented playback', {
+      targetPath: this.targetPath,
+      manifestUrl,
+      generation,
+    });
     this.videoLoading = true;
     this.error = null;
     this.cdr.markForCheck();
@@ -1488,6 +1500,12 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
     if (!this.videoContainerRef?.nativeElement) {
       return;
     }
+    console.debug('[video-viewer] initialize url playback', {
+      targetPath: this.targetPath,
+      streamUrl,
+      generation,
+      playbackMode: this.playbackMode,
+    });
     this.videoLoading = true;
     this.loadingStreamUrl = streamUrl;
     this.videoTimelineOffsetSeconds = this.parseVideoStartOffsetSeconds(streamUrl);
@@ -1528,6 +1546,11 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
     void this.initializeSegmentedPlayback(manifestUrl, generation)
       .catch((err: unknown) => {
         if (generation !== this.initGeneration) return;
+        console.error('[video-viewer] segmented playback failed', {
+          targetPath: this.targetPath,
+          manifestUrl,
+          err,
+        });
         this.error = err instanceof Error ? err.message : String(err);
         this.videoLoading = false;
         this.cdr.markForCheck();
@@ -1553,6 +1576,11 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
     void this.initializeUrlPlayback(streamUrl, generation)
       .catch((err: unknown) => {
         if (generation !== this.initGeneration) return;
+        console.error('[video-viewer] url playback failed', {
+          targetPath: this.targetPath,
+          streamUrl,
+          err,
+        });
         this.error = err instanceof Error ? err.message : String(err);
         this.videoLoading = false;
         this.cdr.markForCheck();

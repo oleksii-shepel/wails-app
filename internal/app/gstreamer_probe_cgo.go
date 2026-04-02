@@ -22,7 +22,7 @@ func probeVideoWithGStreamer(nativePath string) (*mediaProbeOutput, error) {
 		gst.Init(nil)
 	})
 
-	discoverer, err := pbutils.NewDiscoverer(gst.ClockTime(15 * time.Second))
+	discoverer, err := pbutils.NewDiscoverer(gstClockTime(15 * time.Second))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create gstreamer discoverer: %w", err)
 	}
@@ -67,10 +67,11 @@ func fileURIForNativePath(nativePath string) string {
 }
 
 func formatClockTimeSeconds(value gst.ClockTime) string {
-	if value <= 0 {
+	duration := value.AsDuration()
+	if duration == nil || *duration <= 0 {
 		return ""
 	}
-	seconds := float64(value) / float64(time.Second)
+	seconds := duration.Seconds()
 	return strconv.FormatFloat(seconds, 'f', 3, 64)
 }
 

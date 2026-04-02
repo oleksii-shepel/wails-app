@@ -1,42 +1,6 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { SampleInfo } from '../../services/canvas-video-player.service';
-
-/**
- * findPacketIndex tests — pure function for locating packets by timestamp
- */
-
-// Export test utilities (these would be copy-pasted from segment-video-loader.ts for testing)
-function findPacketIndex(packets: SampleInfo[], timeMs: number, requireKeyframe: boolean): number {
-  let bestIndex = -1;
-  
-  if (requireKeyframe) {
-    // Find the keyframe with timestamp <= timeMs (for backward seeks)
-    for (let index = 0; index < packets.length; index += 1) {
-      const packet = packets[index];
-      if (packet.isRap && packet.timestampMs <= timeMs) {
-        bestIndex = index;
-      } else if (packet.timestampMs > timeMs && bestIndex >= 0) {
-        break;
-      }
-    }
-    
-    if (bestIndex >= 0) {
-      return bestIndex;
-    }
-    
-    // If no keyframe before, find first keyframe
-    return packets.findIndex(packet => packet.isRap);
-  }
-  
-  // Regular forward seek - find first packet >= timeMs
-  for (let index = 0; index < packets.length; index += 1) {
-    if (packets[index].timestampMs >= timeMs) {
-      return index;
-    }
-  }
-  
-  return packets.length > 0 ? packets.length - 1 : -1;
-}
+import { findPacketIndex, trimPacketsToSegmentWindow } from './segment-video-loader';
 
 const mockPacket = (index: number, timestampMs: number, isRap: boolean): SampleInfo => ({
   index,
@@ -202,6 +166,46 @@ describe('collectPackets pattern', () => {
     expect(collected[0].timestampMs).toBe(1000);
     expect(collected[1].timestampMs).toBe(1033);
     expect(collected[2].timestampMs).toBe(1066);
+  });
+});
+
+describe('trimPacketsToSegmentWindow', () => {
+  it('drops packets from overlapped segment lead-in before the nominal segment start', () => {
+    const packets = [
+      mockPacket(0, 1933, true),
+      mockPacket(1, 1966, false),
+      mockPacket(2, 2000, true),
+      mockPacket(3, 2033, false),
+    ];
+
+    expect(trimPacketsToSegmentWindow(packets, 2000, 4000).map((packet) => packet.timestampMs)).toEqual([
+      2000,
+      2033,
+    ]);
+  });
+
+  it('drops packets that spill into the next segment window', () => {
+    const packets = [
+      mockPacket(0, 3966, false),
+      mockPacket(1, 4000, true),
+      mockPacket(2, 4033, false),
+    ];
+
+    expect(trimPacketsToSegmentWindow(packets, 2000, 4000).map((packet) => packet.timestampMs)).toEqual([
+      3966,
+    ]);
+  });
+
+  it('keeps exact boundary packets for the newer segment', () => {
+    const packets = [
+      mockPacket(0, 4000, true),
+      mockPacket(1, 4033, false),
+    ];
+
+    expect(trimPacketsToSegmentWindow(packets, 4000, 6000).map((packet) => packet.timestampMs)).toEqual([
+      4000,
+      4033,
+    ]);
   });
 });
 

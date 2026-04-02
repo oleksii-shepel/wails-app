@@ -208,17 +208,18 @@ export class SegmentVideoLoader {
       }
 
       const startOffsetMs = segment.startTime * 1000;
-      const videoPackets = await collectPackets(
+      const segmentEndMs = getSegmentWindowEndMs(this.manifest.segments, index);
+      const videoPackets = trimPacketsToSegmentWindow(await collectPackets(
         () => source.getFirstPacket(),
         (cursor) => source.getNextPacket(cursor),
         startOffsetMs,
-      );
+      ), startOffsetMs, segmentEndMs);
       const audioPackets = source.audio
-        ? await collectPackets(
+        ? trimPacketsToSegmentWindow(await collectPackets(
             () => source.audio!.getFirstPacket(),
             (cursor) => source.audio!.getNextPacket(cursor),
             startOffsetMs,
-          )
+          ), startOffsetMs, segmentEndMs)
         : [];
       source.destroy?.();
 
@@ -474,7 +475,25 @@ async function collectPackets(
   return packets;
 }
 
-function findPacketIndex(packets: SampleInfo[], timeMs: number, requireKeyframe: boolean): number {
+function getSegmentWindowEndMs(segments: SegmentedVideoManifestItem[], segmentIndex: number): number {
+  const segment = segments[segmentIndex];
+  const nextSegment = segments[segmentIndex + 1];
+  const segmentEndMs = (segment.startTime + segment.durationSeconds) * 1000;
+  if (!nextSegment) {
+    return segmentEndMs;
+  }
+  return Math.min(segmentEndMs, nextSegment.startTime * 1000);
+}
+
+export function trimPacketsToSegmentWindow(
+  packets: SampleInfo[],
+  windowStartMs: number,
+  windowEndMs: number,
+): SampleInfo[] {
+  return packets.filter((packet) => packet.timestampMs >= windowStartMs && packet.timestampMs < windowEndMs);
+}
+
+export function findPacketIndex(packets: SampleInfo[], timeMs: number, requireKeyframe: boolean): number {
   let bestIndex = -1;
   
   if (requireKeyframe) {

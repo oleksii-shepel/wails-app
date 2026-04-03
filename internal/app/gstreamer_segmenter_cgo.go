@@ -78,9 +78,9 @@ func buildGStreamerSegmentedVideoFragment(ctx context.Context, nativePath string
 
 	startTime := time.Duration(startSeconds * float64(time.Second))
 	stopTime := startTime + time.Duration(durationSeconds*float64(time.Second))
-	// We MUST NOT use gst.SeekFlagKeyUnit here! Using it causes GStreamer to snap the start time 
-	// backwards to the nearest I-frame, which sends past frames to x264enc. Since mp4mux resets its 
-	// timestamp to 0.0 for every chunk, the frontend adds the requested segment offset (e.g. 5.0s), 
+	// We MUST NOT use gst.SeekFlagKeyUnit here! Using it causes GStreamer to snap the start time
+	// backwards to the nearest I-frame, which sends past frames to x264enc. Since mp4mux resets its
+	// timestamp to 0.0 for every chunk, the frontend adds the requested segment offset (e.g. 5.0s),
 	// which shifts these snapped past frames forward, creating visually repetitive frames at the boundary.
 	seekFlags := gst.SeekFlagFlush | gst.SeekFlagAccurate
 	seek := gst.NewSeekEvent(
@@ -92,7 +92,7 @@ func buildGStreamerSegmentedVideoFragment(ctx context.Context, nativePath string
 		gst.SeekTypeSet,
 		stopTime.Nanoseconds(),
 	)
-	
+
 	dec, err := pipeline.GetElementByName("dec")
 	var ok bool
 	if err == nil && dec != nil {

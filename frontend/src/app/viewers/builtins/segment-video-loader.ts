@@ -86,7 +86,8 @@ export class SegmentVideoLoader {
 
     const manifestResponse = await fetch(manifestUrl, { signal: this.loadController.signal });
     if (!manifestResponse.ok) {
-      throw new Error(`Failed to load segment manifest: ${manifestResponse.status}`);
+      const errText = await manifestResponse.text().catch(() => '');
+      throw new Error(`Failed to load segment manifest: ${manifestResponse.status}. Details: ${errText}`);
     }
 
     this.manifest = await manifestResponse.json() as SegmentedVideoManifest;
@@ -464,12 +465,21 @@ async function collectPackets(
   timeOffsetMs: number,
 ): Promise<SampleInfo[]> {
   const packets: SampleInfo[] = [];
+  const seenTimestamps = new Set<number>();
   let cursor = await getFirstPacket();
+  
   while (cursor) {
-    packets.push({
-      ...cursor.packet,
-      timestampMs: cursor.packet.timestampMs + timeOffsetMs,
-    });
+    const timestampMs = cursor.packet.timestampMs + timeOffsetMs;
+    // Skip perfectly duplicate frames that have the identical Presentation Timestamp
+    if (!seenTimestamps.has(timestampMs)) {
+      seenTimestamps.add(timestampMs);
+      packets.push({
+        ...cursor.packet,
+        timestampMs,
+      });
+    } else {
+      console.warn(`Skipping repetitive packet at ${timestampMs}ms`);
+    }
     cursor = await getNextPacket(cursor);
   }
   return packets;

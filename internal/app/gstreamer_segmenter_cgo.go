@@ -78,7 +78,11 @@ func buildGStreamerSegmentedVideoFragment(ctx context.Context, nativePath string
 
 	startTime := time.Duration(startSeconds * float64(time.Second))
 	stopTime := startTime + time.Duration(durationSeconds*float64(time.Second))
-	seekFlags := gst.SeekFlagFlush | gst.SeekFlagKeyUnit | gst.SeekFlagAccurate
+	// We MUST NOT use gst.SeekFlagKeyUnit here! Using it causes GStreamer to snap the start time 
+	// backwards to the nearest I-frame, which sends past frames to x264enc. Since mp4mux resets its 
+	// timestamp to 0.0 for every chunk, the frontend adds the requested segment offset (e.g. 5.0s), 
+	// which shifts these snapped past frames forward, creating visually repetitive frames at the boundary.
+	seekFlags := gst.SeekFlagFlush | gst.SeekFlagAccurate
 	seek := gst.NewSeekEvent(
 		1.0,
 		gst.FormatTime,
@@ -88,9 +92,29 @@ func buildGStreamerSegmentedVideoFragment(ctx context.Context, nativePath string
 		gst.SeekTypeSet,
 		stopTime.Nanoseconds(),
 	)
-	if ok := pipeline.SendEvent(seek); !ok {
+	
+	dec, err := pipeline.GetElementByName("dec")
+	var ok bool
+	if err == nil && dec != nil {
+		ok = dec.SendEvent(seek)
+	}
+	if !ok {
+		ok = pipeline.SendEvent(seek)
+	}
+	if !ok {
 		return nil, nil, fmt.Errorf("gstreamer pipeline rejected segment seek")
 	}
+
+	// Strip any preroll frames (moof/mdat) generated before the seek, keeping only initialization boxes (ftyp/moov).
+	outMu.Lock()
+	prerollData := out.Bytes()
+	if initSegment, _, err := splitFragmentedMP4(prerollData); err == nil && len(initSegment) > 0 {
+		out.Reset()
+		out.Write(initSegment)
+	} else if len(prerollData) > 0 {
+		// If split fails, mp4mux might not have pushed moof yet (only ftyp/moov). Leave it intact.
+	}
+	outMu.Unlock()
 
 	if err := pipeline.SetState(gst.StatePlaying); err != nil {
 		return nil, nil, fmt.Errorf("failed to start gstreamer pipeline: %w", err)
@@ -163,14 +187,31 @@ func newSegmentEncodePipeline(nativePath string, durationSeconds float64) (*gst.
 		fragmentMillis = int64(segmentedPreviewSegmentSeconds * 1000)
 	}
 
-	pipelineText := fmt.Sprintf(
-		`filesrc location="%s" ! decodebin name=dec `+
-			`dec. ! queue ! videoconvert ! x264enc tune=zerolatency speed-preset=ultrafast key-int-max=60 option-string="scenecut=0" ! h264parse ! mux. `+
-			`dec. ! queue ! audioconvert ! audioresample ! voaacenc bitrate=128000 ! aacparse ! mux. `+
-			`mp4mux name=mux fragment-duration=%d streamable=true ! appsink name=segmentsink sync=false async=false`,
-		gstLaunchEscape(nativePath),
-		fragmentMillis,
-	)
+	var hasVideo, hasAudio bool
+	if probe, err := probeVideo(nativePath); err == nil && probe != nil {
+		for _, stream := range probe.Streams {
+			if stream.CodecType == "video" {
+				hasVideo = true
+			}
+			if stream.CodecType == "audio" {
+				hasAudio = true
+			}
+		}
+	}
+	if !hasVideo && !hasAudio {
+		// Fallback if probe failed or returned zero streams
+		hasVideo = true
+		hasAudio = true
+	}
+
+	pipelineText := fmt.Sprintf(`filesrc location="%s" ! decodebin name=dec `, gstLaunchEscape(nativePath))
+	if hasVideo {
+		pipelineText += `dec. ! queue ! videoconvert ! x264enc tune=zerolatency speed-preset=ultrafast key-int-max=60 option-string="scenecut=0" ! h264parse ! mux. `
+	}
+	if hasAudio {
+		pipelineText += `dec. ! queue ! audioconvert ! audioresample ! voaacenc bitrate=128000 ! aacparse ! mux. `
+	}
+	pipelineText += fmt.Sprintf(`mp4mux name=mux fragment-duration=%d streamable=true ! appsink name=segmentsink sync=false async=false`, fragmentMillis)
 
 	pipeline, err := gst.NewPipelineFromString(pipelineText)
 	if err != nil {

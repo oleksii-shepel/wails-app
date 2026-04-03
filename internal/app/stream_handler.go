@@ -1007,15 +1007,6 @@ func buildSegmentedVideoFragment(ctx context.Context, nativePath string, startSe
 	return buildGStreamerSegmentedVideoFragment(ctx, nativePath, startSeconds, durationSeconds)
 }
 
-func requiresAccurateSegmentSeek(nativePath string) bool {
-	switch strings.ToLower(filepath.Ext(nativePath)) {
-	case ".avi", ".divx", ".xvid":
-		return true
-	default:
-		return false
-	}
-}
-
 func splitFragmentedMP4(data []byte) ([]byte, []byte, error) {
 	if len(data) < 8 {
 		return nil, nil, fmt.Errorf("failed to build segmented preview: fragmented mp4 output too small")

@@ -37,21 +37,31 @@ func probeVideoWithGStreamer(nativePath string) (*mediaProbeOutput, error) {
 	probe.Format.FormatName = discovererFormatName(info, nativePath)
 
 	for _, video := range info.GetVideoStreams() {
+		caps := video.GetCaps()
+		capsStr := ""
+		if caps != nil {
+			capsStr = caps.String()
+		}
 		probe.Streams = append(probe.Streams, struct {
 			CodecType string `json:"codec_type"`
 			CodecName string `json:"codec_name"`
 		}{
 			CodecType: "video",
-			CodecName: codecNameFromCapsString(video.GetCaps().String(), "video"),
+			CodecName: codecNameFromCapsString(capsStr, "video"),
 		})
 	}
 	for _, audio := range info.GetAudioStreams() {
+		caps := audio.GetCaps()
+		capsStr := ""
+		if caps != nil {
+			capsStr = caps.String()
+		}
 		probe.Streams = append(probe.Streams, struct {
 			CodecType string `json:"codec_type"`
 			CodecName string `json:"codec_name"`
 		}{
 			CodecType: "audio",
-			CodecName: codecNameFromCapsString(audio.GetCaps().String(), "audio"),
+			CodecName: codecNameFromCapsString(capsStr, "audio"),
 		})
 	}
 
@@ -59,9 +69,13 @@ func probeVideoWithGStreamer(nativePath string) (*mediaProbeOutput, error) {
 }
 
 func fileURIForNativePath(nativePath string) string {
+	path := filepath.ToSlash(nativePath)
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
 	u := &url.URL{
 		Scheme: "file",
-		Path:   filepath.ToSlash(nativePath),
+		Path:   path,
 	}
 	return u.String()
 }

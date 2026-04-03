@@ -37,6 +37,7 @@ import { ApiService } from '../../services/api.service';
 import { Theme, ThemeService } from '../../services/theme.service';
 import { FileInfo, FileProbe, FileType } from '../../shared/protocol';
 import { ViewerArchiveContext } from '../viewer-archive-context';
+import type { ViewerFileListItem } from '../../shared/protocol-enhanced';
 
 type TextViewerKind = 'empty' | 'loading' | 'editor' | 'directory' | 'unsupported' | 'error';
 
@@ -498,6 +499,7 @@ export class TextViewerComponent implements OnChanges, OnDestroy {
   @Input() archiveContext: ViewerArchiveContext | null = null;
   @Input() viewerId: string | null = null;
   @Input() probe: FileProbe | null = null;
+  @Input() fileList: ViewerFileListItem[] = [];
 
   @ViewChild('editorHost')
   set editorHostRef(value: ElementRef<HTMLDivElement> | undefined) {

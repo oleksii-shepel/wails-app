@@ -14,6 +14,7 @@ import { VscodeScrollbarDirective } from '../../directives/vscode-scrollbar.dire
 import { ApiService } from '../../services/api.service';
 import { FileInfo, FileProbe, FileType } from '../../shared/protocol';
 import { ViewerArchiveContext } from '../viewer-archive-context';
+import type { ViewerFileListItem } from '../../shared/protocol-enhanced';
 
 type BinaryViewerKind = 'empty' | 'loading' | 'grid' | 'directory' | 'error';
 type OffsetFormat = 'hex' | 'dec';
@@ -454,6 +455,7 @@ export class BinaryViewerComponent implements OnChanges, OnDestroy {
   @Input() archiveContext: ViewerArchiveContext | null = null;
   @Input() viewerId: string | null = null;
   @Input() probe: FileProbe | null = null;
+  @Input() fileList: ViewerFileListItem[] = [];
 
   @ViewChild('gridBody')
   set gridBodyRef(value: ElementRef<HTMLDivElement> | undefined) {

@@ -31,7 +31,8 @@ if (-not $env:GOCACHE) {
 Push-Location $projectRoot
 try {
   Write-Host "Using GStreamer SDK root: $GStreamerSdkRoot"
-  Write-Host "Running: wails $($WailsArgs -join ' ')"
+  $env:GOFLAGS = "-tags=gstreamer"
+  Write-Host "Running: wails $($WailsArgs -join ' ') (GOFLAGS=$env:GOFLAGS)"
   & wails @WailsArgs
 } finally {
   Pop-Location

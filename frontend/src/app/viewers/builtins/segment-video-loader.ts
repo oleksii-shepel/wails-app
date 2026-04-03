@@ -467,9 +467,19 @@ async function collectPackets(
   const packets: SampleInfo[] = [];
   const seenTimestamps = new Set<number>();
   let cursor = await getFirstPacket();
+  let baseTs = 0;
+  let isFirst = true;
   
   while (cursor) {
-    const timestampMs = cursor.packet.timestampMs + timeOffsetMs;
+    // Normalize segment-local timestamps to start at 0 before adding timeOffsetMs.
+    // Some demuxers (e.g. flvdemux) don't reset running time after a seek, causing
+    // the muxed output to have a non-zero timestamp base. Without normalization the
+    // frontend double-offsets packets and trimPacketsToSegmentWindow drops them all.
+    if (isFirst) {
+      baseTs = cursor.packet.timestampMs;
+      isFirst = false;
+    }
+    const timestampMs = (cursor.packet.timestampMs - baseTs) + timeOffsetMs;
     // Skip perfectly duplicate frames that have the identical Presentation Timestamp
     if (!seenTimestamps.has(timestampMs)) {
       seenTimestamps.add(timestampMs);

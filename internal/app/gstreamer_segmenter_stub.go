@@ -1,4 +1,4 @@
-//go:build !cgo
+//go:build !gstreamer
 
 package app
 

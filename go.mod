@@ -3,6 +3,7 @@ module wails-app
 go 1.23.0
 
 require (
+	github.com/asticode/go-astiav v0.40.0
 	github.com/bodgit/sevenzip v1.6.1
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
@@ -20,6 +21,7 @@ require (
 
 require (
 	github.com/andybalholm/brotli v1.1.1 // indirect
+	github.com/asticode/go-astikit v0.42.0 // indirect
 	github.com/bep/debounce v1.2.1 // indirect
 	github.com/bodgit/plumbing v1.3.0 // indirect
 	github.com/bodgit/windows v1.0.1 // indirect

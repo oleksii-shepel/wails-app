@@ -394,7 +394,7 @@ func serveVideoFramePath(w http.ResponseWriter, r *http.Request, publicPath stri
 
 	frame, err := extractVideoFrame(r.Context(), nativePath, targetFormat, frameSeconds)
 	if err != nil {
-		handleTranscodeStartError(w, err)
+		http.Error(w, "failed to extract video frame: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -455,7 +455,7 @@ func serveVideoFrameArchiveEntry(w http.ResponseWriter, r *http.Request, archCac
 
 	frame, err := extractVideoFrame(r.Context(), tempPath, targetFormat, frameSeconds)
 	if err != nil {
-		handleTranscodeStartError(w, err)
+		http.Error(w, "failed to extract video frame from archive: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -536,9 +536,9 @@ func serveTranscodedPath(w http.ResponseWriter, r *http.Request, publicPath stri
 		return
 	}
 
-	stdout, stderr, cmd, err := startFFmpegTranscode(r.Context(), buildFFmpegInputArgs(nativePath, startSeconds, windowSeconds), normalizePlaybackMode(playbackMode))
+	stdout, err := startAstiavTranscode(r.Context(), nativePath, startSeconds, windowSeconds, normalizePlaybackMode(playbackMode))
 	if err != nil {
-		handleTranscodeStartError(w, err)
+		http.Error(w, "failed to start transcoder: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	defer stdout.Close()
@@ -547,7 +547,7 @@ func serveTranscodedPath(w http.ResponseWriter, r *http.Request, publicPath stri
 		w.Header().Set("X-Video-Duration-Seconds", strconv.FormatFloat(durationSeconds, 'f', 3, 64))
 	}
 
-	streamTranscodedOutput(w, r, cmd, stdout, stderr)
+	streamTranscodedOutput(w, r, stdout)
 }
 
 func serveTranscodedArchiveEntry(w http.ResponseWriter, r *http.Request, archCache *cache.Cache, fsPath, entryPath, nestedRaw string, targetFormat string, playbackMode string, startSeconds float64) {
@@ -587,26 +587,14 @@ func serveTranscodedArchiveEntry(w http.ResponseWriter, r *http.Request, archCac
 	}
 	defer entryFile.Close()
 
-	stdout, stderr, cmd, err := startFFmpegTranscode(r.Context(), []string{"-i", "pipe:0"}, normalizePlaybackMode(playbackMode))
+	stdout, err := startAstiavTranscodeReader(r.Context(), entryFile, normalizePlaybackMode(playbackMode))
 	if err != nil {
-		handleTranscodeStartError(w, err)
+		http.Error(w, "failed to start reader transcoder: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		stdout.Close()
-		http.Error(w, "failed to prepare transcode input", http.StatusInternalServerError)
-		return
-	}
-
-	go func() {
-		defer stdin.Close()
-		_, _ = io.Copy(stdin, entryFile)
-	}()
-
 	defer stdout.Close()
-	streamTranscodedOutput(w, r, cmd, stdout, stderr)
+
+	streamTranscodedOutput(w, r, stdout)
 }
 
 func servePath(w http.ResponseWriter, r *http.Request, app *App, publicPath string) {
@@ -726,71 +714,6 @@ func serveArchiveEntry(w http.ResponseWriter, r *http.Request, archCache *cache.
 	io.Copy(w, f) //nolint:errcheck — client disconnect is not an error
 }
 
-func startFFmpegTranscode(ctx context.Context, inputArgs []string, playbackMode VideoPlaybackMode) (io.ReadCloser, *bytes.Buffer, *exec.Cmd, error) {
-	ffmpegPath, ok := utility.ResolveExecutable("ffmpeg", "ffmpeg.exe")
-	if !ok {
-		return nil, nil, nil, exec.ErrNotFound
-	}
-
-	args := []string{
-		"-hide_banner",
-		"-loglevel", "error",
-		"-fflags", "+nobuffer",
-	}
-	if playbackMode != VideoPlaybackModeRemux {
-		args = append(args,
-			"-probesize", "32k",
-			"-analyzeduration", "0",
-		)
-	}
-	args = append(args, inputArgs...)
-	args = append(args, "-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn")
-	if playbackMode == VideoPlaybackModeRemux {
-		args = append(args,
-			"-c:v", "copy",
-			"-c:a", "copy",
-			"-bsf:a", "aac_adtstoasc",
-		)
-	} else {
-		args = append(args,
-			"-flags", "+low_delay",
-			"-fps_mode", "vfr",
-			"-c:v", "libx264",
-			"-preset", "ultrafast",
-			"-tune", "zerolatency",
-			"-crf", "23",
-			"-pix_fmt", "yuv420p",
-			"-g", "30",
-			"-keyint_min", "30",
-			"-sc_threshold", "0",
-			"-c:a", "aac",
-			"-b:a", "128k",
-		)
-	}
-	args = append(args,
-		"-muxdelay", "0",
-		"-muxpreload", "0",
-		"-movflags", "frag_every_frame+empty_moov+default_base_moof+faststart",
-		"-timecode_frame_start", "0",
-		"-f", "mp4",
-		"pipe:1",
-	)
-
-	cmd := exec.CommandContext(ctx, ffmpegPath, args...)
-	hideWindow(cmd)
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	stderr := &bytes.Buffer{}
-	cmd.Stderr = stderr
-	if err := cmd.Start(); err != nil {
-		stdout.Close()
-		return nil, nil, nil, err
-	}
-
-	return stdout, stderr, cmd, nil
-}
 
 func extractVideoFrame(ctx context.Context, inputPath string, targetFormat string, frameSeconds float64) ([]byte, error) {
 	ffmpegPath, ok := utility.ResolveExecutable("ffmpeg", "ffmpeg.exe")
@@ -832,33 +755,22 @@ func extractVideoFrame(ctx context.Context, inputPath string, targetFormat strin
 	return out.Bytes(), nil
 }
 
-func handleTranscodeStartError(w http.ResponseWriter, err error) {
-	if execErr, ok := err.(*exec.Error); ok && execErr.Err != nil {
-		http.Error(w, "ffmpeg is not installed or not available on PATH", http.StatusServiceUnavailable)
-		return
-	}
-	http.Error(w, "failed to start ffmpeg transcoder", http.StatusInternalServerError)
-}
 
-func streamTranscodedOutput(w http.ResponseWriter, r *http.Request, cmd *exec.Cmd, stdout io.ReadCloser, stderr *bytes.Buffer) {
+func streamTranscodedOutput(w http.ResponseWriter, r *http.Request, stdout io.ReadCloser) {
 	firstChunk := make([]byte, 32*1024)
 	n, readErr := stdout.Read(firstChunk)
 	if n == 0 {
-		waitErr := cmd.Wait()
 		if r.Context().Err() != nil {
 			return
 		}
 
-		if waitErr != nil || (readErr != nil && readErr != io.EOF) {
-			message := strings.TrimSpace(stderr.String())
-			if message == "" {
-				message = "ffmpeg transcode failed before producing output"
-			}
+		if readErr != nil && readErr != io.EOF {
+			message := readErr.Error()
 			http.Error(w, message, http.StatusInternalServerError)
 			return
 		}
 
-		http.Error(w, "ffmpeg transcode produced no output", http.StatusInternalServerError)
+		http.Error(w, "media transcode produced no output", http.StatusInternalServerError)
 		return
 	}
 
@@ -868,19 +780,10 @@ func streamTranscodedOutput(w http.ResponseWriter, r *http.Request, cmd *exec.Cm
 	w.WriteHeader(http.StatusOK)
 
 	if _, err := w.Write(firstChunk[:n]); err != nil {
-		_ = cmd.Wait()
 		return
 	}
 
-	_, copyErr := io.Copy(w, stdout)
-	waitErr := cmd.Wait()
-	if copyErr == nil && waitErr == nil {
-		return
-	}
-
-	if r.Context().Err() != nil {
-		return
-	}
+	_, _ = io.Copy(w, stdout)
 }
 
 func parseStartSeconds(raw string) float64 {
@@ -919,17 +822,6 @@ func parseThumbnailDimension(raw string) int {
 	return value
 }
 
-func buildFFmpegInputArgs(inputPath string, startSeconds float64, windowSeconds float64) []string {
-	args := make([]string, 0, 6)
-	if startSeconds > 0 {
-		args = append(args, "-ss", strconv.FormatFloat(startSeconds, 'f', 3, 64))
-	}
-	args = append(args, "-i", inputPath)
-	if windowSeconds > 0 {
-		args = append(args, "-t", strconv.FormatFloat(windowSeconds, 'f', 3, 64))
-	}
-	return args
-}
 
 func normalizePlaybackMode(raw string) VideoPlaybackMode {
 	if strings.EqualFold(raw, string(VideoPlaybackModeSegmented)) {
@@ -1942,3 +1834,7 @@ func probeFileDurationSeconds(nativePath string) float64 {
 	}
 	return parseProbeDuration(probe.Format.Duration)
 }
+
+
+
+

@@ -129,10 +129,7 @@ type ffprobeOutput struct {
 var directPreviewExtensions = map[string]bool{
 	".mp4":  true,
 	".m4v":  true,
-	".mkv":  true,
 	".webm": true,
-	".ogv":  true,
-	".mxf":  true,
 }
 
 var remuxableVideoCodecs = map[string]bool{
@@ -534,7 +531,14 @@ func serveTranscodedPath(w http.ResponseWriter, r *http.Request, publicPath stri
 		return
 	}
 
-	stdout, err := startAstiavTranscode(r.Context(), nativePath, startSeconds, windowSeconds, normalizePlaybackMode(playbackMode))
+	mode := normalizePlaybackMode(playbackMode)
+	var stdout io.ReadCloser
+	var err error
+	if mode == VideoPlaybackModeRemux {
+		stdout, err = startAstiavTranscode(r.Context(), nativePath, startSeconds, windowSeconds, mode)
+	} else {
+		stdout, err = startAstiavEncodeTranscode(r.Context(), nativePath, startSeconds, windowSeconds, mode)
+	}
 	if err != nil {
 		http.Error(w, "failed to start transcoder: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -585,7 +589,13 @@ func serveTranscodedArchiveEntry(w http.ResponseWriter, r *http.Request, archCac
 	}
 	defer entryFile.Close()
 
-	stdout, err := startAstiavTranscodeReader(r.Context(), entryFile, normalizePlaybackMode(playbackMode))
+	mode := normalizePlaybackMode(playbackMode)
+	var stdout io.ReadCloser
+	if mode == VideoPlaybackModeRemux {
+		stdout, err = startAstiavTranscodeReader(r.Context(), entryFile, mode)
+	} else {
+		stdout, err = startAstiavEncodeTranscodeReader(r.Context(), entryFile, mode)
+	}
 	if err != nil {
 		http.Error(w, "failed to start reader transcoder: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -1490,20 +1500,6 @@ func (a *App) GetArchiveVideoPlaybackPlan(fsPath string, nestedChain []string, e
 }
 
 func buildDiskVideoPlaybackPlan(baseURL, publicPath string) VideoPlaybackPlan {
-	if entry, err := ensureSegmentedVideoCacheEntry(context.Background(), publicPath); err == nil {
-		return VideoPlaybackPlan{
-			Mode:            VideoPlaybackModeSegmented,
-			Format:          entry.Format,
-			DurationSeconds: entry.DurationSeconds,
-			ZeroDelay:       false,
-			Seekable:        true,
-			UseNativePlayer: false,
-			URL:             segmentManifestURLForFile(baseURL, publicPath),
-		}
-	}
-
-	// Segmented failed (e.g. ffmpeg not installed, unsupported format).
-	// Fall back to transcoded streaming.
 	probe, _ := probeVideo(pathref.ToNativePath(pathref.Normalize(publicPath)))
 	format := strings.TrimPrefix(strings.ToLower(filepath.Ext(publicPath)), ".")
 	var videoCodec, audioCodec string
@@ -1513,6 +1509,22 @@ func buildDiskVideoPlaybackPlan(baseURL, publicPath string) VideoPlaybackPlan {
 		videoCodec, audioCodec = extractProbeCodecs(probe)
 		durationSeconds = parseProbeDuration(probe.Format.Duration)
 	}
+	if shouldAttemptSegmentedDiskPlayback(publicPath, videoCodec, audioCodec) {
+		if entry, err := ensureSegmentedVideoCacheEntry(context.Background(), publicPath); err == nil {
+			return VideoPlaybackPlan{
+				Mode:            VideoPlaybackModeSegmented,
+				Format:          entry.Format,
+				DurationSeconds: entry.DurationSeconds,
+				ZeroDelay:       false,
+				Seekable:        true,
+				UseNativePlayer: false,
+				URL:             segmentManifestURLForFile(baseURL, publicPath),
+			}
+		}
+	}
+
+	// Segmented failed or was not suitable for this container/codec pair.
+	// Fall back to streaming fMP4 output.
 	mode := decideDiskPlaybackMode(publicPath, videoCodec, audioCodec)
 	return VideoPlaybackPlan{
 		Mode:            mode,
@@ -1580,7 +1592,8 @@ func decidePlaybackMode(name, videoCodec, audioCodec string) VideoPlaybackMode {
 	if shouldTranscodeVideoPreview(name) {
 		return VideoPlaybackModeTranscode
 	}
-	return VideoPlaybackModeDirect
+	// Unknown format: transcode to be safe.
+	return VideoPlaybackModeTranscode
 }
 
 func decideDiskPlaybackMode(name, videoCodec, audioCodec string) VideoPlaybackMode {
@@ -1594,12 +1607,14 @@ func decideDiskPlaybackMode(name, videoCodec, audioCodec string) VideoPlaybackMo
 	if transcodePreferredVideoCodecs[vc] || shouldTranscodeVideoPreview(name) {
 		return VideoPlaybackModeTranscode
 	}
-	// Unknown codec: attempt remux and let FFmpeg decide.
-	return VideoPlaybackModeRemux
+	// Unknown codec: transcode to be safe.
+	return VideoPlaybackModeTranscode
 }
 
 func shouldAttemptSegmentedDiskPlayback(name, videoCodec, audioCodec string) bool {
-	switch strings.ToLower(filepath.Ext(name)) {
+	ext := strings.ToLower(filepath.Ext(name))
+
+	switch ext {
 	case ".mp4", ".m4v", ".mkv", ".webm", ".mov", ".qt",
 		".avi", ".divx", ".xvid",
 		".flv", ".ts", ".mts", ".m2ts",
@@ -1663,7 +1678,11 @@ func firstNonEmpty(values ...string) string {
 
 func shouldTranscodeVideoPreview(name string) bool {
 	switch strings.ToLower(filepath.Ext(name)) {
-	case ".avi", ".divx", ".xvid", ".flv", ".mov", ".qt", ".mpg", ".mpeg", ".vob", ".m2v", ".m2p", ".ts", ".mts", ".m2ts", ".mjpeg", ".mjpg":
+	case ".avi", ".divx", ".xvid", ".flv", ".mov", ".qt",
+		".mpg", ".mpeg", ".vob", ".m2v", ".m2p",
+		".ts", ".mts", ".m2ts",
+		".mjpeg", ".mjpg",
+		".mkv", ".wmv", ".asf", ".ogv", ".mxf":
 		return true
 	default:
 		return false

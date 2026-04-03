@@ -13,6 +13,7 @@ out-tsc/
 .DS_Store
 
 # Environment
+tools/
 .env
 .env.local
 .env.*.local

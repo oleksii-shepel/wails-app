@@ -10,15 +10,15 @@ import (
 )
 
 type RuntimeConfig struct {
-	SetContext            func(context.Context)
-	SetOperationEmitter   func(func(string, interface{}))
-	CreatePaneWatch       func()
-	InitVFS               func()
-	HandleFileDrop        func(int, int, []string) error
-	ClosePaneWatch        func()
-	CancelDirStreams      func()
-	StopElevationSession  func()
-	CloseArchiveCache     func()
+	SetContext           func(context.Context)
+	SetOperationEmitter  func(func(string, interface{}))
+	CreatePaneWatch      func()
+	InitVFS              func()
+	HandleFileDrop       func(int, int, []string) error
+	ClosePaneWatch       func()
+	CancelDirStreams     func()
+	StopElevationSession func()
+	CloseArchiveCache    func()
 }
 
 type RuntimeService struct {

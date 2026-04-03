@@ -28,15 +28,17 @@ func New() (*FS, error) {
 // code referencing the type compiles, even though New() always errors.
 var _ vfs.FileSystem = (*FS)(nil)
 
-func (f *FS) Open(_ context.Context, _ string) (vfs.File, error)          { return nil, ErrNotSupported }
-func (f *FS) Stat(_ context.Context, _ string) (vfs.FileInfo, error)      { return nil, ErrNotSupported }
-func (f *FS) ReadDir(_ context.Context, _ string) ([]vfs.FileInfo, error) { return nil, ErrNotSupported }
-func (f *FS) Exists(_ context.Context, _ string) bool                     { return false }
-func (f *FS) Create(_ context.Context, _ string) (vfs.File, error)        { return nil, ErrNotSupported }
-func (f *FS) Mkdir(_ context.Context, _ string, _ fs.FileMode) error      { return ErrNotSupported }
-func (f *FS) Remove(_ context.Context, _ string) error                    { return ErrNotSupported }
-func (f *FS) Rename(_ context.Context, _, _ string) error                 { return ErrNotSupported }
-func (f *FS) Join(elem ...string) string                                   { return "" }
-func (f *FS) Split(_ string) (string, string)                             { return "", "" }
-func (f *FS) IsAbs(_ string) bool                                         { return false }
-func (f *FS) RealPath(_ string) (string, error)                           { return "", ErrNotSupported }
+func (f *FS) Open(_ context.Context, _ string) (vfs.File, error)     { return nil, ErrNotSupported }
+func (f *FS) Stat(_ context.Context, _ string) (vfs.FileInfo, error) { return nil, ErrNotSupported }
+func (f *FS) ReadDir(_ context.Context, _ string) ([]vfs.FileInfo, error) {
+	return nil, ErrNotSupported
+}
+func (f *FS) Exists(_ context.Context, _ string) bool                { return false }
+func (f *FS) Create(_ context.Context, _ string) (vfs.File, error)   { return nil, ErrNotSupported }
+func (f *FS) Mkdir(_ context.Context, _ string, _ fs.FileMode) error { return ErrNotSupported }
+func (f *FS) Remove(_ context.Context, _ string) error               { return ErrNotSupported }
+func (f *FS) Rename(_ context.Context, _, _ string) error            { return ErrNotSupported }
+func (f *FS) Join(elem ...string) string                             { return "" }
+func (f *FS) Split(_ string) (string, string)                        { return "", "" }
+func (f *FS) IsAbs(_ string) bool                                    { return false }
+func (f *FS) RealPath(_ string) (string, error)                      { return "", ErrNotSupported }

@@ -464,6 +464,7 @@ func serveVideoFrameArchiveEntry(w http.ResponseWriter, r *http.Request, archCac
 }
 
 func serveSegmentManifest(w http.ResponseWriter, r *http.Request, publicPath string) {
+	setCORSHeaders(w)
 	entry, err := ensureSegmentedVideoCacheEntry(r.Context(), publicPath)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
@@ -474,26 +475,26 @@ func serveSegmentManifest(w http.ResponseWriter, r *http.Request, publicPath str
 	}
 
 	manifest := buildSegmentedVideoManifest(requestBaseURL(r), entry)
-	setCORSHeaders(w)
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	_ = json.NewEncoder(w).Encode(manifest)
 }
 
 func serveSegmentManifestByKey(w http.ResponseWriter, r *http.Request, cacheKey string) {
+	setCORSHeaders(w)
 	entry, ok := segmentedPlaybackCache.Get(cacheKey)
 	if !ok {
 		http.Error(w, "segment cache entry not found or expired", http.StatusNotFound)
 		return
 	}
 	manifest := buildSegmentedVideoManifest(requestBaseURL(r), entry.manifest)
-	setCORSHeaders(w)
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	_ = json.NewEncoder(w).Encode(manifest)
 }
 
 func serveSegmentFile(w http.ResponseWriter, r *http.Request, cacheKey string, fileName string) {
+	setCORSHeaders(w)
 	content, modTime, ok, err := segmentedPlaybackCache.File(r.Context(), cacheKey, fileName)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
@@ -507,7 +508,6 @@ func serveSegmentFile(w http.ResponseWriter, r *http.Request, cacheKey string, f
 		return
 	}
 
-	setCORSHeaders(w)
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "video/mp4")
 	http.ServeContent(w, r, fileName, modTime, bytes.NewReader(content))
@@ -1509,6 +1509,14 @@ func buildDiskVideoPlaybackPlan(baseURL, publicPath string) VideoPlaybackPlan {
 		durationSeconds = parseProbeDuration(probe.Format.Duration)
 	}
 	mode := decideDiskPlaybackMode(publicPath, videoCodec, audioCodec)
+
+	var playbackUrl string
+	if mode == VideoPlaybackModeSegmented {
+		playbackUrl = segmentManifestURLForFile(baseURL, publicPath)
+	} else {
+		playbackUrl = TranscodedPreviewURLForFile(baseURL, publicPath, "mp4", string(mode), 0, defaultPreviewWindowSeconds, durationSeconds)
+	}
+
 	return VideoPlaybackPlan{
 		Mode:            mode,
 		Format:          format,
@@ -1518,7 +1526,7 @@ func buildDiskVideoPlaybackPlan(baseURL, publicPath string) VideoPlaybackPlan {
 		ZeroDelay:       true,
 		Seekable:        true,
 		UseNativePlayer: false,
-		URL:             TranscodedPreviewURLForFile(baseURL, publicPath, "mp4", string(mode), 0, defaultPreviewWindowSeconds, durationSeconds),
+		URL:             playbackUrl,
 	}
 }
 
@@ -1554,9 +1562,9 @@ func decidePlaybackMode(name, videoCodec, audioCodec string) VideoPlaybackMode {
 }
 
 func decideDiskPlaybackMode(name, videoCodec, audioCodec string) VideoPlaybackMode {
-	_ = name
-	_ = videoCodec
-	_ = audioCodec
+	if shouldAttemptSegmentedDiskPlayback(name, videoCodec, audioCodec) {
+		return VideoPlaybackModeSegmented
+	}
 	return VideoPlaybackModeTranscode
 }
 

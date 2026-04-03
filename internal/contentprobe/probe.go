@@ -18,10 +18,10 @@ import (
 const SampleLimit = 64 * 1024
 
 type Result struct {
-	MimeType string `json:"mimeType"`
-	Encoding string `json:"encoding,omitempty"`
-	IsText   bool   `json:"isText"`
-	IsArchive bool  `json:"isArchive"`
+	MimeType  string `json:"mimeType"`
+	Encoding  string `json:"encoding,omitempty"`
+	IsText    bool   `json:"isText"`
+	IsArchive bool   `json:"isArchive"`
 }
 
 func ProbeReader(r io.Reader) ([]byte, Result, error) {

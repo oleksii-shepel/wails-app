@@ -82,6 +82,14 @@ func buildGStreamerSegmentedVideoFragment(ctx context.Context, nativePath string
 	// backwards to the nearest I-frame, which sends past frames to x264enc. Since mp4mux resets its
 	// timestamp to 0.0 for every chunk, the frontend adds the requested segment offset (e.g. 5.0s),
 	// which shifts these snapped past frames forward, creating visually repetitive frames at the boundary.
+	//
+	// SeekFlagSnapAfter is also harmful: it skips forward to the next keyframe, which creates gaps
+	// (missing frames) between segments. The frontend expects contiguous coverage from each segment's
+	// startTime to startTime+duration. When SnapAfter skips past that boundary, the segment delivers
+	// fewer frames than expected, creating frozen/missing ranges (e.g. freezes at 1s, 3s, 7s for FLV).
+	//
+	// Accurate seek is correct for ALL formats. Any surplus pre-seek frames that flvdemux/other demuxers
+	// emit are stripped by the frontend's trimPacketsToSegmentWindow + duplicate timestamp dedup.
 	seekFlags := gst.SeekFlagFlush | gst.SeekFlagAccurate
 	seek := gst.NewSeekEvent(
 		1.0,
@@ -103,6 +111,16 @@ func buildGStreamerSegmentedVideoFragment(ctx context.Context, nativePath string
 	}
 	if !ok {
 		return nil, nil, fmt.Errorf("gstreamer pipeline rejected segment seek")
+	}
+
+	// Install pad probes to clip any pre-seek frames that demuxers like flvdemux
+	// emit when they can't honor accurate seek properly. Without this, frames from
+	// the previous keyframe (before startTime) leak through with running time 0,
+	// causing the frontend to display wrong content in every segment.
+	if startSeconds > 0 {
+		clipNs := gst.ClockTime(startTime.Nanoseconds())
+		installSegmentClipProbe(pipeline, "vqueue", clipNs)
+		installSegmentClipProbe(pipeline, "aqueue", clipNs)
 	}
 
 	// Strip any preroll frames (moof/mdat) generated before the seek, keeping only initialization boxes (ftyp/moov).
@@ -160,6 +178,36 @@ func buildGStreamerSegmentedVideoFragment(ctx context.Context, nativePath string
 	}
 }
 
+// installSegmentClipProbe adds a pad probe on the src pad of the named element
+// that drops any buffer with PTS strictly before clipPTS. This prevents demuxers
+// like flvdemux from leaking pre-seek keyframe-anchored frames into the encoded
+// output, which would cause the frontend to show wrong/duplicate content.
+func installSegmentClipProbe(pipeline *gst.Pipeline, elementName string, clipPTS gst.ClockTime) {
+	elem, err := pipeline.GetElementByName(elementName)
+	if err != nil || elem == nil {
+		return
+	}
+	srcPad := elem.GetStaticPad("src")
+	if srcPad == nil {
+		return
+	}
+	srcPad.AddProbe(gst.PadProbeTypeBuffer, func(self *gst.Pad, info *gst.PadProbeInfo) gst.PadProbeReturn {
+		buf := info.GetBuffer()
+		if buf == nil {
+			return gst.PadProbeOK
+		}
+		pts := buf.PresentationTimestamp()
+		if pts == gst.ClockTimeNone {
+			return gst.PadProbeOK
+		}
+		if pts < clipPTS {
+			return gst.PadProbeDrop
+		}
+		// All subsequent buffers should be >= clipPTS, remove the probe
+		return gst.PadProbeRemove
+	})
+}
+
 func ensureGStreamerRuntime() error {
 	inspectPath, ok := utility.ResolveExecutable("gst-inspect-1.0", "gst-inspect-1.0.exe")
 	if !ok {
@@ -206,10 +254,10 @@ func newSegmentEncodePipeline(nativePath string, durationSeconds float64) (*gst.
 
 	pipelineText := fmt.Sprintf(`filesrc location="%s" ! decodebin name=dec `, gstLaunchEscape(nativePath))
 	if hasVideo {
-		pipelineText += `dec. ! queue ! videoconvert ! x264enc tune=zerolatency speed-preset=ultrafast key-int-max=60 option-string="scenecut=0" ! h264parse ! mux. `
+		pipelineText += `dec. ! queue name=vqueue ! videoconvert ! x264enc tune=zerolatency speed-preset=ultrafast key-int-max=60 option-string="scenecut=0" ! h264parse ! mux. `
 	}
 	if hasAudio {
-		pipelineText += `dec. ! queue ! audioconvert ! audioresample ! voaacenc bitrate=128000 ! aacparse ! mux. `
+		pipelineText += `dec. ! queue name=aqueue ! audioconvert ! audioresample ! voaacenc bitrate=128000 ! aacparse ! mux. `
 	}
 	pipelineText += fmt.Sprintf(`mp4mux name=mux fragment-duration=%d streamable=true ! appsink name=segmentsink sync=false async=false`, fragmentMillis)
 

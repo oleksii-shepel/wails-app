@@ -956,7 +956,10 @@ func buildSegmentedVideoCache(ctx context.Context, nativePath string, cacheKey s
 	if err != nil {
 		return nil, err
 	}
-	durationSeconds := parseProbeDuration(probe.Format.Duration)
+	var durationSeconds float64
+	if probe != nil {
+		durationSeconds = parseProbeDuration(probe.Format.Duration)
+	}
 	totalSegments := int(durationSeconds / segmentedPreviewSegmentSeconds)
 	if durationSeconds > float64(totalSegments)*segmentedPreviewSegmentSeconds {
 		totalSegments++

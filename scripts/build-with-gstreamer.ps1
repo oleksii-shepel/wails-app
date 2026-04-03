@@ -31,8 +31,8 @@ if (-not $env:GOCACHE) {
 Push-Location $projectRoot
 try {
   Write-Host "Using GStreamer SDK root: $GStreamerSdkRoot"
-  Write-Host "Running: go build -tags gstreamer $($GoArgs -join ' ')"
-  & go build -tags gstreamer @GoArgs
+  Write-Host "Running: go build $($GoArgs -join ' ')"
+  & go build @GoArgs
 } finally {
   Pop-Location
 }

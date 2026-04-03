@@ -8,11 +8,17 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-gst/go-gst/gst"
 	"github.com/go-gst/go-gst/gst/pbutils"
 )
+
+// gstDiscovererMu serialises all GStreamer discoverer calls.
+// The underlying C library crashes (access-violation) when two
+// goroutines run gst_discoverer_discover_uri concurrently on Windows.
+var gstDiscovererMu sync.Mutex
 
 func probeVideoWithGStreamer(nativePath string) (*mediaProbeOutput, error) {
 	if err := ensureGStreamerRuntime(); err != nil {
@@ -21,6 +27,9 @@ func probeVideoWithGStreamer(nativePath string) (*mediaProbeOutput, error) {
 	gstInitOnce.Do(func() {
 		gst.Init(nil)
 	})
+
+	gstDiscovererMu.Lock()
+	defer gstDiscovererMu.Unlock()
 
 	discoverer, err := pbutils.NewDiscoverer(gstClockTime(15 * time.Second))
 	if err != nil {

@@ -976,6 +976,7 @@ export class VideoViewerComponent implements OnChanges, AfterViewInit, OnDestroy
   set videoContainerRef(value: ElementRef<HTMLDivElement> | undefined) {
     this._videoContainerRef = value;
     this.requestSegmentedPlaybackInitialization();
+    this.requestUrlPlaybackInitialization();
   }
 
   get videoContainerRef(): ElementRef<HTMLDivElement> | undefined {

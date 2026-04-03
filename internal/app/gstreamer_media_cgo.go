@@ -71,15 +71,30 @@ func buildGStreamerFragmentedMP4(ctx context.Context, nativePath string, startSe
 			stopType = gst.SeekTypeSet
 			stopValue = (startTime + time.Duration(windowSeconds*float64(time.Second))).Nanoseconds()
 		}
-		if ok := pipeline.SendEvent(gst.NewSeekEvent(
+		// Use SeekFlagAccurate, NOT SeekFlagKeyUnit. KeyUnit causes flvdemux to
+		// snap to the nearest keyframe (often 3s+ into the file), producing a
+		// blank or frozen start. This matches the segmented pipeline's approach.
+		seekFlags := gst.SeekFlagFlush | gst.SeekFlagAccurate
+		seek := gst.NewSeekEvent(
 			1.0,
 			gst.FormatTime,
-			gst.SeekFlagFlush|gst.SeekFlagKeyUnit|gst.SeekFlagAccurate,
+			seekFlags,
 			gst.SeekTypeSet,
 			startTime.Nanoseconds(),
 			stopType,
 			stopValue,
-		)); !ok {
+		)
+		// Send seek to decodebin first (better for demuxers like flvdemux),
+		// then fall back to the pipeline.
+		dec, decErr := pipeline.GetElementByName("dec")
+		var ok bool
+		if decErr == nil && dec != nil {
+			ok = dec.SendEvent(seek)
+		}
+		if !ok {
+			ok = pipeline.SendEvent(seek)
+		}
+		if !ok {
 			return nil, fmt.Errorf("gstreamer transcode pipeline rejected seek")
 		}
 	}
@@ -209,13 +224,31 @@ func extractVideoFrameWithGStreamer(ctx context.Context, inputPath string, targe
 }
 
 func newTranscodePipeline(nativePath string, playbackMode VideoPlaybackMode) (*gst.Pipeline, *app.Sink, error) {
-	pipelineText := fmt.Sprintf(
-		`filesrc location="%s" ! decodebin name=dec `+
-			`dec. ! queue ! videoconvert ! x264enc tune=zerolatency speed-preset=ultrafast key-int-max=30 option-string="scenecut=0" ! h264parse ! mux. `+
-			`dec. ! queue ! audioconvert ! audioresample ! voaacenc bitrate=128000 ! aacparse ! mux. `+
-			`mp4mux name=mux fragment-duration=100 streamable=true ! appsink name=transcodesink sync=false async=false`,
-		gstLaunchEscape(nativePath),
-	)
+	var hasVideo, hasAudio bool
+	if probe, err := probeVideo(nativePath); err == nil && probe != nil {
+		for _, stream := range probe.Streams {
+			if stream.CodecType == "video" {
+				hasVideo = true
+			}
+			if stream.CodecType == "audio" {
+				hasAudio = true
+			}
+		}
+	}
+	if !hasVideo && !hasAudio {
+		hasVideo = true
+		hasAudio = true
+	}
+
+	pipelineText := fmt.Sprintf(`filesrc location="%s" ! decodebin name=dec `, gstLaunchEscape(nativePath))
+	if hasVideo {
+		pipelineText += `dec. ! queue ! videoconvert ! videorate ! x264enc tune=zerolatency speed-preset=ultrafast key-int-max=30 option-string="scenecut=0" ! h264parse ! mux. `
+	}
+	if hasAudio {
+		pipelineText += `dec. ! queue ! audioconvert ! audioresample ! audiorate ! voaacenc bitrate=128000 ! aacparse ! mux. `
+	}
+	pipelineText += `mp4mux name=mux fragment-duration=100 streamable=true ! appsink name=transcodesink sync=false async=false`
+
 	_ = playbackMode
 	pipeline, err := gst.NewPipelineFromString(pipelineText)
 	if err != nil {

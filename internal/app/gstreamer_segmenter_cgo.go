@@ -181,7 +181,8 @@ func buildGStreamerSegmentedVideoFragment(ctx context.Context, nativePath string
 // installSegmentClipProbe adds a pad probe on the src pad of the named element
 // that drops any buffer with PTS strictly before clipPTS. This prevents demuxers
 // like flvdemux from leaking pre-seek keyframe-anchored frames into the encoded
-// output, which would cause the frontend to show wrong/duplicate content.
+// output. The downstream videorate element fills any resulting gap at the start
+// of the segment by duplicating the first valid frame.
 func installSegmentClipProbe(pipeline *gst.Pipeline, elementName string, clipPTS gst.ClockTime) {
 	elem, err := pipeline.GetElementByName(elementName)
 	if err != nil || elem == nil {
@@ -254,10 +255,10 @@ func newSegmentEncodePipeline(nativePath string, durationSeconds float64) (*gst.
 
 	pipelineText := fmt.Sprintf(`filesrc location="%s" ! decodebin name=dec `, gstLaunchEscape(nativePath))
 	if hasVideo {
-		pipelineText += `dec. ! queue name=vqueue ! videoconvert ! x264enc tune=zerolatency speed-preset=ultrafast key-int-max=60 option-string="scenecut=0" ! h264parse ! mux. `
+		pipelineText += `dec. ! queue name=vqueue ! videoconvert ! videorate ! x264enc tune=zerolatency speed-preset=ultrafast key-int-max=120 option-string="scenecut=0" ! h264parse ! mux. `
 	}
 	if hasAudio {
-		pipelineText += `dec. ! queue name=aqueue ! audioconvert ! audioresample ! voaacenc bitrate=128000 ! aacparse ! mux. `
+		pipelineText += `dec. ! queue name=aqueue ! audioconvert ! audioresample ! audiorate ! voaacenc bitrate=128000 ! aacparse ! mux. `
 	}
 	pipelineText += fmt.Sprintf(`mp4mux name=mux fragment-duration=%d streamable=true ! appsink name=segmentsink sync=false async=false`, fragmentMillis)
 

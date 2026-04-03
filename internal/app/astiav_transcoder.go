@@ -51,8 +51,8 @@ func startAstiavTranscodeReader(ctx context.Context, r io.Reader, playbackMode V
 		defer inputFormatContext.Free()
 
 		ioContext, err := astiav.AllocIOContext(
-			131072,                     // 128KB buffer
-			false,                      // not writable
+			131072, // 128KB buffer
+			false,  // not writable
 			func(b []byte) (int, error) { // read function
 				return r.Read(b)
 			},
@@ -81,97 +81,97 @@ func startAstiavTranscodeReader(ctx context.Context, r io.Reader, playbackMode V
 
 func remuxLoop(ctx context.Context, inputFormatContext *astiav.FormatContext, startSeconds float64, windowSeconds float64, pw *io.PipeWriter) {
 	if err := inputFormatContext.FindStreamInfo(nil); err != nil {
-			pw.CloseWithError(fmt.Errorf("failed finding stream info: %w", err))
+		pw.CloseWithError(fmt.Errorf("failed finding stream info: %w", err))
+		return
+	}
+
+	if startSeconds > 0 {
+		seekTarget := int64(startSeconds * float64(astiav.TimeBase))
+		if err := inputFormatContext.SeekFrame(-1, seekTarget, astiav.NewSeekFlags(astiav.SeekFlagBackward)); err != nil {
+			// Non-fatal seek error
+		}
+	}
+
+	outputFormatContext, err := astiav.AllocOutputFormatContext(nil, "mp4", "")
+	if err != nil {
+		pw.CloseWithError(fmt.Errorf("failed allocating output format context: %w", err))
+		return
+	}
+	defer outputFormatContext.Free()
+
+	ioContext, err := astiav.AllocIOContext(
+		4096,
+		true,
+		nil,
+		nil,
+		func(b []byte) (int, error) {
+			n, err := pw.Write(b)
+			return n, err
+		},
+	)
+	if err != nil {
+		pw.CloseWithError(fmt.Errorf("failed allocating custom IO context: %w", err))
+		return
+	}
+	defer ioContext.Free()
+
+	outputFormatContext.SetPb(ioContext)
+
+	streamMapping := make(map[int]int)
+	outputStreamIdx := 0
+
+	streamsArr := inputFormatContext.Streams()
+	for i := 0; i < inputFormatContext.NbStreams(); i++ {
+		inStream := streamsArr[i]
+		codecParams := inStream.CodecParameters()
+		if codecParams.MediaType() != astiav.MediaTypeVideo && codecParams.MediaType() != astiav.MediaTypeAudio {
+			streamMapping[i] = -1
+			continue
+		}
+
+		outStream := outputFormatContext.NewStream(nil)
+		if outStream == nil {
+			pw.CloseWithError(fmt.Errorf("failed allocating output stream"))
 			return
 		}
 
-		if startSeconds > 0 {
-			seekTarget := int64(startSeconds * float64(astiav.TimeBase))
-			if err := inputFormatContext.SeekFrame(-1, seekTarget, astiav.NewSeekFlags(astiav.SeekFlagBackward)); err != nil {
-				// Non-fatal seek error
-			}
-		}
-
-		outputFormatContext, err := astiav.AllocOutputFormatContext(nil, "mp4", "")
-		if err != nil {
-			pw.CloseWithError(fmt.Errorf("failed allocating output format context: %w", err))
+		if err := codecParams.Copy(outStream.CodecParameters()); err != nil {
+			pw.CloseWithError(fmt.Errorf("failed copying codec parameters: %w", err))
 			return
 		}
-		defer outputFormatContext.Free()
+		outStream.CodecParameters().SetCodecTag(0)
 
-		ioContext, err := astiav.AllocIOContext(
-			4096,
-			true,
-			nil,
-			nil,
-			func(b []byte) (int, error) {
-				n, err := pw.Write(b)
-				return n, err
-			},
-		)
-		if err != nil {
-			pw.CloseWithError(fmt.Errorf("failed allocating custom IO context: %w", err))
+		streamMapping[i] = outputStreamIdx
+		outputStreamIdx++
+	}
+
+	options := astiav.NewDictionary()
+	defer options.Free()
+	options.Set("movflags", "frag_every_frame+empty_moov+default_base_moof+faststart", 0)
+
+	if err := outputFormatContext.WriteHeader(options); err != nil {
+		pw.CloseWithError(fmt.Errorf("failed writing header: %w", err))
+		return
+	}
+
+	pkt := astiav.AllocPacket()
+	if pkt == nil {
+		pw.CloseWithError(fmt.Errorf("failed allocating packet"))
+		return
+	}
+	defer pkt.Free()
+
+	startTime := time.Now()
+
+	for {
+		select {
+		case <-ctx.Done():
+			outputFormatContext.WriteTrailer()
 			return
-		}
-		defer ioContext.Free()
-
-		outputFormatContext.SetPb(ioContext)
-
-		streamMapping := make(map[int]int)
-		outputStreamIdx := 0
-
-		streamsArr := inputFormatContext.Streams()
-		for i := 0; i < inputFormatContext.NbStreams(); i++ {
-			inStream := streamsArr[i]
-			codecParams := inStream.CodecParameters()
-			if codecParams.MediaType() != astiav.MediaTypeVideo && codecParams.MediaType() != astiav.MediaTypeAudio {
-				streamMapping[i] = -1
-				continue
-			}
-
-			outStream := outputFormatContext.NewStream(nil)
-			if outStream == nil {
-				pw.CloseWithError(fmt.Errorf("failed allocating output stream"))
-				return
-			}
-
-			if err := codecParams.Copy(outStream.CodecParameters()); err != nil {
-				pw.CloseWithError(fmt.Errorf("failed copying codec parameters: %w", err))
-				return
-			}
-			outStream.CodecParameters().SetCodecTag(0)
-
-			streamMapping[i] = outputStreamIdx
-			outputStreamIdx++
+		default:
 		}
 
-		options := astiav.NewDictionary()
-		defer options.Free()
-		options.Set("movflags", "frag_every_frame+empty_moov+default_base_moof+faststart", 0)
-
-		if err := outputFormatContext.WriteHeader(options); err != nil {
-			pw.CloseWithError(fmt.Errorf("failed writing header: %w", err))
-			return
-		}
-
-		pkt := astiav.AllocPacket()
-		if pkt == nil {
-			pw.CloseWithError(fmt.Errorf("failed allocating packet"))
-			return
-		}
-		defer pkt.Free()
-
-		startTime := time.Now()
-
-		for {
-			select {
-			case <-ctx.Done():
-				outputFormatContext.WriteTrailer()
-				return
-			default:
-			}
-
-			if windowSeconds > 0 && time.Since(startTime).Seconds() > windowSeconds {
+		if windowSeconds > 0 && time.Since(startTime).Seconds() > windowSeconds {
 			break
 		}
 

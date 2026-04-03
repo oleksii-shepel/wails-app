@@ -11,7 +11,6 @@ import (
 	"mime"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -20,7 +19,6 @@ import (
 	"time"
 
 	"wails-app/internal/pathref"
-	"wails-app/internal/utility"
 	vfslib "wails-app/vfs"
 	"wails-app/vfs/archive/cache"
 )
@@ -715,45 +713,6 @@ func serveArchiveEntry(w http.ResponseWriter, r *http.Request, archCache *cache.
 }
 
 
-func extractVideoFrame(ctx context.Context, inputPath string, targetFormat string, frameSeconds float64) ([]byte, error) {
-	ffmpegPath, ok := utility.ResolveExecutable("ffmpeg", "ffmpeg.exe")
-	if !ok {
-		return nil, fmt.Errorf("ffmpeg is not installed or not available on PATH")
-	}
-
-	targetFormat = strings.ToLower(strings.TrimPrefix(targetFormat, "."))
-	if targetFormat == "" {
-		targetFormat = "png"
-	}
-	if frameSeconds < 0 {
-		frameSeconds = 0
-	}
-
-	args := []string{
-		"-hide_banner",
-		"-loglevel", "error",
-		"-ss", strconv.FormatFloat(frameSeconds, 'f', 3, 64),
-		"-i", inputPath,
-		"-frames:v", "1",
-		"-f", "image2pipe",
-		"-vcodec", targetFormat,
-		"pipe:1",
-	}
-
-	cmd := exec.CommandContext(ctx, ffmpegPath, args...)
-	hideWindow(cmd)
-	var out bytes.Buffer
-	var errOut bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &errOut
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("failed to extract video frame: %v - %s", err, strings.TrimSpace(errOut.String()))
-	}
-	if out.Len() == 0 {
-		return nil, fmt.Errorf("ffmpeg produced no preview frame")
-	}
-	return out.Bytes(), nil
-}
 
 
 func streamTranscodedOutput(w http.ResponseWriter, r *http.Request, stdout io.ReadCloser) {
@@ -986,9 +945,6 @@ func buildArchiveSegmentedVideoCache(ctx context.Context, archCache *cache.Cache
 }
 
 func buildSegmentedVideoCache(ctx context.Context, nativePath string, cacheKey string) (*segmentedVideoPlaybackCacheEntry, error) {
-	if _, ok := utility.ResolveExecutable("ffmpeg", "ffmpeg.exe"); !ok {
-		return nil, fmt.Errorf("ffmpeg is not installed or not available on PATH")
-	}
 
 	probe, err := probeVideo(nativePath)
 	if err != nil {
@@ -1041,65 +997,6 @@ func buildSegmentedVideoCache(ctx context.Context, nativePath string, cacheKey s
 	}, nil
 }
 
-func buildSegmentedVideoFragment(ctx context.Context, nativePath string, startSeconds float64, durationSeconds float64) ([]byte, []byte, error) {
-	ffmpegPath, ok := utility.ResolveExecutable("ffmpeg", "ffmpeg.exe")
-	if !ok {
-		return nil, nil, fmt.Errorf("ffmpeg is not installed or not available on PATH")
-	}
-
-	accurateSeek := requiresAccurateSegmentSeek(nativePath)
-	args := []string{
-		"-hide_banner",
-		"-loglevel", "error",
-	}
-	if startSeconds > 0 && !accurateSeek {
-		args = append(args, "-ss", strconv.FormatFloat(startSeconds, 'f', 3, 64))
-	}
-	args = append(args, "-i", nativePath)
-	if startSeconds > 0 && accurateSeek {
-		// AVI-style containers often lack a reliable index for input seeking.
-		// Seeking after -i forces FFmpeg to decode up to the exact frame and
-		// avoids the frozen frame issue when jumping backward.
-		args = append(args, "-ss", strconv.FormatFloat(startSeconds, 'f', 3, 64))
-	}
-	args = append(args,
-		"-t", strconv.FormatFloat(durationSeconds, 'f', 3, 64),
-		"-map", "0:v:0",
-		"-map", "0:a:0?",
-		"-sn",
-		"-dn",
-		"-c:v", "libx264",
-		"-preset", "ultrafast",
-		"-tune", "zerolatency",
-		"-crf", "23",
-		"-pix_fmt", "yuv420p",
-		// Force the segment to start on a keyframe without turning the whole
-		// fragment into all-I frames, which makes repeated seeks much slower.
-		"-g", "60",
-		"-keyint_min", "1",
-		"-force_key_frames", "expr:eq(n,0)",
-		"-sc_threshold", "0",
-		"-c:a", "aac",
-		"-b:a", "128k",
-		"-movflags", "frag_keyframe+empty_moov+default_base_moof",
-		"-f", "mp4",
-		"pipe:1",
-	)
-	cmd := exec.CommandContext(ctx, ffmpegPath, args...)
-	hideWindow(cmd)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		if ctx != nil && ctx.Err() != nil {
-			return nil, nil, ctx.Err()
-		}
-		return nil, nil, fmt.Errorf("failed to build segmented preview: %s", strings.TrimSpace(string(output)))
-	}
-	initSegment, mediaSegment, err := splitFragmentedMP4(output)
-	if err != nil {
-		return nil, nil, err
-	}
-	return initSegment, mediaSegment, nil
-}
 
 func requiresAccurateSegmentSeek(nativePath string) bool {
 	switch strings.ToLower(filepath.Ext(nativePath)) {
@@ -1714,23 +1611,6 @@ func shouldAttemptSegmentedDiskPlayback(name, videoCodec, audioCodec string) boo
 	return false
 }
 
-func probeVideo(nativePath string) (*ffprobeOutput, error) {
-	ffprobePath, ok := utility.ResolveExecutable("ffprobe", "ffprobe.exe")
-	if !ok {
-		return nil, exec.ErrNotFound
-	}
-	cmd := exec.Command(ffprobePath, "-v", "error", "-print_format", "json", "-show_format", "-show_streams", nativePath)
-	hideWindow(cmd)
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, err
-	}
-	var parsed ffprobeOutput
-	if err := json.Unmarshal(out, &parsed); err != nil {
-		return nil, err
-	}
-	return &parsed, nil
-}
 
 func extractProbeCodecs(probe *ffprobeOutput) (string, string) {
 	if probe == nil {
@@ -1834,6 +1714,9 @@ func probeFileDurationSeconds(nativePath string) float64 {
 	}
 	return parseProbeDuration(probe.Format.Duration)
 }
+
+
+
 
 
 

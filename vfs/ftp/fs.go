@@ -43,7 +43,11 @@ func New(ctx context.Context, cfg Config) (*FS, error) {
 		cfg.Port = 21
 	}
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
-	conn, err := ftplib.Dial(addr, ftplib.DialWithContext(ctx))
+	conn, err := ftplib.Dial(addr,
+		ftplib.DialWithContext(ctx),
+		ftplib.DialWithTimeout(30*time.Second),
+		ftplib.DialWithDisabledEPSV(true),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("ftp: dial %s: %w", addr, err)
 	}

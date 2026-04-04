@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	contracts "wails-app/internal/contracts"
 	"wails-app/internal/pathref"
@@ -35,7 +36,8 @@ func (s *State) RemoteConnect(cfg contracts.RemoteConfig) (*contracts.RemoteMoun
 	}
 	s.remotesMu.Unlock()
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 	var remoteFS vfslib.FileSystem
 	var err error
 

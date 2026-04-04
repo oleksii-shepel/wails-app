@@ -22,6 +22,20 @@ func (s *State) InitVFS() {
 	if s.Utility != nil {
 		s.Utility.SetVFS(s.vfs)
 	}
+	if s.DirStream != nil {
+		s.DirStream.SetVFS(
+			func(path string) (*contracts.DirectoryListing, error) {
+				return internalruntime.VFSListDir(s.vfs, path)
+			},
+			func(path string) bool {
+				normalized := pathref.Normalize(path)
+				if pathref.IsAlias(normalized) {
+					return s.vfs.IsMounted(pathref.ToVFS(normalized))
+				}
+				return s.vfs.IsMounted(normalized)
+			},
+		)
+	}
 }
 
 func (s *State) VFSListDir(path string) (*contracts.DirectoryListing, error) {

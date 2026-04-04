@@ -54,6 +54,8 @@ type ElevatedListFunc func(path string, showHidden bool) ([]contracts.FileInfo, 
 type BuildFileInfoFunc func(name, fullPath string, info os.FileInfo, hidden bool) contracts.FileInfo
 type IsHiddenFunc func(name, fullPath string) bool
 type ResolvePublicPathFunc func(path string) (string, error)
+type VFSListDirFunc func(path string) (*contracts.DirectoryListing, error)
+type IsVFSPathFunc func(path string) bool
 
 type DirStreamService struct {
 	mu           sync.Mutex
@@ -63,6 +65,8 @@ type DirStreamService struct {
 	buildFile    BuildFileInfoFunc
 	isHidden     IsHiddenFunc
 	resolvePath  ResolvePublicPathFunc
+	vfsListDir   VFSListDirFunc
+	isVFSPath    IsVFSPathFunc
 }
 
 func NewDirStreamService(
@@ -80,6 +84,11 @@ func NewDirStreamService(
 		isHidden:     isHidden,
 		resolvePath:  resolvePath,
 	}
+}
+
+func (s *DirStreamService) SetVFS(listDir VFSListDirFunc, isVFS IsVFSPathFunc) {
+	s.vfsListDir = listDir
+	s.isVFSPath = isVFS
 }
 
 func (s *DirStreamService) Emit(name string, data interface{}) {
@@ -156,6 +165,8 @@ func (s *DirStreamService) run(ctx context.Context, streamID, paneID, path strin
 	scan := s.scanDirectoryStream
 	if pathref.IsSearch(path) {
 		scan = s.scanSearchStream
+	} else if s.isVFSPath != nil && s.isVFSPath(path) {
+		scan = s.scanVFSStream
 	}
 
 	err := scan(ctx, path, showHidden, dirStreamBatchSize, func(batch []contracts.FileInfo, batchSize int64) {
@@ -217,6 +228,45 @@ func (s *DirStreamService) run(ctx context.Context, streamID, paneID, path strin
 		Path:     path,
 		Error:    err.Error(),
 	})
+}
+
+func (s *DirStreamService) scanVFSStream(
+	ctx context.Context,
+	path string,
+	showHidden bool,
+	chunkSize int,
+	onBatch func(batch []contracts.FileInfo, batchSize int64),
+) error {
+	if s.vfsListDir == nil {
+		return fmt.Errorf("vfs listing not available")
+	}
+	listing, err := s.vfsListDir(path)
+	if err != nil {
+		return err
+	}
+	batch := make([]contracts.FileInfo, 0, chunkSize)
+	batchSize := int64(0)
+	for _, fi := range listing.Entries {
+		select {
+		case <-ctx.Done():
+			return context.Canceled
+		default:
+		}
+		if !showHidden && fi.IsHidden {
+			continue
+		}
+		batch = append(batch, fi)
+		batchSize += fi.Size
+		if len(batch) >= chunkSize {
+			onBatch(batch, batchSize)
+			batch = make([]contracts.FileInfo, 0, chunkSize)
+			batchSize = 0
+		}
+	}
+	if len(batch) > 0 {
+		onBatch(batch, batchSize)
+	}
+	return nil
 }
 
 func (s *DirStreamService) scanDirectoryStream(

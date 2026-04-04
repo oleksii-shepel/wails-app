@@ -287,6 +287,10 @@ func (s *Service) ElevatedList(path string, showHidden bool) ([]contracts.FileIn
 }
 
 func (s *Service) DirSizeRecursive(path string) (int64, error) {
+	path = pathref.Normalize(path)
+	if s.handlesVFSPath(path) {
+		return 0, fmt.Errorf("directory size not supported for remote paths")
+	}
 	resolvedPath, err := s.resolvePublicPath(path)
 	if err != nil {
 		return 0, err
@@ -316,6 +320,10 @@ func (s *Service) DirSizeRecursive(path string) (int64, error) {
 }
 
 func (s *Service) GetFileInfo(path string) (*contracts.FileInfo, error) {
+	path = pathref.Normalize(path)
+	if s.handlesVFSPath(path) {
+		return internalruntime.VFSGetFileInfo(s.vfs, path)
+	}
 	resolvedPath, err := s.resolvePublicPath(path)
 	if err != nil {
 		return nil, err
@@ -436,26 +444,42 @@ func (s *Service) ReadFileStream(path string, chunkSize int, emitEvent func(stri
 			s.streamsMu.Unlock()
 		}()
 
-		// Resolve path
-		resolvedPath, resolveErr := s.resolvePublicPath(path)
-		if resolveErr != nil {
-			emitEvent("file:read:error", map[string]interface{}{
-				"streamID": streamID,
-				"error":    fmt.Sprintf("resolve path: %v", resolveErr),
-			})
-			return
-		}
+		var reader io.ReadCloser
 
-		// Open file
-		file, err := os.Open(resolvedPath)
-		if err != nil {
-			emitEvent("file:read:error", map[string]interface{}{
-				"streamID": streamID,
-				"error":    fmt.Sprintf("open file: %v", err),
-			})
-			return
+		if s.handlesVFSPath(path) {
+			internalPath := pathref.ToVFS(path)
+			vfsFile, vfsErr := s.vfs.Open(ctx, internalPath)
+			if vfsErr != nil {
+				emitEvent("file:read:error", map[string]interface{}{
+					"streamID": streamID,
+					"error":    fmt.Sprintf("open vfs file: %v", vfsErr),
+				})
+				return
+			}
+			reader = vfsFile
+		} else {
+			// Resolve path
+			resolvedPath, resolveErr := s.resolvePublicPath(path)
+			if resolveErr != nil {
+				emitEvent("file:read:error", map[string]interface{}{
+					"streamID": streamID,
+					"error":    fmt.Sprintf("resolve path: %v", resolveErr),
+				})
+				return
+			}
+
+			// Open file
+			file, err := os.Open(resolvedPath)
+			if err != nil {
+				emitEvent("file:read:error", map[string]interface{}{
+					"streamID": streamID,
+					"error":    fmt.Sprintf("open file: %v", err),
+				})
+				return
+			}
+			reader = file
 		}
-		defer file.Close()
+		defer reader.Close()
 
 		// Stream file in chunks
 		bytesRead := int64(0)
@@ -470,7 +494,7 @@ func (s *Service) ReadFileStream(path string, chunkSize int, emitEvent func(stri
 			}
 
 			chunk := make([]byte, chunkSize)
-			n, err := file.Read(chunk)
+			n, err := reader.Read(chunk)
 			if err != nil && err != io.EOF {
 				emitEvent("file:read:error", map[string]interface{}{
 					"streamID": streamID,
@@ -736,8 +760,12 @@ func (s *Service) RunElevatedDelete(path string, recursive bool, useTrash *bool)
 }
 
 func (s *Service) SearchFiles(path, pattern string, recursive bool) (*contracts.SearchResult, error) {
+	path = pathref.Normalize(path)
+	if s.handlesVFSPath(path) {
+		return nil, fmt.Errorf("search not supported for remote paths")
+	}
 	var matches []contracts.FileInfo
-	basePath := filepath.ToSlash(pathref.Normalize(path))
+	basePath := filepath.ToSlash(path)
 	resolvedPath, err := s.resolvePublicPath(path)
 	if err != nil {
 		return nil, err

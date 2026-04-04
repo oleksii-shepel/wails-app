@@ -8,6 +8,7 @@ import (
 	contracts "wails-app/internal/contracts"
 	internalelevation "wails-app/internal/elevation"
 	internalops "wails-app/internal/ops"
+	internalruntime "wails-app/internal/runtime"
 	internalutility "wails-app/internal/utility"
 	vfslib "wails-app/vfs"
 	"wails-app/vfs/archive/cache"
@@ -93,6 +94,7 @@ type DirStream interface {
 	Start(paneID, path string, showHidden bool) (string, error)
 	Cancel(streamID string)
 	CancelAll()
+	SetVFS(listDir internalruntime.VFSListDirFunc, isVFS internalruntime.IsVFSPathFunc)
 }
 
 type Utility interface {

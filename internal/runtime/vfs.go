@@ -184,6 +184,18 @@ func VFSReadFile(vfs *vfslib.Unified, path string, encoding string) (*contracts.
 	}, nil
 }
 
+func VFSGetFileInfo(vfs *vfslib.Unified, path string) (*contracts.FileInfo, error) {
+	publicPath := pathref.Normalize(path)
+	internalPath := pathref.ToVFS(path)
+	info, err := vfs.Stat(context.Background(), internalPath)
+	if err != nil {
+		return nil, err
+	}
+	fi := convertVFSInfo(info)
+	fi.Path = publicPath
+	return &fi, nil
+}
+
 func VFSProbeFile(vfs *vfslib.Unified, path string) (*contracts.FileProbe, error) {
 	internalPath := pathref.ToVFS(path)
 	file, err := vfs.Open(context.Background(), internalPath)

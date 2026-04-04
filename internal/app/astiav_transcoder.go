@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"time"
 
 	"github.com/asticode/go-astiav"
 )
@@ -161,7 +160,10 @@ func remuxLoop(ctx context.Context, inputFormatContext *astiav.FormatContext, st
 	}
 	defer pkt.Free()
 
-	startTime := time.Now()
+	endSeconds := 0.0
+	if windowSeconds > 0 {
+		endSeconds = startSeconds + windowSeconds
+	}
 
 	for {
 		select {
@@ -169,10 +171,6 @@ func remuxLoop(ctx context.Context, inputFormatContext *astiav.FormatContext, st
 			outputFormatContext.WriteTrailer()
 			return
 		default:
-		}
-
-		if windowSeconds > 0 && time.Since(startTime).Seconds() > windowSeconds {
-			break
 		}
 
 		if err := inputFormatContext.ReadFrame(pkt); err != nil {
@@ -188,6 +186,18 @@ func remuxLoop(ctx context.Context, inputFormatContext *astiav.FormatContext, st
 
 		inStream := inputFormatContext.Streams()[inStreamIdx]
 		outStream := outputFormatContext.Streams()[outStreamIdx]
+
+		// Media time-based window limit (replaces wall-clock check)
+		if endSeconds > 0 {
+			packetTime := timestampSeconds(pkt.Pts(), inStream.TimeBase())
+			if pkt.Pts() == astiav.NoPtsValue {
+				packetTime = timestampSeconds(pkt.Dts(), inStream.TimeBase())
+			}
+			if packetTime >= endSeconds {
+				pkt.Unref()
+				break
+			}
+		}
 
 		pkt.SetStreamIndex(outStreamIdx)
 		pkt.RescaleTs(inStream.TimeBase(), outStream.TimeBase())

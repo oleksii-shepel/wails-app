@@ -5,28 +5,68 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"strings"
+	"math"
 
 	"github.com/asticode/go-astiav"
 )
 
-// needsTranscode checks if the input streams contain codecs that browsers can't play.
+func isSegmentableStream(s *astiav.Stream) bool {
+	if s == nil {
+		return false
+	}
+	if s.DispositionFlags().Has(astiav.DispositionFlagAttachedPic) {
+		return false
+	}
+	mediaType := s.CodecParameters().MediaType()
+	return mediaType == astiav.MediaTypeVideo || mediaType == astiav.MediaTypeAudio
+}
+
+func timestampSeconds(pts int64, tb astiav.Rational) float64 {
+	if pts == astiav.NoPtsValue || tb.Num() == 0 || tb.Den() == 0 {
+		return 0
+	}
+	return float64(pts) * float64(tb.Num()) / float64(tb.Den())
+}
+
+func secondsToTimestamp(seconds float64, tb astiav.Rational) int64 {
+	if seconds <= 0 || tb.Num() == 0 || tb.Den() == 0 {
+		return 0
+	}
+	return int64(math.Round(seconds * float64(tb.Den()) / float64(tb.Num())))
+}
+
+func isSupportedSegmentVideoCodec(codecID astiav.CodecID) bool {
+	switch codecID {
+	case astiav.CodecIDH264, astiav.CodecIDHevc, astiav.CodecIDVp8, astiav.CodecIDVp9, astiav.CodecIDAv1:
+		return true
+	default:
+		return false
+	}
+}
+
+func isSupportedSegmentAudioCodec(codecID astiav.CodecID) bool {
+	switch codecID {
+	case astiav.CodecIDAac, astiav.CodecIDOpus, astiav.CodecIDVorbis, astiav.CodecIDFlac, astiav.CodecIDMp3:
+		return true
+	default:
+		return false
+	}
+}
+
+// needsTranscode checks if the input streams contain codecs that the segmented fMP4 path should re-encode.
 func needsTranscode(inputFormatContext *astiav.FormatContext) bool {
 	for _, s := range inputFormatContext.Streams() {
+		if !isSegmentableStream(s) {
+			continue
+		}
 		cp := s.CodecParameters()
 		switch cp.MediaType() {
 		case astiav.MediaTypeVideo:
-			codecName := strings.ToLower(cp.CodecID().String())
-			if !strings.Contains(codecName, "h264") && !strings.Contains(codecName, "h265") &&
-				!strings.Contains(codecName, "hevc") && !strings.Contains(codecName, "vp8") &&
-				!strings.Contains(codecName, "vp9") && !strings.Contains(codecName, "av1") {
+			if !isSupportedSegmentVideoCodec(cp.CodecID()) {
 				return true
 			}
 		case astiav.MediaTypeAudio:
-			codecName := strings.ToLower(cp.CodecID().String())
-			if !strings.Contains(codecName, "aac") && !strings.Contains(codecName, "opus") &&
-				!strings.Contains(codecName, "vorbis") && !strings.Contains(codecName, "flac") &&
-				!strings.Contains(codecName, "mp3") {
+			if !isSupportedSegmentAudioCodec(cp.CodecID()) {
 				return true
 			}
 		}
@@ -50,10 +90,11 @@ func buildSegmentedVideoFragment(ctx context.Context, nativePath string, startSe
 		return nil, nil, fmt.Errorf("failed finding stream info: %w", err)
 	}
 
-	if needsTranscode(inputFormatContext) {
-		return buildTranscodedFragment(ctx, inputFormatContext, startSeconds, durationSeconds)
-	}
-	return buildRemuxedFragment(ctx, inputFormatContext, startSeconds, durationSeconds)
+	// Always transcode segments to guarantee each segment starts with a
+	// keyframe. Remuxing (packet copy) after a backward seek can leave the
+	// first frames as P/B frames referring to a dropped keyframe, causing
+	// decode glitches and timestamp overlap at segment boundaries.
+	return buildTranscodedFragment(ctx, inputFormatContext, startSeconds, durationSeconds)
 }
 
 func buildTranscodedFragment(ctx context.Context, inputFormatContext *astiav.FormatContext, startSeconds float64, durationSeconds float64) ([]byte, []byte, error) {
@@ -99,11 +140,11 @@ func buildRemuxedFragment(ctx context.Context, inputFormatContext *astiav.Format
 	streamMapping := make(map[int]int)
 	outputStreamIdx := 0
 	for _, inStream := range inputFormatContext.Streams() {
-		cp := inStream.CodecParameters()
-		if cp.MediaType() != astiav.MediaTypeVideo && cp.MediaType() != astiav.MediaTypeAudio {
+		if !isSegmentableStream(inStream) {
 			streamMapping[inStream.Index()] = -1
 			continue
 		}
+		cp := inStream.CodecParameters()
 		outStream := outputFormatContext.NewStream(nil)
 		if outStream == nil {
 			return nil, nil, fmt.Errorf("failed allocating output stream")
@@ -130,7 +171,10 @@ func buildRemuxedFragment(ctx context.Context, inputFormatContext *astiav.Format
 	}
 	defer pkt.Free()
 
-	var startPts int64 = -1
+	endSeconds := 0.0
+	if durationSeconds > 0 {
+		endSeconds = startSeconds + durationSeconds
+	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -150,22 +194,35 @@ func buildRemuxedFragment(ctx context.Context, inputFormatContext *astiav.Format
 
 		inStream := inputFormatContext.Streams()[pkt.StreamIndex()]
 		outStream := outputFormatContext.Streams()[outIdx]
+		packetTimeSeconds := timestampSeconds(pkt.Pts(), inStream.TimeBase())
+		if pkt.Pts() == astiav.NoPtsValue {
+			packetTimeSeconds = timestampSeconds(pkt.Dts(), inStream.TimeBase())
+		}
 
-		if inStream.CodecParameters().MediaType() == astiav.MediaTypeVideo {
-			if startPts == -1 {
-				startPts = pkt.Pts()
+		if packetTimeSeconds < startSeconds {
+			pkt.Unref()
+			continue
+		}
+		if endSeconds > 0 && packetTimeSeconds >= endSeconds {
+			pkt.Unref()
+			if inStream.CodecParameters().MediaType() == astiav.MediaTypeVideo {
+				break
 			}
-			if durationSeconds > 0 && startPts != -1 {
-				timeDiff := float64(pkt.Pts()-startPts) * float64(inStream.TimeBase().Num()) / float64(inStream.TimeBase().Den())
-				if timeDiff > durationSeconds {
-					pkt.Unref()
-					break
-				}
-			}
+			continue
 		}
 
 		pkt.SetStreamIndex(outIdx)
 		pkt.RescaleTs(inStream.TimeBase(), outStream.TimeBase())
+		startTimestamp := secondsToTimestamp(startSeconds, outStream.TimeBase())
+		if pkt.Dts() != astiav.NoPtsValue {
+			pkt.SetDts(max64(0, pkt.Dts()-startTimestamp))
+		}
+		if pkt.Pts() != astiav.NoPtsValue {
+			pkt.SetPts(max64(0, pkt.Pts()-startTimestamp))
+		}
+		if pkt.Dts() != astiav.NoPtsValue && pkt.Pts() != astiav.NoPtsValue && pkt.Pts() < pkt.Dts() {
+			pkt.SetPts(pkt.Dts())
+		}
 		pkt.SetPos(-1)
 
 		if err := outputFormatContext.WriteInterleavedFrame(pkt); err != nil {

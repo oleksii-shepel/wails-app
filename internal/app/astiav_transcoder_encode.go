@@ -5,28 +5,32 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"time"
 
 	"github.com/asticode/go-astiav"
 	"github.com/asticode/go-astikit"
 )
 
 type transcodeStream struct {
-	buffersinkContext *astiav.BuffersinkFilterContext
-	buffersrcContext  *astiav.BuffersrcFilterContext
-	decCodec          *astiav.Codec
-	decCodecContext   *astiav.CodecContext
-	decFrame          *astiav.Frame
-	decLastPTS        *int64
-	encCodec          *astiav.Codec
-	encCodecContext   *astiav.CodecContext
-	encPkt            *astiav.Packet
-	filterFrame       *astiav.Frame
-	filterGraph       *astiav.FilterGraph
-	inputStream       *astiav.Stream
-	nextFramePTS      int64
-	nextPacketDTS     int64
-	outputStream      *astiav.Stream
+	buffersinkContext   *astiav.BuffersinkFilterContext
+	buffersrcContext    *astiav.BuffersrcFilterContext
+	decCodec            *astiav.Codec
+	decCodecContext     *astiav.CodecContext
+	decFrame            *astiav.Frame
+	decLastPTS          *int64
+	encCodec            *astiav.Codec
+	encCodecContext     *astiav.CodecContext
+	encPkt              *astiav.Packet
+	filterFrame         *astiav.Frame
+	filterGraph         *astiav.FilterGraph
+	inputStream         *astiav.Stream
+	nextFramePTS        int64
+	nextPacketDTS       int64
+	segmentStartSeconds float64
+	segmentEndSeconds   float64
+	segmentStartPTS     int64
+	encLastPTS          *int64
+	outputStream        *astiav.Stream
+	done                bool
 }
 
 // startAstiavEncodeTranscode opens a file and transcodes to fMP4 (H.264/AAC).
@@ -149,11 +153,14 @@ func transcodeLoopInner(ctx context.Context, inputFormatContext *astiav.FormatCo
 	streams := make(map[int]*transcodeStream)
 
 	for _, is := range inputFormatContext.Streams() {
-		if is.CodecParameters().MediaType() != astiav.MediaTypeAudio && is.CodecParameters().MediaType() != astiav.MediaTypeVideo {
+		if !isSegmentableStream(is) {
 			continue
 		}
 
-		s := &transcodeStream{inputStream: is}
+		s := &transcodeStream{inputStream: is, segmentStartSeconds: startSeconds, segmentStartPTS: -1}
+		if windowSeconds > 0 {
+			s.segmentEndSeconds = startSeconds + windowSeconds
+		}
 		streams[is.Index()] = s
 
 		if s.decCodec = astiav.FindDecoder(is.CodecParameters().CodecID()); s.decCodec == nil {
@@ -234,7 +241,20 @@ func transcodeLoopInner(ctx context.Context, inputFormatContext *astiav.FormatCo
 			s.encCodecContext.SetFlags(s.encCodecContext.Flags().Add(astiav.CodecContextFlagGlobalHeader))
 		}
 
-		if err = s.encCodecContext.Open(s.encCodec, nil); err != nil {
+		if s.decCodecContext.MediaType() == astiav.MediaTypeVideo {
+			s.encCodecContext.SetGopSize(30)
+		}
+
+		var encOpts *astiav.Dictionary
+		if codecID == astiav.CodecIDH264 {
+			encOpts = astiav.NewDictionary()
+			c.Add(encOpts.Free)
+			encOpts.Set("preset", "ultrafast", 0)
+			encOpts.Set("tune", "zerolatency", 0)
+			encOpts.Set("crf", "23", 0)
+		}
+
+		if err = s.encCodecContext.Open(s.encCodec, encOpts); err != nil {
 			pw.CloseWithError(fmt.Errorf("failed opening encoder: %w", err))
 			return
 		}
@@ -266,17 +286,11 @@ func transcodeLoopInner(ctx context.Context, inputFormatContext *astiav.FormatCo
 	pkt := astiav.AllocPacket()
 	c.Add(pkt.Free)
 
-	startTime := time.Now()
-
 	for {
 		select {
 		case <-ctx.Done():
 			goto cleanup
 		default:
-		}
-
-		if windowSeconds > 0 && time.Since(startTime).Seconds() > windowSeconds {
-			break
 		}
 
 		if err := inputFormatContext.ReadFrame(pkt); err != nil {
@@ -293,7 +307,42 @@ func transcodeLoopInner(ctx context.Context, inputFormatContext *astiav.FormatCo
 			continue
 		}
 
-		pkt.RescaleTs(s.inputStream.TimeBase(), s.decCodecContext.TimeBase())
+		// Early exit: check packet timestamp against segment window before
+		// decoding. Without this, the loop reads the entire remaining file
+		// even though filterEncodeWriteFrame silently drops late frames.
+		if s.segmentEndSeconds > 0 && !s.done {
+			rawPTS := pkt.Pts()
+			if rawPTS == astiav.NoPtsValue {
+				rawPTS = pkt.Dts()
+			}
+			if rawPTS != astiav.NoPtsValue {
+				pktTime := timestampSeconds(rawPTS, s.inputStream.TimeBase())
+				if pktTime >= s.segmentEndSeconds {
+					s.done = true
+				}
+			}
+		}
+		if s.done {
+			pkt.Unref()
+			allDone := true
+			for _, st := range streams {
+				if !st.done {
+					allDone = false
+					break
+				}
+			}
+			if allDone {
+				break
+			}
+			continue
+		}
+
+		// Do NOT rescale PTS from stream TB to decoder TB here.
+		// The decoder passes through PTS values opaquely, and the buffersrc
+		// filter is configured with the stream's time base. Rescaling to the
+		// decoder's time base (which may be 0/1 for H.264) corrupts
+		// timestamps, causing filterEncodeWriteFrame to drop all frames for
+		// non-zero segment starts.
 		if err := s.decCodecContext.SendPacket(pkt); err != nil {
 			pkt.Unref()
 			continue // skip undecodable packets
@@ -448,6 +497,15 @@ func filterEncodeWriteFrame(f *astiav.Frame, s *transcodeStream, outputFormatCon
 			}
 			return fmt.Errorf("getting frame failed: %w", err)
 		}
+		frameTimeSeconds := timestampSeconds(s.filterFrame.Pts(), s.buffersinkContext.TimeBase())
+		if frameTimeSeconds < s.segmentStartSeconds {
+			s.filterFrame.Unref()
+			continue
+		}
+		if s.segmentEndSeconds > 0 && frameTimeSeconds >= s.segmentEndSeconds {
+			s.filterFrame.Unref()
+			return nil
+		}
 		s.filterFrame.SetPictureType(astiav.PictureTypeNone)
 
 		if err := encodeWriteFrame(s.filterFrame, s, outputFormatContext); err != nil {
@@ -463,12 +521,20 @@ func encodeWriteFrame(f *astiav.Frame, s *transcodeStream, outputFormatContext *
 		if f.Pts() == astiav.NoPtsValue {
 			f.SetPts(s.nextFramePTS)
 		}
-		f.SetPts(astiav.RescaleQ(f.Pts(), s.buffersinkContext.TimeBase(), s.encCodecContext.TimeBase()))
-		if s.decLastPTS != nil && f.Pts() <= *s.decLastPTS {
-			f.SetPts(*s.decLastPTS + 1)
+		pts := astiav.RescaleQ(f.Pts(), s.buffersinkContext.TimeBase(), s.encCodecContext.TimeBase())
+		if s.segmentStartPTS < 0 {
+			s.segmentStartPTS = pts
 		}
-		pts := f.Pts()
-		s.decLastPTS = &pts
+		if pts < s.segmentStartPTS {
+			pts = s.segmentStartPTS
+		}
+		pts -= s.segmentStartPTS
+		if s.encLastPTS != nil && pts <= *s.encLastPTS {
+			pts = *s.encLastPTS + 1
+		}
+		f.SetPts(pts)
+		savedPTS := pts
+		s.encLastPTS = &savedPTS
 	}
 	if err := s.encCodecContext.SendFrame(f); err != nil {
 		return fmt.Errorf("sending frame failed: %w", err)

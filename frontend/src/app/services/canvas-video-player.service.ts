@@ -63,6 +63,39 @@ interface DecodedFrame {
   frame: VideoFrame;
 }
 
+interface ScheduledAudioNodeEntry {
+  startTime: number;
+  endTime: number;
+  mediaStartSec: number;
+}
+
+function resolveScheduledAudioPlaybackTimeMs(
+  scheduledAudioNodes: ScheduledAudioNodeEntry[],
+  nowSec: number,
+  playbackBaseMs: number,
+): number | null {
+  if (scheduledAudioNodes.length === 0) {
+    return null;
+  }
+
+  const firstScheduledNode = scheduledAudioNodes[0];
+  if (nowSec < firstScheduledNode.startTime) {
+    return playbackBaseMs;
+  }
+
+  for (const entry of scheduledAudioNodes) {
+    if (nowSec < entry.startTime) {
+      break;
+    }
+    if (nowSec <= entry.endTime) {
+      const elapsedSec = Math.max(0, nowSec - entry.startTime);
+      return (entry.mediaStartSec + elapsedSec) * 1000;
+    }
+  }
+
+  return null;
+}
+
 interface AvcSampleConfig {
   lengthSize: number;
   sps: Uint8Array[];
@@ -626,11 +659,8 @@ export class CanvasVideoPlayer {
   private playbackStartPerfMs = 0;
   private audioPlaybackStartContextSec = 0;
   private scheduledAudioUntilSec = 0;
-  private scheduledAudioNodes: Array<{
+  private scheduledAudioNodes: Array<ScheduledAudioNodeEntry & {
     node: AudioBufferSourceNode;
-    startTime: number;
-    endTime: number;
-    mediaStartSec: number;
   }> = [];
   private audioSessionGeneration = 0;
   private volume = 1;
@@ -1586,22 +1616,7 @@ export class CanvasVideoPlayer {
       return null;
     }
 
-    const now = this.audioContext.currentTime;
-    const firstScheduledNode = this.scheduledAudioNodes[0];
-    if (now < firstScheduledNode.startTime) {
-      return this.playbackBaseMs;
-    }
-
-    let anchor = firstScheduledNode;
-    for (const entry of this.scheduledAudioNodes) {
-      if (entry.startTime > now) {
-        break;
-      }
-      anchor = entry;
-    }
-
-    const elapsedSec = Math.max(0, Math.min(now, anchor.endTime) - anchor.startTime);
-    return (anchor.mediaStartSec + elapsedSec) * 1000;
+    return resolveScheduledAudioPlaybackTimeMs(this.scheduledAudioNodes, this.audioContext.currentTime, this.playbackBaseMs);
   }
 
   private getPlaybackTimeMs(): number {

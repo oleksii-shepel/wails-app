@@ -108,6 +108,7 @@ type Navigation interface {
 	Back(paneID string) (*contracts.DirectoryListing, error)
 	Forward(paneID string) (*contracts.DirectoryListing, error)
 	GoUp(paneID string) (*contracts.DirectoryListing, error)
+	SyncPath(paneID, path string)
 }
 
 type Workspace interface {

@@ -1472,10 +1472,6 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
 
   goUp(): void {
     this.navigateUpClicked.emit();
-    if (!this.directorySource.isPathInsideArchive(this.currentPath)) {
-      const p = this.directorySource.getParentPath(this.currentPath);
-      if (!samePath(p, this.currentPath)) this.navigateTo(p);
-    }
   }
 
   refresh(): void { this.refreshClicked.emit(); }

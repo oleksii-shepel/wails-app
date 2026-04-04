@@ -1,6 +1,9 @@
 package app
 
 func (a *App) SetPaneDirectory(paneID, path string) error {
+	if a.Navigation != nil {
+		a.Navigation.SyncPath(paneID, path)
+	}
 	if a.DirWatch == nil {
 		return nil
 	}

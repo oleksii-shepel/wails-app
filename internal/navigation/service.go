@@ -62,3 +62,12 @@ func (s *Service) GoUp(paneID string) (*contracts.DirectoryListing, error) {
 	}
 	return s.Navigate(paneID, parent)
 }
+
+// SyncPath updates the backend navigation manager to match a pane's current
+// path without triggering another directory read.
+func (s *Service) SyncPath(paneID, path string) {
+	if path == "" {
+		return
+	}
+	s.manager.Navigate(paneID, path)
+}

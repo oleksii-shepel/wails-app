@@ -33,6 +33,7 @@ import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { InputEngineService } from '../services/input-engine.service';
 import { TabInfo } from '../shared/protocol-enhanced';
 import type { InputBindingDefinition } from '../services/input-system.types';
+import { formatPathForDisplay } from './address-bar.utils';
 
 @Component({
   selector: 'app-file-browser',
@@ -428,8 +429,13 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
       return;
     }
 
+    const friendlyPath = formatPathForDisplay(entry.path).trim();
+    if (!friendlyPath) {
+      return;
+    }
+
     try {
-      await navigator.clipboard.writeText(entry.path);
+      await navigator.clipboard.writeText(friendlyPath);
     } catch {
       // Ignore clipboard failures to keep shortcut handling non-blocking.
     }

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"path"
 	"strings"
 	"sync"
@@ -18,6 +19,11 @@ import (
 	ftplib "github.com/jlaffaye/ftp"
 
 	"wails-app/vfs"
+)
+
+const (
+	ftpDialTimeout      = 30 * time.Second
+	ftpOperationTimeout = 15 * time.Second
 )
 
 // Config holds FTP connection parameters.
@@ -43,9 +49,10 @@ func New(ctx context.Context, cfg Config) (*FS, error) {
 		cfg.Port = 21
 	}
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
+	dialer := net.Dialer{Timeout: ftpDialTimeout}
 	conn, err := ftplib.Dial(addr,
-		ftplib.DialWithContext(ctx),
-		ftplib.DialWithTimeout(30*time.Second),
+		ftplib.DialWithDialFunc(newDeadlineDialFunc(ctx, dialer, ftpOperationTimeout)),
+		ftplib.DialWithShutTimeout(ftpOperationTimeout),
 		ftplib.DialWithDisabledEPSV(true),
 	)
 	if err != nil {
@@ -299,4 +306,59 @@ func mapErr(err error) error {
 		return vfs.ErrNotFound
 	}
 	return err
+}
+
+type deadlineConn struct {
+	net.Conn
+	timeout time.Duration
+}
+
+func (c *deadlineConn) Read(p []byte) (int, error) {
+	if err := c.bumpReadDeadline(); err != nil {
+		return 0, err
+	}
+	return c.Conn.Read(p)
+}
+
+func (c *deadlineConn) Write(p []byte) (int, error) {
+	if err := c.bumpWriteDeadline(); err != nil {
+		return 0, err
+	}
+	return c.Conn.Write(p)
+}
+
+func (c *deadlineConn) bumpReadDeadline() error {
+	if c.timeout <= 0 {
+		return nil
+	}
+	return c.Conn.SetReadDeadline(time.Now().Add(c.timeout))
+}
+
+func (c *deadlineConn) bumpWriteDeadline() error {
+	if c.timeout <= 0 {
+		return nil
+	}
+	return c.Conn.SetWriteDeadline(time.Now().Add(c.timeout))
+}
+
+func newDeadlineDialFunc(
+	ctx context.Context,
+	dialer net.Dialer,
+	timeout time.Duration,
+) func(network, address string) (net.Conn, error) {
+	var firstDial sync.Once
+	return func(network, address string) (net.Conn, error) {
+		dialCtx := context.Background()
+		firstDial.Do(func() {
+			if ctx != nil {
+				dialCtx = ctx
+			}
+		})
+
+		conn, err := dialer.DialContext(dialCtx, network, address)
+		if err != nil {
+			return nil, err
+		}
+		return &deadlineConn{Conn: conn, timeout: timeout}, nil
+	}
 }

@@ -969,6 +969,10 @@ func buildSegmentedVideoCache(ctx context.Context, nativePath string, cacheKey s
 	if err != nil {
 		return nil, err
 	}
+	videoCodec, _ := extractProbeCodecs(probe)
+	if !supportsSegmentedVideoCodec(videoCodec) {
+		return nil, fmt.Errorf("segmented playback requires transcoding for video codec %q", videoCodec)
+	}
 	durationSeconds := resolveVideoDurationSeconds(ctx, nativePath, probe)
 	segmentRanges := buildFixedSegmentRanges(durationSeconds)
 	if shouldUseKeyframeAlignedSegments(nativePath) {
@@ -1533,6 +1537,29 @@ func (a *App) GetArchiveVideoPlaybackPlan(fsPath string, nestedChain []string, e
 }
 
 func buildDiskVideoPlaybackPlan(baseURL, publicPath string) VideoPlaybackPlan {
+	probe, _ := probeVideo(pathref.ToNativePath(pathref.Normalize(publicPath)))
+	format := strings.TrimPrefix(strings.ToLower(filepath.Ext(publicPath)), ".")
+	var videoCodec, audioCodec string
+	var durationSeconds float64
+	if probe != nil {
+		format = firstNonEmpty(format, primaryFormatName(probe.Format.FormatName))
+		videoCodec, audioCodec = extractProbeCodecs(probe)
+		durationSeconds = resolveVideoDurationSeconds(context.Background(), pathref.ToNativePath(pathref.Normalize(publicPath)), probe)
+	}
+
+	if shouldPreferDirectDiskPlayback(publicPath, videoCodec) {
+		return VideoPlaybackPlan{
+			Mode:            VideoPlaybackModeDirect,
+			Format:          format,
+			VideoCodec:      videoCodec,
+			AudioCodec:      audioCodec,
+			DurationSeconds: durationSeconds,
+			Seekable:        true,
+			UseNativePlayer: false,
+			URL:             StreamURLForFile(baseURL, publicPath),
+		}
+	}
+
 	if entry, err := ensureSegmentedVideoCacheEntry(context.Background(), publicPath); err == nil {
 		return VideoPlaybackPlan{
 			Mode:            VideoPlaybackModeSegmented,
@@ -1547,15 +1574,6 @@ func buildDiskVideoPlaybackPlan(baseURL, publicPath string) VideoPlaybackPlan {
 
 	// Segmented failed (e.g. ffmpeg not installed, unsupported format).
 	// Fall back to transcoded streaming.
-	probe, _ := probeVideo(pathref.ToNativePath(pathref.Normalize(publicPath)))
-	format := strings.TrimPrefix(strings.ToLower(filepath.Ext(publicPath)), ".")
-	var videoCodec, audioCodec string
-	var durationSeconds float64
-	if probe != nil {
-		format = firstNonEmpty(format, primaryFormatName(probe.Format.FormatName))
-		videoCodec, audioCodec = extractProbeCodecs(probe)
-		durationSeconds = resolveVideoDurationSeconds(context.Background(), pathref.ToNativePath(pathref.Normalize(publicPath)), probe)
-	}
 	mode := decideDiskPlaybackMode(publicPath, videoCodec, audioCodec)
 	return VideoPlaybackPlan{
 		Mode:            mode,
@@ -1587,6 +1605,9 @@ func buildArchiveVideoPlaybackPlan(baseURL string, archCache *cache.Cache, fsPat
 
 	// Segmented not available — fall back to transcoded streaming.
 	mode := decidePlaybackMode(entryPath, "", "")
+	if mode == VideoPlaybackModeDirect && directPreviewExtensions[strings.ToLower(filepath.Ext(entryPath))] {
+		mode = VideoPlaybackModeTranscode
+	}
 	if mode == VideoPlaybackModeDirect {
 		return VideoPlaybackPlan{
 			Mode:            VideoPlaybackModeDirect,
@@ -1608,7 +1629,7 @@ func buildArchiveVideoPlaybackPlan(baseURL string, archCache *cache.Cache, fsPat
 
 func decidePlaybackMode(name, videoCodec, audioCodec string) VideoPlaybackMode {
 	ext := strings.ToLower(filepath.Ext(name))
-	if directPreviewExtensions[ext] {
+	if directPreviewExtensions[ext] && supportsDirectVideoCodec(videoCodec) {
 		return VideoPlaybackModeDirect
 	}
 	if remuxableVideoCodecs[strings.ToLower(videoCodec)] && remuxableAudioCodecs[strings.ToLower(audioCodec)] {
@@ -1652,6 +1673,27 @@ func shouldAttemptSegmentedDiskPlayback(name, videoCodec, audioCodec string) boo
 		return true
 	}
 	return false
+}
+
+func supportsDirectVideoCodec(videoCodec string) bool {
+	return !transcodePreferredVideoCodecs[strings.ToLower(videoCodec)]
+}
+
+func supportsSegmentedVideoCodec(videoCodec string) bool {
+	return supportsDirectVideoCodec(videoCodec)
+}
+
+func shouldPreferDirectDiskPlayback(name, videoCodec string) bool {
+	if !supportsDirectVideoCodec(videoCodec) {
+		return false
+	}
+
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".mp4", ".m4v":
+		return true
+	default:
+		return false
+	}
 }
 
 func extractProbeCodecs(probe *ffprobeOutput) (string, string) {

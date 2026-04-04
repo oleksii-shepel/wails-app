@@ -635,6 +635,7 @@ export class CanvasVideoPlayer {
   private audioSessionGeneration = 0;
   private volume = 1;
   private lastDrawnTimestampMs = -1;
+  private videoDecoderFailureMessage: string | null = null;
   private isLoaded = false;
   private sourceLoadGeneration = 0;
   private seekGeneration = 0;
@@ -952,6 +953,7 @@ export class CanvasVideoPlayer {
     this.reachedEndOfStream = false;
     this.playbackBaseMs = 0;
     this.playbackStartPerfMs = 0;
+    this.videoDecoderFailureMessage = null;
     this.stateChanged$.next('paused');
   }
 
@@ -976,9 +978,18 @@ export class CanvasVideoPlayer {
       this.decoder.close();
     }
 
-    this.decoder = new VideoDecoder({
-      output: (frame) => this.onDecodedFrame(frame),
+    const decoder = new VideoDecoder({
+      output: (frame) => {
+        if (this.decoder !== decoder) {
+          frame.close();
+          return;
+        }
+        this.onDecodedFrame(frame);
+      },
       error: (error) => {
+        if (this.decoder !== decoder) {
+          return;
+        }
         if (this.isExpectedKeyFrameRecoveryError(error)) {
           this.awaitingKeyFrame = true;
           return;
@@ -986,10 +997,12 @@ export class CanvasVideoPlayer {
 
         console.error('[WebCodecs] VideoDecoder error:', error);
         const message = error instanceof Error ? error.message : String(error);
-        this.error$.next(`Video decode error: ${message}`);
+        this.handleVideoDecoderFailure(message);
       },
     });
-    this.decoder.configure(this.decoderConfig);
+    this.decoder = decoder;
+    this.videoDecoderFailureMessage = null;
+    decoder.configure(this.decoderConfig);
     this.awaitingKeyFrame = true;
   }
 
@@ -1004,6 +1017,7 @@ export class CanvasVideoPlayer {
     try {
       this.decoder.reset();
       this.decoder.configure(this.decoderConfig);
+      this.videoDecoderFailureMessage = null;
       this.awaitingKeyFrame = true;
     } catch {
       await this.rebuildDecoder({ fast: true });
@@ -1177,7 +1191,7 @@ export class CanvasVideoPlayer {
   }
 
   private async decodeAhead(options?: { maxFrames?: number; allowPausedPriming?: boolean; seekUntilTimeMs?: number }): Promise<void> {
-    if (this.decodeAheadInFlight || !this.decoder || !this.source || !this.nextPacketCursor) {
+    if (this.decodeAheadInFlight || !this.decoder || !this.source || !this.nextPacketCursor || this.videoDecoderFailureMessage) {
       return;
     }
 
@@ -1246,6 +1260,9 @@ export class CanvasVideoPlayer {
         }
 
         try {
+          if (!this.decoder || this.decoder.state === 'closed' || this.videoDecoderFailureMessage) {
+            break;
+          }
           this.decoder.decode(new EncodedVideoChunk({
             type: packet.isRap ? 'key' : 'delta',
             timestamp: packet.timestampMs * 1000,
@@ -1265,13 +1282,16 @@ export class CanvasVideoPlayer {
             break;
           }
         } catch (error) {
+          if (this.videoDecoderFailureMessage || this.decoder?.state === 'closed') {
+            break;
+          }
           if (this.isExpectedKeyFrameRecoveryError(error)) {
             this.awaitingKeyFrame = true;
             continue;
           }
 
           const message = error instanceof Error ? error.message : String(error);
-          this.error$.next(`Failed to decode packet ${packet.index}: ${message}`);
+          this.handleVideoDecoderFailure(`Failed to decode packet ${packet.index}: ${message}`);
           break;
         }
       }
@@ -1446,6 +1466,24 @@ export class CanvasVideoPlayer {
     }
 
     return error.message.includes('A key frame is required after configure() or flush().');
+  }
+
+  private handleVideoDecoderFailure(message: string): void {
+    if (this.videoDecoderFailureMessage === message) {
+      return;
+    }
+
+    this.videoDecoderFailureMessage = message;
+    this.decodeGeneration += 1;
+    this.reachedEndOfStream = true;
+    this.nextPacketCursor = null;
+    this.decodeAheadQueued = false;
+    this.cancelRenderLoop();
+    this.resetAudioPlaybackState({ suspendContext: true });
+    if (this.stateChanged$.value !== 'ended') {
+      this.stateChanged$.next('paused');
+    }
+    this.error$.next(`Video decode error: ${message}`);
   }
 
   private drawForTime(currentTimeMs: number, options?: { preserveBuffer?: boolean }): void {

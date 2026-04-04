@@ -30,6 +30,10 @@ func startAstiavTranscode(ctx context.Context, nativePath string, startSeconds f
 		}
 		defer inputFormatContext.CloseInput()
 
+		if playbackMode == VideoPlaybackModeTranscode {
+			runVideoTranscodeLoop(ctx, inputFormatContext, startSeconds, windowSeconds, pw)
+			return
+		}
 		remuxLoop(ctx, inputFormatContext, startSeconds, windowSeconds, pw)
 	}()
 
@@ -73,6 +77,10 @@ func startAstiavTranscodeReader(ctx context.Context, r io.Reader, playbackMode V
 		}
 		defer inputFormatContext.CloseInput()
 
+		if playbackMode == VideoPlaybackModeTranscode {
+			runVideoTranscodeLoop(ctx, inputFormatContext, 0, 0, pw)
+			return
+		}
 		remuxLoop(ctx, inputFormatContext, 0, 0, pw)
 	}()
 
@@ -119,12 +127,13 @@ func remuxLoop(ctx context.Context, inputFormatContext *astiav.FormatContext, st
 
 	streamMapping := make(map[int]int)
 	outputStreamIdx := 0
+	selectedVideoStreamIndex := -1
 
 	streamsArr := inputFormatContext.Streams()
 	for i := 0; i < inputFormatContext.NbStreams(); i++ {
 		inStream := streamsArr[i]
 		codecParams := inStream.CodecParameters()
-		if codecParams.MediaType() != astiav.MediaTypeVideo && codecParams.MediaType() != astiav.MediaTypeAudio {
+		if !shouldIncludePreviewStream(inStream, &selectedVideoStreamIndex) {
 			streamMapping[i] = -1
 			continue
 		}

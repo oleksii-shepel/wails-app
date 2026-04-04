@@ -309,12 +309,13 @@ func buildSegmentedVideoFragment(ctx context.Context, nativePath string, startSe
 
 	streamMapping := make(map[int]int)
 	outputStreamIdx := 0
+	selectedVideoStreamIndex := -1
 
 	streamsArr := inputFormatContext.Streams()
 	for i := 0; i < inputFormatContext.NbStreams(); i++ {
 		inStream := streamsArr[i]
 		codecParams := inStream.CodecParameters()
-		if codecParams.MediaType() != astiav.MediaTypeVideo && codecParams.MediaType() != astiav.MediaTypeAudio {
+		if !shouldIncludePreviewStream(inStream, &selectedVideoStreamIndex) {
 			streamMapping[i] = -1
 			continue
 		}
@@ -393,4 +394,23 @@ func buildSegmentedVideoFragment(ctx context.Context, nativePath string, startSe
 	}
 
 	return splitFragmentedMP4(buf.Bytes())
+}
+
+func shouldIncludePreviewStream(stream *astiav.Stream, selectedVideoStreamIndex *int) bool {
+	codecParams := stream.CodecParameters()
+	switch codecParams.MediaType() {
+	case astiav.MediaTypeAudio:
+		return true
+	case astiav.MediaTypeVideo:
+		if stream.DispositionFlags().Has(astiav.DispositionFlagAttachedPic) {
+			return false
+		}
+		if *selectedVideoStreamIndex >= 0 {
+			return false
+		}
+		*selectedVideoStreamIndex = stream.Index()
+		return true
+	default:
+		return false
+	}
 }

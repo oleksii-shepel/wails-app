@@ -24,6 +24,21 @@ func (s *State) ListDirectory(path string, showHidden bool) (*contracts.Director
 	return s.Filesystem.ListDirectory(normalized, showHidden)
 }
 
+func (s *State) GetFileInfo(path string) (*contracts.FileInfo, error) {
+	normalized := pathref.Normalize(path)
+	if protocol, ok := remoteProtocolRoot(normalized); ok {
+		return &contracts.FileInfo{
+			Name: pathref.FromVFS(remoteRootMountPoint(protocol)),
+			Path: normalized,
+			Type: contracts.FileTypeDirectory,
+		}, nil
+	}
+	if err := s.ensureRemoteMount(normalized); err != nil {
+		return nil, err
+	}
+	return s.Filesystem.GetFileInfo(normalized)
+}
+
 func (s *State) ensureRemoteMount(path string) error {
 	if s.vfs == nil {
 		return nil
@@ -96,6 +111,21 @@ func remoteProtocolRoot(path string) (contracts.RemoteProtocol, bool) {
 		return contracts.ProtocolWebDAV, true
 	default:
 		return "", false
+	}
+}
+
+func remoteRootMountPoint(protocol contracts.RemoteProtocol) string {
+	switch protocol {
+	case contracts.ProtocolFTP:
+		return "/remote/ftp"
+	case contracts.ProtocolSFTP:
+		return "/remote/sftp"
+	case contracts.ProtocolSMB:
+		return "/remote/smb"
+	case contracts.ProtocolWebDAV:
+		return "/remote/webdav"
+	default:
+		return ""
 	}
 }
 

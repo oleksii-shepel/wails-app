@@ -40,7 +40,7 @@ func (a *App) DirSizeRecursive(path string) (int64, error) {
 }
 
 func (a *App) GetFileInfo(path string) (*contracts.FileInfo, error) {
-	return a.Filesystem.GetFileInfo(path)
+	return a.State.GetFileInfo(path)
 }
 
 func (a *App) FileInfo(path string) (*contracts.FileInfo, error) {

@@ -29,6 +29,14 @@ func TestToVFSAddsDefaultFTPPort(t *testing.T) {
 	}
 }
 
+func TestToVFSPreservesExplicitFTPPortAtRoot(t *testing.T) {
+	got := ToVFS("ftp://samples.ffmpeg.org:21")
+	want := "/remote/ftp/samples.ffmpeg.org:21"
+	if got != want {
+		t.Fatalf("ToVFS(ftp explicit port root) mismatch\nwant: %q\n got: %q", want, got)
+	}
+}
+
 func TestToVFSAddsDefaultSFTPPort(t *testing.T) {
 	got := ToVFS("sftp://example.com/home")
 	want := "/remote/sftp/example.com:22/home"

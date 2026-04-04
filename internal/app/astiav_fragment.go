@@ -109,7 +109,8 @@ func collectVideoKeyframeTimes(ctx context.Context, nativePath string) ([]float6
 
 	videoStreamIndex := -1
 	for index := 0; index < inputFormatContext.NbStreams(); index++ {
-		if inputFormatContext.Streams()[index].CodecParameters().MediaType() == astiav.MediaTypeVideo {
+		s := inputFormatContext.Streams()[index]
+		if s.CodecParameters().MediaType() == astiav.MediaTypeVideo && !s.DispositionFlags().Has(astiav.DispositionFlagAttachedPic) {
 			videoStreamIndex = index
 			break
 		}

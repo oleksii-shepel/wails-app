@@ -29,8 +29,9 @@ return nil, fmt.Errorf("failed finding stream info: %w", err)
 var videoStream *astiav.Stream
 var streamIdx int = -1
 for i := 0; i < fmtCtx.NbStreams(); i++ {
-if fmtCtx.Streams()[i].CodecParameters().MediaType() == astiav.MediaTypeVideo {
-videoStream = fmtCtx.Streams()[i]
+s := fmtCtx.Streams()[i]
+if s.CodecParameters().MediaType() == astiav.MediaTypeVideo && !s.DispositionFlags().Has(astiav.DispositionFlagAttachedPic) {
+videoStream = s
 streamIdx = i
 break
 }

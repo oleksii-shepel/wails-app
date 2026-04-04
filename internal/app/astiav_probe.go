@@ -34,6 +34,11 @@ for i := 0; i < fmtCtx.NbStreams(); i++ {
 stream := fmtCtx.Streams()[i]
 codecParams := stream.CodecParameters()
 
+// Skip attached pictures (album art, cover thumbnails) — they are not playable video.
+if codecParams.MediaType() == astiav.MediaTypeVideo && stream.DispositionFlags().Has(astiav.DispositionFlagAttachedPic) {
+continue
+}
+
 codecType := ""
 switch codecParams.MediaType() {
 case astiav.MediaTypeVideo:

@@ -268,10 +268,7 @@ class MediaBunnyDemuxedSource {
         throw new Error(`Unsupported ${normalizeFormatName(inputFormat)} video codec for WebCodecs: ${codecLabel}`);
       }
 
-      const normalizedDecoderConfig: ExtendedVideoDecoderConfig = {
-        ...decoderConfig,
-        optimizeForLatency: true,
-      };
+      const normalizedDecoderConfig = this.normalizeVideoDecoderConfig(decoderConfig, inputFormat);
 
       if (!await this.canUseDecoderConfig(normalizedDecoderConfig)) {
         throw new Error(`This runtime cannot configure WebCodecs for ${videoCodec ?? normalizedDecoderConfig.codec}.`);
@@ -458,6 +455,23 @@ class MediaBunnyDemuxedSource {
 
   private static toMilliseconds(valueSec: number): number {
     return Math.round(valueSec * 1000);
+  }
+
+  private static normalizeVideoDecoderConfig(
+    decoderConfig: VideoDecoderConfig,
+    inputFormat: unknown,
+  ): ExtendedVideoDecoderConfig {
+    const normalizedConfig: ExtendedVideoDecoderConfig = {
+      ...decoderConfig,
+      optimizeForLatency: true,
+    };
+
+    const codec = normalizedConfig.codec.toLowerCase();
+    if ((inputFormat === MP4 || inputFormat === QTFF) && (codec.startsWith('avc1') || codec.startsWith('avc3'))) {
+      normalizedConfig.avc = { format: 'avc' };
+    }
+
+    return normalizedConfig;
   }
 }
 

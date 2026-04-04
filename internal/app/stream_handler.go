@@ -969,7 +969,7 @@ func buildSegmentedVideoCache(ctx context.Context, nativePath string, cacheKey s
 	if err != nil {
 		return nil, err
 	}
-	durationSeconds := parseProbeDuration(probe.Format.Duration)
+	durationSeconds := resolveVideoDurationSeconds(ctx, nativePath, probe)
 	segmentRanges := buildFixedSegmentRanges(durationSeconds)
 	if shouldUseKeyframeAlignedSegments(nativePath) {
 		if keyframeRanges, err := buildKeyframeAlignedSegmentRanges(ctx, nativePath, durationSeconds); err == nil && len(keyframeRanges) > 0 {
@@ -1554,7 +1554,7 @@ func buildDiskVideoPlaybackPlan(baseURL, publicPath string) VideoPlaybackPlan {
 	if probe != nil {
 		format = firstNonEmpty(format, primaryFormatName(probe.Format.FormatName))
 		videoCodec, audioCodec = extractProbeCodecs(probe)
-		durationSeconds = parseProbeDuration(probe.Format.Duration)
+		durationSeconds = resolveVideoDurationSeconds(context.Background(), pathref.ToNativePath(pathref.Normalize(publicPath)), probe)
 	}
 	mode := decideDiskPlaybackMode(publicPath, videoCodec, audioCodec)
 	return VideoPlaybackPlan{
@@ -1686,6 +1686,20 @@ func parseProbeDuration(raw string) float64 {
 	return seconds
 }
 
+func resolveVideoDurationSeconds(ctx context.Context, nativePath string, probe *ffprobeOutput) float64 {
+	if probe != nil {
+		if durationSeconds := parseProbeDuration(probe.Format.Duration); durationSeconds > 0 {
+			return durationSeconds
+		}
+	}
+
+	durationSeconds, err := estimateMediaDurationSeconds(ctx, nativePath)
+	if err != nil || durationSeconds <= 0 {
+		return 0
+	}
+	return durationSeconds
+}
+
 func primaryFormatName(raw string) string {
 	if raw == "" {
 		return ""
@@ -1754,5 +1768,5 @@ func probeFileDurationSeconds(nativePath string) float64 {
 	if err != nil {
 		return 0
 	}
-	return parseProbeDuration(probe.Format.Duration)
+	return resolveVideoDurationSeconds(context.Background(), nativePath, probe)
 }

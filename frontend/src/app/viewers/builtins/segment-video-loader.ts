@@ -191,9 +191,10 @@ export class SegmentVideoLoader {
       const source = await loadMp4DemuxedSourceFromBuffer(combined);
 
       if (!this.metadata) {
+        const manifestDurationMs = this.manifest.durationSeconds > 0 ? this.manifest.durationSeconds * 1000 : 0;
         this.metadata = {
           ...source.metadata,
-          duration: this.manifest.durationSeconds * 1000,
+          duration: manifestDurationMs > 0 ? manifestDurationMs : source.metadata.duration,
           format: this.manifest.format || source.metadata.format,
         };
         this.decoderConfig = source.decoderConfig;

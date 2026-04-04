@@ -182,6 +182,85 @@ func packetTimestampSeconds(pkt *astiav.Packet, stream *astiav.Stream) (float64,
 	return float64(timestamp) * float64(timeBase.Num()) / float64(timeBase.Den()), true
 }
 
+func packetEndTimestampSeconds(pkt *astiav.Packet, stream *astiav.Stream) (float64, bool) {
+	startSeconds, ok := packetTimestampSeconds(pkt, stream)
+	if !ok {
+		return 0, false
+	}
+
+	packetDuration := pkt.Duration()
+	if packetDuration <= 0 {
+		return startSeconds, true
+	}
+
+	timeBase := stream.TimeBase()
+	if timeBase.Den() == 0 {
+		return startSeconds, true
+	}
+
+	durationSeconds := float64(packetDuration) * float64(timeBase.Num()) / float64(timeBase.Den())
+	return startSeconds + durationSeconds, true
+}
+
+func estimateMediaDurationSeconds(ctx context.Context, nativePath string) (float64, error) {
+	inputFormatContext := astiav.AllocFormatContext()
+	if inputFormatContext == nil {
+		return 0, fmt.Errorf("failed allocating input format context")
+	}
+	defer inputFormatContext.Free()
+
+	if err := inputFormatContext.OpenInput(nativePath, nil, nil); err != nil {
+		return 0, fmt.Errorf("failed opening input: %w", err)
+	}
+	defer inputFormatContext.CloseInput()
+
+	if err := inputFormatContext.FindStreamInfo(nil); err != nil {
+		return 0, fmt.Errorf("failed finding stream info: %w", err)
+	}
+
+	pkt := astiav.AllocPacket()
+	if pkt == nil {
+		return 0, fmt.Errorf("failed allocating packet")
+	}
+	defer pkt.Free()
+
+	streams := inputFormatContext.Streams()
+	maxEndSeconds := 0.0
+
+	for {
+		select {
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		default:
+		}
+
+		if err := inputFormatContext.ReadFrame(pkt); err != nil {
+			break
+		}
+
+		streamIndex := pkt.StreamIndex()
+		if streamIndex < 0 || streamIndex >= len(streams) {
+			pkt.Unref()
+			continue
+		}
+
+		endSeconds, ok := packetEndTimestampSeconds(pkt, streams[streamIndex])
+		pkt.Unref()
+		if !ok {
+			continue
+		}
+		if endSeconds > maxEndSeconds {
+			maxEndSeconds = endSeconds
+		}
+	}
+
+	if maxEndSeconds <= 0 {
+		return 0, fmt.Errorf("failed estimating media duration: no packet timestamps")
+	}
+
+	return maxEndSeconds, nil
+}
+
 func buildSegmentedVideoFragment(ctx context.Context, nativePath string, startSeconds float64, durationSeconds float64) ([]byte, []byte, error) {
 	inputFormatContext := astiav.AllocFormatContext()
 	if inputFormatContext == nil {

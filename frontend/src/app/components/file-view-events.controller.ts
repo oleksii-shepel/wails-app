@@ -2,6 +2,7 @@ import type { EventEmitter } from '@angular/core';
 import type { FileInfo } from '../shared/protocol';
 import { FileType } from '../shared/protocol';
 import type { TreeNode } from './file-tree.component';
+import { PARENT_ENTRY_PATH } from './file-entry.component';
 
 export interface FileViewEventsHost {
   selectionChange: EventEmitter<FileInfo[]>;
@@ -11,11 +12,17 @@ export interface FileViewEventsHost {
   nodeDoubleClick: EventEmitter<FileInfo>;
   rename: EventEmitter<{ entry: FileInfo; newName: string }>;
   setSelectedPaths(paths: string[]): void;
+  setCursorPath(path: string | null): void;
 }
 
 export class FileViewEventsController {
   onSelectionChange(host: FileViewEventsHost, entries: FileInfo[]): void {
-    host.setSelectedPaths(entries.map((entry) => entry.path));
+    host.setSelectedPaths(
+      entries
+        .map((entry) => entry.path)
+        .filter((path) => path !== PARENT_ENTRY_PATH),
+    );
+    host.setCursorPath(entries.length > 0 ? entries[entries.length - 1].path : null);
     host.selectionChange.emit(entries);
   }
 
@@ -36,6 +43,7 @@ export class FileViewEventsController {
   onTreeSelectionChange(host: FileViewEventsHost, nodes: TreeNode[]): void {
     const files = nodes.map((node) => this.treeNodeToFileInfo(node));
     host.setSelectedPaths(nodes.map((node) => node.path));
+    host.setCursorPath(nodes.length > 0 ? nodes[nodes.length - 1].path : null);
     host.selectionChange.emit(files);
   }
 

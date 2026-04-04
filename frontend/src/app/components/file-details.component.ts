@@ -1171,7 +1171,11 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   }
 
   onRowClick(entry: FileInfo, event: MouseEvent): void {
-    if (this.isParentEntry(entry)) return;
+    if (this.isParentEntry(entry)) {
+      this.anchorPath = entry.path;
+      this.selectionChange.emit([entry]);
+      return;
+    }
 
     if (event.ctrlKey || event.metaKey) {
       this.selectionChange.emit(this.buildToggledSelection(entry));

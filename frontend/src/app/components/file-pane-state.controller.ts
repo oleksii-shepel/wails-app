@@ -83,11 +83,12 @@ export class FilePaneStateController {
   }
 
   onSelectionChange(host: FilePaneStateHost, entries: FileInfo[]): void {
-    const paths = entries.map(entry => entry.path).filter(path => path !== this.parentEntryPath);
-    host.selectedFiles = new Set(paths);
-    if (paths.length > 0) {
-      host.selectionCursorPath = paths[paths.length - 1];
-      if (paths.length === 1) {
+    const cursorPaths = entries.map(entry => entry.path);
+    const selectedPaths = cursorPaths.filter(path => path !== this.parentEntryPath);
+    host.selectedFiles = new Set(selectedPaths);
+    if (cursorPaths.length > 0) {
+      host.selectionCursorPath = cursorPaths[cursorPaths.length - 1];
+      if (cursorPaths.length === 1) {
         host.selectionAnchorPath = host.selectionCursorPath;
       } else if (!host.selectionAnchorPath) {
         host.selectionAnchorPath = host.selectionCursorPath;

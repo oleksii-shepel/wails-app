@@ -251,6 +251,9 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
       setSelectedPaths: (paths: string[]) => {
         thisRef.selectedFiles = new Set(paths);
       },
+      setCursorPath: (path: string | null) => {
+        thisRef.cursorPath = path;
+      },
     };
   }
 

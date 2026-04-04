@@ -656,7 +656,8 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
   onSelect(event: FileEntrySelectEvent): void {
     const entry = event.entry;
     if (this.isParentEntry(entry)) {
-      this.navigate.emit(entry);
+      this.anchorPath = entry.path;
+      this.selectionChange.emit([entry]);
       return;
     }
 
@@ -676,6 +677,10 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
   }
 
   onNavigate(entry: FileInfo): void {
+    if (this.isParentEntry(entry)) {
+      this.navigate.emit(entry);
+      return;
+    }
     if (entry.type === FileType.FILE || entry.type === FileType.SYMLINK) {
       return;
     }

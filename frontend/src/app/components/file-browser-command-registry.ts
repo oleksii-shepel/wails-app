@@ -39,6 +39,7 @@ export const BC = {
   togglePinTab:         'pane.tabs.togglePin',
   openItem:             'pane.files.open',
   quickView:            'pane.files.quickView',
+  copyCursorPath:       'pane.files.copyCursorPath',
   copy:                 'pane.files.copy',
   cut:                  'pane.files.cut',
   paste:                'pane.files.paste',
@@ -177,6 +178,7 @@ export const BROWSER_BINDINGS: InputBindingDefinition[] = [
   // ── File operations ───────────────────────────────────────────────────────────
   kb('pane.files.open.enter',          BC.openItem,       'enter',    'Open file or folder',                          { category: FILES }),
   kb('pane.files.quickView.f3',        BC.quickView,      'f3',       'Quick view selected item (F3)',                 { category: FILES }),
+  kb('pane.files.copyCursorPath.ctrlShiftEnter', BC.copyCursorPath, 'enter', 'Copy path of item under cursor',        { modifiers: ['ctrl', 'shift'], category: FILES }),
   kb('pane.files.copy.ctrlC',          BC.copy,           'c',        'Copy selected items',                          { modifiers: ['ctrl'], category: FILES }),
   kb('pane.files.cut.ctrlX',           BC.cut,            'x',        'Cut selected items',                           { modifiers: ['ctrl'], category: FILES }),
   kb('pane.files.paste.ctrlV',         BC.paste,          'v',        'Paste items',                                  { modifiers: ['ctrl'], category: FILES }),
@@ -250,6 +252,7 @@ export interface FileBrowserCommandHandlers {
   togglePinTab:         () => void;
   openItem:             () => void;
   quickView:            () => void;
+  copyCursorPath:       () => void;
   copy:                 () => void;
   cut:                  () => void;
   paste:                () => void;
@@ -320,6 +323,7 @@ export function registerFileBrowserCommands(
   engine.registerCommand(BC.togglePinTab,           handlers.togglePinTab,           ownerId);
   engine.registerCommand(BC.openItem,               handlers.openItem,               ownerId);
   engine.registerCommand(BC.quickView,              handlers.quickView,              ownerId);
+  engine.registerCommand(BC.copyCursorPath,         handlers.copyCursorPath,         ownerId);
   engine.registerCommand(BC.copy,                   handlers.copy,                   ownerId);
   engine.registerCommand(BC.cut,                    handlers.cut,                    ownerId);
   engine.registerCommand(BC.paste,                  handlers.paste,                  ownerId);
@@ -357,7 +361,7 @@ export function registerFileBrowserCommands(
       BC.refresh, BC.showKeyboardHelp, BC.cursorUp, BC.cursorDown, BC.cursorLeft,
       BC.cursorRight, BC.cursorHome, BC.cursorEnd, BC.cursorPageUp, BC.cursorPageDown,
       BC.newTab, BC.closeTab, BC.nextTab, BC.prevTab, BC.togglePinTab,
-      BC.openItem, BC.quickView, BC.copy, BC.cut, BC.paste, BC.deleteSelected,
+      BC.openItem, BC.quickView, BC.copyCursorPath, BC.copy, BC.cut, BC.paste, BC.deleteSelected,
       BC.selectAll, BC.deselectAll, BC.newFolder, BC.rename, BC.toggleCurrent,
       BC.inlineDirectorySize,
       BC.extendSelUp, BC.extendSelDown, BC.selectByMask, BC.unselectByMask,

@@ -22,6 +22,7 @@ import { FileBrowserSearchController, type FileBrowserSearchHost } from './file-
 import { FileBrowserWorkspaceController, type FileBrowserWorkspaceHost } from './file-browser-workspace.controller';
 import { FilePaneComponent } from './file-pane.component';
 import { FileBrowserTransferController, type FileBrowserTransferHost } from './file-browser-transfer.controller';
+import { PARENT_ENTRY_PATH } from './file-entry.component';
 import { SplitDividerComponent } from './split-divider.component';
 import { StatusBarComponent } from './status-bar.component';
 import { OperationStatusBarComponent } from './operation-status-bar.component';
@@ -410,6 +411,30 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
     await this.clipboardController.moveToOtherPaneCurrent(this.clipboardHost);
   }
 
+  private async copyCursorPathToClipboard(): Promise<void> {
+    const pane = this.getActivePane();
+    if (!pane || this.getPaneTabKind(pane) !== 'dir') {
+      return;
+    }
+
+    const cursorPath = pane.selectionCursorPath;
+    if (!cursorPath || cursorPath === PARENT_ENTRY_PATH) {
+      return;
+    }
+
+    const entry = pane.filteredEntries.find(candidate => candidate.path === cursorPath)
+      ?? pane.entries.find(candidate => candidate.path === cursorPath);
+    if (!entry || entry.path === PARENT_ENTRY_PATH) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(entry.path);
+    } catch {
+      // Ignore clipboard failures to keep shortcut handling non-blocking.
+    }
+  }
+
   onPanePathChange(paneId: string, path: string): void {
     this.searchController.onPanePathChange(this.searchHost, paneId, path);
     this.syncSizeManagerPane(this.getOppositePaneId(paneId as 'left' | 'right'), path);
@@ -451,6 +476,7 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
       togglePinTab:          () => this.getActivePane()?.shortcuts.tabs.togglePinCurrentTab(),
       openItem:              () => this.getActivePane()?.browserCommands.navigation.openSelectedItem(),
       quickView:             () => this.previewController.openFrozenPreviewInOtherPane(this.previewHost),
+      copyCursorPath:        () => this.copyCursorPathToClipboard(),
       copy:                  () => this.copySelectedToClipboard(),
       cut:                   () => this.cutSelectedToClipboard(),
       paste:                 () => this.pasteFromClipboard(),

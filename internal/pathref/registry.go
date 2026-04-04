@@ -266,11 +266,51 @@ func ToVFS(path string) string {
 	if !ok || spec.vfsRoot == "" {
 		return normalized
 	}
+	if converted, ok := remoteAliasToVFS(normalized, spec); ok {
+		return converted
+	}
 	rest := strings.TrimPrefix(normalized, spec.scheme)
 	if rest == "" {
 		return spec.vfsRoot
 	}
 	return spec.vfsRoot + "/" + rest
+}
+
+func remoteAliasToVFS(path string, spec aliasSpec) (string, bool) {
+	defaultPort := ""
+	switch spec.scheme {
+	case FTPScheme:
+		defaultPort = "21"
+	case SFTPScheme:
+		defaultPort = "22"
+	case SMBScheme:
+		defaultPort = "445"
+	default:
+		return "", false
+	}
+
+	parsed, err := url.Parse(path)
+	if err != nil || parsed.Host == "" {
+		return "", false
+	}
+
+	host := parsed.Hostname()
+	if host == "" {
+		return "", false
+	}
+
+	port := parsed.Port()
+	if port == "" {
+		port = defaultPort
+	}
+
+	base := spec.vfsRoot + "/" + host + ":" + port
+	rest := strings.Trim(parsed.Path, "/")
+	if rest == "" {
+		return base, true
+	}
+
+	return base + "/" + rest, true
 }
 
 func FromVFS(path string) string {

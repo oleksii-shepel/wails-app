@@ -19,7 +19,7 @@ func (a *App) GetDrives() contracts.DrivesList {
 }
 
 func (a *App) ListDirectory(path string, showHidden bool) (*contracts.DirectoryListing, error) {
-	return a.Filesystem.ListDirectory(path, showHidden)
+	return a.State.ListDirectory(path, showHidden)
 }
 
 func (a *App) ListDir(path string, showHidden bool) (*contracts.DirectoryListing, error) {

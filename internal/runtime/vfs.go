@@ -66,7 +66,7 @@ func VFSListDir(vfs *vfslib.Unified, path string) (*contracts.DirectoryListing, 
 	}
 
 	return &contracts.DirectoryListing{
-		Path:      pathref.FromVFS(internalPath),
+		Path:      publicPath,
 		Entries:   files,
 		TotalSize: total,
 	}, nil

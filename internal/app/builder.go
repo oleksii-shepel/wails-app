@@ -51,7 +51,7 @@ func BuildState(core *Core, filesystem Filesystem, elevation *internalelevation.
 		ElevatedList:                   filesystem.ElevatedList,
 		BuildFileInfo:                  config.BuildFileInfo,
 		IsHidden:                       config.IsHidden,
-		ListDirectory:                  filesystem.ListDirectory,
+		ListDirectory:                  state.ListDirectory,
 		StartOperation:                 state.StartOperation,
 		PromptConflict:                 state.PromptConflict,
 		ClassifyError:                  config.ClassifyError,

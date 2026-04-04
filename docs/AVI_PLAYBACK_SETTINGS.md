@@ -20,6 +20,7 @@ As of the current code, AVI handling was restored to the older fallback path ass
 That means:
 
 - AVI is allowed to attempt segmented playback again.
+- AVI-family segmented playback now uses keyframe-aligned segment boundaries instead of fixed 2-second windows.
 - When the app falls back to streamed MP4 preview, it uses the legacy `startAstiavTranscode` / `startAstiavTranscodeReader` path.
 - The `mode` query parameter is still attached to preview URLs, but the restored legacy astiav path does not currently branch on it internally.
 
@@ -27,8 +28,8 @@ That means:
 
 | Source | First Attempt | Fallback Plan | Seekable | Notes |
 | --- | --- | --- | --- | --- |
-| Disk AVI | `segmented` | `remux` or `transcode`, depending on codec probe | Yes | If segmented build fails, the fallback URL includes `mode=<plan-mode>` and a 90-second preview window. |
-| Archive AVI | `segmented` | `transcode` | Segmented: yes. Fallback: no | Archive fallback preview rejects `start>0`, so streamed archive fallback is not seekable. |
+| Disk AVI | `segmented` | `remux` or `transcode`, depending on codec probe | Yes | Segmented AVI now uses keyframe-aligned windows; if segmented build fails, the fallback URL includes `mode=<plan-mode>` and a 90-second preview window. |
+| Archive AVI | `segmented` | `transcode` | Segmented: yes. Fallback: no | Segmented AVI archive entries also use keyframe-aligned windows. Archive fallback preview rejects `start>0`, so streamed archive fallback is not seekable. |
 
 ## Exact Backend Rules
 
@@ -39,6 +40,16 @@ AVI-family files are included in segmented playback attempts:
 - `shouldAttemptSegmentedDiskPlayback()` includes `.avi`, `.divx`, `.xvid`
 - `buildDiskVideoPlaybackPlan()` tries segmented playback first
 - `buildArchiveVideoPlaybackPlan()` tries segmented playback first
+
+For AVI-family segmented playback, the cache builder now uses keyframe-aligned segment ranges instead of fixed 2-second ranges:
+
+- `shouldUseKeyframeAlignedSegments()` includes `.avi`, `.divx`, `.xvid`
+- segment manifests preserve real per-segment start/duration values derived from keyframes
+
+Practical consequence:
+
+- segmented AVI playback avoids duplicate-scene overlap caused by backward keyframe seek into a fixed-size segment window
+- segment lengths are no longer uniform; they follow GOP spacing
 
 ### 2. Disk fallback mode depends on codecs
 

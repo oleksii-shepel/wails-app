@@ -14,6 +14,7 @@ Recent feature-specific documentation:
 
 - Image preview format coverage and conversion behavior: [SUPPORTED_FILES_BY_VIEWER.md](SUPPORTED_FILES_BY_VIEWER.md)
 - Backend image conversion pipeline and streamed preview transport: [IMAGE_CONVERTER_PIPELINE.md](IMAGE_CONVERTER_PIPELINE.md)
+- AVI preview behavior and current fallback settings: [AVI_PLAYBACK_SETTINGS.md](AVI_PLAYBACK_SETTINGS.md)
 - Navigation, editable address bar, and search scheme behavior: [NAVIGATION_FEATURE_STATUS.md](NAVIGATION_FEATURE_STATUS.md)
 - Keyboard and address-bar edit behavior: [SHORTCUTS_AND_HANDLERS.md](SHORTCUTS_AND_HANDLERS.md)
 

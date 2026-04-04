@@ -70,11 +70,12 @@ type segmentedVideoManifestItem struct {
 }
 
 type segmentedVideoCacheEntry struct {
-	CacheKey        string  `json:"cacheKey"`
-	Format          string  `json:"format"`
-	DurationSeconds float64 `json:"durationSeconds"`
-	SegmentDuration float64 `json:"segmentDuration"`
-	TotalSegments   int     `json:"totalSegments"`
+	CacheKey        string                `json:"cacheKey"`
+	Format          string                `json:"format"`
+	DurationSeconds float64               `json:"durationSeconds"`
+	SegmentDuration float64               `json:"segmentDuration"`
+	TotalSegments   int                   `json:"totalSegments"`
+	SegmentRanges   []segmentedVideoRange `json:"-"`
 }
 
 type segmentedVideoPlaybackCacheEntry struct {
@@ -712,9 +713,6 @@ func serveArchiveEntry(w http.ResponseWriter, r *http.Request, archCache *cache.
 	io.Copy(w, f) //nolint:errcheck — client disconnect is not an error
 }
 
-
-
-
 func streamTranscodedOutput(w http.ResponseWriter, r *http.Request, stdout io.ReadCloser) {
 	firstChunk := make([]byte, 32*1024)
 	n, readErr := stdout.Read(firstChunk)
@@ -781,7 +779,6 @@ func parseThumbnailDimension(raw string) int {
 	return value
 }
 
-
 func normalizePlaybackMode(raw string) VideoPlaybackMode {
 	if strings.EqualFold(raw, string(VideoPlaybackModeSegmented)) {
 		return VideoPlaybackModeSegmented
@@ -824,6 +821,28 @@ func segmentFileURL(baseURL, cacheKey string, index int) string {
 }
 
 func buildSegmentedVideoManifest(baseURL string, entry segmentedVideoCacheEntry) segmentedVideoManifest {
+	if len(entry.SegmentRanges) > 0 {
+		segments := make([]segmentedVideoManifestItem, 0, len(entry.SegmentRanges))
+		for index, segmentRange := range entry.SegmentRanges {
+			segments = append(segments, segmentedVideoManifestItem{
+				Index:           index,
+				StartTime:       segmentRange.StartSeconds,
+				DurationSeconds: segmentRange.DurationSeconds,
+				URL:             segmentFileURL(baseURL, entry.CacheKey, index),
+			})
+		}
+
+		return segmentedVideoManifest{
+			Mode:            string(VideoPlaybackModeSegmented),
+			Format:          entry.Format,
+			DurationSeconds: entry.DurationSeconds,
+			SegmentDuration: entry.SegmentDuration,
+			TotalSegments:   len(entry.SegmentRanges),
+			InitSegmentURL:  segmentInitURL(baseURL, entry.CacheKey),
+			Segments:        segments,
+		}
+	}
+
 	segments := make([]segmentedVideoManifestItem, 0, entry.TotalSegments)
 	for index := 0; index < entry.TotalSegments; index++ {
 		startTime := float64(index) * entry.SegmentDuration
@@ -951,12 +970,11 @@ func buildSegmentedVideoCache(ctx context.Context, nativePath string, cacheKey s
 		return nil, err
 	}
 	durationSeconds := parseProbeDuration(probe.Format.Duration)
-	totalSegments := int(durationSeconds / segmentedPreviewSegmentSeconds)
-	if durationSeconds > float64(totalSegments)*segmentedPreviewSegmentSeconds {
-		totalSegments++
-	}
-	if totalSegments <= 0 {
-		totalSegments = 1
+	segmentRanges := buildFixedSegmentRanges(durationSeconds)
+	if shouldUseKeyframeAlignedSegments(nativePath) {
+		if keyframeRanges, err := buildKeyframeAlignedSegmentRanges(ctx, nativePath, durationSeconds); err == nil && len(keyframeRanges) > 0 {
+			segmentRanges = keyframeRanges
+		}
 	}
 
 	manifest := segmentedVideoCacheEntry{
@@ -964,18 +982,21 @@ func buildSegmentedVideoCache(ctx context.Context, nativePath string, cacheKey s
 		Format:          "mp4",
 		DurationSeconds: durationSeconds,
 		SegmentDuration: segmentedPreviewSegmentSeconds,
-		TotalSegments:   totalSegments,
+		TotalSegments:   len(segmentRanges),
+		SegmentRanges:   segmentRanges,
 	}
 
+	firstSegmentStart := 0.0
 	firstSegmentDuration := segmentedPreviewSegmentSeconds
-	if durationSeconds > 0 && durationSeconds < firstSegmentDuration {
-		firstSegmentDuration = durationSeconds
+	if len(segmentRanges) > 0 {
+		firstSegmentStart = segmentRanges[0].StartSeconds
+		firstSegmentDuration = segmentRanges[0].DurationSeconds
 	}
 	if firstSegmentDuration <= 0 {
 		firstSegmentDuration = segmentedPreviewSegmentSeconds
 	}
 
-	initSegment, firstSegment, err := buildSegmentedVideoFragment(ctx, nativePath, 0, firstSegmentDuration)
+	initSegment, firstSegment, err := buildSegmentedVideoFragment(ctx, nativePath, firstSegmentStart, firstSegmentDuration)
 	if err != nil {
 		return nil, err
 	}
@@ -997,6 +1018,14 @@ func buildSegmentedVideoCache(ctx context.Context, nativePath string, cacheKey s
 	}, nil
 }
 
+func shouldUseKeyframeAlignedSegments(nativePath string) bool {
+	switch strings.ToLower(filepath.Ext(nativePath)) {
+	case ".flv":
+		return true
+	default:
+		return false
+	}
+}
 
 func requiresAccurateSegmentSeek(nativePath string) bool {
 	switch strings.ToLower(filepath.Ext(nativePath)) {
@@ -1234,14 +1263,7 @@ func (e *segmentedVideoPlaybackCacheEntry) ensureSegment(ctx context.Context, se
 			pending = &segmentedVideoSegmentBuild{done: make(chan struct{}), cancel: cancel}
 			e.inflight[segmentIndex] = pending
 
-			startSeconds := float64(segmentIndex) * e.manifest.SegmentDuration
-			durationSeconds := e.manifest.SegmentDuration
-			if remaining := e.manifest.DurationSeconds - startSeconds; remaining > 0 && remaining < durationSeconds {
-				durationSeconds = remaining
-			}
-			if durationSeconds <= 0 {
-				durationSeconds = e.manifest.SegmentDuration
-			}
+			startSeconds, durationSeconds := e.segmentRange(segmentIndex)
 
 			go e.runSegmentBuild(segmentIndex, pending, buildCtx, startSeconds, durationSeconds)
 		}
@@ -1259,6 +1281,27 @@ func (e *segmentedVideoPlaybackCacheEntry) ensureSegment(ctx context.Context, se
 			return nil, nil, ctx.Err()
 		}
 	}
+}
+
+func (e *segmentedVideoPlaybackCacheEntry) segmentRange(segmentIndex int) (float64, float64) {
+	if segmentIndex >= 0 && segmentIndex < len(e.manifest.SegmentRanges) {
+		segmentRange := e.manifest.SegmentRanges[segmentIndex]
+		durationSeconds := segmentRange.DurationSeconds
+		if durationSeconds <= 0 {
+			durationSeconds = e.manifest.SegmentDuration
+		}
+		return segmentRange.StartSeconds, durationSeconds
+	}
+
+	startSeconds := float64(segmentIndex) * e.manifest.SegmentDuration
+	durationSeconds := e.manifest.SegmentDuration
+	if remaining := e.manifest.DurationSeconds - startSeconds; remaining > 0 && remaining < durationSeconds {
+		durationSeconds = remaining
+	}
+	if durationSeconds <= 0 {
+		durationSeconds = e.manifest.SegmentDuration
+	}
+	return startSeconds, durationSeconds
 }
 
 func (e *segmentedVideoPlaybackCacheEntry) runSegmentBuild(segmentIndex int, pending *segmentedVideoSegmentBuild, buildCtx context.Context, startSeconds float64, durationSeconds float64) {
@@ -1611,7 +1654,6 @@ func shouldAttemptSegmentedDiskPlayback(name, videoCodec, audioCodec string) boo
 	return false
 }
 
-
 func extractProbeCodecs(probe *ffprobeOutput) (string, string) {
 	if probe == nil {
 		return "", ""
@@ -1714,10 +1756,3 @@ func probeFileDurationSeconds(nativePath string) float64 {
 	}
 	return parseProbeDuration(probe.Format.Duration)
 }
-
-
-
-
-
-
-

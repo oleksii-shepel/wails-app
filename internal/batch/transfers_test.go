@@ -1,8 +1,10 @@
 package batch
 
 import (
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	contracts "wails-app/internal/contracts"
@@ -84,5 +86,74 @@ func TestBatchMoveExactDestinationReportsConflict(t *testing.T) {
 	}
 	if _, err := os.Stat(sourcePath); err != nil {
 		t.Fatalf("source should remain after skipped conflict: %v", err)
+	}
+}
+
+func TestBatchCopyUsesCallbackForVirtualSource(t *testing.T) {
+	tempDir := t.TempDir()
+	destPath := filepath.Join(tempDir, "downloaded.txt")
+	const sourcePath = "ftp://example.com/pub/readme.txt"
+	const content = "hello from ftp"
+
+	manager := internalops.NewManager()
+	service := NewService(ServiceConfig{
+		StartOperation: manager.StartOperation,
+		BatchErr: func(source, destination string, err error) contracts.BatchItemError {
+			return contracts.BatchItemError{Source: source, Destination: destination, Error: err.Error(), Code: "unknown"}
+		},
+		CalculateSize:                  func(path string) (int64, int64) { return 0, 0 },
+		ResolvePath:                    func(path string) (string, error) { return path, nil },
+		ToPublicPath:                   func(path string) string { return path },
+		IsPermissionDenied:             func(error) bool { return false },
+		ShouldRetryDeleteWithElevation: func(error) bool { return false },
+		RunElevatedCopy:                func(src, dst string, recursive bool) (bool, error) { return false, nil },
+		RunElevatedMove:                func(src, dst string) (bool, error) { return false, nil },
+		RunElevatedDelete:              func(path string, recursive bool, useTrash *bool) (bool, error) { return false, nil },
+		MoveToTrash:                    func(path string) error { return nil },
+		GetFileInfo: func(path string) (*contracts.FileInfo, error) {
+			if path != sourcePath {
+				t.Fatalf("unexpected getFileInfo path: %s", path)
+			}
+			return &contracts.FileInfo{
+				Name: "readme.txt",
+				Path: path,
+				Type: contracts.FileTypeFile,
+				Size: int64(len(content)),
+			}, nil
+		},
+		CopyPath: func(source, destination string, recursive bool, streamToFile func(io.Reader, string, int64, string) (int64, error)) error {
+			if source != sourcePath {
+				t.Fatalf("unexpected source: %s", source)
+			}
+			if destination != destPath {
+				t.Fatalf("unexpected destination: %s", destination)
+			}
+			if recursive {
+				t.Fatalf("recursive should be false for file copy")
+			}
+			_, err := streamToFile(strings.NewReader(content), destination, int64(len(content)), "readme.txt")
+			return err
+		},
+	})
+
+	result, err := service.BatchCopy(contracts.BatchRequest{
+		Items: []contracts.BatchItem{{
+			Source:      sourcePath,
+			Destination: destPath,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("BatchCopy returned error: %v", err)
+	}
+	if result.Failed != 0 || result.Succeeded != 1 {
+		t.Fatalf("unexpected batch result: %+v", result)
+	}
+
+	data, err := os.ReadFile(destPath)
+	if err != nil {
+		t.Fatalf("read destination: %v", err)
+	}
+	if string(data) != content {
+		t.Fatalf("destination content mismatch\nwant: %q\n got: %q", content, string(data))
 	}
 }

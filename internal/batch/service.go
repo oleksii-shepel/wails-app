@@ -37,6 +37,8 @@ type ServiceConfig struct {
 	CalculateSize                  func(path string) (int64, int64)
 	ResolvePath                    func(path string) (string, error)
 	ToPublicPath                   func(path string) string
+	GetFileInfo                    func(path string) (*contracts.FileInfo, error)
+	CopyPath                       func(source, destination string, recursive bool, streamToFile func(io.Reader, string, int64, string) (int64, error)) error
 	ExtractNestedArchive           func(archivePath string, nestedChain []string) ([]byte, error)
 	Normalize                      func(string) string
 	ArchiveEntryPath               func(archiver.File) string
@@ -144,6 +146,8 @@ func (s *Service) newTransferRunner(op *internalops.ActiveOperation) *TransferRu
 		CalculateSize:                  s.config.CalculateSize,
 		ResolvePath:                    s.config.ResolvePath,
 		ToPublicPath:                   s.config.ToPublicPath,
+		GetFileInfo:                    s.config.GetFileInfo,
+		CopyPath:                       s.config.CopyPath,
 	})
 }
 

@@ -78,12 +78,16 @@ func (f *FS) clean(p string) string {
 
 func (f *FS) Open(_ context.Context, p string) (vfs.File, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	r, err := f.conn.Retr(f.clean(p))
 	if err != nil {
+		f.mu.Unlock()
 		return nil, mapErr(err)
 	}
-	return &readFile{rc: r, name: path.Base(p)}, nil
+	return &readFile{
+		rc:     r,
+		name:   path.Base(p),
+		unlock: f.mu.Unlock,
+	}, nil
 }
 
 func (f *FS) Stat(_ context.Context, p string) (vfs.FileInfo, error) {
@@ -208,8 +212,11 @@ var _ vfs.FileInfo = (*fileInfo)(nil)
 // ── readFile ──────────────────────────────────────────────────────────────────
 
 type readFile struct {
-	rc   *ftplib.Response
-	name string
+	rc        *ftplib.Response
+	name      string
+	unlock    func()
+	closeOnce sync.Once
+	closeErr  error
 }
 
 func (f *readFile) Read(p []byte) (int, error)  { return f.rc.Read(p) }
@@ -217,7 +224,15 @@ func (f *readFile) Write(_ []byte) (int, error) { return 0, fmt.Errorf("ftp: fil
 func (f *readFile) Seek(_ int64, _ int) (int64, error) {
 	return 0, fmt.Errorf("ftp: seek not supported")
 }
-func (f *readFile) Close() error                { return f.rc.Close() }
+func (f *readFile) Close() error {
+	f.closeOnce.Do(func() {
+		f.closeErr = f.rc.Close()
+		if f.unlock != nil {
+			f.unlock()
+		}
+	})
+	return f.closeErr
+}
 func (f *readFile) Sync() error                 { return nil }
 func (f *readFile) Stat() (vfs.FileInfo, error) { return &fileInfo{name: f.name}, nil }
 

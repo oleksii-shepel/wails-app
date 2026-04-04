@@ -624,6 +624,12 @@ func serveVFSFile(w http.ResponseWriter, r *http.Request, vfs *vfslib.Unified, p
 		internalPath = pathref.ToVFS(publicPath)
 	}
 
+	fi, err := vfs.Stat(ctx, internalPath)
+	if err != nil || fi.IsDir() {
+		http.Error(w, "not a file", http.StatusBadRequest)
+		return
+	}
+
 	f, err := vfs.Open(ctx, internalPath)
 	if err != nil {
 		http.Error(w, "cannot open file", http.StatusNotFound)
@@ -631,16 +637,114 @@ func serveVFSFile(w http.ResponseWriter, r *http.Request, vfs *vfslib.Unified, p
 	}
 	defer f.Close()
 
-	fi, err := f.Stat()
-	if err != nil || fi.IsDir() {
-		http.Error(w, "not a file", http.StatusBadRequest)
-		return
-	}
-
 	setCORSHeaders(w)
 	setContentType(w, fi.Name())
 	w.Header().Set("Cache-Control", "no-store")
-	http.ServeContent(w, r, fi.Name(), fi.ModTime(), f)
+	w.Header().Set("Accept-Ranges", "bytes")
+	if _, err := f.Seek(0, io.SeekStart); err == nil {
+		http.ServeContent(w, r, fi.Name(), fi.ModTime(), f)
+		return
+	}
+	serveNonSeekableVFSFile(w, r, f, fi)
+}
+
+func serveNonSeekableVFSFile(w http.ResponseWriter, r *http.Request, f io.Reader, fi vfslib.FileInfo) {
+	size := fi.Size()
+	if size < 0 {
+		size = 0
+	}
+
+	rangeHeader := strings.TrimSpace(r.Header.Get("Range"))
+	if rangeHeader != "" && size > 0 {
+		start, end, ok := parseSingleByteRange(rangeHeader, size)
+		if !ok {
+			w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", size))
+			http.Error(w, "invalid range", http.StatusRequestedRangeNotSatisfiable)
+			return
+		}
+
+		if start > 0 {
+			if _, err := io.CopyN(io.Discard, f, start); err != nil {
+				http.Error(w, "cannot read file", http.StatusInternalServerError)
+				return
+			}
+		}
+
+		length := end - start + 1
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, size))
+		w.Header().Set("Content-Length", strconv.FormatInt(length, 10))
+		w.WriteHeader(http.StatusPartialContent)
+		if r.Method == http.MethodHead {
+			return
+		}
+		if _, err := io.CopyN(w, f, length); err != nil && !errors.Is(err, io.EOF) {
+			return
+		}
+		return
+	}
+
+	if size > 0 {
+		w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
+	}
+	if r.Method == http.MethodHead {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	if _, err := io.Copy(w, f); err != nil {
+		return
+	}
+}
+
+func parseSingleByteRange(header string, size int64) (int64, int64, bool) {
+	if size <= 0 {
+		return 0, 0, false
+	}
+	if !strings.HasPrefix(strings.ToLower(header), "bytes=") {
+		return 0, 0, false
+	}
+
+	spec := strings.TrimSpace(header[len("bytes="):])
+	if spec == "" || strings.Contains(spec, ",") {
+		return 0, 0, false
+	}
+
+	dash := strings.IndexByte(spec, '-')
+	if dash < 0 {
+		return 0, 0, false
+	}
+
+	startRaw := strings.TrimSpace(spec[:dash])
+	endRaw := strings.TrimSpace(spec[dash+1:])
+
+	switch {
+	case startRaw == "" && endRaw == "":
+		return 0, 0, false
+	case startRaw == "":
+		suffix, err := strconv.ParseInt(endRaw, 10, 64)
+		if err != nil || suffix <= 0 {
+			return 0, 0, false
+		}
+		if suffix > size {
+			suffix = size
+		}
+		return size - suffix, size - 1, true
+	default:
+		start, err := strconv.ParseInt(startRaw, 10, 64)
+		if err != nil || start < 0 || start >= size {
+			return 0, 0, false
+		}
+		if endRaw == "" {
+			return start, size - 1, true
+		}
+		end, err := strconv.ParseInt(endRaw, 10, 64)
+		if err != nil || end < start {
+			return 0, 0, false
+		}
+		if end >= size {
+			end = size - 1
+		}
+		return start, end, true
+	}
 }
 
 // serveDiskFile resolves the public path (filesystem:// scheme) to a native OS path

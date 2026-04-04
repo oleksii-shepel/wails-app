@@ -1,8 +1,11 @@
 package batch
 
 import (
+	"io"
 	"os"
+	pathpkg "path"
 	"path/filepath"
+	"strings"
 
 	contracts "wails-app/internal/contracts"
 	internalops "wails-app/internal/ops"
@@ -20,6 +23,8 @@ type TransferCallbacks struct {
 	CalculateSize                  func(path string) (int64, int64)
 	ResolvePath                    func(path string) (string, error)
 	ToPublicPath                   func(path string) string
+	GetFileInfo                    func(path string) (*contracts.FileInfo, error)
+	CopyPath                       func(source, destination string, recursive bool, streamToFile func(io.Reader, string, int64, string) (int64, error)) error
 }
 
 type TransferRunner struct {
@@ -44,7 +49,78 @@ func (r *TransferRunner) toPublicPath(path string) string {
 	return r.callbacks.ToPublicPath(path)
 }
 
-func (r *TransferRunner) normalizeItemDestination(item contracts.BatchItem, resolvedSource string) (string, error) {
+func (r *TransferRunner) getFileInfo(path string) (*contracts.FileInfo, error) {
+	if r.callbacks.GetFileInfo == nil {
+		return nil, os.ErrNotExist
+	}
+	return r.callbacks.GetFileInfo(path)
+}
+
+func (r *TransferRunner) sourceMetrics(path string) (items, bytes int64) {
+	resolvedPath, err := r.resolvePath(path)
+	if err == nil {
+		if info, statErr := os.Stat(resolvedPath); statErr == nil {
+			if info.IsDir() {
+				return r.callbacks.CalculateSize(resolvedPath)
+			}
+			return 1, info.Size()
+		}
+	}
+
+	info, infoErr := r.getFileInfo(path)
+	if infoErr != nil || info == nil {
+		return 0, 0
+	}
+	if info.Type == contracts.FileTypeDirectory {
+		return 1, 0
+	}
+	return 1, info.Size
+}
+
+type sourceDescriptor struct {
+	name       string
+	size       int64
+	isDir      bool
+	customCopy bool
+}
+
+func (r *TransferRunner) describeSource(publicPath, resolvedPath string) (sourceDescriptor, error) {
+	info, err := os.Stat(resolvedPath)
+	if err == nil {
+		return sourceDescriptor{
+			name:  filepath.Base(resolvedPath),
+			size:  info.Size(),
+			isDir: info.IsDir(),
+		}, nil
+	}
+
+	fileInfo, infoErr := r.getFileInfo(publicPath)
+	if infoErr != nil || fileInfo == nil {
+		return sourceDescriptor{}, err
+	}
+
+	name := fileInfo.Name
+	if name == "" {
+		name = pathBase(publicPath)
+	}
+
+	return sourceDescriptor{
+		name:       name,
+		size:       fileInfo.Size,
+		isDir:      fileInfo.Type == contracts.FileTypeDirectory,
+		customCopy: true,
+	}, nil
+}
+
+func pathBase(path string) string {
+	normalized := strings.TrimRight(strings.ReplaceAll(path, "\\", "/"), "/")
+	if normalized == "" {
+		return ""
+	}
+	return pathpkg.Base(normalized)
+}
+
+func (r *TransferRunner) normalizeItemDestination(item contracts.BatchItem, sourceName string) (string, error) {
 	destinationLabel := item.Destination
 	resolvedDestination, err := r.resolvePath(destinationLabel)
 	if err != nil {
@@ -57,7 +133,7 @@ func (r *TransferRunner) normalizeItemDestination(item contracts.BatchItem, reso
 
 	info, statErr := os.Stat(resolvedDestination)
 	if statErr == nil && info.IsDir() {
-		normalized := r.toPublicPath(filepath.Join(resolvedDestination, filepath.Base(resolvedSource)))
+		normalized := r.toPublicPath(filepath.Join(resolvedDestination, sourceName))
 		return normalized, nil
 	}
 
@@ -71,11 +147,7 @@ func (r *TransferRunner) normalizeItemDestination(item contracts.BatchItem, reso
 func (r *TransferRunner) Copy(op *internalops.ActiveOperation, req contracts.BatchRequest) (*contracts.BatchResult, error) {
 	var totalItems, totalBytes int64
 	for _, item := range req.Items {
-		resolvedSource, err := r.resolvePath(item.Source)
-		if err != nil {
-			continue
-		}
-		n, b := r.callbacks.CalculateSize(resolvedSource)
+		n, b := r.sourceMetrics(item.Source)
 		totalItems += n
 		totalBytes += b
 	}
@@ -98,13 +170,14 @@ func (r *TransferRunner) Copy(op *internalops.ActiveOperation, req contracts.Bat
 			continue
 		}
 
-		if _, err := os.Stat(resolvedSource); err != nil {
+		source, err := r.describeSource(item.Source, resolvedSource)
+		if err != nil {
 			result.Failed++
 			result.Errors = append(result.Errors, r.callbacks.BatchErr(item.Source, "", err))
 			continue
 		}
 
-		destinationLabel, err := r.normalizeItemDestination(item, resolvedSource)
+		destinationLabel, err := r.normalizeItemDestination(item, source.name)
 		if err != nil {
 			result.Failed++
 			result.Errors = append(result.Errors, r.callbacks.BatchErr(item.Source, item.Destination, err))
@@ -123,8 +196,14 @@ func (r *TransferRunner) Copy(op *internalops.ActiveOperation, req contracts.Bat
 		}
 		publicDst := r.toPublicPath(finalDst)
 
-		if err := fileOps.CopyPath(resolvedSource, finalDst, req.Recursive); err != nil {
-			if r.callbacks.IsPermissionDenied(err) {
+		copyErr := error(nil)
+		if source.customCopy && r.callbacks.CopyPath != nil {
+			copyErr = r.callbacks.CopyPath(item.Source, publicDst, req.Recursive, fileOps.StreamToFile)
+		} else {
+			copyErr = fileOps.CopyPath(resolvedSource, finalDst, req.Recursive)
+		}
+		if copyErr != nil {
+			if r.callbacks.IsPermissionDenied(copyErr) {
 				success, elevErr := r.callbacks.RunElevatedCopy(resolvedSource, finalDst, req.Recursive)
 				if elevErr == nil && success {
 					result.Succeeded++
@@ -132,7 +211,7 @@ func (r *TransferRunner) Copy(op *internalops.ActiveOperation, req contracts.Bat
 				}
 			}
 			result.Failed++
-			result.Errors = append(result.Errors, r.callbacks.BatchErr(item.Source, publicDst, err))
+			result.Errors = append(result.Errors, r.callbacks.BatchErr(item.Source, publicDst, copyErr))
 			continue
 		}
 		result.Succeeded++
@@ -186,7 +265,7 @@ func (r *TransferRunner) Move(op *internalops.ActiveOperation, req contracts.Bat
 			result.Errors = append(result.Errors, r.callbacks.BatchErr(item.Source, item.Destination, err))
 			continue
 		}
-		destinationLabel, err := r.normalizeItemDestination(item, resolvedSource)
+		destinationLabel, err := r.normalizeItemDestination(item, pathBase(item.Source))
 		if err != nil {
 			result.Failed++
 			result.Errors = append(result.Errors, r.callbacks.BatchErr(item.Source, item.Destination, err))

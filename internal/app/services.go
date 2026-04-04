@@ -1,6 +1,7 @@
 package app
 
 import (
+	"io"
 	"os"
 
 	"github.com/mholt/archiver/v3"
@@ -78,6 +79,8 @@ type ServiceConfig struct {
 	RunElevatedMove                func(src, dst string) (bool, error)
 	RunElevatedDelete              func(path string, recursive bool, useTrash *bool) (bool, error)
 	CalculateSize                  func(path string) (items, bytes int64)
+	GetFileInfo                    func(path string) (*contracts.FileInfo, error)
+	CopyBatchPath                  func(source, destination string, recursive bool, streamToFile func(io.Reader, string, int64, string) (int64, error)) error
 	ExtractNestedArchive           func(archivePath string, nestedChain []string) ([]byte, error)
 	Normalize                      func(string) string
 	ArchiveEntryPath               func(archiver.File) string
@@ -113,6 +116,8 @@ func NewServices(config ServiceConfig) *Services {
 			CalculateSize:                  config.CalculateSize,
 			ResolvePath:                    resolveMemoryAlias,
 			ToPublicPath:                   toPublicMemoryPath,
+			GetFileInfo:                    config.GetFileInfo,
+			CopyPath:                       config.CopyBatchPath,
 			ExtractNestedArchive:           config.ExtractNestedArchive,
 			Normalize:                      config.Normalize,
 			ArchiveEntryPath:               config.ArchiveEntryPath,

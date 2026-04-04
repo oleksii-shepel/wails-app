@@ -145,7 +145,7 @@ export class FilePaneNavigationController {
     host.currentPath = path;
     host.exitArchive();
     host.clearArchiveState();
-    void host.loadPathTransparently(path);
+    void this.navigateToEnteredPath(host, path);
   }
 
   async onNavigateUp(host: FilePaneNavigationHost): Promise<void> {
@@ -176,6 +176,28 @@ export class FilePaneNavigationController {
   onRefresh(host: FilePaneNavigationHost): void {
     void host.refreshCurrentPathTransparently();
     host.refreshTreeNode(host.currentPath);
+  }
+
+  private async navigateToEnteredPath(host: FilePaneNavigationHost, path: string): Promise<void> {
+    if (host.directorySource.isPathInsideArchive(path)) {
+      await host.loadPathTransparently(path);
+      return;
+    }
+
+    try {
+      const info = await host.apiService.getFileInfo(path);
+      if (info.type !== 'DIRECTORY') {
+        const parent = host.directorySource.getParentPath(path);
+        if (parent && !samePath(parent, path)) {
+          await host.loadDirectory(parent, { focusPath: path });
+          return;
+        }
+      }
+    } catch {
+      // Fall back to directory-style navigation for synthetic roots and unresolved paths.
+    }
+
+    await host.loadPathTransparently(path);
   }
 
   private async resolveInitialPath(host: FilePaneNavigationHost, savedPath: string): Promise<string> {

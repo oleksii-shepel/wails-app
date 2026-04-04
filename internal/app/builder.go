@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"io"
 	"os"
 
 	"github.com/mholt/archiver/v3"
@@ -61,10 +62,14 @@ func BuildState(core *Core, filesystem Filesystem, elevation *internalelevation.
 		RunElevatedMove:                filesystem.RunElevatedMove,
 		RunElevatedDelete:              filesystem.RunElevatedDelete,
 		CalculateSize:                  config.CalculateSize,
-		ExtractNestedArchive:           state.ExtractNestedArchive,
-		Normalize:                      config.Normalize,
-		ArchiveEntryPath:               config.ArchiveEntryPath,
-		IsArchive:                      config.IsArchive,
+		GetFileInfo:                    filesystem.GetFileInfo,
+		CopyBatchPath: func(source, destination string, recursive bool, streamToFile func(io.Reader, string, int64, string) (int64, error)) error {
+			return state.copyBatchPath(source, destination, recursive, streamToFile)
+		},
+		ExtractNestedArchive: state.ExtractNestedArchive,
+		Normalize:            config.Normalize,
+		ArchiveEntryPath:     config.ArchiveEntryPath,
+		IsArchive:            config.IsArchive,
 	})
 
 	state.Archive = services.Archive

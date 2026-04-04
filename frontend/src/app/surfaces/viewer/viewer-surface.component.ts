@@ -11,6 +11,7 @@ import type { ViewerFileListItem } from '../../shared/protocol-enhanced';
 import { CanvasVideoPlayer, CanvasVideoPlayerService, VideoMetadata } from '../../services/canvas-video-player.service';
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
 import { ViewerArchiveContext } from '../../viewers/viewer-archive-context';
+import { SegmentVideoLoader } from '../../viewers/builtins/segment-video-loader';
 
 type ViewerKind =
   | 'image' | 'video' | 'audio' | 'pdf' | 'svg'
@@ -20,7 +21,7 @@ type ViewerKind =
 interface ImageMeta { width: number; height: number }
 
 interface VideoPlaybackPlan {
-  mode: 'direct' | 'remux' | 'transcode';
+  mode: 'direct' | 'segmented' | 'remux' | 'transcode';
   format: string;
   videoCodec?: string;
   audioCodec?: string;
@@ -1351,6 +1352,8 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
     switch (this.videoPlaybackPlan?.mode) {
       case 'direct':
         return 'direct';
+      case 'segmented':
+        return 'segmented';
       case 'remux':
         return 'remux';
       case 'transcode':
@@ -1364,6 +1367,8 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
     switch (this.videoPlaybackPlan?.mode) {
       case 'direct':
         return 'Direct playback: preview uses the original stream without FFmpeg rewriting.';
+      case 'segmented':
+        return 'Segmented playback: preview uses a fragmented MP4 manifest and keyframe-aware segment loading.';
       case 'remux':
         return 'Remux playback: FFmpeg repackages the stream into MP4 without re-encoding when possible.';
       case 'transcode':
@@ -1815,8 +1820,16 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
         if (this.mediaSrc) {
           this.videoLoading = true;
           this.cdr.markForCheck();
-          
-          this.canvasPlayer.loadFromUrl(this.mediaSrc)
+
+          const loadPromise = this.videoPlaybackPlan?.mode === 'segmented'
+            ? (async () => {
+                const loader = new SegmentVideoLoader();
+                const source = await loader.load(this.mediaSrc!);
+                return this.canvasPlayer!.loadFromDemuxedSource(source);
+              })()
+            : this.canvasPlayer.loadFromUrl(this.mediaSrc);
+
+          loadPromise
             .then(() => {
               this.videoReady = true;
               this.attemptCanvasAutoplay();
@@ -2266,7 +2279,7 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
 
     const rawMode = readPlanValue<string>('mode', 'Mode');
     const normalized: VideoPlaybackPlan = {
-      mode: rawMode === 'remux' || rawMode === 'transcode' ? rawMode : 'direct',
+      mode: rawMode === 'segmented' || rawMode === 'remux' || rawMode === 'transcode' ? rawMode : 'direct',
       format: String(readPlanValue<string>('format', 'Format') ?? ''),
       videoCodec: readPlanValue<string>('videoCodec', 'VideoCodec') ?? undefined,
       audioCodec: readPlanValue<string>('audioCodec', 'AudioCodec') ?? undefined,

@@ -1020,10 +1020,10 @@ func buildSegmentedVideoCache(ctx context.Context, nativePath string, cacheKey s
 
 func shouldUseKeyframeAlignedSegments(nativePath string) bool {
 	switch strings.ToLower(filepath.Ext(nativePath)) {
-	case ".avi", ".divx", ".xvid", ".flv":
-		return true
-	default:
+	case ".mp4", ".m4v", ".webm":
 		return false
+	default:
+		return shouldAttemptSegmentedDiskPlayback(nativePath, "", "")
 	}
 }
 

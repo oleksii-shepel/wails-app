@@ -147,7 +147,7 @@ func remuxLoop(ctx context.Context, inputFormatContext *astiav.FormatContext, st
 
 	options := astiav.NewDictionary()
 	defer options.Free()
-	options.Set("movflags", "frag_every_frame+empty_moov+default_base_moof+faststart", 0)
+	options.Set("movflags", "frag_every_frame+empty_moov+default_base_moof+faststart+delay_moov", 0)
 
 	if err := outputFormatContext.WriteHeader(options); err != nil {
 		pw.CloseWithError(fmt.Errorf("failed writing header: %w", err))

@@ -256,7 +256,7 @@ func buildSegmentedVideoFragment(ctx context.Context, nativePath string, startSe
 
 	options := astiav.NewDictionary()
 	defer options.Free()
-	options.Set("movflags", "frag_keyframe+empty_moov+default_base_moof", 0)
+	options.Set("movflags", "frag_keyframe+empty_moov+default_base_moof+delay_moov", 0)
 
 	if err := outputFormatContext.WriteHeader(options); err != nil {
 		return nil, nil, fmt.Errorf("failed writing header: %w", err)

@@ -56,7 +56,7 @@ func (a *App) ReadFileContent(path string, encoding string) (*contracts.FileCont
 }
 
 func (a *App) ProbeFile(path string) (*contracts.FileProbe, error) {
-	return a.Filesystem.ProbeFile(path)
+	return a.State.ProbeFile(path)
 }
 
 func (a *App) ReadFileRange(path string, offset int64, length int) (*contracts.FileContent, error) {

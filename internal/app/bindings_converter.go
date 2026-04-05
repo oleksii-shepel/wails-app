@@ -10,7 +10,7 @@ import (
 
 // GetConvertedImageURL returns a stream URL that serves a converted preview image.
 func (a *App) GetConvertedImageURL(path string, targetFormat string) (string, error) {
-	info, err := a.State.Filesystem.GetFileInfo(path)
+	info, err := a.State.GetFileInfo(path)
 	if err != nil {
 		return "", fmt.Errorf("cannot access file: %w", err)
 	}
@@ -31,7 +31,7 @@ func (a *App) GetConvertedImageURL(path string, targetFormat string) (string, er
 
 // GetImageThumbnailURL returns a stream URL that serves a bounded thumbnail image.
 func (a *App) GetImageThumbnailURL(path string, maxWidth int, maxHeight int) (string, error) {
-	info, err := a.State.Filesystem.GetFileInfo(path)
+	info, err := a.State.GetFileInfo(path)
 	if err != nil {
 		return "", fmt.Errorf("cannot access file: %w", err)
 	}
@@ -89,7 +89,7 @@ func (a *App) ConvertOfficeDocument(path string) (map[string]interface{}, error)
 		return nil, fmt.Errorf("office converter not available")
 	}
 
-	info, err := a.State.Filesystem.GetFileInfo(path)
+	info, err := a.State.GetFileInfo(path)
 	if err != nil {
 		return nil, fmt.Errorf("cannot access file: %w", err)
 	}

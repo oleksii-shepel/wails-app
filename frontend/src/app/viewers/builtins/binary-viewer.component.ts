@@ -40,7 +40,7 @@ const MEMORY_THRESHOLD = 8 * 1024 * 1024;  // files в‰¤ 8 MB loaded fully in
         <div class="header-main">
           <span class="file-icon">01</span>
           <div class="header-text">
-            <div class="title" [title]="displayName">{{ displayName || 'Binary Viewer' }}</div>
+            <div class="title" [title]="displayName">{{ displayName || 'Binary Preview' }}</div>
             <div class="path" [title]="displayPath">{{ displayPath || 'Select a file to preview' }}</div>
           </div>
         </div>
@@ -98,7 +98,7 @@ const MEMORY_THRESHOLD = 8 * 1024 * 1024;  // files в‰¤ 8 MB loaded fully in
       <div class="viewer-body">
         <div *ngIf="kind === 'loading'" class="state-container">
           <div class="spinner"></div>
-          <div class="state-label">Loading binary previewвЂ¦</div>
+          <div class="state-label">Loading binary preview…</div>
         </div>
         <div *ngIf="kind === 'empty'" class="state-container">
           <div class="state-icon">&#x1F50D;</div>
@@ -106,7 +106,7 @@ const MEMORY_THRESHOLD = 8 * 1024 * 1024;  // files в‰¤ 8 MB loaded fully in
         </div>
         <div *ngIf="kind === 'directory'" class="state-container">
           <div class="state-icon">&#x1F4C1;</div>
-          <div class="state-label">Directory вЂ” no preview available</div>
+          <div class="state-label">Directory — no preview available</div>
         </div>
         <div *ngIf="kind === 'error'" class="state-container state-error">
           <div class="state-icon">&#x26A0;</div>

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"time"
@@ -240,11 +241,55 @@ func publicAliasToVFS(path string, scheme string, vfsRoot string) (string, bool)
 	if !strings.HasPrefix(strings.ToLower(path), scheme) {
 		return "", false
 	}
+
+	switch scheme {
+	case ftpScheme, sftpScheme, smbScheme:
+		if converted, ok := remotePublicAliasToVFS(path, scheme, vfsRoot); ok {
+			return converted, true
+		}
+	}
+
 	rest := strings.Trim(strings.TrimPrefix(path, scheme), "/")
 	if rest == "" {
 		return vfsRoot, true
 	}
 	return vfsRoot + "/" + rest, true
+}
+
+func remotePublicAliasToVFS(path string, scheme string, vfsRoot string) (string, bool) {
+	parsed, err := url.Parse(path)
+	if err != nil || parsed.Host == "" {
+		return "", false
+	}
+
+	host := parsed.Hostname()
+	if host == "" {
+		return "", false
+	}
+
+	defaultPort := ""
+	switch scheme {
+	case ftpScheme:
+		defaultPort = "21"
+	case sftpScheme:
+		defaultPort = "22"
+	case smbScheme:
+		defaultPort = "445"
+	default:
+		return "", false
+	}
+
+	port := parsed.Port()
+	if port == "" {
+		port = defaultPort
+	}
+
+	base := vfsRoot + "/" + host + ":" + port
+	rest := strings.Trim(parsed.Path, "/")
+	if rest == "" {
+		return base, true
+	}
+	return base + "/" + rest, true
 }
 
 func (u *Unified) RealPath(path string) (string, error) {

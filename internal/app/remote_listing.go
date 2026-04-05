@@ -39,6 +39,17 @@ func (s *State) GetFileInfo(path string) (*contracts.FileInfo, error) {
 	return s.Filesystem.GetFileInfo(normalized)
 }
 
+func (s *State) ProbeFile(path string) (*contracts.FileProbe, error) {
+	normalized := pathref.Normalize(path)
+	if _, ok := remoteProtocolRoot(normalized); ok {
+		return nil, fmt.Errorf("cannot probe remote root")
+	}
+	if err := s.ensureRemoteMount(normalized); err != nil {
+		return nil, err
+	}
+	return s.Filesystem.ProbeFile(normalized)
+}
+
 func (s *State) ensureRemoteMount(path string) error {
 	if s.vfs == nil {
 		return nil

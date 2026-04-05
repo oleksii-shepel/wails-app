@@ -841,7 +841,9 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
 
   private async loadPaneState(): Promise<void> {
     await this.navigationController.loadPaneState(this.navigationHost);
-    this.runtimeStateController.afterNavigationMutation(this.runtimeStateHost);
+    this.runInAngular(() => {
+      this.runtimeStateController.afterNavigationMutation(this.runtimeStateHost);
+    });
   }
 
   private clearArchiveState(): void {
@@ -856,7 +858,9 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
 
   async onTabChange(tab: TabInfo): Promise<void> {
     await this.navigationController.onTabChange(this.navigationHost, tab);
-    this.runtimeStateController.afterNavigationMutation(this.runtimeStateHost);
+    this.runInAngular(() => {
+      this.runtimeStateController.afterNavigationMutation(this.runtimeStateHost);
+    });
   }
 
   onTabClose(tab: TabInfo): void {

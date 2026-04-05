@@ -97,7 +97,9 @@ export class FilePaneDirectoryController {
     try {
       if (!host.directorySource.supportsStreaming(path)) {
         const listing = await host.directorySource.listDirectory(path, host.showHidden);
-        this.handleDirectDirectoryLoad(host, listing.path, listing.entries);
+        host.runInAngular(() => {
+          this.handleDirectDirectoryLoad(host, listing.path, listing.entries);
+        });
         return;
       }
 
@@ -107,11 +109,15 @@ export class FilePaneDirectoryController {
       if (error?.message === 'Directory stream cancelled') {
         return;
       }
-      host.error = error.message || 'Failed to load directory';
+      host.runInAngular(() => {
+        host.error = error.message || 'Failed to load directory';
+      });
     } finally {
       this.activeDirStreamPreserveUI = false;
       this.pendingFocusPath = null;
-      host.loading = false;
+      host.runInAngular(() => {
+        host.loading = false;
+      });
     }
   }
 

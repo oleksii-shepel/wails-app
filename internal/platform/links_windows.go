@@ -7,10 +7,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+
+	"wails-app/internal/pathref"
 )
 
 const (
@@ -72,6 +75,9 @@ func shellExecute(verbValue string, path string) (uintptr, error, error) {
 }
 
 func SymlinkPointsToDir(path string) bool {
+	if !isNativeLinkPath(path) {
+		return false
+	}
 	ptr, err := syscall.UTF16PtrFromString(path)
 	if err != nil {
 		return false
@@ -84,6 +90,9 @@ func SymlinkPointsToDir(path string) bool {
 }
 
 func IsUntrackedDirectoryJunction(path string) bool {
+	if !isNativeLinkPath(path) {
+		return false
+	}
 	ptr, err := syscall.UTF16PtrFromString(path)
 	if err != nil {
 		return false
@@ -175,4 +184,18 @@ func readUTF16LEString(data []byte) string {
 		chars = append(chars, ch)
 	}
 	return syscall.UTF16ToString(chars)
+}
+
+func isNativeLinkPath(path string) bool {
+	trimmed := ToSlash(path)
+	if trimmed == "" {
+		return false
+	}
+	if pathref.IsRegistry(trimmed) {
+		return false
+	}
+	if pathref.IsAlias(trimmed) && !pathref.IsMemory(trimmed) {
+		return false
+	}
+	return pathref.IsDrive(trimmed) || strings.HasPrefix(trimmed, "//")
 }

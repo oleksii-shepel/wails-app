@@ -200,7 +200,7 @@ func (m *PaneWatchManager) normalizeWatchPath(path string) (string, error) {
 	if trimmed == "" {
 		return "", nil
 	}
-	if pathref.IsRegistry(trimmed) {
+	if pathref.IsRegistry(trimmed) || (pathref.IsAlias(trimmed) && !pathref.IsMemory(trimmed)) {
 		return "", nil
 	}
 	if m.resolvePath != nil {
@@ -231,7 +231,7 @@ func normalizeNativeWatchPath(path string) string {
 	if trimmed == "" {
 		return ""
 	}
-	if pathref.IsRegistry(trimmed) {
+	if pathref.IsRegistry(trimmed) || (pathref.IsAlias(trimmed) && !pathref.IsMemory(trimmed)) {
 		return ""
 	}
 	return internalplatform.ToSlash(filepath.Clean(trimmed))

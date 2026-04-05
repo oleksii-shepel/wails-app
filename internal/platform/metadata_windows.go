@@ -4,11 +4,17 @@ package platform
 
 import (
 	"os"
+	"strings"
 	"syscall"
 	"time"
+
+	"wails-app/internal/pathref"
 )
 
 func CheckHidden(_ string, path string) bool {
+	if !isNativeMetadataPath(path) {
+		return false
+	}
 	ptr, err := syscall.UTF16PtrFromString(path)
 	if err != nil {
 		return false
@@ -32,4 +38,18 @@ func GetAccessedTime(info os.FileInfo) int64 {
 		return stat.LastAccessTime.Nanoseconds() / int64(time.Second)
 	}
 	return info.ModTime().Unix()
+}
+
+func isNativeMetadataPath(path string) bool {
+	trimmed := ToSlash(path)
+	if trimmed == "" {
+		return false
+	}
+	if pathref.IsRegistry(trimmed) {
+		return false
+	}
+	if pathref.IsAlias(trimmed) && !pathref.IsMemory(trimmed) {
+		return false
+	}
+	return pathref.IsDrive(trimmed) || strings.HasPrefix(trimmed, "//")
 }

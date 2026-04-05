@@ -194,7 +194,26 @@ func (u *Unified) ResolvePublicPath(path string) (string, error) {
 
 	// For other paths, use normal VFS mount resolution
 	vfsPath := u.pathrefToVFS(trimmed)
+	if isVirtualAliasPath(trimmed) {
+		_, _, vol, err := u.mounts.Resolve(vfsPath)
+		if err != nil {
+			return "", err
+		}
+		if vol == nil {
+			return "", nil
+		}
+	}
 	return u.RealPath(vfsPath)
+}
+
+func isVirtualAliasPath(path string) bool {
+	trimmed := strings.ToLower(strings.TrimSpace(strings.ReplaceAll(path, "\\", "/")))
+	return strings.HasPrefix(trimmed, registryScheme) ||
+		strings.HasPrefix(trimmed, memoryScheme) ||
+		strings.HasPrefix(trimmed, smbScheme) ||
+		strings.HasPrefix(trimmed, ftpScheme) ||
+		strings.HasPrefix(trimmed, sftpScheme) ||
+		strings.HasPrefix(trimmed, webdavScheme)
 }
 
 // isWindowsDriveLetter checks if a rune is a valid Windows drive letter.

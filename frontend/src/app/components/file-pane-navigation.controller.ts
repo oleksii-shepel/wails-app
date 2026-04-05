@@ -5,7 +5,7 @@ import type { WorkspaceService } from '../services/workspace.service';
 import type { DirSurfaceSession } from '../surfaces/dir/dir-surface-session';
 import type { TabInfo, WorkspaceConfig } from '../shared/protocol-enhanced';
 import { normalizePath, samePath } from './address-bar.utils';
-import { parseRemoteUrl, RemoteConnectionService } from '../services/remote-connection.service';
+import { parseRemoteUrl, RemoteConnectionService, resolveMountedRemotePath } from '../services/remote-connection.service';
 
 declare const window: any;
 
@@ -182,13 +182,15 @@ export class FilePaneNavigationController {
   }
 
   private async navigateToEnteredPath(host: FilePaneNavigationHost, path: string): Promise<void> {
-    // Intercept remote protocol URLs (sftp://, ftp://, smb://, webdav://)
+    // Intercept remote protocol URLs (sftp://, smb://, webdav://) — show credential dialog.
+    // FTP is excluded: the backend auto-mounts it with anonymous credentials.
     const remoteRequest = parseRemoteUrl(path);
-    if (remoteRequest) {
+    if (remoteRequest && remoteRequest.protocol !== 'ftp') {
       const mountPoint = await this.remoteConnectionService.open(remoteRequest);
       if (mountPoint) {
-        host.currentPath = mountPoint;
-        await host.loadPathTransparently(mountPoint);
+        const targetPath = resolveMountedRemotePath(mountPoint, remoteRequest);
+        host.currentPath = targetPath;
+        await host.loadPathTransparently(targetPath);
       }
       return;
     }

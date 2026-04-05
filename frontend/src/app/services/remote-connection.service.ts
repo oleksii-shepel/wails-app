@@ -7,6 +7,12 @@ export interface RemoteConnectionRequest {
   protocol: RemoteProtocol;
   host: string;
   port: number;
+  username?: string;
+  password?: string;
+  share?: string;
+  schema?: 'http' | 'https';
+  basePath?: string;
+  pathSuffix?: string;
 }
 
 const DEFAULT_PORTS: Record<RemoteProtocol, number> = {
@@ -17,14 +23,71 @@ const DEFAULT_PORTS: Record<RemoteProtocol, number> = {
 };
 
 export function parseRemoteUrl(raw: string): RemoteConnectionRequest | null {
-  const match = /^(ftp|sftp|smb|webdav):\/\/([^/:]+)(?::(\d+))?\/?.*$/i.exec(raw);
-  if (!match) return null;
-  const protocol = match[1].toLowerCase() as RemoteProtocol;
-  return {
+  const value = (raw || '').trim().replace(/\\/g, '/');
+  if (!value) return null;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return null;
+  }
+
+  const protocol = parsed.protocol.replace(/:$/, '').toLowerCase() as RemoteProtocol;
+  if (!(protocol in DEFAULT_PORTS) || !parsed.hostname) {
+    return null;
+  }
+
+  const pathSegments = parsed.pathname
+    .replace(/^\/+/, '')
+    .replace(/\/+$/, '')
+    .split('/')
+    .filter(Boolean);
+
+  const request: RemoteConnectionRequest = {
     protocol,
-    host: match[2],
-    port: match[3] ? parseInt(match[3], 10) : DEFAULT_PORTS[protocol],
+    host: parsed.hostname,
+    port: parsed.port ? parseInt(parsed.port, 10) : DEFAULT_PORTS[protocol],
+    username: parsed.username ? decodeURIComponent(parsed.username) : undefined,
+    password: parsed.password ? decodeURIComponent(parsed.password) : undefined,
   };
+
+  switch (protocol) {
+    case 'smb': {
+      request.share = pathSegments[0] || undefined;
+      request.pathSuffix = pathSegments.slice(1).join('/') || undefined;
+      break;
+    }
+    case 'webdav': {
+      const normalizedBasePath = parsed.pathname
+        .replace(/\/+$/, '')
+        .replace(/^\/+/, '/');
+      request.schema = request.port === 80 ? 'http' : 'https';
+      request.basePath = normalizedBasePath && normalizedBasePath !== '/' ? normalizedBasePath : undefined;
+      break;
+    }
+    case 'sftp':
+    case 'ftp': {
+      request.pathSuffix = pathSegments.join('/') || undefined;
+      break;
+    }
+  }
+
+  return request;
+}
+
+export function resolveMountedRemotePath(mountPath: string, request: RemoteConnectionRequest): string {
+  const base = (mountPath || '').replace(/\/+$/, '');
+  if (!base) {
+    return mountPath;
+  }
+
+  const suffix = (request.pathSuffix || '').replace(/^\/+/, '').replace(/\/+$/, '');
+  if (!suffix) {
+    return base;
+  }
+
+  return `${base}/${suffix}`;
 }
 
 interface PendingRequest {

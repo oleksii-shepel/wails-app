@@ -335,12 +335,12 @@ export class RemoteConnectionDialogComponent implements OnDestroy {
         this.protocol = req.prefill.protocol;
         this.host = req.prefill.host;
         this.port = req.prefill.port;
-        this.username = '';
-        this.password = '';
+        this.username = req.prefill.username || '';
+        this.password = req.prefill.password || '';
         this.domain = '';
-        this.share = '';
-        this.schema = 'https';
-        this.basePath = '';
+        this.share = req.prefill.share || '';
+        this.schema = req.prefill.schema || 'https';
+        this.basePath = req.prefill.basePath || '';
         this.error = '';
         this.connecting = false;
         this.visible = true;
@@ -379,7 +379,7 @@ export class RemoteConnectionDialogComponent implements OnDestroy {
 
     try {
       const mount = await RemoteConnect(cfg);
-      this.remoteService.resolve(mount.mountPoint);
+      this.remoteService.resolve(mount.publicPath);
     } catch (err: any) {
       this.error = typeof err === 'string' ? err : err?.message || 'Connection failed';
       this.connecting = false;

@@ -75,12 +75,15 @@ func (f *FS) Close() error {
 	return f.conn.Close()
 }
 
-// clean converts a VFS-relative path to the format expected by go-smb2 (backslash-free).
+// clean converts a VFS-relative path to the share-relative format expected by
+// go-smb2. Mounted SMB shares should see "." for the share root and must not
+// receive a leading slash for nested paths.
 func (f *FS) clean(p string) string {
-	if p == "" || p == "." {
+	trimmed := strings.TrimLeft(strings.ReplaceAll(p, `\`, `/`), "/")
+	if trimmed == "" || trimmed == "." {
 		return "."
 	}
-	return path.Clean(p)
+	return path.Clean(trimmed)
 }
 
 // ── FileSystem implementation ────────────────────────────────────────────────

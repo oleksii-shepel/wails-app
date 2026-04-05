@@ -56,7 +56,7 @@ function normalizeAliasReference(p: string, scheme: string): string {
   if (scheme === SEARCH_SCHEME && normalized.slice(scheme.length).startsWith('?')) {
     return normalizeSearchAliasReference(normalized);
   }
-  const rest = normalized.slice(scheme.length).replace(/^\/+/, '').replace(/\/+/g, '/');
+  const rest = normalized.slice(scheme.length).replace(/^\/+/, '').replace(/\/+/g, '/').replace(/\/+$/, '');
   return rest ? `${scheme}${rest}` : scheme;
 }
 
@@ -218,7 +218,7 @@ function normalizeRegistryReference(p: string): string {
   const normalized = (p || '').trim().replace(/\\/g, '/');
   const match = /^registry:\/\/(.*)?$/i.exec(normalized);
   if (!match) return normalized;
-  const rest = (match[1] || '').replace(/^\/+/, '').replace(/\/+/g, '/');
+  const rest = (match[1] || '').replace(/^\/+/, '').replace(/\/+/g, '/').replace(/\/+$/, '');
   return rest ? `${REGISTRY_ROOT}${rest}` : REGISTRY_ROOT;
 }
 
@@ -230,11 +230,19 @@ export function canonicalizePathReference(p: string): string {
     return driveReference;
   }
 
-  const n = p.replace(/\\/g, '/');
+  let n = p.replace(/\\/g, '/');
+
+  // Convert UNC paths (//host/share/...) to smb:// scheme
+  const uncMatch = /^\/\/([^/]+)(\/.*)?$/.exec(n);
+  if (uncMatch) {
+    const host = uncMatch[1];
+    const rest = uncMatch[2] || '';
+    n = `smb://${host}${rest}`;
+  }
 
   const registryMatch = /^registry:\/\/(.*)?$/i.exec(n);
   if (registryMatch) {
-    const rest = (registryMatch[1] || '').replace(/^\/+/, '').replace(/\/+/g, '/');
+    const rest = (registryMatch[1] || '').replace(/^\/+/, '').replace(/\/+/g, '/').replace(/\/+$/, '');
     return rest ? `${REGISTRY_ROOT}${rest}` : REGISTRY_ROOT;
   }
 

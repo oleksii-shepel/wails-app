@@ -90,6 +90,10 @@ func Normalize(path string) string {
 	if trimmed == "" {
 		return ""
 	}
+	// Convert UNC paths (//host/share/...) to smb:// scheme
+	if len(trimmed) > 2 && trimmed[:2] == "//" && trimmed[2] != '/' {
+		trimmed = SMBScheme + trimmed[2:]
+	}
 	if drivePath, ok := normalizeDrivePath(trimmed); ok {
 		return drivePath
 	}

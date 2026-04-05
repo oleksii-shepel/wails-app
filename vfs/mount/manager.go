@@ -5,7 +5,7 @@ package mount
 import (
 	"fmt"
 	"io"
-	"path/filepath"
+	"path"
 	"strings"
 	"sync"
 
@@ -152,7 +152,7 @@ func clean(p string) string {
 	if p == "" {
 		return "/"
 	}
-	return filepath.ToSlash(filepath.Clean("/" + strings.TrimPrefix(filepath.ToSlash(p), "/")))
+	return path.Clean("/" + strings.TrimPrefix(p, "/"))
 }
 
 // volume implements vfs.Volume.

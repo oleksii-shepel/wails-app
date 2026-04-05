@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net/url"
+	vpath "path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -95,9 +96,9 @@ func (u *Unified) ReadDir(ctx context.Context, path string) ([]FileInfo, error) 
 	// Inject synthetic directory entries for sub-mounts under path.
 	cleanPath := cleanVFSPath(path)
 	for _, m := range u.mounts.ListMounts() {
-		if cleanVFSPath(filepath.Dir(m.MountPoint)) == cleanPath {
+		if cleanVFSPath(vpath.Dir(m.MountPoint)) == cleanPath {
 			entries = append(entries, &mountPointInfo{
-				name: filepath.Base(m.MountPoint),
+				name: vpath.Base(m.MountPoint),
 				path: m.MountPoint,
 				vol:  m.Volume,
 			})
@@ -300,11 +301,11 @@ func (u *Unified) RealPath(path string) (string, error) {
 	return fsys.RealPath(rel)
 }
 
-func cleanVFSPath(path string) string {
-	if path == "" {
+func cleanVFSPath(p string) string {
+	if p == "" {
 		return "/"
 	}
-	return filepath.ToSlash(filepath.Clean("/" + strings.TrimPrefix(filepath.ToSlash(path), "/")))
+	return vpath.Clean("/" + strings.TrimPrefix(p, "/"))
 }
 
 // mountPointInfo is a synthetic FileInfo injected for each active sub-mount.

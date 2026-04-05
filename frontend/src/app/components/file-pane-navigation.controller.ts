@@ -5,6 +5,7 @@ import type { WorkspaceService } from '../services/workspace.service';
 import type { DirSurfaceSession } from '../surfaces/dir/dir-surface-session';
 import type { TabInfo, WorkspaceConfig } from '../shared/protocol-enhanced';
 import { normalizePath, samePath } from './address-bar.utils';
+import { parseRemoteUrl, RemoteConnectionService } from '../services/remote-connection.service';
 
 declare const window: any;
 
@@ -37,6 +38,8 @@ export interface FilePaneNavigationHost {
 }
 
 export class FilePaneNavigationController {
+  constructor(private remoteConnectionService: RemoteConnectionService) {}
+
   async loadPaneState(host: FilePaneNavigationHost): Promise<void> {
     if (!host.workspace) return;
 
@@ -179,6 +182,17 @@ export class FilePaneNavigationController {
   }
 
   private async navigateToEnteredPath(host: FilePaneNavigationHost, path: string): Promise<void> {
+    // Intercept remote protocol URLs (sftp://, ftp://, smb://, webdav://)
+    const remoteRequest = parseRemoteUrl(path);
+    if (remoteRequest) {
+      const mountPoint = await this.remoteConnectionService.open(remoteRequest);
+      if (mountPoint) {
+        host.currentPath = mountPoint;
+        await host.loadPathTransparently(mountPoint);
+      }
+      return;
+    }
+
     if (host.directorySource.isPathInsideArchive(path)) {
       await host.loadPathTransparently(path);
       return;

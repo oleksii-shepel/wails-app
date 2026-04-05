@@ -50,6 +50,7 @@ import { DirListStreamController } from '../surfaces/dir/dir-list-stream.control
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { DirectorySourceService } from '../services/directory-source.service';
 import { OperationService } from '../services/operation.service';
+import { RemoteConnectionService } from '../services/remote-connection.service';
 import type { SearchResultItem } from '../services/global-search.service';
 
 declare const window: any;
@@ -265,7 +266,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   lastSeenActiveTabId: string | null = null;
   lastSeenActiveTabPath: string | null = null;
 
-  private readonly navigationController = new FilePaneNavigationController();
+  private readonly navigationController: FilePaneNavigationController;
   private readonly archiveController = new FilePaneArchiveController();
   private readonly openController = new FilePaneOpenController();
   private readonly operationsController: FilePaneOperationsController;
@@ -685,10 +686,12 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     private operationService: OperationService,
     private zone: NgZone,
     private cdr: ChangeDetectorRef,
-    private archiveService: ArchiveService
+    private archiveService: ArchiveService,
+    private remoteConnectionService: RemoteConnectionService,
   ) {
     this.dirStream = new DirListStreamController(this.apiService);
     this.operationsController = new FilePaneOperationsController(this.operationService);
+    this.navigationController = new FilePaneNavigationController(this.remoteConnectionService);
   }
 
   get allTabSurfaceCtxs(): Array<{ ctx: SurfaceContext; active: boolean }> {

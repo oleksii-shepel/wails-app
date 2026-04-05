@@ -1,7 +1,6 @@
-// Package ftp provides a vfs.FileSystem backed by a persistent FTP connection.
-// All operations serialize through a mutex because the FTP protocol is
-// command/response and does not support concurrent in-flight commands on a
-// single control connection.
+// Package ftp provides a vfs.FileSystem backed by operation-scoped FTP
+// sessions. Each directory read / stat / file stream gets its own connection so
+// long-lived previews do not block navigation on the same mount.
 package ftp
 
 import (
@@ -13,7 +12,6 @@ import (
 	"net"
 	"path"
 	"strings"
-	"sync"
 	"time"
 
 	ftplib "github.com/jlaffaye/ftp"
@@ -36,9 +34,7 @@ type Config struct {
 
 // FS implements vfs.FileSystem over a persistent FTP connection.
 type FS struct {
-	cfg  Config
-	conn *ftplib.ServerConn
-	mu   sync.Mutex
+	cfg Config
 }
 
 var _ vfs.FileSystem = (*FS)(nil)
@@ -48,29 +44,19 @@ func New(ctx context.Context, cfg Config) (*FS, error) {
 	if cfg.Port == 0 {
 		cfg.Port = 21
 	}
-	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
-	dialer := net.Dialer{Timeout: ftpDialTimeout}
-	conn, err := ftplib.Dial(addr,
-		ftplib.DialWithDialFunc(newDeadlineDialFunc(ctx, dialer, ftpOperationTimeout)),
-		ftplib.DialWithShutTimeout(ftpOperationTimeout),
-		ftplib.DialWithDisabledEPSV(true),
-	)
+	fs := &FS{cfg: cfg}
+	// Validate mount credentials eagerly so navigation fails up front.
+	conn, err := fs.connect(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("ftp: dial %s: %w", addr, err)
+		return nil, err
 	}
-	if err := conn.Login(cfg.Username, cfg.Password); err != nil {
-		_ = conn.Quit()
-		return nil, fmt.Errorf("ftp: login: %w", err)
-	}
-	return &FS{cfg: cfg, conn: conn}, nil
+	_ = conn.Quit()
+	return fs, nil
 }
 
-// Close terminates the FTP session. The mount.Manager calls this automatically
-// when the volume is unmounted.
+// Close is a no-op because operation-scoped sessions are closed per request.
 func (f *FS) Close() error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.conn.Quit()
+	return nil
 }
 
 // clean converts a VFS-relative path to an absolute FTP server path.
@@ -83,32 +69,42 @@ func (f *FS) clean(p string) string {
 
 // ── FileSystem implementation ────────────────────────────────────────────────
 
-func (f *FS) Open(_ context.Context, p string) (vfs.File, error) {
-	f.mu.Lock()
-	r, err := f.conn.Retr(f.clean(p))
+func (f *FS) Open(ctx context.Context, p string) (vfs.File, error) {
+	conn, err := f.connect(ctx)
 	if err != nil {
-		f.mu.Unlock()
+		return nil, err
+	}
+	r, err := conn.Retr(f.clean(p))
+	if err != nil {
+		_ = conn.Quit()
 		return nil, mapErr(err)
 	}
 	return &readFile{
-		rc:     r,
-		name:   path.Base(p),
-		unlock: f.mu.Unlock,
+		rc:   r,
+		conn: conn,
+		name: path.Base(p),
 	}, nil
 }
 
-func (f *FS) Stat(_ context.Context, p string) (vfs.FileInfo, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.statLocked(p)
+func (f *FS) Stat(ctx context.Context, p string) (vfs.FileInfo, error) {
+	var info *fileInfo
+	err := f.withConn(ctx, func(conn *ftplib.ServerConn) error {
+		var err error
+		info, err = f.statWithConn(conn, p)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return info, nil
 }
 
-func (f *FS) statLocked(p string) (*fileInfo, error) {
+func (f *FS) statWithConn(conn *ftplib.ServerConn, p string) (*fileInfo, error) {
 	clean := f.clean(p)
 	if clean == "/" {
 		return &fileInfo{name: "/", isDir: true}, nil
 	}
-	entries, err := f.conn.List(path.Dir(clean))
+	entries, err := conn.List(path.Dir(clean))
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -124,19 +120,24 @@ func (f *FS) statLocked(p string) (*fileInfo, error) {
 // ReadDir lists a remote directory. Each FileInfo.Path() is the entry *name*
 // only (no directory prefix), which lets pathref.FromVFSEntry compose public
 // paths correctly at any depth.
-func (f *FS) ReadDir(_ context.Context, p string) ([]vfs.FileInfo, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	entries, err := f.conn.List(f.clean(p))
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	result := make([]vfs.FileInfo, 0, len(entries))
-	for _, e := range entries {
-		if e.Name == "." || e.Name == ".." {
-			continue
+func (f *FS) ReadDir(ctx context.Context, p string) ([]vfs.FileInfo, error) {
+	result := make([]vfs.FileInfo, 0)
+	err := f.withConn(ctx, func(conn *ftplib.ServerConn) error {
+		entries, err := conn.List(f.clean(p))
+		if err != nil {
+			return mapErr(err)
 		}
-		result = append(result, entryToInfo(e))
+		result = make([]vfs.FileInfo, 0, len(entries))
+		for _, e := range entries {
+			if e.Name == "." || e.Name == ".." {
+				continue
+			}
+			result = append(result, entryToInfo(e))
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return result, nil
 }
@@ -149,35 +150,34 @@ func (f *FS) Exists(ctx context.Context, p string) bool {
 // Create returns a write-buffering File. The actual STOR upload occurs on Close.
 func (f *FS) Create(_ context.Context, p string) (vfs.File, error) {
 	return &writeFile{
-		conn:       f.conn,
-		mu:         &f.mu,
+		cfg:        f.cfg,
 		remotePath: f.clean(p),
 		name:       path.Base(p),
 	}, nil
 }
 
-func (f *FS) Mkdir(_ context.Context, p string, _ fs.FileMode) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return mapErr(f.conn.MakeDir(f.clean(p)))
+func (f *FS) Mkdir(ctx context.Context, p string, _ fs.FileMode) error {
+	return f.withConn(ctx, func(conn *ftplib.ServerConn) error {
+		return mapErr(conn.MakeDir(f.clean(p)))
+	})
 }
 
-func (f *FS) Remove(_ context.Context, p string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	clean := f.clean(p)
-	if err := f.conn.RemoveDir(clean); err != nil {
-		if err2 := f.conn.Delete(clean); err2 != nil {
-			return mapErr(err2)
+func (f *FS) Remove(ctx context.Context, p string) error {
+	return f.withConn(ctx, func(conn *ftplib.ServerConn) error {
+		clean := f.clean(p)
+		if err := conn.RemoveDir(clean); err != nil {
+			if err2 := conn.Delete(clean); err2 != nil {
+				return mapErr(err2)
+			}
 		}
-	}
-	return nil
+		return nil
+	})
 }
 
-func (f *FS) Rename(_ context.Context, old, nw string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return mapErr(f.conn.Rename(f.clean(old), f.clean(nw)))
+func (f *FS) Rename(ctx context.Context, old, nw string) error {
+	return f.withConn(ctx, func(conn *ftplib.ServerConn) error {
+		return mapErr(conn.Rename(f.clean(old), f.clean(nw)))
+	})
 }
 
 func (f *FS) Join(elem ...string) string        { return path.Join(elem...) }
@@ -219,11 +219,10 @@ var _ vfs.FileInfo = (*fileInfo)(nil)
 // ── readFile ──────────────────────────────────────────────────────────────────
 
 type readFile struct {
-	rc        *ftplib.Response
-	name      string
-	unlock    func()
-	closeOnce sync.Once
-	closeErr  error
+	rc     *ftplib.Response
+	conn   *ftplib.ServerConn
+	name   string
+	closed bool
 }
 
 func (f *readFile) Read(p []byte) (int, error)  { return f.rc.Read(p) }
@@ -232,13 +231,21 @@ func (f *readFile) Seek(_ int64, _ int) (int64, error) {
 	return 0, fmt.Errorf("ftp: seek not supported")
 }
 func (f *readFile) Close() error {
-	f.closeOnce.Do(func() {
-		f.closeErr = f.rc.Close()
-		if f.unlock != nil {
-			f.unlock()
+	if f.closed {
+		return nil
+	}
+	f.closed = true
+
+	var closeErr error
+	if f.rc != nil {
+		closeErr = f.rc.Close()
+	}
+	if f.conn != nil {
+		if quitErr := f.conn.Quit(); closeErr == nil {
+			closeErr = quitErr
 		}
-	})
-	return f.closeErr
+	}
+	return closeErr
 }
 func (f *readFile) Sync() error                 { return nil }
 func (f *readFile) Stat() (vfs.FileInfo, error) { return &fileInfo{name: f.name}, nil }
@@ -250,8 +257,7 @@ var _ vfs.File = (*readFile)(nil)
 // writeFile buffers writes in memory and uploads via STOR on Close.
 type writeFile struct {
 	buf        bytes.Buffer
-	conn       *ftplib.ServerConn
-	mu         *sync.Mutex
+	cfg        Config
 	remotePath string
 	name       string
 	closed     bool
@@ -269,9 +275,12 @@ func (f *writeFile) Close() error {
 		return nil
 	}
 	f.closed = true
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return mapErr(f.conn.Stor(f.remotePath, &f.buf))
+	conn, err := connect(context.Background(), f.cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Quit()
+	return mapErr(conn.Stor(f.remotePath, &f.buf))
 }
 
 var _ vfs.File = (*writeFile)(nil)
@@ -306,6 +315,19 @@ func mapErr(err error) error {
 		return vfs.ErrNotFound
 	}
 	return err
+}
+
+func (f *FS) withConn(ctx context.Context, fn func(conn *ftplib.ServerConn) error) error {
+	conn, err := f.connect(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Quit()
+	return fn(conn)
+}
+
+func (f *FS) connect(ctx context.Context) (*ftplib.ServerConn, error) {
+	return connect(ctx, f.cfg)
 }
 
 type deadlineConn struct {
@@ -346,14 +368,15 @@ func newDeadlineDialFunc(
 	dialer net.Dialer,
 	timeout time.Duration,
 ) func(network, address string) (net.Conn, error) {
-	var firstDial sync.Once
+	var firstDial bool
 	return func(network, address string) (net.Conn, error) {
 		dialCtx := context.Background()
-		firstDial.Do(func() {
+		if !firstDial {
+			firstDial = true
 			if ctx != nil {
 				dialCtx = ctx
 			}
-		})
+		}
 
 		conn, err := dialer.DialContext(dialCtx, network, address)
 		if err != nil {
@@ -361,4 +384,22 @@ func newDeadlineDialFunc(
 		}
 		return &deadlineConn{Conn: conn, timeout: timeout}, nil
 	}
+}
+
+func connect(ctx context.Context, cfg Config) (*ftplib.ServerConn, error) {
+	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
+	dialer := net.Dialer{Timeout: ftpDialTimeout}
+	conn, err := ftplib.Dial(addr,
+		ftplib.DialWithDialFunc(newDeadlineDialFunc(ctx, dialer, ftpOperationTimeout)),
+		ftplib.DialWithShutTimeout(ftpOperationTimeout),
+		ftplib.DialWithDisabledEPSV(true),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("ftp: dial %s: %w", addr, err)
+	}
+	if err := conn.Login(cfg.Username, cfg.Password); err != nil {
+		_ = conn.Quit()
+		return nil, fmt.Errorf("ftp: login: %w", err)
+	}
+	return conn, nil
 }

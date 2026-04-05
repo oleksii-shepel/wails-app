@@ -85,6 +85,7 @@ export class ViewerHostSurfaceComponent implements OnChanges {
     const req = {
       targetPath: this.targetPath ?? '',
       fileList: this.fileList ?? [],
+      archiveContext: this.archiveContext ?? null,
       viewerId: this.viewerId ?? null,
       probe: null as FileProbe | null,
     };
@@ -115,22 +116,30 @@ export class ViewerHostSurfaceComponent implements OnChanges {
     this.outletInputs = {
       targetPath: req.targetPath,
       fileList: req.fileList,
+      archiveContext: req.archiveContext,
       viewerId: req.viewerId,
       probe: req.probe,
     };
 
     const viewerKey = this.registry.resolveId(req);
+    const preserveMountedViewer = this.shouldPreserveMountedViewer(viewerKey);
     if (this.component && this.resolvedViewerKey === viewerKey) {
       if (this.renderedInputSignature !== inputSignature) {
-        // Preserve the mounted viewer instance on routine input churn so
-        // active media playback survives host refreshes.
         this.renderedInputSignature = inputSignature;
+        if (!preserveMountedViewer) {
+          this.component = null;
+          this.cdr.detectChanges();
+        }
+        this.cdr.markForCheck();
+        if (preserveMountedViewer) {
+          return;
+        }
+      }
+
+      if (preserveMountedViewer) {
         this.cdr.markForCheck();
         return;
       }
-
-      this.cdr.markForCheck();
-      return;
     }
 
     this.resolvedViewerKey = viewerKey;
@@ -153,6 +162,10 @@ export class ViewerHostSurfaceComponent implements OnChanges {
 
   get mountedViewer(): any {
     return (this.outlet as any)?.componentInstance ?? null;
+  }
+
+  private shouldPreserveMountedViewer(viewerKey: string): boolean {
+    return viewerKey === 'image' || viewerKey === 'video' || viewerKey === 'audio';
   }
 }
 

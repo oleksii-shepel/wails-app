@@ -48,7 +48,9 @@ export class FilePaneNavigationController {
     const savedPath = activeTab?.path ?? '';
     const activeKind = activeTab?.kind ?? 'dir';
 
-    const pathToLoad = await this.resolveInitialPath(host, savedPath);
+    const initialPath = await this.resolveInitialPath(host, savedPath);
+    const pathToLoad = await this.resolveRemotePathForLoad(host, initialPath)
+      ?? await this.resolveInitialPath(host, '');
     host.pathReady = true;
     if (activeTab) host.currentTabId = activeTab.id;
 
@@ -121,8 +123,12 @@ export class FilePaneNavigationController {
       return;
     }
 
-    const restoredPath = tab.path;
-    if (restoredPath) host.currentPath = restoredPath;
+    const restoredPath = await this.resolveRemotePathForLoad(host, tab.path);
+    if (!restoredPath) {
+      host.emitActiveTabChange(tab);
+      return;
+    }
+    host.currentPath = restoredPath;
 
     const session = host.getDirSession();
     const cachedOk =
@@ -182,16 +188,13 @@ export class FilePaneNavigationController {
   }
 
   private async navigateToEnteredPath(host: FilePaneNavigationHost, path: string): Promise<void> {
-    // Intercept remote protocol URLs (sftp://, smb://, webdav://) — show credential dialog.
-    // FTP is excluded: the backend auto-mounts it with anonymous credentials.
-    const remoteRequest = parseRemoteUrl(path);
-    if (remoteRequest && remoteRequest.protocol !== 'ftp') {
-      const mountPoint = await this.remoteConnectionService.open(remoteRequest);
-      if (mountPoint) {
-        const targetPath = resolveMountedRemotePath(mountPoint, remoteRequest);
-        host.currentPath = targetPath;
-        await host.loadPathTransparently(targetPath);
-      }
+    const resolvedRemotePath = await this.resolveRemotePathForLoad(host, path);
+    if (!resolvedRemotePath) {
+      return;
+    }
+    if (!samePath(resolvedRemotePath, path)) {
+      host.currentPath = resolvedRemotePath;
+      await host.loadPathTransparently(resolvedRemotePath);
       return;
     }
 
@@ -239,5 +242,23 @@ export class FilePaneNavigationController {
     const isWindows = platformRoot !== '/';
     const pathIsStale = !savedPath || (isWindows && savedPath === '/');
     return pathIsStale ? platformRoot : savedPath;
+  }
+
+  private async resolveRemotePathForLoad(host: FilePaneNavigationHost, path: string): Promise<string | null> {
+    const remoteRequest = parseRemoteUrl(path);
+    if (!remoteRequest || remoteRequest.protocol === 'ftp') {
+      return path;
+    }
+
+    try {
+      await host.apiService.getFileInfo(path);
+      return path;
+    } catch {
+      const mountPoint = await this.remoteConnectionService.open(remoteRequest);
+      if (!mountPoint) {
+        return null;
+      }
+      return resolveMountedRemotePath(mountPoint, remoteRequest);
+    }
   }
 }

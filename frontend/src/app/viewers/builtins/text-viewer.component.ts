@@ -436,9 +436,11 @@ const codePreviewLightTheme = createCodePreviewTheme(false);
     }
     .state-container {
       display: flex;
+      flex: 1 1 auto;
       flex-direction: column;
       align-items: center;
       justify-content: center;
+      width: 100%;
       height: 100%;
       min-height: 160px;
       gap: 8px;

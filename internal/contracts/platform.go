@@ -38,12 +38,12 @@ const (
 )
 
 type DriveInfo struct {
-	Name       string    `json:"name"`
-	Path       string    `json:"path"`
+	Name       string     `json:"name"`
+	Path       string     `json:"path"`
 	SchemeType SchemeType `json:"schemeType"`
-	TotalSpace int64     `json:"totalSpace"`
-	FreeSpace  int64     `json:"freeSpace"`
-	FileSystem *string   `json:"fileSystem"`
+	TotalSpace int64      `json:"totalSpace"`
+	FreeSpace  int64      `json:"freeSpace"`
+	FileSystem *string    `json:"fileSystem"`
 }
 
 type DrivesList struct {

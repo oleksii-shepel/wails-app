@@ -43,6 +43,9 @@ func (s *Service) SetVFS(v *vfslib.Unified) {
 
 func (s *Service) resolvePublicPath(path string) (string, error) {
 	normalized := pathref.Normalize(path)
+	if pathref.IsWeb(normalized) {
+		return normalized, nil
+	}
 	if s.vfs != nil {
 		resolvedPath, err := s.vfs.ResolvePublicPath(normalized)
 		if err != nil {
@@ -69,6 +72,10 @@ func (s *Service) toPublicPath(path string) string {
 }
 
 func (s *Service) OpenFile(path string) error {
+	normalized := pathref.Normalize(path)
+	if pathref.IsWeb(normalized) {
+		return internalplatform.OpenFileWithDefaultApp(normalized)
+	}
 	resolvedPath, err := s.resolvePublicPath(path)
 	if err != nil {
 		return err

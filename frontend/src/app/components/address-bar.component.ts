@@ -902,7 +902,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   isCurrentRootSynthetic(): boolean {
     const drive = this.findCurrentRootEntry();
     if (!drive) return false;
-    return /^(memory|registry|search|smb|ftp|sftp|webdav)$/.test(drive.schemeType);
+    return /^(memory|registry|search|http|https|smb|ftp|sftp|webdav)$/.test(drive.schemeType);
   }
 
   isCurrentRootPhysical(): boolean {
@@ -944,6 +944,8 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     if (drive.schemeType === 'memory') return '🧠';
     if (drive.schemeType === 'registry') return '🧩';
     if (drive.schemeType === 'search') return '🔎';
+    if (drive.schemeType === 'http') return '🌐';
+    if (drive.schemeType === 'https') return '🔒';
     if (drive.schemeType === 'smb') return '🖧';
     if (drive.schemeType === 'ftp') return '📡';
     if (drive.schemeType === 'sftp') return '🔐';

@@ -8,22 +8,22 @@ import (
 )
 
 const (
-	DriveScheme     = "filesystem://"
-	RegistryScheme  = "registry://"
-	SearchScheme    = "search://"
-	MemoryScheme    = "memory://"
-	HTTPAliasScheme = "http://"
+	DriveScheme      = "filesystem://"
+	RegistryScheme   = "registry://"
+	SearchScheme     = "search://"
+	MemoryScheme     = "memory://"
+	HTTPAliasScheme  = "http://"
 	HTTPSAliasScheme = "https://"
-	SMBScheme       = "smb://"
-	FTPScheme       = "ftp://"
-	SFTPScheme      = "sftp://"
-	WebDAVScheme    = "webdav://"
-	memoryVFSRoot   = "/memory"
-	registryVFSRoot = "/registry"
-	ftpVFSRoot      = "/remote/ftp"
-	sftpVFSRoot     = "/remote/sftp"
-	smbVFSRoot      = "/remote/smb"
-	webdavVFSRoot   = "/remote/webdav"
+	SMBScheme        = "smb://"
+	FTPScheme        = "ftp://"
+	SFTPScheme       = "sftp://"
+	WebDAVScheme     = "webdav://"
+	memoryVFSRoot    = "/memory"
+	registryVFSRoot  = "/registry"
+	ftpVFSRoot       = "/remote/ftp"
+	sftpVFSRoot      = "/remote/sftp"
+	smbVFSRoot       = "/remote/smb"
+	webdavVFSRoot    = "/remote/webdav"
 )
 
 type aliasSpec struct {

@@ -48,6 +48,7 @@ type Service struct {
 	startElevatedSession func() (*elevation.SessionStatus, error)
 	raw                  *RawService
 	metadata             MetadataCallbacks
+	web                  *webAliasService
 	vfs                  *vfslib.Unified
 	duStreams            *duStreamRegistry
 	duCache              *DiskUsageCache
@@ -69,6 +70,7 @@ func NewService(config ServiceConfig) *Service {
 		startElevatedSession:           config.StartElevatedSession,
 		raw:                            config.Raw,
 		metadata:                       config.Metadata,
+		web:                            newWebAliasService(),
 		duStreams:                      newDuStreamRegistry(),
 		duCache:                        NewDiskUsageCache(DefaultDiskUsageCacheCapacity),
 		streamsCancel:                  make(map[string]context.CancelFunc),
@@ -83,12 +85,23 @@ func NewService(config ServiceConfig) *Service {
 
 func (s *Service) resolvePublicPath(path string) (string, error) {
 	normalized := pathref.Normalize(path)
+	if s.handlesWebAliasPath(normalized) {
+		return normalized, nil
+	}
 	nativePath := pathref.ToNativePath(normalized)
 	if s.memoryResolver == nil || !pathref.IsMemory(normalized) {
 		return nativePath, nil
 	}
 	resolved, _, err := s.memoryResolver.ResolvePublicPath(nativePath)
 	return resolved, err
+}
+
+func (s *Service) handlesWebAliasPath(path string) bool {
+	return s.web != nil && s.web.handles(pathref.Normalize(path))
+}
+
+func (s *Service) webAliasUnsupported(operation string) error {
+	return fmt.Errorf("%s not supported for web aliases", operation)
 }
 
 func (s *Service) toPublicPath(path string) string {
@@ -196,6 +209,9 @@ func (s *Service) ListDirectory(path string, showHidden bool) (*contracts.Direct
 	if pathref.IsSearch(path) {
 		return s.listSearchAlias(path)
 	}
+	if s.handlesWebAliasPath(path) {
+		return s.web.listDirectory(path)
+	}
 	if s.handlesVFSPath(path) {
 		listing, err := internalruntime.VFSListDir(s.vfs, path)
 		if err == nil {
@@ -288,6 +304,9 @@ func (s *Service) ElevatedList(path string, showHidden bool) ([]contracts.FileIn
 
 func (s *Service) DirSizeRecursive(path string) (int64, error) {
 	path = pathref.Normalize(path)
+	if s.handlesWebAliasPath(path) {
+		return 0, s.webAliasUnsupported("directory size")
+	}
 	if s.handlesVFSPath(path) {
 		return 0, fmt.Errorf("directory size not supported for remote paths")
 	}
@@ -321,6 +340,9 @@ func (s *Service) DirSizeRecursive(path string) (int64, error) {
 
 func (s *Service) GetFileInfo(path string) (*contracts.FileInfo, error) {
 	path = pathref.Normalize(path)
+	if s.handlesWebAliasPath(path) {
+		return s.web.getFileInfo(path)
+	}
 	if s.handlesVFSPath(path) {
 		return internalruntime.VFSGetFileInfo(s.vfs, path)
 	}
@@ -340,6 +362,9 @@ func (s *Service) GetFileInfo(path string) (*contracts.FileInfo, error) {
 
 func (s *Service) ReadFile(path string, encoding string) (*contracts.FileContent, error) {
 	path = pathref.Normalize(path)
+	if s.handlesWebAliasPath(path) {
+		return s.web.readFile(path, encoding)
+	}
 	if s.handlesVFSPath(path) {
 		file, err := internalruntime.VFSReadFile(s.vfs, path, encoding)
 		if err == nil {
@@ -385,6 +410,9 @@ func (s *Service) ReadFile(path string, encoding string) (*contracts.FileContent
 
 func (s *Service) ReadFileRange(path string, offset int64, length int) (*contracts.FileContent, error) {
 	path = pathref.Normalize(path)
+	if s.handlesWebAliasPath(path) {
+		return s.web.readFileRange(path, offset, length)
+	}
 	if s.handlesVFSPath(path) {
 		return internalruntime.VFSReadFileRange(s.vfs, path, offset, length)
 	}
@@ -402,6 +430,9 @@ func (s *Service) ReadFileRange(path string, offset int64, length int) (*contrac
 
 func (s *Service) ProbeFile(path string) (*contracts.FileProbe, error) {
 	path = pathref.Normalize(path)
+	if s.handlesWebAliasPath(path) {
+		return s.web.probeFile(path)
+	}
 	if s.handlesVFSPath(path) {
 		probe, err := internalruntime.VFSProbeFile(s.vfs, path)
 		if err == nil {
@@ -422,6 +453,9 @@ func (s *Service) ProbeFile(path string) (*contracts.FileProbe, error) {
 
 func (s *Service) ReadFileStream(path string, chunkSize int, emitEvent func(string, interface{})) (string, error) {
 	path = pathref.Normalize(path)
+	if s.handlesWebAliasPath(path) {
+		return "", s.webAliasUnsupported("file stream")
+	}
 
 	if chunkSize <= 0 {
 		chunkSize = 64 * 1024 // 64KB default chunk size
@@ -537,6 +571,9 @@ func (s *Service) CancelReadStream(streamID string) {
 
 func (s *Service) WriteFile(path string, content string, encoding string) (*contracts.OperationResult, error) {
 	path = pathref.Normalize(path)
+	if s.handlesWebAliasPath(path) {
+		return nil, s.webAliasUnsupported("write")
+	}
 	if s.handlesVFSPath(path) {
 		op, err := internalruntime.VFSWriteFile(s.vfs, path, content, encoding)
 		if err == nil {
@@ -584,6 +621,9 @@ func (s *Service) WriteFile(path string, content string, encoding string) (*cont
 
 func (s *Service) DeleteFile(path string, recursive bool, useTrash *bool) (*contracts.OperationResult, error) {
 	path = pathref.Normalize(path)
+	if s.handlesWebAliasPath(path) {
+		return nil, s.webAliasUnsupported("delete")
+	}
 	if s.handlesVFSPath(path) {
 		op, err := internalruntime.VFSRemove(s.vfs, path)
 		if err == nil {
@@ -631,6 +671,9 @@ func (s *Service) DeleteFile(path string, recursive bool, useTrash *bool) (*cont
 
 func (s *Service) CreateDirectory(path string, recursive bool) (*contracts.OperationResult, error) {
 	path = pathref.Normalize(path)
+	if s.handlesWebAliasPath(path) {
+		return nil, s.webAliasUnsupported("mkdir")
+	}
 	if s.handlesVFSPath(path) {
 		op, err := internalruntime.VFSMkdir(s.vfs, path)
 		if err == nil {
@@ -674,6 +717,11 @@ func (s *Service) CreateDirectory(path string, recursive bool) (*contracts.Opera
 }
 
 func (s *Service) MoveFile(source, destination string) (*contracts.OperationResult, error) {
+	source = pathref.Normalize(source)
+	destination = pathref.Normalize(destination)
+	if s.handlesWebAliasPath(source) || s.handlesWebAliasPath(destination) {
+		return nil, s.webAliasUnsupported("move")
+	}
 	resolvedSource, err := s.resolvePublicPath(source)
 	if err != nil {
 		return nil, err
@@ -702,6 +750,11 @@ func (s *Service) MoveFile(source, destination string) (*contracts.OperationResu
 }
 
 func (s *Service) CopyFile(source, destination string, recursive bool) (*contracts.OperationResult, error) {
+	source = pathref.Normalize(source)
+	destination = pathref.Normalize(destination)
+	if s.handlesWebAliasPath(source) || s.handlesWebAliasPath(destination) {
+		return nil, s.webAliasUnsupported("copy")
+	}
 	resolvedSource, err := s.resolvePublicPath(source)
 	if err != nil {
 		return nil, err
@@ -761,6 +814,9 @@ func (s *Service) RunElevatedDelete(path string, recursive bool, useTrash *bool)
 
 func (s *Service) SearchFiles(path, pattern string, recursive bool) (*contracts.SearchResult, error) {
 	path = pathref.Normalize(path)
+	if s.handlesWebAliasPath(path) {
+		return nil, s.webAliasUnsupported("search")
+	}
 	if s.handlesVFSPath(path) {
 		return nil, fmt.Errorf("search not supported for remote paths")
 	}

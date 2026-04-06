@@ -74,6 +74,14 @@ func trimAliasChildBase(path string) string {
 }
 
 func (a *App) SplitPath(path string) map[string]string {
+	if dir, base, name, ext, ok := splitAliasPath(path); ok {
+		return map[string]string{
+			"dir":  dir,
+			"base": base,
+			"name": name,
+			"ext":  ext,
+		}
+	}
 	resolvedPath, err := resolveMemoryAlias(path)
 	if err != nil {
 		resolvedPath = pathref.ToNativePath(pathref.Normalize(path))
@@ -88,14 +96,23 @@ func (a *App) SplitPath(path string) map[string]string {
 }
 
 func (a *App) GetParentPath(path string) string {
+	normalized := pathref.Normalize(path)
+	if parent, ok := pathref.Parent(normalized); ok {
+		return parent
+	}
 	resolvedPath, err := resolveMemoryAlias(path)
 	if err != nil {
-		resolvedPath = pathref.ToNativePath(pathref.Normalize(path))
+		resolvedPath = pathref.ToNativePath(normalized)
 	}
 	return toPublicMemoryPath(internalplatform.ParentPath(resolvedPath))
 }
 
 func (a *App) PathExists(path string) bool {
+	normalized := pathref.Normalize(path)
+	if pathref.IsWeb(normalized) {
+		_, err := a.State.GetFileInfo(normalized)
+		return err == nil
+	}
 	resolvedPath, err := resolveMemoryAlias(path)
 	if err != nil {
 		return false
@@ -105,6 +122,11 @@ func (a *App) PathExists(path string) bool {
 }
 
 func (a *App) IsDirectory(path string) bool {
+	normalized := pathref.Normalize(path)
+	if pathref.IsWeb(normalized) {
+		info, err := a.State.GetFileInfo(normalized)
+		return err == nil && info != nil && info.Type == contracts.FileTypeDirectory
+	}
 	resolvedPath, err := resolveMemoryAlias(path)
 	if err != nil {
 		return false
@@ -126,4 +148,31 @@ func (a *App) Breadcrumbs(path string) []map[string]string {
 
 func (a *App) GetSpecialFolders() contracts.SpecialFoldersResponse {
 	return internalplatform.GetSpecialFolders()
+}
+
+func splitAliasPath(path string) (dir string, base string, name string, ext string, ok bool) {
+	normalized := pathref.Normalize(path)
+	if !pathref.IsAlias(normalized) && !pathref.IsDrive(normalized) {
+		return "", "", "", "", false
+	}
+
+	dir = normalized
+	if parent, hasParent := pathref.Parent(normalized); hasParent {
+		dir = parent
+	}
+
+	trimmed := strings.TrimRight(normalized, "/")
+	if trimmed == strings.TrimRight(dir, "/") {
+		return dir, "", "", "", true
+	}
+
+	slashIndex := strings.LastIndex(trimmed, "/")
+	if slashIndex >= 0 {
+		base = trimmed[slashIndex+1:]
+	} else {
+		base = trimmed
+	}
+	ext = filepath.Ext(base)
+	name = strings.TrimSuffix(base, ext)
+	return dir, base, name, ext, true
 }

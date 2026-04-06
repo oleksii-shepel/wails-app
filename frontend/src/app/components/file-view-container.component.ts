@@ -6,6 +6,7 @@ import {
   ViewChild, OnChanges, OnDestroy, ChangeDetectorRef, SimpleChanges
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { createSubject, fromPromise } from '@epikodelabs/streamix';
 import { mergeMap, takeUntil } from '@epikodelabs/streamix';
 import { FileListComponent } from './file-list.component';
@@ -38,6 +39,15 @@ export type ViewLayout = ViewMode;
   ],
   template: `
     <div class="view-container">
+      <div class="view-browser" *ngIf="browserFrameUrl">
+        <iframe
+          class="view-browser-frame"
+          [src]="browserFrameUrl"
+          [attr.title]="currentPath"
+          referrerpolicy="no-referrer">
+        </iframe>
+      </div>
+
       <div class="view-content">
         <app-file-list
           *ngIf="currentView === 'list'"
@@ -138,6 +148,24 @@ export type ViewLayout = ViewMode;
       overflow: hidden;
     }
 
+    .view-browser {
+      display: flex;
+      flex: 0 0 42%;
+      min-height: 180px;
+      min-width: 0;
+      overflow: hidden;
+      border-bottom: 1px solid var(--vsc-border);
+      background: var(--vsc-editor-background);
+    }
+
+    .view-browser-frame {
+      width: 100%;
+      height: 100%;
+      border: 0;
+      background: #fff;
+      flex: 1 1 auto;
+    }
+
     .view-content {
       display: flex;
       flex-direction: column;
@@ -193,11 +221,13 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
 
   sortedEntries: FileInfo[] = [];
   treeNodes: TreeNode[] = [];
+  browserFrameUrl: SafeResourceUrl | null = null;
 
   private loadRequest$ = createSubject<TreeNode>();
   private destroy$     = createSubject<void>();
   pendingDirectorySizePaths: ReadonlySet<string> = new Set<string>();
   private lastTreeRefreshPath: string | null = null;
+  private browserFrameRequestId = 0;
   private readonly eventsController = new FileViewEventsController();
   private readonly interactionController = new FileViewInteractionController();
   private readonly lifecycleController = new FileViewLifecycleController();
@@ -212,6 +242,7 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
   constructor(
     private apiService: ApiService,
     private directorySource: DirectorySourceService,
+    private sanitizer: DomSanitizer,
     private cdr: ChangeDetectorRef,
   ) {
     this.loadRequest$
@@ -357,6 +388,9 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['entries']) {
       this.lastTreeRefreshPath = null;
+    }
+    if (changes['currentPath']) {
+      void this.refreshBrowserFrameUrl();
     }
     this.lifecycleController.onChanges(this.lifecycleHost, changes);
   }
@@ -606,5 +640,41 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
     }
 
     return undefined;
+  }
+
+  private isWebBrowserPath(path: string): boolean {
+    const trimmed = (path ?? '').trim();
+    if (!trimmed) return false;
+
+    try {
+      const parsed = new URL(trimmed);
+      return (parsed.protocol === 'http:' || parsed.protocol === 'https:') && parsed.host.length > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  private async refreshBrowserFrameUrl(): Promise<void> {
+    const requestId = ++this.browserFrameRequestId;
+    if (!this.isWebBrowserPath(this.currentPath)) {
+      this.browserFrameUrl = null;
+      this.cdr.markForCheck();
+      return;
+    }
+
+    this.browserFrameUrl = null;
+    this.cdr.markForCheck();
+
+    try {
+      const streamURL = await this.apiService.getStreamURL(this.currentPath);
+      if (requestId !== this.browserFrameRequestId) return;
+      this.browserFrameUrl = this.sanitizer.bypassSecurityTrustResourceUrl(streamURL);
+    } catch (error) {
+      if (requestId !== this.browserFrameRequestId) return;
+      console.warn('Failed to resolve browser preview URL:', this.currentPath, error);
+      this.browserFrameUrl = null;
+    }
+
+    this.cdr.markForCheck();
   }
 }

@@ -42,6 +42,8 @@ type Unified struct {
 const (
 	registryScheme = "registry://"
 	memoryScheme   = "memory://"
+	httpScheme     = "http://"
+	httpsScheme    = "https://"
 	smbScheme      = "smb://"
 	ftpScheme      = "ftp://"
 	sftpScheme     = "sftp://"
@@ -178,6 +180,10 @@ func (u *Unified) ResolvePublicPath(path string) (string, error) {
 
 	trimmed := strings.TrimSpace(strings.ReplaceAll(path, "\\", "/"))
 
+	if strings.HasPrefix(strings.ToLower(trimmed), httpScheme) || strings.HasPrefix(strings.ToLower(trimmed), httpsScheme) {
+		return trimmed, nil
+	}
+
 	// Special handling for filesystem:// scheme paths
 	if strings.HasPrefix(strings.ToLower(trimmed), "filesystem://") {
 		rest := strings.TrimLeft(trimmed[len("filesystem://"):], "/")
@@ -210,6 +216,8 @@ func isVirtualAliasPath(path string) bool {
 	trimmed := strings.ToLower(strings.TrimSpace(strings.ReplaceAll(path, "\\", "/")))
 	return strings.HasPrefix(trimmed, registryScheme) ||
 		strings.HasPrefix(trimmed, memoryScheme) ||
+		strings.HasPrefix(trimmed, httpScheme) ||
+		strings.HasPrefix(trimmed, httpsScheme) ||
 		strings.HasPrefix(trimmed, smbScheme) ||
 		strings.HasPrefix(trimmed, ftpScheme) ||
 		strings.HasPrefix(trimmed, sftpScheme) ||

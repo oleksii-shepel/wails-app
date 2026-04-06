@@ -7,9 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	htmlpkg "html"
 	"io"
 	"mime"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -30,6 +32,9 @@ const defaultVideoFramePreviewSeconds = 1.0
 const segmentedPreviewSegmentSeconds = 2.0
 const segmentedVideoCacheTTL = 5 * time.Minute
 const segmentedVideoMaxResidentSegments = 24
+const remoteHTMLRewriteLimit = 8 * 1024 * 1024
+
+var remoteStreamClient = &http.Client{}
 
 type VideoPlaybackMode string
 
@@ -598,6 +603,10 @@ func serveTranscodedArchiveEntry(w http.ResponseWriter, r *http.Request, archCac
 
 func servePath(w http.ResponseWriter, r *http.Request, app *App, publicPath string) {
 	publicPath = pathref.Normalize(publicPath)
+	if pathref.IsWeb(publicPath) {
+		serveRemotePath(w, r, publicPath)
+		return
+	}
 	if shouldServeViaVFS(app, publicPath) {
 		serveVFSFile(w, r, app.State.vfs, publicPath)
 		return
@@ -779,6 +788,42 @@ func serveDiskFile(w http.ResponseWriter, r *http.Request, publicPath string) {
 	http.ServeContent(w, r, fi.Name(), fi.ModTime(), f)
 }
 
+func serveRemotePath(w http.ResponseWriter, r *http.Request, publicPath string) {
+	targetURL, err := normalizeRemoteStreamURL(publicPath)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	req, err := http.NewRequestWithContext(r.Context(), r.Method, targetURL, nil)
+	if err != nil {
+		http.Error(w, "invalid remote request", http.StatusBadRequest)
+		return
+	}
+	req.Header.Set("Accept", firstNonEmpty(r.Header.Get("Accept"), "*/*"))
+	req.Header.Set("Accept-Language", firstNonEmpty(r.Header.Get("Accept-Language"), "en"))
+	req.Header.Set("User-Agent", firstNonEmpty(r.Header.Get("User-Agent"), "WailsFileManager/1.0"))
+	for _, name := range []string{"Range", "If-None-Match", "If-Modified-Since"} {
+		if value := strings.TrimSpace(r.Header.Get(name)); value != "" {
+			req.Header.Set(name, value)
+		}
+	}
+
+	resp, err := remoteStreamClient.Do(req)
+	if err != nil {
+		http.Error(w, "cannot open remote resource", http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	if shouldRewriteRemoteHTML(resp, r.Method) {
+		serveRewrittenRemoteHTML(w, r, resp)
+		return
+	}
+
+	writeRemoteResponse(w, r, resp, false, nil)
+}
+
 // serveArchiveEntry opens the archive (or uses the LRU cache), then pipes the
 // requested entry. Because archive entries are not seekable, range requests are
 // not supported — but the full content is piped without buffering in JS.
@@ -815,6 +860,144 @@ func serveArchiveEntry(w http.ResponseWriter, r *http.Request, archCache *cache.
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
 	io.Copy(w, f) //nolint:errcheck — client disconnect is not an error
+}
+
+func shouldRewriteRemoteHTML(resp *http.Response, method string) bool {
+	if resp == nil || strings.EqualFold(method, http.MethodHead) {
+		return false
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return false
+	}
+	if resp.ContentLength > remoteHTMLRewriteLimit {
+		return false
+	}
+	mediaType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+	if err != nil {
+		mediaType = strings.ToLower(strings.TrimSpace(strings.Split(resp.Header.Get("Content-Type"), ";")[0]))
+	}
+	switch strings.ToLower(mediaType) {
+	case "text/html", "application/xhtml+xml":
+		return true
+	default:
+		return false
+	}
+}
+
+func serveRewrittenRemoteHTML(w http.ResponseWriter, r *http.Request, resp *http.Response) {
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		http.Error(w, "cannot read remote document", http.StatusBadGateway)
+		return
+	}
+
+	baseHref := ""
+	if resp.Request != nil && resp.Request.URL != nil {
+		baseHref = resp.Request.URL.String()
+		if resp.Request.URL.Path == "" {
+			baseHref += "/"
+		}
+	}
+	rewritten := injectHTMLBaseTag(body, baseHref)
+	writeRemoteResponse(w, r, resp, true, rewritten)
+}
+
+func writeRemoteResponse(w http.ResponseWriter, r *http.Request, resp *http.Response, rewritten bool, body []byte) {
+	setCORSHeaders(w)
+	copyRemoteHeaders(w.Header(), resp.Header, rewritten)
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(resp.StatusCode)
+	if strings.EqualFold(r.Method, http.MethodHead) {
+		return
+	}
+	if rewritten {
+		_, _ = w.Write(body)
+		return
+	}
+	_, _ = io.Copy(w, resp.Body)
+}
+
+func copyRemoteHeaders(dst http.Header, src http.Header, rewritten bool) {
+	skip := map[string]struct{}{
+		"connection":                          {},
+		"keep-alive":                          {},
+		"proxy-authenticate":                  {},
+		"proxy-authorization":                 {},
+		"te":                                  {},
+		"trailer":                             {},
+		"transfer-encoding":                   {},
+		"upgrade":                             {},
+		"x-frame-options":                     {},
+		"content-security-policy":             {},
+		"content-security-policy-report-only": {},
+		"cross-origin-embedder-policy":        {},
+		"cross-origin-opener-policy":          {},
+		"cross-origin-resource-policy":        {},
+		"alt-svc":                             {},
+	}
+	if rewritten {
+		skip["content-length"] = struct{}{}
+		skip["content-encoding"] = struct{}{}
+		skip["etag"] = struct{}{}
+	}
+
+	for key, values := range src {
+		if _, blocked := skip[strings.ToLower(key)]; blocked {
+			continue
+		}
+		dst.Del(key)
+		for _, value := range values {
+			dst.Add(key, value)
+		}
+	}
+}
+
+func normalizeRemoteStreamURL(publicPath string) (string, error) {
+	normalized := pathref.Normalize(publicPath)
+	if !pathref.IsWeb(normalized) {
+		return "", fmt.Errorf("unsupported remote scheme")
+	}
+
+	parsed, err := url.Parse(normalized)
+	if err != nil {
+		return "", err
+	}
+	if parsed.Host == "" {
+		return "", fmt.Errorf("invalid remote URL")
+	}
+
+	parsed.Scheme = strings.ToLower(parsed.Scheme)
+	parsed.Host = strings.ToLower(parsed.Host)
+	parsed.Fragment = ""
+	parsed.Path = strings.ReplaceAll(parsed.Path, "\\", "/")
+	return parsed.String(), nil
+}
+
+func injectHTMLBaseTag(document []byte, baseHref string) []byte {
+	if len(document) == 0 || strings.TrimSpace(baseHref) == "" {
+		return document
+	}
+
+	lowerDocument := strings.ToLower(string(document))
+	if strings.Contains(lowerDocument, "<base ") {
+		return document
+	}
+
+	baseTag := `<base href="` + htmlpkg.EscapeString(baseHref) + `">`
+	if headStart := strings.Index(lowerDocument, "<head"); headStart >= 0 {
+		if headEnd := strings.Index(lowerDocument[headStart:], ">"); headEnd >= 0 {
+			insertAt := headStart + headEnd + 1
+			return append(document[:insertAt], append([]byte(baseTag), document[insertAt:]...)...)
+		}
+	}
+	if htmlStart := strings.Index(lowerDocument, "<html"); htmlStart >= 0 {
+		if htmlEnd := strings.Index(lowerDocument[htmlStart:], ">"); htmlEnd >= 0 {
+			insertAt := htmlStart + htmlEnd + 1
+			headBlock := []byte("<head>" + baseTag + "</head>")
+			return append(document[:insertAt], append(headBlock, document[insertAt:]...)...)
+		}
+	}
+	return append([]byte("<head>"+baseTag+"</head>"), document...)
 }
 
 func streamTranscodedOutput(w http.ResponseWriter, r *http.Request, stdout io.ReadCloser) {
@@ -1641,6 +1824,16 @@ func (a *App) GetArchiveVideoPlaybackPlan(fsPath string, nestedChain []string, e
 }
 
 func buildDiskVideoPlaybackPlan(baseURL, publicPath string) VideoPlaybackPlan {
+	if pathref.IsWeb(pathref.Normalize(publicPath)) {
+		return VideoPlaybackPlan{
+			Mode:            VideoPlaybackModeDirect,
+			Format:          strings.TrimPrefix(strings.ToLower(filepath.Ext(publicPath)), "."),
+			Seekable:        true,
+			UseNativePlayer: false,
+			URL:             StreamURLForFile(baseURL, publicPath),
+		}
+	}
+
 	probe, _ := probeVideo(pathref.ToNativePath(pathref.Normalize(publicPath)))
 	format := strings.TrimPrefix(strings.ToLower(filepath.Ext(publicPath)), ".")
 	var videoCodec, audioCodec string

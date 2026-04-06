@@ -6,10 +6,14 @@ import (
 	"strings"
 
 	"wails-app/internal/contracts"
+	"wails-app/internal/pathref"
 )
 
 // GetConvertedImageURL returns a stream URL that serves a converted preview image.
 func (a *App) GetConvertedImageURL(path string, targetFormat string) (string, error) {
+	if pathref.IsWeb(pathref.Normalize(path)) {
+		return a.GetStreamURL(path), nil
+	}
 	info, err := a.State.GetFileInfo(path)
 	if err != nil {
 		return "", fmt.Errorf("cannot access file: %w", err)
@@ -31,6 +35,9 @@ func (a *App) GetConvertedImageURL(path string, targetFormat string) (string, er
 
 // GetImageThumbnailURL returns a stream URL that serves a bounded thumbnail image.
 func (a *App) GetImageThumbnailURL(path string, maxWidth int, maxHeight int) (string, error) {
+	if pathref.IsWeb(pathref.Normalize(path)) {
+		return a.GetStreamURL(path), nil
+	}
 	info, err := a.State.GetFileInfo(path)
 	if err != nil {
 		return "", fmt.Errorf("cannot access file: %w", err)

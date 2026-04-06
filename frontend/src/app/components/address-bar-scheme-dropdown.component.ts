@@ -292,6 +292,12 @@ export class AddressBarSchemeDropdownComponent {
     if (d.schemeType === 'search') {
       return 'Search FS';
     }
+    if (d.schemeType === 'http') {
+      return 'HTTP';
+    }
+    if (d.schemeType === 'https') {
+      return 'HTTPS';
+    }
     if (d.schemeType === 'smb') {
       return 'SMB Share';
     }
@@ -321,6 +327,8 @@ export class AddressBarSchemeDropdownComponent {
     if (d.schemeType === 'memory')         return '🧠';
     if (d.schemeType === 'registry')       return '🧩';
     if (d.schemeType === 'search')         return '🔎';
+    if (d.schemeType === 'http')           return '🌐';
+    if (d.schemeType === 'https')          return '🔒';
     if (d.schemeType === 'smb')            return '🖧';
     if (d.schemeType === 'ftp')            return '📡';
     if (d.schemeType === 'sftp')           return '🔐';

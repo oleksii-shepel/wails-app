@@ -91,10 +91,21 @@ func (f *FS) Close() error {
 
 // serverURL converts a VFS-relative path to a full WebDAV URL.
 func (f *FS) serverURL(p string) string {
-	if p == "" || p == "." {
+	if p == "" || p == "." || p == "/" {
 		return f.baseURL + "/"
 	}
-	return f.baseURL + "/" + strings.TrimLeft(url.PathEscape(path.Clean(p)), "/")
+
+	cleaned := path.Clean("/" + strings.TrimLeft(p, "/"))
+	if cleaned == "/" || cleaned == "." {
+		return f.baseURL + "/"
+	}
+
+	parts := strings.Split(strings.TrimPrefix(cleaned, "/"), "/")
+	for i, part := range parts {
+		parts[i] = url.PathEscape(part)
+	}
+
+	return f.baseURL + "/" + strings.Join(parts, "/")
 }
 
 // ── FileSystem implementation ────────────────────────────────────────────────

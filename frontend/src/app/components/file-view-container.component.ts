@@ -3,10 +3,9 @@
 
 import {
   Component, Input, Output, EventEmitter,
-  ViewChild, OnChanges, OnDestroy, ChangeDetectorRef, SimpleChanges
+  ViewChild, OnChanges, OnDestroy, ChangeDetectorRef, SimpleChanges, ElementRef, AfterViewInit, NgZone
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { createSubject, fromPromise } from '@epikodelabs/streamix';
 import { mergeMap, takeUntil } from '@epikodelabs/streamix';
 import { FileListComponent } from './file-list.component';
@@ -24,6 +23,7 @@ import { FileViewLifecycleController, type FileViewLifecycleHost } from './file-
 import { FileViewTreeController, type FileViewTreeHost } from './file-view-tree.controller';
 import { FileViewRuntimeController, type FileViewRuntimeHost } from './file-view-runtime.controller';
 import { FileViewSortController, type FileViewSortHost } from './file-view-sort.controller';
+import { NativeBrowserPaneService } from '../services/native-browser-pane.service';
 
 export type ViewLayout = ViewMode;
 
@@ -39,14 +39,10 @@ export type ViewLayout = ViewMode;
   ],
   template: `
     <div class="view-container">
-      <div class="view-browser" *ngIf="browserFrameUrl">
-        <iframe
-          class="view-browser-frame"
-          [src]="browserFrameUrl"
-          [attr.title]="currentPath"
-          allow="autoplay; clipboard-read; clipboard-write; fullscreen"
-          referrerpolicy="no-referrer">
-        </iframe>
+      <div class="view-browser" *ngIf="showBrowserPane()">
+        <div #browserHost class="view-browser-host">
+          <div class="view-browser-backdrop"></div>
+        </div>
       </div>
 
       <div class="view-content">
@@ -159,12 +155,20 @@ export type ViewLayout = ViewMode;
       background: var(--vsc-editor-background);
     }
 
-    .view-browser-frame {
+    .view-browser-host {
       width: 100%;
       height: 100%;
-      border: 0;
-      background: #fff;
+      position: relative;
       flex: 1 1 auto;
+      overflow: hidden;
+    }
+
+    .view-browser-backdrop {
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0)),
+        color-mix(in srgb, var(--vsc-editor-background) 88%, #ffffff 12%);
     }
 
     .view-content {
@@ -189,12 +193,15 @@ export type ViewLayout = ViewMode;
     }
   `]
 })
-export class FileViewContainerComponent implements OnChanges, OnDestroy {
+export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterViewInit {
+  @ViewChild('browserHost') browserHost?: ElementRef<HTMLElement>;
   @ViewChild('fileTree') treeComponent?: FileTreeComponent;
   @ViewChild(FileListComponent) listComponent?: FileListComponent;
   @ViewChild(FileGridComponent) gridComponent?: FileGridComponent;
   @ViewChild(FileDetailsComponent) detailsComponent?: FileDetailsComponent;
 
+  @Input() surfaceId = '';
+  @Input() surfaceActive = true;
   @Input() paneId: 'left' | 'right' = 'left';
   @Input() showHidden    = false;
   @Input() entries: FileInfo[] = [];
@@ -222,14 +229,12 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
 
   sortedEntries: FileInfo[] = [];
   treeNodes: TreeNode[] = [];
-  browserFrameUrl: SafeResourceUrl | null = null;
-  browserFrameSrcdoc: string | null = null;
-
   private loadRequest$ = createSubject<TreeNode>();
   private destroy$     = createSubject<void>();
   pendingDirectorySizePaths: ReadonlySet<string> = new Set<string>();
   private lastTreeRefreshPath: string | null = null;
-  private browserFrameRequestId = 0;
+  private nativeBrowserSyncTimer: ReturnType<typeof setInterval> | null = null;
+  private lastNativeBrowserSyncKey = '';
   private readonly eventsController = new FileViewEventsController();
   private readonly interactionController = new FileViewInteractionController();
   private readonly lifecycleController = new FileViewLifecycleController();
@@ -244,7 +249,8 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
   constructor(
     private apiService: ApiService,
     private directorySource: DirectorySourceService,
-    private sanitizer: DomSanitizer,
+    private nativeBrowserPane: NativeBrowserPaneService,
+    private zone: NgZone,
     private cdr: ChangeDetectorRef,
   ) {
     this.loadRequest$
@@ -253,6 +259,10 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
         takeUntil(this.destroy$)
       )
       .subscribe();
+  }
+
+  ngAfterViewInit(): void {
+    this.refreshNativeBrowserPane();
   }
 
   private get treeHost(): FileViewTreeHost {
@@ -391,13 +401,15 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
     if (changes['entries']) {
       this.lastTreeRefreshPath = null;
     }
-    if (changes['currentPath']) {
-      void this.refreshBrowserFrameUrl();
+    if (changes['currentPath'] || changes['surfaceActive'] || changes['surfaceId']) {
+      this.refreshNativeBrowserPane();
     }
     this.lifecycleController.onChanges(this.lifecycleHost, changes);
   }
 
   ngOnDestroy(): void {
+    this.stopNativeBrowserTracking();
+    void this.nativeBrowserPane.dispose(this.surfaceId);
     this.destroy$.next();
     this.destroy$.complete();
     this.treeController.reset();
@@ -656,34 +668,100 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
     }
   }
 
-  private async refreshBrowserFrameUrl(): Promise<void> {
-    const requestId = ++this.browserFrameRequestId;
-    if (!this.isWebBrowserPath(this.currentPath)) {
-      this.browserFrameUrl = null;
+  showBrowserPane(): boolean {
+    return this.isWebBrowserPath(this.currentPath);
+  }
+
+  private refreshNativeBrowserPane(): void {
+    if (!this.showBrowserPane()) {
+      this.stopNativeBrowserTracking();
+      void this.syncNativeBrowserVisibility(false);
       this.cdr.markForCheck();
       return;
     }
 
-    this.browserFrameUrl = null;
-    this.cdr.markForCheck();
-
-    try {
-      if (requestId !== this.browserFrameRequestId) return;
-      this.browserFrameUrl = this.sanitizer.bypassSecurityTrustResourceUrl(this.normalizeLiveBrowserURL(this.currentPath));
-    } catch (error) {
-      if (requestId !== this.browserFrameRequestId) return;
-      console.warn('Failed to resolve browser preview URL:', this.currentPath, error);
-      this.browserFrameUrl = null;
+    if (!this.surfaceActive) {
+      this.stopNativeBrowserTracking();
+      void this.syncNativeBrowserVisibility(false);
+      this.cdr.markForCheck();
+      return;
     }
 
+    this.startNativeBrowserTracking();
+    void this.syncNativeBrowserVisibility(true);
     this.cdr.markForCheck();
   }
 
-  private normalizeLiveBrowserURL(path: string): string {
+  private startNativeBrowserTracking(): void {
+    if (this.nativeBrowserSyncTimer) {
+      return;
+    }
+    this.zone.runOutsideAngular(() => {
+      this.nativeBrowserSyncTimer = setInterval(() => {
+        void this.syncNativeBrowserVisibility(this.surfaceActive);
+      }, 100);
+    });
+  }
+
+  private stopNativeBrowserTracking(): void {
+    if (!this.nativeBrowserSyncTimer) {
+      return;
+    }
+    clearInterval(this.nativeBrowserSyncTimer);
+    this.nativeBrowserSyncTimer = null;
+  }
+
+  private async syncNativeBrowserVisibility(visible: boolean): Promise<void> {
+    if (!this.surfaceId) {
+      return;
+    }
+
+    if (!visible || !this.showBrowserPane()) {
+      this.lastNativeBrowserSyncKey = '';
+      await this.nativeBrowserPane.sync({
+        surfaceId: this.surfaceId,
+        url: this.currentPath,
+        visible: false,
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+      });
+      return;
+    }
+
+    const host = this.browserHost?.nativeElement;
+    if (!host) {
+      return;
+    }
+
+    const rect = host.getBoundingClientRect();
+    const width = Math.max(0, Math.round(rect.width));
+    const height = Math.max(0, Math.round(rect.height));
+    if (width <= 0 || height <= 0) {
+      return;
+    }
+
+    const request = {
+      surfaceId: this.surfaceId,
+      url: this.currentPath,
+      visible: true,
+      x: Math.round(rect.left),
+      y: Math.round(rect.top),
+      width,
+      height,
+    };
+    const syncKey = JSON.stringify(request);
+    if (syncKey === this.lastNativeBrowserSyncKey) {
+      return;
+    }
+    this.lastNativeBrowserSyncKey = syncKey;
+
     try {
-      return new URL(path).toString();
-    } catch {
-      return path;
+      await this.nativeBrowserPane.sync(request);
+    } catch (error) {
+      console.warn('Failed to sync native browser pane:', request.surfaceId, error);
+      this.lastNativeBrowserSyncKey = '';
     }
   }
 }

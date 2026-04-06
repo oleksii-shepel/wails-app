@@ -521,6 +521,30 @@ export namespace contracts {
 		    return a;
 		}
 	}
+	export class BrowserPaneSyncRequest {
+	    surfaceId: string;
+	    url: string;
+	    visible: boolean;
+	    x: number;
+	    y: number;
+	    width: number;
+	    height: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new BrowserPaneSyncRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.surfaceId = source["surfaceId"];
+	        this.url = source["url"];
+	        this.visible = source["visible"];
+	        this.x = source["x"];
+	        this.y = source["y"];
+	        this.width = source["width"];
+	        this.height = source["height"];
+	    }
+	}
 	export class ConflictEvent {
 	    operationId: string;
 	    conflictId: string;

@@ -81,6 +81,7 @@ declare const window: any;
         *ngFor="let item of allTabSurfaceCtxs; trackBy: trackTabSurface"
         #surfaceOutlet
         [ctx]="item.ctx"
+        [active]="item.active"
         [class.tab-surface--inactive]="!item.active"
         [attr.aria-hidden]="!item.active ? true : null"
         (firstEntryArrived)="item.active && onSurfaceFirstEntry()">

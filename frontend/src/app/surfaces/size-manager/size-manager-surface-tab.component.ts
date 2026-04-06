@@ -27,6 +27,7 @@ import type { SizeManagerSurfaceContext } from '../surface-context';
 })
 export class SizeManagerSurfaceTabComponent {
   @Input({ required: true }) ctx!: SizeManagerSurfaceContext;
+  @Input() active = false;
   /** Bubbled up from the inner surface — parent uses this to drop its loader. */
   @Output() firstEntryArrived = new EventEmitter<void>();
 }

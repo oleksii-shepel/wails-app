@@ -38,6 +38,7 @@ import { ViewerSurfaceContext } from '../surface-context';
 })
 export class ViewerSurfaceTabComponent {
   @Input({ required: true }) ctx!: ViewerSurfaceContext;
+  @Input() active = false;
 
   @ViewChild(ViewerHostSurfaceComponent) viewerHost?: ViewerHostSurfaceComponent;
 }

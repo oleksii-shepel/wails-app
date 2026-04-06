@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 
+	internalbrowserpane "wails-app/internal/browserpane"
 	"wails-app/vfs/archive/cache"
 )
 
@@ -13,6 +14,8 @@ type App struct {
 	isProcessElevated func() bool
 	streamBaseURL     string
 	streamBaseURLMu   sync.RWMutex
+	browserPanes      *internalbrowserpane.Service
+	browserPanesMu    sync.Mutex
 }
 
 func NewApp(isProcessElevated func() bool) *App {
@@ -32,6 +35,12 @@ func (a *App) Startup(ctx context.Context) {
 }
 
 func (a *App) Shutdown() {
+	a.browserPanesMu.Lock()
+	service := a.browserPanes
+	a.browserPanesMu.Unlock()
+	if service != nil {
+		_ = service.Shutdown()
+	}
 	if a.State != nil {
 		a.State.Shutdown()
 	}
@@ -73,4 +82,13 @@ func (a *App) ArchCache() *cache.Cache {
 		return nil
 	}
 	return a.State.archCache
+}
+
+func (a *App) browserPaneService() *internalbrowserpane.Service {
+	a.browserPanesMu.Lock()
+	defer a.browserPanesMu.Unlock()
+	if a.browserPanes == nil {
+		a.browserPanes = internalbrowserpane.NewService()
+	}
+	return a.browserPanes
 }

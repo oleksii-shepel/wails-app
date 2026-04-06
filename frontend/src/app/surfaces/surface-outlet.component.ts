@@ -35,6 +35,7 @@ import { SurfaceContext } from './surface-context';
 })
 export class SurfaceOutletComponent implements OnChanges {
   @Input({ required: true }) ctx!: SurfaceContext;
+  @Input() active = false;
   /** Re-emits `firstEntryArrived` from dynamic surfaces so parents may react. */
   @Output() firstEntryArrived = new EventEmitter<void>();
 
@@ -63,14 +64,14 @@ export class SurfaceOutletComponent implements OnChanges {
     // mounted one so long-running viewers keep their runtime state.
     if (this.component && this.resolvedSurfaceKey === surfaceKey) {
       if (this.renderedInputSignature !== inputSignature) {
-        this.outletInputs = { ctx: this.ctx };
+        this.outletInputs = { ctx: this.ctx, active: this.active };
         this.renderedInputSignature = inputSignature;
         this.cdr.markForCheck();
 
         return;
       }
 
-      this.outletInputs = { ctx: this.ctx };
+      this.outletInputs = { ctx: this.ctx, active: this.active };
       this.cdr.markForCheck();
       return;
     }
@@ -83,7 +84,7 @@ export class SurfaceOutletComponent implements OnChanges {
 
     void this.registry.resolve({ tab: targetCtx.tab }).then(({ component }) => {
       if (seq !== this.resolveSeq) return;
-      this.outletInputs = { ctx: targetCtx };
+      this.outletInputs = { ctx: targetCtx, active: this.active };
       this.component = component;
       this.cdr.markForCheck();
       // Give Angular a tick to create the component instance, then wire outputs

@@ -62,6 +62,14 @@ export function Breadcrumbs(arg1) {
   return window['go']['app']['App']['Breadcrumbs'](arg1);
 }
 
+export function BrowserPaneDispose(arg1) {
+  return window['go']['app']['App']['BrowserPaneDispose'](arg1);
+}
+
+export function BrowserPaneSync(arg1) {
+  return window['go']['app']['App']['BrowserPaneSync'](arg1);
+}
+
 export function BuildSearchAlias(arg1, arg2, arg3) {
   return window['go']['app']['App']['BuildSearchAlias'](arg1, arg2, arg3);
 }

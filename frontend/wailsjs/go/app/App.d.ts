@@ -38,6 +38,10 @@ export function BindState(arg1:app.State):Promise<void>;
 
 export function Breadcrumbs(arg1:string):Promise<Array<Record<string, string>>>;
 
+export function BrowserPaneDispose(arg1:string):Promise<void>;
+
+export function BrowserPaneSync(arg1:contracts.BrowserPaneSyncRequest):Promise<void>;
+
 export function BuildSearchAlias(arg1:string,arg2:string,arg3:boolean):Promise<string>;
 
 export function CanConvertImage(arg1:string):Promise<boolean>;

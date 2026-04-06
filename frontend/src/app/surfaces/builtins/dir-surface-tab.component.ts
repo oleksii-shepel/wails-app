@@ -9,7 +9,7 @@ import { DirSurfaceContext } from '../surface-context';
   imports: [CommonModule, DirSurfaceComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <app-dir-surface #dir [vm]="ctx.dirVm"></app-dir-surface>
+    <app-dir-surface #dir [vm]="ctx.dirVm" [surfaceId]="ctx.paneId + ':' + ctx.tab.id" [surfaceActive]="active"></app-dir-surface>
   `,
   styles: [`
     :host {
@@ -33,6 +33,7 @@ import { DirSurfaceContext } from '../surface-context';
 })
 export class DirSurfaceTabComponent {
   @Input({ required: true }) ctx!: DirSurfaceContext;
+  @Input() active = false;
   @ViewChild('dir') private dir?: DirSurfaceComponent;
 
   // Exposed for SurfaceOutletComponent proxying.

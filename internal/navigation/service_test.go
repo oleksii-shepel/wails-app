@@ -12,31 +12,31 @@ func TestSyncPathKeepsGoUpAlignedWithPanePath(t *testing.T) {
 		return &contracts.DirectoryListing{Path: path}, nil
 	})
 
-	service.SyncPath("left", "ftp://samples.ffmpeg.org/pub")
+	service.SyncPath("left", "smb://fileserver/share/docs")
 
 	listing, err := service.GoUp("left")
 	if err != nil {
 		t.Fatalf("GoUp returned error: %v", err)
 	}
-	if listing.Path != "ftp://samples.ffmpeg.org" {
-		t.Fatalf("unexpected parent path\nwant: %q\n got: %q", "ftp://samples.ffmpeg.org", listing.Path)
+	if listing.Path != "smb://fileserver/share" {
+		t.Fatalf("unexpected parent path\nwant: %q\n got: %q", "smb://fileserver/share", listing.Path)
 	}
 }
 
-func TestSyncPathKeepsGoUpAlignedWithExplicitFTPPort(t *testing.T) {
+func TestSyncPathKeepsGoUpAlignedWithExplicitSMBPort(t *testing.T) {
 	manager := NewManager()
 	service := NewService(manager, func(path string, showHidden bool) (*contracts.DirectoryListing, error) {
 		return &contracts.DirectoryListing{Path: path}, nil
 	})
 
-	service.SyncPath("left", "ftp://samples.ffmpeg.org:21/pub")
+	service.SyncPath("left", "smb://fileserver:445/share/docs")
 
 	listing, err := service.GoUp("left")
 	if err != nil {
 		t.Fatalf("GoUp returned error: %v", err)
 	}
-	if listing.Path != "ftp://samples.ffmpeg.org:21" {
-		t.Fatalf("unexpected parent path\nwant: %q\n got: %q", "ftp://samples.ffmpeg.org:21", listing.Path)
+	if listing.Path != "smb://fileserver:445/share" {
+		t.Fatalf("unexpected parent path\nwant: %q\n got: %q", "smb://fileserver:445/share", listing.Path)
 	}
 }
 

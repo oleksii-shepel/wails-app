@@ -9,15 +9,12 @@ import (
 	contracts "wails-app/internal/contracts"
 	"wails-app/internal/pathref"
 	vfslib "wails-app/vfs"
-	vfsftp "wails-app/vfs/ftp"
-	vfssftp "wails-app/vfs/sftp"
 	vfssmb "wails-app/vfs/smb"
-	vfswebdav "wails-app/vfs/webdav"
 )
 
 // RemoteConnect establishes a connection to a remote server, mounts the
 // resulting filesystem in the VFS, and returns metadata about the mount.
-// The public path (e.g. "ftp://host:21") can be used for navigation immediately.
+// The public path (e.g. "smb://host/share") can be used for navigation immediately.
 func (s *State) RemoteConnect(cfg contracts.RemoteConfig) (*contracts.RemoteMount, error) {
 	if s.vfs == nil {
 		return nil, fmt.Errorf("vfs not initialized")
@@ -42,27 +39,6 @@ func (s *State) RemoteConnect(cfg contracts.RemoteConfig) (*contracts.RemoteMoun
 	var err error
 
 	switch cfg.Protocol {
-	case contracts.ProtocolFTP:
-		remoteFS, err = vfsftp.New(ctx, vfsftp.Config{
-			Host:     cfg.Host,
-			Port:     cfg.Port,
-			Username: cfg.Username,
-			Password: cfg.Password,
-		})
-
-	case contracts.ProtocolSFTP:
-		sftpCfg := vfssftp.Config{
-			Host:          cfg.Host,
-			Port:          cfg.Port,
-			Username:      cfg.Username,
-			Password:      cfg.Password,
-			IgnoreHostKey: cfg.IgnoreHostKey,
-		}
-		if cfg.PrivateKey != "" {
-			sftpCfg.PrivateKey = []byte(cfg.PrivateKey)
-		}
-		remoteFS, err = vfssftp.New(ctx, sftpCfg)
-
 	case contracts.ProtocolSMB:
 		remoteFS, err = vfssmb.New(ctx, vfssmb.Config{
 			Host:     cfg.Host,
@@ -71,21 +47,6 @@ func (s *State) RemoteConnect(cfg contracts.RemoteConfig) (*contracts.RemoteMoun
 			Username: cfg.Username,
 			Password: cfg.Password,
 			Share:    cfg.Share,
-		})
-
-	case contracts.ProtocolWebDAV:
-		schema := cfg.Schema
-		if schema == "" {
-			schema = "https"
-		}
-		remoteFS, err = vfswebdav.New(ctx, vfswebdav.Config{
-			Host:     cfg.Host,
-			Port:     cfg.Port,
-			Schema:   schema,
-			BasePath: cfg.BasePath,
-			Username: cfg.Username,
-			Password: cfg.Password,
-			Insecure: cfg.Insecure,
 		})
 
 	default:
@@ -146,26 +107,9 @@ func (s *State) RemoteListConnections() []contracts.RemoteMount {
 // remoteMountPath computes the internal VFS mount point for a remote config.
 // The scheme-to-vfsRoot mapping mirrors the aliasSpecs in pathref/registry.go:
 //
-//	ftp://host:21       → /remote/ftp/host:21
-//	sftp://host:22      → /remote/sftp/host:22
 //	smb://host:445/shr  → /remote/smb/host:445/shr
-//	webdav://host:443   → /remote/webdav/host:443
 func remoteMountPath(cfg contracts.RemoteConfig) string {
 	switch cfg.Protocol {
-	case contracts.ProtocolFTP:
-		port := cfg.Port
-		if port == 0 {
-			port = 21
-		}
-		return fmt.Sprintf("/remote/ftp/%s:%d", cfg.Host, port)
-
-	case contracts.ProtocolSFTP:
-		port := cfg.Port
-		if port == 0 {
-			port = 22
-		}
-		return fmt.Sprintf("/remote/sftp/%s:%d", cfg.Host, port)
-
 	case contracts.ProtocolSMB:
 		port := cfg.Port
 		if port == 0 {
@@ -177,24 +121,6 @@ func remoteMountPath(cfg contracts.RemoteConfig) string {
 		}
 		return fmt.Sprintf("/remote/smb/%s:%d", cfg.Host, port)
 
-	case contracts.ProtocolWebDAV:
-		port := cfg.Port
-		schema := cfg.Schema
-		if schema == "" {
-			schema = "https"
-		}
-		if port == 0 {
-			if schema == "https" {
-				port = 443
-			} else {
-				port = 80
-			}
-		}
-		base := strings.Trim(cfg.BasePath, "/")
-		if base != "" {
-			return fmt.Sprintf("/remote/webdav/%s:%d/%s", cfg.Host, port, base)
-		}
-		return fmt.Sprintf("/remote/webdav/%s:%d", cfg.Host, port)
 	}
 	return ""
 }

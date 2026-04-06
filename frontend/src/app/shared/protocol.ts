@@ -46,9 +46,6 @@ export type SchemeType =
   | 'http'
   | 'https'
   | 'smb'
-  | 'ftp'
-  | 'sftp'
-  | 'webdav'
   | 'unknown'
   | 'cloud-onedrive'
   | 'cloud-google'
@@ -229,7 +226,7 @@ export enum FileType {
 
 export interface FileInfo {
   name: string;
-  /** Absolute path — always includes drive letter on Windows */
+  /** Absolute path РІР‚вЂќ always includes drive letter on Windows */
   path: string;
   type: FileType;
   mimeType?: string;

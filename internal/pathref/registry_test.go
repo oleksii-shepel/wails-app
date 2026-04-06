@@ -21,30 +21,6 @@ func TestToNativePathDriveChildUsesPlatformSeparator(t *testing.T) {
 	}
 }
 
-func TestToVFSAddsDefaultFTPPort(t *testing.T) {
-	got := ToVFS("ftp://samples.ffmpeg.org/pub")
-	want := "/remote/ftp/samples.ffmpeg.org:21/pub"
-	if got != want {
-		t.Fatalf("ToVFS(ftp) mismatch\nwant: %q\n got: %q", want, got)
-	}
-}
-
-func TestToVFSPreservesExplicitFTPPortAtRoot(t *testing.T) {
-	got := ToVFS("ftp://samples.ffmpeg.org:21")
-	want := "/remote/ftp/samples.ffmpeg.org:21"
-	if got != want {
-		t.Fatalf("ToVFS(ftp explicit port root) mismatch\nwant: %q\n got: %q", want, got)
-	}
-}
-
-func TestToVFSAddsDefaultSFTPPort(t *testing.T) {
-	got := ToVFS("sftp://example.com/home")
-	want := "/remote/sftp/example.com:22/home"
-	if got != want {
-		t.Fatalf("ToVFS(sftp) mismatch\nwant: %q\n got: %q", want, got)
-	}
-}
-
 func TestToVFSAddsDefaultSMBPort(t *testing.T) {
 	got := ToVFS("smb://fileserver/share/docs")
 	want := "/remote/smb/fileserver:445/share/docs"
@@ -72,7 +48,7 @@ func TestIsWebRecognizesHTTPAliases(t *testing.T) {
 	if !IsWeb("https://example.com") {
 		t.Fatalf("expected https alias to be recognized as web")
 	}
-	if IsWeb("ftp://example.com") {
-		t.Fatalf("did not expect ftp alias to be recognized as web")
+	if IsWeb("smb://example.com/share") {
+		t.Fatalf("did not expect smb alias to be recognized as web")
 	}
 }

@@ -1,4 +1,4 @@
-﻿// file-pane.component.ts
+// file-pane.component.ts
 import { Component, Input, Output, EventEmitter, OnInit, OnChanges, OnDestroy, ViewChild, ViewChildren, QueryList, SimpleChanges, NgZone, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { TabBarComponent, type TabDropEvent } from './tab-bar.component';
@@ -50,7 +50,6 @@ import { DirListStreamController } from '../surfaces/dir/dir-list-stream.control
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { DirectorySourceService } from '../services/directory-source.service';
 import { OperationService } from '../services/operation.service';
-import { RemoteConnectionService } from '../services/remote-connection.service';
 import type { SearchResultItem } from '../services/global-search.service';
 
 declare const window: any;
@@ -687,11 +686,10 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     private zone: NgZone,
     private cdr: ChangeDetectorRef,
     private archiveService: ArchiveService,
-    private remoteConnectionService: RemoteConnectionService,
   ) {
     this.dirStream = new DirListStreamController(this.apiService);
     this.operationsController = new FilePaneOperationsController(this.operationService);
-    this.navigationController = new FilePaneNavigationController(this.remoteConnectionService);
+    this.navigationController = new FilePaneNavigationController();
   }
 
   get allTabSurfaceCtxs(): Array<{ ctx: SurfaceContext; active: boolean }> {

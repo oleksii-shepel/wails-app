@@ -92,8 +92,8 @@ func TestBatchMoveExactDestinationReportsConflict(t *testing.T) {
 func TestBatchCopyUsesCallbackForVirtualSource(t *testing.T) {
 	tempDir := t.TempDir()
 	destPath := filepath.Join(tempDir, "downloaded.txt")
-	const sourcePath = "ftp://example.com/pub/readme.txt"
-	const content = "hello from ftp"
+	const sourcePath = "smb://example.com/share/readme.txt"
+	const content = "hello from smb"
 
 	manager := internalops.NewManager()
 	service := NewService(ServiceConfig{

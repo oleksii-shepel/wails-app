@@ -5,7 +5,6 @@ import type { WorkspaceService } from '../services/workspace.service';
 import type { DirSurfaceSession } from '../surfaces/dir/dir-surface-session';
 import type { TabInfo, WorkspaceConfig } from '../shared/protocol-enhanced';
 import { normalizePath, samePath } from './address-bar.utils';
-import { parseRemoteUrl, RemoteConnectionService, resolveMountedRemotePath } from '../services/remote-connection.service';
 
 declare const window: any;
 
@@ -38,7 +37,6 @@ export interface FilePaneNavigationHost {
 }
 
 export class FilePaneNavigationController {
-  constructor(private remoteConnectionService: RemoteConnectionService) {}
 
   async loadPaneState(host: FilePaneNavigationHost): Promise<void> {
     if (!host.workspace) return;
@@ -245,20 +243,7 @@ export class FilePaneNavigationController {
   }
 
   private async resolveRemotePathForLoad(host: FilePaneNavigationHost, path: string): Promise<string | null> {
-    const remoteRequest = parseRemoteUrl(path);
-    if (!remoteRequest || remoteRequest.protocol === 'ftp') {
-      return path;
-    }
-
-    try {
-      await host.apiService.getFileInfo(path);
-      return path;
-    } catch {
-      const mountPoint = await this.remoteConnectionService.open(remoteRequest);
-      if (!mountPoint) {
-        return null;
-      }
-      return resolveMountedRemotePath(mountPoint, remoteRequest);
-    }
+    void host;
+    return path;
   }
 }

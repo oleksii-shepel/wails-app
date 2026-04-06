@@ -1,18 +1,16 @@
 import { Component, HostListener, OnDestroy, OnInit } from '@angular/core';
 import { FileBrowserComponent } from './components/file-browser.component';
 import { ConfirmDialogComponent } from './components/confirm-dialog.component';
-import { RemoteConnectionDialogComponent } from './components/remote-connection-dialog.component';
 import { ThemeService } from './services/theme.service';
 import { OperationService } from './services/operation.service';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [FileBrowserComponent, ConfirmDialogComponent, RemoteConnectionDialogComponent],
+  imports: [FileBrowserComponent, ConfirmDialogComponent],
   template: `
     <app-file-browser></app-file-browser>
     <app-confirm-dialog></app-confirm-dialog>
-    <app-remote-connection-dialog></app-remote-connection-dialog>
   `,
   styles: [`
     :host {

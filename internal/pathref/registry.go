@@ -15,15 +15,9 @@ const (
 	HTTPAliasScheme  = "http://"
 	HTTPSAliasScheme = "https://"
 	SMBScheme        = "smb://"
-	FTPScheme        = "ftp://"
-	SFTPScheme       = "sftp://"
-	WebDAVScheme     = "webdav://"
 	memoryVFSRoot    = "/memory"
 	registryVFSRoot  = "/registry"
-	ftpVFSRoot       = "/remote/ftp"
-	sftpVFSRoot      = "/remote/sftp"
 	smbVFSRoot       = "/remote/smb"
-	webdavVFSRoot    = "/remote/webdav"
 )
 
 type aliasSpec struct {
@@ -44,9 +38,6 @@ var aliasSpecs = []aliasSpec{
 	{scheme: HTTPSAliasScheme},
 	{scheme: HTTPAliasScheme},
 	{scheme: SMBScheme, vfsRoot: smbVFSRoot},
-	{scheme: FTPScheme, vfsRoot: ftpVFSRoot},
-	{scheme: SFTPScheme, vfsRoot: sftpVFSRoot},
-	{scheme: WebDAVScheme, vfsRoot: webdavVFSRoot},
 }
 
 var registryHivePrefixes = []string{
@@ -292,10 +283,6 @@ func ToVFS(path string) string {
 func remoteAliasToVFS(path string, spec aliasSpec) (string, bool) {
 	defaultPort := ""
 	switch spec.scheme {
-	case FTPScheme:
-		defaultPort = "21"
-	case SFTPScheme:
-		defaultPort = "22"
 	case SMBScheme:
 		defaultPort = "445"
 	default:

@@ -84,20 +84,5 @@ func syntheticDrives() []contracts.DriveInfo {
 			Path:       pathref.SMBScheme,
 			SchemeType: contracts.SchemeSMB,
 		},
-		{
-			Name:       "FTP",
-			Path:       pathref.FTPScheme,
-			SchemeType: contracts.SchemeFTP,
-		},
-		{
-			Name:       "SFTP",
-			Path:       pathref.SFTPScheme,
-			SchemeType: contracts.SchemeSFTP,
-		},
-		{
-			Name:       "WebDAV",
-			Path:       pathref.WebDAVScheme,
-			SchemeType: contracts.SchemeWebDAV,
-		},
 	}
 }

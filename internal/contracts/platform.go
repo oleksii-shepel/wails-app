@@ -31,9 +31,6 @@ const (
 	SchemeHTTP      SchemeType = "http"
 	SchemeHTTPS     SchemeType = "https"
 	SchemeSMB       SchemeType = "smb"
-	SchemeFTP       SchemeType = "ftp"
-	SchemeSFTP      SchemeType = "sftp"
-	SchemeWebDAV    SchemeType = "webdav"
 	SchemeUnknown   SchemeType = "unknown"
 )
 

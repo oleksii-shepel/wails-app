@@ -6,7 +6,7 @@ import { FileType, FileInfo } from '../shared/protocol';
 
 /**
  * Provider interface for scheme-specific autocompletion.
- * Each scheme (drive, ftp, search, registry, etc.) can implement custom logic.
+ * Each scheme (drive, smb, search, registry, etc.) can implement custom logic.
  */
 export interface SchemeAutocompleteProvider {
   readonly scheme: string;
@@ -108,7 +108,7 @@ class FilesystemAutocompleteProvider implements SchemeAutocompleteProvider {
     // Handle bare Windows drive letter (e.g., "C:")
     if (/^[A-Za-z]:$/.test(q)) return { dirPath: `${q}/`, prefix: '' };
 
-    // Single path component – root context
+    // Single path component РІР‚вЂњ root context
     return { dirPath: '/', prefix: q };
   }
 
@@ -536,102 +536,6 @@ class RegistryAutocompleteProvider implements SchemeAutocompleteProvider {
 }
 
 /**
- * FTP scheme provider: remote FTP connections.
- */
-class FtpAutocompleteProvider implements SchemeAutocompleteProvider {
-  scheme = 'ftp';
-
-  constructor(private readonly directorySource: DirectorySourceService) {}
-
-  canHandle(query: string): boolean {
-    const normalized = normalizePath((query || '').trim().replace(/\\/g, '/'));
-    return /^ftp:\/\//i.test(normalized);
-  }
-
-  shouldFetch(query: string): boolean {
-    const q = (query || '').trim();
-    if (!q) return false;
-    const n = normalizePath(q);
-    // Require a bit more context for FTP to avoid excessive requests
-    return /^ftp:\/\/[^/]*(?:\/.*)?$/i.test(n) && n !== 'ftp://';
-  }
-
-  splitContext(query: string): { dirPath: string; prefix: string } {
-    const q = normalizePath((query || '').replace(/\\/g, '/'));
-    if (!q) return { dirPath: 'ftp://', prefix: '' };
-
-    if (q.toLowerCase() === 'ftp://') {
-      return { dirPath: 'ftp://', prefix: '' };
-    }
-
-    if (q.endsWith('/')) return { dirPath: q, prefix: '' };
-
-    const lastSlash = q.lastIndexOf('/');
-    if (lastSlash > 'ftp://'.length - 1) {
-      return { dirPath: q.slice(0, lastSlash + 1), prefix: q.slice(lastSlash + 1) };
-    }
-
-    return { dirPath: 'ftp://', prefix: q.slice('ftp://'.length) };
-  }
-
-  async fetchSuggestions(dirPath: string, prefix: string): Promise<PathSuggestion[]> {
-    try {
-      const listing = await this.directorySource.listDirectory(dirPath, false);
-      return this.filterAndFormatSuggestions(listing.entries, prefix);
-    } catch {
-      return [];
-    }
-  }
-
-  async streamSuggestions(
-    dirPath: string,
-    prefix: string,
-    onBatch: (suggestions: PathSuggestion[]) => void,
-  ): Promise<PathSuggestion[]> {
-    const suggestions = await this.fetchSuggestions(dirPath, prefix);
-    onBatch(suggestions);
-    return suggestions;
-  }
-
-  supportsStreaming(path: string): boolean {
-    return this.directorySource.supportsStreaming(path);
-  }
-
-  getRootPath(path: string): string | null {
-    return this.directorySource.getRootPath(path);
-  }
-
-  joinChildPath(basePath: string, childName: string): string {
-    const trimmed = (basePath || 'ftp://').replace(/\/+$/, '');
-    return `${trimmed}/${childName}`;
-  }
-
-  private filterAndFormatSuggestions(entries: FileInfo[] = [], prefix: string): PathSuggestion[] {
-    const prefixLower = prefix.toLowerCase();
-    const accumulated: PathSuggestion[] = [];
-    const seenNames = new Set<string>();
-
-    for (const entry of entries) {
-      if (entry.type !== FileType.DIRECTORY) continue;
-      if (prefixLower && !entry.name.toLowerCase().startsWith(prefixLower)) continue;
-      if (seenNames.has(entry.name)) continue;
-      seenNames.add(entry.name);
-
-      accumulated.push({
-        path: normalizePath(entry.path),
-        displayName: entry.name,
-        matchType: 'directory',
-        score: 100,
-        exists: true,
-      });
-    }
-
-    accumulated.sort((a, b) => a.path.localeCompare(b.path));
-    return accumulated;
-  }
-}
-
-/**
  * SMB scheme provider: Windows file sharing (SMB/CIFS).
  */
 class SmbAutocompleteProvider implements SchemeAutocompleteProvider {
@@ -726,195 +630,6 @@ class SmbAutocompleteProvider implements SchemeAutocompleteProvider {
   }
 }
 
-/**
- * SFTP scheme provider: SSH file transfer protocol.
- */
-class SftpAutocompleteProvider implements SchemeAutocompleteProvider {
-  scheme = 'sftp';
-
-  constructor(private readonly directorySource: DirectorySourceService) {}
-
-  canHandle(query: string): boolean {
-    const normalized = normalizePath((query || '').trim().replace(/\\/g, '/'));
-    return /^sftp:\/\//i.test(normalized);
-  }
-
-  shouldFetch(query: string): boolean {
-    const q = (query || '').trim();
-    if (!q) return false;
-    const n = normalizePath(q);
-    return /^sftp:\/\/[^/]*(?:\/.*)?$/i.test(n) && n !== 'sftp://';
-  }
-
-  splitContext(query: string): { dirPath: string; prefix: string } {
-    const q = normalizePath((query || '').replace(/\\/g, '/'));
-    if (!q) return { dirPath: 'sftp://', prefix: '' };
-
-    if (q.toLowerCase() === 'sftp://') {
-      return { dirPath: 'sftp://', prefix: '' };
-    }
-
-    if (q.endsWith('/')) return { dirPath: q, prefix: '' };
-
-    const lastSlash = q.lastIndexOf('/');
-    if (lastSlash > 'sftp://'.length - 1) {
-      return { dirPath: q.slice(0, lastSlash + 1), prefix: q.slice(lastSlash + 1) };
-    }
-
-    return { dirPath: 'sftp://', prefix: q.slice('sftp://'.length) };
-  }
-
-  async fetchSuggestions(dirPath: string, prefix: string): Promise<PathSuggestion[]> {
-    try {
-      const listing = await this.directorySource.listDirectory(dirPath, false);
-      return this.filterAndFormatSuggestions(listing.entries, prefix);
-    } catch {
-      return [];
-    }
-  }
-
-  async streamSuggestions(
-    dirPath: string,
-    prefix: string,
-    onBatch: (suggestions: PathSuggestion[]) => void,
-  ): Promise<PathSuggestion[]> {
-    const suggestions = await this.fetchSuggestions(dirPath, prefix);
-    onBatch(suggestions);
-    return suggestions;
-  }
-
-  supportsStreaming(path: string): boolean {
-    return this.directorySource.supportsStreaming(path);
-  }
-
-  getRootPath(path: string): string | null {
-    return this.directorySource.getRootPath(path);
-  }
-
-  joinChildPath(basePath: string, childName: string): string {
-    const trimmed = (basePath || 'sftp://').replace(/\/+$/, '');
-    return `${trimmed}/${childName}`;
-  }
-
-  private filterAndFormatSuggestions(entries: FileInfo[] = [], prefix: string): PathSuggestion[] {
-    const prefixLower = prefix.toLowerCase();
-    const accumulated: PathSuggestion[] = [];
-    const seenNames = new Set<string>();
-
-    for (const entry of entries) {
-      if (entry.type !== FileType.DIRECTORY) continue;
-      if (prefixLower && !entry.name.toLowerCase().startsWith(prefixLower)) continue;
-      if (seenNames.has(entry.name)) continue;
-      seenNames.add(entry.name);
-
-      accumulated.push({
-        path: normalizePath(entry.path),
-        displayName: entry.name,
-        matchType: 'directory',
-        score: 100,
-        exists: true,
-      });
-    }
-
-    accumulated.sort((a, b) => a.path.localeCompare(b.path));
-    return accumulated;
-  }
-}
-
-/**
- * WebDAV scheme provider: WebDAV protocol.
- */
-class WebdavAutocompleteProvider implements SchemeAutocompleteProvider {
-  scheme = 'webdav';
-
-  constructor(private readonly directorySource: DirectorySourceService) {}
-
-  canHandle(query: string): boolean {
-    const normalized = normalizePath((query || '').trim().replace(/\\/g, '/'));
-    return /^webdav:\/\//i.test(normalized);
-  }
-
-  shouldFetch(query: string): boolean {
-    const q = (query || '').trim();
-    if (!q) return false;
-    const n = normalizePath(q);
-    return /^webdav:\/\/[^/]*(?:\/.*)?$/i.test(n) && n !== 'webdav://';
-  }
-
-  splitContext(query: string): { dirPath: string; prefix: string } {
-    const q = normalizePath((query || '').replace(/\\/g, '/'));
-    if (!q) return { dirPath: 'webdav://', prefix: '' };
-
-    if (q.toLowerCase() === 'webdav://') {
-      return { dirPath: 'webdav://', prefix: '' };
-    }
-
-    if (q.endsWith('/')) return { dirPath: q, prefix: '' };
-
-    const lastSlash = q.lastIndexOf('/');
-    if (lastSlash > 'webdav://'.length - 1) {
-      return { dirPath: q.slice(0, lastSlash + 1), prefix: q.slice(lastSlash + 1) };
-    }
-
-    return { dirPath: 'webdav://', prefix: q.slice('webdav://'.length) };
-  }
-
-  async fetchSuggestions(dirPath: string, prefix: string): Promise<PathSuggestion[]> {
-    try {
-      const listing = await this.directorySource.listDirectory(dirPath, false);
-      return this.filterAndFormatSuggestions(listing.entries, prefix);
-    } catch {
-      return [];
-    }
-  }
-
-  async streamSuggestions(
-    dirPath: string,
-    prefix: string,
-    onBatch: (suggestions: PathSuggestion[]) => void,
-  ): Promise<PathSuggestion[]> {
-    const suggestions = await this.fetchSuggestions(dirPath, prefix);
-    onBatch(suggestions);
-    return suggestions;
-  }
-
-  supportsStreaming(path: string): boolean {
-    return this.directorySource.supportsStreaming(path);
-  }
-
-  getRootPath(path: string): string | null {
-    return this.directorySource.getRootPath(path);
-  }
-
-  joinChildPath(basePath: string, childName: string): string {
-    const trimmed = (basePath || 'webdav://').replace(/\/+$/, '');
-    return `${trimmed}/${childName}`;
-  }
-
-  private filterAndFormatSuggestions(entries: FileInfo[] = [], prefix: string): PathSuggestion[] {
-    const prefixLower = prefix.toLowerCase();
-    const accumulated: PathSuggestion[] = [];
-    const seenNames = new Set<string>();
-
-    for (const entry of entries) {
-      if (entry.type !== FileType.DIRECTORY) continue;
-      if (prefixLower && !entry.name.toLowerCase().startsWith(prefixLower)) continue;
-      if (seenNames.has(entry.name)) continue;
-      seenNames.add(entry.name);
-
-      accumulated.push({
-        path: normalizePath(entry.path),
-        displayName: entry.name,
-        matchType: 'directory',
-        score: 100,
-        exists: true,
-      });
-    }
-
-    accumulated.sort((a, b) => a.path.localeCompare(b.path));
-    return accumulated;
-  }
-}
 
 /**
  * Archive scheme provider: browsing inside archives.
@@ -1038,7 +753,7 @@ class GenericSchemeAutocompleteProvider implements SchemeAutocompleteProvider {
     const q = normalizePath((query || '').replace(/\\/g, '/'));
     if (!q) return { dirPath: `${this.scheme}://`, prefix: '' };
 
-    // Scheme-only (e.g., "ftp://")
+    // Scheme-only (e.g., "smb://")
     const schemeOnlyMatch = /^([a-z][a-z0-9+.-]*):\/\/$/.exec(q);
     if (schemeOnlyMatch) {
       return { dirPath: q, prefix: '' };
@@ -1131,10 +846,7 @@ export class SchemeAutocompleteService {
       // Specialized providers for specific schemes (order matters for canHandle matching)
       new SearchAutocompleteProvider(),
       new RegistryAutocompleteProvider(directorySource),
-      new FtpAutocompleteProvider(directorySource),
       new SmbAutocompleteProvider(directorySource),
-      new SftpAutocompleteProvider(directorySource),
-      new WebdavAutocompleteProvider(directorySource),
       new ArchiveAutocompleteProvider(directorySource),
       // Generic filesystem provider (catch-all for filesystem://, local paths, etc.)
       this.filesystemProvider,
@@ -1143,7 +855,7 @@ export class SchemeAutocompleteService {
 
   /**
    * Extract the scheme from a path.
-   * Returns the scheme portion (e.g., "drive", "ftp", "search") or null.
+   * Returns the scheme portion (e.g., "drive", "smb", "search") or null.
    */
   getScheme(path: string): string | null {
     const normalized = normalizePath((path || '').trim().replace(/\\/g, '/'));

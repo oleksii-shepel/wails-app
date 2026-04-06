@@ -12,7 +12,7 @@ import (
 )
 
 // ListDirectory is the pane-facing directory entrypoint. It can expose remote
-// scheme roots and auto-mount anonymous FTP locations on first navigation.
+// scheme roots and auto-mount SMB locations on first navigation.
 func (s *State) ListDirectory(path string, showHidden bool) (*contracts.DirectoryListing, error) {
 	normalized := pathref.Normalize(path)
 	if listing, ok := s.listRemoteRoot(normalized); ok {
@@ -60,11 +60,12 @@ func (s *State) ensureRemoteMount(path string) error {
 		return err
 	}
 
-	if cfg.Protocol != contracts.ProtocolFTP {
+	if cfg.Protocol != contracts.ProtocolSMB {
 		return nil
 	}
 
-	if s.vfs.IsMounted(pathref.ToVFS(path)) {
+	mountPath := remoteMountPath(cfg)
+	if mountPath == "" || s.vfs.IsMounted(mountPath) {
 		return nil
 	}
 
@@ -112,14 +113,8 @@ func (s *State) listRemoteRoot(path string) (*contracts.DirectoryListing, bool) 
 
 func remoteProtocolRoot(path string) (contracts.RemoteProtocol, bool) {
 	switch strings.ToLower(path) {
-	case pathref.FTPScheme:
-		return contracts.ProtocolFTP, true
-	case pathref.SFTPScheme:
-		return contracts.ProtocolSFTP, true
 	case pathref.SMBScheme:
 		return contracts.ProtocolSMB, true
-	case pathref.WebDAVScheme:
-		return contracts.ProtocolWebDAV, true
 	default:
 		return "", false
 	}
@@ -127,14 +122,8 @@ func remoteProtocolRoot(path string) (contracts.RemoteProtocol, bool) {
 
 func remoteRootMountPoint(protocol contracts.RemoteProtocol) string {
 	switch protocol {
-	case contracts.ProtocolFTP:
-		return "/remote/ftp"
-	case contracts.ProtocolSFTP:
-		return "/remote/sftp"
 	case contracts.ProtocolSMB:
 		return "/remote/smb"
-	case contracts.ProtocolWebDAV:
-		return "/remote/webdav"
 	default:
 		return ""
 	}
@@ -152,18 +141,18 @@ func remoteConfigFromPublicPath(path string) (contracts.RemoteConfig, bool, erro
 	}
 
 	switch strings.ToLower(parsed.Scheme) {
-	case string(contracts.ProtocolFTP):
-		port := 21
+	case string(contracts.ProtocolSMB):
+		port := 445
 		if rawPort := parsed.Port(); rawPort != "" {
 			parsedPort, convErr := strconv.Atoi(rawPort)
 			if convErr != nil {
-				return contracts.RemoteConfig{}, false, fmt.Errorf("invalid FTP port %q", rawPort)
+				return contracts.RemoteConfig{}, false, fmt.Errorf("invalid SMB port %q", rawPort)
 			}
 			port = parsedPort
 		}
 
-		username := "anonymous"
-		password := "anonymous@"
+		username := ""
+		password := ""
 		if parsed.User != nil {
 			if user := parsed.User.Username(); user != "" {
 				username = user
@@ -175,12 +164,18 @@ func remoteConfigFromPublicPath(path string) (contracts.RemoteConfig, bool, erro
 			}
 		}
 
+		share := ""
+		if pathSegments := strings.Split(strings.Trim(parsed.Path, "/"), "/"); len(pathSegments) > 0 {
+			share = strings.TrimSpace(pathSegments[0])
+		}
+
 		return contracts.RemoteConfig{
-			Protocol: contracts.ProtocolFTP,
+			Protocol: contracts.ProtocolSMB,
 			Host:     parsed.Hostname(),
 			Port:     port,
 			Username: username,
 			Password: password,
+			Share:    share,
 		}, true, nil
 
 	default:

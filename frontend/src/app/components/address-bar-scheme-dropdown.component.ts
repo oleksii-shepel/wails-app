@@ -24,7 +24,7 @@ import { normalizePath as normalizeAddressBarPath } from './address-bar.utils';
       </div>
 
       <div class="ab-drop-loading" *ngIf="loading">
-        <span class="ab-spinner"></span>Loading schemes…
+        <span class="ab-spinner"></span>Loading schemes...
       </div>
 
       <div class="ab-drop-empty" *ngIf="!loading && schemes.length === 0">
@@ -301,15 +301,6 @@ export class AddressBarSchemeDropdownComponent {
     if (d.schemeType === 'smb') {
       return 'SMB Share';
     }
-    if (d.schemeType === 'ftp') {
-      return 'FTP';
-    }
-    if (d.schemeType === 'sftp') {
-      return 'SFTP';
-    }
-    if (d.schemeType === 'webdav') {
-      return 'WebDAV';
-    }
     if (d.schemeType === 'network') {
       return 'Network Drive';
     }
@@ -330,9 +321,6 @@ export class AddressBarSchemeDropdownComponent {
     if (d.schemeType === 'http')           return '🌐';
     if (d.schemeType === 'https')          return '🔒';
     if (d.schemeType === 'smb')            return '🖧';
-    if (d.schemeType === 'ftp')            return '📡';
-    if (d.schemeType === 'sftp')           return '🔐';
-    if (d.schemeType === 'webdav')         return '🌍';
     if (d.schemeType === 'fixed')          return '💽';
     if (d.schemeType === 'removable')      return '💾';
     if (d.schemeType === 'cdrom')          return '💿';
@@ -340,7 +328,7 @@ export class AddressBarSchemeDropdownComponent {
     if (d.schemeType === 'ramdisk')        return '⚡';
     return '💽';
   }
-
+  
   formatSize(bytes: number): string {
     if (bytes === 0) return '0 B';
     const units = ['B', 'KB', 'MB', 'GB', 'TB'];

@@ -11,7 +11,7 @@ import (
 	vfslib "wails-app/vfs"
 )
 
-func TestStateCopyBatchPathFromMountedFTPSource(t *testing.T) {
+func TestStateCopyBatchPathFromMountedSMBSource(t *testing.T) {
 	memoryRoot := t.TempDir()
 	resetMemoryResolverForTest(t, memoryRoot)
 
@@ -24,15 +24,15 @@ func TestStateCopyBatchPathFromMountedFTPSource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InitVFS returned error: %v", err)
 	}
-	if _, err := vfs.Mount("/remote/ftp/example.com:21", memoryFS, false, "FTP Example", vfslib.VolumeRemote); err != nil {
-		t.Fatalf("mount ftp test fs: %v", err)
+	if _, err := vfs.Mount("/remote/smb/example.com:445", memoryFS, false, "SMB Example", vfslib.VolumeRemote); err != nil {
+		t.Fatalf("mount smb test fs: %v", err)
 	}
 
 	sourcePath, err := resolveMemoryAlias("memory://pub/readme.txt")
 	if err != nil {
 		t.Fatalf("resolve memory source path: %v", err)
 	}
-	const content = "copied from mounted ftp"
+	const content = "copied from mounted smb"
 	if err := os.MkdirAll(filepath.Dir(sourcePath), 0o755); err != nil {
 		t.Fatalf("create source dir: %v", err)
 	}
@@ -55,7 +55,7 @@ func TestStateCopyBatchPathFromMountedFTPSource(t *testing.T) {
 		return io.Copy(file, reader)
 	}
 
-	if err := state.copyBatchPath("ftp://example.com/pub/readme.txt", destPublic, false, streamToFile); err != nil {
+	if err := state.copyBatchPath("smb://example.com/pub/readme.txt", destPublic, false, streamToFile); err != nil {
 		t.Fatalf("copyBatchPath returned error: %v", err)
 	}
 

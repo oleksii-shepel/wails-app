@@ -43,13 +43,16 @@ var (
 	procPeekMessageW       = user32.NewProc("PeekMessageW")
 	procTranslateMessage   = user32.NewProc("TranslateMessage")
 	procDispatchMessageW   = user32.NewProc("DispatchMessageW")
+	procEnumThreadWindows  = user32.NewProc("EnumThreadWindows")
 	procEnumWindows        = user32.NewProc("EnumWindows")
 	procGetWindowThreadPID = user32.NewProc("GetWindowThreadProcessId")
 	procGetWindow          = user32.NewProc("GetWindow")
 	procIsWindowVisible    = user32.NewProc("IsWindowVisible")
+	procIsWindow           = user32.NewProc("IsWindow")
 	procClientToScreen     = user32.NewProc("ClientToScreen")
 	procPostMessageW       = user32.NewProc("PostMessageW")
 	procGetModuleHandleW   = kernel32.NewProc("GetModuleHandleW")
+	procGetCurrentThreadID = kernel32.NewProc("GetCurrentThreadId")
 	registerPaneClassOnce  sync.Once
 	registerPaneClassErr   error
 	mainWindowHandleOnce   sync.Once
@@ -381,11 +384,21 @@ func (s *windowsPaneState) dispose() error {
 		s.chromium = nil
 	}
 	if s.hostHWND != 0 {
-		result, _, destroyErr := procDestroyWindow.Call(s.hostHWND)
-		if result == 0 && destroyErr != windows.ERROR_SUCCESS && destroyErr != syscall.Errno(0) && firstErr == nil {
-			firstErr = fmt.Errorf("destroy browser pane window: %w", destroyErr)
+		hostHWND := s.hostHWND
+		threadID := currentThreadID()
+		_, _, _ = procPostMessageW.Call(hostHWND, wmClose, 0, 0)
+		pumpWindowsMessagesUntil(time.Now().Add(2*time.Second), func() bool {
+			return !isWindow(hostHWND) && !threadHasTopLevelWindows(threadID)
+		})
+		if isWindow(hostHWND) {
+			result, _, destroyErr := procDestroyWindow.Call(hostHWND)
+			if result == 0 && destroyErr != windows.ERROR_SUCCESS && destroyErr != syscall.Errno(0) && firstErr == nil {
+				firstErr = fmt.Errorf("destroy browser pane window: %w", destroyErr)
+			}
+			pumpWindowsMessagesUntil(time.Now().Add(2*time.Second), func() bool {
+				return !isWindow(hostHWND) && !threadHasTopLevelWindows(threadID)
+			})
 		}
-		pumpWindowsMessagesUntil(time.Now().Add(150 * time.Millisecond))
 		s.hostHWND = 0
 	}
 	return firstErr
@@ -411,7 +424,8 @@ func registerBrowserPaneClass() error {
 
 func browserPaneWindowProc(hwnd uintptr, msg uint32, wParam uintptr, lParam uintptr) uintptr {
 	switch msg {
-	case wmClose, wmDestroy, wmNCDestroy:
+	case wmClose:
+		_, _, _ = procDestroyWindow.Call(hwnd)
 		return 0
 	default:
 		result, _, _ := procDefWindowProcW.Call(hwnd, uintptr(msg), wParam, lParam)
@@ -431,8 +445,11 @@ func pumpWindowsMessages() {
 	}
 }
 
-func pumpWindowsMessagesUntil(deadline time.Time) {
+func pumpWindowsMessagesUntil(deadline time.Time, done func() bool) {
 	for time.Now().Before(deadline) {
+		if done != nil && done() {
+			return
+		}
 		pumpWindowsMessages()
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -477,6 +494,35 @@ func clientToScreen(hwnd uintptr, x int, y int) (point, error) {
 		return point{}, fmt.Errorf("client to screen: %w", err)
 	}
 	return pt, nil
+}
+
+func currentThreadID() uint32 {
+	threadID, _, _ := procGetCurrentThreadID.Call()
+	return uint32(threadID)
+}
+
+func isWindow(hwnd uintptr) bool {
+	if hwnd == 0 {
+		return false
+	}
+	result, _, _ := procIsWindow.Call(hwnd)
+	return result != 0
+}
+
+func threadHasTopLevelWindows(threadID uint32) bool {
+	if threadID == 0 {
+		return false
+	}
+	hasWindow := false
+	callback := windows.NewCallback(func(hwnd uintptr, _ uintptr) uintptr {
+		hasWindow = true
+		return 0
+	})
+	result, _, err := procEnumThreadWindows.Call(uintptr(threadID), callback, 0)
+	if result == 0 && !hasWindow && err != syscall.Errno(0) {
+		return false
+	}
+	return hasWindow
 }
 
 func chromiumHandles(chromium *edge.Chromium) (*edge.ICoreWebView2Controller, *edge.ICoreWebView2, *edge.ICoreWebView2Environment) {

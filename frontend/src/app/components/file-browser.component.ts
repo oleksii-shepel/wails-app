@@ -55,6 +55,8 @@ import { formatPathForDisplay } from './address-bar.utils';
   styleUrls: ['./file-browser.component.scss'],
 })
 export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
+  private readonly paneRowFixedWidthPx = 4;
+
   private static readonly mouseCommandOwner = 'file-browser-mouse';
   private static readonly mouseBindingIds = [
     'global.mouse.viewer.ctrlWheelUp',
@@ -638,6 +640,12 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
 
   onPaneDividerPositionChange(position: number): void {
     this.layoutController.syncPaneWidths(this.layoutHost, position);
+  }
+
+  computePaneWidth(percent: number): string {
+    const clamped = Number.isFinite(percent) ? percent : 50;
+    const compensation = this.paneRowFixedWidthPx / 2;
+    return `calc(${clamped}% - ${compensation}px)`;
   }
 
   @HostListener('window:keydown.arrowleft', ['$event'])

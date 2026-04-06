@@ -57,11 +57,13 @@ import { NativeOverlayFreezeService } from '../services/native-overlay-freeze.se
 
     .native-overlay-canvas {
       position: absolute;
-      top: 0;
-      left: 0;
+      inset: 0;
+      width: 100%;
+      height: 100%;
       display: none;
       z-index: 1;
       pointer-events: none;
+      image-rendering: auto;
     }
   `],
 })
@@ -90,6 +92,8 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
   private screenshotRequestId = 0;
   private lastScreenshotWidth = 0;
   private lastScreenshotHeight = 0;
+  private subpixelOffsetX = 0;
+  private subpixelOffsetY = 0;
   private hoverFreezeActive = false;
   private documentBackgroundColor: string | null = null;
   private documentBackgroundRequestInFlight = false;
@@ -101,6 +105,43 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
   private lastScreenshotStartedAt = 0;
   private readonly screenshotMinInterval = 50;
   private readonly documentBackgroundRetryMs = 350;
+
+  private measureHostBounds(host: HTMLElement): {
+    rect: DOMRect;
+    scale: number;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    cssWidth: number;
+    cssHeight: number;
+    subpixelOffsetX: number;
+    subpixelOffsetY: number;
+  } {
+    const rect = host.getBoundingClientRect();
+    const scale = (typeof window !== 'undefined' && Number.isFinite(window.devicePixelRatio) && window.devicePixelRatio > 0)
+      ? window.devicePixelRatio
+      : 1;
+    const left = Math.floor(rect.left * scale);
+    const top = Math.floor(rect.top * scale);
+    const right = Math.ceil(rect.right * scale);
+    const bottom = Math.ceil(rect.bottom * scale);
+    const width = Math.max(0, right - left);
+    const height = Math.max(0, bottom - top);
+
+    return {
+      rect,
+      scale,
+      x: left,
+      y: top,
+      width,
+      height,
+      cssWidth: width / scale,
+      cssHeight: height / scale,
+      subpixelOffsetX: (rect.left * scale - left) / scale,
+      subpixelOffsetY: (rect.top * scale - top) / scale,
+    };
+  }
 
   // ── Event handlers ──────────────────────────────────────────
 
@@ -303,19 +344,12 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
       return;
     }
 
-    const rect = host.getBoundingClientRect();
-    const scale = (typeof window !== 'undefined' && Number.isFinite(window.devicePixelRatio) && window.devicePixelRatio > 0)
-      ? window.devicePixelRatio
-      : 1;
+    const bounds = this.measureHostBounds(host);
 
-    const left = Math.floor(rect.left * scale);
-    const top = Math.floor(rect.top * scale);
-    const right = Math.ceil(rect.right * scale);
-    const bottom = Math.ceil(rect.bottom * scale);
-
-    const width = Math.max(0, right - left);
-    const height = Math.max(0, bottom - top);
-    if (width <= 0 || height <= 0) {
+    // Track sub-pixel offset between Win32 integer position and CSS element edge.
+    this.subpixelOffsetX = bounds.subpixelOffsetX;
+    this.subpixelOffsetY = bounds.subpixelOffsetY;
+    if (bounds.width <= 0 || bounds.height <= 0) {
       return;
     }
 
@@ -325,10 +359,10 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
       theme,
       backgroundColor,
       visible: !freezeNativePane,
-      x: left,
-      y: top,
-      width,
-      height,
+      x: bounds.x,
+      y: bounds.y,
+      width: bounds.width,
+      height: bounds.height,
     };
     const syncKey = JSON.stringify(request);
     if (syncKey === this.lastSyncKey) {
@@ -495,9 +529,7 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
     if (!canvas || !host) {
       return Promise.resolve(false);
     }
-    const hostRect = host.getBoundingClientRect();
-    const cssW = hostRect.width;
-    const cssH = hostRect.height;
+    const bounds = this.measureHostBounds(host);
     return this.decodeBitmap(base64Data).then((bitmap) => {
       if (!bitmap) {
         return false;
@@ -510,10 +542,12 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
           resolve(false);
           return;
         }
+
+        // Set backing-store to match the screenshot's native resolution.
         canvas.width = bitmap.width;
         canvas.height = bitmap.height;
-        canvas.style.width = `${cssW}px`;
-        canvas.style.height = `${cssH}px`;
+        canvas.style.width = `${bounds.cssWidth}px`;
+        canvas.style.height = `${bounds.cssHeight}px`;
 
         const ctx = canvas.getContext('2d', { alpha: false });
         if (!ctx) {
@@ -531,8 +565,8 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
         }
 
         this.showCanvas();
-        this.lastScreenshotWidth = cssW;
-        this.lastScreenshotHeight = cssH;
+        this.lastScreenshotWidth = bounds.rect.width;
+        this.lastScreenshotHeight = bounds.rect.height;
         this.screenshotVisible = true;
         resolve(true);
       });
@@ -558,13 +592,19 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
     if (!canvas) {
       return;
     }
+    // Shift canvas by the sub-pixel offset so the screenshot content
+    // aligns with the exact physical pixel position of the Win32 window.
+    if (this.subpixelOffsetX !== 0 || this.subpixelOffsetY !== 0) {
+      canvas.style.transform = `translate(${-this.subpixelOffsetX}px, ${-this.subpixelOffsetY}px)`;
+    } else {
+      canvas.style.transform = '';
+    }
     canvas.style.display = 'block';
-    canvas.style.zIndex = '2';
   }
 
   private hideOneCanvas(canvas: HTMLCanvasElement): void {
     canvas.style.display = 'none';
-    canvas.style.zIndex = '1';
+    canvas.style.transform = '';
   }
 
   private clearCanvasBitmap(canvas: HTMLCanvasElement | null): void {
@@ -573,8 +613,8 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
     }
     canvas.width = 0;
     canvas.height = 0;
-    canvas.style.width = '0px';
-    canvas.style.height = '0px';
+    canvas.style.width = '';
+    canvas.style.height = '';
   }
 
   private revealCachedCanvasIfAvailable(): void {
@@ -585,8 +625,7 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
     if (!canvas || canvas.width <= 0 || canvas.height <= 0) {
       return;
     }
-    canvas.style.display = 'block';
-    canvas.style.zIndex = '2';
+    this.showCanvas();
     this.screenshotVisible = true;
     if (document.body.classList.contains('divider-hover')) {
       this.hoverFreezeActive = true;

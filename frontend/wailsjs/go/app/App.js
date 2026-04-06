@@ -66,6 +66,10 @@ export function BrowserPaneCaptureScreenshot(arg1) {
   return window['go']['app']['App']['BrowserPaneCaptureScreenshot'](arg1);
 }
 
+export function BrowserPaneGetDocumentBackground(arg1) {
+  return window['go']['app']['App']['BrowserPaneGetDocumentBackground'](arg1);
+}
+
 export function BrowserPaneDispose(arg1) {
   return window['go']['app']['App']['BrowserPaneDispose'](arg1);
 }

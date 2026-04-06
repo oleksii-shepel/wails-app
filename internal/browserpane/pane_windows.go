@@ -3,6 +3,7 @@
 package browserpane
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -126,11 +127,13 @@ type windowsPane struct {
 }
 
 type windowsPaneCommand struct {
-	update       *Update
-	dispose      bool
-	capture      bool
-	result       chan error
-	captureReply chan string
+	update                  *Update
+	dispose                 bool
+	capture                 bool
+	documentBackground      bool
+	result                  chan error
+	captureReply            chan string
+	documentBackgroundReply chan string
 }
 
 type windowsPaneState struct {
@@ -355,6 +358,25 @@ func (p *windowsPane) CaptureScreenshot() (string, error) {
 	return <-captureReply, nil
 }
 
+func (p *windowsPane) GetDocumentBackground() (string, error) {
+	reply := make(chan error, 1)
+	backgroundReply := make(chan string, 1)
+	select {
+	case <-p.closed:
+		return "", fmt.Errorf("browser pane closed")
+	case p.commands <- windowsPaneCommand{
+		documentBackground:      true,
+		result:                  reply,
+		documentBackgroundReply: backgroundReply,
+	}:
+	}
+	err := <-reply
+	if err != nil {
+		return "", err
+	}
+	return <-backgroundReply, nil
+}
+
 func (p *windowsPane) run(initial Update) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -384,6 +406,14 @@ func (p *windowsPane) run(initial Update) {
 				command.result <- err
 				if err == nil {
 					command.captureReply <- data
+				}
+				continue
+			}
+			if command.documentBackground {
+				color, err := state.getDocumentBackground()
+				command.result <- err
+				if err == nil {
+					command.documentBackgroundReply <- color
 				}
 				continue
 			}
@@ -1045,6 +1075,22 @@ func releaseCOMObject(object unsafe.Pointer) {
 }
 
 func (s *windowsPaneState) captureScreenshot() (string, error) {
+	response, err := s.callDevToolsMethod("Page.captureScreenshot", `{"format":"jpeg","quality":55,"optimizeForSpeed":true}`)
+	if err != nil {
+		return "", err
+	}
+	return extractCDPBase64Data(response)
+}
+
+func (s *windowsPaneState) getDocumentBackground() (string, error) {
+	response, err := s.callDevToolsMethod("Runtime.evaluate", browserPaneDocumentBackgroundParams())
+	if err != nil {
+		return "", err
+	}
+	return extractCDPStringValue(response)
+}
+
+func (s *windowsPaneState) callDevToolsMethod(method string, params string) (string, error) {
 	if s.chromium == nil {
 		return "", fmt.Errorf("browser pane not initialized")
 	}
@@ -1063,13 +1109,19 @@ func (s *windowsPaneState) captureScreenshot() (string, error) {
 		ch:   make(chan cdpResult, 1),
 	}
 
-	methodName, _ := windows.UTF16PtrFromString("Page.captureScreenshot")
-	params, _ := windows.UTF16PtrFromString(`{"format":"jpeg","quality":55,"optimizeForSpeed":true}`)
+	methodName, err := windows.UTF16PtrFromString(method)
+	if err != nil {
+		return "", err
+	}
+	paramsUTF16, err := windows.UTF16PtrFromString(params)
+	if err != nil {
+		return "", err
+	}
 
 	hr, _, _ := raw.Vtbl.CallDevToolsProtocolMethod.Call(
 		uintptr(unsafe.Pointer(raw)),
 		uintptr(unsafe.Pointer(methodName)),
-		uintptr(unsafe.Pointer(params)),
+		uintptr(unsafe.Pointer(paramsUTF16)),
 		uintptr(unsafe.Pointer(handler)),
 	)
 	if windows.Handle(hr) != windows.S_OK {
@@ -1084,15 +1136,41 @@ func (s *windowsPaneState) captureScreenshot() (string, error) {
 			if result.err != nil {
 				return "", result.err
 			}
-			return extractCDPBase64Data(result.json)
+			return result.json, nil
 		default:
 			if time.Now().After(deadline) {
-				return "", fmt.Errorf("capture screenshot timed out")
+				return "", fmt.Errorf("DevTools method %q timed out", method)
 			}
 			pumpWindowsMessages()
 			time.Sleep(1 * time.Millisecond)
 		}
 	}
+}
+
+func browserPaneDocumentBackgroundParams() string {
+	payload, err := json.Marshal(map[string]any{
+		"expression": `(function(){
+  try {
+    var isTransparent = function(value) {
+      return !value || value === 'transparent' || value === 'rgba(0, 0, 0, 0)';
+    };
+    var read = function(target) {
+      if (!target || !window.getComputedStyle) return '';
+      var computed = window.getComputedStyle(target).backgroundColor || '';
+      return isTransparent(computed) ? '' : computed;
+    };
+    return read(document.body) || read(document.documentElement) || '';
+  } catch (_) {
+    return '';
+  }
+})()`,
+		"returnByValue": true,
+		"awaitPromise":  true,
+	})
+	if err != nil {
+		return `{"expression":"''","returnByValue":true,"awaitPromise":true}`
+	}
+	return string(payload)
 }
 
 // extractCDPBase64Data extracts the "data" field from CDP JSON like {"data":"..."}.
@@ -1108,4 +1186,23 @@ func extractCDPBase64Data(json string) (string, error) {
 		return "", fmt.Errorf("malformed CDP data field")
 	}
 	return json[start : start+end], nil
+}
+
+func extractCDPStringValue(raw string) (string, error) {
+	type runtimeEvaluateResult struct {
+		Result struct {
+			Type  string `json:"type"`
+			Value string `json:"value"`
+		} `json:"result"`
+		ExceptionDetails any `json:"exceptionDetails"`
+	}
+
+	var parsed runtimeEvaluateResult
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+		return "", fmt.Errorf("decode Runtime.evaluate response: %w", err)
+	}
+	if parsed.ExceptionDetails != nil {
+		return "", fmt.Errorf("Runtime.evaluate returned an exception")
+	}
+	return strings.TrimSpace(parsed.Result.Value), nil
 }

@@ -89,4 +89,19 @@ export class NativeBrowserPaneService {
     }
     return await api.BrowserPaneCaptureScreenshot(surfaceId);
   }
+
+  async getDocumentBackground(surfaceId: string): Promise<string> {
+    if (!surfaceId) {
+      return '';
+    }
+    const api = window.go?.app?.App;
+    if (!api?.BrowserPaneGetDocumentBackground) {
+      return '';
+    }
+    try {
+      return await api.BrowserPaneGetDocumentBackground(surfaceId);
+    } catch {
+      return '';
+    }
+  }
 }

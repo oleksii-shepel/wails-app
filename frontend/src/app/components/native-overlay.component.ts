@@ -29,8 +29,7 @@ import { NativeOverlayFreezeService } from '../services/native-overlay-freeze.se
   template: `
     <div #host class="native-overlay-host">
       <div #backdrop class="native-overlay-backdrop"></div>
-      <canvas #canvasA class="native-overlay-canvas"></canvas>
-      <canvas #canvasB class="native-overlay-canvas"></canvas>
+      <canvas #canvas class="native-overlay-canvas"></canvas>
     </div>
   `,
   styles: [`
@@ -69,8 +68,7 @@ import { NativeOverlayFreezeService } from '../services/native-overlay-freeze.se
 export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewInit {
   @ViewChild('host') private hostEl?: ElementRef<HTMLElement>;
   @ViewChild('backdrop') private backdropEl?: ElementRef<HTMLElement>;
-  @ViewChild('canvasA') private canvasA?: ElementRef<HTMLCanvasElement>;
-  @ViewChild('canvasB') private canvasB?: ElementRef<HTMLCanvasElement>;
+  @ViewChild('canvas') private canvasEl?: ElementRef<HTMLCanvasElement>;
 
   @Input() surfaceId = '';
   @Input() url = '';
@@ -92,12 +90,16 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
   private screenshotRequestId = 0;
   private lastScreenshotWidth = 0;
   private lastScreenshotHeight = 0;
-  private activeCanvas: 'a' | 'b' | null = null;
   private hoverFreezeActive = false;
+  private documentBackgroundColor: string | null = null;
+  private documentBackgroundRequestInFlight = false;
+  private lastDocumentBackgroundURL = '';
+  private lastDocumentBackgroundRequestAt = 0;
   private screenshotPending = false;
   private screenshotCooldownTimer: ReturnType<typeof setTimeout> | null = null;
   private lastScreenshotStartedAt = 0;
   private readonly screenshotMinInterval = 50;
+  private readonly documentBackgroundRetryMs = 350;
 
   // ── Event handlers ──────────────────────────────────────────
 
@@ -139,6 +141,10 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
     if (changes['url'] || changes['surfaceId']) {
       this.screenshotRequestId++;
       this.wasFrozen = false;
+      this.documentBackgroundColor = null;
+      this.documentBackgroundRequestInFlight = false;
+      this.lastDocumentBackgroundURL = '';
+      this.lastDocumentBackgroundRequestAt = 0;
       this.hideCanvas(true);
     }
     if (changes['url'] || changes['active'] || changes['surfaceId']) {
@@ -255,7 +261,7 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
     }
 
     const theme = this.resolveTheme();
-    const backgroundColor = this.resolveBackgroundColor(theme);
+    const backgroundColor = this.documentBackgroundColor ?? this.resolveBackgroundColor(theme);
     this.applyBackgroundColor(backgroundColor);
 
     // ── Freeze transitions ────────────────────────────────────
@@ -320,12 +326,14 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
     };
     const syncKey = JSON.stringify(request);
     if (syncKey === this.lastSyncKey) {
+      this.requestDocumentBackground(false, theme);
       return;
     }
 
     try {
       if (await this.nativeBrowserPane.sync(request)) {
         this.lastSyncKey = syncKey;
+        this.requestDocumentBackground(false, theme);
       }
     } catch (error) {
       void error;
@@ -365,6 +373,7 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
   private async prepareScreenshot(): Promise<void> {
     this.screenshotPending = true;
     this.revealCachedCanvasIfAvailable();
+    this.requestDocumentBackground(true, this.resolveTheme());
     if (this.syncInFlight) {
       this.scheduleScreenshotCooldown(16);
       return;
@@ -469,7 +478,7 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
 
   private drawOnCanvas(base64Data: string, requestId: number): Promise<boolean> {
     const host = this.hostEl?.nativeElement;
-    const canvas = this.getBackBuffer();
+    const canvas = this.canvasEl?.nativeElement;
     if (!canvas || !host) {
       return Promise.resolve(false);
     }
@@ -508,7 +517,7 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
           (bitmap as ImageBitmap).close();
         }
 
-        this.showCanvas(canvas);
+        this.showCanvas();
         this.lastScreenshotWidth = cssW;
         this.lastScreenshotHeight = cssH;
         this.screenshotVisible = true;
@@ -524,41 +533,19 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
     this.screenshotPending = false;
     this.lastScreenshotStartedAt = 0;
     this.clearScreenshotCooldown();
-    this.canvasA?.nativeElement && this.hideOneCanvas(this.canvasA.nativeElement);
-    this.canvasB?.nativeElement && this.hideOneCanvas(this.canvasB.nativeElement);
+    this.canvasEl?.nativeElement && this.hideOneCanvas(this.canvasEl.nativeElement);
     if (clearCache) {
-      this.activeCanvas = null;
-      this.clearCanvasBitmap(this.canvasA?.nativeElement ?? null);
-      this.clearCanvasBitmap(this.canvasB?.nativeElement ?? null);
+      this.clearCanvasBitmap(this.canvasEl?.nativeElement ?? null);
     }
   }
 
-  private getBackBuffer(): HTMLCanvasElement | null {
-    if (this.activeCanvas === 'a') {
-      return this.canvasB?.nativeElement ?? null;
+  private showCanvas(): void {
+    const canvas = this.canvasEl?.nativeElement;
+    if (!canvas) {
+      return;
     }
-    return this.canvasA?.nativeElement ?? this.canvasB?.nativeElement ?? null;
-  }
-
-  private getActiveBuffer(): HTMLCanvasElement | null {
-    if (this.activeCanvas === 'a') {
-      return this.canvasA?.nativeElement ?? null;
-    }
-    if (this.activeCanvas === 'b') {
-      return this.canvasB?.nativeElement ?? null;
-    }
-    return null;
-  }
-
-  private showCanvas(canvas: HTMLCanvasElement): void {
-    const previous = this.getActiveBuffer();
     canvas.style.display = 'block';
     canvas.style.zIndex = '2';
-    if (previous && previous !== canvas) {
-      previous.style.zIndex = '1';
-      previous.style.display = 'none';
-    }
-    this.activeCanvas = canvas === this.canvasA?.nativeElement ? 'a' : 'b';
   }
 
   private hideOneCanvas(canvas: HTMLCanvasElement): void {
@@ -580,7 +567,7 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
     if (this.screenshotVisible) {
       return;
     }
-    const canvas = this.getActiveBuffer();
+    const canvas = this.canvasEl?.nativeElement;
     if (!canvas || canvas.width <= 0 || canvas.height <= 0) {
       return;
     }
@@ -667,6 +654,52 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
     if (backdrop) {
       backdrop.style.backgroundColor = color;
     }
+  }
+
+  private requestDocumentBackground(force: boolean, theme: 'dark' | 'light'): void {
+    if (!this.active || !this.surfaceId || !this.url || this.documentBackgroundRequestInFlight) {
+      return;
+    }
+
+    const now = Date.now();
+    const sameURL = this.lastDocumentBackgroundURL === this.url;
+    if (!force) {
+      if (sameURL && this.documentBackgroundColor) {
+        return;
+      }
+      if (sameURL && (now - this.lastDocumentBackgroundRequestAt) < this.documentBackgroundRetryMs) {
+        return;
+      }
+    }
+
+    this.documentBackgroundRequestInFlight = true;
+    const requestURL = this.url;
+    this.lastDocumentBackgroundURL = requestURL;
+    this.lastDocumentBackgroundRequestAt = now;
+    const fallback = this.resolveBackgroundColor(theme);
+
+    void this.nativeBrowserPane.getDocumentBackground(this.surfaceId)
+      .then((value) => {
+        if (requestURL !== this.url) {
+          return;
+        }
+        const normalized = this.normalizeColorToHex(value, '');
+        if (!normalized || normalized === this.documentBackgroundColor) {
+          return;
+        }
+        this.documentBackgroundColor = normalized;
+        this.applyBackgroundColor(normalized);
+        this.lastSyncKey = '';
+        this.requestSync();
+      })
+      .catch(() => {
+        if (requestURL === this.url && !this.documentBackgroundColor) {
+          this.applyBackgroundColor(fallback);
+        }
+      })
+      .finally(() => {
+        this.documentBackgroundRequestInFlight = false;
+      });
   }
 
   private findNearestPaintedBackground(start: HTMLElement | null): string {

@@ -27,3 +27,8 @@ func (a *App) BrowserPaneDispose(surfaceID string) error {
 func (a *App) BrowserPaneCaptureScreenshot(surfaceID string) (string, error) {
 	return a.browserPaneService().CaptureScreenshot(surfaceID)
 }
+
+// BrowserPaneGetDocumentBackground returns the current page background color from the child webview.
+func (a *App) BrowserPaneGetDocumentBackground(surfaceID string) (string, error) {
+	return a.browserPaneService().GetDocumentBackground(surfaceID)
+}

@@ -18,6 +18,10 @@ func (p *linuxUnsupportedPane) CaptureScreenshot() (string, error) {
 	return "", fmt.Errorf("native browser pane requires cgo on linux")
 }
 
+func (p *linuxUnsupportedPane) GetDocumentBackground() (string, error) {
+	return "", fmt.Errorf("native browser pane requires cgo on linux")
+}
+
 func (p *linuxUnsupportedPane) Dispose() error {
 	return nil
 }

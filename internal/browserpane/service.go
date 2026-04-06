@@ -21,6 +21,7 @@ type Update struct {
 type pane interface {
 	Sync(Update) error
 	CaptureScreenshot() (string, error)
+	GetDocumentBackground() (string, error)
 	Dispose() error
 }
 
@@ -107,6 +108,22 @@ func (s *Service) CaptureScreenshot(surfaceID string) (string, error) {
 		return "", fmt.Errorf("browser pane %q not found", surfaceID)
 	}
 	return target.CaptureScreenshot()
+}
+
+func (s *Service) GetDocumentBackground(surfaceID string) (string, error) {
+	surfaceID = strings.TrimSpace(surfaceID)
+	if surfaceID == "" {
+		return "", fmt.Errorf("browser pane surface id is required")
+	}
+
+	s.mu.Lock()
+	target := s.panes[surfaceID]
+	s.mu.Unlock()
+
+	if target == nil {
+		return "", fmt.Errorf("browser pane %q not found", surfaceID)
+	}
+	return target.GetDocumentBackground()
 }
 
 func (s *Service) Shutdown() error {

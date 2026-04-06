@@ -18,6 +18,10 @@ func (p *unsupportedPane) CaptureScreenshot() (string, error) {
 	return "", fmt.Errorf("native browser pane is not supported on this platform")
 }
 
+func (p *unsupportedPane) GetDocumentBackground() (string, error) {
+	return "", fmt.Errorf("native browser pane is not supported on this platform")
+}
+
 func (p *unsupportedPane) Dispose() error {
 	return nil
 }

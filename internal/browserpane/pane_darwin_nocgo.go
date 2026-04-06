@@ -18,6 +18,10 @@ func (p *darwinUnsupportedPane) CaptureScreenshot() (string, error) {
 	return "", fmt.Errorf("native browser pane requires cgo on darwin")
 }
 
+func (p *darwinUnsupportedPane) GetDocumentBackground() (string, error) {
+	return "", fmt.Errorf("native browser pane requires cgo on darwin")
+}
+
 func (p *darwinUnsupportedPane) Dispose() error {
 	return nil
 }

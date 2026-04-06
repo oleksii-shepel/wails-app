@@ -138,6 +138,10 @@ func (p *darwinPane) CaptureScreenshot() (string, error) {
 	return "", fmt.Errorf("capture screenshot not implemented on darwin")
 }
 
+func (p *darwinPane) GetDocumentBackground() (string, error) {
+	return "", fmt.Errorf("document background query not implemented on darwin")
+}
+
 func (p *darwinPane) Dispose() error {
 	C.browserPaneDispose(p.handle)
 	p.handle = nil

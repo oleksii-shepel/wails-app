@@ -218,10 +218,13 @@ import {
     imports: [CommonModule]
 })
 export class SplitDividerComponent implements OnDestroy {
-    private readonly hoverEnterDelayMs = 50;
+    private readonly hoverEnterDelayMs = 0;
     private readonly hoverLeaveDelayMs = 120;
+    private readonly hoverOutsetPx = 12;
     private hoverEnterTimer: ReturnType<typeof setTimeout> | null = null;
     private hoverLeaveTimer: ReturnType<typeof setTimeout> | null = null;
+    private lastPointerX = 0;
+    private lastPointerY = 0;
     /* ---------------- INPUTS ---------------- */
 
     @Input() position = 50;
@@ -269,15 +272,16 @@ export class SplitDividerComponent implements OnDestroy {
         this.setBodyInteractionClass('divider-dragging', true);
     }
 
-    @HostListener('pointerenter')
-    onPointerEnter() {
+    @HostListener('pointerenter', ['$event'])
+    onPointerEnter(event: PointerEvent) {
+        this.lastPointerX = event.clientX;
+        this.lastPointerY = event.clientY;
         if (this.hoverLeaveTimer !== null) {
             clearTimeout(this.hoverLeaveTimer);
             this.hoverLeaveTimer = null;
         }
         if (this.dragging || document.body.classList.contains('divider-hover')) {
-            this.hovering = true;
-            this.setBodyInteractionClass('divider-hover', true);
+            this.activateHover();
             return;
         }
         if (this.hoverEnterTimer !== null) {
@@ -285,13 +289,16 @@ export class SplitDividerComponent implements OnDestroy {
         }
         this.hoverEnterTimer = setTimeout(() => {
             this.hoverEnterTimer = null;
-            this.hovering = true;
-            this.setBodyInteractionClass('divider-hover', true);
+            this.activateHover();
         }, this.hoverEnterDelayMs);
     }
 
-    @HostListener('pointerleave')
-    onPointerLeave() {
+    @HostListener('pointerleave', ['$event'])
+    onPointerLeave(event?: PointerEvent) {
+        if (event) {
+            this.lastPointerX = event.clientX;
+            this.lastPointerY = event.clientY;
+        }
         if (this.hoverEnterTimer !== null) {
             clearTimeout(this.hoverEnterTimer);
             this.hoverEnterTimer = null;
@@ -299,21 +306,39 @@ export class SplitDividerComponent implements OnDestroy {
         if (this.dragging) {
             return;
         }
+        if (this.isPointerWithinHoverZone(this.lastPointerX, this.lastPointerY)) {
+            return;
+        }
         if (this.hoverLeaveTimer !== null) {
             return;
         }
         this.hoverLeaveTimer = setTimeout(() => {
             this.hoverLeaveTimer = null;
-            if (!this.el.nativeElement.matches(':hover')) {
-                this.hovering = false;
-                this.setBodyInteractionClass('divider-hover', false);
+            if (!this.el.nativeElement.matches(':hover') && !this.isPointerWithinHoverZone(this.lastPointerX, this.lastPointerY)) {
+                this.deactivateHover();
             }
         }, this.hoverLeaveDelayMs);
     }
 
     @HostListener('document:pointermove', ['$event'])
     onMove(e: PointerEvent) {
-        if (!this.dragging) return;
+        this.lastPointerX = e.clientX;
+        this.lastPointerY = e.clientY;
+
+        if (!this.dragging) {
+            if (this.isPointerWithinHoverZone(e.clientX, e.clientY)) {
+                if (this.hoverLeaveTimer !== null) {
+                    clearTimeout(this.hoverLeaveTimer);
+                    this.hoverLeaveTimer = null;
+                }
+                if (this.hovering) {
+                    this.setBodyInteractionClass('divider-hover', true);
+                }
+            } else if (this.hovering && !this.el.nativeElement.matches(':hover')) {
+                this.onPointerLeave(e);
+            }
+            return;
+        }
 
         const container = this.el.nativeElement.parentElement!;
         const rect = container.getBoundingClientRect();
@@ -339,10 +364,8 @@ export class SplitDividerComponent implements OnDestroy {
         this.dragging = false;
         this.setBodyInteractionClass('divider-dragging', false);
         if (this.el.nativeElement.matches(':hover')) {
-            this.hovering = true;
-            this.setBodyInteractionClass('divider-hover', true);
+            this.activateHover();
         } else {
-            this.hovering = false;
             this.onPointerLeave();
         }
 
@@ -360,6 +383,24 @@ export class SplitDividerComponent implements OnDestroy {
             clearTimeout(this.hoverLeaveTimer);
             this.hoverLeaveTimer = null;
         }
+    }
+
+    private activateHover(): void {
+        this.hovering = true;
+        this.setBodyInteractionClass('divider-hover', true);
+    }
+
+    private deactivateHover(): void {
+        this.hovering = false;
+        this.setBodyInteractionClass('divider-hover', false);
+    }
+
+    private isPointerWithinHoverZone(clientX: number, clientY: number): boolean {
+        const rect = this.el.nativeElement.getBoundingClientRect();
+        return clientX >= rect.left - this.hoverOutsetPx
+            && clientX <= rect.right + this.hoverOutsetPx
+            && clientY >= rect.top
+            && clientY <= rect.bottom;
     }
 
     private setBodyInteractionClass(className: string, active: boolean): void {

@@ -218,6 +218,10 @@ func (p *linuxPane) CaptureScreenshot() (string, error) {
 	return "", fmt.Errorf("capture screenshot not implemented on linux")
 }
 
+func (p *linuxPane) GetDocumentBackground() (string, error) {
+	return "", fmt.Errorf("document background query not implemented on linux")
+}
+
 func (p *linuxPane) Dispose() error {
 	C.browser_pane_dispose(p.handle)
 	p.handle = nil

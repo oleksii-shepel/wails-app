@@ -281,31 +281,31 @@ export class AddressBarDriveDropdownComponent {
   }
 
   getSchemeTypeLabel(d: DriveInfo): string {
-    if (d.driveType?.startsWith('cloud-')) {
+    if (d.schemeType?.startsWith('cloud-')) {
       return 'Cloud Storage';
     }
-    if (d.driveType === 'memory') {
+    if (d.schemeType === 'memory') {
       return 'In-Memory FS';
     }
-    if (d.driveType === 'registry') {
+    if (d.schemeType === 'registry') {
       return 'Registry';
     }
-    if (d.driveType === 'search') {
+    if (d.schemeType === 'search') {
       return 'Search FS';
     }
-    if (d.driveType === 'smb') {
+    if (d.schemeType === 'smb') {
       return 'SMB Share';
     }
-    if (d.driveType === 'ftp') {
+    if (d.schemeType === 'ftp') {
       return 'FTP';
     }
-    if (d.driveType === 'sftp') {
+    if (d.schemeType === 'sftp') {
       return 'SFTP';
     }
-    if (d.driveType === 'webdav') {
+    if (d.schemeType === 'webdav') {
       return 'WebDAV';
     }
-    if (d.driveType === 'network') {
+    if (d.schemeType === 'network') {
       return 'Network Drive';
     }
     return 'Local Drive';
@@ -316,21 +316,21 @@ export class AddressBarDriveDropdownComponent {
   }
 
   getIcon(d: DriveInfo): string {
-    if (d.driveType === 'cloud-onedrive') return '☁️';
-    if (d.driveType === 'cloud-google')   return '🗂️';
-    if (d.driveType === 'cloud-dropbox')  return '📦';
-    if (d.driveType === 'memory')         return '🧠';
-    if (d.driveType === 'registry')       return '🧩';
-    if (d.driveType === 'search')         return '🔎';
-    if (d.driveType === 'smb')            return '🖧';
-    if (d.driveType === 'ftp')            return '📡';
-    if (d.driveType === 'sftp')           return '🔐';
-    if (d.driveType === 'webdav')         return '🌍';
-    if (d.driveType === 'fixed')    return '💽';
-    if (d.driveType === 'removable') return '💾';
-    if (d.driveType === 'cdrom')    return '💿';
-    if (d.driveType === 'network')  return '🌐';
-    if (d.driveType === 'ramdisk')  return '⚡';
+    if (d.schemeType === 'cloud-onedrive') return '☁️';
+    if (d.schemeType === 'cloud-google')   return '🗂️';
+    if (d.schemeType === 'cloud-dropbox')  return '📦';
+    if (d.schemeType === 'memory')         return '🧠';
+    if (d.schemeType === 'registry')       return '🧩';
+    if (d.schemeType === 'search')         return '🔎';
+    if (d.schemeType === 'smb')            return '🖧';
+    if (d.schemeType === 'ftp')            return '📡';
+    if (d.schemeType === 'sftp')           return '🔐';
+    if (d.schemeType === 'webdav')         return '🌍';
+    if (d.schemeType === 'fixed')          return '💽';
+    if (d.schemeType === 'removable')      return '💾';
+    if (d.schemeType === 'cdrom')          return '💿';
+    if (d.schemeType === 'network')        return '🌐';
+    if (d.schemeType === 'ramdisk')        return '⚡';
     return '💽';
   }
 

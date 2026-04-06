@@ -687,7 +687,7 @@ export namespace contracts {
 	export class DriveInfo {
 	    name: string;
 	    path: string;
-	    driveType: string;
+	    schemeType: string;
 	    totalSpace: number;
 	    freeSpace: number;
 	    fileSystem?: string;
@@ -700,14 +700,14 @@ export namespace contracts {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
 	        this.path = source["path"];
-	        this.driveType = source["driveType"];
+	        this.schemeType = source["schemeType"];
 	        this.totalSpace = source["totalSpace"];
 	        this.freeSpace = source["freeSpace"];
 	        this.fileSystem = source["fileSystem"];
 	    }
 	}
 	export class DrivesList {
-	    drives: DriveInfo[];
+	    schemes: DriveInfo[];
 	
 	    static createFrom(source: any = {}) {
 	        return new DrivesList(source);
@@ -715,7 +715,7 @@ export namespace contracts {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.drives = this.convertValues(source["drives"], DriveInfo);
+	        this.schemes = this.convertValues(source["schemes"], DriveInfo);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1341,4 +1341,3 @@ export namespace utility {
 	}
 
 }
-

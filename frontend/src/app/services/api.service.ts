@@ -154,7 +154,7 @@ export class ApiService {
      */
     async listDrives(): Promise<DriveInfo[]> {
       const response = await this.getDrives();
-      return response.drives || [];
+      return response.schemes || [];
     }
 
     /**

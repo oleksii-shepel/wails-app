@@ -81,7 +81,7 @@ func listDrivesPlatform() []contracts.DriveInfo {
 
 func buildDriveInfo(root string) contracts.DriveInfo {
 	rootPtr, _ := syscall.UTF16PtrFromString(root)
-	driveType := toDriveType(windows.GetDriveType(rootPtr))
+	schemeType := toSchemeType(windows.GetDriveType(rootPtr))
 	name := strings.TrimSuffix(root, `\`)
 
 	var freeBytesAvailable, totalBytes, totalFreeBytes uint64
@@ -112,7 +112,7 @@ func buildDriveInfo(root string) contracts.DriveInfo {
 	return contracts.DriveInfo{
 		Name:       name,
 		Path:       driveRootReference(root),
-		DriveType:  driveType,
+		SchemeType: schemeType,
 		TotalSpace: int64(totalBytes),
 		FreeSpace:  int64(totalFreeBytes),
 		FileSystem: fsName,
@@ -127,7 +127,7 @@ func driveRootReference(root string) string {
 	return normalized
 }
 
-func toDriveType(kind uint32) contracts.DriveType {
+func toSchemeType(kind uint32) contracts.SchemeType {
 	const (
 		driveRemovable = 2
 		driveFixed     = 3
@@ -137,17 +137,17 @@ func toDriveType(kind uint32) contracts.DriveType {
 	)
 	switch kind {
 	case driveRemovable:
-		return contracts.DriveRemovable
+		return contracts.SchemeRemovable
 	case driveFixed:
-		return contracts.DriveFixed
+		return contracts.SchemeFixed
 	case driveRemote:
-		return contracts.DriveNetwork
+		return contracts.SchemeNetwork
 	case driveCDROM:
-		return contracts.DriveCDROM
+		return contracts.SchemeCDROM
 	case driveRAMDisk:
-		return contracts.DriveRAMDisk
+		return contracts.SchemeRAMDisk
 	default:
-		return contracts.DriveUnknown
+		return contracts.SchemeUnknown
 	}
 }
 

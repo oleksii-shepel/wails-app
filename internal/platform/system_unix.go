@@ -110,7 +110,7 @@ func listDrivesLinux() []contracts.DriveInfo {
 		drives = append(drives, contracts.DriveInfo{
 			Name:       name,
 			Path:       mount,
-			DriveType:  guessDriveTypeLinux(device),
+			SchemeType: guessSchemeTypeLinux(device),
 			TotalSpace: total,
 			FreeSpace:  free,
 			FileSystem: &fs,
@@ -120,15 +120,15 @@ func listDrivesLinux() []contracts.DriveInfo {
 	return drives
 }
 
-func guessDriveTypeLinux(device string) contracts.DriveType {
+func guessSchemeTypeLinux(device string) contracts.SchemeType {
 	if strings.Contains(device, ":") || strings.HasPrefix(device, "//") {
-		return contracts.DriveNetwork
+		return contracts.SchemeNetwork
 	}
 	if strings.Contains(device, "sr") || strings.Contains(device, "cdrom") {
-		return contracts.DriveCDROM
+		return contracts.SchemeCDROM
 	}
 	if strings.HasPrefix(device, "tmpfs") || strings.HasPrefix(device, "ramfs") {
-		return contracts.DriveRAMDisk
+		return contracts.SchemeRAMDisk
 	}
 
 	name := filepath.Base(device)
@@ -136,10 +136,10 @@ func guessDriveTypeLinux(device string) contracts.DriveType {
 		removablePath := fmt.Sprintf("/sys/block/%s/removable", candidate)
 		data, err := os.ReadFile(removablePath)
 		if err == nil && strings.TrimSpace(string(data)) == "1" {
-			return contracts.DriveRemovable
+			return contracts.SchemeRemovable
 		}
 	}
-	return contracts.DriveFixed
+	return contracts.SchemeFixed
 }
 
 func linuxBlockDeviceCandidates(name string) []string {
@@ -223,7 +223,7 @@ func listDrivesDarwin() []contracts.DriveInfo {
 		drives = append(drives, contracts.DriveInfo{
 			Name:       name,
 			Path:       mount,
-			DriveType:  guessDriveTypeDarwin(device),
+			SchemeType: guessSchemeTypeDarwin(device),
 			TotalSpace: total,
 			FreeSpace:  free,
 			FileSystem: &fsType,
@@ -241,12 +241,12 @@ func getFSTypeDarwin(mount string) string {
 	return strings.TrimSpace(string(out))
 }
 
-func guessDriveTypeDarwin(device string) contracts.DriveType {
+func guessSchemeTypeDarwin(device string) contracts.SchemeType {
 	if strings.Contains(device, ":") || strings.HasPrefix(device, "//") {
-		return contracts.DriveNetwork
+		return contracts.SchemeNetwork
 	}
 	if strings.Contains(strings.ToLower(device), "disk") {
-		return contracts.DriveFixed
+		return contracts.SchemeFixed
 	}
-	return contracts.DriveUnknown
+	return contracts.SchemeUnknown
 }

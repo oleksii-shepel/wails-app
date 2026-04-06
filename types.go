@@ -45,15 +45,15 @@ type OSInfoResponse = internalcontracts.OSInfoResponse
 // Drives
 // ============================================================================
 
-type DriveType = internalcontracts.DriveType
+type SchemeType = internalcontracts.SchemeType
 
 const (
-	DriveFixed     DriveType = internalcontracts.DriveFixed
-	DriveRemovable DriveType = internalcontracts.DriveRemovable
-	DriveNetwork   DriveType = internalcontracts.DriveNetwork
-	DriveCDROM     DriveType = internalcontracts.DriveCDROM
-	DriveRAMDisk   DriveType = internalcontracts.DriveRAMDisk
-	DriveUnknown   DriveType = internalcontracts.DriveUnknown
+	SchemeFixed     SchemeType = internalcontracts.SchemeFixed
+	SchemeRemovable SchemeType = internalcontracts.SchemeRemovable
+	SchemeNetwork   SchemeType = internalcontracts.SchemeNetwork
+	SchemeCDROM     SchemeType = internalcontracts.SchemeCDROM
+	SchemeRAMDisk   SchemeType = internalcontracts.SchemeRAMDisk
+	SchemeUnknown   SchemeType = internalcontracts.SchemeUnknown
 )
 
 type DriveInfo = internalcontracts.DriveInfo

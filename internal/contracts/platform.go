@@ -17,37 +17,37 @@ type OSInfoResponse struct {
 	SystemDrive *string `json:"systemDrive"`
 }
 
-type DriveType string
+type SchemeType string
 
 const (
-	DriveFixed     DriveType = "fixed"
-	DriveRemovable DriveType = "removable"
-	DriveNetwork   DriveType = "network"
-	DriveCDROM     DriveType = "cdrom"
-	DriveRAMDisk   DriveType = "ramdisk"
-	DriveMemory    DriveType = "memory"
-	DriveRegistry  DriveType = "registry"
-	DriveSearch    DriveType = "search"
-	DriveHTTP      DriveType = "http"
-	DriveHTTPS     DriveType = "https"
-	DriveSMB       DriveType = "smb"
-	DriveFTP       DriveType = "ftp"
-	DriveSFTP      DriveType = "sftp"
-	DriveWebDAV    DriveType = "webdav"
-	DriveUnknown   DriveType = "unknown"
+	SchemeFixed     SchemeType = "fixed"
+	SchemeRemovable SchemeType = "removable"
+	SchemeNetwork   SchemeType = "network"
+	SchemeCDROM     SchemeType = "cdrom"
+	SchemeRAMDisk   SchemeType = "ramdisk"
+	SchemeMemory    SchemeType = "memory"
+	SchemeRegistry  SchemeType = "registry"
+	SchemeSearch    SchemeType = "search"
+	SchemeHTTP      SchemeType = "http"
+	SchemeHTTPS     SchemeType = "https"
+	SchemeSMB       SchemeType = "smb"
+	SchemeFTP       SchemeType = "ftp"
+	SchemeSFTP      SchemeType = "sftp"
+	SchemeWebDAV    SchemeType = "webdav"
+	SchemeUnknown   SchemeType = "unknown"
 )
 
 type DriveInfo struct {
 	Name       string    `json:"name"`
 	Path       string    `json:"path"`
-	DriveType  DriveType `json:"driveType"`
+	SchemeType SchemeType `json:"schemeType"`
 	TotalSpace int64     `json:"totalSpace"`
 	FreeSpace  int64     `json:"freeSpace"`
 	FileSystem *string   `json:"fileSystem"`
 }
 
 type DrivesList struct {
-	Drives []DriveInfo `json:"drives"`
+	Schemes []DriveInfo `json:"schemes"`
 }
 
 type SpecialFolder struct {

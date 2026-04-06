@@ -9,7 +9,7 @@ import { DropdownTriggerDirective, DropdownMenuDirective } from '../directives/d
 
 import { ApiService } from '../services/api.service';
 import { DirectorySourceService } from '../services/directory-source.service';
-import { DirectoryListing, DriveInfo, DriveType, FileInfo, FileType, SpecialFolder } from '../shared/protocol';
+import { DirectoryListing, DriveInfo, SchemeType, FileInfo, FileType, SpecialFolder } from '../shared/protocol';
 import { ArchiveService, ArchiveFrame, isArchive } from '../services/archive.service';
 import { parsePathWithArchives } from './address-bar.utils';
 import { EventsOn } from 'wailsjs/runtime';
@@ -902,7 +902,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   isCurrentRootSynthetic(): boolean {
     const drive = this.findCurrentRootEntry();
     if (!drive) return false;
-    return /^(memory|registry|search|smb|ftp|sftp|webdav)$/.test(drive.driveType);
+    return /^(memory|registry|search|smb|ftp|sftp|webdav)$/.test(drive.schemeType);
   }
 
   isCurrentRootPhysical(): boolean {
@@ -941,13 +941,13 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     const drive = this.findCurrentRootEntry();
     if (!drive || !this.isCurrentRootSynthetic()) return null;
 
-    if (drive.driveType === 'memory') return '🧠';
-    if (drive.driveType === 'registry') return '🧩';
-    if (drive.driveType === 'search') return '🔎';
-    if (drive.driveType === 'smb') return '🖧';
-    if (drive.driveType === 'ftp') return '📡';
-    if (drive.driveType === 'sftp') return '🔐';
-    if (drive.driveType === 'webdav') return '🌍';
+    if (drive.schemeType === 'memory') return '🧠';
+    if (drive.schemeType === 'registry') return '🧩';
+    if (drive.schemeType === 'search') return '🔎';
+    if (drive.schemeType === 'smb') return '🖧';
+    if (drive.schemeType === 'ftp') return '📡';
+    if (drive.schemeType === 'sftp') return '🔐';
+    if (drive.schemeType === 'webdav') return '🌍';
     return null;
   }
 
@@ -1118,10 +1118,10 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
       return [];
     }
 
-    const providers: Array<{ name: string; driveType: DriveType; paths: string[] }> = [
+    const providers: Array<{ name: string; schemeType: SchemeType; paths: string[] }> = [
       {
         name: 'OneDrive',
-        driveType: 'cloud-onedrive',
+        schemeType: 'cloud-onedrive',
         paths: [
           `${home}/OneDrive`,
           `${home}/OneDrive - Personal`,
@@ -1129,7 +1129,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
       },
       {
         name: 'Google Drive',
-        driveType: 'cloud-google',
+        schemeType: 'cloud-google',
         paths: [
           `${home}/Google Drive`,
           `${home}/My Drive`,
@@ -1138,7 +1138,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
       },
       {
         name: 'Dropbox',
-        driveType: 'cloud-dropbox',
+        schemeType: 'cloud-dropbox',
         paths: [
           `${home}/Dropbox`,
         ],
@@ -1162,7 +1162,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
       cloudschemes.push({
         name: provider.name,
         path: foundPath,
-        driveType: provider.driveType,
+        schemeType: provider.schemeType,
         totalSpace: 0,
         freeSpace: 0,
         fileSystem: 'Cloud',
@@ -1176,7 +1176,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     this.schemesLoading = true;
     try { 
       const schemesList = await this.apiService.getDrives();
-      const systemschemes = schemesList?.drives || [];
+      const systemschemes = schemesList?.schemes || [];
       const cloudschemes = await this.getCloudschemes();
       this.schemes = [...systemschemes, ...cloudschemes];
     } catch {

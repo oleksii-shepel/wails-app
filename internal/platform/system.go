@@ -37,7 +37,7 @@ func GetOSInfo() contracts.OSInfoResponse {
 }
 
 func ListDrives() contracts.DrivesList {
-	return contracts.DrivesList{Drives: append(listDrivesPlatform(), syntheticDrives()...)}
+	return contracts.DrivesList{Schemes: append(listDrivesPlatform(), syntheticDrives()...)}
 }
 
 func GetSpecialFolders() contracts.SpecialFoldersResponse {
@@ -55,49 +55,49 @@ func getHomeDir() string {
 func syntheticDrives() []contracts.DriveInfo {
 	return []contracts.DriveInfo{
 		{
-			Name:      "Memory",
-			Path:      pathref.MemoryScheme,
-			DriveType: contracts.DriveMemory,
+			Name:       "Memory",
+			Path:       pathref.MemoryScheme,
+			SchemeType: contracts.SchemeMemory,
 		},
 		{
-			Name:      "Registry",
-			Path:      pathref.RegistryScheme,
-			DriveType: contracts.DriveRegistry,
+			Name:       "Registry",
+			Path:       pathref.RegistryScheme,
+			SchemeType: contracts.SchemeRegistry,
 		},
 		{
-			Name:      "Search",
-			Path:      pathref.SearchScheme,
-			DriveType: contracts.DriveSearch,
+			Name:       "Search",
+			Path:       pathref.SearchScheme,
+			SchemeType: contracts.SchemeSearch,
 		},
 		{
-			Name:      "HTTP",
-			Path:      pathref.HTTPAliasScheme,
-			DriveType: contracts.DriveHTTP,
+			Name:       "HTTP",
+			Path:       pathref.HTTPAliasScheme,
+			SchemeType: contracts.SchemeHTTP,
 		},
 		{
-			Name:      "HTTPS",
-			Path:      pathref.HTTPSAliasScheme,
-			DriveType: contracts.DriveHTTPS,
+			Name:       "HTTPS",
+			Path:       pathref.HTTPSAliasScheme,
+			SchemeType: contracts.SchemeHTTPS,
 		},
 		{
-			Name:      "SMB",
-			Path:      pathref.SMBScheme,
-			DriveType: contracts.DriveSMB,
+			Name:       "SMB",
+			Path:       pathref.SMBScheme,
+			SchemeType: contracts.SchemeSMB,
 		},
 		{
-			Name:      "FTP",
-			Path:      pathref.FTPScheme,
-			DriveType: contracts.DriveFTP,
+			Name:       "FTP",
+			Path:       pathref.FTPScheme,
+			SchemeType: contracts.SchemeFTP,
 		},
 		{
-			Name:      "SFTP",
-			Path:      pathref.SFTPScheme,
-			DriveType: contracts.DriveSFTP,
+			Name:       "SFTP",
+			Path:       pathref.SFTPScheme,
+			SchemeType: contracts.SchemeSFTP,
 		},
 		{
-			Name:      "WebDAV",
-			Path:      pathref.WebDAVScheme,
-			DriveType: contracts.DriveWebDAV,
+			Name:       "WebDAV",
+			Path:       pathref.WebDAVScheme,
+			SchemeType: contracts.SchemeWebDAV,
 		},
 	}
 }

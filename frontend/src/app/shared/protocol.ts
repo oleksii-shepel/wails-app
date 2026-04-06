@@ -31,10 +31,10 @@ export interface OSInfoResponse {
 }
 
 // ============================================================================
-// Drives
+// Schemes
 // ============================================================================
 
-export type DriveType =
+export type SchemeType =
   | 'fixed'
   | 'removable'
   | 'network'
@@ -60,7 +60,7 @@ export interface DriveInfo {
   /** Canonical mount/root path, e.g. "filesystem://c" on Windows */
   path: string;
   /** Physical drive kind or a synthetic cloud mount used by the frontend address bar. */
-  driveType: DriveType;
+  schemeType: SchemeType;
   /** Total capacity in bytes */
   totalSpace: number;
   /** Free space in bytes */
@@ -70,7 +70,7 @@ export interface DriveInfo {
 }
 
 export interface DrivesList {
-  drives: DriveInfo[];
+  schemes: DriveInfo[];
 }
 
 export interface SpecialFolder {

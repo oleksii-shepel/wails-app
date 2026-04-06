@@ -108,6 +108,74 @@ type windowsPaneState struct {
 	visible   bool
 }
 
+type rawIUnknownVTBL struct {
+	QueryInterface edge.ComProc
+	AddRef         edge.ComProc
+	Release        edge.ComProc
+}
+
+type rawWebView2ControllerVTBL struct {
+	rawIUnknownVTBL
+	GetIsVisible                      edge.ComProc
+	PutIsVisible                      edge.ComProc
+	GetBounds                         edge.ComProc
+	PutBounds                         edge.ComProc
+	GetZoomFactor                     edge.ComProc
+	PutZoomFactor                     edge.ComProc
+	AddZoomFactorChanged              edge.ComProc
+	RemoveZoomFactorChanged           edge.ComProc
+	SetBoundsAndZoomFactor            edge.ComProc
+	MoveFocus                         edge.ComProc
+	AddMoveFocusRequested             edge.ComProc
+	RemoveMoveFocusRequested          edge.ComProc
+	AddGotFocus                       edge.ComProc
+	RemoveGotFocus                    edge.ComProc
+	AddLostFocus                      edge.ComProc
+	RemoveLostFocus                   edge.ComProc
+	AddAcceleratorKeyPressed          edge.ComProc
+	RemoveAcceleratorKeyPressed       edge.ComProc
+	GetParentWindow                   edge.ComProc
+	PutParentWindow                   edge.ComProc
+	NotifyParentWindowPositionChanged edge.ComProc
+	Close                             edge.ComProc
+	GetCoreWebView2                   edge.ComProc
+}
+
+type rawWebView2Controller struct {
+	Vtbl *rawWebView2ControllerVTBL
+}
+
+type rawWebView2EnvironmentVTBL struct {
+	rawIUnknownVTBL
+	CreateCoreWebView2Controller     edge.ComProc
+	CreateWebResourceResponse        edge.ComProc
+	GetBrowserVersionString          edge.ComProc
+	AddNewBrowserVersionAvailable    edge.ComProc
+	RemoveNewBrowserVersionAvailable edge.ComProc
+}
+
+type rawWebView2Environment struct {
+	Vtbl *rawWebView2EnvironmentVTBL
+}
+
+type rawChromium struct {
+	HWND                             uintptr
+	Padding                          struct{ Left, Top, Right, Bottom int32 }
+	Controller                       *edge.ICoreWebView2Controller
+	WebView                          *edge.ICoreWebView2
+	Inited                           uintptr
+	EnvCompleted                     unsafe.Pointer
+	ControllerCompleted              unsafe.Pointer
+	WebMessageReceived               unsafe.Pointer
+	ContainsFullScreenElementChanged unsafe.Pointer
+	PermissionRequested              unsafe.Pointer
+	WebResourceRequested             unsafe.Pointer
+	AcceleratorKeyPressed            unsafe.Pointer
+	NavigationCompleted              unsafe.Pointer
+	ProcessFailed                    unsafe.Pointer
+	Environment                      *edge.ICoreWebView2Environment
+}
+
 func newPlatformPane(surfaceID string) (pane, error) {
 	result := &windowsPane{
 		surfaceID: surfaceID,
@@ -145,6 +213,12 @@ func (p *windowsPane) run() {
 	defer runtime.UnlockOSThread()
 	defer close(p.closed)
 
+	if err := initializeBrowserPaneCOM(); err != nil {
+		p.drainWithError(err)
+		return
+	}
+	defer windows.CoUninitialize()
+
 	state, err := newWindowsPaneState()
 	if err != nil {
 		p.drainWithError(err)
@@ -164,6 +238,17 @@ func (p *windowsPane) run() {
 			time.Sleep(10 * time.Millisecond)
 		}
 	}
+}
+
+func initializeBrowserPaneCOM() error {
+	err := windows.CoInitializeEx(0, windows.COINIT_APARTMENTTHREADED|windows.COINIT_DISABLE_OLE1DDE)
+	if err == nil {
+		return nil
+	}
+	if err == windows.Errno(windows.S_FALSE) {
+		return nil
+	}
+	return fmt.Errorf("initialize COM for browser pane: %w", err)
 }
 
 func (p *windowsPane) drainWithError(err error) {
@@ -272,14 +357,38 @@ func (s *windowsPaneState) sync(update Update) error {
 }
 
 func (s *windowsPaneState) dispose() error {
+	var firstErr error
+
 	if s.chromium != nil {
-		_ = s.chromium.Hide()
+		s.chromium.ShuttingDown()
+		controller, webview, environment := chromiumHandles(s.chromium)
+		if controller != nil {
+			_ = controller.PutIsVisible(false)
+			if err := closeWebView2Controller(controller); err != nil && firstErr == nil {
+				firstErr = fmt.Errorf("close browser controller: %w", err)
+			}
+		}
+		if webview != nil {
+			webview.Release()
+		}
+		if controller != nil {
+			controller.Release()
+		}
+		if environment != nil {
+			releaseCOMObject(unsafe.Pointer(environment))
+		}
+		clearChromiumHandles(s.chromium)
+		s.chromium = nil
 	}
 	if s.hostHWND != 0 {
-		_, _, _ = procPostMessageW.Call(s.hostHWND, wmClose, 0, 0)
-		_, _, _ = procDestroyWindow.Call(s.hostHWND)
+		result, _, destroyErr := procDestroyWindow.Call(s.hostHWND)
+		if result == 0 && destroyErr != windows.ERROR_SUCCESS && destroyErr != syscall.Errno(0) && firstErr == nil {
+			firstErr = fmt.Errorf("destroy browser pane window: %w", destroyErr)
+		}
+		pumpWindowsMessagesUntil(time.Now().Add(150 * time.Millisecond))
+		s.hostHWND = 0
 	}
-	return nil
+	return firstErr
 }
 
 func registerBrowserPaneClass() error {
@@ -322,6 +431,13 @@ func pumpWindowsMessages() {
 	}
 }
 
+func pumpWindowsMessagesUntil(deadline time.Time) {
+	for time.Now().Before(deadline) {
+		pumpWindowsMessages()
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 func discoverMainWindowHandle() (uintptr, error) {
 	mainWindowHandleOnce.Do(func() {
 		currentPID := uint32(windows.GetCurrentProcessId())
@@ -361,4 +477,42 @@ func clientToScreen(hwnd uintptr, x int, y int) (point, error) {
 		return point{}, fmt.Errorf("client to screen: %w", err)
 	}
 	return pt, nil
+}
+
+func chromiumHandles(chromium *edge.Chromium) (*edge.ICoreWebView2Controller, *edge.ICoreWebView2, *edge.ICoreWebView2Environment) {
+	if chromium == nil {
+		return nil, nil, nil
+	}
+	raw := (*rawChromium)(unsafe.Pointer(chromium))
+	return raw.Controller, raw.WebView, raw.Environment
+}
+
+func clearChromiumHandles(chromium *edge.Chromium) {
+	if chromium == nil {
+		return
+	}
+	raw := (*rawChromium)(unsafe.Pointer(chromium))
+	raw.Controller = nil
+	raw.WebView = nil
+	raw.Environment = nil
+}
+
+func closeWebView2Controller(controller *edge.ICoreWebView2Controller) error {
+	if controller == nil {
+		return nil
+	}
+	raw := (*rawWebView2Controller)(unsafe.Pointer(controller))
+	hr, _, _ := raw.Vtbl.Close.Call(uintptr(unsafe.Pointer(raw)))
+	if windows.Handle(hr) != windows.S_OK {
+		return windows.Errno(hr)
+	}
+	return nil
+}
+
+func releaseCOMObject(object unsafe.Pointer) {
+	if object == nil {
+		return
+	}
+	raw := (*rawWebView2Environment)(object)
+	raw.Vtbl.Release.Call(uintptr(object))
 }

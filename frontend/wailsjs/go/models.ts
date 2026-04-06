@@ -524,6 +524,7 @@ export namespace contracts {
 	export class BrowserPaneSyncRequest {
 	    surfaceId: string;
 	    url: string;
+	    theme: string;
 	    visible: boolean;
 	    x: number;
 	    y: number;
@@ -538,6 +539,7 @@ export namespace contracts {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.surfaceId = source["surfaceId"];
 	        this.url = source["url"];
+	        this.theme = source["theme"];
 	        this.visible = source["visible"];
 	        this.x = source["x"];
 	        this.y = source["y"];

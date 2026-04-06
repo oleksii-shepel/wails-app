@@ -9,6 +9,7 @@ import (
 type Update struct {
 	SurfaceID string
 	URL       string
+	Theme     string
 	Visible   bool
 	X         int
 	Y         int

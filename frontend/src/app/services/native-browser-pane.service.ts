@@ -5,6 +5,7 @@ declare const window: any;
 export interface NativeBrowserPaneSyncRequest {
   surfaceId: string;
   url: string;
+  theme: 'dark' | 'light';
   visible: boolean;
   x: number;
   y: number;

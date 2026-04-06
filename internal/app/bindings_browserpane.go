@@ -9,6 +9,7 @@ func (a *App) BrowserPaneSync(req contracts.BrowserPaneSyncRequest) error {
 	return a.browserPaneService().Sync(internalbrowserpane.Update{
 		SurfaceID: req.SurfaceID,
 		URL:       req.URL,
+		Theme:     req.Theme,
 		Visible:   req.Visible,
 		X:         req.X,
 		Y:         req.Y,

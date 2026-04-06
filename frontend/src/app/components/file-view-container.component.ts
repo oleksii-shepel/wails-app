@@ -716,11 +716,14 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
       return;
     }
 
+    const theme = document.documentElement.classList.contains('vscode-light') ? 'light' as const : 'dark' as const;
+
     if (!visible || !this.showBrowserPane()) {
       this.lastNativeBrowserSyncKey = '';
       await this.nativeBrowserPane.sync({
         surfaceId: this.surfaceId,
         url: this.currentPath,
+        theme,
         visible: false,
         x: 0,
         y: 0,
@@ -736,8 +739,11 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
     }
 
     const rect = host.getBoundingClientRect();
-    const width = Math.max(0, Math.round(rect.width));
-    const height = Math.max(0, Math.round(rect.height));
+    const scale = typeof window !== 'undefined' && Number.isFinite(window.devicePixelRatio) && window.devicePixelRatio > 0
+      ? window.devicePixelRatio
+      : 1;
+    const width = Math.max(0, Math.round(rect.width * scale));
+    const height = Math.max(0, Math.round(rect.height * scale));
     if (width <= 0 || height <= 0) {
       return;
     }
@@ -745,9 +751,10 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
     const request = {
       surfaceId: this.surfaceId,
       url: this.currentPath,
+      theme,
       visible: true,
-      x: Math.round(rect.left),
-      y: Math.round(rect.top),
+      x: Math.round(rect.left * scale),
+      y: Math.round(rect.top * scale),
       width,
       height,
     };

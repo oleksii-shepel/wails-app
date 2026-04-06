@@ -14,8 +14,8 @@ import { ApiService } from '../../services/api.service';
 import { DEFAULT_FILE_CATEGORIES, getFileCategoriesForExtension, type FileCategory } from '../../shared/file-categories';
 import type { DiskUsageEntry, DiskUsageProgress, DiskUsageResult, DiskUsageTypeStat } from '../../shared/protocol-enhanced';
 import type { SizeManagerSurfaceContext } from '../surface-context';
-import { DiskPieChartComponent } from 'src/app/components/disk-usage-diagram.component';
-import { VscodeScrollbarDirective } from 'src/app/directives/vscode-scrollbar.directive';
+import { DiskPieChartComponent } from '../../components/disk-usage-diagram.component';
+import { VscodeScrollbarDirective } from '../../directives/vscode-scrollbar.directive';
 import { buildSegments, normalizePath, parentPath } from '../../components/address-bar.utils';
 
 // ── Pie nav frame ─────────────────────────────────────────────────────────────

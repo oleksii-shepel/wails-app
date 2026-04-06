@@ -63,4 +63,6 @@ require (
 	go4.org v0.0.0-20200411211856-f5505b9728dd // indirect
 )
 
+replace github.com/wailsapp/go-webview2 => ./third_party/go-webview2
+
 // replace github.com/wailsapp/wails/v2 v2.11.0 => C:\Users\oleks\go\pkg\mod

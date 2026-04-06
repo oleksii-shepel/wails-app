@@ -22,15 +22,15 @@ export type ViewMode = 'list' | 'grid' | 'tree' | 'details';
           (click)="onViewChange(option.mode)">
           <ng-container [ngSwitch]="option.mode">
             <svg *ngSwitchCase="'list'" width="20" height="20" viewBox="0 0 16 16" fill="none">
-              <line x1="2" y1="4"  x2="14" y2="4"  stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-              <line x1="2" y1="8"  x2="14" y2="8"  stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-              <line x1="2" y1="12" x2="14" y2="12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              <line x1="2" y1="4"  x2="14" y2="4"  stroke="currentColor" stroke-width="1" stroke-linecap="round"/>
+              <line x1="2" y1="8"  x2="14" y2="8"  stroke="currentColor" stroke-width="1" stroke-linecap="round"/>
+              <line x1="2" y1="12" x2="14" y2="12" stroke="currentColor" stroke-width="1" stroke-linecap="round"/>
             </svg>
             <svg *ngSwitchCase="'grid'" width="20" height="20" viewBox="0 0 16 16" fill="none">
-              <rect x="2"  y="2"  width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.5"/>
-              <rect x="9"  y="2"  width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.5"/>
-              <rect x="2"  y="9"  width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.5"/>
-              <rect x="9"  y="9"  width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.5"/>
+              <rect x="2"  y="2"  width="5" height="5" rx="1" stroke="currentColor" stroke-width="1"/>
+              <rect x="9"  y="2"  width="5" height="5" rx="1" stroke="currentColor" stroke-width="1"/>
+              <rect x="2"  y="9"  width="5" height="5" rx="1" stroke="currentColor" stroke-width="1"/>
+              <rect x="9"  y="9"  width="5" height="5" rx="1" stroke="currentColor" stroke-width="1"/>
             </svg>
             <svg *ngSwitchCase="'tree'" width="20" height="20" viewBox="0 0 16 16" fill="none">
               <circle cx="3"  cy="3"  r="1.5" fill="currentColor"/>
@@ -38,17 +38,17 @@ export type ViewMode = 'list' | 'grid' | 'tree' | 'details';
               <circle cx="3"  cy="13" r="1.5" fill="currentColor"/>
               <circle cx="12" cy="5"  r="1.5" fill="currentColor"/>
               <circle cx="12" cy="11" r="1.5" fill="currentColor"/>
-              <line x1="3" y1="4.5" x2="3"    y2="11.5" stroke="currentColor" stroke-width="1.5"/>
-              <line x1="3" y1="5"   x2="10.5" y2="5"    stroke="currentColor" stroke-width="1.5"/>
-              <line x1="3" y1="11"  x2="10.5" y2="11"   stroke="currentColor" stroke-width="1.5"/>
+              <line x1="3" y1="4.5" x2="3"    y2="11.5" stroke="currentColor" stroke-width="1"/>
+              <line x1="3" y1="5"   x2="10.5" y2="5"    stroke="currentColor" stroke-width="1"/>
+              <line x1="3" y1="11"  x2="10.5" y2="11"   stroke="currentColor" stroke-width="1"/>
             </svg>
             <svg *ngSwitchCase="'details'" width="20" height="20" viewBox="0 0 16 16" fill="none">
               <rect x="2" y="2"  width="3" height="3" rx="0.5" fill="currentColor" opacity="0.8"/>
               <rect x="2" y="7"  width="3" height="3" rx="0.5" fill="currentColor" opacity="0.8"/>
               <rect x="2" y="12" width="3" height="2" rx="0.5" fill="currentColor" opacity="0.8"/>
-              <line x1="7" y1="3.5" x2="14" y2="3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-              <line x1="7" y1="8.5" x2="14" y2="8.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-              <line x1="7" y1="13"  x2="14" y2="13"  stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              <line x1="7" y1="3.5" x2="14" y2="3.5" stroke="currentColor" stroke-width="1" stroke-linecap="round"/>
+              <line x1="7" y1="8.5" x2="14" y2="8.5" stroke="currentColor" stroke-width="1" stroke-linecap="round"/>
+              <line x1="7" y1="13"  x2="14" y2="13"  stroke="currentColor" stroke-width="1" stroke-linecap="round"/>
             </svg>
           </ng-container>
         </button>
@@ -63,10 +63,10 @@ export type ViewMode = 'list' | 'grid' | 'tree' | 'details';
             (click)="toggleArrangeMenu($event)"
             title="Arrange">
             <svg width="20" height="20" viewBox="0 0 16 16" fill="none">
-              <line x1="2" y1="5"  x2="9" y2="5"  stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-              <line x1="2" y1="8"  x2="7" y2="8"  stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-              <line x1="2" y1="11" x2="5" y2="11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-              <path d="M12 2 L12 13 M10 11 L12 13 L14 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              <line x1="2" y1="5"  x2="9" y2="5"  stroke="currentColor" stroke-width="1" stroke-linecap="round"/>
+              <line x1="2" y1="8"  x2="7" y2="8"  stroke="currentColor" stroke-width="1" stroke-linecap="round"/>
+              <line x1="2" y1="11" x2="5" y2="11" stroke="currentColor" stroke-width="1" stroke-linecap="round"/>
+              <path d="M12 2 L12 13 M10 11 L12 13 L14 11" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
           </button>
           <div appDropdownMenu class="arrange-menu">
@@ -77,7 +77,7 @@ export type ViewMode = 'list' | 'grid' | 'tree' | 'details';
               (click)="onSortChange(sort.value)">
               <span class="arrange-option-indicator">
                 <svg *ngIf="currentSort === sort.value" width="20" height="20" viewBox="0 0 16 16" fill="none">
-                  <path d="M2 8L6 12L14 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  <path d="M2 8L6 12L14 4" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
                 </svg>
               </span>
               <span class="arrange-option-label">{{ sort.label }}</span>
@@ -86,10 +86,10 @@ export type ViewMode = 'list' | 'grid' | 'tree' | 'details';
             <div class="arrange-option" (click)="toggleSortDirection()">
               <span class="arrange-option-indicator">
                 <svg *ngIf="sortDirection === 'asc'" width="20" height="20" viewBox="0 0 16 16" fill="none">
-                  <path d="M8 13 L8 3 M4 7 L8 3 L12 7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  <path d="M8 13 L8 3 M4 7 L8 3 L12 7" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
                 </svg>
                 <svg *ngIf="sortDirection === 'desc'" width="20" height="20" viewBox="0 0 16 16" fill="none">
-                  <path d="M8 3 L8 13 M4 9 L8 13 L12 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  <path d="M8 3 L8 13 M4 9 L8 13 L12 9" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
                 </svg>
               </span>
               <span class="arrange-option-label">{{ sortDirection === 'asc' ? 'Ascending' : 'Descending' }}</span>

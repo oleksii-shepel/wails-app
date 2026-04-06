@@ -5,6 +5,7 @@ import {
     EventEmitter,
     HostBinding,
     HostListener,
+    OnDestroy,
     Input,
     Output
 } from '@angular/core';
@@ -193,7 +194,11 @@ import {
     `],
     imports: [CommonModule]
 })
-export class SplitDividerComponent {
+export class SplitDividerComponent implements OnDestroy {
+    private readonly hoverEnterDelayMs = 50;
+    private readonly hoverLeaveDelayMs = 120;
+    private hoverEnterTimer: ReturnType<typeof setTimeout> | null = null;
+    private hoverLeaveTimer: ReturnType<typeof setTimeout> | null = null;
     /* ---------------- INPUTS ---------------- */
 
     @Input() position = 50;
@@ -217,17 +222,64 @@ export class SplitDividerComponent {
 
     constructor(private el: ElementRef<HTMLElement>) { }
 
+    ngOnDestroy(): void {
+        this.clearHoverTimers();
+        this.setBodyInteractionClass('divider-hover', false);
+        this.setBodyInteractionClass('divider-dragging', false);
+    }
+
     /* ---------------- DRAG ---------------- */
 
     @HostListener('pointerdown', ['$event'])
     startDrag(e: PointerEvent) {
         e.preventDefault();
 
+        this.clearHoverTimers();
         this.dragging = true;
         this.startX = e.clientX;
         this.startPos = this.position;
 
-        document.body.classList.add('divider-dragging');
+        this.setBodyInteractionClass('divider-hover', true);
+        this.setBodyInteractionClass('divider-dragging', true);
+    }
+
+    @HostListener('pointerenter')
+    onPointerEnter() {
+        if (this.hoverLeaveTimer !== null) {
+            clearTimeout(this.hoverLeaveTimer);
+            this.hoverLeaveTimer = null;
+        }
+        if (this.dragging || document.body.classList.contains('divider-hover')) {
+            this.setBodyInteractionClass('divider-hover', true);
+            return;
+        }
+        if (this.hoverEnterTimer !== null) {
+            return;
+        }
+        this.hoverEnterTimer = setTimeout(() => {
+            this.hoverEnterTimer = null;
+            this.setBodyInteractionClass('divider-hover', true);
+        }, this.hoverEnterDelayMs);
+    }
+
+    @HostListener('pointerleave')
+    onPointerLeave() {
+        if (this.hoverEnterTimer !== null) {
+            clearTimeout(this.hoverEnterTimer);
+            this.hoverEnterTimer = null;
+        }
+        if (this.dragging) {
+            return;
+        }
+        if (this.hoverLeaveTimer !== null) {
+            return;
+        }
+        this.hoverLeaveTimer = setTimeout(() => {
+            this.hoverLeaveTimer = null;
+            if (!this.el.nativeElement.matches(':hover')) {
+                this.setBodyInteractionClass('divider-hover', false);
+            }
+        }, this.hoverLeaveDelayMs);
     }
 
     @HostListener('document:pointermove', ['$event'])
@@ -248,6 +300,7 @@ export class SplitDividerComponent {
         this.position = percent;
         this.snapPreview = this.snapToNearest(percent);
         this.positionChange.emit(percent);
+        window.dispatchEvent(new CustomEvent('file-manager-divider-move'));
     }
 
     @HostListener('document:pointerup')
@@ -255,11 +308,36 @@ export class SplitDividerComponent {
         if (!this.dragging) return;
 
         this.dragging = false;
-        document.body.classList.remove('divider-dragging');
+        this.setBodyInteractionClass('divider-dragging', false);
+        if (this.el.nativeElement.matches(':hover')) {
+            this.setBodyInteractionClass('divider-hover', true);
+        } else {
+            this.onPointerLeave();
+        }
 
         const final = this.snapToNearest(this.position);
         this.position = final;
         this.positionChange.emit(final);
+    }
+
+    private clearHoverTimers(): void {
+        if (this.hoverEnterTimer !== null) {
+            clearTimeout(this.hoverEnterTimer);
+            this.hoverEnterTimer = null;
+        }
+        if (this.hoverLeaveTimer !== null) {
+            clearTimeout(this.hoverLeaveTimer);
+            this.hoverLeaveTimer = null;
+        }
+    }
+
+    private setBodyInteractionClass(className: string, active: boolean): void {
+        const classList = document.body.classList;
+        const changed = active ? !classList.contains(className) : classList.contains(className);
+        classList.toggle(className, active);
+        if (changed) {
+            window.dispatchEvent(new CustomEvent('file-manager-divider-statechange'));
+        }
     }
 
     /* ---------------- DOUBLE CLICK RESET ---------------- */

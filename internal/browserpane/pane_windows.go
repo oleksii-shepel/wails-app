@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -26,6 +27,8 @@ const (
 	swShow         = 5
 	swShowNA       = 8
 	swpNoActivate  = 0x0010
+	swpNoRedraw    = 0x0008
+	swpDeferErase  = 0x2000
 	pmRemove       = 0x0001
 	gwOwner        = 4
 	wmEraseBkgnd   = 0x0014
@@ -122,18 +125,25 @@ type windowsPane struct {
 }
 
 type windowsPaneCommand struct {
-	update  *Update
-	dispose bool
-	result  chan error
+	update       *Update
+	dispose      bool
+	capture      bool
+	result       chan error
+	captureReply chan string
 }
 
 type windowsPaneState struct {
-	ownerHWND uintptr
-	hostHWND  uintptr
-	chromium  *edge.Chromium
-	url       string
-	theme     string
-	visible   bool
+	ownerHWND               uintptr
+	hostHWND                uintptr
+	chromium                *edge.Chromium
+	url                     string
+	theme                   string
+	backgroundColor         string
+	visible                 bool
+	captureOnly             bool
+	targetVisible           bool
+	initialNavigationDone   bool
+	initialNavigationQueued bool
 }
 
 type rawIUnknownVTBL struct {
@@ -204,13 +214,106 @@ type rawChromium struct {
 	Environment                      *edge.ICoreWebView2Environment
 }
 
-func newPlatformPane(surfaceID string) (pane, error) {
+// rawICoreWebView2Vtbl mirrors the ICoreWebView2 vtable layout up to CallDevToolsProtocolMethod.
+type rawICoreWebView2Vtbl struct {
+	rawIUnknownVTBL
+	GetSettings                            edge.ComProc
+	GetSource                              edge.ComProc
+	Navigate                               edge.ComProc
+	NavigateToString                       edge.ComProc
+	AddNavigationStarting                  edge.ComProc
+	RemoveNavigationStarting               edge.ComProc
+	AddContentLoading                      edge.ComProc
+	RemoveContentLoading                   edge.ComProc
+	AddSourceChanged                       edge.ComProc
+	RemoveSourceChanged                    edge.ComProc
+	AddHistoryChanged                      edge.ComProc
+	RemoveHistoryChanged                   edge.ComProc
+	AddNavigationCompleted                 edge.ComProc
+	RemoveNavigationCompleted              edge.ComProc
+	AddFrameNavigationStarting             edge.ComProc
+	RemoveFrameNavigationStarting          edge.ComProc
+	AddFrameNavigationCompleted            edge.ComProc
+	RemoveFrameNavigationCompleted         edge.ComProc
+	AddScriptDialogOpening                 edge.ComProc
+	RemoveScriptDialogOpening              edge.ComProc
+	AddPermissionRequested                 edge.ComProc
+	RemovePermissionRequested              edge.ComProc
+	AddProcessFailed                       edge.ComProc
+	RemoveProcessFailed                    edge.ComProc
+	AddScriptToExecuteOnDocumentCreated    edge.ComProc
+	RemoveScriptToExecuteOnDocumentCreated edge.ComProc
+	ExecuteScript                          edge.ComProc
+	CapturePreview                         edge.ComProc
+	Reload                                 edge.ComProc
+	PostWebMessageAsJSON                   edge.ComProc
+	PostWebMessageAsString                 edge.ComProc
+	AddWebMessageReceived                  edge.ComProc
+	RemoveWebMessageReceived               edge.ComProc
+	CallDevToolsProtocolMethod             edge.ComProc
+}
+
+type rawICoreWebView2 struct {
+	Vtbl *rawICoreWebView2Vtbl
+}
+
+// cdpCallbackHandler is a COM callback for CallDevToolsProtocolMethod completion.
+type cdpCallbackHandler struct {
+	vtbl *cdpCallbackVtbl
+	ch   chan cdpResult
+}
+
+type cdpCallbackVtbl struct {
+	QueryInterface edge.ComProc
+	AddRef         edge.ComProc
+	Release        edge.ComProc
+	Invoke         edge.ComProc
+}
+
+type cdpResult struct {
+	json string
+	err  error
+}
+
+var cdpCallbackVtblInstance *cdpCallbackVtbl
+
+func init() {
+	cdpCallbackVtblInstance = &cdpCallbackVtbl{
+		QueryInterface: edge.NewComProc(cdpQueryInterface),
+		AddRef:         edge.NewComProc(cdpAddRef),
+		Release:        edge.NewComProc(cdpRelease),
+		Invoke:         edge.NewComProc(cdpInvoke),
+	}
+}
+
+func cdpQueryInterface(this, _, _ uintptr) uintptr { return 0 }
+func cdpAddRef(this uintptr) uintptr               { return 1 }
+func cdpRelease(this uintptr) uintptr              { return 1 }
+
+func cdpInvoke(this uintptr, errorCode uintptr, resultUTF16 uintptr) uintptr {
+	handler := (*cdpCallbackHandler)(unsafe.Pointer(this))
+	var result string
+	if resultUTF16 != 0 {
+		result = windows.UTF16PtrToString((*uint16)(unsafe.Pointer(resultUTF16)))
+	}
+	var err error
+	if errorCode != 0 {
+		err = fmt.Errorf("CDP method failed: HRESULT 0x%x", errorCode)
+	}
+	select {
+	case handler.ch <- cdpResult{json: result, err: err}:
+	default:
+	}
+	return 0
+}
+
+func newPlatformPane(initial Update) (pane, error) {
 	result := &windowsPane{
-		surfaceID: surfaceID,
+		surfaceID: initial.SurfaceID,
 		commands:  make(chan windowsPaneCommand),
 		closed:    make(chan struct{}),
 	}
-	go result.run()
+	go result.run(initial)
 	return result, nil
 }
 
@@ -236,7 +339,22 @@ func (p *windowsPane) Dispose() error {
 	return err
 }
 
-func (p *windowsPane) run() {
+func (p *windowsPane) CaptureScreenshot() (string, error) {
+	reply := make(chan error, 1)
+	captureReply := make(chan string, 1)
+	select {
+	case <-p.closed:
+		return "", fmt.Errorf("browser pane closed")
+	case p.commands <- windowsPaneCommand{capture: true, result: reply, captureReply: captureReply}:
+	}
+	err := <-reply
+	if err != nil {
+		return "", err
+	}
+	return <-captureReply, nil
+}
+
+func (p *windowsPane) run(initial Update) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 	defer close(p.closed)
@@ -247,7 +365,7 @@ func (p *windowsPane) run() {
 	}
 	defer windows.CoUninitialize()
 
-	state, err := newWindowsPaneState()
+	state, err := newWindowsPaneState(initial.Theme, initial.BackgroundColor)
 	if err != nil {
 		p.drainWithError(err)
 		return
@@ -259,6 +377,14 @@ func (p *windowsPane) run() {
 			if command.dispose {
 				command.result <- state.dispose()
 				return
+			}
+			if command.capture {
+				data, err := state.captureScreenshot()
+				command.result <- err
+				if err == nil {
+					command.captureReply <- data
+				}
+				continue
 			}
 			command.result <- state.sync(*command.update)
 		default:
@@ -293,7 +419,7 @@ func (p *windowsPane) drainWithError(err error) {
 	}
 }
 
-func newWindowsPaneState() (*windowsPaneState, error) {
+func newWindowsPaneState(initialTheme string, initialBackgroundColor string) (*windowsPaneState, error) {
 	ownerHWND, err := discoverMainWindowHandle()
 	if err != nil {
 		return nil, err
@@ -321,6 +447,9 @@ func newWindowsPaneState() (*windowsPaneState, error) {
 	if hostHWND == 0 {
 		return nil, fmt.Errorf("create browser pane window: %w", createErr)
 	}
+	initialTheme = normalizeBrowserPaneTheme(initialTheme)
+	r, g, b := resolveBrowserPaneBackgroundColor(initialTheme, initialBackgroundColor)
+	setBrowserPaneHostBackground(hostHWND, r, g, b)
 	_, _, _ = procShowWindow.Call(hostHWND, swShowNA)
 	_, _, _ = procUpdateWindow.Call(hostHWND)
 
@@ -328,9 +457,11 @@ func newWindowsPaneState() (*windowsPaneState, error) {
 	chromium.DataPath = browserPaneDataPath()
 	var chromiumErr error
 	state := &windowsPaneState{
-		ownerHWND: ownerHWND,
-		hostHWND:  hostHWND,
-		chromium:  chromium,
+		ownerHWND:       ownerHWND,
+		hostHWND:        hostHWND,
+		chromium:        chromium,
+		theme:           initialTheme,
+		backgroundColor: initialBackgroundColor,
 	}
 	chromium.SetErrorCallback(func(err error) {
 		if err == nil {
@@ -342,8 +473,12 @@ func newWindowsPaneState() (*windowsPaneState, error) {
 		}
 	})
 	chromium.NavigationCompletedCallback = func(_ *edge.ICoreWebView2, _ *edge.ICoreWebView2NavigationCompletedEventArgs) {
-		if err := state.applyScrollbarTheme(); err != nil {
-			log.Printf("[BrowserPane] Failed to apply scrollbar theme after navigation: %v", err)
+		state.initialNavigationDone = true
+		// Re-inject scrollbar styles via Eval as a reliable fallback;
+		// Init (AddScriptToExecuteOnDocumentCreated) may not fire in all scenarios.
+		state.chromium.Eval(browserPaneScrollbarScript(state.theme))
+		if state.targetVisible && !state.visible {
+			state.show()
 		}
 	}
 	chromium.SetGlobalPermission(edge.CoreWebView2PermissionStateAllow)
@@ -353,15 +488,77 @@ func newWindowsPaneState() (*windowsPaneState, error) {
 		}
 	}
 	if chromiumErr != nil {
+		clearBrowserPaneHostBackground(hostHWND)
 		_, _, _ = procDestroyWindow.Call(hostHWND)
 		return nil, chromiumErr
 	}
+
+	// Inject scripts before first page render via AddScriptToExecuteOnDocumentCreated.
+	// These run on every navigation, before the page content is displayed.
+	chromium.Init(browserPaneScrollbarScript(initialTheme))
+	chromium.Init(browserPaneBackgroundScript(r, g, b))
+
+	state.chromium.SetBackgroundColour(r, g, b, 255)
 	_, _, _ = procShowWindow.Call(hostHWND, swHide)
 
 	return state, nil
 }
 
 func (s *windowsPaneState) sync(update Update) error {
+	s.targetVisible = update.Visible
+	captureOnly := !update.Visible && update.Width > 0 && update.Height > 0
+	if update.Width > 0 && update.Height > 0 {
+		x := update.X
+		y := update.Y
+		if captureOnly {
+			// Keep WebView2 alive and repainting while moving it outside the parent
+			// viewport so the user does not see it during divider drag.
+			x = 100000
+			y = 0
+		}
+		_, _, setPosErr := procSetWindowPos.Call(
+			s.hostHWND,
+			0,
+			uintptr(x),
+			uintptr(y),
+			uintptr(update.Width),
+			uintptr(update.Height),
+			uintptr(swpNoActivate|swpNoRedraw|swpDeferErase),
+		)
+		if setPosErr != windows.ERROR_SUCCESS && setPosErr != syscall.Errno(0) {
+			return fmt.Errorf("position browser pane: %w", setPosErr)
+		}
+		s.chromium.Resize()
+	}
+
+	themeChanged := s.theme != update.Theme || s.backgroundColor != update.BackgroundColor
+	if s.theme != update.Theme {
+		s.theme = update.Theme
+	}
+	if s.backgroundColor != update.BackgroundColor {
+		s.backgroundColor = update.BackgroundColor
+	}
+	if themeChanged {
+		if err := s.applyTheme(); err != nil {
+			log.Printf("[BrowserPane] Failed to apply theme: %v", err)
+		}
+	}
+
+	if s.url != update.URL {
+		s.chromium.Navigate(update.URL)
+		s.url = update.URL
+		if !s.initialNavigationQueued {
+			s.initialNavigationQueued = true
+		}
+	}
+	if captureOnly {
+		s.captureOnly = true
+		if !s.visible {
+			s.show()
+		}
+		return nil
+	}
+	s.captureOnly = false
 	if !update.Visible {
 		if s.visible {
 			_ = s.chromium.Hide()
@@ -370,38 +567,22 @@ func (s *windowsPaneState) sync(update Update) error {
 		}
 		return nil
 	}
-
-	_, _, setPosErr := procSetWindowPos.Call(
-		s.hostHWND,
-		0,
-		uintptr(update.X),
-		uintptr(update.Y),
-		uintptr(update.Width),
-		uintptr(update.Height),
-		uintptr(swpNoActivate),
-	)
-	if setPosErr != windows.ERROR_SUCCESS && setPosErr != syscall.Errno(0) {
-		return fmt.Errorf("position browser pane: %w", setPosErr)
-	}
-	s.chromium.Resize()
-
-	if s.theme != update.Theme {
-		s.theme = update.Theme
-	}
-	if err := s.applyTheme(); err != nil {
-		log.Printf("[BrowserPane] Failed to apply theme: %v", err)
-	}
-
-	if s.url != update.URL {
-		s.chromium.Navigate(update.URL)
-		s.url = update.URL
+	if !s.initialNavigationDone {
+		return nil
 	}
 	if !s.visible {
-		_, _, _ = procShowWindow.Call(s.hostHWND, swShowNA)
-		_ = s.chromium.Show()
-		s.visible = true
+		s.show()
 	}
 	return nil
+}
+
+func (s *windowsPaneState) show() {
+	if s == nil || s.visible || s.hostHWND == 0 || s.chromium == nil {
+		return
+	}
+	_, _, _ = procShowWindow.Call(s.hostHWND, swShowNA)
+	_ = s.chromium.Show()
+	s.visible = true
 }
 
 func (s *windowsPaneState) dispose() error {
@@ -553,23 +734,18 @@ func browserPaneDataPath() string {
 	return dataPath
 }
 
-func (s *windowsPaneState) applyScrollbarTheme() error {
-	if s == nil || s.chromium == nil {
-		return nil
-	}
-	s.chromium.Eval(browserPaneScrollbarScript(s.theme))
-	return nil
-}
-
 func (s *windowsPaneState) applyTheme() error {
 	if s == nil || s.chromium == nil {
 		return nil
 	}
-	r, g, b := browserPaneThemeBackground(s.theme)
+	r, g, b := resolveBrowserPaneBackgroundColor(s.theme, s.backgroundColor)
 	setBrowserPaneHostBackground(s.hostHWND, r, g, b)
 	_, _, _ = procInvalidateRect.Call(s.hostHWND, 0, 1)
 	s.chromium.SetBackgroundColour(r, g, b, 255)
-	return s.applyScrollbarTheme()
+	// Push updated styles into the current page immediately.
+	s.chromium.Eval(browserPaneBackgroundScript(r, g, b))
+	s.chromium.Eval(browserPaneScrollbarScript(s.theme))
+	return nil
 }
 
 func browserPaneThemeBackground(theme string) (uint8, uint8, uint8) {
@@ -579,75 +755,143 @@ func browserPaneThemeBackground(theme string) (uint8, uint8, uint8) {
 	return 30, 30, 30
 }
 
-func browserPaneScrollbarScript(theme string) string {
-	thumb := "rgba(121, 121, 121, 0.42)"
-	thumbHover := "rgba(121, 121, 121, 0.58)"
-	thumbActive := "rgba(121, 121, 121, 0.72)"
-	if strings.EqualFold(strings.TrimSpace(theme), "light") {
-		thumb = "rgba(100, 100, 100, 0.36)"
-		thumbHover = "rgba(100, 100, 100, 0.50)"
-		thumbActive = "rgba(100, 100, 100, 0.64)"
+func resolveBrowserPaneBackgroundColor(theme string, raw string) (uint8, uint8, uint8) {
+	if r, g, b, ok := parseBrowserPaneColor(raw); ok {
+		return r, g, b
 	}
+	return browserPaneThemeBackground(theme)
+}
+
+func parseBrowserPaneColor(raw string) (uint8, uint8, uint8, bool) {
+	value := strings.TrimSpace(strings.ToLower(raw))
+	if value == "" {
+		return 0, 0, 0, false
+	}
+	if match := strings.TrimPrefix(value, "#"); len(match) == 6 && len(value) == 7 {
+		r, errR := strconv.ParseUint(match[0:2], 16, 8)
+		g, errG := strconv.ParseUint(match[2:4], 16, 8)
+		b, errB := strconv.ParseUint(match[4:6], 16, 8)
+		if errR == nil && errG == nil && errB == nil {
+			return uint8(r), uint8(g), uint8(b), true
+		}
+	}
+	if match := strings.TrimPrefix(value, "#"); len(match) == 3 && len(value) == 4 {
+		r, errR := strconv.ParseUint(strings.Repeat(string(match[0]), 2), 16, 8)
+		g, errG := strconv.ParseUint(strings.Repeat(string(match[1]), 2), 16, 8)
+		b, errB := strconv.ParseUint(strings.Repeat(string(match[2]), 2), 16, 8)
+		if errR == nil && errG == nil && errB == nil {
+			return uint8(r), uint8(g), uint8(b), true
+		}
+	}
+	return 0, 0, 0, false
+}
+
+func normalizeBrowserPaneTheme(theme string) string {
+	if strings.EqualFold(strings.TrimSpace(theme), "light") {
+		return "light"
+	}
+	return "dark"
+}
+
+func browserPaneBackgroundScript(r, g, b uint8) string {
 	return fmt.Sprintf(`(function(){
   try {
-    var root = document.documentElement;
-    if (!root) return;
-    root.setAttribute('data-wails-scrollbar-theme', %q);
-    root.style.setProperty('--wails-scrollbar-size', '12px');
-    root.style.setProperty('--wails-scrollbar-thumb', %q);
-    root.style.setProperty('--wails-scrollbar-thumb-hover', %q);
-    root.style.setProperty('--wails-scrollbar-thumb-active', %q);
-    root.style.setProperty('scrollbar-color', 'var(--wails-scrollbar-thumb) transparent');
-    var css = [
-      'html, body, * { scrollbar-width: thin !important; scrollbar-color: var(--wails-scrollbar-thumb) transparent !important; }',
-      '*::-webkit-scrollbar { width: var(--wails-scrollbar-size) !important; height: var(--wails-scrollbar-size) !important; background: transparent !important; }',
-      '*::-webkit-scrollbar-button { width: 0 !important; height: 0 !important; display: none !important; }',
-      '*::-webkit-scrollbar-track { background: transparent !important; }',
-      '*::-webkit-scrollbar-track-piece { background: transparent !important; }',
-      '*::-webkit-scrollbar-corner { background: transparent !important; }',
-      '*::-webkit-resizer { background: transparent !important; }',
-      '*::-webkit-scrollbar-thumb {',
-      '  min-height: 20px !important;',
-      '  min-width: 20px !important;',
-      '  border-radius: 0 !important;',
-      '  border: none !important;',
-      '  box-shadow: none !important;',
-      '  background: var(--wails-scrollbar-thumb) !important;',
-      '}',
-      '*::-webkit-scrollbar-thumb:hover { background: var(--wails-scrollbar-thumb-hover) !important; }',
-      '*::-webkit-scrollbar-thumb:active { background: var(--wails-scrollbar-thumb-active) !important; }'
-    ].join('\n');
+    var s = document.documentElement.style;
+    if (s) s.backgroundColor = 'rgb(%d,%d,%d)';
+  } catch(_){}
+})();`, r, g, b)
+}
 
-    var sheet = window.__wailsBrowserPaneScrollbarSheet;
-    if (!sheet && typeof CSSStyleSheet !== 'undefined') {
-      try {
-        sheet = new CSSStyleSheet();
-        sheet.replaceSync(css);
-        window.__wailsBrowserPaneScrollbarSheet = sheet;
-      } catch (_) {
-        sheet = null;
-      }
-    }
+func browserPaneScrollbarScript(theme string) string {
+	thumb := "rgba(121,121,121,0.42)"
+	thumbHover := "rgba(121,121,121,0.58)"
+	thumbActive := "rgba(121,121,121,0.72)"
+	if strings.EqualFold(strings.TrimSpace(theme), "light") {
+		thumb = "rgba(100,100,100,0.36)"
+		thumbHover = "rgba(100,100,100,0.50)"
+		thumbActive = "rgba(100,100,100,0.64)"
+	}
+	return fmt.Sprintf(`(function(){
+var T='%s',TH='%s',TA='%s';
+function setup(){
+  if(window.__wv2sb) return;
+  window.__wv2sb=1;
 
-    if (sheet && 'adoptedStyleSheets' in document) {
-      var adopted = document.adoptedStyleSheets || [];
-      if (adopted.indexOf(sheet) === -1) {
-        document.adoptedStyleSheets = adopted.concat(sheet);
-      }
-    } else {
-      var styleId = 'wails-browserpane-scrollbars';
-      var style = document.getElementById(styleId);
-      if (!style) {
-        style = document.createElement('style');
-        style.id = styleId;
-        style.textContent = css;
-        (document.head || document.documentElement).appendChild(style);
-      } else if (style.textContent !== css) {
-        style.textContent = css;
-      }
-    }
-  } catch (_) {}
-})();`, theme, thumb, thumbHover, thumbActive)
+  var s=document.createElement('style');
+  s.id='__wv2sb_css';
+  s.textContent=[
+    'html,body,*{scrollbar-width:none!important}',
+    '*::-webkit-scrollbar{display:none!important;width:0!important;height:0!important}'
+  ].join('\n');
+  (document.head||document.documentElement).appendChild(s);
+
+  var bar=document.createElement('div');
+  bar.id='__wv2sb';
+  bar.style.cssText='position:fixed;top:0;right:0;width:12px;height:100%%;pointer-events:none;z-index:2147483647;opacity:0;transition:opacity 0.15s ease;';
+  var thumb=document.createElement('div');
+  thumb.style.cssText='position:absolute;top:0;right:0;width:12px;min-height:20px;background:'+T+';pointer-events:auto;transition:background-color 0.1s ease;cursor:default;';
+  bar.appendChild(thumb);
+  document.body.appendChild(bar);
+
+  var timer=null,dragging=false,dragY=0,dragST=0;
+  function scrollEl(){return document.scrollingElement||document.documentElement}
+  function update(){
+    var el=scrollEl(),ch=window.innerHeight,sh=el.scrollHeight;
+    if(sh<=ch){bar.style.display='none';return}
+    bar.style.display='';
+    var tH=Math.max(20,Math.round((ch/sh)*ch));
+    var ms=sh-ch,mt=ch-tH;
+    var off=ms>0?(el.scrollTop/ms)*mt:0;
+    thumb.style.height=tH+'px';
+    thumb.style.transform='translateY('+Math.round(off)+'px)';
+  }
+  function show(){
+    bar.style.opacity='1';
+    if(timer)clearTimeout(timer);
+    timer=setTimeout(function(){if(!dragging)bar.style.opacity='0'},700);
+  }
+
+  window.addEventListener('scroll',function(){update();show()},{passive:true});
+  window.addEventListener('resize',update,{passive:true});
+  window.addEventListener('mousemove',function(e){if(e.clientX>=window.innerWidth-20)show()},{passive:true});
+
+  thumb.addEventListener('mouseenter',function(){thumb.style.background=TH});
+  thumb.addEventListener('mouseleave',function(){if(!dragging)thumb.style.background=T});
+
+  thumb.addEventListener('pointerdown',function(e){
+    e.preventDefault();dragging=true;dragY=e.clientY;dragST=scrollEl().scrollTop;
+    thumb.setPointerCapture(e.pointerId);thumb.style.background=TA;
+    bar.style.opacity='1';if(timer)clearTimeout(timer);
+  });
+  window.addEventListener('pointermove',function(e){
+    if(!dragging)return;
+    var el=scrollEl(),ch=window.innerHeight,sh=el.scrollHeight;
+    var tH=Math.max(20,Math.round((ch/sh)*ch)),mt=ch-tH,ms=sh-ch;
+    if(mt<=0)return;
+    el.scrollTop=dragST+((e.clientY-dragY)/mt)*ms;
+  });
+  window.addEventListener('pointerup',function(){
+    if(!dragging)return;dragging=false;thumb.style.background=T;show();
+  });
+
+  bar.addEventListener('pointerdown',function(e){
+    if(e.target===thumb)return;
+    var el=scrollEl(),ch=window.innerHeight,sh=el.scrollHeight;
+    var tH=Math.max(20,Math.round((ch/sh)*ch)),mt=ch-tH,ms=sh-ch;
+    var pos=Math.max(0,Math.min(1,(e.clientY-tH/2)/mt));
+    el.scrollTop=pos*ms;update();show();
+  });
+
+  if(typeof MutationObserver!=='undefined'){
+    new MutationObserver(update).observe(document.body,{childList:true,subtree:true,characterData:true});
+  }
+  if(typeof ResizeObserver!=='undefined'){
+    new ResizeObserver(update).observe(document.body);
+  }
+  update();
+}
+if(document.body)setup();else document.addEventListener('DOMContentLoaded',setup);
+})();`, thumb, thumbHover, thumbActive)
 }
 
 func setBrowserPaneHostBackground(hwnd uintptr, r uint8, g uint8, b uint8) {
@@ -753,4 +997,70 @@ func releaseCOMObject(object unsafe.Pointer) {
 	}
 	raw := (*rawWebView2Environment)(object)
 	raw.Vtbl.Release.Call(uintptr(object))
+}
+
+func (s *windowsPaneState) captureScreenshot() (string, error) {
+	if s.chromium == nil {
+		return "", fmt.Errorf("browser pane not initialized")
+	}
+	_, webview, _ := chromiumHandles(s.chromium)
+	if webview == nil {
+		return "", fmt.Errorf("webview not available")
+	}
+	if !s.initialNavigationDone {
+		return "", fmt.Errorf("no page loaded yet")
+	}
+
+	raw := (*rawICoreWebView2)(unsafe.Pointer(webview))
+
+	handler := &cdpCallbackHandler{
+		vtbl: cdpCallbackVtblInstance,
+		ch:   make(chan cdpResult, 1),
+	}
+
+	methodName, _ := windows.UTF16PtrFromString("Page.captureScreenshot")
+	params, _ := windows.UTF16PtrFromString(`{"format":"jpeg","quality":55,"optimizeForSpeed":true}`)
+
+	hr, _, _ := raw.Vtbl.CallDevToolsProtocolMethod.Call(
+		uintptr(unsafe.Pointer(raw)),
+		uintptr(unsafe.Pointer(methodName)),
+		uintptr(unsafe.Pointer(params)),
+		uintptr(unsafe.Pointer(handler)),
+	)
+	if windows.Handle(hr) != windows.S_OK {
+		return "", fmt.Errorf("CallDevToolsProtocolMethod failed: HRESULT 0x%x", hr)
+	}
+
+	// Pump messages until the callback fires or timeout.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		select {
+		case result := <-handler.ch:
+			if result.err != nil {
+				return "", result.err
+			}
+			return extractCDPBase64Data(result.json)
+		default:
+			if time.Now().After(deadline) {
+				return "", fmt.Errorf("capture screenshot timed out")
+			}
+			pumpWindowsMessages()
+			time.Sleep(1 * time.Millisecond)
+		}
+	}
+}
+
+// extractCDPBase64Data extracts the "data" field from CDP JSON like {"data":"..."}.
+func extractCDPBase64Data(json string) (string, error) {
+	const prefix = `"data":"`
+	idx := strings.Index(json, prefix)
+	if idx < 0 {
+		return "", fmt.Errorf("no data field in CDP response")
+	}
+	start := idx + len(prefix)
+	end := strings.Index(json[start:], `"`)
+	if end < 0 {
+		return "", fmt.Errorf("malformed CDP data field")
+	}
+	return json[start : start+end], nil
 }

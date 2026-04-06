@@ -7,17 +7,23 @@ import (
 
 func (a *App) BrowserPaneSync(req contracts.BrowserPaneSyncRequest) error {
 	return a.browserPaneService().Sync(internalbrowserpane.Update{
-		SurfaceID: req.SurfaceID,
-		URL:       req.URL,
-		Theme:     req.Theme,
-		Visible:   req.Visible,
-		X:         req.X,
-		Y:         req.Y,
-		Width:     req.Width,
-		Height:    req.Height,
+		SurfaceID:       req.SurfaceID,
+		URL:             req.URL,
+		Theme:           req.Theme,
+		BackgroundColor: req.BackgroundColor,
+		Visible:         req.Visible,
+		X:               req.X,
+		Y:               req.Y,
+		Width:           req.Width,
+		Height:          req.Height,
 	})
 }
 
 func (a *App) BrowserPaneDispose(surfaceID string) error {
 	return a.browserPaneService().Dispose(surfaceID)
+}
+
+// BrowserPaneCaptureScreenshot returns a base64-encoded JPEG screenshot of the browser pane content.
+func (a *App) BrowserPaneCaptureScreenshot(surfaceID string) (string, error) {
+	return a.browserPaneService().CaptureScreenshot(surfaceID)
 }

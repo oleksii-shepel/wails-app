@@ -7,18 +7,20 @@ import (
 )
 
 type Update struct {
-	SurfaceID string
-	URL       string
-	Theme     string
-	Visible   bool
-	X         int
-	Y         int
-	Width     int
-	Height    int
+	SurfaceID       string
+	URL             string
+	Theme           string
+	BackgroundColor string
+	Visible         bool
+	X               int
+	Y               int
+	Width           int
+	Height          int
 }
 
 type pane interface {
 	Sync(Update) error
+	CaptureScreenshot() (string, error)
 	Dispose() error
 }
 
@@ -61,7 +63,7 @@ func (s *Service) Sync(update Update) error {
 	target := s.panes[update.SurfaceID]
 	if target == nil {
 		var err error
-		target, err = newPlatformPane(update.SurfaceID)
+		target, err = newPlatformPane(update)
 		if err != nil {
 			s.mu.Unlock()
 			return err
@@ -88,6 +90,23 @@ func (s *Service) Dispose(surfaceID string) error {
 		return nil
 	}
 	return target.Dispose()
+}
+
+// CaptureScreenshot returns a base64-encoded JPEG screenshot of the browser pane.
+func (s *Service) CaptureScreenshot(surfaceID string) (string, error) {
+	surfaceID = strings.TrimSpace(surfaceID)
+	if surfaceID == "" {
+		return "", fmt.Errorf("browser pane surface id is required")
+	}
+
+	s.mu.Lock()
+	target := s.panes[surfaceID]
+	s.mu.Unlock()
+
+	if target == nil {
+		return "", fmt.Errorf("browser pane %q not found", surfaceID)
+	}
+	return target.CaptureScreenshot()
 }
 
 func (s *Service) Shutdown() error {

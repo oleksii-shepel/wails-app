@@ -525,6 +525,7 @@ export namespace contracts {
 	    surfaceId: string;
 	    url: string;
 	    theme: string;
+	    backgroundColor: string;
 	    visible: boolean;
 	    x: number;
 	    y: number;
@@ -540,6 +541,7 @@ export namespace contracts {
 	        this.surfaceId = source["surfaceId"];
 	        this.url = source["url"];
 	        this.theme = source["theme"];
+	        this.backgroundColor = source["backgroundColor"];
 	        this.visible = source["visible"];
 	        this.x = source["x"];
 	        this.y = source["y"];

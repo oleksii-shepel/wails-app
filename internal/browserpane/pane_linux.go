@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux && cgo
 
 package browserpane
 
@@ -195,7 +195,7 @@ type linuxPane struct {
 	handle *C.BrowserPaneController
 }
 
-func newPlatformPane(_ string) (pane, error) {
+func newPlatformPane(_ Update) (pane, error) {
 	handle := C.browser_pane_create()
 	if handle == nil {
 		return nil, fmt.Errorf("linux main window not available")
@@ -212,6 +212,10 @@ func (p *linuxPane) Sync(update Update) error {
 	}
 	C.browser_pane_sync(p.handle, C.int(update.X), C.int(update.Y), C.int(update.Width), C.int(update.Height), url, C.int(visible))
 	return nil
+}
+
+func (p *linuxPane) CaptureScreenshot() (string, error) {
+	return "", fmt.Errorf("capture screenshot not implemented on linux")
 }
 
 func (p *linuxPane) Dispose() error {

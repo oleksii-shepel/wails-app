@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build darwin && cgo
 
 package browserpane
 
@@ -115,7 +115,7 @@ type darwinPane struct {
 	handle unsafe.Pointer
 }
 
-func newPlatformPane(_ string) (pane, error) {
+func newPlatformPane(_ Update) (pane, error) {
 	handle := C.browserPaneCreate()
 	if handle == nil {
 		return nil, fmt.Errorf("macOS main window not available")
@@ -132,6 +132,10 @@ func (p *darwinPane) Sync(update Update) error {
 	}
 	C.browserPaneSync(p.handle, C.int(update.X), C.int(update.Y), C.int(update.Width), C.int(update.Height), url, C.int(visible))
 	return nil
+}
+
+func (p *darwinPane) CaptureScreenshot() (string, error) {
+	return "", fmt.Errorf("capture screenshot not implemented on darwin")
 }
 
 func (p *darwinPane) Dispose() error {

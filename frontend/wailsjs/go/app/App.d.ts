@@ -38,6 +38,8 @@ export function BindState(arg1:app.State):Promise<void>;
 
 export function Breadcrumbs(arg1:string):Promise<Array<Record<string, string>>>;
 
+export function BrowserPaneCaptureScreenshot(arg1:string):Promise<string>;
+
 export function BrowserPaneDispose(arg1:string):Promise<void>;
 
 export function BrowserPaneSync(arg1:contracts.BrowserPaneSyncRequest):Promise<void>;

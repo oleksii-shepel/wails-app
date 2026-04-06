@@ -26,14 +26,18 @@ interface RankedQuickAccessItem {
 type TabSpinDirection = 'left' | 'right' | null;
 
 const SPECIAL_FOLDER_ICONS: Record<string, string> = {
-  home: '🏠',
-  desktop: '🖥️',
-  documents: '📄',
-  downloads: '📥',
-  music: '🎵',
-  pictures: '🖼️',
-  videos: '🎬',
+  home: '\u{1F3E0}',
+  desktop: '\u{1F5A5}\uFE0F',
+  documents: '\u{1F4C4}',
+  downloads: '\u{1F4E5}',
+  music: '\u{1F3B5}',
+  pictures: '\u{1F5BC}\uFE0F',
+  videos: '\u{1F3AC}',
 };
+
+const QUICK_ACCESS_FOLDER_ICON = '\u{1F4C1}';
+const QUICK_ACCESS_RECENT_ICON = '\u{1F552}';
+const QUICK_ACCESS_PIN_ICON = '\u{1F4CC}';
 
 export interface QuickAccessItem {
   name: string;
@@ -657,7 +661,7 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChan
       items: this.pinnedPaths.map(p => ({
         name: p.label,
         path: p.path,
-        icon: p.icon,
+        icon: this.resolveQuickAccessIcon(p.icon),
         pin: p,
       }))
     });
@@ -1054,7 +1058,7 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChan
       .map(e => ({
         name: this.getDisplayName(e.path),
         path: e.path,
-        icon: '📁',
+        icon: QUICK_ACCESS_FOLDER_ICON,
         accessCount: e.accessCount,
       }));
   }
@@ -1067,7 +1071,7 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChan
       .map(e => ({
         name: this.getDisplayName(e.path),
         path: e.path,
-        icon: '🕒',
+        icon: QUICK_ACCESS_RECENT_ICON,
         timestamp: e.timestamp,
       }));
   }
@@ -1080,10 +1084,40 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChan
 
   private resolveQuickAccessIcon(icon: string | undefined): string {
     if (!icon) {
-      return '📁';
+      return QUICK_ACCESS_FOLDER_ICON;
     }
 
-    const normalized = icon.trim().toLowerCase();
-    return SPECIAL_FOLDER_ICONS[normalized] ?? icon;
+    const normalized = icon.trim();
+    if (!normalized) {
+      return QUICK_ACCESS_FOLDER_ICON;
+    }
+
+    const normalizedKey = normalized.toLowerCase();
+    if (SPECIAL_FOLDER_ICONS[normalizedKey]) {
+      return SPECIAL_FOLDER_ICONS[normalizedKey];
+    }
+
+    if (normalized === QUICK_ACCESS_FOLDER_ICON || normalized === '\u{1F4C1}\uFE0F') {
+      return QUICK_ACCESS_FOLDER_ICON;
+    }
+    if (normalized === QUICK_ACCESS_RECENT_ICON || normalized === '\u23F2') {
+      return QUICK_ACCESS_RECENT_ICON;
+    }
+    if (normalized === QUICK_ACCESS_PIN_ICON || normalized === '\u{1F4CC}\uFE0F') {
+      return QUICK_ACCESS_PIN_ICON;
+    }
+
+    if (/[���]/.test(normalized)) {
+      if (/downloads|download/i.test(normalizedKey)) return SPECIAL_FOLDER_ICONS['downloads'];
+      if (/desktop/i.test(normalizedKey)) return SPECIAL_FOLDER_ICONS['desktop'];
+      if (/document/i.test(normalizedKey)) return SPECIAL_FOLDER_ICONS['documents'];
+      if (/picture|photo|image/i.test(normalizedKey)) return SPECIAL_FOLDER_ICONS['pictures'];
+      if (/video|movie/i.test(normalizedKey)) return SPECIAL_FOLDER_ICONS['videos'];
+      if (/music|audio/i.test(normalizedKey)) return SPECIAL_FOLDER_ICONS['music'];
+      if (/home|user/i.test(normalizedKey)) return SPECIAL_FOLDER_ICONS['home'];
+      return QUICK_ACCESS_FOLDER_ICON;
+    }
+
+    return normalized;
   }
 }

@@ -1017,13 +1017,8 @@ export namespace contracts {
 	    port?: number;
 	    username?: string;
 	    password?: string;
-	    privateKey?: string;
-	    ignoreHostKey?: boolean;
 	    domain?: string;
 	    share?: string;
-	    schema?: string;
-	    basePath?: string;
-	    insecure?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new RemoteConfig(source);
@@ -1036,13 +1031,8 @@ export namespace contracts {
 	        this.port = source["port"];
 	        this.username = source["username"];
 	        this.password = source["password"];
-	        this.privateKey = source["privateKey"];
-	        this.ignoreHostKey = source["ignoreHostKey"];
 	        this.domain = source["domain"];
 	        this.share = source["share"];
-	        this.schema = source["schema"];
-	        this.basePath = source["basePath"];
-	        this.insecure = source["insecure"];
 	    }
 	}
 	export class RemoteMount {
@@ -1341,3 +1331,4 @@ export namespace utility {
 	}
 
 }
+

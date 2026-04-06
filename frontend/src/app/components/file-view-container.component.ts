@@ -44,6 +44,7 @@ export type ViewLayout = ViewMode;
           class="view-browser-frame"
           [src]="browserFrameUrl"
           [attr.title]="currentPath"
+          allow="autoplay; clipboard-read; clipboard-write; fullscreen"
           referrerpolicy="no-referrer">
         </iframe>
       </div>
@@ -222,6 +223,7 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
   sortedEntries: FileInfo[] = [];
   treeNodes: TreeNode[] = [];
   browserFrameUrl: SafeResourceUrl | null = null;
+  browserFrameSrcdoc: string | null = null;
 
   private loadRequest$ = createSubject<TreeNode>();
   private destroy$     = createSubject<void>();
@@ -666,9 +668,8 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
     this.cdr.markForCheck();
 
     try {
-      const streamURL = await this.apiService.getStreamURL(this.currentPath);
       if (requestId !== this.browserFrameRequestId) return;
-      this.browserFrameUrl = this.sanitizer.bypassSecurityTrustResourceUrl(streamURL);
+      this.browserFrameUrl = this.sanitizer.bypassSecurityTrustResourceUrl(this.normalizeLiveBrowserURL(this.currentPath));
     } catch (error) {
       if (requestId !== this.browserFrameRequestId) return;
       console.warn('Failed to resolve browser preview URL:', this.currentPath, error);
@@ -676,5 +677,13 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy {
     }
 
     this.cdr.markForCheck();
+  }
+
+  private normalizeLiveBrowserURL(path: string): string {
+    try {
+      return new URL(path).toString();
+    } catch {
+      return path;
+    }
   }
 }

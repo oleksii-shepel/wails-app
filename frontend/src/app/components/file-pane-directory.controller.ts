@@ -8,6 +8,27 @@ import type { PathHistoryService } from '../services/path-history.service';
 
 declare const window: any;
 
+function describeDirectoryLoadError(error: unknown): string {
+  if (typeof error === 'string') {
+    const trimmed = error.trim();
+    return trimmed || 'Failed to load directory';
+  }
+
+  if (error && typeof error === 'object') {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === 'string' && message.trim()) {
+      return message.trim();
+    }
+
+    const name = (error as { name?: unknown }).name;
+    if (typeof name === 'string' && name.trim()) {
+      return name.trim();
+    }
+  }
+
+  return 'Failed to load directory';
+}
+
 export interface FilePaneDirectoryHost {
   get paneId(): 'left' | 'right';
   get currentPath(): string;
@@ -106,11 +127,12 @@ export class FilePaneDirectoryController {
       const streamId = await host.dirStream.start(path, host.showHidden);
       await host.dirStream.waitFor(streamId);
     } catch (error: any) {
-      if (error?.message === 'Directory stream cancelled') {
+      if (describeDirectoryLoadError(error) === 'Directory stream cancelled') {
         return;
       }
+      console.warn('Directory load failed:', path, error);
       host.runInAngular(() => {
-        host.error = error.message || 'Failed to load directory';
+        host.error = describeDirectoryLoadError(error);
       });
     } finally {
       this.activeDirStreamPreserveUI = false;
@@ -248,6 +270,6 @@ export class FilePaneDirectoryController {
   }
 
   private handleDirStreamError(host: FilePaneDirectoryHost, event: DirStreamErrorEvent): void {
-    host.error = event.error || 'Failed to load directory';
+    host.error = describeDirectoryLoadError(event.error);
   }
 }

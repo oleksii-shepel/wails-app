@@ -38,7 +38,7 @@ import { DropdownContainerComponent } from './dropdown-container.component';
   template: `
 <div class="ab-host" (keydown)="onHostKeyDown($event)">
 
-  <!-- РІвЂќР‚РІвЂќР‚ BREADCRUMB ROW РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚ -->
+  <!-- ── BREADCRUMB ROW ──────────────────────────────────────────────── -->
   <div class="ab-bar" *ngIf="!editMode" [class.ab-bar--compact]="compact">
 
     <!-- Left cluster: quick access + pin star -->
@@ -81,7 +81,7 @@ import { DropdownContainerComponent } from './dropdown-container.component';
         (click)="togglePin()"
         [title]="isPinned ? 'Unpin this path' : 'Pin this path'"
         aria-label="Toggle pin"
-      >{{ isPinned ? 'РІВвЂ¦' : 'РІВвЂ ' }}</button>
+      >{{ isPinned ? '★' : '☆' }}</button>
     </div>
 
     <!-- Breadcrumb trail -->
@@ -231,7 +231,7 @@ import { DropdownContainerComponent } from './dropdown-container.component';
     </div>
   </div>
 
-  <!-- РІвЂќР‚РІвЂќР‚ EDIT MODE РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚ -->
+  <!-- ── EDIT MODE ─────────────────────────────────────────────────────── -->
   <address-bar-edit
     *ngIf="editMode"
     [currentPath]="currentPath"
@@ -241,7 +241,7 @@ import { DropdownContainerComponent } from './dropdown-container.component';
     (cancel)="exitEditMode(false)"
   />
 
-  <!-- РІвЂќР‚РІвЂќР‚ SIBLING DROPDOWN РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚ -->
+  <!-- ── SIBLING DROPDOWN ──────────────────────────────────────────────── -->
   <app-dropdown-container
     [(isOpen)]="sibOpen"
     (isOpenChange)="onSibOpenChange($event)"
@@ -258,7 +258,7 @@ import { DropdownContainerComponent } from './dropdown-container.component';
     />
   </app-dropdown-container>
 
-  <!-- РІвЂќР‚РІвЂќР‚ SCHEME DROPDOWN РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚ -->
+  <!-- ── SCHEME DROPDOWN ────────────────────────────────────────────────── -->
   <app-dropdown-container
     [(isOpen)]="showSchemeMenu"
     [anchorEl]="schemeAnchorEl"
@@ -274,7 +274,7 @@ import { DropdownContainerComponent } from './dropdown-container.component';
     />
   </app-dropdown-container>
 
-  <!-- РІвЂќР‚РІвЂќР‚ CONTEXT MENU РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚ -->
+  <!-- ── CONTEXT MENU ──────────────────────────────────────────────────── -->
   <app-dropdown-container
     [(isOpen)]="ctxMenu.visible"
     (isOpenChange)="onCtxMenuOpenChange($event)"
@@ -320,7 +320,7 @@ import { DropdownContainerComponent } from './dropdown-container.component';
       font-size: var(--vsc-font-size);
       color: var(--vsc-foreground);
       background: var(--vsc-sidebar-background);
-      border-bottom: 1px solid var(--vsc-border);  /* РІвЂ С’ moved here */
+      border-bottom: 1px solid var(--vsc-border);  /* ← moved here */
       box-sizing: border-box;
     }
 
@@ -726,7 +726,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
 
   @Input() initialPath = '/';
   @Input() loading = false;
-  @Input() placeholder = 'Enter pathРІР‚В¦';
+  @Input() placeholder = 'Enter path…';
   @Input() paneId = 'left';
   @Input() tabId = '';
 
@@ -736,24 +736,24 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   @Output() openInOtherPane     = new EventEmitter<string>();
   @Output() archiveSegmentClick = new EventEmitter<string>();
 
-  // РІвЂќР‚РІвЂќР‚ Path state РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚
+  // ── Path state ───────────────────────────────────────────────────────────
   currentPath = '/';
   segments: PathSegment[] = [];
   get isWin(): boolean { return isWindowsPath(this.currentPath); }
-  /** True when the first segment is a non-Windows scheme root (memory://, smb://, Registry, etc.) */
+  /** True when the first segment is a non-Windows scheme root (memory://, ftp://, Registry, etc.) */
   get isSchemeRoot(): boolean {
     if (this.isWin || this.segments.length === 0) return false;
     const seg = this.segments[0];
     return seg.isRoot === true && seg.label !== '/';
   }
 
-  // РІвЂќР‚РІвЂќР‚ Scheme switcher РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚
+  // ── Scheme switcher ───────────────────────────────────────────────────────
   schemes: DriveInfo[] = [];
   showSchemeMenu = false;
   schemeAnchorEl: HTMLElement | null = null;
   schemesLoading = false;
 
-  // РІвЂќР‚РІвЂќР‚ Chevron / sibling dropdown РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚
+  // ── Chevron / sibling dropdown ───────────────────────────────────────────
   chevIdx     = -1;
   sibOpen     = false;
   siblings: SiblingEntry[] = [];
@@ -764,32 +764,32 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   private activeSibStreamId: string | null = null;
   private sibStreamOff: Array<() => void> = [];
 
-  // РІвЂќР‚РІвЂќР‚ Quick Access РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚
+  // ── Quick Access ─────────────────────────────────────────────────────────
   specialFolders: SpecialFolder[] = [];
   showQuickAccess = false;
   quickAccessPreferredSection: string | null = null;
 
-  // РІвЂќР‚РІвЂќР‚ Pinned paths РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚
+  // ── Pinned paths ─────────────────────────────────────────────────────────
   pinnedPaths: PinnedPath[] = [];
   get isPinned(): boolean { return this.pinnedPaths.some(p => samePath(p.path, this.currentPath)); }
 
-  // РІвЂќР‚РІвЂќР‚ Edit mode РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚
+  // ── Edit mode ────────────────────────────────────────────────────────────
   editMode  = false;
 
-  // РІвЂќР‚РІвЂќР‚ Context menu РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚
+  // ── Context menu ─────────────────────────────────────────────────────────
   ctxMenu: ContextMenuState = { ...CTX_MENU_CLOSED };
   ctxAnchorEl: HTMLElement | null = null;
 
-  // РІвЂќР‚РІвЂќР‚ Misc РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚
+  // ── Misc ─────────────────────────────────────────────────────────────────
   justCopied = false;
   compact    = false;
   showLoadComplete = false;
 
-  // РІвЂќР‚РІвЂќР‚ Timers РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚
+  // ── Timers ───────────────────────────────────────────────────────────────
   private copiedTimer: ReturnType<typeof setTimeout> | undefined;
   private loadCompleteTimer: ReturnType<typeof setTimeout> | undefined;
 
-  // РІвЂќР‚РІвЂќР‚ Scroll РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚
+  // ── Scroll ───────────────────────────────────────────────────────────────
   private scrollAnimFrame: number | null = null;
   private wheelListener?: (e: WheelEvent) => void;
 
@@ -801,7 +801,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     private cdr: ChangeDetectorRef,
   ) {}
 
-  // РІвЂќР‚РІвЂќР‚ Lifecycle РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚
+  // ── Lifecycle ─────────────────────────────────────────────────────────────
 
   ngOnInit(): void {
     this.currentPath = normalizePath(this.initialPath);
@@ -880,7 +880,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     }
   }
 
-  // РІвЂќР‚РІвЂќР‚ Segments РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚
+  // ── Segments ──────────────────────────────────────────────────────────────
 
   private rebuildSegments(): void {
     this.segments = this.directorySource.buildPathSegments(this.currentPath);
@@ -902,7 +902,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   isCurrentRootSynthetic(): boolean {
     const drive = this.findCurrentRootEntry();
     if (!drive) return false;
-    return /^(memory|registry|search|http|https|smb)$/.test(drive.schemeType);
+    return /^(memory|registry|search|http|https|smb|ftp|sftp|webdav)$/.test(drive.schemeType);
   }
 
   isCurrentRootPhysical(): boolean {
@@ -941,16 +941,16 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     const drive = this.findCurrentRootEntry();
     if (!drive || !this.isCurrentRootSynthetic()) return null;
 
-    if (drive.schemeType === 'memory') return 'СЂСџВ§В ';
-    if (drive.schemeType === 'registry') return 'СЂСџВ§В©';
-    if (drive.schemeType === 'search') return 'СЂСџвЂќР‹';
-    if (drive.schemeType === 'http') return 'СЂСџРЉС’';
-    if (drive.schemeType === 'https') return 'СЂСџвЂќвЂ™';
-    if (drive.schemeType === 'smb') return 'СЂСџвЂ“В§';
+    if (drive.schemeType === 'memory') return '🧠';
+    if (drive.schemeType === 'registry') return '🧩';
+    if (drive.schemeType === 'search') return '🔎';
+    if (drive.schemeType === 'http') return '🌐';
+    if (drive.schemeType === 'https') return '🔒';
+    if (drive.schemeType === 'smb') return '🖧';
     return null;
   }
 
-  // РІвЂќР‚РІвЂќР‚ Segment click handlers РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚
+  // ── Segment click handlers ────────────────────────────────────────────────
 
   onSegClick(seg: PathSegment, e: MouseEvent): void {
     e.stopPropagation();
@@ -984,7 +984,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   }
 
   onSchemeClick(seg: PathSegment, isLast: boolean, e: MouseEvent): void {
-    // Scheme root always opens the scheme switcher РІР‚вЂќ even when at the root.
+    // Scheme root always opens the scheme switcher — even when at the root.
     // Unlike regular segments, there is no useful "edit the last crumb" behaviour.
     e.stopPropagation();
     if (this.showSchemeMenu) { this.showSchemeMenu = false; return; }
@@ -1068,7 +1068,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   }
 
   /**
-   * Animate a scroll-by delta from the current position РІР‚вЂќ used by wheel events
+   * Animate a scroll-by delta from the current position — used by wheel events
    * for a smooth, momentum-like feel without OS-level momentum scrolling.
    */
   private animateScrollBy(el: HTMLElement, delta: number): void {
@@ -1076,7 +1076,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     this.animateScrollTo(el, target);
   }
 
-  // РІвЂќР‚РІвЂќР‚ Scheme handling РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚
+  // ── Scheme handling ────────────────────────────────────────────────────────
 
   switchToScheme(drive: DriveInfo): void {
     this.showSchemeMenu = false;
@@ -1186,7 +1186,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     }
   }
 
-  // РІвЂќР‚РІвЂќР‚ Chevron / siblings РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚
+  // ── Chevron / siblings ────────────────────────────────────────────────────
 
   async toggleChev(idx: number, seg: PathSegment, e: MouseEvent): Promise<void> {
     e.stopPropagation();
@@ -1357,7 +1357,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     }
   }
 
-  // РІвЂќР‚РІвЂќР‚ Pins РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚
+  // ── Pins ──────────────────────────────────────────────────────────────────
 
   private async loadSpecialFolders(): Promise<void> {
     try {
@@ -1383,7 +1383,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     } else {
       const segments = buildSegments(this.currentPath);
       const label = segments[segments.length - 1]?.label || (isWindowsPath(this.currentPath) ? shortenPath(this.currentPath) : '/');
-      this.pinnedPaths.push({ path: this.currentPath, label, icon: 'СЂСџвЂњРѓ', addedAt: Date.now() });
+      this.pinnedPaths.push({ path: this.currentPath, label, icon: '📁', addedAt: Date.now() });
     }
     this.savePins();
   }
@@ -1417,7 +1417,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     return !!seg && this.pinnedPaths.some(p => samePath(p.path, seg.fullPath));
   }
 
-  // РІвЂќР‚РІвЂќР‚ Edit mode РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚
+  // ── Edit mode ─────────────────────────────────────────────────────────────
 
   enterEditMode(): void {
     this.closeAll();
@@ -1438,7 +1438,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     if (np && !samePath(np, this.currentPath)) this.navigateTo(np);
   }
 
-  // РІвЂќР‚РІвЂќР‚ Context menu РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚
+  // ── Context menu ──────────────────────────────────────────────────────────
 
   onSegRightClick(seg: PathSegment, idx: number, e: MouseEvent): void {
     e.preventDefault(); e.stopPropagation();
@@ -1459,7 +1459,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     if (already) {
       this.pinnedPaths = this.pinnedPaths.filter(p => !samePath(p.path, seg.fullPath));
     } else {
-      this.pinnedPaths.push({ path: seg.fullPath, label: seg.label, icon: 'СЂСџвЂњРѓ', addedAt: Date.now() });
+      this.pinnedPaths.push({ path: seg.fullPath, label: seg.label, icon: '📁', addedAt: Date.now() });
     }
     this.savePins();
     this.closeCtx();
@@ -1467,7 +1467,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
 
   private closeCtx(): void { this.ctxMenu = { ...CTX_MENU_CLOSED }; this.ctxAnchorEl = null; }
 
-  // РІвЂќР‚РІвЂќР‚ Navigation РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚
+  // ── Navigation ────────────────────────────────────────────────────────────
 
   goUp(): void {
     this.navigateUpClicked.emit();
@@ -1492,7 +1492,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     this.pathChange.emit(np);
   }
 
-  // РІвЂќР‚РІвЂќР‚ Close all overlays РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚
+  // ── Close all overlays ────────────────────────────────────────────────────
 
   private closeAll(): void {
     this.chevIdx       = -1;
@@ -1504,7 +1504,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     this.closeCtx();
   }
 
-  // РІвЂќР‚РІвЂќР‚ Outside-click / keyboard РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚
+  // ── Outside-click / keyboard ──────────────────────────────────────────────
 
   onHostKeyDown(e: KeyboardEvent): void {
     if ((e.ctrlKey || e.metaKey) && e.key === 'l') { e.preventDefault(); this.enterEditMode(); }

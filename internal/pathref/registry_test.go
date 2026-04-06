@@ -52,3 +52,27 @@ func TestToVFSAddsDefaultSMBPort(t *testing.T) {
 		t.Fatalf("ToVFS(smb) mismatch\nwant: %q\n got: %q", want, got)
 	}
 }
+
+func TestParentKeepsHTTPAliasesNavigable(t *testing.T) {
+	got, ok := Parent("https://example.com/app/assets/main.js")
+	if !ok {
+		t.Fatalf("Parent(http alias) did not match")
+	}
+
+	want := "https://example.com/app/assets"
+	if got != want {
+		t.Fatalf("Parent(http alias) mismatch\nwant: %q\n got: %q", want, got)
+	}
+}
+
+func TestIsWebRecognizesHTTPAliases(t *testing.T) {
+	if !IsWeb("http://example.com") {
+		t.Fatalf("expected http alias to be recognized as web")
+	}
+	if !IsWeb("https://example.com") {
+		t.Fatalf("expected https alias to be recognized as web")
+	}
+	if IsWeb("ftp://example.com") {
+		t.Fatalf("did not expect ftp alias to be recognized as web")
+	}
+}

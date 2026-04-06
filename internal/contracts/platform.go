@@ -28,6 +28,8 @@ const (
 	DriveMemory    DriveType = "memory"
 	DriveRegistry  DriveType = "registry"
 	DriveSearch    DriveType = "search"
+	DriveHTTP      DriveType = "http"
+	DriveHTTPS     DriveType = "https"
 	DriveSMB       DriveType = "smb"
 	DriveFTP       DriveType = "ftp"
 	DriveSFTP      DriveType = "sftp"

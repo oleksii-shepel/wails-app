@@ -70,6 +70,16 @@ func syntheticDrives() []contracts.DriveInfo {
 			DriveType: contracts.DriveSearch,
 		},
 		{
+			Name:      "HTTP",
+			Path:      pathref.HTTPAliasScheme,
+			DriveType: contracts.DriveHTTP,
+		},
+		{
+			Name:      "HTTPS",
+			Path:      pathref.HTTPSAliasScheme,
+			DriveType: contracts.DriveHTTPS,
+		},
+		{
 			Name:      "SMB",
 			Path:      pathref.SMBScheme,
 			DriveType: contracts.DriveSMB,

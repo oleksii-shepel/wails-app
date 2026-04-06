@@ -43,6 +43,8 @@ export type DriveType =
   | 'memory'
   | 'registry'
   | 'search'
+  | 'http'
+  | 'https'
   | 'smb'
   | 'ftp'
   | 'sftp'

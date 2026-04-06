@@ -12,6 +12,8 @@ const (
 	RegistryScheme  = "registry://"
 	SearchScheme    = "search://"
 	MemoryScheme    = "memory://"
+	HTTPAliasScheme = "http://"
+	HTTPSAliasScheme = "https://"
 	SMBScheme       = "smb://"
 	FTPScheme       = "ftp://"
 	SFTPScheme      = "sftp://"
@@ -39,6 +41,8 @@ var aliasSpecs = []aliasSpec{
 	{scheme: RegistryScheme, vfsRoot: registryVFSRoot},
 	{scheme: SearchScheme},
 	{scheme: MemoryScheme, vfsRoot: memoryVFSRoot},
+	{scheme: HTTPSAliasScheme},
+	{scheme: HTTPAliasScheme},
 	{scheme: SMBScheme, vfsRoot: smbVFSRoot},
 	{scheme: FTPScheme, vfsRoot: ftpVFSRoot},
 	{scheme: SFTPScheme, vfsRoot: sftpVFSRoot},
@@ -195,6 +199,11 @@ func IsSearch(path string) bool {
 func IsMemory(path string) bool {
 	spec, ok := aliasSpecFor(path)
 	return ok && spec.scheme == MemoryScheme
+}
+
+func IsWeb(path string) bool {
+	spec, ok := aliasSpecFor(path)
+	return ok && (spec.scheme == HTTPAliasScheme || spec.scheme == HTTPSAliasScheme)
 }
 
 func BuildSearch(basePath, pattern string, recursive bool) (string, error) {

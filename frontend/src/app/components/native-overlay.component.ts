@@ -256,11 +256,7 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
 
     const theme = this.resolveTheme();
     const backgroundColor = this.resolveBackgroundColor(theme);
-
-    const backdrop = this.backdropEl?.nativeElement;
-    if (backdrop) {
-      backdrop.style.background = backgroundColor;
-    }
+    this.applyBackgroundColor(backgroundColor);
 
     // ── Freeze transitions ────────────────────────────────────
     const frozen = this.isFreezeRequested();
@@ -628,14 +624,7 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
     if (typeof window === 'undefined') {
       return fallback;
     }
-    let candidate = '';
-    if (this.hostEl?.nativeElement) {
-      const elStyles = getComputedStyle(this.hostEl.nativeElement);
-      candidate = elStyles.backgroundColor;
-      if (candidate === 'rgba(0, 0, 0, 0)' || candidate === 'transparent') {
-        candidate = '';
-      }
-    }
+    let candidate = this.findNearestPaintedBackground(this.hostEl?.nativeElement?.parentElement ?? null);
     if (!candidate) {
       const rootStyles = getComputedStyle(document.documentElement);
       const bodyStyles = getComputedStyle(document.body);
@@ -662,5 +651,40 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
       return `#${hex(rgb[1])}${hex(rgb[2])}${hex(rgb[3])}`;
     }
     return fallback;
+  }
+
+  private applyBackgroundColor(color: string): void {
+    const host = this.hostEl?.nativeElement;
+    if (host) {
+      host.style.backgroundColor = color;
+      const parent = host.parentElement as HTMLElement | null;
+      if (parent) {
+        parent.style.backgroundColor = color;
+      }
+    }
+
+    const backdrop = this.backdropEl?.nativeElement;
+    if (backdrop) {
+      backdrop.style.backgroundColor = color;
+    }
+  }
+
+  private findNearestPaintedBackground(start: HTMLElement | null): string {
+    let current: HTMLElement | null = start;
+    while (current) {
+      const candidate = getComputedStyle(current).backgroundColor;
+      if (!this.isTransparentColor(candidate)) {
+        return candidate;
+      }
+      current = current.parentElement;
+    }
+    return '';
+  }
+
+  private isTransparentColor(value: string): boolean {
+    const normalized = (value ?? '').trim().toLowerCase();
+    return !normalized
+      || normalized === 'transparent'
+      || normalized === 'rgba(0, 0, 0, 0)';
   }
 }

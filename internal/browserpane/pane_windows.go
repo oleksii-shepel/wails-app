@@ -818,8 +818,31 @@ func normalizeBrowserPaneTheme(theme string) string {
 func browserPaneBackgroundScript(r, g, b uint8) string {
 	return fmt.Sprintf(`(function(){
   try {
-    var s = document.documentElement.style;
-    if (s) s.backgroundColor = 'rgb(%d,%d,%d)';
+    var color = 'rgb(%d,%d,%d)';
+    var root = document.documentElement;
+    if (root && root.style) {
+      root.style.backgroundColor = color;
+      root.style.background = color;
+    }
+    var applyBodyBackground = function() {
+      try {
+        var body = document.body;
+        if (!body || !body.style) return;
+        var computed = '';
+        if (window.getComputedStyle) {
+          computed = window.getComputedStyle(body).backgroundColor || '';
+        }
+        if (!computed || computed === 'transparent' || computed === 'rgba(0, 0, 0, 0)') {
+          body.style.backgroundColor = color;
+          body.style.background = color;
+        }
+      } catch(_){}
+    };
+    applyBodyBackground();
+    if (!window.__wailsBrowserPaneBackgroundInit) {
+      window.__wailsBrowserPaneBackgroundInit = true;
+      document.addEventListener('DOMContentLoaded', applyBodyBackground, { once: true });
+    }
   } catch(_){}
 })();`, r, g, b)
 }

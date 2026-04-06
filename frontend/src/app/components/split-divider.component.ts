@@ -24,11 +24,14 @@ import {
   `,
     styles: [`
     :host {
+        display: block;
         width: 10px;
         margin: 0 -4px;
         cursor: url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20width=%2730%27%20height=%2730%27%20viewBox=%270%200%2024%2024%27%3E%3Cpath%20fill=%27white%27%20d=%27M11%202h2v20h-2zM6.29%207.29l-4%204a.996.996%200%200%200%200%201.41l4%204%201.41-1.41L4.41%2012%207.7%208.71%206.29%207.3ZM17.71%207.29%2016.3%208.7l3.29%203.29-3.29%203.29%201.41%201.41%204-4a.996.996%200%200%200%200-1.41l-4-4Z%27/%3E%3C/svg%3E") 15 15, col-resize;
         position: relative;
         z-index: var(--vsc-z-divider, 750);
+        isolation: isolate;
+        overflow: visible;
         user-select: none;
         transition: left .16s cubic-bezier(.2,.7,.3,1);
         color: var(--vsc-foreground, #cccccc);
@@ -41,16 +44,26 @@ import {
         margin: auto;
         width: 2px;
         height: 100%;
+        z-index: 1;
         background: var(--vsc-border-subtle, #3a3a3a);
+        box-shadow:
+          0 0 0 1px color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 40%, transparent),
+          0 0 8px color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 35%, transparent);
         transition: all var(--vsc-transition-fast, 0.1s ease);
     }
 
-    :host:hover .line {
+    :host:hover .line,
+    :host.hovering .line,
+    :host-context(body.divider-hover) .line {
         width: 2px;
         background: var(--vsc-border-bright, #5a5a5a);
+        box-shadow:
+          0 0 0 1px color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 55%, transparent),
+          0 0 10px color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 45%, transparent);
     }
 
-    :host.dragging .line {
+    :host.dragging .line,
+    :host-context(body.divider-dragging) .line {
         width: 2px;
         background: var(--vsc-accent-blue, #007acc);
         box-shadow: 0 0 0 2px color-mix(in srgb, var(--vsc-accent-blue, #007acc) 20%, transparent);
@@ -70,6 +83,7 @@ import {
         width: 8px;
         height: 28px;
         border-radius: var(--vsc-border-radius-lg, 4px);
+        z-index: 2;
 
         /* Light grey, subtle background */
         background: var(--vsc-foreground-dim, #888888);
@@ -77,11 +91,15 @@ import {
 
         opacity: 0;
         transition: all var(--vsc-transition-fast, 0.1s ease);
-        box-shadow: none;
+        box-shadow:
+          0 6px 12px color-mix(in srgb, black 30%, transparent),
+          0 0 0 1px color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 55%, transparent);
     }
 
     /* hover = slightly more visible but still subtle */
-    :host:hover .handle {
+    :host:hover .handle,
+    :host.hovering .handle,
+    :host-context(body.divider-hover) .handle {
         opacity: 0.7;
         background: var(--vsc-foreground, #cccccc);
         border-color: var(--vsc-border, #454545);
@@ -89,7 +107,8 @@ import {
     }
 
     /* dragging = accent border, still grey fill */
-    :host.dragging .handle {
+    :host.dragging .handle,
+    :host-context(body.divider-dragging) .handle {
         opacity: 1;
         background: var(--vsc-foreground, #cccccc);
         border-color: var(--vsc-accent-blue, #007acc);
@@ -99,7 +118,10 @@ import {
 
     /* show on hover or drag */
     :host:hover .handle,
-    :host.dragging .handle {
+    :host.hovering .handle,
+    :host.dragging .handle,
+    :host-context(body.divider-hover) .handle,
+    :host-context(body.divider-dragging) .handle {
         opacity: 1;
     }
 
@@ -122,6 +144,7 @@ import {
         color: var(--vsc-foreground, #cccccc);
         white-space: nowrap;
         pointer-events: none;
+        z-index: 3;
 
         box-shadow: var(--vsc-widget-shadow, 0 5px 8px 0 rgba(0, 0, 0, 0.36));
 
@@ -212,6 +235,7 @@ export class SplitDividerComponent implements OnDestroy {
     /* ---------------- STATE ---------------- */
 
     dragging = false;
+    hovering = false;
     snapPreview = 50;
     private startX = 0;
     private startPos = 50;
@@ -224,6 +248,7 @@ export class SplitDividerComponent implements OnDestroy {
 
     ngOnDestroy(): void {
         this.clearHoverTimers();
+        this.hovering = false;
         this.setBodyInteractionClass('divider-hover', false);
         this.setBodyInteractionClass('divider-dragging', false);
     }
@@ -236,6 +261,7 @@ export class SplitDividerComponent implements OnDestroy {
 
         this.clearHoverTimers();
         this.dragging = true;
+        this.hovering = true;
         this.startX = e.clientX;
         this.startPos = this.position;
 
@@ -250,6 +276,7 @@ export class SplitDividerComponent implements OnDestroy {
             this.hoverLeaveTimer = null;
         }
         if (this.dragging || document.body.classList.contains('divider-hover')) {
+            this.hovering = true;
             this.setBodyInteractionClass('divider-hover', true);
             return;
         }
@@ -258,6 +285,7 @@ export class SplitDividerComponent implements OnDestroy {
         }
         this.hoverEnterTimer = setTimeout(() => {
             this.hoverEnterTimer = null;
+            this.hovering = true;
             this.setBodyInteractionClass('divider-hover', true);
         }, this.hoverEnterDelayMs);
     }
@@ -277,6 +305,7 @@ export class SplitDividerComponent implements OnDestroy {
         this.hoverLeaveTimer = setTimeout(() => {
             this.hoverLeaveTimer = null;
             if (!this.el.nativeElement.matches(':hover')) {
+                this.hovering = false;
                 this.setBodyInteractionClass('divider-hover', false);
             }
         }, this.hoverLeaveDelayMs);
@@ -310,8 +339,10 @@ export class SplitDividerComponent implements OnDestroy {
         this.dragging = false;
         this.setBodyInteractionClass('divider-dragging', false);
         if (this.el.nativeElement.matches(':hover')) {
+            this.hovering = true;
             this.setBodyInteractionClass('divider-hover', true);
         } else {
+            this.hovering = false;
             this.onPointerLeave();
         }
 
@@ -397,5 +428,10 @@ export class SplitDividerComponent implements OnDestroy {
     @HostBinding('class.dragging')
     get isDragging() {
         return this.dragging;
+    }
+
+    @HostBinding('class.hovering')
+    get isHovering() {
+        return this.hovering;
     }
 }

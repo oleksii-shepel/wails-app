@@ -349,8 +349,7 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
   }
 
   private shouldFreezeNativePane(): boolean {
-    return document.body.classList.contains('divider-dragging')
-      || this.overlayFreeze.frozen
+    return this.isFreezeRequested()
       || this.hoverFreezeActive;
   }
 
@@ -592,6 +591,9 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
     canvas.style.display = 'block';
     canvas.style.zIndex = '2';
     this.screenshotVisible = true;
+    if (document.body.classList.contains('divider-hover')) {
+      this.hoverFreezeActive = true;
+    }
     this.lastSyncKey = '';
     this.requestSync();
   }

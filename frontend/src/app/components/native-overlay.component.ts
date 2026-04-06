@@ -136,6 +136,11 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
   }
 
   ngOnChanges(changes: SimpleChanges): void {
+    if (changes['url'] || changes['surfaceId']) {
+      this.screenshotRequestId++;
+      this.wasFrozen = false;
+      this.hideCanvas(true);
+    }
     if (changes['url'] || changes['active'] || changes['surfaceId']) {
       this.refresh();
     }
@@ -162,7 +167,7 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
     if (!this.active) {
       this.screenshotRequestId++;
       this.wasFrozen = false;
-      this.hideCanvas();
+      this.hideCanvas(true);
       this.stopTracking();
       this.requestSync();
       return;
@@ -238,15 +243,14 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
           this.requestSync();
           return;
         }
-        if (this.screenshotPending && document.body.classList.contains('divider-dragging')) {
-          this.maybeStartScreenshotCapture();
+        if (this.screenshotPending && this.isFreezeRequested()) {
+          this.scheduleScreenshotCooldown(16);
         }
       });
   }
 
   private async sync(): Promise<void> {
     if (!this.surfaceId) {
-      console.warn('[NativeOverlay] sync skipped: no surfaceId');
       return;
     }
 
@@ -270,7 +274,7 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
       this.wasFrozen = false;
       this.hoverFreezeActive = false;
       this.screenshotRequestId++;
-      this.hideCanvas();
+      this.hideCanvas(false);
     }
 
     const freezeNativePane = this.shouldFreezeNativePane()
@@ -278,7 +282,6 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
 
     // ── Hidden ────────────────────────────────────────────────
     if (!this.active) {
-      console.warn('[NativeOverlay] sync: not active, sending hidden');
       this.lastSyncKey = '';
       await this.nativeBrowserPane.sync({
         surfaceId: this.surfaceId,
@@ -294,7 +297,6 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
     // ── Measure host element ──────────────────────────────────
     const host = this.hostEl?.nativeElement;
     if (!host) {
-      console.warn('[NativeOverlay] sync skipped: no host element');
       return;
     }
 
@@ -306,7 +308,6 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
     const width = Math.max(0, Math.round(rect.width * scale));
     const height = Math.max(0, Math.round(rect.height * scale));
     if (width <= 0 || height <= 0) {
-      console.warn('[NativeOverlay] sync skipped: zero dimensions', width, height);
       return;
     }
 
@@ -326,15 +327,12 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
       return;
     }
 
-    console.warn(`[NativeOverlay] sync: visible=${request.visible} frozen=${frozen} freezePane=${freezeNativePane} ssVisible=${this.screenshotVisible} svcFrozen=${this.overlayFreeze.frozen} ${request.width}x${request.height} active=${this.active} url=${request.url?.slice(0,40)}`);
-
     try {
-      const ok = await this.nativeBrowserPane.sync(request);
-      if (ok) {
+      if (await this.nativeBrowserPane.sync(request)) {
         this.lastSyncKey = syncKey;
       }
     } catch (error) {
-      console.warn('[NativeOverlay] sync failed:', this.surfaceId, error);
+      void error;
     }
   }
 
@@ -371,6 +369,11 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
 
   private async prepareScreenshot(): Promise<void> {
     this.screenshotPending = true;
+    this.revealCachedCanvasIfAvailable();
+    if (this.syncInFlight) {
+      this.scheduleScreenshotCooldown(16);
+      return;
+    }
     this.maybeStartScreenshotCapture();
   }
 
@@ -396,7 +399,7 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
       this.lastSyncKey = '';
       this.requestSync();
     } catch (e) {
-      console.warn('[NativeOverlay] capture failed:', e);
+      void e;
     } finally {
       this.capturingScreenshot = false;
       if (this.isFreezeRequested() && (this.screenshotPending || this.shouldRefreshScreenshot())) {
@@ -417,7 +420,7 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
     if (!this.screenshotPending || !this.isFreezeRequested() || this.capturingScreenshot) {
       return;
     }
-    if (document.body.classList.contains('divider-dragging') && this.syncInFlight) {
+    if (this.syncInFlight) {
       this.scheduleScreenshotCooldown(16);
       return;
     }
@@ -471,8 +474,8 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
 
   private drawOnCanvas(base64Data: string, requestId: number): Promise<boolean> {
     const host = this.hostEl?.nativeElement;
-    const nextCanvas = this.getBackBuffer();
-    if (!nextCanvas || !host) {
+    const canvas = this.getBackBuffer();
+    if (!canvas || !host) {
       return Promise.resolve(false);
     }
     const hostRect = host.getBoundingClientRect();
@@ -490,11 +493,12 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
           resolve(false);
           return;
         }
-        nextCanvas.width = bitmap.width;
-        nextCanvas.height = bitmap.height;
-        nextCanvas.style.width = `${cssW}px`;
-        nextCanvas.style.height = `${cssH}px`;
-        const ctx = nextCanvas.getContext('2d');
+        canvas.width = bitmap.width;
+        canvas.height = bitmap.height;
+        canvas.style.width = `${cssW}px`;
+        canvas.style.height = `${cssH}px`;
+
+        const ctx = canvas.getContext('2d', { alpha: false });
         if (!ctx) {
           if ('close' in bitmap) {
             (bitmap as ImageBitmap).close();
@@ -502,12 +506,14 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
           resolve(false);
           return;
         }
-        ctx.clearRect(0, 0, nextCanvas.width, nextCanvas.height);
+        ctx.globalCompositeOperation = 'copy';
         ctx.drawImage(bitmap, 0, 0);
+
         if ('close' in bitmap) {
           (bitmap as ImageBitmap).close();
         }
-        this.showCanvas(nextCanvas);
+
+        this.showCanvas(canvas);
         this.lastScreenshotWidth = cssW;
         this.lastScreenshotHeight = cssH;
         this.screenshotVisible = true;
@@ -516,16 +522,20 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
     });
   }
 
-  private hideCanvas(): void {
+  private hideCanvas(clearCache: boolean): void {
     this.screenshotVisible = false;
     this.lastScreenshotWidth = 0;
     this.lastScreenshotHeight = 0;
-    this.activeCanvas = null;
     this.screenshotPending = false;
     this.lastScreenshotStartedAt = 0;
     this.clearScreenshotCooldown();
     this.canvasA?.nativeElement && this.hideOneCanvas(this.canvasA.nativeElement);
     this.canvasB?.nativeElement && this.hideOneCanvas(this.canvasB.nativeElement);
+    if (clearCache) {
+      this.activeCanvas = null;
+      this.clearCanvasBitmap(this.canvasA?.nativeElement ?? null);
+      this.clearCanvasBitmap(this.canvasB?.nativeElement ?? null);
+    }
   }
 
   private getBackBuffer(): HTMLCanvasElement | null {
@@ -561,6 +571,31 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
     canvas.style.zIndex = '1';
   }
 
+  private clearCanvasBitmap(canvas: HTMLCanvasElement | null): void {
+    if (!canvas) {
+      return;
+    }
+    canvas.width = 0;
+    canvas.height = 0;
+    canvas.style.width = '0px';
+    canvas.style.height = '0px';
+  }
+
+  private revealCachedCanvasIfAvailable(): void {
+    if (this.screenshotVisible) {
+      return;
+    }
+    const canvas = this.getActiveBuffer();
+    if (!canvas || canvas.width <= 0 || canvas.height <= 0) {
+      return;
+    }
+    canvas.style.display = 'block';
+    canvas.style.zIndex = '2';
+    this.screenshotVisible = true;
+    this.lastSyncKey = '';
+    this.requestSync();
+  }
+
   private async decodeBitmap(base64Data: string): Promise<ImageBitmap | HTMLImageElement | null> {
     const dataUrl = `data:image/jpeg;base64,${base64Data}`;
     if (typeof createImageBitmap === 'function') {
@@ -591,12 +626,22 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
     if (typeof window === 'undefined') {
       return fallback;
     }
-    const rootStyles = getComputedStyle(document.documentElement);
-    const bodyStyles = getComputedStyle(document.body);
-    const candidate = rootStyles.getPropertyValue('--vsc-editor-background').trim()
-      || rootStyles.backgroundColor
-      || bodyStyles.backgroundColor
-      || fallback;
+    let candidate = '';
+    if (this.hostEl?.nativeElement) {
+      const elStyles = getComputedStyle(this.hostEl.nativeElement);
+      candidate = elStyles.backgroundColor;
+      if (candidate === 'rgba(0, 0, 0, 0)' || candidate === 'transparent') {
+        candidate = '';
+      }
+    }
+    if (!candidate) {
+      const rootStyles = getComputedStyle(document.documentElement);
+      const bodyStyles = getComputedStyle(document.body);
+      candidate = rootStyles.getPropertyValue('--vsc-editor-background').trim()
+        || rootStyles.backgroundColor
+        || bodyStyles.backgroundColor
+        || fallback;
+    }
     return this.normalizeColorToHex(candidate, fallback);
   }
 

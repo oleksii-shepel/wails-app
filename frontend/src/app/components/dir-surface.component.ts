@@ -107,6 +107,15 @@ import { DirSurfaceVm } from '../surfaces/dir/dir-surface.vm';
     app-action-bar {
       display: block;
       flex-shrink: 0;
+      position: relative;
+    }
+
+    app-address-bar {
+      z-index: 3;
+    }
+
+    app-action-bar {
+      z-index: 2;
     }
 
     /* The list host is the anchor for the find widget overlay */
@@ -117,6 +126,7 @@ import { DirSurfaceVm } from '../surfaces/dir/dir-surface.vm';
       flex: 1 1 0%;
       min-height: 0;
       overflow: hidden;
+      z-index: 1;
     }
 
     app-find-widget {

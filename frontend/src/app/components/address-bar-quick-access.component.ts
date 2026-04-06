@@ -234,7 +234,6 @@ export interface QuickAccessItem {
     .ab-quick-access-drop {
       min-width: 360px;
       max-width: 520px;
-      z-index: 9999 !important;
       background-color: var(--vsc-panel-background, #252526) !important;
       background-image: none !important;
       border: 1px solid var(--vsc-border);
@@ -1121,3 +1120,4 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChan
     return normalized;
   }
 }
+

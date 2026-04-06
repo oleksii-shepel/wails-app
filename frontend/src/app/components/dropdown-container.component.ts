@@ -1,7 +1,8 @@
 // dropdown-container.component.ts
-import { Component, Input, Output, EventEmitter, ViewChild, ContentChild, ElementRef, OnChanges, SimpleChanges, AfterViewInit } from '@angular/core';
+import { Component, Input, Output, EventEmitter, ViewChild, ContentChild, ElementRef, OnChanges, SimpleChanges, AfterViewInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { DropdownDirective, DropdownTriggerDirective, DropdownMenuDirective } from '../directives/dropdown.directive';
+import { NativeOverlayFreezeService } from '../services/native-overlay-freeze.service';
 
 @Component({
   selector: 'app-dropdown-container',
@@ -49,13 +50,13 @@ import { DropdownDirective, DropdownTriggerDirective, DropdownMenuDirective } fr
       width: 100vw;
       height: 100vh;
       background-color: rgba(0, 0, 0, 0.4);
-      z-index: 998;
+      z-index: calc(var(--vsc-z-dropdown) - 1);
       cursor: default;
     }
 
     .dropdown-menu-wrapper {
       position: fixed;
-      z-index: 999;
+      z-index: var(--vsc-z-dropdown);
       animation: dropdown-appear 0.12s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
@@ -65,7 +66,7 @@ import { DropdownDirective, DropdownTriggerDirective, DropdownMenuDirective } fr
     }
   `]
 })
-export class DropdownContainerComponent implements AfterViewInit, OnChanges {
+export class DropdownContainerComponent implements AfterViewInit, OnChanges, OnDestroy {
   @Input() isOpen = false;
   /** Fallback anchor for when the trigger element is outside the container (e.g. right-click menus). */
   @Input() anchorEl: HTMLElement | null = null;
@@ -73,12 +74,18 @@ export class DropdownContainerComponent implements AfterViewInit, OnChanges {
 
   @ViewChild('dropdownRef', { static: true }) dropdownRef?: DropdownDirective;
   @ContentChild(DropdownTriggerDirective, { static: false }) triggerDir?: DropdownTriggerDirective;
+  private readonly overlayFreezeKey = `dropdown:${Math.random().toString(36).slice(2, 8)}`;
+  private overlayFreezeHeld = false;
 
-  constructor(private _el: ElementRef<HTMLElement>) {}
+  constructor(
+    private _el: ElementRef<HTMLElement>,
+    private overlayFreeze: NativeOverlayFreezeService,
+  ) {}
 
   onToggle(state: boolean) {
     this.isOpen = state;
     this.isOpenChange.emit(state);
+    this.syncOverlayFreeze();
   }
 
   onBackdropClick(event: MouseEvent): void {
@@ -90,11 +97,15 @@ export class DropdownContainerComponent implements AfterViewInit, OnChanges {
   close() {
     this.isOpen = false;
     this.isOpenChange.emit(false);
+    this.syncOverlayFreeze();
   }
 
   ngAfterViewInit(): void {}
 
   ngOnChanges(changes: SimpleChanges): void {
+    if (changes['isOpen']) {
+      this.syncOverlayFreeze();
+    }
     if (changes['isOpen']?.currentValue === true) {
       // Use requestAnimationFrame to ensure DOM is ready
       requestAnimationFrame(() => {
@@ -104,6 +115,14 @@ export class DropdownContainerComponent implements AfterViewInit, OnChanges {
         }, 0);
       });
     }
+  }
+
+  ngOnDestroy(): void {
+    if (!this.overlayFreezeHeld) {
+      return;
+    }
+    this.overlayFreeze.release(this.overlayFreezeKey);
+    this.overlayFreezeHeld = false;
   }
 
   private focusMenu(): void {
@@ -134,6 +153,24 @@ export class DropdownContainerComponent implements AfterViewInit, OnChanges {
     wrapperEl.style.position = 'fixed';
     wrapperEl.style.left     = `${Math.round(left)}px`;
     wrapperEl.style.top      = `${Math.round(top)}px`;
-    wrapperEl.style.zIndex   = '9999';
+    wrapperEl.style.zIndex   = getComputedStyle(document.documentElement)
+      .getPropertyValue('--vsc-z-dropdown')
+      .trim() || '1000';
+  }
+
+  private syncOverlayFreeze(): void {
+    if (this.isOpen) {
+      if (!this.overlayFreezeHeld) {
+        this.overlayFreeze.acquire(this.overlayFreezeKey);
+        this.overlayFreezeHeld = true;
+      }
+      return;
+    }
+
+    if (!this.overlayFreezeHeld) {
+      return;
+    }
+    this.overlayFreeze.release(this.overlayFreezeKey);
+    this.overlayFreezeHeld = false;
   }
 }

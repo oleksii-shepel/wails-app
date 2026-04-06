@@ -23,12 +23,13 @@ const (
 	wsChild        = 0x40000000
 	wsClipChildren = 0x02000000
 	wsClipSiblings = 0x04000000
+	offscreenX     = -32000
+	offscreenY     = -32000
 	swHide         = 0
 	swShow         = 5
 	swShowNA       = 8
 	swpNoActivate  = 0x0010
-	swpNoRedraw    = 0x0008
-	swpDeferErase  = 0x2000
+	swpNoZOrder    = 0x0004
 	pmRemove       = 0x0001
 	gwOwner        = 4
 	wmEraseBkgnd   = 0x0014
@@ -389,7 +390,7 @@ func (p *windowsPane) run(initial Update) {
 			command.result <- state.sync(*command.update)
 		default:
 			pumpWindowsMessages()
-			time.Sleep(10 * time.Millisecond)
+			time.Sleep(2 * time.Millisecond)
 		}
 	}
 }
@@ -507,28 +508,27 @@ func newWindowsPaneState(initialTheme string, initialBackgroundColor string) (*w
 func (s *windowsPaneState) sync(update Update) error {
 	s.targetVisible = update.Visible
 	captureOnly := !update.Visible && update.Width > 0 && update.Height > 0
+	targetX := update.X
+	targetY := update.Y
+	if captureOnly {
+		targetX = offscreenX
+		targetY = offscreenY
+	}
 	if update.Width > 0 && update.Height > 0 {
-		x := update.X
-		y := update.Y
-		if captureOnly {
-			// Keep WebView2 alive and repainting while moving it outside the parent
-			// viewport so the user does not see it during divider drag.
-			x = 100000
-			y = 0
-		}
 		_, _, setPosErr := procSetWindowPos.Call(
 			s.hostHWND,
 			0,
-			uintptr(x),
-			uintptr(y),
+			uintptr(targetX),
+			uintptr(targetY),
 			uintptr(update.Width),
 			uintptr(update.Height),
-			uintptr(swpNoActivate|swpNoRedraw|swpDeferErase),
+			uintptr(swpNoActivate),
 		)
 		if setPosErr != windows.ERROR_SUCCESS && setPosErr != syscall.Errno(0) {
 			return fmt.Errorf("position browser pane: %w", setPosErr)
 		}
 		s.chromium.Resize()
+		s.notifyPositionChanged()
 	}
 
 	themeChanged := s.theme != update.Theme || s.backgroundColor != update.BackgroundColor
@@ -552,13 +552,19 @@ func (s *windowsPaneState) sync(update Update) error {
 		}
 	}
 	if captureOnly {
+		// Keep the live WebView rendering offscreen so screenshots stay fresh
+		// while the DOM canvas replacement is visible to the user.
 		s.captureOnly = true
-		if !s.visible {
-			s.show()
-		}
+		s.setControllerVisible(true)
+		_, _, _ = procShowWindow.Call(s.hostHWND, swShowNA)
+		_ = s.chromium.Show()
+		s.visible = false
 		return nil
 	}
-	s.captureOnly = false
+	if s.captureOnly {
+		s.captureOnly = false
+		s.setControllerVisible(true)
+	}
 	if !update.Visible {
 		if s.visible {
 			_ = s.chromium.Hide()
@@ -570,19 +576,35 @@ func (s *windowsPaneState) sync(update Update) error {
 	if !s.initialNavigationDone {
 		return nil
 	}
-	if !s.visible {
-		s.show()
-	}
+	s.show()
 	return nil
 }
 
 func (s *windowsPaneState) show() {
-	if s == nil || s.visible || s.hostHWND == 0 || s.chromium == nil {
+	if s == nil || s.hostHWND == 0 || s.chromium == nil {
 		return
 	}
+	s.setControllerVisible(true)
 	_, _, _ = procShowWindow.Call(s.hostHWND, swShowNA)
 	_ = s.chromium.Show()
 	s.visible = true
+}
+
+func (s *windowsPaneState) notifyPositionChanged() {
+	controller, _, _ := chromiumHandles(s.chromium)
+	if controller == nil {
+		return
+	}
+	raw := (*rawWebView2Controller)(unsafe.Pointer(controller))
+	raw.Vtbl.NotifyParentWindowPositionChanged.Call(uintptr(unsafe.Pointer(raw)))
+}
+
+func (s *windowsPaneState) setControllerVisible(visible bool) {
+	controller, _, _ := chromiumHandles(s.chromium)
+	if controller == nil {
+		return
+	}
+	_ = controller.PutIsVisible(visible)
 }
 
 func (s *windowsPaneState) dispose() error {

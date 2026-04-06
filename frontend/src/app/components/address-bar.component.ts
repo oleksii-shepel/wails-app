@@ -629,10 +629,9 @@ import { DropdownContainerComponent } from './dropdown-container.component';
 
     /* Context menu */
     .ab-ctx-menu {
-      position: fixed; min-width: 200px;
+      min-width: 200px;
       background: var(--vsc-panel-background); border: 1px solid var(--vsc-border);
       border-radius: var(--vsc-border-radius); box-shadow: var(--vsc-widget-shadow);
-      z-index: calc(var(--vsc-z-modal) + 100);
       padding: var(--vsc-padding-xs) 0;
       animation: ab-ctx-appear var(--vsc-transition-fast) cubic-bezier(0.2, 0, 0.2, 1);
     }

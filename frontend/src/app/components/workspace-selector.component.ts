@@ -111,15 +111,11 @@ import { InputEngineService } from '../services/input-engine.service';
     .ws-caret--open { transform: rotate(180deg); opacity: 1; }
 
     .ws-menu {
-      position: absolute;
-      top: calc(100% + 4px);
-      left: 0;
       min-width: 250px;
       background: var(--vsc-panel-background);
       border: 1px solid var(--vsc-border-bright);
       border-radius: var(--vsc-border-radius);
       box-shadow: var(--vsc-widget-shadow);
-      z-index: var(--vsc-z-dropdown);
       overflow: hidden;
       animation: ws-in 0.12s ease-out;
     }

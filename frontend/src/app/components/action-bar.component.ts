@@ -204,7 +204,7 @@ export type ViewMode = 'list' | 'grid' | 'tree' | 'details';
 
     .view-divider { width:1px; height:20px; background:var(--vsc-border); margin:0 var(--vsc-padding-sm); }
 
-    .arrange-menu { min-width:192px; background:var(--vsc-input-background); border:1px solid var(--vsc-border); border-radius:var(--vsc-border-radius); box-shadow:var(--vsc-widget-shadow); z-index:var(--vsc-z-dropdown); padding:var(--vsc-padding-xs) 0; }
+    .arrange-menu { min-width:192px; background:var(--vsc-input-background); border:1px solid var(--vsc-border); border-radius:var(--vsc-border-radius); box-shadow:var(--vsc-widget-shadow); padding:var(--vsc-padding-xs) 0; }
     .arrange-option { display:flex; align-items:center; gap:var(--vsc-padding-sm); padding:var(--vsc-padding-sm) var(--vsc-padding-md); cursor:pointer; color:var(--vsc-foreground); font-size:var(--vsc-font-size); }
     .arrange-option:hover { background: var(--vsc-list-hover-background); }
     .arrange-option.active { color: var(--vsc-accent-blue); }

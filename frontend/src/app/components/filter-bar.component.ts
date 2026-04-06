@@ -300,12 +300,12 @@ import {
 
     /* ── Saved preset dropdown ────────────────────────────────────── */
     .fb-preset-dropdown {
-      position: fixed; min-width: 220px;
+      min-width: 220px;
       background: var(--vsc-panel-background);
       border: 1px solid var(--vsc-border);
       border-radius: var(--vsc-border-radius);
       box-shadow: var(--vsc-widget-shadow);
-      z-index: var(--vsc-z-dropdown); overflow: hidden;
+      overflow: hidden;
     }
     .fb-preset-head {
       display: flex; align-items: center; justify-content: space-between;

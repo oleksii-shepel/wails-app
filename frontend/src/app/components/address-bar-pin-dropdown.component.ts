@@ -74,13 +74,12 @@ import { shortenPath } from './address-bar.utils';
 
     /* dropdown base */
     .ab-dropdown {
-      position: absolute;
       background-color: var(--vsc-panel-background, #252526) !important;
       background-image: none !important;
       border: 1px solid var(--vsc-border);
       border-radius: var(--vsc-border-radius);
       box-shadow: var(--vsc-widget-shadow);
-      z-index: 9999; overflow: hidden;
+      overflow: hidden;
     }
 
     .ab-drop-head {

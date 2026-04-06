@@ -78,7 +78,6 @@ import { normalizePath as normalizeAddressBarPath } from './address-bar.utils';
     .ab-scheme-drop {
       position: static;
       min-width: 320px; max-width: 500px; padding: 0;
-      z-index: 9999 !important;
       background-color: var(--vsc-panel-background, #252526) !important;
       background-image: none !important;
       border: 1px solid var(--vsc-border);

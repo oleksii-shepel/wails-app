@@ -14,7 +14,6 @@
   border: 1px solid var(--vsc-border);
   border-radius: var(--vsc-border-radius);
   box-shadow: var(--vsc-widget-shadow);
-  z-index: 9999;
   overflow: hidden;
   animation: ab-appear var(--vsc-transition-fast) cubic-bezier(0.4, 0, 0.2, 1);
   isolation: isolate;

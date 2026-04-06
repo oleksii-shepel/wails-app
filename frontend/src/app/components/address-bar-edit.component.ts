@@ -12,6 +12,7 @@ import { DirectorySourceService } from '../services/directory-source.service';
 import { SchemeAutocompleteService } from '../services/scheme-autocomplete.service';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
+import { NativeOverlayFreezeService } from '../services/native-overlay-freeze.service';
 import { FileType, FileInfo } from '../shared/protocol';
 import { formatSearchAliasForEdit, highlightMatch, isWindowsPath, normalizeAddressBarPathInput, normalizePath } from './address-bar.utils';
 import { EventsOn } from 'wailsjs/runtime';
@@ -367,6 +368,8 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
   private readonly commandOwner = `widget.addressBar.edit:${Math.random().toString(36).slice(2, 8)}`;
   private releaseWidgetContext: (() => void) | null = null;
   private syntheticRootSuggestions: ReadonlyArray<{ path: string; displayName: string }> = [];
+  private readonly overlayFreezeKey = `address-bar-edit:${Math.random().toString(36).slice(2, 8)}`;
+  private overlayFreezeHeld = false;
 
   highlight = highlightMatch;
 
@@ -379,6 +382,7 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
     private hostEl: ElementRef,
     private inputContexts: InputContextService,
     private inputEngine: InputEngineService,
+    private overlayFreeze: NativeOverlayFreezeService,
   ) {}
 
   ngOnInit(): void {
@@ -404,6 +408,7 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
     this.destroy$.complete();
     this.releaseWidgetContext?.();
     this.releaseWidgetContext = null;
+    this.syncOverlayFreeze();
     this.unregisterInputCommands();
     document.removeEventListener('mousedown', this.onOutsideClick, { capture: true } as any);
   }
@@ -768,7 +773,7 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
       const q = (query || '').trim();
       const aliasRoots = this.buildAliasRootSuggestions(q);
       if (!q) {
-        this.suggestions = this.buildMergedSuggestions([], [], aliasRoots, q);
+        this.setSuggestions(this.buildMergedSuggestions([], [], aliasRoots, q));
         this.acIdx = -1;
         this.resetVirtualScroll();
         this.cdr.detectChanges();
@@ -781,7 +786,7 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
       if (requestId !== this.suggestionsRequestId) return;
 
       // Show history right away
-      this.suggestions = this.buildMergedSuggestions([], hist, aliasRoots, q);
+      this.setSuggestions(this.buildMergedSuggestions([], hist, aliasRoots, q));
       this.acIdx = -1;
       this.resetVirtualScroll();
       this.cdr.detectChanges();
@@ -794,7 +799,7 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
         if (dirPath) {
           await this.streamDirChildren(dirPath, prefix, (fsBatch) => {
             if (requestId !== this.suggestionsRequestId) return;
-            this.suggestions = this.buildMergedSuggestions(fsBatch, hist, aliasRoots, q);
+            this.setSuggestions(this.buildMergedSuggestions(fsBatch, hist, aliasRoots, q));
             this.updateVirtualWindow();
             this.cdr.detectChanges();
             setTimeout(() => this.attachDropScroll(), 0);
@@ -850,7 +855,7 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
 
       this.writeTabValue(withoutSlash);
       this.tabSession  = { candidates: siblings, index: idx, enteredDir: false };
-      this.suggestions = siblings;
+      this.setSuggestions(siblings);
       this.acIdx       = idx;
       this.cdr.detectChanges();
 
@@ -874,7 +879,7 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
 
     this.writeTabValue(this.formatEditorPath(candidate.path, candidate.path));
     this.tabSession  = { candidates: sessionCandidates, index, enteredDir };
-    this.suggestions = sessionCandidates;
+    this.setSuggestions(sessionCandidates);
     this.acIdx       = index;
     this.cdr.detectChanges();
 
@@ -1120,6 +1125,28 @@ export class AddressBarEditComponent implements OnInit, OnDestroy, OnChanges {
       (entry.matchType === 'directory' ? dirs : rest).push(entry);
     }
     return [...aliases, ...dirs, ...rest, ...deferredAliases];
+  }
+
+  private setSuggestions(suggestions: PathSuggestion[]): void {
+    this.suggestions = suggestions;
+    this.syncOverlayFreeze();
+  }
+
+  private syncOverlayFreeze(): void {
+    const shouldFreeze = this.suggestions.length > 0;
+    if (shouldFreeze) {
+      if (!this.overlayFreezeHeld) {
+        this.overlayFreeze.acquire(this.overlayFreezeKey);
+        this.overlayFreezeHeld = true;
+      }
+      return;
+    }
+
+    if (!this.overlayFreezeHeld) {
+      return;
+    }
+    this.overlayFreeze.release(this.overlayFreezeKey);
+    this.overlayFreezeHeld = false;
   }
 
   private registerInputCommands(): void {

@@ -1,9 +1,8 @@
 // file-view-container.component.ts
-// Add these new imports and update the component
 
 import {
   Component, Input, Output, EventEmitter,
-  ViewChild, OnChanges, OnDestroy, ChangeDetectorRef, SimpleChanges, ElementRef, AfterViewInit, NgZone
+  ViewChild, OnChanges, OnDestroy, ChangeDetectorRef, SimpleChanges, AfterViewInit,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { createSubject, fromPromise } from '@epikodelabs/streamix';
@@ -23,7 +22,7 @@ import { FileViewLifecycleController, type FileViewLifecycleHost } from './file-
 import { FileViewTreeController, type FileViewTreeHost } from './file-view-tree.controller';
 import { FileViewRuntimeController, type FileViewRuntimeHost } from './file-view-runtime.controller';
 import { FileViewSortController, type FileViewSortHost } from './file-view-sort.controller';
-import { NativeBrowserPaneService } from '../services/native-browser-pane.service';
+import { NativeOverlayComponent } from './native-overlay.component';
 
 export type ViewLayout = ViewMode;
 
@@ -35,16 +34,17 @@ export type ViewLayout = ViewMode;
     FileListComponent,
     FileGridComponent,
     FileTreeComponent,
-    FileDetailsComponent
+    FileDetailsComponent,
+    NativeOverlayComponent,
   ],
   template: `
     <div class="view-container">
       <div class="view-browser" *ngIf="showBrowserPane()">
-        <div #browserHost class="view-browser-host">
-          <div #browserBackdrop class="view-browser-backdrop"></div>
-          <canvas #browserCanvasA class="view-browser-canvas"></canvas>
-          <canvas #browserCanvasB class="view-browser-canvas"></canvas>
-        </div>
+        <app-native-overlay
+          [surfaceId]="surfaceId"
+          [url]="currentPath"
+          [active]="surfaceActive">
+        </app-native-overlay>
       </div>
 
       <div class="view-content">
@@ -155,29 +155,8 @@ export type ViewLayout = ViewMode;
       overflow: hidden;
       border-bottom: 1px solid var(--vsc-border);
       background: var(--vsc-editor-background);
-    }
-
-    .view-browser-host {
-      width: 100%;
-      height: 100%;
       position: relative;
-      flex: 1 1 auto;
-      min-width: 0;
-      overflow: hidden;
-    }
-
-    .view-browser-backdrop {
-      position: absolute;
-      inset: 0;
-    }
-
-    .view-browser-canvas {
-      position: absolute;
-      top: 0;
-      left: 0;
-      display: none;
-      z-index: 1;
-      pointer-events: none;
+      z-index: 0;
     }
 
     .view-content {
@@ -203,10 +182,6 @@ export type ViewLayout = ViewMode;
   `]
 })
 export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterViewInit {
-  @ViewChild('browserHost') browserHost?: ElementRef<HTMLElement>;
-  @ViewChild('browserBackdrop') browserBackdrop?: ElementRef<HTMLElement>;
-  @ViewChild('browserCanvasA') browserCanvasA?: ElementRef<HTMLCanvasElement>;
-  @ViewChild('browserCanvasB') browserCanvasB?: ElementRef<HTMLCanvasElement>;
   @ViewChild('fileTree') treeComponent?: FileTreeComponent;
   @ViewChild(FileListComponent) listComponent?: FileListComponent;
   @ViewChild(FileGridComponent) gridComponent?: FileGridComponent;
@@ -245,41 +220,12 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
   private destroy$     = createSubject<void>();
   pendingDirectorySizePaths: ReadonlySet<string> = new Set<string>();
   private lastTreeRefreshPath: string | null = null;
-  private nativeBrowserSyncTimer: ReturnType<typeof setInterval> | null = null;
-  private nativeBrowserSyncFrame: number | null = null;
-  private nativeBrowserSyncInFlight = false;
-  private nativeBrowserSyncQueued = false;
-  private lastNativeBrowserSyncKey = '';
-  private wasDividerInteracting = false;
-  private capturingScreenshot = false;
-  private screenshotVisible = false;
-  private screenshotRequestId = 0;
-  private lastScreenshotWidth = 0;
-  private lastScreenshotHeight = 0;
-  private activeScreenshotCanvas: 'a' | 'b' | null = null;
-  private hoverFreezeActive = false;
-  private dividerScreenshotPending = false;
-  private dividerScreenshotCooldownTimer: ReturnType<typeof setTimeout> | null = null;
-  private lastDividerScreenshotStartedAt = 0;
-  private readonly dividerScreenshotMinInterval = 50;
   private readonly eventsController = new FileViewEventsController();
   private readonly interactionController = new FileViewInteractionController();
   private readonly lifecycleController = new FileViewLifecycleController();
   private readonly treeController = new FileViewTreeController();
   private readonly runtimeController = new FileViewRuntimeController();
   private readonly sortController = new FileViewSortController();
-  private readonly handleDividerStateChange = () => {
-    this.updateHoverFreezeState();
-    this.refreshNativeBrowserTracking();
-    this.requestNativeBrowserSync();
-  };
-  private readonly handleDividerMove = () => {
-    if (!this.surfaceActive || !this.showBrowserPane() || !document.body.classList.contains('divider-dragging')) {
-      return;
-    }
-    this.scheduleNativeBrowserFrameSync();
-    this.requestDividerScreenshotRefresh();
-  };
 
   getSortedEntries(): FileInfo[] {
     return this.sortedEntries;
@@ -288,8 +234,6 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
   constructor(
     private apiService: ApiService,
     private directorySource: DirectorySourceService,
-    private nativeBrowserPane: NativeBrowserPaneService,
-    private zone: NgZone,
     private cdr: ChangeDetectorRef,
   ) {
     this.loadRequest$
@@ -301,9 +245,7 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
   }
 
   ngAfterViewInit(): void {
-    window.addEventListener('file-manager-divider-statechange', this.handleDividerStateChange);
-    window.addEventListener('file-manager-divider-move', this.handleDividerMove);
-    this.refreshNativeBrowserPane();
+    this.cdr.markForCheck();
   }
 
   private get treeHost(): FileViewTreeHost {
@@ -442,17 +384,10 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
     if (changes['entries']) {
       this.lastTreeRefreshPath = null;
     }
-    if (changes['currentPath'] || changes['surfaceActive'] || changes['surfaceId']) {
-      this.refreshNativeBrowserPane();
-    }
     this.lifecycleController.onChanges(this.lifecycleHost, changes);
   }
 
   ngOnDestroy(): void {
-    window.removeEventListener('file-manager-divider-statechange', this.handleDividerStateChange);
-    window.removeEventListener('file-manager-divider-move', this.handleDividerMove);
-    this.stopNativeBrowserTracking();
-    void this.nativeBrowserPane.dispose(this.surfaceId);
     this.destroy$.next();
     this.destroy$.complete();
     this.treeController.reset();
@@ -713,466 +648,5 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
 
   showBrowserPane(): boolean {
     return this.isWebBrowserPath(this.currentPath);
-  }
-
-  private refreshNativeBrowserPane(): void {
-    if (!this.showBrowserPane()) {
-      this.screenshotRequestId++;
-      this.wasDividerInteracting = false;
-      this.hideCanvas();
-      this.stopNativeBrowserTracking();
-      this.requestNativeBrowserSync();
-      this.cdr.markForCheck();
-      return;
-    }
-
-    if (!this.surfaceActive) {
-      this.screenshotRequestId++;
-      this.wasDividerInteracting = false;
-      this.hideCanvas();
-      this.stopNativeBrowserTracking();
-      this.requestNativeBrowserSync();
-      this.cdr.markForCheck();
-      return;
-    }
-
-    this.refreshNativeBrowserTracking();
-    this.requestNativeBrowserSync();
-    this.cdr.markForCheck();
-  }
-
-  private refreshNativeBrowserTracking(): void {
-    if (!this.surfaceActive || !this.showBrowserPane()) {
-      this.stopNativeBrowserTracking();
-      return;
-    }
-    if (document.body.classList.contains('divider-dragging')) {
-      this.stopNativeBrowserTimer();
-      return;
-    }
-    this.startNativeBrowserTimer();
-  }
-
-  private startNativeBrowserTimer(): void {
-    if (this.nativeBrowserSyncTimer) {
-      return;
-    }
-    this.zone.runOutsideAngular(() => {
-      this.nativeBrowserSyncTimer = setInterval(() => {
-        this.requestNativeBrowserSync();
-      }, 100);
-    });
-  }
-
-  private stopNativeBrowserTracking(): void {
-    this.stopNativeBrowserTimer();
-    this.clearDividerScreenshotCooldown();
-    if (this.nativeBrowserSyncFrame !== null) {
-      cancelAnimationFrame(this.nativeBrowserSyncFrame);
-      this.nativeBrowserSyncFrame = null;
-    }
-    this.nativeBrowserSyncQueued = false;
-  }
-
-  private stopNativeBrowserTimer(): void {
-    if (!this.nativeBrowserSyncTimer) {
-      return;
-    }
-    clearInterval(this.nativeBrowserSyncTimer);
-    this.nativeBrowserSyncTimer = null;
-  }
-
-  private scheduleNativeBrowserFrameSync(): void {
-    if (this.nativeBrowserSyncFrame !== null) {
-      return;
-    }
-    this.nativeBrowserSyncFrame = requestAnimationFrame(() => {
-      this.nativeBrowserSyncFrame = null;
-      this.requestNativeBrowserSync();
-    });
-  }
-
-  private requestNativeBrowserSync(): void {
-    if (this.nativeBrowserSyncInFlight) {
-      this.nativeBrowserSyncQueued = true;
-      return;
-    }
-    this.nativeBrowserSyncInFlight = true;
-    void this.syncNativeBrowserVisibility(this.surfaceActive)
-      .finally(() => {
-        this.nativeBrowserSyncInFlight = false;
-        if (this.nativeBrowserSyncQueued) {
-          this.nativeBrowserSyncQueued = false;
-          this.requestNativeBrowserSync();
-          return;
-        }
-        if (this.dividerScreenshotPending && document.body.classList.contains('divider-dragging')) {
-          this.maybeStartDividerScreenshotCapture();
-        }
-      });
-  }
-
-  private async syncNativeBrowserVisibility(visible: boolean): Promise<void> {
-    if (!this.surfaceId) {
-      return;
-    }
-
-    const theme = document.documentElement.classList.contains('vscode-light') ? 'light' as const : 'dark' as const;
-    const backgroundColor = this.resolveBrowserPaneBackgroundColor(theme);
-
-    // Keep the backdrop in sync with the resolved page background so that
-    // transitions between native overlay and canvas snapshot are seamless.
-    const backdrop = this.browserBackdrop?.nativeElement ?? null;
-    if (backdrop) {
-      backdrop.style.background = backgroundColor;
-    }
-
-    const dividerInteracting = this.isDividerInteracting();
-
-    if (dividerInteracting && !this.wasDividerInteracting && visible && this.showBrowserPane()) {
-      this.wasDividerInteracting = true;
-      void this.prepareDividerScreenshot();
-    }
-
-    if (!dividerInteracting && this.wasDividerInteracting) {
-      this.wasDividerInteracting = false;
-      this.hoverFreezeActive = false;
-      this.screenshotRequestId++;
-      this.hideCanvas();
-    }
-
-    const freezeNativePane = this.shouldFreezeNativePane() && this.screenshotVisible;
-
-    if (!visible || !this.showBrowserPane()) {
-      this.lastNativeBrowserSyncKey = '';
-      await this.nativeBrowserPane.sync({
-        surfaceId: this.surfaceId,
-        url: this.currentPath,
-        theme,
-        backgroundColor,
-        visible: false,
-        x: 0,
-        y: 0,
-        width: 0,
-        height: 0,
-      });
-      return;
-    }
-
-    const host = this.browserHost?.nativeElement;
-    if (!host) {
-      return;
-    }
-
-    const rect = host.getBoundingClientRect();
-    const scale = typeof window !== 'undefined' && Number.isFinite(window.devicePixelRatio) && window.devicePixelRatio > 0
-      ? window.devicePixelRatio
-      : 1;
-
-    let left = rect.left;
-    let w = rect.width;
-
-    const width = Math.max(0, Math.round(w * scale));
-    const height = Math.max(0, Math.round(rect.height * scale));
-    if (width <= 0 || height <= 0) {
-      return;
-    }
-
-    const request = {
-      surfaceId: this.surfaceId,
-      url: this.currentPath,
-      theme,
-      backgroundColor,
-      visible: !freezeNativePane,
-      x: Math.round(left * scale),
-      y: Math.round(rect.top * scale),
-      width,
-      height,
-    };
-    const syncKey = JSON.stringify(request);
-    if (syncKey === this.lastNativeBrowserSyncKey) {
-      return;
-    }
-    this.lastNativeBrowserSyncKey = syncKey;
-
-    try {
-      await this.nativeBrowserPane.sync(request);
-    } catch (error) {
-      console.warn('Failed to sync native browser pane:', request.surfaceId, error);
-      this.lastNativeBrowserSyncKey = '';
-    }
-  }
-
-  private isDividerInteracting(): boolean {
-    return document.body.classList.contains('divider-hover')
-      || document.body.classList.contains('divider-dragging');
-  }
-
-  private shouldFreezeNativePane(): boolean {
-    return document.body.classList.contains('divider-dragging') || this.hoverFreezeActive;
-  }
-
-  private updateHoverFreezeState(): void {
-    if (document.body.classList.contains('divider-dragging')) {
-      this.hoverFreezeActive = true;
-      return;
-    }
-
-    if (document.body.classList.contains('divider-hover')) {
-      return;
-    }
-
-    this.hoverFreezeActive = false;
-  }
-
-  private async prepareDividerScreenshot(): Promise<void> {
-    this.dividerScreenshotPending = true;
-    this.maybeStartDividerScreenshotCapture();
-  }
-
-  private async captureDividerScreenshot(forceRefresh: boolean): Promise<void> {
-    if (!this.surfaceId || !this.surfaceActive || !this.showBrowserPane() || this.capturingScreenshot || (!forceRefresh && this.screenshotVisible)) {
-      return;
-    }
-
-    const requestId = ++this.screenshotRequestId;
-    this.capturingScreenshot = true;
-    try {
-      const data = await this.nativeBrowserPane.captureScreenshot(this.surfaceId);
-      if (!data || requestId !== this.screenshotRequestId || !this.isDividerInteracting()) {
-        return;
-      }
-      const drawn = await this.drawScreenshotOnCanvas(data, requestId);
-      if (!drawn || requestId !== this.screenshotRequestId || !this.isDividerInteracting()) {
-        return;
-      }
-      if (!document.body.classList.contains('divider-dragging') && document.body.classList.contains('divider-hover')) {
-        this.hoverFreezeActive = true;
-      }
-      this.lastNativeBrowserSyncKey = '';
-      this.requestNativeBrowserSync();
-    } catch (e) {
-      console.warn('Failed to capture browser screenshot:', e);
-    } finally {
-      this.capturingScreenshot = false;
-      if (this.isDividerInteracting() && (this.dividerScreenshotPending || this.shouldRefreshDividerScreenshot())) {
-        this.requestDividerScreenshotRefresh();
-      }
-    }
-  }
-
-  private requestDividerScreenshotRefresh(): void {
-    if (!this.isDividerInteracting()) {
-      return;
-    }
-    this.dividerScreenshotPending = true;
-    this.maybeStartDividerScreenshotCapture();
-  }
-
-  private maybeStartDividerScreenshotCapture(): void {
-    if (!this.dividerScreenshotPending || !this.isDividerInteracting() || this.capturingScreenshot) {
-      return;
-    }
-    if (document.body.classList.contains('divider-dragging') && this.nativeBrowserSyncInFlight) {
-      this.scheduleDividerScreenshotCooldown(16);
-      return;
-    }
-    const elapsed = Date.now() - this.lastDividerScreenshotStartedAt;
-    if (elapsed < this.dividerScreenshotMinInterval) {
-      this.scheduleDividerScreenshotCooldown(this.dividerScreenshotMinInterval - elapsed);
-      return;
-    }
-    if (this.screenshotVisible && !this.shouldRefreshDividerScreenshot()) {
-      this.dividerScreenshotPending = false;
-      return;
-    }
-    this.clearDividerScreenshotCooldown();
-    this.dividerScreenshotPending = false;
-    this.lastDividerScreenshotStartedAt = Date.now();
-    void this.captureDividerScreenshot(true);
-  }
-
-  private scheduleDividerScreenshotCooldown(delay: number): void {
-    if (this.dividerScreenshotCooldownTimer !== null) {
-      return;
-    }
-    this.dividerScreenshotCooldownTimer = setTimeout(() => {
-      this.dividerScreenshotCooldownTimer = null;
-      this.maybeStartDividerScreenshotCapture();
-    }, Math.max(0, delay));
-  }
-
-  private clearDividerScreenshotCooldown(): void {
-    if (this.dividerScreenshotCooldownTimer === null) {
-      return;
-    }
-    clearTimeout(this.dividerScreenshotCooldownTimer);
-    this.dividerScreenshotCooldownTimer = null;
-  }
-
-  private shouldRefreshDividerScreenshot(): boolean {
-    if (!document.body.classList.contains('divider-dragging')) {
-      return false;
-    }
-    const host = this.browserHost?.nativeElement;
-    if (!host) {
-      return false;
-    }
-    const rect = host.getBoundingClientRect();
-    const widthDelta = Math.abs(rect.width - this.lastScreenshotWidth);
-    const heightDelta = Math.abs(rect.height - this.lastScreenshotHeight);
-    return widthDelta >= 8 || heightDelta >= 8;
-  }
-
-  private drawScreenshotOnCanvas(base64Data: string, requestId: number): Promise<boolean> {
-    const host = this.browserHost?.nativeElement;
-    const nextCanvas = this.getBackBufferScreenshotCanvas();
-    if (!nextCanvas || !host) {
-      return Promise.resolve(false);
-    }
-    const hostRect = host.getBoundingClientRect();
-    const cssW = hostRect.width;
-    const cssH = hostRect.height;
-    return this.decodeScreenshotBitmap(base64Data).then((bitmap) => {
-      if (!bitmap) {
-        return false;
-      }
-      return new Promise<boolean>((resolve) => {
-        if (requestId !== this.screenshotRequestId || !this.isDividerInteracting()) {
-          if ('close' in bitmap) {
-            (bitmap as ImageBitmap).close();
-          }
-          resolve(false);
-          return;
-        }
-        nextCanvas.width = bitmap.width;
-        nextCanvas.height = bitmap.height;
-        nextCanvas.style.width = `${cssW}px`;
-        nextCanvas.style.height = `${cssH}px`;
-        const ctx = nextCanvas.getContext('2d');
-        if (!ctx) {
-          if ('close' in bitmap) {
-            (bitmap as ImageBitmap).close();
-          }
-          resolve(false);
-          return;
-        }
-        ctx.clearRect(0, 0, nextCanvas.width, nextCanvas.height);
-        ctx.drawImage(bitmap, 0, 0);
-        if ('close' in bitmap) {
-          (bitmap as ImageBitmap).close();
-        }
-        this.showScreenshotCanvas(nextCanvas);
-        this.lastScreenshotWidth = cssW;
-        this.lastScreenshotHeight = cssH;
-        this.screenshotVisible = true;
-        resolve(true);
-      });
-    });
-  }
-
-  private hideCanvas(): void {
-    this.screenshotVisible = false;
-    this.lastScreenshotWidth = 0;
-    this.lastScreenshotHeight = 0;
-    this.activeScreenshotCanvas = null;
-    this.dividerScreenshotPending = false;
-    this.lastDividerScreenshotStartedAt = 0;
-    this.clearDividerScreenshotCooldown();
-    this.browserCanvasA?.nativeElement && this.hideScreenshotCanvas(this.browserCanvasA.nativeElement);
-    this.browserCanvasB?.nativeElement && this.hideScreenshotCanvas(this.browserCanvasB.nativeElement);
-  }
-
-  private getActiveScreenshotCanvas(): HTMLCanvasElement | null {
-    if (this.activeScreenshotCanvas === 'a') {
-      return this.browserCanvasA?.nativeElement ?? null;
-    }
-    if (this.activeScreenshotCanvas === 'b') {
-      return this.browserCanvasB?.nativeElement ?? null;
-    }
-    return null;
-  }
-
-  private getBackBufferScreenshotCanvas(): HTMLCanvasElement | null {
-    if (this.activeScreenshotCanvas === 'a') {
-      return this.browserCanvasB?.nativeElement ?? null;
-    }
-    return this.browserCanvasA?.nativeElement ?? this.browserCanvasB?.nativeElement ?? null;
-  }
-
-  private showScreenshotCanvas(canvas: HTMLCanvasElement): void {
-    const previous = this.getActiveScreenshotCanvas();
-    canvas.style.display = 'block';
-    canvas.style.zIndex = '2';
-    if (previous && previous !== canvas) {
-      previous.style.zIndex = '1';
-      previous.style.display = 'none';
-    }
-    this.activeScreenshotCanvas = canvas === this.browserCanvasA?.nativeElement ? 'a' : 'b';
-  }
-
-  private hideScreenshotCanvas(canvas: HTMLCanvasElement): void {
-    canvas.style.display = 'none';
-    canvas.style.zIndex = '1';
-  }
-
-  private async decodeScreenshotBitmap(base64Data: string): Promise<ImageBitmap | HTMLImageElement | null> {
-    const dataUrl = `data:image/jpeg;base64,${base64Data}`;
-    if (typeof createImageBitmap === 'function') {
-      try {
-        const response = await fetch(dataUrl);
-        const blob = await response.blob();
-        return await createImageBitmap(blob);
-      } catch {
-        // Fall through to HTMLImageElement decode path.
-      }
-    }
-
-    return await new Promise<HTMLImageElement | null>((resolve) => {
-      const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = () => resolve(null);
-      img.src = dataUrl;
-    });
-  }
-
-  private resolveBrowserPaneBackgroundColor(theme: 'dark' | 'light'): string {
-    const fallback = theme === 'light' ? '#ffffff' : '#1e1e1e';
-    if (typeof window === 'undefined') {
-      return fallback;
-    }
-
-    const rootStyles = getComputedStyle(document.documentElement);
-    const bodyStyles = getComputedStyle(document.body);
-    const candidate = rootStyles.getPropertyValue('--vsc-editor-background').trim()
-      || rootStyles.backgroundColor
-      || bodyStyles.backgroundColor
-      || fallback;
-
-    return this.normalizeColorToHex(candidate, fallback);
-  }
-
-  private normalizeColorToHex(value: string, fallback: string): string {
-    const normalized = (value ?? '').trim().toLowerCase();
-    if (!normalized) {
-      return fallback;
-    }
-    if (/^#[0-9a-f]{6}$/i.test(normalized)) {
-      return normalized;
-    }
-    const shortHex = normalized.match(/^#([0-9a-f]{3})$/i);
-    if (shortHex) {
-      const [r, g, b] = shortHex[1].split('');
-      return `#${r}${r}${g}${g}${b}${b}`;
-    }
-    const rgb = normalized.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*[\d.]+\s*)?\)$/i);
-    if (rgb) {
-      const toHex = (component: string) => {
-        const clamped = Math.max(0, Math.min(255, Number(component) || 0));
-        return clamped.toString(16).padStart(2, '0');
-      };
-      return `#${toHex(rgb[1])}${toHex(rgb[2])}${toHex(rgb[3])}`;
-    }
-    return fallback;
   }
 }

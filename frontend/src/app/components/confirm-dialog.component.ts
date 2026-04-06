@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
+import { NativeOverlayFreezeService } from '../services/native-overlay-freeze.service';
 import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.directive';
 import { moveFocusWithin } from '../directives/focus-trap.utils';
 import type { Stream } from '@epikodelabs/streamix';
@@ -379,6 +380,7 @@ export class ConfirmDialogComponent {
     private confirmDialogService: ConfirmDialogService,
     private inputContexts: InputContextService,
     private inputEngine: InputEngineService,
+    private overlayFreeze: NativeOverlayFreezeService,
   ) {}
 
   ngOnInit(): void {
@@ -395,15 +397,18 @@ export class ConfirmDialogComponent {
         if (request) {
           this.draftValue = request.options.defaultValue ?? '';
           this.releaseDialogContext ??= this.inputContexts.acquire('dialog.confirm');
+          this.overlayFreeze.acquire('dialog.confirm');
           return;
         }
         this.draftValue = '';
         this.releaseDialogContext?.();
         this.releaseDialogContext = null;
+        this.overlayFreeze.release('dialog.confirm');
       });
   }
 
   ngOnDestroy(): void {
+    this.overlayFreeze.release('dialog.confirm');
     this.releaseDialogContext?.();
     this.releaseDialogContext = null;
     this.inputEngine.unregisterCommand('dialog.confirm.accept');

@@ -18,12 +18,54 @@ export interface NativeBrowserPaneSyncRequest {
   providedIn: 'root',
 })
 export class NativeBrowserPaneService {
-  async sync(request: NativeBrowserPaneSyncRequest): Promise<void> {
+  /** True once the Wails Go runtime has confirmed it's handling calls. */
+  private _ready = false;
+
+  get runtimeReady(): boolean {
+    return this._ready;
+  }
+
+  async sync(request: NativeBrowserPaneSyncRequest): Promise<boolean> {
     const api = window.go?.app?.App;
     if (!api?.BrowserPaneSync) {
-      return;
+      return false;
     }
-    await api.BrowserPaneSync(request);
+    if (!this._ready) {
+      // Probe readiness: call a binding that returns a value.
+      // If Wails callbacks aren't registered yet, the call resolves undefined.
+      if (!await this.probeReady()) {
+        return false;
+      }
+    }
+    try {
+      await api.BrowserPaneSync(request);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Check if Go bindings are responsive by calling a function that returns a known value. */
+  private async probeReady(): Promise<boolean> {
+    try {
+      // BrowserPaneCaptureScreenshot with empty surfaceId should return '' from Go.
+      // If Wails isn't ready, it resolves undefined.
+      const api = window.go?.app?.App;
+      if (!api?.BrowserPaneCaptureScreenshot) {
+        return false;
+      }
+      const result = await api.BrowserPaneCaptureScreenshot('');
+      // Go returns '' for empty surfaceId. If Wails isn't ready, result is undefined.
+      if (result !== undefined) {
+        this._ready = true;
+        return true;
+      }
+      return false;
+    } catch {
+      // Go returns an error for empty surfaceId — but at least it responded!
+      this._ready = true;
+      return true;
+    }
   }
 
   async dispose(surfaceId: string): Promise<void> {

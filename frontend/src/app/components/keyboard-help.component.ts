@@ -6,6 +6,7 @@ import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
 import { InputBindingDefinition } from '../services/input-system.types';
+import { NativeOverlayFreezeService } from '../services/native-overlay-freeze.service';
 import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.directive';
 import { moveFocusWithin } from '../directives/focus-trap.utils';
 import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directive';
@@ -49,6 +50,7 @@ export class KeyboardHelpComponent implements OnInit, OnDestroy {
     private confirmDialog: ConfirmDialogService,
     private inputContexts: InputContextService,
     private inputEngine: InputEngineService,
+    private overlayFreeze: NativeOverlayFreezeService,
   ) {}
 
   ngOnInit(): void {
@@ -57,6 +59,7 @@ export class KeyboardHelpComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.overlayFreeze.release('dialog.keyboardHelp');
     this.releaseDialogContext?.();
     this.releaseDialogContext = null;
     this.unregisterInputCommands();
@@ -83,6 +86,7 @@ export class KeyboardHelpComponent implements OnInit, OnDestroy {
   show(): void {
     this.isVisible = true;
     this.releaseDialogContext ??= this.inputContexts.acquire('dialog.keyboardHelp');
+    this.overlayFreeze.acquire('dialog.keyboardHelp');
     this.searchText = '';
     this.loadShortcuts();
   }
@@ -94,6 +98,7 @@ export class KeyboardHelpComponent implements OnInit, OnDestroy {
     this.isVisible = false;
     this.releaseDialogContext?.();
     this.releaseDialogContext = null;
+    this.overlayFreeze.release('dialog.keyboardHelp');
   }
 
   onSearchChange(): void {

@@ -99,8 +99,6 @@ import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directi
   styles: [`
     :host {
       display: block;
-      position: fixed;
-      z-index: var(--vsc-z-dropdown);
     }
 
     .fd-panel {

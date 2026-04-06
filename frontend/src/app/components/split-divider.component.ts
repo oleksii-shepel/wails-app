@@ -28,7 +28,7 @@ import {
         margin: 0 -4px;
         cursor: url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20width=%2730%27%20height=%2730%27%20viewBox=%270%200%2024%2024%27%3E%3Cpath%20fill=%27white%27%20d=%27M11%202h2v20h-2zM6.29%207.29l-4%204a.996.996%200%200%200%200%201.41l4%204%201.41-1.41L4.41%2012%207.7%208.71%206.29%207.3ZM17.71%207.29%2016.3%208.7l3.29%203.29-3.29%203.29%201.41%201.41%204-4a.996.996%200%200%200%200-1.41l-4-4Z%27/%3E%3C/svg%3E") 15 15, col-resize;
         position: relative;
-        z-index: var(--vsc-z-dropdown, 30);
+        z-index: var(--vsc-z-divider, 750);
         user-select: none;
         transition: left .16s cubic-bezier(.2,.7,.3,1);
         color: var(--vsc-foreground, #cccccc);

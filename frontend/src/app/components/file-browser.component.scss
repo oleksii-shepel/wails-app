@@ -283,6 +283,7 @@
   min-height: 0;
   min-width: 0;
   position: relative;
+  isolation: isolate;
   
   &.resizing {
     cursor: col-resize;
@@ -299,6 +300,8 @@
   min-width: 0;
   overflow: hidden;
   background: var(--vsc-editor-background);
+  position: relative;
+  z-index: var(--vsc-z-base);
 }
 
 .pane-wrapper.pane-inactive {

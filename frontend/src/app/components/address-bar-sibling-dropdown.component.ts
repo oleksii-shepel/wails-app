@@ -82,7 +82,6 @@ import { InputEngineService } from '../services/input-engine.service';
       border: 1px solid var(--vsc-border);
       border-radius: var(--vsc-border-radius);
       box-shadow: var(--vsc-widget-shadow);
-      z-index: 9999;
       overflow: hidden;
     }
 

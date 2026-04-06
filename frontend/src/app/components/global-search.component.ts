@@ -6,6 +6,7 @@ import { takeUntil, debounce } from '@epikodelabs/streamix';
 import { GlobalSearchService, SearchResultItem, IndexStats, SearchConfig } from '../services/global-search.service';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
+import { NativeOverlayFreezeService } from '../services/native-overlay-freeze.service';
 import { FileType } from '../shared/protocol';
 import { getFileEntryPresentation } from './file-entry-presentation.util';
 import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.directive';
@@ -52,6 +53,7 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
     private searchService: GlobalSearchService,
     private inputContexts: InputContextService,
     private inputEngine: InputEngineService,
+    private overlayFreeze: NativeOverlayFreezeService,
   ) {}
 
   ngOnInit(): void {
@@ -79,6 +81,7 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.overlayFreeze.release('dialog.globalSearch');
     this.releaseSearchSettingsContext?.();
     this.releaseSearchSettingsContext = null;
     this.releaseSearchContext?.();
@@ -94,6 +97,7 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
   show(): void {
     this.isVisible = true;
     this.releaseSearchContext ??= this.inputContexts.acquire('dialog.globalSearch');
+    this.overlayFreeze.acquire('dialog.globalSearch');
     this.searchQuery = '';
     this.results = [];
     this.selectedIndex = 0;
@@ -111,6 +115,7 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
     this.hideSettings();
     this.releaseSearchContext?.();
     this.releaseSearchContext = null;
+    this.overlayFreeze.release('dialog.globalSearch');
   }
 
   /**

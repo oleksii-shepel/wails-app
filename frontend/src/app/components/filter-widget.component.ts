@@ -7,6 +7,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
+import { NativeOverlayFreezeService } from '../services/native-overlay-freeze.service';
 
 export interface FindWidgetState {
   text: string;
@@ -139,7 +140,7 @@ export interface FindWidgetState {
       position: absolute;
       top: 0;
       right: 0;
-      z-index: 200;
+      z-index: var(--vsc-z-dropdown);
       pointer-events: none;
     }
 
@@ -161,14 +162,21 @@ export interface FindWidgetState {
       /* Slide in from top-right */
       transform: translateY(-100%) scaleY(0.8);
       opacity: 0;
+      visibility: hidden;
       transform-origin: top right;
       transition:
         transform 0.14s cubic-bezier(0.4, 0, 0.2, 1),
-        opacity 0.10s ease;
+        opacity 0.10s ease,
+        visibility 0s 0.14s;
     }
     .fw-panel--visible {
       transform: translateY(0) scaleY(1);
       opacity: 1;
+      visibility: visible;
+      transition:
+        transform 0.14s cubic-bezier(0.4, 0, 0.2, 1),
+        opacity 0.10s ease,
+        visibility 0s;
     }
 
     /* ── Input row ─────────────────────────────────────────────── */
@@ -325,6 +333,7 @@ export class FindWidgetComponent implements OnDestroy {
     private cdr: ChangeDetectorRef,
     private inputContexts: InputContextService,
     private inputEngine: InputEngineService,
+    private overlayFreeze: NativeOverlayFreezeService,
   ) {
     this.registerInputCommands();
   }
@@ -333,6 +342,7 @@ export class FindWidgetComponent implements OnDestroy {
     clearTimeout(this._focusTimer);
     this.releaseWidgetContext?.();
     this.releaseWidgetContext = null;
+    this.overlayFreeze.release('filter-widget');
     this.unregisterInputCommands();
   }
 
@@ -341,6 +351,7 @@ export class FindWidgetComponent implements OnDestroy {
   open(): void {
     this.visible = true;
     this.hasRegexError = false;
+    this.overlayFreeze.acquire('filter-widget');
     this.releaseWidgetContext ??= this.inputContexts.acquire('widget.filterInline');
     this.cdr.markForCheck();
     // Defer focus so the CSS transition has started
@@ -358,6 +369,7 @@ export class FindWidgetComponent implements OnDestroy {
     this.matchCount = null;
     this.currentMatch = 0;
     this.hasRegexError = false;
+    this.overlayFreeze.release('filter-widget');
     this.releaseWidgetContext?.();
     this.releaseWidgetContext = null;
     this.cdr.markForCheck();

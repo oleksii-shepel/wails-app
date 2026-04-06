@@ -40,9 +40,9 @@ export function Breadcrumbs(arg1:string):Promise<Array<Record<string, string>>>;
 
 export function BrowserPaneCaptureScreenshot(arg1:string):Promise<string>;
 
-export function BrowserPaneGetDocumentBackground(arg1:string):Promise<string>;
-
 export function BrowserPaneDispose(arg1:string):Promise<void>;
+
+export function BrowserPaneGetDocumentBackground(arg1:string):Promise<string>;
 
 export function BrowserPaneSync(arg1:contracts.BrowserPaneSyncRequest):Promise<void>;
 

@@ -1075,7 +1075,7 @@ func releaseCOMObject(object unsafe.Pointer) {
 }
 
 func (s *windowsPaneState) captureScreenshot() (string, error) {
-	response, err := s.callDevToolsMethod("Page.captureScreenshot", `{"format":"jpeg","quality":55,"optimizeForSpeed":true}`)
+	response, err := s.callDevToolsMethod("Page.captureScreenshot", `{"format":"png","optimizeForSpeed":true}`)
 	if err != nil {
 		return "", err
 	}

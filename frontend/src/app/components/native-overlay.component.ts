@@ -96,6 +96,7 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
   private lastDocumentBackgroundURL = '';
   private lastDocumentBackgroundRequestAt = 0;
   private screenshotPending = false;
+  private forceFreshScreenshot = false;
   private screenshotCooldownTimer: ReturnType<typeof setTimeout> | null = null;
   private lastScreenshotStartedAt = 0;
   private readonly screenshotMinInterval = 50;
@@ -307,8 +308,13 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
       ? window.devicePixelRatio
       : 1;
 
-    const width = Math.max(0, Math.round(rect.width * scale));
-    const height = Math.max(0, Math.round(rect.height * scale));
+    const left = Math.floor(rect.left * scale);
+    const top = Math.floor(rect.top * scale);
+    const right = Math.ceil(rect.right * scale);
+    const bottom = Math.ceil(rect.bottom * scale);
+
+    const width = Math.max(0, right - left);
+    const height = Math.max(0, bottom - top);
     if (width <= 0 || height <= 0) {
       return;
     }
@@ -319,21 +325,25 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
       theme,
       backgroundColor,
       visible: !freezeNativePane,
-      x: Math.round(rect.left * scale),
-      y: Math.round(rect.top * scale),
+      x: left,
+      y: top,
       width,
       height,
     };
     const syncKey = JSON.stringify(request);
     if (syncKey === this.lastSyncKey) {
-      this.requestDocumentBackground(false, theme);
+      if (!frozen) {
+        this.requestDocumentBackground(false, theme);
+      }
       return;
     }
 
     try {
       if (await this.nativeBrowserPane.sync(request)) {
         this.lastSyncKey = syncKey;
-        this.requestDocumentBackground(false, theme);
+        if (!frozen) {
+          this.requestDocumentBackground(false, theme);
+        }
       }
     } catch (error) {
       void error;
@@ -372,8 +382,10 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
 
   private async prepareScreenshot(): Promise<void> {
     this.screenshotPending = true;
-    this.revealCachedCanvasIfAvailable();
-    this.requestDocumentBackground(true, this.resolveTheme());
+    this.forceFreshScreenshot = true;
+    if (document.body.classList.contains('divider-dragging') || this.overlayFreeze.frozen) {
+      this.revealCachedCanvasIfAvailable();
+    }
     if (this.syncInFlight) {
       this.scheduleScreenshotCooldown(16);
       return;
@@ -433,12 +445,13 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
       this.scheduleScreenshotCooldown(this.screenshotMinInterval - elapsed);
       return;
     }
-    if (this.screenshotVisible && !this.shouldRefreshScreenshot()) {
+    if (this.screenshotVisible && !this.forceFreshScreenshot && !this.shouldRefreshScreenshot()) {
       this.screenshotPending = false;
       return;
     }
     this.clearScreenshotCooldown();
     this.screenshotPending = false;
+    this.forceFreshScreenshot = false;
     this.lastScreenshotStartedAt = Date.now();
     void this.captureScreenshot(true);
   }
@@ -531,6 +544,7 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
     this.lastScreenshotWidth = 0;
     this.lastScreenshotHeight = 0;
     this.screenshotPending = false;
+    this.forceFreshScreenshot = false;
     this.lastScreenshotStartedAt = 0;
     this.clearScreenshotCooldown();
     this.canvasEl?.nativeElement && this.hideOneCanvas(this.canvasEl.nativeElement);
@@ -582,7 +596,7 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
   }
 
   private async decodeBitmap(base64Data: string): Promise<ImageBitmap | HTMLImageElement | null> {
-    const dataUrl = `data:image/jpeg;base64,${base64Data}`;
+    const dataUrl = `data:image/png;base64,${base64Data}`;
     if (typeof createImageBitmap === 'function') {
       try {
         const response = await fetch(dataUrl);

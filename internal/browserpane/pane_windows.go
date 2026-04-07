@@ -801,10 +801,8 @@ func (s *windowsPaneState) applyTheme() error {
 }
 
 func browserPaneThemeBackground(theme string) (uint8, uint8, uint8) {
-	if strings.EqualFold(strings.TrimSpace(theme), "light") {
-		return 255, 255, 255
-	}
-	return 30, 30, 30
+	_ = theme
+	return 255, 255, 255
 }
 
 func resolveBrowserPaneBackgroundColor(theme string, raw string) (uint8, uint8, uint8) {
@@ -849,6 +847,21 @@ func browserPaneBackgroundScript(r, g, b uint8) string {
 	return fmt.Sprintf(`(function(){
   try {
     var color = 'rgb(%d,%d,%d)';
+    var parseColor = function(value) {
+      if (!value || value === 'transparent') return null;
+      var match = value.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*([\d.]+)\s*)?\)$/i);
+      if (!match) return null;
+      return {
+        r: Math.max(0, Math.min(255, parseInt(match[1], 10) || 0)),
+        g: Math.max(0, Math.min(255, parseInt(match[2], 10) || 0)),
+        b: Math.max(0, Math.min(255, parseInt(match[3], 10) || 0)),
+        a: Math.max(0, Math.min(1, match[4] == null ? 1 : parseFloat(match[4]) || 0))
+      };
+    };
+    var isTransparent = function(value) {
+      var parsed = parseColor(value);
+      return !parsed || parsed.a <= 0;
+    };
     var root = document.documentElement;
     if (root && root.style) {
       root.style.backgroundColor = color;
@@ -862,7 +875,7 @@ func browserPaneBackgroundScript(r, g, b uint8) string {
         if (window.getComputedStyle) {
           computed = window.getComputedStyle(body).backgroundColor || '';
         }
-        if (!computed || computed === 'transparent' || computed === 'rgba(0, 0, 0, 0)') {
+        if (isTransparent(computed)) {
           body.style.backgroundColor = color;
           body.style.background = color;
         }
@@ -1151,15 +1164,47 @@ func browserPaneDocumentBackgroundParams() string {
 	payload, err := json.Marshal(map[string]any{
 		"expression": `(function(){
   try {
-    var isTransparent = function(value) {
-      return !value || value === 'transparent' || value === 'rgba(0, 0, 0, 0)';
+    var parseColor = function(value) {
+      if (!value || value === 'transparent') return null;
+      var match = value.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*([\d.]+)\s*)?\)$/i);
+      if (!match) return null;
+      return {
+        r: Math.max(0, Math.min(255, parseInt(match[1], 10) || 0)),
+        g: Math.max(0, Math.min(255, parseInt(match[2], 10) || 0)),
+        b: Math.max(0, Math.min(255, parseInt(match[3], 10) || 0)),
+        a: Math.max(0, Math.min(1, match[4] == null ? 1 : parseFloat(match[4]) || 0))
+      };
     };
     var read = function(target) {
       if (!target || !window.getComputedStyle) return '';
-      var computed = window.getComputedStyle(target).backgroundColor || '';
-      return isTransparent(computed) ? '' : computed;
+      return window.getComputedStyle(target).backgroundColor || '';
     };
-    return read(document.body) || read(document.documentElement) || '';
+    var format = function(color) {
+      if (!color || color.a <= 0) return '';
+      if (color.a >= 1) return 'rgb(' + color.r + ', ' + color.g + ', ' + color.b + ')';
+      return 'rgba(' + color.r + ', ' + color.g + ', ' + color.b + ', ' + color.a + ')';
+    };
+    var composite = function(fg, bg) {
+      if (!fg) return bg;
+      if (!bg || fg.a >= 1) return fg;
+      if (fg.a <= 0) return bg;
+      var alpha = Math.max(0, Math.min(1, fg.a));
+      return {
+        r: Math.round(fg.r * alpha + bg.r * (1 - alpha)),
+        g: Math.round(fg.g * alpha + bg.g * (1 - alpha)),
+        b: Math.round(fg.b * alpha + bg.b * (1 - alpha)),
+        a: 1
+      };
+    };
+    var body = parseColor(read(document.body));
+    var root = parseColor(read(document.documentElement));
+    if (body && body.a > 0) {
+      return format(root && body.a < 1 ? composite(body, root) : body);
+    }
+    if (root && root.a > 0) {
+      return format(root);
+    }
+    return '';
   } catch (_) {
     return '';
   }

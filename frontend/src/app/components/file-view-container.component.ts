@@ -42,7 +42,7 @@ export type ViewLayout = ViewMode;
       <div class="view-browser" *ngIf="showBrowserPane()">
         <app-native-overlay
           [surfaceId]="surfaceId"
-          [url]="currentPath"
+          [url]="getBrowserPath()"
           [active]="surfaceActive">
         </app-native-overlay>
       </div>
@@ -189,6 +189,7 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
 
   @Input() surfaceId = '';
   @Input() surfaceActive = true;
+  @Input() browserPath = '';
   @Input() paneId: 'left' | 'right' = 'left';
   @Input() showHidden    = false;
   @Input() entries: FileInfo[] = [];
@@ -646,7 +647,14 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
     }
   }
 
+  getBrowserPath(): string {
+    if (this.surfaceActive) {
+      return this.currentPath;
+    }
+    return this.browserPath || this.currentPath;
+  }
+
   showBrowserPane(): boolean {
-    return this.isWebBrowserPath(this.currentPath);
+    return this.isWebBrowserPath(this.getBrowserPath());
   }
 }

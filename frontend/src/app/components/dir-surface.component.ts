@@ -60,6 +60,7 @@ import { DirSurfaceVm } from '../surfaces/dir/dir-surface.vm';
       <app-file-view-container
         [surfaceId]="surfaceId"
         [surfaceActive]="surfaceActive"
+        [browserPath]="surfacePath"
         [paneId]="vm.paneId"
         [entries]="vm.entries"
         [currentPath]="vm.currentPath"
@@ -150,4 +151,5 @@ export class DirSurfaceComponent {
   @Input({ required: true }) vm!: DirSurfaceVm;
   @Input() surfaceId = '';
   @Input() surfaceActive = true;
+  @Input() surfacePath = '';
 }

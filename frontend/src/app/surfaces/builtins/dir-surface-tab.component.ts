@@ -9,7 +9,13 @@ import { DirSurfaceContext } from '../surface-context';
   imports: [CommonModule, DirSurfaceComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <app-dir-surface #dir [vm]="ctx.dirVm" [surfaceId]="ctx.paneId + ':' + ctx.tab.id" [surfaceActive]="active"></app-dir-surface>
+    <app-dir-surface
+      #dir
+      [vm]="ctx.dirVm"
+      [surfaceId]="ctx.paneId + ':' + ctx.tab.id"
+      [surfaceActive]="active"
+      [surfacePath]="ctx.tab.path">
+    </app-dir-surface>
   `,
   styles: [`
     :host {

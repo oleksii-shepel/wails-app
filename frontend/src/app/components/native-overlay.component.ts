@@ -1,6 +1,6 @@
 import {
   Component, Input, OnChanges, OnDestroy, AfterViewInit,
-  SimpleChanges, ViewChild, ElementRef, NgZone,
+  SimpleChanges, ViewChild, ElementRef, NgZone, HostBinding,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { NativeBrowserPaneService } from '../services/native-browser-pane.service';
@@ -64,10 +64,12 @@ import { NativeOverlayFreezeService } from '../services/native-overlay-freeze.se
       z-index: 1;
       pointer-events: none;
       image-rendering: auto;
+      background: #ffffff;
     }
   `],
 })
 export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewInit {
+  @HostBinding('style.backgroundColor') private hostBackgroundColor = '#ffffff';
   @ViewChild('host') private hostEl?: ElementRef<HTMLElement>;
   @ViewChild('backdrop') private backdropEl?: ElementRef<HTMLElement>;
   @ViewChild('canvas') private canvasEl?: ElementRef<HTMLCanvasElement>;
@@ -105,6 +107,8 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
   private lastScreenshotStartedAt = 0;
   private readonly screenshotMinInterval = 50;
   private readonly documentBackgroundRetryMs = 350;
+  private readonly frozenCanvasBackground = '#ffffff';
+  private liveBackgroundColor = '#ffffff';
 
   private measureHostBounds(host: HTMLElement): {
     rect: DOMRect;
@@ -304,7 +308,8 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
 
     const theme = this.resolveTheme();
     const backgroundColor = this.documentBackgroundColor ?? this.resolveBackgroundColor(theme);
-    this.applyBackgroundColor(backgroundColor);
+    this.liveBackgroundColor = backgroundColor;
+    this.applyBackgroundColor(this.screenshotVisible ? this.frozenCanvasBackground : backgroundColor);
 
     // ── Freeze transitions ────────────────────────────────────
     const frozen = this.isFreezeRequested();
@@ -557,7 +562,9 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
           resolve(false);
           return;
         }
-        ctx.globalCompositeOperation = 'copy';
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.fillStyle = this.frozenCanvasBackground;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(bitmap, 0, 0);
 
         if ('close' in bitmap) {
@@ -582,6 +589,7 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
     this.lastScreenshotStartedAt = 0;
     this.clearScreenshotCooldown();
     this.canvasEl?.nativeElement && this.hideOneCanvas(this.canvasEl.nativeElement);
+    this.applyBackgroundColor(this.liveBackgroundColor);
     if (clearCache) {
       this.clearCanvasBitmap(this.canvasEl?.nativeElement ?? null);
     }
@@ -599,6 +607,7 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
     } else {
       canvas.style.transform = '';
     }
+    this.applyBackgroundColor(this.frozenCanvasBackground);
     canvas.style.display = 'block';
   }
 
@@ -659,48 +668,112 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
     return document.documentElement.classList.contains('vscode-light') ? 'light' : 'dark';
   }
 
-  private resolveBackgroundColor(theme: 'dark' | 'light'): string {
-    const fallback = theme === 'light' ? '#ffffff' : '#1e1e1e';
-    if (typeof window === 'undefined') {
-      return fallback;
+  private resolveBackgroundColor(_theme: 'dark' | 'light'): string {
+    return '#ffffff';
+  }
+
+  private parseColor(value: string): { r: number; g: number; b: number; a: number } | null {
+    const normalized = (value ?? '').trim().toLowerCase();
+    if (!normalized || normalized === 'transparent') {
+      return null;
     }
-    let candidate = this.findNearestPaintedBackground(this.hostEl?.nativeElement?.parentElement ?? null);
-    if (!candidate) {
-      const rootStyles = getComputedStyle(document.documentElement);
-      const bodyStyles = getComputedStyle(document.body);
-      candidate = rootStyles.getPropertyValue('--vsc-editor-background').trim()
-        || rootStyles.backgroundColor
-        || bodyStyles.backgroundColor
-        || fallback;
+
+    const clampByte = (input: number): number => Math.max(0, Math.min(255, Math.round(input)));
+    const clampAlpha = (input: number): number => Math.max(0, Math.min(1, input));
+
+    const hex6 = normalized.match(/^#([0-9a-f]{6})$/i);
+    if (hex6) {
+      return {
+        r: parseInt(hex6[1].slice(0, 2), 16),
+        g: parseInt(hex6[1].slice(2, 4), 16),
+        b: parseInt(hex6[1].slice(4, 6), 16),
+        a: 1,
+      };
     }
-    return this.normalizeColorToHex(candidate, fallback);
+
+    const hex3 = normalized.match(/^#([0-9a-f]{3})$/i);
+    if (hex3) {
+      return {
+        r: parseInt(`${hex3[1][0]}${hex3[1][0]}`, 16),
+        g: parseInt(`${hex3[1][1]}${hex3[1][1]}`, 16),
+        b: parseInt(`${hex3[1][2]}${hex3[1][2]}`, 16),
+        a: 1,
+      };
+    }
+
+    const hex8 = normalized.match(/^#([0-9a-f]{8})$/i);
+    if (hex8) {
+      return {
+        r: parseInt(hex8[1].slice(0, 2), 16),
+        g: parseInt(hex8[1].slice(2, 4), 16),
+        b: parseInt(hex8[1].slice(4, 6), 16),
+        a: parseInt(hex8[1].slice(6, 8), 16) / 255,
+      };
+    }
+
+    const hex4 = normalized.match(/^#([0-9a-f]{4})$/i);
+    if (hex4) {
+      return {
+        r: parseInt(`${hex4[1][0]}${hex4[1][0]}`, 16),
+        g: parseInt(`${hex4[1][1]}${hex4[1][1]}`, 16),
+        b: parseInt(`${hex4[1][2]}${hex4[1][2]}`, 16),
+        a: parseInt(`${hex4[1][3]}${hex4[1][3]}`, 16) / 255,
+      };
+    }
+
+    const rgb = normalized.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*([\d.]+)\s*)?\)$/i);
+    if (rgb) {
+      return {
+        r: clampByte(Number(rgb[1])),
+        g: clampByte(Number(rgb[2])),
+        b: clampByte(Number(rgb[3])),
+        a: clampAlpha(rgb[4] !== undefined ? Number(rgb[4]) : 1),
+      };
+    }
+
+    return null;
+  }
+
+  private toHex(color: { r: number; g: number; b: number }): string {
+    const hex = (c: number) => Math.max(0, Math.min(255, Math.round(c))).toString(16).padStart(2, '0');
+    return `#${hex(color.r)}${hex(color.g)}${hex(color.b)}`;
+  }
+
+  private compositeColor(
+    foreground: { r: number; g: number; b: number; a: number },
+    background: { r: number; g: number; b: number; a: number },
+  ): { r: number; g: number; b: number } {
+    const alpha = Math.max(0, Math.min(1, foreground.a));
+    return {
+      r: foreground.r * alpha + background.r * (1 - alpha),
+      g: foreground.g * alpha + background.g * (1 - alpha),
+      b: foreground.b * alpha + background.b * (1 - alpha),
+    };
   }
 
   private normalizeColorToHex(value: string, fallback: string): string {
-    const n = (value ?? '').trim().toLowerCase();
-    if (!n) return fallback;
-    if (/^#[0-9a-f]{6}$/i.test(n)) return n;
-    const shortHex = n.match(/^#([0-9a-f]{3})$/i);
-    if (shortHex) {
-      const [r, g, b] = shortHex[1].split('');
-      return `#${r}${r}${g}${g}${b}${b}`;
+    const color = this.parseColor(value);
+    if (!color) {
+      return fallback;
     }
-    const rgb = n.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*[\d.]+\s*)?\)$/i);
-    if (rgb) {
-      const hex = (c: string) => Math.max(0, Math.min(255, Number(c) || 0)).toString(16).padStart(2, '0');
-      return `#${hex(rgb[1])}${hex(rgb[2])}${hex(rgb[3])}`;
+    if (color.a <= 0) {
+      return fallback;
     }
-    return fallback;
+    if (color.a >= 1) {
+      return this.toHex(color);
+    }
+    const background = this.parseColor(fallback);
+    if (!background) {
+      return fallback;
+    }
+    return this.toHex(this.compositeColor(color, background));
   }
 
   private applyBackgroundColor(color: string): void {
+    this.hostBackgroundColor = color;
     const host = this.hostEl?.nativeElement;
     if (host) {
       host.style.backgroundColor = color;
-      const parent = host.parentElement as HTMLElement | null;
-      if (parent) {
-        parent.style.backgroundColor = color;
-      }
     }
 
     const backdrop = this.backdropEl?.nativeElement;
@@ -736,7 +809,7 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
         if (requestURL !== this.url) {
           return;
         }
-        const normalized = this.normalizeColorToHex(value, '');
+        const normalized = this.normalizeColorToHex(value, fallback);
         if (!normalized || normalized === this.documentBackgroundColor) {
           return;
         }
@@ -755,22 +828,4 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
       });
   }
 
-  private findNearestPaintedBackground(start: HTMLElement | null): string {
-    let current: HTMLElement | null = start;
-    while (current) {
-      const candidate = getComputedStyle(current).backgroundColor;
-      if (!this.isTransparentColor(candidate)) {
-        return candidate;
-      }
-      current = current.parentElement;
-    }
-    return '';
-  }
-
-  private isTransparentColor(value: string): boolean {
-    const normalized = (value ?? '').trim().toLowerCase();
-    return !normalized
-      || normalized === 'transparent'
-      || normalized === 'rgba(0, 0, 0, 0)';
-  }
 }

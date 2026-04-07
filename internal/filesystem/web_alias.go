@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/net/html"
@@ -27,13 +28,82 @@ const (
 )
 
 type webAliasService struct {
-	client *http.Client
+	client   *http.Client
+	metaMu   sync.RWMutex
+	metadata map[string]webAliasMetadata
+}
+
+type webAliasMetadata struct {
+	size       int64
+	mimeType   string
+	modifiedAt int64
+	fileType   contracts.FileType
 }
 
 func newWebAliasService() *webAliasService {
 	return &webAliasService{
-		client: &http.Client{Timeout: webAliasTimeout},
+		client:   &http.Client{Timeout: webAliasTimeout},
+		metadata: make(map[string]webAliasMetadata),
 	}
+}
+
+func (s *webAliasService) lookupMetadata(path string) (webAliasMetadata, bool) {
+	s.metaMu.RLock()
+	defer s.metaMu.RUnlock()
+	meta, ok := s.metadata[path]
+	return meta, ok
+}
+
+func (s *webAliasService) rememberMetadata(path string, meta webAliasMetadata) {
+	if path == "" {
+		return
+	}
+
+	s.metaMu.Lock()
+	defer s.metaMu.Unlock()
+
+	current := s.metadata[path]
+	if meta.size > 0 {
+		current.size = meta.size
+	}
+	if meta.mimeType != "" {
+		current.mimeType = meta.mimeType
+	}
+	if meta.modifiedAt > 0 {
+		current.modifiedAt = meta.modifiedAt
+	}
+	if meta.fileType != "" {
+		current.fileType = meta.fileType
+	}
+	s.metadata[path] = current
+}
+
+func (s *webAliasService) applyCachedMetadata(entries []contracts.FileInfo) []contracts.FileInfo {
+	result := make([]contracts.FileInfo, len(entries))
+	copy(result, entries)
+
+	for i, entry := range result {
+		meta, ok := s.lookupMetadata(entry.Path)
+		if !ok {
+			continue
+		}
+		if meta.size > 0 {
+			result[i].Size = meta.size
+		}
+		if meta.mimeType != "" {
+			result[i].MimeType = meta.mimeType
+		}
+		if meta.modifiedAt > 0 {
+			result[i].Created = meta.modifiedAt
+			result[i].Modified = meta.modifiedAt
+			result[i].Accessed = meta.modifiedAt
+		}
+		if meta.fileType != "" {
+			result[i].Type = meta.fileType
+		}
+	}
+
+	return result
 }
 
 func (s *webAliasService) handles(path string) bool {
@@ -73,6 +143,7 @@ func (s *webAliasService) listDirectory(path string) (*contracts.DirectoryListin
 	entries := []contracts.FileInfo{}
 	if isHTMLResponse(resp.Header.Get("Content-Type"), body) {
 		entries = discoverWebEntries(targetURL, body)
+		entries = s.applyCachedMetadata(entries)
 	}
 
 	return &contracts.DirectoryListing{
@@ -104,21 +175,16 @@ func (s *webAliasService) getFileInfo(path string) (*contracts.FileInfo, error) 
 		return nil, err
 	}
 
-	headResp, headErr := s.request(http.MethodHead, targetURL, nil)
-	if headResp != nil {
-		defer headResp.Body.Close()
-	}
-
 	var (
 		contentType string
 		size        int64
 		modifiedAt  int64
 	)
 
-	if headErr == nil && headResp != nil && headResp.StatusCode >= http.StatusOK && headResp.StatusCode < http.StatusBadRequest {
-		contentType = normalizedMediaType(headResp.Header.Get("Content-Type"))
-		size = responseSize(headResp, 0)
-		modifiedAt = parseHTTPModified(headResp.Header.Get("Last-Modified"))
+	if cached, ok := s.lookupMetadata(requestedPath); ok {
+		contentType = cached.mimeType
+		size = cached.size
+		modifiedAt = cached.modifiedAt
 	}
 
 	if contentType == "" || size == 0 {
@@ -145,6 +211,13 @@ func (s *webAliasService) getFileInfo(path string) (*contracts.FileInfo, error) 
 	} else if isLikelyWebPage(parsed) {
 		fileType = contracts.FileTypeDirectory
 	}
+
+	s.rememberMetadata(requestedPath, webAliasMetadata{
+		size:       size,
+		mimeType:   contentType,
+		modifiedAt: modifiedAt,
+		fileType:   fileType,
+	})
 
 	return &contracts.FileInfo{
 		Name:        webEntryDisplayName(parsed),
@@ -179,6 +252,17 @@ func (s *webAliasService) probeFile(path string) (*contracts.FileProbe, error) {
 		probe.MimeType = headerType
 		probe.IsText = probe.IsText || isTextMediaType(headerType)
 	}
+
+	fileType := contracts.FileTypeFile
+	if probe.MimeType != "" && isHTMLMediaType(probe.MimeType) {
+		fileType = contracts.FileTypeDirectory
+	}
+	s.rememberMetadata(pathref.Normalize(path), webAliasMetadata{
+		size:       responseSize(&http.Response{Header: headers}, 0),
+		mimeType:   probe.MimeType,
+		modifiedAt: parseHTTPModified(headers.Get("Last-Modified")),
+		fileType:   fileType,
+	})
 
 	return &contracts.FileProbe{
 		MimeType:  probe.MimeType,
@@ -226,11 +310,23 @@ func (s *webAliasService) readFile(path string, encoding string) (*contracts.Fil
 		return nil, err
 	}
 
+	totalSize := responseSize(resp, int64(len(data)))
+	fileType := contracts.FileTypeFile
+	if probe.MimeType != "" && isHTMLMediaType(probe.MimeType) {
+		fileType = contracts.FileTypeDirectory
+	}
+	s.rememberMetadata(requestedPath, webAliasMetadata{
+		size:       totalSize,
+		mimeType:   probe.MimeType,
+		modifiedAt: parseHTTPModified(resp.Header.Get("Last-Modified")),
+		fileType:   fileType,
+	})
+
 	return &contracts.FileContent{
 		Path:     requestedPath,
 		Content:  content,
 		Encoding: encoding,
-		Size:     responseSize(resp, int64(len(data))),
+		Size:     totalSize,
 	}, nil
 }
 
@@ -284,11 +380,19 @@ func (s *webAliasService) readFileRange(path string, offset int64, length int) (
 		return nil, err
 	}
 
+	totalSize := responseSize(resp, offset+int64(len(data)))
+	s.rememberMetadata(requestedPath, webAliasMetadata{
+		size:       totalSize,
+		mimeType:   normalizedMediaType(resp.Header.Get("Content-Type")),
+		modifiedAt: parseHTTPModified(resp.Header.Get("Last-Modified")),
+		fileType:   contracts.FileTypeFile,
+	})
+
 	return &contracts.FileContent{
 		Path:     requestedPath,
 		Content:  base64.StdEncoding.EncodeToString(data),
 		Encoding: "base64",
-		Size:     responseSize(resp, offset+int64(len(data))),
+		Size:     totalSize,
 	}, nil
 }
 
@@ -389,29 +493,6 @@ func discoverWebEntries(pageURL string, body []byte) []contracts.FileInfo {
 			switch strings.ToLower(node.Data) {
 			case "a":
 				addWebEntry(entries, resolvedBase, currentURL, attrValue(node, "href"), true)
-			case "form":
-				addWebEntry(entries, resolvedBase, currentURL, attrValue(node, "action"), true)
-			case "img":
-				addWebEntry(entries, resolvedBase, currentURL, attrValue(node, "src"), false)
-				for _, candidate := range parseSrcset(attrValue(node, "srcset")) {
-					addWebEntry(entries, resolvedBase, currentURL, candidate, false)
-				}
-			case "script":
-				addWebEntry(entries, resolvedBase, currentURL, attrValue(node, "src"), false)
-			case "link":
-				addWebEntry(entries, resolvedBase, currentURL, attrValue(node, "href"), false)
-			case "source":
-				addWebEntry(entries, resolvedBase, currentURL, attrValue(node, "src"), false)
-				for _, candidate := range parseSrcset(attrValue(node, "srcset")) {
-					addWebEntry(entries, resolvedBase, currentURL, candidate, false)
-				}
-			case "video", "audio":
-				addWebEntry(entries, resolvedBase, currentURL, attrValue(node, "src"), false)
-				addWebEntry(entries, resolvedBase, currentURL, attrValue(node, "poster"), false)
-			case "iframe", "embed":
-				addWebEntry(entries, resolvedBase, currentURL, attrValue(node, "src"), true)
-			case "object":
-				addWebEntry(entries, resolvedBase, currentURL, attrValue(node, "data"), false)
 			}
 		}
 

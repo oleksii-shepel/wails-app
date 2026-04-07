@@ -13,7 +13,7 @@ func TestWebAliasListDirectoryDiscoversLinkedEntries(t *testing.T) {
 		switch r.URL.Path {
 		case "/index.html":
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			_, _ = w.Write([]byte(`<!doctype html><html><head></head><body><a href="/docs/page.html">Docs</a><script src="/assets/app.js"></script></body></html>`))
+			_, _ = w.Write([]byte(`<!doctype html><html><head></head><body><a href="/docs/page.html">Docs</a><a href="/assets/app.js">App</a><script src="/assets/app.js"></script></body></html>`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -51,9 +51,6 @@ func TestWebAliasListDirectoryDiscoversLinkedEntries(t *testing.T) {
 func TestWebAliasGetFileInfoTreatsHTMLAsDirectory(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if r.Method == http.MethodHead {
-			return
-		}
 		_, _ = w.Write([]byte("<html><body>docs</body></html>"))
 	}))
 	defer server.Close()
@@ -69,5 +66,48 @@ func TestWebAliasGetFileInfoTreatsHTMLAsDirectory(t *testing.T) {
 	}
 	if info.Path != server.URL+"/docs" {
 		t.Fatalf("unexpected info path: %q", info.Path)
+	}
+}
+
+func TestWebAliasListDirectoryUsesCachedFileSizes(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/index.html":
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = w.Write([]byte(`<!doctype html><html><body><a href="/assets/app.js">App</a></body></html>`))
+		case "/assets/app.js":
+			payload := []byte("console.log('hello');")
+			w.Header().Set("Content-Type", "application/javascript")
+			w.Header().Set("Content-Length", "21")
+			_, _ = w.Write(payload)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	service := newWebAliasService()
+
+	listing, err := service.listDirectory(server.URL + "/index.html")
+	if err != nil {
+		t.Fatalf("initial listDirectory returned error: %v", err)
+	}
+	if len(listing.Entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(listing.Entries))
+	}
+	if listing.Entries[0].Size != 0 {
+		t.Fatalf("expected uncached size to be 0, got %d", listing.Entries[0].Size)
+	}
+
+	if _, err := service.readFile(server.URL+"/assets/app.js", "utf8"); err != nil {
+		t.Fatalf("readFile returned error: %v", err)
+	}
+
+	listing, err = service.listDirectory(server.URL + "/index.html")
+	if err != nil {
+		t.Fatalf("second listDirectory returned error: %v", err)
+	}
+	if listing.Entries[0].Size != 21 {
+		t.Fatalf("expected cached size 21, got %d", listing.Entries[0].Size)
 	}
 }

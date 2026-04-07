@@ -182,19 +182,6 @@ function discoverWebEntriesFromHtml(content: string, pageUrl: string): FileInfo[
   };
 
   document.querySelectorAll('a[href]').forEach((node) => addEntry(node.getAttribute('href'), true));
-  document.querySelectorAll('form[action]').forEach((node) => addEntry(node.getAttribute('action'), true));
-  document.querySelectorAll('img[src],script[src],link[href],source[src],iframe[src],embed[src]').forEach((node) => {
-    const attr = node.hasAttribute('src') ? 'src' : 'href';
-    addEntry(node.getAttribute(attr), node.tagName.toLowerCase() === 'iframe' || node.tagName.toLowerCase() === 'embed');
-  });
-  document.querySelectorAll('object[data]').forEach((node) => addEntry(node.getAttribute('data'), false));
-  document.querySelectorAll('video[src],audio[src]').forEach((node) => addEntry(node.getAttribute('src'), false));
-  document.querySelectorAll('video[poster]').forEach((node) => addEntry(node.getAttribute('poster'), false));
-  document.querySelectorAll('[srcset]').forEach((node) => {
-    for (const candidate of parseSrcset(node.getAttribute('srcset'))) {
-      addEntry(candidate, false);
-    }
-  });
 
   return Array.from(entries.values()).sort((left, right) => left.path.localeCompare(right.path));
 }
@@ -256,9 +243,6 @@ class AliasDirectoryProvider implements DirectoryListingProvider {
   }
 
   listDirectory(path: string, showHidden: boolean): Promise<DirectorySourceListing> {
-    if (isWebHttpPath(path)) {
-      return this.listWebDirectory(path);
-    }
     return this.apiService.listDirectory(path, showHidden);
   }
 
@@ -278,23 +262,6 @@ class AliasDirectoryProvider implements DirectoryListingProvider {
 
   supportsStreaming(_path: string): boolean {
     return /^search:\/\//i.test(_path);
-  }
-
-  private async listWebDirectory(path: string): Promise<DirectorySourceListing> {
-    const normalized = normalizePath(path);
-    try {
-      const content = await this.apiService.readFile(normalized, 'utf8');
-      const entries = looksLikeHtmlDocument(content.content)
-        ? discoverWebEntriesFromHtml(content.content, normalized)
-        : [];
-      return { path: normalized, entries };
-    } catch (error) {
-      const info = await this.apiService.getFileInfo(normalized).catch(() => null);
-      if (info?.type === FileType.DIRECTORY) {
-        return { path: normalized, entries: [] };
-      }
-      throw error;
-    }
   }
 }
 

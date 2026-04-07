@@ -1,6 +1,7 @@
 package app
 
 import (
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -171,6 +172,11 @@ func splitAliasPath(path string) (dir string, base string, name string, ext stri
 		base = trimmed[slashIndex+1:]
 	} else {
 		base = trimmed
+	}
+	if pathref.IsWeb(normalized) {
+		if decoded, err := url.PathUnescape(base); err == nil && decoded != "" {
+			base = decoded
+		}
 	}
 	ext = filepath.Ext(base)
 	name = strings.TrimSuffix(base, ext)

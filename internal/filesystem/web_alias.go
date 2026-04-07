@@ -486,7 +486,7 @@ func discoverWebEntries(pageURL string, body []byte) []contracts.FileInfo {
 		return []contracts.FileInfo{}
 	}
 
-	resolvedBase := findHTMLBaseURL(doc, baseURL)
+	resolvedBase := findHTMLBaseURL(doc, directoryListingBaseURL(baseURL))
 	currentURL := canonicalWebURL(baseURL)
 	entries := make(map[string]contracts.FileInfo)
 
@@ -525,6 +525,20 @@ func discoverWebEntries(pageURL string, body []byte) []contracts.FileInfo {
 		files = append(files, entries[key])
 	}
 	return files
+}
+
+func directoryListingBaseURL(baseURL *url.URL) *url.URL {
+	if baseURL == nil {
+		return nil
+	}
+
+	resolved := *baseURL
+	if resolved.Path == "" {
+		resolved.Path = "/"
+	} else if !strings.HasSuffix(resolved.Path, "/") {
+		resolved.Path += "/"
+	}
+	return &resolved
 }
 
 func addWebEntry(entries map[string]contracts.FileInfo, baseURL *url.URL, currentURL string, rawRef string, navigable bool) {

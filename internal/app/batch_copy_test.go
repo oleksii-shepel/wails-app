@@ -2,10 +2,13 @@ package app
 
 import (
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
 
+	internalfilesystem "wails-app/internal/filesystem"
 	"wails-app/internal/pathref"
 	internalruntime "wails-app/internal/runtime"
 	vfslib "wails-app/vfs"
@@ -65,5 +68,49 @@ func TestStateCopyBatchPathFromMountedSMBSource(t *testing.T) {
 	}
 	if string(data) != content {
 		t.Fatalf("destination content mismatch\nwant: %q\n got: %q", content, string(data))
+	}
+}
+
+func TestStateCopyBatchPathFromHTTPSource(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/MPEG4%20by%20philips.mp4" && r.URL.Path != "/MPEG4 by philips.mp4" {
+			t.Fatalf("unexpected request path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "video/mp4")
+		_, _ = w.Write([]byte("http tab sample"))
+	}))
+	defer server.Close()
+
+	filesystem := internalfilesystem.NewService(internalfilesystem.ServiceConfig{
+		Raw:      rawFilesystemOps,
+		Metadata: rawFilesystemMetadataCallbacks(),
+	})
+
+	state := &State{Filesystem: filesystem}
+	destNative := filepath.Join(t.TempDir(), "downloaded.mp4")
+	destPublic := pathref.FromNativePath(destNative)
+	streamToFile := func(reader io.Reader, destination string, _ int64, _ string) (int64, error) {
+		if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+			return 0, err
+		}
+		file, err := os.Create(destination)
+		if err != nil {
+			return 0, err
+		}
+		defer file.Close()
+		return io.Copy(file, reader)
+	}
+
+	source := server.URL + "/MPEG4%20by%20philips.mp4"
+	if err := state.copyBatchPath(source, destPublic, false, streamToFile); err != nil {
+		t.Fatalf("copyBatchPath returned error: %v", err)
+	}
+
+	data, err := os.ReadFile(destNative)
+	if err != nil {
+		t.Fatalf("read destination: %v", err)
+	}
+	if string(data) != "http tab sample" {
+		t.Fatalf("destination content mismatch\nwant: %q\n got: %q", "http tab sample", string(data))
 	}
 }

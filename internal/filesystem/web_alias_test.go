@@ -188,3 +188,32 @@ func TestWebAliasListDirectoryUsesCachedFileSizes(t *testing.T) {
 		t.Fatalf("expected cached size 21, got %d", listing.Entries[0].Size)
 	}
 }
+
+func TestWebAliasListDirectoryResolvesRelativeLinksFromSlashlessDirectoryAlias(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/MPEG-4", "/MPEG-4/":
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = w.Write([]byte(`<!doctype html><html><head><title>Index of /MPEG-4</title></head><body><h1>Index of /MPEG-4</h1><a href="MPEG4%20by%20philips.mp4">MPEG4 by philips.mp4</a></body></html>`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	service := newWebAliasService()
+	listing, err := service.listDirectory(server.URL + "/MPEG-4")
+	if err != nil {
+		t.Fatalf("listDirectory returned error: %v", err)
+	}
+
+	if len(listing.Entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(listing.Entries))
+	}
+	if listing.Entries[0].Path != server.URL+"/MPEG-4/MPEG4%20by%20philips.mp4" {
+		t.Fatalf("unexpected entry path: %q", listing.Entries[0].Path)
+	}
+	if listing.Entries[0].Name != "MPEG4 by philips.mp4" {
+		t.Fatalf("unexpected entry name: %q", listing.Entries[0].Name)
+	}
+}

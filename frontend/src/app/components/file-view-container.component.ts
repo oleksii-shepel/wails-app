@@ -648,7 +648,7 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
   }
 
   getBrowserPath(): string {
-    return this.browserPath || this.currentPath;
+    return this.currentPath || this.browserPath;
   }
 
   showBrowserPane(): boolean {

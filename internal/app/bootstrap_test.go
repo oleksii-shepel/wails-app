@@ -67,6 +67,21 @@ func TestJoinPathsPreservesAliasRoot(t *testing.T) {
 	}
 }
 
+func TestSplitPathDecodesWebAliasBasename(t *testing.T) {
+	app := &App{}
+
+	split := app.SplitPath("https://samples.ffmpeg.org/MPEG4%20by%20philips.mp4")
+	if split["base"] != "MPEG4 by philips.mp4" {
+		t.Fatalf("web alias base mismatch\nwant: %q\n got: %q", "MPEG4 by philips.mp4", split["base"])
+	}
+	if split["name"] != "MPEG4 by philips" {
+		t.Fatalf("web alias name mismatch\nwant: %q\n got: %q", "MPEG4 by philips", split["name"])
+	}
+	if split["ext"] != ".mp4" {
+		t.Fatalf("web alias ext mismatch\nwant: %q\n got: %q", ".mp4", split["ext"])
+	}
+}
+
 func TestRawFilesystemCopyBetweenDiskAndMemory(t *testing.T) {
 	memoryRoot := t.TempDir()
 	resetMemoryResolverForTest(t, memoryRoot)

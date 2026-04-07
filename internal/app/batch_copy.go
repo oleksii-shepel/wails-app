@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	pathpkg "path"
 	"strings"
@@ -30,12 +31,16 @@ func (s *State) copyBatchPath(
 	recursive bool,
 	streamToFile func(io.Reader, string, int64, string) (int64, error),
 ) error {
+	source = pathref.Normalize(source)
+	destination = pathref.Normalize(destination)
+	if pathref.IsWeb(source) {
+		return s.copyBatchWebPath(source, destination, recursive, streamToFile)
+	}
+
 	if s.vfs == nil {
 		return fmt.Errorf("virtual filesystem is not available")
 	}
 
-	source = pathref.Normalize(source)
-	destination = pathref.Normalize(destination)
 	if !s.handlesBatchVFSPath(source) {
 		return fmt.Errorf("source is not a mounted virtual path")
 	}
@@ -54,6 +59,110 @@ func (s *State) copyBatchPath(
 	}
 
 	return s.copyBatchVFSFile(ctx, source, destination, info, streamToFile)
+}
+
+func (s *State) copyBatchWebPath(
+	source string,
+	destination string,
+	recursive bool,
+	streamToFile func(io.Reader, string, int64, string) (int64, error),
+) error {
+	if s.Filesystem == nil {
+		return fmt.Errorf("filesystem service is not available")
+	}
+
+	info, err := s.GetFileInfo(source)
+	if err != nil {
+		return err
+	}
+
+	ctx := context.Background()
+	if info.Type == contracts.FileTypeDirectory {
+		if !recursive {
+			return fmt.Errorf("source is a directory; use recursive=true")
+		}
+		return s.copyBatchWebDirectory(ctx, source, destination, streamToFile)
+	}
+
+	return s.copyBatchWebFile(ctx, source, destination, info, streamToFile)
+}
+
+func (s *State) copyBatchWebDirectory(
+	ctx context.Context,
+	source string,
+	destination string,
+	streamToFile func(io.Reader, string, int64, string) (int64, error),
+) error {
+	if err := s.ensureBatchDestinationDir(ctx, destination); err != nil {
+		return err
+	}
+
+	listing, err := s.ListDirectory(source, false)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range listing.Entries {
+		childDestination := joinBatchPath(destination, entry.Name)
+		if entry.Type == contracts.FileTypeDirectory {
+			if err := s.copyBatchWebDirectory(ctx, entry.Path, childDestination, streamToFile); err != nil {
+				return err
+			}
+			continue
+		}
+
+		entryCopy := entry
+		if err := s.copyBatchWebFile(ctx, entry.Path, childDestination, &entryCopy, streamToFile); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (s *State) copyBatchWebFile(
+	ctx context.Context,
+	source string,
+	destination string,
+	info *contracts.FileInfo,
+	streamToFile func(io.Reader, string, int64, string) (int64, error),
+) error {
+	reader, err := openBatchWebReader(ctx, source)
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+
+	if s.handlesBatchVFSPath(destination) {
+		return s.writeBatchVFSFile(ctx, destination, reader)
+	}
+
+	if streamToFile == nil {
+		return fmt.Errorf("stream copy callback is not available")
+	}
+
+	_, err = streamToFile(reader, pathref.ToNativePath(destination), info.Size, info.Name)
+	return err
+}
+
+func openBatchWebReader(ctx context.Context, source string) (io.ReadCloser, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pathref.Normalize(source), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "*/*")
+	req.Header.Set("User-Agent", "WailsFileManager/1.0")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusBadRequest {
+		defer resp.Body.Close()
+		return nil, fmt.Errorf("request failed: HTTP %d", resp.StatusCode)
+	}
+
+	return resp.Body, nil
 }
 
 func (s *State) copyBatchVFSDirectory(

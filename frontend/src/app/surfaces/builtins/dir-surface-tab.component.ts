@@ -14,7 +14,7 @@ import { DirSurfaceContext } from '../surface-context';
       [vm]="ctx.dirVm"
       [surfaceId]="ctx.paneId + ':' + ctx.tab.id"
       [surfaceActive]="active"
-      [surfacePath]="ctx.tab.path">
+      [surfacePath]="currentSurfacePath">
     </app-dir-surface>
   `,
   styles: [`
@@ -41,6 +41,10 @@ export class DirSurfaceTabComponent {
   @Input({ required: true }) ctx!: DirSurfaceContext;
   @Input() active = false;
   @ViewChild('dir') private dir?: DirSurfaceComponent;
+
+  get currentSurfacePath(): string {
+    return this.ctx?.dirVm?.currentPath || this.ctx?.tab?.path || '';
+  }
 
   // Exposed for SurfaceOutletComponent proxying.
   get addressBar() { return this.dir?.addressBar; }

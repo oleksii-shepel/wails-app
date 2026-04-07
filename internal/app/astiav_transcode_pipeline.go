@@ -1,3 +1,5 @@
+//go:build cgo && (windows || darwin || linux)
+
 package app
 
 import (

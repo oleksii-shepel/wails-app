@@ -45,6 +45,7 @@ describe('FileBrowserTransferController', () => {
   it('copies into the other pane current path instead of its selected directory', async () => {
     const controller = new FileBrowserTransferController();
     const host = createHost();
+    const destinationRefresh = host.rightPane?.browserCommands.navigation.refresh as ReturnType<typeof vi.fn>;
 
     await controller.copy(host, 'left', ['filesystem://source/current/file.txt']);
 
@@ -58,11 +59,14 @@ describe('FileBrowserTransferController', () => {
         destination: 'filesystem://target/current/file.txt',
       },
     ], true);
+    expect(destinationRefresh).toHaveBeenCalledTimes(1);
   });
 
   it('moves into the other pane current path instead of its selected directory', async () => {
     const controller = new FileBrowserTransferController();
     const host = createHost();
+    const sourceRefresh = host.leftPane?.browserCommands.navigation.refresh as ReturnType<typeof vi.fn>;
+    const destinationRefresh = host.rightPane?.browserCommands.navigation.refresh as ReturnType<typeof vi.fn>;
 
     await controller.move(host, 'left', ['filesystem://source/current/file.txt']);
 
@@ -76,5 +80,7 @@ describe('FileBrowserTransferController', () => {
         destination: 'filesystem://target/current/file.txt',
       },
     ], true);
+    expect(sourceRefresh).toHaveBeenCalledTimes(1);
+    expect(destinationRefresh).toHaveBeenCalledTimes(1);
   });
 });

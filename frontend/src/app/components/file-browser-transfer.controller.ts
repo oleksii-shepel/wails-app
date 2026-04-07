@@ -61,6 +61,7 @@ export class FileBrowserTransferController {
     const result = await host.apiService.batchCopy(items, true);
     const err = this.archiveError(result);
     if (err) host.confirmDialog.alert(`Copy Errors\n${err}`);
+    await dst.browserCommands.navigation.refresh();
   }
 
   async move(host: FileBrowserTransferHost, sourceSide: 'left' | 'right', paths: string[]): Promise<void> {
@@ -96,6 +97,8 @@ export class FileBrowserTransferController {
     const result = await host.apiService.batchMove(items, true);
     const err = this.archiveError(result);
     if (err) host.confirmDialog.alert(`Move Errors\n${err}`);
+    await src.browserCommands.navigation.refresh();
+    await dst.browserCommands.navigation.refresh();
   }
 
   private resolvePanes(host: FileBrowserTransferHost, sourceSide: 'left' | 'right'): { src?: FileBrowserTransferPane; dst?: FileBrowserTransferPane } {

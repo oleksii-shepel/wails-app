@@ -148,6 +148,7 @@ type windowsPaneState struct {
 	targetVisible           bool
 	initialNavigationDone   bool
 	initialNavigationQueued bool
+	newWindowHandler        *newWindowRequestedHandler
 }
 
 type rawIUnknownVTBL struct {
@@ -259,6 +260,153 @@ type rawICoreWebView2Vtbl struct {
 
 type rawICoreWebView2 struct {
 	Vtbl *rawICoreWebView2Vtbl
+}
+
+// rawICoreWebView2NewWindowVtbl extends rawICoreWebView2Vtbl to include
+// AddNewWindowRequested (vtable index 44, counting from IUnknown at 0).
+type rawICoreWebView2NewWindowVtbl struct {
+	rawIUnknownVTBL
+	GetSettings                            edge.ComProc
+	GetSource                              edge.ComProc
+	Navigate                               edge.ComProc
+	NavigateToString                       edge.ComProc
+	AddNavigationStarting                  edge.ComProc
+	RemoveNavigationStarting               edge.ComProc
+	AddContentLoading                      edge.ComProc
+	RemoveContentLoading                   edge.ComProc
+	AddSourceChanged                       edge.ComProc
+	RemoveSourceChanged                    edge.ComProc
+	AddHistoryChanged                      edge.ComProc
+	RemoveHistoryChanged                   edge.ComProc
+	AddNavigationCompleted                 edge.ComProc
+	RemoveNavigationCompleted              edge.ComProc
+	AddFrameNavigationStarting             edge.ComProc
+	RemoveFrameNavigationStarting          edge.ComProc
+	AddFrameNavigationCompleted            edge.ComProc
+	RemoveFrameNavigationCompleted         edge.ComProc
+	AddScriptDialogOpening                 edge.ComProc
+	RemoveScriptDialogOpening              edge.ComProc
+	AddPermissionRequested                 edge.ComProc
+	RemovePermissionRequested              edge.ComProc
+	AddProcessFailed                       edge.ComProc
+	RemoveProcessFailed                    edge.ComProc
+	AddScriptToExecuteOnDocumentCreated    edge.ComProc
+	RemoveScriptToExecuteOnDocumentCreated edge.ComProc
+	ExecuteScript                          edge.ComProc
+	CapturePreview                         edge.ComProc
+	Reload                                 edge.ComProc
+	PostWebMessageAsJSON                   edge.ComProc
+	PostWebMessageAsString                 edge.ComProc
+	AddWebMessageReceived                  edge.ComProc
+	RemoveWebMessageReceived               edge.ComProc
+	CallDevToolsProtocolMethod             edge.ComProc
+	GetBrowserProcessID                    edge.ComProc
+	GetCanGoBack                           edge.ComProc
+	GetCanGoForward                        edge.ComProc
+	GoBack                                 edge.ComProc
+	GoForward                              edge.ComProc
+	GetDevToolsProtocolEventReceiver       edge.ComProc
+	Stop                                   edge.ComProc
+	AddNewWindowRequested                  edge.ComProc
+}
+
+type rawICoreWebView2NewWindow struct {
+	Vtbl *rawICoreWebView2NewWindowVtbl
+}
+
+// rawNewWindowArgsVtbl covers ICoreWebView2NewWindowRequestedEventArgs up to PutHandled.
+type rawNewWindowArgsVtbl struct {
+	QueryInterface edge.ComProc
+	AddRef         edge.ComProc
+	Release        edge.ComProc
+	GetUri         edge.ComProc
+	PutNewWindow   edge.ComProc
+	GetNewWindow   edge.ComProc
+	PutHandled     edge.ComProc
+}
+
+type rawNewWindowArgs struct {
+	Vtbl *rawNewWindowArgsVtbl
+}
+
+// newWindowRequestedHandlerVtbl is the COM vtable for our NewWindowRequested event handler.
+type newWindowRequestedHandlerVtbl struct {
+	QueryInterface edge.ComProc
+	AddRef         edge.ComProc
+	Release        edge.ComProc
+	Invoke         edge.ComProc
+}
+
+// newWindowRequestedHandler is a COM-compatible event handler that intercepts
+// new-window requests and redirects them to the same WebView2 pane.
+type newWindowRequestedHandler struct {
+	vtbl  *newWindowRequestedHandlerVtbl
+	state *windowsPaneState
+}
+
+var newWindowRequestedVtblSingleton *newWindowRequestedHandlerVtbl
+
+func init() {
+	newWindowRequestedVtblSingleton = &newWindowRequestedHandlerVtbl{
+		QueryInterface: edge.NewComProc(nwrQueryInterface),
+		AddRef:         edge.NewComProc(nwrAddRef),
+		Release:        edge.NewComProc(nwrRelease),
+		Invoke:         edge.NewComProc(nwrInvoke),
+	}
+}
+
+func nwrQueryInterface(this, _, _ uintptr) uintptr { return 0x80004002 } // E_NOINTERFACE
+func nwrAddRef(this uintptr) uintptr               { return 1 }
+func nwrRelease(this uintptr) uintptr              { return 1 }
+
+func nwrInvoke(this, _ /*sender*/, args uintptr) uintptr {
+	if args == 0 {
+		return 0
+	}
+	handler := (*newWindowRequestedHandler)(unsafe.Pointer(this))
+
+	// Read the requested URI.
+	argsRaw := (*rawNewWindowArgs)(unsafe.Pointer(args))
+	var uriPtr *uint16
+	argsRaw.Vtbl.GetUri.Call(args, uintptr(unsafe.Pointer(&uriPtr)))
+	url := ""
+	if uriPtr != nil {
+		url = windows.UTF16PtrToString(uriPtr)
+		windows.CoTaskMemFree(unsafe.Pointer(uriPtr))
+	}
+
+	// Navigate the existing webview to the requested URL instead of opening a new window.
+	if url != "" && handler.state != nil && handler.state.chromium != nil {
+		_, webview, _ := chromiumHandles(handler.state.chromium)
+		if webview != nil {
+			raw := (*rawICoreWebView2)(unsafe.Pointer(webview))
+			if urlUTF16, err := windows.UTF16PtrFromString(url); err == nil {
+				raw.Vtbl.Navigate.Call(uintptr(unsafe.Pointer(raw)), uintptr(unsafe.Pointer(urlUTF16)))
+			}
+		}
+	}
+
+	// Mark the event as handled — prevents WebView2 from opening a native new window.
+	argsRaw.Vtbl.PutHandled.Call(args, 1)
+	return 0 // S_OK
+}
+
+func (s *windowsPaneState) registerNewWindowHandler() {
+	_, webview, _ := chromiumHandles(s.chromium)
+	if webview == nil {
+		return
+	}
+	s.newWindowHandler = &newWindowRequestedHandler{
+		vtbl:  newWindowRequestedVtblSingleton,
+		state: s,
+	}
+	raw := (*rawICoreWebView2NewWindow)(unsafe.Pointer(webview))
+	var token struct{ Value int64 }
+	raw.Vtbl.AddNewWindowRequested.Call(
+		uintptr(unsafe.Pointer(raw)),
+		uintptr(unsafe.Pointer(s.newWindowHandler)),
+		uintptr(unsafe.Pointer(&token)),
+	)
 }
 
 // cdpCallbackHandler is a COM callback for CallDevToolsProtocolMethod completion.
@@ -528,6 +676,8 @@ func newWindowsPaneState(initialTheme string, initialBackgroundColor string) (*w
 	// These run on every navigation, before the page content is displayed.
 	chromium.Init(browserPaneScrollbarScript(initialTheme))
 	chromium.Init(browserPaneBackgroundScript(r, g, b))
+	chromium.Init(browserPaneNewWindowScript())
+	state.registerNewWindowHandler()
 
 	state.chromium.SetBackgroundColour(r, g, b, 255)
 	_, _, _ = procShowWindow.Call(hostHWND, swHide)
@@ -980,6 +1130,34 @@ function setup(){
 }
 if(document.body)setup();else document.addEventListener('DOMContentLoaded',setup);
 })();`, thumb, thumbHover, thumbActive)
+}
+
+func browserPaneNewWindowScript() string {
+	return `(function(){
+  if(window.__wailsBrowserPaneNewWindowInit){return;}
+  window.__wailsBrowserPaneNewWindowInit=true;
+  // Redirect window.open() to navigate in the same pane.
+  var _origOpen=window.open;
+  window.open=function(url,target,features){
+    if(url&&url!=='about:blank'){
+      try{window.location.href=String(url);}catch(_){}
+      return null;
+    }
+    return _origOpen.call(this,url,target,features);
+  };
+  // Intercept clicks on target=_blank links before the browser handles them.
+  document.addEventListener('click',function(e){
+    if(e.defaultPrevented){return;}
+    var el=e.target;
+    while(el&&el.tagName!=='A'){el=el.parentElement;}
+    if(!el){return;}
+    var t=el.getAttribute('target');
+    if(t&&t!=='_self'&&t!=='_parent'&&t!=='_top'&&el.href&&el.href!=='#'){
+      e.preventDefault();
+      try{window.location.href=el.href;}catch(_){}
+    }
+  },true);
+})();`
 }
 
 func setBrowserPaneHostBackground(hwnd uintptr, r uint8, g uint8, b uint8) {

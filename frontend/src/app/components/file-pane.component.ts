@@ -695,10 +695,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
 
   get allTabSurfaceCtxs(): Array<{ ctx: SurfaceContext; active: boolean }> {
     const orderedTabs = this.tabs
-      .filter((tab) => {
-        const kind = tab.kind ?? 'dir';
-        return kind !== 'dir' || tab.id === this.currentTabId;
-      })
+      .slice()
       .sort((left, right) => {
         const leftActive = left.id === this.currentTabId ? 1 : 0;
         const rightActive = right.id === this.currentTabId ? 1 : 0;

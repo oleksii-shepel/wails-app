@@ -166,6 +166,10 @@ function discoverWebEntriesFromHtml(content: string, pageUrl: string): FileInfo[
     const resolved = resolveWebReference(baseUrl, rawRef);
     if (!resolved) return;
 
+    if (resolved.search) {
+      return;
+    }
+
     const normalized = canonicalizeWebUrl(resolved.toString());
     if (normalized === currentUrl.toString() || entries.has(normalized)) {
       return;

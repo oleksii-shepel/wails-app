@@ -115,7 +115,7 @@ type darwinPane struct {
 	handle unsafe.Pointer
 }
 
-func newPlatformPane(_ Update) (pane, error) {
+func newPlatformPane(_ Update, _ func(string)) (pane, error) {
 	handle := C.browserPaneCreate()
 	if handle == nil {
 		return nil, fmt.Errorf("macOS main window not available")

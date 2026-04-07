@@ -81,6 +81,9 @@ export class FilePaneDirectoryController {
     EventsOn('fs:directoryChanged', (event: { paneId?: string; path?: string } | null) => {
       host.runInAngular(() => this.handleFsDirectoryChanged(host, event));
     });
+    EventsOn('web:resourcesChanged', (event: { path?: string } | null) => {
+      host.runInAngular(() => this.handleWebResourcesChanged(host, event));
+    });
 
     host.dirStream.bind(host.paneId, {
       onMeta: (event, isFirst) => host.runInAngular(() => this.handleDirStreamMeta(host, event, isFirst)),
@@ -96,7 +99,7 @@ export class FilePaneDirectoryController {
       this.fsChangeDebounceTimer = null;
     }
     await host.dirStream.unbind();
-    EventsOff('fs:directoryChanged');
+    EventsOff('fs:directoryChanged', 'web:resourcesChanged');
   }
 
   async loadDirectory(host: FilePaneDirectoryHost, path: string, opts?: { preserveUI?: boolean; focusPath?: string }): Promise<void> {
@@ -202,6 +205,25 @@ export class FilePaneDirectoryController {
 
   private handleFsDirectoryChanged(host: FilePaneDirectoryHost, event: { paneId?: string; path?: string } | null): void {
     if (!event || event.paneId !== host.paneId) return;
+    if (host.isInArchive()) return;
+    if (host.shouldSuppressFsRefresh()) return;
+
+    const current = (host.currentPath || '').replace(/\\/g, '/');
+    const changed = (event.path || '').replace(/\\/g, '/');
+    if (!current || !changed || !samePath(current, changed)) return;
+
+    if (this.fsChangeDebounceTimer) {
+      clearTimeout(this.fsChangeDebounceTimer);
+    }
+    this.fsChangeDebounceTimer = setTimeout(() => {
+      this.fsChangeDebounceTimer = null;
+      if (host.shouldSuppressFsRefresh()) return;
+      host.onRefresh();
+    }, 150);
+  }
+
+  private handleWebResourcesChanged(host: FilePaneDirectoryHost, event: { path?: string } | null): void {
+    if (!event) return;
     if (host.isInArchive()) return;
     if (host.shouldSuppressFsRefresh()) return;
 

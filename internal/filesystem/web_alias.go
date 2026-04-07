@@ -20,6 +20,7 @@ import (
 	"wails-app/internal/contentprobe"
 	contracts "wails-app/internal/contracts"
 	"wails-app/internal/pathref"
+	"wails-app/internal/webresourcecache"
 )
 
 const (
@@ -143,6 +144,9 @@ func (s *webAliasService) listDirectory(path string) (*contracts.DirectoryListin
 	entries := []contracts.FileInfo{}
 	if isHTMLResponse(resp.Header.Get("Content-Type"), body) {
 		entries = discoverWebEntries(targetURL, body)
+		if len(entries) == 0 {
+			entries = cachedWebResources(targetURL)
+		}
 		entries = s.applyCachedMetadata(entries)
 	}
 
@@ -478,6 +482,9 @@ func discoverWebEntries(pageURL string, body []byte) []contracts.FileInfo {
 	if err != nil {
 		return []contracts.FileInfo{}
 	}
+	if !looksLikeDirectoryListing(doc) {
+		return []contracts.FileInfo{}
+	}
 
 	resolvedBase := findHTMLBaseURL(doc, baseURL)
 	currentURL := canonicalWebURL(baseURL)
@@ -525,6 +532,9 @@ func addWebEntry(entries map[string]contracts.FileInfo, baseURL *url.URL, curren
 	if !ok {
 		return
 	}
+	if strings.TrimSpace(resolved.RawQuery) != "" {
+		return
+	}
 
 	target := canonicalWebURL(resolved)
 	if target == "" || target == currentURL {
@@ -546,6 +556,59 @@ func addWebEntry(entries map[string]contracts.FileInfo, baseURL *url.URL, curren
 		MimeType:    mime.TypeByExtension(strings.ToLower(vpath.Ext(resolved.Path))),
 		Permissions: "r--",
 		IsHidden:    false,
+	}
+}
+
+func cachedWebResources(pageURL string) []contracts.FileInfo {
+	resources := webresourcecache.Load(pageURL)
+	if len(resources) == 0 {
+		return []contracts.FileInfo{}
+	}
+
+	entries := make([]contracts.FileInfo, 0, len(resources))
+	for _, resource := range resources {
+		parsed, err := url.Parse(resource.URL)
+		if err != nil {
+			continue
+		}
+		if !shouldIncludeCachedWebResource(parsed, resource.InitiatorType, resource.Size) {
+			continue
+		}
+		entries = append(entries, contracts.FileInfo{
+			Name:        webEntryDisplayName(parsed),
+			Path:        canonicalWebURL(parsed),
+			Type:        contracts.FileTypeFile,
+			MimeType:    mime.TypeByExtension(strings.ToLower(vpath.Ext(parsed.Path))),
+			Size:        resource.Size,
+			Permissions: "r--",
+			IsHidden:    false,
+		})
+	}
+	if len(entries) == 0 {
+		return []contracts.FileInfo{}
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].Path < entries[j].Path
+	})
+	return entries
+}
+
+func shouldIncludeCachedWebResource(parsed *url.URL, initiatorType string, size int64) bool {
+	if parsed == nil || size <= 0 {
+		return false
+	}
+	ext := strings.ToLower(vpath.Ext(parsed.Path))
+	if ext != "" {
+		if isLikelyWebPage(parsed) {
+			return false
+		}
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(initiatorType)) {
+	case "script", "css", "img", "image", "audio", "video", "track", "font", "link", "beacon":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -606,6 +669,58 @@ func findHTMLBaseURL(doc *html.Node, fallback *url.URL) *url.URL {
 		return resolved
 	}
 	return fallback
+}
+
+func looksLikeDirectoryListing(doc *html.Node) bool {
+	for _, tag := range []string{"title", "h1"} {
+		if label := strings.ToLower(strings.TrimSpace(firstElementText(doc, tag))); isDirectoryListingLabel(label) {
+			return true
+		}
+	}
+	return false
+}
+
+func isDirectoryListingLabel(label string) bool {
+	return strings.HasPrefix(label, "index of") || strings.HasPrefix(label, "directory listing for")
+}
+
+func firstElementText(root *html.Node, tag string) string {
+	var walk func(*html.Node) string
+	walk = func(node *html.Node) string {
+		if node == nil {
+			return ""
+		}
+		if node.Type == html.ElementNode && strings.EqualFold(node.Data, tag) {
+			return nodeText(node)
+		}
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			if text := walk(child); text != "" {
+				return text
+			}
+		}
+		return ""
+	}
+	return walk(root)
+}
+
+func nodeText(node *html.Node) string {
+	var parts []string
+	var walk func(*html.Node)
+	walk = func(current *html.Node) {
+		if current == nil {
+			return
+		}
+		if current.Type == html.TextNode {
+			if text := strings.TrimSpace(current.Data); text != "" {
+				parts = append(parts, text)
+			}
+		}
+		for child := current.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
+	}
+	walk(node)
+	return strings.Join(parts, " ")
 }
 
 func attrValue(node *html.Node, name string) string {

@@ -6,7 +6,7 @@ import "fmt"
 
 type darwinUnsupportedPane struct{}
 
-func newPlatformPane(_ Update) (pane, error) {
+func newPlatformPane(_ Update, _ func(string)) (pane, error) {
 	return nil, fmt.Errorf("native browser pane requires cgo on darwin")
 }
 

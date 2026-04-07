@@ -18,6 +18,7 @@ import (
 
 	"github.com/wailsapp/go-webview2/pkg/edge"
 	"golang.org/x/sys/windows"
+	"wails-app/internal/webresourcecache"
 )
 
 const (
@@ -149,6 +150,19 @@ type windowsPaneState struct {
 	initialNavigationDone   bool
 	initialNavigationQueued bool
 	newWindowHandler        *newWindowRequestedHandler
+	onResourcesChanged      func(string)
+}
+
+type browserPaneResourceSnapshot struct {
+	Type      string                        `json:"type"`
+	PageURL   string                        `json:"pageUrl"`
+	Resources []browserPaneResourceSnapshotEntry `json:"resources"`
+}
+
+type browserPaneResourceSnapshotEntry struct {
+	URL           string `json:"url"`
+	Size          int64  `json:"size"`
+	InitiatorType string `json:"initiatorType"`
 }
 
 type rawIUnknownVTBL struct {
@@ -459,13 +473,13 @@ func cdpInvoke(this uintptr, errorCode uintptr, resultUTF16 uintptr) uintptr {
 	return 0
 }
 
-func newPlatformPane(initial Update) (pane, error) {
+func newPlatformPane(initial Update, onResourcesChanged func(string)) (pane, error) {
 	result := &windowsPane{
 		surfaceID: initial.SurfaceID,
 		commands:  make(chan windowsPaneCommand),
 		closed:    make(chan struct{}),
 	}
-	go result.run(initial)
+	go result.run(initial, onResourcesChanged)
 	return result, nil
 }
 
@@ -525,7 +539,7 @@ func (p *windowsPane) GetDocumentBackground() (string, error) {
 	return <-backgroundReply, nil
 }
 
-func (p *windowsPane) run(initial Update) {
+func (p *windowsPane) run(initial Update, onResourcesChanged func(string)) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 	defer close(p.closed)
@@ -536,7 +550,7 @@ func (p *windowsPane) run(initial Update) {
 	}
 	defer windows.CoUninitialize()
 
-	state, err := newWindowsPaneState(initial.Theme, initial.BackgroundColor)
+	state, err := newWindowsPaneState(initial.Theme, initial.BackgroundColor, onResourcesChanged)
 	if err != nil {
 		p.drainWithError(err)
 		return
@@ -598,7 +612,7 @@ func (p *windowsPane) drainWithError(err error) {
 	}
 }
 
-func newWindowsPaneState(initialTheme string, initialBackgroundColor string) (*windowsPaneState, error) {
+func newWindowsPaneState(initialTheme string, initialBackgroundColor string, onResourcesChanged func(string)) (*windowsPaneState, error) {
 	ownerHWND, err := discoverMainWindowHandle()
 	if err != nil {
 		return nil, err
@@ -641,6 +655,7 @@ func newWindowsPaneState(initialTheme string, initialBackgroundColor string) (*w
 		chromium:        chromium,
 		theme:           initialTheme,
 		backgroundColor: initialBackgroundColor,
+		onResourcesChanged: onResourcesChanged,
 	}
 	chromium.SetErrorCallback(func(err error) {
 		if err == nil {
@@ -656,9 +671,13 @@ func newWindowsPaneState(initialTheme string, initialBackgroundColor string) (*w
 		// Re-inject scrollbar styles via Eval as a reliable fallback;
 		// Init (AddScriptToExecuteOnDocumentCreated) may not fire in all scenarios.
 		state.chromium.Eval(browserPaneScrollbarScript(state.theme))
+		state.chromium.Eval(`window.__wailsBrowserPaneFlushResources&&window.__wailsBrowserPaneFlushResources()`) 
 		if state.targetVisible && !state.visible {
 			state.show()
 		}
+	}
+	chromium.MessageCallback = func(message string, _ *edge.ICoreWebView2, _ *edge.ICoreWebView2WebMessageReceivedEventArgs) {
+		state.handleBrowserMessage(message)
 	}
 	chromium.SetGlobalPermission(edge.CoreWebView2PermissionStateAllow)
 	if !chromium.Embed(hostHWND) {
@@ -677,12 +696,38 @@ func newWindowsPaneState(initialTheme string, initialBackgroundColor string) (*w
 	chromium.Init(browserPaneScrollbarScript(initialTheme))
 	chromium.Init(browserPaneBackgroundScript(r, g, b))
 	chromium.Init(browserPaneNewWindowScript())
+	chromium.Init(browserPaneResourceTrackerScript())
 	state.registerNewWindowHandler()
 
 	state.chromium.SetBackgroundColour(r, g, b, 255)
 	_, _, _ = procShowWindow.Call(hostHWND, swHide)
 
 	return state, nil
+}
+
+func (s *windowsPaneState) handleBrowserMessage(message string) {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return
+	}
+	var snapshot browserPaneResourceSnapshot
+	if err := json.Unmarshal([]byte(message), &snapshot); err != nil {
+		return
+	}
+	if snapshot.Type != "resource-snapshot" || strings.TrimSpace(snapshot.PageURL) == "" {
+		return
+	}
+	resources := make([]webresourcecache.Resource, 0, len(snapshot.Resources))
+	for _, resource := range snapshot.Resources {
+		resources = append(resources, webresourcecache.Resource{
+			URL:           resource.URL,
+			Size:          resource.Size,
+			InitiatorType: resource.InitiatorType,
+		})
+	}
+	if webresourcecache.Store(snapshot.PageURL, resources) && s.onResourcesChanged != nil {
+		s.onResourcesChanged(snapshot.PageURL)
+	}
 }
 
 func (s *windowsPaneState) sync(update Update) error {
@@ -1157,6 +1202,66 @@ func browserPaneNewWindowScript() string {
       try{window.location.href=el.href;}catch(_){}
     }
   },true);
+})();`
+}
+
+func browserPaneResourceTrackerScript() string {
+	return `(function(){
+if(window.__wailsBrowserPaneResourceInit){return;}
+window.__wailsBrowserPaneResourceInit=true;
+function canonicalize(raw){
+	try{
+		var url=new URL(String(raw||''), location.href);
+		url.hash='';
+		return url.toString();
+	}catch(_){return '';}
+}
+function collect(){
+	try{
+		var resources=[];
+		var seen=Object.create(null);
+		var entries=(performance&&performance.getEntriesByType)?performance.getEntriesByType('resource'):[];
+		for(var i=0;i<entries.length;i++){
+			var entry=entries[i];
+			var url=canonicalize(entry&&entry.name);
+			if(!url||seen[url]){continue;}
+			seen[url]=true;
+			var transfer=Number(entry.transferSize)||0;
+			var encoded=Number(entry.encodedBodySize)||0;
+			var decoded=Number(entry.decodedBodySize)||0;
+			var size=Math.max(transfer,encoded,decoded,0);
+			resources.push({url:url,size:size,initiatorType:String(entry.initiatorType||'')});
+		}
+		if(window.chrome&&window.chrome.webview&&window.chrome.webview.postMessage){
+			window.chrome.webview.postMessage(JSON.stringify({
+				type:'resource-snapshot',
+				pageUrl:canonicalize(location.href),
+				resources:resources
+			}));
+		}
+	}catch(_){ }
+}
+var scheduled=false;
+function schedule(){
+	if(scheduled){return;}
+	scheduled=true;
+	setTimeout(function(){scheduled=false;collect();},150);
+}
+window.__wailsBrowserPaneFlushResources=schedule;
+if(window.PerformanceObserver){
+	try{
+		var observer=new PerformanceObserver(function(){schedule();});
+		observer.observe({type:'resource',buffered:true});
+	}catch(_){
+		try{
+			var fallbackObserver=new PerformanceObserver(function(){schedule();});
+			fallbackObserver.observe({entryTypes:['resource']});
+		}catch(__){}
+	}
+}
+window.addEventListener('load',schedule,{once:false});
+document.addEventListener('readystatechange',function(){if(document.readyState==='complete'){schedule();}});
+setTimeout(schedule,500);
 })();`
 }
 

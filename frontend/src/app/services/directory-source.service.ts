@@ -251,6 +251,14 @@ class AliasDirectoryProvider implements DirectoryListingProvider {
     if (/^search:\/\//i.test(normalized) && normalized.toLowerCase() !== 'search://') {
       return normalized;
     }
+    if (isWebHttpPath(normalized)) {
+      try {
+        const parsed = new URL(normalized);
+        return `${parsed.protocol.toLowerCase()}//${parsed.host.toLowerCase()}`;
+      } catch {
+        return null;
+      }
+    }
     const aliasMatch = /^([a-z][a-z0-9+.-]*):\/\//i.exec(normalized);
     return aliasMatch ? `${aliasMatch[1].toLowerCase()}://` : null;
   }

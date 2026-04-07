@@ -88,7 +88,7 @@ func (a *App) browserPaneService() *internalbrowserpane.Service {
 	a.browserPanesMu.Lock()
 	defer a.browserPanesMu.Unlock()
 	if a.browserPanes == nil {
-		a.browserPanes = internalbrowserpane.NewService()
+		a.browserPanes = internalbrowserpane.NewService(a.EmitEvent)
 	}
 	return a.browserPanes
 }

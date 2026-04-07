@@ -51,6 +51,20 @@ function aliasSchemeFor(p: string): string | null {
   return scheme;
 }
 
+function webHostRootFor(p: string): string | null {
+  const normalized = (p || '').trim();
+  try {
+    const parsed = new URL(normalized);
+    const scheme = parsed.protocol.toLowerCase();
+    if (scheme !== 'http:' && scheme !== 'https:') {
+      return null;
+    }
+    return `${scheme}//${parsed.host.toLowerCase()}`;
+  } catch {
+    return null;
+  }
+}
+
 function normalizeAliasReference(p: string, scheme: string): string {
   const normalized = (p || '').trim().replace(/\\/g, '/');
   if (scheme === SEARCH_SCHEME && normalized.slice(scheme.length).startsWith('?')) {
@@ -318,6 +332,14 @@ export function parentPath(p: string): string {
   }
   const aliasScheme = aliasSchemeFor(n);
   if (aliasScheme) {
+    const webRoot = webHostRootFor(n);
+    if (webRoot) {
+      if (n === webRoot) return webRoot;
+      const remainder = n.slice(webRoot.length).replace(/^\/+/, '');
+      if (!remainder) return webRoot;
+      const idx = remainder.lastIndexOf('/');
+      return idx < 0 ? webRoot : `${webRoot}/${remainder.slice(0, idx)}`;
+    }
     const rel = n.slice(aliasScheme.length);
     if (!rel) return aliasScheme;
     const idx = rel.lastIndexOf('/');

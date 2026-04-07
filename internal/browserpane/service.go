@@ -26,13 +26,15 @@ type pane interface {
 }
 
 type Service struct {
-	mu    sync.Mutex
-	panes map[string]pane
+	mu        sync.Mutex
+	panes     map[string]pane
+	emitEvent func(string, interface{})
 }
 
-func NewService() *Service {
+func NewService(emitEvent func(string, interface{})) *Service {
 	return &Service{
-		panes: make(map[string]pane),
+		panes:     make(map[string]pane),
+		emitEvent: emitEvent,
 	}
 }
 
@@ -64,7 +66,7 @@ func (s *Service) Sync(update Update) error {
 	target := s.panes[update.SurfaceID]
 	if target == nil {
 		var err error
-		target, err = newPlatformPane(update)
+		target, err = newPlatformPane(update, s.emitResourceUpdate)
 		if err != nil {
 			s.mu.Unlock()
 			return err
@@ -74,6 +76,13 @@ func (s *Service) Sync(update Update) error {
 	s.mu.Unlock()
 
 	return target.Sync(update)
+}
+
+func (s *Service) emitResourceUpdate(path string) {
+	if s.emitEvent == nil || strings.TrimSpace(path) == "" {
+		return
+	}
+	s.emitEvent("web:resourcesChanged", map[string]string{"path": strings.TrimSpace(path)})
 }
 
 func (s *Service) Dispose(surfaceID string) error {

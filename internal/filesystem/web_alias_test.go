@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	contracts "wails-app/internal/contracts"
+	"wails-app/internal/webresourcecache"
 )
 
 func TestWebAliasListDirectoryDiscoversLinkedEntries(t *testing.T) {
@@ -13,7 +14,7 @@ func TestWebAliasListDirectoryDiscoversLinkedEntries(t *testing.T) {
 		switch r.URL.Path {
 		case "/index.html":
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			_, _ = w.Write([]byte(`<!doctype html><html><head></head><body><a href="/docs/page.html">Docs</a><a href="/assets/app.js">App</a><script src="/assets/app.js"></script></body></html>`))
+			_, _ = w.Write([]byte(`<!doctype html><html><head><title>Index of /</title></head><body><h1>Index of /</h1><a href="/docs/page.html">Docs</a><a href="/assets/app.js">App</a><a href="/home?hl=en-US">Home</a><script src="/assets/app.js"></script></body></html>`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -48,6 +49,53 @@ func TestWebAliasListDirectoryDiscoversLinkedEntries(t *testing.T) {
 	}
 }
 
+func TestWebAliasListDirectoryIgnoresRegularWebsitePages(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(`<!doctype html><html><head><title>Google News</title></head><body><nav><a href="/home?hl=en-US&gl=US">Home</a><a href="/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRFZxYUdjU0FtVnVLQUFQAQ">Topic</a></nav></body></html>`))
+	}))
+	defer server.Close()
+
+	service := newWebAliasService()
+	listing, err := service.listDirectory(server.URL)
+	if err != nil {
+		t.Fatalf("listDirectory returned error: %v", err)
+	}
+
+	if len(listing.Entries) != 0 {
+		t.Fatalf("expected 0 entries for non-directory page, got %d", len(listing.Entries))
+	}
+}
+
+func TestWebAliasListDirectoryUsesCachedBrowserResourcesForRegularPages(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(`<!doctype html><html><head><title>Google News</title></head><body><div>news</div></body></html>`))
+	}))
+	defer server.Close()
+
+	webresourcecache.Store(server.URL, []webresourcecache.Resource{
+		{URL: server.URL + "/static/app.js", Size: 1024, InitiatorType: "script"},
+		{URL: server.URL + "/home?hl=en-US", Size: 2048, InitiatorType: "fetch"},
+	})
+
+	service := newWebAliasService()
+	listing, err := service.listDirectory(server.URL)
+	if err != nil {
+		t.Fatalf("listDirectory returned error: %v", err)
+	}
+
+	if len(listing.Entries) != 1 {
+		t.Fatalf("expected 1 cached resource entry, got %d", len(listing.Entries))
+	}
+	if listing.Entries[0].Path != server.URL+"/static/app.js" {
+		t.Fatalf("unexpected cached resource path: %q", listing.Entries[0].Path)
+	}
+	if listing.Entries[0].Size != 1024 {
+		t.Fatalf("unexpected cached resource size: %d", listing.Entries[0].Size)
+	}
+}
+
 func TestWebAliasGetFileInfoTreatsHTMLAsDirectory(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -74,7 +122,7 @@ func TestWebAliasListDirectoryUsesCachedFileSizes(t *testing.T) {
 		switch r.URL.Path {
 		case "/index.html":
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			_, _ = w.Write([]byte(`<!doctype html><html><body><a href="/assets/app.js">App</a></body></html>`))
+			_, _ = w.Write([]byte(`<!doctype html><html><head><title>Index of /</title></head><body><a href="/assets/app.js">App</a></body></html>`))
 		case "/assets/app.js":
 			payload := []byte("console.log('hello');")
 			w.Header().Set("Content-Type", "application/javascript")

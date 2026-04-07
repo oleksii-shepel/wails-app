@@ -195,7 +195,7 @@ type linuxPane struct {
 	handle *C.BrowserPaneController
 }
 
-func newPlatformPane(_ Update) (pane, error) {
+func newPlatformPane(_ Update, _ func(string)) (pane, error) {
 	handle := C.browser_pane_create()
 	if handle == nil {
 		return nil, fmt.Errorf("linux main window not available")

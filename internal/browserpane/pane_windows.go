@@ -16,9 +16,10 @@ import (
 	"time"
 	"unsafe"
 
+	"wails-app/internal/webresourcecache"
+
 	"github.com/wailsapp/go-webview2/pkg/edge"
 	"golang.org/x/sys/windows"
-	"wails-app/internal/webresourcecache"
 )
 
 const (
@@ -154,8 +155,8 @@ type windowsPaneState struct {
 }
 
 type browserPaneResourceSnapshot struct {
-	Type      string                        `json:"type"`
-	PageURL   string                        `json:"pageUrl"`
+	Type      string                             `json:"type"`
+	PageURL   string                             `json:"pageUrl"`
 	Resources []browserPaneResourceSnapshotEntry `json:"resources"`
 }
 
@@ -650,11 +651,11 @@ func newWindowsPaneState(initialTheme string, initialBackgroundColor string, onR
 	chromium.DataPath = browserPaneDataPath()
 	var chromiumErr error
 	state := &windowsPaneState{
-		ownerHWND:       ownerHWND,
-		hostHWND:        hostHWND,
-		chromium:        chromium,
-		theme:           initialTheme,
-		backgroundColor: initialBackgroundColor,
+		ownerHWND:          ownerHWND,
+		hostHWND:           hostHWND,
+		chromium:           chromium,
+		theme:              initialTheme,
+		backgroundColor:    initialBackgroundColor,
 		onResourcesChanged: onResourcesChanged,
 	}
 	chromium.SetErrorCallback(func(err error) {
@@ -671,7 +672,7 @@ func newWindowsPaneState(initialTheme string, initialBackgroundColor string, onR
 		// Re-inject scrollbar styles via Eval as a reliable fallback;
 		// Init (AddScriptToExecuteOnDocumentCreated) may not fire in all scenarios.
 		state.chromium.Eval(browserPaneScrollbarScript(state.theme))
-		state.chromium.Eval(`window.__wailsBrowserPaneFlushResources&&window.__wailsBrowserPaneFlushResources()`) 
+		state.chromium.Eval(`window.__wailsBrowserPaneFlushResources&&window.__wailsBrowserPaneFlushResources()`)
 		if state.targetVisible && !state.visible {
 			state.show()
 		}

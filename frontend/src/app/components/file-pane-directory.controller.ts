@@ -75,6 +75,7 @@ export class FilePaneDirectoryController {
   private fsChangeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private activeDirStreamPreserveUI = false;
   private pendingFocusPath: string | null = null;
+  private loadRequestId = 0;
 
   bind(host: FilePaneDirectoryHost): void {
     EventsOn('fs:directoryChanged', (event: { paneId?: string; path?: string } | null) => {
@@ -99,6 +100,8 @@ export class FilePaneDirectoryController {
   }
 
   async loadDirectory(host: FilePaneDirectoryHost, path: string, opts?: { preserveUI?: boolean; focusPath?: string }): Promise<void> {
+    const requestId = ++this.loadRequestId;
+    const requestTabId = host.currentTabId;
     await host.dirStream.cancelActive();
     host.exitArchive();
     host.clearArchiveState();
@@ -119,6 +122,7 @@ export class FilePaneDirectoryController {
       if (!host.directorySource.supportsStreaming(path)) {
         const listing = await host.directorySource.listDirectory(path, host.showHidden);
         host.runInAngular(() => {
+          if (!this.isActiveLoad(host, requestId, requestTabId)) return;
           this.handleDirectDirectoryLoad(host, listing.path, listing.entries);
         });
         return;
@@ -132,15 +136,21 @@ export class FilePaneDirectoryController {
       }
       console.warn('Directory load failed:', path, error);
       host.runInAngular(() => {
+        if (!this.isActiveLoad(host, requestId, requestTabId)) return;
         host.error = describeDirectoryLoadError(error);
       });
     } finally {
-      this.activeDirStreamPreserveUI = false;
-      this.pendingFocusPath = null;
       host.runInAngular(() => {
+        if (!this.isActiveLoad(host, requestId, requestTabId)) return;
+        this.activeDirStreamPreserveUI = false;
+        this.pendingFocusPath = null;
         host.loading = false;
       });
     }
+  }
+
+  private isActiveLoad(host: FilePaneDirectoryHost, requestId: number, requestTabId: string): boolean {
+    return requestId === this.loadRequestId && host.currentTabId === requestTabId;
   }
 
   private handleDirectDirectoryLoad(host: FilePaneDirectoryHost, path: string, entries: FileInfo[]): void {

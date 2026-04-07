@@ -98,8 +98,8 @@ export class FilePaneNavigationController {
       }
     }
 
-    host.workspaceService.switchTab(host.paneId, tab.id);
     host.currentTabId = tab.id;
+    host.workspaceService.switchTab(host.paneId, tab.id);
     host.clearArchiveState();
 
     if ((tab.kind ?? 'dir') === 'viewer') {

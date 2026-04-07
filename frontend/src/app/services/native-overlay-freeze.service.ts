@@ -23,7 +23,6 @@ export class NativeOverlayFreezeService {
       return;
     }
     this.holders.add(key);
-    console.warn('[OverlayFreeze] acquire', key, 'holders:', [...this.holders]);
     this.sync();
   }
 
@@ -31,7 +30,6 @@ export class NativeOverlayFreezeService {
     if (!this.holders.delete(key)) {
       return;
     }
-    console.warn('[OverlayFreeze] release', key, 'holders:', [...this.holders]);
     this.sync();
   }
 

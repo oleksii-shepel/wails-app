@@ -159,23 +159,8 @@ export class WorkspaceService {
     }
 
     let changed = false;
-    let activeTabId = pane.activeTabId;
-    if (!activeTabId || !pane.tabs.some(t => t.id === activeTabId)) {
-      activeTabId = pane.tabs[0].id;
-      changed = true;
-    }
-
-    let tabs: TabInfo[] = pane.tabs.map(t => {
-      const shouldBeActive = t.id === activeTabId;
-      if (t.isActive !== shouldBeActive) changed = true;
-      const kind = (t.kind ?? 'dir');
-      if (!t.kind) changed = true;
-      // Migration: earlier iterations made the auto-follow Preview tab non-closable.
-      // Preview should behave like other tabs, so force it back to closable.
-      const isClosable = (t.isClosable === false && kind === 'viewer') ? true : t.isClosable;
-      if (t.isClosable === false && kind === 'viewer') changed = true;
-      return { ...t, kind, isClosable, isActive: shouldBeActive } as TabInfo;
-    });
+    const normalizedTabs = this.normalizePaneTabs(pane.tabs, pane.activeTabId);
+    if (normalizedTabs.changed) changed = true;
 
     // Do not force-create preview tabs here. Preview tabs are user-facing and closable;
     // if the user closes them, they should stay closed across launches.
@@ -183,11 +168,77 @@ export class WorkspaceService {
     const normalized: PaneState = {
       ...pane,
       id: paneId,
-      tabs,
-      activeTabId,
+      tabs: normalizedTabs.tabs,
+      activeTabId: normalizedTabs.activeTabId,
     };
     if (pane.id !== paneId) changed = true;
     return { pane: normalized, changed };
+  }
+
+  private normalizePaneTabs(
+    tabs: TabInfo[],
+    activeTabId: string | undefined,
+  ): { tabs: TabInfo[]; activeTabId: string; changed: boolean } {
+    let changed = false;
+    const seenIds = new Set<string>();
+    const deduped: TabInfo[] = [];
+
+    for (const tab of tabs) {
+      if (seenIds.has(tab.id)) {
+        changed = true;
+        continue;
+      }
+
+      seenIds.add(tab.id);
+
+      const kind = tab.kind ?? 'dir';
+      if (!tab.kind) changed = true;
+
+      // Migration: earlier iterations made the auto-follow Preview tab non-closable.
+      // Preview should behave like other tabs, so force it back to closable.
+      const isClosable = (tab.isClosable === false && kind === 'viewer') ? true : tab.isClosable;
+      if (tab.isClosable === false && kind === 'viewer') changed = true;
+
+      deduped.push({
+        ...tab,
+        kind,
+        isClosable,
+      } as TabInfo);
+    }
+
+    const nextActiveTabId = activeTabId && deduped.some(tab => tab.id === activeTabId)
+      ? activeTabId
+      : (deduped[0]?.id ?? '');
+    if (nextActiveTabId !== (activeTabId ?? '')) changed = true;
+
+    const normalizedTabs = deduped.map((tab) => {
+      const shouldBeActive = tab.id === nextActiveTabId;
+      if (tab.isActive !== shouldBeActive) changed = true;
+      return { ...tab, isActive: shouldBeActive } as TabInfo;
+    });
+
+    return {
+      tabs: normalizedTabs,
+      activeTabId: nextActiveTabId,
+      changed,
+    };
+  }
+
+  private sanitizePaneUpdate(
+    paneId: 'left' | 'right',
+    pane: PaneState,
+  ): PaneState {
+    if (!pane || !Array.isArray(pane.tabs) || pane.tabs.length === 0) {
+      return { ...pane, id: paneId };
+    }
+
+    const normalized = this.normalizePaneTabs(pane.tabs, pane.activeTabId);
+    return {
+      ...pane,
+      id: paneId,
+      tabs: normalized.tabs,
+      activeTabId: normalized.activeTabId,
+    };
   }
 
   // ---------------------------------------------------------------------------
@@ -331,7 +382,15 @@ export class WorkspaceService {
     const workspace = list.workspaces.find((w) => w.id === workspaceId);
     if (!workspace) return false;
 
-    Object.assign(workspace, updates);
+    const normalizedUpdates: Partial<WorkspaceConfig> = { ...updates };
+    if (updates.leftPane) {
+      normalizedUpdates.leftPane = this.sanitizePaneUpdate('left', updates.leftPane);
+    }
+    if (updates.rightPane) {
+      normalizedUpdates.rightPane = this.sanitizePaneUpdate('right', updates.rightPane);
+    }
+
+    Object.assign(workspace, normalizedUpdates);
     this.updateAndPersist(list, workspace, silent);
 
     if (!silent && workspace.id === this.activeWorkspaceSubject.value?.id) {
@@ -535,12 +594,17 @@ export class WorkspaceService {
     const tab = pane.tabs.find((t) => t.id === tabId);
     if (!tab) return false;
 
-    pane.tabs.forEach((t) => (t.isActive = false));
-    tab.isActive = true;
-    pane.activeTabId = tabId;
+    const updatedPane: PaneState = {
+      ...pane,
+      tabs: pane.tabs.map((currentTab) => ({
+        ...currentTab,
+        isActive: currentTab.id === tabId,
+      })),
+      activeTabId: tabId,
+    };
 
     this.updateWorkspace(workspace.id, {
-      [paneId === 'left' ? 'leftPane' : 'rightPane']: pane,
+      [paneId === 'left' ? 'leftPane' : 'rightPane']: updatedPane,
     });
     return true;
   }

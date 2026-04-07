@@ -648,9 +648,6 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
   }
 
   getBrowserPath(): string {
-    if (this.surfaceActive) {
-      return this.currentPath;
-    }
     return this.browserPath || this.currentPath;
   }
 

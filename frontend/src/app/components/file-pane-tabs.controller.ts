@@ -53,6 +53,15 @@ export class FilePaneTabsController {
       return;
     }
 
+    // Local tab switches already ran through onTabChange/loadPaneState.
+    // When workspace state echoes back through the subscription, avoid a second
+    // load cycle for the same active tab because it causes a visible redraw,
+    // especially for viewer tabs whose tab path differs from the pane dir path.
+    if (host.currentTabId === nextActiveId) {
+      host.tabs = host.workspaceService.getTabs(host.paneId);
+      return;
+    }
+
     if (host.currentTabId === nextActiveId && samePath(host.currentPath, nextActivePath)) {
       host.tabs = host.workspaceService.getTabs(host.paneId);
       return;

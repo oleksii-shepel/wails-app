@@ -86,6 +86,18 @@ type ICoreWebView2_2 struct {
 	vtbl *iCoreWebView2_2Vtbl
 }
 
+func (i *ICoreWebView2) GetICoreWebView2_2() *ICoreWebView2_2 {
+	var result *ICoreWebView2_2
+
+	iidICoreWebView2_2 := NewGUID("{9E8F0CF8-E670-4B5E-B2BC-73E061E3184C}")
+	_, _, _ = i.vtbl.QueryInterface.Call(
+		uintptr(unsafe.Pointer(i)),
+		uintptr(unsafe.Pointer(iidICoreWebView2_2)),
+		uintptr(unsafe.Pointer(&result)))
+
+	return result
+}
+
 // AddRef increments the reference count of the ICoreWebView2_2 interface
 func (i *ICoreWebView2_2) AddRef() uint32 {
 	ret, _, _ := i.vtbl.AddRef.Call(uintptr(unsafe.Pointer(i)))
@@ -110,4 +122,16 @@ func (i *ICoreWebView2_2) GetCookieManager() (*ICoreWebView2CookieManager, error
 		return nil, syscall.Errno(hr)
 	}
 	return cookieManager, nil
+}
+
+func (i *ICoreWebView2_2) AddWebResourceResponseReceived(eventHandler *iCoreWebView2WebResourceResponseReceivedEventHandler, token *_EventRegistrationToken) error {
+	hr, _, _ := i.vtbl.AddWebResourceResponseReceived.Call(
+		uintptr(unsafe.Pointer(i)),
+		uintptr(unsafe.Pointer(eventHandler)),
+		uintptr(unsafe.Pointer(token)),
+	)
+	if windows.Handle(hr) != windows.S_OK {
+		return syscall.Errno(hr)
+	}
+	return nil
 }

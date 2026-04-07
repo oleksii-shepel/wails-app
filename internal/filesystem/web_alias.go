@@ -212,7 +212,7 @@ func (s *webAliasService) getFileInfo(path string) (*contracts.FileInfo, error) 
 	fileType := contracts.FileTypeFile
 	if contentType != "" && isHTMLMediaType(contentType) {
 		fileType = contracts.FileTypeDirectory
-	} else if isLikelyWebPage(parsed) {
+	} else if parsed.RawQuery == "" && isLikelyWebPage(parsed) {
 		fileType = contracts.FileTypeDirectory
 	}
 
@@ -571,14 +571,14 @@ func cachedWebResources(pageURL string) []contracts.FileInfo {
 		if err != nil {
 			continue
 		}
-		if !shouldIncludeCachedWebResource(parsed, resource.InitiatorType, resource.Size) {
+		if !shouldIncludeCachedWebResource(parsed, resource.InitiatorType, resource.MimeType, resource.Size) {
 			continue
 		}
 		entries = append(entries, contracts.FileInfo{
 			Name:        webEntryDisplayName(parsed),
 			Path:        canonicalWebURL(parsed),
 			Type:        contracts.FileTypeFile,
-			MimeType:    mime.TypeByExtension(strings.ToLower(vpath.Ext(parsed.Path))),
+			MimeType:    chooseCachedResourceMimeType(parsed, resource.MimeType),
 			Size:        resource.Size,
 			Permissions: "r--",
 			IsHidden:    false,
@@ -593,15 +593,26 @@ func cachedWebResources(pageURL string) []contracts.FileInfo {
 	return entries
 }
 
-func shouldIncludeCachedWebResource(parsed *url.URL, initiatorType string, size int64) bool {
+func shouldIncludeCachedWebResource(parsed *url.URL, initiatorType string, mimeType string, size int64) bool {
 	if parsed == nil || size <= 0 {
 		return false
 	}
+	mimeType = strings.ToLower(strings.TrimSpace(mimeType))
 	ext := strings.ToLower(vpath.Ext(parsed.Path))
 	if ext != "" {
 		if isLikelyWebPage(parsed) {
 			return false
 		}
+		return true
+	}
+	if strings.HasPrefix(mimeType, "application/javascript") ||
+		strings.HasPrefix(mimeType, "text/javascript") ||
+		strings.HasPrefix(mimeType, "text/css") ||
+		strings.HasPrefix(mimeType, "image/") ||
+		strings.HasPrefix(mimeType, "audio/") ||
+		strings.HasPrefix(mimeType, "video/") ||
+		strings.HasPrefix(mimeType, "font/") ||
+		strings.Contains(mimeType, "font") {
 		return true
 	}
 	switch strings.ToLower(strings.TrimSpace(initiatorType)) {
@@ -610,6 +621,13 @@ func shouldIncludeCachedWebResource(parsed *url.URL, initiatorType string, size 
 	default:
 		return false
 	}
+}
+
+func chooseCachedResourceMimeType(parsed *url.URL, cached string) string {
+	if trimmed := strings.TrimSpace(cached); trimmed != "" {
+		return trimmed
+	}
+	return mime.TypeByExtension(strings.ToLower(vpath.Ext(parsed.Path)))
 }
 
 func resolveWebReference(baseURL *url.URL, rawRef string) (*url.URL, bool) {

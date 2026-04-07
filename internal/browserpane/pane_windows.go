@@ -680,6 +680,9 @@ func newWindowsPaneState(initialTheme string, initialBackgroundColor string, onR
 	chromium.MessageCallback = func(message string, _ *edge.ICoreWebView2, _ *edge.ICoreWebView2WebMessageReceivedEventArgs) {
 		state.handleBrowserMessage(message)
 	}
+	chromium.WebResourceResponseReceivedCallback = func(request *edge.ICoreWebView2WebResourceRequest, response *edge.ICoreWebView2WebResourceResponseView, _ *edge.ICoreWebView2WebResourceResponseReceivedEventArgs) {
+		state.handleBrowserResourceResponse(request, response)
+	}
 	chromium.SetGlobalPermission(edge.CoreWebView2PermissionStateAllow)
 	if !chromium.Embed(hostHWND) {
 		if chromiumErr == nil {
@@ -724,10 +727,41 @@ func (s *windowsPaneState) handleBrowserMessage(message string) {
 			URL:           resource.URL,
 			Size:          resource.Size,
 			InitiatorType: resource.InitiatorType,
+			MimeType:      "",
 		})
 	}
 	if webresourcecache.Store(snapshot.PageURL, resources) && s.onResourcesChanged != nil {
 		s.onResourcesChanged(snapshot.PageURL)
+	}
+}
+
+func (s *windowsPaneState) handleBrowserResourceResponse(request *edge.ICoreWebView2WebResourceRequest, response *edge.ICoreWebView2WebResourceResponseView) {
+	if s == nil || request == nil || response == nil || strings.TrimSpace(s.url) == "" {
+		return
+	}
+	requestURL, err := request.GetUri()
+	if err != nil {
+		return
+	}
+	headers, err := response.GetHeaders()
+	if err != nil || headers == nil {
+		return
+	}
+	defer headers.Release()
+
+	contentLength, _ := headers.GetHeader("Content-Length")
+	contentRange, _ := headers.GetHeader("Content-Range")
+	contentType, _ := headers.GetHeader("Content-Type")
+	size := parseBrowserPaneResponseSize(contentLength, contentRange)
+	if !webresourcecache.Merge(s.url, webresourcecache.Resource{
+		URL:      requestURL,
+		Size:     size,
+		MimeType: normalizeBrowserPaneMimeType(contentType),
+	}) {
+		return
+	}
+	if s.onResourcesChanged != nil {
+		s.onResourcesChanged(s.url)
 	}
 }
 
@@ -771,6 +805,7 @@ func (s *windowsPaneState) sync(update Update) error {
 	}
 
 	if s.url != update.URL {
+		webresourcecache.Clear(update.URL)
 		s.chromium.Navigate(update.URL)
 		s.url = update.URL
 		if !s.initialNavigationQueued {
@@ -804,6 +839,33 @@ func (s *windowsPaneState) sync(update Update) error {
 	}
 	s.show()
 	return nil
+}
+
+func parseBrowserPaneResponseSize(contentLength string, contentRange string) int64 {
+	if trimmed := strings.TrimSpace(contentRange); trimmed != "" {
+		if slash := strings.LastIndex(trimmed, "/"); slash >= 0 && slash < len(trimmed)-1 {
+			if size, err := strconv.ParseInt(strings.TrimSpace(trimmed[slash+1:]), 10, 64); err == nil {
+				return size
+			}
+		}
+	}
+	if trimmed := strings.TrimSpace(contentLength); trimmed != "" {
+		if size, err := strconv.ParseInt(trimmed, 10, 64); err == nil {
+			return size
+		}
+	}
+	return 0
+}
+
+func normalizeBrowserPaneMimeType(contentType string) string {
+	contentType = strings.TrimSpace(contentType)
+	if contentType == "" {
+		return ""
+	}
+	if idx := strings.Index(contentType, ";"); idx >= 0 {
+		contentType = contentType[:idx]
+	}
+	return strings.ToLower(strings.TrimSpace(contentType))
 }
 
 func (s *windowsPaneState) show() {

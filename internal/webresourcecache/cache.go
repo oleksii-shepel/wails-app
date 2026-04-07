@@ -11,6 +11,7 @@ type Resource struct {
 	URL           string
 	Size          int64
 	InitiatorType string
+	MimeType      string
 }
 
 var (
@@ -24,16 +25,30 @@ func Store(pageURL string, resources []Resource) bool {
 		return false
 	}
 
+	mu.RLock()
+	existing := cloneResources(pageResources[normalizedPage])
+	mu.RUnlock()
+
 	next := make(map[string]Resource)
 	for _, resource := range resources {
 		normalizedResource := normalizeURL(resource.URL)
 		if normalizedResource == "" || normalizedResource == normalizedPage {
 			continue
 		}
+		current := existing[normalizedResource]
+		size := resource.Size
+		if size <= 0 {
+			size = current.Size
+		}
+		mimeType := strings.TrimSpace(resource.MimeType)
+		if mimeType == "" {
+			mimeType = current.MimeType
+		}
 		next[normalizedResource] = Resource{
 			URL:           normalizedResource,
-			Size:          resource.Size,
+			Size:          size,
 			InitiatorType: strings.TrimSpace(resource.InitiatorType),
+			MimeType:      mimeType,
 		}
 	}
 
@@ -44,6 +59,47 @@ func Store(pageURL string, resources []Resource) bool {
 	}
 	pageResources[normalizedPage] = next
 	return true
+}
+
+func Merge(pageURL string, resource Resource) bool {
+	normalizedPage := normalizeURL(pageURL)
+	normalizedResource := normalizeURL(resource.URL)
+	if normalizedPage == "" || normalizedResource == "" || normalizedPage == normalizedResource {
+		return false
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if pageResources[normalizedPage] == nil {
+		pageResources[normalizedPage] = make(map[string]Resource)
+	}
+	current := pageResources[normalizedPage][normalizedResource]
+	next := current
+	next.URL = normalizedResource
+	if resource.Size > 0 {
+		next.Size = resource.Size
+	}
+	if strings.TrimSpace(resource.InitiatorType) != "" {
+		next.InitiatorType = strings.TrimSpace(resource.InitiatorType)
+	}
+	if strings.TrimSpace(resource.MimeType) != "" {
+		next.MimeType = strings.TrimSpace(resource.MimeType)
+	}
+	if current == next {
+		return false
+	}
+	pageResources[normalizedPage][normalizedResource] = next
+	return true
+}
+
+func Clear(pageURL string) {
+	normalizedPage := normalizeURL(pageURL)
+	if normalizedPage == "" {
+		return
+	}
+	mu.Lock()
+	delete(pageResources, normalizedPage)
+	mu.Unlock()
 }
 
 func Load(pageURL string) []Resource {
@@ -68,6 +124,17 @@ func Load(pageURL string) []Resource {
 	result := make([]Resource, 0, len(keys))
 	for _, key := range keys {
 		result = append(result, stored[key])
+	}
+	return result
+}
+
+func cloneResources(input map[string]Resource) map[string]Resource {
+	if len(input) == 0 {
+		return map[string]Resource{}
+	}
+	result := make(map[string]Resource, len(input))
+	for key, value := range input {
+		result[key] = value
 	}
 	return result
 }
@@ -107,7 +174,7 @@ func resourcesEqual(left, right map[string]Resource) bool {
 		if !ok {
 			return false
 		}
-		if leftValue.Size != rightValue.Size || leftValue.InitiatorType != rightValue.InitiatorType {
+		if leftValue.Size != rightValue.Size || leftValue.InitiatorType != rightValue.InitiatorType || leftValue.MimeType != rightValue.MimeType {
 			return false
 		}
 	}

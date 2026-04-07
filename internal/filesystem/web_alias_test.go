@@ -75,7 +75,8 @@ func TestWebAliasListDirectoryUsesCachedBrowserResourcesForRegularPages(t *testi
 	defer server.Close()
 
 	webresourcecache.Store(server.URL, []webresourcecache.Resource{
-		{URL: server.URL + "/static/app.js", Size: 1024, InitiatorType: "script"},
+		{URL: server.URL + "/static/app.js", Size: 1024, InitiatorType: "script", MimeType: "application/javascript"},
+		{URL: server.URL + "/_/scs/mail-static/_/js/k=abc", Size: 4096, InitiatorType: "script", MimeType: "application/javascript"},
 		{URL: server.URL + "/home?hl=en-US", Size: 2048, InitiatorType: "fetch"},
 	})
 
@@ -85,14 +86,18 @@ func TestWebAliasListDirectoryUsesCachedBrowserResourcesForRegularPages(t *testi
 		t.Fatalf("listDirectory returned error: %v", err)
 	}
 
-	if len(listing.Entries) != 1 {
-		t.Fatalf("expected 1 cached resource entry, got %d", len(listing.Entries))
+	if len(listing.Entries) != 2 {
+		t.Fatalf("expected 2 cached resource entries, got %d", len(listing.Entries))
 	}
-	if listing.Entries[0].Path != server.URL+"/static/app.js" {
-		t.Fatalf("unexpected cached resource path: %q", listing.Entries[0].Path)
+	seen := map[string]int64{}
+	for _, entry := range listing.Entries {
+		seen[entry.Path] = entry.Size
 	}
-	if listing.Entries[0].Size != 1024 {
-		t.Fatalf("unexpected cached resource size: %d", listing.Entries[0].Size)
+	if seen[server.URL+"/static/app.js"] != 1024 {
+		t.Fatalf("unexpected cached resource size for app.js: %d", seen[server.URL+"/static/app.js"])
+	}
+	if seen[server.URL+"/_/scs/mail-static/_/js/k=abc"] != 4096 {
+		t.Fatalf("unexpected cached resource size for extensionless resource: %d", seen[server.URL+"/_/scs/mail-static/_/js/k=abc"])
 	}
 }
 
@@ -114,6 +119,30 @@ func TestWebAliasGetFileInfoTreatsHTMLAsDirectory(t *testing.T) {
 	}
 	if info.Path != server.URL+"/docs" {
 		t.Fatalf("unexpected info path: %q", info.Path)
+	}
+}
+
+func TestWebAliasGetFileInfoKeepsQueryResourceAsFile(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Length", "42")
+		_, _ = w.Write([]byte("012345678901234567890123456789012345678901"))
+	}))
+	defer server.Close()
+
+	service := newWebAliasService()
+	path := server.URL + "/10836211492?random=1775580549518"
+	service.rememberMetadata(path, webAliasMetadata{size: 42})
+
+	info, err := service.getFileInfo(path)
+	if err != nil {
+		t.Fatalf("getFileInfo returned error: %v", err)
+	}
+	if info.Type != contracts.FileTypeFile {
+		t.Fatalf("expected query resource to stay file, got %q", info.Type)
+	}
+	if info.Size != 42 {
+		t.Fatalf("unexpected query resource size: %d", info.Size)
 	}
 }
 

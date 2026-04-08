@@ -183,6 +183,7 @@ func (s *webAliasService) getFileInfo(path string) (*contracts.FileInfo, error) 
 		contentType string
 		size        int64
 		modifiedAt  int64
+		sample      []byte
 	)
 
 	if cached, ok := s.lookupMetadata(requestedPath); ok {
@@ -192,7 +193,10 @@ func (s *webAliasService) getFileInfo(path string) (*contracts.FileInfo, error) 
 	}
 
 	if contentType == "" || size == 0 {
-		sample, headers, sampleSize, sampleErr := s.fetchSample(targetURL)
+		var headers http.Header
+		var sampleSize int64
+		var sampleErr error
+		sample, headers, sampleSize, sampleErr = s.fetchSample(targetURL)
 		if sampleErr == nil {
 			if contentType == "" {
 				contentType = normalizedMediaType(headers.Get("Content-Type"))
@@ -212,6 +216,12 @@ func (s *webAliasService) getFileInfo(path string) (*contracts.FileInfo, error) 
 	fileType := contracts.FileTypeFile
 	if contentType != "" && isHTMLMediaType(contentType) {
 		fileType = contracts.FileTypeDirectory
+		if sample != nil {
+			doc, err := html.Parse(bytes.NewReader(sample))
+			if err == nil && !looksLikeDirectoryListing(doc) {
+				fileType = contracts.FileTypeFile
+			}
+		}
 	} else if parsed.RawQuery == "" && isLikelyWebPage(parsed) {
 		fileType = contracts.FileTypeDirectory
 	}

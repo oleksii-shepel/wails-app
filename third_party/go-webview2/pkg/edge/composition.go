@@ -55,7 +55,7 @@ func (i *ICoreWebView2Environment) GetICoreWebView2Environment3() *ICoreWebView2
 }
 
 type iCoreWebView2CompositionControllerVtbl struct {
-	_ICoreWebView2ControllerVtbl
+	_IUnknownVtbl
 	GetRootVisualTarget ComProc
 	PutRootVisualTarget ComProc
 	SendMouseInput      ComProc
@@ -68,6 +68,20 @@ type iCoreWebView2CompositionControllerVtbl struct {
 
 type ICoreWebView2CompositionController struct {
 	vtbl *iCoreWebView2CompositionControllerVtbl
+}
+
+func (i *ICoreWebView2CompositionController) GetICoreWebView2Controller() *ICoreWebView2Controller {
+	var result *ICoreWebView2Controller
+	iid := NewGUID("{4D00C0D1-9434-4EB6-8078-8697A560334F}")
+	hr, _, _ := i.vtbl.QueryInterface.Call(
+		uintptr(unsafe.Pointer(i)),
+		uintptr(unsafe.Pointer(iid)),
+		uintptr(unsafe.Pointer(&result)),
+	)
+	if windows.Handle(hr) != windows.S_OK {
+		return nil
+	}
+	return result
 }
 
 func (i *ICoreWebView2CompositionController) PutRootVisualTarget(target *IUnknown) error {
@@ -86,8 +100,8 @@ func (i *ICoreWebView2CompositionController) SendMouseInput(eventKind COREWEBVIE
 		uintptr(unsafe.Pointer(i)),
 		uintptr(eventKind),
 		uintptr(virtualKeys),
-		uintptr(mouseData),
-		uintptr(*(*int64)(unsafe.Pointer(&point))),
+		uintptr(unsafe.Pointer(&mouseData)),
+		uintptr(unsafe.Pointer(&point)),
 	)
 	if windows.Handle(hr) != windows.S_OK {
 		return windows.Errno(hr)

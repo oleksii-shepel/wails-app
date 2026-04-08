@@ -98,7 +98,7 @@ var (
 	procCreateSolidBrush         = gdi32.NewProc("CreateSolidBrush")
 	procDeleteObject             = gdi32.NewProc("DeleteObject")
 	procFillRect                 = user32.NewProc("FillRect")
-	procDCompositionCreateDevice = dcomp.NewProc("DCompositionCreateDevice")
+	procDCompositionCreateDevice2 = dcomp.NewProc("DCompositionCreateDevice2")
 	registerPaneClassOnce        sync.Once
 	registerPaneClassErr         error
 	mainWindowHandleOnce         sync.Once
@@ -256,17 +256,15 @@ type rawWebView2Environment struct {
 	Vtbl *rawWebView2EnvironmentVTBL
 }
 
-type rawDCompositionDeviceVtbl struct {
+type rawDCompositionDesktopDeviceVtbl struct {
 	rawIUnknownVTBL
 	Commit                     edge.ComProc
 	WaitForCommitCompletion    edge.ComProc
 	GetFrameStatistics         edge.ComProc
-	CreateTargetForHwnd        edge.ComProc
 	CreateVisual               edge.ComProc
+	CreateSurfaceFactory       edge.ComProc
 	CreateSurface              edge.ComProc
 	CreateVirtualSurface       edge.ComProc
-	CreateSurfaceFromHandle    edge.ComProc
-	CreateSurfaceFromHwnd      edge.ComProc
 	CreateTranslateTransform   edge.ComProc
 	CreateScaleTransform       edge.ComProc
 	CreateRotateTransform      edge.ComProc
@@ -281,11 +279,13 @@ type rawDCompositionDeviceVtbl struct {
 	CreateEffectGroup          edge.ComProc
 	CreateRectangleClip        edge.ComProc
 	CreateAnimation            edge.ComProc
-	CheckDeviceState           edge.ComProc
+	CreateTargetForHwnd        edge.ComProc
+	CreateSurfaceFromHandle    edge.ComProc
+	CreateSurfaceFromHwnd      edge.ComProc
 }
 
-type rawDCompositionDevice struct {
-	Vtbl *rawDCompositionDeviceVtbl
+type rawDCompositionDesktopDevice struct {
+	Vtbl *rawDCompositionDesktopDeviceVtbl
 }
 
 type rawDCompositionTargetVtbl struct {
@@ -323,9 +323,10 @@ type rawDCompositionVisual struct {
 }
 
 type browserPaneCompositionHost struct {
-	device        *rawDCompositionDevice
+	device        *rawDCompositionDesktopDevice
 	target        *rawDCompositionTarget
 	rootVisual    *rawDCompositionVisual
+	webViewVisual *rawDCompositionVisual
 }
 
 type rawChromium struct {
@@ -776,7 +777,7 @@ func newWindowsPaneState(initialTheme string, initialBackgroundColor string, onR
 	} else {
 		state.compositionHost = compositionHost
 		chromium.UseComposition = true
-		chromium.CompositionRootTarget = unsafe.Pointer(compositionHost.rootVisual)
+		chromium.CompositionRootTarget = unsafe.Pointer(compositionHost.webViewVisual)
 	}
 	chromium.SetErrorCallback(func(err error) {
 		if err == nil {
@@ -1582,9 +1583,9 @@ func createBrowserPaneCompositionHost(hostHWND uintptr) (*browserPaneComposition
 	if hostHWND == 0 {
 		return nil, fmt.Errorf("invalid browser pane host window")
 	}
-	var device *rawDCompositionDevice
-	iid := edge.NewGUID("{C37EA93A-E7AA-450D-B16F-9746CB0407F3}")
-	hr, _, _ := procDCompositionCreateDevice.Call(
+	var device *rawDCompositionDesktopDevice
+	iid := edge.NewGUID("{5F4633FE-1E08-4CB8-8C75-CE24333F5602}")
+	hr, _, _ := procDCompositionCreateDevice2.Call(
 		0,
 		uintptr(unsafe.Pointer(iid)),
 		uintptr(unsafe.Pointer(&device)),
@@ -1602,7 +1603,7 @@ func createBrowserPaneCompositionHost(hostHWND uintptr) (*browserPaneComposition
 	hr, _, _ = device.Vtbl.CreateTargetForHwnd.Call(
 		uintptr(unsafe.Pointer(device)),
 		hostHWND,
-		0,
+		1,
 		uintptr(unsafe.Pointer(&host.target)),
 	)
 	if windows.Handle(hr) != windows.S_OK {
@@ -1615,9 +1616,25 @@ func createBrowserPaneCompositionHost(hostHWND uintptr) (*browserPaneComposition
 	if windows.Handle(hr) != windows.S_OK {
 		return nil, windows.Errno(hr)
 	}
+	hr, _, _ = device.Vtbl.CreateVisual.Call(
+		uintptr(unsafe.Pointer(device)),
+		uintptr(unsafe.Pointer(&host.webViewVisual)),
+	)
+	if windows.Handle(hr) != windows.S_OK {
+		return nil, windows.Errno(hr)
+	}
 	hr, _, _ = host.target.Vtbl.SetRoot.Call(
 		uintptr(unsafe.Pointer(host.target)),
 		uintptr(unsafe.Pointer(host.rootVisual)),
+	)
+	if windows.Handle(hr) != windows.S_OK {
+		return nil, windows.Errno(hr)
+	}
+	hr, _, _ = host.rootVisual.Vtbl.AddVisual.Call(
+		uintptr(unsafe.Pointer(host.rootVisual)),
+		uintptr(unsafe.Pointer(host.webViewVisual)),
+		1,
+		0,
 	)
 	if windows.Handle(hr) != windows.S_OK {
 		return nil, windows.Errno(hr)
@@ -1645,6 +1662,10 @@ func (h *browserPaneCompositionHost) commit() error {
 func (h *browserPaneCompositionHost) release() {
 	if h == nil {
 		return
+	}
+	if h.webViewVisual != nil {
+		releaseCOMObject(unsafe.Pointer(h.webViewVisual))
+		h.webViewVisual = nil
 	}
 	if h.rootVisual != nil {
 		releaseCOMObject(unsafe.Pointer(h.rootVisual))

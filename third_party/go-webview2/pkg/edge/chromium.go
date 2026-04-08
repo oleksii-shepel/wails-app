@@ -391,7 +391,14 @@ func (e *Chromium) CreateCoreWebView2CompositionControllerCompleted(res uintptr,
 	}
 
 	e.compositionController = controller
-	return e.completeControllerInitialization((*ICoreWebView2Controller)(unsafe.Pointer(controller)))
+	ctrlr := controller.GetICoreWebView2Controller()
+	if ctrlr == nil {
+		e.initErr = fmt.Errorf("error querying ICoreWebView2Controller from composition controller")
+		e.errorCallback(e.initErr)
+		atomic.StoreUintptr(&e.inited, 1)
+		return 0
+	}
+	return e.completeControllerInitialization(ctrlr)
 }
 
 func (e *Chromium) completeControllerInitialization(controller *ICoreWebView2Controller) uintptr {

@@ -43,7 +43,11 @@ export class DirSurfaceTabComponent {
   @ViewChild('dir') private dir?: DirSurfaceComponent;
 
   get currentSurfacePath(): string {
-    return this.ctx?.dirVm?.currentPath || this.ctx?.tab?.path || '';
+    if (this.active) {
+      return this.ctx?.dirVm?.currentPath || this.ctx?.tab?.path || '';
+    }
+
+    return this.ctx?.tab?.path || this.ctx?.dirVm?.currentPath || '';
   }
 
   // Exposed for SurfaceOutletComponent proxying.

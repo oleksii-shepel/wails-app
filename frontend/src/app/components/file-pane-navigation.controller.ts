@@ -70,7 +70,8 @@ export class FilePaneNavigationController {
       !host.directorySource.isPathInsideArchive(pathToLoad) &&
       session.currentPath === pathToLoad &&
       session.showHiddenLoaded === host.showHidden &&
-      (session.entries?.length ?? 0) > 0;
+      !session.loading &&
+      !session.error;
 
     if (cachedOk) {
       host.applyFilter();
@@ -133,7 +134,8 @@ export class FilePaneNavigationController {
       !host.directorySource.isPathInsideArchive(restoredPath) &&
       samePath(session.currentPath, restoredPath) &&
       session.showHiddenLoaded === host.showHidden &&
-      (session.entries?.length ?? 0) > 0;
+      !session.loading &&
+      !session.error;
 
     if (cachedOk) {
       host.applyFilter();

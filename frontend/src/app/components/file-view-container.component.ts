@@ -39,10 +39,10 @@ export type ViewLayout = ViewMode;
   ],
   template: `
     <div class="view-container">
-      <div class="view-browser" *ngIf="showBrowserPane()">
+      <div class="view-browser" [hidden]="!cachedShowBrowserPane">
         <app-native-overlay
           [surfaceId]="surfaceId"
-          [url]="getBrowserPath()"
+          [url]="cachedBrowserPath"
           [active]="surfaceActive">
         </app-native-overlay>
       </div>
@@ -186,6 +186,9 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
   @ViewChild(FileListComponent) listComponent?: FileListComponent;
   @ViewChild(FileGridComponent) gridComponent?: FileGridComponent;
   @ViewChild(FileDetailsComponent) detailsComponent?: FileDetailsComponent;
+
+  cachedBrowserPath = '';
+  cachedShowBrowserPane = false;
 
   @Input() surfaceId = '';
   @Input() surfaceActive = true;
@@ -382,6 +385,10 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
   }
 
   ngOnChanges(changes: SimpleChanges): void {
+    if (changes['currentPath'] || changes['browserPath'] || changes['surfaceActive']) {
+      this.cachedBrowserPath = this.resolveSurfaceBrowserPath();
+      this.cachedShowBrowserPane = this.isWebBrowserPath(this.cachedBrowserPath);
+    }
     if (changes['entries']) {
       this.lastTreeRefreshPath = null;
     }
@@ -647,11 +654,19 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
     }
   }
 
+  private resolveSurfaceBrowserPath(): string {
+    if (this.surfaceActive) {
+      return this.currentPath || this.browserPath;
+    }
+
+    return this.browserPath || this.currentPath;
+  }
+
   getBrowserPath(): string {
-    return this.currentPath || this.browserPath;
+    return this.cachedBrowserPath;
   }
 
   showBrowserPane(): boolean {
-    return this.isWebBrowserPath(this.getBrowserPath());
+    return this.cachedShowBrowserPane;
   }
 }

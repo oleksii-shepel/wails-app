@@ -95,6 +95,17 @@ func (u *Unified) ReadDir(ctx context.Context, path string) ([]FileInfo, error) 
 	if err != nil {
 		return nil, err
 	}
+
+	filtered := make([]FileInfo, 0, len(entries))
+	for _, e := range entries {
+		name := e.Name()
+		if name == "." || name == ".." {
+			continue
+		}
+		filtered = append(filtered, e)
+	}
+	entries = filtered
+
 	// Inject synthetic directory entries for sub-mounts under path.
 	cleanPath := cleanVFSPath(path)
 	for _, m := range u.mounts.ListMounts() {

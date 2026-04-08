@@ -554,6 +554,9 @@ func addWebEntry(entries map[string]contracts.FileInfo, baseURL *url.URL, curren
 	if target == "" || target == currentURL {
 		return
 	}
+	if !strings.HasPrefix(target, currentURL+"/") {
+		return
+	}
 	if _, exists := entries[target]; exists {
 		return
 	}
@@ -829,7 +832,7 @@ func isLikelyWebPage(parsed *url.URL) bool {
 	}
 
 	switch strings.ToLower(vpath.Ext(parsed.Path)) {
-	case "", ".html", ".htm", ".xhtml", ".shtml", ".php", ".asp", ".aspx", ".jsp", ".jspx", ".cfm":
+	case ".html", ".htm", ".xhtml", ".shtml", ".php", ".asp", ".aspx", ".jsp", ".jspx", ".cfm":
 		return true
 	default:
 		return false

@@ -60,7 +60,16 @@ export class FileCategoryResolverService {
   ensureResolved(entry: FileInfo | null | undefined): void {
     const extension = this.getCollisionExtension(entry);
     if (!entry || !extension) return;
-    if (this.pendingPaths.has(entry.path) || this.resolvedByPath.has(entry.path)) return;
+    if (this.resolvedByPath.has(entry.path)) return;
+
+    const immediate = this.getImmediateResolution(entry, extension);
+    if (immediate) {
+      this.resolvedByPath.set(entry.path, immediate);
+      this.notify(entry.path);
+      return;
+    }
+
+    if (this.pendingPaths.has(entry.path)) return;
 
     this.pendingPaths.add(entry.path);
     void this.resolveAndCache(entry, extension);
@@ -100,6 +109,39 @@ export class FileCategoryResolverService {
     };
   }
 
+  private getImmediateResolution(entry: FileInfo, extension: CollisionExtension): ResolvedCategoryId | null {
+    const fromMimeType = this.getResolutionFromMimeType(entry.mimeType);
+    if (fromMimeType) {
+      return fromMimeType;
+    }
+
+    if (this.isWebHttpPath(entry.path)) {
+      return this.collisionSpecs[extension].fallback;
+    }
+
+    return null;
+  }
+
+  private getResolutionFromMimeType(mimeType: string | null | undefined): ResolvedCategoryId | null {
+    const mime = (mimeType ?? '').split(';', 1)[0].trim().toLowerCase();
+    if (!mime) {
+      return null;
+    }
+    if (mime === 'video/mp2t' || mime === 'application/mp2t') {
+      return 'video';
+    }
+    if (
+      mime.startsWith('text/') ||
+      mime.includes('typescript') ||
+      mime.includes('javascript') ||
+      mime === 'application/json' ||
+      mime === 'application/xml'
+    ) {
+      return 'code';
+    }
+    return null;
+  }
+
   private async resolveTypeScriptOrTransportStream(ctx: CollisionResolutionContext): Promise<ResolvedCategoryId> {
     const probe = await ctx.probe();
     return this.looksLikeTransportStream(probe) ? 'video' : 'code';
@@ -114,6 +156,18 @@ export class FileCategoryResolverService {
     const value = (name ?? '').trim().toLowerCase();
     const lastDot = value.lastIndexOf('.');
     return lastDot >= 0 ? value.slice(lastDot + 1) : '';
+  }
+
+  private isWebHttpPath(path: string | null | undefined): boolean {
+    if (!path) {
+      return false;
+    }
+    try {
+      const parsed = new URL(path);
+      return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    } catch {
+      return false;
+    }
   }
 
   private notify(path: string): void {

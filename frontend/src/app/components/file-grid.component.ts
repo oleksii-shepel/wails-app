@@ -664,12 +664,14 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
     if (changes['cursorPath'] && this.cursorPath !== undefined) {
       this.anchorPath = this.cursorPath;
     }
-    if (changes['entries']) {
+    if (changes['entries'] || changes['colorizeByMime']) {
       this.prewarmCollisionResolutions();
-      const prevLen = changes['entries'].previousValue?.length || 0;
-      const currLen = changes['entries'].currentValue?.length || 0;
-      if (Math.abs(prevLen - currLen) > 1000) {
-        this.resetScroll();
+      if (changes['entries']) {
+        const prevLen = changes['entries'].previousValue?.length || 0;
+        const currLen = changes['entries'].currentValue?.length || 0;
+        if (Math.abs(prevLen - currLen) > 1000) {
+          this.resetScroll();
+        }
       }
       this.rebuildDerivedEntries();
       this.updateVirtualWindow(true);
@@ -680,6 +682,9 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
   }
 
   private prewarmCollisionResolutions(): void {
+    if (!this.colorizeByMime) {
+      return;
+    }
     for (const entry of this.entries) {
       this.categoryResolver.ensureResolved(entry);
     }

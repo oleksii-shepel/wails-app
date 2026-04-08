@@ -379,7 +379,7 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
   }
 
   ngOnChanges(changes: SimpleChanges): void {
-    if (changes['entries'] || changes['loading'] || changes['error']) {
+    if (changes['entries'] || changes['loading'] || changes['error'] || changes['colorizeByMime']) {
       this.prewarmCollisionResolutions();
       if (changes['entries'] && !changes['entries'].firstChange) {
         const prevLen = changes['entries'].previousValue?.length || 0;
@@ -405,6 +405,9 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
   }
 
   private prewarmCollisionResolutions(): void {
+    if (!this.colorizeByMime) {
+      return;
+    }
     for (const entry of this.entries) {
       this.categoryResolver.ensureResolved(entry);
     }

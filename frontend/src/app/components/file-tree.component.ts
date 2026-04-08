@@ -546,9 +546,11 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
   }
 
   ngOnChanges(changes: SimpleChanges): void {
-    if (changes['nodes']) {
+    if (changes['nodes'] || changes['colorizeByMime']) {
       this.prewarmCollisionResolutions(this.nodes);
-      this.updateNodeHierarchy(this.nodes);
+      if (changes['nodes']) {
+        this.updateNodeHierarchy(this.nodes);
+      }
     }
     const shouldExpandToCurrentPath = !!changes['currentPath'] || (!!changes['nodes'] && !this.suppressNextAutoExpand);
     if (shouldExpandToCurrentPath) {
@@ -563,6 +565,9 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
   }
 
   private prewarmCollisionResolutions(nodes: TreeNode[]): void {
+    if (!this.colorizeByMime) {
+      return;
+    }
     for (const node of nodes) {
       this.categoryResolver.ensureResolved(node);
       if (node.children?.length) {

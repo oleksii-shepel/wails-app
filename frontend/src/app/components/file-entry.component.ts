@@ -681,7 +681,7 @@ export class FileEntryComponent implements OnChanges, OnDestroy {
     this.resolvedCategoryId = undefined;
 
     const path = this.entry?.path;
-    if (!path) return;
+    if (!path || !this.colorizeByMime) return;
 
     this.resolvedCategoryId = this.categoryResolver.getResolvedCategory(path);
     this.unwatchResolvedCategory = this.categoryResolver.watch(path, () => {

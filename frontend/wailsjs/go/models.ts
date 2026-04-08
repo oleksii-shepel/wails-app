@@ -1041,12 +1041,22 @@ export namespace contracts {
 	}
 	export class RemoteConfig {
 	    protocol: string;
+	    name?: string;
 	    host: string;
 	    port?: number;
 	    username?: string;
 	    password?: string;
 	    domain?: string;
 	    share?: string;
+	    endpoint?: string;
+	    region?: string;
+	    bucket?: string;
+	    prefix?: string;
+	    accessKeyId?: string;
+	    secretAccessKey?: string;
+	    sessionToken?: string;
+	    usePathStyle?: boolean;
+	    insecure?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new RemoteConfig(source);
@@ -1055,12 +1065,22 @@ export namespace contracts {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.protocol = source["protocol"];
+	        this.name = source["name"];
 	        this.host = source["host"];
 	        this.port = source["port"];
 	        this.username = source["username"];
 	        this.password = source["password"];
 	        this.domain = source["domain"];
 	        this.share = source["share"];
+	        this.endpoint = source["endpoint"];
+	        this.region = source["region"];
+	        this.bucket = source["bucket"];
+	        this.prefix = source["prefix"];
+	        this.accessKeyId = source["accessKeyId"];
+	        this.secretAccessKey = source["secretAccessKey"];
+	        this.sessionToken = source["sessionToken"];
+	        this.usePathStyle = source["usePathStyle"];
+	        this.insecure = source["insecure"];
 	    }
 	}
 	export class RemoteMount {

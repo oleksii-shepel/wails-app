@@ -5,6 +5,7 @@ type RemoteProtocol string
 
 const (
 	ProtocolSMB RemoteProtocol = "smb"
+	ProtocolS3  RemoteProtocol = "s3"
 )
 
 // RemoteConfig describes how to connect to a remote server.
@@ -12,6 +13,7 @@ const (
 // lifetime of the application session.
 type RemoteConfig struct {
 	Protocol RemoteProtocol `json:"protocol"`
+	Name     string         `json:"name,omitempty"`
 	Host     string         `json:"host"`
 	Port     int            `json:"port,omitempty"`
 	Username string         `json:"username,omitempty"`
@@ -20,6 +22,17 @@ type RemoteConfig struct {
 	// SMB-specific
 	Domain string `json:"domain,omitempty"`
 	Share  string `json:"share,omitempty"` // e.g. "Documents"
+
+	// S3-compatible specific
+	Endpoint        string `json:"endpoint,omitempty"`
+	Region          string `json:"region,omitempty"`
+	Bucket          string `json:"bucket,omitempty"`
+	Prefix          string `json:"prefix,omitempty"`
+	AccessKeyID     string `json:"accessKeyId,omitempty"`
+	SecretAccessKey string `json:"secretAccessKey,omitempty"`
+	SessionToken    string `json:"sessionToken,omitempty"`
+	UsePathStyle    bool   `json:"usePathStyle,omitempty"`
+	Insecure        bool   `json:"insecure,omitempty"`
 }
 
 // RemoteMount describes an active remote filesystem mount.

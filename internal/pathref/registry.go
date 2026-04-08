@@ -15,9 +15,11 @@ const (
 	HTTPAliasScheme  = "http://"
 	HTTPSAliasScheme = "https://"
 	SMBScheme        = "smb://"
+	S3Scheme         = "s3://"
 	memoryVFSRoot    = "/memory"
 	registryVFSRoot  = "/registry"
 	smbVFSRoot       = "/remote/smb"
+	s3VFSRoot        = "/remote/s3"
 )
 
 type aliasSpec struct {
@@ -38,6 +40,7 @@ var aliasSpecs = []aliasSpec{
 	{scheme: HTTPSAliasScheme},
 	{scheme: HTTPAliasScheme},
 	{scheme: SMBScheme, vfsRoot: smbVFSRoot},
+	{scheme: S3Scheme, vfsRoot: s3VFSRoot},
 }
 
 var registryHivePrefixes = []string{

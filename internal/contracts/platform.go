@@ -31,6 +31,7 @@ const (
 	SchemeHTTP      SchemeType = "http"
 	SchemeHTTPS     SchemeType = "https"
 	SchemeSMB       SchemeType = "smb"
+	SchemeS3        SchemeType = "s3"
 	SchemeUnknown   SchemeType = "unknown"
 )
 

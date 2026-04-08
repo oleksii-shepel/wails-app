@@ -300,6 +300,9 @@ export class AddressBarSchemeDropdownComponent {
     if (d.schemeType === 'smb') {
       return 'SMB Share';
     }
+    if (d.schemeType === 's3') {
+      return 'S3-Compatible Storage';
+    }
     if (d.schemeType === 'network') {
       return 'Network Drive';
     }
@@ -320,6 +323,7 @@ export class AddressBarSchemeDropdownComponent {
     if (d.schemeType === 'http')           return '🌐';
     if (d.schemeType === 'https')          return '🔒';
     if (d.schemeType === 'smb')            return '🖧';
+    if (d.schemeType === 's3')             return '🪣';
     if (d.schemeType === 'fixed')          return '💽';
     if (d.schemeType === 'removable')      return '💾';
     if (d.schemeType === 'cdrom')          return '💿';

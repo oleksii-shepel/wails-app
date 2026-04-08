@@ -3,14 +3,18 @@ package app
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
 	contracts "wails-app/internal/contracts"
 	"wails-app/internal/pathref"
 	vfslib "wails-app/vfs"
+	vfss3 "wails-app/vfs/s3"
 	vfssmb "wails-app/vfs/smb"
 )
+
+var remoteMountSegmentPattern = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
 
 // RemoteConnect establishes a connection to a remote server, mounts the
 // resulting filesystem in the VFS, and returns metadata about the mount.
@@ -48,6 +52,18 @@ func (s *State) RemoteConnect(cfg contracts.RemoteConfig) (*contracts.RemoteMoun
 			Password: cfg.Password,
 			Share:    cfg.Share,
 		})
+	case contracts.ProtocolS3:
+		remoteFS, err = vfss3.New(ctx, vfss3.Config{
+			Region:          cfg.Region,
+			Bucket:          cfg.Bucket,
+			Prefix:          cfg.Prefix,
+			Endpoint:        cfg.Endpoint,
+			AccessKeyID:     cfg.AccessKeyID,
+			SecretAccessKey: cfg.SecretAccessKey,
+			SessionToken:    cfg.SessionToken,
+			UsePathStyle:    cfg.UsePathStyle,
+			Insecure:        cfg.Insecure,
+		})
 
 	default:
 		return nil, fmt.Errorf("unsupported protocol: %s", cfg.Protocol)
@@ -57,7 +73,7 @@ func (s *State) RemoteConnect(cfg contracts.RemoteConfig) (*contracts.RemoteMoun
 		return nil, err
 	}
 
-	displayName := fmt.Sprintf("%s://%s", string(cfg.Protocol), cfg.Host)
+	displayName := remoteDisplayName(cfg)
 	if _, err := s.vfs.Mount(mountPath, remoteFS, false, displayName, vfslib.VolumeRemote); err != nil {
 		if c, ok := remoteFS.(interface{ Close() error }); ok {
 			_ = c.Close()
@@ -67,7 +83,7 @@ func (s *State) RemoteConnect(cfg contracts.RemoteConfig) (*contracts.RemoteMoun
 
 	mount := contracts.RemoteMount{
 		Protocol:   cfg.Protocol,
-		Host:       cfg.Host,
+		Host:       remoteMountHost(cfg),
 		Name:       displayName,
 		PublicPath: pathref.FromVFS(mountPath),
 		MountPoint: mountPath,
@@ -120,7 +136,55 @@ func remoteMountPath(cfg contracts.RemoteConfig) string {
 			return fmt.Sprintf("/remote/smb/%s:%d/%s", cfg.Host, port, share)
 		}
 		return fmt.Sprintf("/remote/smb/%s:%d", cfg.Host, port)
+	case contracts.ProtocolS3:
+		name := sanitizeRemoteMountSegment(cfg.Name)
+		if name == "" {
+			return ""
+		}
+		return fmt.Sprintf("/remote/s3/%s", name)
 
 	}
 	return ""
+}
+
+func remoteDisplayName(cfg contracts.RemoteConfig) string {
+	switch cfg.Protocol {
+	case contracts.ProtocolS3:
+		name := strings.TrimSpace(cfg.Name)
+		bucket := strings.TrimSpace(cfg.Bucket)
+		if name != "" && bucket != "" {
+			return fmt.Sprintf("%s (%s)", name, bucket)
+		}
+		if name != "" {
+			return name
+		}
+		if bucket != "" {
+			return fmt.Sprintf("s3://%s", bucket)
+		}
+	}
+	return fmt.Sprintf("%s://%s", string(cfg.Protocol), remoteMountHost(cfg))
+}
+
+func remoteMountHost(cfg contracts.RemoteConfig) string {
+	if cfg.Protocol == contracts.ProtocolS3 {
+		if endpoint := strings.TrimSpace(cfg.Endpoint); endpoint != "" {
+			return endpoint
+		}
+		if name := strings.TrimSpace(cfg.Name); name != "" {
+			return name
+		}
+	}
+	return cfg.Host
+}
+
+func sanitizeRemoteMountSegment(value string) string {
+	trimmed := strings.TrimSpace(value)
+	trimmed = strings.ReplaceAll(trimmed, "\\", "-")
+	trimmed = strings.ReplaceAll(trimmed, "/", "-")
+	trimmed = remoteMountSegmentPattern.ReplaceAllString(trimmed, "-")
+	trimmed = strings.Trim(trimmed, "-.")
+	if trimmed == "." || trimmed == ".." {
+		return ""
+	}
+	return trimmed
 }

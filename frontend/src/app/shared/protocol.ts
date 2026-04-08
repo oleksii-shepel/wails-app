@@ -46,6 +46,7 @@ export type SchemeType =
   | 'http'
   | 'https'
   | 'smb'
+  | 's3'
   | 'unknown'
   | 'cloud-onedrive'
   | 'cloud-google'

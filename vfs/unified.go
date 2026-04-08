@@ -45,16 +45,12 @@ const (
 	httpScheme     = "http://"
 	httpsScheme    = "https://"
 	smbScheme      = "smb://"
-	ftpScheme      = "ftp://"
-	sftpScheme     = "sftp://"
-	webdavScheme   = "webdav://"
+	s3Scheme       = "s3://"
 
 	registryVFSRoot = "/registry"
 	memoryVFSRoot   = "/memory"
 	smbVFSRoot      = "/remote/smb"
-	ftpVFSRoot      = "/remote/ftp"
-	sftpVFSRoot     = "/remote/sftp"
-	webdavVFSRoot   = "/remote/webdav"
+	s3VFSRoot       = "/remote/s3"
 )
 
 // NewUnified creates a Unified VFS backed by the given Mounter.
@@ -230,9 +226,7 @@ func isVirtualAliasPath(path string) bool {
 		strings.HasPrefix(trimmed, httpScheme) ||
 		strings.HasPrefix(trimmed, httpsScheme) ||
 		strings.HasPrefix(trimmed, smbScheme) ||
-		strings.HasPrefix(trimmed, ftpScheme) ||
-		strings.HasPrefix(trimmed, sftpScheme) ||
-		strings.HasPrefix(trimmed, webdavScheme)
+		strings.HasPrefix(trimmed, s3Scheme)
 }
 
 // isWindowsDriveLetter checks if a rune is a valid Windows drive letter.
@@ -263,13 +257,7 @@ func (u *Unified) pathrefToVFS(path string) string {
 	if converted, ok := publicAliasToVFS(trimmed, smbScheme, smbVFSRoot); ok {
 		return converted
 	}
-	if converted, ok := publicAliasToVFS(trimmed, ftpScheme, ftpVFSRoot); ok {
-		return converted
-	}
-	if converted, ok := publicAliasToVFS(trimmed, sftpScheme, sftpVFSRoot); ok {
-		return converted
-	}
-	if converted, ok := publicAliasToVFS(trimmed, webdavScheme, webdavVFSRoot); ok {
+	if converted, ok := publicAliasToVFS(trimmed, s3Scheme, s3VFSRoot); ok {
 		return converted
 	}
 
@@ -282,7 +270,7 @@ func publicAliasToVFS(path string, scheme string, vfsRoot string) (string, bool)
 	}
 
 	switch scheme {
-	case ftpScheme, sftpScheme, smbScheme:
+	case smbScheme:
 		if converted, ok := remotePublicAliasToVFS(path, scheme, vfsRoot); ok {
 			return converted, true
 		}
@@ -308,10 +296,6 @@ func remotePublicAliasToVFS(path string, scheme string, vfsRoot string) (string,
 
 	defaultPort := ""
 	switch scheme {
-	case ftpScheme:
-		defaultPort = "21"
-	case sftpScheme:
-		defaultPort = "22"
 	case smbScheme:
 		defaultPort = "445"
 	default:

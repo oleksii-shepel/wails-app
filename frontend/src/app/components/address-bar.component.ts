@@ -739,7 +739,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   currentPath = '/';
   segments: PathSegment[] = [];
   get isWin(): boolean { return isWindowsPath(this.currentPath); }
-  /** True when the first segment is a non-Windows scheme root (memory://, ftp://, Registry, etc.) */
+  /** True when the first segment is a non-Windows scheme root (memory://, s3://, Registry, etc.) */
   get isSchemeRoot(): boolean {
     if (this.isWin || this.segments.length === 0) return false;
     const seg = this.segments[0];
@@ -901,7 +901,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   isCurrentRootSynthetic(): boolean {
     const drive = this.findCurrentRootEntry();
     if (!drive) return false;
-    return /^(memory|registry|search|http|https|smb|ftp|sftp|webdav)$/.test(drive.schemeType);
+    return /^(memory|registry|search|http|https|smb|s3)$/.test(drive.schemeType);
   }
 
   isCurrentRootPhysical(): boolean {
@@ -946,6 +946,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     if (drive.schemeType === 'http') return '🌐';
     if (drive.schemeType === 'https') return '🔒';
     if (drive.schemeType === 'smb') return '🖧';
+    if (drive.schemeType === 's3') return '🪣';
     return null;
   }
 

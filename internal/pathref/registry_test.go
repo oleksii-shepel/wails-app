@@ -29,6 +29,14 @@ func TestToVFSAddsDefaultSMBPort(t *testing.T) {
 	}
 }
 
+func TestToVFSKeepsS3AliasSegments(t *testing.T) {
+	got := ToVFS("s3://minio-dev/photos/2026")
+	want := "/remote/s3/minio-dev/photos/2026"
+	if got != want {
+		t.Fatalf("ToVFS(s3) mismatch\nwant: %q\n got: %q", want, got)
+	}
+}
+
 func TestParentKeepsHTTPAliasesNavigable(t *testing.T) {
 	got, ok := Parent("https://example.com/app/assets/main.js")
 	if !ok {

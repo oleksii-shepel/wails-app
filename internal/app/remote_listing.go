@@ -60,12 +60,12 @@ func (s *State) ensureRemoteMount(path string) error {
 		return err
 	}
 
-	if cfg.Protocol != contracts.ProtocolSMB {
+	mountPath := remoteMountPath(cfg)
+	if mountPath == "" || s.vfs.IsMounted(mountPath) {
 		return nil
 	}
 
-	mountPath := remoteMountPath(cfg)
-	if mountPath == "" || s.vfs.IsMounted(mountPath) {
+	if cfg.Protocol != contracts.ProtocolSMB {
 		return nil
 	}
 
@@ -115,6 +115,8 @@ func remoteProtocolRoot(path string) (contracts.RemoteProtocol, bool) {
 	switch strings.ToLower(path) {
 	case pathref.SMBScheme:
 		return contracts.ProtocolSMB, true
+	case pathref.S3Scheme:
+		return contracts.ProtocolS3, true
 	default:
 		return "", false
 	}
@@ -124,6 +126,8 @@ func remoteRootMountPoint(protocol contracts.RemoteProtocol) string {
 	switch protocol {
 	case contracts.ProtocolSMB:
 		return "/remote/smb"
+	case contracts.ProtocolS3:
+		return "/remote/s3"
 	default:
 		return ""
 	}
@@ -176,6 +180,16 @@ func remoteConfigFromPublicPath(path string) (contracts.RemoteConfig, bool, erro
 			Username: username,
 			Password: password,
 			Share:    share,
+		}, true, nil
+	case string(contracts.ProtocolS3):
+		alias := strings.TrimSpace(parsed.Hostname())
+		if alias == "" {
+			return contracts.RemoteConfig{}, false, nil
+		}
+
+		return contracts.RemoteConfig{
+			Protocol: contracts.ProtocolS3,
+			Name:     alias,
 		}, true, nil
 
 	default:

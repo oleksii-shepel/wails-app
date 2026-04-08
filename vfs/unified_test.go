@@ -2,26 +2,14 @@ package vfs
 
 import "testing"
 
-func TestPublicAliasToVFSAddsDefaultFTPPort(t *testing.T) {
-	got, ok := publicAliasToVFS("ftp://samples.ffmpeg.org/pub", ftpScheme, ftpVFSRoot)
+func TestPublicAliasToVFSPreservesS3AliasPath(t *testing.T) {
+	got, ok := publicAliasToVFS("s3://minio-dev/backups/2026", s3Scheme, s3VFSRoot)
 	if !ok {
-		t.Fatalf("publicAliasToVFS(ftp) did not match")
+		t.Fatalf("publicAliasToVFS(s3) did not match")
 	}
 
-	want := "/remote/ftp/samples.ffmpeg.org:21/pub"
+	want := "/remote/s3/minio-dev/backups/2026"
 	if got != want {
-		t.Fatalf("publicAliasToVFS(ftp) mismatch\nwant: %q\n got: %q", want, got)
-	}
-}
-
-func TestPublicAliasToVFSPreservesExplicitFTPPortAtRoot(t *testing.T) {
-	got, ok := publicAliasToVFS("ftp://samples.ffmpeg.org:21", ftpScheme, ftpVFSRoot)
-	if !ok {
-		t.Fatalf("publicAliasToVFS(ftp explicit port) did not match")
-	}
-
-	want := "/remote/ftp/samples.ffmpeg.org:21"
-	if got != want {
-		t.Fatalf("publicAliasToVFS(ftp explicit port) mismatch\nwant: %q\n got: %q", want, got)
+		t.Fatalf("publicAliasToVFS(s3) mismatch\nwant: %q\n got: %q", want, got)
 	}
 }

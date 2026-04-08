@@ -84,5 +84,10 @@ func syntheticDrives() []contracts.DriveInfo {
 			Path:       pathref.SMBScheme,
 			SchemeType: contracts.SchemeSMB,
 		},
+		{
+			Name:       "S3",
+			Path:       pathref.S3Scheme,
+			SchemeType: contracts.SchemeS3,
+		},
 	}
 }

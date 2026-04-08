@@ -23,7 +23,7 @@ func (a *App) BrowserPaneDispose(surfaceID string) error {
 	return a.browserPaneService().Dispose(surfaceID)
 }
 
-// BrowserPaneCaptureScreenshot returns a base64-encoded JPEG screenshot of the browser pane content.
+// BrowserPaneCaptureScreenshot returns a base64-encoded PNG screenshot of the browser pane content.
 func (a *App) BrowserPaneCaptureScreenshot(surfaceID string) (string, error) {
 	return a.browserPaneService().CaptureScreenshot(surfaceID)
 }

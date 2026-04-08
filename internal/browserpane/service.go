@@ -102,7 +102,7 @@ func (s *Service) Dispose(surfaceID string) error {
 	return target.Dispose()
 }
 
-// CaptureScreenshot returns a base64-encoded JPEG screenshot of the browser pane.
+// CaptureScreenshot returns a base64-encoded PNG screenshot of the browser pane.
 func (s *Service) CaptureScreenshot(surfaceID string) (string, error) {
 	surfaceID = strings.TrimSpace(surfaceID)
 	if surfaceID == "" {

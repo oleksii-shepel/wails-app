@@ -103,7 +103,9 @@ export class ViewerHostSurfaceComponent implements OnChanges {
     const ext = extLower(req.targetPath);
     if (ext || req.targetPath) {
       try {
-        req.probe = await this.api.probeFile(req.targetPath);
+        req.probe = req.archiveContext
+          ? await this.api.probeArchiveFile(req.archiveContext.fsPath, req.archiveContext.nestedChain, req.archiveContext.entryPath)
+          : await this.api.probeFile(req.targetPath);
       } catch {
         req.probe = null;
       }

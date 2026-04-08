@@ -1,4 +1,16 @@
-# Image Viewer - Supported Formats
+# Viewer Support - Selected Formats
+
+## Font Viewer
+
+Font files are previewed directly in-app with a dedicated font surface. The viewer renders sample text, multilingual glyph rows, and basic file metadata.
+
+Supported detection:
+- By extension: TTF, TTC, OTF, OTC, WOFF, WOFF2, EOT
+- By MIME: font/* plus common legacy font MIME types
+
+This also covers extensionless web-font cache files when the backend probe resolves them as font MIME types.
+
+## Image Viewer
 
 ## Browser-Native Formats
 These formats are rendered directly by the browser without conversion:

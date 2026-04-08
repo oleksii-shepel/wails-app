@@ -29,8 +29,7 @@ import { NativeOverlayFreezeService } from '../services/native-overlay-freeze.se
   template: `
     <div #host class="native-overlay-host">
       <div #backdrop class="native-overlay-backdrop"></div>
-      <canvas #canvasA class="native-overlay-canvas"></canvas>
-      <canvas #canvasB class="native-overlay-canvas"></canvas>
+      <canvas #canvas class="native-overlay-canvas"></canvas>
     </div>
   `,
   styles: [`
@@ -73,8 +72,7 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
   @HostBinding('style.backgroundColor') hostBackgroundColor = '#ffffff';
   @ViewChild('host') private hostEl?: ElementRef<HTMLElement>;
   @ViewChild('backdrop') private backdropEl?: ElementRef<HTMLElement>;
-  @ViewChild('canvasA') private canvasAEl?: ElementRef<HTMLCanvasElement>;
-  @ViewChild('canvasB') private canvasBEl?: ElementRef<HTMLCanvasElement>;
+  @ViewChild('canvas') private canvasEl?: ElementRef<HTMLCanvasElement>;
 
   @Input() surfaceId = '';
   @Input() url = '';
@@ -93,7 +91,6 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
   private wasFrozen = false;
   private capturingScreenshot = false;
   private screenshotVisible = false;
-  private activeCanvasSlot: 'a' | 'b' | null = null;
   private screenshotRequestId = 0;
   private lastScreenshotWidth = 0;
   private lastScreenshotHeight = 0;
@@ -574,8 +571,8 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
 
   private drawOnCanvas(base64Data: string, requestId: number, reveal: boolean, allowWithoutFreeze: boolean): Promise<boolean> {
     const host = this.hostEl?.nativeElement;
-    const targetCanvas = this.getTargetCanvasForDraw();
-    if (!targetCanvas || !host) {
+    const canvas = this.canvasEl?.nativeElement;
+    if (!canvas || !host) {
       return Promise.resolve(false);
     }
     const bounds = this.measureHostBounds(host);
@@ -591,8 +588,6 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
           resolve(false);
           return;
         }
-
-        const canvas = targetCanvas.canvas;
 
         // Set backing-store to match the screenshot's native resolution.
         canvas.width = bitmap.width;
@@ -617,16 +612,11 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
           (bitmap as ImageBitmap).close();
         }
 
-        const previousCanvas = this.getCanvasBySlot(this.activeCanvasSlot);
         if (reveal) {
-          this.showCanvas(targetCanvas.slot);
-          if (previousCanvas && previousCanvas !== canvas) {
-            this.hideOneCanvas(previousCanvas);
-          }
+          this.showCanvas();
         } else {
-          this.hideOneCanvas(canvas);
+          this.hideCanvasElement(canvas);
         }
-        this.activeCanvasSlot = targetCanvas.slot;
         this.lastScreenshotWidth = bounds.rect.width;
         this.lastScreenshotHeight = bounds.rect.height;
         this.lastScreenshotURL = this.url;
@@ -644,25 +634,19 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
     this.forceFreshScreenshot = false;
     this.lastScreenshotStartedAt = 0;
     this.clearScreenshotCooldown();
-    const canvasA = this.canvasAEl?.nativeElement ?? null;
-    const canvasB = this.canvasBEl?.nativeElement ?? null;
-    if (canvasA) {
-      this.hideOneCanvas(canvasA);
-    }
-    if (canvasB) {
-      this.hideOneCanvas(canvasB);
+    const canvas = this.canvasEl?.nativeElement ?? null;
+    if (canvas) {
+      this.hideCanvasElement(canvas);
     }
     this.applyBackgroundColor(this.liveBackgroundColor);
     if (clearCache) {
-      this.activeCanvasSlot = null;
       this.lastScreenshotURL = '';
-      this.clearCanvasBitmap(canvasA);
-      this.clearCanvasBitmap(canvasB);
+      this.clearCanvasBitmap(canvas);
     }
   }
 
-  private showCanvas(slot: 'a' | 'b'): void {
-    const canvas = this.getCanvasBySlot(slot);
+  private showCanvas(): void {
+    const canvas = this.canvasEl?.nativeElement;
     if (!canvas) {
       return;
     }
@@ -678,7 +662,7 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
     canvas.style.display = 'block';
   }
 
-  private hideOneCanvas(canvas: HTMLCanvasElement): void {
+  private hideCanvasElement(canvas: HTMLCanvasElement): void {
     canvas.style.display = 'none';
     canvas.style.transform = '';
     canvas.style.zIndex = '1';
@@ -701,16 +685,11 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
     if (this.lastScreenshotURL !== this.url) {
       return;
     }
-    const cachedCanvas = this.findCachedCanvas();
+    const cachedCanvas = this.getCachedCanvas();
     if (!cachedCanvas) {
       return;
     }
-    this.showCanvas(cachedCanvas.slot);
-    const otherCanvas = this.getCanvasBySlot(cachedCanvas.slot === 'a' ? 'b' : 'a');
-    if (otherCanvas) {
-      this.hideOneCanvas(otherCanvas);
-    }
-    this.activeCanvasSlot = cachedCanvas.slot;
+    this.showCanvas();
     this.screenshotVisible = true;
     if (document.body.classList.contains('divider-hover')) {
       this.hoverFreezeActive = true;
@@ -723,7 +702,7 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
     if (!this.active || this.isFreezeRequested() || this.capturingScreenshot) {
       return;
     }
-    const cached = this.findCachedCanvas();
+    const cached = this.getCachedCanvas();
     const hasFreshCache = !!cached
       && this.lastScreenshotURL === this.url
       && Math.abs(hostWidth - this.lastScreenshotWidth) < 8
@@ -739,47 +718,12 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
     void this.captureScreenshot(true, true, false);
   }
 
-  private getCanvasBySlot(slot: 'a' | 'b' | null): HTMLCanvasElement | null {
-    if (slot === 'a') {
-      return this.canvasAEl?.nativeElement ?? null;
+  private getCachedCanvas(): HTMLCanvasElement | null {
+    const canvas = this.canvasEl?.nativeElement ?? null;
+    if (!canvas || canvas.width <= 0 || canvas.height <= 0) {
+      return null;
     }
-    if (slot === 'b') {
-      return this.canvasBEl?.nativeElement ?? null;
-    }
-    return null;
-  }
-
-  private getTargetCanvasForDraw(): { slot: 'a' | 'b'; canvas: HTMLCanvasElement } | null {
-    const primarySlot: 'a' | 'b' = this.screenshotVisible && this.activeCanvasSlot === 'a' ? 'b' : 'a';
-    const secondarySlot: 'a' | 'b' = primarySlot === 'a' ? 'b' : 'a';
-    const primaryCanvas = this.getCanvasBySlot(primarySlot);
-    if (primaryCanvas) {
-      return { slot: primarySlot, canvas: primaryCanvas };
-    }
-    const secondaryCanvas = this.getCanvasBySlot(secondarySlot);
-    if (secondaryCanvas) {
-      return { slot: secondarySlot, canvas: secondaryCanvas };
-    }
-    return null;
-  }
-
-  private findCachedCanvas(): { slot: 'a' | 'b'; canvas: HTMLCanvasElement } | null {
-    const activeCanvas = this.getCanvasBySlot(this.activeCanvasSlot);
-    if (activeCanvas && activeCanvas.width > 0 && activeCanvas.height > 0 && this.activeCanvasSlot) {
-      return { slot: this.activeCanvasSlot, canvas: activeCanvas };
-    }
-
-    const canvasA = this.getCanvasBySlot('a');
-    if (canvasA && canvasA.width > 0 && canvasA.height > 0) {
-      return { slot: 'a', canvas: canvasA };
-    }
-
-    const canvasB = this.getCanvasBySlot('b');
-    if (canvasB && canvasB.width > 0 && canvasB.height > 0) {
-      return { slot: 'b', canvas: canvasB };
-    }
-
-    return null;
+    return canvas;
   }
 
   private async decodeBitmap(base64Data: string): Promise<ImageBitmap | HTMLImageElement | null> {

@@ -81,32 +81,10 @@ import {
           0 0 10px color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 45%, transparent);
     }
 
-    :host.vertical:hover .line,
-    :host.vertical.hovering .line,
-    :host-context(body.divider-hover).vertical .line {
-        width: 2px;
-    }
-
-    :host.horizontal:hover .line,
-    :host.horizontal.hovering .line,
-    :host-context(body.divider-hover).horizontal .line {
-        height: 2px;
-    }
-
     :host.dragging .line,
     :host-context(body.divider-dragging) .line {
         background: var(--vsc-accent-blue, #007acc);
         box-shadow: 0 0 0 2px color-mix(in srgb, var(--vsc-accent-blue, #007acc) 20%, transparent);
-    }
-
-    :host.vertical.dragging .line,
-    :host-context(body.divider-dragging).vertical .line {
-        width: 2px;
-    }
-
-    :host.horizontal.dragging .line,
-    :host-context(body.divider-dragging).horizontal .line {
-        height: 2px;
     }
 
     :host.dragging {

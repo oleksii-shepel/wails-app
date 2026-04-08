@@ -62,51 +62,51 @@ const (
 )
 
 var (
-	user32                       = windows.NewLazySystemDLL("user32.dll")
-	kernel32                     = windows.NewLazySystemDLL("kernel32.dll")
-	gdi32                        = windows.NewLazySystemDLL("gdi32.dll")
-	dcomp                        = windows.NewLazySystemDLL("dcomp.dll")
-	procRegisterClassExW         = user32.NewProc("RegisterClassExW")
-	procCreateWindowExW          = user32.NewProc("CreateWindowExW")
-	procDefWindowProcW           = user32.NewProc("DefWindowProcW")
-	procDestroyWindow            = user32.NewProc("DestroyWindow")
-	procShowWindow               = user32.NewProc("ShowWindow")
-	procUpdateWindow             = user32.NewProc("UpdateWindow")
-	procInvalidateRect           = user32.NewProc("InvalidateRect")
-	procSetWindowPos             = user32.NewProc("SetWindowPos")
-	procPeekMessageW             = user32.NewProc("PeekMessageW")
-	procTranslateMessage         = user32.NewProc("TranslateMessage")
-	procDispatchMessageW         = user32.NewProc("DispatchMessageW")
-	procEnumThreadWindows        = user32.NewProc("EnumThreadWindows")
-	procEnumWindows              = user32.NewProc("EnumWindows")
-	procGetWindowThreadPID       = user32.NewProc("GetWindowThreadProcessId")
-	procGetWindow                = user32.NewProc("GetWindow")
-	procIsWindowVisible          = user32.NewProc("IsWindowVisible")
-	procIsWindow                 = user32.NewProc("IsWindow")
-	procGetCapture               = user32.NewProc("GetCapture")
-	procGetClientRect            = user32.NewProc("GetClientRect")
-	procClientToScreen           = user32.NewProc("ClientToScreen")
-	procScreenToClient           = user32.NewProc("ScreenToClient")
-	procPostMessageW             = user32.NewProc("PostMessageW")
-	procSetCapture               = user32.NewProc("SetCapture")
-	procReleaseCapture           = user32.NewProc("ReleaseCapture")
-	procSetCursor                = user32.NewProc("SetCursor")
-	procSetFocus                 = user32.NewProc("SetFocus")
-	procTrackMouseEvent          = user32.NewProc("TrackMouseEvent")
-	procGetModuleHandleW         = kernel32.NewProc("GetModuleHandleW")
-	procGetCurrentThreadID       = kernel32.NewProc("GetCurrentThreadId")
-	procCreateSolidBrush         = gdi32.NewProc("CreateSolidBrush")
-	procDeleteObject             = gdi32.NewProc("DeleteObject")
-	procFillRect                 = user32.NewProc("FillRect")
+	user32                        = windows.NewLazySystemDLL("user32.dll")
+	kernel32                      = windows.NewLazySystemDLL("kernel32.dll")
+	gdi32                         = windows.NewLazySystemDLL("gdi32.dll")
+	dcomp                         = windows.NewLazySystemDLL("dcomp.dll")
+	procRegisterClassExW          = user32.NewProc("RegisterClassExW")
+	procCreateWindowExW           = user32.NewProc("CreateWindowExW")
+	procDefWindowProcW            = user32.NewProc("DefWindowProcW")
+	procDestroyWindow             = user32.NewProc("DestroyWindow")
+	procShowWindow                = user32.NewProc("ShowWindow")
+	procUpdateWindow              = user32.NewProc("UpdateWindow")
+	procInvalidateRect            = user32.NewProc("InvalidateRect")
+	procSetWindowPos              = user32.NewProc("SetWindowPos")
+	procPeekMessageW              = user32.NewProc("PeekMessageW")
+	procTranslateMessage          = user32.NewProc("TranslateMessage")
+	procDispatchMessageW          = user32.NewProc("DispatchMessageW")
+	procEnumThreadWindows         = user32.NewProc("EnumThreadWindows")
+	procEnumWindows               = user32.NewProc("EnumWindows")
+	procGetWindowThreadPID        = user32.NewProc("GetWindowThreadProcessId")
+	procGetWindow                 = user32.NewProc("GetWindow")
+	procIsWindowVisible           = user32.NewProc("IsWindowVisible")
+	procIsWindow                  = user32.NewProc("IsWindow")
+	procGetCapture                = user32.NewProc("GetCapture")
+	procGetClientRect             = user32.NewProc("GetClientRect")
+	procClientToScreen            = user32.NewProc("ClientToScreen")
+	procScreenToClient            = user32.NewProc("ScreenToClient")
+	procPostMessageW              = user32.NewProc("PostMessageW")
+	procSetCapture                = user32.NewProc("SetCapture")
+	procReleaseCapture            = user32.NewProc("ReleaseCapture")
+	procSetCursor                 = user32.NewProc("SetCursor")
+	procSetFocus                  = user32.NewProc("SetFocus")
+	procTrackMouseEvent           = user32.NewProc("TrackMouseEvent")
+	procGetModuleHandleW          = kernel32.NewProc("GetModuleHandleW")
+	procGetCurrentThreadID        = kernel32.NewProc("GetCurrentThreadId")
+	procCreateSolidBrush          = gdi32.NewProc("CreateSolidBrush")
+	procDeleteObject              = gdi32.NewProc("DeleteObject")
+	procFillRect                  = user32.NewProc("FillRect")
 	procDCompositionCreateDevice2 = dcomp.NewProc("DCompositionCreateDevice2")
-	registerPaneClassOnce        sync.Once
-	registerPaneClassErr         error
-	mainWindowHandleOnce         sync.Once
-	mainWindowHandle             uintptr
-	mainWindowHandleErr          error
-	browserPaneHostColors        sync.Map
-	browserPaneStates            sync.Map
-	browserPaneWndProc           = windows.NewCallback(browserPaneWindowProc)
+	registerPaneClassOnce         sync.Once
+	registerPaneClassErr          error
+	mainWindowHandleOnce          sync.Once
+	mainWindowHandle              uintptr
+	mainWindowHandleErr           error
+	browserPaneHostColors         sync.Map
+	browserPaneStates             sync.Map
+	browserPaneWndProc            = windows.NewCallback(browserPaneWindowProc)
 )
 
 type point struct {

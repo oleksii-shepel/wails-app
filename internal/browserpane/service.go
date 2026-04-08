@@ -2,6 +2,7 @@ package browserpane
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 	"sync"
 )
@@ -45,6 +46,13 @@ func (s *Service) Sync(update Update) error {
 		return fmt.Errorf("browser pane surface id is required")
 	}
 
+	if !isSupportedBrowserPaneURL(update.URL) {
+		update.URL = ""
+		update.Visible = false
+		update.Width = 0
+		update.Height = 0
+	}
+
 	if !update.Visible {
 		s.mu.Lock()
 		target := s.panes[update.SurfaceID]
@@ -76,6 +84,24 @@ func (s *Service) Sync(update Update) error {
 	s.mu.Unlock()
 
 	return target.Sync(update)
+}
+
+func isSupportedBrowserPaneURL(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return false
+	}
+
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+
+	if !strings.EqualFold(parsed.Scheme, "http") && !strings.EqualFold(parsed.Scheme, "https") {
+		return false
+	}
+
+	return strings.TrimSpace(parsed.Host) != ""
 }
 
 func (s *Service) emitResourceUpdate(path string) {

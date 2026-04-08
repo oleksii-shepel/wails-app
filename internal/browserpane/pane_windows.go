@@ -938,7 +938,7 @@ func (s *windowsPaneState) sync(update Update) error {
 		}
 	}
 
-	if s.url != update.URL {
+	if update.URL != "" && s.url != update.URL {
 		webresourcecache.Clear(update.URL)
 		s.initialNavigationDone = false
 		s.chromium.Navigate(update.URL)

@@ -39,7 +39,7 @@ export type ViewLayout = ViewMode;
   ],
   template: `
     <div class="view-container">
-      <div class="view-browser" [hidden]="!cachedShowBrowserPane">
+      <div class="view-browser" [class.view-browser--hidden]="!cachedShowBrowserPane">
         <app-native-overlay
           [surfaceId]="surfaceId"
           [url]="cachedBrowserPath"
@@ -157,6 +157,10 @@ export type ViewLayout = ViewMode;
       background: var(--vsc-editor-background);
       position: relative;
       z-index: 0;
+    }
+
+    .view-browser.view-browser--hidden {
+      display: none;
     }
 
     .view-content {

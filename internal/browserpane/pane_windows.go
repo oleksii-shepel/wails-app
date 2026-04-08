@@ -326,7 +326,6 @@ type browserPaneCompositionHost struct {
 	device        *rawDCompositionDevice
 	target        *rawDCompositionTarget
 	rootVisual    *rawDCompositionVisual
-	webViewVisual *rawDCompositionVisual
 }
 
 type rawChromium struct {
@@ -777,7 +776,7 @@ func newWindowsPaneState(initialTheme string, initialBackgroundColor string, onR
 	} else {
 		state.compositionHost = compositionHost
 		chromium.UseComposition = true
-		chromium.CompositionRootTarget = unsafe.Pointer(compositionHost.webViewVisual)
+		chromium.CompositionRootTarget = unsafe.Pointer(compositionHost.rootVisual)
 	}
 	chromium.SetErrorCallback(func(err error) {
 		if err == nil {
@@ -1603,7 +1602,7 @@ func createBrowserPaneCompositionHost(hostHWND uintptr) (*browserPaneComposition
 	hr, _, _ = device.Vtbl.CreateTargetForHwnd.Call(
 		uintptr(unsafe.Pointer(device)),
 		hostHWND,
-		1,
+		0,
 		uintptr(unsafe.Pointer(&host.target)),
 	)
 	if windows.Handle(hr) != windows.S_OK {
@@ -1616,25 +1615,9 @@ func createBrowserPaneCompositionHost(hostHWND uintptr) (*browserPaneComposition
 	if windows.Handle(hr) != windows.S_OK {
 		return nil, windows.Errno(hr)
 	}
-	hr, _, _ = device.Vtbl.CreateVisual.Call(
-		uintptr(unsafe.Pointer(device)),
-		uintptr(unsafe.Pointer(&host.webViewVisual)),
-	)
-	if windows.Handle(hr) != windows.S_OK {
-		return nil, windows.Errno(hr)
-	}
 	hr, _, _ = host.target.Vtbl.SetRoot.Call(
 		uintptr(unsafe.Pointer(host.target)),
 		uintptr(unsafe.Pointer(host.rootVisual)),
-	)
-	if windows.Handle(hr) != windows.S_OK {
-		return nil, windows.Errno(hr)
-	}
-	hr, _, _ = host.rootVisual.Vtbl.AddVisual.Call(
-		uintptr(unsafe.Pointer(host.rootVisual)),
-		uintptr(unsafe.Pointer(host.webViewVisual)),
-		1,
-		0,
 	)
 	if windows.Handle(hr) != windows.S_OK {
 		return nil, windows.Errno(hr)
@@ -1662,10 +1645,6 @@ func (h *browserPaneCompositionHost) commit() error {
 func (h *browserPaneCompositionHost) release() {
 	if h == nil {
 		return
-	}
-	if h.webViewVisual != nil {
-		releaseCOMObject(unsafe.Pointer(h.webViewVisual))
-		h.webViewVisual = nil
 	}
 	if h.rootVisual != nil {
 		releaseCOMObject(unsafe.Pointer(h.rootVisual))

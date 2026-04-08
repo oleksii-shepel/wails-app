@@ -354,8 +354,15 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
     if (!frozen && this.wasFrozen) {
       this.wasFrozen = false;
       this.hoverFreezeActive = false;
-      this.screenshotRequestId++;
-      this.hideCanvas(false);
+      
+      const expectedId = ++this.screenshotRequestId;
+      // Delay hiding the canvas slightly so the native Win32 window has time
+      // to paint on screen, eliminating the transparent flicker during unfreeze.
+      setTimeout(() => {
+        if (this.screenshotRequestId === expectedId && !this.wasFrozen) {
+          this.hideCanvas(false);
+        }
+      }, 100);
     }
 
     // Hide native pane only after we have a screenshot to replace it.
@@ -608,14 +615,28 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
 
         if (reveal) {
           this.showCanvas();
+          this.lastScreenshotWidth = bounds.rect.width;
+          this.lastScreenshotHeight = bounds.rect.height;
+          this.lastScreenshotURL = this.url;
+          
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              if (requestId === this.screenshotRequestId) {
+                this.screenshotVisible = true;
+                resolve(true);
+              } else {
+                resolve(false);
+              }
+            });
+          });
         } else {
           this.hideCanvasElement(canvas);
+          this.lastScreenshotWidth = bounds.rect.width;
+          this.lastScreenshotHeight = bounds.rect.height;
+          this.lastScreenshotURL = this.url;
+          this.screenshotVisible = false;
+          resolve(true);
         }
-        this.lastScreenshotWidth = bounds.rect.width;
-        this.lastScreenshotHeight = bounds.rect.height;
-        this.lastScreenshotURL = this.url;
-        this.screenshotVisible = reveal;
-        resolve(true);
       });
     });
   }
@@ -688,12 +709,19 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
       return;
     }
     this.showCanvas();
-    this.screenshotVisible = true;
     if (document.body.classList.contains('divider-hover')) {
       this.hoverFreezeActive = true;
     }
-    this.lastSyncKey = '';
-    this.requestSync();
+    const expectedId = this.screenshotRequestId;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (expectedId === this.screenshotRequestId) {
+          this.screenshotVisible = true;
+          this.lastSyncKey = '';
+          this.requestSync();
+        }
+      });
+    });
   }
 
   private hasCachedCanvas(): boolean {

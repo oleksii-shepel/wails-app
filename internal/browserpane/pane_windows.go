@@ -35,9 +35,29 @@ const (
 	swpNoZOrder    = 0x0004
 	pmRemove       = 0x0001
 	gwOwner        = 4
+	htClient       = 1
+	tmeLeave       = 0x00000002
+	tmeCancel      = 0x80000000
 	wmEraseBkgnd   = 0x0014
+	wmSetCursor    = 0x0020
 	wmClose        = 0x0010
 	wmDestroy      = 0x0002
+	wmMouseMove    = 0x0200
+	wmLButtonDown  = 0x0201
+	wmLButtonUp    = 0x0202
+	wmLButtonDblClk = 0x0203
+	wmRButtonDown  = 0x0204
+	wmRButtonUp    = 0x0205
+	wmRButtonDblClk = 0x0206
+	wmMButtonDown  = 0x0207
+	wmMButtonUp    = 0x0208
+	wmMButtonDblClk = 0x0209
+	wmMouseWheel   = 0x020A
+	wmXButtonDown  = 0x020B
+	wmXButtonUp    = 0x020C
+	wmXButtonDblClk = 0x020D
+	wmMouseHWheel  = 0x020E
+	wmMouseLeave   = 0x02A3
 	wmNCDestroy    = 0x0082
 )
 
@@ -45,6 +65,7 @@ var (
 	user32                 = windows.NewLazySystemDLL("user32.dll")
 	kernel32               = windows.NewLazySystemDLL("kernel32.dll")
 	gdi32                  = windows.NewLazySystemDLL("gdi32.dll")
+	dcomp                  = windows.NewLazySystemDLL("dcomp.dll")
 	procRegisterClassExW   = user32.NewProc("RegisterClassExW")
 	procCreateWindowExW    = user32.NewProc("CreateWindowExW")
 	procDefWindowProcW     = user32.NewProc("DefWindowProcW")
@@ -62,20 +83,29 @@ var (
 	procGetWindow          = user32.NewProc("GetWindow")
 	procIsWindowVisible    = user32.NewProc("IsWindowVisible")
 	procIsWindow           = user32.NewProc("IsWindow")
+	procGetCapture         = user32.NewProc("GetCapture")
 	procGetClientRect      = user32.NewProc("GetClientRect")
 	procClientToScreen     = user32.NewProc("ClientToScreen")
+	procScreenToClient     = user32.NewProc("ScreenToClient")
 	procPostMessageW       = user32.NewProc("PostMessageW")
+	procSetCapture         = user32.NewProc("SetCapture")
+	procReleaseCapture     = user32.NewProc("ReleaseCapture")
+	procSetCursor          = user32.NewProc("SetCursor")
+	procSetFocus           = user32.NewProc("SetFocus")
+	procTrackMouseEvent    = user32.NewProc("TrackMouseEvent")
 	procGetModuleHandleW   = kernel32.NewProc("GetModuleHandleW")
 	procGetCurrentThreadID = kernel32.NewProc("GetCurrentThreadId")
 	procCreateSolidBrush   = gdi32.NewProc("CreateSolidBrush")
 	procDeleteObject       = gdi32.NewProc("DeleteObject")
 	procFillRect           = user32.NewProc("FillRect")
+	procDCompositionCreateDevice = dcomp.NewProc("DCompositionCreateDevice")
 	registerPaneClassOnce  sync.Once
 	registerPaneClassErr   error
 	mainWindowHandleOnce   sync.Once
 	mainWindowHandle       uintptr
 	mainWindowHandleErr    error
 	browserPaneHostColors  sync.Map
+	browserPaneStates      sync.Map
 	browserPaneWndProc     = windows.NewCallback(browserPaneWindowProc)
 )
 
@@ -122,6 +152,13 @@ type browserPaneHostColor struct {
 	B uint8
 }
 
+type trackMouseEvent struct {
+	Size      uint32
+	Flags     uint32
+	HWndTrack uintptr
+	HoverTime uint32
+}
+
 type windowsPane struct {
 	surfaceID string
 	commands  chan windowsPaneCommand
@@ -142,6 +179,9 @@ type windowsPaneState struct {
 	ownerHWND               uintptr
 	hostHWND                uintptr
 	chromium                *edge.Chromium
+	compositionHost         *browserPaneCompositionHost
+	compositionTracking     bool
+	compositionCapturing    bool
 	url                     string
 	theme                   string
 	backgroundColor         string
@@ -214,6 +254,79 @@ type rawWebView2EnvironmentVTBL struct {
 
 type rawWebView2Environment struct {
 	Vtbl *rawWebView2EnvironmentVTBL
+}
+
+type rawDCompositionDeviceVtbl struct {
+	rawIUnknownVTBL
+	Commit                  edge.ComProc
+	WaitForCommitCompletion edge.ComProc
+	GetFrameStatistics      edge.ComProc
+	CreateTargetForHwnd     edge.ComProc
+	CreateVisual            edge.ComProc
+	CreateSurface           edge.ComProc
+	CreateVirtualSurface    edge.ComProc
+	CreateSurfaceFromHandle edge.ComProc
+	CreateSurfaceFromHwnd   edge.ComProc
+	CreateTranslateTransform edge.ComProc
+	CreateScaleTransform    edge.ComProc
+	CreateRotateTransform   edge.ComProc
+	CreateSkewTransform     edge.ComProc
+	CreateMatrixTransform   edge.ComProc
+	CreateTransformGroup    edge.ComProc
+	CreateTranslateTransform3D edge.ComProc
+	CreateScaleTransform3D  edge.ComProc
+	CreateRotateTransform3D edge.ComProc
+	CreateMatrixTransform3D edge.ComProc
+	CreateTransform3DGroup  edge.ComProc
+	CreateEffectGroup       edge.ComProc
+	CreateRectangleClip     edge.ComProc
+	CreateAnimation         edge.ComProc
+	CheckDeviceState        edge.ComProc
+}
+
+type rawDCompositionDevice struct {
+	Vtbl *rawDCompositionDeviceVtbl
+}
+
+type rawDCompositionTargetVtbl struct {
+	rawIUnknownVTBL
+	SetRoot edge.ComProc
+}
+
+type rawDCompositionTarget struct {
+	Vtbl *rawDCompositionTargetVtbl
+}
+
+type rawDCompositionVisualVtbl struct {
+	rawIUnknownVTBL
+	SetOffsetXFloat             edge.ComProc
+	SetOffsetXAnimation         edge.ComProc
+	SetOffsetYFloat             edge.ComProc
+	SetOffsetYAnimation         edge.ComProc
+	SetTransformMatrix          edge.ComProc
+	SetTransformObject          edge.ComProc
+	SetTransformParent          edge.ComProc
+	SetEffect                   edge.ComProc
+	SetBitmapInterpolationMode  edge.ComProc
+	SetBorderMode               edge.ComProc
+	SetClipRect                 edge.ComProc
+	SetClipObject               edge.ComProc
+	SetContent                  edge.ComProc
+	AddVisual                   edge.ComProc
+	RemoveVisual                edge.ComProc
+	RemoveAllVisuals            edge.ComProc
+	SetCompositeMode            edge.ComProc
+}
+
+type rawDCompositionVisual struct {
+	Vtbl *rawDCompositionVisualVtbl
+}
+
+type browserPaneCompositionHost struct {
+	device       *rawDCompositionDevice
+	target       *rawDCompositionTarget
+	rootVisual   *rawDCompositionVisual
+	webViewVisual *rawDCompositionVisual
 }
 
 type rawChromium struct {
@@ -658,6 +771,14 @@ func newWindowsPaneState(initialTheme string, initialBackgroundColor string, onR
 		backgroundColor:    initialBackgroundColor,
 		onResourcesChanged: onResourcesChanged,
 	}
+	compositionHost, compositionErr := createBrowserPaneCompositionHost(hostHWND)
+	if compositionErr != nil {
+		log.Printf("[BrowserPane] Composition host unavailable, using windowed WebView2 hosting: %v", compositionErr)
+	} else {
+		state.compositionHost = compositionHost
+		chromium.UseComposition = true
+		chromium.CompositionRootTarget = unsafe.Pointer(compositionHost.webViewVisual)
+	}
 	chromium.SetErrorCallback(func(err error) {
 		if err == nil {
 			return
@@ -689,11 +810,24 @@ func newWindowsPaneState(initialTheme string, initialBackgroundColor string, onR
 			chromiumErr = fmt.Errorf("embed browser pane: WebView2 controller initialization failed")
 		}
 	}
+	if chromiumErr == nil && state.compositionHost != nil {
+		if chromium.GetCompositionController() == nil {
+			state.compositionHost.release()
+			state.compositionHost = nil
+		} else if err := state.compositionHost.commit(); err != nil {
+			chromiumErr = fmt.Errorf("commit browser pane composition host: %w", err)
+		}
+	}
 	if chromiumErr != nil {
+		if state.compositionHost != nil {
+			state.compositionHost.release()
+			state.compositionHost = nil
+		}
 		clearBrowserPaneHostBackground(hostHWND)
 		_, _, _ = procDestroyWindow.Call(hostHWND)
 		return nil, chromiumErr
 	}
+	browserPaneStates.Store(hostHWND, state)
 
 	// Inject scripts before first page render via AddScriptToExecuteOnDocumentCreated.
 	// These run on every navigation, before the page content is displayed.
@@ -898,6 +1032,10 @@ func (s *windowsPaneState) setControllerVisible(visible bool) {
 
 func (s *windowsPaneState) dispose() error {
 	var firstErr error
+	browserPaneStates.Delete(s.hostHWND)
+	if capture, _, _ := procGetCapture.Call(); capture == s.hostHWND {
+		_, _, _ = procReleaseCapture.Call()
+	}
 
 	if s.chromium != nil {
 		s.chromium.ShuttingDown()
@@ -917,8 +1055,11 @@ func (s *windowsPaneState) dispose() error {
 		if environment != nil {
 			releaseCOMObject(unsafe.Pointer(environment))
 		}
-		clearChromiumHandles(s.chromium)
 		s.chromium = nil
+	}
+	if s.compositionHost != nil {
+		s.compositionHost.release()
+		s.compositionHost = nil
 	}
 	if s.hostHWND != 0 {
 		clearBrowserPaneHostBackground(s.hostHWND)
@@ -958,11 +1099,22 @@ func registerBrowserPaneClass() error {
 
 func browserPaneWindowProc(hwnd uintptr, msg uint32, wParam uintptr, lParam uintptr) uintptr {
 	switch msg {
+	case wmSetCursor:
+		if state := browserPaneStateForHWND(hwnd); state != nil && state.handleCompositionCursor(lParam) {
+			return 1
+		}
+	case wmMouseMove, wmLButtonDown, wmLButtonUp, wmLButtonDblClk, wmRButtonDown, wmRButtonUp, wmRButtonDblClk,
+		wmMButtonDown, wmMButtonUp, wmMButtonDblClk, wmXButtonDown, wmXButtonUp, wmXButtonDblClk, wmMouseWheel,
+		wmMouseHWheel, wmMouseLeave:
+		if state := browserPaneStateForHWND(hwnd); state != nil && state.handleCompositionMouse(msg, wParam, lParam) {
+			return 0
+		}
 	case wmEraseBkgnd:
 		if paintBrowserPaneBackground(hwnd, wParam) {
 			return 1
 		}
 	case wmNCDestroy:
+		browserPaneStates.Delete(hwnd)
 		clearBrowserPaneHostBackground(hwnd)
 	}
 	result, _, _ := procDefWindowProcW.Call(hwnd, uintptr(msg), wParam, lParam)
@@ -1400,18 +1552,11 @@ func chromiumHandles(chromium *edge.Chromium) (*edge.ICoreWebView2Controller, *e
 	if chromium == nil {
 		return nil, nil, nil
 	}
-	raw := (*rawChromium)(unsafe.Pointer(chromium))
-	return raw.Controller, raw.WebView, raw.Environment
+	return chromium.GetController(), chromium.GetWebView(), chromium.Environment()
 }
 
 func clearChromiumHandles(chromium *edge.Chromium) {
-	if chromium == nil {
-		return
-	}
-	raw := (*rawChromium)(unsafe.Pointer(chromium))
-	raw.Controller = nil
-	raw.WebView = nil
-	raw.Environment = nil
+	_ = chromium
 }
 
 func closeWebView2Controller(controller *edge.ICoreWebView2Controller) error {
@@ -1432,6 +1577,264 @@ func releaseCOMObject(object unsafe.Pointer) {
 	}
 	raw := (*rawWebView2Environment)(object)
 	raw.Vtbl.Release.Call(uintptr(object))
+}
+
+func createBrowserPaneCompositionHost(hostHWND uintptr) (*browserPaneCompositionHost, error) {
+	if hostHWND == 0 {
+		return nil, fmt.Errorf("invalid browser pane host window")
+	}
+	var device *rawDCompositionDevice
+	iid := edge.NewGUID("{C37EA93A-E7AA-450D-B16F-9746CB0407F3}")
+	hr, _, _ := procDCompositionCreateDevice.Call(
+		0,
+		uintptr(unsafe.Pointer(iid)),
+		uintptr(unsafe.Pointer(&device)),
+	)
+	if windows.Handle(hr) != windows.S_OK {
+		return nil, windows.Errno(hr)
+	}
+	host := &browserPaneCompositionHost{device: device}
+	defer func() {
+		if host != nil {
+			host.release()
+		}
+	}()
+
+	hr, _, _ = device.Vtbl.CreateTargetForHwnd.Call(
+		uintptr(unsafe.Pointer(device)),
+		hostHWND,
+		1,
+		uintptr(unsafe.Pointer(&host.target)),
+	)
+	if windows.Handle(hr) != windows.S_OK {
+		return nil, windows.Errno(hr)
+	}
+	hr, _, _ = device.Vtbl.CreateVisual.Call(
+		uintptr(unsafe.Pointer(device)),
+		uintptr(unsafe.Pointer(&host.rootVisual)),
+	)
+	if windows.Handle(hr) != windows.S_OK {
+		return nil, windows.Errno(hr)
+	}
+	hr, _, _ = device.Vtbl.CreateVisual.Call(
+		uintptr(unsafe.Pointer(device)),
+		uintptr(unsafe.Pointer(&host.webViewVisual)),
+	)
+	if windows.Handle(hr) != windows.S_OK {
+		return nil, windows.Errno(hr)
+	}
+	hr, _, _ = host.target.Vtbl.SetRoot.Call(
+		uintptr(unsafe.Pointer(host.target)),
+		uintptr(unsafe.Pointer(host.rootVisual)),
+	)
+	if windows.Handle(hr) != windows.S_OK {
+		return nil, windows.Errno(hr)
+	}
+	hr, _, _ = host.rootVisual.Vtbl.AddVisual.Call(
+		uintptr(unsafe.Pointer(host.rootVisual)),
+		uintptr(unsafe.Pointer(host.webViewVisual)),
+		1,
+		0,
+	)
+	if windows.Handle(hr) != windows.S_OK {
+		return nil, windows.Errno(hr)
+	}
+	if err := host.commit(); err != nil {
+		return nil, err
+	}
+
+	result := host
+	host = nil
+	return result, nil
+}
+
+func (h *browserPaneCompositionHost) commit() error {
+	if h == nil || h.device == nil {
+		return nil
+	}
+	hr, _, _ := h.device.Vtbl.Commit.Call(uintptr(unsafe.Pointer(h.device)))
+	if windows.Handle(hr) != windows.S_OK {
+		return windows.Errno(hr)
+	}
+	return nil
+}
+
+func (h *browserPaneCompositionHost) release() {
+	if h == nil {
+		return
+	}
+	if h.webViewVisual != nil {
+		releaseCOMObject(unsafe.Pointer(h.webViewVisual))
+		h.webViewVisual = nil
+	}
+	if h.rootVisual != nil {
+		releaseCOMObject(unsafe.Pointer(h.rootVisual))
+		h.rootVisual = nil
+	}
+	if h.target != nil {
+		releaseCOMObject(unsafe.Pointer(h.target))
+		h.target = nil
+	}
+	if h.device != nil {
+		releaseCOMObject(unsafe.Pointer(h.device))
+		h.device = nil
+	}
+}
+
+func browserPaneStateForHWND(hwnd uintptr) *windowsPaneState {
+	if hwnd == 0 {
+		return nil
+	}
+	value, ok := browserPaneStates.Load(hwnd)
+	if !ok {
+		return nil
+	}
+	state, _ := value.(*windowsPaneState)
+	return state
+}
+
+func (s *windowsPaneState) compositionController() *edge.ICoreWebView2CompositionController {
+	if s == nil || s.chromium == nil {
+		return nil
+	}
+	return s.chromium.GetCompositionController()
+}
+
+func (s *windowsPaneState) handleCompositionCursor(lParam uintptr) bool {
+	controller := s.compositionController()
+	if controller == nil || loword(uint32(lParam)) != htClient {
+		return false
+	}
+	cursor, err := controller.GetCursor()
+	if err != nil || cursor == 0 {
+		return false
+	}
+	_, _, _ = procSetCursor.Call(uintptr(cursor))
+	return true
+}
+
+func (s *windowsPaneState) handleCompositionMouse(message uint32, wParam uintptr, lParam uintptr) bool {
+	controller := s.compositionController()
+	if controller == nil {
+		return false
+	}
+	point, hasPoint := compositionPointForMessage(s.hostHWND, message, lParam)
+	inside := hasPoint && pointInsideClient(s.hostHWND, point)
+
+	if message == wmMouseMove {
+		if inside {
+			if !s.compositionTracking {
+				startTrackMouseLeave(s.hostHWND)
+				s.compositionTracking = true
+			}
+		} else if s.compositionTracking && !s.compositionCapturing {
+			s.compositionTracking = false
+			cancelTrackMouseLeave(s.hostHWND)
+			_ = controller.SendMouseInput(edge.COREWEBVIEW2_MOUSE_EVENT_KIND_LEAVE, 0, 0, edge.POINT{})
+			return false
+		}
+	}
+	if message == wmMouseLeave {
+		s.compositionTracking = false
+	}
+	if !inside && !s.compositionCapturing && message != wmMouseLeave {
+		return false
+	}
+	if isCompositionMouseDown(message) {
+		_, _, _ = procSetFocus.Call(s.hostHWND)
+		s.chromium.Focus()
+		if capture, _, _ := procGetCapture.Call(); capture != s.hostHWND {
+			_, _, _ = procSetCapture.Call(s.hostHWND)
+		}
+		s.compositionCapturing = true
+	}
+	if isCompositionMouseUp(message) {
+		if capture, _, _ := procGetCapture.Call(); capture == s.hostHWND {
+			_, _, _ = procReleaseCapture.Call()
+		}
+		s.compositionCapturing = false
+	}
+
+	virtualKeys := edge.COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS(uint32(wParam) & 0xffff)
+	mouseData := compositionMouseData(message, wParam)
+	compositionPoint := edge.POINT{}
+	if message != wmMouseLeave && hasPoint {
+		compositionPoint = edge.POINT{X: point.X, Y: point.Y}
+	}
+	if err := controller.SendMouseInput(edge.COREWEBVIEW2_MOUSE_EVENT_KIND(message), virtualKeys, mouseData, compositionPoint); err != nil {
+		log.Printf("[BrowserPane] Failed to forward mouse input to composition WebView2 host: %v", err)
+		return false
+	}
+	return true
+}
+
+func compositionPointForMessage(hwnd uintptr, message uint32, lParam uintptr) (point, bool) {
+	if message == wmMouseLeave {
+		return point{}, false
+	}
+	pt := point{X: int32(int16(lParam & 0xffff)), Y: int32(int16((lParam >> 16) & 0xffff))}
+	if message == wmMouseWheel || message == wmMouseHWheel {
+		_, _, _ = procScreenToClient.Call(hwnd, uintptr(unsafe.Pointer(&pt)))
+	}
+	return pt, true
+}
+
+func pointInsideClient(hwnd uintptr, pt point) bool {
+	client := rect{}
+	result, _, _ := procGetClientRect.Call(hwnd, uintptr(unsafe.Pointer(&client)))
+	if result == 0 {
+		return false
+	}
+	return pt.X >= client.Left && pt.Y >= client.Top && pt.X < client.Right && pt.Y < client.Bottom
+}
+
+func startTrackMouseLeave(hwnd uintptr) {
+	if hwnd == 0 {
+		return
+	}
+	track := trackMouseEvent{Size: uint32(unsafe.Sizeof(trackMouseEvent{})), Flags: tmeLeave, HWndTrack: hwnd}
+	_, _, _ = procTrackMouseEvent.Call(uintptr(unsafe.Pointer(&track)))
+}
+
+func cancelTrackMouseLeave(hwnd uintptr) {
+	if hwnd == 0 {
+		return
+	}
+	track := trackMouseEvent{Size: uint32(unsafe.Sizeof(trackMouseEvent{})), Flags: tmeLeave | tmeCancel, HWndTrack: hwnd}
+	_, _, _ = procTrackMouseEvent.Call(uintptr(unsafe.Pointer(&track)))
+}
+
+func compositionMouseData(message uint32, wParam uintptr) uint32 {
+	switch message {
+	case wmMouseWheel, wmMouseHWheel:
+		return uint32(int32(int16((wParam >> 16) & 0xffff)))
+	case wmXButtonDown, wmXButtonUp, wmXButtonDblClk:
+		return uint32((wParam >> 16) & 0xffff)
+	default:
+		return 0
+	}
+}
+
+func isCompositionMouseDown(message uint32) bool {
+	switch message {
+	case wmLButtonDown, wmLButtonDblClk, wmRButtonDown, wmRButtonDblClk, wmMButtonDown, wmMButtonDblClk, wmXButtonDown, wmXButtonDblClk:
+		return true
+	default:
+		return false
+	}
+}
+
+func isCompositionMouseUp(message uint32) bool {
+	switch message {
+	case wmLButtonUp, wmRButtonUp, wmMButtonUp, wmXButtonUp:
+		return true
+	default:
+		return false
+	}
+}
+
+func loword(value uint32) uint16 {
+	return uint16(value & 0xffff)
 }
 
 func (s *windowsPaneState) captureScreenshot() (string, error) {

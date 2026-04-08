@@ -71,7 +71,11 @@ type Chromium struct {
 	processFailed                    *ICoreWebView2ProcessFailedEventHandler
 
 	environment            *ICoreWebView2Environment
+	compositionController  *ICoreWebView2CompositionController
+	compositionCompleted   *iCoreWebView2CreateCoreWebView2CompositionControllerCompletedHandler
 	webview2RuntimeVersion string
+	UseComposition         bool
+	CompositionRootTarget  unsafe.Pointer
 
 	// Settings
 	Debug                 bool
@@ -126,6 +130,7 @@ func NewChromium() *Chromium {
 	e.navigationCompleted = newICoreWebView2NavigationCompletedEventHandler(e)
 	e.processFailed = newICoreWebView2ProcessFailedEventHandler(e)
 	e.containsFullScreenElementChanged = newICoreWebView2ContainsFullScreenElementChangedEventHandler(e)
+	e.compositionCompleted = newICoreWebView2CreateCoreWebView2CompositionControllerCompletedHandler(e)
 	/*
 		// Pinner seems to panic in some cases as reported on Discord, maybe during shutdown when GC detects pinned objects
 		// to be released that have not been unpinned.
@@ -327,6 +332,13 @@ func (e *Chromium) EnvironmentCompleted(res uintptr, env *ICoreWebView2Environme
 
 	env.vtbl.AddRef.Call(uintptr(unsafe.Pointer(env)))
 	e.environment = env
+	if e.UseComposition {
+		if err := e.createCompositionController(env); err == nil {
+			return 0
+		} else {
+			log.Printf("[WebView2] Composition controller unavailable, falling back to windowed hosting: %v\n", err)
+		}
+	}
 
 	err := env.CreateCoreWebView2Controller(e.hwnd, e.controllerCompleted)
 	if err != nil {
@@ -342,6 +354,47 @@ func (e *Chromium) CreateCoreWebView2ControllerCompleted(res uintptr, controller
 		atomic.StoreUintptr(&e.inited, 1)
 		return res
 	}
+	if controller == nil {
+		e.initErr = fmt.Errorf("error creating controller: WebView2 returned a nil controller")
+		e.errorCallback(e.initErr)
+		atomic.StoreUintptr(&e.inited, 1)
+		return 0
+	}
+
+	return e.completeControllerInitialization(controller)
+}
+
+func (e *Chromium) CreateCoreWebView2CompositionControllerCompleted(res uintptr, controller *ICoreWebView2CompositionController) uintptr {
+	if int32(res) < 0 {
+		e.initErr = fmt.Errorf("error creating composition controller with %08x: %s", res, syscall.Errno(res))
+		e.errorCallback(e.initErr)
+		atomic.StoreUintptr(&e.inited, 1)
+		return res
+	}
+	if controller == nil {
+		e.initErr = fmt.Errorf("error creating composition controller: WebView2 returned a nil controller")
+		e.errorCallback(e.initErr)
+		atomic.StoreUintptr(&e.inited, 1)
+		return 0
+	}
+	if e.CompositionRootTarget == nil {
+		e.initErr = fmt.Errorf("error creating composition controller: composition root visual target is nil")
+		e.errorCallback(e.initErr)
+		atomic.StoreUintptr(&e.inited, 1)
+		return 0
+	}
+	if err := controller.PutRootVisualTarget((*IUnknown)(e.CompositionRootTarget)); err != nil {
+		e.initErr = fmt.Errorf("error attaching composition controller to root target: %w", err)
+		e.errorCallback(e.initErr)
+		atomic.StoreUintptr(&e.inited, 1)
+		return 0
+	}
+
+	e.compositionController = controller
+	return e.completeControllerInitialization((*ICoreWebView2Controller)(unsafe.Pointer(controller)))
+}
+
+func (e *Chromium) completeControllerInitialization(controller *ICoreWebView2Controller) uintptr {
 	if controller == nil {
 		e.initErr = fmt.Errorf("error creating controller: WebView2 returned a nil controller")
 		e.errorCallback(e.initErr)
@@ -415,6 +468,16 @@ func (e *Chromium) CreateCoreWebView2ControllerCompleted(res uintptr, controller
 	atomic.StoreUintptr(&e.inited, 1)
 
 	return 0
+}
+
+func (e *Chromium) createCompositionController(env *ICoreWebView2Environment) error {
+	environment3 := env.GetICoreWebView2Environment3()
+	if environment3 == nil {
+		return fmt.Errorf("ICoreWebView2Environment3 unavailable")
+	}
+	defer environment3.Release()
+
+	return environment3.CreateCoreWebView2CompositionController(HWND(e.hwnd), e.compositionCompleted)
 }
 
 func (e *Chromium) ContainsFullScreenElementChanged(sender *ICoreWebView2, args *ICoreWebView2ContainsFullScreenElementChangedEventArgs) uintptr {
@@ -546,6 +609,14 @@ func (e *Chromium) AddWebResourceRequestedFilter(filter string, ctx COREWEBVIEW2
 
 func (e *Chromium) Environment() *ICoreWebView2Environment {
 	return e.environment
+}
+
+func (e *Chromium) GetWebView() *ICoreWebView2 {
+	return e.webview
+}
+
+func (e *Chromium) GetCompositionController() *ICoreWebView2CompositionController {
+	return e.compositionController
 }
 
 // AcceleratorKeyPressed is called when an accelerator key is pressed.

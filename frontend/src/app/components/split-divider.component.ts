@@ -45,7 +45,7 @@ import {
         width: 100%;
         height: 10px;
         margin: -4px 0;
-        cursor: row-resize;
+        cursor: url("data:image/svg+xml,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20width=%2730%27%20height=%2730%27%20viewBox=%270%200%2024%2024%27%3E%3Cg%20transform=%27rotate(90%2012%2012)%27%3E%3Cpath%20fill=%27white%27%20d=%27M11%202h2v20h-2zM6.29%207.29l-4%204a.996.996%200%200%200%200%201.41l4%204%201.41-1.41L4.41%2012%207.7%208.71%206.29%207.3ZM17.71%207.29%2016.3%208.7l3.29%203.29-3.29%203.29%201.41%201.41%204-4a.996.996%200%200%200%200-1.41l-4-4Z%27/%3E%3C/g%3E%3C/svg%3E") 15 15, row-resize;
         transition: top .16s cubic-bezier(.2,.7,.3,1);
     }
 
@@ -74,7 +74,8 @@ import {
 
     :host:hover .line,
     :host.hovering .line,
-    :host-context(body.divider-hover) .line {
+    :host-context(body.divider-hover-vertical).vertical .line,
+    :host-context(body.divider-hover-horizontal).horizontal .line {
         background: var(--vsc-border-bright, #5a5a5a);
         box-shadow:
           0 0 0 1px color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 55%, transparent),
@@ -82,7 +83,8 @@ import {
     }
 
     :host.dragging .line,
-    :host-context(body.divider-dragging) .line {
+    :host-context(body.divider-dragging-vertical).vertical .line,
+    :host-context(body.divider-dragging-horizontal).horizontal .line {
         background: var(--vsc-accent-blue, #007acc);
         box-shadow: 0 0 0 2px color-mix(in srgb, var(--vsc-accent-blue, #007acc) 20%, transparent);
     }
@@ -125,7 +127,8 @@ import {
     /* hover = slightly more visible but still subtle */
     :host:hover .handle,
     :host.hovering .handle,
-    :host-context(body.divider-hover) .handle {
+    :host-context(body.divider-hover-vertical).vertical .handle,
+    :host-context(body.divider-hover-horizontal).horizontal .handle {
         opacity: 0.7;
         background: var(--vsc-foreground, #cccccc);
         border-color: var(--vsc-border, #454545);
@@ -134,7 +137,8 @@ import {
 
     /* dragging = accent border, still grey fill */
     :host.dragging .handle,
-    :host-context(body.divider-dragging) .handle {
+    :host-context(body.divider-dragging-vertical).vertical .handle,
+    :host-context(body.divider-dragging-horizontal).horizontal .handle {
         opacity: 1;
         background: var(--vsc-foreground, #cccccc);
         border-color: var(--vsc-accent-blue, #007acc);
@@ -146,8 +150,10 @@ import {
     :host:hover .handle,
     :host.hovering .handle,
     :host.dragging .handle,
-    :host-context(body.divider-hover) .handle,
-    :host-context(body.divider-dragging) .handle {
+    :host-context(body.divider-hover-vertical).vertical .handle,
+    :host-context(body.divider-hover-horizontal).horizontal .handle,
+    :host-context(body.divider-dragging-vertical).vertical .handle,
+    :host-context(body.divider-dragging-horizontal).horizontal .handle {
         opacity: 1;
     }
 
@@ -276,6 +282,7 @@ export class SplitDividerComponent implements OnDestroy {
     @Output() positionChange = new EventEmitter<number>();
 
     @Input() orientation: 'vertical' | 'horizontal' = 'vertical';
+    @Input() resetPosition = 50;
 
     @Input() min = 20;
     @Input() max = 80;
@@ -464,8 +471,11 @@ export class SplitDividerComponent implements OnDestroy {
 
     private setBodyInteractionClass(className: string, active: boolean): void {
         const classList = document.body.classList;
-        const changed = active ? !classList.contains(className) : classList.contains(className);
+        const scopedClassName = `${className}-${this.orientation}`;
+        const changed = (active ? !classList.contains(className) : classList.contains(className))
+            || (active ? !classList.contains(scopedClassName) : classList.contains(scopedClassName));
         classList.toggle(className, active);
+        classList.toggle(scopedClassName, active);
         if (changed) {
             window.dispatchEvent(new CustomEvent('file-manager-divider-statechange'));
         }
@@ -475,8 +485,9 @@ export class SplitDividerComponent implements OnDestroy {
 
     @HostListener('dblclick')
     reset() {
-        this.position = 50;
-        this.positionChange.emit(50);
+        const resetPosition = this.clampPosition(this.resetPosition);
+        this.position = resetPosition;
+        this.positionChange.emit(resetPosition);
     }
 
     /* ---------------- SNAP ENGINE ---------------- */
@@ -521,6 +532,10 @@ export class SplitDividerComponent implements OnDestroy {
         // ease-out curve so center zone feels noticeably wider
         const eased = t * t;
         return this.SNAP_THRESHOLD_MAX - eased * (this.SNAP_THRESHOLD_MAX - this.SNAP_THRESHOLD_MIN);
+    }
+
+    private clampPosition(value: number): number {
+        return Math.max(this.min, Math.min(this.max, value));
     }
 
     /* ---------------- CLASS ---------------- */

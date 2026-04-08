@@ -23,6 +23,7 @@ import { FileViewTreeController, type FileViewTreeHost } from './file-view-tree.
 import { FileViewRuntimeController, type FileViewRuntimeHost } from './file-view-runtime.controller';
 import { FileViewSortController, type FileViewSortHost } from './file-view-sort.controller';
 import { NativeOverlayComponent } from './native-overlay.component';
+import { SplitDividerComponent } from './split-divider.component';
 
 export type ViewLayout = ViewMode;
 
@@ -36,16 +37,31 @@ export type ViewLayout = ViewMode;
     FileTreeComponent,
     FileDetailsComponent,
     NativeOverlayComponent,
+    SplitDividerComponent,
   ],
   template: `
     <div class="view-container">
-      <div class="view-browser" [class.view-browser--hidden]="!cachedShowBrowserPane">
+      <div
+        class="view-browser"
+        [class.view-browser--hidden]="!cachedShowBrowserPane"
+        [style.flexBasis.%]="browserPaneSplit">
         <app-native-overlay
           [surfaceId]="surfaceId"
           [url]="cachedBrowserPath"
           [active]="surfaceActive">
         </app-native-overlay>
       </div>
+
+      <app-split-divider
+        *ngIf="cachedShowBrowserPane"
+        orientation="horizontal"
+        [position]="browserPaneSplit"
+        [resetPosition]="defaultBrowserPaneSplit"
+        [min]="minBrowserPaneSplit"
+        [max]="maxBrowserPaneSplit"
+        [snapPoints]="browserPaneSnapPoints"
+        (positionChange)="onBrowserPaneSplitChange($event)">
+      </app-split-divider>
 
       <div class="view-content">
         <app-file-list
@@ -149,11 +165,11 @@ export type ViewLayout = ViewMode;
 
     .view-browser {
       display: flex;
-      flex: 0 0 42%;
+      flex: 0 0 auto;
+      flex-basis: 42%;
       min-height: 180px;
       min-width: 0;
       overflow: hidden;
-      border-bottom: 1px solid var(--vsc-border);
       background: var(--vsc-editor-background);
       position: relative;
       z-index: 0;
@@ -161,6 +177,11 @@ export type ViewLayout = ViewMode;
 
     .view-browser.view-browser--hidden {
       display: none;
+    }
+
+    app-split-divider {
+      display: block;
+      flex: 0 0 auto;
     }
 
     .view-content {
@@ -186,6 +207,11 @@ export type ViewLayout = ViewMode;
   `]
 })
 export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterViewInit {
+  readonly minBrowserPaneSplit = 20;
+  readonly maxBrowserPaneSplit = 72;
+  readonly defaultBrowserPaneSplit = 42;
+  readonly browserPaneSnapPoints = [25, 42, 60];
+
   @ViewChild('fileTree') treeComponent?: FileTreeComponent;
   @ViewChild(FileListComponent) listComponent?: FileListComponent;
   @ViewChild(FileGridComponent) gridComponent?: FileGridComponent;
@@ -193,6 +219,7 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
 
   cachedBrowserPath = '';
   cachedShowBrowserPane = false;
+  browserPaneSplit = this.defaultBrowserPaneSplit;
 
   @Input() surfaceId = '';
   @Input() surfaceActive = true;
@@ -228,6 +255,7 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
   private destroy$     = createSubject<void>();
   pendingDirectorySizePaths: ReadonlySet<string> = new Set<string>();
   private lastTreeRefreshPath: string | null = null;
+  private loadedBrowserPaneStorageKey: string | null = null;
   private readonly eventsController = new FileViewEventsController();
   private readonly interactionController = new FileViewInteractionController();
   private readonly lifecycleController = new FileViewLifecycleController();
@@ -389,6 +417,8 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
   }
 
   ngOnChanges(changes: SimpleChanges): void {
+    this.ensureBrowserPaneSplitLoaded();
+
     if (changes['currentPath'] || changes['browserPath'] || changes['surfaceActive']) {
       this.cachedBrowserPath = this.resolveSurfaceBrowserPath();
       this.cachedShowBrowserPane = this.isWebBrowserPath(this.cachedBrowserPath);
@@ -672,5 +702,60 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
 
   showBrowserPane(): boolean {
     return this.cachedShowBrowserPane;
+  }
+
+  onBrowserPaneSplitChange(position: number): void {
+    const next = this.clampBrowserPaneSplit(position);
+    if (next === this.browserPaneSplit) {
+      return;
+    }
+
+    this.browserPaneSplit = next;
+    this.persistBrowserPaneSplit();
+    this.cdr.markForCheck();
+  }
+
+  private ensureBrowserPaneSplitLoaded(): void {
+    const storageKey = this.getBrowserPaneStorageKey();
+    if (this.loadedBrowserPaneStorageKey === storageKey) {
+      return;
+    }
+
+    this.loadedBrowserPaneStorageKey = storageKey;
+    this.browserPaneSplit = this.readBrowserPaneSplit(storageKey);
+  }
+
+  private getBrowserPaneStorageKey(): string {
+    return `fileManager_browserPaneSplit:${this.paneId}`;
+  }
+
+  private readBrowserPaneSplit(storageKey: string): number {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (!raw) {
+        return this.defaultBrowserPaneSplit;
+      }
+
+      const parsed = Number.parseFloat(raw);
+      if (!Number.isFinite(parsed)) {
+        return this.defaultBrowserPaneSplit;
+      }
+
+      return this.clampBrowserPaneSplit(parsed);
+    } catch {
+      return this.defaultBrowserPaneSplit;
+    }
+  }
+
+  private persistBrowserPaneSplit(): void {
+    try {
+      localStorage.setItem(this.getBrowserPaneStorageKey(), this.browserPaneSplit.toString());
+    } catch {
+      // Ignore storage failures; the split still works for the current session.
+    }
+  }
+
+  private clampBrowserPaneSplit(value: number): number {
+    return Math.max(this.minBrowserPaneSplit, Math.min(this.maxBrowserPaneSplit, value));
   }
 }

@@ -3,7 +3,9 @@ package filesystem
 import (
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	contracts "wails-app/internal/contracts"
 	"wails-app/internal/webresourcecache"
@@ -101,10 +103,64 @@ func TestWebAliasListDirectoryUsesCachedBrowserResourcesForRegularPages(t *testi
 	}
 }
 
-func TestWebAliasGetFileInfoTreatsHTMLAsDirectory(t *testing.T) {
+func TestWebAliasListDirectoryShortCircuitsRegularWebsitePages(t *testing.T) {
+	var fullRequests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write([]byte("<html><body>docs</body></html>"))
+		if r.Header.Get("Range") != "" {
+			_, _ = w.Write([]byte(`<!doctype html><html><head><title>Gmail</title></head><body>mail</body></html>`))
+			return
+		}
+
+		fullRequests.Add(1)
+		time.Sleep(250 * time.Millisecond)
+		_, _ = w.Write([]byte(`<!doctype html><html><head><title>Gmail</title></head><body>mail</body></html>`))
+	}))
+	defer server.Close()
+
+	service := newWebAliasService()
+	started := time.Now()
+	listing, err := service.listDirectory(server.URL)
+	if err != nil {
+		t.Fatalf("listDirectory returned error: %v", err)
+	}
+
+	if len(listing.Entries) != 0 {
+		t.Fatalf("expected 0 entries for non-directory page, got %d", len(listing.Entries))
+	}
+	if fullRequests.Load() != 0 {
+		t.Fatalf("expected no full GET requests, got %d", fullRequests.Load())
+	}
+	if elapsed := time.Since(started); elapsed >= 200*time.Millisecond {
+		t.Fatalf("expected regular website probe to return quickly, took %v", elapsed)
+	}
+}
+
+func TestWebAliasGetFileInfoTreatsRegularHTMLAsFile(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(`<!doctype html><html><head><title>Docs</title></head><body>docs</body></html>`))
+	}))
+	defer server.Close()
+
+	service := newWebAliasService()
+	info, err := service.getFileInfo(server.URL + "/docs")
+	if err != nil {
+		t.Fatalf("getFileInfo returned error: %v", err)
+	}
+
+	if info.Type != contracts.FileTypeFile {
+		t.Fatalf("expected file type, got %q", info.Type)
+	}
+	if info.Path != server.URL+"/docs" {
+		t.Fatalf("unexpected info path: %q", info.Path)
+	}
+}
+
+func TestWebAliasGetFileInfoTreatsDirectoryListingHTMLAsDirectory(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(`<!doctype html><html><head><title>Index of /docs</title></head><body><h1>Index of /docs</h1></body></html>`))
 	}))
 	defer server.Close()
 
@@ -116,9 +172,6 @@ func TestWebAliasGetFileInfoTreatsHTMLAsDirectory(t *testing.T) {
 
 	if info.Type != contracts.FileTypeDirectory {
 		t.Fatalf("expected directory type, got %q", info.Type)
-	}
-	if info.Path != server.URL+"/docs" {
-		t.Fatalf("unexpected info path: %q", info.Path)
 	}
 }
 

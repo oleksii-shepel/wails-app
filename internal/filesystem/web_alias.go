@@ -126,6 +126,41 @@ func (s *webAliasService) listDirectory(path string) (*contracts.DirectoryListin
 		}, nil
 	}
 
+	if cached, ok := s.lookupMetadata(requestedPath); ok && cached.fileType == contracts.FileTypeFile {
+		entries := s.applyCachedMetadata(cachedWebResources(targetURL))
+		return &contracts.DirectoryListing{
+			Path:      requestedPath,
+			Entries:   entries,
+			TotalSize: sumFileSizes(entries),
+		}, nil
+	}
+
+	sample, headers, sampleSize, err := s.fetchSample(targetURL)
+	if err != nil {
+		return nil, err
+	}
+
+	contentType := normalizedMediaType(headers.Get("Content-Type"))
+	if contentType == "" {
+		contentType = contentprobe.ProbeBytes(sample).MimeType
+	}
+	modifiedAt := parseHTTPModified(headers.Get("Last-Modified"))
+
+	if fileType := inferWebAliasFileTypeFromSample(targetURL, contentType, sample); fileType == contracts.FileTypeFile {
+		s.rememberMetadata(requestedPath, webAliasMetadata{
+			size:       sampleSize,
+			mimeType:   contentType,
+			modifiedAt: modifiedAt,
+			fileType:   contracts.FileTypeFile,
+		})
+		entries := s.applyCachedMetadata(cachedWebResources(targetURL))
+		return &contracts.DirectoryListing{
+			Path:      requestedPath,
+			Entries:   entries,
+			TotalSize: sumFileSizes(entries),
+		}, nil
+	}
+
 	resp, err := s.request(http.MethodGet, targetURL, nil)
 	if err != nil {
 		return nil, err
@@ -149,6 +184,17 @@ func (s *webAliasService) listDirectory(path string) (*contracts.DirectoryListin
 		}
 		entries = s.applyCachedMetadata(entries)
 	}
+
+	resolvedType := contracts.FileTypeFile
+	if len(entries) > 0 {
+		resolvedType = contracts.FileTypeDirectory
+	}
+	s.rememberMetadata(requestedPath, webAliasMetadata{
+		size:       responseSize(resp, int64(len(body))),
+		mimeType:   normalizedMediaType(resp.Header.Get("Content-Type")),
+		modifiedAt: parseHTTPModified(resp.Header.Get("Last-Modified")),
+		fileType:   resolvedType,
+	})
 
 	return &contracts.DirectoryListing{
 		Path:      requestedPath,
@@ -183,6 +229,7 @@ func (s *webAliasService) getFileInfo(path string) (*contracts.FileInfo, error) 
 		contentType string
 		size        int64
 		modifiedAt  int64
+		sample      []byte
 	)
 
 	if cached, ok := s.lookupMetadata(requestedPath); ok {
@@ -192,7 +239,10 @@ func (s *webAliasService) getFileInfo(path string) (*contracts.FileInfo, error) 
 	}
 
 	if contentType == "" || size == 0 {
-		sample, headers, sampleSize, sampleErr := s.fetchSample(targetURL)
+		var headers http.Header
+		var sampleSize int64
+		var sampleErr error
+		sample, headers, sampleSize, sampleErr = s.fetchSample(targetURL)
 		if sampleErr == nil {
 			if contentType == "" {
 				contentType = normalizedMediaType(headers.Get("Content-Type"))
@@ -211,7 +261,7 @@ func (s *webAliasService) getFileInfo(path string) (*contracts.FileInfo, error) 
 
 	fileType := contracts.FileTypeFile
 	if contentType != "" && isHTMLMediaType(contentType) {
-		fileType = contracts.FileTypeDirectory
+		fileType = inferWebAliasFileTypeFromSample(targetURL, contentType, sample)
 	} else if parsed.RawQuery == "" && isLikelyWebPage(parsed) {
 		fileType = contracts.FileTypeDirectory
 	}
@@ -259,7 +309,7 @@ func (s *webAliasService) probeFile(path string) (*contracts.FileProbe, error) {
 
 	fileType := contracts.FileTypeFile
 	if probe.MimeType != "" && isHTMLMediaType(probe.MimeType) {
-		fileType = contracts.FileTypeDirectory
+		fileType = inferWebAliasFileTypeFromSample(targetURL, probe.MimeType, sample)
 	}
 	s.rememberMetadata(pathref.Normalize(path), webAliasMetadata{
 		size:       responseSize(&http.Response{Header: headers}, 0),
@@ -402,7 +452,8 @@ func (s *webAliasService) readFileRange(path string, offset int64, length int) (
 
 func (s *webAliasService) fetchSample(targetURL string) ([]byte, http.Header, int64, error) {
 	resp, err := s.request(http.MethodGet, targetURL, map[string]string{
-		"Range": fmt.Sprintf("bytes=0-%d", contentprobe.SampleLimit-1),
+		"Range":           fmt.Sprintf("bytes=0-%d", contentprobe.SampleLimit-1),
+		"Accept-Encoding": "identity",
 	})
 	if err != nil {
 		return nil, nil, 0, err
@@ -472,6 +523,66 @@ func normalizeWebAliasPath(path string) (string, bool, error) {
 	return parsed.String(), false, nil
 }
 
+func inferWebAliasFileTypeFromSample(targetURL string, contentType string, sample []byte) contracts.FileType {
+	if !isHTMLMediaType(contentType) {
+		return contracts.FileTypeFile
+	}
+
+	parsed, err := url.Parse(targetURL)
+	if err != nil {
+		return contracts.FileTypeFile
+	}
+
+	switch probeWebDirectoryListingSample(sample) {
+	case webDirectoryListingYes:
+		return contracts.FileTypeDirectory
+	case webDirectoryListingNo:
+		return contracts.FileTypeFile
+	default:
+		if parsed.RawQuery == "" && isLikelyWebPage(parsed) {
+			return contracts.FileTypeDirectory
+		}
+		return contracts.FileTypeFile
+	}
+}
+
+type webDirectoryListingProbe int
+
+const (
+	webDirectoryListingUnknown webDirectoryListingProbe = iota
+	webDirectoryListingYes
+	webDirectoryListingNo
+)
+
+func probeWebDirectoryListingSample(sample []byte) webDirectoryListingProbe {
+	if len(sample) == 0 {
+		return webDirectoryListingUnknown
+	}
+
+	doc, err := html.Parse(bytes.NewReader(sample))
+	if err != nil {
+		return webDirectoryListingUnknown
+	}
+
+	sawLabel := false
+	for _, tag := range []string{"title", "h1"} {
+		label := strings.ToLower(strings.TrimSpace(firstElementText(doc, tag)))
+		if label == "" {
+			continue
+		}
+		sawLabel = true
+		if isDirectoryListingLabel(label) {
+			return webDirectoryListingYes
+		}
+	}
+
+	if sawLabel {
+		return webDirectoryListingNo
+	}
+
+	return webDirectoryListingUnknown
+}
+
 func discoverWebEntries(pageURL string, body []byte) []contracts.FileInfo {
 	baseURL, err := url.Parse(pageURL)
 	if err != nil {
@@ -487,7 +598,7 @@ func discoverWebEntries(pageURL string, body []byte) []contracts.FileInfo {
 	}
 
 	resolvedBase := findHTMLBaseURL(doc, directoryListingBaseURL(baseURL))
-	currentURL := canonicalWebURL(baseURL)
+	currentURL := canonicalWebURL(directoryListingCurrentURL(baseURL))
 	entries := make(map[string]contracts.FileInfo)
 
 	var walk func(*html.Node)
@@ -533,11 +644,36 @@ func directoryListingBaseURL(baseURL *url.URL) *url.URL {
 	}
 
 	resolved := *baseURL
-	if resolved.Path == "" {
+	resolved.Path = strings.ReplaceAll(resolved.Path, "\\", "/")
+	name := strings.ToLower(vpath.Base(resolved.Path))
+	if name == "index.html" || name == "index.htm" {
+		resolved.Path = vpath.Dir(resolved.Path)
+	}
+	if resolved.Path == "." || resolved.Path == "/" || resolved.Path == "" {
 		resolved.Path = "/"
 	} else if !strings.HasSuffix(resolved.Path, "/") {
 		resolved.Path += "/"
 	}
+	return &resolved
+}
+
+func directoryListingCurrentURL(baseURL *url.URL) *url.URL {
+	if baseURL == nil {
+		return nil
+	}
+
+	resolved := *baseURL
+	resolved.Path = strings.ReplaceAll(resolved.Path, "\\", "/")
+	name := strings.ToLower(vpath.Base(resolved.Path))
+	if name == "index.html" || name == "index.htm" {
+		resolved.Path = vpath.Dir(resolved.Path)
+	}
+	if resolved.Path == "." || resolved.Path == "/" {
+		resolved.Path = ""
+	} else {
+		resolved.Path = strings.TrimRight(resolved.Path, "/")
+	}
+	resolved.RawPath = ""
 	return &resolved
 }
 

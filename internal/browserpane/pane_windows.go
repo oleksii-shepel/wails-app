@@ -23,90 +23,90 @@ import (
 )
 
 const (
-	wsChild        = 0x40000000
-	wsClipChildren = 0x02000000
-	wsClipSiblings = 0x04000000
-	offscreenX     = -32000
-	offscreenY     = -32000
-	swHide         = 0
-	swShow         = 5
-	swShowNA       = 8
-	swpNoActivate  = 0x0010
-	swpNoZOrder    = 0x0004
-	pmRemove       = 0x0001
-	gwOwner        = 4
-	htClient       = 1
-	tmeLeave       = 0x00000002
-	tmeCancel      = 0x80000000
-	wmEraseBkgnd   = 0x0014
-	wmSetCursor    = 0x0020
-	wmClose        = 0x0010
-	wmDestroy      = 0x0002
-	wmMouseMove    = 0x0200
-	wmLButtonDown  = 0x0201
-	wmLButtonUp    = 0x0202
+	wsChild         = 0x40000000
+	wsClipChildren  = 0x02000000
+	wsClipSiblings  = 0x04000000
+	offscreenX      = -32000
+	offscreenY      = -32000
+	swHide          = 0
+	swShow          = 5
+	swShowNA        = 8
+	swpNoActivate   = 0x0010
+	swpNoZOrder     = 0x0004
+	pmRemove        = 0x0001
+	gwOwner         = 4
+	htClient        = 1
+	tmeLeave        = 0x00000002
+	tmeCancel       = 0x80000000
+	wmEraseBkgnd    = 0x0014
+	wmSetCursor     = 0x0020
+	wmClose         = 0x0010
+	wmDestroy       = 0x0002
+	wmMouseMove     = 0x0200
+	wmLButtonDown   = 0x0201
+	wmLButtonUp     = 0x0202
 	wmLButtonDblClk = 0x0203
-	wmRButtonDown  = 0x0204
-	wmRButtonUp    = 0x0205
+	wmRButtonDown   = 0x0204
+	wmRButtonUp     = 0x0205
 	wmRButtonDblClk = 0x0206
-	wmMButtonDown  = 0x0207
-	wmMButtonUp    = 0x0208
+	wmMButtonDown   = 0x0207
+	wmMButtonUp     = 0x0208
 	wmMButtonDblClk = 0x0209
-	wmMouseWheel   = 0x020A
-	wmXButtonDown  = 0x020B
-	wmXButtonUp    = 0x020C
+	wmMouseWheel    = 0x020A
+	wmXButtonDown   = 0x020B
+	wmXButtonUp     = 0x020C
 	wmXButtonDblClk = 0x020D
-	wmMouseHWheel  = 0x020E
-	wmMouseLeave   = 0x02A3
-	wmNCDestroy    = 0x0082
+	wmMouseHWheel   = 0x020E
+	wmMouseLeave    = 0x02A3
+	wmNCDestroy     = 0x0082
 )
 
 var (
-	user32                 = windows.NewLazySystemDLL("user32.dll")
-	kernel32               = windows.NewLazySystemDLL("kernel32.dll")
-	gdi32                  = windows.NewLazySystemDLL("gdi32.dll")
-	dcomp                  = windows.NewLazySystemDLL("dcomp.dll")
-	procRegisterClassExW   = user32.NewProc("RegisterClassExW")
-	procCreateWindowExW    = user32.NewProc("CreateWindowExW")
-	procDefWindowProcW     = user32.NewProc("DefWindowProcW")
-	procDestroyWindow      = user32.NewProc("DestroyWindow")
-	procShowWindow         = user32.NewProc("ShowWindow")
-	procUpdateWindow       = user32.NewProc("UpdateWindow")
-	procInvalidateRect     = user32.NewProc("InvalidateRect")
-	procSetWindowPos       = user32.NewProc("SetWindowPos")
-	procPeekMessageW       = user32.NewProc("PeekMessageW")
-	procTranslateMessage   = user32.NewProc("TranslateMessage")
-	procDispatchMessageW   = user32.NewProc("DispatchMessageW")
-	procEnumThreadWindows  = user32.NewProc("EnumThreadWindows")
-	procEnumWindows        = user32.NewProc("EnumWindows")
-	procGetWindowThreadPID = user32.NewProc("GetWindowThreadProcessId")
-	procGetWindow          = user32.NewProc("GetWindow")
-	procIsWindowVisible    = user32.NewProc("IsWindowVisible")
-	procIsWindow           = user32.NewProc("IsWindow")
-	procGetCapture         = user32.NewProc("GetCapture")
-	procGetClientRect      = user32.NewProc("GetClientRect")
-	procClientToScreen     = user32.NewProc("ClientToScreen")
-	procScreenToClient     = user32.NewProc("ScreenToClient")
-	procPostMessageW       = user32.NewProc("PostMessageW")
-	procSetCapture         = user32.NewProc("SetCapture")
-	procReleaseCapture     = user32.NewProc("ReleaseCapture")
-	procSetCursor          = user32.NewProc("SetCursor")
-	procSetFocus           = user32.NewProc("SetFocus")
-	procTrackMouseEvent    = user32.NewProc("TrackMouseEvent")
-	procGetModuleHandleW   = kernel32.NewProc("GetModuleHandleW")
-	procGetCurrentThreadID = kernel32.NewProc("GetCurrentThreadId")
-	procCreateSolidBrush   = gdi32.NewProc("CreateSolidBrush")
-	procDeleteObject       = gdi32.NewProc("DeleteObject")
-	procFillRect           = user32.NewProc("FillRect")
+	user32                       = windows.NewLazySystemDLL("user32.dll")
+	kernel32                     = windows.NewLazySystemDLL("kernel32.dll")
+	gdi32                        = windows.NewLazySystemDLL("gdi32.dll")
+	dcomp                        = windows.NewLazySystemDLL("dcomp.dll")
+	procRegisterClassExW         = user32.NewProc("RegisterClassExW")
+	procCreateWindowExW          = user32.NewProc("CreateWindowExW")
+	procDefWindowProcW           = user32.NewProc("DefWindowProcW")
+	procDestroyWindow            = user32.NewProc("DestroyWindow")
+	procShowWindow               = user32.NewProc("ShowWindow")
+	procUpdateWindow             = user32.NewProc("UpdateWindow")
+	procInvalidateRect           = user32.NewProc("InvalidateRect")
+	procSetWindowPos             = user32.NewProc("SetWindowPos")
+	procPeekMessageW             = user32.NewProc("PeekMessageW")
+	procTranslateMessage         = user32.NewProc("TranslateMessage")
+	procDispatchMessageW         = user32.NewProc("DispatchMessageW")
+	procEnumThreadWindows        = user32.NewProc("EnumThreadWindows")
+	procEnumWindows              = user32.NewProc("EnumWindows")
+	procGetWindowThreadPID       = user32.NewProc("GetWindowThreadProcessId")
+	procGetWindow                = user32.NewProc("GetWindow")
+	procIsWindowVisible          = user32.NewProc("IsWindowVisible")
+	procIsWindow                 = user32.NewProc("IsWindow")
+	procGetCapture               = user32.NewProc("GetCapture")
+	procGetClientRect            = user32.NewProc("GetClientRect")
+	procClientToScreen           = user32.NewProc("ClientToScreen")
+	procScreenToClient           = user32.NewProc("ScreenToClient")
+	procPostMessageW             = user32.NewProc("PostMessageW")
+	procSetCapture               = user32.NewProc("SetCapture")
+	procReleaseCapture           = user32.NewProc("ReleaseCapture")
+	procSetCursor                = user32.NewProc("SetCursor")
+	procSetFocus                 = user32.NewProc("SetFocus")
+	procTrackMouseEvent          = user32.NewProc("TrackMouseEvent")
+	procGetModuleHandleW         = kernel32.NewProc("GetModuleHandleW")
+	procGetCurrentThreadID       = kernel32.NewProc("GetCurrentThreadId")
+	procCreateSolidBrush         = gdi32.NewProc("CreateSolidBrush")
+	procDeleteObject             = gdi32.NewProc("DeleteObject")
+	procFillRect                 = user32.NewProc("FillRect")
 	procDCompositionCreateDevice = dcomp.NewProc("DCompositionCreateDevice")
-	registerPaneClassOnce  sync.Once
-	registerPaneClassErr   error
-	mainWindowHandleOnce   sync.Once
-	mainWindowHandle       uintptr
-	mainWindowHandleErr    error
-	browserPaneHostColors  sync.Map
-	browserPaneStates      sync.Map
-	browserPaneWndProc     = windows.NewCallback(browserPaneWindowProc)
+	registerPaneClassOnce        sync.Once
+	registerPaneClassErr         error
+	mainWindowHandleOnce         sync.Once
+	mainWindowHandle             uintptr
+	mainWindowHandleErr          error
+	browserPaneHostColors        sync.Map
+	browserPaneStates            sync.Map
+	browserPaneWndProc           = windows.NewCallback(browserPaneWindowProc)
 )
 
 type point struct {
@@ -258,30 +258,30 @@ type rawWebView2Environment struct {
 
 type rawDCompositionDeviceVtbl struct {
 	rawIUnknownVTBL
-	Commit                  edge.ComProc
-	WaitForCommitCompletion edge.ComProc
-	GetFrameStatistics      edge.ComProc
-	CreateTargetForHwnd     edge.ComProc
-	CreateVisual            edge.ComProc
-	CreateSurface           edge.ComProc
-	CreateVirtualSurface    edge.ComProc
-	CreateSurfaceFromHandle edge.ComProc
-	CreateSurfaceFromHwnd   edge.ComProc
-	CreateTranslateTransform edge.ComProc
-	CreateScaleTransform    edge.ComProc
-	CreateRotateTransform   edge.ComProc
-	CreateSkewTransform     edge.ComProc
-	CreateMatrixTransform   edge.ComProc
-	CreateTransformGroup    edge.ComProc
+	Commit                     edge.ComProc
+	WaitForCommitCompletion    edge.ComProc
+	GetFrameStatistics         edge.ComProc
+	CreateTargetForHwnd        edge.ComProc
+	CreateVisual               edge.ComProc
+	CreateSurface              edge.ComProc
+	CreateVirtualSurface       edge.ComProc
+	CreateSurfaceFromHandle    edge.ComProc
+	CreateSurfaceFromHwnd      edge.ComProc
+	CreateTranslateTransform   edge.ComProc
+	CreateScaleTransform       edge.ComProc
+	CreateRotateTransform      edge.ComProc
+	CreateSkewTransform        edge.ComProc
+	CreateMatrixTransform      edge.ComProc
+	CreateTransformGroup       edge.ComProc
 	CreateTranslateTransform3D edge.ComProc
-	CreateScaleTransform3D  edge.ComProc
-	CreateRotateTransform3D edge.ComProc
-	CreateMatrixTransform3D edge.ComProc
-	CreateTransform3DGroup  edge.ComProc
-	CreateEffectGroup       edge.ComProc
-	CreateRectangleClip     edge.ComProc
-	CreateAnimation         edge.ComProc
-	CheckDeviceState        edge.ComProc
+	CreateScaleTransform3D     edge.ComProc
+	CreateRotateTransform3D    edge.ComProc
+	CreateMatrixTransform3D    edge.ComProc
+	CreateTransform3DGroup     edge.ComProc
+	CreateEffectGroup          edge.ComProc
+	CreateRectangleClip        edge.ComProc
+	CreateAnimation            edge.ComProc
+	CheckDeviceState           edge.ComProc
 }
 
 type rawDCompositionDevice struct {
@@ -299,23 +299,23 @@ type rawDCompositionTarget struct {
 
 type rawDCompositionVisualVtbl struct {
 	rawIUnknownVTBL
-	SetOffsetXFloat             edge.ComProc
-	SetOffsetXAnimation         edge.ComProc
-	SetOffsetYFloat             edge.ComProc
-	SetOffsetYAnimation         edge.ComProc
-	SetTransformMatrix          edge.ComProc
-	SetTransformObject          edge.ComProc
-	SetTransformParent          edge.ComProc
-	SetEffect                   edge.ComProc
-	SetBitmapInterpolationMode  edge.ComProc
-	SetBorderMode               edge.ComProc
-	SetClipRect                 edge.ComProc
-	SetClipObject               edge.ComProc
-	SetContent                  edge.ComProc
-	AddVisual                   edge.ComProc
-	RemoveVisual                edge.ComProc
-	RemoveAllVisuals            edge.ComProc
-	SetCompositeMode            edge.ComProc
+	SetOffsetXFloat            edge.ComProc
+	SetOffsetXAnimation        edge.ComProc
+	SetOffsetYFloat            edge.ComProc
+	SetOffsetYAnimation        edge.ComProc
+	SetTransformMatrix         edge.ComProc
+	SetTransformObject         edge.ComProc
+	SetTransformParent         edge.ComProc
+	SetEffect                  edge.ComProc
+	SetBitmapInterpolationMode edge.ComProc
+	SetBorderMode              edge.ComProc
+	SetClipRect                edge.ComProc
+	SetClipObject              edge.ComProc
+	SetContent                 edge.ComProc
+	AddVisual                  edge.ComProc
+	RemoveVisual               edge.ComProc
+	RemoveAllVisuals           edge.ComProc
+	SetCompositeMode           edge.ComProc
 }
 
 type rawDCompositionVisual struct {
@@ -323,9 +323,9 @@ type rawDCompositionVisual struct {
 }
 
 type browserPaneCompositionHost struct {
-	device       *rawDCompositionDevice
-	target       *rawDCompositionTarget
-	rootVisual   *rawDCompositionVisual
+	device        *rawDCompositionDevice
+	target        *rawDCompositionTarget
+	rootVisual    *rawDCompositionVisual
 	webViewVisual *rawDCompositionVisual
 }
 

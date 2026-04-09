@@ -70,8 +70,8 @@ export class ViewerRegistryService {
         // Native browser support
         if (ext === 'svg') return 50;
         if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'avif'].includes(ext)) return 50;
-        // Convertible formats (with ImageMagick on backend)
-        if (['psd', 'ai', 'eps', 'xcf', 'tiff', 'tif', 'dng', 'tga', 'icns', 'pnm', 'dds', 'xwd', 'scr', 'xpm', 'exr', 'heif', 'heic', 'jp2', 'j2k', 'age'].includes(ext)) return 40;
+        // Convertible formats (with libvips on backend)
+        if (['tiff', 'tif', 'exr', 'heif', 'heic', 'jp2', 'j2k', 'avif', 'jxl', 'fits', 'hdr', 'pfm'].includes(ext)) return 40;
         return 0;
       },
       load: async () => (await import('./builtins/image-viewer.component')).ImageViewerComponent,

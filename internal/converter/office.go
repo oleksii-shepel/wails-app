@@ -5,7 +5,6 @@ import (
 	oslib "os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -15,16 +14,13 @@ import (
 
 // OfficeService handles conversion of supported documents to PDF.
 type OfficeService struct {
-	sofficeExePath     string
-	calibreExePath     string
-	djvuLibreExePath   string
-	imagemagickExePath string
-	hasLibreOffice     bool
-	hasCalibre         bool
-	hasDjVuLibre       bool
-	hasImagemagick     bool
-	hasDjvuDecode      bool
-	detectOnce         sync.Once
+	sofficeExePath   string
+	mutoolExePath    string
+	djvuLibreExePath string
+	hasLibreOffice   bool
+	hasMuPDF         bool
+	hasDjVuLibre     bool
+	detectOnce       sync.Once
 }
 
 // NewOfficeService creates a new document converter service.
@@ -35,9 +31,8 @@ func NewOfficeService() *OfficeService {
 func (s *OfficeService) ensureDetected() {
 	s.detectOnce.Do(func() {
 		s.detectLibreOffice()
-		s.detectCalibre()
+		s.detectMuPDF()
 		s.detectDjVuLibre()
-		s.detectImagemagick()
 	})
 }
 
@@ -57,19 +52,19 @@ func (s *OfficeService) detectLibreOffice() {
 	}
 }
 
-func (s *OfficeService) detectCalibre() {
+func (s *OfficeService) detectMuPDF() {
 	possiblePaths := []string{
-		"ebook-convert",
-		"ebook-convert.exe",
-		`C:\Program Files\Calibre2\ebook-convert.exe`,
-		`C:\Program Files (x86)\Calibre2\ebook-convert.exe`,
-		"/usr/bin/ebook-convert",
-		"/usr/local/bin/ebook-convert",
-		"/Applications/calibre.app/Contents/MacOS/ebook-convert",
+		"mutool",
+		"mutool.exe",
+		`C:\Program Files\MuPDF\mutool.exe`,
+		`C:\Program Files (x86)\MuPDF\mutool.exe`,
+		"/usr/bin/mutool",
+		"/usr/local/bin/mutool",
+		"/Applications/MuPDF.app/Contents/MacOS/mutool",
 	}
 	if path, ok := findExecutable(possiblePaths); ok {
-		s.calibreExePath = path
-		s.hasCalibre = true
+		s.mutoolExePath = path
+		s.hasMuPDF = true
 	}
 }
 
@@ -80,62 +75,6 @@ func (s *OfficeService) detectDjVuLibre() {
 		s.djvuLibreExePath = path
 		s.hasDjVuLibre = true
 	}
-}
-
-func (s *OfficeService) detectImagemagick() {
-	possiblePaths := []string{"magick", "magick.exe"}
-	if runtime.GOOS != "windows" {
-		possiblePaths = append(possiblePaths, "convert")
-	}
-	possiblePaths = append(possiblePaths,
-		`C:\Program Files\ImageMagick-7.1.1-Q16-HDRI\magick.exe`,
-		`C:\Program Files\ImageMagick-7.1.1-Q16\magick.exe`,
-		"/usr/bin/magick",
-		"/usr/local/bin/magick",
-	)
-	if path, ok := findExecutable(possiblePaths); ok {
-		s.imagemagickExePath = path
-		s.hasImagemagick = true
-		s.hasDjvuDecode = s.detectImagemagickReadSupport("DJVU")
-	}
-}
-
-func (s *OfficeService) detectImagemagickReadSupport(format string) bool {
-	if !s.hasImagemagick || s.imagemagickExePath == "" {
-		return false
-	}
-
-	cmd := exec.Command(s.imagemagickExePath, "-list", "format")
-	hideWindow(cmd)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return false
-	}
-
-	return imagemagickFormatCanRead(string(output), format)
-}
-
-func imagemagickFormatCanRead(output string, format string) bool {
-	target := strings.ToUpper(strings.TrimSpace(format))
-	if target == "" {
-		return false
-	}
-
-	for _, line := range strings.Split(output, "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 3 {
-			continue
-		}
-
-		name := strings.TrimSuffix(strings.ToUpper(fields[0]), "*")
-		if name != target {
-			continue
-		}
-
-		return strings.Contains(fields[2], "r")
-	}
-
-	return false
 }
 
 func findExecutable(paths []string) (string, bool) {
@@ -170,7 +109,7 @@ func localDjVuLibrePaths(executableName string) []string {
 
 func (s *OfficeService) IsAvailable() bool {
 	s.ensureDetected()
-	return s.hasLibreOffice || s.hasCalibre || s.hasDjVuLibre || s.hasImagemagick
+	return s.hasLibreOffice || s.hasMuPDF || s.hasDjVuLibre
 }
 
 func (s *OfficeService) IsAvailableForFormat(ext string) bool {
@@ -179,9 +118,9 @@ func (s *OfficeService) IsAvailableForFormat(ext string) bool {
 	case documentFormatOffice:
 		return s.hasLibreOffice
 	case documentFormatEpub:
-		return s.hasCalibre
+		return s.hasMuPDF
 	case documentFormatDjvu:
-		return s.hasDjVuLibre || (s.hasImagemagick && s.hasDjvuDecode)
+		return s.hasDjVuLibre
 	default:
 		return false
 	}
@@ -219,25 +158,20 @@ Install LibreOffice:
 • macOS: brew install libreoffice
 • Linux: sudo apt install libreoffice`
 	case documentFormatEpub:
-		return `Calibre is required for EPUB previews.
+		return `MuPDF is required for EPUB previews.
 
-Install Calibre:
-• Windows: https://calibre-ebook.com/download_windows
-• macOS: brew install --cask calibre
-• Linux: sudo -v ; wget -nv -O- https://download.calibre-ebook.com/linux-installer.sh | sh /dev/stdin`
+Install MuPDF:
+• Windows: https://mupdf.com/downloads/
+• macOS: brew install mupdf
+• Linux: sudo apt install mupdf-tools`
 	case documentFormatDjvu:
-		return `DjVuLibre or ImageMagick with readable DjVu support is required for DjVu previews.
+		return `DjVuLibre is required for DjVu previews.
 
 Recommended local install path: C:\Users\oleks\Desktop\file-manager\DjVuLibre
 
 Install DjVuLibre:
 • Windows: https://sourceforge.net/projects/djvu/files/latest/download
-• The converter looks for ddjvu.exe on PATH and in nearby DjVuLibre folders.
-
-Alternative: install ImageMagick with DjVu support:
-• Windows: https://imagemagick.org/script/download.php#windows
-• macOS: brew install imagemagick
-• Linux: sudo apt install imagemagick`
+• The converter looks for ddjvu.exe on PATH and in nearby DjVuLibre folders.`
 	default:
 		return "No converter is available for this format."
 	}
@@ -268,21 +202,15 @@ func (s *OfficeService) ConvertToPDF(inputPath string) (string, error) {
 		}
 		return s.convertWithLibreOffice(inputPath, jobDir)
 	case documentFormatEpub:
-		if !s.hasCalibre {
-			return "", fmt.Errorf("Calibre not found")
+		if !s.hasMuPDF {
+			return "", fmt.Errorf("MuPDF not found")
 		}
-		return s.convertWithCalibre(inputPath, outputPath)
+		return s.convertWithMuPDF(inputPath, outputPath)
 	case documentFormatDjvu:
-		if s.hasDjVuLibre {
-			return s.convertWithDjVuLibre(inputPath, outputPath)
+		if !s.hasDjVuLibre {
+			return "", fmt.Errorf("DjVuLibre not found")
 		}
-		if !s.hasImagemagick {
-			return "", fmt.Errorf("DjVuLibre and ImageMagick are both unavailable")
-		}
-		if !s.hasDjvuDecode {
-			return "", fmt.Errorf("DjVuLibre is unavailable and ImageMagick does not include readable DjVu support")
-		}
-		return s.convertWithImagemagick(inputPath, outputPath)
+		return s.convertWithDjVuLibre(inputPath, outputPath)
 	default:
 		return "", fmt.Errorf("unsupported document format: .%s", ext)
 	}
@@ -324,11 +252,11 @@ func (s *OfficeService) convertWithLibreOffice(inputPath, outputDir string) (str
 	return outputPath, nil
 }
 
-func (s *OfficeService) convertWithCalibre(inputPath, outputPath string) (string, error) {
-	cmd := exec.Command(s.calibreExePath, inputPath, outputPath)
+func (s *OfficeService) convertWithMuPDF(inputPath, outputPath string) (string, error) {
+	cmd := exec.Command(s.mutoolExePath, "convert", "-F", "pdf", "-o", outputPath, inputPath)
 	hideWindow(cmd)
 	if output, err := cmd.CombinedOutput(); err != nil {
-		return "", fmt.Errorf("Calibre conversion failed: %v%s", err, formatCommandOutput(output))
+		return "", fmt.Errorf("MuPDF conversion failed: %v%s", err, formatCommandOutput(output))
 	}
 	if _, err := oslib.Stat(outputPath); err != nil {
 		return "", fmt.Errorf("PDF output file not created: %w", err)
@@ -341,18 +269,6 @@ func (s *OfficeService) convertWithDjVuLibre(inputPath, outputPath string) (stri
 	hideWindow(cmd)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("DjVuLibre conversion failed: %v%s", err, formatCommandOutput(output))
-	}
-	if _, err := oslib.Stat(outputPath); err != nil {
-		return "", fmt.Errorf("PDF output file not created: %w", err)
-	}
-	return outputPath, nil
-}
-
-func (s *OfficeService) convertWithImagemagick(inputPath, outputPath string) (string, error) {
-	cmd := exec.Command(s.imagemagickExePath, inputPath, outputPath)
-	hideWindow(cmd)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return "", fmt.Errorf("ImageMagick conversion failed: %v%s", err, formatCommandOutput(output))
 	}
 	if _, err := oslib.Stat(outputPath); err != nil {
 		return "", fmt.Errorf("PDF output file not created: %w", err)

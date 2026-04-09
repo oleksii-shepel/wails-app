@@ -25,28 +25,20 @@ These formats are rendered directly by the browser without conversion:
 - TIFF
 
 ## Convertible Formats (with Backend Processing)
-The following formats are converted to PNG for preview via ImageMagick. **ImageMagick must be installed** for full support; without it, only basic formats can be used.
+The following formats are converted to PNG for preview via libvips. **libvips must be installed** for extended format support; without it, only basic formats can be used.
 
-### With ImageMagick Installed:
+### With libvips Installed:
 - JPEG 2000 (JP2, J2K)
-- PSD/PSB (Adobe Photoshop)
-- AI (Adobe Illustrator)
-- EPS (PostScript)
-- XCF (GIMP)
-- DNG (Digital Negative - RAW)
-- TGA/TARGA (Targa Image)
-- ICNS (Apple Icon Image)
-- PNM (Portable Bitmap)
-- DDS (DirectDraw Surface)
-- XWD (X Window Dump)
-- SCR (ZX-Spectrum Screen)
-- XPM (X Pixmap)
 - OpenEXR (EXR)
 - HEIF/HEIC (Apple High Efficiency)
-- AGE (various)
-- And many more format supported by ImageMagick
+- AVIF
+- TIFF
+- WebP
+- JPEG XL (JXL)
+- FITS / HDR / PFM
+- Exact coverage still depends on how the bundled libvips build was compiled
 
-### Without ImageMagick (Go Fallback):
+### Without libvips (Go Fallback):
 - PNG
 - JPEG
 - GIF
@@ -57,7 +49,7 @@ The following formats are converted to PNG for preview via ImageMagick. **ImageM
 The image viewer uses a two-tier approach:
 
 1. **Tier 1 (Native):** Browser directly renders supported formats
-2. **Tier 2 (Conversion):** For unsupported formats, backend converts to PNG via ImageMagick
+2. **Tier 2 (Conversion):** For unsupported formats, backend converts to PNG via libvips
 
 Converted previews are not sent through the Wails bridge as base64 payloads. They are served from the local preview stream as regular image URLs, which keeps transport overhead lower and lets the browser load them normally.
 
@@ -65,28 +57,28 @@ See [IMAGE_CONVERTER_PIPELINE.md](IMAGE_CONVERTER_PIPELINE.md) for detailed arch
 
 ## Installation
 
-To enable full format support, install ImageMagick:
+To enable full format support, install libvips:
 
 **Windows:**
 ```powershell
-choco install imagemagick
-# or download from https://imagemagick.org/script/download.php#windows
+choco install vips
+# or download a Windows build from https://www.libvips.org/
 ```
 
 **macOS:**
 ```bash
-brew install imagemagick
+brew install vips
 ```
 
 **Linux:**
 ```bash
-sudo apt-get install imagemagick
+sudo apt-get install libvips-tools
 ```
 
 ## Format Categories
 
 ### Original Supported
-PNG (including Apple CgBI), JPEG, JPEG 2000, PSD/PSB (Adobe Photoshop), AI (Adobe Illustrator), EPS, XCF (GIMP), GIF, SVG, TIFF, DNG, TARGA, ICO, ICNS (Apple Icon Image), BMP, PNM, DDS, XWD, SCR (ZX-Spectrum screen), XPM, WebP, OpenEXR, HEIF/HEIC, AVIF, AGE, and many more.
+PNG (including Apple CgBI), JPEG, GIF, SVG, TIFF, ICO, BMP, WebP, AVIF, HEIF/HEIC, JPEG 2000, OpenEXR, JPEG XL, FITS, HDR, PFM, and browser-native formats.
 
 ### Notes
 - Archive images (inside ZIP, RAR, etc.) cannot be converted yet

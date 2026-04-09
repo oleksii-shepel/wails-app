@@ -2,7 +2,7 @@
 
 ## Overview
 
-A backend image conversion service has been implemented to support preview of extended image formats beyond what browsers natively support. The system uses **ImageMagick** as the primary converter (when available) and falls back to Go's native image decoders for basic formats.
+A backend image conversion service has been implemented to support preview of extended image formats beyond what browsers natively support. The system uses **libvips** command-line tools (`vips` and `vipsthumbnail`) as the primary converter when available and falls back to Go's native image decoders for basic formats.
 
 ## Current State
 
@@ -23,12 +23,12 @@ The converted preview path now uses the existing local stream server. Earlier it
 - **GetAvailableConversionFormats()** - Returns list of supported output formats for a source
 
 **Conversion Strategy:**
-- Primary: Uses ImageMagick's `convert` or `magick` command (detected via PATH)
+- Primary: Uses libvips CLI tools (`vips` for conversions, `vipsthumbnail` for resized previews)
 - Fallback: Go's native image decoders for PNG, JPEG, GIF, BMP
 
 **Supported Source Formats:**
-- With ImageMagick: PSD/PSB, AI (Illustrator), EPS, XCF (GIMP), TIFF, DNG, TARGA, ICNS, PNM, DDS, XWD, SCR, XPM, OpenEXR, HEIF/HEIC, JPEG 2000, AGE, and more
-- Without ImageMagick (Go fallback): PNG, JPEG, GIF, BMP
+- With libvips: TIFF, WebP, AVIF, HEIF/HEIC, JPEG 2000, OpenEXR, JPEG XL, FITS, HDR, PFM, and other formats supported by the bundled libvips build
+- Without libvips (Go fallback): PNG, JPEG, GIF, BMP
 
 **Output Formats:**
 - PNG (recommended - lossless)
@@ -77,7 +77,7 @@ CanConvertImage(fileExt string) bool
 #### 2. Viewer Registry (`viewer-registry.service.ts`)
 - Extended image file scoring to include convertible formats
 - Score: 50 for native formats, 40 for convertible formats
-- Routes files like `.psd`, `.ai`, `.eps`, `.xcf` to image viewer
+- Routes convertible raster formats to the image viewer
 
 #### 3. API Service (`api.service.ts`)
 - Added `getConvertedImageURL()` helper
@@ -87,14 +87,14 @@ CanConvertImage(fileExt string) bool
 
 ### User Flow
 
-1. User opens a file preview for an image in unsupported format (e.g., `.psd`)
+1. User opens a file preview for an image in unsupported format (e.g., `.jp2`)
 2. Viewer registry recognizes it as convertible → routes to Image Viewer
 3. Image Viewer attempts to load → no direct MIME type available
 4. Component calls `window.go.app.App.CanConvertImage("psd")`
 5. If supported, calls `window.go.app.App.GetConvertedImageURL(path, "png")`
 6. Backend either:
-   - Uses ImageMagick to convert the image
-   - Falls back to Go decoder if ImageMagick unavailable
+   - Uses libvips to convert the image
+   - Falls back to Go decoder if libvips is unavailable and the source is natively decodable
 7. Streams the converted PNG bytes from `/wails-stream`
 8. Component displays the returned preview URL in `<img src="...">`
 
@@ -126,7 +126,7 @@ GET /wails-stream?path=...&convert=png
                          ┌─────▼──────────────┐
                          │ Converter Service  │
                          ├────────────────────┤
-                         │ ImageMagick        │
+                         │ libvips CLI        │
                          │ (or Go decoder)    │
                          └──────┬─────────────┘
                                 │
@@ -140,27 +140,27 @@ GET /wails-stream?path=...&convert=png
 ## Prerequisites
 
 ### For Full Format Support
-Install **ImageMagick**:
+Install **libvips**:
 
 **Windows (Chocolatey):**
 ```powershell
-choco install imagemagick
+choco install vips
 ```
 
 **Windows (Direct):**
-Download from https://imagemagick.org/script/download.php#windows
+Download from https://www.libvips.org/
 
 **macOS (Homebrew):**
 ```bash
-brew install imagemagick
+brew install vips
 ```
 
 **Linux (Ubuntu/Debian):**
 ```bash
-sudo apt-get install imagemagick
+sudo apt-get install libvips-tools
 ```
 
-**Note:** Without ImageMagick, only PNG, JPEG, GIF, and BMP conversions work (via Go).
+**Note:** Without libvips, only PNG, JPEG, GIF, and BMP conversions work (via Go).
 
 ## Testing
 
@@ -188,38 +188,37 @@ wails dev
 ### Manual Testing
 
 1. Place test images in different formats:
-   - `.psd` (Photoshop)
-   - `.ai` (Illustrator)
-   - `.eps` (PostScript)
-   - `.xcf` (GIMP)
    - `.jp2` (JPEG 2000)
+   - `.heic`
+   - `.avif`
+   - `.exr`
 
 2. Open image in file manager preview tab
 
 3. Observe:
    - Loading animation should appear
    - Image should convert and display
-   - Or error message if ImageMagick not installed
+   - Or error message if libvips not installed
 
 ### Browser DevTools
 
 Monitor in Console for conversion calls:
 ```javascript
 // Check if conversion is available
-await window.go.app.App.CanConvertImage("psd")
+await window.go.app.App.CanConvertImage("jp2")
 // Returns: true or false
 
 // Get converted preview URL
-await window.go.app.App.GetConvertedImageURL("C:/images/test.psd", "png")
+await window.go.app.App.GetConvertedImageURL("C:/images/test.jp2", "png")
 
 // Get capabilities
-await window.go.app.App.GetConversionCapabilities("psd")
-// Returns: {sourceFormat: "psd", supported: true, availableFormats: [...], ...}
+await window.go.app.App.GetConversionCapabilities("jp2")
+// Returns: {sourceFormat: "jp2", supported: true, availableFormats: [...], ...}
 ```
 
 ## Performance Notes
 
-- **First conversion:** May take 1-2 seconds (ImageMagick startup)
+- **First conversion:** May take 1-2 seconds (libvips process startup)
 - **Subsequent conversions:** Faster as process is reused
 - **Transport:** Converted previews are streamed over HTTP instead of sent through the Wails bridge
 - **Memory:** This avoids duplicating image payloads as base64 strings in JS memory
@@ -239,8 +238,8 @@ await window.go.app.App.GetConversionCapabilities("psd")
 
 ### Output Quality
 - PNG: Lossless, preserves quality
-- JPEG: Lossy, configurable quality
-- ImageMagick settings not currently configurable
+- JPEG: Lossy
+- libvips settings are not currently configurable from the UI
 
 ## Configuration Options (Future)
 
@@ -264,8 +263,8 @@ Common errors and resolutions:
 | Error | Cause | Solution |
 |-------|-------|----------|
 | `unsupported source format: .xyz` | Extension not recognized | Check if extension is in supported list |
-| `imagemagick conversion failed` | ImageMagick not installed or file corrupted | Install ImageMagick or try repair tool |
-| `failed to decode image` | Go decoder couldn't read format | Requires ImageMagick |
+| `libvips conversion failed` | libvips not installed or file corrupted | Install libvips or try another build |
+| `failed to decode image` | Go decoder couldn't read format | Requires libvips |
 | `conversion timeout` | Large file or slow system | Could implement timeout handling |
 
 ## Future Enhancements
@@ -294,6 +293,6 @@ Frontend:
 
 ## References
 
-- **ImageMagick Documentation:** https://imagemagick.org/
+- **libvips Documentation:** https://www.libvips.org/
 - **Go Image Package:** https://golang.org/pkg/image/
 - **Wails Go ↔ Frontend Binding:** https://wails.io/docs/guides/calling-go-from-frontend

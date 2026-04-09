@@ -628,7 +628,7 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
   private displayToken = 0;
 
   private readonly nativeImageExts = new Set(['svg', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'avif']);
-  private readonly convertibleImageExts = new Set(['psd', 'ai', 'eps', 'xcf', 'tiff', 'tif', 'dng', 'tga', 'icns', 'pnm', 'dds', 'xwd', 'scr', 'xpm', 'exr', 'heif', 'heic', 'jp2', 'j2k', 'age']);
+  private readonly convertibleImageExts = new Set(['tiff', 'tif', 'exr', 'heif', 'heic', 'jp2', 'j2k', 'jxl', 'fits', 'hdr', 'pfm']);
   private readonly thumbnailWidth = 160;
   private readonly thumbnailHeight = 120;
   private readonly thumbnailHydrationRadius = 4;

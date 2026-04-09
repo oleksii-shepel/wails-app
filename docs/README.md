@@ -68,11 +68,13 @@ tools/
 		ffmpeg.exe
 		ffprobe.exe
 		...runtime DLLs...
-	imagemagick/
-		magick.exe
-		...runtime DLLs / config...
-	calibre/
-		ebook-convert.exe
+	libvips/
+		vips.exe
+		vipsthumbnail.exe
+		libvips*.dll
+		...runtime DLLs / loaders...
+	mupdf/
+		mutool.exe
 		...runtime files...
 	libreoffice/
 		soffice.exe
@@ -84,7 +86,7 @@ tools/
 
 For packaged builds, `tools/` next to the executable is the intended delivery layout. The resolver checks the root directly and then each first-level subdirectory, so the executables can live either directly under `tools/` or inside per-tool folders.
 
-For portable delivery on Windows, copy each tool's full install/runtime directory, not just the `.exe`, because tools such as ImageMagick, Calibre, and LibreOffice depend on adjacent DLLs and support files.
+For portable delivery on Windows, copy each tool's full install/runtime directory, not just the `.exe`, because tools such as libvips, MuPDF, and LibreOffice depend on adjacent DLLs and support files.
 
 To refresh the bundled tool directory from the current machine, run [scripts/collect-portable-tools.ps1](scripts/collect-portable-tools.ps1).
 

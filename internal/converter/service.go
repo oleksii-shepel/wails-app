@@ -11,6 +11,7 @@ import (
 	"math"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -19,9 +20,11 @@ import (
 
 // Service handles image format conversion for preview.
 type Service struct {
-	imagemagickPath string
-	hasImagemagick  bool
-	detectOnce      sync.Once
+	vipsPath          string
+	vipsThumbnailPath string
+	hasVips           bool
+	hasVipsThumbnail  bool
+	detectOnce        sync.Once
 }
 
 // NewService creates a new image converter service.
@@ -29,18 +32,38 @@ func NewService() *Service {
 	return &Service{}
 }
 
-func (s *Service) detectImagemagick() {
-	// Try to locate ImageMagick's convert command
-	paths := []string{"magick", "convert"}
-	if path, ok := utility.ResolveExecutable(paths...); ok {
-		s.imagemagickPath = path
-		s.hasImagemagick = true
-		return
+func (s *Service) detectVips() {
+	vipsPaths := []string{
+		"vips",
+		"vips.exe",
+		`C:\Program Files\libvips\bin\vips.exe`,
+		`C:\Program Files\vips-dev-8.17\bin\vips.exe`,
+		`C:\vips-dev-8.17\bin\vips.exe`,
+		"/usr/bin/vips",
+		"/usr/local/bin/vips",
+	}
+	if path, ok := utility.ResolveExecutable(vipsPaths...); ok {
+		s.vipsPath = path
+		s.hasVips = true
+	}
+
+	thumbnailPaths := []string{
+		"vipsthumbnail",
+		"vipsthumbnail.exe",
+		`C:\Program Files\libvips\bin\vipsthumbnail.exe`,
+		`C:\Program Files\vips-dev-8.17\bin\vipsthumbnail.exe`,
+		`C:\vips-dev-8.17\bin\vipsthumbnail.exe`,
+		"/usr/bin/vipsthumbnail",
+		"/usr/local/bin/vipsthumbnail",
+	}
+	if path, ok := utility.ResolveExecutable(thumbnailPaths...); ok {
+		s.vipsThumbnailPath = path
+		s.hasVipsThumbnail = true
 	}
 }
 
 func (s *Service) ensureDetected() {
-	s.detectOnce.Do(s.detectImagemagick)
+	s.detectOnce.Do(s.detectVips)
 }
 
 // ConvertFormat converts image from one format to another.
@@ -53,10 +76,10 @@ func (s *Service) ConvertFormat(inputPath string, outputFormat string) ([]byte, 
 		return nil, fmt.Errorf("unsupported output format: %s", outputFormat)
 	}
 
-	// Try ImageMagick first (best compatibility)
+	// Try libvips first for broader format coverage.
 	s.ensureDetected()
-	if s.hasImagemagick {
-		return s.convertWithImagemagick(inputPath, outputFormat)
+	if s.hasVips {
+		return s.convertWithVips(inputPath, outputFormat)
 	}
 
 	// Fallback to Go native decoders for basic formats
@@ -73,45 +96,60 @@ func (s *Service) CreateThumbnail(inputPath string, outputFormat string, maxWidt
 	}
 
 	s.ensureDetected()
-	if s.hasImagemagick {
-		return s.thumbnailWithImagemagick(inputPath, outputFormat, maxWidth, maxHeight)
+	if s.hasVipsThumbnail {
+		return s.thumbnailWithVips(inputPath, outputFormat, maxWidth, maxHeight)
 	}
 
 	return s.thumbnailWithGoImage(inputPath, outputFormat, maxWidth, maxHeight)
 }
 
-// convertWithImagemagick uses ImageMagick to convert the image.
-func (s *Service) convertWithImagemagick(inputPath string, outputFormat string) ([]byte, error) {
-	cmd := exec.Command(s.imagemagickPath, inputPath, fmt.Sprintf("%s:-", outputFormat))
+func (s *Service) convertWithVips(inputPath string, outputFormat string) ([]byte, error) {
+	outputPath, cleanup, err := createConvertedOutputPath(outputFormat)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+
+	cmd := exec.Command(s.vipsPath, "copy", inputPath, outputPath)
 	hideWindow(cmd)
 
-	var out bytes.Buffer
 	var errOut bytes.Buffer
-	cmd.Stdout = &out
 	cmd.Stderr = &errOut
 
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("imagemagick conversion failed: %v - %s", err, errOut.String())
+		return nil, fmt.Errorf("libvips conversion failed: %v - %s", err, strings.TrimSpace(errOut.String()))
 	}
 
-	return out.Bytes(), nil
+	converted, err := os.ReadFile(outputPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read converted image: %w", err)
+	}
+	return converted, nil
 }
 
-func (s *Service) thumbnailWithImagemagick(inputPath string, outputFormat string, maxWidth int, maxHeight int) ([]byte, error) {
-	geometry := fmt.Sprintf("%dx%d>", maxWidth, maxHeight)
-	cmd := exec.Command(s.imagemagickPath, inputPath, "-auto-orient", "-thumbnail", geometry, fmt.Sprintf("%s:-", outputFormat))
+func (s *Service) thumbnailWithVips(inputPath string, outputFormat string, maxWidth int, maxHeight int) ([]byte, error) {
+	outputPath, cleanup, err := createConvertedOutputPath(outputFormat)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+
+	size := fmt.Sprintf("%dx%d", maxWidth, maxHeight)
+	cmd := exec.Command(s.vipsThumbnailPath, inputPath, "--size", size, "-o", outputPath)
 	hideWindow(cmd)
 
-	var out bytes.Buffer
 	var errOut bytes.Buffer
-	cmd.Stdout = &out
 	cmd.Stderr = &errOut
 
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("imagemagick thumbnail failed: %v - %s", err, errOut.String())
+		return nil, fmt.Errorf("libvips thumbnail failed: %v - %s", err, strings.TrimSpace(errOut.String()))
 	}
 
-	return out.Bytes(), nil
+	thumbnail, err := os.ReadFile(outputPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read converted thumbnail: %w", err)
+	}
+	return thumbnail, nil
 }
 
 // convertWithGoImage uses Go's native image decoders (PNG, JPEG, GIF).
@@ -136,7 +174,7 @@ func (s *Service) convertWithGoImage(inputPath string, outputFormat string) ([]b
 			return nil, fmt.Errorf("failed to encode PNG: %w", err)
 		}
 	default:
-		return nil, fmt.Errorf("go native conversion: unsupported format %s (install ImageMagick for broader format support)", outputFormat)
+		return nil, fmt.Errorf("go native conversion: unsupported format %s (install libvips for broader format support)", outputFormat)
 	}
 
 	return out.Bytes(), nil
@@ -163,7 +201,7 @@ func (s *Service) thumbnailWithGoImage(inputPath string, outputFormat string, ma
 			return nil, fmt.Errorf("failed to encode PNG: %w", err)
 		}
 	default:
-		return nil, fmt.Errorf("go native thumbnail: unsupported format %s (install ImageMagick for broader format support)", outputFormat)
+		return nil, fmt.Errorf("go native thumbnail: unsupported format %s (install libvips for broader format support)", outputFormat)
 	}
 
 	return out.Bytes(), nil
@@ -213,6 +251,29 @@ func resizeToFit(src image.Image, maxWidth int, maxHeight int) image.Image {
 	return dst
 }
 
+func createConvertedOutputPath(outputFormat string) (string, func(), error) {
+	dir, err := os.MkdirTemp("", "wails-image-converter-*")
+	if err != nil {
+		return "", func() {}, fmt.Errorf("failed to create temp output directory: %w", err)
+	}
+	outputPath := filepath.Join(dir, "output."+normalizeOutputExtension(outputFormat))
+	cleanup := func() {
+		_ = os.RemoveAll(dir)
+	}
+	return outputPath, cleanup, nil
+}
+
+func normalizeOutputExtension(format string) string {
+	switch strings.ToLower(strings.TrimSpace(format)) {
+	case "jpeg":
+		return "jpg"
+	case "tiff":
+		return "tif"
+	default:
+		return strings.ToLower(strings.TrimSpace(format))
+	}
+}
+
 // isSupportedOutputFormat checks if the format can be converted to.
 func isSupportedOutputFormat(format string) bool {
 	supported := map[string]bool{
@@ -246,32 +307,23 @@ func (s *Service) IsSupportedSourceFormat(extension string) bool {
 		return true
 	}
 
-	// Extended support with ImageMagick
+	// Extended support with libvips.
 	s.ensureDetected()
-	if s.hasImagemagick {
+	if s.hasVips {
 		extended := map[string]bool{
-			"psd":  true, // Photoshop
-			"ai":   true, // Illustrator
-			"eps":  true, // EPS
-			"xcf":  true, // GIMP
 			"webp": true,
 			"tiff": true,
 			"tif":  true,
-			"dng":  true, // RAW
-			"tga":  true, // TARGA
-			"icns": true, // Apple Icon
-			"pnm":  true, // Portable Bitmap
-			"dds":  true, // DirectDraw Surface
-			"xwd":  true, // X Window Dump
-			"scr":  true, // ZX-Spectrum
-			"xpm":  true, // X Pixmap
 			"exr":  true, // OpenEXR
 			"heif": true,
 			"heic": true,
 			"jp2":  true, // JPEG 2000
 			"j2k":  true, // JPEG 2000
 			"avif": true,
-			"age":  true,
+			"jxl":  true, // JPEG XL
+			"fits": true,
+			"hdr":  true,
+			"pfm":  true,
 		}
 		return extended[extension]
 	}
@@ -280,7 +332,7 @@ func (s *Service) IsSupportedSourceFormat(extension string) bool {
 }
 
 // GetAvailableConversionFormats returns the list of formats this source can be converted to.
-// Depends on ImageMagick availability.
+// Depends on libvips availability.
 func (s *Service) GetAvailableConversionFormats(sourceExt string) []string {
 	// Always available if we can convert at all
 	if s.IsSupportedSourceFormat(sourceExt) {

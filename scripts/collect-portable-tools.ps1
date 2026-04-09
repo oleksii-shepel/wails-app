@@ -12,17 +12,17 @@ $toolSpecs = @(
     )
   },
   @{
-    Name = 'imagemagick'
+    Name = 'libvips'
     Sources = @(
-      'C:\Program Files\ImageMagick-7.1.2-Q16-HDRI',
-      'C:\Program Files\ImageMagick-7.1.1-Q16-HDRI',
-      'C:\Program Files\ImageMagick-7.1.1-Q16'
+      'C:\Program Files\libvips\bin',
+      'C:\Program Files\vips-dev-8.17\bin',
+      'C:\vips-dev-8.17\bin'
     )
   },
   @{
-    Name = 'calibre'
+    Name = 'mupdf'
     Sources = @(
-      'C:\Program Files\Calibre2'
+      'C:\Program Files\MuPDF'
     )
   },
   @{

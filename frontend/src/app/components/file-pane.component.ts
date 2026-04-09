@@ -50,6 +50,7 @@ import { DirListStreamController } from '../surfaces/dir/dir-list-stream.control
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { DirectorySourceService } from '../services/directory-source.service';
 import { OperationService } from '../services/operation.service';
+import { RemoteConnectDialogService } from '../services/remote-connect-dialog.service';
 import type { SearchResultItem } from '../services/global-search.service';
 
 declare const window: any;
@@ -343,6 +344,10 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       applyFilter: () => thisRef.applyFilter(),
       emitPreviewTargetFromState: () => thisRef.stateRuntime.emitPreviewTargetFromState(),
       emitActiveTabChange: (tab: TabInfo) => thisRef.activeTabChange.emit(tab),
+      promptForS3Mount: async (alias: string) => {
+        const mount = await thisRef.remoteConnectDialog.openS3Dialog({ name: alias });
+        return mount?.publicPath ?? null;
+      },
       getSelectableEntries: () => thisRef.dirRuntime.getSelectableEntries(),
       getCursorEntries: () => thisRef.dirRuntime.getCursorEntries(),
       getOptimisticHiddenPaths: () => thisRef.getOptimisticHiddenPaths(),
@@ -683,6 +688,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     private pathHistoryService: PathHistoryService,
     private directorySource: DirectorySourceService,
     private confirmDialog: ConfirmDialogService,
+    private remoteConnectDialog: RemoteConnectDialogService,
     private operationService: OperationService,
     private zone: NgZone,
     private cdr: ChangeDetectorRef,

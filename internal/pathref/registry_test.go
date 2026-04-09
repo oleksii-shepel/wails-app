@@ -37,6 +37,41 @@ func TestToVFSKeepsS3AliasSegments(t *testing.T) {
 	}
 }
 
+func TestNormalizeKeepsAliasSchemes(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{name: "s3", path: "s3://minio-dev/photos/2026", want: "s3://minio-dev/photos/2026"},
+		{name: "smb", path: "smb://fileserver/share/docs", want: "smb://fileserver/share/docs"},
+		{name: "http", path: "https://example.com/assets/main.js", want: "https://example.com/assets/main.js"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := Normalize(tt.path)
+			if got != tt.want {
+				t.Fatalf("Normalize(alias) mismatch\nwant: %q\n got: %q", tt.want, got)
+			}
+		})
+	}
+}
+
+func TestToNativePathLeavesAliasesUntouched(t *testing.T) {
+	tests := []string{
+		"s3://minio-dev/photos/2026",
+		"smb://fileserver/share/docs",
+		"https://example.com/assets/main.js",
+	}
+
+	for _, input := range tests {
+		if got := ToNativePath(input); got != input {
+			t.Fatalf("ToNativePath(alias) should be unchanged\nwant: %q\n got: %q", input, got)
+		}
+	}
+}
+
 func TestParentKeepsHTTPAliasesNavigable(t *testing.T) {
 	got, ok := Parent("https://example.com/app/assets/main.js")
 	if !ok {

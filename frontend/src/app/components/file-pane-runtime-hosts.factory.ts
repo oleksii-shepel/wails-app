@@ -59,6 +59,7 @@ export interface FilePaneRuntimeHostsSource {
   applyFilter(): void;
   emitPreviewTargetFromState(): void;
   emitActiveTabChange(tab: TabInfo): void;
+  promptForS3Mount(alias: string): Promise<string | null>;
   getSelectableEntries(): FileInfo[];
   getCursorEntries(): FileInfo[];
   getOptimisticHiddenPaths(): string[];
@@ -107,6 +108,7 @@ export class FilePaneRuntimeHostsFactory {
       applyFilter: () => source.applyFilter(),
       emitPreviewTargetFromState: () => source.emitPreviewTargetFromState(),
       emitActiveTabChange: (tab: TabInfo) => source.emitActiveTabChange(tab),
+      promptForS3Mount: (alias: string) => source.promptForS3Mount(alias),
     };
   }
 

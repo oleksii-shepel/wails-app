@@ -34,6 +34,7 @@ export interface FilePaneNavigationHost {
   applyFilter(): void;
   emitPreviewTargetFromState(): void;
   emitActiveTabChange(tab: TabInfo): void;
+  promptForS3Mount(alias: string): Promise<string | null>;
 }
 
 export class FilePaneNavigationController {
@@ -151,10 +152,11 @@ export class FilePaneNavigationController {
   onPathChange(host: FilePaneNavigationHost, path: string): void {
     if (!path || samePath(path, host.currentPath)) return;
 
+    const previousPath = host.currentPath;
     host.currentPath = path;
     host.exitArchive();
     host.clearArchiveState();
-    void this.navigateToEnteredPath(host, path);
+    void this.navigateToEnteredPath(host, path, previousPath);
   }
 
   async onNavigateUp(host: FilePaneNavigationHost): Promise<void> {
@@ -187,9 +189,12 @@ export class FilePaneNavigationController {
     host.refreshTreeNode(host.currentPath);
   }
 
-  private async navigateToEnteredPath(host: FilePaneNavigationHost, path: string): Promise<void> {
-    const resolvedRemotePath = await this.resolveRemotePathForLoad(host, path);
+  private async navigateToEnteredPath(host: FilePaneNavigationHost, path: string, previousPath?: string): Promise<void> {
+    const resolvedRemotePath = await this.resolveRemotePathForLoad(host, path, { interactive: true });
     if (!resolvedRemotePath) {
+      if (previousPath) {
+        host.currentPath = previousPath;
+      }
       return;
     }
     if (!samePath(resolvedRemotePath, path)) {
@@ -244,8 +249,39 @@ export class FilePaneNavigationController {
     return pathIsStale ? platformRoot : savedPath;
   }
 
-  private async resolveRemotePathForLoad(host: FilePaneNavigationHost, path: string): Promise<string | null> {
-    void host;
-    return path;
+  private async resolveRemotePathForLoad(
+    host: FilePaneNavigationHost,
+    path: string,
+    options?: { interactive?: boolean },
+  ): Promise<string | null> {
+    const normalized = normalizePath(path);
+    const s3Match = /^s3:\/\/([^/]+)(?:\/(.*))?$/i.exec(normalized);
+    if (!s3Match) {
+      return path;
+    }
+
+    const aliasRoot = `s3://${s3Match[1]}`;
+
+    try {
+      const connections = await host.apiService.remoteListConnections();
+      const mounted = connections.some((mount) => mount.protocol === 's3' && samePath(mount.publicPath, aliasRoot));
+      if (mounted) {
+        return normalized;
+      }
+    } catch {
+      return normalized;
+    }
+
+    if (!options?.interactive || samePath(normalized, 's3://')) {
+      return normalized;
+    }
+
+    const mountedRoot = await host.promptForS3Mount(s3Match[1]);
+    if (!mountedRoot) {
+      return null;
+    }
+
+    const suffix = normalized.slice(aliasRoot.length).replace(/^\/+/, '');
+    return suffix ? `${mountedRoot}/${suffix}` : mountedRoot;
   }
 }

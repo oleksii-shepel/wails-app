@@ -13,6 +13,7 @@ import { RemoteConnectDialogService } from '../services/remote-connect-dialog.se
 
 interface RemoteConnectDialogRequest {
   resolve: (value: contracts.RemoteMount | null) => void;
+  initialName?: string;
 }
 
 interface RemoteConnectFormModel {
@@ -618,6 +619,9 @@ export class RemoteConnectDialogComponent {
       .subscribe((request) => {
         if (request) {
           this.form = this.createDefaultForm();
+          if (request.initialName) {
+            this.form.name = request.initialName;
+          }
           this.connections = [];
           this.errorMessage = '';
           this.isConnecting = false;

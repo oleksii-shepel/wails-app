@@ -20,19 +20,22 @@ type OSInfoResponse struct {
 type SchemeType string
 
 const (
-	SchemeFixed     SchemeType = "fixed"
-	SchemeRemovable SchemeType = "removable"
-	SchemeNetwork   SchemeType = "network"
-	SchemeCDROM     SchemeType = "cdrom"
-	SchemeRAMDisk   SchemeType = "ramdisk"
-	SchemeMemory    SchemeType = "memory"
-	SchemeRegistry  SchemeType = "registry"
-	SchemeSearch    SchemeType = "search"
-	SchemeHTTP      SchemeType = "http"
-	SchemeHTTPS     SchemeType = "https"
-	SchemeSMB       SchemeType = "smb"
-	SchemeS3        SchemeType = "s3"
-	SchemeUnknown   SchemeType = "unknown"
+	SchemeFixed         SchemeType = "fixed"
+	SchemeRemovable     SchemeType = "removable"
+	SchemeNetwork       SchemeType = "network"
+	SchemeCDROM         SchemeType = "cdrom"
+	SchemeRAMDisk       SchemeType = "ramdisk"
+	SchemeMemory        SchemeType = "memory"
+	SchemeRegistry      SchemeType = "registry"
+	SchemeSearch        SchemeType = "search"
+	SchemeHTTP          SchemeType = "http"
+	SchemeHTTPS         SchemeType = "https"
+	SchemeSMB           SchemeType = "smb"
+	SchemeS3            SchemeType = "s3"
+	SchemeCloudOneDrive SchemeType = "cloud-onedrive"
+	SchemeCloudGoogle   SchemeType = "cloud-google"
+	SchemeCloudDropbox  SchemeType = "cloud-dropbox"
+	SchemeUnknown       SchemeType = "unknown"
 )
 
 type DriveInfo struct {

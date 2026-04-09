@@ -9,7 +9,7 @@ import { DropdownTriggerDirective, DropdownMenuDirective } from '../directives/d
 
 import { ApiService } from '../services/api.service';
 import { DirectorySourceService } from '../services/directory-source.service';
-import { DirectoryListing, DriveInfo, SchemeType, FileInfo, FileType, SpecialFolder } from '../shared/protocol';
+import { DirectoryListing, DriveInfo, FileInfo, FileType, SpecialFolder } from '../shared/protocol';
 import { ArchiveService, ArchiveFrame, isArchive } from '../services/archive.service';
 import { parsePathWithArchives } from './address-bar.utils';
 import { EventsOn } from 'wailsjs/runtime';
@@ -901,7 +901,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   isCurrentRootSynthetic(): boolean {
     const drive = this.findCurrentRootEntry();
     if (!drive) return false;
-    return /^(memory|registry|search|http|https|smb|s3)$/.test(drive.schemeType);
+    return /^(memory|registry|search|http|https|smb|s3)$/.test(drive.schemeType) || drive.schemeType.startsWith('cloud-');
   }
 
   isCurrentRootPhysical(): boolean {
@@ -1093,91 +1093,11 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     if (target && !samePath(target, this.currentPath)) this.navigateTo(target);
   }
 
-  private async pathExists(path: string): Promise<boolean> {
-    try {
-      const info = await this.apiService.getFileInfo(path);
-      return info.type === FileType.DIRECTORY;
-    } catch {
-      return false;
-    }
-  }
-
-  private getHomeFolderPath(): string | null {
-    const home = this.specialFolders.find(f => f.name.toLowerCase() === 'home')?.path;
-    return home ? normalizePath(home) : null;
-  }
-
-  private async getCloudschemes(): Promise<DriveInfo[]> {
-    if (!this.specialFolders.length) {
-      await this.loadSpecialFolders();
-    }
-
-    const home = this.getHomeFolderPath();
-    if (!home) {
-      return [];
-    }
-
-    const providers: Array<{ name: string; schemeType: SchemeType; paths: string[] }> = [
-      {
-        name: 'OneDrive',
-        schemeType: 'cloud-onedrive',
-        paths: [
-          `${home}/OneDrive`,
-          `${home}/OneDrive - Personal`,
-        ],
-      },
-      {
-        name: 'Google Drive',
-        schemeType: 'cloud-google',
-        paths: [
-          `${home}/Google Drive`,
-          `${home}/My Drive`,
-          `${home}/Google Drive/My Drive`,
-        ],
-      },
-      {
-        name: 'Dropbox',
-        schemeType: 'cloud-dropbox',
-        paths: [
-          `${home}/Dropbox`,
-        ],
-      },
-    ];
-
-    const cloudschemes: DriveInfo[] = [];
-    for (const provider of providers) {
-      let foundPath: string | null = null;
-      for (const candidate of provider.paths.map(normalizePath)) {
-        if (await this.pathExists(candidate)) {
-          foundPath = candidate;
-          break;
-        }
-      }
-
-      if (!foundPath) {
-        continue;
-      }
-
-      cloudschemes.push({
-        name: provider.name,
-        path: foundPath,
-        schemeType: provider.schemeType,
-        totalSpace: 0,
-        freeSpace: 0,
-        fileSystem: 'Cloud',
-      });
-    }
-
-    return cloudschemes;
-  }
-
   async loadSchemes(): Promise<void> {
     this.schemesLoading = true;
     try { 
       const schemesList = await this.apiService.getDrives();
-      const systemschemes = schemesList?.schemes || [];
-      const cloudschemes = await this.getCloudschemes();
-      this.schemes = [...systemschemes, ...cloudschemes];
+      this.schemes = schemesList?.schemes || [];
     } catch {
       this.schemes = [];
     } finally { 

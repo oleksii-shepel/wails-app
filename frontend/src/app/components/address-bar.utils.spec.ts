@@ -14,6 +14,12 @@ describe('address-bar alias normalization', () => {
     expect(normalizePath('smb://fileserver/share/docs')).toBe('smb://fileserver/share/docs');
   });
 
+  it('keeps cloud aliases in alias form', () => {
+    expect(canonicalizePathReference('onedrive://Projects/2026')).toBe('onedrive://Projects/2026');
+    expect(normalizePath('gdrive://Shared/team')).toBe('gdrive://Shared/team');
+    expect(normalizePath('dropbox://Photos/raw')).toBe('dropbox://Photos/raw');
+  });
+
   it('keeps web aliases in alias form', () => {
     expect(canonicalizePathReference('https://example.com/assets/main.js')).toBe('https://example.com/assets/main.js');
     expect(normalizePath('https://example.com/assets/main.js')).toBe('https://example.com/assets/main.js');

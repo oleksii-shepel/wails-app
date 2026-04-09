@@ -46,6 +46,9 @@ func (s *Service) resolvePublicPath(path string) (string, error) {
 	if pathref.IsWeb(normalized) {
 		return normalized, nil
 	}
+	if resolved, ok := pathref.ResolveLocalCloudPath(normalized); ok {
+		return resolved, nil
+	}
 	if s.vfs != nil {
 		resolvedPath, err := s.vfs.ResolvePublicPath(normalized)
 		if err != nil {
@@ -84,6 +87,7 @@ func (s *Service) OpenFile(path string) error {
 }
 
 func (s *Service) ResolveLink(path string) (*ResolvedLink, error) {
+	normalized := pathref.Normalize(path)
 	resolvedPath, err := s.resolvePublicPath(path)
 	if err != nil {
 		return nil, err
@@ -92,7 +96,13 @@ func (s *Service) ResolveLink(path string) (*ResolvedLink, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &ResolvedLink{Target: s.toPublicPath(target), IsDir: isDir}, nil
+	publicTarget := s.toPublicPath(target)
+	if pathref.IsLocalCloud(normalized) {
+		if mapped, ok := pathref.LocalCloudAliasFromNativePath(target); ok {
+			publicTarget = mapped
+		}
+	}
+	return &ResolvedLink{Target: publicTarget, IsDir: isDir}, nil
 }
 
 func (s *Service) HandleFileDrop(x int, y int, paths []string) error {

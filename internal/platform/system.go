@@ -53,7 +53,7 @@ func getHomeDir() string {
 }
 
 func syntheticDrives() []contracts.DriveInfo {
-	return []contracts.DriveInfo{
+	drives := []contracts.DriveInfo{
 		{
 			Name:       "Memory",
 			Path:       pathref.MemoryScheme,
@@ -89,5 +89,28 @@ func syntheticDrives() []contracts.DriveInfo {
 			Path:       pathref.S3Scheme,
 			SchemeType: contracts.SchemeS3,
 		},
+	}
+
+	for _, provider := range pathref.AvailableLocalCloudProviders() {
+		drives = append(drives, contracts.DriveInfo{
+			Name:       provider.Name,
+			Path:       provider.Scheme,
+			SchemeType: cloudSchemeType(provider.Scheme),
+		})
+	}
+
+	return drives
+}
+
+func cloudSchemeType(scheme string) contracts.SchemeType {
+	switch scheme {
+	case pathref.OneDriveScheme:
+		return contracts.SchemeCloudOneDrive
+	case pathref.GDriveScheme:
+		return contracts.SchemeCloudGoogle
+	case pathref.DropboxScheme:
+		return contracts.SchemeCloudDropbox
+	default:
+		return contracts.SchemeUnknown
 	}
 }

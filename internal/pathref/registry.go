@@ -16,6 +16,9 @@ const (
 	HTTPSAliasScheme = "https://"
 	SMBScheme        = "smb://"
 	S3Scheme         = "s3://"
+	OneDriveScheme   = "onedrive://"
+	GDriveScheme     = "gdrive://"
+	DropboxScheme    = "dropbox://"
 	memoryVFSRoot    = "/memory"
 	registryVFSRoot  = "/registry"
 	smbVFSRoot       = "/remote/smb"
@@ -41,6 +44,9 @@ var aliasSpecs = []aliasSpec{
 	{scheme: HTTPAliasScheme},
 	{scheme: SMBScheme, vfsRoot: smbVFSRoot},
 	{scheme: S3Scheme, vfsRoot: s3VFSRoot},
+	{scheme: OneDriveScheme},
+	{scheme: GDriveScheme},
+	{scheme: DropboxScheme},
 }
 
 var registryHivePrefixes = []string{
@@ -154,6 +160,9 @@ func IsDrive(path string) bool {
 func ToNativePath(path string) string {
 	normalized := Normalize(path)
 	if !strings.HasPrefix(strings.ToLower(normalized), DriveScheme) {
+		if resolved, ok := ResolveLocalCloudPath(normalized); ok {
+			return resolved
+		}
 		return normalized
 	}
 	rest := normalized[len(DriveScheme):]

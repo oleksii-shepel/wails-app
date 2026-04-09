@@ -88,6 +88,9 @@ func (s *Service) resolvePublicPath(path string) (string, error) {
 	if s.handlesWebAliasPath(normalized) {
 		return normalized, nil
 	}
+	if resolved, ok := pathref.ResolveLocalCloudPath(normalized); ok {
+		return resolved, nil
+	}
 	nativePath := pathref.ToNativePath(normalized)
 	if s.memoryResolver == nil || !pathref.IsMemory(normalized) {
 		return nativePath, nil
@@ -111,6 +114,15 @@ func (s *Service) toPublicPath(path string) string {
 	return pathref.FromNativePath(s.memoryResolver.ToPublicPath(path))
 }
 
+func (s *Service) toRequestedPublicPath(path string, requestedPath string) string {
+	if pathref.IsLocalCloud(requestedPath) {
+		if mapped, ok := pathref.LocalCloudAliasFromNativePath(path); ok {
+			return mapped
+		}
+	}
+	return s.toPublicPath(path)
+}
+
 func (s *Service) mapFileInfo(info contracts.FileInfo) contracts.FileInfo {
 	info.Path = s.toPublicPath(info.Path)
 	if info.SearchBasePath != "" {
@@ -132,7 +144,19 @@ func (s *Service) mapListing(listing *contracts.DirectoryListing, requestedPath 
 		listing.Path = s.toPublicPath(listing.Path)
 	}
 	for index := range listing.Entries {
-		listing.Entries[index] = s.mapFileInfo(listing.Entries[index])
+		info := listing.Entries[index]
+		info.Path = s.toRequestedPublicPath(info.Path, requestedPath)
+		if info.SearchBasePath != "" {
+			if pathref.IsLocalCloud(requestedPath) {
+				info.SearchBasePath = pathref.Normalize(requestedPath)
+			} else {
+				info.SearchBasePath = s.toPublicPath(info.SearchBasePath)
+			}
+		}
+		if info.SearchParentPath != "" {
+			info.SearchParentPath = s.toRequestedPublicPath(info.SearchParentPath, requestedPath)
+		}
+		listing.Entries[index] = info
 	}
 	return listing
 }
@@ -170,13 +194,18 @@ func (s *Service) RealPath(path string) (string, error) {
 		return "", fmt.Errorf("empty path")
 	}
 
+	normalized := pathref.Normalize(path)
+	if resolved, ok := pathref.ResolveLocalCloudPath(normalized); ok {
+		return resolved, nil
+	}
+
 	if s.vfs == nil {
 		// No VFS available, return path as-is (shouldn't happen in normal usage)
 		return path, nil
 	}
 
 	// Delegate to VFS to handle scheme-to-real-path conversion
-	return s.vfs.ResolvePublicPath(path)
+	return s.vfs.ResolvePublicPath(normalized)
 }
 
 func (s *Service) handlesVFSPath(path string) bool {
@@ -821,7 +850,7 @@ func (s *Service) SearchFiles(path, pattern string, recursive bool) (*contracts.
 		return nil, fmt.Errorf("search not supported for remote paths")
 	}
 	var matches []contracts.FileInfo
-	basePath := filepath.ToSlash(path)
+	basePath := pathref.Normalize(path)
 	resolvedPath, err := s.resolvePublicPath(path)
 	if err != nil {
 		return nil, err
@@ -852,10 +881,10 @@ func (s *Service) SearchFiles(path, pattern string, recursive bool) (*contracts.
 			return nil
 		}
 		entry := BuildFileInfo(s.metadata, name, filepath.ToSlash(p), info)
-		entry.Path = s.toPublicPath(entry.Path)
+		entry.Path = s.toRequestedPublicPath(entry.Path, path)
 		entry.SearchBasePath = basePath
 		entry.SearchPattern = pattern
-		entry.SearchParentPath = s.toPublicPath(filepath.ToSlash(filepath.Dir(p)))
+		entry.SearchParentPath = s.toRequestedPublicPath(filepath.ToSlash(filepath.Dir(p)), path)
 		matches = append(matches, entry)
 		return nil
 	}

@@ -61,6 +61,7 @@ func (s *State) RemoteConnect(cfg contracts.RemoteConfig) (*contracts.RemoteMoun
 			AccessKeyID:     cfg.AccessKeyID,
 			SecretAccessKey: cfg.SecretAccessKey,
 			SessionToken:    cfg.SessionToken,
+			Anonymous:       cfg.Anonymous,
 			UsePathStyle:    cfg.UsePathStyle,
 			Insecure:        cfg.Insecure,
 		})

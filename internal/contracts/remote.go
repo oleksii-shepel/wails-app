@@ -31,6 +31,7 @@ type RemoteConfig struct {
 	AccessKeyID     string `json:"accessKeyId,omitempty"`
 	SecretAccessKey string `json:"secretAccessKey,omitempty"`
 	SessionToken    string `json:"sessionToken,omitempty"`
+	Anonymous       bool   `json:"anonymous,omitempty"`
 	UsePathStyle    bool   `json:"usePathStyle,omitempty"`
 	Insecure        bool   `json:"insecure,omitempty"`
 }

@@ -25,6 +25,7 @@ interface RemoteConnectFormModel {
   accessKeyId: string;
   secretAccessKey: string;
   sessionToken: string;
+  anonymous: boolean;
   usePathStyle: boolean;
   insecure: boolean;
 }
@@ -58,7 +59,7 @@ interface RemoteConnectFormModel {
             <section class="remote-connect-form-section">
               <div class="section-heading">
                 <h3>Connection</h3>
-                <span class="section-hint">Blank credentials use the default AWS credential chain.</span>
+                <span class="section-hint">Use anonymous mode for public buckets, or leave credentials blank to use the default AWS credential chain.</span>
               </div>
 
               <div class="remote-grid">
@@ -148,6 +149,10 @@ interface RemoteConnectFormModel {
               </div>
 
               <div class="toggle-row">
+                <label class="toggle-field">
+                  <input type="checkbox" [(ngModel)]="form.anonymous" (ngModelChange)="clearError()" />
+                  <span>Anonymous public bucket</span>
+                </label>
                 <label class="toggle-field">
                   <input type="checkbox" [(ngModel)]="form.usePathStyle" (ngModelChange)="clearError()" />
                   <span>Force path-style URLs</span>
@@ -687,6 +692,7 @@ export class RemoteConnectDialogComponent {
         accessKeyId: this.normalizeOptionalField(this.form.accessKeyId),
         secretAccessKey: this.normalizeOptionalField(this.form.secretAccessKey),
         sessionToken: this.normalizeOptionalField(this.form.sessionToken),
+        anonymous: this.form.anonymous,
         usePathStyle: this.form.usePathStyle,
         insecure: this.form.insecure,
       }));
@@ -746,6 +752,9 @@ export class RemoteConnectDialogComponent {
     if (hasAccessKey !== hasSecretKey) {
       return 'Access key ID and secret access key must be provided together.';
     }
+    if (this.form.anonymous && (hasAccessKey || hasSecretKey || this.form.sessionToken.trim().length > 0)) {
+      return 'Anonymous mode cannot be combined with access keys or a session token.';
+    }
 
     return null;
   }
@@ -765,6 +774,7 @@ export class RemoteConnectDialogComponent {
       accessKeyId: '',
       secretAccessKey: '',
       sessionToken: '',
+      anonymous: false,
       usePathStyle: false,
       insecure: false,
     };

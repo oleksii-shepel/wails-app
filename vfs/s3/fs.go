@@ -34,6 +34,7 @@ type Config struct {
 	AccessKeyID     string
 	SecretAccessKey string
 	SessionToken    string
+	Anonymous       bool
 	UsePathStyle    bool
 	Insecure        bool
 }
@@ -63,7 +64,9 @@ func New(ctx context.Context, cfg Config) (*FS, error) {
 		awsconfig.WithRegion(region),
 	}
 
-	if cfg.AccessKeyID != "" || cfg.SecretAccessKey != "" || cfg.SessionToken != "" {
+	if cfg.Anonymous {
+		loadOptions = append(loadOptions, awsconfig.WithCredentialsProvider(aws.AnonymousCredentials{}))
+	} else if cfg.AccessKeyID != "" || cfg.SecretAccessKey != "" || cfg.SessionToken != "" {
 		loadOptions = append(loadOptions,
 			awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
 				cfg.AccessKeyID,
@@ -92,7 +95,11 @@ func New(ctx context.Context, cfg Config) (*FS, error) {
 		o.UsePathStyle = cfg.UsePathStyle
 	})
 
-	if _, err := client.HeadBucket(ctx, &s3sdk.HeadBucketInput{Bucket: aws.String(bucket)}); err != nil {
+	if _, err := client.ListObjectsV2(ctx, &s3sdk.ListObjectsV2Input{
+		Bucket:  aws.String(bucket),
+		Prefix:  listProbePrefix(cleanPrefix(cfg.Prefix)),
+		MaxKeys: aws.Int32(1),
+	}); err != nil {
 		return nil, fmt.Errorf("s3: head bucket %s: %w", bucket, mapErr(err))
 	}
 
@@ -101,6 +108,13 @@ func New(ctx context.Context, cfg Config) (*FS, error) {
 		bucket: bucket,
 		prefix: cleanPrefix(cfg.Prefix),
 	}, nil
+}
+
+func listProbePrefix(prefix string) *string {
+	if prefix == "" {
+		return nil
+	}
+	return aws.String(prefix)
 }
 
 // Close releases idle HTTP connections held by the AWS client.

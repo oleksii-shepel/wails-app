@@ -35,7 +35,7 @@ Reasons:
 The redirect URI is created dynamically per authorization attempt and looks like:
 
 ```text
-http://127.0.0.1:<ephemeral-port>/oauth/callback
+http://localhost:<ephemeral-port>
 ```
 
 ## High-Level Flow
@@ -62,12 +62,15 @@ For each authorization attempt it creates:
 - a PKCE `code_verifier`
 - a PKCE `code_challenge`
 - a temporary localhost HTTP server on `127.0.0.1:0`
+- a temporary localhost HTTP server on `127.0.0.1:0`
 
 The returned `RemoteOAuthBeginResponse` contains:
 
 - `sessionId`
 - `authUrl`
 - `redirectUri`
+
+The listener still binds to loopback `127.0.0.1`, but the browser-facing redirect URI uses `localhost` so Microsoft desktop redirect registration can use a single `http://localhost` entry while ignoring the callback port.
 
 ### 3. Browser opens
 

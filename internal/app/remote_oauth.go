@@ -93,7 +93,7 @@ func (s *State) RemoteOAuthBegin(req contracts.RemoteOAuthBeginRequest) (*contra
 		return nil, fmt.Errorf("oauth: start callback listener: %w", err)
 	}
 
-	redirectURI := fmt.Sprintf("http://127.0.0.1:%d/oauth/callback", listener.Addr().(*net.TCPAddr).Port)
+	redirectURI := fmt.Sprintf("http://localhost:%d", listener.Addr().(*net.TCPAddr).Port)
 	session := &remoteOAuthSession{
 		id:           sessionID,
 		protocol:     protocol,
@@ -107,9 +107,11 @@ func (s *State) RemoteOAuthBegin(req contracts.RemoteOAuthBeginRequest) (*contra
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/oauth/callback", func(w http.ResponseWriter, r *http.Request) {
+	callbackHandler := func(w http.ResponseWriter, r *http.Request) {
 		s.handleRemoteOAuthCallback(session, w, r)
-	})
+	}
+	mux.HandleFunc("/", callbackHandler)
+	mux.HandleFunc("/oauth/callback", callbackHandler)
 	session.server = &http.Server{
 		Handler:           mux,
 		ReadHeaderTimeout: 15 * time.Second,

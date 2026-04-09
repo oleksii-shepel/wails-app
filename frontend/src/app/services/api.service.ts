@@ -224,6 +224,18 @@ export class ApiService {
     return response.folders || [];
   }
 
+  async remoteConnect(config: contracts.RemoteConfig): Promise<contracts.RemoteMount> {
+	    return castProtocol<contracts.RemoteMount>(await window.go.app.App.RemoteConnect(config));
+  }
+
+  async remoteDisconnect(mountPoint: string): Promise<void> {
+	    await window.go.app.App.RemoteDisconnect(mountPoint);
+  }
+
+  async remoteListConnections(): Promise<contracts.RemoteMount[]> {
+	    return castProtocol<contracts.RemoteMount[]>(await window.go.app.App.RemoteListConnections());
+  }
+
   // ============================================================================
   // File System Operations
   // ============================================================================

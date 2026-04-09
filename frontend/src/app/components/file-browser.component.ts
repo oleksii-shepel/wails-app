@@ -34,6 +34,7 @@ import { InputEngineService } from '../services/input-engine.service';
 import { TabInfo } from '../shared/protocol-enhanced';
 import type { InputBindingDefinition } from '../services/input-system.types';
 import { formatPathForDisplay } from './address-bar.utils';
+import { RemoteConnectDialogService } from '../services/remote-connect-dialog.service';
 
 @Component({
   selector: 'app-file-browser',
@@ -108,6 +109,7 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
     public theme: ThemeService,
     private archiveService: ArchiveService,
     private confirmDialog: ConfirmDialogService,
+    private remoteConnectDialog: RemoteConnectDialogService,
     private inputEngine: InputEngineService,
     private zone: NgZone,
     private cdr: ChangeDetectorRef,
@@ -359,6 +361,15 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
 
   async toggleElevation(): Promise<void> {
     await this.runtimeController.toggleElevation(this.runtimeHost);
+  }
+
+  async openS3MountDialog(): Promise<void> {
+    const mount = await this.remoteConnectDialog.openS3Dialog();
+    if (!mount) {
+      return;
+    }
+
+    this.getActivePane()?.onPathChange(mount.publicPath);
   }
 
   // ============================================================================

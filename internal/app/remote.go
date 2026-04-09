@@ -87,7 +87,7 @@ func (s *State) RemoteConnect(cfg contracts.RemoteConfig) (*contracts.RemoteMoun
 		Name:       displayName,
 		PublicPath: pathref.FromVFS(mountPath),
 		MountPoint: mountPath,
-		ReadOnly:   false,
+		ReadOnly:   cfg.Protocol == contracts.ProtocolS3,
 	}
 
 	s.remotesMu.Lock()

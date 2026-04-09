@@ -98,6 +98,15 @@ export const DIALOG_INPUT_CATALOG: DialogBindingCatalogEntry[] = [
     ],
   },
   {
+    context: dialogContext('dialog.remoteConnect', 'dialog', 955, 'S3-compatible remote connect dialog'),
+    bindings: [
+      keyBinding('dialog.remoteConnect.submit.enter', 'dialog.remoteConnect', 'dialog.remoteConnect.submit', 'enter', 'Submit remote connect dialog'),
+      keyBinding('dialog.remoteConnect.close.escape', 'dialog.remoteConnect', 'dialog.remoteConnect.close', 'escape', 'Close remote connect dialog'),
+      keyBinding('dialog.remoteConnect.focus.next', 'dialog.remoteConnect', 'dialog.remoteConnect.focusNext', 'tab', 'Move focus to next control'),
+      keyBinding('dialog.remoteConnect.focus.prev', 'dialog.remoteConnect', 'dialog.remoteConnect.focusPrev', 'tab', 'Move focus to previous control', ['shift']),
+    ],
+  },
+  {
     context: dialogContext('widget.filterInline', 'widget', 800, 'Inline viewer filter widget'),
     bindings: [
       keyBinding('widget.filterInline.close.escape', 'widget.filterInline', 'widget.filterInline.close', 'escape', 'Close filter widget'),

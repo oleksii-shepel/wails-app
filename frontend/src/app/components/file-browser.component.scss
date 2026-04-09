@@ -109,6 +109,15 @@
       color: var(--vsc-list-active-foreground);
       border-color: var(--vsc-accent-blue);
     }
+
+    &.btn-remote {
+      background: color-mix(in srgb, var(--vsc-button-background) 18%, var(--vsc-button-secondary));
+      border-color: color-mix(in srgb, var(--vsc-button-background) 30%, transparent);
+    }
+
+    &.btn-remote:hover {
+      background: color-mix(in srgb, var(--vsc-button-background) 28%, var(--vsc-button-secondary-hover));
+    }
   }
 }
 

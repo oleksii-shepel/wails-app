@@ -1058,6 +1058,7 @@ export namespace contracts {
 	    anonymous?: boolean;
 	    usePathStyle?: boolean;
 	    insecure?: boolean;
+	    accessToken?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new RemoteConfig(source);
@@ -1083,6 +1084,7 @@ export namespace contracts {
 	        this.anonymous = source["anonymous"];
 	        this.usePathStyle = source["usePathStyle"];
 	        this.insecure = source["insecure"];
+	        this.accessToken = source["accessToken"];
 	    }
 	}
 	export class RemoteMount {

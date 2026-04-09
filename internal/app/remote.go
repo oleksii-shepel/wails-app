@@ -10,6 +10,9 @@ import (
 	contracts "wails-app/internal/contracts"
 	"wails-app/internal/pathref"
 	vfslib "wails-app/vfs"
+	vfsdropbox "wails-app/vfs/dropbox"
+	vfsgdrive "wails-app/vfs/gdrive"
+	vfsonedrive "wails-app/vfs/onedrive"
 	vfss3 "wails-app/vfs/s3"
 	vfssmb "wails-app/vfs/smb"
 )
@@ -65,6 +68,18 @@ func (s *State) RemoteConnect(cfg contracts.RemoteConfig) (*contracts.RemoteMoun
 			UsePathStyle:    cfg.UsePathStyle,
 			Insecure:        cfg.Insecure,
 		})
+	case contracts.ProtocolGDrive:
+		remoteFS, err = vfsgdrive.New(ctx, vfsgdrive.Config{
+			AccessToken: cfg.AccessToken,
+		})
+	case contracts.ProtocolDropbox:
+		remoteFS, err = vfsdropbox.New(ctx, vfsdropbox.Config{
+			AccessToken: cfg.AccessToken,
+		})
+	case contracts.ProtocolOneDrive:
+		remoteFS, err = vfsonedrive.New(ctx, vfsonedrive.Config{
+			AccessToken: cfg.AccessToken,
+		})
 
 	default:
 		return nil, fmt.Errorf("unsupported protocol: %s", cfg.Protocol)
@@ -88,7 +103,10 @@ func (s *State) RemoteConnect(cfg contracts.RemoteConfig) (*contracts.RemoteMoun
 		Name:       displayName,
 		PublicPath: pathref.FromVFS(mountPath),
 		MountPoint: mountPath,
-		ReadOnly:   cfg.Protocol == contracts.ProtocolS3,
+		ReadOnly: cfg.Protocol == contracts.ProtocolS3 ||
+			cfg.Protocol == contracts.ProtocolGDrive ||
+			cfg.Protocol == contracts.ProtocolDropbox ||
+			cfg.Protocol == contracts.ProtocolOneDrive,
 	}
 
 	s.remotesMu.Lock()
@@ -143,6 +161,24 @@ func remoteMountPath(cfg contracts.RemoteConfig) string {
 			return ""
 		}
 		return fmt.Sprintf("/remote/s3/%s", name)
+	case contracts.ProtocolGDrive:
+		name := sanitizeRemoteMountSegment(cfg.Name)
+		if name == "" {
+			return ""
+		}
+		return fmt.Sprintf("/remote/gdrive/%s", name)
+	case contracts.ProtocolDropbox:
+		name := sanitizeRemoteMountSegment(cfg.Name)
+		if name == "" {
+			return ""
+		}
+		return fmt.Sprintf("/remote/dropbox/%s", name)
+	case contracts.ProtocolOneDrive:
+		name := sanitizeRemoteMountSegment(cfg.Name)
+		if name == "" {
+			return ""
+		}
+		return fmt.Sprintf("/remote/onedrive/%s", name)
 
 	}
 	return ""
@@ -162,6 +198,21 @@ func remoteDisplayName(cfg contracts.RemoteConfig) string {
 		if bucket != "" {
 			return fmt.Sprintf("s3://%s", bucket)
 		}
+	case contracts.ProtocolGDrive:
+		if name := strings.TrimSpace(cfg.Name); name != "" {
+			return name
+		}
+		return "Google Drive"
+	case contracts.ProtocolDropbox:
+		if name := strings.TrimSpace(cfg.Name); name != "" {
+			return name
+		}
+		return "Dropbox"
+	case contracts.ProtocolOneDrive:
+		if name := strings.TrimSpace(cfg.Name); name != "" {
+			return name
+		}
+		return "OneDrive"
 	}
 	return fmt.Sprintf("%s://%s", string(cfg.Protocol), remoteMountHost(cfg))
 }
@@ -174,6 +225,14 @@ func remoteMountHost(cfg contracts.RemoteConfig) string {
 		if name := strings.TrimSpace(cfg.Name); name != "" {
 			return name
 		}
+	}
+	switch cfg.Protocol {
+	case contracts.ProtocolGDrive:
+		return "googleapis.com"
+	case contracts.ProtocolDropbox:
+		return "api.dropboxapi.com"
+	case contracts.ProtocolOneDrive:
+		return "graph.microsoft.com"
 	}
 	return cfg.Host
 }

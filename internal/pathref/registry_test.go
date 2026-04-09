@@ -38,6 +38,27 @@ func TestToVFSKeepsS3AliasSegments(t *testing.T) {
 	}
 }
 
+func TestToVFSMountsCloudProviderAliases(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{name: "gdrive", path: "gdrive://team-drive/designs", want: "/remote/gdrive/team-drive/designs"},
+		{name: "dropbox", path: "dropbox://workspace/contracts", want: "/remote/dropbox/workspace/contracts"},
+		{name: "onedrive", path: "onedrive://personal/docs", want: "/remote/onedrive/personal/docs"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ToVFS(tt.path)
+			if got != tt.want {
+				t.Fatalf("ToVFS(cloud alias) mismatch\nwant: %q\n got: %q", tt.want, got)
+			}
+		})
+	}
+}
+
 func TestNormalizeKeepsAliasSchemes(t *testing.T) {
 	tests := []struct {
 		name string

@@ -5,6 +5,7 @@ import { contracts } from '../../../wailsjs/go/models';
 interface RemoteConnectDialogRequest {
   resolve: (value: contracts.RemoteMount | null) => void;
   initialName?: string;
+  initialProtocol?: string;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -13,14 +14,19 @@ export class RemoteConnectDialogService {
 
   private readonly queue: RemoteConnectDialogRequest[] = [];
 
-  openS3Dialog(options?: { name?: string }): Promise<contracts.RemoteMount | null> {
+  openDialog(options?: { name?: string; protocol?: string }): Promise<contracts.RemoteMount | null> {
     return new Promise<contracts.RemoteMount | null>((resolve) => {
       this.queue.push({
         resolve,
         initialName: options?.name?.trim() || undefined,
+        initialProtocol: options?.protocol?.trim() || undefined,
       });
       this.tryOpenNext();
     });
+  }
+
+  openS3Dialog(options?: { name?: string }): Promise<contracts.RemoteMount | null> {
+    return this.openDialog({ ...options, protocol: 's3' });
   }
 
   resolveActive(result: contracts.RemoteMount | null): void {

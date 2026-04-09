@@ -34,7 +34,7 @@ export interface FilePaneNavigationHost {
   applyFilter(): void;
   emitPreviewTargetFromState(): void;
   emitActiveTabChange(tab: TabInfo): void;
-  promptForS3Mount(alias: string): Promise<string | null>;
+  promptForRemoteMount(protocol: string, alias: string): Promise<string | null>;
 }
 
 export class FilePaneNavigationController {
@@ -255,16 +255,18 @@ export class FilePaneNavigationController {
     options?: { interactive?: boolean },
   ): Promise<string | null> {
     const normalized = normalizePath(path);
-    const s3Match = /^s3:\/\/([^/]+)(?:\/(.*))?$/i.exec(normalized);
-    if (!s3Match) {
+    const remoteMatch = /^(s3|gdrive|dropbox|onedrive):\/\/([^/]+)(?:\/(.*))?$/i.exec(normalized);
+    if (!remoteMatch) {
       return path;
     }
 
-    const aliasRoot = `s3://${s3Match[1]}`;
+    const protocol = remoteMatch[1].toLowerCase();
+    const alias = remoteMatch[2];
+    const aliasRoot = `${protocol}://${alias}`;
 
     try {
       const connections = await host.apiService.remoteListConnections();
-      const mounted = connections.some((mount) => mount.protocol === 's3' && samePath(mount.publicPath, aliasRoot));
+      const mounted = connections.some((mount) => mount.protocol === protocol && samePath(mount.publicPath, aliasRoot));
       if (mounted) {
         return normalized;
       }
@@ -272,13 +274,13 @@ export class FilePaneNavigationController {
       return normalized;
     }
 
-    if (!options?.interactive || samePath(normalized, 's3://')) {
+    if (!options?.interactive || samePath(normalized, `${protocol}://`)) {
       return normalized;
     }
 
-    const mountedRoot = await host.promptForS3Mount(s3Match[1]);
+    const mountedRoot = await host.promptForRemoteMount(protocol, alias);
     if (!mountedRoot) {
-      return null;
+      return protocol === 's3' ? null : normalized;
     }
 
     const suffix = normalized.slice(aliasRoot.length).replace(/^\/+/, '');

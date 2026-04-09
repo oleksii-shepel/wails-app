@@ -344,8 +344,8 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       applyFilter: () => thisRef.applyFilter(),
       emitPreviewTargetFromState: () => thisRef.stateRuntime.emitPreviewTargetFromState(),
       emitActiveTabChange: (tab: TabInfo) => thisRef.activeTabChange.emit(tab),
-      promptForS3Mount: async (alias: string) => {
-        const mount = await thisRef.remoteConnectDialog.openS3Dialog({ name: alias });
+      promptForRemoteMount: async (protocol: string, alias: string) => {
+        const mount = await thisRef.remoteConnectDialog.openDialog({ name: alias, protocol });
         return mount?.publicPath ?? null;
       },
       getSelectableEntries: () => thisRef.dirRuntime.getSelectableEntries(),

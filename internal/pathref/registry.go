@@ -23,6 +23,9 @@ const (
 	registryVFSRoot  = "/registry"
 	smbVFSRoot       = "/remote/smb"
 	s3VFSRoot        = "/remote/s3"
+	oneDriveVFSRoot  = "/remote/onedrive"
+	gDriveVFSRoot    = "/remote/gdrive"
+	dropboxVFSRoot   = "/remote/dropbox"
 )
 
 type aliasSpec struct {
@@ -44,9 +47,9 @@ var aliasSpecs = []aliasSpec{
 	{scheme: HTTPAliasScheme},
 	{scheme: SMBScheme, vfsRoot: smbVFSRoot},
 	{scheme: S3Scheme, vfsRoot: s3VFSRoot},
-	{scheme: OneDriveScheme},
-	{scheme: GDriveScheme},
-	{scheme: DropboxScheme},
+	{scheme: OneDriveScheme, vfsRoot: oneDriveVFSRoot},
+	{scheme: GDriveScheme, vfsRoot: gDriveVFSRoot},
+	{scheme: DropboxScheme, vfsRoot: dropboxVFSRoot},
 }
 
 var registryHivePrefixes = []string{

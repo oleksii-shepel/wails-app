@@ -4,8 +4,11 @@ package contracts
 type RemoteProtocol string
 
 const (
-	ProtocolSMB RemoteProtocol = "smb"
-	ProtocolS3  RemoteProtocol = "s3"
+	ProtocolSMB      RemoteProtocol = "smb"
+	ProtocolS3       RemoteProtocol = "s3"
+	ProtocolGDrive   RemoteProtocol = "gdrive"
+	ProtocolDropbox  RemoteProtocol = "dropbox"
+	ProtocolOneDrive RemoteProtocol = "onedrive"
 )
 
 // RemoteConfig describes how to connect to a remote server.
@@ -34,6 +37,9 @@ type RemoteConfig struct {
 	Anonymous       bool   `json:"anonymous,omitempty"`
 	UsePathStyle    bool   `json:"usePathStyle,omitempty"`
 	Insecure        bool   `json:"insecure,omitempty"`
+
+	// Token-based cloud API access.
+	AccessToken string `json:"accessToken,omitempty"`
 }
 
 // RemoteMount describes an active remote filesystem mount.

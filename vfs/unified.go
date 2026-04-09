@@ -46,11 +46,17 @@ const (
 	httpsScheme    = "https://"
 	smbScheme      = "smb://"
 	s3Scheme       = "s3://"
+	oneDriveScheme = "onedrive://"
+	gDriveScheme   = "gdrive://"
+	dropboxScheme  = "dropbox://"
 
 	registryVFSRoot = "/registry"
 	memoryVFSRoot   = "/memory"
 	smbVFSRoot      = "/remote/smb"
 	s3VFSRoot       = "/remote/s3"
+	oneDriveVFSRoot = "/remote/onedrive"
+	gDriveVFSRoot   = "/remote/gdrive"
+	dropboxVFSRoot  = "/remote/dropbox"
 )
 
 // NewUnified creates a Unified VFS backed by the given Mounter.
@@ -226,7 +232,10 @@ func isVirtualAliasPath(path string) bool {
 		strings.HasPrefix(trimmed, httpScheme) ||
 		strings.HasPrefix(trimmed, httpsScheme) ||
 		strings.HasPrefix(trimmed, smbScheme) ||
-		strings.HasPrefix(trimmed, s3Scheme)
+		strings.HasPrefix(trimmed, s3Scheme) ||
+		strings.HasPrefix(trimmed, oneDriveScheme) ||
+		strings.HasPrefix(trimmed, gDriveScheme) ||
+		strings.HasPrefix(trimmed, dropboxScheme)
 }
 
 // isWindowsDriveLetter checks if a rune is a valid Windows drive letter.
@@ -258,6 +267,15 @@ func (u *Unified) pathrefToVFS(path string) string {
 		return converted
 	}
 	if converted, ok := publicAliasToVFS(trimmed, s3Scheme, s3VFSRoot); ok {
+		return converted
+	}
+	if converted, ok := publicAliasToVFS(trimmed, oneDriveScheme, oneDriveVFSRoot); ok {
+		return converted
+	}
+	if converted, ok := publicAliasToVFS(trimmed, gDriveScheme, gDriveVFSRoot); ok {
+		return converted
+	}
+	if converted, ok := publicAliasToVFS(trimmed, dropboxScheme, dropboxVFSRoot); ok {
 		return converted
 	}
 

@@ -24,9 +24,6 @@
         <span *ngIf="pendingChord$ | async as pendingChord" class="pending-chord-indicator" title="Waiting for next key in shortcut sequence">
           {{ formatPendingChord(pendingChord) }}
         </span>
-        <button (click)="openS3MountDialog()" class="btn btn-remote" title="Connect S3-compatible storage">
-          S3 / MinIO
-        </button>
         <button
           (click)="toggleElevation()"
           [class.active]="elevationActive"

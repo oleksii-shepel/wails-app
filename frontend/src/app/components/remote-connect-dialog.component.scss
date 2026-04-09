@@ -12,7 +12,8 @@
 
 .remote-connect-panel {
   width: min(840px, calc(100vw - 48px));
-  max-height: calc(100vh - 48px);
+  height: calc(100vh - 48px);
+  max-height: 600px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -75,6 +76,7 @@
   display: grid;
   grid-template-columns: minmax(0, 1.3fr) minmax(300px, 0.7fr);
   min-height: 0;
+  flex: 1;
   overflow: hidden;
 }
 

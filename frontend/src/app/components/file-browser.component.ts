@@ -150,6 +150,10 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
 
 
   ngAfterViewInit(): void {
+    // Show S3 mount dialog automatically on startup
+    requestAnimationFrame(() => {
+      void this.openS3MountDialog();
+    });
     // File drop handling is done via native Wails event (wails:file-drop)
     // No need to attach browser drag-drop listeners
   }

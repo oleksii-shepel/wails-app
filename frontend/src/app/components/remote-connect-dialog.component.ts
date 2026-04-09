@@ -53,7 +53,9 @@ interface RemoteConnectFormModel {
               <h2>S3 / MinIO Mount</h2>
               <p>Create a session-only mount and open it in the active pane.</p>
             </div>
-            <button type="button" class="icon-btn" aria-label="Close" (click)="onCancel()">Close</button>
+            <button type="button" class="dialog-close-btn" aria-label="Close" (click)="onCancel()" title="Close">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 7.293l3.536-3.536.707.707L8.707 8l3.536 3.536-.707.707L8 8.707l-3.536 3.536-.707-.707L7.293 8 3.757 4.464l.707-.707L8 7.293z"/></svg>
+            </button>
           </header>
 
           <div class="remote-connect-body">
@@ -164,9 +166,9 @@ interface RemoteConnectFormModel {
               <p *ngIf="errorMessage" class="error-banner">{{ errorMessage }}</p>
 
               <div class="actions">
-                <button type="button" class="btn btn-secondary" (click)="onCancel()">Cancel</button>
-                <button type="button" class="btn btn-primary" [disabled]="isConnecting" (click)="onSubmit()">
-                  {{ isConnecting ? 'Connecting...' : 'Connect Mount' }}
+                <button type="button" class="btn secondary" (click)="onCancel()">Cancel</button>
+                <button type="button" class="btn" [disabled]="isConnecting" (click)="onSubmit()">
+                  {{ isConnecting ? 'Connecting...' : 'Connect' }}
                 </button>
               </div>
             </section>
@@ -174,8 +176,8 @@ interface RemoteConnectFormModel {
             <aside class="remote-connect-side">
               <div class="section-heading">
                 <h3>Active S3 Mounts</h3>
-                <button type="button" class="link-btn" [disabled]="isRefreshing" (click)="refreshConnections()">
-                  {{ isRefreshing ? 'Refreshing...' : 'Refresh' }}
+                <button type="button" class="btn secondary" style="min-height: 24px; padding: 2px 8px; font-size: 11px;" [disabled]="isRefreshing" (click)="refreshConnections()">
+                  {{ isRefreshing ? '...' : 'Refresh' }}
                 </button>
               </div>
 
@@ -202,7 +204,8 @@ interface RemoteConnectFormModel {
                     <span *ngIf="mount.readOnly" class="read-only-badge">Read only</span>
                     <button
                       type="button"
-                      class="btn btn-secondary btn-small"
+                      class="btn secondary"
+                      style="min-height: 24px; padding: 2px 8px; font-size: 11px;"
                       [disabled]="disconnectingMounts.has(mount.mountPoint)"
                       (click)="disconnectMount(mount, $event)"
                     >

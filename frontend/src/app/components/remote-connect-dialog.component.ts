@@ -469,7 +469,7 @@ export class RemoteConnectDialogComponent {
 
   private readonly destroy$ = createSubject<void>();
   private releaseDialogContext: (() => void) | null = null;
-  private oauthPollTimer: ReturnType<typeof setTimeout> | null = null;
+  private oauthPollTimer: number | null = null;
   private oauthSessionConnected = false;
 
   constructor(
@@ -565,7 +565,7 @@ export class RemoteConnectDialogComponent {
   }
 
   get oauthActionButton(): string {
-    return this.oauthStatus === 'complete' ? 'Re-authorize' : 'Authorize in Browser';
+    return this.oauthStatus === 'complete' ? 'Re-authorize' : 'Authorize';
   }
 
   clearError(): void {

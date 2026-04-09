@@ -18,6 +18,7 @@ Recent feature-specific documentation:
 - Native child webview bidirectional messaging and bridge contract: [BROWSER_PANE_BRIDGE.md](BROWSER_PANE_BRIDGE.md)
 - Navigation, editable address bar, and search scheme behavior: [NAVIGATION_FEATURE_STATUS.md](NAVIGATION_FEATURE_STATUS.md)
 - Keyboard and address-bar edit behavior: [SHORTCUTS_AND_HANDLERS.md](SHORTCUTS_AND_HANDLERS.md)
+- Remote cloud mount OAuth flow and browser-based localhost callback design: [REMOTE_OAUTH_FLOW.md](REMOTE_OAUTH_FLOW.md)
 
 ## Architecture
 

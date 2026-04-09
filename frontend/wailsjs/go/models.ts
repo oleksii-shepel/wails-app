@@ -1087,6 +1087,28 @@ export namespace contracts {
 	        this.accessToken = source["accessToken"];
 	    }
 	}
+	export class RemoteMount {
+	    protocol: string;
+	    host: string;
+	    name: string;
+	    publicPath: string;
+	    mountPoint: string;
+	    readOnly: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new RemoteMount(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.protocol = source["protocol"];
+	        this.host = source["host"];
+	        this.name = source["name"];
+	        this.publicPath = source["publicPath"];
+	        this.mountPoint = source["mountPoint"];
+	        this.readOnly = source["readOnly"];
+	    }
+	}
 	export class RemoteOAuthBeginRequest {
 	    protocol: string;
 	    clientId: string;
@@ -1123,6 +1145,20 @@ export namespace contracts {
 	        this.redirectUri = source["redirectUri"];
 	    }
 	}
+	export class RemoteOAuthConnectRequest {
+	    sessionId: string;
+	    name?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RemoteOAuthConnectRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sessionId = source["sessionId"];
+	        this.name = source["name"];
+	    }
+	}
 	export class RemoteOAuthStatus {
 	    sessionId: string;
 	    protocol: string;
@@ -1145,42 +1181,6 @@ export namespace contracts {
 	        this.accountName = source["accountName"];
 	        this.accountEmail = source["accountEmail"];
 	        this.expiresAt = source["expiresAt"];
-	    }
-	}
-	export class RemoteOAuthConnectRequest {
-	    sessionId: string;
-	    name?: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new RemoteOAuthConnectRequest(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.sessionId = source["sessionId"];
-	        this.name = source["name"];
-	    }
-	}
-	export class RemoteMount {
-	    protocol: string;
-	    host: string;
-	    name: string;
-	    publicPath: string;
-	    mountPoint: string;
-	    readOnly: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new RemoteMount(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.protocol = source["protocol"];
-	        this.host = source["host"];
-	        this.name = source["name"];
-	        this.publicPath = source["publicPath"];
-	        this.mountPoint = source["mountPoint"];
-	        this.readOnly = source["readOnly"];
 	    }
 	}
 	export class SearchResult {
@@ -1457,3 +1457,4 @@ export namespace utility {
 	}
 
 }
+

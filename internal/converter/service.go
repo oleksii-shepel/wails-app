@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"image"
 	_ "image/gif"
-	_ "image/jpeg"
+	"image/jpeg"
 	"image/png"
 	_ "image/png"
 	"math"
@@ -173,6 +173,10 @@ func (s *Service) convertWithGoImage(inputPath string, outputFormat string) ([]b
 		if err := png.Encode(&out, img); err != nil {
 			return nil, fmt.Errorf("failed to encode PNG: %w", err)
 		}
+	case "jpg", "jpeg":
+		if err := jpeg.Encode(&out, img, &jpeg.Options{Quality: 90}); err != nil {
+			return nil, fmt.Errorf("failed to encode JPEG: %w", err)
+		}
 	default:
 		return nil, fmt.Errorf("go native conversion: unsupported format %s (install libvips for broader format support)", outputFormat)
 	}
@@ -199,6 +203,10 @@ func (s *Service) thumbnailWithGoImage(inputPath string, outputFormat string, ma
 	case "png":
 		if err := png.Encode(&out, thumb); err != nil {
 			return nil, fmt.Errorf("failed to encode PNG: %w", err)
+		}
+	case "jpg", "jpeg":
+		if err := jpeg.Encode(&out, thumb, &jpeg.Options{Quality: 90}); err != nil {
+			return nil, fmt.Errorf("failed to encode JPEG: %w", err)
 		}
 	default:
 		return nil, fmt.Errorf("go native thumbnail: unsupported format %s (install libvips for broader format support)", outputFormat)

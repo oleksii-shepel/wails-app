@@ -53,7 +53,7 @@ func (a *App) GetImageThumbnailURL(path string, maxWidth int, maxHeight int) (st
 		return "", fmt.Errorf("unsupported source format: .%s", ext)
 	}
 
-	return ThumbnailStreamURLForFile(a.StreamBaseURL(), path, "png", maxWidth, maxHeight), nil
+	return ThumbnailStreamURLForFile(a.StreamBaseURL(), path, "jpeg", maxWidth, maxHeight), nil
 }
 
 // GetArchiveImageThumbnailURL returns a thumbnail stream URL for an archive entry.
@@ -64,7 +64,7 @@ func (a *App) GetArchiveImageThumbnailURL(fsPath string, nestedChain []string, e
 		return "", fmt.Errorf("unsupported source format: .%s", ext)
 	}
 
-	return ThumbnailStreamURLForEntry(a.StreamBaseURL(), fsPath, nestedChain, entryPath, "png", maxWidth, maxHeight), nil
+	return ThumbnailStreamURLForEntry(a.StreamBaseURL(), fsPath, nestedChain, entryPath, "jpeg", maxWidth, maxHeight), nil
 }
 
 // GetConversionCapabilities returns what formats are supported for a given source format.
@@ -78,7 +78,7 @@ func (a *App) GetConversionCapabilities(sourceFileExt string) map[string]interfa
 		"sourceFormat":      ext,
 		"supported":         a.State.Converter.IsSupportedSourceFormat(ext),
 		"availableFormats":  available,
-		"recommendedFormat": "png", // PNG is lossless and widely compatible
+		"recommendedFormat": "jpeg", // JPEG keeps previews smaller and aligns with the default converter output
 	}
 }
 

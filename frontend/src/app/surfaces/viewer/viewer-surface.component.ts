@@ -1501,7 +1501,7 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
       const convertible = await this.api.canConvertImage(this.targetPath || '');
       if (convertible) {
         try {
-          this.imageSrc = await this.api.getConvertedImageURL(this.targetPath || '', 'png');
+          this.imageSrc = await this.api.getConvertedImageURL(this.targetPath || '', 'jpeg');
           this.cdr.markForCheck();
           return;
         } catch { /* proceed to error */ }
@@ -1997,7 +1997,7 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
         if (convertible) {
           try {
             // Ask Go to convert and give us a temporary preview URL
-            this.imageSrc = await this.api.getConvertedImageURL(this.targetPath || '', 'png');
+            this.imageSrc = await this.api.getConvertedImageURL(this.targetPath || '', 'jpeg');
             this.kind = 'image';
             return;
           } catch (err) {

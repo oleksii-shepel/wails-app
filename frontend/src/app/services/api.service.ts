@@ -433,7 +433,7 @@ export class ApiService {
     };
   }
 
-  async getConvertedImageURL(path: string, targetFormat: string = 'png'): Promise<string> {
+  async getConvertedImageURL(path: string, targetFormat: string = 'jpeg'): Promise<string> {
     return await (window as any).go.app.App.GetConvertedImageURL(this.normalizeCanonicalPath(path), targetFormat);
   }
 

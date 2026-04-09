@@ -1433,7 +1433,7 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
       return;
     }
 
-    this.imageSrc = await this.api.getConvertedImageURL(path, 'png');
+    this.imageSrc = await this.api.getConvertedImageURL(path, 'jpeg');
     if (!this.isDisplayCurrent(contextToken, displayToken)) {
       return;
     }

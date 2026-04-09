@@ -6,7 +6,7 @@ import "fmt"
 
 type unsupportedPane struct{}
 
-func newPlatformPane(_ Update, _ func(string)) (pane, error) {
+func newPlatformPane(_ Update, _ func(string), _ func(string)) (pane, error) {
 	return nil, fmt.Errorf("native browser pane is not supported on this platform")
 }
 
@@ -20,6 +20,10 @@ func (p *unsupportedPane) CaptureScreenshot() (string, error) {
 
 func (p *unsupportedPane) GetDocumentBackground() (string, error) {
 	return "", fmt.Errorf("native browser pane is not supported on this platform")
+}
+
+func (p *unsupportedPane) PostMessage(string) error {
+	return fmt.Errorf("native browser pane is not supported on this platform")
 }
 
 func (p *unsupportedPane) Dispose() error {

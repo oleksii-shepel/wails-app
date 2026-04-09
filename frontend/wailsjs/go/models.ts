@@ -1055,6 +1055,7 @@ export namespace contracts {
 	    accessKeyId?: string;
 	    secretAccessKey?: string;
 	    sessionToken?: string;
+	    anonymous?: boolean;
 	    usePathStyle?: boolean;
 	    insecure?: boolean;
 	
@@ -1079,6 +1080,7 @@ export namespace contracts {
 	        this.accessKeyId = source["accessKeyId"];
 	        this.secretAccessKey = source["secretAccessKey"];
 	        this.sessionToken = source["sessionToken"];
+	        this.anonymous = source["anonymous"];
 	        this.usePathStyle = source["usePathStyle"];
 	        this.insecure = source["insecure"];
 	    }

@@ -21,6 +21,8 @@ typedef struct BrowserPaneController {
 	WebKitWebView *webview;
 	GtkWindow *parent;
 	uint64_t callback_id;
+	GPtrArray *pending_scripts;
+	gboolean page_ready;
 } BrowserPaneController;
 
 typedef struct BrowserPaneCreateArgs {
@@ -59,6 +61,15 @@ typedef struct BrowserPaneStringArgs {
 	gboolean done;
 } BrowserPaneStringArgs;
 
+typedef struct BrowserPaneScriptArgs {
+	BrowserPaneController *pane;
+	char *script;
+	char *error;
+	GMutex mutex;
+	GCond cond;
+	gboolean done;
+} BrowserPaneScriptArgs;
+
 static void browser_pane_signal_done(GMutex *mutex, GCond *cond, gboolean *done) {
 	g_mutex_lock(mutex);
 	*done = TRUE;
@@ -77,6 +88,14 @@ static void browser_pane_signal_string_result(BrowserPaneStringArgs *args, char 
 
 static void browser_pane_signal_string_error(BrowserPaneStringArgs *args, const char *message) {
 	browser_pane_signal_string_result(args, NULL, g_strdup(message));
+}
+
+static void browser_pane_signal_script_done(BrowserPaneScriptArgs *args, char *error) {
+	if (args == NULL) {
+		return;
+	}
+	args->error = error;
+	browser_pane_signal_done(&args->mutex, &args->cond, &args->done);
 }
 
 static GtkWindow *browser_pane_discover_main_window(void) {
@@ -113,6 +132,77 @@ static void browser_pane_script_message_received(WebKitUserContentManager *manag
 	g_free(text);
 }
 
+typedef struct BrowserPaneExecuteScriptData {
+	char *script;
+} BrowserPaneExecuteScriptData;
+
+static void browser_pane_execute_script_finished(GObject *source_object, GAsyncResult *result, gpointer user_data) {
+	BrowserPaneExecuteScriptData *data = (BrowserPaneExecuteScriptData *)user_data;
+	GError *error = NULL;
+	webkit_web_view_run_javascript_finish(WEBKIT_WEB_VIEW(source_object), result, &error);
+	if (error != NULL) {
+		g_error_free(error);
+	}
+	if (data != NULL) {
+		g_free(data->script);
+		g_free(data);
+	}
+}
+
+static void browser_pane_queue_or_execute_script(BrowserPaneController *pane, const char *script) {
+	if (pane == NULL || pane->webview == NULL || script == NULL || script[0] == '\0') {
+		return;
+	}
+	if (!pane->page_ready) {
+		if (pane->pending_scripts == NULL) {
+			pane->pending_scripts = g_ptr_array_new_with_free_func(g_free);
+		}
+		g_ptr_array_add(pane->pending_scripts, g_strdup(script));
+		return;
+	}
+	BrowserPaneExecuteScriptData *data = g_malloc0(sizeof(BrowserPaneExecuteScriptData));
+	data->script = g_strdup(script);
+	webkit_web_view_run_javascript(
+		pane->webview,
+		data->script,
+		NULL,
+		browser_pane_execute_script_finished,
+		data
+	);
+}
+
+static void browser_pane_flush_pending_scripts(BrowserPaneController *pane) {
+	if (pane == NULL || pane->pending_scripts == NULL || pane->pending_scripts->len == 0) {
+		return;
+	}
+	for (guint i = 0; i < pane->pending_scripts->len; i++) {
+		char *script = (char *)g_ptr_array_index(pane->pending_scripts, i);
+		browser_pane_queue_or_execute_script(pane, script);
+	}
+	g_ptr_array_set_size(pane->pending_scripts, 0);
+}
+
+static void browser_pane_load_changed(WebKitWebView *webview, WebKitLoadEvent load_event, gpointer user_data) {
+	(void)webview;
+	BrowserPaneController *pane = (BrowserPaneController *)user_data;
+	if (pane == NULL) {
+		return;
+	}
+	switch (load_event) {
+	case WEBKIT_LOAD_STARTED:
+	case WEBKIT_LOAD_REDIRECTED:
+	case WEBKIT_LOAD_COMMITTED:
+		pane->page_ready = FALSE;
+		break;
+	case WEBKIT_LOAD_FINISHED:
+		pane->page_ready = TRUE;
+		browser_pane_flush_pending_scripts(pane);
+		break;
+	default:
+		break;
+	}
+}
+
 static gboolean browser_pane_create_on_main(gpointer data) {
 	BrowserPaneCreateArgs *args = (BrowserPaneCreateArgs *)data;
 	BrowserPaneController *pane = g_malloc0(sizeof(BrowserPaneController));
@@ -144,6 +234,9 @@ static gboolean browser_pane_create_on_main(gpointer data) {
 
 		pane->window = GTK_WINDOW(window);
 		pane->webview = WEBKIT_WEB_VIEW(webview);
+		pane->pending_scripts = g_ptr_array_new_with_free_func(g_free);
+		pane->page_ready = FALSE;
+		g_signal_connect(webview, "load-changed", G_CALLBACK(browser_pane_load_changed), pane);
 	}
 	args->pane = pane;
 	browser_pane_signal_done(&args->mutex, &args->cond, &args->done);
@@ -245,6 +338,10 @@ static gboolean browser_pane_dispose_on_main(gpointer data) {
 	if (args->pane != NULL) {
 		if (args->pane->window != NULL) {
 			gtk_widget_destroy(GTK_WIDGET(args->pane->window));
+		}
+		if (args->pane->pending_scripts != NULL) {
+			g_ptr_array_free(args->pane->pending_scripts, TRUE);
+			args->pane->pending_scripts = NULL;
 		}
 		g_free(args->pane);
 	}
@@ -477,6 +574,38 @@ static void browser_pane_get_document_background(BrowserPaneController *pane, ch
 		*error = args.error;
 	}
 }
+
+static gboolean browser_pane_post_message_on_main(gpointer data) {
+	BrowserPaneScriptArgs *args = (BrowserPaneScriptArgs *)data;
+	if (args == NULL || args->pane == NULL || args->pane->webview == NULL) {
+		browser_pane_signal_script_done(args, g_strdup("browser pane not initialized"));
+		return G_SOURCE_REMOVE;
+	}
+	if (args->script == NULL || args->script[0] == '\0') {
+		browser_pane_signal_script_done(args, NULL);
+		return G_SOURCE_REMOVE;
+	}
+	browser_pane_queue_or_execute_script(args->pane, args->script);
+	browser_pane_signal_script_done(args, NULL);
+	return G_SOURCE_REMOVE;
+}
+
+static void browser_pane_post_message(BrowserPaneController *pane, const char *script, char **error) {
+	BrowserPaneScriptArgs args;
+	args.pane = pane;
+	args.script = (char *)script;
+	args.error = NULL;
+	args.done = FALSE;
+	g_mutex_init(&args.mutex);
+	g_cond_init(&args.cond);
+	g_main_context_invoke(NULL, browser_pane_post_message_on_main, &args);
+	browser_pane_wait_for_completion(&args.mutex, &args.cond, &args.done);
+	g_cond_clear(&args.cond);
+	g_mutex_clear(&args.mutex);
+	if (error != NULL) {
+		*error = args.error;
+	}
+}
 */
 import "C"
 
@@ -492,11 +621,11 @@ type linuxPane struct {
 	messageCallbackID uint64
 }
 
-func newPlatformPane(_ Update, onResourcesChanged func(string)) (pane, error) {
+func newPlatformPane(_ Update, onResourcesChanged func(string), onMessage func(string)) (pane, error) {
 	messageCallbackID := registerBrowserPaneMessageCallback(func(message string) {
-		handleBrowserPaneBridgeMessage(message, onResourcesChanged)
+		handleBrowserPaneBridgeMessage(message, onResourcesChanged, onMessage)
 	})
-	resourceScript := C.CString(browserPaneInjectedResourceTrackerScript())
+	resourceScript := C.CString(browserPaneInjectedBootstrapScript())
 	defer C.free(unsafe.Pointer(resourceScript))
 
 	handle := C.browser_pane_create(C.ulonglong(messageCallbackID), resourceScript)
@@ -561,6 +690,23 @@ func (p *linuxPane) GetDocumentBackground() (string, error) {
 		return "", nil
 	}
 	return C.GoString(value), nil
+}
+
+func (p *linuxPane) PostMessage(message string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.handle == nil {
+		return fmt.Errorf("browser pane closed")
+	}
+	script := C.CString(browserPaneHostMessageEvalScript(message))
+	defer C.free(unsafe.Pointer(script))
+	var postErr *C.char
+	C.browser_pane_post_message(p.handle, script, &postErr)
+	defer C.browser_pane_free_string(postErr)
+	if postErr != nil {
+		return fmt.Errorf("%s", C.GoString(postErr))
+	}
+	return nil
 }
 
 func (p *linuxPane) Dispose() error {

@@ -74,6 +74,10 @@ export function BrowserPaneGetDocumentBackground(arg1) {
   return window['go']['app']['App']['BrowserPaneGetDocumentBackground'](arg1);
 }
 
+export function BrowserPanePostMessage(arg1, arg2) {
+  return window['go']['app']['App']['BrowserPanePostMessage'](arg1, arg2);
+}
+
 export function BrowserPaneSync(arg1) {
   return window['go']['app']['App']['BrowserPaneSync'](arg1);
 }

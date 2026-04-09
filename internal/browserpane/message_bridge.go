@@ -2,6 +2,7 @@ package browserpane
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/url"
 	"strings"
 	"sync"
@@ -46,7 +47,7 @@ func dispatchBrowserPaneMessageCallback(id uint64, message string) {
 	callback(message)
 }
 
-func handleBrowserPaneBridgeMessage(message string, onResourcesChanged func(string)) {
+func handleBrowserPaneBridgeMessage(message string, onResourcesChanged func(string), onMessage func(string)) {
 	message = strings.TrimSpace(message)
 	if message == "" {
 		return
@@ -61,25 +62,27 @@ func handleBrowserPaneBridgeMessage(message string, onResourcesChanged func(stri
 			InitiatorType string `json:"initiatorType"`
 		} `json:"resources"`
 	}
-	if err := json.Unmarshal([]byte(message), &snapshot); err != nil {
-		return
-	}
-	normalizedPageURL := normalizeBrowserPaneMessageURL(snapshot.PageURL)
-	if snapshot.Type != "resource-snapshot" || normalizedPageURL == "" {
-		return
+	if err := json.Unmarshal([]byte(message), &snapshot); err == nil {
+		normalizedPageURL := normalizeBrowserPaneMessageURL(snapshot.PageURL)
+		if snapshot.Type == "resource-snapshot" && normalizedPageURL != "" {
+			resources := make([]webresourcecache.Resource, 0, len(snapshot.Resources))
+			for _, resource := range snapshot.Resources {
+				resources = append(resources, webresourcecache.Resource{
+					URL:           resource.URL,
+					Size:          resource.Size,
+					InitiatorType: resource.InitiatorType,
+					MimeType:      "",
+				})
+			}
+			if webresourcecache.Store(normalizedPageURL, resources) && onResourcesChanged != nil {
+				onResourcesChanged(normalizedPageURL)
+			}
+			return
+		}
 	}
 
-	resources := make([]webresourcecache.Resource, 0, len(snapshot.Resources))
-	for _, resource := range snapshot.Resources {
-		resources = append(resources, webresourcecache.Resource{
-			URL:           resource.URL,
-			Size:          resource.Size,
-			InitiatorType: resource.InitiatorType,
-			MimeType:      "",
-		})
-	}
-	if webresourcecache.Store(normalizedPageURL, resources) && onResourcesChanged != nil {
-		onResourcesChanged(normalizedPageURL)
+	if onMessage != nil {
+		onMessage(message)
 	}
 }
 
@@ -109,18 +112,11 @@ func normalizeBrowserPaneMessageURL(raw string) string {
 	return parsed.String()
 }
 
-func browserPaneInjectedResourceTrackerScript() string {
+func browserPaneInjectedMessageBridgeScript() string {
 	return `(function(){
-if(window.__wailsBrowserPaneResourceInit){return;}
-window.__wailsBrowserPaneResourceInit=true;
-function canonicalize(raw){
-	try{
-		var url=new URL(String(raw||''), location.href);
-		url.hash='';
-		return url.toString();
-	}catch(_){return '';}
-}
-function post(message){
+if(window.__wailsBrowserPaneBridgeInit){return;}
+window.__wailsBrowserPaneBridgeInit=true;
+function sendRaw(message){
 	try{
 		if(window.chrome&&window.chrome.webview&&window.chrome.webview.postMessage){
 			window.chrome.webview.postMessage(message);
@@ -134,6 +130,58 @@ function post(message){
 		}
 	}catch(_){}
 	return false;
+}
+function serialize(payload){
+	if(typeof payload==='string'){return payload;}
+	try{
+		var json=JSON.stringify(payload);
+		return json===undefined?'null':json;
+	}catch(_){}
+	try{return String(payload);}catch(__){return '';}
+}
+function parse(raw){
+	if(typeof raw!=='string'){return raw;}
+	try{return JSON.parse(raw);}catch(_){return raw;}
+}
+function dispatch(raw){
+	var payload=typeof raw==='string'?raw:serialize(raw);
+	var detail=parse(payload);
+	try{
+		var event=null;
+		if(typeof CustomEvent==='function'){
+			event=new CustomEvent('wails-browser-pane-message',{detail:detail});
+		}else if(document&&document.createEvent){
+			event=document.createEvent('CustomEvent');
+			event.initCustomEvent('wails-browser-pane-message',false,false,detail);
+		}
+		if(event){window.dispatchEvent(event);}
+	}catch(_){}
+	try{
+		if(bridge&&typeof bridge.onmessage==='function'){
+			bridge.onmessage({data:detail,rawData:payload});
+		}
+	}catch(_){}
+	return detail;
+}
+var bridge=window.__wailsBrowserPane||{};
+bridge.postMessage=function(payload){return sendRaw(serialize(payload));};
+bridge.receiveHostMessage=function(raw){return dispatch(raw);};
+bridge.parseMessage=parse;
+if(!('onmessage' in bridge)){bridge.onmessage=null;}
+window.__wailsBrowserPane=bridge;
+})();`
+}
+
+func browserPaneInjectedResourceTrackerScript() string {
+	return `(function(){
+if(window.__wailsBrowserPaneResourceInit){return;}
+window.__wailsBrowserPaneResourceInit=true;
+function canonicalize(raw){
+	try{
+		var url=new URL(String(raw||''), location.href);
+		url.hash='';
+		return url.toString();
+	}catch(_){return '';}
 }
 function collect(){
 	try{
@@ -151,11 +199,13 @@ function collect(){
 			var size=Math.max(transfer,encoded,decoded,0);
 			resources.push({url:url,size:size,initiatorType:String(entry.initiatorType||'')});
 		}
-		post(JSON.stringify({
+		if(window.__wailsBrowserPane&&window.__wailsBrowserPane.postMessage){
+			window.__wailsBrowserPane.postMessage({
 			type:'resource-snapshot',
 			pageUrl:canonicalize(location.href),
 			resources:resources
-		}));
+			});
+		}
 	}catch(_){ }
 }
 var scheduled=false;
@@ -180,4 +230,38 @@ window.addEventListener('load',schedule,{once:false});
 document.addEventListener('readystatechange',function(){if(document.readyState==='complete'){schedule();}});
 setTimeout(schedule,500);
 })();`
+}
+
+func browserPaneInjectedBootstrapScript() string {
+	return browserPaneInjectedMessageBridgeScript() + "\n" + browserPaneInjectedResourceTrackerScript()
+}
+
+func browserPaneHostMessageEvalScript(message string) string {
+	encoded, err := json.Marshal(message)
+	if err != nil {
+		encoded = []byte(`""`)
+	}
+	return fmt.Sprintf(`(function(){
+var raw=%s;
+var bridge=window.__wailsBrowserPane;
+if(bridge&&typeof bridge.receiveHostMessage==='function'){
+	bridge.receiveHostMessage(raw);
+	return true;
+}
+var detail=raw;
+try{detail=JSON.parse(raw);}catch(_){}
+try{
+	var event=null;
+	if(typeof CustomEvent==='function'){
+		event=new CustomEvent('wails-browser-pane-message',{detail:detail});
+	}else if(document&&document.createEvent){
+		event=document.createEvent('CustomEvent');
+		event.initCustomEvent('wails-browser-pane-message',false,false,detail);
+	}
+	if(event){window.dispatchEvent(event);}
+	return true;
+}catch(_){
+	return false;
+}
+})();`, string(encoded))
 }

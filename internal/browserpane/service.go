@@ -23,6 +23,7 @@ type pane interface {
 	Sync(Update) error
 	CaptureScreenshot() (string, error)
 	GetDocumentBackground() (string, error)
+	PostMessage(string) error
 	Dispose() error
 }
 
@@ -74,7 +75,9 @@ func (s *Service) Sync(update Update) error {
 	target := s.panes[update.SurfaceID]
 	if target == nil {
 		var err error
-		target, err = newPlatformPane(update, s.emitResourceUpdate)
+		target, err = newPlatformPane(update, s.emitResourceUpdate, func(message string) {
+			s.emitPaneMessage(update.SurfaceID, message)
+		})
 		if err != nil {
 			s.mu.Unlock()
 			return err
@@ -109,6 +112,16 @@ func (s *Service) emitResourceUpdate(path string) {
 		return
 	}
 	s.emitEvent("web:resourcesChanged", map[string]string{"path": strings.TrimSpace(path)})
+}
+
+func (s *Service) emitPaneMessage(surfaceID string, message string) {
+	if s.emitEvent == nil || strings.TrimSpace(surfaceID) == "" {
+		return
+	}
+	s.emitEvent("browser-pane:message", map[string]string{
+		"surfaceId": strings.TrimSpace(surfaceID),
+		"message":   message,
+	})
 }
 
 func (s *Service) Dispose(surfaceID string) error {
@@ -159,6 +172,22 @@ func (s *Service) GetDocumentBackground(surfaceID string) (string, error) {
 		return "", fmt.Errorf("browser pane %q not found", surfaceID)
 	}
 	return target.GetDocumentBackground()
+}
+
+func (s *Service) PostMessage(surfaceID string, message string) error {
+	surfaceID = strings.TrimSpace(surfaceID)
+	if surfaceID == "" {
+		return fmt.Errorf("browser pane surface id is required")
+	}
+
+	s.mu.Lock()
+	target := s.panes[surfaceID]
+	s.mu.Unlock()
+
+	if target == nil {
+		return fmt.Errorf("browser pane %q not found", surfaceID)
+	}
+	return target.PostMessage(message)
 }
 
 func (s *Service) Shutdown() error {

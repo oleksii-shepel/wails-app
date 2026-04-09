@@ -1,4 +1,5 @@
 import { Injectable } from '@angular/core';
+import { EventsOn } from 'wailsjs/runtime';
 
 declare const window: any;
 
@@ -12,6 +13,12 @@ export interface NativeBrowserPaneSyncRequest {
   y: number;
   width: number;
   height: number;
+}
+
+export interface NativeBrowserPaneIncomingMessage<T = unknown> {
+  surfaceId: string;
+  message: string;
+  data: T;
 }
 
 @Injectable({
@@ -102,6 +109,62 @@ export class NativeBrowserPaneService {
       return await api.BrowserPaneGetDocumentBackground(surfaceId);
     } catch {
       return '';
+    }
+  }
+
+  async postMessage(surfaceId: string, message: unknown): Promise<boolean> {
+    if (!surfaceId) {
+      return false;
+    }
+    const api = window.go?.app?.App;
+    if (!api?.BrowserPanePostMessage) {
+      return false;
+    }
+    if (!this._ready && !await this.probeReady()) {
+      return false;
+    }
+    try {
+      await api.BrowserPanePostMessage(surfaceId, this.serializeMessage(message));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  onMessage(handler: (event: NativeBrowserPaneIncomingMessage) => void): (() => void) {
+    return EventsOn('browser-pane:message', (event: { surfaceId?: string; message?: string } | null) => {
+      const surfaceId = typeof event?.surfaceId === 'string' ? event.surfaceId : '';
+      const message = typeof event?.message === 'string' ? event.message : '';
+      if (!surfaceId) {
+        return;
+      }
+      handler({
+        surfaceId,
+        message,
+        data: this.parseMessage(message),
+      });
+    });
+  }
+
+  onSurfaceMessage(surfaceId: string, handler: (event: NativeBrowserPaneIncomingMessage) => void): (() => void) {
+    return this.onMessage((event) => {
+      if (event.surfaceId !== surfaceId) {
+        return;
+      }
+      handler(event);
+    });
+  }
+
+  private serializeMessage(message: unknown): string {
+    const serialized = JSON.stringify(message);
+    return serialized === undefined ? 'null' : serialized;
+  }
+
+  private parseMessage(message: string): unknown {
+    try {
+      return JSON.parse(message);
+    } catch {
+      return message;
     }
   }
 }

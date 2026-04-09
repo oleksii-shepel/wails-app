@@ -44,6 +44,8 @@ export function BrowserPaneDispose(arg1:string):Promise<void>;
 
 export function BrowserPaneGetDocumentBackground(arg1:string):Promise<string>;
 
+export function BrowserPanePostMessage(arg1:string,arg2:string):Promise<void>;
+
 export function BrowserPaneSync(arg1:contracts.BrowserPaneSyncRequest):Promise<void>;
 
 export function BuildSearchAlias(arg1:string,arg2:string,arg3:boolean):Promise<string>;

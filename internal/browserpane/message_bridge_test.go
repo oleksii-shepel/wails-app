@@ -24,7 +24,7 @@ func TestHandleBrowserPaneBridgeMessageStoresResourcesAndEmitsUpdate(t *testing.
 		]
 	}`, func(path string) {
 		emitted = path
-	})
+	}, nil)
 
 	if emitted != pageURL {
 		t.Fatalf("expected emitted path %q, got %q", pageURL, emitted)
@@ -45,18 +45,45 @@ func TestHandleBrowserPaneBridgeMessageStoresResourcesAndEmitsUpdate(t *testing.
 	}
 }
 
-func TestBrowserPaneInjectedResourceTrackerScriptSupportsWindowsAndWebKitHosts(t *testing.T) {
-	script := browserPaneInjectedResourceTrackerScript()
+func TestHandleBrowserPaneBridgeMessageForwardsGenericMessages(t *testing.T) {
+	var forwarded string
+	handleBrowserPaneBridgeMessage(`{"type":"viewer-command","command":"refresh"}`, nil, func(message string) {
+		forwarded = message
+	})
+
+	if forwarded != `{"type":"viewer-command","command":"refresh"}` {
+		t.Fatalf("expected forwarded message, got %q", forwarded)
+	}
+}
+
+func TestBrowserPaneInjectedBootstrapScriptSupportsWindowsAndWebKitHosts(t *testing.T) {
+	script := browserPaneInjectedBootstrapScript()
 
 	requiredFragments := []string{
+		"window.__wailsBrowserPaneBridgeInit",
 		"window.chrome&&window.chrome.webview&&window.chrome.webview.postMessage",
 		"window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.wailsBrowserPane&&window.webkit.messageHandlers.wailsBrowserPane.postMessage",
+		"bridge.receiveHostMessage=function(raw){return dispatch(raw);};",
 		"window.__wailsBrowserPaneFlushResources=schedule",
 		"type:'resource-snapshot'",
 	}
 	for _, fragment := range requiredFragments {
 		if !strings.Contains(script, fragment) {
 			t.Fatalf("expected script to contain %q", fragment)
+		}
+	}
+}
+
+func TestBrowserPaneHostMessageEvalScriptUsesInjectedBridge(t *testing.T) {
+	script := browserPaneHostMessageEvalScript(`{"kind":"ping"}`)
+	requiredFragments := []string{
+		`var bridge=window.__wailsBrowserPane;`,
+		`bridge.receiveHostMessage(raw);`,
+		`new CustomEvent('wails-browser-pane-message',{detail:detail})`,
+	}
+	for _, fragment := range requiredFragments {
+		if !strings.Contains(script, fragment) {
+			t.Fatalf("expected host message script to contain %q", fragment)
 		}
 	}
 }

@@ -32,3 +32,8 @@ func (a *App) BrowserPaneCaptureScreenshot(surfaceID string) (string, error) {
 func (a *App) BrowserPaneGetDocumentBackground(surfaceID string) (string, error) {
 	return a.browserPaneService().GetDocumentBackground(surfaceID)
 }
+
+// BrowserPanePostMessage posts a serialized message into the child webview.
+func (a *App) BrowserPanePostMessage(surfaceID string, message string) error {
+	return a.browserPaneService().PostMessage(surfaceID, message)
+}

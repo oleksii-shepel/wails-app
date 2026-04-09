@@ -18,10 +18,12 @@ extern void browserPaneDarwinHandleScriptMessage(unsigned long long callback_id,
 @property (nonatomic, assign) unsigned long long callbackID;
 @end
 
-@interface BrowserPaneController : NSObject
+@interface BrowserPaneController : NSObject<WKNavigationDelegate>
 @property (nonatomic, retain) WKWebView *webView;
 @property (nonatomic, retain) BrowserPaneMessageHandler *messageHandler;
+@property (nonatomic, retain) NSMutableArray<NSString *> *pendingScripts;
 @property (nonatomic, assign) NSWindow *parentWindow;
+@property (nonatomic, assign) BOOL pageReady;
 @end
 
 @implementation BrowserPaneMessageHandler
@@ -48,6 +50,36 @@ extern void browserPaneDarwinHandleScriptMessage(unsigned long long callback_id,
 @end
 
 @implementation BrowserPaneController
+
+- (void)webView:(WKWebView *)webView didStartProvisionalNavigation:(WKNavigation *)navigation {
+    (void)webView;
+    (void)navigation;
+    self.pageReady = NO;
+}
+
+- (void)webView:(WKWebView *)webView didCommitNavigation:(WKNavigation *)navigation {
+    (void)webView;
+    (void)navigation;
+    self.pageReady = NO;
+}
+
+- (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation {
+    (void)webView;
+    (void)navigation;
+    self.pageReady = YES;
+    if (self.pendingScripts.count == 0) {
+        return;
+    }
+    NSArray<NSString *> *scripts = [self.pendingScripts copy];
+    [self.pendingScripts removeAllObjects];
+    for (NSString *script in scripts) {
+        if (script.length == 0 || self.webView == nil) {
+            continue;
+        }
+        [self.webView evaluateJavaScript:script completionHandler:nil];
+    }
+}
+
 @end
 
 static char *browserPaneCopyUTF8String(NSString *value) {
@@ -101,6 +133,9 @@ static void *browserPaneCreate(unsigned long long callbackID, const char *resour
             pane.parentWindow = parent;
             pane.webView = webView;
             pane.messageHandler = messageHandler;
+            pane.pendingScripts = [NSMutableArray array];
+            pane.pageReady = NO;
+            webView.navigationDelegate = pane;
 
             NSView *contentView = [parent contentView];
             [contentView addSubview:webView positioned:NSWindowAbove relativeTo:nil];
@@ -144,6 +179,7 @@ static void browserPaneSync(void *ptr, int x, int y, int width, int height, cons
                 if (!current || ![current isEqualToString:target]) {
                     NSURL *nsURL = [NSURL URLWithString:target];
                     if (nsURL) {
+                        pane.pageReady = NO;
                         NSURLRequest *request = [NSURLRequest requestWithURL:nsURL];
                         [pane.webView loadRequest:request];
                     }
@@ -347,6 +383,42 @@ static void browserPaneGetDocumentBackground(void *ptr, char **outValue, char **
     }
 }
 
+static void browserPanePostMessage(void *ptr, const char *script, char **outError) {
+    if (outError != NULL) {
+        *outError = NULL;
+    }
+    if (!ptr) {
+        if (outError != NULL) {
+            *outError = strdup("browser pane not initialized");
+        }
+        return;
+    }
+
+    dispatch_sync(dispatch_get_main_queue(), ^{
+        @autoreleasepool {
+            BrowserPaneController *pane = (__bridge BrowserPaneController *)ptr;
+            if (!pane.webView) {
+                if (outError != NULL) {
+                    *outError = strdup("browser pane not initialized");
+                }
+                return;
+            }
+            if (script == NULL || script[0] == '\0') {
+                return;
+            }
+            NSString *scriptText = [NSString stringWithUTF8String:script];
+            if (scriptText == nil || scriptText.length == 0) {
+                return;
+            }
+            if (!pane.pageReady) {
+                [pane.pendingScripts addObject:scriptText];
+                return;
+            }
+            [pane.webView evaluateJavaScript:scriptText completionHandler:nil];
+        }
+    });
+}
+
 static void browserPaneFreeString(char *value) {
     if (value != NULL) {
         free(value);
@@ -362,6 +434,7 @@ static void browserPaneDispose(void *ptr) {
             BrowserPaneController *pane = (__bridge_transfer BrowserPaneController *)ptr;
             if (pane.webView) {
                 [[pane.webView.configuration userContentController] removeScriptMessageHandlerForName:@"wailsBrowserPane"];
+                pane.webView.navigationDelegate = nil;
                 [pane.webView removeFromSuperview];
                 pane.webView = nil;
             }
@@ -369,7 +442,12 @@ static void browserPaneDispose(void *ptr) {
                 pane.messageHandler.callbackID = 0;
                 pane.messageHandler = nil;
             }
+            if (pane.pendingScripts) {
+                [pane.pendingScripts removeAllObjects];
+                pane.pendingScripts = nil;
+            }
             pane.parentWindow = nil;
+            pane.pageReady = NO;
         }
     });
 }
@@ -388,11 +466,11 @@ type darwinPane struct {
 	messageCallbackID uint64
 }
 
-func newPlatformPane(_ Update, onResourcesChanged func(string)) (pane, error) {
+func newPlatformPane(_ Update, onResourcesChanged func(string), onMessage func(string)) (pane, error) {
 	messageCallbackID := registerBrowserPaneMessageCallback(func(message string) {
-		handleBrowserPaneBridgeMessage(message, onResourcesChanged)
+		handleBrowserPaneBridgeMessage(message, onResourcesChanged, onMessage)
 	})
-	resourceScript := C.CString(browserPaneInjectedResourceTrackerScript())
+	resourceScript := C.CString(browserPaneInjectedBootstrapScript())
 	defer C.free(unsafe.Pointer(resourceScript))
 
 	handle := C.browserPaneCreate(C.ulonglong(messageCallbackID), resourceScript)
@@ -457,6 +535,23 @@ func (p *darwinPane) GetDocumentBackground() (string, error) {
 		return "", nil
 	}
 	return C.GoString(value), nil
+}
+
+func (p *darwinPane) PostMessage(message string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.handle == nil {
+		return fmt.Errorf("browser pane closed")
+	}
+	script := C.CString(browserPaneHostMessageEvalScript(message))
+	defer C.free(unsafe.Pointer(script))
+	var postErr *C.char
+	C.browserPanePostMessage(p.handle, script, &postErr)
+	defer C.browserPaneFreeString(postErr)
+	if postErr != nil {
+		return fmt.Errorf("%s", C.GoString(postErr))
+	}
+	return nil
 }
 
 func (p *darwinPane) Dispose() error {

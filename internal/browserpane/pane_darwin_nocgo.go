@@ -6,7 +6,7 @@ import "fmt"
 
 type darwinUnsupportedPane struct{}
 
-func newPlatformPane(_ Update, _ func(string)) (pane, error) {
+func newPlatformPane(_ Update, _ func(string), _ func(string)) (pane, error) {
 	return nil, fmt.Errorf("native browser pane requires cgo on darwin")
 }
 
@@ -20,6 +20,10 @@ func (p *darwinUnsupportedPane) CaptureScreenshot() (string, error) {
 
 func (p *darwinUnsupportedPane) GetDocumentBackground() (string, error) {
 	return "", fmt.Errorf("native browser pane requires cgo on darwin")
+}
+
+func (p *darwinUnsupportedPane) PostMessage(string) error {
+	return fmt.Errorf("native browser pane requires cgo on darwin")
 }
 
 func (p *darwinUnsupportedPane) Dispose() error {

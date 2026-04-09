@@ -170,6 +170,7 @@ type windowsPaneCommand struct {
 	dispose                 bool
 	capture                 bool
 	documentBackground      bool
+	postMessage             *string
 	result                  chan error
 	captureReply            chan string
 	documentBackgroundReply chan string
@@ -190,8 +191,10 @@ type windowsPaneState struct {
 	targetVisible           bool
 	initialNavigationDone   bool
 	initialNavigationQueued bool
+	pendingMessages         []string
 	newWindowHandler        *newWindowRequestedHandler
 	onResourcesChanged      func(string)
+	onMessage               func(string)
 }
 
 type rawIUnknownVTBL struct {
@@ -575,13 +578,13 @@ func cdpInvoke(this uintptr, errorCode uintptr, resultUTF16 uintptr) uintptr {
 	return 0
 }
 
-func newPlatformPane(initial Update, onResourcesChanged func(string)) (pane, error) {
+func newPlatformPane(initial Update, onResourcesChanged func(string), onMessage func(string)) (pane, error) {
 	result := &windowsPane{
 		surfaceID: initial.SurfaceID,
 		commands:  make(chan windowsPaneCommand),
 		closed:    make(chan struct{}),
 	}
-	go result.run(initial, onResourcesChanged)
+	go result.run(initial, onResourcesChanged, onMessage)
 	return result, nil
 }
 
@@ -641,7 +644,17 @@ func (p *windowsPane) GetDocumentBackground() (string, error) {
 	return <-backgroundReply, nil
 }
 
-func (p *windowsPane) run(initial Update, onResourcesChanged func(string)) {
+func (p *windowsPane) PostMessage(message string) error {
+	reply := make(chan error, 1)
+	select {
+	case <-p.closed:
+		return fmt.Errorf("browser pane closed")
+	case p.commands <- windowsPaneCommand{postMessage: &message, result: reply}:
+	}
+	return <-reply
+}
+
+func (p *windowsPane) run(initial Update, onResourcesChanged func(string), onMessage func(string)) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 	defer close(p.closed)
@@ -652,7 +665,7 @@ func (p *windowsPane) run(initial Update, onResourcesChanged func(string)) {
 	}
 	defer windows.CoUninitialize()
 
-	state, err := newWindowsPaneState(initial.Theme, initial.BackgroundColor, onResourcesChanged)
+	state, err := newWindowsPaneState(initial.Theme, initial.BackgroundColor, onResourcesChanged, onMessage)
 	if err != nil {
 		p.drainWithError(err)
 		return
@@ -679,6 +692,10 @@ func (p *windowsPane) run(initial Update, onResourcesChanged func(string)) {
 				if err == nil {
 					command.documentBackgroundReply <- color
 				}
+				continue
+			}
+			if command.postMessage != nil {
+				command.result <- state.postMessage(*command.postMessage)
 				continue
 			}
 			command.result <- state.sync(*command.update)
@@ -714,7 +731,7 @@ func (p *windowsPane) drainWithError(err error) {
 	}
 }
 
-func newWindowsPaneState(initialTheme string, initialBackgroundColor string, onResourcesChanged func(string)) (*windowsPaneState, error) {
+func newWindowsPaneState(initialTheme string, initialBackgroundColor string, onResourcesChanged func(string), onMessage func(string)) (*windowsPaneState, error) {
 	ownerHWND, err := discoverMainWindowHandle()
 	if err != nil {
 		return nil, err
@@ -758,6 +775,7 @@ func newWindowsPaneState(initialTheme string, initialBackgroundColor string, onR
 		theme:              initialTheme,
 		backgroundColor:    initialBackgroundColor,
 		onResourcesChanged: onResourcesChanged,
+		onMessage:          onMessage,
 	}
 	compositionHost, compositionErr := createBrowserPaneCompositionHost(hostHWND)
 	if compositionErr != nil {
@@ -782,6 +800,9 @@ func newWindowsPaneState(initialTheme string, initialBackgroundColor string, onR
 		// Init (AddScriptToExecuteOnDocumentCreated) may not fire in all scenarios.
 		state.chromium.Eval(browserPaneScrollbarScript(state.theme))
 		state.chromium.Eval(`window.__wailsBrowserPaneFlushResources&&window.__wailsBrowserPaneFlushResources()`)
+		if err := state.flushPendingMessages(); err != nil {
+			log.Printf("[BrowserPane] Failed to flush pending messages: %v", err)
+		}
 		if state.targetVisible && !state.visible {
 			state.show()
 		}
@@ -822,7 +843,7 @@ func newWindowsPaneState(initialTheme string, initialBackgroundColor string, onR
 	chromium.Init(browserPaneScrollbarScript(initialTheme))
 	chromium.Init(browserPaneBackgroundScript(r, g, b))
 	chromium.Init(browserPaneNewWindowScript())
-	chromium.Init(browserPaneInjectedResourceTrackerScript())
+	chromium.Init(browserPaneInjectedBootstrapScript())
 	state.registerNewWindowHandler()
 
 	state.chromium.SetBackgroundColour(r, g, b, 255)
@@ -832,7 +853,7 @@ func newWindowsPaneState(initialTheme string, initialBackgroundColor string, onR
 }
 
 func (s *windowsPaneState) handleBrowserMessage(message string) {
-	handleBrowserPaneBridgeMessage(message, s.onResourcesChanged)
+	handleBrowserPaneBridgeMessage(message, s.onResourcesChanged, s.onMessage)
 }
 
 func (s *windowsPaneState) handleBrowserResourceResponse(request *edge.ICoreWebView2WebResourceRequest, response *edge.ICoreWebView2WebResourceResponseView) {
@@ -1387,6 +1408,32 @@ func browserPaneNewWindowScript() string {
 })();`
 }
 
+func (s *windowsPaneState) postMessage(message string) error {
+	if strings.TrimSpace(s.url) == "" {
+		return fmt.Errorf("browser pane has no active page")
+	}
+	if !s.initialNavigationDone {
+		s.pendingMessages = append(s.pendingMessages, message)
+		return nil
+	}
+	return s.evaluateScript(browserPaneHostMessageEvalScript(message))
+}
+
+func (s *windowsPaneState) flushPendingMessages() error {
+	if len(s.pendingMessages) == 0 {
+		return nil
+	}
+	pending := append([]string(nil), s.pendingMessages...)
+	s.pendingMessages = s.pendingMessages[:0]
+	for idx, message := range pending {
+		if err := s.evaluateScript(browserPaneHostMessageEvalScript(message)); err != nil {
+			s.pendingMessages = append(pending[idx:], s.pendingMessages...)
+			return err
+		}
+	}
+	return nil
+}
+
 func setBrowserPaneHostBackground(hwnd uintptr, r uint8, g uint8, b uint8) {
 	if hwnd == 0 {
 		return
@@ -1759,6 +1806,11 @@ func (s *windowsPaneState) getDocumentBackground() (string, error) {
 	return extractCDPStringValue(response)
 }
 
+func (s *windowsPaneState) evaluateScript(script string) error {
+	_, err := s.callDevToolsMethod("Runtime.evaluate", browserPaneRuntimeEvaluateParams(script))
+	return err
+}
+
 func (s *windowsPaneState) callDevToolsMethod(method string, params string) (string, error) {
 	if s.chromium == nil {
 		return "", fmt.Errorf("browser pane not initialized")
@@ -1817,8 +1869,7 @@ func (s *windowsPaneState) callDevToolsMethod(method string, params string) (str
 }
 
 func browserPaneDocumentBackgroundParams() string {
-	payload, err := json.Marshal(map[string]any{
-		"expression": `(function(){
+	return browserPaneRuntimeEvaluateParams(`(function(){
   try {
     var parseColor = function(value) {
       if (!value || value === 'transparent') return null;
@@ -1864,7 +1915,12 @@ func browserPaneDocumentBackgroundParams() string {
   } catch (_) {
     return '';
   }
-})()`,
+})()`)
+}
+
+func browserPaneRuntimeEvaluateParams(expression string) string {
+	payload, err := json.Marshal(map[string]any{
+		"expression":    expression,
 		"returnByValue": true,
 		"awaitPromise":  true,
 	})

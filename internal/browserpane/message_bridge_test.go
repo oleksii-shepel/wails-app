@@ -1,0 +1,62 @@
+package browserpane
+
+import (
+	"strings"
+	"testing"
+
+	"wails-app/internal/webresourcecache"
+)
+
+func TestHandleBrowserPaneBridgeMessageStoresResourcesAndEmitsUpdate(t *testing.T) {
+	const pageURL = "https://example.com/view"
+	webresourcecache.Clear(pageURL)
+	t.Cleanup(func() {
+		webresourcecache.Clear(pageURL)
+	})
+
+	var emitted string
+	handleBrowserPaneBridgeMessage(`{
+		"type":"resource-snapshot",
+		"pageUrl":"https://example.com/view#fragment",
+		"resources":[
+			{"url":"https://example.com/app.js","size":42,"initiatorType":"script"},
+			{"url":"https://example.com/view","size":99,"initiatorType":"document"}
+		]
+	}`, func(path string) {
+		emitted = path
+	})
+
+	if emitted != pageURL {
+		t.Fatalf("expected emitted path %q, got %q", pageURL, emitted)
+	}
+
+	resources := webresourcecache.Load(pageURL)
+	if len(resources) != 1 {
+		t.Fatalf("expected 1 cached resource, got %d", len(resources))
+	}
+	if resources[0].URL != "https://example.com/app.js" {
+		t.Fatalf("expected cached resource url %q, got %q", "https://example.com/app.js", resources[0].URL)
+	}
+	if resources[0].Size != 42 {
+		t.Fatalf("expected cached resource size 42, got %d", resources[0].Size)
+	}
+	if resources[0].InitiatorType != "script" {
+		t.Fatalf("expected cached initiator type %q, got %q", "script", resources[0].InitiatorType)
+	}
+}
+
+func TestBrowserPaneInjectedResourceTrackerScriptSupportsWindowsAndWebKitHosts(t *testing.T) {
+	script := browserPaneInjectedResourceTrackerScript()
+
+	requiredFragments := []string{
+		"window.chrome&&window.chrome.webview&&window.chrome.webview.postMessage",
+		"window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.wailsBrowserPane&&window.webkit.messageHandlers.wailsBrowserPane.postMessage",
+		"window.__wailsBrowserPaneFlushResources=schedule",
+		"type:'resource-snapshot'",
+	}
+	for _, fragment := range requiredFragments {
+		if !strings.Contains(script, fragment) {
+			t.Fatalf("expected script to contain %q", fragment)
+		}
+	}
+}

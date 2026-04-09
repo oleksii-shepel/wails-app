@@ -194,18 +194,6 @@ type windowsPaneState struct {
 	onResourcesChanged      func(string)
 }
 
-type browserPaneResourceSnapshot struct {
-	Type      string                             `json:"type"`
-	PageURL   string                             `json:"pageUrl"`
-	Resources []browserPaneResourceSnapshotEntry `json:"resources"`
-}
-
-type browserPaneResourceSnapshotEntry struct {
-	URL           string `json:"url"`
-	Size          int64  `json:"size"`
-	InitiatorType string `json:"initiatorType"`
-}
-
 type rawIUnknownVTBL struct {
 	QueryInterface edge.ComProc
 	AddRef         edge.ComProc
@@ -834,7 +822,7 @@ func newWindowsPaneState(initialTheme string, initialBackgroundColor string, onR
 	chromium.Init(browserPaneScrollbarScript(initialTheme))
 	chromium.Init(browserPaneBackgroundScript(r, g, b))
 	chromium.Init(browserPaneNewWindowScript())
-	chromium.Init(browserPaneResourceTrackerScript())
+	chromium.Init(browserPaneInjectedResourceTrackerScript())
 	state.registerNewWindowHandler()
 
 	state.chromium.SetBackgroundColour(r, g, b, 255)
@@ -844,29 +832,7 @@ func newWindowsPaneState(initialTheme string, initialBackgroundColor string, onR
 }
 
 func (s *windowsPaneState) handleBrowserMessage(message string) {
-	message = strings.TrimSpace(message)
-	if message == "" {
-		return
-	}
-	var snapshot browserPaneResourceSnapshot
-	if err := json.Unmarshal([]byte(message), &snapshot); err != nil {
-		return
-	}
-	if snapshot.Type != "resource-snapshot" || strings.TrimSpace(snapshot.PageURL) == "" {
-		return
-	}
-	resources := make([]webresourcecache.Resource, 0, len(snapshot.Resources))
-	for _, resource := range snapshot.Resources {
-		resources = append(resources, webresourcecache.Resource{
-			URL:           resource.URL,
-			Size:          resource.Size,
-			InitiatorType: resource.InitiatorType,
-			MimeType:      "",
-		})
-	}
-	if webresourcecache.Store(snapshot.PageURL, resources) && s.onResourcesChanged != nil {
-		s.onResourcesChanged(snapshot.PageURL)
-	}
+	handleBrowserPaneBridgeMessage(message, s.onResourcesChanged)
 }
 
 func (s *windowsPaneState) handleBrowserResourceResponse(request *edge.ICoreWebView2WebResourceRequest, response *edge.ICoreWebView2WebResourceResponseView) {
@@ -1418,66 +1384,6 @@ func browserPaneNewWindowScript() string {
       try{window.location.href=el.href;}catch(_){}
     }
   },true);
-})();`
-}
-
-func browserPaneResourceTrackerScript() string {
-	return `(function(){
-if(window.__wailsBrowserPaneResourceInit){return;}
-window.__wailsBrowserPaneResourceInit=true;
-function canonicalize(raw){
-	try{
-		var url=new URL(String(raw||''), location.href);
-		url.hash='';
-		return url.toString();
-	}catch(_){return '';}
-}
-function collect(){
-	try{
-		var resources=[];
-		var seen=Object.create(null);
-		var entries=(performance&&performance.getEntriesByType)?performance.getEntriesByType('resource'):[];
-		for(var i=0;i<entries.length;i++){
-			var entry=entries[i];
-			var url=canonicalize(entry&&entry.name);
-			if(!url||seen[url]){continue;}
-			seen[url]=true;
-			var transfer=Number(entry.transferSize)||0;
-			var encoded=Number(entry.encodedBodySize)||0;
-			var decoded=Number(entry.decodedBodySize)||0;
-			var size=Math.max(transfer,encoded,decoded,0);
-			resources.push({url:url,size:size,initiatorType:String(entry.initiatorType||'')});
-		}
-		if(window.chrome&&window.chrome.webview&&window.chrome.webview.postMessage){
-			window.chrome.webview.postMessage(JSON.stringify({
-				type:'resource-snapshot',
-				pageUrl:canonicalize(location.href),
-				resources:resources
-			}));
-		}
-	}catch(_){ }
-}
-var scheduled=false;
-function schedule(){
-	if(scheduled){return;}
-	scheduled=true;
-	setTimeout(function(){scheduled=false;collect();},150);
-}
-window.__wailsBrowserPaneFlushResources=schedule;
-if(window.PerformanceObserver){
-	try{
-		var observer=new PerformanceObserver(function(){schedule();});
-		observer.observe({type:'resource',buffered:true});
-	}catch(_){
-		try{
-			var fallbackObserver=new PerformanceObserver(function(){schedule();});
-			fallbackObserver.observe({entryTypes:['resource']});
-		}catch(__){}
-	}
-}
-window.addEventListener('load',schedule,{once:false});
-document.addEventListener('readystatechange',function(){if(document.readyState==='complete'){schedule();}});
-setTimeout(schedule,500);
 })();`
 }
 

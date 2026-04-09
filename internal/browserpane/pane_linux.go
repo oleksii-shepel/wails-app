@@ -7,16 +7,20 @@ package browserpane
 #cgo !webkit2_41 pkg-config: webkit2gtk-4.0
 #cgo webkit2_41 pkg-config: webkit2gtk-4.1
 
+#include <stdint.h>
 #include <gdk-pixbuf/gdk-pixbuf.h>
 #include <gtk/gtk.h>
 #include <jsc/jsc.h>
 #include <webkit2/webkit2.h>
 #include <stdlib.h>
 
+extern void browserPaneLinuxHandleScriptMessage(unsigned long long callback_id, const char *message);
+
 typedef struct BrowserPaneController {
 	GtkWindow *window;
 	WebKitWebView *webview;
 	GtkWindow *parent;
+	uint64_t callback_id;
 } BrowserPaneController;
 
 typedef struct BrowserPaneCreateArgs {
@@ -90,11 +94,35 @@ static GtkWindow *browser_pane_discover_main_window(void) {
 	return NULL;
 }
 
+static void browser_pane_script_message_received(WebKitUserContentManager *manager, WebKitJavascriptResult *result, gpointer user_data) {
+	(void)manager;
+	BrowserPaneController *pane = (BrowserPaneController *)user_data;
+	if (pane == NULL || pane->callback_id == 0) {
+		return;
+	}
+	JSCValue *value = webkit_javascript_result_get_js_value(result);
+	if (value == NULL || jsc_value_is_null(value) || jsc_value_is_undefined(value)) {
+		return;
+	}
+	gchar *text = jsc_value_to_string(value);
+	if (text == NULL || text[0] == '\0') {
+		g_free(text);
+		return;
+	}
+	browserPaneLinuxHandleScriptMessage((unsigned long long)pane->callback_id, text);
+	g_free(text);
+}
+
 static gboolean browser_pane_create_on_main(gpointer data) {
 	BrowserPaneCreateArgs *args = (BrowserPaneCreateArgs *)data;
 	BrowserPaneController *pane = g_malloc0(sizeof(BrowserPaneController));
 	pane->parent = browser_pane_discover_main_window();
 	if (pane->parent != NULL) {
+		WebKitUserContentManager *manager = webkit_user_content_manager_new();
+		if (manager != NULL) {
+			webkit_user_content_manager_register_script_message_handler(manager, "wailsBrowserPane");
+			g_signal_connect(manager, "script-message-received::wailsBrowserPane", G_CALLBACK(browser_pane_script_message_received), pane);
+		}
 		GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
 		gtk_window_set_decorated(GTK_WINDOW(window), FALSE);
 		gtk_window_set_resizable(GTK_WINDOW(window), FALSE);
@@ -104,7 +132,12 @@ static gboolean browser_pane_create_on_main(gpointer data) {
 		gtk_window_set_transient_for(GTK_WINDOW(window), pane->parent);
 		gtk_window_set_destroy_with_parent(GTK_WINDOW(window), TRUE);
 
-		GtkWidget *webview = webkit_web_view_new();
+		GtkWidget *webview = manager != NULL
+			? webkit_web_view_new_with_user_content_manager(manager)
+			: webkit_web_view_new();
+		if (manager != NULL) {
+			g_object_unref(manager);
+		}
 		gtk_container_add(GTK_CONTAINER(window), webview);
 		gtk_widget_show(webview);
 		gtk_widget_hide(window);
@@ -125,7 +158,7 @@ static void browser_pane_wait_for_completion(GMutex *mutex, GCond *cond, gboolea
 	g_mutex_unlock(mutex);
 }
 
-static BrowserPaneController *browser_pane_create(void) {
+static BrowserPaneController *browser_pane_create(uint64_t callback_id, const char *resource_script) {
 	BrowserPaneCreateArgs args;
 	args.pane = NULL;
 	args.done = FALSE;
@@ -135,6 +168,25 @@ static BrowserPaneController *browser_pane_create(void) {
 	browser_pane_wait_for_completion(&args.mutex, &args.cond, &args.done);
 	g_cond_clear(&args.cond);
 	g_mutex_clear(&args.mutex);
+	if (args.pane != NULL) {
+		args.pane->callback_id = callback_id;
+		if (resource_script != NULL && resource_script[0] != '\0') {
+			WebKitUserContentManager *manager = webkit_web_view_get_user_content_manager(args.pane->webview);
+			if (manager != NULL) {
+				WebKitUserScript *script = webkit_user_script_new(
+					resource_script,
+					WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES,
+					WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_START,
+					NULL,
+					NULL
+				);
+				if (script != NULL) {
+					webkit_user_content_manager_add_script(manager, script);
+					webkit_user_script_unref(script);
+				}
+			}
+		}
+	}
 	return args.pane;
 }
 
@@ -435,16 +487,24 @@ import (
 )
 
 type linuxPane struct {
-	mu     sync.Mutex
-	handle *C.BrowserPaneController
+	mu                sync.Mutex
+	handle            *C.BrowserPaneController
+	messageCallbackID uint64
 }
 
-func newPlatformPane(_ Update, _ func(string)) (pane, error) {
-	handle := C.browser_pane_create()
+func newPlatformPane(_ Update, onResourcesChanged func(string)) (pane, error) {
+	messageCallbackID := registerBrowserPaneMessageCallback(func(message string) {
+		handleBrowserPaneBridgeMessage(message, onResourcesChanged)
+	})
+	resourceScript := C.CString(browserPaneInjectedResourceTrackerScript())
+	defer C.free(unsafe.Pointer(resourceScript))
+
+	handle := C.browser_pane_create(C.ulonglong(messageCallbackID), resourceScript)
 	if handle == nil {
+		unregisterBrowserPaneMessageCallback(messageCallbackID)
 		return nil, fmt.Errorf("linux main window not available")
 	}
-	return &linuxPane{handle: handle}, nil
+	return &linuxPane{handle: handle, messageCallbackID: messageCallbackID}, nil
 }
 
 func (p *linuxPane) Sync(update Update) error {
@@ -507,9 +567,13 @@ func (p *linuxPane) Dispose() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.handle == nil {
+		unregisterBrowserPaneMessageCallback(p.messageCallbackID)
+		p.messageCallbackID = 0
 		return nil
 	}
 	C.browser_pane_dispose(p.handle)
 	p.handle = nil
+	unregisterBrowserPaneMessageCallback(p.messageCallbackID)
+	p.messageCallbackID = 0
 	return nil
 }

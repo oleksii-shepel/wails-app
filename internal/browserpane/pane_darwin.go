@@ -6,14 +6,45 @@ package browserpane
 #cgo CFLAGS: -x objective-c
 #cgo LDFLAGS: -framework Cocoa -framework WebKit
 
+#include <stdint.h>
 #import <Cocoa/Cocoa.h>
 #import <WebKit/WebKit.h>
 #include <string.h>
 #include <stdlib.h>
 
+extern void browserPaneDarwinHandleScriptMessage(unsigned long long callback_id, const char *message);
+
+@interface BrowserPaneMessageHandler : NSObject<WKScriptMessageHandler>
+@property (nonatomic, assign) unsigned long long callbackID;
+@end
+
 @interface BrowserPaneController : NSObject
 @property (nonatomic, retain) WKWebView *webView;
+@property (nonatomic, retain) BrowserPaneMessageHandler *messageHandler;
 @property (nonatomic, assign) NSWindow *parentWindow;
+@end
+
+@implementation BrowserPaneMessageHandler
+
+- (void)userContentController:(WKUserContentController *)userContentController didReceiveScriptMessage:(WKScriptMessage *)message {
+    (void)userContentController;
+    if (self.callbackID == 0) {
+        return;
+    }
+    id body = message.body;
+    NSString *text = nil;
+    if ([body isKindOfClass:[NSString class]]) {
+        text = (NSString *)body;
+    } else if (body != nil) {
+        text = [body description];
+    }
+    const char *utf8 = text != nil ? [text UTF8String] : NULL;
+    if (utf8 == NULL || utf8[0] == '\0') {
+        return;
+    }
+    browserPaneDarwinHandleScriptMessage(self.callbackID, utf8);
+}
+
 @end
 
 @implementation BrowserPaneController
@@ -37,7 +68,7 @@ static char *browserPaneCopyNSErrorMessage(NSError *error, const char *fallback)
     return strdup(fallback);
 }
 
-static void *browserPaneCreate(void) {
+static void *browserPaneCreate(unsigned long long callbackID, const char *resourceScript) {
     __block BrowserPaneController *pane = nil;
     dispatch_sync(dispatch_get_main_queue(), ^{
         @autoreleasepool {
@@ -49,13 +80,27 @@ static void *browserPaneCreate(void) {
                 return;
             }
 
+            WKUserContentController *userContentController = [[WKUserContentController alloc] init];
+            BrowserPaneMessageHandler *messageHandler = [[BrowserPaneMessageHandler alloc] init];
+            messageHandler.callbackID = callbackID;
+            [userContentController addScriptMessageHandler:messageHandler name:@"wailsBrowserPane"];
+            if (resourceScript != NULL && resourceScript[0] != '\0') {
+                NSString *scriptSource = [NSString stringWithUTF8String:resourceScript];
+                if (scriptSource != nil) {
+                    WKUserScript *userScript = [[WKUserScript alloc] initWithSource:scriptSource injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:NO];
+                    [userContentController addUserScript:userScript];
+                }
+            }
+
             WKWebViewConfiguration *config = [[WKWebViewConfiguration alloc] init];
+            config.userContentController = userContentController;
             WKWebView *webView = [[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 1, 1) configuration:config];
             [webView setHidden:YES];
 
             pane = [[BrowserPaneController alloc] init];
             pane.parentWindow = parent;
             pane.webView = webView;
+            pane.messageHandler = messageHandler;
 
             NSView *contentView = [parent contentView];
             [contentView addSubview:webView positioned:NSWindowAbove relativeTo:nil];
@@ -316,8 +361,13 @@ static void browserPaneDispose(void *ptr) {
         @autoreleasepool {
             BrowserPaneController *pane = (__bridge_transfer BrowserPaneController *)ptr;
             if (pane.webView) {
+                [[pane.webView.configuration userContentController] removeScriptMessageHandlerForName:@"wailsBrowserPane"];
                 [pane.webView removeFromSuperview];
                 pane.webView = nil;
+            }
+            if (pane.messageHandler) {
+                pane.messageHandler.callbackID = 0;
+                pane.messageHandler = nil;
             }
             pane.parentWindow = nil;
         }
@@ -333,16 +383,24 @@ import (
 )
 
 type darwinPane struct {
-	mu     sync.Mutex
-	handle unsafe.Pointer
+	mu                sync.Mutex
+	handle            unsafe.Pointer
+	messageCallbackID uint64
 }
 
-func newPlatformPane(_ Update, _ func(string)) (pane, error) {
-	handle := C.browserPaneCreate()
+func newPlatformPane(_ Update, onResourcesChanged func(string)) (pane, error) {
+	messageCallbackID := registerBrowserPaneMessageCallback(func(message string) {
+		handleBrowserPaneBridgeMessage(message, onResourcesChanged)
+	})
+	resourceScript := C.CString(browserPaneInjectedResourceTrackerScript())
+	defer C.free(unsafe.Pointer(resourceScript))
+
+	handle := C.browserPaneCreate(C.ulonglong(messageCallbackID), resourceScript)
 	if handle == nil {
+		unregisterBrowserPaneMessageCallback(messageCallbackID)
 		return nil, fmt.Errorf("macOS main window not available")
 	}
-	return &darwinPane{handle: handle}, nil
+	return &darwinPane{handle: handle, messageCallbackID: messageCallbackID}, nil
 }
 
 func (p *darwinPane) Sync(update Update) error {
@@ -405,9 +463,13 @@ func (p *darwinPane) Dispose() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.handle == nil {
+		unregisterBrowserPaneMessageCallback(p.messageCallbackID)
+		p.messageCallbackID = 0
 		return nil
 	}
 	C.browserPaneDispose(p.handle)
 	p.handle = nil
+	unregisterBrowserPaneMessageCallback(p.messageCallbackID)
+	p.messageCallbackID = 0
 	return nil
 }

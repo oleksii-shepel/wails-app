@@ -16,7 +16,21 @@ interface RemoteConnectDialogRequest {
   initialName?: string;
 }
 
+type S3ProviderPresetId = 'aws' | 'minio' | 'cloudflare-r2' | 'wasabi' | 'backblaze-b2' | 'custom';
+
+interface S3ProviderPreset {
+  id: S3ProviderPresetId;
+  label: string;
+  description: string;
+  endpoint: string;
+  endpointPlaceholder: string;
+  region: string;
+  usePathStyle: boolean;
+  endpointRequired: boolean;
+}
+
 interface RemoteConnectFormModel {
+  provider: S3ProviderPresetId;
   name: string;
   endpoint: string;
   region: string;
@@ -29,6 +43,73 @@ interface RemoteConnectFormModel {
   usePathStyle: boolean;
   insecure: boolean;
 }
+
+const S3_PROVIDER_PRESETS: readonly S3ProviderPreset[] = [
+  {
+    id: 'aws',
+    label: 'AWS S3',
+    description: 'Uses AWS-managed endpoints. Leave endpoint blank unless you need a custom gateway.',
+    endpoint: '',
+    endpointPlaceholder: 'Optional for AWS S3',
+    region: 'us-east-1',
+    usePathStyle: false,
+    endpointRequired: false,
+  },
+  {
+    id: 'minio',
+    label: 'MinIO',
+    description: 'Uses an explicit MinIO server endpoint and path-style URLs by default.',
+    endpoint: 'https://play.min.io',
+    endpointPlaceholder: 'https://play.min.io',
+    region: 'us-east-1',
+    usePathStyle: true,
+    endpointRequired: true,
+  },
+  {
+    id: 'cloudflare-r2',
+    label: 'Cloudflare R2',
+    description: 'Requires your account-specific endpoint and usually uses the auto region.',
+    endpoint: '',
+    endpointPlaceholder: 'https://<accountid>.r2.cloudflarestorage.com',
+    region: 'auto',
+    usePathStyle: false,
+    endpointRequired: true,
+  },
+  {
+    id: 'wasabi',
+    label: 'Wasabi',
+    description: 'Uses a Wasabi S3 endpoint. Adjust region and endpoint if your bucket lives elsewhere.',
+    endpoint: 'https://s3.us-east-1.wasabisys.com',
+    endpointPlaceholder: 'https://s3.us-east-1.wasabisys.com',
+    region: 'us-east-1',
+    usePathStyle: false,
+    endpointRequired: true,
+  },
+  {
+    id: 'backblaze-b2',
+    label: 'Backblaze B2 S3',
+    description: 'Uses the Backblaze S3-compatible endpoint for a specific region.',
+    endpoint: 'https://s3.us-west-004.backblazeb2.com',
+    endpointPlaceholder: 'https://s3.us-west-004.backblazeb2.com',
+    region: 'us-west-004',
+    usePathStyle: false,
+    endpointRequired: true,
+  },
+  {
+    id: 'custom',
+    label: 'Custom S3-Compatible',
+    description: 'For Ceph, local gateways, and other S3-compatible APIs that need a manual endpoint.',
+    endpoint: '',
+    endpointPlaceholder: 'https://storage.example.com',
+    region: 'us-east-1',
+    usePathStyle: false,
+    endpointRequired: true,
+  },
+];
+
+const S3_PROVIDER_PRESET_MAP = new Map<S3ProviderPresetId, S3ProviderPreset>(
+  S3_PROVIDER_PRESETS.map((preset) => [preset.id, preset]),
+);
 
 @Component({
   selector: 'app-remote-connect-dialog',
@@ -50,7 +131,7 @@ interface RemoteConnectFormModel {
         >
           <header class="remote-connect-header">
             <div>
-              <h2>S3 / MinIO Mount</h2>
+              <h2>S3-Compatible Mount</h2>
               <p>Create a session-only mount and open it in the active pane.</p>
             </div>
             <button type="button" class="dialog-close-btn" aria-label="Close" (click)="onCancel()" title="Close">
@@ -62,11 +143,19 @@ interface RemoteConnectFormModel {
             <section class="remote-connect-form-section">
               <div class="section-heading">
                 <h3>Connection</h3>
-                <span class="section-hint">Use anonymous mode for public buckets, or leave credentials blank to use the default AWS credential chain.</span>
+                <span class="section-hint">Pick a provider preset, then adjust endpoint, region, bucket, and credentials as needed.</span>
               </div>
 
               <div class="remote-grid">
                 <label class="field field--full">
+                  <span>Provider</span>
+                  <select [(ngModel)]="form.provider" (ngModelChange)="onProviderChange($event)">
+                    <option *ngFor="let preset of providerPresets" [ngValue]="preset.id">{{ preset.label }}</option>
+                  </select>
+                  <small>{{ selectedProvider.description }}</small>
+                </label>
+
+                <label class="field">
                   <span>Alias <small>(Shown as s3://alias)</small></span>
                   <input
                     data-dialog-initial-focus
@@ -78,12 +167,22 @@ interface RemoteConnectFormModel {
                 </label>
 
                 <label class="field">
-                  <span>Endpoint <small>(Optional for AWS S3)</small></span>
+                  <span>Bucket</span>
+                  <input
+                    type="text"
+                    [(ngModel)]="form.bucket"
+                    (ngModelChange)="clearError()"
+                    placeholder="bucket-name"
+                  />
+                </label>
+
+                <label class="field">
+                  <span>Endpoint <small>{{ selectedProvider.endpointRequired ? 'Required for this preset' : 'Optional' }}</small></span>
                   <input
                     type="text"
                     [(ngModel)]="form.endpoint"
                     (ngModelChange)="clearError()"
-                    placeholder="https://play.min.io"
+                    [placeholder]="selectedProvider.endpointPlaceholder"
                   />
                 </label>
 
@@ -93,17 +192,7 @@ interface RemoteConnectFormModel {
                     type="text"
                     [(ngModel)]="form.region"
                     (ngModelChange)="clearError()"
-                    placeholder="us-east-1"
-                  />
-                </label>
-
-                <label class="field">
-                  <span>Bucket</span>
-                  <input
-                    type="text"
-                    [(ngModel)]="form.bucket"
-                    (ngModelChange)="clearError()"
-                    placeholder="bucket-name"
+                    [placeholder]="selectedProvider.region || 'us-east-1'"
                   />
                 </label>
 
@@ -175,8 +264,8 @@ interface RemoteConnectFormModel {
 
             <aside class="remote-connect-side">
               <div class="section-heading">
-                <h3>Active S3 Mounts</h3>
-                <button type="button" class="btn secondary" style="min-height: 24px; padding: 2px 8px; font-size: 11px;" [disabled]="isRefreshing" (click)="refreshConnections()">
+                <h3>Active S3-Compatible Mounts</h3>
+                <button type="button" class="btn secondary btn-utility" [disabled]="isRefreshing" (click)="refreshConnections()">
                   {{ isRefreshing ? '...' : 'Refresh' }}
                 </button>
               </div>
@@ -204,8 +293,7 @@ interface RemoteConnectFormModel {
                     <span *ngIf="mount.readOnly" class="read-only-badge">Read only</span>
                     <button
                       type="button"
-                      class="btn secondary"
-                      style="min-height: 24px; padding: 2px 8px; font-size: 11px;"
+                      class="btn secondary btn-utility"
                       [disabled]="disconnectingMounts.has(mount.mountPoint)"
                       (click)="disconnectMount(mount, $event)"
                     >
@@ -225,6 +313,7 @@ export class RemoteConnectDialogComponent {
   @ViewChild('dialogPanel') private dialogPanel?: ElementRef<HTMLElement>;
 
   readonly request$: Stream<RemoteConnectDialogRequest | null> = this.remoteConnectDialog.activeRequest$;
+  readonly providerPresets = S3_PROVIDER_PRESETS;
 
   form: RemoteConnectFormModel = this.createDefaultForm();
   connections: contracts.RemoteMount[] = [];
@@ -292,8 +381,25 @@ export class RemoteConnectDialogComponent {
     this.destroy$.complete();
   }
 
+  get selectedProvider(): S3ProviderPreset {
+    return S3_PROVIDER_PRESET_MAP.get(this.form.provider) ?? S3_PROVIDER_PRESETS[0];
+  }
+
   clearError(): void {
     this.errorMessage = '';
+  }
+
+  onProviderChange(provider: S3ProviderPresetId): void {
+    const preset = S3_PROVIDER_PRESET_MAP.get(provider);
+    if (!preset) {
+      return;
+    }
+
+    this.form.provider = provider;
+    this.form.endpoint = preset.endpoint;
+    this.form.region = preset.region;
+    this.form.usePathStyle = preset.usePathStyle;
+    this.clearError();
   }
 
   onCancel(): void {
@@ -380,6 +486,10 @@ export class RemoteConnectDialogComponent {
       return 'Bucket is required.';
     }
 
+    if (this.selectedProvider.endpointRequired && !this.form.endpoint.trim()) {
+      return 'Endpoint is required for the selected provider preset.';
+    }
+
     const hasAccessKey = this.form.accessKeyId.trim().length > 0;
     const hasSecretKey = this.form.secretAccessKey.trim().length > 0;
     if (hasAccessKey !== hasSecretKey) {
@@ -399,6 +509,7 @@ export class RemoteConnectDialogComponent {
 
   private createDefaultForm(): RemoteConnectFormModel {
     return {
+      provider: 'aws',
       name: '',
       endpoint: '',
       region: 'us-east-1',

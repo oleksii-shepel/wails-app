@@ -154,12 +154,17 @@ type State struct {
 	archCache       *cache.Cache
 	remotesMu       sync.Mutex
 	remotes         map[string]contracts.RemoteMount // keyed by VFS mount point
+	remoteOAuthMu   sync.Mutex
+	remoteOAuth     map[string]*remoteOAuthSession // keyed by session id
+	remoteOAuthRefs map[string]string              // keyed by VFS mount point
 }
 
 func NewState(core *Core) *State {
 	return &State{
-		Operations: core.Operations,
-		archCache:  core.ArchiveCache,
-		remotes:    make(map[string]contracts.RemoteMount),
+		Operations:      core.Operations,
+		archCache:       core.ArchiveCache,
+		remotes:         make(map[string]contracts.RemoteMount),
+		remoteOAuth:     make(map[string]*remoteOAuthSession),
+		remoteOAuthRefs: make(map[string]string),
 	}
 }

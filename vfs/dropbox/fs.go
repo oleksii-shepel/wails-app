@@ -25,12 +25,13 @@ const (
 // Config holds Dropbox connection parameters.
 type Config struct {
 	AccessToken string
+	TokenSource cloudutil.AccessTokenSource
 }
 
 // FS implements vfs.FileSystem over the Dropbox file API.
 type FS struct {
 	client      *http.Client
-	accessToken string
+	tokenSource cloudutil.AccessTokenSource
 }
 
 var _ vfs.FileSystem = (*FS)(nil)
@@ -50,14 +51,18 @@ type listFolderResponse struct {
 }
 
 func New(ctx context.Context, cfg Config) (*FS, error) {
-	token := strings.TrimSpace(cfg.AccessToken)
-	if token == "" {
-		return nil, fmt.Errorf("dropbox: access token is required")
+	source := cfg.TokenSource
+	if source == nil {
+		var err error
+		source, err = cloudutil.NewStaticAccessTokenSource(cfg.AccessToken)
+		if err != nil {
+			return nil, fmt.Errorf("dropbox: %w", err)
+		}
 	}
 
 	fs := &FS{
 		client:      &http.Client{Timeout: 60 * time.Second},
-		accessToken: token,
+		tokenSource: source,
 	}
 	if _, err := fs.listFolder(ctx, ""); err != nil {
 		return nil, err
@@ -226,7 +231,11 @@ func (f *FS) newRequest(ctx context.Context, method string, endpoint string, bod
 	if err != nil {
 		return nil, err
 	}
-	request.Header.Set("Authorization", "Bearer "+f.accessToken)
+	token, err := f.tokenSource.AccessToken(ctx)
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Authorization", "Bearer "+token)
 	for key, value := range headers {
 		request.Header.Set(key, value)
 	}

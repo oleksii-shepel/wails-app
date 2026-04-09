@@ -390,12 +390,28 @@ export function RemoteConnect(arg1) {
   return window['go']['app']['App']['RemoteConnect'](arg1);
 }
 
+export function RemoteConnectOAuth(arg1) {
+  return window['go']['app']['App']['RemoteConnectOAuth'](arg1);
+}
+
 export function RemoteDisconnect(arg1) {
   return window['go']['app']['App']['RemoteDisconnect'](arg1);
 }
 
 export function RemoteListConnections() {
   return window['go']['app']['App']['RemoteListConnections']();
+}
+
+export function RemoteOAuthBegin(arg1) {
+  return window['go']['app']['App']['RemoteOAuthBegin'](arg1);
+}
+
+export function RemoteOAuthCancel(arg1) {
+  return window['go']['app']['App']['RemoteOAuthCancel'](arg1);
+}
+
+export function RemoteOAuthStatus(arg1) {
+  return window['go']['app']['App']['RemoteOAuthStatus'](arg1);
 }
 
 export function ResolveConflict(arg1, arg2, arg3) {

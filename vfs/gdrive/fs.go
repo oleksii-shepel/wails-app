@@ -24,12 +24,13 @@ const apiBaseURL = "https://www.googleapis.com/drive/v3"
 // Config holds Google Drive connection parameters.
 type Config struct {
 	AccessToken string
+	TokenSource cloudutil.AccessTokenSource
 }
 
 // FS implements vfs.FileSystem over the Google Drive API.
 type FS struct {
 	client        *http.Client
-	accessToken   string
+	tokenSource   cloudutil.AccessTokenSource
 	rootName      string
 	childrenMu    sync.RWMutex
 	childrenCache map[string][]fileMetadata
@@ -57,14 +58,18 @@ type listResponse struct {
 }
 
 func New(ctx context.Context, cfg Config) (*FS, error) {
-	token := strings.TrimSpace(cfg.AccessToken)
-	if token == "" {
-		return nil, fmt.Errorf("gdrive: access token is required")
+	source := cfg.TokenSource
+	if source == nil {
+		var err error
+		source, err = cloudutil.NewStaticAccessTokenSource(cfg.AccessToken)
+		if err != nil {
+			return nil, fmt.Errorf("gdrive: %w", err)
+		}
 	}
 
 	fs := &FS{
 		client:        &http.Client{Timeout: 60 * time.Second},
-		accessToken:   token,
+		tokenSource:   source,
 		childrenCache: make(map[string][]fileMetadata),
 	}
 
@@ -290,7 +295,11 @@ func (f *FS) newRequest(ctx context.Context, method string, endpoint string) (*h
 	if err != nil {
 		return nil, err
 	}
-	request.Header.Set("Authorization", "Bearer "+f.accessToken)
+	token, err := f.tokenSource.AccessToken(ctx)
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Authorization", "Bearer "+token)
 	return request, nil
 }
 

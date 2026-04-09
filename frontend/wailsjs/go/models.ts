@@ -1087,6 +1087,80 @@ export namespace contracts {
 	        this.accessToken = source["accessToken"];
 	    }
 	}
+	export class RemoteOAuthBeginRequest {
+	    protocol: string;
+	    clientId: string;
+	    tenant?: string;
+	    scopes?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new RemoteOAuthBeginRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.protocol = source["protocol"];
+	        this.clientId = source["clientId"];
+	        this.tenant = source["tenant"];
+	        this.scopes = source["scopes"];
+	    }
+	}
+	export class RemoteOAuthBeginResponse {
+	    sessionId: string;
+	    protocol: string;
+	    authUrl: string;
+	    redirectUri: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RemoteOAuthBeginResponse(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sessionId = source["sessionId"];
+	        this.protocol = source["protocol"];
+	        this.authUrl = source["authUrl"];
+	        this.redirectUri = source["redirectUri"];
+	    }
+	}
+	export class RemoteOAuthStatus {
+	    sessionId: string;
+	    protocol: string;
+	    status: string;
+	    error?: string;
+	    accountName?: string;
+	    accountEmail?: string;
+	    expiresAt?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new RemoteOAuthStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sessionId = source["sessionId"];
+	        this.protocol = source["protocol"];
+	        this.status = source["status"];
+	        this.error = source["error"];
+	        this.accountName = source["accountName"];
+	        this.accountEmail = source["accountEmail"];
+	        this.expiresAt = source["expiresAt"];
+	    }
+	}
+	export class RemoteOAuthConnectRequest {
+	    sessionId: string;
+	    name?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RemoteOAuthConnectRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sessionId = source["sessionId"];
+	        this.name = source["name"];
+	    }
+	}
 	export class RemoteMount {
 	    protocol: string;
 	    host: string;
@@ -1383,4 +1457,3 @@ export namespace utility {
 	}
 
 }
-

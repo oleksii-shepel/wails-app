@@ -263,6 +263,55 @@
   white-space: pre-line;
 }
 
+.info-banner,
+.success-banner {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-radius: var(--vsc-border-radius-sm);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.info-banner {
+  border: 1px solid color-mix(in srgb, var(--vsc-accent-blue) 26%, transparent);
+  background: color-mix(in srgb, var(--vsc-accent-blue) 10%, transparent);
+  color: var(--vsc-foreground);
+}
+
+.success-banner {
+  border: 1px solid color-mix(in srgb, var(--vsc-accent-green) 26%, transparent);
+  background: color-mix(in srgb, var(--vsc-accent-green) 10%, transparent);
+  color: var(--vsc-foreground);
+}
+
+.oauth-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--vsc-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--vsc-panel-background) 82%, var(--vsc-editor-background));
+}
+
+.oauth-panel-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.oauth-panel-copy strong {
+  color: var(--vsc-foreground-bright);
+  font-size: 12px;
+}
+
+.oauth-panel-copy small {
+  color: var(--vsc-foreground-dim);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .actions {
   display: flex;
   justify-content: flex-end;
@@ -530,5 +579,10 @@
 
   .actions .btn {
     flex: 1 1 140px;
+  }
+
+  .oauth-panel {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }

@@ -228,12 +228,28 @@ export class ApiService {
 	    return castProtocol<contracts.RemoteMount>(await window.go.app.App.RemoteConnect(config));
   }
 
+  async remoteConnectOAuth(request: contracts.RemoteOAuthConnectRequest): Promise<contracts.RemoteMount> {
+	    return castProtocol<contracts.RemoteMount>(await window.go.app.App.RemoteConnectOAuth(request));
+  }
+
   async remoteDisconnect(mountPoint: string): Promise<void> {
 	    await window.go.app.App.RemoteDisconnect(mountPoint);
   }
 
   async remoteListConnections(): Promise<contracts.RemoteMount[]> {
 	    return castProtocol<contracts.RemoteMount[]>(await window.go.app.App.RemoteListConnections());
+  }
+
+  async remoteOAuthBegin(request: contracts.RemoteOAuthBeginRequest): Promise<contracts.RemoteOAuthBeginResponse> {
+	    return castProtocol<contracts.RemoteOAuthBeginResponse>(await window.go.app.App.RemoteOAuthBegin(request));
+  }
+
+  async remoteOAuthStatus(sessionId: string): Promise<contracts.RemoteOAuthStatus> {
+	    return castProtocol<contracts.RemoteOAuthStatus>(await window.go.app.App.RemoteOAuthStatus(sessionId));
+  }
+
+  async remoteOAuthCancel(sessionId: string): Promise<void> {
+	    await window.go.app.App.RemoteOAuthCancel(sessionId);
   }
 
   // ============================================================================

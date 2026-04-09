@@ -9,6 +9,7 @@ func (s *State) Startup(ctx context.Context) {
 }
 
 func (s *State) Shutdown() {
+	s.shutdownRemoteOAuthSessions()
 	if s.Runtime != nil {
 		s.Runtime.Shutdown()
 	}

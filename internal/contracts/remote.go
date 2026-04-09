@@ -42,6 +42,43 @@ type RemoteConfig struct {
 	AccessToken string `json:"accessToken,omitempty"`
 }
 
+// RemoteOAuthBeginRequest starts an interactive browser-based OAuth flow for a
+// cloud provider. Client credentials remain session-only and are never written
+// to disk.
+type RemoteOAuthBeginRequest struct {
+	Protocol RemoteProtocol `json:"protocol"`
+	ClientID string         `json:"clientId"`
+	Tenant   string         `json:"tenant,omitempty"`
+	Scopes   []string       `json:"scopes,omitempty"`
+}
+
+// RemoteOAuthBeginResponse describes the browser flow that should be opened by
+// the frontend.
+type RemoteOAuthBeginResponse struct {
+	SessionID   string         `json:"sessionId"`
+	Protocol    RemoteProtocol `json:"protocol"`
+	AuthURL     string         `json:"authUrl"`
+	RedirectURI string         `json:"redirectUri"`
+}
+
+// RemoteOAuthStatus reports the current state of a browser-based OAuth
+// session.
+type RemoteOAuthStatus struct {
+	SessionID    string         `json:"sessionId"`
+	Protocol     RemoteProtocol `json:"protocol"`
+	Status       string         `json:"status"`
+	Error        string         `json:"error,omitempty"`
+	AccountName  string         `json:"accountName,omitempty"`
+	AccountEmail string         `json:"accountEmail,omitempty"`
+	ExpiresAt    int64          `json:"expiresAt,omitempty"`
+}
+
+// RemoteOAuthConnectRequest mounts a previously authorized OAuth session.
+type RemoteOAuthConnectRequest struct {
+	SessionID string `json:"sessionId"`
+	Name      string `json:"name,omitempty"`
+}
+
 // RemoteMount describes an active remote filesystem mount.
 type RemoteMount struct {
 	Protocol   RemoteProtocol `json:"protocol"`

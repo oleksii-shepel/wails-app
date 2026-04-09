@@ -10,6 +10,7 @@ import (
 	contracts "wails-app/internal/contracts"
 	"wails-app/internal/pathref"
 	vfslib "wails-app/vfs"
+	"wails-app/vfs/cloudutil"
 	vfsdropbox "wails-app/vfs/dropbox"
 	vfsgdrive "wails-app/vfs/gdrive"
 	vfsonedrive "wails-app/vfs/onedrive"
@@ -23,6 +24,10 @@ var remoteMountSegmentPattern = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
 // resulting filesystem in the VFS, and returns metadata about the mount.
 // The public path (e.g. "smb://host/share") can be used for navigation immediately.
 func (s *State) RemoteConnect(cfg contracts.RemoteConfig) (*contracts.RemoteMount, error) {
+	return s.remoteConnect(cfg, nil)
+}
+
+func (s *State) remoteConnect(cfg contracts.RemoteConfig, tokenSource cloudutil.AccessTokenSource) (*contracts.RemoteMount, error) {
 	if s.vfs == nil {
 		return nil, fmt.Errorf("vfs not initialized")
 	}
@@ -71,14 +76,17 @@ func (s *State) RemoteConnect(cfg contracts.RemoteConfig) (*contracts.RemoteMoun
 	case contracts.ProtocolGDrive:
 		remoteFS, err = vfsgdrive.New(ctx, vfsgdrive.Config{
 			AccessToken: cfg.AccessToken,
+			TokenSource: tokenSource,
 		})
 	case contracts.ProtocolDropbox:
 		remoteFS, err = vfsdropbox.New(ctx, vfsdropbox.Config{
 			AccessToken: cfg.AccessToken,
+			TokenSource: tokenSource,
 		})
 	case contracts.ProtocolOneDrive:
 		remoteFS, err = vfsonedrive.New(ctx, vfsonedrive.Config{
 			AccessToken: cfg.AccessToken,
+			TokenSource: tokenSource,
 		})
 
 	default:
@@ -125,6 +133,7 @@ func (s *State) RemoteDisconnect(mountPoint string) error {
 	s.remotesMu.Lock()
 	delete(s.remotes, mountPoint)
 	s.remotesMu.Unlock()
+	s.releaseRemoteOAuthMount(mountPoint)
 	return nil
 }
 

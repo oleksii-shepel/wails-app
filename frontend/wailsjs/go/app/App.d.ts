@@ -202,9 +202,17 @@ export function RegisterDropListener():Promise<void>;
 
 export function RemoteConnect(arg1:contracts.RemoteConfig):Promise<contracts.RemoteMount>;
 
+export function RemoteConnectOAuth(arg1:contracts.RemoteOAuthConnectRequest):Promise<contracts.RemoteMount>;
+
 export function RemoteDisconnect(arg1:string):Promise<void>;
 
 export function RemoteListConnections():Promise<Array<contracts.RemoteMount>>;
+
+export function RemoteOAuthBegin(arg1:contracts.RemoteOAuthBeginRequest):Promise<contracts.RemoteOAuthBeginResponse>;
+
+export function RemoteOAuthCancel(arg1:string):Promise<void>;
+
+export function RemoteOAuthStatus(arg1:string):Promise<contracts.RemoteOAuthStatus>;
 
 export function ResolveConflict(arg1:string,arg2:contracts.ConflictResolution,arg3:boolean):Promise<boolean>;
 

@@ -2,6 +2,7 @@ import { CommonModule } from '@angular/common';
 import { Component, ElementRef, ViewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { createSubject, takeUntil, type Stream } from '@epikodelabs/streamix';
+import { BrowserOpenURL } from 'wailsjs/runtime';
 import { contracts } from '../../../wailsjs/go/models';
 import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.directive';
 import { moveFocusWithin } from '../directives/focus-trap.utils';
@@ -18,6 +19,8 @@ interface RemoteConnectDialogRequest {
 }
 
 type RemoteProtocolId = 's3' | 'gdrive' | 'dropbox' | 'onedrive';
+type CloudCredentialMode = 'oauth' | 'token';
+type RemoteOAuthStatusId = 'idle' | 'pending' | 'complete' | 'failed';
 type S3ProviderPresetId = 'aws' | 'minio' | 'cloudflare-r2' | 'wasabi' | 'backblaze-b2' | 'custom';
 
 interface RemoteProtocolPreset {
@@ -27,6 +30,7 @@ interface RemoteProtocolPreset {
   aliasLabel: string;
   credentialLabel: string;
   credentialPlaceholder: string;
+  oauthClientLabel?: string;
 }
 
 interface S3ProviderPreset {
@@ -43,6 +47,7 @@ interface S3ProviderPreset {
 interface RemoteConnectFormModel {
   protocol: RemoteProtocolId;
   provider: S3ProviderPresetId;
+  authMode: CloudCredentialMode;
   name: string;
   endpoint: string;
   region: string;
@@ -55,6 +60,8 @@ interface RemoteConnectFormModel {
   usePathStyle: boolean;
   insecure: boolean;
   accessToken: string;
+  clientId: string;
+  tenant: string;
 }
 
 const REMOTE_PROTOCOL_PRESETS: readonly RemoteProtocolPreset[] = [
@@ -69,26 +76,29 @@ const REMOTE_PROTOCOL_PRESETS: readonly RemoteProtocolPreset[] = [
   {
     id: 'gdrive',
     label: 'Google Drive',
-    description: 'Mounts Google Drive using a bearer access token for the Drive API.',
+    description: 'Mounts Google Drive through a browser-based OAuth sign-in or a pre-issued bearer token.',
     aliasLabel: 'gdrive://alias',
     credentialLabel: 'Access Token',
     credentialPlaceholder: 'Google OAuth access token',
+    oauthClientLabel: 'Google desktop client ID',
   },
   {
     id: 'dropbox',
     label: 'Dropbox',
-    description: 'Mounts Dropbox using a bearer access token for the Dropbox file API.',
+    description: 'Mounts Dropbox through a browser-based OAuth sign-in or a pre-issued bearer token.',
     aliasLabel: 'dropbox://alias',
     credentialLabel: 'Access Token',
     credentialPlaceholder: 'Dropbox access token',
+    oauthClientLabel: 'Dropbox app key',
   },
   {
     id: 'onedrive',
     label: 'OneDrive',
-    description: 'Mounts OneDrive using a bearer access token for Microsoft Graph.',
+    description: 'Mounts OneDrive through Microsoft browser sign-in or a pre-issued Graph access token.',
     aliasLabel: 'onedrive://alias',
     credentialLabel: 'Access Token',
     credentialPlaceholder: 'Microsoft Graph access token',
+    oauthClientLabel: 'Microsoft application client ID',
   },
 ];
 
@@ -225,7 +235,7 @@ const S3_PROVIDER_PRESET_MAP = new Map<S3ProviderPresetId, S3ProviderPreset>(
                   />
                 </label>
 
-                <ng-container *ngIf="isS3Protocol; else tokenFields">
+                <ng-container *ngIf="isS3Protocol; else cloudFields">
                   <label class="field">
                     <span>Bucket</span>
                     <input
@@ -297,17 +307,72 @@ const S3_PROVIDER_PRESET_MAP = new Map<S3ProviderPresetId, S3ProviderPreset>(
                   </label>
                 </ng-container>
 
-                <ng-template #tokenFields>
-                  <label class="field field--full">
-                    <span>{{ selectedProtocol.credentialLabel }}</span>
-                    <input
-                      type="password"
-                      [(ngModel)]="form.accessToken"
-                      (ngModelChange)="clearError()"
-                      [placeholder]="selectedProtocol.credentialPlaceholder"
-                    />
-                    <small>Stored in memory only for this app session.</small>
+                <ng-template #cloudFields>
+                  <label class="field">
+                    <span>Sign-In Method</span>
+                    <select [(ngModel)]="form.authMode" (ngModelChange)="onAuthModeChange($event)">
+                      <option [ngValue]="'oauth'">Browser Sign-In</option>
+                      <option [ngValue]="'token'">Existing Access Token</option>
+                    </select>
                   </label>
+
+                  <ng-container *ngIf="form.authMode === 'oauth'; else cloudTokenFields">
+                    <label class="field field--full">
+                      <span>{{ selectedProtocol.oauthClientLabel || 'Client ID' }}</span>
+                      <input
+                        type="text"
+                        [(ngModel)]="form.clientId"
+                        (ngModelChange)="onOAuthInputChange()"
+                        placeholder="Paste the provider client ID"
+                      />
+                      <small>Register a native or desktop app with the provider, then paste its public client ID here.</small>
+                    </label>
+
+                    <label *ngIf="form.protocol === 'onedrive'" class="field field--full">
+                      <span>Tenant <small>(Optional)</small></span>
+                      <input
+                        type="text"
+                        [(ngModel)]="form.tenant"
+                        (ngModelChange)="onOAuthInputChange()"
+                        placeholder="common"
+                      />
+                      <small>Use <code>common</code> for personal and work accounts, or a tenant ID for single-tenant registration.</small>
+                    </label>
+
+                    <div class="field field--full">
+                      <span>Browser Authorization</span>
+                      <div class="oauth-panel">
+                        <div class="oauth-panel-copy">
+                          <strong>{{ oauthActionTitle }}</strong>
+                          <small>Opens your default browser and waits for the provider to redirect back to a temporary localhost callback.</small>
+                        </div>
+                        <button type="button" class="btn btn-secondary btn-small" [disabled]="isAuthorizing" (click)="authorizeInBrowser()">
+                          {{ isAuthorizing ? 'Waiting...' : oauthActionButton }}
+                        </button>
+                      </div>
+                    </div>
+
+                    <p *ngIf="oauthStatus === 'pending'" class="info-banner">
+                      Waiting for browser sign-in to complete. The app is listening on {{ oauthRedirectUri || 'localhost' }}.
+                    </p>
+
+                    <p *ngIf="oauthStatus === 'complete'" class="success-banner">
+                      Authorized{{ oauthAccountLabel ? ' as ' + oauthAccountLabel : '' }}. Select Connect to mount it in this session.
+                    </p>
+                  </ng-container>
+
+                  <ng-template #cloudTokenFields>
+                    <label class="field field--full">
+                      <span>{{ selectedProtocol.credentialLabel }}</span>
+                      <input
+                        type="password"
+                        [(ngModel)]="form.accessToken"
+                        (ngModelChange)="clearError()"
+                        [placeholder]="selectedProtocol.credentialPlaceholder"
+                      />
+                      <small>Stored in memory only for this app session.</small>
+                    </label>
+                  </ng-template>
                 </ng-template>
               </div>
 
@@ -330,7 +395,7 @@ const S3_PROVIDER_PRESET_MAP = new Map<S3ProviderPresetId, S3ProviderPreset>(
 
               <div class="actions">
                 <button type="button" class="btn secondary" (click)="onCancel()">Cancel</button>
-                <button type="button" class="btn" [disabled]="isConnecting" (click)="onSubmit()">
+                <button type="button" class="btn" [disabled]="isConnecting || isAuthorizing" (click)="onSubmit()">
                   {{ isConnecting ? 'Connecting...' : 'Connect' }}
                 </button>
               </div>
@@ -397,8 +462,15 @@ export class RemoteConnectDialogComponent {
   isRefreshing = false;
   readonly disconnectingMounts = new Set<string>();
 
+  oauthStatus: RemoteOAuthStatusId = 'idle';
+  oauthSessionId: string | null = null;
+  oauthRedirectUri = '';
+  oauthAccountLabel = '';
+
   private readonly destroy$ = createSubject<void>();
   private releaseDialogContext: (() => void) | null = null;
+  private oauthPollTimer: ReturnType<typeof setTimeout> | null = null;
+  private oauthSessionConnected = false;
 
   constructor(
     private readonly apiService: ApiService,
@@ -420,6 +492,7 @@ export class RemoteConnectDialogComponent {
       .pipe(takeUntil(this.destroy$))
       .subscribe((request) => {
         if (request) {
+          void this.cancelUnusedOAuthSession();
           this.form = this.createDefaultForm();
           if (request.initialProtocol && this.isRemoteProtocol(request.initialProtocol)) {
             this.form.protocol = request.initialProtocol;
@@ -438,6 +511,13 @@ export class RemoteConnectDialogComponent {
           return;
         }
 
+        if (!this.oauthSessionConnected) {
+          void this.cancelUnusedOAuthSession();
+        } else {
+          this.stopOAuthPolling();
+          this.resetOAuthState();
+        }
+        this.oauthSessionConnected = false;
         this.errorMessage = '';
         this.isConnecting = false;
         this.connections = [];
@@ -456,12 +536,17 @@ export class RemoteConnectDialogComponent {
     this.inputEngine.unregisterCommand('dialog.remoteConnect.close');
     this.inputEngine.unregisterCommand('dialog.remoteConnect.focusNext');
     this.inputEngine.unregisterCommand('dialog.remoteConnect.focusPrev');
+    void this.cancelUnusedOAuthSession();
     this.destroy$.next();
     this.destroy$.complete();
   }
 
   get isS3Protocol(): boolean {
     return this.form.protocol === 's3';
+  }
+
+  get isAuthorizing(): boolean {
+    return this.oauthStatus === 'pending';
   }
 
   get selectedProtocol(): RemoteProtocolPreset {
@@ -472,16 +557,48 @@ export class RemoteConnectDialogComponent {
     return S3_PROVIDER_PRESET_MAP.get(this.form.provider) ?? S3_PROVIDER_PRESETS[0];
   }
 
+  get oauthActionTitle(): string {
+    if (this.oauthStatus === 'complete') {
+      return 'Authorization ready';
+    }
+    return 'Browser-based OAuth sign-in';
+  }
+
+  get oauthActionButton(): string {
+    return this.oauthStatus === 'complete' ? 'Re-authorize' : 'Authorize in Browser';
+  }
+
   clearError(): void {
     this.errorMessage = '';
   }
 
   onProtocolChange(protocol: RemoteProtocolId): void {
+    const previousProtocol = this.form.protocol;
     this.form.protocol = protocol;
     if (protocol === 's3') {
       this.onProviderPresetChange(this.form.provider);
+    } else if (previousProtocol !== protocol) {
+      this.form.authMode = 'oauth';
+      this.form.tenant = protocol === 'onedrive' ? 'common' : '';
+      void this.cancelUnusedOAuthSession();
     }
     this.clearError();
+  }
+
+  onAuthModeChange(mode: CloudCredentialMode): void {
+    this.form.authMode = mode;
+    if (mode !== 'oauth') {
+      void this.cancelUnusedOAuthSession();
+    }
+    this.clearError();
+  }
+
+  onOAuthInputChange(): void {
+    if (this.oauthStatus === 'complete' || this.oauthStatus === 'failed') {
+      void this.cancelUnusedOAuthSession();
+    } else {
+      this.clearError();
+    }
   }
 
   onProviderPresetChange(provider: S3ProviderPresetId): void {
@@ -504,6 +621,38 @@ export class RemoteConnectDialogComponent {
     this.remoteConnectDialog.resolveActive(null);
   }
 
+  async authorizeInBrowser(): Promise<void> {
+    if (this.isS3Protocol || this.form.authMode !== 'oauth') {
+      return;
+    }
+
+    const clientId = this.form.clientId.trim();
+    if (!clientId) {
+      this.errorMessage = `${this.selectedProtocol.oauthClientLabel || 'Client ID'} is required before authorizing in the browser.`;
+      return;
+    }
+
+    await this.cancelUnusedOAuthSession();
+    this.clearError();
+    this.oauthStatus = 'pending';
+
+    try {
+      const response = await this.apiService.remoteOAuthBegin(new contracts.RemoteOAuthBeginRequest({
+        protocol: this.form.protocol,
+        clientId,
+        tenant: this.form.protocol === 'onedrive' ? this.normalizeOptionalField(this.form.tenant) : undefined,
+      }));
+      this.oauthSessionId = response.sessionId;
+      this.oauthRedirectUri = response.redirectUri;
+      this.oauthAccountLabel = '';
+      BrowserOpenURL(response.authUrl);
+      this.startOAuthPolling(response.sessionId);
+    } catch (error) {
+      this.oauthStatus = 'failed';
+      this.errorMessage = error instanceof Error ? error.message : String(error);
+    }
+  }
+
   async onSubmit(): Promise<void> {
     const validationError = this.validateForm();
     if (validationError) {
@@ -515,22 +664,31 @@ export class RemoteConnectDialogComponent {
     this.errorMessage = '';
 
     try {
-      const mount = await this.apiService.remoteConnect(new contracts.RemoteConfig({
-        protocol: this.form.protocol,
-        host: '',
-        name: this.form.name.trim(),
-        endpoint: this.isS3Protocol ? this.normalizeOptionalField(this.form.endpoint) : undefined,
-        region: this.isS3Protocol ? (this.normalizeOptionalField(this.form.region) ?? 'us-east-1') : undefined,
-        bucket: this.isS3Protocol ? this.form.bucket.trim() : undefined,
-        prefix: this.isS3Protocol ? this.normalizeOptionalField(this.form.prefix) : undefined,
-        accessKeyId: this.isS3Protocol ? this.normalizeOptionalField(this.form.accessKeyId) : undefined,
-        secretAccessKey: this.isS3Protocol ? this.normalizeOptionalField(this.form.secretAccessKey) : undefined,
-        sessionToken: this.isS3Protocol ? this.normalizeOptionalField(this.form.sessionToken) : undefined,
-        anonymous: this.isS3Protocol ? this.form.anonymous : undefined,
-        usePathStyle: this.isS3Protocol ? this.form.usePathStyle : undefined,
-        insecure: this.isS3Protocol ? this.form.insecure : undefined,
-        accessToken: !this.isS3Protocol ? this.normalizeOptionalField(this.form.accessToken) : undefined,
-      }));
+      let mount: contracts.RemoteMount;
+      if (!this.isS3Protocol && this.form.authMode === 'oauth') {
+        mount = await this.apiService.remoteConnectOAuth(new contracts.RemoteOAuthConnectRequest({
+          sessionId: this.oauthSessionId!,
+          name: this.form.name.trim(),
+        }));
+        this.oauthSessionConnected = true;
+      } else {
+        mount = await this.apiService.remoteConnect(new contracts.RemoteConfig({
+          protocol: this.form.protocol,
+          host: '',
+          name: this.form.name.trim(),
+          endpoint: this.isS3Protocol ? this.normalizeOptionalField(this.form.endpoint) : undefined,
+          region: this.isS3Protocol ? (this.normalizeOptionalField(this.form.region) ?? 'us-east-1') : undefined,
+          bucket: this.isS3Protocol ? this.form.bucket.trim() : undefined,
+          prefix: this.isS3Protocol ? this.normalizeOptionalField(this.form.prefix) : undefined,
+          accessKeyId: this.isS3Protocol ? this.normalizeOptionalField(this.form.accessKeyId) : undefined,
+          secretAccessKey: this.isS3Protocol ? this.normalizeOptionalField(this.form.secretAccessKey) : undefined,
+          sessionToken: this.isS3Protocol ? this.normalizeOptionalField(this.form.sessionToken) : undefined,
+          anonymous: this.isS3Protocol ? this.form.anonymous : undefined,
+          usePathStyle: this.isS3Protocol ? this.form.usePathStyle : undefined,
+          insecure: this.isS3Protocol ? this.form.insecure : undefined,
+          accessToken: !this.isS3Protocol ? this.normalizeOptionalField(this.form.accessToken) : undefined,
+        }));
+      }
       this.remoteConnectDialog.resolveActive(mount);
     } catch (error) {
       this.errorMessage = error instanceof Error ? error.message : String(error);
@@ -603,6 +761,16 @@ export class RemoteConnectDialogComponent {
       return null;
     }
 
+    if (this.form.authMode === 'oauth') {
+      if (!this.form.clientId.trim()) {
+        return `${this.selectedProtocol.oauthClientLabel || 'Client ID'} is required.`;
+      }
+      if (!this.oauthSessionId || this.oauthStatus !== 'complete') {
+        return 'Authorize this provider in the browser before connecting.';
+      }
+      return null;
+    }
+
     if (!this.form.accessToken.trim()) {
       return `${this.selectedProtocol.credentialLabel} is required.`;
     }
@@ -618,6 +786,7 @@ export class RemoteConnectDialogComponent {
     return {
       protocol: 's3',
       provider: 'aws',
+      authMode: 'oauth',
       name: '',
       endpoint: '',
       region: 'us-east-1',
@@ -630,6 +799,8 @@ export class RemoteConnectDialogComponent {
       usePathStyle: false,
       insecure: false,
       accessToken: '',
+      clientId: '',
+      tenant: 'common',
     };
   }
 
@@ -642,5 +813,81 @@ export class RemoteConnectDialogComponent {
 
   private isRemoteProtocol(value: string): value is RemoteProtocolId {
     return value === 's3' || value === 'gdrive' || value === 'dropbox' || value === 'onedrive';
+  }
+
+  private startOAuthPolling(sessionId: string): void {
+    this.stopOAuthPolling();
+    const tick = async (): Promise<void> => {
+      try {
+        const status = await this.apiService.remoteOAuthStatus(sessionId);
+        this.applyOAuthStatus(status);
+        if (status.status === 'pending') {
+          this.oauthPollTimer = window.setTimeout(() => void tick(), 1000);
+        }
+      } catch (error) {
+        this.oauthStatus = 'failed';
+        this.errorMessage = error instanceof Error ? error.message : String(error);
+      }
+    };
+    void tick();
+  }
+
+  private stopOAuthPolling(): void {
+    if (this.oauthPollTimer !== null) {
+      window.clearTimeout(this.oauthPollTimer);
+      this.oauthPollTimer = null;
+    }
+  }
+
+  private applyOAuthStatus(status: contracts.RemoteOAuthStatus): void {
+    this.oauthSessionId = status.sessionId;
+    this.oauthStatus = this.normalizeOAuthStatus(status.status);
+    if (this.oauthStatus === 'complete') {
+      this.oauthAccountLabel = this.formatOAuthAccountLabel(status);
+      this.errorMessage = '';
+      this.stopOAuthPolling();
+      return;
+    }
+    if (this.oauthStatus === 'failed') {
+      this.errorMessage = status.error || 'OAuth authorization failed.';
+      this.stopOAuthPolling();
+    }
+  }
+
+  private formatOAuthAccountLabel(status: contracts.RemoteOAuthStatus): string {
+    const parts = [status.accountName?.trim(), status.accountEmail?.trim()].filter((value): value is string => !!value);
+    if (parts.length === 0) {
+      return '';
+    }
+    if (parts.length === 1 || parts[0] === parts[1]) {
+      return parts[0];
+    }
+    return `${parts[0]} (${parts[1]})`;
+  }
+
+  private normalizeOAuthStatus(value: string): RemoteOAuthStatusId {
+    return value === 'pending' || value === 'complete' || value === 'failed' ? value : 'failed';
+  }
+
+  private async cancelUnusedOAuthSession(): Promise<void> {
+    const sessionId = this.oauthSessionId;
+    this.stopOAuthPolling();
+    if (sessionId && !this.oauthSessionConnected) {
+      try {
+        await this.apiService.remoteOAuthCancel(sessionId);
+      } catch {
+        // Best-effort cleanup only.
+      }
+    }
+    if (!this.oauthSessionConnected) {
+      this.resetOAuthState();
+    }
+  }
+
+  private resetOAuthState(): void {
+    this.oauthStatus = 'idle';
+    this.oauthSessionId = null;
+    this.oauthRedirectUri = '';
+    this.oauthAccountLabel = '';
   }
 }

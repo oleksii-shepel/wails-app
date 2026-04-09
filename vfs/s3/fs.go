@@ -90,8 +90,14 @@ func New(ctx context.Context, cfg Config) (*FS, error) {
 	if err != nil {
 		return nil, fmt.Errorf("s3: load config: %w", err)
 	}
+	if cfg.Anonymous {
+		awsCfg.Credentials = aws.AnonymousCredentials{}
+	}
 
 	client := s3sdk.NewFromConfig(awsCfg, func(o *s3sdk.Options) {
+		if cfg.Anonymous {
+			o.Credentials = aws.AnonymousCredentials{}
+		}
 		o.UsePathStyle = cfg.UsePathStyle
 	})
 

@@ -78,7 +78,7 @@ func (a *App) GetConversionCapabilities(sourceFileExt string) map[string]interfa
 		"sourceFormat":      ext,
 		"supported":         a.State.Converter.IsSupportedSourceFormat(ext),
 		"availableFormats":  available,
-		"recommendedFormat": "jpeg", // JPEG keeps previews smaller and aligns with the default converter output
+		"recommendedFormat": "webp", // WebP provides best compression/quality balance for previews
 	}
 }
 

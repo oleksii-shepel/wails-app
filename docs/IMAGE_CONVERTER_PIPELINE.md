@@ -31,12 +31,12 @@ The converted preview path now uses the existing local stream server. Earlier it
 - Without libvips (Go fallback): PNG, JPEG, GIF, BMP
 
 **Output Formats:**
-- PNG (recommended - lossless)
+- WebP (recommended - best compression/quality for previews)
+- PNG (lossless)
 - JPEG
-- WebP
 - GIF
 - BMP
-- AVif
+- AVIF
 - TIFF
 
 #### 2. App Bindings (`internal/app/bindings_converter.go`)

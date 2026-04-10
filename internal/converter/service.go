@@ -67,7 +67,7 @@ func (s *Service) ensureDetected() {
 }
 
 // ConvertFormat converts image from one format to another.
-// Supported output formats: png, jpg, jpeg, webp, bmp, gif, avif
+// Supported output formats: webp, png, jpg, jpeg, bmp, gif, avif (webp recommended for previews)
 func (s *Service) ConvertFormat(inputPath string, outputFormat string) ([]byte, error) {
 	outputFormat = strings.ToLower(outputFormat)
 

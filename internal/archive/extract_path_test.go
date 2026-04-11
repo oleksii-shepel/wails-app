@@ -46,12 +46,12 @@ func newNoopOperation() Operation {
 
 type noopOp struct{}
 
-func (n *noopOp) ID() string                                                                   { return "test-op" }
-func (n *noopOp) Complete()                                                                    {}
-func (n *noopOp) SetError(error)                                                               {}
-func (n *noopOp) SetTotal(int64, int64)                                                        {}
-func (n *noopOp) UpdateProgress(int64, int64, string, int64)                                   {}
-func (n *noopOp) IsCancelled() bool                                                            { return false }
+func (n *noopOp) ID() string                                 { return "test-op" }
+func (n *noopOp) Complete()                                  {}
+func (n *noopOp) SetError(error)                             {}
+func (n *noopOp) SetTotal(int64, int64)                      {}
+func (n *noopOp) UpdateProgress(int64, int64, string, int64) {}
+func (n *noopOp) IsCancelled() bool                          { return false }
 
 func newTestService() *Service {
 	// ExtractEntries/ExtractNestedArchive don't use the cache; provide a no-op opener.

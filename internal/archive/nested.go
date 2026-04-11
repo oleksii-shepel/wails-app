@@ -9,9 +9,12 @@ import (
 	"os"
 
 	"github.com/mholt/archiver/v3"
+
+	"wails-app/internal/pathref"
 )
 
 func (s *Service) ExtractNestedArchive(fsPath string, nestedChain []string) ([]byte, error) {
+	fsPath = pathref.ToNativePath(fsPath)
 	if len(nestedChain) == 0 {
 		return nil, fmt.Errorf("empty nested chain")
 	}

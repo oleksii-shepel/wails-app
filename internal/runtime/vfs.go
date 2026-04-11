@@ -288,6 +288,7 @@ func VFSUnmount(vfs *vfslib.Unified, mountPoint string) error {
 }
 
 func mountArchive(ctx context.Context, vfs *vfslib.Unified, osPath string, nested []string) (string, error) {
+	osPath = pathref.ToNativePath(osPath)
 	arch, err := internalarchive.ResolveChain(ctx, osPath, nested, "")
 	if err != nil {
 		return "", fmt.Errorf("vfs: open archive %q (chain %v): %w", osPath, nested, err)

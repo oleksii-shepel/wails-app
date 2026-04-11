@@ -251,6 +251,8 @@ func (s *Service) CancelReadStream(streamID string) {
 }
 
 func (s *Service) CopyEntries(req contracts.ArchiveEntriesRequest) (*contracts.ArchiveEntriesResult, error) {
+	req.FsPath = pathref.ToNativePath(req.FsPath)
+	req.DestinationDir = pathref.ToNativePath(req.DestinationDir)
 	if req.DestinationDir == "" {
 		return nil, fmt.Errorf("destinationDir is required")
 	}
@@ -273,6 +275,8 @@ func (s *Service) CopyEntries(req contracts.ArchiveEntriesRequest) (*contracts.A
 }
 
 func (s *Service) MoveEntries(req contracts.ArchiveEntriesRequest) (*contracts.ArchiveEntriesResult, error) {
+	req.FsPath = pathref.ToNativePath(req.FsPath)
+	req.DestinationDir = pathref.ToNativePath(req.DestinationDir)
 	if req.DestinationDir == "" {
 		return nil, fmt.Errorf("destinationDir is required")
 	}
@@ -331,6 +335,9 @@ func (s *Service) MoveEntries(req contracts.ArchiveEntriesRequest) (*contracts.A
 }
 
 func (s *Service) ExtractEntries(req contracts.ArchiveEntriesRequest, op Operation) (succeeded, failed int, errs []contracts.BatchItemError, fatalErr error) {
+	req.FsPath = pathref.ToNativePath(req.FsPath)
+	req.DestinationDir = pathref.ToNativePath(req.DestinationDir)
+
 	if err := os.MkdirAll(req.DestinationDir, 0755); err != nil {
 		return 0, 0, nil, fmt.Errorf("create destination: %w", err)
 	}
@@ -355,6 +362,7 @@ func (s *Service) ExtractEntries(req contracts.ArchiveEntriesRequest, op Operati
 }
 
 func (s *Service) DeleteEntries(req contracts.ArchiveEntriesRequest) (*contracts.ArchiveEntriesResult, error) {
+	req.FsPath = pathref.ToNativePath(req.FsPath)
 	if len(req.NestedChain) > 0 {
 		return nil, fmt.Errorf("deleting entries from nested archives is not supported")
 	}

@@ -20,8 +20,13 @@ import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directi
       <div class="path-history-modal" [appTrapFocus]="true" role="dialog" aria-modal="true" tabindex="-1" (click)="$event.stopPropagation()">
         <!-- Header -->
         <div class="modal-header">
-          <h2>Path History</h2>
-          <button class="btn-close" (click)="hide()" title="Close (Esc)">✕</button>
+          <div>
+            <h2>Path History</h2>
+            <p>Recently visited locations. Click to navigate.</p>
+          </div>
+          <button type="button" class="dialog-close-btn" aria-label="Close" (click)="hide()" title="Close (Esc)">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 7.293l3.536-3.536.707.707L8.707 8l3.536 3.536-.707.707L8 8.707l-3.536 3.536-.707-.707L7.293 8 3.757 4.464l.707-.707L8 7.293z"/></svg>
+          </button>
         </div>
 
         <!-- Stats -->
@@ -119,6 +124,7 @@ import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directi
       align-items: center;
       justify-content: center;
       z-index: var(--vsc-z-modal);
+      backdrop-filter: blur(2px);
       animation: fadeIn 0.2s ease;
       padding: var(--vsc-padding-xl);
     }
@@ -129,65 +135,75 @@ import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directi
     }
 
     .path-history-modal {
-      background: var(--vsc-panel-background);
-      border: 1px solid var(--vsc-border);
+      background: var(--vsc-editor-background);
+      border: 1px solid var(--vsc-border-bright);
       border-radius: var(--vsc-border-radius);
       width: 90%;
       max-width: 800px;
       max-height: 80vh;
       display: flex;
       flex-direction: column;
-      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
-      animation: slideUp 0.3s ease;
+      box-shadow: var(--vsc-widget-shadow), 0 24px 56px rgba(0, 0, 0, 0.45);
+      animation: slideDown 0.28s cubic-bezier(0.16, 1, 0.3, 1);
       color: var(--vsc-foreground);
+      overflow: hidden;
     }
 
-    @keyframes slideUp {
-      from {
-        transform: translateY(20px);
-        opacity: 0;
-      }
-      to {
-        transform: translateY(0);
-        opacity: 1;
-      }
+    @keyframes slideDown {
+      from { transform: translateY(-18px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
     }
 
     .modal-header {
       display: flex;
       justify-content: space-between;
-      align-items: center;
-      padding: var(--vsc-padding-md) var(--vsc-padding-lg);
+      align-items: flex-start;
+      padding: 12px 16px;
       border-bottom: 1px solid var(--vsc-border-subtle);
+      background: var(--vsc-titlebar-background);
+      flex-shrink: 0;
     }
 
     .modal-header h2 {
       margin: 0;
-      font-size: var(--vsc-font-size-large);
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--vsc-foreground-bright);
+      line-height: 1.2;
+    }
+
+    .modal-header p {
+      margin: 4px 0 0;
+      color: var(--vsc-foreground-dim);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .dialog-close-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      flex-shrink: 0;
+      margin-top: -2px;
+      padding: 0;
+      border: none;
+      background: transparent;
+      color: var(--vsc-foreground-dim);
+      border-radius: var(--vsc-border-radius-sm);
+      cursor: pointer;
+      transition: background-color var(--vsc-transition-fast), color var(--vsc-transition-fast);
+    }
+
+    .dialog-close-btn:hover {
+      background: color-mix(in srgb, var(--vsc-foreground) 10%, transparent);
       color: var(--vsc-foreground-bright);
     }
 
-    .btn-close {
-      width: 28px;
-      height: 28px;
-      padding: 0;
-      background: transparent;
-      border: 1px solid transparent;
-      color: var(--vsc-foreground-muted);
-      cursor: pointer;
-      font-size: var(--vsc-font-size-large);
-      transition: all var(--vsc-transition-fast);
-      border-radius: var(--vsc-border-radius-sm);
-    }
-
-    .btn-close:hover {
-      background: var(--vsc-list-hover-background);
-      color: var(--vsc-foreground);
-    }
-
-    .btn-close:focus-visible {
+    .dialog-close-btn:focus-visible {
       outline: 1px solid var(--vsc-input-focus-border);
-      outline-offset: 1px;
+      outline-offset: 2px;
     }
 
     .stats-bar {

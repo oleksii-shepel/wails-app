@@ -11,6 +11,10 @@ export interface GeneralSettings {
   updateChannel: 'stable' | 'beta' | 'dev';
   analyticsEnabled: boolean;
   crashReportsEnabled: boolean;
+  checkUpdatesOnStartup: boolean;
+  dateFormat: 'relative' | 'short' | 'long' | 'iso';
+  sizeUnit: 'auto' | 'bytes' | 'kib' | 'mib' | 'gib';
+  accentColor: string;
 }
 
 export interface FileSettings {
@@ -26,6 +30,10 @@ export interface FileSettings {
   autoRefreshInterval: number;
   cacheThumbnailPreviews: boolean;
   thumbnailCacheSize: number;
+  deleteToTrash: boolean;
+  singleClickToOpen: boolean;
+  sortFoldersFirst: boolean;
+  copyOnDrop: boolean;
 }
 
 export interface EditorSettings {
@@ -42,6 +50,11 @@ export interface EditorSettings {
   trimFinalNewlines: boolean;
   autoSave: 'off' | 'afterDelay' | 'onFocusChange' | 'onWindowChange';
   autoSaveDelay: number;
+  minimap: boolean;
+  renderWhitespace: 'none' | 'boundary' | 'selection' | 'all';
+  cursorStyle: 'line' | 'block' | 'underline';
+  smoothScrolling: boolean;
+  bracketPairColorization: boolean;
 }
 
 export interface ViewSettings {
@@ -58,6 +71,11 @@ export interface ViewSettings {
   previewPaneVisible: boolean;
   previewPaneWidth: number;
   pathDisplayFormat: 'full' | 'short' | 'smart';
+  animationsEnabled: boolean;
+  showTabBar: boolean;
+  thumbnailsEnabled: boolean;
+  foldersFirst: boolean;
+  tabPosition: 'top' | 'bottom';
 }
 
 export interface AdvancedSettings {
@@ -75,6 +93,9 @@ export interface AdvancedSettings {
   proxyAuthEnabled: boolean;
   proxyUsername: string;
   proxyPassword: string;
+  useNativeFilePicker: boolean;
+  hardReloadOnExternalChange: boolean;
+  telemetryLevel: 'none' | 'error' | 'crash' | 'all';
 }
 
 export interface ProjectSettings {
@@ -94,6 +115,10 @@ const DEFAULT_SETTINGS: ProjectSettings = {
     updateChannel: 'stable',
     analyticsEnabled: false,
     crashReportsEnabled: true,
+    checkUpdatesOnStartup: true,
+    dateFormat: 'relative',
+    sizeUnit: 'auto',
+    accentColor: '',
   },
   files: {
     showHiddenFiles: false,
@@ -108,6 +133,10 @@ const DEFAULT_SETTINGS: ProjectSettings = {
     autoRefreshInterval: 5000,
     cacheThumbnailPreviews: true,
     thumbnailCacheSize: 100,
+    deleteToTrash: true,
+    singleClickToOpen: false,
+    sortFoldersFirst: true,
+    copyOnDrop: false,
   },
   editor: {
     fontFamily: 'Consolas, "Courier New", monospace',
@@ -123,6 +152,11 @@ const DEFAULT_SETTINGS: ProjectSettings = {
     trimFinalNewlines: false,
     autoSave: 'off',
     autoSaveDelay: 1000,
+    minimap: false,
+    renderWhitespace: 'boundary',
+    cursorStyle: 'line',
+    smoothScrolling: true,
+    bracketPairColorization: true,
   },
   view: {
     compactMode: false,
@@ -138,6 +172,11 @@ const DEFAULT_SETTINGS: ProjectSettings = {
     previewPaneVisible: false,
     previewPaneWidth: 300,
     pathDisplayFormat: 'smart',
+    animationsEnabled: true,
+    showTabBar: true,
+    thumbnailsEnabled: true,
+    foldersFirst: true,
+    tabPosition: 'top',
   },
   advanced: {
     enableLogging: false,
@@ -154,6 +193,9 @@ const DEFAULT_SETTINGS: ProjectSettings = {
     proxyAuthEnabled: false,
     proxyUsername: '',
     proxyPassword: '',
+    useNativeFilePicker: false,
+    hardReloadOnExternalChange: false,
+    telemetryLevel: 'crash',
   },
 };
 

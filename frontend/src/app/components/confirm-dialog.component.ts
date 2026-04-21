@@ -124,9 +124,10 @@ interface ConfirmDialogRequest {
       display: flex;
       align-items: center;
       justify-content: center;
-      background: rgba(0, 0, 0, 0.4);
+      background: rgba(0, 0, 0, 0.45);
+      backdrop-filter: blur(2px);
       padding: var(--vsc-padding-xl);
-      animation: fadeIn 0.15s ease;
+      animation: fadeIn 0.2s ease;
     }
 
     /* Alert variant - minimal backdrop, positioned at top-center */
@@ -138,45 +139,24 @@ interface ConfirmDialogRequest {
     }
 
     @keyframes fadeIn {
-      from {
-        opacity: 0;
-      }
-      to {
-        opacity: 1;
-      }
+      from { opacity: 0; }
+      to { opacity: 1; }
     }
 
-    @keyframes slideIn {
-      from {
-        transform: translateY(-8px);
-        opacity: 0;
-      }
-      to {
-        transform: translateY(0);
-        opacity: 1;
-      }
-    }
-
-    @keyframes slideInFromTop {
-      from {
-        opacity: 0;
-        transform: translateY(8px) scale(0.98);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0) scale(1);
-      }
+    @keyframes slideDown {
+      from { transform: translateY(-16px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
     }
 
     .confirm-panel {
       width: min(480px, calc(100vw - 2 * var(--vsc-padding-xl)));
-      background: var(--vsc-panel-background);
+      background: var(--vsc-editor-background);
       color: var(--vsc-foreground);
-      border: 1px solid var(--vsc-border);
+      border: 1px solid var(--vsc-border-bright);
       border-radius: var(--vsc-border-radius);
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+      box-shadow: var(--vsc-widget-shadow), 0 20px 48px rgba(0, 0, 0, 0.45);
       overflow: hidden;
-      animation: slideIn 0.2s ease;
+      animation: slideDown 0.28s cubic-bezier(0.16, 1, 0.3, 1);
     }
 
     /* Alert panel - toast-style */
@@ -184,8 +164,8 @@ interface ConfirmDialogRequest {
       width: 380px;
       border-radius: 6px;
       border-color: #e8a94d;
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-      animation: slideInFromTop 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+      box-shadow: var(--vsc-widget-shadow), 0 16px 40px rgba(0, 0, 0, 0.5);
+      animation: slideDown 0.22s cubic-bezier(0.16, 1, 0.3, 1);
       padding: 0;
     }
 
@@ -261,14 +241,16 @@ interface ConfirmDialogRequest {
 
     /* ── Regular confirmation dialog styles ── */
     .confirm-header {
-      padding: var(--vsc-padding-md) var(--vsc-padding-lg);
+      padding: 12px 16px;
       border-bottom: 1px solid var(--vsc-border-subtle);
+      background: var(--vsc-titlebar-background);
 
       h2 {
         margin: 0;
-        font-size: var(--vsc-font-size);
+        font-size: 16px;
         font-weight: 600;
         color: var(--vsc-foreground-bright);
+        line-height: 1.2;
       }
     }
 

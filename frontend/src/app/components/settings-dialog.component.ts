@@ -93,6 +93,7 @@ interface SettingsDialogRequest {
               <!-- General Settings -->
               <section *ngIf="activeTab === 'general'" class="settings-section">
                 <h3 class="section-title">General</h3>
+                <p class="section-desc">Configure application appearance, startup behavior, and privacy preferences.</p>
                 
                 <div class="settings-group">
                   <h4 class="group-title">Appearance</h4>
@@ -103,6 +104,7 @@ interface SettingsDialogRequest {
                       <option value="light">Light</option>
                       <option value="system">System Preference</option>
                     </select>
+                    <small>Controls the application color scheme. "System Preference" follows your OS setting.</small>
                   </label>
                   <label class="field">
                     <span>Language</span>
@@ -118,7 +120,31 @@ interface SettingsDialogRequest {
                       <option value="ja">Japanese</option>
                       <option value="ko">Korean</option>
                     </select>
+                    <small>Sets the interface display language. Requires a restart to fully apply.</small>
                   </label>
+                  <div class="field-row">
+                    <label class="field">
+                      <span>Date Format</span>
+                      <select [(ngModel)]="draft.general.dateFormat" (ngModelChange)="onSettingChanged()">
+                        <option value="relative">Relative (2 hours ago)</option>
+                        <option value="short">Short (Apr 21, 2026)</option>
+                        <option value="long">Long (April 21, 2026 10:30 AM)</option>
+                        <option value="iso">ISO 8601 (2026-04-21T10:30)</option>
+                      </select>
+                      <small>How timestamps appear in file lists and the details pane.</small>
+                    </label>
+                    <label class="field">
+                      <span>Size Unit</span>
+                      <select [(ngModel)]="draft.general.sizeUnit" (ngModelChange)="onSettingChanged()">
+                        <option value="auto">Automatic</option>
+                        <option value="bytes">Bytes</option>
+                        <option value="kib">KiB / KB</option>
+                        <option value="mib">MiB / MB</option>
+                        <option value="gib">GiB / GB</option>
+                      </select>
+                      <small>Unit used when displaying file sizes across all panes.</small>
+                    </label>
+                  </div>
                 </div>
 
                 <div class="settings-group">
@@ -156,14 +182,19 @@ interface SettingsDialogRequest {
                       <option value="beta">Beta</option>
                       <option value="dev">Development</option>
                     </select>
+                    <small>Stable is recommended for most users. Beta and Dev channels receive updates earlier but may be less stable.</small>
+                  </label>
+                  <label class="toggle-field">
+                    <input type="checkbox" [(ngModel)]="draft.general.checkUpdatesOnStartup" (ngModelChange)="onSettingChanged()" />
+                    <span>Check for updates on startup<small>Automatically checks for a newer version each time the application launches.</small></span>
                   </label>
                   <label class="toggle-field">
                     <input type="checkbox" [(ngModel)]="draft.general.analyticsEnabled" (ngModelChange)="onSettingChanged()" />
-                    <span>Enable anonymous analytics</span>
+                    <span>Enable anonymous analytics<small>Sends non-identifiable usage data to help improve the product.</small></span>
                   </label>
                   <label class="toggle-field">
                     <input type="checkbox" [(ngModel)]="draft.general.crashReportsEnabled" (ngModelChange)="onSettingChanged()" />
-                    <span>Send crash reports automatically</span>
+                    <span>Send crash reports automatically<small>Uploads anonymized crash diagnostics to help identify and fix bugs.</small></span>
                   </label>
                 </div>
               </section>
@@ -171,20 +202,29 @@ interface SettingsDialogRequest {
               <!-- File Settings -->
               <section *ngIf="activeTab === 'files'" class="settings-section">
                 <h3 class="section-title">Files</h3>
+                <p class="section-desc">Control how files are displayed, handled, and cached in the browser panes.</p>
 
                 <div class="settings-group">
                   <h4 class="group-title">Display</h4>
                   <label class="toggle-field">
                     <input type="checkbox" [(ngModel)]="draft.files.showHiddenFiles" (ngModelChange)="onSettingChanged()" />
-                    <span>Show hidden files</span>
+                    <span>Show hidden files<small>Displays files and folders whose names start with a dot or have the hidden attribute set.</small></span>
                   </label>
                   <label class="toggle-field">
                     <input type="checkbox" [(ngModel)]="draft.files.showFileExtensions" (ngModelChange)="onSettingChanged()" />
-                    <span>Show file extensions</span>
+                    <span>Show file extensions<small>Appends the extension (.txt, .jpg …) to every filename in the list.</small></span>
+                  </label>
+                  <label class="toggle-field">
+                    <input type="checkbox" [(ngModel)]="draft.files.sortFoldersFirst" (ngModelChange)="onSettingChanged()" />
+                    <span>Sort folders before files<small>Keeps directories grouped at the top regardless of the active sort column.</small></span>
+                  </label>
+                  <label class="toggle-field">
+                    <input type="checkbox" [(ngModel)]="draft.files.singleClickToOpen" (ngModelChange)="onSettingChanged()" />
+                    <span>Single-click to open<small>Opens files and navigates into folders with a single click instead of a double-click.</small></span>
                   </label>
                   <label class="toggle-field">
                     <input type="checkbox" [(ngModel)]="draft.files.calculateFolderSizes" (ngModelChange)="onSettingChanged()" />
-                    <span>Calculate folder sizes (may impact performance)</span>
+                    <span>Calculate folder sizes<small>Recursively sums directory contents to show sizes. May impact performance on large trees.</small></span>
                   </label>
                 </div>
 
@@ -192,7 +232,11 @@ interface SettingsDialogRequest {
                   <h4 class="group-title">File Operations</h4>
                   <label class="toggle-field">
                     <input type="checkbox" [(ngModel)]="draft.files.confirmBeforeDelete" (ngModelChange)="onSettingChanged()" />
-                    <span>Confirm before deleting files</span>
+                    <span>Confirm before deleting files<small>Shows a confirmation prompt before any delete operation.</small></span>
+                  </label>
+                  <label class="toggle-field">
+                    <input type="checkbox" [(ngModel)]="draft.files.deleteToTrash" (ngModelChange)="onSettingChanged()" />
+                    <span>Send to Recycle Bin<small>Moves deleted files to the system trash instead of permanently erasing them.</small></span>
                   </label>
                   <label class="toggle-field">
                     <input type="checkbox" [(ngModel)]="draft.files.confirmBeforeMove" (ngModelChange)="onSettingChanged()" />
@@ -205,6 +249,10 @@ interface SettingsDialogRequest {
                   <label class="toggle-field">
                     <input type="checkbox" [(ngModel)]="draft.files.confirmDragAndDrop" (ngModelChange)="onSettingChanged()" />
                     <span>Confirm drag and drop operations</span>
+                  </label>
+                  <label class="toggle-field">
+                    <input type="checkbox" [(ngModel)]="draft.files.copyOnDrop" (ngModelChange)="onSettingChanged()" />
+                    <span>Copy on drag and drop by default<small>When dropping without a modifier key, copies instead of moving the files.</small></span>
                   </label>
                   <label class="field">
                     <span>Default Open Action</span>
@@ -232,6 +280,7 @@ interface SettingsDialogRequest {
                       max="60000"
                       step="1000"
                     />
+                    <small>How often to poll the filesystem for external changes. Lower values use more CPU.</small>
                   </label>
                   <label class="toggle-field">
                     <input type="checkbox" [(ngModel)]="draft.files.cacheThumbnailPreviews" (ngModelChange)="onSettingChanged()" />
@@ -247,6 +296,7 @@ interface SettingsDialogRequest {
                       max="1000"
                       step="10"
                     />
+                    <small>Maximum disk space reserved for cached image and video thumbnails.</small>
                   </label>
                 </div>
               </section>
@@ -254,6 +304,7 @@ interface SettingsDialogRequest {
               <!-- Editor Settings -->
               <section *ngIf="activeTab === 'editor'" class="settings-section">
                 <h3 class="section-title">Editor</h3>
+                <p class="section-desc">Customize the text editor font, indentation style, formatting rules, and autosave behavior.</p>
 
                 <div class="settings-group">
                   <h4 class="group-title">Font</h4>
@@ -270,6 +321,7 @@ interface SettingsDialogRequest {
                     <datalist id="sfd-history-font-family">
                       <option *ngFor="let v of history('settings.fontFamily')" [value]="v"></option>
                     </datalist>
+                    <small>Comma-separated list of font names. The first available font on your system is used.</small>
                   </label>
                   <div class="field-row">
                     <label class="field">
@@ -306,6 +358,7 @@ interface SettingsDialogRequest {
                       <option value="wordWrapColumn">At Column</option>
                       <option value="bounded">Bounded</option>
                     </select>
+                    <small>How long lines are wrapped in the editor. "At Column" and "Bounded" wrap at a fixed character width.</small>
                   </label>
                   <label class="field" *ngIf="draft.editor.wordWrap === 'wordWrapColumn' || draft.editor.wordWrap === 'bounded'">
                     <span>Word Wrap Column</span>
@@ -365,6 +418,7 @@ interface SettingsDialogRequest {
                       <option value="onFocusChange">On Focus Change</option>
                       <option value="onWindowChange">On Window Change</option>
                     </select>
+                    <small>Automatically saves the open file without requiring an explicit save action.</small>
                   </label>
                   <label class="field" *ngIf="draft.editor.autoSave === 'afterDelay'">
                     <span>Auto Save Delay (ms)</span>
@@ -378,17 +432,69 @@ interface SettingsDialogRequest {
                     />
                   </label>
                 </div>
+
+                <div class="settings-group">
+                  <h4 class="group-title">Display</h4>
+                  <label class="toggle-field">
+                    <input type="checkbox" [(ngModel)]="draft.editor.minimap" (ngModelChange)="onSettingChanged()" />
+                    <span>Show minimap<small>Displays a scaled-down overview of the file in the right scroll margin.</small></span>
+                  </label>
+                  <label class="toggle-field">
+                    <input type="checkbox" [(ngModel)]="draft.editor.smoothScrolling" (ngModelChange)="onSettingChanged()" />
+                    <span>Smooth scrolling<small>Animates scroll events for a more fluid experience in the editor.</small></span>
+                  </label>
+                  <label class="toggle-field">
+                    <input type="checkbox" [(ngModel)]="draft.editor.bracketPairColorization" (ngModelChange)="onSettingChanged()" />
+                    <span>Bracket pair colorization<small>Colors matching bracket pairs with distinct hues to aid visual grouping.</small></span>
+                  </label>
+                  <div class="field-row">
+                    <label class="field">
+                      <span>Cursor Style</span>
+                      <select [(ngModel)]="draft.editor.cursorStyle" (ngModelChange)="onSettingChanged()">
+                        <option value="line">Line ( | )</option>
+                        <option value="block">Block ( █ )</option>
+                        <option value="underline">Underline ( _ )</option>
+                      </select>
+                    </label>
+                    <label class="field">
+                      <span>Render Whitespace</span>
+                      <select [(ngModel)]="draft.editor.renderWhitespace" (ngModelChange)="onSettingChanged()">
+                        <option value="none">None</option>
+                        <option value="boundary">Boundary</option>
+                        <option value="selection">Selection only</option>
+                        <option value="all">All</option>
+                      </select>
+                      <small>Controls when space and tab characters are shown as visible glyphs.</small>
+                    </label>
+                  </div>
+                </div>
               </section>
 
               <!-- View Settings -->
               <section *ngIf="activeTab === 'view'" class="settings-section">
                 <h3 class="section-title">View</h3>
+                <p class="section-desc">Adjust panel visibility, file list display mode, sorting, and default pane widths.</p>
 
                 <div class="settings-group">
                   <h4 class="group-title">Layout</h4>
                   <label class="toggle-field">
                     <input type="checkbox" [(ngModel)]="draft.view.compactMode" (ngModelChange)="onSettingChanged()" />
-                    <span>Compact mode (reduced padding and font size)</span>
+                    <span>Compact mode<small>Reduces padding and font size throughout the UI for a denser layout.</small></span>
+                  </label>
+                  <label class="toggle-field">
+                    <input type="checkbox" [(ngModel)]="draft.view.animationsEnabled" (ngModelChange)="onSettingChanged()" />
+                    <span>Enable animations<small>Smooth transitions for panel openings, dialog entries, and list updates.</small></span>
+                  </label>
+                  <label class="toggle-field">
+                    <input type="checkbox" [(ngModel)]="draft.view.showTabBar" (ngModelChange)="onSettingChanged()" />
+                    <span>Show tab bar<small>Displays the tab strip above the file pane for switching between open locations.</small></span>
+                  </label>
+                  <label class="field" *ngIf="draft.view.showTabBar">
+                    <span>Tab Position</span>
+                    <select [(ngModel)]="draft.view.tabPosition" (ngModelChange)="onSettingChanged()">
+                      <option value="top">Top</option>
+                      <option value="bottom">Bottom</option>
+                    </select>
                   </label>
                   <label class="toggle-field">
                     <input type="checkbox" [(ngModel)]="draft.view.showStatusBar" (ngModelChange)="onSettingChanged()" />
@@ -413,6 +519,14 @@ interface SettingsDialogRequest {
                       <option value="medium">Medium</option>
                       <option value="large">Large</option>
                     </select>
+                  </label>
+                  <label class="toggle-field">
+                    <input type="checkbox" [(ngModel)]="draft.view.thumbnailsEnabled" (ngModelChange)="onSettingChanged()" />
+                    <span>Show image thumbnails<small>Renders previews for image files. May slow down folder loading for large directories.</small></span>
+                  </label>
+                  <label class="toggle-field">
+                    <input type="checkbox" [(ngModel)]="draft.view.foldersFirst" (ngModelChange)="onSettingChanged()" />
+                    <span>Sort folders before files<small>Keeps directories at the top of the file list regardless of the active sort column.</small></span>
                   </label>
                   <label class="field">
                     <span>View Mode</span>
@@ -487,6 +601,7 @@ interface SettingsDialogRequest {
               <!-- Advanced Settings -->
               <section *ngIf="activeTab === 'advanced'" class="settings-section">
                 <h3 class="section-title">Advanced</h3>
+                <p class="section-desc">Tune performance limits, diagnostic logging verbosity, and network proxy settings. Changes here may affect stability.</p>
 
                 <div class="settings-group">
                   <h4 class="group-title">Performance</h4>
@@ -497,6 +612,7 @@ interface SettingsDialogRequest {
                       <option value="on">Enabled</option>
                       <option value="off">Disabled</option>
                     </select>
+                    <small>Hardware-accelerated rendering. Disable if you encounter graphical artifacts or driver crashes.</small>
                   </label>
                   <label class="field">
                     <span>Memory Cache Size (MB)</span>
@@ -508,6 +624,7 @@ interface SettingsDialogRequest {
                       max="4096"
                       step="64"
                     />
+                    <small>In-memory buffer for file metadata and preview data. Higher values improve responsiveness at the cost of RAM.</small>
                   </label>
                   <label class="field">
                     <span>Max Concurrent Operations</span>
@@ -518,6 +635,7 @@ interface SettingsDialogRequest {
                       min="1"
                       max="16"
                     />
+                    <small>Number of file copy, move, and delete tasks that can run in parallel.</small>
                   </label>
                   <label class="field">
                     <span>Network Timeout (ms)</span>
@@ -529,6 +647,7 @@ interface SettingsDialogRequest {
                       max="120000"
                       step="5000"
                     />
+                    <small>Maximum time to wait for a remote network call before treating it as failed.</small>
                   </label>
                 </div>
 
@@ -626,6 +745,28 @@ interface SettingsDialogRequest {
                   <p class="field-hint" *ngIf="draft.advanced.experimentalFeatures">
                     Warning: Experimental features may be unstable and change without notice.
                   </p>
+                </div>
+
+                <div class="settings-group">
+                  <h4 class="group-title">Behavior</h4>
+                  <label class="field">
+                    <span>Telemetry Level</span>
+                    <select [(ngModel)]="draft.advanced.telemetryLevel" (ngModelChange)="onSettingChanged()">
+                      <option value="none">None — no data sent</option>
+                      <option value="error">Errors only</option>
+                      <option value="crash">Crashes &amp; errors</option>
+                      <option value="all">All — usage + crashes</option>
+                    </select>
+                    <small>Granular control over what diagnostic data is transmitted. Overrides the individual analytics and crash-report toggles in General.</small>
+                  </label>
+                  <label class="toggle-field">
+                    <input type="checkbox" [(ngModel)]="draft.advanced.useNativeFilePicker" (ngModelChange)="onSettingChanged()" />
+                    <span>Use native file picker<small>Opens the OS file chooser dialog for save/open prompts instead of the built-in browser.</small></span>
+                  </label>
+                  <label class="toggle-field">
+                    <input type="checkbox" [(ngModel)]="draft.advanced.hardReloadOnExternalChange" (ngModelChange)="onSettingChanged()" />
+                    <span>Hard reload on external change<small>Fully refreshes the pane when files are modified externally instead of merging changes incrementally.</small></span>
+                  </label>
                 </div>
               </section>
             </main>

@@ -107,6 +107,15 @@ export const DIALOG_INPUT_CATALOG: DialogBindingCatalogEntry[] = [
     ],
   },
   {
+    context: dialogContext('dialog.settings', 'dialog', 950, 'Project settings dialog'),
+    bindings: [
+      keyBinding('dialog.settings.save.ctrlEnter', 'dialog.settings', 'dialog.settings.save', 'enter', 'Save settings changes', ['ctrl']),
+      keyBinding('dialog.settings.close.escape', 'dialog.settings', 'dialog.settings.close', 'escape', 'Close settings dialog'),
+      keyBinding('dialog.settings.focus.next', 'dialog.settings', 'dialog.settings.focusNext', 'tab', 'Move focus to next control'),
+      keyBinding('dialog.settings.focus.prev', 'dialog.settings', 'dialog.settings.focusPrev', 'tab', 'Move focus to previous control', ['shift']),
+    ],
+  },
+  {
     context: dialogContext('widget.filterInline', 'widget', 800, 'Inline viewer filter widget'),
     bindings: [
       keyBinding('widget.filterInline.close.escape', 'widget.filterInline', 'widget.filterInline.close', 'escape', 'Close filter widget'),

@@ -2,17 +2,19 @@ import { Component, HostListener, OnDestroy, OnInit } from '@angular/core';
 import { FileBrowserComponent } from './components/file-browser.component';
 import { ConfirmDialogComponent } from './components/confirm-dialog.component';
 import { RemoteConnectDialogComponent } from './components/remote-connect-dialog.component';
+import { SettingsDialogComponent } from './components/settings-dialog.component';
 import { ThemeService } from './services/theme.service';
 import { OperationService } from './services/operation.service';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [FileBrowserComponent, ConfirmDialogComponent, RemoteConnectDialogComponent],
+  imports: [FileBrowserComponent, ConfirmDialogComponent, RemoteConnectDialogComponent, SettingsDialogComponent],
   template: `
     <app-file-browser></app-file-browser>
     <app-confirm-dialog></app-confirm-dialog>
     <app-remote-connect-dialog></app-remote-connect-dialog>
+    <app-settings-dialog></app-settings-dialog>
   `,
   styles: [`
     :host {

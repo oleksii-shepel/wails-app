@@ -35,6 +35,7 @@ import { TabInfo } from '../shared/protocol-enhanced';
 import type { InputBindingDefinition } from '../services/input-system.types';
 import { formatPathForDisplay } from './address-bar.utils';
 import { RemoteConnectDialogService } from '../services/remote-connect-dialog.service';
+import { SettingsService } from '../services/settings.service';
 
 @Component({
   selector: 'app-file-browser',
@@ -103,15 +104,16 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
   private browserCommandCleanup: (() => void) | null = null;
 
   constructor(
-    private apiService: ApiService,
-    private workspaceService: WorkspaceService,
-    private pathHistoryService: PathHistoryService,
+    public apiService: ApiService,
+    public workspaceService: WorkspaceService,
+    public pathHistoryService: PathHistoryService,
     public theme: ThemeService,
-    private archiveService: ArchiveService,
-    private confirmDialog: ConfirmDialogService,
-    private remoteConnectDialog: RemoteConnectDialogService,
-    private inputEngine: InputEngineService,
-    private zone: NgZone,
+    public archiveService: ArchiveService,
+    public confirmDialog: ConfirmDialogService,
+    public inputEngine: InputEngineService,
+    public remoteConnectDialog: RemoteConnectDialogService,
+    public appSettingsService: SettingsService,
+    private ngZone: NgZone,
     private cdr: ChangeDetectorRef,
   ) {
     this.pathHelper = new FileBrowserPathHelper(this.apiService);
@@ -123,7 +125,7 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
       .subscribe(workspace => {
         // Some Wails/bridge async callbacks can land outside Angular's zone.
         // Ensure state updates trigger a render without requiring a user click.
-        this.zone.run(() => {
+        this.ngZone.run(() => {
           this.activeWorkspace = workspace;
           if (workspace) {
             this.showHidden = workspace.showHidden;
@@ -135,7 +137,7 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
     this.workspaceService.workspaces$
       .pipe(takeUntil(this.destroy$))
       .subscribe(workspaces => {
-        this.zone.run(() => {
+        this.ngZone.run(() => {
           this.workspaceList = workspaces.workspaces;
           this.cdr.markForCheck();
         });
@@ -483,6 +485,7 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
       navigateUp:            () => this.getActivePane()?.browserCommands.navigation.navigateUp(),
       refresh:               () => this.getActivePane()?.browserCommands.navigation.refresh(),
       showKeyboardHelp:      () => this.keyboardHelp?.show(),
+      openSettings:          () => this.appSettingsService.openSettings(),
       cursorUp:              () => this.getActivePane()?.shortcuts.selection.moveCursorUp(),
       cursorDown:            () => this.getActivePane()?.shortcuts.selection.moveCursorDown(),
       cursorLeft:            () => this.getActivePane()?.shortcuts.selection.moveCursorLeft(),

@@ -23,6 +23,7 @@ export const BC = {
   navigateUp:           'pane.nav.navigateUp',
   refresh:              'pane.nav.refresh',
   showKeyboardHelp:     'pane.nav.showKeyboardHelp',
+  openSettings:         'pane.nav.openSettings',
   cursorUp:             'pane.cursor.up',
   cursorDown:           'pane.cursor.down',
   cursorLeft:           'pane.cursor.left',
@@ -154,6 +155,7 @@ export const BROWSER_BINDINGS: InputBindingDefinition[] = [
   kb('pane.nav.navigateUp.backspace', BC.navigateUp, 'backspace', 'Go to parent directory', { category: NAV }),
   kb('pane.nav.refresh.ctrlR', BC.refresh, 'r', 'Refresh current pane', { modifiers: ['ctrl'], category: NAV }),
   kb('pane.nav.showKeyboardHelp.ctrlSlash', BC.showKeyboardHelp, '/', 'Show keyboard shortcuts', { modifiers: ['ctrl'], category: NAV }),
+  kb('pane.nav.openSettings.ctrlShiftS', BC.openSettings, 's', 'Open settings', { modifiers: ['ctrl', 'shift'], category: NAV }),
 
   // ── Cursor movement ─────────────────────────────────────────────────────────
   kb('pane.cursor.up',       BC.cursorUp,        'arrowup',    'Move cursor up',              { category: NAV }),
@@ -236,6 +238,7 @@ export interface FileBrowserCommandHandlers {
   navigateUp:           () => void;
   refresh:              () => void;
   showKeyboardHelp:     () => void;
+  openSettings:         () => void;
   cursorUp:             () => void;
   cursorDown:           () => void;
   cursorLeft:           () => void;
@@ -304,6 +307,7 @@ export function registerFileBrowserCommands(
   engine.registerCommand(BC.navigateUp,             handlers.navigateUp,             ownerId);
   engine.registerCommand(BC.refresh,                handlers.refresh,                ownerId);
   engine.registerCommand(BC.showKeyboardHelp,       handlers.showKeyboardHelp,       ownerId);
+  engine.registerCommand(BC.openSettings,           handlers.openSettings,           ownerId);
   engine.registerCommand(BC.cursorUp,               handlers.cursorUp,               ownerId);
   engine.registerCommand(BC.cursorDown,             handlers.cursorDown,             ownerId);
   engine.registerCommand(BC.cursorLeft,             handlers.cursorLeft,             ownerId);
@@ -358,7 +362,7 @@ export function registerFileBrowserCommands(
     }
     const allCommands = [
       BC.openGlobalSearch, BC.showPathHistory, BC.quickPathJump, BC.navigateUp,
-      BC.refresh, BC.showKeyboardHelp, BC.cursorUp, BC.cursorDown, BC.cursorLeft,
+      BC.refresh, BC.showKeyboardHelp, BC.openSettings, BC.cursorUp, BC.cursorDown, BC.cursorLeft,
       BC.cursorRight, BC.cursorHome, BC.cursorEnd, BC.cursorPageUp, BC.cursorPageDown,
       BC.newTab, BC.closeTab, BC.nextTab, BC.prevTab, BC.togglePinTab,
       BC.openItem, BC.quickView, BC.copyCursorPath, BC.copy, BC.cut, BC.paste, BC.deleteSelected,

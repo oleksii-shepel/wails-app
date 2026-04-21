@@ -12,6 +12,8 @@ export interface ConfirmDialogOptions {
   isPrompt?: boolean;
   defaultValue?: string;
   placeholder?: string;
+  /** When set, typed values are persisted and offered as autocomplete suggestions. */
+  historyKey?: string;
 }
 
 interface ConfirmDialogRequest {

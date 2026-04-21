@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
+import { InputHistoryService } from '../services/input-history.service';
 import { NativeOverlayFreezeService } from '../services/native-overlay-freeze.service';
 import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.directive';
 import { moveFocusWithin } from '../directives/focus-trap.utils';
@@ -79,9 +80,14 @@ interface ConfirmDialogRequest {
                   type="text"
                   [(ngModel)]="draftValue"
                   [placeholder]="request.options.placeholder || ''"
+                  [attr.list]="request.options.historyKey ? 'prompt-history-list' : null"
+                  autocomplete="off"
                   data-dialog-initial-focus
                   (keydown)="onPromptKeyDown($event)"
                 />
+                <datalist *ngIf="request.options.historyKey && promptHistory.length" id="prompt-history-list">
+                  <option *ngFor="let item of promptHistory" [value]="item"></option>
+                </datalist>
               </div>
             </div>
 
@@ -374,6 +380,7 @@ export class ConfirmDialogComponent {
   private readonly destroy$ = createSubject<void>();
   private releaseDialogContext: (() => void) | null = null;
   draftValue = '';
+  promptHistory: string[] = [];
   readonly request$: Stream<ConfirmDialogRequest | null> = this.confirmDialogService.activeRequest$;
 
   constructor(
@@ -381,6 +388,7 @@ export class ConfirmDialogComponent {
     private inputContexts: InputContextService,
     private inputEngine: InputEngineService,
     private overlayFreeze: NativeOverlayFreezeService,
+    private inputHistory: InputHistoryService,
   ) {}
 
   ngOnInit(): void {
@@ -396,11 +404,15 @@ export class ConfirmDialogComponent {
       .subscribe(request => {
         if (request) {
           this.draftValue = request.options.defaultValue ?? '';
+          this.promptHistory = request.options.historyKey
+            ? this.inputHistory.get(request.options.historyKey)
+            : [];
           this.releaseDialogContext ??= this.inputContexts.acquire('dialog.confirm');
           this.overlayFreeze.acquire('dialog.confirm');
           return;
         }
         this.draftValue = '';
+        this.promptHistory = [];
         this.releaseDialogContext?.();
         this.releaseDialogContext = null;
         this.overlayFreeze.release('dialog.confirm');
@@ -436,7 +448,11 @@ export class ConfirmDialogComponent {
   onConfirm(): void {
     const active = this.confirmDialogService.activeRequest$.value;
     if (active?.options.isPrompt) {
-      this.confirmDialogService.resolveActive(this.draftValue);
+      const value = this.draftValue;
+      if (active.options.historyKey && value.trim()) {
+        this.inputHistory.push(active.options.historyKey, value);
+      }
+      this.confirmDialogService.resolveActive(value);
       return;
     }
     this.confirmDialogService.resolveActive(true);

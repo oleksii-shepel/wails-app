@@ -22,6 +22,7 @@ export class FileBrowserWorkspaceController {
       cancelText: 'Cancel',
       placeholder: 'Workspace name',
       defaultValue: '',
+      historyKey: 'workspace.name',
     }))?.trim();
     if (!name) {
       return;
@@ -78,6 +79,7 @@ export class FileBrowserWorkspaceController {
       cancelText: 'Cancel',
       placeholder: 'Workspace name',
       defaultValue: activeWorkspace.name,
+      historyKey: 'workspace.name',
     }))?.trim();
     if (!name) {
       return;

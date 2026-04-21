@@ -9,6 +9,7 @@ import { moveFocusWithin } from '../directives/focus-trap.utils';
 import { ApiService } from '../services/api.service';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
+import { InputHistoryService } from '../services/input-history.service';
 import { NativeOverlayFreezeService } from '../services/native-overlay-freeze.service';
 import { RemoteConnectDialogService } from '../services/remote-connect-dialog.service';
 
@@ -232,7 +233,12 @@ const S3_PROVIDER_PRESET_MAP = new Map<S3ProviderPresetId, S3ProviderPreset>(
                     [(ngModel)]="form.name"
                     (ngModelChange)="clearError()"
                     placeholder="media-archive"
+                    list="rcd-history-name"
+                    autocomplete="off"
                   />
+                  <datalist id="rcd-history-name">
+                    <option *ngFor="let v of history('remote.name')" [value]="v"></option>
+                  </datalist>
                 </label>
 
                 <ng-container *ngIf="isS3Protocol; else cloudFields">
@@ -243,7 +249,12 @@ const S3_PROVIDER_PRESET_MAP = new Map<S3ProviderPresetId, S3ProviderPreset>(
                       [(ngModel)]="form.bucket"
                       (ngModelChange)="clearError()"
                       placeholder="bucket-name"
+                      list="rcd-history-bucket"
+                      autocomplete="off"
                     />
+                    <datalist id="rcd-history-bucket">
+                      <option *ngFor="let v of history('remote.bucket')" [value]="v"></option>
+                    </datalist>
                   </label>
 
                   <label class="field">
@@ -253,7 +264,12 @@ const S3_PROVIDER_PRESET_MAP = new Map<S3ProviderPresetId, S3ProviderPreset>(
                       [(ngModel)]="form.endpoint"
                       (ngModelChange)="clearError()"
                       [placeholder]="selectedProvider.endpointPlaceholder"
+                      list="rcd-history-endpoint"
+                      autocomplete="off"
                     />
+                    <datalist id="rcd-history-endpoint">
+                      <option *ngFor="let v of history('remote.endpoint')" [value]="v"></option>
+                    </datalist>
                   </label>
 
                   <label class="field">
@@ -263,7 +279,12 @@ const S3_PROVIDER_PRESET_MAP = new Map<S3ProviderPresetId, S3ProviderPreset>(
                       [(ngModel)]="form.region"
                       (ngModelChange)="clearError()"
                       [placeholder]="selectedProvider.region || 'us-east-1'"
+                      list="rcd-history-region"
+                      autocomplete="off"
                     />
+                    <datalist id="rcd-history-region">
+                      <option *ngFor="let v of history('remote.region')" [value]="v"></option>
+                    </datalist>
                   </label>
 
                   <label class="field">
@@ -273,7 +294,12 @@ const S3_PROVIDER_PRESET_MAP = new Map<S3ProviderPresetId, S3ProviderPreset>(
                       [(ngModel)]="form.prefix"
                       (ngModelChange)="clearError()"
                       placeholder="photos/2025"
+                      list="rcd-history-prefix"
+                      autocomplete="off"
                     />
+                    <datalist id="rcd-history-prefix">
+                      <option *ngFor="let v of history('remote.prefix')" [value]="v"></option>
+                    </datalist>
                   </label>
 
                   <label class="field">
@@ -283,7 +309,12 @@ const S3_PROVIDER_PRESET_MAP = new Map<S3ProviderPresetId, S3ProviderPreset>(
                       [(ngModel)]="form.accessKeyId"
                       (ngModelChange)="clearError()"
                       placeholder="minioadmin"
+                      list="rcd-history-akid"
+                      autocomplete="off"
                     />
+                    <datalist id="rcd-history-akid">
+                      <option *ngFor="let v of history('remote.accessKeyId')" [value]="v"></option>
+                    </datalist>
                   </label>
 
                   <label class="field">
@@ -324,7 +355,12 @@ const S3_PROVIDER_PRESET_MAP = new Map<S3ProviderPresetId, S3ProviderPreset>(
                         [(ngModel)]="form.clientId"
                         (ngModelChange)="onOAuthInputChange()"
                         placeholder="Paste the provider client ID"
+                        list="rcd-history-clientid"
+                        autocomplete="off"
                       />
+                      <datalist id="rcd-history-clientid">
+                        <option *ngFor="let v of history('remote.clientId')" [value]="v"></option>
+                      </datalist>
                       <small>Register a native or desktop app with the provider, then paste its public client ID here.</small>
                     </label>
 
@@ -335,7 +371,12 @@ const S3_PROVIDER_PRESET_MAP = new Map<S3ProviderPresetId, S3ProviderPreset>(
                         [(ngModel)]="form.tenant"
                         (ngModelChange)="onOAuthInputChange()"
                         placeholder="common"
+                        list="rcd-history-tenant"
+                        autocomplete="off"
                       />
+                      <datalist id="rcd-history-tenant">
+                        <option *ngFor="let v of history('remote.tenant')" [value]="v"></option>
+                      </datalist>
                       <small>Use <code>common</code> for personal and work accounts, or a tenant ID for single-tenant registration.</small>
                     </label>
 
@@ -478,6 +519,7 @@ export class RemoteConnectDialogComponent {
     private readonly inputContexts: InputContextService,
     private readonly inputEngine: InputEngineService,
     private readonly overlayFreeze: NativeOverlayFreezeService,
+    private readonly inputHistory: InputHistoryService,
   ) {}
 
   ngOnInit(): void {
@@ -570,6 +612,25 @@ export class RemoteConnectDialogComponent {
 
   clearError(): void {
     this.errorMessage = '';
+  }
+
+  /** Returns stored autocomplete suggestions for a given history key. */
+  history(key: string): string[] {
+    return this.inputHistory.get(key);
+  }
+
+  private saveFormHistory(): void {
+    this.inputHistory.push('remote.name', this.form.name.trim());
+    if (this.isS3Protocol) {
+      if (this.form.bucket.trim()) this.inputHistory.push('remote.bucket', this.form.bucket.trim());
+      if (this.form.endpoint.trim()) this.inputHistory.push('remote.endpoint', this.form.endpoint.trim());
+      if (this.form.region.trim()) this.inputHistory.push('remote.region', this.form.region.trim());
+      if (this.form.prefix.trim()) this.inputHistory.push('remote.prefix', this.form.prefix.trim());
+      if (this.form.accessKeyId.trim()) this.inputHistory.push('remote.accessKeyId', this.form.accessKeyId.trim());
+    } else {
+      if (this.form.clientId.trim()) this.inputHistory.push('remote.clientId', this.form.clientId.trim());
+      if (this.form.tenant.trim()) this.inputHistory.push('remote.tenant', this.form.tenant.trim());
+    }
   }
 
   onProtocolChange(protocol: RemoteProtocolId): void {
@@ -690,6 +751,7 @@ export class RemoteConnectDialogComponent {
         }));
       }
       this.remoteConnectDialog.resolveActive(mount);
+      this.saveFormHistory();
     } catch (error) {
       this.errorMessage = error instanceof Error ? error.message : String(error);
     } finally {

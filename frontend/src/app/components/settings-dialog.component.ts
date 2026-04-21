@@ -6,6 +6,7 @@ import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.direct
 import { moveFocusWithin } from '../directives/focus-trap.utils';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
+import { InputHistoryService } from '../services/input-history.service';
 import { NativeOverlayFreezeService } from '../services/native-overlay-freeze.service';
 import {
   SettingsService,
@@ -137,7 +138,12 @@ interface SettingsDialogRequest {
                       [(ngModel)]="draft.general.startupFolder"
                       (ngModelChange)="onSettingChanged()"
                       placeholder="/path/to/folder"
+                      list="sfd-history-startup-folder"
+                      autocomplete="off"
                     />
+                    <datalist id="sfd-history-startup-folder">
+                      <option *ngFor="let v of history('settings.startupFolder')" [value]="v"></option>
+                    </datalist>
                   </label>
                 </div>
 
@@ -258,7 +264,12 @@ interface SettingsDialogRequest {
                       [(ngModel)]="draft.editor.fontFamily"
                       (ngModelChange)="onSettingChanged()"
                       placeholder="Consolas, 'Courier New', monospace"
+                      list="sfd-history-font-family"
+                      autocomplete="off"
                     />
+                    <datalist id="sfd-history-font-family">
+                      <option *ngFor="let v of history('settings.fontFamily')" [value]="v"></option>
+                    </datalist>
                   </label>
                   <div class="field-row">
                     <label class="field">
@@ -558,7 +569,12 @@ interface SettingsDialogRequest {
                           [(ngModel)]="draft.advanced.proxyHost"
                           (ngModelChange)="onSettingChanged()"
                           placeholder="proxy.example.com"
+                          list="sfd-history-proxy-host"
+                          autocomplete="off"
                         />
+                        <datalist id="sfd-history-proxy-host">
+                          <option *ngFor="let v of history('settings.proxyHost')" [value]="v"></option>
+                        </datalist>
                       </label>
                       <label class="field">
                         <span>Port</span>
@@ -582,7 +598,12 @@ interface SettingsDialogRequest {
                           type="text"
                           [(ngModel)]="draft.advanced.proxyUsername"
                           (ngModelChange)="onSettingChanged()"
+                          list="sfd-history-proxy-user"
+                          autocomplete="off"
                         />
+                        <datalist id="sfd-history-proxy-user">
+                          <option *ngFor="let v of history('settings.proxyUsername')" [value]="v"></option>
+                        </datalist>
                       </label>
                       <label class="field">
                         <span>Password</span>
@@ -673,6 +694,7 @@ export class SettingsDialogComponent {
     private readonly inputContexts: InputContextService,
     private readonly inputEngine: InputEngineService,
     private readonly overlayFreeze: NativeOverlayFreezeService,
+    private readonly inputHistory: InputHistoryService,
   ) {}
 
   ngOnInit(): void {
@@ -724,6 +746,11 @@ export class SettingsDialogComponent {
     return this.tabs.find((t) => t.id === this.activeTab)?.label ?? '';
   }
 
+  /** Returns stored autocomplete suggestions for a given history key. */
+  history(key: string): string[] {
+    return this.inputHistory.get(key);
+  }
+
   onSettingChanged(): void {
     this.hasChanges = !this.isEqual(this.draft, this.originalSettings);
   }
@@ -737,9 +764,25 @@ export class SettingsDialogComponent {
 
   onSave(): void {
     this.settingsService.updateSettings(this.getChanges());
+    this.saveSettingsHistory();
     this.originalSettings = JSON.parse(JSON.stringify(this.draft));
     this.hasChanges = false;
     this.settingsService.closeSettings(true);
+  }
+
+  private saveSettingsHistory(): void {
+    if (this.draft.general.startupFolder?.trim()) {
+      this.inputHistory.push('settings.startupFolder', this.draft.general.startupFolder.trim());
+    }
+    if (this.draft.editor.fontFamily?.trim()) {
+      this.inputHistory.push('settings.fontFamily', this.draft.editor.fontFamily.trim());
+    }
+    if (this.draft.advanced.proxyHost?.trim()) {
+      this.inputHistory.push('settings.proxyHost', this.draft.advanced.proxyHost.trim());
+    }
+    if (this.draft.advanced.proxyUsername?.trim()) {
+      this.inputHistory.push('settings.proxyUsername', this.draft.advanced.proxyUsername.trim());
+    }
   }
 
   onResetSection(): void {

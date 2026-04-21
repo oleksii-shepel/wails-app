@@ -364,6 +364,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
         cancelText: 'Cancel',
         placeholder: '*.txt',
         defaultValue: '*.*',
+        historyKey: 'files.mask',
       }),
       scrollToCursorPath: (path: string) => thisRef.stateRuntime.scrollToCursorPath(path),
       getGridColumns: () => thisRef.fileViewContainer?.getGridColumns() ?? 1,

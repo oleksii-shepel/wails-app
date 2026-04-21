@@ -674,6 +674,7 @@ export class FilterBarComponent implements OnInit, OnDestroy, OnChanges {
       cancelText: 'Cancel',
       placeholder: 'Preset name',
       defaultValue: '',
+      historyKey: 'filter.presetName',
     }))?.trim();
     if (!name) return;
     this.savedPresets = [...this.savedPresets, {

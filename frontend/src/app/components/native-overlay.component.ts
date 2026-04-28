@@ -106,11 +106,13 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
   private screenshotCooldownTimer: ReturnType<typeof setTimeout> | null = null;
   private lastScreenshotStartedAt = 0;
   private readonly screenshotMinInterval = 50;
+  private readonly screenshotPrewarmDelayMs = 16;
   private readonly documentBackgroundRetryMs = 350;
   private readonly documentBackgroundRefreshMs = 2000;
   private readonly frozenCanvasBackground = '#ffffff';
   private liveBackgroundColor = '#ffffff';
   private documentBackgroundRequestToken = 0;
+  private screenshotPrewarmTimer: ReturnType<typeof setTimeout> | null = null;
 
   private measureHostBounds(host: HTMLElement): {
     rect: DOMRect;
@@ -286,6 +288,7 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
   private stopTracking(): void {
     this.stopTimer();
     this.clearScreenshotCooldown();
+    this.clearScreenshotPrewarm();
     if (this.syncFrame !== null) {
       cancelAnimationFrame(this.syncFrame);
       this.syncFrame = null;
@@ -411,6 +414,7 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
     };
     const syncKey = JSON.stringify(request);
     if (syncKey === this.lastSyncKey) {
+      this.scheduleScreenshotPrewarm();
       if (!frozen) {
         this.requestDocumentBackground(false, theme);
       }
@@ -420,6 +424,7 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
     try {
       if (await this.nativeBrowserPane.sync(request)) {
         this.lastSyncKey = syncKey;
+        this.scheduleScreenshotPrewarm();
         if (!frozen) {
           this.requestDocumentBackground(false, theme);
         }
@@ -509,8 +514,38 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
     if (!this.isFreezeRequested()) {
       return;
     }
+    this.clearScreenshotPrewarm();
     this.screenshotPending = true;
     this.maybeStartScreenshotCapture();
+  }
+
+  private scheduleScreenshotPrewarm(): void {
+    if (!this.active || !this.surfaceId || !this.url || this.isFreezeRequested() || this.capturingScreenshot) {
+      this.clearScreenshotPrewarm();
+      return;
+    }
+    if (this.lastScreenshotURL === this.url && this.hasCachedCanvas()) {
+      this.clearScreenshotPrewarm();
+      return;
+    }
+    if (this.screenshotPrewarmTimer !== null) {
+      return;
+    }
+    this.screenshotPrewarmTimer = setTimeout(() => {
+      this.screenshotPrewarmTimer = null;
+      if (!this.active || !this.surfaceId || !this.url || this.isFreezeRequested() || this.capturingScreenshot) {
+        return;
+      }
+      void this.captureScreenshot(true, true, false);
+    }, this.screenshotPrewarmDelayMs);
+  }
+
+  private clearScreenshotPrewarm(): void {
+    if (this.screenshotPrewarmTimer === null) {
+      return;
+    }
+    clearTimeout(this.screenshotPrewarmTimer);
+    this.screenshotPrewarmTimer = null;
   }
 
   private maybeStartScreenshotCapture(): void {
@@ -618,6 +653,12 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
           this.lastScreenshotWidth = bounds.rect.width;
           this.lastScreenshotHeight = bounds.rect.height;
           this.lastScreenshotURL = this.url;
+
+          if (document.body.classList.contains('divider-dragging')) {
+            this.screenshotVisible = true;
+            resolve(true);
+            return;
+          }
           
           requestAnimationFrame(() => {
             requestAnimationFrame(() => {
@@ -712,16 +753,9 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
     if (document.body.classList.contains('divider-hover')) {
       this.hoverFreezeActive = true;
     }
-    const expectedId = this.screenshotRequestId;
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        if (expectedId === this.screenshotRequestId) {
-          this.screenshotVisible = true;
-          this.lastSyncKey = '';
-          this.requestSync();
-        }
-      });
-    });
+    this.screenshotVisible = true;
+    this.lastSyncKey = '';
+    this.requestSync();
   }
 
   private hasCachedCanvas(): boolean {

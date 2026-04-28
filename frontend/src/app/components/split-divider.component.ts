@@ -276,6 +276,7 @@ export class SplitDividerComponent implements OnDestroy {
     private hoverLeaveTimer: ReturnType<typeof setTimeout> | null = null;
     private lastPointerX = 0;
     private lastPointerY = 0;
+    private activePointerId: number | null = null;
     /* ---------------- INPUTS ---------------- */
 
     @Input() position = 50;
@@ -321,6 +322,13 @@ export class SplitDividerComponent implements OnDestroy {
         this.hovering = true;
         this.startPointerPosition = this.isHorizontal ? e.clientY : e.clientX;
         this.startPos = this.position;
+        this.activePointerId = e.pointerId;
+
+        try {
+            this.el.nativeElement.setPointerCapture(e.pointerId);
+        } catch {
+            this.activePointerId = null;
+        }
 
         this.setBodyInteractionClass('divider-hover', true);
         this.setBodyInteractionClass('divider-dragging', true);
@@ -421,6 +429,14 @@ export class SplitDividerComponent implements OnDestroy {
         if (!this.dragging) return;
 
         this.dragging = false;
+        if (this.activePointerId !== null) {
+            try {
+                this.el.nativeElement.releasePointerCapture(this.activePointerId);
+            } catch {
+                // Ignore stale pointer capture state.
+            }
+            this.activePointerId = null;
+        }
         this.setBodyInteractionClass('divider-dragging', false);
         if (this.el.nativeElement.matches(':hover')) {
             this.activateHover();

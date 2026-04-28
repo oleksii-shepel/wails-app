@@ -28,7 +28,7 @@ export interface FileSettings {
   confirmBeforeMove: boolean;
   confirmBeforeCopy: boolean;
   confirmDragAndDrop: boolean;
-  defaultOpenAction: 'preview' | 'edit' | 'external';
+  defaultOpenAction: 'edit' | 'external';
   calculateFolderSizes: boolean;
   enableFileWatcher: boolean;
   autoRefreshInterval: number;
@@ -135,7 +135,7 @@ const DEFAULT_SETTINGS: ProjectSettings = {
     confirmBeforeMove: true,
     confirmBeforeCopy: false,
     confirmDragAndDrop: true,
-    defaultOpenAction: 'preview',
+    defaultOpenAction: 'external',
     calculateFolderSizes: false,
     enableFileWatcher: true,
     autoRefreshInterval: 5000,
@@ -377,9 +377,14 @@ export class SettingsService {
   }
 
   private mergeWithDefaults(stored: Partial<ProjectSettings>): ProjectSettings {
+    const files = { ...DEFAULT_SETTINGS.files, ...stored.files };
+    if (files.defaultOpenAction !== 'edit' && files.defaultOpenAction !== 'external') {
+      files.defaultOpenAction = 'external';
+    }
+
     return {
       general: { ...DEFAULT_SETTINGS.general, ...stored.general },
-      files: { ...DEFAULT_SETTINGS.files, ...stored.files },
+      files,
       editor: { ...DEFAULT_SETTINGS.editor, ...stored.editor },
       view: { ...DEFAULT_SETTINGS.view, ...stored.view },
       advanced: { ...DEFAULT_SETTINGS.advanced, ...stored.advanced },

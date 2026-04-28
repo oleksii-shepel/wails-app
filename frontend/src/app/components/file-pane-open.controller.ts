@@ -9,7 +9,7 @@ import { isArchive } from '../services/archive.service';
 export interface FilePaneOpenHost {
   currentPath: string;
   currentView: ViewLayout;
-  defaultOpenAction: 'preview' | 'edit' | 'external';
+  defaultOpenAction: 'edit' | 'external';
   entries: FileInfo[];
   apiService: ApiService;
   selectionCursorPath: string | null;
@@ -36,15 +36,12 @@ export class FilePaneOpenController {
 
   private async openByPreference(host: FilePaneOpenHost, path: string): Promise<void> {
     switch (host.defaultOpenAction) {
-      case 'external':
-        this.openExternalFile(host, path);
-        return;
       case 'edit':
         await host.openEditorPath(path);
         return;
-      case 'preview':
+      case 'external':
       default:
-        await host.openPreviewPath(path);
+        this.openExternalFile(host, path);
         return;
     }
   }

@@ -23,7 +23,7 @@ export interface FilePaneActionHostsSource {
   set fsParentDir(value: string);
   get activeTabKind(): 'dir' | 'viewer';
   get currentView(): ViewLayout;
-  get defaultOpenAction(): 'preview' | 'edit' | 'external';
+  get defaultOpenAction(): 'edit' | 'external';
   get confirmBeforeDelete(): boolean;
   get confirmDragAndDrop(): boolean;
   get showHidden(): boolean;

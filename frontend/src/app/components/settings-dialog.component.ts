@@ -311,7 +311,6 @@ interface SettingsDialogRequest {
                   <label class="field">
                     <span>Default Open Action</span>
                     <select [(ngModel)]="draft.files.defaultOpenAction" (ngModelChange)="onSettingChanged()">
-                      <option value="preview">Preview</option>
                       <option value="edit">Edit</option>
                       <option value="external">Open in External Application</option>
                     </select>

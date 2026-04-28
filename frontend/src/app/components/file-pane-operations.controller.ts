@@ -14,6 +14,8 @@ export interface FilePaneOperationsHost {
   get paneId(): 'left' | 'right';
   get currentPath(): string;
   get currentView(): ViewLayout;
+  get confirmBeforeDelete(): boolean;
+  get confirmDragAndDrop(): boolean;
   get entries(): FileInfo[];
   get selectedFiles(): Set<string>;
   get selectionCursorPath(): string | null;
@@ -104,13 +106,15 @@ export class FilePaneOperationsController {
       return;
     }
 
-    const deleteConfirmed = await host.confirmDialog.confirm({
-      title: 'Delete Items',
-      message: `Delete ${effective.size} item(s)?`,
-      confirmText: 'Delete',
-      danger: true,
-    });
-    if (!deleteConfirmed) return;
+    if (host.confirmBeforeDelete) {
+      const deleteConfirmed = await host.confirmDialog.confirm({
+        title: 'Delete Items',
+        message: `Delete ${effective.size} item(s)?`,
+        confirmText: 'Delete',
+        danger: true,
+      });
+      if (!deleteConfirmed) return;
+    }
 
     try {
       if (postDeletePath) {
@@ -202,6 +206,16 @@ export class FilePaneOperationsController {
       const sourcePaneIdRaw = event.event.dataTransfer?.getData('application/x-wails-pane-id') || '';
       const sourcePaneId = (sourcePaneIdRaw === 'left' || sourcePaneIdRaw === 'right') ? sourcePaneIdRaw : null;
       const isCrossPane = !!sourcePaneId && sourcePaneId !== host.paneId;
+
+      if (host.confirmDragAndDrop) {
+        const confirmed = await host.confirmDialog.confirm({
+          title: isCopy ? 'Confirm Copy' : 'Confirm Move',
+          message: `${isCopy ? 'Copy' : 'Move'} ${sourcePaths.length} item(s) to ${event.targetPath}?`,
+          confirmText: isCopy ? 'Copy' : 'Move',
+          danger: !isCopy,
+        });
+        if (!confirmed) return;
+      }
 
       const items = await Promise.all(sourcePaths.map(async sourcePath => ({
         source: sourcePath,

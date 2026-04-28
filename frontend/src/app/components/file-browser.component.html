@@ -36,10 +36,10 @@
         <button (click)="toggleShowHidden()" [class.active]="showHidden" class="btn">
           {{ showHidden ? 'Hide' : 'Show' }} Hidden
         </button>
-        <button (click)="theme.toggleTheme()" class="btn" title="Toggle theme">
+        <button (click)="toggleThemePreference()" class="btn" title="Toggle theme">
           Theme
         </button>
-        <button (click)="theme.toggleCompact()" [class.active]="(theme.getCompact$() | async)" class="btn" title="Toggle compact UI">
+        <button (click)="toggleCompactMode()" [class.active]="(theme.getCompact$() | async)" class="btn" title="Toggle compact UI">
           Compact
         </button>
       </div>
@@ -56,6 +56,9 @@
           [workspace]="activeWorkspace"
           [showHidden]="showHidden"
           [paneActive]="activePaneId === 'left'"
+          [showTabBar]="viewSettings.showTabBar"
+          [showPathBar]="viewSettings.showPathBar"
+          [showBreadcrumbs]="viewSettings.showBreadcrumbs"
           (mousedown)="activePaneId = 'left'"
           (pathChange)="onPanePathChange('left', $event)"
           (previewTargetChange)="onPanePreviewTarget('left', $event)"
@@ -82,6 +85,9 @@
           [workspace]="activeWorkspace"
           [showHidden]="showHidden"
           [paneActive]="activePaneId === 'right'"
+          [showTabBar]="viewSettings.showTabBar"
+          [showPathBar]="viewSettings.showPathBar"
+          [showBreadcrumbs]="viewSettings.showBreadcrumbs"
           (mousedown)="activePaneId = 'right'"
           (pathChange)="onPanePathChange('right', $event)"
           (previewTargetChange)="onPanePreviewTarget('right', $event)"
@@ -102,6 +108,7 @@
   </app-operation-toast-stack>
 
   <app-status-bar
+    *ngIf="viewSettings.showStatusBar"
     [filteredEntries]="statusFilteredEntries"
     [allEntries]="statusAllEntries"
     [selectedPaths]="statusSelectedPaths">

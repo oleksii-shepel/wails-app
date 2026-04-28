@@ -34,6 +34,7 @@ import { gotoLine, highlightSelectionMatches, openSearchPanel, searchKeymap } fr
 import { classHighlighter } from '@lezer/highlight';
 import { VscodeScrollbarController } from '../../directives/vscode-scrollbar.directive';
 import { ApiService } from '../../services/api.service';
+import { EditorSettings, SettingsService } from '../../services/settings.service';
 import { Theme, ThemeService } from '../../services/theme.service';
 import { FileInfo, FileProbe, FileType } from '../../shared/protocol';
 import { ViewerArchiveContext } from '../viewer-archive-context';
@@ -50,13 +51,13 @@ function createFoldMarker(open: boolean): HTMLElement {
   return marker;
 }
 
-function createCodePreviewTheme(isDark: boolean) {
+function createCodePreviewTheme(isDark: boolean, settings: Pick<EditorSettings, 'fontFamily' | 'fontSize' | 'lineHeight'>) {
   return EditorView.theme({
   '&': {
     height: '100%',
     backgroundColor: 'var(--vsc-code-background)',
     color: 'var(--vsc-foreground)',
-    fontSize: '13px',
+    fontSize: `${settings.fontSize}px`,
   },
   '.cm-editor': {
     backgroundColor: 'var(--vsc-code-background)',
@@ -64,8 +65,8 @@ function createCodePreviewTheme(isDark: boolean) {
   '.cm-scroller': {
     overflow: 'auto',
     color: 'var(--vsc-foreground)',
-    fontFamily: "var(--vsc-font-family-mono, ui-monospace, 'Cascadia Code', 'SFMono-Regular', Consolas, monospace)",
-    lineHeight: '1.6',
+    fontFamily: settings.fontFamily || "var(--vsc-font-family-mono, ui-monospace, 'Cascadia Code', 'SFMono-Regular', Consolas, monospace)",
+    lineHeight: String(settings.lineHeight),
   },
   '.cm-content': {
     padding: '10px 0 24px',
@@ -201,9 +202,6 @@ function createCodePreviewTheme(isDark: boolean) {
   },
   }, { dark: isDark });
 }
-
-const codePreviewDarkTheme = createCodePreviewTheme(true);
-const codePreviewLightTheme = createCodePreviewTheme(false);
 
 @Component({
   selector: 'app-text-viewer',
@@ -528,17 +526,28 @@ export class TextViewerComponent implements OnChanges, OnDestroy {
 
   private readonly languageCompartment = new Compartment();
   private readonly wrapCompartment = new Compartment();
+  private readonly lineNumbersCompartment = new Compartment();
+  private readonly foldGutterCompartment = new Compartment();
+  private readonly activeLineCompartment = new Compartment();
+  private readonly activeLineGutterCompartment = new Compartment();
+  private readonly selectionMatchesCompartment = new Compartment();
+  private readonly bracketMatchingCompartment = new Compartment();
   private readonly themeCompartment = new Compartment();
   private readonly themeSubscription: { unsubscribe(): void };
+  private readonly settingsSubscription: { unsubscribe(): void };
   private currentTheme: Theme;
+  private editorSettings: EditorSettings;
 
   constructor(
     private api: ApiService,
     private cdr: ChangeDetectorRef,
     private themeService: ThemeService,
+    private settingsService: SettingsService,
     private renderer: Renderer2,
     private ngZone: NgZone,
   ) {
+    this.editorSettings = this.settingsService.getSettings().editor;
+    this.wordWrap = this.isWordWrapEnabled(this.editorSettings.wordWrap);
     this.currentTheme = this.themeService.getTheme$().value;
     this.themeSubscription = this.themeService.getTheme$().subscribe((theme: Theme) => {
       this.currentTheme = theme;
@@ -547,6 +556,9 @@ export class TextViewerComponent implements OnChanges, OnDestroy {
           effects: this.themeCompartment.reconfigure(this.resolveThemeExtension(theme)),
         });
       }
+    });
+    this.settingsSubscription = this.settingsService.getSettings$().subscribe((settings) => {
+      this.applyEditorSettings(settings.editor);
     });
   }
 
@@ -579,6 +591,7 @@ export class TextViewerComponent implements OnChanges, OnDestroy {
   ngOnDestroy(): void {
     this.destroyed = true;
     this.themeSubscription.unsubscribe();
+    this.settingsSubscription.unsubscribe();
     if (this.copyResetTimer !== null) {
       window.clearTimeout(this.copyResetTimer);
       this.copyResetTimer = null;
@@ -590,13 +603,7 @@ export class TextViewerComponent implements OnChanges, OnDestroy {
   }
 
   toggleWordWrap(): void {
-    this.wordWrap = !this.wordWrap;
-    if (this.editorView) {
-      this.editorView.dispatch({
-        effects: this.wrapCompartment.reconfigure(this.wordWrap ? EditorView.lineWrapping : []),
-      });
-    }
-    this.cdr.markForCheck();
+    this.settingsService.updateEditorSettings({ wordWrap: this.wordWrap ? 'off' : 'on' });
   }
 
   async openExternally(): Promise<void> {
@@ -754,21 +761,21 @@ export class TextViewerComponent implements OnChanges, OnDestroy {
     if (!this.editorHost || this.destroyed || loadId !== this.loadId) return;
 
     const extensions = [
-      lineNumbers(),
-      highlightActiveLineGutter(),
+      this.lineNumbersCompartment.of(this.editorSettings.showLineNumbers ? lineNumbers() : []),
+      this.activeLineGutterCompartment.of(this.editorSettings.highlightCurrentLine ? highlightActiveLineGutter() : []),
       highlightSpecialChars(),
       history(),
-      foldGutter({ markerDOM: createFoldMarker }),
+      this.foldGutterCompartment.of(this.editorSettings.codeFolding ? foldGutter({ markerDOM: createFoldMarker }) : []),
       drawSelection(),
       syntaxHighlighting(classHighlighter),
-      bracketMatching(),
-      highlightActiveLine(),
-      highlightSelectionMatches(),
+      this.bracketMatchingCompartment.of(this.editorSettings.matchBrackets === 'never' ? [] : bracketMatching()),
+      this.activeLineCompartment.of(this.editorSettings.highlightCurrentLine ? highlightActiveLine() : []),
+      this.selectionMatchesCompartment.of(this.editorSettings.occurrencesHighlight ? highlightSelectionMatches() : []),
       this.themeCompartment.of(this.resolveThemeExtension(this.currentTheme)),
       EditorState.readOnly.of(true),
       EditorView.editable.of(false),
       keymap.of([...defaultKeymap, ...historyKeymap, ...foldKeymap, ...searchKeymap]),
-      this.wrapCompartment.of(this.wordWrap ? EditorView.lineWrapping : []),
+      this.wrapCompartment.of(this.isWordWrapEnabled(this.editorSettings.wordWrap) ? EditorView.lineWrapping : []),
       this.languageCompartment.of(languageExtension ?? []),
     ];
 
@@ -817,7 +824,33 @@ export class TextViewerComponent implements OnChanges, OnDestroy {
   }
 
   private resolveThemeExtension(theme: Theme) {
-    return theme === 'light' ? codePreviewLightTheme : codePreviewDarkTheme;
+    return createCodePreviewTheme(theme === 'dark', this.editorSettings);
+  }
+
+  private applyEditorSettings(settings: EditorSettings): void {
+    this.editorSettings = settings;
+    this.wordWrap = this.isWordWrapEnabled(settings.wordWrap);
+
+    if (this.editorView) {
+      this.editorView.dispatch({
+        effects: [
+          this.lineNumbersCompartment.reconfigure(settings.showLineNumbers ? lineNumbers() : []),
+          this.foldGutterCompartment.reconfigure(settings.codeFolding ? foldGutter({ markerDOM: createFoldMarker }) : []),
+          this.activeLineCompartment.reconfigure(settings.highlightCurrentLine ? highlightActiveLine() : []),
+          this.activeLineGutterCompartment.reconfigure(settings.highlightCurrentLine ? highlightActiveLineGutter() : []),
+          this.selectionMatchesCompartment.reconfigure(settings.occurrencesHighlight ? highlightSelectionMatches() : []),
+          this.bracketMatchingCompartment.reconfigure(settings.matchBrackets === 'never' ? [] : bracketMatching()),
+          this.wrapCompartment.reconfigure(this.wordWrap ? EditorView.lineWrapping : []),
+          this.themeCompartment.reconfigure(this.resolveThemeExtension(this.currentTheme)),
+        ],
+      });
+    }
+
+    this.cdr.markForCheck();
+  }
+
+  private isWordWrapEnabled(wordWrap: EditorSettings['wordWrap']): boolean {
+    return wordWrap !== 'off';
   }
 
   private baseName(path: string): string {

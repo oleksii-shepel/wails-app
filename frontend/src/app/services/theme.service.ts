@@ -2,29 +2,49 @@ import { Injectable } from '@angular/core';
 import { createBehaviorSubject } from '@epikodelabs/streamix';
 
 export type Theme = 'dark' | 'light';
+export type ThemePreference = Theme | 'system';
 
 @Injectable({ providedIn: 'root' })
 export class ThemeService {
-  private theme$ = createBehaviorSubject<Theme>(this.readInitialTheme());
+  private readonly themePreference$ = createBehaviorSubject<ThemePreference>(this.readInitialThemePreference());
+  private theme$ = createBehaviorSubject<Theme>(this.resolveTheme(this.themePreference$.value));
   private compact$ = createBehaviorSubject<boolean>(this.readInitialCompact());
+  private readonly systemThemeMedia = window.matchMedia ? window.matchMedia('(prefers-color-scheme: light)') : null;
 
   constructor() {
+    this.systemThemeMedia?.addEventListener?.('change', () => {
+      if (this.themePreference$.value === 'system') {
+        const resolved = this.resolveTheme('system');
+        this.theme$.next(resolved);
+        this.applyTheme(resolved);
+      }
+    });
     this.applyTheme(this.theme$.value);
     this.applyCompact(this.compact$.value);
   }
 
   setTheme(theme: Theme) {
-    this.theme$.next(theme);
-    this.applyTheme(theme);
+    this.setThemePreference(theme);
+  }
+
+  setThemePreference(theme: ThemePreference) {
+    const resolved = this.resolveTheme(theme);
+    this.themePreference$.next(theme);
+    this.theme$.next(resolved);
+    this.applyTheme(resolved);
     try { localStorage.setItem('app-theme', theme); } catch {}
   }
 
   toggleTheme() {
-    this.setTheme(this.theme$.value === 'dark' ? 'light' : 'dark');
+    this.setThemePreference(this.theme$.value === 'dark' ? 'light' : 'dark');
   }
 
   getTheme$() {
     return this.theme$;
+  }
+
+  getThemePreference$() {
+    return this.themePreference$;
   }
 
   setCompact(compact: boolean) {
@@ -52,12 +72,16 @@ export class ThemeService {
     root.classList.toggle('compact-mode', compact);
   }
 
-  private readInitialTheme(): Theme {
+  private readInitialThemePreference(): ThemePreference {
     try {
       const stored = localStorage.getItem('app-theme');
-      if (stored === 'light' || stored === 'dark') return stored;
+      if (stored === 'light' || stored === 'dark' || stored === 'system') return stored;
     } catch {}
-    // Detect prefers-color-scheme
+    return 'system';
+  }
+
+  private resolveTheme(theme: ThemePreference): Theme {
+    if (theme === 'light' || theme === 'dark') return theme;
     if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
       return 'light';
     }

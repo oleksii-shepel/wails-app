@@ -1,7 +1,8 @@
 import { Injectable } from '@angular/core';
 import { createBehaviorSubject, type Stream } from '@epikodelabs/streamix';
+import { GetPreferences, SavePreferences } from 'wailsjs/go/app/App';
 
-export type SettingsTab = 'general' | 'files' | 'editor' | 'view' | 'advanced';
+export type SettingsTab = 'general' | 'files' | 'editor' | 'view' | 'advanced' | 'shortcuts' | 'about';
 
 export interface GeneralSettings {
   theme: 'dark' | 'light' | 'system';
@@ -15,6 +16,9 @@ export interface GeneralSettings {
   dateFormat: 'relative' | 'short' | 'long' | 'iso';
   sizeUnit: 'auto' | 'bytes' | 'kib' | 'mib' | 'gib';
   accentColor: string;
+  uiZoom: number;
+  confirmOnClose: boolean;
+  reopenLastWorkspace: boolean;
 }
 
 export interface FileSettings {
@@ -55,6 +59,11 @@ export interface EditorSettings {
   cursorStyle: 'line' | 'block' | 'underline';
   smoothScrolling: boolean;
   bracketPairColorization: boolean;
+  showLineNumbers: boolean;
+  codeFolding: boolean;
+  highlightCurrentLine: boolean;
+  occurrencesHighlight: boolean;
+  matchBrackets: 'never' | 'near' | 'always';
 }
 
 export interface ViewSettings {
@@ -66,10 +75,6 @@ export interface ViewSettings {
   showStatusBar: boolean;
   showBreadcrumbs: boolean;
   showPathBar: boolean;
-  sidebarVisible: boolean;
-  sidebarWidth: number;
-  previewPaneVisible: boolean;
-  previewPaneWidth: number;
   pathDisplayFormat: 'full' | 'short' | 'smart';
   animationsEnabled: boolean;
   showTabBar: boolean;
@@ -119,6 +124,9 @@ const DEFAULT_SETTINGS: ProjectSettings = {
     dateFormat: 'relative',
     sizeUnit: 'auto',
     accentColor: '',
+    uiZoom: 100,
+    confirmOnClose: true,
+    reopenLastWorkspace: true,
   },
   files: {
     showHiddenFiles: false,
@@ -157,6 +165,11 @@ const DEFAULT_SETTINGS: ProjectSettings = {
     cursorStyle: 'line',
     smoothScrolling: true,
     bracketPairColorization: true,
+    showLineNumbers: true,
+    codeFolding: true,
+    highlightCurrentLine: true,
+    occurrencesHighlight: true,
+    matchBrackets: 'always',
   },
   view: {
     compactMode: false,
@@ -167,10 +180,6 @@ const DEFAULT_SETTINGS: ProjectSettings = {
     showStatusBar: true,
     showBreadcrumbs: true,
     showPathBar: true,
-    sidebarVisible: true,
-    sidebarWidth: 250,
-    previewPaneVisible: false,
-    previewPaneWidth: 300,
     pathDisplayFormat: 'smart',
     animationsEnabled: true,
     showTabBar: true,
@@ -206,10 +215,21 @@ interface SettingsDialogRequest {
   initialTab?: SettingsTab;
 }
 
+interface BackendUserPreferences {
+  confirmOnClose?: boolean;
+  reopenLastWorkspace?: boolean;
+  [key: string]: unknown;
+}
+
 @Injectable({ providedIn: 'root' })
 export class SettingsService {
   private settings$ = createBehaviorSubject<ProjectSettings>(this.loadSettings());
   private activeRequest$ = createBehaviorSubject<SettingsDialogRequest | null>(null);
+  private backendPreferences: BackendUserPreferences | null = null;
+
+  constructor() {
+    void this.loadBackendPreferences();
+  }
 
   readonly settings: Stream<ProjectSettings> = this.settings$;
   readonly currentSettings = this.settings$.value;
@@ -306,6 +326,53 @@ export class SettingsService {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
     } catch {
       // Ignore storage errors
+    }
+
+    void this.syncBackendPreferences(settings);
+  }
+
+  private async loadBackendPreferences(): Promise<void> {
+    try {
+      const preferences = await GetPreferences() as unknown as BackendUserPreferences;
+      this.backendPreferences = preferences;
+
+      const current = this.settings$.value;
+      const merged: ProjectSettings = {
+        ...current,
+        general: {
+          ...current.general,
+          confirmOnClose: typeof preferences.confirmOnClose === 'boolean'
+            ? preferences.confirmOnClose
+            : current.general.confirmOnClose,
+          reopenLastWorkspace: typeof preferences.reopenLastWorkspace === 'boolean'
+            ? preferences.reopenLastWorkspace
+            : current.general.reopenLastWorkspace,
+        },
+      };
+
+      this.settings$.next(merged);
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+      } catch {
+        // Ignore storage errors
+      }
+    } catch {
+      // Ignore backend availability errors during bootstrap.
+    }
+  }
+
+  private async syncBackendPreferences(settings: ProjectSettings): Promise<void> {
+    try {
+      const current = this.backendPreferences ?? await GetPreferences() as unknown as BackendUserPreferences;
+      this.backendPreferences = current;
+
+      await SavePreferences({
+        ...current,
+        confirmOnClose: settings.general.confirmOnClose,
+        reopenLastWorkspace: settings.general.reopenLastWorkspace,
+      } as any);
+    } catch {
+      // Ignore backend sync errors during early startup or tests.
     }
   }
 

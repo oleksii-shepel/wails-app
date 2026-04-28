@@ -11,8 +11,10 @@ import { PARENT_ENTRY_PATH } from './file-entry.component';
 export interface FilePanePreviewHost {
   get paneId(): 'left' | 'right';
   get activeTabKind(): 'dir' | 'viewer';
+  get currentTabId(): string;
   get entries(): FileInfo[];
   get sortedEntries(): FileInfo[];
+  get currentPath(): string;
   get selectionCursorPath(): string | null;
   get archiveStack(): ArchiveFrame[];
   get tabs(): any[];
@@ -33,6 +35,73 @@ export interface FilePanePreviewRequest {
 }
 
 export class FilePanePreviewController {
+  async openPreviewPath(host: FilePanePreviewHost, path: string): Promise<void> {
+    const nextPath = (path || '').trim();
+    if (!nextPath) {
+      return;
+    }
+
+    if (host.isInArchive()) {
+      await this.openViewerTab(host, nextPath, {
+        activate: true,
+        closable: true,
+        autoFollow: true,
+      });
+      return;
+    }
+
+    const existingPreviewTab = host.tabs.find(tab =>
+      (tab.kind ?? 'dir') === 'viewer' && tab.viewer?.autoFollow,
+    );
+    const fileList = this.buildViewerFileList(host);
+
+    if (existingPreviewTab) {
+      host.workspaceService.updateViewerTabTargetPath(host.paneId, existingPreviewTab.id, nextPath, {
+        sourcePane: host.paneId,
+        sourceTabId: host.currentTabId,
+        sourceDir: host.currentPath,
+        fileList,
+      });
+      host.workspaceService.switchTab(host.paneId, existingPreviewTab.id);
+      host.tabs = host.workspaceService.getTabs(host.paneId);
+
+      const activeTab = host.workspaceService.getActiveTab(host.paneId);
+      if (activeTab) {
+        await host.onTabChange(activeTab);
+      }
+      return;
+    }
+
+    const tab = host.workspaceService.addViewerTab(host.paneId, nextPath, {
+      activate: true,
+      closable: true,
+      autoFollow: true,
+      title: 'Preview',
+      fileList,
+      sourcePane: host.paneId,
+      sourceDir: host.currentPath,
+    });
+    if (!tab) {
+      return;
+    }
+
+    host.tabs = host.workspaceService.getTabs(host.paneId);
+    await host.onTabChange(tab);
+  }
+
+  async openEditorPath(host: FilePanePreviewHost, path: string): Promise<void> {
+    const nextPath = (path || '').trim();
+    if (!nextPath) {
+      return;
+    }
+
+    await this.openViewerTab(host, nextPath, {
+      activate: true,
+      closable: true,
+      fileList: host.isInArchive() ? [] : this.buildViewerFileList(host),
+    });
+  }
+
   getPreviewRequest(host: FilePanePreviewHost): FilePanePreviewRequest | null {
     if (host.activeTabKind !== 'dir') return null;
 
@@ -58,12 +127,7 @@ export class FilePanePreviewController {
     const request = this.getPreviewRequest(host);
     if (!request) return;
 
-    await this.openViewerTab(host, request.path, {
-      activate: true,
-      closable: true,
-      fileList: request.fileList,
-      archiveContext: request.archiveContext,
-    });
+    await this.openEditorPath(host, request.path);
   }
 
   async openFrozenPreviewTab(

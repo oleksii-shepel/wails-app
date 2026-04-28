@@ -7,6 +7,9 @@ export interface DirSurfaceVm {
   pathReady: boolean;
   currentPath: string;
   loading: boolean;
+  showPathBar: boolean;
+  showBreadcrumbs: boolean;
+  singleClickToOpen: boolean;
   showHidden: boolean;
   paneActive: boolean;
 

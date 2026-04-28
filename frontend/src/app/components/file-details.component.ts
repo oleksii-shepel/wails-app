@@ -515,6 +515,7 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   @Input() sortField: string = 'name';
   @Input() sortDirection: 'asc' | 'desc' = 'asc';
   @Input() paneActive = true;
+  @Input() singleClickToOpen = false;
   @Input() colorizeByMime = false;
   
   @Output() selectionChange = new EventEmitter<FileInfo[]>();
@@ -1174,6 +1175,9 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     if (this.isParentEntry(entry)) {
       this.anchorPath = entry.path;
       this.selectionChange.emit([entry]);
+      if (this.singleClickToOpen) {
+        this.navigate.emit(entry);
+      }
       return;
     }
 
@@ -1185,10 +1189,16 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     } else {
       this.anchorPath = entry.path;
       this.selectionChange.emit([entry]);
+      if (this.singleClickToOpen) {
+        this.navigate.emit(entry);
+      }
     }
   }
 
   onRowDoubleClick(entry: FileInfo): void {
+    if (this.singleClickToOpen) {
+      return;
+    }
     this.navigate.emit(entry);
   }
 

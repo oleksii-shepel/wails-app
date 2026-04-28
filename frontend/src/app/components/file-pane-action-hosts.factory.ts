@@ -23,6 +23,9 @@ export interface FilePaneActionHostsSource {
   set fsParentDir(value: string);
   get activeTabKind(): 'dir' | 'viewer';
   get currentView(): ViewLayout;
+  get defaultOpenAction(): 'preview' | 'edit' | 'external';
+  get confirmBeforeDelete(): boolean;
+  get confirmDragAndDrop(): boolean;
   get showHidden(): boolean;
   get entries(): FileInfo[];
   getSortedEntries(): FileInfo[];
@@ -88,6 +91,8 @@ export interface FilePaneActionHostsSource {
   openNestedArchive(chain: string[]): Promise<void>;
   openRootArchive(path: string): Promise<void>;
   openPathInNewTab(path: string): Promise<void>;
+  openPreviewPath(path: string): Promise<void>;
+  openEditorPath(path: string): Promise<void>;
 }
 
 export class FilePaneActionHostsFactory {
@@ -178,6 +183,8 @@ export class FilePaneActionHostsFactory {
       get paneId() { return source.paneId; },
       get currentPath() { return source.currentPath; },
       get currentView() { return source.currentView; },
+      get confirmBeforeDelete() { return source.confirmBeforeDelete; },
+      get confirmDragAndDrop() { return source.confirmDragAndDrop; },
       get entries() { return source.entries; },
       get selectedFiles() { return source.selectedFiles; },
       get selectionCursorPath() { return source.selectionCursorPath; },
@@ -204,8 +211,10 @@ export class FilePaneActionHostsFactory {
     return {
       get paneId() { return source.paneId; },
       get activeTabKind() { return source.activeTabKind; },
+      get currentTabId() { return source.currentTabId; },
       get entries() { return source.entries; },
       get sortedEntries() { return source.getSortedEntries(); },
+      get currentPath() { return source.currentPath; },
       get selectionCursorPath() { return source.selectionCursorPath; },
       get archiveStack() { return source.archiveStack; },
       get tabs() { return source.tabs; },
@@ -225,6 +234,7 @@ export class FilePaneActionHostsFactory {
       get currentPath() { return source.currentPath; },
       set currentPath(value: string) { source.currentPath = value; },
       get currentView() { return source.currentView; },
+      get defaultOpenAction() { return source.defaultOpenAction; },
       get entries() { return source.entries; },
       get selectionCursorPath() { return source.selectionCursorPath; },
       apiService: source.apiService,
@@ -238,6 +248,8 @@ export class FilePaneActionHostsFactory {
       emitPathChange: (path: string) => source.emitPathChange(path),
       getEffectiveSelection: () => source.getEffectiveSelection(),
       openPathInNewTab: (path: string) => source.openPathInNewTab(path),
+      openPreviewPath: (path: string) => source.openPreviewPath(path),
+      openEditorPath: (path: string) => source.openEditorPath(path),
     };
   }
 }

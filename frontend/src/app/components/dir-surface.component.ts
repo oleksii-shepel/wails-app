@@ -20,9 +20,10 @@ import { DirSurfaceVm } from '../surfaces/dir/dir-surface.vm';
   ],
   template: `
     <app-address-bar
-      *ngIf="vm.pathReady"
+      *ngIf="vm.pathReady && vm.showPathBar"
       [initialPath]="vm.currentPath"
       [loading]="vm.loading"
+      [showBreadcrumbs]="vm.showBreadcrumbs"
       [paneId]="vm.paneId"
       (pathChange)="vm.onPathChange($event)"
       (archiveSegmentClick)="vm.onArchiveSegmentClick($event)"
@@ -69,6 +70,7 @@ import { DirSurfaceVm } from '../surfaces/dir/dir-surface.vm';
         [cursorPath]="vm.cursorPath"
         [error]="vm.error"
         [currentView]="vm.currentView"
+        [singleClickToOpen]="vm.singleClickToOpen"
         [sortField]="vm.sortField"
         [sortDirection]="vm.sortDirection"
         [directoriesFirst]="vm.directoriesFirst"

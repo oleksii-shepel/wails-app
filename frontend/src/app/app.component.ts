@@ -3,6 +3,7 @@ import { FileBrowserComponent } from './components/file-browser.component';
 import { ConfirmDialogComponent } from './components/confirm-dialog.component';
 import { RemoteConnectDialogComponent } from './components/remote-connect-dialog.component';
 import { SettingsDialogComponent } from './components/settings-dialog.component';
+import { SettingsService } from './services/settings.service';
 import { ThemeService } from './services/theme.service';
 import { OperationService } from './services/operation.service';
 
@@ -27,7 +28,13 @@ import { OperationService } from './services/operation.service';
 })
 export class AppComponent implements OnInit, OnDestroy {
   title = 'File Manager';
-  constructor(public theme: ThemeService, public operationService: OperationService) {}
+  private settingsSubscription: { unsubscribe(): void } | null = null;
+
+  constructor(
+    public theme: ThemeService,
+    public operationService: OperationService,
+    private readonly settingsService: SettingsService,
+  ) {}
 
   private captureDragGuard = (event: DragEvent): void => {
     if (this.isExternalFileDrag(event)) {
@@ -45,9 +52,17 @@ export class AppComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     // Wails' OnFileDrop() registers its own dragover/drop handlers - no custom listeners needed
+    this.settingsSubscription = this.settingsService.getSettings$().subscribe((settings) => {
+      this.theme.setThemePreference(settings.general.theme);
+      this.theme.setCompact(settings.view.compactMode);
+      this.applyAccentColor(settings.general.accentColor);
+      this.applyUiZoom(settings.general.uiZoom);
+    });
   }
 
   ngOnDestroy(): void {
+    this.settingsSubscription?.unsubscribe();
+
     window.removeEventListener('dragenter', this.captureDragGuard, true);
     window.removeEventListener('dragover', this.captureDragGuard, true);
 
@@ -72,5 +87,50 @@ export class AppComponent implements OnInit, OnDestroy {
     if (!types) return false;
     if (types.includes('application/json')) return false;
     return types.includes('Files') || (event.dataTransfer?.files?.length ?? 0) > 0;
+  }
+
+  private applyAccentColor(rawAccentColor: string): void {
+    const root = document.documentElement;
+    const accentColor = this.normalizeAccentColor(rawAccentColor);
+    const accentProperties = [
+      '--vsc-accent-blue',
+      '--vsc-accent',
+      '--vsc-input-focus-border',
+      '--vsc-statusbar-background',
+      '--vsc-list-active-background',
+      '--vsc-list-focus-background',
+    ];
+
+    if (!accentColor) {
+      for (const property of accentProperties) {
+        root.style.removeProperty(property);
+      }
+      return;
+    }
+
+    root.style.setProperty('--vsc-accent-blue', accentColor);
+    root.style.setProperty('--vsc-accent', accentColor);
+    root.style.setProperty('--vsc-input-focus-border', accentColor);
+    root.style.setProperty('--vsc-statusbar-background', accentColor);
+    root.style.setProperty('--vsc-list-active-background', `color-mix(in srgb, ${accentColor} 32%, transparent)`);
+    root.style.setProperty('--vsc-list-focus-background', `color-mix(in srgb, ${accentColor} 24%, transparent)`);
+  }
+
+  private applyUiZoom(rawZoom: number): void {
+    const zoom = Number.isFinite(rawZoom) ? Math.min(150, Math.max(75, rawZoom)) : 100;
+    const root = document.documentElement;
+
+    if (zoom === 100) {
+      root.style.removeProperty('zoom');
+      return;
+    }
+
+    root.style.setProperty('zoom', String(zoom / 100));
+  }
+
+  private normalizeAccentColor(rawAccentColor: string): string | null {
+    const value = rawAccentColor.trim();
+    if (!value) return null;
+    return /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(value) ? value : null;
   }
 }

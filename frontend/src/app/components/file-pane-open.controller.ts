@@ -9,6 +9,7 @@ import { isArchive } from '../services/archive.service';
 export interface FilePaneOpenHost {
   currentPath: string;
   currentView: ViewLayout;
+  defaultOpenAction: 'preview' | 'edit' | 'external';
   entries: FileInfo[];
   apiService: ApiService;
   selectionCursorPath: string | null;
@@ -22,9 +23,41 @@ export interface FilePaneOpenHost {
   emitPathChange(path: string): void;
   getEffectiveSelection(): Set<string>;
   openPathInNewTab(path: string): Promise<void>;
+  openPreviewPath(path: string): Promise<void>;
+  openEditorPath(path: string): Promise<void>;
 }
 
 export class FilePaneOpenController {
+  private openExternalFile(host: FilePaneOpenHost, path: string): void {
+    host.apiService.openFile(path).catch(err =>
+      console.error('Failed to open file:', err)
+    );
+  }
+
+  private async openByPreference(host: FilePaneOpenHost, path: string): Promise<void> {
+    switch (host.defaultOpenAction) {
+      case 'external':
+        this.openExternalFile(host, path);
+        return;
+      case 'edit':
+        await host.openEditorPath(path);
+        return;
+      case 'preview':
+      default:
+        await host.openPreviewPath(path);
+        return;
+    }
+  }
+
+  private async openArchiveEntry(host: FilePaneOpenHost, path: string): Promise<void> {
+    if (host.defaultOpenAction === 'edit') {
+      await host.openEditorPath(path);
+      return;
+    }
+
+    await host.openPreviewPath(path);
+  }
+
   private async openDetectedArchiveOrFile(host: FilePaneOpenHost, path: string): Promise<void> {
     try {
       const probe = await host.apiService.probeFile(path);
@@ -36,9 +69,7 @@ export class FilePaneOpenController {
       // fall back to the extension-based path below
     }
 
-    host.apiService.openFile(path).catch(err =>
-      console.error('Failed to open file:', err)
-    );
+    await this.openByPreference(host, path);
   }
 
   onNodeDoubleClick(host: FilePaneOpenHost, entry: FileInfo, navigateUp: () => void): void {
@@ -94,6 +125,8 @@ export class FilePaneOpenController {
         if (chain?.length) {
           void host.openNestedArchive(chain);
         }
+      } else {
+        void this.openArchiveEntry(host, entry.path);
       }
       return;
     }
@@ -122,6 +155,10 @@ export class FilePaneOpenController {
     }
     const entry = host.entries.find(candidate => candidate.path === cursorPath);
     if (entry) {
+      if (host.currentView === 'tree' && entry.type !== FileType.DIRECTORY) {
+        this.onNodeDoubleClick(host, entry, navigateUp);
+        return;
+      }
       this.onNavigate(host, entry, navigateUp);
     }
   }
@@ -143,6 +180,11 @@ export class FilePaneOpenController {
       return;
     }
 
+    if (host.isInArchive()) {
+      await host.openEditorPath(entry.path);
+      return;
+    }
+
     await this.openDetectedArchiveOrFile(host, entry.path);
   }
 
@@ -151,15 +193,11 @@ export class FilePaneOpenController {
       if (result.isDir) {
         void host.loadDirectory(result.target);
       } else {
-        host.apiService.openFile(result.target).catch(err =>
-          console.error('Failed to open link target:', err)
-        );
+        void this.openByPreference(host, result.target);
       }
     }).catch(err => {
       console.warn('Could not resolve link, falling back to OS open:', err);
-      host.apiService.openFile(path).catch(openErr =>
-        console.error('Failed to open file:', openErr)
-      );
+      this.openExternalFile(host, path);
     });
   }
 }

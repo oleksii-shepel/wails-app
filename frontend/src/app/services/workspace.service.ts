@@ -12,6 +12,7 @@ import { ApiService } from './api.service';
 import { ArchiveFrame } from './archive.service';
 import { normalizePath as normalizeReferencePath } from '../components/address-bar.utils';
 import {
+  GetPreferences,
   GetWorkspaces,
   SaveWorkspace,
   DeleteWorkspace,
@@ -42,6 +43,7 @@ export interface ArchiveTabState {
   providedIn: 'root',
 })
 export class WorkspaceService {
+  private static readonly SETTINGS_STORAGE_KEY = 'project-settings-v1';
   private workspacesSubject = createBehaviorSubject<WorkspaceList>(this.loadLocalWorkspaces());
   public workspaces$ = this.workspacesSubject;
 
@@ -72,6 +74,7 @@ export class WorkspaceService {
    */
   private async initializeWorkspaces(): Promise<void> {
     let workspaceList: WorkspaceList;
+    const reopenLastWorkspace = await this.loadReopenLastWorkspacePreference();
 
     try {
       workspaceList = await this.loadBackendWorkspaces();
@@ -118,6 +121,10 @@ export class WorkspaceService {
       !workspaceList.workspaces.some(w => w.id === workspaceList.activeWorkspaceId)
     ) {
       workspaceList.activeWorkspaceId = workspaceList.workspaces[0]?.id ?? '';
+    }
+
+    if (!reopenLastWorkspace && workspaceList.workspaces.length > 0) {
+      workspaceList.activeWorkspaceId = workspaceList.workspaces[0].id;
     }
 
     this.emitInZone(() => {
@@ -288,6 +295,31 @@ export class WorkspaceService {
       if (stored) return JSON.parse(stored);
     } catch {}
     return { workspaces: [], activeWorkspaceId: '' };
+  }
+
+  private async loadReopenLastWorkspacePreference(): Promise<boolean> {
+    try {
+      const stored = localStorage.getItem(WorkspaceService.SETTINGS_STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored) as { general?: { reopenLastWorkspace?: boolean } };
+        if (typeof parsed?.general?.reopenLastWorkspace === 'boolean') {
+          return parsed.general.reopenLastWorkspace;
+        }
+      }
+    } catch {
+      // Ignore storage errors and fall back to backend preferences.
+    }
+
+    try {
+      const preferences = await GetPreferences() as { reopenLastWorkspace?: boolean };
+      if (typeof preferences?.reopenLastWorkspace === 'boolean') {
+        return preferences.reopenLastWorkspace;
+      }
+    } catch {
+      // Ignore backend errors during early startup.
+    }
+
+    return true;
   }
 
   private saveLocalWorkspaces(list: WorkspaceList): void {

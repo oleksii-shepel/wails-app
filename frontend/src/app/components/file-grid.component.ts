@@ -424,6 +424,7 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
   @Input() selectedFiles: Set<string> = new Set();
   @Input() cursorPath: string | null = null;
   @Input() paneActive = true;
+  @Input() singleClickToOpen = false;
   @Input() colorizeByMime = false;
   
   @Output() selectionChange = new EventEmitter<FileInfo[]>();
@@ -1002,14 +1003,23 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
       if (this.isParentEntry(entry)) {
         this.anchorPath = entry.path;
         this.selectionChange.emit([entry]);
+        if (this.singleClickToOpen) {
+          this.navigate.emit(entry);
+        }
         return;
       }
       this.setCursor(entry.path);
       this.selectionChange.emit([entry]);
+      if (this.singleClickToOpen) {
+        this.navigate.emit(entry);
+      }
     }
   }
 
   onItemDoubleClick(entry: FileInfo): void {
+    if (this.singleClickToOpen) {
+      return;
+    }
     this.navigate.emit(entry);
   }
 

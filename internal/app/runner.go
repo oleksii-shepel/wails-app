@@ -17,7 +17,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 )
 
-func Run(assets embed.FS, binding interface{}, archCache *cache.Cache, onStartup func(context.Context), onShutdown func(context.Context)) error {
+func Run(assets embed.FS, binding interface{}, archCache *cache.Cache, onStartup func(context.Context), onBeforeClose func(context.Context) bool, onShutdown func(context.Context)) error {
 	appBinding, _ := binding.(*App)
 	if appBinding == nil {
 		return fmt.Errorf("app binding is required")
@@ -79,6 +79,7 @@ func Run(assets embed.FS, binding interface{}, archCache *cache.Cache, onStartup
 		AssetServer:      &assetserver.Options{Assets: assets},
 		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
 		OnStartup:        onStartup,
+		OnBeforeClose:    onBeforeClose,
 		OnShutdown:       onShutdown,
 		DragAndDrop: &options.DragAndDrop{
 			EnableFileDrop:     true,

@@ -86,6 +86,9 @@ import { DropdownContainerComponent } from './dropdown-container.component';
 
     <!-- Breadcrumb trail -->
     <div class="ab-crumbs" (click)="onCrumbsClick($event)">
+      <span *ngIf="!showBreadcrumbs" class="ab-path-label" [title]="currentPath">{{ currentPath || '/' }}</span>
+
+      <ng-container *ngIf="showBreadcrumbs">
       <!-- Scheme root stays fixed, outside the scroll -->
       <ng-container *ngIf="(isWin || isSchemeRoot) && segments.length > 0">
         <span
@@ -204,6 +207,7 @@ import { DropdownContainerComponent } from './dropdown-container.component';
           <path d="M3 8.5 L6.2 11.5 L13 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
       </span>
+      </ng-container>
     </div>
 
     <!-- Right cluster: Up / Refresh / Copy -->
@@ -458,6 +462,24 @@ import { DropdownContainerComponent } from './dropdown-container.component';
       align-items: center;
       overflow: hidden;
       gap: 0;
+    }
+
+    .ab-path-label {
+      min-width: 0;
+      flex: 1 1 auto;
+      padding: 0 var(--vsc-padding-sm);
+      color: var(--vsc-foreground);
+      font-size: var(--vsc-font-size);
+      line-height: 20px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      border-radius: var(--vsc-border-radius-sm);
+      cursor: text;
+
+      &:hover {
+        background: color-mix(in srgb, var(--vsc-accent-blue) 12%, transparent);
+      }
     }
 
     .ab-crumbs-inner {
@@ -725,6 +747,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
 
   @Input() initialPath = '/';
   @Input() loading = false;
+  @Input() showBreadcrumbs = true;
   @Input() placeholder = 'Enter path…';
   @Input() paneId = 'left';
   @Input() tabId = '';

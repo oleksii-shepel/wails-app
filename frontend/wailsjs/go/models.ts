@@ -1273,6 +1273,8 @@ export namespace contracts {
 	    enableKeyboardShortcuts: boolean;
 	    doubleClickAction: string;
 	    confirmDelete: boolean;
+	    confirmOnClose: boolean;
+	    reopenLastWorkspace: boolean;
 	    memoryRoot?: string;
 	
 	    static createFrom(source: any = {}) {
@@ -1288,6 +1290,8 @@ export namespace contracts {
 	        this.enableKeyboardShortcuts = source["enableKeyboardShortcuts"];
 	        this.doubleClickAction = source["doubleClickAction"];
 	        this.confirmDelete = source["confirmDelete"];
+	        this.confirmOnClose = source["confirmOnClose"];
+	        this.reopenLastWorkspace = source["reopenLastWorkspace"];
 	        this.memoryRoot = source["memoryRoot"];
 	    }
 	}

@@ -13,6 +13,8 @@ import {
   SettingsTab,
   type ProjectSettings,
 } from '../services/settings.service';
+import { BROWSER_BINDINGS } from './file-browser-command-registry';
+import type { InputBindingDefinition, KeyStroke } from '../services/input-system.types';
 
 interface SettingsDialogRequest {
   resolve: (value: boolean) => void;
@@ -50,7 +52,6 @@ interface SettingsDialogRequest {
                 type="button"
                 class="btn btn-secondary btn-small"
                 (click)="onResetSection()"
-                [disabled]="hasChanges"
                 title="Reset current section to defaults"
               >
                 Reset Section
@@ -59,7 +60,6 @@ interface SettingsDialogRequest {
                 type="button"
                 class="btn btn-secondary btn-small"
                 (click)="onResetAll()"
-                [disabled]="hasChanges"
                 title="Reset all settings to defaults"
               >
                 Reset All
@@ -75,17 +75,19 @@ interface SettingsDialogRequest {
           <div class="settings-body">
             <aside class="settings-sidebar">
               <nav class="settings-nav">
-                <button
-                  *ngFor="let tab of tabs"
-                  type="button"
-                  class="nav-item"
-                  [class.active]="activeTab === tab.id"
-                  [attr.aria-selected]="activeTab === tab.id"
-                  (click)="setActiveTab(tab.id)"
-                >
-                  <span class="nav-icon" [innerHTML]="tab.icon"></span>
-                  <span class="nav-label">{{ tab.label }}</span>
-                </button>
+                <ng-container *ngFor="let tab of tabs">
+                  <div *ngIf="tab.divider" class="nav-divider"></div>
+                  <button
+                    type="button"
+                    class="nav-item"
+                    [class.active]="activeTab === tab.id"
+                    [attr.aria-selected]="activeTab === tab.id"
+                    (click)="setActiveTab(tab.id)"
+                  >
+                    <span class="nav-icon" [innerHTML]="tab.icon"></span>
+                    <span class="nav-label">{{ tab.label }}</span>
+                  </button>
+                </ng-container>
               </nav>
             </aside>
 
@@ -97,14 +99,53 @@ interface SettingsDialogRequest {
                 
                 <div class="settings-group">
                   <h4 class="group-title">Appearance</h4>
-                  <label class="field">
-                    <span>Theme</span>
-                    <select [(ngModel)]="draft.general.theme" (ngModelChange)="onSettingChanged()">
-                      <option value="dark">Dark</option>
-                      <option value="light">Light</option>
-                      <option value="system">System Preference</option>
-                    </select>
-                    <small>Controls the application color scheme. "System Preference" follows your OS setting.</small>
+                  <div class="field-row">
+                    <label class="field">
+                      <span>Theme</span>
+                      <select [(ngModel)]="draft.general.theme" (ngModelChange)="onSettingChanged()">
+                        <option value="dark">Dark</option>
+                        <option value="light">Light</option>
+                        <option value="system">System Preference</option>
+                      </select>
+                      <small>Controls the color scheme. "System Preference" follows your OS setting.</small>
+                    </label>
+                    <label class="field">
+                      <span>UI Zoom</span>
+                      <select [(ngModel)]="draft.general.uiZoom" (ngModelChange)="onSettingChanged()">
+                        <option [ngValue]="75">75%</option>
+                        <option [ngValue]="90">90%</option>
+                        <option [ngValue]="100">100% (Default)</option>
+                        <option [ngValue]="110">110%</option>
+                        <option [ngValue]="125">125%</option>
+                        <option [ngValue]="150">150%</option>
+                      </select>
+                      <small>Scales all UI elements. Requires a restart to fully apply.</small>
+                    </label>
+                  </div>
+                  <label class="field color-field">
+                    <span>Accent Color</span>
+                    <div class="color-input-row">
+                      <input
+                        type="color"
+                        [(ngModel)]="draft.general.accentColor"
+                        (ngModelChange)="onSettingChanged()"
+                        class="color-swatch"
+                      />
+                      <input
+                        type="text"
+                        [(ngModel)]="draft.general.accentColor"
+                        (ngModelChange)="onSettingChanged()"
+                        placeholder="#0078d4"
+                        class="color-text"
+                      />
+                      <button
+                        type="button"
+                        class="btn btn-secondary btn-small"
+                        (click)="draft.general.accentColor = ''; onSettingChanged()"
+                        title="Reset to default accent color"
+                      >Reset</button>
+                    </div>
+                    <small>Overrides the default blue highlight color for active items, selections, and focus rings. Leave empty to use the default.</small>
                   </label>
                   <label class="field">
                     <span>Language</span>
@@ -145,6 +186,19 @@ interface SettingsDialogRequest {
                       <small>Unit used when displaying file sizes across all panes.</small>
                     </label>
                   </div>
+                </div>
+
+                <div class="settings-group">
+                  <h4 class="group-title">Window Behavior</h4>
+                  <label class="toggle-field">
+                    <input type="checkbox" [(ngModel)]="draft.general.confirmOnClose" (ngModelChange)="onSettingChanged()" />
+                    <span>Confirm before closing<small>Shows a confirmation dialog before the application window closes.</small></span>
+                  </label>
+                  <label class="toggle-field">
+                    <input type="checkbox" [(ngModel)]="draft.general.reopenLastWorkspace" (ngModelChange)="onSettingChanged()" />
+                    <span>Reopen last workspace on launch<small>Automatically activates the most recently used workspace when the app starts.</small></span>
+                  </label>
+                  <p class="section-note">Background tray mode is not available in the current desktop shell, so closing the window either confirms and exits or exits immediately.</p>
                 </div>
 
                 <div class="settings-group">
@@ -436,6 +490,22 @@ interface SettingsDialogRequest {
                 <div class="settings-group">
                   <h4 class="group-title">Display</h4>
                   <label class="toggle-field">
+                    <input type="checkbox" [(ngModel)]="draft.editor.showLineNumbers" (ngModelChange)="onSettingChanged()" />
+                    <span>Show line numbers<small>Renders line numbers in the left gutter of the editor.</small></span>
+                  </label>
+                  <label class="toggle-field">
+                    <input type="checkbox" [(ngModel)]="draft.editor.codeFolding" (ngModelChange)="onSettingChanged()" />
+                    <span>Enable code folding<small>Shows fold controls in the gutter to collapse and expand sections of code.</small></span>
+                  </label>
+                  <label class="toggle-field">
+                    <input type="checkbox" [(ngModel)]="draft.editor.highlightCurrentLine" (ngModelChange)="onSettingChanged()" />
+                    <span>Highlight current line<small>Applies a subtle background tint to the line containing the cursor.</small></span>
+                  </label>
+                  <label class="toggle-field">
+                    <input type="checkbox" [(ngModel)]="draft.editor.occurrencesHighlight" (ngModelChange)="onSettingChanged()" />
+                    <span>Highlight all occurrences<small>When a word is selected, highlights all other matching occurrences in the file.</small></span>
+                  </label>
+                  <label class="toggle-field">
                     <input type="checkbox" [(ngModel)]="draft.editor.minimap" (ngModelChange)="onSettingChanged()" />
                     <span>Show minimap<small>Displays a scaled-down overview of the file in the right scroll margin.</small></span>
                   </label>
@@ -457,16 +527,25 @@ interface SettingsDialogRequest {
                       </select>
                     </label>
                     <label class="field">
-                      <span>Render Whitespace</span>
-                      <select [(ngModel)]="draft.editor.renderWhitespace" (ngModelChange)="onSettingChanged()">
-                        <option value="none">None</option>
-                        <option value="boundary">Boundary</option>
-                        <option value="selection">Selection only</option>
-                        <option value="all">All</option>
+                      <span>Match Brackets</span>
+                      <select [(ngModel)]="draft.editor.matchBrackets" (ngModelChange)="onSettingChanged()">
+                        <option value="never">Never</option>
+                        <option value="near">Near cursor</option>
+                        <option value="always">Always</option>
                       </select>
-                      <small>Controls when space and tab characters are shown as visible glyphs.</small>
+                      <small>Controls when matching bracket pairs are highlighted.</small>
                     </label>
                   </div>
+                  <label class="field">
+                    <span>Render Whitespace</span>
+                    <select [(ngModel)]="draft.editor.renderWhitespace" (ngModelChange)="onSettingChanged()">
+                      <option value="none">None</option>
+                      <option value="boundary">Boundary</option>
+                      <option value="selection">Selection only</option>
+                      <option value="all">All</option>
+                    </select>
+                    <small>Controls when space and tab characters are shown as visible glyphs.</small>
+                  </label>
                 </div>
               </section>
 
@@ -567,34 +646,7 @@ interface SettingsDialogRequest {
                       <option value="smart">Smart (context-aware)</option>
                     </select>
                   </label>
-                  <label class="toggle-field">
-                    <input type="checkbox" [(ngModel)]="draft.view.sidebarVisible" (ngModelChange)="onSettingChanged()" />
-                    <span>Show sidebar by default</span>
-                  </label>
-                  <label class="field" *ngIf="draft.view.sidebarVisible">
-                    <span>Sidebar Width (px)</span>
-                    <input
-                      type="number"
-                      [(ngModel)]="draft.view.sidebarWidth"
-                      (ngModelChange)="onSettingChanged()"
-                      min="150"
-                      max="500"
-                    />
-                  </label>
-                  <label class="toggle-field">
-                    <input type="checkbox" [(ngModel)]="draft.view.previewPaneVisible" (ngModelChange)="onSettingChanged()" />
-                    <span>Show preview pane by default</span>
-                  </label>
-                  <label class="field" *ngIf="draft.view.previewPaneVisible">
-                    <span>Preview Pane Width (px)</span>
-                    <input
-                      type="number"
-                      [(ngModel)]="draft.view.previewPaneWidth"
-                      (ngModelChange)="onSettingChanged()"
-                      min="150"
-                      max="800"
-                    />
-                  </label>
+                  <p class="section-note">This build uses inline pane surfaces and viewer tabs. Separate sidebar and detached preview-pane layout options are not available.</p>
                 </div>
               </section>
 
@@ -769,6 +821,133 @@ interface SettingsDialogRequest {
                   </label>
                 </div>
               </section>
+
+              <!-- Shortcuts -->
+              <section *ngIf="activeTab === 'shortcuts'" class="settings-section">
+                <h3 class="section-title">Keyboard Shortcuts</h3>
+                <p class="section-desc">Reference list of all keyboard shortcuts. Shortcuts are active when no text field is focused.</p>
+
+                <ng-container *ngFor="let group of shortcutGroups">
+                  <div class="settings-group shortcuts-group">
+                    <h4 class="group-title">{{ group.category }}</h4>
+                    <div class="shortcuts-table">
+                      <div class="shortcut-row" *ngFor="let item of group.items">
+                        <span class="shortcut-desc">{{ item.description }}</span>
+                        <span class="shortcut-keys">
+                          <ng-container *ngFor="let chord of item.chords; let last = last">
+                            <span class="shortcut-chord">
+                              <kbd class="key-badge" *ngFor="let k of chord">{{ k }}</kbd>
+                            </span>
+                            <span class="chord-then" *ngIf="!last">then</span>
+                          </ng-container>
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </ng-container>
+              </section>
+
+              <!-- About -->
+              <section *ngIf="activeTab === 'about'" class="settings-section about-section">
+                <h3 class="section-title">About</h3>
+                <p class="section-desc">Application version and license information.</p>
+
+                <div class="settings-group">
+                  <h4 class="group-title">Application</h4>
+                  <div class="about-app-card">
+                    <div class="about-app-icon">
+                      <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/>
+                      </svg>
+                    </div>
+                    <div class="about-app-info">
+                      <span class="about-app-name">File Manager</span>
+                      <span class="about-app-version">Version 1.0.0</span>
+                      <span class="about-app-build">Built with Wails · Go · Angular</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="settings-group">
+                  <h4 class="group-title">Platform</h4>
+                  <div class="about-kv-list">
+                    <div class="about-kv-row">
+                      <span class="about-kv-label">Runtime</span>
+                      <span class="about-kv-value">Wails v2</span>
+                    </div>
+                    <div class="about-kv-row">
+                      <span class="about-kv-label">WebView</span>
+                      <span class="about-kv-value">Microsoft WebView2</span>
+                    </div>
+                    <div class="about-kv-row">
+                      <span class="about-kv-label">Frontend</span>
+                      <span class="about-kv-value">Angular 17</span>
+                    </div>
+                    <div class="about-kv-row">
+                      <span class="about-kv-label">Backend</span>
+                      <span class="about-kv-value">Go 1.22</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="settings-group">
+                  <h4 class="group-title">Updates</h4>
+                  <div class="about-update-row">
+                    <div class="about-update-status">
+                      <span class="about-update-badge up-to-date">Up to date</span>
+                      <span class="about-update-desc">You are running the latest version.</span>
+                    </div>
+                    <button type="button" class="btn btn-secondary">Check for Updates</button>
+                  </div>
+                </div>
+
+                <div class="settings-group">
+                  <h4 class="group-title">Open Source</h4>
+                  <p class="about-oss-note">File Manager is built on top of open-source software. The following libraries and tools are used under their respective licenses.</p>
+                  <div class="about-oss-grid">
+                    <div class="about-oss-item">
+                      <span class="oss-name">Wails</span>
+                      <span class="oss-license">MIT</span>
+                    </div>
+                    <div class="about-oss-item">
+                      <span class="oss-name">Angular</span>
+                      <span class="oss-license">MIT</span>
+                    </div>
+                    <div class="about-oss-item">
+                      <span class="oss-name">go-webview2</span>
+                      <span class="oss-license">MIT</span>
+                    </div>
+                    <div class="about-oss-item">
+                      <span class="oss-name">astiav / FFmpeg</span>
+                      <span class="oss-license">LGPL 2.1</span>
+                    </div>
+                    <div class="about-oss-item">
+                      <span class="oss-name">MuPDF</span>
+                      <span class="oss-license">AGPL 3.0</span>
+                    </div>
+                    <div class="about-oss-item">
+                      <span class="oss-name">ImageMagick</span>
+                      <span class="oss-license">ImageMagick</span>
+                    </div>
+                    <div class="about-oss-item">
+                      <span class="oss-name">LibreOffice</span>
+                      <span class="oss-license">MPL 2.0</span>
+                    </div>
+                    <div class="about-oss-item">
+                      <span class="oss-name">libvips</span>
+                      <span class="oss-license">LGPL 2.1</span>
+                    </div>
+                    <div class="about-oss-item">
+                      <span class="oss-name">DjVuLibre</span>
+                      <span class="oss-license">GPL 2.0</span>
+                    </div>
+                    <div class="about-oss-item">
+                      <span class="oss-name">Calibre</span>
+                      <span class="oss-license">GPL 3.0</span>
+                    </div>
+                  </div>
+                </div>
+              </section>
             </main>
           </div>
 
@@ -798,7 +977,7 @@ export class SettingsDialogComponent {
   hasChanges = false;
   draft: ProjectSettings = this.settingsService.getSettings();
 
-  readonly tabs: { id: SettingsTab; label: string; icon: string }[] = [
+  readonly tabs: { id: SettingsTab; label: string; icon: string; divider?: boolean }[] = [
     {
       id: 'general',
       label: 'General',
@@ -823,6 +1002,17 @@ export class SettingsDialogComponent {
       id: 'advanced',
       label: 'Advanced',
       icon: '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4.754a3.246 3.246 0 1 0 0 6.492 3.246 3.246 0 0 0 0-6.492zM5.754 8a2.246 2.246 0 1 1 4.492 0 2.246 2.246 0 0 1-4.492 0z"/><path d="M9.796 1.343c-.527-1.79-3.065-1.79-3.592 0l-.094.319a.873.873 0 0 1-1.255.52l-.292-.16c-1.64-.892-3.433.902-2.54 2.541l.159.292a.873.873 0 0 1-.52 1.255l-.319.094c-1.79.527-1.79 3.065 0 3.592l.319.094a.873.873 0 0 1 .52 1.255l-.16.292c-.892 1.64.901 3.434 2.541 2.54l.292-.159a.873.873 0 0 1 1.255.52l.094.319c.527 1.79 3.065 1.79 3.592 0l.094-.319a.873.873 0 0 1 1.255-.52l.292.16c1.639.893 3.432-.902 2.54-2.541l-.159-.292a.873.873 0 0 1 .52-1.255l.319-.094c1.79-.527 1.79-3.065 0-3.592l-.319-.094a.873.873 0 0 1-.52-1.255l.16-.292c.893-1.64-.902-3.433-2.541-2.54l-.292.159a.873.873 0 0 1-1.255-.52l-.094-.319z"/></svg>',
+    },
+    {
+      id: 'shortcuts',
+      label: 'Shortcuts',
+      divider: true,
+      icon: '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M14 5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h12zm-12-1a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H2z"/><path d="M3.5 7.5a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5H4a.5.5 0 0 1-.5-.5v-1zm2.5 0a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5H6.5a.5.5 0 0 1-.5-.5v-1zm2.5 0a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5H9a.5.5 0 0 1-.5-.5v-1zm2.5 0a.5.5 0 0 1 .5-.5h2a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-2a.5.5 0 0 1-.5-.5v-1z"/></svg>',
+    },
+    {
+      id: 'about',
+      label: 'About',
+      icon: '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/><path d="m8.93 6.588-2.29.287-.082.38.45.083c.294.07.352.176.288.469l-.738 3.468c-.194.897.105 1.319.808 1.319.545 0 1.178-.252 1.465-.598l.088-.416c-.2.176-.492.246-.686.246-.275 0-.375-.193-.304-.533L8.93 6.588zM9 4.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0z"/></svg>',
     },
   ];
 
@@ -892,6 +1082,68 @@ export class SettingsDialogComponent {
     return this.inputHistory.get(key);
   }
 
+  private formatStep(step: KeyStroke): string {
+    const mods = step.modifiers ?? [];
+    const parts: string[] = [];
+    if (mods.includes('ctrl'))  parts.push('Ctrl');
+    if (mods.includes('shift')) parts.push('Shift');
+    if (mods.includes('alt'))   parts.push('Alt');
+    if (mods.includes('meta'))  parts.push('Meta');
+    const keyLabels: Record<string, string> = {
+      arrowup: '↑', arrowdown: '↓', arrowleft: '←', arrowright: '→',
+      enter: 'Enter', escape: 'Esc', backspace: 'Backspace', delete: 'Del',
+      tab: 'Tab', space: 'Space', pageup: 'PgUp', pagedown: 'PgDn',
+      home: 'Home', end: 'End', insert: 'Ins',
+      f1: 'F1', f2: 'F2', f3: 'F3', f4: 'F4', f5: 'F5', f6: 'F6',
+      f7: 'F7', f8: 'F8', f9: 'F9', f10: 'F10', f11: 'F11', f12: 'F12',
+    };
+    const key = step.key.toLowerCase();
+    parts.push(keyLabels[key] ?? step.key.toUpperCase());
+    return parts.join('+');
+  }
+
+  /** Shortcut groups derived from BROWSER_BINDINGS, deduplicated by commandId+category. */
+  get shortcutGroups(): Array<{ category: string; items: Array<{ description: string; chords: string[][] }> }> {
+    const catMap = new Map<string, Map<string, { description: string; chords: string[][] }>>();
+
+    for (const b of BROWSER_BINDINGS) {
+      if (b.trigger.device !== 'keyboard') continue;
+      const cat = b.category ?? 'General';
+      if (!catMap.has(cat)) catMap.set(cat, new Map());
+      const group = catMap.get(cat)!;
+
+      const chords = b.trigger.chord.steps.map((s) => {
+        const label = this.formatStep(s);
+        return [label];
+      });
+
+      const key = `${b.commandId}:${cat}`;
+      const existing = group.get(b.commandId);
+      if (existing) {
+        // merge alternative chord as separate display entry only if description differs
+        if (existing.description !== b.description) {
+          group.set(key, { description: b.description, chords });
+        }
+      } else {
+        group.set(b.commandId, { description: b.description, chords });
+      }
+    }
+
+    const categoryOrder = ['Navigation', 'Tab Management', 'File Operations', 'Search & Filter', 'Workspaces', 'Pane Control'];
+    const result: Array<{ category: string; items: Array<{ description: string; chords: string[][] }> }> = [];
+    for (const cat of categoryOrder) {
+      const group = catMap.get(cat);
+      if (group) {
+        result.push({ category: cat, items: [...group.values()] });
+        catMap.delete(cat);
+      }
+    }
+    for (const [cat, group] of catMap) {
+      result.push({ category: cat, items: [...group.values()] });
+    }
+    return result;
+  }
+
   onSettingChanged(): void {
     this.hasChanges = !this.isEqual(this.draft, this.originalSettings);
   }
@@ -927,7 +1179,11 @@ export class SettingsDialogComponent {
   }
 
   onResetSection(): void {
-    this.settingsService.resetSection(this.activeTab);
+    const settingsKeys: Array<keyof ProjectSettings> = ['general', 'files', 'editor', 'view', 'advanced'];
+    const key = settingsKeys.find((k) => k === this.activeTab);
+    if (key) {
+      this.settingsService.resetSection(key);
+    }
     this.draft = JSON.parse(JSON.stringify(this.settingsService.getSettings()));
     this.onSettingChanged();
   }

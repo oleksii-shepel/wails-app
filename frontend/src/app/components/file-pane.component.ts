@@ -51,6 +51,7 @@ import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { DirectorySourceService } from '../services/directory-source.service';
 import { OperationService } from '../services/operation.service';
 import { RemoteConnectDialogService } from '../services/remote-connect-dialog.service';
+import { SettingsService } from '../services/settings.service';
 import type { SearchResultItem } from '../services/global-search.service';
 
 declare const window: any;
@@ -66,6 +67,7 @@ declare const window: any;
   template: `
     <div class="file-pane" [class.file-pane--archive]="isInArchive()">
       <app-tab-bar
+        *ngIf="showTabBar"
         [paneId]="paneId"
         [tabs]="tabs"
         [activeTabId]="currentTabId"
@@ -192,6 +194,9 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       get pathReady() { return thisRef.pathReady; },
       get currentPath() { return thisRef.currentPath; },
       get loading() { return thisRef.loading; },
+      get showPathBar() { return thisRef.showPathBar; },
+      get showBreadcrumbs() { return thisRef.showBreadcrumbs; },
+      get singleClickToOpen() { return thisRef.settingsService.getSettings().files.singleClickToOpen; },
       get showHidden() { return thisRef.showHidden; },
       get paneActive() { return thisRef.paneActive; },
       get filteredEntries() { return thisRef.filteredEntries; },
@@ -250,6 +255,9 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   @Input() workspace: WorkspaceConfig | null = null;
   @Input() showHidden = false;
   @Input() paneActive = true;
+  @Input() showTabBar = true;
+  @Input() showPathBar = true;
+  @Input() showBreadcrumbs = true;
 
   @Output() pathChange = new EventEmitter<string>();
   @Output() previewTargetChange = new EventEmitter<string>();
@@ -538,6 +546,9 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       set fsParentDir(value: string) { thisRef.fsParentDir = value; },
       get activeTabKind() { return thisRef.activeTabKind; },
       get currentView() { return thisRef.currentView; },
+      get defaultOpenAction() { return thisRef.settingsService.getSettings().files.defaultOpenAction; },
+      get confirmBeforeDelete() { return thisRef.settingsService.getSettings().files.confirmBeforeDelete; },
+      get confirmDragAndDrop() { return thisRef.settingsService.getSettings().files.confirmDragAndDrop; },
       get showHidden() { return thisRef.showHidden; },
       get entries() { return thisRef.entries; },
       getSortedEntries: () => thisRef.fileViewContainer?.getSortedEntries() ?? thisRef.entries,
@@ -604,6 +615,8 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       openNestedArchive: (chain: string[]) => thisRef.archiveController.openNestedArchive(thisRef.archiveHost, chain),
       openRootArchive: (path: string) => thisRef.archiveController.openRootArchive(thisRef.archiveHost, path),
       openPathInNewTab: (path: string) => thisRef.openPathInNewTab(path),
+      openPreviewPath: (path: string) => thisRef.previewController.openPreviewPath(thisRef.previewHost, path),
+      openEditorPath: (path: string) => thisRef.previewController.openEditorPath(thisRef.previewHost, path),
     };
   }
 
@@ -691,6 +704,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     private confirmDialog: ConfirmDialogService,
     private remoteConnectDialog: RemoteConnectDialogService,
     private operationService: OperationService,
+    private settingsService: SettingsService,
     private zone: NgZone,
     private cdr: ChangeDetectorRef,
     private archiveService: ArchiveService,

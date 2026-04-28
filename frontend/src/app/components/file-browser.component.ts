@@ -79,6 +79,7 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
   showWorkspaceMenu = false;
   showHidden = false;
   activePaneId: 'left' | 'right' = 'left';
+  viewSettings = this.appSettingsService.getSettings().view;
 
   leftPaneWidth = 50;
   rightPaneWidth = 50;
@@ -143,6 +144,15 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
         });
       });
 
+    this.appSettingsService.getSettings$()
+      .pipe(takeUntil(this.destroy$))
+      .subscribe((settings) => {
+        this.ngZone.run(() => {
+          this.viewSettings = settings.view;
+          this.cdr.markForCheck();
+        });
+      });
+
     this.browserCommandCleanup = this.setupBrowserCommands();
     this.registerMouseBindings();
     this.layoutController.loadPaneWidths(this.layoutHost);
@@ -168,6 +178,16 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
     this.browserCommandCleanup?.();
     this.unregisterMouseBindings();
     this.runtimeController.dispose();
+  }
+
+  toggleThemePreference(): void {
+    const currentTheme = this.theme.getTheme$().value;
+    this.appSettingsService.updateGeneralSettings({ theme: currentTheme === 'dark' ? 'light' : 'dark' });
+  }
+
+  toggleCompactMode(): void {
+    const currentCompact = this.appSettingsService.getSettings().view.compactMode;
+    this.appSettingsService.updateViewSettings({ compactMode: !currentCompact });
   }
 
   copyToOtherPane(source: FilePaneComponent | undefined, target: FilePaneComponent | undefined, paths?: string[]): void {
@@ -231,6 +251,8 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
     return {
       leftPane: this.leftPane,
       rightPane: this.rightPane,
+      confirmBeforeCopy: this.appSettingsService.getSettings().files.confirmBeforeCopy,
+      confirmBeforeMove: this.appSettingsService.getSettings().files.confirmBeforeMove,
       apiService: this.apiService,
       archiveService: this.archiveService,
       confirmDialog: this.confirmDialog,

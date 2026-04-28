@@ -52,5 +52,7 @@ type UserPreferences struct {
 	EnableKeyboardShortcuts bool   `json:"enableKeyboardShortcuts"`
 	DoubleClickAction       string `json:"doubleClickAction"`
 	ConfirmDelete           bool   `json:"confirmDelete"`
+	ConfirmOnClose          bool   `json:"confirmOnClose"`
+	ReopenLastWorkspace     bool   `json:"reopenLastWorkspace"`
 	MemoryRoot              string `json:"memoryRoot,omitempty"`
 }

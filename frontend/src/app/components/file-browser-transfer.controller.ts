@@ -18,6 +18,8 @@ export interface FileBrowserTransferPane {
 export interface FileBrowserTransferHost {
   leftPane?: FileBrowserTransferPane;
   rightPane?: FileBrowserTransferPane;
+  get confirmBeforeCopy(): boolean;
+  get confirmBeforeMove(): boolean;
   apiService: ApiService;
   archiveService: ArchiveService;
   confirmDialog: ConfirmDialogService;
@@ -29,6 +31,15 @@ export class FileBrowserTransferController {
     const { src, dst } = this.resolvePanes(host, sourceSide);
     if (!src || !dst || paths.length === 0) return;
     const destDir = this.resolveCrossPaneDestination(dst);
+
+    if (host.confirmBeforeCopy) {
+      const confirmed = await host.confirmDialog.confirm({
+        title: 'Copy to Other Pane',
+        message: `Copy ${paths.length} item(s) to ${destDir}?`,
+        confirmText: 'Copy',
+      });
+      if (!confirmed) return;
+    }
 
     if (src.isInArchive()) {
       if (this.bothArchive(src, dst)) {
@@ -68,6 +79,15 @@ export class FileBrowserTransferController {
     const { src, dst } = this.resolvePanes(host, sourceSide);
     if (!src || !dst || paths.length === 0) return;
     const destDir = this.resolveCrossPaneDestination(dst);
+
+    if (host.confirmBeforeMove) {
+      const confirmed = await host.confirmDialog.confirm({
+        title: 'Move to Other Pane',
+        message: `Move ${paths.length} item(s) to ${destDir}?`,
+        confirmText: 'Move',
+      });
+      if (!confirmed) return;
+    }
 
     if (src.isInArchive()) {
       if (this.bothArchive(src, dst)) {

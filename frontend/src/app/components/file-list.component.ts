@@ -286,6 +286,7 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
   @Input() loading = false;
   @Input() error: string | null = null;
   @Input() paneActive = true;
+  @Input() singleClickToOpen = false;
   @Input() colorizeByMime = false;
   
   @Output() selectionChange = new EventEmitter<FileInfo[]>();
@@ -661,6 +662,9 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
     if (this.isParentEntry(entry)) {
       this.anchorPath = entry.path;
       this.selectionChange.emit([entry]);
+      if (this.singleClickToOpen) {
+        this.navigate.emit(entry);
+      }
       return;
     }
 
@@ -676,15 +680,14 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
     } else {
       this.anchorPath = entry.path;
       this.selectionChange.emit([entry]);
+      if (this.singleClickToOpen) {
+        this.navigate.emit(entry);
+      }
     }
   }
 
   onNavigate(entry: FileInfo): void {
-    if (this.isParentEntry(entry)) {
-      this.navigate.emit(entry);
-      return;
-    }
-    if (entry.type === FileType.FILE || entry.type === FileType.SYMLINK) {
+    if (this.singleClickToOpen) {
       return;
     }
     this.navigate.emit(entry);

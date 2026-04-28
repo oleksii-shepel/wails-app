@@ -8,6 +8,9 @@ export interface FilePaneDirVmSource {
   get pathReady(): boolean;
   get currentPath(): string;
   get loading(): boolean;
+  get showPathBar(): boolean;
+  get showBreadcrumbs(): boolean;
+  get singleClickToOpen(): boolean;
   get showHidden(): boolean;
   get paneActive(): boolean;
   get filteredEntries(): FileInfo[];
@@ -54,6 +57,9 @@ export class FilePaneDirVmFactory {
       get pathReady() { return source.pathReady; }
       get currentPath() { return source.currentPath; }
       get loading() { return source.loading; }
+      get showPathBar() { return source.showPathBar; }
+      get showBreadcrumbs() { return source.showBreadcrumbs; }
+      get singleClickToOpen() { return source.singleClickToOpen; }
       get showHidden() { return source.showHidden; }
       get paneActive() { return source.paneActive; }
       get entries() { return source.filteredEntries; }

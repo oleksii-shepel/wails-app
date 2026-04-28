@@ -37,6 +37,7 @@ func main() {
 		app,
 		app.ArchCache(),
 		app.Startup,
+		app.BeforeClose,
 		func(context.Context) { app.Shutdown() },
 	)
 

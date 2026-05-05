@@ -17,6 +17,10 @@ export interface FilePaneDirSessionHost {
   applyFilter(): void;
   scrollToCursorPath(path: string): void;
   emitPreviewTargetFromState(): void;
+  getExpandedPaths(): string[];
+  setExpandedPaths(paths: string[]): void;
+  getScrollTop(): number;
+  setScrollTop(top: number): void;
 }
 
 export class FilePaneDirSessionController {
@@ -77,6 +81,7 @@ export class FilePaneDirSessionController {
     const savedState = host.dirTabStateController.load(session.tabId);
     if (savedState) {
       host.dirTabStateController.applyBeforeLoad(savedState, this.createSessionState(session));
+      session.showHiddenLoaded = savedState.showHidden;
     }
 
     return session;
@@ -128,6 +133,10 @@ export class FilePaneDirSessionController {
       applyFilter: () => host.applyFilter(),
       scrollToCursorPath: (path: string) => host.scrollToCursorPath(path),
       emitPreviewTargetFromState: () => host.emitPreviewTargetFromState(),
+      getExpandedPaths: () => host.getExpandedPaths(),
+      setExpandedPaths: (paths: string[]) => host.setExpandedPaths(paths),
+      getScrollTop: () => host.getScrollTop(),
+      setScrollTop: (top: number) => host.setScrollTop(top),
     };
   }
 

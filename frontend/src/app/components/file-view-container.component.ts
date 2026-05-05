@@ -227,6 +227,7 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
   @Input() surfaceId = '';
   @Input() surfaceActive = true;
   @Input() browserPath = '';
+  @Input() persistedBrowserPaneSplit: number | null = null;
   @Input() paneId: 'left' | 'right' = 'left';
   @Input() showHidden    = false;
   @Input() entries: FileInfo[] = [];
@@ -252,6 +253,7 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
   @Output() dragStart       = new EventEmitter<{ event: DragEvent; entries: FileInfo[] }>();
   @Output() dragDrop        = new EventEmitter<{ event: DragEvent; source: FileInfo[]; targetPath: string }>();
   @Output() rename          = new EventEmitter<{ entry: FileInfo; newName: string }>();
+  @Output() browserPaneSplitChange = new EventEmitter<number>();
 
   sortedEntries: FileInfo[] = [];
   treeNodes: TreeNode[] = [];
@@ -422,6 +424,14 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
 
   ngOnChanges(changes: SimpleChanges): void {
     this.ensureBrowserPaneSplitLoaded();
+    if (changes['persistedBrowserPaneSplit']) {
+      const persisted = changes['persistedBrowserPaneSplit'].currentValue;
+      if (typeof persisted === 'number' && Number.isFinite(persisted)) {
+        this.browserPaneSplit = this.clampBrowserPaneSplit(persisted);
+      } else {
+        this.browserPaneSplit = this.readBrowserPaneSplit(this.getBrowserPaneStorageKey());
+      }
+    }
 
     if (changes['currentPath'] || changes['browserPath'] || changes['surfaceActive']) {
       this.cachedBrowserPath = this.resolveSurfaceBrowserPath();
@@ -523,6 +533,40 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
     this.runtimeController.scrollToCursorPath(this.runtimeHost, path);
   }
 
+  getScrollTop(): number {
+    switch (this.currentView) {
+      case 'list':
+        return this.listComponent?.getScrollTop() ?? 0;
+      case 'grid':
+        return this.gridComponent?.getScrollTop() ?? 0;
+      case 'details':
+        return this.detailsComponent?.getScrollTop() ?? 0;
+      case 'tree':
+        return this.treeComponent?.getScrollTop() ?? 0;
+      default:
+        return 0;
+    }
+  }
+
+  setScrollTop(top: number): void {
+    switch (this.currentView) {
+      case 'list':
+        this.listComponent?.setScrollTop(top);
+        return;
+      case 'grid':
+        this.gridComponent?.setScrollTop(top);
+        return;
+      case 'details':
+        this.detailsComponent?.setScrollTop(top);
+        return;
+      case 'tree':
+        this.treeComponent?.setScrollTop(top);
+        return;
+      default:
+        return;
+    }
+  }
+
   getSelectableEntries(parentEntryPath: string, includeParent = false): FileInfo[] {
     return this.runtimeController.getSelectableEntries(this.runtimeHost, parentEntryPath, includeParent);
   }
@@ -533,6 +577,14 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
 
   isTreeNodeExpanded(path: string): boolean {
     return this.treeComponent?.isNodeExpanded(path) ?? false;
+  }
+
+  getExpandedPaths(): string[] {
+    return this.treeComponent?.getExpandedPaths() ?? [];
+  }
+
+  setExpandedPaths(paths: string[]): void {
+    this.treeComponent?.setExpandedPaths(paths);
   }
 
   suppressNextTreeAutoExpand(): void {
@@ -716,6 +768,7 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
 
     this.browserPaneSplit = next;
     this.persistBrowserPaneSplit();
+    this.browserPaneSplitChange.emit(next);
     this.cdr.markForCheck();
   }
 

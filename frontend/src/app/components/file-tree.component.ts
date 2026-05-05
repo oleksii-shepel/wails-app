@@ -446,6 +446,7 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
   @ViewChild('treeContainer') treeContainer?: ElementRef<HTMLElement>;
 
   private expansionState = new Map<string, boolean>();
+  private desiredExpandedPaths = new Set<string>();
   private pendingRenameDisplayNames = new Map<string, string>();
   private suppressNextAutoExpand = false;
   private focusedNodePath: string | null = null;
@@ -550,9 +551,12 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
       this.prewarmCollisionResolutions(this.nodes);
       if (changes['nodes']) {
         this.updateNodeHierarchy(this.nodes);
+        this.applyDesiredExpansion();
       }
     }
-    const shouldExpandToCurrentPath = !!changes['currentPath'] || (!!changes['nodes'] && !this.suppressNextAutoExpand);
+    const shouldExpandToCurrentPath =
+      this.desiredExpandedPaths.size === 0 &&
+      (!!changes['currentPath'] || (!!changes['nodes'] && !this.suppressNextAutoExpand));
     if (shouldExpandToCurrentPath) {
       this.expandToCurrentPath();
     }
@@ -702,6 +706,11 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
 
   private setExpanded(node: TreeNode, expanded: boolean): void {
     this.expansionState.set(node.path, expanded);
+    if (expanded) {
+      this.desiredExpandedPaths.add(node.path);
+    } else {
+      this.desiredExpandedPaths.delete(node.path);
+    }
     if (expanded && !node.loaded && node.expandable && !node.loading) {
       node.loading = true;
       this.loadChildren.emit(node);
@@ -726,6 +735,28 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
     }
   }
 
+  private applyDesiredExpansion(): void {
+    if (this.desiredExpandedPaths.size === 0) {
+      return;
+    }
+
+    const visit = (nodes: TreeNode[]) => {
+      for (const node of nodes) {
+        const shouldExpand = this.desiredExpandedPaths.has(node.path);
+        this.expansionState.set(node.path, shouldExpand);
+        if (shouldExpand && !node.loaded && node.expandable && !node.loading) {
+          node.loading = true;
+          this.loadChildren.emit(node);
+        }
+        if (node.children?.length) {
+          visit(node.children);
+        }
+      }
+    };
+
+    visit(this.nodes);
+  }
+
   getVisibleNodes(): TreeNode[] {
     const result: TreeNode[] = [];
     const traverse = (nodes: TreeNode[]) => {
@@ -743,6 +774,31 @@ export class FileTreeComponent implements OnChanges, OnDestroy, AfterViewInit {
   isNodeExpanded(path: string): boolean {
     const node = this.findNodeByPath(this.nodes, path);
     return !!node && this.isExpanded(node);
+  }
+
+  getExpandedPaths(): string[] {
+    return Array.from(this.expansionState.entries())
+      .filter(([, expanded]) => expanded)
+      .map(([path]) => path);
+  }
+
+  setExpandedPaths(paths: string[]): void {
+    this.desiredExpandedPaths = new Set((paths ?? []).filter(Boolean));
+    this.expansionState.clear();
+    this.applyDesiredExpansion();
+    this.refreshVisibleNodes();
+    this.updateVirtualWindow(true);
+    this.cdr.markForCheck();
+  }
+
+  getScrollTop(): number {
+    return this.treeContainer?.nativeElement?.scrollTop ?? 0;
+  }
+
+  setScrollTop(top: number): void {
+    const element = this.treeContainer?.nativeElement;
+    if (!element) return;
+    element.scrollTop = Math.max(0, top);
   }
 
   suppressNextAutoExpandToCurrentPath(): void {

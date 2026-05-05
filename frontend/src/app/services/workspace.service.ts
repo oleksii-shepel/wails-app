@@ -28,6 +28,13 @@ export interface ArchiveTabState {
   fsParentDir: string;
 }
 
+interface PersistedTabViewStateEnvelope {
+  version?: number;
+  dir?: unknown;
+  archive?: ArchiveTabState;
+  browserPaneSplit?: number;
+}
+
 /**
  * WorkspaceService – manages workspaces and per-pane tab state.
  *
@@ -469,16 +476,20 @@ export class WorkspaceService {
     if (!this.archiveStates.has(paneKey)) {
       this.archiveStates.set(paneKey, new Map());
     }
-    
-    this.archiveStates.get(paneKey)!.set(tabId, {
-      ...state,
-      // Clone the archive stack to prevent reference issues
-      archiveStack: state.archiveStack.map(frame => ({
-        ...frame,
-        listing: { ...frame.listing },
-        nestedChain: [...frame.nestedChain]
-      }))
-    });
+
+    this.archiveStates.get(paneKey)!.set(tabId, this.cloneArchiveState(state));
+
+    const workspace = this.activeWorkspaceSubject.value;
+    const tab = this.findTab(paneId as 'left' | 'right', tabId);
+    if (workspace && tab) {
+      const envelope = this.parseTabViewStateEnvelope(tab.viewStateJson);
+      envelope.archive = this.cloneArchiveState(state);
+      const next = this.serializeTabViewStateEnvelope(envelope);
+      if ((tab.viewStateJson ?? undefined) !== next) {
+        tab.viewStateJson = next;
+        this.scheduleViewStatePersist(workspace);
+      }
+    }
   }
 
   /**
@@ -489,17 +500,17 @@ export class WorkspaceService {
     const state = this.archiveStates.get(paneKey)?.get(tabId);
     
     if (state) {
-      // Return a deep clone to prevent mutation issues
-      return {
-        ...state,
-        archiveStack: state.archiveStack.map(frame => ({
-          ...frame,
-          listing: { ...frame.listing },
-          nestedChain: [...frame.nestedChain]
-        }))
-      };
+      return this.cloneArchiveState(state);
     }
-    
+
+    const tab = this.findTab(paneId as 'left' | 'right', tabId);
+    if (tab?.viewStateJson) {
+      const envelope = this.parseTabViewStateEnvelope(tab.viewStateJson);
+      if (envelope.archive) {
+        return this.cloneArchiveState(envelope.archive);
+      }
+    }
+
     return null;
   }
 
@@ -509,6 +520,17 @@ export class WorkspaceService {
   clearArchiveState(paneId: string, tabId: string): void {
     const paneKey = `${this.activeWorkspaceSubject.value?.id}:${paneId}`;
     this.archiveStates.get(paneKey)?.delete(tabId);
+
+    const workspace = this.activeWorkspaceSubject.value;
+    const tab = this.findTab(paneId as 'left' | 'right', tabId);
+    if (workspace && tab?.viewStateJson) {
+      const envelope = this.parseTabViewStateEnvelope(tab.viewStateJson);
+      if (envelope.archive) {
+        delete envelope.archive;
+        tab.viewStateJson = this.serializeTabViewStateEnvelope(envelope);
+        this.scheduleViewStatePersist(workspace);
+      }
+    }
   }
 
   /**
@@ -535,7 +557,16 @@ export class WorkspaceService {
    */
   hasArchiveState(paneId: string, tabId: string): boolean {
     const paneKey = `${this.activeWorkspaceSubject.value?.id}:${paneId}`;
-    return this.archiveStates.get(paneKey)?.has(tabId) || false;
+    if (this.archiveStates.get(paneKey)?.has(tabId)) {
+      return true;
+    }
+
+    const tab = this.findTab(paneId as 'left' | 'right', tabId);
+    if (!tab?.viewStateJson) {
+      return false;
+    }
+
+    return !!this.parseTabViewStateEnvelope(tab.viewStateJson).archive;
   }
 
   // ---------------------------------------------------------------------------
@@ -822,14 +853,43 @@ export class WorkspaceService {
     const workspace = this.activeWorkspaceSubject.value;
     if (!workspace) return;
 
-    const pane = paneId === 'left' ? workspace.leftPane : workspace.rightPane;
-    const tab = pane.tabs.find((t) => t.id === tabId);
+    const tab = this.findTab(paneId, tabId);
     if (!tab) return;
 
-    const next = viewStateJson || undefined;
+    const envelope = this.parseTabViewStateEnvelope(tab.viewStateJson);
+    if (!viewStateJson) {
+      delete envelope.dir;
+    } else {
+      try {
+        envelope.dir = JSON.parse(viewStateJson);
+      } catch {
+        return;
+      }
+    }
+
+    const next = this.serializeTabViewStateEnvelope(envelope);
     if (tab.viewStateJson === next) return;
     tab.viewStateJson = next;
 
+    this.scheduleViewStatePersist(workspace);
+  }
+
+  /** Persist which pane currently holds focus on the active workspace. */
+  setActivePaneId(paneId: 'left' | 'right'): void {
+    const workspace = this.activeWorkspaceSubject.value;
+    if (!workspace) return;
+    if (workspace.activePaneId === paneId) return;
+    workspace.activePaneId = paneId;
+    this.scheduleViewStatePersist(workspace);
+  }
+
+  /** Persist the left-pane width (0-100) on the active workspace. */
+  setSplitRatio(leftPercent: number): void {
+    const workspace = this.activeWorkspaceSubject.value;
+    if (!workspace) return;
+    const clamped = Math.max(0, Math.min(100, leftPercent));
+    if (workspace.splitRatio === clamped) return;
+    workspace.splitRatio = clamped;
     this.scheduleViewStatePersist(workspace);
   }
 
@@ -853,6 +913,36 @@ export class WorkspaceService {
     if (!workspace) return [];
     const pane = paneId === 'left' ? workspace.leftPane : workspace.rightPane;
     return pane.tabs;
+  }
+
+  getTabBrowserPaneSplit(paneId: 'left' | 'right', tabId: string): number | null {
+    const tab = this.findTab(paneId, tabId);
+    if (!tab?.viewStateJson) return null;
+
+    const envelope = this.parseTabViewStateEnvelope(tab.viewStateJson);
+    return typeof envelope.browserPaneSplit === 'number' && Number.isFinite(envelope.browserPaneSplit)
+      ? envelope.browserPaneSplit
+      : null;
+  }
+
+  setTabBrowserPaneSplit(paneId: 'left' | 'right', tabId: string, split: number | null): void {
+    const workspace = this.activeWorkspaceSubject.value;
+    if (!workspace || !tabId) return;
+
+    const tab = this.findTab(paneId, tabId);
+    if (!tab) return;
+
+    const envelope = this.parseTabViewStateEnvelope(tab.viewStateJson);
+    if (split === null || !Number.isFinite(split)) {
+      delete envelope.browserPaneSplit;
+    } else {
+      envelope.browserPaneSplit = split;
+    }
+
+    const next = this.serializeTabViewStateEnvelope(envelope);
+    if ((tab.viewStateJson ?? undefined) === next) return;
+    tab.viewStateJson = next;
+    this.scheduleViewStatePersist(workspace);
   }
 
   // ---------------------------------------------------------------------------
@@ -1117,5 +1207,70 @@ export class WorkspaceService {
       }
     }
     return paths;
+  }
+
+  private findTab(paneId: 'left' | 'right', tabId: string): TabInfo | null {
+    const workspace = this.activeWorkspaceSubject.value;
+    if (!workspace || !tabId) return null;
+
+    const pane = paneId === 'left' ? workspace.leftPane : workspace.rightPane;
+    return pane.tabs.find((tab) => tab.id === tabId) ?? null;
+  }
+
+  private cloneArchiveState(state: ArchiveTabState): ArchiveTabState {
+    return {
+      ...state,
+      archiveStack: state.archiveStack.map(frame => ({
+        ...frame,
+        listing: {
+          ...frame.listing,
+          entries: Array.isArray(frame.listing?.entries)
+            ? frame.listing.entries.map(entry => ({ ...entry }))
+            : [],
+        },
+        nestedChain: [...frame.nestedChain],
+      })),
+    };
+  }
+
+  private parseTabViewStateEnvelope(viewStateJson: string | null | undefined): PersistedTabViewStateEnvelope {
+    if (!viewStateJson) {
+      return { version: 1 };
+    }
+
+    try {
+      const parsed = JSON.parse(viewStateJson) as Record<string, unknown>;
+      if (!parsed || typeof parsed !== 'object') {
+        return { version: 1 };
+      }
+
+      if ('dir' in parsed || 'archive' in parsed || 'browserPaneSplit' in parsed || 'version' in parsed) {
+        return parsed as PersistedTabViewStateEnvelope;
+      }
+
+      return { version: 1, dir: parsed };
+    } catch {
+      return { version: 1 };
+    }
+  }
+
+  private serializeTabViewStateEnvelope(envelope: PersistedTabViewStateEnvelope): string | undefined {
+    const next: PersistedTabViewStateEnvelope = { version: 1 };
+
+    if (envelope.dir && typeof envelope.dir === 'object') {
+      next.dir = envelope.dir;
+    }
+    if (envelope.archive) {
+      next.archive = this.cloneArchiveState(envelope.archive);
+    }
+    if (typeof envelope.browserPaneSplit === 'number' && Number.isFinite(envelope.browserPaneSplit)) {
+      next.browserPaneSplit = envelope.browserPaneSplit;
+    }
+
+    if (!next.dir && !next.archive && typeof next.browserPaneSplit !== 'number') {
+      return undefined;
+    }
+
+    return JSON.stringify(next);
   }
 }

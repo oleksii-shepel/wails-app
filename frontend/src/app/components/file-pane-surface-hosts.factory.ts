@@ -61,6 +61,10 @@ export interface FilePaneSurfaceHostsSource {
   setOptimisticHiddenPaths(paths: string[]): void;
   applyFilter(): void;
   scrollToCursorPath(path: string): void;
+  getExpandedPaths(): string[];
+  setExpandedPaths(paths: string[]): void;
+  getScrollTop(): number;
+  setScrollTop(top: number): void;
   emitPreviewTargetFromState(): void;
   persistDirTabState(): void;
   refreshCurrentPathTransparently(): Promise<void>;
@@ -115,6 +119,10 @@ export class FilePaneSurfaceHostsFactory {
       getSelectableEntriesPaths: () => source.getSelectableEntriesPaths(),
       applyFilter: () => source.applyFilter(),
       scrollToCursorPath: (path: string) => source.scrollToCursorPath(path),
+      getExpandedPaths: () => source.getExpandedPaths(),
+      setExpandedPaths: (paths: string[]) => source.setExpandedPaths(paths),
+      getScrollTop: () => source.getScrollTop(),
+      setScrollTop: (top: number) => source.setScrollTop(top),
       emitPreviewTargetFromState: () => source.emitPreviewTargetFromState(),
     };
   }

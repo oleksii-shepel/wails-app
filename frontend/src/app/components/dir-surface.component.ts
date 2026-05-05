@@ -63,6 +63,7 @@ import { DirSurfaceVm } from '../surfaces/dir/dir-surface.vm';
         [surfaceActive]="surfaceActive"
         [browserPath]="surfacePath"
         [paneId]="vm.paneId"
+        [persistedBrowserPaneSplit]="vm.browserPaneSplit"
         [entries]="vm.entries"
         [currentPath]="vm.currentPath"
         [showHidden]="vm.showHidden"
@@ -84,6 +85,7 @@ import { DirSurfaceVm } from '../surfaces/dir/dir-surface.vm';
         (contextMenu)="vm.onContextMenu($event)"
         (nodeDoubleClick)="vm.onNodeDoubleClick($event)"
         (dragDrop)="vm.onDragDrop($event)"
+        (browserPaneSplitChange)="vm.onBrowserPaneSplitChange($event)"
         (rename)="vm.onRename($event)">
       </app-file-view-container>
     </div>

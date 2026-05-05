@@ -555,6 +555,16 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
     }
   }
 
+  getScrollTop(): number {
+    return this.gridContainerRef?.nativeElement?.scrollTop ?? 0;
+  }
+
+  setScrollTop(top: number): void {
+    const element = this.gridContainerRef?.nativeElement;
+    if (!element) return;
+    element.scrollTop = Math.max(0, top);
+  }
+
   /** Called by parent (eg. on F2) to begin in-place rename for the current selection. */
   startRenameSelected(): void {
     const selectedPath = this.getFirstSelectedPathInOrder();

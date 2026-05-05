@@ -208,6 +208,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       get sortDirection() { return thisRef.sortDirection; },
       get directoriesFirst() { return thisRef.directoriesFirst; },
       get colorizeByMime() { return thisRef.colorizeByMime; },
+      get browserPaneSplit() { return thisRef.getPersistedBrowserPaneSplit(); },
       get archiveMoveWarning() { return thisRef.archiveMoveWarning; },
       set archiveMoveWarning(value: boolean) { thisRef.archiveMoveWarning = value; },
       get archivePendingMoveEntries() { return thisRef.archivePendingMoveEntries; },
@@ -219,6 +220,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       onSortChange: (sort: { field: string; direction: 'asc' | 'desc' }) => thisRef.onSortChange(sort),
       onDirectoriesFirstChange: (value: boolean) => thisRef.onDirectoriesFirstChange(value),
       onColorizeByMimeChange: (value: boolean) => thisRef.onColorizeByMimeChange(value),
+      onBrowserPaneSplitChange: (value: number) => thisRef.setPersistedBrowserPaneSplit(value),
       onCreateFolder: () => thisRef.browserCommands.selection.createFolder(),
       onDeleteSelected: () => thisRef.browserCommands.selection.deleteSelected(),
       onCopyToOther: () => thisRef.browserCommands.selection.copyToOther(),
@@ -501,6 +503,10 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       setOptimisticHiddenPaths: (paths: string[]) => thisRef.setOptimisticHiddenPaths(paths),
       applyFilter: () => thisRef.applyFilter(),
       scrollToCursorPath: (path: string) => thisRef.stateRuntime.scrollToCursorPath(path),
+      getExpandedPaths: () => thisRef.fileViewContainer?.getExpandedPaths() ?? [],
+      setExpandedPaths: (paths: string[]) => thisRef.fileViewContainer?.setExpandedPaths(paths),
+      getScrollTop: () => thisRef.fileViewContainer?.getScrollTop() ?? 0,
+      setScrollTop: (top: number) => thisRef.fileViewContainer?.setScrollTop(top),
       emitPreviewTargetFromState: () => thisRef.stateRuntime.emitPreviewTargetFromState(),
       persistDirTabState: () => thisRef.persistDirTabState(),
       refreshCurrentPathTransparently: () => thisRef.refreshCurrentPathTransparently(),
@@ -626,6 +632,16 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
 
   private restoreActiveDirTabState(): void {
     this.dirSessionController.restoreActiveState(this.dirSessionHost);
+  }
+
+  private getPersistedBrowserPaneSplit(): number | null {
+    if (!this.currentTabId) return null;
+    return this.workspaceService.getTabBrowserPaneSplit(this.paneId, this.currentTabId);
+  }
+
+  private setPersistedBrowserPaneSplit(split: number): void {
+    if (!this.currentTabId) return;
+    this.workspaceService.setTabBrowserPaneSplit(this.paneId, this.currentTabId, split);
   }
 
   // Dir state proxies (backed by the active dir session)

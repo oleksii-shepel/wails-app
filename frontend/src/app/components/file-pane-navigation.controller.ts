@@ -66,6 +66,17 @@ export class FilePaneNavigationController {
     host.currentPath = pathToLoad;
     host.clearArchiveState();
 
+    const archiveState = activeTab ? host.workspaceService.getArchiveState(host.paneId, activeTab.id) : null;
+    if (archiveState) {
+      host.currentPath = archiveState.path;
+      host.archiveStack = archiveState.archiveStack;
+      host.getDirSession().fsParentDir = archiveState.fsParentDir;
+      if (host.archiveStack.length > 0) {
+        host.renderArchiveFrame(host.archiveStack[host.archiveStack.length - 1]);
+        return;
+      }
+    }
+
     const session = host.getDirSession();
     const cachedOk =
       !host.directorySource.isPathInsideArchive(pathToLoad) &&

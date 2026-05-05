@@ -784,6 +784,16 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
     }
   }
 
+  getScrollTop(): number {
+    return this.paneContentRef?.nativeElement?.scrollTop ?? 0;
+  }
+
+  setScrollTop(top: number): void {
+    const element = this.paneContentRef?.nativeElement;
+    if (!element) return;
+    element.scrollTop = Math.max(0, top);
+  }
+
   /** Approximate number of rows visible in the viewport. */
   getApproxPageSize(): number {
     const host = this.paneContentRef?.nativeElement;

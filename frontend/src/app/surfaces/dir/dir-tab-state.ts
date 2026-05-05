@@ -16,6 +16,9 @@ export interface DirTabState {
   selectedPaths: string[];
   cursorPath: string | null;
   anchorPath: string | null;
+  /** Last vertical scroll offset of the file list, in CSS pixels. */
+  scrollTop: number;
+  expandedPaths: string[];
 
   /** Cached listing for instant restore when returning to the tab. */
   entries: FileInfo[];

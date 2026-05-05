@@ -27,6 +27,12 @@ export interface DirTabUiRuntime {
   applyFilter(): void;
   scrollToCursorPath(path: string): void;
   emitPreviewTargetFromState(): void;
+  getExpandedPaths?(): string[];
+  setExpandedPaths?(paths: string[]): void;
+  /** Current scroll offset of the file list, or 0 if not measurable. */
+  getScrollTop?(): number;
+  /** Restore the file list scroll offset (best-effort). */
+  setScrollTop?(top: number): void;
 }
 
 export interface DirTabRestoreTarget {
@@ -47,6 +53,9 @@ export interface PersistedDirTabState {
   selectedPaths: string[];
   cursorPath: string | null;
   anchorPath: string | null;
+  scrollTop: number;
+  expandedPaths?: string[];
+  entries?: FileInfo[];
   optimisticHiddenPaths: string[];
 }
 
@@ -63,7 +72,6 @@ export class DirTabStateController {
 
   save(tabId: string, target: DirTabRestoreTarget): void {
     if (!tabId) return;
-    if (target.ui.isInArchive()) return;
     const state: DirTabState = {
       path: target.session.currentPath || '',
       showHidden: !!target.session.showHidden,
@@ -76,6 +84,8 @@ export class DirTabStateController {
       selectedPaths: Array.from(target.session.selectedFiles ?? new Set<string>()),
       cursorPath: target.session.selectionCursorPath,
       anchorPath: target.session.selectionAnchorPath,
+      scrollTop: Math.max(0, Math.round(target.ui.getScrollTop?.() ?? 0)),
+      expandedPaths: Array.isArray(target.ui.getExpandedPaths?.()) ? target.ui.getExpandedPaths?.() ?? [] : [],
       entries: Array.isArray(target.session.entries) ? [...target.session.entries] : [],
       optimisticHiddenPaths: target.session.getOptimisticHiddenPaths(),
     };
@@ -101,7 +111,11 @@ export class DirTabStateController {
     if (this.stateByTabId.has(tabId)) return;
     let parsed: Partial<PersistedDirTabState> | null = null;
     try {
-      parsed = JSON.parse(json) as Partial<PersistedDirTabState>;
+      const raw = JSON.parse(json) as Record<string, unknown>;
+      const source = raw && typeof raw === 'object' && 'dir' in raw
+        ? raw['dir']
+        : raw;
+      parsed = (source && typeof source === 'object') ? source as Partial<PersistedDirTabState> : null;
     } catch {
       return;
     }
@@ -119,7 +133,9 @@ export class DirTabStateController {
       selectedPaths: Array.isArray(parsed.selectedPaths) ? parsed.selectedPaths : [],
       cursorPath: parsed.cursorPath ?? null,
       anchorPath: parsed.anchorPath ?? null,
-      entries: [],
+      scrollTop: typeof parsed.scrollTop === 'number' && parsed.scrollTop >= 0 ? parsed.scrollTop : 0,
+      expandedPaths: Array.isArray(parsed.expandedPaths) ? parsed.expandedPaths.filter((path): path is string => typeof path === 'string') : [],
+      entries: Array.isArray(parsed.entries) ? parsed.entries.map(entry => ({ ...entry })) : [],
       optimisticHiddenPaths: Array.isArray(parsed.optimisticHiddenPaths) ? parsed.optimisticHiddenPaths : [],
     });
   }
@@ -143,22 +159,25 @@ export class DirTabStateController {
       selectedPaths: state.selectedPaths,
       cursorPath: state.cursorPath,
       anchorPath: state.anchorPath,
+      scrollTop: state.scrollTop,
+      expandedPaths: [...state.expandedPaths],
+      entries: state.entries.map(entry => ({ ...entry })),
       optimisticHiddenPaths: state.optimisticHiddenPaths,
     };
   }
 
   applyBeforeLoad(state: DirTabState, session: DirTabSessionState): void {
+    session.currentPath = state.path;
     session.currentView = state.currentView;
     session.sortField = state.sortField;
     session.sortDirection = state.sortDirection;
     session.directoriesFirst = state.directoriesFirst;
     session.colorizeByMime = state.colorizeByMime ?? false;
     session.filterQuery = state.filterQuery ?? { text: '', criteria: [] };
+    session.entries = Array.isArray(state.entries) ? state.entries.map(entry => ({ ...entry })) : [];
   }
 
   finalizeAfterLoad(state: DirTabState, target: DirTabRestoreTarget): void {
-    if (target.ui.isInArchive()) return;
-
     target.session.setOptimisticHiddenPaths(state.optimisticHiddenPaths ?? []);
 
     const present = new Set(target.session.getEntriesPaths());
@@ -180,7 +199,12 @@ export class DirTabStateController {
         : target.session.selectionCursorPath;
 
     target.ui.applyFilter();
-    if (target.session.selectionCursorPath) target.ui.scrollToCursorPath(target.session.selectionCursorPath);
+    target.ui.setExpandedPaths?.(state.expandedPaths ?? []);
+    if (target.ui.setScrollTop) {
+      target.ui.setScrollTop(state.scrollTop);
+    } else if (target.session.selectionCursorPath) {
+      target.ui.scrollToCursorPath(target.session.selectionCursorPath);
+    }
     target.ui.emitPreviewTargetFromState();
   }
 }

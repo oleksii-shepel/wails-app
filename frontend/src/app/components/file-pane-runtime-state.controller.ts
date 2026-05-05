@@ -25,7 +25,7 @@ export class FilePaneRuntimeStateController {
 
   persistDirTabState(host: FilePaneRuntimeStateHost): void {
     const tabId = host.activeDirTabId ?? host.currentTabId;
-    if (!tabId || host.activeTabKind !== 'dir' || host.isInArchive()) {
+    if (!tabId || host.activeTabKind !== 'dir') {
       return;
     }
 

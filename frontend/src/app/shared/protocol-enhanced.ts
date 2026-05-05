@@ -90,6 +90,10 @@ export interface WorkspaceConfig {
   leftPane: PaneState;
   rightPane: PaneState;
   showHidden: boolean;
+  /** Which pane held focus when the workspace was last saved. */
+  activePaneId?: 'left' | 'right';
+  /** Left-pane width as a percentage of the split container (0-100). */
+  splitRatio?: number;
   createdAt: number;
   lastAccessedAt: number;
 }
@@ -449,12 +453,21 @@ export const STORAGE_KEYS = {
 // User Preferences
 // ============================================================================
 
+export interface WindowState {
+  width: number;
+  height: number;
+  x: number;
+  y: number;
+  maximised: boolean;
+}
+
 export interface UserPreferences {
   theme: 'dark' | 'light' | 'system' | 'auto';
   accentColor: string;
   uiZoom: number;
   compactMode: boolean;
   animationsEnabled: boolean;
+  windowState?: WindowState;
   defaultShowHidden: boolean;
   defaultSortBy: 'name' | 'size' | 'modified' | 'type';
   defaultSortOrder: 'asc' | 'desc';

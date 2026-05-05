@@ -2,6 +2,10 @@ export interface FileBrowserLayoutHost {
   getLeftPaneWidth(): number;
   getRightPaneWidth(): number;
   setPaneWidths(left: number, right: number): void;
+  /** Returns the persisted split ratio for the active workspace, if any. */
+  getWorkspaceSplitRatio?(): number | undefined;
+  /** Persist the new split ratio on the active workspace. */
+  saveWorkspaceSplitRatio?(leftWidth: number): void;
 }
 
 export class FileBrowserLayoutController {
@@ -9,6 +13,12 @@ export class FileBrowserLayoutController {
   private readonly maxPaneWidth = 80;
 
   loadPaneWidths(host: FileBrowserLayoutHost): void {
+    const fromWorkspace = host.getWorkspaceSplitRatio?.();
+    if (typeof fromWorkspace === 'number' && Number.isFinite(fromWorkspace) && fromWorkspace > 0) {
+      this.setPanePosition(host, fromWorkspace, false);
+      return;
+    }
+
     const savedSplit = localStorage.getItem('split-pos');
     const savedLeftWidth = localStorage.getItem('fileManager_leftPaneWidth');
     const raw = savedSplit ?? savedLeftWidth;
@@ -42,6 +52,7 @@ export class FileBrowserLayoutController {
     localStorage.setItem('fileManager_leftPaneWidth', left.toString());
     localStorage.setItem('fileManager_rightPaneWidth', right.toString());
     localStorage.setItem('split-pos', left.toString());
+    host.saveWorkspaceSplitRatio?.(left);
   }
 
   private clampWidth(width: number): number {

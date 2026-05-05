@@ -1267,12 +1267,34 @@ export namespace contracts {
 		}
 	}
 	
+	export class WindowState {
+	    width: number;
+	    height: number;
+	    x: number;
+	    y: number;
+	    maximised: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new WindowState(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.width = source["width"];
+	        this.height = source["height"];
+	        this.x = source["x"];
+	        this.y = source["y"];
+	        this.maximised = source["maximised"];
+	    }
+	}
+
 	export class UserPreferences {
 	    theme: string;
 	    accentColor: string;
 	    uiZoom: number;
 	    compactMode: boolean;
 	    animationsEnabled: boolean;
+	    windowState?: WindowState;
 	    defaultShowHidden: boolean;
 	    defaultSortBy: string;
 	    defaultSortOrder: string;
@@ -1294,6 +1316,7 @@ export namespace contracts {
 	        this.uiZoom = source["uiZoom"];
 	        this.compactMode = source["compactMode"];
 	        this.animationsEnabled = source["animationsEnabled"];
+	        this.windowState = this.convertValues(source["windowState"], WindowState);
 	        this.defaultShowHidden = source["defaultShowHidden"];
 	        this.defaultSortBy = source["defaultSortBy"];
 	        this.defaultSortOrder = source["defaultSortOrder"];
@@ -1304,6 +1327,24 @@ export namespace contracts {
 	        this.reopenLastWorkspace = source["reopenLastWorkspace"];
 	        this.memoryRoot = source["memoryRoot"];
 	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	
 	export class WorkspaceConfig {
@@ -1314,13 +1355,15 @@ export namespace contracts {
 	    leftPane: PaneState;
 	    rightPane: PaneState;
 	    showHidden: boolean;
+	    activePaneId?: string;
+	    splitRatio?: number;
 	    createdAt: number;
 	    lastAccessedAt: number;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new WorkspaceConfig(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -1330,6 +1373,8 @@ export namespace contracts {
 	        this.leftPane = this.convertValues(source["leftPane"], PaneState);
 	        this.rightPane = this.convertValues(source["rightPane"], PaneState);
 	        this.showHidden = source["showHidden"];
+	        this.activePaneId = source["activePaneId"];
+	        this.splitRatio = source["splitRatio"];
 	        this.createdAt = source["createdAt"];
 	        this.lastAccessedAt = source["lastAccessedAt"];
 	    }

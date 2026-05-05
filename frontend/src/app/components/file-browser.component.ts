@@ -36,6 +36,7 @@ import type { InputBindingDefinition } from '../services/input-system.types';
 import { formatPathForDisplay } from './address-bar.utils';
 import { RemoteConnectDialogService } from '../services/remote-connect-dialog.service';
 import { SettingsService } from '../services/settings.service';
+import { WindowStateService } from '../services/window-state.service';
 
 @Component({
   selector: 'app-file-browser',
@@ -116,6 +117,7 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
     public appSettingsService: SettingsService,
     private ngZone: NgZone,
     private cdr: ChangeDetectorRef,
+    private windowStateService: WindowStateService,
   ) {
     this.pathHelper = new FileBrowserPathHelper(this.apiService);
   }
@@ -127,9 +129,16 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
         // Some Wails/bridge async callbacks can land outside Angular's zone.
         // Ensure state updates trigger a render without requiring a user click.
         this.ngZone.run(() => {
+          const previousId = this.activeWorkspace?.id;
           this.activeWorkspace = workspace;
           if (workspace) {
             this.showHidden = workspace.showHidden;
+            if (workspace.activePaneId === 'left' || workspace.activePaneId === 'right') {
+              this.activePaneId = workspace.activePaneId;
+            }
+            if (workspace.id !== previousId) {
+              this.layoutController.loadPaneWidths(this.layoutHost);
+            }
           }
           this.cdr.markForCheck();
         });
@@ -157,6 +166,7 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
     this.registerMouseBindings();
     this.layoutController.loadPaneWidths(this.layoutHost);
     void this.runtimeController.initialize(this.runtimeHost);
+    this.windowStateService.start();
   }
 
 
@@ -210,6 +220,12 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
     } else if (source === this.rightPane && target === this.leftPane) {
       this.onMoveFromRight(selected);
     }
+  }
+
+  setActivePane(paneId: 'left' | 'right'): void {
+    if (this.activePaneId === paneId) return;
+    this.activePaneId = paneId;
+    this.workspaceService.setActivePaneId(paneId);
   }
 
   private getActivePane(): FilePaneComponent | undefined {
@@ -293,6 +309,10 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
         this.leftPaneWidth = left;
         this.rightPaneWidth = right;
       },
+      getWorkspaceSplitRatio: () => this.activeWorkspace?.splitRatio,
+      saveWorkspaceSplitRatio: (left: number) => {
+        this.workspaceService.setSplitRatio(left);
+      },
     };
   }
 
@@ -339,7 +359,7 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
       workspaceService: this.workspaceService,
       getActivePaneId: () => this.activePaneId,
       setActivePaneId: (paneId: 'left' | 'right') => {
-        this.activePaneId = paneId;
+        this.setActivePane(paneId);
       },
       getActivePane: () => this.getActivePane(),
       getLeftPane: () => this.leftPane,

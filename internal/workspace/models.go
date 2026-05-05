@@ -15,6 +15,8 @@ type Config struct {
 	LeftPane       PaneState `json:"leftPane"`
 	RightPane      PaneState `json:"rightPane"`
 	ShowHidden     bool      `json:"showHidden"`
+	ActivePaneID   string    `json:"activePaneId,omitempty"`
+	SplitRatio     float64   `json:"splitRatio,omitempty"`
 	CreatedAt      int64     `json:"createdAt"`
 	LastAccessedAt int64     `json:"lastAccessedAt"`
 }
@@ -48,18 +50,27 @@ type ViewerTab struct {
 }
 
 type Preferences struct {
-	Theme                   string `json:"theme"`
-	AccentColor             string `json:"accentColor"`
-	UIZoom                  int    `json:"uiZoom"`
-	CompactMode             bool   `json:"compactMode"`
-	AnimationsEnabled       bool   `json:"animationsEnabled"`
-	DefaultShowHidden       bool   `json:"defaultShowHidden"`
-	DefaultSortBy           string `json:"defaultSortBy"`
-	DefaultSortOrder        string `json:"defaultSortOrder"`
-	EnableKeyboardShortcuts bool   `json:"enableKeyboardShortcuts"`
-	DoubleClickAction       string `json:"doubleClickAction"`
-	ConfirmDelete           bool   `json:"confirmDelete"`
-	ConfirmOnClose          bool   `json:"confirmOnClose"`
-	ReopenLastWorkspace     bool   `json:"reopenLastWorkspace"`
-	MemoryRoot              string `json:"memoryRoot,omitempty"`
+	Theme                   string       `json:"theme"`
+	AccentColor             string       `json:"accentColor"`
+	UIZoom                  int          `json:"uiZoom"`
+	CompactMode             bool         `json:"compactMode"`
+	AnimationsEnabled       bool         `json:"animationsEnabled"`
+	WindowState             *WindowState `json:"windowState,omitempty"`
+	DefaultShowHidden       bool         `json:"defaultShowHidden"`
+	DefaultSortBy           string       `json:"defaultSortBy"`
+	DefaultSortOrder        string       `json:"defaultSortOrder"`
+	EnableKeyboardShortcuts bool         `json:"enableKeyboardShortcuts"`
+	DoubleClickAction       string       `json:"doubleClickAction"`
+	ConfirmDelete           bool         `json:"confirmDelete"`
+	ConfirmOnClose          bool         `json:"confirmOnClose"`
+	ReopenLastWorkspace     bool         `json:"reopenLastWorkspace"`
+	MemoryRoot              string       `json:"memoryRoot,omitempty"`
+}
+
+type WindowState struct {
+	Width     int  `json:"width"`
+	Height    int  `json:"height"`
+	X         int  `json:"x"`
+	Y         int  `json:"y"`
+	Maximised bool `json:"maximised"`
 }

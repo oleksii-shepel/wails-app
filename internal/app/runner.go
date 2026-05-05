@@ -10,11 +10,13 @@ import (
 	"os"
 	"time"
 
+	"wails-app/internal/workspace"
 	"wails-app/vfs/archive/cache"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 func Run(assets embed.FS, binding interface{}, archCache *cache.Cache, onStartup func(context.Context), onBeforeClose func(context.Context) bool, onShutdown func(context.Context)) error {
@@ -72,13 +74,45 @@ func Run(assets embed.FS, binding interface{}, archCache *cache.Cache, onStartup
 		}()
 	}
 
+	width, height := 1280, 800
+	x, y := 0, 0
+	hasPosition := false
+	startState := options.Normal
+
+	if saved := workspace.LoadStoredWindowState("wails-file-manager"); saved != nil {
+		if saved.Width >= 480 && saved.Height >= 320 {
+			width = saved.Width
+			height = saved.Height
+		}
+		if saved.X != 0 || saved.Y != 0 {
+			x = saved.X
+			y = saved.Y
+			hasPosition = true
+		}
+		if saved.Maximised {
+			startState = options.Maximised
+		}
+	}
+
+	wrappedStartup := onStartup
+	if hasPosition {
+		savedX, savedY := x, y
+		wrappedStartup = func(ctx context.Context) {
+			if onStartup != nil {
+				onStartup(ctx)
+			}
+			wailsruntime.WindowSetPosition(ctx, savedX, savedY)
+		}
+	}
+
 	return wails.Run(&options.App{
 		Title:            "File Manager",
-		Width:            1280,
-		Height:           800,
+		Width:            width,
+		Height:           height,
 		AssetServer:      &assetserver.Options{Assets: assets},
 		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
-		OnStartup:        onStartup,
+		WindowStartState: startState,
+		OnStartup:        wrappedStartup,
 		OnBeforeClose:    onBeforeClose,
 		OnShutdown:       onShutdown,
 		DragAndDrop: &options.DragAndDrop{

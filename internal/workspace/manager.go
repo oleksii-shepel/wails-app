@@ -190,6 +190,26 @@ func mergePreferenceDefaults(stored Preferences) Preferences {
 	return stored
 }
 
+// LoadStoredWindowState reads the persisted window state directly from disk
+// without instantiating a Manager. Intended for use before wails.Run() so the
+// window can be restored at its previous size, position, and maximised state.
+// Returns nil when no state has been written yet or the file is unreadable.
+func LoadStoredWindowState(appName string) *contracts.WindowState {
+	store, err := NewStore(appName)
+	if err != nil {
+		return nil
+	}
+	data, err := store.ReadState()
+	if err != nil {
+		return nil
+	}
+	var state State
+	if err := json.Unmarshal(data, &state); err != nil {
+		return nil
+	}
+	return fromStorageWindowState(state.Preferences.WindowState)
+}
+
 func DefaultPreferences() contracts.UserPreferences {
 	return contracts.UserPreferences{
 		Theme:                   "system",
@@ -218,6 +238,8 @@ func toStorageWorkspaceConfig(source contracts.WorkspaceConfig) Config {
 		LeftPane:       toStoragePaneState(source.LeftPane),
 		RightPane:      toStoragePaneState(source.RightPane),
 		ShowHidden:     source.ShowHidden,
+		ActivePaneID:   source.ActivePaneID,
+		SplitRatio:     source.SplitRatio,
 		CreatedAt:      source.CreatedAt,
 		LastAccessedAt: source.LastAccessedAt,
 	}
@@ -232,6 +254,8 @@ func fromStorageWorkspaceConfig(source Config) contracts.WorkspaceConfig {
 		LeftPane:       fromStoragePaneState(source.LeftPane),
 		RightPane:      fromStoragePaneState(source.RightPane),
 		ShowHidden:     source.ShowHidden,
+		ActivePaneID:   source.ActivePaneID,
+		SplitRatio:     source.SplitRatio,
 		CreatedAt:      source.CreatedAt,
 		LastAccessedAt: source.LastAccessedAt,
 	}
@@ -322,6 +346,7 @@ func toStoragePreferences(source contracts.UserPreferences) Preferences {
 		UIZoom:                  source.UIZoom,
 		CompactMode:             source.CompactMode,
 		AnimationsEnabled:       source.AnimationsEnabled,
+		WindowState:             toStorageWindowState(source.WindowState),
 		DefaultShowHidden:       source.DefaultShowHidden,
 		DefaultSortBy:           source.DefaultSortBy,
 		DefaultSortOrder:        source.DefaultSortOrder,
@@ -341,6 +366,7 @@ func fromStoragePreferences(source Preferences) contracts.UserPreferences {
 		UIZoom:                  source.UIZoom,
 		CompactMode:             source.CompactMode,
 		AnimationsEnabled:       source.AnimationsEnabled,
+		WindowState:             fromStorageWindowState(source.WindowState),
 		DefaultShowHidden:       source.DefaultShowHidden,
 		DefaultSortBy:           source.DefaultSortBy,
 		DefaultSortOrder:        source.DefaultSortOrder,
@@ -350,5 +376,31 @@ func fromStoragePreferences(source Preferences) contracts.UserPreferences {
 		ConfirmOnClose:          source.ConfirmOnClose,
 		ReopenLastWorkspace:     source.ReopenLastWorkspace,
 		MemoryRoot:              source.MemoryRoot,
+	}
+}
+
+func toStorageWindowState(source *contracts.WindowState) *WindowState {
+	if source == nil {
+		return nil
+	}
+	return &WindowState{
+		Width:     source.Width,
+		Height:    source.Height,
+		X:         source.X,
+		Y:         source.Y,
+		Maximised: source.Maximised,
+	}
+}
+
+func fromStorageWindowState(source *WindowState) *contracts.WindowState {
+	if source == nil {
+		return nil
+	}
+	return &contracts.WindowState{
+		Width:     source.Width,
+		Height:    source.Height,
+		X:         source.X,
+		Y:         source.Y,
+		Maximised: source.Maximised,
 	}
 }

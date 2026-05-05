@@ -970,11 +970,11 @@ export namespace contracts {
 	    isPinned: boolean;
 	    createdAt: number;
 	    viewStateJson?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new TabInfo(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -1273,11 +1273,11 @@ export namespace contracts {
 	    x: number;
 	    y: number;
 	    maximised: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new WindowState(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.width = source["width"];
@@ -1287,7 +1287,6 @@ export namespace contracts {
 	        this.maximised = source["maximised"];
 	    }
 	}
-
 	export class UserPreferences {
 	    theme: string;
 	    accentColor: string;
@@ -1304,11 +1303,11 @@ export namespace contracts {
 	    confirmOnClose: boolean;
 	    reopenLastWorkspace: boolean;
 	    memoryRoot?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new UserPreferences(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.theme = source["theme"];
@@ -1327,7 +1326,7 @@ export namespace contracts {
 	        this.reopenLastWorkspace = source["reopenLastWorkspace"];
 	        this.memoryRoot = source["memoryRoot"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -1347,6 +1346,7 @@ export namespace contracts {
 		}
 	}
 	
+	
 	export class WorkspaceConfig {
 	    id: string;
 	    name: string;
@@ -1359,11 +1359,11 @@ export namespace contracts {
 	    splitRatio?: number;
 	    createdAt: number;
 	    lastAccessedAt: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new WorkspaceConfig(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];

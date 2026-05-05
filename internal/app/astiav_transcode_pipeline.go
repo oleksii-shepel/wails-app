@@ -210,7 +210,7 @@ func newAstiavVideoTranscodeSession(inputFormatContext *astiav.FormatContext, pw
 
 func findPrimaryAstiavVideoStream(inputFormatContext *astiav.FormatContext) (*astiav.Stream, error) {
 	for _, stream := range inputFormatContext.Streams() {
-		if stream.CodecParameters().MediaType() == astiav.MediaTypeVideo && !stream.DispositionFlags().Has(astiav.DispositionFlagAttachedPic) {
+		if stream.CodecParameters().MediaType() == astiav.MediaTypeVideo && !stream.DispositionFlags().Has(astiavDispositionFlagAttachedPic) {
 			return stream, nil
 		}
 	}

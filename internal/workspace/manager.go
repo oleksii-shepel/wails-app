@@ -176,15 +176,27 @@ func (m *Manager) load() error {
 	}
 	m.activeID = state.ActiveWorkspaceID
 	if state.Preferences.Theme != "" {
-		m.preferences = state.Preferences
+		m.preferences = mergePreferenceDefaults(state.Preferences)
 	}
 
 	return nil
 }
 
+func mergePreferenceDefaults(stored Preferences) Preferences {
+	defaults := toStoragePreferences(DefaultPreferences())
+	if stored.UIZoom <= 0 {
+		stored.UIZoom = defaults.UIZoom
+	}
+	return stored
+}
+
 func DefaultPreferences() contracts.UserPreferences {
 	return contracts.UserPreferences{
-		Theme:                   "auto",
+		Theme:                   "system",
+		AccentColor:             "",
+		UIZoom:                  100,
+		CompactMode:             false,
+		AnimationsEnabled:       true,
 		DefaultShowHidden:       false,
 		DefaultSortBy:           "name",
 		DefaultSortOrder:        "asc",
@@ -263,15 +275,16 @@ func toStorageTabInfo(source contracts.TabInfo) TabInfo {
 	}
 
 	return TabInfo{
-		ID:         source.ID,
-		Title:      source.Title,
-		Path:       source.Path,
-		Kind:       source.Kind,
-		Viewer:     viewer,
-		IsClosable: source.IsClosable,
-		IsActive:   source.IsActive,
-		IsPinned:   source.IsPinned,
-		CreatedAt:  source.CreatedAt,
+		ID:            source.ID,
+		Title:         source.Title,
+		Path:          source.Path,
+		Kind:          source.Kind,
+		Viewer:        viewer,
+		IsClosable:    source.IsClosable,
+		IsActive:      source.IsActive,
+		IsPinned:      source.IsPinned,
+		CreatedAt:     source.CreatedAt,
+		ViewStateJson: source.ViewStateJson,
 	}
 }
 
@@ -289,21 +302,26 @@ func fromStorageTabInfo(source TabInfo) contracts.TabInfo {
 	}
 
 	return contracts.TabInfo{
-		ID:         source.ID,
-		Title:      source.Title,
-		Path:       source.Path,
-		Kind:       source.Kind,
-		Viewer:     viewer,
-		IsClosable: source.IsClosable,
-		IsActive:   source.IsActive,
-		IsPinned:   source.IsPinned,
-		CreatedAt:  source.CreatedAt,
+		ID:            source.ID,
+		Title:         source.Title,
+		Path:          source.Path,
+		Kind:          source.Kind,
+		Viewer:        viewer,
+		IsClosable:    source.IsClosable,
+		IsActive:      source.IsActive,
+		IsPinned:      source.IsPinned,
+		CreatedAt:     source.CreatedAt,
+		ViewStateJson: source.ViewStateJson,
 	}
 }
 
 func toStoragePreferences(source contracts.UserPreferences) Preferences {
 	return Preferences{
 		Theme:                   source.Theme,
+		AccentColor:             source.AccentColor,
+		UIZoom:                  source.UIZoom,
+		CompactMode:             source.CompactMode,
+		AnimationsEnabled:       source.AnimationsEnabled,
 		DefaultShowHidden:       source.DefaultShowHidden,
 		DefaultSortBy:           source.DefaultSortBy,
 		DefaultSortOrder:        source.DefaultSortOrder,
@@ -319,6 +337,10 @@ func toStoragePreferences(source contracts.UserPreferences) Preferences {
 func fromStoragePreferences(source Preferences) contracts.UserPreferences {
 	return contracts.UserPreferences{
 		Theme:                   source.Theme,
+		AccentColor:             source.AccentColor,
+		UIZoom:                  source.UIZoom,
+		CompactMode:             source.CompactMode,
+		AnimationsEnabled:       source.AnimationsEnabled,
 		DefaultShowHidden:       source.DefaultShowHidden,
 		DefaultSortBy:           source.DefaultSortBy,
 		DefaultSortOrder:        source.DefaultSortOrder,

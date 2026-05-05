@@ -814,6 +814,40 @@ export class WorkspaceService {
     return pane.tabs.find((t) => t.id === pane.activeTabId) ?? null;
   }
 
+  /**
+   * Persist the per-tab view state slice (JSON-encoded). Debounced per workspace
+   * so rapid selection/sort changes don't flood the backend.
+   */
+  setTabViewState(paneId: 'left' | 'right', tabId: string, viewStateJson: string | null): void {
+    const workspace = this.activeWorkspaceSubject.value;
+    if (!workspace) return;
+
+    const pane = paneId === 'left' ? workspace.leftPane : workspace.rightPane;
+    const tab = pane.tabs.find((t) => t.id === tabId);
+    if (!tab) return;
+
+    const next = viewStateJson || undefined;
+    if (tab.viewStateJson === next) return;
+    tab.viewStateJson = next;
+
+    this.scheduleViewStatePersist(workspace);
+  }
+
+  private viewStatePersistTimer: ReturnType<typeof setTimeout> | null = null;
+  private viewStatePersistTarget: WorkspaceConfig | null = null;
+
+  private scheduleViewStatePersist(workspace: WorkspaceConfig): void {
+    this.viewStatePersistTarget = workspace;
+    this.saveLocalWorkspaces(this.workspacesSubject.value);
+    if (this.viewStatePersistTimer) return;
+    this.viewStatePersistTimer = setTimeout(() => {
+      const target = this.viewStatePersistTarget;
+      this.viewStatePersistTimer = null;
+      this.viewStatePersistTarget = null;
+      if (target) this.persistWorkspace(target);
+    }, 250);
+  }
+
   getTabs(paneId: string): TabInfo[] {
     const workspace = this.activeWorkspaceSubject.value;
     if (!workspace) return [];

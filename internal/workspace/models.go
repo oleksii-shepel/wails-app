@@ -26,15 +26,16 @@ type PaneState struct {
 }
 
 type TabInfo struct {
-	ID         string     `json:"id"`
-	Title      string     `json:"title"`
-	Path       string     `json:"path"`
-	Kind       string     `json:"kind,omitempty"`
-	Viewer     *ViewerTab `json:"viewer,omitempty"`
-	IsClosable *bool      `json:"isClosable,omitempty"`
-	IsActive   bool       `json:"isActive"`
-	IsPinned   bool       `json:"isPinned"`
-	CreatedAt  int64      `json:"createdAt"`
+	ID            string     `json:"id"`
+	Title         string     `json:"title"`
+	Path          string     `json:"path"`
+	Kind          string     `json:"kind,omitempty"`
+	Viewer        *ViewerTab `json:"viewer,omitempty"`
+	IsClosable    *bool      `json:"isClosable,omitempty"`
+	IsActive      bool       `json:"isActive"`
+	IsPinned      bool       `json:"isPinned"`
+	CreatedAt     int64      `json:"createdAt"`
+	ViewStateJson string     `json:"viewStateJson,omitempty"`
 }
 
 type ViewerTab struct {
@@ -48,6 +49,10 @@ type ViewerTab struct {
 
 type Preferences struct {
 	Theme                   string `json:"theme"`
+	AccentColor             string `json:"accentColor"`
+	UIZoom                  int    `json:"uiZoom"`
+	CompactMode             bool   `json:"compactMode"`
+	AnimationsEnabled       bool   `json:"animationsEnabled"`
 	DefaultShowHidden       bool   `json:"defaultShowHidden"`
 	DefaultSortBy           string `json:"defaultSortBy"`
 	DefaultSortOrder        string `json:"defaultSortOrder"`

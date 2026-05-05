@@ -32,7 +32,7 @@ func extractVideoFrame(ctx context.Context, inputPath string, targetFormat strin
 	var streamIdx int = -1
 	for i := 0; i < fmtCtx.NbStreams(); i++ {
 		s := fmtCtx.Streams()[i]
-		if s.CodecParameters().MediaType() == astiav.MediaTypeVideo && !s.DispositionFlags().Has(astiav.DispositionFlagAttachedPic) {
+		if s.CodecParameters().MediaType() == astiav.MediaTypeVideo && !s.DispositionFlags().Has(astiavDispositionFlagAttachedPic) {
 			videoStream = s
 			streamIdx = i
 			break

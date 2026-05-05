@@ -216,9 +216,43 @@ interface SettingsDialogRequest {
 }
 
 interface BackendUserPreferences {
+  theme?: string;
+  accentColor?: string;
+  uiZoom?: number;
+  compactMode?: boolean;
+  animationsEnabled?: boolean;
   confirmOnClose?: boolean;
   reopenLastWorkspace?: boolean;
   [key: string]: unknown;
+}
+
+const APPEARANCE_CACHE_KEY = 'app-appearance-v1';
+
+interface CachedAppearance {
+  theme?: GeneralSettings['theme'];
+  accentColor?: string;
+  uiZoom?: number;
+  compactMode?: boolean;
+  animationsEnabled?: boolean;
+}
+
+function readAppearanceCache(): CachedAppearance {
+  try {
+    const raw = localStorage.getItem(APPEARANCE_CACHE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as CachedAppearance;
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeAppearanceCache(value: CachedAppearance): void {
+  try {
+    localStorage.setItem(APPEARANCE_CACHE_KEY, JSON.stringify(value));
+  } catch {
+    // Ignore storage errors
+  }
 }
 
 @Injectable({ providedIn: 'root' })
@@ -309,16 +343,25 @@ export class SettingsService {
   }
 
   private loadSettings(): ProjectSettings {
+    let result = DEFAULT_SETTINGS;
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
         const parsed = JSON.parse(stored) as Partial<ProjectSettings>;
-        return this.mergeWithDefaults(parsed);
+        result = this.mergeWithDefaults(parsed);
       }
     } catch {
       // Ignore parse errors
     }
-    return DEFAULT_SETTINGS;
+
+    writeAppearanceCache({
+      theme: result.general.theme,
+      accentColor: result.general.accentColor,
+      uiZoom: result.general.uiZoom,
+      compactMode: result.view.compactMode,
+      animationsEnabled: result.view.animationsEnabled,
+    });
+    return result;
   }
 
   private saveSettings(settings: ProjectSettings): void {
@@ -337,10 +380,27 @@ export class SettingsService {
       this.backendPreferences = preferences;
 
       const current = this.settings$.value;
+      const themeValue = this.coerceTheme(preferences.theme, current.general.theme);
+      const accentColor = typeof preferences.accentColor === 'string'
+        ? preferences.accentColor
+        : current.general.accentColor;
+      const uiZoom = typeof preferences.uiZoom === 'number' && preferences.uiZoom > 0
+        ? preferences.uiZoom
+        : current.general.uiZoom;
+      const compactMode = typeof preferences.compactMode === 'boolean'
+        ? preferences.compactMode
+        : current.view.compactMode;
+      const animationsEnabled = typeof preferences.animationsEnabled === 'boolean'
+        ? preferences.animationsEnabled
+        : current.view.animationsEnabled;
+
       const merged: ProjectSettings = {
         ...current,
         general: {
           ...current.general,
+          theme: themeValue,
+          accentColor,
+          uiZoom,
           confirmOnClose: typeof preferences.confirmOnClose === 'boolean'
             ? preferences.confirmOnClose
             : current.general.confirmOnClose,
@@ -348,9 +408,21 @@ export class SettingsService {
             ? preferences.reopenLastWorkspace
             : current.general.reopenLastWorkspace,
         },
+        view: {
+          ...current.view,
+          compactMode,
+          animationsEnabled,
+        },
       };
 
       this.settings$.next(merged);
+      writeAppearanceCache({
+        theme: merged.general.theme,
+        accentColor: merged.general.accentColor,
+        uiZoom: merged.general.uiZoom,
+        compactMode: merged.view.compactMode,
+        animationsEnabled: merged.view.animationsEnabled,
+      });
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
       } catch {
@@ -362,18 +434,35 @@ export class SettingsService {
   }
 
   private async syncBackendPreferences(settings: ProjectSettings): Promise<void> {
+    writeAppearanceCache({
+      theme: settings.general.theme,
+      accentColor: settings.general.accentColor,
+      uiZoom: settings.general.uiZoom,
+      compactMode: settings.view.compactMode,
+      animationsEnabled: settings.view.animationsEnabled,
+    });
+
     try {
       const current = this.backendPreferences ?? await GetPreferences() as unknown as BackendUserPreferences;
       this.backendPreferences = current;
 
       await SavePreferences({
         ...current,
+        theme: settings.general.theme,
+        accentColor: settings.general.accentColor,
+        uiZoom: settings.general.uiZoom,
+        compactMode: settings.view.compactMode,
+        animationsEnabled: settings.view.animationsEnabled,
         confirmOnClose: settings.general.confirmOnClose,
         reopenLastWorkspace: settings.general.reopenLastWorkspace,
       } as any);
     } catch {
       // Ignore backend sync errors during early startup or tests.
     }
+  }
+
+  private coerceTheme(value: unknown, fallback: GeneralSettings['theme']): GeneralSettings['theme'] {
+    return value === 'dark' || value === 'light' || value === 'system' ? value : fallback;
   }
 
   private mergeWithDefaults(stored: Partial<ProjectSettings>): ProjectSettings {

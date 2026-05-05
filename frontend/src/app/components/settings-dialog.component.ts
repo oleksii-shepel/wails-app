@@ -3,10 +3,10 @@ import { Component, ElementRef, ViewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { createSubject, takeUntil, type Stream } from '@epikodelabs/streamix';
 import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.directive';
+import { InputHistoryDirective } from '../directives/input-history.directive';
 import { moveFocusWithin } from '../directives/focus-trap.utils';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
-import { InputHistoryService } from '../services/input-history.service';
 import { NativeOverlayFreezeService } from '../services/native-overlay-freeze.service';
 import {
   SettingsService,
@@ -24,7 +24,7 @@ interface SettingsDialogRequest {
 @Component({
   selector: 'app-settings-dialog',
   standalone: true,
-  imports: [CommonModule, FormsModule, DialogFocusTrapDirective],
+  imports: [CommonModule, FormsModule, DialogFocusTrapDirective, InputHistoryDirective],
   styleUrls: ['./settings-dialog.component.scss'],
   template: `
     <ng-container *ngIf="request$ | async">
@@ -215,15 +215,12 @@ interface SettingsDialogRequest {
                     <span>Startup Folder</span>
                     <input
                       type="text"
+                      name="settings-startup-folder"
                       [(ngModel)]="draft.general.startupFolder"
                       (ngModelChange)="onSettingChanged()"
                       placeholder="/path/to/folder"
-                      list="sfd-history-startup-folder"
-                      autocomplete="off"
+                      [appInputHistory]="'settings.startupFolder'"
                     />
-                    <datalist id="sfd-history-startup-folder">
-                      <option *ngFor="let v of history('settings.startupFolder')" [value]="v"></option>
-                    </datalist>
                   </label>
                 </div>
 
@@ -365,15 +362,12 @@ interface SettingsDialogRequest {
                     <span>Font Family</span>
                     <input
                       type="text"
+                      name="settings-font-family"
                       [(ngModel)]="draft.editor.fontFamily"
                       (ngModelChange)="onSettingChanged()"
                       placeholder="Consolas, 'Courier New', monospace"
-                      list="sfd-history-font-family"
-                      autocomplete="off"
+                      [appInputHistory]="'settings.fontFamily'"
                     />
-                    <datalist id="sfd-history-font-family">
-                      <option *ngFor="let v of history('settings.fontFamily')" [value]="v"></option>
-                    </datalist>
                     <small>Comma-separated list of font names. The first available font on your system is used.</small>
                   </label>
                   <div class="field-row">
@@ -736,15 +730,12 @@ interface SettingsDialogRequest {
                         <span>Host</span>
                         <input
                           type="text"
+                          name="settings-proxy-host"
                           [(ngModel)]="draft.advanced.proxyHost"
                           (ngModelChange)="onSettingChanged()"
                           placeholder="proxy.example.com"
-                          list="sfd-history-proxy-host"
-                          autocomplete="off"
+                          [appInputHistory]="'settings.proxyHost'"
                         />
-                        <datalist id="sfd-history-proxy-host">
-                          <option *ngFor="let v of history('settings.proxyHost')" [value]="v"></option>
-                        </datalist>
                       </label>
                       <label class="field">
                         <span>Port</span>
@@ -766,14 +757,11 @@ interface SettingsDialogRequest {
                         <span>Username</span>
                         <input
                           type="text"
+                          name="settings-proxy-user"
                           [(ngModel)]="draft.advanced.proxyUsername"
                           (ngModelChange)="onSettingChanged()"
-                          list="sfd-history-proxy-user"
-                          autocomplete="off"
+                          [appInputHistory]="'settings.proxyUsername'"
                         />
-                        <datalist id="sfd-history-proxy-user">
-                          <option *ngFor="let v of history('settings.proxyUsername')" [value]="v"></option>
-                        </datalist>
                       </label>
                       <label class="field">
                         <span>Password</span>
@@ -1024,7 +1012,6 @@ export class SettingsDialogComponent {
     private readonly inputContexts: InputContextService,
     private readonly inputEngine: InputEngineService,
     private readonly overlayFreeze: NativeOverlayFreezeService,
-    private readonly inputHistory: InputHistoryService,
   ) {}
 
   ngOnInit(): void {
@@ -1074,11 +1061,6 @@ export class SettingsDialogComponent {
 
   getTabLabel(): string {
     return this.tabs.find((t) => t.id === this.activeTab)?.label ?? '';
-  }
-
-  /** Returns stored autocomplete suggestions for a given history key. */
-  history(key: string): string[] {
-    return this.inputHistory.get(key);
   }
 
   private formatStep(step: KeyStroke): string {
@@ -1156,25 +1138,9 @@ export class SettingsDialogComponent {
 
   onSave(): void {
     this.settingsService.updateSettings(this.getChanges());
-    this.saveSettingsHistory();
     this.originalSettings = JSON.parse(JSON.stringify(this.draft));
     this.hasChanges = false;
     this.settingsService.closeSettings(true);
-  }
-
-  private saveSettingsHistory(): void {
-    if (this.draft.general.startupFolder?.trim()) {
-      this.inputHistory.push('settings.startupFolder', this.draft.general.startupFolder.trim());
-    }
-    if (this.draft.editor.fontFamily?.trim()) {
-      this.inputHistory.push('settings.fontFamily', this.draft.editor.fontFamily.trim());
-    }
-    if (this.draft.advanced.proxyHost?.trim()) {
-      this.inputHistory.push('settings.proxyHost', this.draft.advanced.proxyHost.trim());
-    }
-    if (this.draft.advanced.proxyUsername?.trim()) {
-      this.inputHistory.push('settings.proxyUsername', this.draft.advanced.proxyUsername.trim());
-    }
   }
 
   onResetSection(): void {

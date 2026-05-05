@@ -7,6 +7,7 @@ import { InputEngineService } from '../services/input-engine.service';
 import { InputHistoryService } from '../services/input-history.service';
 import { NativeOverlayFreezeService } from '../services/native-overlay-freeze.service';
 import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.directive';
+import { InputHistoryDirective } from '../directives/input-history.directive';
 import { moveFocusWithin } from '../directives/focus-trap.utils';
 import type { Stream } from '@epikodelabs/streamix';
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
@@ -19,7 +20,7 @@ interface ConfirmDialogRequest {
 @Component({
   selector: 'app-confirm-dialog',
   standalone: true,
-  imports: [CommonModule, FormsModule, DialogFocusTrapDirective],
+  imports: [CommonModule, FormsModule, DialogFocusTrapDirective, InputHistoryDirective],
   template: `
     <ng-container *ngIf="request$ | async as request">
       <div 
@@ -78,16 +79,14 @@ interface ConfirmDialogRequest {
                 <input
                   class="prompt-input"
                   type="text"
+                  name="confirm-prompt-value"
                   [(ngModel)]="draftValue"
                   [placeholder]="request.options.placeholder || ''"
-                  [attr.list]="request.options.historyKey ? 'prompt-history-list' : null"
-                  autocomplete="off"
+                  [appInputHistory]="request.options.historyKey || null"
+                  [appInputHistoryEnabled]="!!request.options.historyKey"
                   data-dialog-initial-focus
                   (keydown)="onPromptKeyDown($event)"
                 />
-                <datalist *ngIf="request.options.historyKey && promptHistory.length" id="prompt-history-list">
-                  <option *ngFor="let item of promptHistory" [value]="item"></option>
-                </datalist>
               </div>
             </div>
 
@@ -362,7 +361,6 @@ export class ConfirmDialogComponent {
   private readonly destroy$ = createSubject<void>();
   private releaseDialogContext: (() => void) | null = null;
   draftValue = '';
-  promptHistory: string[] = [];
   readonly request$: Stream<ConfirmDialogRequest | null> = this.confirmDialogService.activeRequest$;
 
   constructor(
@@ -386,15 +384,11 @@ export class ConfirmDialogComponent {
       .subscribe(request => {
         if (request) {
           this.draftValue = request.options.defaultValue ?? '';
-          this.promptHistory = request.options.historyKey
-            ? this.inputHistory.get(request.options.historyKey)
-            : [];
           this.releaseDialogContext ??= this.inputContexts.acquire('dialog.confirm');
           this.overlayFreeze.acquire('dialog.confirm');
           return;
         }
         this.draftValue = '';
-        this.promptHistory = [];
         this.releaseDialogContext?.();
         this.releaseDialogContext = null;
         this.overlayFreeze.release('dialog.confirm');

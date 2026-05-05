@@ -6,15 +6,45 @@
   <base href="/">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" type="image/x-icon" href="favicon.ico">
-  <!-- Prevent flash of wrong background by applying theme before first paint -->
+  <!-- Prevent flash of wrong appearance by applying cached settings before first paint -->
   <script>
     (function () {
-      var stored;
-      try { stored = localStorage.getItem('app-theme'); } catch (_) {}
-      var dark = stored === 'dark' || (!stored && !(window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches));
       var html = document.documentElement;
+      var appearance = {};
+      try {
+        var raw = localStorage.getItem('app-appearance-v1');
+        if (raw) appearance = JSON.parse(raw) || {};
+      } catch (_) {}
+
+      var theme = appearance.theme;
+      var legacyTheme;
+      try { legacyTheme = localStorage.getItem('app-theme'); } catch (_) {}
+      if (theme !== 'dark' && theme !== 'light' && theme !== 'system') {
+        theme = legacyTheme === 'dark' || legacyTheme === 'light' || legacyTheme === 'system' ? legacyTheme : 'system';
+      }
+      var prefersLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+      var dark = theme === 'dark' || (theme === 'system' && !prefersLight);
       html.classList.add(dark ? 'vscode-dark' : 'vscode-light');
       html.style.background = dark ? '#1e1e1e' : '#ffffff';
+
+      var compact;
+      try { compact = appearance.compactMode === true || localStorage.getItem('app-compact') === '1'; } catch (_) {}
+      if (compact) html.classList.add('compact-mode');
+
+      var accent = typeof appearance.accentColor === 'string' ? appearance.accentColor.trim() : '';
+      if (/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(accent)) {
+        html.style.setProperty('--vsc-accent-blue', accent);
+        html.style.setProperty('--vsc-accent', accent);
+        html.style.setProperty('--vsc-input-focus-border', accent);
+        html.style.setProperty('--vsc-statusbar-background', accent);
+        html.style.setProperty('--vsc-list-active-background', 'color-mix(in srgb, ' + accent + ' 32%, transparent)');
+        html.style.setProperty('--vsc-list-focus-background', 'color-mix(in srgb, ' + accent + ' 24%, transparent)');
+      }
+
+      var zoom = typeof appearance.uiZoom === 'number' ? appearance.uiZoom : 100;
+      if (zoom >= 75 && zoom <= 150 && zoom !== 100) {
+        html.style.zoom = String(zoom / 100);
+      }
     })();
   </script>
 </head>

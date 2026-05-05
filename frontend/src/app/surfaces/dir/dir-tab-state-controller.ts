@@ -34,8 +34,32 @@ export interface DirTabRestoreTarget {
   ui: DirTabUiRuntime;
 }
 
+/** Slice of DirTabState that is JSON-serialized for cross-restart persistence. */
+export interface PersistedDirTabState {
+  path: string;
+  showHidden: boolean;
+  currentView: DirTabState['currentView'];
+  sortField: string;
+  sortDirection: 'asc' | 'desc';
+  directoriesFirst: boolean;
+  colorizeByMime: boolean;
+  filterQuery: DirTabState['filterQuery'];
+  selectedPaths: string[];
+  cursorPath: string | null;
+  anchorPath: string | null;
+  optimisticHiddenPaths: string[];
+}
+
+export type DirTabStatePersistCallback = (tabId: string, json: string) => void;
+
 export class DirTabStateController {
   private readonly stateByTabId = new Map<string, DirTabState>();
+  private persistCallback: DirTabStatePersistCallback | null = null;
+
+  /** Register a callback invoked whenever a tab's persistable state changes. */
+  setPersistCallback(callback: DirTabStatePersistCallback | null): void {
+    this.persistCallback = callback;
+  }
 
   save(tabId: string, target: DirTabRestoreTarget): void {
     if (!tabId) return;
@@ -56,6 +80,14 @@ export class DirTabStateController {
       optimisticHiddenPaths: target.session.getOptimisticHiddenPaths(),
     };
     this.stateByTabId.set(tabId, state);
+
+    if (this.persistCallback) {
+      try {
+        this.persistCallback(tabId, JSON.stringify(this.toPersisted(state)));
+      } catch {
+        // Persist callbacks must never throw out of save().
+      }
+    }
   }
 
   load(tabId: string): DirTabState | null {
@@ -63,9 +95,56 @@ export class DirTabStateController {
     return this.stateByTabId.get(tabId) ?? null;
   }
 
+  /** Seed the in-memory map from a persisted JSON blob (one-shot, on workspace load). */
+  hydrateFromJson(tabId: string, json: string | null | undefined): void {
+    if (!tabId || !json) return;
+    if (this.stateByTabId.has(tabId)) return;
+    let parsed: Partial<PersistedDirTabState> | null = null;
+    try {
+      parsed = JSON.parse(json) as Partial<PersistedDirTabState>;
+    } catch {
+      return;
+    }
+    if (!parsed || typeof parsed !== 'object') return;
+
+    this.stateByTabId.set(tabId, {
+      path: parsed.path ?? '',
+      showHidden: !!parsed.showHidden,
+      currentView: parsed.currentView ?? 'list',
+      sortField: parsed.sortField ?? 'name',
+      sortDirection: parsed.sortDirection === 'desc' ? 'desc' : 'asc',
+      directoriesFirst: !!parsed.directoriesFirst,
+      colorizeByMime: !!parsed.colorizeByMime,
+      filterQuery: parsed.filterQuery ?? { text: '', criteria: [] },
+      selectedPaths: Array.isArray(parsed.selectedPaths) ? parsed.selectedPaths : [],
+      cursorPath: parsed.cursorPath ?? null,
+      anchorPath: parsed.anchorPath ?? null,
+      entries: [],
+      optimisticHiddenPaths: Array.isArray(parsed.optimisticHiddenPaths) ? parsed.optimisticHiddenPaths : [],
+    });
+  }
+
   delete(tabId: string): void {
     if (!tabId) return;
     this.stateByTabId.delete(tabId);
+    this.persistCallback?.(tabId, '');
+  }
+
+  private toPersisted(state: DirTabState): PersistedDirTabState {
+    return {
+      path: state.path,
+      showHidden: state.showHidden,
+      currentView: state.currentView,
+      sortField: state.sortField,
+      sortDirection: state.sortDirection,
+      directoriesFirst: state.directoriesFirst,
+      colorizeByMime: state.colorizeByMime,
+      filterQuery: state.filterQuery,
+      selectedPaths: state.selectedPaths,
+      cursorPath: state.cursorPath,
+      anchorPath: state.anchorPath,
+      optimisticHiddenPaths: state.optimisticHiddenPaths,
+    };
   }
 
   applyBeforeLoad(state: DirTabState, session: DirTabSessionState): void {

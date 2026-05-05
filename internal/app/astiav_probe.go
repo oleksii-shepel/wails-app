@@ -37,7 +37,7 @@ func probeVideo(nativePath string) (*ffprobeOutput, error) {
 		codecParams := stream.CodecParameters()
 
 		// Skip attached pictures (album art, cover thumbnails) — they are not playable video.
-		if codecParams.MediaType() == astiav.MediaTypeVideo && stream.DispositionFlags().Has(astiav.DispositionFlagAttachedPic) {
+		if codecParams.MediaType() == astiav.MediaTypeVideo && stream.DispositionFlags().Has(astiavDispositionFlagAttachedPic) {
 			continue
 		}
 

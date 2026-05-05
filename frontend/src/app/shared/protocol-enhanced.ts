@@ -59,6 +59,11 @@ export interface TabInfo {
   isActive: boolean;
   isPinned: boolean;
   createdAt: number;
+  /**
+   * JSON-encoded per-tab view state (sort, view mode, filter, selection, cursor).
+   * Opaque to the backend — produced and consumed by `DirTabStateController`.
+   */
+  viewStateJson?: string;
 }
 
 export interface ViewerFileListItem {
@@ -445,13 +450,19 @@ export const STORAGE_KEYS = {
 // ============================================================================
 
 export interface UserPreferences {
-  theme: 'dark' | 'light' | 'auto';
+  theme: 'dark' | 'light' | 'system' | 'auto';
+  accentColor: string;
+  uiZoom: number;
+  compactMode: boolean;
+  animationsEnabled: boolean;
   defaultShowHidden: boolean;
   defaultSortBy: 'name' | 'size' | 'modified' | 'type';
   defaultSortOrder: 'asc' | 'desc';
   enableKeyboardShortcuts: boolean;
   doubleClickAction: 'open' | 'preview';
   confirmDelete: boolean;
+  confirmOnClose: boolean;
+  reopenLastWorkspace: boolean;
   memoryRoot?: string;
 }
 

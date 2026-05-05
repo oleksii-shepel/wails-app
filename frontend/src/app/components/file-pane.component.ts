@@ -733,7 +733,12 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     return item.ctx.tab.id;
   }
 
-  ngOnInit(): void  { 
+  ngOnInit(): void  {
+    this.dirTabStateController.setPersistCallback((tabId, json) => {
+      this.workspaceService.setTabViewState(this.paneId, tabId, json);
+    });
+    this.hydrateDirTabStatesFromWorkspace();
+
     this.uiController.loadViewPreference(this.uiHost);
     this.loadPaneState();
     this.directoryController.bind(this.directoryHost);
@@ -745,8 +750,19 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       .subscribe(ws => {
         if (!ws || !this.workspace) return;
         if (ws.id !== this.workspace.id) return;
+        this.hydrateDirTabStatesFromWorkspace();
         this.tabsController.onWorkspaceUpdate(this.tabsHost, ws);
       });
+  }
+
+  private hydrateDirTabStatesFromWorkspace(): void {
+    const tabs = this.workspaceService.getTabs(this.paneId);
+    for (const tab of tabs) {
+      if ((tab.kind ?? 'dir') !== 'dir') continue;
+      if (tab.viewStateJson) {
+        this.dirTabStateController.hydrateFromJson(tab.id, tab.viewStateJson);
+      }
+    }
   }
   
   ngOnChanges(changes: SimpleChanges): void {
@@ -756,6 +772,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       // to a real workspace would be a later change. Always load once we have a
       // non-null workspace so tabs/pane render without requiring a user click.
       if (this.workspace) {
+        this.hydrateDirTabStatesFromWorkspace();
         this.uiController.loadViewPreference(this.uiHost);
         this.lastSeenActiveTabId = null;
         this.lastSeenActiveTabPath = null;

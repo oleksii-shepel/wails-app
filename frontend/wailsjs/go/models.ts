@@ -969,11 +969,12 @@ export namespace contracts {
 	    isActive: boolean;
 	    isPinned: boolean;
 	    createdAt: number;
-	
+	    viewStateJson?: string;
+
 	    static createFrom(source: any = {}) {
 	        return new TabInfo(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -985,6 +986,7 @@ export namespace contracts {
 	        this.isActive = source["isActive"];
 	        this.isPinned = source["isPinned"];
 	        this.createdAt = source["createdAt"];
+	        this.viewStateJson = source["viewStateJson"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1267,6 +1269,10 @@ export namespace contracts {
 	
 	export class UserPreferences {
 	    theme: string;
+	    accentColor: string;
+	    uiZoom: number;
+	    compactMode: boolean;
+	    animationsEnabled: boolean;
 	    defaultShowHidden: boolean;
 	    defaultSortBy: string;
 	    defaultSortOrder: string;
@@ -1276,14 +1282,18 @@ export namespace contracts {
 	    confirmOnClose: boolean;
 	    reopenLastWorkspace: boolean;
 	    memoryRoot?: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new UserPreferences(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.theme = source["theme"];
+	        this.accentColor = source["accentColor"];
+	        this.uiZoom = source["uiZoom"];
+	        this.compactMode = source["compactMode"];
+	        this.animationsEnabled = source["animationsEnabled"];
 	        this.defaultShowHidden = source["defaultShowHidden"];
 	        this.defaultSortBy = source["defaultSortBy"];
 	        this.defaultSortOrder = source["defaultSortOrder"];

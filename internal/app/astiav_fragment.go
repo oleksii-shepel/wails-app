@@ -112,7 +112,7 @@ func collectVideoKeyframeTimes(ctx context.Context, nativePath string) ([]float6
 	videoStreamIndex := -1
 	for index := 0; index < inputFormatContext.NbStreams(); index++ {
 		s := inputFormatContext.Streams()[index]
-		if s.CodecParameters().MediaType() == astiav.MediaTypeVideo && !s.DispositionFlags().Has(astiav.DispositionFlagAttachedPic) {
+		if s.CodecParameters().MediaType() == astiav.MediaTypeVideo && !s.DispositionFlags().Has(astiavDispositionFlagAttachedPic) {
 			videoStreamIndex = index
 			break
 		}
@@ -405,7 +405,7 @@ func shouldIncludePreviewStream(stream *astiav.Stream, selectedVideoStreamIndex 
 	case astiav.MediaTypeAudio:
 		return true
 	case astiav.MediaTypeVideo:
-		if stream.DispositionFlags().Has(astiav.DispositionFlagAttachedPic) {
+		if stream.DispositionFlags().Has(astiavDispositionFlagAttachedPic) {
 			return false
 		}
 		if *selectedVideoStreamIndex >= 0 {

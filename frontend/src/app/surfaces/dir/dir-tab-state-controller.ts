@@ -2,6 +2,14 @@ import { DirTabState } from './dir-tab-state';
 import { FilterQuery } from '../../shared/protocol-enhanced';
 import { FileInfo } from '../../shared/protocol';
 
+export interface PendingRestoreSlot {
+  selectedPaths: string[];
+  cursorPath: string | null;
+  anchorPath: string | null;
+  scrollTop: number | null;
+  expandedPaths: string[];
+}
+
 export interface DirTabSessionState {
   getEntriesPaths(): string[];
   getOptimisticHiddenPaths(): string[];
@@ -19,6 +27,8 @@ export interface DirTabSessionState {
   selectedFiles: Set<string>;
   selectionCursorPath: string | null;
   selectionAnchorPath: string | null;
+  pendingRestore: PendingRestoreSlot | null;
+  userInteractedSinceLoad: boolean;
 }
 
 export interface DirTabUiRuntime {
@@ -42,6 +52,12 @@ export interface DirTabRestoreTarget {
 
 /** Slice of DirTabState that is JSON-serialized for cross-restart persistence. */
 export interface PersistedDirTabState {
+  /**
+   * Bumped whenever the persisted shape changes incompatibly. Older blobs run
+   * through DIR_TAB_STATE_MIGRATIONS to upgrade to the current version on load.
+   * Missing field is treated as version 0 (the original unversioned shape).
+   */
+  schemaVersion: number;
   path: string;
   showHidden: boolean;
   currentView: DirTabState['currentView'];
@@ -57,6 +73,34 @@ export interface PersistedDirTabState {
   expandedPaths?: string[];
   entries?: FileInfo[];
   optimisticHiddenPaths: string[];
+}
+
+export const CURRENT_DIR_TAB_STATE_VERSION = 1;
+
+/**
+ * Migrations from version N to N+1. Each entry takes the raw (parsed-JSON)
+ * blob produced under version N and returns a blob shaped like version N+1.
+ * Add a new entry here whenever the persisted shape changes incompatibly.
+ */
+export const DIR_TAB_STATE_MIGRATIONS: Record<number, (raw: any) => any> = {
+  // 0 → 1: original shape — no field reshapes; just stamp the version.
+  0: (raw) => ({ ...raw, schemaVersion: 1 }),
+};
+
+function migrateDirTabState(raw: any): Partial<PersistedDirTabState> | null {
+  if (!raw || typeof raw !== 'object') return null;
+  let working: any = raw;
+  let version = typeof working.schemaVersion === 'number' ? working.schemaVersion : 0;
+  while (version < CURRENT_DIR_TAB_STATE_VERSION) {
+    const migrate = DIR_TAB_STATE_MIGRATIONS[version];
+    if (!migrate) {
+      // No migration registered — refuse rather than silently mis-interpret.
+      return null;
+    }
+    working = migrate(working);
+    version += 1;
+  }
+  return working as Partial<PersistedDirTabState>;
 }
 
 export type DirTabStatePersistCallback = (tabId: string, json: string) => void;
@@ -115,7 +159,7 @@ export class DirTabStateController {
       const source = raw && typeof raw === 'object' && 'dir' in raw
         ? raw['dir']
         : raw;
-      parsed = (source && typeof source === 'object') ? source as Partial<PersistedDirTabState> : null;
+      parsed = migrateDirTabState(source);
     } catch {
       return;
     }
@@ -148,6 +192,7 @@ export class DirTabStateController {
 
   private toPersisted(state: DirTabState): PersistedDirTabState {
     return {
+      schemaVersion: CURRENT_DIR_TAB_STATE_VERSION,
       path: state.path,
       showHidden: state.showHidden,
       currentView: state.currentView,
@@ -180,31 +225,105 @@ export class DirTabStateController {
   finalizeAfterLoad(state: DirTabState, target: DirTabRestoreTarget): void {
     target.session.setOptimisticHiddenPaths(state.optimisticHiddenPaths ?? []);
 
-    const present = new Set(target.session.getEntriesPaths());
-    const restoredSelected = (state.selectedPaths ?? []).filter(p => present.has(p));
-    target.session.selectedFiles = new Set(restoredSelected);
-
-    if (state.cursorPath && present.has(state.cursorPath)) {
-      target.session.selectionCursorPath = state.cursorPath;
-    } else if (restoredSelected.length > 0) {
-      target.session.selectionCursorPath = restoredSelected[restoredSelected.length - 1];
-    } else {
-      const selectable = target.ui.getSelectableEntriesPaths();
-      target.session.selectionCursorPath = selectable.length ? selectable[0] : null;
-    }
-
-    target.session.selectionAnchorPath =
-      state.anchorPath && present.has(state.anchorPath)
-        ? state.anchorPath
-        : target.session.selectionCursorPath;
+    target.session.pendingRestore = {
+      selectedPaths: [...(state.selectedPaths ?? [])],
+      cursorPath: state.cursorPath ?? null,
+      anchorPath: state.anchorPath ?? null,
+      scrollTop: typeof state.scrollTop === 'number' ? state.scrollTop : null,
+      expandedPaths: [...(state.expandedPaths ?? [])],
+    };
+    target.session.userInteractedSinceLoad = false;
 
     target.ui.applyFilter();
-    target.ui.setExpandedPaths?.(state.expandedPaths ?? []);
-    if (target.ui.setScrollTop) {
-      target.ui.setScrollTop(state.scrollTop);
-    } else if (target.session.selectionCursorPath) {
+    this.applyPendingRestore(target);
+  }
+
+  /**
+   * Re-attempt restoration of selection, cursor, anchor, scroll position, and
+   * tree expansion against whatever entries are currently available. Safe to
+   * call multiple times — each pass resolves whichever pending paths are now
+   * present and leaves the rest pending for the next call. Bails out if the
+   * user has touched the UI since the last load.
+   */
+  applyPendingRestore(target: DirTabRestoreTarget): void {
+    const pending = target.session.pendingRestore;
+    if (!pending || target.session.userInteractedSinceLoad) {
+      return;
+    }
+
+    const present = new Set(target.session.getEntriesPaths());
+
+    const resolvedSelected = pending.selectedPaths.filter(p => present.has(p));
+    const stillPendingSelected = pending.selectedPaths.filter(p => !present.has(p));
+    // Only seed selection while the user hasn't manually selected anything.
+    // Once the user clicks a row, selectedFiles is non-empty and we leave it.
+    if (target.session.selectedFiles.size === 0 && resolvedSelected.length > 0) {
+      target.session.selectedFiles = new Set(resolvedSelected);
+    }
+
+    if (!target.session.selectionCursorPath) {
+      if (pending.cursorPath && present.has(pending.cursorPath)) {
+        target.session.selectionCursorPath = pending.cursorPath;
+      } else if (resolvedSelected.length > 0) {
+        target.session.selectionCursorPath = resolvedSelected[resolvedSelected.length - 1];
+      } else {
+        const selectable = target.ui.getSelectableEntriesPaths();
+        if (selectable.length) target.session.selectionCursorPath = selectable[0];
+      }
+    }
+
+    if (!target.session.selectionAnchorPath) {
+      if (pending.anchorPath && present.has(pending.anchorPath)) {
+        target.session.selectionAnchorPath = pending.anchorPath;
+      } else {
+        target.session.selectionAnchorPath = target.session.selectionCursorPath;
+      }
+    }
+
+    target.ui.setExpandedPaths?.(pending.expandedPaths);
+
+    if (pending.scrollTop !== null && target.ui.setScrollTop) {
+      this.deferredApplyScrollTop(target.ui, pending.scrollTop);
+    } else if (pending.scrollTop === null && target.session.selectionCursorPath) {
       target.ui.scrollToCursorPath(target.session.selectionCursorPath);
     }
+
     target.ui.emitPreviewTargetFromState();
+
+    const cursorResolved = !pending.cursorPath || present.has(pending.cursorPath);
+    const anchorResolved = !pending.anchorPath || present.has(pending.anchorPath);
+
+    if (stillPendingSelected.length === 0 && cursorResolved && anchorResolved) {
+      target.session.pendingRestore = null;
+    } else {
+      target.session.pendingRestore = {
+        selectedPaths: stillPendingSelected,
+        cursorPath: cursorResolved ? null : pending.cursorPath,
+        anchorPath: anchorResolved ? null : pending.anchorPath,
+        // Scroll only applies once; clear after first attempt so future entry
+        // changes don't yank the user back to the persisted offset.
+        scrollTop: null,
+        // Same for expanded paths — set once.
+        expandedPaths: [],
+      };
+    }
+  }
+
+  /**
+   * setScrollTop runs before Angular has reconciled the new entries, so the
+   * scrollable container's content height is often still stale. Try once
+   * synchronously, then again on the next frame, then once more after layout
+   * has likely settled — drop the attempt if the user has scrolled in between.
+   */
+  private deferredApplyScrollTop(ui: DirTabUiRuntime, target: number): void {
+    if (!ui.setScrollTop) return;
+    ui.setScrollTop(target);
+    requestAnimationFrame(() => {
+      if (!ui.setScrollTop) return;
+      const current = ui.getScrollTop?.() ?? 0;
+      if (Math.abs(current - target) > 4) {
+        ui.setScrollTop(target);
+      }
+    });
   }
 }

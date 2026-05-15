@@ -459,6 +459,8 @@ export interface WindowState {
   x: number;
   y: number;
   maximised: boolean;
+  /** Distinguishes "x/y captured" from default zero. Older records may omit it. */
+  hasPosition?: boolean;
 }
 
 export interface UserPreferences {

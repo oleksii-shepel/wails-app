@@ -2,10 +2,17 @@ package workspace
 
 // State is the persisted workspace payload stored on disk.
 type State struct {
+	// SchemaVersion is bumped whenever the persisted shape changes
+	// incompatibly. Older blobs are upgraded through stateMigrations on load.
+	// A zero value (missing field) denotes the original unversioned shape.
+	SchemaVersion     int               `json:"schemaVersion,omitempty"`
 	Workspaces        map[string]Config `json:"workspaces"`
 	ActiveWorkspaceID string            `json:"activeWorkspaceId"`
 	Preferences       Preferences       `json:"preferences"`
 }
+
+// CurrentStateSchemaVersion is the version stamped on every state we write.
+const CurrentStateSchemaVersion = 1
 
 type Config struct {
 	ID             string    `json:"id"`
@@ -68,9 +75,10 @@ type Preferences struct {
 }
 
 type WindowState struct {
-	Width     int  `json:"width"`
-	Height    int  `json:"height"`
-	X         int  `json:"x"`
-	Y         int  `json:"y"`
-	Maximised bool `json:"maximised"`
+	Width       int  `json:"width"`
+	Height      int  `json:"height"`
+	X           int  `json:"x"`
+	Y           int  `json:"y"`
+	Maximised   bool `json:"maximised"`
+	HasPosition bool `json:"hasPosition,omitempty"`
 }

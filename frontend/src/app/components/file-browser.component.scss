@@ -119,6 +119,49 @@
       background: color-mix(in srgb, var(--vsc-button-background) 28%, var(--vsc-button-secondary-hover));
     }
   }
+
+  // Wails frameless dragging is driven by a CSS custom property, not
+  // -webkit-app-region. Keep the toolbar draggable and opt interactive zones out.
+  --wails-draggable: drag;
+
+  .toolbar-left,
+  .toolbar-right,
+  .toolbar-left *,
+  .toolbar-right * {
+    --wails-draggable: no-drag;
+  }
+
+  .window-controls {
+    display: flex;
+    gap: 2px;
+    align-items: center;
+    margin-left: var(--vsc-padding-sm);
+  }
+
+  .window-btn {
+    width: 30px;
+    height: 20px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    color: var(--vsc-foreground);
+    border-radius: var(--vsc-border-radius-sm);
+    transition: background-color var(--vsc-transition-fast);
+
+    &:hover {
+      background: var(--vsc-button-secondary-hover);
+    }
+
+    &.window-close:hover {
+      background: var(--vsc-error);
+      color: white;
+    }
+
+    svg {
+      display: block;
+      pointer-events: none;
+    }
+  }
 }
 
 // ============================================================================

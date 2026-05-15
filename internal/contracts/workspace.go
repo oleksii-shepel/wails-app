@@ -71,4 +71,8 @@ type WindowState struct {
 	X         int  `json:"x"`
 	Y         int  `json:"y"`
 	Maximised bool `json:"maximised"`
+	// HasPosition distinguishes "X/Y were captured" from "X/Y default to 0".
+	// Legacy records without this field are treated as having a position iff
+	// X or Y is non-zero.
+	HasPosition bool `json:"hasPosition,omitempty"`
 }

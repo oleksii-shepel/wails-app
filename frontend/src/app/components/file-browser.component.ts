@@ -29,6 +29,12 @@ import { OperationStatusBarComponent } from './operation-status-bar.component';
 import { OperationToastStackComponent } from './operation-stack.component';
 import { ArchiveService } from '../services/archive.service';
 import { ElevationStatusPillComponent } from './elevation-status-pill.component';
+import {
+  WindowMinimise,
+  WindowToggleMaximise,
+  WindowIsMaximised,
+  Quit,
+} from 'wailsjs/runtime';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { InputEngineService } from '../services/input-engine.service';
 import { TabInfo } from '../shared/protocol-enhanced';
@@ -87,7 +93,9 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
   toastCollapsed = false;
   elevationActive = false;
   elevationBusy = false;
+  isMaximized = false;
   readonly pendingChord$ = this.inputEngine.pendingChord$;
+  private resizeTimer: ReturnType<typeof setTimeout> | null = null;
 
   FileType = FileType;
   private readonly clipboardController = new FileBrowserClipboardController();
@@ -167,6 +175,8 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
     this.layoutController.loadPaneWidths(this.layoutHost);
     void this.runtimeController.initialize(this.runtimeHost);
     this.windowStateService.start();
+    void this.syncMaximizedState();
+    window.addEventListener('resize', this.handleResize);
   }
 
 
@@ -188,6 +198,43 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
     this.browserCommandCleanup?.();
     this.unregisterMouseBindings();
     this.runtimeController.dispose();
+    window.removeEventListener('resize', this.handleResize);
+    if (this.resizeTimer) {
+      clearTimeout(this.resizeTimer);
+    }
+  }
+
+  private readonly handleResize = (): void => {
+    if (this.resizeTimer) clearTimeout(this.resizeTimer);
+    this.resizeTimer = setTimeout(() => {
+      void this.syncMaximizedState();
+    }, 300);
+  };
+
+  private async syncMaximizedState(): Promise<void> {
+    try {
+      const m = await WindowIsMaximised();
+      if (this.isMaximized !== m) {
+        this.isMaximized = m;
+        this.cdr.markForCheck();
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  minimizeWindow(): void {
+    WindowMinimise();
+  }
+
+  async toggleMaximizeWindow(): Promise<void> {
+    WindowToggleMaximise();
+    await new Promise((r) => setTimeout(r, 100));
+    await this.syncMaximizedState();
+  }
+
+  closeWindow(): void {
+    Quit();
   }
 
   toggleThemePreference(): void {

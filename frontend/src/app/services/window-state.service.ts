@@ -37,6 +37,9 @@ export class WindowStateService implements OnDestroy {
       window.addEventListener('resize', this.captureHandler, { passive: true });
       window.addEventListener('beforeunload', this.captureHandler);
     });
+    // Seed normal-mode bounds before the user can maximise, so the first
+    // maximise transition has a prior rect to preserve.
+    this.scheduleCapture();
   }
 
   ngOnDestroy(): void {
@@ -66,29 +69,32 @@ export class WindowStateService implements OnDestroy {
   }
 
   private async captureAndPersist(): Promise<void> {
-    let snapshot: WindowState;
+    let observed: WindowState;
     try {
       const [size, position, maximised] = await Promise.all([
         WindowGetSize(),
         WindowGetPosition(),
         WindowIsMaximised(),
       ]);
-      snapshot = {
+      observed = {
         width: Math.round(size.w),
         height: Math.round(size.h),
         x: Math.round(position.x),
         y: Math.round(position.y),
         maximised: !!maximised,
+        hasPosition: true,
       };
     } catch {
       return; // Wails runtime not yet attached.
     }
 
-    if (snapshot.width <= 0 || snapshot.height <= 0) return;
+    if (observed.width <= 0 || observed.height <= 0) return;
 
     try {
       const current = this.cachedPreferences ?? (await GetPreferences() as unknown as BackendUserPreferences);
       this.cachedPreferences = current;
+
+      const snapshot = this.mergeNormalBounds(current.windowState, observed);
 
       if (this.isSameWindowState(current.windowState, snapshot)) return;
 
@@ -102,6 +108,29 @@ export class WindowStateService implements OnDestroy {
     }
   }
 
+  /**
+   * Width/height/x/y always represent the last *normal* (non-maximised) bounds
+   * so that un-maximising restores the user's prior geometry. When the observed
+   * window is maximised, keep the previously persisted normal bounds and only
+   * flip the maximised flag.
+   */
+  private mergeNormalBounds(prev: WindowState | undefined, observed: WindowState): WindowState {
+    if (!observed.maximised) {
+      return observed;
+    }
+    if (!prev || prev.width <= 0 || prev.height <= 0) {
+      return observed;
+    }
+    return {
+      width: prev.width,
+      height: prev.height,
+      x: prev.x,
+      y: prev.y,
+      maximised: true,
+      hasPosition: prev.hasPosition ?? observed.hasPosition,
+    };
+  }
+
   private isSameWindowState(a: WindowState | undefined, b: WindowState): boolean {
     if (!a) return false;
     return (
@@ -109,7 +138,8 @@ export class WindowStateService implements OnDestroy {
       a.height === b.height &&
       a.x === b.x &&
       a.y === b.y &&
-      a.maximised === b.maximised
+      a.maximised === b.maximised &&
+      !!a.hasPosition === !!b.hasPosition
     );
   }
 }

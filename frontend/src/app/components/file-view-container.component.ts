@@ -335,8 +335,10 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
       dragStart: this.dragStart,
       dragDrop: this.dragDrop,
       viewChange: this.viewChange,
-      persistViewMode: (view: ViewLayout) => {
-        localStorage.setItem('fileManager_viewMode', view);
+      persistViewMode: (_view: ViewLayout) => {
+        // Per-tab view persistence is handled by file-pane-ui.controller via
+        // the per-tab DirTabState; the global localStorage default is no
+        // longer rewritten on every per-tab change.
       },
       syncTreeToCurrentPath: () => {
         thisRef.treeController.buildTreeNodes(thisRef.treeHost);

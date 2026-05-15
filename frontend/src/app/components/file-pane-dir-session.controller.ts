@@ -59,6 +59,23 @@ export class FilePaneDirSessionController {
     host.dirTabStateController.finalizeAfterLoad(savedState, this.getActiveRestoreTarget(host));
   }
 
+  /**
+   * Re-attempt resolution of any pending selection / cursor / scroll restore
+   * against the active session's currently visible entries. Called after each
+   * stream batch and after refreshes so partial restoration lands as soon as
+   * matching rows appear, instead of only at stream done.
+   */
+  reapplyPendingRestoreToActive(host: FilePaneDirSessionHost): void {
+    const tabId = host.activeDirTabId ?? host.currentTabId;
+    const activeTab = host.tabs.find(tab => tab.id === host.currentTabId);
+    if (!tabId || (activeTab?.kind ?? 'dir') !== 'dir' || host.isInArchive()) {
+      return;
+    }
+    const session = host.getDirSession(tabId);
+    if (!session || !session.pendingRestore) return;
+    host.dirTabStateController.applyPendingRestore(this.getActiveRestoreTarget(host));
+  }
+
   private createSession(host: FilePaneDirSessionHost, tabId: string): DirSurfaceSession {
     const session = new DirSurfaceSession(tabId);
     session.currentView = this.currentViewPrefFromStorage();
@@ -123,6 +140,10 @@ export class FilePaneDirSessionController {
       set selectionCursorPath(value: string | null) { session.selectionCursorPath = value; },
       get selectionAnchorPath() { return session.selectionAnchorPath; },
       set selectionAnchorPath(value: string | null) { session.selectionAnchorPath = value; },
+      get pendingRestore() { return session.pendingRestore; },
+      set pendingRestore(value) { session.pendingRestore = value; },
+      get userInteractedSinceLoad() { return session.userInteractedSinceLoad; },
+      set userInteractedSinceLoad(value: boolean) { session.userInteractedSinceLoad = value; },
     };
   }
 

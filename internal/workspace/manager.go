@@ -143,6 +143,7 @@ func (m *Manager) persist() error {
 	}
 
 	state := State{
+		SchemaVersion:     CurrentStateSchemaVersion,
 		Workspaces:        m.workspaces,
 		ActiveWorkspaceID: m.activeID,
 		Preferences:       m.preferences,
@@ -171,6 +172,11 @@ func (m *Manager) load() error {
 		return err
 	}
 
+	state, err = migrateState(state, data)
+	if err != nil {
+		return err
+	}
+
 	if state.Workspaces != nil {
 		m.workspaces = state.Workspaces
 	}
@@ -180,6 +186,33 @@ func (m *Manager) load() error {
 	}
 
 	return nil
+}
+
+// stateMigrations upgrades a State of version N to version N+1. Add an entry
+// here whenever the persisted shape changes incompatibly. The raw JSON is
+// passed alongside so a migration can rescue fields that were dropped during
+// the typed unmarshal.
+var stateMigrations = map[int]func(state State, raw []byte) (State, error){
+	0: func(state State, _ []byte) (State, error) {
+		// Original unversioned shape. No reshaping needed; just stamp.
+		state.SchemaVersion = 1
+		return state, nil
+	},
+}
+
+func migrateState(state State, raw []byte) (State, error) {
+	for state.SchemaVersion < CurrentStateSchemaVersion {
+		migrate, ok := stateMigrations[state.SchemaVersion]
+		if !ok {
+			return state, fmt.Errorf("workspace: no migration registered from version %d", state.SchemaVersion)
+		}
+		next, err := migrate(state, raw)
+		if err != nil {
+			return state, err
+		}
+		state = next
+	}
+	return state, nil
 }
 
 func mergePreferenceDefaults(stored Preferences) Preferences {
@@ -384,11 +417,12 @@ func toStorageWindowState(source *contracts.WindowState) *WindowState {
 		return nil
 	}
 	return &WindowState{
-		Width:     source.Width,
-		Height:    source.Height,
-		X:         source.X,
-		Y:         source.Y,
-		Maximised: source.Maximised,
+		Width:       source.Width,
+		Height:      source.Height,
+		X:           source.X,
+		Y:           source.Y,
+		Maximised:   source.Maximised,
+		HasPosition: source.HasPosition,
 	}
 }
 
@@ -397,10 +431,11 @@ func fromStorageWindowState(source *WindowState) *contracts.WindowState {
 		return nil
 	}
 	return &contracts.WindowState{
-		Width:     source.Width,
-		Height:    source.Height,
-		X:         source.X,
-		Y:         source.Y,
-		Maximised: source.Maximised,
+		Width:       source.Width,
+		Height:      source.Height,
+		X:           source.X,
+		Y:           source.Y,
+		Maximised:   source.Maximised,
+		HasPosition: source.HasPosition,
 	}
 }

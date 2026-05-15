@@ -84,7 +84,10 @@ func Run(assets embed.FS, binding interface{}, archCache *cache.Cache, onStartup
 			width = saved.Width
 			height = saved.Height
 		}
-		if saved.X != 0 || saved.Y != 0 {
+		// Legacy records (pre-HasPosition) had no flag; infer one from non-zero
+		// coords. New records always carry HasPosition explicitly so legitimate
+		// (0,0) restores correctly.
+		if saved.HasPosition || saved.X != 0 || saved.Y != 0 {
 			x = saved.X
 			y = saved.Y
 			hasPosition = true
@@ -96,12 +99,15 @@ func Run(assets embed.FS, binding interface{}, archCache *cache.Cache, onStartup
 
 	wrappedStartup := onStartup
 	if hasPosition {
-		savedX, savedY := x, y
+		savedX, savedY, savedW, savedH := x, y, width, height
 		wrappedStartup = func(ctx context.Context) {
 			if onStartup != nil {
 				onStartup(ctx)
 			}
 			wailsruntime.WindowSetPosition(ctx, savedX, savedY)
+			if !rectIntersectsAnyScreen(ctx, savedX, savedY, savedW, savedH) {
+				wailsruntime.WindowCenter(ctx)
+			}
 		}
 	}
 
@@ -109,6 +115,7 @@ func Run(assets embed.FS, binding interface{}, archCache *cache.Cache, onStartup
 		Title:            "File Manager",
 		Width:            width,
 		Height:           height,
+		Frameless:        true,
 		AssetServer:      &assetserver.Options{Assets: assets},
 		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
 		WindowStartState: startState,
@@ -121,6 +128,29 @@ func Run(assets embed.FS, binding interface{}, archCache *cache.Cache, onStartup
 		},
 		Bind: []interface{}{binding},
 	})
+}
+
+// rectIntersectsAnyScreen reports whether the window — already positioned by
+// the caller — sits on a connected display. Wails marks the screen the window
+// currently occupies with IsCurrent; if no screen reports IsCurrent the window
+// has been placed off-screen (e.g. monitor disconnected since last save) and
+// the caller should fall back to centring.
+//
+// The width/height arguments are unused today (Wails' Screen has no origin so
+// we cannot compute geometric intersection here) but kept on the signature so
+// a richer check can be wired later without rippling through callers.
+func rectIntersectsAnyScreen(ctx context.Context, _, _, _, _ int) bool {
+	screens, err := wailsruntime.ScreenGetAll(ctx)
+	if err != nil || len(screens) == 0 {
+		// Fail open: assume the position is fine if we cannot enumerate.
+		return true
+	}
+	for _, screen := range screens {
+		if screen.IsCurrent {
+			return true
+		}
+	}
+	return false
 }
 
 // startUnifiedServer starts a single server that handles both:

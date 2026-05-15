@@ -65,6 +65,7 @@ export interface FilePaneDirectoryHost {
   onRefresh(): void;
   hasSavedDirTabState(): boolean;
   restoreActiveDirTabState(): void;
+  reapplyPendingDirTabRestore(): void;
   persistDirTabState(): void;
   scrollToCursorPath(path: string): void;
   focusTreeNode(path: string): void;
@@ -261,6 +262,7 @@ export class FilePaneDirectoryController {
   private handleDirStreamBatch(host: FilePaneDirectoryHost, event: DirStreamBatchEvent, baseEntries: FileInfo[]): void {
     host.entries = host.withParentEntry(baseEntries, false, host.currentPath || event.path);
     host.applyFilter();
+    host.reapplyPendingDirTabRestore();
   }
 
   private handleDirStreamDone(host: FilePaneDirectoryHost, event: DirStreamDoneEvent, baseEntries: FileInfo[]): void {

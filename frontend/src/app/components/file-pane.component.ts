@@ -600,6 +600,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       onRefresh: () => thisRef.browserCommands.navigation.refresh(),
       hasSavedDirTabState: () => !!thisRef.dirTabStateController.load(thisRef.activeDirTabId ?? thisRef.currentTabId),
       restoreActiveDirTabState: () => thisRef.restoreActiveDirTabState(),
+      reapplyPendingDirTabRestore: () => thisRef.reapplyPendingDirTabRestore(),
       persistDirTabState: () => thisRef.persistDirTabState(),
       scrollToCursorPath: (path: string) => thisRef.stateRuntime.scrollToCursorPath(path),
       shouldSuppressFsRefresh: () => thisRef.fileViewContainer?.hasPendingTreeRename() ?? false,
@@ -632,6 +633,10 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
 
   private restoreActiveDirTabState(): void {
     this.dirSessionController.restoreActiveState(this.dirSessionHost);
+  }
+
+  private reapplyPendingDirTabRestore(): void {
+    this.dirSessionController.reapplyPendingRestoreToActive(this.dirSessionHost);
   }
 
   private getPersistedBrowserPaneSplit(): number | null {

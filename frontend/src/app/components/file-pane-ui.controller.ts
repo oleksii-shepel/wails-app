@@ -51,7 +51,6 @@ export class FilePaneUiController {
   async onViewChange(host: FilePaneUiHost, view: ViewLayout): Promise<void> {
     const previousView = host.currentView;
     host.currentView = view;
-    this.saveViewPreference(host);
 
     if (previousView === 'tree' && view !== 'tree') {
       await host.refreshCurrentPathTransparently();
@@ -65,21 +64,18 @@ export class FilePaneUiController {
   onSortChange(host: FilePaneUiHost, sort: { field: string; direction: 'asc' | 'desc' }): void {
     host.sortField = sort.field;
     host.sortDirection = sort.direction;
-    this.saveViewPreference(host);
     host.applyFilter();
     host.persistDirTabState();
   }
 
   onDirectoriesFirstChange(host: FilePaneUiHost, value: boolean): void {
     host.directoriesFirst = value;
-    this.saveViewPreference(host);
     host.applyFilter();
     host.persistDirTabState();
   }
 
   onColorizeByMimeChange(host: FilePaneUiHost, value: boolean): void {
     host.colorizeByMime = value;
-    this.saveViewPreference(host);
     host.applyFilter();
     host.persistDirTabState();
   }
@@ -130,7 +126,13 @@ export class FilePaneUiController {
     }
   }
 
-  private saveViewPreference(host: FilePaneUiHost): void {
+  /**
+   * Promotes the active pane's current view, sort, and grouping options to the
+   * global "default for new tabs" slot. Called only from explicit user intent
+   * (e.g. a "Set as default" action) — never from per-tab change handlers,
+   * which previously caused per-tab tweaks to overwrite the global default.
+   */
+  promoteCurrentToDefault(host: FilePaneUiHost): void {
     localStorage.setItem('fileManager_viewMode', host.currentView);
     localStorage.setItem('fileManager_sortField', host.sortField);
     localStorage.setItem('fileManager_sortDirection', host.sortDirection);

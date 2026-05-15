@@ -69,6 +69,7 @@ export interface FilePaneActionHostsSource {
   onRefresh(): void;
   hasSavedDirTabState(): boolean;
   restoreActiveDirTabState(): void;
+  reapplyPendingDirTabRestore(): void;
   persistDirTabState(): void;
   scrollToCursorPath(path: string): void;
   focusTreeNode(path: string): void;
@@ -171,6 +172,7 @@ export class FilePaneActionHostsFactory {
       onRefresh: () => source.onRefresh(),
       hasSavedDirTabState: () => source.hasSavedDirTabState(),
       restoreActiveDirTabState: () => source.restoreActiveDirTabState(),
+      reapplyPendingDirTabRestore: () => source.reapplyPendingDirTabRestore(),
       persistDirTabState: () => source.persistDirTabState(),
       scrollToCursorPath: (path: string) => source.scrollToCursorPath(path),
       focusTreeNode: (path: string) => source.focusTreeNode(path),

@@ -1273,6 +1273,7 @@ export namespace contracts {
 	    x: number;
 	    y: number;
 	    maximised: boolean;
+	    hasPosition?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new WindowState(source);
@@ -1285,6 +1286,7 @@ export namespace contracts {
 	        this.x = source["x"];
 	        this.y = source["y"];
 	        this.maximised = source["maximised"];
+	        this.hasPosition = source["hasPosition"];
 	    }
 	}
 	export class UserPreferences {

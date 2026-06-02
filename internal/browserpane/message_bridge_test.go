@@ -66,6 +66,8 @@ func TestBrowserPaneInjectedBootstrapScriptSupportsWindowsAndWebKitHosts(t *test
 		"bridge.receiveHostMessage=function(raw){return dispatch(raw);};",
 		"window.__wailsBrowserPaneFlushResources=schedule",
 		"type:'resource-snapshot'",
+		"window.__wailsBrowserPaneLifecycleInit",
+		"type:'lifecycle'",
 	}
 	for _, fragment := range requiredFragments {
 		if !strings.Contains(script, fragment) {

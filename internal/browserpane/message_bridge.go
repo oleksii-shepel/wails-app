@@ -232,8 +232,38 @@ setTimeout(schedule,500);
 })();`
 }
 
+func browserPaneInjectedLifecycleScript() string {
+	return `(function(){
+if(window.__wailsBrowserPaneLifecycleInit){return;}
+window.__wailsBrowserPaneLifecycleInit=true;
+function report(state){
+	try{
+		if(window.__wailsBrowserPane&&window.__wailsBrowserPane.postMessage){
+			window.__wailsBrowserPane.postMessage({
+				type:'lifecycle',
+				state:state,
+				url:location.href
+			});
+		}
+	}catch(_){}
+}
+window.addEventListener('load',function(){report('completed');});
+var _origPushState=history.pushState;
+history.pushState=function(){
+	_origPushState.apply(this,arguments);
+	report('completed');
+};
+var _origReplaceState=history.replaceState;
+history.replaceState=function(){
+	_origReplaceState.apply(this,arguments);
+	report('completed');
+};
+window.addEventListener('popstate',function(){report('completed');});
+})();`
+}
+
 func browserPaneInjectedBootstrapScript() string {
-	return browserPaneInjectedMessageBridgeScript() + "\n" + browserPaneInjectedResourceTrackerScript()
+	return browserPaneInjectedMessageBridgeScript() + "\n" + browserPaneInjectedResourceTrackerScript() + "\n" + browserPaneInjectedLifecycleScript()
 }
 
 func browserPaneHostMessageEvalScript(message string) string {

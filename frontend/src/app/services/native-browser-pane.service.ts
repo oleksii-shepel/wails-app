@@ -21,6 +21,12 @@ export interface NativeBrowserPaneIncomingMessage<T = unknown> {
   data: T;
 }
 
+export interface NativeBrowserPaneLifecycleEvent {
+  surfaceId: string;
+  state: 'started' | 'completed' | 'failed';
+  url: string;
+}
+
 @Injectable({
   providedIn: 'root',
 })
@@ -152,6 +158,46 @@ export class NativeBrowserPaneService {
         return;
       }
       handler(event);
+    });
+  }
+
+  onLifecycleEvent(handler: (event: NativeBrowserPaneLifecycleEvent) => void): (() => void) {
+    return EventsOn('browser-pane:lifecycle', (event: { surfaceId?: string; state?: string; url?: string } | null) => {
+      const surfaceId = typeof event?.surfaceId === 'string' ? event.surfaceId : '';
+      const state = typeof event?.state === 'string' ? event.state : '';
+      const url = typeof event?.url === 'string' ? event.url : '';
+      if (!surfaceId || !state) {
+        return;
+      }
+      handler({
+        surfaceId,
+        state: state as NativeBrowserPaneLifecycleEvent['state'],
+        url,
+      });
+    });
+  }
+
+  onSurfaceLifecycleEvent(surfaceId: string, handler: (event: NativeBrowserPaneLifecycleEvent) => void): (() => void) {
+    return this.onLifecycleEvent((event) => {
+      if (event.surfaceId !== surfaceId) {
+        return;
+      }
+      handler(event);
+    });
+  }
+
+  async whenNavigationCompleted(surfaceId: string, timeoutMs = 30000): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const unsubscribe = this.onSurfaceLifecycleEvent(surfaceId, (event) => {
+        if (event.state === 'completed') {
+          unsubscribe();
+          resolve();
+        }
+      });
+      setTimeout(() => {
+        unsubscribe();
+        reject(new Error(`Navigation completion timed out for ${surfaceId}`));
+      }, timeoutMs);
     });
   }
 

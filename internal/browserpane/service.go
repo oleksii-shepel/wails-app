@@ -1,6 +1,7 @@
 package browserpane
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"strings"
@@ -31,12 +32,14 @@ type Service struct {
 	mu        sync.Mutex
 	panes     map[string]pane
 	emitEvent func(string, interface{})
+	lastURL   map[string]string
 }
 
 func NewService(emitEvent func(string, interface{})) *Service {
 	return &Service{
 		panes:     make(map[string]pane),
 		emitEvent: emitEvent,
+		lastURL:   make(map[string]string),
 	}
 }
 
@@ -76,7 +79,7 @@ func (s *Service) Sync(update Update) error {
 	if target == nil {
 		var err error
 		target, err = newPlatformPane(update, s.emitResourceUpdate, func(message string) {
-			s.emitPaneMessage(update.SurfaceID, message)
+			s.handlePaneMessage(update.SurfaceID, message)
 		})
 		if err != nil {
 			s.mu.Unlock()
@@ -84,7 +87,15 @@ func (s *Service) Sync(update Update) error {
 		}
 		s.panes[update.SurfaceID] = target
 	}
+	urlChanged := update.URL != "" && s.lastURL[update.SurfaceID] != update.URL
+	if urlChanged {
+		s.lastURL[update.SurfaceID] = update.URL
+	}
 	s.mu.Unlock()
+
+	if urlChanged {
+		s.emitLifecycleEvent(update.SurfaceID, "started", update.URL)
+	}
 
 	return target.Sync(update)
 }
@@ -114,6 +125,25 @@ func (s *Service) emitResourceUpdate(path string) {
 	s.emitEvent("web:resourcesChanged", map[string]string{"path": strings.TrimSpace(path)})
 }
 
+func (s *Service) handlePaneMessage(surfaceID string, message string) {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return
+	}
+
+	var envelope struct {
+		Type  string `json:"type"`
+		State string `json:"state"`
+		URL   string `json:"url"`
+	}
+	if err := json.Unmarshal([]byte(message), &envelope); err == nil && envelope.Type == "lifecycle" {
+		s.emitLifecycleEvent(surfaceID, envelope.State, envelope.URL)
+		return
+	}
+
+	s.emitPaneMessage(surfaceID, message)
+}
+
 func (s *Service) emitPaneMessage(surfaceID string, message string) {
 	if s.emitEvent == nil || strings.TrimSpace(surfaceID) == "" {
 		return
@@ -121,6 +151,17 @@ func (s *Service) emitPaneMessage(surfaceID string, message string) {
 	s.emitEvent("browser-pane:message", map[string]string{
 		"surfaceId": strings.TrimSpace(surfaceID),
 		"message":   message,
+	})
+}
+
+func (s *Service) emitLifecycleEvent(surfaceID string, state string, url string) {
+	if s.emitEvent == nil || strings.TrimSpace(surfaceID) == "" || strings.TrimSpace(state) == "" {
+		return
+	}
+	s.emitEvent("browser-pane:lifecycle", map[string]string{
+		"surfaceId": strings.TrimSpace(surfaceID),
+		"state":     strings.TrimSpace(state),
+		"url":       strings.TrimSpace(url),
 	})
 }
 
@@ -133,6 +174,7 @@ func (s *Service) Dispose(surfaceID string) error {
 	s.mu.Lock()
 	target := s.panes[surfaceID]
 	delete(s.panes, surfaceID)
+	delete(s.lastURL, surfaceID)
 	s.mu.Unlock()
 
 	if target == nil {
@@ -195,6 +237,7 @@ func (s *Service) Shutdown() error {
 	panes := make([]pane, 0, len(s.panes))
 	for key, target := range s.panes {
 		delete(s.panes, key)
+		delete(s.lastURL, key)
 		panes = append(panes, target)
 	}
 	s.mu.Unlock()

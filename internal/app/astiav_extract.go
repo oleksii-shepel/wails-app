@@ -43,8 +43,10 @@ func extractVideoFrame(ctx context.Context, inputPath string, targetFormat strin
 	}
 
 	if frameSeconds > 0 {
-		seekTarget := int64(frameSeconds * float64(astiav.TimeBase))
-		_ = fmtCtx.SeekFrame(-1, seekTarget, astiav.NewSeekFlags(astiav.SeekFlagBackward))
+		seekTarget := int64(frameSeconds * float64(astiavTimeBase))
+		if err := fmtCtx.SeekFrame(-1, seekTarget, astiav.SeekFlags(astiavSeekFlagBackward)); err != nil {
+			return nil, fmt.Errorf("seeking to %.2fs: %w", frameSeconds, err)
+		}
 	}
 
 	decoder := astiav.FindDecoder(videoStream.CodecParameters().CodecID())
@@ -92,7 +94,7 @@ decodeLoop:
 		}
 
 		if err := fmtCtx.ReadFrame(pkt); err != nil {
-			if errors.Is(err, astiav.ErrEof) {
+			if errors.Is(err, astiavErrEof) {
 				break
 			}
 			return nil, fmt.Errorf("reading frame: %w", err)
@@ -111,7 +113,7 @@ decodeLoop:
 
 		for {
 			err := decCtx.ReceiveFrame(frame)
-			if errors.Is(err, astiav.ErrEagain) || errors.Is(err, astiav.ErrEof) {
+			if errors.Is(err, astiavErrEagain) || errors.Is(err, astiavErrEof) {
 				break
 			}
 			if err != nil {
@@ -127,12 +129,12 @@ decodeLoop:
 	}
 
 	// Prepare encoder (PNG or MJPEG)
-	encCodecID := astiav.CodecIDPng
+	encoderNames := []string{"png"}
 	if targetFormat == "mjpeg" || targetFormat == "jpg" || targetFormat == "jpeg" {
-		encCodecID = astiav.CodecIDMjpeg
+		encoderNames = []string{"mjpeg"}
 	}
 
-	encoder := astiav.FindEncoder(encCodecID)
+	encoder := findAstiavEncoderByNames(encoderNames...)
 	if encoder == nil {
 		return nil, errors.New("video encoder not found")
 	}
@@ -149,12 +151,11 @@ decodeLoop:
 	encCtx.SetTimeBase(astiav.NewRational(1, 25))
 
 	// Choose supported pixel format for encoder
-	p := []astiav.PixelFormat{}
-	if len(p) > 0 {
-		encCtx.SetPixelFormat(p[0])
-	} else {
-		encCtx.SetPixelFormat(astiav.PixelFormatRgba)
+	supportedFormats := encoder.SupportedPixelFormats()
+	if len(supportedFormats) == 0 {
+		return nil, errors.New("encoder supports no pixel formats")
 	}
+	encCtx.SetPixelFormat(supportedFormats[0])
 
 	if err := encCtx.Open(encoder, nil); err != nil {
 		return nil, fmt.Errorf("failed opening encoder: %w", err)
@@ -166,7 +167,7 @@ decodeLoop:
 		swsCtx, err := astiav.CreateSoftwareScaleContext(
 			frame.Width(), frame.Height(), frame.PixelFormat(),
 			encCtx.Width(), encCtx.Height(), encCtx.PixelFormat(),
-			astiav.SoftwareScaleContextFlags(astiav.SoftwareScaleContextFlagPoint),
+			astiav.SoftwareScaleContextFlags(astiavSoftwareScaleContextFlagPoint),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed creating sws context: %w", err)
@@ -194,7 +195,7 @@ decodeLoop:
 	if err := encCtx.SendFrame(scaledFrame); err != nil {
 		return nil, fmt.Errorf("sending frame to encoder: %w", err)
 	}
-	if err := encCtx.SendFrame(nil); err != nil && !errors.Is(err, astiav.ErrEof) {
+	if err := encCtx.SendFrame(nil); err != nil && !errors.Is(err, astiavErrEof) {
 		return nil, fmt.Errorf("flushing encoder: %w", err)
 	}
 
@@ -207,7 +208,7 @@ decodeLoop:
 
 	for {
 		err := encCtx.ReceivePacket(encPkt)
-		if errors.Is(err, astiav.ErrEagain) || errors.Is(err, astiav.ErrEof) {
+		if errors.Is(err, astiavErrEagain) || errors.Is(err, astiavErrEof) {
 			break
 		}
 		if err != nil {

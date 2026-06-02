@@ -311,12 +311,18 @@ func globalBFS(
 		}
 	}()
 
-	var wg sync.WaitGroup
+	var inFlight atomic.Int64
+	var closeJobsOnce sync.Once
 
 	submit := func(job scanJob) {
-		wg.Add(1)
+		inFlight.Add(1)
 		accums[job.rootIdx].inFlight.Add(1)
-		jobsIn <- job
+		select {
+		case jobsIn <- job:
+		case <-done:
+			inFlight.Add(-1)
+			accums[job.rootIdx].inFlight.Add(-1)
+		}
 	}
 
 	for i, child := range children {
@@ -324,8 +330,6 @@ func globalBFS(
 			submit(scanJob{filepath.Join(root, child.Name()), i})
 		}
 	}
-
-	go func() { wg.Wait(); close(jobsIn) }()
 
 	numWorkers := runtime.GOMAXPROCS(0) * 2
 	if numWorkers < 4 {
@@ -387,7 +391,9 @@ func globalBFS(
 					entries[idx] = buildChildSnapshot(idx)
 					emitChildSnapshot(idx)
 				}
-				wg.Done()
+				if inFlight.Add(-1) == 0 {
+					closeJobsOnce.Do(func() { close(jobsIn) })
+				}
 			}
 		}()
 	}

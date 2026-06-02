@@ -14,6 +14,7 @@ func (a *App) ListDrives() contracts.DrivesList {
 	return internalplatform.ListDrives()
 }
 
+// Deprecated: use ListDrives instead.
 func (a *App) GetDrives() contracts.DrivesList {
 	return a.ListDrives()
 }
@@ -22,6 +23,7 @@ func (a *App) ListDirectory(path string, showHidden bool) (*contracts.DirectoryL
 	return a.State.ListDirectory(path, showHidden)
 }
 
+// Deprecated: use ListDirectory instead.
 func (a *App) ListDir(path string, showHidden bool) (*contracts.DirectoryListing, error) {
 	return a.ListDirectory(path, showHidden)
 }
@@ -43,6 +45,7 @@ func (a *App) GetFileInfo(path string) (*contracts.FileInfo, error) {
 	return a.State.GetFileInfo(path)
 }
 
+// Deprecated: use GetFileInfo instead.
 func (a *App) FileInfo(path string) (*contracts.FileInfo, error) {
 	return a.GetFileInfo(path)
 }
@@ -51,6 +54,7 @@ func (a *App) ReadFile(path string, encoding string) (*contracts.FileContent, er
 	return a.Filesystem.ReadFile(path, encoding)
 }
 
+// Deprecated: use ReadFile instead.
 func (a *App) ReadFileContent(path string, encoding string) (*contracts.FileContent, error) {
 	return a.ReadFile(path, encoding)
 }
@@ -76,6 +80,7 @@ func (a *App) WriteFile(path string, content string, encoding string) (*contract
 	return a.Filesystem.WriteFile(path, content, encoding)
 }
 
+// Deprecated: use WriteFile instead.
 func (a *App) WriteFileContent(path string, content string, encoding string) (*contracts.OperationResult, error) {
 	return a.WriteFile(path, content, encoding)
 }
@@ -84,6 +89,7 @@ func (a *App) DeleteFile(path string, recursive bool, useTrash *bool) (*contract
 	return a.Filesystem.DeleteFile(path, recursive, useTrash)
 }
 
+// Deprecated: use DeleteFile instead.
 func (a *App) Delete(path string, recursive bool, useTrash *bool) (*contracts.OperationResult, error) {
 	return a.DeleteFile(path, recursive, useTrash)
 }
@@ -92,6 +98,7 @@ func (a *App) CreateDirectory(path string, recursive bool) (*contracts.Operation
 	return a.Filesystem.CreateDirectory(path, recursive)
 }
 
+// Deprecated: use CreateDirectory instead.
 func (a *App) CreateDir(path string, recursive bool) (*contracts.OperationResult, error) {
 	return a.CreateDirectory(path, recursive)
 }
@@ -100,6 +107,7 @@ func (a *App) MoveFile(source, destination string) (*contracts.OperationResult, 
 	return a.Filesystem.MoveFile(source, destination)
 }
 
+// Deprecated: use MoveFile instead.
 func (a *App) Move(source, destination string) (*contracts.OperationResult, error) {
 	return a.MoveFile(source, destination)
 }
@@ -108,6 +116,7 @@ func (a *App) CopyFile(source, destination string, recursive bool) (*contracts.O
 	return a.Filesystem.CopyFile(source, destination, recursive)
 }
 
+// Deprecated: use CopyFile instead.
 func (a *App) Copy(source, destination string, recursive bool) (*contracts.OperationResult, error) {
 	return a.CopyFile(source, destination, recursive)
 }
@@ -116,6 +125,7 @@ func (a *App) SearchFiles(path, pattern string, recursive bool) (*contracts.Sear
 	return a.Filesystem.SearchFiles(path, pattern, recursive)
 }
 
+// Deprecated: use SearchFiles instead.
 func (a *App) Search(path, pattern string, recursive bool) (*contracts.SearchResult, error) {
 	return a.SearchFiles(path, pattern, recursive)
 }

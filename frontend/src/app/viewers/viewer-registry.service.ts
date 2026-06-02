@@ -1,4 +1,5 @@
 import { Injectable, Type } from '@angular/core';
+import { ContributionRegistry } from '../plugin/contribution-registry';
 import { ViewerSurfaceComponent } from '../surfaces/viewer/viewer-surface.component';
 import { AudioViewerComponent } from './builtins/audio-viewer.component';
 import { ViewerContribution, ViewerRequest } from './viewer-contribution';
@@ -50,8 +51,7 @@ function probeLooksBinary(req: ViewerRequest): boolean {
 
 @Injectable({ providedIn: 'root' })
 export class ViewerRegistryService {
-  private readonly contributions: ViewerContribution[] = [];
-  private readonly loaded = new Map<string, Type<unknown>>();
+  readonly registry = new ContributionRegistry<ViewerContribution, ViewerRequest>();
 
   constructor() {
     // Built-ins. This is the "spine" we can extend later with external bundles.
@@ -67,10 +67,8 @@ export class ViewerRegistryService {
       title: 'Image Viewer',
       score: (req) => {
         const ext = extLower(previewPath(req));
-        // Native browser support
         if (ext === 'svg') return 50;
         if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'avif'].includes(ext)) return 50;
-        // Convertible formats (with libvips on backend)
         if (['tiff', 'tif', 'exr', 'heif', 'heic', 'jp2', 'j2k', 'avif', 'jxl', 'fits', 'hdr', 'pfm'].includes(ext)) return 40;
         return 0;
       },
@@ -153,53 +151,22 @@ export class ViewerRegistryService {
   }
 
   register(c: ViewerContribution): void {
-    // Replace-by-id to support hot-reload/dev and later plugin updates.
-    const i = this.contributions.findIndex(x => x.id === c.id);
-    if (i >= 0) this.contributions.splice(i, 1, c);
-    else this.contributions.push(c);
+    this.registry.register(c);
   }
 
-  /**
-   * Resolve a viewer component for the request.
-   * If viewerId is provided and registered, it is forced.
-   */
+  unregister(id: string): void {
+    this.registry.unregister(id);
+  }
+
   async resolve(req: ViewerRequest): Promise<{ id: string; component: Type<unknown> }> {
-    const best = this.pickContribution(req);
-    return { id: best.id, component: await this.loadContribution(best) };
+    return this.registry.resolve(req, req.viewerId);
   }
 
   resolveId(req: ViewerRequest): string {
-    return this.pickContribution(req).id;
+    return this.registry.pick(req, req.viewerId).id;
   }
 
-  private pickContribution(req: ViewerRequest): ViewerContribution {
-    const forced = (req.viewerId ?? '').trim();
-    if (forced) {
-      const c = this.contributions.find(x => x.id === forced);
-      if (c) return c;
-    }
-
-    let best: ViewerContribution | null = null;
-    let bestScore = 0;
-    for (const c of this.contributions) {
-      const s = c.score(req);
-      if (s > bestScore) {
-        bestScore = s;
-        best = c;
-      }
-    }
-    if (!best) {
-      // Should be unreachable due to legacy fallback registration.
-      best = this.contributions[0];
-    }
-    return best;
-  }
-
-  private async loadContribution(c: ViewerContribution): Promise<Type<unknown>> {
-    const cached = this.loaded.get(c.id);
-    if (cached) return cached;
-    const loaded = await Promise.resolve(c.load()) as Type<unknown>;
-    this.loaded.set(c.id, loaded);
-    return loaded;
+  list(): readonly ViewerContribution[] {
+    return this.registry.list();
   }
 }

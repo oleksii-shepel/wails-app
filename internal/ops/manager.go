@@ -54,11 +54,42 @@ type finalTiming struct {
 	SpeedBytesPerSecond  float64 `json:"speedBytesPerSecond"`
 }
 
+const maxSpeedSamples = 10
+
+type speedRingBuffer struct {
+	buf  [maxSpeedSamples]float64
+	head int
+	len  int
+}
+
+func (r *speedRingBuffer) push(v float64) {
+	r.buf[r.head] = v
+	r.head = (r.head + 1) % maxSpeedSamples
+	if r.len < maxSpeedSamples {
+		r.len++
+	}
+}
+
+func (r *speedRingBuffer) avg() float64 {
+	if r.len == 0 {
+		return 0
+	}
+	var sum float64
+	for i := 0; i < r.len; i++ {
+		idx := (r.head - r.len + i) % maxSpeedSamples
+		if idx < 0 {
+			idx += maxSpeedSamples
+		}
+		sum += r.buf[idx]
+	}
+	return sum / float64(r.len)
+}
+
 type progressSnapshot struct {
 	timeAtStart     time.Time
 	lastUpdateTime  time.Time
 	lastUpdateBytes int64
-	speedSamples    []float64
+	speedSamples    speedRingBuffer
 }
 
 type ActiveOperation struct {
@@ -111,7 +142,7 @@ func (om *Manager) StartOperation(opType contracts.OperationType, title, source,
 			DestinationPath: dest,
 			StartTime:       now.UnixMilli(),
 		},
-		snapshot: progressSnapshot{timeAtStart: now, lastUpdateTime: now, speedSamples: make([]float64, 0, 10)},
+		snapshot: progressSnapshot{timeAtStart: now, lastUpdateTime: now},
 		cancel:   make(chan struct{}),
 	}
 	om.operations[id] = op
@@ -143,11 +174,12 @@ func (om *Manager) ListActiveOperations() []contracts.OperationProgress {
 func (om *Manager) CancelOperation(id string) bool {
 	om.mu.Lock()
 	op, exists := om.operations[id]
-	om.mu.Unlock()
 	if !exists {
+		om.mu.Unlock()
 		return false
 	}
 	op.mu.Lock()
+	om.mu.Unlock()
 	defer op.mu.Unlock()
 	if op.Progress.Status == contracts.StatusRunning {
 		close(op.cancel)
@@ -189,15 +221,8 @@ func (op *ActiveOperation) UpdateProgress(processedItems, processedBytes int64, 
 	if duration > 0.1 {
 		bytesDelta := processedBytes - op.snapshot.lastUpdateBytes
 		instantSpeed := float64(bytesDelta) / duration
-		op.snapshot.speedSamples = append(op.snapshot.speedSamples, instantSpeed)
-		if len(op.snapshot.speedSamples) > 10 {
-			op.snapshot.speedSamples = op.snapshot.speedSamples[1:]
-		}
-		var sum float64
-		for _, sample := range op.snapshot.speedSamples {
-			sum += sample
-		}
-		op.Progress.AvgSpeedBytesPerSec = sum / float64(len(op.snapshot.speedSamples))
+		op.snapshot.speedSamples.push(instantSpeed)
+		op.Progress.AvgSpeedBytesPerSec = op.snapshot.speedSamples.avg()
 		op.Progress.SpeedBytesPerSec = instantSpeed
 		op.snapshot.lastUpdateTime = now
 		op.snapshot.lastUpdateBytes = processedBytes

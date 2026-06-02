@@ -5,11 +5,12 @@ import (
 	"context"
 	"io/fs"
 	"os"
-	"runtime"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"wails-app/vfs"
+	vfsarchive "wails-app/vfs/archive"
 )
 
 // FS is a vfs.FileSystem backed by the real OS filesystem.
@@ -125,7 +126,7 @@ func (fi *fileInfo) Path() string         { return fi.vfsPath }
 func (fi *fileInfo) RealPath() string     { return fi.osPath }
 func (fi *fileInfo) Volume() vfs.Volume   { return nil }
 func (fi *fileInfo) IsArchive() bool      { return !fi.IsDir() && isArchiveExt(fi.Name()) }
-func (fi *fileInfo) IsHidden() bool       { return strings.HasPrefix(fi.Name(), ".") }
+func (fi *fileInfo) IsHidden() bool       { return isHiddenName(fi.Name()) }
 func (fi *fileInfo) IsSymlink() bool      { return fi.FileInfo.Mode()&os.ModeSymlink != 0 }
 func (fi *fileInfo) IsNested() bool       { return false }
 func (fi *fileInfo) MountChain() []string { return nil }
@@ -150,13 +151,7 @@ var _ vfs.File = (*file)(nil)
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 func isArchiveExt(name string) bool {
-	lower := strings.ToLower(name)
-	for _, ext := range []string{".zip", ".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tar.xz", ".rar", ".7z"} {
-		if strings.HasSuffix(lower, ext) {
-			return true
-		}
-	}
-	return false
+	return vfsarchive.IsArchiveExt(name)
 }
 
 func mapErr(err error) error {

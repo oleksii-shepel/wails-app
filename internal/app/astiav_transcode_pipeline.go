@@ -60,8 +60,8 @@ func runVideoTranscodeLoop(ctx context.Context, inputFormatContext *astiav.Forma
 	}
 
 	if startSeconds > 0 {
-		seekTarget := int64(startSeconds * float64(astiav.TimeBase))
-		if err := inputFormatContext.SeekFrame(-1, seekTarget, astiav.NewSeekFlags(astiav.SeekFlagBackward)); err != nil {
+		seekTarget := int64(startSeconds * float64(astiavTimeBase))
+		if err := inputFormatContext.SeekFrame(-1, seekTarget, astiav.SeekFlags(astiavSeekFlagBackward)); err != nil {
 			// Non-fatal seek error
 		}
 	}
@@ -137,7 +137,7 @@ func newAstiavVideoTranscodeSession(inputFormatContext *astiav.FormatContext, pw
 		return nil, fmt.Errorf("failed allocating output video stream")
 	}
 
-	encoder := astiav.FindEncoder(astiav.CodecIDH264)
+	encoder := findAstiavEncoderByNames("libx264", "h264")
 	if encoder == nil {
 		return nil, fmt.Errorf("failed finding h264 encoder")
 	}
@@ -152,8 +152,8 @@ func newAstiavVideoTranscodeSession(inputFormatContext *astiav.FormatContext, pw
 	encCodecContext.SetPixelFormat(pickAstiavPixelFormat(encoder.SupportedPixelFormats(), decCodecContext.PixelFormat()))
 	encCodecContext.SetSampleAspectRatio(decCodecContext.SampleAspectRatio())
 	encCodecContext.SetTimeBase(pickAstiavTimeBase(decCodecContext.TimeBase(), videoStream.TimeBase(), astiav.NewRational(1, 30)))
-	if session.outputFormatContext.OutputFormat().Flags().Has(astiav.IOFormatFlagGlobalheader) {
-		encCodecContext.SetFlags(encCodecContext.Flags().Add(astiav.CodecContextFlagGlobalHeader))
+	if session.outputFormatContext.OutputFormat().Flags().Has(astiavIOFormatFlagGlobalheader) {
+		encCodecContext.SetFlags(encCodecContext.Flags().Add(astiavCodecContextFlagGlobalHeader))
 	}
 
 	encoderOptions := astiav.NewDictionary()
@@ -178,7 +178,7 @@ func newAstiavVideoTranscodeSession(inputFormatContext *astiav.FormatContext, pw
 		scaleContext, err := astiav.CreateSoftwareScaleContext(
 			decCodecContext.Width(), decCodecContext.Height(), decCodecContext.PixelFormat(),
 			encCodecContext.Width(), encCodecContext.Height(), encCodecContext.PixelFormat(),
-			astiav.SoftwareScaleContextFlags(astiav.SoftwareScaleContextFlagBilinear),
+			astiav.SoftwareScaleContextFlags(astiavSoftwareScaleContextFlagBilinear),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed creating scale context: %w", err)
@@ -256,7 +256,7 @@ func (s *astiavVideoTranscodeSession) run(ctx context.Context, windowSeconds flo
 		}
 
 		if err := s.inputFormatContext.ReadFrame(packet); err != nil {
-			if errors.Is(err, astiav.ErrEof) {
+			if errors.Is(err, astiavErrEof) {
 				break
 			}
 			return fmt.Errorf("failed reading frame: %w", err)
@@ -291,13 +291,13 @@ func (s *astiavVideoTranscodeSession) run(ctx context.Context, windowSeconds flo
 		}
 	}
 
-	if err := s.decCodecContext.SendPacket(nil); err != nil && !errors.Is(err, astiav.ErrEof) {
+	if err := s.decCodecContext.SendPacket(nil); err != nil && !errors.Is(err, astiavErrEof) {
 		return fmt.Errorf("failed flushing decoder: %w", err)
 	}
 	if err := s.drainDecodedFrames(); err != nil {
 		return err
 	}
-	if err := s.encCodecContext.SendFrame(nil); err != nil && !errors.Is(err, astiav.ErrEof) {
+	if err := s.encCodecContext.SendFrame(nil); err != nil && !errors.Is(err, astiavErrEof) {
 		return fmt.Errorf("failed flushing encoder: %w", err)
 	}
 	if err := s.drainEncodedPackets(); err != nil {
@@ -313,7 +313,7 @@ func (s *astiavVideoTranscodeSession) run(ctx context.Context, windowSeconds flo
 func (s *astiavVideoTranscodeSession) drainDecodedFrames() error {
 	for {
 		if err := s.decCodecContext.ReceiveFrame(s.decFrame); err != nil {
-			if errors.Is(err, astiav.ErrEagain) || errors.Is(err, astiav.ErrEof) {
+			if errors.Is(err, astiavErrEagain) || errors.Is(err, astiavErrEof) {
 				return nil
 			}
 			return fmt.Errorf("failed receiving decoded frame: %w", err)
@@ -360,7 +360,7 @@ func (s *astiavVideoTranscodeSession) prepareFrameForEncode(frame *astiav.Frame)
 func (s *astiavVideoTranscodeSession) drainEncodedPackets() error {
 	for {
 		if err := s.encCodecContext.ReceivePacket(s.encPacket); err != nil {
-			if errors.Is(err, astiav.ErrEagain) || errors.Is(err, astiav.ErrEof) {
+			if errors.Is(err, astiavErrEagain) || errors.Is(err, astiavErrEof) {
 				return nil
 			}
 			return fmt.Errorf("failed receiving encoded packet: %w", err)

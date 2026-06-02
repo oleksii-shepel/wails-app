@@ -188,24 +188,13 @@ func (s *Service) SetVFS(v *vfslib.Unified) {
 }
 
 // RealPath resolves a public path to the underlying real filesystem path.
-// Delegates to the VFS layer's ResolvePublicPath for all conversions.
+
+// Uses the same resolution chain as resolvePublicPath for consistency.
 func (s *Service) RealPath(path string) (string, error) {
 	if path == "" {
 		return "", fmt.Errorf("empty path")
 	}
-
-	normalized := pathref.Normalize(path)
-	if resolved, ok := pathref.ResolveLocalCloudPath(normalized); ok {
-		return resolved, nil
-	}
-
-	if s.vfs == nil {
-		// No VFS available, return path as-is (shouldn't happen in normal usage)
-		return path, nil
-	}
-
-	// Delegate to VFS to handle scheme-to-real-path conversion
-	return s.vfs.ResolvePublicPath(normalized)
+	return s.resolvePublicPath(path)
 }
 
 func (s *Service) handlesVFSPath(path string) bool {
@@ -242,7 +231,7 @@ func (s *Service) ListDirectory(path string, showHidden bool) (*contracts.Direct
 		return s.web.listDirectory(path)
 	}
 	if s.handlesVFSPath(path) {
-		listing, err := internalruntime.VFSListDir(s.vfs, path)
+		listing, err := internalruntime.VFSListDir(context.Background(), s.vfs, path)
 		if err == nil {
 			return listing, nil
 		}
@@ -260,10 +249,6 @@ func (s *Service) ListDirectory(path string, showHidden bool) (*contracts.Direct
 		}
 		return resp.DirListing, nil
 	}
-	if s.vfs != nil && s.vfs.IsMounted(path) {
-		return internalruntime.VFSListDir(s.vfs, path)
-	}
-
 	resolvedPath, err := s.resolvePublicPath(path)
 	if err != nil {
 		return nil, err
@@ -272,7 +257,7 @@ func (s *Service) ListDirectory(path string, showHidden bool) (*contracts.Direct
 	if err == nil {
 		return s.mapListing(listing, path), nil
 	}
-	if !s.shouldRetryDeleteWithElevation(err) {
+	if !s.isPermissionDenied(err) {
 		return nil, err
 	}
 
@@ -373,7 +358,7 @@ func (s *Service) GetFileInfo(path string) (*contracts.FileInfo, error) {
 		return s.web.getFileInfo(path)
 	}
 	if s.handlesVFSPath(path) {
-		return internalruntime.VFSGetFileInfo(s.vfs, path)
+		return internalruntime.VFSGetFileInfo(context.Background(), s.vfs, path)
 	}
 	resolvedPath, err := s.resolvePublicPath(path)
 	if err != nil {
@@ -395,7 +380,7 @@ func (s *Service) ReadFile(path string, encoding string) (*contracts.FileContent
 		return s.web.readFile(path, encoding)
 	}
 	if s.handlesVFSPath(path) {
-		file, err := internalruntime.VFSReadFile(s.vfs, path, encoding)
+		file, err := internalruntime.VFSReadFile(context.Background(), s.vfs, path, encoding)
 		if err == nil {
 			return file, nil
 		}
@@ -443,7 +428,7 @@ func (s *Service) ReadFileRange(path string, offset int64, length int) (*contrac
 		return s.web.readFileRange(path, offset, length)
 	}
 	if s.handlesVFSPath(path) {
-		return internalruntime.VFSReadFileRange(s.vfs, path, offset, length)
+		return internalruntime.VFSReadFileRange(context.Background(), s.vfs, path, offset, length)
 	}
 
 	resolvedPath, err := s.resolvePublicPath(path)
@@ -463,7 +448,7 @@ func (s *Service) ProbeFile(path string) (*contracts.FileProbe, error) {
 		return s.web.probeFile(path)
 	}
 	if s.handlesVFSPath(path) {
-		probe, err := internalruntime.VFSProbeFile(s.vfs, path)
+		probe, err := internalruntime.VFSProbeFile(context.Background(), s.vfs, path)
 		if err == nil {
 			return probe, nil
 		}
@@ -604,7 +589,7 @@ func (s *Service) WriteFile(path string, content string, encoding string) (*cont
 		return nil, s.webAliasUnsupported("write")
 	}
 	if s.handlesVFSPath(path) {
-		op, err := internalruntime.VFSWriteFile(s.vfs, path, content, encoding)
+		op, err := internalruntime.VFSWriteFile(context.Background(), s.vfs, path, content, encoding)
 		if err == nil {
 			return op, nil
 		}
@@ -654,7 +639,7 @@ func (s *Service) DeleteFile(path string, recursive bool, useTrash *bool) (*cont
 		return nil, s.webAliasUnsupported("delete")
 	}
 	if s.handlesVFSPath(path) {
-		op, err := internalruntime.VFSRemove(s.vfs, path)
+		op, err := internalruntime.VFSRemove(context.Background(), s.vfs, path)
 		if err == nil {
 			return op, nil
 		}
@@ -704,7 +689,7 @@ func (s *Service) CreateDirectory(path string, recursive bool) (*contracts.Opera
 		return nil, s.webAliasUnsupported("mkdir")
 	}
 	if s.handlesVFSPath(path) {
-		op, err := internalruntime.VFSMkdir(s.vfs, path)
+		op, err := internalruntime.VFSMkdir(context.Background(), s.vfs, path)
 		if err == nil {
 			return op, nil
 		}
@@ -713,8 +698,9 @@ func (s *Service) CreateDirectory(path string, recursive bool) (*contracts.Opera
 		}
 
 		resp, elevErr := s.runElevatedWithEvents("mkdir", s.elevationTargetSingle(path), elevation.Request{
-			Op:   "mkdir",
-			Path: path,
+			Op:        "mkdir",
+			Path:      path,
+			Recursive: recursive,
 		})
 		if elevErr != nil {
 			return nil, err

@@ -296,8 +296,17 @@ func ToVFS(path string) string {
 }
 
 func remoteAliasToVFS(path string, spec aliasSpec) (string, bool) {
+	return RemoteURLToVFS(path, spec.scheme, spec.vfsRoot)
+}
+
+// RemoteURLToVFS converts a public remote URL (e.g. smb://host/share) into a
+// VFS path (e.g. /remote/smb/host:445/share).  It handles default ports for
+// known schemes and returns (_, false) for unsupported schemes or malformed
+// URLs.  This is the canonical implementation shared by pathref and the VFS
+// layer.
+func RemoteURLToVFS(path, scheme, vfsRoot string) (string, bool) {
 	defaultPort := ""
-	switch spec.scheme {
+	switch scheme {
 	case SMBScheme:
 		defaultPort = "445"
 	default:
@@ -319,7 +328,7 @@ func remoteAliasToVFS(path string, spec aliasSpec) (string, bool) {
 		port = defaultPort
 	}
 
-	base := spec.vfsRoot + "/" + host + ":" + port
+	base := vfsRoot + "/" + host + ":" + port
 	rest := strings.Trim(parsed.Path, "/")
 	if rest == "" {
 		return base, true

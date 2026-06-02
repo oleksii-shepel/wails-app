@@ -43,10 +43,10 @@ func InitVFS(memoryFS *memory.FS) (*vfslib.Unified, error) {
 	return vfs, nil
 }
 
-func VFSListDir(vfs *vfslib.Unified, path string) (*contracts.DirectoryListing, error) {
+func VFSListDir(ctx context.Context, vfs *vfslib.Unified, path string) (*contracts.DirectoryListing, error) {
 	publicPath := pathref.Normalize(path)
 	internalPath := pathref.ToVFS(path)
-	entries, err := vfs.ReadDir(context.Background(), internalPath)
+	entries, err := vfs.ReadDir(ctx, internalPath)
 	if err != nil {
 		return nil, err
 	}
@@ -72,8 +72,7 @@ func VFSListDir(vfs *vfslib.Unified, path string) (*contracts.DirectoryListing, 
 	}, nil
 }
 
-func VFSOpenArchive(vfs *vfslib.Unified, path string, nested []string) (contracts.ArchiveListing, error) {
-	ctx := context.Background()
+func VFSOpenArchive(ctx context.Context, vfs *vfslib.Unified, path string, nested []string) (contracts.ArchiveListing, error) {
 	mountPoint, err := mountArchive(ctx, vfs, path, nested)
 	if err != nil {
 		return contracts.ArchiveListing{}, err
@@ -97,10 +96,10 @@ func VFSOpenArchive(vfs *vfslib.Unified, path string, nested []string) (contract
 	}, nil
 }
 
-func VFSReadFileRange(vfs *vfslib.Unified, path string, offset int64, length int) (*contracts.FileContent, error) {
+func VFSReadFileRange(ctx context.Context, vfs *vfslib.Unified, path string, offset int64, length int) (*contracts.FileContent, error) {
 	publicPath := pathref.Normalize(path)
 	internalPath := pathref.ToVFS(path)
-	file, err := vfs.Open(context.Background(), internalPath)
+	file, err := vfs.Open(ctx, internalPath)
 	if err != nil {
 		return nil, err
 	}
@@ -149,10 +148,10 @@ func VFSReadFileRange(vfs *vfslib.Unified, path string, offset int64, length int
 	}, nil
 }
 
-func VFSReadFile(vfs *vfslib.Unified, path string, encoding string) (*contracts.FileContent, error) {
+func VFSReadFile(ctx context.Context, vfs *vfslib.Unified, path string, encoding string) (*contracts.FileContent, error) {
 	publicPath := pathref.Normalize(path)
 	internalPath := pathref.ToVFS(path)
-	file, err := vfs.Open(context.Background(), internalPath)
+	file, err := vfs.Open(ctx, internalPath)
 	if err != nil {
 		return nil, err
 	}
@@ -184,10 +183,10 @@ func VFSReadFile(vfs *vfslib.Unified, path string, encoding string) (*contracts.
 	}, nil
 }
 
-func VFSGetFileInfo(vfs *vfslib.Unified, path string) (*contracts.FileInfo, error) {
+func VFSGetFileInfo(ctx context.Context, vfs *vfslib.Unified, path string) (*contracts.FileInfo, error) {
 	publicPath := pathref.Normalize(path)
 	internalPath := pathref.ToVFS(path)
-	info, err := vfs.Stat(context.Background(), internalPath)
+	info, err := vfs.Stat(ctx, internalPath)
 	if err != nil {
 		return nil, err
 	}
@@ -196,9 +195,9 @@ func VFSGetFileInfo(vfs *vfslib.Unified, path string) (*contracts.FileInfo, erro
 	return &fi, nil
 }
 
-func VFSProbeFile(vfs *vfslib.Unified, path string) (*contracts.FileProbe, error) {
+func VFSProbeFile(ctx context.Context, vfs *vfslib.Unified, path string) (*contracts.FileProbe, error) {
 	internalPath := pathref.ToVFS(path)
-	file, err := vfs.Open(context.Background(), internalPath)
+	file, err := vfs.Open(ctx, internalPath)
 	if err != nil {
 		return nil, err
 	}
@@ -216,7 +215,7 @@ func VFSProbeFile(vfs *vfslib.Unified, path string) (*contracts.FileProbe, error
 	}, nil
 }
 
-func VFSWriteFile(vfs *vfslib.Unified, path string, content string, encoding string) (*contracts.OperationResult, error) {
+func VFSWriteFile(ctx context.Context, vfs *vfslib.Unified, path string, content string, encoding string) (*contracts.OperationResult, error) {
 	publicPath := pathref.Normalize(path)
 	internalPath := pathref.ToVFS(path)
 
@@ -231,7 +230,7 @@ func VFSWriteFile(vfs *vfslib.Unified, path string, content string, encoding str
 		data = []byte(content)
 	}
 
-	file, err := vfs.Create(context.Background(), internalPath)
+	file, err := vfs.Create(ctx, internalPath)
 	if err != nil {
 		return nil, err
 	}
@@ -251,10 +250,10 @@ func VFSWriteFile(vfs *vfslib.Unified, path string, content string, encoding str
 	}, nil
 }
 
-func VFSMkdir(vfs *vfslib.Unified, path string) (*contracts.OperationResult, error) {
+func VFSMkdir(ctx context.Context, vfs *vfslib.Unified, path string) (*contracts.OperationResult, error) {
 	publicPath := pathref.Normalize(path)
 	internalPath := pathref.ToVFS(path)
-	if err := vfs.Mkdir(context.Background(), internalPath, 0755); err != nil {
+	if err := vfs.Mkdir(ctx, internalPath, 0755); err != nil {
 		return nil, err
 	}
 
@@ -265,10 +264,10 @@ func VFSMkdir(vfs *vfslib.Unified, path string) (*contracts.OperationResult, err
 	}, nil
 }
 
-func VFSRemove(vfs *vfslib.Unified, path string) (*contracts.OperationResult, error) {
+func VFSRemove(ctx context.Context, vfs *vfslib.Unified, path string) (*contracts.OperationResult, error) {
 	publicPath := pathref.Normalize(path)
 	internalPath := pathref.ToVFS(path)
-	if err := vfs.Remove(context.Background(), internalPath); err != nil {
+	if err := vfs.Remove(ctx, internalPath); err != nil {
 		return nil, err
 	}
 
@@ -279,11 +278,11 @@ func VFSRemove(vfs *vfslib.Unified, path string) (*contracts.OperationResult, er
 	}, nil
 }
 
-func VFSMountArchive(vfs *vfslib.Unified, path string) (string, error) {
-	return mountArchive(context.Background(), vfs, path, nil)
+func VFSMountArchive(ctx context.Context, vfs *vfslib.Unified, path string) (string, error) {
+	return mountArchive(ctx, vfs, path, nil)
 }
 
-func VFSUnmount(vfs *vfslib.Unified, mountPoint string) error {
+func VFSUnmount(ctx context.Context, vfs *vfslib.Unified, mountPoint string) error {
 	return vfs.Unmount(mountPoint)
 }
 

@@ -34,54 +34,85 @@ var rawFilesystemOps = internalfilesystem.NewRawService(internalfilesystem.RawCa
 	},
 })
 
-var (
+const memoryAppName = "wails-file-manager"
+
+// bootstrapProviders holds lazily-initialized singletons for the elevated
+// helper and normal app paths. Using a struct instead of package-level vars
+// makes the dependencies explicit and testable.
+type bootstrapProviders struct {
+	memoryRootFn func() string
+
+	memoryFSOnce sync.Once
+	memoryFS     *vfsmemory.FS
+	memoryFSErr  error
+
 	elevatedVFSOnce sync.Once
 	elevatedVFS     *vfslib.Unified
 	elevatedVFSErr  error
-	memoryFSOnce    sync.Once
-	memoryFS        *vfsmemory.FS
-	memoryFSErr     error
-	memoryRootFn    = vfsmemory.DefaultRootProvider
-)
+}
 
-const memoryAppName = "wails-file-manager"
+func newBootstrapProviders() *bootstrapProviders {
+	return &bootstrapProviders{memoryRootFn: vfsmemory.DefaultRootProvider}
+}
 
-func configureMemoryRootProvider(provider func() string) {
-	if provider == nil {
-		memoryRootFn = vfsmemory.DefaultRootProvider
-		return
-	}
-	memoryRootFn = provider
+// defaultProviders is the package-level singleton used by elevated helpers and
+// normal app bootstrap.  It is mutable so tests can swap it out.
+var defaultProviders = newBootstrapProviders()
+
+func getMemoryFS() (*vfsmemory.FS, error) {
+	return defaultProviders.getMemoryFS()
 }
 
 func getElevatedVFS() (*vfslib.Unified, error) {
-	elevatedVFSOnce.Do(func() {
-		memoryPlugin, err := getMemoryFS()
-		if err != nil {
-			elevatedVFSErr = err
-			return
-		}
-		elevatedVFS, elevatedVFSErr = internalruntime.InitVFS(memoryPlugin)
-	})
-	return elevatedVFS, elevatedVFSErr
-}
-
-func getMemoryFS() (*vfsmemory.FS, error) {
-	memoryFSOnce.Do(func() {
-		memoryFS, memoryFSErr = vfsmemory.New(memoryAppName, func() string {
-			return memoryRootFn()
-		})
-	})
-	return memoryFS, memoryFSErr
+	return defaultProviders.getElevatedVFS()
 }
 
 func resolveMemoryAlias(path string) (string, error) {
+	return defaultProviders.resolveMemoryAlias(path)
+}
+
+func toPublicMemoryPath(path string) string {
+	return defaultProviders.toPublicMemoryPath(path)
+}
+
+func configureMemoryRootProvider(provider func() string) {
+	defaultProviders.configureMemoryRoot(provider)
+}
+
+func (p *bootstrapProviders) configureMemoryRoot(provider func() string) {
+	if provider == nil {
+		p.memoryRootFn = vfsmemory.DefaultRootProvider
+		return
+	}
+	p.memoryRootFn = provider
+}
+
+func (p *bootstrapProviders) getMemoryFS() (*vfsmemory.FS, error) {
+	p.memoryFSOnce.Do(func() {
+		p.memoryFS, p.memoryFSErr = vfsmemory.New(memoryAppName, p.memoryRootFn)
+	})
+	return p.memoryFS, p.memoryFSErr
+}
+
+func (p *bootstrapProviders) getElevatedVFS() (*vfslib.Unified, error) {
+	p.elevatedVFSOnce.Do(func() {
+		memoryPlugin, err := p.getMemoryFS()
+		if err != nil {
+			p.elevatedVFSErr = err
+			return
+		}
+		p.elevatedVFS, p.elevatedVFSErr = internalruntime.InitVFS(memoryPlugin)
+	})
+	return p.elevatedVFS, p.elevatedVFSErr
+}
+
+func (p *bootstrapProviders) resolveMemoryAlias(path string) (string, error) {
 	normalized := pathref.Normalize(path)
 	nativePath := pathref.ToNativePath(normalized)
 	if !pathref.IsMemory(normalized) {
 		return nativePath, nil
 	}
-	memoryPlugin, err := getMemoryFS()
+	memoryPlugin, err := p.getMemoryFS()
 	if err != nil {
 		return "", err
 	}
@@ -89,8 +120,8 @@ func resolveMemoryAlias(path string) (string, error) {
 	return resolved, err
 }
 
-func toPublicMemoryPath(path string) string {
-	memoryPlugin, err := getMemoryFS()
+func (p *bootstrapProviders) toPublicMemoryPath(path string) string {
+	memoryPlugin, err := p.getMemoryFS()
 	if err != nil || memoryPlugin == nil {
 		return pathref.FromNativePath(path)
 	}
@@ -133,7 +164,7 @@ var elevatedRawHandler = internalfilesystem.NewElevatedHandler(internalfilesyste
 			if err != nil {
 				return nil, err
 			}
-			return internalruntime.VFSListDir(vfs, path)
+			return internalruntime.VFSListDir(context.Background(), vfs, path)
 		}
 		resolvedPath, err := resolveMemoryAlias(path)
 		if err != nil {
@@ -151,7 +182,7 @@ var elevatedRawHandler = internalfilesystem.NewElevatedHandler(internalfilesyste
 			if err != nil {
 				return nil, err
 			}
-			return internalruntime.VFSReadFile(vfs, path, encoding)
+			return internalruntime.VFSReadFile(context.Background(), vfs, path, encoding)
 		}
 		resolvedPath, err := resolveMemoryAlias(path)
 		if err != nil {
@@ -169,7 +200,7 @@ var elevatedRawHandler = internalfilesystem.NewElevatedHandler(internalfilesyste
 			if err != nil {
 				return nil, err
 			}
-			return internalruntime.VFSWriteFile(vfs, path, content, encoding)
+			return internalruntime.VFSWriteFile(context.Background(), vfs, path, content, encoding)
 		}
 		resolvedPath, err := resolveMemoryAlias(path)
 		if err != nil {
@@ -187,7 +218,7 @@ var elevatedRawHandler = internalfilesystem.NewElevatedHandler(internalfilesyste
 			if err != nil {
 				return nil, err
 			}
-			return internalruntime.VFSRemove(vfs, path)
+			return internalruntime.VFSRemove(context.Background(), vfs, path)
 		}
 		resolvedPath, err := resolveMemoryAlias(path)
 		if err != nil {
@@ -205,7 +236,7 @@ var elevatedRawHandler = internalfilesystem.NewElevatedHandler(internalfilesyste
 			if err != nil {
 				return nil, err
 			}
-			return internalruntime.VFSMkdir(vfs, path)
+			return internalruntime.VFSMkdir(context.Background(), vfs, path)
 		}
 		resolvedPath, err := resolveMemoryAlias(path)
 		if err != nil {

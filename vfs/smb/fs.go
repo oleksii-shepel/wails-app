@@ -7,12 +7,14 @@ import (
 	"io/fs"
 	"net"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 
 	smb2 "github.com/hirochachacha/go-smb2"
 
 	"wails-app/vfs"
+	vfsarchive "wails-app/vfs/archive"
 )
 
 // Config holds SMB connection parameters.
@@ -39,7 +41,7 @@ func New(ctx context.Context, cfg Config) (*FS, error) {
 	if cfg.Port == 0 {
 		cfg.Port = 445
 	}
-	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
+	addr := net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port))
 	conn, err := net.DialTimeout("tcp", addr, 30*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("smb: dial %s: %w", addr, err)
@@ -185,13 +187,7 @@ var _ vfs.File = (*file)(nil)
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 func isArchiveExt(name string) bool {
-	lower := strings.ToLower(name)
-	for _, ext := range []string{".zip", ".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tar.xz", ".rar", ".7z"} {
-		if strings.HasSuffix(lower, ext) {
-			return true
-		}
-	}
-	return false
+	return vfsarchive.IsArchiveExt(name)
 }
 
 func mapErr(err error) error {

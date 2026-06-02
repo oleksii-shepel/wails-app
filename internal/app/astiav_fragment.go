@@ -141,7 +141,7 @@ func collectVideoKeyframeTimes(ctx context.Context, nativePath string) ([]float6
 			break
 		}
 
-		if pkt.StreamIndex() != videoStreamIndex || !pkt.Flags().Has(astiav.PacketFlagKey) {
+		if pkt.StreamIndex() != videoStreamIndex || !pkt.Flags().Has(astiavPacketFlagKey) {
 			pkt.Unref()
 			continue
 		}
@@ -170,10 +170,10 @@ func collectVideoKeyframeTimes(ctx context.Context, nativePath string) ([]float6
 
 func packetTimestampSeconds(pkt *astiav.Packet, stream *astiav.Stream) (float64, bool) {
 	timestamp := pkt.Pts()
-	if timestamp == astiav.NoPtsValue {
+	if timestamp == astiavNoPtsValue {
 		timestamp = pkt.Dts()
 	}
-	if timestamp == astiav.NoPtsValue {
+	if timestamp == astiavNoPtsValue {
 		return 0, false
 	}
 
@@ -281,8 +281,8 @@ func buildSegmentedVideoFragment(ctx context.Context, nativePath string, startSe
 	}
 
 	if startSeconds > 0 {
-		seekTarget := int64(startSeconds * float64(astiav.TimeBase))
-		if err := inputFormatContext.SeekFrame(-1, seekTarget, astiav.NewSeekFlags(astiav.SeekFlagBackward)); err != nil {
+		seekTarget := int64(startSeconds * float64(astiavTimeBase))
+		if err := inputFormatContext.SeekFrame(-1, seekTarget, astiav.NewSeekFlags(astiavSeekFlagBackward)); err != nil {
 			// Non-fatal seek error
 		}
 	}

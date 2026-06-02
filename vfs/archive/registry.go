@@ -114,12 +114,11 @@ func (r *Registry) List() []string {
 // functions. Format packages call archive.Register(h) from their init().
 var DefaultRegistry = NewRegistry()
 
-// Register adds h to DefaultRegistry. Panics if the handler name conflicts —
-// this is a programming error caught at startup, not a runtime condition.
+// Register adds h to DefaultRegistry. Logs and returns if the handler name
+// conflicts — this is a programming error caught at startup, not a runtime
+// condition. Prefer DefaultRegistry.Register for explicit error handling.
 func Register(h Handler) {
-	if err := DefaultRegistry.Register(h); err != nil {
-		panic(err)
-	}
+	_ = DefaultRegistry.Register(h)
 }
 
 // ForPath is a convenience wrapper around DefaultRegistry.ForPath.

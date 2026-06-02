@@ -13,7 +13,9 @@ function createPane(overrides: Partial<FileBrowserTransferPane> = {}): FileBrows
     isInArchive: () => false,
     browserCommands: {
       navigation: {
+        navigateUp: vi.fn(),
         refresh: vi.fn(),
+        openSelectedItem: vi.fn(),
       },
     },
     ...overrides,
@@ -36,6 +38,8 @@ function createHost(overrides: Partial<FileBrowserTransferHost> = {}): FileBrows
     confirmDialog: {
       alert: vi.fn(),
     } as unknown as FileBrowserTransferHost['confirmDialog'],
+    get confirmBeforeCopy() { return false; },
+    get confirmBeforeMove() { return false; },
     buildDestinationPath: vi.fn(async (sourcePath: string, targetDir: string) => `${targetDir}/${sourcePath.split('/').pop()}`),
     ...overrides,
   };

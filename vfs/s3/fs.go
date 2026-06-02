@@ -21,6 +21,7 @@ import (
 	"github.com/aws/smithy-go"
 
 	"wails-app/vfs"
+	vfsarchive "wails-app/vfs/archive"
 )
 
 const readChunkSize = 8 * 1024 * 1024
@@ -532,13 +533,7 @@ func minInt64(a, b int64) int64 {
 }
 
 func isArchiveExt(name string) bool {
-	lower := strings.ToLower(name)
-	for _, ext := range []string{".zip", ".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tar.xz", ".rar", ".7z"} {
-		if strings.HasSuffix(lower, ext) {
-			return true
-		}
-	}
-	return false
+	return vfsarchive.IsArchiveExt(name)
 }
 
 func mapErr(err error) error {

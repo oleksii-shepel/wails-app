@@ -46,6 +46,9 @@ func (a *App) Shutdown() {
 	if a.State != nil {
 		a.State.Shutdown()
 	}
+	if a.State != nil && a.State.PluginRegistry != nil {
+		a.State.PluginRegistry.Shutdown()
+	}
 	cleanupSegmentedVideoPlaybackCache()
 }
 

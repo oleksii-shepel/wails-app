@@ -482,6 +482,8 @@ func nwrInvoke(this, _ /*sender*/, args uintptr) uintptr {
 	if args == 0 {
 		return 0
 	}
+	// this was originally created from a *newWindowRequestedHandler that is
+	// kept alive by windowsPaneState.newWindowHandler, so the conversion is safe.
 	handler := (*newWindowRequestedHandler)(unsafe.Pointer(this))
 
 	// Read the requested URI.
@@ -526,6 +528,7 @@ func (s *windowsPaneState) registerNewWindowHandler() {
 		uintptr(unsafe.Pointer(s.newWindowHandler)),
 		uintptr(unsafe.Pointer(&token)),
 	)
+	runtime.KeepAlive(s.newWindowHandler)
 }
 
 // cdpCallbackHandler is a COM callback for CallDevToolsProtocolMethod completion.
@@ -562,6 +565,8 @@ func cdpAddRef(this uintptr) uintptr               { return 1 }
 func cdpRelease(this uintptr) uintptr              { return 1 }
 
 func cdpInvoke(this uintptr, errorCode uintptr, resultUTF16 uintptr) uintptr {
+	// this was originally created from a *cdpCallbackHandler that is kept alive
+	// by the caller until the callback fires, so the conversion is safe.
 	handler := (*cdpCallbackHandler)(unsafe.Pointer(this))
 	var result string
 	if resultUTF16 != 0 {
@@ -1845,6 +1850,7 @@ func (s *windowsPaneState) callDevToolsMethod(method string, params string) (str
 		uintptr(unsafe.Pointer(paramsUTF16)),
 		uintptr(unsafe.Pointer(handler)),
 	)
+	runtime.KeepAlive(handler)
 	if windows.Handle(hr) != windows.S_OK {
 		return "", fmt.Errorf("CallDevToolsProtocolMethod failed: HRESULT 0x%x", hr)
 	}

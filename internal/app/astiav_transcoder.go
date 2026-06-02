@@ -96,8 +96,9 @@ func remuxLoop(ctx context.Context, inputFormatContext *astiav.FormatContext, st
 	}
 
 	if startSeconds > 0 {
-		seekTarget := int64(startSeconds * float64(astiav.TimeBase))
-		if err := inputFormatContext.SeekFrame(-1, seekTarget, astiav.NewSeekFlags(astiav.SeekFlagBackward)); err != nil {
+		seekTarget := int64(startSeconds * float64(astiavTimeBase))
+
+		if err := inputFormatContext.SeekFrame(-1, seekTarget, astiav.SeekFlags(astiavSeekFlagBackward)); err != nil {
 			// Non-fatal seek error
 		}
 	}

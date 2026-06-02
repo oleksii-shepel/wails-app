@@ -45,7 +45,7 @@ func (s *State) copyBatchPath(
 		return fmt.Errorf("source is not a mounted virtual path")
 	}
 
-	info, err := internalruntime.VFSGetFileInfo(s.vfs, source)
+	info, err := internalruntime.VFSGetFileInfo(context.Background(), s.vfs, source)
 	if err != nil {
 		return err
 	}
@@ -175,7 +175,7 @@ func (s *State) copyBatchVFSDirectory(
 		return err
 	}
 
-	listing, err := internalruntime.VFSListDir(s.vfs, source)
+	listing, err := internalruntime.VFSListDir(context.Background(), s.vfs, source)
 	if err != nil {
 		return err
 	}

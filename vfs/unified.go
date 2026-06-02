@@ -4,11 +4,12 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
-	"net/url"
 	vpath "path"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"wails-app/internal/pathref"
 )
 
 // Mounter is the interface Unified requires from a mount manager.
@@ -98,22 +99,27 @@ func (u *Unified) ReadDir(ctx context.Context, path string) ([]FileInfo, error) 
 		return nil, err
 	}
 
-	filtered := make([]FileInfo, 0, len(entries))
+	writeIdx := 0
 	for _, e := range entries {
 		name := e.Name()
 		if name == "." || name == ".." {
 			continue
 		}
-		filtered = append(filtered, e)
+		entries[writeIdx] = e
+		writeIdx++
 	}
-	entries = filtered
+	entries = entries[:writeIdx]
 
 	// Inject synthetic directory entries for sub-mounts under path.
 	cleanPath := cleanVFSPath(path)
 	for _, m := range u.mounts.ListMounts() {
 		if cleanVFSPath(vpath.Dir(m.MountPoint)) == cleanPath {
+			name := vpath.Base(m.MountPoint)
+			if name == "." || name == ".." {
+				continue
+			}
 			entries = append(entries, &mountPointInfo{
-				name: vpath.Base(m.MountPoint),
+				name: name,
 				path: m.MountPoint,
 				vol:  m.Volume,
 			})
@@ -289,7 +295,7 @@ func publicAliasToVFS(path string, scheme string, vfsRoot string) (string, bool)
 
 	switch scheme {
 	case smbScheme:
-		if converted, ok := remotePublicAliasToVFS(path, scheme, vfsRoot); ok {
+		if converted, ok := pathref.RemoteURLToVFS(path, scheme, vfsRoot); ok {
 			return converted, true
 		}
 	}
@@ -299,38 +305,6 @@ func publicAliasToVFS(path string, scheme string, vfsRoot string) (string, bool)
 		return vfsRoot, true
 	}
 	return vfsRoot + "/" + rest, true
-}
-
-func remotePublicAliasToVFS(path string, scheme string, vfsRoot string) (string, bool) {
-	parsed, err := url.Parse(path)
-	if err != nil || parsed.Host == "" {
-		return "", false
-	}
-
-	host := parsed.Hostname()
-	if host == "" {
-		return "", false
-	}
-
-	defaultPort := ""
-	switch scheme {
-	case smbScheme:
-		defaultPort = "445"
-	default:
-		return "", false
-	}
-
-	port := parsed.Port()
-	if port == "" {
-		port = defaultPort
-	}
-
-	base := vfsRoot + "/" + host + ":" + port
-	rest := strings.Trim(parsed.Path, "/")
-	if rest == "" {
-		return base, true
-	}
-	return base + "/" + rest, true
 }
 
 func (u *Unified) RealPath(path string) (string, error) {

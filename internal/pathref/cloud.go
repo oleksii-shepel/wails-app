@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 )
 
 type LocalCloudProvider struct {
@@ -24,6 +26,13 @@ var (
 		info, err := os.Stat(path)
 		return err == nil && info.IsDir()
 	}
+)
+
+var (
+	cloudCacheMu     sync.RWMutex
+	cloudCache       []LocalCloudProvider
+	cloudCacheTime   time.Time
+	cloudCacheTTL    = 60 * time.Second
 )
 
 var localCloudSpecs = []localCloudSpec{
@@ -63,8 +72,28 @@ var localCloudSpecs = []localCloudSpec{
 }
 
 func AvailableLocalCloudProviders() []LocalCloudProvider {
+	cloudCacheMu.RLock()
+	if time.Since(cloudCacheTime) < cloudCacheTTL && cloudCache != nil {
+		result := make([]LocalCloudProvider, len(cloudCache))
+		copy(result, cloudCache)
+		cloudCacheMu.RUnlock()
+		return result
+	}
+	cloudCacheMu.RUnlock()
+
+	cloudCacheMu.Lock()
+	defer cloudCacheMu.Unlock()
+	// Double-check after acquiring write lock.
+	if time.Since(cloudCacheTime) < cloudCacheTTL && cloudCache != nil {
+		result := make([]LocalCloudProvider, len(cloudCache))
+		copy(result, cloudCache)
+		return result
+	}
+
 	home, err := userHomeDirFn()
 	if err != nil || strings.TrimSpace(home) == "" {
+		cloudCache = nil
+		cloudCacheTime = time.Now()
 		return nil
 	}
 
@@ -81,7 +110,11 @@ func AvailableLocalCloudProviders() []LocalCloudProvider {
 		})
 	}
 
-	return providers
+	cloudCache = providers
+	cloudCacheTime = time.Now()
+	result := make([]LocalCloudProvider, len(providers))
+	copy(result, providers)
+	return result
 }
 
 func ResolveLocalCloudPath(path string) (string, bool) {

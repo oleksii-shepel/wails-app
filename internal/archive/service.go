@@ -15,6 +15,7 @@ import (
 	contracts "wails-app/internal/contracts"
 	"wails-app/internal/pathref"
 	vfslib "wails-app/vfs"
+	vfsarchive "wails-app/vfs/archive"
 	"wails-app/vfs/archive/cache"
 )
 
@@ -350,14 +351,17 @@ func (s *Service) ExtractEntries(req contracts.ArchiveEntriesRequest, op Operati
 		return s.extractEntriesFromBytes(data, req.NestedChain[len(req.NestedChain)-1], req.Entries, req.StripPrefix, req.DestinationDir, req.FlattenPaths, op)
 	}
 
-	lower := strings.ToLower(req.FsPath)
-	switch {
-	case strings.HasSuffix(lower, ".zip"):
-		return s.extractZipSync(req.FsPath, req.Entries, req.StripPrefix, req.DestinationDir, req.FlattenPaths, op)
-	case needsArchiveReader(req.FsPath):
+	handler, ok := vfsarchive.ForPath(req.FsPath)
+	if !ok {
 		return s.extractArchiveReaderSync(req.FsPath, req.Entries, req.StripPrefix, req.DestinationDir, req.FlattenPaths, op)
-	default:
+	}
+	switch handler.Name() {
+	case "zip":
+		return s.extractZipSync(req.FsPath, req.Entries, req.StripPrefix, req.DestinationDir, req.FlattenPaths, op)
+	case "tar":
 		return s.extractTarSync(req.FsPath, req.Entries, req.StripPrefix, req.DestinationDir, req.FlattenPaths, op)
+	default:
+		return s.extractArchiveReaderSync(req.FsPath, req.Entries, req.StripPrefix, req.DestinationDir, req.FlattenPaths, op)
 	}
 }
 
@@ -396,22 +400,27 @@ func (s *Service) DeleteEntries(req contracts.ArchiveEntriesRequest) (*contracts
 }
 
 func (s *Service) rewriteEntries(fsPath string, entries []string, op Operation) (removed, kept int, err error) {
-	lower := strings.ToLower(fsPath)
-	switch {
-	case isZipArchiveName(fsPath):
-		return rewriteZip(fsPath, entries, op)
-	case strings.HasSuffix(lower, ".tar.gz"), strings.HasSuffix(lower, ".tgz"):
-		return rewriteTar(fsPath, entries, "gz", op)
-	case strings.HasSuffix(lower, ".tar.bz2"):
-		return rewriteTar(fsPath, entries, "bz2", op)
-	case strings.HasSuffix(lower, ".tar.xz"):
-		return rewriteTar(fsPath, entries, "xz", op)
-	case strings.HasSuffix(lower, ".tar"):
-		return rewriteTar(fsPath, entries, "", op)
-	case needsArchiveReader(fsPath):
-		return 0, 0, unsupportedRewriteFormatError(fsPath)
-	default:
+	handler, ok := vfsarchive.ForPath(fsPath)
+	if !ok {
 		return 0, 0, fmt.Errorf("unsupported archive format: %q", fsPath)
+	}
+	switch handler.Name() {
+	case "zip":
+		return rewriteZip(fsPath, entries, op)
+	case "tar":
+		lower := strings.ToLower(fsPath)
+		switch {
+		case strings.HasSuffix(lower, ".tar.gz"), strings.HasSuffix(lower, ".tgz"):
+			return rewriteTar(fsPath, entries, "gz", op)
+		case strings.HasSuffix(lower, ".tar.bz2"):
+			return rewriteTar(fsPath, entries, "bz2", op)
+		case strings.HasSuffix(lower, ".tar.xz"):
+			return rewriteTar(fsPath, entries, "xz", op)
+		default:
+			return rewriteTar(fsPath, entries, "", op)
+		}
+	default:
+		return 0, 0, unsupportedRewriteFormatError(fsPath)
 	}
 }
 

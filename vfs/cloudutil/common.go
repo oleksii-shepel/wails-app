@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"wails-app/vfs"
+	vfsarchive "wails-app/vfs/archive"
 )
 
 // CleanPath normalizes a VFS-relative remote path into slash-separated form.
@@ -142,11 +143,5 @@ func (f *ReadOnlyFile) Sync() error {
 var _ vfs.File = (*ReadOnlyFile)(nil)
 
 func isArchiveExt(name string) bool {
-	lower := strings.ToLower(name)
-	for _, ext := range []string{".zip", ".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tar.xz", ".rar", ".7z"} {
-		if strings.HasSuffix(lower, ext) {
-			return true
-		}
-	}
-	return false
+	return vfsarchive.IsArchiveExt(name)
 }

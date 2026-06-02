@@ -8,6 +8,7 @@ import (
 	contracts "wails-app/internal/contracts"
 	internalelevation "wails-app/internal/elevation"
 	internalops "wails-app/internal/ops"
+	"wails-app/internal/plugin"
 	internalruntime "wails-app/internal/runtime"
 	internalutility "wails-app/internal/utility"
 	vfslib "wails-app/vfs"
@@ -150,6 +151,7 @@ type State struct {
 	Operations      Operations
 	DirWatch        DirWatch
 	Elevation       Elevation
+	PluginRegistry  *plugin.Registry
 	vfs             *vfslib.Unified
 	archCache       *cache.Cache
 	remotesMu       sync.Mutex
@@ -163,6 +165,7 @@ func NewState(core *Core) *State {
 	return &State{
 		Operations:      core.Operations,
 		archCache:       core.ArchiveCache,
+		PluginRegistry:  core.PluginRegistry,
 		remotes:         make(map[string]contracts.RemoteMount),
 		remoteOAuth:     make(map[string]*remoteOAuthSession),
 		remoteOAuthRefs: make(map[string]string),

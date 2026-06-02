@@ -3,7 +3,6 @@ package app
 import (
 	"os"
 	"path/filepath"
-	"sync"
 	"testing"
 
 	internalbatch "wails-app/internal/batch"
@@ -15,21 +14,12 @@ import (
 func resetMemoryResolverForTest(t *testing.T, root string) {
 	t.Helper()
 
-	prevOnce := memoryFSOnce
-	prevPath := memoryFS
-	prevErr := memoryFSErr
-	prevRootFn := memoryRootFn
-
-	configureMemoryRootProvider(func() string { return root })
-	memoryFSOnce = sync.Once{}
-	memoryFS = nil
-	memoryFSErr = nil
+	oldProviders := defaultProviders
+	defaultProviders = newBootstrapProviders()
+	defaultProviders.configureMemoryRoot(func() string { return root })
 
 	t.Cleanup(func() {
-		memoryFSOnce = prevOnce
-		memoryFS = prevPath
-		memoryFSErr = prevErr
-		memoryRootFn = prevRootFn
+		defaultProviders = oldProviders
 	})
 }
 

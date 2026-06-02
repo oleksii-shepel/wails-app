@@ -6,6 +6,7 @@ import (
 	internalnav "wails-app/internal/navigation"
 	internalops "wails-app/internal/ops"
 	internalworkspace "wails-app/internal/workspace"
+	"wails-app/internal/plugin"
 	"wails-app/vfs/archive/cache"
 )
 
@@ -16,6 +17,7 @@ type Core struct {
 	ArchiveCache      *cache.Cache
 	Converter         *internalconverter.Service
 	OfficeConverter   *internalconverter.OfficeService
+	PluginRegistry    *plugin.Registry
 }
 
 func NewCore() (*Core, error) {
@@ -31,5 +33,6 @@ func NewCore() (*Core, error) {
 		Converter:         internalconverter.NewService(),
 		OfficeConverter:   internalconverter.NewOfficeService(),
 		ArchiveCache:      cache.New(internalarchive.ResolveChain),
+		PluginRegistry:    plugin.NewRegistry(),
 	}, err
 }

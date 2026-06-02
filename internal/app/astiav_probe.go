@@ -29,7 +29,7 @@ func probeVideo(nativePath string) (*ffprobeOutput, error) {
 		out.Format.FormatName = fmtCtx.InputFormat().Name()
 	}
 
-	duration := float64(fmtCtx.Duration()) / float64(astiav.TimeBase)
+	duration := float64(fmtCtx.Duration()) / float64(astiavTimeBase)
 	out.Format.Duration = fmt.Sprintf("%f", duration)
 
 	for i := 0; i < fmtCtx.NbStreams(); i++ {

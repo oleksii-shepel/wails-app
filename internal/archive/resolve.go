@@ -57,7 +57,11 @@ func openArchiveFromMemory(ctx context.Context, name string, data []byte, passwo
 		return nil, fmt.Errorf("no archive handler for %q", name)
 	}
 
-	tempFile, err := os.CreateTemp("", "vfs-nested-*"+detectArchiveExt(name))
+	ext := detectArchiveExt(name)
+	if ext == "" {
+		ext = ".tmp"
+	}
+	tempFile, err := os.CreateTemp("", "vfs-nested-*"+ext)
 	if err != nil {
 		return nil, fmt.Errorf("temp file for %q: %w", name, err)
 	}

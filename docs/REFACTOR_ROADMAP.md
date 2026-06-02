@@ -212,7 +212,7 @@ Reduce the size and centrality of [app.go](app.go) by pushing domain logic into 
 
 ## Phase 5: Consolidate Shared Contracts And Documentation
 
-Status: In Progress
+Status: Complete
 
 ### Objective
 
@@ -224,6 +224,7 @@ Make the refactored structure maintainable by documenting boundaries and tighten
 - [frontend/README.md](frontend/README.md)
 - [SHORTCUTS_AND_HANDLERS.md](SHORTCUTS_AND_HANDLERS.md)
 - [NAVIGATION_FEATURE_STATUS.md](NAVIGATION_FEATURE_STATUS.md)
+- [INPUT_SYSTEM_ARCHITECTURE.md](INPUT_SYSTEM_ARCHITECTURE.md)
 - [frontend/src/app/shared/protocol.ts](frontend/src/app/shared/protocol.ts)
 - [frontend/src/app/shared/protocol-enhanced.ts](frontend/src/app/shared/protocol-enhanced.ts)
 
@@ -246,6 +247,7 @@ Make the refactored structure maintainable by documenting boundaries and tighten
 - Completed: [frontend/README.md](frontend/README.md) now documents the pane host, controller/factory layer, and surface/view boundary rules used by the refactored frontend.
 - Completed: [SHORTCUTS_AND_HANDLERS.md](SHORTCUTS_AND_HANDLERS.md) now explains the current interaction-routing architecture so shortcut additions follow the controller and command-surface boundaries.
 - Completed: [NAVIGATION_FEATURE_STATUS.md](NAVIGATION_FEATURE_STATUS.md) now references the current backend service split for navigation, filesystem listing, and directory streaming.
+- Completed: [INPUT_SYSTEM_ARCHITECTURE.md](INPUT_SYSTEM_ARCHITECTURE.md) now reflects the completed dialog/overlay input migration instead of pre-migration gaps.
 - Completed: shared protocol cleanup removed the `DriveInfo` duplication, moved archive types and `SpecialFolder` into [frontend/src/app/shared/protocol.ts](frontend/src/app/shared/protocol.ts), and left [frontend/src/app/shared/protocol-enhanced.ts](frontend/src/app/shared/protocol-enhanced.ts) focused on app-level workspace, tab, filter, and progress models.
 
 ## Phase Order

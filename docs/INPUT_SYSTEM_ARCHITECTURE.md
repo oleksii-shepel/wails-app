@@ -15,42 +15,45 @@ The immediate goal of this document is to define the dialog and overlay binding 
 
 ## Current State
 
-The current frontend input model is mid-migration and still has three visible layers:
+The frontend input model has completed its core migration. The architecture now consists of:
 
-- Engine-native contexts and bindings in `frontend/src/app/services/input-engine.service.ts`
-- Legacy shortcut definitions registered through `frontend/src/app/services/keyboard.service.ts` and `frontend/src/app/services/shortcut-registry.service.ts`
-- Local `HostListener` or template `keydown` handlers inside surfaces that have not been fully moved to command-only handling
+- `frontend/src/app/services/input-engine.service.ts` — the primary engine with context-aware resolution, command registration, source-priority binding resolution, plugin binding registration, and pending chord state.
+- `frontend/src/app/services/dialog-input-catalog.ts` — canonical binding catalog for all dialogs and overlays.
+- Component-level command registration via `InputEngineService` for dialogs, overlays, and widgets.
+- `frontend/src/app/services/keyboard.service.ts` — now acts as a compatibility adapter that registers legacy global shortcuts into the shared engine instead of dispatching through a separate listener.
+- `frontend/src/app/services/shortcut-registry.service.ts` — still defines the default global shortcut set, but those bindings now resolve through the shared engine with DOM-aware `when` guards and per-binding propagation control.
 
-This creates three concrete problems:
-
-- Dialog bindings are not registered in one place, so conflicts and gaps are hard to see.
-- Overlay components use inconsistent ownership; some handle keys locally while others have no keyboard layer at all.
-- The current global shortcut service only supports single key combinations and a flat `Map`, which cannot model chords, plugin precedence, or scoped rebinding.
+A small number of local `HostListener` or template `keydown` handlers remain as fallback behavior in a few surfaces, but the canonical path for all new bindings is command-first.
 
 ## Dialog And Overlay Inventory
 
-### Real Dialogs / Modals
+### Dialogs / Modals
 
-| Surface | Current Visibility Owner | Current Input Owner | Current Bindings | Gaps |
-|---|---|---|---|---|
-| Confirm dialog | `ConfirmDialogService.activeRequest$` | `confirm-dialog.component.ts` | `Escape` closes; alerts map `Escape` to confirm; overlay click closes | No `Enter` default action; no focus model; no centralized binding ID |
-| Archive move warning | `archiveMoveWarning` on pane/view model | local buttons only | Backdrop click cancels | No keyboard bindings at all |
-| Global search | `global-search.component.ts` | local `HostListener` | `Escape`, `ArrowUp`, `ArrowDown`, `Enter` | No command IDs; settings modal is nested but not its own context |
-| Keyboard help | `keyboard-help.component.ts` | local `HostListener` plus global registry | `?`, `Ctrl+/`, `Escape` | Self-toggle logic lives outside shared resolver; no scoped search navigation |
-| Path history viewer | `path-history-viewer.component.ts` | buttons and inputs only | implicit text input behavior | No dialog-level `Escape`, list navigation, or open/remove bindings |
-| Filter custom dialog | `filter-bar.component.ts` state | parent closes on `Escape` | `Escape` only via parent doc listener | No local dialog context or explicit actions |
+All dialogs below now register commands via `InputEngineService` and acquire their input context via `InputContextService`. Bindings are defined in `frontend/src/app/services/dialog-input-catalog.ts`.
 
-### Overlay Panels That Need First-Class Input Contexts
+| Surface | Context ID | Bindings |
+|---|---|---|
+| Confirm dialog | `dialog.confirm` | `Enter` (accept), `Escape` (cancel), `Tab` / `Shift+Tab` (focus), `ArrowLeft` / `ArrowRight` (focus) |
+| Archive move warning | `dialog.archiveMoveWarning` | `Enter` (confirm), `Escape` (cancel), `Tab` / `Shift+Tab` (focus), `ArrowLeft` / `ArrowRight` (focus) |
+| Global search | `dialog.globalSearch` | `Escape` (close), `ArrowUp` / `ArrowDown` (navigate), `Enter` (open), `Ctrl+Enter` (open folder), `Ctrl+,` (settings) |
+| Global search settings | `dialog.globalSearch.settings` | `Escape` (close), `Enter` (apply), `ArrowLeft` / `ArrowRight` (focus) |
+| Keyboard help | `dialog.keyboardHelp` | `Escape` (close), `Ctrl+F` (focus search), `Ctrl+S` (export), `ArrowUp` / `ArrowDown` (navigate), `Space` (toggle) |
+| Path history viewer | `dialog.pathHistory` | `Escape` (close), `Ctrl+F` (focus filter), `ArrowUp` / `ArrowDown` (navigate), `Enter` (open), `Delete` (remove), `Ctrl+Delete` (clear all) |
+| Filter custom dialog | `filter-bar.component.ts` | `Escape` closes via parent listener; inline filter widget handles its own keys |
 
-| Surface | Current Visibility Owner | Current Input Owner | Current Bindings | Gaps |
-|---|---|---|---|---|
-| Address bar quick access | `address-bar.component.ts` | `address-bar-quick-access.component.ts` | `Tab`, `Shift+Tab`, `ArrowUp`, `ArrowDown`, `Enter` | No `Escape` locally; global service special-cases it indirectly |
-| Address bar edit | `address-bar-edit.component.ts` | local input handler | `Enter`, `Escape`, `Tab`, `Shift+Tab`, arrows | Not part of central registry |
-| Drive dropdown | `address-bar.component.ts` | none | click only | No keyboard support |
-| Sibling dropdown | `address-bar.component.ts` | none | click only | No keyboard support |
-| Workspace selector menu | `workspace-selector.component.ts` | none | click only | No keyboard support |
-| Filter preset/category dropdowns | `filter-bar.component.ts` | parent doc listener | `Escape` closes | No arrow navigation or select bindings |
-| Filter widget | `filter-widget.component.ts` | local input handler | `Escape`, `Enter`, `Shift+Enter`, `F3`, `Shift+F3` | Not described as a scoped context in the global system |
+### Overlays
+
+All overlays below now have dedicated input contexts and command bindings.
+
+| Surface | Context ID | Bindings |
+|---|---|---|
+| Address bar quick access | `overlay.quickAccess` | `Escape` (close), `Tab` / `Shift+Tab` (section), `ArrowUp` / `ArrowDown` (item), `Enter` (open), `Delete` (remove pin) |
+| Address bar edit | `overlay.addressBar.edit` | `Enter`, `Escape`, `Tab`, `Shift+Tab`, arrows |
+| Drive dropdown | `overlay.addressBar.schemes` | `Escape` (close), `ArrowUp` / `ArrowDown` (item), `ArrowLeft` / `ArrowRight` (column), `Enter` (open) |
+| Sibling dropdown | `overlay.addressBar.siblings` | `Escape` (close), `ArrowUp` / `ArrowDown` (item), `Enter` (open) |
+| Workspace selector menu | `overlay.workspaceSelector` | `Escape` (close), `ArrowUp` / `ArrowDown` (item), `Enter` (activate), `Delete` (delete) |
+| Filter preset/category dropdowns | `overlay.filter.presets` | `Escape` (close), `ArrowUp` / `ArrowDown` (item), `Enter` (select) |
+| Filter widget | `widget.filterInline` | `Escape` (close), `Enter` / `F3` (next match), `Shift+Enter` / `Shift+F3` (prev match) |
 
 ## Target Architecture
 
@@ -299,67 +302,65 @@ Context ID: `overlay.workspaceSelector`
 
 ## Migration Plan
 
-### Phase A
+### Phase A ✅ Complete
 
-- Introduce typed input-system model and dialog binding catalog.
-- Bridge existing keyboard shortcut registrations through the new engine.
-- Treat the new catalog as read-only source of truth for design and audit.
+- Introduced typed input-system model and dialog binding catalog.
+- Bridged existing keyboard shortcut registrations through the new engine.
+- Catalog is the read-only source of truth for design and audit.
 
-### Phase B
+### Phase B ✅ Complete
 
-- Replace `keyboard.service.ts` flat `Map` with a resolver that understands contexts, source priority, and chords.
-- Move dialog key handlers from local `HostListener` logic into command bindings where feasible.
+- `keyboard.service.ts` now acts as a compatibility adapter registering into the shared engine.
+- Dialog key handlers moved from local `HostListener` logic into command bindings.
+- Resolver supports contexts, source priority, and chords.
 
-### Phase C
+### Phase C 🔄 In Progress
 
-- Add mouse gesture registry.
-- Add plugin contribution API.
-- Add UI for live rebinding and conflict inspection.
+- Mouse gesture dispatch exists in the input engine for click, double-click, button, and wheel gestures.
+- Browser-shell mouse bindings cover file-entry double-click open and viewer `Ctrl+Wheel` zoom.
+- Plugin contribution API surface is designed but not yet wired end-to-end.
+- UI for live rebinding and conflict inspection is not yet implemented.
 
 ## Start Point For This Refactor
 
-The next implementation step should be to introduce a new input-system service alongside the existing keyboard service, then migrate dialog contexts one by one in this order:
+All dialog and overlay contexts listed above are live. Further work should focus on:
 
-1. Confirm dialog
-2. Global search
-3. Keyboard help
-4. Path history viewer
-5. Address bar overlays
+1. Expanding mouse gesture coverage as more commands are migrated.
+2. Implementing the live-rebinding UI.
+3. Completing the plugin binding contribution API.
 
 ## Implementation Status
 
-Implemented so far:
+All core input system features are implemented:
 
-- `frontend/src/app/services/input-engine.service.ts` provides the first live input-engine scaffold with context registration, command registration, source-priority binding resolution, plugin binding registration, and pending chord state.
-- dialog contexts are live for:
-	- `frontend/src/app/components/confirm-dialog.component.ts`
-	- `frontend/src/app/components/global-search.component.ts`
-	- `frontend/src/app/components/keyboard-help.component.ts`
-	- `frontend/src/app/components/path-history-viewer.component.ts`
-	- `frontend/src/app/components/archive-move-warning.component.ts`
-- overlay contexts are live for:
-	- `frontend/src/app/components/address-bar-quick-access.component.ts`
-	- `frontend/src/app/components/address-bar-drive-dropdown.component.ts`
-	- `frontend/src/app/components/address-bar-sibling-dropdown.component.ts`
-	- `frontend/src/app/components/workspace-selector.component.ts`
-	- `frontend/src/app/components/filter-dropdown.component.ts`
-	- preset-overlay command routing in `frontend/src/app/components/filter-bar.component.ts`
-- widget contexts are live for:
-	- `frontend/src/app/components/filter-widget.component.ts`
-	- `frontend/src/app/components/address-bar-edit.component.ts`
-- `frontend/src/app/services/input-context.service.ts` provides lease-counted context activation so overlays and dialogs can opt in without duplicating lifecycle code.
-- command registration is now owner-aware in `frontend/src/app/services/input-engine.service.ts`, which allows identical command IDs to be registered safely from multiple component instances.
+- `frontend/src/app/services/input-engine.service.ts` — context registration, command registration, source-priority binding resolution, plugin binding registration, pending chord state, and mouse gesture dispatch.
+- `frontend/src/app/services/dialog-input-catalog.ts` — canonical binding catalog for all dialogs and overlays.
+- `frontend/src/app/services/input-context.service.ts` — lease-counted context activation.
 
-Also implemented:
+Dialog contexts:
+- `dialog.confirm`
+- `dialog.archiveMoveWarning`
+- `dialog.globalSearch`
+- `dialog.globalSearch.settings`
+- `dialog.keyboardHelp`
+- `dialog.pathHistory`
 
-- `frontend/src/app/services/keyboard.service.ts` now acts as a compatibility adapter that registers legacy global shortcuts into `frontend/src/app/services/input-engine.service.ts` instead of dispatching them through a separate listener.
-- `frontend/src/app/services/shortcut-registry.service.ts` still defines the default global shortcut set, but those bindings now resolve through the shared engine with DOM-aware `when` guards and per-binding propagation control.
+Overlay contexts:
+- `overlay.quickAccess`
+- `overlay.addressBar.schemes`
+- `overlay.addressBar.siblings`
+- `overlay.workspaceSelector`
+- `overlay.filter.presets`
 
-Still pending:
+Widget contexts:
+- `widget.filterInline`
+- `overlay.addressBar.edit`
 
-- live chord bindings now exist for global navigation sequences, with pending-chord state exposed to the UI
-- runtime mouse gesture dispatch now exists in the input engine for click, double-click, button, and wheel gestures
-- browser-shell mouse bindings now cover file-entry double-click open and viewer `Ctrl+Wheel` zoom through the shared input engine, using DOM-aware `when` guards for `fileEntry` and `viewerSurface`
-- some components still retain local key handlers as fallback behavior, and mouse gesture coverage is still intentionally sparse until more commands are migrated
+Legacy adapter:
+- `keyboard.service.ts` registers legacy shortcuts into the shared engine.
+- `shortcut-registry.service.ts` bindings resolve through the shared engine with DOM-aware `when` guards.
 
-That order gives the highest coverage first while keeping the migration risk low.
+Remaining work (Phase C):
+- Plugin binding contribution API end-to-end wiring.
+- Live-rebinding UI.
+- Expanded mouse gesture coverage as more commands migrate.

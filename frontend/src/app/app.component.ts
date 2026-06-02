@@ -3,6 +3,7 @@ import { FileBrowserComponent } from './components/file-browser.component';
 import { ConfirmDialogComponent } from './components/confirm-dialog.component';
 import { RemoteConnectDialogComponent } from './components/remote-connect-dialog.component';
 import { SettingsDialogComponent } from './components/settings-dialog.component';
+import { BatchRenameDialogComponent } from './components/batch-rename-dialog.component';
 import { SettingsService } from './services/settings.service';
 import { ThemeService } from './services/theme.service';
 import { OperationService } from './services/operation.service';
@@ -10,12 +11,13 @@ import { OperationService } from './services/operation.service';
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [FileBrowserComponent, ConfirmDialogComponent, RemoteConnectDialogComponent, SettingsDialogComponent],
+  imports: [FileBrowserComponent, ConfirmDialogComponent, RemoteConnectDialogComponent, SettingsDialogComponent, BatchRenameDialogComponent],
   template: `
     <app-file-browser></app-file-browser>
     <app-confirm-dialog></app-confirm-dialog>
     <app-remote-connect-dialog></app-remote-connect-dialog>
     <app-settings-dialog></app-settings-dialog>
+    <app-batch-rename-dialog></app-batch-rename-dialog>
   `,
   styles: [`
     :host {

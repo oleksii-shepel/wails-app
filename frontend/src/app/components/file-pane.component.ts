@@ -50,6 +50,7 @@ import { DirListStreamController } from '../surfaces/dir/dir-list-stream.control
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { DirectorySourceService } from '../services/directory-source.service';
 import { OperationService } from '../services/operation.service';
+import { BatchRenameDialogService } from '../services/batch-rename-dialog.service';
 import { RemoteConnectDialogService } from '../services/remote-connect-dialog.service';
 import { SettingsService } from '../services/settings.service';
 import type { SearchResultItem } from '../services/global-search.service';
@@ -725,13 +726,14 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     private confirmDialog: ConfirmDialogService,
     private remoteConnectDialog: RemoteConnectDialogService,
     private operationService: OperationService,
+    private batchRenameDialog: BatchRenameDialogService,
     private settingsService: SettingsService,
     private zone: NgZone,
     private cdr: ChangeDetectorRef,
     private archiveService: ArchiveService,
   ) {
     this.dirStream = new DirListStreamController(this.apiService);
-    this.operationsController = new FilePaneOperationsController(this.operationService);
+    this.operationsController = new FilePaneOperationsController(this.operationService, this.batchRenameDialog);
     this.navigationController = new FilePaneNavigationController();
   }
 

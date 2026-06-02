@@ -1,6 +1,7 @@
 import type { ApiService } from '../services/api.service';
 import type { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { OperationService } from '../services/operation.service';
+import { BatchRenameDialogService, type BatchRenameItem } from '../services/batch-rename-dialog.service';
 import type { FileInfo } from '../shared/protocol';
 import { FileType } from '../shared/protocol';
 import type { ViewLayout } from './file-view-container.component';
@@ -38,7 +39,10 @@ export interface FilePaneOperationsHost {
 }
 
 export class FilePaneOperationsController {
-  constructor(private readonly operationService: OperationService) {}
+  constructor(
+    private readonly operationService: OperationService,
+    private readonly batchRenameDialog: BatchRenameDialogService,
+  ) {}
 
   getDestinationDir(host: FilePaneOperationsHost): string {
     if (host.selectedFiles.size !== 1) return host.currentPath;
@@ -173,14 +177,62 @@ export class FilePaneOperationsController {
 
   async onRenameSelected(host: FilePaneOperationsHost): Promise<void> {
     const selected = Array.from(host.selectedFiles);
-    if (selected.length !== 1) return;
-    const entry = host.entries.find(candidate => candidate.path === selected[0]);
-    if (!entry || entry.path === PARENT_ENTRY_PATH) return;
+    if (selected.length === 0) return;
+
     if (host.isInArchive()) {
       host.confirmDialog.alert('Archive Limitation\nRename is not supported inside archives.');
       return;
     }
-    host.startRenameSelected();
+
+    if (selected.length === 1) {
+      const entry = host.entries.find(candidate => candidate.path === selected[0]);
+      if (!entry || entry.path === PARENT_ENTRY_PATH) return;
+      host.startRenameSelected();
+      return;
+    }
+
+    // Multi-select batch rename
+    const items: BatchRenameItem[] = selected
+      .map(path => host.entries.find(e => e.path === path))
+      .filter((e): e is FileInfo => !!e && e.path !== PARENT_ENTRY_PATH)
+      .map(entry => ({ entry, newName: entry.name }));
+
+    if (items.length === 0) return;
+
+    const result = await this.batchRenameDialog.openDialog(items, host.currentPath);
+    if (!result || result.length === 0) return;
+
+    await this.applyBatchRename(host, result);
+  }
+
+  private async applyBatchRename(host: FilePaneOperationsHost, items: BatchRenameItem[]): Promise<void> {
+    try {
+      const moves = await Promise.all(
+        items.map(async item => {
+          const destination = await host.apiService.joinPaths([parentPath(item.entry.path), item.newName]);
+          return { source: item.entry.path, destination, exactDestination: true };
+        })
+      );
+
+      const result = await host.apiService.batchMove(moves, true);
+      if (result?.failed && result.failed > 0) {
+        const firstError = result.errors?.[0];
+        throw new Error(firstError?.error || 'Batch rename failed');
+      }
+
+      const finalStatus = result?.operationId
+        ? await this.operationService.waitForOperationSettlement(result.operationId)
+        : (result?.succeeded && result.succeeded > 0 ? 'completed' : 'missing');
+
+      if (finalStatus === 'completed') {
+        if (host.currentView === 'tree') {
+          host.refreshTreeNode(parentPath(items[0].entry.path));
+        }
+        await host.loadDirectory(host.currentPath, { preserveUI: true });
+      }
+    } catch (error: any) {
+      host.confirmDialog.alert(`Batch Rename Failed\n${this.getErrorMessage(error, 'Unknown error')}`);
+    }
   }
 
   async onRename(host: FilePaneOperationsHost, event: { entry: FileInfo; newName: string }): Promise<void> {

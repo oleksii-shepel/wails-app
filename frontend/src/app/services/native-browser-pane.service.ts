@@ -33,9 +33,25 @@ export interface NativeBrowserPaneLifecycleEvent {
 export class NativeBrowserPaneService {
   /** True once the Wails Go runtime has confirmed it's handling calls. */
   private _ready = false;
+  private pendingRpcs = new Map<string, { resolve: (value: unknown) => void; reject: (reason: Error) => void; timer: ReturnType<typeof setTimeout> }>();
 
   get runtimeReady(): boolean {
     return this._ready;
+  }
+
+  constructor() {
+    // Always listen for RPC responses so pending promises can resolve
+    EventsOn('browser-pane:rpc', (event: { surfaceId?: string; message?: string } | null) => {
+      const message = typeof event?.message === 'string' ? event.message : '';
+      if (!message) return;
+      try {
+        const data = JSON.parse(message) as { id?: string; result?: unknown; error?: string } | null;
+        if (!data?.id) return;
+        this.handleRpcResponse(data.id, data.result, data.error);
+      } catch {
+        // ignore non-JSON
+      }
+    });
   }
 
   async sync(request: NativeBrowserPaneSyncRequest): Promise<boolean> {
@@ -199,6 +215,52 @@ export class NativeBrowserPaneService {
         reject(new Error(`Navigation completion timed out for ${surfaceId}`));
       }, timeoutMs);
     });
+  }
+
+  async rpcCall<T = unknown>(
+    surfaceId: string,
+    type: string,
+    payload?: unknown,
+    timeoutMs = 5000,
+  ): Promise<T> {
+    if (!surfaceId) {
+      return Promise.reject(new Error('surfaceId is required'));
+    }
+    const id = this.generateRpcId();
+    const request = { _rpc: true, id, v: 1, type, payload };
+
+    const success = await this.postMessage(surfaceId, request);
+    if (!success) {
+      return Promise.reject(new Error(`Failed to send RPC request to ${surfaceId}`));
+    }
+
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingRpcs.delete(id);
+        reject(new Error(`RPC '${type}' timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+      this.pendingRpcs.set(id, {
+        resolve: resolve as (value: unknown) => void,
+        reject,
+        timer,
+      });
+    });
+  }
+
+  private generateRpcId(): string {
+    return `rpc_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+  }
+
+  private handleRpcResponse(id: string, result: unknown, error: string | undefined): void {
+    const pending = this.pendingRpcs.get(id);
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    this.pendingRpcs.delete(id);
+    if (error) {
+      pending.reject(new Error(error));
+    } else {
+      pending.resolve(result);
+    }
   }
 
   private serializeMessage(message: unknown): string {

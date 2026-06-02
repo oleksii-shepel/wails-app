@@ -63,11 +63,29 @@ func TestBrowserPaneInjectedBootstrapScriptSupportsWindowsAndWebKitHosts(t *test
 		"window.__wailsBrowserPaneBridgeInit",
 		"window.chrome&&window.chrome.webview&&window.chrome.webview.postMessage",
 		"window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.wailsBrowserPane&&window.webkit.messageHandlers.wailsBrowserPane.postMessage",
-		"bridge.receiveHostMessage=function(raw){return dispatch(raw);};",
+		"bridge.receiveHostMessage=function(raw){",
+		"bridge.handleRequest=async function(data)",
 		"window.__wailsBrowserPaneFlushResources=schedule",
 		"type:'resource-snapshot'",
 		"window.__wailsBrowserPaneLifecycleInit",
 		"type:'lifecycle'",
+	}
+	for _, fragment := range requiredFragments {
+		if !strings.Contains(script, fragment) {
+			t.Fatalf("expected script to contain %q", fragment)
+		}
+	}
+}
+
+func TestBrowserPaneInjectedBridgeSupportsRpcOnrequest(t *testing.T) {
+	script := browserPaneInjectedMessageBridgeScript()
+
+	requiredFragments := []string{
+		"bridge.onrequest=null",
+		"bridge.handleRequest=async function(data)",
+		"bridge.postMessage({_rpc:true,id:data.id,result:result})",
+		"bridge.postMessage({_rpc:true,id:data.id,error:",
+		"detail._rpc&&detail.id&&typeof detail.type!=='undefined'&&typeof bridge.onrequest==='function'",
 	}
 	for _, fragment := range requiredFragments {
 		if !strings.Contains(script, fragment) {

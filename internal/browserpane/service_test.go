@@ -1,6 +1,7 @@
 package browserpane
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -89,5 +90,41 @@ func TestSyncEmitsStartedLifecycleEventOnURLChange(t *testing.T) {
 	}
 	if events[0]["state"] != "started" {
 		t.Fatalf("expected state %q, got %q", "started", events[0]["state"])
+	}
+}
+
+func TestHandlePaneMessageRoutesRpcResponses(t *testing.T) {
+	var eventName string
+	var eventData map[string]string
+	s := NewService(func(name string, data interface{}) {
+		eventName = name
+		eventData, _ = data.(map[string]string)
+	})
+
+	s.handlePaneMessage("surface-rpc", `{"_rpc":true,"id":"42","result":{"x":1}}`)
+
+	if eventName != "browser-pane:rpc" {
+		t.Fatalf("expected event %q, got %q", "browser-pane:rpc", eventName)
+	}
+	if eventData["surfaceId"] != "surface-rpc" {
+		t.Fatalf("expected surfaceId %q, got %q", "surface-rpc", eventData["surfaceId"])
+	}
+	if !strings.Contains(eventData["message"], `"id":"42"`) {
+		t.Fatalf("expected message to contain rpc id, got %q", eventData["message"])
+	}
+}
+
+func TestHandlePaneMessageRoutesGenericMessagesAfterRpcFilter(t *testing.T) {
+	var eventName string
+	s := NewService(func(name string, data interface{}) {
+		eventName = name
+		_, _ = data.(map[string]string)
+	})
+
+	// Missing 'id' → not an RPC envelope → forwarded as generic message
+	s.handlePaneMessage("surface-3", `{"_rpc":true,"result":123}`)
+
+	if eventName != "browser-pane:message" {
+		t.Fatalf("expected event %q, got %q", "browser-pane:message", eventName)
 	}
 }

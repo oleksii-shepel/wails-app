@@ -141,6 +141,15 @@ func (s *Service) handlePaneMessage(surfaceID string, message string) {
 		return
 	}
 
+	var rpcEnvelope struct {
+		Rpc bool   `json:"_rpc"`
+		ID  string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(message), &rpcEnvelope); err == nil && rpcEnvelope.Rpc && rpcEnvelope.ID != "" {
+		s.emitRpcResponse(surfaceID, message)
+		return
+	}
+
 	s.emitPaneMessage(surfaceID, message)
 }
 
@@ -162,6 +171,16 @@ func (s *Service) emitLifecycleEvent(surfaceID string, state string, url string)
 		"surfaceId": strings.TrimSpace(surfaceID),
 		"state":     strings.TrimSpace(state),
 		"url":       strings.TrimSpace(url),
+	})
+}
+
+func (s *Service) emitRpcResponse(surfaceID string, message string) {
+	if s.emitEvent == nil || strings.TrimSpace(surfaceID) == "" {
+		return
+	}
+	s.emitEvent("browser-pane:rpc", map[string]string{
+		"surfaceId": strings.TrimSpace(surfaceID),
+		"message":   message,
 	})
 }
 

@@ -165,9 +165,25 @@ function dispatch(raw){
 }
 var bridge=window.__wailsBrowserPane||{};
 bridge.postMessage=function(payload){return sendRaw(serialize(payload));};
-bridge.receiveHostMessage=function(raw){return dispatch(raw);};
+bridge.receiveHostMessage=function(raw){
+	var detail=dispatch(raw);
+	if(detail&&detail._rpc&&detail.id&&typeof detail.type!=='undefined'&&typeof bridge.onrequest==='function'){
+		bridge.handleRequest(detail);
+	}
+	return detail;
+};
 bridge.parseMessage=parse;
 if(!('onmessage' in bridge)){bridge.onmessage=null;}
+if(!('onrequest' in bridge)){bridge.onrequest=null;}
+bridge.handleRequest=async function(data){
+	if(typeof bridge.onrequest!=='function')return;
+	try{
+		var result=await bridge.onrequest(data);
+		bridge.postMessage({_rpc:true,id:data.id,result:result});
+	}catch(err){
+		bridge.postMessage({_rpc:true,id:data.id,error:(err&&err.message)?err.message:String(err)});
+	}
+};
 window.__wailsBrowserPane=bridge;
 })();`
 }

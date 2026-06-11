@@ -36,13 +36,16 @@
   --vsc-input-placeholder: #767676;
   --vsc-input-focus-border: #007acc;
 
-  /* === Selection Colors === */
+  /* === Selection Colors ===
+     Neutral gray backgrounds so every mime type color (yellow dirs, pink
+     images, cyan code, etc.) stays legible without forcing text to white.
+  */
   --vsc-list-hover-background: #2a2d2e;
-  --vsc-list-active-background: #094771;
+  --vsc-list-active-background: #3a3a3a;
   --vsc-list-active-foreground: #ffffff;
   --vsc-list-active-foreground-dim: rgba(255,255,255,0.65);
-  --vsc-list-focus-background: #062f4a;
-  --vsc-list-inactive-selection: #37373d;
+  --vsc-list-focus-background: #454545;
+  --vsc-list-inactive-selection: #2d2d2d;
 
   /* === Accent Colors === */
   --vsc-accent-blue: #007acc;

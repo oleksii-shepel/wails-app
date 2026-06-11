@@ -253,10 +253,6 @@ interface DetailsRowVm {
         &.selected {
           background: var(--vsc-list-active-background);
           color: var(--vsc-foreground-bright);
-          
-          .file-name-text {
-            font-weight: 500;
-          }
         }
         
         /* TC cursor indicator */

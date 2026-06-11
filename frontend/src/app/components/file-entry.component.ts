@@ -184,7 +184,6 @@ function truncateFileName(name: string, maxLength: number): string {
         padding-left: var(--vsc-padding-md); /* Keep consistent padding */
 
         .file-details { color: var(--vsc-list-active-foreground-dim); }
-        .file-name-text { --entry-name-color: currentColor; }
 
         &:hover { background: var(--vsc-list-focus-background); }
       }
@@ -231,6 +230,7 @@ function truncateFileName(name: string, maxLength: number): string {
 
       .file-name-text {
         color: var(--entry-name-color, inherit);
+        font-weight: 400; /* Prevent inherited weight changes on selection */
       }
 
       .file-name-text[data-mime-kind='default'] { --entry-name-color: inherit; }

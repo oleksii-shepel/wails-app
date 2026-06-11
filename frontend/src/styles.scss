@@ -31,8 +31,8 @@ body {
   line-height: var(--vsc-line-height);
   background: var(--vsc-editor-background);
   color: var(--vsc-foreground);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  /* Native OS text rendering (ClearType on Windows, subpixel on macOS)
+     gives sharper small text than forced grayscale anti-aliasing. */
 }
 
 code, pre {

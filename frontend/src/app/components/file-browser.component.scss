@@ -745,13 +745,11 @@
 
   &.selected {
     background: var(--vsc-list-active-background);
-      color: var(--vsc-list-active-foreground);
+    color: var(--vsc-list-active-foreground);
     &:hover { background: var(--vsc-list-focus-background); }
-    .file-name { font-weight: 500; }
   }
 
   &.directory {
-    .file-name { font-weight: 500; }
     .file-icon { opacity: 1; }
   }
 

@@ -220,10 +220,6 @@ import { FileCategoryResolverService } from '../services/file-category-resolver.
       &.selected {
         background: var(--vsc-list-active-background);
         border-color: var(--vsc-accent-blue);
-        
-        .grid-name {
-          color: var(--vsc-list-active-foreground);
-        }
       }
 
       &.cursor:not(.selected) {

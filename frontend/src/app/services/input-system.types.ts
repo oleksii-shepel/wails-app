@@ -55,6 +55,16 @@ export interface InputBindingDefinition {
   stopPropagation?: boolean;
 }
 
+export interface CommandDefinition {
+  id: string;
+  title: string;
+  description?: string;
+  category?: string;
+  icon?: string;
+  /** Only show in command palette when these contexts are active. Empty = always show. */
+  contextIds?: string[];
+}
+
 export interface PluginInputContribution {
   pluginId: string;
   commands: string[];

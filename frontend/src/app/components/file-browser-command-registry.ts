@@ -11,7 +11,7 @@
  *   cleanup();
  */
 
-import type { InputBindingDefinition } from '../services/input-system.types';
+import type { InputBindingDefinition, CommandDefinition } from '../services/input-system.types';
 import type { InputEngineService } from '../services/input-engine.service';
 
 // ─── Command IDs ──────────────────────────────────────────────────────────────
@@ -72,6 +72,76 @@ export const BC = {
   batchRename:          'pane.files.batchRename',
   openWithExternal:     'pane.files.openWithExternal',
 } as const;
+
+const NAV  = 'Navigation';
+const TABS = 'Tab Management';
+const FILES = 'File Operations';
+const SRCH = 'Search & Filter';
+const WS   = 'Workspaces';
+const PANE = 'Pane Control';
+const TOOLS = 'Tools';
+
+// ─── Command definitions ──────────────────────────────────────────────────────
+
+const CMD_DEF = (id: string, title: string, category: string, description?: string): CommandDefinition => ({
+  id, title, category, description,
+});
+
+const BROWSER_COMMAND_DEFINITIONS: CommandDefinition[] = [
+  CMD_DEF(BC.openCommandPalette,   'Open Command Palette',      NAV,  'Open the command palette'),
+  CMD_DEF(BC.openGlobalSearch,     'Open Global Search',        NAV,  'Search files across all indexed locations'),
+  CMD_DEF(BC.showPathHistory,      'Show Path History',         NAV,  'Browse recently visited paths'),
+  CMD_DEF(BC.quickPathJump,        'Quick Path Jump',           NAV,  'Jump to a path by typing'),
+  CMD_DEF(BC.navigateUp,           'Navigate Up',               NAV,  'Go to parent directory'),
+  CMD_DEF(BC.refresh,              'Refresh',                   NAV,  'Refresh current pane'),
+  CMD_DEF(BC.showKeyboardHelp,     'Show Keyboard Help',        NAV,  'Show keyboard shortcuts reference'),
+  CMD_DEF(BC.openSettings,         'Open Settings',             NAV,  'Open application settings'),
+  CMD_DEF(BC.cursorUp,             'Move Cursor Up',            NAV,  'Move cursor up one item'),
+  CMD_DEF(BC.cursorDown,           'Move Cursor Down',          NAV,  'Move cursor down one item'),
+  CMD_DEF(BC.cursorLeft,           'Move Cursor Left',          NAV,  'Move cursor left'),
+  CMD_DEF(BC.cursorRight,          'Move Cursor Right',         NAV,  'Move cursor right'),
+  CMD_DEF(BC.cursorHome,           'Move Cursor to First',      NAV,  'Move cursor to first item'),
+  CMD_DEF(BC.cursorEnd,            'Move Cursor to Last',       NAV,  'Move cursor to last item'),
+  CMD_DEF(BC.cursorPageUp,         'Page Up',                   NAV,  'Move cursor up by page'),
+  CMD_DEF(BC.cursorPageDown,       'Page Down',                 NAV,  'Move cursor down by page'),
+  CMD_DEF(BC.newTab,               'New Tab',                   TABS, 'Open a new tab'),
+  CMD_DEF(BC.closeTab,             'Close Tab',                 TABS, 'Close current tab'),
+  CMD_DEF(BC.nextTab,              'Next Tab',                  TABS, 'Switch to next tab'),
+  CMD_DEF(BC.prevTab,              'Previous Tab',              TABS, 'Switch to previous tab'),
+  CMD_DEF(BC.togglePinTab,         'Pin/Unpin Tab',             TABS, 'Pin or unpin current tab'),
+  CMD_DEF(BC.openItem,             'Open Item',                 FILES, 'Open file or folder'),
+  CMD_DEF(BC.quickView,            'Quick View',                FILES, 'Open quick view'),
+  CMD_DEF(BC.copyCursorPath,       'Copy Cursor Path',          FILES, 'Copy path of item under cursor'),
+  CMD_DEF(BC.copy,                 'Copy',                      FILES, 'Copy selected items'),
+  CMD_DEF(BC.cut,                  'Cut',                       FILES, 'Cut selected items'),
+  CMD_DEF(BC.paste,                'Paste',                     FILES, 'Paste items'),
+  CMD_DEF(BC.deleteSelected,       'Delete',                    FILES, 'Delete selected items'),
+  CMD_DEF(BC.selectAll,            'Select All',                FILES, 'Select all items'),
+  CMD_DEF(BC.deselectAll,          'Deselect All',              FILES, 'Deselect all items'),
+  CMD_DEF(BC.newFolder,            'New Folder',                FILES, 'Create new folder'),
+  CMD_DEF(BC.rename,               'Rename',                    FILES, 'Rename selected item'),
+  CMD_DEF(BC.batchRename,          'Batch Rename',              FILES, 'Batch rename selected items'),
+  CMD_DEF(BC.toggleCurrent,        'Toggle Selection',          FILES, 'Toggle selection of current item'),
+  CMD_DEF(BC.inlineDirectorySize,  'Calculate Folder Size',     FILES, 'Calculate current folder size inline'),
+  CMD_DEF(BC.extendSelUp,          'Extend Selection Up',       FILES, 'Extend selection upward'),
+  CMD_DEF(BC.extendSelDown,        'Extend Selection Down',     FILES, 'Extend selection downward'),
+  CMD_DEF(BC.selectByMask,         'Select by Mask',            FILES, 'Select files matching mask'),
+  CMD_DEF(BC.unselectByMask,       'Unselect by Mask',          FILES, 'Unselect files matching mask'),
+  CMD_DEF(BC.invertSelection,      'Invert Selection',          FILES, 'Invert current selection'),
+  CMD_DEF(BC.selectSameExt,        'Select Same Extension',     FILES, 'Select files with same extension'),
+  CMD_DEF(BC.focusFilter,          'Focus Filter',              SRCH, 'Focus filter input'),
+  CMD_DEF(BC.advancedFilter,       'Advanced Filter',           SRCH, 'Open advanced filter options'),
+  CMD_DEF(BC.clearFilter,          'Clear Filter',              SRCH, 'Clear active filter'),
+  CMD_DEF(BC.showWorkspaceSwitcher,'Show Workspace Switcher',   WS,   'Open workspace switcher'),
+  CMD_DEF(BC.newWorkspace,         'New Workspace',             WS,   'Create new workspace'),
+  CMD_DEF(BC.toggleHidden,         'Toggle Hidden Files',       WS,   'Show or hide hidden files'),
+  CMD_DEF(BC.switchPane,           'Switch Pane',               PANE, 'Switch between panes'),
+  CMD_DEF(BC.copyToOtherPane,      'Copy to Other Pane',        PANE, 'Copy selected to other pane'),
+  CMD_DEF(BC.moveToOtherPane,      'Move to Other Pane',        PANE, 'Move selected to other pane'),
+  CMD_DEF(BC.focusAddressBar,      'Focus Address Bar',         PANE, 'Focus address bar'),
+  CMD_DEF(BC.diskUsage,            'Disk Usage',                TOOLS, 'Analyze disk usage'),
+  CMD_DEF(BC.openWithExternal,     'Open with External App',    FILES, 'Open selected file with external application'),
+];
 
 // ─── Binding helpers ──────────────────────────────────────────────────────────
 
@@ -137,14 +207,6 @@ function chord(
     },
   };
 }
-
-const NAV  = 'Navigation';
-const TABS = 'Tab Management';
-const FILES = 'File Operations';
-const SRCH = 'Search & Filter';
-const WS   = 'Workspaces';
-const PANE = 'Pane Control';
-const TOOLS = 'Tools';
 
 // ─── Binding catalog ──────────────────────────────────────────────────────────
 
@@ -310,6 +372,10 @@ export function registerFileBrowserCommands(
   handlers: FileBrowserCommandHandlers,
   ownerId: string,
 ): () => void {
+  for (const def of BROWSER_COMMAND_DEFINITIONS) {
+    engine.registerCommandDefinition(def);
+  }
+
   for (const binding of BROWSER_BINDINGS) {
     engine.registerBinding(binding);
   }
@@ -372,6 +438,10 @@ export function registerFileBrowserCommands(
   engine.registerCommand(BC.openWithExternal,       handlers.openWithExternal,       ownerId);
 
   return () => {
+    for (const def of BROWSER_COMMAND_DEFINITIONS) {
+      engine.unregisterCommandDefinition(def.id);
+    }
+
     for (const binding of BROWSER_BINDINGS) {
       engine.unregisterBinding(binding.id);
     }

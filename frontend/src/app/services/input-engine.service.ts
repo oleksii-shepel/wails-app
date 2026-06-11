@@ -10,6 +10,7 @@ import type {
   KeyStroke,
   PluginInputContribution,
   InputTrigger,
+  CommandDefinition,
 } from './input-system.types';
 
 type InputCommandHandler = () => void | Promise<void>;
@@ -65,6 +66,7 @@ export class InputEngineService {
   private readonly contexts = new Map<string, InputContextDefinition>();
   private readonly bindings = new Map<string, RegisteredBinding>();
   private readonly commands = new Map<string, Map<string, RegisteredCommand>>();
+  private readonly commandDefinitions = new Map<string, CommandDefinition>();
   private readonly pluginBindingIds = new Map<string, string[]>();
   private readonly activeContexts = new Map<string, ActiveContextState>();
 
@@ -238,6 +240,22 @@ export class InputEngineService {
     binding.trigger = trigger;
     this.emitBindings();
     return true;
+  }
+
+  registerCommandDefinition(def: CommandDefinition): void {
+    this.commandDefinitions.set(def.id, def);
+  }
+
+  unregisterCommandDefinition(commandId: string): void {
+    this.commandDefinitions.delete(commandId);
+  }
+
+  getCommandDefinitions(): CommandDefinition[] {
+    return Array.from(this.commandDefinitions.values());
+  }
+
+  getCommandDefinition(commandId: string): CommandDefinition | undefined {
+    return this.commandDefinitions.get(commandId);
   }
 
   getContextSnapshot(): InputContextDefinition[] {
@@ -625,7 +643,7 @@ export class InputEngineService {
       && leftMods === rightMods;
   }
 
-  private getActiveContextIds(): Set<string> {
+  getActiveContextIds(): Set<string> {
     const ids = new Set<string>(['global']);
     for (const contextId of this.activeContexts.keys()) {
       ids.add(contextId);

@@ -1,11 +1,12 @@
 import { Component, OnInit, OnDestroy, ViewChild, ElementRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { createSubject } from '@epikodelabs/streamix';
+import { createSubject, takeUntil } from '@epikodelabs/streamix';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
 import { InputBindingDefinition } from '../services/input-system.types';
 import { NativeOverlayFreezeService } from '../services/native-overlay-freeze.service';
+import { CommandPaletteHistoryService } from '../services/command-palette-history.service';
 import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.directive';
 import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directive';
 
@@ -267,11 +268,22 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
     private inputContexts: InputContextService,
     private inputEngine: InputEngineService,
     private overlayFreeze: NativeOverlayFreezeService,
+    private historyService: CommandPaletteHistoryService,
   ) {}
 
   ngOnInit(): void {
     this.loadCommands();
     this.registerInputCommands();
+
+    // Refresh palette contents when active contexts change (for context-aware filtering)
+    this.inputEngine.activeContexts$
+      .pipe(takeUntil(this.destroy$))
+      .subscribe(() => {
+        if (this.isVisible) {
+          this.loadCommands();
+          this.onSearchChange();
+        }
+      });
   }
 
   ngOnDestroy(): void {
@@ -307,34 +319,69 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
   }
 
   private loadCommands(): void {
-    const snapshot = this.inputEngine.getBindingSnapshot();
-    const byCommand = new Map<string, { binding: InputBindingDefinition; category: string; description: string }>();
-
-    for (const binding of snapshot) {
+    // Build a lookup of commandId -> best keyboard binding for display
+    const bindingByCommand = new Map<string, InputBindingDefinition>();
+    for (const binding of this.inputEngine.getBindingSnapshot()) {
       if (binding.trigger.device !== 'keyboard') continue;
-      const desc = binding.description ?? binding.commandId;
-      const cat = binding.category ?? 'General';
-      const existing = byCommand.get(binding.commandId);
-      // Prefer the binding with the shortest chord as the primary display
-      if (!existing || (existing.binding.trigger.device === 'keyboard' && binding.trigger.chord.steps.length < existing.binding.trigger.chord.steps.length)) {
-        byCommand.set(binding.commandId, { binding, category: cat, description: desc });
+      const existing = bindingByCommand.get(binding.commandId);
+      if (!existing || (existing.trigger.device === 'keyboard' && binding.trigger.chord.steps.length < existing.trigger.chord.steps.length)) {
+        bindingByCommand.set(binding.commandId, binding);
       }
     }
 
-    const catMap = new Map<string, PaletteItem[]>();
-    for (const [commandId, data] of byCommand) {
-      if (!catMap.has(data.category)) catMap.set(data.category, []);
-      catMap.get(data.category)!.push({
+    // Primary source: registered command definitions (supports plugin contributions)
+    const defs = this.inputEngine.getCommandDefinitions();
+    const activeContextIds = this.inputEngine.getActiveContextIds();
+    const allItems = new Map<string, PaletteItem>();
+
+    for (const def of defs) {
+      // Context-aware filtering: only show if no contextIds specified or any context is active
+      if (def.contextIds && def.contextIds.length > 0 && !def.contextIds.some(cid => activeContextIds.has(cid))) {
+        continue;
+      }
+      const cat = def.category ?? 'General';
+      allItems.set(def.id, {
+        commandId: def.id,
+        description: def.title,
+        category: cat,
+        binding: bindingByCommand.get(def.id) ?? null,
+      });
+      bindingByCommand.delete(def.id);
+    }
+
+    // Fallback: any commands with bindings but no explicit definition
+    for (const [commandId, binding] of bindingByCommand) {
+      const cat = binding.category ?? 'General';
+      allItems.set(commandId, {
         commandId,
-        description: data.description,
-        category: data.category,
-        binding: data.binding,
+        description: binding.description ?? commandId,
+        category: cat,
+        binding,
       });
     }
 
-    const categoryOrder = ['Navigation', 'Tab Management', 'File Operations', 'Search & Filter', 'Workspaces', 'Pane Control', 'General'];
+    // Build groups
+    const catMap = new Map<string, PaletteItem[]>();
+    for (const item of allItems.values()) {
+      if (!catMap.has(item.category)) catMap.set(item.category, []);
+      catMap.get(item.category)!.push(item);
+    }
+
+    const categoryOrder = ['Navigation', 'Tab Management', 'File Operations', 'Search & Filter', 'Workspaces', 'Pane Control', 'Tools', 'General'];
     this.groups = [];
     this.flatItems = [];
+
+    // Add Recent group first
+    const history = this.historyService.getHistory();
+    const recentItems: PaletteItem[] = [];
+    for (const commandId of history) {
+      const item = allItems.get(commandId);
+      if (item) recentItems.push(item);
+    }
+    if (recentItems.length > 0) {
+      this.groups.push({ category: 'Recent', items: recentItems });
+      this.flatItems.push(...recentItems);
+    }
 
     const pushGroup = (cat: string) => {
       const items = catMap.get(cat);
@@ -429,6 +476,7 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
 
   executeItem(item: PaletteItem): void {
     this.hide();
+    this.historyService.recordCommand(item.commandId);
     // Small delay so the modal closes before the command runs (prevents focus issues)
     setTimeout(() => {
       const ok = this.inputEngine.dispatchCommandById(item.commandId);

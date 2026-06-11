@@ -827,8 +827,19 @@ interface SettingsDialogRequest {
                 </div>
 
                 <div *ngIf="recordingBindingId" class="recording-banner">
-                  <span>Recording new shortcut for <strong>{{ recordingDescription }}</strong></span>
-                  <button type="button" class="btn btn-small" (click)="cancelRecording()">Cancel</button>
+                  <span>
+                    Recording new shortcut for <strong>{{ recordingDescription }}</strong>
+                    <span *ngIf="recordingSteps.length > 0" class="recording-steps">
+                      <ng-container *ngFor="let step of recordingSteps; let last = last">
+                        <kbd class="key-badge">{{ formatStep(step) }}</kbd>
+                        <span *ngIf="!last" class="chord-then">then</span>
+                      </ng-container>
+                    </span>
+                  </span>
+                  <div class="recording-actions">
+                    <button *ngIf="recordingSteps.length > 0" type="button" class="btn btn-small btn-primary" (click)="finishRecording()">Finish</button>
+                    <button type="button" class="btn btn-small" (click)="cancelRecording()">Cancel</button>
+                  </div>
                 </div>
 
                 <ng-container *ngFor="let group of shortcutGroupsDynamic">
@@ -856,7 +867,8 @@ interface SettingsDialogRequest {
                               <span *ngIf="item.enabled === false" class="shortcut-disabled-tag">Disabled</span>
                             </ng-container>
                             <span *ngIf="recordingBindingId === item.id" class="recording-hint">
-                              Press keys...
+                              <ng-container *ngIf="recordingSteps.length === 0">Press keys...</ng-container>
+                              <ng-container *ngIf="recordingSteps.length > 0">Next step...</ng-container>
                             </span>
                           </button>
                           <button
@@ -1022,6 +1034,8 @@ export class SettingsDialogComponent {
   shortcutSearch = '';
   recordingBindingId: string | null = null;
   recordingDescription = '';
+  recordingSteps: KeyStroke[] = [];
+  private recordingTimeout: number | null = null;
   private conflicts = new Map<string, string[]>();
 
   readonly tabs: { id: SettingsTab; label: string; icon: string; divider?: boolean }[] = [
@@ -1124,7 +1138,7 @@ export class SettingsDialogComponent {
     return this.tabs.find((t) => t.id === this.activeTab)?.label ?? '';
   }
 
-  private formatStep(step: KeyStroke): string {
+  formatStep(step: KeyStroke): string {
     const mods = step.modifiers ?? [];
     const parts: string[] = [];
     if (mods.includes('ctrl'))  parts.push('Ctrl');
@@ -1144,6 +1158,30 @@ export class SettingsDialogComponent {
     return parts.join('+');
   }
 
+  private formatMouseGesture(binding: InputBindingDefinition): string[][] {
+    if (binding.trigger.device !== 'mouse') return [['?']];
+    const g = binding.trigger.gesture;
+    const mods = (g.modifiers ?? []).map(m => {
+      switch (m) { case 'ctrl': return 'Ctrl'; case 'shift': return 'Shift'; case 'alt': return 'Alt'; case 'meta': return 'Meta'; }
+      return m;
+    });
+    let action = '';
+    switch (g.type) {
+      case 'click': action = 'Click'; break;
+      case 'doubleClick': action = 'Double-click'; break;
+      case 'mousedown': action = 'Mouse down'; break;
+      case 'mouseup': action = 'Mouse up'; break;
+      case 'wheel': action = g.direction === 'up' ? 'Wheel up' : g.direction === 'down' ? 'Wheel down' : `Wheel ${g.direction}`; break;
+      case 'drag': action = 'Drag'; break;
+      default: action = g.type;
+    }
+    if (g.button && g.button !== 'left') {
+      action += ` (${g.button})`;
+    }
+    const label = [...mods, action].join('+');
+    return [[label]];
+  }
+
   get shortcutGroupsDynamic(): Array<{
     category: string;
     items: Array<{ id: string; description: string; chords: string[][]; enabled: boolean }>;
@@ -1152,15 +1190,17 @@ export class SettingsDialogComponent {
     const catMap = new Map<string, Map<string, { id: string; description: string; chords: string[][]; enabled: boolean }>>();
 
     for (const b of snapshot) {
-      if (b.trigger.device !== 'keyboard') continue;
+      if (b.trigger.device !== 'keyboard' && b.trigger.device !== 'mouse') continue;
       const cat = b.category ?? 'General';
       if (!catMap.has(cat)) catMap.set(cat, new Map());
       const group = catMap.get(cat)!;
 
-      const chords = b.trigger.chord.steps.map((s) => {
-        const label = this.formatStep(s);
-        return [label];
-      });
+      const chords = b.trigger.device === 'keyboard'
+        ? b.trigger.chord.steps.map((s) => {
+            const label = this.formatStep(s);
+            return [label];
+          })
+        : this.formatMouseGesture(b);
 
       const existing = group.get(b.commandId);
       if (existing) {
@@ -1211,6 +1251,7 @@ export class SettingsDialogComponent {
       return;
     }
     this.recordingBindingId = bindingId;
+    this.recordingSteps = [];
     const binding = this.inputEngine.getBinding(bindingId);
     this.recordingDescription = binding?.description ?? bindingId;
   }
@@ -1218,11 +1259,43 @@ export class SettingsDialogComponent {
   cancelRecording(): void {
     this.recordingBindingId = null;
     this.recordingDescription = '';
+    this.recordingSteps = [];
+    if (this.recordingTimeout !== null) {
+      window.clearTimeout(this.recordingTimeout);
+      this.recordingTimeout = null;
+    }
   }
 
-  private commitRecording(stroke: KeyStroke): void {
+  finishRecording(): void {
+    if (this.recordingSteps.length === 0) {
+      this.cancelRecording();
+      return;
+    }
+    this.commitRecordingSteps(this.recordingSteps);
+  }
+
+  private onRecordingStep(stroke: KeyStroke): void {
     const bindingId = this.recordingBindingId;
     if (!bindingId) return;
+
+    this.recordingSteps.push(stroke);
+
+    // Clear existing timeout
+    if (this.recordingTimeout !== null) {
+      window.clearTimeout(this.recordingTimeout);
+      this.recordingTimeout = null;
+    }
+
+    // Start a timeout: if user presses another key within CHORD_STEP_TIMEOUT_MS, it becomes next step
+    const CHORD_STEP_TIMEOUT_MS = 1500;
+    this.recordingTimeout = window.setTimeout(() => {
+      this.finishRecording();
+    }, CHORD_STEP_TIMEOUT_MS);
+  }
+
+  private commitRecordingSteps(steps: KeyStroke[]): void {
+    const bindingId = this.recordingBindingId;
+    if (!bindingId || steps.length === 0) return;
 
     const existing = this.inputEngine.getBinding(bindingId);
     if (!existing) {
@@ -1232,10 +1305,10 @@ export class SettingsDialogComponent {
 
     const newTrigger: InputTrigger = {
       device: 'keyboard',
-      chord: { steps: [stroke] },
+      chord: { steps: [...steps] },
     };
 
-    // Check conflicts
+    // Check conflicts: exact same chord sequence
     this.conflicts.clear();
     const snapshot = this.inputEngine.getBindingSnapshot();
     const conflicts: string[] = [];
@@ -1243,8 +1316,7 @@ export class SettingsDialogComponent {
       if (b.id === bindingId) continue;
       if (b.trigger.device !== 'keyboard') continue;
       if (b.enabled === false) continue;
-      const step = b.trigger.chord.steps[0];
-      if (step && step.key === stroke.key && this.sameModifiers(step.modifiers, stroke.modifiers)) {
+      if (this.sameChord(b.trigger.chord.steps, steps)) {
         conflicts.push(b.description || b.commandId);
       }
     }
@@ -1255,6 +1327,16 @@ export class SettingsDialogComponent {
     this.inputEngine.updateBindingTrigger(bindingId, newTrigger);
     this.keybindingStorage.setOverride({ id: bindingId, trigger: newTrigger });
     this.cancelRecording();
+  }
+
+  private sameChord(a: KeyStroke[], b: KeyStroke[]): boolean {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (a[i].key !== b[i].key || !this.sameModifiers(a[i].modifiers, b[i].modifiers)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   private sameModifiers(a?: Array<'ctrl'|'shift'|'alt'|'meta'>, b?: Array<'ctrl'|'shift'|'alt'|'meta'>): boolean {
@@ -1290,6 +1372,11 @@ export class SettingsDialogComponent {
       return;
     }
 
+    if (event.key === 'Enter' && this.recordingSteps.length > 0) {
+      this.finishRecording();
+      return;
+    }
+
     // Ignore pure modifier keys
     if (['Control', 'Shift', 'Alt', 'Meta'].includes(event.key)) return;
 
@@ -1301,7 +1388,7 @@ export class SettingsDialogComponent {
     const key = this.normalizeRecordingKey(event.key, event.code);
     if (!key) return;
 
-    this.commitRecording({ key, modifiers: modifiers.length > 0 ? modifiers.sort() : undefined });
+    this.onRecordingStep({ key, modifiers: modifiers.length > 0 ? modifiers.sort() : undefined });
   }
 
   private normalizeRecordingKey(key: string, code?: string): string | null {

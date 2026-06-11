@@ -117,7 +117,7 @@ func Run(assets embed.FS, binding interface{}, archCache *cache.Cache, onStartup
 		Height:           height,
 		Frameless:        true,
 		AssetServer:      &assetserver.Options{Assets: assets},
-		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
+		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 255},
 		WindowStartState: startState,
 		OnStartup:        wrappedStartup,
 		OnBeforeClose:    onBeforeClose,
@@ -130,27 +130,27 @@ func Run(assets embed.FS, binding interface{}, archCache *cache.Cache, onStartup
 	})
 }
 
-// rectIntersectsAnyScreen reports whether the window — already positioned by
-// the caller — sits on a connected display. Wails marks the screen the window
-// currently occupies with IsCurrent; if no screen reports IsCurrent the window
-// has been placed off-screen (e.g. monitor disconnected since last save) and
-// the caller should fall back to centring.
-//
-// The width/height arguments are unused today (Wails' Screen has no origin so
-// we cannot compute geometric intersection here) but kept on the signature so
-// a richer check can be wired later without rippling through callers.
-func rectIntersectsAnyScreen(ctx context.Context, _, _, _, _ int) bool {
+// rectIntersectsAnyScreen reports whether the window rect is likely visible
+// on a connected display. Wails v2 Screen does not expose origin coordinates,
+// so we treat the primary display as starting at (0,0) and allow a reasonable
+// margin for multi-monitor negative coordinates.
+func rectIntersectsAnyScreen(ctx context.Context, x, y, w, h int) bool {
 	screens, err := wailsruntime.ScreenGetAll(ctx)
 	if err != nil || len(screens) == 0 {
 		// Fail open: assume the position is fine if we cannot enumerate.
 		return true
 	}
-	for _, screen := range screens {
-		if screen.IsCurrent {
-			return true
-		}
+	primary := screens[0]
+	const margin = 200 // allow some negative coordinates for multi-monitor
+	// If the window is completely outside the primary screen (with margin),
+	// assume it is off-screen.
+	if x+w < -margin || y+h < -margin {
+		return false
 	}
-	return false
+	if x > primary.Width+margin || y > primary.Height+margin {
+		return false
+	}
+	return true
 }
 
 // startUnifiedServer starts a single server that handles both:

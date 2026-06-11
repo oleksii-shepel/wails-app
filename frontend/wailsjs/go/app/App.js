@@ -234,6 +234,10 @@ export function GetParentPath(arg1) {
   return window['go']['app']['App']['GetParentPath'](arg1);
 }
 
+export function GetPlugin(arg1) {
+  return window['go']['app']['App']['GetPlugin'](arg1);
+}
+
 export function GetPreferences() {
   return window['go']['app']['App']['GetPreferences']();
 }
@@ -264,6 +268,10 @@ export function HandleFileDrop(arg1, arg2, arg3) {
 
 export function InitVFS() {
   return window['go']['app']['App']['InitVFS']();
+}
+
+export function InvokePluginCommand(arg1, arg2, arg3) {
+  return window['go']['app']['App']['InvokePluginCommand'](arg1, arg2, arg3);
 }
 
 export function IsAbsPath(arg1) {
@@ -308,6 +316,10 @@ export function ListDirectory(arg1, arg2) {
 
 export function ListDrives() {
   return window['go']['app']['App']['ListDrives']();
+}
+
+export function ListPlugins() {
+  return window['go']['app']['App']['ListPlugins']();
 }
 
 export function LoadWorkspace(arg1) {

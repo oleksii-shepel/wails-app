@@ -4,6 +4,7 @@ import {contracts} from '../models';
 import {cache} from '../models';
 import {app} from '../models';
 import {elevation} from '../models';
+import {plugin} from '../models';
 import {utility} from '../models';
 import {ops} from '../models';
 import {context} from '../models';
@@ -125,6 +126,8 @@ export function GetOSInfo():Promise<contracts.OSInfoResponse>;
 
 export function GetParentPath(arg1:string):Promise<string>;
 
+export function GetPlugin(arg1:string):Promise<plugin.Info>;
+
 export function GetPreferences():Promise<contracts.UserPreferences>;
 
 export function GetSpecialFolders():Promise<contracts.SpecialFoldersResponse>;
@@ -140,6 +143,8 @@ export function GetWorkspaces():Promise<contracts.WorkspaceList>;
 export function HandleFileDrop(arg1:number,arg2:number,arg3:Array<string>):Promise<void>;
 
 export function InitVFS():Promise<void>;
+
+export function InvokePluginCommand(arg1:string,arg2:string,arg3:Array<string>):Promise<void>;
 
 export function IsAbsPath(arg1:string):Promise<boolean>;
 
@@ -162,6 +167,8 @@ export function ListDirFiltered(arg1:string,arg2:boolean,arg3:contracts.FilterQu
 export function ListDirectory(arg1:string,arg2:boolean):Promise<contracts.DirectoryListing>;
 
 export function ListDrives():Promise<contracts.DrivesList>;
+
+export function ListPlugins():Promise<Array<plugin.Info>>;
 
 export function LoadWorkspace(arg1:string):Promise<contracts.WorkspaceConfig>;
 

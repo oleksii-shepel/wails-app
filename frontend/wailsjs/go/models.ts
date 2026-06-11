@@ -15,6 +15,8 @@ export namespace app {
 	    Operations: any;
 	    DirWatch: any;
 	    Elevation: any;
+	    // Go type: plugin
+	    PluginRegistry?: any;
 	
 	    static createFrom(source: any = {}) {
 	        return new State(source);
@@ -36,7 +38,26 @@ export namespace app {
 	        this.Operations = source["Operations"];
 	        this.DirWatch = source["DirWatch"];
 	        this.Elevation = source["Elevation"];
+	        this.PluginRegistry = this.convertValues(source["PluginRegistry"], null);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class VideoPlaybackPlan {
 	    mode: string;
@@ -1477,6 +1498,77 @@ export namespace ops {
 	        this.ID = source["ID"];
 	        this.Type = source["Type"];
 	        this.Progress = this.convertValues(source["Progress"], contracts.OperationProgress);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
+export namespace plugin {
+	
+	export class CommandInfo {
+	    id: string;
+	    label: string;
+	    icon?: string;
+	    hotkey?: string;
+	    appliesTo?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new CommandInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.label = source["label"];
+	        this.icon = source["icon"];
+	        this.hotkey = source["hotkey"];
+	        this.appliesTo = source["appliesTo"];
+	    }
+	}
+	export class Info {
+	    id: string;
+	    name: string;
+	    version: string;
+	    description?: string;
+	    author?: string;
+	    schemes?: string[];
+	    extensions?: string[];
+	    commands?: CommandInfo[];
+	    config?: Record<string, string>;
+	
+	    static createFrom(source: any = {}) {
+	        return new Info(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.version = source["version"];
+	        this.description = source["description"];
+	        this.author = source["author"];
+	        this.schemes = source["schemes"];
+	        this.extensions = source["extensions"];
+	        this.commands = this.convertValues(source["commands"], CommandInfo);
+	        this.config = source["config"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

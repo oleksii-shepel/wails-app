@@ -14,7 +14,8 @@ import {
   type ProjectSettings,
 } from '../services/settings.service';
 import { BROWSER_BINDINGS } from './file-browser-command-registry';
-import type { InputBindingDefinition, KeyStroke } from '../services/input-system.types';
+import { KeybindingStorageService } from '../services/keybinding-storage.service';
+import type { InputBindingDefinition, KeyStroke, InputTrigger } from '../services/input-system.types';
 
 interface SettingsDialogRequest {
   resolve: (value: boolean) => void;
@@ -810,28 +811,81 @@ interface SettingsDialogRequest {
               </section>
 
               <!-- Shortcuts -->
-              <section *ngIf="activeTab === 'shortcuts'" class="settings-section">
+              <section *ngIf="activeTab === 'shortcuts'" class="settings-section" (keydown)="onShortcutsKeydown($event)">
                 <h3 class="section-title">Keyboard Shortcuts</h3>
-                <p class="section-desc">Reference list of all keyboard shortcuts. Shortcuts are active when no text field is focused.</p>
+                <p class="section-desc">Click any shortcut to customize it. Press Escape to cancel recording.</p>
 
-                <ng-container *ngFor="let group of shortcutGroups">
+                <div class="shortcuts-toolbar">
+                  <input
+                    type="text"
+                    [(ngModel)]="shortcutSearch"
+                    (ngModelChange)="onShortcutSearchChange()"
+                    placeholder="Search shortcuts..."
+                    class="shortcut-search"
+                  />
+                  <button type="button" class="btn btn-secondary btn-small" (click)="resetAllKeybindings()">Reset All</button>
+                </div>
+
+                <div *ngIf="recordingBindingId" class="recording-banner">
+                  <span>Recording new shortcut for <strong>{{ recordingDescription }}</strong></span>
+                  <button type="button" class="btn btn-small" (click)="cancelRecording()">Cancel</button>
+                </div>
+
+                <ng-container *ngFor="let group of shortcutGroupsDynamic">
                   <div class="settings-group shortcuts-group">
                     <h4 class="group-title">{{ group.category }}</h4>
                     <div class="shortcuts-table">
-                      <div class="shortcut-row" *ngFor="let item of group.items">
+                      <div
+                        class="shortcut-row"
+                        *ngFor="let item of group.items"
+                        [class.recording]="recordingBindingId === item.id"
+                        [class.disabled]="item.enabled === false"
+                      >
                         <span class="shortcut-desc">{{ item.description }}</span>
-                        <span class="shortcut-keys">
-                          <ng-container *ngFor="let chord of item.chords; let last = last">
-                            <span class="shortcut-chord">
-                              <kbd class="key-badge" *ngFor="let k of chord">{{ k }}</kbd>
+                        <div class="shortcut-actions">
+                          <button
+                            type="button"
+                            class="shortcut-key-btn"
+                            (click)="startRecording(item.id)"
+                            [disabled]="!!recordingBindingId && recordingBindingId !== item.id"
+                          >
+                            <ng-container *ngIf="recordingBindingId !== item.id">
+                              <span *ngFor="let chord of item.chords; let last = last" class="shortcut-chord">
+                                <kbd class="key-badge" *ngFor="let k of chord">{{ k }}</kbd>
+                              </span>
+                              <span *ngIf="item.enabled === false" class="shortcut-disabled-tag">Disabled</span>
+                            </ng-container>
+                            <span *ngIf="recordingBindingId === item.id" class="recording-hint">
+                              Press keys...
                             </span>
-                            <span class="chord-then" *ngIf="!last">then</span>
-                          </ng-container>
-                        </span>
+                          </button>
+                          <button
+                            type="button"
+                            class="btn btn-small btn-icon"
+                            (click)="toggleBindingEnabled(item.id)"
+                            [title]="item.enabled === false ? 'Enable' : 'Disable'"
+                          >
+                            <svg *ngIf="item.enabled !== false" width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M10.5 8a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0z"/><path d="M0 8s3-5.5 8-5.5S16 8 16 8s-3 5.5-8 5.5S0 8 0 8zm8 3.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z"/></svg>
+                            <svg *ngIf="item.enabled === false" width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M13.359 11.238C15.06 9.72 16 8 16 8s-3-5.5-8-5.5a7.028 7.028 0 0 0-2.79.588l.77.771A5.944 5.944 0 0 1 8 3.5c2.12 0 3.879 1.168 5.168 2.457A13.134 13.134 0 0 1 14.828 8c-.058.087-.122.183-.195.288-.335.48-.83 1.12-1.465 1.755-.165.165-.337.328-.517.486l.708.709z"/><path d="M11.297 9.176a3.5 3.5 0 0 0-4.474-4.474l.823.823a2.5 2.5 0 0 1 2.829 2.829l.822.822zm-2.943 1.299.822.822a3.5 3.5 0 0 1-4.474-4.474l.823.823a2.5 2.5 0 0 0 2.829 2.829z"/><path d="M3.35 5.47c-.18.16-.353.322-.518.487A13.134 13.134 0 0 0 1.172 8l.195.288c.335.48.83 1.12 1.465 1.755C4.121 11.332 5.881 12.5 8 12.5c.716 0 1.39-.133 2.02-.36l.77.772A7.028 7.028 0 0 1 8 13.5C3 13.5 0 8 0 8s.939-1.721 2.641-3.238l.708.709z"/><path d="M10.084 6.906a5.002 5.002 0 0 1 1.753 3.134l.708.709a6.002 6.002 0 0 0-2.163-3.325l-.298.482zM8.293 5.293 4.525 9.06l-.707-.707L7.586 4.586l.707.707z"/></svg>
+                          </button>
+                          <button
+                            type="button"
+                            class="btn btn-small btn-icon"
+                            (click)="resetKeybinding(item.id)"
+                            title="Reset to default"
+                          >
+                            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/><path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/></svg>
+                          </button>
+                        </div>
+                        <div *ngIf="hasConflict(item.id)" class="shortcut-conflict">{{ getConflictMessage(item.id) }}</div>
                       </div>
                     </div>
                   </div>
                 </ng-container>
+
+                <div *ngIf="shortcutGroupsDynamic.length === 0" class="shortcuts-no-results">
+                  No shortcuts found for "{{ shortcutSearch }}"
+                </div>
               </section>
 
               <!-- About -->
@@ -964,6 +1018,12 @@ export class SettingsDialogComponent {
   hasChanges = false;
   draft: ProjectSettings = this.settingsService.getSettings();
 
+  // Keybinding customization state
+  shortcutSearch = '';
+  recordingBindingId: string | null = null;
+  recordingDescription = '';
+  private conflicts = new Map<string, string[]>();
+
   readonly tabs: { id: SettingsTab; label: string; icon: string; divider?: boolean }[] = [
     {
       id: 'general',
@@ -1012,6 +1072,7 @@ export class SettingsDialogComponent {
     private readonly inputContexts: InputContextService,
     private readonly inputEngine: InputEngineService,
     private readonly overlayFreeze: NativeOverlayFreezeService,
+    private readonly keybindingStorage: KeybindingStorageService,
   ) {}
 
   ngOnInit(): void {
@@ -1083,11 +1144,14 @@ export class SettingsDialogComponent {
     return parts.join('+');
   }
 
-  /** Shortcut groups derived from BROWSER_BINDINGS, deduplicated by commandId+category. */
-  get shortcutGroups(): Array<{ category: string; items: Array<{ description: string; chords: string[][] }> }> {
-    const catMap = new Map<string, Map<string, { description: string; chords: string[][] }>>();
+  get shortcutGroupsDynamic(): Array<{
+    category: string;
+    items: Array<{ id: string; description: string; chords: string[][]; enabled: boolean }>;
+  }> {
+    const snapshot = this.inputEngine.getBindingSnapshot();
+    const catMap = new Map<string, Map<string, { id: string; description: string; chords: string[][]; enabled: boolean }>>();
 
-    for (const b of BROWSER_BINDINGS) {
+    for (const b of snapshot) {
       if (b.trigger.device !== 'keyboard') continue;
       const cat = b.category ?? 'General';
       if (!catMap.has(cat)) catMap.set(cat, new Map());
@@ -1098,31 +1162,204 @@ export class SettingsDialogComponent {
         return [label];
       });
 
-      const key = `${b.commandId}:${cat}`;
       const existing = group.get(b.commandId);
       if (existing) {
         // merge alternative chord as separate display entry only if description differs
         if (existing.description !== b.description) {
-          group.set(key, { description: b.description, chords });
+          group.set(`${b.commandId}:${b.id}`, { id: b.id, description: b.description, chords, enabled: b.enabled !== false });
         }
       } else {
-        group.set(b.commandId, { description: b.description, chords });
+        group.set(b.commandId, { id: b.id, description: b.description, chords, enabled: b.enabled !== false });
       }
     }
 
-    const categoryOrder = ['Navigation', 'Tab Management', 'File Operations', 'Search & Filter', 'Workspaces', 'Pane Control'];
-    const result: Array<{ category: string; items: Array<{ description: string; chords: string[][] }> }> = [];
+    let entries = Array.from(catMap.entries());
+    if (this.shortcutSearch.trim()) {
+      const search = this.shortcutSearch.toLowerCase().trim();
+      entries = entries.map(([cat, groupMap]) => {
+        const filtered = new Map(Array.from(groupMap.entries()).filter(([, item]) => {
+          return item.description.toLowerCase().includes(search)
+            || item.chords.some(chord => chord.some(k => k.toLowerCase().includes(search)));
+        }));
+        return [cat, filtered] as [string, Map<string, { id: string; description: string; chords: string[][]; enabled: boolean }>];
+      }).filter(([, groupMap]) => groupMap.size > 0);
+    }
+
+    const categoryOrder = ['Navigation', 'Tab Management', 'File Operations', 'Search & Filter', 'Workspaces', 'Pane Control', 'Tools'];
+    const result: Array<{ category: string; items: Array<{ id: string; description: string; chords: string[][]; enabled: boolean }> }> = [];
     for (const cat of categoryOrder) {
-      const group = catMap.get(cat);
-      if (group) {
-        result.push({ category: cat, items: [...group.values()] });
-        catMap.delete(cat);
+      const groupMap = entries.find(([c]) => c === cat)?.[1];
+      if (groupMap && groupMap.size > 0) {
+        result.push({ category: cat, items: [...groupMap.values()] });
       }
     }
-    for (const [cat, group] of catMap) {
-      result.push({ category: cat, items: [...group.values()] });
+    for (const [cat, groupMap] of entries) {
+      if (!categoryOrder.includes(cat) && groupMap.size > 0) {
+        result.push({ category: cat, items: [...groupMap.values()] });
+      }
     }
     return result;
+  }
+
+  onShortcutSearchChange(): void {
+    // Triggered by ngModelChange - getter recomputes automatically
+  }
+
+  startRecording(bindingId: string): void {
+    if (this.recordingBindingId === bindingId) {
+      this.cancelRecording();
+      return;
+    }
+    this.recordingBindingId = bindingId;
+    const binding = this.inputEngine.getBinding(bindingId);
+    this.recordingDescription = binding?.description ?? bindingId;
+  }
+
+  cancelRecording(): void {
+    this.recordingBindingId = null;
+    this.recordingDescription = '';
+  }
+
+  private commitRecording(stroke: KeyStroke): void {
+    const bindingId = this.recordingBindingId;
+    if (!bindingId) return;
+
+    const existing = this.inputEngine.getBinding(bindingId);
+    if (!existing) {
+      this.cancelRecording();
+      return;
+    }
+
+    const newTrigger: InputTrigger = {
+      device: 'keyboard',
+      chord: { steps: [stroke] },
+    };
+
+    // Check conflicts
+    this.conflicts.clear();
+    const snapshot = this.inputEngine.getBindingSnapshot();
+    const conflicts: string[] = [];
+    for (const b of snapshot) {
+      if (b.id === bindingId) continue;
+      if (b.trigger.device !== 'keyboard') continue;
+      if (b.enabled === false) continue;
+      const step = b.trigger.chord.steps[0];
+      if (step && step.key === stroke.key && this.sameModifiers(step.modifiers, stroke.modifiers)) {
+        conflicts.push(b.description || b.commandId);
+      }
+    }
+    if (conflicts.length > 0) {
+      this.conflicts.set(bindingId, conflicts);
+    }
+
+    this.inputEngine.updateBindingTrigger(bindingId, newTrigger);
+    this.keybindingStorage.setOverride({ id: bindingId, trigger: newTrigger });
+    this.cancelRecording();
+  }
+
+  private sameModifiers(a?: Array<'ctrl'|'shift'|'alt'|'meta'>, b?: Array<'ctrl'|'shift'|'alt'|'meta'>): boolean {
+    const ma = (a ?? []).sort().join('+');
+    const mb = (b ?? []).sort().join('+');
+    return ma === mb;
+  }
+
+  hasConflict(bindingId: string): boolean {
+    return this.conflicts.has(bindingId);
+  }
+
+  getConflictMessage(bindingId: string): string {
+    const list = this.conflicts.get(bindingId);
+    if (!list || list.length === 0) return '';
+    return `Conflicts with: ${list.join(', ')}`;
+  }
+
+  onShortcutsKeydown(event: KeyboardEvent): void {
+    if (!this.recordingBindingId) return;
+
+    // Don't capture when typing in inputs
+    const target = event.target as HTMLElement | null;
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (event.key === 'Escape') {
+      this.cancelRecording();
+      return;
+    }
+
+    // Ignore pure modifier keys
+    if (['Control', 'Shift', 'Alt', 'Meta'].includes(event.key)) return;
+
+    const modifiers: KeyStroke['modifiers'] = [];
+    if (event.ctrlKey || event.metaKey) modifiers.push(event.ctrlKey ? 'ctrl' : 'meta');
+    if (event.shiftKey) modifiers.push('shift');
+    if (event.altKey) modifiers.push('alt');
+
+    const key = this.normalizeRecordingKey(event.key, event.code);
+    if (!key) return;
+
+    this.commitRecording({ key, modifiers: modifiers.length > 0 ? modifiers.sort() : undefined });
+  }
+
+  private normalizeRecordingKey(key: string, code?: string): string | null {
+    const codeMap: Record<string, string> = {
+      NumpadAdd: 'numpadadd',
+      NumpadSubtract: 'numpadsubtract',
+      NumpadMultiply: 'numpadmultiply',
+    };
+    if (code && codeMap[code]) return codeMap[code];
+
+    const keyMap: Record<string, string> = {
+      ' ': 'space',
+      Escape: 'escape',
+      Enter: 'enter',
+      Tab: 'tab',
+      Insert: 'insert',
+      Backspace: 'backspace',
+      Delete: 'delete',
+      Home: 'home',
+      End: 'end',
+      PageUp: 'pageup',
+      PageDown: 'pagedown',
+      ArrowUp: 'arrowup',
+      ArrowDown: 'arrowdown',
+      ArrowLeft: 'arrowleft',
+      ArrowRight: 'arrowright',
+    };
+    return keyMap[key] ?? key.toLowerCase();
+  }
+
+  toggleBindingEnabled(bindingId: string): void {
+    const binding = this.inputEngine.getBinding(bindingId);
+    if (!binding) return;
+    const next = binding.enabled === false;
+    this.inputEngine.setBindingEnabled(bindingId, next);
+    this.keybindingStorage.setOverride({ id: bindingId, enabled: next });
+  }
+
+  resetKeybinding(bindingId: string): void {
+    const def = this.keybindingStorage.getDefaultBinding(bindingId);
+    if (def) {
+      this.inputEngine.updateBindingTrigger(bindingId, def.trigger);
+      this.inputEngine.setBindingEnabled(bindingId, true);
+    }
+    this.keybindingStorage.removeOverride(bindingId);
+    this.conflicts.delete(bindingId);
+  }
+
+  resetAllKeybindings(): void {
+    for (const override of this.keybindingStorage.getOverrides()) {
+      const def = this.keybindingStorage.getDefaultBinding(override.id);
+      if (def) {
+        this.inputEngine.updateBindingTrigger(override.id, def.trigger);
+        this.inputEngine.setBindingEnabled(override.id, true);
+      }
+    }
+    this.keybindingStorage.resetAll();
+    this.conflicts.clear();
   }
 
   onSettingChanged(): void {

@@ -17,6 +17,7 @@ import type { InputEngineService } from '../services/input-engine.service';
 // ─── Command IDs ──────────────────────────────────────────────────────────────
 
 export const BC = {
+  openCommandPalette:   'pane.nav.openCommandPalette',
   openGlobalSearch:     'pane.nav.openGlobalSearch',
   showPathHistory:      'pane.nav.showPathHistory',
   quickPathJump:        'pane.nav.quickPathJump',
@@ -68,6 +69,8 @@ export const BC = {
   moveToOtherPane:      'pane.ctrl.moveToOther',
   focusAddressBar:      'pane.ctrl.focusAddressBar',
   diskUsage:            'pane.tools.diskUsage',
+  batchRename:          'pane.files.batchRename',
+  openWithExternal:     'pane.files.openWithExternal',
 } as const;
 
 // ─── Binding helpers ──────────────────────────────────────────────────────────
@@ -141,12 +144,15 @@ const FILES = 'File Operations';
 const SRCH = 'Search & Filter';
 const WS   = 'Workspaces';
 const PANE = 'Pane Control';
+const TOOLS = 'Tools';
 
 // ─── Binding catalog ──────────────────────────────────────────────────────────
 
 export const BROWSER_BINDINGS: InputBindingDefinition[] = [
 
   // ── Navigation ─────────────────────────────────────────────────────────────
+  kb('pane.nav.openCommandPalette.ctrlShiftP', BC.openCommandPalette, 'p', 'Open command palette', { modifiers: ['ctrl', 'shift'], category: NAV }),
+  kb('pane.nav.openCommandPalette.f1', BC.openCommandPalette, 'f1', 'Open command palette (F1)', { category: NAV }),
   kb('pane.nav.openGlobalSearch.ctrlK', BC.openGlobalSearch, 'k', 'Open global search', { modifiers: ['ctrl'], category: NAV }),
   chord('pane.nav.openGlobalSearch.gs', BC.openGlobalSearch, { key: 'g' }, { key: 's' }, 'Open global search (G then S)', NAV),
   kb('pane.nav.showPathHistory.ctrlH', BC.showPathHistory, 'h', 'Show path history', { modifiers: ['ctrl'], category: NAV }),
@@ -227,11 +233,16 @@ export const BROWSER_BINDINGS: InputBindingDefinition[] = [
   // ── Tools ─────────────────────────────────────────────────────────────────
   kb('pane.tools.diskUsage.ctrlShiftD', BC.diskUsage, 'd', 'Analyze disk usage',
     { modifiers: ['ctrl', 'shift'], category: FILES }),
+
+  // ── Additional File Operations ────────────────────────────────────────────
+  kb('pane.files.batchRename.ctrlShiftR', BC.batchRename, 'r', 'Batch rename selected items', { modifiers: ['ctrl', 'shift'], category: FILES }),
+  kb('pane.files.openWithExternal.ctrlShiftO', BC.openWithExternal, 'o', 'Open with external application', { modifiers: ['ctrl', 'shift'], category: FILES }),
 ];
 
 // ─── Handler interface ────────────────────────────────────────────────────────
 
 export interface FileBrowserCommandHandlers {
+  openCommandPalette:   () => void;
   openGlobalSearch:     () => void;
   showPathHistory:      () => void;
   quickPathJump:        () => void;
@@ -283,6 +294,8 @@ export interface FileBrowserCommandHandlers {
   moveToOtherPane:      () => void;
   focusAddressBar:      () => void;
   diskUsage:            () => void;
+  batchRename:          () => void;
+  openWithExternal:     () => void;
 }
 
 // ─── Registration ─────────────────────────────────────────────────────────────
@@ -355,6 +368,8 @@ export function registerFileBrowserCommands(
   engine.registerCommand(BC.moveToOtherPane,        handlers.moveToOtherPane,        ownerId);
   engine.registerCommand(BC.focusAddressBar,        handlers.focusAddressBar,        ownerId);
   engine.registerCommand(BC.diskUsage,              handlers.diskUsage,              ownerId);
+  engine.registerCommand(BC.batchRename,            handlers.batchRename,            ownerId);
+  engine.registerCommand(BC.openWithExternal,       handlers.openWithExternal,       ownerId);
 
   return () => {
     for (const binding of BROWSER_BINDINGS) {
@@ -380,5 +395,7 @@ export function registerFileBrowserCommands(
     for (let i = 1; i <= 9; i++) {
       engine.unregisterCommand(BC.jumpToTab(i), ownerId);
     }
+    engine.unregisterCommand(BC.batchRename, ownerId);
+    engine.unregisterCommand(BC.openWithExternal, ownerId);
   };
 }

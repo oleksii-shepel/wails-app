@@ -9,6 +9,7 @@ import type {
   InputSourceKind,
   KeyStroke,
   PluginInputContribution,
+  InputTrigger,
 } from './input-system.types';
 
 type InputCommandHandler = () => void | Promise<void>;
@@ -204,6 +205,39 @@ export class InputEngineService {
       ...binding,
       enabled: binding.enabled,
     }));
+  }
+
+  getBinding(bindingId: string): InputBindingDefinition | undefined {
+    const binding = this.bindings.get(bindingId);
+    if (!binding) return undefined;
+    return { ...binding, enabled: binding.enabled };
+  }
+
+  getRegisteredCommandIds(): string[] {
+    return Array.from(this.commands.keys());
+  }
+
+  dispatchCommandById(commandId: string): boolean {
+    const handler = this.getCommandHandler(commandId);
+    if (!handler) return false;
+    try {
+      const result = handler();
+      if (result instanceof Promise) {
+        result.catch(error => console.error('Input command failed:', error));
+      }
+      return true;
+    } catch (error) {
+      console.error('Input command failed:', error);
+      return false;
+    }
+  }
+
+  updateBindingTrigger(bindingId: string, trigger: InputTrigger): boolean {
+    const binding = this.bindings.get(bindingId);
+    if (!binding) return false;
+    binding.trigger = trigger;
+    this.emitBindings();
+    return true;
   }
 
   getContextSnapshot(): InputContextDefinition[] {

@@ -1,0 +1,103 @@
+import { Injectable } from '@angular/core';
+import { InputTrigger, InputBindingDefinition } from './input-system.types';
+import { BROWSER_BINDINGS } from '../components/file-browser-command-registry';
+import { DIALOG_INPUT_CATALOG } from './dialog-input-catalog';
+
+export interface KeybindingOverride {
+  id: string;
+  trigger?: InputTrigger;
+  enabled?: boolean;
+}
+
+const STORAGE_KEY = 'keybinding-overrides-v1';
+
+function buildDefaultCatalog(): Map<string, InputBindingDefinition> {
+  const map = new Map<string, InputBindingDefinition>();
+  for (const binding of BROWSER_BINDINGS) {
+    map.set(binding.id, binding);
+  }
+  for (const entry of DIALOG_INPUT_CATALOG) {
+    for (const binding of entry.bindings) {
+      map.set(binding.id, binding);
+    }
+  }
+  return map;
+}
+
+@Injectable({ providedIn: 'root' })
+export class KeybindingStorageService {
+  private readonly defaults = buildDefaultCatalog();
+  private overrides: KeybindingOverride[] = [];
+
+  constructor() {
+    this.load();
+  }
+
+  getOverrides(): KeybindingOverride[] {
+    return [...this.overrides];
+  }
+
+  getDefaultBinding(bindingId: string): InputBindingDefinition | undefined {
+    return this.defaults.get(bindingId);
+  }
+
+  setOverride(override: KeybindingOverride): void {
+    const idx = this.overrides.findIndex(o => o.id === override.id);
+    if (idx >= 0) {
+      this.overrides[idx] = { ...this.overrides[idx], ...override };
+    } else {
+      this.overrides.push(override);
+    }
+    this.save();
+  }
+
+  removeOverride(bindingId: string): void {
+    this.overrides = this.overrides.filter(o => o.id !== bindingId);
+    this.save();
+  }
+
+  resetAll(): void {
+    this.overrides = [];
+    this.save();
+  }
+
+  applyOverrides(engine: {
+    registerBinding(binding: InputBindingDefinition): void;
+    updateBindingTrigger(bindingId: string, trigger: InputTrigger): boolean;
+    setBindingEnabled(bindingId: string, enabled: boolean): void;
+  }): void {
+    for (const override of this.overrides) {
+      const def = this.defaults.get(override.id);
+      if (!def) continue;
+
+      if (override.trigger) {
+        engine.updateBindingTrigger(override.id, override.trigger);
+      }
+      if (typeof override.enabled === 'boolean') {
+        engine.setBindingEnabled(override.id, override.enabled);
+      }
+    }
+  }
+
+  private load(): void {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as KeybindingOverride[];
+        if (Array.isArray(parsed)) {
+          this.overrides = parsed;
+        }
+      }
+    } catch {
+      // ignore parse errors
+    }
+  }
+
+  private save(): void {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.overrides));
+    } catch {
+      // ignore storage errors
+    }
+  }
+}

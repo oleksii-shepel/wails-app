@@ -77,6 +77,14 @@ export const DIALOG_INPUT_CATALOG: DialogBindingCatalogEntry[] = [
     ],
   },
   {
+    context: dialogContext('dialog.commandPalette', 'dialog', 975, 'Command palette'),
+    bindings: [
+      keyBinding('dialog.commandPalette.close.escape', 'dialog.commandPalette', 'dialog.commandPalette.close', 'escape', 'Close command palette'),
+      keyBinding('dialog.commandPalette.next.arrowDown', 'dialog.commandPalette', 'dialog.commandPalette.next', 'arrowdown', 'Select next command'),
+      keyBinding('dialog.commandPalette.prev.arrowUp', 'dialog.commandPalette', 'dialog.commandPalette.prev', 'arrowup', 'Select previous command'),
+    ],
+  },
+  {
     context: dialogContext('dialog.keyboardHelp', 'dialog', 970, 'Keyboard help dialog'),
     bindings: [
       keyBinding('dialog.keyboardHelp.close.escape', 'dialog.keyboardHelp', 'dialog.keyboardHelp.close', 'escape', 'Close keyboard help'),

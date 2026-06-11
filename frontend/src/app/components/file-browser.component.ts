@@ -9,6 +9,7 @@ import { KeyboardHelpComponent } from './keyboard-help.component';
 import { WorkspaceSelectorComponent } from './workspace-selector.component';
 import { FileBrowserCommandHandlers, registerFileBrowserCommands } from './file-browser-command-registry';
 import { GlobalSearchComponent } from './global-search.component';
+import { CommandPaletteComponent } from './command-palette.component';
 import { PathHistoryService } from '../services/path-history.service';
 import { ThemeService } from '../services/theme.service';
 import { PathHistoryViewerComponent } from './path-history-viewer.component';
@@ -28,6 +29,7 @@ import { StatusBarComponent } from './status-bar.component';
 import { OperationStatusBarComponent } from './operation-status-bar.component';
 import { OperationToastStackComponent } from './operation-stack.component';
 import { ArchiveService } from '../services/archive.service';
+import { KeybindingStorageService } from '../services/keybinding-storage.service';
 import { ElevationStatusPillComponent } from './elevation-status-pill.component';
 import {
   WindowMinimise,
@@ -54,6 +56,7 @@ import { WindowStateService } from '../services/window-state.service';
     PathHistoryViewerComponent,
     GlobalSearchComponent,
     KeyboardHelpComponent,
+    CommandPaletteComponent,
     SplitDividerComponent,
     StatusBarComponent,
     OperationToastStackComponent,
@@ -74,6 +77,7 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
 
   @ViewChild(KeyboardHelpComponent) keyboardHelp?: KeyboardHelpComponent;
   @ViewChild(GlobalSearchComponent) globalSearch?: GlobalSearchComponent;
+  @ViewChild(CommandPaletteComponent) commandPalette?: CommandPaletteComponent;
   @ViewChild(PathHistoryViewerComponent) pathHistoryViewer?: PathHistoryViewerComponent;
   @ViewChild('panesContainer') panesContainer?: ElementRef;
 
@@ -126,6 +130,7 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
     private ngZone: NgZone,
     private cdr: ChangeDetectorRef,
     private windowStateService: WindowStateService,
+    private keybindingStorage: KeybindingStorageService,
   ) {
     this.pathHelper = new FileBrowserPathHelper(this.apiService);
   }
@@ -171,6 +176,7 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
       });
 
     this.browserCommandCleanup = this.setupBrowserCommands();
+    this.keybindingStorage.applyOverrides(this.inputEngine);
     this.registerMouseBindings();
     this.layoutController.loadPaneWidths(this.layoutHost);
     void this.runtimeController.initialize(this.runtimeHost);
@@ -549,6 +555,28 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
+  private openSelectedWithExternal(): void {
+    const pane = this.getActivePane();
+    if (!pane || this.getPaneTabKind(pane) !== 'dir') return;
+
+    const cursorPath = pane.selectionCursorPath;
+    if (!cursorPath || cursorPath === PARENT_ENTRY_PATH) return;
+
+    const entry = pane.filteredEntries.find(candidate => candidate.path === cursorPath)
+      ?? pane.entries.find(candidate => candidate.path === cursorPath);
+    if (!entry || entry.path === PARENT_ENTRY_PATH) return;
+
+    if (entry.type === FileType.DIRECTORY) {
+      // For directories, just open them internally
+      pane.browserCommands.navigation.openSelectedItem();
+      return;
+    }
+
+    this.apiService.openFile(entry.path).catch(err =>
+      console.error('Failed to open file externally:', err)
+    );
+  }
+
   onPanePathChange(paneId: string, path: string): void {
     this.searchController.onPanePathChange(this.searchHost, paneId, path);
     this.syncSizeManagerPane(this.getOppositePaneId(paneId as 'left' | 'right'), path);
@@ -575,6 +603,7 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
       refresh:               () => this.getActivePane()?.browserCommands.navigation.refresh(),
       showKeyboardHelp:      () => this.keyboardHelp?.show(),
       openSettings:          () => this.appSettingsService.openSettings(),
+      openCommandPalette:    () => this.commandPalette?.show(),
       cursorUp:              () => this.getActivePane()?.shortcuts.selection.moveCursorUp(),
       cursorDown:            () => this.getActivePane()?.shortcuts.selection.moveCursorDown(),
       cursorLeft:            () => this.getActivePane()?.shortcuts.selection.moveCursorLeft(),
@@ -632,6 +661,8 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
         const targetPane = this.getOtherPane();
         targetPane?.openDiskUsageAnalyzer(sourcePath ?? undefined);
       },
+      batchRename:           () => this.getActivePane()?.browserCommands.selection.renameSelected(),
+      openWithExternal:      () => this.openSelectedWithExternal(),
     };
     return registerFileBrowserCommands(this.inputEngine, handlers, 'file-browser');
   }

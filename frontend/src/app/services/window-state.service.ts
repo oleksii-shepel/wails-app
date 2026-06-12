@@ -90,6 +90,14 @@ export class WindowStateService implements OnDestroy {
 
     if (observed.width <= 0 || observed.height <= 0) return;
 
+    // Ignore minimised windows: Windows reports x/y = -32000 and a tiny size.
+    // Keep the previously persisted normal bounds instead.
+    if (this.isMinimised(observed)) {
+      if (!observed.maximised) return;
+      // If somehow maximised and minimised at the same time, drop the bogus bounds.
+      observed = { ...observed, width: 0, height: 0, x: 0, y: 0, hasPosition: false };
+    }
+
     try {
       const current = this.cachedPreferences ?? (await GetPreferences() as unknown as BackendUserPreferences);
       this.cachedPreferences = current;
@@ -129,6 +137,18 @@ export class WindowStateService implements OnDestroy {
       maximised: true,
       hasPosition: prev.hasPosition ?? observed.hasPosition,
     };
+  }
+
+  private isMinimised(state: WindowState): boolean {
+    // Windows uses -32000 for minimised window coordinates.
+    const minimisedCoord = -32000;
+    const minVisibleSize = 50;
+    return (
+      state.x <= minimisedCoord ||
+      state.y <= minimisedCoord ||
+      state.width < minVisibleSize ||
+      state.height < minVisibleSize
+    );
   }
 
   private isSameWindowState(a: WindowState | undefined, b: WindowState): boolean {

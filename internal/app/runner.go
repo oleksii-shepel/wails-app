@@ -80,19 +80,26 @@ func Run(assets embed.FS, binding interface{}, archCache *cache.Cache, onStartup
 	startState := options.Normal
 
 	if saved := workspace.LoadStoredWindowState("wails-file-manager"); saved != nil {
-		if saved.Width >= 480 && saved.Height >= 320 {
+		// Detect a minimised/restored window that Windows reported as off-screen
+		// (x/y == -32000) with a tiny size. Ignore such state and use defaults.
+		const minVisibleSize = 50
+		const minimisedCoord = -32000
+		minimised := saved.X <= minimisedCoord || saved.Y <= minimisedCoord ||
+			saved.Width < minVisibleSize || saved.Height < minVisibleSize
+
+		if !minimised && saved.Width >= 480 && saved.Height >= 320 {
 			width = saved.Width
 			height = saved.Height
 		}
 		// Legacy records (pre-HasPosition) had no flag; infer one from non-zero
 		// coords. New records always carry HasPosition explicitly so legitimate
 		// (0,0) restores correctly.
-		if saved.HasPosition || saved.X != 0 || saved.Y != 0 {
+		if !minimised && (saved.HasPosition || saved.X != 0 || saved.Y != 0) {
 			x = saved.X
 			y = saved.Y
 			hasPosition = true
 		}
-		if saved.Maximised {
+		if saved.Maximised && !minimised {
 			startState = options.Maximised
 		}
 	}

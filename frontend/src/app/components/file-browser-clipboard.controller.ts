@@ -1,10 +1,13 @@
 import type { ApiService } from '../services/api.service';
 import type { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { BatchItemError, operationErrorMessage } from '../shared/protocol-enhanced';
+import type { SourceCapabilities } from '../services/source-capabilities';
+import { canReceiveTransfer, transferBlockedMessage } from '../services/transfer-capabilities';
 
 export interface FileBrowserClipboardPane {
   currentPath: string;
   selectedFiles: Set<string>;
+  sourceCapabilities: SourceCapabilities;
 }
 
 export interface FileBrowserClipboardHost {
@@ -44,6 +47,13 @@ export class FileBrowserClipboardController {
 
     const targetPane = host.getActivePane();
     if (!targetPane) {
+      return clipboard;
+    }
+
+    const operation = clipboard.operation === 'copy' ? 'copy' : 'move';
+    const destinationDecision = canReceiveTransfer(targetPane.sourceCapabilities);
+    if (!destinationDecision.allowed) {
+      host.confirmDialog.alert(transferBlockedMessage(operation, destinationDecision));
       return clipboard;
     }
 

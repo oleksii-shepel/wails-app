@@ -1,9 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { SourceCapabilities } from './source-capabilities';
-import { canTransferBetween } from './transfer-capabilities';
+import { canReceiveTransfer, canTransferBetween } from './transfer-capabilities';
 const mutable: SourceCapabilities = { read: true, create: true, delete: true, rename: true, trash: false };
 const readOnly: SourceCapabilities = { read: true, create: false, delete: false, rename: false, trash: false };
-describe('canTransferBetween', () => {
+describe('transfer capabilities', () => {
+  it('requires create capability on any transfer destination', () => {
+    expect(canReceiveTransfer(mutable).allowed).toBe(true);
+    expect(canReceiveTransfer(readOnly)).toEqual({ allowed: false, reason: 'destination-read-only' });
+  });
+
   it('allows copying from a read-only source into a writable destination', () => expect(canTransferBetween('copy', readOnly, mutable)).toEqual({ allowed: true }));
   it('blocks copying into a read-only destination', () => expect(canTransferBetween('copy', mutable, readOnly)).toEqual({ allowed: false, reason: 'destination-read-only' }));
   it('blocks moving from a read-only source', () => expect(canTransferBetween('move', readOnly, mutable)).toEqual({ allowed: false, reason: 'source-not-removable' }));

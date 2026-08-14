@@ -1,10 +1,13 @@
 import type { ApiService } from '../services/api.service';
 import type { ConfirmDialogService } from '../services/confirm-dialog.service';
 import type { FilePaneBrowserCommands } from './file-pane-browser-commands.factory';
+import type { SourceCapabilities } from '../services/source-capabilities';
+import { canReceiveTransfer, transferBlockedMessage } from '../services/transfer-capabilities';
 
 export interface FileBrowserDropPane {
   getDestinationDir(): string;
   isInArchive(): boolean;
+  sourceCapabilities: SourceCapabilities;
   browserCommands: Pick<FilePaneBrowserCommands, 'navigation'>;
 }
 
@@ -39,6 +42,12 @@ export class FileBrowserDropController {
 
     if (targetPane.isInArchive()) {
       host.confirmDialog.alert('Drag & Drop Not Supported In Archive\nDrop into a filesystem folder instead.');
+      return;
+    }
+
+    const destinationDecision = canReceiveTransfer(targetPane.sourceCapabilities);
+    if (!destinationDecision.allowed) {
+      host.confirmDialog.alert(transferBlockedMessage('copy', destinationDecision));
       return;
     }
 

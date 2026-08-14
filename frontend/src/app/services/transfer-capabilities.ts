@@ -7,9 +7,16 @@ export interface TransferCapabilityDecision {
   readonly reason?: 'source-unreadable' | 'source-not-removable' | 'destination-read-only';
 }
 
+export function canReceiveTransfer(destination: SourceCapabilities): TransferCapabilityDecision {
+  return destination.create
+    ? { allowed: true }
+    : { allowed: false, reason: 'destination-read-only' };
+}
+
 export function canTransferBetween(operation: TransferOperation, source: SourceCapabilities, destination: SourceCapabilities): TransferCapabilityDecision {
   if (!source.read) return { allowed: false, reason: 'source-unreadable' };
-  if (!destination.create) return { allowed: false, reason: 'destination-read-only' };
+  const receive = canReceiveTransfer(destination);
+  if (!receive.allowed) return receive;
   if (operation === 'move' && !source.delete) return { allowed: false, reason: 'source-not-removable' };
   return { allowed: true };
 }

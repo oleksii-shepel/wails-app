@@ -18,6 +18,10 @@ export interface CommandPresentation<TId extends string = string> {
   readonly source: CommandPresentationSource;
   /** Stable application command ID when this presentation maps to one. */
   readonly commandId?: string;
+  /** Canonical human-facing command name, when the command exposes one. */
+  readonly commandName?: string;
+  /** Additional human-facing names used by discovery surfaces. */
+  readonly aliases?: readonly string[];
 }
 
 export interface PresentedCommand<TId extends string = string> extends CommandPresentation<TId> {

@@ -375,7 +375,9 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
       const labelMatch = item.label.toLowerCase().includes(query);
       const shortcutMatch = (item.shortcut ?? '').toLowerCase().includes(query);
       const idMatch = (item.commandId ?? item.id).toLowerCase().includes(query);
-      return labelMatch || shortcutMatch || idMatch;
+      const nameMatch = (item.commandName ?? '').toLowerCase().includes(query);
+      const aliasMatch = (item.aliases ?? []).some(alias => alias.toLowerCase().includes(query));
+      return labelMatch || shortcutMatch || idMatch || nameMatch || aliasMatch;
     });
 
     const visibleIds = new Set(filteredFlat.map(item => item.id));
@@ -453,6 +455,8 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
       enabled: entry.enabled,
       source: 'registry',
       commandId: entry.id,
+      commandName: entry.name,
+      aliases: entry.aliases,
     }, () => {
       const ok = this.inputEngine.dispatchCommandById(entry.id, { source: 'palette' });
       if (!ok) {

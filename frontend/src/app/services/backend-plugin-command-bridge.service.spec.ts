@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { BackendPluginCommandBridgeService, backendPluginCommandId, parsePluginHotkey } from './backend-plugin-command-bridge.service';
+import { BackendPluginCommandBridgeService, backendPluginCommandId, backendPluginCommandName, parsePluginHotkey } from './backend-plugin-command-bridge.service';
 
 class FakeInputEngine {
   contributions: any[] = [];
@@ -31,6 +31,7 @@ describe('BackendPluginCommandBridgeService', () => {
     const contribution = input.contributions[0];
     expect(contribution.pluginId).toBe('backend-plugin:hash');
     expect(contribution.commands[0].id).toBe(backendPluginCommandId('hash', 'sha256'));
+    expect(contribution.commands[0].name).toBe(backendPluginCommandName('hash', 'sha256'));
     expect(contribution.commands[0].isEnabled()).toBe(true);
     expect(contribution.bindings[0].source).toBe('plugin');
 

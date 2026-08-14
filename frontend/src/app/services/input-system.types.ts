@@ -61,6 +61,10 @@ export interface CommandDefinition {
   description?: string;
   category?: string;
   icon?: string;
+  /** Canonical human-facing name used by interactive invocation surfaces. */
+  name?: string;
+  /** Additional human-facing names. Keep aliases globally unambiguous. */
+  aliases?: string[];
   /** Only show in command palette when these contexts are active. Empty = always show. */
   contextIds?: string[];
 }

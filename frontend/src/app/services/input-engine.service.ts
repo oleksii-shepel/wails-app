@@ -63,6 +63,10 @@ const SOURCE_PRIORITY: Record<InputSourceKind, number> = {
 
 const CHORD_TIMEOUT_MS = 1800;
 
+function normalizeCommandReference(value: string): string {
+  return value.trim().toLowerCase();
+}
+
 @Injectable({
   providedIn: 'root'
 })
@@ -211,6 +215,36 @@ export class InputEngineService {
       });
   }
 
+  /**
+   * Resolve either a stable command ID or a human-facing command name/alias.
+   * Ambiguous aliases intentionally resolve to undefined instead of guessing.
+   */
+  resolveCommandId(reference: string): string | undefined {
+    const raw = reference.trim();
+    if (!raw) return undefined;
+    if (this.commandDefinitions.has(raw) || this.commands.has(raw)) return raw;
+
+    const normalized = normalizeCommandReference(raw);
+    let match: string | undefined;
+
+    for (const definition of this.commandDefinitions.values()) {
+      const names = [definition.name, ...(definition.aliases ?? [])].filter((value): value is string => !!value);
+      if (!names.some(name => normalizeCommandReference(name) === normalized)) continue;
+      if (match && match !== definition.id) return undefined;
+      match = definition.id;
+    }
+
+    return match;
+  }
+
+  dispatchCommandByName(
+    reference: string,
+    invocation: CommandInvocation = { source: 'programmatic' },
+  ): boolean {
+    const commandId = this.resolveCommandId(reference);
+    return commandId ? this.dispatchCommandById(commandId, invocation) : false;
+  }
+
   getPreferredKeyboardBinding(commandId: string): InputBindingDefinition | undefined {
     let preferred: RegisteredBinding | undefined;
     for (const binding of this.bindings.values()) {
@@ -234,6 +268,8 @@ export class InputEngineService {
       description: definition?.description ?? preferredBinding?.description,
       category: definition?.category ?? preferredBinding?.category,
       icon: definition?.icon,
+      name: definition?.name,
+      aliases: definition?.aliases,
       contextIds: definition?.contextIds ?? (preferredBinding ? [preferredBinding.contextId] : undefined),
       registered: this.commands.has(commandId),
       enabled: this.isCommandEnabled(commandId),

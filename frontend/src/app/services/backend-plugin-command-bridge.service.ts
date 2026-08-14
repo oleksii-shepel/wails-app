@@ -12,6 +12,10 @@ export function backendPluginCommandId(pluginId: string, commandId: string): str
   return `plugin.backend.${pluginId}.${commandId}`;
 }
 
+export function backendPluginCommandName(pluginId: string, commandId: string): string {
+  return `${pluginId}.${commandId}`.toLowerCase();
+}
+
 function ownedPluginId(pluginId: string): string {
   return `${OWNER_PREFIX}${pluginId}`;
 }
@@ -117,6 +121,7 @@ export class BackendPluginCommandBridgeService {
         description: info.name ? `${info.name} plugin command` : 'Backend plugin command',
         category: 'Plugins',
         icon: command.icon,
+        name: backendPluginCommandName(info.id, command.id),
         execute: (invocation) => this.api.invokeBackendPluginCommand(
           info.id,
           command.id,

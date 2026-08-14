@@ -16,6 +16,7 @@ import type {
   CommandState,
   CommandCatalogEntry,
   InputCommandHandler,
+  CommandInvocation,
 } from './input-system.types';
 
 interface RegisteredCommand {
@@ -70,7 +71,7 @@ export class InputEngineService {
   private readonly bindings = new Map<string, RegisteredBinding>();
   private readonly commands = new Map<string, Map<string, RegisteredCommand>>();
   private readonly commandDefinitions = new Map<string, CommandDefinition>();
-  private readonly commandEnablement = new Map<string, Map<string, () => boolean>>();
+  private readonly commandEnablement = new Map<string, Map<string, (invocation?: CommandInvocation) => boolean>>();
   private readonly pluginInputRegistrations = new Map<string, {
     commandIds: string[];
     bindingIds: string[];
@@ -135,7 +136,7 @@ export class InputEngineService {
     this.registerCommand(descriptor.id, execute, ownerId);
 
     if (isEnabled) {
-      const registrations = this.commandEnablement.get(descriptor.id) ?? new Map<string, () => boolean>();
+      const registrations = this.commandEnablement.get(descriptor.id) ?? new Map<string, (invocation?: CommandInvocation) => boolean>();
       registrations.set(ownerId, isEnabled);
       this.commandEnablement.set(descriptor.id, registrations);
     }
@@ -153,7 +154,7 @@ export class InputEngineService {
     }
   }
 
-  isCommandEnabled(commandId: string): boolean {
+  isCommandEnabled(commandId: string, invocation?: CommandInvocation): boolean {
     const active = this.getActiveCommandRegistration(commandId);
     if (!active) return false;
 
@@ -165,7 +166,7 @@ export class InputEngineService {
     if (!predicate) return true;
 
     try {
-      return predicate();
+      return predicate(invocation);
     } catch (error) {
       console.error('Input command availability failed:', error);
       return false;
@@ -409,11 +410,11 @@ export class InputEngineService {
     return Array.from(this.commands.keys());
   }
 
-  dispatchCommandById(commandId: string): boolean {
-    const handler = this.getCommandHandler(commandId);
+  dispatchCommandById(commandId: string, invocation: CommandInvocation = { source: 'programmatic' }): boolean {
+    const handler = this.getCommandHandler(commandId, invocation);
     if (!handler) return false;
     try {
-      const result = handler();
+      const result = handler(invocation);
       if (result instanceof Promise) {
         result.catch(error => console.error('Input command failed:', error));
       }
@@ -490,11 +491,12 @@ export class InputEngineService {
     const resolution = this.resolveKeyStroke(stroke);
     if (!resolution) return false;
 
-    const command = this.getCommandHandler(resolution.binding.commandId);
+    const invocation: CommandInvocation = { source: 'keyboard', context: { bindingId: resolution.binding.id } };
+    const command = this.getCommandHandler(resolution.binding.commandId, invocation);
     if (!command) return false;
 
     try {
-      await command();
+      await command(invocation);
       return true;
     } catch (error) {
       console.error('Input command failed:', error);
@@ -506,11 +508,12 @@ export class InputEngineService {
     const resolution = this.resolveMouseGesture(gesture);
     if (!resolution) return false;
 
-    const command = this.getCommandHandler(resolution.binding.commandId);
+    const invocation: CommandInvocation = { source: 'mouse', context: { bindingId: resolution.binding.id } };
+    const command = this.getCommandHandler(resolution.binding.commandId, invocation);
     if (!command) return false;
 
     try {
-      await command();
+      await command(invocation);
       return true;
     } catch (error) {
       console.error('Input command failed:', error);
@@ -526,7 +529,8 @@ export class InputEngineService {
       const resolution = this.resolveKeyStroke(stroke, event);
       if (!resolution) return;
 
-      const command = this.getCommandHandler(resolution.binding.commandId);
+      const invocation: CommandInvocation = { source: 'keyboard', context: { bindingId: resolution.binding.id } };
+      const command = this.getCommandHandler(resolution.binding.commandId, invocation);
       if (!command) return;
 
       if (resolution.binding.preventDefault !== false) {
@@ -537,7 +541,7 @@ export class InputEngineService {
       }
 
       try {
-        const result = command();
+        const result = command(invocation);
         if (result instanceof Promise) {
           result.catch(error => console.error('Input command failed:', error));
         }
@@ -569,7 +573,8 @@ export class InputEngineService {
     const resolution = this.resolveMouseGesture(gesture, event);
     if (!resolution) return;
 
-    const command = this.getCommandHandler(resolution.binding.commandId);
+    const invocation: CommandInvocation = { source: 'mouse', context: { bindingId: resolution.binding.id } };
+    const command = this.getCommandHandler(resolution.binding.commandId, invocation);
     if (!command) return;
 
     this.clearPendingChord();
@@ -582,7 +587,7 @@ export class InputEngineService {
     }
 
     try {
-      const result = command();
+      const result = command(invocation);
       if (result instanceof Promise) {
         result.catch(error => console.error('Input command failed:', error));
       }
@@ -870,8 +875,8 @@ export class InputEngineService {
     this.bindings$.next(this.getBindingSnapshot());
   }
 
-  private getCommandHandler(commandId: string): InputCommandHandler | null {
-    if (!this.isCommandEnabled(commandId)) return null;
+  private getCommandHandler(commandId: string, invocation?: CommandInvocation): InputCommandHandler | null {
+    if (!this.isCommandEnabled(commandId, invocation)) return null;
     return this.getActiveCommandRegistration(commandId)?.handler ?? null;
   }
 

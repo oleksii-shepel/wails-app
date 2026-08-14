@@ -1,6 +1,6 @@
 import { Injectable } from '@angular/core';
 import type { plugin } from '../../../wailsjs/go/models';
-import type { CommandDescriptor, InputBindingDefinition, KeyStroke, PluginInputContribution } from './input-system.types';
+import type { CommandDescriptor, CommandInvocation, InputBindingDefinition, KeyStroke, PluginInputContribution } from './input-system.types';
 import { ApiService } from './api.service';
 import { InputEngineService } from './input-engine.service';
 
@@ -58,6 +58,14 @@ function commandNeedsSelection(command: plugin.CommandInfo): boolean {
   return !!command.appliesTo?.length;
 }
 
+function invocationPaths(invocation: CommandInvocation | undefined, fallback: readonly string[]): string[] {
+  const candidate = invocation?.args?.['paths'];
+  if (Array.isArray(candidate) && candidate.every(path => typeof path === 'string')) {
+    return [...candidate];
+  }
+  return [...fallback];
+}
+
 @Injectable({ providedIn: 'root' })
 export class BackendPluginCommandBridgeService {
   private readonly registeredPluginIds = new Set<string>();
@@ -109,8 +117,13 @@ export class BackendPluginCommandBridgeService {
         description: info.name ? `${info.name} plugin command` : 'Backend plugin command',
         category: 'Plugins',
         icon: command.icon,
-        execute: () => this.api.invokeBackendPluginCommand(info.id, command.id, [...this.selectionProvider()]),
-        isEnabled: () => !commandNeedsSelection(command) || this.selectionProvider().length > 0,
+        execute: (invocation) => this.api.invokeBackendPluginCommand(
+          info.id,
+          command.id,
+          invocationPaths(invocation, this.selectionProvider()),
+        ),
+        isEnabled: (invocation) => !commandNeedsSelection(command)
+          || invocationPaths(invocation, this.selectionProvider()).length > 0,
       });
 
       const stroke = parsePluginHotkey(command.hotkey);

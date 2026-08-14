@@ -36,6 +36,12 @@ describe('BackendPluginCommandBridgeService', () => {
 
     await contribution.commands[0].execute();
     expect(api.invokeBackendPluginCommand).toHaveBeenCalledWith('hash', 'sha256', ['C:/work/a.txt']);
+
+    await contribution.commands[0].execute({
+      source: 'console',
+      args: { paths: ['C:/explicit/b.txt'] },
+    });
+    expect(api.invokeBackendPluginCommand).toHaveBeenLastCalledWith('hash', 'sha256', ['C:/explicit/b.txt']);
   });
 
   it('disables path-scoped commands without a selection and cleans up on stop', async () => {

@@ -65,7 +65,26 @@ export interface CommandDefinition {
   contextIds?: string[];
 }
 
-export type InputCommandHandler = () => void | Promise<void>;
+export type CommandInvocationSource =
+  | 'keyboard'
+  | 'mouse'
+  | 'palette'
+  | 'toolbar'
+  | 'context-menu'
+  | 'console'
+  | 'api'
+  | 'programmatic';
+
+export type CommandArguments = Readonly<Record<string, unknown>>;
+
+/** Structured command invocation shared by every execution surface. */
+export interface CommandInvocation {
+  source: CommandInvocationSource;
+  args?: CommandArguments;
+  context?: Readonly<Record<string, unknown>>;
+}
+
+export type InputCommandHandler = (invocation?: CommandInvocation) => void | Promise<void>;
 
 /**
  * Runtime command descriptor. Keeps discoverable command metadata and execution
@@ -73,7 +92,7 @@ export type InputCommandHandler = () => void | Promise<void>;
  */
 export interface CommandDescriptor extends CommandDefinition {
   execute: InputCommandHandler;
-  isEnabled?: () => boolean;
+  isEnabled?: (invocation?: CommandInvocation) => boolean;
 }
 
 export interface CommandState extends CommandDefinition {

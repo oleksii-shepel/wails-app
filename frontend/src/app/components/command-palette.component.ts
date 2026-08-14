@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
-import type { InputBindingDefinition } from '../services/input-system.types';
+import type { InputBindingDefinition, CommandCatalogEntry } from '../services/input-system.types';
 import { NativeOverlayFreezeService } from '../services/native-overlay-freeze.service';
 import { CommandPaletteHistoryService } from '../services/command-palette-history.service';
 import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.directive';
@@ -315,37 +315,12 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
   }
 
   private loadCommands(): void {
-    const bindingByCommand = this.buildBindingLookup();
-    const activeContextIds = this.inputEngine.getActiveContextIds();
     const allCommands = new Map<string, PresentedCommand>();
     const categoryByCommand = new Map<string, string>();
 
-    for (const state of this.inputEngine.getCommandStates()) {
-      if (state.contextIds?.length && !state.contextIds.some(cid => activeContextIds.has(cid))) {
-        continue;
-      }
-
-      const binding = bindingByCommand.get(state.id) ?? null;
-      allCommands.set(state.id, this.createPresentedCommand(
-        state.id,
-        state.title,
-        binding,
-        state.enabled,
-      ));
-      categoryByCommand.set(state.id, state.category ?? 'General');
-      bindingByCommand.delete(state.id);
-    }
-
-    // Commands can have bindings without an explicit definition. They still use
-    // the same shared presentation model rather than a palette-only item type.
-    for (const [commandId, binding] of bindingByCommand) {
-      allCommands.set(commandId, this.createPresentedCommand(
-        commandId,
-        binding.description ?? commandId,
-        binding,
-        this.inputEngine.isCommandEnabled(commandId),
-      ));
-      categoryByCommand.set(commandId, binding.category ?? 'General');
+    for (const entry of this.inputEngine.getCommandCatalog({ activeContextsOnly: true })) {
+      allCommands.set(entry.id, this.createPresentedCommand(entry));
+      categoryByCommand.set(entry.id, entry.category ?? 'General');
     }
 
     const categoryMap = new Map<string, PresentedCommand[]>();
@@ -470,38 +445,18 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
     }, 50);
   }
 
-  private buildBindingLookup(): Map<string, InputBindingDefinition> {
-    const result = new Map<string, InputBindingDefinition>();
-    for (const binding of this.inputEngine.getBindingSnapshot()) {
-      if (binding.trigger.device !== 'keyboard') continue;
-      const existing = result.get(binding.commandId);
-      if (!existing || (
-        existing.trigger.device === 'keyboard'
-        && binding.trigger.chord.steps.length < existing.trigger.chord.steps.length
-      )) {
-        result.set(binding.commandId, binding);
-      }
-    }
-    return result;
-  }
-
-  private createPresentedCommand(
-    commandId: string,
-    label: string,
-    binding: InputBindingDefinition | null,
-    enabled: boolean,
-  ): PresentedCommand {
+  private createPresentedCommand(entry: CommandCatalogEntry): PresentedCommand {
     return bindCommandPresentation({
-      id: commandId,
-      label,
-      shortcut: this.formatBinding(binding) || undefined,
-      enabled,
+      id: entry.id,
+      label: entry.title,
+      shortcut: this.formatBinding(entry.preferredBinding ?? null) || undefined,
+      enabled: entry.enabled,
       source: 'registry',
-      commandId,
+      commandId: entry.id,
     }, () => {
-      const ok = this.inputEngine.dispatchCommandById(commandId);
+      const ok = this.inputEngine.dispatchCommandById(entry.id, { source: 'palette' });
       if (!ok) {
-        console.warn('Command palette: command not found or failed:', commandId);
+        console.warn('Command palette: command not found or failed:', entry.id);
       }
     });
   }

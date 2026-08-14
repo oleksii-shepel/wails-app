@@ -8,6 +8,7 @@ import { WorkspaceConfig } from '../shared/protocol-enhanced';
 import { KeyboardHelpComponent } from './keyboard-help.component';
 import { WorkspaceSelectorComponent } from './workspace-selector.component';
 import { FileBrowserCommandHandlers, registerFileBrowserCommands } from './file-browser-command-registry';
+import { isFileBrowserCommandAvailable } from './file-browser-command-availability';
 import { GlobalSearchComponent } from './global-search.component';
 import { CommandPaletteComponent } from './command-palette.component';
 import { PathHistoryService } from '../services/path-history.service';
@@ -688,7 +689,12 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
       batchRename:           () => this.getActivePane()?.browserCommands.selection.renameSelected(),
       openWithExternal:      () => this.openSelectedWithExternal(),
     };
-    return registerFileBrowserCommands(this.inputEngine, handlers, 'file-browser');
+    return registerFileBrowserCommands(
+      this.inputEngine,
+      handlers,
+      'file-browser',
+      commandId => isFileBrowserCommandAvailable(commandId, this.activeActionAvailability),
+    );
   }
 
   private registerMouseBindings(): void {

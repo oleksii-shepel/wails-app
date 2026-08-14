@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, ViewChild, ElementRef, Input } from '@angular/core';
+import { Component, OnInit, OnDestroy, ViewChild, ElementRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
@@ -8,9 +8,7 @@ import type { InputBindingDefinition } from '../services/input-system.types';
 import { NativeOverlayFreezeService } from '../services/native-overlay-freeze.service';
 import { CommandPaletteHistoryService } from '../services/command-palette-history.service';
 import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.directive';
-import { NO_ACTIONS, type ActionAvailability } from '../services/action-availability';
 import { bindCommandPresentation, type PresentedCommand } from './presented-command';
-import { isFileBrowserCommandAvailable } from './file-browser-command-availability';
 import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directive';
 
 interface PaletteGroup {
@@ -240,7 +238,6 @@ interface PaletteGroup {
   `]
 })
 export class CommandPaletteComponent implements OnInit, OnDestroy {
-  @Input() actionAvailability: ActionAvailability = NO_ACTIONS;
   @ViewChild('searchInput') searchInput?: ElementRef<HTMLInputElement>;
   @ViewChild('dialogPanel') dialogPanel?: ElementRef<HTMLElement>;
 
@@ -323,20 +320,20 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
     const allCommands = new Map<string, PresentedCommand>();
     const categoryByCommand = new Map<string, string>();
 
-    for (const def of this.inputEngine.getCommandDefinitions()) {
-      if (def.contextIds?.length && !def.contextIds.some(cid => activeContextIds.has(cid))) {
+    for (const state of this.inputEngine.getCommandStates()) {
+      if (state.contextIds?.length && !state.contextIds.some(cid => activeContextIds.has(cid))) {
         continue;
       }
 
-      const binding = bindingByCommand.get(def.id) ?? null;
-      allCommands.set(def.id, this.createPresentedCommand(
-        def.id,
-        def.title,
+      const binding = bindingByCommand.get(state.id) ?? null;
+      allCommands.set(state.id, this.createPresentedCommand(
+        state.id,
+        state.title,
         binding,
-        isFileBrowserCommandAvailable(def.id, this.actionAvailability),
+        state.enabled,
       ));
-      categoryByCommand.set(def.id, def.category ?? 'General');
-      bindingByCommand.delete(def.id);
+      categoryByCommand.set(state.id, state.category ?? 'General');
+      bindingByCommand.delete(state.id);
     }
 
     // Commands can have bindings without an explicit definition. They still use
@@ -346,7 +343,7 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
         commandId,
         binding.description ?? commandId,
         binding,
-        isFileBrowserCommandAvailable(commandId, this.actionAvailability),
+        this.inputEngine.isCommandEnabled(commandId),
       ));
       categoryByCommand.set(commandId, binding.category ?? 'General');
     }

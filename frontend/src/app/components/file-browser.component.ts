@@ -13,6 +13,7 @@ import { CommandPaletteComponent } from './command-palette.component';
 import { PathHistoryService } from '../services/path-history.service';
 import { ThemeService } from '../services/theme.service';
 import { PathHistoryViewerComponent } from './path-history-viewer.component';
+import { buildActionAvailability, NO_ACTIONS, type ActionAvailability } from '../services/action-availability';
 import { FileBrowserClipboardController, type FileBrowserClipboardHost } from './file-browser-clipboard.controller';
 import { FileBrowserDropController, type FileBrowserDropHost } from './file-browser-drop.controller';
 import { FileBrowserLayoutController, type FileBrowserLayoutHost } from './file-browser-layout.controller';
@@ -309,6 +310,29 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
     const targetPath = path ?? sourcePane?.currentPath;
     if (!targetPath) return;
     targetPane?.followSizeManagerNavigation(targetPath);
+  }
+
+  get leftActionAvailability(): ActionAvailability {
+    return this.buildPaneActionAvailability(this.leftPane, this.rightPane);
+  }
+
+  get rightActionAvailability(): ActionAvailability {
+    return this.buildPaneActionAvailability(this.rightPane, this.leftPane);
+  }
+
+  get activeActionAvailability(): ActionAvailability {
+    return this.activePaneId === 'left' ? this.leftActionAvailability : this.rightActionAvailability;
+  }
+
+  private buildPaneActionAvailability(source?: FilePaneComponent, destination?: FilePaneComponent): ActionAvailability {
+    if (!source) return NO_ACTIONS;
+    return buildActionAvailability({
+      source: source.sourceCapabilities,
+      destination: destination?.sourceCapabilities ?? null,
+      selectedCount: source.selectedFiles.size,
+      hasClipboard: !!this.clipboard?.paths.length,
+      clipboardOperation: this.clipboard?.operation ?? null,
+    });
   }
 
   // Status bar data — read from the active pane reactively via template bindings

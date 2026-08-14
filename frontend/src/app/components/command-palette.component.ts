@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, ViewChild, ElementRef } from '@angular/core';
+import { Component, OnInit, OnDestroy, ViewChild, ElementRef, Input } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
@@ -8,6 +8,8 @@ import { InputBindingDefinition } from '../services/input-system.types';
 import { NativeOverlayFreezeService } from '../services/native-overlay-freeze.service';
 import { CommandPaletteHistoryService } from '../services/command-palette-history.service';
 import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.directive';
+import { NO_ACTIONS, type ActionAvailability } from '../services/action-availability';
+import { BC } from './file-browser-command-registry';
 import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directive';
 
 interface PaletteItem {
@@ -15,6 +17,7 @@ interface PaletteItem {
   description: string;
   category: string;
   binding: InputBindingDefinition | null;
+  enabled: boolean;
 }
 
 interface PaletteGroup {
@@ -69,6 +72,7 @@ interface PaletteGroup {
               *ngFor="let item of group.items; let i = index"
               class="cp-item"
               [class.selected]="isSelected(item)"
+               [class.disabled]="!item.enabled"
               (click)="executeItem(item)"
               (mouseenter)="selectItem(item)"
             >
@@ -190,7 +194,8 @@ interface PaletteGroup {
       transition: background 0.08s ease;
       border-left: 2px solid transparent;
     }
-    .cp-item:hover, .cp-item.selected {
+    .cp-item.disabled { opacity: 0.45; cursor: not-allowed; }
+    .cp-item:hover:not(.disabled), .cp-item.selected:not(.disabled) {
       background: var(--vsc-list-hover-background);
       border-left-color: var(--vsc-accent-blue);
     }
@@ -242,6 +247,7 @@ interface PaletteGroup {
   `]
 })
 export class CommandPaletteComponent implements OnInit, OnDestroy {
+  @Input() actionAvailability: ActionAvailability = NO_ACTIONS;
   @ViewChild('searchInput') searchInput?: ElementRef<HTMLInputElement>;
   @ViewChild('dialogPanel') dialogPanel?: ElementRef<HTMLElement>;
 
@@ -345,6 +351,7 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
         description: def.title,
         category: cat,
         binding: bindingByCommand.get(def.id) ?? null,
+        enabled: this.isCommandAvailable(def.id),
       });
       bindingByCommand.delete(def.id);
     }
@@ -357,6 +364,7 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
         description: binding.description ?? commandId,
         category: cat,
         binding,
+        enabled: this.isCommandAvailable(commandId),
       });
     }
 
@@ -405,7 +413,7 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
     const query = this.searchQuery.toLowerCase().trim();
     if (!query) {
       this.filteredGroups = this.groups;
-      this.selectedCommandId = this.flatItems.length > 0 ? this.flatItems[0].commandId : null;
+      this.selectedCommandId = this.flatItems.find(item => item.enabled)?.commandId ?? null;
       return;
     }
 
@@ -433,7 +441,7 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
       }
     }
 
-    this.selectedCommandId = filteredFlat.length > 0 ? filteredFlat[0].commandId : null;
+    this.selectedCommandId = filteredFlat.find(item => item.enabled)?.commandId ?? null;
   }
 
   onSearchKeydown(event: KeyboardEvent): void {
@@ -457,9 +465,15 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
     const flat = this.filteredGroups.flatMap(g => g.items);
     if (flat.length === 0) return;
     let idx = flat.findIndex(i => i.commandId === this.selectedCommandId);
-    if (idx < 0) idx = 0;
-    idx = (idx + delta + flat.length) % flat.length;
-    this.selectedCommandId = flat[idx].commandId;
+    if (idx < 0) idx = delta > 0 ? -1 : 0;
+    for (let i = 0; i < flat.length; i++) {
+      idx = (idx + delta + flat.length) % flat.length;
+      if (flat[idx].enabled) {
+        this.selectedCommandId = flat[idx].commandId;
+        return;
+      }
+    }
+    this.selectedCommandId = null;
   }
 
   private findSelectedItem(): PaletteItem | null {
@@ -471,10 +485,11 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
   }
 
   selectItem(item: PaletteItem): void {
-    this.selectedCommandId = item.commandId;
+    if (item.enabled) this.selectedCommandId = item.commandId;
   }
 
   executeItem(item: PaletteItem): void {
+    if (!item.enabled) return;
     this.hide();
     this.historyService.recordCommand(item.commandId);
     // Small delay so the modal closes before the command runs (prevents focus issues)
@@ -484,6 +499,21 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
         console.warn('Command palette: command not found or failed:', item.commandId);
       }
     }, 50);
+  }
+
+  private isCommandAvailable(commandId: string): boolean {
+    switch (commandId) {
+      case BC.copy: return this.actionAvailability.copySelected;
+      case BC.cut: return this.actionAvailability.cutSelected;
+      case BC.paste: return this.actionAvailability.paste;
+      case BC.deleteSelected: return this.actionAvailability.deleteSelected;
+      case BC.newFolder: return this.actionAvailability.createFolder;
+      case BC.rename:
+      case BC.batchRename: return this.actionAvailability.rename;
+      case BC.copyToOtherPane: return this.actionAvailability.copyToOther;
+      case BC.moveToOtherPane: return this.actionAvailability.moveToOther;
+      default: return true;
+    }
   }
 
   formatBinding(binding: InputBindingDefinition | null): string {

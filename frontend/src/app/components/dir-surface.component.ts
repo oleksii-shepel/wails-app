@@ -33,6 +33,7 @@ import { DirSurfaceVm } from '../surfaces/dir/dir-surface.vm';
 
     <app-action-bar
       [selectedCount]="vm.selectedFiles.size || 0"
+      [availability]="vm.actionAvailability"
       [panePosition]="vm.paneId"
       [currentView]="vm.currentView"
       [currentSort]="vm.sortField"

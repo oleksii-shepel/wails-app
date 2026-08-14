@@ -56,6 +56,7 @@ import { BatchRenameDialogService } from '../services/batch-rename-dialog.servic
 import { RemoteConnectDialogService } from '../services/remote-connect-dialog.service';
 import { SettingsService } from '../services/settings.service';
 import { getSourceCapabilities } from '../services/source-capabilities';
+import { NO_ACTIONS, type ActionAvailability } from '../services/action-availability';
 import type { SearchResultItem } from '../services/global-search.service';
 
 declare const window: any;
@@ -176,7 +177,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   private get browserCommandsSource(): FilePaneBrowserCommandsSource {
     return {
       surfaceCapabilities: this.activeSurfaceCapabilities,
-      sourceCapabilities: this.sourceCapabilities,
+      sourceCapabilities: getSourceCapabilities(this.currentPath, { inArchive: this.isInArchive() }),
       navigationController: this.navigationController,
       navigationHost: this.navigationHost,
       openController: this.openController,
@@ -208,6 +209,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       get singleClickToOpen() { return thisRef.settingsService.getSettings().files.singleClickToOpen; },
       get showHidden() { return thisRef.showHidden; },
       get paneActive() { return thisRef.paneActive; },
+      get actionAvailability() { return thisRef.actionAvailability; },
       get filteredEntries() { return thisRef.filteredEntries; },
       get selectedFiles() { return thisRef.selectedFiles; },
       get selectionCursorPath() { return thisRef.selectionCursorPath; },
@@ -266,6 +268,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   @Input() workspace: WorkspaceConfig | null = null;
   @Input() showHidden = false;
   @Input() paneActive = true;
+  @Input() actionAvailability: ActionAvailability = NO_ACTIONS;
   @Input() showTabBar = true;
   @Input() showPathBar = true;
   @Input() showBreadcrumbs = true;

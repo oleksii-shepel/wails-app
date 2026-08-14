@@ -75,6 +75,7 @@
           [workspace]="activeWorkspace"
           [showHidden]="showHidden"
           [paneActive]="activePaneId === 'left'"
+          [actionAvailability]="leftActionAvailability"
           [showTabBar]="viewSettings.showTabBar"
           [showPathBar]="viewSettings.showPathBar"
           [showBreadcrumbs]="viewSettings.showBreadcrumbs"
@@ -104,6 +105,7 @@
           [workspace]="activeWorkspace"
           [showHidden]="showHidden"
           [paneActive]="activePaneId === 'right'"
+          [actionAvailability]="rightActionAvailability"
           [showTabBar]="viewSettings.showTabBar"
           [showPathBar]="viewSettings.showPathBar"
           [showBreadcrumbs]="viewSettings.showBreadcrumbs"
@@ -123,7 +125,7 @@
   <app-path-history-viewer></app-path-history-viewer>
   <app-global-search (resultSelected)="onGlobalSearchResult($event)" (searchFolderRequested)="onGlobalSearchFolder($event)"></app-global-search>
   <app-keyboard-help></app-keyboard-help>
-  <app-command-palette></app-command-palette>
+  <app-command-palette [actionAvailability]="activeActionAvailability"></app-command-palette>
   <app-operation-toast-stack #toastStack [collapsed]="toastCollapsed">
   </app-operation-toast-stack>
 

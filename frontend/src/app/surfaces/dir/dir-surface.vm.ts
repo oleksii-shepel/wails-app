@@ -1,6 +1,7 @@
 import type { FileInfo } from '../../shared/protocol';
 import type { ViewLayout } from '../../components/file-view-container.component';
 import type { FindWidgetState } from '../../components/filter-widget.component';
+import type { ActionAvailability } from '../../services/action-availability';
 
 export interface DirSurfaceVm {
   paneId: 'left' | 'right';
@@ -12,6 +13,7 @@ export interface DirSurfaceVm {
   singleClickToOpen: boolean;
   showHidden: boolean;
   paneActive: boolean;
+  actionAvailability: ActionAvailability;
 
   entries: FileInfo[];
   selectedFiles: Set<string>;
@@ -59,4 +61,3 @@ export interface DirSurfaceVm {
   onArchiveMoveConfirmed(): void;
   onArchiveMoveCancelled(): void;
 }
-

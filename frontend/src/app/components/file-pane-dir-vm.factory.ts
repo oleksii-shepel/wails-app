@@ -2,6 +2,7 @@ import type { FindWidgetState } from './filter-widget.component';
 import type { ViewLayout } from './file-view-container.component';
 import type { FileInfo } from '../shared/protocol';
 import type { DirSurfaceVm } from '../surfaces/dir/dir-surface.vm';
+import type { ActionAvailability } from '../services/action-availability';
 
 export interface FilePaneDirVmSource {
   get paneId(): 'left' | 'right';
@@ -13,6 +14,7 @@ export interface FilePaneDirVmSource {
   get singleClickToOpen(): boolean;
   get showHidden(): boolean;
   get paneActive(): boolean;
+  get actionAvailability(): ActionAvailability;
   get filteredEntries(): FileInfo[];
   get selectedFiles(): Set<string>;
   get selectionCursorPath(): string | null;
@@ -64,6 +66,7 @@ export class FilePaneDirVmFactory {
       get singleClickToOpen() { return source.singleClickToOpen; }
       get showHidden() { return source.showHidden; }
       get paneActive() { return source.paneActive; }
+      get actionAvailability() { return source.actionAvailability; }
       get entries() { return source.filteredEntries; }
       get selectedFiles() { return source.selectedFiles; }
       get cursorPath() { return source.selectionCursorPath; }

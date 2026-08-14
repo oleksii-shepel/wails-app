@@ -2,7 +2,7 @@ import { Component, Input, Output, EventEmitter } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { DropdownContainerComponent } from './dropdown-container.component';
 import { DropdownTriggerDirective } from '../directives/dropdown.directive';
-import type { PaneToolbarAction } from './pane-toolbar-action';
+import type { PresentedCommand } from './presented-command';
 
 export type ViewMode = 'list' | 'grid' | 'tree' | 'details';
 
@@ -224,7 +224,7 @@ export type ViewMode = 'list' | 'grid' | 'tree' | 'details';
   `]
 })
 export class ActionBarComponent {
-  @Input() actions: PaneToolbarAction[] = [];
+  @Input() actions: PresentedCommand[] = [];
 
   // View inputs
   @Input() currentView: ViewMode = 'list';
@@ -296,9 +296,9 @@ export class ActionBarComponent {
   }
 
 
-  trackAction(_index: number, action: PaneToolbarAction): string { return action.id; }
+  trackAction(_index: number, action: PresentedCommand): string { return action.id; }
 
-  invokeAction(action: PaneToolbarAction): void {
+  invokeAction(action: PresentedCommand): void {
     if (!action.enabled) return;
     void Promise.resolve(action.execute()).catch(error => {
       console.error(`Toolbar action failed: ${action.id}`, error);

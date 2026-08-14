@@ -58,12 +58,13 @@ import { SettingsService } from '../services/settings.service';
 import { getSourceCapabilities } from '../services/source-capabilities';
 import { NO_ACTIONS, type ActionAvailability } from '../services/action-availability';
 import { PluginManagerService } from '../services/plugin-manager.service';
-import { adaptPluginToolbarActions, buildBuiltinPaneToolbarActions, type PaneToolbarAction } from './pane-toolbar-action';
+import { adaptPluginToolbarActions, buildBuiltinPaneToolbarActions } from './pane-toolbar-action';
+import { bindCommandPresentation, type PresentedCommand } from './presented-command';
 import { InputEngineService } from '../services/input-engine.service';
 import type { MenuContext, ToolbarContext } from '../plugin/plugin-registry-api';
 import { BC } from './file-browser-command-registry';
 import { buildBackgroundFileContextMenu, buildBuiltinFileContextMenu, type BackgroundFileContextAction, type BuiltinFileContextAction } from './file-context-menu.model';
-import { FileContextMenuComponent, type FileContextMenuItemVm, type FileContextMenuState } from './file-context-menu.component';
+import { FileContextMenuComponent, type FileContextMenuState } from './file-context-menu.component';
 import type { SearchResultItem } from '../services/global-search.service';
 
 declare const window: any;
@@ -183,7 +184,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     return getSourceCapabilities(this.currentPath, { inArchive: this.isInArchive() });
   }
 
-  get toolbarActions(): PaneToolbarAction[] {
+  get toolbarActions(): PresentedCommand[] {
     const context: ToolbarContext = {
       selectedPaths: Array.from(this.selectedFiles).filter(path => path && path !== PARENT_ENTRY_PATH),
       currentDirectory: this.currentPath,
@@ -947,16 +948,17 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
         availability: this.actionAvailability,
         selectedCount: selectedPaths.length,
         isDirectory: entry.type === FileType.DIRECTORY,
-      }).map<FileContextMenuItemVm>(item => ({
-        ...item,
-        execute: () => this.executeBuiltinContextAction(item.id, entry),
-      }));
+      }).map(item => bindCommandPresentation(
+        item,
+        () => this.executeBuiltinContextAction(item.id, entry),
+      ));
 
-      const plugins = this.pluginManager.resolveContextMenuItems(context).map<FileContextMenuItemVm>((item, index) => ({
+      const plugins = this.pluginManager.resolveContextMenuItems(context).map<PresentedCommand>((item, index) => ({
         id: `plugin:${item.id}`,
         label: item.label,
         icon: item.icon,
         enabled: true,
+        source: 'plugin',
         separatorBefore: index === 0,
         execute: () => item.execute(context),
       }));
@@ -980,15 +982,16 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
         selectedPaths: [],
         currentDirectory: this.currentPath,
       };
-      const builtins = buildBackgroundFileContextMenu(this.actionAvailability).map<FileContextMenuItemVm>(item => ({
-        ...item,
-        execute: () => this.executeBackgroundContextAction(item.id),
-      }));
-      const plugins = this.pluginManager.resolveContextMenuItems(context).map<FileContextMenuItemVm>((item, index) => ({
+      const builtins = buildBackgroundFileContextMenu(this.actionAvailability).map(item => bindCommandPresentation(
+        item,
+        () => this.executeBackgroundContextAction(item.id),
+      ));
+      const plugins = this.pluginManager.resolveContextMenuItems(context).map<PresentedCommand>((item, index) => ({
         id: `plugin:${item.id}`,
         label: item.label,
         icon: item.icon,
         enabled: true,
+        source: 'plugin',
         separatorBefore: index === 0,
         execute: () => item.execute(context),
       }));

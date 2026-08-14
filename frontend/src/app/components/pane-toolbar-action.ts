@@ -1,18 +1,6 @@
 import type { ActionAvailability } from '../services/action-availability';
 import type { ToolbarActionContribution, ToolbarContext } from '../plugin/plugin-registry-api';
-
-export type PaneToolbarActionIcon = 'new-folder' | 'delete' | 'copy' | 'move' | 'refresh' | 'plugin';
-
-export interface PaneToolbarAction {
-  readonly id: string;
-  readonly label: string;
-  readonly icon: PaneToolbarActionIcon;
-  readonly iconText?: string;
-  readonly shortcut?: string;
-  readonly enabled: boolean;
-  readonly source: 'builtin' | 'plugin';
-  execute(): void | Promise<void>;
-}
+import type { PresentedCommand } from './presented-command';
 
 export interface BuiltinPaneToolbarHandlers {
   createFolder(): void;
@@ -25,7 +13,7 @@ export interface BuiltinPaneToolbarHandlers {
 export function buildBuiltinPaneToolbarActions(
   availability: ActionAvailability,
   handlers: BuiltinPaneToolbarHandlers,
-): PaneToolbarAction[] {
+): PresentedCommand[] {
   return [
     {
       id: 'new-folder',
@@ -33,6 +21,7 @@ export function buildBuiltinPaneToolbarActions(
       icon: 'new-folder',
       enabled: availability.createFolder,
       source: 'builtin',
+      commandId: 'pane.files.newFolder',
       execute: handlers.createFolder,
     },
     {
@@ -41,6 +30,7 @@ export function buildBuiltinPaneToolbarActions(
       icon: 'delete',
       enabled: availability.deleteSelected,
       source: 'builtin',
+      commandId: 'pane.files.delete',
       execute: handlers.deleteSelected,
     },
     {
@@ -50,6 +40,7 @@ export function buildBuiltinPaneToolbarActions(
       shortcut: 'F5',
       enabled: availability.copyToOther,
       source: 'builtin',
+      commandId: 'pane.ctrl.copyToOther',
       execute: handlers.copyToOther,
     },
     {
@@ -59,6 +50,7 @@ export function buildBuiltinPaneToolbarActions(
       shortcut: 'F6',
       enabled: availability.moveToOther,
       source: 'builtin',
+      commandId: 'pane.ctrl.moveToOther',
       execute: handlers.moveToOther,
     },
     {
@@ -68,6 +60,7 @@ export function buildBuiltinPaneToolbarActions(
       shortcut: 'Ctrl+R',
       enabled: true,
       source: 'builtin',
+      commandId: 'pane.nav.refresh',
       execute: handlers.refresh,
     },
   ];
@@ -76,7 +69,7 @@ export function buildBuiltinPaneToolbarActions(
 export function adaptPluginToolbarActions(
   contributions: readonly ToolbarActionContribution[],
   context: ToolbarContext,
-): PaneToolbarAction[] {
+): PresentedCommand[] {
   return contributions.map((contribution) => ({
     id: `plugin:${contribution.id}`,
     label: contribution.label,

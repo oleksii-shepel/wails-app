@@ -2,7 +2,7 @@ import type { FileInfo } from '../../shared/protocol';
 import type { ViewLayout } from '../../components/file-view-container.component';
 import type { FindWidgetState } from '../../components/filter-widget.component';
 import type { ActionAvailability } from '../../services/action-availability';
-import type { PaneToolbarAction } from '../../components/pane-toolbar-action';
+import type { PresentedCommand } from '../../components/presented-command';
 
 export interface DirSurfaceVm {
   paneId: 'left' | 'right';
@@ -15,7 +15,7 @@ export interface DirSurfaceVm {
   showHidden: boolean;
   paneActive: boolean;
   actionAvailability: ActionAvailability;
-  toolbarActions: PaneToolbarAction[];
+  toolbarActions: PresentedCommand[];
 
   entries: FileInfo[];
   selectedFiles: Set<string>;

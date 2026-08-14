@@ -1,20 +1,11 @@
 import { CommonModule } from '@angular/common';
 import { Component, EventEmitter, HostListener, Input, Output } from '@angular/core';
-
-export interface FileContextMenuItemVm {
-  readonly id: string;
-  readonly label: string;
-  readonly shortcut?: string;
-  readonly icon?: string;
-  readonly enabled: boolean;
-  readonly separatorBefore?: boolean;
-  readonly execute: () => void | Promise<void>;
-}
+import type { PresentedCommand } from './presented-command';
 
 export interface FileContextMenuState {
   readonly x: number;
   readonly y: number;
-  readonly items: readonly FileContextMenuItemVm[];
+  readonly items: readonly PresentedCommand[];
 }
 
 @Component({
@@ -119,11 +110,11 @@ export class FileContextMenuComponent {
   @Input() state: FileContextMenuState | null = null;
   @Output() closed = new EventEmitter<void>();
 
-  trackItem(_index: number, item: FileContextMenuItemVm): string {
+  trackItem(_index: number, item: PresentedCommand): string {
     return item.id;
   }
 
-  run(item: FileContextMenuItemVm): void {
+  run(item: PresentedCommand): void {
     if (!item.enabled) return;
     this.closed.emit();
     Promise.resolve(item.execute()).catch(error => {

@@ -47,6 +47,7 @@ import { formatPathForDisplay } from './address-bar.utils';
 import { RemoteConnectDialogService } from '../services/remote-connect-dialog.service';
 import { SettingsService } from '../services/settings.service';
 import { WindowStateService } from '../services/window-state.service';
+import { BackendPluginCommandBridgeService } from '../services/backend-plugin-command-bridge.service';
 
 @Component({
   selector: 'app-file-browser',
@@ -133,6 +134,7 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
     private cdr: ChangeDetectorRef,
     private windowStateService: WindowStateService,
     private keybindingStorage: KeybindingStorageService,
+    private backendPluginCommands: BackendPluginCommandBridgeService,
   ) {
     this.pathHelper = new FileBrowserPathHelper(this.apiService);
   }
@@ -190,12 +192,15 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
 
 
   ngAfterViewInit(): void {
-    // Show S3 mount dialog automatically on startup
-    requestAnimationFrame(() => {
-      void this.openS3MountDialog();
-    });
-    // File drop handling is done via native Wails event (wails:file-drop)
-    // No need to attach browser drag-drop listeners
+    // Backend plugin commands are discovered after panes exist so command execution
+    // always reads the live active-pane selection rather than capturing startup state.
+    void this.backendPluginCommands.start(
+      () => Array.from(this.getActivePane()?.selectedFiles ?? []),
+    ).catch(error => console.warn('Backend plugin command discovery failed:', error));
+
+    // File drop handling is done via native Wails event (wails:file-drop).
+    // Startup restoration remains non-interactive; remote mount dialogs open only
+    // from explicit user actions.
   }
 
   ngOnDestroy(): void {
@@ -204,6 +209,7 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
     this.apiService.disconnectWebSocket();
 
     this.browserCommandCleanup?.();
+    this.backendPluginCommands.stop();
     this.unregisterMouseBindings();
     this.runtimeController.dispose();
     window.removeEventListener('resize', this.handleResize);

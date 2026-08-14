@@ -29,7 +29,7 @@ import {
 import { SpecialFolder } from '../shared/protocol';
 import { normalizePath } from '../components/address-bar.utils';
 import { EventsEmit } from 'wailsjs/runtime';
-import { app, contracts, elevation } from '../../../wailsjs/go/models';
+import { app, contracts, elevation, plugin } from '../../../wailsjs/go/models';
 
 /** Mirror of Go's ElevatedSessionStatus struct. */
 export interface ElevatedSessionStatus {
@@ -155,6 +155,16 @@ export class ApiService {
     async listDrives(): Promise<DriveInfo[]> {
       const response = await this.getDrives();
       return response.schemes || [];
+    }
+
+    /** Returns backend-registered plugin metadata exposed through Wails. */
+    async listBackendPlugins(): Promise<plugin.Info[]> {
+      return await window.go.app.App.ListPlugins();
+    }
+
+    /** Executes one backend plugin command against the current path selection. */
+    async invokeBackendPluginCommand(pluginId: string, commandId: string, paths: string[]): Promise<void> {
+      await window.go.app.App.InvokePluginCommand(pluginId, commandId, this.normalizeCanonicalPathList(paths));
     }
 
     /**

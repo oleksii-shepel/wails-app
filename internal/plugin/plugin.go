@@ -7,12 +7,12 @@
 //
 // Lifecycle
 //
-//	1. Backend starts.
-//	2. Plugin descriptors are discovered (built-in or from plugin directory).
-//	3. Plugin.Init(config) is called for each plugin.
-//	4. Plugin registers contributions via the Registry.
-//	5. Host uses registered contributions during normal operation.
-//	6. On shutdown, Plugin.Shutdown() is called.
+//  1. Backend starts.
+//  2. Plugin descriptors are discovered (built-in or from plugin directory).
+//  3. Plugin.Init(config) is called for each plugin.
+//  4. Plugin registers contributions via the Registry.
+//  5. Host uses registered contributions during normal operation.
+//  6. On shutdown, Plugin.Shutdown() is called.
 package plugin
 
 import (
@@ -35,10 +35,10 @@ type Info struct {
 
 // CommandInfo describes a command exposed by a plugin.
 type CommandInfo struct {
-	ID       string   `json:"id"`
-	Label    string   `json:"label"`
-	Icon     string   `json:"icon,omitempty"`
-	Hotkey   string   `json:"hotkey,omitempty"`
+	ID        string   `json:"id"`
+	Label     string   `json:"label"`
+	Icon      string   `json:"icon,omitempty"`
+	Hotkey    string   `json:"hotkey,omitempty"`
 	AppliesTo []string `json:"appliesTo,omitempty"` // file types / extensions
 }
 
@@ -52,11 +52,11 @@ type Plugin interface {
 // Registry is the central place where plugins register their contributions.
 // It is safe for concurrent use.
 type Registry struct {
-	plugins   map[string]Plugin
-	vfs       map[string]VFSPlugin
-	hooks     []OperationHook
-	previews  []PreviewPlugin
-	commands  map[string]CommandPlugin
+	plugins  map[string]Plugin
+	vfs      map[string]VFSPlugin
+	hooks    []OperationHook
+	previews []PreviewPlugin
+	commands map[string]CommandPlugin
 }
 
 // NewRegistry creates an empty plugin registry.
@@ -155,6 +155,9 @@ func (r *Registry) InvokeCommand(ctx context.Context, pluginID, commandID string
 	p, ok := r.commands[pluginID]
 	if !ok {
 		return fmt.Errorf("command plugin %q not found", pluginID)
+	}
+	if !p.IsApplicable(commandID, paths) {
+		return fmt.Errorf("plugin command %q is not applicable to the current selection", commandID)
 	}
 	return p.Execute(ctx, commandID, paths)
 }

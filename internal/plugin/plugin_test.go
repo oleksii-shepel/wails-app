@@ -10,14 +10,14 @@ import (
 
 // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 type mockPlugin struct {
-	info      Info
-	initErr   error
-	shutdown  bool
+	info     Info
+	initErr  error
+	shutdown bool
 }
 
-func (m *mockPlugin) Info() Info                         { return m.info }
-func (m *mockPlugin) Init(config map[string]any) error   { return m.initErr }
-func (m *mockPlugin) Shutdown() error                    { m.shutdown = true; return nil }
+func (m *mockPlugin) Info() Info                       { return m.info }
+func (m *mockPlugin) Init(config map[string]any) error { return m.initErr }
+func (m *mockPlugin) Shutdown() error                  { m.shutdown = true; return nil }
 
 type mockCommandPlugin struct {
 	mockPlugin
@@ -53,14 +53,16 @@ type mockHookPlugin struct {
 	beforeCopyErr error
 }
 
-func (m *mockHookPlugin) BeforeCopy(ctx context.Context, src, dst string) error { return m.beforeCopyErr }
-func (m *mockHookPlugin) AfterCopy(ctx context.Context, src, dst string)         {}
+func (m *mockHookPlugin) BeforeCopy(ctx context.Context, src, dst string) error {
+	return m.beforeCopyErr
+}
+func (m *mockHookPlugin) AfterCopy(ctx context.Context, src, dst string)        {}
 func (m *mockHookPlugin) BeforeMove(ctx context.Context, src, dst string) error { return nil }
-func (m *mockHookPlugin) AfterMove(ctx context.Context, src, dst string)         {}
+func (m *mockHookPlugin) AfterMove(ctx context.Context, src, dst string)        {}
 func (m *mockHookPlugin) BeforeDelete(ctx context.Context, path string) error   { return nil }
-func (m *mockHookPlugin) AfterDelete(ctx context.Context, path string)           {}
+func (m *mockHookPlugin) AfterDelete(ctx context.Context, path string)          {}
 func (m *mockHookPlugin) BeforeMkdir(ctx context.Context, path string) error    { return nil }
-func (m *mockHookPlugin) AfterMkdir(ctx context.Context, path string)            {}
+func (m *mockHookPlugin) AfterMkdir(ctx context.Context, path string)           {}
 
 // в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 type OperationResult = contracts.OperationResult
@@ -135,6 +137,20 @@ func TestRegistryCommandPlugin(t *testing.T) {
 	}
 	if err := r.InvokeCommand(context.Background(), "missing", "open", nil); err == nil {
 		t.Fatal("expected error for missing plugin")
+	}
+}
+
+func TestRegistryInvokeCommandRejectsInapplicableSelection(t *testing.T) {
+	r := NewRegistry()
+	cp := &mockCommandPlugin{
+		mockPlugin: mockPlugin{info: Info{ID: "cmd", Commands: []CommandInfo{{ID: "open", Label: "Open"}}}},
+		applicable: map[string]bool{"open": false},
+	}
+	_ = r.Register(cp)
+
+	err := r.InvokeCommand(context.Background(), "cmd", "open", []string{"a.txt"})
+	if err == nil {
+		t.Fatal("expected inapplicable command to be rejected")
 	}
 }
 

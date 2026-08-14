@@ -1001,6 +1001,7 @@ export namespace contracts {
 	    title: string;
 	    path: string;
 	    location?: LocationRef;
+	    surfaceId?: string;
 	    kind?: string;
 	    viewer?: ViewerTab;
 	    isClosable?: boolean;
@@ -1019,6 +1020,7 @@ export namespace contracts {
 	        this.title = source["title"];
 	        this.path = source["path"];
 	        this.location = this.convertValues(source["location"], LocationRef);
+	        this.surfaceId = source["surfaceId"];
 	        this.kind = source["kind"];
 	        this.viewer = this.convertValues(source["viewer"], ViewerTab);
 	        this.isClosable = source["isClosable"];

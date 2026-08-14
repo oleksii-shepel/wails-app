@@ -44,7 +44,7 @@ export class FilePaneNavigationController {
 
     host.tabs = host.workspaceService.getTabs(host.paneId);
     const activeTab = host.workspaceService.getActiveTab(host.paneId);
-    const savedPath = activeTab?.location?.location ?? activeTab?.path ?? '';
+    const savedPath = activeTab?.path ?? '';
     const activeKind = activeTab?.kind ?? 'dir';
 
     const initialPath = await this.resolveInitialPath(host, savedPath);
@@ -134,7 +134,7 @@ export class FilePaneNavigationController {
       return;
     }
 
-    const restoredPath = await this.resolveRemotePathForLoad(host, tab.path);
+    const restoredPath = await this.resolveRemotePathForLoad(host, tab.path, { interactive: true });
     if (!restoredPath) {
       host.emitActiveTabChange(tab);
       return;
@@ -285,7 +285,14 @@ export class FilePaneNavigationController {
       return normalized;
     }
 
-    if (!options?.interactive || samePath(normalized, `${protocol}://`)) {
+    if (!options?.interactive) {
+      // Workspace restoration is deliberately non-interactive. Remote mounts are
+      // session-only, so an old cloud/S3 tab must not trigger connection UI (or
+      // attempt to load an unavailable mount) while the application is starting.
+      return null;
+    }
+
+    if (samePath(normalized, `${protocol}://`)) {
       return normalized;
     }
 

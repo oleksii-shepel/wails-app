@@ -126,6 +126,27 @@ export class PluginLifecycleCoordinatorService {
     return this.activateByEvent('onStartup');
   }
 
+  /**
+   * Best-effort lifecycle shutdown for application teardown. Every installed
+   * plugin gets a chance to deactivate; one failing hook never blocks cleanup
+   * of the remaining plugin scopes.
+   */
+  async shutdown(): Promise<readonly { pluginId: string; error?: string }[]> {
+    const results: Array<{ pluginId: string; error?: string }> = [];
+    const runtimes = [...this.platform.list()].reverse();
+
+    for (const runtime of runtimes) {
+      try {
+        await this.platform.deactivate(runtime.manifest.id);
+        results.push({ pluginId: runtime.manifest.id });
+      } catch (error) {
+        results.push({ pluginId: runtime.manifest.id, error: errorMessage(error) });
+      }
+    }
+
+    return results;
+  }
+
   async setEnabled(pluginId: string, enabled: boolean): Promise<PluginPackageState> {
     const state = await this.installation.setEnabled(pluginId, enabled);
     await this.sync();

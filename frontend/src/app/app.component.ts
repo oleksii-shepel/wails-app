@@ -1,4 +1,4 @@
-import { Component, HostListener, OnDestroy, OnInit } from '@angular/core';
+import { AfterViewInit, Component, HostListener, OnDestroy, OnInit } from '@angular/core';
 import { FileBrowserComponent } from './components/file-browser.component';
 import { ConfirmDialogComponent } from './components/confirm-dialog.component';
 import { RemoteConnectDialogComponent } from './components/remote-connect-dialog.component';
@@ -7,6 +7,7 @@ import { BatchRenameDialogComponent } from './components/batch-rename-dialog.com
 import { SettingsService } from './services/settings.service';
 import { ThemeService } from './services/theme.service';
 import { OperationService } from './services/operation.service';
+import { PluginBootstrapService } from './services/plugin-bootstrap.service';
 
 @Component({
   selector: 'app-root',
@@ -28,7 +29,7 @@ import { OperationService } from './services/operation.service';
     }
   `]
 })
-export class AppComponent implements OnInit, OnDestroy {
+export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
   title = 'File Manager';
   private settingsSubscription: { unsubscribe(): void } | null = null;
 
@@ -36,6 +37,7 @@ export class AppComponent implements OnInit, OnDestroy {
     public theme: ThemeService,
     public operationService: OperationService,
     private readonly settingsService: SettingsService,
+    private readonly pluginBootstrap: PluginBootstrapService,
   ) {}
 
   private captureDragGuard = (event: DragEvent): void => {
@@ -62,8 +64,16 @@ export class AppComponent implements OnInit, OnDestroy {
     });
   }
 
+  ngAfterViewInit(): void {
+    // Plugin discovery/activation starts only after the root view and Wails UI
+    // boundary exist. Failures are isolated inside PluginBootstrapService and
+    // never block normal application startup.
+    void this.pluginBootstrap.initialize();
+  }
+
   ngOnDestroy(): void {
     this.settingsSubscription?.unsubscribe();
+    void this.pluginBootstrap.shutdown();
 
     window.removeEventListener('dragenter', this.captureDragGuard, true);
     window.removeEventListener('dragover', this.captureDragGuard, true);

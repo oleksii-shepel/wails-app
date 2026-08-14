@@ -1,0 +1,133 @@
+import { Injectable } from '@angular/core';
+import { createBehaviorSubject } from '@epikodelabs/streamix';
+import {
+  PluginLifecycleCoordinatorService,
+  type ManagedPluginRuntimeSnapshot,
+  type PluginActivationEventResult,
+} from './plugin-lifecycle-coordinator.service';
+
+export type PluginBootstrapStatus =
+  | 'idle'
+  | 'initializing'
+  | 'ready'
+  | 'degraded'
+  | 'shutting-down'
+  | 'stopped';
+
+export interface PluginBootstrapSnapshot {
+  status: PluginBootstrapStatus;
+  runtimes: readonly ManagedPluginRuntimeSnapshot[];
+  startupActivations: readonly PluginActivationEventResult[];
+  errors: readonly string[];
+}
+
+const INITIAL_SNAPSHOT: PluginBootstrapSnapshot = {
+  status: 'idle',
+  runtimes: [],
+  startupActivations: [],
+  errors: [],
+};
+
+@Injectable({ providedIn: 'root' })
+export class PluginBootstrapService {
+  readonly state$ = createBehaviorSubject<PluginBootstrapSnapshot>(INITIAL_SNAPSHOT);
+
+  private current: PluginBootstrapSnapshot = INITIAL_SNAPSHOT;
+  private initializePromise: Promise<PluginBootstrapSnapshot> | null = null;
+  private shutdownPromise: Promise<void> | null = null;
+
+  constructor(private readonly lifecycle: PluginLifecycleCoordinatorService) {}
+
+  get snapshot(): PluginBootstrapSnapshot {
+    return this.current;
+  }
+
+  /**
+   * Discovers and reconciles plugins once, then activates packages that opted
+   * into onStartup. Individual plugin activation failures degrade plugin
+   * health but never prevent the file manager itself from starting.
+   */
+  initialize(): Promise<PluginBootstrapSnapshot> {
+    if (this.current.status === 'ready' || this.current.status === 'degraded') {
+      return Promise.resolve(this.current);
+    }
+    if (this.initializePromise) return this.initializePromise;
+
+    this.publish({ ...INITIAL_SNAPSHOT, status: 'initializing' });
+    this.initializePromise = this.runInitialize().finally(() => {
+      this.initializePromise = null;
+    });
+    return this.initializePromise;
+  }
+
+  /**
+   * Application teardown is best-effort. We wait for an in-flight bootstrap
+   * before deactivating so activation and cleanup cannot race each other.
+   */
+  shutdown(): Promise<void> {
+    if (this.current.status === 'stopped') return Promise.resolve();
+    if (this.shutdownPromise) return this.shutdownPromise;
+
+    this.shutdownPromise = this.runShutdown().finally(() => {
+      this.shutdownPromise = null;
+    });
+    return this.shutdownPromise;
+  }
+
+  private async runInitialize(): Promise<PluginBootstrapSnapshot> {
+    try {
+      const runtimes = await this.lifecycle.sync();
+      const startupActivations = await this.lifecycle.activateStartup();
+      const errors = startupActivations
+        .filter(result => !result.activated && result.error)
+        .map(result => `${result.pluginId}: ${result.error}`);
+
+      const status: PluginBootstrapStatus = errors.length ? 'degraded' : 'ready';
+      const snapshot: PluginBootstrapSnapshot = {
+        status,
+        runtimes,
+        startupActivations,
+        errors,
+      };
+      this.publish(snapshot);
+      return snapshot;
+    } catch (error) {
+      const message = errorMessage(error);
+      const snapshot: PluginBootstrapSnapshot = {
+        status: 'degraded',
+        runtimes: [],
+        startupActivations: [],
+        errors: [message],
+      };
+      this.publish(snapshot);
+      return snapshot;
+    }
+  }
+
+  private async runShutdown(): Promise<void> {
+    if (this.initializePromise) {
+      await this.initializePromise.catch(() => undefined);
+    }
+
+    this.publish({ ...this.current, status: 'shutting-down' });
+    const results = await this.lifecycle.shutdown();
+    const shutdownErrors = results
+      .filter(result => result.error)
+      .map(result => `${result.pluginId}: ${result.error}`);
+
+    this.publish({
+      ...this.current,
+      status: 'stopped',
+      errors: [...this.current.errors, ...shutdownErrors],
+    });
+  }
+
+  private publish(snapshot: PluginBootstrapSnapshot): void {
+    this.current = snapshot;
+    this.state$.next(snapshot);
+  }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}

@@ -3,6 +3,7 @@
 import {contracts} from '../models';
 import {cache} from '../models';
 import {app} from '../models';
+import {pluginpackage} from '../models';
 import {elevation} from '../models';
 import {plugin} from '../models';
 import {utility} from '../models';
@@ -92,6 +93,8 @@ export function DeleteWorkspace(arg1:string):Promise<void>;
 
 export function DirSizeRecursive(arg1:string):Promise<number>;
 
+export function DiscoverPluginPackages():Promise<Array<pluginpackage.DiscoveredPackage>>;
+
 export function DismissOperation(arg1:string):Promise<void>;
 
 export function EmitEvent(arg1:string,arg2:any):Promise<void>;
@@ -127,6 +130,12 @@ export function GetOSInfo():Promise<contracts.OSInfoResponse>;
 export function GetParentPath(arg1:string):Promise<string>;
 
 export function GetPlugin(arg1:string):Promise<plugin.Info>;
+
+export function GetPluginDirectory():Promise<string>;
+
+export function GetPluginPackageState(arg1:string):Promise<pluginpackage.PackageState>;
+
+export function GetPluginPackageStates():Promise<Array<pluginpackage.PackageState>>;
 
 export function GetPreferences():Promise<contracts.UserPreferences>;
 
@@ -198,6 +207,8 @@ export function ProbeFile(arg1:string):Promise<contracts.FileProbe>;
 
 export function PromptConflict(arg1:contracts.ConflictEvent):Promise<void>;
 
+export function QuarantinePluginPackage(arg1:string,arg2:string):Promise<pluginpackage.PackageState>;
+
 export function ReadFile(arg1:string,arg2:string):Promise<contracts.FileContent>;
 
 export function ReadFileContent(arg1:string,arg2:string):Promise<contracts.FileContent>;
@@ -205,6 +216,10 @@ export function ReadFileContent(arg1:string,arg2:string):Promise<contracts.FileC
 export function ReadFileRange(arg1:string,arg2:number,arg3:number):Promise<contracts.FileContent>;
 
 export function ReadFileStream(arg1:string,arg2:number):Promise<string>;
+
+export function ReadPluginFrontendModule(arg1:string):Promise<pluginpackage.FrontendModule>;
+
+export function RecordPluginActivation(arg1:string,arg2:boolean,arg3:string):Promise<pluginpackage.PackageState>;
 
 export function RegisterDropListener():Promise<void>;
 
@@ -259,6 +274,8 @@ export function StopElevatedSession():Promise<void>;
 export function StopElevationSession():Promise<void>;
 
 export function StreamBaseURL():Promise<string>;
+
+export function UpdatePluginPackageState(arg1:string,arg2:pluginpackage.PackageStatePatch):Promise<pluginpackage.PackageState>;
 
 export function VFSListDir(arg1:string):Promise<contracts.DirectoryListing>;
 

@@ -166,6 +166,10 @@ export function DirSizeRecursive(arg1) {
   return window['go']['app']['App']['DirSizeRecursive'](arg1);
 }
 
+export function DiscoverPluginPackages() {
+  return window['go']['app']['App']['DiscoverPluginPackages']();
+}
+
 export function DismissOperation(arg1) {
   return window['go']['app']['App']['DismissOperation'](arg1);
 }
@@ -236,6 +240,18 @@ export function GetParentPath(arg1) {
 
 export function GetPlugin(arg1) {
   return window['go']['app']['App']['GetPlugin'](arg1);
+}
+
+export function GetPluginDirectory() {
+  return window['go']['app']['App']['GetPluginDirectory']();
+}
+
+export function GetPluginPackageState(arg1) {
+  return window['go']['app']['App']['GetPluginPackageState'](arg1);
+}
+
+export function GetPluginPackageStates() {
+  return window['go']['app']['App']['GetPluginPackageStates']();
 }
 
 export function GetPreferences() {
@@ -378,6 +394,10 @@ export function PromptConflict(arg1) {
   return window['go']['app']['App']['PromptConflict'](arg1);
 }
 
+export function QuarantinePluginPackage(arg1, arg2) {
+  return window['go']['app']['App']['QuarantinePluginPackage'](arg1, arg2);
+}
+
 export function ReadFile(arg1, arg2) {
   return window['go']['app']['App']['ReadFile'](arg1, arg2);
 }
@@ -392,6 +412,14 @@ export function ReadFileRange(arg1, arg2, arg3) {
 
 export function ReadFileStream(arg1, arg2) {
   return window['go']['app']['App']['ReadFileStream'](arg1, arg2);
+}
+
+export function ReadPluginFrontendModule(arg1) {
+  return window['go']['app']['App']['ReadPluginFrontendModule'](arg1);
+}
+
+export function RecordPluginActivation(arg1, arg2, arg3) {
+  return window['go']['app']['App']['RecordPluginActivation'](arg1, arg2, arg3);
 }
 
 export function RegisterDropListener() {
@@ -500,6 +528,10 @@ export function StopElevationSession() {
 
 export function StreamBaseURL() {
   return window['go']['app']['App']['StreamBaseURL']();
+}
+
+export function UpdatePluginPackageState(arg1, arg2) {
+  return window['go']['app']['App']['UpdatePluginPackageState'](arg1, arg2);
 }
 
 export function VFSListDir(arg1) {

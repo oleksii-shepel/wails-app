@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
-  "id": "epikode.hash-tools",
-  "name": "Hash Tools",
+  "id": "epikode.example-tools",
+  "name": "Example Tools",
   "version": "1.0.0",
   "apiVersion": "^1.0.0",
-  "description": "Example manifest-only plugin package.",
-  "permissions": ["commands", "keybindings", "filesystem.read"],
-  "activationEvents": ["onCommand:hash.sha256"],
+  "description": "Declarative directory plugin example.",
+  "permissions": ["commands", "toolbar", "contextMenu"],
+  "activationEvents": ["onDemand"],
   "contributes": {
-    "commands": ["hash.sha256"]
+    "commands": ["refresh"]
   }
 }

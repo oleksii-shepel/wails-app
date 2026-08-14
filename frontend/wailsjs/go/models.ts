@@ -1612,6 +1612,213 @@ export namespace plugin {
 
 }
 
+export namespace pluginpackage {
+	
+	export class Manifest {
+	    schemaVersion: number;
+	    id: string;
+	    name: string;
+	    version: string;
+	    description?: string;
+	    author?: string;
+	    homepage?: string;
+	    license?: string;
+	    apiVersion?: string;
+	    permissions?: string[];
+	    activationEvents?: string[];
+	    contributes?: Record<string, any>;
+	
+	    static createFrom(source: any = {}) {
+	        return new Manifest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.schemaVersion = source["schemaVersion"];
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.version = source["version"];
+	        this.description = source["description"];
+	        this.author = source["author"];
+	        this.homepage = source["homepage"];
+	        this.license = source["license"];
+	        this.apiVersion = source["apiVersion"];
+	        this.permissions = source["permissions"];
+	        this.activationEvents = source["activationEvents"];
+	        this.contributes = source["contributes"];
+	    }
+	}
+	export class DiscoveredPackage {
+	    manifest: Manifest;
+	    path: string;
+	    manifestPath: string;
+	    valid: boolean;
+	    errors?: string[];
+	    warnings?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new DiscoveredPackage(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.manifest = this.convertValues(source["manifest"], Manifest);
+	        this.path = source["path"];
+	        this.manifestPath = source["manifestPath"];
+	        this.valid = source["valid"];
+	        this.errors = source["errors"];
+	        this.warnings = source["warnings"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class FrontendCommand {
+	    id: string;
+	    title?: string;
+	    name?: string;
+	    aliases?: string[];
+	    targetCommandId: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new FrontendCommand(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.title = source["title"];
+	        this.name = source["name"];
+	        this.aliases = source["aliases"];
+	        this.targetCommandId = source["targetCommandId"];
+	    }
+	}
+	export class FrontendPlacement {
+	    id: string;
+	    commandId: string;
+	    when?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new FrontendPlacement(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.commandId = source["commandId"];
+	        this.when = source["when"];
+	    }
+	}
+	export class FrontendModule {
+	    schemaVersion: number;
+	    commands?: FrontendCommand[];
+	    toolbar?: FrontendPlacement[];
+	    contextMenu?: FrontendPlacement[];
+	
+	    static createFrom(source: any = {}) {
+	        return new FrontendModule(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.schemaVersion = source["schemaVersion"];
+	        this.commands = this.convertValues(source["commands"], FrontendCommand);
+	        this.toolbar = this.convertValues(source["toolbar"], FrontendPlacement);
+	        this.contextMenu = this.convertValues(source["contextMenu"], FrontendPlacement);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
+	export class PackageState {
+	    pluginId: string;
+	    enabled: boolean;
+	    trusted: boolean;
+	    trustedVersion?: string;
+	    grantedPermissions?: string[];
+	    quarantined: boolean;
+	    quarantineReason?: string;
+	    lastActivationStatus: string;
+	    lastActivationError?: string;
+	    lastActivatedAt?: number;
+	    consecutiveActivationFailures?: number;
+	    lastSeenVersion?: string;
+	    updatedAt: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new PackageState(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.pluginId = source["pluginId"];
+	        this.enabled = source["enabled"];
+	        this.trusted = source["trusted"];
+	        this.trustedVersion = source["trustedVersion"];
+	        this.grantedPermissions = source["grantedPermissions"];
+	        this.quarantined = source["quarantined"];
+	        this.quarantineReason = source["quarantineReason"];
+	        this.lastActivationStatus = source["lastActivationStatus"];
+	        this.lastActivationError = source["lastActivationError"];
+	        this.lastActivatedAt = source["lastActivatedAt"];
+	        this.consecutiveActivationFailures = source["consecutiveActivationFailures"];
+	        this.lastSeenVersion = source["lastSeenVersion"];
+	        this.updatedAt = source["updatedAt"];
+	    }
+	}
+	export class PackageStatePatch {
+	    enabled?: boolean;
+	    trusted?: boolean;
+	    grantedPermissions?: string[];
+	    clearQuarantine?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new PackageStatePatch(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.trusted = source["trusted"];
+	        this.grantedPermissions = source["grantedPermissions"];
+	        this.clearQuarantine = source["clearQuarantine"];
+	    }
+	}
+
+}
+
 export namespace utility {
 	
 	export class ResolvedLink {

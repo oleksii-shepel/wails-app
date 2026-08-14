@@ -102,6 +102,8 @@ func Discover(root string) ([]DiscoveredPackage, error) {
 		out = append(out, readPackage(pkgDir, manifestPath))
 	}
 
+	markDuplicatePluginIDs(out)
+
 	sort.Slice(out, func(i, j int) bool {
 		left := out[i].Manifest.ID
 		if left == "" {
@@ -114,6 +116,23 @@ func Discover(root string) ([]DiscoveredPackage, error) {
 		return left < right
 	})
 	return out, nil
+}
+
+func markDuplicatePluginIDs(packages []DiscoveredPackage) {
+	counts := make(map[string]int)
+	for _, pkg := range packages {
+		if pkg.Manifest.ID != "" {
+			counts[pkg.Manifest.ID]++
+		}
+	}
+	for i := range packages {
+		id := packages[i].Manifest.ID
+		if id == "" || counts[id] < 2 {
+			continue
+		}
+		packages[i].Errors = append(packages[i].Errors, fmt.Sprintf("duplicate plugin id %q", id))
+		packages[i].Valid = false
+	}
 }
 
 func readPackage(pkgDir, manifestPath string) DiscoveredPackage {

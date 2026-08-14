@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "commands": [
+    {
+      "id": "refresh",
+      "title": "Refresh from Example Plugin",
+      "name": "refresh",
+      "targetCommandId": "pane.nav.refresh"
+    }
+  ],
+  "toolbar": [
+    {
+      "id": "refresh",
+      "commandId": "refresh",
+      "when": "always"
+    }
+  ],
+  "contextMenu": [
+    {
+      "id": "refresh",
+      "commandId": "refresh",
+      "when": "selection"
+    }
+  ]
+}

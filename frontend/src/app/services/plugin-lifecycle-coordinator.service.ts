@@ -6,6 +6,7 @@ import {
   type ManagedPluginPackage,
   type PluginPackageState,
 } from './plugin-installation-state.service';
+import { DirectoryPluginPackageLoaderService } from './directory-plugin-package-loader.service';
 import {
   PluginPlatformService,
   type PluginRuntimeSnapshot,
@@ -43,7 +44,12 @@ export class PluginLifecycleCoordinatorService {
   constructor(
     private readonly installation: PluginInstallationStateService,
     private readonly platform: PluginPlatformService,
-  ) {}
+    directoryLoader: DirectoryPluginPackageLoaderService,
+  ) {
+    if (!this.platform.hasLoader(directoryLoader.kind)) {
+      this.platform.registerLoader(directoryLoader);
+    }
+  }
 
   /**
    * Reconciles disk discovery + persisted user policy with the executable
@@ -229,6 +235,7 @@ export class PluginLifecycleCoordinatorService {
       uri: pkg.discovered.path,
       metadata: {
         managedBy: POLICY_SOURCE_OWNER,
+        pluginId: pkg.discovered.manifest.id,
         manifestPath: pkg.discovered.manifestPath,
         version: pkg.discovered.manifest.version,
       },

@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, AfterViewInit, ViewChild, ElementRef, HostListener, NgZone, ChangeDetectorRef } from '@angular/core';
+import { Component, OnInit, OnDestroy, ViewChild, ElementRef, HostListener, NgZone, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
 import { ApiService } from '../services/api.service';
@@ -47,7 +47,6 @@ import { formatPathForDisplay } from './address-bar.utils';
 import { RemoteConnectDialogService } from '../services/remote-connect-dialog.service';
 import { SettingsService } from '../services/settings.service';
 import { WindowStateService } from '../services/window-state.service';
-import { BackendPluginCommandBridgeService } from '../services/backend-plugin-command-bridge.service';
 
 @Component({
   selector: 'app-file-browser',
@@ -69,7 +68,7 @@ import { BackendPluginCommandBridgeService } from '../services/backend-plugin-co
   templateUrl: './file-browser.component.html',
   styleUrls: ['./file-browser.component.scss'],
 })
-export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
+export class FileBrowserComponent implements OnInit, OnDestroy {
   private readonly paneRowFixedWidthPx = 4;
 
   private static readonly mouseCommandOwner = 'file-browser-mouse';
@@ -134,7 +133,6 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
     private cdr: ChangeDetectorRef,
     private windowStateService: WindowStateService,
     private keybindingStorage: KeybindingStorageService,
-    private backendPluginCommands: BackendPluginCommandBridgeService,
   ) {
     this.pathHelper = new FileBrowserPathHelper(this.apiService);
   }
@@ -191,25 +189,12 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
 
 
 
-  ngAfterViewInit(): void {
-    // Backend plugin commands are discovered after panes exist so command execution
-    // always reads the live active-pane selection rather than capturing startup state.
-    void this.backendPluginCommands.start(
-      () => Array.from(this.getActivePane()?.selectedFiles ?? []),
-    ).catch(error => console.warn('Backend plugin command discovery failed:', error));
-
-    // File drop handling is done via native Wails event (wails:file-drop).
-    // Startup restoration remains non-interactive; remote mount dialogs open only
-    // from explicit user actions.
-  }
-
   ngOnDestroy(): void {
     this.destroy$.next();
     this.destroy$.complete();
     this.apiService.disconnectWebSocket();
 
     this.browserCommandCleanup?.();
-    this.backendPluginCommands.stop();
     this.unregisterMouseBindings();
     this.runtimeController.dispose();
     window.removeEventListener('resize', this.handleResize);
@@ -291,6 +276,10 @@ export class FileBrowserComponent implements OnInit, AfterViewInit, OnDestroy {
 
   private getActivePane(): FilePaneComponent | undefined {
     return this.activePaneId === 'left' ? this.leftPane : this.rightPane;
+  }
+
+  getActiveSelectionPaths(): string[] {
+    return Array.from(this.getActivePane()?.selectedFiles ?? []);
   }
 
   private getOtherPane(): FilePaneComponent | undefined {

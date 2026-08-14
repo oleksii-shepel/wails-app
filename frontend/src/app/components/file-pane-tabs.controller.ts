@@ -4,6 +4,7 @@ import type { ArchiveFrame } from '../services/archive.service';
 import type { WorkspaceService } from '../services/workspace.service';
 import type { TabInfo, WorkspaceConfig } from '../shared/protocol-enhanced';
 import type { TabDropEvent } from './tab-bar.component';
+import { tabLocation } from '../surfaces/tab-surface';
 
 export interface FilePaneTabsHost {
   get paneId(): 'left' | 'right';
@@ -35,7 +36,7 @@ export class FilePaneTabsController {
     const pane = host.paneId === 'left' ? ws.leftPane : ws.rightPane;
     const nextActiveId = pane.activeTabId;
     const activeTab = pane.tabs.find(tab => tab.id === nextActiveId);
-    const nextActivePath = activeTab?.location?.location ?? activeTab?.path ?? '';
+    const nextActivePath = activeTab ? tabLocation(activeTab) : '';
 
     if (host.lastSeenActiveTabId === null) {
       host.lastSeenActiveTabId = nextActiveId;

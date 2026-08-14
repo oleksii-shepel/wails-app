@@ -1,4 +1,3 @@
-import type { Type } from '@angular/core';
 import type { ViewerContribution, ViewerRequest } from '../viewers/viewer-contribution';
 import type { SurfaceContribution, SurfaceRequest } from '../surfaces/surface-contribution';
 import type { CommandDescriptor, PluginInputContribution } from '../services/input-system.types';
@@ -61,12 +60,6 @@ export interface MenuContext {
   currentDirectory: string;
 }
 
-export interface SettingsPanelContribution {
-  id: string;
-  title: string;
-  icon?: string;
-  load(): Promise<Type<unknown>> | Type<unknown>;
-}
 
 export interface FileCategoryResolver {
   id: string;
@@ -99,9 +92,6 @@ export interface PluginRegistryAPI {
 
   registerContextMenuItem(item: ContextMenuContribution): void;
   unregisterContextMenuItem(id: string): void;
-
-  registerSettingsPanel(panel: SettingsPanelContribution): void;
-  unregisterSettingsPanel(id: string): void;
 
   registerFileCategory(resolver: FileCategoryResolver): void;
   unregisterFileCategory(id: string): void;

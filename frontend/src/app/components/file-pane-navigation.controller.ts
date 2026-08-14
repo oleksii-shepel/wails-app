@@ -5,6 +5,7 @@ import type { WorkspaceService } from '../services/workspace.service';
 import type { DirSurfaceSession } from '../surfaces/dir/dir-surface-session';
 import type { TabInfo, WorkspaceConfig } from '../shared/protocol-enhanced';
 import { normalizePath, samePath } from './address-bar.utils';
+import { tabLocation, tabSurfaceId } from '../surfaces/tab-surface';
 
 declare const window: any;
 
@@ -44,8 +45,8 @@ export class FilePaneNavigationController {
 
     host.tabs = host.workspaceService.getTabs(host.paneId);
     const activeTab = host.workspaceService.getActiveTab(host.paneId);
-    const savedPath = activeTab?.path ?? '';
-    const activeKind = activeTab?.kind ?? 'dir';
+    const savedPath = activeTab ? tabLocation(activeTab) : '';
+    const activeSurfaceId = activeTab ? tabSurfaceId(activeTab) : 'dir';
 
     const initialPath = await this.resolveInitialPath(host, savedPath);
     const pathToLoad = await this.resolveRemotePathForLoad(host, initialPath)
@@ -53,9 +54,9 @@ export class FilePaneNavigationController {
     host.pathReady = true;
     if (activeTab) host.currentTabId = activeTab.id;
 
-    if (activeKind === 'viewer') {
+    if (activeSurfaceId === 'viewer') {
       if (!host.activeDirTabId) {
-        const firstDir = host.tabs.find(tab => (tab.kind ?? 'dir') === 'dir');
+        const firstDir = host.tabs.find(tab => tabSurfaceId(tab) === 'dir');
         if (firstDir) host.activeDirTabId = firstDir.id;
       }
       if (!host.currentPath) host.currentPath = pathToLoad;
@@ -96,9 +97,9 @@ export class FilePaneNavigationController {
 
   async onTabChange(host: FilePaneNavigationHost, tab: TabInfo): Promise<void> {
     const current = host.tabs.find(existing => existing.id === host.currentTabId);
-    const currentKind = current?.kind ?? 'dir';
+    const currentSurfaceId = current ? tabSurfaceId(current) : 'dir';
 
-    if (currentKind === 'dir' && host.currentTabId && host.currentPath) {
+    if (currentSurfaceId === 'dir' && host.currentTabId && host.currentPath) {
       if (host.isInArchive()) {
         host.workspaceService.saveArchiveState(host.paneId, host.currentTabId, {
           path: host.currentPath,
@@ -115,7 +116,7 @@ export class FilePaneNavigationController {
     host.workspaceService.switchTab(host.paneId, tab.id);
     host.clearArchiveState();
 
-    if ((tab.kind ?? 'dir') === 'viewer') {
+    if (tabSurfaceId(tab) === 'viewer') {
       host.tabs = host.workspaceService.getTabs(host.paneId);
       host.emitActiveTabChange(tab);
       return;
@@ -134,7 +135,7 @@ export class FilePaneNavigationController {
       return;
     }
 
-    const restoredPath = await this.resolveRemotePathForLoad(host, tab.path, { interactive: true });
+    const restoredPath = await this.resolveRemotePathForLoad(host, tabLocation(tab), { interactive: true });
     if (!restoredPath) {
       host.emitActiveTabChange(tab);
       return;

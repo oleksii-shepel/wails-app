@@ -70,11 +70,6 @@ export class FilePaneSurfaceContextFactory {
     };
   }
 
-  getActiveTabKind(source: FilePaneSurfaceContextSource): 'dir' | 'viewer' {
-    const tab = this.getActiveTab(source);
-    return tab && tabSurfaceId(tab) === 'viewer' ? 'viewer' : 'dir';
-  }
-
   getActiveViewerTargetPath(source: FilePaneSurfaceContextSource): string {
     const tab = this.getActiveTab(source);
     if (!tab || tabSurfaceId(tab) !== 'viewer') return '';

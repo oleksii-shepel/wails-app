@@ -11,7 +11,6 @@ function registry(): PluginRegistryAPI {
     registerSurface: vi.fn(), unregisterSurface: vi.fn(),
     registerToolbarAction: vi.fn(), unregisterToolbarAction: vi.fn(),
     registerContextMenuItem: vi.fn(), unregisterContextMenuItem: vi.fn(),
-    registerSettingsPanel: vi.fn(), unregisterSettingsPanel: vi.fn(),
     registerFileCategory: vi.fn(), unregisterFileCategory: vi.fn(),
   };
 }

@@ -12,7 +12,7 @@ import { ApiService } from './api.service';
 import { ArchiveFrame } from './archive.service';
 import { normalizePath as normalizeReferencePath } from '../components/address-bar.utils';
 import { describeLocation, locationLabel } from './location-reference';
-import { legacyKindSurfaceId } from '../surfaces/tab-surface';
+import { legacyKindSurfaceId, tabLocation } from '../surfaces/tab-surface';
 import {
   GetPreferences,
   GetWorkspaces,
@@ -212,15 +212,15 @@ export class WorkspaceService {
       if (!tab.surfaceId) changed = true;
       if (!tab.kind) changed = true;
 
-      const location = kind === 'viewer'
+      const location = surfaceId === 'viewer'
         ? tab.location
         : (tab.location ?? describeLocation(tab.path) ?? undefined);
-      if (kind !== 'viewer' && !tab.location && location) changed = true;
+      if (surfaceId !== 'viewer' && !tab.location && location) changed = true;
 
       // Migration: earlier iterations made the auto-follow Preview tab non-closable.
       // Preview should behave like other tabs, so force it back to closable.
-      const isClosable = (tab.isClosable === false && kind === 'viewer') ? true : tab.isClosable;
-      if (tab.isClosable === false && kind === 'viewer') changed = true;
+      const isClosable = (tab.isClosable === false && surfaceId === 'viewer') ? true : tab.isClosable;
+      if (tab.isClosable === false && surfaceId === 'viewer') changed = true;
 
       deduped.push({
         ...tab,
@@ -629,7 +629,7 @@ export class WorkspaceService {
     // Keep at least one tab – replace it with the drive root
     if (pane.tabs.length === 1) {
       const closedTab = pane.tabs[tabIndex];
-      const rootPath = this.getRootForPath(closedTab.path || '/');
+      const rootPath = this.getRootForPath(tabLocation(closedTab) || '/');
       const newTab: TabInfo = {
         id: this.generateId(),
         title: locationLabel(rootPath) || this.getPathTitle(rootPath),
@@ -820,7 +820,7 @@ export class WorkspaceService {
 
     // Source pane: ensure it still has an active tab and at least one tab.
     if (fromPane.tabs.length === 0) {
-      const rootPath = this.getRootForPath(tab.path || '/');
+      const rootPath = this.getRootForPath(tabLocation(tab) || '/');
       const replacement: TabInfo = {
         id: this.generateId(),
         title: locationLabel(rootPath) || this.getPathTitle(rootPath),
@@ -1225,7 +1225,8 @@ export class WorkspaceService {
       for (const pane of [ws.leftPane, ws.rightPane]) {
         if (pane && Array.isArray(pane.tabs)) {
           for (const tab of pane.tabs) {
-            if (tab.path) paths.push(tab.path);
+            const location = tabLocation(tab);
+            if (location) paths.push(location);
           }
         }
       }

@@ -67,6 +67,7 @@ import { BC } from './file-browser-command-registry';
 import { buildBackgroundFileContextMenu, buildBuiltinFileContextMenu, type BackgroundFileContextAction, type BuiltinFileContextAction } from './file-context-menu.model';
 import { FileContextMenuComponent, type FileContextMenuState } from './file-context-menu.component';
 import type { SearchResultItem } from '../services/global-search.service';
+import { tabSurfaceId } from '../surfaces/tab-surface';
 
 declare const window: any;
 
@@ -441,7 +442,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       set fsParentDir(value: string) { thisRef.fsParentDir = value; },
       get activeDirTabId() { return thisRef.activeDirTabId; },
       get currentTabId() { return thisRef.currentTabId; },
-      get activeTabKind() { return thisRef.activeTabKind; },
+      get activeSurfaceId() { return thisRef.activeSurfaceId; },
       isInArchive: () => thisRef.isInArchive(),
       restoreActiveDirTabState: () => thisRef.restoreActiveDirTabState(),
       saveDirTabState: (tabId: string) => {
@@ -599,7 +600,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       set currentPath(value: string) { thisRef.currentPath = value; },
       get fsParentDir() { return thisRef.fsParentDir; },
       set fsParentDir(value: string) { thisRef.fsParentDir = value; },
-      get activeTabKind() { return thisRef.activeTabKind; },
+      get activeSurfaceCapabilities() { return thisRef.activeSurfaceCapabilities; },
       get currentView() { return thisRef.currentView; },
       get defaultOpenAction() { return thisRef.settingsService.getSettings().files.defaultOpenAction; },
       get confirmBeforeDelete() { return thisRef.settingsService.getSettings().files.confirmBeforeDelete; },
@@ -755,8 +756,10 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     return tab ? this.surfaceRegistry.getCapabilities({ tab }) : new Set<SurfaceCapability>();
   }
 
-  get activeTabKind(): 'dir' | 'viewer' {
-    return this.surfaceContextFactory.getActiveTabKind(this.surfaceContextSource);
+  get activeSurfaceId(): string {
+    const tab = this.workspaceService.getActiveTab(this.paneId)
+      ?? this.tabs.find((candidate) => candidate.id === this.currentTabId);
+    return tab ? tabSurfaceId(tab) : 'dir';
   }
 
   get activeViewerTargetPath(): string {
@@ -1201,7 +1204,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   measureCurrentDirectorySize(): void {
-    if (this.activeTabKind !== 'dir' || this.isInArchive()) return;
+    if (this.activeSurfaceId !== 'dir' || this.isInArchive()) return;
 
     const path = this.selectionCursorPath ?? (this.selectedFiles.size === 1 ? Array.from(this.selectedFiles)[0] : null);
     if (!path || path === PARENT_ENTRY_PATH) return;

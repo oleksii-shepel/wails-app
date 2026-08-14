@@ -9,7 +9,6 @@ import type {
   InputSourceKind,
   KeyStroke,
   PluginInputContribution,
-  PluginBindingContribution,
   InputTrigger,
   CommandDefinition,
   CommandDescriptor,
@@ -398,20 +397,6 @@ export class InputEngineService {
     this.pluginInputRegistrations.delete(pluginId);
   }
 
-  /** @deprecated Prefer registerPluginInput so commands and bindings share ownership. */
-  registerPluginBindings(contribution: PluginBindingContribution): void {
-    this.registerPluginInput({
-      pluginId: contribution.pluginId,
-      commands: [],
-      contexts: contribution.contexts,
-      bindings: contribution.bindings,
-    });
-  }
-
-  /** @deprecated Prefer unregisterPluginInput. */
-  unregisterPluginBindings(pluginId: string): void {
-    this.unregisterPluginInput(pluginId);
-  }
 
   private pluginInputOwner(pluginId: string): string {
     return `plugin-input:${pluginId}`;

@@ -1,4 +1,4 @@
-import { AfterViewInit, Component, HostListener, OnDestroy, OnInit } from '@angular/core';
+import { AfterViewInit, Component, HostListener, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { FileBrowserComponent } from './components/file-browser.component';
 import { ConfirmDialogComponent } from './components/confirm-dialog.component';
 import { RemoteConnectDialogComponent } from './components/remote-connect-dialog.component';
@@ -30,6 +30,8 @@ import { PluginBootstrapService } from './services/plugin-bootstrap.service';
   `]
 })
 export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
+  @ViewChild(FileBrowserComponent) private fileBrowser?: FileBrowserComponent;
+
   title = 'File Manager';
   private settingsSubscription: { unsubscribe(): void } | null = null;
 
@@ -68,7 +70,9 @@ export class AppComponent implements OnInit, AfterViewInit, OnDestroy {
     // Plugin discovery/activation starts only after the root view and Wails UI
     // boundary exist. Failures are isolated inside PluginBootstrapService and
     // never block normal application startup.
-    void this.pluginBootstrap.initialize();
+    void this.pluginBootstrap.initialize(
+      () => this.fileBrowser?.getActiveSelectionPaths() ?? [],
+    );
   }
 
   ngOnDestroy(): void {

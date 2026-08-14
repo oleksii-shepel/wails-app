@@ -7,7 +7,6 @@ import type {
   ToolbarContext,
   ContextMenuContribution,
   MenuContext,
-  SettingsPanelContribution,
   FileCategoryResolver,
 } from '../plugin/plugin-registry-api';
 import type { ViewerContribution } from '../viewers/viewer-contribution';
@@ -35,7 +34,6 @@ export class PluginManagerService implements PluginRegistryAPI {
 
   readonly toolbarActions: ToolbarActionContribution[] = [];
   readonly contextMenuItems: ContextMenuContribution[] = [];
-  readonly settingsPanels: SettingsPanelContribution[] = [];
   readonly fileCategories: FileCategoryResolver[] = [];
 
   constructor() {}
@@ -150,16 +148,6 @@ export class PluginManagerService implements PluginRegistryAPI {
     if (i >= 0) this.contextMenuItems.splice(i, 1);
   }
 
-  registerSettingsPanel(panel: SettingsPanelContribution): void {
-    const i = this.settingsPanels.findIndex(x => x.id === panel.id);
-    if (i >= 0) this.settingsPanels.splice(i, 1, panel);
-    else this.settingsPanels.push(panel);
-  }
-
-  unregisterSettingsPanel(id: string): void {
-    const i = this.settingsPanels.findIndex(x => x.id === id);
-    if (i >= 0) this.settingsPanels.splice(i, 1);
-  }
 
   registerFileCategory(resolver: FileCategoryResolver): void {
     const idx = this.fileCategories.findIndex(r => r.id === resolver.id);

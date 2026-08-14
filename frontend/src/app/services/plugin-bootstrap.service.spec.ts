@@ -62,4 +62,23 @@ describe('PluginBootstrapService', () => {
     expect(service.snapshot.status).toBe('stopped');
     expect(service.snapshot.errors).toContain('bad: deactivate failed');
   });
+  it('starts backend command discovery before package reconciliation and stops it at shutdown', async () => {
+    const order: string[] = [];
+    const lifecycle = coordinator({
+      sync: vi.fn(async () => { order.push('sync'); return []; }),
+      shutdown: vi.fn(async () => { order.push('shutdown'); return []; }),
+    });
+    const backend = {
+      start: vi.fn(async (selection: () => string[]) => { order.push(`backend:${selection().join(',')}`); }),
+      stop: vi.fn(() => { order.push('backend-stop'); }),
+    };
+    const service = new PluginBootstrapService(lifecycle, backend as any);
+
+    await service.initialize(() => ['C:/work/a.txt']);
+    await service.shutdown();
+
+    expect(order.slice(0, 2)).toEqual(['backend:C:/work/a.txt', 'sync']);
+    expect(order.slice(-2)).toEqual(['shutdown', 'backend-stop']);
+  });
+
 });

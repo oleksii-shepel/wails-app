@@ -120,13 +120,6 @@ export interface PluginInputContribution {
   bindings?: InputBindingDefinition[];
 }
 
-/** @deprecated Compatibility shape for the old binding-only plugin API. */
-export interface PluginBindingContribution {
-  pluginId: string;
-  commands?: string[];
-  contexts?: InputContextDefinition[];
-  bindings: InputBindingDefinition[];
-}
 
 export interface DialogBindingCatalogEntry {
   context: InputContextDefinition;

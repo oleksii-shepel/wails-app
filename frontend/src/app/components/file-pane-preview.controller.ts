@@ -7,10 +7,12 @@ import type { ViewerFileListItem } from '../shared/protocol-enhanced';
 import type { ArchiveFrame } from '../services/archive.service';
 import type { ViewerArchiveContext } from '../viewers/viewer-archive-context';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
+import type { SurfaceCapability } from '../surfaces/surface-contribution';
+import { tabSurfaceId } from '../surfaces/tab-surface';
 
 export interface FilePanePreviewHost {
   get paneId(): 'left' | 'right';
-  get activeTabKind(): 'dir' | 'viewer';
+  get activeSurfaceCapabilities(): ReadonlySet<SurfaceCapability>;
   get currentTabId(): string;
   get entries(): FileInfo[];
   get sortedEntries(): FileInfo[];
@@ -51,7 +53,7 @@ export class FilePanePreviewController {
     }
 
     const existingPreviewTab = host.tabs.find(tab =>
-      (tab.kind ?? 'dir') === 'viewer' && tab.viewer?.autoFollow,
+      tabSurfaceId(tab) === 'viewer' && tab.viewer?.autoFollow,
     );
     const fileList = this.buildViewerFileList(host);
 
@@ -103,7 +105,7 @@ export class FilePanePreviewController {
   }
 
   getPreviewRequest(host: FilePanePreviewHost): FilePanePreviewRequest | null {
-    if (host.activeTabKind !== 'dir') return null;
+    if (!host.activeSurfaceCapabilities.has('preview')) return null;
 
     const cursorPath = host.selectionCursorPath;
     const selected = Array.from(host.getEffectiveSelection()).filter(path => path && path !== PARENT_ENTRY_PATH);

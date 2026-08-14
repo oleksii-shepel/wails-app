@@ -7,7 +7,7 @@ export interface FilePaneRuntimeStateHost {
   set fsParentDir(value: string);
   get activeDirTabId(): string | null;
   get currentTabId(): string;
-  get activeTabKind(): 'dir' | 'viewer';
+  get activeSurfaceId(): string;
   isInArchive(): boolean;
   restoreActiveDirTabState(): void;
   saveDirTabState(tabId: string): void;
@@ -25,7 +25,7 @@ export class FilePaneRuntimeStateController {
 
   persistDirTabState(host: FilePaneRuntimeStateHost): void {
     const tabId = host.activeDirTabId ?? host.currentTabId;
-    if (!tabId || host.activeTabKind !== 'dir') {
+    if (!tabId || host.activeSurfaceId !== 'dir') {
       return;
     }
 

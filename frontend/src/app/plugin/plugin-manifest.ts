@@ -8,7 +8,6 @@ export type PluginPermission =
   | 'surfaces'
   | 'toolbar'
   | 'contextMenu'
-  | 'settings'
   | 'fileCategories'
   | 'filesystem.read'
   | 'filesystem.write'

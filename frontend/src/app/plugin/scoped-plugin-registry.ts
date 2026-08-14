@@ -2,7 +2,6 @@ import type {
   ContextMenuContribution,
   FileCategoryResolver,
   PluginRegistryAPI,
-  SettingsPanelContribution,
   ToolbarActionContribution,
 } from './plugin-registry-api';
 import type { PluginPermission } from './plugin-manifest';
@@ -82,12 +81,6 @@ export class ScopedPluginRegistry implements PluginRegistryAPI {
   }
   unregisterContextMenuItem(id: string): void { this.host.unregisterContextMenuItem(id); }
 
-  registerSettingsPanel(panel: SettingsPanelContribution): void {
-    this.assertActive(); this.require('settings');
-    this.host.registerSettingsPanel(panel);
-    this.cleanups.push(() => this.host.unregisterSettingsPanel(panel.id));
-  }
-  unregisterSettingsPanel(id: string): void { this.host.unregisterSettingsPanel(id); }
 
   registerFileCategory(resolver: FileCategoryResolver): void {
     this.assertActive(); this.require('fileCategories');

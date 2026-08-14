@@ -1,10 +1,11 @@
-import { Injectable } from '@angular/core';
+import { Injectable, Optional } from '@angular/core';
 import { createBehaviorSubject } from '@epikodelabs/streamix';
 import {
   PluginLifecycleCoordinatorService,
   type ManagedPluginRuntimeSnapshot,
   type PluginActivationEventResult,
 } from './plugin-lifecycle-coordinator.service';
+import { BackendPluginCommandBridgeService } from './backend-plugin-command-bridge.service';
 
 export type PluginBootstrapStatus =
   | 'idle'
@@ -36,7 +37,10 @@ export class PluginBootstrapService {
   private initializePromise: Promise<PluginBootstrapSnapshot> | null = null;
   private shutdownPromise: Promise<void> | null = null;
 
-  constructor(private readonly lifecycle: PluginLifecycleCoordinatorService) {}
+  constructor(
+    private readonly lifecycle: PluginLifecycleCoordinatorService,
+    @Optional() private readonly backendCommands?: BackendPluginCommandBridgeService,
+  ) {}
 
   get snapshot(): PluginBootstrapSnapshot {
     return this.current;
@@ -47,14 +51,14 @@ export class PluginBootstrapService {
    * into onStartup. Individual plugin activation failures degrade plugin
    * health but never prevent the file manager itself from starting.
    */
-  initialize(): Promise<PluginBootstrapSnapshot> {
+  initialize(selectionProvider: () => string[] = () => []): Promise<PluginBootstrapSnapshot> {
     if (this.current.status === 'ready' || this.current.status === 'degraded') {
       return Promise.resolve(this.current);
     }
     if (this.initializePromise) return this.initializePromise;
 
     this.publish({ ...INITIAL_SNAPSHOT, status: 'initializing' });
-    this.initializePromise = this.runInitialize().finally(() => {
+    this.initializePromise = this.runInitialize(selectionProvider).finally(() => {
       this.initializePromise = null;
     });
     return this.initializePromise;
@@ -74,13 +78,25 @@ export class PluginBootstrapService {
     return this.shutdownPromise;
   }
 
-  private async runInitialize(): Promise<PluginBootstrapSnapshot> {
+  private async runInitialize(selectionProvider: () => string[]): Promise<PluginBootstrapSnapshot> {
+    const bootstrapErrors: string[] = [];
+    if (this.backendCommands) {
+      try {
+        await this.backendCommands.start(selectionProvider);
+      } catch (error) {
+        bootstrapErrors.push(`backend commands: ${errorMessage(error)}`);
+      }
+    }
+
     try {
       const runtimes = await this.lifecycle.sync();
       const startupActivations = await this.lifecycle.activateStartup();
-      const errors = startupActivations
-        .filter(result => !result.activated && result.error)
-        .map(result => `${result.pluginId}: ${result.error}`);
+      const errors = [
+        ...bootstrapErrors,
+        ...startupActivations
+          .filter(result => !result.activated && result.error)
+          .map(result => `${result.pluginId}: ${result.error}`),
+      ];
 
       const status: PluginBootstrapStatus = errors.length ? 'degraded' : 'ready';
       const snapshot: PluginBootstrapSnapshot = {
@@ -97,7 +113,7 @@ export class PluginBootstrapService {
         status: 'degraded',
         runtimes: [],
         startupActivations: [],
-        errors: [message],
+        errors: [...bootstrapErrors, message],
       };
       this.publish(snapshot);
       return snapshot;
@@ -110,7 +126,12 @@ export class PluginBootstrapService {
     }
 
     this.publish({ ...this.current, status: 'shutting-down' });
-    const results = await this.lifecycle.shutdown();
+    let results: Awaited<ReturnType<PluginLifecycleCoordinatorService['shutdown']>> = [];
+    try {
+      results = await this.lifecycle.shutdown();
+    } finally {
+      this.backendCommands?.stop();
+    }
     const shutdownErrors = results
       .filter(result => result.error)
       .map(result => `${result.pluginId}: ${result.error}`);

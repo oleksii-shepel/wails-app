@@ -13,6 +13,7 @@ import type { FilePaneOpenHost } from './file-pane-open.controller';
 import type { FilePaneOperationsHost } from './file-pane-operations.controller';
 import type { FilePanePreviewHost } from './file-pane-preview.controller';
 import type { ViewLayout } from './file-view-container.component';
+import type { SurfaceCapability } from '../surfaces/surface-contribution';
 
 export interface FilePaneActionHostsSource {
   get paneId(): 'left' | 'right';
@@ -21,7 +22,7 @@ export interface FilePaneActionHostsSource {
   set currentPath(value: string);
   get fsParentDir(): string;
   set fsParentDir(value: string);
-  get activeTabKind(): 'dir' | 'viewer';
+  get activeSurfaceCapabilities(): ReadonlySet<SurfaceCapability>;
   get currentView(): ViewLayout;
   get defaultOpenAction(): 'edit' | 'external';
   get confirmBeforeDelete(): boolean;
@@ -212,7 +213,7 @@ export class FilePaneActionHostsFactory {
   createPreviewHost(source: FilePaneActionHostsSource): FilePanePreviewHost {
     return {
       get paneId() { return source.paneId; },
-      get activeTabKind() { return source.activeTabKind; },
+      get activeSurfaceCapabilities() { return source.activeSurfaceCapabilities; },
       get currentTabId() { return source.currentTabId; },
       get entries() { return source.entries; },
       get sortedEntries() { return source.getSortedEntries(); },

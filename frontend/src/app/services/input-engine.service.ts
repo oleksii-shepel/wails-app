@@ -30,6 +30,14 @@ interface RegisteredBinding extends InputBindingDefinition {
   enabled: boolean;
 }
 
+type KeyboardRegisteredBinding = RegisteredBinding & {
+  trigger: Extract<InputTrigger, { device: 'keyboard' }>;
+};
+
+function isKeyboardRegisteredBinding(binding: RegisteredBinding): binding is KeyboardRegisteredBinding {
+  return binding.trigger.device === 'keyboard';
+}
+
 interface PendingChordState {
   startedAt: number;
   steps: KeyStroke[];
@@ -246,9 +254,9 @@ export class InputEngineService {
   }
 
   getPreferredKeyboardBinding(commandId: string): InputBindingDefinition | undefined {
-    let preferred: RegisteredBinding | undefined;
+    let preferred: KeyboardRegisteredBinding | undefined;
     for (const binding of this.bindings.values()) {
-      if (binding.commandId !== commandId || binding.trigger.device !== 'keyboard') continue;
+      if (binding.commandId !== commandId || !isKeyboardRegisteredBinding(binding)) continue;
       if (!preferred || binding.trigger.chord.steps.length < preferred.trigger.chord.steps.length) {
         preferred = binding;
       }

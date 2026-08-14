@@ -5,7 +5,7 @@
  * presentation vocabulary can be used by toolbars, menus, palettes and future
  * surfaces such as Console without coupling those renderers to one another.
  */
-export type CommandPresentationSource = 'builtin' | 'plugin';
+export type CommandPresentationSource = 'builtin' | 'plugin' | 'registry';
 
 export interface CommandPresentation<TId extends string = string> {
   readonly id: TId;

@@ -4,25 +4,18 @@ import { FormsModule } from '@angular/forms';
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
-import { InputBindingDefinition } from '../services/input-system.types';
+import type { InputBindingDefinition } from '../services/input-system.types';
 import { NativeOverlayFreezeService } from '../services/native-overlay-freeze.service';
 import { CommandPaletteHistoryService } from '../services/command-palette-history.service';
 import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.directive';
 import { NO_ACTIONS, type ActionAvailability } from '../services/action-availability';
-import { BC } from './file-browser-command-registry';
+import { bindCommandPresentation, type PresentedCommand } from './presented-command';
+import { isFileBrowserCommandAvailable } from './file-browser-command-availability';
 import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directive';
-
-interface PaletteItem {
-  commandId: string;
-  description: string;
-  category: string;
-  binding: InputBindingDefinition | null;
-  enabled: boolean;
-}
 
 interface PaletteGroup {
   category: string;
-  items: PaletteItem[];
+  items: PresentedCommand[];
 }
 
 @Component({
@@ -81,9 +74,9 @@ interface PaletteGroup {
                   <path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z"/>
                 </svg>
               </span>
-              <span class="cp-item-label">{{ item.description }}</span>
-              <span class="cp-item-keys" *ngIf="item.binding">
-                {{ formatBinding(item.binding) }}
+              <span class="cp-item-label">{{ item.label }}</span>
+              <span class="cp-item-keys" *ngIf="item.shortcut">
+                {{ item.shortcut }}
               </span>
             </div>
           </ng-container>
@@ -256,7 +249,7 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
   groups: PaletteGroup[] = [];
   filteredGroups: PaletteGroup[] = [];
   selectedCommandId: string | null = null;
-  private flatItems: PaletteItem[] = [];
+  private flatItems: PresentedCommand[] = [];
   private releaseContext: (() => void) | null = null;
   private destroy$ = createSubject<void>();
 
@@ -325,84 +318,73 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
   }
 
   private loadCommands(): void {
-    // Build a lookup of commandId -> best keyboard binding for display
-    const bindingByCommand = new Map<string, InputBindingDefinition>();
-    for (const binding of this.inputEngine.getBindingSnapshot()) {
-      if (binding.trigger.device !== 'keyboard') continue;
-      const existing = bindingByCommand.get(binding.commandId);
-      if (!existing || (existing.trigger.device === 'keyboard' && binding.trigger.chord.steps.length < existing.trigger.chord.steps.length)) {
-        bindingByCommand.set(binding.commandId, binding);
-      }
-    }
-
-    // Primary source: registered command definitions (supports plugin contributions)
-    const defs = this.inputEngine.getCommandDefinitions();
+    const bindingByCommand = this.buildBindingLookup();
     const activeContextIds = this.inputEngine.getActiveContextIds();
-    const allItems = new Map<string, PaletteItem>();
+    const allCommands = new Map<string, PresentedCommand>();
+    const categoryByCommand = new Map<string, string>();
 
-    for (const def of defs) {
-      // Context-aware filtering: only show if no contextIds specified or any context is active
-      if (def.contextIds && def.contextIds.length > 0 && !def.contextIds.some(cid => activeContextIds.has(cid))) {
+    for (const def of this.inputEngine.getCommandDefinitions()) {
+      if (def.contextIds?.length && !def.contextIds.some(cid => activeContextIds.has(cid))) {
         continue;
       }
-      const cat = def.category ?? 'General';
-      allItems.set(def.id, {
-        commandId: def.id,
-        description: def.title,
-        category: cat,
-        binding: bindingByCommand.get(def.id) ?? null,
-        enabled: this.isCommandAvailable(def.id),
-      });
+
+      const binding = bindingByCommand.get(def.id) ?? null;
+      allCommands.set(def.id, this.createPresentedCommand(
+        def.id,
+        def.title,
+        binding,
+        isFileBrowserCommandAvailable(def.id, this.actionAvailability),
+      ));
+      categoryByCommand.set(def.id, def.category ?? 'General');
       bindingByCommand.delete(def.id);
     }
 
-    // Fallback: any commands with bindings but no explicit definition
+    // Commands can have bindings without an explicit definition. They still use
+    // the same shared presentation model rather than a palette-only item type.
     for (const [commandId, binding] of bindingByCommand) {
-      const cat = binding.category ?? 'General';
-      allItems.set(commandId, {
+      allCommands.set(commandId, this.createPresentedCommand(
         commandId,
-        description: binding.description ?? commandId,
-        category: cat,
+        binding.description ?? commandId,
         binding,
-        enabled: this.isCommandAvailable(commandId),
-      });
+        isFileBrowserCommandAvailable(commandId, this.actionAvailability),
+      ));
+      categoryByCommand.set(commandId, binding.category ?? 'General');
     }
 
-    // Build groups
-    const catMap = new Map<string, PaletteItem[]>();
-    for (const item of allItems.values()) {
-      if (!catMap.has(item.category)) catMap.set(item.category, []);
-      catMap.get(item.category)!.push(item);
+    const categoryMap = new Map<string, PresentedCommand[]>();
+    for (const command of allCommands.values()) {
+      const category = categoryByCommand.get(command.id) ?? 'General';
+      const items = categoryMap.get(category) ?? [];
+      items.push(command);
+      categoryMap.set(category, items);
     }
 
-    const categoryOrder = ['Navigation', 'Tab Management', 'File Operations', 'Search & Filter', 'Workspaces', 'Pane Control', 'Tools', 'General'];
+    const categoryOrder = [
+      'Navigation', 'Tab Management', 'File Operations', 'Search & Filter',
+      'Workspaces', 'Pane Control', 'Tools', 'General',
+    ];
     this.groups = [];
     this.flatItems = [];
 
-    // Add Recent group first
-    const history = this.historyService.getHistory();
-    const recentItems: PaletteItem[] = [];
-    for (const commandId of history) {
-      const item = allItems.get(commandId);
-      if (item) recentItems.push(item);
-    }
+    const recentItems = this.historyService.getHistory()
+      .map(commandId => allCommands.get(commandId))
+      .filter((item): item is PresentedCommand => !!item);
     if (recentItems.length > 0) {
       this.groups.push({ category: 'Recent', items: recentItems });
       this.flatItems.push(...recentItems);
     }
 
-    const pushGroup = (cat: string) => {
-      const items = catMap.get(cat);
-      if (items && items.length > 0) {
-        items.sort((a, b) => a.description.localeCompare(b.description));
-        this.groups.push({ category: cat, items });
-        this.flatItems.push(...items);
-        catMap.delete(cat);
-      }
+    const pushGroup = (category: string) => {
+      const items = categoryMap.get(category);
+      if (!items?.length) return;
+      items.sort((a, b) => a.label.localeCompare(b.label));
+      this.groups.push({ category, items });
+      this.flatItems.push(...items);
+      categoryMap.delete(category);
     };
 
-    for (const cat of categoryOrder) pushGroup(cat);
-    for (const [cat, items] of catMap) pushGroup(cat);
+    for (const category of categoryOrder) pushGroup(category);
+    for (const category of categoryMap.keys()) pushGroup(category);
 
     this.totalItems = this.flatItems.length;
   }
@@ -413,35 +395,26 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
     const query = this.searchQuery.toLowerCase().trim();
     if (!query) {
       this.filteredGroups = this.groups;
-      this.selectedCommandId = this.flatItems.find(item => item.enabled)?.commandId ?? null;
+      this.selectedCommandId = this.flatItems.find(item => item.enabled)?.id ?? null;
       return;
     }
 
-    const filteredFlat: PaletteItem[] = [];
-    for (const item of this.flatItems) {
-      const descMatch = item.description.toLowerCase().includes(query);
-      const keyMatch = this.formatBinding(item.binding).toLowerCase().includes(query);
-      const idMatch = item.commandId.toLowerCase().includes(query);
-      if (descMatch || keyMatch || idMatch) {
-        filteredFlat.push(item);
-      }
-    }
+    const filteredFlat = this.flatItems.filter(item => {
+      const labelMatch = item.label.toLowerCase().includes(query);
+      const shortcutMatch = (item.shortcut ?? '').toLowerCase().includes(query);
+      const idMatch = (item.commandId ?? item.id).toLowerCase().includes(query);
+      return labelMatch || shortcutMatch || idMatch;
+    });
 
-    const catMap = new Map<string, PaletteItem[]>();
-    for (const item of filteredFlat) {
-      if (!catMap.has(item.category)) catMap.set(item.category, []);
-      catMap.get(item.category)!.push(item);
-    }
+    const visibleIds = new Set(filteredFlat.map(item => item.id));
+    this.filteredGroups = this.groups
+      .map(group => ({
+        category: group.category,
+        items: group.items.filter(item => visibleIds.has(item.id)),
+      }))
+      .filter(group => group.items.length > 0);
 
-    this.filteredGroups = [];
-    for (const group of this.groups) {
-      const items = catMap.get(group.category);
-      if (items && items.length > 0) {
-        this.filteredGroups.push({ category: group.category, items });
-      }
-    }
-
-    this.selectedCommandId = filteredFlat.find(item => item.enabled)?.commandId ?? null;
+    this.selectedCommandId = filteredFlat.find(item => item.enabled)?.id ?? null;
   }
 
   onSearchKeydown(event: KeyboardEvent): void {
@@ -462,58 +435,78 @@ export class CommandPaletteComponent implements OnInit, OnDestroy {
   }
 
   private moveSelection(delta: number): void {
-    const flat = this.filteredGroups.flatMap(g => g.items);
+    const flat = this.filteredGroups.flatMap(group => group.items);
     if (flat.length === 0) return;
-    let idx = flat.findIndex(i => i.commandId === this.selectedCommandId);
-    if (idx < 0) idx = delta > 0 ? -1 : 0;
+
+    let index = flat.findIndex(item => item.id === this.selectedCommandId);
+    if (index < 0) index = delta > 0 ? -1 : 0;
+
     for (let i = 0; i < flat.length; i++) {
-      idx = (idx + delta + flat.length) % flat.length;
-      if (flat[idx].enabled) {
-        this.selectedCommandId = flat[idx].commandId;
+      index = (index + delta + flat.length) % flat.length;
+      if (flat[index].enabled) {
+        this.selectedCommandId = flat[index].id;
         return;
       }
     }
     this.selectedCommandId = null;
   }
 
-  private findSelectedItem(): PaletteItem | null {
-    return this.flatItems.find(i => i.commandId === this.selectedCommandId) ?? null;
+  private findSelectedItem(): PresentedCommand | null {
+    return this.flatItems.find(item => item.id === this.selectedCommandId) ?? null;
   }
 
-  isSelected(item: PaletteItem): boolean {
-    return item.commandId === this.selectedCommandId;
+  isSelected(item: PresentedCommand): boolean {
+    return item.id === this.selectedCommandId;
   }
 
-  selectItem(item: PaletteItem): void {
-    if (item.enabled) this.selectedCommandId = item.commandId;
+  selectItem(item: PresentedCommand): void {
+    if (item.enabled) this.selectedCommandId = item.id;
   }
 
-  executeItem(item: PaletteItem): void {
+  executeItem(item: PresentedCommand): void {
     if (!item.enabled) return;
     this.hide();
-    this.historyService.recordCommand(item.commandId);
-    // Small delay so the modal closes before the command runs (prevents focus issues)
+    this.historyService.recordCommand(item.commandId ?? item.id);
+    // Close the modal before dispatch so command focus behavior remains stable.
     setTimeout(() => {
-      const ok = this.inputEngine.dispatchCommandById(item.commandId);
-      if (!ok) {
-        console.warn('Command palette: command not found or failed:', item.commandId);
-      }
+      void item.execute();
     }, 50);
   }
 
-  private isCommandAvailable(commandId: string): boolean {
-    switch (commandId) {
-      case BC.copy: return this.actionAvailability.copySelected;
-      case BC.cut: return this.actionAvailability.cutSelected;
-      case BC.paste: return this.actionAvailability.paste;
-      case BC.deleteSelected: return this.actionAvailability.deleteSelected;
-      case BC.newFolder: return this.actionAvailability.createFolder;
-      case BC.rename:
-      case BC.batchRename: return this.actionAvailability.rename;
-      case BC.copyToOtherPane: return this.actionAvailability.copyToOther;
-      case BC.moveToOtherPane: return this.actionAvailability.moveToOther;
-      default: return true;
+  private buildBindingLookup(): Map<string, InputBindingDefinition> {
+    const result = new Map<string, InputBindingDefinition>();
+    for (const binding of this.inputEngine.getBindingSnapshot()) {
+      if (binding.trigger.device !== 'keyboard') continue;
+      const existing = result.get(binding.commandId);
+      if (!existing || (
+        existing.trigger.device === 'keyboard'
+        && binding.trigger.chord.steps.length < existing.trigger.chord.steps.length
+      )) {
+        result.set(binding.commandId, binding);
+      }
     }
+    return result;
+  }
+
+  private createPresentedCommand(
+    commandId: string,
+    label: string,
+    binding: InputBindingDefinition | null,
+    enabled: boolean,
+  ): PresentedCommand {
+    return bindCommandPresentation({
+      id: commandId,
+      label,
+      shortcut: this.formatBinding(binding) || undefined,
+      enabled,
+      source: 'registry',
+      commandId,
+    }, () => {
+      const ok = this.inputEngine.dispatchCommandById(commandId);
+      if (!ok) {
+        console.warn('Command palette: command not found or failed:', commandId);
+      }
+    });
   }
 
   formatBinding(binding: InputBindingDefinition | null): string {

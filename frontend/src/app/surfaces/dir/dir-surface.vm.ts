@@ -56,6 +56,7 @@ export interface DirSurfaceVm {
   onNavigate(entry: FileInfo): void;
   onOpenInNewTab(entry: FileInfo): void;
   onContextMenu(ev: { event: MouseEvent; entry: FileInfo }): void;
+  onBackgroundContextMenu(event: MouseEvent): void;
   onNodeDoubleClick(ev: any): void;
   onDragDrop(ev: any): void;
   onRename(ev: { entry: FileInfo; newName: string }): void;

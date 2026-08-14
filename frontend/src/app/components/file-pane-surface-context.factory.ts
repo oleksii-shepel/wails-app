@@ -3,6 +3,7 @@ import type { DirSurfaceVm } from '../surfaces/dir/dir-surface.vm';
 import type { DirSurfaceContext, SurfaceContext, ViewerSurfaceContext, SizeManagerSurfaceContext } from '../surfaces/surface-context';
 import type { SizeManagerSurfaceVm } from '../surfaces/size-manager/size-manager-surface.vm';
 import type { TabInfo } from '../shared/protocol-enhanced';
+import { tabSurfaceId } from '../surfaces/tab-surface';
 
 export interface FilePaneSurfaceContextSource {
   get paneId(): 'left' | 'right';
@@ -18,7 +19,8 @@ export class FilePaneSurfaceContextFactory {
   }
 
   getSurfaceContextForTab(source: FilePaneSurfaceContextSource, tab: TabInfo): SurfaceContext {
-    if ((tab.kind ?? 'dir') === 'size-manager' && source.sizeManagerVm) {
+    const surfaceId = tabSurfaceId(tab);
+    if (surfaceId === 'size-manager' && source.sizeManagerVm) {
       return {
         paneId: source.paneId,
         kind: 'size-manager',
@@ -27,7 +29,7 @@ export class FilePaneSurfaceContextFactory {
       } satisfies SizeManagerSurfaceContext;
     }
 
-    if ((tab.kind ?? 'dir') === 'viewer') {
+    if (surfaceId === 'viewer') {
       return {
         paneId: source.paneId,
         kind: 'viewer',
@@ -50,12 +52,13 @@ export class FilePaneSurfaceContextFactory {
   }
 
   getActiveTabKind(source: FilePaneSurfaceContextSource): 'dir' | 'viewer' {
-    return (this.getActiveTab(source)?.kind ?? 'dir') === 'viewer' ? 'viewer' : 'dir';
+    const tab = this.getActiveTab(source);
+    return tab && tabSurfaceId(tab) === 'viewer' ? 'viewer' : 'dir';
   }
 
   getActiveViewerTargetPath(source: FilePaneSurfaceContextSource): string {
     const tab = this.getActiveTab(source);
-    if (!tab || (tab.kind ?? 'dir') !== 'viewer') {
+    if (!tab || tabSurfaceId(tab) !== 'viewer') {
       return '';
     }
 
@@ -64,7 +67,7 @@ export class FilePaneSurfaceContextFactory {
 
   getActiveViewerId(source: FilePaneSurfaceContextSource): string | null {
     const tab = this.getActiveTab(source);
-    if (!tab || (tab.kind ?? 'dir') !== 'viewer') {
+    if (!tab || tabSurfaceId(tab) !== 'viewer') {
       return null;
     }
 
@@ -73,7 +76,7 @@ export class FilePaneSurfaceContextFactory {
 
   getActiveViewerFileList(source: FilePaneSurfaceContextSource) {
     const tab = this.getActiveTab(source);
-    if (!tab || (tab.kind ?? 'dir') !== 'viewer') {
+    if (!tab || tabSurfaceId(tab) !== 'viewer') {
       return [];
     }
 
@@ -82,7 +85,7 @@ export class FilePaneSurfaceContextFactory {
 
   getActiveViewerArchiveContext(source: FilePaneSurfaceContextSource): ViewerArchiveContext | null {
     const tab = this.getActiveTab(source);
-    if (!tab || (tab.kind ?? 'dir') !== 'viewer') {
+    if (!tab || tabSurfaceId(tab) !== 'viewer') {
       return null;
     }
 

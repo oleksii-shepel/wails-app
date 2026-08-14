@@ -4,6 +4,7 @@ import { SurfaceContribution, SurfaceRequest } from './surface-contribution';
 import { DirSurfaceTabComponent } from './builtins/dir-surface-tab.component';
 import { ViewerSurfaceTabComponent } from './builtins/viewer-surface-tab.component';
 import { SizeManagerSurfaceTabComponent } from './size-manager/size-manager-surface-tab.component';
+import { tabSurfaceId } from './tab-surface';
 
 @Injectable({ providedIn: 'root' })
 export class SurfaceRegistryService {
@@ -14,19 +15,19 @@ export class SurfaceRegistryService {
     // changing panes/tab infrastructure.
     this.register({
       id: 'dir',
-      score: (req) => ((req.tab.kind ?? 'dir') === 'dir' ? 100 : 0),
+      score: (req) => (tabSurfaceId(req.tab) === 'dir' ? 100 : 0),
       load: () => DirSurfaceTabComponent,
     });
 
     this.register({
       id: 'viewer',
-      score: (req) => ((req.tab.kind ?? 'dir') === 'viewer' ? 100 : 0),
+      score: (req) => (tabSurfaceId(req.tab) === 'viewer' ? 100 : 0),
       load: () => ViewerSurfaceTabComponent,
     });
 
     this.register({
       id: 'size-manager',
-      score: (req) => ((req.tab.kind ?? 'dir') === 'size-manager' ? 100 : 0),
+      score: (req) => (tabSurfaceId(req.tab) === 'size-manager' ? 100 : 0),
       load: () => SizeManagerSurfaceTabComponent,
     });
   }

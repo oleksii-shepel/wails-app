@@ -872,6 +872,22 @@ export namespace contracts {
 		    return a;
 		}
 	}
+	export class LocationRef {
+	    location: string;
+	    scheme: string;
+	    kind: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new LocationRef(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.location = source["location"];
+	        this.scheme = source["scheme"];
+	        this.kind = source["kind"];
+	    }
+	}
 	export class OSInfoResponse {
 	    os: string;
 	    version: string;
@@ -984,6 +1000,7 @@ export namespace contracts {
 	    id: string;
 	    title: string;
 	    path: string;
+	    location?: LocationRef;
 	    kind?: string;
 	    viewer?: ViewerTab;
 	    isClosable?: boolean;
@@ -1001,6 +1018,7 @@ export namespace contracts {
 	        this.id = source["id"];
 	        this.title = source["title"];
 	        this.path = source["path"];
+	        this.location = this.convertValues(source["location"], LocationRef);
 	        this.kind = source["kind"];
 	        this.viewer = this.convertValues(source["viewer"], ViewerTab);
 	        this.isClosable = source["isClosable"];

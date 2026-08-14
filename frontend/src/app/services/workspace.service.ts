@@ -12,6 +12,7 @@ import { ApiService } from './api.service';
 import { ArchiveFrame } from './archive.service';
 import { normalizePath as normalizeReferencePath } from '../components/address-bar.utils';
 import { describeLocation, locationLabel } from './location-reference';
+import { legacyKindSurfaceId } from '../surfaces/tab-surface';
 import {
   GetPreferences,
   GetWorkspaces,
@@ -207,6 +208,8 @@ export class WorkspaceService {
       seenIds.add(tab.id);
 
       const kind = tab.kind ?? 'dir';
+      const surfaceId = tab.surfaceId?.trim() || legacyKindSurfaceId(kind);
+      if (!tab.surfaceId) changed = true;
       if (!tab.kind) changed = true;
 
       const location = kind === 'viewer'
@@ -222,6 +225,7 @@ export class WorkspaceService {
       deduped.push({
         ...tab,
         kind,
+        surfaceId,
         location,
         isClosable,
       } as TabInfo);
@@ -592,6 +596,7 @@ export class WorkspaceService {
       path,
       location: describeLocation(path) ?? undefined,
       kind: 'dir',
+      surfaceId: 'dir',
       isActive: activate,
       isPinned: false,
       createdAt: Date.now(),
@@ -631,6 +636,7 @@ export class WorkspaceService {
         path: rootPath,
         location: describeLocation(rootPath) ?? undefined,
         kind: 'dir',
+      surfaceId: 'dir',
         isActive: true,
         isPinned: false,
         createdAt: Date.now(),
@@ -821,6 +827,7 @@ export class WorkspaceService {
         path: rootPath,
         location: describeLocation(rootPath) ?? undefined,
         kind: 'dir',
+      surfaceId: 'dir',
         isActive: true,
         isPinned: false,
         createdAt: Date.now(),
@@ -989,6 +996,7 @@ export class WorkspaceService {
           path,
           location: describeLocation(path) ?? undefined,
           kind: 'dir',
+      surfaceId: 'dir',
           isActive: true,
           isPinned: false,
           createdAt: Date.now(),
@@ -998,6 +1006,7 @@ export class WorkspaceService {
           title: 'Preview',
           path: '',
           kind: 'viewer',
+      surfaceId: 'viewer',
           viewer: { targetPath: '', autoFollow: true },
           isActive: false,
           isPinned: false,
@@ -1084,6 +1093,7 @@ export class WorkspaceService {
       title: (opts?.title ?? (targetPath || 'Preview')),
       path: targetPath || '',
       kind: 'viewer',
+      surfaceId: 'viewer',
       viewer: {
         targetPath: targetPath || '',
         fileList: opts?.fileList ?? [],
@@ -1129,6 +1139,7 @@ export class WorkspaceService {
       title: 'Storage Footprint',
       path: analysisPath,
       kind: 'size-manager',
+      surfaceId: 'size-manager',
       isClosable: opts?.closable === false ? false : true,
       isActive: activate,
       isPinned: false,

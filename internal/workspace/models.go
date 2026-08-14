@@ -39,6 +39,7 @@ type TabInfo struct {
 	Title         string       `json:"title"`
 	Path          string       `json:"path"`
 	Location      *LocationRef `json:"location,omitempty"`
+	SurfaceID     string       `json:"surfaceId,omitempty"`
 	Kind          string       `json:"kind,omitempty"`
 	Viewer        *ViewerTab   `json:"viewer,omitempty"`
 	IsClosable    *bool        `json:"isClosable,omitempty"`

@@ -300,7 +300,7 @@ func TestConversionRoundTrip(t *testing.T) {
 			ID: "left",
 			Tabs: []contracts.TabInfo{
 				{
-					ID: "tab1", Title: "Tab 1", Path: "/a",
+					ID: "tab1", Title: "Tab 1", Path: "/a", SurfaceID: "dir",
 					Location: &contracts.LocationRef{Location: "search://?path=/a&pattern=todo", Scheme: "search", Kind: "query"},
 					Viewer: &contracts.ViewerTab{
 						TargetPath: "/a/file.txt",
@@ -340,6 +340,9 @@ func TestConversionRoundTrip(t *testing.T) {
 	}
 	if back.LeftPane.Tabs[0].Location == nil || back.LeftPane.Tabs[0].Location.Scheme != "search" || back.LeftPane.Tabs[0].Location.Kind != "query" {
 		t.Fatal("tab location lost in round-trip")
+	}
+	if back.LeftPane.Tabs[0].SurfaceID != "dir" {
+		t.Fatalf("surface id lost in round-trip: %q", back.LeftPane.Tabs[0].SurfaceID)
 	}
 	if back.LeftPane.Tabs[0].Viewer == nil {
 		t.Fatal("viewer lost in round-trip")

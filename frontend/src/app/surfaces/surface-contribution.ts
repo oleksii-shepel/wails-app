@@ -11,4 +11,3 @@ export interface SurfaceContribution {
   score(req: SurfaceRequest): number;
   load(): Promise<Type<unknown>> | Type<unknown>;
 }
-

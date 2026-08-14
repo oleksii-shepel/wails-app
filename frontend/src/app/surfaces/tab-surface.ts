@@ -15,3 +15,7 @@ export function legacyKindSurfaceId(kind: TabInfo['kind']): string {
 export function tabSurfaceId(tab: Pick<TabInfo, 'surfaceId' | 'kind'>): string {
   return tab.surfaceId?.trim() || legacyKindSurfaceId(tab.kind);
 }
+
+export function tabLocation(tab: Pick<TabInfo, 'location' | 'path'>): string {
+  return tab.location?.location?.trim() || tab.path?.trim() || '';
+}

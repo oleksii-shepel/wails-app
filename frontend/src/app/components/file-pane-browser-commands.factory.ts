@@ -7,6 +7,7 @@ import type { FilePanePreviewRequest } from './file-pane-preview.controller';
 import type { FilePaneStateRuntimeAdapter } from './file-pane-state-runtime.factory';
 import type { ViewerFileListItem } from '../shared/protocol-enhanced';
 import type { SurfaceCapability } from '../surfaces/surface-contribution';
+import type { SourceCapabilities } from '../services/source-capabilities';
 
 export interface FilePaneBrowserCommands {
   navigation: {
@@ -39,6 +40,7 @@ export interface FilePaneBrowserCommands {
 
 export interface FilePaneBrowserCommandsSource {
   surfaceCapabilities: ReadonlySet<SurfaceCapability>;
+  sourceCapabilities: SourceCapabilities;
   navigationController: FilePaneNavigationController;
   navigationHost: FilePaneNavigationHost;
   openController: FilePaneOpenController;
@@ -58,6 +60,7 @@ export interface FilePaneBrowserCommandsSource {
 export class FilePaneBrowserCommandsFactory {
   create(source: FilePaneBrowserCommandsSource): FilePaneBrowserCommands {
     const supports = (capability: SurfaceCapability) => source.surfaceCapabilities.has(capability);
+    const canMutate = (capability: 'create' | 'delete' | 'rename') => source.sourceCapabilities[capability];
     const navigateUp = () => supports('navigate')
       ? source.navigationController.onNavigateUp(source.navigationHost)
       : Promise.resolve();
@@ -69,11 +72,11 @@ export class FilePaneBrowserCommandsFactory {
         openSelectedItem: () => { if (supports('selection')) source.openController.onOpenSelectedItem(source.openHost, navigateUp); },
       },
       selection: {
-        createFolder: () => supports('fileOperations') ? source.operationsController.onCreateFolder(source.operationsHost) : Promise.resolve(),
-        deleteSelected: () => supports('fileOperations') ? source.operationsController.onDeleteSelected(source.operationsHost) : Promise.resolve(),
-        renameSelected: () => supports('fileOperations') ? source.operationsController.onRenameSelected(source.operationsHost) : Promise.resolve(),
+        createFolder: () => supports('fileOperations') && canMutate('create') ? source.operationsController.onCreateFolder(source.operationsHost) : Promise.resolve(),
+        deleteSelected: () => supports('fileOperations') && canMutate('delete') ? source.operationsController.onDeleteSelected(source.operationsHost) : Promise.resolve(),
+        renameSelected: () => supports('fileOperations') && canMutate('rename') ? source.operationsController.onRenameSelected(source.operationsHost) : Promise.resolve(),
         copyToOther: () => { if (supports('fileOperations')) source.operationsController.onCopyToOther(source.operationsHost); },
-        moveToOther: () => { if (supports('fileOperations')) source.operationsController.onMoveToOther(source.operationsHost); },
+        moveToOther: () => { if (supports('fileOperations') && canMutate('delete')) source.operationsController.onMoveToOther(source.operationsHost); },
       },
       preview: {
         getTargetPath: () => supports('preview') ? source.stateRuntime.getPreviewTargetPath() : '',

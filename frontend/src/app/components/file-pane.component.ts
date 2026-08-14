@@ -55,6 +55,7 @@ import { OperationService } from '../services/operation.service';
 import { BatchRenameDialogService } from '../services/batch-rename-dialog.service';
 import { RemoteConnectDialogService } from '../services/remote-connect-dialog.service';
 import { SettingsService } from '../services/settings.service';
+import { getSourceCapabilities } from '../services/source-capabilities';
 import type { SearchResultItem } from '../services/global-search.service';
 
 declare const window: any;
@@ -171,6 +172,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   private get browserCommandsSource(): FilePaneBrowserCommandsSource {
     return {
       surfaceCapabilities: this.activeSurfaceCapabilities,
+      sourceCapabilities: getSourceCapabilities(this.currentPath, { inArchive: this.isInArchive() }),
       navigationController: this.navigationController,
       navigationHost: this.navigationHost,
       openController: this.openController,

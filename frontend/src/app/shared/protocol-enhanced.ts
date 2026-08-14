@@ -19,10 +19,20 @@ export * from './protocol';
 // Tab Management
 // ============================================================================
 
+export type LocationKind = 'location' | 'query' | 'surface';
+
+export interface LocationReference {
+  location: string;
+  scheme: string;
+  kind: LocationKind;
+}
+
 export interface TabInfo {
   id: string;
   title: string;
   path: string;
+  /** Canonical durable navigation target. Legacy workspaces may omit this and fall back to path. */
+  location?: LocationReference;
   /** "dir" (default), "viewer", or "size-manager". Old persisted workspaces omit this field. */
   kind?: 'dir' | 'viewer' | 'size-manager';
   /** Viewer tab payload; only meaningful when kind === 'viewer'. */

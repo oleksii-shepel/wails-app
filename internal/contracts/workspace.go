@@ -1,16 +1,23 @@
 package contracts
 
 type TabInfo struct {
-	ID            string     `json:"id"`
-	Title         string     `json:"title"`
-	Path          string     `json:"path"`
-	Kind          string     `json:"kind,omitempty"`
-	Viewer        *ViewerTab `json:"viewer,omitempty"`
-	IsClosable    *bool      `json:"isClosable,omitempty"`
-	IsActive      bool       `json:"isActive"`
-	IsPinned      bool       `json:"isPinned"`
-	CreatedAt     int64      `json:"createdAt"`
-	ViewStateJson string     `json:"viewStateJson,omitempty"`
+	ID            string       `json:"id"`
+	Title         string       `json:"title"`
+	Path          string       `json:"path"`
+	Location      *LocationRef `json:"location,omitempty"`
+	Kind          string       `json:"kind,omitempty"`
+	Viewer        *ViewerTab   `json:"viewer,omitempty"`
+	IsClosable    *bool        `json:"isClosable,omitempty"`
+	IsActive      bool         `json:"isActive"`
+	IsPinned      bool         `json:"isPinned"`
+	CreatedAt     int64        `json:"createdAt"`
+	ViewStateJson string       `json:"viewStateJson,omitempty"`
+}
+
+type LocationRef struct {
+	Location string `json:"location"`
+	Scheme   string `json:"scheme"`
+	Kind     string `json:"kind"`
 }
 
 type ViewerTab struct {

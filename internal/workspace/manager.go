@@ -319,6 +319,15 @@ func fromStoragePaneState(source PaneState) contracts.PaneState {
 }
 
 func toStorageTabInfo(source contracts.TabInfo) TabInfo {
+	var location *LocationRef
+	if source.Location != nil {
+		location = &LocationRef{
+			Location: source.Location.Location,
+			Scheme:   source.Location.Scheme,
+			Kind:     source.Location.Kind,
+		}
+	}
+
 	var viewer *ViewerTab
 	if source.Viewer != nil {
 		viewer = &ViewerTab{
@@ -335,6 +344,7 @@ func toStorageTabInfo(source contracts.TabInfo) TabInfo {
 		ID:            source.ID,
 		Title:         source.Title,
 		Path:          source.Path,
+		Location:      location,
 		Kind:          source.Kind,
 		Viewer:        viewer,
 		IsClosable:    source.IsClosable,
@@ -346,6 +356,15 @@ func toStorageTabInfo(source contracts.TabInfo) TabInfo {
 }
 
 func fromStorageTabInfo(source TabInfo) contracts.TabInfo {
+	var location *contracts.LocationRef
+	if source.Location != nil {
+		location = &contracts.LocationRef{
+			Location: source.Location.Location,
+			Scheme:   source.Location.Scheme,
+			Kind:     source.Location.Kind,
+		}
+	}
+
 	var viewer *contracts.ViewerTab
 	if source.Viewer != nil {
 		viewer = &contracts.ViewerTab{
@@ -362,6 +381,7 @@ func fromStorageTabInfo(source TabInfo) contracts.TabInfo {
 		ID:            source.ID,
 		Title:         source.Title,
 		Path:          source.Path,
+		Location:      location,
 		Kind:          source.Kind,
 		Viewer:        viewer,
 		IsClosable:    source.IsClosable,

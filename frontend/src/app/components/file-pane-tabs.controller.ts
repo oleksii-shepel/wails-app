@@ -34,7 +34,8 @@ export class FilePaneTabsController {
   onWorkspaceUpdate(host: FilePaneTabsHost, ws: WorkspaceConfig): void {
     const pane = host.paneId === 'left' ? ws.leftPane : ws.rightPane;
     const nextActiveId = pane.activeTabId;
-    const nextActivePath = pane.tabs.find(tab => tab.id === nextActiveId)?.path ?? '';
+    const activeTab = pane.tabs.find(tab => tab.id === nextActiveId);
+    const nextActivePath = activeTab?.location?.location ?? activeTab?.path ?? '';
 
     if (host.lastSeenActiveTabId === null) {
       host.lastSeenActiveTabId = nextActiveId;

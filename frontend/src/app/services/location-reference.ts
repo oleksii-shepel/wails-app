@@ -1,12 +1,7 @@
 import { buildSegments, isWindowsPath, normalizePath, shortenPath } from '../components/address-bar.utils';
 
-export type LocationKind = 'location' | 'query' | 'surface';
-
-export interface LocationReference {
-  location: string;
-  scheme: string;
-  kind: LocationKind;
-}
+import type { LocationKind, LocationReference } from '../shared/protocol-enhanced';
+export type { LocationKind, LocationReference } from '../shared/protocol-enhanced';
 
 const LOCATION_ICONS: Readonly<Record<string, string>> = {
   search: '🔎',

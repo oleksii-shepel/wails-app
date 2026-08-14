@@ -44,7 +44,7 @@ export class FilePaneNavigationController {
 
     host.tabs = host.workspaceService.getTabs(host.paneId);
     const activeTab = host.workspaceService.getActiveTab(host.paneId);
-    const savedPath = activeTab?.path ?? '';
+    const savedPath = activeTab?.location?.location ?? activeTab?.path ?? '';
     const activeKind = activeTab?.kind ?? 'dir';
 
     const initialPath = await this.resolveInitialPath(host, savedPath);

@@ -289,18 +289,19 @@ func TestWindowStateConversion(t *testing.T) {
 
 func TestConversionRoundTrip(t *testing.T) {
 	original := contracts.WorkspaceConfig{
-		ID:         "abc",
-		Name:       "My Workspace",
-		Icon:       "folder",
-		Color:      "#ff00ff",
-		ShowHidden: true,
+		ID:           "abc",
+		Name:         "My Workspace",
+		Icon:         "folder",
+		Color:        "#ff00ff",
+		ShowHidden:   true,
 		ActivePaneID: "right",
-		SplitRatio: 0.6,
+		SplitRatio:   0.6,
 		LeftPane: contracts.PaneState{
 			ID: "left",
 			Tabs: []contracts.TabInfo{
 				{
 					ID: "tab1", Title: "Tab 1", Path: "/a",
+					Location: &contracts.LocationRef{Location: "search://?path=/a&pattern=todo", Scheme: "search", Kind: "query"},
 					Viewer: &contracts.ViewerTab{
 						TargetPath: "/a/file.txt",
 						ViewerID:   "text",
@@ -336,6 +337,9 @@ func TestConversionRoundTrip(t *testing.T) {
 	}
 	if back.LeftPane.ActiveTabID != original.LeftPane.ActiveTabID {
 		t.Fatal("left pane mismatch")
+	}
+	if back.LeftPane.Tabs[0].Location == nil || back.LeftPane.Tabs[0].Location.Scheme != "search" || back.LeftPane.Tabs[0].Location.Kind != "query" {
+		t.Fatal("tab location lost in round-trip")
 	}
 	if back.LeftPane.Tabs[0].Viewer == nil {
 		t.Fatal("viewer lost in round-trip")

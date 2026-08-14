@@ -11,6 +11,7 @@ import {
 import { ApiService } from './api.service';
 import { ArchiveFrame } from './archive.service';
 import { normalizePath as normalizeReferencePath } from '../components/address-bar.utils';
+import { describeLocation, locationLabel } from './location-reference';
 import {
   GetPreferences,
   GetWorkspaces,
@@ -208,6 +209,11 @@ export class WorkspaceService {
       const kind = tab.kind ?? 'dir';
       if (!tab.kind) changed = true;
 
+      const location = kind === 'viewer'
+        ? tab.location
+        : (tab.location ?? describeLocation(tab.path) ?? undefined);
+      if (kind !== 'viewer' && !tab.location && location) changed = true;
+
       // Migration: earlier iterations made the auto-follow Preview tab non-closable.
       // Preview should behave like other tabs, so force it back to closable.
       const isClosable = (tab.isClosable === false && kind === 'viewer') ? true : tab.isClosable;
@@ -216,6 +222,7 @@ export class WorkspaceService {
       deduped.push({
         ...tab,
         kind,
+        location,
         isClosable,
       } as TabInfo);
     }
@@ -581,8 +588,9 @@ export class WorkspaceService {
 
     const newTab: TabInfo = {
       id: this.generateId(),
-      title: this.getPathTitle(path),
+      title: locationLabel(path) || this.getPathTitle(path),
       path,
+      location: describeLocation(path) ?? undefined,
       kind: 'dir',
       isActive: activate,
       isPinned: false,
@@ -619,8 +627,9 @@ export class WorkspaceService {
       const rootPath = this.getRootForPath(closedTab.path || '/');
       const newTab: TabInfo = {
         id: this.generateId(),
-        title: this.getPathTitle(rootPath),
+        title: locationLabel(rootPath) || this.getPathTitle(rootPath),
         path: rootPath,
+        location: describeLocation(rootPath) ?? undefined,
         kind: 'dir',
         isActive: true,
         isPinned: false,
@@ -685,7 +694,8 @@ export class WorkspaceService {
     if (!tab) return false;
 
     tab.path = path;
-    tab.title = this.getPathTitle(path);
+    tab.location = describeLocation(path) ?? undefined;
+    tab.title = locationLabel(path) || this.getPathTitle(path);
 
     this.updateWorkspace(
       workspace.id,
@@ -711,6 +721,7 @@ export class WorkspaceService {
     if (!tab) return false;
 
     tab.path = path;
+    tab.location = describeLocation(path) ?? undefined;
     tab.title = title;
 
     this.updateWorkspace(
@@ -806,8 +817,9 @@ export class WorkspaceService {
       const rootPath = this.getRootForPath(tab.path || '/');
       const replacement: TabInfo = {
         id: this.generateId(),
-        title: this.getPathTitle(rootPath),
+        title: locationLabel(rootPath) || this.getPathTitle(rootPath),
         path: rootPath,
+        location: describeLocation(rootPath) ?? undefined,
         kind: 'dir',
         isActive: true,
         isPinned: false,
@@ -973,8 +985,9 @@ export class WorkspaceService {
       tabs: [
         {
           id: tabId,
-          title: this.getPathTitle(path),
+          title: locationLabel(path) || this.getPathTitle(path),
           path,
+          location: describeLocation(path) ?? undefined,
           kind: 'dir',
           isActive: true,
           isPinned: false,

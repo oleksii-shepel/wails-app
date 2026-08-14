@@ -33,6 +33,8 @@ export interface TabInfo {
   path: string;
   /** Canonical durable navigation target. Legacy workspaces may omit this and fall back to path. */
   location?: LocationReference;
+  /** Stable rendered surface id. Legacy workspaces may omit this and fall back to kind. */
+  surfaceId?: string;
   /** "dir" (default), "viewer", or "size-manager". Old persisted workspaces omit this field. */
   kind?: 'dir' | 'viewer' | 'size-manager';
   /** Viewer tab payload; only meaningful when kind === 'viewer'. */

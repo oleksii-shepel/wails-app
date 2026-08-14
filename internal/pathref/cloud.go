@@ -31,6 +31,7 @@ var (
 var (
 	cloudCacheMu     sync.RWMutex
 	cloudCache       []LocalCloudProvider
+	cloudCacheHome   string
 	cloudCacheTime   time.Time
 	cloudCacheTTL    = 60 * time.Second
 )
@@ -72,8 +73,18 @@ var localCloudSpecs = []localCloudSpec{
 }
 
 func AvailableLocalCloudProviders() []LocalCloudProvider {
+	home, err := userHomeDirFn()
+	if err != nil || strings.TrimSpace(home) == "" {
+		cloudCacheMu.Lock()
+		cloudCache = nil
+		cloudCacheHome = ""
+		cloudCacheTime = time.Now()
+		cloudCacheMu.Unlock()
+		return nil
+	}
+
 	cloudCacheMu.RLock()
-	if time.Since(cloudCacheTime) < cloudCacheTTL && cloudCache != nil {
+	if time.Since(cloudCacheTime) < cloudCacheTTL && cloudCache != nil && filepath.Clean(home) == cloudCacheHome {
 		result := make([]LocalCloudProvider, len(cloudCache))
 		copy(result, cloudCache)
 		cloudCacheMu.RUnlock()
@@ -84,17 +95,10 @@ func AvailableLocalCloudProviders() []LocalCloudProvider {
 	cloudCacheMu.Lock()
 	defer cloudCacheMu.Unlock()
 	// Double-check after acquiring write lock.
-	if time.Since(cloudCacheTime) < cloudCacheTTL && cloudCache != nil {
+	if time.Since(cloudCacheTime) < cloudCacheTTL && cloudCache != nil && filepath.Clean(home) == cloudCacheHome {
 		result := make([]LocalCloudProvider, len(cloudCache))
 		copy(result, cloudCache)
 		return result
-	}
-
-	home, err := userHomeDirFn()
-	if err != nil || strings.TrimSpace(home) == "" {
-		cloudCache = nil
-		cloudCacheTime = time.Now()
-		return nil
 	}
 
 	providers := make([]LocalCloudProvider, 0, len(localCloudSpecs))
@@ -111,6 +115,7 @@ func AvailableLocalCloudProviders() []LocalCloudProvider {
 	}
 
 	cloudCache = providers
+	cloudCacheHome = filepath.Clean(home)
 	cloudCacheTime = time.Now()
 	result := make([]LocalCloudProvider, len(providers))
 	copy(result, providers)

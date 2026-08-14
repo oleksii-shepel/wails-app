@@ -1,5 +1,6 @@
 import type { Type } from '@angular/core';
 import type { TabInfo } from '../shared/protocol-enhanced';
+import type { SurfaceContext } from './surface-context';
 
 export type SurfaceCapability =
   | 'navigate'
@@ -10,6 +11,7 @@ export type SurfaceCapability =
 
 export interface SurfaceRequest {
   tab: TabInfo;
+  context?: SurfaceContext;
 }
 
 export interface SurfaceContribution {

@@ -2,7 +2,7 @@ import { Injectable } from '@angular/core';
 import { createBehaviorSubject, type Stream } from '@epikodelabs/streamix';
 import { GetPreferences, SavePreferences } from 'wailsjs/go/app/App';
 
-export type SettingsTab = 'general' | 'files' | 'editor' | 'view' | 'advanced' | 'shortcuts' | 'about';
+export type SettingsTab = 'general' | 'files' | 'editor' | 'view' | 'advanced' | 'plugins' | 'shortcuts' | 'about';
 
 export interface GeneralSettings {
   theme: 'dark' | 'light' | 'system';

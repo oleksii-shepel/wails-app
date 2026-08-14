@@ -16,6 +16,7 @@ import {
 import { BROWSER_BINDINGS } from './file-browser-command-registry';
 import { KeybindingStorageService } from '../services/keybinding-storage.service';
 import type { InputBindingDefinition, KeyStroke, InputTrigger } from '../services/input-system.types';
+import { PluginSettingsPanelComponent } from './plugin-settings-panel.component';
 
 interface SettingsDialogRequest {
   resolve: (value: boolean) => void;
@@ -25,7 +26,7 @@ interface SettingsDialogRequest {
 @Component({
   selector: 'app-settings-dialog',
   standalone: true,
-  imports: [CommonModule, FormsModule, DialogFocusTrapDirective, InputHistoryDirective],
+  imports: [CommonModule, FormsModule, DialogFocusTrapDirective, InputHistoryDirective, PluginSettingsPanelComponent],
   styleUrls: ['./settings-dialog.component.scss'],
   template: `
     <ng-container *ngIf="request$ | async">
@@ -50,6 +51,7 @@ interface SettingsDialogRequest {
             </div>
             <div class="settings-header-actions">
               <button
+                *ngIf="activeTab !== 'plugins'"
                 type="button"
                 class="btn btn-secondary btn-small"
                 (click)="onResetSection()"
@@ -58,6 +60,7 @@ interface SettingsDialogRequest {
                 Reset Section
               </button>
               <button
+                *ngIf="activeTab !== 'plugins'"
                 type="button"
                 class="btn btn-secondary btn-small"
                 (click)="onResetAll()"
@@ -810,6 +813,11 @@ interface SettingsDialogRequest {
                 </div>
               </section>
 
+              <!-- Plugins -->
+              <section *ngIf="activeTab === 'plugins'" class="settings-section plugins-section">
+                <app-plugin-settings-panel></app-plugin-settings-panel>
+              </section>
+
               <!-- Shortcuts -->
               <section *ngIf="activeTab === 'shortcuts'" class="settings-section" (keydown)="onShortcutsKeydown($event)">
                 <h3 class="section-title">Keyboard Shortcuts</h3>
@@ -1061,9 +1069,14 @@ export class SettingsDialogComponent {
       icon: '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4.754a3.246 3.246 0 1 0 0 6.492 3.246 3.246 0 0 0 0-6.492zM5.754 8a2.246 2.246 0 1 1 4.492 0 2.246 2.246 0 0 1-4.492 0z"/><path d="M9.796 1.343c-.527-1.79-3.065-1.79-3.592 0l-.094.319a.873.873 0 0 1-1.255.52l-.292-.16c-1.64-.892-3.433.902-2.54 2.541l.159.292a.873.873 0 0 1-.52 1.255l-.319.094c-1.79.527-1.79 3.065 0 3.592l.319.094a.873.873 0 0 1 .52 1.255l-.16.292c-.892 1.64.901 3.434 2.541 2.54l.292-.159a.873.873 0 0 1 1.255.52l.094.319c.527 1.79 3.065 1.79 3.592 0l.094-.319a.873.873 0 0 1 1.255-.52l.292.16c1.639.893 3.432-.902 2.54-2.541l-.159-.292a.873.873 0 0 1 .52-1.255l.319-.094c1.79-.527 1.79-3.065 0-3.592l-.319-.094a.873.873 0 0 1-.52-1.255l.16-.292c.893-1.64-.902-3.433-2.541-2.54l-.292.159a.873.873 0 0 1-1.255-.52l-.094-.319z"/></svg>',
     },
     {
+      id: 'plugins',
+      label: 'Plugins',
+      divider: true,
+      icon: '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M6.5 1a1.5 1.5 0 0 0-3 0v1H2a2 2 0 0 0-2 2v2.5h1.5a1.5 1.5 0 0 1 0 3H0V12a2 2 0 0 0 2 2h2.5v-1.5a1.5 1.5 0 0 1 3 0V14H10a2 2 0 0 0 2-2V9.5h1.5a1.5 1.5 0 0 0 0-3H12V4a2 2 0 0 0-2-2H6.5V1z"/></svg>',
+    },
+    {
       id: 'shortcuts',
       label: 'Shortcuts',
-      divider: true,
       icon: '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M14 5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h12zm-12-1a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H2z"/><path d="M3.5 7.5a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5H4a.5.5 0 0 1-.5-.5v-1zm2.5 0a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5H6.5a.5.5 0 0 1-.5-.5v-1zm2.5 0a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5H9a.5.5 0 0 1-.5-.5v-1zm2.5 0a.5.5 0 0 1 .5-.5h2a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-2a.5.5 0 0 1-.5-.5v-1z"/></svg>',
     },
     {

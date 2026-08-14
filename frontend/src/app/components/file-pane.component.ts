@@ -23,6 +23,8 @@ import { DirSurfaceRuntime } from '../surfaces/dir/dir-surface-runtime';
 import { FilePaneDirSurfaceRuntime } from '../surfaces/dir/file-pane-dir-surface-runtime';
 import { DirTabStateController } from '../surfaces/dir/dir-tab-state-controller';
 import { SurfaceContext } from '../surfaces/surface-context';
+import { SurfaceRegistryService } from '../surfaces/surface-registry.service';
+import type { SurfaceCapability } from '../surfaces/surface-contribution';
 import type { SizeManagerSurfaceVm } from '../surfaces/size-manager/size-manager-surface.vm';
 import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
 import { FilePaneArchiveController, type FilePaneArchiveHost } from './file-pane-archive.controller';
@@ -168,7 +170,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
 
   private get browserCommandsSource(): FilePaneBrowserCommandsSource {
     return {
-      activeTabKind: this.activeTabKind,
+      surfaceCapabilities: this.activeSurfaceCapabilities,
       navigationController: this.navigationController,
       navigationHost: this.navigationHost,
       openController: this.openController,
@@ -701,6 +703,12 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     this.dir.optimisticHiddenPaths = new Set((paths ?? []).filter(Boolean));
   }
 
+  get activeSurfaceCapabilities(): ReadonlySet<SurfaceCapability> {
+    const tab = this.workspaceService.getActiveTab(this.paneId)
+      ?? this.tabs.find((candidate) => candidate.id === this.currentTabId);
+    return tab ? this.surfaceRegistry.getCapabilities({ tab }) : new Set<SurfaceCapability>();
+  }
+
   get activeTabKind(): 'dir' | 'viewer' {
     return this.surfaceContextFactory.getActiveTabKind(this.surfaceContextSource);
   }
@@ -731,6 +739,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     private zone: NgZone,
     private cdr: ChangeDetectorRef,
     private archiveService: ArchiveService,
+    private surfaceRegistry: SurfaceRegistryService,
   ) {
     this.dirStream = new DirListStreamController(this.apiService);
     this.operationsController = new FilePaneOperationsController(this.operationService, this.batchRenameDialog);

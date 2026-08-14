@@ -6,6 +6,7 @@ import type { FilePanePreviewController, FilePanePreviewHost } from './file-pane
 import type { FilePanePreviewRequest } from './file-pane-preview.controller';
 import type { FilePaneStateRuntimeAdapter } from './file-pane-state-runtime.factory';
 import type { ViewerFileListItem } from '../shared/protocol-enhanced';
+import type { SurfaceCapability } from '../surfaces/surface-contribution';
 
 export interface FilePaneBrowserCommands {
   navigation: {
@@ -37,7 +38,7 @@ export interface FilePaneBrowserCommands {
 }
 
 export interface FilePaneBrowserCommandsSource {
-  activeTabKind: 'dir' | 'viewer';
+  surfaceCapabilities: ReadonlySet<SurfaceCapability>;
   navigationController: FilePaneNavigationController;
   navigationHost: FilePaneNavigationHost;
   openController: FilePaneOpenController;
@@ -56,36 +57,39 @@ export interface FilePaneBrowserCommandsSource {
 
 export class FilePaneBrowserCommandsFactory {
   create(source: FilePaneBrowserCommandsSource): FilePaneBrowserCommands {
-    const navigateUp = () => source.navigationController.onNavigateUp(source.navigationHost);
+    const supports = (capability: SurfaceCapability) => source.surfaceCapabilities.has(capability);
+    const navigateUp = () => supports('navigate')
+      ? source.navigationController.onNavigateUp(source.navigationHost)
+      : Promise.resolve();
 
     return {
       navigation: {
         navigateUp,
-        refresh: () => source.navigationController.onRefresh(source.navigationHost),
-        openSelectedItem: () => source.openController.onOpenSelectedItem(source.openHost, navigateUp),
+        refresh: () => { if (supports('navigate')) source.navigationController.onRefresh(source.navigationHost); },
+        openSelectedItem: () => { if (supports('selection')) source.openController.onOpenSelectedItem(source.openHost, navigateUp); },
       },
       selection: {
-        createFolder: () => source.operationsController.onCreateFolder(source.operationsHost),
-        deleteSelected: () => source.operationsController.onDeleteSelected(source.operationsHost),
-        renameSelected: () => source.operationsController.onRenameSelected(source.operationsHost),
-        copyToOther: () => source.operationsController.onCopyToOther(source.operationsHost),
-        moveToOther: () => source.operationsController.onMoveToOther(source.operationsHost),
+        createFolder: () => supports('fileOperations') ? source.operationsController.onCreateFolder(source.operationsHost) : Promise.resolve(),
+        deleteSelected: () => supports('fileOperations') ? source.operationsController.onDeleteSelected(source.operationsHost) : Promise.resolve(),
+        renameSelected: () => supports('fileOperations') ? source.operationsController.onRenameSelected(source.operationsHost) : Promise.resolve(),
+        copyToOther: () => { if (supports('fileOperations')) source.operationsController.onCopyToOther(source.operationsHost); },
+        moveToOther: () => { if (supports('fileOperations')) source.operationsController.onMoveToOther(source.operationsHost); },
       },
       preview: {
-        getTargetPath: () => source.stateRuntime.getPreviewTargetPath(),
-        getTargetRequest: () => source.previewController.getPreviewRequest(source.previewHost),
+        getTargetPath: () => supports('preview') ? source.stateRuntime.getPreviewTargetPath() : '',
+        getTargetRequest: () => supports('preview') ? source.previewController.getPreviewRequest(source.previewHost) : null,
         focusCursorPath: (path: string) => {
-          if (source.activeTabKind !== 'dir') {
+          if (!supports('preview')) {
             return;
           }
           source.focusController.focusCursorPath(source.focusHost, path);
         },
         activateDirTabAndFocusPath: (tabId: string, focusPath: string) =>
           source.focusController.activateDirTabAndFocusPath(source.focusHost, tabId, focusPath),
-        openQuickView: () => source.previewController.openQuickView(source.previewHost),
-        zoomInActiveViewer: () => source.zoomInActiveViewer(),
-        zoomOutActiveViewer: () => source.zoomOutActiveViewer(),
-        resetActiveViewerZoom: () => source.resetActiveViewerZoom(),
+        openQuickView: () => supports('preview') ? source.previewController.openQuickView(source.previewHost) : Promise.resolve(),
+        zoomInActiveViewer: () => { if (supports('viewerControls')) source.zoomInActiveViewer(); },
+        zoomOutActiveViewer: () => { if (supports('viewerControls')) source.zoomOutActiveViewer(); },
+        resetActiveViewerZoom: () => { if (supports('viewerControls')) source.resetActiveViewerZoom(); },
         openFrozenPreviewTab: (targetPath: string, options?: { sourcePane: 'left' | 'right'; sourceTabId: string; sourceDir: string; autoFollow?: boolean }) =>
           source.previewController.openFrozenPreviewTab(source.previewHost, targetPath, options),
       },

@@ -1,3 +1,5 @@
+import type { LocationKind } from '../services/location-reference';
+
 // ─── Shared types for the address-bar feature ────────────────────────────────
 
 export interface PathSegment {
@@ -17,7 +19,7 @@ export interface SiblingEntry {
   isArchive?: boolean;
 }
 
-export type PinnedLocationKind = 'location' | 'query' | 'surface';
+export type PinnedLocationKind = LocationKind;
 
 export interface PinnedLocation {
   id: string;

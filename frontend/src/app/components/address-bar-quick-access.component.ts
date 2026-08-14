@@ -6,6 +6,7 @@ import { PathHistoryService } from '../services/path-history.service';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
 import { PinnedLocation } from './address-bar.types';
+import { locationIcon, locationLabel, schemeOfLocation } from '../services/location-reference';
 
 export interface QuickAccessSection {
   title: string;
@@ -654,7 +655,7 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChan
       });
     }
 
-    const currentScheme = this.schemeOf(this.currentPath);
+    const currentScheme = schemeOfLocation(this.currentPath);
     const relatedPins = currentScheme === 'filesystem'
       ? []
       : this.pinnedLocations.filter(pin => pin.scheme === currentScheme);
@@ -672,7 +673,7 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChan
     });
 
     // Frequent Folders (top 5 by access count)
-    const frequentItems = this.getFrequentFolders(5);
+    const frequentItems = this.getFrequentLocations(5);
     if (frequentItems.length > 0) {
       this.allSections.push({
         title: 'Frequent',
@@ -681,7 +682,7 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChan
     }
 
     // Recent Folders (last 5)
-    const recentItems = this.getRecentFolders(5);
+    const recentItems = this.getRecentLocations(5);
     if (recentItems.length > 0) {
       this.allSections.push({
         title: 'Recent',
@@ -1054,37 +1055,24 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChan
     }
   }
 
-  private getFrequentFolders(limit: number): QuickAccessItem[] {
-    const history = this.pathHistoryService.getAllHistory();
-    return history
-      .filter(e => e.accessCount > 1)
-      .sort((a, b) => b.accessCount - a.accessCount)
-      .slice(0, limit)
-      .map(e => ({
-        name: this.getDisplayName(e.path),
-        path: e.path,
-        icon: QUICK_ACCESS_FOLDER_ICON,
-        accessCount: e.accessCount,
-      }));
+  private getFrequentLocations(limit: number): QuickAccessItem[] {
+    return this.pathHistoryService.getFrequentLocations(limit).map(entry => ({
+      name: locationLabel(entry.location),
+      path: entry.location,
+      icon: locationIcon(entry.scheme),
+      accessCount: entry.accessCount,
+      timestamp: entry.timestamp,
+    }));
   }
 
-  private getRecentFolders(limit: number): QuickAccessItem[] {
-    const history = this.pathHistoryService.getAllHistory();
-    return history
-      .sort((a, b) => b.timestamp - a.timestamp)
-      .slice(0, limit)
-      .map(e => ({
-        name: this.getDisplayName(e.path),
-        path: e.path,
-        icon: QUICK_ACCESS_RECENT_ICON,
-        timestamp: e.timestamp,
-      }));
-  }
-
-  private getDisplayName(path: string): string {
-    if (path === '/' || path === '') return 'Root';
-    const parts = path.split('/').filter(p => p.length > 0);
-    return parts.length > 0 ? parts[parts.length - 1] : 'Root';
+  private getRecentLocations(limit: number): QuickAccessItem[] {
+    return this.pathHistoryService.getRecentLocations(limit).map(entry => ({
+      name: locationLabel(entry.location),
+      path: entry.location,
+      icon: entry.scheme === 'filesystem' ? QUICK_ACCESS_RECENT_ICON : locationIcon(entry.scheme),
+      accessCount: entry.accessCount,
+      timestamp: entry.timestamp,
+    }));
   }
 
   private resolveQuickAccessIcon(icon: string | undefined): string {
@@ -1134,9 +1122,5 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChan
     };
   }
 
-  private schemeOf(location: string): string {
-    const match = /^([a-z][a-z0-9+.-]*):\/\//i.exec(location.trim());
-    return match ? match[1].toLowerCase() : 'filesystem';
-  }
 
 }

@@ -3,9 +3,15 @@ import {
   LEGACY_PINNED_PATHS_KEY,
   PINNED_LOCATIONS_KEY,
   PinnedLocation,
-  PinnedLocationKind,
 } from '../components/address-bar.types';
-import { buildSegments, isWindowsPath, normalizePath, shortenPath } from '../components/address-bar.utils';
+import {
+  canonicalizeLocation,
+  kindOfLocation,
+  locationIcon,
+  locationIdentity,
+  locationLabel,
+  schemeOfLocation,
+} from './location-reference';
 
 interface LegacyPinnedPath {
   path: string;
@@ -40,75 +46,34 @@ export class PinnedLocationService {
   create(location: string, label?: string, icon?: string, addedAt = Date.now()): PinnedLocation | null {
     const canonical = this.canonicalize(location);
     if (!canonical) return null;
-    const scheme = this.schemeOf(canonical);
+    const scheme = schemeOfLocation(canonical);
     return {
-      id: this.identityOf(canonical),
+      id: locationIdentity(canonical),
       location: canonical,
       scheme,
-      kind: this.kindOf(scheme),
-      label: label?.trim() || this.labelOf(canonical),
-      icon: icon?.trim() || this.iconOf(scheme),
+      kind: kindOfLocation(scheme),
+      label: label?.trim() || locationLabel(canonical),
+      icon: icon?.trim() || locationIcon(scheme),
       addedAt,
     };
   }
 
   isPinned(pins: readonly PinnedLocation[], location: string): boolean {
-    const id = this.identityOf(location);
+    const id = locationIdentity(location);
     return !!id && pins.some(pin => pin.id === id);
   }
 
   remove(pins: readonly PinnedLocation[], location: string): PinnedLocation[] {
-    const id = this.identityOf(location);
+    const id = locationIdentity(location);
     return pins.filter(pin => pin.id !== id);
   }
 
   schemeOf(location: string): string {
-    const match = /^([a-z][a-z0-9+.-]*):\/\//i.exec(location.trim());
-    return match ? match[1].toLowerCase() : 'filesystem';
-  }
-
-  private kindOf(scheme: string): PinnedLocationKind {
-    if (scheme === 'search') return 'query';
-    return scheme === 'surface' ? 'surface' : 'location';
+    return schemeOfLocation(location);
   }
 
   private canonicalize(location: string): string {
-    const trimmed = location.trim();
-    if (!trimmed) return '';
-    return this.schemeOf(trimmed) === 'filesystem' ? normalizePath(trimmed) : trimmed;
-  }
-
-  private identityOf(location: string): string {
-    const canonical = this.canonicalize(location);
-    if (!canonical) return '';
-    const scheme = this.schemeOf(canonical);
-    const identityLocation = scheme === 'filesystem' ? canonical.toLowerCase() : canonical;
-    return `${scheme}:${identityLocation}`;
-  }
-
-  private labelOf(location: string): string {
-    if (this.schemeOf(location) !== 'filesystem') {
-      try {
-        const url = new URL(location);
-        const query = url.searchParams.get('pattern') || url.searchParams.get('q');
-        if (query) return query;
-        const tail = url.pathname.split('/').filter(Boolean).at(-1);
-        return tail || `${url.protocol.slice(0, -1)} location`;
-      } catch {
-        return location;
-      }
-    }
-
-    const segments = buildSegments(location);
-    return segments.at(-1)?.label || (isWindowsPath(location) ? shortenPath(location) : '/');
-  }
-
-  private iconOf(scheme: string): string {
-    const icons: Record<string, string> = {
-      search: '🔎', archive: '🗜️', s3: '☁️', smb: '🖧',
-      gdrive: '☁️', onedrive: '☁️', dropbox: '☁️',
-    };
-    return icons[scheme] ?? '📁';
+    return canonicalizeLocation(location);
   }
 
   private normalizeStoredPin(pin: PinnedLocation): PinnedLocation | null {

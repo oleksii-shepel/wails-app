@@ -7,7 +7,7 @@ import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
 import { NativeOverlayFreezeService } from '../services/native-overlay-freeze.service';
-import { normalizePath } from './address-bar.utils';
+import { locationIcon, locationLabel } from '../services/location-reference';
 import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.directive';
 import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directive';
 
@@ -21,7 +21,7 @@ import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directi
         <!-- Header -->
         <div class="modal-header">
           <div>
-            <h2>Path History</h2>
+            <h2>Location History</h2>
             <p>Recently visited locations. Click to navigate.</p>
           </div>
           <button type="button" class="dialog-close-btn" aria-label="Close" (click)="hide()" title="Close (Esc)">
@@ -32,12 +32,12 @@ import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directi
         <!-- Stats -->
         <div class="stats-bar">
           <div class="stat-item">
-            <span class="stat-label">Total Paths:</span>
+            <span class="stat-label">Total Locations:</span>
             <span class="stat-value">{{ historyEntries.length }}</span>
           </div>
           <div class="stat-item">
             <span class="stat-label">Most Visited:</span>
-            <span class="stat-value">{{ getMostVisited() ? normalizeEntryPath(getMostVisited()?.path) : 'None' }}</span>
+            <span class="stat-value">{{ getMostVisited() ? normalizeEntryPath(getMostVisited()?.location) : 'None' }}</span>
           </div>
           <button (click)="clearHistory()" class="btn-clear-history">
             Clear All
@@ -52,7 +52,7 @@ import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directi
             type="text"
             [(ngModel)]="filterText"
             (ngModelChange)="applyFilter()"
-            placeholder="Filter paths..."
+            placeholder="Filter locations..."
             class="filter-input"
           />
         </div>
@@ -62,7 +62,7 @@ import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directi
           <div *ngIf="filteredEntries.length === 0" class="empty-state">
             <span class="empty-icon">📭</span>
             <p>No history entries found</p>
-            <p class="empty-hint">Navigate to some folders to build history</p>
+            <p class="empty-hint">Navigate to some locations to build history</p>
           </div>
 
           <div
@@ -76,9 +76,10 @@ import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directi
             (mouseenter)="selectedIndex = i"
             (click)="selectPath(entry)"
           >
-            <div class="entry-icon">📁</div>
+            <div class="entry-icon">{{ entryIcon(entry) }}</div>
             <div class="entry-info">
-              <div class="entry-path">{{ normalizeEntryPath(entry.path) }}</div>
+              <div class="entry-path">{{ entryLabel(entry) }}</div>
+              <div class="entry-location" [title]="entry.location">{{ entry.location }}</div>
               <div class="entry-meta">
                 <span class="entry-pane">{{ entry.paneId }} pane</span>
                 <span class="entry-count">{{ entry.accessCount }} visit{{ entry.accessCount > 1 ? 's' : '' }}</span>
@@ -98,7 +99,7 @@ import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directi
         <!-- Footer -->
         <div class="modal-footer">
           <div class="footer-info">
-            Showing {{ filteredEntries.length }} of {{ historyEntries.length }} paths
+            Showing {{ filteredEntries.length }} of {{ historyEntries.length }} locations
           </div>
           <div class="footer-actions">
             <button (click)="exportHistory()" class="btn-secondary">
@@ -533,8 +534,16 @@ export class PathHistoryViewerComponent implements OnInit, OnDestroy {
     this.overlayFreeze.release('dialog.pathHistory');
   }
 
-  normalizeEntryPath(path: string | null | undefined): string {
-    return normalizePath(path ?? '');
+  normalizeEntryPath(location: string | null | undefined): string {
+    return location ?? '';
+  }
+
+  entryLabel(entry: PathHistoryEntry): string {
+    return locationLabel(entry.location);
+  }
+
+  entryIcon(entry: PathHistoryEntry): string {
+    return locationIcon(entry.scheme);
   }
 
   applyFilter(): void {
@@ -543,7 +552,7 @@ export class PathHistoryViewerComponent implements OnInit, OnDestroy {
     } else {
       const filter = this.normalizeEntryPath(this.filterText).toLowerCase();
       this.filteredEntries = this.historyEntries.filter(entry =>
-        this.normalizeEntryPath(entry.path).toLowerCase().includes(filter)
+        this.normalizeEntryPath(entry.location).toLowerCase().includes(filter)
       );
     }
 
@@ -556,14 +565,14 @@ export class PathHistoryViewerComponent implements OnInit, OnDestroy {
   }
 
   selectPath(entry: PathHistoryEntry): void {
-    console.log('Selected path:', this.normalizeEntryPath(entry.path));
+    console.log('Selected path:', this.normalizeEntryPath(entry.location));
     // Emit event to navigate to this path
     // This would need to be wired up to the main component
   }
 
   async removePath(entry: PathHistoryEntry, event: Event): Promise<void> {
     event.stopPropagation();
-    const normalizedPath = this.normalizeEntryPath(entry.path);
+    const normalizedPath = this.normalizeEntryPath(entry.location);
     const confirmed = await this.confirmDialog.confirm({
       title: 'Remove History Entry',
       message: `Remove "${normalizedPath}" from history?`,
@@ -571,13 +580,13 @@ export class PathHistoryViewerComponent implements OnInit, OnDestroy {
       danger: true,
     });
     if (confirmed) {
-      this.pathHistoryService.removePath(normalizedPath);
+      this.pathHistoryService.removeLocation(normalizedPath);
     }
   }
 
   async clearHistory(): Promise<void> {
     const confirmed = await this.confirmDialog.confirm({
-      title: 'Clear Path History',
+      title: 'Clear Location History',
       message: 'Clear all path history?',
       confirmText: 'Clear',
       danger: true,
@@ -616,7 +625,7 @@ export class PathHistoryViewerComponent implements OnInit, OnDestroy {
   exportHistory(): void {
     const normalizedEntries = this.historyEntries.map(entry => ({
       ...entry,
-      path: this.normalizeEntryPath(entry.path),
+      path: this.normalizeEntryPath(entry.location),
     }));
     const data = JSON.stringify(normalizedEntries, null, 2);
     const blob = new Blob([data], { type: 'application/json' });
@@ -638,7 +647,7 @@ export class PathHistoryViewerComponent implements OnInit, OnDestroy {
     const entry = this.filteredEntries[this.selectedIndex];
     if (!entry) return;
 
-    const normalizedPath = this.normalizeEntryPath(entry.path);
+    const normalizedPath = this.normalizeEntryPath(entry.location);
     const confirmed = await this.confirmDialog.confirm({
       title: 'Remove History Entry',
       message: `Remove "${normalizedPath}" from history?`,
@@ -646,7 +655,7 @@ export class PathHistoryViewerComponent implements OnInit, OnDestroy {
       danger: true,
     });
     if (confirmed) {
-      this.pathHistoryService.removePath(normalizedPath);
+      this.pathHistoryService.removeLocation(normalizedPath);
     }
   }
 
@@ -697,5 +706,3 @@ export class PathHistoryViewerComponent implements OnInit, OnDestroy {
     this.inputEngine.unregisterCommand('dialog.pathHistory.removeSelected');
   }
 }
-
-

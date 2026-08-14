@@ -1,0 +1,47 @@
+import '@angular/compiler';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { PathHistoryService } from './path-history.service';
+
+class StorageStub {
+  private values = new Map<string, string>();
+  getItem(key: string) { return this.values.get(key) ?? null; }
+  setItem(key: string, value: string) { this.values.set(key, value); }
+  removeItem(key: string) { this.values.delete(key); }
+  clear() { this.values.clear(); }
+}
+
+describe('PathHistoryService location history', () => {
+  beforeEach(() => {
+    vi.stubGlobal('localStorage', new StorageStub());
+  });
+
+  it('stores scheme and kind for search history', () => {
+    const service = new PathHistoryService({ listDirectory: vi.fn() } as any);
+    service.addLocation('search://?path=filesystem://c/Work&pattern=invoice', 'left');
+    expect(service.getRecentLocations(1)[0]).toMatchObject({
+      scheme: 'search',
+      kind: 'query',
+      paneId: 'left',
+    });
+  });
+
+  it('migrates legacy path-only storage to location-aware entries', () => {
+    localStorage.setItem('filemanager:path-history', JSON.stringify([{
+      path: 's3://archive/reports', timestamp: 10, accessCount: 3, paneId: 'right',
+    }]));
+    const service = new PathHistoryService({ listDirectory: vi.fn() } as any);
+    expect(service.getAllHistory()[0]).toMatchObject({
+      location: 's3://archive/reports', scheme: 's3', kind: 'location', accessCount: 3,
+    });
+    expect(JSON.parse(localStorage.getItem('filemanager:path-history')!)[0].location).toBe('s3://archive/reports');
+  });
+
+  it('returns recent and frequent locations without filesystem assumptions', () => {
+    const service = new PathHistoryService({ listDirectory: vi.fn() } as any);
+    service.addLocation('smb://server/share', 'left');
+    service.addLocation('smb://server/share', 'left');
+    service.addLocation('search://?pattern=todo', 'right');
+    expect(service.getFrequentLocations(5)[0]).toMatchObject({ scheme: 'smb', accessCount: 2 });
+    expect(service.getRecentLocations(5).some(entry => entry.scheme === 'search')).toBe(true);
+  });
+});

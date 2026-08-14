@@ -2,21 +2,26 @@ import { Injectable } from '@angular/core';
 import { createBehaviorSubject, type Stream } from '@epikodelabs/streamix';
 import { ApiService } from './api.service';
 import { FileType } from '../shared/protocol';
-import { normalizePath as normalizeReferencePath } from '../components/address-bar.utils';
+import {
+  canonicalizeLocation,
+  describeLocation,
+  locationIdentity,
+  locationLabel,
+  type LocationKind,
+} from './location-reference';
 
-/**
- * Path history entry
- */
-export interface PathHistoryEntry {
-  path: string;
+export interface LocationHistoryEntry {
+  location: string;
+  scheme: string;
+  kind: LocationKind;
   timestamp: number;
   accessCount: number;
   paneId: string;
 }
 
-/**
- * Path suggestion with metadata
- */
+/** @deprecated Prefer LocationHistoryEntry. */
+export type PathHistoryEntry = LocationHistoryEntry;
+
 export interface PathSuggestion {
   path: string;
   displayName: string;
@@ -25,44 +30,43 @@ export interface PathSuggestion {
   exists: boolean;
 }
 
-/**
- * Path history service for advanced address bar
- * Phase 2 Feature: Advanced Address Bar
- */
-@Injectable({
-  providedIn: 'root'
-})
+interface LegacyPathHistoryEntry {
+  path?: string;
+  location?: string;
+  timestamp?: number;
+  accessCount?: number;
+  paneId?: string;
+}
+
+@Injectable({ providedIn: 'root' })
 export class PathHistoryService {
   private readonly STORAGE_KEY = 'filemanager:path-history';
   private readonly MAX_HISTORY_ENTRIES = 100;
 
-  private history = new Map<string, PathHistoryEntry>();
-  private historySubject = createBehaviorSubject<PathHistoryEntry[]>([]);
+  private history = new Map<string, LocationHistoryEntry>();
+  private historySubject = createBehaviorSubject<LocationHistoryEntry[]>([]);
 
   constructor(private apiService: ApiService) {
     this.loadHistory();
   }
 
-  /**
-   * Observable for history changes
-   */
-  get history$(): Stream<PathHistoryEntry[]> {
+  get history$(): Stream<LocationHistoryEntry[]> {
     return this.historySubject;
   }
 
-  /**
-   * Add path to history
-   */
-  addPath(path: string, paneId: string): void {
-    const normalizedPath = this.normalizePath(path);
-    const existing = this.history.get(normalizedPath);
+  addLocation(location: string, paneId: string): void {
+    const descriptor = describeLocation(location);
+    if (!descriptor) return;
 
+    const id = locationIdentity(descriptor.location);
+    const existing = this.history.get(id);
     if (existing) {
       existing.timestamp = Date.now();
       existing.accessCount++;
+      existing.paneId = paneId || existing.paneId;
     } else {
-      this.history.set(normalizedPath, {
-        path: normalizedPath,
+      this.history.set(id, {
+        ...descriptor,
         timestamp: Date.now(),
         accessCount: 1,
         paneId,
@@ -74,126 +78,111 @@ export class PathHistoryService {
     this.emitHistory();
   }
 
-  /**
-   * Get path suggestions based on query
-   */
+  /** Compatibility alias while callers move from path to location terminology. */
+  addPath(path: string, paneId: string): void {
+    this.addLocation(path, paneId);
+  }
+
+  getRecentLocations(limit = 10): LocationHistoryEntry[] {
+    return this.sortedHistory((a, b) => b.timestamp - a.timestamp).slice(0, limit);
+  }
+
+  getFrequentLocations(limit = 10, minimumAccessCount = 2): LocationHistoryEntry[] {
+    return this.sortedHistory((a, b) =>
+      b.accessCount - a.accessCount || b.timestamp - a.timestamp,
+    ).filter(entry => entry.accessCount >= minimumAccessCount).slice(0, limit);
+  }
+
+  getRelatedLocations(location: string, limit = 10): LocationHistoryEntry[] {
+    const descriptor = describeLocation(location);
+    if (!descriptor || descriptor.scheme === 'filesystem') return [];
+    const activeId = locationIdentity(descriptor.location);
+    return this.getRecentLocations(this.MAX_HISTORY_ENTRIES)
+      .filter(entry => entry.scheme === descriptor.scheme && locationIdentity(entry.location) !== activeId)
+      .slice(0, limit);
+  }
+
   async getSuggestions(query: string, currentPath: string): Promise<PathSuggestion[]> {
     if (!query || query.trim() === '') {
-      return this.getRecentPaths(10);
+      return this.getRecentLocations(10).map(entry => this.toHistorySuggestion(entry));
     }
 
     const suggestions: PathSuggestion[] = [];
-    const lowerQuery = query.toLowerCase();
+    suggestions.push(...this.getHistoryMatches(query));
 
-    // 1. History-based suggestions
-    const historyMatches = this.getHistoryMatches(query);
-    suggestions.push(...historyMatches);
-
-    // 2. Directory-based suggestions (autocomplete current directory)
     if (this.canUseDirectoryAutocomplete(query)) {
-      const dirSuggestions = await this.getDirectorySuggestions(query);
-      suggestions.push(...dirSuggestions);
+      suggestions.push(...await this.getDirectorySuggestions(query));
     }
 
-    // 3. Fuzzy path matching from history
-    const fuzzyMatches = this.getFuzzyMatches(query);
-    suggestions.push(...fuzzyMatches);
+    suggestions.push(...this.getFuzzyMatches(query));
 
-    // Sort by score and remove duplicates
-    const uniquePaths = new Set<string>();
-    const uniqueSuggestions = suggestions.filter(s => {
-      const normalizedSuggestionPath = this.normalizePath(s.path);
-      if (uniquePaths.has(normalizedSuggestionPath)) {
-        return false;
-      }
-      uniquePaths.add(normalizedSuggestionPath);
+    const uniqueLocations = new Set<string>();
+    const uniqueSuggestions = suggestions.filter(suggestion => {
+      const id = locationIdentity(suggestion.path);
+      if (!id || uniqueLocations.has(id)) return false;
+      uniqueLocations.add(id);
       return true;
     });
 
     uniqueSuggestions.sort((a, b) => b.score - a.score);
-
     return uniqueSuggestions.slice(0, 10);
   }
 
-  /**
-   * Get history matches for query
-   */
   private getHistoryMatches(query: string): PathSuggestion[] {
     const lowerQuery = query.toLowerCase();
     const matches: PathSuggestion[] = [];
 
     for (const entry of this.history.values()) {
-      const lowerPath = entry.path.toLowerCase();
-      
-      // Prefix match
-      if (lowerPath.startsWith(lowerQuery)) {
-        matches.push({
-          path: entry.path,
-          displayName: this.getDisplayName(entry.path),
-          matchType: 'history',
-          score: 100 + (entry.accessCount * 5),
-          exists: true, // Assume exists since in history
-        });
-      }
-      // Contains match
-      else if (lowerPath.includes(lowerQuery)) {
-        matches.push({
-          path: entry.path,
-          displayName: this.getDisplayName(entry.path),
-          matchType: 'history',
-          score: 80 + (entry.accessCount * 3),
-          exists: true,
-        });
-      }
+      const lowerLocation = entry.location.toLowerCase();
+      const lowerLabel = locationLabel(entry.location).toLowerCase();
+      const prefix = lowerLocation.startsWith(lowerQuery) || lowerLabel.startsWith(lowerQuery);
+      const contains = lowerLocation.includes(lowerQuery) || lowerLabel.includes(lowerQuery);
+      if (!prefix && !contains) continue;
+
+      matches.push({
+        path: entry.location,
+        displayName: locationLabel(entry.location),
+        matchType: 'history',
+        score: (prefix ? 100 : 80) + (entry.accessCount * (prefix ? 5 : 3)),
+        exists: true,
+      });
     }
 
     return matches;
   }
 
-  /**
-   * Get directory-based suggestions
-   */
   private async getDirectorySuggestions(query: string): Promise<PathSuggestion[]> {
     try {
-      const normalizedQuery = this.normalizePath(query);
-      // Extract the directory part
+      const normalizedQuery = canonicalizeLocation(query);
       const lastSlash = normalizedQuery.lastIndexOf('/');
-      if (lastSlash < 0) {
-        return [];
-      }
+      if (lastSlash < 0) return [];
+
       const dirPath = normalizedQuery.substring(0, lastSlash + 1) || '/';
       const prefix = normalizedQuery.substring(lastSlash + 1);
-
-      // List directory
       const listing = await this.apiService.listDirectory(dirPath, false);
-      
       const suggestions: PathSuggestion[] = [];
-      
-      for (const entry of listing.entries) {
-        if (entry.type !== FileType.DIRECTORY) {
-          continue;
-        }
 
-        if (entry.name.toLowerCase().startsWith(prefix.toLowerCase())) {
-          const fullPath = this.normalizePath(`${dirPath}${entry.name}`);
-          suggestions.push({
-            path: fullPath,
-            displayName: entry.name,
-            matchType: 'directory',
-            score: 90,
-            exists: true,
-          });
-        }
+      for (const entry of listing.entries) {
+        if (entry.type !== FileType.DIRECTORY) continue;
+        if (!entry.name.toLowerCase().startsWith(prefix.toLowerCase())) continue;
+        const fullPath = canonicalizeLocation(`${dirPath}${entry.name}`);
+        suggestions.push({
+          path: fullPath,
+          displayName: entry.name,
+          matchType: 'directory',
+          score: 90,
+          exists: true,
+        });
       }
 
       return suggestions;
-    } catch (error) {
+    } catch {
       return [];
     }
   }
 
   private canUseDirectoryAutocomplete(query: string): boolean {
-    const normalized = this.normalizePath(query);
+    const normalized = canonicalizeLocation(query);
     return (
       normalized.startsWith('/') ||
       normalized.startsWith('./') ||
@@ -203,173 +192,121 @@ export class PathHistoryService {
     );
   }
 
-  /**
-   * Get fuzzy matches from history
-   */
   private getFuzzyMatches(query: string): PathSuggestion[] {
     const matches: PathSuggestion[] = [];
-    const queryTokens = query.toLowerCase().split(/[\s\-_\/]/);
+    const queryTokens = query.toLowerCase().split(/[\s\-_\/]/).filter(Boolean);
+    if (queryTokens.length === 0) return matches;
 
     for (const entry of this.history.values()) {
-      const pathTokens = entry.path.toLowerCase().split('/');
+      const searchable = `${locationLabel(entry.location)} ${entry.location}`.toLowerCase();
+      const locationTokens = searchable.split(/[\s\-_\/]/).filter(Boolean);
       let matchCount = 0;
 
       for (const queryToken of queryTokens) {
-        for (const pathToken of pathTokens) {
-          if (pathToken.includes(queryToken)) {
-            matchCount++;
-            break;
-          }
-        }
+        if (locationTokens.some(token => token.includes(queryToken))) matchCount++;
       }
 
-      if (matchCount > 0) {
-        const score = (matchCount / queryTokens.length) * 50;
-        matches.push({
-          path: entry.path,
-          displayName: this.getDisplayName(entry.path),
-          matchType: 'fuzzy',
-          score: score + (entry.accessCount * 2),
-          exists: true,
-        });
-      }
+      if (matchCount === 0) continue;
+      const score = (matchCount / queryTokens.length) * 50 + (entry.accessCount * 2);
+      if (score <= 20) continue;
+      matches.push({
+        path: entry.location,
+        displayName: locationLabel(entry.location),
+        matchType: 'fuzzy',
+        score,
+        exists: true,
+      });
     }
 
-    return matches.filter(m => m.score > 20);
+    return matches;
   }
 
-  /**
-   * Get recent paths
-   */
-  private getRecentPaths(limit: number): PathSuggestion[] {
-    const entries = Array.from(this.history.values());
-    entries.sort((a, b) => b.timestamp - a.timestamp);
-
-    return entries.slice(0, limit).map(entry => ({
-      path: entry.path,
-      displayName: this.getDisplayName(entry.path),
-      matchType: 'history' as const,
+  private toHistorySuggestion(entry: LocationHistoryEntry): PathSuggestion {
+    return {
+      path: entry.location,
+      displayName: locationLabel(entry.location),
+      matchType: 'history',
       score: 50 + (entry.accessCount * 5),
       exists: true,
-    }));
+    };
   }
 
-  /**
-   * Get display name for path
-   */
-  private getDisplayName(path: string): string {
-    const normalized = this.normalizePath(path);
-    if (normalized === '/' || normalized === '') {
-      return 'Root';
-    }
-    
-    const parts = normalized.split('/').filter(p => p.length > 0);
-    return parts.length > 0 ? parts[parts.length - 1] : 'Root';
-  }
-
-  private normalizePath(path: string): string {
-    return normalizeReferencePath(path);
-  }
-
-  /**
-   * Prune history to max entries
-   */
   private pruneHistory(): void {
-    if (this.history.size <= this.MAX_HISTORY_ENTRIES) {
-      return;
-    }
-
-    // Sort by timestamp (oldest first)
-    const entries = Array.from(this.history.values());
-    entries.sort((a, b) => a.timestamp - b.timestamp);
-
-    // Remove oldest entries
+    if (this.history.size <= this.MAX_HISTORY_ENTRIES) return;
+    const entries = this.sortedHistory((a, b) => a.timestamp - b.timestamp);
     const toRemove = entries.slice(0, this.history.size - this.MAX_HISTORY_ENTRIES);
-    for (const entry of toRemove) {
-      this.history.delete(entry.path);
-    }
+    for (const entry of toRemove) this.history.delete(locationIdentity(entry.location));
   }
 
-  /**
-   * Load history from localStorage
-   */
   private loadHistory(): void {
     try {
       const stored = localStorage.getItem(this.STORAGE_KEY);
-      if (stored) {
-        const entries: PathHistoryEntry[] = JSON.parse(stored);
-        for (const entry of entries) {
-          const normalizedPath = this.normalizePath(entry.path);
-          const existing = this.history.get(normalizedPath);
-          if (existing) {
-            const nextTimestamp = Number(entry.timestamp) || 0;
-            if (nextTimestamp >= existing.timestamp) {
-              existing.timestamp = nextTimestamp;
-              existing.paneId = entry.paneId || existing.paneId;
-            }
-            existing.accessCount += Math.max(1, Number(entry.accessCount) || 1);
-          } else {
-            this.history.set(normalizedPath, {
-              path: normalizedPath,
-              timestamp: Number(entry.timestamp) || Date.now(),
-              accessCount: Math.max(1, Number(entry.accessCount) || 1),
-              paneId: entry.paneId || 'left',
-            });
+      if (!stored) return;
+      const entries = JSON.parse(stored) as LegacyPathHistoryEntry[];
+      for (const storedEntry of entries) {
+        const rawLocation = storedEntry.location ?? storedEntry.path ?? '';
+        const descriptor = describeLocation(rawLocation);
+        if (!descriptor) continue;
+        const id = locationIdentity(descriptor.location);
+        const timestamp = Number(storedEntry.timestamp) || Date.now();
+        const accessCount = Math.max(1, Number(storedEntry.accessCount) || 1);
+        const paneId = storedEntry.paneId || 'left';
+        const existing = this.history.get(id);
+
+        if (existing) {
+          if (timestamp >= existing.timestamp) {
+            existing.timestamp = timestamp;
+            existing.paneId = paneId;
           }
+          existing.accessCount += accessCount;
+        } else {
+          this.history.set(id, { ...descriptor, timestamp, accessCount, paneId });
         }
-        this.emitHistory();
       }
+      this.pruneHistory();
+      this.saveHistory(); // Persist the location-aware shape after legacy reads.
+      this.emitHistory();
     } catch (error) {
-      console.error('Failed to load path history:', error);
+      console.error('Failed to load location history:', error);
     }
   }
 
-  /**
-   * Save history to localStorage
-   */
   private saveHistory(): void {
     try {
-      const entries = Array.from(this.history.values());
-      localStorage.setItem(this.STORAGE_KEY, JSON.stringify(entries));
+      localStorage.setItem(this.STORAGE_KEY, JSON.stringify(this.getRecentLocations(this.MAX_HISTORY_ENTRIES)));
     } catch (error) {
-      console.error('Failed to save path history:', error);
+      console.error('Failed to save location history:', error);
     }
   }
 
-  /**
-   * Emit history update
-   */
   private emitHistory(): void {
-    const entries = Array.from(this.history.values());
-    entries.sort((a, b) => b.timestamp - a.timestamp);
-    this.historySubject.next(entries);
+    this.historySubject.next(this.getRecentLocations(this.MAX_HISTORY_ENTRIES));
   }
 
-  /**
-   * Clear history
-   */
+  private sortedHistory(compare: (a: LocationHistoryEntry, b: LocationHistoryEntry) => number): LocationHistoryEntry[] {
+    return Array.from(this.history.values()).sort(compare);
+  }
+
   clearHistory(): void {
     this.history.clear();
     this.saveHistory();
     this.emitHistory();
   }
 
-  /**
-   * Get all history entries
-   */
-  getAllHistory(): PathHistoryEntry[] {
-    return Array.from(this.history.values());
+  getAllHistory(): LocationHistoryEntry[] {
+    return this.getRecentLocations(this.MAX_HISTORY_ENTRIES);
   }
 
-  /**
-   * Remove specific path from history
-   */
-  removePath(path: string): void {
-    this.history.delete(this.normalizePath(path));
+  removeLocation(location: string): void {
+    const id = locationIdentity(location);
+    if (!id) return;
+    this.history.delete(id);
     this.saveHistory();
     this.emitHistory();
   }
+
+  /** Compatibility alias while callers move from path to location terminology. */
+  removePath(path: string): void {
+    this.removeLocation(path);
+  }
 }
-
-
-

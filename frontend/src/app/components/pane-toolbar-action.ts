@@ -1,6 +1,7 @@
 import type { ActionAvailability } from '../services/action-availability';
 import type { ToolbarActionContribution, ToolbarContext } from '../plugin/plugin-registry-api';
 import type { PresentedCommand } from './presented-command';
+import { presentPluginCommand, type PluginCommandPresentationHost } from './plugin-command-presentation';
 
 export interface BuiltinPaneToolbarHandlers {
   createFolder(): void;
@@ -69,15 +70,7 @@ export function buildBuiltinPaneToolbarActions(
 export function adaptPluginToolbarActions(
   contributions: readonly ToolbarActionContribution[],
   context: ToolbarContext,
+  commands: PluginCommandPresentationHost,
 ): PresentedCommand[] {
-  return contributions.map((contribution) => ({
-    id: `plugin:${contribution.id}`,
-    label: contribution.label,
-    icon: 'plugin',
-    iconText: contribution.icon,
-    shortcut: contribution.shortcut,
-    enabled: true,
-    source: 'plugin',
-    execute: () => contribution.execute(context),
-  }));
+  return contributions.map(contribution => presentPluginCommand(contribution, context, commands));
 }

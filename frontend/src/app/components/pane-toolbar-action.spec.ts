@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { adaptPluginToolbarActions, buildBuiltinPaneToolbarActions } from './pane-toolbar-action';
 import type { ActionAvailability } from '../services/action-availability';
+import type { PluginCommandPresentationHost } from './plugin-command-presentation';
 
 const availability: ActionAvailability = {
   createFolder: false,
@@ -42,7 +43,10 @@ describe('pane toolbar actions', () => {
       shortcut: 'Ctrl+H',
       score: () => 10,
       execute,
-    }], context);
+    }], context, {
+      getCommandState: () => undefined,
+      dispatchCommandById: () => false,
+    } satisfies PluginCommandPresentationHost);
 
     expect(actions[0]).toMatchObject({
       id: 'plugin:hash',

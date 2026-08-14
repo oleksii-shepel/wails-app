@@ -14,6 +14,8 @@ import type { ViewerContribution } from '../viewers/viewer-contribution';
 import type { SurfaceContribution } from '../surfaces/surface-contribution';
 import { ViewerRegistryService } from '../viewers/viewer-registry.service';
 import { SurfaceRegistryService } from '../surfaces/surface-registry.service';
+import { InputEngineService } from './input-engine.service';
+import type { CommandDescriptor } from './input-system.types';
 
 export interface PluginBackend {
   id: string;
@@ -25,6 +27,7 @@ export interface PluginBackend {
 export class PluginManagerService implements PluginRegistryAPI {
   private readonly viewerRegistry = inject(ViewerRegistryService);
   private readonly surfaceRegistry = inject(SurfaceRegistryService);
+  private readonly inputEngine = inject(InputEngineService);
 
   private readonly backends = new Map<string, PluginBackend>();
   private readonly descriptors = new Map<string, PluginDescriptor>();
@@ -69,6 +72,14 @@ export class PluginManagerService implements PluginRegistryAPI {
   }
 
   // ── PluginRegistryAPI implementation ───────────────────────────────────────
+
+  registerCommand(command: CommandDescriptor): void {
+    this.inputEngine.registerCommandDescriptor(command, this.commandOwner(command.id));
+  }
+
+  unregisterCommand(id: string): void {
+    this.inputEngine.unregisterCommandDescriptor(id, this.commandOwner(id));
+  }
 
   registerViewer(contribution: ViewerContribution): void {
     this.viewerRegistry.register(contribution);
@@ -161,4 +172,9 @@ export class PluginManagerService implements PluginRegistryAPI {
     }
     return null;
   }
+
+  private commandOwner(commandId: string): string {
+    return `plugin-command:${commandId}`;
+  }
+
 }

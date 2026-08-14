@@ -1,6 +1,7 @@
 import type { Type } from '@angular/core';
 import type { ViewerContribution, ViewerRequest } from '../viewers/viewer-contribution';
 import type { SurfaceContribution, SurfaceRequest } from '../surfaces/surface-contribution';
+import type { CommandDescriptor } from '../services/input-system.types';
 
 export interface PluginDescriptor {
   id: string;
@@ -23,12 +24,16 @@ export interface PluginCommandInfo {
 
 export interface ToolbarActionContribution {
   id: string;
-  label: string;
+  /** Optional when commandId points at a registered command descriptor. */
+  label?: string;
   icon?: string;
   shortcut?: string;
+  /** Preferred execution path. Command metadata and enabled state come from the command registry. */
+  commandId?: string;
+  /** Compatibility path for existing plugins that have not registered a command descriptor yet. */
+  execute?(context: ToolbarContext): void | Promise<void>;
   /** Score: 0 = not applicable; higher wins. */
   score(context: ToolbarContext): number;
-  execute(context: ToolbarContext): void | Promise<void>;
 }
 
 export interface ToolbarContext {
@@ -38,11 +43,16 @@ export interface ToolbarContext {
 
 export interface ContextMenuContribution {
   id: string;
-  label: string;
+  /** Optional when commandId points at a registered command descriptor. */
+  label?: string;
   icon?: string;
+  shortcut?: string;
+  /** Preferred execution path. Command metadata and enabled state come from the command registry. */
+  commandId?: string;
+  /** Compatibility path for existing callback-based contributions. */
+  execute?(context: MenuContext): void | Promise<void>;
   /** Score: 0 = not applicable; higher wins. */
   score(context: MenuContext): number;
-  execute(context: MenuContext): void | Promise<void>;
 }
 
 export interface MenuContext {
@@ -70,6 +80,9 @@ export interface FileCategory {
 }
 
 export interface PluginRegistryAPI {
+  registerCommand(command: CommandDescriptor): void;
+  unregisterCommand(id: string): void;
+
   registerViewer(contribution: ViewerContribution): void;
   unregisterViewer(id: string): void;
 

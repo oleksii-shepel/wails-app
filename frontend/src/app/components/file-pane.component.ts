@@ -60,6 +60,7 @@ import { NO_ACTIONS, type ActionAvailability } from '../services/action-availabi
 import { PluginManagerService } from '../services/plugin-manager.service';
 import { adaptPluginToolbarActions, buildBuiltinPaneToolbarActions } from './pane-toolbar-action';
 import { bindCommandPresentation, type PresentedCommand } from './presented-command';
+import { presentPluginCommand } from './plugin-command-presentation';
 import { InputEngineService } from '../services/input-engine.service';
 import type { MenuContext, ToolbarContext } from '../plugin/plugin-registry-api';
 import { BC } from './file-browser-command-registry';
@@ -200,6 +201,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     const plugins = adaptPluginToolbarActions(
       this.pluginManager.resolveToolbarActions(context),
       context,
+      this.inputEngine,
     );
     return [...builtins, ...plugins];
   }
@@ -951,15 +953,9 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
         () => this.executeBuiltinContextAction(item.id, entry),
       ));
 
-      const plugins = this.pluginManager.resolveContextMenuItems(context).map<PresentedCommand>((item, index) => ({
-        id: `plugin:${item.id}`,
-        label: item.label,
-        icon: item.icon,
-        enabled: true,
-        source: 'plugin',
-        separatorBefore: index === 0,
-        execute: () => item.execute(context),
-      }));
+      const plugins = this.pluginManager.resolveContextMenuItems(context).map((item, index) =>
+        presentPluginCommand(item, context, this.inputEngine, { separatorBefore: index === 0 }),
+      );
 
       this.fileContextMenu = { x, y, items: [...builtins, ...plugins] };
       this.cdr.markForCheck();
@@ -984,15 +980,9 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
         item,
         () => this.executeBackgroundContextAction(item.id),
       ));
-      const plugins = this.pluginManager.resolveContextMenuItems(context).map<PresentedCommand>((item, index) => ({
-        id: `plugin:${item.id}`,
-        label: item.label,
-        icon: item.icon,
-        enabled: true,
-        source: 'plugin',
-        separatorBefore: index === 0,
-        execute: () => item.execute(context),
-      }));
+      const plugins = this.pluginManager.resolveContextMenuItems(context).map((item, index) =>
+        presentPluginCommand(item, context, this.inputEngine, { separatorBefore: index === 0 }),
+      );
       this.fileContextMenu = { x, y, items: [...builtins, ...plugins] };
       this.cdr.markForCheck();
     }, 0);

@@ -11,7 +11,7 @@
  *   cleanup();
  */
 
-import type { InputBindingDefinition, CommandDefinition } from '../services/input-system.types';
+import type { InputBindingDefinition, CommandDefinition, CommandDescriptor, InputCommandHandler } from '../services/input-system.types';
 import type { InputEngineService } from '../services/input-engine.service';
 
 // ─── Command IDs ──────────────────────────────────────────────────────────────
@@ -367,105 +367,121 @@ export interface FileBrowserCommandHandlers {
  * engine.  Returns a cleanup function that unregisters everything — call it
  * in ngOnDestroy.
  */
+export function createFileBrowserCommandDescriptors(
+  handlers: FileBrowserCommandHandlers,
+  isEnabled?: (commandId: string) => boolean,
+): CommandDescriptor[] {
+  const directHandlers = new Map<string, InputCommandHandler>([
+    [BC.openCommandPalette, handlers.openCommandPalette],
+    [BC.openGlobalSearch, handlers.openGlobalSearch],
+    [BC.showPathHistory, handlers.showPathHistory],
+    [BC.quickPathJump, handlers.quickPathJump],
+    [BC.navigateUp, handlers.navigateUp],
+    [BC.refresh, handlers.refresh],
+    [BC.showKeyboardHelp, handlers.showKeyboardHelp],
+    [BC.openSettings, handlers.openSettings],
+    [BC.cursorUp, handlers.cursorUp],
+    [BC.cursorDown, handlers.cursorDown],
+    [BC.cursorLeft, handlers.cursorLeft],
+    [BC.cursorRight, handlers.cursorRight],
+    [BC.cursorHome, handlers.cursorHome],
+    [BC.cursorEnd, handlers.cursorEnd],
+    [BC.cursorPageUp, handlers.cursorPageUp],
+    [BC.cursorPageDown, handlers.cursorPageDown],
+    [BC.newTab, handlers.newTab],
+    [BC.closeTab, handlers.closeTab],
+    [BC.nextTab, handlers.nextTab],
+    [BC.prevTab, handlers.prevTab],
+    [BC.togglePinTab, handlers.togglePinTab],
+    [BC.openItem, handlers.openItem],
+    [BC.quickView, handlers.quickView],
+    [BC.copyCursorPath, handlers.copyCursorPath],
+    [BC.copy, handlers.copy],
+    [BC.cut, handlers.cut],
+    [BC.paste, handlers.paste],
+    [BC.deleteSelected, handlers.deleteSelected],
+    [BC.selectAll, handlers.selectAll],
+    [BC.deselectAll, handlers.deselectAll],
+    [BC.newFolder, handlers.newFolder],
+    [BC.rename, handlers.rename],
+    [BC.toggleCurrent, handlers.toggleCurrent],
+    [BC.inlineDirectorySize, handlers.inlineDirectorySize],
+    [BC.extendSelUp, handlers.extendSelUp],
+    [BC.extendSelDown, handlers.extendSelDown],
+    [BC.selectByMask, handlers.selectByMask],
+    [BC.unselectByMask, handlers.unselectByMask],
+    [BC.invertSelection, handlers.invertSelection],
+    [BC.selectSameExt, handlers.selectSameExt],
+    [BC.focusFilter, handlers.focusFilter],
+    [BC.advancedFilter, handlers.advancedFilter],
+    [BC.clearFilter, handlers.clearFilter],
+    [BC.showWorkspaceSwitcher, handlers.showWorkspaceSwitcher],
+    [BC.newWorkspace, handlers.newWorkspace],
+    [BC.toggleHidden, handlers.toggleHidden],
+    [BC.switchPane, handlers.switchPane],
+    [BC.copyToOtherPane, handlers.copyToOtherPane],
+    [BC.moveToOtherPane, handlers.moveToOtherPane],
+    [BC.focusAddressBar, handlers.focusAddressBar],
+    [BC.diskUsage, handlers.diskUsage],
+    [BC.batchRename, handlers.batchRename],
+    [BC.openWithExternal, handlers.openWithExternal],
+  ]);
+
+  for (let i = 1; i <= 9; i++) {
+    const index = i;
+    directHandlers.set(BC.jumpToTab(i), () => handlers.jumpToTab(index));
+  }
+
+  const descriptors = BROWSER_COMMAND_DEFINITIONS.map(definition => {
+    const execute = directHandlers.get(definition.id);
+    if (!execute) {
+      throw new Error(`Missing file-browser command handler: ${definition.id}`);
+    }
+    return {
+      ...definition,
+      execute,
+      isEnabled: isEnabled ? () => isEnabled(definition.id) : undefined,
+    };
+  });
+
+  for (let i = 1; i <= 9; i++) {
+    const id = BC.jumpToTab(i);
+    const execute = directHandlers.get(id)!;
+    descriptors.push({
+      id,
+      title: `Jump to Tab ${i}`,
+      category: TABS,
+      description: `Switch to tab ${i}`,
+      execute,
+      isEnabled: isEnabled ? () => isEnabled(id) : undefined,
+    });
+  }
+
+  return descriptors;
+}
+
 export function registerFileBrowserCommands(
   engine: InputEngineService,
   handlers: FileBrowserCommandHandlers,
   ownerId: string,
+  isEnabled?: (commandId: string) => boolean,
 ): () => void {
-  for (const def of BROWSER_COMMAND_DEFINITIONS) {
-    engine.registerCommandDefinition(def);
+  const descriptors = createFileBrowserCommandDescriptors(handlers, isEnabled);
+
+  for (const descriptor of descriptors) {
+    engine.registerCommandDescriptor(descriptor, ownerId);
   }
 
   for (const binding of BROWSER_BINDINGS) {
     engine.registerBinding(binding);
   }
 
-  engine.registerCommand(BC.openGlobalSearch,      handlers.openGlobalSearch,      ownerId);
-  engine.registerCommand(BC.showPathHistory,        handlers.showPathHistory,        ownerId);
-  engine.registerCommand(BC.quickPathJump,          handlers.quickPathJump,          ownerId);
-  engine.registerCommand(BC.navigateUp,             handlers.navigateUp,             ownerId);
-  engine.registerCommand(BC.refresh,                handlers.refresh,                ownerId);
-  engine.registerCommand(BC.showKeyboardHelp,       handlers.showKeyboardHelp,       ownerId);
-  engine.registerCommand(BC.openSettings,           handlers.openSettings,           ownerId);
-  engine.registerCommand(BC.cursorUp,               handlers.cursorUp,               ownerId);
-  engine.registerCommand(BC.cursorDown,             handlers.cursorDown,             ownerId);
-  engine.registerCommand(BC.cursorLeft,             handlers.cursorLeft,             ownerId);
-  engine.registerCommand(BC.cursorRight,            handlers.cursorRight,            ownerId);
-  engine.registerCommand(BC.cursorHome,             handlers.cursorHome,             ownerId);
-  engine.registerCommand(BC.cursorEnd,              handlers.cursorEnd,              ownerId);
-  engine.registerCommand(BC.cursorPageUp,           handlers.cursorPageUp,           ownerId);
-  engine.registerCommand(BC.cursorPageDown,         handlers.cursorPageDown,         ownerId);
-  engine.registerCommand(BC.newTab,                 handlers.newTab,                 ownerId);
-  engine.registerCommand(BC.closeTab,               handlers.closeTab,               ownerId);
-  engine.registerCommand(BC.nextTab,                handlers.nextTab,                ownerId);
-  engine.registerCommand(BC.prevTab,                handlers.prevTab,                ownerId);
-  for (let i = 1; i <= 9; i++) {
-    const idx = i;
-    engine.registerCommand(BC.jumpToTab(i), () => handlers.jumpToTab(idx), ownerId);
-  }
-  engine.registerCommand(BC.togglePinTab,           handlers.togglePinTab,           ownerId);
-  engine.registerCommand(BC.openItem,               handlers.openItem,               ownerId);
-  engine.registerCommand(BC.quickView,              handlers.quickView,              ownerId);
-  engine.registerCommand(BC.copyCursorPath,         handlers.copyCursorPath,         ownerId);
-  engine.registerCommand(BC.copy,                   handlers.copy,                   ownerId);
-  engine.registerCommand(BC.cut,                    handlers.cut,                    ownerId);
-  engine.registerCommand(BC.paste,                  handlers.paste,                  ownerId);
-  engine.registerCommand(BC.deleteSelected,         handlers.deleteSelected,         ownerId);
-  engine.registerCommand(BC.selectAll,              handlers.selectAll,              ownerId);
-  engine.registerCommand(BC.deselectAll,            handlers.deselectAll,            ownerId);
-  engine.registerCommand(BC.newFolder,              handlers.newFolder,              ownerId);
-  engine.registerCommand(BC.rename,                 handlers.rename,                 ownerId);
-  engine.registerCommand(BC.toggleCurrent,          handlers.toggleCurrent,          ownerId);
-  engine.registerCommand(BC.inlineDirectorySize,    handlers.inlineDirectorySize,    ownerId);
-  engine.registerCommand(BC.extendSelUp,            handlers.extendSelUp,            ownerId);
-  engine.registerCommand(BC.extendSelDown,          handlers.extendSelDown,          ownerId);
-  engine.registerCommand(BC.selectByMask,           handlers.selectByMask,           ownerId);
-  engine.registerCommand(BC.unselectByMask,         handlers.unselectByMask,         ownerId);
-  engine.registerCommand(BC.invertSelection,        handlers.invertSelection,        ownerId);
-  engine.registerCommand(BC.selectSameExt,          handlers.selectSameExt,          ownerId);
-  engine.registerCommand(BC.focusFilter,            handlers.focusFilter,            ownerId);
-  engine.registerCommand(BC.advancedFilter,         handlers.advancedFilter,         ownerId);
-  engine.registerCommand(BC.clearFilter,            handlers.clearFilter,            ownerId);
-  engine.registerCommand(BC.showWorkspaceSwitcher,  handlers.showWorkspaceSwitcher,  ownerId);
-  engine.registerCommand(BC.newWorkspace,           handlers.newWorkspace,           ownerId);
-  engine.registerCommand(BC.toggleHidden,           handlers.toggleHidden,           ownerId);
-  engine.registerCommand(BC.switchPane,             handlers.switchPane,             ownerId);
-  engine.registerCommand(BC.copyToOtherPane,        handlers.copyToOtherPane,        ownerId);
-  engine.registerCommand(BC.moveToOtherPane,        handlers.moveToOtherPane,        ownerId);
-  engine.registerCommand(BC.focusAddressBar,        handlers.focusAddressBar,        ownerId);
-  engine.registerCommand(BC.diskUsage,              handlers.diskUsage,              ownerId);
-  engine.registerCommand(BC.batchRename,            handlers.batchRename,            ownerId);
-  engine.registerCommand(BC.openWithExternal,       handlers.openWithExternal,       ownerId);
-
   return () => {
-    for (const def of BROWSER_COMMAND_DEFINITIONS) {
-      engine.unregisterCommandDefinition(def.id);
-    }
-
     for (const binding of BROWSER_BINDINGS) {
       engine.unregisterBinding(binding.id);
     }
-    const allCommands = [
-      BC.openGlobalSearch, BC.showPathHistory, BC.quickPathJump, BC.navigateUp,
-      BC.refresh, BC.showKeyboardHelp, BC.openSettings, BC.cursorUp, BC.cursorDown, BC.cursorLeft,
-      BC.cursorRight, BC.cursorHome, BC.cursorEnd, BC.cursorPageUp, BC.cursorPageDown,
-      BC.newTab, BC.closeTab, BC.nextTab, BC.prevTab, BC.togglePinTab,
-      BC.openItem, BC.quickView, BC.copyCursorPath, BC.copy, BC.cut, BC.paste, BC.deleteSelected,
-      BC.selectAll, BC.deselectAll, BC.newFolder, BC.rename, BC.toggleCurrent,
-      BC.inlineDirectorySize,
-      BC.extendSelUp, BC.extendSelDown, BC.selectByMask, BC.unselectByMask,
-      BC.invertSelection, BC.selectSameExt, BC.focusFilter, BC.advancedFilter,
-      BC.clearFilter, BC.showWorkspaceSwitcher, BC.newWorkspace, BC.toggleHidden,
-      BC.switchPane, BC.copyToOtherPane, BC.moveToOtherPane, BC.focusAddressBar,
-      BC.diskUsage,
-    ];
-    for (const cmd of allCommands) {
-      engine.unregisterCommand(cmd, ownerId);
+    for (const descriptor of descriptors) {
+      engine.unregisterCommandDescriptor(descriptor.id, ownerId);
     }
-    for (let i = 1; i <= 9; i++) {
-      engine.unregisterCommand(BC.jumpToTab(i), ownerId);
-    }
-    engine.unregisterCommand(BC.batchRename, ownerId);
-    engine.unregisterCommand(BC.openWithExternal, ownerId);
   };
 }

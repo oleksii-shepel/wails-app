@@ -11,9 +11,10 @@ import type {
   PluginInputContribution,
   InputTrigger,
   CommandDefinition,
+  CommandDescriptor,
+  CommandState,
+  InputCommandHandler,
 } from './input-system.types';
-
-type InputCommandHandler = () => void | Promise<void>;
 
 interface RegisteredCommand {
   registrationId: string;
@@ -67,6 +68,7 @@ export class InputEngineService {
   private readonly bindings = new Map<string, RegisteredBinding>();
   private readonly commands = new Map<string, Map<string, RegisteredCommand>>();
   private readonly commandDefinitions = new Map<string, CommandDefinition>();
+  private readonly commandEnablement = new Map<string, Map<string, () => boolean>>();
   private readonly pluginBindingIds = new Map<string, string[]>();
   private readonly activeContexts = new Map<string, ActiveContextState>();
 
@@ -119,6 +121,65 @@ export class InputEngineService {
     if (registrations.size === 0) {
       this.commands.delete(commandId);
     }
+  }
+
+  registerCommandDescriptor(descriptor: CommandDescriptor, ownerId = 'default'): void {
+    const { execute, isEnabled, ...definition } = descriptor;
+    this.registerCommandDefinition(definition);
+    this.registerCommand(descriptor.id, execute, ownerId);
+
+    if (isEnabled) {
+      const registrations = this.commandEnablement.get(descriptor.id) ?? new Map<string, () => boolean>();
+      registrations.set(ownerId, isEnabled);
+      this.commandEnablement.set(descriptor.id, registrations);
+    }
+  }
+
+  unregisterCommandDescriptor(commandId: string, ownerId = 'default'): void {
+    this.unregisterCommand(commandId, ownerId);
+
+    const enablement = this.commandEnablement.get(commandId);
+    enablement?.delete(ownerId);
+    if (enablement?.size === 0) this.commandEnablement.delete(commandId);
+
+    if (!this.commands.has(commandId)) {
+      this.unregisterCommandDefinition(commandId);
+    }
+  }
+
+  isCommandEnabled(commandId: string): boolean {
+    const active = this.getActiveCommandRegistration(commandId);
+    if (!active) return false;
+
+    const predicates = this.commandEnablement.get(commandId);
+    if (!predicates || predicates.size === 0) return true;
+
+    // Mirror handler precedence: the most recently registered owner wins.
+    const predicate = predicates.get(active.registrationId);
+    if (!predicate) return true;
+
+    try {
+      return predicate();
+    } catch (error) {
+      console.error('Input command availability failed:', error);
+      return false;
+    }
+  }
+
+  getCommandState(commandId: string): CommandState | undefined {
+    const definition = this.commandDefinitions.get(commandId);
+    if (!definition) return undefined;
+    return {
+      ...definition,
+      registered: this.commands.has(commandId),
+      enabled: this.isCommandEnabled(commandId),
+    };
+  }
+
+  getCommandStates(): CommandState[] {
+    return Array.from(this.commandDefinitions.keys())
+      .map(id => this.getCommandState(id))
+      .filter((state): state is CommandState => !!state);
   }
 
   registerContext(context: InputContextDefinition): void {
@@ -681,10 +742,13 @@ export class InputEngineService {
   }
 
   private getCommandHandler(commandId: string): InputCommandHandler | null {
+    if (!this.isCommandEnabled(commandId)) return null;
+    return this.getActiveCommandRegistration(commandId)?.handler ?? null;
+  }
+
+  private getActiveCommandRegistration(commandId: string): RegisteredCommand | null {
     const registrations = this.commands.get(commandId);
-    if (!registrations || registrations.size === 0) {
-      return null;
-    }
+    if (!registrations || registrations.size === 0) return null;
 
     let activeRegistration: RegisteredCommand | null = null;
     for (const registration of registrations.values()) {
@@ -692,8 +756,7 @@ export class InputEngineService {
         activeRegistration = registration;
       }
     }
-
-    return activeRegistration?.handler ?? null;
+    return activeRegistration;
   }
 
   private emitActiveContexts(): void {

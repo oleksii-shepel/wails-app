@@ -65,6 +65,22 @@ export interface CommandDefinition {
   contextIds?: string[];
 }
 
+export type InputCommandHandler = () => void | Promise<void>;
+
+/**
+ * Runtime command descriptor. Keeps discoverable command metadata and execution
+ * together while allowing availability to stay context-driven.
+ */
+export interface CommandDescriptor extends CommandDefinition {
+  execute: InputCommandHandler;
+  isEnabled?: () => boolean;
+}
+
+export interface CommandState extends CommandDefinition {
+  enabled: boolean;
+  registered: boolean;
+}
+
 export interface PluginInputContribution {
   pluginId: string;
   commands: string[];

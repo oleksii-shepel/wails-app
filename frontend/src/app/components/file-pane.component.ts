@@ -229,8 +229,6 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     };
   }
 
-  readonly dirVm: DirSurfaceVm = this.dirVmFactory.create(this.dirVmSource);
-
   private get dirVmSource(): FilePaneDirVmSource {
     const thisRef = this;
     return {
@@ -465,7 +463,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       get paneId() { return thisRef.paneId; },
       get currentTabId() { return thisRef.currentTabId; },
       get tabs() { return thisRef.tabs; },
-      dirVm: this.dirVm,
+      dirVm: this.dirVmFactory.create(this.dirVmSource),
       sizeManagerVm: this.buildSizeManagerVm(),
     };
   }

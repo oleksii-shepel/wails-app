@@ -165,6 +165,10 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     return this.browserCommandsFactory.create(this.browserCommandsSource);
   }
 
+  get sourceCapabilities() {
+    return getSourceCapabilities(this.currentPath, { inArchive: this.isInArchive() });
+  }
+
   private get stateRuntime(): FilePaneStateRuntimeAdapter {
     return this.stateRuntimeFactory.create(this.stateRuntimeSource);
   }
@@ -172,7 +176,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   private get browserCommandsSource(): FilePaneBrowserCommandsSource {
     return {
       surfaceCapabilities: this.activeSurfaceCapabilities,
-      sourceCapabilities: getSourceCapabilities(this.currentPath, { inArchive: this.isInArchive() }),
+      sourceCapabilities: this.sourceCapabilities,
       navigationController: this.navigationController,
       navigationHost: this.navigationHost,
       openController: this.openController,

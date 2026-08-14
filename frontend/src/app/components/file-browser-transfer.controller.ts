@@ -3,11 +3,14 @@ import type { ArchiveService, ArchiveFrame } from '../services/archive.service';
 import type { ConfirmDialogService } from '../services/confirm-dialog.service';
 import type { FilePaneBrowserCommands } from './file-pane-browser-commands.factory';
 import { BatchItemError, operationErrorMessage } from '../shared/protocol-enhanced';
+import type { SourceCapabilities } from '../services/source-capabilities';
+import { canTransferBetween, transferBlockedMessage } from '../services/transfer-capabilities';
 
 export interface FileBrowserTransferPane {
   currentPath: string;
   selectedFiles: Set<string>;
   archiveStack: ArchiveFrame[];
+  sourceCapabilities: SourceCapabilities;
   getDestinationDir(): string;
   getTreeArchiveSelectionContext(): { archivePath: string; innerPaths: string[] } | null;
   initiatePendingMove(entries: string[], destDir: string): void;
@@ -31,6 +34,8 @@ export class FileBrowserTransferController {
     const { src, dst } = this.resolvePanes(host, sourceSide);
     if (!src || !dst || paths.length === 0) return;
     const destDir = this.resolveCrossPaneDestination(dst);
+    const decision = canTransferBetween('copy', src.sourceCapabilities, dst.sourceCapabilities);
+    if (!decision.allowed) { host.confirmDialog.alert(transferBlockedMessage('copy', decision)); return; }
 
     if (host.confirmBeforeCopy) {
       const confirmed = await host.confirmDialog.confirm({
@@ -79,6 +84,8 @@ export class FileBrowserTransferController {
     const { src, dst } = this.resolvePanes(host, sourceSide);
     if (!src || !dst || paths.length === 0) return;
     const destDir = this.resolveCrossPaneDestination(dst);
+    const decision = canTransferBetween('move', src.sourceCapabilities, dst.sourceCapabilities);
+    if (!decision.allowed) { host.confirmDialog.alert(transferBlockedMessage('move', decision)); return; }
 
     if (host.confirmBeforeMove) {
       const confirmed = await host.confirmDialog.confirm({

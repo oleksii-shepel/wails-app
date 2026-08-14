@@ -7,6 +7,7 @@ function createPane(overrides: Partial<FileBrowserTransferPane> = {}): FileBrows
     currentPath: 'filesystem://target/current',
     selectedFiles: new Set<string>(),
     archiveStack: [],
+    sourceCapabilities: { read: true, create: true, delete: true, rename: true, trash: true },
     getDestinationDir: () => 'filesystem://target/selected-folder',
     getTreeArchiveSelectionContext: () => null,
     initiatePendingMove: vi.fn(),
@@ -87,4 +88,40 @@ describe('FileBrowserTransferController', () => {
     expect(sourceRefresh).toHaveBeenCalledTimes(1);
     expect(destinationRefresh).toHaveBeenCalledTimes(1);
   });
+
+  it('allows copying from a read-only source into a writable destination', async () => {
+    const host = createHost({
+      leftPane: createPane({
+        currentPath: 's3://bucket',
+        sourceCapabilities: { read: true, create: false, delete: false, rename: false, trash: false },
+      }),
+    });
+    await new FileBrowserTransferController().copy(host, 'left', ['s3://bucket/file.txt']);
+    expect(host.apiService.batchCopy).toHaveBeenCalledTimes(1);
+  });
+
+  it('blocks copying into a read-only destination', async () => {
+    const host = createHost({
+      rightPane: createPane({
+        currentPath: 's3://bucket',
+        sourceCapabilities: { read: true, create: false, delete: false, rename: false, trash: false },
+      }),
+    });
+    await new FileBrowserTransferController().copy(host, 'left', ['filesystem://source/current/file.txt']);
+    expect(host.apiService.batchCopy).not.toHaveBeenCalled();
+    expect(host.confirmDialog.alert).toHaveBeenCalledWith('Copy Not Available\nThe destination is read-only.');
+  });
+
+  it('blocks moving from a read-only source', async () => {
+    const host = createHost({
+      leftPane: createPane({
+        currentPath: 's3://bucket',
+        sourceCapabilities: { read: true, create: false, delete: false, rename: false, trash: false },
+      }),
+    });
+    await new FileBrowserTransferController().move(host, 'left', ['s3://bucket/file.txt']);
+    expect(host.apiService.batchMove).not.toHaveBeenCalled();
+    expect(host.confirmDialog.alert).toHaveBeenCalledWith('Move Not Available\nThe source is read-only and cannot be moved. You can copy it instead.');
+  });
+
 });

@@ -293,6 +293,7 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
   @Output() navigate = new EventEmitter<FileInfo>();
   @Output() openInNewTab = new EventEmitter<FileInfo>();
   @Output() contextMenu = new EventEmitter<{ event: MouseEvent; entry: FileInfo }>();
+  @Output() backgroundContextMenu = new EventEmitter<MouseEvent>();
   @Output() dragStart = new EventEmitter<{ event: DragEvent; entries: FileInfo[] }>();
   @Output() dragDrop = new EventEmitter<{ event: DragEvent; source: FileInfo[]; target: FileInfo }>();
   @Output() rename = new EventEmitter<{ entry: FileInfo; newName: string }>();
@@ -820,6 +821,7 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
     const target = event.target as HTMLElement;
     if (event.target === event.currentTarget || target.classList.contains('file-list-container')) {
       event.preventDefault();
+      this.backgroundContextMenu.emit(event);
     }
   }
 

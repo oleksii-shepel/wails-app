@@ -84,6 +84,7 @@ import { DirSurfaceVm } from '../surfaces/dir/dir-surface.vm';
         (openInNewTab)="vm.onOpenInNewTab($event)"
         (sortChange)="vm.onSortChange($event)"
         (contextMenu)="vm.onContextMenu($event)"
+        (backgroundContextMenu)="vm.onBackgroundContextMenu($event)"
         (nodeDoubleClick)="vm.onNodeDoubleClick($event)"
         (dragDrop)="vm.onDragDrop($event)"
         (browserPaneSplitChange)="vm.onBrowserPaneSplitChange($event)"

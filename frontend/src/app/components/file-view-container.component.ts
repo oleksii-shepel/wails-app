@@ -78,6 +78,7 @@ export type ViewLayout = ViewMode;
           (navigate)="onNavigate($event)"
           (openInNewTab)="onOpenInNewTab($event)"
           (contextMenu)="onContextMenu($event)"
+          (backgroundContextMenu)="onBackgroundContextMenu($event)"
           (dragStart)="onViewDragStart($event)"
           (dragDrop)="onViewDragDrop($event)"
           (rename)="rename.emit($event)">
@@ -96,6 +97,7 @@ export type ViewLayout = ViewMode;
           (navigate)="onNavigate($event)"
           (openInNewTab)="onOpenInNewTab($event)"
           (contextMenu)="onContextMenu($event)"
+          (backgroundContextMenu)="onBackgroundContextMenu($event)"
           (dragStart)="onViewDragStart($event)"
           (dragDrop)="onViewDragDrop($event)"
           (rename)="rename.emit($event)">
@@ -118,6 +120,7 @@ export type ViewLayout = ViewMode;
           (navigate)="onNavigate($event)"
           (openInNewTab)="onTreeOpenInNewTab($event)"
           (contextMenu)="onTreeContextMenu($event)"
+          (backgroundContextMenu)="onBackgroundContextMenu($event)"
           (dragStart)="onTreeDragStart($event)"
           (dragDrop)="onTreeDragDrop($event)"
           (rename)="onTreeRename($event)">
@@ -140,6 +143,7 @@ export type ViewLayout = ViewMode;
           (openInNewTab)="onOpenInNewTab($event)"
           (sort)="onSortChange($event)"
           (contextMenu)="onContextMenu($event)"
+          (backgroundContextMenu)="onBackgroundContextMenu($event)"
           (dragStart)="onViewDragStart($event)"
           (dragDrop)="onViewDragDrop($event)"
           (rename)="rename.emit($event)">
@@ -249,6 +253,7 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
   @Output() openInNewTab    = new EventEmitter<FileInfo>();
   @Output() sortChange      = new EventEmitter<{ field: string; direction: 'asc' | 'desc' }>();
   @Output() contextMenu     = new EventEmitter<{ event: MouseEvent; entry: FileInfo }>();
+  @Output() backgroundContextMenu = new EventEmitter<MouseEvent>();
   @Output() nodeDoubleClick = new EventEmitter<FileInfo>();
   @Output() dragStart       = new EventEmitter<{ event: DragEvent; entries: FileInfo[] }>();
   @Output() dragDrop        = new EventEmitter<{ event: DragEvent; source: FileInfo[]; targetPath: string }>();
@@ -463,6 +468,10 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
 
   onTreeContextMenu(event: { event: MouseEvent; node: TreeNode }): void {
     this.eventsController.onTreeContextMenu(this.eventsHost, event);
+  }
+
+  onBackgroundContextMenu(event: MouseEvent): void {
+    this.backgroundContextMenu.emit(event);
   }
 
   onTreeDragStart(event: { event: DragEvent; nodes: TreeNode[] }): void {

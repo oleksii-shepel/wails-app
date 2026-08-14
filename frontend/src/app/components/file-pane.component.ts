@@ -57,6 +57,12 @@ import { RemoteConnectDialogService } from '../services/remote-connect-dialog.se
 import { SettingsService } from '../services/settings.service';
 import { getSourceCapabilities } from '../services/source-capabilities';
 import { NO_ACTIONS, type ActionAvailability } from '../services/action-availability';
+import { PluginManagerService } from '../services/plugin-manager.service';
+import { InputEngineService } from '../services/input-engine.service';
+import type { MenuContext } from '../plugin/plugin-registry-api';
+import { BC } from './file-browser-command-registry';
+import { buildBackgroundFileContextMenu, buildBuiltinFileContextMenu, type BackgroundFileContextAction, type BuiltinFileContextAction } from './file-context-menu.model';
+import { FileContextMenuComponent, type FileContextMenuItemVm, type FileContextMenuState } from './file-context-menu.component';
 import type { SearchResultItem } from '../services/global-search.service';
 
 declare const window: any;
@@ -68,6 +74,7 @@ declare const window: any;
     CommonModule,
     TabBarComponent,
     SurfaceOutletComponent,
+    FileContextMenuComponent,
   ],
   template: `
     <div class="file-pane" [class.file-pane--archive]="isInArchive()">
@@ -94,6 +101,11 @@ declare const window: any;
         [attr.aria-hidden]="!item.active ? true : null"
         (firstEntryArrived)="item.active && onSurfaceFirstEntry()">
       </app-surface-outlet>
+
+      <app-file-context-menu
+        [state]="fileContextMenu"
+        (closed)="closeFileContextMenu()">
+      </app-file-context-menu>
     </div>
   `,
   styles: [`
@@ -243,6 +255,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       onNavigate: (entry: FileInfo) => thisRef.onNavigate(entry),
       onOpenInNewTab: (entry: FileInfo) => thisRef.openEntryInNewTab(entry),
       onContextMenu: (event: { event: MouseEvent; entry: FileInfo }) => thisRef.onContextMenu(event),
+      onBackgroundContextMenu: (event: MouseEvent) => thisRef.onBackgroundContextMenu(event),
       onNodeDoubleClick: (entry: FileInfo) => thisRef.onNodeDoubleClick(entry),
       onDragDrop: (event: any) => thisRef.handleDragDrop(event),
       onRename: (event: { entry: FileInfo; newName: string }) => thisRef.renameEntry(event),
@@ -288,6 +301,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   archivePendingMoveDestDir = '';
   lastSeenActiveTabId: string | null = null;
   lastSeenActiveTabPath: string | null = null;
+  fileContextMenu: FileContextMenuState | null = null;
 
   private readonly navigationController: FilePaneNavigationController;
   private readonly archiveController = new FilePaneArchiveController();
@@ -749,6 +763,8 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     private cdr: ChangeDetectorRef,
     private archiveService: ArchiveService,
     private surfaceRegistry: SurfaceRegistryService,
+    private pluginManager: PluginManagerService,
+    private inputEngine: InputEngineService,
   ) {
     this.dirStream = new DirListStreamController(this.apiService);
     this.operationsController = new FilePaneOperationsController(this.operationService, this.batchRenameDialog);
@@ -876,7 +892,123 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   onContextMenu(event: { event: MouseEvent; entry: FileInfo }): void {
-    void event;
+    const mouse = event.event;
+    const entry = event.entry;
+    mouse.preventDefault();
+    mouse.stopPropagation();
+
+    if (!entry?.path || entry.path === PARENT_ENTRY_PATH) {
+      this.closeFileContextMenu();
+      return;
+    }
+
+    // Context-menu commands operate on the clicked item unless it is already
+    // part of a multi-selection. This keeps right-click behavior consistent
+    // across list/grid/details/tree views.
+    if (!this.selectedFiles.has(entry.path)) {
+      this.onSelectionChange([entry]);
+    }
+
+    const x = Math.max(4, Math.min(mouse.clientX, Math.max(4, window.innerWidth - 244)));
+    const y = Math.max(4, Math.min(mouse.clientY, Math.max(4, window.innerHeight - 360)));
+
+    // Let the parent browser recompute ActionAvailability after the selection
+    // mutation before freezing the menu snapshot.
+    setTimeout(() => {
+      const selectedPaths = Array.from(this.selectedFiles).filter(path => path && path !== PARENT_ENTRY_PATH);
+      const context: MenuContext = {
+        targetPath: entry.path,
+        selectedPaths,
+        currentDirectory: this.currentPath,
+      };
+      const builtins = buildBuiltinFileContextMenu({
+        availability: this.actionAvailability,
+        selectedCount: selectedPaths.length,
+        isDirectory: entry.type === FileType.DIRECTORY,
+      }).map<FileContextMenuItemVm>(item => ({
+        ...item,
+        execute: () => this.executeBuiltinContextAction(item.id, entry),
+      }));
+
+      const plugins = this.pluginManager.resolveContextMenuItems(context).map<FileContextMenuItemVm>((item, index) => ({
+        id: `plugin:${item.id}`,
+        label: item.label,
+        icon: item.icon,
+        enabled: true,
+        separatorBefore: index === 0,
+        execute: () => item.execute(context),
+      }));
+
+      this.fileContextMenu = { x, y, items: [...builtins, ...plugins] };
+      this.cdr.markForCheck();
+    }, 0);
+  }
+
+  onBackgroundContextMenu(mouse: MouseEvent): void {
+    mouse.preventDefault();
+    mouse.stopPropagation();
+    this.onSelectionChange([]);
+
+    const x = Math.max(4, Math.min(mouse.clientX, Math.max(4, window.innerWidth - 244)));
+    const y = Math.max(4, Math.min(mouse.clientY, Math.max(4, window.innerHeight - 180)));
+
+    setTimeout(() => {
+      const context: MenuContext = {
+        targetPath: this.currentPath,
+        selectedPaths: [],
+        currentDirectory: this.currentPath,
+      };
+      const builtins = buildBackgroundFileContextMenu(this.actionAvailability).map<FileContextMenuItemVm>(item => ({
+        ...item,
+        execute: () => this.executeBackgroundContextAction(item.id),
+      }));
+      const plugins = this.pluginManager.resolveContextMenuItems(context).map<FileContextMenuItemVm>((item, index) => ({
+        id: `plugin:${item.id}`,
+        label: item.label,
+        icon: item.icon,
+        enabled: true,
+        separatorBefore: index === 0,
+        execute: () => item.execute(context),
+      }));
+      this.fileContextMenu = { x, y, items: [...builtins, ...plugins] };
+      this.cdr.markForCheck();
+    }, 0);
+  }
+
+  private executeBackgroundContextAction(action: BackgroundFileContextAction): void {
+    const commandId = {
+      newFolder: BC.newFolder,
+      paste: BC.paste,
+      refresh: BC.refresh,
+    } satisfies Record<BackgroundFileContextAction, string>;
+    this.inputEngine.dispatchCommandById(commandId[action]);
+  }
+
+  closeFileContextMenu(): void {
+    if (!this.fileContextMenu) return;
+    this.fileContextMenu = null;
+    this.cdr.markForCheck();
+  }
+
+  private executeBuiltinContextAction(action: BuiltinFileContextAction, entry: FileInfo): void | Promise<void> {
+    if (action === 'openInNewTab') {
+      return this.openEntryInNewTab(entry);
+    }
+
+    const commandId = {
+      open: BC.openItem,
+      quickView: BC.quickView,
+      copyPath: BC.copyCursorPath,
+      openWithExternal: BC.openWithExternal,
+      copy: BC.copy,
+      cut: BC.cut,
+      delete: BC.deleteSelected,
+      rename: BC.rename,
+      copyToOther: BC.copyToOtherPane,
+      moveToOther: BC.moveToOtherPane,
+    } satisfies Record<Exclude<BuiltinFileContextAction, 'openInNewTab'>, string>;
+
+    this.inputEngine.dispatchCommandById(commandId[action]);
   }
 
   onNodeDoubleClick(entry: FileInfo): void {

@@ -428,6 +428,7 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
   @Output() navigate = new EventEmitter<FileInfo>();
   @Output() openInNewTab = new EventEmitter<FileInfo>();
   @Output() contextMenu = new EventEmitter<{ event: MouseEvent; entry: FileInfo }>();
+  @Output() backgroundContextMenu = new EventEmitter<MouseEvent>();
   @Output() dragStart = new EventEmitter<{ event: DragEvent; entries: FileInfo[] }>();
   @Output() dragDrop = new EventEmitter<{ event: DragEvent; source: FileInfo[]; target: FileInfo }>();
   @Output() rename = new EventEmitter<{ entry: FileInfo; newName: string }>();
@@ -1077,6 +1078,7 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
     if (event.target === event.currentTarget) {
       event.preventDefault();
       this.selectionChange.emit([]);
+      this.backgroundContextMenu.emit(event);
       // TC: background contextmenu clears selection but keeps cursor
     }
   }
@@ -1741,5 +1743,3 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
     return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
   }
 }
-
-

@@ -48,6 +48,7 @@ export interface FilePaneDirVmSource {
   onNavigate(entry: FileInfo): void;
   onOpenInNewTab(entry: FileInfo): void;
   onContextMenu(event: { event: MouseEvent; entry: FileInfo }): void;
+  onBackgroundContextMenu(event: MouseEvent): void;
   onNodeDoubleClick(entry: FileInfo): void;
   onDragDrop(event: any): void;
   onRename(event: { entry: FileInfo; newName: string }): void;
@@ -100,6 +101,7 @@ export class FilePaneDirVmFactory {
       onNavigate = (entry: FileInfo) => source.onNavigate(entry);
       onOpenInNewTab = (entry: FileInfo) => source.onOpenInNewTab(entry);
       onContextMenu = (event: { event: MouseEvent; entry: FileInfo }) => source.onContextMenu(event);
+      onBackgroundContextMenu = (event: MouseEvent) => source.onBackgroundContextMenu(event);
       onNodeDoubleClick = (entry: FileInfo) => source.onNodeDoubleClick(entry);
       onDragDrop = (event: any) => source.onDragDrop(event);
       onRename = (event: { entry: FileInfo; newName: string }) => source.onRename(event);

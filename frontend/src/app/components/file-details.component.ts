@@ -519,6 +519,7 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   @Output() openInNewTab = new EventEmitter<FileInfo>();
   @Output() sort = new EventEmitter<{ field: string; direction: 'asc' | 'desc' }>();
   @Output() contextMenu = new EventEmitter<{ event: MouseEvent; entry: FileInfo }>();
+  @Output() backgroundContextMenu = new EventEmitter<MouseEvent>();
   @Output() dragStart = new EventEmitter<{ event: DragEvent; entries: FileInfo[] }>();
   @Output() dragDrop = new EventEmitter<{ event: DragEvent; source: FileInfo[]; target: FileInfo }>();
   @Output() rename = new EventEmitter<{ entry: FileInfo; newName: string }>();
@@ -1259,6 +1260,7 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
 
     if (event.target === event.currentTarget) {
       event.preventDefault();
+      this.backgroundContextMenu.emit(event);
     }
   }
 

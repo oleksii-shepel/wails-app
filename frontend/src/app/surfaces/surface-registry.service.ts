@@ -11,8 +11,8 @@ export class SurfaceRegistryService {
   readonly registry = new ContributionRegistry<SurfaceContribution, SurfaceRequest>();
 
   constructor() {
-    // Built-in surfaces. Foreign surfaces can be registered later without
-    // changing panes/tab infrastructure.
+    // Scores are compatibility/fallback behavior. Persisted surfaceId is the
+    // primary identity and is forced during resolve().
     this.register({
       id: 'dir',
       score: (req) => (tabSurfaceId(req.tab) === 'dir' ? 100 : 0),
@@ -41,7 +41,10 @@ export class SurfaceRegistryService {
   }
 
   async resolve(req: SurfaceRequest): Promise<{ id: string; component: Type<unknown> }> {
-    return this.registry.resolve(req);
+    // Exact identity first. This is what makes plugin/tool surfaces extensible:
+    // a tab with surfaceId="console" resolves the registered "console" surface
+    // without adding another case to the pane or a central type union.
+    return this.registry.resolve(req, tabSurfaceId(req.tab));
   }
 
   list(): readonly SurfaceContribution[] {

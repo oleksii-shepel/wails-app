@@ -2,7 +2,7 @@ import { Component, Input, Output, EventEmitter } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { DropdownContainerComponent } from './dropdown-container.component';
 import { DropdownTriggerDirective } from '../directives/dropdown.directive';
-import { NO_ACTIONS, type ActionAvailability } from '../services/action-availability';
+import type { PaneToolbarAction } from './pane-toolbar-action';
 
 export type ViewMode = 'list' | 'grid' | 'tree' | 'details';
 
@@ -119,45 +119,38 @@ export type ViewMode = 'list' | 'grid' | 'tree' | 'details';
 
         <div class="view-divider"></div>
 
-        <!-- New Folder -->
-        <button class="action-btn" title="New folder" [disabled]="!availability.createFolder" (click)="onCreate()" aria-label="New folder">
-          <svg width="20" height="20" viewBox="0 0 16 16" fill="none">
-            <path d="M1 3.5A1.5 1.5 0 0 1 2.5 2H6l1.5 1.5H13.5A1.5 1.5 0 0 1 15 5v6.5A1.5 1.5 0 0 1 13.5 13h-11A1.5 1.5 0 0 1 1 11.5v-8z" fill="currentColor" opacity="0.25"/>
-            <path d="M1 5h14v6.5A1.5 1.5 0 0 1 13.5 13h-11A1.5 1.5 0 0 1 1 11.5V5z" fill="currentColor" opacity="0.4"/>
-            <path d="M8 6.75a.75.75 0 0 1 .75.75v1.25h1.25a.75.75 0 0 1 0 1.5H8.75v1.25a.75.75 0 0 1-1.5 0V10.25H6a.75.75 0 0 1 0-1.5h1.25V7.5A.75.75 0 0 1 8 6.75z" fill="currentColor"/>
-          </svg>
-        </button>
-
-        <!-- Delete -->
-        <button class="action-btn" title="Delete" [disabled]="!availability.deleteSelected" (click)="onDelete()" aria-label="Delete">
-          <svg width="20" height="20" viewBox="0 0 16 16" fill="none">
-            <path d="M6 2h4l1 1h2v1H3V3h2l1-1zM4 5h8l-1 8a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 5z" fill="currentColor"/>
-          </svg>
-        </button>
-
-        <!-- Copy -->
-        <button class="action-btn" title="Copy" [disabled]="!availability.copyToOther" (click)="onCopy()" aria-label="Copy">
-          <svg width="20" height="20" viewBox="0 0 16 16" fill="none">
-            <path d="M3 2.5A1.5 1.5 0 0 1 4.5 1h5.586a1 1 0 0 1 .707.293l2.914 2.914A1 1 0 0 1 14 4.914V10.5A1.5 1.5 0 0 1 12.5 12H4.5A1.5 1.5 0 0 1 3 10.5v-8z" fill="currentColor" opacity="0.3"/>
-            <path d="M1 5.5A1.5 1.5 0 0 1 2.5 4h5.586a1 1 0 0 1 .707.293l2.914 2.914A1 1 0 0 1 12 7.914V13.5A1.5 1.5 0 0 1 10.5 15h-8A1.5 1.5 0 0 1 1 13.5v-8z" fill="currentColor"/>
-          </svg>
-        </button>
-
-        <!-- Move -->
-        <button class="action-btn" title="Move" [disabled]="!availability.moveToOther" (click)="onMove()" aria-label="Move">
-          <svg width="20" height="20" viewBox="0 0 16 16" fill="none">
-            <path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h6.586a1 1 0 0 1 .707.293l2.914 2.914A1 1 0 0 1 13 5.914V7h-1.5V6H9.5A1.5 1.5 0 0 1 8 4.5V3H2.5a.5.5 0 0 0-.5.5v9a.5.5 0 0 0 .5.5H7v1.5H2.5A1.5 1.5 0 0 1 1 13V3.5z" fill="currentColor"/>
-            <path d="M10 9.75a.75.75 0 0 1 .75-.75h2.69l-.72-.72a.75.75 0 1 1 1.06-1.06l2 2a.75.75 0 0 1 0 1.06l-2 2a.75.75 0 1 1-1.06-1.06l.72-.72H10.75A.75.75 0 0 1 10 9.75z" fill="currentColor"/>
-          </svg>
-        </button>
-
-        <!-- Refresh -->
-        <button class="action-btn" title="Refresh" (click)="onRefresh()" aria-label="Refresh">
-          <svg width="20" height="20" viewBox="0 0 16 16" fill="none">
-            <path d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z" fill="currentColor"/>
-            <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z" fill="currentColor"/>
-          </svg>
-        </button>
+        <ng-container *ngFor="let action of actions; trackBy: trackAction">
+          <button
+            class="action-btn"
+            [disabled]="!action.enabled"
+            [title]="action.label + (action.shortcut ? ' (' + action.shortcut + ')' : '')"
+            [attr.aria-label]="action.label"
+            (click)="invokeAction(action)">
+            <ng-container [ngSwitch]="action.icon">
+              <svg *ngSwitchCase="'new-folder'" width="20" height="20" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M1 3.5A1.5 1.5 0 0 1 2.5 2H6l1.5 1.5H13.5A1.5 1.5 0 0 1 15 5v6.5A1.5 1.5 0 0 1 13.5 13h-11A1.5 1.5 0 0 1 1 11.5v-8z" fill="currentColor" opacity="0.25"/>
+                <path d="M1 5h14v6.5A1.5 1.5 0 0 1 13.5 13h-11A1.5 1.5 0 0 1 1 11.5V5z" fill="currentColor" opacity="0.4"/>
+                <path d="M8 6.75a.75.75 0 0 1 .75.75v1.25h1.25a.75.75 0 0 1 0 1.5H8.75v1.25a.75.75 0 0 1-1.5 0V10.25H6a.75.75 0 0 1 0-1.5h1.25V7.5A.75.75 0 0 1 8 6.75z" fill="currentColor"/>
+              </svg>
+              <svg *ngSwitchCase="'delete'" width="20" height="20" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M6 2h4l1 1h2v1H3V3h2l1-1zM4 5h8l-1 8a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 5z" fill="currentColor"/>
+              </svg>
+              <svg *ngSwitchCase="'copy'" width="20" height="20" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M3 2.5A1.5 1.5 0 0 1 4.5 1h5.586a1 1 0 0 1 .707.293l2.914 2.914A1 1 0 0 1 14 4.914V10.5A1.5 1.5 0 0 1 12.5 12H4.5A1.5 1.5 0 0 1 3 10.5v-8z" fill="currentColor" opacity="0.3"/>
+                <path d="M1 5.5A1.5 1.5 0 0 1 2.5 4h5.586a1 1 0 0 1 .707.293l2.914 2.914A1 1 0 0 1 12 7.914V13.5A1.5 1.5 0 0 1 10.5 15h-8A1.5 1.5 0 0 1 1 13.5v-8z" fill="currentColor"/>
+              </svg>
+              <svg *ngSwitchCase="'move'" width="20" height="20" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h6.586a1 1 0 0 1 .707.293l2.914 2.914A1 1 0 0 1 13 5.914V7h-1.5V6H9.5A1.5 1.5 0 0 1 8 4.5V3H2.5a.5.5 0 0 0-.5.5v9a.5.5 0 0 0 .5.5H7v1.5H2.5A1.5 1.5 0 0 1 1 13V3.5z" fill="currentColor"/>
+                <path d="M10 9.75a.75.75 0 0 1 .75-.75h2.69l-.72-.72a.75.75 0 1 1 1.06-1.06l2 2a.75.75 0 0 1 0 1.06l-2 2a.75.75 0 1 1-1.06-1.06l.72-.72H10.75A.75.75 0 0 1 10 9.75z" fill="currentColor"/>
+              </svg>
+              <svg *ngSwitchCase="'refresh'" width="20" height="20" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z" fill="currentColor"/>
+                <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z" fill="currentColor"/>
+              </svg>
+              <span *ngSwitchDefault class="plugin-action-icon" aria-hidden="true">{{ action.iconText || '◇' }}</span>
+            </ng-container>
+          </button>
+        </ng-container>
       </div>
     </div>
   `,
@@ -190,6 +183,7 @@ export type ViewMode = 'list' | 'grid' | 'tree' | 'details';
     .action-btn { width:28px; height:28px; display:inline-flex; align-items:center; justify-content:center; border:none; border-radius:var(--vsc-border-radius); background:transparent; color:var(--vsc-tab-foreground); cursor:pointer; transition: background 120ms ease, color 120ms ease, opacity 120ms ease; }
     .action-btn:disabled { opacity:0.35; cursor:not-allowed; }
     .action-btn:hover:not(:disabled) { background: var(--vsc-tab-hover-background); color: var(--vsc-tab-hover-foreground); }
+    .plugin-action-icon { font-size:13px; line-height:1; max-width:18px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
     .view-btn { display:flex; align-items:center; justify-content:center; width:28px; height:28px; border:none; border-radius:var(--vsc-border-radius); background:transparent; color:var(--vsc-tab-foreground); cursor:pointer; }
     .action-btn svg,
@@ -230,9 +224,7 @@ export type ViewMode = 'list' | 'grid' | 'tree' | 'details';
   `]
 })
 export class ActionBarComponent {
-  @Input() selectedCount = 0;
-  @Input() availability: ActionAvailability = NO_ACTIONS;
-  @Input() panePosition: 'left' | 'right' = 'left';
+  @Input() actions: PaneToolbarAction[] = [];
 
   // View inputs
   @Input() currentView: ViewMode = 'list';
@@ -246,19 +238,6 @@ export class ActionBarComponent {
   @Output() sortChange = new EventEmitter<{ field: string; direction: 'asc' | 'desc' }>();
   @Output() directoriesFirstChange = new EventEmitter<boolean>();
   @Output() colorizeByMimeChange = new EventEmitter<boolean>();
-
-  // Legacy outputs kept for existing wiring
-  @Output() createFolder = new EventEmitter<void>();
-  @Output() deleteSelected = new EventEmitter<void>();
-  @Output() copyToOther = new EventEmitter<void>();
-  @Output() moveToOther = new EventEmitter<void>();
-
-  // Action pictogram outputs (aliases)
-  @Output() create = new EventEmitter<void>();
-  @Output() delete = new EventEmitter<void>();
-  @Output() copy = new EventEmitter<void>();
-  @Output() move = new EventEmitter<void>();
-  @Output() refresh = new EventEmitter<void>();
 
   arrangeMenuOpen = false;
 
@@ -317,12 +296,13 @@ export class ActionBarComponent {
   }
 
 
-  // Legacy action handlers (emit both legacy and new alias outputs)
-  onCreate(): void { this.createFolder.emit(); this.create.emit(); }
-  onDelete(): void { this.deleteSelected.emit(); this.delete.emit(); }
-  onCopyToOther(): void { this.copyToOther.emit(); this.copy.emit(); }
-  onMoveToOther(): void { this.moveToOther.emit(); this.move.emit(); }
-  onCopy(): void { this.copyToOther.emit(); this.copy.emit(); }
-  onMove(): void { this.moveToOther.emit(); this.move.emit(); }
-  onRefresh(): void { this.refresh.emit(); }
+  trackAction(_index: number, action: PaneToolbarAction): string { return action.id; }
+
+  invokeAction(action: PaneToolbarAction): void {
+    if (!action.enabled) return;
+    void Promise.resolve(action.execute()).catch(error => {
+      console.error(`Toolbar action failed: ${action.id}`, error);
+    });
+  }
+
 }

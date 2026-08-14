@@ -32,9 +32,7 @@ import { DirSurfaceVm } from '../surfaces/dir/dir-surface.vm';
     </app-address-bar>
 
     <app-action-bar
-      [selectedCount]="vm.selectedFiles.size || 0"
-      [availability]="vm.actionAvailability"
-      [panePosition]="vm.paneId"
+      [actions]="vm.toolbarActions"
       [currentView]="vm.currentView"
       [currentSort]="vm.sortField"
       [sortDirection]="vm.sortDirection"
@@ -43,11 +41,7 @@ import { DirSurfaceVm } from '../surfaces/dir/dir-surface.vm';
       [directoriesFirst]="vm.directoriesFirst"
       (directoriesFirstChange)="vm.onDirectoriesFirstChange($event)"
       [colorizeByMime]="vm.colorizeByMime"
-      (colorizeByMimeChange)="vm.onColorizeByMimeChange($event)"
-      (createFolder)="vm.onCreateFolder()"
-      (deleteSelected)="vm.onDeleteSelected()"
-      (copyToOther)="vm.onCopyToOther()"
-      (moveToOther)="vm.onMoveToOther()">
+      (colorizeByMimeChange)="vm.onColorizeByMimeChange($event)">
     </app-action-bar>
 
     <!-- File list + find widget overlay share the same relative container -->

@@ -58,8 +58,9 @@ import { SettingsService } from '../services/settings.service';
 import { getSourceCapabilities } from '../services/source-capabilities';
 import { NO_ACTIONS, type ActionAvailability } from '../services/action-availability';
 import { PluginManagerService } from '../services/plugin-manager.service';
+import { adaptPluginToolbarActions, buildBuiltinPaneToolbarActions, type PaneToolbarAction } from './pane-toolbar-action';
 import { InputEngineService } from '../services/input-engine.service';
-import type { MenuContext } from '../plugin/plugin-registry-api';
+import type { MenuContext, ToolbarContext } from '../plugin/plugin-registry-api';
 import { BC } from './file-browser-command-registry';
 import { buildBackgroundFileContextMenu, buildBuiltinFileContextMenu, type BackgroundFileContextAction, type BuiltinFileContextAction } from './file-context-menu.model';
 import { FileContextMenuComponent, type FileContextMenuItemVm, type FileContextMenuState } from './file-context-menu.component';
@@ -182,6 +183,26 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     return getSourceCapabilities(this.currentPath, { inArchive: this.isInArchive() });
   }
 
+  get toolbarActions(): PaneToolbarAction[] {
+    const context: ToolbarContext = {
+      selectedPaths: Array.from(this.selectedFiles).filter(path => path && path !== PARENT_ENTRY_PATH),
+      currentDirectory: this.currentPath,
+    };
+
+    const builtins = buildBuiltinPaneToolbarActions(this.actionAvailability, {
+      createFolder: () => this.browserCommands.selection.createFolder(),
+      deleteSelected: () => this.browserCommands.selection.deleteSelected(),
+      copyToOther: () => this.browserCommands.selection.copyToOther(),
+      moveToOther: () => this.browserCommands.selection.moveToOther(),
+      refresh: () => this.browserCommands.navigation.refresh(),
+    });
+    const plugins = adaptPluginToolbarActions(
+      this.pluginManager.resolveToolbarActions(context),
+      context,
+    );
+    return [...builtins, ...plugins];
+  }
+
   private get stateRuntime(): FilePaneStateRuntimeAdapter {
     return this.stateRuntimeFactory.create(this.stateRuntimeSource);
   }
@@ -222,6 +243,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       get showHidden() { return thisRef.showHidden; },
       get paneActive() { return thisRef.paneActive; },
       get actionAvailability() { return thisRef.actionAvailability; },
+      get toolbarActions() { return thisRef.toolbarActions; },
       get filteredEntries() { return thisRef.filteredEntries; },
       get selectedFiles() { return thisRef.selectedFiles; },
       get selectionCursorPath() { return thisRef.selectionCursorPath; },

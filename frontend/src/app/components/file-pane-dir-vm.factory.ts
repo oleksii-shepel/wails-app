@@ -3,6 +3,7 @@ import type { ViewLayout } from './file-view-container.component';
 import type { FileInfo } from '../shared/protocol';
 import type { DirSurfaceVm } from '../surfaces/dir/dir-surface.vm';
 import type { ActionAvailability } from '../services/action-availability';
+import type { PaneToolbarAction } from './pane-toolbar-action';
 
 export interface FilePaneDirVmSource {
   get paneId(): 'left' | 'right';
@@ -15,6 +16,7 @@ export interface FilePaneDirVmSource {
   get showHidden(): boolean;
   get paneActive(): boolean;
   get actionAvailability(): ActionAvailability;
+  get toolbarActions(): PaneToolbarAction[];
   get filteredEntries(): FileInfo[];
   get selectedFiles(): Set<string>;
   get selectionCursorPath(): string | null;
@@ -68,6 +70,7 @@ export class FilePaneDirVmFactory {
       get showHidden() { return source.showHidden; }
       get paneActive() { return source.paneActive; }
       get actionAvailability() { return source.actionAvailability; }
+      get toolbarActions() { return source.toolbarActions; }
       get entries() { return source.filteredEntries; }
       get selectedFiles() { return source.selectedFiles; }
       get cursorPath() { return source.selectionCursorPath; }

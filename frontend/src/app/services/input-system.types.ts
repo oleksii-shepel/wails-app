@@ -81,9 +81,26 @@ export interface CommandState extends CommandDefinition {
   registered: boolean;
 }
 
+/** Normalized command metadata for discovery UIs such as the palette or console. */
+export interface CommandCatalogEntry extends CommandState {
+  preferredBinding?: InputBindingDefinition;
+}
+
+/**
+ * An owned plugin input bundle. Commands, contexts, and default bindings are
+ * registered and removed together under pluginId.
+ */
 export interface PluginInputContribution {
   pluginId: string;
-  commands: string[];
+  commands: CommandDescriptor[];
+  contexts?: InputContextDefinition[];
+  bindings?: InputBindingDefinition[];
+}
+
+/** @deprecated Compatibility shape for the old binding-only plugin API. */
+export interface PluginBindingContribution {
+  pluginId: string;
+  commands?: string[];
   contexts?: InputContextDefinition[];
   bindings: InputBindingDefinition[];
 }

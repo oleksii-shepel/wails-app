@@ -15,7 +15,7 @@ import type { SurfaceContribution } from '../surfaces/surface-contribution';
 import { ViewerRegistryService } from '../viewers/viewer-registry.service';
 import { SurfaceRegistryService } from '../surfaces/surface-registry.service';
 import { InputEngineService } from './input-engine.service';
-import type { CommandDescriptor } from './input-system.types';
+import type { CommandDescriptor, PluginInputContribution } from './input-system.types';
 
 export interface PluginBackend {
   id: string;
@@ -31,6 +31,7 @@ export class PluginManagerService implements PluginRegistryAPI {
 
   private readonly backends = new Map<string, PluginBackend>();
   private readonly descriptors = new Map<string, PluginDescriptor>();
+  private registeringBackendId: string | null = null;
 
   readonly toolbarActions: ToolbarActionContribution[] = [];
   readonly contextMenuItems: ContextMenuContribution[] = [];
@@ -45,20 +46,37 @@ export class PluginManagerService implements PluginRegistryAPI {
       console.warn(`Plugin backend ${backend.id} already registered; skipping.`);
       return;
     }
+
     this.backends.set(backend.id, backend);
-    if (descriptor) {
-      this.descriptors.set(backend.id, descriptor);
+    if (descriptor) this.descriptors.set(backend.id, descriptor);
+
+    this.registeringBackendId = backend.id;
+    try {
+      backend.onRegister(this);
+    } catch (error) {
+      this.inputEngine.unregisterPluginInput(backend.id);
+      this.backends.delete(backend.id);
+      this.descriptors.delete(backend.id);
+      throw error;
+    } finally {
+      this.registeringBackendId = null;
     }
-    backend.onRegister(this);
   }
 
   /** Unregister a plugin backend and all of its contributions. */
   unregisterBackend(id: string): void {
     const backend = this.backends.get(id);
     if (!backend) return;
-    backend.onUnregister(this);
-    this.backends.delete(id);
-    this.descriptors.delete(id);
+
+    try {
+      backend.onUnregister(this);
+    } finally {
+      // Preferred plugin input bundles are host-owned: cleanup does not depend
+      // on the plugin remembering to unregister every command and binding.
+      this.inputEngine.unregisterPluginInput(id);
+      this.backends.delete(id);
+      this.descriptors.delete(id);
+    }
   }
 
   /** List all registered plugin descriptors. */
@@ -72,6 +90,19 @@ export class PluginManagerService implements PluginRegistryAPI {
   }
 
   // ── PluginRegistryAPI implementation ───────────────────────────────────────
+
+  registerInput(contribution: PluginInputContribution): void {
+    if (this.registeringBackendId && contribution.pluginId !== this.registeringBackendId) {
+      throw new Error(
+        `Plugin ${this.registeringBackendId} cannot register input owned by ${contribution.pluginId}.`,
+      );
+    }
+    this.inputEngine.registerPluginInput(contribution);
+  }
+
+  unregisterInput(pluginId: string): void {
+    this.inputEngine.unregisterPluginInput(pluginId);
+  }
 
   registerCommand(command: CommandDescriptor): void {
     this.inputEngine.registerCommandDescriptor(command, this.commandOwner(command.id));

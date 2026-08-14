@@ -9,10 +9,12 @@ import type {
   InputSourceKind,
   KeyStroke,
   PluginInputContribution,
+  PluginBindingContribution,
   InputTrigger,
   CommandDefinition,
   CommandDescriptor,
   CommandState,
+  CommandCatalogEntry,
   InputCommandHandler,
 } from './input-system.types';
 
@@ -69,7 +71,11 @@ export class InputEngineService {
   private readonly commands = new Map<string, Map<string, RegisteredCommand>>();
   private readonly commandDefinitions = new Map<string, CommandDefinition>();
   private readonly commandEnablement = new Map<string, Map<string, () => boolean>>();
-  private readonly pluginBindingIds = new Map<string, string[]>();
+  private readonly pluginInputRegistrations = new Map<string, {
+    commandIds: string[];
+    bindingIds: string[];
+    contextIds: string[];
+  }>();
   private readonly activeContexts = new Map<string, ActiveContextState>();
 
   private pendingChord: PendingChordState | null = null;
@@ -182,6 +188,58 @@ export class InputEngineService {
       .filter((state): state is CommandState => !!state);
   }
 
+  /**
+   * Returns a normalized command catalog for discovery surfaces. The catalog
+   * combines definitions, runtime state, and the preferred keyboard binding so
+   * consumers do not have to join the input engine's internal registries.
+   */
+  getCommandCatalog(options: { activeContextsOnly?: boolean } = {}): CommandCatalogEntry[] {
+    const commandIds = new Set<string>([
+      ...this.commandDefinitions.keys(),
+      ...this.commands.keys(),
+      ...Array.from(this.bindings.values(), binding => binding.commandId),
+    ]);
+    const activeContextIds = options.activeContextsOnly ? this.getActiveContextIds() : null;
+
+    return Array.from(commandIds)
+      .map(commandId => this.buildCommandCatalogEntry(commandId))
+      .filter((entry): entry is CommandCatalogEntry => !!entry)
+      .filter(entry => {
+        if (!activeContextIds || !entry.contextIds?.length) return true;
+        return entry.contextIds.some(contextId => activeContextIds.has(contextId));
+      });
+  }
+
+  getPreferredKeyboardBinding(commandId: string): InputBindingDefinition | undefined {
+    let preferred: RegisteredBinding | undefined;
+    for (const binding of this.bindings.values()) {
+      if (binding.commandId !== commandId || binding.trigger.device !== 'keyboard') continue;
+      if (!preferred || binding.trigger.chord.steps.length < preferred.trigger.chord.steps.length) {
+        preferred = binding;
+      }
+    }
+    if (!preferred) return undefined;
+    return { ...preferred, enabled: preferred.enabled };
+  }
+
+  private buildCommandCatalogEntry(commandId: string): CommandCatalogEntry | undefined {
+    const definition = this.commandDefinitions.get(commandId);
+    const preferredBinding = this.getPreferredKeyboardBinding(commandId);
+    if (!definition && !preferredBinding && !this.commands.has(commandId)) return undefined;
+
+    return {
+      id: commandId,
+      title: definition?.title ?? preferredBinding?.description ?? commandId,
+      description: definition?.description ?? preferredBinding?.description,
+      category: definition?.category ?? preferredBinding?.category,
+      icon: definition?.icon,
+      contextIds: definition?.contextIds ?? (preferredBinding ? [preferredBinding.contextId] : undefined),
+      registered: this.commands.has(commandId),
+      enabled: this.isCommandEnabled(commandId),
+      preferredBinding,
+    };
+  }
+
   registerContext(context: InputContextDefinition): void {
     this.contexts.set(context.id, context);
     this.emitActiveContexts();
@@ -240,27 +298,98 @@ export class InputEngineService {
     }
   }
 
-  registerPluginBindings(contribution: PluginInputContribution): void {
-    const ids: string[] = [];
+  /**
+   * Register a plugin's command descriptors, contexts and default bindings as
+   * one owned unit. Re-registering the same plugin replaces its previous unit.
+   */
+  registerPluginInput(contribution: PluginInputContribution): void {
+    const pluginId = contribution.pluginId.trim();
+    if (!pluginId) throw new Error('Plugin input contribution requires pluginId.');
 
-    for (const context of contribution.contexts ?? []) {
-      this.registerContext(context);
+    this.unregisterPluginInput(pluginId);
+
+    const ownerId = this.pluginInputOwner(pluginId);
+    const contextIds: string[] = [];
+    const commandIds: string[] = [];
+    const bindingIds: string[] = [];
+
+    try {
+      for (const context of contribution.contexts ?? []) {
+        if (this.contexts.has(context.id)) {
+          throw new Error(`Plugin ${pluginId} cannot replace input context ${context.id}.`);
+        }
+        this.registerContext(context);
+        contextIds.push(context.id);
+      }
+
+      for (const command of contribution.commands) {
+        if (this.commands.has(command.id)) {
+          throw new Error(`Plugin ${pluginId} cannot replace command ${command.id}.`);
+        }
+        this.registerCommandDescriptor(command, ownerId);
+        commandIds.push(command.id);
+      }
+
+      for (const binding of contribution.bindings ?? []) {
+        if (this.bindings.has(binding.id)) {
+          throw new Error(`Plugin ${pluginId} cannot replace input binding ${binding.id}.`);
+        }
+        this.registerBinding({ ...binding, source: 'plugin' });
+        bindingIds.push(binding.id);
+      }
+
+      this.pluginInputRegistrations.set(pluginId, { commandIds, bindingIds, contextIds });
+    } catch (error) {
+      this.removePluginInputRegistration(ownerId, { commandIds, bindingIds, contextIds });
+      throw error;
     }
-
-    for (const binding of contribution.bindings) {
-      this.registerBinding(binding);
-      ids.push(binding.id);
-    }
-
-    this.pluginBindingIds.set(contribution.pluginId, ids);
   }
 
+  unregisterPluginInput(pluginId: string): void {
+    const registration = this.pluginInputRegistrations.get(pluginId);
+    if (!registration) return;
+
+    this.removePluginInputRegistration(this.pluginInputOwner(pluginId), registration);
+    this.pluginInputRegistrations.delete(pluginId);
+  }
+
+  /** @deprecated Prefer registerPluginInput so commands and bindings share ownership. */
+  registerPluginBindings(contribution: PluginBindingContribution): void {
+    this.registerPluginInput({
+      pluginId: contribution.pluginId,
+      commands: [],
+      contexts: contribution.contexts,
+      bindings: contribution.bindings,
+    });
+  }
+
+  /** @deprecated Prefer unregisterPluginInput. */
   unregisterPluginBindings(pluginId: string): void {
-    const ids = this.pluginBindingIds.get(pluginId) ?? [];
-    for (const id of ids) {
-      this.unregisterBinding(id);
+    this.unregisterPluginInput(pluginId);
+  }
+
+  private pluginInputOwner(pluginId: string): string {
+    return `plugin-input:${pluginId}`;
+  }
+
+  private removePluginInputRegistration(
+    ownerId: string,
+    registration: { commandIds: string[]; bindingIds: string[]; contextIds: string[] },
+  ): void {
+    for (const bindingId of registration.bindingIds) {
+      this.unregisterBinding(bindingId);
     }
-    this.pluginBindingIds.delete(pluginId);
+    for (const commandId of registration.commandIds) {
+      this.unregisterCommandDescriptor(commandId, ownerId);
+    }
+    for (const contextId of registration.contextIds) {
+      this.activeContexts.delete(contextId);
+      this.contexts.delete(contextId);
+    }
+    if (registration.contextIds.length > 0) {
+      this.emitActiveContexts();
+      this.clearPendingChord();
+    }
   }
 
   getBindingSnapshot(): InputBindingDefinition[] {

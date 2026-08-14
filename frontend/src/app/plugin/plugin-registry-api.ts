@@ -1,7 +1,7 @@
 import type { Type } from '@angular/core';
 import type { ViewerContribution, ViewerRequest } from '../viewers/viewer-contribution';
 import type { SurfaceContribution, SurfaceRequest } from '../surfaces/surface-contribution';
-import type { CommandDescriptor } from '../services/input-system.types';
+import type { CommandDescriptor, PluginInputContribution } from '../services/input-system.types';
 
 export interface PluginDescriptor {
   id: string;
@@ -80,6 +80,11 @@ export interface FileCategory {
 }
 
 export interface PluginRegistryAPI {
+  /** Preferred: register commands, contexts, and default bindings as one owned unit. */
+  registerInput(contribution: PluginInputContribution): void;
+  unregisterInput(pluginId: string): void;
+
+  /** Compatibility for command-only plugins. Prefer registerInput for new plugins. */
   registerCommand(command: CommandDescriptor): void;
   unregisterCommand(id: string): void;
 

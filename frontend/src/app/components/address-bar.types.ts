@@ -17,8 +17,13 @@ export interface SiblingEntry {
   isArchive?: boolean;
 }
 
-export interface PinnedPath {
-  path: string;
+export type PinnedLocationKind = 'location' | 'query' | 'surface';
+
+export interface PinnedLocation {
+  id: string;
+  location: string;
+  scheme: string;
+  kind: PinnedLocationKind;
   label: string;
   icon: string;
   addedAt: number;
@@ -30,7 +35,8 @@ export interface ContextMenuState {
   segment: PathSegment | null;
 }
 
-export const PINNED_KEY = 'filemanager:pinned-paths-v2';
+export const PINNED_LOCATIONS_KEY = 'filemanager:pinned-locations-v1';
+export const LEGACY_PINNED_PATHS_KEY = 'filemanager:pinned-paths-v2';
 
 export const CTX_MENU_CLOSED: ContextMenuState = {
   visible: false, segmentIndex: -1, segment: null,

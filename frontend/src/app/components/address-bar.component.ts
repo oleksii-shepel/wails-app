@@ -14,7 +14,8 @@ import { ArchiveService, ArchiveFrame, isArchive } from '../services/archive.ser
 import { parsePathWithArchives } from './address-bar.utils';
 import { EventsOn } from 'wailsjs/runtime';
 
-import { PathSegment, SiblingEntry, PinnedPath, ContextMenuState, PINNED_KEY, CTX_MENU_CLOSED } from './address-bar.types';
+import { PathSegment, SiblingEntry, PinnedLocation, ContextMenuState, CTX_MENU_CLOSED } from './address-bar.types';
+import { PinnedLocationService } from '../services/pinned-location.service';
 import { buildSegments, isWindowsPath, normalizePath, pathIdentityKey, samePath, shortenPath } from './address-bar.utils';
 import { AddressBarEditComponent } from './address-bar-edit.component';
 import { AddressBarSchemeDropdownComponent } from './address-bar-scheme-dropdown.component';
@@ -67,7 +68,7 @@ import { DropdownContainerComponent } from './dropdown-container.component';
           *ngIf="showQuickAccess"
           [currentPath]="currentPath"
           [specialFolders]="specialFolders"
-          [pinnedPaths]="pinnedPaths"
+          [pinnedLocations]="pinnedLocations"
           [preferredSectionTitle]="quickAccessPreferredSection"
           (navigate)="navigateTo($event); showQuickAccess = false"
           (removePin)="removePin($event)"
@@ -792,8 +793,8 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   quickAccessPreferredSection: string | null = null;
 
   // ── Pinned paths ─────────────────────────────────────────────────────────
-  pinnedPaths: PinnedPath[] = [];
-  get isPinned(): boolean { return this.pinnedPaths.some(p => samePath(p.path, this.currentPath)); }
+  pinnedLocations: PinnedLocation[] = [];
+  get isPinned(): boolean { return this.pinnedLocationService.isPinned(this.pinnedLocations, this.currentPath); }
 
   // ── Edit mode ────────────────────────────────────────────────────────────
   editMode  = false;
@@ -819,6 +820,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     private apiService: ApiService,
     private directorySource: DirectorySourceService,
     private archiveService: ArchiveService,
+    private pinnedLocationService: PinnedLocationService,
     private elRef: ElementRef,
     private cdr: ChangeDetectorRef,
   ) {}
@@ -828,7 +830,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   ngOnInit(): void {
     this.currentPath = normalizePath(this.initialPath);
     this.rebuildSegments();
-    this.loadPins();
+    this.pinnedLocations = this.pinnedLocationService.load();
     this.loadSpecialFolders();
     this.loadSchemes();
   }
@@ -1311,24 +1313,14 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     }
   }
 
-  private loadPins(): void {
-    try { this.pinnedPaths = JSON.parse(localStorage.getItem(PINNED_KEY) || '[]'); }
-    catch { this.pinnedPaths = []; }
-  }
-
-  private savePins(): void {
-    try { localStorage.setItem(PINNED_KEY, JSON.stringify(this.pinnedPaths)); } catch {}
-  }
-
   togglePin(): void {
     if (this.isPinned) {
-      this.pinnedPaths = this.pinnedPaths.filter(p => p.path !== this.currentPath);
+      this.pinnedLocations = this.pinnedLocationService.remove(this.pinnedLocations, this.currentPath);
     } else {
-      const segments = buildSegments(this.currentPath);
-      const label = segments[segments.length - 1]?.label || (isWindowsPath(this.currentPath) ? shortenPath(this.currentPath) : '/');
-      this.pinnedPaths.push({ path: this.currentPath, label, icon: '📁', addedAt: Date.now() });
+      const pin = this.pinnedLocationService.create(this.currentPath);
+      if (pin) this.pinnedLocations = [...this.pinnedLocations, pin];
     }
-    this.savePins();
+    this.pinnedLocationService.save(this.pinnedLocations);
   }
 
   toggleQuickAccess(): void {
@@ -1350,14 +1342,14 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     }
   }
 
-  removePin(p: PinnedPath, e?: MouseEvent): void {
+  removePin(pin: PinnedLocation, e?: MouseEvent): void {
     e?.stopPropagation();
-    this.pinnedPaths = this.pinnedPaths.filter(x => !samePath(x.path, p.path));
-    this.savePins();
+    this.pinnedLocations = this.pinnedLocationService.remove(this.pinnedLocations, pin.location);
+    this.pinnedLocationService.save(this.pinnedLocations);
   }
 
   isSegmentPinned(seg: PathSegment | null): boolean {
-    return !!seg && this.pinnedPaths.some(p => samePath(p.path, seg.fullPath));
+    return !!seg && this.pinnedLocationService.isPinned(this.pinnedLocations, seg.fullPath);
   }
 
   // ── Edit mode ─────────────────────────────────────────────────────────────
@@ -1398,13 +1390,13 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   ctxPinPath(): void {
     const seg = this.ctxMenu.segment;
     if (!seg) { this.closeCtx(); return; }
-    const already = this.pinnedPaths.some(p => samePath(p.path, seg.fullPath));
-    if (already) {
-      this.pinnedPaths = this.pinnedPaths.filter(p => !samePath(p.path, seg.fullPath));
+    if (this.pinnedLocationService.isPinned(this.pinnedLocations, seg.fullPath)) {
+      this.pinnedLocations = this.pinnedLocationService.remove(this.pinnedLocations, seg.fullPath);
     } else {
-      this.pinnedPaths.push({ path: seg.fullPath, label: seg.label, icon: '📁', addedAt: Date.now() });
+      const pin = this.pinnedLocationService.create(seg.fullPath, seg.label);
+      if (pin) this.pinnedLocations = [...this.pinnedLocations, pin];
     }
-    this.savePins();
+    this.pinnedLocationService.save(this.pinnedLocations);
     this.closeCtx();
   }
 
@@ -1464,5 +1456,3 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     else if (this.chevIdx >= 0 || this.showQuickAccess || this.showSchemeMenu) { this.closeAll();          e.preventDefault(); }
   }
 }
-
-

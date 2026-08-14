@@ -5,7 +5,7 @@ import { SpecialFolder } from '../shared/protocol';
 import { PathHistoryService } from '../services/path-history.service';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
-import { PinnedPath } from './address-bar.types';
+import { PinnedLocation } from './address-bar.types';
 
 export interface QuickAccessSection {
   title: string;
@@ -45,7 +45,7 @@ export interface QuickAccessItem {
   icon: string;
   accessCount?: number;
   timestamp?: number;
-  pin?: PinnedPath;
+  pin?: PinnedLocation;
 }
 
 @Component({
@@ -162,7 +162,7 @@ export interface QuickAccessItem {
       </div>
 
       <div class="ab-qa-filter-row" *ngIf="allSections.length > 0">
-        <span class="ab-qa-filter-icon" aria-hidden="true">⌕</span>
+        <span class="ab-qa-filter-icon" aria-hidden="true">â</span>
         <input
           #filterInput
           type="text"
@@ -179,12 +179,12 @@ export interface QuickAccessItem {
           (click)="clearFilter()"
           title="Clear filter"
           aria-label="Clear filter"
-        >✕</button>
+        >â</button>
       </div>
 
       <!-- Empty State -->
       <div class="ab-drop-empty" *ngIf="sections.length === 0">
-        <span class="ab-drop-empty-icon">{{ filterQuery ? '🔎' : '📂' }}</span>
+        <span class="ab-drop-empty-icon">{{ filterQuery ? 'đ' : 'đ' }}</span>
         <span>{{ filterQuery ? 'No quick access items match this filter' : 'No quick access items available' }}</span>
       </div>
 
@@ -194,8 +194,8 @@ export interface QuickAccessItem {
           <ng-container *ngIf="sections[activeTabIdx] as activeSection">
             <div class="ab-drop-empty" *ngIf="activeSection.items.length === 0">
               <ng-container *ngIf="activeSection.title === 'Pinned'; else genericEmptyState">
-                <span class="ab-drop-empty-icon">📍</span>
-                <span>No pinned paths yet.<br>Click ☆ to pin the current path.</span>
+                <span class="ab-drop-empty-icon">đ</span>
+                <span>No pinned paths yet.<br>Click â to pin the current path.</span>
               </ng-container>
               <ng-template #genericEmptyState>
                 <span>No items in this section</span>
@@ -222,7 +222,7 @@ export interface QuickAccessItem {
                 title="Remove pin"
                 aria-label="Remove pin"
                 type="button"
-              >✕</button>
+              >â</button>
             </button>
           </ng-container>
         </div>
@@ -587,10 +587,10 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChan
   @ViewChild('filterInput') filterInput?: ElementRef<HTMLInputElement>;
   @Input() currentPath = '';
   @Input() specialFolders: SpecialFolder[] = [];
-  @Input() pinnedPaths: PinnedPath[] = [];
+  @Input() pinnedLocations: PinnedLocation[] = [];
   @Input() preferredSectionTitle: string | null = null;
   @Output() navigate = new EventEmitter<string>();
-  @Output() removePin = new EventEmitter<PinnedPath>();
+  @Output() removePin = new EventEmitter<PinnedLocation>();
   @Output() closeRequested = new EventEmitter<void>();
 
   allSections: QuickAccessSection[] = [];
@@ -622,7 +622,7 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChan
   }
 
   ngOnChanges(changes: SimpleChanges): void {
-    if (changes['specialFolders'] || changes['pinnedPaths']) {
+    if (changes['specialFolders'] || changes['pinnedLocations'] || changes['currentPath']) {
       this.buildSections();
     }
     if (changes['preferredSectionTitle'] && !changes['preferredSectionTitle'].firstChange) {
@@ -654,15 +654,21 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChan
       });
     }
 
-    // Pinned Folders
+    const currentScheme = this.schemeOf(this.currentPath);
+    const relatedPins = currentScheme === 'filesystem'
+      ? []
+      : this.pinnedLocations.filter(pin => pin.scheme === currentScheme);
+
+    if (relatedPins.length > 0) {
+      this.allSections.push({
+        title: 'Related',
+        items: relatedPins.map(pin => this.pinItem(pin)),
+      });
+    }
+
     this.allSections.push({
       title: 'Pinned',
-      items: this.pinnedPaths.map(p => ({
-        name: p.label,
-        path: p.path,
-        icon: this.resolveQuickAccessIcon(p.icon),
-        pin: p,
-      }))
+      items: this.pinnedLocations.map(pin => this.pinItem(pin)),
     });
 
     // Frequent Folders (top 5 by access count)
@@ -843,7 +849,7 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChan
       { text: item.name, weight: 8 },
       { text: item.pin?.label, weight: 7 },
       { text: item.path, weight: 4 },
-      { text: item.pin?.path, weight: 3 },
+      { text: item.pin?.location, weight: 3 },
     ];
 
     let total = 0;
@@ -1106,7 +1112,7 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChan
       return QUICK_ACCESS_PIN_ICON;
     }
 
-    if (/[���]/.test(normalized)) {
+    if (/[ĐđŃ]/.test(normalized)) {
       if (/downloads|download/i.test(normalizedKey)) return SPECIAL_FOLDER_ICONS['downloads'];
       if (/desktop/i.test(normalizedKey)) return SPECIAL_FOLDER_ICONS['desktop'];
       if (/document/i.test(normalizedKey)) return SPECIAL_FOLDER_ICONS['documents'];
@@ -1119,5 +1125,18 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChan
 
     return normalized;
   }
-}
+  private pinItem(pin: PinnedLocation): QuickAccessItem {
+    return {
+      name: pin.label,
+      path: pin.location,
+      icon: this.resolveQuickAccessIcon(pin.icon),
+      pin,
+    };
+  }
 
+  private schemeOf(location: string): string {
+    const match = /^([a-z][a-z0-9+.-]*):\/\//i.exec(location.trim());
+    return match ? match[1].toLowerCase() : 'filesystem';
+  }
+
+}

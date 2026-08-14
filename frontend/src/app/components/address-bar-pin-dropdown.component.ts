@@ -1,6 +1,6 @@
 import { Component, Input, Output, EventEmitter, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { PinnedPath } from './address-bar.types';
+import { PinnedLocation } from './address-bar.types';
 import { shortenPath } from './address-bar.utils';
 
 @Component({
@@ -131,10 +131,10 @@ import { shortenPath } from './address-bar.utils';
   `],
 })
 export class AddressBarPinDropdownComponent {
-  @Input() pins: PinnedPath[] = [];
+  @Input() pins: PinnedLocation[] = [];
   @Input() currentPath = '';
   @Output() navigate = new EventEmitter<string>();
-  @Output() remove = new EventEmitter<{ pin: PinnedPath; event: MouseEvent }>();
+  @Output() remove = new EventEmitter<{ pin: PinnedLocation; event: MouseEvent }>();
 
   shorten = shortenPath;
 }

@@ -971,10 +971,6 @@ interface SettingsDialogRequest {
                       <span class="oss-license">MIT</span>
                     </div>
                     <div class="about-oss-item">
-                      <span class="oss-name">astiav / FFmpeg</span>
-                      <span class="oss-license">LGPL 2.1</span>
-                    </div>
-                    <div class="about-oss-item">
                       <span class="oss-name">MuPDF</span>
                       <span class="oss-license">AGPL 3.0</span>
                     </div>

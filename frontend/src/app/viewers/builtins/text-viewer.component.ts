@@ -223,7 +223,7 @@ function createCodePreviewTheme(isDark: boolean, settings: Pick<EditorSettings, 
             &#x1F4E6; archive
           </span>
           <span class="badge type-badge">{{ typeBadge }}</span>
-          <span class="badge size-badge" *ngIf="info?.size">{{ formatSize(info?.size ?? 0) }}</span>
+          <span class="badge size-badge" *ngIf="info?.size">{{ formatSize(info.size) }}</span>
           <span class="badge line-badge" *ngIf="lineCount !== null">{{ lineCount }} lines</span>
         </div>
       </div>

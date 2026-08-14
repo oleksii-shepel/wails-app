@@ -49,7 +49,7 @@ const MEMORY_THRESHOLD = 8 * 1024 * 1024;  // files в‰¤ 8 MB loaded fully in
             &#x1F4E6; archive
           </span>
           <span class="badge type-badge">{{ typeBadge }}</span>
-          <span class="badge size-badge" *ngIf="info?.size">{{ formatSize(info?.size ?? 0) }}</span>
+          <span class="badge size-badge" *ngIf="info?.size">{{ formatSize(info.size) }}</span>
         </div>
       </div>
 

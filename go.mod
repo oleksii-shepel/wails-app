@@ -1,9 +1,8 @@
 module wails-app
 
-go 1.24
+go 1.25.0
 
 require (
-	github.com/asticode/go-astiav v0.40.0
 	github.com/aws/aws-sdk-go-v2 v1.41.5
 	github.com/aws/aws-sdk-go-v2/config v1.32.14
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.14
@@ -17,15 +16,15 @@ require (
 	github.com/nwaples/rardecode v1.1.0
 	github.com/wailsapp/go-webview2 v1.0.22
 	github.com/wailsapp/mimetype v1.4.1
-	github.com/wailsapp/wails/v2 v2.11.0
-	golang.org/x/net v0.42.0
-	golang.org/x/sys v0.35.0
-	golang.org/x/text v0.28.0
+	github.com/wailsapp/wails/v2 v2.14.0
+	golang.org/x/net v0.56.0
+	golang.org/x/sys v0.46.0
+	golang.org/x/text v0.39.0
 )
 
 require (
+	git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3 // indirect
 	github.com/andybalholm/brotli v1.1.1 // indirect
-	github.com/asticode/go-astikit v0.42.0 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.8 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.21 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.21 // indirect
@@ -74,7 +73,7 @@ require (
 	github.com/valyala/fasttemplate v1.2.2 // indirect
 	github.com/xi2/xz v0.0.0-20171230120015-48954b6210f8 // indirect
 	go4.org v0.0.0-20200411211856-f5505b9728dd // indirect
-	golang.org/x/crypto v0.41.0 // indirect
+	golang.org/x/crypto v0.53.0 // indirect
 )
 
 replace github.com/wailsapp/go-webview2 => ./third_party/go-webview2

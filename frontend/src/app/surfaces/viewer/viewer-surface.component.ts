@@ -226,7 +226,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
                 <span class="path-badge" [title]="videoPlaybackPathTitle" *ngIf="kind === 'video'">
                   {{ videoPlaybackPathLabel }}
                 </span>
-                <span class="latency-badge" title="Low-startup FFmpeg playback path" *ngIf="videoPlaybackZeroDelay">
+                <span class="latency-badge" title="Low-startup streaming playback path" *ngIf="videoPlaybackZeroDelay">
                   zero-delay
                 </span>
                 <span class="seek-badge" [title]="videoSeekable ? 'Seeking is available' : 'Seeking is not available for this playback path'" *ngIf="kind === 'video'">
@@ -1366,13 +1366,13 @@ export class ViewerSurfaceComponent implements OnChanges, OnDestroy {
   get videoPlaybackModeTitle(): string {
     switch (this.videoPlaybackPlan?.mode) {
       case 'direct':
-        return 'Direct playback: preview uses the original stream without FFmpeg rewriting.';
+        return 'Direct playback: preview uses the original stream as-is.';
       case 'segmented':
         return 'Segmented playback: preview uses a fragmented MP4 manifest and keyframe-aware segment loading.';
       case 'remux':
-        return 'Remux playback: FFmpeg repackages the stream into MP4 without re-encoding when possible.';
+        return 'Remux playback: the preview stream is repackaged without re-encoding when possible.';
       case 'transcode':
-        return 'Transcode playback: FFmpeg re-encodes the media for compatibility in preview.';
+        return 'Transcode playback: the preview stream is re-encoded for compatibility.';
       default:
         return 'Playback mode unavailable.';
     }

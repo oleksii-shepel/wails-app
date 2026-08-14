@@ -91,83 +91,27 @@ func buildDiskVideoPlaybackPlan(baseURL, publicPath string) VideoPlaybackPlan {
 		durationSeconds = resolveVideoDurationSeconds(context.Background(), pathref.ToNativePath(pathref.Normalize(publicPath)), probe)
 	}
 
-	if shouldPreferDirectDiskPlayback(publicPath, videoCodec) {
-		return VideoPlaybackPlan{
-			Mode:            VideoPlaybackModeDirect,
-			Format:          format,
-			VideoCodec:      videoCodec,
-			AudioCodec:      audioCodec,
-			DurationSeconds: durationSeconds,
-			Seekable:        true,
-			UseNativePlayer: false,
-			URL:             StreamURLForFile(baseURL, publicPath),
-		}
-	}
-
-	if entry, err := ensureSegmentedVideoCacheEntry(context.Background(), publicPath); err == nil {
-		return VideoPlaybackPlan{
-			Mode:            VideoPlaybackModeSegmented,
-			Format:          entry.Format,
-			DurationSeconds: entry.DurationSeconds,
-			ZeroDelay:       false,
-			Seekable:        true,
-			UseNativePlayer: false,
-			URL:             segmentManifestURLForFile(baseURL, publicPath),
-		}
-	}
-
-	// Segmented failed (e.g. ffmpeg not installed, unsupported format).
-	// Fall back to transcoded streaming.
-	mode := decideDiskPlaybackMode(publicPath, videoCodec, audioCodec)
 	return VideoPlaybackPlan{
-		Mode:            mode,
+		Mode:            VideoPlaybackModeDirect,
 		Format:          format,
 		VideoCodec:      videoCodec,
 		AudioCodec:      audioCodec,
 		DurationSeconds: durationSeconds,
-		ZeroDelay:       true,
 		Seekable:        true,
 		UseNativePlayer: false,
-		URL:             FFmpegPreviewURLForFile(baseURL, publicPath, "mp4", string(mode), 0, defaultPreviewWindowSeconds, durationSeconds),
+		URL:             StreamURLForFile(baseURL, publicPath),
 	}
 }
 
 func buildArchiveVideoPlaybackPlan(baseURL string, archCache *cache.Cache, fsPath string, nestedChain []string, entryPath string) VideoPlaybackPlan {
-	if shouldAttemptSegmentedDiskPlayback(entryPath, "", "") {
-		if entry, err := ensureArchiveSegmentedVideoCacheEntry(context.Background(), archCache, fsPath, nestedChain, entryPath); err == nil {
-			return VideoPlaybackPlan{
-				Mode:            VideoPlaybackModeSegmented,
-				Format:          entry.Format,
-				DurationSeconds: entry.DurationSeconds,
-				ZeroDelay:       false,
-				Seekable:        true,
-				UseNativePlayer: false,
-				URL:             segmentManifestURLForKey(baseURL, entry.CacheKey),
-			}
-		}
-	}
+	_ = archCache
 
-	// Segmented not available — fall back to transcoded streaming.
-	mode := decidePlaybackMode(entryPath, "", "")
-	if mode == VideoPlaybackModeDirect && directPreviewExtensions[strings.ToLower(filepath.Ext(entryPath))] {
-		mode = VideoPlaybackModeTranscode
-	}
-	if mode == VideoPlaybackModeDirect {
-		return VideoPlaybackPlan{
-			Mode:            VideoPlaybackModeDirect,
-			Format:          strings.TrimPrefix(strings.ToLower(filepath.Ext(entryPath)), "."),
-			Seekable:        false,
-			UseNativePlayer: false,
-			URL:             StreamURLForEntry(baseURL, fsPath, nestedChain, entryPath),
-		}
-	}
 	return VideoPlaybackPlan{
-		Mode:            mode,
+		Mode:            VideoPlaybackModeDirect,
 		Format:          strings.TrimPrefix(strings.ToLower(filepath.Ext(entryPath)), "."),
-		ZeroDelay:       true,
 		Seekable:        false,
 		UseNativePlayer: false,
-		URL:             FFmpegPreviewURLForEntry(baseURL, fsPath, nestedChain, entryPath, "mp4", string(mode), 0, 0, 0),
+		URL:             StreamURLForEntry(baseURL, fsPath, nestedChain, entryPath),
 	}
 }
 
@@ -194,15 +138,12 @@ func decidePlaybackMode(name, videoCodec, audioCodec string) VideoPlaybackMode {
 func decideDiskPlaybackMode(name, videoCodec, audioCodec string) VideoPlaybackMode {
 	vc := strings.ToLower(videoCodec)
 	ac := strings.ToLower(audioCodec)
-	// Remux when both streams can be copied into fragmented MP4 without re-encode.
 	if remuxableVideoCodecs[vc] && remuxableAudioCodecs[ac] {
 		return VideoPlaybackModeRemux
 	}
-	// Must transcode for legacy or codec-incompatible formats.
 	if transcodePreferredVideoCodecs[vc] || shouldTranscodeVideoPreview(name) {
 		return VideoPlaybackModeTranscode
 	}
-	// Unknown codec: attempt remux and let FFmpeg decide.
 	return VideoPlaybackModeRemux
 }
 

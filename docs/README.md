@@ -64,10 +64,6 @@ Recommended layout:
 
 ```text
 tools/
-	ffmpeg/
-		ffmpeg.exe
-		ffprobe.exe
-		...runtime DLLs...
 	libvips/
 		vips.exe
 		vipsthumbnail.exe

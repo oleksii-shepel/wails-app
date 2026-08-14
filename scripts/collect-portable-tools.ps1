@@ -25,13 +25,6 @@ function Resolve-FirstSourcePath {
 
 $toolSpecs = @(
   @{
-    Name = 'ffmpeg'
-    Sources = @(
-      (Join-Path $HOME 'scoop\apps\ffmpeg\current\bin'),
-      'C:\ffmpeg\bin'
-    )
-  },
-  @{
     Name = 'libvips'
     Sources = @(
       'C:\Program Files\libvips\bin',

@@ -134,7 +134,7 @@ const GLYPH_ROWS = [
               </div>
               <div class="meta-row" *ngIf="info?.size">
                 <span class="meta-label">Size</span>
-                <span class="meta-value">{{ formatSize(info?.size ?? 0) }}</span>
+                <span class="meta-value">{{ formatSize(info.size) }}</span>
               </div>
               <div class="meta-row">
                 <span class="meta-label">Source</span>
@@ -466,8 +466,9 @@ export class FontViewerComponent implements OnChanges, OnDestroy {
     }
 
     const family = `preview-font-${loadId}-${Math.random().toString(36).slice(2, 8)}`;
-    const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-    const fontFace = new FontFace(family, buffer);
+    const fontData = new Uint8Array(bytes.byteLength);
+    fontData.set(bytes);
+    const fontFace = new FontFace(family, fontData);
     await fontFace.load();
 
     if (this.destroyed || loadId !== this.loadId) {

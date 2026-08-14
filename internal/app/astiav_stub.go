@@ -1,5 +1,3 @@
-//go:build !cgo || (!windows && !darwin && !linux)
-
 package app
 
 import (
@@ -8,7 +6,7 @@ import (
 	"io"
 )
 
-const astiavUnavailableMessage = "astiav requires cgo and a desktop target (windows, darwin, or linux)"
+const astiavUnavailableMessage = "video transcoding and frame extraction are not available in this build"
 
 type segmentedVideoRange struct {
 	StartSeconds    float64

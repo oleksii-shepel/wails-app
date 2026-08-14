@@ -553,7 +553,7 @@ export class CanvasVideoPlayerService {
     'ts', 'mts', 'm2ts',
     // Other direct formats supported by mediabunny
     'avi', 'flv', 'mxf', 'ogv',
-    // Legacy formats routed through FFmpeg transcoding
+    // Legacy formats previously routed through backend transcoding
     'divx', 'xvid', 'mpg', 'mpeg', 'vob', 'm2p', 'm2v', 'qt', 'mjpeg', 'mjpg'
   ]);
 

@@ -9,7 +9,8 @@
     "watch": "ng build --configuration development --watch",
     "test": "ng test",
     "test:unit": "vitest run",
-    "test:unit:watch": "vitest"
+    "test:unit:watch": "vitest",
+    "check": "npm run test:unit && npm run build"
   },
   "private": true,
   "dependencies": {

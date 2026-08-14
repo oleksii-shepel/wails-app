@@ -942,11 +942,11 @@ interface SettingsDialogRequest {
                     </div>
                     <div class="about-kv-row">
                       <span class="about-kv-label">Frontend</span>
-                      <span class="about-kv-value">Angular 17</span>
+                      <span class="about-kv-value">Angular 22.1</span>
                     </div>
                     <div class="about-kv-row">
                       <span class="about-kv-label">Backend</span>
-                      <span class="about-kv-value">Go 1.22</span>
+                      <span class="about-kv-value">Go 1.25</span>
                     </div>
                   </div>
                 </div>

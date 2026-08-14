@@ -127,3 +127,53 @@ func TestValidateGrantedPermissionsRejectsUndeclaredPermission(t *testing.T) {
 		t.Fatal("expected undeclared grant to fail")
 	}
 }
+
+func TestRepeatedActivationFailuresAutoQuarantine(t *testing.T) {
+	store, _ := NewStateStoreAt(filepath.Join(t.TempDir(), "state.json"))
+	var state PackageState
+	var err error
+	for i := 1; i <= AutoQuarantineFailureThreshold; i++ {
+		state, err = store.RecordActivation("example", false, "boom")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if state.ConsecutiveActivationFailures != i {
+			t.Fatalf("failure count = %d, want %d", state.ConsecutiveActivationFailures, i)
+		}
+	}
+	if !state.Quarantined {
+		t.Fatalf("expected automatic quarantine: %+v", state)
+	}
+	if state.QuarantineReason == "" {
+		t.Fatal("expected quarantine reason")
+	}
+}
+
+func TestSuccessfulActivationResetsFailureCounter(t *testing.T) {
+	store, _ := NewStateStoreAt(filepath.Join(t.TempDir(), "state.json"))
+	_, _ = store.RecordActivation("example", false, "first")
+	state, err := store.RecordActivation("example", true, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.ConsecutiveActivationFailures != 0 {
+		t.Fatalf("failure count = %d", state.ConsecutiveActivationFailures)
+	}
+	if state.Quarantined {
+		t.Fatalf("unexpected quarantine: %+v", state)
+	}
+}
+
+func TestClearQuarantineResetsFailureCounter(t *testing.T) {
+	store, _ := NewStateStoreAt(filepath.Join(t.TempDir(), "state.json"))
+	for i := 0; i < AutoQuarantineFailureThreshold; i++ {
+		_, _ = store.RecordActivation("example", false, "boom")
+	}
+	state, err := store.Update("example", PackageStatePatch{ClearQuarantine: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Quarantined || state.ConsecutiveActivationFailures != 0 {
+		t.Fatalf("clear quarantine did not reset health: %+v", state)
+	}
+}

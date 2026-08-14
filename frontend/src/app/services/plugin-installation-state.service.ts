@@ -18,6 +18,7 @@ export interface PluginPackageState {
   lastActivationStatus: PluginActivationHealth;
   lastActivationError?: string;
   lastActivatedAt?: number;
+  consecutiveActivationFailures: number;
   lastSeenVersion?: string;
   updatedAt: number;
 }
@@ -141,6 +142,7 @@ export function normalizePluginPackageState(value: unknown): PluginPackageState 
     lastActivationStatus: activationStatus(raw['lastActivationStatus']),
     lastActivationError: optionalString(raw['lastActivationError']),
     lastActivatedAt: optionalNumber(raw['lastActivatedAt']),
+    consecutiveActivationFailures: numberValue(raw['consecutiveActivationFailures']),
     lastSeenVersion: optionalString(raw['lastSeenVersion']),
     updatedAt: numberValue(raw['updatedAt']),
   };
@@ -155,6 +157,7 @@ function defaultPluginPackageState(pluginId: string, version?: string): PluginPa
     grantedPermissions: [],
     quarantined: false,
     lastActivationStatus: 'never',
+    consecutiveActivationFailures: 0,
     lastSeenVersion: version,
     updatedAt: 0,
   };

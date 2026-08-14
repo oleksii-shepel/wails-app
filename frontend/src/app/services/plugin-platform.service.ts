@@ -185,6 +185,10 @@ export class PluginPlatformService {
 
   unregisterLoader(kind: string): void { this.loaders.delete(kind); }
 
+  hasLoader(kind: string): boolean { return this.loaders.has(kind); }
+
+  isInstalled(pluginId: string): boolean { return this.runtimes.has(pluginId); }
+
   async installFromSource(source: PluginPackageSource, options: Omit<InstallPluginOptions, 'source'> = {}): Promise<void> {
     const loader = this.loaders.get(source.kind);
     if (!loader) throw new Error(`No plugin package loader registered for ${source.kind}.`);

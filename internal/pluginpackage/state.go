@@ -12,6 +12,7 @@ import (
 )
 
 const StateFileName = "plugin-state.json"
+const AutoQuarantineFailureThreshold = 3
 
 type ActivationStatus string
 
@@ -22,18 +23,19 @@ const (
 )
 
 type PackageState struct {
-	PluginID             string           `json:"pluginId"`
-	Enabled              bool             `json:"enabled"`
-	Trusted              bool             `json:"trusted"`
-	TrustedVersion       string           `json:"trustedVersion,omitempty"`
-	GrantedPermissions   []string         `json:"grantedPermissions,omitempty"`
-	Quarantined          bool             `json:"quarantined"`
-	QuarantineReason     string           `json:"quarantineReason,omitempty"`
-	LastActivationStatus ActivationStatus `json:"lastActivationStatus"`
-	LastActivationError  string           `json:"lastActivationError,omitempty"`
-	LastActivatedAt      int64            `json:"lastActivatedAt,omitempty"`
-	LastSeenVersion      string           `json:"lastSeenVersion,omitempty"`
-	UpdatedAt            int64            `json:"updatedAt"`
+	PluginID                      string           `json:"pluginId"`
+	Enabled                       bool             `json:"enabled"`
+	Trusted                       bool             `json:"trusted"`
+	TrustedVersion                string           `json:"trustedVersion,omitempty"`
+	GrantedPermissions            []string         `json:"grantedPermissions,omitempty"`
+	Quarantined                   bool             `json:"quarantined"`
+	QuarantineReason              string           `json:"quarantineReason,omitempty"`
+	LastActivationStatus          ActivationStatus `json:"lastActivationStatus"`
+	LastActivationError           string           `json:"lastActivationError,omitempty"`
+	LastActivatedAt               int64            `json:"lastActivatedAt,omitempty"`
+	ConsecutiveActivationFailures int              `json:"consecutiveActivationFailures,omitempty"`
+	LastSeenVersion               string           `json:"lastSeenVersion,omitempty"`
+	UpdatedAt                     int64            `json:"updatedAt"`
 }
 
 type PackageStatePatch struct {
@@ -146,6 +148,7 @@ func (s *StateStore) Update(pluginID string, patch PackageStatePatch) (PackageSt
 	if patch.ClearQuarantine {
 		state.Quarantined = false
 		state.QuarantineReason = ""
+		state.ConsecutiveActivationFailures = 0
 	}
 	state.UpdatedAt = nowMillis()
 	data.Plugins[pluginID] = state
@@ -195,8 +198,18 @@ func (s *StateStore) RecordActivation(pluginID string, success bool, activationE
 	if success {
 		state.LastActivationStatus = ActivationSuccess
 		state.LastActivationError = ""
+		state.ConsecutiveActivationFailures = 0
 	} else {
 		state.LastActivationStatus = ActivationFailed
+		state.ConsecutiveActivationFailures++
+		if state.ConsecutiveActivationFailures >= AutoQuarantineFailureThreshold {
+			state.Quarantined = true
+			if state.LastActivationError != "" {
+				state.QuarantineReason = fmt.Sprintf("Automatically quarantined after %d consecutive activation failures: %s", AutoQuarantineFailureThreshold, state.LastActivationError)
+			} else {
+				state.QuarantineReason = fmt.Sprintf("Automatically quarantined after %d consecutive activation failures.", AutoQuarantineFailureThreshold)
+			}
+		}
 	}
 	state.UpdatedAt = nowMillis()
 	data.Plugins[pluginID] = state

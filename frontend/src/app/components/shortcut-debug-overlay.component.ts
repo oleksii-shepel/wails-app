@@ -82,6 +82,7 @@ interface PendingChordLike {
         <div><kbd>Ctrl+0/1</kbd><span>fit / actual size</span></div>
         <div><kbd>Right click</kbd><span>command context menu</span></div>
         <div><kbd>Drag</kbd><span>copy · Shift+drop move</span></div>
+        <div><span>Live operation stream</span><span>bottom-left</span></div>
       </div>
 
       <footer>

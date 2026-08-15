@@ -2,6 +2,7 @@ import { Component } from '@angular/core';
 import { ConfirmDialogComponent } from './components/confirm-dialog.component';
 import { ReassemblyDualPaneComponent } from './components/reassembly-dual-pane.component';
 import { ShortcutDebugOverlayComponent } from './components/shortcut-debug-overlay.component';
+import { ReassemblyOperationSurfaceComponent } from './components/reassembly-operation-surface.component';
 
 @Component({
   selector: 'app-root',
@@ -9,6 +10,7 @@ import { ShortcutDebugOverlayComponent } from './components/shortcut-debug-overl
   imports: [
     ReassemblyDualPaneComponent,
     ShortcutDebugOverlayComponent,
+    ReassemblyOperationSurfaceComponent,
     ConfirmDialogComponent,
   ],
   template: `
@@ -28,6 +30,7 @@ import { ShortcutDebugOverlayComponent } from './components/shortcut-debug-overl
         [surfaceKind]="manager.activePane?.activeTab?.kind ?? 'dir'">
       </app-shortcut-debug-overlay>
 
+      <app-reassembly-operation-surface></app-reassembly-operation-surface>
       <app-confirm-dialog></app-confirm-dialog>
     </main>
   `,

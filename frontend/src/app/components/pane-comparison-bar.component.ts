@@ -26,6 +26,7 @@ import { PaneComparisonResult, PaneComparisonService } from '../services/pane-co
         <button type="button" class="btn" (click)="selectRight.emit()" [disabled]="rightDifferenceCount === 0" title="Select differing items in the right pane">Select Right</button>
         <button type="button" class="btn" (click)="copyMissingLeftToRight.emit()" [disabled]="result.summary.onlyLeft === 0" title="Copy items that exist only on the left to the right pane">Missing →</button>
         <button type="button" class="btn" (click)="copyMissingRightToLeft.emit()" [disabled]="result.summary.onlyRight === 0" title="Copy items that exist only on the right to the left pane">← Missing</button>
+        <button type="button" class="btn" (click)="review.emit()" [disabled]="result.summary.different === 0" title="Review and approve a synchronization plan">Review…</button>
         <button type="button" class="close" (click)="close.emit()" title="Close comparison">×</button>
       </div>
     </div>
@@ -74,6 +75,7 @@ export class PaneComparisonBarComponent implements OnChanges {
   @Output() selectRight = new EventEmitter<void>();
   @Output() copyMissingLeftToRight = new EventEmitter<void>();
   @Output() copyMissingRightToLeft = new EventEmitter<void>();
+  @Output() review = new EventEmitter<void>();
   @Output() close = new EventEmitter<void>();
 
   result: PaneComparisonResult = this.comparison.compare([], []);

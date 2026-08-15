@@ -49,6 +49,7 @@ import { SettingsService } from '../services/settings.service';
 import { WindowStateService } from '../services/window-state.service';
 import { PaneComparisonService } from '../services/pane-comparison.service';
 import { PaneComparisonBarComponent } from './pane-comparison-bar.component';
+import { PaneSyncReviewComponent, type PaneSyncPlan } from './pane-sync-review.component';
 
 @Component({
   selector: 'app-file-browser',
@@ -66,7 +67,8 @@ import { PaneComparisonBarComponent } from './pane-comparison-bar.component';
     OperationToastStackComponent,
     OperationStatusBarComponent,
     ElevationStatusPillComponent,
-    PaneComparisonBarComponent
+    PaneComparisonBarComponent,
+    PaneSyncReviewComponent
 ],
   templateUrl: './file-browser.component.html',
   styleUrls: ['./file-browser.component.scss'],
@@ -104,6 +106,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
   elevationBusy = false;
   isMaximized = false;
   comparisonVisible = false;
+  syncReviewVisible = false;
   readonly pendingChord$ = this.inputEngine.pendingChord$;
   private resizeTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -312,6 +315,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
   togglePaneComparison(): void {
     if (this.comparisonVisible) {
       this.comparisonVisible = false;
+      this.syncReviewVisible = false;
       return;
     }
     if (!this.canComparePanes()) {
@@ -323,6 +327,43 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
 
   closePaneComparison(): void {
     this.comparisonVisible = false;
+    this.syncReviewVisible = false;
+  }
+
+  openSyncReview(): void {
+    if (!this.canComparePanes()) return;
+    this.comparisonVisible = true;
+    this.syncReviewVisible = true;
+  }
+
+  closeSyncReview(): void {
+    this.syncReviewVisible = false;
+  }
+
+  get paneComparisonResult() {
+    return this.paneComparison.compare(this.leftPane?.entries ?? [], this.rightPane?.entries ?? []);
+  }
+
+  async executeSyncPlan(plan: PaneSyncPlan): Promise<void> {
+    if (!this.canComparePanes() || !plan || plan.items.length === 0) return;
+
+    const confirmed = await this.confirmDialog.confirm({
+      title: 'Execute Synchronization Plan',
+      message: `Apply ${plan.items.length} approved synchronization action(s)? Existing destination items will use the normal conflict-resolution workflow.`,
+      confirmText: 'Synchronize',
+    });
+    if (!confirmed) return;
+
+    if (plan.leftToRight.length > 0) {
+      await this.transferController.copy(this.transferHost, 'left', plan.leftToRight, { skipConfirmation: true });
+    }
+    if (plan.rightToLeft.length > 0) {
+      await this.transferController.copy(this.transferHost, 'right', plan.rightToLeft, { skipConfirmation: true });
+    }
+
+    this.syncReviewVisible = false;
+    this.leftPane?.onRefresh();
+    this.rightPane?.onRefresh();
   }
 
   selectComparisonDifferences(side: 'left' | 'right'): void {
@@ -729,6 +770,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
       moveToOtherPane:       () => this.moveToOtherPaneCurrent(),
       focusAddressBar:       () => this.getActivePane()?.shortcuts.focus.focusAddressBar(),
       comparePanes:          () => this.togglePaneComparison(),
+      reviewSyncPlan:        () => this.openSyncReview(),
       selectLeftDifferences:  () => this.selectComparisonDifferences('left'),
       selectRightDifferences: () => this.selectComparisonDifferences('right'),
       copyMissingLeftToRight: () => this.copyMissingComparison('left'),
@@ -752,6 +794,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
 
   private isBrowserCommandEnabled(commandId: string): boolean {
     if (commandId === BC.comparePanes
+      || commandId === BC.reviewSyncPlan
       || commandId === BC.selectLeftDifferences
       || commandId === BC.selectRightDifferences
       || commandId === BC.copyMissingLeftToRight

@@ -82,8 +82,16 @@
       (selectRight)="selectComparisonDifferences('right')"
       (copyMissingLeftToRight)="copyMissingComparison('left')"
       (copyMissingRightToLeft)="copyMissingComparison('right')"
+      (review)="openSyncReview()"
       (close)="closePaneComparison()">
     </app-pane-comparison-bar>
+
+    <app-pane-sync-review
+      [visible]="syncReviewVisible"
+      [result]="paneComparisonResult"
+      (execute)="executeSyncPlan($event)"
+      (close)="closeSyncReview()">
+    </app-pane-sync-review>
 
     <!-- Main Panes Container with Resizable Split -->
     <div class="panes-container" #panesContainer>

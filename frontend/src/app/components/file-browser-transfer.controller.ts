@@ -29,15 +29,19 @@ export interface FileBrowserTransferHost {
   buildDestinationPath(sourcePath: string, targetDir: string): Promise<string>;
 }
 
+export interface FileBrowserTransferOptions {
+  skipConfirmation?: boolean;
+}
+
 export class FileBrowserTransferController {
-  async copy(host: FileBrowserTransferHost, sourceSide: 'left' | 'right', paths: string[]): Promise<void> {
+  async copy(host: FileBrowserTransferHost, sourceSide: 'left' | 'right', paths: string[], options: FileBrowserTransferOptions = {}): Promise<void> {
     const { src, dst } = this.resolvePanes(host, sourceSide);
     if (!src || !dst || paths.length === 0) return;
     const destDir = this.resolveCrossPaneDestination(dst);
     const decision = canTransferBetween('copy', src.sourceCapabilities, dst.sourceCapabilities);
     if (!decision.allowed) { host.confirmDialog.alert(transferBlockedMessage('copy', decision)); return; }
 
-    if (host.confirmBeforeCopy) {
+    if (host.confirmBeforeCopy && !options.skipConfirmation) {
       const confirmed = await host.confirmDialog.confirm({
         title: 'Copy to Other Pane',
         message: `Copy ${paths.length} item(s) to ${destDir}?`,

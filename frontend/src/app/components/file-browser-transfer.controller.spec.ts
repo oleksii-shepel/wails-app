@@ -124,4 +124,15 @@ describe('FileBrowserTransferController', () => {
     expect(host.confirmDialog.alert).toHaveBeenCalledWith('Move Not Available\nThe source is read-only and cannot be moved. You can copy it instead.');
   });
 
+
+  it('can skip the generic copy confirmation after an explicit sync-plan approval', async () => {
+    const host = createHost({
+      confirmBeforeCopy: true,
+      confirmDialog: { confirm: vi.fn(), alert: vi.fn() } as unknown as FileBrowserTransferHost['confirmDialog'],
+    });
+    await new FileBrowserTransferController().copy(host, 'left', ['filesystem://left/file.txt'], { skipConfirmation: true });
+    expect(host.confirmDialog.confirm).not.toHaveBeenCalled();
+    expect(host.apiService.batchCopy).toHaveBeenCalledTimes(1);
+  });
+
 });

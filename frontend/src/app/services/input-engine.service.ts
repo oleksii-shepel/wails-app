@@ -563,11 +563,32 @@ export class InputEngineService {
     if (!this.keyboardEnabled) return false;
 
     const resolution = this.resolveKeyStroke(stroke, options?.context ?? null);
-    if (!resolution) return false;
+    if (!resolution) {
+      this.emitShortcutDebug({
+        stroke: this.formatDebugStroke(stroke),
+        stage: 'no-match',
+      });
+      return false;
+    }
 
     const invocation: CommandInvocation = { source: 'keyboard', context: { bindingId: resolution.binding.id } };
     const command = this.getCommandHandler(resolution.binding.commandId, invocation);
-    if (!command) return false;
+    if (!command) {
+      this.emitShortcutDebug({
+        stroke: this.formatDebugStroke(stroke),
+        stage: 'no-command',
+        bindingId: resolution.binding.id,
+        commandId: resolution.binding.commandId,
+      });
+      return false;
+    }
+
+    this.emitShortcutDebug({
+      stroke: this.formatDebugStroke(stroke),
+      stage: 'matched',
+      bindingId: resolution.binding.id,
+      commandId: resolution.binding.commandId,
+    });
 
     return this.executeCommandAsync(command, invocation);
   }
@@ -633,8 +654,13 @@ export class InputEngineService {
       this.executeCommand(command, invocation);
     };
 
+    // One canonical keyboard boundary for the entire application.
+    //
+    // Do not register the same listener on document as well. A window capture
+    // listener already observes keyboard input before application components,
+    // while duplicate capture listeners make unmatched keys and chord state
+    // travel through the engine twice.
     window.addEventListener('keydown', listener, { capture: true });
-    document.addEventListener('keydown', listener, { capture: true });
   }
 
   private initializeMouseListeners(): void {
@@ -701,6 +727,19 @@ export class InputEngineService {
       NumpadAdd: 'numpadadd',
       NumpadSubtract: 'numpadsubtract',
       NumpadMultiply: 'numpadmultiply',
+      // Match OEM punctuation by physical key so shortcuts stay stable across
+      // keyboard layouts and WebView2 hosts.
+      Slash: '/',
+      Comma: ',',
+      Period: '.',
+      Semicolon: ';',
+      Quote: '\'',
+      Backquote: '`',
+      BracketLeft: '[',
+      BracketRight: ']',
+      Backslash: '\\',
+      Minus: '-',
+      Equal: '=',
     };
 
     if (code && codeMap[code]) {

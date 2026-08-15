@@ -22,7 +22,8 @@ import { ShortcutDebugOverlayComponent } from './components/shortcut-debug-overl
         [lastAction]="manager.activePane?.lastAction ?? 'startup'"
         [activePane]="manager.activePaneId"
         [otherPath]="manager.otherPane?.path ?? ''"
-        [lastTransfer]="manager.lastTransfer">
+        [lastTransfer]="manager.lastTransfer"
+        [tabCount]="manager.activePane?.tabs?.length ?? 0">
       </app-shortcut-debug-overlay>
 
       <app-confirm-dialog></app-confirm-dialog>

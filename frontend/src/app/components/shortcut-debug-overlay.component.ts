@@ -43,6 +43,9 @@ interface PendingChordLike {
 
         <span class="label">transfer</span>
         <span class="value">{{ lastTransfer || '-' }}</span>
+
+        <span class="label">tabs</span>
+        <span class="value">{{ tabCount }}</span>
       </div>
 
       <div class="pending" *ngIf="input.pendingChord$ | async as chord">
@@ -64,6 +67,9 @@ interface PendingChordLike {
         <div><kbd>Tab</kbd><span>switch pane</span></div>
         <div><kbd>F5</kbd><span>copy to other pane</span></div>
         <div><kbd>F6</kbd><span>move to other pane</span></div>
+        <div><kbd>Ctrl+T</kbd><span>new tab</span></div>
+        <div><kbd>Ctrl+W</kbd><span>close tab</span></div>
+        <div><kbd>Ctrl+Tab</kbd><span>next tab</span></div>
       </div>
 
       <footer>
@@ -183,6 +189,7 @@ export class ShortcutDebugOverlayComponent {
   @Input() activePane: 'left' | 'right' = 'left';
   @Input() otherPath = '';
   @Input() lastTransfer = '';
+  @Input() tabCount = 0;
 
   constructor(public readonly input: InputEngineService) {}
 

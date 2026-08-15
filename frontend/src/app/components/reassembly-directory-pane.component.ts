@@ -19,6 +19,12 @@ import { FileInfo, FileType } from '../shared/protocol';
 import { ReassemblyAddressBarComponent } from './reassembly-address-bar.component';
 import { ReassemblyNavigationController } from './reassembly-navigation.controller';
 
+interface ReassemblyTab {
+  id: string;
+  path: string;
+  title: string;
+}
+
 @Component({
   selector: 'app-reassembly-directory-pane',
   standalone: true,
@@ -31,6 +37,37 @@ import { ReassemblyNavigationController } from './reassembly-navigation.controll
       [attr.data-pane-active]="active ? 'true' : null"
       [attr.aria-label]="paneId === 'left' ? 'Left file pane' : 'Right file pane'"
       (mousedown)="activateRequested.emit()">
+
+      <div class="tab-strip" role="tablist" [attr.aria-label]="paneId + ' pane tabs'">
+        <button
+          *ngFor="let tab of tabs; trackBy: trackTab"
+          type="button"
+          class="tab"
+          role="tab"
+          [attr.aria-selected]="tab.id === activeTabId"
+          [class.active]="tab.id === activeTabId"
+          [title]="tab.path"
+          (click)="activateTab(tab.id)">
+          <span class="tab-title">{{ tab.title }}</span>
+          <span
+            class="tab-close"
+            role="button"
+            aria-label="Close tab"
+            (mousedown)="$event.preventDefault(); $event.stopPropagation()"
+            (click)="closeTab(tab.id); $event.stopPropagation()">
+            ×
+          </span>
+        </button>
+
+        <button
+          type="button"
+          class="new-tab"
+          title="New tab (Ctrl+T)"
+          aria-label="New tab"
+          (click)="newTab()">
+          +
+        </button>
+      </div>
 
       <header class="navigation-bar">
         <div class="nav-cluster">
@@ -174,6 +211,90 @@ import { ReassemblyNavigationController } from './reassembly-navigation.controll
 
     .pane.active-pane {
       border-color: color-mix(in srgb, var(--vsc-accent-blue, #007acc) 62%, transparent);
+    }
+
+    .tab-strip {
+      display: flex;
+      align-items: stretch;
+      min-height: 31px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      border-bottom: 1px solid var(--vsc-border, #3c3c3c);
+      background: var(--vsc-tabbar-background, #252526);
+      scrollbar-width: thin;
+    }
+
+    .tab,
+    .new-tab {
+      flex: 0 0 auto;
+      min-width: 0;
+      height: 30px;
+      border: 0;
+      border-right: 1px solid var(--vsc-border-subtle, #2b2b2b);
+      background: var(--vsc-tab-inactive-background, #2d2d2d);
+      color: var(--vsc-description-foreground, #969696);
+      cursor: pointer;
+      font: inherit;
+    }
+
+    .tab {
+      display: grid;
+      grid-template-columns: minmax(48px, 1fr) 20px;
+      align-items: center;
+      width: min(180px, 34vw);
+      padding: 0 4px 0 9px;
+      text-align: left;
+    }
+
+    .tab.active {
+      background: var(--vsc-editor-background, #1e1e1e);
+      color: var(--vsc-foreground, #cccccc);
+      box-shadow: inset 0 2px 0 var(--vsc-accent-blue, #007acc);
+    }
+
+    .tab:hover {
+      background: var(--vsc-list-hover-background, #2a2d2e);
+      color: var(--vsc-foreground, #cccccc);
+    }
+
+    .tab-title {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 11px;
+    }
+
+    .tab-close {
+      display: grid;
+      place-items: center;
+      width: 18px;
+      height: 18px;
+      border-radius: 3px;
+      opacity: .45;
+      font-size: 15px;
+      line-height: 1;
+    }
+
+    .tab:hover .tab-close,
+    .tab.active .tab-close {
+      opacity: .8;
+    }
+
+    .tab-close:hover {
+      background: var(--vsc-list-hover-background, #3a3d41);
+      opacity: 1;
+    }
+
+    .new-tab {
+      width: 32px;
+      background: transparent;
+      font-size: 18px;
+    }
+
+    .new-tab:hover {
+      background: var(--vsc-list-hover-background, #2a2d2e);
+      color: var(--vsc-foreground, #cccccc);
     }
 
     .navigation-bar {
@@ -407,6 +528,10 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
   lastAction = 'startup';
   clipboard: { operation: 'copy' | 'cut'; paths: string[] } | null = null;
 
+  tabs: ReassemblyTab[] = [];
+  activeTabId: string | null = null;
+  private tabCounter = 0;
+
   get hasSelection(): boolean {
     return this.selectedPaths.size > 0;
   }
@@ -470,6 +595,72 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
 
   focusLocation(): void {
     this.addressBar?.beginEdit();
+  }
+
+  newTab(): void {
+    const path = this.path || '/';
+    const tab = this.createTab(path);
+    this.tabs = [...this.tabs, tab];
+    this.activeTabId = tab.id;
+    this.lastAction = `new tab: ${tab.title}`;
+    this.cdr.markForCheck();
+  }
+
+  async activateTab(tabId: string): Promise<void> {
+    if (tabId === this.activeTabId) return;
+    const tab = this.tabs.find(candidate => candidate.id === tabId);
+    if (!tab) return;
+
+    this.activeTabId = tabId;
+    this.lastAction = `tab: ${tab.title}`;
+    this.cdr.markForCheck();
+    await this.load(tab.path, { history: 'record', syncTab: false });
+  }
+
+  async closeActiveTab(): Promise<void> {
+    if (!this.activeTabId) return;
+    await this.closeTab(this.activeTabId);
+  }
+
+  async closeTab(tabId: string): Promise<void> {
+    const index = this.tabs.findIndex(tab => tab.id === tabId);
+    if (index < 0) return;
+
+    if (this.tabs.length === 1) {
+      const only = this.tabs[0];
+      only.path = this.path || only.path;
+      only.title = this.tabTitle(only.path);
+      this.tabs = [{ ...only }];
+      this.lastAction = 'kept last tab';
+      this.cdr.markForCheck();
+      return;
+    }
+
+    const wasActive = this.activeTabId === tabId;
+    this.tabs = this.tabs.filter(tab => tab.id !== tabId);
+
+    if (!wasActive) {
+      this.cdr.markForCheck();
+      return;
+    }
+
+    const nextIndex = Math.min(index, this.tabs.length - 1);
+    const next = this.tabs[nextIndex];
+    this.activeTabId = next.id;
+    this.lastAction = `close tab -> ${next.title}`;
+    this.cdr.markForCheck();
+    await this.load(next.path, { history: 'record', syncTab: false });
+  }
+
+  async nextTab(): Promise<void> {
+    if (this.tabs.length < 2 || !this.activeTabId) return;
+    const currentIndex = this.tabs.findIndex(tab => tab.id === this.activeTabId);
+    const nextIndex = currentIndex < 0 ? 0 : (currentIndex + 1) % this.tabs.length;
+    await this.activateTab(this.tabs[nextIndex].id);
+  }
+
+  trackTab(_index: number, tab: ReassemblyTab): string {
+    return tab.id;
   }
 
   navigateTo(path: string): void {
@@ -781,10 +972,22 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
     try {
       const drives = await this.api.listDrives();
       const initialPath = drives[0]?.path || '/';
-      await this.load(initialPath, { history: 'record' });
+      const loaded = await this.load(initialPath, { history: 'record' });
+      if (loaded && this.tabs.length === 0) {
+        const tab = this.createTab(this.path);
+        this.tabs = [tab];
+        this.activeTabId = tab.id;
+        this.cdr.markForCheck();
+      }
     } catch {
       try {
-        await this.load('/', { history: 'record' });
+        const loaded = await this.load('/', { history: 'record' });
+        if (loaded && this.tabs.length === 0) {
+          const tab = this.createTab(this.path);
+          this.tabs = [tab];
+          this.activeTabId = tab.id;
+          this.cdr.markForCheck();
+        }
       } catch {
         // load() records the visible error state.
       }
@@ -796,6 +999,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
     options: {
       preserveCursor?: boolean;
       history?: 'record' | 'none';
+      syncTab?: boolean;
     } = {},
   ): Promise<boolean> {
     const generation = ++this.loadGeneration;
@@ -833,6 +1037,11 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
       if ((options.history ?? 'record') === 'record') {
         this.navigation.record(this.path);
       }
+
+      if (options.syncTab !== false) {
+        this.syncActiveTab(this.path);
+      }
+
       this.pathHistory.addLocation(this.path, 'reassembly');
 
       return true;
@@ -851,6 +1060,48 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
         this.cdr.markForCheck();
       }
     }
+  }
+
+  private createTab(path: string): ReassemblyTab {
+    const normalized = path || '/';
+    return {
+      id: `${this.paneId}-tab-${++this.tabCounter}`,
+      path: normalized,
+      title: this.tabTitle(normalized),
+    };
+  }
+
+  private syncActiveTab(path: string): void {
+    if (!this.activeTabId) {
+      const tab = this.createTab(path);
+      this.tabs = [tab];
+      this.activeTabId = tab.id;
+      return;
+    }
+
+    const index = this.tabs.findIndex(tab => tab.id === this.activeTabId);
+    if (index < 0) return;
+
+    const updated: ReassemblyTab = {
+      ...this.tabs[index],
+      path,
+      title: this.tabTitle(path),
+    };
+
+    this.tabs = this.tabs.map((tab, i) => i === index ? updated : tab);
+  }
+
+  private tabTitle(path: string): string {
+    const normalized = (path || '/').replace(/\\/g, '/').replace(/\/+$/, '');
+    if (!normalized) return '/';
+
+    const schemeRoot = /^([a-z][a-z0-9+.-]*):\/\/([^/]+)?$/i.exec(normalized);
+    if (schemeRoot) {
+      return schemeRoot[2] || schemeRoot[1];
+    }
+
+    const parts = normalized.split('/').filter(Boolean);
+    return parts[parts.length - 1] || normalized;
   }
 
   moveCursor(delta: -1 | 1): void {

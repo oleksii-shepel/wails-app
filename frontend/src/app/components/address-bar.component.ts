@@ -16,6 +16,7 @@ import { EventsOn } from 'wailsjs/runtime';
 
 import { PathSegment, SiblingEntry, PinnedLocation, ContextMenuState, CTX_MENU_CLOSED } from './address-bar.types';
 import { PinnedLocationService } from '../services/pinned-location.service';
+import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { buildSegments, isWindowsPath, normalizePath, pathIdentityKey, samePath, shortenPath } from './address-bar.utils';
 import { AddressBarEditComponent } from './address-bar-edit.component';
 import { AddressBarSchemeDropdownComponent } from './address-bar-scheme-dropdown.component';
@@ -73,6 +74,7 @@ import { DropdownContainerComponent } from './dropdown-container.component';
           (navigate)="navigateTo($event); showQuickAccess = false"
           (openPin)="openPinnedLocation($event)"
           (removePin)="removePin($event)"
+          (renamePin)="renamePin($event)"
           (closeRequested)="showQuickAccess = false"
         />
       </app-dropdown-container>
@@ -827,6 +829,7 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     private directorySource: DirectorySourceService,
     private archiveService: ArchiveService,
     private pinnedLocationService: PinnedLocationService,
+    private confirmDialog: ConfirmDialogService,
     private elRef: ElementRef,
     private cdr: ChangeDetectorRef,
   ) {}
@@ -1346,6 +1349,22 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
       this.chevIdx = -1;
       this.showSchemeMenu = false;
     }
+  }
+
+
+  async renamePin(pin: PinnedLocation): Promise<void> {
+    const nextLabel = await this.confirmDialog.prompt({
+      title: pin.scheme === 'search' ? 'Rename Saved Search' : 'Rename Pinned Location',
+      message: 'Choose a name for this pinned location.',
+      defaultValue: pin.label,
+      placeholder: pin.label,
+      confirmText: 'Rename',
+    });
+    if (!nextLabel?.trim()) return;
+
+    this.pinnedLocations = this.pinnedLocationService.rename(this.pinnedLocations, pin.id, nextLabel);
+    this.pinnedLocationService.save(this.pinnedLocations);
+    this.cdr.markForCheck();
   }
 
   removePin(pin: PinnedLocation, e?: MouseEvent): void {

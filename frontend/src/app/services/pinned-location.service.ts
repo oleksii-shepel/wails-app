@@ -84,6 +84,38 @@ export class PinnedLocationService {
     return schemeOfLocation(location);
   }
 
+  rename(pins: readonly PinnedLocation[], pinId: string, label: string): PinnedLocation[] {
+    const nextLabel = label.trim();
+    if (!nextLabel) return [...pins];
+    return pins.map(pin => pin.id === pinId ? { ...pin, label: nextLabel } : pin);
+  }
+
+  related(pins: readonly PinnedLocation[], currentLocation: string): PinnedLocation[] {
+    const context = this.contextLocation(currentLocation);
+    if (!context) return [];
+
+    return pins
+      .map((pin, index) => ({ pin, index, score: this.relatedScore(pin, currentLocation, context) }))
+      .filter(entry => entry.score > 0)
+      .sort((a, b) => b.score - a.score || b.pin.addedAt - a.pin.addedAt || a.index - b.index)
+      .map(entry => entry.pin);
+  }
+
+  contextLocation(location: string): string | null {
+    const canonical = this.canonicalize(location);
+    if (!canonical) return null;
+    if (schemeOfLocation(canonical) !== 'search') return canonical;
+
+    try {
+      const query = canonical.slice('search://'.length);
+      const params = new URLSearchParams(query.startsWith('?') ? query.slice(1) : query);
+      const base = params.get('path')?.trim();
+      return base ? this.canonicalize(base) : null;
+    } catch {
+      return null;
+    }
+  }
+
   private canonicalize(location: string): string {
     return canonicalizeLocation(location);
   }
@@ -99,6 +131,33 @@ export class PinnedLocationService {
         ? pin.surfaceId
         : undefined,
     );
+  }
+
+
+  private relatedScore(pin: PinnedLocation, currentLocation: string, contextLocation: string): number {
+    const pinContext = this.contextLocation(pin.location);
+    if (!pinContext) return 0;
+
+    const currentScheme = schemeOfLocation(currentLocation);
+    const pinScheme = pin.scheme;
+    const contextId = locationIdentity(contextLocation);
+    const pinContextId = locationIdentity(pinContext);
+
+    if (contextId && contextId === pinContextId) {
+      return pinScheme === 'search' ? 1000 : (pinScheme === currentScheme && currentScheme !== 'filesystem' ? 900 : 0);
+    }
+
+    if (pinScheme === 'search' && schemeOfLocation(contextLocation) === 'filesystem' && schemeOfLocation(pinContext) === 'filesystem') {
+      const left = contextLocation.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+      const right = pinContext.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+      if (left && right) {
+        if (right.startsWith(`${left}/`)) return 760;
+        if (left.startsWith(`${right}/`)) return 700;
+      }
+    }
+
+    if (pinScheme === currentScheme && currentScheme !== 'filesystem') return 300;
+    return 0;
   }
 
   private identity(location: string, surfaceId: string): string {

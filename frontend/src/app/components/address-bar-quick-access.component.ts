@@ -6,7 +6,8 @@ import { PathHistoryService } from '../services/path-history.service';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
 import { PinnedLocation } from './address-bar.types';
-import { locationIcon, locationLabel, schemeOfLocation } from '../services/location-reference';
+import { locationIcon, locationLabel } from '../services/location-reference';
+import { PinnedLocationService } from '../services/pinned-location.service';
 
 export interface QuickAccessSection {
   title: string;
@@ -216,6 +217,14 @@ export interface QuickAccessItem {
             >
               <span class="qa-item-icon">{{ item.icon }}</span>
               <span class="qa-item-name">{{ item.name }}</span>
+              <button
+                *ngIf="item.pin"
+                class="qa-item-rename"
+                (click)="renamePinnedItem(item, $event)"
+                title="Rename saved location"
+                aria-label="Rename saved location"
+                type="button"
+              >✎</button>
               <button
                 *ngIf="item.pin"
                 class="qa-item-remove"
@@ -556,6 +565,7 @@ export interface QuickAccessItem {
       font-size: var(--vsc-font-size);
     }
 
+    .qa-item-rename,
     .qa-item-remove {
       flex: 0 0 auto;
       width: 20px;
@@ -582,6 +592,11 @@ export interface QuickAccessItem {
         color: var(--vsc-foreground-bright, #ffffff);
       }
     }
+
+    .qa-item-rename:hover {
+      background: var(--vsc-list-hover-background);
+      color: var(--vsc-foreground-bright);
+    }
   `]
 })
 export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChanges {
@@ -593,6 +608,7 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChan
   @Output() navigate = new EventEmitter<string>();
   @Output() openPin = new EventEmitter<PinnedLocation>();
   @Output() removePin = new EventEmitter<PinnedLocation>();
+  @Output() renamePin = new EventEmitter<PinnedLocation>();
   @Output() closeRequested = new EventEmitter<void>();
 
   allSections: QuickAccessSection[] = [];
@@ -614,6 +630,7 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChan
     private hostEl: ElementRef<HTMLElement>,
     private inputContexts: InputContextService,
     private inputEngine: InputEngineService,
+    private pinnedLocationService: PinnedLocationService,
   ) {}
 
   ngOnInit(): void {
@@ -656,10 +673,7 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChan
       });
     }
 
-    const currentScheme = schemeOfLocation(this.currentPath);
-    const relatedPins = currentScheme === 'filesystem'
-      ? []
-      : this.pinnedLocations.filter(pin => pin.scheme === currentScheme);
+    const relatedPins = this.pinnedLocationService.related(this.pinnedLocations, this.currentPath);
 
     if (relatedPins.length > 0) {
       this.allSections.push({
@@ -961,6 +975,13 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChan
     if (!item) return;
     this.highlightedItem = { sectionIdx: this.activeTabIdx, itemIdx: slotIndex };
     this.selectItem(this.activeTabIdx, slotIndex);
+  }
+
+
+  renamePinnedItem(item: QuickAccessItem, event: MouseEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    if (item.pin) this.renamePin.emit(item.pin);
   }
 
   removePinnedItem(item: QuickAccessItem, event: MouseEvent): void {

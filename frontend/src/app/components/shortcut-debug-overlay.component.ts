@@ -46,6 +46,9 @@ interface PendingChordLike {
 
         <span class="label">tabs</span>
         <span class="value">{{ tabCount }}</span>
+
+        <span class="label">surface</span>
+        <span class="value">{{ surfaceKind }}</span>
       </div>
 
       <div class="pending" *ngIf="input.pendingChord$ | async as chord">
@@ -70,6 +73,7 @@ interface PendingChordLike {
         <div><kbd>Ctrl+T</kbd><span>new tab</span></div>
         <div><kbd>Ctrl+W</kbd><span>close tab</span></div>
         <div><kbd>Ctrl+Tab</kbd><span>next tab</span></div>
+        <div><kbd>Enter</kbd><span>folder or viewer</span></div>
       </div>
 
       <footer>
@@ -190,6 +194,7 @@ export class ShortcutDebugOverlayComponent {
   @Input() otherPath = '';
   @Input() lastTransfer = '';
   @Input() tabCount = 0;
+  @Input() surfaceKind = 'dir';
 
   constructor(public readonly input: InputEngineService) {}
 

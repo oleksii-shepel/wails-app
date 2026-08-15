@@ -16,19 +16,31 @@ import { PathHistoryService } from '../services/path-history.service';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { getSourceCapabilities } from '../services/source-capabilities';
 import { FileInfo, FileType } from '../shared/protocol';
+import type { ViewerFileListItem } from '../shared/protocol-enhanced';
+import { ViewerHostSurfaceComponent } from '../viewers/viewer-host-surface.component';
 import { ReassemblyAddressBarComponent } from './reassembly-address-bar.component';
 import { ReassemblyNavigationController } from './reassembly-navigation.controller';
 
-interface ReassemblyTab {
-  id: string;
-  path: string;
-  title: string;
-}
+type ReassemblyTab =
+  | {
+      id: string;
+      kind: 'dir';
+      path: string;
+      title: string;
+    }
+  | {
+      id: string;
+      kind: 'viewer';
+      path: string;
+      title: string;
+      targetPath: string;
+      fileList: ViewerFileListItem[];
+    };
 
 @Component({
   selector: 'app-reassembly-directory-pane',
   standalone: true,
-  imports: [CommonModule, ReassemblyAddressBarComponent],
+  imports: [CommonModule, ReassemblyAddressBarComponent, ViewerHostSurfaceComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section
@@ -48,7 +60,10 @@ interface ReassemblyTab {
           [class.active]="tab.id === activeTabId"
           [title]="tab.path"
           (click)="activateTab(tab.id)">
-          <span class="tab-title">{{ tab.title }}</span>
+          <span class="tab-title">
+            <span class="tab-kind" aria-hidden="true">{{ tab.kind === 'viewer' ? '◉' : '▣' }}</span>
+            {{ tab.title }}
+          </span>
           <span
             class="tab-close"
             role="button"
@@ -69,6 +84,7 @@ interface ReassemblyTab {
         </button>
       </div>
 
+      <ng-container *ngIf="activeTab?.kind !== 'viewer'; else viewerSurface">
       <header class="navigation-bar">
         <div class="nav-cluster">
           <button
@@ -184,6 +200,24 @@ interface ReassemblyTab {
           This directory is empty.
         </div>
       </div>
+      </ng-container>
+
+      <ng-template #viewerSurface>
+        <div class="viewer-shell" *ngIf="activeViewerTab as viewerTab">
+          <div class="viewer-toolbar">
+            <span class="viewer-label">Preview</span>
+            <span class="viewer-path" [title]="viewerTab.targetPath">{{ viewerTab.targetPath }}</span>
+            <button type="button" (click)="closeActiveTab()" title="Close viewer (Ctrl+W)">×</button>
+          </div>
+
+          <app-viewer-host-surface
+            [targetPath]="viewerTab.targetPath"
+            [fileList]="viewerTab.fileList"
+            [archiveContext]="null"
+            [viewerId]="null">
+          </app-viewer-host-surface>
+        </div>
+      </ng-template>
     </section>
   `,
   styles: [`
@@ -491,6 +525,71 @@ interface ReassemblyTab {
       padding: 5px 10px;
     }
 
+    .tab-kind {
+      margin-right: 4px;
+      opacity: .65;
+      font-size: 9px;
+    }
+
+    .viewer-shell {
+      display: flex;
+      flex: 1 1 auto;
+      flex-direction: column;
+      min-height: 0;
+      min-width: 0;
+      overflow: hidden;
+      background: var(--vsc-editor-background, #1e1e1e);
+    }
+
+    .viewer-toolbar {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) 28px;
+      align-items: center;
+      gap: 8px;
+      min-height: 32px;
+      padding: 0 8px;
+      border-bottom: 1px solid var(--vsc-border-subtle, #2b2b2b);
+      background: var(--vsc-tabbar-background, #252526);
+      font-size: 11px;
+    }
+
+    .viewer-label {
+      color: var(--vsc-accent-blue, #4aa3ff);
+      font-weight: 600;
+    }
+
+    .viewer-path {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--vsc-description-foreground, #969696);
+      font-family: var(--vsc-font-family-mono, ui-monospace, monospace);
+    }
+
+    .viewer-toolbar button {
+      width: 24px;
+      height: 24px;
+      border: 0;
+      border-radius: 3px;
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+      font-size: 17px;
+    }
+
+    .viewer-toolbar button:hover {
+      background: var(--vsc-list-hover-background, #2a2d2e);
+    }
+
+    app-viewer-host-surface {
+      display: flex;
+      flex: 1 1 auto;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+    }
+
     @media (max-width: 700px) {
       .navigation-bar {
         grid-template-columns: auto minmax(0, 1fr) 32px;
@@ -532,6 +631,20 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
   activeTabId: string | null = null;
   private tabCounter = 0;
 
+  get activeTab(): ReassemblyTab | null {
+    if (!this.activeTabId) return null;
+    return this.tabs.find(tab => tab.id === this.activeTabId) ?? null;
+  }
+
+  get activeViewerTab(): Extract<ReassemblyTab, { kind: 'viewer' }> | null {
+    const tab = this.activeTab;
+    return tab?.kind === 'viewer' ? tab : null;
+  }
+
+  get isDirectoryTab(): boolean {
+    return this.activeTab?.kind !== 'viewer';
+  }
+
   get hasSelection(): boolean {
     return this.selectedPaths.size > 0;
   }
@@ -541,23 +654,23 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
   }
 
   get canCreate(): boolean {
-    return !!this.path && this.sourceCapabilities.create;
+    return this.isDirectoryTab && !!this.path && this.sourceCapabilities.create;
   }
 
   get canRename(): boolean {
-    return this.selectedPaths.size === 1 && this.sourceCapabilities.rename;
+    return this.isDirectoryTab && this.selectedPaths.size === 1 && this.sourceCapabilities.rename;
   }
 
   get canDelete(): boolean {
-    return this.hasSelection && this.sourceCapabilities.delete;
+    return this.isDirectoryTab && this.hasSelection && this.sourceCapabilities.delete;
   }
 
   get canCut(): boolean {
-    return this.hasSelection && this.sourceCapabilities.read && this.sourceCapabilities.delete;
+    return this.isDirectoryTab && this.hasSelection && this.sourceCapabilities.read && this.sourceCapabilities.delete;
   }
 
   get canPaste(): boolean {
-    return !!this.clipboard?.paths.length && this.sourceCapabilities.create;
+    return this.isDirectoryTab && !!this.clipboard?.paths.length && this.sourceCapabilities.create;
   }
 
   private anchorPath: string | null = null;
@@ -594,12 +707,13 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
   }
 
   focusLocation(): void {
+    if (!this.isDirectoryTab) return;
     this.addressBar?.beginEdit();
   }
 
   newTab(): void {
     const path = this.path || '/';
-    const tab = this.createTab(path);
+    const tab = this.createDirectoryTab(path);
     this.tabs = [...this.tabs, tab];
     this.activeTabId = tab.id;
     this.lastAction = `new tab: ${tab.title}`;
@@ -614,7 +728,10 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
     this.activeTabId = tabId;
     this.lastAction = `tab: ${tab.title}`;
     this.cdr.markForCheck();
-    await this.load(tab.path, { history: 'record', syncTab: false });
+
+    if (tab.kind === 'dir') {
+      await this.load(tab.path, { history: 'record', syncTab: false });
+    }
   }
 
   async closeActiveTab(): Promise<void> {
@@ -628,9 +745,16 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
 
     if (this.tabs.length === 1) {
       const only = this.tabs[0];
-      only.path = this.path || only.path;
-      only.title = this.tabTitle(only.path);
-      this.tabs = [{ ...only }];
+      if (only.kind === 'dir') {
+        const path = this.path || only.path;
+        this.tabs = [{ ...only, path, title: this.tabTitle(path) }];
+        this.activeTabId = only.id;
+      } else {
+        const fallback = this.createDirectoryTab(this.path || '/');
+        this.tabs = [fallback];
+        this.activeTabId = fallback.id;
+        await this.load(fallback.path, { history: 'record', syncTab: false });
+      }
       this.lastAction = 'kept last tab';
       this.cdr.markForCheck();
       return;
@@ -649,7 +773,10 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
     this.activeTabId = next.id;
     this.lastAction = `close tab -> ${next.title}`;
     this.cdr.markForCheck();
-    await this.load(next.path, { history: 'record', syncTab: false });
+
+    if (next.kind === 'dir') {
+      await this.load(next.path, { history: 'record', syncTab: false });
+    }
   }
 
   async nextTab(): Promise<void> {
@@ -664,12 +791,13 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
   }
 
   navigateTo(path: string): void {
+    if (!this.isDirectoryTab) return;
     this.lastAction = `navigate: ${path}`;
     void this.load(path, { history: 'record' });
   }
 
   async refresh(): Promise<void> {
-    if (!this.path) return;
+    if (!this.isDirectoryTab || !this.path) return;
     this.lastAction = 'refresh';
     await this.load(this.path, {
       preserveCursor: true,
@@ -678,7 +806,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
   }
 
   async navigateUp(): Promise<void> {
-    if (!this.path || this.atRoot) return;
+    if (!this.isDirectoryTab || !this.path || this.atRoot) return;
     const parent = this.directorySource.getParentPath(this.path);
     if (!parent || parent === this.path) return;
 
@@ -687,6 +815,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
   }
 
   async goBack(): Promise<void> {
+    if (!this.isDirectoryTab) return;
     const target = this.navigation.backTarget();
     if (!target) return;
 
@@ -699,6 +828,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
   }
 
   async goForward(): Promise<void> {
+    if (!this.isDirectoryTab) return;
     const target = this.navigation.forwardTarget();
     if (!target) return;
 
@@ -714,8 +844,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
     this.setSingleSelection(entry);
 
     if (entry.type !== FileType.DIRECTORY) {
-      this.lastAction = `selected file: ${entry.name}`;
-      this.cdr.markForCheck();
+      this.openViewer(entry);
       return;
     }
 
@@ -745,7 +874,38 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
     this.cdr.markForCheck();
   }
 
+  openViewer(entry: FileInfo): void {
+    const existing = this.tabs.find(tab =>
+      tab.kind === 'viewer' && this.samePath(tab.targetPath, entry.path)
+    );
+    if (existing) {
+      this.activeTabId = existing.id;
+      this.lastAction = `viewer: ${entry.name}`;
+      this.cdr.markForCheck();
+      return;
+    }
+
+    const fileList: ViewerFileListItem[] = this.entries
+      .filter(candidate => candidate.type !== FileType.DIRECTORY)
+      .map(candidate => ({ path: candidate.path, name: candidate.name }));
+
+    const tab: ReassemblyTab = {
+      id: `${this.paneId}-tab-${++this.tabCounter}`,
+      kind: 'viewer',
+      path: entry.path,
+      title: entry.name,
+      targetPath: entry.path,
+      fileList,
+    };
+
+    this.tabs = [...this.tabs, tab];
+    this.activeTabId = tab.id;
+    this.lastAction = `viewer: ${entry.name}`;
+    this.cdr.markForCheck();
+  }
+
   selectAll(): void {
+    if (!this.isDirectoryTab) return;
     this.selectedPaths = new Set(this.entries.map(entry => entry.path));
     this.lastAction = 'select all';
     this.cdr.markForCheck();
@@ -974,7 +1134,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
       const initialPath = drives[0]?.path || '/';
       const loaded = await this.load(initialPath, { history: 'record' });
       if (loaded && this.tabs.length === 0) {
-        const tab = this.createTab(this.path);
+        const tab = this.createDirectoryTab(this.path);
         this.tabs = [tab];
         this.activeTabId = tab.id;
         this.cdr.markForCheck();
@@ -983,7 +1143,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
       try {
         const loaded = await this.load('/', { history: 'record' });
         if (loaded && this.tabs.length === 0) {
-          const tab = this.createTab(this.path);
+          const tab = this.createDirectoryTab(this.path);
           this.tabs = [tab];
           this.activeTabId = tab.id;
           this.cdr.markForCheck();
@@ -1062,10 +1222,11 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
     }
   }
 
-  private createTab(path: string): ReassemblyTab {
+  private createDirectoryTab(path: string): ReassemblyTab {
     const normalized = path || '/';
     return {
       id: `${this.paneId}-tab-${++this.tabCounter}`,
+      kind: 'dir',
       path: normalized,
       title: this.tabTitle(normalized),
     };
@@ -1073,7 +1234,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
 
   private syncActiveTab(path: string): void {
     if (!this.activeTabId) {
-      const tab = this.createTab(path);
+      const tab = this.createDirectoryTab(path);
       this.tabs = [tab];
       this.activeTabId = tab.id;
       return;
@@ -1082,13 +1243,21 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
     const index = this.tabs.findIndex(tab => tab.id === this.activeTabId);
     if (index < 0) return;
 
+    const current = this.tabs[index];
+    if (current.kind !== 'dir') return;
+
     const updated: ReassemblyTab = {
-      ...this.tabs[index],
+      ...current,
       path,
       title: this.tabTitle(path),
     };
 
     this.tabs = this.tabs.map((tab, i) => i === index ? updated : tab);
+  }
+
+  private samePath(left: string, right: string): boolean {
+    return left.trim().replace(/\\/g, '/').toLowerCase() ===
+      right.trim().replace(/\\/g, '/').toLowerCase();
   }
 
   private tabTitle(path: string): string {
@@ -1105,7 +1274,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
   }
 
   moveCursor(delta: -1 | 1): void {
-    if (this.entries.length === 0) return;
+    if (!this.isDirectoryTab || this.entries.length === 0) return;
 
     const currentIndex = this.cursorPath
       ? this.entries.findIndex(entry => entry.path === this.cursorPath)

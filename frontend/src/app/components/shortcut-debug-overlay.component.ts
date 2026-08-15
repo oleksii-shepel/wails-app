@@ -55,6 +55,9 @@ interface PendingChordLike {
 
         <span class="label">split</span>
         <span class="value">{{ splitPercent | number:'1.0-0' }} / {{ 100 - splitPercent | number:'1.0-0' }}</span>
+
+        <span class="label">hidden</span>
+        <span class="value">{{ showHidden ? 'visible' : 'hidden' }}</span>
       </div>
 
       <div class="pending" *ngIf="input.pendingChord$ | async as chord">
@@ -90,6 +93,7 @@ interface PendingChordLike {
         <div><kbd>Drag divider</kbd><span>resize · double-click reset</span></div>
         <div><kbd>Ctrl+F</kbd><span>filter folder</span></div>
         <div><kbd>F3 / Shift+F3</kbd><span>next / previous match</span></div>
+        <div><kbd>Ctrl+Shift+H</kbd><span>show / hide hidden</span></div>
       </div>
 
       <footer>
@@ -213,6 +217,7 @@ export class ShortcutDebugOverlayComponent {
   @Input() tabCount = 0;
   @Input() surfaceKind = 'dir';
   @Input() splitPercent = 50;
+  @Input() showHidden = false;
 
   constructor(public readonly input: InputEngineService) {}
 

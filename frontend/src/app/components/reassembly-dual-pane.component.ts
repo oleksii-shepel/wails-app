@@ -59,6 +59,7 @@ const COMMAND = {
   viewerActualSize: 'reassembly.viewer.actualSize',
   closeContextMenu: 'reassembly.manager.closeContextMenu',
   focusFilter: 'reassembly.manager.focusFilter',
+  toggleHidden: 'reassembly.workspace.toggleHidden',
 } as const;
 
 const BINDINGS: readonly InputBindingDefinition[] = [
@@ -94,6 +95,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   { id:'reassembly.viewer.actualSize.ctrl1', commandId:COMMAND.viewerActualSize, contextId:CONTEXT_ID, source:'default', description:'Viewer actual size', category:'Viewer', when:'viewerSurface', trigger:{device:'keyboard', chord:{steps:[{key:'1', modifiers:['ctrl']}]}}},
   { id:'reassembly.manager.contextMenu.escape', commandId:COMMAND.closeContextMenu, contextId:CONTEXT_ID, source:'default', description:'Close context menu', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'escape'}]}}, preventDefault:true, stopPropagation:true },
   { id:'reassembly.manager.focusFilter.ctrlF', commandId:COMMAND.focusFilter, contextId:CONTEXT_ID, source:'default', description:'Focus folder filter', category:'Search & Filter', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'f', modifiers:['ctrl']}]}}},
+  { id:'reassembly.workspace.toggleHidden.ctrlShiftH', commandId:COMMAND.toggleHidden, contextId:CONTEXT_ID, source:'default', description:'Show/hide hidden files', category:'Workspace', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'h', modifiers:['ctrl','shift']}]}}},
 ];
 
 @Component({
@@ -115,6 +117,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           #leftPane
           paneId="left"
           [active]="activePaneId === 'left'"
+          [showHidden]="showHidden"
           (activateRequested)="activate('left')"
           (entryContextMenu)="openEntryMenu('left', $event.event, $event.entry)"
           (backgroundContextMenu)="openBackgroundMenu('left', $event)"
@@ -142,6 +145,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           #rightPane
           paneId="right"
           [active]="activePaneId === 'right'"
+          [showHidden]="showHidden"
           (activateRequested)="activate('right')"
           (entryContextMenu)="openEntryMenu('right', $event.event, $event.entry)"
           (backgroundContextMenu)="openBackgroundMenu('right', $event)"
@@ -246,6 +250,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
 
   leftPanePercent = 50;
   resizing = false;
+  showHidden = false;
 
   lastTransfer = 'none';
   lastDrop = 'none';
@@ -539,6 +544,33 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     return Math.max(8, Math.min(y, window.innerHeight - 360));
   }
 
+  async toggleHidden(): Promise<void> {
+    const next = !this.showHidden;
+    this.showHidden = next;
+
+    const workspace = this.workspaceService.getActiveWorkspace();
+    if (workspace) {
+      this.workspaceService.updateWorkspace(workspace.id, {
+        showHidden: next,
+      });
+    }
+
+    const panes = [this.leftPane, this.rightPane]
+      .filter((pane): pane is ReassemblyDirectoryPaneComponent => !!pane);
+
+    await Promise.all(
+      panes
+        .filter(pane => pane.isDirectoryTab)
+        .map(pane => pane.refresh()),
+    );
+
+    for (const pane of panes) {
+      pane.lastAction = next ? 'show hidden' : 'hide hidden';
+    }
+
+    this.cdr.markForCheck();
+  }
+
   beginResize(event: PointerEvent): void {
     if (typeof window !== 'undefined' && window.innerWidth <= 820) return;
 
@@ -593,6 +625,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     }
 
     this.activePaneId = workspace.activePaneId === 'right' ? 'right' : 'left';
+    this.showHidden = !!workspace.showHidden;
 
     if (
       typeof workspace.splitRatio === 'number' &&
@@ -657,6 +690,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     descriptor(COMMAND.viewerActualSize, 'Viewer Actual Size', 'Viewer', () => this.invokeViewer('zoom100'), () => this.hasViewerMethod('zoom100'));
     descriptor(COMMAND.closeContextMenu, 'Close Context Menu', 'Navigation', () => this.closeContextMenu(), () => !!this.contextMenu);
     descriptor(COMMAND.focusFilter, 'Focus Folder Filter', 'Search & Filter', () => this.activePane?.focusFilter(), () => !!this.activePane?.isDirectoryTab);
+    descriptor(COMMAND.toggleHidden, 'Toggle Hidden Files', 'Workspace', () => this.toggleHidden());
   }
 
   private activeViewer(): any {

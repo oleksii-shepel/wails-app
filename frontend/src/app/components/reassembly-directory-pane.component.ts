@@ -147,6 +147,7 @@ type ReassemblyTab =
         <span *ngIf="loading">Loading…</span>
         <span *ngIf="!loading && !error">{{ entries.length }} items</span>
         <span *ngIf="selectedPaths.size">{{ selectedPaths.size }} selected</span>
+        <span *ngIf="showHidden" class="hidden-state">hidden visible</span>
         <span *ngIf="clipboard" class="clipboard-state">
           {{ clipboard.operation === 'copy' ? 'Copied' : 'Cut' }}: {{ clipboard.paths.length }}
         </span>
@@ -418,7 +419,8 @@ type ReassemblyTab =
       opacity: .7;
     }
 
-    .clipboard-state {
+    .clipboard-state,
+    .hidden-state {
       color: var(--vsc-accent-blue, #4aa3ff);
     }
 
@@ -670,6 +672,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
 
   @Input() paneId: 'left' | 'right' = 'left';
   @Input() active = false;
+  @Input() showHidden = false;
   @Output() activateRequested = new EventEmitter<void>();
   @Output() entryContextMenu = new EventEmitter<{ event: MouseEvent; entry: FileInfo }>();
   @Output() backgroundContextMenu = new EventEmitter<MouseEvent>();
@@ -1514,7 +1517,10 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
     this.cdr.markForCheck();
 
     try {
-      const listing = await this.directorySource.listDirectory(requestedPath, false);
+      const listing = await this.directorySource.listDirectory(
+        requestedPath,
+        this.showHidden,
+      );
       if (generation !== this.loadGeneration) return false;
 
       const nextPath = listing.path || requestedPath;

@@ -37,3 +37,22 @@ describe('DuplicateFinderService', () => {
     expect(service.suggestedRedundantPaths([group])).toEqual(['/b', '/c']);
   });
 });
+
+describe('DuplicateFinderService keeper policies', () => {
+  const service = new DuplicateFinderService({} as any);
+  const group = {
+    hash: 'same', size: 10, reclaimableBytes: 20,
+    files: [f('/very/long/path/a.txt', 10, 2), f('/b.txt', 10, 3), f('/mid/c.txt', 10, 1)],
+    suggestedKeeperPath: '/mid/c.txt',
+  };
+
+  it('supports oldest, newest and shortest-path keepers', () => {
+    expect(service.keeperPath(group, 'oldest')).toBe('/mid/c.txt');
+    expect(service.keeperPath(group, 'newest')).toBe('/b.txt');
+    expect(service.keeperPath(group, 'shortest-path')).toBe('/b.txt');
+  });
+
+  it('builds redundant selections from the chosen policy', () => {
+    expect(service.redundantPaths([group], 'newest')).toEqual(['/very/long/path/a.txt', '/mid/c.txt']);
+  });
+});

@@ -3,7 +3,7 @@ import { ChangeDetectionStrategy, ChangeDetectorRef, Component, Input, OnChanges
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../../services/api.service';
 import { ConfirmDialogService } from '../../services/confirm-dialog.service';
-import { DuplicateFinderService, DuplicateGroup, DuplicateScanProgress, DuplicateScanResult } from '../../services/duplicate-finder.service';
+import { DuplicateFinderService, DuplicateGroup, DuplicateKeeperPolicy, DuplicateScanProgress, DuplicateScanResult } from '../../services/duplicate-finder.service';
 import { WorkspaceService } from '../../services/workspace.service';
 import { SurfaceContext } from '../surface-context';
 
@@ -23,7 +23,23 @@ import { SurfaceContext } from '../surface-context';
           <label>Min size <input type="number" min="0" [(ngModel)]="minSize" [disabled]="scanning"></label>
           <label><input type="checkbox" [(ngModel)]="includeHidden" [disabled]="scanning"> Hidden</label>
           <button (click)="scan()" [disabled]="scanning || !rootPath">{{ scanning ? 'Scanning…' : 'Scan' }}</button>
-          <button (click)="selectSuggested()" [disabled]="!result?.groups?.length || scanning">Select Suggested</button>
+          <label>Keep
+            <select [(ngModel)]="keeperPolicy" [disabled]="scanning" (ngModelChange)="onKeeperPolicyChange()">
+              <option value="oldest">Oldest</option>
+              <option value="newest">Newest</option>
+              <option value="shortest-path">Shortest path</option>
+            </select>
+          </label>
+          <label>Sort
+            <select [(ngModel)]="sortMode" [disabled]="scanning">
+              <option value="wasted">Wasted space</option>
+              <option value="copies">Copies</option>
+              <option value="size">File size</option>
+              <option value="path">Path</option>
+            </select>
+          </label>
+          <input class="filter" type="search" placeholder="Filter groups…" [(ngModel)]="filterText" [disabled]="scanning">
+          <button (click)="selectSuggested()" [disabled]="!result?.groups?.length || scanning">Select Redundant</button>
           <button (click)="deleteSelected()" [disabled]="selected.size === 0 || scanning">Delete {{ selected.size }}</button>
         </div>
       </header>
@@ -36,15 +52,15 @@ import { SurfaceContext } from '../surface-context';
 
       <div class="empty" *ngIf="!scanning && result && result.groups.length === 0">No verified duplicates found.</div>
 
-      <section class="group" *ngFor="let group of result?.groups; trackBy: trackGroup">
+      <section class="group" *ngFor="let group of visibleGroups; trackBy: trackGroup">
         <div class="group-head">
-          <strong>{{ group.files.length }} copies</strong>
+          <strong><span class="type">{{ groupIcon(group) }}</span>{{ group.files.length }} copies</strong>
           <span>{{ formatSize(group.size) }} each · {{ formatSize(group.reclaimableBytes) }} reclaimable</span>
           <code>{{ group.hash.slice(0, 12) }}…</code>
         </div>
         <div class="file" *ngFor="let file of group.files">
-          <input type="checkbox" [checked]="selected.has(file.path)" [disabled]="file.path === group.suggestedKeeperPath" (change)="toggle(file.path)">
-          <span class="keeper" *ngIf="file.path === group.suggestedKeeperPath">KEEP</span>
+          <input type="checkbox" [checked]="selected.has(file.path)" [disabled]="file.path === keeperPath(group)" (change)="toggle(file.path)">
+          <span class="keeper" *ngIf="file.path === keeperPath(group)">KEEP</span>
           <span class="path" [title]="file.path">{{ file.path }}</span>
           <span class="mtime">{{ file.modified * 1000 | date:'short' }}</span>
           <button (click)="preview(file.path, file.name)">Preview</button>
@@ -60,7 +76,7 @@ import { SurfaceContext } from '../surface-context';
   styles: [`
     :host,.duplicates{display:flex;flex-direction:column;min-height:0;height:100%;background:var(--vsc-bg,#1e1e1e);color:var(--vsc-fg,#ddd)}
     header{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 12px;border-bottom:1px solid var(--vsc-border,#333)}
-    .root{font-size:12px;opacity:.7;max-width:700px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.actions label{font-size:12px;display:flex;gap:5px;align-items:center}.actions input[type=number]{width:90px}
+    .root{font-size:12px;opacity:.7;max-width:700px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.actions label{font-size:12px;display:flex;gap:5px;align-items:center}.actions input[type=number]{width:90px}.actions select{max-width:130px}.filter{width:150px}.type{margin-right:5px}
     button{background:var(--vsc-button-bg,#2d2d30);color:inherit;border:1px solid var(--vsc-border,#444);padding:4px 8px;border-radius:3px}button:disabled{opacity:.45}.summary{display:flex;gap:14px;padding:7px 12px;border-bottom:1px solid var(--vsc-border,#333);font-size:12px}.warning{color:#d7ba7d}.group{margin:8px 12px;border:1px solid var(--vsc-border,#3a3a3a);border-radius:4px;overflow:hidden}.group-head{display:flex;gap:12px;align-items:center;padding:7px 9px;background:rgba(127,127,127,.08);font-size:12px}.group-head code{margin-left:auto;opacity:.65}.file{display:grid;grid-template-columns:22px 45px minmax(120px,1fr) 150px auto;gap:8px;align-items:center;padding:5px 9px;border-top:1px solid rgba(127,127,127,.12);font-size:12px}.path{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.keeper{font-size:10px;color:#4ec9b0}.mtime{opacity:.65}.empty,.warnings{padding:14px}.warnings{color:#d7ba7d;font-size:12px;overflow:auto}
   `],
 })
@@ -74,6 +90,9 @@ export class DuplicateFinderSurfaceTabComponent implements OnChanges {
   progress: DuplicateScanProgress | null = null;
   result: DuplicateScanResult | null = null;
   selected = new Set<string>();
+  keeperPolicy: DuplicateKeeperPolicy = 'oldest';
+  sortMode: 'wasted' | 'copies' | 'size' | 'path' = 'wasted';
+  filterText = '';
   private loadKey = '';
 
   constructor(
@@ -109,8 +128,39 @@ export class DuplicateFinderSurfaceTabComponent implements OnChanges {
   }
 
   selectSuggested(): void {
-    this.selected = new Set(this.finder.suggestedRedundantPaths(this.result?.groups ?? []));
+    this.selected = new Set(this.finder.redundantPaths(this.result?.groups ?? [], this.keeperPolicy));
     this.cdr.markForCheck();
+  }
+
+  onKeeperPolicyChange(): void {
+    if (this.selected.size > 0) this.selectSuggested();
+    this.cdr.markForCheck();
+  }
+
+  get visibleGroups(): DuplicateGroup[] {
+    const needle = this.filterText.trim().toLowerCase();
+    const groups = [...(this.result?.groups ?? [])].filter(group => !needle || group.files.some(file => file.path.toLowerCase().includes(needle)));
+    groups.sort((a, b) => {
+      switch (this.sortMode) {
+        case 'copies': return b.files.length - a.files.length || b.reclaimableBytes - a.reclaimableBytes;
+        case 'size': return b.size - a.size || b.reclaimableBytes - a.reclaimableBytes;
+        case 'path': return (a.files[0]?.path ?? '').localeCompare(b.files[0]?.path ?? '');
+        default: return b.reclaimableBytes - a.reclaimableBytes || (a.files[0]?.path ?? '').localeCompare(b.files[0]?.path ?? '');
+      }
+    });
+    return groups;
+  }
+
+  keeperPath(group: DuplicateGroup): string { return this.finder.keeperPath(group, this.keeperPolicy); }
+
+  groupIcon(group: DuplicateGroup): string {
+    const ext = (group.files[0]?.name.split('.').pop() ?? '').toLowerCase();
+    if (['jpg','jpeg','png','gif','webp','bmp','tif','tiff','heic','heif','avif'].includes(ext)) return '🖼️';
+    if (['mp4','mkv','mov','avi','webm','m4v'].includes(ext)) return '🎬';
+    if (['mp3','flac','wav','m4a','aac','ogg'].includes(ext)) return '🎵';
+    if (['zip','7z','rar','tar','gz','bz2','xz'].includes(ext)) return '📦';
+    if (['pdf','doc','docx','txt','md','rtf'].includes(ext)) return '📄';
+    return '📎';
   }
 
   toggle(path: string): void {

@@ -24,6 +24,8 @@ export interface DuplicateGroup {
   suggestedKeeperPath: string;
 }
 
+export type DuplicateKeeperPolicy = 'oldest' | 'newest' | 'shortest-path';
+
 export interface DuplicateScanResult {
   root: string;
   groups: DuplicateGroup[];
@@ -128,10 +130,30 @@ export class DuplicateFinderService {
     };
   }
 
+  keeperPath(group: DuplicateGroup, policy: DuplicateKeeperPolicy = 'oldest'): string {
+    if (!group.files.length) return '';
+    const files = [...group.files];
+    if (policy === 'newest') {
+      files.sort((a, b) => (b.modified - a.modified) || a.path.length - b.path.length || a.path.localeCompare(b.path));
+      return files[0].path;
+    }
+    if (policy === 'shortest-path') {
+      files.sort((a, b) => a.path.length - b.path.length || (a.modified - b.modified) || a.path.localeCompare(b.path));
+      return files[0].path;
+    }
+    files.sort((a, b) => (a.modified - b.modified) || a.path.length - b.path.length || a.path.localeCompare(b.path));
+    return files[0].path;
+  }
+
+  redundantPaths(groups: readonly DuplicateGroup[], policy: DuplicateKeeperPolicy = 'oldest'): string[] {
+    return groups.flatMap(group => {
+      const keeper = this.keeperPath(group, policy);
+      return group.files.filter(file => file.path !== keeper).map(file => file.path);
+    });
+  }
+
   suggestedRedundantPaths(groups: readonly DuplicateGroup[]): string[] {
-    return groups.flatMap(group => group.files
-      .filter(file => file.path !== group.suggestedKeeperPath)
-      .map(file => file.path));
+    return this.redundantPaths(groups, 'oldest');
   }
 
   private messageOf(error: unknown): string {

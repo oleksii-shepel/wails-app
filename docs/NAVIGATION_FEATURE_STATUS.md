@@ -89,12 +89,12 @@ get virtualEnabled(): boolean {
     - Close tab: `Ctrl+W` or Middle click or close button
     - Switch tabs: `Ctrl+Tab` / `Ctrl+Shift+Tab`
     - Jump to tab: `Ctrl+1` through `Ctrl+9`
-    - Pin tabs: `Ctrl+Shift+P`
+    - Pin tabs: `Ctrl+Alt+P`
   
   - **Visual indicators:**
     - Active tab highlighting
     - Archive tabs show archive icon
-    - Pinned tabs (compact width, no title)
+    - Pinned tabs keep their caption and show a pin indicator; the close button is hidden
     - Tab overflow with horizontal scroll
   
   - **Persistence:**
@@ -320,7 +320,7 @@ The navigation and browsing foundation is **excellent** and **complete**. All co
 - ✅ Quick Access panel with system folders, pinned locations, frequent, and recent paths
 
 ### Keyboard Shortcuts Summary:
-- **Tabs:** `Ctrl+T` (new), `Ctrl+W` (close), `Ctrl+Tab` (next), `Ctrl+Shift+Tab` (previous), `Ctrl+1-9` (jump), `Ctrl+Shift+P` (pin)
+- **Tabs:** `Ctrl+T` (new), `Ctrl+W` (close), `Ctrl+Tab` (next), `Ctrl+Shift+Tab` (previous), `Ctrl+1-9` (jump), `Ctrl+Alt+P` (pin)
 - **Navigation:** `Backspace` (parent directory), `Ctrl+H` (history), `Tab` (switch panes)
 - **Address Bar:** `Ctrl+L` or `Alt+D` (edit mode)
 - **Quick Access:** `Ctrl+Q` (toggle Quick Access), `Ctrl+B` (toggle pins dropdown)

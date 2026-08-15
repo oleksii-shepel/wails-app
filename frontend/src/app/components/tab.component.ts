@@ -200,19 +200,17 @@ import { TabInfo } from "../shared/protocol-enhanced";
       font-size: 13px;
     }
 
-    /* Pinned */
+    /* Pinned tabs stay identifiable: keep the caption, but remove the close affordance. */
     .tab.pinned {
-      width: 42px;
-      min-width: 42px;
-      max-width: 42px;
-      justify-content: center;
-      padding: 0;
+      max-width: 220px;
     }
 
-    .tab.pinned .tab-title,
-    .tab.pinned .close,
-    .tab.pinned .tab-archive-badge {
+    .tab.pinned .close {
       display: none;
+    }
+
+    .tab.pinned .pin {
+      opacity: .75;
     }
 
     /* Dirty dot */
@@ -231,10 +229,6 @@ import { TabInfo } from "../shared/protocol-enhanced";
     :host-context(.compact-mode) .tab {
       height: 100%;
       padding: 0 10px;
-    }
-
-    :host-context(.compact-mode) .tab.pinned {
-      width: 36px;
     }
 
     /* Focus */

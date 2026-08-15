@@ -46,7 +46,7 @@ Current migration status:
 | **Ctrl+Tab** | Global | Switch to next tab |
 | **Ctrl+Shift+Tab** | Global | Switch to previous tab |
 | **Ctrl+1** through **Ctrl+9** | Global | Jump to tab 1-9 |
-| **Ctrl+Shift+P** | Global | Pin/unpin current tab |
+| **Ctrl+Alt+P** | Global | Pin/unpin current tab |
 
 ### File Operations
 

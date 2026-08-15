@@ -271,7 +271,7 @@ export const BROWSER_BINDINGS: InputBindingDefinition[] = [
   kb('pane.tabs.close.ctrlW',        BC.closeTab,     'w',   'Close current tab',         { modifiers: ['ctrl'],          category: TABS }),
   kb('pane.tabs.next.ctrlTab',       BC.nextTab,      'tab', 'Switch to next tab',         { modifiers: ['ctrl'],          category: TABS }),
   kb('pane.tabs.prev.ctrlShiftTab',  BC.prevTab,      'tab', 'Switch to previous tab',    { modifiers: ['ctrl', 'shift'], category: TABS }),
-  kb('pane.tabs.pin.ctrlShiftP',     BC.togglePinTab, 'p',   'Pin/unpin current tab',     { modifiers: ['ctrl', 'shift'], category: TABS }),
+  kb('pane.tabs.pin.ctrlAltP',       BC.togglePinTab, 'p',   'Pin/unpin current tab',     { modifiers: ['ctrl', 'alt'], category: TABS }),
   ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map(i =>
     kb(`pane.tabs.jumpTo${i}.ctrl${i}`, BC.jumpToTab(i), i.toString(), `Jump to tab ${i}`, { modifiers: ['ctrl'], category: TABS }),
   ),

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { BC, createFileBrowserCommandDescriptors, type FileBrowserCommandHandlers } from './file-browser-command-registry';
+import { BROWSER_BINDINGS, BC, createFileBrowserCommandDescriptors, type FileBrowserCommandHandlers } from './file-browser-command-registry';
 
 function handlers(): FileBrowserCommandHandlers {
   const fn = () => undefined;
@@ -51,5 +51,18 @@ describe('createFileBrowserCommandDescriptors', () => {
     const list = createFileBrowserCommandDescriptors(h);
     list.find(command => command.id === BC.jumpToTab(4))!.execute();
     expect(h.jumpToTab).toHaveBeenCalledWith(4);
+  });
+});
+
+
+describe('BROWSER_BINDINGS', () => {
+  it('reserves Ctrl+Shift+P for the command palette and uses Ctrl+Alt+P for tab pinning', () => {
+    const palette = BROWSER_BINDINGS.find(binding => binding.id === 'pane.nav.openCommandPalette.ctrlShiftP');
+    const pin = BROWSER_BINDINGS.find(binding => binding.id === 'pane.tabs.pin.ctrlAltP');
+    const stalePin = BROWSER_BINDINGS.find(binding => binding.id === 'pane.tabs.pin.ctrlShiftP');
+
+    expect(palette?.commandId).toBe(BC.openCommandPalette);
+    expect(pin?.commandId).toBe(BC.togglePinTab);
+    expect(stalePin).toBeUndefined();
   });
 });

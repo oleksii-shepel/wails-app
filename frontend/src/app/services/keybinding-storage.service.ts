@@ -41,6 +41,24 @@ export class KeybindingStorageService {
     return this.defaults.get(bindingId);
   }
 
+  getDefaultBindings(): InputBindingDefinition[] {
+    return Array.from(this.defaults.values()).map(binding => ({ ...binding }));
+  }
+
+  mergeWithDefaults(snapshot: InputBindingDefinition[]): InputBindingDefinition[] {
+    const merged = new Map<string, InputBindingDefinition>();
+
+    for (const binding of this.defaults.values()) {
+      merged.set(binding.id, { ...binding, enabled: true });
+    }
+
+    for (const binding of snapshot) {
+      merged.set(binding.id, binding);
+    }
+
+    return Array.from(merged.values());
+  }
+
   setOverride(override: KeybindingOverride): void {
     const idx = this.overrides.findIndex(o => o.id === override.id);
     if (idx >= 0) {

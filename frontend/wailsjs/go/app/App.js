@@ -54,10 +54,6 @@ export function BatchSelectiveExtract(arg1) {
   return window['go']['app']['App']['BatchSelectiveExtract'](arg1);
 }
 
-export function BindState(arg1) {
-  return window['go']['app']['App']['BindState'](arg1);
-}
-
 export function Breadcrumbs(arg1) {
   return window['go']['app']['App']['Breadcrumbs'](arg1);
 }

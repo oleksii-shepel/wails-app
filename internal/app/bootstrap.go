@@ -384,6 +384,6 @@ func BuildApp() *App {
 	app := NewApp(internalelevation.IsProcessElevated)
 	elevation := internalelevation.NewService(app.EmitEvent, startElevatedClient)
 	filesystem := newFilesystemService(elevation, app.EmitEvent, app.StartElevatedSession)
-	app.BindState(BuildState(core, filesystem, elevation, newBuildConfig(app)))
+	app.bindState(BuildState(core, filesystem, elevation, newBuildConfig(app)))
 	return app
 }

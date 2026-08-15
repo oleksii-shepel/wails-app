@@ -1195,7 +1195,7 @@ export class SettingsDialogComponent {
     category: string;
     items: Array<{ id: string; description: string; chords: string[][]; enabled: boolean }>;
   }> {
-    const snapshot = this.inputEngine.getBindingSnapshot();
+    const snapshot = this.keybindingStorage.mergeWithDefaults(this.inputEngine.getBindingSnapshot());
     const catMap = new Map<string, Map<string, { id: string; description: string; chords: string[][]; enabled: boolean }>>();
 
     for (const b of snapshot) {

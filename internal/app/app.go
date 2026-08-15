@@ -26,7 +26,7 @@ func NewApp(isProcessElevated func() bool) *App {
 	}
 }
 
-func (a *App) BindState(state *State) {
+func (a *App) bindState(state *State) {
 	a.State = state
 }
 

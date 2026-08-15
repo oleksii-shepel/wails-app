@@ -1,4 +1,4 @@
-import { Injectable } from '@angular/core';
+import { Injectable, NgZone } from '@angular/core';
 import { createBehaviorSubject } from '@epikodelabs/streamix';
 import { DIALOG_INPUT_CATALOG } from './dialog-input-catalog';
 import type {
@@ -101,7 +101,9 @@ export class InputEngineService {
 
   private keyboardEnabled = true;
 
-  constructor() {
+  constructor(
+    private readonly ngZone: NgZone,
+  ) {
     this.registerContext({
       id: 'global',
       kind: 'global',
@@ -442,16 +444,7 @@ export class InputEngineService {
   dispatchCommandById(commandId: string, invocation: CommandInvocation = { source: 'programmatic' }): boolean {
     const handler = this.getCommandHandler(commandId, invocation);
     if (!handler) return false;
-    try {
-      const result = handler(invocation);
-      if (result instanceof Promise) {
-        result.catch(error => console.error('Input command failed:', error));
-      }
-      return true;
-    } catch (error) {
-      console.error('Input command failed:', error);
-      return false;
-    }
+    return this.executeCommand(handler, invocation);
   }
 
   updateBindingTrigger(bindingId: string, trigger: InputTrigger): boolean {
@@ -524,13 +517,7 @@ export class InputEngineService {
     const command = this.getCommandHandler(resolution.binding.commandId, invocation);
     if (!command) return false;
 
-    try {
-      await command(invocation);
-      return true;
-    } catch (error) {
-      console.error('Input command failed:', error);
-      return false;
-    }
+    return this.executeCommandAsync(command, invocation);
   }
 
   async dispatchMouseGesture(gesture: MouseGesture): Promise<boolean> {
@@ -541,13 +528,7 @@ export class InputEngineService {
     const command = this.getCommandHandler(resolution.binding.commandId, invocation);
     if (!command) return false;
 
-    try {
-      await command(invocation);
-      return true;
-    } catch (error) {
-      console.error('Input command failed:', error);
-      return false;
-    }
+    return this.executeCommandAsync(command, invocation);
   }
 
   private initializeKeyboardListener(): void {
@@ -569,14 +550,7 @@ export class InputEngineService {
         event.stopPropagation();
       }
 
-      try {
-        const result = command(invocation);
-        if (result instanceof Promise) {
-          result.catch(error => console.error('Input command failed:', error));
-        }
-      } catch (error) {
-        console.error('Input command failed:', error);
-      }
+      this.executeCommand(command, invocation);
     }, { capture: true });
   }
 
@@ -615,14 +589,7 @@ export class InputEngineService {
       event.stopPropagation();
     }
 
-    try {
-      const result = command(invocation);
-      if (result instanceof Promise) {
-        result.catch(error => console.error('Input command failed:', error));
-      }
-    } catch (error) {
-      console.error('Input command failed:', error);
-    }
+    this.executeCommand(command, invocation);
   }
 
   private resolveMouseGesture(gesture: MouseGesture, event?: MouseEvent | WheelEvent): BindingResolution | null {
@@ -907,6 +874,33 @@ export class InputEngineService {
   private getCommandHandler(commandId: string, invocation?: CommandInvocation): InputCommandHandler | null {
     if (!this.isCommandEnabled(commandId, invocation)) return null;
     return this.getActiveCommandRegistration(commandId)?.handler ?? null;
+  }
+
+  private executeCommand(command: InputCommandHandler, invocation: CommandInvocation): boolean {
+    try {
+      this.ngZone.run(() => {
+        const result = command(invocation);
+        if (result instanceof Promise) {
+          result.catch(error => console.error('Input command failed:', error));
+        }
+      });
+      return true;
+    } catch (error) {
+      console.error('Input command failed:', error);
+      return false;
+    }
+  }
+
+  private async executeCommandAsync(command: InputCommandHandler, invocation: CommandInvocation): Promise<boolean> {
+    try {
+      await this.ngZone.run(async () => {
+        await command(invocation);
+      });
+      return true;
+    } catch (error) {
+      console.error('Input command failed:', error);
+      return false;
+    }
   }
 
   private getActiveCommandRegistration(commandId: string): RegisteredCommand | null {

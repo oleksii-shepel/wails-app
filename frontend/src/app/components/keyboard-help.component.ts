@@ -6,6 +6,7 @@ import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { InputContextService } from '../services/input-context.service';
 import { InputEngineService } from '../services/input-engine.service';
 import { InputBindingDefinition } from '../services/input-system.types';
+import { KeybindingStorageService } from '../services/keybinding-storage.service';
 import { NativeOverlayFreezeService } from '../services/native-overlay-freeze.service';
 import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.directive';
 import { moveFocusWithin } from '../directives/focus-trap.utils';
@@ -50,6 +51,7 @@ export class KeyboardHelpComponent implements OnInit, OnDestroy {
     private confirmDialog: ConfirmDialogService,
     private inputContexts: InputContextService,
     private inputEngine: InputEngineService,
+    private keybindingStorage: KeybindingStorageService,
     private overlayFreeze: NativeOverlayFreezeService,
   ) {}
 
@@ -68,7 +70,7 @@ export class KeyboardHelpComponent implements OnInit, OnDestroy {
   }
 
   loadShortcuts(): void {
-    const snapshot = this.inputEngine.getBindingSnapshot();
+    const snapshot = this.keybindingStorage.mergeWithDefaults(this.inputEngine.getBindingSnapshot());
     const byCategory = new Map<string, InputBindingDefinition[]>();
     for (const b of snapshot) {
       if (!b.category || b.trigger.device !== 'keyboard') continue;

@@ -512,8 +512,10 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     }
 
     this.syncReviewVisible = false;
-    this.leftPane?.onRefresh();
-    this.rightPane?.onRefresh();
+    await Promise.all([
+      this.leftPane?.browserCommands.navigation.refresh(),
+      this.rightPane?.browserCommands.navigation.refresh(),
+    ]);
   }
 
   selectComparisonDifferences(side: 'left' | 'right'): void {

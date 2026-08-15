@@ -70,7 +70,7 @@ func (a *App) ProbeFile(path string) (*contracts.FileProbe, error) {
 
 // HashFile returns a SHA-256 digest for a file resolved through the normal public-path chain.
 func (a *App) HashFile(path string) (string, error) {
-	resolved, err := a.State.RealPath(path)
+	resolved, err := a.State.Filesystem.RealPath(path)
 	if err != nil {
 		return "", err
 	}

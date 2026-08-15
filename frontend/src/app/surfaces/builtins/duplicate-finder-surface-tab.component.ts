@@ -71,7 +71,7 @@ import { SurfaceContext } from '../surface-context';
 
       <div class="warnings" *ngIf="result?.warnings?.length">
         <strong>Warnings</strong>
-        <div *ngFor="let warning of result?.warnings">{{ warning }}</div>
+        <div *ngFor="let warning of result.warnings">{{ warning }}</div>
       </div>
     </div>
   `,

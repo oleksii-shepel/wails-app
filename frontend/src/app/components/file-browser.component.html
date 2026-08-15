@@ -80,10 +80,10 @@
 
     <app-pane-comparison-bar
       [visible]="comparisonVisible"
-      [leftEntries]="leftPane?.entries ?? []"
-      [rightEntries]="rightPane?.entries ?? []"
-      [leftPath]="leftPane?.currentPath ?? ''"
-      [rightPath]="rightPane?.currentPath ?? ''"
+      [leftEntries]="leftPane.entries"
+      [rightEntries]="rightPane.entries"
+      [leftPath]="leftPane.currentPath"
+      [rightPath]="rightPane.currentPath"
       [recursive]="comparisonRecursive"
       [scanning]="recursiveComparisonScanning"
       [error]="recursiveComparisonError"

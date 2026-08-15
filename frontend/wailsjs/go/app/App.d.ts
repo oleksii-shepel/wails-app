@@ -123,6 +123,8 @@ export function GetElevatedSessionStatus():Promise<elevation.SessionStatus>;
 
 export function GetFileInfo(arg1:string):Promise<contracts.FileInfo>;
 
+export function HashFile(arg1:string):Promise<string>;
+
 export function GetImageThumbnailURL(arg1:string,arg2:number,arg3:number):Promise<string>;
 
 export function GetOSInfo():Promise<contracts.OSInfoResponse>;

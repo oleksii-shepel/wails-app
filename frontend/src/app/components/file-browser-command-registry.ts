@@ -76,6 +76,7 @@ export const BC = {
   copyMissingLeftToRight:'pane.compare.copyMissingLeftToRight',
   copyMissingRightToLeft:'pane.compare.copyMissingRightToLeft',
   diskUsage:            'pane.tools.diskUsage',
+  findDuplicates:       'pane.tools.findDuplicates',
   batchRename:          'pane.files.batchRename',
   openWithExternal:     'pane.files.openWithExternal',
 } as const;
@@ -161,6 +162,7 @@ const BROWSER_COMMAND_DEFINITIONS: CommandDefinition[] = [
   CMD_DEF(BC.copyMissingLeftToRight,'Copy Missing Left to Right',  PANE, 'Copy items that exist only on the left pane', 'pane.compare.missing-right', undefined),
   CMD_DEF(BC.copyMissingRightToLeft,'Copy Missing Right to Left',  PANE, 'Copy items that exist only on the right pane', 'pane.compare.missing-left', undefined),
   CMD_DEF(BC.diskUsage,            'Disk Usage',                TOOLS, 'Analyze disk usage', 'disk-usage', ['du']),
+  CMD_DEF(BC.findDuplicates,       'Find Duplicate Files',      TOOLS, 'Find content-identical files recursively', 'duplicates', ['find-duplicates']),
   CMD_DEF(BC.openWithExternal,     'Open with External App',    FILES, 'Open selected file with external application', 'open-external', undefined),
 ];
 
@@ -384,6 +386,7 @@ export interface FileBrowserCommandHandlers {
   copyMissingLeftToRight:() => void;
   copyMissingRightToLeft:() => void;
   diskUsage:            () => void;
+  findDuplicates:       () => void;
   batchRename:          () => void;
   openWithExternal:     () => void;
 }
@@ -458,6 +461,7 @@ export function createFileBrowserCommandDescriptors(
     [BC.copyMissingLeftToRight, handlers.copyMissingLeftToRight],
     [BC.copyMissingRightToLeft, handlers.copyMissingRightToLeft],
     [BC.diskUsage, handlers.diskUsage],
+    [BC.findDuplicates, handlers.findDuplicates],
     [BC.batchRename, handlers.batchRename],
     [BC.openWithExternal, handlers.openWithExternal],
   ]);

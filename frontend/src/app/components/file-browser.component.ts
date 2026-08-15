@@ -842,6 +842,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
         const targetPane = this.getOtherPane();
         targetPane?.openDiskUsageAnalyzer(sourcePath ?? undefined);
       },
+      findDuplicates:        () => { const pane = this.getActivePane(); if (pane?.currentPath) void pane.openDuplicateFinder(pane.currentPath); },
       batchRename:           () => this.getActivePane()?.browserCommands.selection.renameSelected(),
       openWithExternal:      () => this.openSelectedWithExternal(),
     };

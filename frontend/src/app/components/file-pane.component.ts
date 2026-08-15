@@ -1132,6 +1132,19 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     await this.onTabChange(tab);
   }
 
+  async openDuplicateFinder(rootPath: string = this.currentPath): Promise<void> {
+    const root = (rootPath || '').trim();
+    if (!root) return;
+    const location = `surface://duplicates?path=${encodeURIComponent(root)}`;
+    const tab = this.workspaceService.addSurfaceTab(this.paneId, location, 'duplicates', {
+      title: 'Duplicates',
+      activate: true,
+    });
+    if (!tab) return;
+    this.tabs = this.workspaceService.getTabs(this.paneId);
+    await this.onTabChange(tab);
+  }
+
   async openSearchSurface(location: string, query: string): Promise<void> {
     const tab = this.workspaceService.addSurfaceTab(this.paneId, location, 'search-results', {
       title: query.trim() || 'Search',

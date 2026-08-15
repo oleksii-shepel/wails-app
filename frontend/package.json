@@ -9,6 +9,8 @@
     "watch": "ng build --configuration development --watch",
     "test": "npx testify",
     "test:watch": "npx testify --watch",
+    "test:unit": "vitest run --config vitest.config.ts",
+    "test:unit:watch": "vitest --config vitest.config.ts",
     "check": "npm run test:unit && npm run build"
   },
   "private": true,

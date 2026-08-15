@@ -291,6 +291,10 @@ export class ApiService {
 	    return castProtocol<FileProbe>(await window.go.app.App.ProbeFile(this.normalizeCanonicalPath(path)));
   }
 
+  async hashFile(path: string): Promise<string> {
+    return await window.go.app.App.HashFile(this.normalizeCanonicalPath(path));
+  }
+
   async openFile(path: string): Promise<void> {
     return await window.go.app.App.OpenFile(this.normalizeCanonicalPath(path));
   }

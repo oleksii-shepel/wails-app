@@ -1,6 +1,11 @@
 package app
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"io"
+	"os"
+
 	contracts "wails-app/internal/contracts"
 	"wails-app/internal/pathref"
 	internalplatform "wails-app/internal/platform"
@@ -61,6 +66,24 @@ func (a *App) ReadFileContent(path string, encoding string) (*contracts.FileCont
 
 func (a *App) ProbeFile(path string) (*contracts.FileProbe, error) {
 	return a.State.ProbeFile(path)
+}
+
+// HashFile returns a SHA-256 digest for a file resolved through the normal public-path chain.
+func (a *App) HashFile(path string) (string, error) {
+	resolved, err := a.State.RealPath(path)
+	if err != nil {
+		return "", err
+	}
+	f, err := os.Open(resolved)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func (a *App) ReadFileRange(path string, offset int64, length int) (*contracts.FileContent, error) {

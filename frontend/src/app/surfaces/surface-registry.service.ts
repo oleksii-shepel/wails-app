@@ -5,6 +5,7 @@ import { DirSurfaceTabComponent } from './builtins/dir-surface-tab.component';
 import { SearchResultsSurfaceTabComponent } from './builtins/search-results-surface-tab.component';
 import { ViewerSurfaceTabComponent } from './builtins/viewer-surface-tab.component';
 import { SizeManagerSurfaceTabComponent } from './size-manager/size-manager-surface-tab.component';
+import { DuplicateFinderSurfaceTabComponent } from './builtins/duplicate-finder-surface-tab.component';
 
 function tabSurfaceId(req: SurfaceRequest): string {
   return req.tab.surfaceId ?? req.tab.kind ?? 'dir';
@@ -41,6 +42,13 @@ export class SurfaceRegistryService {
       capabilities: ['navigate'],
       score: (req) => (tabSurfaceId(req) === 'size-manager' ? 100 : 0),
       load: () => SizeManagerSurfaceTabComponent,
+    });
+
+    this.register({
+      id: 'duplicates',
+      capabilities: [],
+      score: (req) => (tabSurfaceId(req) === 'duplicates' ? 100 : 0),
+      load: () => DuplicateFinderSurfaceTabComponent,
     });
   }
 

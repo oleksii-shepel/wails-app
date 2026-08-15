@@ -68,6 +68,11 @@ export const BC = {
   copyToOtherPane:      'pane.ctrl.copyToOther',
   moveToOtherPane:      'pane.ctrl.moveToOther',
   focusAddressBar:      'pane.ctrl.focusAddressBar',
+  comparePanes:          'pane.compare.toggle',
+  selectLeftDifferences: 'pane.compare.selectLeftDifferences',
+  selectRightDifferences:'pane.compare.selectRightDifferences',
+  copyMissingLeftToRight:'pane.compare.copyMissingLeftToRight',
+  copyMissingRightToLeft:'pane.compare.copyMissingRightToLeft',
   diskUsage:            'pane.tools.diskUsage',
   batchRename:          'pane.files.batchRename',
   openWithExternal:     'pane.files.openWithExternal',
@@ -146,6 +151,11 @@ const BROWSER_COMMAND_DEFINITIONS: CommandDefinition[] = [
   CMD_DEF(BC.copyToOtherPane,      'Copy to Other Pane',        PANE, 'Copy selected to other pane', 'pane.copy-to-other', ['copy-to-other']),
   CMD_DEF(BC.moveToOtherPane,      'Move to Other Pane',        PANE, 'Move selected to other pane', 'pane.move-to-other', ['move-to-other']),
   CMD_DEF(BC.focusAddressBar,      'Focus Address Bar',         PANE, 'Focus address bar', 'pane.address', ['address']),
+  CMD_DEF(BC.comparePanes,          'Compare Panes',               PANE, 'Compare the two folder panes', 'pane.compare', ['compare']),
+  CMD_DEF(BC.selectLeftDifferences, 'Select Left Differences',     PANE, 'Select differing items in the left pane', 'pane.compare.select-left', undefined),
+  CMD_DEF(BC.selectRightDifferences,'Select Right Differences',    PANE, 'Select differing items in the right pane', 'pane.compare.select-right', undefined),
+  CMD_DEF(BC.copyMissingLeftToRight,'Copy Missing Left to Right',  PANE, 'Copy items that exist only on the left pane', 'pane.compare.missing-right', undefined),
+  CMD_DEF(BC.copyMissingRightToLeft,'Copy Missing Right to Left',  PANE, 'Copy items that exist only on the right pane', 'pane.compare.missing-left', undefined),
   CMD_DEF(BC.diskUsage,            'Disk Usage',                TOOLS, 'Analyze disk usage', 'disk-usage', ['du']),
   CMD_DEF(BC.openWithExternal,     'Open with External App',    FILES, 'Open selected file with external application', 'open-external', undefined),
 ];
@@ -362,6 +372,11 @@ export interface FileBrowserCommandHandlers {
   copyToOtherPane:      () => void;
   moveToOtherPane:      () => void;
   focusAddressBar:      () => void;
+  comparePanes:          () => void;
+  selectLeftDifferences: () => void;
+  selectRightDifferences:() => void;
+  copyMissingLeftToRight:() => void;
+  copyMissingRightToLeft:() => void;
   diskUsage:            () => void;
   batchRename:          () => void;
   openWithExternal:     () => void;
@@ -429,6 +444,11 @@ export function createFileBrowserCommandDescriptors(
     [BC.copyToOtherPane, handlers.copyToOtherPane],
     [BC.moveToOtherPane, handlers.moveToOtherPane],
     [BC.focusAddressBar, handlers.focusAddressBar],
+    [BC.comparePanes, handlers.comparePanes],
+    [BC.selectLeftDifferences, handlers.selectLeftDifferences],
+    [BC.selectRightDifferences, handlers.selectRightDifferences],
+    [BC.copyMissingLeftToRight, handlers.copyMissingLeftToRight],
+    [BC.copyMissingRightToLeft, handlers.copyMissingRightToLeft],
     [BC.diskUsage, handlers.diskUsage],
     [BC.batchRename, handlers.batchRename],
     [BC.openWithExternal, handlers.openWithExternal],

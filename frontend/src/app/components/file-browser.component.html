@@ -33,6 +33,14 @@
         >
           {{ elevationBusy ? 'Elevation…' : (elevationActive ? 'Elevate' : 'Elevate') }}
         </button>
+        <button
+          (click)="togglePaneComparison()"
+          [class.active]="comparisonVisible"
+          [disabled]="!canComparePanes()"
+          class="btn"
+          title="Compare the two folder panes">
+          Compare
+        </button>
         <button (click)="toggleShowHidden()" [class.active]="showHidden" class="btn">
           {{ showHidden ? 'Hide' : 'Show' }} Hidden
         </button>
@@ -63,6 +71,19 @@
         </div>
       </div>
     </div>
+
+    <app-pane-comparison-bar
+      [visible]="comparisonVisible"
+      [leftEntries]="leftPane?.entries ?? []"
+      [rightEntries]="rightPane?.entries ?? []"
+      [leftPath]="leftPane?.currentPath ?? ''"
+      [rightPath]="rightPane?.currentPath ?? ''"
+      (selectLeft)="selectComparisonDifferences('left')"
+      (selectRight)="selectComparisonDifferences('right')"
+      (copyMissingLeftToRight)="copyMissingComparison('left')"
+      (copyMissingRightToLeft)="copyMissingComparison('right')"
+      (close)="closePaneComparison()">
+    </app-pane-comparison-bar>
 
     <!-- Main Panes Container with Resizable Split -->
     <div class="panes-container" #panesContainer>

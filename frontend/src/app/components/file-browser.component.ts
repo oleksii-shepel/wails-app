@@ -7,7 +7,7 @@ import { FileType } from '../shared/protocol';
 import { WorkspaceConfig } from '../shared/protocol-enhanced';
 import { KeyboardHelpComponent } from './keyboard-help.component';
 import { WorkspaceSelectorComponent } from './workspace-selector.component';
-import { FileBrowserCommandHandlers, registerFileBrowserCommands } from './file-browser-command-registry';
+import { BC, FileBrowserCommandHandlers, registerFileBrowserCommands } from './file-browser-command-registry';
 import { isFileBrowserCommandAvailable } from './file-browser-command-availability';
 import { GlobalSearchComponent } from './global-search.component';
 import { CommandPaletteComponent } from './command-palette.component';
@@ -47,6 +47,8 @@ import { formatPathForDisplay } from './address-bar.utils';
 import { RemoteConnectDialogService } from '../services/remote-connect-dialog.service';
 import { SettingsService } from '../services/settings.service';
 import { WindowStateService } from '../services/window-state.service';
+import { PaneComparisonService } from '../services/pane-comparison.service';
+import { PaneComparisonBarComponent } from './pane-comparison-bar.component';
 
 @Component({
   selector: 'app-file-browser',
@@ -63,7 +65,8 @@ import { WindowStateService } from '../services/window-state.service';
     StatusBarComponent,
     OperationToastStackComponent,
     OperationStatusBarComponent,
-    ElevationStatusPillComponent
+    ElevationStatusPillComponent,
+    PaneComparisonBarComponent
 ],
   templateUrl: './file-browser.component.html',
   styleUrls: ['./file-browser.component.scss'],
@@ -100,6 +103,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
   elevationActive = false;
   elevationBusy = false;
   isMaximized = false;
+  comparisonVisible = false;
   readonly pendingChord$ = this.inputEngine.pendingChord$;
   private resizeTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -133,6 +137,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     private cdr: ChangeDetectorRef,
     private windowStateService: WindowStateService,
     private keybindingStorage: KeybindingStorageService,
+    private paneComparison: PaneComparisonService,
   ) {
     this.pathHelper = new FileBrowserPathHelper(this.apiService);
   }
@@ -292,6 +297,54 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
 
   private getOppositePaneId(paneId: 'left' | 'right'): 'left' | 'right' {
     return paneId === 'left' ? 'right' : 'left';
+  }
+
+  canComparePanes(): boolean {
+    const left = this.leftPane;
+    const right = this.rightPane;
+    return !!left && !!right
+      && left.activeSurfaceId === 'dir'
+      && right.activeSurfaceId === 'dir'
+      && !left.isInArchive()
+      && !right.isInArchive();
+  }
+
+  togglePaneComparison(): void {
+    if (this.comparisonVisible) {
+      this.comparisonVisible = false;
+      return;
+    }
+    if (!this.canComparePanes()) {
+      void this.confirmDialog.alert('Pane comparison is available when both panes show regular folders.');
+      return;
+    }
+    this.comparisonVisible = true;
+  }
+
+  closePaneComparison(): void {
+    this.comparisonVisible = false;
+  }
+
+  selectComparisonDifferences(side: 'left' | 'right'): void {
+    if (!this.canComparePanes()) return;
+    const result = this.paneComparison.compare(this.leftPane!.entries, this.rightPane!.entries);
+    const paths = side === 'left'
+      ? this.paneComparison.leftDifferencePaths(result)
+      : this.paneComparison.rightDifferencePaths(result);
+    const pane = side === 'left' ? this.leftPane! : this.rightPane!;
+    const selected = new Set(paths);
+    pane.onSelectionChange(pane.entries.filter(entry => selected.has(entry.path)));
+    this.setActivePane(side);
+  }
+
+  copyMissingComparison(sourceSide: 'left' | 'right'): void {
+    if (!this.canComparePanes()) return;
+    const result = this.paneComparison.compare(this.leftPane!.entries, this.rightPane!.entries);
+    const paths = sourceSide === 'left'
+      ? this.paneComparison.missingOnRightPaths(result)
+      : this.paneComparison.missingOnLeftPaths(result);
+    if (paths.length === 0) return;
+    void this.transferController.copy(this.transferHost, sourceSide, paths);
   }
 
   private getPaneTabKind(pane: FilePaneComponent | undefined): 'dir' | 'viewer' | 'size-manager' {
@@ -675,6 +728,11 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
       copyToOtherPane:       () => this.copyToOtherPaneCurrent(),
       moveToOtherPane:       () => this.moveToOtherPaneCurrent(),
       focusAddressBar:       () => this.getActivePane()?.shortcuts.focus.focusAddressBar(),
+      comparePanes:          () => this.togglePaneComparison(),
+      selectLeftDifferences:  () => this.selectComparisonDifferences('left'),
+      selectRightDifferences: () => this.selectComparisonDifferences('right'),
+      copyMissingLeftToRight: () => this.copyMissingComparison('left'),
+      copyMissingRightToLeft: () => this.copyMissingComparison('right'),
       diskUsage:             () => {
         const sourcePane = this.getActivePane();
         const sourcePath = sourcePane?.currentPath;
@@ -688,8 +746,19 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
       this.inputEngine,
       handlers,
       'file-browser',
-      commandId => isFileBrowserCommandAvailable(commandId, this.activeActionAvailability),
+      commandId => this.isBrowserCommandEnabled(commandId),
     );
+  }
+
+  private isBrowserCommandEnabled(commandId: string): boolean {
+    if (commandId === BC.comparePanes
+      || commandId === BC.selectLeftDifferences
+      || commandId === BC.selectRightDifferences
+      || commandId === BC.copyMissingLeftToRight
+      || commandId === BC.copyMissingRightToLeft) {
+      return this.canComparePanes();
+    }
+    return isFileBrowserCommandAvailable(commandId, this.activeActionAvailability);
   }
 
   private registerMouseBindings(): void {

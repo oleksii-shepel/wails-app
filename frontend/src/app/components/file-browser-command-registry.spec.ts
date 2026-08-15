@@ -14,7 +14,9 @@ function handlers(): FileBrowserCommandHandlers {
     extendSelDown: fn, selectByMask: fn, unselectByMask: fn, invertSelection: fn,
     selectSameExt: fn, focusFilter: fn, advancedFilter: fn, clearFilter: fn,
     showWorkspaceSwitcher: fn, newWorkspace: fn, toggleHidden: fn, switchPane: fn,
-    copyToOtherPane: fn, moveToOtherPane: fn, focusAddressBar: fn, diskUsage: fn,
+    copyToOtherPane: fn, moveToOtherPane: fn, focusAddressBar: fn,
+    comparePanes: fn, selectLeftDifferences: fn, selectRightDifferences: fn,
+    copyMissingLeftToRight: fn, copyMissingRightToLeft: fn, diskUsage: fn,
     batchRename: fn, openWithExternal: fn,
   };
 }
@@ -26,6 +28,7 @@ describe('createFileBrowserCommandDescriptors', () => {
 
     expect(ids.has(BC.openCommandPalette)).toBe(true);
     expect(ids.has(BC.deleteSelected)).toBe(true);
+    expect(ids.has(BC.comparePanes)).toBe(true);
     expect(ids.has(BC.jumpToTab(9))).toBe(true);
     expect(list.every(command => typeof command.execute === 'function')).toBe(true);
   });

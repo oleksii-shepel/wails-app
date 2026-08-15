@@ -5,6 +5,7 @@ import { ApiService } from '../../services/api.service';
 import { ConfirmDialogService } from '../../services/confirm-dialog.service';
 import { DuplicateFinderService, DuplicateGroup, DuplicateKeeperPolicy, DuplicateScanProgress, DuplicateScanResult } from '../../services/duplicate-finder.service';
 import { WorkspaceService } from '../../services/workspace.service';
+import { SelectionBasketService } from '../../services/selection-basket.service';
 import { SurfaceContext } from '../surface-context';
 
 @Component({
@@ -40,6 +41,7 @@ import { SurfaceContext } from '../surface-context';
           </label>
           <input class="filter" type="search" placeholder="Filter groups…" [(ngModel)]="filterText" [disabled]="scanning">
           <button (click)="selectSuggested()" [disabled]="!result?.groups?.length || scanning">Select Redundant</button>
+          <button (click)="collectSelected()" [disabled]="selected.size === 0 || scanning">Collect {{ selected.size }}</button>
           <button (click)="deleteSelected()" [disabled]="selected.size === 0 || scanning">Delete {{ selected.size }}</button>
         </div>
       </header>
@@ -100,6 +102,7 @@ export class DuplicateFinderSurfaceTabComponent implements OnChanges {
     private readonly api: ApiService,
     private readonly confirm: ConfirmDialogService,
     private readonly workspace: WorkspaceService,
+    private readonly basket: SelectionBasketService,
     private readonly cdr: ChangeDetectorRef,
   ) {}
 
@@ -165,6 +168,10 @@ export class DuplicateFinderSurfaceTabComponent implements OnChanges {
 
   toggle(path: string): void {
     const next = new Set(this.selected); next.has(path) ? next.delete(path) : next.add(path); this.selected = next;
+  }
+
+  collectSelected(): void {
+    this.basket.add(Array.from(this.selected), 'duplicates');
   }
 
   async deleteSelected(): Promise<void> {

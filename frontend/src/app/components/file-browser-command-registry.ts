@@ -26,6 +26,9 @@ export const BC = {
   showKeyboardHelp:     'pane.nav.showKeyboardHelp',
   openSettings:         'pane.nav.openSettings',
   openOperations:       'app.operations.open',
+  openSelectionBasket:  'app.basket.open',
+  addToSelectionBasket: 'app.basket.add',
+  clearSelectionBasket: 'app.basket.clear',
   cursorUp:             'pane.cursor.up',
   cursorDown:           'pane.cursor.down',
   cursorLeft:           'pane.cursor.left',
@@ -113,6 +116,9 @@ const BROWSER_COMMAND_DEFINITIONS: CommandDefinition[] = [
   CMD_DEF(BC.showKeyboardHelp,     'Show Keyboard Help',        NAV,  'Show keyboard shortcuts reference', 'shortcuts', ['keys']),
   CMD_DEF(BC.openSettings,         'Open Settings',             NAV,  'Open application settings', 'settings', undefined),
   CMD_DEF(BC.openOperations,       'Open Operations Center',    TOOLS, 'Show active and recent file operations', 'operations', ['activity', 'jobs']),
+  CMD_DEF(BC.openSelectionBasket,  'Open Selection Basket',     TOOLS, 'Review the cross-surface working set', 'basket', ['collection', 'working-set']),
+  CMD_DEF(BC.addToSelectionBasket, 'Add to Selection Basket',   FILES, 'Add selected or explicitly supplied paths to the working set', 'basket.add', ['collect', 'stash-selection']),
+  CMD_DEF(BC.clearSelectionBasket, 'Clear Selection Basket',    TOOLS, 'Remove every item from the working set', 'basket.clear', ['clear-basket']),
   CMD_DEF(BC.cursorUp,             'Move Cursor Up',            NAV,  'Move cursor up one item', 'cursor.up', undefined),
   CMD_DEF(BC.cursorDown,           'Move Cursor Down',          NAV,  'Move cursor down one item', 'cursor.down', undefined),
   CMD_DEF(BC.cursorLeft,           'Move Cursor Left',          NAV,  'Move cursor left', 'cursor.left', undefined),
@@ -338,6 +344,9 @@ export interface FileBrowserCommandHandlers {
   showKeyboardHelp:     () => void;
   openSettings:         () => void;
   openOperations:       () => void;
+  openSelectionBasket:  () => void;
+  addToSelectionBasket: InputCommandHandler;
+  clearSelectionBasket: () => void;
   cursorUp:             () => void;
   cursorDown:           () => void;
   cursorLeft:           () => void;
@@ -415,6 +424,9 @@ export function createFileBrowserCommandDescriptors(
     [BC.showKeyboardHelp, handlers.showKeyboardHelp],
     [BC.openSettings, handlers.openSettings],
     [BC.openOperations, handlers.openOperations],
+    [BC.openSelectionBasket, handlers.openSelectionBasket],
+    [BC.addToSelectionBasket, handlers.addToSelectionBasket],
+    [BC.clearSelectionBasket, handlers.clearSelectionBasket],
     [BC.cursorUp, handlers.cursorUp],
     [BC.cursorDown, handlers.cursorDown],
     [BC.cursorLeft, handlers.cursorLeft],

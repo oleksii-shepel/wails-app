@@ -31,6 +31,8 @@ import { StatusBarComponent } from './status-bar.component';
 import { OperationStatusBarComponent } from './operation-status-bar.component';
 import { OperationToastStackComponent } from './operation-stack.component';
 import { OperationCenterComponent } from './operation-center.component';
+import { SelectionBasketComponent } from './selection-basket.component';
+import { SelectionBasketService } from '../services/selection-basket.service';
 import { OperationService } from '../services/operation.service';
 import { ArchiveService } from '../services/archive.service';
 import { KeybindingStorageService } from '../services/keybinding-storage.service';
@@ -44,7 +46,7 @@ import {
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { InputEngineService } from '../services/input-engine.service';
 import { TabInfo } from '../shared/protocol-enhanced';
-import type { InputBindingDefinition } from '../services/input-system.types';
+import type { CommandInvocation, InputBindingDefinition } from '../services/input-system.types';
 import { formatPathForDisplay } from './address-bar.utils';
 import { RemoteConnectDialogService } from '../services/remote-connect-dialog.service';
 import { SettingsService } from '../services/settings.service';
@@ -70,6 +72,7 @@ import { PaneSyncReviewComponent, type PaneSyncPlan } from './pane-sync-review.c
     OperationToastStackComponent,
     OperationStatusBarComponent,
     OperationCenterComponent,
+    SelectionBasketComponent,
     ElevationStatusPillComponent,
     PaneComparisonBarComponent,
     PaneSyncReviewComponent
@@ -96,6 +99,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
   @ViewChild('rightPane') rightPane?: FilePaneComponent;
   @ViewChild('toastStack') toastStack?: OperationToastStackComponent;
   @ViewChild(OperationCenterComponent) operationCenter?: OperationCenterComponent;
+  @ViewChild(SelectionBasketComponent) selectionBasket?: SelectionBasketComponent;
 
   activeWorkspace: WorkspaceConfig | null = null;
   workspaceList: WorkspaceConfig[] = [];
@@ -146,6 +150,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     public remoteConnectDialog: RemoteConnectDialogService,
     public appSettingsService: SettingsService,
     public operationService: OperationService,
+    public selectionBasketService: SelectionBasketService,
     private ngZone: NgZone,
     private cdr: ChangeDetectorRef,
     private windowStateService: WindowStateService,
@@ -299,6 +304,96 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
 
   getActiveSelectionPaths(): string[] {
     return Array.from(this.getActivePane()?.selectedFiles ?? []);
+  }
+
+  addToSelectionBasket(invocation?: CommandInvocation): void {
+    const explicit = invocation?.args?.['paths'];
+    const paths = Array.isArray(explicit)
+      ? explicit.filter((path): path is string => typeof path === 'string')
+      : this.getActiveSelectionPaths();
+    const source = typeof invocation?.context?.['sourceLabel'] === 'string'
+      ? invocation.context['sourceLabel']
+      : `pane:${this.activePaneId}`;
+    const added = this.selectionBasketService.add(paths, source);
+    if (added > 0) this.selectionBasket?.show();
+  }
+
+  async copySelectionBasketTo(targetSide: 'left' | 'right'): Promise<void> {
+    const paths = this.selectionBasketService.paths;
+    const target = this.getPane(targetSide);
+    if (!target || paths.length === 0) return;
+    if (this.getPaneTabKind(target) !== 'dir' || target.isInArchive()) {
+      this.confirmDialog.alert('Selection Basket\nChoose a regular folder pane as the destination.');
+      return;
+    }
+    const destDir = target.currentPath || target.getDestinationDir();
+    const confirmed = !this.appSettingsService.getSettings().files.confirmBeforeCopy || await this.confirmDialog.confirm({
+      title: 'Copy Selection Basket',
+      message: `Copy ${paths.length} collected item(s) to ${destDir}?`,
+      confirmText: 'Copy',
+    });
+    if (!confirmed) return;
+    const items = await Promise.all(paths.map(async source => ({
+      source,
+      destination: await this.buildDestinationPath(source, destDir),
+    })));
+    const result = await this.apiService.batchCopy(items, true);
+    if (result?.failed) this.confirmDialog.alert(`Basket Copy\n${result.failed} item(s) failed.`);
+    await target.browserCommands.navigation.refresh();
+  }
+
+  async moveSelectionBasketTo(targetSide: 'left' | 'right'): Promise<void> {
+    const paths = this.selectionBasketService.paths;
+    const target = this.getPane(targetSide);
+    if (!target || paths.length === 0) return;
+    if (this.getPaneTabKind(target) !== 'dir' || target.isInArchive()) {
+      this.confirmDialog.alert('Selection Basket\nChoose a regular folder pane as the destination.');
+      return;
+    }
+    const destDir = target.currentPath || target.getDestinationDir();
+    const confirmed = !this.appSettingsService.getSettings().files.confirmBeforeMove || await this.confirmDialog.confirm({
+      title: 'Move Selection Basket',
+      message: `Move ${paths.length} collected item(s) to ${destDir}?`,
+      confirmText: 'Move',
+    });
+    if (!confirmed) return;
+    const items = await Promise.all(paths.map(async source => ({
+      source,
+      destination: await this.buildDestinationPath(source, destDir),
+    })));
+    const result = await this.apiService.batchMove(items, true);
+    const failedSources = new Set((result?.errors ?? []).map(error => error.source));
+    if (!result?.failed) {
+      this.selectionBasketService.removePaths(paths);
+    } else if (failedSources.size > 0) {
+      this.selectionBasketService.removePaths(paths.filter(path => !failedSources.has(path)));
+    }
+    if (result?.failed) this.confirmDialog.alert(`Basket Move\n${result.failed} item(s) failed and remain in the basket.`);
+    await target.browserCommands.navigation.refresh();
+    await this.leftPane?.browserCommands.navigation.refresh();
+    await this.rightPane?.browserCommands.navigation.refresh();
+  }
+
+  async deleteSelectionBasket(): Promise<void> {
+    const paths = this.selectionBasketService.paths;
+    if (paths.length === 0) return;
+    const confirmed = !this.appSettingsService.getSettings().files.confirmBeforeDelete || await this.confirmDialog.confirm({
+      title: 'Delete Selection Basket',
+      message: `Move ${paths.length} collected item(s) to the recycle bin / trash?`,
+      confirmText: 'Delete',
+      danger: true,
+    });
+    if (!confirmed) return;
+    const result = await this.apiService.batchDelete(paths, true, true);
+    const failedSources = new Set((result?.errors ?? []).map(error => error.source));
+    if (!result?.failed) {
+      this.selectionBasketService.removePaths(paths);
+    } else if (failedSources.size > 0) {
+      this.selectionBasketService.removePaths(paths.filter(path => !failedSources.has(path)));
+    }
+    if (result?.failed) this.confirmDialog.alert(`Basket Delete\n${result.failed} item(s) failed and remain in the basket.`);
+    await this.leftPane?.browserCommands.navigation.refresh();
+    await this.rightPane?.browserCommands.navigation.refresh();
   }
 
   private getOtherPane(): FilePaneComponent | undefined {
@@ -783,6 +878,9 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
       showKeyboardHelp:      () => this.keyboardHelp?.show(),
       openSettings:          () => this.appSettingsService.openSettings(),
       openOperations:        () => this.operationCenter?.show(),
+      openSelectionBasket:   () => this.selectionBasket?.show(),
+      addToSelectionBasket:  (invocation) => this.addToSelectionBasket(invocation),
+      clearSelectionBasket:  () => this.selectionBasketService.clear(),
       openCommandPalette:    () => this.commandPalette?.show(),
       cursorUp:              () => this.getActivePane()?.shortcuts.selection.moveCursorUp(),
       cursorDown:            () => this.getActivePane()?.shortcuts.selection.moveCursorDown(),

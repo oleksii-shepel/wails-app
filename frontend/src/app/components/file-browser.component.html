@@ -41,6 +41,9 @@
           title="Compare the two folder panes">
           Compare
         </button>
+        <button (click)="selectionBasket?.show()" class="btn" title="Open Selection Basket">
+          Basket<span *ngIf="selectionBasketService.count$ | async as basketCount"> · {{ basketCount }}</span>
+        </button>
         <button (click)="operationCenter?.show()" class="btn" title="Open Operations Center">
           Operations<span *ngIf="operationService.activeCount$ | async as activeCount"> · {{ activeCount }}</span>
         </button>
@@ -164,6 +167,11 @@
   <app-global-search (resultSelected)="onGlobalSearchResult($event)" (searchFolderRequested)="onGlobalSearchFolder($event)"></app-global-search>
   <app-keyboard-help></app-keyboard-help>
   <app-command-palette></app-command-palette>
+  <app-selection-basket
+    (copyTo)="copySelectionBasketTo($event)"
+    (moveTo)="moveSelectionBasketTo($event)"
+    (deleteRequested)="deleteSelectionBasket()">
+  </app-selection-basket>
   <app-operation-center></app-operation-center>
   <app-operation-toast-stack #toastStack [collapsed]="toastCollapsed">
   </app-operation-toast-stack>

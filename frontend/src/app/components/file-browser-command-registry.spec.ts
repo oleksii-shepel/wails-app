@@ -6,6 +6,7 @@ function handlers(): FileBrowserCommandHandlers {
   return {
     openCommandPalette: fn, openGlobalSearch: fn, showPathHistory: fn, quickPathJump: fn,
     navigateUp: fn, refresh: fn, showKeyboardHelp: fn, openSettings: fn, openOperations: fn,
+    openSelectionBasket: fn, addToSelectionBasket: fn, clearSelectionBasket: fn,
     cursorUp: fn, cursorDown: fn, cursorLeft: fn, cursorRight: fn, cursorHome: fn, cursorEnd: fn,
     cursorPageUp: fn, cursorPageDown: fn, newTab: fn, closeTab: fn, nextTab: fn, prevTab: fn,
     jumpToTab: vi.fn(), togglePinTab: fn, openItem: fn, quickView: fn, copyCursorPath: fn,
@@ -15,8 +16,8 @@ function handlers(): FileBrowserCommandHandlers {
     selectSameExt: fn, focusFilter: fn, advancedFilter: fn, clearFilter: fn,
     showWorkspaceSwitcher: fn, newWorkspace: fn, toggleHidden: fn, switchPane: fn,
     copyToOtherPane: fn, moveToOtherPane: fn, focusAddressBar: fn,
-    comparePanes: fn, selectLeftDifferences: fn, selectRightDifferences: fn,
-    copyMissingLeftToRight: fn, copyMissingRightToLeft: fn, diskUsage: fn,
+    comparePanes: fn, recursiveComparePanes: fn, reviewSyncPlan: fn, selectLeftDifferences: fn, selectRightDifferences: fn,
+    copyMissingLeftToRight: fn, copyMissingRightToLeft: fn, diskUsage: fn, findDuplicates: fn,
     batchRename: fn, openWithExternal: fn,
   };
 }
@@ -29,6 +30,8 @@ describe('createFileBrowserCommandDescriptors', () => {
     expect(ids.has(BC.openCommandPalette)).toBe(true);
     expect(ids.has(BC.deleteSelected)).toBe(true);
     expect(ids.has(BC.comparePanes)).toBe(true);
+    expect(ids.has(BC.openSelectionBasket)).toBe(true);
+    expect(ids.has(BC.addToSelectionBasket)).toBe(true);
     expect(ids.has(BC.jumpToTab(9))).toBe(true);
     expect(list.every(command => typeof command.execute === 'function')).toBe(true);
   });

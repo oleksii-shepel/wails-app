@@ -1,9 +1,14 @@
+import { NgZone } from '@angular/core';
 import { fn, spyOnFn, stubGlobal, restoreGlobals } from '../testing/jasmine-test-helpers';
 import { InputEngineService } from './input-engine.service';
 
+function createEngine(): InputEngineService {
+  return new InputEngineService(new NgZone({ enableLongStackTrace: false }));
+}
+
 describe('InputEngineService human command names', () => {
   it('resolves canonical names and aliases without changing stable command ids', () => {
-    const engine = new InputEngineService();
+    const engine = createEngine();
     engine.registerCommandDescriptor({
       id: 'pane.files.newFolder',
       title: 'New Folder',
@@ -18,7 +23,7 @@ describe('InputEngineService human command names', () => {
   });
 
   it('refuses ambiguous aliases instead of guessing', () => {
-    const engine = new InputEngineService();
+    const engine = createEngine();
     engine.registerCommandDescriptor({ id: 'one', title: 'One', name: 'same', execute: fn() });
     engine.registerCommandDescriptor({ id: 'two', title: 'Two', aliases: ['same'], execute: fn() });
 
@@ -26,7 +31,7 @@ describe('InputEngineService human command names', () => {
   });
 
   it('dispatches by human-facing name with structured invocation', () => {
-    const engine = new InputEngineService();
+    const engine = createEngine();
     const execute = fn();
     engine.registerCommandDescriptor({ id: 'test.open', title: 'Open', name: 'open', execute });
 

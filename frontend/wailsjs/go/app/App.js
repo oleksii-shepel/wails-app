@@ -514,10 +514,6 @@ export function StartOperation(arg1, arg2, arg3, arg4) {
   return window['go']['app']['App']['StartOperation'](arg1, arg2, arg3, arg4);
 }
 
-export function Startup(arg1) {
-  return window['go']['app']['App']['Startup'](arg1);
-}
-
 export function StopElevatedSession() {
   return window['go']['app']['App']['StopElevatedSession']();
 }

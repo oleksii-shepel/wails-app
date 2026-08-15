@@ -15,18 +15,21 @@
       "prefix": "app",
       "architect": {
         "build": {
-          "builder": "@angular-devkit/build-angular:browser",
+          "builder": "@angular/build:application",
           "options": {
-            "outputPath": "dist",
+            "outputPath": {
+              "base": "dist",
+              "browser": ""
+            },
             "deleteOutputPath": false,
             "index": "src/index.html",
-            "main": "src/main.ts",
+            "browser": "src/main.ts",
             "polyfills": ["zone.js"],
             "tsConfig": "tsconfig.app.json",
             "assets": ["src/favicon.ico", "src/assets"],
             "styles": ["src/styles.scss"],
             "scripts": [],
-            "allowedCommonJsDependencies": ["content-type", "debug", "media-typer"]
+            "allowedCommonJsDependencies": ["content-type", "debug", "ieee754", "media-typer"]
           },
           "configurations": {
             "production": {
@@ -43,17 +46,13 @@
                 }
               ],
               "outputHashing": "none",
-              "buildOptimizer": true,
               "optimization": true,
-              "vendorChunk": true,
               "extractLicenses": false,
               "sourceMap": false,
               "namedChunks": true
             },
             "development": {
-              "buildOptimizer": false,
               "optimization": false,
-              "vendorChunk": true,
               "extractLicenses": false,
               "sourceMap": true,
               "namedChunks": true
@@ -62,7 +61,7 @@
           "defaultConfiguration": "production"
         },
         "serve": {
-          "builder": "@angular-devkit/build-angular:dev-server",
+          "builder": "@angular/build:dev-server",
           "configurations": {
             "production": {
               "buildTarget": "file-manager-client:build:production"

@@ -12,7 +12,7 @@
     "email": "oleksii.shepel@outlook.com"
   },
   "build": {
-    "devTools": "on"
+    "devTools": "off"
   },
   "frontend": {
     "dragAndDrop": {

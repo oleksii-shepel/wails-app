@@ -278,8 +278,48 @@ window.addEventListener('popstate',function(){report('completed');});
 })();`
 }
 
+func browserPaneInjectedShortcutBridgeScript() string {
+	return `(function(){
+if(window.__wailsBrowserPaneShortcutInit){return;}
+window.__wailsBrowserPaneShortcutInit=true;
+function isFunctionKey(key){
+	return /^F\d{1,2}$/i.test(String(key||''));
+}
+function shouldForward(event){
+	if(!event||event.isComposing){return false;}
+	if(event.ctrlKey||event.altKey||event.metaKey){return true;}
+	return isFunctionKey(event.key);
+}
+window.addEventListener('keydown',function(event){
+	if(!shouldForward(event)){return;}
+	try{
+		if(window.__wailsBrowserPane&&window.__wailsBrowserPane.postMessage){
+			var target=event.target;
+			var tagName=(target&&target.tagName)?String(target.tagName).toLowerCase():'';
+			window.__wailsBrowserPane.postMessage({
+				type:'shortcut',
+				event:'keydown',
+				key:String(event.key||''),
+				code:String(event.code||''),
+				ctrlKey:!!event.ctrlKey,
+				shiftKey:!!event.shiftKey,
+				altKey:!!event.altKey,
+				metaKey:!!event.metaKey,
+				context:{
+					inInput:tagName==='input',
+					inTextarea:tagName==='textarea',
+					inSelect:tagName==='select',
+					inContentEditable:!!(target&&target.isContentEditable)
+				}
+			});
+		}
+	}catch(_){}
+},true);
+})();`
+}
+
 func browserPaneInjectedBootstrapScript() string {
-	return browserPaneInjectedMessageBridgeScript() + "\n" + browserPaneInjectedResourceTrackerScript() + "\n" + browserPaneInjectedLifecycleScript()
+	return browserPaneInjectedMessageBridgeScript() + "\n" + browserPaneInjectedResourceTrackerScript() + "\n" + browserPaneInjectedLifecycleScript() + "\n" + browserPaneInjectedShortcutBridgeScript()
 }
 
 func browserPaneHostMessageEvalScript(message string) string {

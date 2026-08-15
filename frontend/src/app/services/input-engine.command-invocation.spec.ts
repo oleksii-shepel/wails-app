@@ -1,10 +1,15 @@
+import { NgZone } from '@angular/core';
 import { fn, spyOnFn, stubGlobal, restoreGlobals } from '../testing/jasmine-test-helpers';
 import { InputEngineService } from './input-engine.service';
 import type { CommandInvocation } from './input-system.types';
 
+function createEngine(): InputEngineService {
+  return new InputEngineService(new NgZone({ enableLongStackTrace: false }));
+}
+
 describe('InputEngineService command invocation', () => {
   it('passes structured invocation data to command handlers', () => {
-    const engine = new InputEngineService();
+    const engine = createEngine();
     const execute = fn();
     engine.registerCommandDescriptor({ id: 'test.open', title: 'Open', execute });
 
@@ -19,7 +24,7 @@ describe('InputEngineService command invocation', () => {
   });
 
   it('lets availability inspect invocation arguments', () => {
-    const engine = new InputEngineService();
+    const engine = createEngine();
     const execute = fn();
     engine.registerCommandDescriptor({
       id: 'test.hash',
@@ -42,7 +47,7 @@ describe('InputEngineService command invocation', () => {
   });
 
   it('annotates binding-driven dispatch with its source and binding id', async () => {
-    const engine = new InputEngineService();
+    const engine = createEngine();
     const execute = fn();
     engine.registerCommandDescriptor({ id: 'test.refresh', title: 'Refresh', execute });
     engine.registerBinding({
@@ -60,6 +65,71 @@ describe('InputEngineService command invocation', () => {
       source: 'keyboard',
       context: { bindingId: 'test.refresh.f9' },
     });
+  });
+
+  it('dispatches synthetic keyboard events with shortcut context', async () => {
+    const engine = createEngine();
+    const execute = fn();
+    engine.registerCommandDescriptor({ id: 'test.palette', title: 'Palette', execute });
+    engine.registerBinding({
+      id: 'test.palette.ctrlShiftP',
+      commandId: 'test.palette',
+      contextId: 'global',
+      source: 'default',
+      description: 'Open palette',
+      when: '!typing && activePane',
+      trigger: { device: 'keyboard', chord: { steps: [{ key: 'p', modifiers: ['ctrl', 'shift'] }] } },
+    });
+
+    await engine.dispatchKeyboardEvent({
+      key: 'P',
+      code: 'KeyP',
+      ctrlKey: true,
+      shiftKey: true,
+    }, {
+      context: {
+        hasActivePane: true,
+      },
+    });
+
+    expect(execute).toHaveBeenCalledWith({
+      source: 'keyboard',
+      context: { bindingId: 'test.palette.ctrlShiftP' },
+    });
+  });
+
+  it('keeps the latest binding owner active when an older owner unregisters the same binding id', async () => {
+    const engine = createEngine();
+    const oldExecute = fn();
+    const newExecute = fn();
+
+    engine.registerCommandDescriptor({ id: 'test.refresh', title: 'Refresh', execute: oldExecute }, 'owner-a');
+    engine.registerBinding({
+      id: 'test.refresh.f9',
+      commandId: 'test.refresh',
+      contextId: 'global',
+      source: 'default',
+      description: 'Refresh',
+      trigger: { device: 'keyboard', chord: { steps: [{ key: 'f9' }] } },
+    }, 'owner-a');
+
+    engine.registerCommandDescriptor({ id: 'test.refresh', title: 'Refresh', execute: newExecute }, 'owner-b');
+    engine.registerBinding({
+      id: 'test.refresh.f9',
+      commandId: 'test.refresh',
+      contextId: 'global',
+      source: 'default',
+      description: 'Refresh',
+      trigger: { device: 'keyboard', chord: { steps: [{ key: 'f9' }] } },
+    }, 'owner-b');
+
+    engine.unregisterCommandDescriptor('test.refresh', 'owner-a');
+    engine.unregisterBinding('test.refresh.f9', 'owner-a');
+
+    await engine.dispatchKeyStroke({ key: 'f9' });
+
+    expect(oldExecute).not.toHaveBeenCalled();
+    expect(newExecute).toHaveBeenCalledTimes(1);
   });
 });
 

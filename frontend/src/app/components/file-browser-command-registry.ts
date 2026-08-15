@@ -529,12 +529,12 @@ export function registerFileBrowserCommands(
   }
 
   for (const binding of BROWSER_BINDINGS) {
-    engine.registerBinding(binding);
+    engine.registerBinding(binding, ownerId);
   }
 
   return () => {
     for (const binding of BROWSER_BINDINGS) {
-      engine.unregisterBinding(binding.id);
+      engine.unregisterBinding(binding.id, ownerId);
     }
     for (const descriptor of descriptors) {
       engine.unregisterCommandDescriptor(descriptor.id, ownerId);

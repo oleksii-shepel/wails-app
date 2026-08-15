@@ -31,7 +31,9 @@
   },
   "htmlOptions": {
     "title": "Jasmine Test Runner",
-    "preludeModules": []
+    "preludeModules": [
+      "@angular/compiler"
+    ]
   },
   "suppressConsoleLogs": false
 }

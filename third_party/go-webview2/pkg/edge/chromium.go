@@ -433,6 +433,12 @@ func (e *Chromium) completeControllerInitialization(controller *ICoreWebView2Con
 	}
 
 	e.webview.vtbl.AddRef.Call(uintptr(unsafe.Pointer(e.webview)))
+	settings, err := e.webview.GetSettings()
+	if err != nil {
+		e.errorCallback(err)
+	} else if err := settings.PutAreBrowserAcceleratorKeysEnabled(false); err != nil {
+		e.errorCallback(err)
+	}
 	err = e.webview.AddWebMessageReceived(e.webMessageReceived, &token)
 	if err != nil {
 		e.errorCallback(err)
@@ -634,20 +640,18 @@ func (e *Chromium) AcceleratorKeyPressed(sender *ICoreWebView2Controller, args *
 		return 0
 	}
 	eventKind, _ := args.GetKeyEventKind()
-	if eventKind == COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN ||
-		eventKind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN {
-		virtualKey, _ := args.GetVirtualKey()
-		status, _ := args.GetPhysicalKeyStatus()
-		if !status.WasKeyDown {
-			err := args.PutHandled(e.AcceleratorKeyCallback(virtualKey))
-			if err != nil {
-				e.errorCallback(err)
-			}
-		} else {
-			return 0
-		}
+	if eventKind != COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN &&
+		eventKind != COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN {
+		return 0
 	}
-	err := args.PutHandled(false)
+
+	status, _ := args.GetPhysicalKeyStatus()
+	if status.WasKeyDown {
+		return 0
+	}
+
+	virtualKey, _ := args.GetVirtualKey()
+	err := args.PutHandled(e.AcceleratorKeyCallback(virtualKey))
 	if err != nil {
 		e.errorCallback(err)
 	}

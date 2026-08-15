@@ -61,6 +61,35 @@ interface KeyboardEventContext {
   inViewerSurface: boolean;
 }
 
+export interface ShortcutDebugTrace {
+  stroke: string;
+  stage: 'matched' | 'no-match' | 'no-command';
+  bindingId?: string;
+  commandId?: string;
+}
+
+export interface SyntheticKeyboardContext {
+  inInput?: boolean;
+  inTextarea?: boolean;
+  inSelect?: boolean;
+  inContentEditable?: boolean;
+  inModal?: boolean;
+  inQuickAccessMenu?: boolean;
+  hasActivePane?: boolean;
+  isFilterInput?: boolean;
+  inFileEntry?: boolean;
+  inViewerSurface?: boolean;
+}
+
+export interface SyntheticKeyboardEvent {
+  key: string;
+  code?: string;
+  ctrlKey?: boolean;
+  shiftKey?: boolean;
+  altKey?: boolean;
+  metaKey?: boolean;
+}
+
 const SOURCE_PRIORITY: Record<InputSourceKind, number> = {
   default: 10,
   plugin: 20,
@@ -80,6 +109,7 @@ function normalizeCommandReference(value: string): string {
 export class InputEngineService {
   private readonly contexts = new Map<string, InputContextDefinition>();
   private readonly bindings = new Map<string, RegisteredBinding>();
+  private readonly bindingRegistrations = new Map<string, Map<string, RegisteredBinding>>();
   private readonly commands = new Map<string, Map<string, RegisteredCommand>>();
   private readonly commandDefinitions = new Map<string, CommandDefinition>();
   private readonly commandEnablement = new Map<string, Map<string, (invocation?: CommandInvocation) => boolean>>();
@@ -98,8 +128,11 @@ export class InputEngineService {
   readonly activeContexts$ = createBehaviorSubject<InputContextDefinition[]>([]);
   readonly pendingChord$ = createBehaviorSubject<PendingChordState | null>(null);
   readonly bindings$ = createBehaviorSubject<InputBindingDefinition[]>([]);
+  readonly shortcutDebug$ = createBehaviorSubject<ShortcutDebugTrace | null>(null);
 
   private keyboardEnabled = true;
+  readonly showShortcutDebug = typeof window !== 'undefined'
+    && ['localhost', '127.0.0.1'].includes(window.location.hostname);
 
   constructor(
     private readonly ngZone: NgZone,
@@ -314,19 +347,33 @@ export class InputEngineService {
     this.clearPendingChord();
   }
 
-  registerBinding(binding: InputBindingDefinition): void {
-    this.bindings.set(binding.id, {
+  registerBinding(binding: InputBindingDefinition, ownerId = 'default'): void {
+    const registrations = this.bindingRegistrations.get(binding.id) ?? new Map<string, RegisteredBinding>();
+    registrations.set(ownerId, {
       ...binding,
       preventDefault: binding.preventDefault !== false,
       stopPropagation: binding.stopPropagation !== false,
-      enabled: true,
+      enabled: binding.enabled !== false,
       registrationOrder: ++this.registrationCounter,
     });
+    this.bindingRegistrations.set(binding.id, registrations);
+    this.bindings.set(binding.id, this.getActiveBindingRegistration(registrations));
     this.emitBindings();
   }
 
-  unregisterBinding(bindingId: string): void {
-    if (!this.bindings.delete(bindingId)) return;
+  unregisterBinding(bindingId: string, ownerId = 'default'): void {
+    const registrations = this.bindingRegistrations.get(bindingId);
+    if (!registrations) return;
+
+    registrations.delete(ownerId);
+    if (registrations.size === 0) {
+      this.bindingRegistrations.delete(bindingId);
+      this.bindings.delete(bindingId);
+      this.emitBindings();
+      return;
+    }
+
+    this.bindings.set(bindingId, this.getActiveBindingRegistration(registrations));
     this.emitBindings();
   }
 
@@ -380,7 +427,7 @@ export class InputEngineService {
         if (this.bindings.has(binding.id)) {
           throw new Error(`Plugin ${pluginId} cannot replace input binding ${binding.id}.`);
         }
-        this.registerBinding({ ...binding, source: 'plugin' });
+        this.registerBinding({ ...binding, source: 'plugin' }, ownerId);
         bindingIds.push(binding.id);
       }
 
@@ -409,7 +456,7 @@ export class InputEngineService {
     registration: { commandIds: string[]; bindingIds: string[]; contextIds: string[] },
   ): void {
     for (const bindingId of registration.bindingIds) {
-      this.unregisterBinding(bindingId);
+      this.unregisterBinding(bindingId, ownerId);
     }
     for (const commandId of registration.commandIds) {
       this.unregisterCommandDescriptor(commandId, ownerId);
@@ -475,9 +522,12 @@ export class InputEngineService {
     return Array.from(this.contexts.values());
   }
 
-  resolveKeyStroke(stroke: KeyStroke, event?: KeyboardEvent): BindingResolution | null {
+  resolveKeyStroke(
+    stroke: KeyStroke,
+    context?: KeyboardEvent | KeyboardEventContext | SyntheticKeyboardContext | null,
+  ): BindingResolution | null {
     const currentSequence = this.pendingChord ? [...this.pendingChord.steps, stroke] : [stroke];
-    const candidates = this.matchBindings(currentSequence, event);
+    const candidates = this.matchBindings(currentSequence, this.resolveKeyboardContext(context));
 
     if (candidates.length === 0) {
       if (this.pendingChord) {
@@ -509,8 +559,10 @@ export class InputEngineService {
     return this.chooseBestBinding(completeMatches);
   }
 
-  async dispatchKeyStroke(stroke: KeyStroke): Promise<boolean> {
-    const resolution = this.resolveKeyStroke(stroke);
+  async dispatchKeyStroke(stroke: KeyStroke, options?: { context?: SyntheticKeyboardContext | null }): Promise<boolean> {
+    if (!this.keyboardEnabled) return false;
+
+    const resolution = this.resolveKeyStroke(stroke, options?.context ?? null);
     if (!resolution) return false;
 
     const invocation: CommandInvocation = { source: 'keyboard', context: { bindingId: resolution.binding.id } };
@@ -518,6 +570,13 @@ export class InputEngineService {
     if (!command) return false;
 
     return this.executeCommandAsync(command, invocation);
+  }
+
+  async dispatchKeyboardEvent(
+    event: SyntheticKeyboardEvent,
+    options?: { context?: SyntheticKeyboardContext | null },
+  ): Promise<boolean> {
+    return this.dispatchKeyStroke(this.normalizeKeyStroke(event), options);
   }
 
   async dispatchMouseGesture(gesture: MouseGesture): Promise<boolean> {
@@ -532,16 +591,37 @@ export class InputEngineService {
   }
 
   private initializeKeyboardListener(): void {
-    document.addEventListener('keydown', (event) => {
+    const listener = (event: KeyboardEvent) => {
       if (!this.keyboardEnabled || event.isComposing) return;
 
       const stroke = this.normalizeKeyStroke(event);
       const resolution = this.resolveKeyStroke(stroke, event);
-      if (!resolution) return;
+      if (!resolution) {
+        this.emitShortcutDebug({
+          stroke: this.formatDebugStroke(stroke),
+          stage: 'no-match',
+        });
+        return;
+      }
 
       const invocation: CommandInvocation = { source: 'keyboard', context: { bindingId: resolution.binding.id } };
       const command = this.getCommandHandler(resolution.binding.commandId, invocation);
-      if (!command) return;
+      if (!command) {
+        this.emitShortcutDebug({
+          stroke: this.formatDebugStroke(stroke),
+          stage: 'no-command',
+          bindingId: resolution.binding.id,
+          commandId: resolution.binding.commandId,
+        });
+        return;
+      }
+
+      this.emitShortcutDebug({
+        stroke: this.formatDebugStroke(stroke),
+        stage: 'matched',
+        bindingId: resolution.binding.id,
+        commandId: resolution.binding.commandId,
+      });
 
       if (resolution.binding.preventDefault !== false) {
         event.preventDefault();
@@ -551,7 +631,10 @@ export class InputEngineService {
       }
 
       this.executeCommand(command, invocation);
-    }, { capture: true });
+    };
+
+    window.addEventListener('keydown', listener, { capture: true });
+    document.addEventListener('keydown', listener, { capture: true });
   }
 
   private initializeMouseListeners(): void {
@@ -601,7 +684,7 @@ export class InputEngineService {
     return this.chooseBestBinding(candidates);
   }
 
-  private normalizeKeyStroke(event: KeyboardEvent): KeyStroke {
+  private normalizeKeyStroke(event: SyntheticKeyboardEvent): KeyStroke {
     const modifiers: KeyStroke['modifiers'] = [];
     if (event.ctrlKey || event.metaKey) modifiers.push(event.ctrlKey ? 'ctrl' : 'meta');
     if (event.shiftKey) modifiers.push('shift');
@@ -642,12 +725,30 @@ export class InputEngineService {
       ArrowRight: 'arrowright',
     };
 
-    return keyMap[key] ?? key.toLowerCase();
+    const normalizedKey = keyMap[key] ?? key.toLowerCase();
+    if (normalizedKey && normalizedKey !== 'unidentified') {
+      return normalizedKey;
+    }
+
+    // WebView2 may report accelerator combinations (for example Ctrl+Shift+P)
+    // with KeyboardEvent.key === "Unidentified" while still preserving the
+    // physical DOM code ("KeyP"). Recover the logical key from code only when
+    // key itself is unusable. Normal browser keyboard semantics remain unchanged.
+    if (code?.startsWith('Key') && code.length === 4) {
+      return code.slice(3).toLowerCase();
+    }
+    if (code?.startsWith('Digit') && code.length === 6) {
+      return code.slice(5);
+    }
+    if (/^F(?:[1-9]|1[0-9]|2[0-4])$/.test(code ?? '')) {
+      return code!.toLowerCase();
+    }
+
+    return normalizedKey;
   }
 
-  private matchBindings(sequence: KeyStroke[], event?: KeyboardEvent): RegisteredBinding[] {
+  private matchBindings(sequence: KeyStroke[], keyboardContext?: KeyboardEventContext | null): RegisteredBinding[] {
     const activeContextIds = this.getActiveContextIds();
-    const keyboardContext = event ? this.getKeyboardEventContext(event) : null;
 
     return Array.from(this.bindings.values()).filter(binding => {
       if (!binding.enabled || binding.trigger.device !== 'keyboard') return false;
@@ -757,6 +858,30 @@ export class InputEngineService {
       default:
         return false;
     }
+  }
+
+  private resolveKeyboardContext(
+    source?: KeyboardEvent | KeyboardEventContext | SyntheticKeyboardContext | null,
+  ): KeyboardEventContext | null {
+    if (!source) {
+      return null;
+    }
+    if ('target' in source) {
+      return this.getKeyboardEventContext(source);
+    }
+
+    return {
+      inInput: !!source.inInput,
+      inTextarea: !!source.inTextarea,
+      inSelect: !!source.inSelect,
+      inContentEditable: !!source.inContentEditable,
+      inModal: !!source.inModal,
+      inQuickAccessMenu: !!source.inQuickAccessMenu,
+      hasActivePane: !!source.hasActivePane,
+      isFilterInput: !!source.isFilterInput,
+      inFileEntry: !!source.inFileEntry,
+      inViewerSurface: !!source.inViewerSurface,
+    };
   }
 
   private getKeyboardEventContext(event: { target: EventTarget | null }): KeyboardEventContext {
@@ -874,6 +999,42 @@ export class InputEngineService {
   private getCommandHandler(commandId: string, invocation?: CommandInvocation): InputCommandHandler | null {
     if (!this.isCommandEnabled(commandId, invocation)) return null;
     return this.getActiveCommandRegistration(commandId)?.handler ?? null;
+  }
+
+  private emitShortcutDebug(trace: ShortcutDebugTrace): void {
+    if (!this.showShortcutDebug) return;
+    this.ngZone.run(() => {
+      this.shortcutDebug$.next(trace);
+    });
+  }
+
+  private formatDebugStroke(stroke: KeyStroke): string {
+    const parts: string[] = [...(stroke.modifiers ?? []).map(modifier => {
+      switch (modifier) {
+        case 'ctrl': return 'Ctrl';
+        case 'shift': return 'Shift';
+        case 'alt': return 'Alt';
+        case 'meta': return 'Meta';
+        default: return modifier;
+      }
+    })];
+    parts.push(stroke.key);
+    return parts.join('+');
+  }
+
+  private getActiveBindingRegistration(registrations: Map<string, RegisteredBinding>): RegisteredBinding {
+    let activeRegistration: RegisteredBinding | null = null;
+    for (const registration of registrations.values()) {
+      if (!activeRegistration || registration.registrationOrder > activeRegistration.registrationOrder) {
+        activeRegistration = registration;
+      }
+    }
+
+    if (!activeRegistration) {
+      throw new Error('Binding registration set is unexpectedly empty.');
+    }
+
+    return activeRegistration;
   }
 
   private executeCommand(command: InputCommandHandler, invocation: CommandInvocation): boolean {

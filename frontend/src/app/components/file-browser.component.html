@@ -24,6 +24,16 @@
         <span *ngIf="pendingChord$ | async as pendingChord" class="pending-chord-indicator" title="Waiting for next key in shortcut sequence">
           {{ formatPendingChord(pendingChord) }}
         </span>
+        <ng-container *ngIf="showShortcutDebug">
+          <span *ngIf="shortcutDebug$ | async as shortcutDebugValue" class="shortcut-debug-indicator">
+            <ng-container *ngIf="asShortcutDebugTrace(shortcutDebugValue) as shortcutDebug">
+              F1 {{ hasBinding('pane.nav.openCommandPalette.f1') ? 'yes' : 'no' }}
+              · Palette {{ hasBinding('pane.nav.openCommandPalette.ctrlShiftP') ? 'yes' : 'no' }}
+              · Pin {{ hasBinding('pane.tabs.pin.ctrlAltP') ? 'yes' : 'no' }}
+              · {{ shortcutDebug.stroke }} → {{ shortcutDebug.stage }}<ng-container *ngIf="shortcutDebug.commandId"> · {{ shortcutDebug.commandId }}</ng-container>
+            </ng-container>
+          </span>
+        </ng-container>
         <button
           (click)="toggleElevation()"
           [class.active]="elevationActive"

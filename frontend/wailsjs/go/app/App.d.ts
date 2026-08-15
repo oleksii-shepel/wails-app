@@ -8,7 +8,6 @@ import {elevation} from '../models';
 import {plugin} from '../models';
 import {utility} from '../models';
 import {ops} from '../models';
-import {context} from '../models';
 import {time} from '../models';
 
 export function AnalyzeDiskUsage(arg1:string):Promise<contracts.DiskUsageResult>;
@@ -266,8 +265,6 @@ export function StartElevatedSession():Promise<elevation.SessionStatus>;
 export function StartListDirStream(arg1:string,arg2:string,arg3:boolean):Promise<string>;
 
 export function StartOperation(arg1:contracts.OperationType,arg2:string,arg3:string,arg4:string):Promise<ops.ActiveOperation>;
-
-export function Startup(arg1:context.Context):Promise<void>;
 
 export function StopElevatedSession():Promise<void>;
 

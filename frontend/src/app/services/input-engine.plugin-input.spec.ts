@@ -1,3 +1,4 @@
+import { NgZone } from '@angular/core';
 import '@angular/compiler';
 import { fn, spyOnFn, stubGlobal, restoreGlobals } from '../testing/jasmine-test-helpers';
 import { InputEngineService } from './input-engine.service';
@@ -8,7 +9,7 @@ function createEngine(): InputEngineService {
     querySelector: fn(() => null),
     activeElement: null,
   });
-  return new InputEngineService();
+  return new InputEngineService(new NgZone({ enableLongStackTrace: false }));
 }
 
 describe('InputEngineService plugin input ownership', () => {

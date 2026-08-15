@@ -69,6 +69,8 @@ func TestBrowserPaneInjectedBootstrapScriptSupportsWindowsAndWebKitHosts(t *test
 		"type:'resource-snapshot'",
 		"window.__wailsBrowserPaneLifecycleInit",
 		"type:'lifecycle'",
+		"window.__wailsBrowserPaneShortcutInit",
+		"type:'shortcut'",
 	}
 	for _, fragment := range requiredFragments {
 		if !strings.Contains(script, fragment) {

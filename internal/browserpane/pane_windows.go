@@ -92,6 +92,7 @@ var (
 	procReleaseCapture            = user32.NewProc("ReleaseCapture")
 	procSetCursor                 = user32.NewProc("SetCursor")
 	procSetFocus                  = user32.NewProc("SetFocus")
+	procGetKeyboardState          = user32.NewProc("GetKeyboardState")
 	procTrackMouseEvent           = user32.NewProc("TrackMouseEvent")
 	procGetModuleHandleW          = kernel32.NewProc("GetModuleHandleW")
 	procGetCurrentThreadID        = kernel32.NewProc("GetCurrentThreadId")
@@ -815,6 +816,9 @@ func newWindowsPaneState(initialTheme string, initialBackgroundColor string, onR
 	chromium.MessageCallback = func(message string, _ *edge.ICoreWebView2, _ *edge.ICoreWebView2WebMessageReceivedEventArgs) {
 		state.handleBrowserMessage(message)
 	}
+	chromium.AcceleratorKeyCallback = func(vkey uint) bool {
+		return state.handleAcceleratorKey(vkey)
+	}
 	chromium.WebResourceResponseReceivedCallback = func(request *edge.ICoreWebView2WebResourceRequest, response *edge.ICoreWebView2WebResourceResponseView, _ *edge.ICoreWebView2WebResourceResponseReceivedEventArgs) {
 		state.handleBrowserResourceResponse(request, response)
 	}
@@ -822,6 +826,16 @@ func newWindowsPaneState(initialTheme string, initialBackgroundColor string, onR
 	if !chromium.Embed(hostHWND) {
 		if chromiumErr == nil {
 			chromiumErr = fmt.Errorf("embed browser pane: WebView2 controller initialization failed")
+		}
+	}
+	if chromiumErr == nil {
+		settings, settingsErr := chromium.GetSettings()
+		if settingsErr != nil {
+			chromiumErr = fmt.Errorf("browser pane settings: %w", settingsErr)
+		} else if settings != nil {
+			if err := settings.PutAreBrowserAcceleratorKeysEnabled(false); err != nil {
+				chromiumErr = fmt.Errorf("disable browser pane accelerators: %w", err)
+			}
 		}
 	}
 	if chromiumErr == nil && state.compositionHost != nil {
@@ -859,6 +873,15 @@ func newWindowsPaneState(initialTheme string, initialBackgroundColor string, onR
 
 func (s *windowsPaneState) handleBrowserMessage(message string) {
 	handleBrowserPaneBridgeMessage(message, s.onResourcesChanged, s.onMessage)
+}
+
+func (s *windowsPaneState) handleAcceleratorKey(vkey uint) bool {
+	message, ok := browserPaneAcceleratorShortcutMessage(vkey)
+	if !ok {
+		return false
+	}
+	s.handleBrowserMessage(message)
+	return true
 }
 
 func (s *windowsPaneState) handleBrowserResourceResponse(request *edge.ICoreWebView2WebResourceRequest, response *edge.ICoreWebView2WebResourceResponseView) {
@@ -993,6 +1016,112 @@ func normalizeBrowserPaneMimeType(contentType string) string {
 		contentType = contentType[:idx]
 	}
 	return strings.ToLower(strings.TrimSpace(contentType))
+}
+
+func browserPaneAcceleratorShortcutMessage(vkey uint) (string, bool) {
+	key, code, ok := browserPaneVirtualKeyToShortcut(vkey)
+	if !ok {
+		return "", false
+	}
+
+	modifiers := currentBrowserPaneKeyboardModifiers()
+	payload, err := json.Marshal(map[string]interface{}{
+		"type":     "shortcut",
+		"event":    "keydown",
+		"key":      key,
+		"code":     code,
+		"ctrlKey":  modifiers.ctrl,
+		"shiftKey": modifiers.shift,
+		"altKey":   modifiers.alt,
+		"metaKey":  modifiers.meta,
+		"context": map[string]bool{
+			"inInput":           false,
+			"inTextarea":        false,
+			"inSelect":          false,
+			"inContentEditable": false,
+		},
+	})
+	if err != nil {
+		return "", false
+	}
+	return string(payload), true
+}
+
+type browserPaneKeyboardModifiers struct {
+	ctrl  bool
+	shift bool
+	alt   bool
+	meta  bool
+}
+
+func currentBrowserPaneKeyboardModifiers() browserPaneKeyboardModifiers {
+	var keyState [256]byte
+	result, _, _ := procGetKeyboardState.Call(uintptr(unsafe.Pointer(&keyState[0])))
+	if result == 0 {
+		return browserPaneKeyboardModifiers{}
+	}
+
+	return browserPaneKeyboardModifiers{
+		ctrl:  keyState[0x11]&0x80 != 0,
+		shift: keyState[0x10]&0x80 != 0,
+		alt:   keyState[0x12]&0x80 != 0,
+		meta:  keyState[0x5B]&0x80 != 0 || keyState[0x5C]&0x80 != 0,
+	}
+}
+
+func browserPaneVirtualKeyToShortcut(vkey uint) (key string, code string, ok bool) {
+	switch {
+	case vkey >= 0x41 && vkey <= 0x5A:
+		letter := rune('A' + (vkey - 0x41))
+		return string(letter), "Key" + string(letter), true
+	case vkey >= 0x30 && vkey <= 0x39:
+		digit := rune('0' + (vkey - 0x30))
+		return string(digit), "Digit" + string(digit), true
+	case vkey >= 0x70 && vkey <= 0x87:
+		index := int(vkey - 0x6F)
+		return fmt.Sprintf("F%d", index), fmt.Sprintf("F%d", index), true
+	}
+
+	switch vkey {
+	case 0x08:
+		return "Backspace", "Backspace", true
+	case 0x09:
+		return "Tab", "Tab", true
+	case 0x0D:
+		return "Enter", "Enter", true
+	case 0x1B:
+		return "Escape", "Escape", true
+	case 0x20:
+		return " ", "Space", true
+	case 0x21:
+		return "PageUp", "PageUp", true
+	case 0x22:
+		return "PageDown", "PageDown", true
+	case 0x23:
+		return "End", "End", true
+	case 0x24:
+		return "Home", "Home", true
+	case 0x25:
+		return "ArrowLeft", "ArrowLeft", true
+	case 0x26:
+		return "ArrowUp", "ArrowUp", true
+	case 0x27:
+		return "ArrowRight", "ArrowRight", true
+	case 0x28:
+		return "ArrowDown", "ArrowDown", true
+	case 0x2D:
+		return "Insert", "Insert", true
+	case 0x2E:
+		return "Delete", "Delete", true
+	case 0x6F:
+		return "/", "Slash", true
+	case 0xBC:
+		return ",", "Comma", true
+	case 0xBF:
+		return "/", "Slash", true
+	}
+
+	return "", "", false
 }
 
 func (s *windowsPaneState) show() {

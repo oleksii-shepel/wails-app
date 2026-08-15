@@ -105,7 +105,7 @@ func Run(assets embed.FS, binding interface{}, archCache *cache.Cache, onStartup
 	}
 
 	wrappedStartup := onStartup
-	if hasPosition {
+	if hasPosition && startState != options.Maximised {
 		savedX, savedY, savedW, savedH := x, y, width, height
 		wrappedStartup = func(ctx context.Context) {
 			if onStartup != nil {

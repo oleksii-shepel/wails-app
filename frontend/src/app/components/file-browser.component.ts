@@ -47,6 +47,7 @@ import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { InputEngineService } from '../services/input-engine.service';
 import { TabInfo } from '../shared/protocol-enhanced';
 import type { CommandInvocation, InputBindingDefinition } from '../services/input-system.types';
+import type { ShortcutDebugTrace } from '../services/input-engine.service';
 import { formatPathForDisplay } from './address-bar.utils';
 import { RemoteConnectDialogService } from '../services/remote-connect-dialog.service';
 import { SettingsService } from '../services/settings.service';
@@ -55,6 +56,24 @@ import { PaneComparisonService, type PaneComparisonResult } from '../services/pa
 import { PaneRecursiveComparisonService } from '../services/pane-recursive-comparison.service';
 import { PaneComparisonBarComponent } from './pane-comparison-bar.component';
 import { PaneSyncReviewComponent, type PaneSyncPlan } from './pane-sync-review.component';
+import { NativeBrowserPaneService, type NativeBrowserPaneIncomingMessage } from '../services/native-browser-pane.service';
+
+interface NativeBrowserPaneShortcutMessage {
+  type: 'shortcut';
+  event: 'keydown';
+  key: string;
+  code?: string;
+  ctrlKey?: boolean;
+  shiftKey?: boolean;
+  altKey?: boolean;
+  metaKey?: boolean;
+  context?: {
+    inInput?: boolean;
+    inTextarea?: boolean;
+    inSelect?: boolean;
+    inContentEditable?: boolean;
+  };
+}
 
 @Component({
   selector: 'app-file-browser',
@@ -83,11 +102,13 @@ import { PaneSyncReviewComponent, type PaneSyncPlan } from './pane-sync-review.c
 export class FileBrowserComponent implements OnInit, OnDestroy {
   private readonly paneRowFixedWidthPx = 4;
 
-  private static readonly mouseCommandOwner = 'file-browser-mouse';
+  private static nextOwnerId = 0;
   private static readonly mouseBindingIds = [
     'global.mouse.viewer.ctrlWheelUp',
     'global.mouse.viewer.ctrlWheelDown',
   ] as const;
+  private readonly browserCommandOwner = `file-browser:${++FileBrowserComponent.nextOwnerId}`;
+  private readonly mouseCommandOwner = `${this.browserCommandOwner}:mouse`;
 
   @ViewChild(KeyboardHelpComponent) keyboardHelp?: KeyboardHelpComponent;
   @ViewChild(GlobalSearchComponent) globalSearch?: GlobalSearchComponent;
@@ -121,6 +142,8 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
   recursiveComparisonError = '';
   recursiveComparisonResult: PaneComparisonResult | null = null;
   readonly pendingChord$ = this.inputEngine.pendingChord$;
+  readonly shortcutDebug$ = this.inputEngine.shortcutDebug$;
+  readonly showShortcutDebug = this.inputEngine.showShortcutDebug;
   private resizeTimer: ReturnType<typeof setTimeout> | null = null;
 
   FileType = FileType;
@@ -138,6 +161,9 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
   private clipboard: { operation: 'copy' | 'cut'; paths: string[] } | null = null;
 
   private browserCommandCleanup: (() => void) | null = null;
+  private nativeBrowserPaneMessageCleanup: (() => void) | null = null;
+  private lastNativeShortcutSignature = '';
+  private lastNativeShortcutAt = 0;
 
   constructor(
     public apiService: ApiService,
@@ -157,6 +183,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     private keybindingStorage: KeybindingStorageService,
     private paneComparison: PaneComparisonService,
     private recursivePaneComparison: PaneRecursiveComparisonService,
+    private nativeBrowserPane: NativeBrowserPaneService,
   ) {
     this.pathHelper = new FileBrowserPathHelper(this.apiService);
   }
@@ -202,6 +229,9 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
       });
 
     this.browserCommandCleanup = this.setupBrowserCommands();
+    this.nativeBrowserPaneMessageCleanup = this.nativeBrowserPane.onMessage((event) => {
+      void this.handleNativeBrowserPaneMessage(event);
+    });
     this.keybindingStorage.applyOverrides(this.inputEngine);
     this.registerMouseBindings();
     this.layoutController.loadPaneWidths(this.layoutHost);
@@ -219,6 +249,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     this.apiService.disconnectWebSocket();
 
     this.browserCommandCleanup?.();
+    this.nativeBrowserPaneMessageCleanup?.();
     this.unregisterMouseBindings();
     this.runtimeController.dispose();
     window.removeEventListener('resize', this.handleResize);
@@ -233,6 +264,94 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
       void this.syncMaximizedState();
     }, 300);
   };
+
+  private async handleNativeBrowserPaneMessage(event: NativeBrowserPaneIncomingMessage): Promise<void> {
+    const message = this.parseNativeBrowserPaneShortcutMessage(event.data);
+    if (!message) {
+      return;
+    }
+
+    const shortcutSignature = [
+      event.surfaceId,
+      message.key,
+      message.code ?? '',
+      message.ctrlKey ? '1' : '0',
+      message.shiftKey ? '1' : '0',
+      message.altKey ? '1' : '0',
+      message.metaKey ? '1' : '0',
+    ].join('|');
+    const now = Date.now();
+    if (shortcutSignature === this.lastNativeShortcutSignature && now-this.lastNativeShortcutAt < 120) {
+      return;
+    }
+    this.lastNativeShortcutSignature = shortcutSignature;
+    this.lastNativeShortcutAt = now;
+
+    const paneId = this.resolvePaneIdForBrowserSurface(event.surfaceId);
+    if (!paneId) {
+      return;
+    }
+
+    await this.ngZone.run(async () => {
+      if (this.activePaneId !== paneId) {
+        this.setActivePane(paneId);
+      }
+
+      await this.inputEngine.dispatchKeyboardEvent({
+        key: message.key,
+        code: message.code,
+        ctrlKey: message.ctrlKey,
+        shiftKey: message.shiftKey,
+        altKey: message.altKey,
+        metaKey: message.metaKey,
+      }, {
+        context: {
+          hasActivePane: true,
+          inInput: !!message.context?.inInput,
+          inTextarea: !!message.context?.inTextarea,
+          inSelect: !!message.context?.inSelect,
+          inContentEditable: !!message.context?.inContentEditable,
+        },
+      });
+      this.cdr.markForCheck();
+    });
+  }
+
+  private parseNativeBrowserPaneShortcutMessage(value: unknown): NativeBrowserPaneShortcutMessage | null {
+    if (!value || typeof value !== 'object') {
+      return null;
+    }
+
+    const message = value as NativeBrowserPaneShortcutMessage;
+    if (message.type !== 'shortcut' || message.event !== 'keydown') {
+      return null;
+    }
+    if (typeof message.key !== 'string' || !message.key.trim()) {
+      return null;
+    }
+
+    return message;
+  }
+
+  private resolvePaneIdForBrowserSurface(surfaceId: string): 'left' | 'right' | null {
+    if (!surfaceId) {
+      return null;
+    }
+    if (this.leftPane && this.getBrowserSurfaceId(this.leftPane) === surfaceId) {
+      return 'left';
+    }
+    if (this.rightPane && this.getBrowserSurfaceId(this.rightPane) === surfaceId) {
+      return 'right';
+    }
+    return null;
+  }
+
+  private getBrowserSurfaceId(pane: FilePaneComponent): string {
+    if (!pane.currentTabId) {
+      return '';
+    }
+    return `${pane.paneId}:${pane.currentTabId}`;
+  }
 
   private async syncMaximizedState(): Promise<void> {
     try {
@@ -955,7 +1074,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     return registerFileBrowserCommands(
       this.inputEngine,
       handlers,
-      'file-browser',
+      this.browserCommandOwner,
       commandId => this.isBrowserCommandEnabled(commandId),
     );
   }
@@ -976,11 +1095,11 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
   private registerMouseBindings(): void {
     this.inputEngine.registerCommand('global.mouse.viewer.zoomIn', () => {
       this.getActivePane()?.browserCommands.preview.zoomInActiveViewer();
-    }, FileBrowserComponent.mouseCommandOwner);
+    }, this.mouseCommandOwner);
 
     this.inputEngine.registerCommand('global.mouse.viewer.zoomOut', () => {
       this.getActivePane()?.browserCommands.preview.zoomOutActiveViewer();
-    }, FileBrowserComponent.mouseCommandOwner);
+    }, this.mouseCommandOwner);
 
     const bindings: InputBindingDefinition[] = [
       {
@@ -1010,17 +1129,17 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     ];
 
     for (const binding of bindings) {
-      this.inputEngine.registerBinding(binding);
+      this.inputEngine.registerBinding(binding, this.mouseCommandOwner);
     }
   }
 
   private unregisterMouseBindings(): void {
-    this.inputEngine.unregisterCommand('global.mouse.fileEntry.openSelected', FileBrowserComponent.mouseCommandOwner);
-    this.inputEngine.unregisterCommand('global.mouse.viewer.zoomIn', FileBrowserComponent.mouseCommandOwner);
-    this.inputEngine.unregisterCommand('global.mouse.viewer.zoomOut', FileBrowserComponent.mouseCommandOwner);
+    this.inputEngine.unregisterCommand('global.mouse.fileEntry.openSelected', this.mouseCommandOwner);
+    this.inputEngine.unregisterCommand('global.mouse.viewer.zoomIn', this.mouseCommandOwner);
+    this.inputEngine.unregisterCommand('global.mouse.viewer.zoomOut', this.mouseCommandOwner);
 
     for (const bindingId of FileBrowserComponent.mouseBindingIds) {
-      this.inputEngine.unregisterBinding(bindingId);
+      this.inputEngine.unregisterBinding(bindingId, this.mouseCommandOwner);
     }
   }
 
@@ -1061,6 +1180,17 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
       parts.push(keyMap[key] ?? key.toUpperCase());
       return parts.join('+');
     }).join(' ');
+  }
+
+  hasBinding(bindingId: string): boolean {
+    return !!this.inputEngine.getBinding(bindingId);
+  }
+
+  asShortcutDebugTrace(value: unknown): ShortcutDebugTrace | null {
+    if (!value || typeof value !== 'object') {
+      return null;
+    }
+    return value as ShortcutDebugTrace;
   }
 
   onPanePreviewTarget(fromPane: 'left' | 'right', targetPath: string): void {

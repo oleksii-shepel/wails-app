@@ -95,7 +95,9 @@ export class PinnedLocationService {
       pin.label,
       pin.icon,
       Number(pin.addedAt) || Date.now(),
-      typeof pin.surfaceId === 'string' ? pin.surfaceId : undefined,
+      typeof pin.surfaceId === 'string' && !(schemeOfLocation(pin.location) === 'search' && pin.surfaceId === 'dir')
+        ? pin.surfaceId
+        : undefined,
     );
   }
 
@@ -107,6 +109,7 @@ export class PinnedLocationService {
     const explicit = surfaceId?.trim();
     if (explicit) return explicit;
 
+    if (schemeOfLocation(location) === 'search') return 'search-results';
     if (kindOfLocation(location) !== 'surface') return 'dir';
 
     try {

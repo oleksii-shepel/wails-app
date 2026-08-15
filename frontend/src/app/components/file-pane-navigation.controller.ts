@@ -5,7 +5,7 @@ import type { WorkspaceService } from '../services/workspace.service';
 import type { DirSurfaceSession } from '../surfaces/dir/dir-surface-session';
 import type { TabInfo, WorkspaceConfig } from '../shared/protocol-enhanced';
 import { normalizePath, samePath } from './address-bar.utils';
-import { tabLocation, tabSurfaceId } from '../surfaces/tab-surface';
+import { isDirectoryBackedSurfaceId, tabLocation, tabSurfaceId } from '../surfaces/tab-surface';
 
 declare const window: any;
 
@@ -99,7 +99,7 @@ export class FilePaneNavigationController {
     const current = host.tabs.find(existing => existing.id === host.currentTabId);
     const currentSurfaceId = current ? tabSurfaceId(current) : 'dir';
 
-    if (currentSurfaceId === 'dir' && host.currentTabId && host.currentPath) {
+    if (isDirectoryBackedSurfaceId(currentSurfaceId) && host.currentTabId && host.currentPath) {
       if (host.isInArchive()) {
         host.workspaceService.saveArchiveState(host.paneId, host.currentTabId, {
           path: host.currentPath,
@@ -116,7 +116,7 @@ export class FilePaneNavigationController {
     host.workspaceService.switchTab(host.paneId, tab.id);
     host.clearArchiveState();
 
-    if (tabSurfaceId(tab) !== 'dir') {
+    if (!isDirectoryBackedSurfaceId(tabSurfaceId(tab))) {
       host.tabs = host.workspaceService.getTabs(host.paneId);
       host.emitActiveTabChange(tab);
       return;

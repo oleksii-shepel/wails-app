@@ -4,6 +4,7 @@ export const BUILTIN_SURFACE_IDS = {
   dir: 'dir',
   viewer: 'viewer',
   sizeManager: 'size-manager',
+  searchResults: 'search-results',
 } as const;
 
 export function legacyKindSurfaceId(kind: TabInfo['kind']): string {
@@ -18,4 +19,7 @@ export function tabSurfaceId(tab: Pick<TabInfo, 'surfaceId' | 'kind'>): string {
 
 export function tabLocation(tab: Pick<TabInfo, 'location' | 'path'>): string {
   return tab.location?.location?.trim() || tab.path?.trim() || '';
+}
+export function isDirectoryBackedSurfaceId(surfaceId: string): boolean {
+  return surfaceId === BUILTIN_SURFACE_IDS.dir || surfaceId === BUILTIN_SURFACE_IDS.searchResults;
 }

@@ -410,8 +410,3 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
     return !!activeElement.closest('.settings-footer button');
   }
 }
-
-
-
-
-

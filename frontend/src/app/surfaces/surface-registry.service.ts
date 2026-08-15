@@ -2,6 +2,7 @@ import { Injectable, Type } from '@angular/core';
 import { ContributionRegistry } from '../plugin/contribution-registry';
 import { SurfaceCapability, SurfaceContribution, SurfaceRequest } from './surface-contribution';
 import { DirSurfaceTabComponent } from './builtins/dir-surface-tab.component';
+import { SearchResultsSurfaceTabComponent } from './builtins/search-results-surface-tab.component';
 import { ViewerSurfaceTabComponent } from './builtins/viewer-surface-tab.component';
 import { SizeManagerSurfaceTabComponent } from './size-manager/size-manager-surface-tab.component';
 
@@ -19,6 +20,13 @@ export class SurfaceRegistryService {
       capabilities: ['navigate', 'selection', 'fileOperations', 'preview'],
       score: (req) => (tabSurfaceId(req) === 'dir' ? 100 : 0),
       load: () => DirSurfaceTabComponent,
+    });
+
+    this.register({
+      id: 'search-results',
+      capabilities: ['selection', 'fileOperations', 'preview'],
+      score: (req) => (tabSurfaceId(req) === 'search-results' ? 100 : 0),
+      load: () => SearchResultsSurfaceTabComponent,
     });
 
     this.register({

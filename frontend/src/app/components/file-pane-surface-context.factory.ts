@@ -2,6 +2,7 @@ import type { ViewerArchiveContext } from '../viewers/viewer-archive-context';
 import type { DirSurfaceVm } from '../surfaces/dir/dir-surface.vm';
 import type {
   DirSurfaceContext,
+  SearchResultsSurfaceContext,
   SizeManagerSurfaceContext,
   SurfaceContext,
   ViewerSurfaceContext,
@@ -49,6 +50,16 @@ export class FilePaneSurfaceContextFactory {
           viewerId: tab.viewer?.viewerId ?? null,
         },
       } satisfies ViewerSurfaceContext;
+    }
+
+    if (surfaceId === 'search-results') {
+      return {
+        paneId: source.paneId,
+        surfaceId: 'search-results',
+        kind: 'search-results',
+        tab,
+        dirVm: source.dirVm,
+      } satisfies SearchResultsSurfaceContext;
     }
 
     if (surfaceId === 'dir') {

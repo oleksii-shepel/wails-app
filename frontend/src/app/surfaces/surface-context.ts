@@ -32,6 +32,13 @@ export interface DirSurfaceContext extends SurfaceContext {
   dirVm: DirSurfaceVm;
 }
 
+
+export interface SearchResultsSurfaceContext extends SurfaceContext {
+  surfaceId: 'search-results';
+  kind: 'search-results';
+  dirVm: DirSurfaceVm;
+}
+
 export interface ViewerSurfaceContext extends SurfaceContext {
   surfaceId: 'viewer';
   kind: 'viewer';

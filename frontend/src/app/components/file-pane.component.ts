@@ -1030,6 +1030,10 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   onNodeDoubleClick(entry: FileInfo): void {
+    if (this.activeSurfaceId === 'search-results') {
+      void this.openSearchSurfaceEntry(entry);
+      return;
+    }
     this.openController.onNodeDoubleClick(this.openHost, entry, () => this.browserCommands.navigation.navigateUp());
   }
 
@@ -1128,6 +1132,17 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     await this.onTabChange(tab);
   }
 
+  async openSearchSurface(location: string, query: string): Promise<void> {
+    const tab = this.workspaceService.addSurfaceTab(this.paneId, location, 'search-results', {
+      title: query.trim() || 'Search',
+      activate: true,
+    });
+    if (!tab) return;
+
+    this.tabs = this.workspaceService.getTabs(this.paneId);
+    await this.onTabChange(tab);
+  }
+
   async openPathInNewTab(path: string): Promise<void> {
     try {
       const probe = await this.apiService.probeFile(path);
@@ -1172,7 +1187,20 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
 
   // в”Ђв”Ђ Navigation в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
+  private async openSearchSurfaceEntry(entry: FileInfo): Promise<void> {
+    if (!entry?.path || entry.path === PARENT_ENTRY_PATH) return;
+    if (entry.type === FileType.DIRECTORY) {
+      await this.openPathInNewTab(entry.path);
+      return;
+    }
+    await this.previewController.openPreviewPath(this.previewHost, entry.path);
+  }
+
   onNavigate(entry: FileInfo): void {
+    if (this.activeSurfaceId === 'search-results') {
+      void this.openSearchSurfaceEntry(entry);
+      return;
+    }
     this.openController.onNavigate(this.openHost, entry, () => this.browserCommands.navigation.navigateUp());
   }
 

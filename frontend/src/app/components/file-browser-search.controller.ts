@@ -8,6 +8,7 @@ export interface FileBrowserSearchPane {
   currentPath: string;
   onPathChange(path: string): void;
   openSearchResult(result: SearchResultItem): Promise<void>;
+  openSearchSurface(location: string, query: string): Promise<void>;
 }
 
 export interface FileBrowserSearchHost {
@@ -33,7 +34,7 @@ export class FileBrowserSearchController {
     }
 
     const aliasPath = await host.apiService.buildSearchAlias(pane.currentPath, trimmedQuery, true);
-    pane.onPathChange(aliasPath);
+    await pane.openSearchSurface(aliasPath, trimmedQuery);
   }
 
   async onGlobalSearchResult(host: FileBrowserSearchHost, result: SearchResultItem): Promise<void> {

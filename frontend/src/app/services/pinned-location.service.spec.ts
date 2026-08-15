@@ -72,4 +72,20 @@ describe('PinnedLocationService', () => {
     expect(pin?.surfaceId).toBe('console');
   });
 
+
+  it('uses the dedicated search-results surface for search pins', () => {
+    const pin = service.create('search://?path=/src&pattern=TODO');
+    expect(pin?.surfaceId).toBe('search-results');
+  });
+
+
+  it('migrates search pins that were previously stored as dir surfaces', () => {
+    localStorage.setItem(PINNED_LOCATIONS_KEY, JSON.stringify([{
+      id: 'legacy-search', location: 'search://?path=/src&pattern=TODO', scheme: 'search', kind: 'query',
+      surfaceId: 'dir', label: 'TODO', icon: '🔎', addedAt: 1,
+    }]));
+    const [pin] = service.load();
+    expect(pin.surfaceId).toBe('search-results');
+  });
+
 });

@@ -98,4 +98,41 @@ describe('FilePaneNavigationController remote restore policy', () => {
     expect(host.activeDirTabId).toBe('dir-tab');
   });
 
+  it('loads search-results as a directory-backed surface', async () => {
+    const controller = new FilePaneNavigationController();
+    const tab = {
+      id: 'search-tab',
+      title: 'TODO',
+      path: 'search://?path=/src&pattern=TODO',
+      location: { location: 'search://?path=/src&pattern=TODO', scheme: 'search', kind: 'query' },
+      surfaceId: 'search-results',
+      isActive: false,
+      isPinned: false,
+      createdAt: 1,
+    } as any;
+    const loadPathTransparently = vi.fn(async () => undefined);
+    const emitActiveTabChange = vi.fn();
+    const session = { currentPath: '', showHiddenLoaded: null, loading: false, error: null, fsParentDir: '' };
+    const host = {
+      tabs: [
+        { id: 'dir-tab', title: 'Dir', path: '/', surfaceId: 'dir', isActive: true, isPinned: false, createdAt: 1 },
+        tab,
+      ],
+      currentTabId: 'dir-tab', currentPath: '/', paneId: 'left', showHidden: false,
+      workspaceService: {
+        updateTabPath: vi.fn(), switchTab: vi.fn(), getTabs: vi.fn(() => [tab]), getArchiveState: vi.fn(() => null),
+      },
+      directorySource: { isPathInsideArchive: vi.fn(() => false) },
+      isInArchive: vi.fn(() => false), clearArchiveState: vi.fn(), getDirSession: vi.fn(() => session),
+      resolveRemotePathForLoad: vi.fn(), loadPathTransparently, emitActiveTabChange,
+      activeDirTabId: 'dir-tab', archiveStack: [], applyFilter: vi.fn(), emitPreviewTargetFromState: vi.fn(),
+    } as any;
+
+    await controller.onTabChange(host, tab);
+
+    expect(host.activeDirTabId).toBe('search-tab');
+    expect(loadPathTransparently).toHaveBeenCalledWith('search://?path=/src&pattern=TODO');
+    expect(emitActiveTabChange).toHaveBeenCalledWith(tab);
+  });
+
 });

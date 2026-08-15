@@ -1,4 +1,5 @@
 import type { ArchiveFrame } from '../services/archive.service';
+import { isDirectoryBackedSurfaceId } from '../surfaces/tab-surface';
 
 export interface FilePaneRuntimeStateHost {
   get archiveStack(): ArchiveFrame[];
@@ -25,7 +26,7 @@ export class FilePaneRuntimeStateController {
 
   persistDirTabState(host: FilePaneRuntimeStateHost): void {
     const tabId = host.activeDirTabId ?? host.currentTabId;
-    if (!tabId || host.activeSurfaceId !== 'dir') {
+    if (!tabId || !isDirectoryBackedSurfaceId(host.activeSurfaceId)) {
       return;
     }
 

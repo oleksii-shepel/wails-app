@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import type { ActionAvailability } from '../services/action-availability';
 import { BC } from './file-browser-command-registry';
 import { isFileBrowserCommandAvailable } from './file-browser-command-availability';
@@ -28,3 +27,4 @@ describe('isFileBrowserCommandAvailable', () => {
     expect(isFileBrowserCommandAvailable('plugin.example.command', availability)).toBe(true);
   });
 });
+

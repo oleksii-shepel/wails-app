@@ -44,13 +44,17 @@ import { TabInfo } from "../shared/protocol-enhanced";
       <div class="tab-border-top" *ngIf="isActive"></div>
       <div class="tab-active-indicator"></div>
       <div class="tab-actions">
-        <!-- Pinned indicator/button -->
-        <button *ngIf="tab.isPinned" class="tab-action pin" (click)="onPin($event)" 
-                [class.active-action]="isActive" title="Unpin tab" draggable="false">
+        <!-- Pin/unpin is always mouse-accessible; pinned tabs keep their title. -->
+        <button class="tab-action pin" (click)="onPin($event)"
+                [class.pinned-state]="tab.isPinned"
+                [class.active-action]="isActive"
+                [title]="tab.isPinned ? 'Unpin tab (Ctrl+Alt+P)' : 'Pin tab (Ctrl+Alt+P)'"
+                draggable="false"
+                [attr.aria-label]="tab.isPinned ? 'Unpin tab' : 'Pin tab'">
           <span class="pin-icon">📌</span>
         </button>
-        <!-- Close button -->
-        <button *ngIf="isClosable" class="tab-action close" (click)="onClose($event)"
+        <!-- Pinned tabs are protected from accidental close. -->
+        <button *ngIf="isClosable && !tab.isPinned" class="tab-action close" (click)="onClose($event)"
                 [class.active-action]="isActive" title="Close (Ctrl+W)" draggable="false"></button>
       </div>
     </div>
@@ -200,17 +204,26 @@ import { TabInfo } from "../shared/protocol-enhanced";
       font-size: 13px;
     }
 
-    /* Pinned tabs stay identifiable: keep the caption, but remove the close affordance. */
-    .tab.pinned {
-      max-width: 220px;
+    /* Pin action stays visible so pinning is discoverable without a shortcut. */
+    .tab-action.pin {
+      opacity: .42;
+      flex-shrink: 0;
     }
 
-    .tab.pinned .close {
-      display: none;
+    .tab-action.pin:hover,
+    .tab-action.pin.pinned-state,
+    .tab.active .tab-action.pin {
+      opacity: 1;
     }
 
-    .tab.pinned .pin {
-      opacity: .75;
+    .tab-action.pin:not(.pinned-state) .pin-icon {
+      filter: grayscale(1);
+      opacity: .72;
+    }
+
+    .tab-action.pin.pinned-state .pin-icon {
+      filter: none;
+      opacity: 1;
     }
 
     /* Dirty dot */
@@ -230,6 +243,7 @@ import { TabInfo } from "../shared/protocol-enhanced";
       height: 100%;
       padding: 0 10px;
     }
+
 
     /* Focus */
     .tab:focus-visible {

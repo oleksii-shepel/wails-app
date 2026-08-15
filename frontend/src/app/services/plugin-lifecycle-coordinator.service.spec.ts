@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { fn, spyOnFn, stubGlobal, restoreGlobals } from '../testing/jasmine-test-helpers';
 import { PluginLifecycleCoordinatorService } from './plugin-lifecycle-coordinator.service';
 import type { ManagedPluginPackage, PluginPackageState } from './plugin-installation-state.service';
 import type { PluginRuntimeSnapshot } from './plugin-platform.service';
@@ -46,11 +46,11 @@ function managed(overrides: Partial<ManagedPluginPackage> = {}): ManagedPluginPa
 function createPlatform(hasLoader = false) {
   const runtimes = new Map<string, PluginRuntimeSnapshot>();
   return {
-    list: vi.fn(() => Array.from(runtimes.values())),
-    get: vi.fn((id: string) => runtimes.get(id)),
-    isInstalled: vi.fn((id: string) => runtimes.has(id)),
-    hasLoader: vi.fn(() => hasLoader),
-    installFromSource: vi.fn(async (source: any, options: any) => {
+    list: fn(() => Array.from(runtimes.values())),
+    get: fn((id: string) => runtimes.get(id)),
+    isInstalled: fn((id: string) => runtimes.has(id)),
+    hasLoader: fn(() => hasLoader),
+    installFromSource: fn(async (source: any, options: any) => {
       runtimes.set('example', {
         manifest: managed().discovered.manifest,
         state: 'installed',
@@ -59,19 +59,19 @@ function createPlatform(hasLoader = false) {
         source,
       });
     }),
-    activate: vi.fn(async (id: string) => {
+    activate: fn(async (id: string) => {
       const runtime = runtimes.get(id);
       if (runtime) runtimes.set(id, { ...runtime, state: 'active' });
     }),
-    deactivate: vi.fn(async () => undefined),
-    uninstall: vi.fn(async (id: string) => { runtimes.delete(id); }),
+    deactivate: fn(async () => undefined),
+    uninstall: fn(async (id: string) => { runtimes.delete(id); }),
   };
 }
 
 describe('PluginLifecycleCoordinatorService', () => {
   it('keeps policy-ready packages inert when no safe loader exists', async () => {
     const pkg = managed();
-    const installation = { refresh: vi.fn(async () => [pkg]) } as any;
+    const installation = { refresh: fn(async () => [pkg]) } as any;
     const platform = createPlatform(false);
     const coordinator = new PluginLifecycleCoordinatorService(installation, platform as any);
 
@@ -82,13 +82,13 @@ describe('PluginLifecycleCoordinatorService', () => {
 
   it('installs eligible packages without activating them during sync', async () => {
     const pkg = managed();
-    const installation = { refresh: vi.fn(async () => [pkg]) } as any;
+    const installation = { refresh: fn(async () => [pkg]) } as any;
     const platform = createPlatform(true);
     const coordinator = new PluginLifecycleCoordinatorService(installation, platform as any);
 
     const [snapshot] = await coordinator.sync();
     expect(snapshot.status).toBe('installed');
-    expect(platform.installFromSource).toHaveBeenCalledOnce();
+    expect(platform.installFromSource).toHaveBeenCalledTimes(1);
     expect(platform.activate).not.toHaveBeenCalled();
   });
 
@@ -99,7 +99,7 @@ describe('PluginLifecycleCoordinatorService', () => {
       readyToActivate: false,
     });
     let current = [enabledPkg];
-    const installation = { refresh: vi.fn(async () => current) } as any;
+    const installation = { refresh: fn(async () => current) } as any;
     const platform = createPlatform(true);
     const coordinator = new PluginLifecycleCoordinatorService(installation, platform as any);
 
@@ -113,8 +113,8 @@ describe('PluginLifecycleCoordinatorService', () => {
   it('records successful activation health', async () => {
     const pkg = managed();
     const installation = {
-      refresh: vi.fn(async () => [pkg]),
-      recordActivation: vi.fn(async () => state({ lastActivationStatus: 'success' })),
+      refresh: fn(async () => [pkg]),
+      recordActivation: fn(async () => state({ lastActivationStatus: 'success' })),
     } as any;
     const platform = createPlatform(true);
     const coordinator = new PluginLifecycleCoordinatorService(installation, platform as any);
@@ -124,3 +124,4 @@ describe('PluginLifecycleCoordinatorService', () => {
     expect(installation.recordActivation).toHaveBeenCalledWith('example', true);
   });
 });
+

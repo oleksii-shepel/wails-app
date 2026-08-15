@@ -244,8 +244,8 @@ function chord(
 export const BROWSER_BINDINGS: InputBindingDefinition[] = [
 
   // ── Navigation ─────────────────────────────────────────────────────────────
-  kb('pane.nav.openCommandPalette.ctrlShiftP', BC.openCommandPalette, 'p', 'Open command palette', { modifiers: ['ctrl', 'shift'], when: '!quickAccess', category: NAV }),
-  kb('pane.nav.openCommandPalette.f1', BC.openCommandPalette, 'f1', 'Open command palette (F1)', { when: '!quickAccess', category: NAV }),
+  kb('pane.nav.openCommandPalette.ctrlShiftP', BC.openCommandPalette, 'p', 'Open command palette', { modifiers: ['ctrl', 'shift'], category: NAV }),
+  kb('pane.nav.openCommandPalette.f1', BC.openCommandPalette, 'f1', 'Open command palette (F1)', { category: NAV }),
   kb('pane.nav.openGlobalSearch.ctrlK', BC.openGlobalSearch, 'k', 'Open global search', { modifiers: ['ctrl'], category: NAV }),
   chord('pane.nav.openGlobalSearch.gs', BC.openGlobalSearch, { key: 'g' }, { key: 's' }, 'Open global search (G then S)', NAV),
   kb('pane.nav.showPathHistory.ctrlH', BC.showPathHistory, 'h', 'Show path history', { modifiers: ['ctrl'], category: NAV }),

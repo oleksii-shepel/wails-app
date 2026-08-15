@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import type { SourceCapabilities } from './source-capabilities';
 import { canReceiveTransfer, canTransferBetween } from './transfer-capabilities';
 const mutable: SourceCapabilities = { read: true, create: true, delete: true, rename: true, trash: false };
@@ -14,3 +13,4 @@ describe('transfer capabilities', () => {
   it('blocks moving from a read-only source', () => expect(canTransferBetween('move', readOnly, mutable)).toEqual({ allowed: false, reason: 'source-not-removable' }));
   it('allows moving between mutable sources', () => expect(canTransferBetween('move', mutable, mutable)).toEqual({ allowed: true }));
 });
+

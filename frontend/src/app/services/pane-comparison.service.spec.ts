@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import { FileInfo, FileType } from '../shared/protocol';
 import { PaneComparisonService } from './pane-comparison.service';
 
@@ -48,3 +47,4 @@ describe('PaneComparisonService', () => {
     expect(service.missingOnLeftPaths(result)).toEqual(['/right/right.txt']);
   });
 });
+

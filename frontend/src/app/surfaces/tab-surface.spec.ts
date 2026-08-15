@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import { tabLocation, tabSurfaceId } from './tab-surface';
 
 describe('tab surface helpers', () => {
@@ -17,3 +16,4 @@ describe('tab surface helpers', () => {
     expect(tabLocation({ path: 'filesystem://c/work', location: undefined })).toBe('filesystem://c/work');
   });
 });
+

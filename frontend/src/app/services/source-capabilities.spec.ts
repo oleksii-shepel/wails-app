@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import { getSourceCapabilities } from './source-capabilities';
 
 describe('getSourceCapabilities', () => {
@@ -32,3 +31,4 @@ describe('getSourceCapabilities', () => {
     });
   });
 });
+

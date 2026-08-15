@@ -1,21 +1,21 @@
 import '@angular/compiler';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { fn, spyOnFn, stubGlobal, restoreGlobals } from '../testing/jasmine-test-helpers';
 import { FileType } from '../shared/protocol';
 import { SelectionBasketService } from './selection-basket.service';
 
 function makeStorage() {
   const data = new Map<string, string>();
   return {
-    getItem: vi.fn((key: string) => data.get(key) ?? null),
-    setItem: vi.fn((key: string, value: string) => data.set(key, value)),
-    removeItem: vi.fn((key: string) => data.delete(key)),
-    clear: vi.fn(() => data.clear()),
+    getItem: fn((key: string) => data.get(key) ?? null),
+    setItem: fn((key: string, value: string) => data.set(key, value)),
+    removeItem: fn((key: string) => data.delete(key)),
+    clear: fn(() => data.clear()),
   };
 }
 
 function makeService() {
   const api = {
-    getFileInfo: vi.fn(async (path: string) => ({
+    getFileInfo: fn(async (path: string) => ({
       name: path.split('/').pop() || path,
       path,
       type: FileType.FILE,
@@ -28,7 +28,7 @@ function makeService() {
 
 describe('SelectionBasketService', () => {
   beforeEach(() => {
-    vi.stubGlobal('sessionStorage', makeStorage());
+    stubGlobal('sessionStorage', makeStorage());
   });
 
   it('deduplicates canonical paths while preserving insertion order', () => {
@@ -54,3 +54,4 @@ describe('SelectionBasketService', () => {
     expect(stored[0].size).toBeUndefined();
   });
 });
+

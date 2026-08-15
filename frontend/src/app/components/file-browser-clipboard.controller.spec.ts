@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { fn, spyOnFn, stubGlobal, restoreGlobals } from '../testing/jasmine-test-helpers';
 
 import { FileBrowserClipboardController, type FileBrowserClipboardHost, type FileBrowserClipboardPane } from './file-browser-clipboard.controller';
 import type { SourceCapabilities } from '../services/source-capabilities';
@@ -19,13 +19,13 @@ function host(target: FileBrowserClipboardPane): FileBrowserClipboardHost {
     getActivePane: () => target,
     getActivePaneId: () => 'left',
     apiService: {
-      batchCopy: vi.fn().mockResolvedValue({ failed: 0 }),
-      batchMove: vi.fn().mockResolvedValue({ failed: 0 }),
+      batchCopy: fn().mockResolvedValue({ failed: 0 }),
+      batchMove: fn().mockResolvedValue({ failed: 0 }),
     } as unknown as FileBrowserClipboardHost['apiService'],
-    confirmDialog: { alert: vi.fn() } as unknown as FileBrowserClipboardHost['confirmDialog'],
-    buildDestinationPath: vi.fn(async (source: string, destination: string) => `${destination}/${source.split('/').pop()}`),
-    runCrossPaneCopy: vi.fn(),
-    runCrossPaneMove: vi.fn(),
+    confirmDialog: { alert: fn() } as unknown as FileBrowserClipboardHost['confirmDialog'],
+    buildDestinationPath: fn(async (source: string, destination: string) => `${destination}/${source.split('/').pop()}`),
+    runCrossPaneCopy: fn(),
+    runCrossPaneMove: fn(),
   };
 }
 
@@ -51,3 +51,4 @@ describe('FileBrowserClipboardController paste capabilities', () => {
     expect(result).toBe(clipboard);
   });
 });
+

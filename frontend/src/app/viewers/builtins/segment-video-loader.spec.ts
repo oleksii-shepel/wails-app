@@ -1,4 +1,3 @@
-import { describe, it, expect, beforeEach } from 'vitest';
 import { SampleInfo } from '../../services/canvas-video-player.service';
 
 /**
@@ -285,3 +284,4 @@ describe('backward vs forward seek consistency', () => {
     expect(packets[index].timestampMs).toBeLessThanOrEqual(250);
   });
 });
+

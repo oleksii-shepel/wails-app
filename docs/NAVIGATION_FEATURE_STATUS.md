@@ -94,7 +94,7 @@ get virtualEnabled(): boolean {
   - **Visual indicators:**
     - Active tab highlighting
     - Archive tabs show archive icon
-    - Pinned tabs keep their caption and show a pin indicator; the close button is hidden
+    - Pinned tabs keep their title, show a persistent pin action, and hide the close button
     - Tab overflow with horizontal scroll
   
   - **Persistence:**

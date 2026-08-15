@@ -34,6 +34,12 @@
           {{ elevationBusy ? 'Elevation…' : (elevationActive ? 'Elevate' : 'Elevate') }}
         </button>
         <button
+          (click)="commandPalette?.show()"
+          class="btn"
+          title="Open Command Palette (Ctrl+Shift+P / F1)">
+          Commands
+        </button>
+        <button
           (click)="togglePaneComparison()"
           [class.active]="comparisonVisible"
           [disabled]="!canComparePanes()"

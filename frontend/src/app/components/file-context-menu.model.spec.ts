@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import { buildBackgroundFileContextMenu, buildBuiltinFileContextMenu } from './file-context-menu.model';
 import type { ActionAvailability } from '../services/action-availability';
 
@@ -54,3 +53,4 @@ describe('buildBuiltinFileContextMenu', () => {
   });
 
 });
+

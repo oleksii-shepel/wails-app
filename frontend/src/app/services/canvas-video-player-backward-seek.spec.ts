@@ -1,4 +1,3 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 /**
  * Canvas video player backward seek tests
@@ -390,3 +389,4 @@ describe('Concurrent seek discrepancy detection', () => {
     expect(results.has(2)).toBe(false);
   });
 });
+

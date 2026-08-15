@@ -1,21 +1,21 @@
-import { describe, expect, it, vi } from 'vitest';
+import { fn, spyOnFn, stubGlobal, restoreGlobals } from '../testing/jasmine-test-helpers';
 import { PluginPlatformService } from './plugin-platform.service';
 import type { PluginRegistryAPI } from '../plugin/plugin-registry-api';
 import type { PluginPackage } from '../plugin/plugin-package';
 
 function registry(): PluginRegistryAPI {
   return {
-    registerInput: vi.fn(), unregisterInput: vi.fn(),
-    registerCommand: vi.fn(), unregisterCommand: vi.fn(),
-    registerViewer: vi.fn(), unregisterViewer: vi.fn(),
-    registerSurface: vi.fn(), unregisterSurface: vi.fn(),
-    registerToolbarAction: vi.fn(), unregisterToolbarAction: vi.fn(),
-    registerContextMenuItem: vi.fn(), unregisterContextMenuItem: vi.fn(),
-    registerFileCategory: vi.fn(), unregisterFileCategory: vi.fn(),
+    registerInput: fn(), unregisterInput: fn(),
+    registerCommand: fn(), unregisterCommand: fn(),
+    registerViewer: fn(), unregisterViewer: fn(),
+    registerSurface: fn(), unregisterSurface: fn(),
+    registerToolbarAction: fn(), unregisterToolbarAction: fn(),
+    registerContextMenuItem: fn(), unregisterContextMenuItem: fn(),
+    registerFileCategory: fn(), unregisterFileCategory: fn(),
   };
 }
 
-function pkg(activate = vi.fn()): PluginPackage {
+function pkg(activate = fn()): PluginPackage {
   return {
     manifest: {
       schemaVersion: 1,
@@ -31,18 +31,18 @@ function pkg(activate = vi.fn()): PluginPackage {
 
 describe('PluginPlatformService', () => {
   it('installs and activates trusted packages', async () => {
-    const activate = vi.fn();
+    const activate = fn();
     const platform = new PluginPlatformService(registry() as any);
     await platform.install(pkg(activate), { trusted: true, activate: true });
 
-    expect(activate).toHaveBeenCalledOnce();
+    expect(activate).toHaveBeenCalledTimes(1);
     expect(platform.get('demo.tools')?.state).toBe('active');
   });
 
   it('refuses activation until requested permissions are granted', async () => {
     const platform = new PluginPlatformService(registry() as any);
     await platform.install(pkg());
-    await expect(platform.activate('demo.tools')).rejects.toThrow('missing permissions');
+    await expectAsync(platform.activate('demo.tools')).toBeRejectedWithError(/missing permissions/);
   });
 
   it('disposes all scoped contributions if activation fails', async () => {
@@ -54,13 +54,13 @@ describe('PluginPlatformService', () => {
     });
     await platform.install(broken, { trusted: true });
 
-    await expect(platform.activate('demo.tools')).rejects.toThrow('boom');
+    await expectAsync(platform.activate('demo.tools')).toBeRejectedWithError(/boom/);
     expect(target.unregisterCommand).toHaveBeenCalledWith('plugin.demo.run');
     expect(platform.get('demo.tools')?.state).toBe('failed');
   });
 
   it('activates packages by declared activation event', async () => {
-    const activate = vi.fn();
+    const activate = fn();
     const p = pkg(activate);
     p.manifest = { ...p.manifest, activationEvents: ['onCommand:hash.sha256'] };
     const platform = new PluginPlatformService(registry() as any);

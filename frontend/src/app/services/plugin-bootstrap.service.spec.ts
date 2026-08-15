@@ -1,12 +1,12 @@
-import { describe, expect, it, vi } from 'vitest';
+import { fn, spyOnFn, stubGlobal, restoreGlobals } from '../testing/jasmine-test-helpers';
 import { PluginBootstrapService } from './plugin-bootstrap.service';
 import type { PluginLifecycleCoordinatorService } from './plugin-lifecycle-coordinator.service';
 
 function coordinator(overrides: Partial<PluginLifecycleCoordinatorService> = {}): PluginLifecycleCoordinatorService {
   return {
-    sync: vi.fn(async () => []),
-    activateStartup: vi.fn(async () => []),
-    shutdown: vi.fn(async () => []),
+    sync: fn(async () => []),
+    activateStartup: fn(async () => []),
+    shutdown: fn(async () => []),
     ...overrides,
   } as unknown as PluginLifecycleCoordinatorService;
 }
@@ -26,7 +26,7 @@ describe('PluginBootstrapService', () => {
 
   it('degrades without throwing when one startup plugin fails', async () => {
     const lifecycle = coordinator({
-      activateStartup: vi.fn(async () => [
+      activateStartup: fn(async () => [
         { pluginId: 'good', activated: true },
         { pluginId: 'bad', activated: false, error: 'boom' },
       ]),
@@ -40,16 +40,17 @@ describe('PluginBootstrapService', () => {
   });
 
   it('keeps the host usable when discovery itself fails', async () => {
-    const lifecycle = coordinator({ sync: vi.fn(async () => { throw new Error('discovery failed'); }) });
+    const lifecycle = coordinator({ sync: fn(async () => { throw new Error('discovery failed'); }) });
     const service = new PluginBootstrapService(lifecycle);
 
-    await expect(service.initialize()).resolves.toMatchObject({ status: 'degraded' });
+    const result = await service.initialize();
+    expect(result).toEqual(jasmine.objectContaining({ status: 'degraded' }));
     expect(service.snapshot.errors).toEqual(['discovery failed']);
   });
 
   it('records shutdown errors but continues teardown', async () => {
     const lifecycle = coordinator({
-      shutdown: vi.fn(async () => [
+      shutdown: fn(async () => [
         { pluginId: 'bad', error: 'deactivate failed' },
         { pluginId: 'good' },
       ]),
@@ -65,12 +66,12 @@ describe('PluginBootstrapService', () => {
   it('starts backend command discovery before package reconciliation and stops it at shutdown', async () => {
     const order: string[] = [];
     const lifecycle = coordinator({
-      sync: vi.fn(async () => { order.push('sync'); return []; }),
-      shutdown: vi.fn(async () => { order.push('shutdown'); return []; }),
+      sync: fn(async () => { order.push('sync'); return []; }),
+      shutdown: fn(async () => { order.push('shutdown'); return []; }),
     });
     const backend = {
-      start: vi.fn(async (selection: () => string[]) => { order.push(`backend:${selection().join(',')}`); }),
-      stop: vi.fn(() => { order.push('backend-stop'); }),
+      start: fn(async (selection: () => string[]) => { order.push(`backend:${selection().join(',')}`); }),
+      stop: fn(() => { order.push('backend-stop'); }),
     };
     const service = new PluginBootstrapService(lifecycle, backend as any);
 

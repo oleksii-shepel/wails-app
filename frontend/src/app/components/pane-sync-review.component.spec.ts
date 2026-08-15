@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { fn, spyOnFn, stubGlobal, restoreGlobals } from '../testing/jasmine-test-helpers';
 import { FileType } from '../shared/protocol';
 import type { PaneComparisonResult } from '../services/pane-comparison.service';
 import { PaneSyncReviewComponent } from './pane-sync-review.component';
@@ -31,7 +31,7 @@ describe('PaneSyncReviewComponent plan defaults', () => {
     component.result = result();
     component.ngOnChanges();
     component.setDirection(component.items[2], 'left-to-right');
-    const emit = vi.spyOn(component.execute, 'emit');
+    const emit = spyOnFn(component.execute, 'emit');
 
     component.executePlan();
 
@@ -41,3 +41,4 @@ describe('PaneSyncReviewComponent plan defaults', () => {
     }));
   });
 });
+

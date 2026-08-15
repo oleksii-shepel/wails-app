@@ -1,17 +1,17 @@
-import { describe, expect, it, vi } from 'vitest';
+import { fn, spyOnFn, stubGlobal, restoreGlobals } from '../testing/jasmine-test-helpers';
 import { ScopedPluginRegistry } from './scoped-plugin-registry';
 import type { PluginRegistryAPI } from './plugin-registry-api';
 
 function host(): PluginRegistryAPI {
   return {
-    registerInput: vi.fn(), unregisterInput: vi.fn(),
-    registerCommand: vi.fn(), unregisterCommand: vi.fn(),
-    registerViewer: vi.fn(), unregisterViewer: vi.fn(),
-    registerSurface: vi.fn(), unregisterSurface: vi.fn(),
-    registerToolbarAction: vi.fn(), unregisterToolbarAction: vi.fn(),
-    registerContextMenuItem: vi.fn(), unregisterContextMenuItem: vi.fn(),
-    registerFileCategory: vi.fn(), unregisterFileCategory: vi.fn(),
-    registerRelatedLocation: vi.fn(), unregisterRelatedLocation: vi.fn(),
+    registerInput: fn(), unregisterInput: fn(),
+    registerCommand: fn(), unregisterCommand: fn(),
+    registerViewer: fn(), unregisterViewer: fn(),
+    registerSurface: fn(), unregisterSurface: fn(),
+    registerToolbarAction: fn(), unregisterToolbarAction: fn(),
+    registerContextMenuItem: fn(), unregisterContextMenuItem: fn(),
+    registerFileCategory: fn(), unregisterFileCategory: fn(),
+    registerRelatedLocation: fn(), unregisterRelatedLocation: fn(),
   };
 }
 
@@ -56,3 +56,4 @@ describe('ScopedPluginRegistry', () => {
     expect(target.registerInput).toHaveBeenCalledWith(expect.objectContaining({ pluginId: 'demo' }));
   });
 });
+

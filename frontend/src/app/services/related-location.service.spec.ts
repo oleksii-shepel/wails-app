@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { fn, spyOnFn, stubGlobal, restoreGlobals } from '../testing/jasmine-test-helpers';
 import { PinnedLocationService } from './pinned-location.service';
 import { RelatedLocationService } from './related-location.service';
 
@@ -44,7 +44,7 @@ describe('RelatedLocationService', () => {
 
   it('isolates a failing relationship provider', () => {
     const search = pin(pins, 'search://?path=C%3A%2Fwork&pattern=TODO');
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const spy = spyOnFn(console, 'error').mockImplementation(() => {});
     related.register({ id: 'broken', score: () => { throw new Error('boom'); } });
 
     expect(related.resolve([search], 'C:/work')).toEqual([search]);
@@ -52,3 +52,4 @@ describe('RelatedLocationService', () => {
     spy.mockRestore();
   });
 });
+

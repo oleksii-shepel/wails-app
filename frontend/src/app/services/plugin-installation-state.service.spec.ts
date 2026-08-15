@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import type { DiscoveredPluginPackage } from './plugin-discovery.service';
 import {
   buildManagedPluginPackage,
@@ -71,3 +70,4 @@ describe('plugin installation state', () => {
     });
   });
 });
+

@@ -1,4 +1,3 @@
-import { beforeEach, describe, expect, it } from 'vitest';
 import { LEGACY_PINNED_PATHS_KEY, PINNED_LOCATIONS_KEY } from '../components/address-bar.types';
 import { PinnedLocationService } from './pinned-location.service';
 
@@ -102,3 +101,4 @@ describe('PinnedLocationService', () => {
 
 
 });
+

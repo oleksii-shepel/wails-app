@@ -1,9 +1,9 @@
-import { describe, expect, it, vi } from 'vitest';
+import { fn, spyOnFn, stubGlobal, restoreGlobals } from '../testing/jasmine-test-helpers';
 import { bindCommandPresentation, type CommandPresentation } from './presented-command';
 
 describe('PresentedCommand', () => {
   it('binds execution without changing renderer-neutral metadata', async () => {
-    const execute = vi.fn();
+    const execute = fn();
     const presentation: CommandPresentation<'delete'> = {
       id: 'delete',
       label: 'Delete',
@@ -20,3 +20,4 @@ describe('PresentedCommand', () => {
     expect(execute).toHaveBeenCalledTimes(1);
   });
 });
+

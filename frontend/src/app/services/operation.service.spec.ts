@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import { normalizeOperationKind, normalizeOperationStatus } from './operation.service';
 
 describe('operation wire normalization', () => {
@@ -13,3 +12,4 @@ describe('operation wire normalization', () => {
     expect(normalizeOperationStatus('COMPLETED')).toBe('completed');
   });
 });
+

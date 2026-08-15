@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { fn, spyOnFn, stubGlobal, restoreGlobals } from '../testing/jasmine-test-helpers';
 
 import { FileBrowserDropController, type FileBrowserDropHost, type FileBrowserDropPane } from './file-browser-drop.controller';
 import type { SourceCapabilities } from '../services/source-capabilities';
@@ -13,9 +13,9 @@ function pane(capabilities: SourceCapabilities): FileBrowserDropPane {
     sourceCapabilities: capabilities,
     browserCommands: {
       navigation: {
-        navigateUp: vi.fn(),
-        refresh: vi.fn(),
-        openSelectedItem: vi.fn(),
+        navigateUp: fn(),
+        refresh: fn(),
+        openSelectedItem: fn(),
       },
     },
   };
@@ -28,9 +28,9 @@ function host(target: FileBrowserDropPane): FileBrowserDropHost {
     getRightPane: () => target,
     getPanesContainer: () => undefined,
     getLeftPaneWidth: () => 50,
-    apiService: { batchCopy: vi.fn().mockResolvedValue({ failed: 0 }) } as unknown as FileBrowserDropHost['apiService'],
-    confirmDialog: { alert: vi.fn() } as unknown as FileBrowserDropHost['confirmDialog'],
-    buildDestinationPath: vi.fn(async (source: string, destination: string) => `${destination}/${source.split('/').pop()}`),
+    apiService: { batchCopy: fn().mockResolvedValue({ failed: 0 }) } as unknown as FileBrowserDropHost['apiService'],
+    confirmDialog: { alert: fn() } as unknown as FileBrowserDropHost['confirmDialog'],
+    buildDestinationPath: fn(async (source: string, destination: string) => `${destination}/${source.split('/').pop()}`),
   };
 }
 
@@ -54,3 +54,4 @@ describe('FileBrowserDropController destination capabilities', () => {
     expect(targetHost.confirmDialog.alert).toHaveBeenCalledWith('Copy Not Available\nThe destination is read-only.');
   });
 });
+

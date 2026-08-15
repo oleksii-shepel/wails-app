@@ -1,12 +1,12 @@
-import { describe, expect, it, vi } from 'vitest';
+import { fn, spyOnFn, stubGlobal, restoreGlobals } from '../testing/jasmine-test-helpers';
 
 import { FilePaneNavigationController } from './file-pane-navigation.controller';
 
 function remoteHost(options?: { mounted?: boolean; mountedRoot?: string | null }) {
-  const promptForRemoteMount = vi.fn(async () => options?.mountedRoot ?? null);
+  const promptForRemoteMount = fn(async () => options?.mountedRoot ?? null);
   return {
     apiService: {
-      remoteListConnections: vi.fn(async () => options?.mounted
+      remoteListConnections: fn(async () => options?.mounted
         ? [{ protocol: 'gdrive', publicPath: 'gdrive://work' }]
         : []),
     },
@@ -67,8 +67,8 @@ describe('FilePaneNavigationController remote restore policy', () => {
       isPinned: false,
       createdAt: 1,
     } as any;
-    const loadPathTransparently = vi.fn(async () => undefined);
-    const emitActiveTabChange = vi.fn();
+    const loadPathTransparently = fn(async () => undefined);
+    const emitActiveTabChange = fn();
     const host = {
       tabs: [
         { id: 'dir-tab', title: 'Dir', path: '/', surfaceId: 'dir', isActive: true, isPinned: false, createdAt: 1 },
@@ -78,13 +78,13 @@ describe('FilePaneNavigationController remote restore policy', () => {
       currentPath: '/',
       paneId: 'left',
       workspaceService: {
-        updateTabPath: vi.fn(),
-        switchTab: vi.fn(),
-        getTabs: vi.fn(() => [tab]),
-        getArchiveState: vi.fn(() => null),
+        updateTabPath: fn(),
+        switchTab: fn(),
+        getTabs: fn(() => [tab]),
+        getArchiveState: fn(() => null),
       },
-      isInArchive: vi.fn(() => false),
-      clearArchiveState: vi.fn(),
+      isInArchive: fn(() => false),
+      clearArchiveState: fn(),
       loadPathTransparently,
       emitActiveTabChange,
       activeDirTabId: 'dir-tab',
@@ -110,8 +110,8 @@ describe('FilePaneNavigationController remote restore policy', () => {
       isPinned: false,
       createdAt: 1,
     } as any;
-    const loadPathTransparently = vi.fn(async () => undefined);
-    const emitActiveTabChange = vi.fn();
+    const loadPathTransparently = fn(async () => undefined);
+    const emitActiveTabChange = fn();
     const session = { currentPath: '', showHiddenLoaded: null, loading: false, error: null, fsParentDir: '' };
     const host = {
       tabs: [
@@ -120,12 +120,12 @@ describe('FilePaneNavigationController remote restore policy', () => {
       ],
       currentTabId: 'dir-tab', currentPath: '/', paneId: 'left', showHidden: false,
       workspaceService: {
-        updateTabPath: vi.fn(), switchTab: vi.fn(), getTabs: vi.fn(() => [tab]), getArchiveState: vi.fn(() => null),
+        updateTabPath: fn(), switchTab: fn(), getTabs: fn(() => [tab]), getArchiveState: fn(() => null),
       },
-      directorySource: { isPathInsideArchive: vi.fn(() => false) },
-      isInArchive: vi.fn(() => false), clearArchiveState: vi.fn(), getDirSession: vi.fn(() => session),
-      resolveRemotePathForLoad: vi.fn(), loadPathTransparently, emitActiveTabChange,
-      activeDirTabId: 'dir-tab', archiveStack: [], applyFilter: vi.fn(), emitPreviewTargetFromState: vi.fn(),
+      directorySource: { isPathInsideArchive: fn(() => false) },
+      isInArchive: fn(() => false), clearArchiveState: fn(), getDirSession: fn(() => session),
+      resolveRemotePathForLoad: fn(), loadPathTransparently, emitActiveTabChange,
+      activeDirTabId: 'dir-tab', archiveStack: [], applyFilter: fn(), emitPreviewTargetFromState: fn(),
     } as any;
 
     await controller.onTabChange(host, tab);
@@ -136,3 +136,4 @@ describe('FilePaneNavigationController remote restore policy', () => {
   });
 
 });
+

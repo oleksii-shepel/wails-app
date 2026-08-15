@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import { buildActionAvailability } from './action-availability';
 import type { SourceCapabilities } from './source-capabilities';
 const rw: SourceCapabilities = { read:true, create:true, delete:true, rename:true, trash:true };
@@ -17,3 +16,4 @@ describe('buildActionAvailability', () => {
     expect(a.copyToOther).toBe(false); expect(a.moveToOther).toBe(false);
   });
 });
+

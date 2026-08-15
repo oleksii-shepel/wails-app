@@ -1,11 +1,11 @@
-import { describe, expect, it, vi } from 'vitest';
+import { fn, spyOnFn, stubGlobal, restoreGlobals } from '../testing/jasmine-test-helpers';
 import { InputEngineService } from './input-engine.service';
 import type { CommandInvocation } from './input-system.types';
 
 describe('InputEngineService command invocation', () => {
   it('passes structured invocation data to command handlers', () => {
     const engine = new InputEngineService();
-    const execute = vi.fn();
+    const execute = fn();
     engine.registerCommandDescriptor({ id: 'test.open', title: 'Open', execute });
 
     const invocation: CommandInvocation = {
@@ -20,7 +20,7 @@ describe('InputEngineService command invocation', () => {
 
   it('lets availability inspect invocation arguments', () => {
     const engine = new InputEngineService();
-    const execute = vi.fn();
+    const execute = fn();
     engine.registerCommandDescriptor({
       id: 'test.hash',
       title: 'Hash',
@@ -43,7 +43,7 @@ describe('InputEngineService command invocation', () => {
 
   it('annotates binding-driven dispatch with its source and binding id', async () => {
     const engine = new InputEngineService();
-    const execute = vi.fn();
+    const execute = fn();
     engine.registerCommandDescriptor({ id: 'test.refresh', title: 'Refresh', execute });
     engine.registerBinding({
       id: 'test.refresh.f9',
@@ -62,3 +62,4 @@ describe('InputEngineService command invocation', () => {
     });
   });
 });
+

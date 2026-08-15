@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import { normalizeDiscoveredPluginPackage } from './plugin-discovery.service';
 
 describe('normalizeDiscoveredPluginPackage', () => {
@@ -16,3 +15,4 @@ describe('normalizeDiscoveredPluginPackage', () => {
     expect(value.warnings).toEqual(['directory mismatch']);
   });
 });
+

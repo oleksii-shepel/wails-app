@@ -1,5 +1,4 @@
 import '@angular/compiler';
-import { describe, expect, it } from 'vitest';
 
 import { canonicalizePathReference, normalizePath } from './address-bar.utils';
 
@@ -32,3 +31,4 @@ describe('address-bar alias normalization', () => {
     expect(normalizePath(uncPath)).toBe('smb://fileserver/share/docs');
   });
 });
+

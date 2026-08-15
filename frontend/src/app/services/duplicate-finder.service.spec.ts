@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { fn, spyOnFn, stubGlobal, restoreGlobals } from '../testing/jasmine-test-helpers';
 import { DuplicateFinderService } from './duplicate-finder.service';
 import { FileType } from '../shared/protocol';
 
@@ -12,10 +12,10 @@ function d(path: string) {
 describe('DuplicateFinderService', () => {
   it('hashes only size-collision candidates and groups verified matches', async () => {
     const api = {
-      listDirectory: vi.fn(async (path: string) => path === '/root'
+      listDirectory: fn(async (path: string) => path === '/root'
         ? { entries: [f('/root/a.txt', 10), f('/root/b.txt', 10), f('/root/c.txt', 20), d('/root/nested')] }
         : { entries: [f('/root/nested/d.txt', 10)] }),
-      hashFile: vi.fn(async (path: string) => path.endsWith('b.txt') ? 'other' : 'same'),
+      hashFile: fn(async (path: string) => path.endsWith('b.txt') ? 'other' : 'same'),
     };
     const result = await new DuplicateFinderService(api as any).scan('/root');
     expect(api.hashFile).toHaveBeenCalledTimes(3);
@@ -26,7 +26,7 @@ describe('DuplicateFinderService', () => {
 
   it('does not descend through directory symlinks', async () => {
     const linked = { ...d('/root/link'), isSymlink: true };
-    const api = { listDirectory: vi.fn(async () => ({ entries: [linked] })), hashFile: vi.fn() };
+    const api = { listDirectory: fn(async () => ({ entries: [linked] })), hashFile: fn() };
     await new DuplicateFinderService(api as any).scan('/root');
     expect(api.listDirectory).toHaveBeenCalledTimes(1);
   });
@@ -56,3 +56,4 @@ describe('DuplicateFinderService keeper policies', () => {
     expect(service.redundantPaths([group], 'newest')).toEqual(['/very/long/path/a.txt', '/mid/c.txt']);
   });
 });
+

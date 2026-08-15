@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { fn, spyOnFn, stubGlobal, restoreGlobals } from '../testing/jasmine-test-helpers';
 import { BackendPluginCommandBridgeService, backendPluginCommandId, backendPluginCommandName, parsePluginHotkey } from './backend-plugin-command-bridge.service';
 
 class FakeInputEngine {
@@ -16,11 +16,11 @@ describe('BackendPluginCommandBridgeService', () => {
 
   it('registers backend commands as plugin-owned input contributions', async () => {
     const api = {
-      listBackendPlugins: vi.fn().mockResolvedValue([{
+      listBackendPlugins: fn().mockResolvedValue([{
         id: 'hash', name: 'Hash Tools', version: '1.0.0',
         commands: [{ id: 'sha256', label: 'SHA-256', hotkey: 'Ctrl+Alt+H', appliesTo: ['file'] }],
       }]),
-      invokeBackendPluginCommand: vi.fn().mockResolvedValue(undefined),
+      invokeBackendPluginCommand: fn().mockResolvedValue(undefined),
     };
     const input = new FakeInputEngine();
     const bridge = new BackendPluginCommandBridgeService(api as any, input as any);
@@ -42,16 +42,16 @@ describe('BackendPluginCommandBridgeService', () => {
       source: 'console',
       args: { paths: ['C:/explicit/b.txt'] },
     });
-    expect(api.invokeBackendPluginCommand).toHaveBeenLastCalledWith('hash', 'sha256', ['C:/explicit/b.txt']);
+    expect(api.invokeBackendPluginCommand.calls.mostRecent().args).toEqual(['hash', 'sha256', ['C:/explicit/b.txt']]);
   });
 
   it('disables path-scoped commands without a selection and cleans up on stop', async () => {
     const api = {
-      listBackendPlugins: vi.fn().mockResolvedValue([{
+      listBackendPlugins: fn().mockResolvedValue([{
         id: 'images', name: 'Images', version: '1',
         commands: [{ id: 'convert', label: 'Convert', appliesTo: ['.png'] }],
       }]),
-      invokeBackendPluginCommand: vi.fn(),
+      invokeBackendPluginCommand: fn(),
     };
     const input = new FakeInputEngine();
     const bridge = new BackendPluginCommandBridgeService(api as any, input as any);
@@ -63,3 +63,4 @@ describe('BackendPluginCommandBridgeService', () => {
     expect(input.removed).toEqual(['backend-plugin:images']);
   });
 });
+

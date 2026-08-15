@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import { SurfaceRegistryService } from './surface-registry.service';
 
 describe('SurfaceRegistryService capabilities', () => {

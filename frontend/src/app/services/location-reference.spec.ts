@@ -1,5 +1,4 @@
 import '@angular/compiler';
-import { describe, expect, it } from 'vitest';
 import {
   canonicalizeLocation,
   describeLocation,
@@ -28,3 +27,4 @@ describe('location-reference', () => {
     expect(locationIdentity('C:/Work')).toBe(locationIdentity('c:/work'));
   });
 });
+

@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import { isPluginApiCompatible, validatePluginManifest, type PluginManifest } from './plugin-manifest';
 
 const valid: PluginManifest = {
@@ -28,3 +27,4 @@ describe('plugin manifest', () => {
     expect(isPluginApiCompatible('1.2.3', '1.2.3')).toBe(true);
   });
 });
+

@@ -1,11 +1,11 @@
 import '@angular/compiler';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { fn, spyOnFn, stubGlobal, restoreGlobals } from '../testing/jasmine-test-helpers';
 import { InputEngineService } from './input-engine.service';
 
 function createEngine(): InputEngineService {
-  vi.stubGlobal('document', {
-    addEventListener: vi.fn(),
-    querySelector: vi.fn(() => null),
+  stubGlobal('document', {
+    addEventListener: fn(),
+    querySelector: fn(() => null),
     activeElement: null,
   });
   return new InputEngineService();
@@ -13,12 +13,12 @@ function createEngine(): InputEngineService {
 
 describe('InputEngineService plugin input ownership', () => {
   beforeEach(() => {
-    vi.restoreAllMocks();
+    restoreGlobals();
   });
 
   it('registers commands, contexts, and default bindings as one plugin unit', () => {
     const engine = createEngine();
-    const execute = vi.fn();
+    const execute = fn();
 
     engine.registerPluginInput({
       pluginId: 'archive-tools',
@@ -55,7 +55,7 @@ describe('InputEngineService plugin input ownership', () => {
     });
     expect(engine.getContextSnapshot().some(x => x.id === 'plugin.archive-tools')).toBe(true);
     expect(engine.dispatchCommandById('plugin.archive-tools.compress')).toBe(true);
-    expect(execute).toHaveBeenCalledOnce();
+    expect(execute).toHaveBeenCalledTimes(1);
   });
 
   it('removes the complete plugin input unit with one unregister call', () => {
@@ -98,3 +98,4 @@ describe('InputEngineService plugin input ownership', () => {
     expect(engine.getCommandDefinition('host.command')?.title).toBe('Host');
   });
 });
+

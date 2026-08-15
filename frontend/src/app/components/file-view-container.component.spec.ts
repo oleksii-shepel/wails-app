@@ -1,6 +1,6 @@
 import '@angular/compiler';
 import { SimpleChange } from '@angular/core';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { fn, spyOnFn, stubGlobal, restoreGlobals } from '../testing/jasmine-test-helpers';
 
 import { FileViewContainerComponent } from './file-view-container.component';
 
@@ -8,7 +8,7 @@ function createComponent(): FileViewContainerComponent {
   return new FileViewContainerComponent(
     {} as any,
     {} as any,
-    { markForCheck: vi.fn() } as any,
+    { markForCheck: fn() } as any,
   );
 }
 
@@ -23,14 +23,14 @@ function createLocalStorageMock(initial: Record<string, string> = {}) {
   const store = new Map(Object.entries(initial));
 
   return {
-    getItem: vi.fn((key: string) => store.get(key) ?? null),
-    setItem: vi.fn((key: string, value: string) => {
+    getItem: fn((key: string) => store.get(key) ?? null),
+    setItem: fn((key: string, value: string) => {
       store.set(key, value);
     }),
-    removeItem: vi.fn((key: string) => {
+    removeItem: fn((key: string) => {
       store.delete(key);
     }),
-    clear: vi.fn(() => {
+    clear: fn(() => {
       store.clear();
     }),
   };
@@ -38,7 +38,7 @@ function createLocalStorageMock(initial: Record<string, string> = {}) {
 
 describe('FileViewContainerComponent', () => {
   afterEach(() => {
-    vi.unstubAllGlobals();
+    restoreGlobals();
   });
 
   it('prefers the live current path over a stale browser path', () => {
@@ -64,7 +64,7 @@ describe('FileViewContainerComponent', () => {
   });
 
   it('loads and clamps the persisted browser pane split for the current pane', () => {
-    vi.stubGlobal('localStorage', createLocalStorageMock({
+    stubGlobal('localStorage', createLocalStorageMock({
       'fileManager_browserPaneSplit:right': '90',
     }));
 

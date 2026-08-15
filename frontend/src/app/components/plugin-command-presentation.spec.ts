@@ -1,9 +1,9 @@
-import { describe, expect, it, vi } from 'vitest';
+import { fn, spyOnFn, stubGlobal, restoreGlobals } from '../testing/jasmine-test-helpers';
 import type { CommandState } from '../services/input-system.types';
 import { presentPluginCommand, type PluginCommandPresentationHost } from './plugin-command-presentation';
 
-function host(state?: CommandState): PluginCommandPresentationHost & { dispatch: ReturnType<typeof vi.fn> } {
-  const dispatch = vi.fn(() => true);
+function host(state?: CommandState): PluginCommandPresentationHost & { dispatch: ReturnType<typeof fn> } {
+  const dispatch = fn(() => true);
   return {
     dispatch,
     getCommandState: () => state,
@@ -52,7 +52,7 @@ describe('presentPluginCommand', () => {
   });
 
   it('keeps legacy callback contributions working', async () => {
-    const execute = vi.fn();
+    const execute = fn();
     const item = presentPluginCommand({ id: 'legacy', label: 'Legacy Action', execute }, { selected: 1 }, host());
 
     expect(item.label).toBe('Legacy Action');
@@ -63,3 +63,4 @@ describe('presentPluginCommand', () => {
     expect(execute).toHaveBeenCalledWith({ selected: 1 });
   });
 });
+

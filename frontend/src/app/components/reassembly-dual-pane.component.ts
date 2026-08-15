@@ -14,6 +14,12 @@ import { InputEngineService } from '../services/input-engine.service';
 import type { InputBindingDefinition } from '../services/input-system.types';
 import { canTransferBetween, transferBlockedMessage } from '../services/transfer-capabilities';
 import { ReassemblyDirectoryPaneComponent } from './reassembly-directory-pane.component';
+import {
+  ReassemblyContextMenuComponent,
+  type ReassemblyContextMenuItem,
+  type ReassemblyContextMenuState,
+} from './reassembly-context-menu.component';
+import type { FileInfo } from '../shared/protocol';
 
 type PaneId = 'left' | 'right';
 
@@ -49,6 +55,7 @@ const COMMAND = {
   viewerZoomOut: 'reassembly.viewer.zoomOut',
   viewerFit: 'reassembly.viewer.fit',
   viewerActualSize: 'reassembly.viewer.actualSize',
+  closeContextMenu: 'reassembly.manager.closeContextMenu',
 } as const;
 
 const BINDINGS: readonly InputBindingDefinition[] = [
@@ -82,12 +89,17 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   { id:'reassembly.viewer.zoomOut.ctrlMinus', commandId:COMMAND.viewerZoomOut, contextId:CONTEXT_ID, source:'default', description:'Zoom viewer out', category:'Viewer', when:'viewerSurface', trigger:{device:'keyboard', chord:{steps:[{key:'-', modifiers:['ctrl']}]}}},
   { id:'reassembly.viewer.fit.ctrl0', commandId:COMMAND.viewerFit, contextId:CONTEXT_ID, source:'default', description:'Fit viewer to window', category:'Viewer', when:'viewerSurface', trigger:{device:'keyboard', chord:{steps:[{key:'0', modifiers:['ctrl']}]}}},
   { id:'reassembly.viewer.actualSize.ctrl1', commandId:COMMAND.viewerActualSize, contextId:CONTEXT_ID, source:'default', description:'Viewer actual size', category:'Viewer', when:'viewerSurface', trigger:{device:'keyboard', chord:{steps:[{key:'1', modifiers:['ctrl']}]}}},
+  { id:'reassembly.manager.contextMenu.escape', commandId:COMMAND.closeContextMenu, contextId:CONTEXT_ID, source:'default', description:'Close context menu', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'escape'}]}}, preventDefault:true, stopPropagation:true },
 ];
 
 @Component({
   selector: 'app-reassembly-dual-pane',
   standalone: true,
-  imports: [CommonModule, ReassemblyDirectoryPaneComponent],
+  imports: [
+    CommonModule,
+    ReassemblyDirectoryPaneComponent,
+    ReassemblyContextMenuComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="manager">
@@ -96,7 +108,9 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           #leftPane
           paneId="left"
           [active]="activePaneId === 'left'"
-          (activateRequested)="activate('left')">
+          (activateRequested)="activate('left')"
+          (entryContextMenu)="openEntryMenu('left', $event.event, $event.entry)"
+          (backgroundContextMenu)="openBackgroundMenu('left', $event)">
         </app-reassembly-directory-pane>
       </div>
 
@@ -107,9 +121,17 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           #rightPane
           paneId="right"
           [active]="activePaneId === 'right'"
-          (activateRequested)="activate('right')">
+          (activateRequested)="activate('right')"
+          (entryContextMenu)="openEntryMenu('right', $event.event, $event.entry)"
+          (backgroundContextMenu)="openBackgroundMenu('right', $event)">
         </app-reassembly-directory-pane>
       </div>
+
+      <app-reassembly-context-menu
+        [state]="contextMenu"
+        (command)="dispatchContextCommand($event)"
+        (closed)="closeContextMenu()">
+      </app-reassembly-context-menu>
     </section>
   `,
   styles: [`
@@ -173,6 +195,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
 
   activePaneId: PaneId = 'left';
   lastTransfer = 'none';
+  contextMenu: ReassemblyContextMenuState | null = null;
 
   constructor(
     private readonly input: InputEngineService,
@@ -212,6 +235,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
   }
 
   activate(paneId: PaneId): void {
+    this.closeContextMenu();
     if (this.activePaneId === paneId) return;
     this.activePaneId = paneId;
     this.cdr.markForCheck();
@@ -227,6 +251,95 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
 
   async moveToOther(): Promise<void> {
     await this.transferToOther('move');
+  }
+
+  openEntryMenu(
+    paneId: PaneId,
+    event: MouseEvent,
+    entry: FileInfo,
+  ): void {
+    this.activePaneId = paneId;
+
+    const items: ReassemblyContextMenuItem[] = [
+      this.menuCommand(COMMAND.open, 'Open', 'Enter'),
+      { separator: true },
+      this.menuCommand(COMMAND.rename, 'Rename', 'F2'),
+      this.menuCommand(COMMAND.copy, 'Copy', 'Ctrl+C'),
+      this.menuCommand(COMMAND.cut, 'Cut', 'Ctrl+X'),
+      this.menuCommand(COMMAND.paste, 'Paste', 'Ctrl+V'),
+      { separator: true },
+      this.menuCommand(COMMAND.copyToOther, 'Copy to other pane', 'F5'),
+      this.menuCommand(COMMAND.moveToOther, 'Move to other pane', 'F6'),
+      { separator: true },
+      this.menuCommand(COMMAND.deleteSelected, 'Delete', 'Delete'),
+    ];
+
+    this.contextMenu = {
+      x: this.clampMenuX(event.clientX),
+      y: this.clampMenuY(event.clientY),
+      title: entry.name,
+      items,
+    };
+    this.cdr.markForCheck();
+  }
+
+  openBackgroundMenu(paneId: PaneId, event: MouseEvent): void {
+    this.activePaneId = paneId;
+
+    this.contextMenu = {
+      x: this.clampMenuX(event.clientX),
+      y: this.clampMenuY(event.clientY),
+      title: this.activePane?.path || 'Folder',
+      items: [
+        this.menuCommand(COMMAND.newFolder, 'New folder', 'F7'),
+        this.menuCommand(COMMAND.paste, 'Paste', 'Ctrl+V'),
+        { separator: true },
+        this.menuCommand(COMMAND.selectAll, 'Select all', 'Ctrl+A'),
+        this.menuCommand(COMMAND.refresh, 'Refresh', 'Ctrl+R'),
+      ],
+    };
+    this.cdr.markForCheck();
+  }
+
+  dispatchContextCommand(commandId: string): void {
+    this.closeContextMenu();
+    this.input.dispatchCommandById(commandId, {
+      source: 'context-menu',
+      context: {
+        paneId: this.activePaneId,
+        path: this.activePane?.path ?? '',
+      },
+    });
+  }
+
+  closeContextMenu(): void {
+    if (!this.contextMenu) return;
+    this.contextMenu = null;
+    this.cdr.markForCheck();
+  }
+
+  private menuCommand(
+    commandId: string,
+    label: string,
+    shortcut?: string,
+  ): ReassemblyContextMenuItem {
+    const state = this.input.getCommandState(commandId);
+    return {
+      commandId,
+      label,
+      shortcut,
+      enabled: !!state?.registered && state.enabled,
+    };
+  }
+
+  private clampMenuX(x: number): number {
+    if (typeof window === 'undefined') return x;
+    return Math.max(8, Math.min(x, window.innerWidth - 258));
+  }
+
+  private clampMenuY(y: number): number {
+    if (typeof window === 'undefined') return y;
+    return Math.max(8, Math.min(y, window.innerHeight - 360));
   }
 
   private registerCommands(): void {
@@ -272,6 +385,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     descriptor(COMMAND.viewerZoomOut, 'Zoom Viewer Out', 'Viewer', () => this.invokeViewer('zoomOut'), () => this.hasViewerMethod('zoomOut'));
     descriptor(COMMAND.viewerFit, 'Fit Viewer', 'Viewer', () => this.invokeViewer('resetZoom'), () => this.hasViewerMethod('resetZoom'));
     descriptor(COMMAND.viewerActualSize, 'Viewer Actual Size', 'Viewer', () => this.invokeViewer('zoom100'), () => this.hasViewerMethod('zoom100'));
+    descriptor(COMMAND.closeContextMenu, 'Close Context Menu', 'Navigation', () => this.closeContextMenu(), () => !!this.contextMenu);
   }
 
   private activeViewer(): any {

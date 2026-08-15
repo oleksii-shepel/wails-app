@@ -167,7 +167,8 @@ type ReassemblyTab =
         class="list"
         *ngIf="!error"
         role="listbox"
-        [attr.aria-busy]="loading">
+        [attr.aria-busy]="loading"
+        (contextmenu)="onBackgroundContextMenu($event)">
 
         <button
           *ngFor="let entry of entries; trackBy: trackEntry"
@@ -179,7 +180,8 @@ type ReassemblyTab =
           [class.cursor]="entry.path === cursorPath"
           [class.selected]="selectedPaths.has(entry.path)"
           (click)="selectFromPointer(entry, $event)"
-          (dblclick)="openEntry(entry)">
+          (dblclick)="openEntry(entry)"
+          (contextmenu)="onEntryContextMenu(entry, $event)">
 
           <span class="icon" aria-hidden="true">
             {{ entry.type === FileType.DIRECTORY ? '📁' : entry.type === FileType.ARCHIVE ? '🗜️' : '📄' }}
@@ -619,6 +621,8 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
   @Input() paneId: 'left' | 'right' = 'left';
   @Input() active = false;
   @Output() activateRequested = new EventEmitter<void>();
+  @Output() entryContextMenu = new EventEmitter<{ event: MouseEvent; entry: FileInfo }>();
+  @Output() backgroundContextMenu = new EventEmitter<MouseEvent>();
 
   path = '';
   entries: FileInfo[] = [];
@@ -856,6 +860,25 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
 
     this.lastAction = `open directory: ${entry.name}`;
     void this.load(entry.path, { history: 'record' });
+  }
+
+  onEntryContextMenu(entry: FileInfo, event: MouseEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (!this.selectedPaths.has(entry.path)) {
+      this.setSingleSelection(entry);
+      this.lastAction = `context: ${entry.name}`;
+      this.cdr.markForCheck();
+    }
+
+    this.entryContextMenu.emit({ event, entry });
+  }
+
+  onBackgroundContextMenu(event: MouseEvent): void {
+    if (event.defaultPrevented) return;
+    event.preventDefault();
+    this.backgroundContextMenu.emit(event);
   }
 
   selectFromPointer(entry: FileInfo, event: MouseEvent): void {

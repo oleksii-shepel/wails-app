@@ -77,6 +77,7 @@ interface PendingChordLike {
         <div><kbd>Left/Right</kbd><span>viewer previous/next</span></div>
         <div><kbd>Ctrl++/-</kbd><span>viewer zoom</span></div>
         <div><kbd>Ctrl+0/1</kbd><span>fit / actual size</span></div>
+        <div><kbd>Right click</kbd><span>command context menu</span></div>
       </div>
 
       <footer>

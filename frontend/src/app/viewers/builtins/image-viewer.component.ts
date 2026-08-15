@@ -1751,6 +1751,3 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
     };
   }
 }
-````
-
-## File: frontend/src/app/viewers/builtins/text-viewer.component.ts

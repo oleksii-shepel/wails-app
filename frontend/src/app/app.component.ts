@@ -1,26 +1,30 @@
 import { Component } from '@angular/core';
-import { ReassemblyDirectoryPaneComponent } from './components/reassembly-directory-pane.component';
-import { ShortcutDebugOverlayComponent } from './components/shortcut-debug-overlay.component';
 import { ConfirmDialogComponent } from './components/confirm-dialog.component';
+import { ReassemblyDualPaneComponent } from './components/reassembly-dual-pane.component';
+import { ShortcutDebugOverlayComponent } from './components/shortcut-debug-overlay.component';
 
 @Component({
   selector: 'app-root',
   standalone: true,
   imports: [
-    ReassemblyDirectoryPaneComponent,
+    ReassemblyDualPaneComponent,
     ShortcutDebugOverlayComponent,
     ConfirmDialogComponent,
   ],
   template: `
     <main class="app-shell">
-      <app-reassembly-directory-pane #pane></app-reassembly-directory-pane>
+      <app-reassembly-dual-pane #manager></app-reassembly-dual-pane>
 
       <app-shortcut-debug-overlay
-        [path]="pane.path"
-        [cursorName]="pane.cursorEntry?.name ?? null"
-        [selectedCount]="pane.selectedPaths.size"
-        [lastAction]="pane.lastAction">
+        [path]="manager.activePane?.path ?? ''"
+        [cursorName]="manager.activePane?.cursorEntry?.name ?? null"
+        [selectedCount]="manager.activePane?.selectedPaths?.size ?? 0"
+        [lastAction]="manager.activePane?.lastAction ?? 'startup'"
+        [activePane]="manager.activePaneId"
+        [otherPath]="manager.otherPane?.path ?? ''"
+        [lastTransfer]="manager.lastTransfer">
       </app-shortcut-debug-overlay>
+
       <app-confirm-dialog></app-confirm-dialog>
     </main>
   `,

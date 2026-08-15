@@ -2,229 +2,22 @@ import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
-  OnDestroy,
+  EventEmitter,
+  Input,
   OnInit,
+  Output,
+  ViewChild,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 
 import { DirectorySourceService } from '../services/directory-source.service';
 import { ApiService } from '../services/api.service';
-import { InputEngineService } from '../services/input-engine.service';
-import type { InputBindingDefinition } from '../services/input-system.types';
 import { PathHistoryService } from '../services/path-history.service';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { getSourceCapabilities } from '../services/source-capabilities';
 import { FileInfo, FileType } from '../shared/protocol';
 import { ReassemblyAddressBarComponent } from './reassembly-address-bar.component';
 import { ReassemblyNavigationController } from './reassembly-navigation.controller';
-
-const CONTEXT_ID = 'reassembly.directory';
-const OWNER_ID = 'reassembly.directory';
-
-const COMMAND = {
-  cursorUp: 'reassembly.directory.cursorUp',
-  cursorDown: 'reassembly.directory.cursorDown',
-  open: 'reassembly.directory.open',
-  up: 'reassembly.directory.up',
-  back: 'reassembly.directory.back',
-  forward: 'reassembly.directory.forward',
-  selectAll: 'reassembly.directory.selectAll',
-  clearSelection: 'reassembly.directory.clearSelection',
-  refresh: 'reassembly.directory.refresh',
-  rename: 'reassembly.files.rename',
-  newFolder: 'reassembly.files.newFolder',
-  deleteSelected: 'reassembly.files.delete',
-  copy: 'reassembly.files.copy',
-  cut: 'reassembly.files.cut',
-  paste: 'reassembly.files.paste',
-} as const;
-
-const BINDINGS: readonly InputBindingDefinition[] = [
-  {
-    id: 'reassembly.directory.cursorUp.arrowUp',
-    commandId: COMMAND.cursorUp,
-    contextId: CONTEXT_ID,
-    source: 'default',
-    description: 'Move cursor up',
-    category: 'Navigation',
-    when: '!typing',
-    trigger: { device: 'keyboard', chord: { steps: [{ key: 'arrowup' }] } },
-  },
-  {
-    id: 'reassembly.directory.cursorDown.arrowDown',
-    commandId: COMMAND.cursorDown,
-    contextId: CONTEXT_ID,
-    source: 'default',
-    description: 'Move cursor down',
-    category: 'Navigation',
-    when: '!typing',
-    trigger: { device: 'keyboard', chord: { steps: [{ key: 'arrowdown' }] } },
-  },
-  {
-    id: 'reassembly.directory.open.enter',
-    commandId: COMMAND.open,
-    contextId: CONTEXT_ID,
-    source: 'default',
-    description: 'Open selected directory',
-    category: 'Navigation',
-    when: '!typing',
-    trigger: { device: 'keyboard', chord: { steps: [{ key: 'enter' }] } },
-  },
-  {
-    id: 'reassembly.directory.up.backspace',
-    commandId: COMMAND.up,
-    contextId: CONTEXT_ID,
-    source: 'default',
-    description: 'Go to parent directory',
-    category: 'Navigation',
-    when: '!typing',
-    trigger: { device: 'keyboard', chord: { steps: [{ key: 'backspace' }] } },
-  },
-  {
-    id: 'reassembly.directory.back.altLeft',
-    commandId: COMMAND.back,
-    contextId: CONTEXT_ID,
-    source: 'default',
-    description: 'Go back',
-    category: 'Navigation',
-    when: '!typing',
-    trigger: {
-      device: 'keyboard',
-      chord: { steps: [{ key: 'arrowleft', modifiers: ['alt'] }] },
-    },
-  },
-  {
-    id: 'reassembly.directory.forward.altRight',
-    commandId: COMMAND.forward,
-    contextId: CONTEXT_ID,
-    source: 'default',
-    description: 'Go forward',
-    category: 'Navigation',
-    when: '!typing',
-    trigger: {
-      device: 'keyboard',
-      chord: { steps: [{ key: 'arrowright', modifiers: ['alt'] }] },
-    },
-  },
-  {
-    id: 'reassembly.directory.selectAll.ctrlA',
-    commandId: COMMAND.selectAll,
-    contextId: CONTEXT_ID,
-    source: 'default',
-    description: 'Select all',
-    category: 'Selection',
-    when: '!typing',
-    trigger: {
-      device: 'keyboard',
-      chord: { steps: [{ key: 'a', modifiers: ['ctrl'] }] },
-    },
-  },
-  {
-    id: 'reassembly.directory.refresh.ctrlR',
-    commandId: COMMAND.refresh,
-    contextId: CONTEXT_ID,
-    source: 'default',
-    description: 'Refresh directory',
-    category: 'Navigation',
-    when: '!typing',
-    trigger: {
-      device: 'keyboard',
-      chord: { steps: [{ key: 'r', modifiers: ['ctrl'] }] },
-    },
-  },
-  {
-    id: 'reassembly.directory.clearSelection.ctrlD',
-    commandId: COMMAND.clearSelection,
-    contextId: CONTEXT_ID,
-    source: 'default',
-    description: 'Clear selection',
-    category: 'Selection',
-    when: '!typing',
-    trigger: {
-      device: 'keyboard',
-      chord: { steps: [{ key: 'd', modifiers: ['ctrl'] }] },
-    },
-  },
-  {
-    id: 'reassembly.files.rename.f2',
-    commandId: COMMAND.rename,
-    contextId: CONTEXT_ID,
-    source: 'default',
-    description: 'Rename selected item',
-    category: 'File Operations',
-    when: '!typing',
-    trigger: { device: 'keyboard', chord: { steps: [{ key: 'f2' }] } },
-  },
-  {
-    id: 'reassembly.files.newFolder.f7',
-    commandId: COMMAND.newFolder,
-    contextId: CONTEXT_ID,
-    source: 'default',
-    description: 'Create folder',
-    category: 'File Operations',
-    when: '!typing',
-    trigger: { device: 'keyboard', chord: { steps: [{ key: 'f7' }] } },
-  },
-  {
-    id: 'reassembly.files.delete.delete',
-    commandId: COMMAND.deleteSelected,
-    contextId: CONTEXT_ID,
-    source: 'default',
-    description: 'Delete selected items',
-    category: 'File Operations',
-    when: '!typing',
-    trigger: { device: 'keyboard', chord: { steps: [{ key: 'delete' }] } },
-  },
-  {
-    id: 'reassembly.files.delete.f8',
-    commandId: COMMAND.deleteSelected,
-    contextId: CONTEXT_ID,
-    source: 'default',
-    description: 'Delete selected items',
-    category: 'File Operations',
-    when: '!typing',
-    trigger: { device: 'keyboard', chord: { steps: [{ key: 'f8' }] } },
-  },
-  {
-    id: 'reassembly.files.copy.ctrlC',
-    commandId: COMMAND.copy,
-    contextId: CONTEXT_ID,
-    source: 'default',
-    description: 'Copy selected items',
-    category: 'File Operations',
-    when: '!typing',
-    trigger: {
-      device: 'keyboard',
-      chord: { steps: [{ key: 'c', modifiers: ['ctrl'] }] },
-    },
-  },
-  {
-    id: 'reassembly.files.cut.ctrlX',
-    commandId: COMMAND.cut,
-    contextId: CONTEXT_ID,
-    source: 'default',
-    description: 'Cut selected items',
-    category: 'File Operations',
-    when: '!typing',
-    trigger: {
-      device: 'keyboard',
-      chord: { steps: [{ key: 'x', modifiers: ['ctrl'] }] },
-    },
-  },
-  {
-    id: 'reassembly.files.paste.ctrlV',
-    commandId: COMMAND.paste,
-    contextId: CONTEXT_ID,
-    source: 'default',
-    description: 'Paste items',
-    category: 'File Operations',
-    when: '!typing',
-    trigger: {
-      device: 'keyboard',
-      chord: { steps: [{ key: 'v', modifiers: ['ctrl'] }] },
-    },
-  },
-];
 
 @Component({
   selector: 'app-reassembly-directory-pane',
@@ -234,9 +27,10 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   template: `
     <section
       class="pane"
-      data-pane-active="true"
-      aria-label="File pane"
-      (mousedown)="activate()">
+      [class.active-pane]="active"
+      [attr.data-pane-active]="active ? 'true' : null"
+      [attr.aria-label]="paneId === 'left' ? 'Left file pane' : 'Right file pane'"
+      (mousedown)="activateRequested.emit()">
 
       <header class="navigation-bar">
         <div class="nav-cluster">
@@ -272,6 +66,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         </div>
 
         <app-reassembly-address-bar
+          #addressBar
+          [paneId]="paneId"
           [path]="path"
           (navigate)="navigateTo($event)">
         </app-reassembly-address-bar>
@@ -373,6 +169,11 @@ const BINDINGS: readonly InputBindingDefinition[] = [
       overflow: hidden;
       background: var(--vsc-editor-background, #1e1e1e);
       color: var(--vsc-foreground, #cccccc);
+      border: 1px solid transparent;
+    }
+
+    .pane.active-pane {
+      border-color: color-mix(in srgb, var(--vsc-accent-blue, #007acc) 62%, transparent);
     }
 
     .navigation-bar {
@@ -588,8 +389,14 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     }
   `],
 })
-export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
+export class ReassemblyDirectoryPaneComponent implements OnInit {
   readonly FileType = FileType;
+
+  @ViewChild('addressBar') addressBar?: ReassemblyAddressBarComponent;
+
+  @Input() paneId: 'left' | 'right' = 'left';
+  @Input() active = false;
+  @Output() activateRequested = new EventEmitter<void>();
 
   path = '';
   entries: FileInfo[] = [];
@@ -635,7 +442,6 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   constructor(
     private readonly api: ApiService,
     private readonly directorySource: DirectorySourceService,
-    private readonly input: InputEngineService,
     private readonly pathHistory: PathHistoryService,
     private readonly confirmDialog: ConfirmDialogService,
     private readonly cdr: ChangeDetectorRef,
@@ -659,24 +465,11 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
-    this.installInput();
     void this.initialize();
   }
 
-  ngOnDestroy(): void {
-    this.input.deactivateContext(CONTEXT_ID);
-
-    for (const binding of BINDINGS) {
-      this.input.unregisterBinding(binding.id);
-    }
-
-    for (const commandId of Object.values(COMMAND)) {
-      this.input.unregisterCommandDescriptor(commandId, OWNER_ID);
-    }
-  }
-
-  activate(): void {
-    this.input.activateContext(CONTEXT_ID);
+  focusLocation(): void {
+    this.addressBar?.beginEdit();
   }
 
   navigateTo(path: string): void {
@@ -758,6 +551,12 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     }
 
     this.lastAction = `select: ${entry.name}`;
+    this.cdr.markForCheck();
+  }
+
+  selectAll(): void {
+    this.selectedPaths = new Set(this.entries.map(entry => entry.path));
+    this.lastAction = 'select all';
     this.cdr.markForCheck();
   }
 
@@ -974,140 +773,6 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       : `${value.toFixed(value >= 10 ? 1 : 2)} ${units[unit]}`;
   }
 
-  private installInput(): void {
-    this.input.registerContext({
-      id: CONTEXT_ID,
-      kind: 'pane',
-      priority: 100,
-      parentId: 'global',
-      description: 'Reassembly directory pane',
-    });
-
-    this.input.registerCommandDescriptor({
-      id: COMMAND.cursorUp,
-      title: 'Move Cursor Up',
-      category: 'Navigation',
-      execute: () => this.moveCursor(-1),
-    }, OWNER_ID);
-
-    this.input.registerCommandDescriptor({
-      id: COMMAND.cursorDown,
-      title: 'Move Cursor Down',
-      category: 'Navigation',
-      execute: () => this.moveCursor(1),
-    }, OWNER_ID);
-
-    this.input.registerCommandDescriptor({
-      id: COMMAND.open,
-      title: 'Open Selected Directory',
-      category: 'Navigation',
-      execute: () => {
-        const entry = this.cursorEntry;
-        if (entry) this.openEntry(entry);
-      },
-    }, OWNER_ID);
-
-    this.input.registerCommandDescriptor({
-      id: COMMAND.up,
-      title: 'Go to Parent Directory',
-      category: 'Navigation',
-      execute: () => this.navigateUp(),
-    }, OWNER_ID);
-
-    this.input.registerCommandDescriptor({
-      id: COMMAND.back,
-      title: 'Go Back',
-      category: 'Navigation',
-      execute: () => this.goBack(),
-    }, OWNER_ID);
-
-    this.input.registerCommandDescriptor({
-      id: COMMAND.forward,
-      title: 'Go Forward',
-      category: 'Navigation',
-      execute: () => this.goForward(),
-    }, OWNER_ID);
-
-    this.input.registerCommandDescriptor({
-      id: COMMAND.selectAll,
-      title: 'Select All',
-      category: 'Selection',
-      execute: () => {
-        this.selectedPaths = new Set(this.entries.map(entry => entry.path));
-        this.lastAction = 'select all';
-        this.cdr.markForCheck();
-      },
-    }, OWNER_ID);
-
-    this.input.registerCommandDescriptor({
-      id: COMMAND.clearSelection,
-      title: 'Clear Selection',
-      category: 'Selection',
-      execute: () => this.clearSelection(),
-    }, OWNER_ID);
-
-    this.input.registerCommandDescriptor({
-      id: COMMAND.rename,
-      title: 'Rename',
-      category: 'File Operations',
-      execute: () => this.renameSelected(),
-      isEnabled: () => this.canRename,
-    }, OWNER_ID);
-
-    this.input.registerCommandDescriptor({
-      id: COMMAND.newFolder,
-      title: 'New Folder',
-      category: 'File Operations',
-      execute: () => this.newFolder(),
-      isEnabled: () => this.canCreate,
-    }, OWNER_ID);
-
-    this.input.registerCommandDescriptor({
-      id: COMMAND.deleteSelected,
-      title: 'Delete',
-      category: 'File Operations',
-      execute: () => this.deleteSelected(),
-      isEnabled: () => this.canDelete,
-    }, OWNER_ID);
-
-    this.input.registerCommandDescriptor({
-      id: COMMAND.copy,
-      title: 'Copy',
-      category: 'File Operations',
-      execute: () => this.copySelected(),
-      isEnabled: () => this.hasSelection,
-    }, OWNER_ID);
-
-    this.input.registerCommandDescriptor({
-      id: COMMAND.cut,
-      title: 'Cut',
-      category: 'File Operations',
-      execute: () => this.cutSelected(),
-      isEnabled: () => this.canCut,
-    }, OWNER_ID);
-
-    this.input.registerCommandDescriptor({
-      id: COMMAND.paste,
-      title: 'Paste',
-      category: 'File Operations',
-      execute: () => this.paste(),
-      isEnabled: () => this.canPaste,
-    }, OWNER_ID);
-
-    this.input.registerCommandDescriptor({
-      id: COMMAND.refresh,
-      title: 'Refresh Directory',
-      category: 'Navigation',
-      execute: () => this.refresh(),
-    }, OWNER_ID);
-
-    for (const binding of BINDINGS) {
-      this.input.registerBinding(binding);
-    }
-
-    this.input.activateContext(CONTEXT_ID);
-  }
-
   private async initialize(): Promise<void> {
     this.loading = true;
     this.error = null;
@@ -1188,7 +853,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     }
   }
 
-  private moveCursor(delta: -1 | 1): void {
+  moveCursor(delta: -1 | 1): void {
     if (this.entries.length === 0) return;
 
     const currentIndex = this.cursorPath

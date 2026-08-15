@@ -25,73 +25,58 @@ import {
   type PathSuggestion,
 } from '../services/path-history.service';
 
-const PANE_CONTEXT = 'reassembly.directory';
-const ADDRESS_CONTEXT = 'reassembly.address';
-const OWNER = 'reassembly.address';
-
 const COMMAND = {
-  edit: 'reassembly.address.edit',
-  accept: 'reassembly.address.accept',
-  cancel: 'reassembly.address.cancel',
-  next: 'reassembly.address.nextSuggestion',
-  previous: 'reassembly.address.previousSuggestion',
+  accept: 'accept',
+  cancel: 'cancel',
+  next: 'nextSuggestion',
+  previous: 'previousSuggestion',
 } as const;
 
-const BINDINGS: readonly InputBindingDefinition[] = [
-  {
-    id: 'reassembly.address.edit.ctrlL',
-    commandId: COMMAND.edit,
-    contextId: PANE_CONTEXT,
-    source: 'default',
-    description: 'Edit location',
-    category: 'Navigation',
-    when: '!typing',
-    trigger: {
-      device: 'keyboard',
-      chord: { steps: [{ key: 'l', modifiers: ['ctrl'] }] },
+function editorBindings(paneId: string, contextId: string): readonly InputBindingDefinition[] {
+  const id = `reassembly.address.${paneId}`;
+  return [
+    {
+      id: `${id}.accept.enter`,
+      commandId: `${id}.${COMMAND.accept}`,
+      contextId,
+      source: 'default',
+      description: 'Open location',
+      category: 'Navigation',
+      when: 'typing',
+      trigger: { device: 'keyboard', chord: { steps: [{ key: 'enter' }] } },
     },
-  },
-  {
-    id: 'reassembly.address.accept.enter',
-    commandId: COMMAND.accept,
-    contextId: ADDRESS_CONTEXT,
-    source: 'default',
-    description: 'Open location',
-    category: 'Navigation',
-    when: 'typing',
-    trigger: { device: 'keyboard', chord: { steps: [{ key: 'enter' }] } },
-  },
-  {
-    id: 'reassembly.address.cancel.escape',
-    commandId: COMMAND.cancel,
-    contextId: ADDRESS_CONTEXT,
-    source: 'default',
-    description: 'Cancel location edit',
-    category: 'Navigation',
-    when: 'typing',
-    trigger: { device: 'keyboard', chord: { steps: [{ key: 'escape' }] } },
-  },
-  {
-    id: 'reassembly.address.next.arrowDown',
-    commandId: COMMAND.next,
-    contextId: ADDRESS_CONTEXT,
-    source: 'default',
-    description: 'Next location suggestion',
-    category: 'Navigation',
-    when: 'typing',
-    trigger: { device: 'keyboard', chord: { steps: [{ key: 'arrowdown' }] } },
-  },
-  {
-    id: 'reassembly.address.previous.arrowUp',
-    commandId: COMMAND.previous,
-    contextId: ADDRESS_CONTEXT,
-    source: 'default',
-    description: 'Previous location suggestion',
-    category: 'Navigation',
-    when: 'typing',
-    trigger: { device: 'keyboard', chord: { steps: [{ key: 'arrowup' }] } },
-  },
-];
+    {
+      id: `${id}.cancel.escape`,
+      commandId: `${id}.${COMMAND.cancel}`,
+      contextId,
+      source: 'default',
+      description: 'Cancel location edit',
+      category: 'Navigation',
+      when: 'typing',
+      trigger: { device: 'keyboard', chord: { steps: [{ key: 'escape' }] } },
+    },
+    {
+      id: `${id}.next.arrowDown`,
+      commandId: `${id}.${COMMAND.next}`,
+      contextId,
+      source: 'default',
+      description: 'Next location suggestion',
+      category: 'Navigation',
+      when: 'typing',
+      trigger: { device: 'keyboard', chord: { steps: [{ key: 'arrowdown' }] } },
+    },
+    {
+      id: `${id}.previous.arrowUp`,
+      commandId: `${id}.${COMMAND.previous}`,
+      contextId,
+      source: 'default',
+      description: 'Previous location suggestion',
+      category: 'Navigation',
+      when: 'typing',
+      trigger: { device: 'keyboard', chord: { steps: [{ key: 'arrowup' }] } },
+    },
+  ];
+}
 
 @Component({
   selector: 'app-reassembly-address-bar',
@@ -302,6 +287,7 @@ export class ReassemblyAddressBarComponent implements OnInit, OnDestroy {
   @ViewChild('editor') editor?: ElementRef<HTMLInputElement>;
 
   @Input() path = '';
+  @Input() paneId: 'left' | 'right' = 'left';
   @Output() navigate = new EventEmitter<string>();
 
   editing = false;
@@ -311,6 +297,19 @@ export class ReassemblyAddressBarComponent implements OnInit, OnDestroy {
 
   private suggestionGeneration = 0;
   private blurTimer: ReturnType<typeof setTimeout> | null = null;
+  private bindings: readonly InputBindingDefinition[] = [];
+
+  private get contextId(): string {
+    return `reassembly.address.${this.paneId}`;
+  }
+
+  private get ownerId(): string {
+    return `reassembly.address.${this.paneId}`;
+  }
+
+  private commandId(name: string): string {
+    return `${this.ownerId}.${name}`;
+  }
 
   constructor(
     private readonly input: InputEngineService,
@@ -324,49 +323,43 @@ export class ReassemblyAddressBarComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.input.registerContext({
-      id: ADDRESS_CONTEXT,
+      id: this.contextId,
       kind: 'overlay',
       priority: 250,
-      parentId: PANE_CONTEXT,
-      description: 'Reassembly location editor',
+      parentId: 'reassembly.manager',
+      description: `Reassembly location editor (${this.paneId})`,
     });
 
     this.input.registerCommandDescriptor({
-      id: COMMAND.edit,
-      title: 'Edit Location',
-      category: 'Navigation',
-      execute: () => this.beginEdit(),
-    }, OWNER);
-
-    this.input.registerCommandDescriptor({
-      id: COMMAND.accept,
+      id: this.commandId(COMMAND.accept),
       title: 'Open Location',
       category: 'Navigation',
       execute: () => this.acceptEdit(),
-    }, OWNER);
+    }, this.ownerId);
 
     this.input.registerCommandDescriptor({
-      id: COMMAND.cancel,
+      id: this.commandId(COMMAND.cancel),
       title: 'Cancel Location Edit',
       category: 'Navigation',
       execute: () => this.cancelEdit(),
-    }, OWNER);
+    }, this.ownerId);
 
     this.input.registerCommandDescriptor({
-      id: COMMAND.next,
+      id: this.commandId(COMMAND.next),
       title: 'Next Location Suggestion',
       category: 'Navigation',
       execute: () => this.moveSuggestion(1),
-    }, OWNER);
+    }, this.ownerId);
 
     this.input.registerCommandDescriptor({
-      id: COMMAND.previous,
+      id: this.commandId(COMMAND.previous),
       title: 'Previous Location Suggestion',
       category: 'Navigation',
       execute: () => this.moveSuggestion(-1),
-    }, OWNER);
+    }, this.ownerId);
 
-    for (const binding of BINDINGS) {
+    this.bindings = editorBindings(this.paneId, this.contextId);
+    for (const binding of this.bindings) {
       this.input.registerBinding(binding);
     }
   }
@@ -377,14 +370,14 @@ export class ReassemblyAddressBarComponent implements OnInit, OnDestroy {
       this.blurTimer = null;
     }
 
-    this.input.deactivateContext(ADDRESS_CONTEXT);
+    this.input.deactivateContext(this.contextId);
 
-    for (const binding of BINDINGS) {
+    for (const binding of this.bindings) {
       this.input.unregisterBinding(binding.id);
     }
 
-    for (const commandId of Object.values(COMMAND)) {
-      this.input.unregisterCommandDescriptor(commandId, OWNER);
+    for (const commandName of Object.values(COMMAND)) {
+      this.input.unregisterCommandDescriptor(this.commandId(commandName), this.ownerId);
     }
   }
 
@@ -407,7 +400,7 @@ export class ReassemblyAddressBarComponent implements OnInit, OnDestroy {
 
   activateEditorContext(): void {
     if (!this.editing) return;
-    this.input.activateContext(ADDRESS_CONTEXT);
+    this.input.activateContext(this.contextId);
   }
 
   onBlur(): void {
@@ -445,7 +438,7 @@ export class ReassemblyAddressBarComponent implements OnInit, OnDestroy {
     this.value = '';
     this.suggestions = [];
     this.suggestionIndex = -1;
-    this.input.deactivateContext(ADDRESS_CONTEXT);
+    this.input.deactivateContext(this.contextId);
     this.cdr.markForCheck();
   }
 

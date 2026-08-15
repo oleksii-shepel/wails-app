@@ -23,8 +23,14 @@ interface PendingChordLike {
       </header>
 
       <div class="state">
+        <span class="label">pane</span>
+        <span class="value">{{ activePane }}</span>
+
         <span class="label">path</span>
         <span class="value mono">{{ path || '-' }}</span>
+
+        <span class="label">other</span>
+        <span class="value mono">{{ otherPath || '-' }}</span>
 
         <span class="label">cursor</span>
         <span class="value">{{ cursorName || '-' }}</span>
@@ -34,6 +40,9 @@ interface PendingChordLike {
 
         <span class="label">action</span>
         <span class="value">{{ lastAction || '-' }}</span>
+
+        <span class="label">transfer</span>
+        <span class="value">{{ lastTransfer || '-' }}</span>
       </div>
 
       <div class="pending" *ngIf="input.pendingChord$ | async as chord">
@@ -52,6 +61,9 @@ interface PendingChordLike {
         <div><kbd>F7</kbd><span>new folder</span></div>
         <div><kbd>Delete/F8</kbd><span>delete</span></div>
         <div><kbd>Ctrl+C/X/V</kbd><span>clipboard</span></div>
+        <div><kbd>Tab</kbd><span>switch pane</span></div>
+        <div><kbd>F5</kbd><span>copy to other pane</span></div>
+        <div><kbd>F6</kbd><span>move to other pane</span></div>
       </div>
 
       <footer>
@@ -168,6 +180,9 @@ export class ShortcutDebugOverlayComponent {
   @Input() cursorName: string | null = null;
   @Input() selectedCount = 0;
   @Input() lastAction = '';
+  @Input() activePane: 'left' | 'right' = 'left';
+  @Input() otherPath = '';
+  @Input() lastTransfer = '';
 
   constructor(public readonly input: InputEngineService) {}
 

@@ -8,6 +8,7 @@ import { InputEngineService } from '../services/input-engine.service';
 import { PinnedLocation } from './address-bar.types';
 import { locationIcon, locationLabel } from '../services/location-reference';
 import { PinnedLocationService } from '../services/pinned-location.service';
+import { RelatedLocationService } from '../services/related-location.service';
 
 export interface QuickAccessSection {
   title: string;
@@ -602,6 +603,7 @@ export interface QuickAccessItem {
 export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChanges {
   @ViewChild('filterInput') filterInput?: ElementRef<HTMLInputElement>;
   @Input() currentPath = '';
+  @Input() currentSurfaceId = 'dir';
   @Input() specialFolders: SpecialFolder[] = [];
   @Input() pinnedLocations: PinnedLocation[] = [];
   @Input() preferredSectionTitle: string | null = null;
@@ -631,6 +633,7 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChan
     private inputContexts: InputContextService,
     private inputEngine: InputEngineService,
     private pinnedLocationService: PinnedLocationService,
+    private relatedLocations: RelatedLocationService,
   ) {}
 
   ngOnInit(): void {
@@ -673,7 +676,7 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChan
       });
     }
 
-    const relatedPins = this.pinnedLocationService.related(this.pinnedLocations, this.currentPath);
+    const relatedPins = this.relatedLocations.resolve(this.pinnedLocations, this.currentPath, this.currentSurfaceId);
 
     if (relatedPins.length > 0) {
       this.allSections.push({

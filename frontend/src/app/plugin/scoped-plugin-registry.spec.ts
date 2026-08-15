@@ -11,6 +11,7 @@ function host(): PluginRegistryAPI {
     registerToolbarAction: vi.fn(), unregisterToolbarAction: vi.fn(),
     registerContextMenuItem: vi.fn(), unregisterContextMenuItem: vi.fn(),
     registerFileCategory: vi.fn(), unregisterFileCategory: vi.fn(),
+    registerRelatedLocation: vi.fn(), unregisterRelatedLocation: vi.fn(),
   };
 }
 
@@ -30,6 +31,22 @@ describe('ScopedPluginRegistry', () => {
   it('blocks undeclared contribution permissions', () => {
     const scope = new ScopedPluginRegistry('demo', host(), new Set(['commands']));
     expect(() => scope.registerToolbarAction({ id: 'run', score: () => 1 })).toThrow('toolbar');
+  });
+
+  it('owns related-location contributions and requires explicit permission', () => {
+    const target = host();
+    const scope = new ScopedPluginRegistry('demo', target, new Set(['relatedLocations']));
+    scope.registerRelatedLocation({ id: 'demo.related', score: () => 42 });
+
+    scope.dispose();
+
+    expect(target.registerRelatedLocation).toHaveBeenCalledWith(expect.objectContaining({ id: 'demo.related' }));
+    expect(target.unregisterRelatedLocation).toHaveBeenCalledWith('demo.related');
+  });
+
+  it('blocks related-location contributions without permission', () => {
+    const scope = new ScopedPluginRegistry('demo', host(), new Set([]));
+    expect(() => scope.registerRelatedLocation({ id: 'demo.related', score: () => 1 })).toThrow('relatedLocations');
   });
 
   it('forces input ownership to the active plugin', () => {

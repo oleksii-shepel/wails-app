@@ -1,6 +1,7 @@
 import type { ViewerContribution, ViewerRequest } from '../viewers/viewer-contribution';
 import type { SurfaceContribution, SurfaceRequest } from '../surfaces/surface-contribution';
 import type { CommandDescriptor, PluginInputContribution } from '../services/input-system.types';
+import type { RelatedLocationContribution } from '../services/related-location.types';
 
 export interface PluginDescriptor {
   id: string;
@@ -95,4 +96,7 @@ export interface PluginRegistryAPI {
 
   registerFileCategory(resolver: FileCategoryResolver): void;
   unregisterFileCategory(id: string): void;
+
+  registerRelatedLocation(contribution: RelatedLocationContribution): void;
+  unregisterRelatedLocation(id: string): void;
 }

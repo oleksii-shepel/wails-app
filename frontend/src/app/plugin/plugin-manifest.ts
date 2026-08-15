@@ -9,6 +9,7 @@ export type PluginPermission =
   | 'toolbar'
   | 'contextMenu'
   | 'fileCategories'
+  | 'relatedLocations'
   | 'filesystem.read'
   | 'filesystem.write'
   | 'network'
@@ -41,6 +42,7 @@ export interface PluginManifest {
     commands?: readonly string[];
     surfaces?: readonly string[];
     viewers?: readonly string[];
+    relatedLocations?: readonly string[];
   };
 }
 

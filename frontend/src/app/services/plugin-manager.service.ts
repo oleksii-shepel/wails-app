@@ -15,6 +15,8 @@ import { ViewerRegistryService } from '../viewers/viewer-registry.service';
 import { SurfaceRegistryService } from '../surfaces/surface-registry.service';
 import { InputEngineService } from './input-engine.service';
 import type { CommandDescriptor, PluginInputContribution } from './input-system.types';
+import { RelatedLocationService } from './related-location.service';
+import type { RelatedLocationContribution } from './related-location.types';
 
 export interface PluginBackend {
   id: string;
@@ -27,6 +29,7 @@ export class PluginManagerService implements PluginRegistryAPI {
   private readonly viewerRegistry = inject(ViewerRegistryService);
   private readonly surfaceRegistry = inject(SurfaceRegistryService);
   private readonly inputEngine = inject(InputEngineService);
+  private readonly relatedLocations = inject(RelatedLocationService);
 
   private readonly backends = new Map<string, PluginBackend>();
   private readonly descriptors = new Map<string, PluginDescriptor>();
@@ -163,6 +166,14 @@ export class PluginManagerService implements PluginRegistryAPI {
     if (idx >= 0) {
       this.fileCategories.splice(idx, 1);
     }
+  }
+
+  registerRelatedLocation(contribution: RelatedLocationContribution): void {
+    this.relatedLocations.register(contribution);
+  }
+
+  unregisterRelatedLocation(id: string): void {
+    this.relatedLocations.unregister(id);
   }
 
   /** Resolve toolbar actions applicable to the given context. */

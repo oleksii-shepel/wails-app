@@ -68,6 +68,7 @@ import { DropdownContainerComponent } from './dropdown-container.component';
           appDropdownMenu
           *ngIf="showQuickAccess"
           [currentPath]="currentPath"
+          [currentSurfaceId]="surfaceId"
           [specialFolders]="specialFolders"
           [pinnedLocations]="pinnedLocations"
           [preferredSectionTitle]="quickAccessPreferredSection"

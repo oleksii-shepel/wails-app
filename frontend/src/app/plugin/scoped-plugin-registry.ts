@@ -8,6 +8,7 @@ import type { PluginPermission } from './plugin-manifest';
 import type { CommandDescriptor, PluginInputContribution } from '../services/input-system.types';
 import type { ViewerContribution } from '../viewers/viewer-contribution';
 import type { SurfaceContribution } from '../surfaces/surface-contribution';
+import type { RelatedLocationContribution } from '../services/related-location.types';
 
 /**
  * Plugin-facing registry wrapper. Every successful contribution is recorded and
@@ -88,6 +89,13 @@ export class ScopedPluginRegistry implements PluginRegistryAPI {
     this.cleanups.push(() => this.host.unregisterFileCategory(resolver.id));
   }
   unregisterFileCategory(id: string): void { this.host.unregisterFileCategory(id); }
+
+  registerRelatedLocation(contribution: RelatedLocationContribution): void {
+    this.assertActive(); this.require('relatedLocations');
+    this.host.registerRelatedLocation(contribution);
+    this.cleanups.push(() => this.host.unregisterRelatedLocation(contribution.id));
+  }
+  unregisterRelatedLocation(id: string): void { this.host.unregisterRelatedLocation(id); }
 
   private require(permission: PluginPermission): void {
     if (!this.permissions.has(permission)) {

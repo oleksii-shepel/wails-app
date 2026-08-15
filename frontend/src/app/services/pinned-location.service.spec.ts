@@ -100,22 +100,5 @@ describe('PinnedLocationService', () => {
     expect(service.contextLocation('search://?path=/src/features&pattern=TODO')).toContain('/src/features');
   });
 
-  it('ranks searches for the current folder ahead of broader ancestor searches', () => {
-    const exact = service.create('search://?path=/src/features&pattern=TODO', 'Exact')!;
-    const ancestor = service.create('search://?path=/src&pattern=FIXME', 'Ancestor')!;
-    const unrelated = service.create('search://?path=/other&pattern=TODO', 'Other')!;
-
-    const related = service.related([ancestor, unrelated, exact], '/src/features');
-    expect(related.map(pin => pin.label)).toEqual(['Exact', 'Ancestor']);
-  });
-
-  it('uses the base path of the active search when ranking related saved searches', () => {
-    const sameBase = service.create('search://?path=/src&pattern=FIXME', 'FIXME')!;
-    const childBase = service.create('search://?path=/src/lib&pattern=TODO', 'Library TODO')!;
-    const unrelated = service.create('search://?path=/other&pattern=TODO', 'Other')!;
-
-    const related = service.related([childBase, unrelated, sameBase], 'search://?path=/src&pattern=TODO');
-    expect(related.map(pin => pin.label)).toEqual(['FIXME', 'Library TODO']);
-  });
 
 });

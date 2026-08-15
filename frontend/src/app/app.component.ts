@@ -27,7 +27,8 @@ import { ReassemblyOperationSurfaceComponent } from './components/reassembly-ope
         [lastTransfer]="manager.lastTransfer"
         [lastDrop]="manager.lastDrop"
         [tabCount]="manager.activePane?.tabs?.length ?? 0"
-        [surfaceKind]="manager.activePane?.activeTab?.kind ?? 'dir'">
+        [surfaceKind]="manager.activePane?.activeTab?.kind ?? 'dir'"
+        [splitPercent]="manager.leftPanePercent">
       </app-shortcut-debug-overlay>
 
       <app-reassembly-operation-surface></app-reassembly-operation-surface>

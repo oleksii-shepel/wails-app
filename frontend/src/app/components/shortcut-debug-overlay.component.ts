@@ -52,6 +52,9 @@ interface PendingChordLike {
 
         <span class="label">surface</span>
         <span class="value">{{ surfaceKind }}</span>
+
+        <span class="label">split</span>
+        <span class="value">{{ splitPercent | number:'1.0-0' }} / {{ 100 - splitPercent | number:'1.0-0' }}</span>
       </div>
 
       <div class="pending" *ngIf="input.pendingChord$ | async as chord">
@@ -84,6 +87,7 @@ interface PendingChordLike {
         <div><kbd>Drag</kbd><span>copy · Shift+drop move</span></div>
         <div><span>Live operation stream</span><span>bottom-left</span></div>
         <div><span>Directory tabs</span><span>workspace persisted</span></div>
+        <div><kbd>Drag divider</kbd><span>resize · double-click reset</span></div>
       </div>
 
       <footer>
@@ -206,6 +210,7 @@ export class ShortcutDebugOverlayComponent {
   @Input() lastDrop = '';
   @Input() tabCount = 0;
   @Input() surfaceKind = 'dir';
+  @Input() splitPercent = 50;
 
   constructor(public readonly input: InputEngineService) {}
 

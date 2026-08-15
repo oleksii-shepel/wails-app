@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
+  ElementRef,
   OnDestroy,
   OnInit,
   ViewChild,
@@ -10,6 +11,7 @@ import { CommonModule } from '@angular/common';
 
 import { ApiService } from '../services/api.service';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
+import { WorkspaceService } from '../services/workspace.service';
 import { InputEngineService } from '../services/input-engine.service';
 import type { InputBindingDefinition } from '../services/input-system.types';
 import { canTransferBetween, transferBlockedMessage } from '../services/transfer-capabilities';
@@ -102,7 +104,10 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section class="manager">
+    <section
+      #managerRoot
+      class="manager"
+      [style.grid-template-columns]="layoutColumns">
       <div class="pane-slot">
         <app-reassembly-directory-pane
           #leftPane
@@ -115,7 +120,20 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         </app-reassembly-directory-pane>
       </div>
 
-      <div class="divider" aria-hidden="true"></div>
+      <div
+        class="divider"
+        role="separator"
+        aria-orientation="vertical"
+        [attr.aria-valuenow]="leftPanePercent | number:'1.0-0'"
+        [attr.aria-valuemin]="MIN_PANE_PERCENT"
+        [attr.aria-valuemax]="MAX_PANE_PERCENT"
+        (pointerdown)="beginResize($event)"
+        (pointermove)="resizeFromPointer($event)"
+        (pointerup)="endResize($event)"
+        (pointercancel)="endResize($event)"
+        (dblclick)="resetSplit()">
+        <span class="divider-grip" aria-hidden="true"></span>
+      </div>
 
       <div class="pane-slot">
         <app-reassembly-directory-pane
@@ -147,7 +165,6 @@ const BINDINGS: readonly InputBindingDefinition[] = [
 
     .manager {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) 5px minmax(0, 1fr);
       width: 100%;
       height: 100%;
       min-width: 0;
@@ -162,6 +179,9 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     }
 
     .divider {
+      position: relative;
+      touch-action: none;
+      cursor: col-resize;
       background:
         linear-gradient(
           90deg,
@@ -172,13 +192,31 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         );
     }
 
+    .divider:hover,
+    .divider.resizing {
+      background:
+        linear-gradient(
+          90deg,
+          transparent,
+          var(--vsc-accent-blue, #007acc) 35%,
+          var(--vsc-accent-blue, #007acc) 65%,
+          transparent
+        );
+    }
+
+    .divider-grip {
+      position: absolute;
+      inset: 0 -3px;
+    }
+
     @media (max-width: 820px) {
       .manager {
-        grid-template-columns: 1fr;
+        grid-template-columns: 1fr !important;
         grid-template-rows: minmax(0, 1fr) 5px minmax(0, 1fr);
       }
 
       .divider {
+        cursor: default;
         background:
           linear-gradient(
             180deg,
@@ -188,14 +226,25 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             transparent
           );
       }
+
+      .divider-grip {
+        display: none;
+      }
     }
   `],
 })
 export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
+  @ViewChild('managerRoot') managerRoot?: ElementRef<HTMLElement>;
   @ViewChild('leftPane') leftPane?: ReassemblyDirectoryPaneComponent;
   @ViewChild('rightPane') rightPane?: ReassemblyDirectoryPaneComponent;
 
-  activePaneId: PaneId = this.restoreActivePane();
+  activePaneId: PaneId = 'left';
+  readonly MIN_PANE_PERCENT = 20;
+  readonly MAX_PANE_PERCENT = 80;
+
+  leftPanePercent = 50;
+  resizing = false;
+
   lastTransfer = 'none';
   lastDrop = 'none';
   contextMenu: ReassemblyContextMenuState | null = null;
@@ -204,8 +253,14 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     private readonly input: InputEngineService,
     private readonly api: ApiService,
     private readonly confirmDialog: ConfirmDialogService,
+    private readonly workspaceService: WorkspaceService,
     private readonly cdr: ChangeDetectorRef,
   ) {}
+
+  get layoutColumns(): string {
+    const left = this.clampPanePercent(this.leftPanePercent);
+    return `minmax(0, ${left}fr) 5px minmax(0, ${100 - left}fr)`;
+  }
 
   get activePane(): ReassemblyDirectoryPaneComponent | undefined {
     return this.activePaneId === 'left' ? this.leftPane : this.rightPane;
@@ -216,6 +271,8 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
+    this.restoreWorkspaceLayout();
+
     this.input.registerContext({
       id: CONTEXT_ID,
       kind: 'pane',
@@ -241,7 +298,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     this.closeContextMenu();
     if (this.activePaneId === paneId) return;
     this.activePaneId = paneId;
-    this.persistActivePane();
+    this.workspaceService.setActivePaneId(paneId);
     this.cdr.markForCheck();
   }
 
@@ -480,22 +537,77 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     return Math.max(8, Math.min(y, window.innerHeight - 360));
   }
 
-  private restoreActivePane(): PaneId {
-    try {
-      return localStorage.getItem('reassembly.activePane') === 'right'
-        ? 'right'
-        : 'left';
-    } catch {
-      return 'left';
-    }
+  beginResize(event: PointerEvent): void {
+    if (typeof window !== 'undefined' && window.innerWidth <= 820) return;
+
+    const target = event.currentTarget as HTMLElement | null;
+    target?.setPointerCapture?.(event.pointerId);
+    this.resizing = true;
+    target?.classList.add('resizing');
+    event.preventDefault();
   }
 
-  private persistActivePane(): void {
-    try {
-      localStorage.setItem('reassembly.activePane', this.activePaneId);
-    } catch {
-      // Session preference is best-effort only.
+  resizeFromPointer(event: PointerEvent): void {
+    if (!this.resizing) return;
+
+    const root = this.managerRoot?.nativeElement;
+    if (!root) return;
+
+    const rect = root.getBoundingClientRect();
+    if (rect.width <= 0) return;
+
+    const percent = ((event.clientX - rect.left) / rect.width) * 100;
+    this.leftPanePercent = this.clampPanePercent(percent);
+    this.cdr.markForCheck();
+  }
+
+  endResize(event: PointerEvent): void {
+    if (!this.resizing) return;
+
+    const target = event.currentTarget as HTMLElement | null;
+    if (target?.hasPointerCapture?.(event.pointerId)) {
+      target.releasePointerCapture(event.pointerId);
     }
+
+    this.resizing = false;
+    target?.classList.remove('resizing');
+    this.workspaceService.setSplitRatio(this.leftPanePercent);
+    this.cdr.markForCheck();
+  }
+
+  resetSplit(): void {
+    this.leftPanePercent = 50;
+    this.workspaceService.setSplitRatio(50);
+    this.cdr.markForCheck();
+  }
+
+  private restoreWorkspaceLayout(): void {
+    const workspace = this.workspaceService.getActiveWorkspace();
+    if (!workspace) {
+      // WorkspaceService hydrates asynchronously. Recheck briefly without
+      // creating a second persistence model.
+      setTimeout(() => this.restoreWorkspaceLayout(), 100);
+      return;
+    }
+
+    this.activePaneId = workspace.activePaneId === 'right' ? 'right' : 'left';
+
+    if (
+      typeof workspace.splitRatio === 'number' &&
+      Number.isFinite(workspace.splitRatio) &&
+      workspace.splitRatio > 0
+    ) {
+      this.leftPanePercent = this.clampPanePercent(workspace.splitRatio);
+    }
+
+    this.cdr.markForCheck();
+  }
+
+  private clampPanePercent(value: number): number {
+    return Math.max(
+      this.MIN_PANE_PERCENT,
+      Math.min(this.MAX_PANE_PERCENT, value),
+    );
   }
 
   private registerCommands(): void {

@@ -63,6 +63,7 @@ import { bindCommandPresentation, type PresentedCommand } from './presented-comm
 import { presentPluginCommand } from './plugin-command-presentation';
 import { InputEngineService } from '../services/input-engine.service';
 import type { MenuContext, ToolbarContext } from '../plugin/plugin-registry-api';
+import type { PinnedLocation } from './address-bar.types';
 import { BC } from './file-browser-command-registry';
 import { buildBackgroundFileContextMenu, buildBuiltinFileContextMenu, type BackgroundFileContextAction, type BuiltinFileContextAction } from './file-context-menu.model';
 import { FileContextMenuComponent, type FileContextMenuState } from './file-context-menu.component';
@@ -260,6 +261,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
       set archiveMoveWarning(value: boolean) { thisRef.archiveMoveWarning = value; },
       get archivePendingMoveEntries() { return thisRef.archivePendingMoveEntries; },
       onPathChange: (path: string) => thisRef.onPathChange(path),
+      onPinnedLocationOpen: (pin: PinnedLocation) => void thisRef.openPinnedLocation(pin),
       onArchiveSegmentClick: (path: string) => thisRef.handleArchiveSegmentClick(path),
       onNavigateUp: () => thisRef.browserCommands.navigation.navigateUp(),
       onRefresh: () => thisRef.browserCommands.navigation.refresh(),
@@ -1107,6 +1109,23 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
 
   onNewTab(): void {
     this.tabsController.onNewTab(this.tabsHost);
+  }
+
+  async openPinnedLocation(pin: PinnedLocation): Promise<void> {
+    const surfaceId = pin.surfaceId?.trim() || 'dir';
+    if (surfaceId === 'dir') {
+      this.onPathChange(pin.location);
+      return;
+    }
+
+    const tab = this.workspaceService.addSurfaceTab(this.paneId, pin.location, surfaceId, {
+      title: pin.label,
+      activate: true,
+    });
+    if (!tab) return;
+
+    this.tabs = this.workspaceService.getTabs(this.paneId);
+    await this.onTabChange(tab);
   }
 
   async openPathInNewTab(path: string): Promise<void> {

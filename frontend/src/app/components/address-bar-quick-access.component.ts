@@ -196,7 +196,7 @@ export interface QuickAccessItem {
             <div class="ab-drop-empty" *ngIf="activeSection.items.length === 0">
               <ng-container *ngIf="activeSection.title === 'Pinned'; else genericEmptyState">
                 <span class="ab-drop-empty-icon">đ</span>
-                <span>No pinned paths yet.<br>Click â to pin the current path.</span>
+                <span>No pinned locations yet.<br>Click â to pin the current path.</span>
               </ng-container>
               <ng-template #genericEmptyState>
                 <span>No items in this section</span>
@@ -591,6 +591,7 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChan
   @Input() pinnedLocations: PinnedLocation[] = [];
   @Input() preferredSectionTitle: string | null = null;
   @Output() navigate = new EventEmitter<string>();
+  @Output() openPin = new EventEmitter<PinnedLocation>();
   @Output() removePin = new EventEmitter<PinnedLocation>();
   @Output() closeRequested = new EventEmitter<void>();
 
@@ -949,7 +950,8 @@ export class AddressBarQuickAccessComponent implements OnInit, OnDestroy, OnChan
   selectItem(sectionIdx: number, itemIdx: number): void {
     if (sectionIdx < this.sections.length && itemIdx < this.sections[sectionIdx].items.length) {
       const item = this.sections[sectionIdx].items[itemIdx];
-      this.navigate.emit(item.path);
+      if (item.pin) this.openPin.emit(item.pin);
+      else this.navigate.emit(item.path);
     }
   }
 

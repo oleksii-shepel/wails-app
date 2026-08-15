@@ -25,7 +25,9 @@ import { DirSurfaceVm } from '../surfaces/dir/dir-surface.vm';
       [loading]="vm.loading"
       [showBreadcrumbs]="vm.showBreadcrumbs"
       [paneId]="vm.paneId"
+      [surfaceId]="pinSurfaceId"
       (pathChange)="vm.onPathChange($event)"
+      (pinnedLocationOpen)="vm.onPinnedLocationOpen($event)"
       (archiveSegmentClick)="vm.onArchiveSegmentClick($event)"
       (navigateUpClicked)="vm.onNavigateUp()"
       (refreshClicked)="vm.onRefresh()">
@@ -150,6 +152,8 @@ export class DirSurfaceComponent {
 
   @Input({ required: true }) vm!: DirSurfaceVm;
   @Input() surfaceId = '';
+  /** Semantic surface type persisted by Quick Access pins. */
+  @Input() pinSurfaceId = 'dir';
   @Input() surfaceActive = true;
   @Input() surfacePath = '';
 }

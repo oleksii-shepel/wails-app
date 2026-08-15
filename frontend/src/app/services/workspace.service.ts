@@ -1066,6 +1066,43 @@ export class WorkspaceService {
     return true;
   }
 
+  addSurfaceTab(
+    paneId: string,
+    location: string,
+    surfaceId: string,
+    opts?: { activate?: boolean; closable?: boolean; title?: string },
+  ): TabInfo | null {
+    const workspace = this.activeWorkspaceSubject.value;
+    const normalizedSurfaceId = surfaceId.trim();
+    if (!workspace || !normalizedSurfaceId) return null;
+
+    const pane = paneId === 'left' ? workspace.leftPane : workspace.rightPane;
+    const activate = opts?.activate !== false;
+    const descriptor = describeLocation(location) ?? undefined;
+    const newTab: TabInfo = {
+      id: this.generateId(),
+      title: opts?.title?.trim() || locationLabel(location) || normalizedSurfaceId,
+      path: descriptor?.location ?? location,
+      location: descriptor,
+      surfaceId: normalizedSurfaceId,
+      isClosable: opts?.closable === false ? false : true,
+      isActive: activate,
+      isPinned: false,
+      createdAt: Date.now(),
+    };
+
+    if (activate) {
+      pane.tabs.forEach(tab => (tab.isActive = false));
+      pane.activeTabId = newTab.id;
+    }
+
+    pane.tabs.push(newTab);
+    this.updateWorkspace(workspace.id, {
+      [paneId === 'left' ? 'leftPane' : 'rightPane']: pane,
+    });
+    return newTab;
+  }
+
   addViewerTab(
     paneId: string,
     targetPath: string,

@@ -26,6 +26,8 @@ export interface PinnedLocation {
   location: string;
   scheme: string;
   kind: PinnedLocationKind;
+  /** Stable semantic surface type. Runtime component instances are never persisted. */
+  surfaceId?: string;
   label: string;
   icon: string;
   addedAt: number;

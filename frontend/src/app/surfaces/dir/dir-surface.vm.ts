@@ -1,3 +1,4 @@
+import type { PinnedLocation } from '../../components/address-bar.types';
 import type { FileInfo } from '../../shared/protocol';
 import type { ViewLayout } from '../../components/file-view-container.component';
 import type { FindWidgetState } from '../../components/filter-widget.component';
@@ -33,6 +34,7 @@ export interface DirSurfaceVm {
   archiveMoveEntryCount: number;
 
   onPathChange(path: string): void;
+  onPinnedLocationOpen(pin: PinnedLocation): void;
   onArchiveSegmentClick(path: string): void;
   onNavigateUp(): void;
   onRefresh(): void;

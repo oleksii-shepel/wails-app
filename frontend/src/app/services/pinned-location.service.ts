@@ -43,28 +43,40 @@ export class PinnedLocationService {
     }
   }
 
-  create(location: string, label?: string, icon?: string, addedAt = Date.now()): PinnedLocation | null {
+  create(
+    location: string,
+    label?: string,
+    icon?: string,
+    addedAt = Date.now(),
+    surfaceId?: string,
+  ): PinnedLocation | null {
     const canonical = this.canonicalize(location);
     if (!canonical) return null;
     const scheme = schemeOfLocation(canonical);
+    const resolvedSurfaceId = this.resolveSurfaceId(canonical, surfaceId);
     return {
-      id: locationIdentity(canonical),
+      id: this.identity(canonical, resolvedSurfaceId),
       location: canonical,
       scheme,
       kind: kindOfLocation(scheme),
+      surfaceId: resolvedSurfaceId,
       label: label?.trim() || locationLabel(canonical),
       icon: icon?.trim() || locationIcon(scheme),
       addedAt,
     };
   }
 
-  isPinned(pins: readonly PinnedLocation[], location: string): boolean {
-    const id = locationIdentity(location);
-    return !!id && pins.some(pin => pin.id === id);
+  isPinned(pins: readonly PinnedLocation[], location: string, surfaceId?: string): boolean {
+    const canonical = this.canonicalize(location);
+    if (!canonical) return false;
+    const id = this.identity(canonical, this.resolveSurfaceId(canonical, surfaceId));
+    return pins.some(pin => pin.id === id);
   }
 
-  remove(pins: readonly PinnedLocation[], location: string): PinnedLocation[] {
-    const id = locationIdentity(location);
+  remove(pins: readonly PinnedLocation[], location: string, surfaceId?: string): PinnedLocation[] {
+    const canonical = this.canonicalize(location);
+    if (!canonical) return [...pins];
+    const id = this.identity(canonical, this.resolveSurfaceId(canonical, surfaceId));
     return pins.filter(pin => pin.id !== id);
   }
 
@@ -78,7 +90,34 @@ export class PinnedLocationService {
 
   private normalizeStoredPin(pin: PinnedLocation): PinnedLocation | null {
     if (!pin || typeof pin.location !== 'string') return null;
-    return this.create(pin.location, pin.label, pin.icon, Number(pin.addedAt) || Date.now());
+    return this.create(
+      pin.location,
+      pin.label,
+      pin.icon,
+      Number(pin.addedAt) || Date.now(),
+      typeof pin.surfaceId === 'string' ? pin.surfaceId : undefined,
+    );
+  }
+
+  private identity(location: string, surfaceId: string): string {
+    return `${locationIdentity(location)}|surface:${surfaceId}`;
+  }
+
+  private resolveSurfaceId(location: string, surfaceId?: string): string {
+    const explicit = surfaceId?.trim();
+    if (explicit) return explicit;
+
+    if (kindOfLocation(location) !== 'surface') return 'dir';
+
+    try {
+      const parsed = new URL(location);
+      const fromHost = parsed.hostname.trim();
+      if (fromHost) return fromHost;
+      const fromPath = parsed.pathname.split('/').filter(Boolean)[0]?.trim();
+      if (fromPath) return fromPath;
+    } catch {}
+
+    return 'dir';
   }
 
   private read<T>(key: string): T | null {

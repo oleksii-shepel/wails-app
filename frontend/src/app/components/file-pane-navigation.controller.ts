@@ -54,7 +54,7 @@ export class FilePaneNavigationController {
     host.pathReady = true;
     if (activeTab) host.currentTabId = activeTab.id;
 
-    if (activeSurfaceId === 'viewer') {
+    if (activeSurfaceId !== 'dir') {
       if (!host.activeDirTabId) {
         const firstDir = host.tabs.find(tab => tabSurfaceId(tab) === 'dir');
         if (firstDir) host.activeDirTabId = firstDir.id;
@@ -116,7 +116,7 @@ export class FilePaneNavigationController {
     host.workspaceService.switchTab(host.paneId, tab.id);
     host.clearArchiveState();
 
-    if (tabSurfaceId(tab) === 'viewer') {
+    if (tabSurfaceId(tab) !== 'dir') {
       host.tabs = host.workspaceService.getTabs(host.paneId);
       host.emitActiveTabChange(tab);
       return;

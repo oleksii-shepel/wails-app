@@ -43,4 +43,33 @@ describe('PinnedLocationService', () => {
     expect(pin).not.toBeNull();
     expect(service.isPinned([pin!], '/home/user/projects')).toBe(true);
   });
+
+  it('persists semantic surface identity without storing runtime instances', () => {
+    const pin = service.create('search://?path=/src&pattern=TODO', undefined, undefined, 123, 'search-results');
+    expect(pin?.surfaceId).toBe('search-results');
+    expect(pin?.id).toContain('|surface:search-results');
+
+    service.save([pin!]);
+    const [restored] = service.load();
+    expect(restored.surfaceId).toBe('search-results');
+    expect(restored.location).toBe(pin?.location);
+  });
+
+  it('allows the same durable location to be pinned for different surfaces', () => {
+    const location = 'search://?path=/src&pattern=TODO';
+    const dirPin = service.create(location, undefined, undefined, 1, 'dir')!;
+    const resultsPin = service.create(location, undefined, undefined, 2, 'search-results')!;
+
+    expect(dirPin.id).not.toBe(resultsPin.id);
+    expect(service.isPinned([dirPin, resultsPin], location, 'dir')).toBe(true);
+    expect(service.isPinned([dirPin, resultsPin], location, 'search-results')).toBe(true);
+    expect(service.remove([dirPin, resultsPin], location, 'dir')).toEqual([resultsPin]);
+  });
+
+  it('infers surface identity from surface:// locations', () => {
+    const pin = service.create('surface://console/session/main');
+    expect(pin?.kind).toBe('surface');
+    expect(pin?.surfaceId).toBe('console');
+  });
+
 });

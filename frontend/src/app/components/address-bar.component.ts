@@ -71,6 +71,7 @@ import { DropdownContainerComponent } from './dropdown-container.component';
           [pinnedLocations]="pinnedLocations"
           [preferredSectionTitle]="quickAccessPreferredSection"
           (navigate)="navigateTo($event); showQuickAccess = false"
+          (openPin)="openPinnedLocation($event)"
           (removePin)="removePin($event)"
           (closeRequested)="showQuickAccess = false"
         />
@@ -752,12 +753,15 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
   @Input() placeholder = 'Enter path…';
   @Input() paneId = 'left';
   @Input() tabId = '';
+  /** Semantic surface type associated with the current location. */
+  @Input() surfaceId = 'dir';
 
   @Output() pathChange          = new EventEmitter<string>();
   @Output() navigateUpClicked   = new EventEmitter<void>();
   @Output() refreshClicked      = new EventEmitter<void>();
   @Output() openInOtherPane     = new EventEmitter<string>();
   @Output() archiveSegmentClick = new EventEmitter<string>();
+  @Output() pinnedLocationOpen = new EventEmitter<PinnedLocation>();
 
   // ── Path state ───────────────────────────────────────────────────────────
   currentPath = '/';
@@ -794,7 +798,9 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
 
   // ── Pinned paths ─────────────────────────────────────────────────────────
   pinnedLocations: PinnedLocation[] = [];
-  get isPinned(): boolean { return this.pinnedLocationService.isPinned(this.pinnedLocations, this.currentPath); }
+  get isPinned(): boolean {
+    return this.pinnedLocationService.isPinned(this.pinnedLocations, this.currentPath, this.surfaceId);
+  }
 
   // ── Edit mode ────────────────────────────────────────────────────────────
   editMode  = false;
@@ -1315,9 +1321,9 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
 
   togglePin(): void {
     if (this.isPinned) {
-      this.pinnedLocations = this.pinnedLocationService.remove(this.pinnedLocations, this.currentPath);
+      this.pinnedLocations = this.pinnedLocationService.remove(this.pinnedLocations, this.currentPath, this.surfaceId);
     } else {
-      const pin = this.pinnedLocationService.create(this.currentPath);
+      const pin = this.pinnedLocationService.create(this.currentPath, undefined, undefined, Date.now(), this.surfaceId);
       if (pin) this.pinnedLocations = [...this.pinnedLocations, pin];
     }
     this.pinnedLocationService.save(this.pinnedLocations);
@@ -1344,8 +1350,17 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
 
   removePin(pin: PinnedLocation, e?: MouseEvent): void {
     e?.stopPropagation();
-    this.pinnedLocations = this.pinnedLocationService.remove(this.pinnedLocations, pin.location);
+    this.pinnedLocations = this.pinnedLocationService.remove(this.pinnedLocations, pin.location, pin.surfaceId);
     this.pinnedLocationService.save(this.pinnedLocations);
+  }
+
+  openPinnedLocation(pin: PinnedLocation): void {
+    this.showQuickAccess = false;
+    if ((pin.surfaceId || 'dir') === this.surfaceId) {
+      this.navigateTo(pin.location);
+      return;
+    }
+    this.pinnedLocationOpen.emit(pin);
   }
 
   isSegmentPinned(seg: PathSegment | null): boolean {

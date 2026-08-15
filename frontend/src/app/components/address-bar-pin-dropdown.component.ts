@@ -11,23 +11,23 @@ import { shortenPath } from './address-bar.utils';
   template: `
     <div class="ab-dropdown ab-pin-drop">
       <div class="ab-drop-head">
-        <span>Pinned Paths</span>
+        <span>Pinned Locations</span>
         <span class="ab-badge">{{ pins.length }}</span>
       </div>
       <div class="ab-drop-empty" *ngIf="pins.length === 0">
         <span class="ab-drop-empty-icon">📍</span>
-        <span>No pinned paths yet.<br>Click ☆ to pin the current path.</span>
+        <span>No pinned locations yet.<br>Click ☆ to pin the current path.</span>
       </div>
       <div class="ab-drop-scroll">
         <div
           *ngFor="let p of pins"
           class="ab-drop-item ab-pin-item"
-          [class.ab-drop-item--active]="p.path === currentPath"
-          (click)="navigate.emit(p.path)"
+          [class.ab-drop-item--active]="p.location === currentPath"
+          (click)="navigate.emit(p.location)"
         >
           <span class="ab-pin-icon">{{ p.icon }}</span>
-          <span class="ab-pin-label" [title]="p.path">{{ p.label }}</span>
-          <span class="ab-pin-sub">{{ shorten(p.path) }}</span>
+          <span class="ab-pin-label" [title]="p.location">{{ p.label }}</span>
+          <span class="ab-pin-sub">{{ shorten(p.location) }}</span>
           <button
             class="ab-pin-remove"
             (click)="remove.emit({ pin: p, event: $event })"

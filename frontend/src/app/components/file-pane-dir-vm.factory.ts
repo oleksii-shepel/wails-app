@@ -4,6 +4,7 @@ import type { FileInfo } from '../shared/protocol';
 import type { DirSurfaceVm } from '../surfaces/dir/dir-surface.vm';
 import type { ActionAvailability } from '../services/action-availability';
 import type { PresentedCommand } from './presented-command';
+import type { PinnedLocation } from './address-bar.types';
 
 export interface FilePaneDirVmSource {
   get paneId(): 'left' | 'right';
@@ -31,6 +32,7 @@ export interface FilePaneDirVmSource {
   get archivePendingMoveEntries(): string[];
   set archiveMoveWarning(value: boolean);
   onPathChange(path: string): void;
+  onPinnedLocationOpen(pin: PinnedLocation): void;
   onArchiveSegmentClick(path: string): void;
   onNavigateUp(): void;
   onRefresh(): void;
@@ -85,6 +87,7 @@ export class FilePaneDirVmFactory {
       get archiveMoveEntryCount() { return source.archivePendingMoveEntries.length; }
 
       onPathChange = (path: string) => source.onPathChange(path);
+      onPinnedLocationOpen = (pin: PinnedLocation) => source.onPinnedLocationOpen(pin);
   onArchiveSegmentClick = (path: string) => source.onArchiveSegmentClick(path);
       onNavigateUp = () => source.onNavigateUp();
       onRefresh = () => source.onRefresh();

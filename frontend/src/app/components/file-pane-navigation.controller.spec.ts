@@ -54,4 +54,48 @@ describe('FilePaneNavigationController remote restore policy', () => {
     expect(host.promptForRemoteMount).toHaveBeenCalledWith('gdrive', 'work');
     expect(resolved).toBe('gdrive://work/Projects/2026');
   });
+
+  it('switches to a custom surface without loading it as a directory', async () => {
+    const controller = new FilePaneNavigationController();
+    const tab = {
+      id: 'console-tab',
+      title: 'Console',
+      path: 'surface://console/session/main',
+      location: { location: 'surface://console/session/main', scheme: 'surface', kind: 'surface' },
+      surfaceId: 'console',
+      isActive: false,
+      isPinned: false,
+      createdAt: 1,
+    } as any;
+    const loadPathTransparently = vi.fn(async () => undefined);
+    const emitActiveTabChange = vi.fn();
+    const host = {
+      tabs: [
+        { id: 'dir-tab', title: 'Dir', path: '/', surfaceId: 'dir', isActive: true, isPinned: false, createdAt: 1 },
+        tab,
+      ],
+      currentTabId: 'dir-tab',
+      currentPath: '/',
+      paneId: 'left',
+      workspaceService: {
+        updateTabPath: vi.fn(),
+        switchTab: vi.fn(),
+        getTabs: vi.fn(() => [tab]),
+        getArchiveState: vi.fn(() => null),
+      },
+      isInArchive: vi.fn(() => false),
+      clearArchiveState: vi.fn(),
+      loadPathTransparently,
+      emitActiveTabChange,
+      activeDirTabId: 'dir-tab',
+    } as any;
+
+    await controller.onTabChange(host, tab);
+
+    expect(host.workspaceService.switchTab).toHaveBeenCalledWith('left', 'console-tab');
+    expect(emitActiveTabChange).toHaveBeenCalledWith(tab);
+    expect(loadPathTransparently).not.toHaveBeenCalled();
+    expect(host.activeDirTabId).toBe('dir-tab');
+  });
+
 });

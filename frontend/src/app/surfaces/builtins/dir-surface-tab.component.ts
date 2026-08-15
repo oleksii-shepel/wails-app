@@ -13,6 +13,7 @@ import { DirSurfaceContext } from '../surface-context';
       #dir
       [vm]="ctx.dirVm"
       [surfaceId]="ctx.paneId + ':' + ctx.tab.id"
+      [pinSurfaceId]="ctx.tab.surfaceId || 'dir'"
       [surfaceActive]="active"
       [surfacePath]="currentSurfacePath">
     </app-dir-surface>
@@ -55,4 +56,3 @@ export class DirSurfaceTabComponent {
   get fileViewContainer() { return this.dir?.fileViewContainer; }
   get findWidget() { return this.dir?.findWidget; }
 }
-

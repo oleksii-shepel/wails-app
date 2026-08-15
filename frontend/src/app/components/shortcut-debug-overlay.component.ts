@@ -44,6 +44,9 @@ interface PendingChordLike {
         <span class="label">transfer</span>
         <span class="value">{{ lastTransfer || '-' }}</span>
 
+        <span class="label">drop</span>
+        <span class="value">{{ lastDrop || '-' }}</span>
+
         <span class="label">tabs</span>
         <span class="value">{{ tabCount }}</span>
 
@@ -78,6 +81,7 @@ interface PendingChordLike {
         <div><kbd>Ctrl++/-</kbd><span>viewer zoom</span></div>
         <div><kbd>Ctrl+0/1</kbd><span>fit / actual size</span></div>
         <div><kbd>Right click</kbd><span>command context menu</span></div>
+        <div><kbd>Drag</kbd><span>copy · Shift+drop move</span></div>
       </div>
 
       <footer>
@@ -197,6 +201,7 @@ export class ShortcutDebugOverlayComponent {
   @Input() activePane: 'left' | 'right' = 'left';
   @Input() otherPath = '';
   @Input() lastTransfer = '';
+  @Input() lastDrop = '';
   @Input() tabCount = 0;
   @Input() surfaceKind = 'dir';
 

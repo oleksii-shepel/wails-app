@@ -110,7 +110,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           [active]="activePaneId === 'left'"
           (activateRequested)="activate('left')"
           (entryContextMenu)="openEntryMenu('left', $event.event, $event.entry)"
-          (backgroundContextMenu)="openBackgroundMenu('left', $event)">
+          (backgroundContextMenu)="openBackgroundMenu('left', $event)"
+          (internalDrop)="handleInternalDrop('left', $event.event, $event.targetPath)">
         </app-reassembly-directory-pane>
       </div>
 
@@ -123,7 +124,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           [active]="activePaneId === 'right'"
           (activateRequested)="activate('right')"
           (entryContextMenu)="openEntryMenu('right', $event.event, $event.entry)"
-          (backgroundContextMenu)="openBackgroundMenu('right', $event)">
+          (backgroundContextMenu)="openBackgroundMenu('right', $event)"
+          (internalDrop)="handleInternalDrop('right', $event.event, $event.targetPath)">
         </app-reassembly-directory-pane>
       </div>
 
@@ -195,6 +197,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
 
   activePaneId: PaneId = 'left';
   lastTransfer = 'none';
+  lastDrop = 'none';
   contextMenu: ReassemblyContextMenuState | null = null;
 
   constructor(
@@ -251,6 +254,140 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
 
   async moveToOther(): Promise<void> {
     await this.transferToOther('move');
+  }
+
+  async handleInternalDrop(
+    targetPaneId: PaneId,
+    event: DragEvent,
+    targetPath: string,
+  ): Promise<void> {
+    const payload = this.readInternalDragPayload(event);
+    if (!payload || payload.entries.length === 0 || !targetPath) return;
+
+    const targetPane = targetPaneId === 'left' ? this.leftPane : this.rightPane;
+    if (!targetPane) return;
+
+    const sourcePane = payload.sourcePaneId === 'left' ? this.leftPane : this.rightPane;
+    const operation: 'copy' | 'move' = event.shiftKey ? 'move' : 'copy';
+
+    const sourceCapabilities = sourcePane?.sourceCapabilities ?? {
+      read: true,
+      create: false,
+      delete: operation === 'move',
+      rename: false,
+      trash: false,
+    };
+
+    const decision = canTransferBetween(
+      operation,
+      sourceCapabilities,
+      targetPane.sourceCapabilities,
+    );
+
+    if (!decision.allowed) {
+      await this.confirmDialog.alert(
+        transferBlockedMessage(operation, decision),
+      );
+      return;
+    }
+
+    const sourcePaths = payload.entries
+      .map(entry => entry.path)
+      .filter(path => !!path);
+
+    if (sourcePaths.length === 0) return;
+
+    // Dropping the same directory onto its own background is a no-op.
+    if (
+      payload.sourcePaneId === targetPaneId &&
+      sourcePane?.path === targetPath
+    ) {
+      this.lastDrop = 'ignored: same directory';
+      this.cdr.markForCheck();
+      return;
+    }
+
+    try {
+      const items = await Promise.all(
+        sourcePaths.map(async sourcePath => ({
+          source: sourcePath,
+          destination: await this.api.joinPaths([
+            targetPath,
+            this.leafName(sourcePath),
+          ]),
+        })),
+      );
+
+      const result = operation === 'copy'
+        ? await this.api.batchCopy(items, true)
+        : await this.api.batchMove(items, true);
+
+      this.lastDrop = `${operation} drop: ${result.succeeded}/${result.total}`;
+      this.lastTransfer = this.lastDrop;
+      targetPane.lastAction = this.lastDrop;
+
+      await targetPane.refresh();
+
+      if (
+        operation === 'move' &&
+        sourcePane &&
+        sourcePane !== targetPane
+      ) {
+        await sourcePane.refresh();
+      } else if (
+        operation === 'move' &&
+        sourcePane &&
+        sourcePane === targetPane &&
+        targetPath !== sourcePane.path
+      ) {
+        await sourcePane.refresh();
+      }
+
+      if (result.failed > 0) {
+        await this.confirmDialog.alert({
+          title: 'Drop Completed with Errors',
+          message: `${result.failed} item${result.failed === 1 ? '' : 's'} could not be ${operation === 'copy' ? 'copied' : 'moved'}.`,
+        });
+      }
+    } catch (error) {
+      await this.confirmDialog.alert({
+        title: 'Drag & Drop Error',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      this.cdr.markForCheck();
+    }
+  }
+
+  private readInternalDragPayload(event: DragEvent): {
+    sourcePaneId: PaneId;
+    entries: Array<{ path: string; name?: string; type?: unknown }>;
+  } | null {
+    try {
+      const raw = event.dataTransfer?.getData('application/json');
+      if (!raw) return null;
+
+      const parsed = JSON.parse(raw) as {
+        sourcePaneId?: unknown;
+        entries?: unknown;
+      };
+
+      const sourcePaneId: PaneId =
+        parsed.sourcePaneId === 'right' ? 'right' : 'left';
+
+      const entries = Array.isArray(parsed.entries)
+        ? parsed.entries.filter(
+            (entry): entry is { path: string; name?: string; type?: unknown } =>
+              !!entry &&
+              typeof entry === 'object' &&
+              typeof (entry as { path?: unknown }).path === 'string',
+          )
+        : [];
+
+      return { sourcePaneId, entries };
+    } catch {
+      return null;
+    }
   }
 
   openEntryMenu(

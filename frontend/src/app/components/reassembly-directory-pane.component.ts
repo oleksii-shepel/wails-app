@@ -168,20 +168,31 @@ type ReassemblyTab =
         *ngIf="!error"
         role="listbox"
         [attr.aria-busy]="loading"
-        (contextmenu)="onBackgroundContextMenu($event)">
+        [class.background-drop-target]="backgroundDropActive"
+        (contextmenu)="onBackgroundContextMenu($event)"
+        (dragover)="onBackgroundDragOver($event)"
+        (dragleave)="onBackgroundDragLeave($event)"
+        (drop)="onBackgroundDrop($event)">
 
         <button
           *ngFor="let entry of entries; trackBy: trackEntry"
           type="button"
           class="entry"
           role="option"
+          draggable="true"
           [attr.data-file-entry]="entry.path"
           [attr.aria-selected]="selectedPaths.has(entry.path)"
           [class.cursor]="entry.path === cursorPath"
           [class.selected]="selectedPaths.has(entry.path)"
           (click)="selectFromPointer(entry, $event)"
           (dblclick)="openEntry(entry)"
-          (contextmenu)="onEntryContextMenu(entry, $event)">
+          (contextmenu)="onEntryContextMenu(entry, $event)"
+          (dragstart)="onEntryDragStart(entry, $event)"
+          (dragend)="onDragEnd()"
+          (dragover)="onEntryDragOver(entry, $event)"
+          (dragleave)="onEntryDragLeave(entry)"
+          (drop)="onEntryDrop(entry, $event)"
+          [class.drop-target]="dragOverPath === entry.path">
 
           <span class="icon" aria-hidden="true">
             {{ entry.type === FileType.DIRECTORY ? '📁' : entry.type === FileType.ARCHIVE ? '🗜️' : '📄' }}
@@ -476,6 +487,24 @@ type ReassemblyTab =
       color: var(--vsc-list-active-foreground, #ffffff);
     }
 
+    .entry.drop-target {
+      outline: 1px solid var(--vsc-accent-blue, #007acc);
+      outline-offset: -1px;
+      background: color-mix(
+        in srgb,
+        var(--vsc-accent-blue, #007acc) 18%,
+        var(--vsc-list-hover-background, #2a2d2e)
+      );
+    }
+
+    .list.background-drop-target {
+      box-shadow: inset 0 0 0 2px color-mix(
+        in srgb,
+        var(--vsc-accent-blue, #007acc) 72%,
+        transparent
+      );
+    }
+
     .entry.cursor.selected {
       box-shadow: inset 2px 0 0 var(--vsc-focus-border, #75beff);
     }
@@ -623,6 +652,11 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
   @Output() activateRequested = new EventEmitter<void>();
   @Output() entryContextMenu = new EventEmitter<{ event: MouseEvent; entry: FileInfo }>();
   @Output() backgroundContextMenu = new EventEmitter<MouseEvent>();
+  @Output() internalDrop = new EventEmitter<{
+    event: DragEvent;
+    targetPath: string;
+    targetEntry: FileInfo | null;
+  }>();
 
   path = '';
   entries: FileInfo[] = [];
@@ -682,6 +716,9 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
   get canPaste(): boolean {
     return this.isDirectoryTab && !!this.clipboard?.paths.length && this.sourceCapabilities.create;
   }
+
+  dragOverPath: string | null = null;
+  backgroundDropActive = false;
 
   private anchorPath: string | null = null;
   private loadGeneration = 0;
@@ -860,6 +897,116 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
 
     this.lastAction = `open directory: ${entry.name}`;
     void this.load(entry.path, { history: 'record' });
+  }
+
+  onEntryDragStart(entry: FileInfo, event: DragEvent): void {
+    if (!this.isDirectoryTab || !event.dataTransfer) return;
+
+    if (!this.selectedPaths.has(entry.path)) {
+      this.setSingleSelection(entry);
+      this.cdr.markForCheck();
+    }
+
+    const selected = this.entries
+      .filter(candidate => this.selectedPaths.has(candidate.path))
+      .map(candidate => ({
+        path: candidate.path,
+        name: candidate.name,
+        type: candidate.type,
+      }));
+
+    event.dataTransfer.effectAllowed = 'copyMove';
+    event.dataTransfer.setData('application/json', JSON.stringify({
+      sourcePaneId: this.paneId,
+      entries: selected,
+    }));
+    event.dataTransfer.setData('text/plain', selected.map(item => item.path).join('\n'));
+
+    this.lastAction = `drag ${selected.length}`;
+    this.cdr.markForCheck();
+  }
+
+  onDragEnd(): void {
+    this.dragOverPath = null;
+    this.backgroundDropActive = false;
+    this.cdr.markForCheck();
+  }
+
+  onEntryDragOver(entry: FileInfo, event: DragEvent): void {
+    if (entry.type !== FileType.DIRECTORY || !this.hasInternalDrag(event)) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = event.shiftKey ? 'move' : 'copy';
+    }
+
+    this.backgroundDropActive = false;
+    this.dragOverPath = entry.path;
+    this.cdr.markForCheck();
+  }
+
+  onEntryDragLeave(entry: FileInfo): void {
+    if (this.dragOverPath !== entry.path) return;
+    this.dragOverPath = null;
+    this.cdr.markForCheck();
+  }
+
+  onEntryDrop(entry: FileInfo, event: DragEvent): void {
+    if (entry.type !== FileType.DIRECTORY || !this.hasInternalDrag(event)) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    this.dragOverPath = null;
+    this.backgroundDropActive = false;
+    this.internalDrop.emit({
+      event,
+      targetPath: entry.path,
+      targetEntry: entry,
+    });
+    this.cdr.markForCheck();
+  }
+
+  onBackgroundDragOver(event: DragEvent): void {
+    if (!this.hasInternalDrag(event)) return;
+
+    event.preventDefault();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = event.shiftKey ? 'move' : 'copy';
+    }
+
+    this.backgroundDropActive = true;
+    this.cdr.markForCheck();
+  }
+
+  onBackgroundDragLeave(event: DragEvent): void {
+    const current = event.currentTarget as HTMLElement | null;
+    const related = event.relatedTarget as Node | null;
+    if (current && related && current.contains(related)) return;
+
+    this.backgroundDropActive = false;
+    this.cdr.markForCheck();
+  }
+
+  onBackgroundDrop(event: DragEvent): void {
+    if (!this.hasInternalDrag(event)) return;
+
+    event.preventDefault();
+    this.backgroundDropActive = false;
+    this.dragOverPath = null;
+    this.internalDrop.emit({
+      event,
+      targetPath: this.path,
+      targetEntry: null,
+    });
+    this.cdr.markForCheck();
+  }
+
+  private hasInternalDrag(event: DragEvent): boolean {
+    const types = Array.from(event.dataTransfer?.types ?? []);
+    return types.includes('application/json');
   }
 
   onEntryContextMenu(entry: FileInfo, event: MouseEvent): void {

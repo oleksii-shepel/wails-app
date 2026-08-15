@@ -88,6 +88,8 @@ interface PendingChordLike {
         <div><span>Live operation stream</span><span>bottom-left</span></div>
         <div><span>Directory tabs</span><span>workspace persisted</span></div>
         <div><kbd>Drag divider</kbd><span>resize · double-click reset</span></div>
+        <div><kbd>Ctrl+F</kbd><span>filter folder</span></div>
+        <div><kbd>F3 / Shift+F3</kbd><span>next / previous match</span></div>
       </div>
 
       <footer>

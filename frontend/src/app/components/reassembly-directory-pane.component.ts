@@ -20,6 +20,7 @@ import { FileInfo, FileType } from '../shared/protocol';
 import type { ViewerFileListItem } from '../shared/protocol-enhanced';
 import { ViewerHostSurfaceComponent } from '../viewers/viewer-host-surface.component';
 import { ReassemblyAddressBarComponent } from './reassembly-address-bar.component';
+import { ReassemblyFilterComponent } from './reassembly-filter.component';
 import { ReassemblyNavigationController } from './reassembly-navigation.controller';
 
 type ReassemblyTab =
@@ -41,7 +42,12 @@ type ReassemblyTab =
 @Component({
   selector: 'app-reassembly-directory-pane',
   standalone: true,
-  imports: [CommonModule, ReassemblyAddressBarComponent, ViewerHostSurfaceComponent],
+  imports: [
+    CommonModule,
+    ReassemblyAddressBarComponent,
+    ReassemblyFilterComponent,
+    ViewerHostSurfaceComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section
@@ -158,6 +164,19 @@ type ReassemblyTab =
         <button type="button" class="danger" [disabled]="loading || !canDelete" (click)="deleteSelected()" title="Delete (Delete / F8)">Delete</button>
       </div>
 
+      <app-reassembly-filter
+        #filterWidget
+        [paneId]="paneId"
+        [visible]="filterVisible"
+        [value]="filterText"
+        [matchCount]="visibleEntries.length"
+        [totalCount]="entries.length"
+        (valueChange)="setFilter($event)"
+        (close)="closeFilter()"
+        (next)="nextFilterMatch()"
+        (previous)="previousFilterMatch()">
+      </app-reassembly-filter>
+
       <div class="error" *ngIf="error">
         <strong>Directory could not be loaded.</strong>
         <span>{{ error }}</span>
@@ -176,7 +195,7 @@ type ReassemblyTab =
         (drop)="onBackgroundDrop($event)">
 
         <button
-          *ngFor="let entry of entries; trackBy: trackEntry"
+          *ngFor="let entry of visibleEntries; trackBy: trackEntry"
           type="button"
           class="entry"
           role="option"
@@ -210,8 +229,8 @@ type ReassemblyTab =
           </span>
         </button>
 
-        <div class="empty" *ngIf="!loading && entries.length === 0">
-          This directory is empty.
+        <div class="empty" *ngIf="!loading && visibleEntries.length === 0">
+          {{ filterText ? 'No matching items.' : 'This directory is empty.' }}
         </div>
       </div>
       </ng-container>
@@ -647,6 +666,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
 
   @ViewChild('addressBar') addressBar?: ReassemblyAddressBarComponent;
   @ViewChild('viewerHost') viewerHost?: ViewerHostSurfaceComponent;
+  @ViewChild('filterWidget') filterWidget?: ReassemblyFilterComponent;
 
   @Input() paneId: 'left' | 'right' = 'left';
   @Input() active = false;
@@ -665,6 +685,9 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
   selectedPaths = new Set<string>();
   loading = false;
   error: string | null = null;
+
+  filterVisible = false;
+  filterText = '';
   lastAction = 'startup';
   clipboard: { operation: 'copy' | 'cut'; paths: string[] } | null = null;
 
@@ -738,6 +761,17 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
   get cursorEntry(): FileInfo | null {
     if (!this.cursorPath) return null;
     return this.entries.find(entry => entry.path === this.cursorPath) ?? null;
+  }
+
+  get visibleEntries(): FileInfo[] {
+    const query = this.filterText.trim().toLocaleLowerCase();
+    if (!query) return this.entries;
+
+    return this.entries.filter(entry => {
+      const name = (entry.name ?? '').toLocaleLowerCase();
+      const path = (entry.path ?? '').toLocaleLowerCase();
+      return name.includes(query) || path.includes(query);
+    });
   }
 
   get atRoot(): boolean {
@@ -856,6 +890,39 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
 
   trackTab(_index: number, tab: ReassemblyTab): string {
     return tab.id;
+  }
+
+  focusFilter(): void {
+    if (!this.isDirectoryTab) return;
+    this.filterVisible = true;
+    this.lastAction = 'filter';
+    this.cdr.markForCheck();
+    this.filterWidget?.focus(true);
+    queueMicrotask(() => this.filterWidget?.focus(true));
+  }
+
+  setFilter(value: string): void {
+    this.filterText = value ?? '';
+    this.reconcileSelectionWithVisibleEntries();
+    this.lastAction = this.filterText ? `filter: ${this.filterText}` : 'filter cleared';
+    this.cdr.markForCheck();
+  }
+
+  closeFilter(): void {
+    this.filterText = '';
+    this.filterVisible = false;
+    this.filterWidget?.deactivateContext();
+    this.reconcileSelectionWithVisibleEntries();
+    this.lastAction = 'filter closed';
+    this.cdr.markForCheck();
+  }
+
+  nextFilterMatch(): void {
+    this.moveFilterCursor(1);
+  }
+
+  previousFilterMatch(): void {
+    this.moveFilterCursor(-1);
   }
 
   navigateTo(path: string): void {
@@ -1103,7 +1170,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
 
   selectAll(): void {
     if (!this.isDirectoryTab) return;
-    this.selectedPaths = new Set(this.entries.map(entry => entry.path));
+    this.selectedPaths = new Set(this.visibleEntries.map(entry => entry.path));
     this.lastAction = 'select all';
     this.cdr.markForCheck();
   }
@@ -1450,7 +1517,16 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
       const listing = await this.directorySource.listDirectory(requestedPath, false);
       if (generation !== this.loadGeneration) return false;
 
-      this.path = listing.path || requestedPath;
+      const nextPath = listing.path || requestedPath;
+      const pathChanged = this.path && this.path !== nextPath;
+      this.path = nextPath;
+
+      if (pathChanged) {
+        this.filterText = '';
+        this.filterVisible = false;
+        this.filterWidget?.deactivateContext();
+      }
+
       this.entries = [...(listing.entries || [])].sort((left, right) => {
         const leftDirectory = left.type === FileType.DIRECTORY;
         const rightDirectory = right.type === FileType.DIRECTORY;
@@ -1559,17 +1635,18 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
   }
 
   moveCursor(delta: -1 | 1): void {
-    if (!this.isDirectoryTab || this.entries.length === 0) return;
+    const visible = this.visibleEntries;
+    if (!this.isDirectoryTab || visible.length === 0) return;
 
     const currentIndex = this.cursorPath
-      ? this.entries.findIndex(entry => entry.path === this.cursorPath)
+      ? visible.findIndex(entry => entry.path === this.cursorPath)
       : -1;
 
     const nextIndex = currentIndex < 0
       ? 0
-      : Math.max(0, Math.min(this.entries.length - 1, currentIndex + delta));
+      : Math.max(0, Math.min(visible.length - 1, currentIndex + delta));
 
-    const entry = this.entries[nextIndex];
+    const entry = visible[nextIndex];
     this.setSingleSelection(entry);
     this.lastAction = delta < 0 ? 'cursor up' : 'cursor down';
     this.ensureCursorVisible();
@@ -1583,11 +1660,12 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
   }
 
   private selectRange(anchorPath: string, targetPath: string): void {
-    const start = this.entries.findIndex(entry => entry.path === anchorPath);
-    const end = this.entries.findIndex(entry => entry.path === targetPath);
+    const visible = this.visibleEntries;
+    const start = visible.findIndex(entry => entry.path === anchorPath);
+    const end = visible.findIndex(entry => entry.path === targetPath);
 
     if (start < 0 || end < 0) {
-      const target = this.entries.find(entry => entry.path === targetPath);
+      const target = visible.find(entry => entry.path === targetPath);
       if (target) this.setSingleSelection(target);
       return;
     }
@@ -1595,8 +1673,55 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
     const from = Math.min(start, end);
     const to = Math.max(start, end);
     this.selectedPaths = new Set(
-      this.entries.slice(from, to + 1).map(entry => entry.path),
+      visible.slice(from, to + 1).map(entry => entry.path),
     );
+  }
+
+  private reconcileSelectionWithVisibleEntries(): void {
+    const visible = this.visibleEntries;
+    if (visible.length === 0) {
+      this.cursorPath = null;
+      this.selectedPaths = new Set();
+      this.anchorPath = null;
+      return;
+    }
+
+    const cursorStillVisible =
+      !!this.cursorPath && visible.some(entry => entry.path === this.cursorPath);
+
+    if (!cursorStillVisible) {
+      this.setSingleSelection(visible[0]);
+      return;
+    }
+
+    const visiblePaths = new Set(visible.map(entry => entry.path));
+    const nextSelected = new Set(
+      Array.from(this.selectedPaths).filter(path => visiblePaths.has(path)),
+    );
+
+    if (nextSelected.size === 0 && this.cursorPath) {
+      nextSelected.add(this.cursorPath);
+    }
+
+    this.selectedPaths = nextSelected;
+  }
+
+  private moveFilterCursor(delta: -1 | 1): void {
+    const visible = this.visibleEntries;
+    if (visible.length === 0) return;
+
+    const currentIndex = this.cursorPath
+      ? visible.findIndex(entry => entry.path === this.cursorPath)
+      : -1;
+
+    const nextIndex = currentIndex < 0
+      ? (delta > 0 ? 0 : visible.length - 1)
+      : (currentIndex + delta + visible.length) % visible.length;
+
+    this.setSingleSelection(visible[nextIndex]);
+    this.lastAction = delta > 0 ? 'filter next' : 'filter previous';
+    this.ensureCursorVisible();
+    this.cdr.markForCheck();
   }
 
   private ensureCursorVisible(): void {

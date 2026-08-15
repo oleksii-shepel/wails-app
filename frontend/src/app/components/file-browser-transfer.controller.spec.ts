@@ -30,6 +30,7 @@ function createHost(overrides: Partial<FileBrowserTransferHost> = {}): FileBrows
     apiService: {
       batchCopy: vi.fn().mockResolvedValue({ failed: 0 }),
       batchMove: vi.fn().mockResolvedValue({ failed: 0 }),
+      joinPaths: vi.fn(async (parts: string[]) => parts.join('/')),
     } as unknown as FileBrowserTransferHost['apiService'],
     archiveService: {
       copy: vi.fn(),
@@ -133,6 +134,17 @@ describe('FileBrowserTransferController', () => {
     await new FileBrowserTransferController().copy(host, 'left', ['filesystem://left/file.txt'], { skipConfirmation: true });
     expect(host.confirmDialog.confirm).not.toHaveBeenCalled();
     expect(host.apiService.batchCopy).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves relative paths for reviewed recursive synchronization', async () => {
+    const host = createHost();
+    await new FileBrowserTransferController().copyRelative(host, 'left', [
+      { source: 'filesystem://source/current/src/app.ts', relativePath: 'src/app.ts' },
+    ]);
+    expect(host.apiService.joinPaths).toHaveBeenCalledWith(['filesystem://target/current', 'src', 'app.ts']);
+    expect(host.apiService.batchCopy).toHaveBeenCalledWith([
+      { source: 'filesystem://source/current/src/app.ts', destination: 'filesystem://target/current/src/app.ts' },
+    ], true);
   });
 
 });

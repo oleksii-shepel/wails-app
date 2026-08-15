@@ -47,7 +47,8 @@ import { formatPathForDisplay } from './address-bar.utils';
 import { RemoteConnectDialogService } from '../services/remote-connect-dialog.service';
 import { SettingsService } from '../services/settings.service';
 import { WindowStateService } from '../services/window-state.service';
-import { PaneComparisonService } from '../services/pane-comparison.service';
+import { PaneComparisonService, type PaneComparisonResult } from '../services/pane-comparison.service';
+import { PaneRecursiveComparisonService } from '../services/pane-recursive-comparison.service';
 import { PaneComparisonBarComponent } from './pane-comparison-bar.component';
 import { PaneSyncReviewComponent, type PaneSyncPlan } from './pane-sync-review.component';
 
@@ -107,6 +108,10 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
   isMaximized = false;
   comparisonVisible = false;
   syncReviewVisible = false;
+  comparisonRecursive = false;
+  recursiveComparisonScanning = false;
+  recursiveComparisonError = '';
+  recursiveComparisonResult: PaneComparisonResult | null = null;
   readonly pendingChord$ = this.inputEngine.pendingChord$;
   private resizeTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -141,6 +146,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     private windowStateService: WindowStateService,
     private keybindingStorage: KeybindingStorageService,
     private paneComparison: PaneComparisonService,
+    private recursivePaneComparison: PaneRecursiveComparisonService,
   ) {
     this.pathHelper = new FileBrowserPathHelper(this.apiService);
   }
@@ -328,6 +334,9 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
   closePaneComparison(): void {
     this.comparisonVisible = false;
     this.syncReviewVisible = false;
+    this.comparisonRecursive = false;
+    this.recursiveComparisonResult = null;
+    this.recursiveComparisonError = '';
   }
 
   openSyncReview(): void {
@@ -340,8 +349,38 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     this.syncReviewVisible = false;
   }
 
-  get paneComparisonResult() {
+  get paneComparisonResult(): PaneComparisonResult {
+    if (this.comparisonRecursive && this.recursiveComparisonResult) return this.recursiveComparisonResult;
     return this.paneComparison.compare(this.leftPane?.entries ?? [], this.rightPane?.entries ?? []);
+  }
+
+  async toggleRecursiveComparison(): Promise<void> {
+    this.comparisonRecursive = !this.comparisonRecursive;
+    this.syncReviewVisible = false;
+    if (this.comparisonRecursive) await this.refreshRecursiveComparison();
+  }
+
+  async refreshRecursiveComparison(): Promise<void> {
+    if (!this.canComparePanes() || !this.leftPane || !this.rightPane) return;
+    this.recursiveComparisonScanning = true;
+    this.recursiveComparisonError = '';
+    try {
+      const result = await this.recursivePaneComparison.compare(
+        this.apiService,
+        this.leftPane.currentPath,
+        this.rightPane.currentPath,
+        { showHidden: this.showHidden },
+      );
+      this.recursiveComparisonResult = result.comparison;
+      if (result.truncated) this.recursiveComparisonError = 'Scan limit reached; results are partial.';
+      else if (result.warnings.length) this.recursiveComparisonError = `${result.warnings.length} folder(s) could not be scanned.`;
+    } catch (error) {
+      this.recursiveComparisonResult = null;
+      this.recursiveComparisonError = error instanceof Error ? error.message : String(error);
+    } finally {
+      this.recursiveComparisonScanning = false;
+      this.cdr.markForCheck();
+    }
   }
 
   async executeSyncPlan(plan: PaneSyncPlan): Promise<void> {
@@ -354,11 +393,22 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     });
     if (!confirmed) return;
 
-    if (plan.leftToRight.length > 0) {
-      await this.transferController.copy(this.transferHost, 'left', plan.leftToRight, { skipConfirmation: true });
-    }
-    if (plan.rightToLeft.length > 0) {
-      await this.transferController.copy(this.transferHost, 'right', plan.rightToLeft, { skipConfirmation: true });
+    if (this.comparisonRecursive) {
+      const leftToRight = plan.items
+        .filter(item => item.direction === 'left-to-right' && item.leftPath)
+        .map(item => ({ source: item.leftPath!, relativePath: item.key }));
+      const rightToLeft = plan.items
+        .filter(item => item.direction === 'right-to-left' && item.rightPath)
+        .map(item => ({ source: item.rightPath!, relativePath: item.key }));
+      if (leftToRight.length) await this.transferController.copyRelative(this.transferHost, 'left', leftToRight);
+      if (rightToLeft.length) await this.transferController.copyRelative(this.transferHost, 'right', rightToLeft);
+    } else {
+      if (plan.leftToRight.length > 0) {
+        await this.transferController.copy(this.transferHost, 'left', plan.leftToRight, { skipConfirmation: true });
+      }
+      if (plan.rightToLeft.length > 0) {
+        await this.transferController.copy(this.transferHost, 'right', plan.rightToLeft, { skipConfirmation: true });
+      }
     }
 
     this.syncReviewVisible = false;
@@ -368,7 +418,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
 
   selectComparisonDifferences(side: 'left' | 'right'): void {
     if (!this.canComparePanes()) return;
-    const result = this.paneComparison.compare(this.leftPane!.entries, this.rightPane!.entries);
+    const result = this.paneComparisonResult;
     const paths = side === 'left'
       ? this.paneComparison.leftDifferencePaths(result)
       : this.paneComparison.rightDifferencePaths(result);
@@ -380,11 +430,20 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
 
   copyMissingComparison(sourceSide: 'left' | 'right'): void {
     if (!this.canComparePanes()) return;
-    const result = this.paneComparison.compare(this.leftPane!.entries, this.rightPane!.entries);
-    const paths = sourceSide === 'left'
-      ? this.paneComparison.missingOnRightPaths(result)
-      : this.paneComparison.missingOnLeftPaths(result);
-    if (paths.length === 0) return;
+    const result = this.paneComparisonResult;
+    const missing = result.items.filter(item => sourceSide === 'left'
+      ? item.status === 'only-left' && !!item.left
+      : item.status === 'only-right' && !!item.right);
+    if (missing.length === 0) return;
+    if (this.comparisonRecursive) {
+      const relative = missing.map(item => ({
+        source: sourceSide === 'left' ? item.left!.path : item.right!.path,
+        relativePath: item.key,
+      }));
+      void this.transferController.copyRelative(this.transferHost, sourceSide, relative);
+      return;
+    }
+    const paths = missing.map(item => sourceSide === 'left' ? item.left!.path : item.right!.path);
     void this.transferController.copy(this.transferHost, sourceSide, paths);
   }
 
@@ -693,6 +752,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
 
   onPanePathChange(paneId: string, path: string): void {
     this.searchController.onPanePathChange(this.searchHost, paneId, path);
+    if (this.comparisonVisible && this.comparisonRecursive) void this.refreshRecursiveComparison();
     this.syncSizeManagerPane(this.getOppositePaneId(paneId as 'left' | 'right'), path);
   }
 
@@ -770,6 +830,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
       moveToOtherPane:       () => this.moveToOtherPaneCurrent(),
       focusAddressBar:       () => this.getActivePane()?.shortcuts.focus.focusAddressBar(),
       comparePanes:          () => this.togglePaneComparison(),
+      recursiveComparePanes: () => { if (!this.comparisonVisible) this.comparisonVisible = true; void this.toggleRecursiveComparison(); },
       reviewSyncPlan:        () => this.openSyncReview(),
       selectLeftDifferences:  () => this.selectComparisonDifferences('left'),
       selectRightDifferences: () => this.selectComparisonDifferences('right'),
@@ -794,6 +855,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
 
   private isBrowserCommandEnabled(commandId: string): boolean {
     if (commandId === BC.comparePanes
+      || commandId === BC.recursiveComparePanes
       || commandId === BC.reviewSyncPlan
       || commandId === BC.selectLeftDifferences
       || commandId === BC.selectRightDifferences

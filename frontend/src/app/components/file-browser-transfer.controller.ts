@@ -84,6 +84,31 @@ export class FileBrowserTransferController {
     await dst.browserCommands.navigation.refresh();
   }
 
+  async copyRelative(
+    host: FileBrowserTransferHost,
+    sourceSide: 'left' | 'right',
+    items: readonly { source: string; relativePath: string }[],
+  ): Promise<void> {
+    const { src, dst } = this.resolvePanes(host, sourceSide);
+    if (!src || !dst || items.length === 0) return;
+    const destDir = this.resolveCrossPaneDestination(dst);
+    const decision = canTransferBetween('copy', src.sourceCapabilities, dst.sourceCapabilities);
+    if (!decision.allowed) { host.confirmDialog.alert(transferBlockedMessage('copy', decision)); return; }
+    if (src.isInArchive() || dst.isInArchive()) {
+      host.confirmDialog.alert('Recursive synchronization is available only between regular folder panes.');
+      return;
+    }
+
+    const batch = await Promise.all(items.map(async item => ({
+      source: item.source,
+      destination: await host.apiService.joinPaths([destDir, ...item.relativePath.split('/').filter(Boolean)]),
+    })));
+    const result = await host.apiService.batchCopy(batch, true);
+    const err = this.archiveError(result);
+    if (err) host.confirmDialog.alert(`Copy Errors\n${err}`);
+    await dst.browserCommands.navigation.refresh();
+  }
+
   async move(host: FileBrowserTransferHost, sourceSide: 'left' | 'right', paths: string[]): Promise<void> {
     const { src, dst } = this.resolvePanes(host, sourceSide);
     if (!src || !dst || paths.length === 0) return;

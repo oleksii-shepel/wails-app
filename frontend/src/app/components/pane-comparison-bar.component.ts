@@ -11,7 +11,9 @@ import { PaneComparisonResult, PaneComparisonService } from '../services/pane-co
   template: `
     <div class="compare-bar" *ngIf="visible">
       <div class="compare-summary" [title]="leftPath + ' ↔ ' + rightPath">
-        <strong>Compare</strong>
+        <strong>{{ recursive ? 'Compare · Recursive' : 'Compare' }}</strong>
+        <span class="metric" *ngIf="scanning">Scanning…</span>
+        <span class="metric different" *ngIf="error">{{ error }}</span>
         <span class="metric only-left" *ngIf="result.summary.onlyLeft">{{ result.summary.onlyLeft }} left only</span>
         <span class="metric only-right" *ngIf="result.summary.onlyRight">{{ result.summary.onlyRight }} right only</span>
         <span class="metric newer" *ngIf="result.summary.leftNewer">{{ result.summary.leftNewer }} newer left</span>
@@ -22,6 +24,8 @@ import { PaneComparisonResult, PaneComparisonService } from '../services/pane-co
       </div>
 
       <div class="compare-actions">
+        <button type="button" class="btn" (click)="toggleRecursive.emit()" [disabled]="scanning" [class.active]="recursive" title="Compare complete directory trees">Recursive</button>
+        <button type="button" class="btn" *ngIf="recursive" (click)="refreshRecursive.emit()" [disabled]="scanning" title="Rescan both directory trees">Refresh</button>
         <button type="button" class="btn" (click)="selectLeft.emit()" [disabled]="leftDifferenceCount === 0" title="Select differing items in the left pane">Select Left</button>
         <button type="button" class="btn" (click)="selectRight.emit()" [disabled]="rightDifferenceCount === 0" title="Select differing items in the right pane">Select Right</button>
         <button type="button" class="btn" (click)="copyMissingLeftToRight.emit()" [disabled]="result.summary.onlyLeft === 0" title="Copy items that exist only on the left to the right pane">Missing →</button>
@@ -61,6 +65,7 @@ import { PaneComparisonResult, PaneComparisonService } from '../services/pane-co
       cursor: pointer;
     }
     .btn:disabled { opacity: .42; cursor: default; }
+    .btn.active { background: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 24%, transparent); }
     .close { width: 25px; padding-inline: 0; font-size: 16px; line-height: 18px; }
   `],
 })
@@ -70,7 +75,13 @@ export class PaneComparisonBarComponent implements OnChanges {
   @Input() rightEntries: readonly FileInfo[] = [];
   @Input() leftPath = '';
   @Input() rightPath = '';
+  @Input() recursive = false;
+  @Input() scanning = false;
+  @Input() error = '';
+  @Input() comparisonResult: PaneComparisonResult | null = null;
 
+  @Output() toggleRecursive = new EventEmitter<void>();
+  @Output() refreshRecursive = new EventEmitter<void>();
   @Output() selectLeft = new EventEmitter<void>();
   @Output() selectRight = new EventEmitter<void>();
   @Output() copyMissingLeftToRight = new EventEmitter<void>();
@@ -83,7 +94,7 @@ export class PaneComparisonBarComponent implements OnChanges {
   constructor(private readonly comparison: PaneComparisonService) {}
 
   ngOnChanges(): void {
-    this.result = this.comparison.compare(this.leftEntries, this.rightEntries);
+    this.result = this.comparisonResult ?? this.comparison.compare(this.leftEntries, this.rightEntries);
   }
 
   get leftDifferenceCount(): number {

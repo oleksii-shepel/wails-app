@@ -69,6 +69,7 @@ export const BC = {
   moveToOtherPane:      'pane.ctrl.moveToOther',
   focusAddressBar:      'pane.ctrl.focusAddressBar',
   comparePanes:          'pane.compare.toggle',
+  recursiveComparePanes: 'pane.compare.recursive',
   reviewSyncPlan:         'pane.compare.review',
   selectLeftDifferences: 'pane.compare.selectLeftDifferences',
   selectRightDifferences:'pane.compare.selectRightDifferences',
@@ -153,6 +154,7 @@ const BROWSER_COMMAND_DEFINITIONS: CommandDefinition[] = [
   CMD_DEF(BC.moveToOtherPane,      'Move to Other Pane',        PANE, 'Move selected to other pane', 'pane.move-to-other', ['move-to-other']),
   CMD_DEF(BC.focusAddressBar,      'Focus Address Bar',         PANE, 'Focus address bar', 'pane.address', ['address']),
   CMD_DEF(BC.comparePanes,          'Compare Panes',               PANE, 'Compare the two folder panes', 'pane.compare', ['compare']),
+  CMD_DEF(BC.recursiveComparePanes, 'Recursive Pane Compare',     PANE, 'Compare complete directory trees', 'pane.compare.recursive', ['compare-tree']),
   CMD_DEF(BC.reviewSyncPlan,         'Review Sync Plan',             PANE, 'Review and approve pane synchronization decisions', 'pane.compare.review', ['sync-review']),
   CMD_DEF(BC.selectLeftDifferences, 'Select Left Differences',     PANE, 'Select differing items in the left pane', 'pane.compare.select-left', undefined),
   CMD_DEF(BC.selectRightDifferences,'Select Right Differences',    PANE, 'Select differing items in the right pane', 'pane.compare.select-right', undefined),
@@ -375,6 +377,7 @@ export interface FileBrowserCommandHandlers {
   moveToOtherPane:      () => void;
   focusAddressBar:      () => void;
   comparePanes:          () => void;
+  recursiveComparePanes: () => void;
   reviewSyncPlan:         () => void;
   selectLeftDifferences: () => void;
   selectRightDifferences:() => void;
@@ -448,6 +451,7 @@ export function createFileBrowserCommandDescriptors(
     [BC.moveToOtherPane, handlers.moveToOtherPane],
     [BC.focusAddressBar, handlers.focusAddressBar],
     [BC.comparePanes, handlers.comparePanes],
+    [BC.recursiveComparePanes, handlers.recursiveComparePanes],
     [BC.reviewSyncPlan, handlers.reviewSyncPlan],
     [BC.selectLeftDifferences, handlers.selectLeftDifferences],
     [BC.selectRightDifferences, handlers.selectRightDifferences],

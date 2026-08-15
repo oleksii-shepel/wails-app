@@ -7,9 +7,8 @@
     "dev": "ng serve",
     "build": "ng build --configuration production",
     "watch": "ng build --configuration development --watch",
-    "test": "ng test",
-    "test:unit": "vitest run",
-    "test:unit:watch": "vitest",
+    "test": "npx testify",
+    "test:watch": "npx testify --watch",
     "check": "npm run test:unit && npm run build"
   },
   "private": true,
@@ -37,6 +36,7 @@
     "@epikodelabs/testify": "^1.0.39",
     "@types/jasmine": "^6.0.0",
     "@types/node": "^26.2.0",
-    "typescript": "~6.0.3"
+    "typescript": "~6.0.3",
+    "vitest": "^4.0.8"
   }
 }

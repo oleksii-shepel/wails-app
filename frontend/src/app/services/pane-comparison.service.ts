@@ -73,19 +73,16 @@ export class PaneComparisonService {
 
     items.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
 
-    const summary: PaneComparisonSummary = {
-      total: items.length,
-      same: 0,
-      onlyLeft: 0,
-      onlyRight: 0,
-      leftNewer: 0,
-      rightNewer: 0,
-      sizeDifferent: 0,
-      typeDifferent: 0,
-      different: 0,
-    };
+    return this.fromItems(items);
+  }
 
-    for (const item of items) {
+  fromItems(items: readonly PaneComparisonItem[]): PaneComparisonResult {
+    const normalized = [...items];
+    const summary: PaneComparisonSummary = {
+      total: normalized.length, same: 0, onlyLeft: 0, onlyRight: 0,
+      leftNewer: 0, rightNewer: 0, sizeDifferent: 0, typeDifferent: 0, different: 0,
+    };
+    for (const item of normalized) {
       switch (item.status) {
         case 'same': summary.same++; break;
         case 'only-left': summary.onlyLeft++; break;
@@ -97,8 +94,7 @@ export class PaneComparisonService {
       }
     }
     summary.different = summary.total - summary.same;
-
-    return { items, summary };
+    return { items: normalized, summary };
   }
 
   leftDifferencePaths(result: PaneComparisonResult): string[] {

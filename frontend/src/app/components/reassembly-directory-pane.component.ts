@@ -211,6 +211,7 @@ type ReassemblyTab =
           </div>
 
           <app-viewer-host-surface
+            #viewerHost
             [targetPath]="viewerTab.targetPath"
             [fileList]="viewerTab.fileList"
             [archiveContext]="null"
@@ -613,6 +614,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
   readonly FileType = FileType;
 
   @ViewChild('addressBar') addressBar?: ReassemblyAddressBarComponent;
+  @ViewChild('viewerHost') viewerHost?: ViewerHostSurfaceComponent;
 
   @Input() paneId: 'left' | 'right' = 'left';
   @Input() active = false;
@@ -639,6 +641,10 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
   get activeViewerTab(): Extract<ReassemblyTab, { kind: 'viewer' }> | null {
     const tab = this.activeTab;
     return tab?.kind === 'viewer' ? tab : null;
+  }
+
+  get mountedViewer(): any {
+    return this.viewerHost?.mountedViewer ?? null;
   }
 
   get isDirectoryTab(): boolean {

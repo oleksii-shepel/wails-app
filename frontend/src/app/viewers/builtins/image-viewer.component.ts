@@ -8,7 +8,6 @@ import {
   OnDestroy,
   ViewChild,
   ElementRef,
-  HostListener,
 } from '@angular/core';
 import { ApiService } from '../../services/api.service';
 import { ArchiveEntry, FileInfo, FileProbe, FileType } from '../../shared/protocol';
@@ -49,9 +48,7 @@ interface CarouselVirtualFrame {
     <div class="viewer-surface"
          #viewerSurface
          tabindex="0"
-         (pointerdown)="focusViewerSurface()"
-         (keydown.arrowleft)="onViewerArrowLeft($event)"
-         (keydown.arrowright)="onViewerArrowRight($event)">
+         (pointerdown)="focusViewerSurface()">
       <div class="viewer-header">
         <div class="header-main">
           <span class="file-icon" aria-hidden="true">🖼️</span>
@@ -157,8 +154,7 @@ interface CarouselVirtualFrame {
                 [class.active]="frame.index === previewCenterIndex"
                 [title]="frame.item.name"
                 [attr.data-index]="frame.index"
-                (click)="selectCarouselIndex(frame.index)"
-                (keydown)="onCarouselItemKeyDown($event, frame.index)">
+                (click)="selectCarouselIndex(frame.index)">
                 <span class="carousel-thumb" [class.carousel-thumb--placeholder]="!frame.item.thumbnailSrc || frame.item.thumbnailFailed">
                   <img *ngIf="frame.item.thumbnailSrc && !frame.item.thumbnailFailed"
                        [src]="frame.item.thumbnailSrc"
@@ -867,21 +863,6 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
     this.cdr.markForCheck();
   }
 
-  onViewerArrowLeft(event: Event): void {
-    if (!this.hasPrevious) {
-      return;
-    }
-    event.preventDefault();
-    void this.displayCarouselIndex(this.currentCarouselIndex - 1, this.contextToken);
-  }
-
-  onViewerArrowRight(event: Event): void {
-    if (!this.hasNext) {
-      return;
-    }
-    event.preventDefault();
-    void this.displayCarouselIndex(this.currentCarouselIndex + 1, this.contextToken);
-  }
 
   onImageHostWheel(event: WheelEvent): void {
     if (!this.hasCarousel) {
@@ -1167,24 +1148,6 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
     return true; // Successfully moved
   }
 
-  @HostListener('window:keydown', ['$event'])
-  onDeleteKey(event: KeyboardEvent): void {
-    if (event.key !== 'Delete') {
-      return;
-    }
-    if (!this.isEventInsideViewerSurface(event) || !this.canDeleteCurrentTarget()) {
-      return;
-    }
-    event.preventDefault();
-    event.stopPropagation();
-    void this.deleteCurrentTarget();
-  }
-
-  private isEventInsideViewerSurface(event: Event): boolean {
-    const target = event.target;
-    const host = this.viewerSurfaceElement;
-    return !!host && target instanceof Node && host.contains(target);
-  }
 
   private canDeleteCurrentTarget(): boolean {
     const selectedItem = this.carouselItems[this.previewCenterIndex] ?? null;
@@ -1322,15 +1285,6 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
     void this.deleteCurrentTarget();
   }
 
-  onCarouselItemKeyDown(event: KeyboardEvent, index: number): void {
-    if (event.key !== 'Delete') {
-      return;
-    }
-    event.preventDefault();
-    event.stopPropagation();
-    this.previewCenterIndex = index;
-    void this.deleteCurrentTarget();
-  }
 
   showPrevious(): void {
     if (!this.hasPrevious) return;
@@ -1797,3 +1751,6 @@ export class ImageViewerComponent implements OnChanges, OnDestroy {
     };
   }
 }
+````
+
+## File: frontend/src/app/viewers/builtins/text-viewer.component.ts

@@ -43,6 +43,12 @@ const COMMAND = {
   newTab: 'reassembly.manager.newTab',
   closeTab: 'reassembly.manager.closeTab',
   nextTab: 'reassembly.manager.nextTab',
+  viewerPrevious: 'reassembly.viewer.previous',
+  viewerNext: 'reassembly.viewer.next',
+  viewerZoomIn: 'reassembly.viewer.zoomIn',
+  viewerZoomOut: 'reassembly.viewer.zoomOut',
+  viewerFit: 'reassembly.viewer.fit',
+  viewerActualSize: 'reassembly.viewer.actualSize',
 } as const;
 
 const BINDINGS: readonly InputBindingDefinition[] = [
@@ -69,6 +75,13 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   { id:'reassembly.manager.newTab.ctrlT', commandId:COMMAND.newTab, contextId:CONTEXT_ID, source:'default', description:'New tab', category:'Tab Management', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'t', modifiers:['ctrl']}]}}},
   { id:'reassembly.manager.closeTab.ctrlW', commandId:COMMAND.closeTab, contextId:CONTEXT_ID, source:'default', description:'Close tab', category:'Tab Management', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'w', modifiers:['ctrl']}]}}},
   { id:'reassembly.manager.nextTab.ctrlTab', commandId:COMMAND.nextTab, contextId:CONTEXT_ID, source:'default', description:'Next tab', category:'Tab Management', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'tab', modifiers:['ctrl']}]}}},
+  { id:'reassembly.viewer.previous.left', commandId:COMMAND.viewerPrevious, contextId:CONTEXT_ID, source:'default', description:'Previous viewer item', category:'Viewer', when:'viewerSurface', trigger:{device:'keyboard', chord:{steps:[{key:'arrowleft'}]}}},
+  { id:'reassembly.viewer.next.right', commandId:COMMAND.viewerNext, contextId:CONTEXT_ID, source:'default', description:'Next viewer item', category:'Viewer', when:'viewerSurface', trigger:{device:'keyboard', chord:{steps:[{key:'arrowright'}]}}},
+  { id:'reassembly.viewer.zoomIn.ctrlPlus', commandId:COMMAND.viewerZoomIn, contextId:CONTEXT_ID, source:'default', description:'Zoom viewer in', category:'Viewer', when:'viewerSurface', trigger:{device:'keyboard', chord:{steps:[{key:'+', modifiers:['ctrl']}]}}},
+  { id:'reassembly.viewer.zoomIn.ctrlEquals', commandId:COMMAND.viewerZoomIn, contextId:CONTEXT_ID, source:'default', description:'Zoom viewer in', category:'Viewer', when:'viewerSurface', trigger:{device:'keyboard', chord:{steps:[{key:'=', modifiers:['ctrl']}]}}},
+  { id:'reassembly.viewer.zoomOut.ctrlMinus', commandId:COMMAND.viewerZoomOut, contextId:CONTEXT_ID, source:'default', description:'Zoom viewer out', category:'Viewer', when:'viewerSurface', trigger:{device:'keyboard', chord:{steps:[{key:'-', modifiers:['ctrl']}]}}},
+  { id:'reassembly.viewer.fit.ctrl0', commandId:COMMAND.viewerFit, contextId:CONTEXT_ID, source:'default', description:'Fit viewer to window', category:'Viewer', when:'viewerSurface', trigger:{device:'keyboard', chord:{steps:[{key:'0', modifiers:['ctrl']}]}}},
+  { id:'reassembly.viewer.actualSize.ctrl1', commandId:COMMAND.viewerActualSize, contextId:CONTEXT_ID, source:'default', description:'Viewer actual size', category:'Viewer', when:'viewerSurface', trigger:{device:'keyboard', chord:{steps:[{key:'1', modifiers:['ctrl']}]}}},
 ];
 
 @Component({
@@ -244,7 +257,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     descriptor(COMMAND.refresh, 'Refresh', 'Navigation', () => this.activePane?.refresh());
     descriptor(COMMAND.rename, 'Rename', 'File Operations', () => this.activePane?.renameSelected(), () => !!this.activePane?.canRename);
     descriptor(COMMAND.newFolder, 'New Folder', 'File Operations', () => this.activePane?.newFolder(), () => !!this.activePane?.canCreate);
-    descriptor(COMMAND.deleteSelected, 'Delete', 'File Operations', () => this.activePane?.deleteSelected(), () => !!this.activePane?.canDelete);
+    descriptor(COMMAND.deleteSelected, 'Delete', 'File Operations', () => this.deleteActiveSelection(), () => this.canDeleteActiveSelection());
     descriptor(COMMAND.copy, 'Copy', 'File Operations', () => this.activePane?.copySelected(), () => !!this.activePane?.hasSelection);
     descriptor(COMMAND.cut, 'Cut', 'File Operations', () => this.activePane?.cutSelected(), () => !!this.activePane?.canCut);
     descriptor(COMMAND.paste, 'Paste', 'File Operations', () => this.activePane?.paste(), () => !!this.activePane?.canPaste);
@@ -253,6 +266,49 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     descriptor(COMMAND.newTab, 'New Tab', 'Tab Management', () => this.activePane?.newTab());
     descriptor(COMMAND.closeTab, 'Close Tab', 'Tab Management', () => this.activePane?.closeActiveTab());
     descriptor(COMMAND.nextTab, 'Next Tab', 'Tab Management', () => this.activePane?.nextTab());
+    descriptor(COMMAND.viewerPrevious, 'Previous Viewer Item', 'Viewer', () => this.invokeViewer('showPrevious'), () => this.hasViewerMethod('showPrevious'));
+    descriptor(COMMAND.viewerNext, 'Next Viewer Item', 'Viewer', () => this.invokeViewer('showNext'), () => this.hasViewerMethod('showNext'));
+    descriptor(COMMAND.viewerZoomIn, 'Zoom Viewer In', 'Viewer', () => this.invokeViewer('zoomIn'), () => this.hasViewerMethod('zoomIn'));
+    descriptor(COMMAND.viewerZoomOut, 'Zoom Viewer Out', 'Viewer', () => this.invokeViewer('zoomOut'), () => this.hasViewerMethod('zoomOut'));
+    descriptor(COMMAND.viewerFit, 'Fit Viewer', 'Viewer', () => this.invokeViewer('resetZoom'), () => this.hasViewerMethod('resetZoom'));
+    descriptor(COMMAND.viewerActualSize, 'Viewer Actual Size', 'Viewer', () => this.invokeViewer('zoom100'), () => this.hasViewerMethod('zoom100'));
+  }
+
+  private activeViewer(): any {
+    const pane = this.activePane;
+    if (!pane || pane.activeTab?.kind !== 'viewer') return null;
+    return pane.mountedViewer;
+  }
+
+  private hasViewerMethod(method: string): boolean {
+    const viewer = this.activeViewer();
+    return !!viewer && typeof viewer[method] === 'function';
+  }
+
+  private invokeViewer(method: string): void {
+    const viewer = this.activeViewer();
+    const fn = viewer?.[method];
+    if (typeof fn !== 'function') return;
+    fn.call(viewer);
+    if (this.activePane) this.activePane.lastAction = `viewer: ${method}`;
+    this.cdr.markForCheck();
+  }
+
+  private canDeleteActiveSelection(): boolean {
+    const pane = this.activePane;
+    if (!pane) return false;
+    if (pane.activeTab?.kind === 'viewer') return this.hasViewerMethod('deleteSelected');
+    return pane.canDelete;
+  }
+
+  private deleteActiveSelection(): void {
+    const pane = this.activePane;
+    if (!pane) return;
+    if (pane.activeTab?.kind === 'viewer') {
+      this.invokeViewer('deleteSelected');
+      return;
+    }
+    void pane.deleteSelected();
   }
 
   private canTransfer(operation: 'copy' | 'move'): boolean {

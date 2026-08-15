@@ -74,6 +74,9 @@ interface PendingChordLike {
         <div><kbd>Ctrl+W</kbd><span>close tab</span></div>
         <div><kbd>Ctrl+Tab</kbd><span>next tab</span></div>
         <div><kbd>Enter</kbd><span>folder or viewer</span></div>
+        <div><kbd>Left/Right</kbd><span>viewer previous/next</span></div>
+        <div><kbd>Ctrl++/-</kbd><span>viewer zoom</span></div>
+        <div><kbd>Ctrl+0/1</kbd><span>fit / actual size</span></div>
       </div>
 
       <footer>

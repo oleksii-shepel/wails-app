@@ -83,6 +83,7 @@ interface PendingChordLike {
         <div><kbd>Right click</kbd><span>command context menu</span></div>
         <div><kbd>Drag</kbd><span>copy · Shift+drop move</span></div>
         <div><span>Live operation stream</span><span>bottom-left</span></div>
+        <div><span>Directory tabs</span><span>workspace persisted</span></div>
       </div>
 
       <footer>

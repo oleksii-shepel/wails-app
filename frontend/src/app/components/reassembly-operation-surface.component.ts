@@ -34,8 +34,8 @@ import {
         *ngFor="let operation of operations; trackBy: trackOperation">
 
         <div class="row">
-          <span class="kind">{{ operation.config.label }}</span>
-          <span class="status" [class.failed]="operation.status === 'failed'">
+          <span class="kind">{{ operation.config.title }}</span>
+          <span class="status" [class.failed]="operation.status === 'error'">
             {{ operation.status }}
           </span>
         </div>

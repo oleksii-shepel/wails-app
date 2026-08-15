@@ -195,7 +195,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
   @ViewChild('leftPane') leftPane?: ReassemblyDirectoryPaneComponent;
   @ViewChild('rightPane') rightPane?: ReassemblyDirectoryPaneComponent;
 
-  activePaneId: PaneId = 'left';
+  activePaneId: PaneId = this.restoreActivePane();
   lastTransfer = 'none';
   lastDrop = 'none';
   contextMenu: ReassemblyContextMenuState | null = null;
@@ -241,6 +241,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     this.closeContextMenu();
     if (this.activePaneId === paneId) return;
     this.activePaneId = paneId;
+    this.persistActivePane();
     this.cdr.markForCheck();
   }
 
@@ -477,6 +478,24 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
   private clampMenuY(y: number): number {
     if (typeof window === 'undefined') return y;
     return Math.max(8, Math.min(y, window.innerHeight - 360));
+  }
+
+  private restoreActivePane(): PaneId {
+    try {
+      return localStorage.getItem('reassembly.activePane') === 'right'
+        ? 'right'
+        : 'left';
+    } catch {
+      return 'left';
+    }
+  }
+
+  private persistActivePane(): void {
+    try {
+      localStorage.setItem('reassembly.activePane', this.activePaneId);
+    } catch {
+      // Session preference is best-effort only.
+    }
   }
 
   private registerCommands(): void {

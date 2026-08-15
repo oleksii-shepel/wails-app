@@ -13,6 +13,7 @@ import { CommonModule } from '@angular/common';
 import { DirectorySourceService } from '../services/directory-source.service';
 import { ApiService } from '../services/api.service';
 import { PathHistoryService } from '../services/path-history.service';
+import { WorkspaceService } from '../services/workspace.service';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { getSourceCapabilities } from '../services/source-capabilities';
 import { FileInfo, FileType } from '../shared/protocol';
@@ -670,6 +671,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
   tabs: ReassemblyTab[] = [];
   activeTabId: string | null = null;
   private tabCounter = 0;
+  private workspaceTabsReady = false;
 
   get activeTab(): ReassemblyTab | null {
     if (!this.activeTabId) return null;
@@ -728,6 +730,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
     private readonly api: ApiService,
     private readonly directorySource: DirectorySourceService,
     private readonly pathHistory: PathHistoryService,
+    private readonly workspaceService: WorkspaceService,
     private readonly confirmDialog: ConfirmDialogService,
     private readonly cdr: ChangeDetectorRef,
   ) {}
@@ -760,6 +763,16 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
 
   newTab(): void {
     const path = this.path || '/';
+    const persisted = this.workspaceService.addTab(this.paneId, path, true);
+
+    if (persisted) {
+      this.tabs = this.mergePersistedDirectoryTabs();
+      this.activeTabId = persisted.id;
+      this.lastAction = `new tab: ${persisted.title || this.tabTitle(path)}`;
+      this.cdr.markForCheck();
+      return;
+    }
+
     const tab = this.createDirectoryTab(path);
     this.tabs = [...this.tabs, tab];
     this.activeTabId = tab.id;
@@ -777,6 +790,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
     this.cdr.markForCheck();
 
     if (tab.kind === 'dir') {
+      this.workspaceService.switchTab(this.paneId, tab.id);
       await this.load(tab.path, { history: 'record', syncTab: false });
     }
   }
@@ -807,7 +821,13 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
       return;
     }
 
+    const closing = this.tabs[index];
     const wasActive = this.activeTabId === tabId;
+
+    if (closing.kind === 'dir') {
+      this.workspaceService.closeTab(this.paneId, tabId);
+    }
+
     this.tabs = this.tabs.filter(tab => tab.id !== tabId);
 
     if (!wasActive) {
@@ -822,6 +842,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
     this.cdr.markForCheck();
 
     if (next.kind === 'dir') {
+      this.workspaceService.switchTab(this.paneId, next.id);
       await this.load(next.path, { history: 'record', syncTab: false });
     }
   }
@@ -1305,29 +1326,109 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
     this.error = null;
     this.cdr.markForCheck();
 
+    const restored = await this.tryRestoreWorkspaceTabs();
+    if (restored) {
+      return;
+    }
+
     try {
       const drives = await this.api.listDrives();
       const initialPath = drives[0]?.path || '/';
       const loaded = await this.load(initialPath, { history: 'record' });
       if (loaded && this.tabs.length === 0) {
-        const tab = this.createDirectoryTab(this.path);
+        const persisted = this.workspaceService.addTab(this.paneId, this.path, true);
+        const tab = persisted
+          ? this.fromPersistedTab(persisted)
+          : this.createDirectoryTab(this.path);
         this.tabs = [tab];
         this.activeTabId = tab.id;
+        this.workspaceTabsReady = !!persisted;
         this.cdr.markForCheck();
       }
     } catch {
       try {
         const loaded = await this.load('/', { history: 'record' });
         if (loaded && this.tabs.length === 0) {
-          const tab = this.createDirectoryTab(this.path);
+          const persisted = this.workspaceService.addTab(this.paneId, this.path, true);
+          const tab = persisted
+            ? this.fromPersistedTab(persisted)
+            : this.createDirectoryTab(this.path);
           this.tabs = [tab];
           this.activeTabId = tab.id;
+          this.workspaceTabsReady = !!persisted;
           this.cdr.markForCheck();
         }
       } catch {
         // load() records the visible error state.
       }
     }
+  }
+
+  private async tryRestoreWorkspaceTabs(): Promise<boolean> {
+    // WorkspaceService initializes asynchronously from Wails. Give it a short
+    // bootstrap window; if it is not ready, normal filesystem fallback remains.
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const persisted = this.workspaceService.getTabs(this.paneId);
+      const active = this.workspaceService.getActiveTab(this.paneId);
+
+      if (persisted.length > 0) {
+        const dirTabs = persisted
+          .filter(tab => (tab.surfaceId ?? tab.kind ?? 'dir') === 'dir')
+          .map(tab => this.fromPersistedTab(tab));
+
+        if (dirTabs.length > 0) {
+          this.tabs = dirTabs;
+          const activeDir = active
+            ? dirTabs.find(tab => tab.id === active.id)
+            : null;
+          const target = activeDir ?? dirTabs[0];
+
+          this.activeTabId = target.id;
+          this.workspaceTabsReady = true;
+          this.tabCounter = Math.max(this.tabCounter, dirTabs.length);
+          this.cdr.markForCheck();
+
+          const loaded = await this.load(target.path, {
+            history: 'record',
+            syncTab: false,
+          });
+
+          if (loaded) {
+            this.workspaceService.switchTab(this.paneId, target.id);
+            return true;
+          }
+        }
+
+        return false;
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+
+    return false;
+  }
+
+  private fromPersistedTab(tab: any): ReassemblyTab {
+    const path =
+      typeof tab.location === 'string'
+        ? tab.location
+        : tab.location?.location || tab.path || '/';
+
+    return {
+      id: tab.id,
+      kind: 'dir',
+      path,
+      title: tab.title || this.tabTitle(path),
+    };
+  }
+
+  private mergePersistedDirectoryTabs(): ReassemblyTab[] {
+    const persisted = this.workspaceService.getTabs(this.paneId)
+      .filter(tab => (tab.surfaceId ?? tab.kind ?? 'dir') === 'dir')
+      .map(tab => this.fromPersistedTab(tab));
+
+    const viewers = this.tabs.filter(tab => tab.kind === 'viewer');
+    return [...persisted, ...viewers];
   }
 
   private async load(
@@ -1376,6 +1477,14 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
 
       if (options.syncTab !== false) {
         this.syncActiveTab(this.path);
+      }
+
+      if (this.activeTabId && this.activeTab?.kind === 'dir') {
+        this.workspaceService.updateTabPath(
+          this.paneId,
+          this.activeTabId,
+          this.path,
+        );
       }
 
       this.pathHistory.addLocation(this.path, 'reassembly');

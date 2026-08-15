@@ -25,6 +25,7 @@ export const BC = {
   refresh:              'pane.nav.refresh',
   showKeyboardHelp:     'pane.nav.showKeyboardHelp',
   openSettings:         'pane.nav.openSettings',
+  openOperations:       'app.operations.open',
   cursorUp:             'pane.cursor.up',
   cursorDown:           'pane.cursor.down',
   cursorLeft:           'pane.cursor.left',
@@ -111,6 +112,7 @@ const BROWSER_COMMAND_DEFINITIONS: CommandDefinition[] = [
   CMD_DEF(BC.refresh,              'Refresh',                   NAV,  'Refresh current pane', 'refresh', ['reload']),
   CMD_DEF(BC.showKeyboardHelp,     'Show Keyboard Help',        NAV,  'Show keyboard shortcuts reference', 'shortcuts', ['keys']),
   CMD_DEF(BC.openSettings,         'Open Settings',             NAV,  'Open application settings', 'settings', undefined),
+  CMD_DEF(BC.openOperations,       'Open Operations Center',    TOOLS, 'Show active and recent file operations', 'operations', ['activity', 'jobs']),
   CMD_DEF(BC.cursorUp,             'Move Cursor Up',            NAV,  'Move cursor up one item', 'cursor.up', undefined),
   CMD_DEF(BC.cursorDown,           'Move Cursor Down',          NAV,  'Move cursor down one item', 'cursor.down', undefined),
   CMD_DEF(BC.cursorLeft,           'Move Cursor Left',          NAV,  'Move cursor left', 'cursor.left', undefined),
@@ -335,6 +337,7 @@ export interface FileBrowserCommandHandlers {
   refresh:              () => void;
   showKeyboardHelp:     () => void;
   openSettings:         () => void;
+  openOperations:       () => void;
   cursorUp:             () => void;
   cursorDown:           () => void;
   cursorLeft:           () => void;
@@ -411,6 +414,7 @@ export function createFileBrowserCommandDescriptors(
     [BC.refresh, handlers.refresh],
     [BC.showKeyboardHelp, handlers.showKeyboardHelp],
     [BC.openSettings, handlers.openSettings],
+    [BC.openOperations, handlers.openOperations],
     [BC.cursorUp, handlers.cursorUp],
     [BC.cursorDown, handlers.cursorDown],
     [BC.cursorLeft, handlers.cursorLeft],

@@ -331,6 +331,8 @@ func operationKind(t contracts.OperationType) string {
 		return "extract"
 	case contracts.OpSearch:
 		return "search"
+	case contracts.OpCalculate:
+		return "calculate"
 	default:
 		return "copy"
 	}

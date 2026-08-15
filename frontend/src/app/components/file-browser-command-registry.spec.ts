@@ -5,7 +5,7 @@ function handlers(): FileBrowserCommandHandlers {
   const fn = () => undefined;
   return {
     openCommandPalette: fn, openGlobalSearch: fn, showPathHistory: fn, quickPathJump: fn,
-    navigateUp: fn, refresh: fn, showKeyboardHelp: fn, openSettings: fn,
+    navigateUp: fn, refresh: fn, showKeyboardHelp: fn, openSettings: fn, openOperations: fn,
     cursorUp: fn, cursorDown: fn, cursorLeft: fn, cursorRight: fn, cursorHome: fn, cursorEnd: fn,
     cursorPageUp: fn, cursorPageDown: fn, newTab: fn, closeTab: fn, nextTab: fn, prevTab: fn,
     jumpToTab: vi.fn(), togglePinTab: fn, openItem: fn, quickView: fn, copyCursorPath: fn,

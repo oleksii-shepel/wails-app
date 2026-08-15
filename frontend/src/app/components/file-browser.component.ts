@@ -30,6 +30,8 @@ import { SplitDividerComponent } from './split-divider.component';
 import { StatusBarComponent } from './status-bar.component';
 import { OperationStatusBarComponent } from './operation-status-bar.component';
 import { OperationToastStackComponent } from './operation-stack.component';
+import { OperationCenterComponent } from './operation-center.component';
+import { OperationService } from '../services/operation.service';
 import { ArchiveService } from '../services/archive.service';
 import { KeybindingStorageService } from '../services/keybinding-storage.service';
 import { ElevationStatusPillComponent } from './elevation-status-pill.component';
@@ -67,6 +69,7 @@ import { PaneSyncReviewComponent, type PaneSyncPlan } from './pane-sync-review.c
     StatusBarComponent,
     OperationToastStackComponent,
     OperationStatusBarComponent,
+    OperationCenterComponent,
     ElevationStatusPillComponent,
     PaneComparisonBarComponent,
     PaneSyncReviewComponent
@@ -92,6 +95,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
   @ViewChild('leftPane') leftPane?: FilePaneComponent;
   @ViewChild('rightPane') rightPane?: FilePaneComponent;
   @ViewChild('toastStack') toastStack?: OperationToastStackComponent;
+  @ViewChild(OperationCenterComponent) operationCenter?: OperationCenterComponent;
 
   activeWorkspace: WorkspaceConfig | null = null;
   workspaceList: WorkspaceConfig[] = [];
@@ -141,6 +145,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
     public inputEngine: InputEngineService,
     public remoteConnectDialog: RemoteConnectDialogService,
     public appSettingsService: SettingsService,
+    public operationService: OperationService,
     private ngZone: NgZone,
     private cdr: ChangeDetectorRef,
     private windowStateService: WindowStateService,
@@ -777,6 +782,7 @@ export class FileBrowserComponent implements OnInit, OnDestroy {
       refresh:               () => this.getActivePane()?.browserCommands.navigation.refresh(),
       showKeyboardHelp:      () => this.keyboardHelp?.show(),
       openSettings:          () => this.appSettingsService.openSettings(),
+      openOperations:        () => this.operationCenter?.show(),
       openCommandPalette:    () => this.commandPalette?.show(),
       cursorUp:              () => this.getActivePane()?.shortcuts.selection.moveCursorUp(),
       cursorDown:            () => this.getActivePane()?.shortcuts.selection.moveCursorDown(),

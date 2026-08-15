@@ -60,6 +60,14 @@ export class OperationRegistryService {
       themeColor: '--vsc-info',
       cancellable: true,
       pausable: false
+    }],
+    ['calculate', {
+      kind: 'calculate',
+      title: 'Calculating',
+      icon: 'calculator',
+      themeColor: '--vsc-info',
+      cancellable: true,
+      pausable: false
     }]
   ]);
 

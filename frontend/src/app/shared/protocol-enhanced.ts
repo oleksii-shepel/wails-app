@@ -154,7 +154,7 @@ export interface FilterQuery {
 // Operation Types (from backend)
 // ============================================================================
 
-export type OperationKind = 'copy' | 'move' | 'delete' | 'archive' | 'extract' | 'search';
+export type OperationKind = 'copy' | 'move' | 'delete' | 'archive' | 'extract' | 'search' | 'calculate';
 export type OperationStatus = 'pending' | 'running' | 'paused' | 'completed' | 'error' | 'cancelled';
 
 export type ConflictResolution = 'skip' | 'overwrite' | 'rename' | 'cancel';

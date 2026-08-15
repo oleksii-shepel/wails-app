@@ -370,7 +370,7 @@ func TestOperationKindMapping(t *testing.T) {
 		{contracts.OpArchive, "archive"},
 		{contracts.OpExtract, "extract"},
 		{contracts.OpSearch, "search"},
-		{contracts.OpCalculate, "copy"}, // default fallback
+		{contracts.OpCalculate, "calculate"},
 	}
 	for _, tc := range tests {
 		if got := operationKind(tc.input); got != tc.expected {

@@ -10,7 +10,7 @@ import {
   shareReplay
 } from '@epikodelabs/streamix';
 import { EventsOn, EventsOff } from 'wailsjs/runtime';
-import { ResolveConflict } from 'wailsjs/go/app/App';
+import { CancelOperation, DismissOperation, GetActiveOperations, ResolveConflict } from 'wailsjs/go/app/App';
 import {
   OperationKind,
   OperationStatus,
@@ -54,6 +54,34 @@ export interface OperationState {
   isMinimized: boolean;
   isCollapsed: boolean;
   stackIndex: number;
+  /** Public source locations captured when the operation starts. */
+  sources: string[];
+  /** Public destination location when the operation has one. */
+  destination?: string;
+}
+
+export interface OperationHistoryEntry extends OperationState {
+  completedAt: number;
+}
+
+export function normalizeOperationKind(value: unknown): OperationKind {
+  const kind = String(value ?? '').trim().toLowerCase();
+  switch (kind) {
+    case 'copy': case 'move': case 'delete': case 'archive': case 'extract': case 'search': case 'calculate':
+      return kind as OperationKind;
+    default:
+      return 'copy';
+  }
+}
+
+export function normalizeOperationStatus(value: unknown): OperationStatus {
+  const status = String(value ?? '').trim().toLowerCase();
+  switch (status) {
+    case 'pending': case 'running': case 'paused': case 'completed': case 'error': case 'cancelled':
+      return status as OperationStatus;
+    default:
+      return 'running';
+  }
 }
 
 @Injectable({ providedIn: 'root' })
@@ -61,6 +89,8 @@ export class OperationService implements OnDestroy {
   // Core state streams
   private operationsMap = new Map<string, OperationState>();
   readonly operations$ = createBehaviorSubject<Map<string, OperationState>>(new Map<string, OperationState>());
+  readonly history$ = createBehaviorSubject<OperationHistoryEntry[]>([]);
+  private readonly HISTORY_LIMIT = 100;
   
   // Add conflicts stream
   private conflictsSubject = createSubject<ConflictEvent[]>();
@@ -122,6 +152,7 @@ export class OperationService implements OnDestroy {
     private registry: OperationRegistryService
   ) {
     this.setupWailsEvents();
+    void this.hydrateActiveOperations();
   }
 
   private setupWailsEvents(): void {
@@ -184,7 +215,9 @@ export class OperationService implements OnDestroy {
       },
       isMinimized: false,
       isCollapsed: false,
-      stackIndex: this.operationsMap.size
+      stackIndex: this.operationsMap.size,
+      sources: [...(event.sources ?? [])],
+      destination: event.destination || undefined
     };
 
     this.operationsMap.set(event.id, state);
@@ -242,6 +275,7 @@ export class OperationService implements OnDestroy {
     };
 
     this.operationsMap.set(event.id, updated);
+    this.recordHistory(updated);
     this.emitOperations();
 
     if (event.status === 'completed' || event.status === 'cancelled') {
@@ -437,7 +471,7 @@ export class OperationService implements OnDestroy {
 
   async cancel(id: string): Promise<void> {
     try {
-      const result = await (window as any).go?.app?.App?.CancelOperation(id);
+      const result = await CancelOperation(id);
       if (!result) {
         console.warn('Cancel operation returned false');
       }
@@ -453,6 +487,7 @@ export class OperationService implements OnDestroy {
     }
 
     this.operationsMap.delete(id);
+    void DismissOperation(id).catch(error => console.warn('Failed to dismiss backend operation:', error));
     this.emitOperations();
     this.reindexStack();
   }
@@ -472,6 +507,66 @@ export class OperationService implements OnDestroy {
     });
     this.emitOperations();
     this.reindexStack();
+  }
+
+
+  clearHistory(): void {
+    this.history$.next([]);
+  }
+
+  private recordHistory(operation: OperationState): void {
+    if (operation.status === 'running' || operation.status === 'pending' || operation.status === 'paused') return;
+    const entry: OperationHistoryEntry = {
+      ...operation,
+      sources: [...operation.sources],
+      metrics: { ...operation.metrics },
+      timing: { ...operation.timing },
+      completedAt: Date.now(),
+    };
+    const next = [entry, ...this.history$.value.filter((item: OperationHistoryEntry) => item.id !== entry.id)].slice(0, this.HISTORY_LIMIT);
+    this.history$.next(next);
+  }
+
+  private async hydrateActiveOperations(): Promise<void> {
+    try {
+      const backend = await GetActiveOperations();
+      for (const raw of backend ?? []) {
+        if (this.operationsMap.has(raw.id)) continue;
+        const kind = normalizeOperationKind(raw.type);
+        const status = normalizeOperationStatus(raw.status);
+        const state: OperationState = {
+          id: raw.id,
+          config: this.registry.get(kind),
+          status,
+          error: raw.error || undefined,
+          sources: raw.sourcePath ? [raw.sourcePath] : [],
+          destination: raw.destinationPath || undefined,
+          metrics: {
+            totalBytes: raw.totalBytes ?? 0,
+            processedBytes: raw.processedBytes ?? 0,
+            totalItems: raw.totalItems ?? 0,
+            processedItems: raw.processedItems ?? 0,
+            currentFile: raw.currentFile || undefined,
+            currentFileSize: raw.currentFileSize || undefined,
+          },
+          percentComplete: raw.percentComplete ?? 0,
+          timing: {
+            startedAt: raw.startTime ?? Date.now(),
+            elapsedMs: (raw.elapsedSeconds ?? 0) * 1000,
+            estimatedRemainingMs: (raw.etaSeconds ?? 0) * 1000,
+            speedBytesPerSecond: raw.speedBytesPerSec ?? 0,
+          },
+          isMinimized: false,
+          isCollapsed: false,
+          stackIndex: this.operationsMap.size,
+        };
+        this.operationsMap.set(state.id, state);
+      }
+      this.emitOperations();
+    } catch (error) {
+      // Startup hydration is best effort; live Wails events remain authoritative.
+      console.warn('Failed to hydrate active operations:', error);
+    }
   }
 
   private patchOperation(id: string, patch: Partial<OperationState>): void {

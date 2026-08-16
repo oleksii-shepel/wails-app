@@ -19,6 +19,11 @@ import {
   type LocationHistoryEntry,
 } from '../services/path-history.service';
 
+import {
+  rememberFocusedElement,
+  restoreFocusedElement,
+} from './reassembly-focus.utils';
+
 type HistoryMode = 'pane' | 'all' | 'frequent';
 
 const CONTEXT_ID = 'dialog.pathHistory';
@@ -127,6 +132,7 @@ export class ReassemblyPathHistoryComponent implements OnInit, OnDestroy {
   @Output() navigate=new EventEmitter<string>();
 
   visible=false;
+  private previousFocus: HTMLElement | null = null;
   filterText='';
   entries:LocationHistoryEntry[]=[];
   selectedIndex=0;
@@ -190,6 +196,7 @@ export class ReassemblyPathHistoryComponent implements OnInit, OnDestroy {
   }
 
   open(mode:HistoryMode='pane'):void{
+    this.previousFocus = rememberFocusedElement();
     this.entries=this.historyService.getAllHistory();
     this.mode=mode;
     this.filterText='';
@@ -203,6 +210,8 @@ export class ReassemblyPathHistoryComponent implements OnInit, OnDestroy {
     if(!this.visible)return;
     this.visible=false;
     this.input.deactivateContext(CONTEXT_ID);
+    restoreFocusedElement(this.previousFocus);
+    this.previousFocus = null;
     this.cdr.markForCheck();
   }
 

@@ -23,6 +23,11 @@ export interface ReassemblyPaletteCommand {
   isEnabled?: () => boolean;
 }
 
+import {
+  rememberFocusedElement,
+  restoreFocusedElement,
+} from './reassembly-focus.utils';
+
 const CONTEXT_ID = 'overlay.reassemblyCommandPalette';
 const OWNER_ID = 'overlay.reassemblyCommandPalette';
 
@@ -112,6 +117,7 @@ export class ReassemblyCommandPaletteComponent implements OnInit, OnDestroy {
   @Input() commands: readonly ReassemblyPaletteCommand[] = [];
 
   visible = false;
+  private previousFocus: HTMLElement | null = null;
   query = '';
   selectedIndex = 0;
 
@@ -163,6 +169,7 @@ export class ReassemblyCommandPaletteComponent implements OnInit, OnDestroy {
   }
 
   open(): void {
+    this.previousFocus = rememberFocusedElement();
     this.query = '';
     this.selectedIndex = 0;
     this.visible = true;
@@ -175,6 +182,8 @@ export class ReassemblyCommandPaletteComponent implements OnInit, OnDestroy {
     if (!this.visible) return;
     this.visible = false;
     this.input.deactivateContext(CONTEXT_ID);
+    restoreFocusedElement(this.previousFocus);
+    this.previousFocus = null;
     this.cdr.markForCheck();
   }
 

@@ -119,10 +119,16 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section
+      #paneRoot
       class="pane"
+      tabindex="-1"
+      role="region"
       [class.active-pane]="active"
       [attr.data-pane-active]="active ? 'true' : null"
       [attr.aria-label]="paneId === 'left' ? 'Left file pane' : 'Right file pane'"
+      [attr.aria-busy]="loading"
+      [attr.aria-describedby]="paneStatusId"
+      (focusin)="activateRequested.emit()"
       (mousedown)="activateRequested.emit()">
 
       <div class="tab-strip" role="tablist" [attr.aria-label]="paneId + ' pane tabs'">
@@ -242,8 +248,13 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
         </button>
       </header>
 
-      <div class="status-row">
-        <span *ngIf="loading">Loading…</span>
+      <div
+        class="status-row"
+        [id]="paneStatusId"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true">
+        <span *ngIf="loading">Loading {{ path || 'location' }}…</span>
         <span *ngIf="!loading && !error">{{ entries.length }} items</span>
         <span *ngIf="selectedPaths.size">{{ selectedPaths.size }} selected</span>
         <span *ngIf="showHidden" class="hidden-state">hidden visible</span>
@@ -314,17 +325,22 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
         (previous)="previousFilterMatch()">
       </app-reassembly-filter>
 
-      <div class="error" *ngIf="error">
+      <div class="error" *ngIf="error" role="alert" aria-live="assertive">
         <strong>Directory could not be loaded.</strong>
         <span>{{ error }}</span>
-        <button type="button" (click)="refresh()">Retry</button>
+        <div class="error-actions">
+          <button type="button" (click)="refresh()">Retry</button>
+          <button type="button" (click)="navigateUp()" [disabled]="atRoot">Parent folder</button>
+        </div>
       </div>
 
       <div
         #treeViewport
         class="tree-view"
         *ngIf="!error && viewMode === 'tree'"
+        tabindex="0"
         role="tree"
+        [attr.aria-label]="'Tree view of ' + (path || 'location')"
         [attr.aria-busy]="loading"
         (scroll)="onContentScroll($event)">
         <button
@@ -336,6 +352,9 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
           [class.cursor]="cursorPath === row.entry.path"
           [attr.aria-level]="row.depth + 1"
           [attr.aria-expanded]="row.expandable ? row.expanded : null"
+          [attr.aria-selected]="selectedPaths.has(row.entry.path)"
+          [attr.aria-current]="cursorPath === row.entry.path ? 'true' : null"
+          [attr.aria-label]="entryAriaLabel(row.entry)"
           [style.padding-left.px]="8 + row.depth * 18"
           (click)="selectFromPointer(row.entry, $event)"
           (dblclick)="onTreeDoubleClick(row)"
@@ -356,8 +375,9 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
           </span>
         </button>
 
-        <div class="empty" *ngIf="!loading && treeRows.length === 0">
-          This directory is empty.
+        <div class="empty" *ngIf="!loading && treeRows.length === 0" role="status">
+          <strong>This directory is empty.</strong>
+          <span *ngIf="canCreate && !isInArchive">Use F7 to create a folder or Command Palette for New File.</span>
         </div>
       </div>
 
@@ -369,7 +389,9 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
         #listViewport
         class="list"
         *ngIf="!error && viewMode !== 'tree'"
+        tabindex="0"
         role="listbox"
+        [attr.aria-label]="'Files in ' + (path || 'location')"
         [class.view-list]="viewMode === 'list'"
         [class.view-grid]="viewMode === 'grid'"
         [class.view-details]="viewMode === 'details'"
@@ -389,6 +411,8 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
           draggable="true"
           [attr.data-file-entry]="entry.path"
           [attr.aria-selected]="selectedPaths.has(entry.path)"
+          [attr.aria-current]="entry.path === cursorPath ? 'true' : null"
+          [attr.aria-label]="entryAriaLabel(entry)"
           [class.cursor]="entry.path === cursorPath"
           [class.selected]="selectedPaths.has(entry.path)"
           (click)="selectFromPointer(entry, $event)"
@@ -417,8 +441,10 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
           <span class="modified">{{ formatModified(entry.modified) }}</span>
         </button>
 
-        <div class="empty" *ngIf="!loading && visibleEntries.length === 0">
-          {{ filterText ? 'No matching items.' : 'This directory is empty.' }}
+        <div class="empty" *ngIf="!loading && visibleEntries.length === 0" role="status">
+          <strong>{{ filterText ? 'No matching items.' : 'This directory is empty.' }}</strong>
+          <span *ngIf="filterText">Clear the filter to see all items.</span>
+          <span *ngIf="!filterText && canCreate && !isInArchive">Use F7 to create a folder or Command Palette for New File.</span>
         </div>
       </div>
 
@@ -1138,6 +1164,13 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
         display: none;
       }
     }
+    .list:focus-visible,.tree-view:focus-visible,.pane:focus-visible{
+      outline:1px solid var(--vsc-focus-border,#007fd4);
+      outline-offset:-1px;
+    }
+    .empty{display:grid;gap:4px;place-items:center;align-content:center;min-height:96px;text-align:center}
+    .empty strong{font-weight:500;color:var(--vsc-foreground,#ccc)}
+    .error-actions{display:flex;gap:6px;margin-top:7px}
   `],
 })
 export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
@@ -1146,6 +1179,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   @ViewChild('addressBar') addressBar?: ReassemblyAddressBarComponent;
   @ViewChild('viewerHost') viewerHost?: ViewerHostSurfaceComponent;
   @ViewChild('filterWidget') filterWidget?: ReassemblyFilterComponent;
+  @ViewChild('paneRoot') paneRoot?: ElementRef<HTMLElement>;
   @ViewChild('listViewport') listViewport?: ElementRef<HTMLElement>;
   @ViewChild('treeViewport') treeViewport?: ElementRef<HTMLElement>;
 
@@ -1191,6 +1225,39 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   private workspaceTabsReady = false;
   private interactionGeneration = 0;
   private scrollPersistTimer: ReturnType<typeof setTimeout> | null = null;
+
+  get paneStatusId(): string {
+    return `reassembly-${this.paneId}-status`;
+  }
+
+  focusContent(): void {
+    const target =
+      this.activeTab?.kind === 'viewer'
+        ? this.paneRoot?.nativeElement
+        : this.viewMode === 'tree'
+          ? this.treeViewport?.nativeElement
+          : this.listViewport?.nativeElement;
+
+    target?.focus({ preventScroll: true });
+  }
+
+  entryAriaLabel(entry: FileInfo): string {
+    const kind =
+      entry.type === FileType.DIRECTORY
+        ? 'folder'
+        : entry.type === FileType.ARCHIVE
+          ? 'archive'
+          : entry.type === FileType.SYMLINK
+            ? 'symbolic link'
+            : 'file';
+
+    const size =
+      entry.type === FileType.DIRECTORY
+        ? ''
+        : `, ${this.formatSize(entry.size)}`;
+
+    return `${entry.name}, ${kind}${size}`;
+  }
 
   get activeTab(): ReassemblyTab | null {
     if (!this.activeTabId) return null;

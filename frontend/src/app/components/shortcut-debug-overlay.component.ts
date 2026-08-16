@@ -16,7 +16,12 @@ interface PendingChordLike {
   imports: [CommonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <aside *ngIf="visible" class="overlay" aria-label="Keyboard shortcuts">
+    <aside
+      *ngIf="visible"
+      class="overlay"
+      role="dialog"
+      aria-modal="false"
+      aria-label="Keyboard shortcuts">
       <header>
         <strong>Keyboard shortcuts</strong>
         <span>F1 to close</span>
@@ -127,6 +132,8 @@ interface PendingChordLike {
         <div><span>Pane compare</span><span>refresh · review sync · send differences to basket</span></div>
         <div><kbd>Ctrl+Shift+R</kbd><span>batch rename</span></div>
         <div><kbd>Ctrl+Tab / Ctrl+Shift+Tab</kbd><span>next / previous tab</span></div>
+        <div><kbd>Alt+Shift+← / →</kbd><span>resize pane split</span></div>
+        <div><kbd>Alt+Shift+0</kbd><span>reset pane split</span></div>
         <div><kbd>Ctrl+Shift+P</kbd><span>command palette</span></div>
         <div><kbd>Ctrl+Alt+P</kbd><span>pin / unpin tab</span></div>
         <div><kbd>Ctrl+1…9</kbd><span>jump to tab</span></div>
@@ -152,11 +159,15 @@ interface PendingChordLike {
       right: 10px;
       z-index: 10000;
       pointer-events: none;
+      max-height: calc(100vh - 20px);
     }
 
     .overlay {
       box-sizing: border-box;
-      width: min(430px, calc(100vw - 20px));
+      width: min(520px, calc(100vw - 20px));
+      max-height: calc(100vh - 20px);
+      overflow: auto;
+      overscroll-behavior: contain;
       padding: 10px 12px;
       border: 1px solid color-mix(
         in srgb,
@@ -246,6 +257,12 @@ interface PendingChordLike {
 
     footer strong {
       color: var(--vsc-foreground, #cccccc);
+    }
+    @media (max-width:768px){
+      :host{top:6px;right:6px;left:6px;max-height:calc(100vh - 12px)}
+      .overlay{width:100%;max-height:calc(100vh - 12px)}
+      .bindings>div{grid-template-columns:minmax(110px,.8fr) minmax(0,1fr)}
+      .state{grid-template-columns:48px minmax(0,1fr)}
     }
   `],
 })

@@ -17,6 +17,11 @@ import { InputEngineService } from '../services/input-engine.service';
 import type { InputBindingDefinition } from '../services/input-system.types';
 import { FileInfo, FileType } from '../shared/protocol';
 
+import {
+  rememberFocusedElement,
+  restoreFocusedElement,
+} from './reassembly-focus.utils';
+
 const CONTEXT_ID = 'overlay.reassemblyGlobalSearch';
 const OWNER_ID = 'overlay.reassemblyGlobalSearch';
 
@@ -114,6 +119,7 @@ export class ReassemblyGlobalSearchComponent implements OnInit, OnDestroy {
   @Output() openContainingFolder = new EventEmitter<FileInfo>();
 
   visible = false;
+  private previousFocus: HTMLElement | null = null;
   rootPath = '';
   queryText = '';
   recursive = true;
@@ -163,6 +169,7 @@ export class ReassemblyGlobalSearchComponent implements OnInit, OnDestroy {
   }
 
   open(rootPath: string): void {
+    this.previousFocus = rememberFocusedElement();
     this.rootPath = rootPath;
     this.queryText = '';
     this.results = [];
@@ -183,6 +190,8 @@ export class ReassemblyGlobalSearchComponent implements OnInit, OnDestroy {
       clearTimeout(this.searchTimer);
       this.searchTimer = null;
     }
+    restoreFocusedElement(this.previousFocus);
+    this.previousFocus = null;
     this.cdr.markForCheck();
   }
 

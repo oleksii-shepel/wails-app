@@ -10,6 +10,11 @@ import { PinnedLocationService } from '../services/pinned-location.service';
 import type { PinnedLocation } from './address-bar.types';
 import type { SpecialFolder } from '../shared/protocol';
 
+import {
+  rememberFocusedElement,
+  restoreFocusedElement,
+} from './reassembly-focus.utils';
+
 interface QuickItem {
   id: string;
   label: string;
@@ -135,6 +140,7 @@ export class ReassemblyQuickAccessComponent implements OnInit, OnDestroy {
   @Output() navigate = new EventEmitter<string>();
 
   visible = false;
+  private previousFocus: HTMLElement | null = null;
   filterText = '';
   sections: QuickSection[] = [];
   sectionIndex = 0;
@@ -195,6 +201,7 @@ export class ReassemblyQuickAccessComponent implements OnInit, OnDestroy {
   }
 
   async open(sectionId?: string): Promise<void> {
+    this.previousFocus = rememberFocusedElement();
     await this.reload();
 
     this.filterText = '';

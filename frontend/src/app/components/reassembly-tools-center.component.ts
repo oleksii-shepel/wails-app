@@ -33,6 +33,11 @@ import type {
   DiskUsageResult,
 } from '../shared/protocol-enhanced';
 
+import {
+  rememberFocusedElement,
+  restoreFocusedElement,
+} from './reassembly-focus.utils';
+
 type ToolPage = 'operations' | 'disk' | 'duplicates';
 type OperationFilter = 'all' | 'active' | 'completed' | 'failed';
 type DiskSort = 'size' | 'files' | 'name';
@@ -298,6 +303,7 @@ export class ReassemblyToolsCenterComponent implements OnInit, OnDestroy {
   @Output() openBasketRequested = new EventEmitter<void>();
 
   visible = false;
+  private previousFocus: HTMLElement | null = null;
   page: ToolPage = 'operations';
   rootPath = '';
 
@@ -433,6 +439,7 @@ export class ReassemblyToolsCenterComponent implements OnInit, OnDestroy {
   }
 
   open(page: ToolPage, rootPath: string): void {
+    this.previousFocus = rememberFocusedElement();
     const rootChanged = this.rootPath !== rootPath;
     this.page = page;
     this.rootPath = rootPath;
@@ -460,6 +467,8 @@ export class ReassemblyToolsCenterComponent implements OnInit, OnDestroy {
     if (!this.visible) return;
     this.visible = false;
     this.input.deactivateContext(CONTEXT_ID);
+    restoreFocusedElement(this.previousFocus);
+    this.previousFocus = null;
     this.cdr.markForCheck();
   }
 

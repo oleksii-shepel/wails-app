@@ -59,6 +59,9 @@ const COMMAND = {
   toggleShortcutHelp: 'reassembly.help.shortcuts',
   openCommandPalette: 'reassembly.navigation.commandPalette',
   switchPane: 'reassembly.manager.switchPane',
+  widenLeftPane: 'reassembly.layout.widenLeft',
+  widenRightPane: 'reassembly.layout.widenRight',
+  resetPaneSplit: 'reassembly.layout.resetSplit',
   cursorUp: 'reassembly.manager.cursorUp',
   cursorDown: 'reassembly.manager.cursorDown',
   open: 'reassembly.manager.open',
@@ -165,6 +168,9 @@ const COMMAND = {
 } as const;
 
 const BINDINGS: readonly InputBindingDefinition[] = [
+  { id:'reassembly.layout.widenLeft.altShiftLeft', commandId:COMMAND.widenLeftPane, contextId:CONTEXT_ID, source:'default', description:'Widen left pane', category:'Layout', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'arrowleft', modifiers:['alt','shift']}]}}},
+  { id:'reassembly.layout.widenRight.altShiftRight', commandId:COMMAND.widenRightPane, contextId:CONTEXT_ID, source:'default', description:'Widen right pane', category:'Layout', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'arrowright', modifiers:['alt','shift']}]}}},
+  { id:'reassembly.layout.resetSplit.altShift0', commandId:COMMAND.resetPaneSplit, contextId:CONTEXT_ID, source:'default', description:'Reset pane split', category:'Layout', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'0', modifiers:['alt','shift']}]}}},
   { id:'reassembly.help.shortcuts.f1', commandId:COMMAND.toggleShortcutHelp, contextId:CONTEXT_ID, source:'default', description:'Show keyboard shortcuts', category:'Help', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'f1'}]}}},
   { id:'reassembly.files.deletePermanent.shiftDelete', commandId:COMMAND.deletePermanent, contextId:CONTEXT_ID, source:'default', description:'Delete permanently', category:'File Operations', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'delete', modifiers:['shift']}]}}},
   { id:'reassembly.files.properties.altEnter', commandId:COMMAND.properties, contextId:CONTEXT_ID, source:'default', description:'Properties', category:'File Operations', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'enter', modifiers:['alt']}]}}},
@@ -268,7 +274,13 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     <section
       #managerRoot
       class="manager"
+      role="application"
+      aria-label="Dual-pane file manager"
+      aria-describedby="reassembly-manager-status"
       [style.grid-template-columns]="layoutColumns">
+      <div id="reassembly-manager-status" class="sr-only" role="status" aria-live="polite">
+        Active pane {{ activePaneId }}. Left pane {{ leftPanePercent | number:'1.0-0' }} percent.
+      </div>
       <app-pane-comparison-bar
         class="comparison-surface"
         [visible]="comparisonVisible"
@@ -317,10 +329,13 @@ const BINDINGS: readonly InputBindingDefinition[] = [
       <div
         class="divider"
         role="separator"
+        tabindex="0"
+        aria-label="Resize file panes"
         aria-orientation="vertical"
         [attr.aria-valuenow]="leftPanePercent | number:'1.0-0'"
         [attr.aria-valuemin]="MIN_PANE_PERCENT"
         [attr.aria-valuemax]="MAX_PANE_PERCENT"
+        title="Drag to resize · Alt+Shift+Left/Right · Alt+Shift+0 reset"
         (pointerdown)="beginResize($event)"
         (pointermove)="resizeFromPointer($event)"
         (pointerup)="endResize($event)"
@@ -361,7 +376,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         #toolsCenter
         (changed)="refreshBothPanes()"
         (navigateTo)="navigateFromTools($event)"
-        (openBasketRequested)="selectionBasket?.open()">
+        (openBasketRequested)="selectionBasket?.show()">
       </app-reassembly-tools-center>
 
       <app-selection-basket
@@ -405,6 +420,12 @@ const BINDINGS: readonly InputBindingDefinition[] = [
       height: 100%;
       min-width: 0;
       min-height: 0;
+      container-type: inline-size;
+    }
+
+    .sr-only{
+      position:absolute;width:1px;height:1px;padding:0;margin:-1px;
+      overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;
     }
 
     .manager {
@@ -487,6 +508,14 @@ const BINDINGS: readonly InputBindingDefinition[] = [
       .divider-grip {
         display: none;
       }
+    }
+    .divider:focus-visible{
+      outline:2px solid var(--vsc-focus-border,#007fd4);
+      outline-offset:-2px;
+    }
+    @container (max-width:760px){
+      .divider{width:7px}
+      .pane-slot{overflow:hidden}
     }
   `],
 })
@@ -583,12 +612,18 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     }
   }
 
-  activate(paneId: PaneId): void {
+  activate(paneId: PaneId, focusContent = false): void {
     this.closeContextMenu();
-    if (this.activePaneId === paneId) return;
-    this.activePaneId = paneId;
-    this.workspaceService.setActivePaneId(paneId);
-    this.cdr.markForCheck();
+
+    if (this.activePaneId !== paneId) {
+      this.activePaneId = paneId;
+      this.workspaceService.setActivePaneId(paneId);
+      this.cdr.markForCheck();
+    }
+
+    if (focusContent) {
+      queueMicrotask(() => this.activePane?.focusContent());
+    }
   }
 
   toggleShortcutHelp(): void {
@@ -597,7 +632,18 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
   }
 
   switchPane(): void {
-    this.activate(this.activePaneId === 'left' ? 'right' : 'left');
+    this.activate(
+      this.activePaneId === 'left' ? 'right' : 'left',
+      true,
+    );
+  }
+
+  adjustSplit(delta: number): void {
+    this.leftPanePercent = this.clampPanePercent(
+      this.leftPanePercent + delta,
+    );
+    this.workspaceService.setSplitRatio(this.leftPanePercent);
+    this.cdr.markForCheck();
   }
 
   openGlobalSearch(): void {
@@ -1200,7 +1246,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       Array.from(paths),
       `comparison:${side}`,
     );
-    this.selectionBasket?.open();
+    this.selectionBasket?.show();
     this.cdr.markForCheck();
   }
 
@@ -1938,6 +1984,9 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     descriptor(COMMAND.toggleShortcutHelp, 'Keyboard Shortcuts', 'Help', () => this.toggleShortcutHelp());
     descriptor(COMMAND.openCommandPalette, 'Command Palette', 'Navigation', () => this.commandPalette?.open());
     descriptor(COMMAND.switchPane, 'Switch Pane', 'Pane Control', () => this.switchPane());
+    descriptor(COMMAND.widenLeftPane, 'Widen Left Pane', 'Layout', () => this.adjustSplit(5));
+    descriptor(COMMAND.widenRightPane, 'Widen Right Pane', 'Layout', () => this.adjustSplit(-5));
+    descriptor(COMMAND.resetPaneSplit, 'Reset Pane Split', 'Layout', () => this.resetSplit());
     descriptor(COMMAND.cursorUp, 'Move Cursor Up', 'Navigation', () => this.activePane?.moveCursor(-1));
     descriptor(COMMAND.cursorDown, 'Move Cursor Down', 'Navigation', () => this.activePane?.moveCursor(1));
     descriptor(COMMAND.open, 'Open Selected Item', 'Navigation', () => {

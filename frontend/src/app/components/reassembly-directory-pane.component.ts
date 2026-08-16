@@ -17,6 +17,7 @@ import { ApiService } from '../services/api.service';
 import { PathHistoryService } from '../services/path-history.service';
 import { WorkspaceService } from '../services/workspace.service';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
+import { FileClipboardService } from '../services/file-clipboard.service';
 import {
   ArchiveService,
   type ArchiveFrame,
@@ -1159,7 +1160,6 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   readonly treeChildren = new Map<string, FileInfo[]>();
   readonly treeLoadingPaths = new Set<string>();
   lastAction = 'startup';
-  clipboard: { operation: 'copy' | 'cut'; paths: string[] } | null = null;
 
   tabs: ReassemblyTab[] = [];
   activeTabId: string | null = null;
@@ -1281,6 +1281,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     private readonly workspaceService: WorkspaceService,
     private readonly confirmDialog: ConfirmDialogService,
     private readonly archiveService: ArchiveService,
+    private readonly fileClipboard: FileClipboardService,
     private readonly cdr: ChangeDetectorRef,
   ) {}
 
@@ -1312,6 +1313,10 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
 
     append(this.visibleEntries, 0);
     return rows;
+  }
+
+  get clipboard() {
+    return this.fileClipboard.payload;
   }
 
   get selectedEntries(): FileInfo[] {
@@ -2651,28 +2656,65 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
 
   copySelected(): void {
     if (!this.hasSelection) return;
-    this.clipboard = {
+
+    this.fileClipboard.set({
       operation: 'copy',
       paths: Array.from(this.selectedPaths),
-    };
-    this.lastAction = `copy ${this.clipboard.paths.length}`;
+      sourcePaneId: this.paneId,
+      archiveFrame: this.currentArchiveFrame
+        ? {
+            ...this.currentArchiveFrame,
+            nestedChain: [...this.currentArchiveFrame.nestedChain],
+          }
+        : null,
+    });
+
+    this.lastAction = `copy ${this.selectedPaths.size}`;
     this.cdr.markForCheck();
   }
 
   cutSelected(): void {
     if (this.isInArchive) {
-      this.lastAction = 'use F6 for archive move/extract';
+      this.lastAction = 'archive entries: use F6 or Shift+drag to move';
       this.cdr.markForCheck();
       return;
     }
 
     if (!this.canCut) return;
-    this.clipboard = {
+
+    this.fileClipboard.set({
       operation: 'cut',
       paths: Array.from(this.selectedPaths),
-    };
-    this.lastAction = `cut ${this.clipboard.paths.length}`;
+      sourcePaneId: this.paneId,
+      archiveFrame: null,
+    });
+
+    this.lastAction = `cut ${this.selectedPaths.size}`;
     this.cdr.markForCheck();
+  }
+
+  async newFile(): Promise<void> {
+    if (!this.canCreate || this.isInArchive) return;
+
+    const name = await this.confirmDialog.prompt({
+      title: 'New File',
+      message: 'Enter a name for the new empty file.',
+      confirmText: 'Create',
+      defaultValue: 'New File.txt',
+      historyKey: 'reassembly.newFile',
+    });
+    const cleanName = this.cleanLeafName(name);
+    if (!cleanName) return;
+
+    try {
+      const destination = await this.api.joinPaths([this.path, cleanName]);
+      await this.api.writeFile(destination, '', 'utf8');
+      this.lastAction = `new file: ${cleanName}`;
+      await this.refresh();
+      this.selectPath(destination);
+    } catch (error) {
+      await this.showOperationError('Create File', error);
+    }
   }
 
   async newFolder(): Promise<void> {
@@ -2735,7 +2777,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     }
   }
 
-  async deleteSelected(): Promise<void> {
+  async deleteSelected(forcePermanent = false): Promise<void> {
     if (!this.canDelete) return;
 
     const entries = this.selectedEntries;
@@ -2746,7 +2788,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       return;
     }
 
-    const useTrash = this.sourceCapabilities.trash;
+    const useTrash = this.sourceCapabilities.trash && !forcePermanent;
     const confirmed = await this.confirmDialog.confirm({
       title: useTrash ? 'Move to Trash' : 'Delete',
       message: entries.length === 1
@@ -2775,6 +2817,48 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       }
     } catch (error) {
       await this.showOperationError('Delete', error);
+    }
+  }
+
+  async showSelectedProperties(): Promise<void> {
+    const entry = this.cursorEntry ?? this.selectedEntries[0];
+    if (!entry) return;
+
+    try {
+      const info = this.isInArchive
+        ? entry
+        : await this.api.getFileInfo(entry.path);
+
+      const modified = Number(info.modified);
+      const modifiedText =
+        Number.isFinite(modified) && modified > 0
+          ? new Date(
+              modified * (modified < 10_000_000_000 ? 1000 : 1),
+            ).toLocaleString()
+          : '—';
+
+      const type =
+        info.type === FileType.DIRECTORY
+          ? 'Directory'
+          : info.type === FileType.ARCHIVE
+            ? 'Archive'
+            : info.type === FileType.SYMLINK
+              ? 'Symbolic link'
+              : 'File';
+
+      await this.confirmDialog.alert({
+        title: `Properties — ${info.name}`,
+        message: [
+          `Name: ${info.name}`,
+          `Type: ${type}`,
+          `Path: ${info.path}`,
+          `Size: ${this.formatSize(Number(info.size) || 0) || '—'}`,
+          `Modified: ${modifiedText}`,
+          this.isInArchive ? 'Location: inside archive' : '',
+        ].filter(Boolean).join('\n'),
+      });
+    } catch (error) {
+      await this.showOperationError('Properties', error);
     }
   }
 
@@ -3189,23 +3273,64 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   async paste(): Promise<void> {
-    const clipboard = this.clipboard;
+    const clipboard = this.fileClipboard.payload;
     if (!clipboard || !this.canPaste) return;
 
     try {
-      const items = await Promise.all(clipboard.paths.map(async source => ({
-        source,
-        destination: await this.api.joinPaths([this.path, this.leafName(source)]),
-      })));
+      if (clipboard.archiveFrame) {
+        if (clipboard.operation === 'cut') {
+          await this.confirmDialog.alert({
+            title: 'Archive Clipboard',
+            message:
+              'Cut is not used for archive entries. Use F6 or Shift+drag to extract and remove entries.',
+          });
+          return;
+        }
 
-      const result = clipboard.operation === 'copy'
-        ? await this.api.batchCopy(items, true)
-        : await this.api.batchMove(items, true);
+        const result = await this.archiveService.copy(
+          clipboard.archiveFrame,
+          clipboard.paths,
+          this.path,
+        );
 
-      this.lastAction = `${clipboard.operation === 'copy' ? 'paste copy' : 'paste move'}: ${result.succeeded}/${result.total}`;
+        this.lastAction =
+          `paste archive copy: ${result.succeeded}/${result.total}`;
+
+        await this.refresh();
+
+        if (result.failed > 0) {
+          await this.confirmDialog.alert({
+            title: 'Paste Completed with Errors',
+            message:
+              `${result.failed} archive entr${
+                result.failed === 1 ? 'y' : 'ies'
+              } could not be extracted.`,
+          });
+        }
+        return;
+      }
+
+      const items = await Promise.all(
+        clipboard.paths.map(async source => ({
+          source,
+          destination: await this.api.joinPaths([
+            this.path,
+            this.leafName(source),
+          ]),
+        })),
+      );
+
+      const result =
+        clipboard.operation === 'copy'
+          ? await this.api.batchCopy(items, true)
+          : await this.api.batchMove(items, true);
+
+      this.lastAction =
+        `${clipboard.operation === 'copy' ? 'paste copy' : 'paste move'}: ` +
+        `${result.succeeded}/${result.total}`;
 
       if (clipboard.operation === 'cut' && result.failed === 0) {
-        this.clipboard = null;
+        this.fileClipboard.clear();
       }
 
       await this.refresh();
@@ -3213,7 +3338,10 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       if (result.failed > 0) {
         await this.confirmDialog.alert({
           title: 'Paste Completed with Errors',
-          message: `${result.failed} item${result.failed === 1 ? '' : 's'} could not be pasted.`,
+          message:
+            `${result.failed} item${
+              result.failed === 1 ? '' : 's'
+            } could not be pasted.`,
         });
       }
     } catch (error) {

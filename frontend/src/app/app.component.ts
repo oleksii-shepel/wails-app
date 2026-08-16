@@ -22,6 +22,7 @@ import { RemoteConnectDialogComponent } from './components/remote-connect-dialog
       <app-reassembly-dual-pane #manager></app-reassembly-dual-pane>
 
       <app-shortcut-debug-overlay
+        [visible]="manager.shortcutHelpVisible"
         [path]="manager.activePane?.path ?? ''"
         [cursorName]="manager.activePane?.cursorEntry?.name ?? null"
         [selectedCount]="manager.activePane?.selectedPaths?.size ?? 0"

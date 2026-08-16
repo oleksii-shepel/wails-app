@@ -16,10 +16,10 @@ interface PendingChordLike {
   imports: [CommonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <aside class="overlay" aria-label="Shortcut debugger">
+    <aside *ngIf="visible" class="overlay" aria-label="Keyboard shortcuts">
       <header>
-        <strong>Shortcut debugger</strong>
-        <span>visible during reassembly</span>
+        <strong>Keyboard shortcuts</strong>
+        <span>F1 to close</span>
       </header>
 
       <div class="state">
@@ -65,6 +65,7 @@ interface PendingChordLike {
       </div>
 
       <div class="bindings">
+        <div><kbd>F1</kbd><span>show / hide keyboard shortcuts</span></div>
         <div><kbd>Up</kbd><kbd>Down</kbd><span>cursor</span></div>
         <div><kbd>Enter</kbd><span>open folder</span></div>
         <div><kbd>Backspace</kbd><span>parent</span></div>
@@ -242,6 +243,7 @@ interface PendingChordLike {
   `],
 })
 export class ShortcutDebugOverlayComponent {
+  @Input() visible = false;
   @Input() path = '';
   @Input() cursorName: string | null = null;
   @Input() selectedCount = 0;

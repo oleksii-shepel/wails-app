@@ -56,6 +56,7 @@ const CONTEXT_ID = 'reassembly.manager';
 const OWNER_ID = 'reassembly.manager';
 
 const COMMAND = {
+  toggleShortcutHelp: 'reassembly.help.shortcuts',
   openCommandPalette: 'reassembly.navigation.commandPalette',
   switchPane: 'reassembly.manager.switchPane',
   cursorUp: 'reassembly.manager.cursorUp',
@@ -69,7 +70,10 @@ const COMMAND = {
   clearSelection: 'reassembly.manager.clearSelection',
   refresh: 'reassembly.manager.refresh',
   rename: 'reassembly.manager.rename',
+  newFile: 'reassembly.manager.newFile',
   newFolder: 'reassembly.manager.newFolder',
+  properties: 'reassembly.manager.properties',
+  deletePermanent: 'reassembly.manager.deletePermanent',
   deleteSelected: 'reassembly.manager.delete',
   copy: 'reassembly.manager.copy',
   cut: 'reassembly.manager.cut',
@@ -157,6 +161,9 @@ const COMMAND = {
 } as const;
 
 const BINDINGS: readonly InputBindingDefinition[] = [
+  { id:'reassembly.help.shortcuts.f1', commandId:COMMAND.toggleShortcutHelp, contextId:CONTEXT_ID, source:'default', description:'Show keyboard shortcuts', category:'Help', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'f1'}]}}},
+  { id:'reassembly.files.deletePermanent.shiftDelete', commandId:COMMAND.deletePermanent, contextId:CONTEXT_ID, source:'default', description:'Delete permanently', category:'File Operations', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'delete', modifiers:['shift']}]}}},
+  { id:'reassembly.files.properties.altEnter', commandId:COMMAND.properties, contextId:CONTEXT_ID, source:'default', description:'Properties', category:'File Operations', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'enter', modifiers:['alt']}]}}},
   { id:'reassembly.navigation.commandPalette.ctrlShiftP', commandId:COMMAND.openCommandPalette, contextId:CONTEXT_ID, source:'default', description:'Open command palette', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'p', modifiers:['ctrl','shift']}]}}},
   { id:'reassembly.manager.switchPane.tab', commandId:COMMAND.switchPane, contextId:CONTEXT_ID, source:'default', description:'Switch active pane', category:'Pane Control', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'tab'}]}}},
   { id:'reassembly.manager.cursorUp.arrowUp', commandId:COMMAND.cursorUp, contextId:CONTEXT_ID, source:'default', description:'Move cursor up', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'arrowup'}]}}},
@@ -495,6 +502,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
   leftPanePercent = 50;
   resizing = false;
   showHidden = false;
+  shortcutHelpVisible = false;
 
   commandPaletteCommands: ReassemblyPaletteCommand[] = [];
 
@@ -565,6 +573,11 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     if (this.activePaneId === paneId) return;
     this.activePaneId = paneId;
     this.workspaceService.setActivePaneId(paneId);
+    this.cdr.markForCheck();
+  }
+
+  toggleShortcutHelp(): void {
+    this.shortcutHelpVisible = !this.shortcutHelpVisible;
     this.cdr.markForCheck();
   }
 
@@ -1351,6 +1364,36 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     }
 
     try {
+      if (sourcePane?.isInArchive) {
+        const result = await sourcePane.transferArchiveSelectionTo(
+          targetPath,
+          operation,
+        );
+        if (!result) return;
+
+        this.lastDrop =
+          `archive ${operation} drop: ${result.succeeded}/${result.total}`;
+        this.lastTransfer = this.lastDrop;
+        targetPane.lastAction = this.lastDrop;
+
+        await targetPane.refresh();
+
+        if (operation === 'move' && result.sourceRemoved) {
+          await sourcePane.refresh();
+        }
+
+        if (result.failed > 0) {
+          await this.confirmDialog.alert({
+            title: 'Archive Drop Completed with Errors',
+            message:
+              `${result.failed} archive entr${
+                result.failed === 1 ? 'y' : 'ies'
+              } could not be transferred.`,
+          });
+        }
+        return;
+      }
+
       const items = await Promise.all(
         sourcePaths.map(async sourcePath => ({
           source: sourcePath,
@@ -1446,6 +1489,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       this.menuCommand(COMMAND.openWithExternal, 'Open externally', 'Ctrl+Shift+O'),
       { separator: true },
       this.menuCommand(COMMAND.rename, 'Rename', 'F2'),
+      this.menuCommand(COMMAND.properties, 'Properties', 'Alt+Enter'),
       this.menuCommand(COMMAND.batchRename, 'Batch rename…', 'Ctrl+Shift+R'),
       this.menuCommand(COMMAND.copy, 'Copy', 'Ctrl+C'),
       this.menuCommand(COMMAND.cut, 'Cut', 'Ctrl+X'),
@@ -1458,6 +1502,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       this.menuCommand(COMMAND.extractArchiveSelection, 'Extract to folder…'),
       { separator: true },
       this.menuCommand(COMMAND.deleteSelected, 'Delete', 'Delete'),
+      this.menuCommand(COMMAND.deletePermanent, 'Delete permanently', 'Shift+Delete'),
     ];
 
     this.contextMenu = {
@@ -1501,6 +1546,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
         this.menuCommand(COMMAND.moveTabToOtherPane, 'Move current tab to other pane'),
         this.menuCommand(COMMAND.moveTabLeft, 'Move tab left'),
         this.menuCommand(COMMAND.moveTabRight, 'Move tab right'),
+        this.menuCommand(COMMAND.newFile, 'New File'),
         this.menuCommand(COMMAND.refresh, 'Refresh', 'Ctrl+R'),
       ],
     };
@@ -1789,6 +1835,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       });
     };
 
+    descriptor(COMMAND.toggleShortcutHelp, 'Keyboard Shortcuts', 'Help', () => this.toggleShortcutHelp());
     descriptor(COMMAND.openCommandPalette, 'Command Palette', 'Navigation', () => this.commandPalette?.open());
     descriptor(COMMAND.switchPane, 'Switch Pane', 'Pane Control', () => this.switchPane());
     descriptor(COMMAND.cursorUp, 'Move Cursor Up', 'Navigation', () => this.activePane?.moveCursor(-1));
@@ -1806,6 +1853,9 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     descriptor(COMMAND.clearSelection, 'Clear Selection', 'Selection', () => this.activePane?.clearSelection());
     descriptor(COMMAND.refresh, 'Refresh', 'Navigation', () => this.activePane?.refresh());
     descriptor(COMMAND.rename, 'Rename', 'File Operations', () => this.activePane?.renameSelected(), () => !!this.activePane?.canRename);
+    descriptor(COMMAND.newFile, 'New File', 'File Operations', () => this.activePane?.newFile(), () => !!this.activePane?.canCreate && !this.activePane?.isInArchive);
+    descriptor(COMMAND.properties, 'Properties', 'File Operations', () => this.activePane?.showSelectedProperties(), () => !!this.activePane?.cursorEntry);
+    descriptor(COMMAND.deletePermanent, 'Delete Permanently', 'File Operations', () => this.activePane?.deleteSelected(true), () => this.canDeleteActiveSelection());
     descriptor(COMMAND.newFolder, 'New Folder', 'File Operations', () => this.activePane?.newFolder(), () => !!this.activePane?.canCreate);
     descriptor(COMMAND.deleteSelected, 'Delete', 'File Operations', () => this.deleteActiveSelection(), () => this.canDeleteActiveSelection());
     descriptor(COMMAND.copy, 'Copy', 'File Operations', () => this.activePane?.copySelected(), () => !!this.activePane?.hasSelection);

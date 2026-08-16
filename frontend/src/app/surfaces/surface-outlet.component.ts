@@ -116,4 +116,29 @@ export class SurfaceOutletComponent implements OnChanges {
   get findWidget() { return this.mountedInstance?.findWidget; }
   get viewerHost() { return this.mountedInstance?.viewerHost; }
   get viewer() { return this.viewerHost?.mountedViewer; }
+
+  supports(method: string): boolean {
+    return typeof this.mountedInstance?.[method] === 'function';
+  }
+
+  invoke(method: string, ...args: unknown[]): unknown {
+    const fn = this.mountedInstance?.[method];
+    if (typeof fn !== 'function') return undefined;
+    return fn.apply(this.mountedInstance, args);
+  }
+
+  focus(): void {
+    const instance = this.mountedInstance as any;
+    if (typeof instance?.focus === 'function') {
+      instance.focus();
+      return;
+    }
+
+    const element =
+      instance?.elementRef?.nativeElement ??
+      instance?.host?.nativeElement ??
+      null;
+
+    element?.focus?.({ preventScroll: true });
+  }
 }

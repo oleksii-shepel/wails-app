@@ -31,7 +31,7 @@ import { RemoteConnectDialogService } from '../services/remote-connect-dialog.se
 import { ReassemblyDirectoryPaneComponent } from './reassembly-directory-pane.component';
 import { ReassemblyWorkspaceSwitcherComponent } from './reassembly-workspace-switcher.component';
 import { ReassemblyPathHistoryComponent } from './reassembly-path-history.component';
-import { ReassemblyQuickAccessComponent } from './reassembly-quick-access.component';
+import { ReassemblyQuickAccessComponent, type ReassemblyQuickAccessTarget } from './reassembly-quick-access.component';
 import { ReassemblyRemoteConnectionsComponent } from './reassembly-remote-connections.component';
 import { ReassemblyOperationSurfaceComponent } from './reassembly-operation-surface.component';
 import { PaneComparisonBarComponent } from './pane-comparison-bar.component';
@@ -429,7 +429,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         [paneId]="activePaneId"
         [currentPath]="activePane?.path ?? ''"
         [currentSurfaceId]="activePane?.activeSurfaceId || 'dir'"
-        (navigate)="navigateFromQuickAccess($event)">
+        (navigate)="navigateFromQuickAccess($event)"
+        (openTarget)="openQuickAccessTarget($event)">
       </app-reassembly-quick-access>
 
 
@@ -2013,42 +2014,57 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
   isPanePathPinned(
     pane: ReassemblyDirectoryPaneComponent | undefined,
   ): boolean {
-    if (!pane?.isDirectoryTab || !pane.path) return false;
+    const location = pane?.pinnableLocation?.trim();
+    if (!location) return false;
+
     return this.pinnedLocations.isPinned(
       this.pinnedLocations.load(),
-      pane.path,
-      'dir',
+      location,
+      pane?.pinnableSurfaceId || 'dir',
     );
   }
 
   togglePanePin(
     pane: ReassemblyDirectoryPaneComponent | undefined,
   ): void {
-    if (!pane?.isDirectoryTab || !pane.path) return;
+    const location = pane?.pinnableLocation?.trim();
+    if (!pane || !location) return;
 
+    const surfaceId = pane.pinnableSurfaceId || 'dir';
     let pins = this.pinnedLocations.load();
-    const pinned = this.pinnedLocations.isPinned(pins, pane.path, 'dir');
+    const pinned = this.pinnedLocations.isPinned(
+      pins,
+      location,
+      surfaceId,
+    );
 
     if (pinned) {
-      pins = this.pinnedLocations.remove(pins, pane.path, 'dir');
-      pane.lastAction = `unpin: ${pane.path}`;
+      pins = this.pinnedLocations.remove(
+        pins,
+        location,
+        surfaceId,
+      );
+      pane.lastAction = `unpin: ${pane.pinnableTitle}`;
     } else {
       const pin = this.pinnedLocations.create(
-        pane.path,
-        undefined,
-        undefined,
+        location,
+        pane.pinnableTitle,
+        surfaceId === 'dir' ? undefined : '◆',
         Date.now(),
-        'dir',
+        surfaceId,
       );
       if (!pin) return;
-      pins = [...pins.filter(existing => existing.id !== pin.id), pin];
-      pane.lastAction = `pin: ${pane.path}`;
+
+      pins = [
+        ...pins.filter(existing => existing.id !== pin.id),
+        pin,
+      ];
+      pane.lastAction = `pin: ${pane.pinnableTitle}`;
     }
 
     this.pinnedLocations.save(pins);
     this.cdr.markForCheck();
   }
-
 
   navigateFromHistory(path: string): void {
     const pane = this.activePane;
@@ -2065,6 +2081,31 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
 
     pane.navigateTo(path);
     pane.lastAction = `quick access: ${path}`;
+    this.cdr.markForCheck();
+  }
+
+  async openQuickAccessTarget(
+    target: ReassemblyQuickAccessTarget,
+  ): Promise<void> {
+    const pane = this.activePane;
+    if (!pane) return;
+
+    const surfaceId = target.surfaceId?.trim() || 'dir';
+    if (surfaceId === 'dir') {
+      if (!pane.isDirectoryTab) return;
+      pane.navigateTo(target.path);
+      pane.lastAction = `quick access: ${target.path}`;
+      this.cdr.markForCheck();
+      return;
+    }
+
+    await pane.openSurfaceTab(
+      surfaceId,
+      target.label,
+      target.path,
+    );
+    pane.lastAction =
+      `quick access surface: ${target.label || surfaceId}`;
     this.cdr.markForCheck();
   }
 
@@ -2366,7 +2407,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       'Pin or Unpin Current Location',
       'Navigation',
       () => this.togglePanePin(this.activePane),
-      () => !!this.activePane?.isDirectoryTab && !!this.activePane?.path,
+      () => !!this.activePane?.pinnableLocation,
     );
     descriptor(
       COMMAND.showPinnedLocations,

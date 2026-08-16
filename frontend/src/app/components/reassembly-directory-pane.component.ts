@@ -39,6 +39,8 @@ import type { TabInfo, ViewerFileListItem } from '../shared/protocol-enhanced';
 import { ViewerHostSurfaceComponent } from '../viewers/viewer-host-surface.component';
 import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
 import type { SurfaceContext } from '../surfaces/surface-context';
+import type { SurfaceCapability } from '../surfaces/surface-contribution';
+import { SurfaceRegistryService } from '../surfaces/surface-registry.service';
 import { ReassemblyAddressBarComponent } from './reassembly-address-bar.component';
 import { ReassemblyFilterComponent } from './reassembly-filter.component';
 import { ReassemblyNavigationController } from './reassembly-navigation.controller';
@@ -503,6 +505,7 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
       <ng-template #nonDirectorySurface>
         <ng-container *ngIf="activeTab?.kind === 'surface'; else viewerSurface">
           <app-surface-outlet
+            #surfaceOutlet
             *ngIf="activeSurfaceContext as surfaceContext"
             class="plugin-surface"
             [ctx]="surfaceContext"
@@ -1214,6 +1217,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
 
   @ViewChild('addressBar') addressBar?: ReassemblyAddressBarComponent;
   @ViewChild('viewerHost') viewerHost?: ViewerHostSurfaceComponent;
+  @ViewChild('surfaceOutlet') surfaceOutlet?: SurfaceOutletComponent;
   @ViewChild('filterWidget') filterWidget?: ReassemblyFilterComponent;
   @ViewChild('paneRoot') paneRoot?: ElementRef<HTMLElement>;
   @ViewChild('listViewport') listViewport?: ElementRef<HTMLElement>;
@@ -1268,6 +1272,11 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   focusContent(): void {
+    if (this.activeTab?.kind === 'surface' && this.surfaceOutlet) {
+      this.surfaceOutlet.focus();
+      return;
+    }
+
     const target =
       this.activeTab?.kind !== 'dir'
         ? this.paneRoot?.nativeElement
@@ -1317,6 +1326,69 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     if (!tab) return 'dir';
     if (tab.kind === 'surface') return tab.surfaceId;
     return tab.kind;
+  }
+
+  get activeSurfaceCapabilities(): ReadonlySet<SurfaceCapability> {
+    const tab = this.activeSurfaceTab;
+    const context = this.activeSurfaceContext;
+    if (!tab || !context) return new Set<SurfaceCapability>();
+
+    return this.surfaceRegistry.getCapabilities({
+      tab: tab.persisted,
+      context,
+    });
+  }
+
+  surfaceSupports(capability: SurfaceCapability): boolean {
+    if (this.isDirectoryTab) {
+      return capability === 'navigate' ||
+        capability === 'selection' ||
+        capability === 'fileOperations' ||
+        capability === 'preview';
+    }
+
+    if (this.activeTab?.kind === 'viewer') {
+      return capability === 'viewerControls';
+    }
+
+    return this.activeSurfaceCapabilities.has(capability);
+  }
+
+  surfaceSupportsMethod(method: string): boolean {
+    return this.activeTab?.kind === 'surface' &&
+      !!this.surfaceOutlet?.supports(method);
+  }
+
+  surfaceInvoke(method: string, ...args: unknown[]): unknown {
+    if (this.activeTab?.kind !== 'surface') return undefined;
+    return this.surfaceOutlet?.invoke(method, ...args);
+  }
+
+  get pinnableLocation(): string {
+    const tab = this.activeTab;
+    if (!tab) return '';
+
+    if (tab.kind === 'surface') {
+      return tab.path;
+    }
+
+    if (tab.kind === 'dir') {
+      return tab.path || this.path;
+    }
+
+    return '';
+  }
+
+  get pinnableSurfaceId(): string {
+    const tab = this.activeTab;
+    if (!tab) return 'dir';
+    if (tab.kind === 'surface') return tab.surfaceId;
+    return 'dir';
+  }
+
+  get pinnableTitle(): string {
+    const tab = this.activeTab;
+    return tab?.title?.trim() || this.pinnableLocation;
   }
 
   get activeTab(): ReassemblyTab | null {
@@ -1481,6 +1553,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     private readonly fileClipboard: FileClipboardService,
     private readonly pluginManager: PluginManagerService,
     private readonly pluginLifecycle: PluginLifecycleCoordinatorService,
+    private readonly surfaceRegistry: SurfaceRegistryService,
     private readonly cdr: ChangeDetectorRef,
   ) {}
 

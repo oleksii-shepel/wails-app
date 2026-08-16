@@ -15,6 +15,12 @@ import type { SpecialFolder } from '../shared/protocol';
 import { discoveryScore } from './reassembly-discovery';
 import { ReassemblyModalSurfaceDirective } from './reassembly-modal-surface.directive';
 
+export interface ReassemblyQuickAccessTarget {
+  path: string;
+  surfaceId?: string;
+  label?: string;
+}
+
 interface QuickItem {
   id: string;
   label: string;
@@ -22,6 +28,7 @@ interface QuickItem {
   icon: string;
   kind: 'system' | 'pin' | 'frequent' | 'recent' | 'related' | 'remote';
   meta?: string;
+  surfaceId?: string;
 }
 
 interface QuickSection {
@@ -142,6 +149,7 @@ export class ReassemblyQuickAccessComponent implements OnInit, OnDestroy {
   @Input() currentPath = '';
   @Input() currentSurfaceId = 'dir';
   @Output() navigate = new EventEmitter<string>();
+  @Output() openTarget = new EventEmitter<ReassemblyQuickAccessTarget>();
 
   visible = false;
   filterText = '';
@@ -249,7 +257,21 @@ export class ReassemblyQuickAccessComponent implements OnInit, OnDestroy {
     
     this.cdr.markForCheck();
   }
-  openItem(item: QuickItem): void { this.navigate.emit(item.path); this.close(); }
+  openItem(item: QuickItem): void {
+    const surfaceId = item.surfaceId?.trim();
+
+    if (surfaceId && surfaceId !== 'dir') {
+      this.openTarget.emit({
+        path: item.path,
+        surfaceId,
+        label: item.label,
+      });
+    } else {
+      this.navigate.emit(item.path);
+    }
+
+    this.close();
+  }
   selectSection(index:number):void{this.sectionIndex=Math.max(0,Math.min(index,this.filteredSections.length-1));this.itemIndex=0;this.cdr.markForCheck()}
   resetSelection():void{this.sectionIndex=0;this.itemIndex=0;this.cdr.markForCheck()}
   trackItem(_index:number,item:QuickItem):string{return item.id}
@@ -315,15 +337,18 @@ export class ReassemblyQuickAccessComponent implements OnInit, OnDestroy {
       kind: 'system',
     }));
 
-    const pins: QuickItem[] = this.pins
-      .filter(pin => pin.surfaceId === 'dir' || !pin.surfaceId)
-      .map(pin => ({
-        id: `pin:${pin.id}`,
-        label: pin.label,
-        path: pin.location,
-        icon: pin.icon || '📌',
-        kind: 'pin',
-      }));
+    const pins: QuickItem[] = this.pins.map(pin => ({
+      id: `pin:${pin.id}`,
+      label: pin.label,
+      path: pin.location,
+      icon: pin.icon || '📌',
+      kind: 'pin',
+      surfaceId: pin.surfaceId,
+      meta:
+        pin.surfaceId && pin.surfaceId !== 'dir'
+          ? pin.surfaceId
+          : undefined,
+    }));
 
     const relatedItems: QuickItem[] = [
       ...contributedRelated.map(pin => ({
@@ -332,6 +357,7 @@ export class ReassemblyQuickAccessComponent implements OnInit, OnDestroy {
         path: pin.location,
         icon: pin.icon || '◆',
         meta: pin.surfaceId || pin.scheme,
+        surfaceId: pin.surfaceId,
         kind: 'related' as const,
       })),
       ...historyRelated.map(entry => ({

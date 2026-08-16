@@ -121,7 +121,7 @@ class ArchivePanelSource extends BasePanelSource {
   }
 }
 
-class RegistryPanelSource extends BasePanelSource {
+export class RegistryPanelSource extends BasePanelSource {
   readonly id = 'registry';
   readonly kind = 'registry' as const;
   readonly title = 'Registry';
@@ -268,7 +268,6 @@ export class PanelSourceRegistryService {
   ) {
     this.sources = [
       new ArchivePanelSource(this.directories),
-      new RegistryPanelSource(this.directories),
       new RemotePanelSource(this.directories, remoteConnections),
       new ResultsPanelSource(this.directories, this.resultsPanels),
       new VirtualPanelSource(this.directories),

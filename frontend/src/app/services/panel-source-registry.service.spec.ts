@@ -1,6 +1,6 @@
 import { FileType } from '../shared/protocol';
 import type { FileInfo } from '../shared/protocol-enhanced';
-import { PanelSourceRegistryService } from './panel-source-registry.service';
+import { PanelSourceRegistryService, RegistryPanelSource } from './panel-source-registry.service';
 
 function entry(path: string): FileInfo {
   const name = path.split('/').pop() || path;
@@ -130,6 +130,18 @@ describe('PanelSourceRegistryService', () => {
 
     service.unregister('plugin.demo');
     expect(service.listSources().some(candidate => candidate.id === 'plugin.demo')).toBe(false);
+  });
+
+  it('keeps Registry out of core resolution until the Registry plugin contributes it', () => {
+    const { service, directories } = createService();
+    (directories.getPathKind as jasmine.Spy).and.returnValue('registry');
+
+    expect(service.resolve({ path: 'registry://HKEY_CURRENT_USER/Software' }).source.id).toBe('filesystem');
+
+    service.register(new RegistryPanelSource(directories as any));
+    const resolved = service.resolve({ path: 'registry://HKEY_CURRENT_USER/Software' });
+    expect(resolved.source.id).toBe('registry');
+    expect(resolved.source.kind).toBe('registry');
   });
 
 });

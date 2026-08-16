@@ -23,10 +23,12 @@ import type { RelatedLocationContribution } from './related-location.types';
 import { WorkspaceSurfaceActionRegistryService } from './workspace-surface-action-registry.service';
 import type { WorkspaceSurfaceActionContribution } from './workspace-surface-action.types';
 import type { PanelSource } from './panel-source';
-import { PanelSourceRegistryService, RemotePanelSource } from './panel-source-registry.service';
+import { PanelSourceRegistryService, RegistryPanelSource, RemotePanelSource } from './panel-source-registry.service';
 import { DirectorySourceService } from './directory-source.service';
 import { RemoteConnectionsService } from './remote-connections.service';
 import { ResultsPanelService } from './results-panel.service';
+import { ApiService } from './api.service';
+import { ConfirmDialogService } from './confirm-dialog.service';
 
 export interface PluginBackend {
   id: string;
@@ -46,6 +48,8 @@ export class PluginManagerService implements PluginRegistryAPI {
   private readonly directories = inject(DirectorySourceService);
   private readonly remoteConnections = inject(RemoteConnectionsService);
   private readonly resultsPanels = inject(ResultsPanelService);
+  private readonly api = inject(ApiService);
+  private readonly confirmDialog = inject(ConfirmDialogService);
 
   private readonly backends = new Map<string, PluginBackend>();
   private readonly descriptors = new Map<string, PluginDescriptor>();
@@ -57,6 +61,7 @@ export class PluginManagerService implements PluginRegistryAPI {
   readonly panelColumns: PanelColumnContribution[] = [];
 
   constructor() {
+    this.registerBuiltinRegistryProvider();
     this.registerBuiltinRemoteProviders();
   }
 
@@ -272,6 +277,133 @@ export class PluginManagerService implements PluginRegistryAPI {
       if (cat) return cat;
     }
     return null;
+  }
+
+  private registerBuiltinRegistryProvider(): void {
+    const source = new RegistryPanelSource(this.directories);
+    const isRegistry = (path: string): boolean => /^registry:\/\//i.test((path ?? '').trim());
+
+    this.registerBackend({
+      id: 'builtin.registry',
+      onRegister: api => {
+        api.registerPanelSource(source);
+
+        api.registerPanelColumn({
+          id: 'builtin.registry.kind',
+          label: 'Kind',
+          width: '90px',
+          score: context => context.sourceKind === 'registry' ? 100 : 0,
+          value: entry => entry.registryKind ?? '',
+        });
+        api.registerPanelColumn({
+          id: 'builtin.registry.type',
+          label: 'Registry Type',
+          width: '120px',
+          score: context => context.sourceKind === 'registry' ? 95 : 0,
+          value: entry => entry.registryValueType ?? '',
+        });
+        api.registerPanelColumn({
+          id: 'builtin.registry.data',
+          label: 'Data',
+          score: context => context.sourceKind === 'registry' ? 90 : 0,
+          value: entry => entry.registryPreview ?? '',
+        });
+
+        api.registerContextMenuItem({
+          id: 'builtin.registry.newKey',
+          label: 'New Registry Key',
+          score: context => isRegistry(context.currentDirectory) ? 95 : 0,
+          execute: async context => {
+            const name = (await this.confirmDialog.prompt({
+              title: 'New Registry Key',
+              message: 'Enter the key name.',
+              confirmText: 'Create',
+              historyKey: 'reassembly.registry.newKey',
+            }))?.trim();
+            if (!name) return;
+            const path = await this.api.joinPaths([context.currentDirectory, name]);
+            await this.api.createDirectory(path, false);
+          },
+        });
+
+        api.registerContextMenuItem({
+          id: 'builtin.registry.newValue',
+          label: 'New Registry Value',
+          score: context => isRegistry(context.currentDirectory) ? 94 : 0,
+          execute: async context => {
+            const name = (await this.confirmDialog.prompt({
+              title: 'New Registry Value',
+              message: 'Enter the value name.',
+              confirmText: 'Next',
+              historyKey: 'reassembly.registry.newValue.name',
+            }))?.trim();
+            if (!name) return;
+            const value = await this.confirmDialog.prompt({
+              title: `Value — ${name}`,
+              message: 'Enter the value data.',
+              confirmText: 'Create',
+              defaultValue: '',
+              historyKey: 'reassembly.registry.newValue.data',
+            });
+            if (value === null) return;
+            const path = await this.api.joinPaths([context.currentDirectory, name]);
+            await this.api.writeFile(path, value, 'utf8');
+          },
+        });
+
+        api.registerContextMenuItem({
+          id: 'builtin.registry.editValue',
+          label: 'Edit Registry Value',
+          score: context => isRegistry(context.targetPath) && context.targetPath !== context.currentDirectory ? 90 : 0,
+          execute: async context => {
+            const info = await this.api.getFileInfo(context.targetPath);
+            if (String(info.registryKind ?? '').toLowerCase() !== 'value') return;
+            const current = await this.api.readFile(context.targetPath, 'utf8');
+            const value = await this.confirmDialog.prompt({
+              title: `Edit Registry Value — ${info.name}`,
+              message: info.registryValueType ? `Type: ${info.registryValueType}` : 'Value data:',
+              confirmText: 'Save',
+              defaultValue: current.content ?? '',
+              historyKey: 'reassembly.registry.editValue',
+            });
+            if (value === null) return;
+            await this.api.writeFile(context.targetPath, value, 'utf8');
+          },
+        });
+
+        api.registerContextMenuItem({
+          id: 'builtin.registry.delete',
+          label: 'Delete Registry Entry',
+          score: context => isRegistry(context.targetPath) && context.targetPath !== context.currentDirectory ? 85 : 0,
+          execute: async context => {
+            const confirmed = await this.confirmDialog.confirm({
+              title: 'Delete Registry Entry',
+              message: `Delete ${context.targetPath}?`,
+              confirmText: 'Delete',
+              danger: true,
+            });
+            if (!confirmed) return;
+            await this.api.batchDelete([context.targetPath], true, false);
+          },
+        });
+      },
+      onUnregister: api => {
+        api.unregisterContextMenuItem('builtin.registry.delete');
+        api.unregisterContextMenuItem('builtin.registry.editValue');
+        api.unregisterContextMenuItem('builtin.registry.newValue');
+        api.unregisterContextMenuItem('builtin.registry.newKey');
+        api.unregisterPanelColumn('builtin.registry.data');
+        api.unregisterPanelColumn('builtin.registry.type');
+        api.unregisterPanelColumn('builtin.registry.kind');
+        api.unregisterPanelSource(source.id);
+      },
+    }, {
+      id: 'builtin.registry',
+      name: 'Windows Registry',
+      version: '1.0.0',
+      description: 'Built-in Registry panel-source provider and Registry actions.',
+      schemes: ['registry'],
+    });
   }
 
   private registerBuiltinRemoteProviders(): void {

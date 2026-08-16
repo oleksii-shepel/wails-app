@@ -13,6 +13,8 @@ import {
 import { CommonModule } from '@angular/common';
 
 import { DirectorySourceService } from '../services/directory-source.service';
+import { PanelSourceRegistryService } from '../services/panel-source-registry.service';
+import type { ResolvedPanelSource } from '../services/panel-source';
 import { ApiService } from '../services/api.service';
 import { PathHistoryService } from '../services/path-history.service';
 import { WorkspaceService } from '../services/workspace.service';
@@ -33,7 +35,6 @@ import {
   normalizeArchiveLocation,
 } from '../services/archive.service';
 import type { ViewerArchiveContext } from '../viewers/viewer-archive-context';
-import { getSourceCapabilities } from '../services/source-capabilities';
 import { RemoteConnectionsService } from '../services/remote-connections.service';
 import { FileInfo, FileType } from '../shared/protocol';
 import type { TabInfo, ViewerFileListItem } from '../shared/protocol-enhanced';
@@ -493,6 +494,12 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
         </span>
 
         <span class="footer-spacer"></span>
+
+        <span
+          class="footer-item source-kind"
+          [title]="'Panel source: ' + activePanelSource.location.sourceId">
+          {{ activePanelSource.source.title }}
+        </span>
 
         <span
           class="footer-item capacity"
@@ -1109,6 +1116,11 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
       min-width: 8px;
     }
 
+    .footer-item.source-kind {
+      flex: 0 0 auto;
+      opacity: .68;
+    }
+
     .footer-item.capacity {
       flex: 0 0 auto;
       max-width: 280px;
@@ -1533,23 +1545,22 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     return this.archiveStack[this.archiveStack.length - 1] ?? null;
   }
 
-  get sourceCapabilities() {
-    if (this.isInArchive) {
-      const topLevel = (this.currentArchiveFrame?.nestedChain.length ?? 0) === 0;
-      return {
-        read: true,
-        create: false,
-        delete: topLevel,
-        rename: false,
-        trash: false,
-      };
-    }
+  get activePanelSource(): ResolvedPanelSource {
+    return this.panelSources.resolve({
+      path: this.path,
+      entries: this.entries,
+      inArchive: this.isInArchive,
+      archiveTopLevel:
+        (this.currentArchiveFrame?.nestedChain.length ?? 0) === 0,
+    });
+  }
 
-    return this.remoteConnections.capabilitiesFor(this.path, getSourceCapabilities(this.path));
+  get sourceCapabilities() {
+    return this.activePanelSource.capabilities;
   }
 
   get isRemoteLocation(): boolean {
-    return this.remoteConnections.isRemoteUri(this.path);
+    return this.activePanelSource.source.kind === 'remote';
   }
 
   get canCreate(): boolean {
@@ -1608,6 +1619,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   constructor(
     private readonly api: ApiService,
     private readonly directorySource: DirectorySourceService,
+    private readonly panelSources: PanelSourceRegistryService,
     private readonly pathHistory: PathHistoryService,
     private readonly workspaceService: WorkspaceService,
     private readonly confirmDialog: ConfirmDialogService,
@@ -2224,7 +2236,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
 
     try {
-      const listing = await this.directorySource.listDirectory(
+      const listing = await this.panelSources.listDirectory(
         row.entry.path,
         this.showHidden,
       );
@@ -6007,7 +6019,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
 
     try {
-      const listing = await this.directorySource.listDirectory(
+      const listing = await this.panelSources.listDirectory(
         requestedPath,
         this.showHidden,
       );

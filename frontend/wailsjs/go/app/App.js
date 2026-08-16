@@ -142,8 +142,16 @@ export function CreateDirectory(arg1, arg2) {
   return window['go']['app']['App']['CreateDirectory'](arg1, arg2);
 }
 
+export function CreateHardLink(arg1, arg2) {
+  return window['go']['app']['App']['CreateHardLink'](arg1, arg2);
+}
+
 export function CreatePaneWatch() {
   return window['go']['app']['App']['CreatePaneWatch']();
+}
+
+export function CreateSymbolicLink(arg1, arg2) {
+  return window['go']['app']['App']['CreateSymbolicLink'](arg1, arg2);
 }
 
 export function CreateZipArchive(arg1, arg2) {
@@ -392,6 +400,18 @@ export function NavNavigateShowHidden(arg1, arg2, arg3) {
 
 export function OpenFile(arg1) {
   return window['go']['app']['App']['OpenFile'](arg1);
+}
+
+export function OpenFileWithApplication(arg1, arg2) {
+  return window['go']['app']['App']['OpenFileWithApplication'](arg1, arg2);
+}
+
+export function OpenFileWithChooser(arg1) {
+  return window['go']['app']['App']['OpenFileWithChooser'](arg1);
+}
+
+export function OpenTerminalAt(arg1) {
+  return window['go']['app']['App']['OpenTerminalAt'](arg1);
 }
 
 export function PathExists(arg1) {

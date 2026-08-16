@@ -97,6 +97,12 @@ const COMMAND = {
   copy: 'reassembly.manager.copy',
   cut: 'reassembly.manager.cut',
   paste: 'reassembly.manager.paste',
+  copyPath: 'reassembly.files.copyPath',
+  copyName: 'reassembly.files.copyName',
+  duplicate: 'reassembly.files.duplicate',
+  createSymlink: 'reassembly.files.createSymlink',
+  createHardlink: 'reassembly.files.createHardlink',
+  openTerminal: 'reassembly.navigation.openTerminal',
   undo: 'reassembly.edit.undo',
   redo: 'reassembly.edit.redo',
   createArchive: 'reassembly.archive.createZip',
@@ -225,6 +231,9 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   { id:'reassembly.manager.copy.ctrlC', commandId:COMMAND.copy, contextId:CONTEXT_ID, source:'default', description:'Copy selected items', category:'File Operations', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'c', modifiers:['ctrl']}]}}},
   { id:'reassembly.manager.cut.ctrlX', commandId:COMMAND.cut, contextId:CONTEXT_ID, source:'default', description:'Cut selected items', category:'File Operations', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'x', modifiers:['ctrl']}]}}},
   { id:'reassembly.manager.paste.ctrlV', commandId:COMMAND.paste, contextId:CONTEXT_ID, source:'default', description:'Paste items', category:'File Operations', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'v', modifiers:['ctrl']}]}}},
+  { id:'reassembly.files.copyPath.ctrlShiftC', commandId:COMMAND.copyPath, contextId:CONTEXT_ID, source:'default', description:'Copy selected paths as text', category:'Files', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'c', modifiers:['ctrl','shift']}]}}},
+  { id:'reassembly.files.duplicate.ctrlD', commandId:COMMAND.duplicate, contextId:CONTEXT_ID, source:'default', description:'Duplicate selection', category:'File Operations', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'d', modifiers:['ctrl']}]}}},
+  { id:'reassembly.navigation.openTerminal.ctrlAltT', commandId:COMMAND.openTerminal, contextId:CONTEXT_ID, source:'default', description:'Open terminal in current folder', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'t', modifiers:['alt','ctrl']}]}}},
   { id:'reassembly.edit.undo.ctrlZ', commandId:COMMAND.undo, contextId:CONTEXT_ID, source:'default', description:'Undo last reversible file operation', category:'Edit', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'z', modifiers:['ctrl']}]}}},
   { id:'reassembly.edit.redo.ctrlY', commandId:COMMAND.redo, contextId:CONTEXT_ID, source:'default', description:'Redo last reversible file operation', category:'Edit', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'y', modifiers:['ctrl']}]}}},
   { id:'reassembly.edit.redo.ctrlShiftZ', commandId:COMMAND.redo, contextId:CONTEXT_ID, source:'default', description:'Redo last reversible file operation', category:'Edit', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'z', modifiers:['ctrl','shift']}]}}},
@@ -1253,6 +1262,22 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     }
   }
 
+  async openTerminalHere(): Promise<void> {
+    const pane = this.activePane;
+    if (!pane?.isDirectoryTab || pane.isInArchive || !pane.path) return;
+
+    try {
+      await this.api.openTerminalAt(pane.path);
+      pane.lastAction = `terminal: ${pane.path}`;
+      this.cdr.markForCheck();
+    } catch (error) {
+      await this.confirmDialog.alert({
+        title: 'Open Terminal Failed',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   async refreshBothPanes(): Promise<void> {
     await Promise.all([
       this.leftPane?.refresh(),
@@ -2043,10 +2068,15 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       this.menuCommand(COMMAND.properties, 'Properties', 'Alt+Enter'),
       this.menuCommand(COMMAND.calculateSize, 'Calculate Size'),
       this.menuCommand(COMMAND.attributes, 'Attributes / Permissions'),
+      this.menuCommand(COMMAND.createSymlink, 'Create Symbolic Link'),
+      this.menuCommand(COMMAND.createHardlink, 'Create Hard Link'),
       this.menuCommand(COMMAND.checksum, 'SHA-256 Checksum'),
       this.menuCommand(COMMAND.createArchive, 'Create ZIP Archive', 'Alt+F5'),
       this.menuCommand(COMMAND.batchRename, 'Batch rename…', 'Ctrl+Shift+R'),
       this.menuCommand(COMMAND.copy, 'Copy', 'Ctrl+C'),
+      this.menuCommand(COMMAND.copyPath, 'Copy Path', 'Ctrl+Shift+C'),
+      this.menuCommand(COMMAND.copyName, 'Copy Name'),
+      this.menuCommand(COMMAND.duplicate, 'Duplicate', 'Ctrl+D'),
       this.menuCommand(COMMAND.cut, 'Cut', 'Ctrl+X'),
       this.menuCommand(COMMAND.paste, 'Paste', 'Ctrl+V'),
       { separator: true },
@@ -2105,6 +2135,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
         this.menuCommand(COMMAND.diskUsage, 'Disk Usage', 'Ctrl+Shift+D'),
         this.menuCommand(COMMAND.findDuplicates, 'Find Duplicates'),
         this.menuCommand(COMMAND.openCommandPalette, 'Command Palette', 'Ctrl+Shift+P'),
+        this.menuCommand(COMMAND.openTerminal, 'Open Terminal Here', 'Ctrl+Alt+T'),
         this.menuCommand(COMMAND.openSettings, 'Settings', 'Ctrl+,'),
         this.menuCommand(COMMAND.openTrash, 'Trash / Recycle Bin'),
         this.menuCommand(COMMAND.openPluginSettings, 'Plugin Settings'),
@@ -2527,6 +2558,74 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     descriptor(COMMAND.copy, 'Copy', 'File Operations', () => this.activePane?.copySelected(), () => !!this.activePane?.hasSelection);
     descriptor(COMMAND.cut, 'Cut', 'File Operations', () => this.activePane?.cutSelected(), () => !!this.activePane?.canCut);
     descriptor(COMMAND.paste, 'Paste', 'File Operations', () => this.activePane?.paste(), () => !!this.activePane?.canPaste);
+    descriptor(
+      COMMAND.copyPath,
+      'Copy Path',
+      'Files',
+      () => this.activePane?.copySelectedPaths(),
+      () => !!(
+        this.activePane?.cursorEntry ||
+        this.activePane?.selectedEntries.length
+      ),
+    );
+    descriptor(
+      COMMAND.copyName,
+      'Copy Name',
+      'Files',
+      () => this.activePane?.copySelectedNames(),
+      () => !!(
+        this.activePane?.cursorEntry ||
+        this.activePane?.selectedEntries.length
+      ),
+    );
+    descriptor(
+      COMMAND.duplicate,
+      'Duplicate',
+      'File Operations',
+      () => this.activePane?.duplicateSelected(),
+      () =>
+        !!this.activePane?.isDirectoryTab &&
+        !this.activePane?.isInArchive &&
+        !!this.activePane?.canCreate &&
+        (this.activePane?.selectedEntries.length ?? 0) > 0,
+    );
+    descriptor(
+      COMMAND.createSymlink,
+      'Create Symbolic Link',
+      'File Operations',
+      () => this.activePane?.createLinkForSelected('symbolic'),
+      () =>
+        !!this.activePane?.isDirectoryTab &&
+        !this.activePane?.isInArchive &&
+        !!this.activePane?.canCreate &&
+        !!(this.activePane?.cursorEntry || this.activePane?.selectedEntries.length),
+    );
+    descriptor(
+      COMMAND.createHardlink,
+      'Create Hard Link',
+      'File Operations',
+      () => this.activePane?.createLinkForSelected('hard'),
+      () => {
+        const entry =
+          this.activePane?.cursorEntry ??
+          this.activePane?.selectedEntries[0];
+        return !!this.activePane?.isDirectoryTab &&
+          !this.activePane?.isInArchive &&
+          !!this.activePane?.canCreate &&
+          !!entry &&
+          entry.type !== FileType.DIRECTORY;
+      },
+    );
+    descriptor(
+      COMMAND.openTerminal,
+      'Open Terminal Here',
+      'Navigation',
+      () => this.openTerminalHere(),
+      () =>
+        !!this.activePane?.isDirectoryTab &&
+        !this.activePane?.isInArchive &&
+        !!this.activePane?.path,
+    );
     descriptor(COMMAND.undo, 'Undo', 'Edit', () => this.undoLastOperation(), () => this.operationHistory.canUndo);
     descriptor(COMMAND.redo, 'Redo', 'Edit', () => this.redoLastOperation(), () => this.operationHistory.canRedo);
     descriptor(

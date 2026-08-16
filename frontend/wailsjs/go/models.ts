@@ -214,6 +214,20 @@ export namespace contracts {
 		    return a;
 		}
 	}
+	export class BatchAffectedPath {
+	    source: string;
+	    destination: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new BatchAffectedPath(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.source = source["source"];
+	        this.destination = source["destination"];
+	    }
+	}
 	export class BatchDeleteRequest {
 	    paths: string[];
 	    recursive: boolean;
@@ -352,6 +366,7 @@ export namespace contracts {
 	    skipped: number;
 	    failed: number;
 	    errors?: BatchItemError[];
+	    affectedPaths?: BatchAffectedPath[];
 	
 	    static createFrom(source: any = {}) {
 	        return new BatchResult(source);
@@ -365,6 +380,7 @@ export namespace contracts {
 	        this.skipped = source["skipped"];
 	        this.failed = source["failed"];
 	        this.errors = this.convertValues(source["errors"], BatchItemError);
+	        this.affectedPaths = this.convertValues(source["affectedPaths"], BatchAffectedPath);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

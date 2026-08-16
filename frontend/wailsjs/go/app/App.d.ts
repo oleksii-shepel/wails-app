@@ -80,7 +80,11 @@ export function CreateDir(arg1:string,arg2:boolean):Promise<contracts.OperationR
 
 export function CreateDirectory(arg1:string,arg2:boolean):Promise<contracts.OperationResult>;
 
+export function CreateHardLink(arg1:string,arg2:string):Promise<void>;
+
 export function CreatePaneWatch():Promise<void>;
+
+export function CreateSymbolicLink(arg1:string,arg2:string):Promise<void>;
 
 export function CreateZipArchive(arg1:Array<string>,arg2:string):Promise<contracts.OperationResult>;
 
@@ -205,6 +209,12 @@ export function NavNavigate(arg1:string,arg2:string):Promise<contracts.Directory
 export function NavNavigateShowHidden(arg1:string,arg2:string,arg3:boolean):Promise<contracts.DirectoryListing>;
 
 export function OpenFile(arg1:string):Promise<void>;
+
+export function OpenFileWithApplication(arg1:string,arg2:string):Promise<void>;
+
+export function OpenFileWithChooser(arg1:string):Promise<void>;
+
+export function OpenTerminalAt(arg1:string):Promise<void>;
 
 export function PathExists(arg1:string):Promise<boolean>;
 

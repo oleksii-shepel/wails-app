@@ -253,6 +253,45 @@ export class ApiService {
 	    return await window.go.app.App.GetOSInfo();
   }
 
+  async createSymbolicLink(
+    target: string,
+    linkPath: string,
+  ): Promise<void> {
+    const app = window.go.app.App as unknown as {
+      CreateSymbolicLink(
+        target: string,
+        linkPath: string,
+      ): Promise<void>;
+    };
+    await app.CreateSymbolicLink(
+      this.normalizeCanonicalPath(target),
+      this.normalizeCanonicalPath(linkPath),
+    );
+  }
+
+  async createHardLink(
+    target: string,
+    linkPath: string,
+  ): Promise<void> {
+    const app = window.go.app.App as unknown as {
+      CreateHardLink(
+        target: string,
+        linkPath: string,
+      ): Promise<void>;
+    };
+    await app.CreateHardLink(
+      this.normalizeCanonicalPath(target),
+      this.normalizeCanonicalPath(linkPath),
+    );
+  }
+
+  async openTerminalAt(path: string): Promise<void> {
+    const app = window.go.app.App as unknown as {
+      OpenTerminalAt(path: string): Promise<void>;
+    };
+    await app.OpenTerminalAt(this.normalizeCanonicalPath(path));
+  }
+
   async openFileWithChooser(path: string): Promise<void> {
     const app = window.go.app.App as unknown as {
       OpenFileWithChooser(path: string): Promise<void>;

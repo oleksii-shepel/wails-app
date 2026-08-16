@@ -3170,6 +3170,204 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
   }
 
+  private async writeTextClipboard(text: string): Promise<boolean> {
+    const value = text.trim();
+    if (!value) return false;
+
+    try {
+      await navigator.clipboard.writeText(value);
+      return true;
+    } catch {
+      const runtime = (window as unknown as {
+        runtime?: {
+          ClipboardSetText?: (text: string) => Promise<boolean>;
+        };
+      }).runtime;
+
+      if (typeof runtime?.ClipboardSetText === 'function') {
+        return await runtime.ClipboardSetText(value);
+      }
+      return false;
+    }
+  }
+
+  async copySelectedPaths(): Promise<void> {
+    const entries = this.selectedEntries.length > 0
+      ? this.selectedEntries
+      : this.cursorEntry
+        ? [this.cursorEntry]
+        : [];
+
+    if (entries.length === 0) return;
+
+    const copied = await this.writeTextClipboard(
+      entries.map(entry => entry.path).join('\n'),
+    );
+    this.lastAction = copied
+      ? `copy path: ${entries.length}`
+      : 'copy path failed';
+    this.cdr.markForCheck();
+  }
+
+  async copySelectedNames(): Promise<void> {
+    const entries = this.selectedEntries.length > 0
+      ? this.selectedEntries
+      : this.cursorEntry
+        ? [this.cursorEntry]
+        : [];
+
+    if (entries.length === 0) return;
+
+    const copied = await this.writeTextClipboard(
+      entries.map(entry => entry.name).join('\n'),
+    );
+    this.lastAction = copied
+      ? `copy name: ${entries.length}`
+      : 'copy name failed';
+    this.cdr.markForCheck();
+  }
+
+  async duplicateSelected(): Promise<void> {
+    if (
+      !this.isDirectoryTab ||
+      this.isInArchive ||
+      !this.sourceCapabilities.create
+    ) return;
+
+    const entries = this.selectedEntries;
+    if (entries.length === 0) return;
+
+    try {
+      const items = entries.map(entry => ({
+        source: entry.path,
+        destination: this.path,
+        exactDestination: false,
+      }));
+
+      const result = await this.api.batchCopy(items, true);
+      const affected = result.affectedPaths ?? [];
+
+      if (
+        result.failed === 0 &&
+        result.skipped === 0 &&
+        affected.length === result.succeeded &&
+        affected.length > 0
+      ) {
+        this.operationHistory.record({
+          label: `Duplicate ${affected.length} item${
+            affected.length === 1 ? '' : 's'
+          }`,
+          undo: async () => {
+            const deletion = await this.api.batchDelete(
+              affected.map(item => item.destination),
+              true,
+              false,
+            );
+            if (deletion.failed > 0) {
+              throw new Error('Undo duplicate failed.');
+            }
+          },
+          redo: async () => {
+            const redone = await this.api.batchCopy(
+              affected.map(item => ({
+                source: item.source,
+                destination: item.destination,
+                exactDestination: true,
+              })),
+              true,
+            );
+            if (redone.failed > 0 || redone.skipped > 0) {
+              throw new Error('Redo duplicate failed.');
+            }
+          },
+        });
+      }
+
+      this.lastAction = `duplicate: ${result.succeeded}/${result.total}`;
+      await this.refresh();
+
+      if (affected.length === 1) {
+        this.selectPath(affected[0].destination);
+      }
+    } catch (error) {
+      await this.showOperationError('Duplicate', error);
+    }
+  }
+
+  async createLinkForSelected(
+    kind: 'symbolic' | 'hard',
+  ): Promise<void> {
+    if (
+      !this.isDirectoryTab ||
+      this.isInArchive ||
+      !this.sourceCapabilities.create
+    ) return;
+
+    const entry = this.cursorEntry ?? this.selectedEntries[0];
+    if (!entry || entry.path === '__parent__') return;
+
+    if (kind === 'hard' && entry.type === FileType.DIRECTORY) {
+      await this.confirmDialog.alert({
+        title: 'Hard Link',
+        message: 'Hard links to directories are not supported.',
+      });
+      return;
+    }
+
+    const suffix = kind === 'symbolic' ? ' link' : ' hardlink';
+    const requestedName = await this.confirmDialog.prompt({
+      title:
+        kind === 'symbolic'
+          ? 'Create Symbolic Link'
+          : 'Create Hard Link',
+      message: `Link to "${entry.name}" as:`,
+      confirmText: 'Create',
+      defaultValue: `${entry.name}${suffix}`,
+      historyKey: `reassembly.${kind}Link.name`,
+    });
+
+    const cleanName = this.cleanLeafName(requestedName);
+    if (!cleanName) return;
+
+    try {
+      const destination = await this.api.joinPaths([
+        this.path,
+        cleanName,
+      ]);
+
+      if (kind === 'symbolic') {
+        await this.api.createSymbolicLink(entry.path, destination);
+      } else {
+        await this.api.createHardLink(entry.path, destination);
+      }
+
+      this.operationHistory.record({
+        label: `${
+          kind === 'symbolic' ? 'Create symbolic link' : 'Create hard link'
+        } ${cleanName}`,
+        undo: async () => {
+          await this.api.deleteFile(destination, true, false);
+        },
+        redo: async () => {
+          if (kind === 'symbolic') {
+            await this.api.createSymbolicLink(entry.path, destination);
+          } else {
+            await this.api.createHardLink(entry.path, destination);
+          }
+        },
+      });
+
+      this.lastAction = `${kind} link: ${cleanName}`;
+      await this.refresh();
+      this.selectPath(destination);
+    } catch (error) {
+      await this.showOperationError(
+        kind === 'symbolic' ? 'Create Symbolic Link' : 'Create Hard Link',
+        error,
+      );
+    }
+  }
+
   copySelected(): void {
     const entries = this.selectedEntries;
     if (entries.length === 0) return;

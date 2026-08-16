@@ -34,7 +34,8 @@ import { RemoteConnectDialogComponent } from './components/remote-connect-dialog
         [tabCount]="manager.activePane?.tabs?.length ?? 0"
         [surfaceKind]="manager.activePane?.activeTab?.kind ?? 'dir'"
         [splitPercent]="manager.leftPanePercent"
-        [showHidden]="manager.showHidden">
+        [showHidden]="manager.showHidden"
+        [bindings]="manager.shortcutHelpItems">
       </app-shortcut-debug-overlay>
 
       <app-reassembly-operation-surface></app-reassembly-operation-surface>

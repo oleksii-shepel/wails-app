@@ -34,6 +34,13 @@ import { ViewerHostSurfaceComponent } from '../viewers/viewer-host-surface.compo
 import { ReassemblyAddressBarComponent } from './reassembly-address-bar.component';
 import { ReassemblyFilterComponent } from './reassembly-filter.component';
 import { ReassemblyNavigationController } from './reassembly-navigation.controller';
+import {
+  createFilenameMaskMatcher,
+  entryTypeLabel,
+  fileExtension,
+  projectEntries,
+  sortEntries as projectSortedEntries,
+} from './reassembly-entry-model';
 
 type ReassemblyDirectoryView = 'list' | 'grid' | 'details' | 'tree';
 type ReassemblySortField = 'name' | 'size' | 'modified' | 'type';
@@ -1242,14 +1249,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   entryAriaLabel(entry: FileInfo): string {
-    const kind =
-      entry.type === FileType.DIRECTORY
-        ? 'folder'
-        : entry.type === FileType.ARCHIVE
-          ? 'archive'
-          : entry.type === FileType.SYMLINK
-            ? 'symbolic link'
-            : 'file';
+    const kind = entryTypeLabel(entry);
 
     const size =
       entry.type === FileType.DIRECTORY
@@ -1424,18 +1424,19 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   get sortedEntries(): FileInfo[] {
-    return this.sortEntries(this.entries);
+    return projectSortedEntries(this.entries, {
+      sortField: this.sortField,
+      sortDirection: this.sortDirection,
+      directoriesFirst: this.directoriesFirst,
+    });
   }
 
   get visibleEntries(): FileInfo[] {
-    const sorted = this.sortedEntries;
-    const query = this.filterText.trim().toLocaleLowerCase();
-    if (!query) return sorted;
-
-    return sorted.filter(entry => {
-      const name = (entry.name ?? '').toLocaleLowerCase();
-      const path = (entry.path ?? '').toLocaleLowerCase();
-      return name.includes(query) || path.includes(query);
+    return projectEntries(this.entries, {
+      sortField: this.sortField,
+      sortDirection: this.sortDirection,
+      directoriesFirst: this.directoriesFirst,
+      filterText: this.filterText,
     });
   }
 
@@ -2614,19 +2615,11 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   private createMaskMatcher(mask: string): (name: string) => boolean {
-    const escaped = mask
-      .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-      .replace(/\*/g, '.*')
-      .replace(/\?/g, '.');
-
-    const expression = new RegExp(`^${escaped}$`, 'i');
-    return name => expression.test(name);
+    return createFilenameMaskMatcher(mask);
   }
 
   private extensionOf(name: string): string {
-    const index = name.lastIndexOf('.');
-    if (index <= 0 || index === name.length - 1) return '';
-    return name.slice(index + 1).toLocaleLowerCase();
+    return fileExtension(name);
   }
 
   private selectableEntries(): FileInfo[] {
@@ -3542,27 +3535,6 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     }
   }
 
-  private sortEntries(entries: FileInfo[]): FileInfo[] {
-    const direction = this.sortDirection === 'asc' ? 1 : -1;
-
-    return [...entries].sort((left, right) => {
-      if (this.directoriesFirst) {
-        const leftDirectory = left.type === FileType.DIRECTORY;
-        const rightDirectory = right.type === FileType.DIRECTORY;
-        if (leftDirectory !== rightDirectory) {
-          return leftDirectory ? -1 : 1;
-        }
-      }
-
-      const result = this.compareEntries(left, right);
-      if (result !== 0) return result * direction;
-
-      return (left.name ?? '').localeCompare(right.name ?? '', undefined, {
-        numeric: true,
-        sensitivity: 'base',
-      });
-    });
-  }
 
   private compareEntries(left: FileInfo, right: FileInfo): number {
     switch (this.sortField) {
@@ -4337,6 +4309,14 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     if (updated.kind === 'dir') {
       this.persistDirTabSession(updated);
     }
+  }
+
+  private sortEntries(entries: FileInfo[]): FileInfo[] {
+    return projectSortedEntries(entries, {
+      sortField: this.sortField,
+      sortDirection: this.sortDirection,
+      directoriesFirst: this.directoriesFirst,
+    });
   }
 
   private samePath(left: string, right: string): boolean {

@@ -10,6 +10,13 @@ interface PendingChordLike {
   steps: unknown[];
 }
 
+export interface ShortcutHelpItem {
+  id: string;
+  shortcut: string;
+  description: string;
+  category: string;
+}
+
 @Component({
   selector: 'app-shortcut-debug-overlay',
   standalone: true,
@@ -69,82 +76,25 @@ interface PendingChordLike {
         chord pending · {{ pendingChordStepCount(chord) }} step{{ pendingChordStepCount(chord) === 1 ? '' : 's' }}
       </div>
 
-      <div class="bindings">
-        <div><kbd>F1</kbd><span>show / hide keyboard shortcuts</span></div>
-        <div><kbd>Up</kbd><kbd>Down</kbd><span>cursor</span></div>
-        <div><kbd>Enter</kbd><span>open folder</span></div>
-        <div><kbd>Backspace</kbd><span>parent</span></div>
-        <div><kbd>Alt</kbd><span>+</span><kbd>Left/Right</kbd><span>history</span></div>
-        <div><kbd>Ctrl</kbd><span>+</span><kbd>L</kbd><span>location</span></div>
-        <div><kbd>Ctrl+Q</kbd><span>Quick Access · system/pins/related/frequent/recent</span></div>
-        <div><kbd>Ctrl+B</kbd><span>Quick Access · pinned locations</span></div>
-        <div><kbd>Ctrl+H</kbd><span>location history · pane/all/frequent</span></div>
-        <div><span>Address bar</span><span>click breadcrumbs to navigate</span></div>
-        <div><kbd>Ctrl</kbd><span>+</span><kbd>A</kbd><span>select all</span></div>
-        <div><kbd>Ctrl</kbd><span>+</span><kbd>R</kbd><span>refresh</span></div>
-        <div><kbd>F2</kbd><span>rename</span></div>
-        <div><kbd>F7</kbd><span>new folder</span></div>
-        <div><kbd>Delete/F8</kbd><span>delete</span></div>
-        <div><kbd>Ctrl+C/X/V</kbd><span>clipboard</span></div>
-        <div><kbd>Tab</kbd><span>switch pane</span></div>
-        <div><kbd>F5</kbd><span>copy to other pane</span></div>
-        <div><kbd>F6</kbd><span>move to other pane</span></div>
-        <div><kbd>Ctrl+T</kbd><span>new tab</span></div>
-        <div><kbd>Ctrl+W</kbd><span>close tab</span></div>
-        <div><kbd>Ctrl+Tab</kbd><span>next tab</span></div>
-        <div><kbd>Enter</kbd><span>folder or viewer</span></div>
-        <div><kbd>Left/Right</kbd><span>viewer previous/next</span></div>
-        <div><kbd>Ctrl++/-</kbd><span>viewer zoom</span></div>
-        <div><kbd>Ctrl+0/1</kbd><span>fit / actual size</span></div>
-        <div><span>Viewer tabs</span><span>workspace persisted · archive aware</span></div>
-        <div><span>Quick View</span><span>reuses auto-follow Preview tab</span></div>
-        <div><span>Viewer toolbar</span><span>source · prev/next · zoom · external</span></div>
-        <div><span>Open as</span><span>text · binary · image · markdown · PDF · legacy</span></div>
-        <div><kbd>Right click</kbd><span>command context menu</span></div>
-        <div><kbd>Drag</kbd><span>copy · Shift+drop move</span></div>
-        <div><span>Live operation stream</span><span>bottom-left</span></div>
-        <div><span>Directory tabs</span><span>workspace persisted</span></div>
-        <div><kbd>Drag divider</kbd><span>resize · double-click reset</span></div>
-        <div><kbd>Ctrl+F</kbd><span>filter folder</span></div>
-        <div><kbd>F3 / Shift+F3</kbd><span>next / previous match</span></div>
-        <div><kbd>Ctrl+Shift+H</kbd><span>show / hide hidden</span></div>
-        <div><kbd>Ctrl+Shift+W</kbd><span>workspace switcher</span></div>
-        <div><kbd>Ctrl+Shift+Alt+N</kbd><span>new workspace</span></div>
-        <div><kbd>Ctrl+H</kbd><span>path history</span></div>
-        <div><kbd>Ctrl+Q</kbd><span>quick access</span></div>
-        <div><kbd>☆ / ★</kbd><span>pin / unpin location</span></div>
-        <div><kbd>Ctrl+B</kbd><span>quick access → pinned</span></div>
-        <div><span>Pane footer</span><span>cursor · selection · capabilities</span></div>
-        <div><span>View</span><span>List / Grid / Details / Tree</span></div>
-        <div><span>Sort</span><span>Name / Size / Modified / Type</span></div>
-        <div><kbd>Ctrl+Shift+C</kbd><span>compare panes</span></div>
-        <div><kbd>Ctrl+Shift+Alt+C</kbd><span>recursive compare</span></div>
-        <div><kbd>Insert</kbd><span>toggle selection + advance</span></div>
-        <div><kbd>Shift+↑ / ↓</kbd><span>extend selection</span></div>
-        <div><kbd>Alt+S / Alt+U</kbd><span>select / unselect by mask</span></div>
-        <div><kbd>Alt+I</kbd><span>invert selection</span></div>
-        <div><kbd>Alt+E</kbd><span>select same extension</span></div>
-        <div><kbd>Ctrl+Alt+B</kbd><span>add selection to basket</span></div>
-        <div><kbd>Ctrl+Shift+B</kbd><span>open selection basket</span></div>
-        <div><kbd>Ctrl+Shift+D</kbd><span>disk usage</span></div>
-        <div><span>Tools Center</span><span>1 operations · 2 disk · 3 duplicates · R rescan</span></div>
-        <div><span>Duplicates</span><span>A select · U unselect · B basket · Delete remove</span></div>
-        <div><span>Pane compare</span><span>refresh · review sync · send differences to basket</span></div>
-        <div><kbd>Ctrl+Shift+R</kbd><span>batch rename</span></div>
-        <div><kbd>Ctrl+Tab / Ctrl+Shift+Tab</kbd><span>next / previous tab</span></div>
-        <div><kbd>Alt+Shift+← / →</kbd><span>resize pane split</span></div>
-        <div><kbd>Alt+Shift+0</kbd><span>reset pane split</span></div>
-        <div><kbd>Ctrl+Shift+P</kbd><span>command palette</span></div>
-        <div><kbd>Ctrl+Alt+P</kbd><span>pin / unpin tab</span></div>
-        <div><kbd>Ctrl+1…9</kbd><span>jump to tab</span></div>
-        <div><span>Tab menu</span><span>reorder · move to other pane</span></div>
-        <div><span>Tools</span><span>operations · disk usage · duplicates</span></div>
-        <div><span>Archives</span><span>open · nested browse · extract · F5/F6 · delete</span></div>
-        <div><kbd>Ctrl+K</kbd><span>global search</span></div>
-        <div><kbd>Ctrl+P</kbd><span>quick path jump</span></div>
-        <div><kbd>F3</kbd><span>quick view</span></div>
-        <div><kbd>Ctrl+Shift+O</kbd><span>open externally</span></div>
-        <div><kbd>Tree ← / →</kbd><span>collapse-parent / expand-child</span></div>
+      <div class="binding-toolbar">
+        <strong>Live bindings</strong>
+        <span>{{ bindings.length }} registered manager shortcuts</span>
+      </div>
+
+      <div class="bindings live-bindings">
+        <div *ngFor="let binding of bindings; trackBy: trackBinding">
+          <kbd>{{ binding.shortcut }}</kbd>
+          <span>{{ binding.description }}</span>
+          <small>{{ binding.category }}</small>
+        </div>
+      </div>
+
+      <div class="binding-notes">
+        <strong>Context notes</strong>
+        <span>F3 / Shift+F3 navigate inline-filter matches while the filter owns focus.</span>
+        <span>Viewer Left/Right and zoom keys are enabled only when the active viewer implements them.</span>
+        <span>Overlay/dialog contexts override manager bindings while they are active.</span>
+        <span>Embedded browser panes may forward function/modifier keys through their host bridge; the file-manager shell itself does not install global keyboard listeners.</span>
       </div>
 
       <footer>
@@ -244,6 +194,41 @@ interface PendingChordLike {
       font: 10px/1.5 var(--vsc-font-family-mono, ui-monospace, monospace);
     }
 
+    .binding-toolbar {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      margin-top: 8px;
+      color: var(--vsc-description-foreground, #969696);
+    }
+
+    .binding-toolbar strong {
+      color: var(--vsc-foreground, #cccccc);
+    }
+
+    .live-bindings > div {
+      grid-template-columns: minmax(110px, auto) minmax(0, 1fr) auto;
+    }
+
+    .live-bindings small {
+      color: var(--vsc-description-foreground, #969696);
+      white-space: nowrap;
+    }
+
+    .binding-notes {
+      display: grid;
+      gap: 4px;
+      margin-top: 8px;
+      padding-top: 7px;
+      border-top: 1px solid var(--vsc-border-subtle, #2b2b2b);
+      color: var(--vsc-description-foreground, #969696);
+      font-size: 10px;
+    }
+
+    .binding-notes strong {
+      color: var(--vsc-foreground, #cccccc);
+    }
+
     .pending {
       margin-top: 7px;
       color: var(--vsc-accent-blue, #4aa3ff);
@@ -280,8 +265,13 @@ export class ShortcutDebugOverlayComponent {
   @Input() surfaceKind = 'dir';
   @Input() splitPercent = 50;
   @Input() showHidden = false;
+  @Input() bindings: readonly ShortcutHelpItem[] = [];
 
   constructor(public readonly input: InputEngineService) {}
+
+  trackBinding(_index: number, binding: ShortcutHelpItem): string {
+    return binding.id;
+  }
 
   protected pendingChordStepCount(value: unknown): number {
     if (!value || typeof value !== 'object') {

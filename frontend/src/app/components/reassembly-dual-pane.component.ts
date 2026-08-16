@@ -223,7 +223,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   { id:'reassembly.workspace.new.ctrlShiftAltN', commandId:COMMAND.newWorkspace, contextId:CONTEXT_ID, source:'default', description:'Create workspace', category:'Workspace', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'n', modifiers:['ctrl','shift','alt']}]}}},
   { id:'reassembly.navigation.pathHistory.ctrlH', commandId:COMMAND.showPathHistory, contextId:CONTEXT_ID, source:'default', description:'Show path history', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'h', modifiers:['ctrl']}]}}},
   { id:'reassembly.navigation.quickAccess.ctrlQ', commandId:COMMAND.showQuickAccess, contextId:CONTEXT_ID, source:'default', description:'Open Quick Access', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'q', modifiers:['ctrl']}]}}},
-  { id:'reassembly.navigation.pinnedLocations.ctrlB', commandId:COMMAND.showPinnedLocations, contextId:CONTEXT_ID, source:'default', description:'Open Quick Access pinned section', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'b', modifiers:['ctrl']}]}}},  { id:'reassembly.tree.left.arrowLeft', commandId:COMMAND.treeLeft, contextId:CONTEXT_ID, source:'default', description:'Tree collapse or parent', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'arrowleft'}]}}},
+  { id:'reassembly.navigation.pinnedLocations.ctrlB', commandId:COMMAND.showPinnedLocations, contextId:CONTEXT_ID, source:'default', description:'Open Quick Access pinned section', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'b', modifiers:['ctrl']}]}}},
+  { id:'reassembly.tree.left.arrowLeft', commandId:COMMAND.treeLeft, contextId:CONTEXT_ID, source:'default', description:'Tree collapse or parent', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'arrowleft'}]}}},
   { id:'reassembly.tree.right.arrowRight', commandId:COMMAND.treeRight, contextId:CONTEXT_ID, source:'default', description:'Tree expand or child', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'arrowright'}]}}},
   { id:'reassembly.compare.toggle.ctrlShiftC', commandId:COMMAND.comparePanes, contextId:CONTEXT_ID, source:'default', description:'Compare panes', category:'Pane Control', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'c', modifiers:['ctrl','shift']}]}}},
   { id:'reassembly.compare.recursive.ctrlShiftAltC', commandId:COMMAND.recursiveComparePanes, contextId:CONTEXT_ID, source:'default', description:'Recursive pane compare', category:'Pane Control', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'c', modifiers:['ctrl','shift','alt']}]}}},
@@ -578,6 +579,27 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
   get layoutColumns(): string {
     const left = this.clampPanePercent(this.leftPanePercent);
     return `minmax(0, ${left}fr) 5px minmax(0, ${100 - left}fr)`;
+  }
+
+  get shortcutHelpItems(): readonly {
+    id: string;
+    shortcut: string;
+    description: string;
+    category: string;
+  }[] {
+    return BINDINGS
+      .filter(binding => binding.trigger.device === 'keyboard')
+      .map(binding => ({
+        id: binding.id,
+        shortcut: this.formatKeyboardBinding(binding),
+        description: binding.description,
+        category: binding.category ?? 'General',
+      }))
+      .sort((left, right) =>
+        left.category.localeCompare(right.category) ||
+        left.description.localeCompare(right.description) ||
+        left.shortcut.localeCompare(right.shortcut),
+      );
   }
 
   get activePane(): ReassemblyDirectoryPaneComponent | undefined {
@@ -1930,27 +1952,46 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       candidate.commandId === commandId &&
       candidate.trigger.device === 'keyboard',
     );
-    if (!binding || binding.trigger.device !== 'keyboard') return undefined;
+    return binding ? this.formatKeyboardBinding(binding) : undefined;
+  }
 
-    const step = binding.trigger.chord.steps[0];
-    if (!step) return undefined;
+  private formatKeyboardBinding(
+    binding: InputBindingDefinition,
+  ): string {
+    if (binding.trigger.device !== 'keyboard') return '';
 
-    const modifiers = (step.modifiers ?? []).map(modifier => {
-      if (modifier === 'ctrl') return 'Ctrl';
-      if (modifier === 'shift') return 'Shift';
-      if (modifier === 'alt') return 'Alt';
-      if (modifier === 'meta') return 'Meta';
-      return modifier;
-    });
+    return binding.trigger.chord.steps
+      .map(step => {
+        const modifiers = (step.modifiers ?? []).map(modifier => {
+          if (modifier === 'ctrl') return 'Ctrl';
+          if (modifier === 'shift') return 'Shift';
+          if (modifier === 'alt') return 'Alt';
+          if (modifier === 'meta') return 'Meta';
+          return modifier;
+        });
 
-    const names: Record<string,string> = {
-      arrowup:'↑', arrowdown:'↓', arrowleft:'←', arrowright:'→',
-      escape:'Esc', backspace:'Backspace', delete:'Delete',
-      insert:'Insert', pageup:'PageUp', pagedown:'PageDown',
-      tab:'Tab', enter:'Enter', home:'Home', end:'End',
-    };
+        const names: Record<string, string> = {
+          arrowup: '↑',
+          arrowdown: '↓',
+          arrowleft: '←',
+          arrowright: '→',
+          escape: 'Esc',
+          backspace: 'Backspace',
+          delete: 'Delete',
+          insert: 'Insert',
+          pageup: 'PageUp',
+          pagedown: 'PageDown',
+          tab: 'Tab',
+          enter: 'Enter',
+          home: 'Home',
+          end: 'End',
+          ' ': 'Space',
+        };
 
-    return [...modifiers, names[step.key] ?? step.key.toUpperCase()].join('+');
+        const key = names[step.key] ?? step.key.toUpperCase();
+        return [...modifiers, key].join('+');
+      })
+      .join(' then ');
   }
 
   private registerCommands(): void {

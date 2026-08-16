@@ -32,6 +32,12 @@ import { EventsEmit } from 'wailsjs/runtime';
 import { app, contracts, elevation, plugin } from '../../../wailsjs/go/models';
 
 /** Mirror of Go's ElevatedSessionStatus struct. */
+export interface PathCapacity {
+  totalSpace: number;
+  freeSpace: number;
+  fileSystem?: string | null;
+}
+
 export interface TrashEntry {
   id: string;
   name: string;
@@ -251,6 +257,16 @@ export class ApiService {
 
   async getOSInfo(): Promise<any> {
 	    return await window.go.app.App.GetOSInfo();
+  }
+
+  async getPathCapacity(path: string): Promise<PathCapacity> {
+    const app = window.go.app.App as unknown as {
+      GetPathCapacity(path: string): Promise<PathCapacity>;
+    };
+
+    return await app.GetPathCapacity(
+      this.normalizeCanonicalPath(path),
+    );
   }
 
   async createShortcut(

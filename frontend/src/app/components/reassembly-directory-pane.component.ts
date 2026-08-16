@@ -498,8 +498,8 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
           class="footer-item capacity"
           *ngIf="driveTotalBytes > 0"
           [title]="driveCapacityTitle">
-          {{ formatSize(driveFreeBytes) }} free
-          · {{ formatSize(driveTotalBytes) }} total
+          Disk: {{ formatSize(driveFreeBytes) }} free
+          / {{ formatSize(driveTotalBytes) }}
           <ng-container *ngIf="driveFileSystem">
             · {{ driveFileSystem }}
           </ng-container>
@@ -1099,6 +1099,13 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
       min-width: 8px;
     }
 
+    .footer-item.capacity {
+      flex: 0 0 auto;
+      max-width: 280px;
+      color: var(--vsc-foreground, #cccccc);
+      font-variant-numeric: tabular-nums;
+    }
+
     .footer-item.capability {
       flex: 0 0 auto;
       color: var(--vsc-accent-blue, #4aa3ff);
@@ -1424,32 +1431,17 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       return;
     }
 
-    const response = await this.api.getDrives().catch(() => null);
-    if (!response) return;
+    try {
+      const capacity = await this.api.getPathCapacity(path);
 
-    const normalize = (value: string) =>
-      value.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
-
-    const current = normalize(path);
-    const candidates = (response.schemes ?? [])
-      .filter(drive => {
-        const root = normalize(drive.path);
-        return !!root &&
-          (current === root || current.startsWith(`${root}/`));
-      })
-      .sort((a, b) => normalize(b.path).length - normalize(a.path).length);
-
-    const drive = candidates[0];
-    if (!drive) {
+      this.driveFreeBytes = Number(capacity.freeSpace) || 0;
+      this.driveTotalBytes = Number(capacity.totalSpace) || 0;
+      this.driveFileSystem = capacity.fileSystem || '';
+    } catch {
       this.driveFreeBytes = 0;
       this.driveTotalBytes = 0;
       this.driveFileSystem = '';
-      return;
     }
-
-    this.driveFreeBytes = Number(drive.freeSpace) || 0;
-    this.driveTotalBytes = Number(drive.totalSpace) || 0;
-    this.driveFileSystem = drive.fileSystem || '';
   }
 
   get activeTab(): ReassemblyTab | null {

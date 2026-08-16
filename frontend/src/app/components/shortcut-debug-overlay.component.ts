@@ -122,6 +122,9 @@ interface PendingChordLike {
         <div><kbd>Ctrl+Alt+B</kbd><span>add selection to basket</span></div>
         <div><kbd>Ctrl+Shift+B</kbd><span>open selection basket</span></div>
         <div><kbd>Ctrl+Shift+D</kbd><span>disk usage</span></div>
+        <div><span>Tools Center</span><span>1 operations · 2 disk · 3 duplicates · R rescan</span></div>
+        <div><span>Duplicates</span><span>A select · U unselect · B basket · Delete remove</span></div>
+        <div><span>Pane compare</span><span>refresh · review sync · send differences to basket</span></div>
         <div><kbd>Ctrl+Shift+R</kbd><span>batch rename</span></div>
         <div><kbd>Ctrl+Tab / Ctrl+Shift+Tab</kbd><span>next / previous tab</span></div>
         <div><kbd>Ctrl+Shift+P</kbd><span>command palette</span></div>

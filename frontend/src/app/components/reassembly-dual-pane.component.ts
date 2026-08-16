@@ -129,6 +129,10 @@ const COMMAND = {
   selectRightDifferences: 'reassembly.compare.selectRightDifferences',
   copyMissingLeftToRight: 'reassembly.compare.copyMissingLeftToRight',
   copyMissingRightToLeft: 'reassembly.compare.copyMissingRightToLeft',
+  refreshComparison: 'reassembly.compare.refresh',
+  addLeftDifferencesToBasket: 'reassembly.compare.basketLeft',
+  addRightDifferencesToBasket: 'reassembly.compare.basketRight',
+  addAllDifferencesToBasket: 'reassembly.compare.basketAll',
 
   toggleCurrentSelection: 'reassembly.selection.toggleCurrent',
   extendSelectionUp: 'reassembly.selection.extendUp',
@@ -355,7 +359,9 @@ const BINDINGS: readonly InputBindingDefinition[] = [
 
       <app-reassembly-tools-center
         #toolsCenter
-        (changed)="refreshBothPanes()">
+        (changed)="refreshBothPanes()"
+        (navigateTo)="navigateFromTools($event)"
+        (openBasketRequested)="selectionBasket?.open()">
       </app-reassembly-tools-center>
 
       <app-selection-basket
@@ -520,6 +526,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
   recursiveComparisonScanning = false;
   recursiveComparisonError = '';
   recursiveComparisonResult: PaneComparisonResult | null = null;
+  recursiveComparisonRoots: { left: string; right: string } | null = null;
 
   lastTransfer = 'none';
   lastDrop = 'none';
@@ -695,6 +702,19 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
 
     pane.navigateTo(target);
     pane.lastAction = `search folder: ${target}`;
+    this.cdr.markForCheck();
+  }
+
+  navigateFromTools(path: string): void {
+    const pane = this.activePane?.isDirectoryTab
+      ? this.activePane
+      : this.otherPane?.isDirectoryTab
+        ? this.otherPane
+        : null;
+
+    if (!pane || !path) return;
+    pane.navigateTo(path);
+    pane.lastAction = `tools: ${path}`;
     this.cdr.markForCheck();
   }
 
@@ -1024,8 +1044,15 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
   }
 
   get paneComparisonResult(): PaneComparisonResult {
-    if (this.comparisonRecursive && this.recursiveComparisonResult) {
-      return this.recursiveComparisonResult;
+    const recursiveCurrent =
+      this.comparisonRecursive &&
+      !!this.recursiveComparisonResult &&
+      !!this.recursiveComparisonRoots &&
+      this.recursiveComparisonRoots.left === this.leftPane?.path &&
+      this.recursiveComparisonRoots.right === this.rightPane?.path;
+
+    if (recursiveCurrent) {
+      return this.recursiveComparisonResult!;
     }
 
     return this.paneComparison.compare(
@@ -1083,6 +1110,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       await this.refreshRecursiveComparison();
     } else {
       this.recursiveComparisonResult = null;
+      this.recursiveComparisonRoots = null;
       this.recursiveComparisonError = '';
       this.cdr.markForCheck();
     }
@@ -1104,6 +1132,10 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       );
 
       this.recursiveComparisonResult = result.comparison;
+      this.recursiveComparisonRoots = {
+        left: this.leftPane.path,
+        right: this.rightPane.path,
+      };
 
       if (result.truncated) {
         this.recursiveComparisonError =
@@ -1114,12 +1146,62 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       }
     } catch (error) {
       this.recursiveComparisonResult = null;
+      this.recursiveComparisonRoots = null;
       this.recursiveComparisonError =
         error instanceof Error ? error.message : String(error);
     } finally {
       this.recursiveComparisonScanning = false;
       this.cdr.markForCheck();
     }
+  }
+
+  async refreshComparison(): Promise<void> {
+    if (!this.canComparePanes()) return;
+
+    await Promise.all([
+      this.leftPane?.refresh(),
+      this.rightPane?.refresh(),
+    ]);
+
+    if (this.comparisonRecursive) {
+      await this.refreshRecursiveComparison();
+    }
+
+    this.cdr.markForCheck();
+  }
+
+  addComparisonDifferencesToBasket(side: PaneId | 'both'): void {
+    if (!this.canComparePanes()) return;
+
+    const result = this.paneComparisonResult;
+    const paths = new Set<string>();
+
+    for (const item of result.items) {
+      if (
+        (side === 'left' || side === 'both') &&
+        item.left &&
+        item.status !== 'same'
+      ) {
+        paths.add(item.left.path);
+      }
+
+      if (
+        (side === 'right' || side === 'both') &&
+        item.right &&
+        item.status !== 'same'
+      ) {
+        paths.add(item.right.path);
+      }
+    }
+
+    if (paths.size === 0) return;
+
+    this.selectionBasketService.add(
+      Array.from(paths),
+      `comparison:${side}`,
+    );
+    this.selectionBasket?.open();
+    this.cdr.markForCheck();
   }
 
   selectComparisonDifferences(side: PaneId): void {
@@ -2000,6 +2082,34 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       'Pane Control',
       () => this.copyMissingComparison('right'),
       () => this.canComparePanes() && this.paneComparisonResult.summary.onlyRight > 0,
+    );
+    descriptor(
+      COMMAND.refreshComparison,
+      'Refresh Pane Comparison',
+      'Pane Control',
+      () => this.refreshComparison(),
+      () => this.canComparePanes(),
+    );
+    descriptor(
+      COMMAND.addLeftDifferencesToBasket,
+      'Add Left Differences to Basket',
+      'Pane Control',
+      () => this.addComparisonDifferencesToBasket('left'),
+      () => this.canComparePanes(),
+    );
+    descriptor(
+      COMMAND.addRightDifferencesToBasket,
+      'Add Right Differences to Basket',
+      'Pane Control',
+      () => this.addComparisonDifferencesToBasket('right'),
+      () => this.canComparePanes(),
+    );
+    descriptor(
+      COMMAND.addAllDifferencesToBasket,
+      'Add All Differences to Basket',
+      'Pane Control',
+      () => this.addComparisonDifferencesToBasket('both'),
+      () => this.canComparePanes(),
     );
 
     descriptor(COMMAND.toggleCurrentSelection, 'Toggle Current Selection', 'Selection', () => this.activePane?.toggleCurrentSelection(), () => !!this.activePane?.isDirectoryTab);

@@ -25,6 +25,8 @@ import {
 } from '../services/operation.service';
 import { SelectionBasketService } from '../services/selection-basket.service';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
+import { InputEngineService } from '../services/input-engine.service';
+import type { InputBindingDefinition } from '../services/input-system.types';
 import type {
   DiskUsageEntry,
   DiskUsageProgress,
@@ -32,6 +34,36 @@ import type {
 } from '../shared/protocol-enhanced';
 
 type ToolPage = 'operations' | 'disk' | 'duplicates';
+type OperationFilter = 'all' | 'active' | 'completed' | 'failed';
+type DiskSort = 'size' | 'files' | 'name';
+type DuplicateSort = 'reclaimable' | 'size' | 'copies';
+
+const CONTEXT_ID = 'overlay.reassemblyTools';
+const OWNER_ID = 'overlay.reassemblyTools';
+
+const COMMAND = {
+  close: 'reassembly.toolsCenter.close',
+  operations: 'reassembly.toolsCenter.operations',
+  disk: 'reassembly.toolsCenter.disk',
+  duplicates: 'reassembly.toolsCenter.duplicates',
+  rescan: 'reassembly.toolsCenter.rescan',
+  selectAllDuplicates: 'reassembly.toolsCenter.selectAllDuplicates',
+  clearDuplicateSelection: 'reassembly.toolsCenter.clearDuplicateSelection',
+  addDuplicatesToBasket: 'reassembly.toolsCenter.addDuplicatesToBasket',
+  deleteDuplicates: 'reassembly.toolsCenter.deleteDuplicates',
+} as const;
+
+const BINDINGS: readonly InputBindingDefinition[] = [
+  { id:'reassembly.toolsCenter.escape', commandId:COMMAND.close, contextId:CONTEXT_ID, source:'default', description:'Close Tools Center', category:'Tools', trigger:{device:'keyboard', chord:{steps:[{key:'escape'}]}}},
+  { id:'reassembly.toolsCenter.page1', commandId:COMMAND.operations, contextId:CONTEXT_ID, source:'default', description:'Operations page', category:'Tools', trigger:{device:'keyboard', chord:{steps:[{key:'1'}]}}},
+  { id:'reassembly.toolsCenter.page2', commandId:COMMAND.disk, contextId:CONTEXT_ID, source:'default', description:'Disk Usage page', category:'Tools', trigger:{device:'keyboard', chord:{steps:[{key:'2'}]}}},
+  { id:'reassembly.toolsCenter.page3', commandId:COMMAND.duplicates, contextId:CONTEXT_ID, source:'default', description:'Duplicates page', category:'Tools', trigger:{device:'keyboard', chord:{steps:[{key:'3'}]}}},
+  { id:'reassembly.toolsCenter.rescan', commandId:COMMAND.rescan, contextId:CONTEXT_ID, source:'default', description:'Rescan current tool', category:'Tools', trigger:{device:'keyboard', chord:{steps:[{key:'r'}]}}},
+  { id:'reassembly.toolsCenter.selectAllDuplicates', commandId:COMMAND.selectAllDuplicates, contextId:CONTEXT_ID, source:'default', description:'Select reclaimable duplicates', category:'Tools', trigger:{device:'keyboard', chord:{steps:[{key:'a'}]}}},
+  { id:'reassembly.toolsCenter.clearDuplicateSelection', commandId:COMMAND.clearDuplicateSelection, contextId:CONTEXT_ID, source:'default', description:'Clear duplicate selection', category:'Tools', trigger:{device:'keyboard', chord:{steps:[{key:'u'}]}}},
+  { id:'reassembly.toolsCenter.addDuplicatesToBasket', commandId:COMMAND.addDuplicatesToBasket, contextId:CONTEXT_ID, source:'default', description:'Add duplicate selection to basket', category:'Tools', trigger:{device:'keyboard', chord:{steps:[{key:'b'}]}}},
+  { id:'reassembly.toolsCenter.deleteDuplicates', commandId:COMMAND.deleteDuplicates, contextId:CONTEXT_ID, source:'default', description:'Delete selected duplicates', category:'Tools', trigger:{device:'keyboard', chord:{steps:[{key:'delete'}]}}},
+];
 
 @Component({
   selector: 'app-reassembly-tools-center',
@@ -59,12 +91,26 @@ type ToolPage = 'operations' | 'disk' | 'duplicates';
         </nav>
 
         <div class="body" *ngIf="page === 'operations'">
+          <div class="tool-actions operation-filters">
+            <label>
+              Show
+              <select [(ngModel)]="operationFilter">
+                <option value="all">All</option>
+                <option value="active">Active</option>
+                <option value="completed">Completed</option>
+                <option value="failed">Failed</option>
+              </select>
+            </label>
+          </div>
+
           <div class="summary">
             <span>{{ activeOperations.length }} active</span>
+            <span>{{ completedOperationCount }} completed</span>
+            <span>{{ failedOperationCount }} failed</span>
             <span>{{ history.length }} recent</span>
           </div>
 
-          <article class="operation" *ngFor="let operation of activeOperations; trackBy:trackOperation">
+          <article class="operation" *ngFor="let operation of filteredActiveOperations; trackBy:trackOperation">
             <div class="row">
               <strong>{{ operation.config.title }}</strong>
               <span>{{ operation.status }}</span>
@@ -75,8 +121,8 @@ type ToolPage = 'operations' | 'disk' | 'duplicates';
             <small *ngIf="operation.metrics.currentFile">{{ operation.metrics.currentFile }}</small>
           </article>
 
-          <div class="history-title" *ngIf="history.length">Recent</div>
-          <article class="operation history" *ngFor="let operation of history; trackBy:trackOperation">
+          <div class="history-title" *ngIf="filteredHistory.length">Recent</div>
+          <article class="operation history" *ngFor="let operation of filteredHistory; trackBy:trackOperation">
             <div class="row">
               <strong>{{ operation.config.title }}</strong>
               <span>{{ operation.status }}</span>
@@ -84,8 +130,8 @@ type ToolPage = 'operations' | 'disk' | 'duplicates';
             <small>{{ operation.completedAt | date:'short' }}</small>
           </article>
 
-          <div class="empty" *ngIf="activeOperations.length === 0 && history.length === 0">
-            No file operations yet.
+          <div class="empty" *ngIf="filteredActiveOperations.length === 0 && filteredHistory.length === 0">
+            No operations match this view.
           </div>
         </div>
 
@@ -95,6 +141,14 @@ type ToolPage = 'operations' | 'disk' | 'duplicates';
               {{ diskScanning ? 'Scanning…' : 'Scan current directory' }}
             </button>
             <button type="button" *ngIf="diskScanning" (click)="cancelDisk()">Cancel</button>
+            <label>
+              Sort
+              <select [(ngModel)]="diskSort">
+                <option value="size">Size</option>
+                <option value="files">Files</option>
+                <option value="name">Name</option>
+              </select>
+            </label>
           </div>
 
           <div class="summary" *ngIf="diskProgress">
@@ -104,12 +158,18 @@ type ToolPage = 'operations' | 'disk' | 'duplicates';
           </div>
 
           <div class="disk-list" *ngIf="diskEntries.length">
-            <article class="disk-row" *ngFor="let entry of diskEntries; trackBy:trackDisk">
+            <button
+              type="button"
+              class="disk-row disk-row-button"
+              *ngFor="let entry of sortedDiskEntries; trackBy:trackDisk"
+              [class.navigable]="entry.isDir"
+              [disabled]="!entry.isDir"
+              (click)="openDiskEntry(entry)">
               <span class="name" [title]="entry.path">{{ entry.name }}</span>
               <span>{{ formatBytes(entry.size) }}</span>
               <span>{{ entry.files }} files</span>
               <div class="bar"><i [style.width.%]="diskPercent(entry)"></i></div>
-            </article>
+            </button>
           </div>
 
           <div class="empty" *ngIf="!diskScanning && diskEntries.length === 0">
@@ -128,8 +188,22 @@ type ToolPage = 'operations' | 'disk' | 'duplicates';
               <input type="checkbox" [(ngModel)]="duplicateIncludeHidden" [disabled]="duplicateScanning">
               Hidden
             </label>
+            <label>
+              Sort
+              <select [(ngModel)]="duplicateSort" [disabled]="duplicateScanning">
+                <option value="reclaimable">Reclaimable</option>
+                <option value="size">File size</option>
+                <option value="copies">Copies</option>
+              </select>
+            </label>
             <button type="button" (click)="scanDuplicates()" [disabled]="duplicateScanning || !rootPath">
               {{ duplicateScanning ? 'Scanning…' : 'Scan' }}
+            </button>
+            <button type="button" [disabled]="duplicateGroups.length === 0" (click)="selectAllDuplicates()">
+              Select reclaimable
+            </button>
+            <button type="button" [disabled]="duplicateSelected.size === 0" (click)="clearDuplicateSelection()">
+              Unselect
             </button>
             <button type="button" [disabled]="duplicateSelected.size === 0" (click)="collectDuplicateSelection()">
               Add to Basket
@@ -164,7 +238,13 @@ type ToolPage = 'operations' | 'disk' | 'duplicates';
                 [checked]="duplicateSelected.has(file.path)"
                 [disabled]="file.path === group.suggestedKeeperPath"
                 (change)="toggleDuplicate(file.path)">
-              <span class="path" [title]="file.path">{{ file.path }}</span>
+              <button
+                type="button"
+                class="path path-button"
+                [title]="'Open containing folder: ' + file.path"
+                (click)="openContainingFolder(file.path); $event.preventDefault()">
+                {{ file.path }}
+              </button>
               <small *ngIf="file.path === group.suggestedKeeperPath">keeper</small>
             </label>
           </section>
@@ -178,6 +258,11 @@ type ToolPage = 'operations' | 'disk' | 'duplicates';
           </div>
           <div class="error" *ngIf="duplicateError">{{ duplicateError }}</div>
         </div>
+
+        <footer class="tool-keys">
+          <span>1 Operations · 2 Disk · 3 Duplicates · R rescan · Esc close</span>
+          <span *ngIf="page === 'duplicates'">A select · U unselect · B basket · Delete remove</span>
+        </footer>
       </section>
     </div>
   `,
@@ -187,7 +272,7 @@ type ToolPage = 'operations' | 'disk' | 'duplicates';
     .tools{width:min(900px,calc(100vw - 30px));height:min(760px,calc(100vh - 30px));display:flex;flex-direction:column;overflow:hidden;border:1px solid var(--vsc-border,#454545);border-radius:8px;background:var(--vsc-panel-background,#1e1e1e);color:var(--vsc-foreground,#ccc);box-shadow:0 18px 70px rgba(0,0,0,.5);font:12px/1.4 var(--vsc-font-family,system-ui,sans-serif)}
     header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border-bottom:1px solid var(--vsc-border,#333)}
     header>div{min-width:0;display:flex;gap:10px;align-items:baseline}.root{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--vsc-description-foreground,#969696);font-family:var(--vsc-font-family-mono,ui-monospace,monospace)}
-    button,input{font:inherit}.close{border:0;background:transparent;color:inherit;font-size:20px;cursor:pointer}
+    button,input,select{font:inherit}.close{border:0;background:transparent;color:inherit;font-size:20px;cursor:pointer}
     nav{display:flex;gap:2px;padding:5px;border-bottom:1px solid var(--vsc-border,#333)}
     nav button,.tool-actions button{border:1px solid transparent;border-radius:4px;background:transparent;color:inherit;padding:5px 9px;cursor:pointer}
     nav button.active,.tool-actions button:hover:not(:disabled){background:var(--vsc-list-hover-background,#2a2d2e);border-color:var(--vsc-border,#454545)}
@@ -200,10 +285,17 @@ type ToolPage = 'operations' | 'disk' | 'duplicates';
     .duplicate-group{margin:8px 12px;border:1px solid var(--vsc-border,#3a3a3a);border-radius:5px;overflow:hidden}.duplicate-group>header{padding:7px 9px;background:rgba(127,127,127,.07);font-size:11px}.duplicate-file{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:7px;align-items:center;padding:6px 9px;border-top:1px solid rgba(127,127,127,.1)}.duplicate-file small{color:var(--vsc-accent-green,#4ec9b0)}
     .empty{padding:48px 20px;text-align:center;color:var(--vsc-description-foreground,#969696)}.error,.warnings{margin:8px 12px;padding:8px;border-radius:4px}.error{color:var(--vsc-error-foreground,#f48771);background:rgba(244,135,113,.08)}.warnings{color:#d7ba7d;background:rgba(215,186,125,.07)}
     button:disabled{opacity:.4;cursor:default}
+    .disk-row-button{border-left:0;border-right:0;background:transparent;color:inherit;text-align:left;width:100%}
+    .disk-row-button.navigable{cursor:pointer}.disk-row-button.navigable:hover{background:var(--vsc-list-hover-background,#2a2d2e)}.disk-row-button:disabled{opacity:1}
+    .path-button{border:0;background:transparent;color:inherit;text-align:left;padding:2px 4px;border-radius:3px;cursor:pointer}.path-button:hover{background:var(--vsc-list-hover-background,#2a2d2e)}
+    .tool-keys{display:flex;justify-content:space-between;gap:12px;padding:7px 10px;border-top:1px solid var(--vsc-border,#333);color:var(--vsc-description-foreground,#969696);font-size:10px}
+    .operation-filters{justify-content:flex-end}
   `],
 })
 export class ReassemblyToolsCenterComponent implements OnInit, OnDestroy {
   @Output() changed = new EventEmitter<void>();
+  @Output() navigateTo = new EventEmitter<string>();
+  @Output() openBasketRequested = new EventEmitter<void>();
 
   visible = false;
   page: ToolPage = 'operations';
@@ -211,14 +303,17 @@ export class ReassemblyToolsCenterComponent implements OnInit, OnDestroy {
 
   activeOperations: OperationState[] = [];
   history: OperationHistoryEntry[] = [];
+  operationFilter: OperationFilter = 'all';
 
   diskScanning = false;
+  diskSort: DiskSort = 'size';
   diskProgress: DiskUsageProgress | DiskUsageResult | null = null;
   diskEntries: DiskUsageEntry[] = [];
   diskError = '';
   private diskAbort: AbortController | null = null;
 
   duplicateMinSize = 1;
+  duplicateSort: DuplicateSort = 'reclaimable';
   duplicateIncludeHidden = false;
   duplicateScanning = false;
   duplicateProgress: DuplicateScanProgress | null = null;
@@ -234,13 +329,60 @@ export class ReassemblyToolsCenterComponent implements OnInit, OnDestroy {
     private readonly operations: OperationService,
     private readonly basket: SelectionBasketService,
     private readonly confirm: ConfirmDialogService,
+    private readonly input: InputEngineService,
     private readonly cdr: ChangeDetectorRef,
   ) {}
 
+  get filteredActiveOperations(): OperationState[] {
+    if (this.operationFilter === 'completed' || this.operationFilter === 'failed') {
+      return [];
+    }
+    return this.activeOperations;
+  }
+
+  get filteredHistory(): OperationHistoryEntry[] {
+    if (this.operationFilter === 'active') return [];
+    if (this.operationFilter === 'failed') {
+      return this.history.filter(
+        item => item.status === 'error' || item.status === 'cancelled',
+      );
+    }
+    if (this.operationFilter === 'completed') {
+      return this.history.filter(item => item.status === 'completed');
+    }
+    return this.history;
+  }
+
+  get completedOperationCount(): number {
+    return this.history.filter(item => item.status === 'completed').length;
+  }
+
+  get failedOperationCount(): number {
+    return this.history.filter(
+      item => item.status === 'error' || item.status === 'cancelled',
+    ).length;
+  }
+
+  get sortedDiskEntries(): DiskUsageEntry[] {
+    const entries = [...this.diskEntries];
+    if (this.diskSort === 'files') {
+      return entries.sort((a,b) => (b.files ?? 0) - (a.files ?? 0));
+    }
+    if (this.diskSort === 'name') {
+      return entries.sort((a,b) => (a.name ?? '').localeCompare(b.name ?? ''));
+    }
+    return entries.sort((a,b) => (b.size ?? 0) - (a.size ?? 0));
+  }
+
   get duplicateGroups(): DuplicateGroup[] {
-    return [...(this.duplicateResult?.groups ?? [])].sort(
-      (a,b) => b.reclaimableBytes - a.reclaimableBytes
-    );
+    const groups = [...(this.duplicateResult?.groups ?? [])];
+    if (this.duplicateSort === 'size') {
+      return groups.sort((a,b) => b.size - a.size);
+    }
+    if (this.duplicateSort === 'copies') {
+      return groups.sort((a,b) => b.files.length - a.files.length);
+    }
+    return groups.sort((a,b) => b.reclaimableBytes - a.reclaimableBytes);
   }
 
   ngOnInit(): void {
@@ -257,18 +399,56 @@ export class ReassemblyToolsCenterComponent implements OnInit, OnDestroy {
         this.history = [...items].slice(-50).reverse();
         this.cdr.markForCheck();
       });
+
+    this.input.registerContext({
+      id: CONTEXT_ID,
+      kind: 'overlay',
+      priority: 395,
+      parentId: 'global',
+      description: 'Reassembly tools center',
+    });
+
+    this.input.registerCommandDescriptor({id:COMMAND.close,title:'Close Tools Center',category:'Tools',execute:()=>this.close()},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.operations,title:'Tools: Operations',category:'Tools',execute:()=>this.setPage('operations')},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.disk,title:'Tools: Disk Usage',category:'Tools',execute:()=>this.setPage('disk')},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.duplicates,title:'Tools: Duplicates',category:'Tools',execute:()=>this.setPage('duplicates')},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.rescan,title:'Rescan Current Tool',category:'Tools',execute:()=>this.rescan(),isEnabled:()=>this.page!=='operations'&&!!this.rootPath},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.selectAllDuplicates,title:'Select Reclaimable Duplicates',category:'Tools',execute:()=>this.selectAllDuplicates(),isEnabled:()=>this.page==='duplicates'&&this.duplicateGroups.length>0},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.clearDuplicateSelection,title:'Clear Duplicate Selection',category:'Tools',execute:()=>this.clearDuplicateSelection(),isEnabled:()=>this.page==='duplicates'&&this.duplicateSelected.size>0},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.addDuplicatesToBasket,title:'Add Duplicates to Basket',category:'Tools',execute:()=>this.collectDuplicateSelection(),isEnabled:()=>this.page==='duplicates'&&this.duplicateSelected.size>0},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.deleteDuplicates,title:'Delete Selected Duplicates',category:'Tools',execute:()=>this.deleteDuplicateSelection(),isEnabled:()=>this.page==='duplicates'&&this.duplicateSelected.size>0},OWNER_ID);
+
+    for (const binding of BINDINGS) this.input.registerBinding(binding);
   }
 
   ngOnDestroy(): void {
     this.cancelDisk();
+    this.input.deactivateContext(CONTEXT_ID);
+    for (const binding of BINDINGS) this.input.unregisterBinding(binding.id);
+    for (const id of Object.values(COMMAND)) {
+      this.input.unregisterCommandDescriptor(id, OWNER_ID);
+    }
     this.destroy$.next();
     this.destroy$.complete();
   }
 
   open(page: ToolPage, rootPath: string): void {
+    const rootChanged = this.rootPath !== rootPath;
     this.page = page;
     this.rootPath = rootPath;
     this.visible = true;
+
+    if (rootChanged) {
+      this.diskEntries = [];
+      this.diskProgress = null;
+      this.diskError = '';
+      this.duplicateResult = null;
+      this.duplicateProgress = null;
+      this.duplicateSelected = new Set();
+      this.duplicateError = '';
+    }
+
+    this.input.activateContext(CONTEXT_ID);
     this.cdr.markForCheck();
 
     if (page === 'disk' && this.diskEntries.length === 0) {
@@ -277,8 +457,27 @@ export class ReassemblyToolsCenterComponent implements OnInit, OnDestroy {
   }
 
   close(): void {
+    if (!this.visible) return;
     this.visible = false;
+    this.input.deactivateContext(CONTEXT_ID);
     this.cdr.markForCheck();
+  }
+
+  setPage(page: ToolPage): void {
+    this.page = page;
+    this.cdr.markForCheck();
+
+    if (page === 'disk' && this.diskEntries.length === 0 && this.rootPath) {
+      void this.scanDisk();
+    }
+  }
+
+  rescan(): void {
+    if (this.page === 'disk') {
+      void this.scanDisk();
+    } else if (this.page === 'duplicates') {
+      void this.scanDuplicates();
+    }
   }
 
   async scanDisk(): Promise<void> {
@@ -384,9 +583,45 @@ export class ReassemblyToolsCenterComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
   }
 
+  selectAllDuplicates(): void {
+    const selected = new Set<string>();
+    for (const group of this.duplicateGroups) {
+      for (const file of group.files) {
+        if (file.path !== group.suggestedKeeperPath) {
+          selected.add(file.path);
+        }
+      }
+    }
+    this.duplicateSelected = selected;
+    this.cdr.markForCheck();
+  }
+
+  clearDuplicateSelection(): void {
+    this.duplicateSelected = new Set();
+    this.cdr.markForCheck();
+  }
+
+  openDiskEntry(entry: DiskUsageEntry): void {
+    if (!entry.isDir) return;
+    this.navigateTo.emit(entry.path);
+    this.close();
+  }
+
+  openContainingFolder(path: string): void {
+    const normalized = (path ?? '').replace(/\\/g, '/').replace(/\/+$/, '');
+    const schemeIndex = normalized.indexOf('://');
+    const minimum = schemeIndex >= 0 ? schemeIndex + 3 : 0;
+    const slash = normalized.lastIndexOf('/');
+    const parent = slash < minimum ? normalized : normalized.slice(0, slash);
+    if (!parent) return;
+    this.navigateTo.emit(parent);
+    this.close();
+  }
+
   collectDuplicateSelection(): void {
     if (this.duplicateSelected.size === 0) return;
     this.basket.add(Array.from(this.duplicateSelected), 'duplicates');
+    this.openBasketRequested.emit();
   }
 
   async deleteDuplicateSelection(): Promise<void> {

@@ -59,16 +59,17 @@ export class WorkspaceSurfaceService {
     return presentation;
   }
 
-  listPersistentTools(): readonly WorkspacePresentation[] {
+  listToolWorkspaces(): readonly WorkspacePresentation[] {
     return [...this.presentations.values()]
-      .filter(
-        presentation =>
-          presentation.kind === 'tool' &&
-          presentation.lifetime === 'persistent',
-      )
+      .filter(presentation => presentation.kind === 'tool')
       .sort((left, right) =>
         left.title.localeCompare(right.title),
       );
+  }
+
+  listPersistentTools(): readonly WorkspacePresentation[] {
+    return this.listToolWorkspaces()
+      .filter(presentation => presentation.lifetime === 'persistent');
   }
 
   openToolWorkspace(

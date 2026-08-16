@@ -617,7 +617,7 @@ export class ReassemblyWorkspaceSwitcherComponent
     }));
 
     const tools = this.workspaceSurfaces
-      .listPersistentTools()
+      .listToolWorkspaces()
       .map<WorkspaceSwitcherItem>(presentation => ({
         id: presentation.workspaceId,
         name: presentation.title,
@@ -631,10 +631,7 @@ export class ReassemblyWorkspaceSwitcherComponent
 
   get activeWorkspaceId(): string {
     const activePresentation = this.workspaceSurfaces.active;
-    if (
-      activePresentation?.kind === 'tool' &&
-      activePresentation.lifetime === 'persistent'
-    ) {
+    if (activePresentation?.kind === 'tool') {
       return activePresentation.workspaceId;
     }
 
@@ -651,7 +648,9 @@ export class ReassemblyWorkspaceSwitcherComponent
 
   workspaceSummary(workspace: WorkspaceSwitcherItem): string {
     if (workspace.kind === 'tool') {
-      return 'full workspace · persistent';
+      return workspace.tool?.lifetime === 'persistent'
+        ? 'full workspace · pinned'
+        : 'full workspace · temporary';
     }
 
     const files = workspace.files;
@@ -999,7 +998,15 @@ export class ReassemblyWorkspaceSwitcherComponent
     const wasActive = workspace.id === this.activeWorkspaceId;
 
     if (workspace.kind === 'tool') {
-      if (!this.workspaceSurfaces.removePersistent(workspace.id)) return;
+      const presentation = workspace.tool;
+      if (!presentation) return;
+
+      const removed =
+        presentation.lifetime === 'persistent'
+          ? this.workspaceSurfaces.removePersistent(workspace.id)
+          : this.workspaceSurfaces.closeTransient(workspace.id);
+
+      if (!removed) return;
 
       if (wasActive) {
         const files = this.workspacesService.getActiveWorkspace();

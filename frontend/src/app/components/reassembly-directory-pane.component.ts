@@ -64,6 +64,7 @@ type ReassemblyTab =
       anchorPath: string | null;
       scrollTop: number;
       entries: FileInfo[];
+      isClosable: boolean;
       isPinned: boolean;
     }
   | {
@@ -74,6 +75,12 @@ type ReassemblyTab =
       targetPath: string;
       fileList: ViewerFileListItem[];
       archiveContext: ViewerArchiveContext | null;
+      viewerId: string | null;
+      autoFollow: boolean;
+      sourcePane: 'left' | 'right' | null;
+      sourceTabId: string | null;
+      sourceDir: string | null;
+      isClosable: boolean;
       isPinned: boolean;
     };
 
@@ -131,11 +138,11 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 2;
           <span
             class="tab-close"
             role="button"
-            [class.disabled]="tab.isPinned"
-            [attr.aria-label]="tab.isPinned ? 'Pinned tab' : 'Close tab'"
+            [class.disabled]="tab.isPinned || !tab.isClosable"
+            [attr.aria-label]="tab.isPinned ? 'Pinned tab' : (!tab.isClosable ? 'Permanent tab' : 'Close tab')"
             (mousedown)="$event.preventDefault(); $event.stopPropagation()"
-            (click)="tab.isPinned ? toggleTabPin(tab.id) : closeTab(tab.id); $event.stopPropagation()">
-            {{ tab.isPinned ? '●' : '×' }}
+            (click)="tab.isPinned ? toggleTabPin(tab.id) : (tab.isClosable ? closeTab(tab.id) : null); $event.stopPropagation()">
+            {{ tab.isPinned ? '●' : (tab.isClosable ? '×' : '•') }}
           </span>
         </button>
 
@@ -422,9 +429,45 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 2;
       <ng-template #viewerSurface>
         <div class="viewer-shell" *ngIf="activeViewerTab as viewerTab">
           <div class="viewer-toolbar">
-            <span class="viewer-label">Preview</span>
-            <span class="viewer-path" [title]="viewerTab.targetPath">{{ viewerTab.targetPath }}</span>
-            <button type="button" (click)="closeActiveTab()" title="Close viewer (Ctrl+W)">×</button>
+            <span class="viewer-label">{{ viewerTab.autoFollow ? 'Preview' : 'Viewer' }}</span>
+            <span class="viewer-kind">{{ viewerTab.viewerId || 'Auto' }}</span>
+            <span class="viewer-path" [title]="viewerTab.archiveContext?.entryPath || viewerTab.targetPath">
+              {{ viewerTab.archiveContext?.entryPath || viewerTab.targetPath }}
+            </span>
+
+            <button
+              type="button"
+              *ngIf="viewerTab.sourceTabId || viewerTab.sourceDir"
+              (click)="returnToViewerSource()"
+              title="Return to source folder">
+              Folder
+            </button>
+
+            <span class="viewer-separator"></span>
+
+            <button type="button" [disabled]="!viewerSupports('showPrevious')" (click)="viewerInvoke('showPrevious')" title="Previous item (Left)">‹</button>
+            <button type="button" [disabled]="!viewerSupports('showNext')" (click)="viewerInvoke('showNext')" title="Next item (Right)">›</button>
+            <button type="button" [disabled]="!viewerSupports('zoomOut')" (click)="viewerInvoke('zoomOut')" title="Zoom out (Ctrl+-)">−</button>
+            <button type="button" [disabled]="!viewerSupports('zoomIn')" (click)="viewerInvoke('zoomIn')" title="Zoom in (Ctrl++)">+</button>
+            <button type="button" [disabled]="!viewerSupports('resetZoom')" (click)="viewerInvoke('resetZoom')" title="Fit (Ctrl+0)">Fit</button>
+            <button type="button" [disabled]="!viewerSupports('zoom100')" (click)="viewerInvoke('zoom100')" title="Actual size (Ctrl+1)">1:1</button>
+
+            <span class="viewer-separator"></span>
+
+            <button
+              type="button"
+              [disabled]="!!viewerTab.archiveContext"
+              (click)="openActiveViewerExternally()"
+              title="Open with external application">
+              External
+            </button>
+            <button
+              type="button"
+              [disabled]="viewerTab.isPinned || !viewerTab.isClosable"
+              (click)="closeActiveTab()"
+              title="Close viewer (Ctrl+W)">
+              ×
+            </button>
           </div>
 
           <app-viewer-host-surface
@@ -432,7 +475,7 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 2;
             [targetPath]="viewerTab.targetPath"
             [fileList]="viewerTab.fileList"
             [archiveContext]="viewerTab.archiveContext"
-            [viewerId]="null">
+            [viewerId]="viewerTab.viewerId">
           </app-viewer-host-surface>
         </div>
       </ng-template>
@@ -1006,6 +1049,23 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 2;
       font-weight: 600;
     }
 
+    .viewer-kind {
+      flex: 0 0 auto;
+      padding: 1px 5px;
+      border: 1px solid var(--vsc-border, #454545);
+      border-radius: 3px;
+      color: var(--vsc-description-foreground, #969696);
+      font-size: 9px;
+      text-transform: uppercase;
+    }
+
+    .viewer-separator {
+      width: 1px;
+      height: 18px;
+      background: var(--vsc-border, #454545);
+      flex: 0 0 auto;
+    }
+
     .viewer-path {
       min-width: 0;
       overflow: hidden;
@@ -1120,6 +1180,23 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
 
   get mountedViewer(): any {
     return this.viewerHost?.mountedViewer ?? null;
+  }
+
+  get viewerTargetPath(): string | null {
+    return this.activeViewerTab?.targetPath ?? null;
+  }
+
+  get viewerArchiveContext(): ViewerArchiveContext | null {
+    return this.activeViewerTab?.archiveContext ?? null;
+  }
+
+  viewerSupports(method: string): boolean {
+    return typeof this.mountedViewer?.[method] === 'function';
+  }
+
+  viewerInvoke(method: string): void {
+    const fn = this.mountedViewer?.[method];
+    if (typeof fn === 'function') fn.call(this.mountedViewer);
   }
 
   get isDirectoryTab(): boolean {
@@ -1321,7 +1398,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     const persisted = this.workspaceService.addTab(this.paneId, path, true);
 
     if (persisted) {
-      this.tabs = this.mergePersistedDirectoryTabs();
+      this.tabs = this.mergePersistedTabs();
       this.activeTabId = persisted.id;
       const active = this.activeTab;
       if (active?.kind === 'dir') {
@@ -1368,6 +1445,10 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
           interactionGeneration,
         );
       }
+    } else {
+      this.workspaceService.switchTab(this.paneId, tab.id);
+      this.loading = false;
+      this.error = null;
     }
 
     this.cdr.markForCheck();
@@ -1404,8 +1485,9 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     const closing = this.tabs[index];
     const wasActive = this.activeTabId === tabId;
 
+    this.workspaceService.closeTab(this.paneId, tabId);
+
     if (closing.kind === 'dir') {
-      this.workspaceService.closeTab(this.paneId, tabId);
       try {
         localStorage.removeItem(this.dirSessionStorageKey(tabId));
       } catch {
@@ -1429,6 +1511,53 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     if (next.kind === 'dir') {
       this.workspaceService.switchTab(this.paneId, next.id);
       await this.load(next.path, { history: 'record', syncTab: false });
+    } else {
+      this.workspaceService.switchTab(this.paneId, next.id);
+      this.loading = false;
+      this.error = null;
+    }
+  }
+
+  async returnToViewerSource(): Promise<void> {
+    const viewer = this.activeViewerTab;
+    if (!viewer) return;
+
+    if (
+      viewer.sourceTabId &&
+      this.tabs.some(tab => tab.id === viewer.sourceTabId)
+    ) {
+      await this.activateTab(viewer.sourceTabId);
+      return;
+    }
+
+    if (!viewer.sourceDir) return;
+
+    const existing = this.tabs.find(
+      tab => tab.kind === 'dir' && this.samePath(tab.path, viewer.sourceDir!),
+    );
+    if (existing) {
+      await this.activateTab(existing.id);
+      return;
+    }
+
+    const tab = this.createDirectoryTab(viewer.sourceDir);
+    this.tabs = [...this.tabs, tab];
+    this.activeTabId = tab.id;
+    await this.load(tab.path, { history: 'record', syncTab: false });
+  }
+
+  async openActiveViewerExternally(): Promise<void> {
+    const viewer = this.activeViewerTab;
+    if (!viewer || viewer.archiveContext) return;
+
+    try {
+      await this.api.openFile(viewer.targetPath);
+      this.lastAction = `external: ${viewer.targetPath}`;
+    } catch (error) {
+      await this.confirmDialog.alert({
+        title: 'Open Externally Failed',
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
@@ -1489,7 +1618,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   async reloadWorkspaceTabs(preferredTabId?: string): Promise<void> {
     this.syncActiveDirSessionState();
 
-    const merged = this.mergePersistedDirectoryTabs();
+    const merged = this.mergePersistedTabs();
     if (merged.length === 0) {
       await this.restoreWorkspaceState();
       return;
@@ -2030,46 +2159,167 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
   }
 
-  openViewer(entry: FileInfo): void {
+  openViewer(
+    entry: FileInfo,
+    viewerId: string | null = null,
+  ): void {
+    if (entry.type === FileType.DIRECTORY) return;
+
     const existing = this.tabs.find(tab =>
-      tab.kind === 'viewer' && this.samePath(tab.targetPath, entry.path)
+      tab.kind === 'viewer' &&
+      !tab.autoFollow &&
+      tab.viewerId === viewerId &&
+      this.samePath(
+        tab.archiveContext?.entryPath ?? tab.targetPath,
+        entry.path,
+      )
     );
+
     if (existing) {
-      this.activeTabId = existing.id;
+      void this.activateTab(existing.id);
       this.lastAction = `viewer: ${entry.name}`;
+      return;
+    }
+
+    const fileList = this.buildViewerFileList();
+    const archiveContext = this.viewerArchiveContextFor(entry);
+
+    const persisted = this.workspaceService.addViewerTab(
+      this.paneId,
+      entry.path,
+      {
+        activate: true,
+        title: entry.name,
+        viewerId: viewerId ?? undefined,
+        autoFollow: false,
+        closable: true,
+        sourcePane: this.paneId,
+        sourceTabId: this.activeTabId ?? undefined,
+        sourceDir: this.path,
+        fileList: archiveContext ? [] : fileList,
+        archiveContext: archiveContext ?? undefined,
+      },
+    );
+
+    if (persisted) {
+      this.tabs = this.mergePersistedTabs();
+      this.activeTabId = persisted.id;
+      this.workspaceTabsReady = true;
+    } else {
+      const tab: Extract<ReassemblyTab, { kind: 'viewer' }> = {
+        id: `${this.paneId}-tab-${++this.tabCounter}`,
+        kind: 'viewer',
+        path: entry.path,
+        title: entry.name,
+        targetPath: entry.path,
+        fileList: archiveContext ? [] : fileList,
+        archiveContext,
+        viewerId,
+        autoFollow: false,
+        sourcePane: this.paneId,
+        sourceTabId: this.activeTabId,
+        sourceDir: this.path,
+        isClosable: true,
+        isPinned: false,
+      };
+
+      this.tabs = [...this.tabs, tab];
+      this.activeTabId = tab.id;
+    }
+
+    this.lastAction = `viewer: ${entry.name}`;
+    this.cdr.markForCheck();
+  }
+
+  openQuickView(entry: FileInfo): void {
+    if (entry.type === FileType.DIRECTORY) return;
+
+    const archiveContext = this.viewerArchiveContextFor(entry);
+    const fileList = archiveContext ? [] : this.buildViewerFileList();
+
+    if (!archiveContext) {
+      const preview = this.tabs.find(
+        tab => tab.kind === 'viewer' && tab.autoFollow,
+      );
+
+      if (preview) {
+        this.workspaceService.updateViewerTabTargetPath(
+          this.paneId,
+          preview.id,
+          entry.path,
+          {
+            sourcePane: this.paneId,
+            sourceTabId: this.activeTabId ?? '',
+            sourceDir: this.path,
+            fileList,
+          },
+        );
+
+        this.tabs = this.mergePersistedTabs();
+        this.activeTabId = preview.id;
+        this.workspaceService.switchTab(this.paneId, preview.id);
+        this.lastAction = `preview: ${entry.name}`;
+        this.cdr.markForCheck();
+        return;
+      }
+    }
+
+    const persisted = this.workspaceService.addViewerTab(
+      this.paneId,
+      entry.path,
+      {
+        activate: true,
+        title: archiveContext ? entry.name : 'Preview',
+        autoFollow: !archiveContext,
+        closable: true,
+        sourcePane: this.paneId,
+        sourceTabId: this.activeTabId ?? undefined,
+        sourceDir: this.path,
+        fileList,
+        archiveContext: archiveContext ?? undefined,
+      },
+    );
+
+    if (persisted) {
+      this.tabs = this.mergePersistedTabs();
+      this.activeTabId = persisted.id;
+      this.workspaceTabsReady = true;
+      this.lastAction = `preview: ${entry.name}`;
       this.cdr.markForCheck();
       return;
     }
 
-    const fileList: ViewerFileListItem[] = this.entries
-      .filter(candidate => candidate.type !== FileType.DIRECTORY)
-      .map(candidate => ({ path: candidate.path, name: candidate.name }));
+    this.openViewer(entry);
+  }
 
+  openSelectedWithViewer(viewerId: string): void {
+    const entry = this.cursorEntry;
+    if (!entry || entry.type === FileType.DIRECTORY) return;
+    this.openViewer(entry, viewerId);
+  }
+
+  private viewerArchiveContextFor(
+    entry: FileInfo,
+  ): ViewerArchiveContext | null {
     const frame = this.currentArchiveFrame;
-    const archiveContext: ViewerArchiveContext | null = frame
-      ? {
-          fsPath: frame.fsPath,
-          nestedChain: [...frame.nestedChain],
-          entryPath: entry.path,
-        }
-      : null;
+    if (!frame) return null;
 
-    const tab: ReassemblyTab = {
-      id: `${this.paneId}-tab-${++this.tabCounter}`,
-      kind: 'viewer',
-      path: entry.path,
-      title: entry.name,
-      targetPath: frame?.fsPath ?? entry.path,
-      fileList,
-      archiveContext,
-      isPinned: false,
+    return {
+      fsPath: this.archiveStack[0]?.fsPath ?? frame.fsPath,
+      nestedChain: [...(frame.nestedChain ?? [])],
+      entryPath: entry.path,
     };
+  }
 
-    this.tabs = [...this.tabs, tab];
-    this.activeTabId = tab.id;
-    this.lastAction = `viewer: ${entry.name}`;
-    this.cdr.markForCheck();
-    this.syncActiveDirSessionState();
+  private buildViewerFileList(): ViewerFileListItem[] {
+    return this.sortedEntries
+      .filter(candidate =>
+        candidate.type !== FileType.DIRECTORY,
+      )
+      .map(candidate => ({
+        path: candidate.path,
+        name: candidate.name,
+      }));
   }
 
   toggleCurrentSelection(): void {
@@ -3045,7 +3295,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       if (loaded && this.tabs.length === 0) {
         const persisted = this.workspaceService.addTab(this.paneId, this.path, true);
         const tab = persisted
-          ? this.fromPersistedTab(persisted)
+          ? this.fromPersistedDirTab(persisted)
           : this.createDirectoryTab(this.path);
         this.tabs = [tab];
         this.activeTabId = tab.id;
@@ -3059,7 +3309,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
         if (loaded && this.tabs.length === 0) {
           const persisted = this.workspaceService.addTab(this.paneId, this.path, true);
           const tab = persisted
-            ? this.fromPersistedTab(persisted)
+            ? this.fromPersistedDirTab(persisted)
             : this.createDirectoryTab(this.path);
           this.tabs = [tab];
           this.activeTabId = tab.id;
@@ -3302,8 +3552,65 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       this.persistDirTabSession(updated);
     }
 
+    this.syncAutoFollowPreview(updated);
     return updated;
   }
+
+  private syncAutoFollowPreview(
+    sourceTab: Extract<ReassemblyTab, { kind: 'dir' }>,
+  ): void {
+    if (this.isInArchive) return;
+
+    const preview = this.tabs.find(
+      (
+        tab,
+      ): tab is Extract<ReassemblyTab, { kind: 'viewer' }> =>
+        tab.kind === 'viewer' && tab.autoFollow,
+    );
+    if (!preview) return;
+
+    const target = this.entries.find(
+      entry =>
+        entry.path === this.cursorPath &&
+        entry.type !== FileType.DIRECTORY,
+    );
+    if (!target || this.samePath(preview.targetPath, target.path)) {
+      return;
+    }
+
+    const fileList = this.buildViewerFileList();
+
+    this.workspaceService.updateViewerTabTargetPath(
+      this.paneId,
+      preview.id,
+      target.path,
+      {
+        sourcePane: this.paneId,
+        sourceTabId: sourceTab.id,
+        sourceDir: this.path,
+        fileList,
+      },
+    );
+
+    const updated: Extract<ReassemblyTab, { kind: 'viewer' }> = {
+      ...preview,
+      path: target.path,
+      title: 'Preview',
+      targetPath: target.path,
+      fileList,
+      archiveContext: null,
+      viewerId: preview.viewerId,
+      autoFollow: true,
+      sourcePane: this.paneId,
+      sourceTabId: sourceTab.id,
+      sourceDir: this.path,
+    };
+
+    this.tabs = this.tabs.map(tab =>
+      tab.id === updated.id ? updated : tab,
+    );
+  }
+
 
   private applyDirSessionBeforeLoad(
     tab: Extract<ReassemblyTab, { kind: 'dir' }>,
@@ -3474,57 +3781,62 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   private async tryRestoreWorkspaceTabs(): Promise<boolean> {
-    // WorkspaceService initializes asynchronously from Wails. Give it a short
-    // bootstrap window; if it is not ready, normal filesystem fallback remains.
     for (let attempt = 0; attempt < 20; attempt += 1) {
       const persisted = this.workspaceService.getTabs(this.paneId);
       const active = this.workspaceService.getActiveTab(this.paneId);
 
       if (persisted.length > 0) {
-        const dirTabs = persisted
-          .filter(tab => (tab.surfaceId ?? tab.kind ?? 'dir') === 'dir')
-          .map(tab => this.fromPersistedTab(tab));
+        const restored = persisted
+          .map(tab => this.fromPersistedWorkspaceTab(tab))
+          .filter((tab): tab is ReassemblyTab => !!tab);
 
-        if (dirTabs.length > 0) {
-          this.tabs = dirTabs;
-          const activeDir = active
-            ? dirTabs.find(tab => tab.id === active.id)
-            : null;
-          const target = activeDir ?? dirTabs[0];
+        if (restored.length === 0) return false;
 
-          this.activeTabId = target.id;
-          this.applyDirSessionBeforeLoad(target);
-          this.workspaceTabsReady = true;
-          this.tabCounter = Math.max(this.tabCounter, dirTabs.length);
+        this.tabs = restored;
+        const target =
+          (active ? restored.find(tab => tab.id === active.id) : null) ??
+          restored.find(tab => tab.kind === 'dir') ??
+          restored[0];
+
+        this.activeTabId = target.id;
+        this.workspaceTabsReady = true;
+        this.tabCounter = Math.max(this.tabCounter, restored.length);
+        this.cdr.markForCheck();
+
+        if (target.kind === 'viewer') {
+          this.workspaceService.switchTab(this.paneId, target.id);
+          this.loading = false;
+          this.error = null;
+          this.lastAction = `viewer restored: ${target.title}`;
           this.cdr.markForCheck();
+          return true;
+        }
 
-          const interactionGeneration = this.interactionGeneration;
-          const loaded = await this.load(target.path, {
-            history: 'record',
-            syncTab: false,
-            restoreSession: true,
-          });
+        this.applyDirSessionBeforeLoad(target);
 
-          if (loaded) {
-            this.workspaceService.switchTab(this.paneId, target.id);
-            await this.finalizeDirSessionAfterLoad(
-              target,
-              interactionGeneration,
-            );
-            return true;
-          }
+        const interactionGeneration = this.interactionGeneration;
+        const loaded = await this.load(target.path, {
+          history: 'record',
+          syncTab: false,
+          restoreSession: true,
+        });
 
-          // Startup restore is intentionally non-interactive. If a remote or
-          // temporarily unavailable location cannot load, keep the cached tab
-          // session visible instead of prompting or discarding the workspace.
-          if (target.entries.length > 0) {
-            this.applyDirSessionBeforeLoad(target);
-            this.error = `Location unavailable: ${target.path}`;
-            this.lastAction = 'cached workspace tab';
-            this.loading = false;
-            this.cdr.markForCheck();
-            return true;
-          }
+        if (loaded) {
+          this.workspaceService.switchTab(this.paneId, target.id);
+          await this.finalizeDirSessionAfterLoad(
+            target,
+            interactionGeneration,
+          );
+          return true;
+        }
+
+        if (target.entries.length > 0) {
+          this.applyDirSessionBeforeLoad(target);
+          this.error = `Location unavailable: ${target.path}`;
+          this.lastAction = 'cached workspace tab';
+          this.loading = false;
+          this.cdr.markForCheck();
+          return true;
         }
 
         return false;
@@ -3536,7 +3848,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     return false;
   }
 
-  private fromPersistedTab(tab: any): Extract<ReassemblyTab, { kind: 'dir' }> {
+  private fromPersistedDirTab(tab: any): Extract<ReassemblyTab, { kind: 'dir' }> {
     const path =
       typeof tab.location === 'string'
         ? tab.location
@@ -3561,17 +3873,62 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       anchorPath: session.anchorPath,
       scrollTop: session.scrollTop,
       entries: session.entries,
+      isClosable: tab.isClosable !== false,
       isPinned: !!tab.isPinned,
     };
   }
 
-  private mergePersistedDirectoryTabs(): ReassemblyTab[] {
-    const persisted = this.workspaceService.getTabs(this.paneId)
-      .filter(tab => (tab.surfaceId ?? tab.kind ?? 'dir') === 'dir')
-      .map(tab => this.fromPersistedTab(tab));
+  private fromPersistedViewerTab(
+    tab: any,
+  ): Extract<ReassemblyTab, { kind: 'viewer' }> {
+    const viewer = tab.viewer ?? {};
+    const targetPath = viewer.targetPath || tab.path || '';
 
-    const viewers = this.tabs.filter(tab => tab.kind === 'viewer');
-    return [...persisted, ...viewers];
+    return {
+      id: tab.id,
+      kind: 'viewer',
+      path: targetPath,
+      title: tab.title || targetPath || 'Preview',
+      targetPath,
+      fileList: Array.isArray(viewer.fileList)
+        ? viewer.fileList.map((item: ViewerFileListItem) => ({ ...item }))
+        : [],
+      archiveContext: viewer.archiveContext
+        ? {
+            fsPath: viewer.archiveContext.fsPath,
+            nestedChain: [...(viewer.archiveContext.nestedChain ?? [])],
+            entryPath: viewer.archiveContext.entryPath,
+          }
+        : null,
+      viewerId:
+        typeof viewer.viewerId === 'string' && viewer.viewerId
+          ? viewer.viewerId
+          : null,
+      autoFollow: !!viewer.autoFollow,
+      sourcePane:
+        viewer.sourcePane === 'left' || viewer.sourcePane === 'right'
+          ? viewer.sourcePane
+          : null,
+      sourceTabId:
+        typeof viewer.sourceTabId === 'string' ? viewer.sourceTabId : null,
+      sourceDir:
+        typeof viewer.sourceDir === 'string' ? viewer.sourceDir : null,
+      isClosable: tab.isClosable !== false,
+      isPinned: !!tab.isPinned,
+    };
+  }
+
+  private fromPersistedWorkspaceTab(tab: any): ReassemblyTab | null {
+    const surface = tab.surfaceId ?? tab.kind ?? 'dir';
+    if (surface === 'viewer') return this.fromPersistedViewerTab(tab);
+    if (surface === 'dir') return this.fromPersistedDirTab(tab);
+    return null;
+  }
+
+  private mergePersistedTabs(): ReassemblyTab[] {
+    return this.workspaceService.getTabs(this.paneId)
+      .map(tab => this.fromPersistedWorkspaceTab(tab))
+      .filter((tab): tab is ReassemblyTab => !!tab);
   }
 
   private async load(
@@ -3697,6 +4054,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       anchorPath: null,
       scrollTop: 0,
       entries: [],
+      isClosable: true,
       isPinned: false,
     };
   }

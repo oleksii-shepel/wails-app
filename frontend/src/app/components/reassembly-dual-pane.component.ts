@@ -99,6 +99,14 @@ const COMMAND = {
   viewerZoomOut: 'reassembly.viewer.zoomOut',
   viewerFit: 'reassembly.viewer.fit',
   viewerActualSize: 'reassembly.viewer.actualSize',
+  viewerReturnSource: 'reassembly.viewer.returnSource',
+  viewerOpenExternal: 'reassembly.viewer.openExternal',
+  openAsText: 'reassembly.viewer.openAsText',
+  openAsBinary: 'reassembly.viewer.openAsBinary',
+  openAsImage: 'reassembly.viewer.openAsImage',
+  openAsMarkdown: 'reassembly.viewer.openAsMarkdown',
+  openAsPdf: 'reassembly.viewer.openAsPdf',
+  openAsLegacy: 'reassembly.viewer.openAsLegacy',
   closeContextMenu: 'reassembly.manager.closeContextMenu',
   focusFilter: 'reassembly.manager.focusFilter',
   toggleHidden: 'reassembly.workspace.toggleHidden',
@@ -595,13 +603,20 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     const entry = pane?.cursorEntry;
     if (!pane?.isDirectoryTab || !entry) return;
     if (entry.type === FileType.DIRECTORY) return;
-    pane.openViewer(entry);
+    pane.openQuickView(entry);
   }
 
   async openActiveExternally(): Promise<void> {
     const pane = this.activePane;
-    const entry = pane?.cursorEntry;
-    if (!pane?.isDirectoryTab || !entry) return;
+    if (!pane) return;
+
+    if (pane.activeTab?.kind === 'viewer') {
+      await pane.openActiveViewerExternally();
+      return;
+    }
+
+    const entry = pane.cursorEntry;
+    if (!pane.isDirectoryTab || !entry) return;
     if (entry.type === FileType.DIRECTORY) return;
 
     try {
@@ -1821,6 +1836,14 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     descriptor(COMMAND.viewerZoomOut, 'Zoom Viewer Out', 'Viewer', () => this.invokeViewer('zoomOut'), () => this.hasViewerMethod('zoomOut'));
     descriptor(COMMAND.viewerFit, 'Fit Viewer', 'Viewer', () => this.invokeViewer('resetZoom'), () => this.hasViewerMethod('resetZoom'));
     descriptor(COMMAND.viewerActualSize, 'Viewer Actual Size', 'Viewer', () => this.invokeViewer('zoom100'), () => this.hasViewerMethod('zoom100'));
+    descriptor(COMMAND.viewerReturnSource, 'Return to Viewer Source Folder', 'Viewer', () => this.activePane?.returnToViewerSource(), () => !!this.activePane?.activeViewerTab?.sourceTabId || !!this.activePane?.activeViewerTab?.sourceDir);
+    descriptor(COMMAND.viewerOpenExternal, 'Open Viewer File Externally', 'Viewer', () => this.activePane?.openActiveViewerExternally(), () => !!this.activePane?.activeViewerTab && !this.activePane.viewerArchiveContext);
+    descriptor(COMMAND.openAsText, 'Open as Text Viewer', 'Viewer', () => this.activePane?.openSelectedWithViewer('text'), () => !!this.activePane?.isDirectoryTab && !!this.activePane?.cursorEntry && this.activePane.cursorEntry.type !== FileType.DIRECTORY);
+    descriptor(COMMAND.openAsBinary, 'Open as Binary Viewer', 'Viewer', () => this.activePane?.openSelectedWithViewer('binary'), () => !!this.activePane?.isDirectoryTab && !!this.activePane?.cursorEntry && this.activePane.cursorEntry.type !== FileType.DIRECTORY);
+    descriptor(COMMAND.openAsImage, 'Open as Image Viewer', 'Viewer', () => this.activePane?.openSelectedWithViewer('image'), () => !!this.activePane?.isDirectoryTab && !!this.activePane?.cursorEntry && this.activePane.cursorEntry.type !== FileType.DIRECTORY);
+    descriptor(COMMAND.openAsMarkdown, 'Open as Markdown Viewer', 'Viewer', () => this.activePane?.openSelectedWithViewer('markdown'), () => !!this.activePane?.isDirectoryTab && !!this.activePane?.cursorEntry && this.activePane.cursorEntry.type !== FileType.DIRECTORY);
+    descriptor(COMMAND.openAsPdf, 'Open as PDF Viewer', 'Viewer', () => this.activePane?.openSelectedWithViewer('pdf'), () => !!this.activePane?.isDirectoryTab && !!this.activePane?.cursorEntry && this.activePane.cursorEntry.type !== FileType.DIRECTORY);
+    descriptor(COMMAND.openAsLegacy, 'Open with Legacy Viewer', 'Viewer', () => this.activePane?.openSelectedWithViewer('legacy'), () => !!this.activePane?.isDirectoryTab && !!this.activePane?.cursorEntry && this.activePane.cursorEntry.type !== FileType.DIRECTORY);
     descriptor(COMMAND.closeContextMenu, 'Close Context Menu', 'Navigation', () => this.closeContextMenu(), () => !!this.contextMenu);
     descriptor(COMMAND.focusFilter, 'Focus Folder Filter', 'Search & Filter', () => this.activePane?.focusFilter(), () => !!this.activePane?.isDirectoryTab);
     descriptor(COMMAND.toggleHidden, 'Toggle Hidden Files', 'Workspace', () => this.toggleHidden());

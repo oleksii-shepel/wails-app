@@ -54,6 +54,7 @@ import {
 import { FileInfo, FileType } from '../shared/protocol';
 import { PluginManagerService } from '../services/plugin-manager.service';
 import { ReassemblyOperationHistoryService } from '../services/reassembly-operation-history.service';
+import { ReassemblyTrashDialogService } from '../services/reassembly-trash-dialog.service';
 import { PluginLifecycleCoordinatorService } from '../services/plugin-lifecycle-coordinator.service';
 import { SettingsService } from '../services/settings.service';
 import { SurfaceRegistryService } from '../surfaces/surface-registry.service';
@@ -100,6 +101,8 @@ const COMMAND = {
   createArchive: 'reassembly.archive.createZip',
   checksum: 'reassembly.files.checksum',
   calculateSize: 'reassembly.files.calculateSize',
+  attributes: 'reassembly.files.attributes',
+  openTrash: 'reassembly.navigation.trash',
   copyToOther: 'reassembly.manager.copyToOther',
   moveToOther: 'reassembly.manager.moveToOther',
   newTab: 'reassembly.manager.newTab',
@@ -623,6 +626,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     private readonly remoteConnectDialog: RemoteConnectDialogService,
     private readonly pluginManager: PluginManagerService,
     private readonly operationHistory: ReassemblyOperationHistoryService,
+    private readonly trashDialog: ReassemblyTrashDialogService,
     private readonly pluginLifecycle: PluginLifecycleCoordinatorService,
     private readonly settings: SettingsService,
     private readonly surfaceRegistry: SurfaceRegistryService,
@@ -1923,6 +1927,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       this.menuCommand(COMMAND.selectSameType, 'Select same type'),
       this.menuCommand(COMMAND.properties, 'Properties', 'Alt+Enter'),
       this.menuCommand(COMMAND.calculateSize, 'Calculate Size'),
+      this.menuCommand(COMMAND.attributes, 'Attributes / Permissions'),
       this.menuCommand(COMMAND.checksum, 'SHA-256 Checksum'),
       this.menuCommand(COMMAND.createArchive, 'Create ZIP Archive', 'Alt+F5'),
       this.menuCommand(COMMAND.batchRename, 'Batch rename…', 'Ctrl+Shift+R'),
@@ -1986,6 +1991,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
         this.menuCommand(COMMAND.findDuplicates, 'Find Duplicates'),
         this.menuCommand(COMMAND.openCommandPalette, 'Command Palette', 'Ctrl+Shift+P'),
         this.menuCommand(COMMAND.openSettings, 'Settings', 'Ctrl+,'),
+        this.menuCommand(COMMAND.openTrash, 'Trash / Recycle Bin'),
         this.menuCommand(COMMAND.openPluginSettings, 'Plugin Settings'),
         this.menuCommand(COMMAND.openOperations, 'Operations Center'),
         { separator: true },
@@ -2438,6 +2444,21 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       () => !!this.activePane?.isDirectoryTab &&
         !this.activePane?.isInArchive &&
         !!(this.activePane?.cursorEntry || this.activePane?.selectedEntries.length),
+    );
+    descriptor(
+      COMMAND.attributes,
+      'Attributes / Permissions',
+      'Files',
+      () => this.activePane?.editSelectedAttributes(),
+      () => !!this.activePane?.isDirectoryTab &&
+        !this.activePane?.isInArchive &&
+        !!(this.activePane?.cursorEntry || this.activePane?.selectedEntries.length),
+    );
+    descriptor(
+      COMMAND.openTrash,
+      'Trash / Recycle Bin',
+      'Navigation',
+      () => this.trashDialog.open(),
     );
     descriptor(COMMAND.copyToOther, 'Copy to Other Pane', 'Pane Control', () => this.copyToOther(), () => this.canTransfer('copy'));
     descriptor(COMMAND.moveToOther, 'Move to Other Pane', 'Pane Control', () => this.moveToOther(), () => this.canTransfer('move'));

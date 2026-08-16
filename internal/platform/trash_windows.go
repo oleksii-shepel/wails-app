@@ -3,11 +3,16 @@
 package platform
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
 	"unsafe"
+
+	contracts "wails-app/internal/contracts"
 )
 
 var (
@@ -63,6 +68,106 @@ func MoveToTrash(path string) error {
 		return fmt.Errorf("trash: operation was aborted by the user or system")
 	}
 	return nil
+}
+
+func ListTrashEntries() ([]contracts.TrashEntry, error) {
+	const script = `
+$ErrorActionPreference = 'Stop'
+$shell = New-Object -ComObject Shell.Application
+$bin = $shell.Namespace(10)
+$result = @()
+foreach ($item in @($bin.Items())) {
+  $from = [string]$item.ExtendedProperty('System.Recycle.DeletedFrom')
+  $deleted = $item.ExtendedProperty('System.Recycle.DateDeleted')
+  $original = if ($from) { Join-Path $from $item.Name } else { '' }
+  $deletedText = if ($deleted -is [datetime]) { $deleted.ToString('o') } else { [string]$deleted }
+  $result += [pscustomobject]@{
+    id = [string]$item.Path
+    name = [string]$item.Name
+    originalPath = [string]$original
+    trashedPath = [string]$item.Path
+    deletedAt = [string]$deletedText
+    size = [int64]$item.Size
+    isDir = [bool]$item.IsFolder
+    canRestore = [bool]($original -ne '')
+  }
+}
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+ConvertTo-Json -InputObject $result -Compress -Depth 4
+`
+	output, err := runTrashPowerShell(script, nil)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(output) == "" {
+		return []contracts.TrashEntry{}, nil
+	}
+
+	var entries []contracts.TrashEntry
+	if err := json.Unmarshal([]byte(output), &entries); err != nil {
+		return nil, fmt.Errorf("trash: parse recycle bin: %w", err)
+	}
+	return entries, nil
+}
+
+func RestoreTrashEntry(id string) (string, error) {
+	const script = `
+$ErrorActionPreference = 'Stop'
+$target = $env:FM_TRASH_ID
+$shell = New-Object -ComObject Shell.Application
+$bin = $shell.Namespace(10)
+$item = @($bin.Items()) | Where-Object { [string]$_.Path -eq $target } | Select-Object -First 1
+if ($null -eq $item) { throw 'Recycle Bin item not found.' }
+$from = [string]$item.ExtendedProperty('System.Recycle.DeletedFrom')
+$original = if ($from) { Join-Path $from $item.Name } else { '' }
+if (-not $original) { throw 'Original path is unavailable.' }
+if (Test-Path -LiteralPath $original) { throw ('Restore destination already exists: ' + $original) }
+$item.InvokeVerb('RESTORE')
+Start-Sleep -Milliseconds 100
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+Write-Output $original
+`
+	output, err := runTrashPowerShell(script, map[string]string{"FM_TRASH_ID": id})
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(output), nil
+}
+
+func DeleteTrashEntry(id string) error {
+	const script = `
+$ErrorActionPreference = 'Stop'
+$target = $env:FM_TRASH_ID
+$shell = New-Object -ComObject Shell.Application
+$bin = $shell.Namespace(10)
+$item = @($bin.Items()) | Where-Object { [string]$_.Path -eq $target } | Select-Object -First 1
+if ($null -eq $item) { throw 'Recycle Bin item not found.' }
+Remove-Item -LiteralPath ([string]$item.Path) -Force -Recurse
+`
+	_, err := runTrashPowerShell(script, map[string]string{"FM_TRASH_ID": id})
+	return err
+}
+
+func EmptyTrash() error {
+	const script = `
+$ErrorActionPreference = 'Stop'
+Clear-RecycleBin -Force -ErrorAction Stop
+`
+	_, err := runTrashPowerShell(script, nil)
+	return err
+}
+
+func runTrashPowerShell(script string, extraEnv map[string]string) (string, error) {
+	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script)
+	cmd.Env = os.Environ()
+	for key, value := range extraEnv {
+		cmd.Env = append(cmd.Env, key+"="+value)
+	}
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("trash: powershell: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return strings.TrimSpace(string(output)), nil
 }
 
 func normalizeShellTrashPath(path string) string {

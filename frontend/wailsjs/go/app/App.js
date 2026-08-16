@@ -146,12 +146,20 @@ export function CreatePaneWatch() {
   return window['go']['app']['App']['CreatePaneWatch']();
 }
 
+export function CreateZipArchive(arg1, arg2) {
+  return window['go']['app']['App']['CreateZipArchive'](arg1, arg2);
+}
+
 export function Delete(arg1, arg2, arg3) {
   return window['go']['app']['App']['Delete'](arg1, arg2, arg3);
 }
 
 export function DeleteFile(arg1, arg2, arg3) {
   return window['go']['app']['App']['DeleteFile'](arg1, arg2, arg3);
+}
+
+export function DeleteTrashEntry(arg1) {
+  return window['go']['app']['App']['DeleteTrashEntry'](arg1);
 }
 
 export function DeleteWorkspace(arg1) {
@@ -172,6 +180,10 @@ export function DismissOperation(arg1) {
 
 export function EmitEvent(arg1, arg2) {
   return window['go']['app']['App']['EmitEvent'](arg1, arg2);
+}
+
+export function EmptyTrash() {
+  return window['go']['app']['App']['EmptyTrash']();
 }
 
 export function ExtractNestedArchive(arg1, arg2) {
@@ -232,6 +244,10 @@ export function GetOSInfo() {
 
 export function GetParentPath(arg1) {
   return window['go']['app']['App']['GetParentPath'](arg1);
+}
+
+export function GetPathAttributes(arg1) {
+  return window['go']['app']['App']['GetPathAttributes'](arg1);
 }
 
 export function GetPlugin(arg1) {
@@ -336,6 +352,10 @@ export function ListDrives() {
 
 export function ListPlugins() {
   return window['go']['app']['App']['ListPlugins']();
+}
+
+export function ListTrashEntries() {
+  return window['go']['app']['App']['ListTrashEntries']();
 }
 
 export function LoadWorkspace(arg1) {
@@ -462,6 +482,10 @@ export function ResolveLink(arg1) {
   return window['go']['app']['App']['ResolveLink'](arg1);
 }
 
+export function RestoreTrashEntry(arg1) {
+  return window['go']['app']['App']['RestoreTrashEntry'](arg1);
+}
+
 export function SavePreferences(arg1) {
   return window['go']['app']['App']['SavePreferences'](arg1);
 }
@@ -480,6 +504,10 @@ export function SearchFiles(arg1, arg2, arg3) {
 
 export function SetPaneDirectory(arg1, arg2) {
   return window['go']['app']['App']['SetPaneDirectory'](arg1, arg2);
+}
+
+export function SetPathAttributes(arg1, arg2) {
+  return window['go']['app']['App']['SetPathAttributes'](arg1, arg2);
 }
 
 export function SetStreamBaseURL(arg1) {

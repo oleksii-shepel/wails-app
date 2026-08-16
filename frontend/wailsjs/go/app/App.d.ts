@@ -82,9 +82,13 @@ export function CreateDirectory(arg1:string,arg2:boolean):Promise<contracts.Oper
 
 export function CreatePaneWatch():Promise<void>;
 
+export function CreateZipArchive(arg1:Array<string>,arg2:string):Promise<contracts.OperationResult>;
+
 export function Delete(arg1:string,arg2:boolean,arg3:any):Promise<contracts.OperationResult>;
 
 export function DeleteFile(arg1:string,arg2:boolean,arg3:any):Promise<contracts.OperationResult>;
+
+export function DeleteTrashEntry(arg1:string):Promise<void>;
 
 export function DeleteWorkspace(arg1:string):Promise<void>;
 
@@ -95,6 +99,8 @@ export function DiscoverPluginPackages():Promise<Array<pluginpackage.DiscoveredP
 export function DismissOperation(arg1:string):Promise<void>;
 
 export function EmitEvent(arg1:string,arg2:any):Promise<void>;
+
+export function EmptyTrash():Promise<void>;
 
 export function ExtractNestedArchive(arg1:string,arg2:Array<string>):Promise<Array<number>>;
 
@@ -125,6 +131,8 @@ export function GetImageThumbnailURL(arg1:string,arg2:number,arg3:number):Promis
 export function GetOSInfo():Promise<contracts.OSInfoResponse>;
 
 export function GetParentPath(arg1:string):Promise<string>;
+
+export function GetPathAttributes(arg1:string):Promise<contracts.PathAttributes>;
 
 export function GetPlugin(arg1:string):Promise<plugin.Info>;
 
@@ -177,6 +185,8 @@ export function ListDirectory(arg1:string,arg2:boolean):Promise<contracts.Direct
 export function ListDrives():Promise<contracts.DrivesList>;
 
 export function ListPlugins():Promise<Array<plugin.Info>>;
+
+export function ListTrashEntries():Promise<Array<contracts.TrashEntry>>;
 
 export function LoadWorkspace(arg1:string):Promise<contracts.WorkspaceConfig>;
 
@@ -240,6 +250,8 @@ export function ResolveConflict(arg1:string,arg2:contracts.ConflictResolution,ar
 
 export function ResolveLink(arg1:string):Promise<utility.ResolvedLink>;
 
+export function RestoreTrashEntry(arg1:string):Promise<string>;
+
 export function SavePreferences(arg1:contracts.UserPreferences):Promise<void>;
 
 export function SaveWorkspace(arg1:contracts.WorkspaceConfig):Promise<void>;
@@ -249,6 +261,8 @@ export function Search(arg1:string,arg2:string,arg3:boolean):Promise<contracts.S
 export function SearchFiles(arg1:string,arg2:string,arg3:boolean):Promise<contracts.SearchResult>;
 
 export function SetPaneDirectory(arg1:string,arg2:string):Promise<void>;
+
+export function SetPathAttributes(arg1:string,arg2:contracts.PathAttributesUpdate):Promise<void>;
 
 export function SetStreamBaseURL(arg1:string):Promise<void>;
 

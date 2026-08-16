@@ -32,6 +32,34 @@ import { EventsEmit } from 'wailsjs/runtime';
 import { app, contracts, elevation, plugin } from '../../../wailsjs/go/models';
 
 /** Mirror of Go's ElevatedSessionStatus struct. */
+export interface TrashEntry {
+  id: string;
+  name: string;
+  originalPath: string;
+  trashedPath: string;
+  deletedAt: string;
+  size: number;
+  isDir: boolean;
+  canRestore: boolean;
+}
+
+export interface PathAttributes {
+  permissions: string;
+  unixMode: number;
+  readOnly: boolean;
+  hidden: boolean;
+  system: boolean;
+  archive: boolean;
+}
+
+export interface PathAttributesUpdate {
+  unixMode?: number;
+  readOnly?: boolean;
+  hidden?: boolean;
+  system?: boolean;
+  archive?: boolean;
+}
+
 export interface ElevatedSessionStatus {
   /** True when the elevated helper process is connected and healthy. */
   active: boolean;
@@ -223,6 +251,54 @@ export class ApiService {
 
   async getOSInfo(): Promise<any> {
 	    return await window.go.app.App.GetOSInfo();
+  }
+
+  async listTrashEntries(): Promise<TrashEntry[]> {
+    const app = window.go.app.App as unknown as {
+      ListTrashEntries(): Promise<TrashEntry[]>;
+    };
+    return await app.ListTrashEntries();
+  }
+
+  async restoreTrashEntry(id: string): Promise<string> {
+    const app = window.go.app.App as unknown as {
+      RestoreTrashEntry(id: string): Promise<string>;
+    };
+    return await app.RestoreTrashEntry(id);
+  }
+
+  async deleteTrashEntry(id: string): Promise<void> {
+    const app = window.go.app.App as unknown as {
+      DeleteTrashEntry(id: string): Promise<void>;
+    };
+    await app.DeleteTrashEntry(id);
+  }
+
+  async emptyTrash(): Promise<void> {
+    const app = window.go.app.App as unknown as {
+      EmptyTrash(): Promise<void>;
+    };
+    await app.EmptyTrash();
+  }
+
+  async getPathAttributes(path: string): Promise<PathAttributes> {
+    const app = window.go.app.App as unknown as {
+      GetPathAttributes(path: string): Promise<PathAttributes>;
+    };
+    return await app.GetPathAttributes(this.normalizeCanonicalPath(path));
+  }
+
+  async setPathAttributes(
+    path: string,
+    update: PathAttributesUpdate,
+  ): Promise<void> {
+    const app = window.go.app.App as unknown as {
+      SetPathAttributes(path: string, update: PathAttributesUpdate): Promise<void>;
+    };
+    await app.SetPathAttributes(
+      this.normalizeCanonicalPath(path),
+      update,
+    );
   }
 
   async getDrives(): Promise<DrivesList> {

@@ -3348,11 +3348,61 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     if (!confirmed) return;
 
     try {
+      const sourcePaths = entries.map(entry => entry.path);
+      const trashBefore = useTrash
+        ? await this.api.listTrashEntries().catch(() => [])
+        : [];
+
       const result = await this.api.batchDelete(
-        entries.map(entry => entry.path),
+        sourcePaths,
         true,
         useTrash,
       );
+
+      if (useTrash && result.succeeded > 0) {
+        const beforeIds = new Set(trashBefore.map(item => item.id));
+        const normalize = (value: string) =>
+          value.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+        const wanted = new Set(sourcePaths.map(normalize));
+
+        let currentTrashEntries = (
+          await this.api.listTrashEntries().catch(() => [])
+        ).filter(item =>
+          !beforeIds.has(item.id) &&
+          wanted.has(normalize(item.originalPath)),
+        );
+
+        if (currentTrashEntries.length > 0) {
+          this.operationHistory.record({
+            label:
+              entries.length === 1
+                ? `Move ${entries[0].name} to Trash`
+                : `Move ${entries.length} items to Trash`,
+            undo: async () => {
+              for (const item of currentTrashEntries) {
+                if (!item.canRestore) {
+                  throw new Error(`Trash item cannot be restored: ${item.name}`);
+                }
+                await this.api.restoreTrashEntry(item.id);
+              }
+            },
+            redo: async () => {
+              const before = await this.api.listTrashEntries().catch(() => []);
+              const known = new Set(before.map(item => item.id));
+              const redoResult = await this.api.batchDelete(sourcePaths, true, true);
+              if (redoResult.failed > 0) {
+                throw new Error('Redo move to Trash failed.');
+              }
+              currentTrashEntries = (
+                await this.api.listTrashEntries().catch(() => [])
+              ).filter(item =>
+                !known.has(item.id) &&
+                wanted.has(normalize(item.originalPath)),
+              );
+            },
+          });
+        }
+      }
 
       this.lastAction = `delete: ${result.succeeded}/${result.total}`;
       await this.refresh();
@@ -3470,6 +3520,86 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       this.selectPath(destination);
     } catch (error) {
       await this.showOperationError('Create ZIP Archive', error);
+    }
+  }
+
+  async editSelectedAttributes(): Promise<void> {
+    const entry = this.cursorEntry ?? this.selectedEntries[0];
+    if (!entry || this.isInArchive || !this.isDirectoryTab) return;
+
+    try {
+      const [osInfo, attributes] = await Promise.all([
+        this.api.getOSInfo(),
+        this.api.getPathAttributes(entry.path),
+      ]);
+
+      if (String(osInfo?.os).toLowerCase() === 'windows') {
+        const current = [
+          attributes.readOnly ? 'readonly' : '',
+          attributes.hidden ? 'hidden' : '',
+          attributes.system ? 'system' : '',
+          attributes.archive ? 'archive' : '',
+        ].filter(Boolean).join(',');
+
+        const value = await this.confirmDialog.prompt({
+          title: `Attributes — ${entry.name}`,
+          message: 'Comma-separated attributes: readonly, hidden, system, archive',
+          confirmText: 'Apply',
+          defaultValue: current,
+          historyKey: 'reassembly.attributes.windows',
+        });
+        if (value === null || value === undefined) return;
+
+        const tokens = new Set(
+          String(value).split(',').map(token => token.trim().toLowerCase()).filter(Boolean),
+        );
+        const valid = new Set(['readonly', 'hidden', 'system', 'archive']);
+        const invalid = [...tokens].filter(token => !valid.has(token));
+
+        if (invalid.length > 0) {
+          await this.confirmDialog.alert({
+            title: 'Invalid Attributes',
+            message: `Unknown attribute${invalid.length === 1 ? '' : 's'}: ${invalid.join(', ')}`,
+          });
+          return;
+        }
+
+        await this.api.setPathAttributes(entry.path, {
+          readOnly: tokens.has('readonly'),
+          hidden: tokens.has('hidden'),
+          system: tokens.has('system'),
+          archive: tokens.has('archive'),
+        });
+      } else {
+        const currentMode = (attributes.unixMode || 0).toString(8).padStart(4, '0');
+        const value = await this.confirmDialog.prompt({
+          title: `Permissions — ${entry.name}`,
+          message: 'Unix permission mode (octal), for example 0644 or 0755:',
+          confirmText: 'Apply',
+          defaultValue: currentMode,
+          historyKey: 'reassembly.attributes.unix',
+        });
+        if (value === null || value === undefined) return;
+
+        const normalized = String(value).trim();
+        if (!/^[0-7]{3,4}$/.test(normalized)) {
+          await this.confirmDialog.alert({
+            title: 'Invalid Permission Mode',
+            message: 'Enter a 3- or 4-digit octal mode such as 644, 0644, or 0755.',
+          });
+          return;
+        }
+
+        await this.api.setPathAttributes(entry.path, {
+          unixMode: Number.parseInt(normalized, 8),
+        });
+      }
+
+      this.lastAction = `attributes: ${entry.name}`;
+      await this.refresh();
+      this.selectPath(entry.path);
+    } catch (error) {
+      await this.showOperationError('Attributes', error);
     }
   }
 

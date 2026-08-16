@@ -1023,6 +1023,48 @@ export namespace contracts {
 		    return a;
 		}
 	}
+	export class PathAttributes {
+	    permissions: string;
+	    unixMode: number;
+	    readOnly: boolean;
+	    hidden: boolean;
+	    system: boolean;
+	    archive: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new PathAttributes(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.permissions = source["permissions"];
+	        this.unixMode = source["unixMode"];
+	        this.readOnly = source["readOnly"];
+	        this.hidden = source["hidden"];
+	        this.system = source["system"];
+	        this.archive = source["archive"];
+	    }
+	}
+	export class PathAttributesUpdate {
+	    unixMode?: number;
+	    readOnly?: boolean;
+	    hidden?: boolean;
+	    system?: boolean;
+	    archive?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new PathAttributesUpdate(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.unixMode = source["unixMode"];
+	        this.readOnly = source["readOnly"];
+	        this.hidden = source["hidden"];
+	        this.system = source["system"];
+	        this.archive = source["archive"];
+	    }
+	}
 	export class RemoteConfig {
 	    protocol: string;
 	    name?: string;
@@ -1249,6 +1291,32 @@ export namespace contracts {
 		}
 	}
 	
+	export class TrashEntry {
+	    id: string;
+	    name: string;
+	    originalPath: string;
+	    trashedPath: string;
+	    deletedAt: string;
+	    size: number;
+	    isDir: boolean;
+	    canRestore: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new TrashEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.originalPath = source["originalPath"];
+	        this.trashedPath = source["trashedPath"];
+	        this.deletedAt = source["deletedAt"];
+	        this.size = source["size"];
+	        this.isDir = source["isDir"];
+	        this.canRestore = source["canRestore"];
+	    }
+	}
 	export class WindowState {
 	    width: number;
 	    height: number;

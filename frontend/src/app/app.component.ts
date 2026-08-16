@@ -11,6 +11,7 @@ import { ReassemblyOperationSurfaceComponent } from './components/reassembly-ope
 import { BatchRenameDialogComponent } from './components/batch-rename-dialog.component';
 import { RemoteConnectDialogComponent } from './components/remote-connect-dialog.component';
 import { SettingsDialogComponent } from './components/settings-dialog.component';
+import { ReassemblyTrashDialogComponent } from './components/reassembly-trash-dialog.component';
 import { PluginBootstrapService } from './services/plugin-bootstrap.service';
 
 @Component({
@@ -23,6 +24,7 @@ import { PluginBootstrapService } from './services/plugin-bootstrap.service';
     BatchRenameDialogComponent,
     RemoteConnectDialogComponent,
     SettingsDialogComponent,
+    ReassemblyTrashDialogComponent,
     ConfirmDialogComponent,
   ],
   template: `
@@ -50,6 +52,7 @@ import { PluginBootstrapService } from './services/plugin-bootstrap.service';
       <app-batch-rename-dialog></app-batch-rename-dialog>
       <app-remote-connect-dialog></app-remote-connect-dialog>
       <app-settings-dialog></app-settings-dialog>
+      <app-reassembly-trash-dialog></app-reassembly-trash-dialog>
       <app-confirm-dialog></app-confirm-dialog>
     </main>
   `,

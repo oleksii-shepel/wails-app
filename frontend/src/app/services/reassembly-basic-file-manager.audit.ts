@@ -8,14 +8,14 @@ export type BasicFileManagerFeature =
   | 'hiddenFiles' | 'selection' | 'tabs'
   | 'pinsHistory' | 'dragDrop'
   | 'archiveBrowseExtract' | 'archiveCreate'
-  | 'rootsDrives';
+  | 'rootsDrives' | 'attributesPermissions' | 'trashBrowseRestore';
 
 export const BASIC_FILE_MANAGER_FEATURES: readonly BasicFileManagerFeature[] = [
   'navigation','backForward','refresh','copyCutPaste','copyMoveOtherPane',
   'rename','newFileFolder','trashDelete','permanentDelete','undoRedo',
   'properties','checksum','folderSize','openWithPreview','searchFilter',
   'sortViews','hiddenFiles','selection','tabs','pinsHistory','dragDrop',
-  'archiveBrowseExtract','archiveCreate','rootsDrives',
+  'archiveBrowseExtract','archiveCreate','rootsDrives','attributesPermissions','trashBrowseRestore',
 ];
 
 export function missingBasicFileManagerFeatures(

@@ -1298,6 +1298,20 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     return this.selectedPaths.size > 0;
   }
 
+  get visibleSelectedCount(): number {
+    if (!this.isDirectoryTab) return 0;
+    const visible = new Set(this.selectableEntries().map(entry => entry.path));
+    let count = 0;
+    for (const path of this.selectedPaths) {
+      if (visible.has(path)) count += 1;
+    }
+    return count;
+  }
+
+  get hiddenSelectedCount(): number {
+    return Math.max(0, this.selectedPaths.size - this.visibleSelectedCount);
+  }
+
   get isInArchive(): boolean {
     return this.archiveStack.length > 0;
   }
@@ -2513,7 +2527,10 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     this.markUserInteraction();
 
     const entries = this.selectableEntries();
-    const next = new Set<string>();
+    const visiblePaths = new Set(entries.map(entry => entry.path));
+    const next = new Set(
+      Array.from(this.selectedPaths).filter(path => !visiblePaths.has(path)),
+    );
 
     for (const entry of entries) {
       if (!this.selectedPaths.has(entry.path)) {
@@ -2522,8 +2539,17 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     }
 
     this.selectedPaths = next;
-    this.syncCursorFromSelection(entries);
-    this.lastAction = `invert selection: ${next.size}`;
+
+    const firstVisibleSelected = entries.find(entry => next.has(entry.path));
+    if (firstVisibleSelected) {
+      this.cursorPath = firstVisibleSelected.path;
+      this.anchorPath = firstVisibleSelected.path;
+    } else if (entries.length > 0) {
+      this.cursorPath = entries[0].path;
+      this.anchorPath = this.cursorPath;
+    }
+
+    this.lastAction = `invert visible selection: ${next.size}`;
     this.syncActiveDirSessionState();
     this.ensureCursorVisible();
     this.cdr.markForCheck();
@@ -2553,6 +2579,49 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     this.syncActiveDirSessionState();
     this.ensureCursorVisible();
     this.cdr.markForCheck();
+  }
+
+  selectFiles(): void {
+    this.applyTypeSelection(
+      entry => entry.type !== FileType.DIRECTORY,
+      true,
+      'select files',
+    );
+  }
+
+  selectFolders(): void {
+    this.applyTypeSelection(
+      entry => entry.type === FileType.DIRECTORY,
+      true,
+      'select folders',
+    );
+  }
+
+  unselectFiles(): void {
+    this.applyTypeSelection(
+      entry => entry.type !== FileType.DIRECTORY,
+      false,
+      'unselect files',
+    );
+  }
+
+  unselectFolders(): void {
+    this.applyTypeSelection(
+      entry => entry.type === FileType.DIRECTORY,
+      false,
+      'unselect folders',
+    );
+  }
+
+  selectSameType(): void {
+    const current = this.cursorEntry;
+    if (!current) return;
+
+    this.applyTypeSelection(
+      entry => entry.type === current.type,
+      true,
+      `select ${entryTypeLabel(current)}`,
+    );
   }
 
   moveCursorHome(): void {
@@ -2587,6 +2656,40 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       Math.max(0, currentIndex) + pageSize * delta,
       delta < 0 ? 'page up' : 'page down',
     );
+  }
+
+  private applyTypeSelection(
+    predicate: (entry: FileInfo) => boolean,
+    select: boolean,
+    action: string,
+  ): void {
+    if (!this.isDirectoryTab) return;
+
+    const entries = this.selectableEntries();
+    const next = new Set(this.selectedPaths);
+
+    for (const entry of entries) {
+      if (!predicate(entry)) continue;
+      if (select) {
+        next.add(entry.path);
+      } else {
+        next.delete(entry.path);
+      }
+    }
+
+    this.markUserInteraction();
+    this.selectedPaths = next;
+
+    if (!this.cursorPath || !entries.some(entry => entry.path === this.cursorPath)) {
+      const firstVisibleSelected = entries.find(entry => next.has(entry.path));
+      this.cursorPath = firstVisibleSelected?.path ?? entries[0]?.path ?? null;
+    }
+
+    this.anchorPath = this.cursorPath;
+    this.lastAction = `${action}: ${next.size}`;
+    this.syncActiveDirSessionState();
+    this.ensureCursorVisible();
+    this.cdr.markForCheck();
   }
 
   private applySelectionMask(mask: string, select: boolean): void {
@@ -4386,31 +4489,29 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
 
   private reconcileSelectionWithVisibleEntries(): void {
     const visible = this.visibleEntries;
+
     if (visible.length === 0) {
+      // A filter is a projection, not a selection mutation. Keep the selection
+      // so clearing the filter restores the user's working set.
       this.cursorPath = null;
-      this.selectedPaths = new Set();
       this.anchorPath = null;
       return;
     }
 
     const cursorStillVisible =
-      !!this.cursorPath && visible.some(entry => entry.path === this.cursorPath);
+      !!this.cursorPath &&
+      visible.some(entry => entry.path === this.cursorPath);
 
     if (!cursorStillVisible) {
-      this.setSingleSelection(visible[0]);
-      return;
+      const selectedVisible = visible.find(entry =>
+        this.selectedPaths.has(entry.path),
+      );
+      this.cursorPath = selectedVisible?.path ?? visible[0].path;
+      this.anchorPath = this.cursorPath;
     }
 
-    const visiblePaths = new Set(visible.map(entry => entry.path));
-    const nextSelected = new Set(
-      Array.from(this.selectedPaths).filter(path => visiblePaths.has(path)),
-    );
-
-    if (nextSelected.size === 0 && this.cursorPath) {
-      nextSelected.add(this.cursorPath);
-    }
-
-    this.selectedPaths = nextSelected;
+    // Intentionally do not filter selectedPaths here. Hidden selections remain
+    // selected and are surfaced through hiddenSelectedCount.
   }
 
   private moveFilterCursor(delta: -1 | 1): void {
@@ -4426,7 +4527,16 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       ? (delta > 0 ? 0 : visible.length - 1)
       : (currentIndex + delta + visible.length) % visible.length;
 
-    this.setSingleSelection(visible[nextIndex]);
+    const entry = visible[nextIndex];
+    this.cursorPath = entry.path;
+    this.anchorPath = entry.path;
+
+    // F3 navigation moves the cursor through matches. It must not collapse an
+    // existing multi-selection merely because the filter owns keyboard focus.
+    if (this.selectedPaths.size <= 1) {
+      this.selectedPaths = new Set([entry.path]);
+    }
+
     this.lastAction = delta > 0 ? 'filter next' : 'filter previous';
     this.ensureCursorVisible();
     this.syncActiveDirSessionState();

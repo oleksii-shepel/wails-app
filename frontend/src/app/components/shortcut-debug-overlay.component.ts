@@ -94,6 +94,7 @@ export interface ShortcutHelpItem {
         <span>F3 / Shift+F3 navigate inline-filter matches while the filter owns focus.</span>
         <span>Viewer Left/Right and zoom keys are enabled only when the active viewer implements them.</span>
         <span>Overlay/dialog contexts override manager bindings while they are active.</span>
+        <span>Filtered selections stay selected even while hidden; F3 moves the match cursor without collapsing a multi-selection.</span>
         <span>Embedded browser panes may forward function/modifier keys through their host bridge; the file-manager shell itself does not install global keyboard listeners.</span>
       </div>
 

@@ -144,6 +144,11 @@ const COMMAND = {
   unselectByMask: 'reassembly.selection.unselectByMask',
   invertSelection: 'reassembly.selection.invert',
   selectSameExtension: 'reassembly.selection.sameExtension',
+  selectFiles: 'reassembly.selection.files',
+  selectFolders: 'reassembly.selection.folders',
+  unselectFiles: 'reassembly.selection.unselectFiles',
+  unselectFolders: 'reassembly.selection.unselectFolders',
+  selectSameType: 'reassembly.selection.sameType',
   cursorHome: 'reassembly.selection.cursorHome',
   cursorEnd: 'reassembly.selection.cursorEnd',
   cursorPageUp: 'reassembly.selection.cursorPageUp',
@@ -236,6 +241,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   { id:'reassembly.selection.unmask.altU', commandId:COMMAND.unselectByMask, contextId:CONTEXT_ID, source:'default', description:'Unselect by mask', category:'Selection', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'u', modifiers:['alt']}]}}},
   { id:'reassembly.selection.invert.altI', commandId:COMMAND.invertSelection, contextId:CONTEXT_ID, source:'default', description:'Invert selection', category:'Selection', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'i', modifiers:['alt']}]}}},
   { id:'reassembly.selection.sameExtension.altE', commandId:COMMAND.selectSameExtension, contextId:CONTEXT_ID, source:'default', description:'Select same extension', category:'Selection', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'e', modifiers:['alt']}]}}},
+  { id:'reassembly.selection.files.altShiftF', commandId:COMMAND.selectFiles, contextId:CONTEXT_ID, source:'default', description:'Select visible files', category:'Selection', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'f', modifiers:['alt','shift']}]}}},
+  { id:'reassembly.selection.folders.altShiftD', commandId:COMMAND.selectFolders, contextId:CONTEXT_ID, source:'default', description:'Select visible folders', category:'Selection', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'d', modifiers:['alt','shift']}]}}},
   { id:'reassembly.selection.home.home', commandId:COMMAND.cursorHome, contextId:CONTEXT_ID, source:'default', description:'Move cursor to first item', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'home'}]}}},
   { id:'reassembly.selection.end.end', commandId:COMMAND.cursorEnd, contextId:CONTEXT_ID, source:'default', description:'Move cursor to last item', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'end'}]}}},
   { id:'reassembly.selection.pageUp.pageUp', commandId:COMMAND.cursorPageUp, contextId:CONTEXT_ID, source:'default', description:'Page up', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'pageup'}]}}},
@@ -1657,6 +1664,8 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       this.menuCommand(COMMAND.openWithExternal, 'Open externally', 'Ctrl+Shift+O'),
       { separator: true },
       this.menuCommand(COMMAND.rename, 'Rename', 'F2'),
+      this.menuCommand(COMMAND.selectSameExtension, 'Select same extension', 'Alt+E'),
+      this.menuCommand(COMMAND.selectSameType, 'Select same type'),
       this.menuCommand(COMMAND.properties, 'Properties', 'Alt+Enter'),
       this.menuCommand(COMMAND.batchRename, 'Batch rename…', 'Ctrl+Shift+R'),
       this.menuCommand(COMMAND.copy, 'Copy', 'Ctrl+C'),
@@ -1698,6 +1707,10 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
         this.menuCommand(COMMAND.paste, 'Paste', 'Ctrl+V'),
         { separator: true },
         this.menuCommand(COMMAND.selectAll, 'Select all', 'Ctrl+A'),
+        this.menuCommand(COMMAND.invertSelection, 'Invert visible selection', 'Alt+I'),
+        this.menuCommand(COMMAND.selectFiles, 'Select visible files', 'Alt+Shift+F'),
+        this.menuCommand(COMMAND.selectFolders, 'Select visible folders', 'Alt+Shift+D'),
+        this.menuCommand(COMMAND.clearSelection, 'Clear selection', 'Ctrl+D'),
         this.menuCommand(COMMAND.invertSelection, 'Invert selection', 'Alt+I'),
         this.menuCommand(COMMAND.selectByMask, 'Select by mask…', 'Alt+S'),
         this.menuCommand(COMMAND.unselectByMask, 'Unselect by mask…', 'Alt+U'),
@@ -2209,6 +2222,11 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     descriptor(COMMAND.unselectByMask, 'Unselect by Mask', 'Selection', () => this.activePane?.unselectByMaskPrompt(), () => !!this.activePane?.isDirectoryTab);
     descriptor(COMMAND.invertSelection, 'Invert Selection', 'Selection', () => this.activePane?.invertSelection(), () => !!this.activePane?.isDirectoryTab);
     descriptor(COMMAND.selectSameExtension, 'Select Same Extension', 'Selection', () => this.activePane?.selectSameExtension(), () => !!this.activePane?.isDirectoryTab);
+    descriptor(COMMAND.selectFiles, 'Select Visible Files', 'Selection', () => this.activePane?.selectFiles(), () => !!this.activePane?.isDirectoryTab);
+    descriptor(COMMAND.selectFolders, 'Select Visible Folders', 'Selection', () => this.activePane?.selectFolders(), () => !!this.activePane?.isDirectoryTab);
+    descriptor(COMMAND.unselectFiles, 'Unselect Visible Files', 'Selection', () => this.activePane?.unselectFiles(), () => !!this.activePane?.isDirectoryTab);
+    descriptor(COMMAND.unselectFolders, 'Unselect Visible Folders', 'Selection', () => this.activePane?.unselectFolders(), () => !!this.activePane?.isDirectoryTab);
+    descriptor(COMMAND.selectSameType, 'Select Same Type', 'Selection', () => this.activePane?.selectSameType(), () => !!this.activePane?.isDirectoryTab && !!this.activePane?.cursorEntry);
     descriptor(COMMAND.cursorHome, 'Move Cursor to First', 'Navigation', () => this.activePane?.moveCursorHome(), () => !!this.activePane?.isDirectoryTab);
     descriptor(COMMAND.cursorEnd, 'Move Cursor to Last', 'Navigation', () => this.activePane?.moveCursorEnd(), () => !!this.activePane?.isDirectoryTab);
     descriptor(COMMAND.cursorPageUp, 'Page Up', 'Navigation', () => this.activePane?.moveCursorPage(-1), () => !!this.activePane?.isDirectoryTab);

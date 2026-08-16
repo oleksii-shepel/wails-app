@@ -16,6 +16,7 @@ import { PinnedLocationService } from '../services/pinned-location.service';
 import { InputEngineService } from '../services/input-engine.service';
 import type { InputBindingDefinition } from '../services/input-system.types';
 import { canTransferBetween, transferBlockedMessage } from '../services/transfer-capabilities';
+import { getSourceCapabilities } from '../services/source-capabilities';
 import {
   PaneComparisonService,
   type PaneComparisonResult,
@@ -31,6 +32,7 @@ import { ReassemblyDirectoryPaneComponent } from './reassembly-directory-pane.co
 import { ReassemblyWorkspaceSwitcherComponent } from './reassembly-workspace-switcher.component';
 import { ReassemblyPathHistoryComponent } from './reassembly-path-history.component';
 import { ReassemblyQuickAccessComponent } from './reassembly-quick-access.component';
+import { ReassemblyRemoteConnectionsComponent } from './reassembly-remote-connections.component';
 import { PaneComparisonBarComponent } from './pane-comparison-bar.component';
 import {
   PaneSyncReviewComponent,
@@ -272,6 +274,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     ReassemblyWorkspaceSwitcherComponent,
     ReassemblyPathHistoryComponent,
     ReassemblyQuickAccessComponent,
+    ReassemblyRemoteConnectionsComponent,
     PaneComparisonBarComponent,
     PaneSyncReviewComponent,
     SelectionBasketComponent,
@@ -327,6 +330,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           [showHidden]="showHidden"
           [currentPathPinned]="isPanePathPinned(leftPane)"
           (activateRequested)="activate('left')"
+          (remoteRecoveryRequested)="openRemoteConnections()"
           (togglePinRequested)="togglePanePin(leftPane)"
           (quickAccessRequested)="openQuickAccessFor('left')"
           (historyRequested)="openHistoryFor('left')"
@@ -362,6 +366,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           [showHidden]="showHidden"
           [currentPathPinned]="isPanePathPinned(rightPane)"
           (activateRequested)="activate('right')"
+          (remoteRecoveryRequested)="openRemoteConnections()"
           (togglePinRequested)="togglePanePin(rightPane)"
           (quickAccessRequested)="openQuickAccessFor('right')"
           (historyRequested)="openHistoryFor('right')"
@@ -415,6 +420,11 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         (navigate)="navigateFromQuickAccess($event)">
       </app-reassembly-quick-access>
 
+
+      <app-reassembly-remote-connections
+        #remoteConnections
+        (navigate)="navigateFromRemoteConnections($event)">
+      </app-reassembly-remote-connections>
 
       <app-reassembly-context-menu
         [state]="contextMenu"
@@ -547,6 +557,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
   quickAccess?: ReassemblyQuickAccessComponent;
   @ViewChild('leftPane') leftPane?: ReassemblyDirectoryPaneComponent;
   @ViewChild('rightPane') rightPane?: ReassemblyDirectoryPaneComponent;
+  @ViewChild('remoteConnections') remoteConnections?: ReassemblyRemoteConnectionsComponent;
 
   activePaneId: PaneId = 'left';
   readonly MIN_PANE_PERCENT = 20;
@@ -745,17 +756,24 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     }
   }
 
+  openRemoteConnections(): void {
+    this.remoteConnections?.open();
+  }
+
+  navigateFromRemoteConnections(path: string): void {
+    const pane = this.activePane?.isDirectoryTab ? this.activePane :
+      this.otherPane?.isDirectoryTab ? this.otherPane : null;
+    if (!pane || !path) return;
+    pane.navigateTo(path);
+    pane.lastAction = `remote: ${path}`;
+    this.cdr.markForCheck();
+  }
+
   async connectRemote(): Promise<void> {
     const mount = await this.remoteConnectDialog.openDialog();
     const path = mount?.publicPath?.trim();
     if (!path) return;
-
-    const pane = this.activePane;
-    if (!pane?.isDirectoryTab) return;
-
-    pane.navigateTo(path);
-    pane.lastAction = `remote: ${path}`;
-    this.cdr.markForCheck();
+    this.navigateFromRemoteConnections(path);
   }
 
   openSearchResult(entry: FileInfo): void {
@@ -1052,6 +1070,14 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
         message: 'The destination pane is read-only.',
       });
       return;
+    }
+
+    for (const sourcePath of paths) {
+      const decision = canTransferBetween(operation, getSourceCapabilities(sourcePath), destination.sourceCapabilities);
+      if (!decision.allowed) {
+        await this.confirmDialog.alert(transferBlockedMessage(operation, decision));
+        return;
+      }
     }
 
     const confirmed = await this.confirmDialog.confirm({

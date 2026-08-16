@@ -28,6 +28,7 @@ import {
 } from '../services/archive.service';
 import type { ViewerArchiveContext } from '../viewers/viewer-archive-context';
 import { getSourceCapabilities } from '../services/source-capabilities';
+import { RemoteConnectionsService } from '../services/remote-connections.service';
 import { FileInfo, FileType } from '../shared/protocol';
 import type { ViewerFileListItem } from '../shared/protocol-enhanced';
 import { ViewerHostSurfaceComponent } from '../viewers/viewer-host-surface.component';
@@ -338,6 +339,9 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
         <div class="error-actions">
           <button type="button" (click)="refresh()">Retry</button>
           <button type="button" (click)="navigateUp()" [disabled]="atRoot">Parent folder</button>
+          <button *ngIf="isRemoteLocation" type="button" (click)="remoteRecoveryRequested.emit()">
+            Remote connections
+          </button>
         </div>
       </div>
 
@@ -1195,6 +1199,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   @Input() showHidden = false;
   @Input() currentPathPinned = false;
   @Output() activateRequested = new EventEmitter<void>();
+  @Output() remoteRecoveryRequested = new EventEmitter<void>();
   @Output() togglePinRequested = new EventEmitter<void>();
   @Output() quickAccessRequested = new EventEmitter<void>();
   @Output() historyRequested = new EventEmitter<void>();
@@ -1333,7 +1338,11 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       };
     }
 
-    return getSourceCapabilities(this.path);
+    return this.remoteConnections.capabilitiesFor(this.path, getSourceCapabilities(this.path));
+  }
+
+  get isRemoteLocation(): boolean {
+    return this.remoteConnections.isRemoteUri(this.path);
   }
 
   get canCreate(): boolean {
@@ -1386,6 +1395,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     private readonly pathHistory: PathHistoryService,
     private readonly workspaceService: WorkspaceService,
     private readonly confirmDialog: ConfirmDialogService,
+    private readonly remoteConnections: RemoteConnectionsService,
     private readonly archiveService: ArchiveService,
     private readonly fileClipboard: FileClipboardService,
     private readonly cdr: ChangeDetectorRef,

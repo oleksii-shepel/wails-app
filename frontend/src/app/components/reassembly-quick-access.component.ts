@@ -7,6 +7,7 @@ import { InputEngineService } from '../services/input-engine.service';
 import type { InputBindingDefinition } from '../services/input-system.types';
 import { PathHistoryService } from '../services/path-history.service';
 import { PinnedLocationService } from '../services/pinned-location.service';
+import { RemoteConnectionsService } from '../services/remote-connections.service';
 import type { PinnedLocation } from './address-bar.types';
 import type { SpecialFolder } from '../shared/protocol';
 
@@ -21,7 +22,7 @@ interface QuickItem {
   label: string;
   path: string;
   icon: string;
-  kind: 'system' | 'pin' | 'frequent' | 'recent' | 'related';
+  kind: 'system' | 'pin' | 'frequent' | 'recent' | 'related' | 'remote';
   meta?: string;
 }
 
@@ -153,6 +154,7 @@ export class ReassemblyQuickAccessComponent implements OnInit, OnDestroy {
     private readonly history: PathHistoryService,
     private readonly pinnedLocations: PinnedLocationService,
     private readonly input: InputEngineService,
+    private readonly connections: RemoteConnectionsService,
     private readonly cdr: ChangeDetectorRef,
   ) {}
 
@@ -237,7 +239,14 @@ export class ReassemblyQuickAccessComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
   }
 
-  close(): void { if(!this.visible)return; this.visible=false; this.input.deactivateContext(CONTEXT_ID); this.cdr.markForCheck(); }
+  close(): void {
+    if(!this.visible)return;
+    this.visible=false;
+    this.input.deactivateContext(CONTEXT_ID);
+    restoreFocusedElement(this.previousFocus);
+    this.previousFocus=null;
+    this.cdr.markForCheck();
+  }
   openItem(item: QuickItem): void { this.navigate.emit(item.path); this.close(); }
   selectSection(index:number):void{this.sectionIndex=Math.max(0,Math.min(index,this.filteredSections.length-1));this.itemIndex=0;this.cdr.markForCheck()}
   resetSelection():void{this.sectionIndex=0;this.itemIndex=0;this.cdr.markForCheck()}
@@ -333,7 +342,20 @@ export class ReassemblyQuickAccessComponent implements OnInit, OnDestroy {
       kind: 'recent',
     }));
 
+    const remoteMounts = await this.connections.refresh();
+    const remoteItems: QuickItem[] = remoteMounts
+      .map(mount => ({
+        id: `remote:${this.connections.mountPoint(mount) || this.connections.rootUri(mount)}`,
+        label: this.connections.label(mount),
+        path: this.connections.rootUri(mount),
+        icon: '☁',
+        kind: 'remote' as const,
+        meta: (this.connections.protocol(mount) || 'remote').toUpperCase(),
+      }))
+      .filter(item => !!item.path);
+
     this.sections = [
+      ...(remoteItems.length ? [{ id: 'remote', title: 'Remote', items: remoteItems }] : []),
       { id: 'system', title: 'System', items: unique(system) },
       { id: 'pins', title: 'Pinned', items: unique(pins) },
       { id: 'related', title: 'Related', items: unique(relatedItems) },

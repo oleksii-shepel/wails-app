@@ -9,7 +9,8 @@
     "watch": "ng build --configuration development --watch",
     "test": "npx testify",
     "test:watch": "npx testify --watch",
-    "check": "npm run test:unit && npm run build"
+    "check": "npm run test:unit && npm run build",
+    "audit:theme": "node scripts/audit-theme-colors.mjs"
   },
   "private": true,
   "dependencies": {

@@ -17,8 +17,8 @@ export const VIEWER_BASE_STYLES = `
     flex: 1 1 0%;
     min-height: 0;
     overflow: hidden;
-    background: var(--vsc-editor-background, #1e1e1e);
-    color: var(--vsc-foreground, #cccccc);
+    background: var(--vsc-editor-background, var(--vsc-editor-background));
+    color: var(--vsc-foreground, var(--vsc-foreground));
   }
 
   .viewer-header {
@@ -27,8 +27,8 @@ export const VIEWER_BASE_STYLES = `
     justify-content: space-between;
     gap: 8px;
     padding: 8px 12px;
-    border-bottom: 1px solid var(--vsc-border, #454545);
-    background: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 92%, black);
+    border-bottom: 1px solid var(--vsc-border, var(--vsc-border));
+    background: color-mix(in srgb, var(--vsc-editor-background, var(--vsc-editor-background)) 92%, black);
     flex-shrink: 0;
     min-width: 0;
   }
@@ -92,24 +92,24 @@ export const VIEWER_BASE_STYLES = `
   }
 
   .type-badge {
-    background: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 20%, transparent);
-    color: var(--vsc-accent-blue, #4da8ff);
-    border: 1px solid color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 40%, transparent);
+    background: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 20%, transparent);
+    color: var(--vsc-accent-blue, var(--vsc-focus-ring));
+    border: 1px solid color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 40%, transparent);
   }
 
   .archive-badge {
-    background: color-mix(in srgb, var(--vsc-accent-orange, #d4a000) 20%, transparent);
+    background: color-mix(in srgb, var(--vsc-accent-orange, var(--vsc-warning)) 20%, transparent);
     color: var(--vsc-accent-orange, var(--vsc-warning));
-    border: 1px solid color-mix(in srgb, var(--vsc-accent-orange, #d4a000) 40%, transparent);
+    border: 1px solid color-mix(in srgb, var(--vsc-accent-orange, var(--vsc-warning)) 40%, transparent);
   }
 
   .size-badge,
   .dim-badge,
   .line-badge,
   .meta-badge {
-    background: color-mix(in srgb, var(--vsc-foreground, #ccc) 8%, transparent);
-    color: color-mix(in srgb, var(--vsc-foreground, #ccc) 60%, transparent);
-    border: 1px solid color-mix(in srgb, var(--vsc-border, #454545) 50%, transparent);
+    background: color-mix(in srgb, var(--vsc-foreground, var(--vsc-foreground)) 8%, transparent);
+    color: color-mix(in srgb, var(--vsc-foreground, var(--vsc-foreground)) 60%, transparent);
+    border: 1px solid color-mix(in srgb, var(--vsc-border, var(--vsc-border)) 50%, transparent);
   }
 
   .viewer-toolbar {
@@ -117,15 +117,15 @@ export const VIEWER_BASE_STYLES = `
     align-items: center;
     gap: 2px;
     padding: 4px 8px;
-    border-bottom: 1px solid var(--vsc-border, #454545);
-    background: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 96%, black);
+    border-bottom: 1px solid var(--vsc-border, var(--vsc-border));
+    background: color-mix(in srgb, var(--vsc-editor-background, var(--vsc-editor-background)) 96%, black);
     flex-shrink: 0;
   }
 
   .tool-btn {
     background: transparent;
     border: 1px solid transparent;
-    color: var(--vsc-foreground, #ccc);
+    color: var(--vsc-foreground, var(--vsc-foreground));
     font-size: 12px;
     padding: 2px 8px;
     border-radius: 3px;
@@ -135,14 +135,14 @@ export const VIEWER_BASE_STYLES = `
   }
 
   .tool-btn:hover {
-    background: var(--vsc-list-hover-background, rgba(255,255,255,0.05));
-    border-color: var(--vsc-border, #454545);
+    background: var(--vsc-list-hover-background, var(--vsc-neutral-overlay-subtle));
+    border-color: var(--vsc-border, var(--vsc-border));
   }
 
   .tool-btn.active {
-    background: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 20%, transparent);
-    border-color: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 50%, transparent);
-    color: var(--vsc-accent-blue, #4da8ff);
+    background: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 20%, transparent);
+    border-color: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 50%, transparent);
+    color: var(--vsc-accent-blue, var(--vsc-focus-ring));
   }
 
   .zoom-label {
@@ -156,7 +156,7 @@ export const VIEWER_BASE_STYLES = `
   .toolbar-divider {
     width: 1px;
     height: 16px;
-    background: var(--vsc-border, #454545);
+    background: var(--vsc-border, var(--vsc-border));
     margin: 0 4px;
   }
 
@@ -207,9 +207,9 @@ export const VIEWER_BASE_STYLES = `
   .error-detail {
     font-size: 11px;
     font-family: var(--vsc-font-family-mono, ui-monospace, monospace);
-    color: color-mix(in srgb, #ff7070 70%, var(--vsc-foreground, #ccc));
-    background: rgba(255, 0, 0, 0.07);
-    border: 1px solid rgba(255, 112, 112, 0.2);
+    color: color-mix(in srgb, var(--vsc-error-bright) 70%, var(--vsc-foreground, var(--vsc-foreground)));
+    background: var(--vsc-error-surface);
+    border: 1px solid var(--vsc-error-border);
     border-radius: 4px;
     padding: 8px 12px;
     max-width: 480px;
@@ -220,8 +220,8 @@ export const VIEWER_BASE_STYLES = `
   .spinner {
     width: 26px;
     height: 26px;
-    border: 2px solid color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 25%, transparent);
-    border-top-color: var(--vsc-accent-blue, #0078d4);
+    border: 2px solid color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 25%, transparent);
+    border-top-color: var(--vsc-accent-blue, var(--vsc-accent-blue));
     border-radius: 50%;
     animation: builtin-viewer-spin 0.65s linear infinite;
   }

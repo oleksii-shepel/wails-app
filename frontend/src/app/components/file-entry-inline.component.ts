@@ -60,9 +60,9 @@ function truncateFileName(name: string, maxLength: number): string {
           <span class="icon-emoji">{{ iconEmoji }}</span>
           <svg *ngIf="isSymlink" class="symlink-badge" viewBox="0 0 10 10" fill="none" aria-label="symlink">
             <path d="M2 8 C2 5 5 3 8 2"
-              stroke="var(--vsc-icon-symlink,#5dade2)" stroke-width="2" stroke-linecap="round"/>
+              stroke="var(--vsc-icon-symlink,var(--vsc-info))" stroke-width="2" stroke-linecap="round"/>
             <path d="M6 1.2 L8.8 1.2 L8.8 4"
-              stroke="var(--vsc-icon-symlink,#5dade2)" stroke-width="2"
+              stroke="var(--vsc-icon-symlink,var(--vsc-info))" stroke-width="2"
               stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </ng-template>
@@ -103,7 +103,7 @@ function truncateFileName(name: string, maxLength: number): string {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      --vsc-icon-symlink: color-mix(in srgb, var(--vsc-accent-blue, #4fc3f7) 80%, white 20%);
+      --vsc-icon-symlink: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-info)) 80%, white 20%);
     }
 
     .parent-icon svg {
@@ -126,8 +126,8 @@ function truncateFileName(name: string, maxLength: number): string {
       height: 8px;
       pointer-events: none;
       filter:
-        drop-shadow(0 0 1.5px color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 90%, transparent))
-        drop-shadow(0 0 2.5px color-mix(in srgb, var(--vsc-icon-symlink, #4fc3f7) 55%, transparent));
+        drop-shadow(0 0 1.5px color-mix(in srgb, var(--vsc-editor-background, var(--vsc-editor-background)) 90%, transparent))
+        drop-shadow(0 0 2.5px color-mix(in srgb, var(--vsc-icon-symlink, var(--vsc-info)) 55%, transparent));
     }
 
     .file-name {

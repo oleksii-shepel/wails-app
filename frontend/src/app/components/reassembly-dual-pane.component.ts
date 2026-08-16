@@ -583,8 +583,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         linear-gradient(
           90deg,
           transparent,
-          var(--vsc-border, #3c3c3c) 40%,
-          var(--vsc-border, #3c3c3c) 60%,
+          var(--vsc-border, var(--vsc-control-background)) 40%,
+          var(--vsc-border, var(--vsc-control-background)) 60%,
           transparent
         );
     }
@@ -595,8 +595,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         linear-gradient(
           90deg,
           transparent,
-          var(--vsc-accent-blue, #007acc) 35%,
-          var(--vsc-accent-blue, #007acc) 65%,
+          var(--vsc-accent-blue, var(--vsc-accent-blue)) 35%,
+          var(--vsc-accent-blue, var(--vsc-accent-blue)) 65%,
           transparent
         );
     }
@@ -623,8 +623,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           linear-gradient(
             180deg,
             transparent,
-            var(--vsc-border, #3c3c3c) 40%,
-            var(--vsc-border, #3c3c3c) 60%,
+            var(--vsc-border, var(--vsc-control-background)) 40%,
+            var(--vsc-border, var(--vsc-control-background)) 60%,
             transparent
           );
       }

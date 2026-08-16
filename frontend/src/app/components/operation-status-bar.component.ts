@@ -82,8 +82,8 @@ import { OperationService, OperationState } from '../services/operation.service'
     }
 
     @keyframes conflict-glow {
-      0%, 100% { box-shadow: 0 0 0 0 rgba(var(--vsc-warning-rgb), 0.4); }
-      50% { box-shadow: 0 0 6px 0 rgba(var(--vsc-warning-rgb), 0.6); }
+      0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--vsc-warning) 40%, transparent); }
+      50% { box-shadow: 0 0 6px 0 color-mix(in srgb, var(--vsc-warning) 60%, transparent); }
     }
 
     .status-pill.is-expanded {

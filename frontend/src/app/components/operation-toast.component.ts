@@ -124,11 +124,11 @@ import { createSubject } from '@epikodelabs/streamix';
     .toast {
       width: 360px;
       padding: 12px 14px;
-      background: var(--vsc-panel-background, #1e1e1e);
-      border: 1px solid var(--vsc-border, #3c3c3c);
+      background: var(--vsc-panel-background, var(--vsc-editor-background));
+      border: 1px solid var(--vsc-border, var(--vsc-control-background));
       border-radius: 6px;
-      box-shadow: 0 8px 24px rgba(0,0,0,.45);
-      color: var(--vsc-foreground, #ccc);
+      box-shadow: 0 8px 24px var(--vsc-scrim);
+      color: var(--vsc-foreground, var(--vsc-foreground));
       font-size: 12px;
       display: flex;
       gap: 12px;
@@ -153,7 +153,7 @@ import { createSubject } from '@epikodelabs/streamix';
 
     .ring-bg {
       fill: none;
-      stroke: var(--vsc-border, #3c3c3c);
+      stroke: var(--vsc-border, var(--vsc-control-background));
       stroke-width: 2.5;
     }
 
@@ -202,7 +202,7 @@ import { createSubject } from '@epikodelabs/streamix';
       padding: 0;
       border: none;
       background: none;
-      color: var(--vsc-foreground, #ccc);
+      color: var(--vsc-foreground, var(--vsc-foreground));
       opacity: 0;
       cursor: pointer;
       display: flex;
@@ -213,7 +213,7 @@ import { createSubject } from '@epikodelabs/streamix';
     }
 
     .toast:hover .icon-btn { opacity: .6; }
-    .icon-btn:hover { opacity: 1 !important; background: var(--vsc-toolbar-hover, rgba(255,255,255,.08)); }
+    .icon-btn:hover { opacity: 1 !important; background: var(--vsc-toolbar-hover, var(--vsc-neutral-overlay-soft)); }
     .icon-btn svg { width: 14px; height: 14px; }
 
     .file-name {
@@ -227,7 +227,7 @@ import { createSubject } from '@epikodelabs/streamix';
 
     .progress-bar {
       height: 2px;
-      background: var(--vsc-border, #3c3c3c);
+      background: var(--vsc-border, var(--vsc-control-background));
       border-radius: 1px;
       overflow: hidden;
     }
@@ -261,7 +261,7 @@ import { createSubject } from '@epikodelabs/streamix';
       align-items: flex-start;
       gap: 10px;
       padding: 12px 14px 10px;
-      border-bottom: 1px solid rgba(232,169,77,.2);
+      border-bottom: 1px solid var(--vsc-warning-surface);
     }
 
     .warn-icon {
@@ -292,7 +292,7 @@ import { createSubject } from '@epikodelabs/streamix';
       align-items: center;
       gap: 0;
       padding: 10px 14px;
-      border-bottom: 1px solid var(--vsc-border, #3c3c3c);
+      border-bottom: 1px solid var(--vsc-border, var(--vsc-control-background));
     }
 
     .file-side {
@@ -369,34 +369,34 @@ import { createSubject } from '@epikodelabs/streamix';
       font-size: 11px;
       font-weight: 500;
       border-radius: 4px;
-      border: 1px solid var(--vsc-border, #3c3c3c);
-      background: var(--vsc-button-secondary, rgba(255,255,255,.05));
-      color: var(--vsc-foreground, #ccc);
+      border: 1px solid var(--vsc-border, var(--vsc-control-background));
+      background: var(--vsc-button-secondary, var(--vsc-neutral-overlay-subtle));
+      color: var(--vsc-foreground, var(--vsc-foreground));
       cursor: pointer;
       transition: background .12s, border-color .12s;
       white-space: nowrap;
     }
 
     .res-btn:hover {
-      background: var(--vsc-button-secondary-hover, rgba(255,255,255,.1));
+      background: var(--vsc-button-secondary-hover, var(--vsc-neutral-overlay-medium));
       border-color: var(--vsc-focusBorder, var(--vsc-accent-blue));
     }
 
     .res-btn.primary {
-      background: var(--vsc-button-background, #0e639c);
+      background: var(--vsc-button-background, var(--vsc-button-background));
       border-color: transparent;
-      color: var(--vsc-button-foreground, #fff);
+      color: var(--vsc-button-foreground, var(--vsc-on-accent));
     }
 
-    .res-btn.primary:hover { background: var(--vsc-button-hover, #1177bb); }
+    .res-btn.primary:hover { background: var(--vsc-button-hover, var(--vsc-button-hover)); }
 
     .res-btn.danger {
       color: var(--vsc-error);
-      border-color: rgba(244,135,113,.3);
+      border-color: var(--vsc-error-border);
     }
 
     .res-btn.danger:hover {
-      background: rgba(244,135,113,.1);
+      background: var(--vsc-error-surface);
       border-color: var(--vsc-error);
     }
 

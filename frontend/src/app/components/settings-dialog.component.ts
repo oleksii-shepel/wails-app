@@ -139,7 +139,7 @@ interface SettingsDialogRequest {
                         type="text"
                         [(ngModel)]="draft.general.accentColor"
                         (ngModelChange)="onSettingChanged()"
-                        placeholder="#0078d4"
+                        placeholder="var(--vsc-accent-blue)"
                         class="color-text"
                       />
                       <button

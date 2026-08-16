@@ -235,8 +235,8 @@ import type {
       min-width: 0;
       min-height: 0;
       overflow: hidden;
-      background: var(--vsc-editor-background, #1e1e1e);
-      color: var(--vsc-foreground, #cccccc);
+      background: var(--vsc-editor-background, var(--vsc-editor-background));
+      color: var(--vsc-foreground, var(--vsc-foreground));
     }
 
     .workspace-header,
@@ -253,8 +253,8 @@ import type {
       justify-content: space-between;
       min-height: 44px;
       padding: 6px 10px;
-      border-bottom: 1px solid var(--vsc-border, #3c3c3c);
-      background: var(--vsc-side-bar-background, #252526);
+      border-bottom: 1px solid var(--vsc-border, var(--vsc-control-background));
+      background: var(--vsc-side-bar-background, var(--vsc-panel-background));
     }
 
     .workspace-title {
@@ -269,7 +269,7 @@ import type {
     .surface-header span,
     .surface-meta,
     .compare-paths {
-      color: var(--vsc-description-foreground, #969696);
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
       font-size: 11px;
     }
 
@@ -290,25 +290,25 @@ import type {
     }
 
     .live-state {
-      color: var(--vsc-description-foreground, #969696);
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
       font-size: 10px;
     }
 
     .surface-error {
       flex: 0 0 auto;
       padding: 6px 8px;
-      border-bottom: 1px solid var(--vsc-border-subtle, #2b2b2b);
-      color: var(--vsc-error-foreground, #f48771);
-      background: color-mix(in srgb, var(--vsc-error-foreground, #f48771) 8%, transparent);
+      border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
+      color: var(--vsc-error-foreground, var(--vsc-error));
+      background: color-mix(in srgb, var(--vsc-error-foreground, var(--vsc-error)) 8%, transparent);
       font-size: 11px;
     }
 
     button {
       min-height: 28px;
       padding: 3px 9px;
-      border: 1px solid var(--vsc-border, #454545);
+      border: 1px solid var(--vsc-border, var(--vsc-border));
       border-radius: 4px;
-      background: var(--vsc-button-secondary-background, #313131);
+      background: var(--vsc-button-secondary-background, var(--vsc-control-background));
       color: inherit;
       font: inherit;
       cursor: pointer;
@@ -368,9 +368,9 @@ import type {
       display: flex;
       flex-direction: column;
       overflow: hidden;
-      border: 1px solid var(--vsc-border, #3c3c3c);
+      border: 1px solid var(--vsc-border, var(--vsc-control-background));
       border-radius: 5px;
-      background: var(--vsc-editor-background, #1e1e1e);
+      background: var(--vsc-editor-background, var(--vsc-editor-background));
     }
 
     .surface-header {
@@ -378,8 +378,8 @@ import type {
       justify-content: space-between;
       min-height: 32px;
       padding: 5px 8px;
-      border-bottom: 1px solid var(--vsc-border-subtle, #2b2b2b);
-      background: var(--vsc-side-bar-background, #252526);
+      border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
+      background: var(--vsc-side-bar-background, var(--vsc-panel-background));
     }
 
     .search-surface,
@@ -394,7 +394,7 @@ import type {
     .surface-meta,
     .compare-paths {
       padding: 8px;
-      border-bottom: 1px solid var(--vsc-border-subtle, #2b2b2b);
+      border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
     }
 
     .surface-meta span,
@@ -415,7 +415,7 @@ import type {
       display: grid;
       align-items: center;
       min-height: 28px;
-      border-bottom: 1px solid var(--vsc-border-subtle, #292929);
+      border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-control-background));
     }
 
     .result-row {
@@ -431,12 +431,12 @@ import type {
     }
 
     .selectable:hover {
-      background: var(--vsc-list-hover-background, #2a2d2e);
+      background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
     }
 
     .selectable.selected {
-      background: var(--vsc-list-active-selection-background, #094771);
-      color: var(--vsc-list-active-selection-foreground, #ffffff);
+      background: var(--vsc-list-active-selection-background, var(--vsc-list-selected-emphasis));
+      color: var(--vsc-list-active-selection-foreground, var(--vsc-on-accent));
     }
 
     button.primary {
@@ -444,7 +444,7 @@ import type {
     }
 
     button.danger {
-      color: var(--vsc-error-foreground, #f48771);
+      color: var(--vsc-error-foreground, var(--vsc-error));
     }
 
     .result-row > span,
@@ -460,8 +460,8 @@ import type {
       position: sticky;
       top: 0;
       z-index: 2;
-      background: var(--vsc-side-bar-background, #252526);
-      color: var(--vsc-description-foreground, #969696);
+      background: var(--vsc-side-bar-background, var(--vsc-panel-background));
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
       font-size: 11px;
     }
 
@@ -480,7 +480,7 @@ import type {
       justify-content: center;
       min-height: 72px;
       padding: 10px;
-      border: 1px solid var(--vsc-border-subtle, #333333);
+      border: 1px solid var(--vsc-border-subtle, var(--vsc-activitybar-background));
       border-radius: 4px;
     }
 
@@ -489,7 +489,7 @@ import type {
     }
 
     .summary-card span {
-      color: var(--vsc-description-foreground, #969696);
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
     }
 
     .details-surface {
@@ -503,11 +503,11 @@ import type {
       min-height: 30px;
       align-items: center;
       padding: 4px 8px;
-      border-bottom: 1px solid var(--vsc-border-subtle, #292929);
+      border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-control-background));
     }
 
     .detail-row > span {
-      color: var(--vsc-description-foreground, #969696);
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
     }
 
     .detail-row > strong {

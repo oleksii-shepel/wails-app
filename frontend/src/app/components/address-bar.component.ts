@@ -415,7 +415,7 @@ import { DropdownContainerComponent } from './dropdown-container.component';
     .ab-status-check {
       width: 12px;
       height: 12px;
-      color: var(--vsc-success, #4caf50);
+      color: var(--vsc-success, var(--vsc-success));
       animation: ab-status-pop 160ms ease-out;
     }
 
@@ -538,7 +538,7 @@ import { DropdownContainerComponent } from './dropdown-container.component';
       /* ARCHIVE ROOT - any archive file in the path */
       &.ab-seg--archive-root {
         background: color-mix(in srgb, var(--vsc-accent-orange) 18%, transparent);
-        border: 1px solid rgba(255, 140, 0, 0.35);
+        border: 1px solid var(--vsc-warning-surface);
         color: var(--vsc-accent-orange);
         gap: 4px;
         
@@ -576,15 +576,15 @@ import { DropdownContainerComponent } from './dropdown-container.component';
     .ab-scheme {
       /* Softer scheme styling: lower opacity and subtler border */
       background: color-mix(in srgb, var(--vsc-accent-blue) 12%, transparent);
-      border: 1px solid rgba(0,127,212,0.25);
+      border: 1px solid var(--vsc-accent-selection);
       border-radius: 4px;
-      color: #6fb3db; /* slightly dimmer blue */
+      color: var(--vsc-info); /* slightly dimmer blue */
       font-family: var(--vsc-font-family-mono); font-weight: 600;
       padding: 0 var(--vsc-padding-lg) !important; margin-right: var(--vsc-padding-md) !important;
       cursor: pointer; transition: background 0.12s, border-color 0.12s, color 120ms;
-      &:hover { background: color-mix(in srgb, var(--vsc-accent-blue) 20%, transparent); border-color: rgba(0,127,212,0.38); }
+      &:hover { background: color-mix(in srgb, var(--vsc-accent-blue) 20%, transparent); border-color: var(--vsc-accent-selection); }
       &.ab-seg--last { background: color-mix(in srgb, var(--vsc-accent-blue) 10%, transparent); cursor: pointer; }
-      &.ab-scheme--open { background: color-mix(in srgb, var(--vsc-accent-blue) 22%, transparent); border-color: rgba(0,127,212,0.45); }
+      &.ab-scheme--open { background: color-mix(in srgb, var(--vsc-accent-blue) 22%, transparent); border-color: var(--vsc-accent-border); }
       &.ab-scheme--synthetic {
         gap: 0;
         max-width: 180px;
@@ -631,7 +631,7 @@ import { DropdownContainerComponent } from './dropdown-container.component';
 
       /* Archive chevron styling */
       &.ab-chev--archive {
-        color: rgba(255, 179, 71, 0.6);
+        color: var(--vsc-warning-border);
         background: transparent !important;
         
         &:hover { 
@@ -720,29 +720,29 @@ import { DropdownContainerComponent } from './dropdown-container.component';
 
     /* Light theme adjustments */
     :host-context(.vscode-light) {
-      .ab-scheme { background: color-mix(in srgb, #0060c0 10%, transparent); border-color: rgba(0,96,192,0.28); color: #0a6fb0;
-        &.ab-scheme--open { background: color-mix(in srgb, #0060c0 18%, transparent); border-color: rgba(0,96,192,0.42); }
+      .ab-scheme { background: color-mix(in srgb, var(--vsc-text-link) 10%, transparent); border-color: var(--vsc-accent-selection); color: var(--vsc-info);
+        &.ab-scheme--open { background: color-mix(in srgb, var(--vsc-text-link) 18%, transparent); border-color: var(--vsc-accent-border); }
       }
       
       .ab-seg--archive-root {
-        background: color-mix(in srgb, #ff8c00 12%, transparent);
-        border-color: rgba(255, 140, 0, 0.3);
-        color: #b85e00;
+        background: color-mix(in srgb, var(--vsc-accent-orange) 12%, transparent);
+        border-color: var(--vsc-warning-surface);
+        color: var(--vsc-accent-orange);
         
         &.ab-seg--archive-inner {
-          border-color: rgba(255, 140, 0, 0.3);
-          background: color-mix(in srgb, #ff8c00 18%, transparent);
+          border-color: var(--vsc-warning-surface);
+          background: color-mix(in srgb, var(--vsc-accent-orange) 18%, transparent);
         }
       }
       
       .ab-seg--archive-inner:not(.ab-seg--archive-root) {
-        color: #b85e00;
+        color: var(--vsc-accent-orange);
       }
       
       .ab-chev--archive {
-        color: rgba(184, 94, 0, 0.5);
-        &:hover { color: #b85e00; }
-        &.ab-chev--open { color: #b85e00; }
+        color: var(--vsc-warning-border);
+        &:hover { color: var(--vsc-accent-orange); }
+        &.ab-chev--open { color: var(--vsc-accent-orange); }
       }
     }
   `],

@@ -611,14 +611,14 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
       min-width: 0;
       min-height: 0;
       overflow: hidden;
-      background: var(--vsc-editor-background, #1e1e1e);
-      color: var(--vsc-foreground, #cccccc);
+      background: var(--vsc-editor-background, var(--vsc-editor-background));
+      color: var(--vsc-foreground, var(--vsc-foreground));
       border: 1px solid transparent;
     
       overscroll-behavior: none;}
 
     .pane.active-pane {
-      border-color: color-mix(in srgb, var(--vsc-accent-blue, #007acc) 62%, transparent);
+      border-color: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 62%, transparent);
     }
 
     .tab-strip {
@@ -627,8 +627,8 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
       min-height: 31px;
       overflow-x: auto;
       overflow-y: hidden;
-      border-bottom: 1px solid var(--vsc-border, #3c3c3c);
-      background: var(--vsc-tabbar-background, #252526);
+      border-bottom: 1px solid var(--vsc-border, var(--vsc-control-background));
+      background: var(--vsc-tabbar-background, var(--vsc-panel-background));
       scrollbar-width: thin;
     
       overscroll-behavior-x: none;
@@ -641,9 +641,9 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
       min-width: 0;
       height: 30px;
       border: 0;
-      border-right: 1px solid var(--vsc-border-subtle, #2b2b2b);
-      background: var(--vsc-tab-inactive-background, #2d2d2d);
-      color: var(--vsc-description-foreground, #969696);
+      border-right: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
+      background: var(--vsc-tab-inactive-background, var(--vsc-toolbar-background));
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
       cursor: pointer;
       font: inherit;
     }
@@ -658,14 +658,14 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
     }
 
     .tab.active {
-      background: var(--vsc-editor-background, #1e1e1e);
-      color: var(--vsc-foreground, #cccccc);
-      box-shadow: inset 0 2px 0 var(--vsc-accent-blue, #007acc);
+      background: var(--vsc-editor-background, var(--vsc-editor-background));
+      color: var(--vsc-foreground, var(--vsc-foreground));
+      box-shadow: inset 0 2px 0 var(--vsc-accent-blue, var(--vsc-accent-blue));
     }
 
     .tab:hover {
-      background: var(--vsc-list-hover-background, #2a2d2e);
-      color: var(--vsc-foreground, #cccccc);
+      background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
+      color: var(--vsc-foreground, var(--vsc-foreground));
     }
 
     .tab-title {
@@ -693,7 +693,7 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
     }
 
     .tab-close:hover {
-      background: var(--vsc-list-hover-background, #3a3d41);
+      background: var(--vsc-list-hover-background, var(--vsc-button-secondary));
       opacity: 1;
     }
 
@@ -704,8 +704,8 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
     }
 
     .new-tab:hover {
-      background: var(--vsc-list-hover-background, #2a2d2e);
-      color: var(--vsc-foreground, #cccccc);
+      background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
+      color: var(--vsc-foreground, var(--vsc-foreground));
     }
 
     .navigation-bar {
@@ -714,8 +714,8 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
       align-items: center;
       gap: 7px;
       padding: 6px 8px;
-      border-bottom: 1px solid var(--vsc-border, #3c3c3c);
-      background: var(--vsc-tabbar-background, #252526);
+      border-bottom: 1px solid var(--vsc-border, var(--vsc-control-background));
+      background: var(--vsc-tabbar-background, var(--vsc-panel-background));
     }
 
     .nav-cluster {
@@ -737,7 +737,7 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
     }
 
     .nav-button:hover:not(:disabled) {
-      background: var(--vsc-list-hover-background, #2a2d2e);
+      background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
     }
 
     .nav-button:disabled {
@@ -750,7 +750,7 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
     }
 
     .nav-button.pin.pinned {
-      color: var(--vsc-accent-blue, #4aa3ff);
+      color: var(--vsc-accent-blue, var(--vsc-focus-ring));
     }
 
     .status-row {
@@ -759,8 +759,8 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
       min-height: 24px;
       align-items: center;
       padding: 0 10px;
-      border-bottom: 1px solid var(--vsc-border-subtle, #2b2b2b);
-      color: var(--vsc-description-foreground, #969696);
+      border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
       font-size: 11px;
     }
 
@@ -771,7 +771,7 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
 
     .clipboard-state,
     .hidden-state {
-      color: var(--vsc-accent-blue, #4aa3ff);
+      color: var(--vsc-accent-blue, var(--vsc-focus-ring));
     }
 
     .action-bar {
@@ -780,8 +780,8 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
       gap: 4px;
       min-height: 34px;
       padding: 3px 8px;
-      border-bottom: 1px solid var(--vsc-border-subtle, #2b2b2b);
-      background: var(--vsc-tabbar-background, #252526);
+      border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
+      background: var(--vsc-tabbar-background, var(--vsc-panel-background));
     }
 
     .action-bar button {
@@ -797,8 +797,8 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
     }
 
     .action-bar button:hover:not(:disabled) {
-      background: var(--vsc-list-hover-background, #2a2d2e);
-      border-color: var(--vsc-border, #3c3c3c);
+      background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
+      border-color: var(--vsc-border, var(--vsc-control-background));
     }
 
     .action-bar button:disabled {
@@ -807,7 +807,7 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
     }
 
     .action-bar .danger:not(:disabled) {
-      color: var(--vsc-error-foreground, #f48771);
+      color: var(--vsc-error-foreground, var(--vsc-error));
     }
 
     .view-switcher {
@@ -816,8 +816,8 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
     }
 
     .view-switcher button.active {
-      background: var(--vsc-list-active-background, #094771);
-      color: var(--vsc-list-active-foreground, #ffffff);
+      background: var(--vsc-list-active-background, var(--vsc-list-selected-emphasis));
+      color: var(--vsc-list-active-foreground, var(--vsc-on-accent));
     }
 
     .sort-controls {
@@ -830,16 +830,16 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
       height: 26px;
       max-width: 110px;
       padding: 0 5px;
-      border: 1px solid var(--vsc-border, #454545);
+      border: 1px solid var(--vsc-border, var(--vsc-border));
       border-radius: 3px;
-      background: var(--vsc-input-background, #181818);
-      color: var(--vsc-foreground, #cccccc);
+      background: var(--vsc-input-background, var(--vsc-popover-background));
+      color: var(--vsc-foreground, var(--vsc-foreground));
       font: inherit;
     }
 
     .sort-controls button.active {
-      background: var(--vsc-list-active-background, #094771);
-      color: var(--vsc-list-active-foreground, #ffffff);
+      background: var(--vsc-list-active-background, var(--vsc-list-selected-emphasis));
+      color: var(--vsc-list-active-foreground, var(--vsc-on-accent));
     }
 
     .tree-view {
@@ -847,7 +847,7 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
       min-height: 0;
       overflow: auto;
       padding: 4px 0;
-      background: var(--vsc-editor-background, #1e1e1e);
+      background: var(--vsc-editor-background, var(--vsc-editor-background));
     
       overscroll-behavior: none;
       scroll-behavior: auto;
@@ -872,18 +872,18 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
     }
 
     .tree-row:hover {
-      background: var(--vsc-list-hover-background, #2a2d2e);
+      background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
     }
 
     .tree-row.selected {
-      background: var(--vsc-list-active-background, #094771);
-      color: var(--vsc-list-active-foreground, #ffffff);
+      background: var(--vsc-list-active-background, var(--vsc-list-selected-emphasis));
+      color: var(--vsc-list-active-foreground, var(--vsc-on-accent));
     }
 
     .tree-row.cursor {
       outline: 1px solid color-mix(
         in srgb,
-        var(--vsc-focus-border, #007fd4) 60%,
+        var(--vsc-focus-border, var(--vsc-accent-blue)) 60%,
         transparent
       );
       outline-offset: -1px;
@@ -894,7 +894,7 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
       place-items: center;
       width: 18px;
       height: 22px;
-      color: var(--vsc-description-foreground, #969696);
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
       cursor: pointer;
       user-select: none;
     }
@@ -904,7 +904,7 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
     }
 
     .tree-meta {
-      color: var(--vsc-description-foreground, #969696);
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
       font-size: 9px;
     }
 
@@ -915,9 +915,9 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
       align-items: center;
       min-height: 25px;
       padding: 0 8px;
-      border-bottom: 1px solid var(--vsc-border-subtle, #2b2b2b);
-      background: var(--vsc-tabbar-background, #252526);
-      color: var(--vsc-description-foreground, #969696);
+      border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
+      background: var(--vsc-tabbar-background, var(--vsc-panel-background));
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
       font-size: 10px;
     }
 
@@ -954,7 +954,7 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
     .list.view-grid .entry .kind,
     .list.view-grid .entry .size,
     .list.view-grid .entry .modified {
-      color: var(--vsc-description-foreground, #969696);
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
       font-size: 9px;
     }
 
@@ -969,7 +969,7 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
-      color: var(--vsc-description-foreground, #969696);
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
       font-size: 10px;
     }
 
@@ -977,7 +977,7 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
       width: 1px;
       height: 18px;
       margin: 0 3px;
-      background: var(--vsc-border, #3c3c3c);
+      background: var(--vsc-border, var(--vsc-control-background));
     }
 
     .list {
@@ -1008,43 +1008,43 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
     }
 
     .entry:hover {
-      background: var(--vsc-list-hover-background, #2a2d2e);
+      background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
     }
 
     .entry.cursor {
-      box-shadow: inset 2px 0 0 var(--vsc-accent-blue, #007acc);
+      box-shadow: inset 2px 0 0 var(--vsc-accent-blue, var(--vsc-accent-blue));
       background: color-mix(
         in srgb,
-        var(--vsc-list-hover-background, #2a2d2e) 75%,
+        var(--vsc-list-hover-background, var(--vsc-list-hover-background)) 75%,
         transparent
       );
     }
 
     .entry.selected {
-      background: var(--vsc-list-active-background, #094771);
-      color: var(--vsc-list-active-foreground, #ffffff);
+      background: var(--vsc-list-active-background, var(--vsc-list-selected-emphasis));
+      color: var(--vsc-list-active-foreground, var(--vsc-on-accent));
     }
 
     .entry.drop-target {
-      outline: 1px solid var(--vsc-accent-blue, #007acc);
+      outline: 1px solid var(--vsc-accent-blue, var(--vsc-accent-blue));
       outline-offset: -1px;
       background: color-mix(
         in srgb,
-        var(--vsc-accent-blue, #007acc) 18%,
-        var(--vsc-list-hover-background, #2a2d2e)
+        var(--vsc-accent-blue, var(--vsc-accent-blue)) 18%,
+        var(--vsc-list-hover-background, var(--vsc-list-hover-background))
       );
     }
 
     .list.background-drop-target {
       box-shadow: inset 0 0 0 2px color-mix(
         in srgb,
-        var(--vsc-accent-blue, #007acc) 72%,
+        var(--vsc-accent-blue, var(--vsc-accent-blue)) 72%,
         transparent
       );
     }
 
     .entry.cursor.selected {
-      box-shadow: inset 2px 0 0 var(--vsc-focus-border, #75beff);
+      box-shadow: inset 2px 0 0 var(--vsc-focus-border, var(--vsc-focus-ring));
     }
 
     .icon {
@@ -1064,7 +1064,7 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
-      color: var(--vsc-description-foreground, #969696);
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
       font-size: 11px;
     }
 
@@ -1084,7 +1084,7 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
       place-items: center;
       gap: 8px;
       padding: 40px;
-      color: var(--vsc-description-foreground, #969696);
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
     }
 
     .error {
@@ -1097,9 +1097,9 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
       gap: 10px;
       min-height: 27px;
       padding: 0 8px;
-      border-top: 1px solid var(--vsc-border-subtle, #2b2b2b);
-      background: var(--vsc-tabbar-background, #252526);
-      color: var(--vsc-description-foreground, #969696);
+      border-top: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
+      background: var(--vsc-tabbar-background, var(--vsc-panel-background));
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
       font-size: 10px;
       white-space: nowrap;
       overflow: hidden;
@@ -1112,7 +1112,7 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
     }
 
     .footer-item strong {
-      color: var(--vsc-foreground, #cccccc);
+      color: var(--vsc-foreground, var(--vsc-foreground));
       font-weight: 500;
     }
 
@@ -1129,13 +1129,13 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
     .footer-item.capacity {
       flex: 0 0 auto;
       max-width: 280px;
-      color: var(--vsc-foreground, #cccccc);
+      color: var(--vsc-foreground, var(--vsc-foreground));
       font-variant-numeric: tabular-nums;
     }
 
     .footer-item.capability {
       flex: 0 0 auto;
-      color: var(--vsc-accent-blue, #4aa3ff);
+      color: var(--vsc-accent-blue, var(--vsc-focus-ring));
       text-transform: uppercase;
       letter-spacing: .04em;
       font-size: 9px;
@@ -1143,7 +1143,7 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
 
     .footer-item.disabled-capability {
       opacity: .28;
-      color: var(--vsc-description-foreground, #969696);
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
     }
 
     .error button {
@@ -1163,7 +1163,7 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
       min-height: 0;
       min-width: 0;
       overflow: hidden;
-      background: var(--vsc-editor-background, #1e1e1e);
+      background: var(--vsc-editor-background, var(--vsc-editor-background));
     }
 
     .viewer-toolbar {
@@ -1173,22 +1173,22 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
       gap: 8px;
       min-height: 32px;
       padding: 0 8px;
-      border-bottom: 1px solid var(--vsc-border-subtle, #2b2b2b);
-      background: var(--vsc-tabbar-background, #252526);
+      border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
+      background: var(--vsc-tabbar-background, var(--vsc-panel-background));
       font-size: 11px;
     }
 
     .viewer-label {
-      color: var(--vsc-accent-blue, #4aa3ff);
+      color: var(--vsc-accent-blue, var(--vsc-focus-ring));
       font-weight: 600;
     }
 
     .viewer-kind {
       flex: 0 0 auto;
       padding: 1px 5px;
-      border: 1px solid var(--vsc-border, #454545);
+      border: 1px solid var(--vsc-border, var(--vsc-border));
       border-radius: 3px;
-      color: var(--vsc-description-foreground, #969696);
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
       font-size: 9px;
       text-transform: uppercase;
     }
@@ -1196,7 +1196,7 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
     .viewer-separator {
       width: 1px;
       height: 18px;
-      background: var(--vsc-border, #454545);
+      background: var(--vsc-border, var(--vsc-border));
       flex: 0 0 auto;
     }
 
@@ -1205,7 +1205,7 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
-      color: var(--vsc-description-foreground, #969696);
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
       font-family: var(--vsc-font-family-mono, ui-monospace, monospace);
     }
 
@@ -1221,7 +1221,7 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
     }
 
     .viewer-toolbar button:hover {
-      background: var(--vsc-list-hover-background, #2a2d2e);
+      background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
     }
 
     app-viewer-host-surface {
@@ -1254,7 +1254,7 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
       outline-offset:-1px;
     }
     .empty{display:grid;gap:4px;place-items:center;align-content:center;min-height:96px;text-align:center}
-    .empty strong{font-weight:500;color:var(--vsc-foreground,#ccc)}
+    .empty strong{font-weight:500;color:var(--vsc-foreground,var(--vsc-foreground))}
     .error-actions{display:flex;gap:6px;margin-top:7px}
   `],
 })

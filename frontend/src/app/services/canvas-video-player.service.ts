@@ -1537,7 +1537,10 @@ export class CanvasVideoPlayer {
   }
 
   private drawPlaceholder(): void {
-    this.ctx.fillStyle = '#000';
+    const background = getComputedStyle(this.container)
+      .getPropertyValue('--vsc-media-canvas-background')
+      .trim();
+    if (background) this.ctx.fillStyle = background;
     this.ctx.fillRect(0, 0, this.canvas.width || this.container.clientWidth || 1, this.canvas.height || this.container.clientHeight || 1);
   }
 

@@ -100,19 +100,19 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   styles: [`
     :host{position:fixed;inset:0;z-index:9520;pointer-events:none}
     .backdrop{position:fixed;inset:0;display:grid;place-items:start center;padding-top:min(8vh,72px);background: var(--vsc-scrim-soft);pointer-events:auto}
-    .palette{box-sizing:border-box;display:flex;flex-direction:column;width:min(760px,calc(100vw - 24px));height:min(620px,calc(100vh - 40px));overflow:hidden;border:1px solid var(--vsc-border,#454545);border-radius:8px;background:var(--vsc-menu-background,#252526);color:var(--vsc-foreground,#ccc);box-shadow:0 18px 62px rgba(0,0,0,.52);font:12px/1.4 var(--vsc-font-family,system-ui,sans-serif)}
-    header,footer,.query{display:flex;align-items:center;gap:10px;padding:9px 11px;border-bottom:1px solid var(--vsc-border-subtle,#2b2b2b)}
-    header{justify-content:space-between}header span,footer,.command small,.state{color:var(--vsc-description-foreground,#969696)}
+    .palette{box-sizing:border-box;display:flex;flex-direction:column;width:min(760px,calc(100vw - 24px));height:min(620px,calc(100vh - 40px));overflow:hidden;border:1px solid var(--vsc-border,var(--vsc-border));border-radius:8px;background:var(--vsc-menu-background,var(--vsc-panel-background));color:var(--vsc-foreground,var(--vsc-foreground));box-shadow:0 18px 62px var(--vsc-scrim-strong);font:12px/1.4 var(--vsc-font-family,system-ui,sans-serif)}
+    header,footer,.query{display:flex;align-items:center;gap:10px;padding:9px 11px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border-subtle))}
+    header{justify-content:space-between}header span,footer,.command small,.state{color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}
     .query{font-size:18px}.query input{flex:1;height:34px;border:0;outline:0;background:transparent;color:inherit;font:13px var(--vsc-font-family,system-ui,sans-serif)}
     .commands{flex:1;min-height:0;overflow:auto;padding:5px}
     .command{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:10px;width:100%;min-height:48px;padding:6px 9px;border:1px solid transparent;border-radius:4px;background:transparent;color:inherit;text-align:left;cursor:pointer;font:inherit}
-    .command:hover,.command.selected{background:var(--vsc-list-hover-background,#2a2d2e)}
-    .command.selected{border-color:color-mix(in srgb,var(--vsc-accent-blue,#007acc) 55%,transparent)}
+    .command:hover,.command.selected{background:var(--vsc-list-hover-background,var(--vsc-list-hover-background))}
+    .command.selected{border-color:color-mix(in srgb,var(--vsc-accent-blue,var(--vsc-accent-blue)) 55%,transparent)}
     .command.disabled{opacity:.48}.main{min-width:0;display:grid}.main strong,.main small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .main small{font:10px var(--vsc-font-family-mono,ui-monospace,monospace)}
-    kbd{padding:2px 6px;border:1px solid var(--vsc-border,#454545);border-radius:4px;background:rgba(127,127,127,.08);font:10px var(--vsc-font-family-mono,ui-monospace,monospace);white-space:nowrap}
-    .state{font-size:10px}.empty{padding:42px;text-align:center;color:var(--vsc-description-foreground,#969696)}
-    footer{justify-content:space-between;border-top:1px solid var(--vsc-border-subtle,#2b2b2b);border-bottom:0}
+    kbd{padding:2px 6px;border:1px solid var(--vsc-border,var(--vsc-border));border-radius:4px;background:var(--vsc-neutral-overlay-subtle);font:10px var(--vsc-font-family-mono,ui-monospace,monospace);white-space:nowrap}
+    .state{font-size:10px}.empty{padding:42px;text-align:center;color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}
+    footer{justify-content:space-between;border-top:1px solid var(--vsc-border-subtle,var(--vsc-border-subtle));border-bottom:0}
   `],
 })
 export class ReassemblyCommandPaletteComponent implements OnInit, OnDestroy {

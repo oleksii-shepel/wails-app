@@ -53,6 +53,53 @@
   --vsc-scrim: rgba(0, 0, 0, 0.48);
   --vsc-scrim-soft: rgba(0, 0, 0, 0.28);
 
+
+  /* === Cross-component semantic chrome === */
+  --vsc-on-accent: #ffffff;
+  --vsc-scrim-strong: rgba(0, 0, 0, 0.64);
+  --vsc-shadow-soft: rgba(0, 0, 0, 0.20);
+  --vsc-neutral-overlay-subtle: rgba(255, 255, 255, 0.05);
+  --vsc-neutral-overlay-soft: rgba(255, 255, 255, 0.10);
+  --vsc-neutral-overlay-medium: rgba(255, 255, 255, 0.16);
+  --vsc-neutral-overlay-strong: rgba(255, 255, 255, 0.24);
+  --vsc-accent-selection: rgba(0, 122, 204, 0.22);
+  --vsc-accent-border: rgba(77, 168, 255, 0.55);
+  --vsc-warning-surface: rgba(215, 186, 125, 0.14);
+  --vsc-warning-border: rgba(215, 186, 125, 0.48);
+  --vsc-success-surface: rgba(137, 209, 133, 0.13);
+  --vsc-success-border: rgba(137, 209, 133, 0.46);
+  --vsc-error-surface: rgba(244, 135, 113, 0.12);
+  --vsc-error-border: rgba(244, 135, 113, 0.44);
+  --vsc-error-bright: #ff8c82;
+  --vsc-danger-surface: #4b2323;
+  --vsc-list-selected-emphasis: #094771;
+
+  /* Media/viewer surfaces are themed too, even when intentionally dark. */
+  --vsc-media-background: #15151b;
+  --vsc-media-panel-background: #202028;
+  --vsc-media-canvas-background: #090909;
+  --vsc-media-foreground-strong: #f2f2f2;
+  --vsc-document-canvas-background: #ffffff;
+  --vsc-media-overlay-soft: rgba(0, 0, 0, 0.32);
+  --vsc-media-overlay: rgba(0, 0, 0, 0.60);
+  --vsc-media-overlay-strong: rgba(0, 0, 0, 0.88);
+  --vsc-media-control-foreground: rgba(255, 255, 255, 0.88);
+  --vsc-media-control-muted: rgba(255, 255, 255, 0.58);
+
+  /* Themed visualization palette. Components use roles, never literal colors. */
+  --vsc-chart-1: #4da8ff;
+  --vsc-chart-2: #69c3b0;
+  --vsc-chart-3: #d7ba7d;
+  --vsc-chart-4: #c586c0;
+  --vsc-chart-5: #89d185;
+  --vsc-chart-6: #ce9178;
+  --vsc-chart-7: #9cdcfe;
+  --vsc-chart-8: #b5cea8;
+  --vsc-chart-fill-1: rgba(77, 168, 255, 0.15);
+  --vsc-chart-fill-2: rgba(105, 195, 176, 0.15);
+  --vsc-chart-fill-3: rgba(215, 186, 125, 0.15);
+  --vsc-chart-fill-4: rgba(197, 134, 192, 0.15);
+
   /* === Input Colors === */
   --vsc-input-background: #3c3c3c;
   --vsc-input-border: #3c3c3c;
@@ -155,6 +202,50 @@
 
   --vsc-tab-shadow: inset 0 -1px 0 #1e1e1e;
   --vsc-tab-inner-shadow: inset 0 -1px 0 rgba(0,0,0,.4);
+
+
+  /* === Semantic compatibility aliases ===
+     Keep component/plugin vocabulary stable while all values remain theme-owned. */
+  --vsc-description-foreground: var(--vsc-foreground-dim);
+  --vsc-foreground-muted: var(--vsc-foreground-dim);
+  --vsc-focus-border: var(--vsc-focus-ring);
+  --vsc-focusBorder: var(--vsc-focus-ring);
+  --vsc-error-foreground: var(--vsc-error);
+  --vsc-errorForeground: var(--vsc-error);
+  --vsc-warning-foreground: var(--vsc-warning);
+  --vsc-editorWarning-foreground: var(--vsc-warning);
+  --vsc-panel-border: var(--vsc-border);
+  --vsc-side-bar-background: var(--vsc-sidebar-background);
+  --vsc-editorWidget-background: var(--vsc-popover-background);
+  --vsc-list-drop-background: var(--vsc-accent-selection);
+  --vsc-list-hover-foreground: var(--vsc-foreground);
+  --vsc-list-active-selection-background: var(--vsc-list-active-background);
+  --vsc-list-active-selection-foreground: var(--vsc-list-active-foreground);
+  --vsc-list-activeSelectionBackground: var(--vsc-list-active-background);
+  --vsc-list-hoverBackground: var(--vsc-list-hover-background);
+  --vsc-button-secondary-background: var(--vsc-button-secondary);
+  --vsc-button-secondaryBackground: var(--vsc-button-secondary);
+  --vsc-button-secondary-hover-background: var(--vsc-button-secondary-hover);
+  --vsc-button-secondary-border: var(--vsc-border);
+  --vsc-button-hover-background: var(--vsc-button-hover);
+  --vsc-button-primary-background: var(--vsc-button-background);
+  --vsc-button-primary-foreground: var(--vsc-button-foreground);
+  --vsc-button-primary-hover-background: var(--vsc-button-hover);
+  --vsc-toolbar-hover: var(--vsc-control-hover-background);
+  --vsc-panel-secondary-background: var(--vsc-control-background);
+  --vsc-checkbox-border: var(--vsc-input-border);
+  --vsc-checkbox-background: var(--vsc-input-background);
+  --vsc-icon-foreground: var(--vsc-foreground);
+  --vsc-tree-indent-guide: var(--vsc-tree-indent-guide-stroke);
+  --vsc-tree-indent-guide-active: var(--vsc-tree-indent-guide-active-stroke);
+  --vsc-error-background: var(--vsc-error-surface);
+  --vsc-input-validation-error-background: var(--vsc-error-surface);
+  --vsc-charts-yellow: var(--vsc-chart-3);
+  --vsc-charts-orange: var(--vsc-chart-6);
+  --vsc-charts-red: var(--vsc-error);
+  --vsc-tab-inactive-background: var(--vsc-tab-background);
+  --vscode-panel-border: var(--vsc-border);
+  --vscode-sideBar-background: var(--vsc-sidebar-background);
 
   /* === Typography === */
   --vsc-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
@@ -293,6 +384,52 @@
   --vsc-focus-ring: #005fb8;
   --vsc-scrim: rgba(0, 0, 0, 0.28);
   --vsc-scrim-soft: rgba(0, 0, 0, 0.16);
+
+
+  /* === Cross-component semantic chrome === */
+  --vsc-on-accent: #ffffff;
+  --vsc-scrim-strong: rgba(0, 0, 0, 0.42);
+  --vsc-shadow-soft: rgba(0, 0, 0, 0.12);
+  --vsc-neutral-overlay-subtle: rgba(0, 0, 0, 0.035);
+  --vsc-neutral-overlay-soft: rgba(0, 0, 0, 0.07);
+  --vsc-neutral-overlay-medium: rgba(0, 0, 0, 0.12);
+  --vsc-neutral-overlay-strong: rgba(0, 0, 0, 0.20);
+  --vsc-accent-selection: rgba(0, 95, 184, 0.13);
+  --vsc-accent-border: rgba(0, 95, 184, 0.48);
+  --vsc-warning-surface: rgba(138, 101, 0, 0.10);
+  --vsc-warning-border: rgba(138, 101, 0, 0.42);
+  --vsc-success-surface: rgba(46, 125, 50, 0.10);
+  --vsc-success-border: rgba(46, 125, 50, 0.40);
+  --vsc-error-surface: rgba(199, 55, 47, 0.09);
+  --vsc-error-border: rgba(199, 55, 47, 0.40);
+  --vsc-error-bright: #b42318;
+  --vsc-danger-surface: #fbe9e8;
+  --vsc-list-selected-emphasis: #cce0f5;
+
+  /* Viewer roles remain semantic; media canvas stays dark by design. */
+  --vsc-media-background: #f3f3f3;
+  --vsc-media-panel-background: #ffffff;
+  --vsc-media-canvas-background: #0a0a0a;
+  --vsc-media-foreground-strong: #f5f5f5;
+  --vsc-document-canvas-background: #ffffff;
+  --vsc-media-overlay-soft: rgba(0, 0, 0, 0.26);
+  --vsc-media-overlay: rgba(0, 0, 0, 0.54);
+  --vsc-media-overlay-strong: rgba(0, 0, 0, 0.84);
+  --vsc-media-control-foreground: rgba(255, 255, 255, 0.92);
+  --vsc-media-control-muted: rgba(255, 255, 255, 0.68);
+
+  --vsc-chart-1: #005fb8;
+  --vsc-chart-2: #00796b;
+  --vsc-chart-3: #8b6500;
+  --vsc-chart-4: #7c3f99;
+  --vsc-chart-5: #2e7d32;
+  --vsc-chart-6: #a8522a;
+  --vsc-chart-7: #267f99;
+  --vsc-chart-8: #456f20;
+  --vsc-chart-fill-1: rgba(0, 95, 184, 0.10);
+  --vsc-chart-fill-2: rgba(0, 121, 107, 0.10);
+  --vsc-chart-fill-3: rgba(139, 101, 0, 0.10);
+  --vsc-chart-fill-4: rgba(124, 63, 153, 0.10);
 
   /* === Inputs === */
   --vsc-input-background:   #ffffff;

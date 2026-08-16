@@ -374,11 +374,11 @@ interface WorkspaceSwitcherItem {
       display: flex;
       flex-direction: column;
       overflow: hidden;
-      border: 1px solid var(--vsc-border, #454545);
+      border: 1px solid var(--vsc-border, var(--vsc-border));
       border-radius: 8px;
-      background: var(--vsc-menu-background, #252526);
-      color: var(--vsc-foreground, #cccccc);
-      box-shadow: 0 18px 60px rgba(0, 0, 0, .48);
+      background: var(--vsc-menu-background, var(--vsc-panel-background));
+      color: var(--vsc-foreground, var(--vsc-foreground));
+      box-shadow: 0 18px 60px var(--vsc-scrim);
       font: 12px/1.4 var(--vsc-font-family, system-ui, sans-serif);
     }
 
@@ -392,7 +392,7 @@ interface WorkspaceSwitcherItem {
 
     header {
       justify-content: space-between;
-      border-bottom: 1px solid var(--vsc-border-subtle, #2b2b2b);
+      border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
     }
 
     header > div {
@@ -404,7 +404,7 @@ interface WorkspaceSwitcherItem {
     header span,
     .keys,
     small {
-      color: var(--vsc-description-foreground, #969696);
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
     }
 
     button {
@@ -417,8 +417,8 @@ interface WorkspaceSwitcherItem {
     }
 
     button:hover:not(:disabled) {
-      background: var(--vsc-list-hover-background, #2a2d2e);
-      border-color: var(--vsc-border, #454545);
+      background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
+      border-color: var(--vsc-border, var(--vsc-border));
     }
 
     button:disabled {
@@ -453,19 +453,19 @@ interface WorkspaceSwitcherItem {
     }
 
     .workspace:hover {
-      background: var(--vsc-list-hover-background, #2a2d2e);
+      background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
     }
 
     .workspace-edit-row:hover {
-      background: var(--vsc-list-hover-background, #2a2d2e);
+      background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
     }
 
     .workspace.selected {
-      background: var(--vsc-list-hover-background, #2a2d2e);
+      background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
     }
 
     .workspace.active {
-      box-shadow: inset 2px 0 0 var(--vsc-accent-blue, #007acc);
+      box-shadow: inset 2px 0 0 var(--vsc-accent-blue, var(--vsc-accent-blue));
     }
 
     .workspace-index {
@@ -482,10 +482,10 @@ interface WorkspaceSwitcherItem {
       min-width: 20px;
       height: 20px;
       padding: 0 3px;
-      border: 1px solid var(--vsc-border, #454545);
+      border: 1px solid var(--vsc-border, var(--vsc-border));
       border-radius: 3px;
-      background: var(--vsc-editor-background, #1e1e1e);
-      color: var(--vsc-description-foreground, #969696);
+      background: var(--vsc-editor-background, var(--vsc-editor-background));
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
       font: 10px var(--vsc-font-family-mono, ui-monospace, monospace);
     }
 
@@ -501,8 +501,8 @@ interface WorkspaceSwitcherItem {
       height: 24px;
       margin: 0 auto;
       border-radius: 50%;
-      background: var(--vsc-list-hover-background, #2a2d2e);
-      color: var(--vsc-description-foreground, #969696);
+      background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
       font-size: 18px;
       line-height: 1;
     }
@@ -527,8 +527,8 @@ interface WorkspaceSwitcherItem {
 
     .workspace-edit-row {
       margin-bottom: 3px;
-      border-color: var(--vsc-border-subtle, #2b2b2b);
-      background: var(--vsc-list-hover-background, #2a2d2e);
+      border-color: var(--vsc-border-subtle, var(--vsc-border-subtle));
+      background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
       cursor: default;
     }
 
@@ -541,8 +541,8 @@ interface WorkspaceSwitcherItem {
       border: 1px solid var(--vsc-focus-border, var(--vsc-accent-blue));
       border-radius: 3px;
       outline: none;
-      background: var(--vsc-input-background, #181818);
-      color: var(--vsc-input-foreground, var(--vsc-foreground, #cccccc));
+      background: var(--vsc-input-background, var(--vsc-popover-background));
+      color: var(--vsc-input-foreground, var(--vsc-foreground, var(--vsc-foreground)));
       font: inherit;
     }
 
@@ -551,7 +551,7 @@ interface WorkspaceSwitcherItem {
     }
 
     .edit-hint {
-      color: var(--vsc-description-foreground, #969696);
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
       font-size: 10px;
       line-height: 1.2;
     }
@@ -559,8 +559,8 @@ interface WorkspaceSwitcherItem {
     .active-mark {
       padding: 2px 6px;
       border-radius: 10px;
-      background: color-mix(in srgb, var(--vsc-accent-blue, #007acc) 16%, transparent);
-      color: var(--vsc-accent-blue, #4aa3ff);
+      background: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 16%, transparent);
+      color: var(--vsc-accent-blue, var(--vsc-focus-ring));
       font-size: 9px;
       font-weight: 600;
       letter-spacing: .03em;
@@ -569,16 +569,16 @@ interface WorkspaceSwitcherItem {
 
     footer {
       min-height: 38px;
-      border-top: 1px solid var(--vsc-border-subtle, #2b2b2b);
+      border-top: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
     }
 
     footer .danger:not(:disabled) {
-      color: var(--vsc-error-foreground, #f48771);
+      color: var(--vsc-error-foreground, var(--vsc-error));
     }
 
     .keys {
       margin-left: auto;
-      color: var(--vsc-description-foreground, #969696);
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
       font-size: 9px;
       white-space: nowrap;
     }

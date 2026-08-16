@@ -245,7 +245,7 @@ export interface QuickAccessItem {
     .ab-quick-access-drop {
       min-width: 360px;
       max-width: 520px;
-      background-color: var(--vsc-panel-background, #252526) !important;
+      background-color: var(--vsc-panel-background, var(--vsc-panel-background)) !important;
       background-image: none !important;
       border: 1px solid var(--vsc-border);
       border-radius: var(--vsc-border-radius);
@@ -260,7 +260,7 @@ export interface QuickAccessItem {
       align-items: center;
       height: 36px;
       padding: 0 var(--vsc-padding-lg);
-      background-color: var(--vsc-panel-background, #252526) !important;
+      background-color: var(--vsc-panel-background, var(--vsc-panel-background)) !important;
       border-bottom: 1px solid var(--vsc-border-subtle);
       overflow: hidden;
       perspective: 900px;
@@ -433,7 +433,7 @@ export interface QuickAccessItem {
       overflow-x: hidden;
       overflow-y: auto;
       padding: 4px 0;
-      background-color: var(--vsc-panel-background, #252526) !important;
+      background-color: var(--vsc-panel-background, var(--vsc-panel-background)) !important;
       scrollbar-width: none;
       -ms-overflow-style: none;
 
@@ -450,7 +450,7 @@ export interface QuickAccessItem {
       gap: var(--vsc-padding-sm);
       padding: 8px var(--vsc-padding-lg);
       border-bottom: 1px solid var(--vsc-border-subtle);
-      background: color-mix(in srgb, var(--vsc-panel-background, #252526) 88%, var(--vsc-sidebar-background) 12%);
+      background: color-mix(in srgb, var(--vsc-panel-background, var(--vsc-panel-background)) 88%, var(--vsc-sidebar-background) 12%);
     }
 
     .ab-qa-filter-icon {
@@ -504,7 +504,7 @@ export interface QuickAccessItem {
       color: var(--vsc-foreground-dim);
       text-align: center;
       line-height: 1.5;
-      background-color: var(--vsc-panel-background, #252526) !important;
+      background-color: var(--vsc-panel-background, var(--vsc-panel-background)) !important;
     }
 
     .ab-drop-empty-icon {
@@ -589,8 +589,8 @@ export interface QuickAccessItem {
       }
 
       &:hover {
-        background: var(--vsc-error, #f48771);
-        color: var(--vsc-foreground-bright, #ffffff);
+        background: var(--vsc-error, var(--vsc-error));
+        color: var(--vsc-foreground-bright, var(--vsc-on-accent));
       }
     }
 

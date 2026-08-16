@@ -214,6 +214,32 @@ export namespace contracts {
 		    return a;
 		}
 	}
+	export class AutorunEntry {
+	    id: string;
+	    name: string;
+	    command: string;
+	    executable?: string;
+	    sourcePath: string;
+	    scope: string;
+	    origin: string;
+	    enabled: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new AutorunEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.command = source["command"];
+	        this.executable = source["executable"];
+	        this.sourcePath = source["sourcePath"];
+	        this.scope = source["scope"];
+	        this.origin = source["origin"];
+	        this.enabled = source["enabled"];
+	    }
+	}
 	export class BatchAffectedPath {
 	    source: string;
 	    destination: string;
@@ -1239,6 +1265,26 @@ export namespace contracts {
 	        this.accountName = source["accountName"];
 	        this.accountEmail = source["accountEmail"];
 	        this.expiresAt = source["expiresAt"];
+	    }
+	}
+	export class RemoteProviderDescriptor {
+	    protocol: string;
+	    name: string;
+	    auth: string;
+	    readOnly: boolean;
+	    hierarchy: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RemoteProviderDescriptor(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.protocol = source["protocol"];
+	        this.name = source["name"];
+	        this.auth = source["auth"];
+	        this.readOnly = source["readOnly"];
+	        this.hierarchy = source["hierarchy"];
 	    }
 	}
 	export class SearchResult {

@@ -120,10 +120,10 @@ import { ReassemblyModalSurfaceDirective } from './reassembly-modal-surface.dire
       min-height: 0;
       display: flex;
       flex-direction: column;
-      background: var(--vsc-editor-background, #1e1e1e);
-      color: var(--vsc-foreground, #cccccc);
-      border: 1px solid var(--vsc-panel-border, #3c3c3c);
-      box-shadow: 0 18px 60px rgba(0, 0, 0, .45);
+      background: var(--vsc-editor-background, var(--vsc-editor-background));
+      color: var(--vsc-foreground, var(--vsc-foreground));
+      border: 1px solid var(--vsc-panel-border, var(--vsc-control-background));
+      box-shadow: 0 18px 60px var(--vsc-scrim);
     }
 
     header,
@@ -134,7 +134,7 @@ import { ReassemblyModalSurfaceDirective } from './reassembly-modal-surface.dire
       align-items: center;
       gap: 8px;
       padding: 10px 12px;
-      border-bottom: 1px solid var(--vsc-panel-border, #3c3c3c);
+      border-bottom: 1px solid var(--vsc-panel-border, var(--vsc-control-background));
     }
 
     header {
@@ -155,8 +155,8 @@ import { ReassemblyModalSurfaceDirective } from './reassembly-modal-surface.dire
 
     button {
       color: inherit;
-      background: var(--vsc-button-secondaryBackground, #313131);
-      border: 1px solid var(--vsc-panel-border, #454545);
+      background: var(--vsc-button-secondaryBackground, var(--vsc-control-background));
+      border: 1px solid var(--vsc-panel-border, var(--vsc-border));
       min-height: 28px;
     }
 
@@ -165,7 +165,7 @@ import { ReassemblyModalSurfaceDirective } from './reassembly-modal-surface.dire
     }
 
     button.danger {
-      color: var(--vsc-errorForeground, #f48771);
+      color: var(--vsc-errorForeground, var(--vsc-error));
     }
 
     .spacer {
@@ -193,11 +193,11 @@ import { ReassemblyModalSurfaceDirective } from './reassembly-modal-surface.dire
     }
 
     .trash-row:hover {
-      background: var(--vsc-list-hoverBackground, #2a2d2e);
+      background: var(--vsc-list-hoverBackground, var(--vsc-list-hover-background));
     }
 
     .trash-row.selected {
-      background: var(--vsc-list-activeSelectionBackground, #04395e);
+      background: var(--vsc-list-activeSelectionBackground, var(--vsc-list-selected-emphasis));
     }
 
     .main {
@@ -228,9 +228,9 @@ import { ReassemblyModalSurfaceDirective } from './reassembly-modal-surface.dire
     }
 
     footer {
-      border-top: 1px solid var(--vsc-panel-border, #3c3c3c);
+      border-top: 1px solid var(--vsc-panel-border, var(--vsc-control-background));
       border-bottom: 0;
-      color: var(--vsc-errorForeground, #f48771);
+      color: var(--vsc-errorForeground, var(--vsc-error));
     }
   `],
 })

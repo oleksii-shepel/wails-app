@@ -219,8 +219,8 @@ interface VideoNavItem {
       flex: 1 1 0%;
       min-height: 0;
       overflow: hidden;
-      background: var(--vsc-editor-background, #1e1e1e);
-      color: var(--vsc-foreground, #cccccc);
+      background: var(--vsc-editor-background, var(--vsc-editor-background));
+      color: var(--vsc-foreground, var(--vsc-foreground));
     }
 
     .viewer-header {
@@ -229,8 +229,8 @@ interface VideoNavItem {
       justify-content: space-between;
       gap: 8px;
       padding: 8px 12px;
-      border-bottom: 1px solid var(--vsc-border, #454545);
-      background: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 92%, black);
+      border-bottom: 1px solid var(--vsc-border, var(--vsc-border));
+      background: color-mix(in srgb, var(--vsc-editor-background, var(--vsc-editor-background)) 92%, black);
       flex-shrink: 0;
       min-width: 0;
     }
@@ -296,15 +296,15 @@ interface VideoNavItem {
     }
 
     .type-badge {
-      background: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 20%, transparent);
-      color: var(--vsc-accent-blue, #4da8ff);
-      border: 1px solid color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 40%, transparent);
+      background: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 20%, transparent);
+      color: var(--vsc-accent-blue, var(--vsc-focus-ring));
+      border: 1px solid color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 40%, transparent);
     }
 
     .size-badge {
-      background: color-mix(in srgb, var(--vsc-foreground, #ccc) 8%, transparent);
-      color: color-mix(in srgb, var(--vsc-foreground, #ccc) 60%, transparent);
-      border: 1px solid color-mix(in srgb, var(--vsc-border, #454545) 50%, transparent);
+      background: color-mix(in srgb, var(--vsc-foreground, var(--vsc-foreground)) 8%, transparent);
+      color: color-mix(in srgb, var(--vsc-foreground, var(--vsc-foreground)) 60%, transparent);
+      border: 1px solid color-mix(in srgb, var(--vsc-border, var(--vsc-border)) 50%, transparent);
     }
 
     .seek-badge,
@@ -321,21 +321,21 @@ interface VideoNavItem {
     }
 
     .seek-badge {
-      background: color-mix(in srgb, var(--vsc-editorWarning-foreground, #b89500) 14%, transparent);
-      border: 1px solid color-mix(in srgb, var(--vsc-editorWarning-foreground, #b89500) 34%, transparent);
-      color: var(--vsc-editorWarning-foreground, #8a6d00);
+      background: color-mix(in srgb, var(--vsc-editorWarning-foreground, var(--vsc-warning)) 14%, transparent);
+      border: 1px solid color-mix(in srgb, var(--vsc-editorWarning-foreground, var(--vsc-warning)) 34%, transparent);
+      color: var(--vsc-editorWarning-foreground, var(--vsc-warning));
     }
 
     .codec-badge {
-      background: color-mix(in srgb, #1f6fb2 10%, transparent);
-      border: 1px solid color-mix(in srgb, #1f6fb2 24%, transparent);
-      color: #195f98;
+      background: color-mix(in srgb, var(--vsc-button-hover) 10%, transparent);
+      border: 1px solid color-mix(in srgb, var(--vsc-button-hover) 24%, transparent);
+      color: var(--vsc-button-hover);
     }
 
     .resolution-badge {
-      background: color-mix(in srgb, #218a66 10%, transparent);
-      border: 1px solid color-mix(in srgb, #218a66 24%, transparent);
-      color: #1b6f53;
+      background: color-mix(in srgb, var(--vsc-success) 10%, transparent);
+      border: 1px solid color-mix(in srgb, var(--vsc-success) 24%, transparent);
+      color: var(--vsc-success);
     }
 
     .viewer-body {
@@ -380,9 +380,9 @@ interface VideoNavItem {
     .error-detail {
       font-size: 11px;
       font-family: var(--vsc-font-family-mono, ui-monospace, monospace);
-      color: color-mix(in srgb, #ff7070 70%, var(--vsc-foreground, #ccc));
-      background: rgba(255, 0, 0, 0.07);
-      border: 1px solid rgba(255, 112, 112, 0.2);
+      color: color-mix(in srgb, var(--vsc-error-bright) 70%, var(--vsc-foreground, var(--vsc-foreground)));
+      background: var(--vsc-error-surface);
+      border: 1px solid var(--vsc-error-border);
       border-radius: 4px;
       padding: 8px 12px;
       max-width: 480px;
@@ -393,8 +393,8 @@ interface VideoNavItem {
     .spinner {
       width: 26px;
       height: 26px;
-      border: 2px solid color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 25%, transparent);
-      border-top-color: var(--vsc-accent-blue, #0078d4);
+      border: 2px solid color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 25%, transparent);
+      border-top-color: var(--vsc-accent-blue, var(--vsc-accent-blue));
       border-radius: 50%;
       animation: spin 0.65s linear infinite;
     }
@@ -410,7 +410,7 @@ interface VideoNavItem {
       flex-direction: column;
       width: 100%;
       height: 100%;
-      background: #000;
+      background: var(--vsc-media-canvas-background);
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
     }
 
@@ -419,7 +419,7 @@ interface VideoNavItem {
       flex: 1;
       min-height: 300px;
       overflow: hidden;
-      background: #000;
+      background: var(--vsc-media-canvas-background);
     }
 
     .canvas-video-container {
@@ -428,7 +428,7 @@ interface VideoNavItem {
       display: flex;
       align-items: center;
       justify-content: center;
-      background: linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%);
+      background: linear-gradient(135deg, var(--vsc-media-canvas-background) 0%, var(--vsc-media-background) 100%);
       overflow: hidden;
       cursor: pointer;
       transition: filter 0.2s ease;
@@ -478,8 +478,8 @@ interface VideoNavItem {
       left: 0;
       background: linear-gradient(
         90deg,
-        rgba(0, 0, 0, 0.96) 0%,
-        rgba(0, 0, 0, 0.56) 52%,
+        var(--vsc-media-overlay-strong) 0%,
+        var(--vsc-media-overlay) 52%,
         transparent 100%
       );
     }
@@ -488,8 +488,8 @@ interface VideoNavItem {
       right: 0;
       background: linear-gradient(
         270deg,
-        rgba(0, 0, 0, 0.96) 0%,
-        rgba(0, 0, 0, 0.56) 52%,
+        var(--vsc-media-overlay-strong) 0%,
+        var(--vsc-media-overlay) 52%,
         transparent 100%
       );
     }
@@ -502,9 +502,9 @@ interface VideoNavItem {
     .video-nav-hotspot--prev:focus-visible {
       background: linear-gradient(
         90deg,
-        rgba(0, 0, 0, 0.82) 0%,
-        rgba(0, 0, 0, 0.32) 50%,
-        rgba(0, 0, 0, 0) 100%
+        var(--vsc-media-overlay-strong) 0%,
+        var(--vsc-media-overlay-soft) 50%,
+        transparent 100%
       );
     }
 
@@ -512,9 +512,9 @@ interface VideoNavItem {
     .video-nav-hotspot--next:focus-visible {
       background: linear-gradient(
         270deg,
-        rgba(0, 0, 0, 0.82) 0%,
-        rgba(0, 0, 0, 0.32) 50%,
-        rgba(0, 0, 0, 0) 100%
+        var(--vsc-media-overlay-strong) 0%,
+        var(--vsc-media-overlay-soft) 50%,
+        transparent 100%
       );
       
     }
@@ -555,8 +555,8 @@ interface VideoNavItem {
       position: relative;
       border-radius: 12px;
       overflow: hidden;
-      box-shadow: var(--vsc-widget-shadow, 0 5px 8px 0 rgba(0, 0, 0, 0.36));
-      border: 1px solid color-mix(in srgb, var(--vsc-border, #454545) 55%, transparent);
+      box-shadow: var(--vsc-widget-shadow, 0 5px 8px 0 var(--vsc-shadow));
+      border: 1px solid color-mix(in srgb, var(--vsc-border, var(--vsc-border)) 55%, transparent);
       transition: all 0.3s cubic-bezier(0.2, 0.9, 0.4, 1.1);
     }
 
@@ -566,8 +566,8 @@ interface VideoNavItem {
       aspect-ratio: 16 / 9;
       background: linear-gradient(
         135deg,
-        color-mix(in srgb, var(--vsc-editorWidget-background, #252526) 94%, black) 0%,
-        color-mix(in srgb, var(--vsc-editorWidget-background, #252526) 74%, black) 100%
+        color-mix(in srgb, var(--vsc-editorWidget-background, var(--vsc-panel-background)) 94%, black) 0%,
+        color-mix(in srgb, var(--vsc-editorWidget-background, var(--vsc-panel-background)) 74%, black) 100%
       );
       overflow: hidden;
     }
@@ -585,15 +585,15 @@ interface VideoNavItem {
       justify-content: center;
       background: linear-gradient(
         135deg,
-        color-mix(in srgb, var(--vsc-editorWidget-background, #252526) 94%, black) 0%,
-        color-mix(in srgb, var(--vsc-editorWidget-background, #252526) 74%, black) 100%
+        color-mix(in srgb, var(--vsc-editorWidget-background, var(--vsc-panel-background)) 94%, black) 0%,
+        color-mix(in srgb, var(--vsc-editorWidget-background, var(--vsc-panel-background)) 74%, black) 100%
       );
     }
 
     .video-nav-fallback {
       font-size: 48px;
       font-weight: 600;
-      color: var(--vsc-foreground, #cccccc);
+      color: var(--vsc-foreground, var(--vsc-foreground));
       opacity: 0.5;
       text-transform: uppercase;
     }
@@ -614,7 +614,7 @@ interface VideoNavItem {
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.5px;
-      color: rgba(255, 255, 255, 0.56);
+      color: var(--vsc-media-control-muted);
       background: color-mix(in srgb, var(--vsc-foreground) 10%, transparent);
       padding: 2px 8px;
       border-radius: 12px;
@@ -625,10 +625,10 @@ interface VideoNavItem {
       display: block;
       font-size: 14px;
       font-weight: 500;
-      color: rgba(255, 255, 255, 0.86);
+      color: var(--vsc-media-control-foreground);
       line-height: 1.3;
       word-break: break-word;
-      text-shadow: 0 1px 4px rgba(0, 0, 0, 0.24);
+      text-shadow: 0 1px 4px var(--vsc-media-overlay-soft);
     }
 
     /* Loading State */
@@ -648,14 +648,14 @@ interface VideoNavItem {
     .video-loading .spinner {
       width: 40px;
       height: 40px;
-      border: 3px solid rgba(255, 255, 255, 0.2);
-      border-top-color: var(--vsc-accent-blue, #0078d4);
+      border: 3px solid var(--vsc-neutral-overlay-medium);
+      border-top-color: var(--vsc-accent-blue, var(--vsc-accent-blue));
       border-radius: 50%;
       animation: spin 0.8s linear infinite;
     }
 
     .loading-text {
-      color: #aaa;
+      color: var(--vsc-foreground-dim);
       font-size: 13px;
       letter-spacing: 0.3px;
     }
@@ -686,19 +686,19 @@ interface VideoNavItem {
       display: flex;
       align-items: center;
       justify-content: center;
-      background: var(--vsc-accent-blue, #0078d4);
+      background: var(--vsc-accent-blue, var(--vsc-accent-blue));
       border-radius: 50%;
       font-size: 32px;
-      color: white;
-      box-shadow: 0 8px 32px rgba(0, 120, 212, 0.4);
+      color: var(--vsc-on-accent);
+      box-shadow: 0 8px 32px var(--vsc-accent-border);
       transition: all 0.3s cubic-bezier(0.2, 0.9, 0.4, 1.1);
       font-weight: bold;
     }
 
     .play-overlay:hover .play-icon {
-      background: #1084d7;
+      background: var(--vsc-info);
       transform: scale(1.1);
-      box-shadow: 0 12px 48px rgba(0, 120, 212, 0.6);
+      box-shadow: 0 12px 48px var(--vsc-accent-border);
     }
 
     /* Video Controls */
@@ -707,8 +707,8 @@ interface VideoNavItem {
       flex-direction: column;
       gap: 8px;
       padding: 12px 16px;
-      background: linear-gradient(to top, rgba(0, 0, 0, 0.9) 0%, rgba(0, 0, 0, 0.7) 50%, rgba(0, 0, 0, 0.4) 80%, transparent 100%);
-      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      background: linear-gradient(to top, var(--vsc-media-overlay-strong) 0%, var(--vsc-media-overlay) 50%, var(--vsc-scrim) 80%, transparent 100%);
+      border-top: 1px solid var(--vsc-neutral-overlay-soft);
       opacity: 0;
       transition: opacity 0.3s ease;
       pointer-events: none;
@@ -745,7 +745,7 @@ interface VideoNavItem {
     .progress-fill {
       position: absolute;
       height: 100%;
-      background: linear-gradient(90deg, var(--vsc-accent-blue, #0078d4), #00a4ef);
+      background: linear-gradient(90deg, var(--vsc-accent-blue, var(--vsc-accent-blue)), var(--vsc-info));
       border-radius: 2px;
       pointer-events: none;
       transition: width 0.05s linear;
@@ -769,35 +769,35 @@ interface VideoNavItem {
       -webkit-appearance: none;
       width: 12px;
       height: 12px;
-      background: white;
+      background: var(--vsc-document-canvas-background);
       border: none;
       border-radius: 50%;
       cursor: pointer;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+      box-shadow: 0 2px 8px var(--vsc-scrim-strong);
       transition: all 0.2s ease;
     }
 
     .seek-slider::-webkit-slider-thumb:hover {
       width: 16px;
       height: 16px;
-      box-shadow: 0 4px 16px rgba(0, 120, 212, 0.8);
+      box-shadow: 0 4px 16px var(--vsc-accent-blue);
     }
 
     .seek-slider::-moz-range-thumb {
       width: 12px;
       height: 12px;
-      background: white;
+      background: var(--vsc-document-canvas-background);
       border: none;
       border-radius: 50%;
       cursor: pointer;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+      box-shadow: 0 2px 8px var(--vsc-scrim-strong);
       transition: all 0.2s ease;
     }
 
     .seek-slider::-moz-range-thumb:hover {
       width: 16px;
       height: 16px;
-      box-shadow: 0 4px 16px rgba(0, 120, 212, 0.8);
+      box-shadow: 0 4px 16px var(--vsc-accent-blue);
     }
 
     .seek-slider:disabled {
@@ -820,8 +820,8 @@ interface VideoNavItem {
       height: 36px;
       padding: 0 8px;
       background: color-mix(in srgb, var(--vsc-foreground) 10%, transparent);
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      color: white;
+      border: 1px solid var(--vsc-neutral-overlay-medium);
+      color: var(--vsc-on-accent);
       border-radius: 6px;
       cursor: pointer;
       font-size: 16px;
@@ -832,7 +832,7 @@ interface VideoNavItem {
 
     .control-btn:hover:not(:disabled) {
       background: color-mix(in srgb, var(--vsc-foreground) 20%, transparent);
-      border-color: rgba(255, 255, 255, 0.3);
+      border-color: var(--vsc-neutral-overlay-strong);
       transform: scale(1.05);
     }
 
@@ -851,13 +851,13 @@ interface VideoNavItem {
 
     .play-pause-btn {
       min-width: 44px;
-      background: var(--vsc-accent-blue, #0078d4);
-      border: 1px solid rgba(0, 120, 212, 0.3);
+      background: var(--vsc-accent-blue, var(--vsc-accent-blue));
+      border: 1px solid var(--vsc-accent-selection);
     }
 
     .play-pause-btn:hover:not(:disabled) {
-      background: #1084d7;
-      box-shadow: 0 0 12px rgba(0, 120, 212, 0.5);
+      background: var(--vsc-info);
+      box-shadow: 0 0 12px var(--vsc-accent-border);
     }
 
     .time-display {
@@ -876,7 +876,7 @@ interface VideoNavItem {
     }
 
     .current-time {
-      color: white;
+      color: var(--vsc-on-accent);
       font-weight: 500;
     }
 
@@ -916,20 +916,20 @@ interface VideoNavItem {
       -webkit-appearance: none;
       width: 10px;
       height: 10px;
-      background: white;
+      background: var(--vsc-document-canvas-background);
       border-radius: 50%;
       cursor: pointer;
-      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+      box-shadow: 0 2px 6px var(--vsc-scrim-strong);
     }
 
     .volume-slider::-moz-range-thumb {
       width: 10px;
       height: 10px;
-      background: white;
+      background: var(--vsc-document-canvas-background);
       border: none;
       border-radius: 50%;
       cursor: pointer;
-      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+      box-shadow: 0 2px 6px var(--vsc-scrim-strong);
     }
 
     .volume-slider:disabled {

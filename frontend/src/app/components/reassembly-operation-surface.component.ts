@@ -169,15 +169,15 @@ import type { ConflictResolution } from '../shared/protocol-enhanced';
       max-height: min(58vh, 500px);
       overflow: auto;
       padding: 8px;
-      border: 1px solid var(--vsc-border, #454545);
+      border: 1px solid var(--vsc-border, var(--vsc-border));
       border-radius: 7px;
       background: color-mix(
         in srgb,
-        var(--vsc-editor-background, #1e1e1e) 96%,
+        var(--vsc-editor-background, var(--vsc-editor-background)) 96%,
         transparent
       );
-      color: var(--vsc-foreground, #cccccc);
-      box-shadow: 0 8px 28px rgba(0, 0, 0, .35);
+      color: var(--vsc-foreground, var(--vsc-foreground));
+      box-shadow: 0 8px 28px var(--vsc-scrim-soft);
       backdrop-filter: blur(8px);
       font: 11px/1.35 var(--vsc-font-family, system-ui, sans-serif);
       pointer-events: auto;
@@ -198,7 +198,7 @@ import type { ConflictResolution } from '../shared/protocol-enhanced';
     header {
       justify-content: space-between;
       padding: 2px 4px 7px;
-      color: var(--vsc-description-foreground, #969696);
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
     }
 
     .heading {
@@ -207,7 +207,7 @@ import type { ConflictResolution } from '../shared/protocol-enhanced';
     }
 
     header strong {
-      color: var(--vsc-foreground, #cccccc);
+      color: var(--vsc-foreground, var(--vsc-foreground));
     }
 
     button {
@@ -222,8 +222,8 @@ import type { ConflictResolution } from '../shared/protocol-enhanced';
     }
 
     button:hover:not(:disabled) {
-      border-color: var(--vsc-border, #454545);
-      background: var(--vsc-list-hover-background, #2a2d2e);
+      border-color: var(--vsc-border, var(--vsc-border));
+      background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
     }
 
     button:disabled {
@@ -233,15 +233,15 @@ import type { ConflictResolution } from '../shared/protocol-enhanced';
 
     .operation {
       padding: 8px;
-      border-top: 1px solid var(--vsc-border-subtle, #2b2b2b);
+      border-top: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
     }
 
     .operation-failed {
-      border-left: 2px solid var(--vsc-error-foreground, #f48771);
+      border-left: 2px solid var(--vsc-error-foreground, var(--vsc-error));
     }
 
     .operation-paused {
-      border-left: 2px solid var(--vsc-warning-foreground, #cca700);
+      border-left: 2px solid var(--vsc-warning-foreground, var(--vsc-warning));
     }
 
     .row {
@@ -253,16 +253,16 @@ import type { ConflictResolution } from '../shared/protocol-enhanced';
     }
 
     .status {
-      color: var(--vsc-accent-blue, #4aa3ff);
+      color: var(--vsc-accent-blue, var(--vsc-focus-ring));
       text-transform: lowercase;
     }
 
     .status.failed {
-      color: var(--vsc-error-foreground, #f48771);
+      color: var(--vsc-error-foreground, var(--vsc-error));
     }
 
     .status.paused {
-      color: var(--vsc-warning-foreground, #cca700);
+      color: var(--vsc-warning-foreground, var(--vsc-warning));
     }
 
     .current,
@@ -271,7 +271,7 @@ import type { ConflictResolution } from '../shared/protocol-enhanced';
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
-      color: var(--vsc-description-foreground, #969696);
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
       font-family: var(--vsc-font-family-mono, ui-monospace, monospace);
     }
 
@@ -283,7 +283,7 @@ import type { ConflictResolution } from '../shared/protocol-enhanced';
       border-radius: 999px;
       background: color-mix(
         in srgb,
-        var(--vsc-foreground, #cccccc) 12%,
+        var(--vsc-foreground, var(--vsc-foreground)) 12%,
         transparent
       );
     }
@@ -292,7 +292,7 @@ import type { ConflictResolution } from '../shared/protocol-enhanced';
       height: 100%;
       min-width: 2px;
       border-radius: inherit;
-      background: var(--vsc-accent-blue, #007acc);
+      background: var(--vsc-accent-blue, var(--vsc-accent-blue));
       transition: width .12s linear;
     }
 
@@ -309,7 +309,7 @@ import type { ConflictResolution } from '../shared/protocol-enhanced';
     .meta {
       flex-wrap: wrap;
       margin-top: 6px;
-      color: var(--vsc-description-foreground, #969696);
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
       font-size: 10px;
     }
 
@@ -323,8 +323,8 @@ import type { ConflictResolution } from '../shared/protocol-enhanced';
       margin-top: 7px;
       padding: 6px 7px;
       border-radius: 4px;
-      background: color-mix(in srgb, var(--vsc-error-foreground, #f48771) 9%, transparent);
-      color: var(--vsc-error-foreground, #f48771);
+      background: color-mix(in srgb, var(--vsc-error-foreground, var(--vsc-error)) 9%, transparent);
+      color: var(--vsc-error-foreground, var(--vsc-error));
     }
 
     .operation-actions {
@@ -337,20 +337,20 @@ import type { ConflictResolution } from '../shared/protocol-enhanced';
       gap: 6px;
       margin-top: 8px;
       padding: 7px;
-      border: 1px solid color-mix(in srgb, var(--vsc-warning-foreground, #cca700) 38%, transparent);
+      border: 1px solid color-mix(in srgb, var(--vsc-warning-foreground, var(--vsc-warning)) 38%, transparent);
       border-radius: 5px;
-      background: color-mix(in srgb, var(--vsc-warning-foreground, #cca700) 7%, transparent);
+      background: color-mix(in srgb, var(--vsc-warning-foreground, var(--vsc-warning)) 7%, transparent);
     }
 
     .conflict > strong {
-      color: var(--vsc-warning-foreground, #cca700);
+      color: var(--vsc-warning-foreground, var(--vsc-warning));
     }
 
     .apply-all {
       display: flex;
       align-items: center;
       gap: 5px;
-      color: var(--vsc-description-foreground, #969696);
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
       font-size: 10px;
     }
 
@@ -359,7 +359,7 @@ import type { ConflictResolution } from '../shared/protocol-enhanced';
     }
 
     .danger {
-      color: var(--vsc-error-foreground, #f48771);
+      color: var(--vsc-error-foreground, var(--vsc-error));
     }
   `],
 })

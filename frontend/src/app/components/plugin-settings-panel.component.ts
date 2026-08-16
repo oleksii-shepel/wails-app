@@ -154,8 +154,8 @@ import type { PluginPermission } from '../plugin/plugin-manifest';
     .plugins-banner.error, .plugin-messages.error { background: color-mix(in srgb, var(--vsc-error) 12%, transparent); border: 1px solid color-mix(in srgb, var(--vsc-error) 35%, transparent); }
     .plugin-messages.warning { background: color-mix(in srgb, var(--vsc-warning) 10%, transparent); border: 1px solid color-mix(in srgb, var(--vsc-warning) 30%, transparent); }
     .plugin-messages ul { margin: 5px 0 0 18px; padding: 0; }
-    .plugins-empty { min-height: 150px; border: 1px dashed var(--border-color, rgba(127,127,127,.35)); border-radius: 6px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; opacity: .75; text-align: center; }
-    .plugin-card { border: 1px solid var(--border-color, rgba(127,127,127,.25)); border-radius: 7px; padding: 14px; background: var(--panel-bg, rgba(127,127,127,.035)); display: flex; flex-direction: column; gap: 12px; }
+    .plugins-empty { min-height: 150px; border: 1px dashed var(--border-color, var(--vsc-neutral-overlay-strong)); border-radius: 6px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; opacity: .75; text-align: center; }
+    .plugin-card { border: 1px solid var(--border-color, var(--vsc-neutral-overlay-medium)); border-radius: 7px; padding: 14px; background: var(--panel-bg, var(--vsc-neutral-overlay-subtle)); display: flex; flex-direction: column; gap: 12px; }
     .plugin-card.invalid { border-color: color-mix(in srgb, var(--vsc-error) 45%, transparent); }
     .plugin-card.quarantined { border-color: color-mix(in srgb, var(--vsc-warning) 45%, transparent); }
     .plugin-card-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
@@ -163,14 +163,14 @@ import type { PluginPermission } from '../plugin/plugin-manifest';
     .plugin-title-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .plugin-version, .plugin-id { font-family: var(--font-mono, monospace); font-size: 11px; opacity: .66; }
     .plugin-description { margin: 7px 0 0; font-size: 12px; opacity: .8; }
-    .plugin-status { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; padding: 2px 6px; border-radius: 999px; background: rgba(127,127,127,.14); }
+    .plugin-status { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; padding: 2px 6px; border-radius: 999px; background: var(--vsc-neutral-overlay-soft); }
     .plugin-status[data-status="active"] { background: color-mix(in srgb, var(--vsc-success) 18%, transparent); }
     .plugin-status[data-status="failed"], .plugin-status[data-status="invalid"] { background: color-mix(in srgb, var(--vsc-error) 18%, transparent); }
     .plugin-status[data-status="quarantined"], .plugin-status[data-status="permissions-required"] { background: color-mix(in srgb, var(--vsc-warning) 18%, transparent); }
     .plugin-enable { display: flex; align-items: center; gap: 7px; white-space: nowrap; font-size: 12px; }
-    .plugin-reason { background: rgba(127,127,127,.08); }
+    .plugin-reason { background: var(--vsc-neutral-overlay-subtle); }
     .plugin-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-    .plugin-block { border: 1px solid var(--border-color, rgba(127,127,127,.2)); border-radius: 5px; padding: 10px; min-width: 0; }
+    .plugin-block { border: 1px solid var(--border-color, var(--vsc-neutral-overlay-soft)); border-radius: 5px; padding: 10px; min-width: 0; }
     .plugin-block p { margin: 7px 0 10px; font-size: 11px; opacity: .72; }
     .plugin-block-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
     .state-good { color: var(--vsc-success); font-size: 10px; }
@@ -184,7 +184,7 @@ import type { PluginPermission } from '../plugin/plugin-manifest';
     .health-grid dt { opacity: .6; }
     .health-grid dd { margin: 0; overflow-wrap: anywhere; }
     .error-text { color: var(--vsc-error); }
-    .quarantine-box { display: flex; flex-direction: column; align-items: flex-start; gap: 7px; margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--border-color, rgba(127,127,127,.2)); font-size: 11px; }
+    .quarantine-box { display: flex; flex-direction: column; align-items: flex-start; gap: 7px; margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--border-color, var(--vsc-neutral-overlay-soft)); font-size: 11px; }
     .plugin-card-actions { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
     .plugin-working { font-size: 11px; opacity: .6; }
     @media (max-width: 900px) { .plugin-grid { grid-template-columns: 1fr; } .plugins-header { flex-direction: column; } }

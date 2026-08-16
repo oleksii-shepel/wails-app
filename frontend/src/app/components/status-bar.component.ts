@@ -50,8 +50,8 @@ import { FileInfo, FileType } from '../shared/protocol';
     :host {
       display: block;
       height: var(--vsc-statusbar-height, 22px);
-      background: var(--vsc-statusbar-background, #007acc);
-      border-top: 1px solid rgba(255,255,255,0.1);
+      background: var(--vsc-statusbar-background, var(--vsc-accent-blue));
+      border-top: 1px solid var(--vsc-neutral-overlay-soft);
     }
 
     .status-bar {

@@ -81,11 +81,11 @@ export interface ReassemblyContextMenuState {
       max-height: calc(100vh - 16px);
       overflow: auto;
       padding: 4px;
-      border: 1px solid var(--vsc-border, #454545);
+      border: 1px solid var(--vsc-border, var(--vsc-border));
       border-radius: 6px;
-      background: var(--vsc-menu-background, #252526);
-      color: var(--vsc-menu-foreground, #cccccc);
-      box-shadow: 0 8px 30px rgba(0, 0, 0, .4);
+      background: var(--vsc-menu-background, var(--vsc-panel-background));
+      color: var(--vsc-menu-foreground, var(--vsc-foreground));
+      box-shadow: 0 8px 30px var(--vsc-scrim);
       font: 12px/1.35 var(--vsc-font-family, system-ui, sans-serif);
     }
 
@@ -94,7 +94,7 @@ export interface ReassemblyContextMenuState {
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
-      color: var(--vsc-description-foreground, #969696);
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
       font-size: 10px;
     }
 
@@ -118,7 +118,7 @@ export interface ReassemblyContextMenuState {
     button:hover:not(:disabled),
     button:focus-visible:not(:disabled) {
       outline: none;
-      background: var(--vsc-list-hover-background, #2a2d2e);
+      background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
     }
 
     button:disabled {
@@ -133,14 +133,14 @@ export interface ReassemblyContextMenuState {
     }
 
     .shortcut {
-      color: var(--vsc-description-foreground, #969696);
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
       font-size: 10px;
     }
 
     .separator {
       height: 1px;
       margin: 4px 5px;
-      background: var(--vsc-border, #454545);
+      background: var(--vsc-border, var(--vsc-border));
     }
   `],
 })

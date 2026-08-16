@@ -39,7 +39,7 @@ import { SearchResultsSurfaceContext } from '../surface-context';
       gap: 6px;
       min-height: 26px;
       padding: 3px 8px;
-      border-bottom: 1px solid var(--vscode-panel-border, rgba(127, 127, 127, .25));
+      border-bottom: 1px solid var(--vscode-panel-border, var(--vsc-neutral-overlay-medium));
       background: var(--vscode-sideBar-background, transparent);
       font-size: 12px;
       min-width: 0;

@@ -79,9 +79,9 @@ import { moveFocusWithin } from '../directives/focus-trap.utils';
       background: var(--vsc-editor-background);
       border: 1px solid var(--vsc-border-bright);
       border-radius: var(--vsc-border-radius);
-      box-shadow: var(--vsc-widget-shadow), 0 20px 48px rgba(0,0,0,.5);
+      box-shadow: var(--vsc-widget-shadow), 0 20px 48px var(--vsc-scrim-strong);
       display: flex; flex-direction: column; align-items: center;
-      color: var(--vsc-foreground, #ccc);
+      color: var(--vsc-foreground, var(--vsc-foreground));
       font-size: 13px;
       overflow: hidden;
       animation: slideDown .28s cubic-bezier(.16,1,.3,1);
@@ -93,14 +93,14 @@ import { moveFocusWithin } from '../directives/focus-trap.utils';
 
     .amw-icon svg {
       width: 34px; height: 34px;
-      color: var(--vsc-warning, #d7ba7d);
+      color: var(--vsc-warning, var(--vsc-accent-yellow));
     }
 
     .amw-title {
       margin: 0;
       font-size: 14px;
       font-weight: 600;
-      color: var(--vsc-foreground-bright, #e0e0e0);
+      color: var(--vsc-foreground-bright, var(--vsc-foreground));
     }
 
     .amw-body, .amw-note {
@@ -139,18 +139,18 @@ import { moveFocusWithin } from '../directives/focus-trap.utils';
       border-radius: 4px;
       font-size: 12px; font-weight: 500;
       cursor: pointer;
-      border: 1px solid var(--vsc-border, #555);
+      border: 1px solid var(--vsc-border, var(--vsc-border-bright));
       transition: background .12s;
     }
     .amw-btn--cancel {
       background: color-mix(in srgb, var(--vsc-foreground) 6%, transparent);
-      color: var(--vsc-foreground, #ccc);
+      color: var(--vsc-foreground, var(--vsc-foreground));
     }
     .amw-btn--cancel:hover { background: color-mix(in srgb, var(--vsc-foreground) 10%, transparent); }
 
     .amw-btn--confirm {
       background: var(--vsc-accent-orange, var(--vsc-warning));
-      color: #1a1a1a; font-weight: 600;
+      color: var(--vsc-media-background); font-weight: 600;
       border-color: transparent;
     }
     .amw-btn--confirm:hover { filter: brightness(1.08); }

@@ -294,22 +294,22 @@ interface AudioTagRow {
   styles: [VIEWER_BASE_STYLES, `
     /* ── SURFACE ───────────────────────────────────────── */
     .viewer-surface {
-      --av-surface: var(--vsc-editor-background, #1e1e1e);
-      --av-surface-alt: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 92%, black);
-      --av-surface-muted: var(--vsc-editor-background, #1e1e1e);
-      --av-border: color-mix(in srgb, var(--vsc-border, #454545) 70%, transparent);
-      --av-text: var(--vsc-foreground, #cccccc);
-      --av-text-muted: color-mix(in srgb, var(--vsc-foreground, #cccccc) 58%, transparent);
-      --av-text-dim: color-mix(in srgb, var(--vsc-foreground, #cccccc) 36%, transparent);
-      --av-accent: var(--vsc-button-background, #0e639c);
-      --av-accent-foreground: var(--vsc-button-foreground, #ffffff);
+      --av-surface: var(--vsc-editor-background, var(--vsc-editor-background));
+      --av-surface-alt: color-mix(in srgb, var(--vsc-editor-background, var(--vsc-editor-background)) 92%, black);
+      --av-surface-muted: var(--vsc-editor-background, var(--vsc-editor-background));
+      --av-border: color-mix(in srgb, var(--vsc-border, var(--vsc-border)) 70%, transparent);
+      --av-text: var(--vsc-foreground, var(--vsc-foreground));
+      --av-text-muted: color-mix(in srgb, var(--vsc-foreground, var(--vsc-foreground)) 58%, transparent);
+      --av-text-dim: color-mix(in srgb, var(--vsc-foreground, var(--vsc-foreground)) 36%, transparent);
+      --av-accent: var(--vsc-button-background, var(--vsc-button-background));
+      --av-accent-foreground: var(--vsc-button-foreground, var(--vsc-on-accent));
       --av-focus: var(--vsc-focusBorder, var(--vsc-accent-blue));
-      --av-shadow: var(--vsc-widget-shadow, 0 5px 8px 0 rgba(0, 0, 0, 0.36));
-      --av-button: var(--vsc-button-secondary, #3a3d41);
-      --av-button-hover: var(--vsc-button-secondary-hover, #45494e);
-      --av-list-hover: var(--vsc-list-hover-background, #2a2d2e);
-      --av-list-active: var(--vsc-list-active-background, #094771);
-      --av-list-active-foreground: var(--vsc-list-active-foreground, #ffffff);
+      --av-shadow: var(--vsc-widget-shadow, 0 5px 8px 0 var(--vsc-shadow));
+      --av-button: var(--vsc-button-secondary, var(--vsc-button-secondary));
+      --av-button-hover: var(--vsc-button-secondary-hover, var(--vsc-control-hover-background));
+      --av-list-hover: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
+      --av-list-active: var(--vsc-list-active-background, var(--vsc-list-selected-emphasis));
+      --av-list-active-foreground: var(--vsc-list-active-foreground, var(--vsc-on-accent));
       display: flex;
       flex-direction: column;
       flex: 1 1 0%;
@@ -321,18 +321,18 @@ interface AudioTagRow {
     }
 
     :host-context(.vscode-light) .viewer-surface {
-      --av-surface: var(--vsc-editor-background, #ffffff);
-      --av-surface-alt: color-mix(in srgb, var(--vsc-editor-background, #ffffff) 94%, var(--vsc-panel-background, #f3f3f3));
-      --av-surface-muted: var(--vsc-editor-background, #ffffff);
-      --av-border: color-mix(in srgb, var(--vsc-border, #c4c4c4) 88%, transparent);
-      --av-text: var(--vsc-foreground, #3b3b3b);
-      --av-text-muted: color-mix(in srgb, var(--vsc-foreground, #3b3b3b) 78%, white);
-      --av-text-dim: color-mix(in srgb, var(--vsc-foreground, #3b3b3b) 64%, white);
-      --av-button: color-mix(in srgb, var(--vsc-input-background, #ffffff) 86%, var(--vsc-panel-background, #f3f3f3));
-      --av-button-hover: var(--vsc-list-hover-background, #e4e6f1);
-      --av-list-hover: var(--vsc-list-hover-background, #e4e6f1);
-      --av-list-active: color-mix(in srgb, var(--vsc-list-active-background, #cce0f5) 84%, white);
-      --av-list-active-foreground: var(--vsc-list-active-foreground, #1a1a1a);
+      --av-surface: var(--vsc-editor-background, var(--vsc-on-accent));
+      --av-surface-alt: color-mix(in srgb, var(--vsc-editor-background, var(--vsc-on-accent)) 94%, var(--vsc-panel-background, var(--vsc-panel-background)));
+      --av-surface-muted: var(--vsc-editor-background, var(--vsc-on-accent));
+      --av-border: color-mix(in srgb, var(--vsc-border, var(--vsc-border)) 88%, transparent);
+      --av-text: var(--vsc-foreground, var(--vsc-foreground));
+      --av-text-muted: color-mix(in srgb, var(--vsc-foreground, var(--vsc-foreground)) 78%, white);
+      --av-text-dim: color-mix(in srgb, var(--vsc-foreground, var(--vsc-foreground)) 64%, white);
+      --av-button: color-mix(in srgb, var(--vsc-input-background, var(--vsc-on-accent)) 86%, var(--vsc-panel-background, var(--vsc-panel-background)));
+      --av-button-hover: var(--vsc-list-hover-background, var(--vsc-foreground));
+      --av-list-hover: var(--vsc-list-hover-background, var(--vsc-foreground));
+      --av-list-active: color-mix(in srgb, var(--vsc-list-active-background, var(--vsc-list-active-background)) 84%, white);
+      --av-list-active-foreground: var(--vsc-list-active-foreground, var(--vsc-media-background));
     }
 
     /* ── HEADER ────────────────────────────────────────── */
@@ -349,7 +349,7 @@ interface AudioTagRow {
     }
 
     :host-context(.vscode-light) .viewer-header {
-      background: color-mix(in srgb, var(--av-surface) 99%, var(--vsc-panel-background, #f3f3f3));
+      background: color-mix(in srgb, var(--av-surface) 99%, var(--vsc-panel-background, var(--vsc-panel-background)));
     }
 
     .header-main {
@@ -414,35 +414,35 @@ interface AudioTagRow {
 
     .type-badge {
       background: color-mix(in srgb, var(--av-accent) 16%, transparent);
-      color: var(--vsc-accent-blue, #4da8ff);
+      color: var(--vsc-accent-blue, var(--vsc-focus-ring));
       border: 1px solid color-mix(in srgb, var(--av-accent) 40%, transparent);
     }
 
     .size-badge {
       background: color-mix(in srgb, var(--av-text) 7%, transparent);
       color: color-mix(in srgb, var(--av-text) 60%, transparent);
-      border: 1px solid color-mix(in srgb, var(--vsc-border, #454545) 50%, transparent);
+      border: 1px solid color-mix(in srgb, var(--vsc-border, var(--vsc-border)) 50%, transparent);
     }
 
     :host-context(.vscode-light) .size-badge,
     :host-context(.vscode-light) .mime-badge {
       background: color-mix(in srgb, var(--av-text) 6%, white);
       color: var(--av-text);
-      border-color: color-mix(in srgb, var(--vsc-border, #c4c4c4) 78%, transparent);
+      border-color: color-mix(in srgb, var(--vsc-border, var(--vsc-border)) 78%, transparent);
     }
 
     :host-context(.vscode-light) .dur-badge {
-      color: color-mix(in srgb, var(--av-focus) 72%, #113355);
+      color: color-mix(in srgb, var(--av-focus) 72%, var(--vsc-media-panel-background));
     }
 
     :host-context(.vscode-light) .type-badge {
-      color: color-mix(in srgb, var(--av-accent) 78%, #12314a);
+      color: color-mix(in srgb, var(--av-accent) 78%, var(--vsc-media-panel-background));
     }
 
     .mime-badge {
       background: color-mix(in srgb, var(--av-text) 7%, transparent);
       color: color-mix(in srgb, var(--av-text) 60%, transparent);
-      border: 1px solid color-mix(in srgb, var(--vsc-border, #454545) 50%, transparent);
+      border: 1px solid color-mix(in srgb, var(--vsc-border, var(--vsc-border)) 50%, transparent);
     }
 
     .dur-badge {
@@ -490,21 +490,21 @@ interface AudioTagRow {
     }
 
     .state-icon-folder {
-      background: color-mix(in srgb, var(--vsc-accent-yellow, #d7ba7d) 14%, transparent);
-      border-color: color-mix(in srgb, var(--vsc-accent-yellow, #d7ba7d) 28%, transparent);
-      color: var(--vsc-accent-yellow, #d7ba7d);
+      background: color-mix(in srgb, var(--vsc-accent-yellow, var(--vsc-accent-yellow)) 14%, transparent);
+      border-color: color-mix(in srgb, var(--vsc-accent-yellow, var(--vsc-accent-yellow)) 28%, transparent);
+      color: var(--vsc-accent-yellow, var(--vsc-accent-yellow));
     }
 
     .state-icon-warn {
-      background: color-mix(in srgb, var(--vsc-warning, #cca700) 14%, transparent);
-      border-color: color-mix(in srgb, var(--vsc-warning, #cca700) 28%, transparent);
-      color: var(--vsc-warning, #cca700);
+      background: color-mix(in srgb, var(--vsc-warning, var(--vsc-warning)) 14%, transparent);
+      border-color: color-mix(in srgb, var(--vsc-warning, var(--vsc-warning)) 28%, transparent);
+      color: var(--vsc-warning, var(--vsc-warning));
     }
 
     .state-icon-error {
-      background: color-mix(in srgb, var(--vsc-error, #f48771) 14%, transparent);
-      border-color: color-mix(in srgb, var(--vsc-error, #f48771) 28%, transparent);
-      color: var(--vsc-error, #f48771);
+      background: color-mix(in srgb, var(--vsc-error, var(--vsc-error)) 14%, transparent);
+      border-color: color-mix(in srgb, var(--vsc-error, var(--vsc-error)) 28%, transparent);
+      color: var(--vsc-error, var(--vsc-error));
     }
 
     .state-label {
@@ -518,9 +518,9 @@ interface AudioTagRow {
       flex-direction: column;
       gap: 10px;
       padding: 12px;
-      border: 1px solid color-mix(in srgb, var(--vsc-border, #454545) 55%, transparent);
+      border: 1px solid color-mix(in srgb, var(--vsc-border, var(--vsc-border)) 55%, transparent);
       border-radius: 8px;
-      background: color-mix(in srgb, var(--vsc-editorWidget-background, #252526) 92%, black);
+      background: color-mix(in srgb, var(--vsc-editorWidget-background, var(--vsc-panel-background)) 92%, black);
     }
 
     .av-tags-inline {
@@ -532,7 +532,7 @@ interface AudioTagRow {
       font-weight: 600;
       letter-spacing: 0.08em;
       text-transform: uppercase;
-      color: color-mix(in srgb, var(--vsc-foreground, #ccc) 68%, transparent);
+      color: color-mix(in srgb, var(--vsc-foreground, var(--vsc-foreground)) 68%, transparent);
     }
 
     .av-tags-grid {
@@ -548,20 +548,20 @@ interface AudioTagRow {
       min-width: 0;
       padding: 8px 10px;
       border-radius: 6px;
-      background: color-mix(in srgb, var(--vsc-foreground, #ccc) 6%, transparent);
-      border: 1px solid color-mix(in srgb, var(--vsc-border, #454545) 38%, transparent);
+      background: color-mix(in srgb, var(--vsc-foreground, var(--vsc-foreground)) 6%, transparent);
+      border: 1px solid color-mix(in srgb, var(--vsc-border, var(--vsc-border)) 38%, transparent);
     }
 
     .av-tag-key {
       font-size: 10px;
       letter-spacing: 0.08em;
       text-transform: uppercase;
-      color: color-mix(in srgb, var(--vsc-foreground, #ccc) 56%, transparent);
+      color: color-mix(in srgb, var(--vsc-foreground, var(--vsc-foreground)) 56%, transparent);
     }
 
     .av-tag-value {
       font-size: 12px;
-      color: var(--vsc-foreground, #cccccc);
+      color: var(--vsc-foreground, var(--vsc-foreground));
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -586,9 +586,9 @@ interface AudioTagRow {
     .error-detail {
       font-size: 11px;
       font-family: var(--vsc-font-family-mono, ui-monospace, monospace);
-      color: color-mix(in srgb, #ff7070 70%, var(--vsc-foreground, #ccc));
-      background: rgba(255, 0, 0, 0.07);
-      border: 1px solid rgba(255, 112, 112, 0.2);
+      color: color-mix(in srgb, var(--vsc-error-bright) 70%, var(--vsc-foreground, var(--vsc-foreground)));
+      background: var(--vsc-error-surface);
+      border: 1px solid var(--vsc-error-border);
       border-radius: 4px;
       padding: 8px 12px;
       max-width: 480px;
@@ -654,10 +654,10 @@ interface AudioTagRow {
       height: 148px;
       border-radius: 18px;
       overflow: hidden;
-      border: 1px solid rgba(255, 255, 255, 0.12);
+      border: 1px solid var(--vsc-neutral-overlay-medium);
       box-shadow:
-        inset 0 0 0 1px rgba(255, 255, 255, 0.04),
-        0 12px 32px rgba(0, 0, 0, 0.45);
+        inset 0 0 0 1px var(--vsc-neutral-overlay-subtle),
+        0 12px 32px var(--vsc-scrim);
       background: color-mix(in srgb, var(--av-surface-alt) 84%, black);
     }
 
@@ -673,15 +673,15 @@ interface AudioTagRow {
       height: 148px;
       border-radius: 50%;
       background: conic-gradient(
-        #1a1a22 0deg, #222230 30deg, #1a1a22 60deg, #222230 90deg,
-        #1a1a22 120deg, #222230 150deg, #1a1a22 180deg, #222230 210deg,
-        #1a1a22 240deg, #222230 270deg, #1a1a22 300deg, #222230 330deg, #1a1a22 360deg
+        var(--vsc-media-background) 0deg, var(--vsc-media-panel-background) 30deg, var(--vsc-media-background) 60deg, var(--vsc-media-panel-background) 90deg,
+        var(--vsc-media-background) 120deg, var(--vsc-media-panel-background) 150deg, var(--vsc-media-background) 180deg, var(--vsc-media-panel-background) 210deg,
+        var(--vsc-media-background) 240deg, var(--vsc-media-panel-background) 270deg, var(--vsc-media-background) 300deg, var(--vsc-media-panel-background) 330deg, var(--vsc-media-background) 360deg
       );
-      border: 1px solid rgba(255, 255, 255, 0.1);
+      border: 1px solid var(--vsc-neutral-overlay-soft);
       position: relative;
       box-shadow:
-        inset 0 0 0 1px rgba(255, 255, 255, 0.04),
-        0 12px 32px rgba(0, 0, 0, 0.6);
+        inset 0 0 0 1px var(--vsc-neutral-overlay-subtle),
+        0 12px 32px var(--vsc-media-overlay);
     }
 
     :host-context(.vscode-light) .disc-panel {
@@ -702,11 +702,11 @@ interface AudioTagRow {
       position: absolute;
       inset: 14px;
       border-radius: 50%;
-      border: 1px solid rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--vsc-neutral-overlay-subtle);
       box-shadow:
-        0 0 0 12px rgba(0, 0, 0, 0.15),
-        0 0 0 24px rgba(255, 255, 255, 0.025),
-        0 0 0 38px rgba(0, 0, 0, 0.1);
+        0 0 0 12px var(--vsc-shadow-soft),
+        0 0 0 24px var(--vsc-neutral-overlay-subtle),
+        0 0 0 38px var(--vsc-shadow-soft);
     }
 
     /* label center */
@@ -745,7 +745,7 @@ interface AudioTagRow {
       right: -18px;
       width: 54px;
       height: 2px;
-      background: linear-gradient(90deg, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.2));
+      background: linear-gradient(90deg, var(--vsc-media-control-muted), var(--vsc-neutral-overlay-medium));
       border-radius: 1px;
       transform-origin: right center;
       transform: rotate(-34deg);
@@ -763,7 +763,7 @@ interface AudioTagRow {
       height: 7px;
       border-radius: 50%;
       background: color-mix(in srgb, var(--vsc-foreground) 30%, transparent);
-      box-shadow: 0 0 6px rgba(255, 255, 255, 0.3);
+      box-shadow: 0 0 6px var(--vsc-neutral-overlay-strong);
     }
 
     .disc-wrap.playing .needle {
@@ -929,7 +929,7 @@ interface AudioTagRow {
     }
 
     .vu-fill.vu-hot {
-      background: linear-gradient(90deg, var(--av-accent) 0%, var(--vsc-editorWarning-foreground, #b89500) 100%);
+      background: linear-gradient(90deg, var(--av-accent) 0%, var(--vsc-editorWarning-foreground, var(--vsc-warning)) 100%);
     }
 
     .vu-peak {
@@ -978,7 +978,7 @@ interface AudioTagRow {
       flex: 1;
       position: relative;
       height: 4px;
-      background: color-mix(in srgb, var(--vsc-border, #454545) 80%, transparent);
+      background: color-mix(in srgb, var(--vsc-border, var(--vsc-border)) 80%, transparent);
       border-radius: 2px;
       cursor: pointer;
       overflow: hidden;
@@ -989,7 +989,7 @@ interface AudioTagRow {
       left: 0;
       top: 0;
       height: 100%;
-      background: linear-gradient(90deg, var(--vsc-accent-blue, #0078d4), #00a4ef);
+      background: linear-gradient(90deg, var(--vsc-accent-blue, var(--vsc-accent-blue)), var(--vsc-info));
       border-radius: 2px;
       transition: width 0.05s linear;
       pointer-events: none;
@@ -1014,35 +1014,35 @@ interface AudioTagRow {
       -webkit-appearance: none;
       width: 12px;
       height: 12px;
-      background: white;
+      background: var(--vsc-document-canvas-background);
       border: none;
       border-radius: 50%;
       cursor: pointer;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+      box-shadow: 0 2px 8px var(--vsc-scrim-strong);
       transition: all 0.2s ease;
     }
 
     .seek-input::-webkit-slider-thumb:hover {
       width: 16px;
       height: 16px;
-      box-shadow: 0 4px 16px rgba(0, 120, 212, 0.8);
+      box-shadow: 0 4px 16px var(--vsc-accent-blue);
     }
 
     .seek-input::-moz-range-thumb {
       width: 12px;
       height: 12px;
-      background: white;
+      background: var(--vsc-document-canvas-background);
       border: none;
       border-radius: 50%;
       cursor: pointer;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+      box-shadow: 0 2px 8px var(--vsc-scrim-strong);
       transition: all 0.2s ease;
     }
 
     .seek-input::-moz-range-thumb:hover {
       width: 16px;
       height: 16px;
-      box-shadow: 0 4px 16px rgba(0, 120, 212, 0.8);
+      box-shadow: 0 4px 16px var(--vsc-accent-blue);
     }
 
     /* controls row */
@@ -1095,15 +1095,15 @@ interface AudioTagRow {
     .cbtn-play {
       min-width: 40px;
       height: 32px;
-      background: var(--vsc-button-background, #0e639c);
-      border-color: color-mix(in srgb, var(--vsc-button-background, #0e639c) 60%, transparent);
-      color: var(--vsc-button-foreground, #ffffff);
+      background: var(--vsc-button-background, var(--vsc-button-background));
+      border-color: color-mix(in srgb, var(--vsc-button-background, var(--vsc-button-background)) 60%, transparent);
+      color: var(--vsc-button-foreground, var(--vsc-on-accent));
       font-size: 14px;
     }
 
     .cbtn-play:hover:not(:disabled) {
-      background: var(--vsc-button-hover-background, #1177bb);
-      border-color: color-mix(in srgb, var(--vsc-button-hover-background, #1177bb) 70%, transparent);
+      background: var(--vsc-button-hover-background, var(--vsc-button-hover));
+      border-color: color-mix(in srgb, var(--vsc-button-hover-background, var(--vsc-button-hover)) 70%, transparent);
     }
 
     .cbtn-icon {
@@ -1134,7 +1134,7 @@ interface AudioTagRow {
     }
 
     :host-context(.vscode-light) .time-display {
-      background: var(--vsc-input-background, #fff);
+      background: var(--vsc-input-background, var(--vsc-on-accent));
     }
 
     .time-cur {
@@ -1188,7 +1188,7 @@ interface AudioTagRow {
       border-radius: 2px;
       appearance: none;
       -webkit-appearance: none;
-      background: color-mix(in srgb, var(--vsc-border, #454545) 80%, transparent);
+      background: color-mix(in srgb, var(--vsc-border, var(--vsc-border)) 80%, transparent);
       outline: none;
       cursor: pointer;
     }
@@ -1199,8 +1199,8 @@ interface AudioTagRow {
       width: 10px;
       height: 10px;
       border-radius: 50%;
-      background: white;
-      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+      background: var(--vsc-document-canvas-background);
+      box-shadow: 0 2px 6px var(--vsc-scrim-strong);
     }
 
     .volume-slider::-moz-range-thumb {
@@ -1208,8 +1208,8 @@ interface AudioTagRow {
       height: 10px;
       border-radius: 50%;
       border: none;
-      background: white;
-      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+      background: var(--vsc-document-canvas-background);
+      box-shadow: 0 2px 6px var(--vsc-scrim-strong);
     }
 
     .volume-slider:disabled {

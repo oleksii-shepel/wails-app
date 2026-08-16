@@ -30,7 +30,7 @@ import {
         isolation: isolate;
         overflow: visible;
         user-select: none;
-        color: var(--vsc-foreground, #cccccc);
+        color: var(--vsc-foreground, var(--vsc-foreground));
     }
 
     :host.vertical {
@@ -55,10 +55,10 @@ import {
         inset: 0;
         margin: auto;
         z-index: 1;
-        background: var(--vsc-border-subtle, #3a3a3a);
+        background: var(--vsc-border-subtle, var(--vsc-list-active-background));
         box-shadow:
-          0 0 0 1px color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 40%, transparent),
-          0 0 8px color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 35%, transparent);
+          0 0 0 1px color-mix(in srgb, var(--vsc-editor-background, var(--vsc-editor-background)) 40%, transparent),
+          0 0 8px color-mix(in srgb, var(--vsc-editor-background, var(--vsc-editor-background)) 35%, transparent);
         transition: all var(--vsc-transition-fast, 0.1s ease);
     }
 
@@ -76,17 +76,17 @@ import {
     :host.hovering .line,
     :host-context(body.divider-hover-vertical).vertical .line,
     :host-context(body.divider-hover-horizontal).horizontal .line {
-        background: var(--vsc-border-bright, #5a5a5a);
+        background: var(--vsc-border-bright, var(--vsc-border-bright));
         box-shadow:
-          0 0 0 1px color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 55%, transparent),
-          0 0 10px color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 45%, transparent);
+          0 0 0 1px color-mix(in srgb, var(--vsc-editor-background, var(--vsc-editor-background)) 55%, transparent),
+          0 0 10px color-mix(in srgb, var(--vsc-editor-background, var(--vsc-editor-background)) 45%, transparent);
     }
 
     :host.dragging .line,
     :host-context(body.divider-dragging-vertical).vertical .line,
     :host-context(body.divider-dragging-horizontal).horizontal .line {
-        background: var(--vsc-accent-blue, #007acc);
-        box-shadow: 0 0 0 2px color-mix(in srgb, var(--vsc-accent-blue, #007acc) 20%, transparent);
+        background: var(--vsc-accent-blue, var(--vsc-accent-blue));
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 20%, transparent);
     }
 
     :host.dragging {
@@ -104,14 +104,14 @@ import {
         z-index: 2;
 
         /* Light grey, subtle background */
-        background: var(--vsc-foreground-dim, #888888);
-        border: 1px solid var(--vsc-border-subtle, #3a3a3a);
+        background: var(--vsc-foreground-dim, var(--vsc-foreground-dim));
+        border: 1px solid var(--vsc-border-subtle, var(--vsc-list-active-background));
 
         opacity: 0;
         transition: all var(--vsc-transition-fast, 0.1s ease);
         box-shadow:
           0 6px 12px color-mix(in srgb, black 30%, transparent),
-          0 0 0 1px color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 55%, transparent);
+          0 0 0 1px color-mix(in srgb, var(--vsc-editor-background, var(--vsc-editor-background)) 55%, transparent);
     }
 
     :host.vertical .handle {
@@ -130,8 +130,8 @@ import {
     :host-context(body.divider-hover-vertical).vertical .handle,
     :host-context(body.divider-hover-horizontal).horizontal .handle {
         opacity: 0.7;
-        background: var(--vsc-foreground, #cccccc);
-        border-color: var(--vsc-border, #454545);
+        background: var(--vsc-foreground, var(--vsc-foreground));
+        border-color: var(--vsc-border, var(--vsc-border));
         transform: translate(-50%, -50%) scale(1.05);
     }
 
@@ -140,9 +140,9 @@ import {
     :host-context(body.divider-dragging-vertical).vertical .handle,
     :host-context(body.divider-dragging-horizontal).horizontal .handle {
         opacity: 1;
-        background: var(--vsc-foreground, #cccccc);
-        border-color: var(--vsc-accent-blue, #007acc);
-        box-shadow: 0 0 0 2px color-mix(in srgb, var(--vsc-accent-blue, #007acc) 25%, transparent);
+        background: var(--vsc-foreground, var(--vsc-foreground));
+        border-color: var(--vsc-accent-blue, var(--vsc-accent-blue));
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 25%, transparent);
         transform: translate(-50%, -50%) scale(1.05);
     }
 
@@ -166,16 +166,16 @@ import {
         font-family: var(--vsc-font-family-mono, monospace);
         font-weight: 400;
 
-        background: var(--vsc-editor-background, #1e1e1e);
-        border: 1px solid var(--vsc-border, #454545);
+        background: var(--vsc-editor-background, var(--vsc-editor-background));
+        border: 1px solid var(--vsc-border, var(--vsc-border));
         border-radius: var(--vsc-border-radius, 3px);
 
-        color: var(--vsc-foreground, #cccccc);
+        color: var(--vsc-foreground, var(--vsc-foreground));
         white-space: nowrap;
         pointer-events: none;
         z-index: 3;
 
-        box-shadow: var(--vsc-widget-shadow, 0 5px 8px 0 rgba(0, 0, 0, 0.36));
+        box-shadow: var(--vsc-widget-shadow, 0 5px 8px 0 var(--vsc-shadow));
 
         opacity: 0;
         transition: opacity var(--vsc-transition-fast, 0.1s ease), transform var(--vsc-transition-fast, 0.1s ease);
@@ -205,24 +205,24 @@ import {
 
     /* Light theme adjustments - using vscode-light class */
     :host-context(.vscode-light) .handle {
-        background: var(--vsc-foreground-dim, #999999);
-        border-color: var(--vsc-border-subtle, #e5e5e5);
+        background: var(--vsc-foreground-dim, var(--vsc-foreground-dim));
+        border-color: var(--vsc-border-subtle, var(--vsc-border-subtle));
     }
 
     :host-context(.vscode-light):hover .handle {
-        background: var(--vsc-foreground, #616161);
-        border-color: var(--vsc-border, #d4d4d4);
+        background: var(--vsc-foreground, var(--vsc-foreground-dim));
+        border-color: var(--vsc-border, var(--vsc-border));
     }
 
     :host-context(.vscode-light).dragging .handle {
-        background: var(--vsc-foreground, #616161);
-        border-color: var(--vsc-accent-blue, #007acc);
+        background: var(--vsc-foreground, var(--vsc-foreground-dim));
+        border-color: var(--vsc-accent-blue, var(--vsc-accent-blue));
     }
 
     :host-context(.vscode-light) .tooltip {
-        background: var(--vsc-editor-background, #ffffff);
-        border-color: var(--vsc-border, #d4d4d4);
-        color: var(--vsc-foreground, #616161);
+        background: var(--vsc-editor-background, var(--vsc-on-accent));
+        border-color: var(--vsc-border, var(--vsc-border));
+        color: var(--vsc-foreground, var(--vsc-foreground-dim));
     }
 
     /* Compact mode adjustments */
@@ -243,27 +243,27 @@ import {
 
     /* Ensure the pill stays grey in all states */
     :host .handle {
-        background: var(--vsc-foreground-dim, #888888) !important;
+        background: var(--vsc-foreground-dim, var(--vsc-foreground-dim)) !important;
     }
 
     :host:hover .handle {
-        background: var(--vsc-foreground, #cccccc) !important;
+        background: var(--vsc-foreground, var(--vsc-foreground)) !important;
     }
 
     :host.dragging .handle {
-        background: var(--vsc-foreground, #cccccc) !important;
+        background: var(--vsc-foreground, var(--vsc-foreground)) !important;
     }
 
     :host-context(.vscode-light) .handle {
-        background: var(--vsc-foreground-dim, #999999) !important;
+        background: var(--vsc-foreground-dim, var(--vsc-foreground-dim)) !important;
     }
 
     :host-context(.vscode-light):hover .handle {
-        background: var(--vsc-foreground, #616161) !important;
+        background: var(--vsc-foreground, var(--vsc-foreground-dim)) !important;
     }
 
     :host-context(.vscode-light).dragging .handle {
-        background: var(--vsc-foreground, #616161) !important;
+        background: var(--vsc-foreground, var(--vsc-foreground-dim)) !important;
     }
     `],
     imports: [CommonModule]

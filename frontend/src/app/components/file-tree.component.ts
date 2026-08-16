@@ -207,8 +207,8 @@ export interface DropTarget {
 
     .file-tree-container.focused .tree-node.selected {
       outline: none;
-      background-color: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 26%, var(--vsc-list-focus-background, var(--vsc-list-active-background)) 74%);
-      box-shadow: inset 2px 0 0 var(--vsc-accent-blue, #0078d4);
+      background-color: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 26%, var(--vsc-list-focus-background, var(--vsc-list-active-background)) 74%);
+      box-shadow: inset 2px 0 0 var(--vsc-accent-blue, var(--vsc-accent-blue));
     }
 
     .tree-node-wrapper { 
@@ -226,9 +226,9 @@ export interface DropTarget {
     }
 
     .tree-node.selected {
-      background-color: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 18%, var(--vsc-list-active-background) 82%);
+      background-color: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 18%, var(--vsc-list-active-background) 82%);
       color: var(--vsc-list-active-foreground, var(--vsc-foreground-bright));
-      box-shadow: inset 2px 0 0 color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 82%, white 18%);
+      box-shadow: inset 2px 0 0 color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 82%, white 18%);
     }
 
     .tree-node:hover:not(.selected) {
@@ -254,7 +254,7 @@ export interface DropTarget {
       left: 0;
       right: 0;
       height: 3px;
-      background-color: var(--vsc-focus-border, #0078d4);
+      background-color: var(--vsc-focus-border, var(--vsc-accent-blue));
       pointer-events: none;
       z-index: 10;
     }
@@ -269,7 +269,7 @@ export interface DropTarget {
 
     /* When dropping inside a folder, give it a soft highlight plus the outline */
     .tree-node-wrapper.drag-over-inside > .tree-node {
-      background-color: var(--vsc-list-drop-background, rgba(0, 120, 212, 0.16));
+      background-color: var(--vsc-list-drop-background, var(--vsc-accent-selection));
       outline: 1px dashed var(--vsc-focus-border);
       outline-offset: -1px;
     }
@@ -289,12 +289,12 @@ export interface DropTarget {
       top: 0;
       bottom: 0;
       width: 1px;
-      background: var(--vsc-tree-indent-guide, rgba(255,255,255,0.06));
+      background: var(--vsc-tree-indent-guide, var(--vsc-neutral-overlay-subtle));
       pointer-events: none;
     }
 
     .indent-guide--active::before {
-      background: var(--vsc-tree-indent-guide-active, rgba(255,255,255,0.12));
+      background: var(--vsc-tree-indent-guide-active, var(--vsc-neutral-overlay-medium));
     }
 
     .indent-guide--skip::before,
@@ -313,7 +313,7 @@ export interface DropTarget {
       top: calc(50% - 0.5px);
       width: 12px;
       height: 1px;
-      background: var(--vsc-tree-indent-guide, rgba(255,255,255,0.12));
+      background: var(--vsc-tree-indent-guide, var(--vsc-neutral-overlay-medium));
       pointer-events: none;
     }
 

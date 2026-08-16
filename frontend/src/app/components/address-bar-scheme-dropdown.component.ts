@@ -78,7 +78,7 @@ import { normalizePath as normalizeAddressBarPath } from './address-bar.utils';
     .ab-scheme-drop {
       position: static;
       min-width: 320px; max-width: 500px; padding: 0;
-      background-color: var(--vsc-panel-background, #252526) !important;
+      background-color: var(--vsc-panel-background, var(--vsc-panel-background)) !important;
       background-image: none !important;
       border: 1px solid var(--vsc-border);
       border-radius: var(--vsc-border-radius);
@@ -89,7 +89,7 @@ import { normalizePath as normalizeAddressBarPath } from './address-bar.utils';
     .ab-drop-head {
       display: flex; align-items: center; justify-content: space-between;
       height: 32px; padding: 0 var(--vsc-padding-lg);
-      background-color: var(--vsc-panel-background, #252526) !important;
+      background-color: var(--vsc-panel-background, var(--vsc-panel-background)) !important;
       border-bottom: 1px solid var(--vsc-border-subtle);
       font-size: var(--vsc-font-size-small); color: var(--vsc-foreground-dim);
       text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;
@@ -108,7 +108,7 @@ import { normalizePath as normalizeAddressBarPath } from './address-bar.utils';
       gap: var(--vsc-padding-sm);
       padding: var(--vsc-padding-lg);
       max-height: 350px; overflow-y: auto;
-      background-color: var(--vsc-panel-background, #252526) !important;
+      background-color: var(--vsc-panel-background, var(--vsc-panel-background)) !important;
       scrollbar-width: none;
       -ms-overflow-style: none;
 
@@ -122,7 +122,7 @@ import { normalizePath as normalizeAddressBarPath } from './address-bar.utils';
     .ab-scheme-item {
       display: flex; flex-direction: column;
       padding: var(--vsc-padding-lg);
-      background: var(--vsc-sidebar-background, #1e1e1e) !important;
+      background: var(--vsc-sidebar-background, var(--vsc-editor-background)) !important;
       border: 1px solid var(--vsc-border-subtle);
       border-radius: var(--vsc-border-radius);
       cursor: pointer; transition: all var(--vsc-transition-fast);
@@ -179,7 +179,7 @@ import { normalizePath as normalizeAddressBarPath } from './address-bar.utils';
     .ab-drop-footer {
       display: flex; align-items: center; gap: var(--vsc-padding-sm);
       height: 28px; padding: 0 var(--vsc-padding-lg);
-      background-color: var(--vsc-panel-background, #252526) !important;
+      background-color: var(--vsc-panel-background, var(--vsc-panel-background)) !important;
       border-top: 1px solid var(--vsc-border-subtle);
       font-size: 11px; color: var(--vsc-foreground-dim);
 
@@ -195,7 +195,7 @@ import { normalizePath as normalizeAddressBarPath } from './address-bar.utils';
 
     .ab-drop-loading {
       display: flex; align-items: center; gap: var(--vsc-padding-sm);
-      padding: var(--vsc-padding-lg); background-color: var(--vsc-panel-background, #252526) !important;
+      padding: var(--vsc-padding-lg); background-color: var(--vsc-panel-background, var(--vsc-panel-background)) !important;
     }
 
     .ab-spinner {
@@ -209,7 +209,7 @@ import { normalizePath as normalizeAddressBarPath } from './address-bar.utils';
     .ab-drop-empty {
       display: flex; flex-direction: column; align-items: center;
       padding: var(--vsc-padding-xl); text-align: center;
-      background-color: var(--vsc-panel-background, #252526) !important;
+      background-color: var(--vsc-panel-background, var(--vsc-panel-background)) !important;
       font-size: var(--vsc-font-size-small); color: var(--vsc-foreground-dim);
     }
 

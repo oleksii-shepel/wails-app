@@ -70,8 +70,8 @@ import { PluginBootstrapService } from './services/plugin-bootstrap.service';
       min-width: 0;
       min-height: 0;
       overflow: hidden;
-      background: var(--vsc-editor-background, #1e1e1e);
-      color: var(--vsc-foreground, #cccccc);
+      background: var(--vsc-editor-background, var(--vsc-editor-background));
+      color: var(--vsc-foreground, var(--vsc-foreground));
     }
   `],
 })

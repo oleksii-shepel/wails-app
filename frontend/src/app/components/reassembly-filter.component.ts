@@ -127,13 +127,13 @@ function bindings(
       gap: 3px;
       min-height: 34px;
       padding: 3px 8px;
-      border-bottom: 1px solid var(--vsc-border-subtle, #2b2b2b);
-      background: var(--vsc-tabbar-background, #252526);
+      border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
+      background: var(--vsc-tabbar-background, var(--vsc-panel-background));
     }
 
     .glyph {
       text-align: center;
-      color: var(--vsc-description-foreground, #969696);
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
     }
 
     input {
@@ -144,14 +144,14 @@ function bindings(
       border: 1px solid var(--vsc-focus-border, var(--vsc-accent-blue));
       border-radius: 4px;
       outline: 0;
-      background: var(--vsc-input-background, #181818);
-      color: var(--vsc-foreground, #cccccc);
+      background: var(--vsc-input-background, var(--vsc-popover-background));
+      color: var(--vsc-foreground, var(--vsc-foreground));
       font: 11px/1.3 var(--vsc-font-family, system-ui, sans-serif);
     }
 
     .count {
       min-width: 48px;
-      color: var(--vsc-description-foreground, #969696);
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
       text-align: right;
       font-size: 10px;
     }
@@ -169,7 +169,7 @@ function bindings(
     }
 
     button:hover {
-      background: var(--vsc-list-hover-background, #2a2d2e);
+      background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
     }
   `],
 })

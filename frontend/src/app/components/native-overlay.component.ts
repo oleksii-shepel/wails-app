@@ -68,7 +68,7 @@ import { NativeOverlayFreezeService } from '../services/native-overlay-freeze.se
   `],
 })
 export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewInit {
-  @HostBinding('style.backgroundColor') hostBackgroundColor = '#ffffff';
+  @HostBinding('style.backgroundColor') hostBackgroundColor = 'var(--vsc-on-accent)';
   @ViewChild('host') private hostEl?: ElementRef<HTMLElement>;
   @ViewChild('backdrop') private backdropEl?: ElementRef<HTMLElement>;
   @ViewChild('screenshotCanvas') private canvasEl?: ElementRef<HTMLCanvasElement>;
@@ -109,8 +109,14 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
   private readonly screenshotPrewarmDelayMs = 16;
   private readonly documentBackgroundRetryMs = 350;
   private readonly documentBackgroundRefreshMs = 2000;
-  private readonly frozenCanvasBackground = '#ffffff';
-  private liveBackgroundColor = '#ffffff';
+  private readonly frozenCanvasBackgroundToken = '--vsc-on-accent';
+
+  private get frozenCanvasBackground(): string {
+    return getComputedStyle(this.elementRef.nativeElement)
+      .getPropertyValue(this.frozenCanvasBackgroundToken)
+      .trim();
+  }
+  private liveBackgroundColor = 'var(--vsc-on-accent)';
   private documentBackgroundRequestToken = 0;
   private screenshotPrewarmTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -789,7 +795,7 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
   }
 
   private resolveBackgroundColor(_theme: 'dark' | 'light'): string {
-    return '#ffffff';
+    return 'var(--vsc-on-accent)';
   }
 
   private parseColor(value: string): { r: number; g: number; b: number; a: number } | null {

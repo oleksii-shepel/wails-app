@@ -113,7 +113,7 @@ interface PaletteGroup {
       max-height: 70vh;
       display: flex;
       flex-direction: column;
-      box-shadow: var(--vsc-widget-shadow), 0 24px 56px rgba(0,0,0,0.45);
+      box-shadow: var(--vsc-widget-shadow), 0 24px 56px var(--vsc-scrim);
       animation: cpSlideDown 0.2s cubic-bezier(0.16,1,0.3,1);
       overflow: hidden;
     }

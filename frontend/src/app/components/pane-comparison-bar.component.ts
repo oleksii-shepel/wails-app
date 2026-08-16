@@ -56,9 +56,9 @@ import { PaneComparisonResult, PaneComparisonService, type PaneComparisonPolicy 
       justify-content: space-between;
       gap: 12px;
       padding: 4px 10px;
-      border-top: 1px solid var(--vsc-border, rgba(127,127,127,.25));
-      border-bottom: 1px solid var(--vsc-border, rgba(127,127,127,.25));
-      background: color-mix(in srgb, var(--vsc-background, #1e1e1e) 92%, var(--vsc-accent-blue, #0078d4));
+      border-top: 1px solid var(--vsc-border, var(--vsc-neutral-overlay-medium));
+      border-bottom: 1px solid var(--vsc-border, var(--vsc-neutral-overlay-medium));
+      background: color-mix(in srgb, var(--vsc-background, var(--vsc-editor-background)) 92%, var(--vsc-accent-blue, var(--vsc-accent-blue)));
       font-size: 12px;
     }
     .compare-summary, .compare-actions { display: flex; align-items: center; gap: 8px; min-width: 0; }
@@ -68,9 +68,9 @@ import { PaneComparisonResult, PaneComparisonService, type PaneComparisonPolicy 
     .different { font-weight: 600; }
     .same { opacity: .72; }
     .policy { display:flex; align-items:center; gap:4px; opacity:.9; }
-    .policy select { background:var(--vsc-input-background,#242424); color:inherit; border:1px solid var(--vsc-border,rgba(127,127,127,.35)); border-radius:3px; padding:2px 4px; font:inherit; }
+    .policy select { background:var(--vsc-input-background,var(--vsc-code-background)); color:inherit; border:1px solid var(--vsc-border,var(--vsc-neutral-overlay-strong)); border-radius:3px; padding:2px 4px; font:inherit; }
     .btn, .close {
-      border: 1px solid var(--vsc-border, rgba(127,127,127,.35));
+      border: 1px solid var(--vsc-border, var(--vsc-neutral-overlay-strong));
       background: var(--vsc-button-background, transparent);
       color: inherit;
       border-radius: 3px;
@@ -79,7 +79,7 @@ import { PaneComparisonResult, PaneComparisonService, type PaneComparisonPolicy 
       cursor: pointer;
     }
     .btn:disabled { opacity: .42; cursor: default; }
-    .btn.active { background: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 24%, transparent); }
+    .btn.active { background: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 24%, transparent); }
     .close { width: 25px; padding-inline: 0; font-size: 16px; line-height: 18px; }
   `],
 })

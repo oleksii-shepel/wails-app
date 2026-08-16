@@ -137,17 +137,17 @@ export interface ShortcutHelpItem {
       padding: 10px 12px;
       border: 1px solid color-mix(
         in srgb,
-        var(--vsc-accent-blue, #007acc) 58%,
-        var(--vsc-border, #3c3c3c)
+        var(--vsc-accent-blue, var(--vsc-accent-blue)) 58%,
+        var(--vsc-border, var(--vsc-control-background))
       );
       border-radius: 7px;
       background: color-mix(
         in srgb,
-        var(--vsc-editor-background, #1e1e1e) 94%,
+        var(--vsc-editor-background, var(--vsc-editor-background)) 94%,
         transparent
       );
-      color: var(--vsc-foreground, #cccccc);
-      box-shadow: 0 8px 28px rgba(0, 0, 0, .35);
+      color: var(--vsc-foreground, var(--vsc-foreground));
+      box-shadow: 0 8px 28px var(--vsc-scrim-soft);
       backdrop-filter: blur(8px);
       font: 11px/1.4 var(--vsc-font-family, system-ui, sans-serif);
     }
@@ -163,7 +163,7 @@ export interface ShortcutHelpItem {
     header span,
     footer,
     .label {
-      color: var(--vsc-description-foreground, #969696);
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
     }
 
     .state {
@@ -171,8 +171,8 @@ export interface ShortcutHelpItem {
       grid-template-columns: 54px minmax(0, 1fr);
       gap: 3px 8px;
       padding: 7px 0;
-      border-top: 1px solid var(--vsc-border-subtle, #2b2b2b);
-      border-bottom: 1px solid var(--vsc-border-subtle, #2b2b2b);
+      border-top: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
+      border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
     }
 
     .value {
@@ -207,11 +207,11 @@ export interface ShortcutHelpItem {
     kbd {
       min-width: 18px;
       padding: 1px 5px;
-      border: 1px solid var(--vsc-border, #3c3c3c);
+      border: 1px solid var(--vsc-border, var(--vsc-control-background));
       border-bottom-width: 2px;
       border-radius: 4px;
-      background: var(--vsc-input-background, #181818);
-      color: var(--vsc-foreground-bright, #ffffff);
+      background: var(--vsc-input-background, var(--vsc-popover-background));
+      color: var(--vsc-foreground-bright, var(--vsc-on-accent));
       text-align: center;
       font: 10px/1.5 var(--vsc-font-family-mono, ui-monospace, monospace);
     }
@@ -221,11 +221,11 @@ export interface ShortcutHelpItem {
       justify-content: space-between;
       gap: 8px;
       margin-top: 8px;
-      color: var(--vsc-description-foreground, #969696);
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
     }
 
     .binding-toolbar strong {
-      color: var(--vsc-foreground, #cccccc);
+      color: var(--vsc-foreground, var(--vsc-foreground));
     }
 
     .live-bindings > div {
@@ -233,7 +233,7 @@ export interface ShortcutHelpItem {
     }
 
     .live-bindings small {
-      color: var(--vsc-description-foreground, #969696);
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
       white-space: nowrap;
     }
 
@@ -242,28 +242,28 @@ export interface ShortcutHelpItem {
       gap: 4px;
       margin-top: 8px;
       padding-top: 7px;
-      border-top: 1px solid var(--vsc-border-subtle, #2b2b2b);
-      color: var(--vsc-description-foreground, #969696);
+      border-top: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
       font-size: 10px;
     }
 
     .binding-notes strong {
-      color: var(--vsc-foreground, #cccccc);
+      color: var(--vsc-foreground, var(--vsc-foreground));
     }
 
     .pending {
       margin-top: 7px;
-      color: var(--vsc-accent-blue, #4aa3ff);
+      color: var(--vsc-accent-blue, var(--vsc-focus-ring));
     }
 
     footer {
       margin-top: 8px;
       padding-top: 7px;
-      border-top: 1px solid var(--vsc-border-subtle, #2b2b2b);
+      border-top: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
     }
 
     footer strong {
-      color: var(--vsc-foreground, #cccccc);
+      color: var(--vsc-foreground, var(--vsc-foreground));
     }
     @media (max-width:768px){
       :host{top:6px;right:6px;left:6px;max-height:calc(100vh - 12px)}

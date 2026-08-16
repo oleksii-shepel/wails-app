@@ -161,8 +161,8 @@ const MEMORY_THRESHOLD = 8 * 1024 * 1024;  // files в‰¤ 8 MB loaded fully in
       min-width: 0;
       min-height: 0;
       overflow: hidden;
-      background: var(--vsc-code-background, var(--vsc-editor-background, #1e1e1e));
-      color: var(--vsc-foreground, #cccccc);
+      background: var(--vsc-code-background, var(--vsc-editor-background, var(--vsc-editor-background)));
+      color: var(--vsc-foreground, var(--vsc-foreground));
     }
     .viewer-header {
       display: flex;
@@ -170,8 +170,8 @@ const MEMORY_THRESHOLD = 8 * 1024 * 1024;  // files в‰¤ 8 MB loaded fully in
       justify-content: space-between;
       gap: 8px;
       padding: 8px 12px;
-      border-bottom: 1px solid var(--vsc-border, #454545);
-      background: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 92%, black);
+      border-bottom: 1px solid var(--vsc-border, var(--vsc-border));
+      background: color-mix(in srgb, var(--vsc-editor-background, var(--vsc-editor-background)) 92%, black);
       flex-shrink: 0;
       min-width: 0;
     }
@@ -193,8 +193,8 @@ const MEMORY_THRESHOLD = 8 * 1024 * 1024;  // files в‰¤ 8 MB loaded fully in
       font-weight: 700;
       letter-spacing: 0.12em;
       color: var(--vsc-accent-orange, var(--vsc-warning));
-      background: color-mix(in srgb, var(--vsc-accent-orange, #f6b73c) 16%, transparent);
-      border: 1px solid color-mix(in srgb, var(--vsc-accent-orange, #f6b73c) 36%, transparent);
+      background: color-mix(in srgb, var(--vsc-accent-orange, var(--vsc-accent-yellow)) 16%, transparent);
+      border: 1px solid color-mix(in srgb, var(--vsc-accent-orange, var(--vsc-accent-yellow)) 36%, transparent);
       flex-shrink: 0;
     }
     .header-text { min-width: 0; flex: 1; }
@@ -227,19 +227,19 @@ const MEMORY_THRESHOLD = 8 * 1024 * 1024;  // files в‰¤ 8 MB loaded fully in
       letter-spacing: 0.3px;
     }
     .archive-badge {
-      background: color-mix(in srgb, var(--vsc-accent-orange, #f90) 20%, transparent);
+      background: color-mix(in srgb, var(--vsc-accent-orange, var(--vsc-accent-orange)) 20%, transparent);
       color: var(--vsc-accent-orange, var(--vsc-warning));
-      border: 1px solid color-mix(in srgb, var(--vsc-accent-orange, #f90) 40%, transparent);
+      border: 1px solid color-mix(in srgb, var(--vsc-accent-orange, var(--vsc-accent-orange)) 40%, transparent);
     }
     .type-badge {
-      background: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 20%, transparent);
-      color: var(--vsc-accent-blue, #4da8ff);
-      border: 1px solid color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 40%, transparent);
+      background: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 20%, transparent);
+      color: var(--vsc-accent-blue, var(--vsc-focus-ring));
+      border: 1px solid color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 40%, transparent);
     }
     .size-badge {
-      background: color-mix(in srgb, var(--vsc-foreground, #ccc) 8%, transparent);
-      color: color-mix(in srgb, var(--vsc-foreground, #ccc) 60%, transparent);
-      border: 1px solid color-mix(in srgb, var(--vsc-border, #454545) 50%, transparent);
+      background: color-mix(in srgb, var(--vsc-foreground, var(--vsc-foreground)) 8%, transparent);
+      color: color-mix(in srgb, var(--vsc-foreground, var(--vsc-foreground)) 60%, transparent);
+      border: 1px solid color-mix(in srgb, var(--vsc-border, var(--vsc-border)) 50%, transparent);
     }
 
     /* toolbar */
@@ -248,15 +248,15 @@ const MEMORY_THRESHOLD = 8 * 1024 * 1024;  // files в‰¤ 8 MB loaded fully in
       align-items: center;
       gap: 4px;
       padding: 4px 8px;
-      border-bottom: 1px solid var(--vsc-border, #454545);
-      background: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 96%, black);
+      border-bottom: 1px solid var(--vsc-border, var(--vsc-border));
+      background: color-mix(in srgb, var(--vsc-editor-background, var(--vsc-editor-background)) 96%, black);
       flex-shrink: 0;
       flex-wrap: wrap;
     }
     .tool-btn {
       background: transparent;
       border: 1px solid transparent;
-      color: var(--vsc-foreground, #ccc);
+      color: var(--vsc-foreground, var(--vsc-foreground));
       font: inherit;
       font-size: 12px;
       padding: 2px 8px;
@@ -267,18 +267,18 @@ const MEMORY_THRESHOLD = 8 * 1024 * 1024;  // files в‰¤ 8 MB loaded fully in
       transition: background 0.1s, border-color 0.1s;
     }
     .tool-btn:hover {
-      background: var(--vsc-list-hover-background, rgba(255,255,255,0.05));
-      border-color: var(--vsc-border, #454545);
+      background: var(--vsc-list-hover-background, var(--vsc-neutral-overlay-subtle));
+      border-color: var(--vsc-border, var(--vsc-border));
     }
     .tool-btn.active {
-      background: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 20%, transparent);
-      border-color: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 50%, transparent);
-      color: var(--vsc-accent-blue, #4da8ff);
+      background: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 20%, transparent);
+      border-color: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 50%, transparent);
+      color: var(--vsc-accent-blue, var(--vsc-focus-ring));
     }
     .toolbar-divider {
       width: 1px;
       height: 16px;
-      background: var(--vsc-border, #454545);
+      background: var(--vsc-border, var(--vsc-border));
       margin: 0 2px;
       flex-shrink: 0;
     }
@@ -290,15 +290,15 @@ const MEMORY_THRESHOLD = 8 * 1024 * 1024;  // files в‰¤ 8 MB loaded fully in
     /* segmented button group */
     .seg-group {
       display: flex;
-      border: 1px solid var(--vsc-border, #454545);
+      border: 1px solid var(--vsc-border, var(--vsc-border));
       border-radius: 4px;
       overflow: hidden;
     }
     .seg-btn {
       background: transparent;
       border: none;
-      border-right: 1px solid var(--vsc-border, #454545);
-      color: var(--vsc-foreground, #ccc);
+      border-right: 1px solid var(--vsc-border, var(--vsc-border));
+      color: var(--vsc-foreground, var(--vsc-foreground));
       font: inherit;
       font-size: 11px;
       padding: 2px 7px;
@@ -307,16 +307,16 @@ const MEMORY_THRESHOLD = 8 * 1024 * 1024;  // files в‰¤ 8 MB loaded fully in
       transition: background 0.1s;
     }
     .seg-btn:last-child { border-right: none; }
-    .seg-btn:hover { background: var(--vsc-list-hover-background, rgba(255,255,255,0.06)); }
+    .seg-btn:hover { background: var(--vsc-list-hover-background, var(--vsc-neutral-overlay-subtle)); }
     .seg-btn.active {
-      background: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 25%, transparent);
-      color: var(--vsc-accent-blue, #4da8ff);
+      background: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 25%, transparent);
+      color: var(--vsc-accent-blue, var(--vsc-focus-ring));
     }
     /* go-to input */
     .goto-input {
-      background: var(--vsc-input-background, #3c3c3c);
-      border: 1px solid var(--vsc-input-border, #454545);
-      color: var(--vsc-foreground, #ccc);
+      background: var(--vsc-input-background, var(--vsc-control-background));
+      border: 1px solid var(--vsc-input-border, var(--vsc-border));
+      color: var(--vsc-foreground, var(--vsc-foreground));
       font: inherit;
       font-size: 12px;
       font-family: var(--vsc-font-family-mono, monospace);
@@ -325,7 +325,7 @@ const MEMORY_THRESHOLD = 8 * 1024 * 1024;  // files в‰¤ 8 MB loaded fully in
       width: 90px;
       outline: none;
     }
-    .goto-input:focus { border-color: var(--vsc-input-focus-border, #007acc); }
+    .goto-input:focus { border-color: var(--vsc-input-focus-border, var(--vsc-accent-blue)); }
 
     /* body */
     .viewer-body {
@@ -356,9 +356,9 @@ const MEMORY_THRESHOLD = 8 * 1024 * 1024;  // files в‰¤ 8 MB loaded fully in
     }
     .grid-header {
       padding: 6px 12px;
-      border-bottom: 1px solid var(--vsc-border, #454545);
-      background: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 94%, black);
-      color: color-mix(in srgb, var(--vsc-foreground, #ccc) 65%, transparent);
+      border-bottom: 1px solid var(--vsc-border, var(--vsc-border));
+      background: color-mix(in srgb, var(--vsc-editor-background, var(--vsc-editor-background)) 94%, black);
+      color: color-mix(in srgb, var(--vsc-foreground, var(--vsc-foreground)) 65%, transparent);
       text-transform: uppercase;
       font-size: 10px;
       letter-spacing: 0.08em;
@@ -376,14 +376,14 @@ const MEMORY_THRESHOLD = 8 * 1024 * 1024;  // files в‰¤ 8 MB loaded fully in
     .grid-row {
       height: 28px;
       padding: 0 12px;
-      border-bottom: 1px solid color-mix(in srgb, var(--vsc-border, #454545) 30%, transparent);
+      border-bottom: 1px solid color-mix(in srgb, var(--vsc-border, var(--vsc-border)) 30%, transparent);
       box-sizing: border-box;
     }
     .grid-row:hover {
-      background: color-mix(in srgb, var(--vsc-list-hover-background, rgba(255,255,255,0.04)) 85%, transparent);
+      background: color-mix(in srgb, var(--vsc-list-hover-background, var(--vsc-neutral-overlay-subtle)) 85%, transparent);
     }
     .offset-col {
-      color: color-mix(in srgb, var(--vsc-accent-blue, #4da8ff) 72%, var(--vsc-foreground, #ccc));
+      color: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-focus-ring)) 72%, var(--vsc-foreground, var(--vsc-foreground)));
       font-variant-numeric: tabular-nums;
       white-space: nowrap;
     }
@@ -394,12 +394,12 @@ const MEMORY_THRESHOLD = 8 * 1024 * 1024;  // files в‰¤ 8 MB loaded fully in
       min-width: 0;
       font-variant-numeric: tabular-nums;
     }
-    .hex-cell { text-align: center; color: var(--vsc-foreground, #ccc); }
-    .hex-cell.zero { color: color-mix(in srgb, var(--vsc-foreground, #ccc) 28%, transparent); }
-    .hex-cell.print { color: color-mix(in srgb, var(--vsc-accent-green, #7ad97a) 80%, var(--vsc-foreground, #ccc)); }
+    .hex-cell { text-align: center; color: var(--vsc-foreground, var(--vsc-foreground)); }
+    .hex-cell.zero { color: color-mix(in srgb, var(--vsc-foreground, var(--vsc-foreground)) 28%, transparent); }
+    .hex-cell.print { color: color-mix(in srgb, var(--vsc-accent-green, var(--vsc-success)) 80%, var(--vsc-foreground, var(--vsc-foreground))); }
     .ascii-col {
       min-width: 0;
-      color: color-mix(in srgb, var(--vsc-foreground, #ccc) 55%, transparent);
+      color: color-mix(in srgb, var(--vsc-foreground, var(--vsc-foreground)) 55%, transparent);
       white-space: pre;
       overflow: hidden;
       text-overflow: clip;
@@ -429,9 +429,9 @@ const MEMORY_THRESHOLD = 8 * 1024 * 1024;  // files в‰¤ 8 MB loaded fully in
     .error-detail {
       font-size: 11px;
       font-family: var(--vsc-font-family-mono, ui-monospace, monospace);
-      color: color-mix(in srgb, #ff7070 70%, var(--vsc-foreground, #ccc));
-      background: rgba(255, 0, 0, 0.07);
-      border: 1px solid rgba(255, 112, 112, 0.2);
+      color: color-mix(in srgb, var(--vsc-error-bright) 70%, var(--vsc-foreground, var(--vsc-foreground)));
+      background: var(--vsc-error-surface);
+      border: 1px solid var(--vsc-error-border);
       border-radius: 4px;
       padding: 8px 12px;
       max-width: 560px;
@@ -441,8 +441,8 @@ const MEMORY_THRESHOLD = 8 * 1024 * 1024;  // files в‰¤ 8 MB loaded fully in
     .spinner {
       width: 26px;
       height: 26px;
-      border: 2px solid color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 25%, transparent);
-      border-top-color: var(--vsc-accent-blue, #0078d4);
+      border: 2px solid color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 25%, transparent);
+      border-top-color: var(--vsc-accent-blue, var(--vsc-accent-blue));
       border-radius: 50%;
       animation: spin 0.65s linear infinite;
     }

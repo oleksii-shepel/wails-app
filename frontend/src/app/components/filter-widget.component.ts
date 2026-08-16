@@ -152,7 +152,7 @@ export interface FindWidgetState {
       border: 1px solid var(--vsc-border);
       border-top: none;
       border-radius: 0 0 0 var(--vsc-border-radius);
-      box-shadow: 0 4px 12px rgba(0,0,0,0.32);
+      box-shadow: 0 4px 12px var(--vsc-scrim-soft);
       font-family: var(--vsc-font-family);
       font-size: var(--vsc-font-size);
       pointer-events: all;

@@ -187,10 +187,10 @@ function editorBindings(paneId: string, contextId: string): readonly InputBindin
       width: 100%;
       height: 30px;
       padding: 0 7px;
-      border: 1px solid var(--vsc-border, #3c3c3c);
+      border: 1px solid var(--vsc-border, var(--vsc-control-background));
       border-radius: 4px;
-      background: var(--vsc-input-background, #181818);
-      color: var(--vsc-foreground, #cccccc);
+      background: var(--vsc-input-background, var(--vsc-popover-background));
+      color: var(--vsc-foreground, var(--vsc-foreground));
     }
 
     .display-path {
@@ -202,8 +202,8 @@ function editorBindings(paneId: string, contextId: string): readonly InputBindin
     .display-path:hover {
       border-color: color-mix(
         in srgb,
-        var(--vsc-border, #3c3c3c) 65%,
-        var(--vsc-foreground, #cccccc)
+        var(--vsc-border, var(--vsc-control-background)) 65%,
+        var(--vsc-foreground, var(--vsc-foreground))
       );
     }
 
@@ -239,7 +239,7 @@ function editorBindings(paneId: string, contextId: string): readonly InputBindin
     .breadcrumb-home:hover,
     .edit-path:hover,
     .breadcrumb:hover {
-      background: var(--vsc-list-hover-background, #2a2d2e);
+      background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
     }
 
     .breadcrumbs {
@@ -264,16 +264,16 @@ function editorBindings(paneId: string, contextId: string): readonly InputBindin
     }
 
     .breadcrumb.current {
-      color: var(--vsc-foreground-bright, #ffffff);
+      color: var(--vsc-foreground-bright, var(--vsc-on-accent));
     }
 
     .breadcrumb.archive-boundary {
-      color: var(--vsc-accent-blue, #4aa3ff);
+      color: var(--vsc-accent-blue, var(--vsc-focus-ring));
     }
 
     .separator {
       flex: 0 0 auto;
-      color: var(--vsc-description-foreground, #969696);
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
       user-select: none;
     }
 
@@ -312,7 +312,7 @@ function editorBindings(paneId: string, contextId: string): readonly InputBindin
     }
 
     .cancel:hover {
-      background: var(--vsc-list-hover-background, #2a2d2e);
+      background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
     }
 
     .suggestions {
@@ -324,10 +324,10 @@ function editorBindings(paneId: string, contextId: string): readonly InputBindin
       overflow: auto;
       max-height: min(320px, 50vh);
       padding: 4px;
-      border: 1px solid var(--vsc-border, #3c3c3c);
+      border: 1px solid var(--vsc-border, var(--vsc-control-background));
       border-radius: 5px;
-      background: var(--vsc-menu-background, #252526);
-      box-shadow: 0 8px 24px rgba(0, 0, 0, .38);
+      background: var(--vsc-menu-background, var(--vsc-panel-background));
+      box-shadow: 0 8px 24px var(--vsc-scrim);
     }
 
     .suggestion {
@@ -350,7 +350,7 @@ function editorBindings(paneId: string, contextId: string): readonly InputBindin
 
     .suggestion:hover,
     .suggestion.active {
-      background: var(--vsc-list-hover-background, #2a2d2e);
+      background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
     }
 
     .suggestion-name,
@@ -361,13 +361,13 @@ function editorBindings(paneId: string, contextId: string): readonly InputBindin
     }
 
     .suggestion-path {
-      color: var(--vsc-description-foreground, #969696);
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
       font-family: var(--vsc-font-family-mono, ui-monospace, monospace);
       font-size: 11px;
     }
 
     .suggestion-kind {
-      color: var(--vsc-description-foreground, #969696);
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
       text-align: right;
       font-size: 10px;
       text-transform: uppercase;

@@ -9,7 +9,7 @@
   position: absolute;
   min-width: 220px;
   max-width: 340px;
-  background-color: var(--vsc-panel-background, #252526) !important;
+  background-color: var(--vsc-panel-background, var(--vsc-panel-background)) !important;
   background-image: none !important;
   border: 1px solid var(--vsc-border);
   border-radius: var(--vsc-border-radius);
@@ -23,7 +23,7 @@
   .ab-drop-footer,
   .ab-drop-loading,
   .ab-drop-empty {
-    background-color: var(--vsc-panel-background, #252526) !important;
+    background-color: var(--vsc-panel-background, var(--vsc-panel-background)) !important;
   }
 
   .ab-drop-scroll .ab-drop-item {

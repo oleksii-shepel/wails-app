@@ -126,7 +126,7 @@ function createCodePreviewTheme(isDark: boolean, settings: Pick<EditorSettings, 
     backgroundColor: 'var(--vsc-code-panel-background)',
     color: 'var(--vsc-foreground)',
     borderBottom: '1px solid var(--vsc-code-border)',
-    boxShadow: '0 10px 24px rgba(0, 0, 0, 0.18)',
+    boxShadow: '0 10px 24px var(--vsc-shadow-soft)',
   },
   '.cm-panels-top': {
     borderBottom: '1px solid var(--vsc-code-border)',
@@ -298,8 +298,8 @@ function createCodePreviewTheme(isDark: boolean, settings: Pick<EditorSettings, 
       min-width: 0;
       min-height: 0;
       overflow: hidden;
-      background: var(--vsc-code-background, var(--vsc-editor-background, #1e1e1e));
-      color: var(--vsc-foreground, #cccccc);
+      background: var(--vsc-code-background, var(--vsc-editor-background, var(--vsc-editor-background)));
+      color: var(--vsc-foreground, var(--vsc-foreground));
     }
     .viewer-header {
       display: flex;
@@ -307,8 +307,8 @@ function createCodePreviewTheme(isDark: boolean, settings: Pick<EditorSettings, 
       justify-content: space-between;
       gap: 8px;
       padding: 8px 12px;
-      border-bottom: 1px solid var(--vsc-border, #454545);
-      background: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 92%, black);
+      border-bottom: 1px solid var(--vsc-border, var(--vsc-border));
+      background: color-mix(in srgb, var(--vsc-editor-background, var(--vsc-editor-background)) 92%, black);
       flex-shrink: 0;
       min-width: 0;
     }
@@ -362,34 +362,34 @@ function createCodePreviewTheme(isDark: boolean, settings: Pick<EditorSettings, 
       letter-spacing: 0.3px;
     }
     .archive-badge {
-      background: color-mix(in srgb, var(--vsc-accent-orange, #f90) 20%, transparent);
+      background: color-mix(in srgb, var(--vsc-accent-orange, var(--vsc-accent-orange)) 20%, transparent);
       color: var(--vsc-accent-orange, var(--vsc-warning));
-      border: 1px solid color-mix(in srgb, var(--vsc-accent-orange, #f90) 40%, transparent);
+      border: 1px solid color-mix(in srgb, var(--vsc-accent-orange, var(--vsc-accent-orange)) 40%, transparent);
     }
     .type-badge {
-      background: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 20%, transparent);
-      color: var(--vsc-accent-blue, #4da8ff);
-      border: 1px solid color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 40%, transparent);
+      background: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 20%, transparent);
+      color: var(--vsc-accent-blue, var(--vsc-focus-ring));
+      border: 1px solid color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 40%, transparent);
     }
     .size-badge,
     .line-badge {
-      background: color-mix(in srgb, var(--vsc-foreground, #ccc) 8%, transparent);
-      color: color-mix(in srgb, var(--vsc-foreground, #ccc) 60%, transparent);
-      border: 1px solid color-mix(in srgb, var(--vsc-border, #454545) 50%, transparent);
+      background: color-mix(in srgb, var(--vsc-foreground, var(--vsc-foreground)) 8%, transparent);
+      color: color-mix(in srgb, var(--vsc-foreground, var(--vsc-foreground)) 60%, transparent);
+      border: 1px solid color-mix(in srgb, var(--vsc-border, var(--vsc-border)) 50%, transparent);
     }
     .viewer-toolbar {
       display: flex;
       align-items: center;
       gap: 2px;
       padding: 4px 8px;
-      border-bottom: 1px solid var(--vsc-border, #454545);
-      background: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 96%, black);
+      border-bottom: 1px solid var(--vsc-border, var(--vsc-border));
+      background: color-mix(in srgb, var(--vsc-editor-background, var(--vsc-editor-background)) 96%, black);
       flex-shrink: 0;
     }
     .tool-btn {
       background: transparent;
       border: 1px solid transparent;
-      color: var(--vsc-foreground, #ccc);
+      color: var(--vsc-foreground, var(--vsc-foreground));
       font-size: 12px;
       padding: 2px 8px;
       border-radius: 3px;
@@ -399,18 +399,18 @@ function createCodePreviewTheme(isDark: boolean, settings: Pick<EditorSettings, 
       transition: background 0.1s, border-color 0.1s;
     }
     .tool-btn:hover {
-      background: var(--vsc-list-hover-background, rgba(255,255,255,0.05));
-      border-color: var(--vsc-border, #454545);
+      background: var(--vsc-list-hover-background, var(--vsc-neutral-overlay-subtle));
+      border-color: var(--vsc-border, var(--vsc-border));
     }
     .tool-btn.active {
-      background: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 20%, transparent);
-      border-color: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 50%, transparent);
-      color: var(--vsc-accent-blue, #4da8ff);
+      background: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 20%, transparent);
+      border-color: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 50%, transparent);
+      color: var(--vsc-accent-blue, var(--vsc-focus-ring));
     }
     .toolbar-divider {
       width: 1px;
       height: 16px;
-      background: var(--vsc-border, #454545);
+      background: var(--vsc-border, var(--vsc-border));
       margin: 0 4px;
     }
     .viewer-body {
@@ -471,9 +471,9 @@ function createCodePreviewTheme(isDark: boolean, settings: Pick<EditorSettings, 
     .error-detail {
       font-size: 11px;
       font-family: var(--vsc-font-family-mono, ui-monospace, monospace);
-      color: color-mix(in srgb, #ff7070 70%, var(--vsc-foreground, #ccc));
-      background: rgba(255, 0, 0, 0.07);
-      border: 1px solid rgba(255, 112, 112, 0.2);
+      color: color-mix(in srgb, var(--vsc-error-bright) 70%, var(--vsc-foreground, var(--vsc-foreground)));
+      background: var(--vsc-error-surface);
+      border: 1px solid var(--vsc-error-border);
       border-radius: 4px;
       padding: 8px 12px;
       max-width: 480px;
@@ -483,8 +483,8 @@ function createCodePreviewTheme(isDark: boolean, settings: Pick<EditorSettings, 
     .spinner {
       width: 26px;
       height: 26px;
-      border: 2px solid color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 25%, transparent);
-      border-top-color: var(--vsc-accent-blue, #0078d4);
+      border: 2px solid color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 25%, transparent);
+      border-top-color: var(--vsc-accent-blue, var(--vsc-accent-blue));
       border-radius: 50%;
       animation: spin 0.65s linear infinite;
     }

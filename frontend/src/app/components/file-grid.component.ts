@@ -252,18 +252,18 @@ import { FileCategoryResolverService } from '../services/file-category-resolver.
       }
 
       &.drag-over {
-        background-color: var(--vsc-list-drop-background, color-mix(in srgb, var(--vsc-focus-border, #0078d4) 20%, transparent));
+        background-color: var(--vsc-list-drop-background, color-mix(in srgb, var(--vsc-focus-border, var(--vsc-accent-blue)) 20%, transparent));
         outline: 1px dashed var(--vsc-focus-border);
         outline-offset: -2px;
-        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--vsc-focus-border, #0078d4) 28%, transparent);
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--vsc-focus-border, var(--vsc-accent-blue)) 28%, transparent);
       }
 
       &.drag-over-folder {
-        border-color: var(--vsc-focus-border, #0078d4);
+        border-color: var(--vsc-focus-border, var(--vsc-accent-blue));
         border-width: 1px;
         border-style: solid;
         background: var(--vsc-list-drop-background, color-mix(in srgb, var(--vsc-list-active-background) 25%, transparent));
-        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--vsc-focus-border, #0078d4) 28%, transparent);
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--vsc-focus-border, var(--vsc-accent-blue)) 28%, transparent);
         transform: translateY(-1px);
       }
 
@@ -287,13 +287,13 @@ import { FileCategoryResolverService } from '../services/file-category-resolver.
       pointer-events: none;
       cursor: default;
       contain: layout style;
-      background: color-mix(in srgb, var(--vsc-focus-border, #0078d4) 12%, transparent);
-      border: 2px dashed color-mix(in srgb, var(--vsc-focus-border, #0078d4) 85%, transparent);
+      background: color-mix(in srgb, var(--vsc-focus-border, var(--vsc-accent-blue)) 12%, transparent);
+      border: 2px dashed color-mix(in srgb, var(--vsc-focus-border, var(--vsc-accent-blue)) 85%, transparent);
       outline: none;
       opacity: 0.96;
       box-shadow:
-        inset 0 0 0 1px color-mix(in srgb, var(--vsc-focus-border, #0078d4) 26%, transparent),
-        0 0 12px color-mix(in srgb, var(--vsc-focus-border, #0078d4) 18%, transparent);
+        inset 0 0 0 1px color-mix(in srgb, var(--vsc-focus-border, var(--vsc-accent-blue)) 26%, transparent),
+        0 0 12px color-mix(in srgb, var(--vsc-focus-border, var(--vsc-accent-blue)) 18%, transparent);
       animation: ghost-slot-pulse 900ms ease-in-out infinite alternate;
     }
 
@@ -320,7 +320,7 @@ import { FileCategoryResolverService } from '../services/file-category-resolver.
     .file-emoji {
       font-size: 32px;
       line-height: 1;
-      filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2));
+      filter: drop-shadow(0 2px 4px var(--vsc-shadow-soft));
     }
 
     .dir-symlink-icon {
@@ -1392,8 +1392,8 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
       ghost.style.transform = 'none';
       ghost.style.opacity = '0.98';
       ghost.style.background = 'var(--vsc-editor-background)';
-      ghost.style.border = '1px solid color-mix(in srgb, var(--vsc-focus-border, #0078d4) 35%, transparent)';
-      ghost.style.boxShadow = '0 6px 20px rgba(0,0,0,0.28)';
+      ghost.style.border = '1px solid color-mix(in srgb, var(--vsc-focus-border, var(--vsc-accent-blue)) 35%, transparent)';
+      ghost.style.boxShadow = '0 6px 20px var(--vsc-scrim-soft)';
       ghost.style.borderRadius = 'var(--vsc-border-radius)';
       ghost.classList.remove('drag-over', 'drag-over-folder', 'drop-target', 'dragging-source');
 
@@ -1407,13 +1407,13 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
           height: 18px;
           padding: 0 6px;
           border-radius: 9px;
-          background: var(--vsc-focus-border, #0078d4);
-          color: var(--vsc-editor-background, #1e1e1e);
+          background: var(--vsc-focus-border, var(--vsc-accent-blue));
+          color: var(--vsc-editor-background, var(--vsc-editor-background));
           font-size: 11px;
           line-height: 18px;
           text-align: center;
           box-sizing: border-box;
-          border: 1px solid color-mix(in srgb, var(--vsc-focus-border, #0078d4) 65%, transparent);
+          border: 1px solid color-mix(in srgb, var(--vsc-focus-border, var(--vsc-accent-blue)) 65%, transparent);
           z-index: 20;
         `;
         badge.textContent = `${entries.length}`;

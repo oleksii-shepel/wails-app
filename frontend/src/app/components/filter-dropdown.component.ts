@@ -220,14 +220,14 @@ import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directi
     }
 
     .fb-group-badge--or {
-      background: color-mix(in srgb, #2d7d46 20%, transparent);
-      border: 1px solid rgba(45,125,70,0.4);
+      background: color-mix(in srgb, var(--vsc-success) 20%, transparent);
+      border: 1px solid var(--vsc-success-border);
       color: var(--vsc-success);
     }
 
     .fb-group-badge--and {
       background: color-mix(in srgb, var(--vsc-accent-blue) 20%, transparent);
-      border: 1px solid rgba(0,127,212,0.4);
+      border: 1px solid var(--vsc-accent-border);
       color: var(--vsc-info);
     }
 

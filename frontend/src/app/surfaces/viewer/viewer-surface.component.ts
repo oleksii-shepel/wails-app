@@ -352,8 +352,8 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
       flex: 1 1 0%;
       min-height: 0;
       overflow: hidden;
-      background: var(--vsc-editor-background, #1e1e1e);
-      color: var(--vsc-foreground, #cccccc);
+      background: var(--vsc-editor-background, var(--vsc-editor-background));
+      color: var(--vsc-foreground, var(--vsc-foreground));
     }
 
     /* ── Header ─────────────────────────────────────────────────────────── */
@@ -364,8 +364,8 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
       justify-content: space-between;
       gap: 8px;
       padding: 8px 12px;
-      border-bottom: 1px solid var(--vsc-border, #454545);
-      background: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 92%, black);
+      border-bottom: 1px solid var(--vsc-border, var(--vsc-border));
+      background: color-mix(in srgb, var(--vsc-editor-background, var(--vsc-editor-background)) 92%, black);
       flex-shrink: 0;
       min-width: 0;
     }
@@ -420,21 +420,21 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
     }
 
     .type-badge {
-      background: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 20%, transparent);
-      color: var(--vsc-accent-blue, #4da8ff);
-      border: 1px solid color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 40%, transparent);
+      background: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 20%, transparent);
+      color: var(--vsc-accent-blue, var(--vsc-focus-ring));
+      border: 1px solid color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 40%, transparent);
     }
 
     .archive-badge {
-      background: color-mix(in srgb, var(--vsc-accent-orange, #d4a000) 20%, transparent);
+      background: color-mix(in srgb, var(--vsc-accent-orange, var(--vsc-warning)) 20%, transparent);
       color: var(--vsc-accent-orange, var(--vsc-warning));
-      border: 1px solid color-mix(in srgb, var(--vsc-accent-orange, #d4a000) 40%, transparent);
+      border: 1px solid color-mix(in srgb, var(--vsc-accent-orange, var(--vsc-warning)) 40%, transparent);
     }
 
     .size-badge, .dim-badge, .line-badge {
-      background: color-mix(in srgb, var(--vsc-foreground, #ccc) 8%, transparent);
-      color: color-mix(in srgb, var(--vsc-foreground, #ccc) 60%, transparent);
-      border: 1px solid color-mix(in srgb, var(--vsc-border, #454545) 50%, transparent);
+      background: color-mix(in srgb, var(--vsc-foreground, var(--vsc-foreground)) 8%, transparent);
+      color: color-mix(in srgb, var(--vsc-foreground, var(--vsc-foreground)) 60%, transparent);
+      border: 1px solid color-mix(in srgb, var(--vsc-border, var(--vsc-border)) 50%, transparent);
     }
 
     /* ── Toolbar ─────────────────────────────────────────────────────────── */
@@ -444,15 +444,15 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
       align-items: center;
       gap: 2px;
       padding: 4px 8px;
-      border-bottom: 1px solid var(--vsc-border, #454545);
-      background: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 96%, black);
+      border-bottom: 1px solid var(--vsc-border, var(--vsc-border));
+      background: color-mix(in srgb, var(--vsc-editor-background, var(--vsc-editor-background)) 96%, black);
       flex-shrink: 0;
     }
 
     .tool-btn {
       background: transparent;
       border: 1px solid transparent;
-      color: var(--vsc-foreground, #ccc);
+      color: var(--vsc-foreground, var(--vsc-foreground));
       font-size: 12px;
       padding: 2px 8px;
       border-radius: 3px;
@@ -462,14 +462,14 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
       transition: background 0.1s, border-color 0.1s;
 
       &:hover {
-        background: var(--vsc-list-hover-background, rgba(255,255,255,0.05));
-        border-color: var(--vsc-border, #454545);
+        background: var(--vsc-list-hover-background, var(--vsc-neutral-overlay-subtle));
+        border-color: var(--vsc-border, var(--vsc-border));
       }
 
       &.active {
-        background: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 20%, transparent);
-        border-color: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 50%, transparent);
-        color: var(--vsc-accent-blue, #4da8ff);
+        background: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 20%, transparent);
+        border-color: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 50%, transparent);
+        color: var(--vsc-accent-blue, var(--vsc-focus-ring));
       }
     }
 
@@ -484,7 +484,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
     .toolbar-divider {
       width: 1px;
       height: 16px;
-      background: var(--vsc-border, #454545);
+      background: var(--vsc-border, var(--vsc-border));
       margin: 0 4px;
     }
 
@@ -527,9 +527,9 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
     .error-detail {
       font-size: 11px;
       font-family: var(--vsc-font-family-mono, ui-monospace, monospace);
-      color: color-mix(in srgb, #ff7070 70%, var(--vsc-foreground, #ccc));
-      background: rgba(255, 0, 0, 0.07);
-      border: 1px solid rgba(255, 112, 112, 0.2);
+      color: color-mix(in srgb, var(--vsc-error-bright) 70%, var(--vsc-foreground, var(--vsc-foreground)));
+      background: var(--vsc-error-surface);
+      border: 1px solid var(--vsc-error-border);
       border-radius: 4px;
       padding: 8px 12px;
       max-width: 480px;
@@ -542,8 +542,8 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
     .spinner {
       width: 26px;
       height: 26px;
-      border: 2px solid color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 25%, transparent);
-      border-top-color: var(--vsc-accent-blue, #0078d4);
+      border: 2px solid color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 25%, transparent);
+      border-top-color: var(--vsc-accent-blue, var(--vsc-accent-blue));
       border-radius: 50%;
       animation: spin 0.65s linear infinite;
     }
@@ -564,10 +564,10 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
 
     .image-host.checkerboard {
       background-image:
-        linear-gradient(45deg, rgba(128,128,128,0.15) 25%, transparent 25%),
-        linear-gradient(-45deg, rgba(128,128,128,0.15) 25%, transparent 25%),
-        linear-gradient(45deg, transparent 75%, rgba(128,128,128,0.15) 75%),
-        linear-gradient(-45deg, transparent 75%, rgba(128,128,128,0.15) 75%);
+        linear-gradient(45deg, var(--vsc-neutral-overlay-soft) 25%, transparent 25%),
+        linear-gradient(-45deg, var(--vsc-neutral-overlay-soft) 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, var(--vsc-neutral-overlay-soft) 75%),
+        linear-gradient(-45deg, transparent 75%, var(--vsc-neutral-overlay-soft) 75%);
       background-size: 16px 16px;
       background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
     }
@@ -609,7 +609,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
       flex-direction: column;
       width: 100%;
       height: 100%;
-      background: #000;
+      background: var(--vsc-media-canvas-background);
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
     }
 
@@ -619,18 +619,18 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
       align-items: center;
       justify-content: center;
       min-height: 300px;
-      background: linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%);
+      background: linear-gradient(135deg, var(--vsc-media-canvas-background) 0%, var(--vsc-media-background) 100%);
       position: relative;
       overflow: hidden;
       cursor: pointer;
     }
 
     .canvas-video-container:hover {
-      cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="white" stroke-width="1.5"/><polygon points="10,7 16,12 10,17" fill="white"/></svg>') 12 12, pointer;
+      cursor: pointer;
     }
 
     .canvas-video-container.playing:hover {
-      cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="white" stroke-width="1.5"/><rect x="9" y="8" width="2" height="8" fill="white"/><rect x="13" y="8" width="2" height="8" fill="white"/></svg>') 12 12, pointer;
+      cursor: pointer;
     }
 
     .canvas-video-container ::ng-deep canvas {
@@ -645,7 +645,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
       height: 100%;
       object-fit: contain;
       display: block;
-      background: #000;
+      background: var(--vsc-media-canvas-background);
     }
 
     /* Loading indicator */
@@ -662,14 +662,14 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
     .video-loading .spinner {
       width: 40px;
       height: 40px;
-      border: 3px solid rgba(255, 255, 255, 0.2);
-      border-top-color: var(--vsc-accent-blue, #0078d4);
+      border: 3px solid var(--vsc-neutral-overlay-medium);
+      border-top-color: var(--vsc-accent-blue, var(--vsc-accent-blue));
       border-radius: 50%;
       animation: spin 0.8s linear infinite;
     }
 
     .loading-text {
-      color: #aaa;
+      color: var(--vsc-foreground-dim);
       font-size: 13px;
       letter-spacing: 0.3px;
     }
@@ -699,19 +699,19 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
       display: flex;
       align-items: center;
       justify-content: center;
-      background: var(--vsc-accent-blue, #0078d4);
+      background: var(--vsc-accent-blue, var(--vsc-accent-blue));
       border-radius: 50%;
       font-size: 32px;
-      color: white;
-      box-shadow: 0 8px 32px rgba(0, 120, 212, 0.4);
+      color: var(--vsc-on-accent);
+      box-shadow: 0 8px 32px var(--vsc-accent-border);
       transition: all 0.2s ease;
       font-weight: bold;
     }
 
     .play-overlay:hover .play-icon {
-      background: #1084d7;
+      background: var(--vsc-info);
       transform: scale(1.1);
-      box-shadow: 0 12px 48px rgba(0, 120, 212, 0.6);
+      box-shadow: 0 12px 48px var(--vsc-accent-border);
     }
 
     /* Control bar */
@@ -720,8 +720,8 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
       flex-direction: column;
       gap: 8px;
       padding: 12px;
-      background: linear-gradient(to bottom, rgba(0,0,0,0.01), rgba(0,0,0,0.9));
-      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      background: linear-gradient(to bottom, transparent, var(--vsc-media-overlay-strong));
+      border-top: 1px solid var(--vsc-neutral-overlay-soft);
       backdrop-filter: blur(10px);
       opacity: 0;
       transition: opacity 0.3s ease;
@@ -760,7 +760,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
     .progress-fill {
       position: absolute;
       height: 100%;
-      background: linear-gradient(90deg, var(--vsc-accent-blue, #0078d4), #00a4ef);
+      background: linear-gradient(90deg, var(--vsc-accent-blue, var(--vsc-accent-blue)), var(--vsc-info));
       border-radius: 2px;
       pointer-events: none;
       transition: width 0.05s linear;
@@ -785,35 +785,35 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
       -webkit-appearance: none;
       width: 12px;
       height: 12px;
-      background: white;
+      background: var(--vsc-document-canvas-background);
       border: none;
       border-radius: 50%;
       cursor: pointer;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+      box-shadow: 0 2px 8px var(--vsc-scrim-strong);
       transition: width 0.05s ease, height 0.05s ease, box-shadow 0.05s ease;
     }
 
     .seek-slider::-webkit-slider-thumb:hover {
       width: 16px;
       height: 16px;
-      box-shadow: 0 4px 16px rgba(0, 120, 212, 0.8);
+      box-shadow: 0 4px 16px var(--vsc-accent-blue);
     }
 
     .seek-slider::-moz-range-thumb {
       width: 12px;
       height: 12px;
-      background: white;
+      background: var(--vsc-document-canvas-background);
       border: none;
       border-radius: 50%;
       cursor: pointer;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+      box-shadow: 0 2px 8px var(--vsc-scrim-strong);
       transition: width 0.05s ease, height 0.05s ease, box-shadow 0.05s ease;
     }
 
     .seek-slider::-moz-range-thumb:hover {
       width: 16px;
       height: 16px;
-      box-shadow: 0 4px 16px rgba(0, 120, 212, 0.8);
+      box-shadow: 0 4px 16px var(--vsc-accent-blue);
     }
 
     .seek-slider:disabled {
@@ -838,8 +838,8 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
       height: 36px;
       padding: 0 8px;
       background: color-mix(in srgb, var(--vsc-foreground) 10%, transparent);
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      color: white;
+      border: 1px solid var(--vsc-neutral-overlay-medium);
+      color: var(--vsc-on-accent);
       border-radius: 4px;
       cursor: pointer;
       font-size: 16px;
@@ -850,7 +850,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
 
     .control-btn:hover:not(:disabled) {
       background: color-mix(in srgb, var(--vsc-foreground) 20%, transparent);
-      border-color: rgba(255, 255, 255, 0.3);
+      border-color: var(--vsc-neutral-overlay-strong);
       transform: scale(1.05);
     }
 
@@ -869,13 +869,13 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
 
     .play-pause-btn {
       min-width: 44px;
-      background: var(--vsc-accent-blue, #0078d4);
-      border: 1px solid rgba(0, 120, 212, 0.3);
+      background: var(--vsc-accent-blue, var(--vsc-accent-blue));
+      border: 1px solid var(--vsc-accent-selection);
     }
 
     .play-pause-btn:hover:not(:disabled) {
-      background: #1084d7;
-      box-shadow: 0 0 12px rgba(0, 120, 212, 0.5);
+      background: var(--vsc-info);
+      box-shadow: 0 0 12px var(--vsc-accent-border);
     }
 
     /* Time display */
@@ -895,7 +895,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
     }
 
     .current-time {
-      color: white;
+      color: var(--vsc-on-accent);
       font-weight: 500;
     }
 
@@ -912,7 +912,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
       background: var(--vsc-scrim);
       border-radius: 12px;
       font-size: 11px;
-      border: 1px solid rgba(255, 255, 255, 0.1);
+      border: 1px solid var(--vsc-neutral-overlay-soft);
     }
 
     .mode-badge, .path-badge, .latency-badge, .seek-badge, .codec-badge, .resolution-badge, .framerate-badge {
@@ -920,10 +920,10 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
       align-items: center;
       justify-content: center;
       padding: 2px 6px;
-      background: color-mix(in srgb, #1f6fb2 10%, transparent);
-      border: 0.5px solid color-mix(in srgb, #1f6fb2 24%, transparent);
+      background: color-mix(in srgb, var(--vsc-button-hover) 10%, transparent);
+      border: 0.5px solid color-mix(in srgb, var(--vsc-button-hover) 24%, transparent);
       border-radius: 3px;
-      color: #195f98;
+      color: var(--vsc-button-hover);
       font-weight: 500;
       line-height: 1;
       cursor: help;
@@ -932,40 +932,40 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
 
     .mode-badge {
       background: color-mix(in srgb, var(--vsc-foreground) 12%, transparent);
-      border-color: rgba(255, 255, 255, 0.22);
-      color: #f2f2f2;
+      border-color: var(--vsc-neutral-overlay-medium);
+      color: var(--vsc-media-foreground-strong);
       text-transform: uppercase;
       letter-spacing: 0.3px;
     }
 
     .path-badge {
-      background: rgba(168, 85, 247, 0.18);
-      border-color: rgba(168, 85, 247, 0.35);
-      color: #d8b4fe;
+      background: var(--vsc-chart-fill-4);
+      border-color: var(--vsc-accent-border);
+      color: var(--vsc-chart-4);
     }
 
     .latency-badge {
-      background: rgba(34, 197, 94, 0.18);
-      border-color: rgba(34, 197, 94, 0.35);
-      color: #86efac;
+      background: var(--vsc-success-surface);
+      border-color: var(--vsc-success-border);
+      color: var(--vsc-chart-5);
     }
 
     .seek-badge {
-      background: color-mix(in srgb, var(--vsc-editorWarning-foreground, #b89500) 14%, transparent);
-      border-color: color-mix(in srgb, var(--vsc-editorWarning-foreground, #b89500) 34%, transparent);
-      color: var(--vsc-editorWarning-foreground, #8a6d00);
+      background: color-mix(in srgb, var(--vsc-editorWarning-foreground, var(--vsc-warning)) 14%, transparent);
+      border-color: color-mix(in srgb, var(--vsc-editorWarning-foreground, var(--vsc-warning)) 34%, transparent);
+      color: var(--vsc-editorWarning-foreground, var(--vsc-warning));
     }
 
     .resolution-badge {
-      background: color-mix(in srgb, #218a66 10%, transparent);
-      border-color: color-mix(in srgb, #218a66 24%, transparent);
-      color: #1b6f53;
+      background: color-mix(in srgb, var(--vsc-success) 10%, transparent);
+      border-color: color-mix(in srgb, var(--vsc-success) 24%, transparent);
+      color: var(--vsc-success);
     }
 
     .framerate-badge {
-      background: rgba(255, 100, 0, 0.2);
-      border-color: rgba(255, 100, 0, 0.4);
-      color: #ffb86c;
+      background: var(--vsc-warning-surface);
+      border-color: var(--vsc-warning-border);
+      color: var(--vsc-chart-6);
     }
 
     /* Spacer */
@@ -1002,20 +1002,20 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
       -webkit-appearance: none;
       width: 10px;
       height: 10px;
-      background: white;
+      background: var(--vsc-document-canvas-background);
       border-radius: 50%;
       cursor: pointer;
-      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+      box-shadow: 0 2px 6px var(--vsc-scrim-strong);
     }
 
     .volume-slider::-moz-range-thumb {
       width: 10px;
       height: 10px;
-      background: white;
+      background: var(--vsc-document-canvas-background);
       border: none;
       border-radius: 50%;
       cursor: pointer;
-      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+      box-shadow: 0 2px 6px var(--vsc-scrim-strong);
     }
 
     .volume-slider:disabled {
@@ -1033,10 +1033,10 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
       align-items: center;
       gap: 12px;
       padding: 12px;
-      background: linear-gradient(135deg, rgba(255, 100, 100, 0.15) 0%, rgba(200, 50, 50, 0.1) 100%);
-      border-top: 1px solid rgba(255, 112, 112, 0.3);
+      background: linear-gradient(135deg, var(--vsc-error-surface) 0%, var(--vsc-error-surface) 100%);
+      border-top: 1px solid var(--vsc-error-border);
       backdrop-filter: blur(8px);
-      color: #ff8888;
+      color: var(--vsc-error-bright);
       font-size: 12px;
       animation: slideDown 0.3s ease;
     }
@@ -1055,7 +1055,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
     .close-btn {
       background: none;
       border: none;
-      color: #ff8888;
+      color: var(--vsc-error-bright);
       cursor: pointer;
       font-size: 16px;
       padding: 0 4px;
@@ -1064,7 +1064,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
     }
 
     .close-btn:hover {
-      color: #ffaaaa;
+      color: var(--vsc-error-bright);
     }
 
     @keyframes slideDown {
@@ -1095,8 +1095,8 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
 
     /* ── PDF ─────────────────────────────────────────────────────────────── */
 
-    .pdf-host { display: flex; flex-direction: column; flex: 1 1 0%; min-height: 0; min-width: 0; background: white; position: relative; }
-    .preview-pdf { flex: 1; width: 100%; height: 100%; border: none; background: white; }
+    .pdf-host { display: flex; flex-direction: column; flex: 1 1 0%; min-height: 0; min-width: 0; background: var(--vsc-document-canvas-background); position: relative; }
+    .preview-pdf { flex: 1; width: 100%; height: 100%; border: none; background: var(--vsc-document-canvas-background); }
     .pdf-loading {
       position: absolute;
       inset: 0;
@@ -1107,7 +1107,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
       gap: 10px;
       padding: 24px;
       text-align: center;
-      color: #222;
+      color: var(--vsc-media-panel-background);
       background: color-mix(in srgb, var(--vsc-foreground) 30%, transparent);
     }
     .pdf-fallback {
@@ -1119,8 +1119,8 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
       gap: 12px;
       padding: 24px;
       text-align: center;
-      color: #222;
-      background: white;
+      color: var(--vsc-media-panel-background);
+      background: var(--vsc-document-canvas-background);
     }
 
     /* ── Text / JSON / Markdown ──────────────────────────────────────────── */
@@ -1133,7 +1133,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
       line-height: 1.5;
       font-family: var(--vsc-font-family-mono, ui-monospace, 'Courier New', monospace);
       tab-size: 4;
-      color: var(--vsc-foreground, #ccc);
+      color: var(--vsc-foreground, var(--vsc-foreground));
 
       &.word-wrap { white-space: pre-wrap; word-break: break-word; }
     }
@@ -1147,11 +1147,11 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
       box-sizing: border-box;
       overflow: auto;
 
-      .json-key  { color: #9cdcfe; }
-      .json-str  { color: #ce9178; }
-      .json-num  { color: #b5cea8; }
-      .json-bool { color: #569cd6; }
-      .json-null { color: #569cd6; }
+      .json-key  { color: var(--vsc-chart-7); }
+      .json-str  { color: var(--vsc-chart-6); }
+      .json-num  { color: var(--vsc-chart-8); }
+      .json-bool { color: var(--vsc-chart-1); }
+      .json-null { color: var(--vsc-chart-1); }
     }
 
     .markdown-body {
@@ -1176,7 +1176,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
       width: 100%;
       height: 100%;
       border: 0;
-      background: white;
+      background: var(--vsc-document-canvas-background);
     }
 
     .viewer-body > .html-preview-frame {
@@ -1190,31 +1190,31 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
 
     .markdown-body {
       h1, h2, h3, h4, h5, h6 {
-        color: var(--vsc-foreground-bright, #fff);
+        color: var(--vsc-foreground-bright, var(--vsc-on-accent));
         margin: 1.2em 0 0.4em;
         font-weight: 600;
         line-height: 1.3;
       }
-      h1 { font-size: 1.6em; border-bottom: 1px solid var(--vsc-border, #454545); padding-bottom: 6px; }
-      h2 { font-size: 1.3em; border-bottom: 1px solid var(--vsc-border, #454545); padding-bottom: 4px; }
+      h1 { font-size: 1.6em; border-bottom: 1px solid var(--vsc-border, var(--vsc-border)); padding-bottom: 6px; }
+      h2 { font-size: 1.3em; border-bottom: 1px solid var(--vsc-border, var(--vsc-border)); padding-bottom: 4px; }
       h3 { font-size: 1.1em; }
       p  { margin: 0.6em 0; }
 
-      a { color: var(--vsc-accent-blue, #4da8ff); text-decoration: none; }
+      a { color: var(--vsc-accent-blue, var(--vsc-focus-ring)); text-decoration: none; }
       a:hover { text-decoration: underline; }
 
       code {
         font-family: var(--vsc-font-family-mono, ui-monospace, monospace);
         font-size: 0.9em;
-        background: color-mix(in srgb, var(--vsc-foreground, #ccc) 10%, transparent);
-        border: 1px solid color-mix(in srgb, var(--vsc-border, #454545) 80%, transparent);
+        background: color-mix(in srgb, var(--vsc-foreground, var(--vsc-foreground)) 10%, transparent);
+        border: 1px solid color-mix(in srgb, var(--vsc-border, var(--vsc-border)) 80%, transparent);
         padding: 1px 5px;
         border-radius: 3px;
       }
 
       pre {
-        background: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 70%, black);
-        border: 1px solid var(--vsc-border, #454545);
+        background: color-mix(in srgb, var(--vsc-editor-background, var(--vsc-editor-background)) 70%, black);
+        border: 1px solid var(--vsc-border, var(--vsc-border));
         border-radius: 5px;
         padding: 12px 14px;
         overflow-x: auto;
@@ -1226,7 +1226,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
       blockquote {
         margin: 0.8em 0;
         padding: 4px 12px;
-        border-left: 3px solid var(--vsc-accent-blue, #0078d4);
+        border-left: 3px solid var(--vsc-accent-blue, var(--vsc-accent-blue));
         opacity: 0.8;
       }
 
@@ -1234,10 +1234,10 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
       li { margin: 2px 0; }
 
       table { border-collapse: collapse; margin: 0.8em 0; font-size: 12px; }
-      th, td { padding: 5px 12px; border: 1px solid var(--vsc-border, #454545); text-align: left; }
-      th { background: color-mix(in srgb, var(--vsc-foreground, #ccc) 8%, transparent); font-weight: 600; }
+      th, td { padding: 5px 12px; border: 1px solid var(--vsc-border, var(--vsc-border)); text-align: left; }
+      th { background: color-mix(in srgb, var(--vsc-foreground, var(--vsc-foreground)) 8%, transparent); font-weight: 600; }
 
-      hr { border: none; border-top: 1px solid var(--vsc-border, #454545); margin: 1.2em 0; }
+      hr { border: none; border-top: 1px solid var(--vsc-border, var(--vsc-border)); margin: 1.2em 0; }
       img { max-width: 100%; border-radius: 3px; }
     }
   `]

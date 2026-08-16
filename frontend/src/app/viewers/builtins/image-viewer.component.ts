@@ -188,12 +188,12 @@ interface CarouselVirtualFrame {
       min-width: 0;
       min-height: 0;
       overflow: hidden;
-      background: var(--vsc-code-background, var(--vsc-editor-background, #1e1e1e));
-      color: var(--vsc-foreground, #cccccc);
+      background: var(--vsc-code-background, var(--vsc-editor-background, var(--vsc-editor-background)));
+      color: var(--vsc-foreground, var(--vsc-foreground));
       outline: none;
     }
     .viewer-surface:focus-visible {
-      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 60%, transparent);
+      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 60%, transparent);
     }
     .viewer-header {
       display: flex;
@@ -201,8 +201,8 @@ interface CarouselVirtualFrame {
       justify-content: space-between;
       gap: 8px;
       padding: 8px 12px;
-      border-bottom: 1px solid var(--vsc-border, #454545);
-      background: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 92%, black);
+      border-bottom: 1px solid var(--vsc-border, var(--vsc-border));
+      background: color-mix(in srgb, var(--vsc-editor-background, var(--vsc-editor-background)) 92%, black);
       flex-shrink: 0;
       min-width: 0;
     }
@@ -256,35 +256,35 @@ interface CarouselVirtualFrame {
       letter-spacing: 0.3px;
     }
     .archive-badge {
-      background: color-mix(in srgb, var(--vsc-accent-orange, #f90) 20%, transparent);
+      background: color-mix(in srgb, var(--vsc-accent-orange, var(--vsc-accent-orange)) 20%, transparent);
       color: var(--vsc-accent-orange, var(--vsc-warning));
-      border: 1px solid color-mix(in srgb, var(--vsc-accent-orange, #f90) 40%, transparent);
+      border: 1px solid color-mix(in srgb, var(--vsc-accent-orange, var(--vsc-accent-orange)) 40%, transparent);
     }
     .type-badge {
-      background: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 20%, transparent);
-      color: var(--vsc-accent-blue, #4da8ff);
-      border: 1px solid color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 40%, transparent);
+      background: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 20%, transparent);
+      color: var(--vsc-accent-blue, var(--vsc-focus-ring));
+      border: 1px solid color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 40%, transparent);
     }
     .size-badge,
     .dim-badge {
-      background: color-mix(in srgb, var(--vsc-foreground, #ccc) 8%, transparent);
-      color: color-mix(in srgb, var(--vsc-foreground, #ccc) 60%, transparent);
-      border: 1px solid color-mix(in srgb, var(--vsc-border, #454545) 50%, transparent);
+      background: color-mix(in srgb, var(--vsc-foreground, var(--vsc-foreground)) 8%, transparent);
+      color: color-mix(in srgb, var(--vsc-foreground, var(--vsc-foreground)) 60%, transparent);
+      border: 1px solid color-mix(in srgb, var(--vsc-border, var(--vsc-border)) 50%, transparent);
     }
     .viewer-toolbar {
       display: flex;
       align-items: center;
       gap: 2px;
       padding: 4px 8px;
-      border-bottom: 1px solid var(--vsc-border, #454545);
-      background: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 96%, black);
+      border-bottom: 1px solid var(--vsc-border, var(--vsc-border));
+      background: color-mix(in srgb, var(--vsc-editor-background, var(--vsc-editor-background)) 96%, black);
       flex-shrink: 0;
     }
     .tool-btn {
       font: inherit;
       font-size: 12px;
       background: transparent;
-      color: var(--vsc-foreground, #ccc);
+      color: var(--vsc-foreground, var(--vsc-foreground));
       border: 1px solid transparent;
       padding: 2px 8px;
       border-radius: 3px;
@@ -294,23 +294,23 @@ interface CarouselVirtualFrame {
       transition: background 0.1s, border-color 0.1s;
     }
     .tool-btn:hover:not(:disabled) {
-      background: var(--vsc-list-hover-background, rgba(255,255,255,0.05));
-      border-color: var(--vsc-border, #454545);
+      background: var(--vsc-list-hover-background, var(--vsc-neutral-overlay-subtle));
+      border-color: var(--vsc-border, var(--vsc-border));
     }
     .tool-btn:focus-visible,
     .carousel-item:focus-visible {
       outline: none;
-      border-color: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 70%, transparent);
-      box-shadow: 0 0 0 1px color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 28%, transparent);
+      border-color: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 70%, transparent);
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 28%, transparent);
     }
     .tool-btn:disabled {
       opacity: 0.4;
       cursor: default;
     }
     .tool-btn.active {
-      background: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 20%, transparent);
-      border-color: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 50%, transparent);
-      color: var(--vsc-accent-blue, #4da8ff);
+      background: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 20%, transparent);
+      border-color: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 50%, transparent);
+      color: var(--vsc-accent-blue, var(--vsc-focus-ring));
     }
     .zoom-label,
     .carousel-counter {
@@ -323,7 +323,7 @@ interface CarouselVirtualFrame {
     .toolbar-divider {
       width: 1px;
       height: 16px;
-      background: var(--vsc-border, #454545);
+      background: var(--vsc-border, var(--vsc-border));
       margin: 0 4px;
     }
     .viewer-body {
@@ -346,7 +346,7 @@ interface CarouselVirtualFrame {
       align-items: center;
       justify-content: center;
       gap: 10px;
-      color: var(--vsc-foreground, #ccc);
+      color: var(--vsc-foreground, var(--vsc-foreground));
       user-select: none;
       padding: 20px;
       text-align: center;
@@ -355,13 +355,13 @@ interface CarouselVirtualFrame {
     .state-icon { font-size: 22px; }
     .state-label { font-size: 13px; font-weight: 600; }
     .state-sub { font-size: 12px; opacity: 0.8; }
-    .state-error { color: color-mix(in srgb, var(--vsc-accent-red, #f14c4c) 70%, var(--vsc-foreground, #ccc)); }
+    .state-error { color: color-mix(in srgb, var(--vsc-accent-red, var(--vsc-error)) 70%, var(--vsc-foreground, var(--vsc-foreground))); }
     .error-detail {
       font-size: 11px;
       font-family: var(--vsc-font-family-mono, ui-monospace, monospace);
-      color: color-mix(in srgb, #ff7070 70%, var(--vsc-foreground, #ccc));
-      background: rgba(255, 0, 0, 0.07);
-      border: 1px solid rgba(255, 112, 112, 0.2);
+      color: color-mix(in srgb, var(--vsc-error-bright) 70%, var(--vsc-foreground, var(--vsc-foreground)));
+      background: var(--vsc-error-surface);
+      border: 1px solid var(--vsc-error-border);
       border-radius: 4px;
       padding: 8px 12px;
       max-width: 480px;
@@ -372,17 +372,17 @@ interface CarouselVirtualFrame {
       width: 26px;
       height: 26px;
       border-radius: 50%;
-      border: 2px solid color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 25%, transparent);
-      border-top-color: var(--vsc-accent-blue, #0078d4);
+      border: 2px solid color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 25%, transparent);
+      border-top-color: var(--vsc-accent-blue, var(--vsc-accent-blue));
       animation: spin 0.65s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
     .checkerboard {
       background-image:
-        linear-gradient(45deg, rgba(255,255,255,0.06) 25%, transparent 25%),
-        linear-gradient(-45deg, rgba(255,255,255,0.06) 25%, transparent 25%),
-        linear-gradient(45deg, transparent 75%, rgba(255,255,255,0.06) 75%),
-        linear-gradient(-45deg, transparent 75%, rgba(255,255,255,0.06) 75%);
+        linear-gradient(45deg, var(--vsc-neutral-overlay-subtle) 25%, transparent 25%),
+        linear-gradient(-45deg, var(--vsc-neutral-overlay-subtle) 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, var(--vsc-neutral-overlay-subtle) 75%),
+        linear-gradient(-45deg, transparent 75%, var(--vsc-neutral-overlay-subtle) 75%);
       background-size: 18px 18px;
       background-position: 0 0, 0 9px, 9px -9px, -9px 0px;
     }
@@ -393,20 +393,20 @@ interface CarouselVirtualFrame {
       align-items: center;
       justify-content: center;
       padding: 18px;
-      background: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 96%, black);
+      background: color-mix(in srgb, var(--vsc-editor-background, var(--vsc-editor-background)) 96%, black);
       touch-action: none;
       user-select: none;
       position: relative;
       transition: background-color 0.16s ease;
     }
     .image-host--busy {
-      background: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 92%, var(--vsc-accent-blue, #0078d4) 6%);
+      background: color-mix(in srgb, var(--vsc-editor-background, var(--vsc-editor-background)) 92%, var(--vsc-accent-blue, var(--vsc-accent-blue)) 6%);
     }
     .preview-image {
       max-width: 100%;
       max-height: 100%;
       transform-origin: center;
-      box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
+      box-shadow: 0 18px 48px var(--vsc-scrim-soft);
       border-radius: 6px;
       opacity: 0;
       transition: opacity 0.14s ease;
@@ -422,16 +422,16 @@ interface CarouselVirtualFrame {
       border-radius: 999px;
       font-size: 11px;
       letter-spacing: 0.02em;
-      color: var(--vsc-foreground, #ccc);
-      background: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 80%, black);
-      border: 1px solid color-mix(in srgb, var(--vsc-border, #454545) 70%, transparent);
-      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+      color: var(--vsc-foreground, var(--vsc-foreground));
+      background: color-mix(in srgb, var(--vsc-editor-background, var(--vsc-editor-background)) 80%, black);
+      border: 1px solid color-mix(in srgb, var(--vsc-border, var(--vsc-border)) 70%, transparent);
+      box-shadow: 0 8px 20px var(--vsc-shadow-soft);
     }
     .carousel-strip {
       display: flex;
       padding: 12px 12px 18px;
-      border-top: 1px solid var(--vsc-border, #454545);
-      background: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 94%, black);
+      border-top: 1px solid var(--vsc-border, var(--vsc-border));
+      background: color-mix(in srgb, var(--vsc-editor-background, var(--vsc-editor-background)) 94%, black);
       flex-shrink: 0;
       min-height: calc(118px * 1.05);
     }
@@ -480,7 +480,7 @@ padding-inline: max(32px, calc((100% - 112px) / 2 + 16px));
       border-radius: 8px;
       border: 1px solid transparent;
       background: transparent;
-      color: var(--vsc-foreground, #ccc);
+      color: var(--vsc-foreground, var(--vsc-foreground));
       cursor: pointer;
       text-align: left;
       transition: border-color 0.2s ease;
@@ -488,24 +488,24 @@ padding-inline: max(32px, calc((100% - 112px) / 2 + 16px));
       align-items: flex-start;
     }
     .carousel-item:hover {
-      background: var(--vsc-list-hover-background, rgba(255,255,255,0.05));
-      border-color: color-mix(in srgb, var(--vsc-border, #454545) 70%, transparent);
+      background: var(--vsc-list-hover-background, var(--vsc-neutral-overlay-subtle));
+      border-color: color-mix(in srgb, var(--vsc-border, var(--vsc-border)) 70%, transparent);
     }
     .carousel-item.active {
-      border-color: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 90%, transparent);
-      background: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 12%, transparent);
-      box-shadow: 0 0 0 1px color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 35%, transparent);
+      border-color: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 90%, transparent);
+      background: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 12%, transparent);
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 35%, transparent);
     }
     .carousel-item.active .carousel-name {
-      color: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 70%, var(--vsc-foreground, #ccc));
+      color: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 70%, var(--vsc-foreground, var(--vsc-foreground)));
     }
     .carousel-thumb {
       width: 100%;
       aspect-ratio: 4 / 3;
       border-radius: 6px;
       overflow: hidden;
-      border: 1px solid color-mix(in srgb, var(--vsc-border, #454545) 70%, transparent);
-      background: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 88%, white 3%);
+      border: 1px solid color-mix(in srgb, var(--vsc-border, var(--vsc-border)) 70%, transparent);
+      background: color-mix(in srgb, var(--vsc-editor-background, var(--vsc-editor-background)) 88%, white 3%);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -519,8 +519,8 @@ padding-inline: max(32px, calc((100% - 112px) / 2 + 16px));
     .carousel-thumb--placeholder {
       background:
         linear-gradient(135deg,
-          color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 22%, transparent),
-          color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 92%, black));
+          color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 22%, transparent),
+          color-mix(in srgb, var(--vsc-editor-background, var(--vsc-editor-background)) 92%, black));
     }
     .carousel-fallback {
       font-size: 20px;

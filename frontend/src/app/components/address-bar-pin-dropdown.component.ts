@@ -74,7 +74,7 @@ import { shortenPath } from './address-bar.utils';
 
     /* dropdown base */
     .ab-dropdown {
-      background-color: var(--vsc-panel-background, #252526) !important;
+      background-color: var(--vsc-panel-background, var(--vsc-panel-background)) !important;
       background-image: none !important;
       border: 1px solid var(--vsc-border);
       border-radius: var(--vsc-border-radius);
@@ -85,7 +85,7 @@ import { shortenPath } from './address-bar.utils';
     .ab-drop-head {
       display: flex; align-items: center; justify-content: space-between;
       height: 32px; padding: 0 var(--vsc-padding-lg);
-      background: var(--vsc-panel-background, #252526) !important;
+      background: var(--vsc-panel-background, var(--vsc-panel-background)) !important;
       border-bottom: 1px solid var(--vsc-border-subtle);
       font-size: var(--vsc-font-size-small); color: var(--vsc-foreground-dim);
       text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;
@@ -100,7 +100,7 @@ import { shortenPath } from './address-bar.utils';
 
     .ab-drop-scroll {
       max-height: 300px; overflow-y: auto; padding: var(--vsc-padding-xs) 0;
-      background-color: var(--vsc-panel-background, #252526) !important;
+      background-color: var(--vsc-panel-background, var(--vsc-panel-background)) !important;
     }
 
     .ab-drop-item {
@@ -124,7 +124,7 @@ import { shortenPath } from './address-bar.utils';
       gap: var(--vsc-padding-sm); padding: var(--vsc-padding-xl);
       font-size: var(--vsc-font-size-small); color: var(--vsc-foreground-dim);
       text-align: center; line-height: 1.5;
-      background-color: var(--vsc-panel-background, #252526) !important;
+      background-color: var(--vsc-panel-background, var(--vsc-panel-background)) !important;
     }
 
     .ab-drop-empty-icon { font-size: 24px; opacity: 0.5; margin-bottom: var(--vsc-padding-xs); }

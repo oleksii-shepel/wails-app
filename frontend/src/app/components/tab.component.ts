@@ -161,7 +161,7 @@ import { TabInfo } from "../shared/protocol-enhanced";
       padding: 1px 4px;
       border-radius: 3px;
       background: color-mix(in srgb, var(--vsc-accent-orange) 22%, transparent);
-      border: 1px solid rgba(255, 179, 71, 0.45);
+      border: 1px solid var(--vsc-warning-border);
       color: var(--vsc-accent-orange);
       line-height: 14px;
     }

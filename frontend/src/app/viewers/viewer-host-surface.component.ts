@@ -46,7 +46,7 @@ function extLower(path: string): string {
       min-height: 0;
       align-items: center;
       justify-content: center;
-      color: var(--vsc-foreground, #ccc);
+      color: var(--vsc-foreground, var(--vsc-foreground));
       opacity: 0.8;
       gap: 6px;
       user-select: none;

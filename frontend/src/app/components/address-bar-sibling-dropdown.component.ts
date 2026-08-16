@@ -77,7 +77,7 @@ import { InputEngineService } from '../services/input-engine.service';
 
     /* ── dropdown base (duplicated here so component is self-contained) ── */
     .ab-dropdown {
-      background-color: var(--vsc-panel-background, #252526) !important;
+      background-color: var(--vsc-panel-background, var(--vsc-panel-background)) !important;
       background-image: none !important;
       border: 1px solid var(--vsc-border);
       border-radius: var(--vsc-border-radius);
@@ -88,7 +88,7 @@ import { InputEngineService } from '../services/input-engine.service';
     .ab-drop-head {
       display: flex; align-items: center; justify-content: space-between;
       height: 32px; padding: 0 var(--vsc-padding-lg);
-      background: var(--vsc-panel-background, #252526) !important;
+      background: var(--vsc-panel-background, var(--vsc-panel-background)) !important;
       border-bottom: 1px solid var(--vsc-border-subtle);
       font-size: var(--vsc-font-size-small); color: var(--vsc-foreground-dim);
       text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;
@@ -104,7 +104,7 @@ import { InputEngineService } from '../services/input-engine.service';
     .ab-drop-scroll {
       max-height: 300px; overflow-y: auto; padding: var(--vsc-padding-xs) 0;
       position: relative;
-      background-color: var(--vsc-panel-background, #252526) !important;
+      background-color: var(--vsc-panel-background, var(--vsc-panel-background)) !important;
       scrollbar-width: none;
       -ms-overflow-style: none;
 
@@ -149,7 +149,7 @@ import { InputEngineService } from '../services/input-engine.service';
       display: flex; align-items: center; gap: var(--vsc-padding-sm);
       padding: var(--vsc-padding-lg); font-size: var(--vsc-font-size);
       color: var(--vsc-foreground-dim);
-      background-color: var(--vsc-panel-background, #252526) !important;
+      background-color: var(--vsc-panel-background, var(--vsc-panel-background)) !important;
     }
 
     .ab-spinner {
@@ -165,7 +165,7 @@ import { InputEngineService } from '../services/input-engine.service';
       gap: var(--vsc-padding-sm); padding: var(--vsc-padding-xl);
       font-size: var(--vsc-font-size-small); color: var(--vsc-foreground-dim);
       text-align: center; line-height: 1.5;
-      background-color: var(--vsc-panel-background, #252526) !important;
+      background-color: var(--vsc-panel-background, var(--vsc-panel-background)) !important;
     }
 
     .ab-drop-empty-icon { font-size: 24px; opacity: 0.5; margin-bottom: var(--vsc-padding-xs); }

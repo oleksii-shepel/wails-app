@@ -34,6 +34,18 @@ export function ArchiveReadStream(arg1, arg2, arg3, arg4) {
   return window['go']['app']['App']['ArchiveReadStream'](arg1, arg2, arg3, arg4);
 }
 
+export function AutorunDelete(arg1) {
+  return window['go']['app']['App']['AutorunDelete'](arg1);
+}
+
+export function AutorunList() {
+  return window['go']['app']['App']['AutorunList']();
+}
+
+export function AutorunSetEnabled(arg1, arg2) {
+  return window['go']['app']['App']['AutorunSetEnabled'](arg1, arg2);
+}
+
 export function BatchCopy(arg1) {
   return window['go']['app']['App']['BatchCopy'](arg1);
 }
@@ -488,6 +500,10 @@ export function RemoteDisconnect(arg1) {
 
 export function RemoteListConnections() {
   return window['go']['app']['App']['RemoteListConnections']();
+}
+
+export function RemoteListProviders() {
+  return window['go']['app']['App']['RemoteListProviders']();
 }
 
 export function RemoteOAuthBegin(arg1) {

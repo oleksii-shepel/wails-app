@@ -151,8 +151,8 @@ const GLYPH_ROWS = [
 
     .viewer-body {
       background:
-        radial-gradient(circle at top right, color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 11%, transparent), transparent 34%),
-        linear-gradient(180deg, color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 96%, black), var(--vsc-editor-background, #1e1e1e));
+        radial-gradient(circle at top right, color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 11%, transparent), transparent 34%),
+        linear-gradient(180deg, color-mix(in srgb, var(--vsc-editor-background, var(--vsc-editor-background)) 96%, black), var(--vsc-editor-background, var(--vsc-editor-background)));
     }
 
     .font-layout {
@@ -166,10 +166,10 @@ const GLYPH_ROWS = [
     }
 
     .panel {
-      border: 1px solid color-mix(in srgb, var(--vsc-border, #454545) 72%, transparent);
-      background: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 88%, white 2%);
+      border: 1px solid color-mix(in srgb, var(--vsc-border, var(--vsc-border)) 72%, transparent);
+      background: color-mix(in srgb, var(--vsc-editor-background, var(--vsc-editor-background)) 88%, white 2%);
       border-radius: 12px;
-      box-shadow: 0 18px 48px rgba(0, 0, 0, 0.16);
+      box-shadow: 0 18px 48px var(--vsc-shadow-soft);
       overflow: hidden;
     }
 
@@ -187,7 +187,7 @@ const GLYPH_ROWS = [
       font-weight: 700;
       letter-spacing: 0.16em;
       text-transform: uppercase;
-      color: var(--vsc-foreground, #ccc);
+      color: var(--vsc-foreground, var(--vsc-foreground));
       opacity: 0.72;
     }
 
@@ -195,14 +195,14 @@ const GLYPH_ROWS = [
       line-height: 1.08;
       letter-spacing: -0.03em;
       word-break: break-word;
-      color: var(--vsc-foreground, #ccc);
+      color: var(--vsc-foreground, var(--vsc-foreground));
     }
 
     .hero-caption,
     .sheet-sub {
       font-size: 12px;
       line-height: 1.5;
-      color: color-mix(in srgb, var(--vsc-foreground, #ccc) 70%, transparent);
+      color: color-mix(in srgb, var(--vsc-foreground, var(--vsc-foreground)) 70%, transparent);
     }
 
     .font-sheet {
@@ -220,8 +220,8 @@ const GLYPH_ROWS = [
     }
 
     .glyph-row {
-      border: 1px solid color-mix(in srgb, var(--vsc-border, #454545) 55%, transparent);
-      background: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 78%, white 3%);
+      border: 1px solid color-mix(in srgb, var(--vsc-border, var(--vsc-border)) 55%, transparent);
+      background: color-mix(in srgb, var(--vsc-editor-background, var(--vsc-editor-background)) 78%, white 3%);
       border-radius: 10px;
       padding: 12px 14px;
       overflow: hidden;
@@ -232,7 +232,7 @@ const GLYPH_ROWS = [
       line-height: 1.25;
       white-space: normal;
       overflow-wrap: anywhere;
-      color: var(--vsc-foreground, #ccc);
+      color: var(--vsc-foreground, var(--vsc-foreground));
     }
 
     .font-meta {
@@ -255,7 +255,7 @@ const GLYPH_ROWS = [
     }
 
     .meta-label {
-      color: color-mix(in srgb, var(--vsc-foreground, #ccc) 60%, transparent);
+      color: color-mix(in srgb, var(--vsc-foreground, var(--vsc-foreground)) 60%, transparent);
       text-transform: uppercase;
       letter-spacing: 0.08em;
       font-size: 10px;
@@ -264,7 +264,7 @@ const GLYPH_ROWS = [
     }
 
     .meta-value {
-      color: var(--vsc-foreground, #ccc);
+      color: var(--vsc-foreground, var(--vsc-foreground));
       word-break: break-word;
       line-height: 1.45;
     }

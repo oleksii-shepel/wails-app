@@ -27,7 +27,7 @@
   border-radius: var(--vsc-border-radius);
   background: var(--vsc-editor-background);
   color: var(--vsc-foreground);
-  box-shadow: var(--vsc-widget-shadow), 0 24px 56px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--vsc-widget-shadow), 0 24px 56px var(--vsc-scrim);
   animation: slideDown 0.28s cubic-bezier(0.16, 1, 0.3, 1);
 }
 

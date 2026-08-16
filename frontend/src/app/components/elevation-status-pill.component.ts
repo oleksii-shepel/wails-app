@@ -73,15 +73,15 @@ type PillState = 'idle' | 'starting' | 'active' | 'stopping' | 'error';
       overflow: hidden;
       height: calc(var(--vsc-statusbar-height, 22px) - 4px);
       padding: 0 8px;
-      border: 1px solid rgba(255, 255, 255, 0.08);
+      border: 1px solid var(--vsc-neutral-overlay-soft);
       border-radius: 3px;
       cursor: pointer;
       font-size: 11px;
       font-family: var(--vsc-font-family, inherit);
       transition: background 150ms ease, color 150ms ease, box-shadow 150ms ease, transform 120ms ease;
-      background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02));
-      color: var(--vsc-statusbar-foreground, #ffffff);
-      box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+      background: linear-gradient(180deg, var(--vsc-neutral-overlay-soft), var(--vsc-neutral-overlay-subtle));
+      color: var(--vsc-statusbar-foreground, var(--vsc-on-accent));
+      box-shadow: inset 0 1px 0 var(--vsc-neutral-overlay-subtle);
     }
     .elev-pill::after {
       content: "";
@@ -90,7 +90,7 @@ type PillState = 'idle' | 'starting' | 'active' | 'stopping' | 'error';
       border-radius: inherit;
       pointer-events: none;
       opacity: 0;
-      background: linear-gradient(110deg, transparent 0%, rgba(255,255,255,0.08) 45%, rgba(255,255,255,0.45) 50%, rgba(255,255,255,0.08) 55%, transparent 100%);
+      background: linear-gradient(110deg, transparent 0%, var(--vsc-neutral-overlay-soft) 45%, var(--vsc-media-control-muted) 50%, var(--vsc-neutral-overlay-soft) 55%, transparent 100%);
       transform: translateX(-120%);
       z-index: 0;
     }
@@ -100,7 +100,7 @@ type PillState = 'idle' | 'starting' | 'active' | 'stopping' | 'error';
     }
 
     .elev-pill:hover:not([disabled]) {
-      background: linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0.04));
+      background: linear-gradient(180deg, var(--vsc-neutral-overlay-medium), var(--vsc-neutral-overlay-subtle));
       transform: translateY(-0.5px);
     }
 
@@ -109,27 +109,27 @@ type PillState = 'idle' | 'starting' | 'active' | 'stopping' | 'error';
     /* State colours */
     .elev-pill.active {
       background:
-        radial-gradient(120% 130% at 20% 10%, rgba(130, 219, 255, 0.3), transparent 45%),
-        linear-gradient(135deg, #0e639c 0%, #007acc 55%, #0e639c 100%);
-      color: var(--vsc-list-active-foreground, #fff);
-      border-color: rgba(130, 219, 255, 0.45);
-      box-shadow: 0 0 0 1px rgba(130, 219, 255, 0.2), 0 0 12px rgba(0, 122, 204, 0.45);
+        radial-gradient(120% 130% at 20% 10%, var(--vsc-accent-selection), transparent 45%),
+        linear-gradient(135deg, var(--vsc-button-background) 0%, var(--vsc-accent-blue) 55%, var(--vsc-button-background) 100%);
+      color: var(--vsc-list-active-foreground, var(--vsc-on-accent));
+      border-color: var(--vsc-accent-border);
+      box-shadow: 0 0 0 1px var(--vsc-accent-selection), 0 0 12px var(--vsc-accent-border);
     }
     @keyframes blink-op {
       0%, 10%, 33%, 56%, 79%, 100% {
         background:
-          radial-gradient(120% 130% at 20% 10%, rgba(130, 219, 255, 0.35), transparent 45%),
-          linear-gradient(135deg, #0e639c 0%, #007acc 55%, #0e639c 100%);
-        color: var(--vsc-list-active-foreground, #fff);
-        box-shadow: 0 0 0 1px rgba(130, 219, 255, 0.25), 0 0 12px rgba(0, 122, 204, 0.45);
+          radial-gradient(120% 130% at 20% 10%, var(--vsc-accent-border), transparent 45%),
+          linear-gradient(135deg, var(--vsc-button-background) 0%, var(--vsc-accent-blue) 55%, var(--vsc-button-background) 100%);
+        color: var(--vsc-list-active-foreground, var(--vsc-on-accent));
+        box-shadow: 0 0 0 1px var(--vsc-accent-selection), 0 0 12px var(--vsc-accent-border);
         transform: translateY(0) scale(1);
       }
       22%, 45%, 68% {
         background:
-          radial-gradient(120% 130% at 20% 10%, rgba(255, 210, 120, 0.42), transparent 45%),
-          linear-gradient(135deg, #c5863a 0%, #d7ba7d 55%, #c5863a 100%);
-        color: #1a1a1a;
-        box-shadow: 0 0 0 1px rgba(255, 210, 120, 0.4), 0 0 16px rgba(213, 186, 125, 0.7);
+          radial-gradient(120% 130% at 20% 10%, var(--vsc-warning-border), transparent 45%),
+          linear-gradient(135deg, var(--vsc-accent-orange) 0%, var(--vsc-accent-yellow) 55%, var(--vsc-accent-orange) 100%);
+        color: var(--vsc-media-background);
+        box-shadow: 0 0 0 1px var(--vsc-warning-border), 0 0 16px var(--vsc-warning-border);
         transform: translateY(-0.5px) scale(1.02);
       }
     }
@@ -150,8 +150,8 @@ type PillState = 'idle' | 'starting' | 'active' | 'stopping' | 'error';
       animation: blink-sweep 900ms ease-out 1;
     }
     .elev-pill.error {
-      background: var(--vsc-input-validation-error-background, #5a1d1d);
-      color: var(--vsc-error-foreground, #f48771);
+      background: var(--vsc-input-validation-error-background, var(--vsc-danger-surface));
+      color: var(--vsc-error-foreground, var(--vsc-error));
     }
     .elev-pill.starting, .elev-pill.stopping {
       opacity: 0.75;
@@ -159,14 +159,14 @@ type PillState = 'idle' | 'starting' | 'active' | 'stopping' | 'error';
 
     /* Flash animations */
     @keyframes flash-ok {
-      0%   { background: var(--vsc-charts-yellow, #dcdcaa); color: #111; }
-      25%  { background: var(--vsc-charts-orange, #ce9178); color: #111; }
-      50%  { background: var(--vsc-charts-yellow, #dcdcaa); color: #111; }
-      75%  { background: var(--vsc-charts-orange, #ce9178); color: #111; }
-      100% { background: var(--vsc-badge-background, #0e639c); color: var(--vsc-list-active-foreground, #fff); }
+      0%   { background: var(--vsc-charts-yellow, var(--vsc-accent-yellow)); color: var(--vsc-media-foreground-strong); }
+      25%  { background: var(--vsc-charts-orange, var(--vsc-chart-6)); color: var(--vsc-media-foreground-strong); }
+      50%  { background: var(--vsc-charts-yellow, var(--vsc-accent-yellow)); color: var(--vsc-media-foreground-strong); }
+      75%  { background: var(--vsc-charts-orange, var(--vsc-chart-6)); color: var(--vsc-media-foreground-strong); }
+      100% { background: var(--vsc-badge-background, var(--vsc-button-background)); color: var(--vsc-list-active-foreground, var(--vsc-on-accent)); }
     }
     @keyframes flash-err {
-      0%   { background: var(--vsc-charts-red, #f44747); }
+      0%   { background: var(--vsc-charts-red, var(--vsc-error)); }
       100% { background: transparent; }
     }
     .elev-pill.flash-ok { animation: flash-ok 1.5s ease-in-out; }

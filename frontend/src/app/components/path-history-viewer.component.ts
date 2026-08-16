@@ -144,7 +144,7 @@ import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directi
       max-height: 80vh;
       display: flex;
       flex-direction: column;
-      box-shadow: var(--vsc-widget-shadow), 0 24px 56px rgba(0, 0, 0, 0.45);
+      box-shadow: var(--vsc-widget-shadow), 0 24px 56px var(--vsc-scrim);
       animation: slideDown 0.28s cubic-bezier(0.16, 1, 0.3, 1);
       color: var(--vsc-foreground);
       overflow: hidden;
@@ -241,7 +241,7 @@ import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directi
       background: var(--vsc-error);
       border: 1px solid transparent;
       border-radius: var(--vsc-border-radius-sm);
-      color: white;
+      color: var(--vsc-on-accent);
       cursor: pointer;
       font-size: var(--vsc-font-size-small);
       transition: all var(--vsc-transition-fast);
@@ -389,7 +389,7 @@ import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directi
 
     .btn-remove:hover {
       background: var(--vsc-error);
-      color: white;
+      color: var(--vsc-on-accent);
     }
 
     .btn-remove:focus-visible {

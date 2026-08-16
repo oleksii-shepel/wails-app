@@ -77,7 +77,7 @@ interface TabDragPayload {
 
     /* Amber bottom border when browsing inside an archive */
     .tab-bar-container.in-archive {
-      border-bottom-color: rgba(255, 179, 71, 0.45);
+      border-bottom-color: var(--vsc-warning-border);
     }
 
     .tabs-scroll-viewport {

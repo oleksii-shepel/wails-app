@@ -104,8 +104,8 @@ type OfficeViewerKind = 'empty' | 'loading' | 'pdf' | 'error' | 'unavailable' | 
       align-items: center;
       gap: 10px;
       padding: 10px 12px;
-      border-bottom: 1px solid var(--vsc-border, #333);
-      background: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 92%, #000);
+      border-bottom: 1px solid var(--vsc-border, var(--vsc-activitybar-background));
+      background: color-mix(in srgb, var(--vsc-editor-background, var(--vsc-editor-background)) 92%, var(--vsc-media-canvas-background));
     }
     .header-main { display: flex; align-items: center; gap: 10px; min-width: 0; }
     .file-icon { font-size: 18px; opacity: 0.9; }
@@ -131,27 +131,27 @@ type OfficeViewerKind = 'empty' | 'loading' | 'pdf' | 'error' | 'unavailable' | 
       letter-spacing: 0.3px;
     }
     .archive-badge {
-      background: color-mix(in srgb, var(--vsc-accent-orange, #d4a000) 20%, transparent);
+      background: color-mix(in srgb, var(--vsc-accent-orange, var(--vsc-warning)) 20%, transparent);
       color: var(--vsc-accent-orange, var(--vsc-warning));
-      border: 1px solid color-mix(in srgb, var(--vsc-accent-orange, #d4a000) 40%, transparent);
+      border: 1px solid color-mix(in srgb, var(--vsc-accent-orange, var(--vsc-warning)) 40%, transparent);
     }
     .type-badge {
-      background: color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 20%, transparent);
-      color: var(--vsc-accent-blue, #4da8ff);
-      border: 1px solid color-mix(in srgb, var(--vsc-accent-blue, #0078d4) 40%, transparent);
+      background: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 20%, transparent);
+      color: var(--vsc-accent-blue, var(--vsc-focus-ring));
+      border: 1px solid color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 40%, transparent);
     }
     .format-badge {
-      background: color-mix(in srgb, var(--vsc-accent-green, #107c10) 18%, transparent);
-      color: color-mix(in srgb, var(--vsc-accent-green, #107c10) 78%, white);
-      border: 1px solid color-mix(in srgb, var(--vsc-accent-green, #107c10) 40%, transparent);
+      background: color-mix(in srgb, var(--vsc-accent-green, var(--vsc-success)) 18%, transparent);
+      color: color-mix(in srgb, var(--vsc-accent-green, var(--vsc-success)) 78%, white);
+      border: 1px solid color-mix(in srgb, var(--vsc-accent-green, var(--vsc-success)) 40%, transparent);
     }
     .conversion-status {
       display: flex;
       align-items: center;
       gap: 8px;
       padding: 8px 12px;
-      background: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 96%, #000);
-      color: var(--vsc-foreground, #ccc);
+      background: color-mix(in srgb, var(--vsc-editor-background, var(--vsc-editor-background)) 96%, var(--vsc-media-canvas-background));
+      color: var(--vsc-foreground, var(--vsc-foreground));
       flex-shrink: 0;
     }
     .conversion-status-activity {
@@ -163,15 +163,15 @@ type OfficeViewerKind = 'empty' | 'loading' | 'pdf' | 'error' | 'unavailable' | 
       flex-shrink: 0;
       border-radius: 999px;
       background: color-mix(in srgb, var(--vsc-success) 14%, transparent);
-      border: 1px solid color-mix(in srgb, var(--vsc-success) 35%, var(--vsc-border, #444));
+      border: 1px solid color-mix(in srgb, var(--vsc-success) 35%, var(--vsc-border, var(--vsc-border)));
     }
     .conversion-status-activity-dot {
       width: 8px;
       height: 8px;
       border-radius: 999px;
       background: var(--vsc-success);
-      border: 1px solid rgba(255, 255, 255, 0.35);
-      box-shadow: 0 0 0 0 rgba(43, 178, 76, 0.45);
+      border: 1px solid var(--vsc-neutral-overlay-strong);
+      box-shadow: 0 0 0 0 var(--vsc-success-border);
       animation: office-pulse-green 1.3s ease-out infinite;
     }
     .conversion-status-elapsed {
@@ -193,7 +193,7 @@ type OfficeViewerKind = 'empty' | 'loading' | 'pdf' | 'error' | 'unavailable' | 
       align-items: center;
       justify-content: center;
       gap: 10px;
-      color: var(--vsc-foreground, #ccc);
+      color: var(--vsc-foreground, var(--vsc-foreground));
       padding: 20px;
       text-align: center;
     }
@@ -202,23 +202,23 @@ type OfficeViewerKind = 'empty' | 'loading' | 'pdf' | 'error' | 'unavailable' | 
     .state-sub { font-size: 12px; opacity: 0.7; margin-top: 5px; line-height: 1.5; }
     .state-sub ul { list-style: inside; margin-top: 10px; font-size: 11px; }
     .state-sub li { margin: 5px 0; }
-    .state-sub a { color: var(--vsc-accent-blue, #0078d4); text-decoration: none; }
+    .state-sub a { color: var(--vsc-accent-blue, var(--vsc-accent-blue)); text-decoration: none; }
     .state-sub a:hover { text-decoration: underline; }
-    .state-sub code { background: color-mix(in srgb, var(--vsc-editor-background, #1e1e1e) 80%, #fff); padding: 2px 4px; border-radius: 3px; font-family: monospace; font-size: 10px; }
-    .error-detail { color: var(--vsc-errorForeground, #f48771); font-size: 12px; margin-top: 5px; }
-    .state-error .state-label { color: var(--vsc-errorForeground, #f48771); }
+    .state-sub code { background: color-mix(in srgb, var(--vsc-editor-background, var(--vsc-editor-background)) 80%, var(--vsc-on-accent)); padding: 2px 4px; border-radius: 3px; font-family: monospace; font-size: 10px; }
+    .error-detail { color: var(--vsc-errorForeground, var(--vsc-error)); font-size: 12px; margin-top: 5px; }
+    .state-error .state-label { color: var(--vsc-errorForeground, var(--vsc-error)); }
     .spinner {
       width: 32px;
       height: 32px;
-      border: 3px solid var(--vsc-border, #444);
-      border-top: 3px solid var(--vsc-accent-blue, #0078d4);
+      border: 3px solid var(--vsc-border, var(--vsc-border));
+      border-top: 3px solid var(--vsc-accent-blue, var(--vsc-accent-blue));
       border-radius: 50%;
       animation: spin 0.8s linear infinite;
     }
     @keyframes office-pulse-green {
-      0% { box-shadow: 0 0 0 0 rgba(43, 178, 76, 0.45); }
-      70% { box-shadow: 0 0 0 8px rgba(43, 178, 76, 0); }
-      100% { box-shadow: 0 0 0 0 rgba(43, 178, 76, 0); }
+      0% { box-shadow: 0 0 0 0 var(--vsc-success-border); }
+      70% { box-shadow: 0 0 0 8px transparent; }
+      100% { box-shadow: 0 0 0 0 transparent; }
     }
     @keyframes spin { to { transform: rotate(360deg); } }
   `],

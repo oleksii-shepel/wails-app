@@ -26,6 +26,12 @@ export function ArchiveRead(arg1:string,arg2:Array<string>,arg3:string,arg4:stri
 
 export function ArchiveReadStream(arg1:string,arg2:Array<string>,arg3:string,arg4:number):Promise<string>;
 
+export function AutorunDelete(arg1:string):Promise<void>;
+
+export function AutorunList():Promise<Array<contracts.AutorunEntry>>;
+
+export function AutorunSetEnabled(arg1:string,arg2:boolean):Promise<void>;
+
 export function BatchCopy(arg1:contracts.BatchRequest):Promise<contracts.BatchResult>;
 
 export function BatchDelete(arg1:contracts.BatchDeleteRequest):Promise<contracts.BatchResult>;
@@ -253,6 +259,8 @@ export function RemoteConnectOAuth(arg1:contracts.RemoteOAuthConnectRequest):Pro
 export function RemoteDisconnect(arg1:string):Promise<void>;
 
 export function RemoteListConnections():Promise<Array<contracts.RemoteMount>>;
+
+export function RemoteListProviders():Promise<Array<contracts.RemoteProviderDescriptor>>;
 
 export function RemoteOAuthBegin(arg1:contracts.RemoteOAuthBeginRequest):Promise<contracts.RemoteOAuthBeginResponse>;
 

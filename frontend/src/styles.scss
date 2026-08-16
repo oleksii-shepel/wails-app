@@ -6,15 +6,21 @@
 }
 
 :root {
-  --op-blue: #3b82f6;
-  --op-purple: #8b5cf6;
+  --op-blue: var(--vsc-chart-1);
+  --op-purple: var(--vsc-chart-4);
   --op-red: var(--vsc-error);
-  --op-orange: #f97316;
-  --op-green: #10b981;
-  --op-cyan: #06b6d4;
-  --op-teal: #14b8a6;
-  --op-indigo: #6366f1;
-  --op-gray: #6b7280;
+  --op-orange: var(--vsc-chart-6);
+  --op-green: var(--vsc-chart-5);
+  --op-cyan: var(--vsc-chart-7);
+  --op-teal: var(--vsc-chart-2);
+  --op-indigo: var(--vsc-accent-purple);
+  --op-gray: var(--vsc-foreground-dim);
+  --border-color: var(--vsc-border);
+  --panel-bg: var(--vsc-panel-background);
+  --font-mono: var(--vsc-font-family-mono);
+  --vsc-bg: var(--vsc-editor-background);
+  --vsc-fg: var(--vsc-foreground);
+  --vsc-button-bg: var(--vsc-button-background);
 }
 
 html, body {

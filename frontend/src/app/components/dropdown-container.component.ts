@@ -49,7 +49,7 @@ import { NativeOverlayFreezeService } from '../services/native-overlay-freeze.se
       left: 0;
       width: 100vw;
       height: 100vh;
-      background-color: rgba(0, 0, 0, 0.4);
+      background-color: var(--vsc-scrim);
       z-index: calc(var(--vsc-z-dropdown) - 1);
       cursor: default;
     }

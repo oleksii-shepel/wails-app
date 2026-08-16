@@ -127,8 +127,8 @@ function toEditorDriveDisplay(path: string): string {
       gap: var(--vsc-padding-sm, 4px);
       height: var(--vsc-titlebar-height, 35px);
       padding: 0 var(--vsc-padding-sm, 4px) 0 var(--vsc-padding-md, 8px);
-      background: var(--vsc-input-background, #3c3c3c);
-      border: 1px solid var(--vsc-input-border, #3c3c3c);
+      background: var(--vsc-input-background, var(--vsc-control-background));
+      border: 1px solid var(--vsc-input-border, var(--vsc-control-background));
       border-radius: var(--vsc-border-radius, 3px);
       box-sizing: border-box;
       width: 100%;
@@ -137,8 +137,8 @@ function toEditorDriveDisplay(path: string): string {
         box-shadow   var(--vsc-transition-fast, 80ms ease);
 
       &:focus-within {
-        border-color: var(--vsc-input-focus-border, #007acc);
-        box-shadow: 0 0 0 1px color-mix(in srgb, var(--vsc-input-focus-border, #007acc) 30%, transparent);
+        border-color: var(--vsc-input-focus-border, var(--vsc-accent-blue));
+        box-shadow: 0 0 0 1px color-mix(in srgb, var(--vsc-input-focus-border, var(--vsc-accent-blue)) 30%, transparent);
       }
     }
 
@@ -147,11 +147,11 @@ function toEditorDriveDisplay(path: string): string {
     .ab-edit.ab-edit--open {
       border-bottom-left-radius: 0;
       border-bottom-right-radius: 0;
-      border-bottom-color: var(--vsc-panel-background, #252526);
+      border-bottom-color: var(--vsc-panel-background, var(--vsc-panel-background));
     }
 
     .ab-edit.ab-edit--open:focus-within {
-      border-bottom-color: var(--vsc-input-focus-border, #007acc);
+      border-bottom-color: var(--vsc-input-focus-border, var(--vsc-accent-blue));
     }
 
     /* Folder icon */
@@ -170,15 +170,15 @@ function toEditorDriveDisplay(path: string): string {
       background: transparent;
       border: none;
       outline: none;
-      color: var(--vsc-input-foreground, #cccccc);
+      color: var(--vsc-input-foreground, var(--vsc-foreground));
       font-family: var(--vsc-font-family-mono, Consolas, monospace);
       font-size: var(--vsc-font-size, 13px);
-      caret-color: var(--vsc-input-focus-border, #007acc);
+      caret-color: var(--vsc-input-focus-border, var(--vsc-accent-blue));
       padding: 0;
       line-height: 1;
 
       &::placeholder {
-        color: var(--vsc-input-placeholder, #767676);
+        color: var(--vsc-input-placeholder, var(--vsc-input-placeholder));
         opacity: 1;
         font-family: var(--vsc-font-family, sans-serif);
         font-size: var(--vsc-font-size-small, 12px);
@@ -198,14 +198,14 @@ function toEditorDriveDisplay(path: string): string {
       border: none;
       border-radius: var(--vsc-border-radius-sm, 2px);
       cursor: pointer;
-      color: var(--vsc-foreground-dim, #888888);
+      color: var(--vsc-foreground-dim, var(--vsc-foreground-dim));
       transition:
         background var(--vsc-transition-fast, 80ms ease),
         color      var(--vsc-transition-fast, 80ms ease);
 
       &:hover {
-        background: var(--vsc-error, #f48771);
-        color: var(--vsc-foreground-bright, #ffffff);
+        background: var(--vsc-error, var(--vsc-error));
+        color: var(--vsc-foreground-bright, var(--vsc-on-accent));
       }
     }
 
@@ -215,8 +215,8 @@ function toEditorDriveDisplay(path: string): string {
       left: 0;
       right: 0;
       top: calc(100% - 1px); /* overlap the dissolved bottom border */
-      background: var(--vsc-panel-background, #252526);
-      border: 1px solid var(--vsc-input-border, #3c3c3c);
+      background: var(--vsc-panel-background, var(--vsc-panel-background));
+      border: 1px solid var(--vsc-input-border, var(--vsc-control-background));
       border-top: none;
       border-bottom-left-radius:  var(--vsc-border-radius, 3px);
       border-bottom-right-radius: var(--vsc-border-radius, 3px);
@@ -227,7 +227,7 @@ function toEditorDriveDisplay(path: string): string {
 
     /* Inherit focus ring colour on the dropdown border */
     .ab-wrap:focus-within .ab-dropdown {
-      border-color: var(--vsc-input-focus-border, #007acc);
+      border-color: var(--vsc-input-focus-border, var(--vsc-accent-blue));
     }
 
     /* Scroll area */
@@ -273,11 +273,11 @@ function toEditorDriveDisplay(path: string): string {
         border-color   var(--vsc-transition-fast, 80ms ease);
 
       &:hover {
-        background: var(--vsc-list-hover-background, #2a2d2e);
+        background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
       }
 
       &.ab-item--focused {
-        border-left-color: var(--vsc-accent-blue, #007acc);
+        border-left-color: var(--vsc-accent-blue, var(--vsc-accent-blue));
         font-weight: 600;
       }
     }
@@ -298,7 +298,7 @@ function toEditorDriveDisplay(path: string): string {
       min-width: 0;
       font-family: var(--vsc-font-family-mono, Consolas, monospace);
       font-size: var(--vsc-font-size, 13px);
-      color: var(--vsc-foreground, #cccccc);
+      color: var(--vsc-foreground, var(--vsc-foreground));
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -306,14 +306,14 @@ function toEditorDriveDisplay(path: string): string {
 
     /* Match highlight — blue tint, no yellow */
     :host ::ng-deep .ab-item-path .ab-ac-match {
-      background: color-mix(in srgb, var(--vsc-accent-blue, #007acc) 18%, transparent);
-      color: color-mix(in srgb, var(--vsc-accent-blue, #007acc) 70%, var(--vsc-foreground, #cccccc));
+      background: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 18%, transparent);
+      color: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 70%, var(--vsc-foreground, var(--vsc-foreground)));
       font-weight: 700;
       border-radius: 2px;
       padding: 0 1px;
       @supports not (background: color-mix(in srgb, red 1%, blue)) {
-        background: var(--vsc-list-focus-background, #062f4a);
-        color: var(--vsc-accent-blue, #007acc);
+        background: var(--vsc-list-focus-background, var(--vsc-list-selected-emphasis));
+        color: var(--vsc-accent-blue, var(--vsc-accent-blue));
       }
     }
   `],

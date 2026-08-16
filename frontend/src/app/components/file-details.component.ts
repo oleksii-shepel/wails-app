@@ -281,7 +281,7 @@ interface DetailsRowVm {
         }
 
         &.drag-over {
-          background-color: var(--vsc-list-drop-background, rgba(0, 120, 212, 0.2));
+          background-color: var(--vsc-list-drop-background, var(--vsc-accent-selection));
           outline: 1px dashed var(--vsc-focus-border);
           outline-offset: -1px;
         }
@@ -293,7 +293,7 @@ interface DetailsRowVm {
       left: 0;
       right: 0;
       height: 3px;
-      background-color: var(--vsc-focus-border, #0078d4);
+      background-color: var(--vsc-focus-border, var(--vsc-accent-blue));
       pointer-events: none;
       z-index: 10;
     }

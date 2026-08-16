@@ -49,3 +49,19 @@ Disabled controls are not communicated by opacity alone; they get explicit disab
 ## Component rule
 
 Before adding a new literal color, ask whether it describes a semantic role already represented by a token. Literal colors are appropriate for content visualization (charts, media, syntax samples) but generally not for window chrome, dialog surfaces, controls, menus, actions or status text.
+
+## Repository-wide invariant
+
+Every visual component is theme-owned, including viewers, diagrams, badges, native-looking controls, document canvases, plugin surfaces, and media controls.
+
+Raw `#hex`, `rgb()/rgba()`, `hsl()/hsla()`, and named presentation colors such as `white` or `black` belong only in `frontend/src/vscode-theme.scss`. Components may not embed them directly. Content-specific visuals use semantic families such as `--vsc-chart-*`, `--vsc-media-*`, and `--vsc-document-canvas-*` rather than opting out of theming.
+
+Canvas code cannot use CSS `var(...)` strings directly. It must resolve the desired theme token with `getComputedStyle()` before assigning `fillStyle`, `strokeStyle`, or related Canvas properties.
+
+Run the invariant check with:
+
+```bash
+npm run audit:theme
+```
+
+The audit also rejects unresolved non-local theme variables, preventing a component from silently falling back to browser defaults.

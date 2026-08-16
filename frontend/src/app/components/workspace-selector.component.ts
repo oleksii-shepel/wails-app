@@ -211,7 +211,7 @@ import { InputEngineService } from '../services/input-engine.service';
       border: 1px solid transparent;
       border-radius: var(--vsc-border-radius-sm);
       background: var(--vsc-button-secondary);
-      color: var(--vsc-foreground);
+      color: var(--vsc-button-secondary-foreground);
       cursor: pointer;
       font-size: var(--vsc-font-size-small);
       font-family: var(--vsc-font-family);
@@ -224,7 +224,7 @@ import { InputEngineService } from '../services/input-engine.service';
       &.ws-footer-btn--danger {
         background: var(--vsc-error);
         color: var(--vsc-foreground-bright);
-        &:hover { background: #d32f2f; }
+        &:hover { background: var(--vsc-button-danger-background); }
       }
     }
   `]

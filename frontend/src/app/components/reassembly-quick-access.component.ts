@@ -131,11 +131,11 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   `,
   styles: [`
     :host{position:fixed;inset:0;z-index:9460;pointer-events:none}
-    .backdrop{position:fixed;inset:0;display:grid;place-items:start center;padding-top:min(10vh,90px);background:rgba(0,0,0,.23);pointer-events:auto}
+    .backdrop{position:fixed;inset:0;display:grid;place-items:start center;padding-top:min(10vh,90px);background: var(--vsc-scrim-soft);pointer-events:auto}
     .quick{box-sizing:border-box;display:flex;flex-direction:column;width:min(720px,calc(100vw - 24px));max-height:min(680px,calc(100vh - 40px));overflow:hidden;border:1px solid var(--vsc-border,#454545);border-radius:8px;background:var(--vsc-menu-background,#252526);color:var(--vsc-foreground,#cccccc);box-shadow:0 18px 60px rgba(0,0,0,.48);font:12px/1.4 var(--vsc-font-family,system-ui,sans-serif)}
     header,footer{display:flex;align-items:center;gap:9px;padding:9px 10px} header{justify-content:space-between;border-bottom:1px solid var(--vsc-border-subtle,#2b2b2b)} header>div{display:flex;gap:8px;align-items:baseline}
     header span,.meta,.keys,footer>span,small{color:var(--vsc-description-foreground,#969696)}
-    input{box-sizing:border-box;width:min(300px,42vw);height:28px;padding:0 8px;border:1px solid var(--vsc-border,#454545);border-radius:4px;outline:none;background:var(--vsc-input-background,#181818);color:inherit;font:inherit} input:focus{border-color:var(--vsc-focus-border,#007fd4)}
+    input{box-sizing:border-box;width:min(300px,42vw);height:28px;padding:0 8px;border:1px solid var(--vsc-border,#454545);border-radius:4px;outline:none;background:var(--vsc-input-background,#181818);color:inherit;font:inherit} input:focus{border-color:var(--vsc-focus-border,var(--vsc-accent-blue))}
     .sections{display:flex;gap:2px;padding:5px;overflow-x:auto;border-bottom:1px solid var(--vsc-border-subtle,#2b2b2b)}
     .sections button,footer button{min-height:27px;padding:3px 8px;border:1px solid transparent;border-radius:4px;background:transparent;color:inherit;cursor:pointer;font:inherit}
     .sections button{color:var(--vsc-description-foreground,#969696)} .sections button.active{background:var(--vsc-list-hover-background,#2a2d2e);color:var(--vsc-foreground,#cccccc);border-color:var(--vsc-border,#454545)} .sections span{margin-left:5px;opacity:.6;font-size:10px}

@@ -539,7 +539,7 @@ import { DropdownContainerComponent } from './dropdown-container.component';
       &.ab-seg--archive-root {
         background: color-mix(in srgb, var(--vsc-accent-orange) 18%, transparent);
         border: 1px solid rgba(255, 140, 0, 0.35);
-        color: #ffb347;
+        color: var(--vsc-accent-orange);
         gap: 4px;
         
         .ab-seg-archive-icon { 
@@ -561,13 +561,13 @@ import { DropdownContainerComponent } from './dropdown-container.component';
 
       /* REGULAR FOLDER INSIDE ARCHIVE (not an archive file) */
       &.ab-seg--archive-inner:not(.ab-seg--archive-root) {
-        color: color-mix(in srgb, #ffb347 80%, var(--vsc-foreground));
+        color: color-mix(in srgb, var(--vsc-accent-orange) 80%, var(--vsc-foreground));
         cursor: default;
         
         &.ab-seg--clickable { cursor: pointer; }
         &.ab-seg--clickable:hover { 
-          background: color-mix(in srgb, #ffb347 15%, transparent); 
-          color: #ffb347; 
+          background: color-mix(in srgb, var(--vsc-accent-orange) 15%, transparent); 
+          color: var(--vsc-accent-orange); 
         }
         &:not(.ab-seg--clickable):hover { background: transparent; }
       }
@@ -575,16 +575,16 @@ import { DropdownContainerComponent } from './dropdown-container.component';
 
     .ab-scheme {
       /* Softer scheme styling: lower opacity and subtler border */
-      background: color-mix(in srgb, #007fd4 12%, transparent);
+      background: color-mix(in srgb, var(--vsc-accent-blue) 12%, transparent);
       border: 1px solid rgba(0,127,212,0.25);
       border-radius: 4px;
       color: #6fb3db; /* slightly dimmer blue */
       font-family: var(--vsc-font-family-mono); font-weight: 600;
       padding: 0 var(--vsc-padding-lg) !important; margin-right: var(--vsc-padding-md) !important;
       cursor: pointer; transition: background 0.12s, border-color 0.12s, color 120ms;
-      &:hover { background: color-mix(in srgb, #007fd4 20%, transparent); border-color: rgba(0,127,212,0.38); }
-      &.ab-seg--last { background: color-mix(in srgb, #007fd4 10%, transparent); cursor: pointer; }
-      &.ab-scheme--open { background: color-mix(in srgb, #007fd4 22%, transparent); border-color: rgba(0,127,212,0.45); }
+      &:hover { background: color-mix(in srgb, var(--vsc-accent-blue) 20%, transparent); border-color: rgba(0,127,212,0.38); }
+      &.ab-seg--last { background: color-mix(in srgb, var(--vsc-accent-blue) 10%, transparent); cursor: pointer; }
+      &.ab-scheme--open { background: color-mix(in srgb, var(--vsc-accent-blue) 22%, transparent); border-color: rgba(0,127,212,0.45); }
       &.ab-scheme--synthetic {
         gap: 0;
         max-width: 180px;
@@ -636,12 +636,12 @@ import { DropdownContainerComponent } from './dropdown-container.component';
         
         &:hover { 
           background: transparent !important; 
-          color: #ffb347; 
+          color: var(--vsc-accent-orange); 
         }
         
         &.ab-chev--open { 
           transform: rotate(90deg); 
-          color: #ffb347; 
+          color: var(--vsc-accent-orange); 
           background: transparent !important; 
         }
       }

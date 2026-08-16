@@ -99,7 +99,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   `,
   styles: [`
     :host{position:fixed;inset:0;z-index:9520;pointer-events:none}
-    .backdrop{position:fixed;inset:0;display:grid;place-items:start center;padding-top:min(8vh,72px);background:rgba(0,0,0,.26);pointer-events:auto}
+    .backdrop{position:fixed;inset:0;display:grid;place-items:start center;padding-top:min(8vh,72px);background: var(--vsc-scrim-soft);pointer-events:auto}
     .palette{box-sizing:border-box;display:flex;flex-direction:column;width:min(760px,calc(100vw - 24px));height:min(620px,calc(100vh - 40px));overflow:hidden;border:1px solid var(--vsc-border,#454545);border-radius:8px;background:var(--vsc-menu-background,#252526);color:var(--vsc-foreground,#ccc);box-shadow:0 18px 62px rgba(0,0,0,.52);font:12px/1.4 var(--vsc-font-family,system-ui,sans-serif)}
     header,footer,.query{display:flex;align-items:center;gap:10px;padding:9px 11px;border-bottom:1px solid var(--vsc-border-subtle,#2b2b2b)}
     header{justify-content:space-between}header span,footer,.command small,.state{color:var(--vsc-description-foreground,#969696)}

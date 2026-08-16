@@ -1,4 +1,4 @@
-﻿import { CommonModule } from '@angular/common';
+import { CommonModule } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
@@ -303,7 +303,7 @@ interface AudioTagRow {
       --av-text-dim: color-mix(in srgb, var(--vsc-foreground, #cccccc) 36%, transparent);
       --av-accent: var(--vsc-button-background, #0e639c);
       --av-accent-foreground: var(--vsc-button-foreground, #ffffff);
-      --av-focus: var(--vsc-focusBorder, #007fd4);
+      --av-focus: var(--vsc-focusBorder, var(--vsc-accent-blue));
       --av-shadow: var(--vsc-widget-shadow, 0 5px 8px 0 rgba(0, 0, 0, 0.36));
       --av-button: var(--vsc-button-secondary, #3a3d41);
       --av-button-hover: var(--vsc-button-secondary-hover, #45494e);
@@ -579,7 +579,7 @@ interface AudioTagRow {
     }
 
     .state-error .state-label {
-      color: #ff7070;
+      color: var(--vsc-error);
       opacity: 1;
     }
 
@@ -735,7 +735,7 @@ interface AudioTagRow {
       width: 7px;
       height: 7px;
       border-radius: 50%;
-      background: rgba(255, 255, 255, 0.9);
+      background: color-mix(in srgb, var(--vsc-foreground) 30%, transparent);
     }
 
     /* needle */
@@ -762,7 +762,7 @@ interface AudioTagRow {
       width: 7px;
       height: 7px;
       border-radius: 50%;
-      background: rgba(255, 255, 255, 0.75);
+      background: color-mix(in srgb, var(--vsc-foreground) 30%, transparent);
       box-shadow: 0 0 6px rgba(255, 255, 255, 0.3);
     }
 

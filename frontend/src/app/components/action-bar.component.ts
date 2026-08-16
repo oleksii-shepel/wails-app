@@ -210,7 +210,7 @@ export type ViewMode = 'list' | 'grid' | 'tree' | 'details';
 
     .legacy-actions { display:flex; gap: var(--vsc-padding-sm); }
 
-    .btn-small { display:inline-flex; align-items:center; justify-content:center; gap: var(--vsc-padding-xs); padding: var(--vsc-padding-xs) var(--vsc-padding-sm); border:1px solid transparent; border-radius:var(--vsc-border-radius-sm); background:var(--vsc-button-secondary); color:var(--vsc-foreground); cursor:pointer; font-size:var(--vsc-font-size-small); font-family:var(--vsc-font-family); font-weight:500; height:22px; white-space:nowrap; line-height:1; opacity:0.94; transition: background-color var(--vsc-transition-fast), color var(--vsc-transition-fast), transform 80ms ease, opacity 120ms ease; }
+    .btn-small { display:inline-flex; align-items:center; justify-content:center; gap: var(--vsc-padding-xs); padding: var(--vsc-padding-xs) var(--vsc-padding-sm); border:1px solid transparent; border-radius:var(--vsc-border-radius-sm); background:var(--vsc-button-secondary); color:var(--vsc-button-secondary-foreground); cursor:pointer; font-size:var(--vsc-font-size-small); font-family:var(--vsc-font-family); font-weight:500; height:22px; white-space:nowrap; line-height:1; opacity:0.94; transition: background-color var(--vsc-transition-fast), color var(--vsc-transition-fast), transform 80ms ease, opacity 120ms ease; }
     .btn-small:hover:not(:disabled) { background:var(--vsc-button-secondary-hover); transform:translateY(-1px); opacity:1; }
     .btn-small:disabled { opacity:0.5; cursor:not-allowed; }
 

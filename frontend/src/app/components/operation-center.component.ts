@@ -84,7 +84,7 @@ type OperationCenterFilter = 'all' | 'active' | 'history' | 'failed';
     :host { position: relative; z-index: calc(var(--vsc-z-modal) + 2); }
     .operation-center-backdrop {
       position: fixed; inset: 0; z-index: calc(var(--vsc-z-modal) + 2);
-      background: rgba(0,0,0,.28); display: flex; justify-content: flex-end;
+      background: var(--vsc-scrim-soft); display: flex; justify-content: flex-end;
     }
     .operation-center {
       width: min(560px, 92vw); height: 100%; display: flex; flex-direction: column;
@@ -101,7 +101,7 @@ type OperationCenterFilter = 'all' | 'active' | 'history' | 'failed';
     .summary strong { font-size:18px; } .summary span { color:var(--vsc-foreground-dim); font-size:11px; }
     .filters { display:flex; gap:4px; padding:10px 14px; border-bottom:1px solid var(--vsc-border); }
     .filters button, .operation-actions button, .center-footer button {
-      border:1px solid transparent; border-radius:3px; background:var(--vsc-button-secondary); color:var(--vsc-foreground);
+      border:1px solid transparent; border-radius:3px; background:var(--vsc-button-secondary); color:var(--vsc-button-secondary-foreground);
       padding:4px 9px; font:inherit; font-size:12px; cursor:pointer;
     }
     .filters button:hover, .operation-actions button:hover, .center-footer button:hover:not(:disabled) { background:var(--vsc-button-secondary-hover); }

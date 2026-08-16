@@ -65,7 +65,7 @@ import { SelectionBasketEntry, SelectionBasketService } from '../services/select
   `,
   styles: [`
     :host { position:relative; z-index:calc(var(--vsc-z-modal) + 3); }
-    .basket-backdrop { position:fixed; inset:0; z-index:calc(var(--vsc-z-modal) + 3); background:rgba(0,0,0,.28); display:flex; justify-content:flex-end; }
+    .basket-backdrop { position:fixed; inset:0; z-index:calc(var(--vsc-z-modal) + 3); background: var(--vsc-scrim-soft); display:flex; justify-content:flex-end; }
     .basket-panel { width:min(600px,94vw); height:100%; display:flex; flex-direction:column; background:var(--vsc-panel-background); color:var(--vsc-foreground); border-left:1px solid var(--vsc-border-bright); box-shadow:var(--vsc-widget-shadow); }
     .basket-header { display:flex; align-items:center; justify-content:space-between; padding:18px 20px 14px; border-bottom:1px solid var(--vsc-border); }
     .basket-header h2 { margin:2px 0 0; font-size:20px; font-weight:600; }
@@ -78,7 +78,7 @@ import { SelectionBasketEntry, SelectionBasketService } from '../services/select
     .basket-summary div { display:flex; flex-direction:column; padding:12px 16px; background:var(--vsc-editor-background); }
     .basket-summary strong { font-size:18px; } .basket-summary span { color:var(--vsc-foreground-dim); font-size:11px; }
     .basket-actions { display:flex; flex-wrap:wrap; gap:6px; padding:10px 14px; border-bottom:1px solid var(--vsc-border); }
-    .basket-actions button,.basket-footer button { border:1px solid transparent; border-radius:3px; background:var(--vsc-button-secondary); color:var(--vsc-foreground); padding:5px 9px; font:inherit; font-size:12px; cursor:pointer; }
+    .basket-actions button,.basket-footer button { border:1px solid transparent; border-radius:3px; background:var(--vsc-button-secondary); color:var(--vsc-button-secondary-foreground); padding:5px 9px; font:inherit; font-size:12px; cursor:pointer; }
     .basket-actions button:hover:not(:disabled),.basket-footer button:hover:not(:disabled) { background:var(--vsc-button-secondary-hover); }
     .basket-actions button.danger:hover:not(:disabled) { background:color-mix(in srgb,var(--vsc-error) 30%,var(--vsc-button-secondary)); border-color:var(--vsc-error); }
     button:disabled { opacity:.42; cursor:default; }

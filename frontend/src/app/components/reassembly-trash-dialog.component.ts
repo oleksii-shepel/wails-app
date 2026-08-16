@@ -110,7 +110,7 @@ import { ReassemblyModalSurfaceDirective } from './reassembly-modal-surface.dire
       z-index: 1200;
       display: grid;
       place-items: center;
-      background: rgba(0, 0, 0, .48);
+      background: var(--vsc-scrim);
     }
 
     .dialog {

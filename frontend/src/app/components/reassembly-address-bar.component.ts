@@ -209,7 +209,7 @@ function editorBindings(paneId: string, contextId: string): readonly InputBindin
 
     .editor {
       grid-template-columns: 24px minmax(0, 1fr) 24px;
-      border-color: var(--vsc-focus-border, #007fd4);
+      border-color: var(--vsc-focus-border, var(--vsc-accent-blue));
     }
 
     .location-icon {

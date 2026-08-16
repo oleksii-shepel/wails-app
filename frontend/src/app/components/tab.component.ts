@@ -120,11 +120,11 @@ import { TabInfo } from "../shared/protocol-enhanced";
 
     /* Archive mode: amber top border */
     .tab.in-archive {
-      border-top-color: #ffb347 !important;
+      border-top-color: var(--vsc-accent-orange) !important;
     }
 
     .tab.in-archive.active {
-      border-top-color: #ffb347 !important;
+      border-top-color: var(--vsc-accent-orange) !important;
     }
 
     /* Icon */
@@ -136,7 +136,7 @@ import { TabInfo } from "../shared/protocol-enhanced";
     }
 
     .tab-icon--archive {
-      color: #ffb347;
+      color: var(--vsc-accent-orange);
       opacity: 1;
     }
 
@@ -160,9 +160,9 @@ import { TabInfo } from "../shared/protocol-enhanced";
       letter-spacing: 0.4px;
       padding: 1px 4px;
       border-radius: 3px;
-      background: color-mix(in srgb, #ffb347 22%, transparent);
+      background: color-mix(in srgb, var(--vsc-accent-orange) 22%, transparent);
       border: 1px solid rgba(255, 179, 71, 0.45);
-      color: #ffb347;
+      color: var(--vsc-accent-orange);
       line-height: 14px;
     }
 

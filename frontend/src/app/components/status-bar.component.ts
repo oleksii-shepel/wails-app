@@ -61,7 +61,7 @@ import { FileInfo, FileType } from '../shared/protocol';
       height: 100%;
       padding: 0 8px;
       font-size: 11px;
-      color: rgba(255,255,255,0.85);
+      color: color-mix(in srgb, var(--vsc-statusbar-foreground) 85%, transparent);
       font-family: var(--vsc-font-family, -apple-system, BlinkMacSystemFont, sans-serif);
     }
 
@@ -79,22 +79,22 @@ import { FileInfo, FileType } from '../shared/protocol';
     }
 
     .status-text {
-      color: rgba(255,255,255,0.9);
+      color: color-mix(in srgb, var(--vsc-statusbar-foreground) 90%, transparent);
       white-space: nowrap;
     }
 
     .status-selected {
       font-weight: 600;
-      color: #fff;
+      color: var(--vsc-statusbar-foreground);
     }
 
     .status-dim {
-      color: rgba(255,255,255,0.55);
+      color: color-mix(in srgb, var(--vsc-statusbar-foreground) 55%, transparent);
       white-space: nowrap;
     }
 
     .status-sep {
-      color: rgba(255,255,255,0.35);
+      color: color-mix(in srgb, var(--vsc-statusbar-foreground) 35%, transparent);
       margin: 0 1px;
     }
 
@@ -102,7 +102,7 @@ import { FileInfo, FileType } from '../shared/protocol';
       display: inline-block;
       width: 1px;
       height: 10px;
-      background: rgba(255,255,255,0.25);
+      background: color-mix(in srgb, var(--vsc-foreground) 25%, transparent);
       margin: 0 4px;
       vertical-align: middle;
     }

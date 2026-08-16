@@ -634,7 +634,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
       }
     }
     .divider:focus-visible{
-      outline:2px solid var(--vsc-focus-border,#007fd4);
+      outline:2px solid var(--vsc-focus-border,var(--vsc-accent-blue));
       outline-offset:-2px;
     }
     @container (max-width:760px){

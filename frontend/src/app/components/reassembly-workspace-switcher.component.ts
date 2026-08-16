@@ -363,7 +363,7 @@ interface WorkspaceSwitcherItem {
       display: grid;
       place-items: start center;
       padding-top: min(12vh, 110px);
-      background: rgba(0, 0, 0, .28);
+      background: var(--vsc-scrim-soft);
       pointer-events: auto;
     }
 
@@ -538,7 +538,7 @@ interface WorkspaceSwitcherItem {
       min-width: 0;
       height: 28px;
       padding: 3px 7px;
-      border: 1px solid var(--vsc-focus-border, #007fd4);
+      border: 1px solid var(--vsc-focus-border, var(--vsc-accent-blue));
       border-radius: 3px;
       outline: none;
       background: var(--vsc-input-background, #181818);

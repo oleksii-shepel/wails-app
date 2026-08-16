@@ -182,7 +182,7 @@ type PillState = 'idle' | 'starting' | 'active' | 'stopping' | 'error';
       padding: 0 3px;
       border-radius: 8px;
       font-size: 9px;
-      background: rgba(255,255,255,.25);
+      background: color-mix(in srgb, var(--vsc-foreground) 25%, transparent);
       line-height: 1;
     }
 

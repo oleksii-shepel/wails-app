@@ -135,7 +135,7 @@ import { createSubject } from '@epikodelabs/streamix';
       transition: border-color .15s;
     }
     
-    .toast.is-conflict { border-color: #e8a94d; padding: 0; }
+    .toast.is-conflict { border-color: var(--vsc-warning); padding: 0; }
 
     /* ── Ring ── */
     .ring-wrap {
@@ -159,7 +159,7 @@ import { createSubject } from '@epikodelabs/streamix';
 
     .ring-fg {
       fill: none;
-      stroke: var(--vsc-accent-blue, #007fd4);
+      stroke: var(--vsc-accent-blue);
       stroke-width: 2.5;
       stroke-linecap: round;
       stroke-dashoffset: 0;
@@ -234,7 +234,7 @@ import { createSubject } from '@epikodelabs/streamix';
 
     .progress-fill {
       height: 100%;
-      background: var(--vsc-accent-blue, #007fd4);
+      background: var(--vsc-accent-blue);
       transition: width .2s linear;
     }
 
@@ -268,14 +268,14 @@ import { createSubject } from '@epikodelabs/streamix';
       width: 16px;
       height: 16px;
       flex-shrink: 0;
-      color: #e8a94d;
+      color: var(--vsc-warning);
       margin-top: 1px;
     }
 
     .conflict-title {
       font-weight: 600;
       font-size: 12px;
-      color: #e8a94d;
+      color: var(--vsc-warning);
       line-height: 1.3;
     }
 
@@ -303,7 +303,7 @@ import { createSubject } from '@epikodelabs/streamix';
     }
 
     .file-side.dest .side-path,
-    .file-side.dest .side-dir { color: #e8a94d; opacity: .9; }
+    .file-side.dest .side-dir { color: var(--vsc-warning); opacity: .9; }
 
     .side-label {
       font-size: 10px;
@@ -342,7 +342,7 @@ import { createSubject } from '@epikodelabs/streamix';
 
     .folder-badge {
       font-size: 10px;
-      background: rgba(255,255,255,.08);
+      background: color-mix(in srgb, var(--vsc-foreground) 8%, transparent);
       border-radius: 3px;
       padding: 0 4px;
     }
@@ -379,25 +379,25 @@ import { createSubject } from '@epikodelabs/streamix';
 
     .res-btn:hover {
       background: var(--vsc-button-secondary-hover, rgba(255,255,255,.1));
-      border-color: var(--vsc-focusBorder, #007fd4);
+      border-color: var(--vsc-focusBorder, var(--vsc-accent-blue));
     }
 
     .res-btn.primary {
       background: var(--vsc-button-background, #0e639c);
       border-color: transparent;
-      color: #fff;
+      color: var(--vsc-button-foreground, #fff);
     }
 
     .res-btn.primary:hover { background: var(--vsc-button-hover, #1177bb); }
 
     .res-btn.danger {
-      color: #f48771;
+      color: var(--vsc-error);
       border-color: rgba(244,135,113,.3);
     }
 
     .res-btn.danger:hover {
       background: rgba(244,135,113,.1);
-      border-color: #f48771;
+      border-color: var(--vsc-error);
     }
 
     /* ── Apply to all ── */
@@ -413,7 +413,7 @@ import { createSubject } from '@epikodelabs/streamix';
     }
 
     .apply-all:hover { opacity: 1; }
-    .apply-all input { cursor: pointer; accent-color: var(--vsc-accent-blue, #007fd4); }
+    .apply-all input { cursor: pointer; accent-color: var(--vsc-accent-blue); }
   `]
 })
 export class OperationToastComponent implements OnChanges, OnInit, OnDestroy {

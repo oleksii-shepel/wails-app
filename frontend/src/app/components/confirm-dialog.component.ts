@@ -124,7 +124,7 @@ interface ConfirmDialogRequest {
       display: flex;
       align-items: center;
       justify-content: center;
-      background: rgba(0, 0, 0, 0.45);
+      background: var(--vsc-scrim);
       backdrop-filter: blur(2px);
       padding: var(--vsc-padding-xl);
       animation: fadeIn 0.2s ease;
@@ -167,7 +167,7 @@ interface ConfirmDialogRequest {
     .confirm-panel--alert {
       width: 380px;
       border-radius: 6px;
-      border-color: #e8a94d;
+      border-color: var(--vsc-warning);
       box-shadow: var(--vsc-widget-shadow), 0 16px 40px rgba(0, 0, 0, 0.5);
       animation: slideDown 0.22s cubic-bezier(0.16, 1, 0.3, 1);
       padding: 0;
@@ -193,14 +193,14 @@ interface ConfirmDialogRequest {
       width: 16px;
       height: 16px;
       flex-shrink: 0;
-      color: #e8a94d;
+      color: var(--vsc-warning);
       margin-top: 1px;
     }
 
     .conflict-title {
       font-weight: 600;
       font-size: 12px;
-      color: #e8a94d;
+      color: var(--vsc-warning);
       line-height: 1.3;
     }
 
@@ -224,7 +224,7 @@ interface ConfirmDialogRequest {
       border-radius: 4px;
       border: 1px solid transparent;
       background: var(--vsc-button-background, #0e639c);
-      color: #fff;
+      color: var(--vsc-button-foreground, #fff);
       cursor: pointer;
       transition: background 0.12s, border-color 0.12s;
       outline: none;
@@ -322,7 +322,7 @@ interface ConfirmDialogRequest {
 
     .btn-cancel {
       background: var(--vsc-button-secondary);
-      color: var(--vsc-foreground);
+      color: var(--vsc-button-secondary-foreground);
 
       &:hover {
         background: var(--vsc-button-secondary-hover);
@@ -335,7 +335,7 @@ interface ConfirmDialogRequest {
 
     .btn-confirm {
       background: var(--vsc-button-background);
-      color: var(--vsc-foreground-bright);
+      color: var(--vsc-button-foreground);
 
       &:hover {
         background: var(--vsc-button-hover);

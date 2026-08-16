@@ -132,7 +132,7 @@ type OfficeViewerKind = 'empty' | 'loading' | 'pdf' | 'error' | 'unavailable' | 
     }
     .archive-badge {
       background: color-mix(in srgb, var(--vsc-accent-orange, #d4a000) 20%, transparent);
-      color: var(--vsc-accent-orange, #e8c040);
+      color: var(--vsc-accent-orange, var(--vsc-warning));
       border: 1px solid color-mix(in srgb, var(--vsc-accent-orange, #d4a000) 40%, transparent);
     }
     .type-badge {
@@ -162,14 +162,14 @@ type OfficeViewerKind = 'empty' | 'loading' | 'pdf' | 'error' | 'unavailable' | 
       height: 16px;
       flex-shrink: 0;
       border-radius: 999px;
-      background: color-mix(in srgb, #2bb24c 14%, transparent);
-      border: 1px solid color-mix(in srgb, #2bb24c 35%, var(--vsc-border, #444));
+      background: color-mix(in srgb, var(--vsc-success) 14%, transparent);
+      border: 1px solid color-mix(in srgb, var(--vsc-success) 35%, var(--vsc-border, #444));
     }
     .conversion-status-activity-dot {
       width: 8px;
       height: 8px;
       border-radius: 999px;
-      background: #2bb24c;
+      background: var(--vsc-success);
       border: 1px solid rgba(255, 255, 255, 0.35);
       box-shadow: 0 0 0 0 rgba(43, 178, 76, 0.45);
       animation: office-pulse-green 1.3s ease-out infinite;
@@ -179,7 +179,7 @@ type OfficeViewerKind = 'empty' | 'loading' | 'pdf' | 'error' | 'unavailable' | 
       font-weight: 600;
       font-variant-numeric: tabular-nums;
       white-space: nowrap;
-      color: #2bb24c;
+      color: var(--vsc-success);
     }
     .conversion-status-sep { opacity: 0.5; }
     .conversion-status-text { font-size: 11px; font-weight: 600; letter-spacing: 0.02em; opacity: 0.9; }

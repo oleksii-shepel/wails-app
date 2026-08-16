@@ -1,4 +1,4 @@
-﻿import { CommonModule } from '@angular/common';
+import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import {
   ChangeDetectionStrategy,
@@ -192,7 +192,7 @@ const MEMORY_THRESHOLD = 8 * 1024 * 1024;  // files в‰¤ 8 MB loaded fully in
       font-size: 11px;
       font-weight: 700;
       letter-spacing: 0.12em;
-      color: var(--vsc-accent-orange, #e8c040);
+      color: var(--vsc-accent-orange, var(--vsc-warning));
       background: color-mix(in srgb, var(--vsc-accent-orange, #f6b73c) 16%, transparent);
       border: 1px solid color-mix(in srgb, var(--vsc-accent-orange, #f6b73c) 36%, transparent);
       flex-shrink: 0;
@@ -228,7 +228,7 @@ const MEMORY_THRESHOLD = 8 * 1024 * 1024;  // files в‰¤ 8 MB loaded fully in
     }
     .archive-badge {
       background: color-mix(in srgb, var(--vsc-accent-orange, #f90) 20%, transparent);
-      color: var(--vsc-accent-orange, #e8c040);
+      color: var(--vsc-accent-orange, var(--vsc-warning));
       border: 1px solid color-mix(in srgb, var(--vsc-accent-orange, #f90) 40%, transparent);
     }
     .type-badge {
@@ -425,7 +425,7 @@ const MEMORY_THRESHOLD = 8 * 1024 * 1024;  // files в‰¤ 8 MB loaded fully in
     .state-icon { font-size: 36px; line-height: 1; opacity: 0.55; }
     .state-label { font-size: 13px; opacity: 0.65; }
     .state-error .state-icon { opacity: 1; }
-    .state-error .state-label { color: #ff7070; opacity: 1; }
+    .state-error .state-label { color: var(--vsc-error); opacity: 1; }
     .error-detail {
       font-size: 11px;
       font-family: var(--vsc-font-family-mono, ui-monospace, monospace);

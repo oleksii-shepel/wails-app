@@ -99,7 +99,7 @@ export const VIEWER_BASE_STYLES = `
 
   .archive-badge {
     background: color-mix(in srgb, var(--vsc-accent-orange, #d4a000) 20%, transparent);
-    color: var(--vsc-accent-orange, #e8c040);
+    color: var(--vsc-accent-orange, var(--vsc-warning));
     border: 1px solid color-mix(in srgb, var(--vsc-accent-orange, #d4a000) 40%, transparent);
   }
 
@@ -200,7 +200,7 @@ export const VIEWER_BASE_STYLES = `
   }
 
   .state-error .state-label {
-    color: #ff7070;
+    color: var(--vsc-error);
     opacity: 1;
   }
 

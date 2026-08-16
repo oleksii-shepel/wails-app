@@ -440,7 +440,7 @@ import type {
     }
 
     button.primary {
-      border-color: var(--vsc-focus-border, #007fd4);
+      border-color: var(--vsc-focus-border, var(--vsc-accent-blue));
     }
 
     button.danger {

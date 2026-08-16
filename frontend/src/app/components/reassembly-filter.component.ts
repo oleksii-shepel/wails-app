@@ -141,7 +141,7 @@ function bindings(
       width: 100%;
       height: 26px;
       padding: 0 8px;
-      border: 1px solid var(--vsc-focus-border, #007fd4);
+      border: 1px solid var(--vsc-focus-border, var(--vsc-accent-blue));
       border-radius: 4px;
       outline: 0;
       background: var(--vsc-input-background, #181818);

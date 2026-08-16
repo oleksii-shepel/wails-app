@@ -1,4 +1,4 @@
-﻿import { CommonModule } from '@angular/common';
+import { CommonModule } from '@angular/common';
 import {
   Component, Input, OnChanges, OnDestroy, ViewChild, ElementRef, Inject,
   ChangeDetectionStrategy, ChangeDetectorRef,
@@ -427,7 +427,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
 
     .archive-badge {
       background: color-mix(in srgb, var(--vsc-accent-orange, #d4a000) 20%, transparent);
-      color: var(--vsc-accent-orange, #e8c040);
+      color: var(--vsc-accent-orange, var(--vsc-warning));
       border: 1px solid color-mix(in srgb, var(--vsc-accent-orange, #d4a000) 40%, transparent);
     }
 
@@ -522,7 +522,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
     .state-sub   { font-size: 11px; opacity: 0.4; }
 
     .state-error .state-icon  { opacity: 1; }
-    .state-error .state-label { color: #ff7070; opacity: 1; }
+    .state-error .state-label { color: var(--vsc-error); opacity: 1; }
 
     .error-detail {
       font-size: 11px;
@@ -682,7 +682,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
       justify-content: center;
       width: 100%;
       height: 100%;
-      background: rgba(0, 0, 0, 0.3);
+      background: var(--vsc-scrim);
       backdrop-filter: blur(2px);
       cursor: pointer;
       z-index: 50;
@@ -690,7 +690,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
     }
 
     .play-overlay:hover {
-      background: rgba(0, 0, 0, 0.5);
+      background: var(--vsc-scrim);
     }
 
     .play-icon {
@@ -751,7 +751,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
       flex: 1;
       position: relative;
       height: 4px;
-      background: rgba(255, 255, 255, 0.2);
+      background: color-mix(in srgb, var(--vsc-foreground) 20%, transparent);
       border-radius: 2px;
       cursor: pointer;
       overflow: hidden;
@@ -837,7 +837,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
       min-width: 36px;
       height: 36px;
       padding: 0 8px;
-      background: rgba(255, 255, 255, 0.1);
+      background: color-mix(in srgb, var(--vsc-foreground) 10%, transparent);
       border: 1px solid rgba(255, 255, 255, 0.15);
       color: white;
       border-radius: 4px;
@@ -849,7 +849,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
     }
 
     .control-btn:hover:not(:disabled) {
-      background: rgba(255, 255, 255, 0.2);
+      background: color-mix(in srgb, var(--vsc-foreground) 20%, transparent);
       border-color: rgba(255, 255, 255, 0.3);
       transform: scale(1.05);
     }
@@ -884,11 +884,11 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
       align-items: center;
       gap: 4px;
       font-size: 12px;
-      color: #ccc;
+      color: var(--vsc-foreground);
       font-variant-numeric: tabular-nums;
       font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
       padding: 4px 8px;
-      background: rgba(0, 0, 0, 0.2);
+      background: var(--vsc-scrim-soft);
       border-radius: 3px;
       min-width: 90px;
       justify-content: center;
@@ -909,7 +909,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
       align-items: center;
       gap: 6px;
       padding: 4px 8px;
-      background: rgba(0, 0, 0, 0.3);
+      background: var(--vsc-scrim);
       border-radius: 12px;
       font-size: 11px;
       border: 1px solid rgba(255, 255, 255, 0.1);
@@ -931,7 +931,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
     }
 
     .mode-badge {
-      background: rgba(255, 255, 255, 0.12);
+      background: color-mix(in srgb, var(--vsc-foreground) 12%, transparent);
       border-color: rgba(255, 255, 255, 0.22);
       color: #f2f2f2;
       text-transform: uppercase;
@@ -992,7 +992,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
       cursor: pointer;
       appearance: none;
       -webkit-appearance: none;
-      background: rgba(255, 255, 255, 0.2);
+      background: color-mix(in srgb, var(--vsc-foreground) 20%, transparent);
       border-radius: 2px;
       outline: none;
     }
@@ -1108,7 +1108,7 @@ function probeLooksTransportStream(probe: FileProbe | null | undefined): boolean
       padding: 24px;
       text-align: center;
       color: #222;
-      background: rgba(255, 255, 255, 0.92);
+      background: color-mix(in srgb, var(--vsc-foreground) 30%, transparent);
     }
     .pdf-fallback {
       height: 100%;

@@ -68,7 +68,7 @@ import { moveFocusWithin } from '../directives/focus-trap.utils';
   styles: [`
     .amw-backdrop {
       position: fixed; inset: 0; z-index: 1300;
-      background: rgba(0,0,0,.45);
+      background: var(--vsc-scrim);
       backdrop-filter: blur(2px);
       display: flex; align-items: center; justify-content: center;
     }
@@ -143,13 +143,13 @@ import { moveFocusWithin } from '../directives/focus-trap.utils';
       transition: background .12s;
     }
     .amw-btn--cancel {
-      background: rgba(255,255,255,.06);
+      background: color-mix(in srgb, var(--vsc-foreground) 6%, transparent);
       color: var(--vsc-foreground, #ccc);
     }
-    .amw-btn--cancel:hover { background: rgba(255,255,255,.1); }
+    .amw-btn--cancel:hover { background: color-mix(in srgb, var(--vsc-foreground) 10%, transparent); }
 
     .amw-btn--confirm {
-      background: var(--vsc-accent-orange, #e8a94d);
+      background: var(--vsc-accent-orange, var(--vsc-warning));
       color: #1a1a1a; font-weight: 600;
       border-color: transparent;
     }

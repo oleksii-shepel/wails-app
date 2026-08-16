@@ -9,6 +9,7 @@
   --vsc-sidebar-background: #252526;
   --vsc-activitybar-background: #333333;
   --vsc-statusbar-background: #007acc;
+  --vsc-statusbar-foreground: #ffffff;
   --vsc-panel-background: #252526;
   --vsc-titlebar-background: #3c3c3c;
 
@@ -28,6 +29,29 @@
   --vsc-button-hover: #1177bb;
   --vsc-button-secondary: #3a3d41;
   --vsc-button-secondary-hover: #45494e;
+  --vsc-button-foreground: #ffffff;
+  --vsc-button-secondary-foreground: #f3f3f3;
+  --vsc-button-disabled-background: #3a3d41;
+  --vsc-button-disabled-foreground: #a8a8a8;
+  --vsc-button-danger-background: #c42b1c;
+  --vsc-button-danger-hover: #d83b2d;
+  --vsc-button-danger-foreground: #ffffff;
+
+  /* === Semantic Surfaces === */
+  --vsc-window-background: var(--vsc-editor-background);
+  --vsc-dialog-background: #252526;
+  --vsc-dialog-foreground: var(--vsc-foreground);
+  --vsc-menu-background: #252526;
+  --vsc-menu-foreground: var(--vsc-foreground);
+  --vsc-popover-background: #252526;
+  --vsc-toolbar-background: #2d2d2d;
+  --vsc-control-background: #3c3c3c;
+  --vsc-control-hover-background: #45494e;
+  --vsc-control-foreground: var(--vsc-foreground);
+  --vsc-disabled-foreground: #8a8a8a;
+  --vsc-focus-ring: #4da8ff;
+  --vsc-scrim: rgba(0, 0, 0, 0.48);
+  --vsc-scrim-soft: rgba(0, 0, 0, 0.28);
 
   /* === Input Colors === */
   --vsc-input-background: #3c3c3c;
@@ -224,6 +248,7 @@
   --vsc-panel-background: #f3f3f3;
   --vsc-titlebar-background: #dddddd;
   --vsc-statusbar-background: #007acc;
+  --vsc-statusbar-foreground: #ffffff;
 
   /* === Text — improved contrast (WCAG AA) ===
      Old #616161 on white = 5.74:1 — technically passing but visually thin.
@@ -245,12 +270,35 @@
   --vsc-button-hover:            #005ba1;
   --vsc-button-secondary:        #e5e5e5;
   --vsc-button-secondary-hover:  #d4d4d4;
+  --vsc-button-foreground:           #ffffff;
+  --vsc-button-secondary-foreground: #242424;
+  --vsc-button-disabled-background:   #e8e8e8;
+  --vsc-button-disabled-foreground:   #5f5f5f;
+  --vsc-button-danger-background:     #c42b1c;
+  --vsc-button-danger-hover:          #a4262c;
+  --vsc-button-danger-foreground:     #ffffff;
+
+  /* === Semantic Surfaces === */
+  --vsc-window-background: var(--vsc-editor-background);
+  --vsc-dialog-background: #ffffff;
+  --vsc-dialog-foreground: var(--vsc-foreground);
+  --vsc-menu-background: #ffffff;
+  --vsc-menu-foreground: var(--vsc-foreground);
+  --vsc-popover-background: #ffffff;
+  --vsc-toolbar-background: #f3f3f3;
+  --vsc-control-background: #f0f0f0;
+  --vsc-control-hover-background: #e1e1e1;
+  --vsc-control-foreground: var(--vsc-foreground);
+  --vsc-disabled-foreground: #5f5f5f;
+  --vsc-focus-ring: #005fb8;
+  --vsc-scrim: rgba(0, 0, 0, 0.28);
+  --vsc-scrim-soft: rgba(0, 0, 0, 0.16);
 
   /* === Inputs === */
   --vsc-input-background:   #ffffff;
   --vsc-input-border:       #b8b8b8;
   --vsc-input-foreground:   #3b3b3b;
-  --vsc-input-placeholder:  #9e9e9e;
+  --vsc-input-placeholder:  #767676;
   --vsc-input-focus-border: #007acc;
 
   /* === Selection / List === */
@@ -263,17 +311,17 @@
 
   /* === Accent Colors (darkened for light-bg legibility) === */
   --vsc-accent-blue:   #007acc;
-  --vsc-accent-green:  #388a34;
-  --vsc-accent-yellow: #a27a00;
+  --vsc-accent-green:  #2e7d32;
+  --vsc-accent-yellow: #8b6500;
   --vsc-accent-orange: #a8522a;
   --vsc-accent-red:    #c7372f;
   --vsc-accent-purple: #7c3f99;
 
   /* === Status === */
   --vsc-error:   #c7372f;
-  --vsc-warning: #b08000;
+  --vsc-warning: #8a6500;
   --vsc-info:    #005fb8;
-  --vsc-success: #388a34;
+  --vsc-success: #2e7d32;
 
   /* === Badge === */
   --vsc-badge-background: #c2c2c2;
@@ -353,8 +401,8 @@
 
   /* === File Entry Palette === */
   --vsc-entry-default: #3b3b3b;
-  --vsc-entry-directory: #a0700a;
-  --vsc-entry-archive: #bf7b1a;
+  --vsc-entry-directory: #805700;
+  --vsc-entry-archive: #8a5600;
   --vsc-entry-symlink: #00796b;
   --vsc-entry-code: #005fb8;
   --vsc-entry-audio: #8e24aa;
@@ -362,14 +410,14 @@
   --vsc-entry-data: #5e35b1;
   --vsc-entry-executable: #b42318;
   --vsc-entry-images: #c2185b;
-  --vsc-entry-documents: #9e7b00;
+  --vsc-entry-documents: #796000;
   --vsc-entry-spreadsheets: #2e7d32;
-  --vsc-entry-presentations: #d75b2a;
+  --vsc-entry-presentations: #a33e16;
   --vsc-entry-web: #00838f;
-  --vsc-entry-archives: #c77700;
+  --vsc-entry-archives: #8a5200;
   --vsc-entry-fonts: #7e57c2;
-  --vsc-entry-markdown: #689f38;
-  --vsc-entry-scripts: #d18b00;
+  --vsc-entry-markdown: #456f20;
+  --vsc-entry-scripts: #8b5c00;
   --vsc-entry-3d: #d81b60;
   --vsc-entry-design: #ab47bc;
 

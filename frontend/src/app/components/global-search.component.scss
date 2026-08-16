@@ -4,7 +4,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.45);
+  background: var(--vsc-scrim);
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -422,7 +422,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.45);
+  background: var(--vsc-scrim);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -581,14 +581,14 @@
 
 .btn-primary {
   background: var(--vsc-button-background);
-  color: var(--vsc-foreground-bright);
+  color: var(--vsc-button-foreground);
 
   &:hover { background: var(--vsc-button-hover); }
 }
 
 .btn-secondary {
   background: var(--vsc-button-secondary);
-  color: var(--vsc-foreground);
+  color: var(--vsc-button-secondary-foreground);
 
   &:hover { background: var(--vsc-button-secondary-hover); }
 }

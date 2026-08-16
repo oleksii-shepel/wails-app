@@ -4,7 +4,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.45);
+  background: var(--vsc-scrim);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -237,9 +237,9 @@
 .modal-footer { display: flex; justify-content: space-between; align-items: center; padding: var(--vsc-padding-md) var(--vsc-padding-lg); border-top: 1px solid var(--vsc-border-subtle); gap: var(--vsc-padding-lg); .footer-left, .footer-right { display: flex; gap: var(--vsc-padding-sm); } }
 
 .btn-primary, .btn-secondary { padding: var(--vsc-padding-sm) var(--vsc-padding-md); border: 1px solid transparent; border-radius: var(--vsc-border-radius-sm); cursor: pointer; font-size: var(--vsc-font-size); transition: background var(--vsc-transition-fast); white-space: nowrap; }
-.btn-primary { background: var(--vsc-button-background); color: var(--vsc-foreground-bright); }
+.btn-primary { background: var(--vsc-button-background); color: var(--vsc-button-foreground); }
 .btn-primary:hover { background: var(--vsc-button-hover); }
-.btn-secondary { background: var(--vsc-button-secondary); color: var(--vsc-foreground); border-color: var(--vsc-border); }
+.btn-secondary { background: var(--vsc-button-secondary); color: var(--vsc-button-secondary-foreground); border-color: var(--vsc-border); }
 .btn-secondary:hover { background: var(--vsc-button-secondary-hover); }
 
 // ============================================================================

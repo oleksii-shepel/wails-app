@@ -373,7 +373,7 @@ interface VideoNavItem {
     }
 
     .state-error .state-label {
-      color: #ff7070;
+      color: var(--vsc-error);
       opacity: 1;
     }
 
@@ -615,7 +615,7 @@ interface VideoNavItem {
       text-transform: uppercase;
       letter-spacing: 0.5px;
       color: rgba(255, 255, 255, 0.56);
-      background: rgba(255, 255, 255, 0.1);
+      background: color-mix(in srgb, var(--vsc-foreground) 10%, transparent);
       padding: 2px 8px;
       border-radius: 12px;
       margin-bottom: 6px;
@@ -668,7 +668,7 @@ interface VideoNavItem {
       justify-content: center;
       width: 100%;
       height: 100%;
-      background: rgba(0, 0, 0, 0.4);
+      background: var(--vsc-scrim);
       backdrop-filter: blur(4px);
       cursor: pointer;
       z-index: 50;
@@ -676,7 +676,7 @@ interface VideoNavItem {
     }
 
     .play-overlay:hover {
-      background: rgba(0, 0, 0, 0.6);
+      background: var(--vsc-scrim);
       backdrop-filter: blur(8px);
     }
 
@@ -736,7 +736,7 @@ interface VideoNavItem {
       flex: 1;
       position: relative;
       height: 4px;
-      background: rgba(255, 255, 255, 0.2);
+      background: color-mix(in srgb, var(--vsc-foreground) 20%, transparent);
       border-radius: 2px;
       cursor: pointer;
       overflow: hidden;
@@ -819,7 +819,7 @@ interface VideoNavItem {
       min-width: 36px;
       height: 36px;
       padding: 0 8px;
-      background: rgba(255, 255, 255, 0.1);
+      background: color-mix(in srgb, var(--vsc-foreground) 10%, transparent);
       border: 1px solid rgba(255, 255, 255, 0.15);
       color: white;
       border-radius: 6px;
@@ -831,7 +831,7 @@ interface VideoNavItem {
     }
 
     .control-btn:hover:not(:disabled) {
-      background: rgba(255, 255, 255, 0.2);
+      background: color-mix(in srgb, var(--vsc-foreground) 20%, transparent);
       border-color: rgba(255, 255, 255, 0.3);
       transform: scale(1.05);
     }
@@ -865,11 +865,11 @@ interface VideoNavItem {
       align-items: center;
       gap: 4px;
       font-size: 12px;
-      color: #ccc;
+      color: var(--vsc-foreground);
       font-variant-numeric: tabular-nums;
       font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
       padding: 4px 8px;
-      background: rgba(0, 0, 0, 0.2);
+      background: var(--vsc-scrim-soft);
       border-radius: 4px;
       min-width: 90px;
       justify-content: center;
@@ -906,7 +906,7 @@ interface VideoNavItem {
       cursor: pointer;
       appearance: none;
       -webkit-appearance: none;
-      background: rgba(255, 255, 255, 0.2);
+      background: color-mix(in srgb, var(--vsc-foreground) 20%, transparent);
       border-radius: 2px;
       outline: none;
     }

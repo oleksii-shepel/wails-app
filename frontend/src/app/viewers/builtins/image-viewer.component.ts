@@ -257,7 +257,7 @@ interface CarouselVirtualFrame {
     }
     .archive-badge {
       background: color-mix(in srgb, var(--vsc-accent-orange, #f90) 20%, transparent);
-      color: var(--vsc-accent-orange, #e8c040);
+      color: var(--vsc-accent-orange, var(--vsc-warning));
       border: 1px solid color-mix(in srgb, var(--vsc-accent-orange, #f90) 40%, transparent);
     }
     .type-badge {

@@ -114,7 +114,7 @@ interface TabDragPayload {
       top: 0;
       bottom: 0;
       width: 2px;
-      background: rgba(255, 255, 255, 0.55);
+      background: color-mix(in srgb, var(--vsc-foreground) 30%, transparent);
       border-radius: 1px;
       pointer-events: none;
       z-index: 10;

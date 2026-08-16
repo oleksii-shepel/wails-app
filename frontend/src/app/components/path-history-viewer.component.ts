@@ -120,7 +120,7 @@ import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directi
       left: 0;
       right: 0;
       bottom: 0;
-      background: rgba(0, 0, 0, 0.45);
+      background: var(--vsc-scrim);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -432,7 +432,7 @@ import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directi
 
     .btn-primary {
       background: var(--vsc-button-background);
-      color: var(--vsc-foreground-bright);
+      color: var(--vsc-button-foreground);
     }
 
     .btn-primary:hover {
@@ -441,7 +441,7 @@ import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directi
 
     .btn-secondary {
       background: var(--vsc-button-secondary);
-      color: var(--vsc-foreground);
+      color: var(--vsc-button-secondary-foreground);
     }
 
     .btn-secondary:hover {

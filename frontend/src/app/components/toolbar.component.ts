@@ -97,7 +97,7 @@ import { ThemeService } from '../services/theme.service';
         border: 1px solid transparent;
         border-radius: var(--vsc-border-radius-sm);
         background: var(--vsc-button-secondary);
-        color: var(--vsc-foreground);
+        color: var(--vsc-button-secondary-foreground);
         cursor: pointer;
         font-size: var(--vsc-font-size);
         font-family: var(--vsc-font-family);
@@ -113,7 +113,7 @@ import { ThemeService } from '../services/theme.service';
 
         &.active {
           background: var(--vsc-button-background);
-          color: var(--vsc-foreground-bright);
+          color: var(--vsc-button-foreground);
           border-color: var(--vsc-accent-blue);
         }
       }

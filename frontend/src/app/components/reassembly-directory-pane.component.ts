@@ -1250,7 +1250,7 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
       }
     }
     .list:focus-visible,.tree-view:focus-visible,.pane:focus-visible{
-      outline:1px solid var(--vsc-focus-border,#007fd4);
+      outline:1px solid var(--vsc-focus-border,var(--vsc-accent-blue));
       outline-offset:-1px;
     }
     .empty{display:grid;gap:4px;place-items:center;align-content:center;min-height:96px;text-align:center}

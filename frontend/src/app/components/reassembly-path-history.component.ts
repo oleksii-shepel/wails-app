@@ -117,7 +117,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   `,
   styles:[`
     :host{position:fixed;inset:0;z-index:9450;pointer-events:none}
-    .backdrop{position:fixed;inset:0;display:grid;place-items:start center;padding-top:min(11vh,100px);background:rgba(0,0,0,.24);pointer-events:auto}
+    .backdrop{position:fixed;inset:0;display:grid;place-items:start center;padding-top:min(11vh,100px);background: var(--vsc-scrim-soft);pointer-events:auto}
     .history{box-sizing:border-box;display:flex;flex-direction:column;width:min(780px,calc(100vw - 24px));max-height:min(700px,calc(100vh - 40px));overflow:hidden;border:1px solid var(--vsc-border,#454545);border-radius:8px;background:var(--vsc-menu-background,#252526);color:var(--vsc-foreground,#ccc);box-shadow:0 18px 60px rgba(0,0,0,.48);font:12px/1.4 var(--vsc-font-family,system-ui,sans-serif)}
     header,footer{display:flex;align-items:center;gap:9px;padding:9px 10px}header{justify-content:space-between;border-bottom:1px solid var(--vsc-border-subtle,#2b2b2b)}header>div{display:flex;gap:8px;align-items:baseline}
     header span,.meta,.keys{color:var(--vsc-description-foreground,#969696)}

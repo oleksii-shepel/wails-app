@@ -297,7 +297,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   `,
   styles: [`
     :host{position:fixed;inset:0;z-index:9490;pointer-events:none}
-    .backdrop{position:fixed;inset:0;background:rgba(0,0,0,.28);display:grid;place-items:center;pointer-events:auto}
+    .backdrop{position:fixed;inset:0;background: var(--vsc-scrim-soft);display:grid;place-items:center;pointer-events:auto}
     .tools{width:min(900px,calc(100vw - 30px));height:min(760px,calc(100vh - 30px));display:flex;flex-direction:column;overflow:hidden;border:1px solid var(--vsc-border,#454545);border-radius:8px;background:var(--vsc-panel-background,#1e1e1e);color:var(--vsc-foreground,#ccc);box-shadow:0 18px 70px rgba(0,0,0,.5);font:12px/1.4 var(--vsc-font-family,system-ui,sans-serif)}
     header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border-bottom:1px solid var(--vsc-border,#333)}
     header>div{min-width:0;display:flex;gap:10px;align-items:baseline}.root{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--vsc-description-foreground,#969696);font-family:var(--vsc-font-family-mono,ui-monospace,monospace)}
@@ -311,8 +311,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     .progress,.bar{height:4px;margin-top:6px;background:rgba(127,127,127,.18);overflow:hidden;border-radius:99px}.progress i,.bar i{display:block;height:100%;background:var(--vsc-accent-blue,#007acc)}
     .history-title{padding:8px 12px;font-weight:600;color:var(--vsc-description-foreground,#969696)}.operation.history{opacity:.8}
     .disk-row{display:grid;grid-template-columns:minmax(140px,1fr) 100px 80px minmax(100px,220px);gap:10px;align-items:center;padding:7px 12px;border-bottom:1px solid var(--vsc-border-subtle,#2b2b2b)}.disk-row .name,.path{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .duplicate-group{margin:8px 12px;border:1px solid var(--vsc-border,#3a3a3a);border-radius:5px;overflow:hidden}.duplicate-group>header{padding:7px 9px;background:rgba(127,127,127,.07);font-size:11px}.duplicate-file{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:7px;align-items:center;padding:6px 9px;border-top:1px solid rgba(127,127,127,.1)}.duplicate-file small{color:var(--vsc-accent-green,#4ec9b0)}
-    .empty{padding:48px 20px;text-align:center;color:var(--vsc-description-foreground,#969696)}.error,.warnings{margin:8px 12px;padding:8px;border-radius:4px}.error{color:var(--vsc-error-foreground,#f48771);background:rgba(244,135,113,.08)}.warnings{color:#d7ba7d;background:rgba(215,186,125,.07)}
+    .duplicate-group{margin:8px 12px;border:1px solid var(--vsc-border,#3a3a3a);border-radius:5px;overflow:hidden}.duplicate-group>header{padding:7px 9px;background:rgba(127,127,127,.07);font-size:11px}.duplicate-file{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:7px;align-items:center;padding:6px 9px;border-top:1px solid rgba(127,127,127,.1)}.duplicate-file small{color:var(--vsc-accent-green,var(--vsc-success))}
+    .empty{padding:48px 20px;text-align:center;color:var(--vsc-description-foreground,#969696)}.error,.warnings{margin:8px 12px;padding:8px;border-radius:4px}.error{color:var(--vsc-error-foreground,#f48771);background:rgba(244,135,113,.08)}.warnings{color: var(--vsc-accent-yellow);background:rgba(215,186,125,.07)}
     button:disabled{opacity:.4;cursor:default}
     .disk-row-button{border-left:0;border-right:0;background:transparent;color:inherit;text-align:left;width:100%}
     .disk-row-button.navigable{cursor:pointer}.disk-row-button.navigable:hover{background:var(--vsc-list-hover-background,#2a2d2e)}.disk-row-button:disabled{opacity:1}

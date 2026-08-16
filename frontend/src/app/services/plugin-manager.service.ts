@@ -29,6 +29,7 @@ import { RemoteConnectionsService } from './remote-connections.service';
 import { ResultsPanelService } from './results-panel.service';
 import { ApiService } from './api.service';
 import { ConfirmDialogService } from './confirm-dialog.service';
+import { AutorunPanelSource } from './autorun-panel-source.service';
 
 export interface PluginBackend {
   id: string;
@@ -50,6 +51,7 @@ export class PluginManagerService implements PluginRegistryAPI {
   private readonly resultsPanels = inject(ResultsPanelService);
   private readonly api = inject(ApiService);
   private readonly confirmDialog = inject(ConfirmDialogService);
+  private readonly autorunSource = inject(AutorunPanelSource);
 
   private readonly backends = new Map<string, PluginBackend>();
   private readonly descriptors = new Map<string, PluginDescriptor>();
@@ -62,6 +64,7 @@ export class PluginManagerService implements PluginRegistryAPI {
 
   constructor() {
     this.registerBuiltinRegistryProvider();
+    this.registerBuiltinAutorunProvider();
     this.registerBuiltinRemoteProviders();
   }
 
@@ -403,6 +406,91 @@ export class PluginManagerService implements PluginRegistryAPI {
       version: '1.0.0',
       description: 'Built-in Registry panel-source provider and Registry actions.',
       schemes: ['registry'],
+    });
+  }
+
+  private registerBuiltinAutorunProvider(): void {
+    const source = this.autorunSource;
+    const isEntry = (path: string): boolean => /^autorun:\/\/entry\//i.test(path ?? '');
+    const recordFor = async (path: string) => {
+      const id = source.decodeEntryPath(path);
+      if (!id) return null;
+      const records = await source.records();
+      return records.find(record => record.id === id) ?? null;
+    };
+
+    this.registerBackend({
+      id: 'builtin.autorun',
+      onRegister: api => {
+        api.registerPanelSource(source);
+        api.registerPanelColumn({
+          id: 'builtin.autorun.enabled', label: 'Enabled', width: '82px',
+          score: context => context.sourceId === source.id ? 100 : 0,
+          value: entry => (entry as any).autorunEnabled === undefined ? '' : ((entry as any).autorunEnabled ? 'Yes' : 'No'),
+        });
+        api.registerPanelColumn({
+          id: 'builtin.autorun.origin', label: 'Source', width: '120px',
+          score: context => context.sourceId === source.id ? 96 : 0,
+          value: entry => String((entry as any).autorunOrigin ?? '').replaceAll('-', ' '),
+        });
+        api.registerPanelColumn({
+          id: 'builtin.autorun.scope', label: 'Scope', width: '92px',
+          score: context => context.sourceId === source.id ? 94 : 0,
+          value: entry => (entry as any).autorunScope === 'machine' ? 'All Users' : ((entry as any).autorunScope ? 'Current User' : ''),
+        });
+        api.registerPanelColumn({
+          id: 'builtin.autorun.command', label: 'Command',
+          score: context => context.sourceId === source.id ? 90 : 0,
+          value: entry => (entry as any).autorunCommand ?? '',
+        });
+
+        api.registerContextMenuItem({
+          id: 'builtin.autorun.toggle',
+          label: 'Enable / Disable Autorun',
+          score: context => isEntry(context.targetPath) ? 100 : 0,
+          execute: async context => {
+            const record = await recordFor(context.targetPath); if (!record) return;
+            await source.setEnabled(record.id, !record.enabled);
+          },
+        });
+        api.registerContextMenuItem({
+          id: 'builtin.autorun.openExecutable',
+          label: 'Open Autorun Target',
+          score: context => isEntry(context.targetPath) ? 92 : 0,
+          execute: async context => {
+            const record = await recordFor(context.targetPath); if (!record?.executable) return;
+            await this.api.openFile(record.executable);
+          },
+        });
+        api.registerContextMenuItem({
+          id: 'builtin.autorun.delete',
+          label: 'Delete Autorun Entry',
+          score: context => isEntry(context.targetPath) ? 88 : 0,
+          execute: async context => {
+            const record = await recordFor(context.targetPath); if (!record) return;
+            const confirmed = await this.confirmDialog.confirm({
+              title: 'Delete Autorun Entry',
+              message: `Permanently remove ${record.name} from ${record.sourcePath}?`,
+              confirmText: 'Delete', danger: true,
+            });
+            if (confirmed) await source.delete(record.id);
+          },
+        });
+      },
+      onUnregister: api => {
+        api.unregisterContextMenuItem('builtin.autorun.delete');
+        api.unregisterContextMenuItem('builtin.autorun.openExecutable');
+        api.unregisterContextMenuItem('builtin.autorun.toggle');
+        api.unregisterPanelColumn('builtin.autorun.command');
+        api.unregisterPanelColumn('builtin.autorun.scope');
+        api.unregisterPanelColumn('builtin.autorun.origin');
+        api.unregisterPanelColumn('builtin.autorun.enabled');
+        api.unregisterPanelSource(source.id);
+      },
+    }, {
+      id: 'builtin.autorun', name: 'Windows Autorun', version: '1.0.0',
+      description: 'Aggregates Registry Run/RunOnce and Startup folders into autorun://.',
+      schemes: ['autorun'],
     });
   }
 

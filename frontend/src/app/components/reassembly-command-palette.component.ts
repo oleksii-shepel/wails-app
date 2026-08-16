@@ -23,11 +23,8 @@ export interface ReassemblyPaletteCommand {
   isEnabled?: () => boolean;
 }
 
-import {
-  rememberFocusedElement,
-  restoreFocusedElement,
-} from './reassembly-focus.utils';
 import { discoveryScore } from './reassembly-discovery';
+import { ReassemblyModalSurfaceDirective } from './reassembly-modal-surface.directive';
 
 const CONTEXT_ID = 'overlay.reassemblyCommandPalette';
 const OWNER_ID = 'overlay.reassemblyCommandPalette';
@@ -49,12 +46,15 @@ const BINDINGS: readonly InputBindingDefinition[] = [
 @Component({
   selector: 'app-reassembly-command-palette',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, ReassemblyModalSurfaceDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="backdrop" *ngIf="visible" (mousedown)="close()">
       <section class="palette" role="dialog" aria-modal="true" aria-label="Command palette"
-        (mousedown)="$event.stopPropagation()">
+        (mousedown)="$event.stopPropagation()"
+        reassemblyModalSurface
+        [reassemblyModalInitial]="\'.query input\'"
+        tabindex="-1">
         <header>
           <strong>Command Palette</strong>
           <span>{{ filteredCommands.length }} command{{ filteredCommands.length === 1 ? '' : 's' }}</span>
@@ -118,7 +118,6 @@ export class ReassemblyCommandPaletteComponent implements OnInit, OnDestroy {
   @Input() commands: readonly ReassemblyPaletteCommand[] = [];
 
   visible = false;
-  private previousFocus: HTMLElement | null = null;
   query = '';
   selectedIndex = 0;
 
@@ -187,12 +186,12 @@ export class ReassemblyCommandPaletteComponent implements OnInit, OnDestroy {
   }
 
   open(): void {
-    this.previousFocus = rememberFocusedElement();
+    
     this.query = '';
     this.selectedIndex = 0;
     this.visible = true;
     this.input.activateContext(CONTEXT_ID);
-    queueMicrotask(() => this.queryInput?.nativeElement.focus());
+    
     this.cdr.markForCheck();
   }
 
@@ -200,8 +199,8 @@ export class ReassemblyCommandPaletteComponent implements OnInit, OnDestroy {
     if (!this.visible) return;
     this.visible = false;
     this.input.deactivateContext(CONTEXT_ID);
-    restoreFocusedElement(this.previousFocus);
-    this.previousFocus = null;
+    
+    
     this.cdr.markForCheck();
   }
 

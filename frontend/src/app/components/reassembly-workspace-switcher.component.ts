@@ -17,11 +17,7 @@ import { InputEngineService } from '../services/input-engine.service';
 import type { InputBindingDefinition } from '../services/input-system.types';
 import { WorkspaceService } from '../services/workspace.service';
 import type { WorkspaceConfig } from '../shared/protocol-enhanced';
-import {
-  rememberFocusedElement,
-  restoreFocusedElement,
-} from './reassembly-focus.utils';
-
+import { ReassemblyModalSurfaceDirective } from './reassembly-modal-surface.directive';
 type WorkspaceEdit =
   | { kind: 'create'; draft: string }
   | { kind: 'rename'; workspaceId: string; draft: string }
@@ -224,7 +220,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
 @Component({
   selector: 'app-reassembly-workspace-switcher',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, ReassemblyModalSurfaceDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="backdrop" *ngIf="visible" (mousedown)="close()">
@@ -233,7 +229,10 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         role="dialog"
         aria-modal="true"
         aria-label="Workspace switcher"
-        (mousedown)="$event.stopPropagation()">
+        (mousedown)="$event.stopPropagation()"
+        reassemblyModalSurface
+        [reassemblyModalInitial]="\'[aria-selected="true"]\'"
+        tabindex="-1">
 
         <header>
           <div>
@@ -269,6 +268,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
                 autocomplete="off"
                 spellcheck="false"
                 aria-label="New workspace name"
+                data-dialog-initial-focus
                 (click)="$event.stopPropagation()"
                 (mousedown)="$event.stopPropagation()"
                 (keydown.enter)="commitEdit(); $event.preventDefault(); $event.stopPropagation()"
@@ -282,7 +282,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             *ngFor="let workspace of workspaces; let i = index; trackBy: trackWorkspace"
             class="workspace"
             role="option"
-            tabindex="-1"
+            [attr.tabindex]="i === selectedIndex && !edit ? 0 : -1"
             [class.selected]="i === selectedIndex"
             [class.active]="workspace.id === activeWorkspaceId"
             [attr.aria-selected]="i === selectedIndex"
@@ -309,6 +309,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
                   autocomplete="off"
                   spellcheck="false"
                   aria-label="Workspace name"
+                  data-dialog-initial-focus
                   (click)="$event.stopPropagation()"
                   (mousedown)="$event.stopPropagation()"
                   (keydown.enter)="commitEdit(); $event.preventDefault(); $event.stopPropagation()"
@@ -597,7 +598,6 @@ export class ReassemblyWorkspaceSwitcherComponent
   visible = false;
   selectedIndex = 0;
   edit: WorkspaceEdit = null;
-  private previousFocus: HTMLElement | null = null;
   private editGeneration = 0;
 
   constructor(
@@ -773,7 +773,7 @@ export class ReassemblyWorkspaceSwitcherComponent
   }
 
   open(): void {
-    this.previousFocus = rememberFocusedElement();
+    
 
     const activeIndex = this.workspaces.findIndex(
       workspace => workspace.id === this.activeWorkspaceId,
@@ -791,8 +791,8 @@ export class ReassemblyWorkspaceSwitcherComponent
     this.cancelEdit(false);
     this.visible = false;
     this.input.deactivateContext(CONTEXT_ID);
-    restoreFocusedElement(this.previousFocus);
-    this.previousFocus = null;
+    
+    
     this.cdr.markForCheck();
   }
 

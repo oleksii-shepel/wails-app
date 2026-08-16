@@ -19,11 +19,8 @@ import {
   type LocationHistoryEntry,
 } from '../services/path-history.service';
 
-import {
-  rememberFocusedElement,
-  restoreFocusedElement,
-} from './reassembly-focus.utils';
 import { discoveryScore } from './reassembly-discovery';
+import { ReassemblyModalSurfaceDirective } from './reassembly-modal-surface.directive';
 
 type HistoryMode = 'pane' | 'all' | 'frequent';
 
@@ -56,12 +53,15 @@ const BINDINGS: readonly InputBindingDefinition[] = [
 @Component({
   selector:'app-reassembly-path-history',
   standalone:true,
-  imports:[CommonModule,FormsModule],
+  imports: [CommonModule,FormsModule, ReassemblyModalSurfaceDirective],
   changeDetection:ChangeDetectionStrategy.OnPush,
   template:`
     <div class="backdrop" *ngIf="visible" (mousedown)="close()">
       <section class="history" role="dialog" aria-modal="true" aria-label="Location history"
-        (mousedown)="$event.stopPropagation()">
+        (mousedown)="$event.stopPropagation()"
+        reassemblyModalSurface
+        [reassemblyModalInitial]="\'header input\'"
+        tabindex="-1">
         <header>
           <div>
             <strong>Location History</strong>
@@ -133,7 +133,6 @@ export class ReassemblyPathHistoryComponent implements OnInit, OnDestroy {
   @Output() navigate=new EventEmitter<string>();
 
   visible=false;
-  private previousFocus: HTMLElement | null = null;
   filterText='';
   entries:LocationHistoryEntry[]=[];
   selectedIndex=0;
@@ -211,7 +210,7 @@ export class ReassemblyPathHistoryComponent implements OnInit, OnDestroy {
   }
 
   open(mode:HistoryMode='pane'):void{
-    this.previousFocus = rememberFocusedElement();
+    
     this.entries=this.historyService.getAllHistory();
     this.mode=mode;
     this.filterText='';
@@ -225,8 +224,8 @@ export class ReassemblyPathHistoryComponent implements OnInit, OnDestroy {
     if(!this.visible)return;
     this.visible=false;
     this.input.deactivateContext(CONTEXT_ID);
-    restoreFocusedElement(this.previousFocus);
-    this.previousFocus = null;
+    
+    
     this.cdr.markForCheck();
   }
 

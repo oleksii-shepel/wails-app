@@ -33,6 +33,7 @@ import { ReassemblyWorkspaceSwitcherComponent } from './reassembly-workspace-swi
 import { ReassemblyPathHistoryComponent } from './reassembly-path-history.component';
 import { ReassemblyQuickAccessComponent } from './reassembly-quick-access.component';
 import { ReassemblyRemoteConnectionsComponent } from './reassembly-remote-connections.component';
+import { ReassemblyOperationSurfaceComponent } from './reassembly-operation-surface.component';
 import { PaneComparisonBarComponent } from './pane-comparison-bar.component';
 import {
   PaneSyncReviewComponent,
@@ -275,6 +276,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     ReassemblyPathHistoryComponent,
     ReassemblyQuickAccessComponent,
     ReassemblyRemoteConnectionsComponent,
+    ReassemblyOperationSurfaceComponent,
     PaneComparisonBarComponent,
     PaneSyncReviewComponent,
     SelectionBasketComponent,
@@ -425,6 +427,10 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         #remoteConnections
         (navigate)="navigateFromRemoteConnections($event)">
       </app-reassembly-remote-connections>
+
+      <app-reassembly-operation-surface
+        (openDetails)="openTools('operations')">
+      </app-reassembly-operation-surface>
 
       <app-reassembly-context-menu
         [state]="contextMenu"

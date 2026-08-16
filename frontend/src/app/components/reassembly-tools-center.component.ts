@@ -32,11 +32,7 @@ import type {
   DiskUsageProgress,
   DiskUsageResult,
 } from '../shared/protocol-enhanced';
-
-import {
-  rememberFocusedElement,
-  restoreFocusedElement,
-} from './reassembly-focus.utils';
+import { ReassemblyModalSurfaceDirective } from './reassembly-modal-surface.directive';
 
 type ToolPage = 'operations' | 'disk' | 'duplicates';
 type OperationFilter = 'all' | 'active' | 'completed' | 'failed';
@@ -73,12 +69,15 @@ const BINDINGS: readonly InputBindingDefinition[] = [
 @Component({
   selector: 'app-reassembly-tools-center',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, ReassemblyModalSurfaceDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="backdrop" *ngIf="visible" (mousedown)="close()">
       <section class="tools" role="dialog" aria-modal="true" aria-label="File manager tools"
-        (mousedown)="$event.stopPropagation()">
+        (mousedown)="$event.stopPropagation()"
+        reassemblyModalSurface
+        [reassemblyModalInitial]="\'nav button.active\'"
+        tabindex="-1">
         <header>
           <div>
             <strong>Tools</strong>
@@ -106,6 +105,12 @@ const BINDINGS: readonly InputBindingDefinition[] = [
                 <option value="failed">Failed</option>
               </select>
             </label>
+            <button
+              type="button"
+              [disabled]="history.length === 0"
+              (click)="clearOperationHistory()">
+              Clear history
+            </button>
           </div>
 
           <div class="summary">
@@ -124,6 +129,21 @@ const BINDINGS: readonly InputBindingDefinition[] = [
               <i [style.width.%]="operation.metrics.totalBytes > 0 ? operation.percentComplete : 0"></i>
             </div>
             <small *ngIf="operation.metrics.currentFile">{{ operation.metrics.currentFile }}</small>
+            <small class="operation-error" *ngIf="operation.error">{{ operation.error }}</small>
+            <div class="operation-actions">
+              <button
+                type="button"
+                *ngIf="operation.config.cancellable && (operation.status === 'running' || operation.status === 'pending' || operation.status === 'paused')"
+                (click)="cancelOperation(operation)">
+                Cancel
+              </button>
+              <button
+                type="button"
+                *ngIf="operation.status === 'error' || operation.status === 'cancelled' || operation.status === 'completed'"
+                (click)="dismissOperation(operation)">
+                Dismiss
+              </button>
+            </div>
           </article>
 
           <div class="history-title" *ngIf="filteredHistory.length">Recent</div>
@@ -133,6 +153,10 @@ const BINDINGS: readonly InputBindingDefinition[] = [
               <span>{{ operation.status }}</span>
             </div>
             <small>{{ operation.completedAt | date:'short' }}</small>
+            <small *ngIf="operation.destination" [title]="operation.destination">
+              → {{ operation.destination }}
+            </small>
+            <small class="operation-error" *ngIf="operation.error">{{ operation.error }}</small>
           </article>
 
           <div class="empty" *ngIf="filteredActiveOperations.length === 0 && filteredHistory.length === 0">
@@ -303,7 +327,6 @@ export class ReassemblyToolsCenterComponent implements OnInit, OnDestroy {
   @Output() openBasketRequested = new EventEmitter<void>();
 
   visible = false;
-  private previousFocus: HTMLElement | null = null;
   page: ToolPage = 'operations';
   rootPath = '';
 
@@ -439,7 +462,7 @@ export class ReassemblyToolsCenterComponent implements OnInit, OnDestroy {
   }
 
   open(page: ToolPage, rootPath: string): void {
-    this.previousFocus = rememberFocusedElement();
+    
     const rootChanged = this.rootPath !== rootPath;
     this.page = page;
     this.rootPath = rootPath;
@@ -467,8 +490,8 @@ export class ReassemblyToolsCenterComponent implements OnInit, OnDestroy {
     if (!this.visible) return;
     this.visible = false;
     this.input.deactivateContext(CONTEXT_ID);
-    restoreFocusedElement(this.previousFocus);
-    this.previousFocus = null;
+    
+    
     this.cdr.markForCheck();
   }
 
@@ -672,6 +695,20 @@ export class ReassemblyToolsCenterComponent implements OnInit, OnDestroy {
     }
 
     this.cdr.markForCheck();
+  }
+
+  clearOperationHistory(): void {
+    this.operationService.clearHistory();
+    this.cdr.markForCheck();
+  }
+
+  async cancelOperation(operation: OperationState): Promise<void> {
+    if (!operation.config.cancellable) return;
+    await this.operationService.cancel(operation.id);
+  }
+
+  dismissOperation(operation: OperationState): void {
+    this.operationService.dismiss(operation.id);
   }
 
   trackOperation(_index:number, item:OperationState):string { return item.id; }

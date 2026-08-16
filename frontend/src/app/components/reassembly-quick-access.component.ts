@@ -11,11 +11,8 @@ import { RemoteConnectionsService } from '../services/remote-connections.service
 import type { PinnedLocation } from './address-bar.types';
 import type { SpecialFolder } from '../shared/protocol';
 
-import {
-  rememberFocusedElement,
-  restoreFocusedElement,
-} from './reassembly-focus.utils';
 import { discoveryScore } from './reassembly-discovery';
+import { ReassemblyModalSurfaceDirective } from './reassembly-modal-surface.directive';
 
 interface QuickItem {
   id: string;
@@ -81,11 +78,14 @@ const BINDINGS: readonly InputBindingDefinition[] = [
 @Component({
   selector: 'app-reassembly-quick-access',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, ReassemblyModalSurfaceDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="backdrop" *ngIf="visible" (mousedown)="close()">
-      <section class="quick" role="dialog" aria-modal="true" aria-label="Quick Access" (mousedown)="$event.stopPropagation()">
+      <section class="quick" role="dialog" aria-modal="true" aria-label="Quick Access" (mousedown)="$event.stopPropagation()"
+        reassemblyModalSurface
+        [reassemblyModalInitial]="\'header input\'"
+        tabindex="-1">
         <header>
           <div><strong>Quick Access</strong><span>{{ totalItems }} items</span></div>
           <input [(ngModel)]="filterText" (ngModelChange)="resetSelection()" placeholder="Filter locations"
@@ -142,7 +142,6 @@ export class ReassemblyQuickAccessComponent implements OnInit, OnDestroy {
   @Output() navigate = new EventEmitter<string>();
 
   visible = false;
-  private previousFocus: HTMLElement | null = null;
   filterText = '';
   sections: QuickSection[] = [];
   sectionIndex = 0;
@@ -221,7 +220,7 @@ export class ReassemblyQuickAccessComponent implements OnInit, OnDestroy {
   }
 
   async open(sectionId?: string): Promise<void> {
-    this.previousFocus = rememberFocusedElement();
+    
     await this.reload();
 
     this.filterText = '';
@@ -243,8 +242,8 @@ export class ReassemblyQuickAccessComponent implements OnInit, OnDestroy {
     if(!this.visible)return;
     this.visible=false;
     this.input.deactivateContext(CONTEXT_ID);
-    restoreFocusedElement(this.previousFocus);
-    this.previousFocus=null;
+    
+    
     this.cdr.markForCheck();
   }
   openItem(item: QuickItem): void { this.navigate.emit(item.path); this.close(); }

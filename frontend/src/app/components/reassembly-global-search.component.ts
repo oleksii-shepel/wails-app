@@ -16,11 +16,7 @@ import { ApiService } from '../services/api.service';
 import { InputEngineService } from '../services/input-engine.service';
 import type { InputBindingDefinition } from '../services/input-system.types';
 import { FileInfo, FileType } from '../shared/protocol';
-
-import {
-  rememberFocusedElement,
-  restoreFocusedElement,
-} from './reassembly-focus.utils';
+import { ReassemblyModalSurfaceDirective } from './reassembly-modal-surface.directive';
 
 type SearchSort = 'relevance' | 'name' | 'path' | 'type';
 
@@ -57,12 +53,15 @@ const BINDINGS: readonly InputBindingDefinition[] = [
 @Component({
   selector: 'app-reassembly-global-search',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, ReassemblyModalSurfaceDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="backdrop" *ngIf="visible" (mousedown)="close()">
       <section class="search" role="dialog" aria-modal="true" aria-label="Global search"
-        (mousedown)="$event.stopPropagation()">
+        (mousedown)="$event.stopPropagation()"
+        reassemblyModalSurface
+        [reassemblyModalInitial]="\'.query > input\'"
+        tabindex="-1">
         <header>
           <div>
             <strong>Search</strong>
@@ -161,7 +160,6 @@ export class ReassemblyGlobalSearchComponent implements OnInit, OnDestroy {
   @Output() openContainingFolder = new EventEmitter<FileInfo>();
 
   visible = false;
-  private previousFocus: HTMLElement | null = null;
   rootPath = '';
   queryText = '';
   recursive = true;
@@ -257,7 +255,7 @@ export class ReassemblyGlobalSearchComponent implements OnInit, OnDestroy {
   }
 
   open(rootPath: string): void {
-    this.previousFocus = rememberFocusedElement();
+    
     this.rootPath = rootPath;
     this.recentQueries = this.loadRecentQueries();
     this.queryHistoryIndex = -1;
@@ -267,7 +265,7 @@ export class ReassemblyGlobalSearchComponent implements OnInit, OnDestroy {
     this.error = '';
     this.visible = true;
     this.input.activateContext(CONTEXT_ID);
-    queueMicrotask(() => this.queryInput?.nativeElement.focus());
+    
     this.cdr.markForCheck();
   }
 
@@ -280,8 +278,8 @@ export class ReassemblyGlobalSearchComponent implements OnInit, OnDestroy {
       clearTimeout(this.searchTimer);
       this.searchTimer = null;
     }
-    restoreFocusedElement(this.previousFocus);
-    this.previousFocus = null;
+    
+    
     this.cdr.markForCheck();
   }
 

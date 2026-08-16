@@ -514,6 +514,25 @@ export class OperationService implements OnDestroy {
     this.history$.next([]);
   }
 
+  dismissFinished(): void {
+    const finished = Array.from(this.operationsMap.values())
+      .filter(operation =>
+        operation.status === 'completed' ||
+        operation.status === 'error' ||
+        operation.status === 'cancelled',
+      )
+      .map(operation => operation.id);
+
+    for (const id of finished) {
+      this.dismiss(id);
+    }
+  }
+
+  hasPendingConflict(operationId: string): boolean {
+    return this.hasPendingConflictsForOperation(operationId);
+  }
+
+
   private recordHistory(operation: OperationState): void {
     if (operation.status === 'running' || operation.status === 'pending' || operation.status === 'paused') return;
     const entry: OperationHistoryEntry = {

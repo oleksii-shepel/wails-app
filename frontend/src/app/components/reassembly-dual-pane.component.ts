@@ -69,6 +69,9 @@ const COMMAND = {
   showPathHistory: 'reassembly.navigation.pathHistory',
   showQuickAccess: 'reassembly.navigation.quickAccess',
   toggleCurrentPin: 'reassembly.navigation.toggleCurrentPin',
+  showPinnedLocations: 'reassembly.navigation.pinnedLocations',
+  treeLeft: 'reassembly.tree.left',
+  treeRight: 'reassembly.tree.right',
 } as const;
 
 const BINDINGS: readonly InputBindingDefinition[] = [
@@ -109,6 +112,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   { id:'reassembly.workspace.new.ctrlShiftAltN', commandId:COMMAND.newWorkspace, contextId:CONTEXT_ID, source:'default', description:'Create workspace', category:'Workspace', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'n', modifiers:['ctrl','shift','alt']}]}}},
   { id:'reassembly.navigation.pathHistory.ctrlH', commandId:COMMAND.showPathHistory, contextId:CONTEXT_ID, source:'default', description:'Show path history', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'h', modifiers:['ctrl']}]}}},
   { id:'reassembly.navigation.quickAccess.ctrlQ', commandId:COMMAND.showQuickAccess, contextId:CONTEXT_ID, source:'default', description:'Open Quick Access', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'q', modifiers:['ctrl']}]}}},
+  { id:'reassembly.navigation.pinnedLocations.ctrlB', commandId:COMMAND.showPinnedLocations, contextId:CONTEXT_ID, source:'default', description:'Open Quick Access pinned section', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'b', modifiers:['ctrl']}]}}},  { id:'reassembly.tree.left.arrowLeft', commandId:COMMAND.treeLeft, contextId:CONTEXT_ID, source:'default', description:'Tree collapse or parent', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'arrowleft'}]}}},
+  { id:'reassembly.tree.right.arrowRight', commandId:COMMAND.treeRight, contextId:CONTEXT_ID, source:'default', description:'Tree expand or child', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'arrowright'}]}}},
 ];
 
 @Component({
@@ -187,6 +192,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         #quickAccess
         (navigate)="navigateFromQuickAccess($event)">
       </app-reassembly-quick-access>
+
 
       <app-reassembly-context-menu
         [state]="contextMenu"
@@ -629,6 +635,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
   }
 
+
   navigateFromHistory(path: string): void {
     const pane = this.activePane;
     if (!pane?.isDirectoryTab) return;
@@ -830,6 +837,26 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       'Navigation',
       () => this.togglePanePin(this.activePane),
       () => !!this.activePane?.isDirectoryTab && !!this.activePane?.path,
+    );
+    descriptor(
+      COMMAND.showPinnedLocations,
+      'Open Pinned Locations',
+      'Navigation',
+      () => this.quickAccess?.open('pins'),
+    );
+    descriptor(
+      COMMAND.treeLeft,
+      'Tree Collapse or Parent',
+      'Navigation',
+      () => this.activePane?.treeLeft(),
+      () => this.activePane?.viewMode === 'tree',
+    );
+    descriptor(
+      COMMAND.treeRight,
+      'Tree Expand or Child',
+      'Navigation',
+      () => this.activePane?.treeRight(),
+      () => this.activePane?.viewMode === 'tree',
     );
   }
 

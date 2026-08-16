@@ -99,6 +99,10 @@ interface PendingChordLike {
         <div><kbd>Ctrl+H</kbd><span>path history</span></div>
         <div><kbd>Ctrl+Q</kbd><span>quick access</span></div>
         <div><kbd>☆ / ★</kbd><span>pin / unpin location</span></div>
+        <div><kbd>Ctrl+B</kbd><span>quick access → pinned</span></div>
+        <div><span>Pane footer</span><span>cursor · selection · capabilities</span></div>
+        <div><span>View</span><span>List / Grid / Details / Tree</span></div>
+        <div><kbd>Tree ← / →</kbd><span>collapse-parent / expand-child</span></div>
       </div>
 
       <footer>

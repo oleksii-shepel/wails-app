@@ -155,10 +155,22 @@ export class ReassemblyQuickAccessComponent implements OnInit, OnDestroy {
     for (const id of Object.values(COMMAND)) this.input.unregisterCommandDescriptor(id, OWNER_ID);
   }
 
-  async open(): Promise<void> {
+  async open(sectionId?: string): Promise<void> {
     await this.reload();
-    this.filterText=''; this.sectionIndex=0; this.itemIndex=0; this.visible=true;
-    this.input.activateContext(CONTEXT_ID); this.cdr.markForCheck();
+
+    this.filterText = '';
+    this.itemIndex = 0;
+
+    if (sectionId) {
+      const index = this.sections.findIndex(section => section.id === sectionId);
+      this.sectionIndex = index >= 0 ? index : 0;
+    } else {
+      this.sectionIndex = 0;
+    }
+
+    this.visible = true;
+    this.input.activateContext(CONTEXT_ID);
+    this.cdr.markForCheck();
   }
 
   close(): void { if(!this.visible)return; this.visible=false; this.input.deactivateContext(CONTEXT_ID); this.cdr.markForCheck(); }

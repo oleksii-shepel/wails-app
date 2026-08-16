@@ -23,6 +23,16 @@ import { ReassemblyAddressBarComponent } from './reassembly-address-bar.componen
 import { ReassemblyFilterComponent } from './reassembly-filter.component';
 import { ReassemblyNavigationController } from './reassembly-navigation.controller';
 
+type ReassemblyDirectoryView = 'list' | 'grid' | 'details' | 'tree';
+
+interface ReassemblyTreeRow {
+  entry: FileInfo;
+  depth: number;
+  expanded: boolean;
+  loading: boolean;
+  expandable: boolean;
+}
+
 type ReassemblyTab =
   | {
       id: string;
@@ -166,6 +176,13 @@ type ReassemblyTab =
       </div>
 
       <div class="action-bar">
+        <div class="view-switcher" role="group" aria-label="Directory view">
+          <button type="button" [class.active]="viewMode === 'list'" [attr.aria-pressed]="viewMode === 'list'" (click)="setViewMode('list')">List</button>
+          <button type="button" [class.active]="viewMode === 'grid'" [attr.aria-pressed]="viewMode === 'grid'" (click)="setViewMode('grid')">Grid</button>
+          <button type="button" [class.active]="viewMode === 'details'" [attr.aria-pressed]="viewMode === 'details'" (click)="setViewMode('details')">Details</button>
+          <button type="button" [class.active]="viewMode === 'tree'" [attr.aria-pressed]="viewMode === 'tree'" (click)="setViewMode('tree')">Tree</button>
+        </div>
+        <span class="action-separator"></span>
         <button type="button" [disabled]="loading || !canCreate" (click)="newFolder()" title="New folder (F7)">New folder</button>
         <button type="button" [disabled]="loading || !canRename" (click)="renameSelected()" title="Rename (F2)">Rename</button>
         <span class="action-separator"></span>
@@ -196,9 +213,55 @@ type ReassemblyTab =
       </div>
 
       <div
+        class="tree-view"
+        *ngIf="!error && viewMode === 'tree'"
+        role="tree"
+        [attr.aria-busy]="loading">
+        <button
+          *ngFor="let row of treeRows; trackBy: trackTreeRow"
+          type="button"
+          class="tree-row"
+          role="treeitem"
+          [class.selected]="selectedPaths.has(row.entry.path)"
+          [class.cursor]="cursorPath === row.entry.path"
+          [attr.aria-level]="row.depth + 1"
+          [attr.aria-expanded]="row.expandable ? row.expanded : null"
+          [style.padding-left.px]="8 + row.depth * 18"
+          (click)="selectFromPointer(row.entry, $event)"
+          (dblclick)="onTreeDoubleClick(row)"
+          (contextmenu)="onEntryContextMenu(row.entry, $event)"
+          (dragstart)="onEntryDragStart(row.entry, $event)"
+          (dragend)="onDragEnd()"
+          draggable="true">
+          <span
+            class="tree-expander"
+            [class.placeholder]="!row.expandable"
+            (click)="toggleTreeRow(row, $event)">
+            {{ row.loading ? '…' : (row.expandable ? (row.expanded ? '▾' : '▸') : '') }}
+          </span>
+          <span class="icon">{{ entryIcon(row.entry) }}</span>
+          <span class="name">{{ row.entry.name }}</span>
+          <span class="tree-meta" *ngIf="row.entry.type !== FileType.DIRECTORY">
+            {{ formatSize(row.entry.size) }}
+          </span>
+        </button>
+
+        <div class="empty" *ngIf="!loading && treeRows.length === 0">
+          This directory is empty.
+        </div>
+      </div>
+
+      <div class="details-header" *ngIf="!error && viewMode === 'details'">
+        <span></span><span>Name</span><span>Type</span><span>Size</span><span>Modified</span>
+      </div>
+
+      <div
         class="list"
         *ngIf="!error"
         role="listbox"
+        [class.view-list]="viewMode === 'list'"
+        [class.view-grid]="viewMode === 'grid'"
+        [class.view-details]="viewMode === 'details'"
         [attr.aria-busy]="loading"
         [class.background-drop-target]="backgroundDropActive"
         (contextmenu)="onBackgroundContextMenu($event)"
@@ -239,12 +302,39 @@ type ReassemblyTab =
           <span class="size">
             {{ entry.type === FileType.DIRECTORY ? '' : formatSize(entry.size) }}
           </span>
+          <span class="modified">{{ formatModified(entry.modified) }}</span>
         </button>
 
         <div class="empty" *ngIf="!loading && visibleEntries.length === 0">
           {{ filterText ? 'No matching items.' : 'This directory is empty.' }}
         </div>
       </div>
+
+      <footer class="pane-footer">
+        <span class="footer-item" *ngIf="cursorEntry as cursor" [title]="cursor.path">
+          <strong>{{ cursor.name }}</strong>
+        </span>
+
+        <span class="footer-item" *ngIf="selectedPaths.size">
+          {{ selectedPaths.size }} selected
+          <ng-container *ngIf="selectedTotalBytes > 0">
+            · {{ formatSize(selectedTotalBytes) }}
+          </ng-container>
+        </span>
+
+        <span class="footer-item" *ngIf="filterText">
+          {{ visibleEntries.length }} / {{ entries.length }} visible
+        </span>
+
+        <span class="footer-spacer"></span>
+
+        <span class="footer-item capability" [class.disabled-capability]="!sourceCapabilities.create">
+          write
+        </span>
+        <span class="footer-item capability" [class.disabled-capability]="!sourceCapabilities.delete">
+          delete
+        </span>
+      </footer>
       </ng-container>
 
       <ng-template #viewerSurface>
@@ -479,6 +569,144 @@ type ReassemblyTab =
       color: var(--vsc-error-foreground, #f48771);
     }
 
+    .view-switcher {
+      display: flex;
+      gap: 2px;
+    }
+
+    .view-switcher button.active {
+      background: var(--vsc-list-active-background, #094771);
+      color: var(--vsc-list-active-foreground, #ffffff);
+    }
+
+    .tree-view {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: auto;
+      padding: 4px 0;
+      background: var(--vsc-editor-background, #1e1e1e);
+    }
+
+    .tree-row {
+      display: grid;
+      grid-template-columns: 18px 24px minmax(0, 1fr) auto;
+      gap: 4px;
+      align-items: center;
+      width: 100%;
+      min-height: 27px;
+      padding-top: 2px;
+      padding-right: 8px;
+      padding-bottom: 2px;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      text-align: left;
+      cursor: default;
+      font: inherit;
+    }
+
+    .tree-row:hover {
+      background: var(--vsc-list-hover-background, #2a2d2e);
+    }
+
+    .tree-row.selected {
+      background: var(--vsc-list-active-background, #094771);
+      color: var(--vsc-list-active-foreground, #ffffff);
+    }
+
+    .tree-row.cursor {
+      outline: 1px solid color-mix(
+        in srgb,
+        var(--vsc-focus-border, #007fd4) 60%,
+        transparent
+      );
+      outline-offset: -1px;
+    }
+
+    .tree-expander {
+      display: grid;
+      place-items: center;
+      width: 18px;
+      height: 22px;
+      color: var(--vsc-description-foreground, #969696);
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .tree-expander.placeholder {
+      cursor: default;
+    }
+
+    .tree-meta {
+      color: var(--vsc-description-foreground, #969696);
+      font-size: 9px;
+    }
+
+    .details-header {
+      display: grid;
+      grid-template-columns: 28px minmax(120px, 1fr) 90px 82px 150px;
+      gap: 8px;
+      align-items: center;
+      min-height: 25px;
+      padding: 0 8px;
+      border-bottom: 1px solid var(--vsc-border-subtle, #2b2b2b);
+      background: var(--vsc-tabbar-background, #252526);
+      color: var(--vsc-description-foreground, #969696);
+      font-size: 10px;
+    }
+
+    .list.view-list .modified {
+      display: none;
+    }
+
+    .list.view-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
+      align-content: start;
+      gap: 5px;
+      padding: 7px;
+    }
+
+    .list.view-grid .entry {
+      display: grid;
+      grid-template-columns: 1fr;
+      grid-template-rows: 42px auto auto auto;
+      justify-items: center;
+      min-height: 104px;
+      padding: 8px 6px;
+      text-align: center;
+    }
+
+    .list.view-grid .entry .icon { font-size: 30px; }
+    .list.view-grid .entry .name {
+      width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .list.view-grid .entry .kind,
+    .list.view-grid .entry .size,
+    .list.view-grid .entry .modified {
+      color: var(--vsc-description-foreground, #969696);
+      font-size: 9px;
+    }
+
+    .list.view-grid .entry .modified { display: none; }
+
+    .list.view-details .entry {
+      grid-template-columns: 28px minmax(120px, 1fr) 90px 82px 150px;
+    }
+
+    .list.view-details .entry .modified {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--vsc-description-foreground, #969696);
+      font-size: 10px;
+    }
+
     .action-separator {
       width: 1px;
       height: 18px;
@@ -592,6 +820,49 @@ type ReassemblyTab =
 
     .error {
       flex: 1 1 auto;
+    }
+
+    .pane-footer {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 27px;
+      padding: 0 8px;
+      border-top: 1px solid var(--vsc-border-subtle, #2b2b2b);
+      background: var(--vsc-tabbar-background, #252526);
+      color: var(--vsc-description-foreground, #969696);
+      font-size: 10px;
+      white-space: nowrap;
+      overflow: hidden;
+    }
+
+    .footer-item {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .footer-item strong {
+      color: var(--vsc-foreground, #cccccc);
+      font-weight: 500;
+    }
+
+    .footer-spacer {
+      flex: 1 1 auto;
+      min-width: 8px;
+    }
+
+    .footer-item.capability {
+      flex: 0 0 auto;
+      color: var(--vsc-accent-blue, #4aa3ff);
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      font-size: 9px;
+    }
+
+    .footer-item.disabled-capability {
+      opacity: .28;
+      color: var(--vsc-description-foreground, #969696);
     }
 
     .error button {
@@ -712,6 +983,12 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
 
   filterVisible = false;
   filterText = '';
+
+  viewMode: ReassemblyDirectoryView = 'list';
+
+  readonly treeExpandedPaths = new Set<string>();
+  readonly treeChildren = new Map<string, FileInfo[]>();
+  readonly treeLoadingPaths = new Set<string>();
   lastAction = 'startup';
   clipboard: { operation: 'copy' | 'cut'; paths: string[] } | null = null;
 
@@ -785,6 +1062,44 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
   get cursorEntry(): FileInfo | null {
     if (!this.cursorPath) return null;
     return this.entries.find(entry => entry.path === this.cursorPath) ?? null;
+  }
+
+  get treeRows(): ReassemblyTreeRow[] {
+    const rows: ReassemblyTreeRow[] = [];
+
+    const append = (entries: FileInfo[], depth: number): void => {
+      for (const entry of entries) {
+        const expandable = entry.type === FileType.DIRECTORY;
+        const expanded = expandable && this.treeExpandedPaths.has(entry.path);
+        rows.push({
+          entry,
+          depth,
+          expanded,
+          loading: this.treeLoadingPaths.has(entry.path),
+          expandable,
+        });
+
+        if (expanded) {
+          append(this.treeChildren.get(entry.path) ?? [], depth + 1);
+        }
+      }
+    };
+
+    append(this.visibleEntries, 0);
+    return rows;
+  }
+
+  get selectedEntries(): FileInfo[] {
+    if (this.selectedPaths.size === 0) return [];
+    return this.entries.filter(entry => this.selectedPaths.has(entry.path));
+  }
+
+  get selectedTotalBytes(): number {
+    return this.selectedEntries.reduce((total, entry) => {
+      if (entry.type === FileType.DIRECTORY) return total;
+      const size = Number(entry.size);
+      return total + (Number.isFinite(size) && size > 0 ? size : 0);
+    }, 0);
   }
 
   get visibleEntries(): FileInfo[] {
@@ -933,6 +1248,141 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
 
   trackTab(_index: number, tab: ReassemblyTab): string {
     return tab.id;
+  }
+
+  setViewMode(mode: ReassemblyDirectoryView): void {
+    if (this.viewMode === mode) return;
+
+    if (mode === 'tree') {
+      this.treeExpandedPaths.clear();
+      this.treeChildren.clear();
+      this.treeLoadingPaths.clear();
+    }
+    this.viewMode = mode;
+    this.lastAction = `view: ${mode}`;
+    try {
+      localStorage.setItem(`reassembly.view.${this.paneId}`, mode);
+    } catch {}
+    queueMicrotask(() => this.ensureCursorVisible());
+    this.cdr.markForCheck();
+  }
+
+  formatModified(value: unknown): string {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric) || numeric <= 0) return '';
+    const millis = numeric < 10_000_000_000 ? numeric * 1000 : numeric;
+    const date = new Date(millis);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleString([], {
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit',
+    });
+  }
+
+  trackTreeRow(_index: number, row: ReassemblyTreeRow): string {
+    return row.entry.path;
+  }
+
+  async toggleTreeRow(row: ReassemblyTreeRow, event?: Event): Promise<void> {
+    event?.preventDefault();
+    event?.stopPropagation();
+
+    if (!row.expandable) return;
+
+    if (this.treeExpandedPaths.has(row.entry.path)) {
+      this.treeExpandedPaths.delete(row.entry.path);
+      this.lastAction = `collapse: ${row.entry.name}`;
+      this.cdr.markForCheck();
+      return;
+    }
+
+    this.treeExpandedPaths.add(row.entry.path);
+    this.lastAction = `expand: ${row.entry.name}`;
+    this.cdr.markForCheck();
+
+    if (this.treeChildren.has(row.entry.path)) return;
+
+    this.treeLoadingPaths.add(row.entry.path);
+    this.cdr.markForCheck();
+
+    try {
+      const listing = await this.directorySource.listDirectory(
+        row.entry.path,
+        this.showHidden,
+      );
+      const children = [...(listing.entries ?? [])].sort((a, b) => {
+        if (a.type === FileType.DIRECTORY && b.type !== FileType.DIRECTORY) return -1;
+        if (a.type !== FileType.DIRECTORY && b.type === FileType.DIRECTORY) return 1;
+        return (a.name ?? '').localeCompare(b.name ?? '', undefined, {
+          numeric: true,
+          sensitivity: 'base',
+        });
+      });
+      this.treeChildren.set(row.entry.path, children);
+    } catch (error) {
+      this.treeExpandedPaths.delete(row.entry.path);
+      this.lastAction = `tree load failed: ${
+        error instanceof Error ? error.message : String(error)
+      }`;
+    } finally {
+      this.treeLoadingPaths.delete(row.entry.path);
+      this.cdr.markForCheck();
+    }
+  }
+
+  async onTreeDoubleClick(row: ReassemblyTreeRow): Promise<void> {
+    if (row.entry.type === FileType.DIRECTORY) {
+      await this.toggleTreeRow(row);
+      return;
+    }
+    this.openEntry(row.entry);
+  }
+
+  async treeLeft(): Promise<void> {
+    if (this.viewMode !== 'tree') return;
+    const rows = this.treeRows;
+    const index = rows.findIndex(row => row.entry.path === this.cursorPath);
+    if (index < 0) return;
+    const row = rows[index];
+
+    if (row.expandable && row.expanded) {
+      this.treeExpandedPaths.delete(row.entry.path);
+      this.cdr.markForCheck();
+      return;
+    }
+
+    if (row.depth === 0) return;
+
+    for (let i = index - 1; i >= 0; i -= 1) {
+      if (rows[i].depth === row.depth - 1) {
+        this.setSingleSelection(rows[i].entry);
+        this.ensureCursorVisible();
+        this.cdr.markForCheck();
+        return;
+      }
+    }
+  }
+
+  async treeRight(): Promise<void> {
+    if (this.viewMode !== 'tree') return;
+    const rows = this.treeRows;
+    const index = rows.findIndex(row => row.entry.path === this.cursorPath);
+    if (index < 0) return;
+    const row = rows[index];
+
+    if (!row.expandable) return;
+
+    if (!row.expanded) {
+      await this.toggleTreeRow(row);
+      return;
+    }
+
+    const child = rows[index + 1];
+    if (child && child.depth === row.depth + 1) {
+      this.setSingleSelection(child.entry);
+      this.ensureCursorVisible();
+      this.cdr.markForCheck();
+    }
   }
 
   focusFilter(): void {
@@ -1213,7 +1663,10 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
 
   selectAll(): void {
     if (!this.isDirectoryTab) return;
-    this.selectedPaths = new Set(this.visibleEntries.map(entry => entry.path));
+    const selectable = this.viewMode === 'tree'
+      ? this.treeRows.map(row => row.entry)
+      : this.visibleEntries;
+    this.selectedPaths = new Set(selectable.map(entry => entry.path));
     this.lastAction = 'select all';
     this.cdr.markForCheck();
   }
@@ -1432,6 +1885,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
   }
 
   private async initialize(): Promise<void> {
+    this.restoreViewPreference();
     this.loading = true;
     this.error = null;
     this.cdr.markForCheck();
@@ -1472,6 +1926,20 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
         // load() records the visible error state.
       }
     }
+  }
+
+  private restoreViewPreference(): void {
+    try {
+      const saved = localStorage.getItem(`reassembly.view.${this.paneId}`);
+      if (
+        saved === 'list' ||
+        saved === 'grid' ||
+        saved === 'details' ||
+        saved === 'tree'
+      ) {
+        this.viewMode = saved;
+      }
+    } catch {}
   }
 
   private async tryRestoreWorkspaceTabs(): Promise<boolean> {
@@ -1571,6 +2039,12 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
         this.filterText = '';
         this.filterVisible = false;
         this.filterWidget?.deactivateContext();
+      }
+
+      if (pathChanged) {
+        this.treeExpandedPaths.clear();
+        this.treeChildren.clear();
+        this.treeLoadingPaths.clear();
       }
 
       this.entries = [...(listing.entries || [])].sort((left, right) => {
@@ -1681,7 +2155,9 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
   }
 
   moveCursor(delta: -1 | 1): void {
-    const visible = this.visibleEntries;
+    const visible = this.viewMode === 'tree'
+      ? this.treeRows.map(row => row.entry)
+      : this.visibleEntries;
     if (!this.isDirectoryTab || visible.length === 0) return;
 
     const currentIndex = this.cursorPath

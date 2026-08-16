@@ -36,6 +36,12 @@ export interface InputContextDefinition {
   priority: number;
   parentId?: string;
   description: string;
+
+  /**
+   * When active, bindings from lower non-global contexts are hidden.
+   * Global bindings remain available for application-wide commands such as F1.
+   */
+  exclusive?: boolean;
 }
 
 export interface InputBindingDefinition {

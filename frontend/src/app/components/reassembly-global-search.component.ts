@@ -227,7 +227,7 @@ export class ReassemblyGlobalSearchComponent implements OnInit, OnDestroy {
     this.input.registerContext({
       id: CONTEXT_ID,
       kind: 'overlay',
-      priority: 390,
+      priority: 390, exclusive: true,
       parentId: 'global',
       description: 'Reassembly global search',
     });

@@ -166,7 +166,7 @@ export class ReassemblyCommandPaletteComponent implements OnInit, OnDestroy {
     this.input.registerContext({
       id: CONTEXT_ID,
       kind: 'overlay',
-      priority: 410,
+      priority: 410, exclusive: true,
       parentId: 'global',
       description: 'Reassembly command palette',
     });

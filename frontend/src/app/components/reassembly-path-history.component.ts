@@ -43,11 +43,11 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   { id:'reassembly.pathHistory.up', commandId:COMMAND.previous, contextId:CONTEXT_ID, source:'default', description:'Previous history entry', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'arrowup'}]}}},
   { id:'reassembly.pathHistory.down', commandId:COMMAND.next, contextId:CONTEXT_ID, source:'default', description:'Next history entry', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'arrowdown'}]}}},
   { id:'reassembly.pathHistory.enter', commandId:COMMAND.open, contextId:CONTEXT_ID, source:'default', description:'Open history entry', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'enter'}]}}},
-  { id:'reassembly.pathHistory.delete', commandId:COMMAND.remove, contextId:CONTEXT_ID, source:'default', description:'Remove history entry', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'delete'}]}}},
+  { id:'reassembly.pathHistory.delete', commandId:COMMAND.remove, contextId:CONTEXT_ID, source:'default', description:'Remove history entry', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'delete'}]}}},
   { id:'reassembly.pathHistory.ctrlDelete', commandId:COMMAND.clear, contextId:CONTEXT_ID, source:'default', description:'Clear history', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'delete',modifiers:['ctrl']}]}}},
-  { id:'reassembly.pathHistory.tab', commandId:COMMAND.nextMode, contextId:CONTEXT_ID, source:'default', description:'Next history view', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'tab'}]}}},
-  { id:'reassembly.pathHistory.shiftTab', commandId:COMMAND.previousMode, contextId:CONTEXT_ID, source:'default', description:'Previous history view', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'tab',modifiers:['shift']}]}}},
-  { id:'reassembly.pathHistory.ctrlC', commandId:COMMAND.copyJson, contextId:CONTEXT_ID, source:'default', description:'Copy history JSON', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'c',modifiers:['ctrl']}]}}},
+  { id:'reassembly.pathHistory.tab', commandId:COMMAND.nextMode, contextId:CONTEXT_ID, source:'default', description:'Next history view', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'pagedown', modifiers:['ctrl']}]}}},
+  { id:'reassembly.pathHistory.shiftTab', commandId:COMMAND.previousMode, contextId:CONTEXT_ID, source:'default', description:'Previous history view', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'pageup',modifiers:['ctrl']}]}}},
+  { id:'reassembly.pathHistory.ctrlC', commandId:COMMAND.copyJson, contextId:CONTEXT_ID, source:'default', description:'Copy history JSON', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'c',modifiers:['ctrl']}]}}},
 ];
 
 @Component({
@@ -109,7 +109,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           <button type="button" [disabled]="!selectedEntry" (click)="removeSelected()">Remove</button>
           <button type="button" [disabled]="entries.length===0" (click)="copyJson()">Copy JSON</button>
           <button type="button" class="danger" [disabled]="entries.length===0" (click)="clearAll()">Clear all</button>
-          <span class="keys">Tab views · ↑ ↓ · Enter · Delete · Ctrl+C · Ctrl+Delete · Esc</span>
+          <span class="keys">Ctrl+PgUp/PgDn views · ↑ ↓ · Enter · Delete · Ctrl+C · Ctrl+Delete · Esc</span>
         </footer>
       </section>
     </div>
@@ -190,7 +190,7 @@ export class ReassemblyPathHistoryComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit():void{
-    this.input.registerContext({id:CONTEXT_ID,kind:'dialog',priority:390,parentId:'global',description:'Path history'});
+    this.input.registerContext({id:CONTEXT_ID,kind:'dialog',priority:390, exclusive: true,parentId:'global',description:'Path history'});
     this.input.registerCommandDescriptor({id:COMMAND.close,title:'Close Path History',category:'Navigation',execute:()=>this.close()},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.previous,title:'Previous Path History Entry',category:'Navigation',execute:()=>this.move(-1)},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.next,title:'Next Path History Entry',category:'Navigation',execute:()=>this.move(1)},OWNER_ID);

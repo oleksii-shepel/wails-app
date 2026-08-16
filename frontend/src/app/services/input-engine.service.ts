@@ -327,7 +327,15 @@ export class InputEngineService {
   activateContext(contextId: string): void {
     const context = this.contexts.get(contextId);
     if (!context) return;
-    this.activeContexts.set(contextId, { id: contextId, activatedAt: Date.now() });
+
+    this.activeContexts.set(contextId, {
+      id: contextId,
+      activatedAt: Date.now(),
+    });
+
+    // A context switch changes who owns the next stroke. Do not carry a
+    // half-entered chord from the pane into a dialog/overlay.
+    this.clearPendingChord();
     this.emitActiveContexts();
   }
 
@@ -787,7 +795,7 @@ export class InputEngineService {
   }
 
   private matchBindings(sequence: KeyStroke[], keyboardContext?: KeyboardEventContext | null): RegisteredBinding[] {
-    const activeContextIds = this.getActiveContextIds();
+    const activeContextIds = this.getEffectiveActiveContextIds();
 
     return Array.from(this.bindings.values()).filter(binding => {
       if (!binding.enabled || binding.trigger.device !== 'keyboard') return false;
@@ -808,7 +816,7 @@ export class InputEngineService {
   }
 
   private matchMouseBindings(gesture: MouseGesture, event?: MouseEvent | WheelEvent): RegisteredBinding[] {
-    const activeContextIds = this.getActiveContextIds();
+    const activeContextIds = this.getEffectiveActiveContextIds();
     const mouseContext = event ? this.getKeyboardEventContext(event) : null;
 
     return Array.from(this.bindings.values()).filter(binding => {
@@ -1001,6 +1009,65 @@ export class InputEngineService {
       && (left.button ?? null) === (right.button ?? null)
       && (left.direction ?? null) === (right.direction ?? null)
       && leftMods === rightMods;
+  }
+
+  private getEffectiveActiveContextIds(): Set<string> {
+    const active = this.getActiveContextIds();
+
+    const exclusive = Array.from(this.activeContexts.values())
+      .map(state => ({
+        state,
+        context: this.contexts.get(state.id),
+      }))
+      .filter(
+        (entry): entry is {
+          state: ActiveContextState;
+          context: InputContextDefinition;
+        } => !!entry.context?.exclusive,
+      )
+      .sort((left, right) =>
+        right.context.priority - left.context.priority ||
+        right.state.activatedAt - left.state.activatedAt,
+      )[0];
+
+    if (!exclusive) {
+      return active;
+    }
+
+    const result = new Set<string>(['global', exclusive.context.id]);
+
+    // Keep active descendants of the winning exclusive context available for
+    // local widgets nested inside the modal surface.
+    for (const contextId of active) {
+      if (
+        contextId !== 'global' &&
+        this.isContextDescendantOf(contextId, exclusive.context.id)
+      ) {
+        result.add(contextId);
+      }
+    }
+
+    return result;
+  }
+
+  private isContextDescendantOf(
+    contextId: string,
+    ancestorId: string,
+  ): boolean {
+    let current = this.contexts.get(contextId);
+    const visited = new Set<string>();
+
+    while (current?.parentId && !visited.has(current.id)) {
+      visited.add(current.id);
+
+      if (current.parentId === ancestorId) {
+        return true;
+      }
+
+      current = this.contexts.get(current.parentId);
+    }
+
+    return false;
   }
 
   getActiveContextIds(): Set<string> {

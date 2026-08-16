@@ -42,7 +42,7 @@ export class ReassemblyRemoteConnectionsComponent implements OnInit,OnDestroy{
 private readonly destroy$=createSubject<void>();
 constructor(private readonly connections:RemoteConnectionsService,private readonly connectDialog:RemoteConnectDialogService,private readonly confirm:ConfirmDialogService,private readonly input:InputEngineService,private readonly cdr:ChangeDetectorRef){}
 get selectedMount():contracts.RemoteMount|null{return this.state.mounts[this.selectedIndex]??null}
-ngOnInit():void{this.input.registerContext({id:CONTEXT_ID,kind:'overlay',priority:420,parentId:'global',description:'Remote connections'});const d=(
+ngOnInit():void{this.input.registerContext({id:CONTEXT_ID,kind:'overlay',priority:420, exclusive: true,parentId:'global',description:'Remote connections'});const d=(
       id:string,
       title:string,
       execute:()=>void|Promise<void>,

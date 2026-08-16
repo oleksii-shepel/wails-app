@@ -56,14 +56,14 @@ const COMMAND = {
 
 const BINDINGS: readonly InputBindingDefinition[] = [
   { id:'reassembly.toolsCenter.escape', commandId:COMMAND.close, contextId:CONTEXT_ID, source:'default', description:'Close Tools Center', category:'Tools', trigger:{device:'keyboard', chord:{steps:[{key:'escape'}]}}},
-  { id:'reassembly.toolsCenter.page1', commandId:COMMAND.operations, contextId:CONTEXT_ID, source:'default', description:'Operations page', category:'Tools', trigger:{device:'keyboard', chord:{steps:[{key:'1'}]}}},
-  { id:'reassembly.toolsCenter.page2', commandId:COMMAND.disk, contextId:CONTEXT_ID, source:'default', description:'Disk Usage page', category:'Tools', trigger:{device:'keyboard', chord:{steps:[{key:'2'}]}}},
-  { id:'reassembly.toolsCenter.page3', commandId:COMMAND.duplicates, contextId:CONTEXT_ID, source:'default', description:'Duplicates page', category:'Tools', trigger:{device:'keyboard', chord:{steps:[{key:'3'}]}}},
+  { id:'reassembly.toolsCenter.page1', commandId:COMMAND.operations, contextId:CONTEXT_ID, source:'default', description:'Operations page', category:'Tools', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'1'}]}}},
+  { id:'reassembly.toolsCenter.page2', commandId:COMMAND.disk, contextId:CONTEXT_ID, source:'default', description:'Disk Usage page', category:'Tools', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'2'}]}}},
+  { id:'reassembly.toolsCenter.page3', commandId:COMMAND.duplicates, contextId:CONTEXT_ID, source:'default', description:'Duplicates page', category:'Tools', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'3'}]}}},
   { id:'reassembly.toolsCenter.rescan', commandId:COMMAND.rescan, contextId:CONTEXT_ID, source:'default', description:'Rescan current tool', category:'Tools', trigger:{device:'keyboard', chord:{steps:[{key:'r'}]}}},
   { id:'reassembly.toolsCenter.selectAllDuplicates', commandId:COMMAND.selectAllDuplicates, contextId:CONTEXT_ID, source:'default', description:'Select reclaimable duplicates', category:'Tools', trigger:{device:'keyboard', chord:{steps:[{key:'a'}]}}},
   { id:'reassembly.toolsCenter.clearDuplicateSelection', commandId:COMMAND.clearDuplicateSelection, contextId:CONTEXT_ID, source:'default', description:'Clear duplicate selection', category:'Tools', trigger:{device:'keyboard', chord:{steps:[{key:'u'}]}}},
   { id:'reassembly.toolsCenter.addDuplicatesToBasket', commandId:COMMAND.addDuplicatesToBasket, contextId:CONTEXT_ID, source:'default', description:'Add duplicate selection to basket', category:'Tools', trigger:{device:'keyboard', chord:{steps:[{key:'b'}]}}},
-  { id:'reassembly.toolsCenter.deleteDuplicates', commandId:COMMAND.deleteDuplicates, contextId:CONTEXT_ID, source:'default', description:'Delete selected duplicates', category:'Tools', trigger:{device:'keyboard', chord:{steps:[{key:'delete'}]}}},
+  { id:'reassembly.toolsCenter.deleteDuplicates', commandId:COMMAND.deleteDuplicates, contextId:CONTEXT_ID, source:'default', description:'Delete selected duplicates', category:'Tools', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'delete'}]}}},
 ];
 
 @Component({
@@ -432,7 +432,7 @@ export class ReassemblyToolsCenterComponent implements OnInit, OnDestroy {
     this.input.registerContext({
       id: CONTEXT_ID,
       kind: 'overlay',
-      priority: 395,
+      priority: 395, exclusive: true,
       parentId: 'global',
       description: 'Reassembly tools center',
     });

@@ -86,22 +86,6 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     when: '!typing',
     trigger: { device: 'keyboard', chord: { steps: [{ key: 'enter' }] } },
   },
-  {
-    id: 'reassembly.workspaceSwitcher.new.ctrlShiftAltN',
-    commandId: COMMAND.create,
-    contextId: CONTEXT_ID,
-    source: 'default',
-    description: 'Create workspace',
-    category: 'Workspace',
-    when: '!typing',
-    trigger: {
-      device: 'keyboard',
-      chord: {
-        steps: [{
-          key: 'n',
-          modifiers: ['ctrl', 'shift', 'alt'],
-        }],
-      },
     },
   },
 
@@ -623,7 +607,7 @@ export class ReassemblyWorkspaceSwitcherComponent
     this.input.registerContext({
       id: CONTEXT_ID,
       kind: 'overlay',
-      priority: 400,
+      priority: 400, exclusive: true,
       parentId: 'global',
       description: 'Workspace switcher',
     });

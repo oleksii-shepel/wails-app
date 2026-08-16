@@ -115,7 +115,9 @@ interface PendingChordLike {
         <div><kbd>Ctrl+Shift+D</kbd><span>disk usage</span></div>
         <div><kbd>Ctrl+Shift+R</kbd><span>batch rename</span></div>
         <div><kbd>Ctrl+Tab / Ctrl+Shift+Tab</kbd><span>next / previous tab</span></div>
+        <div><kbd>Ctrl+Shift+P</kbd><span>command palette</span></div>
         <div><kbd>Ctrl+Alt+P</kbd><span>pin / unpin tab</span></div>
+        <div><kbd>Ctrl+1…9</kbd><span>jump to tab</span></div>
         <div><span>Tab menu</span><span>reorder · move to other pane</span></div>
         <div><span>Tools</span><span>operations · disk usage · duplicates</span></div>
         <div><span>Archives</span><span>open · nested browse · extract · F5/F6 · delete</span></div>

@@ -40,6 +40,10 @@ import { SelectionBasketComponent } from './selection-basket.component';
 import { ReassemblyToolsCenterComponent } from './reassembly-tools-center.component';
 import { ReassemblyGlobalSearchComponent } from './reassembly-global-search.component';
 import {
+  ReassemblyCommandPaletteComponent,
+  type ReassemblyPaletteCommand,
+} from './reassembly-command-palette.component';
+import {
   ReassemblyContextMenuComponent,
   type ReassemblyContextMenuItem,
   type ReassemblyContextMenuState,
@@ -52,6 +56,7 @@ const CONTEXT_ID = 'reassembly.manager';
 const OWNER_ID = 'reassembly.manager';
 
 const COMMAND = {
+  openCommandPalette: 'reassembly.navigation.commandPalette',
   switchPane: 'reassembly.manager.switchPane',
   cursorUp: 'reassembly.manager.cursorUp',
   cursorDown: 'reassembly.manager.cursorDown',
@@ -79,6 +84,15 @@ const COMMAND = {
   moveTabToOtherPane: 'reassembly.manager.moveTabToOtherPane',
   moveTabLeft: 'reassembly.manager.moveTabLeft',
   moveTabRight: 'reassembly.manager.moveTabRight',
+  jumpTab1: 'reassembly.manager.jumpTab1',
+  jumpTab2: 'reassembly.manager.jumpTab2',
+  jumpTab3: 'reassembly.manager.jumpTab3',
+  jumpTab4: 'reassembly.manager.jumpTab4',
+  jumpTab5: 'reassembly.manager.jumpTab5',
+  jumpTab6: 'reassembly.manager.jumpTab6',
+  jumpTab7: 'reassembly.manager.jumpTab7',
+  jumpTab8: 'reassembly.manager.jumpTab8',
+  jumpTab9: 'reassembly.manager.jumpTab9',
   viewerPrevious: 'reassembly.viewer.previous',
   viewerNext: 'reassembly.viewer.next',
   viewerZoomIn: 'reassembly.viewer.zoomIn',
@@ -135,6 +149,7 @@ const COMMAND = {
 } as const;
 
 const BINDINGS: readonly InputBindingDefinition[] = [
+  { id:'reassembly.navigation.commandPalette.ctrlShiftP', commandId:COMMAND.openCommandPalette, contextId:CONTEXT_ID, source:'default', description:'Open command palette', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'p', modifiers:['ctrl','shift']}]}}},
   { id:'reassembly.manager.switchPane.tab', commandId:COMMAND.switchPane, contextId:CONTEXT_ID, source:'default', description:'Switch active pane', category:'Pane Control', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'tab'}]}}},
   { id:'reassembly.manager.cursorUp.arrowUp', commandId:COMMAND.cursorUp, contextId:CONTEXT_ID, source:'default', description:'Move cursor up', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'arrowup'}]}}},
   { id:'reassembly.manager.cursorDown.arrowDown', commandId:COMMAND.cursorDown, contextId:CONTEXT_ID, source:'default', description:'Move cursor down', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'arrowdown'}]}}},
@@ -159,6 +174,15 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   { id:'reassembly.manager.closeTab.ctrlW', commandId:COMMAND.closeTab, contextId:CONTEXT_ID, source:'default', description:'Close tab', category:'Tab Management', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'w', modifiers:['ctrl']}]}}},
   { id:'reassembly.manager.nextTab.ctrlTab', commandId:COMMAND.nextTab, contextId:CONTEXT_ID, source:'default', description:'Next tab', category:'Tab Management', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'tab', modifiers:['ctrl']}]}}},
   { id:'reassembly.manager.previousTab.ctrlShiftTab', commandId:COMMAND.previousTab, contextId:CONTEXT_ID, source:'default', description:'Previous tab', category:'Tab Management', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'tab', modifiers:['ctrl','shift']}]}}},
+  { id:'reassembly.manager.jumpTab1.ctrl1', commandId:COMMAND.jumpTab1, contextId:CONTEXT_ID, source:'default', description:'Jump to tab 1', category:'Tab Management', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'1', modifiers:['ctrl']}]}}},
+  { id:'reassembly.manager.jumpTab2.ctrl2', commandId:COMMAND.jumpTab2, contextId:CONTEXT_ID, source:'default', description:'Jump to tab 2', category:'Tab Management', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'2', modifiers:['ctrl']}]}}},
+  { id:'reassembly.manager.jumpTab3.ctrl3', commandId:COMMAND.jumpTab3, contextId:CONTEXT_ID, source:'default', description:'Jump to tab 3', category:'Tab Management', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'3', modifiers:['ctrl']}]}}},
+  { id:'reassembly.manager.jumpTab4.ctrl4', commandId:COMMAND.jumpTab4, contextId:CONTEXT_ID, source:'default', description:'Jump to tab 4', category:'Tab Management', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'4', modifiers:['ctrl']}]}}},
+  { id:'reassembly.manager.jumpTab5.ctrl5', commandId:COMMAND.jumpTab5, contextId:CONTEXT_ID, source:'default', description:'Jump to tab 5', category:'Tab Management', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'5', modifiers:['ctrl']}]}}},
+  { id:'reassembly.manager.jumpTab6.ctrl6', commandId:COMMAND.jumpTab6, contextId:CONTEXT_ID, source:'default', description:'Jump to tab 6', category:'Tab Management', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'6', modifiers:['ctrl']}]}}},
+  { id:'reassembly.manager.jumpTab7.ctrl7', commandId:COMMAND.jumpTab7, contextId:CONTEXT_ID, source:'default', description:'Jump to tab 7', category:'Tab Management', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'7', modifiers:['ctrl']}]}}},
+  { id:'reassembly.manager.jumpTab8.ctrl8', commandId:COMMAND.jumpTab8, contextId:CONTEXT_ID, source:'default', description:'Jump to tab 8', category:'Tab Management', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'8', modifiers:['ctrl']}]}}},
+  { id:'reassembly.manager.jumpTab9.ctrl9', commandId:COMMAND.jumpTab9, contextId:CONTEXT_ID, source:'default', description:'Jump to tab 9', category:'Tab Management', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'9', modifiers:['ctrl']}]}}},
   { id:'reassembly.manager.toggleTabPin.ctrlAltP', commandId:COMMAND.toggleTabPin, contextId:CONTEXT_ID, source:'default', description:'Pin or unpin current tab', category:'Tab Management', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'p', modifiers:['ctrl','alt']}]}}},
   { id:'reassembly.viewer.previous.left', commandId:COMMAND.viewerPrevious, contextId:CONTEXT_ID, source:'default', description:'Previous viewer item', category:'Viewer', when:'viewerSurface', trigger:{device:'keyboard', chord:{steps:[{key:'arrowleft'}]}}},
   { id:'reassembly.viewer.next.right', commandId:COMMAND.viewerNext, contextId:CONTEXT_ID, source:'default', description:'Next viewer item', category:'Viewer', when:'viewerSurface', trigger:{device:'keyboard', chord:{steps:[{key:'arrowright'}]}}},
@@ -218,7 +242,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     SelectionBasketComponent,
     ReassemblyToolsCenterComponent,
     ReassemblyGlobalSearchComponent,
-  ],
+
+    ReassemblyCommandPaletteComponent,  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section
@@ -297,6 +322,11 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           (internalDrop)="handleInternalDrop('right', $event.event, $event.targetPath)">
         </app-reassembly-directory-pane>
       </div>
+
+      <app-reassembly-command-palette
+        #commandPalette
+        [commands]="commandPaletteCommands">
+      </app-reassembly-command-palette>
 
       <app-reassembly-global-search
         #globalSearch
@@ -439,6 +469,8 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
   selectionBasket?: SelectionBasketComponent;
   @ViewChild('toolsCenter')
   toolsCenter?: ReassemblyToolsCenterComponent;
+  @ViewChild('commandPalette')
+  commandPalette?: ReassemblyCommandPaletteComponent;
   @ViewChild('globalSearch')
   globalSearchOverlay?: ReassemblyGlobalSearchComponent;
   @ViewChild('pathHistory')
@@ -455,6 +487,8 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
   leftPanePercent = 50;
   resizing = false;
   showHidden = false;
+
+  commandPaletteCommands: ReassemblyPaletteCommand[] = [];
 
   comparisonVisible = false;
   syncReviewVisible = false;
@@ -1445,6 +1479,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
         this.menuCommand(COMMAND.remoteConnect, 'Connect remote…'),
         this.menuCommand(COMMAND.diskUsage, 'Disk Usage', 'Ctrl+Shift+D'),
         this.menuCommand(COMMAND.findDuplicates, 'Find Duplicates'),
+        this.menuCommand(COMMAND.openCommandPalette, 'Command Palette', 'Ctrl+Shift+P'),
         this.menuCommand(COMMAND.openOperations, 'Operations Center'),
         { separator: true },
         this.menuCommand(COMMAND.toggleTabPin, 'Pin / unpin current tab', 'Ctrl+Alt+P'),
@@ -1683,17 +1718,63 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     );
   }
 
+  private shortcutForCommand(commandId: string): string | undefined {
+    const binding = BINDINGS.find(candidate =>
+      candidate.commandId === commandId &&
+      candidate.trigger.device === 'keyboard',
+    );
+    if (!binding || binding.trigger.device !== 'keyboard') return undefined;
+
+    const step = binding.trigger.chord.steps[0];
+    if (!step) return undefined;
+
+    const modifiers = (step.modifiers ?? []).map(modifier => {
+      if (modifier === 'ctrl') return 'Ctrl';
+      if (modifier === 'shift') return 'Shift';
+      if (modifier === 'alt') return 'Alt';
+      if (modifier === 'meta') return 'Meta';
+      return modifier;
+    });
+
+    const names: Record<string,string> = {
+      arrowup:'↑', arrowdown:'↓', arrowleft:'←', arrowright:'→',
+      escape:'Esc', backspace:'Backspace', delete:'Delete',
+      insert:'Insert', pageup:'PageUp', pagedown:'PageDown',
+      tab:'Tab', enter:'Enter', home:'Home', end:'End',
+    };
+
+    return [...modifiers, names[step.key] ?? step.key.toUpperCase()].join('+');
+  }
+
   private registerCommands(): void {
+    const catalog: ReassemblyPaletteCommand[] = [];
+
     const descriptor = (
       id: string,
       title: string,
       category: string,
       execute: () => void | Promise<void>,
       enabled?: () => boolean,
-    ) => this.input.registerCommandDescriptor({
-      id, title, category, execute, isEnabled: enabled,
-    }, OWNER_ID);
+    ): void => {
+      this.input.registerCommandDescriptor({
+        id,
+        title,
+        category,
+        execute,
+        isEnabled: enabled,
+      }, OWNER_ID);
 
+      catalog.push({
+        id,
+        title,
+        category,
+        execute,
+        isEnabled: enabled,
+        shortcut: this.shortcutForCommand(id),
+      });
+    };
+
+    descriptor(COMMAND.openCommandPalette, 'Command Palette', 'Navigation', () => this.commandPalette?.open());
     descriptor(COMMAND.switchPane, 'Switch Pane', 'Pane Control', () => this.switchPane());
     descriptor(COMMAND.cursorUp, 'Move Cursor Up', 'Navigation', () => this.activePane?.moveCursor(-1));
     descriptor(COMMAND.cursorDown, 'Move Cursor Down', 'Navigation', () => this.activePane?.moveCursor(1));
@@ -1725,6 +1806,15 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     descriptor(COMMAND.moveTabToOtherPane, 'Move Tab to Other Pane', 'Tab Management', () => this.moveActiveTabToOtherPane());
     descriptor(COMMAND.moveTabLeft, 'Move Tab Left', 'Tab Management', () => this.reorderActiveTab(-1));
     descriptor(COMMAND.moveTabRight, 'Move Tab Right', 'Tab Management', () => this.reorderActiveTab(1));
+    descriptor(COMMAND.jumpTab1, 'Jump to Tab 1', 'Tab Management', () => this.activePane?.jumpToTab(0));
+    descriptor(COMMAND.jumpTab2, 'Jump to Tab 2', 'Tab Management', () => this.activePane?.jumpToTab(1));
+    descriptor(COMMAND.jumpTab3, 'Jump to Tab 3', 'Tab Management', () => this.activePane?.jumpToTab(2));
+    descriptor(COMMAND.jumpTab4, 'Jump to Tab 4', 'Tab Management', () => this.activePane?.jumpToTab(3));
+    descriptor(COMMAND.jumpTab5, 'Jump to Tab 5', 'Tab Management', () => this.activePane?.jumpToTab(4));
+    descriptor(COMMAND.jumpTab6, 'Jump to Tab 6', 'Tab Management', () => this.activePane?.jumpToTab(5));
+    descriptor(COMMAND.jumpTab7, 'Jump to Tab 7', 'Tab Management', () => this.activePane?.jumpToTab(6));
+    descriptor(COMMAND.jumpTab8, 'Jump to Tab 8', 'Tab Management', () => this.activePane?.jumpToTab(7));
+    descriptor(COMMAND.jumpTab9, 'Jump to Tab 9', 'Tab Management', () => this.activePane?.jumpToTab(8));
     descriptor(COMMAND.viewerPrevious, 'Previous Viewer Item', 'Viewer', () => this.invokeViewer('showPrevious'), () => this.hasViewerMethod('showPrevious'));
     descriptor(COMMAND.viewerNext, 'Next Viewer Item', 'Viewer', () => this.invokeViewer('showNext'), () => this.hasViewerMethod('showNext'));
     descriptor(COMMAND.viewerZoomIn, 'Zoom Viewer In', 'Viewer', () => this.invokeViewer('zoomIn'), () => this.hasViewerMethod('zoomIn'));
@@ -1873,6 +1963,8 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     descriptor(COMMAND.quickView, 'Quick View', 'File Operations', () => this.quickViewActive(), () => !!this.activePane?.isDirectoryTab && !!this.activePane?.cursorEntry && this.activePane.cursorEntry.type !== FileType.DIRECTORY);
     descriptor(COMMAND.openWithExternal, 'Open with External App', 'File Operations', () => this.openActiveExternally(), () => !!this.activePane?.isDirectoryTab && !!this.activePane?.cursorEntry && this.activePane.cursorEntry.type !== FileType.DIRECTORY);
     descriptor(COMMAND.remoteConnect, 'Connect Remote Location', 'Navigation', () => this.connectRemote());
+    this.commandPaletteCommands = catalog;
+    this.cdr.markForCheck();
   }
 
   private activeViewer(): any {

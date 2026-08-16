@@ -19,12 +19,14 @@ const keyBinding = (
   key: string,
   description: string,
   modifiers?: Array<'ctrl' | 'shift' | 'alt' | 'meta'>,
+  when?: string,
 ): InputBindingDefinition => ({
   id,
   contextId,
   commandId,
   source: 'default',
   description,
+  when,
   trigger: {
     device: 'keyboard',
     chord: {
@@ -37,10 +39,10 @@ export const DIALOG_INPUT_CATALOG: DialogBindingCatalogEntry[] = [
   {
     context: dialogContext('dialog.confirm', 'dialog', 1000, 'Confirmation and alert dialog'),
     bindings: [
-      keyBinding('dialog.confirm.accept.enter', 'dialog.confirm', 'dialog.confirm.accept', 'enter', 'Accept confirm dialog'),
-      keyBinding('dialog.confirm.cancel.escape', 'dialog.confirm', 'dialog.confirm.cancel', 'escape', 'Cancel confirm dialog'),
-      keyBinding('dialog.confirm.focus.next', 'dialog.confirm', 'dialog.confirm.focusNext', 'tab', 'Move focus to next action'),
-      keyBinding('dialog.confirm.focus.prev', 'dialog.confirm', 'dialog.confirm.focusPrev', 'tab', 'Move focus to previous action', ['shift']),
+      keyBinding('dialog.confirm.accept.enter', 'dialog.confirm', 'dialog.confirm.accept', 'enter', 'Accept confirm dialog', undefined, 'typing'),
+      keyBinding('dialog.confirm.cancel.escape', 'dialog.confirm', 'dialog.confirm.cancel', 'escape', 'Cancel confirm dialog', undefined, 'typing'),
+      keyBinding('dialog.confirm.focus.next', 'dialog.confirm', 'dialog.confirm.focusNext', 'tab', 'Move focus to next action', undefined, 'typing'),
+      keyBinding('dialog.confirm.focus.prev', 'dialog.confirm', 'dialog.confirm.focusPrev', 'tab', 'Move focus to previous action', ['shift'], 'typing'),
       keyBinding('dialog.confirm.focus.next.arrowRight', 'dialog.confirm', 'dialog.confirm.focusNextArrow', 'arrowright', 'Move focus to next action with arrows'),
       keyBinding('dialog.confirm.focus.prev.arrowLeft', 'dialog.confirm', 'dialog.confirm.focusPrevArrow', 'arrowleft', 'Move focus to previous action with arrows'),
     ],

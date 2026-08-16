@@ -49,6 +49,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     source: 'default',
     description: 'Close workspace switcher',
     category: 'Workspace',
+    when: '!typing',
     trigger: { device: 'keyboard', chord: { steps: [{ key: 'escape' }] } },
   },
   {
@@ -58,6 +59,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     source: 'default',
     description: 'Previous workspace',
     category: 'Workspace',
+    when: '!typing',
     trigger: { device: 'keyboard', chord: { steps: [{ key: 'arrowup' }] } },
   },
   {
@@ -67,6 +69,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     source: 'default',
     description: 'Next workspace',
     category: 'Workspace',
+    when: '!typing',
     trigger: { device: 'keyboard', chord: { steps: [{ key: 'arrowdown' }] } },
   },
   {
@@ -76,7 +79,26 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     source: 'default',
     description: 'Activate workspace',
     category: 'Workspace',
+    when: '!typing',
     trigger: { device: 'keyboard', chord: { steps: [{ key: 'enter' }] } },
+  },
+  {
+    id: 'reassembly.workspaceSwitcher.new.ctrlShiftAltN',
+    commandId: COMMAND.create,
+    contextId: CONTEXT_ID,
+    source: 'default',
+    description: 'Create workspace',
+    category: 'Workspace',
+    when: '!typing',
+    trigger: {
+      device: 'keyboard',
+      chord: {
+        steps: [{
+          key: 'n',
+          modifiers: ['ctrl', 'shift', 'alt'],
+        }],
+      },
+    },
   },
 
   {
@@ -86,6 +108,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     source: 'default',
     description: 'Rename workspace',
     category: 'Workspace',
+    when: '!typing',
     trigger: { device: 'keyboard', chord: { steps: [{ key: 'f2' }] } },
   },
   {
@@ -95,6 +118,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     source: 'default',
     description: 'Delete workspace',
     category: 'Workspace',
+    when: '!typing',
     trigger: { device: 'keyboard', chord: { steps: [{ key: 'delete' }] } },
   },
   {
@@ -104,6 +128,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     source: 'default',
     description: 'Activate workspace 1',
     category: 'Workspace',
+    when: '!typing',
     trigger: { device: 'keyboard', chord: { steps: [{ key: '1' }] } },
   },
   {
@@ -113,6 +138,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     source: 'default',
     description: 'Activate workspace 2',
     category: 'Workspace',
+    when: '!typing',
     trigger: { device: 'keyboard', chord: { steps: [{ key: '2' }] } },
   },
   {
@@ -122,6 +148,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     source: 'default',
     description: 'Activate workspace 3',
     category: 'Workspace',
+    when: '!typing',
     trigger: { device: 'keyboard', chord: { steps: [{ key: '3' }] } },
   },
   {
@@ -131,6 +158,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     source: 'default',
     description: 'Activate workspace 4',
     category: 'Workspace',
+    when: '!typing',
     trigger: { device: 'keyboard', chord: { steps: [{ key: '4' }] } },
   },
   {
@@ -140,6 +168,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     source: 'default',
     description: 'Activate workspace 5',
     category: 'Workspace',
+    when: '!typing',
     trigger: { device: 'keyboard', chord: { steps: [{ key: '5' }] } },
   },
   {
@@ -149,6 +178,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     source: 'default',
     description: 'Activate workspace 6',
     category: 'Workspace',
+    when: '!typing',
     trigger: { device: 'keyboard', chord: { steps: [{ key: '6' }] } },
   },
   {
@@ -158,6 +188,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     source: 'default',
     description: 'Activate workspace 7',
     category: 'Workspace',
+    when: '!typing',
     trigger: { device: 'keyboard', chord: { steps: [{ key: '7' }] } },
   },
   {
@@ -167,6 +198,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     source: 'default',
     description: 'Activate workspace 8',
     category: 'Workspace',
+    when: '!typing',
     trigger: { device: 'keyboard', chord: { steps: [{ key: '8' }] } },
   },
   {
@@ -176,6 +208,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     source: 'default',
     description: 'Activate workspace 9',
     category: 'Workspace',
+    when: '!typing',
     trigger: { device: 'keyboard', chord: { steps: [{ key: '9' }] } },
   },
 ];

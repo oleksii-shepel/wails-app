@@ -23,6 +23,7 @@ import {
   rememberFocusedElement,
   restoreFocusedElement,
 } from './reassembly-focus.utils';
+import { discoveryScore } from './reassembly-discovery';
 
 type HistoryMode = 'pane' | 'all' | 'frequent';
 
@@ -159,16 +160,30 @@ export class ReassemblyPathHistoryComponent implements OnInit, OnDestroy {
   }
 
   get filteredEntries():LocationHistoryEntry[]{
-    const q=this.filterText.trim().toLocaleLowerCase();
+    const query=this.filterText.trim();
     const current=this.locationKey(this.currentPath);
     const entries=this.modeEntries.filter(entry=>
       this.locationKey(entry.location)!==current
     );
-    return q?entries.filter(entry=>
-      (entry.location??'').toLocaleLowerCase().includes(q)||
-      (entry.scheme??'').toLocaleLowerCase().includes(q)||
-      this.labelFor(entry.location).toLocaleLowerCase().includes(q)
-    ):entries;
+
+    if(!query)return entries;
+
+    return entries
+      .map(entry=>({
+        entry,
+        score:discoveryScore(query,[
+          {value:this.labelFor(entry.location),weight:1.6},
+          {value:entry.location,weight:1.2},
+          {value:entry.scheme,weight:.8},
+          {value:entry.paneId,weight:.5},
+        ]),
+      }))
+      .filter(candidate=>candidate.score>=0)
+      .sort((a,b)=>
+        b.score-a.score||
+        b.entry.timestamp-a.entry.timestamp
+      )
+      .map(candidate=>candidate.entry);
   }
 
   get selectedEntry():LocationHistoryEntry|null{

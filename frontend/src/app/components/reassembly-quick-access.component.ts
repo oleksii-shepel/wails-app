@@ -14,6 +14,7 @@ import {
   rememberFocusedElement,
   restoreFocusedElement,
 } from './reassembly-focus.utils';
+import { discoveryScore } from './reassembly-discovery';
 
 interface QuickItem {
   id: string;
@@ -156,14 +157,31 @@ export class ReassemblyQuickAccessComponent implements OnInit, OnDestroy {
   ) {}
 
   get filteredSections(): QuickSection[] {
-    const query = this.filterText.trim().toLocaleLowerCase();
+    const query = this.filterText.trim();
     if (!query) return this.sections;
-    return this.sections.map(section => ({
-      ...section,
-      items: section.items.filter(item =>
-        item.label.toLocaleLowerCase().includes(query) ||
-        item.path.toLocaleLowerCase().includes(query)),
-    })).filter(section => section.items.length > 0);
+
+    return this.sections
+      .map(section => ({
+        ...section,
+        items: section.items
+          .map(item => ({
+            item,
+            score: discoveryScore(query, [
+              { value: item.label, weight: 1.5 },
+              { value: item.path, weight: 1.1 },
+              { value: item.meta, weight: .7 },
+              { value: item.kind, weight: .6 },
+            ]),
+          }))
+          .filter(candidate => candidate.score >= 0)
+          .sort(
+            (a,b) =>
+              b.score - a.score ||
+              a.item.label.localeCompare(b.item.label),
+          )
+          .map(candidate => candidate.item),
+      }))
+      .filter(section => section.items.length > 0);
   }
 
   get activeSection(): QuickSection | null { return this.filteredSections[this.sectionIndex] ?? null; }

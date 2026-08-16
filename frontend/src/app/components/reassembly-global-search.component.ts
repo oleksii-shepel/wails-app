@@ -22,6 +22,11 @@ import {
   restoreFocusedElement,
 } from './reassembly-focus.utils';
 
+type SearchSort = 'relevance' | 'name' | 'path' | 'type';
+
+const SEARCH_HISTORY_KEY = 'reassembly.globalSearch.queries.v1';
+const SEARCH_HISTORY_LIMIT = 20;
+
 const CONTEXT_ID = 'overlay.reassemblyGlobalSearch';
 const OWNER_ID = 'overlay.reassemblyGlobalSearch';
 
@@ -31,6 +36,10 @@ const COMMAND = {
   next: 'reassembly.globalSearch.next',
   open: 'reassembly.globalSearch.open',
   openFolder: 'reassembly.globalSearch.openFolder',
+  toggleRecursive: 'reassembly.globalSearch.toggleRecursive',
+  cycleSort: 'reassembly.globalSearch.cycleSort',
+  previousQuery: 'reassembly.globalSearch.previousQuery',
+  nextQuery: 'reassembly.globalSearch.nextQuery',
 } as const;
 
 const BINDINGS: readonly InputBindingDefinition[] = [
@@ -39,6 +48,10 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   { id:'reassembly.globalSearch.down', commandId:COMMAND.next, contextId:CONTEXT_ID, source:'default', description:'Next search result', category:'Search & Filter', trigger:{device:'keyboard', chord:{steps:[{key:'arrowdown'}]}}},
   { id:'reassembly.globalSearch.enter', commandId:COMMAND.open, contextId:CONTEXT_ID, source:'default', description:'Open search result', category:'Search & Filter', trigger:{device:'keyboard', chord:{steps:[{key:'enter'}]}}},
   { id:'reassembly.globalSearch.ctrlEnter', commandId:COMMAND.openFolder, contextId:CONTEXT_ID, source:'default', description:'Open containing folder', category:'Search & Filter', trigger:{device:'keyboard', chord:{steps:[{key:'enter',modifiers:['ctrl']}]}}},
+  { id:'reassembly.globalSearch.toggleRecursive.altR', commandId:COMMAND.toggleRecursive, contextId:CONTEXT_ID, source:'default', description:'Toggle recursive search', category:'Search & Filter', trigger:{device:'keyboard', chord:{steps:[{key:'r',modifiers:['alt']}]}}},
+  { id:'reassembly.globalSearch.cycleSort.altS', commandId:COMMAND.cycleSort, contextId:CONTEXT_ID, source:'default', description:'Cycle search sort', category:'Search & Filter', trigger:{device:'keyboard', chord:{steps:[{key:'s',modifiers:['alt']}]}}},
+  { id:'reassembly.globalSearch.previousQuery.altUp', commandId:COMMAND.previousQuery, contextId:CONTEXT_ID, source:'default', description:'Previous search query', category:'Search & Filter', trigger:{device:'keyboard', chord:{steps:[{key:'arrowup',modifiers:['alt']}]}}},
+  { id:'reassembly.globalSearch.nextQuery.altDown', commandId:COMMAND.nextQuery, contextId:CONTEXT_ID, source:'default', description:'Next search query', category:'Search & Filter', trigger:{device:'keyboard', chord:{steps:[{key:'arrowdown',modifiers:['alt']}]}}},
 ];
 
 @Component({
@@ -55,7 +68,12 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             <strong>Search</strong>
             <span class="root" [title]="rootPath">{{ rootPath }}</span>
           </div>
-          <span class="count">{{ searching ? 'searching…' : results.length + ' results' }}</span>
+          <span class="count">
+            {{ searching ? 'searching…' : displayedResults.length + ' results' }}
+            <ng-container *ngIf="!searching && results.length">
+              · {{ folderCount }} folders · {{ fileCount }} files
+            </ng-container>
+          </span>
         </header>
 
         <div class="query">
@@ -67,12 +85,35 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             autocomplete="off"
             spellcheck="false"
             aria-label="Search query" />
-          <label><input type="checkbox" [(ngModel)]="recursive" (ngModelChange)="scheduleSearch()"> Recursive</label>
+          <label title="Alt+R">
+            <input type="checkbox" [(ngModel)]="recursive" (ngModelChange)="scheduleSearch()">
+            Recursive
+          </label>
+          <label>
+            Sort
+            <select [(ngModel)]="sortMode" aria-label="Search result sort">
+              <option value="relevance">Relevance</option>
+              <option value="name">Name</option>
+              <option value="path">Path</option>
+              <option value="type">Type</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="recent-queries" *ngIf="recentQueries.length">
+          <span>Recent:</span>
+          <button
+            type="button"
+            *ngFor="let recent of recentQueries.slice(0, 6)"
+            [title]="recent"
+            (click)="useQuery(recent)">
+            {{ recent }}
+          </button>
         </div>
 
         <div class="results" role="listbox">
           <button
-            *ngFor="let entry of results; let i=index; trackBy:trackResult"
+            *ngFor="let entry of displayedResults; let i=index; trackBy:trackResult"
             type="button"
             class="result"
             role="option"
@@ -88,7 +129,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             <span class="kind">{{ kind(entry) }}</span>
           </button>
 
-          <div class="empty" *ngIf="!searching && queryText.trim() && results.length === 0">
+          <div class="empty" *ngIf="!searching && queryText.trim() && displayedResults.length === 0">
             No matching files.
           </div>
           <div class="empty" *ngIf="!queryText.trim()">
@@ -98,7 +139,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
 
         <footer>
           <span *ngIf="error" class="error">{{ error }}</span>
-          <span class="keys">↑ ↓ · Enter open · Ctrl+Enter folder · Esc</span>
+          <span class="keys">↑ ↓ · Enter open · Ctrl+Enter folder · Alt+R recursive · Alt+S sort · Alt+↑/↓ queries · Esc</span>
         </footer>
       </section>
     </div>
@@ -108,7 +149,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     .backdrop{position:fixed;inset:0;display:grid;place-items:start center;padding-top:min(8vh,72px);background:rgba(0,0,0,.25);pointer-events:auto}
     .search{box-sizing:border-box;display:flex;flex-direction:column;width:min(820px,calc(100vw - 24px));height:min(660px,calc(100vh - 36px));overflow:hidden;border:1px solid var(--vsc-border,#454545);border-radius:8px;background:var(--vsc-menu-background,#252526);color:var(--vsc-foreground,#ccc);box-shadow:0 18px 60px rgba(0,0,0,.5);font:12px/1.4 var(--vsc-font-family,system-ui,sans-serif)}
     header,footer,.query{display:flex;align-items:center;gap:10px;padding:9px 10px;border-bottom:1px solid var(--vsc-border-subtle,#2b2b2b)}header{justify-content:space-between}header>div{display:flex;align-items:baseline;gap:8px;min-width:0}.root,.count,small,.kind,.keys{color:var(--vsc-description-foreground,#969696)}.root{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--vsc-font-family-mono,ui-monospace,monospace)}
-    .query input[type=text],.query>input{flex:1;height:30px;padding:0 9px;border:1px solid var(--vsc-border,#454545);border-radius:4px;outline:none;background:var(--vsc-input-background,#181818);color:inherit;font:inherit}.query input:focus{border-color:var(--vsc-focus-border,#007fd4)}.query label{display:flex;gap:5px;align-items:center;white-space:nowrap}
+    .query input[type=text],.query>input{flex:1;height:30px;padding:0 9px;border:1px solid var(--vsc-border,#454545);border-radius:4px;outline:none;background:var(--vsc-input-background,#181818);color:inherit;font:inherit}.query input:focus{border-color:var(--vsc-focus-border,#007fd4)}.query label{display:flex;gap:5px;align-items:center;white-space:nowrap}.query select{height:28px;border:1px solid var(--vsc-border,#454545);border-radius:4px;background:var(--vsc-input-background,#181818);color:inherit;font:inherit}
+    .recent-queries{display:flex;align-items:center;gap:5px;padding:5px 10px;border-bottom:1px solid var(--vsc-border-subtle,#2b2b2b);overflow:hidden;color:var(--vsc-description-foreground,#969696)}.recent-queries button{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px 6px;border:1px solid var(--vsc-border,#454545);border-radius:10px;background:transparent;color:inherit;cursor:pointer;font:10px var(--vsc-font-family,system-ui,sans-serif)}.recent-queries button:hover{background:var(--vsc-list-hover-background,#2a2d2e)}
     .results{flex:1;min-height:0;overflow:auto;padding:5px}.result{display:grid;grid-template-columns:30px minmax(0,1fr) auto;gap:8px;align-items:center;width:100%;min-height:45px;padding:5px 8px;border:1px solid transparent;border-radius:4px;background:transparent;color:inherit;text-align:left;cursor:pointer;font:inherit}.result:hover,.result.selected{background:var(--vsc-list-hover-background,#2a2d2e)}.result.selected{border-color:color-mix(in srgb,var(--vsc-accent-blue,#007acc) 55%,transparent)}.icon{text-align:center;font-size:16px}.details{min-width:0;display:grid}.details strong,.details small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.details small{font-family:var(--vsc-font-family-mono,ui-monospace,monospace)}.kind{font-size:10px}.empty{padding:40px;text-align:center;color:var(--vsc-description-foreground,#969696)}
     footer{border-top:1px solid var(--vsc-border-subtle,#2b2b2b);border-bottom:0}.keys{margin-left:auto}.error{color:var(--vsc-error-foreground,#f48771);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   `],
@@ -123,6 +165,9 @@ export class ReassemblyGlobalSearchComponent implements OnInit, OnDestroy {
   rootPath = '';
   queryText = '';
   recursive = true;
+  sortMode: SearchSort = 'relevance';
+  recentQueries: string[] = [];
+  private queryHistoryIndex = -1;
   results: FileInfo[] = [];
   selectedIndex = 0;
   searching = false;
@@ -137,8 +182,47 @@ export class ReassemblyGlobalSearchComponent implements OnInit, OnDestroy {
     private readonly cdr: ChangeDetectorRef,
   ) {}
 
+  get displayedResults(): FileInfo[] {
+    const results = [...this.results];
+
+    if (this.sortMode === 'name') {
+      return results.sort((a,b) =>
+        (a.name ?? '').localeCompare(b.name ?? '', undefined, {
+          numeric: true,
+          sensitivity: 'base',
+        }),
+      );
+    }
+
+    if (this.sortMode === 'path') {
+      return results.sort((a,b) =>
+        (a.path ?? '').localeCompare(b.path ?? '', undefined, {
+          numeric: true,
+          sensitivity: 'base',
+        }),
+      );
+    }
+
+    if (this.sortMode === 'type') {
+      return results.sort((a,b) =>
+        this.kind(a).localeCompare(this.kind(b)) ||
+        (a.name ?? '').localeCompare(b.name ?? ''),
+      );
+    }
+
+    return results;
+  }
+
   get selectedResult(): FileInfo | null {
-    return this.results[this.selectedIndex] ?? null;
+    return this.displayedResults[this.selectedIndex] ?? null;
+  }
+
+  get folderCount(): number {
+    return this.results.filter(entry => entry.type === FileType.DIRECTORY).length;
+  }
+
+  get fileCount(): number {
+    return this.results.length - this.folderCount;
   }
 
   ngOnInit(): void {
@@ -155,6 +239,10 @@ export class ReassemblyGlobalSearchComponent implements OnInit, OnDestroy {
     this.input.registerCommandDescriptor({id:COMMAND.next,title:'Next Search Result',category:'Search & Filter',execute:()=>this.move(1)},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.open,title:'Open Search Result',category:'Search & Filter',execute:()=>{const entry=this.selectedResult;if(entry)this.openEntry(entry)}},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.openFolder,title:'Open Containing Folder',category:'Search & Filter',execute:()=>{const entry=this.selectedResult;if(entry)this.openFolder(entry)}},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.toggleRecursive,title:'Toggle Recursive Search',category:'Search & Filter',execute:()=>this.toggleRecursive()},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.cycleSort,title:'Cycle Search Sort',category:'Search & Filter',execute:()=>this.cycleSort()},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.previousQuery,title:'Previous Search Query',category:'Search & Filter',execute:()=>this.moveQueryHistory(-1),isEnabled:()=>this.recentQueries.length>0},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.nextQuery,title:'Next Search Query',category:'Search & Filter',execute:()=>this.moveQueryHistory(1),isEnabled:()=>this.recentQueries.length>0},OWNER_ID);
 
     for (const binding of BINDINGS) this.input.registerBinding(binding);
   }
@@ -171,6 +259,8 @@ export class ReassemblyGlobalSearchComponent implements OnInit, OnDestroy {
   open(rootPath: string): void {
     this.previousFocus = rememberFocusedElement();
     this.rootPath = rootPath;
+    this.recentQueries = this.loadRecentQueries();
+    this.queryHistoryIndex = -1;
     this.queryText = '';
     this.results = [];
     this.selectedIndex = 0;
@@ -229,9 +319,10 @@ export class ReassemblyGlobalSearchComponent implements OnInit, OnDestroy {
       if (generation !== this.searchGeneration) return;
 
       this.results = [...(result.matches ?? [])];
+      this.rememberQuery(query);
       this.selectedIndex = Math.min(
         this.selectedIndex,
-        Math.max(0, this.results.length - 1),
+        Math.max(0, this.displayedResults.length - 1),
       );
     } catch (error) {
       if (generation !== this.searchGeneration) return;
@@ -243,6 +334,86 @@ export class ReassemblyGlobalSearchComponent implements OnInit, OnDestroy {
         this.searching = false;
         this.cdr.markForCheck();
       }
+    }
+  }
+
+  toggleRecursive(): void {
+    this.recursive = !this.recursive;
+    this.scheduleSearch();
+    this.cdr.markForCheck();
+  }
+
+  cycleSort(): void {
+    const modes: SearchSort[] = ['relevance', 'name', 'path', 'type'];
+    const index = modes.indexOf(this.sortMode);
+    this.sortMode = modes[(index + 1) % modes.length];
+    this.selectedIndex = Math.min(
+      this.selectedIndex,
+      Math.max(0, this.displayedResults.length - 1),
+    );
+    this.cdr.markForCheck();
+  }
+
+  useQuery(query: string): void {
+    this.queryText = query;
+    this.queryHistoryIndex = this.recentQueries.indexOf(query);
+    this.scheduleSearch();
+    queueMicrotask(() => this.queryInput?.nativeElement.focus());
+    this.cdr.markForCheck();
+  }
+
+  private moveQueryHistory(delta: -1 | 1): void {
+    if (this.recentQueries.length === 0) return;
+
+    if (this.queryHistoryIndex < 0) {
+      this.queryHistoryIndex = delta < 0 ? 0 : this.recentQueries.length - 1;
+    } else {
+      this.queryHistoryIndex =
+        (this.queryHistoryIndex + delta + this.recentQueries.length) %
+        this.recentQueries.length;
+    }
+
+    this.queryText = this.recentQueries[this.queryHistoryIndex] ?? '';
+    this.scheduleSearch();
+    this.cdr.markForCheck();
+  }
+
+  private rememberQuery(query: string): void {
+    const normalized = query.trim();
+    if (!normalized) return;
+
+    this.recentQueries = [
+      normalized,
+      ...this.recentQueries.filter(item =>
+        item.toLocaleLowerCase() !== normalized.toLocaleLowerCase(),
+      ),
+    ].slice(0, SEARCH_HISTORY_LIMIT);
+
+    try {
+      localStorage.setItem(
+        SEARCH_HISTORY_KEY,
+        JSON.stringify(this.recentQueries),
+      );
+    } catch {
+      // Search stays functional when storage is unavailable.
+    }
+  }
+
+  private loadRecentQueries(): string[] {
+    try {
+      const parsed = JSON.parse(
+        localStorage.getItem(SEARCH_HISTORY_KEY) ?? '[]',
+      );
+
+      return Array.isArray(parsed)
+        ? parsed
+            .filter((value): value is string =>
+              typeof value === 'string' && !!value.trim(),
+            )
+            .slice(0, SEARCH_HISTORY_LIMIT)
+        : [];
+    } catch {
+      return [];
     }
   }
 

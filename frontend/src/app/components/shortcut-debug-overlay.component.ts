@@ -96,6 +96,8 @@ export interface ShortcutHelpItem {
         <span>Overlay/dialog contexts override manager bindings while they are active.</span>
         <span>Filtered selections stay selected even while hidden; F3 moves the match cursor without collapsing a multi-selection.</span>
         <span>Workspace switcher: 1–9 activate · F2 rename · Delete remove · Enter activate.</span>
+        <span>Global Search: Alt+R recursive · Alt+S sort · Alt+↑/↓ recent queries · Ctrl+Enter containing folder.</span>
+        <span>Command Palette, Quick Access, and History use the same weighted discovery matcher for abbreviations and multi-token queries.</span>
         <span>Pinned tabs survive Close Other / Close Right; viewer tabs participate in move, reorder, pin and restore just like directory tabs.</span>
         <span>Embedded browser panes may forward function/modifier keys through their host bridge; the file-manager shell itself does not install global keyboard listeners.</span>
       </div>

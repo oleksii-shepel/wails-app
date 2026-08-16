@@ -27,6 +27,7 @@ import {
   rememberFocusedElement,
   restoreFocusedElement,
 } from './reassembly-focus.utils';
+import { discoveryScore } from './reassembly-discovery';
 
 const CONTEXT_ID = 'overlay.reassemblyCommandPalette';
 const OWNER_ID = 'overlay.reassemblyCommandPalette';
@@ -127,17 +128,34 @@ export class ReassemblyCommandPaletteComponent implements OnInit, OnDestroy {
   ) {}
 
   get filteredCommands(): ReassemblyPaletteCommand[] {
-    const query = this.query.trim().toLocaleLowerCase();
+    const query = this.query.trim();
     const commands = [...this.commands];
+
     if (!query) {
-      return commands.sort((a,b) => a.category.localeCompare(b.category) || a.title.localeCompare(b.title));
+      return commands.sort(
+        (a,b) =>
+          a.category.localeCompare(b.category) ||
+          a.title.localeCompare(b.title),
+      );
     }
 
-    const tokens = query.split(/\s+/).filter(Boolean);
     return commands
-      .map(command => ({ command, score: this.score(command, tokens) }))
+      .map(command => ({
+        command,
+        score: discoveryScore(query, [
+          { value: command.title, weight: 1.6 },
+          { value: command.category, weight: 1.1 },
+          { value: command.shortcut, weight: 1.25 },
+          { value: command.id, weight: .8 },
+        ]),
+      }))
       .filter(item => item.score >= 0)
-      .sort((a,b) => b.score-a.score || a.command.title.localeCompare(b.command.title))
+      .sort(
+        (a,b) =>
+          b.score - a.score ||
+          Number(this.enabled(b.command)) - Number(this.enabled(a.command)) ||
+          a.command.title.localeCompare(b.command.title),
+      )
       .map(item => item.command);
   }
 
@@ -220,22 +238,4 @@ export class ReassemblyCommandPaletteComponent implements OnInit, OnDestroy {
     }
   }
 
-  private score(command: ReassemblyPaletteCommand, tokens:string[]):number {
-    const title=command.title.toLocaleLowerCase();
-    const category=command.category.toLocaleLowerCase();
-    const id=command.id.toLocaleLowerCase();
-    const shortcut=(command.shortcut ?? '').toLocaleLowerCase();
-    const haystack=`${title} ${category} ${id} ${shortcut}`;
-    if (!tokens.every(token => haystack.includes(token))) return -1;
-
-    return tokens.reduce((score,token) => {
-      if (title === token) return score+120;
-      if (title.startsWith(token)) return score+90;
-      if (title.includes(token)) return score+70;
-      if (category.startsWith(token)) return score+42;
-      if (shortcut.includes(token)) return score+38;
-      if (id.includes(token)) return score+24;
-      return score+10;
-    },0);
-  }
 }

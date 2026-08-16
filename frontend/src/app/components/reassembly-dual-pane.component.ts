@@ -55,6 +55,7 @@ import { FileInfo, FileType } from '../shared/protocol';
 import { PluginManagerService } from '../services/plugin-manager.service';
 import { ReassemblyOperationHistoryService } from '../services/reassembly-operation-history.service';
 import { ReassemblyTrashDialogService } from '../services/reassembly-trash-dialog.service';
+import { ReassemblyDriveLifecycleService } from '../services/reassembly-drive-lifecycle.service';
 import { PluginLifecycleCoordinatorService } from '../services/plugin-lifecycle-coordinator.service';
 import { SettingsService } from '../services/settings.service';
 import { SurfaceRegistryService } from '../surfaces/surface-registry.service';
@@ -191,6 +192,7 @@ const COMMAND = {
   quickPathJump: 'reassembly.navigation.quickPathJump',
   quickView: 'reassembly.files.quickView',
   openWithExternal: 'reassembly.files.openWithExternal',
+  openWithChooser: 'reassembly.files.openWithChooser',
   extractArchiveSelection: 'reassembly.archive.extractSelection',
   extractArchiveToOther: 'reassembly.archive.extractToOther',
   remoteConnect: 'reassembly.navigation.remoteConnect',
@@ -627,6 +629,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     private readonly pluginManager: PluginManagerService,
     private readonly operationHistory: ReassemblyOperationHistoryService,
     private readonly trashDialog: ReassemblyTrashDialogService,
+    private readonly driveLifecycle: ReassemblyDriveLifecycleService,
     private readonly pluginLifecycle: PluginLifecycleCoordinatorService,
     private readonly settings: SettingsService,
     private readonly surfaceRegistry: SurfaceRegistryService,
@@ -831,8 +834,14 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       }));
   }
 
+  private stopDriveLifecycle: (() => void) | null = null;
+
   ngOnInit(): void {
     this.restoreWorkspaceLayout();
+
+    this.stopDriveLifecycle = this.driveLifecycle.start(() => {
+      void this.handleDriveTopologyChange();
+    });
 
     this.input.registerContext({
       id: CONTEXT_ID,
@@ -848,6 +857,8 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.stopDriveLifecycle?.();
+    this.stopDriveLifecycle = null;
     this.input.deactivateContext(CONTEXT_ID);
     for (const binding of BINDINGS) this.input.unregisterBinding(binding.id);
     for (const commandId of Object.values(COMMAND)) {
@@ -955,6 +966,60 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       });
     }
   }
+
+  async openActiveWithChooser(): Promise<void> {
+    const pane = this.activePane;
+    const entry =
+      pane?.activeTab?.kind === 'viewer'
+        ? pane.activeViewerTab
+        : pane?.cursorEntry;
+
+    const path =
+      pane?.activeTab?.kind === 'viewer'
+        ? pane.activeViewerTab?.targetPath
+        : pane?.cursorEntry?.path;
+
+    if (!pane || !path || pane.isInArchive) return;
+    if (pane.activeTab?.kind !== 'viewer' &&
+        pane.cursorEntry?.type === FileType.DIRECTORY) return;
+
+    try {
+      const osInfo = await this.api.getOSInfo();
+      if (String(osInfo?.os).toLowerCase() === 'windows') {
+        await this.api.openFileWithChooser(path);
+        return;
+      }
+
+      const application = (await this.confirmDialog.prompt({
+        title: 'Open With',
+        message:
+          String(osInfo?.os).toLowerCase() === 'macos'
+            ? 'Application name (for example: TextEdit, Preview, Visual Studio Code):'
+            : 'Application executable or command name (for example: code, gedit, libreoffice):',
+        confirmText: 'Open',
+        defaultValue: '',
+        historyKey: 'reassembly.openWith.application',
+      }))?.trim();
+
+      if (!application) return;
+      await this.api.openFileWithApplication(path, application);
+    } catch (error) {
+      await this.confirmDialog.alert({
+        title: 'Open With Failed',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private async handleDriveTopologyChange(): Promise<void> {
+    await Promise.all([
+      this.leftPane?.isDirectoryTab ? this.leftPane.refresh() : Promise.resolve(),
+      this.rightPane?.isDirectoryTab ? this.rightPane.refresh() : Promise.resolve(),
+    ]);
+    this.lastTransfer = 'drives/roots changed';
+    this.cdr.markForCheck();
+  }
+
 
   openRemoteConnections(): void {
     this.remoteConnections?.open();
@@ -1842,6 +1907,55 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
         ? await this.api.batchCopy(items, true)
         : await this.api.batchMove(items, true);
 
+      const affected = result.affectedPaths ?? [];
+      if (
+        result.failed === 0 &&
+        result.skipped === 0 &&
+        affected.length === result.succeeded &&
+        affected.length > 0
+      ) {
+        this.operationHistory.record({
+          label: `${operation === 'copy' ? 'Copy' : 'Move'} ${affected.length} dropped item${
+            affected.length === 1 ? '' : 's'
+          }`,
+          undo: async () => {
+            if (operation === 'copy') {
+              const deletion = await this.api.batchDelete(
+                affected.map(item => item.destination),
+                true,
+                false,
+              );
+              if (deletion.failed > 0) throw new Error('Undo drop copy failed.');
+              return;
+            }
+            const back = await this.api.batchMove(
+              affected.map(item => ({
+                source: item.destination,
+                destination: item.source,
+                exactDestination: true,
+              })),
+              true,
+            );
+            if (back.failed > 0 || back.skipped > 0) {
+              throw new Error('Undo drop move failed.');
+            }
+          },
+          redo: async () => {
+            const forward = affected.map(item => ({
+              source: item.source,
+              destination: item.destination,
+              exactDestination: true,
+            }));
+            const redone = operation === 'copy'
+              ? await this.api.batchCopy(forward, true)
+              : await this.api.batchMove(forward, true);
+            if (redone.failed > 0 || redone.skipped > 0) {
+              throw new Error(`Redo drop ${operation} failed.`);
+            }
+          },
+        });
+      }
+
       this.lastDrop = `${operation} drop: ${result.succeeded}/${result.total}`;
       this.lastTransfer = this.lastDrop;
       targetPane.lastAction = this.lastDrop;
@@ -1920,7 +2034,8 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     const items: ReassemblyContextMenuItem[] = [
       this.menuCommand(COMMAND.open, 'Open', 'Enter'),
       this.menuCommand(COMMAND.quickView, 'Quick view', 'F3'),
-      this.menuCommand(COMMAND.openWithExternal, 'Open externally', 'Ctrl+Shift+O'),
+      this.menuCommand(COMMAND.openWithExternal, 'Open with default app', 'Ctrl+Shift+O'),
+      this.menuCommand(COMMAND.openWithChooser, 'Open With…'),
       { separator: true },
       this.menuCommand(COMMAND.rename, 'Rename', 'F2'),
       this.menuCommand(COMMAND.selectSameExtension, 'Select same extension', 'Alt+E'),
@@ -2669,6 +2784,22 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     descriptor(COMMAND.quickPathJump, 'Quick Path Jump', 'Navigation', () => this.quickPathJump(), () => !!this.activePane?.isDirectoryTab);
     descriptor(COMMAND.quickView, 'Quick View', 'File Operations', () => this.quickViewActive(), () => !!this.activePane?.isDirectoryTab && !!this.activePane?.cursorEntry && this.activePane.cursorEntry.type !== FileType.DIRECTORY);
     descriptor(COMMAND.openWithExternal, 'Open with External App', 'File Operations', () => this.openActiveExternally(), () => !!this.activePane?.isDirectoryTab && !!this.activePane?.cursorEntry && this.activePane.cursorEntry.type !== FileType.DIRECTORY);
+    descriptor(
+      COMMAND.openWithChooser,
+      'Open With…',
+      'Files',
+      () => this.openActiveWithChooser(),
+      () => {
+        const pane = this.activePane;
+        if (!pane || pane.isInArchive) return false;
+        if (pane.activeTab?.kind === 'viewer') {
+          return !pane.activeViewerTab?.archiveContext;
+        }
+        return !!pane.isDirectoryTab &&
+          !!pane.cursorEntry &&
+          pane.cursorEntry.type !== FileType.DIRECTORY;
+      },
+    );
     descriptor(COMMAND.remoteConnect, 'Connect Remote Location', 'Navigation', () => this.connectRemote());
     this.commandPaletteCommands = catalog;
     this.cdr.markForCheck();
@@ -2800,6 +2931,56 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       const result = operation === 'copy'
         ? await this.api.batchCopy(items, true)
         : await this.api.batchMove(items, true);
+
+      const affected = result.affectedPaths ?? [];
+      if (
+        result.failed === 0 &&
+        result.skipped === 0 &&
+        affected.length === result.succeeded &&
+        affected.length > 0
+      ) {
+        const undoItems = affected.map(item => ({
+          source: item.destination,
+          destination: item.source,
+          exactDestination: true,
+        }));
+        const redoItems = affected.map(item => ({
+          source: item.source,
+          destination: item.destination,
+          exactDestination: true,
+        }));
+
+        this.operationHistory.record({
+          label: `${operation === 'copy' ? 'Copy' : 'Move'} ${affected.length} item${
+            affected.length === 1 ? '' : 's'
+          }`,
+          undo: async () => {
+            if (operation === 'copy') {
+              const deletion = await this.api.batchDelete(
+                affected.map(item => item.destination),
+                true,
+                false,
+              );
+              if (deletion.failed > 0) {
+                throw new Error('Undo copy failed.');
+              }
+            } else {
+              const movedBack = await this.api.batchMove(undoItems, true);
+              if (movedBack.failed > 0 || movedBack.skipped > 0) {
+                throw new Error('Undo move failed.');
+              }
+            }
+          },
+          redo: async () => {
+            const redone = operation === 'copy'
+              ? await this.api.batchCopy(redoItems, true)
+              : await this.api.batchMove(redoItems, true);
+            if (redone.failed > 0 || redone.skipped > 0) {
+              throw new Error(`Redo ${operation} failed.`);
+            }
+          },
+        });
+      }
 
       this.lastTransfer = `${operation}: ${result.succeeded}/${result.total}`;
       source.lastAction = `${operation} to ${this.otherPaneId()}: ${result.succeeded}/${result.total}`;

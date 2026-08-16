@@ -207,6 +207,9 @@ func (r *TransferRunner) Copy(op *internalops.ActiveOperation, req contracts.Bat
 				success, elevErr := r.callbacks.RunElevatedCopy(resolvedSource, finalDst, req.Recursive)
 				if elevErr == nil && success {
 					result.Succeeded++
+					result.AffectedPaths = append(result.AffectedPaths, contracts.BatchAffectedPath{
+						Source: item.Source, Destination: publicDst,
+					})
 					continue
 				}
 			}
@@ -215,6 +218,9 @@ func (r *TransferRunner) Copy(op *internalops.ActiveOperation, req contracts.Bat
 			continue
 		}
 		result.Succeeded++
+		result.AffectedPaths = append(result.AffectedPaths, contracts.BatchAffectedPath{
+			Source: item.Source, Destination: publicDst,
+		})
 	}
 
 	progress.Flush()
@@ -307,6 +313,9 @@ func (r *TransferRunner) Move(op *internalops.ActiveOperation, req contracts.Bat
 				success, elevErr := r.callbacks.RunElevatedMove(resolvedSource, finalDst)
 				if elevErr == nil && success {
 					result.Succeeded++
+					result.AffectedPaths = append(result.AffectedPaths, contracts.BatchAffectedPath{
+						Source: item.Source, Destination: publicDst,
+					})
 					continue
 				}
 			}
@@ -339,6 +348,9 @@ func (r *TransferRunner) Move(op *internalops.ActiveOperation, req contracts.Bat
 			progress.Advance(1, srcInfo.Size(), filepath.Base(item.Source), srcInfo.Size(), false)
 		}
 		result.Succeeded++
+		result.AffectedPaths = append(result.AffectedPaths, contracts.BatchAffectedPath{
+			Source: item.Source, Destination: publicDst,
+		})
 	}
 
 	progress.Flush()

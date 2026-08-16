@@ -191,6 +191,11 @@ export interface BatchRequest {
   recursive: boolean;
 }
 
+export interface BatchAffectedPath {
+  source: string;
+  destination: string;
+}
+
 export interface BatchResult {
   operationId: string;
   total: number;
@@ -198,6 +203,7 @@ export interface BatchResult {
   skipped: number;
   failed: number;
   errors?: BatchItemError[];
+  affectedPaths?: BatchAffectedPath[];
 }
 
 export type OperationErrorCode =

@@ -37,13 +37,19 @@ type BatchRequest struct {
 	Recursive bool        `json:"recursive"`
 }
 
+type BatchAffectedPath struct {
+	Source      string `json:"source"`
+	Destination string `json:"destination"`
+}
+
 type BatchResult struct {
-	OperationID string           `json:"operationId"`
-	Total       int              `json:"total"`
-	Succeeded   int              `json:"succeeded"`
-	Skipped     int              `json:"skipped"`
-	Failed      int              `json:"failed"`
-	Errors      []BatchItemError `json:"errors,omitempty"`
+	OperationID   string              `json:"operationId"`
+	Total         int                 `json:"total"`
+	Succeeded     int                 `json:"succeeded"`
+	Skipped       int                 `json:"skipped"`
+	Failed        int                 `json:"failed"`
+	Errors        []BatchItemError    `json:"errors,omitempty"`
+	AffectedPaths []BatchAffectedPath `json:"affectedPaths,omitempty"`
 }
 
 type BatchDeleteRequest struct {

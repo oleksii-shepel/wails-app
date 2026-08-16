@@ -253,6 +253,29 @@ export class ApiService {
 	    return await window.go.app.App.GetOSInfo();
   }
 
+  async openFileWithChooser(path: string): Promise<void> {
+    const app = window.go.app.App as unknown as {
+      OpenFileWithChooser(path: string): Promise<void>;
+    };
+    await app.OpenFileWithChooser(this.normalizeCanonicalPath(path));
+  }
+
+  async openFileWithApplication(
+    path: string,
+    application: string,
+  ): Promise<void> {
+    const app = window.go.app.App as unknown as {
+      OpenFileWithApplication(
+        path: string,
+        application: string,
+      ): Promise<void>;
+    };
+    await app.OpenFileWithApplication(
+      this.normalizeCanonicalPath(path),
+      application,
+    );
+  }
+
   async listTrashEntries(): Promise<TrashEntry[]> {
     const app = window.go.app.App as unknown as {
       ListTrashEntries(): Promise<TrashEntry[]>;

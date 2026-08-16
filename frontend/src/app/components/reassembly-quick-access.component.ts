@@ -284,8 +284,10 @@ export class ReassemblyQuickAccessComponent implements OnInit, OnDestroy {
   }
 
   private async reload(): Promise<void> {
-    const specialFolders: SpecialFolder[] =
-      await this.api.getSpecialFolders().catch(() => []);
+    const [specialFolders, drivesResponse] = await Promise.all([
+      this.api.getSpecialFolders().catch(() => [] as SpecialFolder[]),
+      this.api.getDrives().catch(() => ({ schemes: [] })),
+    ]);
     this.pins = this.pinnedLocations.load();
 
     const allHistory = this.history.getAllHistory();
@@ -335,6 +337,20 @@ export class ReassemblyQuickAccessComponent implements OnInit, OnDestroy {
       path: folder.path,
       icon: folder.icon || '📁',
       kind: 'system',
+    }));
+
+    const driveItems: QuickItem[] = (drivesResponse.schemes ?? []).map(drive => ({
+      id: `drive:${drive.path}`,
+      label: drive.name || drive.path,
+      path: drive.path,
+      icon:
+        drive.schemeType === 'removable' ? '⏏' :
+        drive.schemeType === 'network' ? '⇄' :
+        drive.schemeType === 'cdrom' ? '◉' :
+        drive.schemeType === 'fixed' ? '▰' :
+        '◆',
+      kind: 'system',
+      meta: String(drive.schemeType || '').toUpperCase(),
     }));
 
     const pins: QuickItem[] = this.pins.map(pin => ({
@@ -402,6 +418,7 @@ export class ReassemblyQuickAccessComponent implements OnInit, OnDestroy {
 
     this.sections = [
       ...(remoteItems.length ? [{ id: 'remote', title: 'Remote', items: remoteItems }] : []),
+      { id: 'drives', title: 'Drives & Roots', items: unique(driveItems) },
       { id: 'system', title: 'System', items: unique(system) },
       { id: 'pins', title: 'Pinned', items: unique(pins) },
       { id: 'related', title: 'Related', items: unique(relatedItems) },

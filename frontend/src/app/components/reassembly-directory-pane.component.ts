@@ -33,8 +33,10 @@ import type { ViewerArchiveContext } from '../viewers/viewer-archive-context';
 import { getSourceCapabilities } from '../services/source-capabilities';
 import { RemoteConnectionsService } from '../services/remote-connections.service';
 import { FileInfo, FileType } from '../shared/protocol';
-import type { ViewerFileListItem } from '../shared/protocol-enhanced';
+import type { TabInfo, ViewerFileListItem } from '../shared/protocol-enhanced';
 import { ViewerHostSurfaceComponent } from '../viewers/viewer-host-surface.component';
+import { SurfaceOutletComponent } from '../surfaces/surface-outlet.component';
+import type { SurfaceContext } from '../surfaces/surface-context';
 import { ReassemblyAddressBarComponent } from './reassembly-address-bar.component';
 import { ReassemblyFilterComponent } from './reassembly-filter.component';
 import { ReassemblyNavigationController } from './reassembly-navigation.controller';
@@ -97,6 +99,16 @@ type ReassemblyTab =
       sourceDir: string | null;
       isClosable: boolean;
       isPinned: boolean;
+    }
+  | {
+      id: string;
+      kind: 'surface';
+      path: string;
+      title: string;
+      surfaceId: string;
+      persisted: TabInfo;
+      isClosable: boolean;
+      isPinned: boolean;
     };
 
 interface ReassemblyDirTabSession {
@@ -127,6 +139,7 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
     ReassemblyAddressBarComponent,
     ReassemblyFilterComponent,
     ViewerHostSurfaceComponent,
+    SurfaceOutletComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -154,7 +167,7 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
           [title]="tab.path"
           (click)="activateTab(tab.id)">
           <span class="tab-title">
-            <span class="tab-kind" aria-hidden="true">{{ tab.kind === 'viewer' ? '◉' : '▣' }}</span>
+            <span class="tab-kind" aria-hidden="true">{{ tab.kind === 'viewer' ? '◉' : (tab.kind === 'surface' ? '◆' : '▣') }}</span>
             <span class="tab-pin-indicator" *ngIf="tab.isPinned" aria-label="Pinned tab">●</span>
             {{ tab.title }}
           </span>
@@ -179,7 +192,7 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
         </button>
       </div>
 
-      <ng-container *ngIf="activeTab?.kind !== 'viewer'; else viewerSurface">
+      <ng-container *ngIf="activeTab?.kind === 'dir'; else nonDirectorySurface">
       <header class="navigation-bar">
         <div class="nav-cluster">
           <button
@@ -484,6 +497,17 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
         </span>
       </footer>
       </ng-container>
+
+      <ng-template #nonDirectorySurface>
+        <ng-container *ngIf="activeTab?.kind === 'surface'; else viewerSurface">
+          <app-surface-outlet
+            *ngIf="activeSurfaceContext as surfaceContext"
+            class="plugin-surface"
+            [ctx]="surfaceContext"
+            [active]="active">
+          </app-surface-outlet>
+        </ng-container>
+      </ng-template>
 
       <ng-template #viewerSurface>
         <div class="viewer-shell" *ngIf="activeViewerTab as viewerTab">
@@ -1273,6 +1297,24 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     return tab?.kind === 'viewer' ? tab : null;
   }
 
+  get activeSurfaceTab(): Extract<ReassemblyTab, { kind: 'surface' }> | null {
+    const tab = this.activeTab;
+    return tab?.kind === 'surface' ? tab : null;
+  }
+
+  get activeSurfaceContext(): SurfaceContext | null {
+    const tab = this.activeSurfaceTab;
+    if (!tab) return null;
+
+    return {
+      paneId: this.paneId,
+      tab: tab.persisted,
+      surfaceId: tab.surfaceId,
+      kind: 'plugin',
+      location: tab.path,
+    };
+  }
+
   get mountedViewer(): any {
     return this.viewerHost?.mountedViewer ?? null;
   }
@@ -1295,7 +1337,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   get isDirectoryTab(): boolean {
-    return this.activeTab?.kind !== 'viewer';
+    return this.activeTab?.kind === 'dir';
   }
 
   get hasSelection(): boolean {
@@ -1527,6 +1569,41 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       if (generation !== this.workspaceRestoreGeneration) return;
     }
 
+    this.cdr.markForCheck();
+  }
+
+  async openSurfaceTab(
+    surfaceId: string,
+    title?: string,
+    location?: string,
+  ): Promise<void> {
+    const id = surfaceId.trim();
+    if (!id || id === 'dir' || id === 'viewer') return;
+
+    this.syncActiveDirSessionState();
+
+    const targetLocation =
+      location?.trim() ||
+      `surface://${encodeURIComponent(id)}`;
+
+    const persisted = this.workspaceService.addSurfaceTab(
+      this.paneId,
+      targetLocation,
+      id,
+      {
+        activate: true,
+        closable: true,
+        title: title?.trim() || id,
+      },
+    );
+    if (!persisted) return;
+
+    this.tabs = this.mergePersistedTabs();
+    this.activeTabId = persisted.id;
+    this.loading = false;
+    this.error = null;
+    this.clearArchiveRuntime();
+    this.lastAction = `surface: ${title?.trim() || id}`;
     this.cdr.markForCheck();
   }
 
@@ -4607,10 +4684,23 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   private fromPersistedWorkspaceTab(tab: any): ReassemblyTab | null {
-    const surface = tab.surfaceId ?? tab.kind ?? 'dir';
+    const surface = String(tab.surfaceId ?? tab.kind ?? 'dir').trim() || 'dir';
     if (surface === 'viewer') return this.fromPersistedViewerTab(tab);
     if (surface === 'dir') return this.fromPersistedDirTab(tab);
-    return null;
+
+    return {
+      id: String(tab.id),
+      kind: 'surface',
+      path: String(tab.location?.location ?? tab.path ?? ''),
+      title: String(tab.title || surface),
+      surfaceId: surface,
+      persisted: {
+        ...tab,
+        surfaceId: surface,
+      } as TabInfo,
+      isClosable: tab.isClosable !== false,
+      isPinned: !!tab.isPinned,
+    };
   }
 
   private mergePersistedTabs(): ReassemblyTab[] {

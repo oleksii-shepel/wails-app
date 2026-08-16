@@ -10,6 +10,7 @@ import { ShortcutDebugOverlayComponent } from './components/shortcut-debug-overl
 import { ReassemblyOperationSurfaceComponent } from './components/reassembly-operation-surface.component';
 import { BatchRenameDialogComponent } from './components/batch-rename-dialog.component';
 import { RemoteConnectDialogComponent } from './components/remote-connect-dialog.component';
+import { SettingsDialogComponent } from './components/settings-dialog.component';
 import { PluginBootstrapService } from './services/plugin-bootstrap.service';
 
 @Component({
@@ -21,6 +22,7 @@ import { PluginBootstrapService } from './services/plugin-bootstrap.service';
     ReassemblyOperationSurfaceComponent,
     BatchRenameDialogComponent,
     RemoteConnectDialogComponent,
+    SettingsDialogComponent,
     ConfirmDialogComponent,
   ],
   template: `
@@ -47,6 +49,7 @@ import { PluginBootstrapService } from './services/plugin-bootstrap.service';
       <app-reassembly-operation-surface></app-reassembly-operation-surface>
       <app-batch-rename-dialog></app-batch-rename-dialog>
       <app-remote-connect-dialog></app-remote-connect-dialog>
+      <app-settings-dialog></app-settings-dialog>
       <app-confirm-dialog></app-confirm-dialog>
     </main>
   `,

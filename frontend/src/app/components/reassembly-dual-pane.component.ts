@@ -53,6 +53,8 @@ import {
 } from './reassembly-context-menu.component';
 import { FileInfo, FileType } from '../shared/protocol';
 import { PluginManagerService } from '../services/plugin-manager.service';
+import { SettingsService } from '../services/settings.service';
+import { SurfaceRegistryService } from '../surfaces/surface-registry.service';
 import type { ToolbarContext, MenuContext } from '../plugin/plugin-registry-api';
 import { adaptPluginToolbarActions } from './pane-toolbar-action';
 import { presentPluginCommand } from './plugin-command-presentation';
@@ -66,6 +68,8 @@ const OWNER_ID = 'reassembly.manager';
 const COMMAND = {
   toggleShortcutHelp: 'reassembly.help.shortcuts',
   openCommandPalette: 'reassembly.navigation.commandPalette',
+  openSettings: 'reassembly.settings.open',
+  openPluginSettings: 'reassembly.settings.plugins',
   switchPane: 'reassembly.manager.switchPane',
   widenLeftPane: 'reassembly.layout.widenLeft',
   widenRightPane: 'reassembly.layout.widenRight',
@@ -190,6 +194,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   { id:'reassembly.files.deletePermanent.shiftDelete', commandId:COMMAND.deletePermanent, contextId:CONTEXT_ID, source:'default', description:'Delete permanently', category:'File Operations', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'delete', modifiers:['shift']}]}}},
   { id:'reassembly.files.properties.altEnter', commandId:COMMAND.properties, contextId:CONTEXT_ID, source:'default', description:'Properties', category:'File Operations', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'enter', modifiers:['alt']}]}}},
   { id:'reassembly.navigation.commandPalette.ctrlShiftP', commandId:COMMAND.openCommandPalette, contextId:CONTEXT_ID, source:'default', description:'Open command palette', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'p', modifiers:['ctrl','shift']}]}}},
+  { id:'reassembly.settings.open.ctrlComma', commandId:COMMAND.openSettings, contextId:CONTEXT_ID, source:'default', description:'Open Settings', category:'Settings', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:',', modifiers:['ctrl']}]}}},
   { id:'reassembly.manager.switchPane.tab', commandId:COMMAND.switchPane, contextId:CONTEXT_ID, source:'default', description:'Switch active pane', category:'Pane Control', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'tab'}]}}},
   { id:'reassembly.manager.cursorUp.arrowUp', commandId:COMMAND.cursorUp, contextId:CONTEXT_ID, source:'default', description:'Move cursor up', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'arrowup'}]}}},
   { id:'reassembly.manager.cursorDown.arrowDown', commandId:COMMAND.cursorDown, contextId:CONTEXT_ID, source:'default', description:'Move cursor down', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'arrowdown'}]}}},
@@ -604,6 +609,8 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     private readonly batchRenameDialog: BatchRenameDialogService,
     private readonly remoteConnectDialog: RemoteConnectDialogService,
     private readonly pluginManager: PluginManagerService,
+    private readonly settings: SettingsService,
+    private readonly surfaceRegistry: SurfaceRegistryService,
     private readonly cdr: ChangeDetectorRef,
   ) {}
 
@@ -716,7 +723,48 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
         isEnabled: () => !!this.input.getCommandState(command.id)?.enabled,
       }));
 
+    this.commandPaletteCommands.push(
+      ...this.pluginSurfacePaletteCommands(),
+    );
+
     this.cdr.markForCheck();
+  }
+
+  openSettings(tab?: 'plugins'): void {
+    void this.settings.openSettings(tab);
+  }
+
+  async openPluginSurface(surfaceId: string): Promise<void> {
+    const contribution = this.surfaceRegistry
+      .list()
+      .find(surface => surface.id === surfaceId);
+    if (!contribution) return;
+
+    await this.activePane?.openSurfaceTab(
+      contribution.id,
+      contribution.id,
+    );
+  }
+
+  private pluginSurfacePaletteCommands(): ReassemblyPaletteCommand[] {
+    const builtins = new Set([
+      'dir',
+      'viewer',
+      'search-results',
+      'size-manager',
+      'duplicates',
+    ]);
+
+    return this.surfaceRegistry
+      .list()
+      .filter(surface => !builtins.has(surface.id))
+      .map(surface => ({
+        id: `reassembly.pluginSurface.${surface.id}`,
+        title: `Open ${surface.id}`,
+        category: 'Plugin Surfaces',
+        execute: () => this.openPluginSurface(surface.id),
+        isEnabled: () => !!this.activePane,
+      }));
   }
 
   ngOnInit(): void {
@@ -1842,6 +1890,8 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
         this.menuCommand(COMMAND.diskUsage, 'Disk Usage', 'Ctrl+Shift+D'),
         this.menuCommand(COMMAND.findDuplicates, 'Find Duplicates'),
         this.menuCommand(COMMAND.openCommandPalette, 'Command Palette', 'Ctrl+Shift+P'),
+        this.menuCommand(COMMAND.openSettings, 'Settings', 'Ctrl+,'),
+        this.menuCommand(COMMAND.openPluginSettings, 'Plugin Settings'),
         this.menuCommand(COMMAND.openOperations, 'Operations Center'),
         { separator: true },
         this.menuCommand(COMMAND.toggleTabPin, 'Pin / unpin current tab', 'Ctrl+Alt+P'),
@@ -2192,6 +2242,8 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       this.refreshCommandPaletteCommands();
       this.commandPalette?.open();
     });
+    descriptor(COMMAND.openSettings, 'Settings', 'Settings', () => this.openSettings());
+    descriptor(COMMAND.openPluginSettings, 'Plugin Settings', 'Settings', () => this.openSettings('plugins'));
     descriptor(COMMAND.switchPane, 'Switch Pane', 'Pane Control', () => this.switchPane());
     descriptor(COMMAND.widenLeftPane, 'Widen Left Pane', 'Layout', () => this.adjustSplit(5));
     descriptor(COMMAND.widenRightPane, 'Widen Right Pane', 'Layout', () => this.adjustSplit(-5));

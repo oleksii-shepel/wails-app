@@ -86,9 +86,6 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     when: '!typing',
     trigger: { device: 'keyboard', chord: { steps: [{ key: 'enter' }] } },
   },
-    },
-  },
-
   {
     id: 'reassembly.workspaceSwitcher.rename.f2',
     commandId: COMMAND.rename,

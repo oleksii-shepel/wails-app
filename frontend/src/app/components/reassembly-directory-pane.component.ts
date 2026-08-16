@@ -218,24 +218,6 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
 
         <button
           type="button"
-          class="nav-button"
-          (click)="quickAccessRequested.emit()"
-          aria-label="Quick Access"
-          title="Quick Access (Ctrl+Q)">
-          ⚡
-        </button>
-
-        <button
-          type="button"
-          class="nav-button"
-          (click)="historyRequested.emit()"
-          aria-label="Location history"
-          title="Location history (Ctrl+H)">
-          ◷
-        </button>
-
-        <button
-          type="button"
           class="nav-button pin"
           [class.pinned]="currentPathPinned"
           [disabled]="!isDirectoryTab || !path"
@@ -1201,8 +1183,6 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   @Output() activateRequested = new EventEmitter<void>();
   @Output() remoteRecoveryRequested = new EventEmitter<void>();
   @Output() togglePinRequested = new EventEmitter<void>();
-  @Output() quickAccessRequested = new EventEmitter<void>();
-  @Output() historyRequested = new EventEmitter<void>();
   @Output() entryContextMenu = new EventEmitter<{ event: MouseEvent; entry: FileInfo }>();
   @Output() backgroundContextMenu = new EventEmitter<MouseEvent>();
   @Output() internalDrop = new EventEmitter<{

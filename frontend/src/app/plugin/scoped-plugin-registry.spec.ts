@@ -12,6 +12,7 @@ function host(): PluginRegistryAPI {
     registerContextMenuItem: fn(), unregisterContextMenuItem: fn(),
     registerFileCategory: fn(), unregisterFileCategory: fn(),
     registerRelatedLocation: fn(), unregisterRelatedLocation: fn(),
+    createResultsCollection: fn(() => 'results://plugin-collection'), removeResultsCollection: fn(),
   };
 }
 
@@ -49,6 +50,29 @@ describe('ScopedPluginRegistry', () => {
     expect(() => scope.registerRelatedLocation({ id: 'demo.related', score: () => 1 })).toThrow('relatedLocations');
   });
 
+
+  it('creates plugin-owned result collections and removes them with the scope', () => {
+    const target = host();
+    const scope = new ScopedPluginRegistry('demo', target, new Set(['collections']));
+
+    const path = scope.createResultsCollection({
+      id: 'reports',
+      title: 'Reports',
+      entries: [],
+    });
+
+    expect(path).toBe('results://plugin-collection');
+    expect(target.createResultsCollection).toHaveBeenCalledWith(jasmine.objectContaining({ id: 'reports', ownerPluginId: 'demo' }));
+
+    scope.dispose();
+    expect(target.removeResultsCollection).toHaveBeenCalledWith('results://plugin-collection');
+  });
+
+  it('blocks result collections without collections permission', () => {
+    const scope = new ScopedPluginRegistry('demo', host(), new Set([]));
+    expect(() => scope.createResultsCollection({ id: 'x', title: 'X', entries: [] })).toThrow('collections');
+  });
+
   it('forces input ownership to the active plugin', () => {
     const target = host();
     const scope = new ScopedPluginRegistry('demo', target, new Set(['commands', 'keybindings']));
@@ -56,4 +80,3 @@ describe('ScopedPluginRegistry', () => {
     expect(target.registerInput).toHaveBeenCalledWith(expect.objectContaining({ pluginId: 'demo' }));
   });
 });
-

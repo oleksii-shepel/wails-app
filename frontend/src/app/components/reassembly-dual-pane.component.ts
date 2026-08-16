@@ -219,6 +219,7 @@ const COMMAND = {
   openOperations: 'reassembly.tools.operations',
   diskUsage: 'reassembly.tools.diskUsage',
   findDuplicates: 'reassembly.tools.findDuplicates',
+  recentFiles: 'reassembly.tools.recentFiles',
   batchRename: 'reassembly.files.batchRename',
 
   globalSearch: 'reassembly.navigation.globalSearch',
@@ -3714,6 +3715,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     descriptor(COMMAND.openOperations, 'Open Operations Center', 'Tools', () => this.openTools('operations'));
     descriptor(COMMAND.diskUsage, 'Disk Usage', 'Tools', () => this.openTools('disk'), () => !!this.activePane?.isDirectoryTab);
     descriptor(COMMAND.findDuplicates, 'Find Duplicate Files', 'Tools', () => this.openTools('duplicates'), () => !!this.activePane?.isDirectoryTab);
+    descriptor(COMMAND.recentFiles, 'Recent Files', 'Tools', () => this.activePane?.openRecentFilesPanel(), () => !!this.activePane?.isDirectoryTab);
     descriptor(
       COMMAND.batchRename,
       'Batch Rename',

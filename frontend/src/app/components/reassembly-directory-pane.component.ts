@@ -21,6 +21,7 @@ import { WorkspaceService } from '../services/workspace.service';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { FileClipboardService } from '../services/file-clipboard.service';
 import { ReassemblyOperationHistoryService } from '../services/reassembly-operation-history.service';
+import { RecentFilesService } from '../services/recent-files.service';
 import { PluginManagerService } from '../services/plugin-manager.service';
 import { PluginLifecycleCoordinatorService } from '../services/plugin-lifecycle-coordinator.service';
 import {
@@ -1633,6 +1634,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     private readonly archiveService: ArchiveService,
     private readonly fileClipboard: FileClipboardService,
     private readonly operationHistory: ReassemblyOperationHistoryService,
+    private readonly recentFiles: RecentFilesService,
     private readonly pluginManager: PluginManagerService,
     private readonly pluginLifecycle: PluginLifecycleCoordinatorService,
     private readonly surfaceRegistry: SurfaceRegistryService,
@@ -1803,6 +1805,23 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     this.clearArchiveRuntime();
     this.lastAction = `surface: ${title?.trim() || id}`;
     this.cdr.markForCheck();
+  }
+
+  async openRecentFilesPanel(limit = 50): Promise<void> {
+    const entries = this.recentFiles.recent(limit);
+    if (entries.length === 0) {
+      await this.confirmDialog.alert({
+        title: 'Recent Files',
+        message: 'No recently opened files are available yet.',
+      });
+      return;
+    }
+
+    await this.openResultsPanel(
+      'Recent Files',
+      entries,
+      { origin: 'recent-files', kind: 'recent-files' },
+    );
   }
 
   async openResultsPanel(
@@ -2747,6 +2766,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     viewerId: string | null = null,
   ): void {
     if (entry.type === FileType.DIRECTORY) return;
+    this.recentFiles.record(entry);
 
     const existing = this.tabs.find(tab =>
       tab.kind === 'viewer' &&
@@ -4750,7 +4770,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       );
 
       this.archiveStack.push(nested);
-      this.renderArchiveFrame(nested, { history: 'record' });
+      await this.renderArchiveFrame(nested, { history: 'record' });
       this.lastAction = `nested archive: ${
         requestedChain[requestedChain.length - 1] ?? ''
       }`;
@@ -4819,7 +4839,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
         if (!parent) return;
 
         this.archiveStack[this.archiveStack.length - 1] = parent;
-        this.renderArchiveFrame(parent, { history: 'record' });
+        await this.renderArchiveFrame(parent, { history: 'record' });
         this.lastAction = 'archive up';
       } catch (error) {
         this.error =
@@ -4840,7 +4860,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
         this.archiveStack.pop();
         const previous = this.currentArchiveFrame;
         if (previous) {
-          this.renderArchiveFrame(previous, { history: 'record' });
+          await this.renderArchiveFrame(previous, { history: 'record' });
         }
         this.lastAction = 'leave nested archive';
         return;
@@ -4879,7 +4899,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     try {
       const refreshed = await this.directorySource.refreshArchive(frame);
       this.archiveStack[this.archiveStack.length - 1] = refreshed;
-      this.renderArchiveFrame(refreshed, {
+      await this.renderArchiveFrame(refreshed, {
         history: 'none',
         preserveCursor: true,
       });
@@ -4897,13 +4917,13 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     this.archiveExitPath = '';
   }
 
-  private renderArchiveFrame(
+  private async renderArchiveFrame(
     frame: ArchiveFrame,
     options: {
       history?: 'record' | 'none';
       preserveCursor?: boolean;
     } = {},
-  ): void {
+  ): Promise<void> {
     const previousCursor =
       options.preserveCursor ? this.cursorPath : null;
 
@@ -4911,14 +4931,22 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       this.viewMode = 'list';
     }
 
-    this.path = buildArchiveDisplayPath(
+    const archivePath = buildArchiveDisplayPath(
       this.archiveStack[0]?.fsPath ?? frame.fsPath,
       this.archiveStack,
     );
-
-    this.entries = this.directorySource.archiveListingToFileInfos(
+    const archiveEntries = this.directorySource.archiveListingToFileInfos(
       frame.listing,
     );
+    const listing = await this.panelSources.listContext({
+      path: archivePath,
+      entries: archiveEntries,
+      inArchive: true,
+      archiveTopLevel: frame.nestedChain.length === 0,
+    }, this.showHidden);
+
+    this.path = listing.location.path;
+    this.entries = [...listing.entries];
 
     const preserved = previousCursor
       ? this.entries.find(entry => entry.path === previousCursor)
@@ -5002,7 +5030,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       if (generation !== this.loadGeneration) return false;
 
       this.archiveStack[this.archiveStack.length - 1] = next;
-      this.renderArchiveFrame(next, {
+      await this.renderArchiveFrame(next, {
         history: options.history,
         preserveCursor: options.preserveCursor,
       });
@@ -5081,7 +5109,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
         this.archiveStack[this.archiveStack.length - 1] = frame;
       }
 
-      this.renderArchiveFrame(frame, {
+      await this.renderArchiveFrame(frame, {
         history: options.history,
         preserveCursor: options.preserveCursor,
       });

@@ -3,6 +3,7 @@ import type {
   FileCategoryResolver,
   PluginRegistryAPI,
   ToolbarActionContribution,
+  PluginResultsCollection,
 } from './plugin-registry-api';
 import type { PluginPermission } from './plugin-manifest';
 import type { CommandDescriptor, PluginInputContribution } from '../services/input-system.types';
@@ -112,6 +113,23 @@ export class ScopedPluginRegistry implements PluginRegistryAPI {
     this.cleanups.push(() => this.host.unregisterRelatedLocation(contribution.id));
   }
   unregisterRelatedLocation(id: string): void { this.host.unregisterRelatedLocation(id); }
+
+  createResultsCollection(collection: PluginResultsCollection): string {
+    this.assertActive();
+    this.require('collections');
+    const path = this.host.createResultsCollection({
+      ...collection,
+      ownerPluginId: this.pluginId,
+    });
+    this.cleanups.push(() => this.host.removeResultsCollection(path));
+    return path;
+  }
+
+  removeResultsCollection(path: string): void {
+    this.assertActive();
+    this.require('collections');
+    this.host.removeResultsCollection(path);
+  }
 
   private require(permission: PluginPermission): void {
     if (!this.permissions.has(permission)) {

@@ -7,6 +7,14 @@ export interface ResultsPanelMetadata {
   readonly rootPath?: string;
   readonly query?: string;
   readonly kind?: string;
+  readonly pluginId?: string;
+  readonly collectionId?: string;
+}
+
+export interface ResultsPanelCreateOptions {
+  readonly title: string;
+  readonly entries: readonly FileInfo[];
+  readonly metadata?: ResultsPanelMetadata;
 }
 
 export interface ResultsPanelDefinition {
@@ -56,6 +64,79 @@ export class ResultsPanelService {
     this.trim();
     this.persist();
     return definition;
+  }
+
+
+  createSearch(
+    title: string,
+    entries: readonly FileInfo[],
+    rootPath: string,
+    query: string,
+    recursive = false,
+  ): ResultsPanelDefinition {
+    return this.create(title, entries, {
+      origin: 'global-search',
+      rootPath,
+      query,
+      kind: recursive ? 'recursive-search' : 'search',
+    });
+  }
+
+  createRecentFiles(
+    entries: readonly FileInfo[],
+    title = 'Recent Files',
+  ): ResultsPanelDefinition {
+    return this.create(title, entries, {
+      origin: 'recent-files',
+      kind: 'recent-files',
+    });
+  }
+
+  createDuplicateResults(
+    rootPath: string,
+    entries: readonly FileInfo[],
+    title = 'Duplicate Results',
+  ): ResultsPanelDefinition {
+    return this.create(title, entries, {
+      origin: 'duplicate-finder',
+      rootPath,
+      kind: 'duplicates',
+    });
+  }
+
+  createPluginCollection(
+    pluginId: string,
+    collectionId: string,
+    title: string,
+    entries: readonly FileInfo[],
+    metadata: ResultsPanelMetadata = {},
+  ): ResultsPanelDefinition {
+    const owner = pluginId.trim();
+    const collection = collectionId.trim();
+    if (!owner) throw new Error('Plugin collection requires a plugin id.');
+    if (!collection) throw new Error('Plugin collection requires a collection id.');
+
+    return this.create(title, entries, {
+      ...metadata,
+      origin: `plugin:${owner}`,
+      kind: metadata.kind || 'plugin-collection',
+      pluginId: owner,
+      collectionId: collection,
+    });
+  }
+
+  removePluginCollections(pluginId: string): void {
+    this.hydrate();
+    const owner = pluginId.trim();
+    if (!owner) return;
+
+    let changed = false;
+    for (const [id, panel] of this.panels) {
+      if (panel.metadata.pluginId !== owner) continue;
+      this.panels.delete(id);
+      changed = true;
+    }
+    if (changed) this.persist();
   }
 
   get(path: string): ResultsPanelDefinition | null {

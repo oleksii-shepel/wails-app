@@ -6,6 +6,7 @@ import { ConfirmDialogService } from '../../services/confirm-dialog.service';
 import { DuplicateFinderService, DuplicateGroup, DuplicateKeeperPolicy, DuplicateScanProgress, DuplicateScanResult } from '../../services/duplicate-finder.service';
 import { WorkspaceService } from '../../services/workspace.service';
 import { SelectionBasketService } from '../../services/selection-basket.service';
+import { ResultsPanelService } from '../../services/results-panel.service';
 import { SurfaceContext } from '../surface-context';
 
 @Component({
@@ -41,6 +42,7 @@ import { SurfaceContext } from '../surface-context';
           </label>
           <input class="filter" type="search" placeholder="Filter groups…" [(ngModel)]="filterText" [disabled]="scanning">
           <button (click)="selectSuggested()" [disabled]="!result?.groups?.length || scanning">Select Redundant</button>
+          <button (click)="openResultsPanel()" [disabled]="!result?.groups?.length || scanning">Open Results Panel</button>
           <button (click)="collectSelected()" [disabled]="selected.size === 0 || scanning">Collect {{ selected.size }}</button>
           <button (click)="deleteSelected()" [disabled]="selected.size === 0 || scanning">Delete {{ selected.size }}</button>
         </div>
@@ -103,6 +105,7 @@ export class DuplicateFinderSurfaceTabComponent implements OnChanges {
     private readonly confirm: ConfirmDialogService,
     private readonly workspace: WorkspaceService,
     private readonly basket: SelectionBasketService,
+    private readonly resultsPanels: ResultsPanelService,
     private readonly cdr: ChangeDetectorRef,
   ) {}
 
@@ -168,6 +171,29 @@ export class DuplicateFinderSurfaceTabComponent implements OnChanges {
 
   toggle(path: string): void {
     const next = new Set(this.selected); next.has(path) ? next.delete(path) : next.add(path); this.selected = next;
+  }
+
+  openResultsPanel(): void {
+    const entries = this.uniqueResultFiles();
+    if (entries.length === 0) return;
+
+    const panel = this.resultsPanels.createDuplicateResults(
+      this.rootPath,
+      entries,
+      `Duplicates: ${this.rootPath}`,
+    );
+    const tab = this.workspace.addTab(this.ctx.paneId, panel.path, true);
+    if (tab) {
+      this.workspace.updateTabPathAndTitle(this.ctx.paneId, tab.id, panel.path, panel.title);
+    }
+  }
+
+  private uniqueResultFiles(): import('../../shared/protocol').FileInfo[] {
+    const files = new Map<string, import('../../shared/protocol').FileInfo>();
+    for (const group of this.visibleGroups) {
+      for (const file of group.files) files.set(file.path, { ...file });
+    }
+    return [...files.values()];
   }
 
   collectSelected(): void {

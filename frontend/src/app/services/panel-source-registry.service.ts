@@ -102,10 +102,18 @@ class ArchivePanelSource extends BasePanelSource {
     };
   }
 
-  override async list(): Promise<PanelSourceListing> {
-    throw new Error(
-      'Archive listing is owned by the archive frame navigator.',
-    );
+  override async list(
+    context: PanelSourceContext,
+    _showHidden: boolean,
+  ): Promise<PanelSourceListing> {
+    return {
+      location: {
+        path: context.path,
+        sourceId: this.id,
+        sourceKind: this.kind,
+      },
+      entries: [...(context.entries ?? [])],
+    };
   }
 
   override supportsStreaming(): boolean {
@@ -292,6 +300,18 @@ export class PanelSourceRegistryService {
     ).path;
   }
 
+  createSearchResultsPanel(
+    title: string,
+    entries: readonly FileInfo[],
+    rootPath: string,
+    query: string,
+    recursive = false,
+  ): string {
+    return this.resultsPanels.createSearch(
+      title, entries, rootPath, query, recursive,
+    ).path;
+  }
+
   titleFor(path: string): string | null {
     if (/^results:\/\//i.test(path)) {
       return this.resultsPanels.title(path);
@@ -330,17 +350,10 @@ export class PanelSourceRegistryService {
     return this.resolve(context).source.getParentPath(context);
   }
 
-  async list(
-    path: string,
+  async listContext(
+    context: PanelSourceContext,
     showHidden: boolean,
-    entries: readonly FileInfo[] = [],
   ): Promise<PanelSourceListing> {
-    const context: PanelSourceContext = {
-      path,
-      entries,
-      inArchive: false,
-    };
-
     const resolved = this.resolve(context);
     const listing = await resolved.source.list(context, showHidden);
 
@@ -351,6 +364,18 @@ export class PanelSourceRegistryService {
         sourceId: this.sourceId(resolved.source, listing.location.path),
       },
     };
+  }
+
+  async list(
+    path: string,
+    showHidden: boolean,
+    entries: readonly FileInfo[] = [],
+  ): Promise<PanelSourceListing> {
+    return this.listContext({
+      path,
+      entries,
+      inArchive: false,
+    }, showHidden);
   }
 
   async listDirectory(

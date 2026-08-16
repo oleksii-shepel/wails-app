@@ -8,6 +8,7 @@ import type {
   ContextMenuContribution,
   MenuContext,
   FileCategoryResolver,
+  PluginResultsCollection,
 } from '../plugin/plugin-registry-api';
 import type { ViewerContribution } from '../viewers/viewer-contribution';
 import type { SurfaceContribution } from '../surfaces/surface-contribution';
@@ -19,6 +20,7 @@ import { RelatedLocationService } from './related-location.service';
 import type { RelatedLocationContribution } from './related-location.types';
 import { WorkspaceSurfaceActionRegistryService } from './workspace-surface-action-registry.service';
 import type { WorkspaceSurfaceActionContribution } from './workspace-surface-action.types';
+import { ResultsPanelService } from './results-panel.service';
 
 export interface PluginBackend {
   id: string;
@@ -34,6 +36,7 @@ export class PluginManagerService implements PluginRegistryAPI {
   private readonly relatedLocations = inject(RelatedLocationService);
   private readonly workspaceSurfaceActions =
     inject(WorkspaceSurfaceActionRegistryService);
+  private readonly resultsPanels = inject(ResultsPanelService);
 
   private readonly backends = new Map<string, PluginBackend>();
   private readonly descriptors = new Map<string, PluginDescriptor>();
@@ -188,6 +191,21 @@ export class PluginManagerService implements PluginRegistryAPI {
 
   unregisterRelatedLocation(id: string): void {
     this.relatedLocations.unregister(id);
+  }
+
+  createResultsCollection(collection: PluginResultsCollection): string {
+    const pluginId = this.registeringBackendId ?? collection.ownerPluginId ?? 'plugin';
+    return this.resultsPanels.createPluginCollection(
+      pluginId,
+      collection.id,
+      collection.title,
+      collection.entries,
+      collection.metadata,
+    ).path;
+  }
+
+  removeResultsCollection(path: string): void {
+    this.resultsPanels.remove(path);
   }
 
   /** Resolve toolbar actions applicable to the given context. */

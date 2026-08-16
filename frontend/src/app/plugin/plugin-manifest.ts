@@ -10,6 +10,7 @@ export type PluginPermission =
   | 'contextMenu'
   | 'fileCategories'
   | 'relatedLocations'
+  | 'collections'
   | 'filesystem.read'
   | 'filesystem.write'
   | 'network'

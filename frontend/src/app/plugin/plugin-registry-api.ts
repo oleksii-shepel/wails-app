@@ -3,6 +3,8 @@ import type { SurfaceContribution, SurfaceRequest } from '../surfaces/surface-co
 import type { CommandDescriptor, PluginInputContribution } from '../services/input-system.types';
 import type { RelatedLocationContribution } from '../services/related-location.types';
 import type { WorkspaceSurfaceActionContribution } from '../services/workspace-surface-action.types';
+import type { FileInfo } from '../shared/protocol-enhanced';
+import type { ResultsPanelMetadata } from '../services/results-panel.service';
 
 export interface PluginDescriptor {
   id: string;
@@ -13,6 +15,16 @@ export interface PluginDescriptor {
   schemes?: string[];
   extensions?: string[];
   commands?: PluginCommandInfo[];
+}
+
+
+export interface PluginResultsCollection {
+  /** Host-owned when called through a ScopedPluginRegistry. */
+  ownerPluginId?: string;
+  id: string;
+  title: string;
+  entries: readonly FileInfo[];
+  metadata?: ResultsPanelMetadata;
 }
 
 export interface PluginCommandInfo {
@@ -105,4 +117,7 @@ export interface PluginRegistryAPI {
 
   registerRelatedLocation(contribution: RelatedLocationContribution): void;
   unregisterRelatedLocation(id: string): void;
+
+  createResultsCollection(collection: PluginResultsCollection): string;
+  removeResultsCollection(path: string): void;
 }

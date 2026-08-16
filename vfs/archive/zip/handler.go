@@ -183,7 +183,13 @@ func (a *Archive) Stat(_ context.Context, path string) (vfs.FileInfo, error) {
 	path = normalizePath(path)
 	if path == "" || path == "." {
 		// Root of the archive — synthesize a directory entry.
-		return &zipFileInfo{synthetic: true, name: ".", isDir: true, chain: a.chain}, nil
+		return &zipFileInfo{
+			synthetic: true,
+			name:      ".",
+			path:      "",
+			isDir:     true,
+			chain:     a.chain,
+		}, nil
 	}
 	// Exact entry match.
 	for _, f := range a.files() {
@@ -195,7 +201,13 @@ func (a *Archive) Stat(_ context.Context, path string) (vfs.FileInfo, error) {
 	prefix := path + "/"
 	for _, f := range a.files() {
 		if strings.HasPrefix(normalizePath(f.Name), prefix) {
-			return &zipFileInfo{synthetic: true, name: filepath.Base(path), isDir: true, chain: a.chain}, nil
+			return &zipFileInfo{
+				synthetic: true,
+				name:      filepath.Base(path),
+				path:      path,
+				isDir:     true,
+				chain:     a.chain,
+			}, nil
 		}
 	}
 	return nil, vfs.ErrNotFound
@@ -229,6 +241,7 @@ func (a *Archive) ReadDir(_ context.Context, path string) ([]vfs.FileInfo, error
 			result = append(result, &zipFileInfo{
 				synthetic: true,
 				name:      childName,
+				path:      joinArchivePath(path, childName),
 				isDir:     true,
 				chain:     a.chain,
 			})
@@ -401,7 +414,8 @@ func (a *Archive) Close() error {
 type zipFileInfo struct {
 	f         *zip.File
 	synthetic bool   // true for implicit directories not in the ZIP
-	name      string // used when synthetic=true
+	name      string // leaf name used when synthetic=true
+	path      string // archive-relative path used when synthetic=true
 	isDir     bool   // used when synthetic=true
 	chain     []string
 }
@@ -439,6 +453,9 @@ func (z *zipFileInfo) IsDir() bool {
 func (z *zipFileInfo) Sys() any { return nil }
 
 func (z *zipFileInfo) Path() string {
+	if z.synthetic {
+		return normalizePath(z.path)
+	}
 	if z.f == nil {
 		return ""
 	}
@@ -484,6 +501,18 @@ func (f *zipFile) Sync() error                 { return nil }
 
 func normalizePath(p string) string {
 	return pathutil.NormalizePath(p)
+}
+
+func joinArchivePath(parent, child string) string {
+	parent = normalizePath(parent)
+	child = normalizePath(child)
+	if parent == "" {
+		return child
+	}
+	if child == "" {
+		return parent
+	}
+	return parent + "/" + child
 }
 
 // childOf returns the path of ep relative to parent, or "" if ep is not under parent.

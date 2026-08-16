@@ -453,8 +453,7 @@ interface CarouselVirtualFrame {
       scrollbar-width: none;
       -ms-overflow-style: none;
       scroll-snap-type: x mandatory;
-      -webkit-overflow-scrolling: touch;
-      padding-inline: max(32px, calc((100% - 112px) / 2 + 16px));
+padding-inline: max(32px, calc((100% - 112px) / 2 + 16px));
       scroll-padding-inline: max(16px, calc((100% - 112px) / 2 + 8px));
       position: relative;
       z-index: 0;

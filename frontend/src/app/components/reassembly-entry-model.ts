@@ -67,6 +67,15 @@ function compareEntries(
   right: FileInfo,
   options: EntryProjectionOptions,
 ): number {
+  // Synthetic parent navigation is structural UI, not sortable content.
+  // It must remain the first row regardless of field/direction/folder policy.
+  const leftParent = left.path === '__parent__';
+  const rightParent = right.path === '__parent__';
+
+  if (leftParent !== rightParent) {
+    return leftParent ? -1 : 1;
+  }
+
   if (options.directoriesFirst) {
     const leftDirectory = left.type === FileType.DIRECTORY;
     const rightDirectory = right.type === FileType.DIRECTORY;

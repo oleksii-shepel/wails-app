@@ -8,6 +8,12 @@ export class ReassemblyNavigationController {
   private entries: string[] = [];
   private index = -1;
 
+  constructor(
+    private readonly normalizer: (path: string) => string =
+      path => path.trim(),
+  ) {}
+
+
   get canBack(): boolean {
     return this.index > 0;
   }
@@ -21,10 +27,13 @@ export class ReassemblyNavigationController {
   }
 
   record(path: string): void {
-    const value = path.trim();
+    const value = this.normalizer(path);
     if (!value) return;
 
-    if (this.current === value) return;
+    if (
+      this.current !== null &&
+      this.normalizer(this.current) === value
+    ) return;
 
     if (this.canForward) {
       this.entries = this.entries.slice(0, this.index + 1);
@@ -49,13 +58,21 @@ export class ReassemblyNavigationController {
   }
 
   commitBack(path: string): void {
-    if (this.canBack && this.entries[this.index - 1] === path) {
+    if (
+      this.canBack &&
+      this.normalizer(this.entries[this.index - 1] ?? '') ===
+        this.normalizer(path)
+    ) {
       this.index -= 1;
     }
   }
 
   commitForward(path: string): void {
-    if (this.canForward && this.entries[this.index + 1] === path) {
+    if (
+      this.canForward &&
+      this.normalizer(this.entries[this.index + 1] ?? '') ===
+        this.normalizer(path)
+    ) {
       this.index += 1;
     }
   }
@@ -79,7 +96,16 @@ export class ReassemblyNavigationController {
     }
 
     const entries = state.entries
-      .filter((entry): entry is string => typeof entry === 'string' && !!entry.trim())
+      .filter(
+        (entry): entry is string =>
+          typeof entry === 'string' && !!entry.trim(),
+      )
+      .map(entry => this.normalizer(entry))
+      .filter(Boolean)
+      .filter(
+        (entry, index, all) =>
+          index === 0 || entry !== all[index - 1],
+      )
       .slice(-this.maxEntries);
 
     this.entries = entries;

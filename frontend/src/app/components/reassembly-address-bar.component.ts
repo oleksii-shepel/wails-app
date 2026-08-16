@@ -29,6 +29,7 @@ interface ReassemblyBreadcrumbSegment {
   label: string;
   path: string;
   root: boolean;
+  archiveBoundary: boolean;
 }
 
 const COMMAND = {
@@ -108,6 +109,7 @@ function editorBindings(paneId: string, contextId: string): readonly InputBindin
               type="button"
               class="breadcrumb"
               [class.current]="last"
+              [class.archive-boundary]="segment.archiveBoundary"
               [title]="segment.path"
               (click)="navigateToSegment(segment)">
               {{ segment.label }}
@@ -265,6 +267,10 @@ function editorBindings(paneId: string, contextId: string): readonly InputBindin
       color: var(--vsc-foreground-bright, #ffffff);
     }
 
+    .breadcrumb.archive-boundary {
+      color: var(--vsc-accent-blue, #4aa3ff);
+    }
+
     .separator {
       flex: 0 0 auto;
       color: var(--vsc-description-foreground, #969696);
@@ -418,12 +424,18 @@ export class ReassemblyAddressBarComponent implements OnInit, OnDestroy {
         label: prefix.replace('://', ''),
         path: prefix,
         root: true,
+        archiveBoundary: false,
       }];
 
       let current = prefix;
       for (const part of parts) {
         current = `${current}${current.endsWith('/') ? '' : '/'}${part}`;
-        segments.push({ label: part, path: current, root: false });
+        segments.push({
+          label: part,
+          path: current,
+          root: false,
+          archiveBoundary: this.isArchiveBreadcrumb(part),
+        });
       }
       return segments;
     }
@@ -434,11 +446,17 @@ export class ReassemblyAddressBarComponent implements OnInit, OnDestroy {
         label: drive[1],
         path: `${drive[1]}/`,
         root: true,
+        archiveBoundary: false,
       }];
       let current = `${drive[1]}/`;
       for (const part of (drive[2] ?? '').split('/').filter(Boolean)) {
         current = `${current.replace(/\/$/, '')}/${part}`;
-        segments.push({ label: part, path: current, root: false });
+        segments.push({
+          label: part,
+          path: current,
+          root: false,
+          archiveBoundary: this.isArchiveBreadcrumb(part),
+        });
       }
       return segments;
     }
@@ -448,13 +466,25 @@ export class ReassemblyAddressBarComponent implements OnInit, OnDestroy {
       label: '/',
       path: '/',
       root: true,
+      archiveBoundary: false,
     }];
     let current = '';
     for (const part of parts) {
       current += `/${part}`;
-      segments.push({ label: part, path: current, root: false });
+      segments.push({
+          label: part,
+          path: current,
+          root: false,
+          archiveBoundary: this.isArchiveBreadcrumb(part),
+        });
     }
     return segments;
+  }
+
+  private isArchiveBreadcrumb(label: string): boolean {
+    return /\.(?:zip|7z|rar|tar|tgz|gz|bz2|xz|jar|war|ear|apk|cbz|cbr)$/i.test(
+      label,
+    );
   }
 
   navigateToSegment(segment: ReassemblyBreadcrumbSegment): void {

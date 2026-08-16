@@ -27,6 +27,7 @@ import {
   parseArchivePath,
   sameArchiveLocation,
   normalizeArchiveInnerPath,
+  normalizeArchiveLocation,
 } from '../services/archive.service';
 import type { ViewerArchiveContext } from '../viewers/viewer-archive-context';
 import { getSourceCapabilities } from '../services/source-capabilities';
@@ -1369,7 +1370,11 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
 
   private anchorPath: string | null = null;
   private loadGeneration = 0;
-  private readonly navigation = new ReassemblyNavigationController();
+  private readonly navigation = new ReassemblyNavigationController(
+    path => this.directorySource.isPathInsideArchive(path)
+      ? normalizeArchiveLocation(path)
+      : path.trim(),
+  );
 
   constructor(
     private readonly api: ApiService,
@@ -2144,14 +2149,8 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       }
 
       if (entry.type === FileType.ARCHIVE || isArchive(entry.name)) {
-        const nestedChain = (entry as FileInfo & {
-          nestedChain?: string[];
-        }).nestedChain;
-
-        if (nestedChain?.length) {
-          void this.openNestedArchive(nestedChain);
-          return;
-        }
+        void this.openNestedArchiveEntry(entry);
+        return;
       }
 
       this.openViewer(entry);
@@ -3246,11 +3245,68 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     }
   }
 
+  private nestedArchiveChainForEntry(
+    frame: ArchiveFrame,
+    entry: FileInfo,
+  ): string[] {
+    const currentChain = [...(frame.nestedChain ?? [])];
+    const entryContainingChain = (entry as FileInfo & {
+      nestedChain?: string[];
+    }).nestedChain;
+
+    const containingChain =
+      Array.isArray(entryContainingChain) &&
+      entryContainingChain.length >= currentChain.length
+        ? [...entryContainingChain]
+        : currentChain;
+
+    const nestedArchivePath = this.resolveArchiveEntryInnerPath(
+      frame.innerPath,
+      entry.path,
+    );
+
+    if (!nestedArchivePath) return containingChain;
+    if (containingChain[containingChain.length - 1] === nestedArchivePath) {
+      return containingChain;
+    }
+
+    return [...containingChain, nestedArchivePath];
+  }
+
+  private async openNestedArchiveEntry(
+    entry: FileInfo,
+  ): Promise<void> {
+    const frame = this.currentArchiveFrame;
+    if (!frame) return;
+
+    const nestedChain = this.nestedArchiveChainForEntry(frame, entry);
+    if (nestedChain.length <= frame.nestedChain.length) {
+      this.error = `Unable to resolve nested archive: ${entry.name}`;
+      this.cdr.markForCheck();
+      return;
+    }
+
+    await this.openNestedArchive(nestedChain);
+  }
+
   private async openNestedArchive(
     nestedChain: string[],
   ): Promise<void> {
     const frame = this.currentArchiveFrame;
     if (!frame) return;
+
+    const requestedChain = nestedChain
+      .map(segment => normalizeArchiveInnerPath(segment))
+      .filter(Boolean);
+
+    if (
+      requestedChain.length === frame.nestedChain.length &&
+      requestedChain.every(
+        (segment, index) => segment === frame.nestedChain[index],
+      )
+    ) {
+      return;
+    }
 
     this.loading = true;
     this.error = null;
@@ -3259,13 +3315,13 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     try {
       const nested = await this.directorySource.openNestedArchive(
         frame,
-        nestedChain,
+        requestedChain,
       );
 
       this.archiveStack.push(nested);
       this.renderArchiveFrame(nested, { history: 'record' });
       this.lastAction = `nested archive: ${
-        nestedChain[nestedChain.length - 1] ?? ''
+        requestedChain[requestedChain.length - 1] ?? ''
       }`;
     } catch (error) {
       this.error =

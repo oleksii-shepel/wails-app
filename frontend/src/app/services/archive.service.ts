@@ -93,6 +93,31 @@ export function resolveArchiveChildInnerPath(
   return normalizeArchiveInnerPath(`${current}/${entry}`);
 }
 
+export function normalizeNestedArchiveChain(
+  chain: readonly string[],
+): string[] {
+  return chain
+    .map(segment => normalizeArchiveInnerPath(segment))
+    .filter(Boolean);
+}
+
+export function appendNestedArchiveEntry(
+  containingChain: readonly string[],
+  currentInnerPath: string,
+  entryPath: string,
+): string[] {
+  const chain = normalizeNestedArchiveChain(containingChain);
+  const nestedArchivePath = resolveArchiveChildInnerPath(
+    currentInnerPath,
+    entryPath,
+  );
+
+  if (!nestedArchivePath) return chain;
+  if (chain[chain.length - 1] === nestedArchivePath) return chain;
+
+  return [...chain, nestedArchivePath];
+}
+
 export function normalizeArchiveLocation(path: string): string {
   const raw = (path ?? '').trim().replace(/\\/g, '/');
   if (!raw) return '';

@@ -53,6 +53,7 @@ import {
 } from './reassembly-context-menu.component';
 import { FileInfo, FileType } from '../shared/protocol';
 import { PluginManagerService } from '../services/plugin-manager.service';
+import { ReassemblyOperationHistoryService } from '../services/reassembly-operation-history.service';
 import { PluginLifecycleCoordinatorService } from '../services/plugin-lifecycle-coordinator.service';
 import { SettingsService } from '../services/settings.service';
 import { SurfaceRegistryService } from '../surfaces/surface-registry.service';
@@ -94,6 +95,11 @@ const COMMAND = {
   copy: 'reassembly.manager.copy',
   cut: 'reassembly.manager.cut',
   paste: 'reassembly.manager.paste',
+  undo: 'reassembly.edit.undo',
+  redo: 'reassembly.edit.redo',
+  createArchive: 'reassembly.archive.createZip',
+  checksum: 'reassembly.files.checksum',
+  calculateSize: 'reassembly.files.calculateSize',
   copyToOther: 'reassembly.manager.copyToOther',
   moveToOther: 'reassembly.manager.moveToOther',
   newTab: 'reassembly.manager.newTab',
@@ -214,6 +220,10 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   { id:'reassembly.manager.copy.ctrlC', commandId:COMMAND.copy, contextId:CONTEXT_ID, source:'default', description:'Copy selected items', category:'File Operations', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'c', modifiers:['ctrl']}]}}},
   { id:'reassembly.manager.cut.ctrlX', commandId:COMMAND.cut, contextId:CONTEXT_ID, source:'default', description:'Cut selected items', category:'File Operations', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'x', modifiers:['ctrl']}]}}},
   { id:'reassembly.manager.paste.ctrlV', commandId:COMMAND.paste, contextId:CONTEXT_ID, source:'default', description:'Paste items', category:'File Operations', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'v', modifiers:['ctrl']}]}}},
+  { id:'reassembly.edit.undo.ctrlZ', commandId:COMMAND.undo, contextId:CONTEXT_ID, source:'default', description:'Undo last reversible file operation', category:'Edit', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'z', modifiers:['ctrl']}]}}},
+  { id:'reassembly.edit.redo.ctrlY', commandId:COMMAND.redo, contextId:CONTEXT_ID, source:'default', description:'Redo last reversible file operation', category:'Edit', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'y', modifiers:['ctrl']}]}}},
+  { id:'reassembly.edit.redo.ctrlShiftZ', commandId:COMMAND.redo, contextId:CONTEXT_ID, source:'default', description:'Redo last reversible file operation', category:'Edit', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'z', modifiers:['ctrl','shift']}]}}},
+  { id:'reassembly.archive.createZip.altF5', commandId:COMMAND.createArchive, contextId:CONTEXT_ID, source:'default', description:'Create ZIP archive from selection', category:'Archive', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'f5', modifiers:['alt']}]}}},
   { id:'reassembly.manager.copyToOther.f5', commandId:COMMAND.copyToOther, contextId:CONTEXT_ID, source:'default', description:'Copy to other pane', category:'Pane Control', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'f5'}]}}},
   { id:'reassembly.manager.moveToOther.f6', commandId:COMMAND.moveToOther, contextId:CONTEXT_ID, source:'default', description:'Move to other pane', category:'Pane Control', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'f6'}]}}},
   { id:'reassembly.manager.newTab.ctrlT', commandId:COMMAND.newTab, contextId:CONTEXT_ID, source:'default', description:'New tab', category:'Tab Management', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'t', modifiers:['ctrl']}]}}},
@@ -612,6 +622,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     private readonly batchRenameDialog: BatchRenameDialogService,
     private readonly remoteConnectDialog: RemoteConnectDialogService,
     private readonly pluginManager: PluginManagerService,
+    private readonly operationHistory: ReassemblyOperationHistoryService,
     private readonly pluginLifecycle: PluginLifecycleCoordinatorService,
     private readonly settings: SettingsService,
     private readonly surfaceRegistry: SurfaceRegistryService,
@@ -1141,6 +1152,36 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
 
     await pane.reloadWorkspaceTabs(tabId);
     this.cdr.markForCheck();
+  }
+
+  async undoLastOperation(): Promise<void> {
+    try {
+      const label = await this.operationHistory.undo();
+      if (!label) return;
+      await this.refreshBothPanes();
+      if (this.activePane) this.activePane.lastAction = `undo: ${label}`;
+      this.cdr.markForCheck();
+    } catch (error) {
+      await this.confirmDialog.alert({
+        title: 'Undo Failed',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  async redoLastOperation(): Promise<void> {
+    try {
+      const label = await this.operationHistory.redo();
+      if (!label) return;
+      await this.refreshBothPanes();
+      if (this.activePane) this.activePane.lastAction = `redo: ${label}`;
+      this.cdr.markForCheck();
+    } catch (error) {
+      await this.confirmDialog.alert({
+        title: 'Redo Failed',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   async refreshBothPanes(): Promise<void> {
@@ -1881,6 +1922,9 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       this.menuCommand(COMMAND.selectSameExtension, 'Select same extension', 'Alt+E'),
       this.menuCommand(COMMAND.selectSameType, 'Select same type'),
       this.menuCommand(COMMAND.properties, 'Properties', 'Alt+Enter'),
+      this.menuCommand(COMMAND.calculateSize, 'Calculate Size'),
+      this.menuCommand(COMMAND.checksum, 'SHA-256 Checksum'),
+      this.menuCommand(COMMAND.createArchive, 'Create ZIP Archive', 'Alt+F5'),
       this.menuCommand(COMMAND.batchRename, 'Batch rename…', 'Ctrl+Shift+R'),
       this.menuCommand(COMMAND.copy, 'Copy', 'Ctrl+C'),
       this.menuCommand(COMMAND.cut, 'Cut', 'Ctrl+X'),
@@ -1923,6 +1967,8 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
           this.isPanePathPinned(this.activePane) ? 'Unpin this location' : 'Pin this location',
         ),
         this.menuCommand(COMMAND.paste, 'Paste', 'Ctrl+V'),
+        this.menuCommand(COMMAND.undo, 'Undo', 'Ctrl+Z'),
+        this.menuCommand(COMMAND.redo, 'Redo', 'Ctrl+Y'),
         { separator: true },
         this.menuCommand(COMMAND.selectAll, 'Select all', 'Ctrl+A'),
         this.menuCommand(COMMAND.invertSelection, 'Invert visible selection', 'Alt+I'),
@@ -2360,6 +2406,39 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     descriptor(COMMAND.copy, 'Copy', 'File Operations', () => this.activePane?.copySelected(), () => !!this.activePane?.hasSelection);
     descriptor(COMMAND.cut, 'Cut', 'File Operations', () => this.activePane?.cutSelected(), () => !!this.activePane?.canCut);
     descriptor(COMMAND.paste, 'Paste', 'File Operations', () => this.activePane?.paste(), () => !!this.activePane?.canPaste);
+    descriptor(COMMAND.undo, 'Undo', 'Edit', () => this.undoLastOperation(), () => this.operationHistory.canUndo);
+    descriptor(COMMAND.redo, 'Redo', 'Edit', () => this.redoLastOperation(), () => this.operationHistory.canRedo);
+    descriptor(
+      COMMAND.createArchive,
+      'Create ZIP Archive',
+      'Archive',
+      () => this.activePane?.createZipFromSelection(),
+      () => !!this.activePane?.isDirectoryTab &&
+        !this.activePane?.isInArchive &&
+        !!this.activePane?.canCreate &&
+        (this.activePane?.selectedEntries.length ?? 0) > 0,
+    );
+    descriptor(
+      COMMAND.checksum,
+      'SHA-256 Checksum',
+      'Files',
+      () => this.activePane?.showSelectedChecksum(),
+      () => {
+        const entry = this.activePane?.cursorEntry ?? this.activePane?.selectedEntries[0];
+        return !!entry &&
+          !this.activePane?.isInArchive &&
+          entry.type !== FileType.DIRECTORY;
+      },
+    );
+    descriptor(
+      COMMAND.calculateSize,
+      'Calculate Size',
+      'Files',
+      () => this.activePane?.calculateSelectedSize(),
+      () => !!this.activePane?.isDirectoryTab &&
+        !this.activePane?.isInArchive &&
+        !!(this.activePane?.cursorEntry || this.activePane?.selectedEntries.length),
+    );
     descriptor(COMMAND.copyToOther, 'Copy to Other Pane', 'Pane Control', () => this.copyToOther(), () => this.canTransfer('copy'));
     descriptor(COMMAND.moveToOther, 'Move to Other Pane', 'Pane Control', () => this.moveToOther(), () => this.canTransfer('move'));
     descriptor(COMMAND.newTab, 'New Tab', 'Tab Management', () => this.activePane?.newTab());

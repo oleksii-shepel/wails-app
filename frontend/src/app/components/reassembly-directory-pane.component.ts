@@ -18,6 +18,7 @@ import { PathHistoryService } from '../services/path-history.service';
 import { WorkspaceService } from '../services/workspace.service';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { FileClipboardService } from '../services/file-clipboard.service';
+import { ReassemblyOperationHistoryService } from '../services/reassembly-operation-history.service';
 import { PluginManagerService } from '../services/plugin-manager.service';
 import { PluginLifecycleCoordinatorService } from '../services/plugin-lifecycle-coordinator.service';
 import {
@@ -1551,6 +1552,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     private readonly remoteConnections: RemoteConnectionsService,
     private readonly archiveService: ArchiveService,
     private readonly fileClipboard: FileClipboardService,
+    private readonly operationHistory: ReassemblyOperationHistoryService,
     private readonly pluginManager: PluginManagerService,
     private readonly pluginLifecycle: PluginLifecycleCoordinatorService,
     private readonly surfaceRegistry: SurfaceRegistryService,
@@ -3216,6 +3218,15 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     try {
       const destination = await this.api.joinPaths([this.path, cleanName]);
       await this.api.writeFile(destination, '', 'utf8');
+      this.operationHistory.record({
+        label: `Create file ${cleanName}`,
+        undo: async () => {
+          await this.api.deleteFile(destination, true, false);
+        },
+        redo: async () => {
+          await this.api.writeFile(destination, '', 'utf8');
+        },
+      });
       this.lastAction = `new file: ${cleanName}`;
       await this.refresh();
       this.selectPath(destination);
@@ -3240,6 +3251,15 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     try {
       const destination = await this.api.joinPaths([this.path, cleanName]);
       await this.api.createDirectory(destination, false);
+      this.operationHistory.record({
+        label: `Create folder ${cleanName}`,
+        undo: async () => {
+          await this.api.deleteFile(destination, true, false);
+        },
+        redo: async () => {
+          await this.api.createDirectory(destination, false);
+        },
+      });
       this.lastAction = `new folder: ${cleanName}`;
       await this.refresh();
       this.selectPath(destination);
@@ -3275,6 +3295,27 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       if (result.failed > 0) {
         throw new Error(`Rename failed (${result.failed} item${result.failed === 1 ? '' : 's'}).`);
       }
+
+      const source = entry.path;
+      this.operationHistory.record({
+        label: `Rename ${entry.name} to ${cleanName}`,
+        undo: async () => {
+          const result = await this.api.batchMove([{
+            source: destination,
+            destination: source,
+            exactDestination: true,
+          }], true);
+          if (result.failed > 0) throw new Error('Undo rename failed.');
+        },
+        redo: async () => {
+          const result = await this.api.batchMove([{
+            source,
+            destination,
+            exactDestination: true,
+          }], true);
+          if (result.failed > 0) throw new Error('Redo rename failed.');
+        },
+      });
 
       this.lastAction = `rename: ${entry.name} -> ${cleanName}`;
       await this.refresh();
@@ -3327,6 +3368,111 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     }
   }
 
+  async showSelectedChecksum(): Promise<void> {
+    const entry = this.cursorEntry ?? this.selectedEntries[0];
+    if (!entry || this.isInArchive || entry.type === FileType.DIRECTORY) return;
+
+    try {
+      const digest = await this.api.hashFile(entry.path);
+      await this.confirmDialog.alert({
+        title: `SHA-256 — ${entry.name}`,
+        message: `${digest}\n\n${entry.path}`,
+      });
+      this.lastAction = `checksum: ${entry.name}`;
+    } catch (error) {
+      await this.showOperationError('Checksum', error);
+    }
+  }
+
+  async calculateSelectedSize(): Promise<void> {
+    if (!this.isDirectoryTab || this.isInArchive) return;
+
+    const entries =
+      this.selectedEntries.length > 0
+        ? this.selectedEntries
+        : this.cursorEntry
+          ? [this.cursorEntry]
+          : [];
+
+    if (entries.length === 0) return;
+
+    try {
+      let total = 0;
+      for (const entry of entries) {
+        total += entry.type === FileType.DIRECTORY
+          ? await this.api.dirSizeRecursive(entry.path)
+          : Number(entry.size) || 0;
+      }
+
+      await this.confirmDialog.alert({
+        title:
+          entries.length === 1
+            ? `Size — ${entries[0].name}`
+            : `Selected Size — ${entries.length} items`,
+        message: [
+          `Size: ${this.formatSize(total)}`,
+          `Bytes: ${total.toLocaleString()}`,
+        ].join('\n'),
+      });
+
+      this.lastAction = `size: ${entries.length} item${
+        entries.length === 1 ? '' : 's'
+      }`;
+    } catch (error) {
+      await this.showOperationError('Calculate Size', error);
+    }
+  }
+
+  async createZipFromSelection(): Promise<void> {
+    if (!this.isDirectoryTab || this.isInArchive || !this.canCreate) return;
+
+    const entries = this.selectedEntries;
+    if (entries.length === 0) return;
+
+    const first = entries[0];
+    const baseName =
+      entries.length === 1
+        ? first.name.replace(/\.[^.]+$/, '') || first.name
+        : 'Archive';
+
+    const requestedName = await this.confirmDialog.prompt({
+      title: 'Create ZIP Archive',
+      message:
+        entries.length === 1
+          ? `Compress "${first.name}" to:`
+          : `Compress ${entries.length} selected items to:`,
+      confirmText: 'Create',
+      defaultValue: `${baseName}.zip`,
+      historyKey: 'reassembly.createZip',
+    });
+
+    let cleanName = this.cleanLeafName(requestedName);
+    if (!cleanName) return;
+    if (!/\.zip$/i.test(cleanName)) cleanName += '.zip';
+
+    try {
+      const destination = await this.api.joinPaths([this.path, cleanName]);
+      const sources = entries.map(entry => entry.path);
+
+      await this.api.createZipArchive(sources, destination);
+      this.operationHistory.record({
+        label: `Create archive ${cleanName}`,
+        undo: async () => {
+          await this.api.deleteFile(destination, true, false);
+        },
+        redo: async () => {
+          await this.api.createZipArchive(sources, destination);
+        },
+      });
+
+      this.lastAction = `archive created: ${cleanName}`;
+      await this.refresh();
+      this.selectPath(destination);
+    } catch (error) {
+      await this.showOperationError('Create ZIP Archive', error);
+    }
+  }
+
   async showSelectedProperties(): Promise<void> {
     const entry = this.cursorEntry ?? this.selectedEntries[0];
     if (!entry) return;
@@ -3336,13 +3482,23 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
         ? entry
         : await this.api.getFileInfo(entry.path);
 
-      const modified = Number(info.modified);
-      const modifiedText =
-        Number.isFinite(modified) && modified > 0
+      const formatTimestamp = (value: unknown): string => {
+        const timestamp = Number(value);
+        return Number.isFinite(timestamp) && timestamp > 0
           ? new Date(
-              modified * (modified < 10_000_000_000 ? 1000 : 1),
+              timestamp * (timestamp < 10_000_000_000 ? 1000 : 1),
             ).toLocaleString()
           : '—';
+      };
+
+      const modifiedText = formatTimestamp(info.modified);
+      const createdText = formatTimestamp(info.created);
+      const accessedText = formatTimestamp(info.accessed);
+
+      const displaySize =
+        !this.isInArchive && info.type === FileType.DIRECTORY
+          ? await this.api.dirSizeRecursive(info.path)
+          : Number(info.size) || 0;
 
       const type =
         info.type === FileType.DIRECTORY
@@ -3359,8 +3515,13 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
           `Name: ${info.name}`,
           `Type: ${type}`,
           `Path: ${info.path}`,
-          `Size: ${this.formatSize(Number(info.size) || 0) || '—'}`,
+          `Size: ${this.formatSize(displaySize) || '—'}`,
+          `Bytes: ${displaySize.toLocaleString()}`,
           `Modified: ${modifiedText}`,
+          `Created: ${createdText}`,
+          `Accessed: ${accessedText}`,
+          `Permissions: ${info.permissions || '—'}`,
+          info.isSymlink ? 'Symbolic link: yes' : '',
           this.isInArchive ? 'Location: inside archive' : '',
         ].filter(Boolean).join('\n'),
       });

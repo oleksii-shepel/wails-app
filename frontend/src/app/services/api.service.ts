@@ -295,6 +295,29 @@ export class ApiService {
     return await window.go.app.App.HashFile(this.normalizeCanonicalPath(path));
   }
 
+  async createZipArchive(
+    paths: string[],
+    destination: string,
+  ): Promise<OperationResult> {
+    const app = window.go.app.App as unknown as {
+      CreateZipArchive(
+        paths: string[],
+        destination: string,
+      ): Promise<OperationResult>;
+    };
+
+    if (typeof app.CreateZipArchive !== 'function') {
+      throw new Error(
+        'CreateZipArchive binding is unavailable. Run Wails binding generation.',
+      );
+    }
+
+    return await app.CreateZipArchive(
+      this.normalizeCanonicalPathList(paths),
+      this.normalizeCanonicalPath(destination),
+    );
+  }
+
   async openFile(path: string): Promise<void> {
     return await window.go.app.App.OpenFile(this.normalizeCanonicalPath(path));
   }

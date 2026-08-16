@@ -1539,6 +1539,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
 
     if (tab.kind === 'dir') {
       this.applyDirSessionBeforeLoad(tab);
+      this.restoreArchiveStateForTab(tab.id, tab.path);
       this.workspaceService.switchTab(this.paneId, tab.id);
 
       const interactionGeneration = this.interactionGeneration;
@@ -1602,6 +1603,11 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       } catch {
         // Best-effort cleanup only.
       }
+
+      this.workspaceService.clearArchiveState(
+        this.paneId,
+        tabId,
+      );
     }
 
     this.tabs = this.tabs.filter(tab => tab.id !== tabId);
@@ -1618,6 +1624,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
 
     if (next.kind === 'dir') {
+      this.restoreArchiveStateForTab(next.id, next.path);
       this.workspaceService.switchTab(this.paneId, next.id);
       await this.load(next.path, { history: 'record', syncTab: false });
     } else {
@@ -2468,7 +2475,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     return {
       fsPath: this.archiveStack[0]?.fsPath ?? frame.fsPath,
       nestedChain: [...(frame.nestedChain ?? [])],
-      entryPath: entry.path,
+      entryPath: normalizeArchiveInnerPath(entry.path),
     };
   }
 
@@ -3976,6 +3983,72 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     return Math.max(0, viewport?.scrollTop ?? 0);
   }
 
+  private persistArchiveStateForTab(tabId: string): void {
+    const frame = this.currentArchiveFrame;
+    if (!frame || this.archiveStack.length === 0) return;
+
+    this.workspaceService.saveArchiveState(
+      this.paneId,
+      tabId,
+      {
+        path: this.path,
+        archiveStack: this.archiveStack,
+        fsDirPath: this.archiveStack[0]?.fsPath ?? frame.fsPath,
+        fsParentDir: this.archiveExitPath,
+      },
+    );
+  }
+
+  private restoreArchiveStateForTab(
+    tabId: string,
+    requestedPath: string,
+  ): boolean {
+    const state = this.workspaceService.getArchiveState(
+      this.paneId,
+      tabId,
+    );
+    if (!state || state.archiveStack.length === 0) {
+      return false;
+    }
+
+    const parsed = parseArchivePath(requestedPath);
+    const root = state.archiveStack[0];
+    const current = state.archiveStack[state.archiveStack.length - 1];
+
+    if (
+      !root ||
+      !current ||
+      !sameArchiveLocation(root.fsPath, parsed.fsPath) ||
+      current.nestedChain.length !== parsed.nestedChain.length ||
+      !current.nestedChain.every(
+        (segment, index) => segment === parsed.nestedChain[index],
+      )
+    ) {
+      return false;
+    }
+
+    this.archiveStack.splice(
+      0,
+      this.archiveStack.length,
+      ...state.archiveStack.map(frame => ({
+        ...frame,
+        nestedChain: [...frame.nestedChain],
+        listing: {
+          ...frame.listing,
+          entries: (frame.listing?.entries ?? []).map(entry => ({
+            ...entry,
+          })),
+        },
+      })),
+    );
+
+    this.archiveExitPath =
+      state.fsParentDir ||
+      this.directorySource.getParentPath(parsed.fsPath);
+
+    return true;
+  }
+
   private syncActiveDirSessionState(
     persist = true,
   ): Extract<ReassemblyTab, { kind: 'dir' }> | null {
@@ -4008,6 +4081,15 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
 
     if (persist) {
       this.persistDirTabSession(updated);
+
+      if (this.isInArchive) {
+        this.persistArchiveStateForTab(updated.id);
+      } else {
+        this.workspaceService.clearArchiveState(
+          this.paneId,
+          updated.id,
+        );
+      }
     }
 
     this.syncAutoFollowPreview(updated);
@@ -4275,6 +4357,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
         }
 
         this.applyDirSessionBeforeLoad(target);
+        this.restoreArchiveStateForTab(target.id, target.path);
 
         const interactionGeneration = this.interactionGeneration;
         const loaded = await this.load(target.path, {
@@ -4361,7 +4444,9 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
         ? {
             fsPath: viewer.archiveContext.fsPath,
             nestedChain: [...(viewer.archiveContext.nestedChain ?? [])],
-            entryPath: viewer.archiveContext.entryPath,
+            entryPath: normalizeArchiveInnerPath(
+              viewer.archiveContext.entryPath,
+            ),
           }
         : null,
       viewerId:

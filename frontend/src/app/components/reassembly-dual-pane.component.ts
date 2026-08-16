@@ -175,6 +175,8 @@ const COMMAND = {
   focusFilter: 'reassembly.manager.focusFilter',
   toggleHidden: 'reassembly.workspace.toggleHidden',
   showWorkspaceSwitcher: 'reassembly.workspace.showSwitcher',
+  previousWorkspace: 'reassembly.workspace.previous',
+  nextWorkspace: 'reassembly.workspace.next',
   newWorkspace: 'reassembly.workspace.new',
   showPathHistory: 'reassembly.navigation.pathHistory',
   showQuickAccess: 'reassembly.navigation.quickAccess',
@@ -292,6 +294,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   { id:'reassembly.manager.focusFilter.ctrlF', commandId:COMMAND.focusFilter, contextId:CONTEXT_ID, source:'default', description:'Focus folder filter', category:'Search & Filter', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'f', modifiers:['ctrl']}]}}},
   { id:'reassembly.workspace.toggleHidden.ctrlShiftH', commandId:COMMAND.toggleHidden, contextId:CONTEXT_ID, source:'default', description:'Show/hide hidden files', category:'Workspace', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'h', modifiers:['ctrl','shift']}]}}},
   { id:'reassembly.workspace.showSwitcher.ctrlShiftW', commandId:COMMAND.showWorkspaceSwitcher, contextId:CONTEXT_ID, source:'default', description:'Open workspace switcher', category:'Workspace', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'w', modifiers:['ctrl','shift']}]}}},
+{ id:'reassembly.workspace.previous.ctrlAltHome', commandId:COMMAND.previousWorkspace, contextId:CONTEXT_ID, source:'default', description:'Previous workspace', category:'Workspace', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'home', modifiers:['alt','ctrl']}]}}},
+{ id:'reassembly.workspace.next.ctrlAltEnd', commandId:COMMAND.nextWorkspace, contextId:CONTEXT_ID, source:'default', description:'Next workspace', category:'Workspace', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'end', modifiers:['alt','ctrl']}]}}},
   { id:'reassembly.workspace.new.ctrlShiftAltN', commandId:COMMAND.newWorkspace, contextId:CONTEXT_ID, source:'default', description:'Create workspace', category:'Workspace', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'n', modifiers:['ctrl','shift','alt']}]}}},
   { id:'reassembly.navigation.pathHistory.ctrlH', commandId:COMMAND.showPathHistory, contextId:CONTEXT_ID, source:'default', description:'Show path history', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'h', modifiers:['ctrl']}]}}},
   { id:'reassembly.navigation.quickAccess.ctrlQ', commandId:COMMAND.showQuickAccess, contextId:CONTEXT_ID, source:'default', description:'Open Quick Access', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'q', modifiers:['ctrl']}]}}},
@@ -2953,6 +2957,64 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
   }
 
+  get workspaceCycleCount(): number {
+    return (
+      (this.workspaceService.getWorkspaces().workspaces?.length ?? 0) +
+      this.workspaceSurfaces.listToolWorkspaces().length
+    );
+  }
+
+  cycleWorkspace(delta: -1 | 1): void {
+    const files =
+      this.workspaceService.getWorkspaces().workspaces ?? [];
+    const tools = this.workspaceSurfaces.listToolWorkspaces();
+
+    const sequence: Array<
+      | { kind: 'files'; id: string }
+      | { kind: 'tool'; id: string }
+    > = [
+      ...files.map(workspace => ({
+        kind: 'files' as const,
+        id: workspace.id,
+      })),
+      ...tools.map(workspace => ({
+        kind: 'tool' as const,
+        id: workspace.workspaceId,
+      })),
+    ];
+
+    if (sequence.length < 2) return;
+
+    const currentPresentation = this.workspacePresentation;
+    const currentFiles = this.workspaceService.getActiveWorkspace();
+
+    const currentIndex = sequence.findIndex(item =>
+      currentPresentation?.kind === 'tool'
+        ? item.kind === 'tool' &&
+          item.id === currentPresentation.workspaceId
+        : item.kind === 'files' &&
+          item.id === currentFiles?.id,
+    );
+
+    const base = currentIndex >= 0 ? currentIndex : 0;
+    const nextIndex =
+      (base + delta + sequence.length) % sequence.length;
+    const target = sequence[nextIndex];
+
+    if (target.kind === 'files') {
+      if (!this.workspaceService.switchWorkspace(target.id)) return;
+      void this.applyActiveWorkspace();
+      return;
+    }
+
+    if (!this.workspaceSurfaces.activate(target.id)) return;
+
+    const presentation = this.workspaceSurfaces.get(target.id);
+    if (!presentation) return;
+
+    this.activateToolWorkspace(presentation);
+  }
+
   async applyActiveWorkspace(): Promise<void> {
     const generation = ++this.workspaceApplyGeneration;
     const workspace = this.workspaceService.getActiveWorkspace();
@@ -3493,6 +3555,20 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     descriptor(COMMAND.focusFilter, 'Focus Folder Filter', 'Search & Filter', () => this.activePane?.focusFilter(), () => !!this.activePane?.isDirectoryTab);
     descriptor(COMMAND.toggleHidden, 'Toggle Hidden Files', 'Workspace', () => this.toggleHidden());
     descriptor(COMMAND.showWorkspaceSwitcher, 'Show Workspace Switcher', 'Workspace', () => this.workspaceSwitcher?.open());
+    descriptor(
+      COMMAND.previousWorkspace,
+      'Previous Workspace',
+      'Workspace',
+      () => this.cycleWorkspace(-1),
+      () => this.workspaceCycleCount > 1,
+    );
+    descriptor(
+      COMMAND.nextWorkspace,
+      'Next Workspace',
+      'Workspace',
+      () => this.cycleWorkspace(1),
+      () => this.workspaceCycleCount > 1,
+    );
     descriptor(COMMAND.newWorkspace, 'New Workspace', 'Workspace', () => this.workspaceSwitcher?.createWorkspace());
     descriptor(COMMAND.showPathHistory, 'Show Path History', 'Navigation', () => this.openHistoryFor(this.activePaneId));
     descriptor(COMMAND.showQuickAccess, 'Open Quick Access', 'Navigation', () => this.openQuickAccessFor(this.activePaneId));

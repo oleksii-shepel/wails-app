@@ -1843,6 +1843,30 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     this.syncActiveDirSessionState();
   }
 
+  selectPaths(paths: readonly string[]): void {
+    if (!this.isDirectoryTab) return;
+
+    this.markUserInteraction();
+
+    const wanted = new Set(paths);
+    const selectable = this.viewMode === 'tree'
+      ? this.treeRows.map(row => row.entry)
+      : this.visibleEntries;
+
+    const selected = selectable
+      .filter(entry => wanted.has(entry.path))
+      .map(entry => entry.path);
+
+    this.selectedPaths = new Set(selected);
+    this.cursorPath = selected[0] ?? null;
+    this.anchorPath = this.cursorPath;
+    this.lastAction = `selected ${selected.length} comparison item${selected.length === 1 ? '' : 's'}`;
+
+    this.syncActiveDirSessionState();
+    this.ensureCursorVisible();
+    this.cdr.markForCheck();
+  }
+
   selectAll(): void {
     if (!this.isDirectoryTab) return;
     this.markUserInteraction();

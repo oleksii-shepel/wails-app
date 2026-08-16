@@ -16,10 +16,20 @@ import { PinnedLocationService } from '../services/pinned-location.service';
 import { InputEngineService } from '../services/input-engine.service';
 import type { InputBindingDefinition } from '../services/input-system.types';
 import { canTransferBetween, transferBlockedMessage } from '../services/transfer-capabilities';
+import {
+  PaneComparisonService,
+  type PaneComparisonResult,
+} from '../services/pane-comparison.service';
+import { PaneRecursiveComparisonService } from '../services/pane-recursive-comparison.service';
 import { ReassemblyDirectoryPaneComponent } from './reassembly-directory-pane.component';
 import { ReassemblyWorkspaceSwitcherComponent } from './reassembly-workspace-switcher.component';
 import { ReassemblyPathHistoryComponent } from './reassembly-path-history.component';
 import { ReassemblyQuickAccessComponent } from './reassembly-quick-access.component';
+import { PaneComparisonBarComponent } from './pane-comparison-bar.component';
+import {
+  PaneSyncReviewComponent,
+  type PaneSyncPlan,
+} from './pane-sync-review.component';
 import {
   ReassemblyContextMenuComponent,
   type ReassemblyContextMenuItem,
@@ -72,6 +82,13 @@ const COMMAND = {
   showPinnedLocations: 'reassembly.navigation.pinnedLocations',
   treeLeft: 'reassembly.tree.left',
   treeRight: 'reassembly.tree.right',
+  comparePanes: 'reassembly.compare.toggle',
+  recursiveComparePanes: 'reassembly.compare.recursive',
+  reviewSyncPlan: 'reassembly.compare.review',
+  selectLeftDifferences: 'reassembly.compare.selectLeftDifferences',
+  selectRightDifferences: 'reassembly.compare.selectRightDifferences',
+  copyMissingLeftToRight: 'reassembly.compare.copyMissingLeftToRight',
+  copyMissingRightToLeft: 'reassembly.compare.copyMissingRightToLeft',
 } as const;
 
 const BINDINGS: readonly InputBindingDefinition[] = [
@@ -114,6 +131,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   { id:'reassembly.navigation.quickAccess.ctrlQ', commandId:COMMAND.showQuickAccess, contextId:CONTEXT_ID, source:'default', description:'Open Quick Access', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'q', modifiers:['ctrl']}]}}},
   { id:'reassembly.navigation.pinnedLocations.ctrlB', commandId:COMMAND.showPinnedLocations, contextId:CONTEXT_ID, source:'default', description:'Open Quick Access pinned section', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'b', modifiers:['ctrl']}]}}},  { id:'reassembly.tree.left.arrowLeft', commandId:COMMAND.treeLeft, contextId:CONTEXT_ID, source:'default', description:'Tree collapse or parent', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'arrowleft'}]}}},
   { id:'reassembly.tree.right.arrowRight', commandId:COMMAND.treeRight, contextId:CONTEXT_ID, source:'default', description:'Tree expand or child', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'arrowright'}]}}},
+  { id:'reassembly.compare.toggle.ctrlShiftC', commandId:COMMAND.comparePanes, contextId:CONTEXT_ID, source:'default', description:'Compare panes', category:'Pane Control', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'c', modifiers:['ctrl','shift']}]}}},
+  { id:'reassembly.compare.recursive.ctrlShiftAltC', commandId:COMMAND.recursiveComparePanes, contextId:CONTEXT_ID, source:'default', description:'Recursive pane compare', category:'Pane Control', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'c', modifiers:['ctrl','shift','alt']}]}}},
 ];
 
 @Component({
@@ -126,6 +145,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     ReassemblyWorkspaceSwitcherComponent,
     ReassemblyPathHistoryComponent,
     ReassemblyQuickAccessComponent,
+    PaneComparisonBarComponent,
+    PaneSyncReviewComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -133,6 +154,34 @@ const BINDINGS: readonly InputBindingDefinition[] = [
       #managerRoot
       class="manager"
       [style.grid-template-columns]="layoutColumns">
+      <app-pane-comparison-bar
+        class="comparison-surface"
+        [visible]="comparisonVisible"
+        [leftEntries]="leftPane?.entries ?? []"
+        [rightEntries]="rightPane?.entries ?? []"
+        [leftPath]="leftPane?.path ?? ''"
+        [rightPath]="rightPane?.path ?? ''"
+        [recursive]="comparisonRecursive"
+        [scanning]="recursiveComparisonScanning"
+        [error]="recursiveComparisonError"
+        [comparisonResult]="paneComparisonResult"
+        (toggleRecursive)="toggleRecursiveComparison()"
+        (refreshRecursive)="refreshRecursiveComparison()"
+        (selectLeft)="selectComparisonDifferences('left')"
+        (selectRight)="selectComparisonDifferences('right')"
+        (copyMissingLeftToRight)="copyMissingComparison('left')"
+        (copyMissingRightToLeft)="copyMissingComparison('right')"
+        (review)="openSyncReview()"
+        (close)="closePaneComparison()">
+      </app-pane-comparison-bar>
+
+      <app-pane-sync-review
+        class="comparison-surface"
+        [visible]="syncReviewVisible"
+        [result]="paneComparisonResult"
+        (execute)="executeSyncPlan($event)"
+        (close)="closeSyncReview()">
+      </app-pane-sync-review>
       <div class="pane-slot">
         <app-reassembly-directory-pane
           #leftPane
@@ -212,6 +261,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
 
     .manager {
       display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr);
       width: 100%;
       height: 100%;
       min-width: 0;
@@ -219,13 +269,20 @@ const BINDINGS: readonly InputBindingDefinition[] = [
       overflow: hidden;
     }
 
+    .comparison-surface {
+      grid-column: 1 / -1;
+      min-width: 0;
+    }
+
     .pane-slot {
+      grid-row: 3;
       min-width: 0;
       min-height: 0;
       overflow: hidden;
     }
 
     .divider {
+      grid-row: 3;
       position: relative;
       touch-action: none;
       cursor: col-resize;
@@ -259,10 +316,15 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     @media (max-width: 820px) {
       .manager {
         grid-template-columns: 1fr !important;
-        grid-template-rows: minmax(0, 1fr) 5px minmax(0, 1fr);
+        grid-template-rows: auto auto minmax(0, 1fr) 5px minmax(0, 1fr);
+      }
+
+      .pane-slot {
+        grid-row: auto;
       }
 
       .divider {
+        grid-row: auto;
         cursor: default;
         background:
           linear-gradient(
@@ -299,6 +361,13 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
   resizing = false;
   showHidden = false;
 
+  comparisonVisible = false;
+  syncReviewVisible = false;
+  comparisonRecursive = false;
+  recursiveComparisonScanning = false;
+  recursiveComparisonError = '';
+  recursiveComparisonResult: PaneComparisonResult | null = null;
+
   lastTransfer = 'none';
   lastDrop = 'none';
   contextMenu: ReassemblyContextMenuState | null = null;
@@ -309,6 +378,8 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     private readonly confirmDialog: ConfirmDialogService,
     private readonly workspaceService: WorkspaceService,
     private readonly pinnedLocations: PinnedLocationService,
+    private readonly paneComparison: PaneComparisonService,
+    private readonly recursivePaneComparison: PaneRecursiveComparisonService,
     private readonly cdr: ChangeDetectorRef,
   ) {}
 
@@ -359,6 +430,268 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
 
   switchPane(): void {
     this.activate(this.activePaneId === 'left' ? 'right' : 'left');
+  }
+
+  canComparePanes(): boolean {
+    return !!this.leftPane &&
+      !!this.rightPane &&
+      this.leftPane.isDirectoryTab &&
+      this.rightPane.isDirectoryTab &&
+      !!this.leftPane.path &&
+      !!this.rightPane.path;
+  }
+
+  get paneComparisonResult(): PaneComparisonResult {
+    if (this.comparisonRecursive && this.recursiveComparisonResult) {
+      return this.recursiveComparisonResult;
+    }
+
+    return this.paneComparison.compare(
+      this.leftPane?.entries ?? [],
+      this.rightPane?.entries ?? [],
+    );
+  }
+
+  togglePaneComparison(): void {
+    if (this.comparisonVisible) {
+      this.closePaneComparison();
+      return;
+    }
+
+    if (!this.canComparePanes()) {
+      void this.confirmDialog.alert({
+        title: 'Compare Panes',
+        message: 'Pane comparison is available when both panes show directories.',
+      });
+      return;
+    }
+
+    this.comparisonVisible = true;
+    this.cdr.markForCheck();
+  }
+
+  closePaneComparison(): void {
+    this.comparisonVisible = false;
+    this.syncReviewVisible = false;
+    this.comparisonRecursive = false;
+    this.recursiveComparisonResult = null;
+    this.recursiveComparisonError = '';
+    this.cdr.markForCheck();
+  }
+
+  openSyncReview(): void {
+    if (!this.canComparePanes()) return;
+    this.comparisonVisible = true;
+    this.syncReviewVisible = true;
+    this.cdr.markForCheck();
+  }
+
+  closeSyncReview(): void {
+    this.syncReviewVisible = false;
+    this.cdr.markForCheck();
+  }
+
+  async toggleRecursiveComparison(): Promise<void> {
+    if (!this.canComparePanes()) return;
+
+    this.comparisonRecursive = !this.comparisonRecursive;
+    this.syncReviewVisible = false;
+
+    if (this.comparisonRecursive) {
+      await this.refreshRecursiveComparison();
+    } else {
+      this.recursiveComparisonResult = null;
+      this.recursiveComparisonError = '';
+      this.cdr.markForCheck();
+    }
+  }
+
+  async refreshRecursiveComparison(): Promise<void> {
+    if (!this.canComparePanes() || !this.leftPane || !this.rightPane) return;
+
+    this.recursiveComparisonScanning = true;
+    this.recursiveComparisonError = '';
+    this.cdr.markForCheck();
+
+    try {
+      const result = await this.recursivePaneComparison.compare(
+        this.api,
+        this.leftPane.path,
+        this.rightPane.path,
+        { showHidden: this.showHidden },
+      );
+
+      this.recursiveComparisonResult = result.comparison;
+
+      if (result.truncated) {
+        this.recursiveComparisonError =
+          'Scan limit reached; recursive results are partial.';
+      } else if (result.warnings.length > 0) {
+        this.recursiveComparisonError =
+          `${result.warnings.length} folder${result.warnings.length === 1 ? '' : 's'} could not be scanned.`;
+      }
+    } catch (error) {
+      this.recursiveComparisonResult = null;
+      this.recursiveComparisonError =
+        error instanceof Error ? error.message : String(error);
+    } finally {
+      this.recursiveComparisonScanning = false;
+      this.cdr.markForCheck();
+    }
+  }
+
+  selectComparisonDifferences(side: PaneId): void {
+    if (!this.canComparePanes()) return;
+
+    const result = this.paneComparisonResult;
+    const paths = side === 'left'
+      ? this.paneComparison.leftDifferencePaths(result)
+      : this.paneComparison.rightDifferencePaths(result);
+
+    const pane = side === 'left' ? this.leftPane : this.rightPane;
+    pane?.selectPaths(paths);
+    this.activate(side);
+  }
+
+  async copyMissingComparison(sourceSide: PaneId): Promise<void> {
+    if (!this.canComparePanes()) return;
+
+    const result = this.paneComparisonResult;
+    const missing = result.items.filter(item =>
+      sourceSide === 'left'
+        ? item.status === 'only-left' && !!item.left
+        : item.status === 'only-right' && !!item.right,
+    );
+
+    if (missing.length === 0) return;
+
+    const sourcePane = sourceSide === 'left' ? this.leftPane : this.rightPane;
+    const destinationPane =
+      sourceSide === 'left' ? this.rightPane : this.leftPane;
+    if (!sourcePane || !destinationPane) return;
+
+    const items = await Promise.all(
+      missing.map(async item => {
+        const source =
+          sourceSide === 'left' ? item.left!.path : item.right!.path;
+        const relativePath = this.comparisonRecursive
+          ? item.key
+          : this.leafName(source);
+
+        return {
+          source,
+          destination: await this.api.joinPaths([
+            destinationPane.path,
+            relativePath,
+          ]),
+        };
+      }),
+    );
+
+    await this.executeComparisonCopies(
+      items,
+      `Copy ${missing.length} missing item${missing.length === 1 ? '' : 's'} ${
+        sourceSide === 'left' ? 'left → right' : 'right → left'
+      }?`,
+    );
+  }
+
+  async executeSyncPlan(plan: PaneSyncPlan): Promise<void> {
+    if (!this.canComparePanes() || !plan) return;
+
+    const approved = plan.items.filter(item => item.direction !== 'skip');
+    if (approved.length === 0) return;
+
+    const confirmed = await this.confirmDialog.confirm({
+      title: 'Execute Synchronization Plan',
+      message:
+        `Apply ${approved.length} approved synchronization action${
+          approved.length === 1 ? '' : 's'
+        }? Existing destination items will be overwritten.`,
+      confirmText: 'Synchronize',
+    });
+    if (!confirmed) return;
+
+    const items: Array<{ source: string; destination: string }> = [];
+
+    for (const item of approved) {
+      const leftToRight = item.direction === 'left-to-right';
+      const source = leftToRight ? item.leftPath : item.rightPath;
+      const destinationRoot = leftToRight
+        ? this.rightPane?.path
+        : this.leftPane?.path;
+
+      if (!source || !destinationRoot) continue;
+
+      const relativePath = this.comparisonRecursive
+        ? item.key
+        : this.leafName(source);
+
+      items.push({
+        source,
+        destination: await this.api.joinPaths([
+          destinationRoot,
+          relativePath,
+        ]),
+      });
+    }
+
+    if (items.length === 0) return;
+
+    const result = await this.api.batchCopy(items, true);
+    this.lastTransfer = `sync: ${result.succeeded}/${result.total}`;
+
+    this.syncReviewVisible = false;
+    await Promise.all([
+      this.leftPane?.refresh(),
+      this.rightPane?.refresh(),
+    ]);
+
+    if (this.comparisonRecursive) {
+      await this.refreshRecursiveComparison();
+    }
+
+    if (result.failed > 0) {
+      await this.confirmDialog.alert({
+        title: 'Synchronization Completed with Errors',
+        message: `${result.failed} item${result.failed === 1 ? '' : 's'} could not be synchronized.`,
+      });
+    }
+
+    this.cdr.markForCheck();
+  }
+
+  private async executeComparisonCopies(
+    items: Array<{ source: string; destination: string }>,
+    confirmationMessage: string,
+  ): Promise<void> {
+    const confirmed = await this.confirmDialog.confirm({
+      title: 'Pane Synchronization',
+      message: confirmationMessage,
+      confirmText: 'Copy',
+    });
+    if (!confirmed) return;
+
+    const result = await this.api.batchCopy(items, true);
+    this.lastTransfer = `comparison copy: ${result.succeeded}/${result.total}`;
+
+    await Promise.all([
+      this.leftPane?.refresh(),
+      this.rightPane?.refresh(),
+    ]);
+
+    if (this.comparisonRecursive) {
+      await this.refreshRecursiveComparison();
+    }
+
+    if (result.failed > 0) {
+      await this.confirmDialog.alert({
+        title: 'Copy Completed with Errors',
+        message: `${result.failed} item${result.failed === 1 ? '' : 's'} could not be copied.`,
+      });
+    }
+
+    this.cdr.markForCheck();
   }
 
   async copyToOther(): Promise<void> {
@@ -857,6 +1190,61 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       'Navigation',
       () => this.activePane?.treeRight(),
       () => this.activePane?.viewMode === 'tree',
+    );
+    descriptor(
+      COMMAND.comparePanes,
+      'Compare Panes',
+      'Pane Control',
+      () => this.togglePaneComparison(),
+      () => this.canComparePanes(),
+    );
+    descriptor(
+      COMMAND.recursiveComparePanes,
+      'Recursive Pane Compare',
+      'Pane Control',
+      () => {
+        this.comparisonVisible = true;
+        if (!this.comparisonRecursive) {
+          return this.toggleRecursiveComparison();
+        }
+        return this.refreshRecursiveComparison();
+      },
+      () => this.canComparePanes(),
+    );
+    descriptor(
+      COMMAND.reviewSyncPlan,
+      'Review Sync Plan',
+      'Pane Control',
+      () => this.openSyncReview(),
+      () => this.canComparePanes() && this.paneComparisonResult.summary.different > 0,
+    );
+    descriptor(
+      COMMAND.selectLeftDifferences,
+      'Select Left Differences',
+      'Pane Control',
+      () => this.selectComparisonDifferences('left'),
+      () => this.canComparePanes(),
+    );
+    descriptor(
+      COMMAND.selectRightDifferences,
+      'Select Right Differences',
+      'Pane Control',
+      () => this.selectComparisonDifferences('right'),
+      () => this.canComparePanes(),
+    );
+    descriptor(
+      COMMAND.copyMissingLeftToRight,
+      'Copy Missing Left to Right',
+      'Pane Control',
+      () => this.copyMissingComparison('left'),
+      () => this.canComparePanes() && this.paneComparisonResult.summary.onlyLeft > 0,
+    );
+    descriptor(
+      COMMAND.copyMissingRightToLeft,
+      'Copy Missing Right to Left',
+      'Pane Control',
+      () => this.copyMissingComparison('right'),
+      () => this.canComparePanes() && this.paneComparisonResult.summary.onlyRight > 0,
     );
   }
 

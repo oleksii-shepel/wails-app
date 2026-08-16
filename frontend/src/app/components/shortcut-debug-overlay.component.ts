@@ -103,6 +103,8 @@ interface PendingChordLike {
         <div><span>Pane footer</span><span>cursor · selection · capabilities</span></div>
         <div><span>View</span><span>List / Grid / Details / Tree</span></div>
         <div><span>Sort</span><span>Name / Size / Modified / Type</span></div>
+        <div><kbd>Ctrl+Shift+C</kbd><span>compare panes</span></div>
+        <div><kbd>Ctrl+Shift+Alt+C</kbd><span>recursive compare</span></div>
         <div><kbd>Tree ← / →</kbd><span>collapse-parent / expand-child</span></div>
       </div>
 

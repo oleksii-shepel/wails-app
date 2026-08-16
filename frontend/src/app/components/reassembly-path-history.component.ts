@@ -69,10 +69,10 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           </div>
           <input [(ngModel)]="filterText" (ngModelChange)="onFilterChange()"
             placeholder="Filter history" autocomplete="off" spellcheck="false"
-            aria-label="Filter location history" />
+            aria-label="Filter location history" aria-controls="reassembly-history-list" />
         </header>
 
-        <nav class="modes">
+        <nav class="modes" aria-label="History views">
           <button type="button" [class.active]="mode==='pane'" (click)="setMode('pane')">
             This Pane
           </button>
@@ -84,10 +84,11 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           </button>
         </nav>
 
-        <div class="list" role="listbox">
+        <div id="reassembly-history-list" class="list" role="listbox" aria-label="Location history">
           <button *ngFor="let entry of filteredEntries; let i=index; trackBy:trackEntry"
             type="button" class="entry" [class.selected]="i===selectedIndex"
             role="option" [attr.aria-selected]="i===selectedIndex"
+            [attr.aria-posinset]="i + 1" [attr.aria-setsize]="filteredEntries.length"
             (mouseenter)="selectedIndex=i" (click)="openEntry(entry)">
             <span class="main">
               <strong>{{ labelFor(entry.location) }}</strong>

@@ -86,15 +86,15 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           <button type="button" class="close" (click)="close()">×</button>
         </header>
 
-        <nav>
-          <button type="button" [class.active]="page === 'operations'" (click)="page='operations'">
+        <nav role="tablist" aria-label="Tool pages">
+          <button type="button" role="tab" [attr.aria-selected]="page === 'operations'" [attr.tabindex]="page === 'operations' ? 0 : -1" [class.active]="page === 'operations'" (click)="page='operations'">
             Operations <span>{{ activeOperations.length }}</span>
           </button>
-          <button type="button" [class.active]="page === 'disk'" (click)="page='disk'">Disk Usage</button>
-          <button type="button" [class.active]="page === 'duplicates'" (click)="page='duplicates'">Duplicates</button>
+          <button type="button" role="tab" [attr.aria-selected]="page === 'disk'" [attr.tabindex]="page === 'disk' ? 0 : -1" [class.active]="page === 'disk'" (click)="page='disk'">Disk Usage</button>
+          <button type="button" role="tab" [attr.aria-selected]="page === 'duplicates'" [attr.tabindex]="page === 'duplicates' ? 0 : -1" [class.active]="page === 'duplicates'" (click)="page='duplicates'">Duplicates</button>
         </nav>
 
-        <div class="body" *ngIf="page === 'operations'">
+        <div class="body" role="tabpanel" aria-label="Operations" *ngIf="page === 'operations'">
           <div class="tool-actions operation-filters">
             <label>
               Show
@@ -164,7 +164,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           </div>
         </div>
 
-        <div class="body" *ngIf="page === 'disk'">
+        <div class="body" role="tabpanel" aria-label="Disk Usage" *ngIf="page === 'disk'">
           <div class="tool-actions">
             <button type="button" (click)="scanDisk()" [disabled]="diskScanning || !rootPath">
               {{ diskScanning ? 'Scanning…' : 'Scan current directory' }}
@@ -207,7 +207,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           <div class="error" *ngIf="diskError">{{ diskError }}</div>
         </div>
 
-        <div class="body" *ngIf="page === 'duplicates'">
+        <div class="body" role="tabpanel" aria-label="Duplicates" *ngIf="page === 'duplicates'">
           <div class="tool-actions">
             <label>
               Min size

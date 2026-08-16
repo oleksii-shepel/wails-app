@@ -231,12 +231,13 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           </button>
         </header>
 
-        <div class="workspace-list" role="listbox">
+        <div class="workspace-list" role="listbox" aria-label="Workspaces">
           <div
             *ngIf="edit?.kind === 'create'"
             class="workspace workspace-edit-row selected"
             role="option"
-            aria-selected="true">
+            aria-selected="true"
+            aria-label="New workspace">
             <span class="slot-placeholder">+</span>
 
             <span class="workspace-main">
@@ -267,6 +268,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             [class.selected]="i === selectedIndex"
             [class.active]="workspace.id === activeWorkspaceId"
             [attr.aria-selected]="i === selectedIndex"
+            [attr.aria-posinset]="i + 1"
+            [attr.aria-setsize]="workspaces.length"
             (mouseenter)="!edit && (selectedIndex = i)"
             (click)="!edit && activateWorkspace(workspace)">
 

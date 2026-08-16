@@ -83,7 +83,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             placeholder="Search recursively in active pane"
             autocomplete="off"
             spellcheck="false"
-            aria-label="Search query" />
+            aria-label="Search query" aria-controls="reassembly-global-search-results" />
           <label title="Alt+R">
             <input type="checkbox" [(ngModel)]="recursive" (ngModelChange)="scheduleSearch()">
             Recursive
@@ -110,7 +110,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           </button>
         </div>
 
-        <div class="results" role="listbox">
+        <div id="reassembly-global-search-results" class="results" role="listbox" aria-label="Search results" [attr.aria-busy]="searching">
           <button
             *ngFor="let entry of displayedResults; let i=index; trackBy:trackResult"
             type="button"
@@ -118,6 +118,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             role="option"
             [class.selected]="i === selectedIndex"
             [attr.aria-selected]="i === selectedIndex"
+            [attr.aria-posinset]="i + 1"
+            [attr.aria-setsize]="displayedResults.length"
             (mouseenter)="selectedIndex=i"
             (click)="openEntry(entry)">
             <span class="icon">{{ icon(entry) }}</span>
@@ -137,7 +139,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         </div>
 
         <footer>
-          <span *ngIf="error" class="error">{{ error }}</span>
+          <span *ngIf="error" class="error" role="alert">{{ error }}</span>
           <span class="keys">↑ ↓ · Enter open · Ctrl+Enter folder · Alt+R recursive · Alt+S sort · Alt+↑/↓ queries · Esc</span>
         </footer>
       </section>

@@ -25,7 +25,10 @@ import type { ConflictResolution } from '../shared/protocol-enhanced';
     <aside
       class="surface"
       *ngIf="operations.length > 0"
-      aria-label="File operations">
+      aria-label="File operations"
+      aria-live="polite"
+      aria-relevant="additions text"
+      [attr.aria-busy]="activeCount > 0">
 
       <header>
         <div class="heading">
@@ -98,11 +101,11 @@ import type { ConflictResolution } from '../shared/protocol-enhanced';
           </span>
         </div>
 
-        <div class="error-message" *ngIf="operation.error && !operation.conflictData">
+        <div class="error-message" role="alert" *ngIf="operation.error && !operation.conflictData">
           {{ operation.error }}
         </div>
 
-        <section class="conflict" *ngIf="operation.conflictData as conflict">
+        <section class="conflict" role="group" aria-label="File conflict" *ngIf="operation.conflictData as conflict">
           <strong>Destination already exists</strong>
           <span class="conflict-path" [title]="conflict.destPath">
             {{ leafName(conflict.destPath) }}

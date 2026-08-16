@@ -99,6 +99,7 @@ export interface ShortcutHelpItem {
         <span>Global Search: Alt+R recursive · Alt+S sort · Alt+↑/↓ recent queries · Ctrl+Enter containing folder.</span>
         <span>Command Palette, Quick Access, and History use the same weighted discovery matcher for abbreviations and multi-token queries.</span>
         <span>Navigation overlays: Ctrl+Q Quick Access · Ctrl+H Location History · Ctrl+B Pinned Locations.</span>
+        <span>Accessibility: modal lists expose selected state and item position; Tools uses tab semantics; operation failures are announced.</span>
         <span>Pinned tabs survive Close Other / Close Right; viewer tabs participate in move, reorder, pin and restore just like directory tabs.</span>
         <span>Embedded browser panes may forward function/modifier keys through their host bridge; the file-manager shell itself does not install global keyboard listeners.</span>
       </div>

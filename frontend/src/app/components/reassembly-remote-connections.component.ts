@@ -28,8 +28,8 @@ template:`<div class="backdrop" *ngIf="visible" (mousedown)="close()"><section c
         tabindex="-1">
 <header><div><strong>Remote connections</strong><span>{{state.mounts.length}}</span></div><div class="header-actions"><button type="button" (click)="connect()">+ Connect</button><button type="button" (click)="refresh()" [disabled]="state.loading">{{state.loading?'Refreshing…':'Refresh'}}</button></div></header>
 <div class="error" *ngIf="state.error" role="alert">{{state.error}}</div>
-<div class="list" role="listbox">
-<button type="button" class="mount" *ngFor="let mount of state.mounts;let i=index;trackBy:trackMount" [class.selected]="i===selectedIndex" [attr.aria-selected]="i===selectedIndex" [attr.tabindex]="i===selectedIndex ? 0 : -1" (mouseenter)="selectedIndex=i" (click)="openMount(mount)">
+<div class="list" role="listbox" aria-label="Remote connections" [attr.aria-busy]="state.loading">
+<button type="button" class="mount" role="option" *ngFor="let mount of state.mounts;let i=index;trackBy:trackMount" [class.selected]="i===selectedIndex" [attr.aria-selected]="i===selectedIndex" [attr.aria-posinset]="i + 1" [attr.aria-setsize]="state.mounts.length" [attr.tabindex]="i===selectedIndex ? 0 : -1" (mouseenter)="selectedIndex=i" (click)="openMount(mount)">
 <span class="icon">☁</span><span class="details"><strong>{{label(mount)}}</strong><small>{{uri(mount)}}</small></span><span class="mount-status"><span class="read-only" *ngIf="mount.readOnly">Read only</span><span class="protocol">{{protocol(mount)}}</span></span>
 </button>
 <div class="empty" *ngIf="!state.loading&&!state.error&&state.mounts.length===0"><strong>No remote connections.</strong><span>Use + Connect or Insert to add one.</span></div>

@@ -65,15 +65,17 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           <input #queryInput [(ngModel)]="query" (ngModelChange)="queryChanged()"
             autocomplete="off" spellcheck="false"
             placeholder="Type a command, category, shortcut, or id"
-            aria-label="Command search" />
+            aria-label="Command search" aria-controls="reassembly-command-list" />
         </div>
 
-        <div class="commands" role="listbox">
+        <div id="reassembly-command-list" class="commands" role="listbox" aria-label="Commands">
           <button *ngFor="let command of filteredCommands; let i=index; trackBy:trackCommand"
             type="button" class="command" role="option"
             [class.selected]="i === selectedIndex"
             [class.disabled]="!enabled(command)"
             [attr.aria-selected]="i === selectedIndex"
+            [attr.aria-posinset]="i + 1"
+            [attr.aria-setsize]="filteredCommands.length"
             [attr.aria-disabled]="!enabled(command)"
             (mouseenter)="selectedIndex=i"
             (click)="run(command)">

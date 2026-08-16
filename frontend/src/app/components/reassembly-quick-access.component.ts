@@ -89,20 +89,20 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         <header>
           <div><strong>Quick Access</strong><span>{{ totalItems }} items</span></div>
           <input [(ngModel)]="filterText" (ngModelChange)="resetSelection()" placeholder="Filter locations"
-            autocomplete="off" spellcheck="false" aria-label="Filter Quick Access" />
+            autocomplete="off" spellcheck="false" aria-label="Filter Quick Access" aria-controls="reassembly-quick-access-list" />
         </header>
 
-        <nav class="sections" *ngIf="filteredSections.length > 1">
+        <nav class="sections" *ngIf="filteredSections.length > 1" aria-label="Quick Access sections">
           <button *ngFor="let section of filteredSections; let i=index" type="button"
             [class.active]="i === sectionIndex" (click)="selectSection(i)">
             {{ section.title }} <span>{{ section.items.length }}</span>
           </button>
         </nav>
 
-        <div class="items" role="listbox">
+        <div id="reassembly-quick-access-list" class="items" role="listbox" [attr.aria-label]="(activeSection?.title || 'Quick Access') + ' locations'">
           <button *ngFor="let item of activeItems; let i=index; trackBy:trackItem" type="button"
             class="item" [class.selected]="i === itemIndex" role="option"
-            [attr.aria-selected]="i === itemIndex" (mouseenter)="itemIndex=i" (click)="openItem(item)">
+            [attr.aria-selected]="i === itemIndex" [attr.aria-posinset]="i + 1" [attr.aria-setsize]="activeItems.length" (mouseenter)="itemIndex=i" (click)="openItem(item)">
             <span class="icon">
               <kbd *ngIf="i < 9">{{ i + 1 }}</kbd>
               {{ item.icon }}

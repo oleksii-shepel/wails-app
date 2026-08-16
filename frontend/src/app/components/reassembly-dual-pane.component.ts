@@ -129,6 +129,8 @@ const COMMAND = {
   quickPathJump: 'reassembly.navigation.quickPathJump',
   quickView: 'reassembly.files.quickView',
   openWithExternal: 'reassembly.files.openWithExternal',
+  extractArchiveSelection: 'reassembly.archive.extractSelection',
+  extractArchiveToOther: 'reassembly.archive.extractToOther',
   remoteConnect: 'reassembly.navigation.remoteConnect',
 } as const;
 
@@ -1194,6 +1196,52 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
   }
 
+  async extractArchiveSelectionToOther(): Promise<void> {
+    const source = this.activePane;
+    const destination = this.otherPane;
+    if (!source?.isInArchive || !destination?.isDirectoryTab) return;
+
+    const extracted = await source.extractSelectedTo(destination.path);
+    if (!extracted) return;
+
+    this.lastTransfer = 'archive extract to other pane';
+    destination.lastAction = 'received extracted archive entries';
+    await destination.refresh();
+    this.cdr.markForCheck();
+  }
+
+  async extractArchiveSelectionToFolder(): Promise<void> {
+    const source = this.activePane;
+    if (!source?.isInArchive) return;
+
+    const suggested = this.otherPane?.isDirectoryTab
+      ? this.otherPane.path
+      : '';
+
+    const destination = (await this.confirmDialog.prompt({
+      title: 'Extract Archive Entries',
+      message: 'Extract selected archive entries to:',
+      confirmText: 'Extract',
+      defaultValue: suggested,
+      historyKey: 'reassembly.archive.extract.destination',
+    }))?.trim();
+
+    if (!destination) return;
+
+    const extracted = await source.extractSelectedTo(destination);
+    if (!extracted) return;
+
+    if (
+      this.leftPane?.path === destination ||
+      this.rightPane?.path === destination
+    ) {
+      await this.refreshBothPanes();
+    }
+
+    this.lastTransfer = `archive extract -> ${destination}`;
+    this.cdr.markForCheck();
+  }
+
   async copyToOther(): Promise<void> {
     await this.transferToOther('copy');
   }
@@ -1357,6 +1405,8 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       this.menuCommand(COMMAND.copyToOther, 'Copy to other pane', 'F5'),
       this.menuCommand(COMMAND.moveToOther, 'Move to other pane', 'F6'),
       this.menuCommand(COMMAND.addToBasket, 'Add to Selection Basket', 'Ctrl+Alt+B'),
+      this.menuCommand(COMMAND.extractArchiveToOther, 'Extract to other pane'),
+      this.menuCommand(COMMAND.extractArchiveSelection, 'Extract to folder…'),
       { separator: true },
       this.menuCommand(COMMAND.deleteSelected, 'Delete', 'Delete'),
     ];
@@ -1799,6 +1849,24 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
         !!this.activePane?.isDirectoryTab &&
         this.activePane.sourceCapabilities.rename,
     );
+    descriptor(
+      COMMAND.extractArchiveSelection,
+      'Extract Archive Selection',
+      'Archive',
+      () => this.extractArchiveSelectionToFolder(),
+      () => !!this.activePane?.isInArchive && !!this.activePane?.hasSelection,
+    );
+    descriptor(
+      COMMAND.extractArchiveToOther,
+      'Extract Archive Selection to Other Pane',
+      'Archive',
+      () => this.extractArchiveSelectionToOther(),
+      () =>
+        !!this.activePane?.isInArchive &&
+        !!this.activePane?.hasSelection &&
+        !!this.otherPane?.isDirectoryTab &&
+        !!this.otherPane?.sourceCapabilities.create,
+    );
 
     descriptor(COMMAND.globalSearch, 'Open Global Search', 'Search & Filter', () => this.openGlobalSearch(), () => !!this.activePane?.isDirectoryTab);
     descriptor(COMMAND.quickPathJump, 'Quick Path Jump', 'Navigation', () => this.quickPathJump(), () => !!this.activePane?.isDirectoryTab);
@@ -1847,8 +1915,24 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
   private canTransfer(operation: 'copy' | 'move'): boolean {
     const source = this.activePane;
     const destination = this.otherPane;
-    if (!source || !destination || !source.hasSelection || !destination.path) return false;
-    return canTransferBetween(operation, source.sourceCapabilities, destination.sourceCapabilities).allowed;
+    if (!source || !destination || !source.hasSelection || !destination.path) {
+      return false;
+    }
+
+    if (source.isInArchive) {
+      if (!destination.sourceCapabilities.create) return false;
+      if (operation === 'copy') return true;
+
+      // ArchiveService.move can only truly remove the source from a top-level
+      // archive. Nested archive moves are intentionally not presented as moves.
+      return (source.currentArchiveFrame?.nestedChain.length ?? 1) === 0;
+    }
+
+    return canTransferBetween(
+      operation,
+      source.sourceCapabilities,
+      destination.sourceCapabilities,
+    ).allowed;
   }
 
   private async transferToOther(operation: 'copy' | 'move'): Promise<void> {
@@ -1858,6 +1942,49 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
 
     const selected = Array.from(source.selectedPaths);
     if (selected.length === 0) return;
+
+    if (source.isInArchive) {
+      if (!destination.sourceCapabilities.create) {
+        await this.confirmDialog.alert({
+          title: 'Archive Transfer',
+          message: 'The destination pane is read-only.',
+        });
+        return;
+      }
+
+      const result = await source.transferArchiveSelectionTo(
+        destination.path,
+        operation,
+      );
+      if (!result) return;
+
+      this.lastTransfer =
+        `archive ${operation}: ${result.succeeded}/${result.total}`;
+      destination.lastAction =
+        `received archive ${operation}: ${result.succeeded}/${result.total}`;
+
+      await destination.refresh();
+
+      if (operation === 'move' && !result.sourceRemoved) {
+        await this.confirmDialog.alert({
+          title: 'Archive Move',
+          message:
+            'The entries were extracted to the destination, but the archive source ' +
+            'could not be removed. The operation completed as a copy.',
+        });
+      }
+
+      if (result.failed > 0) {
+        await this.confirmDialog.alert({
+          title: 'Archive Transfer Completed with Errors',
+          message:
+            `${result.failed} item${result.failed === 1 ? '' : 's'} could not be transferred.`,
+        });
+      }
+
+      this.cdr.markForCheck();
+      return;
+    }
 
     const decision = canTransferBetween(operation, source.sourceCapabilities, destination.sourceCapabilities);
     if (!decision.allowed) {

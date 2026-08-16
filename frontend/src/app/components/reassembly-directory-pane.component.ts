@@ -17,6 +17,15 @@ import { ApiService } from '../services/api.service';
 import { PathHistoryService } from '../services/path-history.service';
 import { WorkspaceService } from '../services/workspace.service';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
+import {
+  ArchiveService,
+  type ArchiveFrame,
+  buildArchiveDisplayPath,
+  buildArchiveTabTitle,
+  isArchive,
+  parseArchivePath,
+} from '../services/archive.service';
+import type { ViewerArchiveContext } from '../viewers/viewer-archive-context';
 import { getSourceCapabilities } from '../services/source-capabilities';
 import { FileInfo, FileType } from '../shared/protocol';
 import type { ViewerFileListItem } from '../shared/protocol-enhanced';
@@ -64,6 +73,7 @@ type ReassemblyTab =
       title: string;
       targetPath: string;
       fileList: ViewerFileListItem[];
+      archiveContext: ViewerArchiveContext | null;
       isPinned: boolean;
     };
 
@@ -421,7 +431,7 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 2;
             #viewerHost
             [targetPath]="viewerTab.targetPath"
             [fileList]="viewerTab.fileList"
-            [archiveContext]="null"
+            [archiveContext]="viewerTab.archiveContext"
             [viewerId]="null">
           </app-viewer-host-surface>
         </div>
@@ -1120,29 +1130,65 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     return this.selectedPaths.size > 0;
   }
 
+  get isInArchive(): boolean {
+    return this.archiveStack.length > 0;
+  }
+
+  get currentArchiveFrame(): ArchiveFrame | null {
+    return this.archiveStack[this.archiveStack.length - 1] ?? null;
+  }
+
   get sourceCapabilities() {
+    if (this.isInArchive) {
+      const topLevel = (this.currentArchiveFrame?.nestedChain.length ?? 0) === 0;
+      return {
+        read: true,
+        create: false,
+        delete: topLevel,
+        rename: false,
+        trash: false,
+      };
+    }
+
     return getSourceCapabilities(this.path);
   }
 
   get canCreate(): boolean {
-    return this.isDirectoryTab && !!this.path && this.sourceCapabilities.create;
+    return this.isDirectoryTab &&
+      !this.isInArchive &&
+      !!this.path &&
+      this.sourceCapabilities.create;
   }
 
   get canRename(): boolean {
-    return this.isDirectoryTab && this.selectedPaths.size === 1 && this.sourceCapabilities.rename;
+    return this.isDirectoryTab &&
+      !this.isInArchive &&
+      this.selectedPaths.size === 1 &&
+      this.sourceCapabilities.rename;
   }
 
   get canDelete(): boolean {
-    return this.isDirectoryTab && this.hasSelection && this.sourceCapabilities.delete;
+    return this.isDirectoryTab &&
+      this.hasSelection &&
+      (this.isInArchive
+        ? (this.currentArchiveFrame?.nestedChain.length ?? 1) === 0
+        : this.sourceCapabilities.delete);
   }
 
   get canCut(): boolean {
-    return this.isDirectoryTab && this.hasSelection && this.sourceCapabilities.read && this.sourceCapabilities.delete;
+    return this.isDirectoryTab &&
+      this.hasSelection &&
+      (this.isInArchive
+        ? (this.currentArchiveFrame?.nestedChain.length ?? 1) === 0
+        : this.sourceCapabilities.read && this.sourceCapabilities.delete);
   }
 
   get canPaste(): boolean {
     return this.isDirectoryTab && !!this.clipboard?.paths.length && this.sourceCapabilities.create;
   }
+
+  readonly archiveStack: ArchiveFrame[] = [];
+  private archiveExitPath = '';
 
   dragOverPath: string | null = null;
   backgroundDropActive = false;
@@ -1157,6 +1203,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     private readonly pathHistory: PathHistoryService,
     private readonly workspaceService: WorkspaceService,
     private readonly confirmDialog: ConfirmDialogService,
+    private readonly archiveService: ArchiveService,
     private readonly cdr: ChangeDetectorRef,
   ) {}
 
@@ -1220,6 +1267,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   get atRoot(): boolean {
+    if (this.isInArchive) return false;
     return !this.path || this.directorySource.isRootPath(this.path);
   }
 
@@ -1530,6 +1578,13 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
 
   setViewMode(mode: ReassemblyDirectoryView): void {
     this.markUserInteraction();
+
+    if (this.isInArchive && mode === 'tree') {
+      this.lastAction = 'tree view unavailable inside archive';
+      this.cdr.markForCheck();
+      return;
+    }
+
     if (this.viewMode === mode) return;
 
     if (mode === 'tree') {
@@ -1609,10 +1664,16 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   async onTreeDoubleClick(row: ReassemblyTreeRow): Promise<void> {
+    if (this.isInArchive) {
+      this.openEntry(row.entry);
+      return;
+    }
+
     if (row.entry.type === FileType.DIRECTORY) {
       await this.toggleTreeRow(row);
       return;
     }
+
     this.openEntry(row.entry);
   }
 
@@ -1713,6 +1774,12 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   async refresh(): Promise<void> {
     if (!this.isDirectoryTab || !this.path) return;
     this.lastAction = 'refresh';
+
+    if (this.isInArchive) {
+      await this.refreshArchive();
+      return;
+    }
+
     await this.load(this.path, {
       preserveCursor: true,
       history: 'none',
@@ -1721,7 +1788,15 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
 
   async navigateUp(): Promise<void> {
     this.syncActiveDirSessionState();
-    if (!this.isDirectoryTab || !this.path || this.atRoot) return;
+    if (!this.isDirectoryTab || !this.path) return;
+
+    if (this.isInArchive) {
+      await this.navigateArchiveUp();
+      return;
+    }
+
+    if (this.atRoot) return;
+
     const parent = this.directorySource.getParentPath(this.path);
     if (!parent || parent === this.path) return;
 
@@ -1760,13 +1835,45 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   openEntry(entry: FileInfo): void {
     this.setSingleSelection(entry);
 
-    if (entry.type !== FileType.DIRECTORY) {
+    if (entry.path === '__parent__') {
+      void this.navigateUp();
+      return;
+    }
+
+    if (this.isInArchive) {
+      if (entry.type === FileType.DIRECTORY) {
+        void this.navigateArchiveInto(entry.path);
+        return;
+      }
+
+      if (entry.type === FileType.ARCHIVE || isArchive(entry.name)) {
+        const nestedChain = (entry as FileInfo & {
+          nestedChain?: string[];
+        }).nestedChain;
+
+        if (nestedChain?.length) {
+          void this.openNestedArchive(nestedChain);
+          return;
+        }
+      }
+
       this.openViewer(entry);
       return;
     }
 
-    this.lastAction = `open directory: ${entry.name}`;
-    void this.load(entry.path, { history: 'record' });
+    if (entry.type === FileType.DIRECTORY) {
+      this.lastAction = `open directory: ${entry.name}`;
+      void this.load(entry.path, { history: 'record' });
+      return;
+    }
+
+    if (entry.type === FileType.ARCHIVE || isArchive(entry.name)) {
+      this.lastAction = `open archive: ${entry.name}`;
+      void this.load(entry.path, { history: 'record' });
+      return;
+    }
+
+    this.openViewer(entry);
   }
 
   onEntryDragStart(entry: FileInfo, event: DragEvent): void {
@@ -1938,13 +2045,23 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       .filter(candidate => candidate.type !== FileType.DIRECTORY)
       .map(candidate => ({ path: candidate.path, name: candidate.name }));
 
+    const frame = this.currentArchiveFrame;
+    const archiveContext: ViewerArchiveContext | null = frame
+      ? {
+          fsPath: frame.fsPath,
+          nestedChain: [...frame.nestedChain],
+          entryPath: entry.path,
+        }
+      : null;
+
     const tab: ReassemblyTab = {
       id: `${this.paneId}-tab-${++this.tabCounter}`,
       kind: 'viewer',
       path: entry.path,
       title: entry.name,
-      targetPath: entry.path,
+      targetPath: frame?.fsPath ?? entry.path,
       fileList,
+      archiveContext,
       isPinned: false,
     };
 
@@ -2293,6 +2410,12 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   cutSelected(): void {
+    if (this.isInArchive) {
+      this.lastAction = 'use F6 for archive move/extract';
+      this.cdr.markForCheck();
+      return;
+    }
+
     if (!this.canCut) return;
     this.clipboard = {
       operation: 'cut',
@@ -2368,6 +2491,11 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     const entries = this.selectedEntries;
     if (entries.length === 0) return;
 
+    if (this.isInArchive) {
+      await this.deleteSelectedFromArchive(entries);
+      return;
+    }
+
     const useTrash = this.sourceCapabilities.trash;
     const confirmed = await this.confirmDialog.confirm({
       title: useTrash ? 'Move to Trash' : 'Delete',
@@ -2397,6 +2525,416 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       }
     } catch (error) {
       await this.showOperationError('Delete', error);
+    }
+  }
+
+  async extractSelectedTo(
+    destinationDir: string,
+    flattenPaths = false,
+  ): Promise<boolean> {
+    const frame = this.currentArchiveFrame;
+    if (!frame || !destinationDir) return false;
+
+    const selected = this.selectedEntries
+      .map(entry => entry.path)
+      .filter(path => path !== '__parent__');
+
+    if (selected.length === 0) return false;
+
+    try {
+      const result = await this.archiveService.extractEntries(
+        frame,
+        selected,
+        destinationDir,
+        flattenPaths,
+      );
+
+      this.lastAction =
+        `extract: ${result?.succeeded ?? selected.length}/${result?.total ?? selected.length}`;
+
+      if ((result?.failed ?? 0) > 0) {
+        await this.confirmDialog.alert({
+          title: 'Extract Completed with Errors',
+          message:
+            `${result.failed} item${result.failed === 1 ? '' : 's'} could not be extracted.`,
+        });
+      }
+
+      return true;
+    } catch (error) {
+      await this.showOperationError('Extract', error);
+      return false;
+    }
+  }
+
+  async transferArchiveSelectionTo(
+    destinationDir: string,
+    operation: 'copy' | 'move',
+  ): Promise<{
+    total: number;
+    succeeded: number;
+    failed: number;
+    sourceRemoved?: boolean;
+    errors?: Array<{ source: string; error: string }>;
+  } | null> {
+    const frame = this.currentArchiveFrame;
+    if (!frame || !destinationDir) return null;
+
+    const selected = this.selectedEntries
+      .map(entry => entry.path)
+      .filter(path => path !== '__parent__');
+
+    if (selected.length === 0) return null;
+
+    try {
+      const result = operation === 'copy'
+        ? await this.archiveService.copy(
+            frame,
+            selected,
+            destinationDir,
+          )
+        : await this.archiveService.move(
+            frame,
+            selected,
+            destinationDir,
+          );
+
+      this.lastAction =
+        `${operation === 'copy' ? 'extract/copy' : 'extract/move'}: ` +
+        `${result.succeeded}/${result.total}`;
+
+      if (operation === 'move' && result.sourceRemoved) {
+        await this.refreshArchive();
+      }
+
+      return result;
+    } catch (error) {
+      await this.showOperationError(
+        operation === 'copy' ? 'Archive Copy' : 'Archive Move',
+        error,
+      );
+      return null;
+    }
+  }
+
+  private async deleteSelectedFromArchive(
+    entries: readonly FileInfo[],
+  ): Promise<void> {
+    const frame = this.currentArchiveFrame;
+    if (!frame) return;
+
+    if (frame.nestedChain.length > 0) {
+      await this.confirmDialog.alert({
+        title: 'Nested Archive Limitation',
+        message:
+          'Deleting entries from nested archives is not supported. ' +
+          'Navigate back to the top-level archive first.',
+      });
+      return;
+    }
+
+    const paths = entries
+      .map(entry => entry.path)
+      .filter(path => path !== '__parent__');
+
+    if (paths.length === 0) return;
+
+    const confirmed = await this.confirmDialog.confirm({
+      title: 'Delete from Archive',
+      message:
+        `Delete ${paths.length} item${paths.length === 1 ? '' : 's'} ` +
+        'from this archive? The archive file will be rewritten and this cannot be undone.',
+      confirmText: 'Delete',
+      danger: true,
+    });
+    if (!confirmed) return;
+
+    try {
+      const result = await this.archiveService.delete(frame, paths);
+      this.lastAction =
+        `archive delete: ${result.succeeded}/${result.total}`;
+
+      await this.refreshArchive();
+
+      if (result.failed > 0) {
+        await this.confirmDialog.alert({
+          title: 'Archive Delete Completed with Errors',
+          message:
+            `${result.failed} item${result.failed === 1 ? '' : 's'} could not be deleted.`,
+        });
+      }
+    } catch (error) {
+      await this.showOperationError('Archive Delete', error);
+    }
+  }
+
+  private async openNestedArchive(
+    nestedChain: string[],
+  ): Promise<void> {
+    const frame = this.currentArchiveFrame;
+    if (!frame) return;
+
+    this.loading = true;
+    this.error = null;
+    this.cdr.markForCheck();
+
+    try {
+      const nested = await this.directorySource.openNestedArchive(
+        frame,
+        nestedChain,
+      );
+
+      this.archiveStack.push(nested);
+      this.renderArchiveFrame(nested, { history: 'record' });
+      this.lastAction = `nested archive: ${
+        nestedChain[nestedChain.length - 1] ?? ''
+      }`;
+    } catch (error) {
+      this.error =
+        error instanceof Error ? error.message : String(error);
+    } finally {
+      this.loading = false;
+      this.cdr.markForCheck();
+    }
+  }
+
+  private async navigateArchiveInto(
+    innerPath: string,
+  ): Promise<void> {
+    const frame = this.currentArchiveFrame;
+    if (!frame) return;
+
+    this.loading = true;
+    this.error = null;
+    this.cdr.markForCheck();
+
+    try {
+      const next = await this.directorySource.navigateArchive(
+        frame,
+        innerPath,
+      );
+
+      this.archiveStack[this.archiveStack.length - 1] = next;
+      this.renderArchiveFrame(next, { history: 'record' });
+      this.lastAction = `archive folder: ${innerPath}`;
+    } catch (error) {
+      this.error =
+        error instanceof Error ? error.message : String(error);
+    } finally {
+      this.loading = false;
+      this.cdr.markForCheck();
+    }
+  }
+
+  private async navigateArchiveUp(): Promise<void> {
+    const frame = this.currentArchiveFrame;
+    if (!frame) return;
+
+    this.loading = true;
+    this.error = null;
+    this.cdr.markForCheck();
+
+    try {
+      const parent = await this.directorySource.navigateArchiveUp(frame);
+
+      if (parent) {
+        this.archiveStack[this.archiveStack.length - 1] = parent;
+        this.renderArchiveFrame(parent, { history: 'record' });
+        this.lastAction = 'archive up';
+        return;
+      }
+
+      if (this.archiveStack.length > 1) {
+        this.archiveStack.pop();
+        const previous = this.currentArchiveFrame;
+        if (previous) {
+          this.renderArchiveFrame(previous, { history: 'record' });
+        }
+        this.lastAction = 'leave nested archive';
+        return;
+      }
+
+      const archivePath = frame.fsPath;
+      const exitPath =
+        this.archiveExitPath ||
+        this.directorySource.getParentPath(archivePath);
+
+      this.clearArchiveRuntime();
+      this.lastAction = 'leave archive';
+      await this.load(exitPath, {
+        history: 'record',
+        preserveCursor: false,
+      });
+
+      this.selectPath(archivePath);
+    } catch (error) {
+      this.error =
+        error instanceof Error ? error.message : String(error);
+    } finally {
+      this.loading = false;
+      this.cdr.markForCheck();
+    }
+  }
+
+  private async refreshArchive(): Promise<void> {
+    const frame = this.currentArchiveFrame;
+    if (!frame) return;
+
+    this.loading = true;
+    this.error = null;
+    this.cdr.markForCheck();
+
+    try {
+      const refreshed = await this.directorySource.refreshArchive(frame);
+      this.archiveStack[this.archiveStack.length - 1] = refreshed;
+      this.renderArchiveFrame(refreshed, {
+        history: 'none',
+        preserveCursor: true,
+      });
+    } catch (error) {
+      this.error =
+        error instanceof Error ? error.message : String(error);
+    } finally {
+      this.loading = false;
+      this.cdr.markForCheck();
+    }
+  }
+
+  private clearArchiveRuntime(): void {
+    this.archiveStack.splice(0, this.archiveStack.length);
+    this.archiveExitPath = '';
+  }
+
+  private renderArchiveFrame(
+    frame: ArchiveFrame,
+    options: {
+      history?: 'record' | 'none';
+      preserveCursor?: boolean;
+    } = {},
+  ): void {
+    const previousCursor =
+      options.preserveCursor ? this.cursorPath : null;
+
+    if (this.viewMode === 'tree') {
+      this.viewMode = 'list';
+    }
+
+    this.path = buildArchiveDisplayPath(
+      this.archiveStack[0]?.fsPath ?? frame.fsPath,
+      this.archiveStack,
+    );
+
+    this.entries = this.directorySource.archiveListingToFileInfos(
+      frame.listing,
+    );
+
+    const preserved = previousCursor
+      ? this.entries.find(entry => entry.path === previousCursor)
+      : null;
+
+    const nextCursor =
+      preserved ??
+      this.entries.find(entry => entry.path !== '__parent__') ??
+      this.entries[0] ??
+      null;
+
+    this.cursorPath = nextCursor?.path ?? null;
+    this.selectedPaths = nextCursor
+      ? new Set([nextCursor.path])
+      : new Set();
+    this.anchorPath = this.cursorPath;
+    this.error = null;
+
+    if ((options.history ?? 'record') === 'record') {
+      this.navigation.record(this.path);
+    }
+
+    this.syncActiveTab(this.path);
+
+    if (this.activeTabId && this.activeTab?.kind === 'dir') {
+      this.workspaceService.updateTabPathAndTitle(
+        this.paneId,
+        this.activeTabId,
+        this.path,
+        buildArchiveTabTitle(
+          this.archiveStack[0]?.fsPath ?? frame.fsPath,
+          this.archiveStack,
+        ),
+      );
+    }
+
+    this.pathHistory.addLocation(this.path, 'reassembly');
+    this.syncActiveDirSessionState();
+    this.cdr.markForCheck();
+  }
+
+  private async loadArchivePath(
+    requestedPath: string,
+    options: {
+      preserveCursor?: boolean;
+      history?: 'record' | 'none';
+      syncTab?: boolean;
+      restoreSession?: boolean;
+    },
+  ): Promise<boolean> {
+    const generation = ++this.loadGeneration;
+
+    this.loading = true;
+    this.error = null;
+    this.cdr.markForCheck();
+
+    try {
+      const parsed = parseArchivePath(requestedPath);
+      const rootFrame = await this.directorySource.getArchiveFrame(
+        parsed.fsPath,
+      );
+      if (generation !== this.loadGeneration) return false;
+
+      this.clearArchiveRuntime();
+      this.archiveExitPath =
+        this.directorySource.getParentPath(parsed.fsPath);
+      this.archiveStack.push(rootFrame);
+
+      let frame = rootFrame;
+
+      for (
+        let index = 0;
+        index < parsed.nestedChain.length;
+        index += 1
+      ) {
+        frame = await this.directorySource.openNestedArchive(
+          frame,
+          parsed.nestedChain.slice(0, index + 1),
+        );
+        if (generation !== this.loadGeneration) return false;
+        this.archiveStack.push(frame);
+      }
+
+      if (parsed.innerPath) {
+        frame = await this.directorySource.navigateArchive(
+          frame,
+          parsed.innerPath,
+        );
+        if (generation !== this.loadGeneration) return false;
+        this.archiveStack[this.archiveStack.length - 1] = frame;
+      }
+
+      this.renderArchiveFrame(frame, {
+        history: options.history,
+        preserveCursor: options.preserveCursor,
+      });
+
+      return true;
+    } catch (error) {
+      if (generation !== this.loadGeneration) return false;
+      this.error =
+        error instanceof Error ? error.message : String(error);
+      return false;
+    } finally {
+      if (generation === this.loadGeneration) {
+        this.loading = false;
+        this.cdr.markForCheck();
+      }
     }
   }
 
@@ -3045,6 +3583,14 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       restoreSession?: boolean;
     } = {},
   ): Promise<boolean> {
+    if (this.directorySource.isPathInsideArchive(requestedPath)) {
+      return this.loadArchivePath(requestedPath, options);
+    }
+
+    if (this.isInArchive) {
+      this.clearArchiveRuntime();
+    }
+
     const generation = ++this.loadGeneration;
     const previousCursor = options.preserveCursor ? this.cursorPath : null;
 

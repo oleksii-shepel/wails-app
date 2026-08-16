@@ -118,6 +118,7 @@ interface PendingChordLike {
         <div><kbd>Ctrl+Alt+P</kbd><span>pin / unpin tab</span></div>
         <div><span>Tab menu</span><span>reorder · move to other pane</span></div>
         <div><span>Tools</span><span>operations · disk usage · duplicates</span></div>
+        <div><span>Archives</span><span>open · nested browse · extract · F5/F6 · delete</span></div>
         <div><kbd>Ctrl+K</kbd><span>global search</span></div>
         <div><kbd>Ctrl+P</kbd><span>quick path jump</span></div>
         <div><kbd>F3</kbd><span>quick view</span></div>

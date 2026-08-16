@@ -17,6 +17,7 @@ import { InputEngineService } from '../services/input-engine.service';
 import type { InputBindingDefinition } from '../services/input-system.types';
 import { WorkspaceService } from '../services/workspace.service';
 import { WorkspaceSurfaceService } from '../services/workspace-surface.service';
+import type { WorkspacePresentation } from '../services/workspace-surface.model';
 import type { WorkspaceConfig } from '../shared/protocol-enhanced';
 import { ReassemblyModalSurfaceDirective } from './reassembly-modal-surface.directive';
 type WorkspaceEdit =
@@ -199,6 +200,15 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   },
 ];
 
+interface WorkspaceSwitcherItem {
+  readonly id: string;
+  readonly name: string;
+  readonly icon?: string;
+  readonly kind: 'files' | 'tool';
+  readonly files?: WorkspaceConfig;
+  readonly tool?: WorkspacePresentation;
+}
+
 @Component({
   selector: 'app-reassembly-workspace-switcher',
   standalone: true,
@@ -303,8 +313,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
               </ng-template>
 
               <small *ngIf="edit?.kind !== 'rename' || edit.workspaceId !== workspace.id">
-                {{ workspace.leftPane.tabs.length }} left ·
-                {{ workspace.rightPane.tabs.length }} right ·
+                {{ workspaceSummary(workspace) }} ·
                 {{ workspaceKind(workspace) }}
               </small>
             </span>
@@ -327,7 +336,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             <button
               type="button"
               class="danger"
-              [disabled]="workspaces.length <= 1 || !selectedWorkspace"
+              [disabled]="!canDeleteSelected()"
               (click)="deleteSelected()">
               Del&nbsp;&nbsp;Delete
             </button>
@@ -579,6 +588,8 @@ export class ReassemblyWorkspaceSwitcherComponent
   implements OnInit, OnDestroy {
 
   @Output() workspaceActivated = new EventEmitter<void>();
+  @Output() toolWorkspaceActivated =
+    new EventEmitter<WorkspacePresentation>();
   @ViewChild('nameInput') private nameInput?: ElementRef<HTMLInputElement>;
 
   visible = false;
@@ -594,20 +605,70 @@ export class ReassemblyWorkspaceSwitcherComponent
     private readonly cdr: ChangeDetectorRef,
   ) {}
 
-  get workspaces(): WorkspaceConfig[] {
-    return this.workspacesService.getWorkspaces().workspaces ?? [];
+  get workspaces(): WorkspaceSwitcherItem[] {
+    const files = (
+      this.workspacesService.getWorkspaces().workspaces ?? []
+    ).map<WorkspaceSwitcherItem>(workspace => ({
+      id: workspace.id,
+      name: workspace.name,
+      icon: workspace.icon || '📁',
+      kind: 'files',
+      files: workspace,
+    }));
+
+    const tools = this.workspaceSurfaces
+      .listPersistentTools()
+      .map<WorkspaceSwitcherItem>(presentation => ({
+        id: presentation.workspaceId,
+        name: presentation.title,
+        icon: '◫',
+        kind: 'tool',
+        tool: presentation,
+      }));
+
+    return [...files, ...tools];
   }
 
   get activeWorkspaceId(): string {
+    const activePresentation = this.workspaceSurfaces.active;
+    if (
+      activePresentation?.kind === 'tool' &&
+      activePresentation.lifetime === 'persistent'
+    ) {
+      return activePresentation.workspaceId;
+    }
+
     return this.workspacesService.getActiveWorkspace()?.id ?? '';
   }
 
-  get selectedWorkspace(): WorkspaceConfig | null {
+  get selectedWorkspace(): WorkspaceSwitcherItem | null {
     return this.workspaces[this.selectedIndex] ?? null;
   }
 
-  workspaceKind(workspace: WorkspaceConfig): string {
-    return this.workspaceSurfaces.get(workspace.id)?.kind ?? 'files';
+  workspaceKind(workspace: WorkspaceSwitcherItem): string {
+    return workspace.kind;
+  }
+
+  workspaceSummary(workspace: WorkspaceSwitcherItem): string {
+    if (workspace.kind === 'tool') {
+      return 'full workspace · persistent';
+    }
+
+    const files = workspace.files;
+    return files
+      ? `${files.leftPane.tabs.length} left · ${files.rightPane.tabs.length} right`
+      : 'files';
+  }
+
+  canDeleteSelected(): boolean {
+    const selected = this.selectedWorkspace;
+    if (!selected) return false;
+    if (selected.kind === 'tool') return true;
+
+    const fileCount = this.workspaces.filter(
+      workspace => workspace.kind === 'files',
+    ).length;
+    return fileCount > 1;
   }
 
   ngOnInit(): void {
@@ -670,7 +731,7 @@ export class ReassemblyWorkspaceSwitcherComponent
       title: 'Delete Workspace',
       category: 'Workspace',
       execute: () => this.deleteSelected(),
-      isEnabled: () => !this.edit && this.workspaces.length > 1 && !!this.selectedWorkspace,
+      isEnabled: () => !this.edit && this.canDeleteSelected(),
     }, OWNER_ID);
 
     this.input.registerCommandDescriptor({
@@ -801,8 +862,30 @@ export class ReassemblyWorkspaceSwitcherComponent
     this.cdr.markForCheck();
   }
 
-  activateWorkspace(workspace: WorkspaceConfig): void {
-    if (!this.workspacesService.switchWorkspace(workspace.id)) return;
+  activateWorkspace(workspace: WorkspaceSwitcherItem): void {
+    if (workspace.kind === 'tool') {
+      const presentation = workspace.tool;
+      if (
+        !presentation ||
+        !this.workspaceSurfaces.activate(presentation.workspaceId)
+      ) {
+        return;
+      }
+
+      this.toolWorkspaceActivated.emit(
+        this.workspaceSurfaces.get(presentation.workspaceId) ??
+          presentation,
+      );
+      this.close();
+      return;
+    }
+
+    if (
+      !workspace.files ||
+      !this.workspacesService.switchWorkspace(workspace.files.id)
+    ) {
+      return;
+    }
 
     this.workspaceActivated.emit();
     this.close();
@@ -858,7 +941,14 @@ export class ReassemblyWorkspaceSwitcherComponent
     }
 
     if (name !== workspace.name) {
-      this.workspacesService.updateWorkspace(workspace.id, { name });
+      if (workspace.kind === 'tool') {
+        this.workspaceSurfaces.rename(workspace.id, name);
+      } else if (workspace.files) {
+        this.workspacesService.updateWorkspace(
+          workspace.files.id,
+          { name },
+        );
+      }
     }
 
     this.edit = null;
@@ -895,7 +985,7 @@ export class ReassemblyWorkspaceSwitcherComponent
 
   async deleteSelected(): Promise<void> {
     const workspace = this.selectedWorkspace;
-    if (!workspace || this.workspaces.length <= 1) return;
+    if (!workspace || !this.canDeleteSelected()) return;
 
     const confirmed = await this.confirmDialog.confirm({
       title: 'Delete Workspace',
@@ -907,21 +997,42 @@ export class ReassemblyWorkspaceSwitcherComponent
     if (!confirmed) return;
 
     const wasActive = workspace.id === this.activeWorkspaceId;
-    if (!this.workspacesService.deleteWorkspace(workspace.id)) return;
+
+    if (workspace.kind === 'tool') {
+      if (!this.workspaceSurfaces.removePersistent(workspace.id)) return;
+
+      if (wasActive) {
+        const files = this.workspacesService.getActiveWorkspace();
+        if (files) {
+          this.workspaceSurfaces.activateFilesWorkspace(files);
+        }
+        this.workspaceActivated.emit();
+      }
+    } else {
+      if (
+        !workspace.files ||
+        !this.workspacesService.deleteWorkspace(workspace.files.id)
+      ) {
+        return;
+      }
+
+      if (wasActive) {
+        this.workspaceActivated.emit();
+      }
+    }
 
     this.selectedIndex = Math.min(
       this.selectedIndex,
       Math.max(0, this.workspaces.length - 1),
     );
 
-    if (wasActive) {
-      this.workspaceActivated.emit();
-    }
-
     this.cdr.markForCheck();
   }
 
-  trackWorkspace(_index: number, workspace: WorkspaceConfig): string {
+  trackWorkspace(
+    _index: number,
+    workspace: WorkspaceSwitcherItem,
+  ): string {
     return workspace.id;
   }
 

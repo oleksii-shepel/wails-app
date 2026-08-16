@@ -9,11 +9,24 @@ import {
   type WorkspaceSurface,
 } from './workspace-surface.model';
 
+interface PersistedToolWorkspaceEnvelope {
+  readonly version: 1;
+  readonly workspaces: readonly WorkspacePresentation[];
+}
+
+const PERSISTED_TOOL_WORKSPACES_KEY =
+  'reassembly.toolWorkspaces.v1';
+const MAX_PERSISTED_BYTES = 3_500_000;
+
 @Injectable({ providedIn: 'root' })
 export class WorkspaceSurfaceService {
   private readonly presentations = new Map<string, WorkspacePresentation>();
   private readonly activeSubject =
     createBehaviorSubject<WorkspacePresentation | null>(null);
+
+  constructor() {
+    this.hydratePersistentTools();
+  }
 
   readonly active$ = this.activeSubject;
 
@@ -44,6 +57,18 @@ export class WorkspaceSurfaceService {
     const presentation = this.ensureFilesWorkspace(workspace);
     this.activeSubject.next(presentation);
     return presentation;
+  }
+
+  listPersistentTools(): readonly WorkspacePresentation[] {
+    return [...this.presentations.values()]
+      .filter(
+        presentation =>
+          presentation.kind === 'tool' &&
+          presentation.lifetime === 'persistent',
+      )
+      .sort((left, right) =>
+        left.title.localeCompare(right.title),
+      );
   }
 
   openToolWorkspace(
@@ -112,14 +137,127 @@ export class WorkspaceSurfaceService {
       ...presentation,
       lifetime: 'persistent',
     };
+
     this.presentations.set(workspaceId, pinned);
+    if (!this.persistPersistentTools()) {
+      this.presentations.set(workspaceId, presentation);
+      return null;
+    }
+
     if (this.activeSubject.value?.workspaceId === workspaceId) {
       this.activeSubject.next(pinned);
     }
     return pinned;
   }
 
+  rename(
+    workspaceId: string,
+    title: string,
+  ): WorkspacePresentation | null {
+    const presentation = this.presentations.get(workspaceId);
+    const clean = title.trim();
+    if (
+      !presentation ||
+      presentation.kind !== 'tool' ||
+      presentation.lifetime !== 'persistent' ||
+      !clean
+    ) {
+      return null;
+    }
+
+    const renamed: WorkspacePresentation = {
+      ...presentation,
+      title: clean,
+    };
+
+    this.presentations.set(workspaceId, renamed);
+    if (!this.persistPersistentTools()) {
+      this.presentations.set(workspaceId, presentation);
+      return null;
+    }
+
+    if (this.activeSubject.value?.workspaceId === workspaceId) {
+      this.activeSubject.next(renamed);
+    }
+
+    return renamed;
+  }
+
+  removePersistent(workspaceId: string): boolean {
+    const presentation = this.presentations.get(workspaceId);
+    if (
+      !presentation ||
+      presentation.kind !== 'tool' ||
+      presentation.lifetime !== 'persistent'
+    ) {
+      return false;
+    }
+
+    this.presentations.delete(workspaceId);
+    if (!this.persistPersistentTools()) {
+      this.presentations.set(workspaceId, presentation);
+      return false;
+    }
+
+    if (this.activeSubject.value?.workspaceId === workspaceId) {
+      this.activeSubject.next(null);
+    }
+    return true;
+  }
+
   get(workspaceId: string): WorkspacePresentation | null {
     return this.presentations.get(workspaceId) ?? null;
+  }
+
+  private hydratePersistentTools(): void {
+    try {
+      const raw = localStorage.getItem(PERSISTED_TOOL_WORKSPACES_KEY);
+      if (!raw) return;
+
+      const envelope = JSON.parse(raw) as PersistedToolWorkspaceEnvelope;
+      if (envelope?.version !== 1 || !Array.isArray(envelope.workspaces)) {
+        return;
+      }
+
+      for (const presentation of envelope.workspaces) {
+        if (
+          !presentation?.workspaceId ||
+          presentation.kind !== 'tool' ||
+          presentation.lifetime !== 'persistent' ||
+          !presentation.layout
+        ) {
+          continue;
+        }
+
+        this.presentations.set(
+          presentation.workspaceId,
+          presentation,
+        );
+      }
+    } catch {
+      // Corrupt sidecar persistence must never prevent the file manager opening.
+    }
+  }
+
+  private persistPersistentTools(): boolean {
+    try {
+      const envelope: PersistedToolWorkspaceEnvelope = {
+        version: 1,
+        workspaces: this.listPersistentTools(),
+      };
+      const serialized = JSON.stringify(envelope);
+
+      if (serialized.length > MAX_PERSISTED_BYTES) {
+        return false;
+      }
+
+      localStorage.setItem(
+        PERSISTED_TOOL_WORKSPACES_KEY,
+        serialized,
+      );
+      return true;
+    } catch {
+      return false;
+    }
   }
 }

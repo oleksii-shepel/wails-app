@@ -479,7 +479,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
 
       <app-reassembly-workspace-switcher
         #workspaceSwitcher
-        (workspaceActivated)="applyActiveWorkspace()">
+        (workspaceActivated)="applyActiveWorkspace()"
+        (toolWorkspaceActivated)="activateToolWorkspace($event)">
       </app-reassembly-workspace-switcher>
 
       <app-reassembly-path-history
@@ -1289,6 +1290,16 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     }
   }
 
+  activateToolWorkspace(
+    presentation: WorkspacePresentation,
+  ): void {
+    if (presentation.kind !== 'tool') return;
+
+    this.workspacePresentation = presentation;
+    this.closeContextMenu();
+    this.cdr.markForCheck();
+  }
+
   closeToolWorkspace(): void {
     const current = this.workspacePresentation;
     if (current?.kind === 'tool' && current.lifetime === 'transient') {
@@ -1307,12 +1318,21 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
   }
 
-  pinToolWorkspace(): void {
+  async pinToolWorkspace(): Promise<void> {
     const current = this.workspacePresentation;
     if (!current || current.kind !== 'tool') return;
 
-    this.workspacePresentation =
-      this.workspaceSurfaces.pin(current.workspaceId) ?? current;
+    const pinned = this.workspaceSurfaces.pin(current.workspaceId);
+    if (!pinned) {
+      await this.confirmDialog.alert({
+        title: 'Pin Workspace Failed',
+        message:
+          'This workspace could not be persisted. Very large result sets may exceed local workspace storage capacity.',
+      });
+      return;
+    }
+
+    this.workspacePresentation = pinned;
     this.cdr.markForCheck();
   }
 

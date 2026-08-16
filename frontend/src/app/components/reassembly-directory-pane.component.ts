@@ -1284,7 +1284,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   get hasSelection(): boolean {
-    return this.selectedPaths.size > 0;
+    return this.selectedEntries.length > 0;
   }
 
   get visibleSelectedCount(): number {
@@ -1346,7 +1346,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     return this.isDirectoryTab &&
       this.hasSelection &&
       (this.isInArchive
-        ? (this.currentArchiveFrame?.nestedChain.length ?? 1) === 0
+        ? this.archiveMutationAllowed
         : this.sourceCapabilities.delete);
   }
 
@@ -1354,8 +1354,13 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     return this.isDirectoryTab &&
       this.hasSelection &&
       (this.isInArchive
-        ? (this.currentArchiveFrame?.nestedChain.length ?? 1) === 0
+        ? this.archiveMutationAllowed
         : this.sourceCapabilities.read && this.sourceCapabilities.delete);
+  }
+
+  get archiveMutationAllowed(): boolean {
+    return this.isInArchive &&
+      (this.currentArchiveFrame?.nestedChain.length ?? 1) === 0;
   }
 
   get canPaste(): boolean {
@@ -1424,7 +1429,10 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
 
   get selectedEntries(): FileInfo[] {
     if (this.selectedPaths.size === 0) return [];
-    return this.entries.filter(entry => this.selectedPaths.has(entry.path));
+    return this.entries.filter(entry =>
+      entry.path !== '__parent__' &&
+      this.selectedPaths.has(entry.path),
+    );
   }
 
   get selectedTotalBytes(): number {
@@ -2180,13 +2188,16 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       this.cdr.markForCheck();
     }
 
-    const selected = this.entries
-      .filter(candidate => this.selectedPaths.has(candidate.path))
-      .map(candidate => ({
-        path: candidate.path,
-        name: candidate.name,
-        type: candidate.type,
-      }));
+    if (entry.path === '__parent__') {
+      event.preventDefault();
+      return;
+    }
+
+    const selected = this.selectedEntries.map(candidate => ({
+      path: candidate.path,
+      name: candidate.name,
+      type: candidate.type,
+    }));
 
     event.dataTransfer.effectAllowed = 'copyMove';
     event.dataTransfer.setData('application/json', JSON.stringify({
@@ -2206,7 +2217,11 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   onEntryDragOver(entry: FileInfo, event: DragEvent): void {
-    if (entry.type !== FileType.DIRECTORY || !this.hasInternalDrag(event)) return;
+    if (
+      entry.path === '__parent__' ||
+      entry.type !== FileType.DIRECTORY ||
+      !this.hasInternalDrag(event)
+    ) return;
 
     event.preventDefault();
     event.stopPropagation();
@@ -2227,7 +2242,11 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   onEntryDrop(entry: FileInfo, event: DragEvent): void {
-    if (entry.type !== FileType.DIRECTORY || !this.hasInternalDrag(event)) return;
+    if (
+      entry.path === '__parent__' ||
+      entry.type !== FileType.DIRECTORY ||
+      !this.hasInternalDrag(event)
+    ) return;
 
     event.preventDefault();
     event.stopPropagation();
@@ -2286,6 +2305,17 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     event.preventDefault();
     event.stopPropagation();
 
+    if (entry.path === '__parent__') {
+      this.cursorPath = entry.path;
+      this.selectedPaths = new Set();
+      this.anchorPath = null;
+      this.lastAction = 'context: parent';
+      this.syncActiveDirSessionState();
+      this.cdr.markForCheck();
+      this.entryContextMenu.emit({ event, entry });
+      return;
+    }
+
     if (!this.selectedPaths.has(entry.path)) {
       this.setSingleSelection(entry);
       this.lastAction = `context: ${entry.name}`;
@@ -2305,6 +2335,15 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   selectFromPointer(entry: FileInfo, event: MouseEvent): void {
     this.markUserInteraction();
     this.cursorPath = entry.path;
+
+    if (entry.path === '__parent__') {
+      this.selectedPaths = new Set();
+      this.anchorPath = null;
+      this.lastAction = 'select parent';
+      this.syncActiveDirSessionState();
+      this.cdr.markForCheck();
+      return;
+    }
 
     if (event.shiftKey && this.anchorPath) {
       this.selectRange(this.anchorPath, entry.path);
@@ -2879,9 +2918,11 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   selectAll(): void {
     if (!this.isDirectoryTab) return;
     this.markUserInteraction();
-    const selectable = this.viewMode === 'tree'
-      ? this.treeRows.map(row => row.entry)
-      : this.visibleEntries;
+    const selectable = (
+      this.viewMode === 'tree'
+        ? this.treeRows.map(row => row.entry)
+        : this.visibleEntries
+    ).filter(entry => entry.path !== '__parent__');
     this.selectedPaths = new Set(selectable.map(entry => entry.path));
     this.lastAction = 'select all';
     this.syncActiveDirSessionState();
@@ -2898,41 +2939,34 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   copySelected(): void {
-    if (!this.hasSelection) return;
+    const entries = this.selectedEntries;
+    if (entries.length === 0) return;
 
     this.fileClipboard.set({
       operation: 'copy',
-      paths: Array.from(this.selectedPaths),
+      paths: entries.map(entry => entry.path),
       sourcePaneId: this.paneId,
-      archiveFrame: this.currentArchiveFrame
-        ? {
-            ...this.currentArchiveFrame,
-            nestedChain: [...this.currentArchiveFrame.nestedChain],
-          }
-        : null,
+      archiveFrame: this.cloneCurrentArchiveFrame(),
     });
 
-    this.lastAction = `copy ${this.selectedPaths.size}`;
+    this.lastAction = `copy ${entries.length}`;
     this.cdr.markForCheck();
   }
 
   cutSelected(): void {
-    if (this.isInArchive) {
-      this.lastAction = 'archive entries: use F6 or Shift+drag to move';
-      this.cdr.markForCheck();
-      return;
-    }
-
     if (!this.canCut) return;
+
+    const entries = this.selectedEntries;
+    if (entries.length === 0) return;
 
     this.fileClipboard.set({
       operation: 'cut',
-      paths: Array.from(this.selectedPaths),
+      paths: entries.map(entry => entry.path),
       sourcePaneId: this.paneId,
-      archiveFrame: null,
+      archiveFrame: this.cloneCurrentArchiveFrame(),
     });
 
-    this.lastAction = `cut ${this.selectedPaths.size}`;
+    this.lastAction = `cut ${entries.length}`;
     this.cdr.markForCheck();
   }
 
@@ -3142,6 +3176,19 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       await this.showOperationError('Extract', error);
       return false;
     }
+  }
+
+  private cloneCurrentArchiveFrame(): ArchiveFrame | null {
+    const frame = this.currentArchiveFrame;
+    if (!frame) return null;
+    return {
+      ...frame,
+      nestedChain: [...frame.nestedChain],
+      listing: {
+        ...frame.listing,
+        entries: (frame.listing.entries ?? []).map(entry => ({ ...entry })),
+      },
+    };
   }
 
   async transferArchiveSelectionTo(
@@ -3675,23 +3722,29 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
 
     try {
       if (clipboard.archiveFrame) {
-        if (clipboard.operation === 'cut') {
-          await this.confirmDialog.alert({
-            title: 'Archive Clipboard',
-            message:
-              'Cut is not used for archive entries. Use F6 or Shift+drag to extract and remove entries.',
-          });
-          return;
-        }
-
-        const result = await this.archiveService.copy(
-          clipboard.archiveFrame,
-          clipboard.paths,
-          this.path,
-        );
+        const result = clipboard.operation === 'copy'
+          ? await this.archiveService.copy(
+              clipboard.archiveFrame,
+              clipboard.paths,
+              this.path,
+            )
+          : await this.archiveService.move(
+              clipboard.archiveFrame,
+              clipboard.paths,
+              this.path,
+            );
 
         this.lastAction =
-          `paste archive copy: ${result.succeeded}/${result.total}`;
+          `paste archive ${clipboard.operation}: ` +
+          `${result.succeeded}/${result.total}`;
+
+        if (
+          clipboard.operation === 'cut' &&
+          result.failed === 0 &&
+          result.sourceRemoved
+        ) {
+          this.fileClipboard.clear();
+        }
 
         await this.refresh();
 
@@ -3701,7 +3754,9 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
             message:
               `${result.failed} archive entr${
                 result.failed === 1 ? 'y' : 'ies'
-              } could not be extracted.`,
+              } could not be ${
+                clipboard.operation === 'copy' ? 'extracted' : 'moved'
+              }.`,
           });
         }
         return;
@@ -4305,7 +4360,9 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       (this.viewMode === 'tree'
         ? this.treeRows.map(row => row.entry)
         : this.visibleEntries
-      ).map(entry => entry.path),
+      )
+        .filter(entry => entry.path !== '__parent__')
+        .map(entry => entry.path),
     );
 
     this.selectedPaths = new Set(
@@ -4331,7 +4388,11 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       this.cursorPath = first;
     }
 
-    if (this.cursorPath && this.selectedPaths.size === 0) {
+    if (
+      this.cursorPath &&
+      this.cursorPath !== '__parent__' &&
+      this.selectedPaths.size === 0
+    ) {
       this.selectedPaths.add(this.cursorPath);
     }
 

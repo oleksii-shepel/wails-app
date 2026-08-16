@@ -38,6 +38,7 @@ import { ViewerHostSurfaceComponent } from '../viewers/viewer-host-surface.compo
 import { ReassemblyAddressBarComponent } from './reassembly-address-bar.component';
 import { ReassemblyFilterComponent } from './reassembly-filter.component';
 import { ReassemblyNavigationController } from './reassembly-navigation.controller';
+import type { PresentedCommand } from './presented-command';
 import {
   createFilenameMaskMatcher,
   entryTypeLabel,
@@ -303,6 +304,19 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
         <button type="button" [disabled]="loading || !canPaste" (click)="paste()" title="Paste (Ctrl+V)">Paste</button>
         <span class="action-separator"></span>
         <button type="button" class="danger" [disabled]="loading || !canDelete" (click)="deleteSelected()" title="Delete (Delete / F8)">Delete</button>
+        <ng-container *ngIf="pluginToolbarActions.length">
+          <span class="action-separator"></span>
+          <button
+            *ngFor="let action of pluginToolbarActions"
+            type="button"
+            class="plugin-action"
+            [disabled]="loading || !action.enabled"
+            [title]="action.shortcut ? action.label + ' (' + action.shortcut + ')' : action.label"
+            (click)="runPluginToolbarAction(action)">
+            <span aria-hidden="true">◆</span>
+            {{ action.label }}
+          </button>
+        </ng-container>
       </div>
 
       <app-reassembly-filter
@@ -348,7 +362,7 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
           [class.cursor]="cursorPath === row.entry.path"
           [attr.aria-level]="row.depth + 1"
           [attr.aria-expanded]="row.expandable ? row.expanded : null"
-          [attr.aria-selected]="row.entry.path !== '__parent__' && selectedPaths.has(row.entry.path)"
+          [attr.aria-selected]="selectedPaths.has(row.entry.path)"
           [attr.aria-current]="cursorPath === row.entry.path ? 'true' : null"
           [attr.aria-label]="entryAriaLabel(row.entry)"
           [style.padding-left.px]="8 + row.depth * 18"
@@ -449,8 +463,8 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
           <strong>{{ cursor.name }}</strong>
         </span>
 
-        <span class="footer-item" *ngIf="selectedEntries.length">
-          {{ selectedEntries.length }} selected
+        <span class="footer-item" *ngIf="selectedPaths.size">
+          {{ selectedPaths.size }} selected
           <ng-container *ngIf="selectedTotalBytes > 0">
             · {{ formatSize(selectedTotalBytes) }}
           </ng-container>
@@ -490,16 +504,8 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
 
             <span class="viewer-separator"></span>
 
-            <button
-              type="button"
-              [disabled]="!viewerCanNavigate(-1)"
-              (click)="viewerNavigate(-1)"
-              title="Previous item (Left)">‹</button>
-            <button
-              type="button"
-              [disabled]="!viewerCanNavigate(1)"
-              (click)="viewerNavigate(1)"
-              title="Next item (Right)">›</button>
+            <button type="button" [disabled]="!viewerSupports('showPrevious')" (click)="viewerInvoke('showPrevious')" title="Previous item (Left)">‹</button>
+            <button type="button" [disabled]="!viewerSupports('showNext')" (click)="viewerInvoke('showNext')" title="Next item (Right)">›</button>
             <button type="button" [disabled]="!viewerSupports('zoomOut')" (click)="viewerInvoke('zoomOut')" title="Zoom out (Ctrl+-)">−</button>
             <button type="button" [disabled]="!viewerSupports('zoomIn')" (click)="viewerInvoke('zoomIn')" title="Zoom in (Ctrl++)">+</button>
             <button type="button" [disabled]="!viewerSupports('resetZoom')" (click)="viewerInvoke('resetZoom')" title="Fit (Ctrl+0)">Fit</button>
@@ -1191,6 +1197,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   @Input() active = false;
   @Input() showHidden = false;
   @Input() currentPathPinned = false;
+  @Input() pluginToolbarActions: readonly PresentedCommand[] = [];
   @Output() activateRequested = new EventEmitter<void>();
   @Output() remoteRecoveryRequested = new EventEmitter<void>();
   @Output() togglePinRequested = new EventEmitter<void>();
@@ -1285,82 +1292,6 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   viewerInvoke(method: string): void {
     const fn = this.mountedViewer?.[method];
     if (typeof fn === 'function') fn.call(this.mountedViewer);
-  }
-
-
-  viewerCanNavigate(delta: -1 | 1): boolean {
-    const viewer = this.activeViewerTab;
-    if (!viewer) return false;
-
-    if (!viewer.archiveContext) {
-      return this.viewerSupports(
-        delta < 0 ? 'showPrevious' : 'showNext',
-      );
-    }
-
-    return this.archiveViewerSibling(viewer, delta) !== null;
-  }
-
-  viewerNavigate(delta: -1 | 1): void {
-    const viewer = this.activeViewerTab;
-    if (!viewer) return;
-
-    if (!viewer.archiveContext) {
-      this.viewerInvoke(
-        delta < 0 ? 'showPrevious' : 'showNext',
-      );
-      return;
-    }
-
-    const sibling = this.archiveViewerSibling(viewer, delta);
-    if (!sibling) return;
-
-    const archiveContext: ViewerArchiveContext = {
-      ...viewer.archiveContext,
-      nestedChain: [...viewer.archiveContext.nestedChain],
-      entryPath: normalizeArchiveInnerPath(sibling.path),
-    };
-
-    const updated: Extract<ReassemblyTab, { kind: 'viewer' }> = {
-      ...viewer,
-      path: sibling.path,
-      targetPath: sibling.path,
-      title: sibling.name,
-      archiveContext,
-    };
-
-    this.tabs = this.tabs.map(tab =>
-      tab.id === viewer.id ? updated : tab,
-    );
-
-    this.workspaceService.updateArchiveViewerTabTarget(
-      this.paneId,
-      viewer.id,
-      sibling.path,
-      sibling.name,
-      archiveContext,
-      viewer.fileList,
-    );
-
-    this.lastAction = `viewer: ${sibling.name}`;
-    this.cdr.markForCheck();
-  }
-
-  private archiveViewerSibling(
-    viewer: Extract<ReassemblyTab, { kind: 'viewer' }>,
-    delta: -1 | 1,
-  ): ViewerFileListItem | null {
-    const context = viewer.archiveContext;
-    if (!context || viewer.fileList.length === 0) return null;
-
-    const current = normalizeArchiveInnerPath(context.entryPath);
-
-    const index = viewer.fileList.findIndex(item =>
-      normalizeArchiveInnerPath(item.path) === current,
-    );
-
-    if (index < 0) return null;
-    return viewer.fileList[index + delta] ?? null;
   }
 
   get isDirectoryTab(): boolean {
@@ -1479,12 +1410,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
 
   get cursorEntry(): FileInfo | null {
     if (!this.cursorPath) return null;
-
-    const entries = this.viewMode === 'tree'
-      ? this.treeRows.map(row => row.entry)
-      : this.entries;
-
-    return entries.find(entry => entry.path === this.cursorPath) ?? null;
+    return this.entries.find(entry => entry.path === this.cursorPath) ?? null;
   }
 
   get treeRows(): ReassemblyTreeRow[] {
@@ -1492,12 +1418,8 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
 
     const append = (entries: FileInfo[], depth: number): void => {
       for (const entry of entries) {
-        const expandable =
-          entry.path !== '__parent__' &&
-          entry.type === FileType.DIRECTORY;
-        const expanded =
-          expandable &&
-          this.treeExpandedPaths.has(entry.path);
+        const expandable = entry.type === FileType.DIRECTORY;
+        const expanded = expandable && this.treeExpandedPaths.has(entry.path);
         rows.push({
           entry,
           depth,
@@ -1522,12 +1444,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
 
   get selectedEntries(): FileInfo[] {
     if (this.selectedPaths.size === 0) return [];
-
-    const entries = this.viewMode === 'tree'
-      ? this.treeRows.map(row => row.entry)
-      : this.entries;
-
-    return entries.filter(entry =>
+    return this.entries.filter(entry =>
       entry.path !== '__parent__' &&
       this.selectedPaths.has(entry.path),
     );
@@ -1987,6 +1904,12 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   setViewMode(mode: ReassemblyDirectoryView): void {
     this.markUserInteraction();
 
+    if (this.isInArchive && mode === 'tree') {
+      this.lastAction = 'tree view unavailable inside archive';
+      this.cdr.markForCheck();
+      return;
+    }
+
     if (this.viewMode === mode) return;
 
     if (mode === 'tree') {
@@ -2015,44 +1938,6 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
 
   trackTreeRow(_index: number, row: ReassemblyTreeRow): string {
     return row.entry.path;
-  }
-
-  private async loadFilesystemTreeChildren(
-    path: string,
-  ): Promise<FileInfo[]> {
-    const listing = await this.directorySource.listDirectory(
-      path,
-      this.showHidden,
-    );
-
-    return this.sortTreeChildren([...(listing.entries ?? [])]);
-  }
-
-  private async loadArchiveTreeChildren(
-    entry: FileInfo,
-  ): Promise<FileInfo[]> {
-    const frame = this.currentArchiveFrame;
-    if (!frame) return [];
-
-    const innerPath = this.resolveArchiveEntryInnerPath(
-      frame.innerPath,
-      entry.path,
-    );
-
-    const children = await this.directorySource.listArchiveDirectory(
-      frame,
-      innerPath,
-    );
-
-    return this.sortTreeChildren(children);
-  }
-
-  private sortTreeChildren(
-    entries: readonly FileInfo[],
-  ): FileInfo[] {
-    return this.sortEntries(
-      entries.filter(entry => entry.path !== '__parent__'),
-    );
   }
 
   async toggleTreeRow(
@@ -2085,10 +1970,11 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
 
     try {
-      const children = this.isInArchive
-        ? await this.loadArchiveTreeChildren(row.entry)
-        : await this.loadFilesystemTreeChildren(row.entry.path);
-
+      const listing = await this.directorySource.listDirectory(
+        row.entry.path,
+        this.showHidden,
+      );
+      const children = this.sortEntries([...(listing.entries ?? [])]);
       this.treeChildren.set(row.entry.path, children);
     } catch (error) {
       this.treeExpandedPaths.delete(row.entry.path);
@@ -2103,8 +1989,8 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   async onTreeDoubleClick(row: ReassemblyTreeRow): Promise<void> {
-    if (row.entry.path === '__parent__') {
-      await this.navigateUp();
+    if (this.isInArchive) {
+      this.openEntry(row.entry);
       return;
     }
 
@@ -2494,51 +2380,19 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
   }
 
-  private sameViewerTarget(
-    tab: Extract<ReassemblyTab, { kind: 'viewer' }>,
-    targetPath: string,
-    archiveContext: ViewerArchiveContext | null,
-  ): boolean {
-    if (!archiveContext) {
-      return !tab.archiveContext &&
-        this.samePath(tab.targetPath, targetPath);
-    }
-
-    if (!tab.archiveContext) return false;
-
-    return this.samePath(
-      tab.archiveContext.fsPath,
-      archiveContext.fsPath,
-    ) &&
-      tab.archiveContext.nestedChain.length ===
-        archiveContext.nestedChain.length &&
-      tab.archiveContext.nestedChain.every(
-        (segment, index) =>
-          segment === archiveContext.nestedChain[index],
-      ) &&
-      normalizeArchiveInnerPath(
-        tab.archiveContext.entryPath,
-      ) === normalizeArchiveInnerPath(
-        archiveContext.entryPath,
-      );
-  }
-
   openViewer(
     entry: FileInfo,
     viewerId: string | null = null,
   ): void {
     if (entry.type === FileType.DIRECTORY) return;
 
-    const nextArchiveContext = this.viewerArchiveContextFor(entry);
-
     const existing = this.tabs.find(tab =>
       tab.kind === 'viewer' &&
       !tab.autoFollow &&
       tab.viewerId === viewerId &&
-      this.sameViewerTarget(
-        tab,
+      this.samePath(
+        tab.archiveContext?.entryPath ?? tab.targetPath,
         entry.path,
-        nextArchiveContext,
       )
     );
 
@@ -2549,7 +2403,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     }
 
     const fileList = this.buildViewerFileList();
-    const archiveContext = nextArchiveContext;
+    const archiveContext = this.viewerArchiveContextFor(entry);
 
     const persisted = this.workspaceService.addViewerTab(
       this.paneId,
@@ -2563,7 +2417,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
         sourcePane: this.paneId,
         sourceTabId: this.activeTabId ?? undefined,
         sourceDir: this.path,
-        fileList,
+        fileList: archiveContext ? [] : fileList,
         archiveContext: archiveContext ?? undefined,
       },
     );
@@ -2579,7 +2433,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
         path: entry.path,
         title: entry.name,
         targetPath: entry.path,
-        fileList,
+        fileList: archiveContext ? [] : fileList,
         archiveContext,
         viewerId,
         autoFollow: false,
@@ -2602,7 +2456,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     if (entry.type === FileType.DIRECTORY) return;
 
     const archiveContext = this.viewerArchiveContextFor(entry);
-    const fileList = this.buildViewerFileList();
+    const fileList = archiveContext ? [] : this.buildViewerFileList();
 
     if (!archiveContext) {
       const preview = this.tabs.find(
@@ -2681,7 +2535,6 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   private buildViewerFileList(): ViewerFileListItem[] {
     return this.sortedEntries
       .filter(candidate =>
-        candidate.path !== '__parent__' &&
         candidate.type !== FileType.DIRECTORY,
       )
       .map(candidate => ({
@@ -3097,6 +2950,13 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     this.anchorPath = null;
     this.lastAction = 'clear selection';
     this.syncActiveDirSessionState();
+    this.cdr.markForCheck();
+  }
+
+  runPluginToolbarAction(action: PresentedCommand): void {
+    if (!action.enabled) return;
+    void action.execute();
+    this.lastAction = `plugin: ${action.label}`;
     this.cdr.markForCheck();
   }
 

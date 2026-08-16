@@ -52,6 +52,11 @@ import {
   type ReassemblyContextMenuState,
 } from './reassembly-context-menu.component';
 import { FileInfo, FileType } from '../shared/protocol';
+import { PluginManagerService } from '../services/plugin-manager.service';
+import type { ToolbarContext, MenuContext } from '../plugin/plugin-registry-api';
+import { adaptPluginToolbarActions } from './pane-toolbar-action';
+import { presentPluginCommand } from './plugin-command-presentation';
+import type { PresentedCommand } from './presented-command';
 
 type PaneId = 'left' | 'right';
 
@@ -331,6 +336,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           [active]="activePaneId === 'left'"
           [showHidden]="showHidden"
           [currentPathPinned]="isPanePathPinned(leftPane)"
+          [pluginToolbarActions]="pluginToolbarActionsFor(leftPane)"
           (activateRequested)="activate('left')"
           (remoteRecoveryRequested)="openRemoteConnections()"
           (togglePinRequested)="togglePanePin(leftPane)"
@@ -365,6 +371,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           [active]="activePaneId === 'right'"
           [showHidden]="showHidden"
           [currentPathPinned]="isPanePathPinned(rightPane)"
+          [pluginToolbarActions]="pluginToolbarActionsFor(rightPane)"
           (activateRequested)="activate('right')"
           (remoteRecoveryRequested)="openRemoteConnections()"
           (togglePinRequested)="togglePanePin(rightPane)"
@@ -596,6 +603,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     private readonly selectionBasketService: SelectionBasketService,
     private readonly batchRenameDialog: BatchRenameDialogService,
     private readonly remoteConnectDialog: RemoteConnectDialogService,
+    private readonly pluginManager: PluginManagerService,
     private readonly cdr: ChangeDetectorRef,
   ) {}
 
@@ -631,6 +639,84 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
 
   get otherPane(): ReassemblyDirectoryPaneComponent | undefined {
     return this.activePaneId === 'left' ? this.rightPane : this.leftPane;
+  }
+
+  pluginSelectionPaths(): string[] {
+    const pane = this.activePane;
+    if (!pane?.isDirectoryTab) return [];
+    return pane.selectedEntries
+      .filter(entry => entry.path && entry.path !== '__parent__')
+      .map(entry => entry.path);
+  }
+
+  pluginToolbarActionsFor(
+    pane: ReassemblyDirectoryPaneComponent | undefined,
+  ): readonly PresentedCommand[] {
+    if (!pane?.isDirectoryTab) return [];
+
+    const context: ToolbarContext = {
+      selectedPaths: pane.selectedEntries.map(entry => entry.path),
+      currentDirectory: pane.path,
+    };
+
+    return adaptPluginToolbarActions(
+      this.pluginManager.resolveToolbarActions(context),
+      context,
+      this.input,
+    );
+  }
+
+  private pluginContextMenuItems(
+    pane: ReassemblyDirectoryPaneComponent | undefined,
+    targetPath: string,
+  ): ReassemblyContextMenuItem[] {
+    if (!pane?.isDirectoryTab) return [];
+
+    const context: MenuContext = {
+      targetPath,
+      selectedPaths: pane.selectedEntries.map(entry => entry.path),
+      currentDirectory: pane.path,
+    };
+
+    return this.pluginManager
+      .resolveContextMenuItems(context)
+      .map(contribution => {
+        const command = presentPluginCommand(contribution, context, this.input);
+        return {
+          commandId: command.commandId,
+          label: command.label,
+          shortcut: command.shortcut,
+          enabled: command.enabled && !!command.commandId,
+        };
+      })
+      .filter(item => !!item.commandId);
+  }
+
+  private refreshCommandPaletteCommands(): void {
+    this.commandPaletteCommands = this.input
+      .getCommandCatalog()
+      .filter(command => command.registered)
+      .map(command => ({
+        id: command.id,
+        title: command.title,
+        category: command.category ?? 'General',
+        shortcut: command.preferredBinding
+          ? this.formatKeyboardBinding(command.preferredBinding)
+          : undefined,
+        execute: () => {
+          this.input.dispatchCommandById(command.id, {
+            source: 'palette',
+            context: {
+              paneId: this.activePaneId,
+              path: this.activePane?.path ?? '',
+              selectedPaths: this.pluginSelectionPaths(),
+            },
+          });
+        },
+        isEnabled: () => !!this.input.getCommandState(command.id)?.enabled,
+      }));
+
+    this.cdr.markForCheck();
   }
 
   ngOnInit(): void {
@@ -1713,6 +1799,14 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       this.menuCommand(COMMAND.deletePermanent, 'Delete permanently', 'Shift+Delete'),
     ];
 
+    const pluginItems = this.pluginContextMenuItems(
+      this.activePane,
+      entry.path,
+    );
+    if (pluginItems.length) {
+      items.push({ separator: true }, ...pluginItems);
+    }
+
     this.contextMenu = {
       x: this.clampMenuX(event.clientX),
       y: this.clampMenuY(event.clientY),
@@ -1725,11 +1819,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
   openBackgroundMenu(paneId: PaneId, event: MouseEvent): void {
     this.activePaneId = paneId;
 
-    this.contextMenu = {
-      x: this.clampMenuX(event.clientX),
-      y: this.clampMenuY(event.clientY),
-      title: this.activePane?.path || 'Folder',
-      items: [
+    const items: ReassemblyContextMenuItem[] = [
         this.menuCommand(COMMAND.newFolder, 'New folder', 'F7'),
         this.menuCommand(
           COMMAND.toggleCurrentPin,
@@ -1762,7 +1852,21 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
         this.menuCommand(COMMAND.closeTabsToRight, 'Close tabs to the right'),
         this.menuCommand(COMMAND.newFile, 'New File'),
         this.menuCommand(COMMAND.refresh, 'Refresh', 'Ctrl+R'),
-      ],
+    ];
+
+    const pluginItems = this.pluginContextMenuItems(
+      this.activePane,
+      this.activePane?.path ?? '',
+    );
+    if (pluginItems.length) {
+      items.push({ separator: true }, ...pluginItems);
+    }
+
+    this.contextMenu = {
+      x: this.clampMenuX(event.clientX),
+      y: this.clampMenuY(event.clientY),
+      title: this.activePane?.path || 'Folder',
+      items,
     };
     this.cdr.markForCheck();
   }
@@ -2084,7 +2188,10 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     };
 
     descriptor(COMMAND.toggleShortcutHelp, 'Keyboard Shortcuts', 'Help', () => this.toggleShortcutHelp());
-    descriptor(COMMAND.openCommandPalette, 'Command Palette', 'Navigation', () => this.commandPalette?.open());
+    descriptor(COMMAND.openCommandPalette, 'Command Palette', 'Navigation', () => {
+      this.refreshCommandPaletteCommands();
+      this.commandPalette?.open();
+    });
     descriptor(COMMAND.switchPane, 'Switch Pane', 'Pane Control', () => this.switchPane());
     descriptor(COMMAND.widenLeftPane, 'Widen Left Pane', 'Layout', () => this.adjustSplit(5));
     descriptor(COMMAND.widenRightPane, 'Widen Right Pane', 'Layout', () => this.adjustSplit(-5));

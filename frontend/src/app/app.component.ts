@@ -1,10 +1,16 @@
-import { Component } from '@angular/core';
+import {
+  AfterViewInit,
+  Component,
+  OnDestroy,
+  ViewChild,
+} from '@angular/core';
 import { ConfirmDialogComponent } from './components/confirm-dialog.component';
 import { ReassemblyDualPaneComponent } from './components/reassembly-dual-pane.component';
 import { ShortcutDebugOverlayComponent } from './components/shortcut-debug-overlay.component';
 import { ReassemblyOperationSurfaceComponent } from './components/reassembly-operation-surface.component';
 import { BatchRenameDialogComponent } from './components/batch-rename-dialog.component';
 import { RemoteConnectDialogComponent } from './components/remote-connect-dialog.component';
+import { PluginBootstrapService } from './services/plugin-bootstrap.service';
 
 @Component({
   selector: 'app-root',
@@ -63,4 +69,21 @@ import { RemoteConnectDialogComponent } from './components/remote-connect-dialog
     }
   `],
 })
-export class AppComponent {}
+export class AppComponent implements AfterViewInit, OnDestroy {
+  @ViewChild('manager')
+  private manager?: ReassemblyDualPaneComponent;
+
+  constructor(
+    private readonly pluginBootstrap: PluginBootstrapService,
+  ) {}
+
+  ngAfterViewInit(): void {
+    void this.pluginBootstrap.initialize(
+      () => this.manager?.pluginSelectionPaths() ?? [],
+    );
+  }
+
+  ngOnDestroy(): void {
+    void this.pluginBootstrap.shutdown();
+  }
+}

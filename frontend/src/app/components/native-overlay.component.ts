@@ -112,7 +112,7 @@ export class NativeOverlayComponent implements OnChanges, OnDestroy, AfterViewIn
   private readonly frozenCanvasBackgroundToken = '--vsc-on-accent';
 
   private get frozenCanvasBackground(): string {
-    return getComputedStyle(this.elementRef.nativeElement)
+    return getComputedStyle(this.hostEl?.nativeElement ?? document.documentElement)
       .getPropertyValue(this.frozenCanvasBackgroundToken)
       .trim();
   }

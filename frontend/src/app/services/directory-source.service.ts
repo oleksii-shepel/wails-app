@@ -3,7 +3,14 @@ import { Injectable } from '@angular/core';
 import { FileType, type ArchiveListing, type FileInfo } from '../shared/protocol-enhanced';
 import type { PathSegment } from '../components/address-bar.types';
 import { buildSegments as buildBasicSegments, buildSegmentsFromParsedPath, isAliasPath, normalizePath, parentPath, parsePathWithArchives } from '../components/address-bar.utils';
-import { ArchiveService, type ArchiveBrowseTarget, type ArchiveFrame, isArchive } from './archive.service';
+import {
+  ArchiveService,
+  type ArchiveBrowseTarget,
+  type ArchiveFrame,
+  isArchive,
+  parseArchivePath,
+  normalizeArchiveLocation,
+} from './archive.service';
 import { ApiService } from './api.service';
 import { REGISTRY_ROOT, RegistryService, isRegistryPath, type RegistryFrame } from './registry.service';
 
@@ -411,13 +418,15 @@ export class DirectorySourceService implements FileViewDirectorySource {
   }
 
   isPathInsideArchive(path: string): boolean {
-    const normalized = normalizePath(path);
-    if (isRegistryPath(normalized)) {
+    const normalized = normalizeArchiveLocation(path);
+    if (!normalized || isRegistryPath(normalized)) {
       return false;
     }
 
-    const { fsDirPath } = parsePathWithArchives(normalized);
-    const leafName = fsDirPath.replace(/\\/g, '/').split('/').filter(Boolean).pop() ?? '';
+    const { fsPath } = parseArchivePath(normalized);
+    const leafName =
+      fsPath.replace(/\\/g, '/').split('/').filter(Boolean).pop() ?? '';
+
     return isArchive(leafName);
   }
 

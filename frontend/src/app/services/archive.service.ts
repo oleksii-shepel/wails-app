@@ -64,20 +64,85 @@ export function isArchive(name: string): boolean {
   );
 }
 
+export function normalizeArchiveInnerPath(path: string): string {
+  const parts: string[] = [];
+
+  for (const part of (path ?? '').replace(/\\/g, '/').split('/')) {
+    if (!part || part === '.') continue;
+    if (part === '..') {
+      parts.pop();
+      continue;
+    }
+    parts.push(part);
+  }
+
+  return parts.join('/');
+}
+
+export function resolveArchiveChildInnerPath(
+  currentInnerPath: string,
+  entryPath: string,
+): string {
+  const current = normalizeArchiveInnerPath(currentInnerPath);
+  const entry = normalizeArchiveInnerPath(entryPath);
+
+  if (!current) return entry;
+  if (!entry) return current;
+  if (entry === current || entry.startsWith(`${current}/`)) return entry;
+
+  return normalizeArchiveInnerPath(`${current}/${entry}`);
+}
+
+export function normalizeArchiveLocation(path: string): string {
+  const raw = (path ?? '').trim().replace(/\\/g, '/');
+  if (!raw) return '';
+
+  // Collapse duplicate slashes only in the path body, never in `scheme://`.
+  const scheme = /^([a-z][a-z0-9+.-]*:\/\/)(.*)$/i.exec(raw);
+  if (scheme) {
+    const prefix = scheme[1];
+    const body = scheme[2].replace(/\/{2,}/g, '/').replace(/\/$/, '');
+    return `${prefix}${body}`;
+  }
+
+  // Preserve an absolute POSIX root while normalizing duplicate separators.
+  const absolute = raw.startsWith('/');
+  const body = raw.replace(/\/{2,}/g, '/').replace(/\/$/, '');
+  return absolute && !body.startsWith('/') ? `/${body}` : body;
+}
+
+export function joinArchiveLocation(
+  base: string,
+  ...parts: readonly string[]
+): string {
+  const cleanBase = normalizeArchiveLocation(base);
+  const cleanParts = parts
+    .map(part => (part ?? '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, ''))
+    .filter(Boolean);
+
+  if (cleanParts.length === 0) return cleanBase;
+  return normalizeArchiveLocation(`${cleanBase}/${cleanParts.join('/')}`);
+}
+
+export function sameArchiveLocation(left: string, right: string): boolean {
+  return normalizeArchiveLocation(left).toLocaleLowerCase() ===
+    normalizeArchiveLocation(right).toLocaleLowerCase();
+}
+
 export function buildArchiveDisplayPath(
   rootFsPath: string,
   stack: ArchiveFrame[]
 ): string {
-  if (stack.length === 0) return rootFsPath;
+  if (stack.length === 0) return normalizeArchiveLocation(rootFsPath);
 
   const frame = stack[stack.length - 1];
-  const archiveFsPath = stack[0].fsPath.replace(/\\/g, '/');
-  const parts = [archiveFsPath, ...frame.nestedChain];
+  const archiveFsPath = normalizeArchiveLocation(stack[0].fsPath || rootFsPath);
 
-  if (frame.innerPath)
-    parts.push(frame.innerPath);
-
-  return parts.join('/').replace(/\/+/g, '/');
+  return joinArchiveLocation(
+    archiveFsPath,
+    ...frame.nestedChain,
+    frame.innerPath,
+  );
 }
 
 export function buildArchiveTabTitle(
@@ -130,13 +195,15 @@ async function goBrowse(
  *   innerPath   = "dir/file.txt"
  */
 export function parseArchivePath(globalPath: string): { fsPath: string; nestedChain: string[]; innerPath: string } {
-  const norm = globalPath.replace(/\\/g, '/');
+  const norm = normalizeArchiveLocation(globalPath);
   const parts = norm.split('/');
 
   const firstIdx = parts.findIndex(p => isArchive(p));
   if (firstIdx === -1) return { fsPath: globalPath, nestedChain: [], innerPath: '' };
 
-  const fsPath = parts.slice(0, firstIdx + 1).join('/');
+  const fsPath = normalizeArchiveLocation(
+    parts.slice(0, firstIdx + 1).join('/'),
+  );
   const rest = parts.slice(firstIdx + 1);
 
   // Accumulate segments; each time we hit an archive name it closes a nestedChain entry.
@@ -156,11 +223,12 @@ export function parseArchivePath(globalPath: string): { fsPath: string; nestedCh
  * Builds a global archive path from its three components.
  * Empty parts are omitted so trailing slashes are avoided.
  */
-export function buildArchivePath(fsPath: string, nestedChain: string[], innerPath: string): string {
-  return [fsPath.replace(/\\/g, '/'), ...nestedChain, innerPath]
-    .filter(Boolean)
-    .join('/')
-    .replace(/\/+/g, '/');
+export function buildArchivePath(
+  fsPath: string,
+  nestedChain: string[],
+  innerPath: string,
+): string {
+  return joinArchiveLocation(fsPath, ...nestedChain, innerPath);
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -231,8 +299,14 @@ export class ArchiveService {
   /* ─────────────── OPEN ─────────────── */
 
   async openRootArchive(fsPath: string): Promise<ArchiveFrame> {
-    const listing = await goBrowse(fsPath, [], '');
-    return { fsPath, nestedChain: [], innerPath: '', listing };
+    const canonicalFsPath = normalizeArchiveLocation(fsPath);
+    const listing = await goBrowse(canonicalFsPath, [], '');
+    return {
+      fsPath: canonicalFsPath,
+      nestedChain: [],
+      innerPath: '',
+      listing,
+    };
   }
 
   async openNestedArchive(
@@ -260,14 +334,15 @@ export class ArchiveService {
     frame: ArchiveFrame,
     folderInnerPath: string
   ): Promise<ArchiveFrame> {
+    const innerPath = normalizeArchiveInnerPath(folderInnerPath);
 
     const listing = await goBrowse(
       frame.fsPath,
       frame.nestedChain,
-      folderInnerPath
+      innerPath,
     );
 
-    return { ...frame, innerPath: folderInnerPath, listing };
+    return { ...frame, innerPath, listing };
   }
 
   async navigateUp(frame: ArchiveFrame): Promise<ArchiveFrame | null> {

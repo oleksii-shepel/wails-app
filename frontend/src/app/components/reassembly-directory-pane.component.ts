@@ -25,6 +25,8 @@ import {
   buildArchiveTabTitle,
   isArchive,
   parseArchivePath,
+  sameArchiveLocation,
+  normalizeArchiveInnerPath,
 } from '../services/archive.service';
 import type { ViewerArchiveContext } from '../viewers/viewer-archive-context';
 import { getSourceCapabilities } from '../services/source-capabilities';
@@ -3267,52 +3269,79 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     }
   }
 
+  private resolveArchiveEntryInnerPath(
+    currentInnerPath: string,
+    entryPath: string,
+  ): string {
+    const current = normalizeArchiveInnerPath(currentInnerPath);
+    const entry = normalizeArchiveInnerPath(entryPath);
+
+    if (!current) return entry;
+    if (!entry) return current;
+
+    // Archive backends normally return paths relative to archive root
+    // (`folder/child`). Some formats/providers may return only the child name.
+    // Accept both without duplicating the current directory.
+    if (entry === current || entry.startsWith(`${current}/`)) {
+      return entry;
+    }
+
+    return normalizeArchiveInnerPath(`${current}/${entry}`);
+  }
+
   private async navigateArchiveInto(
-    innerPath: string,
+    entryPath: string,
   ): Promise<void> {
     const frame = this.currentArchiveFrame;
     if (!frame) return;
 
-    this.loading = true;
-    this.error = null;
-    this.cdr.markForCheck();
+    const innerPath = this.resolveArchiveEntryInnerPath(
+      frame.innerPath,
+      entryPath,
+    );
 
-    try {
-      const next = await this.directorySource.navigateArchive(
-        frame,
-        innerPath,
-      );
+    this.lastAction = `archive folder: ${innerPath}`;
 
-      this.archiveStack[this.archiveStack.length - 1] = next;
-      this.renderArchiveFrame(next, { history: 'record' });
-      this.lastAction = `archive folder: ${innerPath}`;
-    } catch (error) {
-      this.error =
-        error instanceof Error ? error.message : String(error);
-    } finally {
-      this.loading = false;
-      this.cdr.markForCheck();
-    }
+    await this.navigateWithinOpenArchive(
+      innerPath,
+      {
+        history: 'record',
+        preserveCursor: false,
+      },
+    );
   }
 
   private async navigateArchiveUp(): Promise<void> {
     const frame = this.currentArchiveFrame;
     if (!frame) return;
 
+    if (frame.innerPath) {
+      this.loading = true;
+      this.error = null;
+      this.cdr.markForCheck();
+
+      try {
+        const parent = await this.directorySource.navigateArchiveUp(frame);
+        if (!parent) return;
+
+        this.archiveStack[this.archiveStack.length - 1] = parent;
+        this.renderArchiveFrame(parent, { history: 'record' });
+        this.lastAction = 'archive up';
+      } catch (error) {
+        this.error =
+          error instanceof Error ? error.message : String(error);
+      } finally {
+        this.loading = false;
+        this.cdr.markForCheck();
+      }
+      return;
+    }
+
     this.loading = true;
     this.error = null;
     this.cdr.markForCheck();
 
     try {
-      const parent = await this.directorySource.navigateArchiveUp(frame);
-
-      if (parent) {
-        this.archiveStack[this.archiveStack.length - 1] = parent;
-        this.renderArchiveFrame(parent, { history: 'record' });
-        this.lastAction = 'archive up';
-        return;
-      }
-
       if (this.archiveStack.length > 1) {
         this.archiveStack.pop();
         const previous = this.currentArchiveFrame;
@@ -3437,6 +3466,65 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
   }
 
+  private canReuseArchiveStack(
+    fsPath: string,
+    nestedChain: readonly string[],
+  ): boolean {
+    if (this.archiveStack.length === 0) return false;
+
+    const root = this.archiveStack[0];
+    const current = this.currentArchiveFrame;
+    if (!root || !current) return false;
+
+    return sameArchiveLocation(root.fsPath, fsPath) &&
+      current.nestedChain.length === nestedChain.length &&
+      current.nestedChain.every(
+        (segment, index) => segment === nestedChain[index],
+      );
+  }
+
+  private async navigateWithinOpenArchive(
+    innerPath: string,
+    options: {
+      preserveCursor?: boolean;
+      history?: 'record' | 'none';
+      syncTab?: boolean;
+      restoreSession?: boolean;
+    },
+  ): Promise<boolean> {
+    const frame = this.currentArchiveFrame;
+    if (!frame) return false;
+
+    const generation = ++this.loadGeneration;
+    this.loading = true;
+    this.error = null;
+    this.cdr.markForCheck();
+
+    try {
+      const next = await this.directorySource.navigateArchive(
+        frame,
+        innerPath,
+      );
+      if (generation !== this.loadGeneration) return false;
+
+      this.archiveStack[this.archiveStack.length - 1] = next;
+      this.renderArchiveFrame(next, {
+        history: options.history,
+        preserveCursor: options.preserveCursor,
+      });
+      return true;
+    } catch (error) {
+      if (generation !== this.loadGeneration) return false;
+      this.error = error instanceof Error ? error.message : String(error);
+      return false;
+    } finally {
+      if (generation === this.loadGeneration) {
+        this.loading = false;
+        this.cdr.markForCheck();
+      }
+    }
+  }
+
   private async loadArchivePath(
     requestedPath: string,
     options: {
@@ -3446,6 +3534,18 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       restoreSession?: boolean;
     },
   ): Promise<boolean> {
+    const parsed = parseArchivePath(requestedPath);
+
+    // Back/forward, breadcrumbs and Ctrl+L often stay inside the same physical
+    // archive. Reuse the already-open frame chain instead of reopening every
+    // archive layer through the backend.
+    if (this.canReuseArchiveStack(parsed.fsPath, parsed.nestedChain)) {
+      return this.navigateWithinOpenArchive(
+        parsed.innerPath,
+        options,
+      );
+    }
+
     const generation = ++this.loadGeneration;
 
     this.loading = true;
@@ -3453,7 +3553,6 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
 
     try {
-      const parsed = parseArchivePath(requestedPath);
       const rootFrame = await this.directorySource.getArchiveFrame(
         parsed.fsPath,
       );

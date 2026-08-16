@@ -12,6 +12,14 @@ import { CommonModule } from '@angular/common';
 import { ApiService } from '../services/api.service';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { WorkspaceService } from '../services/workspace.service';
+import { WorkspaceSurfaceService } from '../services/workspace-surface.service';
+import {
+  splitLayout,
+  surfaceLayout,
+  workspaceSurface,
+  type WorkspacePresentation,
+} from '../services/workspace-surface.model';
+import { ReassemblyToolWorkspaceHostComponent } from './reassembly-tool-workspace-host.component';
 import { PinnedLocationService } from '../services/pinned-location.service';
 import { InputEngineService } from '../services/input-engine.service';
 import type { InputBindingDefinition } from '../services/input-system.types';
@@ -102,6 +110,7 @@ const COMMAND = {
   newFolder: 'reassembly.manager.newFolder',
   moveSelectionToNewFolder: 'reassembly.manager.moveSelectionToNewFolder',
   properties: 'reassembly.manager.properties',
+  detailsWorkspace: 'reassembly.workspace.details',
   deletePermanent: 'reassembly.manager.deletePermanent',
   deleteSelected: 'reassembly.manager.delete',
   copy: 'reassembly.manager.copy',
@@ -171,6 +180,7 @@ const COMMAND = {
   treeLeft: 'reassembly.tree.left',
   treeRight: 'reassembly.tree.right',
   comparePanes: 'reassembly.compare.toggle',
+  compareWorkspace: 'reassembly.workspace.compare',
   recursiveComparePanes: 'reassembly.compare.recursive',
   reviewSyncPlan: 'reassembly.compare.review',
   selectLeftDifferences: 'reassembly.compare.selectLeftDifferences',
@@ -331,6 +341,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     SelectionBasketComponent,
     ReassemblyToolsCenterComponent,
     ReassemblyGlobalSearchComponent,
+    ReassemblyToolWorkspaceHostComponent,
 
     ReassemblyCommandPaletteComponent,  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -339,19 +350,31 @@ const BINDINGS: readonly InputBindingDefinition[] = [
       #managerRoot
       class="manager"
       role="application"
+      [attr.data-workspace-kind]="workspacePresentation?.kind ?? 'files'"
+      [attr.data-workspace-lifetime]="workspacePresentation?.lifetime ?? 'persistent'"
       aria-label="Dual-pane file manager"
       aria-describedby="reassembly-manager-status"
       [style.grid-template-columns]="layoutColumns">
       <div id="reassembly-manager-status" class="sr-only" role="status" aria-live="polite">
         Active pane {{ activePaneId }}. Left pane {{ leftPanePercent | number:'1.0-0' }} percent.
       </div>
+
+      <app-reassembly-tool-workspace-host
+        *ngIf="workspacePresentation?.kind === 'tool' && workspacePresentation as toolWorkspace"
+        class="tool-workspace-host"
+        [presentation]="toolWorkspace"
+        (close)="closeToolWorkspace()"
+        (pin)="pinToolWorkspace()">
+      </app-reassembly-tool-workspace-host>
+
       <app-pane-comparison-bar
+        *ngIf="workspacePresentation?.kind !== 'tool'"
         class="comparison-surface"
         [visible]="comparisonVisible"
-        [leftEntries]="leftPane.entries"
-        [rightEntries]="rightPane.entries"
-        [leftPath]="leftPane.path"
-        [rightPath]="rightPane.path"
+        [leftEntries]="leftPane?.entries ?? []"
+        [rightEntries]="rightPane?.entries ?? []"
+        [leftPath]="leftPane?.path ?? ''"
+        [rightPath]="rightPane?.path ?? ''"
         [recursive]="comparisonRecursive"
         [scanning]="recursiveComparisonScanning"
         [error]="recursiveComparisonError"
@@ -367,13 +390,14 @@ const BINDINGS: readonly InputBindingDefinition[] = [
       </app-pane-comparison-bar>
 
       <app-pane-sync-review
+        *ngIf="workspacePresentation?.kind !== 'tool'"
         class="comparison-surface"
         [visible]="syncReviewVisible"
         [result]="paneComparisonResult"
         (execute)="executeSyncPlan($event)"
         (close)="closeSyncReview()">
       </app-pane-sync-review>
-      <div class="pane-slot">
+      <div class="pane-slot" *ngIf="workspacePresentation?.kind !== 'tool'">
         <app-reassembly-directory-pane
           #leftPane
           paneId="left"
@@ -391,6 +415,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
       </div>
 
       <div
+        *ngIf="workspacePresentation?.kind !== 'tool'"
         class="divider"
         role="separator"
         tabindex="0"
@@ -408,7 +433,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         <span class="divider-grip" aria-hidden="true"></span>
       </div>
 
-      <div class="pane-slot">
+      <div class="pane-slot" *ngIf="workspacePresentation?.kind !== 'tool'">
         <app-reassembly-directory-pane
           #rightPane
           paneId="right"
@@ -434,7 +459,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         #globalSearch
         (openResult)="openSearchResult($event)"
         (openContainingFolder)="openSearchContainingFolder($event)"
-        (openAsPanel)="openSearchResultsPanel($event)">
+        (openAsPanel)="openSearchResultsPanel($event)"
+        (openAsWorkspace)="openSearchWorkspace($event)">
       </app-reassembly-global-search>
 
       <app-reassembly-tools-center
@@ -512,6 +538,14 @@ const BINDINGS: readonly InputBindingDefinition[] = [
       min-width: 0;
       min-height: 0;
       overflow: hidden;
+    }
+
+    .tool-workspace-host {
+      grid-column: 1 / -1;
+      grid-row: 1 / -1;
+      min-width: 0;
+      min-height: 0;
+      z-index: 5;
     }
 
     .comparison-surface {
@@ -624,6 +658,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
   private workspaceApplyGeneration = 0;
   showHidden = false;
   shortcutHelpVisible = false;
+  workspacePresentation: WorkspacePresentation | null = null;
 
   commandPaletteCommands: ReassemblyPaletteCommand[] = [];
 
@@ -644,6 +679,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     private readonly api: ApiService,
     private readonly confirmDialog: ConfirmDialogService,
     private readonly workspaceService: WorkspaceService,
+    private readonly workspaceSurfaces: WorkspaceSurfaceService,
     private readonly pinnedLocations: PinnedLocationService,
     private readonly paneComparison: PaneComparisonService,
     private readonly recursivePaneComparison: PaneRecursiveComparisonService,
@@ -862,6 +898,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.restoreWorkspaceLayout();
+    this.syncFilesWorkspacePresentation();
 
     this.stopDriveLifecycle = this.driveLifecycle.start(() => {
       void this.handleDriveTopologyChange();
@@ -1101,6 +1138,181 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       },
     );
 
+    this.cdr.markForCheck();
+  }
+
+  openSearchWorkspace(
+    request: SearchResultsPanelRequest,
+  ): void {
+    if (request.entries.length === 0) return;
+
+    this.workspacePresentation = this.workspaceSurfaces.openToolWorkspace(
+      request.title,
+      surfaceLayout(
+        workspaceSurface(
+          `search:${Date.now()}`,
+          'search-workspace',
+          request.title,
+          'result',
+          {
+            rootPath: request.rootPath,
+            query: request.query,
+            recursive: request.recursive,
+            entries: request.entries.map(entry => ({ ...entry })),
+          },
+        ),
+      ),
+    );
+
+    this.globalSearchOverlay?.close();
+    this.cdr.markForCheck();
+  }
+
+  openCompareWorkspace(): void {
+    if (!this.canComparePanes() || !this.leftPane || !this.rightPane) return;
+
+    const result = this.paneComparisonResult;
+    const rows = result.items.map(item => ({
+      key: item.key,
+      status: item.status,
+      leftPath: item.left?.path ?? '',
+      rightPath: item.right?.path ?? '',
+    }));
+
+    const summary = result.summary;
+    this.workspacePresentation = this.workspaceSurfaces.openToolWorkspace(
+      `Compare: ${this.leafName(this.leftPane.path)} ↔ ${this.leafName(this.rightPane.path)}`,
+      splitLayout(
+        'vertical',
+        surfaceLayout(
+          workspaceSurface(
+            `compare:${Date.now()}`,
+            'compare-workspace',
+            'Comparison',
+            'primary',
+            {
+              leftPath: this.leftPane.path,
+              rightPath: this.rightPane.path,
+              recursive: this.comparisonRecursive,
+              rows,
+            },
+          ),
+        ),
+        surfaceLayout(
+          workspaceSurface(
+            `compare-summary:${Date.now()}`,
+            'compare-summary',
+            'Summary',
+            'support',
+            {
+              items: [
+                { label: 'Same', value: summary.same },
+                { label: 'Different', value: summary.different },
+                { label: 'Only left', value: summary.onlyLeft },
+                { label: 'Only right', value: summary.onlyRight },
+              ],
+            },
+          ),
+        ),
+        78,
+      ),
+    );
+
+    this.cdr.markForCheck();
+  }
+
+  async openDetailsWorkspace(): Promise<void> {
+    const pane = this.activePane;
+    const entry = pane?.cursorEntry;
+    if (!pane || !entry) return;
+
+    try {
+      const info = pane.isInArchive
+        ? entry
+        : await this.api.getFileInfo(entry.path);
+
+      const timestamp = (value: unknown): string => {
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric) || numeric <= 0) return '—';
+        return new Date(
+          numeric * (numeric < 10_000_000_000 ? 1000 : 1),
+        ).toLocaleString();
+      };
+
+      const size =
+        !pane.isInArchive && info.type === FileType.DIRECTORY
+          ? await this.api.dirSizeRecursive(info.path)
+          : Number(info.size) || 0;
+
+      const type =
+        info.type === FileType.DIRECTORY
+          ? 'Directory'
+          : info.type === FileType.ARCHIVE
+            ? 'Archive'
+            : info.type === FileType.SYMLINK
+              ? 'Symbolic link'
+              : 'File';
+
+      this.workspacePresentation = this.workspaceSurfaces.openToolWorkspace(
+        `Details: ${info.name}`,
+        surfaceLayout(
+          workspaceSurface(
+            `details:${Date.now()}`,
+            'details-workspace',
+            info.name,
+            'primary',
+            {
+              path: info.path,
+              items: [
+                { label: 'Name', value: info.name },
+                { label: 'Type', value: type },
+                { label: 'Path', value: info.path },
+                { label: 'Size', value: `${size.toLocaleString()} bytes` },
+                { label: 'Modified', value: timestamp(info.modified) },
+                { label: 'Created', value: timestamp(info.created) },
+                { label: 'Accessed', value: timestamp(info.accessed) },
+                { label: 'Permissions', value: info.permissions || '—' },
+                { label: 'Symbolic link', value: info.isSymlink ? 'Yes' : 'No' },
+                { label: 'Source', value: pane.activePanelSource.source.title },
+              ],
+            },
+          ),
+        ),
+      );
+
+      this.cdr.markForCheck();
+    } catch (error) {
+      await this.confirmDialog.alert({
+        title: 'Open Details Workspace Failed',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  closeToolWorkspace(): void {
+    const current = this.workspacePresentation;
+    if (current?.kind === 'tool' && current.lifetime === 'transient') {
+      this.workspaceSurfaces.closeTransient(current.workspaceId);
+    }
+
+    const files = this.workspaceService.getActiveWorkspace();
+    if (files) {
+      this.workspacePresentation =
+        this.workspaceSurfaces.activateFilesWorkspace(files);
+    } else {
+      this.workspacePresentation = null;
+    }
+
+    queueMicrotask(() => this.activePane?.focusContent());
+    this.cdr.markForCheck();
+  }
+
+  pinToolWorkspace(): void {
+    const current = this.workspacePresentation;
+    if (!current || current.kind !== 'tool') return;
+
+    this.workspacePresentation =
+      this.workspaceSurfaces.pin(current.workspaceId) ?? current;
     this.cdr.markForCheck();
   }
 
@@ -2111,6 +2323,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       this.menuCommand(COMMAND.selectSameType, 'Select Same Type'),
       this.menuCommand(COMMAND.moveSelectionToNewFolder, 'Move Selection to New Folder'),
       this.menuCommand(COMMAND.properties, 'Properties', 'Alt+Enter'),
+      this.menuCommand(COMMAND.detailsWorkspace, 'Open Full Details Workspace'),
       this.menuCommand(COMMAND.calculateSize, 'Calculate Size'),
       this.menuCommand(COMMAND.attributes, 'Attributes / Permissions'),
       this.menuCommand(COMMAND.setModifiedTime, 'Set Modified Time…'),
@@ -2369,6 +2582,8 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
 
     this.activePaneId = nextActivePane;
     this.showHidden = !!workspace.showHidden;
+    this.workspacePresentation =
+      this.workspaceSurfaces.activateFilesWorkspace(workspace);
 
     this.leftPanePercent =
       typeof workspace.splitRatio === 'number' &&
@@ -2482,6 +2697,8 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     this.activePaneId =
       workspace.activePaneId === 'right' ? 'right' : 'left';
     this.showHidden = !!workspace.showHidden;
+    this.workspacePresentation =
+      this.workspaceSurfaces.activateFilesWorkspace(workspace);
 
     if (
       typeof workspace.splitRatio === 'number' &&
@@ -2491,6 +2708,15 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       this.leftPanePercent = this.clampPanePercent(workspace.splitRatio);
     }
 
+    this.cdr.markForCheck();
+  }
+
+  private syncFilesWorkspacePresentation(): void {
+    const workspace = this.workspaceService.getActiveWorkspace();
+    if (!workspace) return;
+
+    this.workspacePresentation =
+      this.workspaceSurfaces.activateFilesWorkspace(workspace);
     this.cdr.markForCheck();
   }
 
@@ -2656,6 +2882,13 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
         ),
     );
     descriptor(COMMAND.properties, 'Properties', 'File Operations', () => this.activePane?.showSelectedProperties(), () => !!this.activePane?.cursorEntry);
+    descriptor(
+      COMMAND.detailsWorkspace,
+      'Open Full Details Workspace',
+      'Workspace',
+      () => this.openDetailsWorkspace(),
+      () => !!this.activePane?.cursorEntry,
+    );
     descriptor(COMMAND.deletePermanent, 'Delete Permanently', 'File Operations', () => this.activePane?.deleteSelected(true), () => this.canDeleteActiveSelection());
     descriptor(COMMAND.newFolder, 'New Folder', 'File Operations', () => this.activePane?.newFolder(), () => !!this.activePane?.canCreate);
     descriptor(
@@ -2914,6 +3147,13 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       'Compare Panes',
       'Pane Control',
       () => this.togglePaneComparison(),
+      () => this.canComparePanes(),
+    );
+    descriptor(
+      COMMAND.compareWorkspace,
+      'Open Compare Workspace',
+      'Workspace',
+      () => this.openCompareWorkspace(),
       () => this.canComparePanes(),
     );
     descriptor(

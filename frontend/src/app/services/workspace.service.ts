@@ -9,6 +9,8 @@ import {
   STORAGE_KEYS,
 } from '../shared/protocol-enhanced';
 import { ApiService } from './api.service';
+import { WorkspaceSurfaceService } from './workspace-surface.service';
+import type { WorkspacePresentation } from './workspace-surface.model';
 import { ArchiveFrame } from './archive.service';
 import { normalizePath as normalizeReferencePath } from '../components/address-bar.utils';
 import { describeLocation, locationLabel } from './location-reference';
@@ -65,7 +67,11 @@ export class WorkspaceService {
   /** Store archive states per pane per tab */
   private archiveStates = new Map<string, Map<string, ArchiveTabState>>();
 
-  constructor(private api: ApiService, private ngZone: NgZone) {
+  constructor(
+    private api: ApiService,
+    private ngZone: NgZone,
+    private workspaceSurfaces: WorkspaceSurfaceService,
+  ) {
     this.initializeWorkspaces();
   }
 
@@ -144,6 +150,9 @@ export class WorkspaceService {
         (w) => w.id === workspaceList.activeWorkspaceId,
       );
       this.activeWorkspaceSubject.next(active ?? null);
+      if (active) {
+        this.workspaceSurfaces.activateFilesWorkspace(active);
+      }
     });
   }
 
@@ -379,6 +388,10 @@ export class WorkspaceService {
     return this.activeWorkspaceSubject.value;
   }
 
+  getActiveWorkspacePresentation(): WorkspacePresentation | null {
+    return this.workspaceSurfaces.active;
+  }
+
   // ---------------------------------------------------------------------------
   // Workspace CRUD
   // ---------------------------------------------------------------------------
@@ -415,6 +428,7 @@ export class WorkspaceService {
     list.activeWorkspaceId = workspaceId;
     this.updateAndPersist(list, workspace);
     this.emitInZone(() => this.activeWorkspaceSubject.next(workspace));
+    this.workspaceSurfaces.activateFilesWorkspace(workspace);
     this.setActiveBackend(workspaceId);
 
     // Clear archive states when switching workspaces
@@ -445,6 +459,7 @@ export class WorkspaceService {
 
     if (!silent && workspace.id === this.activeWorkspaceSubject.value?.id) {
       this.emitInZone(() => this.activeWorkspaceSubject.next(workspace));
+      this.workspaceSurfaces.activateFilesWorkspace(workspace);
     }
 
     return true;
@@ -462,6 +477,7 @@ export class WorkspaceService {
       const newActive = list.workspaces[0];
       list.activeWorkspaceId = newActive.id;
       this.emitInZone(() => this.activeWorkspaceSubject.next(newActive));
+      this.workspaceSurfaces.activateFilesWorkspace(newActive);
       this.setActiveBackend(newActive.id);
     }
 

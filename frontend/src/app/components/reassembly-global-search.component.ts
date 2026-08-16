@@ -157,6 +157,13 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             (click)="openAsResultsPanel()">
             Open as Panel
           </button>
+          <button
+            type="button"
+            class="open-panel"
+            [disabled]="searching || displayedResults.length === 0"
+            (click)="openAsResultsWorkspace()">
+            Open Workspace
+          </button>
           <span class="keys">↑ ↓ · Enter open · Ctrl+Enter folder · Ctrl+Shift+Enter panel · Alt+R recursive · Alt+S sort · Esc</span>
         </footer>
       </section>
@@ -178,6 +185,7 @@ export class ReassemblyGlobalSearchComponent implements OnInit, OnDestroy {
   @Output() openResult = new EventEmitter<FileInfo>();
   @Output() openContainingFolder = new EventEmitter<FileInfo>();
   @Output() openAsPanel = new EventEmitter<SearchResultsPanelRequest>();
+  @Output() openAsWorkspace = new EventEmitter<SearchResultsPanelRequest>();
 
   visible = false;
   rootPath = '';
@@ -371,6 +379,23 @@ export class ReassemblyGlobalSearchComponent implements OnInit, OnDestroy {
 
     this.close();
   }
+
+  openAsResultsWorkspace(): void {
+    const query = this.queryText.trim();
+    const entries = this.displayedResults;
+    if (!query || entries.length === 0) return;
+
+    this.openAsWorkspace.emit({
+      title: `Search: ${query}`,
+      rootPath: this.rootPath,
+      query,
+      recursive: this.recursive,
+      entries: entries.map(entry => ({ ...entry })),
+    });
+
+    this.close();
+  }
+
 
   toggleRecursive(): void {
     this.recursive = !this.recursive;

@@ -16,6 +16,7 @@ import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { InputEngineService } from '../services/input-engine.service';
 import type { InputBindingDefinition } from '../services/input-system.types';
 import { WorkspaceService } from '../services/workspace.service';
+import { WorkspaceSurfaceService } from '../services/workspace-surface.service';
 import type { WorkspaceConfig } from '../shared/protocol-enhanced';
 import { ReassemblyModalSurfaceDirective } from './reassembly-modal-surface.directive';
 type WorkspaceEdit =
@@ -303,7 +304,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
 
               <small *ngIf="edit?.kind !== 'rename' || edit.workspaceId !== workspace.id">
                 {{ workspace.leftPane.tabs.length }} left ·
-                {{ workspace.rightPane.tabs.length }} right
+                {{ workspace.rightPane.tabs.length }} right ·
+                {{ workspaceKind(workspace) }}
               </small>
             </span>
 
@@ -586,6 +588,7 @@ export class ReassemblyWorkspaceSwitcherComponent
 
   constructor(
     private readonly workspacesService: WorkspaceService,
+    private readonly workspaceSurfaces: WorkspaceSurfaceService,
     private readonly confirmDialog: ConfirmDialogService,
     private readonly input: InputEngineService,
     private readonly cdr: ChangeDetectorRef,
@@ -601,6 +604,10 @@ export class ReassemblyWorkspaceSwitcherComponent
 
   get selectedWorkspace(): WorkspaceConfig | null {
     return this.workspaces[this.selectedIndex] ?? null;
+  }
+
+  workspaceKind(workspace: WorkspaceConfig): string {
+    return this.workspaceSurfaces.get(workspace.id)?.kind ?? 'files';
   }
 
   ngOnInit(): void {

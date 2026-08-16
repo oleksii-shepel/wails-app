@@ -28,7 +28,8 @@ export interface ShortcutHelpItem {
       class="overlay"
       role="dialog"
       aria-modal="false"
-      aria-label="Keyboard shortcuts">
+      aria-label="Keyboard shortcuts"
+      (wheel)="$event.stopPropagation()">
       <header>
         <strong>Keyboard shortcuts</strong>
         <span>F1 to close</span>
@@ -81,15 +82,16 @@ export interface ShortcutHelpItem {
         <span>{{ bindings.length }} registered manager shortcuts</span>
       </div>
 
-      <div class="bindings live-bindings">
-        <div *ngFor="let binding of bindings; trackBy: trackBinding">
-          <kbd>{{ binding.shortcut }}</kbd>
-          <span>{{ binding.description }}</span>
-          <small>{{ binding.category }}</small>
+      <div class="scroll-content">
+        <div class="bindings live-bindings">
+          <div *ngFor="let binding of bindings; trackBy: trackBinding">
+            <kbd>{{ binding.shortcut }}</kbd>
+            <span>{{ binding.description }}</span>
+            <small>{{ binding.category }}</small>
+          </div>
         </div>
-      </div>
 
-      <div class="binding-notes">
+        <div class="binding-notes">
         <strong>Context notes</strong>
         <span>F3 / Shift+F3 navigate inline-filter matches while the filter owns focus.</span>
         <span>Viewer Left/Right and zoom keys are enabled only when the active viewer implements them.</span>
@@ -103,7 +105,8 @@ export interface ShortcutHelpItem {
         <span>Archives: Enter navigates folders, Backspace goes up, Alt+Left/Right uses history, and Ctrl+L accepts canonical archive paths.</span>
         <span>Archive tabs: archive frame/history state is persisted per tab and restored on tab/workspace switches.</span>
         <span>Pinned tabs survive Close Other / Close Right; viewer tabs participate in move, reorder, pin and restore just like directory tabs.</span>
-        <span>Embedded browser panes may forward function/modifier keys through their host bridge; the file-manager shell itself does not install global keyboard listeners.</span>
+          <span>Embedded browser panes may forward function/modifier keys through their host bridge; the file-manager shell itself does not install global keyboard listeners.</span>
+        </div>
       </div>
 
       <footer>
@@ -117,7 +120,7 @@ export interface ShortcutHelpItem {
       top: 10px;
       right: 10px;
       z-index: 10000;
-      pointer-events: none;
+      pointer-events: auto;
       max-height: calc(100vh - 20px);
     }
 
@@ -125,8 +128,12 @@ export interface ShortcutHelpItem {
       box-sizing: border-box;
       width: min(520px, calc(100vw - 20px));
       max-height: calc(100vh - 20px);
-      overflow: auto;
-      overscroll-behavior: contain;
+      overflow-y: auto;
+      overflow-x: hidden;
+      overscroll-behavior: none;
+      scroll-behavior: auto;
+      touch-action: pan-y;
+      pointer-events: auto;
       padding: 10px 12px;
       border: 1px solid color-mix(
         in srgb,
@@ -177,6 +184,12 @@ export interface ShortcutHelpItem {
 
     .mono {
       font-family: var(--vsc-font-family-mono, ui-monospace, monospace);
+    }
+
+    .scroll-content {
+      min-height: 0;
+      overflow: visible;
+      padding-right: 4px;
     }
 
     .bindings {

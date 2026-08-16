@@ -7,12 +7,20 @@ export type WorkspaceSurfaceRole =
   | 'support'
   | 'result';
 
+export interface WorkspaceSurfaceAction {
+  readonly id: string;
+  readonly title: string;
+  readonly intent?: 'default' | 'primary' | 'danger';
+  readonly requiresSelection?: boolean;
+}
+
 export interface WorkspaceSurface {
   readonly id: string;
   readonly surfaceId: string;
   readonly title: string;
   readonly role?: WorkspaceSurfaceRole;
   readonly state?: Readonly<Record<string, unknown>>;
+  readonly actions?: readonly WorkspaceSurfaceAction[];
 }
 
 export interface WorkspaceSurfaceLeaf {
@@ -53,6 +61,7 @@ export function workspaceSurface(
   title: string,
   role: WorkspaceSurfaceRole = 'primary',
   state?: Readonly<Record<string, unknown>>,
+  actions?: readonly WorkspaceSurfaceAction[],
 ): WorkspaceSurface {
   return {
     id,
@@ -60,6 +69,7 @@ export function workspaceSurface(
     title,
     role,
     ...(state ? { state } : {}),
+    ...(actions?.length ? { actions } : {}),
   };
 }
 

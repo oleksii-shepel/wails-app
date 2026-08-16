@@ -11,6 +11,7 @@ import type {
   WorkspaceLayout,
   WorkspacePresentation,
   WorkspaceSurface,
+  WorkspaceSurfaceAction,
 } from '../services/workspace-surface.model';
 
 @Component({
@@ -105,11 +106,16 @@ import type {
             </span>
 
             <button
-              *ngIf="canRefresh(surface)"
+              *ngFor="let action of surface.actions || []; trackBy: trackAction"
               type="button"
-              [disabled]="text(surface, 'busy') === 'true'"
-              (click)="surfaceAction.emit({ surface, action: 'refresh' })">
-              Refresh
+              [class.primary]="action.intent === 'primary'"
+              [class.danger]="action.intent === 'danger'"
+              [disabled]="
+                text(surface, 'busy') === 'true' ||
+                (action.requiresSelection && !selected(surface))
+              "
+              (click)="emitAction(surface, action)">
+              {{ action.title }}
             </button>
 
             <span>{{ surface.role || 'primary' }}</span>
@@ -140,8 +146,11 @@ import type {
                 <span>Size</span>
               </div>
               <div
-                class="result-row"
-                *ngFor="let entry of array(surface, 'entries'); trackBy: trackEntry">
+                class="result-row selectable"
+                *ngFor="let entry of array(surface, 'entries'); trackBy: trackEntry"
+                [class.selected]="isSelected(surface, entry)"
+                (click)="select(surface, entry)"
+                (dblclick)="emitNamedAction(surface, 'open', entry)">
                 <span class="name">{{ entry.name }}</span>
                 <span class="path" [title]="entry.path">{{ entry.path }}</span>
                 <span class="size">{{ formatSize(entry.size) }}</span>
@@ -171,8 +180,10 @@ import type {
                 <span>Right</span>
               </div>
               <div
-                class="compare-row"
-                *ngFor="let row of array(surface, 'rows'); trackBy: trackCompareRow">
+                class="compare-row selectable"
+                *ngFor="let row of array(surface, 'rows'); trackBy: trackCompareRow"
+                [class.selected]="isSelected(surface, row)"
+                (click)="select(surface, row)">
                 <span class="status">{{ row.status }}</span>
                 <span>{{ row.key }}</span>
                 <span class="path" [title]="row.leftPath">{{ row.leftPath || '—' }}</span>
@@ -415,6 +426,27 @@ import type {
       grid-template-columns: 110px minmax(160px, .8fr) minmax(220px, 1.3fr) minmax(220px, 1.3fr);
     }
 
+    .selectable {
+      cursor: default;
+    }
+
+    .selectable:hover {
+      background: var(--vsc-list-hover-background, #2a2d2e);
+    }
+
+    .selectable.selected {
+      background: var(--vsc-list-active-selection-background, #094771);
+      color: var(--vsc-list-active-selection-foreground, #ffffff);
+    }
+
+    button.primary {
+      border-color: var(--vsc-focus-border, #007fd4);
+    }
+
+    button.danger {
+      color: var(--vsc-error-foreground, #f48771);
+    }
+
     .result-row > span,
     .compare-row > span {
       min-width: 0;
@@ -497,10 +529,14 @@ export class ReassemblyToolWorkspaceHostComponent {
   @Output() pin = new EventEmitter<void>();
   @Output() surfaceAction = new EventEmitter<{
     surface: WorkspaceSurface;
-    action: 'refresh';
+    action: string;
+    payload?: unknown;
   }>();
 
+  private readonly selectedBySurface = new Map<string, unknown>();
+
   trackSurface = (_: number, surface: WorkspaceSurface) => surface.id;
+  trackAction = (_: number, action: WorkspaceSurfaceAction) => action.id;
   trackEntry = (index: number, entry: any) => entry?.path ?? `${index}`;
   trackCompareRow = (index: number, row: any) => row?.key ?? `${index}`;
   trackSummary = (index: number, item: any) => item?.label ?? `${index}`;
@@ -516,12 +552,43 @@ export class ReassemblyToolWorkspaceHostComponent {
     return Array.isArray(value) ? value : [];
   }
 
-  canRefresh(surface: WorkspaceSurface): boolean {
+  selected(surface: WorkspaceSurface): unknown {
+    return this.selectedBySurface.get(surface.id);
+  }
+
+  select(surface: WorkspaceSurface, value: unknown): void {
+    this.selectedBySurface.set(surface.id, value);
+  }
+
+  isSelected(surface: WorkspaceSurface, value: any): boolean {
+    const selected = this.selected(surface) as any;
+    if (!selected) return false;
     return (
-      surface.surfaceId === 'search-workspace' ||
-      surface.surfaceId === 'compare-workspace' ||
-      surface.surfaceId === 'details-workspace'
+      (selected.path && value?.path && selected.path === value.path) ||
+      (selected.key && value?.key && selected.key === value.key) ||
+      selected === value
     );
+  }
+
+  emitAction(
+    surface: WorkspaceSurface,
+    action: WorkspaceSurfaceAction,
+  ): void {
+    this.surfaceAction.emit({
+      surface,
+      action: action.id,
+      payload: action.requiresSelection
+        ? this.selected(surface)
+        : undefined,
+    });
+  }
+
+  emitNamedAction(
+    surface: WorkspaceSurface,
+    action: string,
+    payload?: unknown,
+  ): void {
+    this.surfaceAction.emit({ surface, action, payload });
   }
 
   formatSize(value: unknown): string {

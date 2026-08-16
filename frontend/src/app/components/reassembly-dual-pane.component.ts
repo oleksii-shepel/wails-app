@@ -22,6 +22,10 @@ import {
 } from '../services/pane-comparison.service';
 import { PaneRecursiveComparisonService } from '../services/pane-recursive-comparison.service';
 import { SelectionBasketService } from '../services/selection-basket.service';
+import {
+  BatchRenameDialogService,
+  type BatchRenameItem,
+} from '../services/batch-rename-dialog.service';
 import { ReassemblyDirectoryPaneComponent } from './reassembly-directory-pane.component';
 import { ReassemblyWorkspaceSwitcherComponent } from './reassembly-workspace-switcher.component';
 import { ReassemblyPathHistoryComponent } from './reassembly-path-history.component';
@@ -32,6 +36,7 @@ import {
   type PaneSyncPlan,
 } from './pane-sync-review.component';
 import { SelectionBasketComponent } from './selection-basket.component';
+import { ReassemblyToolsCenterComponent } from './reassembly-tools-center.component';
 import {
   ReassemblyContextMenuComponent,
   type ReassemblyContextMenuItem,
@@ -107,6 +112,11 @@ const COMMAND = {
   openBasket: 'reassembly.basket.open',
   addToBasket: 'reassembly.basket.add',
   clearBasket: 'reassembly.basket.clear',
+
+  openOperations: 'reassembly.tools.operations',
+  diskUsage: 'reassembly.tools.diskUsage',
+  findDuplicates: 'reassembly.tools.findDuplicates',
+  batchRename: 'reassembly.files.batchRename',
 } as const;
 
 const BINDINGS: readonly InputBindingDefinition[] = [
@@ -166,6 +176,9 @@ const BINDINGS: readonly InputBindingDefinition[] = [
 
   { id:'reassembly.basket.open.ctrlShiftB', commandId:COMMAND.openBasket, contextId:CONTEXT_ID, source:'default', description:'Open Selection Basket', category:'Tools', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'b', modifiers:['ctrl','shift']}]}}},
   { id:'reassembly.basket.add.ctrlAltB', commandId:COMMAND.addToBasket, contextId:CONTEXT_ID, source:'default', description:'Add selection to basket', category:'Selection', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'b', modifiers:['ctrl','alt']}]}}},
+
+  { id:'reassembly.tools.diskUsage.ctrlShiftD', commandId:COMMAND.diskUsage, contextId:CONTEXT_ID, source:'default', description:'Analyze disk usage', category:'Tools', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'d', modifiers:['ctrl','shift']}]}}},
+  { id:'reassembly.files.batchRename.ctrlShiftR', commandId:COMMAND.batchRename, contextId:CONTEXT_ID, source:'default', description:'Batch rename selected items', category:'File Operations', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'r', modifiers:['ctrl','shift']}]}}},
 ];
 
 @Component({
@@ -181,6 +194,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     PaneComparisonBarComponent,
     PaneSyncReviewComponent,
     SelectionBasketComponent,
+    ReassemblyToolsCenterComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -260,6 +274,11 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           (internalDrop)="handleInternalDrop('right', $event.event, $event.targetPath)">
         </app-reassembly-directory-pane>
       </div>
+
+      <app-reassembly-tools-center
+        #toolsCenter
+        (changed)="refreshBothPanes()">
+      </app-reassembly-tools-center>
 
       <app-selection-basket
         #selectionBasket
@@ -389,6 +408,8 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
   workspaceSwitcher?: ReassemblyWorkspaceSwitcherComponent;
   @ViewChild('selectionBasket')
   selectionBasket?: SelectionBasketComponent;
+  @ViewChild('toolsCenter')
+  toolsCenter?: ReassemblyToolsCenterComponent;
   @ViewChild('pathHistory')
   pathHistory?: ReassemblyPathHistoryComponent;
   @ViewChild('quickAccess')
@@ -424,6 +445,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     private readonly paneComparison: PaneComparisonService,
     private readonly recursivePaneComparison: PaneRecursiveComparisonService,
     private readonly selectionBasketService: SelectionBasketService,
+    private readonly batchRenameDialog: BatchRenameDialogService,
     private readonly cdr: ChangeDetectorRef,
   ) {}
 
@@ -474,6 +496,85 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
 
   switchPane(): void {
     this.activate(this.activePaneId === 'left' ? 'right' : 'left');
+  }
+
+  openTools(page: 'operations' | 'disk' | 'duplicates'): void {
+    const rootPath = this.activePane?.isDirectoryTab
+      ? this.activePane.path
+      : this.otherPane?.isDirectoryTab
+        ? this.otherPane.path
+        : '';
+
+    this.toolsCenter?.open(page, rootPath);
+  }
+
+  async batchRenameActiveSelection(): Promise<void> {
+    const pane = this.activePane;
+    if (!pane?.isDirectoryTab || !pane.canRename) return;
+
+    const selected = pane.selectedEntries;
+    if (selected.length < 2) {
+      await this.confirmDialog.alert({
+        title: 'Batch Rename',
+        message: 'Select at least two items to batch rename.',
+      });
+      return;
+    }
+
+    const items: BatchRenameItem[] = selected.map(entry => ({
+      entry,
+      newName: entry.name,
+    }));
+
+    const renamed = await this.batchRenameDialog.openDialog(items, pane.path);
+    if (!renamed?.length) return;
+
+    const moves = await Promise.all(
+      renamed.map(async item => ({
+        source: item.entry.path,
+        destination: await this.api.joinPaths([
+          this.parentLocation(item.entry.path),
+          item.newName,
+        ]),
+        exactDestination: true,
+      })),
+    );
+
+    try {
+      const result = await this.api.batchMove(moves, true);
+      this.lastTransfer = `batch rename: ${result.succeeded}/${result.total}`;
+
+      await this.refreshBothPanes();
+
+      if (result.failed > 0) {
+        await this.confirmDialog.alert({
+          title: 'Batch Rename Completed with Errors',
+          message: `${result.failed} item${result.failed === 1 ? '' : 's'} could not be renamed.`,
+        });
+      }
+    } catch (error) {
+      await this.confirmDialog.alert({
+        title: 'Batch Rename Failed',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  async refreshBothPanes(): Promise<void> {
+    await Promise.all([
+      this.leftPane?.refresh(),
+      this.rightPane?.refresh(),
+    ]);
+    this.cdr.markForCheck();
+  }
+
+  private parentLocation(path: string): string {
+    const normalized = (path ?? '').replace(/\\/g, '/').replace(/\/+$/, '');
+    const schemeIndex = normalized.indexOf('://');
+    const minimum = schemeIndex >= 0 ? schemeIndex + 3 : 0;
+    const slash = normalized.lastIndexOf('/');
+    if (slash < minimum) return normalized;
+    return normalized.slice(0, slash);
   }
 
   addActiveSelectionToBasket(): void {
@@ -1046,6 +1147,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       this.menuCommand(COMMAND.open, 'Open', 'Enter'),
       { separator: true },
       this.menuCommand(COMMAND.rename, 'Rename', 'F2'),
+      this.menuCommand(COMMAND.batchRename, 'Batch rename…', 'Ctrl+Shift+R'),
       this.menuCommand(COMMAND.copy, 'Copy', 'Ctrl+C'),
       this.menuCommand(COMMAND.cut, 'Cut', 'Ctrl+X'),
       this.menuCommand(COMMAND.paste, 'Paste', 'Ctrl+V'),
@@ -1086,6 +1188,9 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
         this.menuCommand(COMMAND.selectByMask, 'Select by mask…', 'Alt+S'),
         this.menuCommand(COMMAND.unselectByMask, 'Unselect by mask…', 'Alt+U'),
         this.menuCommand(COMMAND.openBasket, 'Selection Basket', 'Ctrl+Shift+B'),
+        this.menuCommand(COMMAND.diskUsage, 'Disk Usage', 'Ctrl+Shift+D'),
+        this.menuCommand(COMMAND.findDuplicates, 'Find Duplicates'),
+        this.menuCommand(COMMAND.openOperations, 'Operations Center'),
         this.menuCommand(COMMAND.refresh, 'Refresh', 'Ctrl+R'),
       ],
     };
@@ -1466,6 +1571,11 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     descriptor(COMMAND.openBasket, 'Open Selection Basket', 'Tools', () => this.selectionBasket?.show());
     descriptor(COMMAND.addToBasket, 'Add to Selection Basket', 'Selection', () => this.addActiveSelectionToBasket(), () => !!this.activePane?.isDirectoryTab && (!!this.activePane?.hasSelection || !!this.activePane?.cursorPath));
     descriptor(COMMAND.clearBasket, 'Clear Selection Basket', 'Tools', () => this.selectionBasketService.clear(), () => this.selectionBasketService.snapshot.length > 0);
+
+    descriptor(COMMAND.openOperations, 'Open Operations Center', 'Tools', () => this.openTools('operations'));
+    descriptor(COMMAND.diskUsage, 'Disk Usage', 'Tools', () => this.openTools('disk'), () => !!this.activePane?.isDirectoryTab);
+    descriptor(COMMAND.findDuplicates, 'Find Duplicate Files', 'Tools', () => this.openTools('duplicates'), () => !!this.activePane?.isDirectoryTab);
+    descriptor(COMMAND.batchRename, 'Batch Rename', 'File Operations', () => this.batchRenameActiveSelection(), () => !!this.activePane?.canRename && (this.activePane?.selectedPaths.size ?? 0) > 1);
   }
 
   private activeViewer(): any {

@@ -3,6 +3,7 @@ import { ConfirmDialogComponent } from './components/confirm-dialog.component';
 import { ReassemblyDualPaneComponent } from './components/reassembly-dual-pane.component';
 import { ShortcutDebugOverlayComponent } from './components/shortcut-debug-overlay.component';
 import { ReassemblyOperationSurfaceComponent } from './components/reassembly-operation-surface.component';
+import { BatchRenameDialogComponent } from './components/batch-rename-dialog.component';
 
 @Component({
   selector: 'app-root',
@@ -11,6 +12,7 @@ import { ReassemblyOperationSurfaceComponent } from './components/reassembly-ope
     ReassemblyDualPaneComponent,
     ShortcutDebugOverlayComponent,
     ReassemblyOperationSurfaceComponent,
+    BatchRenameDialogComponent,
     ConfirmDialogComponent,
   ],
   template: `
@@ -33,6 +35,7 @@ import { ReassemblyOperationSurfaceComponent } from './components/reassembly-ope
       </app-shortcut-debug-overlay>
 
       <app-reassembly-operation-surface></app-reassembly-operation-surface>
+      <app-batch-rename-dialog></app-batch-rename-dialog>
       <app-confirm-dialog></app-confirm-dialog>
     </main>
   `,

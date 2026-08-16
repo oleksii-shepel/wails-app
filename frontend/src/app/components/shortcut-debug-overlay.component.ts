@@ -112,6 +112,9 @@ interface PendingChordLike {
         <div><kbd>Alt+E</kbd><span>select same extension</span></div>
         <div><kbd>Ctrl+Alt+B</kbd><span>add selection to basket</span></div>
         <div><kbd>Ctrl+Shift+B</kbd><span>open selection basket</span></div>
+        <div><kbd>Ctrl+Shift+D</kbd><span>disk usage</span></div>
+        <div><kbd>Ctrl+Shift+R</kbd><span>batch rename</span></div>
+        <div><span>Tools</span><span>operations · disk usage · duplicates</span></div>
         <div><kbd>Tree ← / →</kbd><span>collapse-parent / expand-child</span></div>
       </div>
 

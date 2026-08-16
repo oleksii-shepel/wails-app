@@ -55,6 +55,7 @@ type ReassemblyTab =
       anchorPath: string | null;
       scrollTop: number;
       entries: FileInfo[];
+      isPinned: boolean;
     }
   | {
       id: string;
@@ -63,6 +64,7 @@ type ReassemblyTab =
       title: string;
       targetPath: string;
       fileList: ViewerFileListItem[];
+      isPinned: boolean;
     };
 
 interface ReassemblyDirTabSession {
@@ -113,15 +115,17 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 2;
           (click)="activateTab(tab.id)">
           <span class="tab-title">
             <span class="tab-kind" aria-hidden="true">{{ tab.kind === 'viewer' ? '◉' : '▣' }}</span>
+            <span class="tab-pin-indicator" *ngIf="tab.isPinned" aria-label="Pinned tab">●</span>
             {{ tab.title }}
           </span>
           <span
             class="tab-close"
             role="button"
-            aria-label="Close tab"
+            [class.disabled]="tab.isPinned"
+            [attr.aria-label]="tab.isPinned ? 'Pinned tab' : 'Close tab'"
             (mousedown)="$event.preventDefault(); $event.stopPropagation()"
-            (click)="closeTab(tab.id); $event.stopPropagation()">
-            ×
+            (click)="tab.isPinned ? toggleTabPin(tab.id) : closeTab(tab.id); $event.stopPropagation()">
+            {{ tab.isPinned ? '●' : '×' }}
           </span>
         </button>
 
@@ -1325,6 +1329,13 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     const index = this.tabs.findIndex(tab => tab.id === tabId);
     if (index < 0) return;
 
+    const requested = this.tabs[index];
+    if (requested.isPinned) {
+      this.lastAction = `pinned tab kept: ${requested.title}`;
+      this.cdr.markForCheck();
+      return;
+    }
+
     if (this.tabs.length === 1) {
       const only = this.tabs[0];
       if (only.kind === 'dir') {
@@ -1373,11 +1384,109 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     }
   }
 
+  async closeActiveTab(): Promise<void> {
+    if (!this.activeTabId) return;
+    await this.closeTab(this.activeTabId);
+  }
+
   async nextTab(): Promise<void> {
     if (this.tabs.length < 2 || !this.activeTabId) return;
     const currentIndex = this.tabs.findIndex(tab => tab.id === this.activeTabId);
     const nextIndex = currentIndex < 0 ? 0 : (currentIndex + 1) % this.tabs.length;
     await this.activateTab(this.tabs[nextIndex].id);
+  }
+
+  async previousTab(): Promise<void> {
+    if (this.tabs.length < 2 || !this.activeTabId) return;
+    const currentIndex = this.tabs.findIndex(tab => tab.id === this.activeTabId);
+    const previousIndex =
+      currentIndex <= 0 ? this.tabs.length - 1 : currentIndex - 1;
+    await this.activateTab(this.tabs[previousIndex].id);
+  }
+
+  async jumpToTab(index: number): Promise<void> {
+    const target = this.tabs[index];
+    if (!target) return;
+    await this.activateTab(target.id);
+  }
+
+  toggleActiveTabPin(): void {
+    if (!this.activeTabId) return;
+    this.toggleTabPin(this.activeTabId);
+  }
+
+  toggleTabPin(tabId: string): void {
+    const index = this.tabs.findIndex(tab => tab.id === tabId);
+    if (index < 0) return;
+
+    const current = this.tabs[index];
+    const pinned = !current.isPinned;
+    const updated: ReassemblyTab = { ...current, isPinned: pinned };
+
+    this.tabs = this.tabs.map(tab => tab.id === tabId ? updated : tab);
+
+    if (current.kind === 'dir') {
+      this.workspaceService.toggleTabPin(this.paneId, tabId);
+    }
+
+    this.lastAction = `${pinned ? 'pin' : 'unpin'} tab: ${current.title}`;
+    this.cdr.markForCheck();
+  }
+
+  /**
+   * Reloads the pane's tab list from WorkspaceService after a workspace-level
+   * tab move/reorder operation. This keeps the reassembly runtime deliberately
+   * thin: WorkspaceService remains the source of truth for persistent tab order.
+   */
+  async reloadWorkspaceTabs(preferredTabId?: string): Promise<void> {
+    this.syncActiveDirSessionState();
+
+    const merged = this.mergePersistedDirectoryTabs();
+    if (merged.length === 0) {
+      await this.restoreWorkspaceState();
+      return;
+    }
+
+    this.tabs = merged;
+
+    const requested =
+      preferredTabId &&
+      this.tabs.some(tab => tab.id === preferredTabId)
+        ? preferredTabId
+        : this.tabs.find(tab => tab.id === this.activeTabId)?.id ??
+          this.tabs[0].id;
+
+    this.activeTabId = requested;
+
+    const active = this.activeTab;
+    if (active?.kind === 'dir') {
+      this.applyDirSessionBeforeLoad(active);
+
+      const interactionGeneration = this.interactionGeneration;
+      const loaded = await this.load(active.path, {
+        history: 'record',
+        syncTab: false,
+        restoreSession: true,
+      });
+
+      if (loaded) {
+        await this.finalizeDirSessionAfterLoad(
+          active,
+          interactionGeneration,
+        );
+      }
+    }
+
+    this.cdr.markForCheck();
+  }
+
+  exportActiveDirectoryTabId(): string | null {
+    const active = this.activeTab;
+    return active?.kind === 'dir' ? active.id : null;
+  }
+
+  exportTabCount(): number {
+    return this.tabs.length;
   }
 
   trackTab(_index: number, tab: ReassemblyTab): string {
@@ -1836,6 +1945,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       title: entry.name,
       targetPath: entry.path,
       fileList,
+      isPinned: false,
     };
 
     this.tabs = [...this.tabs, tab];
@@ -2360,6 +2470,12 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     return entry.path;
   }
 
+  entryIcon(entry: FileInfo): string {
+    if (entry.type === FileType.DIRECTORY) return '📁';
+    if (entry.type === FileType.ARCHIVE) return '🗜️';
+    return '📄';
+  }
+
   formatSize(bytes: number): string {
     if (!Number.isFinite(bytes) || bytes <= 0) return bytes === 0 ? '0 B' : '';
     const units = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -2859,6 +2975,18 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
             );
             return true;
           }
+
+          // Startup restore is intentionally non-interactive. If a remote or
+          // temporarily unavailable location cannot load, keep the cached tab
+          // session visible instead of prompting or discarding the workspace.
+          if (target.entries.length > 0) {
+            this.applyDirSessionBeforeLoad(target);
+            this.error = `Location unavailable: ${target.path}`;
+            this.lastAction = 'cached workspace tab';
+            this.loading = false;
+            this.cdr.markForCheck();
+            return true;
+          }
         }
 
         return false;
@@ -2895,6 +3023,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       anchorPath: session.anchorPath,
       scrollTop: session.scrollTop,
       entries: session.entries,
+      isPinned: !!tab.isPinned,
     };
   }
 
@@ -3022,6 +3151,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       anchorPath: null,
       scrollTop: 0,
       entries: [],
+      isPinned: false,
     };
   }
 

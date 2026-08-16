@@ -4,6 +4,7 @@ import { ReassemblyDualPaneComponent } from './components/reassembly-dual-pane.c
 import { ShortcutDebugOverlayComponent } from './components/shortcut-debug-overlay.component';
 import { ReassemblyOperationSurfaceComponent } from './components/reassembly-operation-surface.component';
 import { BatchRenameDialogComponent } from './components/batch-rename-dialog.component';
+import { RemoteConnectDialogComponent } from './components/remote-connect-dialog.component';
 
 @Component({
   selector: 'app-root',
@@ -13,6 +14,7 @@ import { BatchRenameDialogComponent } from './components/batch-rename-dialog.com
     ShortcutDebugOverlayComponent,
     ReassemblyOperationSurfaceComponent,
     BatchRenameDialogComponent,
+    RemoteConnectDialogComponent,
     ConfirmDialogComponent,
   ],
   template: `
@@ -36,6 +38,7 @@ import { BatchRenameDialogComponent } from './components/batch-rename-dialog.com
 
       <app-reassembly-operation-surface></app-reassembly-operation-surface>
       <app-batch-rename-dialog></app-batch-rename-dialog>
+      <app-remote-connect-dialog></app-remote-connect-dialog>
       <app-confirm-dialog></app-confirm-dialog>
     </main>
   `,

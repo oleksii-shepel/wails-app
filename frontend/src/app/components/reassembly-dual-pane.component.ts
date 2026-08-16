@@ -26,6 +26,7 @@ import {
   BatchRenameDialogService,
   type BatchRenameItem,
 } from '../services/batch-rename-dialog.service';
+import { RemoteConnectDialogService } from '../services/remote-connect-dialog.service';
 import { ReassemblyDirectoryPaneComponent } from './reassembly-directory-pane.component';
 import { ReassemblyWorkspaceSwitcherComponent } from './reassembly-workspace-switcher.component';
 import { ReassemblyPathHistoryComponent } from './reassembly-path-history.component';
@@ -37,12 +38,13 @@ import {
 } from './pane-sync-review.component';
 import { SelectionBasketComponent } from './selection-basket.component';
 import { ReassemblyToolsCenterComponent } from './reassembly-tools-center.component';
+import { ReassemblyGlobalSearchComponent } from './reassembly-global-search.component';
 import {
   ReassemblyContextMenuComponent,
   type ReassemblyContextMenuItem,
   type ReassemblyContextMenuState,
 } from './reassembly-context-menu.component';
-import type { FileInfo } from '../shared/protocol';
+import { FileInfo, FileType } from '../shared/protocol';
 
 type PaneId = 'left' | 'right';
 
@@ -72,6 +74,11 @@ const COMMAND = {
   newTab: 'reassembly.manager.newTab',
   closeTab: 'reassembly.manager.closeTab',
   nextTab: 'reassembly.manager.nextTab',
+  previousTab: 'reassembly.manager.previousTab',
+  toggleTabPin: 'reassembly.manager.toggleTabPin',
+  moveTabToOtherPane: 'reassembly.manager.moveTabToOtherPane',
+  moveTabLeft: 'reassembly.manager.moveTabLeft',
+  moveTabRight: 'reassembly.manager.moveTabRight',
   viewerPrevious: 'reassembly.viewer.previous',
   viewerNext: 'reassembly.viewer.next',
   viewerZoomIn: 'reassembly.viewer.zoomIn',
@@ -117,6 +124,12 @@ const COMMAND = {
   diskUsage: 'reassembly.tools.diskUsage',
   findDuplicates: 'reassembly.tools.findDuplicates',
   batchRename: 'reassembly.files.batchRename',
+
+  globalSearch: 'reassembly.navigation.globalSearch',
+  quickPathJump: 'reassembly.navigation.quickPathJump',
+  quickView: 'reassembly.files.quickView',
+  openWithExternal: 'reassembly.files.openWithExternal',
+  remoteConnect: 'reassembly.navigation.remoteConnect',
 } as const;
 
 const BINDINGS: readonly InputBindingDefinition[] = [
@@ -143,6 +156,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   { id:'reassembly.manager.newTab.ctrlT', commandId:COMMAND.newTab, contextId:CONTEXT_ID, source:'default', description:'New tab', category:'Tab Management', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'t', modifiers:['ctrl']}]}}},
   { id:'reassembly.manager.closeTab.ctrlW', commandId:COMMAND.closeTab, contextId:CONTEXT_ID, source:'default', description:'Close tab', category:'Tab Management', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'w', modifiers:['ctrl']}]}}},
   { id:'reassembly.manager.nextTab.ctrlTab', commandId:COMMAND.nextTab, contextId:CONTEXT_ID, source:'default', description:'Next tab', category:'Tab Management', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'tab', modifiers:['ctrl']}]}}},
+  { id:'reassembly.manager.previousTab.ctrlShiftTab', commandId:COMMAND.previousTab, contextId:CONTEXT_ID, source:'default', description:'Previous tab', category:'Tab Management', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'tab', modifiers:['ctrl','shift']}]}}},
+  { id:'reassembly.manager.toggleTabPin.ctrlAltP', commandId:COMMAND.toggleTabPin, contextId:CONTEXT_ID, source:'default', description:'Pin or unpin current tab', category:'Tab Management', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'p', modifiers:['ctrl','alt']}]}}},
   { id:'reassembly.viewer.previous.left', commandId:COMMAND.viewerPrevious, contextId:CONTEXT_ID, source:'default', description:'Previous viewer item', category:'Viewer', when:'viewerSurface', trigger:{device:'keyboard', chord:{steps:[{key:'arrowleft'}]}}},
   { id:'reassembly.viewer.next.right', commandId:COMMAND.viewerNext, contextId:CONTEXT_ID, source:'default', description:'Next viewer item', category:'Viewer', when:'viewerSurface', trigger:{device:'keyboard', chord:{steps:[{key:'arrowright'}]}}},
   { id:'reassembly.viewer.zoomIn.ctrlPlus', commandId:COMMAND.viewerZoomIn, contextId:CONTEXT_ID, source:'default', description:'Zoom viewer in', category:'Viewer', when:'viewerSurface', trigger:{device:'keyboard', chord:{steps:[{key:'+', modifiers:['ctrl']}]}}},
@@ -179,6 +194,11 @@ const BINDINGS: readonly InputBindingDefinition[] = [
 
   { id:'reassembly.tools.diskUsage.ctrlShiftD', commandId:COMMAND.diskUsage, contextId:CONTEXT_ID, source:'default', description:'Analyze disk usage', category:'Tools', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'d', modifiers:['ctrl','shift']}]}}},
   { id:'reassembly.files.batchRename.ctrlShiftR', commandId:COMMAND.batchRename, contextId:CONTEXT_ID, source:'default', description:'Batch rename selected items', category:'File Operations', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'r', modifiers:['ctrl','shift']}]}}},
+
+  { id:'reassembly.navigation.globalSearch.ctrlK', commandId:COMMAND.globalSearch, contextId:CONTEXT_ID, source:'default', description:'Open global search', category:'Search & Filter', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'k', modifiers:['ctrl']}]}}},
+  { id:'reassembly.navigation.quickPathJump.ctrlP', commandId:COMMAND.quickPathJump, contextId:CONTEXT_ID, source:'default', description:'Quick path jump', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'p', modifiers:['ctrl']}]}}},
+  { id:'reassembly.files.quickView.f3', commandId:COMMAND.quickView, contextId:CONTEXT_ID, source:'default', description:'Quick view selected file', category:'File Operations', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'f3'}]}}},
+  { id:'reassembly.files.openWithExternal.ctrlShiftO', commandId:COMMAND.openWithExternal, contextId:CONTEXT_ID, source:'default', description:'Open with external application', category:'File Operations', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'o', modifiers:['ctrl','shift']}]}}},
 ];
 
 @Component({
@@ -195,6 +215,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     PaneSyncReviewComponent,
     SelectionBasketComponent,
     ReassemblyToolsCenterComponent,
+    ReassemblyGlobalSearchComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -205,10 +226,10 @@ const BINDINGS: readonly InputBindingDefinition[] = [
       <app-pane-comparison-bar
         class="comparison-surface"
         [visible]="comparisonVisible"
-        [leftEntries]="leftPane?.entries ?? []"
-        [rightEntries]="rightPane?.entries ?? []"
-        [leftPath]="leftPane?.path ?? ''"
-        [rightPath]="rightPane?.path ?? ''"
+        [leftEntries]="leftPane.entries"
+        [rightEntries]="rightPane.entries"
+        [leftPath]="leftPane.path"
+        [rightPath]="rightPane.path"
         [recursive]="comparisonRecursive"
         [scanning]="recursiveComparisonScanning"
         [error]="recursiveComparisonError"
@@ -274,6 +295,12 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           (internalDrop)="handleInternalDrop('right', $event.event, $event.targetPath)">
         </app-reassembly-directory-pane>
       </div>
+
+      <app-reassembly-global-search
+        #globalSearch
+        (openResult)="openSearchResult($event)"
+        (openContainingFolder)="openSearchContainingFolder($event)">
+      </app-reassembly-global-search>
 
       <app-reassembly-tools-center
         #toolsCenter
@@ -410,6 +437,8 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
   selectionBasket?: SelectionBasketComponent;
   @ViewChild('toolsCenter')
   toolsCenter?: ReassemblyToolsCenterComponent;
+  @ViewChild('globalSearch')
+  globalSearchOverlay?: ReassemblyGlobalSearchComponent;
   @ViewChild('pathHistory')
   pathHistory?: ReassemblyPathHistoryComponent;
   @ViewChild('quickAccess')
@@ -446,6 +475,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     private readonly recursivePaneComparison: PaneRecursiveComparisonService,
     private readonly selectionBasketService: SelectionBasketService,
     private readonly batchRenameDialog: BatchRenameDialogService,
+    private readonly remoteConnectDialog: RemoteConnectDialogService,
     private readonly cdr: ChangeDetectorRef,
   ) {}
 
@@ -498,6 +528,94 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     this.activate(this.activePaneId === 'left' ? 'right' : 'left');
   }
 
+  openGlobalSearch(): void {
+    const root = this.activePane?.isDirectoryTab
+      ? this.activePane.path
+      : this.otherPane?.isDirectoryTab
+        ? this.otherPane.path
+        : '';
+    if (!root) return;
+    this.globalSearchOverlay?.open(root);
+  }
+
+  async quickPathJump(): Promise<void> {
+    const pane = this.activePane;
+    if (!pane?.isDirectoryTab) return;
+
+    const path = (await this.confirmDialog.prompt({
+      title: 'Go to Path',
+      message: 'Enter a local, VFS, or remote location.',
+      confirmText: 'Go',
+      defaultValue: pane.path,
+      historyKey: 'reassembly.path.jump',
+    }))?.trim();
+
+    if (!path) return;
+    pane.navigateTo(path);
+  }
+
+  quickViewActive(): void {
+    const pane = this.activePane;
+    const entry = pane?.cursorEntry;
+    if (!pane?.isDirectoryTab || !entry) return;
+    if (entry.type === FileType.DIRECTORY) return;
+    pane.openViewer(entry);
+  }
+
+  async openActiveExternally(): Promise<void> {
+    const pane = this.activePane;
+    const entry = pane?.cursorEntry;
+    if (!pane?.isDirectoryTab || !entry) return;
+    if (entry.type === FileType.DIRECTORY) return;
+
+    try {
+      await this.api.openFile(entry.path);
+    } catch (error) {
+      await this.confirmDialog.alert({
+        title: 'Open Externally Failed',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  async connectRemote(): Promise<void> {
+    const mount = await this.remoteConnectDialog.openDialog();
+    const path = mount?.publicPath?.trim();
+    if (!path) return;
+
+    const pane = this.activePane;
+    if (!pane?.isDirectoryTab) return;
+
+    pane.navigateTo(path);
+    pane.lastAction = `remote: ${path}`;
+    this.cdr.markForCheck();
+  }
+
+  openSearchResult(entry: FileInfo): void {
+    const pane = this.activePane;
+    if (!pane?.isDirectoryTab) return;
+
+    if (entry.type === FileType.DIRECTORY) {
+      pane.navigateTo(entry.path);
+      return;
+    }
+
+    pane.openViewer(entry);
+  }
+
+  openSearchContainingFolder(entry: FileInfo): void {
+    const pane = this.activePane;
+    if (!pane?.isDirectoryTab) return;
+
+    const target = entry.type === FileType.DIRECTORY
+      ? entry.path
+      : this.parentLocation(entry.path);
+
+    pane.navigateTo(target);
+    pane.lastAction = `search folder: ${target}`;
+    this.cdr.markForCheck();
+  }
+
   openTools(page: 'operations' | 'disk' | 'duplicates'): void {
     const rootPath = this.activePane?.isDirectoryTab
       ? this.activePane.path
@@ -510,13 +628,31 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
 
   async batchRenameActiveSelection(): Promise<void> {
     const pane = this.activePane;
-    if (!pane?.isDirectoryTab || !pane.canRename) return;
+
+    if (!pane?.isDirectoryTab) {
+      await this.confirmDialog.alert({
+        title: 'Batch Rename',
+        message: 'Batch Rename is available from a directory pane.',
+      });
+      return;
+    }
+
+    if (!pane.sourceCapabilities.rename) {
+      await this.confirmDialog.alert({
+        title: 'Batch Rename',
+        message: 'This location does not allow renaming.',
+      });
+      return;
+    }
 
     const selected = pane.selectedEntries;
     if (selected.length < 2) {
       await this.confirmDialog.alert({
         title: 'Batch Rename',
-        message: 'Select at least two items to batch rename.',
+        message:
+          selected.length === 1
+            ? 'Select at least one more item to batch rename.'
+            : 'Select at least two items to batch rename.',
       });
       return;
     }
@@ -558,6 +694,70 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
         message: error instanceof Error ? error.message : String(error),
       });
     }
+  }
+
+  async moveActiveTabToOtherPane(): Promise<void> {
+    const source = this.activePane;
+    const destination = this.otherPane;
+    if (!source || !destination) return;
+
+    const tabId = source.exportActiveDirectoryTabId();
+    if (!tabId) return;
+
+    const toIndex = destination.exportTabCount();
+    const moved = this.workspaceService.moveTab(
+      this.activePaneId,
+      this.activePaneId === 'left' ? 'right' : 'left',
+      tabId,
+      toIndex,
+    );
+    if (!moved) return;
+
+    const destinationId: PaneId =
+      this.activePaneId === 'left' ? 'right' : 'left';
+
+    await Promise.all([
+      source.reloadWorkspaceTabs(),
+      destination.reloadWorkspaceTabs(tabId),
+    ]);
+
+    this.activate(destinationId);
+    this.cdr.markForCheck();
+  }
+
+  async reorderActiveTab(delta: -1 | 1): Promise<void> {
+    const pane = this.activePane;
+    if (!pane) return;
+
+    const tabId = pane.exportActiveDirectoryTabId();
+    if (!tabId) return;
+
+    const currentCount = pane.exportTabCount();
+    const workspace = this.workspaceService.activeWorkspace$.value;
+    const paneState =
+      this.activePaneId === 'left'
+        ? workspace?.leftPane
+        : workspace?.rightPane;
+
+    const currentIndex =
+      paneState?.tabs?.findIndex((tab: any) => tab.id === tabId) ?? -1;
+    if (currentIndex < 0) return;
+
+    const targetIndex = Math.max(
+      0,
+      Math.min(currentCount, currentIndex + delta),
+    );
+
+    const moved = this.workspaceService.moveTab(
+      this.activePaneId,
+      this.activePaneId,
+      tabId,
+      targetIndex,
+    );
+    if (!moved) return;
+
+    await pane.reloadWorkspaceTabs(tabId);
+    this.cdr.markForCheck();
   }
 
   async refreshBothPanes(): Promise<void> {
@@ -1145,6 +1345,8 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
 
     const items: ReassemblyContextMenuItem[] = [
       this.menuCommand(COMMAND.open, 'Open', 'Enter'),
+      this.menuCommand(COMMAND.quickView, 'Quick view', 'F3'),
+      this.menuCommand(COMMAND.openWithExternal, 'Open externally', 'Ctrl+Shift+O'),
       { separator: true },
       this.menuCommand(COMMAND.rename, 'Rename', 'F2'),
       this.menuCommand(COMMAND.batchRename, 'Batch rename…', 'Ctrl+Shift+R'),
@@ -1188,9 +1390,17 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
         this.menuCommand(COMMAND.selectByMask, 'Select by mask…', 'Alt+S'),
         this.menuCommand(COMMAND.unselectByMask, 'Unselect by mask…', 'Alt+U'),
         this.menuCommand(COMMAND.openBasket, 'Selection Basket', 'Ctrl+Shift+B'),
+        this.menuCommand(COMMAND.globalSearch, 'Search here…', 'Ctrl+K'),
+        this.menuCommand(COMMAND.quickPathJump, 'Go to path…', 'Ctrl+P'),
+        this.menuCommand(COMMAND.remoteConnect, 'Connect remote…'),
         this.menuCommand(COMMAND.diskUsage, 'Disk Usage', 'Ctrl+Shift+D'),
         this.menuCommand(COMMAND.findDuplicates, 'Find Duplicates'),
         this.menuCommand(COMMAND.openOperations, 'Operations Center'),
+        { separator: true },
+        this.menuCommand(COMMAND.toggleTabPin, 'Pin / unpin current tab', 'Ctrl+Alt+P'),
+        this.menuCommand(COMMAND.moveTabToOtherPane, 'Move current tab to other pane'),
+        this.menuCommand(COMMAND.moveTabLeft, 'Move tab left'),
+        this.menuCommand(COMMAND.moveTabRight, 'Move tab right'),
         this.menuCommand(COMMAND.refresh, 'Refresh', 'Ctrl+R'),
       ],
     };
@@ -1460,6 +1670,11 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     descriptor(COMMAND.newTab, 'New Tab', 'Tab Management', () => this.activePane?.newTab());
     descriptor(COMMAND.closeTab, 'Close Tab', 'Tab Management', () => this.activePane?.closeActiveTab());
     descriptor(COMMAND.nextTab, 'Next Tab', 'Tab Management', () => this.activePane?.nextTab());
+    descriptor(COMMAND.previousTab, 'Previous Tab', 'Tab Management', () => this.activePane?.previousTab());
+    descriptor(COMMAND.toggleTabPin, 'Pin/Unpin Tab', 'Tab Management', () => this.activePane?.toggleActiveTabPin());
+    descriptor(COMMAND.moveTabToOtherPane, 'Move Tab to Other Pane', 'Tab Management', () => this.moveActiveTabToOtherPane());
+    descriptor(COMMAND.moveTabLeft, 'Move Tab Left', 'Tab Management', () => this.reorderActiveTab(-1));
+    descriptor(COMMAND.moveTabRight, 'Move Tab Right', 'Tab Management', () => this.reorderActiveTab(1));
     descriptor(COMMAND.viewerPrevious, 'Previous Viewer Item', 'Viewer', () => this.invokeViewer('showPrevious'), () => this.hasViewerMethod('showPrevious'));
     descriptor(COMMAND.viewerNext, 'Next Viewer Item', 'Viewer', () => this.invokeViewer('showNext'), () => this.hasViewerMethod('showNext'));
     descriptor(COMMAND.viewerZoomIn, 'Zoom Viewer In', 'Viewer', () => this.invokeViewer('zoomIn'), () => this.hasViewerMethod('zoomIn'));
@@ -1575,7 +1790,21 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     descriptor(COMMAND.openOperations, 'Open Operations Center', 'Tools', () => this.openTools('operations'));
     descriptor(COMMAND.diskUsage, 'Disk Usage', 'Tools', () => this.openTools('disk'), () => !!this.activePane?.isDirectoryTab);
     descriptor(COMMAND.findDuplicates, 'Find Duplicate Files', 'Tools', () => this.openTools('duplicates'), () => !!this.activePane?.isDirectoryTab);
-    descriptor(COMMAND.batchRename, 'Batch Rename', 'File Operations', () => this.batchRenameActiveSelection(), () => !!this.activePane?.canRename && (this.activePane?.selectedPaths.size ?? 0) > 1);
+    descriptor(
+      COMMAND.batchRename,
+      'Batch Rename',
+      'File Operations',
+      () => this.batchRenameActiveSelection(),
+      () =>
+        !!this.activePane?.isDirectoryTab &&
+        this.activePane.sourceCapabilities.rename,
+    );
+
+    descriptor(COMMAND.globalSearch, 'Open Global Search', 'Search & Filter', () => this.openGlobalSearch(), () => !!this.activePane?.isDirectoryTab);
+    descriptor(COMMAND.quickPathJump, 'Quick Path Jump', 'Navigation', () => this.quickPathJump(), () => !!this.activePane?.isDirectoryTab);
+    descriptor(COMMAND.quickView, 'Quick View', 'File Operations', () => this.quickViewActive(), () => !!this.activePane?.isDirectoryTab && !!this.activePane?.cursorEntry && this.activePane.cursorEntry.type !== FileType.DIRECTORY);
+    descriptor(COMMAND.openWithExternal, 'Open with External App', 'File Operations', () => this.openActiveExternally(), () => !!this.activePane?.isDirectoryTab && !!this.activePane?.cursorEntry && this.activePane.cursorEntry.type !== FileType.DIRECTORY);
+    descriptor(COMMAND.remoteConnect, 'Connect Remote Location', 'Navigation', () => this.connectRemote());
   }
 
   private activeViewer(): any {

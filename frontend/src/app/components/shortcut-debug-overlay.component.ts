@@ -114,7 +114,14 @@ interface PendingChordLike {
         <div><kbd>Ctrl+Shift+B</kbd><span>open selection basket</span></div>
         <div><kbd>Ctrl+Shift+D</kbd><span>disk usage</span></div>
         <div><kbd>Ctrl+Shift+R</kbd><span>batch rename</span></div>
+        <div><kbd>Ctrl+Tab / Ctrl+Shift+Tab</kbd><span>next / previous tab</span></div>
+        <div><kbd>Ctrl+Alt+P</kbd><span>pin / unpin tab</span></div>
+        <div><span>Tab menu</span><span>reorder · move to other pane</span></div>
         <div><span>Tools</span><span>operations · disk usage · duplicates</span></div>
+        <div><kbd>Ctrl+K</kbd><span>global search</span></div>
+        <div><kbd>Ctrl+P</kbd><span>quick path jump</span></div>
+        <div><kbd>F3</kbd><span>quick view</span></div>
+        <div><kbd>Ctrl+Shift+O</kbd><span>open externally</span></div>
         <div><kbd>Tree ← / →</kbd><span>collapse-parent / expand-child</span></div>
       </div>
 

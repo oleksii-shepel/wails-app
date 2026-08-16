@@ -173,8 +173,8 @@ type ToolPage = 'operations' | 'disk' | 'duplicates';
             Scan recursively to find content-identical files.
           </div>
 
-          <div class="warnings" *ngIf="duplicateResult?.warnings?.length">
-            {{ duplicateResult?.warnings?.length }} paths could not be scanned.
+          <div class="warnings" *ngIf="duplicateResult && duplicateResult.warnings.length > 0">
+            {{ duplicateResult.warnings.length }} paths could not be scanned.
           </div>
           <div class="error" *ngIf="duplicateError">{{ duplicateError }}</div>
         </div>

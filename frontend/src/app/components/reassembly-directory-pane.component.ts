@@ -65,6 +65,8 @@ type ReassemblyTab =
       anchorPath: string | null;
       scrollTop: number;
       entries: FileInfo[];
+      navigationEntries: string[];
+      navigationIndex: number;
       isClosable: boolean;
       isPinned: boolean;
     }
@@ -86,7 +88,7 @@ type ReassemblyTab =
     };
 
 interface ReassemblyDirTabSession {
-  schemaVersion: 2;
+  schemaVersion: 3;
   viewMode: ReassemblyDirectoryView;
   sortField: ReassemblySortField;
   sortDirection: ReassemblySortDirection;
@@ -99,9 +101,11 @@ interface ReassemblyDirTabSession {
   anchorPath: string | null;
   scrollTop: number;
   entries: FileInfo[];
+  navigationEntries: string[];
+  navigationIndex: number;
 }
 
-const REASSEMBLY_DIR_TAB_SESSION_VERSION = 2;
+const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
 
 @Component({
   selector: 'app-reassembly-directory-pane',
@@ -197,6 +201,24 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 2;
           [path]="path"
           (navigate)="navigateTo($event)">
         </app-reassembly-address-bar>
+
+        <button
+          type="button"
+          class="nav-button"
+          (click)="quickAccessRequested.emit()"
+          aria-label="Quick Access"
+          title="Quick Access (Ctrl+Q)">
+          ⚡
+        </button>
+
+        <button
+          type="button"
+          class="nav-button"
+          (click)="historyRequested.emit()"
+          aria-label="Location history"
+          title="Location history (Ctrl+H)">
+          ◷
+        </button>
 
         <button
           type="button"
@@ -1133,6 +1155,8 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   @Input() currentPathPinned = false;
   @Output() activateRequested = new EventEmitter<void>();
   @Output() togglePinRequested = new EventEmitter<void>();
+  @Output() quickAccessRequested = new EventEmitter<void>();
+  @Output() historyRequested = new EventEmitter<void>();
   @Output() entryContextMenu = new EventEmitter<{ event: MouseEvent; entry: FileInfo }>();
   @Output() backgroundContextMenu = new EventEmitter<MouseEvent>();
   @Output() internalDrop = new EventEmitter<{
@@ -3197,7 +3221,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       );
     }
 
-    this.pathHistory.addLocation(this.path, 'reassembly');
+    this.pathHistory.addLocation(this.path, this.paneId);
     this.syncActiveDirSessionState();
     this.cdr.markForCheck();
   }
@@ -3523,6 +3547,8 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       anchorPath: null,
       scrollTop: 0,
       entries: [],
+      navigationEntries: [],
+      navigationIndex: -1,
     };
   }
 
@@ -3605,6 +3631,17 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
           Array.isArray(parsed.entries)
             ? parsed.entries.map(entry => ({ ...entry }))
             : [],
+        navigationEntries:
+          Array.isArray(parsed.navigationEntries)
+            ? parsed.navigationEntries.filter(
+                (entry): entry is string =>
+                  typeof entry === 'string' && !!entry.trim(),
+              ).slice(-200)
+            : [],
+        navigationIndex:
+          typeof parsed.navigationIndex === 'number'
+            ? parsed.navigationIndex
+            : -1,
       };
     } catch {
       return fallback;
@@ -3629,6 +3666,8 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
         anchorPath: tab.anchorPath,
         scrollTop: Math.max(0, Math.round(tab.scrollTop)),
         entries: tab.entries.map(entry => ({ ...entry })),
+        navigationEntries: [...tab.navigationEntries],
+        navigationIndex: tab.navigationIndex,
       };
 
       localStorage.setItem(
@@ -3670,6 +3709,8 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       anchorPath: this.anchorPath,
       scrollTop: this.currentScrollTop(),
       entries: this.entries.map(entry => ({ ...entry })),
+      navigationEntries: [...this.navigation.snapshotState().entries],
+      navigationIndex: this.navigation.snapshotState().index,
     };
 
     this.tabs = this.tabs.map(tab =>
@@ -3749,6 +3790,10 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     this.directoriesFirst = tab.directoriesFirst;
     this.filterText = tab.filterText;
     this.filterVisible = tab.filterVisible;
+    this.navigation.restore({
+      entries: tab.navigationEntries,
+      index: tab.navigationIndex,
+    });
 
     // Cached entries make tab switching immediate while the source refreshes.
     this.entries = tab.entries.map(entry => ({ ...entry }));
@@ -4001,6 +4046,8 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       anchorPath: session.anchorPath,
       scrollTop: session.scrollTop,
       entries: session.entries,
+      navigationEntries: session.navigationEntries,
+      navigationIndex: session.navigationIndex,
       isClosable: tab.isClosable !== false,
       isPinned: !!tab.isPinned,
     };
@@ -4137,7 +4184,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
         );
       }
 
-      this.pathHistory.addLocation(this.path, 'reassembly');
+      this.pathHistory.addLocation(this.path, this.paneId);
 
       if (!options.restoreSession) {
         this.syncActiveDirSessionState();
@@ -4182,6 +4229,8 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       anchorPath: null,
       scrollTop: 0,
       entries: [],
+      navigationEntries: normalized ? [normalized] : [],
+      navigationIndex: normalized ? 0 : -1,
       isClosable: true,
       isPinned: false,
     };
@@ -4213,6 +4262,8 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       scrollTop: path === current.path ? current.scrollTop : 0,
       expandedPaths: path === current.path ? current.expandedPaths : [],
       entries: path === current.path ? current.entries : [],
+      navigationEntries: [...this.navigation.snapshotState().entries],
+      navigationIndex: this.navigation.snapshotState().index,
     };
 
     this.tabs = this.tabs.map((tab, i) => i === index ? updated : tab);

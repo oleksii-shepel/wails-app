@@ -1,48 +1,303 @@
-import { ChangeDetectionStrategy, ChangeDetectorRef, Component, EventEmitter, OnDestroy, OnInit, Output } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  ChangeDetectorRef,
+  Component,
+  EventEmitter,
+  Input,
+  OnDestroy,
+  OnInit,
+  Output,
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { InputEngineService } from '../services/input-engine.service';
 import type { InputBindingDefinition } from '../services/input-system.types';
-import { PathHistoryService, type LocationHistoryEntry } from '../services/path-history.service';
+import {
+  PathHistoryService,
+  type LocationHistoryEntry,
+} from '../services/path-history.service';
+
+type HistoryMode = 'pane' | 'all' | 'frequent';
 
 const CONTEXT_ID = 'dialog.pathHistory';
 const OWNER_ID = 'dialog.pathHistory';
-const COMMAND = { close:'reassembly.pathHistory.close', previous:'reassembly.pathHistory.previous', next:'reassembly.pathHistory.next', open:'reassembly.pathHistory.open', remove:'reassembly.pathHistory.remove', clear:'reassembly.pathHistory.clear' } as const;
+const COMMAND = {
+  close:'reassembly.pathHistory.close',
+  previous:'reassembly.pathHistory.previous',
+  next:'reassembly.pathHistory.next',
+  open:'reassembly.pathHistory.open',
+  remove:'reassembly.pathHistory.remove',
+  clear:'reassembly.pathHistory.clear',
+  previousMode:'reassembly.pathHistory.previousMode',
+  nextMode:'reassembly.pathHistory.nextMode',
+  copyJson:'reassembly.pathHistory.copyJson',
+} as const;
+
 const BINDINGS: readonly InputBindingDefinition[] = [
   { id:'reassembly.pathHistory.escape', commandId:COMMAND.close, contextId:CONTEXT_ID, source:'default', description:'Close path history', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'escape'}]}}},
   { id:'reassembly.pathHistory.up', commandId:COMMAND.previous, contextId:CONTEXT_ID, source:'default', description:'Previous history entry', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'arrowup'}]}}},
   { id:'reassembly.pathHistory.down', commandId:COMMAND.next, contextId:CONTEXT_ID, source:'default', description:'Next history entry', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'arrowdown'}]}}},
   { id:'reassembly.pathHistory.enter', commandId:COMMAND.open, contextId:CONTEXT_ID, source:'default', description:'Open history entry', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'enter'}]}}},
   { id:'reassembly.pathHistory.delete', commandId:COMMAND.remove, contextId:CONTEXT_ID, source:'default', description:'Remove history entry', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'delete'}]}}},
-  { id:'reassembly.pathHistory.clear.ctrlDelete', commandId:COMMAND.clear, contextId:CONTEXT_ID, source:'default', description:'Clear path history', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'delete', modifiers:['ctrl']}]}}},
+  { id:'reassembly.pathHistory.ctrlDelete', commandId:COMMAND.clear, contextId:CONTEXT_ID, source:'default', description:'Clear history', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'delete',modifiers:['ctrl']}]}}},
+  { id:'reassembly.pathHistory.tab', commandId:COMMAND.nextMode, contextId:CONTEXT_ID, source:'default', description:'Next history view', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'tab'}]}}},
+  { id:'reassembly.pathHistory.shiftTab', commandId:COMMAND.previousMode, contextId:CONTEXT_ID, source:'default', description:'Previous history view', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'tab',modifiers:['shift']}]}}},
+  { id:'reassembly.pathHistory.ctrlC', commandId:COMMAND.copyJson, contextId:CONTEXT_ID, source:'default', description:'Copy history JSON', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'c',modifiers:['ctrl']}]}}},
 ];
 
 @Component({
-  selector:'app-reassembly-path-history', standalone:true, imports:[CommonModule, FormsModule], changeDetection:ChangeDetectionStrategy.OnPush,
-  template:`<div class="backdrop" *ngIf="visible" (mousedown)="close()"><section class="history" role="dialog" aria-modal="true" aria-label="Path history" (mousedown)="$event.stopPropagation()">
-    <header><div><strong>Path history</strong><span>{{ filteredEntries.length }} / {{ entries.length }}</span></div><input [(ngModel)]="filterText" (ngModelChange)="onFilterChange()" placeholder="Filter history" autocomplete="off" spellcheck="false" aria-label="Filter path history" /></header>
-    <div class="list" role="listbox"><button *ngFor="let entry of filteredEntries; let i = index; trackBy: trackEntry" type="button" class="entry" role="option" [class.selected]="i === selectedIndex" [attr.aria-selected]="i === selectedIndex" (mouseenter)="selectedIndex = i" (click)="openEntry(entry)"><span class="path">{{ entry.location }}</span><span class="meta"><span>{{ entry.scheme || 'filesystem' }}</span><span *ngIf="entry.accessCount">×{{ entry.accessCount }}</span><span>{{ formatTime(entry.timestamp) }}</span></span></button><div class="empty" *ngIf="filteredEntries.length === 0">{{ entries.length === 0 ? 'No path history yet.' : 'No matching locations.' }}</div></div>
-    <footer><button type="button" [disabled]="!selectedEntry" (click)="removeSelected()">Remove</button><button type="button" class="danger" [disabled]="entries.length === 0" (click)="clearAll()">Clear all</button><span class="keys">↑ ↓ · Enter · Delete · Ctrl+Delete · Esc</span></footer>
-  </section></div>`,
-  styles:[`:host{position:fixed;inset:0;z-index:9450;pointer-events:none}.backdrop{position:fixed;inset:0;display:grid;place-items:start center;padding-top:min(11vh,100px);background:rgba(0,0,0,.24);pointer-events:auto}.history{box-sizing:border-box;display:flex;flex-direction:column;width:min(720px,calc(100vw - 24px));max-height:min(680px,calc(100vh - 40px));overflow:hidden;border:1px solid var(--vsc-border,#454545);border-radius:8px;background:var(--vsc-menu-background,#252526);color:var(--vsc-foreground,#ccc);box-shadow:0 18px 60px rgba(0,0,0,.48);font:12px/1.4 var(--vsc-font-family,system-ui,sans-serif)}header,footer{display:flex;align-items:center;gap:9px;padding:9px 10px}header{justify-content:space-between;border-bottom:1px solid var(--vsc-border-subtle,#2b2b2b)}header>div{display:flex;gap:8px;align-items:baseline}header span,.meta,.keys{color:var(--vsc-description-foreground,#969696)}input{box-sizing:border-box;width:min(300px,42vw);height:28px;padding:0 8px;border:1px solid var(--vsc-border,#454545);border-radius:4px;outline:none;background:var(--vsc-input-background,#181818);color:inherit;font:inherit}input:focus{border-color:var(--vsc-focus-border,#007fd4)}.list{min-height:0;overflow:auto;padding:5px}.entry{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;width:100%;min-height:38px;padding:5px 8px;border:1px solid transparent;border-radius:4px;background:transparent;color:inherit;text-align:left;cursor:pointer;font:inherit}.entry:hover,.entry.selected{background:var(--vsc-list-hover-background,#2a2d2e)}.entry.selected{border-color:color-mix(in srgb,var(--vsc-accent-blue,#007acc) 52%,transparent)}.path{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--vsc-font-family-mono,ui-monospace,monospace)}.meta{display:flex;gap:8px;align-items:center;font-size:10px}.empty{padding:34px;color:var(--vsc-description-foreground,#969696);text-align:center}footer{border-top:1px solid var(--vsc-border-subtle,#2b2b2b)}footer button{min-height:28px;padding:4px 9px;border:1px solid transparent;border-radius:4px;background:transparent;color:inherit;cursor:pointer;font:inherit}footer button:hover:not(:disabled){background:var(--vsc-list-hover-background,#2a2d2e);border-color:var(--vsc-border,#454545)}footer button:disabled{opacity:.35;cursor:default}footer .danger:not(:disabled){color:var(--vsc-error-foreground,#f48771)}.keys{margin-left:auto;font-size:10px}`]
+  selector:'app-reassembly-path-history',
+  standalone:true,
+  imports:[CommonModule,FormsModule],
+  changeDetection:ChangeDetectionStrategy.OnPush,
+  template:`
+    <div class="backdrop" *ngIf="visible" (mousedown)="close()">
+      <section class="history" role="dialog" aria-modal="true" aria-label="Location history"
+        (mousedown)="$event.stopPropagation()">
+        <header>
+          <div>
+            <strong>Location History</strong>
+            <span>{{ filteredEntries.length }} / {{ modeEntries.length }}</span>
+          </div>
+          <input [(ngModel)]="filterText" (ngModelChange)="onFilterChange()"
+            placeholder="Filter history" autocomplete="off" spellcheck="false"
+            aria-label="Filter location history" />
+        </header>
+
+        <nav class="modes">
+          <button type="button" [class.active]="mode==='pane'" (click)="setMode('pane')">
+            This Pane
+          </button>
+          <button type="button" [class.active]="mode==='all'" (click)="setMode('all')">
+            All
+          </button>
+          <button type="button" [class.active]="mode==='frequent'" (click)="setMode('frequent')">
+            Frequent
+          </button>
+        </nav>
+
+        <div class="list" role="listbox">
+          <button *ngFor="let entry of filteredEntries; let i=index; trackBy:trackEntry"
+            type="button" class="entry" [class.selected]="i===selectedIndex"
+            role="option" [attr.aria-selected]="i===selectedIndex"
+            (mouseenter)="selectedIndex=i" (click)="openEntry(entry)">
+            <span class="main">
+              <strong>{{ labelFor(entry.location) }}</strong>
+              <span class="path">{{ entry.location }}</span>
+            </span>
+            <span class="meta">
+              <span>{{ entry.scheme || 'filesystem' }}</span>
+              <span>{{ entry.paneId || '—' }}</span>
+              <span *ngIf="entry.accessCount">×{{ entry.accessCount }}</span>
+              <span>{{ formatTime(entry.timestamp) }}</span>
+            </span>
+          </button>
+          <div class="empty" *ngIf="filteredEntries.length===0">
+            {{ entries.length===0 ? 'No path history yet.' : 'No matching locations.' }}
+          </div>
+        </div>
+
+        <footer>
+          <button type="button" [disabled]="!selectedEntry" (click)="removeSelected()">Remove</button>
+          <button type="button" [disabled]="entries.length===0" (click)="copyJson()">Copy JSON</button>
+          <button type="button" class="danger" [disabled]="entries.length===0" (click)="clearAll()">Clear all</button>
+          <span class="keys">Tab views · ↑ ↓ · Enter · Delete · Ctrl+C · Ctrl+Delete · Esc</span>
+        </footer>
+      </section>
+    </div>
+  `,
+  styles:[`
+    :host{position:fixed;inset:0;z-index:9450;pointer-events:none}
+    .backdrop{position:fixed;inset:0;display:grid;place-items:start center;padding-top:min(11vh,100px);background:rgba(0,0,0,.24);pointer-events:auto}
+    .history{box-sizing:border-box;display:flex;flex-direction:column;width:min(780px,calc(100vw - 24px));max-height:min(700px,calc(100vh - 40px));overflow:hidden;border:1px solid var(--vsc-border,#454545);border-radius:8px;background:var(--vsc-menu-background,#252526);color:var(--vsc-foreground,#ccc);box-shadow:0 18px 60px rgba(0,0,0,.48);font:12px/1.4 var(--vsc-font-family,system-ui,sans-serif)}
+    header,footer{display:flex;align-items:center;gap:9px;padding:9px 10px}header{justify-content:space-between;border-bottom:1px solid var(--vsc-border-subtle,#2b2b2b)}header>div{display:flex;gap:8px;align-items:baseline}
+    header span,.meta,.keys{color:var(--vsc-description-foreground,#969696)}
+    input{box-sizing:border-box;width:min(300px,42vw);height:28px;padding:0 8px;border:1px solid var(--vsc-border,#454545);border-radius:4px;outline:none;background:var(--vsc-input-background,#181818);color:inherit;font:inherit}
+    .modes{display:flex;gap:3px;padding:5px;border-bottom:1px solid var(--vsc-border-subtle,#2b2b2b)}.modes button,footer button{min-height:27px;padding:3px 8px;border:1px solid transparent;border-radius:4px;background:transparent;color:inherit;cursor:pointer;font:inherit}.modes button.active{background:var(--vsc-list-hover-background,#2a2d2e);border-color:var(--vsc-border,#454545)}
+    .list{min-height:0;overflow:auto;padding:5px}.entry{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;width:100%;min-height:45px;padding:5px 8px;border:1px solid transparent;border-radius:4px;background:transparent;color:inherit;text-align:left;cursor:pointer;font:inherit}.entry:hover,.entry.selected{background:var(--vsc-list-hover-background,#2a2d2e)}.entry.selected{border-color:color-mix(in srgb,var(--vsc-accent-blue,#007acc) 52%,transparent)}
+    .main{min-width:0;display:grid}.main strong,.path{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.path{color:var(--vsc-description-foreground,#969696);font:10px var(--vsc-font-family-mono,ui-monospace,monospace)}.meta{display:flex;gap:8px;align-items:center;font-size:10px}.empty{padding:34px;color:var(--vsc-description-foreground,#969696);text-align:center}
+    footer{border-top:1px solid var(--vsc-border-subtle,#2b2b2b)}footer button:hover:not(:disabled){background:var(--vsc-list-hover-background,#2a2d2e);border-color:var(--vsc-border,#454545)}footer button:disabled{opacity:.35;cursor:default}footer .danger:not(:disabled){color:var(--vsc-error-foreground,#f48771)}.keys{margin-left:auto;font-size:10px}
+  `],
 })
 export class ReassemblyPathHistoryComponent implements OnInit, OnDestroy {
-  @Output() navigate = new EventEmitter<string>();
-  visible=false; filterText=''; entries:LocationHistoryEntry[]=[]; selectedIndex=0;
-  constructor(private readonly historyService:PathHistoryService, private readonly confirmDialog:ConfirmDialogService, private readonly input:InputEngineService, private readonly cdr:ChangeDetectorRef){}
-  get filteredEntries():LocationHistoryEntry[]{const q=this.filterText.trim().toLocaleLowerCase();return q?this.entries.filter(e=>(e.location??'').toLocaleLowerCase().includes(q)||(e.scheme??'').toLocaleLowerCase().includes(q)):this.entries}
-  get selectedEntry():LocationHistoryEntry|null{return this.filteredEntries[this.selectedIndex]??null}
-  ngOnInit():void{this.input.registerContext({id:CONTEXT_ID,kind:'dialog',priority:390,parentId:'global',description:'Path history'});this.input.registerCommandDescriptor({id:COMMAND.close,title:'Close Path History',category:'Navigation',execute:()=>this.close()},OWNER_ID);this.input.registerCommandDescriptor({id:COMMAND.previous,title:'Previous Path History Entry',category:'Navigation',execute:()=>this.move(-1)},OWNER_ID);this.input.registerCommandDescriptor({id:COMMAND.next,title:'Next Path History Entry',category:'Navigation',execute:()=>this.move(1)},OWNER_ID);this.input.registerCommandDescriptor({id:COMMAND.open,title:'Open Path History Entry',category:'Navigation',execute:()=>{const e=this.selectedEntry;if(e)this.openEntry(e)}},OWNER_ID);this.input.registerCommandDescriptor({id:COMMAND.remove,title:'Remove Path History Entry',category:'Navigation',execute:()=>this.removeSelected(),isEnabled:()=>!!this.selectedEntry},OWNER_ID);this.input.registerCommandDescriptor({id:COMMAND.clear,title:'Clear Path History',category:'Navigation',execute:()=>this.clearAll(),isEnabled:()=>this.entries.length>0},OWNER_ID);for(const b of BINDINGS)this.input.registerBinding(b)}
-  ngOnDestroy():void{this.input.deactivateContext(CONTEXT_ID);for(const b of BINDINGS)this.input.unregisterBinding(b.id);for(const id of Object.values(COMMAND))this.input.unregisterCommandDescriptor(id,OWNER_ID)}
-  open():void{this.entries=this.historyService.getAllHistory();this.filterText='';this.selectedIndex=0;this.visible=true;this.input.activateContext(CONTEXT_ID);this.cdr.markForCheck()}
-  close():void{if(!this.visible)return;this.visible=false;this.input.deactivateContext(CONTEXT_ID);this.cdr.markForCheck()}
-  openEntry(entry:LocationHistoryEntry):void{this.navigate.emit(entry.location);this.close()}
-  removeSelected():void{const e=this.selectedEntry;if(!e)return;this.historyService.removeLocation(e.location);this.reload()}
-  async clearAll():Promise<void>{if(!this.entries.length)return;const ok=await this.confirmDialog.confirm({title:'Clear Location History',message:'Clear all path history?',confirmText:'Clear',danger:true});if(!ok)return;this.historyService.clearHistory();this.reload()}
-  onFilterChange():void{this.selectedIndex=0;this.cdr.markForCheck()}
-  trackEntry(_i:number,e:LocationHistoryEntry):string{return e.location}
-  formatTime(ts:number):string{if(!ts)return'';const d=Math.max(0,Date.now()-ts);if(d<60000)return'now';if(d<3600000)return`${Math.floor(d/60000)}m`;if(d<86400000)return`${Math.floor(d/3600000)}h`;return new Date(ts).toLocaleDateString()}
-  private reload():void{this.entries=this.historyService.getAllHistory();this.selectedIndex=Math.min(this.selectedIndex,Math.max(0,this.filteredEntries.length-1));this.cdr.markForCheck()}
-  private move(delta:-1|1):void{const n=this.filteredEntries.length;if(!n)return;this.selectedIndex=(this.selectedIndex+delta+n)%n;this.cdr.markForCheck()}
+  @Input() paneId:'left'|'right'='left';
+  @Input() currentPath='';
+  @Output() navigate=new EventEmitter<string>();
+
+  visible=false;
+  filterText='';
+  entries:LocationHistoryEntry[]=[];
+  selectedIndex=0;
+  mode:HistoryMode='pane';
+
+  constructor(
+    private readonly historyService:PathHistoryService,
+    private readonly confirmDialog:ConfirmDialogService,
+    private readonly input:InputEngineService,
+    private readonly cdr:ChangeDetectorRef,
+  ){}
+
+  get modeEntries():LocationHistoryEntry[]{
+    if(this.mode==='pane'){
+      const scoped=this.entries.filter(entry=>entry.paneId===this.paneId);
+      return scoped.length?scoped:this.entries;
+    }
+    if(this.mode==='frequent'){
+      return [...this.entries].sort((a,b)=>
+        b.accessCount-a.accessCount||b.timestamp-a.timestamp
+      ).filter(entry=>entry.accessCount>=2);
+    }
+    return this.entries;
+  }
+
+  get filteredEntries():LocationHistoryEntry[]{
+    const q=this.filterText.trim().toLocaleLowerCase();
+    const current=this.locationKey(this.currentPath);
+    const entries=this.modeEntries.filter(entry=>
+      this.locationKey(entry.location)!==current
+    );
+    return q?entries.filter(entry=>
+      (entry.location??'').toLocaleLowerCase().includes(q)||
+      (entry.scheme??'').toLocaleLowerCase().includes(q)||
+      this.labelFor(entry.location).toLocaleLowerCase().includes(q)
+    ):entries;
+  }
+
+  get selectedEntry():LocationHistoryEntry|null{
+    return this.filteredEntries[this.selectedIndex]??null;
+  }
+
+  ngOnInit():void{
+    this.input.registerContext({id:CONTEXT_ID,kind:'dialog',priority:390,parentId:'global',description:'Path history'});
+    this.input.registerCommandDescriptor({id:COMMAND.close,title:'Close Path History',category:'Navigation',execute:()=>this.close()},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.previous,title:'Previous Path History Entry',category:'Navigation',execute:()=>this.move(-1)},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.next,title:'Next Path History Entry',category:'Navigation',execute:()=>this.move(1)},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.open,title:'Open Path History Entry',category:'Navigation',execute:()=>{const entry=this.selectedEntry;if(entry)this.openEntry(entry)}},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.remove,title:'Remove Path History Entry',category:'Navigation',execute:()=>this.removeSelected(),isEnabled:()=>!!this.selectedEntry},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.clear,title:'Clear Path History',category:'Navigation',execute:()=>this.clearAll(),isEnabled:()=>this.entries.length>0},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.previousMode,title:'Previous History View',category:'Navigation',execute:()=>this.moveMode(-1)},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.nextMode,title:'Next History View',category:'Navigation',execute:()=>this.moveMode(1)},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.copyJson,title:'Copy History JSON',category:'Navigation',execute:()=>this.copyJson(),isEnabled:()=>this.entries.length>0},OWNER_ID);
+    for(const binding of BINDINGS)this.input.registerBinding(binding);
+  }
+
+  ngOnDestroy():void{
+    this.input.deactivateContext(CONTEXT_ID);
+    for(const binding of BINDINGS)this.input.unregisterBinding(binding.id);
+    for(const id of Object.values(COMMAND))this.input.unregisterCommandDescriptor(id,OWNER_ID);
+  }
+
+  open(mode:HistoryMode='pane'):void{
+    this.entries=this.historyService.getAllHistory();
+    this.mode=mode;
+    this.filterText='';
+    this.selectedIndex=0;
+    this.visible=true;
+    this.input.activateContext(CONTEXT_ID);
+    this.cdr.markForCheck();
+  }
+
+  close():void{
+    if(!this.visible)return;
+    this.visible=false;
+    this.input.deactivateContext(CONTEXT_ID);
+    this.cdr.markForCheck();
+  }
+
+  setMode(mode:HistoryMode):void{
+    this.mode=mode;
+    this.selectedIndex=0;
+    this.cdr.markForCheck();
+  }
+
+  openEntry(entry:LocationHistoryEntry):void{
+    this.navigate.emit(entry.location);
+    this.close();
+  }
+
+  removeSelected():void{
+    const entry=this.selectedEntry;
+    if(!entry)return;
+    this.historyService.removeLocation(entry.location);
+    this.reload();
+  }
+
+  async clearAll():Promise<void>{
+    if(!this.entries.length)return;
+    const ok=await this.confirmDialog.confirm({
+      title:'Clear Location History',
+      message:'Clear all path history?',
+      confirmText:'Clear',
+      danger:true,
+    });
+    if(!ok)return;
+    this.historyService.clearHistory();
+    this.reload();
+  }
+
+  async copyJson():Promise<void>{
+    if(!this.entries.length)return;
+    const content=JSON.stringify(this.entries,null,2);
+    try{
+      await navigator.clipboard.writeText(content);
+    }catch{
+      await this.confirmDialog.alert({
+        title:'Location History JSON',
+        message:content,
+      });
+    }
+  }
+
+  onFilterChange():void{
+    this.selectedIndex=0;
+    this.cdr.markForCheck();
+  }
+
+  trackEntry(_index:number,entry:LocationHistoryEntry):string{
+    return entry.location;
+  }
+
+  labelFor(location:string):string{
+    const normalized=(location??'').replace(/\\/g,'/').replace(/\/+$/,'');
+    const parts=normalized.split('/').filter(Boolean);
+    return parts[parts.length-1]||normalized||location;
+  }
+
+  formatTime(timestamp:number):string{
+    if(!timestamp)return'';
+    const delta=Math.max(0,Date.now()-timestamp);
+    if(delta<60_000)return'now';
+    if(delta<3_600_000)return`${Math.floor(delta/60_000)}m`;
+    if(delta<86_400_000)return`${Math.floor(delta/3_600_000)}h`;
+    if(delta<604_800_000)return`${Math.floor(delta/86_400_000)}d`;
+    return new Date(timestamp).toLocaleDateString();
+  }
+
+  private reload():void{
+    this.entries=this.historyService.getAllHistory();
+    this.selectedIndex=Math.min(
+      this.selectedIndex,
+      Math.max(0,this.filteredEntries.length-1),
+    );
+    this.cdr.markForCheck();
+  }
+
+  private move(delta:-1|1):void{
+    const count=this.filteredEntries.length;
+    if(!count)return;
+    this.selectedIndex=(this.selectedIndex+delta+count)%count;
+    this.cdr.markForCheck();
+  }
+
+  private moveMode(delta:-1|1):void{
+    const modes:HistoryMode[]=['pane','all','frequent'];
+    const index=modes.indexOf(this.mode);
+    this.setMode(modes[(index+delta+modes.length)%modes.length]);
+  }
+
+  private locationKey(location:string):string{
+    return (location??'').trim().replace(/\\/g,'/').replace(/\/+$/,'').toLocaleLowerCase();
+  }
 }

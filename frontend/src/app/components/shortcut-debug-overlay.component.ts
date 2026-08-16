@@ -71,6 +71,10 @@ interface PendingChordLike {
         <div><kbd>Backspace</kbd><span>parent</span></div>
         <div><kbd>Alt</kbd><span>+</span><kbd>Left/Right</kbd><span>history</span></div>
         <div><kbd>Ctrl</kbd><span>+</span><kbd>L</kbd><span>location</span></div>
+        <div><kbd>Ctrl+Q</kbd><span>Quick Access · system/pins/related/frequent/recent</span></div>
+        <div><kbd>Ctrl+B</kbd><span>Quick Access · pinned locations</span></div>
+        <div><kbd>Ctrl+H</kbd><span>location history · pane/all/frequent</span></div>
+        <div><span>Address bar</span><span>click breadcrumbs to navigate</span></div>
         <div><kbd>Ctrl</kbd><span>+</span><kbd>A</kbd><span>select all</span></div>
         <div><kbd>Ctrl</kbd><span>+</span><kbd>R</kbd><span>refresh</span></div>
         <div><kbd>F2</kbd><span>rename</span></div>

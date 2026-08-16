@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, ChangeDetectorRef, Component, EventEmitter, OnDestroy, OnInit, Output } from '@angular/core';
+import { ChangeDetectionStrategy, ChangeDetectorRef, Component, EventEmitter, Input, OnDestroy, OnInit, Output } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 
@@ -15,7 +15,7 @@ interface QuickItem {
   label: string;
   path: string;
   icon: string;
-  kind: 'system' | 'pin' | 'frequent' | 'recent';
+  kind: 'system' | 'pin' | 'frequent' | 'recent' | 'related';
   meta?: string;
 }
 
@@ -36,6 +36,17 @@ const COMMAND = {
   nextSection: 'reassembly.quickAccess.nextSection',
   open: 'reassembly.quickAccess.open',
   removePin: 'reassembly.quickAccess.removePin',
+  first: 'reassembly.quickAccess.first',
+  last: 'reassembly.quickAccess.last',
+  openSlot1: 'reassembly.quickAccess.openSlot1',
+  openSlot2: 'reassembly.quickAccess.openSlot2',
+  openSlot3: 'reassembly.quickAccess.openSlot3',
+  openSlot4: 'reassembly.quickAccess.openSlot4',
+  openSlot5: 'reassembly.quickAccess.openSlot5',
+  openSlot6: 'reassembly.quickAccess.openSlot6',
+  openSlot7: 'reassembly.quickAccess.openSlot7',
+  openSlot8: 'reassembly.quickAccess.openSlot8',
+  openSlot9: 'reassembly.quickAccess.openSlot9',
 } as const;
 
 const BINDINGS: readonly InputBindingDefinition[] = [
@@ -46,6 +57,18 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   { id:'reassembly.quickAccess.tab', commandId:COMMAND.nextSection, contextId:CONTEXT_ID, source:'default', description:'Next section', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'tab'}]}}},
   { id:'reassembly.quickAccess.enter', commandId:COMMAND.open, contextId:CONTEXT_ID, source:'default', description:'Open item', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'enter'}]}}},
   { id:'reassembly.quickAccess.delete', commandId:COMMAND.removePin, contextId:CONTEXT_ID, source:'default', description:'Remove pin', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'delete'}]}}},
+
+  { id:'reassembly.quickAccess.home', commandId:COMMAND.first, contextId:CONTEXT_ID, source:'default', description:'First Quick Access item', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'home'}]}}},
+  { id:'reassembly.quickAccess.end', commandId:COMMAND.last, contextId:CONTEXT_ID, source:'default', description:'Last Quick Access item', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'end'}]}}},
+  { id:'reassembly.quickAccess.slot1', commandId:COMMAND.openSlot1, contextId:CONTEXT_ID, source:'default', description:'Open Quick Access slot 1', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'1'}]}}},
+  { id:'reassembly.quickAccess.slot2', commandId:COMMAND.openSlot2, contextId:CONTEXT_ID, source:'default', description:'Open Quick Access slot 2', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'2'}]}}},
+  { id:'reassembly.quickAccess.slot3', commandId:COMMAND.openSlot3, contextId:CONTEXT_ID, source:'default', description:'Open Quick Access slot 3', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'3'}]}}},
+  { id:'reassembly.quickAccess.slot4', commandId:COMMAND.openSlot4, contextId:CONTEXT_ID, source:'default', description:'Open Quick Access slot 4', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'4'}]}}},
+  { id:'reassembly.quickAccess.slot5', commandId:COMMAND.openSlot5, contextId:CONTEXT_ID, source:'default', description:'Open Quick Access slot 5', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'5'}]}}},
+  { id:'reassembly.quickAccess.slot6', commandId:COMMAND.openSlot6, contextId:CONTEXT_ID, source:'default', description:'Open Quick Access slot 6', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'6'}]}}},
+  { id:'reassembly.quickAccess.slot7', commandId:COMMAND.openSlot7, contextId:CONTEXT_ID, source:'default', description:'Open Quick Access slot 7', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'7'}]}}},
+  { id:'reassembly.quickAccess.slot8', commandId:COMMAND.openSlot8, contextId:CONTEXT_ID, source:'default', description:'Open Quick Access slot 8', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'8'}]}}},
+  { id:'reassembly.quickAccess.slot9', commandId:COMMAND.openSlot9, contextId:CONTEXT_ID, source:'default', description:'Open Quick Access slot 9', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'9'}]}}},
 ];
 
 @Component({
@@ -73,7 +96,10 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           <button *ngFor="let item of activeItems; let i=index; trackBy:trackItem" type="button"
             class="item" [class.selected]="i === itemIndex" role="option"
             [attr.aria-selected]="i === itemIndex" (mouseenter)="itemIndex=i" (click)="openItem(item)">
-            <span class="icon">{{ item.icon }}</span>
+            <span class="icon">
+              <kbd *ngIf="i < 9">{{ i + 1 }}</kbd>
+              {{ item.icon }}
+            </span>
             <span class="details"><strong>{{ item.label }}</strong><small>{{ item.path }}</small></span>
             <span class="meta">{{ item.meta || item.kind }}</span>
           </button>
@@ -83,7 +109,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         <footer>
           <span>{{ activeSection?.title || '' }}</span>
           <button type="button" [disabled]="selectedItem?.kind !== 'pin'" (click)="removeSelectedPin()">Unpin</button>
-          <span class="keys">Tab · ↑ ↓ · Enter · Delete · Esc</span>
+          <span class="keys">1–9 · Home/End · Tab · ↑ ↓ · Enter · Delete · Esc</span>
         </footer>
       </section>
     </div>
@@ -99,11 +125,13 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     .sections button,footer button{min-height:27px;padding:3px 8px;border:1px solid transparent;border-radius:4px;background:transparent;color:inherit;cursor:pointer;font:inherit}
     .sections button{color:var(--vsc-description-foreground,#969696)} .sections button.active{background:var(--vsc-list-hover-background,#2a2d2e);color:var(--vsc-foreground,#cccccc);border-color:var(--vsc-border,#454545)} .sections span{margin-left:5px;opacity:.6;font-size:10px}
     .items{min-height:0;overflow:auto;padding:5px}.item{display:grid;grid-template-columns:30px minmax(0,1fr) auto;gap:8px;align-items:center;width:100%;min-height:46px;padding:5px 8px;border:1px solid transparent;border-radius:4px;background:transparent;color:inherit;text-align:left;cursor:pointer;font:inherit}.item:hover,.item.selected{background:var(--vsc-list-hover-background,#2a2d2e)}.item.selected{border-color:color-mix(in srgb,var(--vsc-accent-blue,#007acc) 50%,transparent)}
-    .icon{text-align:center;font-size:16px}.details{min-width:0;display:grid}.details strong,.details small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.details small{font-family:var(--vsc-font-family-mono,ui-monospace,monospace)}.meta{font-size:10px}.empty{padding:38px;text-align:center;color:var(--vsc-description-foreground,#969696)}
+    .icon{display:flex;gap:5px;align-items:center;justify-content:center;text-align:center;font-size:16px}.icon kbd{font:9px var(--vsc-font-family-mono,ui-monospace,monospace);opacity:.55}.details{min-width:0;display:grid}.details strong,.details small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.details small{font-family:var(--vsc-font-family-mono,ui-monospace,monospace)}.meta{font-size:10px}.empty{padding:38px;text-align:center;color:var(--vsc-description-foreground,#969696)}
     footer{border-top:1px solid var(--vsc-border-subtle,#2b2b2b)} footer button:hover:not(:disabled){background:var(--vsc-list-hover-background,#2a2d2e);border-color:var(--vsc-border,#454545)}footer button:disabled{opacity:.35;cursor:default}.keys{margin-left:auto;font-size:10px}
   `],
 })
 export class ReassemblyQuickAccessComponent implements OnInit, OnDestroy {
+  @Input() paneId: 'left' | 'right' = 'left';
+  @Input() currentPath = '';
   @Output() navigate = new EventEmitter<string>();
 
   visible = false;
@@ -146,6 +174,17 @@ export class ReassemblyQuickAccessComponent implements OnInit, OnDestroy {
     this.input.registerCommandDescriptor({id:COMMAND.nextSection,title:'Next Quick Access Section',category:'Navigation',execute:()=>this.moveSection(1)},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.open,title:'Open Quick Access Item',category:'Navigation',execute:()=>{const item=this.selectedItem;if(item)this.openItem(item)}},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.removePin,title:'Remove Quick Access Pin',category:'Navigation',execute:()=>this.removeSelectedPin(),isEnabled:()=>this.selectedItem?.kind==='pin'},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.first,title:'First Quick Access Item',category:'Navigation',execute:()=>this.jumpBoundary('first')},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.last,title:'Last Quick Access Item',category:'Navigation',execute:()=>this.jumpBoundary('last')},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.openSlot1,title:'Open Quick Access Slot 1',category:'Navigation',execute:()=>this.openSlot(0),isEnabled:()=>this.activeItems.length>0},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.openSlot2,title:'Open Quick Access Slot 2',category:'Navigation',execute:()=>this.openSlot(1),isEnabled:()=>this.activeItems.length>1},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.openSlot3,title:'Open Quick Access Slot 3',category:'Navigation',execute:()=>this.openSlot(2),isEnabled:()=>this.activeItems.length>2},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.openSlot4,title:'Open Quick Access Slot 4',category:'Navigation',execute:()=>this.openSlot(3),isEnabled:()=>this.activeItems.length>3},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.openSlot5,title:'Open Quick Access Slot 5',category:'Navigation',execute:()=>this.openSlot(4),isEnabled:()=>this.activeItems.length>4},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.openSlot6,title:'Open Quick Access Slot 6',category:'Navigation',execute:()=>this.openSlot(5),isEnabled:()=>this.activeItems.length>5},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.openSlot7,title:'Open Quick Access Slot 7',category:'Navigation',execute:()=>this.openSlot(6),isEnabled:()=>this.activeItems.length>6},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.openSlot8,title:'Open Quick Access Slot 8',category:'Navigation',execute:()=>this.openSlot(7),isEnabled:()=>this.activeItems.length>7},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.openSlot9,title:'Open Quick Access Slot 9',category:'Navigation',execute:()=>this.openSlot(8),isEnabled:()=>this.activeItems.length>8},OWNER_ID);
     for (const binding of BINDINGS) this.input.registerBinding(binding);
   }
 
@@ -187,20 +226,131 @@ export class ReassemblyQuickAccessComponent implements OnInit, OnDestroy {
   }
 
   private async reload(): Promise<void> {
-    const specialFolders: SpecialFolder[] = await this.api.getSpecialFolders().catch(()=>[]);
-    this.pins=this.pinnedLocations.load();
-    const frequent=this.history.getFrequentLocations(8,2);
-    const recent=this.history.getRecentLocations(10);
+    const specialFolders: SpecialFolder[] =
+      await this.api.getSpecialFolders().catch(() => []);
+    this.pins = this.pinnedLocations.load();
 
-    this.sections=[
-      {id:'system',title:'System',items:specialFolders.map(folder=>({id:`system:${folder.path}`,label:folder.name,path:folder.path,icon:folder.icon||'📁',kind:'system' as const}))},
-      {id:'pins',title:'Pinned',items:this.pins.filter(pin=>pin.surfaceId==='dir'||!pin.surfaceId).map(pin=>({id:`pin:${pin.id}`,label:pin.label,path:pin.location,icon:pin.icon||'📌',kind:'pin' as const}))},
-      {id:'frequent',title:'Frequent',items:frequent.map(entry=>({id:`frequent:${entry.location}`,label:this.labelFor(entry.location),path:entry.location,icon:'↻',meta:entry.accessCount?`×${entry.accessCount}`:undefined,kind:'frequent' as const}))},
-      {id:'recent',title:'Recent',items:recent.map(entry=>({id:`recent:${entry.location}`,label:this.labelFor(entry.location),path:entry.location,icon:'◷',kind:'recent' as const}))},
-    ].filter(section=>section.items.length>0);
+    const allHistory = this.history.getAllHistory();
+    const paneHistory = allHistory.filter(entry => entry.paneId === this.paneId);
+    const historyPool = paneHistory.length > 0 ? paneHistory : allHistory;
 
-    this.sectionIndex=Math.min(this.sectionIndex,Math.max(0,this.sections.length-1));
-    this.itemIndex=0; this.cdr.markForCheck();
+    const currentId = this.locationKey(this.currentPath);
+
+    const frequent = [...historyPool]
+      .filter(entry => entry.accessCount >= 2)
+      .sort((a, b) =>
+        b.accessCount - a.accessCount || b.timestamp - a.timestamp,
+      )
+      .filter(entry => this.locationKey(entry.location) !== currentId)
+      .slice(0, 8);
+
+    const recent = [...historyPool]
+      .sort((a, b) => b.timestamp - a.timestamp)
+      .filter(entry => this.locationKey(entry.location) !== currentId)
+      .slice(0, 10);
+
+    const related = this.currentPath
+      ? this.history.getRelatedLocations(this.currentPath, 8)
+        .filter(entry => this.locationKey(entry.location) !== currentId)
+      : [];
+
+    const seen = new Set<string>();
+    const unique = (items: QuickItem[]): QuickItem[] =>
+      items.filter(item => {
+        const key = this.locationKey(item.path);
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
+    const system: QuickItem[] = specialFolders.map(folder => ({
+      id: `system:${folder.path}`,
+      label: folder.name,
+      path: folder.path,
+      icon: folder.icon || '📁',
+      kind: 'system',
+    }));
+
+    const pins: QuickItem[] = this.pins
+      .filter(pin => pin.surfaceId === 'dir' || !pin.surfaceId)
+      .map(pin => ({
+        id: `pin:${pin.id}`,
+        label: pin.label,
+        path: pin.location,
+        icon: pin.icon || '📌',
+        kind: 'pin',
+      }));
+
+    const relatedItems: QuickItem[] = related.map(entry => ({
+      id: `related:${entry.location}`,
+      label: this.labelFor(entry.location),
+      path: entry.location,
+      icon: '↔',
+      meta: entry.scheme,
+      kind: 'related',
+    }));
+
+    const frequentItems: QuickItem[] = frequent.map(entry => ({
+      id: `frequent:${entry.location}`,
+      label: this.labelFor(entry.location),
+      path: entry.location,
+      icon: '↻',
+      meta: `×${entry.accessCount}`,
+      kind: 'frequent',
+    }));
+
+    const recentItems: QuickItem[] = recent.map(entry => ({
+      id: `recent:${entry.location}`,
+      label: this.labelFor(entry.location),
+      path: entry.location,
+      icon: '◷',
+      meta: this.relativeTime(entry.timestamp),
+      kind: 'recent',
+    }));
+
+    this.sections = [
+      { id: 'system', title: 'System', items: unique(system) },
+      { id: 'pins', title: 'Pinned', items: unique(pins) },
+      { id: 'related', title: 'Related', items: unique(relatedItems) },
+      { id: 'frequent', title: 'Frequent', items: unique(frequentItems) },
+      { id: 'recent', title: 'Recent', items: unique(recentItems) },
+    ].filter(section => section.items.length > 0);
+
+    this.sectionIndex = Math.min(
+      this.sectionIndex,
+      Math.max(0, this.sections.length - 1),
+    );
+    this.itemIndex = 0;
+    this.cdr.markForCheck();
+  }
+
+  private openSlot(index: number): void {
+    const item = this.activeItems[index];
+    if (item) this.openItem(item);
+  }
+
+  private jumpBoundary(boundary: 'first' | 'last'): void {
+    const count = this.activeItems.length;
+    if (!count) return;
+    this.itemIndex = boundary === 'first' ? 0 : count - 1;
+    this.cdr.markForCheck();
+  }
+
+  private relativeTime(timestamp: number): string {
+    const delta = Math.max(0, Date.now() - timestamp);
+    if (delta < 60_000) return 'now';
+    if (delta < 3_600_000) return `${Math.floor(delta / 60_000)}m`;
+    if (delta < 86_400_000) return `${Math.floor(delta / 3_600_000)}h`;
+    if (delta < 604_800_000) return `${Math.floor(delta / 86_400_000)}d`;
+    return new Date(timestamp).toLocaleDateString();
+  }
+
+  private locationKey(path: string): string {
+    return (path ?? '')
+      .trim()
+      .replace(/\\/g, '/')
+      .replace(/\/+$/, '')
+      .toLocaleLowerCase();
   }
 
   private moveItem(delta:-1|1):void{const count=this.activeItems.length;if(!count)return;this.itemIndex=(this.itemIndex+delta+count)%count;this.cdr.markForCheck()}

@@ -302,6 +302,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           [currentPathPinned]="isPanePathPinned(leftPane)"
           (activateRequested)="activate('left')"
           (togglePinRequested)="togglePanePin(leftPane)"
+          (quickAccessRequested)="openQuickAccessFor('left')"
+          (historyRequested)="openHistoryFor('left')"
           (entryContextMenu)="openEntryMenu('left', $event.event, $event.entry)"
           (backgroundContextMenu)="openBackgroundMenu('left', $event)"
           (internalDrop)="handleInternalDrop('left', $event.event, $event.targetPath)">
@@ -332,6 +334,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           [currentPathPinned]="isPanePathPinned(rightPane)"
           (activateRequested)="activate('right')"
           (togglePinRequested)="togglePanePin(rightPane)"
+          (quickAccessRequested)="openQuickAccessFor('right')"
+          (historyRequested)="openHistoryFor('right')"
           (entryContextMenu)="openEntryMenu('right', $event.event, $event.entry)"
           (backgroundContextMenu)="openBackgroundMenu('right', $event)"
           (internalDrop)="handleInternalDrop('right', $event.event, $event.targetPath)">
@@ -368,11 +372,15 @@ const BINDINGS: readonly InputBindingDefinition[] = [
 
       <app-reassembly-path-history
         #pathHistory
+        [paneId]="activePaneId"
+        [currentPath]="activePane?.path ?? ''"
         (navigate)="navigateFromHistory($event)">
       </app-reassembly-path-history>
 
       <app-reassembly-quick-access
         #quickAccess
+        [paneId]="activePaneId"
+        [currentPath]="activePane?.path ?? ''"
         (navigate)="navigateFromQuickAccess($event)">
       </app-reassembly-quick-access>
 
@@ -593,6 +601,16 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
         : '';
     if (!root) return;
     this.globalSearchOverlay?.open(root);
+  }
+
+  openHistoryFor(paneId: PaneId, mode: 'pane' | 'all' | 'frequent' = 'pane'): void {
+    this.activate(paneId);
+    this.pathHistory?.open(mode);
+  }
+
+  openQuickAccessFor(paneId: PaneId, sectionId?: string): void {
+    this.activate(paneId);
+    void this.quickAccess?.open(sectionId);
   }
 
   async quickPathJump(): Promise<void> {
@@ -1899,8 +1917,8 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     descriptor(COMMAND.toggleHidden, 'Toggle Hidden Files', 'Workspace', () => this.toggleHidden());
     descriptor(COMMAND.showWorkspaceSwitcher, 'Show Workspace Switcher', 'Workspace', () => this.workspaceSwitcher?.open());
     descriptor(COMMAND.newWorkspace, 'New Workspace', 'Workspace', () => this.workspaceSwitcher?.createWorkspace());
-    descriptor(COMMAND.showPathHistory, 'Show Path History', 'Navigation', () => this.pathHistory?.open());
-    descriptor(COMMAND.showQuickAccess, 'Open Quick Access', 'Navigation', () => this.quickAccess?.open());
+    descriptor(COMMAND.showPathHistory, 'Show Path History', 'Navigation', () => this.openHistoryFor(this.activePaneId));
+    descriptor(COMMAND.showQuickAccess, 'Open Quick Access', 'Navigation', () => this.openQuickAccessFor(this.activePaneId));
     descriptor(
       COMMAND.toggleCurrentPin,
       'Pin or Unpin Current Location',
@@ -1912,7 +1930,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       COMMAND.showPinnedLocations,
       'Open Pinned Locations',
       'Navigation',
-      () => this.quickAccess?.open('pins'),
+      () => this.openQuickAccessFor(this.activePaneId, 'pins'),
     );
     descriptor(
       COMMAND.treeLeft,

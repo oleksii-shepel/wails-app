@@ -25,6 +25,12 @@ import {
   type PathSuggestion,
 } from '../services/path-history.service';
 
+interface ReassemblyBreadcrumbSegment {
+  label: string;
+  path: string;
+  root: boolean;
+}
+
 const COMMAND = {
   accept: 'accept',
   cancel: 'cancel',
@@ -85,15 +91,38 @@ function editorBindings(paneId: string, contextId: string): readonly InputBindin
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="address-shell">
-      <button
+      <div
         *ngIf="!editing"
-        type="button"
-        class="display-path"
-        title="Edit location (Ctrl+L)"
-        (click)="beginEdit()">
-        <span class="location-icon" aria-hidden="true">⌂</span>
-        <span class="display-value">{{ displayPath }}</span>
-      </button>
+        class="display-path breadcrumb-path"
+        title="Click a segment to navigate · click empty area to edit">
+        <button
+          type="button"
+          class="location-icon breadcrumb-home"
+          title="Edit location (Ctrl+L)"
+          (click)="beginEdit()"
+          aria-label="Edit location">⌂</button>
+
+        <div class="breadcrumbs">
+          <ng-container *ngFor="let segment of breadcrumbSegments; let last = last">
+            <button
+              type="button"
+              class="breadcrumb"
+              [class.current]="last"
+              [title]="segment.path"
+              (click)="navigateToSegment(segment)">
+              {{ segment.label }}
+            </button>
+            <span class="separator" *ngIf="!last">›</span>
+          </ng-container>
+        </div>
+
+        <button
+          type="button"
+          class="edit-path"
+          title="Edit location (Ctrl+L)"
+          (click)="beginEdit()"
+          aria-label="Edit location">✎</button>
+      </div>
 
       <div class="editor" *ngIf="editing">
         <span class="location-icon" aria-hidden="true">⌂</span>
@@ -151,7 +180,7 @@ function editorBindings(paneId: string, contextId: string): readonly InputBindin
     .editor {
       box-sizing: border-box;
       display: grid;
-      grid-template-columns: 24px minmax(0, 1fr);
+      grid-template-columns: 24px minmax(0, 1fr) 24px;
       align-items: center;
       width: 100%;
       height: 30px;
@@ -186,6 +215,62 @@ function editorBindings(paneId: string, contextId: string): readonly InputBindin
       text-align: center;
       user-select: none;
     }
+
+    button.location-icon,
+    .edit-path,
+    .breadcrumb {
+      border: 0;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      cursor: pointer;
+    }
+
+    .breadcrumb-home,
+    .edit-path {
+      width: 22px;
+      height: 22px;
+      padding: 0;
+      border-radius: 3px;
+    }
+
+    .breadcrumb-home:hover,
+    .edit-path:hover,
+    .breadcrumb:hover {
+      background: var(--vsc-list-hover-background, #2a2d2e);
+    }
+
+    .breadcrumbs {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      overflow: hidden;
+      white-space: nowrap;
+    }
+
+    .breadcrumb {
+      min-width: 0;
+      max-width: 220px;
+      padding: 3px 5px;
+      border-radius: 3px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-family: var(--vsc-font-family-mono, ui-monospace, monospace);
+      font-size: 11px;
+    }
+
+    .breadcrumb.current {
+      color: var(--vsc-foreground-bright, #ffffff);
+    }
+
+    .separator {
+      flex: 0 0 auto;
+      color: var(--vsc-description-foreground, #969696);
+      user-select: none;
+    }
+
 
     .display-value,
     .location-input {
@@ -319,6 +404,62 @@ export class ReassemblyAddressBarComponent implements OnInit, OnDestroy {
 
   get displayPath(): string {
     return formatPathForDisplay(this.path || '/');
+  }
+
+  get breadcrumbSegments(): ReassemblyBreadcrumbSegment[] {
+    const raw = this.displayPath || '/';
+    const normalized = raw.replace(/\\/g, '/');
+
+    const scheme = /^([a-z][a-z0-9+.-]*:\/\/)(.*)$/i.exec(normalized);
+    if (scheme) {
+      const prefix = scheme[1];
+      const parts = scheme[2].split('/').filter(Boolean);
+      const segments: ReassemblyBreadcrumbSegment[] = [{
+        label: prefix.replace('://', ''),
+        path: prefix,
+        root: true,
+      }];
+
+      let current = prefix;
+      for (const part of parts) {
+        current = `${current}${current.endsWith('/') ? '' : '/'}${part}`;
+        segments.push({ label: part, path: current, root: false });
+      }
+      return segments;
+    }
+
+    const drive = /^([a-z]:)(?:\/(.*))?$/i.exec(normalized);
+    if (drive) {
+      const segments: ReassemblyBreadcrumbSegment[] = [{
+        label: drive[1],
+        path: `${drive[1]}/`,
+        root: true,
+      }];
+      let current = `${drive[1]}/`;
+      for (const part of (drive[2] ?? '').split('/').filter(Boolean)) {
+        current = `${current.replace(/\/$/, '')}/${part}`;
+        segments.push({ label: part, path: current, root: false });
+      }
+      return segments;
+    }
+
+    const parts = normalized.split('/').filter(Boolean);
+    const segments: ReassemblyBreadcrumbSegment[] = [{
+      label: '/',
+      path: '/',
+      root: true,
+    }];
+    let current = '';
+    for (const part of parts) {
+      current += `/${part}`;
+      segments.push({ label: part, path: current, root: false });
+    }
+    return segments;
+  }
+
+  navigateToSegment(segment: ReassemblyBreadcrumbSegment): void {
+    if (!segment.path || segment.path === this.path) return;
+    this.navigate.emit(segment.path);
   }
 
   ngOnInit(): void {

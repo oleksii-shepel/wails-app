@@ -11,11 +11,6 @@ import (
 	"wails-app/internal/pathref"
 	vfslib "wails-app/vfs"
 	"wails-app/vfs/cloudutil"
-	vfsdropbox "wails-app/vfs/dropbox"
-	vfsgdrive "wails-app/vfs/gdrive"
-	vfsonedrive "wails-app/vfs/onedrive"
-	vfss3 "wails-app/vfs/s3"
-	vfssmb "wails-app/vfs/smb"
 )
 
 var remoteMountSegmentPattern = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
@@ -32,9 +27,13 @@ func (s *State) remoteConnect(cfg contracts.RemoteConfig, tokenSource cloudutil.
 		return nil, fmt.Errorf("vfs not initialized")
 	}
 
-	mountPath := remoteMountPath(cfg)
+	provider, err := remoteProviderFor(cfg.Protocol)
+	if err != nil {
+		return nil, err
+	}
+	mountPath := provider.MountPath(cfg)
 	if mountPath == "" {
-		return nil, fmt.Errorf("unsupported protocol: %s", cfg.Protocol)
+		return nil, fmt.Errorf("invalid %s mount configuration", cfg.Protocol)
 	}
 
 	// Check for a pre-existing mount at the same path.
@@ -47,57 +46,12 @@ func (s *State) remoteConnect(cfg contracts.RemoteConfig, tokenSource cloudutil.
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	var remoteFS vfslib.FileSystem
-	var err error
-
-	switch cfg.Protocol {
-	case contracts.ProtocolSMB:
-		remoteFS, err = vfssmb.New(ctx, vfssmb.Config{
-			Host:     cfg.Host,
-			Port:     cfg.Port,
-			Domain:   cfg.Domain,
-			Username: cfg.Username,
-			Password: cfg.Password,
-			Share:    cfg.Share,
-		})
-	case contracts.ProtocolS3:
-		remoteFS, err = vfss3.New(ctx, vfss3.Config{
-			Region:          cfg.Region,
-			Bucket:          cfg.Bucket,
-			Prefix:          cfg.Prefix,
-			Endpoint:        cfg.Endpoint,
-			AccessKeyID:     cfg.AccessKeyID,
-			SecretAccessKey: cfg.SecretAccessKey,
-			SessionToken:    cfg.SessionToken,
-			Anonymous:       cfg.Anonymous,
-			UsePathStyle:    cfg.UsePathStyle,
-			Insecure:        cfg.Insecure,
-		})
-	case contracts.ProtocolGDrive:
-		remoteFS, err = vfsgdrive.New(ctx, vfsgdrive.Config{
-			AccessToken: cfg.AccessToken,
-			TokenSource: tokenSource,
-		})
-	case contracts.ProtocolDropbox:
-		remoteFS, err = vfsdropbox.New(ctx, vfsdropbox.Config{
-			AccessToken: cfg.AccessToken,
-			TokenSource: tokenSource,
-		})
-	case contracts.ProtocolOneDrive:
-		remoteFS, err = vfsonedrive.New(ctx, vfsonedrive.Config{
-			AccessToken: cfg.AccessToken,
-			TokenSource: tokenSource,
-		})
-
-	default:
-		return nil, fmt.Errorf("unsupported protocol: %s", cfg.Protocol)
-	}
-
+	remoteFS, err := provider.Connect(ctx, cfg, tokenSource)
 	if err != nil {
 		return nil, err
 	}
 
-	displayName := remoteDisplayName(cfg)
+	displayName := provider.DisplayName(cfg)
 	if _, err := s.vfs.Mount(mountPath, remoteFS, false, displayName, vfslib.VolumeRemote); err != nil {
 		if c, ok := remoteFS.(interface{ Close() error }); ok {
 			_ = c.Close()
@@ -107,14 +61,11 @@ func (s *State) remoteConnect(cfg contracts.RemoteConfig, tokenSource cloudutil.
 
 	mount := contracts.RemoteMount{
 		Protocol:   cfg.Protocol,
-		Host:       remoteMountHost(cfg),
+		Host:       provider.Host(cfg),
 		Name:       displayName,
 		PublicPath: pathref.FromVFS(mountPath),
 		MountPoint: mountPath,
-		ReadOnly: cfg.Protocol == contracts.ProtocolS3 ||
-			cfg.Protocol == contracts.ProtocolGDrive ||
-			cfg.Protocol == contracts.ProtocolDropbox ||
-			cfg.Protocol == contracts.ProtocolOneDrive,
+		ReadOnly:   provider.Descriptor().ReadOnly,
 	}
 
 	s.remotesMu.Lock()
@@ -148,102 +99,25 @@ func (s *State) RemoteListConnections() []contracts.RemoteMount {
 	return result
 }
 
+// RemoteListProviders returns the provider contract visible to the frontend.
+func (s *State) RemoteListProviders() []contracts.RemoteProviderDescriptor {
+	return remoteProviderDescriptors()
+}
+
 // remoteMountPath computes the internal VFS mount point for a remote config.
 // The scheme-to-vfsRoot mapping mirrors the aliasSpecs in pathref/registry.go:
 //
 //	smb://host:445/shr  → /remote/smb/host:445/shr
 func remoteMountPath(cfg contracts.RemoteConfig) string {
-	switch cfg.Protocol {
-	case contracts.ProtocolSMB:
-		port := cfg.Port
-		if port == 0 {
-			port = 445
-		}
-		share := strings.Trim(cfg.Share, `/\`)
-		if share != "" {
-			return fmt.Sprintf("/remote/smb/%s:%d/%s", cfg.Host, port, share)
-		}
-		return fmt.Sprintf("/remote/smb/%s:%d", cfg.Host, port)
-	case contracts.ProtocolS3:
-		name := sanitizeRemoteMountSegment(cfg.Name)
-		if name == "" {
-			return ""
-		}
-		return fmt.Sprintf("/remote/s3/%s", name)
-	case contracts.ProtocolGDrive:
-		name := sanitizeRemoteMountSegment(cfg.Name)
-		if name == "" {
-			return ""
-		}
-		return fmt.Sprintf("/remote/gdrive/%s", name)
-	case contracts.ProtocolDropbox:
-		name := sanitizeRemoteMountSegment(cfg.Name)
-		if name == "" {
-			return ""
-		}
-		return fmt.Sprintf("/remote/dropbox/%s", name)
-	case contracts.ProtocolOneDrive:
-		name := sanitizeRemoteMountSegment(cfg.Name)
-		if name == "" {
-			return ""
-		}
-		return fmt.Sprintf("/remote/onedrive/%s", name)
-
-	}
-	return ""
+	return remoteMountPathFor(cfg.Protocol, cfg)
 }
 
 func remoteDisplayName(cfg contracts.RemoteConfig) string {
-	switch cfg.Protocol {
-	case contracts.ProtocolS3:
-		name := strings.TrimSpace(cfg.Name)
-		bucket := strings.TrimSpace(cfg.Bucket)
-		if name != "" && bucket != "" {
-			return fmt.Sprintf("%s (%s)", name, bucket)
-		}
-		if name != "" {
-			return name
-		}
-		if bucket != "" {
-			return fmt.Sprintf("s3://%s", bucket)
-		}
-	case contracts.ProtocolGDrive:
-		if name := strings.TrimSpace(cfg.Name); name != "" {
-			return name
-		}
-		return "Google Drive"
-	case contracts.ProtocolDropbox:
-		if name := strings.TrimSpace(cfg.Name); name != "" {
-			return name
-		}
-		return "Dropbox"
-	case contracts.ProtocolOneDrive:
-		if name := strings.TrimSpace(cfg.Name); name != "" {
-			return name
-		}
-		return "OneDrive"
-	}
-	return fmt.Sprintf("%s://%s", string(cfg.Protocol), remoteMountHost(cfg))
+	return remoteDisplayNameFor(cfg.Protocol, cfg)
 }
 
 func remoteMountHost(cfg contracts.RemoteConfig) string {
-	if cfg.Protocol == contracts.ProtocolS3 {
-		if endpoint := strings.TrimSpace(cfg.Endpoint); endpoint != "" {
-			return endpoint
-		}
-		if name := strings.TrimSpace(cfg.Name); name != "" {
-			return name
-		}
-	}
-	switch cfg.Protocol {
-	case contracts.ProtocolGDrive:
-		return "googleapis.com"
-	case contracts.ProtocolDropbox:
-		return "api.dropboxapi.com"
-	case contracts.ProtocolOneDrive:
-		return "graph.microsoft.com"
-	}
-	return cfg.Host
+	return remoteMountHostFor(cfg.Protocol, cfg)
 }
 
 func sanitizeRemoteMountSegment(value string) string {

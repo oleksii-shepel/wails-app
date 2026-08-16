@@ -11,6 +11,17 @@ const (
 	ProtocolOneDrive RemoteProtocol = "onedrive"
 )
 
+// RemoteProviderDescriptor describes connection semantics without exposing
+// provider implementation details. The frontend can use it to reason about
+// authentication, mutability and hierarchy without hard-coding backend rules.
+type RemoteProviderDescriptor struct {
+	Protocol  RemoteProtocol `json:"protocol"`
+	Name      string         `json:"name"`
+	Auth      string         `json:"auth"`
+	ReadOnly  bool           `json:"readOnly"`
+	Hierarchy string         `json:"hierarchy"`
+}
+
 // RemoteConfig describes how to connect to a remote server.
 // Credentials are never persisted to disk — they are held only for the
 // lifetime of the application session.

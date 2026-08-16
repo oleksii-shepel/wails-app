@@ -36,6 +36,7 @@ type remoteOAuthSession struct {
 	scopes       []string
 
 	mu           sync.Mutex
+	refreshMu    sync.Mutex
 	status       string
 	err          string
 	accountName  string
@@ -365,6 +366,19 @@ func (s *remoteOAuthSession) AccessToken(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("%s", err)
 	}
 	if s.refreshToken == "" || time.Until(s.expiry) > 90*time.Second {
+		token := s.accessToken
+		s.mu.Unlock()
+		return token, nil
+	}
+	s.mu.Unlock()
+
+	// Serialize refreshes so simultaneous VFS requests do not all exchange the
+	// same refresh token. Re-check after acquiring the lock because another
+	// caller may already have refreshed the session.
+	s.refreshMu.Lock()
+	defer s.refreshMu.Unlock()
+	s.mu.Lock()
+	if strings.TrimSpace(s.accessToken) != "" && (s.refreshToken == "" || time.Until(s.expiry) > 90*time.Second) {
 		token := s.accessToken
 		s.mu.Unlock()
 		return token, nil

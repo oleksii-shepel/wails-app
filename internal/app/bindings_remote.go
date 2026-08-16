@@ -14,6 +14,11 @@ func (a *App) RemoteDisconnect(mountPoint string) error {
 	return a.State.RemoteDisconnect(mountPoint)
 }
 
+// RemoteListProviders returns the available remote provider contracts.
+func (a *App) RemoteListProviders() []contracts.RemoteProviderDescriptor {
+	return a.State.RemoteListProviders()
+}
+
 // RemoteListConnections returns all currently active remote mounts.
 func (a *App) RemoteListConnections() []contracts.RemoteMount {
 	return a.State.RemoteListConnections()

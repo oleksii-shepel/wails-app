@@ -97,6 +97,7 @@ interface PendingChordLike {
         <div><kbd>Ctrl+Shift+W</kbd><span>workspace switcher</span></div>
         <div><kbd>Ctrl+Shift+Alt+N</kbd><span>new workspace</span></div>
         <div><kbd>Ctrl+H</kbd><span>path history</span></div>
+        <div><kbd>Ctrl+Q</kbd><span>quick access</span></div>
       </div>
 
       <footer>

@@ -18,6 +18,7 @@ import { canTransferBetween, transferBlockedMessage } from '../services/transfer
 import { ReassemblyDirectoryPaneComponent } from './reassembly-directory-pane.component';
 import { ReassemblyWorkspaceSwitcherComponent } from './reassembly-workspace-switcher.component';
 import { ReassemblyPathHistoryComponent } from './reassembly-path-history.component';
+import { ReassemblyQuickAccessComponent } from './reassembly-quick-access.component';
 import {
   ReassemblyContextMenuComponent,
   type ReassemblyContextMenuItem,
@@ -65,6 +66,7 @@ const COMMAND = {
   showWorkspaceSwitcher: 'reassembly.workspace.showSwitcher',
   newWorkspace: 'reassembly.workspace.new',
   showPathHistory: 'reassembly.navigation.pathHistory',
+  showQuickAccess: 'reassembly.navigation.quickAccess',
 } as const;
 
 const BINDINGS: readonly InputBindingDefinition[] = [
@@ -104,6 +106,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   { id:'reassembly.workspace.showSwitcher.ctrlShiftW', commandId:COMMAND.showWorkspaceSwitcher, contextId:CONTEXT_ID, source:'default', description:'Open workspace switcher', category:'Workspace', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'w', modifiers:['ctrl','shift']}]}}},
   { id:'reassembly.workspace.new.ctrlShiftAltN', commandId:COMMAND.newWorkspace, contextId:CONTEXT_ID, source:'default', description:'Create workspace', category:'Workspace', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'n', modifiers:['ctrl','shift','alt']}]}}},
   { id:'reassembly.navigation.pathHistory.ctrlH', commandId:COMMAND.showPathHistory, contextId:CONTEXT_ID, source:'default', description:'Show path history', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'h', modifiers:['ctrl']}]}}},
+  { id:'reassembly.navigation.quickAccess.ctrlQ', commandId:COMMAND.showQuickAccess, contextId:CONTEXT_ID, source:'default', description:'Open Quick Access', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'q', modifiers:['ctrl']}]}}},
 ];
 
 @Component({
@@ -115,6 +118,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     ReassemblyContextMenuComponent,
     ReassemblyWorkspaceSwitcherComponent,
     ReassemblyPathHistoryComponent,
+    ReassemblyQuickAccessComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -172,6 +176,11 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         #pathHistory
         (navigate)="navigateFromHistory($event)">
       </app-reassembly-path-history>
+
+      <app-reassembly-quick-access
+        #quickAccess
+        (navigate)="navigateFromQuickAccess($event)">
+      </app-reassembly-quick-access>
 
       <app-reassembly-context-menu
         [state]="contextMenu"
@@ -265,6 +274,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
   workspaceSwitcher?: ReassemblyWorkspaceSwitcherComponent;
   @ViewChild('pathHistory')
   pathHistory?: ReassemblyPathHistoryComponent;
+  @ViewChild('quickAccess') quickAccess?: ReassemblyQuickAccessComponent;
   @ViewChild('leftPane') leftPane?: ReassemblyDirectoryPaneComponent;
   @ViewChild('rightPane') rightPane?: ReassemblyDirectoryPaneComponent;
 
@@ -576,6 +586,14 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
   }
 
+  navigateFromQuickAccess(path: string): void {
+    const pane = this.activePane;
+    if (!pane?.isDirectoryTab) return;
+    pane.navigateTo(path);
+    pane.lastAction = `quick access: ${path}`;
+    this.cdr.markForCheck();
+  }
+
   async applyActiveWorkspace(): Promise<void> {
     const workspace = this.workspaceService.getActiveWorkspace();
     if (!workspace) return;
@@ -752,6 +770,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     descriptor(COMMAND.showWorkspaceSwitcher, 'Show Workspace Switcher', 'Workspace', () => this.workspaceSwitcher?.open());
     descriptor(COMMAND.newWorkspace, 'New Workspace', 'Workspace', () => this.workspaceSwitcher?.createWorkspace());
     descriptor(COMMAND.showPathHistory, 'Show Path History', 'Navigation', () => this.pathHistory?.open());
+    descriptor(COMMAND.showQuickAccess, 'Open Quick Access', 'Navigation', () => this.quickAccess?.open());
   }
 
   private activeViewer(): any {

@@ -134,6 +134,17 @@ type ReassemblyTab =
 
         <button
           type="button"
+          class="nav-button pin"
+          [class.pinned]="currentPathPinned"
+          [disabled]="!isDirectoryTab || !path"
+          (click)="togglePinRequested.emit()"
+          [attr.aria-label]="currentPathPinned ? 'Unpin current location' : 'Pin current location'"
+          [title]="currentPathPinned ? 'Unpin current location' : 'Pin current location'">
+          {{ currentPathPinned ? '★' : '☆' }}
+        </button>
+
+        <button
+          type="button"
           class="nav-button refresh"
           [disabled]="loading"
           (click)="refresh()"
@@ -368,7 +379,7 @@ type ReassemblyTab =
 
     .navigation-bar {
       display: grid;
-      grid-template-columns: auto minmax(0, 1fr) 34px;
+      grid-template-columns: auto minmax(0, 1fr) 32px 34px;
       align-items: center;
       gap: 7px;
       padding: 6px 8px;
@@ -401,6 +412,14 @@ type ReassemblyTab =
     .nav-button:disabled {
       opacity: .28;
       cursor: default;
+    }
+
+    .nav-button.pin {
+      font-size: 16px;
+    }
+
+    .nav-button.pin.pinned {
+      color: var(--vsc-accent-blue, #4aa3ff);
     }
 
     .status-row {
@@ -646,7 +665,7 @@ type ReassemblyTab =
 
     @media (max-width: 700px) {
       .navigation-bar {
-        grid-template-columns: auto minmax(0, 1fr) 32px;
+        grid-template-columns: auto minmax(0, 1fr) 30px 32px;
       }
 
       .entry {
@@ -673,7 +692,9 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
   @Input() paneId: 'left' | 'right' = 'left';
   @Input() active = false;
   @Input() showHidden = false;
+  @Input() currentPathPinned = false;
   @Output() activateRequested = new EventEmitter<void>();
+  @Output() togglePinRequested = new EventEmitter<void>();
   @Output() entryContextMenu = new EventEmitter<{ event: MouseEvent; entry: FileInfo }>();
   @Output() backgroundContextMenu = new EventEmitter<MouseEvent>();
   @Output() internalDrop = new EventEmitter<{

@@ -12,6 +12,7 @@ import { CommonModule } from '@angular/common';
 import { ApiService } from '../services/api.service';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { WorkspaceService } from '../services/workspace.service';
+import { PinnedLocationService } from '../services/pinned-location.service';
 import { InputEngineService } from '../services/input-engine.service';
 import type { InputBindingDefinition } from '../services/input-system.types';
 import { canTransferBetween, transferBlockedMessage } from '../services/transfer-capabilities';
@@ -67,6 +68,7 @@ const COMMAND = {
   newWorkspace: 'reassembly.workspace.new',
   showPathHistory: 'reassembly.navigation.pathHistory',
   showQuickAccess: 'reassembly.navigation.quickAccess',
+  toggleCurrentPin: 'reassembly.navigation.toggleCurrentPin',
 } as const;
 
 const BINDINGS: readonly InputBindingDefinition[] = [
@@ -132,7 +134,9 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           paneId="left"
           [active]="activePaneId === 'left'"
           [showHidden]="showHidden"
+          [currentPathPinned]="isPanePathPinned(leftPane)"
           (activateRequested)="activate('left')"
+          (togglePinRequested)="togglePanePin(leftPane)"
           (entryContextMenu)="openEntryMenu('left', $event.event, $event.entry)"
           (backgroundContextMenu)="openBackgroundMenu('left', $event)"
           (internalDrop)="handleInternalDrop('left', $event.event, $event.targetPath)">
@@ -160,7 +164,9 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           paneId="right"
           [active]="activePaneId === 'right'"
           [showHidden]="showHidden"
+          [currentPathPinned]="isPanePathPinned(rightPane)"
           (activateRequested)="activate('right')"
+          (togglePinRequested)="togglePanePin(rightPane)"
           (entryContextMenu)="openEntryMenu('right', $event.event, $event.entry)"
           (backgroundContextMenu)="openBackgroundMenu('right', $event)"
           (internalDrop)="handleInternalDrop('right', $event.event, $event.targetPath)">
@@ -274,7 +280,8 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
   workspaceSwitcher?: ReassemblyWorkspaceSwitcherComponent;
   @ViewChild('pathHistory')
   pathHistory?: ReassemblyPathHistoryComponent;
-  @ViewChild('quickAccess') quickAccess?: ReassemblyQuickAccessComponent;
+  @ViewChild('quickAccess')
+  quickAccess?: ReassemblyQuickAccessComponent;
   @ViewChild('leftPane') leftPane?: ReassemblyDirectoryPaneComponent;
   @ViewChild('rightPane') rightPane?: ReassemblyDirectoryPaneComponent;
 
@@ -295,6 +302,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     private readonly api: ApiService,
     private readonly confirmDialog: ConfirmDialogService,
     private readonly workspaceService: WorkspaceService,
+    private readonly pinnedLocations: PinnedLocationService,
     private readonly cdr: ChangeDetectorRef,
   ) {}
 
@@ -528,6 +536,10 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       title: this.activePane?.path || 'Folder',
       items: [
         this.menuCommand(COMMAND.newFolder, 'New folder', 'F7'),
+        this.menuCommand(
+          COMMAND.toggleCurrentPin,
+          this.isPanePathPinned(this.activePane) ? 'Unpin this location' : 'Pin this location',
+        ),
         this.menuCommand(COMMAND.paste, 'Paste', 'Ctrl+V'),
         { separator: true },
         this.menuCommand(COMMAND.selectAll, 'Select all', 'Ctrl+A'),
@@ -578,9 +590,49 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     return Math.max(8, Math.min(y, window.innerHeight - 360));
   }
 
+  isPanePathPinned(
+    pane: ReassemblyDirectoryPaneComponent | undefined,
+  ): boolean {
+    if (!pane?.isDirectoryTab || !pane.path) return false;
+    return this.pinnedLocations.isPinned(
+      this.pinnedLocations.load(),
+      pane.path,
+      'dir',
+    );
+  }
+
+  togglePanePin(
+    pane: ReassemblyDirectoryPaneComponent | undefined,
+  ): void {
+    if (!pane?.isDirectoryTab || !pane.path) return;
+
+    let pins = this.pinnedLocations.load();
+    const pinned = this.pinnedLocations.isPinned(pins, pane.path, 'dir');
+
+    if (pinned) {
+      pins = this.pinnedLocations.remove(pins, pane.path, 'dir');
+      pane.lastAction = `unpin: ${pane.path}`;
+    } else {
+      const pin = this.pinnedLocations.create(
+        pane.path,
+        undefined,
+        undefined,
+        Date.now(),
+        'dir',
+      );
+      if (!pin) return;
+      pins = [...pins.filter(existing => existing.id !== pin.id), pin];
+      pane.lastAction = `pin: ${pane.path}`;
+    }
+
+    this.pinnedLocations.save(pins);
+    this.cdr.markForCheck();
+  }
+
   navigateFromHistory(path: string): void {
     const pane = this.activePane;
     if (!pane?.isDirectoryTab) return;
+
     pane.navigateTo(path);
     pane.lastAction = `history: ${path}`;
     this.cdr.markForCheck();
@@ -589,6 +641,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
   navigateFromQuickAccess(path: string): void {
     const pane = this.activePane;
     if (!pane?.isDirectoryTab) return;
+
     pane.navigateTo(path);
     pane.lastAction = `quick access: ${path}`;
     this.cdr.markForCheck();
@@ -771,6 +824,13 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     descriptor(COMMAND.newWorkspace, 'New Workspace', 'Workspace', () => this.workspaceSwitcher?.createWorkspace());
     descriptor(COMMAND.showPathHistory, 'Show Path History', 'Navigation', () => this.pathHistory?.open());
     descriptor(COMMAND.showQuickAccess, 'Open Quick Access', 'Navigation', () => this.quickAccess?.open());
+    descriptor(
+      COMMAND.toggleCurrentPin,
+      'Pin or Unpin Current Location',
+      'Navigation',
+      () => this.togglePanePin(this.activePane),
+      () => !!this.activePane?.isDirectoryTab && !!this.activePane?.path,
+    );
   }
 
   private activeViewer(): any {

@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, EventEmitter, Input, OnChanges, Output } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import type { FileInfo } from '../shared/protocol';
-import { PaneComparisonResult, PaneComparisonService } from '../services/pane-comparison.service';
+import { PaneComparisonResult, PaneComparisonService, type PaneComparisonPolicy } from '../services/pane-comparison.service';
 
 @Component({
   selector: 'app-pane-comparison-bar',
@@ -20,10 +20,22 @@ import { PaneComparisonResult, PaneComparisonService } from '../services/pane-co
         <span class="metric newer" *ngIf="result.summary.rightNewer">{{ result.summary.rightNewer }} newer right</span>
         <span class="metric different" *ngIf="result.summary.sizeDifferent">{{ result.summary.sizeDifferent }} size diff</span>
         <span class="metric different" *ngIf="result.summary.typeDifferent">{{ result.summary.typeDifferent }} type diff</span>
+        <span class="metric different" *ngIf="result.summary.hashDifferent">{{ result.summary.hashDifferent }} hash diff</span>
+        <span class="metric different" *ngIf="result.summary.contentDifferent">{{ result.summary.contentDifferent }} content diff</span>
         <span class="metric same" *ngIf="result.summary.different === 0">{{ result.summary.same }} same</span>
       </div>
 
       <div class="compare-actions">
+        <label class="policy" title="Comparison policy">
+          <span>Policy</span>
+          <select [value]="policy" (change)="policyChange.emit($any($event.target).value)" [disabled]="scanning">
+            <option value="size-date">Size + date</option>
+            <option value="size">Size</option>
+            <option value="date">Date</option>
+            <option value="hash">SHA-256</option>
+            <option value="content">Content</option>
+          </select>
+        </label>
         <button type="button" class="btn" (click)="toggleRecursive.emit()" [disabled]="scanning" [class.active]="recursive" title="Compare complete directory trees">Recursive</button>
         <button type="button" class="btn" *ngIf="recursive" (click)="refreshRecursive.emit()" [disabled]="scanning" title="Rescan both directory trees">Refresh</button>
         <button type="button" class="btn" (click)="selectLeft.emit()" [disabled]="leftDifferenceCount === 0" title="Select differing items in the left pane">Select Left</button>
@@ -55,6 +67,8 @@ import { PaneComparisonResult, PaneComparisonService } from '../services/pane-co
     .only-left, .only-right { font-weight: 600; }
     .different { font-weight: 600; }
     .same { opacity: .72; }
+    .policy { display:flex; align-items:center; gap:4px; opacity:.9; }
+    .policy select { background:var(--vsc-input-background,#242424); color:inherit; border:1px solid var(--vsc-border,rgba(127,127,127,.35)); border-radius:3px; padding:2px 4px; font:inherit; }
     .btn, .close {
       border: 1px solid var(--vsc-border, rgba(127,127,127,.35));
       background: var(--vsc-button-background, transparent);
@@ -79,7 +93,9 @@ export class PaneComparisonBarComponent implements OnChanges {
   @Input() scanning = false;
   @Input() error = '';
   @Input() comparisonResult: PaneComparisonResult | null = null;
+  @Input() policy: PaneComparisonPolicy = 'size-date';
 
+  @Output() policyChange = new EventEmitter<PaneComparisonPolicy>();
   @Output() toggleRecursive = new EventEmitter<void>();
   @Output() refreshRecursive = new EventEmitter<void>();
   @Output() selectLeft = new EventEmitter<void>();
@@ -94,7 +110,7 @@ export class PaneComparisonBarComponent implements OnChanges {
   constructor(private readonly comparison: PaneComparisonService) {}
 
   ngOnChanges(): void {
-    this.result = this.comparisonResult ?? this.comparison.compare(this.leftEntries, this.rightEntries);
+    this.result = this.comparisonResult ?? this.comparison.compare(this.leftEntries, this.rightEntries, { policy: this.policy });
   }
 
   get leftDifferenceCount(): number {

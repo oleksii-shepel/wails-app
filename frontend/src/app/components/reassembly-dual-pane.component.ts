@@ -31,6 +31,7 @@ import { getSourceCapabilities } from '../services/source-capabilities';
 import {
   PaneComparisonService,
   type PaneComparisonResult,
+  type PaneComparisonPolicy,
 } from '../services/pane-comparison.service';
 import { PaneRecursiveComparisonService } from '../services/pane-recursive-comparison.service';
 import { SelectionBasketService } from '../services/selection-basket.service';
@@ -388,6 +389,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         [scanning]="recursiveComparisonScanning"
         [error]="recursiveComparisonError"
         [comparisonResult]="paneComparisonResult"
+        [policy]="comparisonPolicy"
+        (policyChange)="setComparisonPolicy($event)"
         (toggleRecursive)="toggleRecursiveComparison()"
         (refreshRecursive)="refreshRecursiveComparison()"
         (selectLeft)="selectComparisonDifferences('left')"
@@ -675,6 +678,8 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
   comparisonVisible = false;
   syncReviewVisible = false;
   comparisonRecursive = false;
+  comparisonPolicy: PaneComparisonPolicy = 'size-date';
+  verifiedComparisonResult: PaneComparisonResult | null = null;
   recursiveComparisonScanning = false;
   recursiveComparisonError = '';
   recursiveComparisonResult: PaneComparisonResult | null = null;
@@ -2115,6 +2120,10 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       this.recursiveComparisonRoots.left === this.leftPane?.path &&
       this.recursiveComparisonRoots.right === this.rightPane?.path;
 
+    if (this.verifiedComparisonResult && !this.comparisonRecursive) {
+      return this.verifiedComparisonResult;
+    }
+
     if (recursiveCurrent) {
       return this.recursiveComparisonResult!;
     }
@@ -2122,7 +2131,47 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     return this.paneComparison.compare(
       this.leftPane?.entries ?? [],
       this.rightPane?.entries ?? [],
+      { policy: this.comparisonPolicy },
     );
+  }
+
+  async setComparisonPolicy(policy: PaneComparisonPolicy): Promise<void> {
+    this.comparisonPolicy = policy;
+    this.verifiedComparisonResult = null;
+    this.syncReviewVisible = false;
+
+    if (this.comparisonRecursive) {
+      await this.refreshRecursiveComparison();
+      if (this.recursiveComparisonResult && (policy === 'hash' || policy === 'content')) {
+        this.recursiveComparisonScanning = true;
+        this.cdr.markForCheck();
+        try {
+          this.recursiveComparisonResult = await this.paneComparison.verify(this.api, this.recursiveComparisonResult, policy);
+        } finally {
+          this.recursiveComparisonScanning = false;
+          this.cdr.markForCheck();
+        }
+      }
+      return;
+    }
+
+    const base = this.paneComparison.compare(
+      this.leftPane?.entries ?? [],
+      this.rightPane?.entries ?? [],
+      { policy },
+    );
+    if (policy === 'hash' || policy === 'content') {
+      this.recursiveComparisonScanning = true;
+      this.cdr.markForCheck();
+      try {
+        this.verifiedComparisonResult = await this.paneComparison.verify(this.api, base, policy);
+      } finally {
+        this.recursiveComparisonScanning = false;
+      }
+    } else {
+      this.verifiedComparisonResult = base;
+    }
+    this.cdr.markForCheck();
   }
 
   togglePaneComparison(): void {
@@ -2148,6 +2197,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     this.syncReviewVisible = false;
     this.comparisonRecursive = false;
     this.recursiveComparisonResult = null;
+    this.verifiedComparisonResult = null;
     this.recursiveComparisonError = '';
     this.cdr.markForCheck();
   }
@@ -2195,7 +2245,9 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
         { showHidden: this.showHidden },
       );
 
-      this.recursiveComparisonResult = result.comparison;
+      this.recursiveComparisonResult = (this.comparisonPolicy === 'hash' || this.comparisonPolicy === 'content')
+        ? await this.paneComparison.verify(this.api, result.comparison, this.comparisonPolicy)
+        : this.paneComparison.fromItems(result.comparison.items, this.comparisonPolicy);
       this.recursiveComparisonRoots = {
         left: this.leftPane.path,
         right: this.rightPane.path,

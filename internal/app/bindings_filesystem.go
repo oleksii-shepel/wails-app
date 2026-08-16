@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
@@ -69,18 +70,33 @@ func (a *App) ProbeFile(path string) (*contracts.FileProbe, error) {
 }
 
 // HashFile returns a SHA-256 digest for a file resolved through the normal public-path chain.
+// Mounted VFS sources (cloud, SMB, memory and other providers) are streamed directly
+// instead of being forced through a native-path conversion.
 func (a *App) HashFile(path string) (string, error) {
-	resolved, err := a.State.Filesystem.RealPath(path)
-	if err != nil {
-		return "", err
+	normalized := pathref.Normalize(path)
+	var reader io.ReadCloser
+
+	if a.State != nil && a.State.vfs != nil && a.State.vfs.IsMounted(pathref.ToVFS(normalized)) {
+		f, err := a.State.vfs.Open(context.Background(), pathref.ToVFS(normalized))
+		if err != nil {
+			return "", err
+		}
+		reader = f
+	} else {
+		resolved, err := a.State.Filesystem.RealPath(normalized)
+		if err != nil {
+			return "", err
+		}
+		f, err := os.Open(resolved)
+		if err != nil {
+			return "", err
+		}
+		reader = f
 	}
-	f, err := os.Open(resolved)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
+	defer reader.Close()
+
 	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
+	if _, err := io.Copy(h, reader); err != nil {
 		return "", err
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil

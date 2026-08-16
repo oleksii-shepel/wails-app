@@ -46,5 +46,52 @@ describe('PaneComparisonService', () => {
     expect(service.missingOnRightPaths(result)).toEqual(['/left/left.txt']);
     expect(service.missingOnLeftPaths(result)).toEqual(['/right/right.txt']);
   });
-});
 
+  it('supports explicit size-only and date-only policies', () => {
+    const sizeOnly = service.compare(
+      [file('a.txt', 'left', { size: 10, modified: 200 })],
+      [file('a.txt', 'right', { size: 10, modified: 100 })],
+      { policy: 'size' },
+    );
+    expect(sizeOnly.items[0].status).toBe('same');
+
+    const dateOnly = service.compare(
+      [file('a.txt', 'left', { size: 20, modified: 100 })],
+      [file('a.txt', 'right', { size: 10, modified: 100 })],
+      { policy: 'date' },
+    );
+    expect(dateOnly.items[0].status).toBe('same');
+  });
+
+  it('verifies equal-size files by SHA-256 when hash policy is selected', async () => {
+    const base = service.compare([file('a.txt', 'left')], [file('a.txt', 'right')], { policy: 'hash' });
+    const api = {
+      hashFile: async (path: string) => path.includes('/left/') ? 'aaa' : 'bbb',
+      readFileRange: async () => ({ path: '', content: '', encoding: 'base64', size: 0 }),
+    };
+    const verified = await service.verify(api as any, base, 'hash');
+    expect(verified.items[0].status).toBe('hash-different');
+    expect(verified.summary.hashDifferent).toBe(1);
+  });
+
+  it('compares content in bounded ranges instead of loading complete files', async () => {
+    const size = 300 * 1024;
+    const base = service.compare(
+      [file('a.bin', 'left', { size })],
+      [file('a.bin', 'right', { size })],
+      { policy: 'content' },
+    );
+    const calls: Array<[string, number, number]> = [];
+    const api = {
+      hashFile: async () => '',
+      readFileRange: async (path: string, offset: number, length: number) => {
+        calls.push([path, offset, length]);
+        return { path, content: offset === 0 ? 'same' : (path.includes('/left/') ? 'left' : 'right'), encoding: 'base64', size };
+      },
+    };
+    const verified = await service.verify(api as any, base, 'content');
+    expect(verified.items[0].status).toBe('content-different');
+    expect(calls.some(([, offset]) => offset > 0)).toBe(true);
+  });
+
+});

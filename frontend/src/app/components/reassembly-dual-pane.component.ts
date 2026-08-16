@@ -68,7 +68,7 @@ import {
 } from './reassembly-context-menu.component';
 import { FileInfo, FileType } from '../shared/protocol';
 import { PluginManagerService } from '../services/plugin-manager.service';
-import { ReassemblyOperationHistoryService } from '../services/reassembly-operation-history.service';
+import { ReassemblyOperationHistoryService, type ReassemblySyncHistoryEntry } from '../services/reassembly-operation-history.service';
 import { ReassemblyTrashDialogService } from '../services/reassembly-trash-dialog.service';
 import { ReassemblyDriveLifecycleService } from '../services/reassembly-drive-lifecycle.service';
 import { PluginLifecycleCoordinatorService } from '../services/plugin-lifecycle-coordinator.service';
@@ -406,6 +406,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         class="comparison-surface"
         [visible]="syncReviewVisible"
         [result]="paneComparisonResult"
+        [history]="recentSyncRuns"
         (execute)="executeSyncPlan($event)"
         (close)="closeSyncReview()">
       </app-pane-sync-review>
@@ -739,6 +740,10 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
         left.description.localeCompare(right.description) ||
         left.shortcut.localeCompare(right.shortcut),
       );
+  }
+
+  get recentSyncRuns(): readonly ReassemblySyncHistoryEntry[] {
+    return this.operationHistory.recentSyncs(5);
   }
 
   get activePane(): ReassemblyDirectoryPaneComponent | undefined {
@@ -2382,16 +2387,26 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     const approved = plan.items.filter(item => item.direction !== 'skip');
     if (approved.length === 0) return;
 
+    const directionLabel = plan.preset === 'bidirectional'
+      ? 'bidirectional'
+      : plan.preset === 'left-to-right'
+        ? 'left → right'
+        : plan.preset === 'right-to-left'
+          ? 'right → left'
+          : 'custom';
+    const conflictNote = plan.conflicts > 0
+      ? ` ${plan.conflicts} comparison conflict${plan.conflicts === 1 ? '' : 's'} remain explicitly reviewable and skipped unless you selected a direction.`
+      : '';
     const confirmed = await this.confirmDialog.confirm({
       title: 'Execute Synchronization Plan',
       message:
-        `Apply ${approved.length} approved synchronization action${
-          approved.length === 1 ? '' : 's'
-        }? Existing destination items will be overwritten.`,
+        `Apply ${approved.length} approved synchronization action${approved.length === 1 ? '' : 's'} (${directionLabel})?` +
+        `${conflictNote} Destination conflicts use the normal conflict-resolution workflow.`,
       confirmText: 'Synchronize',
     });
     if (!confirmed) return;
 
+    const startedAt = Date.now();
     const items: Array<{ source: string; destination: string }> = [];
 
     for (const item of approved) {
@@ -2419,7 +2434,23 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     if (items.length === 0) return;
 
     const result = await this.api.batchCopy(items, true);
-    this.lastTransfer = `sync: ${result.succeeded}/${result.total}`;
+    const mode = plan.preset === 'left-to-right' || plan.preset === 'right-to-left' || plan.preset === 'bidirectional'
+      ? plan.preset
+      : 'custom';
+    this.operationHistory.recordSync({
+      startedAt,
+      completedAt: Date.now(),
+      leftRoot: this.leftPane?.path ?? '',
+      rightRoot: this.rightPane?.path ?? '',
+      mode,
+      recursive: this.comparisonRecursive,
+      planned: items.length,
+      succeeded: result.succeeded,
+      skipped: result.skipped,
+      failed: result.failed,
+      conflicts: plan.conflicts,
+    });
+    this.lastTransfer = `sync ${mode}: ${result.succeeded}/${result.total}`;
 
     this.syncReviewVisible = false;
     await Promise.all([

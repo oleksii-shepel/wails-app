@@ -1,8 +1,10 @@
 import { ChangeDetectionStrategy, Component, EventEmitter, Input, OnChanges, Output } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import type { PaneComparisonItem, PaneComparisonResult, PaneComparisonStatus } from '../services/pane-comparison.service';
+import type { ReassemblySyncHistoryEntry } from '../services/reassembly-operation-history.service';
 
 export type PaneSyncDirection = 'skip' | 'left-to-right' | 'right-to-left';
+export type PaneSyncPreset = 'safe' | 'left-to-right' | 'right-to-left' | 'bidirectional';
 
 export interface PaneSyncPlanItem {
   key: string;
@@ -17,6 +19,8 @@ export interface PaneSyncPlan {
   items: PaneSyncPlanItem[];
   leftToRight: string[];
   rightToLeft: string[];
+  preset: PaneSyncPreset | 'custom';
+  conflicts: number;
 }
 
 type Filter = 'different' | PaneComparisonStatus;
@@ -31,10 +35,13 @@ type Filter = 'different' | PaneComparisonStatus;
       <div class="header">
         <div class="title">
           <strong>Synchronization Review</strong>
-          <span>{{ approvedCount }} approved · {{ skippedCount }} skipped</span>
+          <span>{{ approvedCount }} approved · {{ skippedCount }} skipped · {{ conflictCount }} conflicts</span>
         </div>
         <div class="header-actions">
-          <button type="button" (click)="applySafeSuggestions()">Safe defaults</button>
+          <button type="button" (click)="applyPreset('safe')">Safe</button>
+          <button type="button" (click)="applyPreset('left-to-right')">Left → Right</button>
+          <button type="button" (click)="applyPreset('right-to-left')">Right → Left</button>
+          <button type="button" (click)="applyPreset('bidirectional')">Bidirectional</button>
           <button type="button" class="primary" (click)="executePlan()" [disabled]="approvedCount === 0">Execute {{ approvedCount }}</button>
           <button type="button" class="close" (click)="close.emit()" title="Close review">×</button>
         </div>
@@ -51,6 +58,11 @@ type Filter = 'different' | PaneComparisonStatus;
         <span>Name</span>
         <span>Status</span>
         <span>Decision</span>
+      </div>
+
+      <div class="history" *ngIf="history.length">
+        <strong>Recent synchronization</strong>
+        <span *ngFor="let run of history.slice(0, 3)">{{ syncHistoryLabel(run) }}</span>
       </div>
 
       <div class="rows">
@@ -100,6 +112,9 @@ type Filter = 'different' | PaneComparisonStatus;
     .filters span { opacity: .65; margin-left: 3px; }
     .columns, .row { grid-template-columns: minmax(180px, 1fr) 150px minmax(270px, auto); gap: 10px; padding: 5px 10px; }
     .columns { opacity: .55; text-transform: uppercase; font-size: 10px; letter-spacing: .04em; border-bottom: 1px solid var(--vsc-border, rgba(127,127,127,.16)); }
+    .history { display:flex; gap:8px; align-items:center; padding:5px 10px; overflow-x:auto; border-bottom:1px solid var(--vsc-border, rgba(127,127,127,.16)); font-size:10px; }
+    .history strong { white-space:nowrap; }
+    .history span { opacity:.7; white-space:nowrap; }
     .rows { overflow: auto; min-height: 0; }
     .row { min-height: 34px; border-bottom: 1px solid color-mix(in srgb, var(--vsc-border, rgba(127,127,127,.25)) 55%, transparent); }
     .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -112,14 +127,16 @@ type Filter = 'different' | PaneComparisonStatus;
 export class PaneSyncReviewComponent implements OnChanges {
   @Input() visible = false;
   @Input({ required: true }) result!: PaneComparisonResult;
+  @Input() history: readonly ReassemblySyncHistoryEntry[] = [];
   @Output() execute = new EventEmitter<PaneSyncPlan>();
   @Output() close = new EventEmitter<void>();
 
   filter: Filter = 'different';
   items: PaneSyncPlanItem[] = [];
+  preset: PaneSyncPreset | 'custom' = 'safe';
 
   readonly statuses: PaneComparisonStatus[] = [
-    'only-left', 'only-right', 'left-newer', 'right-newer', 'size-different', 'type-different',
+    'only-left', 'only-right', 'left-newer', 'right-newer', 'size-different', 'hash-different', 'content-different', 'type-different',
   ];
 
   ngOnChanges(): void {
@@ -138,6 +155,10 @@ export class PaneSyncReviewComponent implements OnChanges {
     return this.items.length - this.approvedCount;
   }
 
+  get conflictCount(): number {
+    return this.items.filter(item => this.isConflict(item.status)).length;
+  }
+
   get filterOptions(): Array<{ status: PaneComparisonStatus; label: string; count: number }> {
     return this.statuses
       .map(status => ({ status, label: this.statusLabel(status), count: this.items.filter(item => item.status === status).length }))
@@ -148,10 +169,16 @@ export class PaneSyncReviewComponent implements OnChanges {
     if (direction === 'left-to-right' && !item.leftPath) return;
     if (direction === 'right-to-left' && !item.rightPath) return;
     item.direction = direction;
+    this.preset = 'custom';
   }
 
-  applySafeSuggestions(): void {
-    for (const item of this.items) item.direction = this.defaultDirection(item.status);
+  applySafeSuggestions(): void { this.applyPreset('safe'); }
+
+  applyPreset(preset: PaneSyncPreset): void {
+    this.preset = preset;
+    for (const item of this.items) {
+      item.direction = this.directionForPreset(item, preset);
+    }
   }
 
   executePlan(): void {
@@ -160,10 +187,17 @@ export class PaneSyncReviewComponent implements OnChanges {
       items: approved.map(item => ({ ...item })),
       leftToRight: approved.filter(item => item.direction === 'left-to-right' && item.leftPath).map(item => item.leftPath!),
       rightToLeft: approved.filter(item => item.direction === 'right-to-left' && item.rightPath).map(item => item.rightPath!),
+      preset: this.preset,
+      conflicts: this.conflictCount,
     });
   }
 
   trackByKey(_index: number, item: PaneSyncPlanItem): string { return item.key; }
+
+  syncHistoryLabel(run: ReassemblySyncHistoryEntry): string {
+    const mode = run.mode === 'bidirectional' ? '↔' : run.mode === 'left-to-right' ? '→' : run.mode === 'right-to-left' ? '←' : 'custom';
+    return `${mode} ${run.succeeded}/${run.planned}${run.failed ? ` · ${run.failed} failed` : ''}`;
+  }
 
   statusLabel(status: PaneComparisonStatus): string {
     return ({
@@ -172,6 +206,8 @@ export class PaneSyncReviewComponent implements OnChanges {
       'left-newer': 'Left newer',
       'right-newer': 'Right newer',
       'size-different': 'Different size',
+      'hash-different': 'Different hash',
+      'content-different': 'Different content',
       'type-different': 'Different type',
       'same': 'Same',
     } as Record<PaneComparisonStatus, string>)[status];
@@ -199,5 +235,19 @@ export class PaneSyncReviewComponent implements OnChanges {
     if (status === 'only-left') return 'left-to-right';
     if (status === 'only-right') return 'right-to-left';
     return 'skip';
+  }
+
+  private directionForPreset(item: PaneSyncPlanItem, preset: PaneSyncPreset): PaneSyncDirection {
+    if (preset === 'safe') return this.defaultDirection(item.status);
+    if (preset === 'left-to-right') return item.leftPath ? 'left-to-right' : 'skip';
+    if (preset === 'right-to-left') return item.rightPath ? 'right-to-left' : 'skip';
+
+    if (item.status === 'only-left' || item.status === 'left-newer') return item.leftPath ? 'left-to-right' : 'skip';
+    if (item.status === 'only-right' || item.status === 'right-newer') return item.rightPath ? 'right-to-left' : 'skip';
+    return 'skip';
+  }
+
+  private isConflict(status: PaneComparisonStatus): boolean {
+    return status === 'size-different' || status === 'hash-different' || status === 'content-different' || status === 'type-different';
   }
 }

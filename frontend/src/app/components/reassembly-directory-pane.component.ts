@@ -494,6 +494,17 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
 
         <span class="footer-spacer"></span>
 
+        <span
+          class="footer-item capacity"
+          *ngIf="driveTotalBytes > 0"
+          [title]="driveCapacityTitle">
+          {{ formatSize(driveFreeBytes) }} free
+          · {{ formatSize(driveTotalBytes) }} total
+          <ng-container *ngIf="driveFileSystem">
+            · {{ driveFileSystem }}
+          </ng-container>
+        </span>
+
         <span class="footer-item capability" [class.disabled-capability]="!sourceCapabilities.create">
           write
         </span>
@@ -1250,6 +1261,10 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   filterVisible = false;
   filterText = '';
 
+  driveFreeBytes = 0;
+  driveTotalBytes = 0;
+  driveFileSystem = '';
+
   viewMode: ReassemblyDirectoryView = 'list';
   sortField: ReassemblySortField = 'name';
   sortDirection: ReassemblySortDirection = 'asc';
@@ -1390,6 +1405,51 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   get pinnableTitle(): string {
     const tab = this.activeTab;
     return tab?.title?.trim() || this.pinnableLocation;
+  }
+
+  get driveCapacityTitle(): string {
+    if (this.driveTotalBytes <= 0) return '';
+    return [
+      `${this.formatSize(this.driveFreeBytes)} free`,
+      `${this.formatSize(this.driveTotalBytes)} total`,
+      this.driveFileSystem,
+    ].filter(Boolean).join(' · ');
+  }
+
+  private async refreshDriveCapacity(path: string): Promise<void> {
+    if (!path || this.isInArchive || this.isRemoteLocation) {
+      this.driveFreeBytes = 0;
+      this.driveTotalBytes = 0;
+      this.driveFileSystem = '';
+      return;
+    }
+
+    const response = await this.api.getDrives().catch(() => null);
+    if (!response) return;
+
+    const normalize = (value: string) =>
+      value.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+
+    const current = normalize(path);
+    const candidates = (response.schemes ?? [])
+      .filter(drive => {
+        const root = normalize(drive.path);
+        return !!root &&
+          (current === root || current.startsWith(`${root}/`));
+      })
+      .sort((a, b) => normalize(b.path).length - normalize(a.path).length);
+
+    const drive = candidates[0];
+    if (!drive) {
+      this.driveFreeBytes = 0;
+      this.driveTotalBytes = 0;
+      this.driveFileSystem = '';
+      return;
+    }
+
+    this.driveFreeBytes = Number(drive.freeSpace) || 0;
+    this.driveTotalBytes = Number(drive.totalSpace) || 0;
+    this.driveFileSystem = drive.fileSystem || '';
   }
 
   get activeTab(): ReassemblyTab | null {
@@ -3368,6 +3428,127 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     }
   }
 
+  async copySelectedRelativePaths(): Promise<void> {
+    const entries = this.selectedEntries.length > 0
+      ? this.selectedEntries
+      : this.cursorEntry
+        ? [this.cursorEntry]
+        : [];
+
+    if (entries.length === 0) return;
+
+    const base = this.path.replace(/\\/g, '/').replace(/\/+$/, '');
+    const relative = entries.map(entry => {
+      const full = entry.path.replace(/\\/g, '/');
+      const prefix = `${base}/`;
+      return full.toLowerCase().startsWith(prefix.toLowerCase())
+        ? full.slice(prefix.length)
+        : entry.name;
+    });
+
+    const copied = await this.writeTextClipboard(relative.join('\n'));
+    this.lastAction = copied
+      ? `copy relative path: ${entries.length}`
+      : 'copy relative path failed';
+    this.cdr.markForCheck();
+  }
+
+  async revealSelectedInFileManager(): Promise<void> {
+    const entry = this.cursorEntry ?? this.selectedEntries[0];
+    if (
+      !entry ||
+      this.isInArchive ||
+      !this.isDirectoryTab
+    ) return;
+
+    try {
+      await this.api.revealInFileManager(entry.path);
+      this.lastAction = `reveal: ${entry.name}`;
+      this.cdr.markForCheck();
+    } catch (error) {
+      await this.showOperationError('Reveal in File Manager', error);
+    }
+  }
+
+  async touchSelectedModifiedTime(): Promise<void> {
+    if (!this.isDirectoryTab || this.isInArchive) return;
+
+    const entries = this.selectedEntries.length > 0
+      ? this.selectedEntries
+      : this.cursorEntry
+        ? [this.cursorEntry]
+        : [];
+
+    if (entries.length === 0) return;
+
+    const initial = new Date().toISOString().slice(0, 19);
+    const value = await this.confirmDialog.prompt({
+      title:
+        entries.length === 1
+          ? `Modified Time — ${entries[0].name}`
+          : `Modified Time — ${entries.length} items`,
+      message:
+        'Enter local date/time as YYYY-MM-DDTHH:mm:ss, or "now".',
+      confirmText: 'Apply',
+      defaultValue: initial,
+      historyKey: 'reassembly.modifiedTime',
+    });
+    if (value === null || value === undefined) return;
+
+    const raw = String(value).trim();
+    const timestamp =
+      raw.toLowerCase() === 'now'
+        ? Date.now()
+        : new Date(raw).getTime();
+
+    if (!Number.isFinite(timestamp)) {
+      await this.confirmDialog.alert({
+        title: 'Invalid Date / Time',
+        message:
+          'Use YYYY-MM-DDTHH:mm:ss (for example 2026-08-16T12:30:00) or "now".',
+      });
+      return;
+    }
+
+    try {
+      const before = await Promise.all(
+        entries.map(async entry => ({
+          path: entry.path,
+          modified: Number((await this.api.getFileInfo(entry.path)).modified),
+        })),
+      );
+
+      for (const entry of entries) {
+        await this.api.setModifiedTime(entry.path, timestamp);
+      }
+
+      this.operationHistory.record({
+        label: `Set modified time for ${entries.length} item${
+          entries.length === 1 ? '' : 's'
+        }`,
+        undo: async () => {
+          for (const item of before) {
+            const milliseconds =
+              item.modified < 10_000_000_000
+                ? item.modified * 1000
+                : item.modified;
+            await this.api.setModifiedTime(item.path, milliseconds);
+          }
+        },
+        redo: async () => {
+          for (const entry of entries) {
+            await this.api.setModifiedTime(entry.path, timestamp);
+          }
+        },
+      });
+
+      this.lastAction = `modified time: ${entries.length}`;
+      await this.refresh();
+    } catch (error) {
+      await this.showOperationError('Set Modified Time', error);
+    }
+  }
+
   copySelected(): void {
     const entries = this.selectedEntries;
     if (entries.length === 0) return;
@@ -3398,6 +3579,114 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
 
     this.lastAction = `cut ${entries.length}`;
     this.cdr.markForCheck();
+  }
+
+  async newDocumentTemplate(
+    kind: 'text' | 'markdown' | 'json',
+  ): Promise<void> {
+    if (!this.canCreate || this.isInArchive) return;
+
+    const templates = {
+      text: {
+        title: 'New Text Document',
+        defaultName: 'New Text Document.txt',
+        content: '',
+      },
+      markdown: {
+        title: 'New Markdown Document',
+        defaultName: 'README.md',
+        content: '# Title\n\n',
+      },
+      json: {
+        title: 'New JSON Document',
+        defaultName: 'data.json',
+        content: '{\n  \n}\n',
+      },
+    } as const;
+
+    const template = templates[kind];
+    const name = await this.confirmDialog.prompt({
+      title: template.title,
+      message: 'Enter a name for the new document.',
+      confirmText: 'Create',
+      defaultValue: template.defaultName,
+      historyKey: `reassembly.newTemplate.${kind}`,
+    });
+
+    const cleanName = this.cleanLeafName(name);
+    if (!cleanName) return;
+
+    try {
+      const destination = await this.api.joinPaths([this.path, cleanName]);
+      await this.api.writeFile(destination, template.content, 'utf8');
+
+      this.operationHistory.record({
+        label: `Create ${template.title.toLowerCase()} ${cleanName}`,
+        undo: async () => {
+          await this.api.deleteFile(destination, true, false);
+        },
+        redo: async () => {
+          await this.api.writeFile(destination, template.content, 'utf8');
+        },
+      });
+
+      this.lastAction = `new ${kind}: ${cleanName}`;
+      await this.refresh();
+      this.selectPath(destination);
+    } catch (error) {
+      await this.showOperationError(template.title, error);
+    }
+  }
+
+  async createShortcutForSelected(): Promise<void> {
+    if (
+      !this.isDirectoryTab ||
+      this.isInArchive ||
+      !this.sourceCapabilities.create
+    ) return;
+
+    const entry = this.cursorEntry ?? this.selectedEntries[0];
+    if (!entry || entry.path === '__parent__') return;
+
+    try {
+      const osInfo = await this.api.getOSInfo();
+      const windows = String(osInfo?.os).toLowerCase() === 'windows';
+
+      const defaultName = windows
+        ? `${entry.name} - Shortcut.lnk`
+        : `${entry.name} shortcut`;
+
+      let name = await this.confirmDialog.prompt({
+        title: 'Create Shortcut',
+        message: `Create a shortcut to "${entry.name}" as:`,
+        confirmText: 'Create',
+        defaultValue: defaultName,
+        historyKey: 'reassembly.shortcut.name',
+      });
+
+      name = this.cleanLeafName(name);
+      if (!name) return;
+      if (windows && !/\.lnk$/i.test(name)) name += '.lnk';
+
+      const destination = await this.api.joinPaths([this.path, name]);
+      await this.api.createShortcut(entry.path, destination);
+
+      this.operationHistory.record({
+        label: `Create shortcut ${name}`,
+        undo: async () => {
+          await this.api.deleteFile(destination, true, false);
+        },
+        redo: async () => {
+          await this.api.createShortcut(entry.path, destination);
+        },
+      });
+
+      this.lastAction = `shortcut: ${name}`;
+      await this.refresh();
+      this.selectPath(destination);
+    } catch (error) {
+      await this.showOperationError('Create Shortcut', error);
+    }
   }
 
   async newFile(): Promise<void> {
@@ -3802,10 +4091,60 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   async showSelectedProperties(): Promise<void> {
-    const entry = this.cursorEntry ?? this.selectedEntries[0];
-    if (!entry) return;
+    const selected =
+      this.selectedEntries.length > 0
+        ? this.selectedEntries
+        : this.cursorEntry
+          ? [this.cursorEntry]
+          : [];
+
+    if (selected.length === 0) return;
 
     try {
+      if (selected.length > 1) {
+        const infos = this.isInArchive
+          ? selected
+          : await Promise.all(
+              selected.map(entry => this.api.getFileInfo(entry.path)),
+            );
+
+        let totalSize = 0;
+        let files = 0;
+        let directories = 0;
+        let archives = 0;
+        let symlinks = 0;
+
+        for (const info of infos) {
+          if (info.type === FileType.DIRECTORY) {
+            directories++;
+            totalSize += this.isInArchive
+              ? Number(info.size) || 0
+              : await this.api.dirSizeRecursive(info.path);
+          } else {
+            totalSize += Number(info.size) || 0;
+            if (info.type === FileType.ARCHIVE) archives++;
+            else if (info.type === FileType.SYMLINK) symlinks++;
+            else files++;
+          }
+        }
+
+        await this.confirmDialog.alert({
+          title: `Properties — ${selected.length} items`,
+          message: [
+            `Items: ${selected.length}`,
+            `Files: ${files}`,
+            `Directories: ${directories}`,
+            `Archives: ${archives}`,
+            `Symbolic links: ${symlinks}`,
+            `Total size: ${this.formatSize(totalSize) || '—'}`,
+            `Bytes: ${totalSize.toLocaleString()}`,
+            this.isInArchive ? 'Location: inside archive' : `Folder: ${this.path}`,
+          ].join('\n'),
+        });
+        return;
+      }
+
+      const entry = selected[0];
       const info = this.isInArchive
         ? entry
         : await this.api.getFileInfo(entry.path);
@@ -5413,6 +5752,11 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       }
 
       this.pathHistory.addLocation(this.path, this.paneId);
+      void this.refreshDriveCapacity(this.path).then(() => {
+        if (generation === this.loadGeneration) {
+          this.cdr.markForCheck();
+        }
+      });
 
       if (!options.restoreSession) {
         this.syncActiveDirSessionState();

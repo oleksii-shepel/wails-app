@@ -8,14 +8,14 @@ export type BasicFileManagerFeature =
   | 'hiddenFiles' | 'selection' | 'tabs'
   | 'pinsHistory' | 'dragDrop'
   | 'archiveBrowseExtract' | 'archiveCreate'
-  | 'rootsDrives' | 'attributesPermissions' | 'trashBrowseRestore' | 'openWithChooser' | 'driveLifecycle' | 'transferUndo' | 'copyPathName' | 'duplicate' | 'links' | 'terminalHere';
+  | 'rootsDrives' | 'attributesPermissions' | 'trashBrowseRestore' | 'openWithChooser' | 'driveLifecycle' | 'transferUndo' | 'copyPathName' | 'duplicate' | 'links' | 'terminalHere' | 'reveal' | 'relativePath' | 'timestamps' | 'multiProperties' | 'driveCapacity' | 'newTemplates' | 'shortcuts';
 
 export const BASIC_FILE_MANAGER_FEATURES: readonly BasicFileManagerFeature[] = [
   'navigation','backForward','refresh','copyCutPaste','copyMoveOtherPane',
   'rename','newFileFolder','trashDelete','permanentDelete','undoRedo',
   'properties','checksum','folderSize','openWithPreview','searchFilter',
   'sortViews','hiddenFiles','selection','tabs','pinsHistory','dragDrop',
-  'archiveBrowseExtract','archiveCreate','rootsDrives','attributesPermissions','trashBrowseRestore','openWithChooser','driveLifecycle','transferUndo','copyPathName','duplicate','links','terminalHere',
+  'archiveBrowseExtract','archiveCreate','rootsDrives','attributesPermissions','trashBrowseRestore','openWithChooser','driveLifecycle','transferUndo','copyPathName','duplicate','links','terminalHere','reveal','relativePath','timestamps','multiProperties','driveCapacity','newTemplates','shortcuts',
 ];
 
 export function missingBasicFileManagerFeatures(

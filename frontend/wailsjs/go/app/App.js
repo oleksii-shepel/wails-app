@@ -506,6 +506,10 @@ export function RestoreTrashEntry(arg1) {
   return window['go']['app']['App']['RestoreTrashEntry'](arg1);
 }
 
+export function RevealInFileManager(arg1) {
+  return window['go']['app']['App']['RevealInFileManager'](arg1);
+}
+
 export function SavePreferences(arg1) {
   return window['go']['app']['App']['SavePreferences'](arg1);
 }
@@ -520,6 +524,10 @@ export function Search(arg1, arg2, arg3) {
 
 export function SearchFiles(arg1, arg2, arg3) {
   return window['go']['app']['App']['SearchFiles'](arg1, arg2, arg3);
+}
+
+export function SetModifiedTime(arg1, arg2) {
+  return window['go']['app']['App']['SetModifiedTime'](arg1, arg2);
 }
 
 export function SetPaneDirectory(arg1, arg2) {

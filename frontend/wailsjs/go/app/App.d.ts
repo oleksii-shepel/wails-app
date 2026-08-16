@@ -262,6 +262,8 @@ export function ResolveLink(arg1:string):Promise<utility.ResolvedLink>;
 
 export function RestoreTrashEntry(arg1:string):Promise<string>;
 
+export function RevealInFileManager(arg1:string):Promise<void>;
+
 export function SavePreferences(arg1:contracts.UserPreferences):Promise<void>;
 
 export function SaveWorkspace(arg1:contracts.WorkspaceConfig):Promise<void>;
@@ -269,6 +271,8 @@ export function SaveWorkspace(arg1:contracts.WorkspaceConfig):Promise<void>;
 export function Search(arg1:string,arg2:string,arg3:boolean):Promise<contracts.SearchResult>;
 
 export function SearchFiles(arg1:string,arg2:string,arg3:boolean):Promise<contracts.SearchResult>;
+
+export function SetModifiedTime(arg1:string,arg2:number):Promise<void>;
 
 export function SetPaneDirectory(arg1:string,arg2:string):Promise<void>;
 

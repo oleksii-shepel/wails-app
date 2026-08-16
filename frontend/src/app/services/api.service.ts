@@ -253,6 +253,47 @@ export class ApiService {
 	    return await window.go.app.App.GetOSInfo();
   }
 
+  async createShortcut(
+    target: string,
+    shortcutPath: string,
+  ): Promise<void> {
+    const app = window.go.app.App as unknown as {
+      CreateShortcut(
+        target: string,
+        shortcutPath: string,
+      ): Promise<void>;
+    };
+    await app.CreateShortcut(
+      this.normalizeCanonicalPath(target),
+      this.normalizeCanonicalPath(shortcutPath),
+    );
+  }
+
+  async revealInFileManager(path: string): Promise<void> {
+    const app = window.go.app.App as unknown as {
+      RevealInFileManager(path: string): Promise<void>;
+    };
+    await app.RevealInFileManager(
+      this.normalizeCanonicalPath(path),
+    );
+  }
+
+  async setModifiedTime(
+    path: string,
+    unixMilliseconds: number,
+  ): Promise<void> {
+    const app = window.go.app.App as unknown as {
+      SetModifiedTime(
+        path: string,
+        unixMilliseconds: number,
+      ): Promise<void>;
+    };
+    await app.SetModifiedTime(
+      this.normalizeCanonicalPath(path),
+      unixMilliseconds,
+    );
+  }
+
   async createSymbolicLink(
     target: string,
     linkPath: string,

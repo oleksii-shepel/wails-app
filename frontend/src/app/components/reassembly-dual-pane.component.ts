@@ -90,6 +90,10 @@ const COMMAND = {
   refresh: 'reassembly.manager.refresh',
   rename: 'reassembly.manager.rename',
   newFile: 'reassembly.manager.newFile',
+  newTextDocument: 'reassembly.manager.newTextDocument',
+  newMarkdownDocument: 'reassembly.manager.newMarkdownDocument',
+  newJsonDocument: 'reassembly.manager.newJsonDocument',
+  createShortcut: 'reassembly.files.createShortcut',
   newFolder: 'reassembly.manager.newFolder',
   properties: 'reassembly.manager.properties',
   deletePermanent: 'reassembly.manager.deletePermanent',
@@ -98,7 +102,10 @@ const COMMAND = {
   cut: 'reassembly.manager.cut',
   paste: 'reassembly.manager.paste',
   copyPath: 'reassembly.files.copyPath',
+  copyRelativePath: 'reassembly.files.copyRelativePath',
   copyName: 'reassembly.files.copyName',
+  revealInFileManager: 'reassembly.files.revealInFileManager',
+  setModifiedTime: 'reassembly.files.setModifiedTime',
   duplicate: 'reassembly.files.duplicate',
   createSymlink: 'reassembly.files.createSymlink',
   createHardlink: 'reassembly.files.createHardlink',
@@ -232,6 +239,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   { id:'reassembly.manager.cut.ctrlX', commandId:COMMAND.cut, contextId:CONTEXT_ID, source:'default', description:'Cut selected items', category:'File Operations', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'x', modifiers:['ctrl']}]}}},
   { id:'reassembly.manager.paste.ctrlV', commandId:COMMAND.paste, contextId:CONTEXT_ID, source:'default', description:'Paste items', category:'File Operations', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'v', modifiers:['ctrl']}]}}},
   { id:'reassembly.files.copyPath.ctrlShiftC', commandId:COMMAND.copyPath, contextId:CONTEXT_ID, source:'default', description:'Copy selected paths as text', category:'Files', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'c', modifiers:['ctrl','shift']}]}}},
+  { id:'reassembly.files.copyRelativePath.ctrlAltC', commandId:COMMAND.copyRelativePath, contextId:CONTEXT_ID, source:'default', description:'Copy selected relative paths', category:'Files', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'c', modifiers:['alt','ctrl']}]}}},
   { id:'reassembly.files.duplicate.ctrlD', commandId:COMMAND.duplicate, contextId:CONTEXT_ID, source:'default', description:'Duplicate selection', category:'File Operations', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'d', modifiers:['ctrl']}]}}},
   { id:'reassembly.navigation.openTerminal.ctrlAltT', commandId:COMMAND.openTerminal, contextId:CONTEXT_ID, source:'default', description:'Open terminal in current folder', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'t', modifiers:['alt','ctrl']}]}}},
   { id:'reassembly.edit.undo.ctrlZ', commandId:COMMAND.undo, contextId:CONTEXT_ID, source:'default', description:'Undo last reversible file operation', category:'Edit', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'z', modifiers:['ctrl']}]}}},
@@ -2068,6 +2076,8 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       this.menuCommand(COMMAND.properties, 'Properties', 'Alt+Enter'),
       this.menuCommand(COMMAND.calculateSize, 'Calculate Size'),
       this.menuCommand(COMMAND.attributes, 'Attributes / Permissions'),
+      this.menuCommand(COMMAND.setModifiedTime, 'Set Modified Time…'),
+      this.menuCommand(COMMAND.createShortcut, 'Create Shortcut'),
       this.menuCommand(COMMAND.createSymlink, 'Create Symbolic Link'),
       this.menuCommand(COMMAND.createHardlink, 'Create Hard Link'),
       this.menuCommand(COMMAND.checksum, 'SHA-256 Checksum'),
@@ -2075,7 +2085,9 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       this.menuCommand(COMMAND.batchRename, 'Batch rename…', 'Ctrl+Shift+R'),
       this.menuCommand(COMMAND.copy, 'Copy', 'Ctrl+C'),
       this.menuCommand(COMMAND.copyPath, 'Copy Path', 'Ctrl+Shift+C'),
+      this.menuCommand(COMMAND.copyRelativePath, 'Copy Relative Path', 'Ctrl+Alt+C'),
       this.menuCommand(COMMAND.copyName, 'Copy Name'),
+      this.menuCommand(COMMAND.revealInFileManager, 'Reveal in System File Manager'),
       this.menuCommand(COMMAND.duplicate, 'Duplicate', 'Ctrl+D'),
       this.menuCommand(COMMAND.cut, 'Cut', 'Ctrl+X'),
       this.menuCommand(COMMAND.paste, 'Paste', 'Ctrl+V'),
@@ -2148,6 +2160,9 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
         this.menuCommand(COMMAND.closeOtherTabs, 'Close other tabs'),
         this.menuCommand(COMMAND.closeTabsToRight, 'Close tabs to the right'),
         this.menuCommand(COMMAND.newFile, 'New File'),
+        this.menuCommand(COMMAND.newTextDocument, 'New Text Document'),
+        this.menuCommand(COMMAND.newMarkdownDocument, 'New Markdown Document'),
+        this.menuCommand(COMMAND.newJsonDocument, 'New JSON Document'),
         this.menuCommand(COMMAND.refresh, 'Refresh', 'Ctrl+R'),
     ];
 
@@ -2551,6 +2566,41 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     descriptor(COMMAND.refresh, 'Refresh', 'Navigation', () => this.activePane?.refresh());
     descriptor(COMMAND.rename, 'Rename', 'File Operations', () => this.activePane?.renameSelected(), () => !!this.activePane?.canRename);
     descriptor(COMMAND.newFile, 'New File', 'File Operations', () => this.activePane?.newFile(), () => !!this.activePane?.canCreate && !this.activePane?.isInArchive);
+    descriptor(
+      COMMAND.newTextDocument,
+      'New Text Document',
+      'File Operations',
+      () => this.activePane?.newDocumentTemplate('text'),
+      () => !!this.activePane?.canCreate && !this.activePane?.isInArchive,
+    );
+    descriptor(
+      COMMAND.newMarkdownDocument,
+      'New Markdown Document',
+      'File Operations',
+      () => this.activePane?.newDocumentTemplate('markdown'),
+      () => !!this.activePane?.canCreate && !this.activePane?.isInArchive,
+    );
+    descriptor(
+      COMMAND.newJsonDocument,
+      'New JSON Document',
+      'File Operations',
+      () => this.activePane?.newDocumentTemplate('json'),
+      () => !!this.activePane?.canCreate && !this.activePane?.isInArchive,
+    );
+    descriptor(
+      COMMAND.createShortcut,
+      'Create Shortcut',
+      'File Operations',
+      () => this.activePane?.createShortcutForSelected(),
+      () =>
+        !!this.activePane?.isDirectoryTab &&
+        !this.activePane?.isInArchive &&
+        !!this.activePane?.canCreate &&
+        !!(
+          this.activePane?.cursorEntry ||
+          this.activePane?.selectedEntries.length
+        ),
+    );
     descriptor(COMMAND.properties, 'Properties', 'File Operations', () => this.activePane?.showSelectedProperties(), () => !!this.activePane?.cursorEntry);
     descriptor(COMMAND.deletePermanent, 'Delete Permanently', 'File Operations', () => this.activePane?.deleteSelected(true), () => this.canDeleteActiveSelection());
     descriptor(COMMAND.newFolder, 'New Folder', 'File Operations', () => this.activePane?.newFolder(), () => !!this.activePane?.canCreate);
@@ -2567,6 +2617,44 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
         this.activePane?.cursorEntry ||
         this.activePane?.selectedEntries.length
       ),
+    );
+    descriptor(
+      COMMAND.copyRelativePath,
+      'Copy Relative Path',
+      'Files',
+      () => this.activePane?.copySelectedRelativePaths(),
+      () =>
+        !!this.activePane?.isDirectoryTab &&
+        !!(
+          this.activePane?.cursorEntry ||
+          this.activePane?.selectedEntries.length
+        ),
+    );
+    descriptor(
+      COMMAND.revealInFileManager,
+      'Reveal in System File Manager',
+      'Files',
+      () => this.activePane?.revealSelectedInFileManager(),
+      () =>
+        !!this.activePane?.isDirectoryTab &&
+        !this.activePane?.isInArchive &&
+        !!(
+          this.activePane?.cursorEntry ||
+          this.activePane?.selectedEntries.length
+        ),
+    );
+    descriptor(
+      COMMAND.setModifiedTime,
+      'Set Modified Time…',
+      'Files',
+      () => this.activePane?.touchSelectedModifiedTime(),
+      () =>
+        !!this.activePane?.isDirectoryTab &&
+        !this.activePane?.isInArchive &&
+        !!(
+          this.activePane?.cursorEntry ||
+          this.activePane?.selectedEntries.length
+        ),
     );
     descriptor(
       COMMAND.copyName,

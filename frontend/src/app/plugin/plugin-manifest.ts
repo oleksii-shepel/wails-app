@@ -11,6 +11,8 @@ export type PluginPermission =
   | 'fileCategories'
   | 'relatedLocations'
   | 'collections'
+  | 'panelSources'
+  | 'columns'
   | 'filesystem.read'
   | 'filesystem.write'
   | 'network'

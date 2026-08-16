@@ -4,6 +4,7 @@ import type {
   PluginRegistryAPI,
   ToolbarActionContribution,
   PluginResultsCollection,
+  PanelColumnContribution,
 } from './plugin-registry-api';
 import type { PluginPermission } from './plugin-manifest';
 import type { CommandDescriptor, PluginInputContribution } from '../services/input-system.types';
@@ -11,6 +12,7 @@ import type { ViewerContribution } from '../viewers/viewer-contribution';
 import type { SurfaceContribution } from '../surfaces/surface-contribution';
 import type { RelatedLocationContribution } from '../services/related-location.types';
 import type { WorkspaceSurfaceActionContribution } from '../services/workspace-surface-action.types';
+import type { PanelSource } from '../services/panel-source';
 
 /**
  * Plugin-facing registry wrapper. Every successful contribution is recorded and
@@ -113,6 +115,20 @@ export class ScopedPluginRegistry implements PluginRegistryAPI {
     this.cleanups.push(() => this.host.unregisterRelatedLocation(contribution.id));
   }
   unregisterRelatedLocation(id: string): void { this.host.unregisterRelatedLocation(id); }
+
+  registerPanelSource(source: PanelSource): void {
+    this.assertActive(); this.require('panelSources');
+    this.host.registerPanelSource(source);
+    this.cleanups.push(() => this.host.unregisterPanelSource(source.id));
+  }
+  unregisterPanelSource(id: string): void { this.host.unregisterPanelSource(id); }
+
+  registerPanelColumn(column: PanelColumnContribution): void {
+    this.assertActive(); this.require('columns');
+    this.host.registerPanelColumn(column);
+    this.cleanups.push(() => this.host.unregisterPanelColumn(column.id));
+  }
+  unregisterPanelColumn(id: string): void { this.host.unregisterPanelColumn(id); }
 
   createResultsCollection(collection: PluginResultsCollection): string {
     this.assertActive();

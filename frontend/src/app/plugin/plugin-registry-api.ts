@@ -5,6 +5,7 @@ import type { RelatedLocationContribution } from '../services/related-location.t
 import type { WorkspaceSurfaceActionContribution } from '../services/workspace-surface-action.types';
 import type { FileInfo } from '../shared/protocol-enhanced';
 import type { ResultsPanelMetadata } from '../services/results-panel.service';
+import type { PanelSource, PanelSourceKind } from '../services/panel-source';
 
 export interface PluginDescriptor {
   id: string;
@@ -25,6 +26,20 @@ export interface PluginResultsCollection {
   title: string;
   entries: readonly FileInfo[];
   metadata?: ResultsPanelMetadata;
+}
+
+export interface PanelColumnContext {
+  readonly currentDirectory: string;
+  readonly sourceId: string;
+  readonly sourceKind: PanelSourceKind;
+}
+
+export interface PanelColumnContribution {
+  readonly id: string;
+  readonly label: string;
+  readonly width?: string;
+  score(context: PanelColumnContext): number;
+  value(entry: FileInfo, context: PanelColumnContext): string | number | null | undefined;
 }
 
 export interface PluginCommandInfo {
@@ -117,6 +132,12 @@ export interface PluginRegistryAPI {
 
   registerRelatedLocation(contribution: RelatedLocationContribution): void;
   unregisterRelatedLocation(id: string): void;
+
+  registerPanelSource(source: PanelSource): void;
+  unregisterPanelSource(id: string): void;
+
+  registerPanelColumn(column: PanelColumnContribution): void;
+  unregisterPanelColumn(id: string): void;
 
   createResultsCollection(collection: PluginResultsCollection): string;
   removeResultsCollection(path: string): void;

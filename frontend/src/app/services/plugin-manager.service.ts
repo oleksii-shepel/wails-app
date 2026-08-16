@@ -8,6 +8,8 @@ import type {
   ContextMenuContribution,
   MenuContext,
   FileCategoryResolver,
+  PanelColumnContribution,
+  PanelColumnContext,
   PluginResultsCollection,
 } from '../plugin/plugin-registry-api';
 import type { ViewerContribution } from '../viewers/viewer-contribution';
@@ -20,6 +22,10 @@ import { RelatedLocationService } from './related-location.service';
 import type { RelatedLocationContribution } from './related-location.types';
 import { WorkspaceSurfaceActionRegistryService } from './workspace-surface-action-registry.service';
 import type { WorkspaceSurfaceActionContribution } from './workspace-surface-action.types';
+import type { PanelSource } from './panel-source';
+import { PanelSourceRegistryService, RemotePanelSource } from './panel-source-registry.service';
+import { DirectorySourceService } from './directory-source.service';
+import { RemoteConnectionsService } from './remote-connections.service';
 import { ResultsPanelService } from './results-panel.service';
 
 export interface PluginBackend {
@@ -36,6 +42,9 @@ export class PluginManagerService implements PluginRegistryAPI {
   private readonly relatedLocations = inject(RelatedLocationService);
   private readonly workspaceSurfaceActions =
     inject(WorkspaceSurfaceActionRegistryService);
+  private readonly panelSources = inject(PanelSourceRegistryService);
+  private readonly directories = inject(DirectorySourceService);
+  private readonly remoteConnections = inject(RemoteConnectionsService);
   private readonly resultsPanels = inject(ResultsPanelService);
 
   private readonly backends = new Map<string, PluginBackend>();
@@ -45,8 +54,11 @@ export class PluginManagerService implements PluginRegistryAPI {
   readonly toolbarActions: ToolbarActionContribution[] = [];
   readonly contextMenuItems: ContextMenuContribution[] = [];
   readonly fileCategories: FileCategoryResolver[] = [];
+  readonly panelColumns: PanelColumnContribution[] = [];
 
-  constructor() {}
+  constructor() {
+    this.registerBuiltinRemoteProviders();
+  }
 
   /** Register a plugin backend (typically called by a plugin module at init). */
   registerBackend(backend: PluginBackend, descriptor?: PluginDescriptor): void {
@@ -185,6 +197,33 @@ export class PluginManagerService implements PluginRegistryAPI {
     }
   }
 
+  registerPanelSource(source: PanelSource): void {
+    this.panelSources.register(source);
+  }
+
+  unregisterPanelSource(id: string): void {
+    this.panelSources.unregister(id);
+  }
+
+  registerPanelColumn(column: PanelColumnContribution): void {
+    const index = this.panelColumns.findIndex(candidate => candidate.id === column.id);
+    if (index >= 0) this.panelColumns.splice(index, 1, column);
+    else this.panelColumns.push(column);
+  }
+
+  unregisterPanelColumn(id: string): void {
+    const index = this.panelColumns.findIndex(column => column.id === id);
+    if (index >= 0) this.panelColumns.splice(index, 1);
+  }
+
+  resolvePanelColumns(context: PanelColumnContext): PanelColumnContribution[] {
+    return this.panelColumns
+      .map(column => ({ column, score: column.score(context) }))
+      .filter(candidate => candidate.score > 0)
+      .sort((left, right) => right.score - left.score || left.column.id.localeCompare(right.column.id))
+      .map(candidate => candidate.column);
+  }
+
   registerRelatedLocation(contribution: RelatedLocationContribution): void {
     this.relatedLocations.register(contribution);
   }
@@ -233,6 +272,37 @@ export class PluginManagerService implements PluginRegistryAPI {
       if (cat) return cat;
     }
     return null;
+  }
+
+  private registerBuiltinRemoteProviders(): void {
+    const providers = [
+      { id: 'builtin.remote.smb', name: 'SMB', scheme: 'smb' },
+      { id: 'builtin.remote.s3', name: 'S3', scheme: 's3' },
+      { id: 'builtin.remote.gdrive', name: 'Google Drive', scheme: 'gdrive' },
+      { id: 'builtin.remote.dropbox', name: 'Dropbox', scheme: 'dropbox' },
+      { id: 'builtin.remote.onedrive', name: 'OneDrive', scheme: 'onedrive' },
+    ] as const;
+
+    for (const provider of providers) {
+      const source = new RemotePanelSource(
+        this.directories,
+        this.remoteConnections,
+        provider.id,
+        provider.name,
+        [provider.scheme],
+      );
+      this.registerBackend({
+        id: provider.id,
+        onRegister: api => api.registerPanelSource(source),
+        onUnregister: api => api.unregisterPanelSource(source.id),
+      }, {
+        id: provider.id,
+        name: provider.name,
+        version: '1.0.0',
+        description: `Built-in ${provider.name} panel-source provider.`,
+        schemes: [provider.scheme],
+      });
+    }
   }
 
   private commandOwner(commandId: string): string {

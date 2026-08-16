@@ -8,10 +8,13 @@ function host(): PluginRegistryAPI {
     registerCommand: fn(), unregisterCommand: fn(),
     registerViewer: fn(), unregisterViewer: fn(),
     registerSurface: fn(), unregisterSurface: fn(),
+    registerWorkspaceSurfaceAction: fn(), unregisterWorkspaceSurfaceAction: fn(),
     registerToolbarAction: fn(), unregisterToolbarAction: fn(),
     registerContextMenuItem: fn(), unregisterContextMenuItem: fn(),
     registerFileCategory: fn(), unregisterFileCategory: fn(),
     registerRelatedLocation: fn(), unregisterRelatedLocation: fn(),
+    registerPanelSource: fn(), unregisterPanelSource: fn(),
+    registerPanelColumn: fn(), unregisterPanelColumn: fn(),
     createResultsCollection: fn(() => 'results://plugin-collection'), removeResultsCollection: fn(),
   };
 }
@@ -71,6 +74,31 @@ describe('ScopedPluginRegistry', () => {
   it('blocks result collections without collections permission', () => {
     const scope = new ScopedPluginRegistry('demo', host(), new Set([]));
     expect(() => scope.createResultsCollection({ id: 'x', title: 'X', entries: [] })).toThrow('collections');
+  });
+
+
+  it('owns panel sources and columns and cleans both up', () => {
+    const target = host();
+    const scope = new ScopedPluginRegistry('demo', target, new Set(['panelSources', 'columns']));
+    const source = {
+      id: 'demo.source', kind: 'virtual' as const, title: 'Demo',
+      canHandle: () => true, capabilities: () => ({ read: true, create: false, delete: false, rename: false, trash: false }),
+      list: async () => ({ location: { path: 'demo://', sourceId: 'demo.source', sourceKind: 'virtual' as const }, entries: [] }),
+      getRootPath: () => 'demo://', getParentPath: () => 'demo://', joinChildPath: () => 'demo://', supportsStreaming: () => false,
+    };
+    const column = { id: 'demo.owner', label: 'Owner', score: () => 1, value: () => 'demo' };
+
+    scope.registerPanelSource(source);
+    scope.registerPanelColumn(column);
+    scope.dispose();
+
+    expect(target.unregisterPanelColumn).toHaveBeenCalledWith('demo.owner');
+    expect(target.unregisterPanelSource).toHaveBeenCalledWith('demo.source');
+  });
+
+  it('requires explicit panel source and column permissions', () => {
+    const scope = new ScopedPluginRegistry('demo', host(), new Set([]));
+    expect(() => scope.registerPanelColumn({ id: 'x', label: 'X', score: () => 1, value: () => '' })).toThrow('columns');
   });
 
   it('forces input ownership to the active plugin', () => {

@@ -23,6 +23,7 @@ import { FileClipboardService } from '../services/file-clipboard.service';
 import { ReassemblyOperationHistoryService } from '../services/reassembly-operation-history.service';
 import { RecentFilesService } from '../services/recent-files.service';
 import { PluginManagerService } from '../services/plugin-manager.service';
+import type { PanelColumnContribution, PanelColumnContext } from '../plugin/plugin-registry-api';
 import { PluginLifecycleCoordinatorService } from '../services/plugin-lifecycle-coordinator.service';
 import {
   ArchiveService,
@@ -411,8 +412,9 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
         </div>
       </div>
 
-      <div class="details-header" *ngIf="!error && viewMode === 'details'">
+      <div class="details-header" *ngIf="!error && viewMode === 'details'" [style.grid-template-columns]="detailsGridTemplate">
         <span></span><span>Name</span><span>Type</span><span>Size</span><span>Modified</span>
+        <span *ngFor="let column of pluginPanelColumns" [title]="column.label">{{ column.label }}</span>
       </div>
 
       <div
@@ -453,7 +455,8 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
           (dragover)="onEntryDragOver(entry, $event)"
           (dragleave)="onEntryDragLeave(entry)"
           (drop)="onEntryDrop(entry, $event)"
-          [class.drop-target]="dragOverPath === entry.path">
+          [class.drop-target]="dragOverPath === entry.path"
+          [style.grid-template-columns]="viewMode === 'details' ? detailsGridTemplate : null">
 
           <span class="icon" aria-hidden="true" [style.color]="entryCategory(entry)?.color || null">
             {{ entryDisplayIcon(entry) }}
@@ -469,6 +472,7 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
             {{ entry.type === FileType.DIRECTORY ? '' : formatSize(entry.size) }}
           </span>
           <span class="modified">{{ formatModified(entry.modified) }}</span>
+          <span class="plugin-column" *ngFor="let column of pluginPanelColumns">{{ panelColumnValue(column, entry) }}</span>
         </button>
 
         <div class="empty" *ngIf="!loading && visibleEntries.length === 0" role="status">
@@ -1560,6 +1564,30 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       archiveTopLevel:
         (this.currentArchiveFrame?.nestedChain.length ?? 0) === 0,
     });
+  }
+
+  get panelColumnContext(): PanelColumnContext {
+    const resolved = this.activePanelSource;
+    return {
+      currentDirectory: this.path,
+      sourceId: resolved.location.sourceId,
+      sourceKind: resolved.source.kind,
+    };
+  }
+
+  get pluginPanelColumns(): PanelColumnContribution[] {
+    if (this.viewMode !== 'details') return [];
+    return this.pluginManager.resolvePanelColumns(this.panelColumnContext);
+  }
+
+  get detailsGridTemplate(): string {
+    const extra = this.pluginPanelColumns.map(column => column.width?.trim() || '120px');
+    return ['28px', 'minmax(120px, 1fr)', '90px', '82px', '150px', ...extra].join(' ');
+  }
+
+  panelColumnValue(column: PanelColumnContribution, entry: FileInfo): string {
+    const value = column.value(entry, this.panelColumnContext);
+    return value == null ? '' : String(value);
   }
 
   get sourceCapabilities() {

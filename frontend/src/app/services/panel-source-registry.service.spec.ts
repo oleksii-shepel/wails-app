@@ -109,4 +109,27 @@ describe('PanelSourceRegistryService', () => {
     expect(topLevel.capabilities.delete).toBe(true);
     expect(nested.capabilities.delete).toBe(false);
   });
+  it('resolves contributed panel sources before ordinary built-ins and removes them cleanly', () => {
+    const { service } = createService();
+    const source = {
+      id: 'plugin.demo',
+      kind: 'virtual' as const,
+      title: 'Demo',
+      canHandle: (context: any) => context.path.startsWith('demo://'),
+      capabilities: () => ({ read: true, create: false, delete: false, rename: false, trash: false }),
+      list: async (context: any) => ({ location: { path: context.path, sourceId: 'plugin.demo', sourceKind: 'virtual' as const }, entries: [] }),
+      getRootPath: () => 'demo://',
+      getParentPath: () => 'demo://',
+      joinChildPath: (_context: any, name: string) => `demo://${name}`,
+      supportsStreaming: () => false,
+    };
+
+    service.register(source);
+    expect(service.resolve({ path: 'demo://collection' }).source.id).toBe('plugin.demo');
+    expect(service.listSources().some(candidate => candidate.id === 'plugin.demo')).toBe(true);
+
+    service.unregister('plugin.demo');
+    expect(service.listSources().some(candidate => candidate.id === 'plugin.demo')).toBe(false);
+  });
+
 });

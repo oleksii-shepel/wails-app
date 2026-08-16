@@ -138,20 +138,24 @@ class RegistryPanelSource extends BasePanelSource {
   }
 }
 
-class RemotePanelSource extends BasePanelSource {
-  readonly id = 'remote';
+export class RemotePanelSource extends BasePanelSource {
   readonly kind = 'remote' as const;
-  readonly title = 'Remote';
 
   constructor(
     directories: DirectorySourceService,
     private readonly remote: RemoteConnectionsService,
+    readonly id = 'remote',
+    readonly title = 'Remote',
+    private readonly schemes: readonly string[] | null = null,
   ) {
     super(directories);
   }
 
   canHandle(context: PanelSourceContext): boolean {
-    return this.remote.isRemoteUri(context.path);
+    if (!this.remote.isRemoteUri(context.path)) return false;
+    if (!this.schemes?.length) return true;
+    const scheme = schemeOf(context.path);
+    return !!scheme && this.schemes.includes(scheme);
   }
 
   capabilities(context: PanelSourceContext): SourceCapabilities {
@@ -255,7 +259,7 @@ class FilesystemPanelSource extends BasePanelSource {
 
 @Injectable({ providedIn: 'root' })
 export class PanelSourceRegistryService {
-  private readonly sources: readonly PanelSource[];
+  private readonly sources: PanelSource[];
 
   constructor(
     private readonly directories: DirectorySourceService,
@@ -270,6 +274,27 @@ export class PanelSourceRegistryService {
       new VirtualPanelSource(this.directories),
       new FilesystemPanelSource(this.directories),
     ];
+  }
+
+  register(source: PanelSource): void {
+    if (!source?.id?.trim()) throw new Error('PanelSource id is required.');
+    if (source.id === 'filesystem') {
+      throw new Error('The filesystem fallback PanelSource cannot be replaced.');
+    }
+    this.unregister(source.id);
+    // Contributions resolve before ordinary built-ins, while an active archive frame
+    // remains the strongest source identity and filesystem remains the fallback.
+    const archiveIndex = this.sources.findIndex(candidate => candidate.id === 'archive');
+    this.sources.splice(archiveIndex >= 0 ? archiveIndex + 1 : 0, 0, source);
+  }
+
+  unregister(id: string): void {
+    const index = this.sources.findIndex(source => source.id === id && source.id !== 'filesystem');
+    if (index >= 0) this.sources.splice(index, 1);
+  }
+
+  listSources(): readonly PanelSource[] {
+    return [...this.sources];
   }
 
   resolve(context: PanelSourceContext): ResolvedPanelSource {
@@ -399,7 +424,9 @@ export class PanelSourceRegistryService {
           ? 'filesystem.local'
           : `filesystem.${scheme}`;
       case 'remote':
-        return scheme ? `remote.${scheme}` : source.id;
+        return source.id !== 'remote'
+          ? source.id
+          : (scheme ? `remote.${scheme}` : source.id);
       case 'results': {
         const panel = this.resultsPanels.get(path);
         return panel ? `results.${panel.id}` : 'results.expired';

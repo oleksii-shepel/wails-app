@@ -3202,6 +3202,8 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
   }
 
+
+
   selectAll(): void {
     if (!this.isDirectoryTab) return;
     this.markUserInteraction();
@@ -3388,7 +3390,10 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       historyKey: `reassembly.${kind}Link.name`,
     });
 
-    const cleanName = this.cleanLeafName(requestedName);
+    const cleanName = await this.validateRequestedLeaf(
+      requestedName,
+      this.path,
+    );
     if (!cleanName) return;
 
     try {
@@ -3428,6 +3433,44 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
         error,
       );
     }
+  }
+
+  async copySelectedFileUris(): Promise<void> {
+    if (!this.isDirectoryTab || this.isInArchive) return;
+
+    const entries =
+      this.selectedEntries.length > 0
+        ? this.selectedEntries
+        : this.cursorEntry
+          ? [this.cursorEntry]
+          : [];
+
+    if (entries.length === 0) return;
+
+    const toFileUri = (path: string): string => {
+      const normalized = path.replace(/\\/g, '/');
+
+      if (/^[a-zA-Z]:\//.test(normalized)) {
+        return `file:///${encodeURI(normalized)}`;
+      }
+
+      if (normalized.startsWith('//')) {
+        return `file:${encodeURI(normalized)}`;
+      }
+
+      return `file://${encodeURI(
+        normalized.startsWith('/') ? normalized : `/${normalized}`,
+      )}`;
+    };
+
+    const copied = await this.writeTextClipboard(
+      entries.map(entry => toFileUri(entry.path)).join('\n'),
+    );
+
+    this.lastAction = copied
+      ? `copy file URI: ${entries.length}`
+      : 'copy file URI failed';
+    this.cdr.markForCheck();
   }
 
   async copySelectedRelativePaths(): Promise<void> {
@@ -3615,7 +3658,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       historyKey: `reassembly.newTemplate.${kind}`,
     });
 
-    const cleanName = this.cleanLeafName(name);
+    const cleanName = await this.validateRequestedLeaf(name, this.path);
     if (!cleanName) return;
 
     try {
@@ -3667,8 +3710,15 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       });
 
       name = this.cleanLeafName(name);
-      if (!name) return;
+      if (!name) {
+        await this.confirmDialog.alert({
+          title: 'Invalid Name',
+          message: 'Choose a valid shortcut filename.',
+        });
+        return;
+      }
       if (windows && !/\.lnk$/i.test(name)) name += '.lnk';
+      if (!(await this.ensureLeafAvailable(this.path, name))) return;
 
       const destination = await this.api.joinPaths([this.path, name]);
       await this.api.createShortcut(entry.path, destination);
@@ -3701,7 +3751,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       defaultValue: 'New File.txt',
       historyKey: 'reassembly.newFile',
     });
-    const cleanName = this.cleanLeafName(name);
+    const cleanName = await this.validateRequestedLeaf(name, this.path);
     if (!cleanName) return;
 
     try {
@@ -3724,6 +3774,108 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     }
   }
 
+  async moveSelectionToNewFolder(): Promise<void> {
+    if (
+      !this.isDirectoryTab ||
+      this.isInArchive ||
+      !this.canCreate
+    ) return;
+
+    const entries = this.selectedEntries;
+    if (entries.length === 0) return;
+
+    const requested = await this.confirmDialog.prompt({
+      title: 'Move to New Folder',
+      message: `Create a folder and move ${entries.length} selected item${
+        entries.length === 1 ? '' : 's'
+      } into it:`,
+      confirmText: 'Create & Move',
+      defaultValue: 'New Folder',
+      historyKey: 'reassembly.moveSelectionToNewFolder',
+    });
+
+    const folderName = await this.validateRequestedLeaf(
+      requested,
+      this.path,
+    );
+    if (!folderName) return;
+
+    const sourcePaths = entries.map(entry => entry.path);
+
+    try {
+      const folderPath = await this.api.joinPaths([
+        this.path,
+        folderName,
+      ]);
+
+      await this.api.createDirectory(folderPath, false);
+
+      const result = await this.api.batchMove(
+        sourcePaths.map(source => ({
+          source,
+          destination: folderPath,
+          exactDestination: false,
+        })),
+        true,
+      );
+
+      const affected = result.affectedPaths ?? [];
+
+      if (
+        result.failed > 0 ||
+        result.skipped > 0 ||
+        affected.length !== sourcePaths.length
+      ) {
+        throw new Error(
+          `Move completed only partially (${result.succeeded}/${result.total}).`,
+        );
+      }
+
+      this.operationHistory.record({
+        label: `Move ${affected.length} item${
+          affected.length === 1 ? '' : 's'
+        } to ${folderName}`,
+        undo: async () => {
+          const back = await this.api.batchMove(
+            affected.map(item => ({
+              source: item.destination,
+              destination: item.source,
+              exactDestination: true,
+            })),
+            true,
+          );
+          if (back.failed > 0 || back.skipped > 0) {
+            throw new Error('Undo move-to-folder failed.');
+          }
+          await this.api.deleteFile(folderPath, true, false);
+        },
+        redo: async () => {
+          await this.api.createDirectory(folderPath, false);
+          const forward = await this.api.batchMove(
+            affected.map(item => ({
+              source: item.source,
+              destination: folderPath,
+              exactDestination: false,
+            })),
+            true,
+          );
+          if (forward.failed > 0 || forward.skipped > 0) {
+            throw new Error('Redo move-to-folder failed.');
+          }
+        },
+      });
+
+      this.lastAction = `move to folder: ${folderName}`;
+      await this.refresh();
+      this.selectPath(folderPath);
+    } catch (error) {
+      await this.showOperationError(
+        'Move Selection to New Folder',
+        error,
+      );
+    }
+  }
+
   async newFolder(): Promise<void> {
     if (!this.canCreate) return;
 
@@ -3734,7 +3886,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       defaultValue: 'New Folder',
       historyKey: 'reassembly.newFolder',
     });
-    const cleanName = this.cleanLeafName(name);
+    const cleanName = await this.validateRequestedLeaf(name, this.path);
     if (!cleanName) return;
 
     try {
@@ -3770,22 +3922,67 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       defaultValue: entry.name,
       historyKey: 'reassembly.rename',
     });
-    const cleanName = this.cleanLeafName(nextName);
+
+    const cleanName = await this.validateRequestedLeaf(
+      nextName,
+      this.path,
+      entry.path,
+    );
     if (!cleanName || cleanName === entry.name) return;
 
     try {
       const destination = await this.api.joinPaths([this.path, cleanName]);
-      const result = await this.api.batchMove([{
-        source: entry.path,
-        destination,
-        exactDestination: true,
-      }], true);
+      const source = entry.path;
+      const caseOnlyRename =
+        this.samePath(destination, source) &&
+        destination !== source;
 
-      if (result.failed > 0) {
-        throw new Error(`Rename failed (${result.failed} item${result.failed === 1 ? '' : 's'}).`);
+      if (caseOnlyRename) {
+        const temporary = await this.api.joinPaths([
+          this.path,
+          `.rename-${Date.now()}-${Math.random().toString(16).slice(2)}.tmp`,
+        ]);
+
+        const first = await this.api.batchMove([{
+          source,
+          destination: temporary,
+          exactDestination: true,
+        }], true);
+
+        if (first.failed > 0 || first.skipped > 0) {
+          throw new Error('Case-only rename failed during temporary move.');
+        }
+
+        try {
+          const second = await this.api.batchMove([{
+            source: temporary,
+            destination,
+            exactDestination: true,
+          }], true);
+
+          if (second.failed > 0 || second.skipped > 0) {
+            throw new Error('Case-only rename failed during final move.');
+          }
+        } catch (error) {
+          await this.api.batchMove([{
+            source: temporary,
+            destination: source,
+            exactDestination: true,
+          }], true).catch(() => undefined);
+          throw error;
+        }
+      } else {
+        const result = await this.api.batchMove([{
+          source,
+          destination,
+          exactDestination: true,
+        }], true);
+
+        if (result.failed > 0 || result.skipped > 0) {
+          throw new Error(`Rename failed (${result.failed} item${result.failed === 1 ? '' : 's'}).`);
+        }
       }
 
-      const source = entry.path;
       this.operationHistory.record({
         label: `Rename ${entry.name} to ${cleanName}`,
         undo: async () => {
@@ -3794,7 +3991,9 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
             destination: source,
             exactDestination: true,
           }], true);
-          if (result.failed > 0) throw new Error('Undo rename failed.');
+          if (result.failed > 0 || result.skipped > 0) {
+            throw new Error('Undo rename failed.');
+          }
         },
         redo: async () => {
           const result = await this.api.batchMove([{
@@ -3802,7 +4001,9 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
             destination,
             exactDestination: true,
           }], true);
-          if (result.failed > 0) throw new Error('Redo rename failed.');
+          if (result.failed > 0 || result.skipped > 0) {
+            throw new Error('Redo rename failed.');
+          }
         },
       });
 
@@ -3908,16 +4109,42 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   async showSelectedChecksum(): Promise<void> {
-    const entry = this.cursorEntry ?? this.selectedEntries[0];
-    if (!entry || this.isInArchive || entry.type === FileType.DIRECTORY) return;
+    if (!this.isDirectoryTab || this.isInArchive) return;
+
+    const entries = (
+      this.selectedEntries.length > 0
+        ? this.selectedEntries
+        : this.cursorEntry
+          ? [this.cursorEntry]
+          : []
+    ).filter(entry => entry.type !== FileType.DIRECTORY);
+
+    if (entries.length === 0) return;
 
     try {
-      const digest = await this.api.hashFile(entry.path);
+      const rows: string[] = [];
+
+      for (const entry of entries) {
+        const digest = await this.api.hashFile(entry.path);
+        rows.push(`${digest}  ${entry.name}`);
+      }
+
+      const text = rows.join('\n');
+
       await this.confirmDialog.alert({
-        title: `SHA-256 — ${entry.name}`,
-        message: `${digest}\n\n${entry.path}`,
+        title:
+          entries.length === 1
+            ? `SHA-256 — ${entries[0].name}`
+            : `SHA-256 — ${entries.length} files`,
+        message:
+          entries.length === 1
+            ? `${text}\n\n${entries[0].path}`
+            : text,
       });
-      this.lastAction = `checksum: ${entry.name}`;
+
+      this.lastAction = `checksum: ${entries.length} file${
+        entries.length === 1 ? '' : 's'
+      }`;
     } catch (error) {
       await this.showOperationError('Checksum', error);
     }
@@ -3986,8 +4213,15 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     });
 
     let cleanName = this.cleanLeafName(requestedName);
-    if (!cleanName) return;
+    if (!cleanName) {
+      await this.confirmDialog.alert({
+        title: 'Invalid Name',
+        message: 'Choose a valid ZIP filename.',
+      });
+      return;
+    }
     if (!/\.zip$/i.test(cleanName)) cleanName += '.zip';
+    if (!(await this.ensureLeafAvailable(this.path, cleanName))) return;
 
     try {
       const destination = await this.api.joinPaths([this.path, cleanName]);
@@ -4872,10 +5106,83 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
 
   private cleanLeafName(value: string | null): string {
     const clean = (value ?? '').trim();
-    if (!clean || clean === '.' || clean === '..' || /[\/\\]/.test(clean)) {
+
+    if (
+      !clean ||
+      clean === '.' ||
+      clean === '..' ||
+      /[\/\\]/.test(clean) ||
+      /[<>:"|?*\u0000-\u001f]/.test(clean) ||
+      /[ .]$/.test(clean)
+    ) {
       return '';
     }
-    return clean;
+
+    const base = clean.split('.')[0].toUpperCase();
+    const reserved = new Set([
+      'CON', 'PRN', 'AUX', 'NUL',
+      'COM1', 'COM2', 'COM3', 'COM4', 'COM5',
+      'COM6', 'COM7', 'COM8', 'COM9',
+      'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5',
+      'LPT6', 'LPT7', 'LPT8', 'LPT9',
+    ]);
+
+    return reserved.has(base) ? '' : clean;
+  }
+
+  private async ensureLeafAvailable(
+    directory: string,
+    leafName: string,
+    currentPath?: string,
+  ): Promise<boolean> {
+    const destination = await this.api.joinPaths([directory, leafName]);
+
+    try {
+      const existing = await this.api.getFileInfo(destination);
+
+      if (
+        currentPath &&
+        this.samePath(existing.path, currentPath)
+      ) {
+        return true;
+      }
+
+      await this.confirmDialog.alert({
+        title: 'Name Already Exists',
+        message: `An item named "${leafName}" already exists in this folder.`,
+      });
+      return false;
+    } catch {
+      return true;
+    }
+  }
+
+  private async validateRequestedLeaf(
+    value: string | null,
+    directory: string,
+    currentPath?: string,
+  ): Promise<string> {
+    const clean = this.cleanLeafName(value);
+
+    if (!clean) {
+      await this.confirmDialog.alert({
+        title: 'Invalid Name',
+        message: [
+          'Choose a normal file or folder name.',
+          'Path separators, control characters, < > : " | ? *, trailing spaces/dots,',
+          'and Windows reserved device names such as CON, PRN, AUX, COM1 and LPT1 are not allowed.',
+        ].join('\\n'),
+      });
+      return '';
+    }
+
+    return await this.ensureLeafAvailable(
+      directory,
+      clean,
+      currentPath,
+    )
+      ? clean
+      : '';
   }
 
   private leafName(path: string): string {

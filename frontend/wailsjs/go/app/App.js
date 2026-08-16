@@ -150,6 +150,10 @@ export function CreatePaneWatch() {
   return window['go']['app']['App']['CreatePaneWatch']();
 }
 
+export function CreateShortcut(arg1, arg2) {
+  return window['go']['app']['App']['CreateShortcut'](arg1, arg2);
+}
+
 export function CreateSymbolicLink(arg1, arg2) {
   return window['go']['app']['App']['CreateSymbolicLink'](arg1, arg2);
 }
@@ -256,6 +260,10 @@ export function GetParentPath(arg1) {
 
 export function GetPathAttributes(arg1) {
   return window['go']['app']['App']['GetPathAttributes'](arg1);
+}
+
+export function GetPathCapacity(arg1) {
+  return window['go']['app']['App']['GetPathCapacity'](arg1);
 }
 
 export function GetPlugin(arg1) {

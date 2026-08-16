@@ -84,6 +84,8 @@ export function CreateHardLink(arg1:string,arg2:string):Promise<void>;
 
 export function CreatePaneWatch():Promise<void>;
 
+export function CreateShortcut(arg1:string,arg2:string):Promise<void>;
+
 export function CreateSymbolicLink(arg1:string,arg2:string):Promise<void>;
 
 export function CreateZipArchive(arg1:Array<string>,arg2:string):Promise<contracts.OperationResult>;
@@ -137,6 +139,8 @@ export function GetOSInfo():Promise<contracts.OSInfoResponse>;
 export function GetParentPath(arg1:string):Promise<string>;
 
 export function GetPathAttributes(arg1:string):Promise<contracts.PathAttributes>;
+
+export function GetPathCapacity(arg1:string):Promise<contracts.PathCapacity>;
 
 export function GetPlugin(arg1:string):Promise<plugin.Info>;
 

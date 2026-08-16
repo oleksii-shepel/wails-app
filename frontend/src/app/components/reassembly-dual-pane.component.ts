@@ -86,6 +86,8 @@ const COMMAND = {
   forward: 'reassembly.manager.forward',
   location: 'reassembly.manager.location',
   selectAll: 'reassembly.manager.selectAll',
+  selectSameExtension: 'reassembly.selection.sameExtension',
+  selectSameType: 'reassembly.selection.sameType',
   clearSelection: 'reassembly.manager.clearSelection',
   refresh: 'reassembly.manager.refresh',
   rename: 'reassembly.manager.rename',
@@ -95,6 +97,7 @@ const COMMAND = {
   newJsonDocument: 'reassembly.manager.newJsonDocument',
   createShortcut: 'reassembly.files.createShortcut',
   newFolder: 'reassembly.manager.newFolder',
+  moveSelectionToNewFolder: 'reassembly.manager.moveSelectionToNewFolder',
   properties: 'reassembly.manager.properties',
   deletePermanent: 'reassembly.manager.deletePermanent',
   deleteSelected: 'reassembly.manager.delete',
@@ -103,6 +106,7 @@ const COMMAND = {
   paste: 'reassembly.manager.paste',
   copyPath: 'reassembly.files.copyPath',
   copyRelativePath: 'reassembly.files.copyRelativePath',
+  copyFileUri: 'reassembly.files.copyFileUri',
   copyName: 'reassembly.files.copyName',
   revealInFileManager: 'reassembly.files.revealInFileManager',
   setModifiedTime: 'reassembly.files.setModifiedTime',
@@ -181,12 +185,10 @@ const COMMAND = {
   selectByMask: 'reassembly.selection.selectByMask',
   unselectByMask: 'reassembly.selection.unselectByMask',
   invertSelection: 'reassembly.selection.invert',
-  selectSameExtension: 'reassembly.selection.sameExtension',
   selectFiles: 'reassembly.selection.files',
   selectFolders: 'reassembly.selection.folders',
   unselectFiles: 'reassembly.selection.unselectFiles',
   unselectFolders: 'reassembly.selection.unselectFolders',
-  selectSameType: 'reassembly.selection.sameType',
   cursorHome: 'reassembly.selection.cursorHome',
   cursorEnd: 'reassembly.selection.cursorEnd',
   cursorPageUp: 'reassembly.selection.cursorPageUp',
@@ -229,7 +231,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   { id:'reassembly.manager.forward.altRight', commandId:COMMAND.forward, contextId:CONTEXT_ID, source:'default', description:'Forward', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'arrowright', modifiers:['alt']}]}}},
   { id:'reassembly.manager.location.ctrlL', commandId:COMMAND.location, contextId:CONTEXT_ID, source:'default', description:'Edit location', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'l', modifiers:['ctrl']}]}}},
   { id:'reassembly.manager.selectAll.ctrlA', commandId:COMMAND.selectAll, contextId:CONTEXT_ID, source:'default', description:'Select all', category:'Selection', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'a', modifiers:['ctrl']}]}}},
-  { id:'reassembly.manager.clearSelection.ctrlD', commandId:COMMAND.clearSelection, contextId:CONTEXT_ID, source:'default', description:'Clear selection', category:'Selection', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'d', modifiers:['ctrl']}]}}},
+  { id:'reassembly.manager.clearSelection.ctrlAltD', commandId:COMMAND.clearSelection, contextId:CONTEXT_ID, source:'default', description:'Clear selection', category:'Selection', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'d', modifiers:['alt','ctrl']}]}}},
   { id:'reassembly.manager.refresh.ctrlR', commandId:COMMAND.refresh, contextId:CONTEXT_ID, source:'default', description:'Refresh active pane', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'r', modifiers:['ctrl']}]}}},
   { id:'reassembly.manager.rename.f2', commandId:COMMAND.rename, contextId:CONTEXT_ID, source:'default', description:'Rename selected item', category:'File Operations', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'f2'}]}}},
   { id:'reassembly.manager.newFolder.f7', commandId:COMMAND.newFolder, contextId:CONTEXT_ID, source:'default', description:'Create folder', category:'File Operations', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'f7'}]}}},
@@ -240,6 +242,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   { id:'reassembly.manager.paste.ctrlV', commandId:COMMAND.paste, contextId:CONTEXT_ID, source:'default', description:'Paste items', category:'File Operations', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'v', modifiers:['ctrl']}]}}},
   { id:'reassembly.files.copyPath.ctrlShiftC', commandId:COMMAND.copyPath, contextId:CONTEXT_ID, source:'default', description:'Copy selected paths as text', category:'Files', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'c', modifiers:['ctrl','shift']}]}}},
   { id:'reassembly.files.copyRelativePath.ctrlAltC', commandId:COMMAND.copyRelativePath, contextId:CONTEXT_ID, source:'default', description:'Copy selected relative paths', category:'Files', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'c', modifiers:['alt','ctrl']}]}}},
+  { id:'reassembly.selection.sameExtension.ctrlAltE', commandId:COMMAND.selectSameExtension, contextId:CONTEXT_ID, source:'default', description:'Select files with the same extension', category:'Selection', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'e', modifiers:['alt','ctrl']}]}}},
   { id:'reassembly.files.duplicate.ctrlD', commandId:COMMAND.duplicate, contextId:CONTEXT_ID, source:'default', description:'Duplicate selection', category:'File Operations', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'d', modifiers:['ctrl']}]}}},
   { id:'reassembly.navigation.openTerminal.ctrlAltT', commandId:COMMAND.openTerminal, contextId:CONTEXT_ID, source:'default', description:'Open terminal in current folder', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'t', modifiers:['alt','ctrl']}]}}},
   { id:'reassembly.edit.undo.ctrlZ', commandId:COMMAND.undo, contextId:CONTEXT_ID, source:'default', description:'Undo last reversible file operation', category:'Edit', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'z', modifiers:['ctrl']}]}}},
@@ -268,7 +271,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   { id:'reassembly.viewer.zoomIn.ctrlEquals', commandId:COMMAND.viewerZoomIn, contextId:CONTEXT_ID, source:'default', description:'Zoom viewer in', category:'Viewer', when:'viewerSurface', trigger:{device:'keyboard', chord:{steps:[{key:'=', modifiers:['ctrl']}]}}},
   { id:'reassembly.viewer.zoomOut.ctrlMinus', commandId:COMMAND.viewerZoomOut, contextId:CONTEXT_ID, source:'default', description:'Zoom viewer out', category:'Viewer', when:'viewerSurface', trigger:{device:'keyboard', chord:{steps:[{key:'-', modifiers:['ctrl']}]}}},
   { id:'reassembly.viewer.fit.ctrl0', commandId:COMMAND.viewerFit, contextId:CONTEXT_ID, source:'default', description:'Fit viewer to window', category:'Viewer', when:'viewerSurface', trigger:{device:'keyboard', chord:{steps:[{key:'0', modifiers:['ctrl']}]}}},
-  { id:'reassembly.viewer.actualSize.ctrl1', commandId:COMMAND.viewerActualSize, contextId:CONTEXT_ID, source:'default', description:'Viewer actual size', category:'Viewer', when:'viewerSurface', trigger:{device:'keyboard', chord:{steps:[{key:'1', modifiers:['ctrl']}]}}},
+  { id:'reassembly.viewer.actualSize.ctrlAlt1', commandId:COMMAND.viewerActualSize, contextId:CONTEXT_ID, source:'default', description:'Viewer actual size', category:'Viewer', when:'viewerSurface', trigger:{device:'keyboard', chord:{steps:[{key:'1', modifiers:['alt','ctrl']}]}}},
   { id:'reassembly.manager.contextMenu.escape', commandId:COMMAND.closeContextMenu, contextId:CONTEXT_ID, source:'default', description:'Close context menu', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'escape'}]}}, preventDefault:true, stopPropagation:true },
   { id:'reassembly.manager.focusFilter.ctrlF', commandId:COMMAND.focusFilter, contextId:CONTEXT_ID, source:'default', description:'Focus folder filter', category:'Search & Filter', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'f', modifiers:['ctrl']}]}}},
   { id:'reassembly.workspace.toggleHidden.ctrlShiftH', commandId:COMMAND.toggleHidden, contextId:CONTEXT_ID, source:'default', description:'Show/hide hidden files', category:'Workspace', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'h', modifiers:['ctrl','shift']}]}}},
@@ -279,7 +282,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   { id:'reassembly.navigation.pinnedLocations.ctrlB', commandId:COMMAND.showPinnedLocations, contextId:CONTEXT_ID, source:'default', description:'Open Quick Access pinned section', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'b', modifiers:['ctrl']}]}}},
   { id:'reassembly.tree.left.arrowLeft', commandId:COMMAND.treeLeft, contextId:CONTEXT_ID, source:'default', description:'Tree collapse or parent', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'arrowleft'}]}}},
   { id:'reassembly.tree.right.arrowRight', commandId:COMMAND.treeRight, contextId:CONTEXT_ID, source:'default', description:'Tree expand or child', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'arrowright'}]}}},
-  { id:'reassembly.compare.toggle.ctrlShiftC', commandId:COMMAND.comparePanes, contextId:CONTEXT_ID, source:'default', description:'Compare panes', category:'Pane Control', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'c', modifiers:['ctrl','shift']}]}}},
+  { id:'reassembly.compare.toggle.altShiftC', commandId:COMMAND.comparePanes, contextId:CONTEXT_ID, source:'default', description:'Compare panes', category:'Pane Control', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'c', modifiers:['alt','shift']}]}}},
   { id:'reassembly.compare.recursive.ctrlShiftAltC', commandId:COMMAND.recursiveComparePanes, contextId:CONTEXT_ID, source:'default', description:'Recursive pane compare', category:'Pane Control', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'c', modifiers:['ctrl','shift','alt']}]}}},
 
   { id:'reassembly.selection.toggle.insert', commandId:COMMAND.toggleCurrentSelection, contextId:CONTEXT_ID, source:'default', description:'Toggle current selection', category:'Selection', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'insert'}]}}},
@@ -2073,6 +2076,9 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       this.menuCommand(COMMAND.rename, 'Rename', 'F2'),
       this.menuCommand(COMMAND.selectSameExtension, 'Select same extension', 'Alt+E'),
       this.menuCommand(COMMAND.selectSameType, 'Select same type'),
+      this.menuCommand(COMMAND.selectSameExtension, 'Select Same Extension', 'Ctrl+Alt+E'),
+      this.menuCommand(COMMAND.selectSameType, 'Select Same Type'),
+      this.menuCommand(COMMAND.moveSelectionToNewFolder, 'Move Selection to New Folder'),
       this.menuCommand(COMMAND.properties, 'Properties', 'Alt+Enter'),
       this.menuCommand(COMMAND.calculateSize, 'Calculate Size'),
       this.menuCommand(COMMAND.attributes, 'Attributes / Permissions'),
@@ -2086,6 +2092,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       this.menuCommand(COMMAND.copy, 'Copy', 'Ctrl+C'),
       this.menuCommand(COMMAND.copyPath, 'Copy Path', 'Ctrl+Shift+C'),
       this.menuCommand(COMMAND.copyRelativePath, 'Copy Relative Path', 'Ctrl+Alt+C'),
+      this.menuCommand(COMMAND.copyFileUri, 'Copy File URI'),
       this.menuCommand(COMMAND.copyName, 'Copy Name'),
       this.menuCommand(COMMAND.revealInFileManager, 'Reveal in System File Manager'),
       this.menuCommand(COMMAND.duplicate, 'Duplicate', 'Ctrl+D'),
@@ -2133,10 +2140,9 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
         this.menuCommand(COMMAND.redo, 'Redo', 'Ctrl+Y'),
         { separator: true },
         this.menuCommand(COMMAND.selectAll, 'Select all', 'Ctrl+A'),
-        this.menuCommand(COMMAND.invertSelection, 'Invert visible selection', 'Alt+I'),
         this.menuCommand(COMMAND.selectFiles, 'Select visible files', 'Alt+Shift+F'),
         this.menuCommand(COMMAND.selectFolders, 'Select visible folders', 'Alt+Shift+D'),
-        this.menuCommand(COMMAND.clearSelection, 'Clear selection', 'Ctrl+D'),
+        this.menuCommand(COMMAND.clearSelection, 'Clear selection', 'Ctrl+Alt+D'),
         this.menuCommand(COMMAND.invertSelection, 'Invert selection', 'Alt+I'),
         this.menuCommand(COMMAND.selectByMask, 'Select by mask…', 'Alt+S'),
         this.menuCommand(COMMAND.unselectByMask, 'Unselect by mask…', 'Alt+U'),
@@ -2562,6 +2568,23 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     descriptor(COMMAND.forward, 'Forward', 'Navigation', () => this.activePane?.goForward());
     descriptor(COMMAND.location, 'Edit Location', 'Navigation', () => this.activePane?.focusLocation());
     descriptor(COMMAND.selectAll, 'Select All', 'Selection', () => this.activePane?.selectAll());
+    descriptor(
+      COMMAND.selectSameExtension,
+      'Select Same Extension',
+      'Selection',
+      () => this.activePane?.selectSameExtension(),
+      () => {
+        const entry = this.activePane?.cursorEntry;
+        return !!entry && entry.type !== FileType.DIRECTORY;
+      },
+    );
+    descriptor(
+      COMMAND.selectSameType,
+      'Select Same Type',
+      'Selection',
+      () => this.activePane?.selectSameType(),
+      () => !!this.activePane?.cursorEntry,
+    );
     descriptor(COMMAND.clearSelection, 'Clear Selection', 'Selection', () => this.activePane?.clearSelection());
     descriptor(COMMAND.refresh, 'Refresh', 'Navigation', () => this.activePane?.refresh());
     descriptor(COMMAND.rename, 'Rename', 'File Operations', () => this.activePane?.renameSelected(), () => !!this.activePane?.canRename);
@@ -2604,6 +2627,17 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     descriptor(COMMAND.properties, 'Properties', 'File Operations', () => this.activePane?.showSelectedProperties(), () => !!this.activePane?.cursorEntry);
     descriptor(COMMAND.deletePermanent, 'Delete Permanently', 'File Operations', () => this.activePane?.deleteSelected(true), () => this.canDeleteActiveSelection());
     descriptor(COMMAND.newFolder, 'New Folder', 'File Operations', () => this.activePane?.newFolder(), () => !!this.activePane?.canCreate);
+    descriptor(
+      COMMAND.moveSelectionToNewFolder,
+      'Move Selection to New Folder',
+      'File Operations',
+      () => this.activePane?.moveSelectionToNewFolder(),
+      () =>
+        !!this.activePane?.isDirectoryTab &&
+        !this.activePane?.isInArchive &&
+        !!this.activePane?.canCreate &&
+        (this.activePane?.selectedEntries.length ?? 0) > 0,
+    );
     descriptor(COMMAND.deleteSelected, 'Delete', 'File Operations', () => this.deleteActiveSelection(), () => this.canDeleteActiveSelection());
     descriptor(COMMAND.copy, 'Copy', 'File Operations', () => this.activePane?.copySelected(), () => !!this.activePane?.hasSelection);
     descriptor(COMMAND.cut, 'Cut', 'File Operations', () => this.activePane?.cutSelected(), () => !!this.activePane?.canCut);
@@ -2625,6 +2659,19 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       () => this.activePane?.copySelectedRelativePaths(),
       () =>
         !!this.activePane?.isDirectoryTab &&
+        !!(
+          this.activePane?.cursorEntry ||
+          this.activePane?.selectedEntries.length
+        ),
+    );
+    descriptor(
+      COMMAND.copyFileUri,
+      'Copy File URI',
+      'Files',
+      () => this.activePane?.copySelectedFileUris(),
+      () =>
+        !!this.activePane?.isDirectoryTab &&
+        !this.activePane?.isInArchive &&
         !!(
           this.activePane?.cursorEntry ||
           this.activePane?.selectedEntries.length

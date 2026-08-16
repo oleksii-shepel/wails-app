@@ -1081,6 +1081,22 @@ export namespace contracts {
 	        this.archive = source["archive"];
 	    }
 	}
+	export class PathCapacity {
+	    totalSpace: number;
+	    freeSpace: number;
+	    fileSystem?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PathCapacity(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.totalSpace = source["totalSpace"];
+	        this.freeSpace = source["freeSpace"];
+	        this.fileSystem = source["fileSystem"];
+	    }
+	}
 	export class RemoteConfig {
 	    protocol: string;
 	    name?: string;

@@ -1725,7 +1725,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
   async renameSelected(): Promise<void> {
     if (!this.canRename) return;
 
-    const entry = this.selectedEntries()[0];
+    const entry = this.selectedEntries[0];
     if (!entry) return;
 
     const nextName = await this.confirmDialog.prompt({
@@ -1761,7 +1761,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
   async deleteSelected(): Promise<void> {
     if (!this.canDelete) return;
 
-    const entries = this.selectedEntries();
+    const entries = this.selectedEntries;
     if (entries.length === 0) return;
 
     const useTrash = this.sourceCapabilities.trash;
@@ -1829,11 +1829,6 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
     }
   }
 
-  private selectedEntries(): FileInfo[] {
-    if (!this.selectedPaths.size) return [];
-    return this.entries.filter(entry => this.selectedPaths.has(entry.path));
-  }
-
   private selectPath(path: string): void {
     const entry = this.entries.find(candidate => candidate.path === path);
     if (!entry) return;
@@ -1868,6 +1863,12 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
 
   trackEntry(_index: number, entry: FileInfo): string {
     return entry.path;
+  }
+
+  entryIcon(entry: FileInfo): string {
+    if (entry.type === FileType.DIRECTORY) return '📁';
+    if (entry.type === FileType.ARCHIVE) return '🗜️';
+    return '📄';
   }
 
   formatSize(bytes: number): string {

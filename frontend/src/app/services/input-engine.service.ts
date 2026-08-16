@@ -788,29 +788,10 @@ export class InputEngineService {
 
   private matchBindings(sequence: KeyStroke[], keyboardContext?: KeyboardEventContext | null): RegisteredBinding[] {
     const activeContextIds = this.getActiveContextIds();
-    const editableOwnerContextId = this.editableOwnerContextId(
-      keyboardContext,
-      activeContextIds,
-    );
 
     return Array.from(this.bindings.values()).filter(binding => {
       if (!binding.enabled || binding.trigger.device !== 'keyboard') return false;
       if (!activeContextIds.has(binding.contextId)) return false;
-
-      // Text controls are sovereign. If a dialog/widget/overlay currently owns
-      // the focused editor, only that highest-priority interactive context may
-      // consume editing keys. Background pane/global/overlay shortcuts must
-      // yield so ordinary text, digits, Delete, arrows, etc. reach the control.
-      //
-      // Modifier shortcuts remain eligible when no interactive owner exists;
-      // this preserves global accelerators in ordinary app text fields.
-      if (
-        editableOwnerContextId &&
-        binding.contextId !== editableOwnerContextId
-      ) {
-        return false;
-      }
-
       if (!this.whenClauseAllows(binding.when, keyboardContext)) return false;
 
       const steps = binding.trigger.chord.steps;
@@ -824,55 +805,6 @@ export class InputEngineService {
 
       return true;
     });
-  }
-
-  private editableOwnerContextId(
-    keyboardContext: KeyboardEventContext | null | undefined,
-    activeContextIds: Set<string>,
-  ): string | null {
-    if (!this.isTypingContext(keyboardContext)) {
-      return null;
-    }
-
-    let owner: InputContextDefinition | null = null;
-
-    for (const contextId of activeContextIds) {
-      const context = this.contexts.get(contextId);
-      if (!context) continue;
-
-      if (
-        context.kind !== 'dialog' &&
-        context.kind !== 'overlay' &&
-        context.kind !== 'widget'
-      ) {
-        continue;
-      }
-
-      if (
-        !owner ||
-        context.priority > owner.priority ||
-        (
-          context.priority === owner.priority &&
-          (this.activeContexts.get(context.id)?.activatedAt ?? 0) >
-            (this.activeContexts.get(owner.id)?.activatedAt ?? 0)
-        )
-      ) {
-        owner = context;
-      }
-    }
-
-    return owner?.id ?? null;
-  }
-
-  private isTypingContext(
-    context: KeyboardEventContext | null | undefined,
-  ): boolean {
-    return !!context && (
-      context.inInput ||
-      context.inTextarea ||
-      context.inSelect ||
-      context.inContentEditable
-    );
   }
 
   private matchMouseBindings(gesture: MouseGesture, event?: MouseEvent | WheelEvent): RegisteredBinding[] {
@@ -923,20 +855,14 @@ export class InputEngineService {
   }
 
   private sameStroke(left: KeyStroke, right: KeyStroke): boolean {
-    const leftMods = this.normalizeModifiers(left.modifiers);
-    const rightMods = this.normalizeModifiers(right.modifiers);
+    const leftMods = [...(left.modifiers ?? [])].sort();
+    const rightMods = [...(right.modifiers ?? [])].sort();
 
     return (
       left.key === right.key &&
       leftMods.length === rightMods.length &&
       leftMods.every((modifier, index) => modifier === rightMods[index])
     );
-  }
-
-  private normalizeModifiers(
-    modifiers: KeyStroke['modifiers'],
-  ): NonNullable<KeyStroke['modifiers']> {
-    return [...(modifiers ?? [])].sort();
   }
 
   private whenClauseAllows(expression?: string, context?: KeyboardEventContext | null): boolean {
@@ -960,7 +886,7 @@ export class InputEngineService {
   private resolveWhenToken(token: string, context?: KeyboardEventContext | null): boolean {
     switch (token) {
       case 'typing':
-        return this.isTypingContext(context);
+        return !!context && (context.inInput || context.inTextarea || context.inSelect || context.inContentEditable);
       case 'modal':
         return !!context?.inModal;
       case 'quickAccess':

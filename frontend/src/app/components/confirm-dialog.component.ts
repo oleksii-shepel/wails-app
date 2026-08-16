@@ -2,13 +2,10 @@ import { Component, ElementRef, OnDestroy, OnInit, ViewChild } from '@angular/co
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
-import { InputContextService } from '../services/input-context.service';
-import { InputEngineService } from '../services/input-engine.service';
 import { InputHistoryService } from '../services/input-history.service';
 import { NativeOverlayFreezeService } from '../services/native-overlay-freeze.service';
 import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.directive';
 import { InputHistoryDirective } from '../directives/input-history.directive';
-import { moveFocusWithin } from '../directives/focus-trap.utils';
 import type { Stream } from '@epikodelabs/streamix';
 import { createSubject, takeUntil } from '@epikodelabs/streamix';
 
@@ -39,6 +36,7 @@ interface ConfirmDialogRequest {
           tabindex="-1"
           [attr.aria-label]="request.options.title || 'Confirmation'"
           (click)="$event.stopPropagation()"
+          (keydown.escape)="onCancel(); $event.stopPropagation()"
         >
           <!-- Alert toast-style layout -->
           <ng-container *ngIf="request.options.isAlert">
@@ -66,8 +64,11 @@ interface ConfirmDialogRequest {
             </div>
           </ng-container>
 
-          <!-- Regular confirmation dialog layout -->
-          <ng-container *ngIf="!request.options.isAlert">
+          <!-- Regular confirmation / prompt dialog layout -->
+          <form
+            *ngIf="!request.options.isAlert"
+            class="confirm-form"
+            (ngSubmit)="onConfirm()">
             <div class="confirm-header" *ngIf="request.options.title">
               <h2>{{ request.options.title }}</h2>
             </div>
@@ -77,6 +78,7 @@ interface ConfirmDialogRequest {
 
               <div class="prompt-block" *ngIf="request.options.isPrompt">
                 <input
+                  #promptInput
                   class="prompt-input"
                   type="text"
                   name="confirm-prompt-value"
@@ -85,7 +87,7 @@ interface ConfirmDialogRequest {
                   [appInputHistory]="request.options.historyKey || null"
                   [appInputHistoryEnabled]="!!request.options.historyKey"
                   data-dialog-initial-focus
-                  (keydown)="onPromptKeyDown($event)"
+                  autocomplete="off"
                 />
               </div>
             </div>
@@ -101,16 +103,15 @@ interface ConfirmDialogRequest {
                 {{ request.options.cancelText || 'Cancel' }}
               </button>
               <button
-                type="button"
+                type="submit"
                 data-dialog-action="confirm"
                 [class.btn-danger]="request.options.danger"
                 [class.btn-confirm]="!request.options.danger"
-                (click)="onConfirm()"
               >
                 {{ request.options.confirmText || 'Confirm' }}
               </button>
             </div>
-          </ng-container>
+          </form>
         </div>
       </div>
     </ng-container>
@@ -145,6 +146,10 @@ interface ConfirmDialogRequest {
     @keyframes slideDown {
       from { transform: translateY(-16px); opacity: 0; }
       to { transform: translateY(0); opacity: 1; }
+    }
+
+    .confirm-form {
+      display: contents;
     }
 
     .confirm-panel {
@@ -357,54 +362,39 @@ interface ConfirmDialogRequest {
 })
 export class ConfirmDialogComponent {
   @ViewChild('dialogPanel') private dialogPanel?: ElementRef<HTMLElement>;
+  @ViewChild('promptInput') private promptInput?: ElementRef<HTMLInputElement>;
 
   private readonly destroy$ = createSubject<void>();
-  private releaseDialogContext: (() => void) | null = null;
   draftValue = '';
   readonly request$: Stream<ConfirmDialogRequest | null> = this.confirmDialogService.activeRequest$;
 
   constructor(
     private confirmDialogService: ConfirmDialogService,
-    private inputContexts: InputContextService,
-    private inputEngine: InputEngineService,
     private overlayFreeze: NativeOverlayFreezeService,
     private inputHistory: InputHistoryService,
   ) {}
 
   ngOnInit(): void {
-    this.inputEngine.registerCommand('dialog.confirm.accept', () => this.onKeyboardAccept());
-    this.inputEngine.registerCommand('dialog.confirm.cancel', () => this.onCancel());
-    this.inputEngine.registerCommand('dialog.confirm.focusNext', () => this.moveDialogFocus(1));
-    this.inputEngine.registerCommand('dialog.confirm.focusPrev', () => this.moveDialogFocus(-1));
-    this.inputEngine.registerCommand('dialog.confirm.focusNextArrow', () => this.moveDialogFocusWithArrows(1));
-    this.inputEngine.registerCommand('dialog.confirm.focusPrevArrow', () => this.moveDialogFocusWithArrows(-1));
-
     this.confirmDialogService.activeRequest$
       .pipe(takeUntil(this.destroy$))
       .subscribe(request => {
         if (request) {
           this.draftValue = request.options.defaultValue ?? '';
-          this.releaseDialogContext ??= this.inputContexts.acquire('dialog.confirm');
           this.overlayFreeze.acquire('dialog.confirm');
+
+          if (request.options.isPrompt) {
+            this.focusPromptInput();
+          }
           return;
         }
+
         this.draftValue = '';
-        this.releaseDialogContext?.();
-        this.releaseDialogContext = null;
         this.overlayFreeze.release('dialog.confirm');
       });
   }
 
   ngOnDestroy(): void {
     this.overlayFreeze.release('dialog.confirm');
-    this.releaseDialogContext?.();
-    this.releaseDialogContext = null;
-    this.inputEngine.unregisterCommand('dialog.confirm.accept');
-    this.inputEngine.unregisterCommand('dialog.confirm.cancel');
-    this.inputEngine.unregisterCommand('dialog.confirm.focusNext');
-    this.inputEngine.unregisterCommand('dialog.confirm.focusPrev');
-    this.inputEngine.unregisterCommand('dialog.confirm.focusNextArrow');
-    this.inputEngine.unregisterCommand('dialog.confirm.focusPrevArrow');
     this.destroy$.next();
     this.destroy$.complete();
   }
@@ -434,52 +424,20 @@ export class ConfirmDialogComponent {
     this.confirmDialogService.resolveActive(true);
   }
 
-  private onKeyboardAccept(): void {
-    const active = this.confirmDialogService.activeRequest$.value;
-    if (!active) {
-      return;
-    }
+  private focusPromptInput(attempt = 0): void {
+    setTimeout(() => {
+      const input = this.promptInput?.nativeElement;
 
-    if (active.options.isPrompt) {
-      this.onConfirm();
-      return;
-    }
+      if (!input) {
+        if (attempt < 5) {
+          this.focusPromptInput(attempt + 1);
+        }
+        return;
+      }
 
-    const focusedAction = this.getFocusedDialogAction();
-    if (focusedAction === 'cancel') {
-      this.onCancel();
-      return;
-    }
-
-    this.onConfirm();
-  }
-
-  private getFocusedDialogAction(): 'confirm' | 'cancel' | null {
-    const activeElement = document.activeElement;
-    if (!(activeElement instanceof HTMLElement)) {
-      return null;
-    }
-
-    const actionElement = activeElement.closest('[data-dialog-action]');
-    if (!(actionElement instanceof HTMLElement)) {
-      return null;
-    }
-
-    const action = actionElement.dataset['dialogAction'];
-    return action === 'cancel' || action === 'confirm' ? action : null;
-  }
-
-  onPromptKeyDown(event: KeyboardEvent): void {
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      this.onConfirm();
-      return;
-    }
-
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      this.onCancel();
-    }
+      input.focus({ preventScroll: true });
+      input.select();
+    }, attempt === 0 ? 0 : 16);
   }
 
   getAlertTitle(options: any): string {
@@ -498,39 +456,4 @@ export class ConfirmDialogComponent {
     return lines.slice(1).join('\n');
   }
 
-  private moveDialogFocus(delta: number): void {
-    const panel = this.dialogPanel?.nativeElement;
-    if (!panel) {
-      return;
-    }
-
-    moveFocusWithin(panel, delta);
-  }
-
-  private moveDialogFocusWithArrows(delta: number): void {
-    if (!this.shouldUseActionArrowNavigation()) {
-      return;
-    }
-
-    this.moveActionFocus(delta);
-  }
-
-  private moveActionFocus(delta: number): void {
-    const panel = this.dialogPanel?.nativeElement;
-    if (!panel) {
-      return;
-    }
-
-    moveFocusWithin(panel, delta, '[data-dialog-action]');
-  }
-
-  private shouldUseActionArrowNavigation(): boolean {
-    const panel = this.dialogPanel?.nativeElement;
-    const activeElement = document.activeElement;
-    if (!panel || !(activeElement instanceof HTMLElement) || !panel.contains(activeElement)) {
-      return false;
-    }
-
-    return !!activeElement.closest('[data-dialog-action]');
-  }
 }

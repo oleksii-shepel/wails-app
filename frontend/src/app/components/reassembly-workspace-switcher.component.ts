@@ -2,12 +2,15 @@ import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
+  ElementRef,
   EventEmitter,
   OnDestroy,
   OnInit,
   Output,
+  ViewChild,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { InputEngineService } from '../services/input-engine.service';
@@ -18,6 +21,11 @@ import {
   rememberFocusedElement,
   restoreFocusedElement,
 } from './reassembly-focus.utils';
+
+type WorkspaceEdit =
+  | { kind: 'create'; draft: string }
+  | { kind: 'rename'; workspaceId: string; draft: string }
+  | null;
 
 const CONTEXT_ID = 'overlay.reassemblyWorkspace';
 const OWNER_ID = 'overlay.reassemblyWorkspace';
@@ -216,7 +224,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
 @Component({
   selector: 'app-reassembly-workspace-switcher',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, FormsModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="backdrop" *ngIf="visible" (mousedown)="close()">
@@ -234,62 +242,113 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           </div>
 
           <button
+            *ngIf="!edit"
             type="button"
             class="new"
-            title="New workspace (Ctrl+Shift+Alt+N)"
+            title="New workspace (Ctrl+Alt+Shift+N)"
             (click)="createWorkspace()">
             + New
           </button>
         </header>
 
         <div class="workspace-list" role="listbox">
-          <button
+          <div
+            *ngIf="edit?.kind === 'create'"
+            class="workspace workspace-edit-row selected"
+            role="option"
+            aria-selected="true">
+            <span class="slot-placeholder">+</span>
+
+            <span class="workspace-main">
+              <input
+                #nameInput
+                class="workspace-name-input"
+                type="text"
+                [(ngModel)]="edit.draft"
+                [ngModelOptions]="{ standalone: true }"
+                autocomplete="off"
+                spellcheck="false"
+                aria-label="New workspace name"
+                (click)="$event.stopPropagation()"
+                (mousedown)="$event.stopPropagation()"
+                (keydown.enter)="commitEdit(); $event.preventDefault(); $event.stopPropagation()"
+                (keydown.escape)="cancelEdit(); $event.preventDefault(); $event.stopPropagation()" />
+
+              <small class="edit-hint">Enter to create · Esc to cancel</small>
+            </span>
+          </div>
+
+          <div
             *ngFor="let workspace of workspaces; let i = index; trackBy: trackWorkspace"
-            type="button"
             class="workspace"
             role="option"
+            tabindex="-1"
             [class.selected]="i === selectedIndex"
             [class.active]="workspace.id === activeWorkspaceId"
             [attr.aria-selected]="i === selectedIndex"
-            (mouseenter)="selectedIndex = i"
-            (click)="activateWorkspace(workspace)">
+            (mouseenter)="!edit && (selectedIndex = i)"
+            (click)="!edit && activateWorkspace(workspace)">
 
-            <span class="icon">
+            <span class="workspace-index">
               <kbd *ngIf="i < 9">{{ i + 1 }}</kbd>
-              {{ workspace.icon || '📁' }}
+              <span class="workspace-icon">{{ workspace.icon || '📁' }}</span>
             </span>
 
             <span class="details">
-              <strong>{{ workspace.name }}</strong>
-              <small>
+              <ng-container *ngIf="edit?.kind !== 'rename' || edit.workspaceId !== workspace.id; else renameWorkspaceInput">
+                <strong>{{ workspace.name }}</strong>
+              </ng-container>
+
+              <ng-template #renameWorkspaceInput>
+                <input
+                  #nameInput
+                  class="workspace-name-input"
+                  type="text"
+                  [(ngModel)]="edit!.draft"
+                  [ngModelOptions]="{ standalone: true }"
+                  autocomplete="off"
+                  spellcheck="false"
+                  aria-label="Workspace name"
+                  (click)="$event.stopPropagation()"
+                  (mousedown)="$event.stopPropagation()"
+                  (keydown.enter)="commitEdit(); $event.preventDefault(); $event.stopPropagation()"
+                  (keydown.escape)="cancelEdit(); $event.preventDefault(); $event.stopPropagation()" />
+                <small class="edit-hint">Enter to save · Esc to cancel</small>
+              </ng-template>
+
+              <small *ngIf="edit?.kind !== 'rename' || edit.workspaceId !== workspace.id">
                 {{ workspace.leftPane.tabs.length }} left ·
                 {{ workspace.rightPane.tabs.length }} right
               </small>
             </span>
 
             <span class="active-mark" *ngIf="workspace.id === activeWorkspaceId">
-              active
+              Active
             </span>
-          </button>
+          </div>
         </div>
 
         <footer>
-          <button
-            type="button"
-            [disabled]="!selectedWorkspace"
-            (click)="renameSelected()">
-            Rename
-          </button>
+          <ng-container *ngIf="!edit">
+            <button
+              type="button"
+              [disabled]="!selectedWorkspace"
+              (click)="renameSelected()">
+              F2&nbsp;&nbsp;Rename
+            </button>
 
-          <button
-            type="button"
-            class="danger"
-            [disabled]="workspaces.length <= 1 || !selectedWorkspace"
-            (click)="deleteSelected()">
-            Delete
-          </button>
+            <button
+              type="button"
+              class="danger"
+              [disabled]="workspaces.length <= 1 || !selectedWorkspace"
+              (click)="deleteSelected()">
+              Del&nbsp;&nbsp;Delete
+            </button>
+          </ng-container>
 
-          <span class="keys">1–9 · ↑ ↓ · Enter · F2 · Delete · Esc</span>
+          <span class="keys">
+            {{ edit ? 'Enter to save · Esc to cancel' : '1–9 switch · ↑ ↓ select · Enter open · Esc close' }}
+          </span>
         </footer>
       </section>
     </div>
@@ -314,8 +373,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
 
     .switcher {
       box-sizing: border-box;
-      width: min(520px, calc(100vw - 24px));
-      max-height: min(650px, calc(100vh - 40px));
+      width: min(500px, calc(100vw - 24px));
+      max-height: min(620px, calc(100vh - 40px));
       display: flex;
       flex-direction: column;
       overflow: hidden;
@@ -332,7 +391,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
       display: flex;
       align-items: center;
       gap: 8px;
-      padding: 9px 10px;
+      padding: 8px 10px;
     }
 
     header {
@@ -380,18 +439,29 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     .workspace-list {
       min-height: 0;
       overflow: auto;
-      padding: 5px;
+      padding: 4px;
     }
 
     .workspace {
       display: grid;
-      grid-template-columns: 30px minmax(0, 1fr) auto;
-      gap: 8px;
+      grid-template-columns: 40px minmax(0, 1fr) auto;
+      gap: 10px;
       align-items: center;
       width: 100%;
-      min-height: 48px;
-      padding: 6px 8px;
+      min-height: 44px;
+      padding: 6px 9px;
       text-align: left;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    .workspace:hover {
+      background: var(--vsc-list-hover-background, #2a2d2e);
+    }
+
+    .workspace-edit-row:hover {
+      background: var(--vsc-list-hover-background, #2a2d2e);
     }
 
     .workspace.selected {
@@ -402,9 +472,49 @@ const BINDINGS: readonly InputBindingDefinition[] = [
       box-shadow: inset 2px 0 0 var(--vsc-accent-blue, #007acc);
     }
 
-    .icon {
-      text-align: center;
-      font-size: 17px;
+    .workspace-index {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      min-width: 0;
+    }
+
+    .workspace-index kbd {
+      display: inline-grid;
+      place-items: center;
+      min-width: 20px;
+      height: 20px;
+      padding: 0 3px;
+      border: 1px solid var(--vsc-border, #454545);
+      border-radius: 3px;
+      background: var(--vsc-editor-background, #1e1e1e);
+      color: var(--vsc-description-foreground, #969696);
+      font: 10px var(--vsc-font-family-mono, ui-monospace, monospace);
+    }
+
+    .workspace-icon {
+      font-size: 16px;
+      line-height: 1;
+    }
+
+    .slot-placeholder {
+      display: grid;
+      place-items: center;
+      width: 24px;
+      height: 24px;
+      margin: 0 auto;
+      border-radius: 50%;
+      background: var(--vsc-list-hover-background, #2a2d2e);
+      color: var(--vsc-description-foreground, #969696);
+      font-size: 18px;
+      line-height: 1;
+    }
+
+    .workspace-main {
+      min-width: 0;
+      display: grid;
+      gap: 3px;
     }
 
     .details {
@@ -419,13 +529,50 @@ const BINDINGS: readonly InputBindingDefinition[] = [
       white-space: nowrap;
     }
 
-    .active-mark {
-      color: var(--vsc-accent-blue, #4aa3ff);
+    .workspace-edit-row {
+      margin-bottom: 3px;
+      border-color: var(--vsc-border-subtle, #2b2b2b);
+      background: var(--vsc-list-hover-background, #2a2d2e);
+      cursor: default;
+    }
+
+    .workspace-name-input {
+      box-sizing: border-box;
+      width: 100%;
+      min-width: 0;
+      height: 28px;
+      padding: 3px 7px;
+      border: 1px solid var(--vsc-focus-border, #007fd4);
+      border-radius: 3px;
+      outline: none;
+      background: var(--vsc-input-background, #181818);
+      color: var(--vsc-input-foreground, var(--vsc-foreground, #cccccc));
+      font: inherit;
+    }
+
+    .workspace-name-input:focus {
+      outline: none;
+    }
+
+    .edit-hint {
+      color: var(--vsc-description-foreground, #969696);
       font-size: 10px;
+      line-height: 1.2;
+    }
+
+    .active-mark {
+      padding: 2px 6px;
+      border-radius: 10px;
+      background: color-mix(in srgb, var(--vsc-accent-blue, #007acc) 16%, transparent);
+      color: var(--vsc-accent-blue, #4aa3ff);
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: .03em;
       text-transform: uppercase;
     }
 
     footer {
+      min-height: 38px;
       border-top: 1px solid var(--vsc-border-subtle, #2b2b2b);
     }
 
@@ -435,7 +582,9 @@ const BINDINGS: readonly InputBindingDefinition[] = [
 
     .keys {
       margin-left: auto;
-      font-size: 10px;
+      color: var(--vsc-description-foreground, #969696);
+      font-size: 9px;
+      white-space: nowrap;
     }
   `],
 })
@@ -443,10 +592,13 @@ export class ReassemblyWorkspaceSwitcherComponent
   implements OnInit, OnDestroy {
 
   @Output() workspaceActivated = new EventEmitter<void>();
+  @ViewChild('nameInput') private nameInput?: ElementRef<HTMLInputElement>;
 
   visible = false;
   selectedIndex = 0;
+  edit: WorkspaceEdit = null;
   private previousFocus: HTMLElement | null = null;
+  private editGeneration = 0;
 
   constructor(
     private readonly workspacesService: WorkspaceService,
@@ -502,6 +654,7 @@ export class ReassemblyWorkspaceSwitcherComponent
       title: 'Activate Workspace',
       category: 'Workspace',
       execute: () => {
+        if (this.edit) return;
         const workspace = this.selectedWorkspace;
         if (workspace) this.activateWorkspace(workspace);
       },
@@ -518,7 +671,7 @@ export class ReassemblyWorkspaceSwitcherComponent
       title: 'Rename Workspace',
       category: 'Workspace',
       execute: () => this.renameSelected(),
-      isEnabled: () => !!this.selectedWorkspace,
+      isEnabled: () => !this.edit && !!this.selectedWorkspace,
     }, OWNER_ID);
 
     this.input.registerCommandDescriptor({
@@ -526,7 +679,7 @@ export class ReassemblyWorkspaceSwitcherComponent
       title: 'Delete Workspace',
       category: 'Workspace',
       execute: () => this.deleteSelected(),
-      isEnabled: () => this.workspaces.length > 1 && !!this.selectedWorkspace,
+      isEnabled: () => !this.edit && this.workspaces.length > 1 && !!this.selectedWorkspace,
     }, OWNER_ID);
 
     this.input.registerCommandDescriptor({
@@ -635,6 +788,7 @@ export class ReassemblyWorkspaceSwitcherComponent
   close(): void {
     if (!this.visible) return;
 
+    this.cancelEdit(false);
     this.visible = false;
     this.input.deactivateContext(CONTEXT_ID);
     restoreFocusedElement(this.previousFocus);
@@ -642,32 +796,18 @@ export class ReassemblyWorkspaceSwitcherComponent
     this.cdr.markForCheck();
   }
 
-  async createWorkspace(): Promise<void> {
-    const name = (await this.confirmDialog.prompt({
-      title: 'New Workspace',
-      message: 'Enter workspace name.',
-      confirmText: 'Create',
-      placeholder: 'Workspace name',
-      defaultValue: '',
-      historyKey: 'workspace.name',
-    }))?.trim();
-
-    if (!name) return;
-
-    const workspace = await this.workspacesService.createWorkspace(name);
-    this.workspacesService.switchWorkspace(workspace.id);
-    this.workspaceActivated.emit();
-
-    this.selectedIndex = Math.max(
-      0,
-      this.workspaces.findIndex(item => item.id === workspace.id),
-    );
-
-    if (this.visible) {
-      this.close();
-    } else {
-      this.cdr.markForCheck();
+  createWorkspace(): void {
+    if (!this.visible) {
+      this.open();
     }
+
+    this.edit = {
+      kind: 'create',
+      draft: 'New Workspace',
+    };
+    this.editGeneration += 1;
+    this.focusNameInput(this.editGeneration);
+    this.cdr.markForCheck();
   }
 
   activateWorkspace(workspace: WorkspaceConfig): void {
@@ -677,22 +817,89 @@ export class ReassemblyWorkspaceSwitcherComponent
     this.close();
   }
 
-  async renameSelected(): Promise<void> {
+  renameSelected(): void {
     const workspace = this.selectedWorkspace;
     if (!workspace) return;
 
-    const name = (await this.confirmDialog.prompt({
-      title: 'Rename Workspace',
-      message: 'Enter new workspace name.',
-      confirmText: 'Rename',
-      defaultValue: workspace.name,
-      historyKey: 'workspace.name',
-    }))?.trim();
-
-    if (!name || name === workspace.name) return;
-
-    this.workspacesService.updateWorkspace(workspace.id, { name });
+    this.edit = {
+      kind: 'rename',
+      workspaceId: workspace.id,
+      draft: workspace.name,
+    };
+    this.editGeneration += 1;
+    this.focusNameInput(this.editGeneration);
     this.cdr.markForCheck();
+  }
+
+  async commitEdit(): Promise<void> {
+    const edit = this.edit;
+    if (!edit) return;
+
+    const name = edit.draft.trim();
+    if (!name) {
+      this.focusNameInput(this.editGeneration);
+      return;
+    }
+
+    if (edit.kind === 'create') {
+      const workspace = await this.workspacesService.createWorkspace(name);
+
+      // The edit may have been cancelled while home-path resolution was pending.
+      if (this.edit !== edit) return;
+
+      this.edit = null;
+      this.workspacesService.switchWorkspace(workspace.id);
+      this.selectedIndex = Math.max(
+        0,
+        this.workspaces.findIndex(item => item.id === workspace.id),
+      );
+      this.workspaceActivated.emit();
+      this.cdr.markForCheck();
+      return;
+    }
+
+    const workspace = this.workspaces.find(
+      item => item.id === edit.workspaceId,
+    );
+    if (!workspace) {
+      this.cancelEdit();
+      return;
+    }
+
+    if (name !== workspace.name) {
+      this.workspacesService.updateWorkspace(workspace.id, { name });
+    }
+
+    this.edit = null;
+    this.cdr.markForCheck();
+  }
+
+  cancelEdit(markForCheck = true): void {
+    if (!this.edit) return;
+
+    this.edit = null;
+    this.editGeneration += 1;
+
+    if (markForCheck) {
+      this.cdr.markForCheck();
+    }
+  }
+
+  private focusNameInput(generation: number, attempt = 0): void {
+    setTimeout(() => {
+      if (!this.edit || generation !== this.editGeneration) return;
+
+      const input = this.nameInput?.nativeElement;
+      if (!input) {
+        if (attempt < 5) {
+          this.focusNameInput(generation, attempt + 1);
+        }
+        return;
+      }
+
+      input.focus({ preventScroll: true });
+      input.select();
+    }, attempt === 0 ? 0 : 16);
   }
 
   async deleteSelected(): Promise<void> {
@@ -728,11 +935,15 @@ export class ReassemblyWorkspaceSwitcherComponent
   }
 
   private activateSlot(index: number): void {
+    if (this.edit) return;
+
     const workspace = this.workspaces[index];
     if (workspace) this.activateWorkspace(workspace);
   }
 
   private moveSelection(delta: -1 | 1): void {
+    if (this.edit) return;
+
     const count = this.workspaces.length;
     if (count === 0) return;
 

@@ -16,6 +16,8 @@ import { InputEngineService } from '../services/input-engine.service';
 import type { InputBindingDefinition } from '../services/input-system.types';
 import { canTransferBetween, transferBlockedMessage } from '../services/transfer-capabilities';
 import { ReassemblyDirectoryPaneComponent } from './reassembly-directory-pane.component';
+import { ReassemblyWorkspaceSwitcherComponent } from './reassembly-workspace-switcher.component';
+import { ReassemblyPathHistoryComponent } from './reassembly-path-history.component';
 import {
   ReassemblyContextMenuComponent,
   type ReassemblyContextMenuItem,
@@ -60,6 +62,9 @@ const COMMAND = {
   closeContextMenu: 'reassembly.manager.closeContextMenu',
   focusFilter: 'reassembly.manager.focusFilter',
   toggleHidden: 'reassembly.workspace.toggleHidden',
+  showWorkspaceSwitcher: 'reassembly.workspace.showSwitcher',
+  newWorkspace: 'reassembly.workspace.new',
+  showPathHistory: 'reassembly.navigation.pathHistory',
 } as const;
 
 const BINDINGS: readonly InputBindingDefinition[] = [
@@ -96,6 +101,9 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   { id:'reassembly.manager.contextMenu.escape', commandId:COMMAND.closeContextMenu, contextId:CONTEXT_ID, source:'default', description:'Close context menu', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'escape'}]}}, preventDefault:true, stopPropagation:true },
   { id:'reassembly.manager.focusFilter.ctrlF', commandId:COMMAND.focusFilter, contextId:CONTEXT_ID, source:'default', description:'Focus folder filter', category:'Search & Filter', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'f', modifiers:['ctrl']}]}}},
   { id:'reassembly.workspace.toggleHidden.ctrlShiftH', commandId:COMMAND.toggleHidden, contextId:CONTEXT_ID, source:'default', description:'Show/hide hidden files', category:'Workspace', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'h', modifiers:['ctrl','shift']}]}}},
+  { id:'reassembly.workspace.showSwitcher.ctrlShiftW', commandId:COMMAND.showWorkspaceSwitcher, contextId:CONTEXT_ID, source:'default', description:'Open workspace switcher', category:'Workspace', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'w', modifiers:['ctrl','shift']}]}}},
+  { id:'reassembly.workspace.new.ctrlShiftAltN', commandId:COMMAND.newWorkspace, contextId:CONTEXT_ID, source:'default', description:'Create workspace', category:'Workspace', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'n', modifiers:['ctrl','shift','alt']}]}}},
+  { id:'reassembly.navigation.pathHistory.ctrlH', commandId:COMMAND.showPathHistory, contextId:CONTEXT_ID, source:'default', description:'Show path history', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'h', modifiers:['ctrl']}]}}},
 ];
 
 @Component({
@@ -105,6 +113,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     CommonModule,
     ReassemblyDirectoryPaneComponent,
     ReassemblyContextMenuComponent,
+    ReassemblyWorkspaceSwitcherComponent,
+    ReassemblyPathHistoryComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -152,6 +162,16 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           (internalDrop)="handleInternalDrop('right', $event.event, $event.targetPath)">
         </app-reassembly-directory-pane>
       </div>
+
+      <app-reassembly-workspace-switcher
+        #workspaceSwitcher
+        (workspaceActivated)="applyActiveWorkspace()">
+      </app-reassembly-workspace-switcher>
+
+      <app-reassembly-path-history
+        #pathHistory
+        (navigate)="navigateFromHistory($event)">
+      </app-reassembly-path-history>
 
       <app-reassembly-context-menu
         [state]="contextMenu"
@@ -241,6 +261,10 @@ const BINDINGS: readonly InputBindingDefinition[] = [
 })
 export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
   @ViewChild('managerRoot') managerRoot?: ElementRef<HTMLElement>;
+  @ViewChild('workspaceSwitcher')
+  workspaceSwitcher?: ReassemblyWorkspaceSwitcherComponent;
+  @ViewChild('pathHistory')
+  pathHistory?: ReassemblyPathHistoryComponent;
   @ViewChild('leftPane') leftPane?: ReassemblyDirectoryPaneComponent;
   @ViewChild('rightPane') rightPane?: ReassemblyDirectoryPaneComponent;
 
@@ -544,6 +568,40 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     return Math.max(8, Math.min(y, window.innerHeight - 360));
   }
 
+  navigateFromHistory(path: string): void {
+    const pane = this.activePane;
+    if (!pane?.isDirectoryTab) return;
+    pane.navigateTo(path);
+    pane.lastAction = `history: ${path}`;
+    this.cdr.markForCheck();
+  }
+
+  async applyActiveWorkspace(): Promise<void> {
+    const workspace = this.workspaceService.getActiveWorkspace();
+    if (!workspace) return;
+
+    this.activePaneId =
+      workspace.activePaneId === 'right' ? 'right' : 'left';
+    this.showHidden = !!workspace.showHidden;
+
+    this.leftPanePercent =
+      typeof workspace.splitRatio === 'number' &&
+      Number.isFinite(workspace.splitRatio) &&
+      workspace.splitRatio > 0
+        ? this.clampPanePercent(workspace.splitRatio)
+        : 50;
+
+    await Promise.all([
+      this.leftPane?.restoreWorkspaceState(),
+      this.rightPane?.restoreWorkspaceState(),
+    ]);
+
+    this.lastTransfer = 'none';
+    this.lastDrop = 'none';
+    this.closeContextMenu();
+    this.cdr.markForCheck();
+  }
+
   async toggleHidden(): Promise<void> {
     const next = !this.showHidden;
     this.showHidden = next;
@@ -691,6 +749,9 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     descriptor(COMMAND.closeContextMenu, 'Close Context Menu', 'Navigation', () => this.closeContextMenu(), () => !!this.contextMenu);
     descriptor(COMMAND.focusFilter, 'Focus Folder Filter', 'Search & Filter', () => this.activePane?.focusFilter(), () => !!this.activePane?.isDirectoryTab);
     descriptor(COMMAND.toggleHidden, 'Toggle Hidden Files', 'Workspace', () => this.toggleHidden());
+    descriptor(COMMAND.showWorkspaceSwitcher, 'Show Workspace Switcher', 'Workspace', () => this.workspaceSwitcher?.open());
+    descriptor(COMMAND.newWorkspace, 'New Workspace', 'Workspace', () => this.workspaceSwitcher?.createWorkspace());
+    descriptor(COMMAND.showPathHistory, 'Show Path History', 'Navigation', () => this.pathHistory?.open());
   }
 
   private activeViewer(): any {

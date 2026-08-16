@@ -798,6 +798,25 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
     this.addressBar?.beginEdit();
   }
 
+  async restoreWorkspaceState(): Promise<void> {
+    this.tabs = [];
+    this.activeTabId = null;
+    this.filterText = '';
+    this.filterVisible = false;
+    this.selectedPaths = new Set();
+    this.cursorPath = null;
+    this.anchorPath = null;
+    this.workspaceTabsReady = false;
+    this.filterWidget?.deactivateContext();
+
+    const restored = await this.tryRestoreWorkspaceTabs();
+    if (!restored) {
+      await this.initialize();
+    }
+
+    this.cdr.markForCheck();
+  }
+
   newTab(): void {
     const path = this.path || '/';
     const persisted = this.workspaceService.addTab(this.paneId, path, true);

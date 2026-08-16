@@ -94,6 +94,9 @@ interface PendingChordLike {
         <div><kbd>Ctrl+F</kbd><span>filter folder</span></div>
         <div><kbd>F3 / Shift+F3</kbd><span>next / previous match</span></div>
         <div><kbd>Ctrl+Shift+H</kbd><span>show / hide hidden</span></div>
+        <div><kbd>Ctrl+Shift+W</kbd><span>workspace switcher</span></div>
+        <div><kbd>Ctrl+Shift+Alt+N</kbd><span>new workspace</span></div>
+        <div><kbd>Ctrl+H</kbd><span>path history</span></div>
       </div>
 
       <footer>

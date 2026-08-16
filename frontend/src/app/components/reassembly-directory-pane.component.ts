@@ -1446,7 +1446,13 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   private async refreshDriveCapacity(path: string): Promise<void> {
-    if (!path || this.isInArchive || this.isRemoteLocation) {
+    if (
+      !path ||
+      this.isInArchive ||
+      this.isRemoteLocation ||
+      this.activePanelSource.source.kind === 'results' ||
+      this.activePanelSource.source.kind === 'virtual'
+    ) {
       this.driveFreeBytes = 0;
       this.driveTotalBytes = 0;
       this.driveFileSystem = '';
@@ -1702,7 +1708,10 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
 
   get atRoot(): boolean {
     if (this.isInArchive) return false;
-    return !this.path || this.directorySource.isRootPath(this.path);
+    return !this.path || this.panelSources.isRootPath(
+      this.path,
+      this.entries,
+    );
   }
 
   get canBack(): boolean {
@@ -1793,6 +1802,72 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     this.error = null;
     this.clearArchiveRuntime();
     this.lastAction = `surface: ${title?.trim() || id}`;
+    this.cdr.markForCheck();
+  }
+
+  async openResultsPanel(
+    title: string,
+    entries: readonly FileInfo[],
+    metadata: {
+      origin?: string;
+      rootPath?: string;
+      query?: string;
+      kind?: string;
+    } = {},
+  ): Promise<void> {
+    if (entries.length === 0) return;
+
+    this.syncActiveDirSessionState();
+
+    const path = this.panelSources.createResultsPanel(
+      title,
+      entries,
+      metadata,
+    );
+
+    const persisted = this.workspaceService.addTab(
+      this.paneId,
+      path,
+      true,
+    );
+
+    if (persisted) {
+      this.workspaceService.updateTabPathAndTitle(
+        this.paneId,
+        persisted.id,
+        path,
+        title,
+      );
+      this.tabs = this.mergePersistedTabs();
+      this.activeTabId = persisted.id;
+
+      const active = this.activeTab;
+      if (active?.kind === 'dir') {
+        this.applyDirSessionBeforeLoad(active);
+      }
+
+      await this.load(path, {
+        history: 'record',
+        syncTab: false,
+      });
+
+      this.lastAction = `results: ${title}`;
+      this.cdr.markForCheck();
+      return;
+    }
+
+    const tab = {
+      ...this.createDirectoryTab(path),
+      title,
+    };
+    this.tabs = [...this.tabs, tab];
+    this.activeTabId = tab.id;
+    this.applyDirSessionBeforeLoad(tab);
+    await this.load(path, {
+      history: 'record',
+      syncTab: false,
+    });
+    this.lastAction = `results: ${title}`;
     this.cdr.markForCheck();
   }
 
@@ -2406,7 +2481,10 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
 
     if (this.atRoot) return;
 
-    const parent = this.directorySource.getParentPath(this.path);
+    const parent = this.panelSources.getParentPath(
+      this.path,
+      this.entries,
+    );
     if (!parent || parent === this.path) return;
 
     this.lastAction = 'parent directory';
@@ -6065,11 +6143,21 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       }
 
       if (this.activeTabId && this.activeTab?.kind === 'dir') {
-        this.workspaceService.updateTabPath(
-          this.paneId,
-          this.activeTabId,
-          this.path,
-        );
+        const panelTitle = this.panelSources.titleFor(this.path);
+        if (panelTitle) {
+          this.workspaceService.updateTabPathAndTitle(
+            this.paneId,
+            this.activeTabId,
+            this.path,
+            panelTitle,
+          );
+        } else {
+          this.workspaceService.updateTabPath(
+            this.paneId,
+            this.activeTabId,
+            this.path,
+          );
+        }
       }
 
       this.pathHistory.addLocation(this.path, this.paneId);

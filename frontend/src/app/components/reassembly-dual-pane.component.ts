@@ -41,7 +41,10 @@ import {
 } from './pane-sync-review.component';
 import { SelectionBasketComponent } from './selection-basket.component';
 import { ReassemblyToolsCenterComponent } from './reassembly-tools-center.component';
-import { ReassemblyGlobalSearchComponent } from './reassembly-global-search.component';
+import {
+  ReassemblyGlobalSearchComponent,
+  type SearchResultsPanelRequest,
+} from './reassembly-global-search.component';
 import {
   ReassemblyCommandPaletteComponent,
   type ReassemblyPaletteCommand,
@@ -430,7 +433,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
       <app-reassembly-global-search
         #globalSearch
         (openResult)="openSearchResult($event)"
-        (openContainingFolder)="openSearchContainingFolder($event)">
+        (openContainingFolder)="openSearchContainingFolder($event)"
+        (openAsPanel)="openSearchResultsPanel($event)">
       </app-reassembly-global-search>
 
       <app-reassembly-tools-center
@@ -1071,6 +1075,33 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     }
 
     pane.openViewer(entry);
+  }
+
+  async openSearchResultsPanel(
+    request: SearchResultsPanelRequest,
+  ): Promise<void> {
+    const pane = this.activePane?.isDirectoryTab
+      ? this.activePane
+      : this.otherPane?.isDirectoryTab
+        ? this.otherPane
+        : null;
+
+    if (!pane || request.entries.length === 0) return;
+
+    await pane.openResultsPanel(
+      request.title,
+      request.entries,
+      {
+        origin: 'global-search',
+        rootPath: request.rootPath,
+        query: request.query,
+        kind: request.recursive
+          ? 'recursive-search'
+          : 'search',
+      },
+    );
+
+    this.cdr.markForCheck();
   }
 
   openSearchContainingFolder(entry: FileInfo): void {

@@ -20,6 +20,14 @@ import { ReassemblyModalSurfaceDirective } from './reassembly-modal-surface.dire
 
 type SearchSort = 'relevance' | 'name' | 'path' | 'type';
 
+export interface SearchResultsPanelRequest {
+  readonly title: string;
+  readonly rootPath: string;
+  readonly query: string;
+  readonly recursive: boolean;
+  readonly entries: readonly FileInfo[];
+}
+
 const SEARCH_HISTORY_KEY = 'reassembly.globalSearch.queries.v1';
 const SEARCH_HISTORY_LIMIT = 20;
 
@@ -36,6 +44,7 @@ const COMMAND = {
   cycleSort: 'reassembly.globalSearch.cycleSort',
   previousQuery: 'reassembly.globalSearch.previousQuery',
   nextQuery: 'reassembly.globalSearch.nextQuery',
+  openAsPanel: 'reassembly.globalSearch.openAsPanel',
 } as const;
 
 const BINDINGS: readonly InputBindingDefinition[] = [
@@ -44,6 +53,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   { id:'reassembly.globalSearch.down', commandId:COMMAND.next, contextId:CONTEXT_ID, source:'default', description:'Next search result', category:'Search & Filter', trigger:{device:'keyboard', chord:{steps:[{key:'arrowdown'}]}}},
   { id:'reassembly.globalSearch.enter', commandId:COMMAND.open, contextId:CONTEXT_ID, source:'default', description:'Open search result', category:'Search & Filter', trigger:{device:'keyboard', chord:{steps:[{key:'enter'}]}}},
   { id:'reassembly.globalSearch.ctrlEnter', commandId:COMMAND.openFolder, contextId:CONTEXT_ID, source:'default', description:'Open containing folder', category:'Search & Filter', trigger:{device:'keyboard', chord:{steps:[{key:'enter',modifiers:['ctrl']}]}}},
+  { id:'reassembly.globalSearch.ctrlShiftEnter', commandId:COMMAND.openAsPanel, contextId:CONTEXT_ID, source:'default', description:'Open search results as a panel', category:'Search & Filter', trigger:{device:'keyboard', chord:{steps:[{key:'enter',modifiers:['ctrl','shift']}]}}},
   { id:'reassembly.globalSearch.toggleRecursive.altR', commandId:COMMAND.toggleRecursive, contextId:CONTEXT_ID, source:'default', description:'Toggle recursive search', category:'Search & Filter', trigger:{device:'keyboard', chord:{steps:[{key:'r',modifiers:['alt']}]}}},
   { id:'reassembly.globalSearch.cycleSort.altS', commandId:COMMAND.cycleSort, contextId:CONTEXT_ID, source:'default', description:'Cycle search sort', category:'Search & Filter', trigger:{device:'keyboard', chord:{steps:[{key:'s',modifiers:['alt']}]}}},
   { id:'reassembly.globalSearch.previousQuery.altUp', commandId:COMMAND.previousQuery, contextId:CONTEXT_ID, source:'default', description:'Previous search query', category:'Search & Filter', trigger:{device:'keyboard', chord:{steps:[{key:'arrowup',modifiers:['alt']}]}}},
@@ -140,7 +150,14 @@ const BINDINGS: readonly InputBindingDefinition[] = [
 
         <footer>
           <span *ngIf="error" class="error" role="alert">{{ error }}</span>
-          <span class="keys">↑ ↓ · Enter open · Ctrl+Enter folder · Alt+R recursive · Alt+S sort · Alt+↑/↓ queries · Esc</span>
+          <button
+            type="button"
+            class="open-panel"
+            [disabled]="searching || displayedResults.length === 0"
+            (click)="openAsResultsPanel()">
+            Open as Panel
+          </button>
+          <span class="keys">↑ ↓ · Enter open · Ctrl+Enter folder · Ctrl+Shift+Enter panel · Alt+R recursive · Alt+S sort · Esc</span>
         </footer>
       </section>
     </div>
@@ -153,13 +170,14 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     .query input[type=text],.query>input{flex:1;height:30px;padding:0 9px;border:1px solid var(--vsc-border,#454545);border-radius:4px;outline:none;background:var(--vsc-input-background,#181818);color:inherit;font:inherit}.query input:focus{border-color:var(--vsc-focus-border,#007fd4)}.query label{display:flex;gap:5px;align-items:center;white-space:nowrap}.query select{height:28px;border:1px solid var(--vsc-border,#454545);border-radius:4px;background:var(--vsc-input-background,#181818);color:inherit;font:inherit}
     .recent-queries{display:flex;align-items:center;gap:5px;padding:5px 10px;border-bottom:1px solid var(--vsc-border-subtle,#2b2b2b);overflow:hidden;color:var(--vsc-description-foreground,#969696)}.recent-queries button{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px 6px;border:1px solid var(--vsc-border,#454545);border-radius:10px;background:transparent;color:inherit;cursor:pointer;font:10px var(--vsc-font-family,system-ui,sans-serif)}.recent-queries button:hover{background:var(--vsc-list-hover-background,#2a2d2e)}
     .results{flex:1;min-height:0;overflow:auto;padding:5px}.result{display:grid;grid-template-columns:30px minmax(0,1fr) auto;gap:8px;align-items:center;width:100%;min-height:45px;padding:5px 8px;border:1px solid transparent;border-radius:4px;background:transparent;color:inherit;text-align:left;cursor:pointer;font:inherit}.result:hover,.result.selected{background:var(--vsc-list-hover-background,#2a2d2e)}.result.selected{border-color:color-mix(in srgb,var(--vsc-accent-blue,#007acc) 55%,transparent)}.icon{text-align:center;font-size:16px}.details{min-width:0;display:grid}.details strong,.details small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.details small{font-family:var(--vsc-font-family-mono,ui-monospace,monospace)}.kind{font-size:10px}.empty{padding:40px;text-align:center;color:var(--vsc-description-foreground,#969696)}
-    footer{border-top:1px solid var(--vsc-border-subtle,#2b2b2b);border-bottom:0}.keys{margin-left:auto}.error{color:var(--vsc-error-foreground,#f48771);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    footer{border-top:1px solid var(--vsc-border-subtle,#2b2b2b);border-bottom:0}.keys{margin-left:auto}.error{color:var(--vsc-error-foreground,#f48771);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.open-panel{height:26px;padding:0 9px;border:1px solid var(--vsc-border,#454545);border-radius:4px;background:var(--vsc-button-secondary-background,#313131);color:inherit;cursor:pointer;font:inherit}.open-panel:disabled{opacity:.45;cursor:default}
   `],
 })
 export class ReassemblyGlobalSearchComponent implements OnInit, OnDestroy {
   @ViewChild('queryInput') queryInput?: ElementRef<HTMLInputElement>;
   @Output() openResult = new EventEmitter<FileInfo>();
   @Output() openContainingFolder = new EventEmitter<FileInfo>();
+  @Output() openAsPanel = new EventEmitter<SearchResultsPanelRequest>();
 
   visible = false;
   rootPath = '';
@@ -239,6 +257,7 @@ export class ReassemblyGlobalSearchComponent implements OnInit, OnDestroy {
     this.input.registerCommandDescriptor({id:COMMAND.next,title:'Next Search Result',category:'Search & Filter',execute:()=>this.move(1)},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.open,title:'Open Search Result',category:'Search & Filter',execute:()=>{const entry=this.selectedResult;if(entry)this.openEntry(entry)}},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.openFolder,title:'Open Containing Folder',category:'Search & Filter',execute:()=>{const entry=this.selectedResult;if(entry)this.openFolder(entry)}},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.openAsPanel,title:'Open Search Results as Panel',category:'Search & Filter',execute:()=>this.openAsResultsPanel(),isEnabled:()=>this.displayedResults.length>0&&!this.searching},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.toggleRecursive,title:'Toggle Recursive Search',category:'Search & Filter',execute:()=>this.toggleRecursive()},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.cycleSort,title:'Cycle Search Sort',category:'Search & Filter',execute:()=>this.cycleSort()},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.previousQuery,title:'Previous Search Query',category:'Search & Filter',execute:()=>this.moveQueryHistory(-1),isEnabled:()=>this.recentQueries.length>0},OWNER_ID);
@@ -335,6 +354,22 @@ export class ReassemblyGlobalSearchComponent implements OnInit, OnDestroy {
         this.cdr.markForCheck();
       }
     }
+  }
+
+  openAsResultsPanel(): void {
+    const query = this.queryText.trim();
+    const entries = this.displayedResults;
+    if (!query || entries.length === 0) return;
+
+    this.openAsPanel.emit({
+      title: `Search: ${query}`,
+      rootPath: this.rootPath,
+      query,
+      recursive: this.recursive,
+      entries: entries.map(entry => ({ ...entry })),
+    });
+
+    this.close();
   }
 
   toggleRecursive(): void {

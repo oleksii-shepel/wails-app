@@ -11,6 +11,10 @@ import {
 } from './panel-source';
 import { RemoteConnectionsService } from './remote-connections.service';
 import {
+  ResultsPanelService,
+  type ResultsPanelMetadata,
+} from './results-panel.service';
+import {
   getSourceCapabilities,
   type SourceCapabilities,
 } from './source-capabilities';
@@ -150,6 +154,68 @@ class RemotePanelSource extends BasePanelSource {
   }
 }
 
+class ResultsPanelSource extends BasePanelSource {
+  readonly id = 'results';
+  readonly kind = 'results' as const;
+  readonly title = 'Results';
+
+  constructor(
+    directories: DirectorySourceService,
+    private readonly results: ResultsPanelService,
+  ) {
+    super(directories);
+  }
+
+  canHandle(context: PanelSourceContext): boolean {
+    return /^results:\/\//i.test(context.path);
+  }
+
+  capabilities(_context: PanelSourceContext): SourceCapabilities {
+    return {
+      read: true,
+      create: false,
+      delete: false,
+      rename: false,
+      trash: false,
+    };
+  }
+
+  override async list(
+    context: PanelSourceContext,
+    _showHidden: boolean,
+  ): Promise<PanelSourceListing> {
+    const panel = this.results.get(context.path);
+
+    return {
+      location: {
+        path: context.path,
+        sourceId: panel ? `results.${panel.id}` : 'results.expired',
+        sourceKind: this.kind,
+      },
+      entries: panel ? panel.entries.map(entry => ({ ...entry })) : [],
+    };
+  }
+
+  override getRootPath(context: PanelSourceContext): string | null {
+    return context.path;
+  }
+
+  override getParentPath(context: PanelSourceContext): string {
+    return context.path;
+  }
+
+  override joinChildPath(
+    context: PanelSourceContext,
+    _childName: string,
+  ): string {
+    return context.path;
+  }
+
+  override supportsStreaming(_context: PanelSourceContext): boolean {
+    return false;
+  }
+}
+
 class VirtualPanelSource extends BasePanelSource {
   readonly id = 'virtual';
   readonly kind = 'virtual' as const;
@@ -186,11 +252,13 @@ export class PanelSourceRegistryService {
   constructor(
     private readonly directories: DirectorySourceService,
     remoteConnections: RemoteConnectionsService,
+    private readonly resultsPanels: ResultsPanelService,
   ) {
     this.sources = [
       new ArchivePanelSource(this.directories),
       new RegistryPanelSource(this.directories),
       new RemotePanelSource(this.directories, remoteConnections),
+      new ResultsPanelSource(this.directories, this.resultsPanels),
       new VirtualPanelSource(this.directories),
       new FilesystemPanelSource(this.directories),
     ];
@@ -210,6 +278,56 @@ export class PanelSourceRegistryService {
       },
       capabilities: source.capabilities(context),
     };
+  }
+
+  createResultsPanel(
+    title: string,
+    entries: readonly FileInfo[],
+    metadata: ResultsPanelMetadata = {},
+  ): string {
+    return this.resultsPanels.create(
+      title,
+      entries,
+      metadata,
+    ).path;
+  }
+
+  titleFor(path: string): string | null {
+    if (/^results:\/\//i.test(path)) {
+      return this.resultsPanels.title(path);
+    }
+    return null;
+  }
+
+  isRootPath(
+    path: string,
+    entries: readonly FileInfo[] = [],
+  ): boolean {
+    const resolved = this.resolve({
+      path,
+      entries,
+      inArchive: false,
+    });
+
+    const root = resolved.source.getRootPath({
+      path,
+      entries,
+      inArchive: false,
+    });
+
+    return !!root && root === path;
+  }
+
+  getParentPath(
+    path: string,
+    entries: readonly FileInfo[] = [],
+  ): string {
+    const context: PanelSourceContext = {
+      path,
+      entries,
+      inArchive: false,
+    };
+    return this.resolve(context).source.getParentPath(context);
   }
 
   async list(
@@ -257,6 +375,10 @@ export class PanelSourceRegistryService {
           : `filesystem.${scheme}`;
       case 'remote':
         return scheme ? `remote.${scheme}` : source.id;
+      case 'results': {
+        const panel = this.resultsPanels.get(path);
+        return panel ? `results.${panel.id}` : 'results.expired';
+      }
       case 'virtual':
         return scheme ? `virtual.${scheme}` : source.id;
       default:

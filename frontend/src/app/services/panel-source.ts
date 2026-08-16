@@ -6,6 +6,7 @@ export type PanelSourceKind =
   | 'archive'
   | 'registry'
   | 'remote'
+  | 'results'
   | 'virtual';
 
 export interface PanelSourceContext {

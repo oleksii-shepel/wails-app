@@ -490,8 +490,16 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
 
             <span class="viewer-separator"></span>
 
-            <button type="button" [disabled]="!viewerSupports('showPrevious')" (click)="viewerInvoke('showPrevious')" title="Previous item (Left)">‹</button>
-            <button type="button" [disabled]="!viewerSupports('showNext')" (click)="viewerInvoke('showNext')" title="Next item (Right)">›</button>
+            <button
+              type="button"
+              [disabled]="!viewerCanNavigate(-1)"
+              (click)="viewerNavigate(-1)"
+              title="Previous item (Left)">‹</button>
+            <button
+              type="button"
+              [disabled]="!viewerCanNavigate(1)"
+              (click)="viewerNavigate(1)"
+              title="Next item (Right)">›</button>
             <button type="button" [disabled]="!viewerSupports('zoomOut')" (click)="viewerInvoke('zoomOut')" title="Zoom out (Ctrl+-)">−</button>
             <button type="button" [disabled]="!viewerSupports('zoomIn')" (click)="viewerInvoke('zoomIn')" title="Zoom in (Ctrl++)">+</button>
             <button type="button" [disabled]="!viewerSupports('resetZoom')" (click)="viewerInvoke('resetZoom')" title="Fit (Ctrl+0)">Fit</button>
@@ -1279,6 +1287,82 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     if (typeof fn === 'function') fn.call(this.mountedViewer);
   }
 
+
+  viewerCanNavigate(delta: -1 | 1): boolean {
+    const viewer = this.activeViewerTab;
+    if (!viewer) return false;
+
+    if (!viewer.archiveContext) {
+      return this.viewerSupports(
+        delta < 0 ? 'showPrevious' : 'showNext',
+      );
+    }
+
+    return this.archiveViewerSibling(viewer, delta) !== null;
+  }
+
+  viewerNavigate(delta: -1 | 1): void {
+    const viewer = this.activeViewerTab;
+    if (!viewer) return;
+
+    if (!viewer.archiveContext) {
+      this.viewerInvoke(
+        delta < 0 ? 'showPrevious' : 'showNext',
+      );
+      return;
+    }
+
+    const sibling = this.archiveViewerSibling(viewer, delta);
+    if (!sibling) return;
+
+    const archiveContext: ViewerArchiveContext = {
+      ...viewer.archiveContext,
+      nestedChain: [...viewer.archiveContext.nestedChain],
+      entryPath: normalizeArchiveInnerPath(sibling.path),
+    };
+
+    const updated: Extract<ReassemblyTab, { kind: 'viewer' }> = {
+      ...viewer,
+      path: sibling.path,
+      targetPath: sibling.path,
+      title: sibling.name,
+      archiveContext,
+    };
+
+    this.tabs = this.tabs.map(tab =>
+      tab.id === viewer.id ? updated : tab,
+    );
+
+    this.workspaceService.updateArchiveViewerTabTarget(
+      this.paneId,
+      viewer.id,
+      sibling.path,
+      sibling.name,
+      archiveContext,
+      viewer.fileList,
+    );
+
+    this.lastAction = `viewer: ${sibling.name}`;
+    this.cdr.markForCheck();
+  }
+
+  private archiveViewerSibling(
+    viewer: Extract<ReassemblyTab, { kind: 'viewer' }>,
+    delta: -1 | 1,
+  ): ViewerFileListItem | null {
+    const context = viewer.archiveContext;
+    if (!context || viewer.fileList.length === 0) return null;
+
+    const current = normalizeArchiveInnerPath(context.entryPath);
+
+    const index = viewer.fileList.findIndex(item =>
+      normalizeArchiveInnerPath(item.path) === current,
+    );
+
+    if (index < 0) return null;
+    return viewer.fileList[index + delta] ?? null;
+  }
+
   get isDirectoryTab(): boolean {
     return this.activeTab?.kind !== 'viewer';
   }
@@ -1903,12 +1987,6 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   setViewMode(mode: ReassemblyDirectoryView): void {
     this.markUserInteraction();
 
-    if (this.isInArchive && mode === 'tree') {
-      this.lastAction = 'tree view unavailable inside archive';
-      this.cdr.markForCheck();
-      return;
-    }
-
     if (this.viewMode === mode) return;
 
     if (mode === 'tree') {
@@ -2416,19 +2494,51 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
   }
 
+  private sameViewerTarget(
+    tab: Extract<ReassemblyTab, { kind: 'viewer' }>,
+    targetPath: string,
+    archiveContext: ViewerArchiveContext | null,
+  ): boolean {
+    if (!archiveContext) {
+      return !tab.archiveContext &&
+        this.samePath(tab.targetPath, targetPath);
+    }
+
+    if (!tab.archiveContext) return false;
+
+    return this.samePath(
+      tab.archiveContext.fsPath,
+      archiveContext.fsPath,
+    ) &&
+      tab.archiveContext.nestedChain.length ===
+        archiveContext.nestedChain.length &&
+      tab.archiveContext.nestedChain.every(
+        (segment, index) =>
+          segment === archiveContext.nestedChain[index],
+      ) &&
+      normalizeArchiveInnerPath(
+        tab.archiveContext.entryPath,
+      ) === normalizeArchiveInnerPath(
+        archiveContext.entryPath,
+      );
+  }
+
   openViewer(
     entry: FileInfo,
     viewerId: string | null = null,
   ): void {
     if (entry.type === FileType.DIRECTORY) return;
 
+    const nextArchiveContext = this.viewerArchiveContextFor(entry);
+
     const existing = this.tabs.find(tab =>
       tab.kind === 'viewer' &&
       !tab.autoFollow &&
       tab.viewerId === viewerId &&
-      this.samePath(
-        tab.archiveContext?.entryPath ?? tab.targetPath,
+      this.sameViewerTarget(
+        tab,
         entry.path,
+        nextArchiveContext,
       )
     );
 
@@ -2439,7 +2549,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     }
 
     const fileList = this.buildViewerFileList();
-    const archiveContext = this.viewerArchiveContextFor(entry);
+    const archiveContext = nextArchiveContext;
 
     const persisted = this.workspaceService.addViewerTab(
       this.paneId,
@@ -2453,7 +2563,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
         sourcePane: this.paneId,
         sourceTabId: this.activeTabId ?? undefined,
         sourceDir: this.path,
-        fileList: archiveContext ? [] : fileList,
+        fileList,
         archiveContext: archiveContext ?? undefined,
       },
     );
@@ -2469,7 +2579,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
         path: entry.path,
         title: entry.name,
         targetPath: entry.path,
-        fileList: archiveContext ? [] : fileList,
+        fileList,
         archiveContext,
         viewerId,
         autoFollow: false,
@@ -2492,7 +2602,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     if (entry.type === FileType.DIRECTORY) return;
 
     const archiveContext = this.viewerArchiveContextFor(entry);
-    const fileList = archiveContext ? [] : this.buildViewerFileList();
+    const fileList = this.buildViewerFileList();
 
     if (!archiveContext) {
       const preview = this.tabs.find(
@@ -2571,6 +2681,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   private buildViewerFileList(): ViewerFileListItem[] {
     return this.sortedEntries
       .filter(candidate =>
+        candidate.path !== '__parent__' &&
         candidate.type !== FileType.DIRECTORY,
       )
       .map(candidate => ({

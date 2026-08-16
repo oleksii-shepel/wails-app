@@ -21,6 +21,7 @@ import {
   type PaneComparisonResult,
 } from '../services/pane-comparison.service';
 import { PaneRecursiveComparisonService } from '../services/pane-recursive-comparison.service';
+import { SelectionBasketService } from '../services/selection-basket.service';
 import { ReassemblyDirectoryPaneComponent } from './reassembly-directory-pane.component';
 import { ReassemblyWorkspaceSwitcherComponent } from './reassembly-workspace-switcher.component';
 import { ReassemblyPathHistoryComponent } from './reassembly-path-history.component';
@@ -30,6 +31,7 @@ import {
   PaneSyncReviewComponent,
   type PaneSyncPlan,
 } from './pane-sync-review.component';
+import { SelectionBasketComponent } from './selection-basket.component';
 import {
   ReassemblyContextMenuComponent,
   type ReassemblyContextMenuItem,
@@ -89,6 +91,22 @@ const COMMAND = {
   selectRightDifferences: 'reassembly.compare.selectRightDifferences',
   copyMissingLeftToRight: 'reassembly.compare.copyMissingLeftToRight',
   copyMissingRightToLeft: 'reassembly.compare.copyMissingRightToLeft',
+
+  toggleCurrentSelection: 'reassembly.selection.toggleCurrent',
+  extendSelectionUp: 'reassembly.selection.extendUp',
+  extendSelectionDown: 'reassembly.selection.extendDown',
+  selectByMask: 'reassembly.selection.selectByMask',
+  unselectByMask: 'reassembly.selection.unselectByMask',
+  invertSelection: 'reassembly.selection.invert',
+  selectSameExtension: 'reassembly.selection.sameExtension',
+  cursorHome: 'reassembly.selection.cursorHome',
+  cursorEnd: 'reassembly.selection.cursorEnd',
+  cursorPageUp: 'reassembly.selection.cursorPageUp',
+  cursorPageDown: 'reassembly.selection.cursorPageDown',
+
+  openBasket: 'reassembly.basket.open',
+  addToBasket: 'reassembly.basket.add',
+  clearBasket: 'reassembly.basket.clear',
 } as const;
 
 const BINDINGS: readonly InputBindingDefinition[] = [
@@ -133,6 +151,21 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   { id:'reassembly.tree.right.arrowRight', commandId:COMMAND.treeRight, contextId:CONTEXT_ID, source:'default', description:'Tree expand or child', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'arrowright'}]}}},
   { id:'reassembly.compare.toggle.ctrlShiftC', commandId:COMMAND.comparePanes, contextId:CONTEXT_ID, source:'default', description:'Compare panes', category:'Pane Control', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'c', modifiers:['ctrl','shift']}]}}},
   { id:'reassembly.compare.recursive.ctrlShiftAltC', commandId:COMMAND.recursiveComparePanes, contextId:CONTEXT_ID, source:'default', description:'Recursive pane compare', category:'Pane Control', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'c', modifiers:['ctrl','shift','alt']}]}}},
+
+  { id:'reassembly.selection.toggle.insert', commandId:COMMAND.toggleCurrentSelection, contextId:CONTEXT_ID, source:'default', description:'Toggle current selection', category:'Selection', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'insert'}]}}},
+  { id:'reassembly.selection.extendUp.shiftUp', commandId:COMMAND.extendSelectionUp, contextId:CONTEXT_ID, source:'default', description:'Extend selection upward', category:'Selection', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'arrowup', modifiers:['shift']}]}}},
+  { id:'reassembly.selection.extendDown.shiftDown', commandId:COMMAND.extendSelectionDown, contextId:CONTEXT_ID, source:'default', description:'Extend selection downward', category:'Selection', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'arrowdown', modifiers:['shift']}]}}},
+  { id:'reassembly.selection.mask.altS', commandId:COMMAND.selectByMask, contextId:CONTEXT_ID, source:'default', description:'Select by mask', category:'Selection', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'s', modifiers:['alt']}]}}},
+  { id:'reassembly.selection.unmask.altU', commandId:COMMAND.unselectByMask, contextId:CONTEXT_ID, source:'default', description:'Unselect by mask', category:'Selection', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'u', modifiers:['alt']}]}}},
+  { id:'reassembly.selection.invert.altI', commandId:COMMAND.invertSelection, contextId:CONTEXT_ID, source:'default', description:'Invert selection', category:'Selection', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'i', modifiers:['alt']}]}}},
+  { id:'reassembly.selection.sameExtension.altE', commandId:COMMAND.selectSameExtension, contextId:CONTEXT_ID, source:'default', description:'Select same extension', category:'Selection', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'e', modifiers:['alt']}]}}},
+  { id:'reassembly.selection.home.home', commandId:COMMAND.cursorHome, contextId:CONTEXT_ID, source:'default', description:'Move cursor to first item', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'home'}]}}},
+  { id:'reassembly.selection.end.end', commandId:COMMAND.cursorEnd, contextId:CONTEXT_ID, source:'default', description:'Move cursor to last item', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'end'}]}}},
+  { id:'reassembly.selection.pageUp.pageUp', commandId:COMMAND.cursorPageUp, contextId:CONTEXT_ID, source:'default', description:'Page up', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'pageup'}]}}},
+  { id:'reassembly.selection.pageDown.pageDown', commandId:COMMAND.cursorPageDown, contextId:CONTEXT_ID, source:'default', description:'Page down', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'pagedown'}]}}},
+
+  { id:'reassembly.basket.open.ctrlShiftB', commandId:COMMAND.openBasket, contextId:CONTEXT_ID, source:'default', description:'Open Selection Basket', category:'Tools', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'b', modifiers:['ctrl','shift']}]}}},
+  { id:'reassembly.basket.add.ctrlAltB', commandId:COMMAND.addToBasket, contextId:CONTEXT_ID, source:'default', description:'Add selection to basket', category:'Selection', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'b', modifiers:['ctrl','alt']}]}}},
 ];
 
 @Component({
@@ -147,6 +180,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     ReassemblyQuickAccessComponent,
     PaneComparisonBarComponent,
     PaneSyncReviewComponent,
+    SelectionBasketComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -226,6 +260,13 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           (internalDrop)="handleInternalDrop('right', $event.event, $event.targetPath)">
         </app-reassembly-directory-pane>
       </div>
+
+      <app-selection-basket
+        #selectionBasket
+        (copyTo)="copyBasketTo($event)"
+        (moveTo)="moveBasketTo($event)"
+        (deleteRequested)="deleteBasket()">
+      </app-selection-basket>
 
       <app-reassembly-workspace-switcher
         #workspaceSwitcher
@@ -346,6 +387,8 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
   @ViewChild('managerRoot') managerRoot?: ElementRef<HTMLElement>;
   @ViewChild('workspaceSwitcher')
   workspaceSwitcher?: ReassemblyWorkspaceSwitcherComponent;
+  @ViewChild('selectionBasket')
+  selectionBasket?: SelectionBasketComponent;
   @ViewChild('pathHistory')
   pathHistory?: ReassemblyPathHistoryComponent;
   @ViewChild('quickAccess')
@@ -380,6 +423,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     private readonly pinnedLocations: PinnedLocationService,
     private readonly paneComparison: PaneComparisonService,
     private readonly recursivePaneComparison: PaneRecursiveComparisonService,
+    private readonly selectionBasketService: SelectionBasketService,
     private readonly cdr: ChangeDetectorRef,
   ) {}
 
@@ -430,6 +474,161 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
 
   switchPane(): void {
     this.activate(this.activePaneId === 'left' ? 'right' : 'left');
+  }
+
+  addActiveSelectionToBasket(): void {
+    const pane = this.activePane;
+    if (!pane?.isDirectoryTab) return;
+
+    const paths = pane.selectedPaths.size > 0
+      ? Array.from(pane.selectedPaths)
+      : pane.cursorPath
+        ? [pane.cursorPath]
+        : [];
+
+    if (paths.length === 0) return;
+
+    const added = this.selectionBasketService.add(
+      paths,
+      `pane:${this.activePaneId}`,
+    );
+
+    pane.lastAction = `basket: +${added}`;
+    this.cdr.markForCheck();
+  }
+
+  async copyBasketTo(side: PaneId): Promise<void> {
+    await this.transferBasket('copy', side);
+  }
+
+  async moveBasketTo(side: PaneId): Promise<void> {
+    await this.transferBasket('move', side);
+  }
+
+  async deleteBasket(): Promise<void> {
+    const paths = this.selectionBasketService.paths;
+    if (paths.length === 0) return;
+
+    const confirmed = await this.confirmDialog.confirm({
+      title: 'Delete Selection Basket',
+      message:
+        `Delete ${paths.length} basket item${paths.length === 1 ? '' : 's'}? ` +
+        'Successful items will be removed from the basket; failed items will remain.',
+      confirmText: 'Delete',
+      danger: true,
+    });
+    if (!confirmed) return;
+
+    try {
+      const result = await this.api.batchDelete(paths, true, true);
+
+      // The batch result does not expose per-path successes in the lightweight
+      // reassembly seam, so only clear automatically on complete success.
+      if (result.failed === 0) {
+        this.selectionBasketService.clear();
+      }
+
+      this.lastTransfer =
+        `basket delete: ${result.succeeded}/${result.total}`;
+
+      await Promise.all([
+        this.leftPane?.refresh(),
+        this.rightPane?.refresh(),
+      ]);
+
+      if (result.failed > 0) {
+        await this.confirmDialog.alert({
+          title: 'Basket Delete Completed with Errors',
+          message:
+            `${result.failed} item${result.failed === 1 ? '' : 's'} failed and remain in the basket.`,
+        });
+      }
+    } catch (error) {
+      await this.confirmDialog.alert({
+        title: 'Basket Delete Failed',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    this.cdr.markForCheck();
+  }
+
+  private async transferBasket(
+    operation: 'copy' | 'move',
+    destinationSide: PaneId,
+  ): Promise<void> {
+    const destination =
+      destinationSide === 'left' ? this.leftPane : this.rightPane;
+
+    if (!destination?.isDirectoryTab || !destination.path) return;
+
+    const paths = this.selectionBasketService.paths;
+    if (paths.length === 0) return;
+
+    if (!destination.sourceCapabilities.create) {
+      await this.confirmDialog.alert({
+        title: 'Basket Transfer',
+        message: 'The destination pane is read-only.',
+      });
+      return;
+    }
+
+    const confirmed = await this.confirmDialog.confirm({
+      title: operation === 'copy' ? 'Copy Basket' : 'Move Basket',
+      message:
+        `${operation === 'copy' ? 'Copy' : 'Move'} ${paths.length} basket item${
+          paths.length === 1 ? '' : 's'
+        } to the ${destinationSide} pane?`,
+      confirmText: operation === 'copy' ? 'Copy' : 'Move',
+    });
+    if (!confirmed) return;
+
+    try {
+      const items = await Promise.all(
+        paths.map(async source => ({
+          source,
+          destination: await this.api.joinPaths([
+            destination.path,
+            this.leafName(source),
+          ]),
+        })),
+      );
+
+      const result = operation === 'copy'
+        ? await this.api.batchCopy(items, true)
+        : await this.api.batchMove(items, true);
+
+      this.lastTransfer =
+        `basket ${operation}: ${result.succeeded}/${result.total}`;
+
+      await destination.refresh();
+
+      // On a complete move, the basket no longer represents existing source
+      // locations. Copies intentionally remain in the working set.
+      if (operation === 'move' && result.failed === 0) {
+        this.selectionBasketService.clear();
+        await Promise.all([
+          this.leftPane?.refresh(),
+          this.rightPane?.refresh(),
+        ]);
+      }
+
+      if (result.failed > 0) {
+        await this.confirmDialog.alert({
+          title: `${operation === 'copy' ? 'Copy' : 'Move'} Completed with Errors`,
+          message:
+            `${result.failed} item${result.failed === 1 ? '' : 's'} could not be transferred. ` +
+            'The basket has been kept intact.',
+        });
+      }
+    } catch (error) {
+      await this.confirmDialog.alert({
+        title: 'Basket Transfer Failed',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    this.cdr.markForCheck();
   }
 
   canComparePanes(): boolean {
@@ -853,6 +1052,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       { separator: true },
       this.menuCommand(COMMAND.copyToOther, 'Copy to other pane', 'F5'),
       this.menuCommand(COMMAND.moveToOther, 'Move to other pane', 'F6'),
+      this.menuCommand(COMMAND.addToBasket, 'Add to Selection Basket', 'Ctrl+Alt+B'),
       { separator: true },
       this.menuCommand(COMMAND.deleteSelected, 'Delete', 'Delete'),
     ];
@@ -882,6 +1082,10 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
         this.menuCommand(COMMAND.paste, 'Paste', 'Ctrl+V'),
         { separator: true },
         this.menuCommand(COMMAND.selectAll, 'Select all', 'Ctrl+A'),
+        this.menuCommand(COMMAND.invertSelection, 'Invert selection', 'Alt+I'),
+        this.menuCommand(COMMAND.selectByMask, 'Select by mask…', 'Alt+S'),
+        this.menuCommand(COMMAND.unselectByMask, 'Unselect by mask…', 'Alt+U'),
+        this.menuCommand(COMMAND.openBasket, 'Selection Basket', 'Ctrl+Shift+B'),
         this.menuCommand(COMMAND.refresh, 'Refresh', 'Ctrl+R'),
       ],
     };
@@ -1246,6 +1450,22 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       () => this.copyMissingComparison('right'),
       () => this.canComparePanes() && this.paneComparisonResult.summary.onlyRight > 0,
     );
+
+    descriptor(COMMAND.toggleCurrentSelection, 'Toggle Current Selection', 'Selection', () => this.activePane?.toggleCurrentSelection(), () => !!this.activePane?.isDirectoryTab);
+    descriptor(COMMAND.extendSelectionUp, 'Extend Selection Up', 'Selection', () => this.activePane?.extendSelection(-1), () => !!this.activePane?.isDirectoryTab);
+    descriptor(COMMAND.extendSelectionDown, 'Extend Selection Down', 'Selection', () => this.activePane?.extendSelection(1), () => !!this.activePane?.isDirectoryTab);
+    descriptor(COMMAND.selectByMask, 'Select by Mask', 'Selection', () => this.activePane?.selectByMaskPrompt(), () => !!this.activePane?.isDirectoryTab);
+    descriptor(COMMAND.unselectByMask, 'Unselect by Mask', 'Selection', () => this.activePane?.unselectByMaskPrompt(), () => !!this.activePane?.isDirectoryTab);
+    descriptor(COMMAND.invertSelection, 'Invert Selection', 'Selection', () => this.activePane?.invertSelection(), () => !!this.activePane?.isDirectoryTab);
+    descriptor(COMMAND.selectSameExtension, 'Select Same Extension', 'Selection', () => this.activePane?.selectSameExtension(), () => !!this.activePane?.isDirectoryTab);
+    descriptor(COMMAND.cursorHome, 'Move Cursor to First', 'Navigation', () => this.activePane?.moveCursorHome(), () => !!this.activePane?.isDirectoryTab);
+    descriptor(COMMAND.cursorEnd, 'Move Cursor to Last', 'Navigation', () => this.activePane?.moveCursorEnd(), () => !!this.activePane?.isDirectoryTab);
+    descriptor(COMMAND.cursorPageUp, 'Page Up', 'Navigation', () => this.activePane?.moveCursorPage(-1), () => !!this.activePane?.isDirectoryTab);
+    descriptor(COMMAND.cursorPageDown, 'Page Down', 'Navigation', () => this.activePane?.moveCursorPage(1), () => !!this.activePane?.isDirectoryTab);
+
+    descriptor(COMMAND.openBasket, 'Open Selection Basket', 'Tools', () => this.selectionBasket?.show());
+    descriptor(COMMAND.addToBasket, 'Add to Selection Basket', 'Selection', () => this.addActiveSelectionToBasket(), () => !!this.activePane?.isDirectoryTab && (!!this.activePane?.hasSelection || !!this.activePane?.cursorPath));
+    descriptor(COMMAND.clearBasket, 'Clear Selection Basket', 'Tools', () => this.selectionBasketService.clear(), () => this.selectionBasketService.snapshot.length > 0);
   }
 
   private activeViewer(): any {

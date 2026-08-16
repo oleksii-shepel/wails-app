@@ -1777,6 +1777,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     if (!this.selectedPaths.has(entry.path)) {
       this.setSingleSelection(entry);
       this.lastAction = `context: ${entry.name}`;
+      this.syncActiveDirSessionState();
       this.cdr.markForCheck();
     }
 
@@ -1809,6 +1810,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     }
 
     this.lastAction = `select: ${entry.name}`;
+    this.syncActiveDirSessionState();
     this.cdr.markForCheck();
   }
 
@@ -1840,6 +1842,288 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     this.activeTabId = tab.id;
     this.lastAction = `viewer: ${entry.name}`;
     this.cdr.markForCheck();
+    this.syncActiveDirSessionState();
+  }
+
+  toggleCurrentSelection(): void {
+    if (!this.isDirectoryTab) return;
+
+    const entry = this.cursorEntry;
+    if (!entry) return;
+
+    this.markUserInteraction();
+
+    const next = new Set(this.selectedPaths);
+    if (next.has(entry.path)) {
+      next.delete(entry.path);
+    } else {
+      next.add(entry.path);
+    }
+
+    this.selectedPaths = next;
+    this.anchorPath = entry.path;
+    this.lastAction = `toggle selection: ${entry.name}`;
+    this.syncActiveDirSessionState();
+
+    // Commander-style marking advances to the next item when possible.
+    this.moveCursorAfterSelectionToggle(1);
+    this.cdr.markForCheck();
+  }
+
+  extendSelection(delta: -1 | 1): void {
+    if (!this.isDirectoryTab) return;
+
+    const entries = this.selectableEntries();
+    if (entries.length === 0) return;
+
+    this.markUserInteraction();
+
+    let index = this.cursorPath
+      ? entries.findIndex(entry => entry.path === this.cursorPath)
+      : -1;
+
+    if (index < 0) index = 0;
+
+    if (!this.anchorPath) {
+      this.anchorPath = entries[index]?.path ?? null;
+    }
+
+    const nextIndex = Math.max(
+      0,
+      Math.min(entries.length - 1, index + delta),
+    );
+    const next = entries[nextIndex];
+    if (!next) return;
+
+    this.cursorPath = next.path;
+    if (this.anchorPath) {
+      this.selectRange(this.anchorPath, next.path);
+    }
+
+    this.lastAction = delta < 0
+      ? 'extend selection up'
+      : 'extend selection down';
+
+    this.syncActiveDirSessionState();
+    this.ensureCursorVisible();
+    this.cdr.markForCheck();
+  }
+
+  async selectByMaskPrompt(): Promise<void> {
+    const mask = (await this.confirmDialog.prompt({
+      title: 'Select by Mask',
+      message: 'Enter a filename mask. Use * and ? wildcards.',
+      confirmText: 'Select',
+      historyKey: 'reassembly.selection.mask.select',
+    }))?.trim();
+
+    if (!mask) return;
+    this.applySelectionMask(mask, true);
+  }
+
+  async unselectByMaskPrompt(): Promise<void> {
+    const mask = (await this.confirmDialog.prompt({
+      title: 'Unselect by Mask',
+      message: 'Enter a filename mask. Use * and ? wildcards.',
+      confirmText: 'Unselect',
+      historyKey: 'reassembly.selection.mask.unselect',
+    }))?.trim();
+
+    if (!mask) return;
+    this.applySelectionMask(mask, false);
+  }
+
+  invertSelection(): void {
+    if (!this.isDirectoryTab) return;
+
+    this.markUserInteraction();
+
+    const entries = this.selectableEntries();
+    const next = new Set<string>();
+
+    for (const entry of entries) {
+      if (!this.selectedPaths.has(entry.path)) {
+        next.add(entry.path);
+      }
+    }
+
+    this.selectedPaths = next;
+    this.syncCursorFromSelection(entries);
+    this.lastAction = `invert selection: ${next.size}`;
+    this.syncActiveDirSessionState();
+    this.ensureCursorVisible();
+    this.cdr.markForCheck();
+  }
+
+  selectSameExtension(): void {
+    if (!this.isDirectoryTab) return;
+
+    const current = this.cursorEntry;
+    if (!current) return;
+
+    const extension = this.extensionOf(current.name);
+    if (!extension) return;
+
+    this.markUserInteraction();
+
+    const next = new Set(this.selectedPaths);
+    for (const entry of this.selectableEntries()) {
+      if (this.extensionOf(entry.name) === extension) {
+        next.add(entry.path);
+      }
+    }
+
+    this.selectedPaths = next;
+    this.syncCursorFromSelection(this.selectableEntries());
+    this.lastAction = `select *.${extension}: ${next.size}`;
+    this.syncActiveDirSessionState();
+    this.ensureCursorVisible();
+    this.cdr.markForCheck();
+  }
+
+  moveCursorHome(): void {
+    this.moveCursorToIndex(0, 'cursor first');
+  }
+
+  moveCursorEnd(): void {
+    const entries = this.selectableEntries();
+    this.moveCursorToIndex(entries.length - 1, 'cursor last');
+  }
+
+  moveCursorPage(delta: -1 | 1): void {
+    const entries = this.selectableEntries();
+    if (entries.length === 0) return;
+
+    const viewport =
+      this.viewMode === 'tree'
+        ? this.treeViewport?.nativeElement
+        : this.listViewport?.nativeElement;
+
+    const rowHeight = this.viewMode === 'grid' ? 110 : 28;
+    const pageSize = Math.max(
+      1,
+      Math.floor((viewport?.clientHeight ?? 280) / rowHeight),
+    );
+
+    const currentIndex = this.cursorPath
+      ? entries.findIndex(entry => entry.path === this.cursorPath)
+      : 0;
+
+    this.moveCursorToIndex(
+      Math.max(0, currentIndex) + pageSize * delta,
+      delta < 0 ? 'page up' : 'page down',
+    );
+  }
+
+  private applySelectionMask(mask: string, select: boolean): void {
+    if (!this.isDirectoryTab) return;
+
+    const matcher = this.createMaskMatcher(mask);
+    const next = new Set(this.selectedPaths);
+
+    for (const entry of this.selectableEntries()) {
+      if (!matcher(entry.name ?? '')) continue;
+
+      if (select) {
+        next.add(entry.path);
+      } else {
+        next.delete(entry.path);
+      }
+    }
+
+    this.markUserInteraction();
+    this.selectedPaths = next;
+    this.syncCursorFromSelection(this.selectableEntries());
+    this.lastAction = `${select ? 'select' : 'unselect'} mask ${mask}: ${next.size}`;
+    this.syncActiveDirSessionState();
+    this.ensureCursorVisible();
+    this.cdr.markForCheck();
+  }
+
+  private createMaskMatcher(mask: string): (name: string) => boolean {
+    const escaped = mask
+      .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+      .replace(/\*/g, '.*')
+      .replace(/\?/g, '.');
+
+    const expression = new RegExp(`^${escaped}$`, 'i');
+    return name => expression.test(name);
+  }
+
+  private extensionOf(name: string): string {
+    const index = name.lastIndexOf('.');
+    if (index <= 0 || index === name.length - 1) return '';
+    return name.slice(index + 1).toLocaleLowerCase();
+  }
+
+  private selectableEntries(): FileInfo[] {
+    return this.viewMode === 'tree'
+      ? this.treeRows.map(row => row.entry)
+      : this.visibleEntries;
+  }
+
+  private syncCursorFromSelection(entries: FileInfo[]): void {
+    if (entries.length === 0) {
+      this.cursorPath = null;
+      this.anchorPath = null;
+      return;
+    }
+
+    const firstSelected = entries.find(entry =>
+      this.selectedPaths.has(entry.path),
+    );
+
+    if (firstSelected) {
+      this.cursorPath = firstSelected.path;
+      this.anchorPath = this.anchorPath ?? firstSelected.path;
+      return;
+    }
+
+    this.cursorPath = entries[0].path;
+    this.anchorPath = this.cursorPath;
+  }
+
+  private moveCursorToIndex(index: number, action: string): void {
+    if (!this.isDirectoryTab) return;
+
+    const entries = this.selectableEntries();
+    if (entries.length === 0) return;
+
+    this.markUserInteraction();
+
+    const clamped = Math.max(
+      0,
+      Math.min(entries.length - 1, index),
+    );
+    const entry = entries[clamped];
+
+    this.cursorPath = entry.path;
+    this.anchorPath = entry.path;
+
+    if (this.selectedPaths.size <= 1) {
+      this.selectedPaths = new Set([entry.path]);
+    }
+
+    this.lastAction = action;
+    this.syncActiveDirSessionState();
+    this.ensureCursorVisible();
+    this.cdr.markForCheck();
+  }
+
+  private moveCursorAfterSelectionToggle(delta: -1 | 1): void {
+    const entries = this.selectableEntries();
+    if (entries.length === 0 || !this.cursorPath) return;
+
+    const index = entries.findIndex(
+      entry => entry.path === this.cursorPath,
+    );
+    if (index < 0) return;
+
+    const nextIndex = index + delta;
+    if (nextIndex < 0 || nextIndex >= entries.length) return;
+
+    this.cursorPath = entries[nextIndex].path;
+    this.ensureCursorVisible();
     this.syncActiveDirSessionState();
   }
 
@@ -1880,9 +2164,11 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   clearSelection(): void {
+    this.markUserInteraction();
     this.selectedPaths = new Set();
     this.anchorPath = null;
     this.lastAction = 'clear selection';
+    this.syncActiveDirSessionState();
     this.cdr.markForCheck();
   }
 
@@ -2821,7 +3107,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   private selectRange(anchorPath: string, targetPath: string): void {
-    const visible = this.visibleEntries;
+    const visible = this.selectableEntries();
     const start = visible.findIndex(entry => entry.path === anchorPath);
     const end = visible.findIndex(entry => entry.path === targetPath);
 

@@ -105,6 +105,13 @@ interface PendingChordLike {
         <div><span>Sort</span><span>Name / Size / Modified / Type</span></div>
         <div><kbd>Ctrl+Shift+C</kbd><span>compare panes</span></div>
         <div><kbd>Ctrl+Shift+Alt+C</kbd><span>recursive compare</span></div>
+        <div><kbd>Insert</kbd><span>toggle selection + advance</span></div>
+        <div><kbd>Shift+↑ / ↓</kbd><span>extend selection</span></div>
+        <div><kbd>Alt+S / Alt+U</kbd><span>select / unselect by mask</span></div>
+        <div><kbd>Alt+I</kbd><span>invert selection</span></div>
+        <div><kbd>Alt+E</kbd><span>select same extension</span></div>
+        <div><kbd>Ctrl+Alt+B</kbd><span>add selection to basket</span></div>
+        <div><kbd>Ctrl+Shift+B</kbd><span>open selection basket</span></div>
         <div><kbd>Tree ← / →</kbd><span>collapse-parent / expand-child</span></div>
       </div>
 

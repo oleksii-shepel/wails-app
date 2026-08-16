@@ -2,6 +2,7 @@ import type { ViewerContribution, ViewerRequest } from '../viewers/viewer-contri
 import type { SurfaceContribution, SurfaceRequest } from '../surfaces/surface-contribution';
 import type { CommandDescriptor, PluginInputContribution } from '../services/input-system.types';
 import type { RelatedLocationContribution } from '../services/related-location.types';
+import type { WorkspaceSurfaceActionContribution } from '../services/workspace-surface-action.types';
 
 export interface PluginDescriptor {
   id: string;
@@ -87,6 +88,11 @@ export interface PluginRegistryAPI {
 
   registerSurface(contribution: SurfaceContribution): void;
   unregisterSurface(id: string): void;
+
+  registerWorkspaceSurfaceAction(
+    contribution: WorkspaceSurfaceActionContribution,
+  ): void;
+  unregisterWorkspaceSurfaceAction(id: string): void;
 
   registerToolbarAction(action: ToolbarActionContribution): void;
   unregisterToolbarAction(id: string): void;

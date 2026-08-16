@@ -9,6 +9,7 @@ import type { CommandDescriptor, PluginInputContribution } from '../services/inp
 import type { ViewerContribution } from '../viewers/viewer-contribution';
 import type { SurfaceContribution } from '../surfaces/surface-contribution';
 import type { RelatedLocationContribution } from '../services/related-location.types';
+import type { WorkspaceSurfaceActionContribution } from '../services/workspace-surface-action.types';
 
 /**
  * Plugin-facing registry wrapper. Every successful contribution is recorded and
@@ -67,6 +68,21 @@ export class ScopedPluginRegistry implements PluginRegistryAPI {
     this.cleanups.push(() => this.host.unregisterSurface(contribution.id));
   }
   unregisterSurface(id: string): void { this.host.unregisterSurface(id); }
+
+  registerWorkspaceSurfaceAction(
+    contribution: WorkspaceSurfaceActionContribution,
+  ): void {
+    this.assertActive();
+    this.require('surfaces');
+    this.host.registerWorkspaceSurfaceAction(contribution);
+    this.cleanups.push(
+      () => this.host.unregisterWorkspaceSurfaceAction(contribution.id),
+    );
+  }
+
+  unregisterWorkspaceSurfaceAction(id: string): void {
+    this.host.unregisterWorkspaceSurfaceAction(id);
+  }
 
   registerToolbarAction(action: ToolbarActionContribution): void {
     this.assertActive(); this.require('toolbar');

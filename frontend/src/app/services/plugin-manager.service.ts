@@ -17,6 +17,8 @@ import { InputEngineService } from './input-engine.service';
 import type { CommandDescriptor, PluginInputContribution } from './input-system.types';
 import { RelatedLocationService } from './related-location.service';
 import type { RelatedLocationContribution } from './related-location.types';
+import { WorkspaceSurfaceActionRegistryService } from './workspace-surface-action-registry.service';
+import type { WorkspaceSurfaceActionContribution } from './workspace-surface-action.types';
 
 export interface PluginBackend {
   id: string;
@@ -30,6 +32,8 @@ export class PluginManagerService implements PluginRegistryAPI {
   private readonly surfaceRegistry = inject(SurfaceRegistryService);
   private readonly inputEngine = inject(InputEngineService);
   private readonly relatedLocations = inject(RelatedLocationService);
+  private readonly workspaceSurfaceActions =
+    inject(WorkspaceSurfaceActionRegistryService);
 
   private readonly backends = new Map<string, PluginBackend>();
   private readonly descriptors = new Map<string, PluginDescriptor>();
@@ -127,6 +131,16 @@ export class PluginManagerService implements PluginRegistryAPI {
 
   unregisterSurface(id: string): void {
     this.surfaceRegistry.unregister(id);
+  }
+
+  registerWorkspaceSurfaceAction(
+    contribution: WorkspaceSurfaceActionContribution,
+  ): void {
+    this.workspaceSurfaceActions.register(contribution);
+  }
+
+  unregisterWorkspaceSurfaceAction(id: string): void {
+    this.workspaceSurfaceActions.unregister(id);
   }
 
   registerToolbarAction(action: ToolbarActionContribution): void {

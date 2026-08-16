@@ -13,6 +13,8 @@ import { ApiService } from '../services/api.service';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { WorkspaceService } from '../services/workspace.service';
 import { WorkspaceSurfaceService } from '../services/workspace-surface.service';
+import { WorkspaceSurfaceActionRegistryService } from '../services/workspace-surface-action-registry.service';
+import { BuiltinWorkspaceSurfaceActionsService } from '../services/builtin-workspace-surface-actions.service';
 import {
   splitLayout,
   surfaceLayout,
@@ -683,6 +685,10 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     private readonly confirmDialog: ConfirmDialogService,
     private readonly workspaceService: WorkspaceService,
     private readonly workspaceSurfaces: WorkspaceSurfaceService,
+    private readonly workspaceSurfaceActions:
+      WorkspaceSurfaceActionRegistryService,
+    private readonly builtinWorkspaceSurfaceActions:
+      BuiltinWorkspaceSurfaceActionsService,
     private readonly pinnedLocations: PinnedLocationService,
     private readonly paneComparison: PaneComparisonService,
     private readonly recursivePaneComparison: PaneRecursiveComparisonService,
@@ -900,6 +906,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
   private stopDriveLifecycle: (() => void) | null = null;
 
   ngOnInit(): void {
+    this.builtinWorkspaceSurfaceActions.register();
     this.restoreWorkspaceLayout();
     this.syncFilesWorkspacePresentation();
 
@@ -1328,283 +1335,73 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     action: string;
     payload?: unknown;
   }): Promise<void> {
-    const { surface, action, payload } = event;
+    const workspace = this.workspacePresentation;
+    if (!workspace || workspace.kind !== 'tool') return;
 
-    if (action === 'refresh') {
-      switch (surface.surfaceId) {
-        case 'search-workspace':
-          await this.refreshSearchWorkspaceSurface(surface);
-          return;
-        case 'compare-workspace':
-          await this.refreshCompareWorkspaceSurface(surface);
-          return;
-        case 'details-workspace':
-          await this.refreshDetailsWorkspaceSurface(surface);
-          return;
-      }
-    }
-
-    if (surface.surfaceId === 'search-workspace') {
-      await this.handleSearchWorkspaceAction(surface, action, payload);
+    if (event.action === 'refresh') {
+      await this.refreshWorkspaceSurface(event.surface);
       return;
     }
 
-    if (surface.surfaceId === 'compare-workspace') {
-      await this.handleCompareWorkspaceAction(surface, action);
-      return;
-    }
+    const handled = await this.workspaceSurfaceActions.dispatch(
+      {
+        workspace,
+        surface: event.surface,
+        action: event.action,
+        payload: event.payload,
+      },
+      {
+        refreshSurface: surface =>
+          this.refreshWorkspaceSurface(surface),
 
-    if (surface.surfaceId === 'details-workspace') {
-      await this.handleDetailsWorkspaceAction(surface, action);
-    }
-  }
+        patchSurface: (surfaceId, patch) =>
+          this.patchLiveSurface(surfaceId, patch),
 
-  private async handleSearchWorkspaceAction(
-    _surface: WorkspaceSurface,
-    action: string,
-    payload: unknown,
-  ): Promise<void> {
-    const entry = payload as FileInfo | undefined;
-    if (!entry?.path) return;
-
-    try {
-      switch (action) {
-        case 'open':
-          if (entry.type === FileType.DIRECTORY) {
-            this.closeToolWorkspace();
-            await this.activePane?.navigateTo(entry.path);
-          } else {
-            await this.api.openFile(entry.path);
+        replaceSurfaceState: (surfaceId, state) => {
+          const updated = this.workspaceSurfaces.replaceSurfaceState(
+            workspace.workspaceId,
+            surfaceId,
+            state,
+          );
+          if (updated) {
+            this.workspacePresentation = updated;
+            this.cdr.markForCheck();
           }
-          return;
+        },
 
-        case 'reveal':
-          await this.api.revealInFileManager(entry.path);
-          return;
+        findSurfaceByKind: surfaceKind =>
+          this.findWorkspaceSurfaceByKind(surfaceKind),
 
-        case 'copy-path':
-          await navigator.clipboard.writeText(entry.path);
-          return;
-      }
-    } catch (error) {
-      await this.confirmDialog.alert({
-        title: 'Workspace Action Failed',
-        message: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
+        getActivePane: () => this.activePane,
 
-  private async handleCompareWorkspaceAction(
-    surface: WorkspaceSurface,
-    action: string,
-  ): Promise<void> {
-    if (
-      action !== 'copy-left-right' &&
-      action !== 'copy-right-left'
-    ) {
-      return;
-    }
+        closeToolWorkspace: () => this.closeToolWorkspace(),
 
-    const leftPath = String(surface.state?.['leftPath'] ?? '');
-    const rightPath = String(surface.state?.['rightPath'] ?? '');
-    const rows = Array.isArray(surface.state?.['rows'])
-      ? (surface.state?.['rows'] as any[])
-      : [];
-    if (!leftPath || !rightPath) return;
-
-    const leftToRight = action === 'copy-left-right';
-    const candidates = rows.filter(row =>
-      leftToRight
-        ? row.status === 'only-left' || row.status === 'onlyLeft'
-        : row.status === 'only-right' || row.status === 'onlyRight',
+        markForCheck: () => this.cdr.markForCheck(),
+      },
     );
 
-    if (candidates.length === 0) {
-      await this.confirmDialog.alert({
-        title: 'Compare Workspace',
-        message: leftToRight
-          ? 'There are no items that exist only on the left.'
-          : 'There are no items that exist only on the right.',
-      });
-      return;
-    }
-
-    const confirmed = await this.confirmDialog.confirm({
-      title: leftToRight ? 'Copy Missing →' : '← Copy Missing',
-      message: `Copy ${candidates.length} missing item${
-        candidates.length === 1 ? '' : 's'
-      }?`,
-      confirmText: 'Copy',
-    });
-    if (!confirmed) return;
-
-    this.patchLiveSurface(surface.id, { busy: true, error: '' });
-
-    try {
-      const destinationRoot = leftToRight ? rightPath : leftPath;
-      const items = candidates.map(row => ({
-        source: leftToRight ? row.leftPath : row.rightPath,
-        destination: destinationRoot,
-        exactDestination: false,
-      }));
-
-      const result = await this.api.batchCopy(items, true);
-      if (result.failed > 0) {
-        throw new Error(
-          `Copy completed with ${result.failed} failure${
-            result.failed === 1 ? '' : 's'
-          }.`,
-        );
-      }
-
-      await this.refreshCompareWorkspaceSurface(surface);
-    } catch (error) {
-      this.patchLiveSurface(surface.id, {
-        busy: false,
-        error: error instanceof Error ? error.message : String(error),
+    if (!handled) {
+      this.patchLiveSurface(event.surface.id, {
+        error: `No handler registered for action "${event.action}".`,
       });
     }
   }
 
-  private async handleDetailsWorkspaceAction(
+  private async refreshWorkspaceSurface(
     surface: WorkspaceSurface,
-    action: string,
   ): Promise<void> {
-    const path = String(surface.state?.['path'] ?? '');
-    if (!path) return;
+    switch (surface.surfaceId) {
+      case 'search-workspace':
+        await this.refreshSearchWorkspaceSurface(surface);
+        return;
 
-    try {
-      switch (action) {
-        case 'reveal':
-          await this.api.revealInFileManager(path);
-          return;
+      case 'compare-workspace':
+        await this.refreshCompareWorkspaceSurface(surface);
+        return;
 
-        case 'rename': {
-          const info = await this.api.getFileInfo(path);
-          const name = await this.confirmDialog.prompt({
-            title: `Rename — ${info.name}`,
-            message: 'New name:',
-            confirmText: 'Rename',
-            defaultValue: info.name,
-            historyKey: 'reassembly.workspace.details.rename',
-          });
-          if (!name || name === info.name) return;
-
-          const parent = path.replace(/[\\/][^\\/]+$/, '');
-          const destination = await this.api.joinPaths([parent, String(name).trim()]);
-          const result = await this.api.batchMove([{
-            source: path,
-            destination,
-            exactDestination: true,
-          }], true);
-
-          if (result.failed > 0 || result.skipped > 0) {
-            throw new Error('Rename failed.');
-          }
-
-          this.patchLiveSurface(surface.id, { path: destination });
-          const updatedSurface =
-            this.workspaceSurfaces.findSurface(
-              this.workspacePresentation!.workspaceId,
-              surface.id,
-            ) ?? surface;
-          await this.refreshDetailsWorkspaceSurface(updatedSurface);
-          return;
-        }
-
-        case 'modified-time': {
-          const value = await this.confirmDialog.prompt({
-            title: 'Modified Time',
-            message: 'Enter YYYY-MM-DDTHH:mm:ss or "now".',
-            confirmText: 'Apply',
-            defaultValue: new Date().toISOString().slice(0, 19),
-            historyKey: 'reassembly.workspace.details.modified',
-          });
-          if (!value) return;
-
-          const raw = String(value).trim();
-          const timestamp =
-            raw.toLowerCase() === 'now'
-              ? Date.now()
-              : new Date(raw).getTime();
-
-          if (!Number.isFinite(timestamp)) {
-            throw new Error('Invalid date/time.');
-          }
-
-          await this.api.setModifiedTime(path, timestamp);
-          await this.refreshDetailsWorkspaceSurface(surface);
-          return;
-        }
-
-        case 'attributes': {
-          const [osInfo, attributes] = await Promise.all([
-            this.api.getOSInfo(),
-            this.api.getPathAttributes(path),
-          ]);
-
-          if (String(osInfo?.os).toLowerCase() === 'windows') {
-            const current = [
-              attributes.readOnly ? 'readonly' : '',
-              attributes.hidden ? 'hidden' : '',
-              attributes.system ? 'system' : '',
-              attributes.archive ? 'archive' : '',
-            ].filter(Boolean).join(',');
-
-            const value = await this.confirmDialog.prompt({
-              title: 'Attributes',
-              message: 'Comma-separated: readonly, hidden, system, archive',
-              confirmText: 'Apply',
-              defaultValue: current,
-              historyKey: 'reassembly.workspace.details.attributes',
-            });
-            if (value === null || value === undefined) return;
-
-            const tokens = new Set(
-              String(value)
-                .split(',')
-                .map(token => token.trim().toLowerCase())
-                .filter(Boolean),
-            );
-
-            await this.api.setPathAttributes(path, {
-              readOnly: tokens.has('readonly'),
-              hidden: tokens.has('hidden'),
-              system: tokens.has('system'),
-              archive: tokens.has('archive'),
-            });
-          } else {
-            const currentMode = (attributes.unixMode || 0)
-              .toString(8)
-              .padStart(4, '0');
-            const value = await this.confirmDialog.prompt({
-              title: 'Permissions',
-              message: 'Unix permission mode, e.g. 0644 or 0755:',
-              confirmText: 'Apply',
-              defaultValue: currentMode,
-              historyKey: 'reassembly.workspace.details.permissions',
-            });
-            if (!value) return;
-
-            const normalized = String(value).trim();
-            if (!/^[0-7]{3,4}$/.test(normalized)) {
-              throw new Error('Invalid Unix permission mode.');
-            }
-
-            await this.api.setPathAttributes(path, {
-              unixMode: Number.parseInt(normalized, 8),
-            });
-          }
-
-          await this.refreshDetailsWorkspaceSurface(surface);
-          return;
-        }
-      }
-    } catch (error) {
-      this.patchLiveSurface(surface.id, {
-        busy: false,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      case 'details-workspace':
+        await this.refreshDetailsWorkspaceSurface(surface);
+        return;
     }
   }
 
@@ -1632,7 +1429,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
         recursive,
       );
 
-      const entries = (result.results ?? []).map(entry => ({
+      const entries = (result.matches ?? []).map(entry => ({
         ...entry,
       }));
 

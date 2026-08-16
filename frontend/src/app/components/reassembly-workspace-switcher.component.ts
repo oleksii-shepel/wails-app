@@ -14,6 +14,10 @@ import { InputEngineService } from '../services/input-engine.service';
 import type { InputBindingDefinition } from '../services/input-system.types';
 import { WorkspaceService } from '../services/workspace.service';
 import type { WorkspaceConfig } from '../shared/protocol-enhanced';
+import {
+  rememberFocusedElement,
+  restoreFocusedElement,
+} from './reassembly-focus.utils';
 
 const CONTEXT_ID = 'overlay.reassemblyWorkspace';
 const OWNER_ID = 'overlay.reassemblyWorkspace';
@@ -24,6 +28,17 @@ const COMMAND = {
   next: 'reassembly.workspaceSwitcher.next',
   activate: 'reassembly.workspaceSwitcher.activate',
   create: 'reassembly.workspaceSwitcher.create',
+  rename: 'reassembly.workspaceSwitcher.rename',
+  remove: 'reassembly.workspaceSwitcher.remove',
+  slot1: 'reassembly.workspaceSwitcher.slot1',
+  slot2: 'reassembly.workspaceSwitcher.slot2',
+  slot3: 'reassembly.workspaceSwitcher.slot3',
+  slot4: 'reassembly.workspaceSwitcher.slot4',
+  slot5: 'reassembly.workspaceSwitcher.slot5',
+  slot6: 'reassembly.workspaceSwitcher.slot6',
+  slot7: 'reassembly.workspaceSwitcher.slot7',
+  slot8: 'reassembly.workspaceSwitcher.slot8',
+  slot9: 'reassembly.workspaceSwitcher.slot9',
 } as const;
 
 const BINDINGS: readonly InputBindingDefinition[] = [
@@ -80,6 +95,106 @@ const BINDINGS: readonly InputBindingDefinition[] = [
       },
     },
   },
+
+  {
+    id: 'reassembly.workspaceSwitcher.rename.f2',
+    commandId: COMMAND.rename,
+    contextId: CONTEXT_ID,
+    source: 'default',
+    description: 'Rename workspace',
+    category: 'Workspace',
+    trigger: { device: 'keyboard', chord: { steps: [{ key: 'f2' }] } },
+  },
+  {
+    id: 'reassembly.workspaceSwitcher.remove.delete',
+    commandId: COMMAND.remove,
+    contextId: CONTEXT_ID,
+    source: 'default',
+    description: 'Delete workspace',
+    category: 'Workspace',
+    trigger: { device: 'keyboard', chord: { steps: [{ key: 'delete' }] } },
+  },
+  {
+    id: 'reassembly.workspaceSwitcher.slot1',
+    commandId: COMMAND.slot1,
+    contextId: CONTEXT_ID,
+    source: 'default',
+    description: 'Activate workspace 1',
+    category: 'Workspace',
+    trigger: { device: 'keyboard', chord: { steps: [{ key: '1' }] } },
+  },
+  {
+    id: 'reassembly.workspaceSwitcher.slot2',
+    commandId: COMMAND.slot2,
+    contextId: CONTEXT_ID,
+    source: 'default',
+    description: 'Activate workspace 2',
+    category: 'Workspace',
+    trigger: { device: 'keyboard', chord: { steps: [{ key: '2' }] } },
+  },
+  {
+    id: 'reassembly.workspaceSwitcher.slot3',
+    commandId: COMMAND.slot3,
+    contextId: CONTEXT_ID,
+    source: 'default',
+    description: 'Activate workspace 3',
+    category: 'Workspace',
+    trigger: { device: 'keyboard', chord: { steps: [{ key: '3' }] } },
+  },
+  {
+    id: 'reassembly.workspaceSwitcher.slot4',
+    commandId: COMMAND.slot4,
+    contextId: CONTEXT_ID,
+    source: 'default',
+    description: 'Activate workspace 4',
+    category: 'Workspace',
+    trigger: { device: 'keyboard', chord: { steps: [{ key: '4' }] } },
+  },
+  {
+    id: 'reassembly.workspaceSwitcher.slot5',
+    commandId: COMMAND.slot5,
+    contextId: CONTEXT_ID,
+    source: 'default',
+    description: 'Activate workspace 5',
+    category: 'Workspace',
+    trigger: { device: 'keyboard', chord: { steps: [{ key: '5' }] } },
+  },
+  {
+    id: 'reassembly.workspaceSwitcher.slot6',
+    commandId: COMMAND.slot6,
+    contextId: CONTEXT_ID,
+    source: 'default',
+    description: 'Activate workspace 6',
+    category: 'Workspace',
+    trigger: { device: 'keyboard', chord: { steps: [{ key: '6' }] } },
+  },
+  {
+    id: 'reassembly.workspaceSwitcher.slot7',
+    commandId: COMMAND.slot7,
+    contextId: CONTEXT_ID,
+    source: 'default',
+    description: 'Activate workspace 7',
+    category: 'Workspace',
+    trigger: { device: 'keyboard', chord: { steps: [{ key: '7' }] } },
+  },
+  {
+    id: 'reassembly.workspaceSwitcher.slot8',
+    commandId: COMMAND.slot8,
+    contextId: CONTEXT_ID,
+    source: 'default',
+    description: 'Activate workspace 8',
+    category: 'Workspace',
+    trigger: { device: 'keyboard', chord: { steps: [{ key: '8' }] } },
+  },
+  {
+    id: 'reassembly.workspaceSwitcher.slot9',
+    commandId: COMMAND.slot9,
+    contextId: CONTEXT_ID,
+    source: 'default',
+    description: 'Activate workspace 9',
+    category: 'Workspace',
+    trigger: { device: 'keyboard', chord: { steps: [{ key: '9' }] } },
+  },
 ];
 
 @Component({
@@ -123,7 +238,10 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             (mouseenter)="selectedIndex = i"
             (click)="activateWorkspace(workspace)">
 
-            <span class="icon">{{ workspace.icon || '📁' }}</span>
+            <span class="icon">
+              <kbd *ngIf="i < 9">{{ i + 1 }}</kbd>
+              {{ workspace.icon || '📁' }}
+            </span>
 
             <span class="details">
               <strong>{{ workspace.name }}</strong>
@@ -155,7 +273,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             Delete
           </button>
 
-          <span class="keys">↑ ↓ · Enter · Esc</span>
+          <span class="keys">1–9 · ↑ ↓ · Enter · F2 · Delete · Esc</span>
         </footer>
       </section>
     </div>
@@ -312,6 +430,7 @@ export class ReassemblyWorkspaceSwitcherComponent
 
   visible = false;
   selectedIndex = 0;
+  private previousFocus: HTMLElement | null = null;
 
   constructor(
     private readonly workspacesService: WorkspaceService,
@@ -378,6 +497,94 @@ export class ReassemblyWorkspaceSwitcherComponent
       category: 'Workspace',
       execute: () => this.createWorkspace(),
     }, OWNER_ID);
+    this.input.registerCommandDescriptor({
+      id: COMMAND.rename,
+      title: 'Rename Workspace',
+      category: 'Workspace',
+      execute: () => this.renameSelected(),
+      isEnabled: () => !!this.selectedWorkspace,
+    }, OWNER_ID);
+
+    this.input.registerCommandDescriptor({
+      id: COMMAND.remove,
+      title: 'Delete Workspace',
+      category: 'Workspace',
+      execute: () => this.deleteSelected(),
+      isEnabled: () => this.workspaces.length > 1 && !!this.selectedWorkspace,
+    }, OWNER_ID);
+
+    this.input.registerCommandDescriptor({
+      id: COMMAND.slot1,
+      title: 'Activate Workspace 1',
+      category: 'Workspace',
+      execute: () => this.activateSlot(0),
+      isEnabled: () => this.workspaces.length > 0,
+    }, OWNER_ID);
+
+    this.input.registerCommandDescriptor({
+      id: COMMAND.slot2,
+      title: 'Activate Workspace 2',
+      category: 'Workspace',
+      execute: () => this.activateSlot(1),
+      isEnabled: () => this.workspaces.length > 1,
+    }, OWNER_ID);
+
+    this.input.registerCommandDescriptor({
+      id: COMMAND.slot3,
+      title: 'Activate Workspace 3',
+      category: 'Workspace',
+      execute: () => this.activateSlot(2),
+      isEnabled: () => this.workspaces.length > 2,
+    }, OWNER_ID);
+
+    this.input.registerCommandDescriptor({
+      id: COMMAND.slot4,
+      title: 'Activate Workspace 4',
+      category: 'Workspace',
+      execute: () => this.activateSlot(3),
+      isEnabled: () => this.workspaces.length > 3,
+    }, OWNER_ID);
+
+    this.input.registerCommandDescriptor({
+      id: COMMAND.slot5,
+      title: 'Activate Workspace 5',
+      category: 'Workspace',
+      execute: () => this.activateSlot(4),
+      isEnabled: () => this.workspaces.length > 4,
+    }, OWNER_ID);
+
+    this.input.registerCommandDescriptor({
+      id: COMMAND.slot6,
+      title: 'Activate Workspace 6',
+      category: 'Workspace',
+      execute: () => this.activateSlot(5),
+      isEnabled: () => this.workspaces.length > 5,
+    }, OWNER_ID);
+
+    this.input.registerCommandDescriptor({
+      id: COMMAND.slot7,
+      title: 'Activate Workspace 7',
+      category: 'Workspace',
+      execute: () => this.activateSlot(6),
+      isEnabled: () => this.workspaces.length > 6,
+    }, OWNER_ID);
+
+    this.input.registerCommandDescriptor({
+      id: COMMAND.slot8,
+      title: 'Activate Workspace 8',
+      category: 'Workspace',
+      execute: () => this.activateSlot(7),
+      isEnabled: () => this.workspaces.length > 7,
+    }, OWNER_ID);
+
+    this.input.registerCommandDescriptor({
+      id: COMMAND.slot9,
+      title: 'Activate Workspace 9',
+      category: 'Workspace',
+      execute: () => this.activateSlot(8),
+      isEnabled: () => this.workspaces.length > 8,
+    }, OWNER_ID);
+
 
     for (const binding of BINDINGS) {
       this.input.registerBinding(binding);
@@ -397,6 +604,8 @@ export class ReassemblyWorkspaceSwitcherComponent
   }
 
   open(): void {
+    this.previousFocus = rememberFocusedElement();
+
     const activeIndex = this.workspaces.findIndex(
       workspace => workspace.id === this.activeWorkspaceId,
     );
@@ -412,6 +621,8 @@ export class ReassemblyWorkspaceSwitcherComponent
 
     this.visible = false;
     this.input.deactivateContext(CONTEXT_ID);
+    restoreFocusedElement(this.previousFocus);
+    this.previousFocus = null;
     this.cdr.markForCheck();
   }
 
@@ -431,11 +642,14 @@ export class ReassemblyWorkspaceSwitcherComponent
     this.workspacesService.switchWorkspace(workspace.id);
     this.workspaceActivated.emit();
 
+    this.selectedIndex = Math.max(
+      0,
+      this.workspaces.findIndex(item => item.id === workspace.id),
+    );
+
     if (this.visible) {
-      this.selectedIndex = Math.max(
-        0,
-        this.workspaces.findIndex(item => item.id === workspace.id),
-      );
+      this.close();
+    } else {
       this.cdr.markForCheck();
     }
   }
@@ -495,6 +709,11 @@ export class ReassemblyWorkspaceSwitcherComponent
 
   trackWorkspace(_index: number, workspace: WorkspaceConfig): string {
     return workspace.id;
+  }
+
+  private activateSlot(index: number): void {
+    const workspace = this.workspaces[index];
+    if (workspace) this.activateWorkspace(workspace);
   }
 
   private moveSelection(delta: -1 | 1): void {

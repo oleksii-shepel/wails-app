@@ -1230,6 +1230,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   activeTabId: string | null = null;
   private tabCounter = 0;
   private workspaceTabsReady = false;
+  private workspaceRestoreGeneration = 0;
   private interactionGeneration = 0;
   private scrollPersistTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -1485,6 +1486,8 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   async restoreWorkspaceState(): Promise<void> {
+    const generation = ++this.workspaceRestoreGeneration;
+
     this.syncActiveDirSessionState();
     this.tabs = [];
     this.activeTabId = null;
@@ -1497,8 +1500,11 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     this.filterWidget?.deactivateContext();
 
     const restored = await this.tryRestoreWorkspaceTabs();
+    if (generation !== this.workspaceRestoreGeneration) return;
+
     if (!restored) {
       await this.initialize();
+      if (generation !== this.workspaceRestoreGeneration) return;
     }
 
     this.cdr.markForCheck();
@@ -1684,6 +1690,52 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     await this.activateTab(this.tabs[nextIndex].id);
   }
 
+  async closeOtherTabs(): Promise<void> {
+    const activeId = this.activeTabId;
+    if (!activeId || this.tabs.length <= 1) return;
+
+    const closable = this.tabs
+      .filter(tab =>
+        tab.id !== activeId &&
+        tab.isClosable &&
+        !tab.isPinned,
+      )
+      .map(tab => tab.id);
+
+    for (const tabId of closable) {
+      await this.closeTab(tabId);
+    }
+
+    this.lastAction =
+      closable.length > 0
+        ? `close other tabs: ${closable.length}`
+        : 'no closable other tabs';
+    this.cdr.markForCheck();
+  }
+
+  async closeTabsToRight(): Promise<void> {
+    const activeId = this.activeTabId;
+    if (!activeId) return;
+
+    const index = this.tabs.findIndex(tab => tab.id === activeId);
+    if (index < 0) return;
+
+    const closable = this.tabs
+      .slice(index + 1)
+      .filter(tab => tab.isClosable && !tab.isPinned)
+      .map(tab => tab.id);
+
+    for (const tabId of closable) {
+      await this.closeTab(tabId);
+    }
+
+    this.lastAction =
+      closable.length > 0
+        ? `close tabs to right: ${closable.length}`
+        : 'no closable tabs to right';
+    this.cdr.markForCheck();
+  }
+
   async previousTab(): Promise<void> {
     if (this.tabs.length < 2 || !this.activeTabId) return;
     const currentIndex = this.tabs.findIndex(tab => tab.id === this.activeTabId);
@@ -1713,9 +1765,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
 
     this.tabs = this.tabs.map(tab => tab.id === tabId ? updated : tab);
 
-    if (current.kind === 'dir') {
-      this.workspaceService.toggleTabPin(this.paneId, tabId);
-    }
+    this.workspaceService.toggleTabPin(this.paneId, tabId);
 
     this.lastAction = `${pinned ? 'pin' : 'unpin'} tab: ${current.title}`;
     this.cdr.markForCheck();
@@ -1763,9 +1813,17 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
           interactionGeneration,
         );
       }
+    } else if (active?.kind === 'viewer') {
+      this.workspaceService.switchTab(this.paneId, active.id);
+      this.loading = false;
+      this.error = null;
     }
 
     this.cdr.markForCheck();
+  }
+
+  exportActiveTabId(): string | null {
+    return this.activeTab?.id ?? null;
   }
 
   exportActiveDirectoryTabId(): string | null {

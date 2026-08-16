@@ -91,6 +91,8 @@ const COMMAND = {
   moveTabToOtherPane: 'reassembly.manager.moveTabToOtherPane',
   moveTabLeft: 'reassembly.manager.moveTabLeft',
   moveTabRight: 'reassembly.manager.moveTabRight',
+  closeOtherTabs: 'reassembly.manager.closeOtherTabs',
+  closeTabsToRight: 'reassembly.manager.closeTabsToRight',
   jumpTab1: 'reassembly.manager.jumpTab1',
   jumpTab2: 'reassembly.manager.jumpTab2',
   jumpTab3: 'reassembly.manager.jumpTab3',
@@ -552,6 +554,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
 
   leftPanePercent = 50;
   resizing = false;
+  private workspaceApplyGeneration = 0;
   showHidden = false;
   shortcutHelpVisible = false;
 
@@ -878,7 +881,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     const destination = this.otherPane;
     if (!source || !destination) return;
 
-    const tabId = source.exportActiveDirectoryTabId();
+    const tabId = source.exportActiveTabId();
     if (!tabId) return;
 
     const toIndex = destination.exportTabCount();
@@ -906,7 +909,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     const pane = this.activePane;
     if (!pane) return;
 
-    const tabId = pane.exportActiveDirectoryTabId();
+    const tabId = pane.exportActiveTabId();
     if (!tabId) return;
 
     const currentCount = pane.exportTabCount();
@@ -922,7 +925,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
 
     const targetIndex = Math.max(
       0,
-      Math.min(currentCount, currentIndex + delta),
+      Math.min(Math.max(0, currentCount - 1), currentIndex + delta),
     );
 
     const moved = this.workspaceService.moveTab(
@@ -1727,6 +1730,8 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
         this.menuCommand(COMMAND.moveTabToOtherPane, 'Move current tab to other pane'),
         this.menuCommand(COMMAND.moveTabLeft, 'Move tab left'),
         this.menuCommand(COMMAND.moveTabRight, 'Move tab right'),
+        this.menuCommand(COMMAND.closeOtherTabs, 'Close other tabs'),
+        this.menuCommand(COMMAND.closeTabsToRight, 'Close tabs to the right'),
         this.menuCommand(COMMAND.newFile, 'New File'),
         this.menuCommand(COMMAND.refresh, 'Refresh', 'Ctrl+R'),
       ],
@@ -1834,11 +1839,14 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
   }
 
   async applyActiveWorkspace(): Promise<void> {
+    const generation = ++this.workspaceApplyGeneration;
     const workspace = this.workspaceService.getActiveWorkspace();
     if (!workspace) return;
 
-    this.activePaneId =
+    const nextActivePane: PaneId =
       workspace.activePaneId === 'right' ? 'right' : 'left';
+
+    this.activePaneId = nextActivePane;
     this.showHidden = !!workspace.showHidden;
 
     this.leftPanePercent =
@@ -1853,9 +1861,17 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       this.rightPane?.restoreWorkspaceState(),
     ]);
 
+    if (generation !== this.workspaceApplyGeneration) return;
+
+    // The workspace is the authority for active pane/layout; explicitly push
+    // active-pane identity back through the service so all surfaces agree.
+    this.workspaceService.setActivePaneId(nextActivePane);
+
     this.lastTransfer = 'none';
     this.lastDrop = 'none';
     this.closeContextMenu();
+
+    queueMicrotask(() => this.activePane?.focusContent());
     this.cdr.markForCheck();
   }
 
@@ -1930,16 +1946,20 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
   }
 
-  private restoreWorkspaceLayout(): void {
+  private restoreWorkspaceLayout(attempt = 0): void {
     const workspace = this.workspaceService.getActiveWorkspace();
+
     if (!workspace) {
-      // WorkspaceService hydrates asynchronously. Recheck briefly without
-      // creating a second persistence model.
-      setTimeout(() => this.restoreWorkspaceLayout(), 100);
+      // WorkspaceService hydrates asynchronously. Bound the retry window so a
+      // missing/corrupt workspace store cannot leave an immortal timer chain.
+      if (attempt < 30) {
+        setTimeout(() => this.restoreWorkspaceLayout(attempt + 1), 100);
+      }
       return;
     }
 
-    this.activePaneId = workspace.activePaneId === 'right' ? 'right' : 'left';
+    this.activePaneId =
+      workspace.activePaneId === 'right' ? 'right' : 'left';
     this.showHidden = !!workspace.showHidden;
 
     if (
@@ -2074,6 +2094,8 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     descriptor(COMMAND.moveTabToOtherPane, 'Move Tab to Other Pane', 'Tab Management', () => this.moveActiveTabToOtherPane());
     descriptor(COMMAND.moveTabLeft, 'Move Tab Left', 'Tab Management', () => this.reorderActiveTab(-1));
     descriptor(COMMAND.moveTabRight, 'Move Tab Right', 'Tab Management', () => this.reorderActiveTab(1));
+    descriptor(COMMAND.closeOtherTabs, 'Close Other Tabs', 'Tab Management', () => this.activePane?.closeOtherTabs(), () => (this.activePane?.tabs.length ?? 0) > 1);
+    descriptor(COMMAND.closeTabsToRight, 'Close Tabs to the Right', 'Tab Management', () => this.activePane?.closeTabsToRight(), () => (this.activePane?.tabs.length ?? 0) > 1);
     descriptor(COMMAND.jumpTab1, 'Jump to Tab 1', 'Tab Management', () => this.activePane?.jumpToTab(0));
     descriptor(COMMAND.jumpTab2, 'Jump to Tab 2', 'Tab Management', () => this.activePane?.jumpToTab(1));
     descriptor(COMMAND.jumpTab3, 'Jump to Tab 3', 'Tab Management', () => this.activePane?.jumpToTab(2));

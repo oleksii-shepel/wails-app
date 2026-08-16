@@ -18,6 +18,7 @@ import {
   surfaceLayout,
   workspaceSurface,
   type WorkspacePresentation,
+  type WorkspaceSurface,
 } from '../services/workspace-surface.model';
 import { ReassemblyToolWorkspaceHostComponent } from './reassembly-tool-workspace-host.component';
 import { PinnedLocationService } from '../services/pinned-location.service';
@@ -364,7 +365,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         class="tool-workspace-host"
         [presentation]="toolWorkspace"
         (close)="closeToolWorkspace()"
-        (pin)="pinToolWorkspace()">
+        (pin)="pinToolWorkspace()"
+        (surfaceAction)="handleWorkspaceSurfaceAction($event)">
       </app-reassembly-tool-workspace-host>
 
       <app-pane-comparison-bar
@@ -1160,6 +1162,9 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
             query: request.query,
             recursive: request.recursive,
             entries: request.entries.map(entry => ({ ...entry })),
+            busy: false,
+            error: '',
+            refreshedAt: new Date().toLocaleTimeString(),
           },
         ),
       ),
@@ -1196,6 +1201,9 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
               rightPath: this.rightPane.path,
               recursive: this.comparisonRecursive,
               rows,
+              busy: false,
+              error: '',
+              refreshedAt: new Date().toLocaleTimeString(),
             },
           ),
         ),
@@ -1264,6 +1272,11 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
             'primary',
             {
               path: info.path,
+              sourceKind: pane.activePanelSource.source.kind,
+              inArchive: pane.isInArchive,
+              busy: false,
+              error: '',
+              refreshedAt: new Date().toLocaleTimeString(),
               items: [
                 { label: 'Name', value: info.name },
                 { label: 'Type', value: type },
@@ -1288,6 +1301,272 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
         message: error instanceof Error ? error.message : String(error),
       });
     }
+  }
+
+  async handleWorkspaceSurfaceAction(event: {
+    surface: WorkspaceSurface;
+    action: 'refresh';
+  }): Promise<void> {
+    if (event.action !== 'refresh') return;
+
+    switch (event.surface.surfaceId) {
+      case 'search-workspace':
+        await this.refreshSearchWorkspaceSurface(event.surface);
+        break;
+
+      case 'compare-workspace':
+        await this.refreshCompareWorkspaceSurface(event.surface);
+        break;
+
+      case 'details-workspace':
+        await this.refreshDetailsWorkspaceSurface(event.surface);
+        break;
+    }
+  }
+
+  private async refreshSearchWorkspaceSurface(
+    surface: WorkspaceSurface,
+  ): Promise<void> {
+    const workspace = this.workspacePresentation;
+    if (!workspace || workspace.kind !== 'tool') return;
+
+    const rootPath = String(surface.state?.['rootPath'] ?? '');
+    const query = String(surface.state?.['query'] ?? '').trim();
+    const recursive = surface.state?.['recursive'] !== false;
+    if (!rootPath || !query) return;
+
+    this.patchLiveSurface(surface.id, {
+      busy: true,
+      error: '',
+    });
+
+    try {
+      const result = await this.api.search(
+        rootPath,
+        query,
+        recursive,
+      );
+
+      const entries = (result.results ?? []).map(entry => ({
+        ...entry,
+      }));
+
+      this.patchLiveSurface(surface.id, {
+        entries,
+        busy: false,
+        error: '',
+        refreshedAt: new Date().toLocaleTimeString(),
+      });
+    } catch (error) {
+      this.patchLiveSurface(surface.id, {
+        busy: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private async refreshCompareWorkspaceSurface(
+    surface: WorkspaceSurface,
+  ): Promise<void> {
+    const workspace = this.workspacePresentation;
+    if (!workspace || workspace.kind !== 'tool') return;
+
+    const leftPath = String(surface.state?.['leftPath'] ?? '');
+    const rightPath = String(surface.state?.['rightPath'] ?? '');
+    const recursive = surface.state?.['recursive'] === true;
+    if (!leftPath || !rightPath) return;
+
+    this.patchLiveSurface(surface.id, {
+      busy: true,
+      error: '',
+    });
+
+    try {
+      let result: PaneComparisonResult;
+
+      if (recursive) {
+        const recursiveResult =
+          await this.recursivePaneComparison.compare(
+            this.api,
+            leftPath,
+            rightPath,
+            { showHidden: this.showHidden },
+          );
+        result = recursiveResult.comparison;
+      } else {
+        const [left, right] = await Promise.all([
+          this.api.listDirectory(leftPath, this.showHidden),
+          this.api.listDirectory(rightPath, this.showHidden),
+        ]);
+
+        result = this.paneComparison.compare(
+          left.entries ?? [],
+          right.entries ?? [],
+        );
+      }
+
+      const rows = result.items.map(item => ({
+        key: item.key,
+        status: item.status,
+        leftPath: item.left?.path ?? '',
+        rightPath: item.right?.path ?? '',
+      }));
+
+      this.patchLiveSurface(surface.id, {
+        rows,
+        busy: false,
+        error: '',
+        refreshedAt: new Date().toLocaleTimeString(),
+      });
+
+      const summarySurface =
+        this.findWorkspaceSurfaceByKind('compare-summary');
+
+      if (summarySurface) {
+        const summary = result.summary;
+        this.patchLiveSurface(summarySurface.id, {
+          items: [
+            { label: 'Same', value: summary.same },
+            { label: 'Different', value: summary.different },
+            { label: 'Only left', value: summary.onlyLeft },
+            { label: 'Only right', value: summary.onlyRight },
+          ],
+          refreshedAt: new Date().toLocaleTimeString(),
+        });
+      }
+    } catch (error) {
+      this.patchLiveSurface(surface.id, {
+        busy: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private async refreshDetailsWorkspaceSurface(
+    surface: WorkspaceSurface,
+  ): Promise<void> {
+    const workspace = this.workspacePresentation;
+    if (!workspace || workspace.kind !== 'tool') return;
+
+    const path = String(surface.state?.['path'] ?? '');
+    const inArchive = surface.state?.['inArchive'] === true;
+    if (!path) return;
+
+    this.patchLiveSurface(surface.id, {
+      busy: true,
+      error: '',
+    });
+
+    try {
+      if (inArchive) {
+        throw new Error(
+          'Archive-entry details are snapshot-based until archive stat support is exposed through PanelSource.',
+        );
+      }
+
+      const info = await this.api.getFileInfo(path);
+      const size =
+        info.type === FileType.DIRECTORY
+          ? await this.api.dirSizeRecursive(info.path)
+          : Number(info.size) || 0;
+
+      const timestamp = (value: unknown): string => {
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric) || numeric <= 0) return '—';
+        return new Date(
+          numeric * (numeric < 10_000_000_000 ? 1000 : 1),
+        ).toLocaleString();
+      };
+
+      const type =
+        info.type === FileType.DIRECTORY
+          ? 'Directory'
+          : info.type === FileType.ARCHIVE
+            ? 'Archive'
+            : info.type === FileType.SYMLINK
+              ? 'Symbolic link'
+              : 'File';
+
+      this.patchLiveSurface(surface.id, {
+        path: info.path,
+        items: [
+          { label: 'Name', value: info.name },
+          { label: 'Type', value: type },
+          { label: 'Path', value: info.path },
+          { label: 'Size', value: `${size.toLocaleString()} bytes` },
+          { label: 'Modified', value: timestamp(info.modified) },
+          { label: 'Created', value: timestamp(info.created) },
+          { label: 'Accessed', value: timestamp(info.accessed) },
+          { label: 'Permissions', value: info.permissions || '—' },
+          { label: 'Symbolic link', value: info.isSymlink ? 'Yes' : 'No' },
+          {
+            label: 'Source',
+            value: String(surface.state?.['sourceKind'] ?? 'filesystem'),
+          },
+        ],
+        busy: false,
+        error: '',
+        refreshedAt: new Date().toLocaleTimeString(),
+      });
+    } catch (error) {
+      this.patchLiveSurface(surface.id, {
+        busy: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private patchLiveSurface(
+    surfaceId: string,
+    patch: Readonly<Record<string, unknown>>,
+  ): void {
+    const workspace = this.workspacePresentation;
+    if (!workspace || workspace.kind !== 'tool') return;
+
+    const updated = this.workspaceSurfaces.updateSurfaceState(
+      workspace.workspaceId,
+      surfaceId,
+      patch,
+    );
+
+    if (updated) {
+      this.workspacePresentation = updated;
+      this.cdr.markForCheck();
+    }
+  }
+
+  private findWorkspaceSurfaceByKind(
+    surfaceKind: string,
+  ): WorkspaceSurface | null {
+    const workspace = this.workspacePresentation;
+    if (!workspace || workspace.kind !== 'tool') return null;
+
+    const visit = (layout: any): WorkspaceSurface | null => {
+      if (!layout) return null;
+
+      if (layout.kind === 'surface') {
+        return layout.surface?.surfaceId === surfaceKind
+          ? layout.surface
+          : null;
+      }
+
+      if (layout.kind === 'split') {
+        return visit(layout.first) ?? visit(layout.second);
+      }
+
+      if (layout.kind === 'stack') {
+        return (
+          layout.surfaces?.find(
+            (surface: WorkspaceSurface) =>
+              surface.surfaceId === surfaceKind,
+          ) ?? null
+        );
+      }
+
+      return null;
+    };
+
+    return visit(workspace.layout);
   }
 
   activateToolWorkspace(

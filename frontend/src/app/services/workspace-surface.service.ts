@@ -205,6 +205,133 @@ export class WorkspaceSurfaceService {
     return true;
   }
 
+  updateSurfaceState(
+    workspaceId: string,
+    surfaceId: string,
+    patch: Readonly<Record<string, unknown>>,
+  ): WorkspacePresentation | null {
+    const presentation = this.presentations.get(workspaceId);
+    if (!presentation) return null;
+
+    const layout = this.mapLayout(
+      presentation.layout,
+      surface =>
+        surface.id === surfaceId
+          ? {
+              ...surface,
+              state: {
+                ...(surface.state ?? {}),
+                ...patch,
+              },
+            }
+          : surface,
+    );
+
+    const updated: WorkspacePresentation = {
+      ...presentation,
+      layout,
+    };
+
+    this.presentations.set(workspaceId, updated);
+
+    if (
+      updated.kind === 'tool' &&
+      updated.lifetime === 'persistent' &&
+      !this.persistPersistentTools()
+    ) {
+      this.presentations.set(workspaceId, presentation);
+      return null;
+    }
+
+    if (this.activeSubject.value?.workspaceId === workspaceId) {
+      this.activeSubject.next(updated);
+    }
+
+    return updated;
+  }
+
+  replaceSurfaceState(
+    workspaceId: string,
+    surfaceId: string,
+    state: Readonly<Record<string, unknown>>,
+  ): WorkspacePresentation | null {
+    const presentation = this.presentations.get(workspaceId);
+    if (!presentation) return null;
+
+    const layout = this.mapLayout(
+      presentation.layout,
+      surface =>
+        surface.id === surfaceId
+          ? { ...surface, state: { ...state } }
+          : surface,
+    );
+
+    const updated: WorkspacePresentation = {
+      ...presentation,
+      layout,
+    };
+
+    this.presentations.set(workspaceId, updated);
+
+    if (
+      updated.kind === 'tool' &&
+      updated.lifetime === 'persistent' &&
+      !this.persistPersistentTools()
+    ) {
+      this.presentations.set(workspaceId, presentation);
+      return null;
+    }
+
+    if (this.activeSubject.value?.workspaceId === workspaceId) {
+      this.activeSubject.next(updated);
+    }
+
+    return updated;
+  }
+
+  findSurface(
+    workspaceId: string,
+    surfaceId: string,
+  ): WorkspaceSurface | null {
+    const presentation = this.presentations.get(workspaceId);
+    if (!presentation) return null;
+
+    let found: WorkspaceSurface | null = null;
+    this.mapLayout(presentation.layout, surface => {
+      if (!found && surface.id === surfaceId) {
+        found = surface;
+      }
+      return surface;
+    });
+    return found;
+  }
+
+  private mapLayout(
+    layout: WorkspaceLayout,
+    mapSurface: (surface: WorkspaceSurface) => WorkspaceSurface,
+  ): WorkspaceLayout {
+    switch (layout.kind) {
+      case 'surface':
+        return {
+          ...layout,
+          surface: mapSurface(layout.surface),
+        };
+
+      case 'split':
+        return {
+          ...layout,
+          first: this.mapLayout(layout.first, mapSurface),
+          second: this.mapLayout(layout.second, mapSurface),
+        };
+
+      case 'stack':
+        return {
+          ...layout,
+          surfaces: layout.surfaces.map(mapSurface),
+        };
+    }
+  }
+
   get(workspaceId: string): WorkspacePresentation | null {
     return this.presentations.get(workspaceId) ?? null;
   }

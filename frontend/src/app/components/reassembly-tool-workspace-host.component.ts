@@ -96,14 +96,41 @@ import type {
       <article class="surface" [attr.data-surface-id]="surface.surfaceId">
         <header class="surface-header">
           <strong>{{ surface.title }}</strong>
-          <span>{{ surface.role || 'primary' }}</span>
+
+          <span class="surface-actions">
+            <span
+              *ngIf="text(surface, 'busy') === 'true'"
+              class="live-state">
+              working…
+            </span>
+
+            <button
+              *ngIf="canRefresh(surface)"
+              type="button"
+              [disabled]="text(surface, 'busy') === 'true'"
+              (click)="surfaceAction.emit({ surface, action: 'refresh' })">
+              Refresh
+            </button>
+
+            <span>{{ surface.role || 'primary' }}</span>
+          </span>
         </header>
+
+        <div
+          *ngIf="text(surface, 'error')"
+          class="surface-error"
+          role="alert">
+          {{ text(surface, 'error') }}
+        </div>
 
         <ng-container [ngSwitch]="surface.surfaceId">
           <section *ngSwitchCase="'search-workspace'" class="search-surface">
             <div class="surface-meta">
               <span>{{ text(surface, 'query') }}</span>
               <span>{{ text(surface, 'rootPath') }}</span>
+              <span *ngIf="text(surface, 'refreshedAt')">
+                refreshed {{ text(surface, 'refreshedAt') }}
+              </span>
             </div>
 
             <div class="result-table">
@@ -130,6 +157,9 @@ import type {
               <span>↔</span>
               <span [title]="text(surface, 'rightPath')">
                 {{ text(surface, 'rightPath') }}
+              </span>
+              <span *ngIf="text(surface, 'refreshedAt')">
+                {{ text(surface, 'refreshedAt') }}
               </span>
             </div>
 
@@ -235,6 +265,31 @@ import type {
     .workspace-actions {
       display: flex;
       gap: 6px;
+    }
+
+    .surface-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .surface-actions button {
+      min-height: 24px;
+      padding: 2px 7px;
+    }
+
+    .live-state {
+      color: var(--vsc-description-foreground, #969696);
+      font-size: 10px;
+    }
+
+    .surface-error {
+      flex: 0 0 auto;
+      padding: 6px 8px;
+      border-bottom: 1px solid var(--vsc-border-subtle, #2b2b2b);
+      color: var(--vsc-error-foreground, #f48771);
+      background: color-mix(in srgb, var(--vsc-error-foreground, #f48771) 8%, transparent);
+      font-size: 11px;
     }
 
     button {
@@ -440,6 +495,10 @@ export class ReassemblyToolWorkspaceHostComponent {
   @Input({ required: true }) presentation!: WorkspacePresentation;
   @Output() close = new EventEmitter<void>();
   @Output() pin = new EventEmitter<void>();
+  @Output() surfaceAction = new EventEmitter<{
+    surface: WorkspaceSurface;
+    action: 'refresh';
+  }>();
 
   trackSurface = (_: number, surface: WorkspaceSurface) => surface.id;
   trackEntry = (index: number, entry: any) => entry?.path ?? `${index}`;
@@ -455,6 +514,14 @@ export class ReassemblyToolWorkspaceHostComponent {
   array(surface: WorkspaceSurface, key: string): any[] {
     const value = surface.state?.[key];
     return Array.isArray(value) ? value : [];
+  }
+
+  canRefresh(surface: WorkspaceSurface): boolean {
+    return (
+      surface.surfaceId === 'search-workspace' ||
+      surface.surfaceId === 'compare-workspace' ||
+      surface.surfaceId === 'details-workspace'
+    );
   }
 
   formatSize(value: unknown): string {

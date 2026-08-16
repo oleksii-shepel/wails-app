@@ -698,17 +698,17 @@ export class ReassemblyToolsCenterComponent implements OnInit, OnDestroy {
   }
 
   clearOperationHistory(): void {
-    this.operationService.clearHistory();
+    this.operations.clearHistory();
     this.cdr.markForCheck();
   }
 
   async cancelOperation(operation: OperationState): Promise<void> {
     if (!operation.config.cancellable) return;
-    await this.operationService.cancel(operation.id);
+    await this.operations.cancel(operation.id);
   }
 
   dismissOperation(operation: OperationState): void {
-    this.operationService.dismiss(operation.id);
+    this.operations.dismiss(operation.id);
   }
 
   trackOperation(_index:number, item:OperationState):string { return item.id; }

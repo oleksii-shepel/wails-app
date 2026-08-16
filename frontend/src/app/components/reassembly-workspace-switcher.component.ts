@@ -231,7 +231,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         aria-label="Workspace switcher"
         (mousedown)="$event.stopPropagation()"
         reassemblyModalSurface
-        [reassemblyModalInitial]="\'[aria-selected="true"]\'"
+        reassemblyModalInitial="[aria-selected='true']"
         tabindex="-1">
 
         <header>

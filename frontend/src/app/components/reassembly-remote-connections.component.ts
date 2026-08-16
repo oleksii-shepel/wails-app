@@ -24,7 +24,7 @@ const BINDINGS:readonly InputBindingDefinition[]=[
 @Component({selector:'app-reassembly-remote-connections',standalone:true,imports: [CommonModule, ReassemblyModalSurfaceDirective],changeDetection:ChangeDetectionStrategy.OnPush,
 template:`<div class="backdrop" *ngIf="visible" (mousedown)="close()"><section class="panel" role="dialog" aria-modal="true" aria-label="Remote connections" (mousedown)="$event.stopPropagation()"
         reassemblyModalSurface
-        [reassemblyModalInitial]="\'[aria-selected="true"]\'"
+        reassemblyModalInitial="[aria-selected='true']"
         tabindex="-1">
 <header><div><strong>Remote connections</strong><span>{{state.mounts.length}}</span></div><div class="header-actions"><button type="button" (click)="connect()">+ Connect</button><button type="button" (click)="refresh()" [disabled]="state.loading">{{state.loading?'Refreshing…':'Refresh'}}</button></div></header>
 <div class="error" *ngIf="state.error" role="alert">{{state.error}}</div>

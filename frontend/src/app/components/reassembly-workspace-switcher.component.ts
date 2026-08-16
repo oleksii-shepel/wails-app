@@ -78,23 +78,6 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     category: 'Workspace',
     trigger: { device: 'keyboard', chord: { steps: [{ key: 'enter' }] } },
   },
-  {
-    id: 'reassembly.workspaceSwitcher.new.ctrlShiftAltN',
-    commandId: COMMAND.create,
-    contextId: CONTEXT_ID,
-    source: 'default',
-    description: 'Create workspace',
-    category: 'Workspace',
-    trigger: {
-      device: 'keyboard',
-      chord: {
-        steps: [{
-          key: 'n',
-          modifiers: ['ctrl', 'shift', 'alt'],
-        }],
-      },
-    },
-  },
 
   {
     id: 'reassembly.workspaceSwitcher.rename.f2',

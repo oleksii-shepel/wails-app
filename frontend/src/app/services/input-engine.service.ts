@@ -855,9 +855,20 @@ export class InputEngineService {
   }
 
   private sameStroke(left: KeyStroke, right: KeyStroke): boolean {
-    const leftMods = (left.modifiers ?? []).join('+');
-    const rightMods = (right.modifiers ?? []).join('+');
-    return left.key === right.key && leftMods === rightMods;
+    const leftMods = this.normalizeModifiers(left.modifiers);
+    const rightMods = this.normalizeModifiers(right.modifiers);
+
+    return (
+      left.key === right.key &&
+      leftMods.length === rightMods.length &&
+      leftMods.every((modifier, index) => modifier === rightMods[index])
+    );
+  }
+
+  private normalizeModifiers(
+    modifiers: KeyStroke['modifiers'],
+  ): NonNullable<KeyStroke['modifiers']> {
+    return [...(modifiers ?? [])].sort();
   }
 
   private whenClauseAllows(expression?: string, context?: KeyboardEventContext | null): boolean {

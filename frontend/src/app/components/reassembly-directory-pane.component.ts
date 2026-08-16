@@ -348,7 +348,7 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
           [class.cursor]="cursorPath === row.entry.path"
           [attr.aria-level]="row.depth + 1"
           [attr.aria-expanded]="row.expandable ? row.expanded : null"
-          [attr.aria-selected]="selectedPaths.has(row.entry.path)"
+          [attr.aria-selected]="row.entry.path !== '__parent__' && selectedPaths.has(row.entry.path)"
           [attr.aria-current]="cursorPath === row.entry.path ? 'true' : null"
           [attr.aria-label]="entryAriaLabel(row.entry)"
           [style.padding-left.px]="8 + row.depth * 18"
@@ -449,8 +449,8 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
           <strong>{{ cursor.name }}</strong>
         </span>
 
-        <span class="footer-item" *ngIf="selectedPaths.size">
-          {{ selectedPaths.size }} selected
+        <span class="footer-item" *ngIf="selectedEntries.length">
+          {{ selectedEntries.length }} selected
           <ng-container *ngIf="selectedTotalBytes > 0">
             · {{ formatSize(selectedTotalBytes) }}
           </ng-container>
@@ -1395,7 +1395,12 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
 
   get cursorEntry(): FileInfo | null {
     if (!this.cursorPath) return null;
-    return this.entries.find(entry => entry.path === this.cursorPath) ?? null;
+
+    const entries = this.viewMode === 'tree'
+      ? this.treeRows.map(row => row.entry)
+      : this.entries;
+
+    return entries.find(entry => entry.path === this.cursorPath) ?? null;
   }
 
   get treeRows(): ReassemblyTreeRow[] {
@@ -1403,8 +1408,12 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
 
     const append = (entries: FileInfo[], depth: number): void => {
       for (const entry of entries) {
-        const expandable = entry.type === FileType.DIRECTORY;
-        const expanded = expandable && this.treeExpandedPaths.has(entry.path);
+        const expandable =
+          entry.path !== '__parent__' &&
+          entry.type === FileType.DIRECTORY;
+        const expanded =
+          expandable &&
+          this.treeExpandedPaths.has(entry.path);
         rows.push({
           entry,
           depth,
@@ -1429,7 +1438,12 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
 
   get selectedEntries(): FileInfo[] {
     if (this.selectedPaths.size === 0) return [];
-    return this.entries.filter(entry =>
+
+    const entries = this.viewMode === 'tree'
+      ? this.treeRows.map(row => row.entry)
+      : this.entries;
+
+    return entries.filter(entry =>
       entry.path !== '__parent__' &&
       this.selectedPaths.has(entry.path),
     );
@@ -1925,6 +1939,44 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     return row.entry.path;
   }
 
+  private async loadFilesystemTreeChildren(
+    path: string,
+  ): Promise<FileInfo[]> {
+    const listing = await this.directorySource.listDirectory(
+      path,
+      this.showHidden,
+    );
+
+    return this.sortTreeChildren([...(listing.entries ?? [])]);
+  }
+
+  private async loadArchiveTreeChildren(
+    entry: FileInfo,
+  ): Promise<FileInfo[]> {
+    const frame = this.currentArchiveFrame;
+    if (!frame) return [];
+
+    const innerPath = this.resolveArchiveEntryInnerPath(
+      frame.innerPath,
+      entry.path,
+    );
+
+    const children = await this.directorySource.listArchiveDirectory(
+      frame,
+      innerPath,
+    );
+
+    return this.sortTreeChildren(children);
+  }
+
+  private sortTreeChildren(
+    entries: readonly FileInfo[],
+  ): FileInfo[] {
+    return this.sortEntries(
+      entries.filter(entry => entry.path !== '__parent__'),
+    );
+  }
+
   async toggleTreeRow(
     row: ReassemblyTreeRow,
     event?: Event,
@@ -1955,11 +2007,10 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
 
     try {
-      const listing = await this.directorySource.listDirectory(
-        row.entry.path,
-        this.showHidden,
-      );
-      const children = this.sortEntries([...(listing.entries ?? [])]);
+      const children = this.isInArchive
+        ? await this.loadArchiveTreeChildren(row.entry)
+        : await this.loadFilesystemTreeChildren(row.entry.path);
+
       this.treeChildren.set(row.entry.path, children);
     } catch (error) {
       this.treeExpandedPaths.delete(row.entry.path);
@@ -1974,8 +2025,8 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   async onTreeDoubleClick(row: ReassemblyTreeRow): Promise<void> {
-    if (this.isInArchive) {
-      this.openEntry(row.entry);
+    if (row.entry.path === '__parent__') {
+      await this.navigateUp();
       return;
     }
 

@@ -37,6 +37,7 @@ export interface FileViewDirectorySource {
   getArchiveFrame(fsPath: string, nestedChain?: string[], innerPath?: string): Promise<ArchiveFrame>;
   openNestedArchive(frame: ArchiveFrame, nestedChain: string[]): Promise<ArchiveFrame>;
   navigateArchive(frame: ArchiveFrame, folderInnerPath: string): Promise<ArchiveFrame>;
+  listArchiveDirectory(frame: ArchiveFrame, folderInnerPath: string): Promise<FileInfo[]>;
   navigateArchiveUp(frame: ArchiveFrame): Promise<ArchiveFrame | null>;
   refreshArchive(frame: ArchiveFrame): Promise<ArchiveFrame>;
   resolveArchiveBrowseTarget(seg: { name: string; fullPath: string }, stack: ArchiveFrame[]): ArchiveBrowseTarget | null;
@@ -363,6 +364,18 @@ export class DirectorySourceService implements FileViewDirectorySource {
 
   openNestedArchive(frame: ArchiveFrame, nestedChain: string[]): Promise<ArchiveFrame> {
     return this.archiveService.openNestedArchive(frame, nestedChain);
+  }
+
+  async listArchiveDirectory(
+    frame: ArchiveFrame,
+    folderInnerPath: string,
+  ): Promise<FileInfo[]> {
+    const next = await this.archiveService.navigateInto(
+      frame,
+      folderInnerPath,
+    );
+
+    return this.archiveService.listingToFileInfos(next.listing);
   }
 
   navigateArchive(frame: ArchiveFrame, folderInnerPath: string): Promise<ArchiveFrame> {

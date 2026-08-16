@@ -24,6 +24,8 @@ import { ReassemblyFilterComponent } from './reassembly-filter.component';
 import { ReassemblyNavigationController } from './reassembly-navigation.controller';
 
 type ReassemblyDirectoryView = 'list' | 'grid' | 'details' | 'tree';
+type ReassemblySortField = 'name' | 'size' | 'modified' | 'type';
+type ReassemblySortDirection = 'asc' | 'desc';
 
 interface ReassemblyTreeRow {
   entry: FileInfo;
@@ -39,6 +41,11 @@ type ReassemblyTab =
       kind: 'dir';
       path: string;
       title: string;
+      viewMode: ReassemblyDirectoryView;
+      sortField: ReassemblySortField;
+      sortDirection: ReassemblySortDirection;
+      directoriesFirst: boolean;
+      expandedPaths: string[];
     }
   | {
       id: string;
@@ -182,6 +189,36 @@ type ReassemblyTab =
           <button type="button" [class.active]="viewMode === 'details'" [attr.aria-pressed]="viewMode === 'details'" (click)="setViewMode('details')">Details</button>
           <button type="button" [class.active]="viewMode === 'tree'" [attr.aria-pressed]="viewMode === 'tree'" (click)="setViewMode('tree')">Tree</button>
         </div>
+
+        <div class="sort-controls" role="group" aria-label="Sort directory">
+          <select
+            [value]="sortField"
+            (change)="setSortField($any($event.target).value)"
+            aria-label="Sort field"
+            title="Sort field">
+            <option value="name">Name</option>
+            <option value="size">Size</option>
+            <option value="modified">Modified</option>
+            <option value="type">Type</option>
+          </select>
+
+          <button
+            type="button"
+            (click)="toggleSortDirection()"
+            [title]="sortDirection === 'asc' ? 'Ascending' : 'Descending'">
+            {{ sortDirection === 'asc' ? '↑' : '↓' }}
+          </button>
+
+          <button
+            type="button"
+            [class.active]="directoriesFirst"
+            [attr.aria-pressed]="directoriesFirst"
+            (click)="toggleDirectoriesFirst()"
+            title="Folders first">
+            Folders
+          </button>
+        </div>
+
         <span class="action-separator"></span>
         <button type="button" [disabled]="loading || !canCreate" (click)="newFolder()" title="New folder (F7)">New folder</button>
         <button type="button" [disabled]="loading || !canRename" (click)="renameSelected()" title="Rename (F2)">Rename</button>
@@ -257,7 +294,7 @@ type ReassemblyTab =
 
       <div
         class="list"
-        *ngIf="!error"
+        *ngIf="!error && viewMode !== 'tree'"
         role="listbox"
         [class.view-list]="viewMode === 'list'"
         [class.view-grid]="viewMode === 'grid'"
@@ -575,6 +612,28 @@ type ReassemblyTab =
     }
 
     .view-switcher button.active {
+      background: var(--vsc-list-active-background, #094771);
+      color: var(--vsc-list-active-foreground, #ffffff);
+    }
+
+    .sort-controls {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+    }
+
+    .sort-controls select {
+      height: 26px;
+      max-width: 110px;
+      padding: 0 5px;
+      border: 1px solid var(--vsc-border, #454545);
+      border-radius: 3px;
+      background: var(--vsc-input-background, #181818);
+      color: var(--vsc-foreground, #cccccc);
+      font: inherit;
+    }
+
+    .sort-controls button.active {
       background: var(--vsc-list-active-background, #094771);
       color: var(--vsc-list-active-foreground, #ffffff);
     }
@@ -985,6 +1044,9 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
   filterText = '';
 
   viewMode: ReassemblyDirectoryView = 'list';
+  sortField: ReassemblySortField = 'name';
+  sortDirection: ReassemblySortDirection = 'asc';
+  directoriesFirst = true;
 
   readonly treeExpandedPaths = new Set<string>();
   readonly treeChildren = new Map<string, FileInfo[]>();
@@ -1102,11 +1164,16 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
     }, 0);
   }
 
-  get visibleEntries(): FileInfo[] {
-    const query = this.filterText.trim().toLocaleLowerCase();
-    if (!query) return this.entries;
+  get sortedEntries(): FileInfo[] {
+    return this.sortEntries(this.entries);
+  }
 
-    return this.entries.filter(entry => {
+  get visibleEntries(): FileInfo[] {
+    const sorted = this.sortedEntries;
+    const query = this.filterText.trim().toLocaleLowerCase();
+    if (!query) return sorted;
+
+    return sorted.filter(entry => {
       const name = (entry.name ?? '').toLocaleLowerCase();
       const path = (entry.path ?? '').toLocaleLowerCase();
       return name.includes(query) || path.includes(query);
@@ -1160,6 +1227,10 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
     if (persisted) {
       this.tabs = this.mergePersistedDirectoryTabs();
       this.activeTabId = persisted.id;
+      const active = this.activeTab;
+      if (active?.kind === 'dir') {
+        this.applyDirPresentationState(active);
+      }
       this.lastAction = `new tab: ${persisted.title || this.tabTitle(path)}`;
       this.cdr.markForCheck();
       return;
@@ -1168,23 +1239,30 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
     const tab = this.createDirectoryTab(path);
     this.tabs = [...this.tabs, tab];
     this.activeTabId = tab.id;
+    this.applyDirPresentationState(tab);
     this.lastAction = `new tab: ${tab.title}`;
     this.cdr.markForCheck();
   }
 
   async activateTab(tabId: string): Promise<void> {
     if (tabId === this.activeTabId) return;
+
+    this.syncActiveDirPresentationState();
+
     const tab = this.tabs.find(candidate => candidate.id === tabId);
     if (!tab) return;
 
     this.activeTabId = tabId;
     this.lastAction = `tab: ${tab.title}`;
-    this.cdr.markForCheck();
 
     if (tab.kind === 'dir') {
+      this.applyDirPresentationState(tab);
       this.workspaceService.switchTab(this.paneId, tab.id);
       await this.load(tab.path, { history: 'record', syncTab: false });
+      await this.restoreExpandedTreeForActiveTab();
     }
+
+    this.cdr.markForCheck();
   }
 
   async closeActiveTab(): Promise<void> {
@@ -1218,6 +1296,11 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
 
     if (closing.kind === 'dir') {
       this.workspaceService.closeTab(this.paneId, tabId);
+      try {
+        localStorage.removeItem(this.dirPresentationStorageKey(tabId));
+      } catch {
+        // Best-effort cleanup only.
+      }
     }
 
     this.tabs = this.tabs.filter(tab => tab.id !== tabId);
@@ -1250,6 +1333,38 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
     return tab.id;
   }
 
+  setSortField(field: string): void {
+    if (
+      field !== 'name' &&
+      field !== 'size' &&
+      field !== 'modified' &&
+      field !== 'type'
+    ) {
+      return;
+    }
+
+    this.sortField = field;
+    this.syncActiveDirPresentationState();
+    this.lastAction = `sort: ${field}`;
+    this.cdr.markForCheck();
+  }
+
+  toggleSortDirection(): void {
+    this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
+    this.syncActiveDirPresentationState();
+    this.lastAction = `sort: ${this.sortDirection}`;
+    this.cdr.markForCheck();
+  }
+
+  toggleDirectoriesFirst(): void {
+    this.directoriesFirst = !this.directoriesFirst;
+    this.syncActiveDirPresentationState();
+    this.lastAction = this.directoriesFirst
+      ? 'folders first'
+      : 'mixed folders/files';
+    this.cdr.markForCheck();
+  }
+
   setViewMode(mode: ReassemblyDirectoryView): void {
     if (this.viewMode === mode) return;
 
@@ -1259,10 +1374,8 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
       this.treeLoadingPaths.clear();
     }
     this.viewMode = mode;
+    this.syncActiveDirPresentationState();
     this.lastAction = `view: ${mode}`;
-    try {
-      localStorage.setItem(`reassembly.view.${this.paneId}`, mode);
-    } catch {}
     queueMicrotask(() => this.ensureCursorVisible());
     this.cdr.markForCheck();
   }
@@ -1291,12 +1404,14 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
 
     if (this.treeExpandedPaths.has(row.entry.path)) {
       this.treeExpandedPaths.delete(row.entry.path);
+      this.syncActiveDirPresentationState();
       this.lastAction = `collapse: ${row.entry.name}`;
       this.cdr.markForCheck();
       return;
     }
 
     this.treeExpandedPaths.add(row.entry.path);
+    this.syncActiveDirPresentationState();
     this.lastAction = `expand: ${row.entry.name}`;
     this.cdr.markForCheck();
 
@@ -1310,17 +1425,11 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
         row.entry.path,
         this.showHidden,
       );
-      const children = [...(listing.entries ?? [])].sort((a, b) => {
-        if (a.type === FileType.DIRECTORY && b.type !== FileType.DIRECTORY) return -1;
-        if (a.type !== FileType.DIRECTORY && b.type === FileType.DIRECTORY) return 1;
-        return (a.name ?? '').localeCompare(b.name ?? '', undefined, {
-          numeric: true,
-          sensitivity: 'base',
-        });
-      });
+      const children = this.sortEntries([...(listing.entries ?? [])]);
       this.treeChildren.set(row.entry.path, children);
     } catch (error) {
       this.treeExpandedPaths.delete(row.entry.path);
+      this.syncActiveDirPresentationState();
       this.lastAction = `tree load failed: ${
         error instanceof Error ? error.message : String(error)
       }`;
@@ -1347,6 +1456,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
 
     if (row.expandable && row.expanded) {
       this.treeExpandedPaths.delete(row.entry.path);
+      this.syncActiveDirPresentationState();
       this.cdr.markForCheck();
       return;
     }
@@ -1725,7 +1835,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
   async renameSelected(): Promise<void> {
     if (!this.canRename) return;
 
-    const entry = this.selectedEntries[0];
+    const entry = this.selectedEntries()[0];
     if (!entry) return;
 
     const nextName = await this.confirmDialog.prompt({
@@ -1761,7 +1871,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
   async deleteSelected(): Promise<void> {
     if (!this.canDelete) return;
 
-    const entries = this.selectedEntries;
+    const entries = this.selectedEntries();
     if (entries.length === 0) return;
 
     const useTrash = this.sourceCapabilities.trash;
@@ -1829,6 +1939,11 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
     }
   }
 
+  private selectedEntries(): FileInfo[] {
+    if (!this.selectedPaths.size) return [];
+    return this.entries.filter(entry => this.selectedPaths.has(entry.path));
+  }
+
   private selectPath(path: string): void {
     const entry = this.entries.find(candidate => candidate.path === path);
     if (!entry) return;
@@ -1865,12 +1980,6 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
     return entry.path;
   }
 
-  entryIcon(entry: FileInfo): string {
-    if (entry.type === FileType.DIRECTORY) return '📁';
-    if (entry.type === FileType.ARCHIVE) return '🗜️';
-    return '📄';
-  }
-
   formatSize(bytes: number): string {
     if (!Number.isFinite(bytes) || bytes <= 0) return bytes === 0 ? '0 B' : '';
     const units = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -1886,7 +1995,6 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
   }
 
   private async initialize(): Promise<void> {
-    this.restoreViewPreference();
     this.loading = true;
     this.error = null;
     this.cdr.markForCheck();
@@ -1907,6 +2015,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
           : this.createDirectoryTab(this.path);
         this.tabs = [tab];
         this.activeTabId = tab.id;
+        if (tab.kind === 'dir') this.applyDirPresentationState(tab);
         this.workspaceTabsReady = !!persisted;
         this.cdr.markForCheck();
       }
@@ -1920,6 +2029,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
             : this.createDirectoryTab(this.path);
           this.tabs = [tab];
           this.activeTabId = tab.id;
+          if (tab.kind === 'dir') this.applyDirPresentationState(tab);
           this.workspaceTabsReady = !!persisted;
           this.cdr.markForCheck();
         }
@@ -1929,18 +2039,150 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
     }
   }
 
-  private restoreViewPreference(): void {
+  private defaultDirPresentationState(): {
+    viewMode: ReassemblyDirectoryView;
+    sortField: ReassemblySortField;
+    sortDirection: ReassemblySortDirection;
+    directoriesFirst: boolean;
+    expandedPaths: string[];
+  } {
+    return {
+      viewMode: 'list',
+      sortField: 'name',
+      sortDirection: 'asc',
+      directoriesFirst: true,
+      expandedPaths: [],
+    };
+  }
+
+  private dirPresentationStorageKey(tabId: string): string {
+    return `reassembly.dirTab.${this.paneId}.${tabId}`;
+  }
+
+  private loadDirPresentationState(tabId: string): ReturnType<
+    ReassemblyDirectoryPaneComponent['defaultDirPresentationState']
+  > {
+    const fallback = this.defaultDirPresentationState();
+
     try {
-      const saved = localStorage.getItem(`reassembly.view.${this.paneId}`);
-      if (
-        saved === 'list' ||
-        saved === 'grid' ||
-        saved === 'details' ||
-        saved === 'tree'
-      ) {
-        this.viewMode = saved;
+      const raw = localStorage.getItem(this.dirPresentationStorageKey(tabId));
+      if (!raw) return fallback;
+
+      const parsed = JSON.parse(raw) as Partial<typeof fallback>;
+      return {
+        viewMode:
+          parsed.viewMode === 'list' ||
+          parsed.viewMode === 'grid' ||
+          parsed.viewMode === 'details' ||
+          parsed.viewMode === 'tree'
+            ? parsed.viewMode
+            : fallback.viewMode,
+        sortField:
+          parsed.sortField === 'name' ||
+          parsed.sortField === 'size' ||
+          parsed.sortField === 'modified' ||
+          parsed.sortField === 'type'
+            ? parsed.sortField
+            : fallback.sortField,
+        sortDirection:
+          parsed.sortDirection === 'desc' ? 'desc' : 'asc',
+        directoriesFirst:
+          typeof parsed.directoriesFirst === 'boolean'
+            ? parsed.directoriesFirst
+            : fallback.directoriesFirst,
+        expandedPaths:
+          Array.isArray(parsed.expandedPaths)
+            ? parsed.expandedPaths.filter(
+                (path): path is string => typeof path === 'string',
+              )
+            : [],
+      };
+    } catch {
+      return fallback;
+    }
+  }
+
+  private persistDirPresentationState(tab: Extract<ReassemblyTab, { kind: 'dir' }>): void {
+    try {
+      localStorage.setItem(
+        this.dirPresentationStorageKey(tab.id),
+        JSON.stringify({
+          viewMode: tab.viewMode,
+          sortField: tab.sortField,
+          sortDirection: tab.sortDirection,
+          directoriesFirst: tab.directoriesFirst,
+          expandedPaths: tab.expandedPaths,
+        }),
+      );
+    } catch {
+      // Per-tab UI persistence is best-effort only.
+    }
+  }
+
+  private syncActiveDirPresentationState(): void {
+    const active = this.activeTab;
+    if (!active || active.kind !== 'dir') return;
+
+    const updated: Extract<ReassemblyTab, { kind: 'dir' }> = {
+      ...active,
+      viewMode: this.viewMode,
+      sortField: this.sortField,
+      sortDirection: this.sortDirection,
+      directoriesFirst: this.directoriesFirst,
+      expandedPaths: Array.from(this.treeExpandedPaths),
+    };
+
+    this.tabs = this.tabs.map(tab => tab.id === updated.id ? updated : tab);
+    this.persistDirPresentationState(updated);
+  }
+
+  private applyDirPresentationState(
+    tab: Extract<ReassemblyTab, { kind: 'dir' }>,
+  ): void {
+    this.viewMode = tab.viewMode;
+    this.sortField = tab.sortField;
+    this.sortDirection = tab.sortDirection;
+    this.directoriesFirst = tab.directoriesFirst;
+
+    this.treeExpandedPaths.clear();
+    for (const path of tab.expandedPaths) {
+      this.treeExpandedPaths.add(path);
+    }
+    this.treeChildren.clear();
+    this.treeLoadingPaths.clear();
+  }
+
+  private async restoreExpandedTreeForActiveTab(): Promise<void> {
+    if (this.viewMode !== 'tree' || this.treeExpandedPaths.size === 0) return;
+
+    const desired = new Set(this.treeExpandedPaths);
+    this.treeExpandedPaths.clear();
+
+    const expandKnown = async (entries: FileInfo[]): Promise<void> => {
+      for (const entry of entries) {
+        if (
+          entry.type !== FileType.DIRECTORY ||
+          !desired.has(entry.path)
+        ) {
+          continue;
+        }
+
+        const row: ReassemblyTreeRow = {
+          entry,
+          depth: 0,
+          expanded: false,
+          loading: false,
+          expandable: true,
+        };
+
+        await this.toggleTreeRow(row);
+        const children = this.treeChildren.get(entry.path) ?? [];
+        await expandKnown(children);
       }
-    } catch {}
+    };
+
+    await expandKnown(this.visibleEntries);
+    this.syncActiveDirPresentationState();
   }
 
   private async tryRestoreWorkspaceTabs(): Promise<boolean> {
@@ -1963,6 +2205,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
           const target = activeDir ?? dirTabs[0];
 
           this.activeTabId = target.id;
+          this.applyDirPresentationState(target);
           this.workspaceTabsReady = true;
           this.tabCounter = Math.max(this.tabCounter, dirTabs.length);
           this.cdr.markForCheck();
@@ -1974,6 +2217,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
 
           if (loaded) {
             this.workspaceService.switchTab(this.paneId, target.id);
+            await this.restoreExpandedTreeForActiveTab();
             return true;
           }
         }
@@ -1993,11 +2237,18 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
         ? tab.location
         : tab.location?.location || tab.path || '/';
 
+    const presentation = this.loadDirPresentationState(tab.id);
+
     return {
       id: tab.id,
       kind: 'dir',
       path,
       title: tab.title || this.tabTitle(path),
+      viewMode: presentation.viewMode,
+      sortField: presentation.sortField,
+      sortDirection: presentation.sortDirection,
+      directoriesFirst: presentation.directoriesFirst,
+      expandedPaths: presentation.expandedPaths,
     };
   }
 
@@ -2048,15 +2299,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
         this.treeLoadingPaths.clear();
       }
 
-      this.entries = [...(listing.entries || [])].sort((left, right) => {
-        const leftDirectory = left.type === FileType.DIRECTORY;
-        const rightDirectory = right.type === FileType.DIRECTORY;
-        if (leftDirectory !== rightDirectory) return leftDirectory ? -1 : 1;
-        return left.name.localeCompare(right.name, undefined, {
-          numeric: true,
-          sensitivity: 'base',
-        });
-      });
+      this.entries = [...(listing.entries || [])];
 
       const preserved = previousCursor
         ? this.entries.find(entry => entry.path === previousCursor)
@@ -2111,6 +2354,11 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
       kind: 'dir',
       path: normalized,
       title: this.tabTitle(normalized),
+      viewMode: this.viewMode,
+      sortField: this.sortField,
+      sortDirection: this.sortDirection,
+      directoriesFirst: this.directoriesFirst,
+      expandedPaths: [],
     };
   }
 

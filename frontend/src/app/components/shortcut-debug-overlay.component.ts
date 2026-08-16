@@ -102,6 +102,7 @@ interface PendingChordLike {
         <div><kbd>Ctrl+B</kbd><span>quick access → pinned</span></div>
         <div><span>Pane footer</span><span>cursor · selection · capabilities</span></div>
         <div><span>View</span><span>List / Grid / Details / Tree</span></div>
+        <div><span>Sort</span><span>Name / Size / Modified / Type</span></div>
         <div><kbd>Tree ← / →</kbd><span>collapse-parent / expand-child</span></div>
       </div>
 

@@ -18,6 +18,8 @@ import { PathHistoryService } from '../services/path-history.service';
 import { WorkspaceService } from '../services/workspace.service';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { FileClipboardService } from '../services/file-clipboard.service';
+import { PluginManagerService } from '../services/plugin-manager.service';
+import { PluginLifecycleCoordinatorService } from '../services/plugin-lifecycle-coordinator.service';
 import {
   ArchiveService,
   type ArchiveFrame,
@@ -448,14 +450,14 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
           (drop)="onEntryDrop(entry, $event)"
           [class.drop-target]="dragOverPath === entry.path">
 
-          <span class="icon" aria-hidden="true">
-            {{ entry.type === FileType.DIRECTORY ? '📁' : entry.type === FileType.ARCHIVE ? '🗜️' : '📄' }}
+          <span class="icon" aria-hidden="true" [style.color]="entryCategory(entry)?.color || null">
+            {{ entryDisplayIcon(entry) }}
           </span>
 
           <span class="name">{{ entry.name }}</span>
 
-          <span class="kind">
-            {{ entry.type === FileType.DIRECTORY ? 'Folder' : entry.type === FileType.ARCHIVE ? 'Archive' : 'File' }}
+          <span class="kind" [style.color]="entryCategory(entry)?.color || null">
+            {{ entryDisplayKind(entry) }}
           </span>
 
           <span class="size">
@@ -1267,7 +1269,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
 
   focusContent(): void {
     const target =
-      this.activeTab?.kind === 'viewer'
+      this.activeTab?.kind !== 'dir'
         ? this.paneRoot?.nativeElement
         : this.viewMode === 'tree'
           ? this.treeViewport?.nativeElement
@@ -1285,6 +1287,36 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
         : `, ${this.formatSize(entry.size)}`;
 
     return `${entry.name}, ${kind}${size}`;
+  }
+
+  entryCategory(entry: FileInfo) {
+    if (entry.type === FileType.DIRECTORY || entry.type === FileType.ARCHIVE) {
+      return null;
+    }
+
+    return this.pluginManager.resolveFileCategory(
+      entry.path,
+      (entry as FileInfo & { mimeType?: string | null }).mimeType ?? null,
+    );
+  }
+
+  entryDisplayIcon(entry: FileInfo): string {
+    if (entry.type === FileType.DIRECTORY) return '📁';
+    if (entry.type === FileType.ARCHIVE) return '🗜️';
+    return this.entryCategory(entry)?.icon || '📄';
+  }
+
+  entryDisplayKind(entry: FileInfo): string {
+    if (entry.type === FileType.DIRECTORY) return 'Folder';
+    if (entry.type === FileType.ARCHIVE) return 'Archive';
+    return this.entryCategory(entry)?.category || 'File';
+  }
+
+  get activeSurfaceId(): string {
+    const tab = this.activeTab;
+    if (!tab) return 'dir';
+    if (tab.kind === 'surface') return tab.surfaceId;
+    return tab.kind;
   }
 
   get activeTab(): ReassemblyTab | null {
@@ -1447,6 +1479,8 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     private readonly remoteConnections: RemoteConnectionsService,
     private readonly archiveService: ArchiveService,
     private readonly fileClipboard: FileClipboardService,
+    private readonly pluginManager: PluginManagerService,
+    private readonly pluginLifecycle: PluginLifecycleCoordinatorService,
     private readonly cdr: ChangeDetectorRef,
   ) {}
 
@@ -1579,6 +1613,12 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   ): Promise<void> {
     const id = surfaceId.trim();
     if (!id || id === 'dir' || id === 'viewer') return;
+
+    try {
+      await this.pluginLifecycle.activateByEvent(`onSurface:${id}`);
+    } catch {
+      // Surface resolution below fails closed if activation did not register it.
+    }
 
     this.syncActiveDirSessionState();
 
@@ -2166,11 +2206,29 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     this.moveFilterCursor(-1);
   }
 
+  private async activatePluginsForLocation(path: string): Promise<void> {
+    const value = path.trim();
+    if (!value) return;
+
+    const match = /^([a-z][a-z0-9+.-]*):\/\//i.exec(value);
+    const scheme = match?.[1]?.toLowerCase() ?? 'filesystem';
+
+    try {
+      await this.pluginLifecycle.activateByEvent(`onScheme:${scheme}`);
+    } catch {
+      // Plugin lifecycle records activation failure/quarantine independently.
+    }
+  }
+
   navigateTo(path: string): void {
     this.syncActiveDirSessionState();
     if (!this.isDirectoryTab) return;
     this.lastAction = `navigate: ${path}`;
-    void this.load(path, { history: 'record' });
+
+    void (async () => {
+      await this.activatePluginsForLocation(path);
+      await this.load(path, { history: 'record' });
+    })();
   }
 
   async refresh(): Promise<void> {
@@ -4563,15 +4621,20 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
         this.tabCounter = Math.max(this.tabCounter, restored.length);
         this.cdr.markForCheck();
 
-        if (target.kind === 'viewer') {
+        if (target.kind !== 'dir') {
           this.workspaceService.switchTab(this.paneId, target.id);
           this.loading = false;
           this.error = null;
-          this.lastAction = `viewer restored: ${target.title}`;
+          this.clearArchiveRuntime();
+          this.lastAction =
+            target.kind === 'viewer'
+              ? `viewer restored: ${target.title}`
+              : `surface restored: ${target.title}`;
           this.cdr.markForCheck();
           return true;
         }
 
+        // From here on target is narrowed to a directory tab.
         this.applyDirSessionBeforeLoad(target);
         this.restoreArchiveStateForTab(target.id, target.path);
 

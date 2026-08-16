@@ -170,4 +170,3 @@ export class ViewerHostSurfaceComponent implements OnChanges {
     return viewerKey === 'image' || viewerKey === 'video' || viewerKey === 'audio';
   }
 }
-

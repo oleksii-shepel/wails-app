@@ -24,4 +24,3 @@ export interface ViewerContribution {
   /** Lazy-load the viewer surface component (standalone Angular component). */
   load(): Promise<Type<unknown>> | Type<unknown>;
 }
-

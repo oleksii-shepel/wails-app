@@ -53,6 +53,7 @@ import {
 } from './reassembly-context-menu.component';
 import { FileInfo, FileType } from '../shared/protocol';
 import { PluginManagerService } from '../services/plugin-manager.service';
+import { PluginLifecycleCoordinatorService } from '../services/plugin-lifecycle-coordinator.service';
 import { SettingsService } from '../services/settings.service';
 import { SurfaceRegistryService } from '../surfaces/surface-registry.service';
 import type { ToolbarContext, MenuContext } from '../plugin/plugin-registry-api';
@@ -427,6 +428,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         #quickAccess
         [paneId]="activePaneId"
         [currentPath]="activePane?.path ?? ''"
+        [currentSurfaceId]="activePane?.activeSurfaceId || 'dir'"
         (navigate)="navigateFromQuickAccess($event)">
       </app-reassembly-quick-access>
 
@@ -609,6 +611,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     private readonly batchRenameDialog: BatchRenameDialogService,
     private readonly remoteConnectDialog: RemoteConnectDialogService,
     private readonly pluginManager: PluginManagerService,
+    private readonly pluginLifecycle: PluginLifecycleCoordinatorService,
     private readonly settings: SettingsService,
     private readonly surfaceRegistry: SurfaceRegistryService,
     private readonly cdr: ChangeDetectorRef,
@@ -699,7 +702,9 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       .filter(item => !!item.commandId);
   }
 
-  private refreshCommandPaletteCommands(): void {
+  private async refreshCommandPaletteCommands(): Promise<void> {
+    const pluginSnapshots = await this.pluginLifecycle.sync().catch(() => []);
+
     this.commandPaletteCommands = this.input
       .getCommandCatalog()
       .filter(command => command.registered)
@@ -723,6 +728,40 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
         isEnabled: () => !!this.input.getCommandState(command.id)?.enabled,
       }));
 
+    const registered = new Set(
+      this.commandPaletteCommands.map(command => command.id),
+    );
+
+    for (const snapshot of pluginSnapshots) {
+      const manifest = snapshot.plugin.discovered.manifest;
+
+      for (const commandId of manifest.contributes?.commands ?? []) {
+        if (!commandId || registered.has(commandId)) continue;
+
+        this.commandPaletteCommands.push({
+          id: commandId,
+          title: commandId,
+          category: `Plugin: ${manifest.name || manifest.id}`,
+          execute: async () => {
+            await this.pluginLifecycle.activateByEvent(`onCommand:${commandId}`);
+            this.input.dispatchCommandById(commandId, {
+              source: 'palette',
+              context: {
+                paneId: this.activePaneId,
+                path: this.activePane?.path ?? '',
+                selectedPaths: this.pluginSelectionPaths(),
+              },
+            });
+          },
+          isEnabled: () =>
+            snapshot.plugin.readyToActivate &&
+            !snapshot.plugin.state.quarantined,
+        });
+
+        registered.add(commandId);
+      }
+    }
+
     this.commandPaletteCommands.push(
       ...this.pluginSurfacePaletteCommands(),
     );
@@ -735,9 +774,18 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
   }
 
   async openPluginSurface(surfaceId: string): Promise<void> {
+    const id = surfaceId.trim();
+    if (!id) return;
+
+    try {
+      await this.pluginLifecycle.activateByEvent(`onSurface:${id}`);
+    } catch {
+      // Surface resolution remains authoritative after activation.
+    }
+
     const contribution = this.surfaceRegistry
       .list()
-      .find(surface => surface.id === surfaceId);
+      .find(surface => surface.id === id);
     if (!contribution) return;
 
     await this.activePane?.openSurfaceTab(
@@ -2238,8 +2286,8 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     };
 
     descriptor(COMMAND.toggleShortcutHelp, 'Keyboard Shortcuts', 'Help', () => this.toggleShortcutHelp());
-    descriptor(COMMAND.openCommandPalette, 'Command Palette', 'Navigation', () => {
-      this.refreshCommandPaletteCommands();
+    descriptor(COMMAND.openCommandPalette, 'Command Palette', 'Navigation', async () => {
+      await this.refreshCommandPaletteCommands();
       this.commandPalette?.open();
     });
     descriptor(COMMAND.openSettings, 'Settings', 'Settings', () => this.openSettings());

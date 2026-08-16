@@ -7,6 +7,7 @@ import { InputEngineService } from '../services/input-engine.service';
 import type { InputBindingDefinition } from '../services/input-system.types';
 import { PathHistoryService } from '../services/path-history.service';
 import { PinnedLocationService } from '../services/pinned-location.service';
+import { RelatedLocationService } from '../services/related-location.service';
 import { RemoteConnectionsService } from '../services/remote-connections.service';
 import type { PinnedLocation } from './address-bar.types';
 import type { SpecialFolder } from '../shared/protocol';
@@ -139,6 +140,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
 export class ReassemblyQuickAccessComponent implements OnInit, OnDestroy {
   @Input() paneId: 'left' | 'right' = 'left';
   @Input() currentPath = '';
+  @Input() currentSurfaceId = 'dir';
   @Output() navigate = new EventEmitter<string>();
 
   visible = false;
@@ -152,6 +154,7 @@ export class ReassemblyQuickAccessComponent implements OnInit, OnDestroy {
     private readonly api: ApiService,
     private readonly history: PathHistoryService,
     private readonly pinnedLocations: PinnedLocationService,
+    private readonly relatedLocations: RelatedLocationService,
     private readonly input: InputEngineService,
     private readonly connections: RemoteConnectionsService,
     private readonly cdr: ChangeDetectorRef,
@@ -282,9 +285,17 @@ export class ReassemblyQuickAccessComponent implements OnInit, OnDestroy {
       .filter(entry => this.locationKey(entry.location) !== currentId)
       .slice(0, 10);
 
-    const related = this.currentPath
+    const historyRelated = this.currentPath
       ? this.history.getRelatedLocations(this.currentPath, 8)
         .filter(entry => this.locationKey(entry.location) !== currentId)
+      : [];
+
+    const contributedRelated = this.currentPath
+      ? this.relatedLocations.resolve(
+          this.pins,
+          this.currentPath,
+          this.currentSurfaceId,
+        )
       : [];
 
     const seen = new Set<string>();
@@ -314,14 +325,24 @@ export class ReassemblyQuickAccessComponent implements OnInit, OnDestroy {
         kind: 'pin',
       }));
 
-    const relatedItems: QuickItem[] = related.map(entry => ({
-      id: `related:${entry.location}`,
-      label: this.labelFor(entry.location),
-      path: entry.location,
-      icon: '↔',
-      meta: entry.scheme,
-      kind: 'related',
-    }));
+    const relatedItems: QuickItem[] = [
+      ...contributedRelated.map(pin => ({
+        id: `related-pin:${pin.id}`,
+        label: pin.label,
+        path: pin.location,
+        icon: pin.icon || '◆',
+        meta: pin.surfaceId || pin.scheme,
+        kind: 'related' as const,
+      })),
+      ...historyRelated.map(entry => ({
+        id: `related:${entry.location}`,
+        label: this.labelFor(entry.location),
+        path: entry.location,
+        icon: '↔',
+        meta: entry.scheme,
+        kind: 'related' as const,
+      })),
+    ];
 
     const frequentItems: QuickItem[] = frequent.map(entry => ({
       id: `frequent:${entry.location}`,

@@ -2,8 +2,10 @@ import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
+  ElementRef,
   EventEmitter,
   Input,
+  OnDestroy,
   OnInit,
   Output,
   ViewChild,
@@ -46,6 +48,13 @@ type ReassemblyTab =
       sortDirection: ReassemblySortDirection;
       directoriesFirst: boolean;
       expandedPaths: string[];
+      filterText: string;
+      filterVisible: boolean;
+      selectedPaths: string[];
+      cursorPath: string | null;
+      anchorPath: string | null;
+      scrollTop: number;
+      entries: FileInfo[];
     }
   | {
       id: string;
@@ -55,6 +64,24 @@ type ReassemblyTab =
       targetPath: string;
       fileList: ViewerFileListItem[];
     };
+
+interface ReassemblyDirTabSession {
+  schemaVersion: 2;
+  viewMode: ReassemblyDirectoryView;
+  sortField: ReassemblySortField;
+  sortDirection: ReassemblySortDirection;
+  directoriesFirst: boolean;
+  expandedPaths: string[];
+  filterText: string;
+  filterVisible: boolean;
+  selectedPaths: string[];
+  cursorPath: string | null;
+  anchorPath: string | null;
+  scrollTop: number;
+  entries: FileInfo[];
+}
+
+const REASSEMBLY_DIR_TAB_SESSION_VERSION = 2;
 
 @Component({
   selector: 'app-reassembly-directory-pane',
@@ -250,10 +277,12 @@ type ReassemblyTab =
       </div>
 
       <div
+        #treeViewport
         class="tree-view"
         *ngIf="!error && viewMode === 'tree'"
         role="tree"
-        [attr.aria-busy]="loading">
+        [attr.aria-busy]="loading"
+        (scroll)="onContentScroll($event)">
         <button
           *ngFor="let row of treeRows; trackBy: trackTreeRow"
           type="button"
@@ -293,6 +322,7 @@ type ReassemblyTab =
       </div>
 
       <div
+        #listViewport
         class="list"
         *ngIf="!error && viewMode !== 'tree'"
         role="listbox"
@@ -300,6 +330,7 @@ type ReassemblyTab =
         [class.view-grid]="viewMode === 'grid'"
         [class.view-details]="viewMode === 'details'"
         [attr.aria-busy]="loading"
+        (scroll)="onContentScroll($event)"
         [class.background-drop-target]="backgroundDropActive"
         (contextmenu)="onBackgroundContextMenu($event)"
         (dragover)="onBackgroundDragOver($event)"
@@ -1012,12 +1043,14 @@ type ReassemblyTab =
     }
   `],
 })
-export class ReassemblyDirectoryPaneComponent implements OnInit {
+export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   readonly FileType = FileType;
 
   @ViewChild('addressBar') addressBar?: ReassemblyAddressBarComponent;
   @ViewChild('viewerHost') viewerHost?: ViewerHostSurfaceComponent;
   @ViewChild('filterWidget') filterWidget?: ReassemblyFilterComponent;
+  @ViewChild('listViewport') listViewport?: ElementRef<HTMLElement>;
+  @ViewChild('treeViewport') treeViewport?: ElementRef<HTMLElement>;
 
   @Input() paneId: 'left' | 'right' = 'left';
   @Input() active = false;
@@ -1058,6 +1091,8 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
   activeTabId: string | null = null;
   private tabCounter = 0;
   private workspaceTabsReady = false;
+  private interactionGeneration = 0;
+  private scrollPersistTimer: ReturnType<typeof setTimeout> | null = null;
 
   get activeTab(): ReassemblyTab | null {
     if (!this.activeTabId) return null;
@@ -1196,12 +1231,21 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
     void this.initialize();
   }
 
+  ngOnDestroy(): void {
+    if (this.scrollPersistTimer) {
+      clearTimeout(this.scrollPersistTimer);
+      this.scrollPersistTimer = null;
+    }
+    this.syncActiveDirSessionState();
+  }
+
   focusLocation(): void {
     if (!this.isDirectoryTab) return;
     this.addressBar?.beginEdit();
   }
 
   async restoreWorkspaceState(): Promise<void> {
+    this.syncActiveDirSessionState();
     this.tabs = [];
     this.activeTabId = null;
     this.filterText = '';
@@ -1229,7 +1273,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
       this.activeTabId = persisted.id;
       const active = this.activeTab;
       if (active?.kind === 'dir') {
-        this.applyDirPresentationState(active);
+        this.applyDirSessionBeforeLoad(active);
       }
       this.lastAction = `new tab: ${persisted.title || this.tabTitle(path)}`;
       this.cdr.markForCheck();
@@ -1239,7 +1283,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
     const tab = this.createDirectoryTab(path);
     this.tabs = [...this.tabs, tab];
     this.activeTabId = tab.id;
-    this.applyDirPresentationState(tab);
+    this.applyDirSessionBeforeLoad(tab);
     this.lastAction = `new tab: ${tab.title}`;
     this.cdr.markForCheck();
   }
@@ -1247,7 +1291,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
   async activateTab(tabId: string): Promise<void> {
     if (tabId === this.activeTabId) return;
 
-    this.syncActiveDirPresentationState();
+    this.syncActiveDirSessionState();
 
     const tab = this.tabs.find(candidate => candidate.id === tabId);
     if (!tab) return;
@@ -1256,18 +1300,25 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
     this.lastAction = `tab: ${tab.title}`;
 
     if (tab.kind === 'dir') {
-      this.applyDirPresentationState(tab);
+      this.applyDirSessionBeforeLoad(tab);
       this.workspaceService.switchTab(this.paneId, tab.id);
-      await this.load(tab.path, { history: 'record', syncTab: false });
-      await this.restoreExpandedTreeForActiveTab();
+
+      const interactionGeneration = this.interactionGeneration;
+      const loaded = await this.load(tab.path, {
+        history: 'record',
+        syncTab: false,
+        restoreSession: true,
+      });
+
+      if (loaded) {
+        await this.finalizeDirSessionAfterLoad(
+          tab,
+          interactionGeneration,
+        );
+      }
     }
 
     this.cdr.markForCheck();
-  }
-
-  async closeActiveTab(): Promise<void> {
-    if (!this.activeTabId) return;
-    await this.closeTab(this.activeTabId);
   }
 
   async closeTab(tabId: string): Promise<void> {
@@ -1297,7 +1348,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
     if (closing.kind === 'dir') {
       this.workspaceService.closeTab(this.paneId, tabId);
       try {
-        localStorage.removeItem(this.dirPresentationStorageKey(tabId));
+        localStorage.removeItem(this.dirSessionStorageKey(tabId));
       } catch {
         // Best-effort cleanup only.
       }
@@ -1334,6 +1385,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
   }
 
   setSortField(field: string): void {
+    this.markUserInteraction();
     if (
       field !== 'name' &&
       field !== 'size' &&
@@ -1344,21 +1396,23 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
     }
 
     this.sortField = field;
-    this.syncActiveDirPresentationState();
+    this.syncActiveDirSessionState();
     this.lastAction = `sort: ${field}`;
     this.cdr.markForCheck();
   }
 
   toggleSortDirection(): void {
+    this.markUserInteraction();
     this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
-    this.syncActiveDirPresentationState();
+    this.syncActiveDirSessionState();
     this.lastAction = `sort: ${this.sortDirection}`;
     this.cdr.markForCheck();
   }
 
   toggleDirectoriesFirst(): void {
+    this.markUserInteraction();
     this.directoriesFirst = !this.directoriesFirst;
-    this.syncActiveDirPresentationState();
+    this.syncActiveDirSessionState();
     this.lastAction = this.directoriesFirst
       ? 'folders first'
       : 'mixed folders/files';
@@ -1366,6 +1420,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
   }
 
   setViewMode(mode: ReassemblyDirectoryView): void {
+    this.markUserInteraction();
     if (this.viewMode === mode) return;
 
     if (mode === 'tree') {
@@ -1374,7 +1429,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
       this.treeLoadingPaths.clear();
     }
     this.viewMode = mode;
-    this.syncActiveDirPresentationState();
+    this.syncActiveDirSessionState();
     this.lastAction = `view: ${mode}`;
     queueMicrotask(() => this.ensureCursorVisible());
     this.cdr.markForCheck();
@@ -1396,22 +1451,27 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
     return row.entry.path;
   }
 
-  async toggleTreeRow(row: ReassemblyTreeRow, event?: Event): Promise<void> {
+  async toggleTreeRow(
+    row: ReassemblyTreeRow,
+    event?: Event,
+    userInitiated = true,
+  ): Promise<void> {
     event?.preventDefault();
     event?.stopPropagation();
+    if (userInitiated) this.markUserInteraction();
 
     if (!row.expandable) return;
 
     if (this.treeExpandedPaths.has(row.entry.path)) {
       this.treeExpandedPaths.delete(row.entry.path);
-      this.syncActiveDirPresentationState();
+      this.syncActiveDirSessionState();
       this.lastAction = `collapse: ${row.entry.name}`;
       this.cdr.markForCheck();
       return;
     }
 
     this.treeExpandedPaths.add(row.entry.path);
-    this.syncActiveDirPresentationState();
+    this.syncActiveDirSessionState();
     this.lastAction = `expand: ${row.entry.name}`;
     this.cdr.markForCheck();
 
@@ -1429,7 +1489,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
       this.treeChildren.set(row.entry.path, children);
     } catch (error) {
       this.treeExpandedPaths.delete(row.entry.path);
-      this.syncActiveDirPresentationState();
+      this.syncActiveDirSessionState();
       this.lastAction = `tree load failed: ${
         error instanceof Error ? error.message : String(error)
       }`;
@@ -1449,6 +1509,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
 
   async treeLeft(): Promise<void> {
     if (this.viewMode !== 'tree') return;
+    this.markUserInteraction();
     const rows = this.treeRows;
     const index = rows.findIndex(row => row.entry.path === this.cursorPath);
     if (index < 0) return;
@@ -1456,7 +1517,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
 
     if (row.expandable && row.expanded) {
       this.treeExpandedPaths.delete(row.entry.path);
-      this.syncActiveDirPresentationState();
+      this.syncActiveDirSessionState();
       this.cdr.markForCheck();
       return;
     }
@@ -1475,6 +1536,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
 
   async treeRight(): Promise<void> {
     if (this.viewMode !== 'tree') return;
+    this.markUserInteraction();
     const rows = this.treeRows;
     const index = rows.findIndex(row => row.entry.path === this.cursorPath);
     if (index < 0) return;
@@ -1505,18 +1567,22 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
   }
 
   setFilter(value: string): void {
+    this.markUserInteraction();
     this.filterText = value ?? '';
     this.reconcileSelectionWithVisibleEntries();
     this.lastAction = this.filterText ? `filter: ${this.filterText}` : 'filter cleared';
+    this.syncActiveDirSessionState();
     this.cdr.markForCheck();
   }
 
   closeFilter(): void {
+    this.markUserInteraction();
     this.filterText = '';
     this.filterVisible = false;
     this.filterWidget?.deactivateContext();
     this.reconcileSelectionWithVisibleEntries();
     this.lastAction = 'filter closed';
+    this.syncActiveDirSessionState();
     this.cdr.markForCheck();
   }
 
@@ -1529,6 +1595,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
   }
 
   navigateTo(path: string): void {
+    this.syncActiveDirSessionState();
     if (!this.isDirectoryTab) return;
     this.lastAction = `navigate: ${path}`;
     void this.load(path, { history: 'record' });
@@ -1544,6 +1611,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
   }
 
   async navigateUp(): Promise<void> {
+    this.syncActiveDirSessionState();
     if (!this.isDirectoryTab || !this.path || this.atRoot) return;
     const parent = this.directorySource.getParentPath(this.path);
     if (!parent || parent === this.path) return;
@@ -1553,6 +1621,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
   }
 
   async goBack(): Promise<void> {
+    this.syncActiveDirSessionState();
     if (!this.isDirectoryTab) return;
     const target = this.navigation.backTarget();
     if (!target) return;
@@ -1566,6 +1635,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
   }
 
   async goForward(): Promise<void> {
+    this.syncActiveDirSessionState();
     if (!this.isDirectoryTab) return;
     const target = this.navigation.forwardTarget();
     if (!target) return;
@@ -1720,6 +1790,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
   }
 
   selectFromPointer(entry: FileInfo, event: MouseEvent): void {
+    this.markUserInteraction();
     this.cursorPath = entry.path;
 
     if (event.shiftKey && this.anchorPath) {
@@ -1769,15 +1840,18 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
     this.activeTabId = tab.id;
     this.lastAction = `viewer: ${entry.name}`;
     this.cdr.markForCheck();
+    this.syncActiveDirSessionState();
   }
 
   selectAll(): void {
     if (!this.isDirectoryTab) return;
+    this.markUserInteraction();
     const selectable = this.viewMode === 'tree'
       ? this.treeRows.map(row => row.entry)
       : this.visibleEntries;
     this.selectedPaths = new Set(selectable.map(entry => entry.path));
     this.lastAction = 'select all';
+    this.syncActiveDirSessionState();
     this.cdr.markForCheck();
   }
 
@@ -1835,7 +1909,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
   async renameSelected(): Promise<void> {
     if (!this.canRename) return;
 
-    const entry = this.selectedEntries()[0];
+    const entry = this.selectedEntries[0];
     if (!entry) return;
 
     const nextName = await this.confirmDialog.prompt({
@@ -1871,7 +1945,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
   async deleteSelected(): Promise<void> {
     if (!this.canDelete) return;
 
-    const entries = this.selectedEntries();
+    const entries = this.selectedEntries;
     if (entries.length === 0) return;
 
     const useTrash = this.sourceCapabilities.trash;
@@ -1939,10 +2013,6 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
     }
   }
 
-  private selectedEntries(): FileInfo[] {
-    if (!this.selectedPaths.size) return [];
-    return this.entries.filter(entry => this.selectedPaths.has(entry.path));
-  }
 
   private selectPath(path: string): void {
     const entry = this.entries.find(candidate => candidate.path === path);
@@ -2015,7 +2085,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
           : this.createDirectoryTab(this.path);
         this.tabs = [tab];
         this.activeTabId = tab.id;
-        if (tab.kind === 'dir') this.applyDirPresentationState(tab);
+        if (tab.kind === 'dir') this.applyDirSessionBeforeLoad(tab);
         this.workspaceTabsReady = !!persisted;
         this.cdr.markForCheck();
       }
@@ -2029,7 +2099,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
             : this.createDirectoryTab(this.path);
           this.tabs = [tab];
           this.activeTabId = tab.id;
-          if (tab.kind === 'dir') this.applyDirPresentationState(tab);
+          if (tab.kind === 'dir') this.applyDirSessionBeforeLoad(tab);
           this.workspaceTabsReady = !!persisted;
           this.cdr.markForCheck();
         }
@@ -2039,37 +2109,104 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
     }
   }
 
-  private defaultDirPresentationState(): {
-    viewMode: ReassemblyDirectoryView;
-    sortField: ReassemblySortField;
-    sortDirection: ReassemblySortDirection;
-    directoriesFirst: boolean;
-    expandedPaths: string[];
-  } {
+  private sortEntries(entries: FileInfo[]): FileInfo[] {
+    const direction = this.sortDirection === 'asc' ? 1 : -1;
+
+    return [...entries].sort((left, right) => {
+      if (this.directoriesFirst) {
+        const leftDirectory = left.type === FileType.DIRECTORY;
+        const rightDirectory = right.type === FileType.DIRECTORY;
+        if (leftDirectory !== rightDirectory) {
+          return leftDirectory ? -1 : 1;
+        }
+      }
+
+      const result = this.compareEntries(left, right);
+      if (result !== 0) return result * direction;
+
+      return (left.name ?? '').localeCompare(right.name ?? '', undefined, {
+        numeric: true,
+        sensitivity: 'base',
+      });
+    });
+  }
+
+  private compareEntries(left: FileInfo, right: FileInfo): number {
+    switch (this.sortField) {
+      case 'size':
+        return Number(left.size ?? 0) - Number(right.size ?? 0);
+
+      case 'modified':
+        return Number(left.modified ?? 0) - Number(right.modified ?? 0);
+
+      case 'type':
+        return this.sortTypeKey(left).localeCompare(
+          this.sortTypeKey(right),
+          undefined,
+          { numeric: true, sensitivity: 'base' },
+        );
+
+      case 'name':
+      default:
+        return (left.name ?? '').localeCompare(right.name ?? '', undefined, {
+          numeric: true,
+          sensitivity: 'base',
+        });
+    }
+  }
+
+  private sortTypeKey(entry: FileInfo): string {
+    if (entry.type === FileType.DIRECTORY) return '0-directory';
+
+    const name = entry.name ?? '';
+    const dot = name.lastIndexOf('.');
+    const extension =
+      dot > 0 ? name.slice(dot + 1).toLocaleLowerCase() : '';
+
+    return `1-${extension || 'file'}`;
+  }
+
+  private defaultDirTabSession(): ReassemblyDirTabSession {
     return {
+      schemaVersion: REASSEMBLY_DIR_TAB_SESSION_VERSION,
       viewMode: 'list',
       sortField: 'name',
       sortDirection: 'asc',
       directoriesFirst: true,
       expandedPaths: [],
+      filterText: '',
+      filterVisible: false,
+      selectedPaths: [],
+      cursorPath: null,
+      anchorPath: null,
+      scrollTop: 0,
+      entries: [],
     };
   }
 
-  private dirPresentationStorageKey(tabId: string): string {
+  private dirSessionStorageKey(tabId: string): string {
     return `reassembly.dirTab.${this.paneId}.${tabId}`;
   }
 
-  private loadDirPresentationState(tabId: string): ReturnType<
-    ReassemblyDirectoryPaneComponent['defaultDirPresentationState']
-  > {
-    const fallback = this.defaultDirPresentationState();
+  private loadDirTabSession(tabId: string): ReassemblyDirTabSession {
+    const fallback = this.defaultDirTabSession();
 
     try {
-      const raw = localStorage.getItem(this.dirPresentationStorageKey(tabId));
+      const raw = localStorage.getItem(this.dirSessionStorageKey(tabId));
       if (!raw) return fallback;
 
-      const parsed = JSON.parse(raw) as Partial<typeof fallback>;
+      const parsed = JSON.parse(raw) as Partial<ReassemblyDirTabSession>;
+      const version =
+        typeof parsed.schemaVersion === 'number'
+          ? parsed.schemaVersion
+          : 1;
+
+      // v1 was Phase 24's presentation-only shape. Missing fields naturally
+      // migrate to the defaults below.
+      void version;
+
       return {
+        schemaVersion: REASSEMBLY_DIR_TAB_SESSION_VERSION,
         viewMode:
           parsed.viewMode === 'list' ||
           parsed.viewMode === 'grid' ||
@@ -2096,53 +2233,130 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
                 (path): path is string => typeof path === 'string',
               )
             : [],
+        filterText:
+          typeof parsed.filterText === 'string'
+            ? parsed.filterText
+            : '',
+        filterVisible:
+          !!parsed.filterVisible,
+        selectedPaths:
+          Array.isArray(parsed.selectedPaths)
+            ? parsed.selectedPaths.filter(
+                (path): path is string => typeof path === 'string',
+              )
+            : [],
+        cursorPath:
+          typeof parsed.cursorPath === 'string'
+            ? parsed.cursorPath
+            : null,
+        anchorPath:
+          typeof parsed.anchorPath === 'string'
+            ? parsed.anchorPath
+            : null,
+        scrollTop:
+          typeof parsed.scrollTop === 'number' &&
+          Number.isFinite(parsed.scrollTop) &&
+          parsed.scrollTop >= 0
+            ? parsed.scrollTop
+            : 0,
+        entries:
+          Array.isArray(parsed.entries)
+            ? parsed.entries.map(entry => ({ ...entry }))
+            : [],
       };
     } catch {
       return fallback;
     }
   }
 
-  private persistDirPresentationState(tab: Extract<ReassemblyTab, { kind: 'dir' }>): void {
+  private persistDirTabSession(
+    tab: Extract<ReassemblyTab, { kind: 'dir' }>,
+  ): void {
     try {
+      const session: ReassemblyDirTabSession = {
+        schemaVersion: REASSEMBLY_DIR_TAB_SESSION_VERSION,
+        viewMode: tab.viewMode,
+        sortField: tab.sortField,
+        sortDirection: tab.sortDirection,
+        directoriesFirst: tab.directoriesFirst,
+        expandedPaths: [...tab.expandedPaths],
+        filterText: tab.filterText,
+        filterVisible: tab.filterVisible,
+        selectedPaths: [...tab.selectedPaths],
+        cursorPath: tab.cursorPath,
+        anchorPath: tab.anchorPath,
+        scrollTop: Math.max(0, Math.round(tab.scrollTop)),
+        entries: tab.entries.map(entry => ({ ...entry })),
+      };
+
       localStorage.setItem(
-        this.dirPresentationStorageKey(tab.id),
-        JSON.stringify({
-          viewMode: tab.viewMode,
-          sortField: tab.sortField,
-          sortDirection: tab.sortDirection,
-          directoriesFirst: tab.directoriesFirst,
-          expandedPaths: tab.expandedPaths,
-        }),
+        this.dirSessionStorageKey(tab.id),
+        JSON.stringify(session),
       );
     } catch {
-      // Per-tab UI persistence is best-effort only.
+      // Per-tab session persistence is best-effort only.
     }
   }
 
-  private syncActiveDirPresentationState(): void {
+  private currentScrollTop(): number {
+    const viewport =
+      this.viewMode === 'tree'
+        ? this.treeViewport?.nativeElement
+        : this.listViewport?.nativeElement;
+    return Math.max(0, viewport?.scrollTop ?? 0);
+  }
+
+  private syncActiveDirSessionState(
+    persist = true,
+  ): Extract<ReassemblyTab, { kind: 'dir' }> | null {
     const active = this.activeTab;
-    if (!active || active.kind !== 'dir') return;
+    if (!active || active.kind !== 'dir') return null;
 
     const updated: Extract<ReassemblyTab, { kind: 'dir' }> = {
       ...active,
+      path: this.path || active.path,
+      title: this.tabTitle(this.path || active.path),
       viewMode: this.viewMode,
       sortField: this.sortField,
       sortDirection: this.sortDirection,
       directoriesFirst: this.directoriesFirst,
       expandedPaths: Array.from(this.treeExpandedPaths),
+      filterText: this.filterText,
+      filterVisible: this.filterVisible,
+      selectedPaths: Array.from(this.selectedPaths),
+      cursorPath: this.cursorPath,
+      anchorPath: this.anchorPath,
+      scrollTop: this.currentScrollTop(),
+      entries: this.entries.map(entry => ({ ...entry })),
     };
 
-    this.tabs = this.tabs.map(tab => tab.id === updated.id ? updated : tab);
-    this.persistDirPresentationState(updated);
+    this.tabs = this.tabs.map(tab =>
+      tab.id === updated.id ? updated : tab,
+    );
+
+    if (persist) {
+      this.persistDirTabSession(updated);
+    }
+
+    return updated;
   }
 
-  private applyDirPresentationState(
+  private applyDirSessionBeforeLoad(
     tab: Extract<ReassemblyTab, { kind: 'dir' }>,
   ): void {
     this.viewMode = tab.viewMode;
     this.sortField = tab.sortField;
     this.sortDirection = tab.sortDirection;
     this.directoriesFirst = tab.directoriesFirst;
+    this.filterText = tab.filterText;
+    this.filterVisible = tab.filterVisible;
+
+    // Cached entries make tab switching immediate while the source refreshes.
+    this.entries = tab.entries.map(entry => ({ ...entry }));
+
+    this.cursorPath = tab.cursorPath;
+    this.selectedPaths = new Set(tab.selectedPaths);
+    this.anchorPath = tab.anchorPath;
 
     this.treeExpandedPaths.clear();
     for (const path of tab.expandedPaths) {
@@ -2150,15 +2364,47 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
     }
     this.treeChildren.clear();
     this.treeLoadingPaths.clear();
+
+    this.reconcileRestoredSelection();
+    this.cdr.markForCheck();
   }
 
-  private async restoreExpandedTreeForActiveTab(): Promise<void> {
-    if (this.viewMode !== 'tree' || this.treeExpandedPaths.size === 0) return;
+  private async finalizeDirSessionAfterLoad(
+    tab: Extract<ReassemblyTab, { kind: 'dir' }>,
+    interactionGeneration: number,
+  ): Promise<void> {
+    // Do not replace user selection/filter if the user interacted while the
+    // refresh was in flight.
+    if (interactionGeneration === this.interactionGeneration) {
+      this.filterText = tab.filterText;
+      this.filterVisible = tab.filterVisible;
+      this.cursorPath = tab.cursorPath;
+      this.selectedPaths = new Set(tab.selectedPaths);
+      this.anchorPath = tab.anchorPath;
+      this.reconcileRestoredSelection();
 
-    const desired = new Set(this.treeExpandedPaths);
+      if (this.viewMode === 'tree') {
+        await this.restoreExpandedTreePaths(tab.expandedPaths);
+      }
+
+      queueMicrotask(() => this.restoreScrollTop(tab.scrollTop));
+    }
+
+    this.syncActiveDirSessionState();
+    this.cdr.markForCheck();
+  }
+
+  private async restoreExpandedTreePaths(
+    expandedPaths: readonly string[],
+  ): Promise<void> {
+    if (this.viewMode !== 'tree' || expandedPaths.length === 0) return;
+
+    const desired = new Set(expandedPaths);
     this.treeExpandedPaths.clear();
+    this.treeChildren.clear();
+    this.treeLoadingPaths.clear();
 
-    const expandKnown = async (entries: FileInfo[]): Promise<void> => {
+    const expandLevel = async (entries: FileInfo[]): Promise<void> => {
       for (const entry of entries) {
         if (
           entry.type !== FileType.DIRECTORY ||
@@ -2175,14 +2421,92 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
           expandable: true,
         };
 
-        await this.toggleTreeRow(row);
-        const children = this.treeChildren.get(entry.path) ?? [];
-        await expandKnown(children);
+        await this.toggleTreeRow(row, undefined, false);
+        await expandLevel(this.treeChildren.get(entry.path) ?? []);
       }
     };
 
-    await expandKnown(this.visibleEntries);
-    this.syncActiveDirPresentationState();
+    await expandLevel(this.visibleEntries);
+  }
+
+  private reconcileRestoredSelection(): void {
+    const available = new Set(
+      (this.viewMode === 'tree'
+        ? this.treeRows.map(row => row.entry)
+        : this.visibleEntries
+      ).map(entry => entry.path),
+    );
+
+    this.selectedPaths = new Set(
+      Array.from(this.selectedPaths).filter(path => available.has(path)),
+    );
+
+    if (this.cursorPath && !available.has(this.cursorPath)) {
+      this.cursorPath = null;
+    }
+
+    if (this.anchorPath && !available.has(this.anchorPath)) {
+      this.anchorPath = null;
+    }
+
+    if (!this.cursorPath) {
+      const first =
+        this.selectedPaths.values().next().value ??
+        (this.viewMode === 'tree'
+          ? this.treeRows[0]?.entry.path
+          : this.visibleEntries[0]?.path) ??
+        null;
+
+      this.cursorPath = first;
+    }
+
+    if (this.cursorPath && this.selectedPaths.size === 0) {
+      this.selectedPaths.add(this.cursorPath);
+    }
+
+    if (!this.anchorPath) {
+      this.anchorPath = this.cursorPath;
+    }
+  }
+
+  private restoreScrollTop(scrollTop: number): void {
+    const viewport =
+      this.viewMode === 'tree'
+        ? this.treeViewport?.nativeElement
+        : this.listViewport?.nativeElement;
+    if (!viewport) return;
+
+    viewport.scrollTop = Math.max(0, scrollTop);
+  }
+
+  private markUserInteraction(): void {
+    this.interactionGeneration += 1;
+  }
+
+  onContentScroll(event: Event): void {
+    const target = event.currentTarget as HTMLElement | null;
+    if (!target || !this.isDirectoryTab) return;
+
+    const active = this.activeTab;
+    if (!active || active.kind !== 'dir') return;
+
+    const updated: Extract<ReassemblyTab, { kind: 'dir' }> = {
+      ...active,
+      scrollTop: Math.max(0, target.scrollTop),
+    };
+
+    this.tabs = this.tabs.map(tab =>
+      tab.id === updated.id ? updated : tab,
+    );
+
+    if (this.scrollPersistTimer) {
+      clearTimeout(this.scrollPersistTimer);
+    }
+
+    this.scrollPersistTimer = setTimeout(() => {
+      this.scrollPersistTimer = null;
+      this.syncActiveDirSessionState();
+    }, 140);
   }
 
   private async tryRestoreWorkspaceTabs(): Promise<boolean> {
@@ -2205,19 +2529,24 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
           const target = activeDir ?? dirTabs[0];
 
           this.activeTabId = target.id;
-          this.applyDirPresentationState(target);
+          this.applyDirSessionBeforeLoad(target);
           this.workspaceTabsReady = true;
           this.tabCounter = Math.max(this.tabCounter, dirTabs.length);
           this.cdr.markForCheck();
 
+          const interactionGeneration = this.interactionGeneration;
           const loaded = await this.load(target.path, {
             history: 'record',
             syncTab: false,
+            restoreSession: true,
           });
 
           if (loaded) {
             this.workspaceService.switchTab(this.paneId, target.id);
-            await this.restoreExpandedTreeForActiveTab();
+            await this.finalizeDirSessionAfterLoad(
+              target,
+              interactionGeneration,
+            );
             return true;
           }
         }
@@ -2231,24 +2560,31 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
     return false;
   }
 
-  private fromPersistedTab(tab: any): ReassemblyTab {
+  private fromPersistedTab(tab: any): Extract<ReassemblyTab, { kind: 'dir' }> {
     const path =
       typeof tab.location === 'string'
         ? tab.location
         : tab.location?.location || tab.path || '/';
 
-    const presentation = this.loadDirPresentationState(tab.id);
+    const session = this.loadDirTabSession(tab.id);
 
     return {
       id: tab.id,
       kind: 'dir',
       path,
       title: tab.title || this.tabTitle(path),
-      viewMode: presentation.viewMode,
-      sortField: presentation.sortField,
-      sortDirection: presentation.sortDirection,
-      directoriesFirst: presentation.directoriesFirst,
-      expandedPaths: presentation.expandedPaths,
+      viewMode: session.viewMode,
+      sortField: session.sortField,
+      sortDirection: session.sortDirection,
+      directoriesFirst: session.directoriesFirst,
+      expandedPaths: session.expandedPaths,
+      filterText: session.filterText,
+      filterVisible: session.filterVisible,
+      selectedPaths: session.selectedPaths,
+      cursorPath: session.cursorPath,
+      anchorPath: session.anchorPath,
+      scrollTop: session.scrollTop,
+      entries: session.entries,
     };
   }
 
@@ -2267,6 +2603,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
       preserveCursor?: boolean;
       history?: 'record' | 'none';
       syncTab?: boolean;
+      restoreSession?: boolean;
     } = {},
   ): Promise<boolean> {
     const generation = ++this.loadGeneration;
@@ -2287,13 +2624,11 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
       const pathChanged = this.path && this.path !== nextPath;
       this.path = nextPath;
 
-      if (pathChanged) {
+      if (pathChanged && !options.restoreSession) {
         this.filterText = '';
         this.filterVisible = false;
         this.filterWidget?.deactivateContext();
-      }
 
-      if (pathChanged) {
         this.treeExpandedPaths.clear();
         this.treeChildren.clear();
         this.treeLoadingPaths.clear();
@@ -2301,14 +2636,19 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
 
       this.entries = [...(listing.entries || [])];
 
-      const preserved = previousCursor
-        ? this.entries.find(entry => entry.path === previousCursor)
-        : null;
-      const nextCursor = preserved ?? this.entries[0] ?? null;
+      if (!options.restoreSession) {
+        const preserved = previousCursor
+          ? this.entries.find(entry => entry.path === previousCursor)
+          : null;
+        const nextCursor = preserved ?? this.sortedEntries[0] ?? null;
 
-      this.cursorPath = nextCursor?.path ?? null;
-      this.selectedPaths = nextCursor ? new Set([nextCursor.path]) : new Set();
-      this.anchorPath = nextCursor?.path ?? null;
+        this.cursorPath = nextCursor?.path ?? null;
+        this.selectedPaths = nextCursor
+          ? new Set([nextCursor.path])
+          : new Set();
+        this.anchorPath = nextCursor?.path ?? null;
+      }
+
       this.error = null;
 
       if ((options.history ?? 'record') === 'record') {
@@ -2329,14 +2669,20 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
 
       this.pathHistory.addLocation(this.path, 'reassembly');
 
+      if (!options.restoreSession) {
+        this.syncActiveDirSessionState();
+      }
+
       return true;
     } catch (error) {
       if (generation !== this.loadGeneration) return false;
 
-      this.entries = [];
-      this.cursorPath = null;
-      this.selectedPaths = new Set();
-      this.anchorPath = null;
+      if (!options.restoreSession || this.entries.length === 0) {
+        this.entries = [];
+        this.cursorPath = null;
+        this.selectedPaths = new Set();
+        this.anchorPath = null;
+      }
       this.error = error instanceof Error ? error.message : String(error);
       return false;
     } finally {
@@ -2347,7 +2693,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
     }
   }
 
-  private createDirectoryTab(path: string): ReassemblyTab {
+  private createDirectoryTab(path: string): Extract<ReassemblyTab, { kind: 'dir' }> {
     const normalized = path || '/';
     return {
       id: `${this.paneId}-tab-${++this.tabCounter}`,
@@ -2359,6 +2705,13 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
       sortDirection: this.sortDirection,
       directoriesFirst: this.directoriesFirst,
       expandedPaths: [],
+      filterText: '',
+      filterVisible: false,
+      selectedPaths: [],
+      cursorPath: null,
+      anchorPath: null,
+      scrollTop: 0,
+      entries: [],
     };
   }
 
@@ -2380,9 +2733,20 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
       ...current,
       path,
       title: this.tabTitle(path),
+      filterText: path === current.path ? current.filterText : '',
+      filterVisible: path === current.path ? current.filterVisible : false,
+      selectedPaths: path === current.path ? current.selectedPaths : [],
+      cursorPath: path === current.path ? current.cursorPath : null,
+      anchorPath: path === current.path ? current.anchorPath : null,
+      scrollTop: path === current.path ? current.scrollTop : 0,
+      expandedPaths: path === current.path ? current.expandedPaths : [],
+      entries: path === current.path ? current.entries : [],
     };
 
     this.tabs = this.tabs.map((tab, i) => i === index ? updated : tab);
+    if (updated.kind === 'dir') {
+      this.persistDirTabSession(updated);
+    }
   }
 
   private samePath(left: string, right: string): boolean {
@@ -2404,6 +2768,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
   }
 
   moveCursor(delta: -1 | 1): void {
+    this.markUserInteraction();
     const visible = this.viewMode === 'tree'
       ? this.treeRows.map(row => row.entry)
       : this.visibleEntries;
@@ -2421,6 +2786,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
     this.setSingleSelection(entry);
     this.lastAction = delta < 0 ? 'cursor up' : 'cursor down';
     this.ensureCursorVisible();
+    this.syncActiveDirSessionState();
     this.cdr.markForCheck();
   }
 
@@ -2478,6 +2844,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
   }
 
   private moveFilterCursor(delta: -1 | 1): void {
+    this.markUserInteraction();
     const visible = this.visibleEntries;
     if (visible.length === 0) return;
 
@@ -2492,6 +2859,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit {
     this.setSingleSelection(visible[nextIndex]);
     this.lastAction = delta > 0 ? 'filter next' : 'filter previous';
     this.ensureCursorVisible();
+    this.syncActiveDirSessionState();
     this.cdr.markForCheck();
   }
 

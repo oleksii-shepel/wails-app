@@ -16,6 +16,7 @@ import { SettingsDialogComponent } from './components/settings-dialog.component'
 import { ReassemblyTrashDialogComponent } from './components/reassembly-trash-dialog.component';
 import { PluginBootstrapService } from './services/plugin-bootstrap.service';
 import { ReassemblyModalStackService } from './services/reassembly-modal-stack.service';
+import { InputCustomizationService } from './services/input-customization.service';
 
 @Component({
   selector: 'app-root',
@@ -87,6 +88,7 @@ export class AppComponent implements AfterViewInit, OnDestroy {
   constructor(
     private readonly pluginBootstrap: PluginBootstrapService,
     private readonly modalStack: ReassemblyModalStackService,
+    private readonly inputCustomization: InputCustomizationService,
   ) {}
 
   @HostListener('document:keydown.escape', ['$event'])

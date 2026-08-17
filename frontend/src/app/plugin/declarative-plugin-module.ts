@@ -1,3 +1,5 @@
+import type { InputTrigger } from '../services/input-system.types';
+
 export interface DeclarativePluginCommand {
   id: string;
   title?: string;
@@ -14,9 +16,21 @@ export interface DeclarativePluginPlacement {
   when?: DeclarativePlacementWhen;
 }
 
+export interface DeclarativePluginBinding {
+  id: string;
+  commandId: string;
+  trigger: InputTrigger;
+  contextId?: string;
+  when?: string;
+  priority?: number;
+  description?: string;
+  category?: string;
+}
+
 export interface DeclarativePluginModule {
   schemaVersion: 1;
   commands?: DeclarativePluginCommand[];
+  bindings?: DeclarativePluginBinding[];
   toolbar?: DeclarativePluginPlacement[];
   contextMenu?: DeclarativePluginPlacement[];
 }

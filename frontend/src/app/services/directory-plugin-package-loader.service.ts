@@ -1,9 +1,10 @@
 import { Injectable } from '@angular/core';
 import type { ToolbarContext, MenuContext } from '../plugin/plugin-registry-api';
-import type { DeclarativePluginModule, DeclarativePluginPlacement } from '../plugin/declarative-plugin-module';
+import type { DeclarativePluginBinding, DeclarativePluginModule, DeclarativePluginPlacement } from '../plugin/declarative-plugin-module';
 import type { PluginPackage, PluginPackageLoader, PluginPackageSource } from '../plugin/plugin-package';
 import type { PluginManifest } from '../plugin/plugin-manifest';
 import { InputEngineService } from './input-engine.service';
+import type { CommandDescriptor, InputBindingDefinition } from './input-system.types';
 
 interface DirectoryPluginBindings {
   ReadPluginFrontendModule(pluginId: string): Promise<unknown>;
@@ -50,21 +51,67 @@ export class DirectoryPluginPackageLoaderService implements PluginPackageLoader 
       manifest,
       activate: context => {
         const commandIds = new Map<string, string>();
+        const commands: CommandDescriptor[] = [];
 
         for (const command of module.commands ?? []) {
           const id = `plugin.directory.${manifest.id}.${command.id}`;
           commandIds.set(command.id, id);
-          context.api.registerCommand({
+          commands.push({
             id,
             title: command.title?.trim() || command.id,
             category: manifest.name || 'Plugins',
             name: `${manifest.id}.${command.name?.trim() || command.id}`,
             aliases: command.aliases,
             execute: invocation => {
-              const dispatched = this.inputEngine.dispatchCommandById(command.targetCommandId, invocation);
-              if (!dispatched) throw new Error(`Target command ${command.targetCommandId} is unavailable.`);
+              const dispatched = this.inputEngine.dispatchCommandById(
+                command.targetCommandId,
+                invocation,
+              );
+              if (!dispatched) {
+                throw new Error(
+                  `Target command ${command.targetCommandId} is unavailable.`,
+                );
+              }
             },
-            isEnabled: invocation => this.inputEngine.isCommandEnabled(command.targetCommandId, invocation),
+            isEnabled: invocation =>
+              this.inputEngine.isCommandEnabled(
+                command.targetCommandId,
+                invocation,
+              ),
+          });
+        }
+
+        const bindings: InputBindingDefinition[] =
+          (module.bindings ?? []).map((binding: DeclarativePluginBinding) => {
+            const commandId = commandIds.get(binding.commandId);
+            if (!commandId) {
+              throw new Error(
+                `Plugin binding ${binding.id} references unknown command ${binding.commandId}.`,
+              );
+            }
+
+            return {
+              id: `plugin.directory.${manifest.id}.binding.${binding.id}`,
+              commandId,
+              trigger: binding.trigger,
+              contextId: binding.contextId?.trim() || 'global',
+              source: 'plugin',
+              priority: binding.priority,
+              when: binding.when,
+              description:
+                binding.description?.trim() ||
+                commands.find(command => command.id === commandId)?.title ||
+                binding.id,
+              category: binding.category?.trim() || manifest.name || 'Plugins',
+              preventDefault: true,
+            };
+          });
+
+        if (commands.length || bindings.length) {
+          context.api.registerInput({
+            pluginId: manifest.id,
+            commands,
+            bindings,
           });
         }
 

@@ -140,3 +140,23 @@ export interface BindingResolution {
     bindingPriority: number;
   };
 }
+
+export interface InputBindingConflict {
+  readonly bindingId: string;
+  readonly conflictingBindingId: string;
+  readonly contextId: string;
+  readonly triggerLabel: string;
+  readonly winnerBindingId: string;
+  readonly loserBindingId: string;
+  readonly reason:
+    | 'same-context'
+    | 'overlapping-context'
+    | 'shadowed-by-source'
+    | 'shadowed-by-priority';
+}
+
+export interface InputBindingCustomization {
+  readonly id: string;
+  readonly trigger?: InputTrigger;
+  readonly enabled?: boolean;
+}

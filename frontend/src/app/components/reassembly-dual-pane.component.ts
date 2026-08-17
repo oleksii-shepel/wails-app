@@ -91,6 +91,8 @@ import { presentPluginCommand } from './plugin-command-presentation';
 import type { PresentedCommand } from './presented-command';
 import { analyzePaneLocations, mirrorPaneLocation, mirroredPeerCandidates } from './reassembly-pane-link-policy';
 import type { ReassemblyPanePresentation } from './reassembly-directory-pane.component';
+import { ReassemblyInputCenterComponent } from './reassembly-input-center.component';
+import { InputCustomizationService } from '../services/input-customization.service';
 
 type PaneId = 'left' | 'right';
 
@@ -261,6 +263,9 @@ const COMMAND = {
 } as const;
 
 const BINDINGS: readonly InputBindingDefinition[] = [
+  { id:'reassembly.mouse.file.doubleClick', commandId:COMMAND.open, contextId:CONTEXT_ID, source:'default', description:'Open selected item with double-click', category:'Mouse', when:'fileEntry && !viewerSurface', trigger:{device:'mouse', gesture:{type:'doubleClick', button:'left'}}},
+  { id:'reassembly.mouse.viewer.ctrlWheelUp', commandId:COMMAND.viewerZoomIn, contextId:CONTEXT_ID, source:'default', description:'Zoom viewer in with Ctrl+Wheel', category:'Mouse', when:'viewerSurface', preventDefault:true, trigger:{device:'mouse', gesture:{type:'wheel', modifiers:['ctrl'], direction:'up'}}},
+  { id:'reassembly.mouse.viewer.ctrlWheelDown', commandId:COMMAND.viewerZoomOut, contextId:CONTEXT_ID, source:'default', description:'Zoom viewer out with Ctrl+Wheel', category:'Mouse', when:'viewerSurface', preventDefault:true, trigger:{device:'mouse', gesture:{type:'wheel', modifiers:['ctrl'], direction:'down'}}},
   { id:'reassembly.panes.link.ctrlAltL', commandId:COMMAND.togglePaneLink, contextId:CONTEXT_ID, source:'default', description:'Toggle linked pane navigation', category:'Pane Intelligence', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'l', modifiers:['ctrl','alt']}]}}},
   { id:'reassembly.panes.mirror.ctrlAltM', commandId:COMMAND.togglePaneMirror, contextId:CONTEXT_ID, source:'default', description:'Toggle pane mirroring', category:'Pane Intelligence', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'m', modifiers:['ctrl','alt']}]}}},
   { id:'reassembly.panes.follow.ctrlAltF', commandId:COMMAND.togglePaneFollow, contextId:CONTEXT_ID, source:'default', description:'Toggle follow selection', category:'Pane Intelligence', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'f', modifiers:['ctrl','alt']}]}}},
@@ -373,6 +378,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     CommonModule,
     ReassemblyDirectoryPaneComponent,
     ReassemblyContextMenuComponent,
+    ReassemblyInputCenterComponent,
     ReassemblyWorkspaceSwitcherComponent,
     ReassemblyPathHistoryComponent,
     ReassemblyQuickAccessComponent,
@@ -686,6 +692,11 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         (command)="dispatchContextCommand($event)"
         (closed)="closeContextMenu()">
       </app-reassembly-context-menu>
+
+      <app-reassembly-input-center
+        [visible]="shortcutHelpVisible"
+        (closed)="shortcutHelpVisible = false">
+      </app-reassembly-input-center>
     </section>
   `,
   styles: [`
@@ -994,6 +1005,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
 
   constructor(
     private readonly input: InputEngineService,
+    private readonly inputCustomization: InputCustomizationService,
     private readonly api: ApiService,
     private readonly confirmDialog: ConfirmDialogService,
     private readonly workspaceService: WorkspaceService,
@@ -1040,7 +1052,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     description: string;
     category: string;
   }[] {
-    return BINDINGS
+    return this.input.getBindingSnapshot()
       .filter(binding => binding.trigger.device === 'keyboard')
       .map(binding => ({
         id: binding.id,

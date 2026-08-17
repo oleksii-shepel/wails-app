@@ -40,7 +40,10 @@ export class ScopedPluginRegistry implements PluginRegistryAPI {
   registerInput(contribution: PluginInputContribution): void {
     this.assertActive();
     this.require('commands');
-    this.require('keybindings');
+    if ((contribution.bindings?.length ?? 0) > 0 ||
+        (contribution.contexts?.length ?? 0) > 0) {
+      this.require('keybindings');
+    }
     const owned = { ...contribution, pluginId: this.pluginId };
     this.host.registerInput(owned);
     this.cleanups.push(() => this.host.unregisterInput(this.pluginId));

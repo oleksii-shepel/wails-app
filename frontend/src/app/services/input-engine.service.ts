@@ -16,6 +16,8 @@ import type {
   CommandCatalogEntry,
   InputCommandHandler,
   CommandInvocation,
+  InputBindingConflict,
+  InputBindingCustomization,
 } from './input-system.types';
 
 interface RegisteredCommand {
@@ -122,6 +124,14 @@ export class InputEngineService {
 
   private pendingChord: PendingChordState | null = null;
   private pendingChordTimer: number | null = null;
+  private mouseDragState: {
+    startX: number;
+    startY: number;
+    button: MouseGesture['button'];
+    modifiers?: MouseGesture['modifiers'];
+    emitted: boolean;
+    target: EventTarget | null;
+  } | null = null;
   private registrationCounter = 0;
   private commandRegistrationCounter = 0;
 
@@ -455,6 +465,10 @@ export class InputEngineService {
   }
 
 
+  private userOverrideOwner(bindingId: string): string {
+    return `user-binding:${bindingId}`;
+  }
+
   private pluginInputOwner(pluginId: string): string {
     return `plugin-input:${pluginId}`;
   }
@@ -464,6 +478,12 @@ export class InputEngineService {
     registration: { commandIds: string[]; bindingIds: string[]; contextIds: string[] },
   ): void {
     for (const bindingId of registration.bindingIds) {
+      // A plugin binding may currently be shadowed by a persisted user
+      // customization. Remove that runtime user registration first so plugin
+      // unload never leaves an orphan binding pointing at an unloaded command.
+      // The persistence layer keeps the customization and reapplies it if the
+      // plugin binding appears again later.
+      this.clearUserBindingCustomization(bindingId);
       this.unregisterBinding(bindingId, ownerId);
     }
     for (const commandId of registration.commandIds) {
@@ -490,6 +510,113 @@ export class InputEngineService {
     const binding = this.bindings.get(bindingId);
     if (!binding) return undefined;
     return { ...binding, enabled: binding.enabled };
+  }
+
+  applyUserBindingCustomization(
+    customization: InputBindingCustomization,
+  ): boolean {
+    const registrations = this.bindingRegistrations.get(customization.id);
+    if (!registrations || registrations.size === 0) return false;
+
+    const ownerId = this.userOverrideOwner(customization.id);
+    const base = Array.from(registrations.entries())
+      .filter(([owner]) => owner !== ownerId)
+      .map(([, binding]) => binding)
+      .sort((left, right) => right.registrationOrder - left.registrationOrder)[0];
+
+    if (!base) return false;
+
+    this.registerBinding({
+      ...base,
+      source: 'user',
+      trigger: customization.trigger ?? base.trigger,
+      enabled: customization.enabled ?? base.enabled,
+    }, ownerId);
+
+    return true;
+  }
+
+  clearUserBindingCustomization(bindingId: string): boolean {
+    const registrations = this.bindingRegistrations.get(bindingId);
+    if (!registrations) return false;
+
+    const ownerId = this.userOverrideOwner(bindingId);
+    if (!registrations.has(ownerId)) return false;
+
+    this.unregisterBinding(bindingId, ownerId);
+    return true;
+  }
+
+  hasUserBindingCustomization(bindingId: string): boolean {
+    return this.bindingRegistrations
+      .get(bindingId)
+      ?.has(this.userOverrideOwner(bindingId)) ?? false;
+  }
+
+  inspectBindingConflicts(): InputBindingConflict[] {
+    const bindings = Array.from(this.bindings.values())
+      .filter(binding => binding.enabled);
+
+    const conflicts: InputBindingConflict[] = [];
+
+    for (let leftIndex = 0; leftIndex < bindings.length; leftIndex += 1) {
+      const left = bindings[leftIndex];
+
+      for (let rightIndex = leftIndex + 1; rightIndex < bindings.length; rightIndex += 1) {
+        const right = bindings[rightIndex];
+        if (!this.sameInputTrigger(left.trigger, right.trigger)) continue;
+        if (!this.contextsCanOverlap(left.contextId, right.contextId)) continue;
+
+        const winner = this.chooseBestBinding([left, right]).binding;
+        const loser = winner.id === left.id ? right : left;
+        const sameContext = left.contextId === right.contextId;
+
+        conflicts.push({
+          bindingId: left.id,
+          conflictingBindingId: right.id,
+          contextId: sameContext
+            ? left.contextId
+            : `${left.contextId} ↔ ${right.contextId}`,
+          triggerLabel: this.formatInputTrigger(left.trigger),
+          winnerBindingId: winner.id,
+          loserBindingId: loser.id,
+          reason: sameContext
+            ? 'same-context'
+            : winner.source !== loser.source
+              ? 'shadowed-by-source'
+              : (winner.priority ?? 0) !== (loser.priority ?? 0)
+                ? 'shadowed-by-priority'
+                : 'overlapping-context',
+        });
+      }
+    }
+
+    return conflicts;
+  }
+
+  formatInputTrigger(trigger: InputTrigger): string {
+    if (trigger.device === 'keyboard') {
+      return trigger.chord.steps
+        .map(step => this.formatDebugStroke(step))
+        .join(' → ');
+    }
+
+    const gesture = trigger.gesture;
+    const modifiers = (gesture.modifiers ?? []).map(value => {
+      if (value === 'ctrl') return 'Ctrl';
+      if (value === 'shift') return 'Shift';
+      if (value === 'alt') return 'Alt';
+      if (value === 'meta') return 'Meta';
+      return value;
+    });
+    const parts: string[] = [
+      ...modifiers,
+      gesture.button,
+      gesture.type,
+      gesture.direction,
+    ].filter((value): value is Exclude<typeof value, undefined> => value !== undefined);
+
+    return parts.join('+');
   }
 
   getRegisteredCommandIds(): string[] {
@@ -679,9 +806,77 @@ export class InputEngineService {
     document.addEventListener('dblclick', (event) => this.handleMouseEvent('dblclick', event), listenerOptions);
     document.addEventListener('auxclick', (event) => this.handleMouseEvent('auxclick', event), listenerOptions);
     document.addEventListener('contextmenu', (event) => this.handleMouseEvent('contextmenu', event), listenerOptions);
-    document.addEventListener('mousedown', (event) => this.handleMouseEvent('mousedown', event), listenerOptions);
-    document.addEventListener('mouseup', (event) => this.handleMouseEvent('mouseup', event), listenerOptions);
+    document.addEventListener('mousedown', (event) => {
+      this.beginMouseDrag(event);
+      this.handleMouseEvent('mousedown', event);
+    }, listenerOptions);
+    document.addEventListener('mousemove', (event) => this.handleMouseDrag(event), listenerOptions);
+    document.addEventListener('mouseup', (event) => {
+      this.handleMouseEvent('mouseup', event);
+      this.mouseDragState = null;
+    }, listenerOptions);
     document.addEventListener('wheel', (event) => this.handleMouseEvent('wheel', event), wheelOptions);
+  }
+
+  private beginMouseDrag(event: MouseEvent): void {
+    const modifiers: MouseGesture['modifiers'] = [];
+    if (event.ctrlKey || event.metaKey) modifiers.push(event.ctrlKey ? 'ctrl' : 'meta');
+    if (event.shiftKey) modifiers.push('shift');
+    if (event.altKey) modifiers.push('alt');
+
+    this.mouseDragState = {
+      startX: event.clientX,
+      startY: event.clientY,
+      button: this.normalizeMouseButton(event.button),
+      modifiers: modifiers.length ? modifiers.sort() : undefined,
+      emitted: false,
+      target: event.target,
+    };
+  }
+
+  private handleMouseDrag(event: MouseEvent): void {
+    const state = this.mouseDragState;
+    if (!state || state.emitted || (event.buttons === 0 && state.button !== 'right')) return;
+
+    const deltaX = event.clientX - state.startX;
+    const deltaY = event.clientY - state.startY;
+    const distance = Math.hypot(deltaX, deltaY);
+    if (distance < 8) return;
+
+    const direction: MouseGesture['direction'] =
+      Math.abs(deltaX) > Math.abs(deltaY)
+        ? (deltaX < 0 ? 'left' : 'right')
+        : (deltaY < 0 ? 'up' : 'down');
+
+    const gesture: MouseGesture = {
+      type: 'drag',
+      button: state.button,
+      modifiers: state.modifiers,
+      direction,
+    };
+
+    const resolution = this.resolveMouseGesture(gesture, event);
+    if (!resolution) return;
+
+    const invocation: CommandInvocation = {
+      source: 'mouse',
+      context: {
+        bindingId: resolution.binding.id,
+        dragStartX: state.startX,
+        dragStartY: state.startY,
+        clientX: event.clientX,
+        clientY: event.clientY,
+      },
+    };
+    const command = this.getCommandHandler(resolution.binding.commandId, invocation);
+    if (!command) return;
+
+    state.emitted = true;
+    this.clearPendingChord();
+
+    if (resolution.binding.preventDefault !== false) event.preventDefault();
+    if (resolution.binding.stopPropagation !== false) event.stopPropagation();
+    this.executeCommand(command, invocation);
   }
 
   private handleMouseEvent(kind: string, event: MouseEvent | WheelEvent): void {
@@ -735,20 +930,6 @@ export class InputEngineService {
       NumpadAdd: 'numpadadd',
       NumpadSubtract: 'numpadsubtract',
       NumpadMultiply: 'numpadmultiply',
-      // WebView2 can report accelerator navigation keys with key="Unidentified"
-      // while preserving their DOM code. Normalize those physical codes before
-      // consulting KeyboardEvent.key so global shortcuts such as Ctrl+Alt+Left
-      // and Ctrl+Alt+Right remain reliable.
-      Home: 'home',
-      End: 'end',
-      PageUp: 'pageup',
-      PageDown: 'pagedown',
-      Insert: 'insert',
-      Delete: 'delete',
-      ArrowUp: 'arrowup',
-      ArrowDown: 'arrowdown',
-      ArrowLeft: 'arrowleft',
-      ArrowRight: 'arrowright',
       // Match OEM punctuation by physical key so shortcuts stay stable across
       // keyboard layouts and WebView2 hosts.
       Slash: '/',
@@ -963,7 +1144,7 @@ export class InputEngineService {
       inQuickAccessMenu: !!target?.closest('.ab-quick-access-drop'),
       hasActivePane: !!target?.closest('.pane'),
       isFilterInput: !!target?.classList.contains('filter-input'),
-      inFileEntry: !!target?.closest('.file-entry'),
+      inFileEntry: !!target?.closest('.file-entry, .entry[data-file-entry], .tree-row[data-file-entry]'),
       inViewerSurface: !!target?.closest('.viewer-surface'),
     };
   }
@@ -1014,6 +1195,34 @@ export class InputEngineService {
       default:
         return 'left';
     }
+  }
+
+  private sameInputTrigger(left: InputTrigger, right: InputTrigger): boolean {
+    if (left.device !== right.device) return false;
+
+    if (left.device === 'keyboard' && right.device === 'keyboard') {
+      if (left.chord.steps.length !== right.chord.steps.length) return false;
+      return left.chord.steps.every((step, index) =>
+        this.sameStroke(step, right.chord.steps[index])
+      );
+    }
+
+    return left.device === 'mouse' &&
+      right.device === 'mouse' &&
+      this.sameGesture(left.gesture, right.gesture);
+  }
+
+  private contextsCanOverlap(leftId: string, rightId: string): boolean {
+    if (leftId === rightId) return true;
+    if (leftId === 'global' || rightId === 'global') return true;
+
+    const left = this.contexts.get(leftId);
+    const right = this.contexts.get(rightId);
+    if (!left || !right) return false;
+
+    return left.parentId === rightId ||
+      right.parentId === leftId ||
+      (!!left.parentId && left.parentId === right.parentId);
   }
 
   private sameGesture(left: MouseGesture, right: MouseGesture): boolean {

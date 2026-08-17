@@ -34,7 +34,16 @@ export class KeybindingStorageService {
   }
 
   getOverrides(): KeybindingOverride[] {
-    return [...this.overrides];
+    return this.overrides.map(override => ({ ...override }));
+  }
+
+  getOverride(bindingId: string): KeybindingOverride | undefined {
+    const override = this.overrides.find(item => item.id === bindingId);
+    return override ? { ...override } : undefined;
+  }
+
+  hasOverride(bindingId: string): boolean {
+    return this.overrides.some(item => item.id === bindingId);
   }
 
   getDefaultBinding(bindingId: string): InputBindingDefinition | undefined {
@@ -85,9 +94,6 @@ export class KeybindingStorageService {
     setBindingEnabled(bindingId: string, enabled: boolean): void;
   }): void {
     for (const override of this.overrides) {
-      const def = this.defaults.get(override.id);
-      if (!def) continue;
-
       if (override.trigger) {
         engine.updateBindingTrigger(override.id, override.trigger);
       }

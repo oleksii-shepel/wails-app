@@ -56,6 +56,11 @@ import {
   projectEntries,
   sortEntries as projectSortedEntries,
 } from './reassembly-entry-model';
+import {
+  reconcileVisibleSelection,
+  selectPathRange,
+  togglePathSelection,
+} from './reassembly-selection-policy';
 
 type ReassemblyDirectoryView = 'list' | 'grid' | 'details' | 'tree';
 type ReassemblySortField = 'name' | 'size' | 'modified' | 'type';
@@ -373,11 +378,12 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
         role="tree"
         [attr.aria-label]="'Tree view of ' + (path || 'location')"
         [attr.aria-busy]="loading"
-        (scroll)="onContentScroll($event)">
-        <button
+        (click)="onBackgroundClick($event)"
+        (contextmenu)="onBackgroundContextMenu($event)"        (scroll)="onContentScroll($event)">
+        <div
           *ngFor="let row of treeRows; trackBy: trackTreeRow"
-          type="button"
           class="tree-row"
+          tabindex="-1"
           role="treeitem"
           [class.selected]="selectedPaths.has(row.entry.path)"
           [class.cursor]="cursorPath === row.entry.path"
@@ -400,11 +406,33 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
             {{ row.loading ? '…' : (row.expandable ? (row.expanded ? '▾' : '▸') : '') }}
           </span>
           <span class="icon">{{ entryIcon(row.entry) }}</span>
-          <span class="name">{{ row.entry.name }}</span>
-          <span class="tree-meta" *ngIf="row.entry.type !== FileType.DIRECTORY">
+          <span class="name" *ngIf="renamingPath !== row.entry.path">{{ row.entry.name }}</span>
+          <span
+            class="rename-editor"
+            *ngIf="renamingPath === row.entry.path"
+            (click)="$event.stopPropagation()"
+            (dblclick)="$event.stopPropagation()">
+            <input
+              class="rename-input"
+              [class.rename-input--invalid]="!!renameError"
+              [value]="renameValue"
+              [disabled]="renameBusy"
+              [attr.data-rename-input]="row.entry.path"
+              [attr.aria-invalid]="renameError ? 'true' : null"
+              [attr.aria-describedby]="renameError ? 'rename-error-' + paneId : null"
+              (input)="onRenameInput($event)"
+              (keydown)="onRenameKeyDown(row.entry, $event)"
+              (blur)="onRenameBlur(row.entry)" />
+            <span
+              *ngIf="renameError"
+              class="rename-error"
+              [id]="'rename-error-' + paneId"
+              role="alert">{{ renameError }}</span>
+          </span>
+          <span class="tree-meta" *ngIf="row.entry.type !== FileType.DIRECTORY && renamingPath !== row.entry.path">
             {{ formatSize(row.entry.size) }}
           </span>
-        </button>
+        </div>
 
         <div class="empty" *ngIf="!loading && treeRows.length === 0" role="status">
           <strong>This directory is empty.</strong>
@@ -430,15 +458,15 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
         [attr.aria-busy]="loading"
         (scroll)="onContentScroll($event)"
         [class.background-drop-target]="backgroundDropActive"
-        (contextmenu)="onBackgroundContextMenu($event)"
+        (click)="onBackgroundClick($event)"        (contextmenu)="onBackgroundContextMenu($event)"
         (dragover)="onBackgroundDragOver($event)"
         (dragleave)="onBackgroundDragLeave($event)"
         (drop)="onBackgroundDrop($event)">
 
-        <button
+        <div
           *ngFor="let entry of visibleEntries; trackBy: trackEntry"
-          type="button"
           class="entry"
+          tabindex="-1"
           role="option"
           draggable="true"
           [attr.data-file-entry]="entry.path"
@@ -462,7 +490,29 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
             {{ entryDisplayIcon(entry) }}
           </span>
 
-          <span class="name">{{ entry.name }}</span>
+          <span class="name" *ngIf="renamingPath !== entry.path">{{ entry.name }}</span>
+          <span
+            class="rename-editor"
+            *ngIf="renamingPath === entry.path"
+            (click)="$event.stopPropagation()"
+            (dblclick)="$event.stopPropagation()">
+            <input
+              class="rename-input"
+              [class.rename-input--invalid]="!!renameError"
+              [value]="renameValue"
+              [disabled]="renameBusy"
+              [attr.data-rename-input]="entry.path"
+              [attr.aria-invalid]="renameError ? 'true' : null"
+              [attr.aria-describedby]="renameError ? 'rename-error-' + paneId : null"
+              (input)="onRenameInput($event)"
+              (keydown)="onRenameKeyDown(entry, $event)"
+              (blur)="onRenameBlur(entry)" />
+            <span
+              *ngIf="renameError"
+              class="rename-error"
+              [id]="'rename-error-' + paneId"
+              role="alert">{{ renameError }}</span>
+          </span>
 
           <span class="kind" [style.color]="entryCategory(entry)?.color || null">
             {{ entryDisplayKind(entry) }}
@@ -473,7 +523,7 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
           </span>
           <span class="modified">{{ formatModified(entry.modified) }}</span>
           <span class="plugin-column" *ngFor="let column of pluginPanelColumns">{{ panelColumnValue(column, entry) }}</span>
-        </button>
+        </div>
 
         <div class="empty" *ngIf="!loading && visibleEntries.length === 0" role="status">
           <strong>{{ filterText ? 'No matching items.' : 'This directory is empty.' }}</strong>
@@ -1167,81 +1217,62 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
     }
 
     .viewer-toolbar {
-      display: flex;
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) 28px;
       align-items: center;
-      gap: 4px;
-      min-height: 30px;
-      padding: 0 6px;
+      gap: 8px;
+      min-height: 32px;
+      padding: 0 8px;
       border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
       background: var(--vsc-tabbar-background, var(--vsc-panel-background));
       font-size: 11px;
-      overflow: hidden;
-      white-space: nowrap;
     }
 
     .viewer-label {
-      flex: 0 0 auto;
       color: var(--vsc-accent-blue, var(--vsc-focus-ring));
       font-weight: 600;
-      line-height: 1;
     }
 
     .viewer-kind {
       flex: 0 0 auto;
       padding: 1px 5px;
-      border: 1px solid var(--vsc-border-subtle, var(--vsc-border));
+      border: 1px solid var(--vsc-border, var(--vsc-border));
       border-radius: 3px;
       color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
-      background: var(--vsc-control-background, transparent);
       font-size: 9px;
-      line-height: 16px;
       text-transform: uppercase;
     }
 
     .viewer-separator {
       width: 1px;
-      height: 16px;
-      margin: 0 2px;
-      background: var(--vsc-border-subtle, var(--vsc-border));
+      height: 18px;
+      background: var(--vsc-border, var(--vsc-border));
       flex: 0 0 auto;
     }
 
     .viewer-path {
-      flex: 1 1 auto;
-      min-width: 48px;
+      min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
       color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
       font-family: var(--vsc-font-family-mono, ui-monospace, monospace);
-      opacity: .82;
     }
 
     .viewer-toolbar button {
-      flex: 0 0 auto;
-      width: auto;
-      min-width: 24px;
+      width: 24px;
       height: 24px;
-      padding: 0 6px;
-      border: 1px solid transparent;
+      border: 0;
       border-radius: 3px;
       background: transparent;
       color: inherit;
       cursor: pointer;
-      font: inherit;
-      line-height: 22px;
+      font-size: 17px;
     }
 
-    .viewer-toolbar button:disabled {
-      cursor: default;
-      opacity: .35;
-    }
-
-    .viewer-toolbar button:not(:disabled):hover {
+    .viewer-toolbar button:hover {
       background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
-      border-color: var(--vsc-border-subtle, var(--vsc-border));
     }
-
 
     app-viewer-host-surface {
       display: flex;
@@ -1273,6 +1304,48 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
       outline-offset:-1px;
     }
     .empty{display:grid;gap:4px;place-items:center;align-content:center;min-height:96px;text-align:center}
+    .rename-editor{
+      position:relative;
+      min-width:0;
+      width:100%;
+      display:block;
+      z-index:2;
+    }
+    .rename-input{
+      box-sizing:border-box;
+      width:100%;
+      min-width:56px;
+      height:22px;
+      padding:1px 4px;
+      border:1px solid var(--vsc-focus-border,var(--vsc-accent-blue));
+      border-radius:2px;
+      outline:0;
+      background:var(--vsc-input-background,var(--vsc-control-background));
+      color:var(--vsc-input-foreground,var(--vsc-foreground));
+      font:inherit;
+    }
+    .rename-input:focus{
+      box-shadow:0 0 0 1px color-mix(in srgb,var(--vsc-focus-border,var(--vsc-accent-blue)) 45%,transparent);
+    }
+    .rename-input--invalid{
+      border-color:var(--vsc-error,var(--vsc-danger));
+    }
+    .rename-error{
+      position:absolute;
+      z-index:40;
+      top:calc(100% + 3px);
+      left:0;
+      max-width:min(360px,70vw);
+      padding:4px 7px;
+      border:1px solid var(--vsc-error,var(--vsc-danger));
+      border-radius:3px;
+      background:var(--vsc-menu-background,var(--vsc-panel-background));
+      color:var(--vsc-error,var(--vsc-danger));
+      box-shadow:0 4px 12px var(--vsc-scrim);
+      font-size:10px;
+      line-height:1.35;
+      white-space:normal;
+    }
     .empty strong{font-weight:500;color:var(--vsc-foreground,var(--vsc-foreground))}
     .error-actions{display:flex;gap:6px;margin-top:7px}
   `],
@@ -1313,6 +1386,12 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
 
   filterVisible = false;
   filterText = '';
+
+  renamingPath: string | null = null;
+  renameValue = '';
+  renameError: string | null = null;
+  renameBusy = false;
+  private suppressRenameBlur = false;
 
   driveFreeBytes = 0;
   driveTotalBytes = 0;
@@ -1963,6 +2042,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
 
   async activateTab(tabId: string): Promise<void> {
     if (tabId === this.activeTabId) return;
+    this.cancelInlineRename(false);
 
     this.syncActiveDirSessionState();
 
@@ -2309,6 +2389,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   setViewMode(mode: ReassemblyDirectoryView): void {
+    this.cancelInlineRename(false);
     this.markUserInteraction();
 
     if (this.isInArchive && mode === 'tree') {
@@ -2469,6 +2550,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   setFilter(value: string): void {
+    if (this.renamingPath) this.cancelInlineRename(false);
     this.markUserInteraction();
     this.filterText = value ?? '';
     this.reconcileSelectionWithVisibleEntries();
@@ -2511,6 +2593,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   navigateTo(path: string): void {
+    this.cancelInlineRename(false);
     this.syncActiveDirSessionState();
     if (!this.isDirectoryTab) return;
     this.lastAction = `navigate: ${path}`;
@@ -2769,9 +2852,32 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     this.entryContextMenu.emit({ event, entry });
   }
 
+  onBackgroundClick(event: MouseEvent): void {
+    if (event.defaultPrevented) return;
+
+    const target = event.target as HTMLElement | null;
+    if (target?.closest('.entry, .tree-row, button, input, select, textarea, a')) {
+      return;
+    }
+
+    this.markUserInteraction();
+    this.selectedPaths = new Set();
+    this.cursorPath = null;
+    this.anchorPath = null;
+    this.lastAction = 'selection cleared';
+
+    const current = event.currentTarget as HTMLElement | null;
+    current?.focus({ preventScroll: true });
+
+    this.syncActiveDirSessionState();
+    this.cdr.markForCheck();
+  }
+
   onBackgroundContextMenu(event: MouseEvent): void {
     if (event.defaultPrevented) return;
     event.preventDefault();
+
+    // Background menus must not destroy a useful working selection.
     this.backgroundContextMenu.emit(event);
   }
 
@@ -2791,14 +2897,13 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     if (event.shiftKey && this.anchorPath) {
       this.selectRange(this.anchorPath, entry.path);
     } else if (event.ctrlKey || event.metaKey) {
-      const next = new Set(this.selectedPaths);
-      if (next.has(entry.path)) {
-        next.delete(entry.path);
-      } else {
-        next.add(entry.path);
-      }
-      this.selectedPaths = next;
-      this.anchorPath = entry.path;
+      const toggled = togglePathSelection(
+        this.selectedPaths,
+        entry.path,
+        this.anchorPath,
+      );
+      this.selectedPaths = toggled.selected;
+      this.anchorPath = toggled.anchor;
     } else {
       this.setSingleSelection(entry);
     }
@@ -4067,109 +4172,296 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   async renameSelected(): Promise<void> {
-    if (!this.canRename) return;
+    if (!this.canRename || this.renameBusy) return;
 
     const entry = this.selectedEntries[0];
-    if (!entry) return;
+    if (!entry || entry.path === '__parent__') return;
 
-    const nextName = await this.confirmDialog.prompt({
-      title: 'Rename',
-      message: `Rename "${entry.name}" to:`,
-      confirmText: 'Rename',
-      defaultValue: entry.name,
-      historyKey: 'reassembly.rename',
+    this.beginInlineRename(entry);
+  }
+
+  beginInlineRename(entry: FileInfo): void {
+    if (
+      !this.isDirectoryTab ||
+      this.isInArchive ||
+      !this.sourceCapabilities.rename ||
+      entry.path === '__parent__'
+    ) {
+      return;
+    }
+
+    this.renamingPath = entry.path;
+    this.renameValue = entry.name;
+    this.renameError = null;
+    this.renameBusy = false;
+    this.suppressRenameBlur = false;
+
+    // Keep the edited resource as the authoritative cursor/selection.
+    this.setSingleSelection(entry);
+    this.syncActiveDirSessionState();
+    this.cdr.detectChanges();
+
+    requestAnimationFrame(() => {
+      const input = this.renameInputForPath(entry.path);
+      if (!input) return;
+
+      input.focus({ preventScroll: true });
+
+      const selectionEnd = this.renameSelectionEnd(entry);
+      input.setSelectionRange(0, selectionEnd);
     });
+  }
 
-    const cleanName = await this.validateRequestedLeaf(
-      nextName,
+  onRenameInput(event: Event): void {
+    const input = event.target as HTMLInputElement | null;
+    this.renameValue = input?.value ?? '';
+    this.renameError = null;
+  }
+
+  onRenameKeyDown(entry: FileInfo, event: KeyboardEvent): void {
+    event.stopPropagation();
+
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      this.suppressRenameBlur = true;
+      void this.commitInlineRename(entry).finally(() => {
+        this.suppressRenameBlur = false;
+      });
+      return;
+    }
+
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      this.suppressRenameBlur = true;
+      this.cancelInlineRename(true);
+      queueMicrotask(() => { this.suppressRenameBlur = false; });
+      return;
+    }
+  }
+
+  onRenameBlur(entry: FileInfo): void {
+    if (this.suppressRenameBlur || this.renameBusy) return;
+    if (this.renamingPath !== entry.path) return;
+
+    // Commit on blur, matching Explorer/Commander expectations. Invalid names
+    // keep the editor open instead of silently abandoning the operation.
+    void this.commitInlineRename(entry, { fromBlur: true });
+  }
+
+  cancelInlineRename(restoreFocus = false): void {
+    const path = this.renamingPath;
+    this.renamingPath = null;
+    this.renameValue = '';
+    this.renameError = null;
+    this.renameBusy = false;
+    this.cdr.markForCheck();
+
+    if (restoreFocus) {
+      requestAnimationFrame(() => {
+        this.focusContent();
+        if (path) this.ensureCursorVisible();
+      });
+    }
+  }
+
+  private async commitInlineRename(
+    entry: FileInfo,
+    options: { fromBlur?: boolean } = {},
+  ): Promise<void> {
+    if (
+      this.renamingPath !== entry.path ||
+      this.renameBusy
+    ) {
+      return;
+    }
+
+    const requested = this.renameValue;
+    const cleanName = this.cleanLeafName(requested);
+
+    if (!cleanName) {
+      this.renameError =
+        'Invalid name. Avoid path separators, reserved characters/names, and trailing spaces or dots.';
+      this.refocusRenameInput(entry.path);
+      return;
+    }
+
+    if (cleanName === entry.name) {
+      this.cancelInlineRename(true);
+      return;
+    }
+
+    const available = await this.ensureLeafAvailableInline(
       this.path,
+      cleanName,
       entry.path,
     );
-    if (!cleanName || cleanName === entry.name) return;
+    if (!available.ok) {
+      this.renameError = available.message;
+      this.refocusRenameInput(entry.path);
+      return;
+    }
+
+    this.renameBusy = true;
+    this.renameError = null;
+    this.cdr.markForCheck();
 
     try {
-      const destination = await this.api.joinPaths([this.path, cleanName]);
-      const source = entry.path;
-      const caseOnlyRename =
-        this.samePath(destination, source) &&
-        destination !== source;
+      const destination = await this.performRename(entry, cleanName);
+      this.cancelInlineRename(false);
+      this.lastAction = `rename: ${entry.name} -> ${cleanName}`;
+      await this.refresh();
+      this.selectPath(destination);
+      this.focusContent();
+    } catch (error) {
+      this.renameBusy = false;
+      this.renameError =
+        error instanceof Error && error.message
+          ? error.message
+          : 'Rename failed.';
+      this.cdr.markForCheck();
+      this.refocusRenameInput(entry.path);
 
-      if (caseOnlyRename) {
-        const temporary = await this.api.joinPaths([
-          this.path,
-          `.rename-${Date.now()}-${Math.random().toString(16).slice(2)}.tmp`,
-        ]);
+      // Blur-triggered failures must remain inline. Keyboard-triggered failures
+      // also stay inline so the user can immediately correct the name.
+      if (!options.fromBlur) {
+        this.lastAction = 'rename failed';
+      }
+    }
+  }
 
-        const first = await this.api.batchMove([{
-          source,
-          destination: temporary,
+  private async performRename(
+    entry: FileInfo,
+    cleanName: string,
+  ): Promise<string> {
+    const destination = await this.api.joinPaths([this.path, cleanName]);
+    const source = entry.path;
+    const caseOnlyRename =
+      this.samePath(destination, source) &&
+      destination !== source;
+
+    if (caseOnlyRename) {
+      const temporary = await this.api.joinPaths([
+        this.path,
+        `.rename-${Date.now()}-${Math.random().toString(16).slice(2)}.tmp`,
+      ]);
+
+      const first = await this.api.batchMove([{
+        source,
+        destination: temporary,
+        exactDestination: true,
+      }], true);
+
+      if (first.failed > 0 || first.skipped > 0) {
+        throw new Error('Case-only rename failed during temporary move.');
+      }
+
+      try {
+        const second = await this.api.batchMove([{
+          source: temporary,
+          destination,
           exactDestination: true,
         }], true);
 
-        if (first.failed > 0 || first.skipped > 0) {
-          throw new Error('Case-only rename failed during temporary move.');
+        if (second.failed > 0 || second.skipped > 0) {
+          throw new Error('Case-only rename failed during final move.');
         }
+      } catch (error) {
+        await this.api.batchMove([{
+          source: temporary,
+          destination: source,
+          exactDestination: true,
+        }], true).catch(() => undefined);
+        throw error;
+      }
+    } else {
+      const result = await this.api.batchMove([{
+        source,
+        destination,
+        exactDestination: true,
+      }], true);
 
-        try {
-          const second = await this.api.batchMove([{
-            source: temporary,
-            destination,
-            exactDestination: true,
-          }], true);
+      if (result.failed > 0 || result.skipped > 0) {
+        throw new Error(
+          `Rename failed (${result.failed} item${result.failed === 1 ? '' : 's'}).`,
+        );
+      }
+    }
 
-          if (second.failed > 0 || second.skipped > 0) {
-            throw new Error('Case-only rename failed during final move.');
-          }
-        } catch (error) {
-          await this.api.batchMove([{
-            source: temporary,
-            destination: source,
-            exactDestination: true,
-          }], true).catch(() => undefined);
-          throw error;
+    this.operationHistory.record({
+      label: `Rename ${entry.name} to ${cleanName}`,
+      undo: async () => {
+        const result = await this.api.batchMove([{
+          source: destination,
+          destination: source,
+          exactDestination: true,
+        }], true);
+        if (result.failed > 0 || result.skipped > 0) {
+          throw new Error('Undo rename failed.');
         }
-      } else {
+      },
+      redo: async () => {
         const result = await this.api.batchMove([{
           source,
           destination,
           exactDestination: true,
         }], true);
-
         if (result.failed > 0 || result.skipped > 0) {
-          throw new Error(`Rename failed (${result.failed} item${result.failed === 1 ? '' : 's'}).`);
+          throw new Error('Redo rename failed.');
         }
+      },
+    });
+
+    return destination;
+  }
+
+  private async ensureLeafAvailableInline(
+    directory: string,
+    leafName: string,
+    currentPath: string,
+  ): Promise<{ ok: boolean; message: string }> {
+    const destination = await this.api.joinPaths([directory, leafName]);
+
+    try {
+      const existing = await this.api.getFileInfo(destination);
+      if (this.samePath(existing.path, currentPath)) {
+        return { ok: true, message: '' };
       }
-
-      this.operationHistory.record({
-        label: `Rename ${entry.name} to ${cleanName}`,
-        undo: async () => {
-          const result = await this.api.batchMove([{
-            source: destination,
-            destination: source,
-            exactDestination: true,
-          }], true);
-          if (result.failed > 0 || result.skipped > 0) {
-            throw new Error('Undo rename failed.');
-          }
-        },
-        redo: async () => {
-          const result = await this.api.batchMove([{
-            source,
-            destination,
-            exactDestination: true,
-          }], true);
-          if (result.failed > 0 || result.skipped > 0) {
-            throw new Error('Redo rename failed.');
-          }
-        },
-      });
-
-      this.lastAction = `rename: ${entry.name} -> ${cleanName}`;
-      await this.refresh();
-      this.selectPath(destination);
-    } catch (error) {
-      await this.showOperationError('Rename', error);
+      return {
+        ok: false,
+        message: `An item named "${leafName}" already exists.`,
+      };
+    } catch {
+      return { ok: true, message: '' };
     }
+  }
+
+  private renameSelectionEnd(entry: FileInfo): number {
+    if (entry.type === FileType.DIRECTORY) return entry.name.length;
+
+    const lastDot = entry.name.lastIndexOf('.');
+    return lastDot > 0 ? lastDot : entry.name.length;
+  }
+
+  private renameInputForPath(path: string): HTMLInputElement | null {
+    const root = this.paneRoot?.nativeElement;
+    if (!root) return null;
+
+    const escaped =
+      typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+        ? CSS.escape(path)
+        : path.replace(/["\\]/g, '\\$&');
+
+    return root.querySelector<HTMLInputElement>(
+      `input[data-rename-input="${escaped}"]`,
+    );
+  }
+
+  private refocusRenameInput(path: string): void {
+    this.cdr.detectChanges();
+    requestAnimationFrame(() => {
+      const input = this.renameInputForPath(path);
+      input?.focus({ preventScroll: true });
+    });
   }
 
   async deleteSelected(forcePermanent = false): Promise<void> {
@@ -6385,47 +6677,29 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
 
   private selectRange(anchorPath: string, targetPath: string): void {
     const visible = this.selectableEntries();
-    const start = visible.findIndex(entry => entry.path === anchorPath);
-    const end = visible.findIndex(entry => entry.path === targetPath);
+    const paths = visible.map(entry => entry.path);
+    const selected = selectPathRange(paths, anchorPath, targetPath);
 
-    if (start < 0 || end < 0) {
-      const target = visible.find(entry => entry.path === targetPath);
-      if (target) this.setSingleSelection(target);
+    if (selected) {
+      this.selectedPaths = selected;
       return;
     }
 
-    const from = Math.min(start, end);
-    const to = Math.max(start, end);
-    this.selectedPaths = new Set(
-      visible.slice(from, to + 1).map(entry => entry.path),
-    );
+    const target = visible.find(entry => entry.path === targetPath);
+    if (target) this.setSingleSelection(target);
   }
 
   private reconcileSelectionWithVisibleEntries(): void {
-    const visible = this.visibleEntries;
+    const reconciled = reconcileVisibleSelection({
+      selected: this.selectedPaths,
+      cursor: this.cursorPath,
+      anchor: this.anchorPath,
+      visiblePaths: this.selectableEntries().map(entry => entry.path),
+    });
 
-    if (visible.length === 0) {
-      // A filter is a projection, not a selection mutation. Keep the selection
-      // so clearing the filter restores the user's working set.
-      this.cursorPath = null;
-      this.anchorPath = null;
-      return;
-    }
-
-    const cursorStillVisible =
-      !!this.cursorPath &&
-      visible.some(entry => entry.path === this.cursorPath);
-
-    if (!cursorStillVisible) {
-      const selectedVisible = visible.find(entry =>
-        this.selectedPaths.has(entry.path),
-      );
-      this.cursorPath = selectedVisible?.path ?? visible[0].path;
-      this.anchorPath = this.cursorPath;
-    }
-
-    // Intentionally do not filter selectedPaths here. Hidden selections remain
-    // selected and are surfaced through hiddenSelectedCount.
+    this.selectedPaths = reconciled.selected;
+    this.cursorPath = reconciled.cursor;
+    this.anchorPath = reconciled.anchor;
   }
 
   private moveFilterCursor(delta: -1 | 1): void {

@@ -2676,6 +2676,31 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     await this.closeTab(this.activeTabId);
   }
 
+  async reopenLastClosedTab(): Promise<boolean> {
+    const restored = this.workspaceService.reopenLastClosedTab(
+      this.paneId === 'right' ? 'right' : 'left',
+    );
+
+    if (!restored) {
+      this.lastAction = 'no recently closed tab';
+      this.cdr.markForCheck();
+      return false;
+    }
+
+    if (restored.paneId !== this.paneId) {
+      // WorkspaceService may fall back to the other pane if this pane has no
+      // history. The dual-pane shell will route that case to the proper pane.
+      return false;
+    }
+
+    await this.reloadWorkspaceTabs(restored.tab.id);
+    this.lastAction = `reopen tab: ${restored.tab.title}`;
+    this.revealActiveTab(restored.tab.id);
+    this.focusContent();
+    this.cdr.markForCheck();
+    return true;
+  }
+
   async nextTab(): Promise<void> {
     if (this.tabs.length < 2 || !this.activeTabId) return;
     const currentIndex = this.tabs.findIndex(tab => tab.id === this.activeTabId);

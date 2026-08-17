@@ -50,6 +50,22 @@ interface PersistedTabViewStateEnvelope {
  * All public surface-area is identical to the previous implementation so that
  * components that inject this service require zero changes.
  */
+export interface RecentlyClosedTab {
+  readonly id: string;
+  readonly workspaceId: string;
+  readonly paneId: 'left' | 'right';
+  readonly closedAt: number;
+  readonly tab: TabInfo;
+}
+
+interface RecentlyClosedTabEnvelope {
+  readonly version: 1;
+  readonly entries: RecentlyClosedTab[];
+}
+
+const RECENTLY_CLOSED_TABS_KEY = 'reassembly.workspace.closedTabs.v1';
+const RECENTLY_CLOSED_TABS_LIMIT = 40;
+
 @Injectable({
   providedIn: 'root',
 })
@@ -66,6 +82,7 @@ export class WorkspaceService {
 
   /** Store archive states per pane per tab */
   private archiveStates = new Map<string, Map<string, ArchiveTabState>>();
+  private recentlyClosedTabs = this.loadRecentlyClosedTabs();
 
   constructor(
     private api: ApiService,
@@ -639,6 +656,13 @@ export class WorkspaceService {
     const tabIndex = pane.tabs.findIndex((t) => t.id === tabId);
     if (tabIndex === -1) return false;
 
+    const closingTab = pane.tabs[tabIndex];
+    this.recordClosedTab(
+      workspace.id,
+      paneId === 'right' ? 'right' : 'left',
+      closingTab,
+    );
+
     // Clear archive state when closing tab
     this.clearArchiveState(paneId, tabId);
 
@@ -678,6 +702,74 @@ export class WorkspaceService {
       [paneId === 'left' ? 'leftPane' : 'rightPane']: pane,
     });
     return true;
+  }
+
+  getRecentlyClosedTabs(
+    workspaceId = this.activeWorkspaceSubject.value?.id ?? '',
+    limit = 20,
+  ): RecentlyClosedTab[] {
+    return this.recentlyClosedTabs
+      .filter(entry => !workspaceId || entry.workspaceId === workspaceId)
+      .slice(0, Math.max(0, limit))
+      .map(entry => ({
+        ...entry,
+        tab: this.cloneTab(entry.tab),
+      }));
+  }
+
+  canReopenClosedTab(
+    workspaceId = this.activeWorkspaceSubject.value?.id ?? '',
+  ): boolean {
+    return this.recentlyClosedTabs.some(entry =>
+      !workspaceId || entry.workspaceId === workspaceId
+    );
+  }
+
+  reopenClosedTabById(
+    closedId: string,
+  ): { paneId: 'left' | 'right'; tab: TabInfo } | null {
+    const workspace = this.activeWorkspaceSubject.value;
+    if (!workspace || !closedId) return null;
+
+    const index = this.recentlyClosedTabs.findIndex(entry =>
+      entry.id === closedId &&
+      entry.workspaceId === workspace.id
+    );
+    if (index < 0) return null;
+
+    return this.restoreClosedTabAtIndex(workspace, index);
+  }
+
+  reopenLastClosedTab(
+    preferredPaneId?: 'left' | 'right',
+  ): { paneId: 'left' | 'right'; tab: TabInfo } | null {
+    const workspace = this.activeWorkspaceSubject.value;
+    if (!workspace) return null;
+
+    const preferredIndex = this.recentlyClosedTabs.findIndex(entry =>
+      entry.workspaceId === workspace.id &&
+      (!preferredPaneId || entry.paneId === preferredPaneId)
+    );
+
+    const index = preferredIndex >= 0
+      ? preferredIndex
+      : this.recentlyClosedTabs.findIndex(entry =>
+          entry.workspaceId === workspace.id
+        );
+
+    if (index < 0) return null;
+    return this.restoreClosedTabAtIndex(workspace, index);
+  }
+
+  clearRecentlyClosedTabs(
+    workspaceId = this.activeWorkspaceSubject.value?.id ?? '',
+  ): void {
+    this.recentlyClosedTabs = workspaceId
+      ? this.recentlyClosedTabs.filter(entry =>
+          entry.workspaceId !== workspaceId
+        )
+      : [];
+    this.persistRecentlyClosedTabs();
   }
 
   switchTab(paneId: string, tabId: string): boolean {
@@ -978,6 +1070,137 @@ export class WorkspaceService {
     if ((tab.viewStateJson ?? undefined) === next) return;
     tab.viewStateJson = next;
     this.scheduleViewStatePersist(workspace);
+  }
+
+  private restoreClosedTabAtIndex(
+    workspace: WorkspaceConfig,
+    index: number,
+  ): { paneId: 'left' | 'right'; tab: TabInfo } | null {
+    if (index < 0 || index >= this.recentlyClosedTabs.length) return null;
+
+    const [entry] = this.recentlyClosedTabs.splice(index, 1);
+    this.persistRecentlyClosedTabs();
+
+    const pane =
+      entry.paneId === 'right'
+        ? workspace.rightPane
+        : workspace.leftPane;
+
+    pane.tabs.forEach(tab => {
+      tab.isActive = false;
+    });
+
+    const restored: TabInfo = {
+      ...this.cloneTab(entry.tab),
+      id: this.generateId(),
+      isActive: true,
+      createdAt: Date.now(),
+    };
+
+    pane.tabs.push(restored);
+    pane.activeTabId = restored.id;
+
+    this.updateWorkspace(workspace.id, {
+      [entry.paneId === 'left' ? 'leftPane' : 'rightPane']: pane,
+    });
+
+    return {
+      paneId: entry.paneId,
+      tab: this.cloneTab(restored),
+    };
+  }
+
+  private recordClosedTab(
+    workspaceId: string,
+    paneId: 'left' | 'right',
+    tab: TabInfo,
+  ): void {
+    if (!workspaceId || !tab?.id) return;
+
+    const record: RecentlyClosedTab = {
+      id:
+        globalThis.crypto?.randomUUID?.() ??
+        `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      workspaceId,
+      paneId,
+      closedAt: Date.now(),
+      tab: this.cloneTab(tab),
+    };
+
+    this.recentlyClosedTabs = [
+      record,
+      ...this.recentlyClosedTabs.filter(entry =>
+        !(
+          entry.workspaceId === workspaceId &&
+          entry.paneId === paneId &&
+          this.sameClosedTabIdentity(entry.tab, tab)
+        )
+      ),
+    ].slice(0, RECENTLY_CLOSED_TABS_LIMIT);
+
+    this.persistRecentlyClosedTabs();
+  }
+
+  private sameClosedTabIdentity(left: TabInfo, right: TabInfo): boolean {
+    return (
+      (left.kind ?? 'dir') === (right.kind ?? 'dir') &&
+      (left.path ?? '') === (right.path ?? '') &&
+      (left.surfaceId ?? '') === (right.surfaceId ?? '') &&
+      (left.viewer?.targetPath ?? '') === (right.viewer?.targetPath ?? '')
+    );
+  }
+
+  private cloneTab(tab: TabInfo): TabInfo {
+    if (typeof structuredClone === 'function') {
+      return structuredClone(tab);
+    }
+
+    return JSON.parse(JSON.stringify(tab)) as TabInfo;
+  }
+
+  private loadRecentlyClosedTabs(): RecentlyClosedTab[] {
+    try {
+      const raw = localStorage.getItem(RECENTLY_CLOSED_TABS_KEY);
+      if (!raw) return [];
+
+      const envelope = JSON.parse(raw) as RecentlyClosedTabEnvelope;
+      if (envelope?.version !== 1 || !Array.isArray(envelope.entries)) {
+        return [];
+      }
+
+      return envelope.entries
+        .filter(entry =>
+          !!entry?.id &&
+          !!entry.workspaceId &&
+          (entry.paneId === 'left' || entry.paneId === 'right') &&
+          !!entry.tab?.id
+        )
+        .slice(0, RECENTLY_CLOSED_TABS_LIMIT)
+        .map(entry => ({
+          ...entry,
+          tab: this.cloneTab(entry.tab),
+        }));
+    } catch {
+      return [];
+    }
+  }
+
+  private persistRecentlyClosedTabs(): void {
+    try {
+      const envelope: RecentlyClosedTabEnvelope = {
+        version: 1,
+        entries: this.recentlyClosedTabs.slice(
+          0,
+          RECENTLY_CLOSED_TABS_LIMIT,
+        ),
+      };
+      localStorage.setItem(
+        RECENTLY_CLOSED_TABS_KEY,
+        JSON.stringify(envelope),
+      );
+    } catch {
+      // Session recovery is best-effort.
+    }
   }
 
   // ---------------------------------------------------------------------------

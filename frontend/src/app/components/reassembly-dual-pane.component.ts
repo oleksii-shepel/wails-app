@@ -93,6 +93,8 @@ import { analyzePaneLocations, mirrorPaneLocation, mirroredPeerCandidates } from
 import type { ReassemblyPanePresentation } from './reassembly-directory-pane.component';
 import { ReassemblyInputCenterComponent } from './reassembly-input-center.component';
 import { ReassemblyOperationJournalComponent } from './reassembly-operation-journal.component';
+import { ReassemblyClosedTabsComponent } from './reassembly-closed-tabs.component';
+import type { RecentlyClosedTab } from '../services/workspace.service';
 import { InputCustomizationService } from '../services/input-customization.service';
 
 type PaneId = 'left' | 'right';
@@ -172,6 +174,8 @@ const COMMAND = {
   moveToOther: 'reassembly.manager.moveToOther',
   newTab: 'reassembly.manager.newTab',
   closeTab: 'reassembly.manager.closeTab',
+  reopenClosedTab: 'reassembly.manager.reopenClosedTab',
+  showClosedTabs: 'reassembly.manager.showClosedTabs',
   nextTab: 'reassembly.manager.nextTab',
   previousTab: 'reassembly.manager.previousTab',
   toggleTabPin: 'reassembly.manager.toggleTabPin',
@@ -265,6 +269,7 @@ const COMMAND = {
 } as const;
 
 const BINDINGS: readonly InputBindingDefinition[] = [
+  { id:'reassembly.manager.reopenClosedTab.ctrlShiftT', commandId:COMMAND.reopenClosedTab, contextId:CONTEXT_ID, source:'default', description:'Reopen last closed tab', category:'Tab Management', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'t', modifiers:['ctrl','shift']}]}}},
   { id:'reassembly.edit.operationHistory.ctrlShiftH', commandId:COMMAND.operationHistory, contextId:CONTEXT_ID, source:'default', description:'Open operation history', category:'Edit', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'h', modifiers:['ctrl','shift']}]}}},
   { id:'reassembly.mouse.file.doubleClick', commandId:COMMAND.open, contextId:CONTEXT_ID, source:'default', description:'Open selected item with double-click', category:'Mouse', when:'fileEntry && !viewerSurface', trigger:{device:'mouse', gesture:{type:'doubleClick', button:'left'}}},
   { id:'reassembly.mouse.viewer.ctrlWheelUp', commandId:COMMAND.viewerZoomIn, contextId:CONTEXT_ID, source:'default', description:'Zoom viewer in with Ctrl+Wheel', category:'Mouse', when:'viewerSurface', preventDefault:true, trigger:{device:'mouse', gesture:{type:'wheel', modifiers:['ctrl'], direction:'up'}}},
@@ -395,6 +400,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     ReassemblyToolWorkspaceHostComponent,
 
     ReassemblyCommandPaletteComponent,    ReassemblyOperationJournalComponent,
+    ReassemblyClosedTabsComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -698,6 +704,12 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         (closed)="closeContextMenu()">
       </app-reassembly-context-menu>
 
+      <app-reassembly-closed-tabs
+        [visible]="closedTabsVisible"
+        (closed)="closedTabsVisible = false"
+        (reopenRequested)="reopenClosedTabEntry($event)">
+      </app-reassembly-closed-tabs>
+
       <app-reassembly-operation-journal
         [visible]="operationJournalVisible"
         (closed)="operationJournalVisible = false"
@@ -978,6 +990,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
   showHidden = false;
   shortcutHelpVisible = false;
   operationJournalVisible = false;
+  closedTabsVisible = false;
   workspacePresentation: WorkspacePresentation | null = null;
 
   commandPaletteCommands: ReassemblyPaletteCommand[] = [];
@@ -3339,6 +3352,52 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     }
   }
 
+  async reopenLastClosedTab(): Promise<void> {
+    const restored = this.workspaceService.reopenLastClosedTab(
+      this.activePaneId,
+    );
+    if (!restored) return;
+
+    this.activePaneId = restored.paneId;
+    this.workspaceService.setActivePaneId(restored.paneId);
+
+    const pane =
+      restored.paneId === 'left'
+        ? this.leftPane
+        : this.rightPane;
+
+    if (!pane) return;
+
+    await pane.reloadWorkspaceTabs(restored.tab.id);
+    pane.lastAction = `reopen tab: ${restored.tab.title}`;
+    pane.focusContent();
+    this.closedTabsVisible = false;
+    this.cdr.markForCheck();
+  }
+
+  async reopenClosedTabEntry(
+    entry: RecentlyClosedTab,
+  ): Promise<void> {
+    const restored = this.workspaceService.reopenClosedTabById(entry.id);
+    if (!restored) return;
+
+    this.activePaneId = restored.paneId;
+    this.workspaceService.setActivePaneId(restored.paneId);
+
+    const pane =
+      restored.paneId === 'left'
+        ? this.leftPane
+        : this.rightPane;
+
+    if (!pane) return;
+
+    await pane.reloadWorkspaceTabs(restored.tab.id);
+    pane.lastAction = `reopen tab: ${restored.tab.title}`;
+    pane.focusContent();
+    this.closedTabsVisible = false;
+    this.cdr.markForCheck();
+  }
+
   async moveActiveTabToOtherPane(): Promise<void> {
     const source = this.activePane;
     const destination = this.otherPane;
@@ -5249,6 +5308,23 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     descriptor(COMMAND.moveToOther, 'Move to Other Pane', 'Pane Control', () => this.moveToOther(), () => this.canTransfer('move'));
     descriptor(COMMAND.newTab, 'New Tab', 'Tab Management', () => this.activePane?.newTab());
     descriptor(COMMAND.closeTab, 'Close Tab', 'Tab Management', () => this.activePane?.closeActiveTab());
+    descriptor(
+      COMMAND.reopenClosedTab,
+      'Reopen Closed Tab',
+      'Tab Management',
+      () => this.reopenLastClosedTab(),
+      () => this.workspaceService.canReopenClosedTab(),
+    );
+    descriptor(
+      COMMAND.showClosedTabs,
+      'Show Recently Closed Tabs',
+      'Tab Management',
+      () => {
+        this.closedTabsVisible = true;
+        this.cdr.markForCheck();
+      },
+      () => this.workspaceService.canReopenClosedTab(),
+    );
     descriptor(COMMAND.nextTab, 'Next Tab', 'Tab Management', () => this.activePane?.nextTab());
     descriptor(COMMAND.previousTab, 'Previous Tab', 'Tab Management', () => this.activePane?.previousTab());
     descriptor(COMMAND.toggleTabPin, 'Pin/Unpin Tab', 'Tab Management', () => this.activePane?.toggleActiveTabPin());

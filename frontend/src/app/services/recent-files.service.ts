@@ -2,7 +2,7 @@ import { Injectable } from '@angular/core';
 
 import type { FileInfo } from '../shared/protocol-enhanced';
 
-interface RecentFileRecord {
+export interface RecentFileRecord {
   readonly openedAt: number;
   readonly entry: FileInfo;
 }
@@ -28,7 +28,26 @@ export class RecentFilesService {
   }
 
   recent(limit = 50): FileInfo[] {
+    return this.recordsWithTimes(limit).map(record => ({ ...record.entry }));
+  }
+
+  recordsWithTimes(limit = 50): RecentFileRecord[] {
     return this.load()
+      .slice(0, Math.max(0, limit))
+      .map(record => ({
+        openedAt: record.openedAt,
+        entry: { ...record.entry },
+      }));
+  }
+
+  search(query: string, limit = 50): FileInfo[] {
+    const needle = query.trim().toLocaleLowerCase();
+    return this.load()
+      .filter(record =>
+        !needle ||
+        record.entry.name.toLocaleLowerCase().includes(needle) ||
+        record.entry.path.toLocaleLowerCase().includes(needle)
+      )
       .slice(0, Math.max(0, limit))
       .map(record => ({ ...record.entry }));
   }

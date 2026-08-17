@@ -12,13 +12,26 @@ import {
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 
-import { ApiService } from '../services/api.service';
+import { ConfirmDialogService } from '../services/confirm-dialog.service';
+import { DiscoverySearchService } from '../services/discovery-search.service';
+import {
+  DiscoveryHistoryService,
+  type DiscoverySearchSpec,
+  type DiscoverySearchType,
+  type SavedDiscoverySearch,
+} from '../services/discovery-history.service';
+import { RecentFilesService } from '../services/recent-files.service';
+import {
+  ResultsPanelService,
+  type ResultsPanelDefinition,
+} from '../services/results-panel.service';
 import { InputEngineService } from '../services/input-engine.service';
 import type { InputBindingDefinition } from '../services/input-system.types';
 import { FileInfo, FileType } from '../shared/protocol';
 import { ReassemblyModalSurfaceDirective } from './reassembly-modal-surface.directive';
 
 type SearchSort = 'relevance' | 'name' | 'path' | 'type';
+type DiscoveryMode = 'search' | 'recent' | 'collections';
 
 export interface SearchResultsPanelRequest {
   readonly title: string;
@@ -27,9 +40,6 @@ export interface SearchResultsPanelRequest {
   readonly recursive: boolean;
   readonly entries: readonly FileInfo[];
 }
-
-const SEARCH_HISTORY_KEY = 'reassembly.globalSearch.queries.v1';
-const SEARCH_HISTORY_LIMIT = 20;
 
 const CONTEXT_ID = 'overlay.reassemblyGlobalSearch';
 const OWNER_ID = 'overlay.reassemblyGlobalSearch';
@@ -70,88 +80,141 @@ const BINDINGS: readonly InputBindingDefinition[] = [
       <section class="search" role="dialog" aria-modal="true" aria-label="Global search"
         (mousedown)="$event.stopPropagation()"
         reassemblyModalSurface
-        (reassemblyModalDismiss)="close()"
         [reassemblyModalInitial]="\'.query > input\'"
         tabindex="-1">
         <header>
           <div>
-            <strong>Search</strong>
-            <span class="root" [title]="rootPath">{{ rootPath }}</span>
+            <strong>Discover</strong>
+            <span class="root" [title]="rootPath">{{ mode === 'search' ? rootPath : modeLabel }}</span>
           </div>
           <span class="count">
-            {{ searching ? 'searching…' : displayedResults.length + ' results' }}
+            {{ searching ? 'searching…' : resultCount + ' results' }}
             <ng-container *ngIf="!searching && results.length">
               · {{ folderCount }} folders · {{ fileCount }} files
             </ng-container>
           </span>
         </header>
 
+        <nav class="modes" aria-label="Discovery source">
+          <button type="button" [class.active]="mode === 'search'" (click)="setMode('search')">Search</button>
+          <button type="button" [class.active]="mode === 'recent'" (click)="setMode('recent')">Recent</button>
+          <button type="button" [class.active]="mode === 'collections'" (click)="setMode('collections')">Collections</button>
+        </nav>
+
         <div class="query">
           <input
             #queryInput
             [(ngModel)]="queryText"
             (ngModelChange)="scheduleSearch()"
-            placeholder="Search recursively in active pane"
+            [placeholder]="mode === 'search' ? 'Search this provider or folder' : mode === 'recent' ? 'Filter recent files' : 'Filter collections'"
             autocomplete="off"
             spellcheck="false"
-            aria-label="Search query" aria-controls="reassembly-global-search-results" />
-          <label title="Alt+R">
-            <input type="checkbox" [(ngModel)]="recursive" (ngModelChange)="scheduleSearch()">
-            Recursive
-          </label>
-          <label>
-            Sort
-            <select [(ngModel)]="sortMode" aria-label="Search result sort">
-              <option value="relevance">Relevance</option>
-              <option value="name">Name</option>
-              <option value="path">Path</option>
-              <option value="type">Type</option>
-            </select>
-          </label>
+            aria-label="Discovery query"
+            aria-controls="reassembly-global-search-results" />
+
+          <ng-container *ngIf="mode === 'search'">
+            <label title="Alt+R">
+              <input type="checkbox" [(ngModel)]="recursive" (ngModelChange)="scheduleSearch()">
+              Recursive
+            </label>
+            <label>Type
+              <select [(ngModel)]="typeFilter" (ngModelChange)="scheduleSearch()" aria-label="Search type">
+                <option value="all">All</option>
+                <option value="files">Files</option>
+                <option value="folders">Folders</option>
+                <option value="archives">Archives</option>
+              </select>
+            </label>
+            <label>Sort
+              <select [(ngModel)]="sortMode" aria-label="Search result sort">
+                <option value="relevance">Relevance</option>
+                <option value="name">Name</option>
+                <option value="path">Path</option>
+                <option value="type">Type</option>
+              </select>
+            </label>
+            <button type="button" class="save-search" [disabled]="!queryText.trim()" (click)="saveSearch()">Save…</button>
+          </ng-container>
         </div>
 
-        <div class="recent-queries" *ngIf="recentQueries.length">
-          <span>Recent:</span>
-          <button
-            type="button"
-            *ngFor="let recent of recentQueries.slice(0, 6)"
-            [title]="recent"
-            (click)="useQuery(recent)">
-            {{ recent }}
-          </button>
+        <div class="discovery-shortcuts" *ngIf="mode === 'search' && (savedSearches.length || historyEntries.length)">
+          <div *ngIf="savedSearches.length">
+            <span>Saved:</span>
+            <button type="button" *ngFor="let saved of savedSearches.slice(0, 6)"
+              [title]="saved.rootPath + ' · ' + saved.query"
+              (click)="useSavedSearch(saved)">
+              ★ {{ saved.name }}
+            </button>
+          </div>
+          <div *ngIf="historyEntries.length">
+            <span>History:</span>
+            <button type="button" *ngFor="let recent of historyEntries.slice(0, 6)"
+              [title]="recent.rootPath"
+              (click)="useHistory(recent)">
+              {{ recent.query }}
+            </button>
+          </div>
         </div>
 
         <div id="reassembly-global-search-results" class="results" role="listbox" aria-label="Search results" [attr.aria-busy]="searching">
-          <button
-            *ngFor="let entry of displayedResults; let i=index; trackBy:trackResult"
-            type="button"
-            class="result"
-            role="option"
-            [class.selected]="i === selectedIndex"
-            [attr.aria-selected]="i === selectedIndex"
-            [attr.aria-posinset]="i + 1"
-            [attr.aria-setsize]="displayedResults.length"
-            (mouseenter)="selectedIndex=i"
-            (click)="openEntry(entry)">
-            <span class="icon">{{ icon(entry) }}</span>
-            <span class="details">
-              <strong>{{ entry.name }}</strong>
-              <small>{{ entry.path }}</small>
-            </span>
-            <span class="kind">{{ kind(entry) }}</span>
-          </button>
+          <ng-container *ngIf="mode !== 'collections'; else collectionsList">
+            <button
+              *ngFor="let entry of displayedResults; let i=index; trackBy:trackResult"
+              type="button"
+              class="result"
+              role="option"
+              [class.selected]="i === selectedIndex"
+              [attr.aria-selected]="i === selectedIndex"
+              [attr.aria-posinset]="i + 1"
+              [attr.aria-setsize]="displayedResults.length"
+              (mouseenter)="selectedIndex=i"
+              (click)="openEntry(entry)">
+              <span class="icon">{{ icon(entry) }}</span>
+              <span class="details">
+                <strong>{{ entry.name }}</strong>
+                <small>{{ entry.path }}</small>
+              </span>
+              <span class="kind">{{ kind(entry) }}</span>
+            </button>
 
-          <div class="empty" *ngIf="!searching && queryText.trim() && displayedResults.length === 0">
-            No matching files.
-          </div>
-          <div class="empty" *ngIf="!queryText.trim()">
-            Type a name or wildcard pattern.
-          </div>
+            <div class="empty" *ngIf="!searching && displayedResults.length === 0">
+              {{ mode === 'recent'
+                ? 'No recent files match.'
+                : queryText.trim()
+                  ? 'No matching resources.'
+                  : 'Type a name or wildcard pattern.' }}
+            </div>
+          </ng-container>
+
+          <ng-template #collectionsList>
+            <button
+              *ngFor="let panel of visibleCollections; let i=index; trackBy:trackPanel"
+              type="button"
+              class="result collection"
+              role="option"
+              [class.selected]="i === selectedIndex"
+              [attr.aria-selected]="i === selectedIndex"
+              (mouseenter)="selectedIndex=i"
+              (click)="openCollection(panel)">
+              <span class="icon">{{ panel.pinned ? '★' : '▤' }}</span>
+              <span class="details">
+                <strong>{{ panel.title }}</strong>
+                <small>{{ collectionSummary(panel) }}</small>
+              </span>
+              <span class="kind">{{ panel.entries.length }} items</span>
+            </button>
+            <div class="empty" *ngIf="visibleCollections.length === 0">No matching collections.</div>
+          </ng-template>
         </div>
 
         <footer>
           <span *ngIf="error" class="error" role="alert">{{ error }}</span>
+          <span *ngIf="!error && searchProgress" class="progress">{{ searchProgress }}</span>
+          <span *ngIf="searchWarnings.length" class="warning" [title]="searchWarnings.join('\n')">
+            {{ searchWarnings.length }} warning{{ searchWarnings.length === 1 ? '' : 's' }}
+          </span>
           <button
+            *ngIf="mode !== 'collections'"
             type="button"
             class="open-panel"
             [disabled]="searching || displayedResults.length === 0"
@@ -159,6 +222,14 @@ const BINDINGS: readonly InputBindingDefinition[] = [
             Open as Panel
           </button>
           <button
+            *ngIf="mode === 'collections' && selectedCollection"
+            type="button"
+            class="open-panel"
+            (click)="toggleSelectedCollectionPinned()">
+            {{ selectedCollection.pinned ? 'Unpin' : 'Pin' }}
+          </button>
+          <button
+            *ngIf="mode === 'search'"
             type="button"
             class="open-panel"
             [disabled]="searching || displayedResults.length === 0"
@@ -175,10 +246,18 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     .backdrop{position:fixed;inset:0;display:grid;place-items:start center;padding-top:min(8vh,72px);background: var(--vsc-scrim-soft);pointer-events:auto}
     .search{box-sizing:border-box;display:flex;flex-direction:column;width:min(820px,calc(100vw - 24px));height:min(660px,calc(100vh - 36px));overflow:hidden;border:1px solid var(--vsc-border,var(--vsc-border));border-radius:8px;background:var(--vsc-menu-background,var(--vsc-panel-background));color:var(--vsc-foreground,var(--vsc-foreground));box-shadow:0 18px 60px var(--vsc-scrim-strong);font:12px/1.4 var(--vsc-font-family,system-ui,sans-serif)}
     header,footer,.query{display:flex;align-items:center;gap:10px;padding:9px 10px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border-subtle))}header{justify-content:space-between}header>div{display:flex;align-items:baseline;gap:8px;min-width:0}.root,.count,small,.kind,.keys{color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}.root{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--vsc-font-family-mono,ui-monospace,monospace)}
-    .query input[type=text],.query>input{flex:1;height:30px;padding:0 9px;border:1px solid var(--vsc-border,var(--vsc-border));border-radius:4px;outline:none;background:var(--vsc-input-background,var(--vsc-popover-background));color:inherit;font:inherit}.query input:focus{border-color:var(--vsc-focus-border,var(--vsc-accent-blue))}.query label{display:flex;gap:5px;align-items:center;white-space:nowrap}.query select{height:28px;border:1px solid var(--vsc-border,var(--vsc-border));border-radius:4px;background:var(--vsc-input-background,var(--vsc-popover-background));color:inherit;font:inherit}
+    
+    .modes{display:flex;gap:3px;padding:5px 10px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border-subtle))}
+    .modes button,.save-search{min-height:24px;padding:2px 8px;border:1px solid transparent;border-radius:3px;background:transparent;color:inherit;font:inherit;cursor:pointer}
+    .modes button.active{border-color:var(--vsc-focus-border,var(--vsc-accent-blue));background:color-mix(in srgb,var(--vsc-accent-blue) 10%,transparent)}
+    .modes button:hover,.save-search:hover{background:var(--vsc-list-hover-background)}
+    .discovery-shortcuts{display:grid;gap:3px;padding:5px 10px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border-subtle));color:var(--vsc-description-foreground)}
+    .discovery-shortcuts>div{display:flex;align-items:center;gap:5px;overflow:hidden}.discovery-shortcuts button{max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px 6px;border:1px solid var(--vsc-border);border-radius:10px;background:transparent;color:inherit;font:10px var(--vsc-font-family);cursor:pointer}
+    .collection .details small{opacity:.8}
+.query input[type=text],.query>input{flex:1;height:30px;padding:0 9px;border:1px solid var(--vsc-border,var(--vsc-border));border-radius:4px;outline:none;background:var(--vsc-input-background,var(--vsc-popover-background));color:inherit;font:inherit}.query input:focus{border-color:var(--vsc-focus-border,var(--vsc-accent-blue))}.query label{display:flex;gap:5px;align-items:center;white-space:nowrap}.query select{height:28px;border:1px solid var(--vsc-border,var(--vsc-border));border-radius:4px;background:var(--vsc-input-background,var(--vsc-popover-background));color:inherit;font:inherit}
     .recent-queries{display:flex;align-items:center;gap:5px;padding:5px 10px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border-subtle));overflow:hidden;color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}.recent-queries button{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px 6px;border:1px solid var(--vsc-border,var(--vsc-border));border-radius:10px;background:transparent;color:inherit;cursor:pointer;font:10px var(--vsc-font-family,system-ui,sans-serif)}.recent-queries button:hover{background:var(--vsc-list-hover-background,var(--vsc-list-hover-background))}
     .results{flex:1;min-height:0;overflow:auto;padding:5px}.result{display:grid;grid-template-columns:30px minmax(0,1fr) auto;gap:8px;align-items:center;width:100%;min-height:45px;padding:5px 8px;border:1px solid transparent;border-radius:4px;background:transparent;color:inherit;text-align:left;cursor:pointer;font:inherit}.result:hover,.result.selected{background:var(--vsc-list-hover-background,var(--vsc-list-hover-background))}.result.selected{border-color:color-mix(in srgb,var(--vsc-accent-blue,var(--vsc-accent-blue)) 55%,transparent)}.icon{text-align:center;font-size:16px}.details{min-width:0;display:grid}.details strong,.details small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.details small{font-family:var(--vsc-font-family-mono,ui-monospace,monospace)}.kind{font-size:10px}.empty{padding:40px;text-align:center;color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}
-    footer{border-top:1px solid var(--vsc-border-subtle,var(--vsc-border-subtle));border-bottom:0}.keys{margin-left:auto}.error{color:var(--vsc-error-foreground,var(--vsc-error));overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.open-panel{height:26px;padding:0 9px;border:1px solid var(--vsc-border,var(--vsc-border));border-radius:4px;background:var(--vsc-button-secondary-background,var(--vsc-control-background));color:inherit;cursor:pointer;font:inherit}.open-panel:disabled{opacity:.45;cursor:default}
+    footer{border-top:1px solid var(--vsc-border-subtle,var(--vsc-border-subtle));border-bottom:0}.keys{margin-left:auto}.progress{color:var(--vsc-description-foreground)}.warning{color:var(--vsc-warning)}.error{color:var(--vsc-error-foreground,var(--vsc-error));overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.open-panel{height:26px;padding:0 9px;border:1px solid var(--vsc-border,var(--vsc-border));border-radius:4px;background:var(--vsc-button-secondary-background,var(--vsc-control-background));color:inherit;cursor:pointer;font:inherit}.open-panel:disabled{opacity:.45;cursor:default}
   `],
 })
 export class ReassemblyGlobalSearchComponent implements OnInit, OnDestroy {
@@ -187,24 +266,36 @@ export class ReassemblyGlobalSearchComponent implements OnInit, OnDestroy {
   @Output() openContainingFolder = new EventEmitter<FileInfo>();
   @Output() openAsPanel = new EventEmitter<SearchResultsPanelRequest>();
   @Output() openAsWorkspace = new EventEmitter<SearchResultsPanelRequest>();
+  @Output() openPanelPath = new EventEmitter<string>();
 
   visible = false;
   rootPath = '';
   queryText = '';
   recursive = true;
   sortMode: SearchSort = 'relevance';
-  recentQueries: string[] = [];
+  typeFilter: DiscoverySearchType = 'all';
+  mode: DiscoveryMode = 'search';
+  historyEntries: ReturnType<DiscoveryHistoryService['history']> = [];
+  savedSearches: ReturnType<DiscoveryHistoryService['saved']> = [];
+  collections: readonly ResultsPanelDefinition[] = [];
   private queryHistoryIndex = -1;
   results: FileInfo[] = [];
+  searchProgress = '';
+  searchWarnings: readonly string[] = [];
   selectedIndex = 0;
   searching = false;
   error = '';
 
   private searchGeneration = 0;
+  private searchAbort: AbortController | null = null;
   private searchTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
-    private readonly api: ApiService,
+    private readonly searchService: DiscoverySearchService,
+    readonly history: DiscoveryHistoryService,
+    private readonly recentFiles: RecentFilesService,
+    private readonly resultPanels: ResultsPanelService,
+    private readonly dialogs: ConfirmDialogService,
     private readonly input: InputEngineService,
     private readonly cdr: ChangeDetectorRef,
   ) {}
@@ -240,8 +331,36 @@ export class ReassemblyGlobalSearchComponent implements OnInit, OnDestroy {
     return results;
   }
 
+  get modeLabel(): string {
+    if (this.mode === 'recent') return 'Recent Files';
+    if (this.mode === 'collections') return 'Collections';
+    return 'Search';
+  }
+
+  get resultCount(): number {
+    return this.mode === 'collections'
+      ? this.visibleCollections.length
+      : this.displayedResults.length;
+  }
+
+  get visibleCollections(): readonly ResultsPanelDefinition[] {
+    const needle = this.queryText.trim().toLocaleLowerCase();
+    return this.collections.filter(panel =>
+      !needle ||
+      panel.title.toLocaleLowerCase().includes(needle) ||
+      (panel.metadata.kind ?? '').toLocaleLowerCase().includes(needle) ||
+      (panel.metadata.origin ?? '').toLocaleLowerCase().includes(needle)
+    );
+  }
+
+  get selectedCollection(): ResultsPanelDefinition | null {
+    return this.visibleCollections[this.selectedIndex] ?? null;
+  }
+
   get selectedResult(): FileInfo | null {
-    return this.displayedResults[this.selectedIndex] ?? null;
+    return this.mode === 'collections'
+      ? null
+      : this.displayedResults[this.selectedIndex] ?? null;
   }
 
   get folderCount(): number {
@@ -264,13 +383,13 @@ export class ReassemblyGlobalSearchComponent implements OnInit, OnDestroy {
     this.input.registerCommandDescriptor({id:COMMAND.close,title:'Close Global Search',category:'Search & Filter',execute:()=>this.close()},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.previous,title:'Previous Search Result',category:'Search & Filter',execute:()=>this.move(-1)},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.next,title:'Next Search Result',category:'Search & Filter',execute:()=>this.move(1)},OWNER_ID);
-    this.input.registerCommandDescriptor({id:COMMAND.open,title:'Open Search Result',category:'Search & Filter',execute:()=>{const entry=this.selectedResult;if(entry)this.openEntry(entry)}},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.open,title:'Open Search Result',category:'Search & Filter',execute:()=>{if(this.mode==='collections'){const panel=this.selectedCollection;if(panel)this.openCollection(panel);return;}const entry=this.selectedResult;if(entry)this.openEntry(entry)}},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.openFolder,title:'Open Containing Folder',category:'Search & Filter',execute:()=>{const entry=this.selectedResult;if(entry)this.openFolder(entry)}},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.openAsPanel,title:'Open Search Results as Panel',category:'Search & Filter',execute:()=>this.openAsResultsPanel(),isEnabled:()=>this.displayedResults.length>0&&!this.searching},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.toggleRecursive,title:'Toggle Recursive Search',category:'Search & Filter',execute:()=>this.toggleRecursive()},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.cycleSort,title:'Cycle Search Sort',category:'Search & Filter',execute:()=>this.cycleSort()},OWNER_ID);
-    this.input.registerCommandDescriptor({id:COMMAND.previousQuery,title:'Previous Search Query',category:'Search & Filter',execute:()=>this.moveQueryHistory(-1),isEnabled:()=>this.recentQueries.length>0},OWNER_ID);
-    this.input.registerCommandDescriptor({id:COMMAND.nextQuery,title:'Next Search Query',category:'Search & Filter',execute:()=>this.moveQueryHistory(1),isEnabled:()=>this.recentQueries.length>0},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.previousQuery,title:'Previous Search Query',category:'Search & Filter',execute:()=>this.moveQueryHistory(-1),isEnabled:()=>this.historyEntries.length>0},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.nextQuery,title:'Next Search Query',category:'Search & Filter',execute:()=>this.moveQueryHistory(1),isEnabled:()=>this.historyEntries.length>0},OWNER_ID);
 
     for (const binding of BINDINGS) this.input.registerBinding(binding);
   }
@@ -287,8 +406,11 @@ export class ReassemblyGlobalSearchComponent implements OnInit, OnDestroy {
   open(rootPath: string): void {
     
     this.rootPath = rootPath;
-    this.recentQueries = this.loadRecentQueries();
+    this.historyEntries = this.history.history();
+    this.savedSearches = this.history.saved();
+    this.collections = this.resultPanels.recent();
     this.queryHistoryIndex = -1;
+    this.mode = 'search';
     this.queryText = '';
     this.results = [];
     this.selectedIndex = 0;
@@ -304,6 +426,8 @@ export class ReassemblyGlobalSearchComponent implements OnInit, OnDestroy {
     this.visible = false;
     this.input.deactivateContext(CONTEXT_ID);
     this.searchGeneration += 1;
+    this.searchAbort?.abort();
+    this.searchAbort = null;
     if (this.searchTimer) {
       clearTimeout(this.searchTimer);
       this.searchTimer = null;
@@ -325,56 +449,114 @@ export class ReassemblyGlobalSearchComponent implements OnInit, OnDestroy {
     const query = this.queryText.trim();
     const generation = ++this.searchGeneration;
 
+    this.searchAbort?.abort();
+    this.searchAbort = null;
+
+    if (this.mode === 'collections') {
+      this.results = [];
+      this.collections = this.resultPanels.recent();
+      this.selectedIndex = Math.min(
+        this.selectedIndex,
+        Math.max(0, this.visibleCollections.length - 1),
+      );
+      this.searching = false;
+      this.error = '';
+      this.cdr.markForCheck();
+      return;
+    }
+
+    if (this.mode === 'recent') {
+      this.results = this.recentFiles.search(query, 200);
+      this.selectedIndex = Math.min(
+        this.selectedIndex,
+        Math.max(0, this.displayedResults.length - 1),
+      );
+      this.searching = false;
+      this.error = '';
+      this.cdr.markForCheck();
+      return;
+    }
+
     if (!query || !this.rootPath) {
       this.results = [];
       this.searching = false;
       this.error = '';
+      this.searchProgress = '';
+      this.searchWarnings = [];
       this.selectedIndex = 0;
       this.cdr.markForCheck();
       return;
     }
 
+    const controller = new AbortController();
+    this.searchAbort = controller;
     this.searching = true;
     this.error = '';
+    this.searchProgress = '';
+    this.searchWarnings = [];
     this.cdr.markForCheck();
 
     try {
-      const result = await this.api.search(
+      const result = await this.searchService.search(
         this.rootPath,
         query,
-        this.recursive,
+        {
+          recursive: this.recursive,
+          type: this.typeFilter,
+          maxResults: 500,
+          signal: controller.signal,
+          onProgress: progress => {
+            if (generation !== this.searchGeneration) return;
+            this.searchProgress =
+              `${progress.sourceId} · ${progress.visitedDirectories} folders · ${progress.matchedEntries} matches`;
+            this.cdr.markForCheck();
+          },
+        },
       );
+
       if (generation !== this.searchGeneration) return;
 
-      this.results = [...(result.matches ?? [])];
-      this.rememberQuery(query);
+      this.results = [...result.entries];
+      this.searchWarnings = result.warnings;
+      this.searchProgress = result.truncated
+        ? `${result.sourceId} · result limit reached`
+        : `${result.sourceId} · ${result.visitedDirectories} folders`;
+
+      this.history.record(this.currentSearchSpec(), this.results.length);
+      this.historyEntries = this.history.history();
+
       this.selectedIndex = Math.min(
         this.selectedIndex,
         Math.max(0, this.displayedResults.length - 1),
       );
     } catch (error) {
       if (generation !== this.searchGeneration) return;
+      if (error instanceof DOMException && error.name === 'AbortError') return;
+
       this.results = [];
       this.selectedIndex = 0;
       this.error = error instanceof Error ? error.message : String(error);
     } finally {
       if (generation === this.searchGeneration) {
         this.searching = false;
+        this.searchAbort = null;
         this.cdr.markForCheck();
       }
     }
   }
 
   openAsResultsPanel(): void {
-    const query = this.queryText.trim();
     const entries = this.displayedResults;
-    if (!query || entries.length === 0) return;
+    if (entries.length === 0) return;
 
+    const query = this.queryText.trim();
     this.openAsPanel.emit({
-      title: `Search: ${query}`,
-      rootPath: this.rootPath,
-      query,
-      recursive: this.recursive,
+      title: this.mode === 'recent'
+        ? (query ? `Recent: ${query}` : 'Recent Files')
+        : `Search: ${query}`,
+      rootPath: this.mode === 'recent' ? '' : this.rootPath,
+      query: this.mode === 'recent' ? `recent:${query}` : query,
+      recursive: this.mode === 'search' && this.recursive,
       entries: entries.map(entry => ({ ...entry })),
     });
 
@@ -415,67 +597,117 @@ export class ReassemblyGlobalSearchComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
   }
 
-  useQuery(query: string): void {
-    this.queryText = query;
-    this.queryHistoryIndex = this.recentQueries.indexOf(query);
-    this.scheduleSearch();
+  setMode(mode: DiscoveryMode): void {
+    this.mode = mode;
+    this.selectedIndex = 0;
+    this.searchProgress = '';
+    this.searchWarnings = [];
+    this.error = '';
+
+    if (mode === 'collections') {
+      this.collections = this.resultPanels.recent();
+    }
+
+    void this.search();
     queueMicrotask(() => this.queryInput?.nativeElement.focus());
     this.cdr.markForCheck();
   }
 
-  private moveQueryHistory(delta: -1 | 1): void {
-    if (this.recentQueries.length === 0) return;
-
-    if (this.queryHistoryIndex < 0) {
-      this.queryHistoryIndex = delta < 0 ? 0 : this.recentQueries.length - 1;
-    } else {
-      this.queryHistoryIndex =
-        (this.queryHistoryIndex + delta + this.recentQueries.length) %
-        this.recentQueries.length;
-    }
-
-    this.queryText = this.recentQueries[this.queryHistoryIndex] ?? '';
+  useSavedSearch(saved: SavedDiscoverySearch): void {
+    this.mode = 'search';
+    this.rootPath = saved.rootPath;
+    this.queryText = saved.query;
+    this.recursive = saved.recursive;
+    this.typeFilter = saved.type;
+    this.sortMode = saved.sort;
+    this.selectedIndex = 0;
     this.scheduleSearch();
+    queueMicrotask(() => this.queryInput?.nativeElement.focus());
+  }
+
+  useHistory(entry: DiscoverySearchSpec): void {
+    this.mode = 'search';
+    this.rootPath = entry.rootPath;
+    this.queryText = entry.query;
+    this.recursive = entry.recursive;
+    this.typeFilter = entry.type;
+    this.sortMode = entry.sort;
+    this.selectedIndex = 0;
+    this.scheduleSearch();
+    queueMicrotask(() => this.queryInput?.nativeElement.focus());
+  }
+
+  async saveSearch(): Promise<void> {
+    const spec = this.currentSearchSpec();
+    if (!spec.query.trim()) return;
+
+    const name = (await this.dialogs.prompt({
+      title: 'Save Search',
+      message: 'Name this search.',
+      confirmText: 'Save',
+      defaultValue: spec.query,
+      historyKey: 'reassembly.discovery.savedSearch.name',
+    }))?.trim();
+
+    if (!name) return;
+
+    this.history.save(name, spec);
+    this.savedSearches = this.history.saved();
     this.cdr.markForCheck();
   }
 
-  private rememberQuery(query: string): void {
-    const normalized = query.trim();
-    if (!normalized) return;
-
-    this.recentQueries = [
-      normalized,
-      ...this.recentQueries.filter(item =>
-        item.toLocaleLowerCase() !== normalized.toLocaleLowerCase(),
-      ),
-    ].slice(0, SEARCH_HISTORY_LIMIT);
-
-    try {
-      localStorage.setItem(
-        SEARCH_HISTORY_KEY,
-        JSON.stringify(this.recentQueries),
-      );
-    } catch {
-      // Search stays functional when storage is unavailable.
-    }
+  openCollection(panel: ResultsPanelDefinition): void {
+    this.openPanelPath.emit(panel.path);
+    this.close();
   }
 
-  private loadRecentQueries(): string[] {
-    try {
-      const parsed = JSON.parse(
-        localStorage.getItem(SEARCH_HISTORY_KEY) ?? '[]',
-      );
+  toggleSelectedCollectionPinned(): void {
+    const panel = this.selectedCollection;
+    if (!panel) return;
 
-      return Array.isArray(parsed)
-        ? parsed
-            .filter((value): value is string =>
-              typeof value === 'string' && !!value.trim(),
-            )
-            .slice(0, SEARCH_HISTORY_LIMIT)
-        : [];
-    } catch {
-      return [];
+    this.resultPanels.setPinned(panel.path, !panel.pinned);
+    this.collections = this.resultPanels.recent();
+    this.cdr.markForCheck();
+  }
+
+  collectionSummary(panel: ResultsPanelDefinition): string {
+    const parts = [
+      panel.metadata.kind,
+      panel.metadata.rootPath,
+      panel.metadata.query,
+      panel.metadata.pluginId ? `plugin:${panel.metadata.pluginId}` : '',
+    ].filter(Boolean);
+    return parts.join(' · ') || panel.path;
+  }
+
+  trackPanel(_index: number, panel: ResultsPanelDefinition): string {
+    return panel.path;
+  }
+
+  private moveQueryHistory(delta: -1 | 1): void {
+    if (!this.historyEntries.length) return;
+
+    if (this.queryHistoryIndex < 0) {
+      this.queryHistoryIndex =
+        delta < 0 ? 0 : this.historyEntries.length - 1;
+    } else {
+      this.queryHistoryIndex =
+        (this.queryHistoryIndex + delta + this.historyEntries.length) %
+        this.historyEntries.length;
     }
+
+    const entry = this.historyEntries[this.queryHistoryIndex];
+    if (entry) this.useHistory(entry);
+  }
+
+  private currentSearchSpec(): DiscoverySearchSpec {
+    return {
+      rootPath: this.rootPath,
+      query: this.queryText.trim(),
+      recursive: this.recursive,
+      type: this.typeFilter,
+      sort: this.sortMode,
+    };
   }
 
   openEntry(entry: FileInfo): void {
@@ -503,7 +735,9 @@ export class ReassemblyGlobalSearchComponent implements OnInit, OnDestroy {
   }
 
   private move(delta:-1|1):void {
-    const count=this.results.length;
+    const count=this.mode === 'collections'
+      ? this.visibleCollections.length
+      : this.displayedResults.length;
     if(!count)return;
     this.selectedIndex=(this.selectedIndex+delta+count)%count;
     this.cdr.markForCheck();

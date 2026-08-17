@@ -708,6 +708,9 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
     
       overscroll-behavior: none;}
 
+    .pane.active-pane {
+      border-color: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 62%, transparent);
+    }
 
     .tab-strip {
       display: flex;

@@ -24,9 +24,11 @@ export interface ResultsPanelDefinition {
   readonly createdAt: number;
   readonly entries: readonly FileInfo[];
   readonly metadata: ResultsPanelMetadata;
+  readonly pinned?: boolean;
 }
 
 const STORAGE_KEY = 'reassembly.resultsPanels.v1';
+const PINNED_STORAGE_KEY = 'reassembly.resultsPanels.pinned.v1';
 const MAX_PANELS = 24;
 
 function parseResultsId(path: string): string | null {
@@ -161,6 +163,34 @@ export class ResultsPanelService {
     this.persist();
   }
 
+  rename(path: string, title: string): void {
+    this.hydrate();
+    const id = parseResultsId(path);
+    const current = id ? this.panels.get(id) : null;
+    const nextTitle = title.trim();
+    if (!id || !current || !nextTitle) return;
+
+    this.panels.set(id, { ...current, title: nextTitle });
+    this.persist();
+  }
+
+  setPinned(path: string, pinned: boolean): void {
+    this.hydrate();
+    const id = parseResultsId(path);
+    const current = id ? this.panels.get(id) : null;
+    if (!id || !current) return;
+
+    this.panels.set(id, { ...current, pinned });
+    this.persist();
+  }
+
+  pinned(): readonly ResultsPanelDefinition[] {
+    this.hydrate();
+    return [...this.panels.values()]
+      .filter(panel => !!panel.pinned)
+      .sort((a,b) => b.createdAt - a.createdAt);
+  }
+
   recent(): readonly ResultsPanelDefinition[] {
     this.hydrate();
     return [...this.panels.values()]
@@ -173,9 +203,10 @@ export class ResultsPanelService {
 
     try {
       const raw = sessionStorage.getItem(STORAGE_KEY);
-      if (!raw) return;
+      const parsed = raw
+        ? JSON.parse(raw) as ResultsPanelDefinition[]
+        : [];
 
-      const parsed = JSON.parse(raw) as ResultsPanelDefinition[];
       for (const panel of parsed ?? []) {
         if (
           !panel?.id ||
@@ -194,25 +225,64 @@ export class ResultsPanelService {
     } catch {
       this.panels.clear();
     }
+
+    try {
+      const raw = localStorage.getItem(PINNED_STORAGE_KEY);
+      const parsed = raw ? JSON.parse(raw) as ResultsPanelDefinition[] : [];
+
+      for (const panel of parsed ?? []) {
+        if (!panel?.id || !panel?.path || !Array.isArray(panel.entries)) continue;
+
+        // Plugin-owned collections are lifecycle-owned and are intentionally
+        // not resurrected from snapshots when their plugin is absent.
+        if (panel.metadata?.pluginId) continue;
+
+        this.panels.set(panel.id, {
+          ...panel,
+          pinned: true,
+          entries: panel.entries.map(entry => ({ ...entry })),
+          metadata: { ...(panel.metadata ?? {}) },
+        });
+      }
+    } catch {
+      // Session panels remain usable if persistent pinned hydration fails.
+    }
   }
 
   private trim(): void {
-    const ordered = [...this.panels.values()]
+    const orderedUnpinned = [...this.panels.values()]
+      .filter(panel => !panel.pinned)
       .sort((left, right) => right.createdAt - left.createdAt);
 
-    for (const panel of ordered.slice(MAX_PANELS)) {
+    for (const panel of orderedUnpinned.slice(MAX_PANELS)) {
       this.panels.delete(panel.id);
     }
   }
 
   private persist(): void {
+    const all = [...this.panels.values()];
+
     try {
       sessionStorage.setItem(
         STORAGE_KEY,
-        JSON.stringify([...this.panels.values()]),
+        JSON.stringify(all),
       );
     } catch {
       // Session persistence is best-effort. The in-memory panel remains usable.
+    }
+
+    try {
+      localStorage.setItem(
+        PINNED_STORAGE_KEY,
+        JSON.stringify(
+          all.filter(panel =>
+            panel.pinned &&
+            !panel.metadata.pluginId
+          ),
+        ),
+      );
+    } catch {
+      // Pinned persistence is best-effort.
     }
   }
 }

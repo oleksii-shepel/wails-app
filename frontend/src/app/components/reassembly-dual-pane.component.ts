@@ -638,7 +638,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         (openResult)="openSearchResult($event)"
         (openContainingFolder)="openSearchContainingFolder($event)"
         (openAsPanel)="openSearchResultsPanel($event)"
-        (openAsWorkspace)="openSearchWorkspace($event)">
+        (openAsWorkspace)="openSearchWorkspace($event)"
+        (openPanelPath)="openDiscoveryPanelPath($event)">
       </app-reassembly-global-search>
 
       <app-reassembly-tools-center
@@ -2628,16 +2629,49 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     await pane.openResultsPanel(
       request.title,
       request.entries,
-      {
-        origin: 'global-search',
-        rootPath: request.rootPath,
-        query: request.query,
-        kind: request.recursive
-          ? 'recursive-search'
-          : 'search',
-      },
+      request.query.startsWith('recent:')
+        ? {
+            origin: 'recent-files',
+            query: request.query.slice('recent:'.length),
+            kind: 'recent-files',
+          }
+        : {
+            origin: 'global-search',
+            rootPath: request.rootPath,
+            query: request.query,
+            kind: request.recursive
+              ? 'recursive-search'
+              : 'search',
+          },
     );
 
+    this.cdr.markForCheck();
+  }
+
+  async openDiscoveryPanelPath(path: string): Promise<void> {
+    if (!/^results:\/\//i.test(path)) return;
+
+    const pane = this.activePane?.isDirectoryTab
+      ? this.activePane
+      : this.otherPane?.isDirectoryTab
+        ? this.otherPane
+        : null;
+
+    if (!pane) return;
+
+    const loaded = await pane.navigateLinkedLocation(path, {
+      history: 'record',
+      preserveCursor: false,
+    });
+
+    if (!loaded) {
+      await this.confirmDialog.alert({
+        title: 'Collection Unavailable',
+        message: 'This results collection is no longer available.',
+      });
+    }
+
+    this.globalSearchOverlay?.close();
     this.cdr.markForCheck();
   }
 

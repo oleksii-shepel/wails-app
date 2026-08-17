@@ -189,7 +189,7 @@ export class ReassemblyContextMenuComponent implements OnDestroy {
   menuX = 8;
   menuY = 8;
   menuColumns = 1;
-  private menuWidth = 286;
+  menuWidth = 286;
 
   constructor(private readonly cdr: ChangeDetectorRef) {}
 

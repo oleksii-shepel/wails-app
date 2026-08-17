@@ -50,6 +50,11 @@ import { ReassemblyFilterComponent } from './reassembly-filter.component';
 import { ReassemblyNavigationController } from './reassembly-navigation.controller';
 import type { PresentedCommand } from './presented-command';
 import {
+  collapseNestedDragEntries,
+  decideInternalDrop,
+  dragOperationFromModifiers,
+} from './reassembly-drag-drop-policy';
+import {
   createFilenameMaskMatcher,
   entryTypeLabel,
   fileExtension,
@@ -387,6 +392,10 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
           role="treeitem"
           [class.selected]="selectedPaths.has(row.entry.path)"
           [class.cursor]="cursorPath === row.entry.path"
+          [class.drop-target]="dragOverPath === row.entry.path"
+          [class.drop-invalid]="dragOverPath === row.entry.path && dropIntent === 'invalid'"
+          [class.drop-copy]="dragOverPath === row.entry.path && dropIntent === 'copy'"
+          [class.drop-move]="dragOverPath === row.entry.path && dropIntent === 'move'"
           [attr.aria-level]="row.depth + 1"
           [attr.aria-expanded]="row.expandable ? row.expanded : null"
           [attr.aria-selected]="selectedPaths.has(row.entry.path)"
@@ -484,6 +493,9 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
           (dragleave)="onEntryDragLeave(entry)"
           (drop)="onEntryDrop(entry, $event)"
           [class.drop-target]="dragOverPath === entry.path"
+          [class.drop-invalid]="dragOverPath === entry.path && dropIntent === 'invalid'"
+          [class.drop-copy]="dragOverPath === entry.path && dropIntent === 'copy'"
+          [class.drop-move]="dragOverPath === entry.path && dropIntent === 'move'"
           [style.grid-template-columns]="viewMode === 'details' ? detailsGridTemplate : null">
 
           <span class="icon" aria-hidden="true" [style.color]="entryCategory(entry)?.color || null">
@@ -530,6 +542,15 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
           <span *ngIf="filterText">Clear the filter to see all items.</span>
           <span *ngIf="!filterText && canCreate && !isInArchive">Use F7 to create a folder or Command Palette for New File.</span>
         </div>
+      </div>
+
+      <div
+        class="drop-intent"
+        *ngIf="dropIntentText"
+        [class.invalid]="dropIntent === 'invalid'"
+        role="status"
+        aria-live="polite">
+        {{ dropIntentText }}
       </div>
 
       <footer class="pane-footer">
@@ -1091,6 +1112,36 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
         var(--vsc-accent-blue, var(--vsc-accent-blue)) 72%,
         transparent
       );
+    }
+
+    .entry.drop-move,.tree-row.drop-move,.list.drop-move{
+      outline-color:var(--vsc-success,var(--vsc-accent-green));
+    }
+    .entry.drop-invalid,.tree-row.drop-invalid,.list.drop-invalid{
+      outline-color:var(--vsc-error,var(--vsc-danger));
+      cursor:not-allowed;
+    }
+    .drop-intent{
+      position:absolute;
+      z-index:30;
+      right:8px;
+      bottom:30px;
+      max-width:min(320px,70%);
+      padding:4px 8px;
+      border:1px solid var(--vsc-focus-border,var(--vsc-accent-blue));
+      border-radius:4px;
+      background:var(--vsc-menu-background,var(--vsc-panel-background));
+      color:var(--vsc-menu-foreground,var(--vsc-foreground));
+      box-shadow:0 3px 12px var(--vsc-scrim);
+      pointer-events:none;
+      font-size:10px;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .drop-intent.invalid{
+      border-color:var(--vsc-error,var(--vsc-danger));
+      color:var(--vsc-error,var(--vsc-danger));
     }
 
     .entry.cursor.selected {
@@ -1740,6 +1791,8 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
 
   dragOverPath: string | null = null;
   backgroundDropActive = false;
+  dropIntent: 'copy' | 'move' | 'invalid' | null = null;
+  dropIntentText = '';
 
   private anchorPath: string | null = null;
   private loadGeneration = 0;
@@ -2719,27 +2772,36 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       return;
     }
 
-    const selected = this.selectedEntries.map(candidate => ({
-      path: candidate.path,
-      name: candidate.name,
-      type: candidate.type,
-    }));
+    const selected = collapseNestedDragEntries(
+      this.selectedEntries.map(candidate => ({
+        path: candidate.path,
+        name: candidate.name,
+        type: candidate.type,
+      })),
+    );
+
+    if (selected.length === 0) {
+      event.preventDefault();
+      return;
+    }
 
     event.dataTransfer.effectAllowed = 'copyMove';
     event.dataTransfer.setData('application/json', JSON.stringify({
       sourcePaneId: this.paneId,
+      sourceDirectory: this.path,
       entries: selected,
     }));
-    event.dataTransfer.setData('text/plain', selected.map(item => item.path).join('\n'));
+    event.dataTransfer.setData(
+      'text/plain',
+      selected.map(item => item.path).join('\n'),
+    );
 
     this.lastAction = `drag ${selected.length}`;
     this.cdr.markForCheck();
   }
 
   onDragEnd(): void {
-    this.dragOverPath = null;
-    this.backgroundDropActive = false;
-    this.cdr.markForCheck();
+    this.clearDropFeedback();
   }
 
   onEntryDragOver(entry: FileInfo, event: DragEvent): void {
@@ -2752,18 +2814,16 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     event.preventDefault();
     event.stopPropagation();
 
-    if (event.dataTransfer) {
-      event.dataTransfer.dropEffect = event.shiftKey ? 'move' : 'copy';
-    }
-
     this.backgroundDropActive = false;
     this.dragOverPath = entry.path;
-    this.cdr.markForCheck();
+    this.updateDropFeedback(event, entry.path);
   }
 
   onEntryDragLeave(entry: FileInfo): void {
     if (this.dragOverPath !== entry.path) return;
     this.dragOverPath = null;
+    this.dropIntent = null;
+    this.dropIntentText = '';
     this.cdr.markForCheck();
   }
 
@@ -2777,8 +2837,12 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     event.preventDefault();
     event.stopPropagation();
 
-    this.dragOverPath = null;
-    this.backgroundDropActive = false;
+    if (!this.updateDropFeedback(event, entry.path)) {
+      this.clearDropFeedback();
+      return;
+    }
+
+    this.clearDropFeedback(false);
     this.internalDrop.emit({
       event,
       targetPath: entry.path,
@@ -2791,35 +2855,111 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     if (!this.hasInternalDrag(event)) return;
 
     event.preventDefault();
-    if (event.dataTransfer) {
-      event.dataTransfer.dropEffect = event.shiftKey ? 'move' : 'copy';
-    }
-
     this.backgroundDropActive = true;
-    this.cdr.markForCheck();
+    this.dragOverPath = null;
+    this.updateDropFeedback(event, this.path);
   }
 
   onBackgroundDragLeave(event: DragEvent): void {
     const current = event.currentTarget as HTMLElement | null;
     const related = event.relatedTarget as Node | null;
     if (current && related && current.contains(related)) return;
-
-    this.backgroundDropActive = false;
-    this.cdr.markForCheck();
+    this.clearDropFeedback();
   }
 
   onBackgroundDrop(event: DragEvent): void {
     if (!this.hasInternalDrag(event)) return;
 
     event.preventDefault();
-    this.backgroundDropActive = false;
-    this.dragOverPath = null;
+
+    if (!this.updateDropFeedback(event, this.path)) {
+      this.clearDropFeedback();
+      return;
+    }
+
+    this.clearDropFeedback(false);
     this.internalDrop.emit({
       event,
       targetPath: this.path,
       targetEntry: null,
     });
     this.cdr.markForCheck();
+  }
+
+  private updateDropFeedback(event: DragEvent, targetPath: string): boolean {
+    const payload = this.readDragPayload(event);
+    if (!payload) {
+      this.dropIntent = 'invalid';
+      this.dropIntentText = 'Cannot drop here';
+      if (event.dataTransfer) event.dataTransfer.dropEffect = 'none';
+      this.cdr.markForCheck();
+      return false;
+    }
+
+    const operation = dragOperationFromModifiers(event);
+    const decision = decideInternalDrop({
+      entries: payload.entries,
+      sourceDirectory: payload.sourceDirectory,
+      targetDirectory: targetPath,
+      operation,
+    });
+
+    const allowed = decision.validity === 'allowed';
+    this.dropIntent = allowed ? operation : 'invalid';
+    this.dropIntentText = decision.reason;
+
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = allowed ? operation : 'none';
+    }
+
+    this.cdr.markForCheck();
+    return allowed;
+  }
+
+  private clearDropFeedback(mark = true): void {
+    this.dragOverPath = null;
+    this.backgroundDropActive = false;
+    this.dropIntent = null;
+    this.dropIntentText = '';
+    if (mark) this.cdr.markForCheck();
+  }
+
+  private readDragPayload(event: DragEvent): {
+    sourcePaneId: 'left' | 'right';
+    sourceDirectory: string;
+    entries: Array<{ path: string; name?: string; type?: unknown }>;
+  } | null {
+    try {
+      const raw = event.dataTransfer?.getData('application/json');
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as {
+        sourcePaneId?: unknown;
+        sourceDirectory?: unknown;
+        entries?: unknown;
+      };
+
+      const entries = Array.isArray(parsed.entries)
+        ? parsed.entries.filter(
+            (item): item is { path: string; name?: string; type?: unknown } =>
+              !!item &&
+              typeof item === 'object' &&
+              typeof (item as { path?: unknown }).path === 'string',
+          )
+        : [];
+
+      if (entries.length === 0) return null;
+
+      return {
+        sourcePaneId: parsed.sourcePaneId === 'right' ? 'right' : 'left',
+        sourceDirectory:
+          typeof parsed.sourceDirectory === 'string'
+            ? parsed.sourceDirectory
+            : '',
+        entries,
+      };
+    } catch {
+      return null;
+    }
   }
 
   private hasInternalDrag(event: DragEvent): boolean {

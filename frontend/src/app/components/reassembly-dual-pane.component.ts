@@ -68,6 +68,11 @@ import {
 } from './reassembly-context-menu.component';
 import { normalizeContextMenuItems } from './reassembly-context-menu-policy';
 import { FileInfo, FileType } from '../shared/protocol';
+import {
+  collapseNestedDragEntries,
+  decideInternalDrop,
+  dragOperationFromModifiers,
+} from './reassembly-drag-drop-policy';
 import { PluginManagerService } from '../services/plugin-manager.service';
 import { ReassemblyOperationHistoryService, type ReassemblySyncHistoryEntry } from '../services/reassembly-operation-history.service';
 import { ReassemblyTrashDialogService } from '../services/reassembly-trash-dialog.service';
@@ -2573,7 +2578,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     if (!targetPane) return;
 
     const sourcePane = payload.sourcePaneId === 'left' ? this.leftPane : this.rightPane;
-    const operation: 'copy' | 'move' = event.shiftKey ? 'move' : 'copy';
+    const operation = dragOperationFromModifiers(event);
 
     const sourceCapabilities = sourcePane?.sourceCapabilities ?? {
       read: true,
@@ -2596,18 +2601,20 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       return;
     }
 
-    const sourcePaths = payload.entries
-      .map(entry => entry.path)
-      .filter(path => !!path);
-
+    const entries = collapseNestedDragEntries(payload.entries);
+    const sourcePaths = entries.map(entry => entry.path).filter(path => !!path);
     if (sourcePaths.length === 0) return;
 
-    // Dropping the same directory onto its own background is a no-op.
-    if (
-      payload.sourcePaneId === targetPaneId &&
-      sourcePane?.path === targetPath
-    ) {
-      this.lastDrop = 'ignored: same directory';
+    const dropDecision = decideInternalDrop({
+      entries,
+      sourceDirectory: sourcePane?.path ?? payload.sourceDirectory ?? '',
+      targetDirectory: targetPath,
+      operation,
+    });
+
+    if (dropDecision.validity !== 'allowed') {
+      this.lastDrop = `ignored: ${dropDecision.reason.toLocaleLowerCase()}`;
+      targetPane.lastAction = this.lastDrop;
       this.cdr.markForCheck();
       return;
     }
@@ -2706,7 +2713,10 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
         });
       }
 
-      this.lastDrop = `${operation} drop: ${result.succeeded}/${result.total}`;
+      this.lastDrop =
+        `${operation} drop: ${result.succeeded}/${result.total}` +
+        (result.skipped > 0 ? ` · ${result.skipped} skipped` : '') +
+        (result.failed > 0 ? ` · ${result.failed} failed` : '');
       this.lastTransfer = this.lastDrop;
       targetPane.lastAction = this.lastDrop;
 
@@ -2727,10 +2737,17 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
         await sourcePane.refresh();
       }
 
-      if (result.failed > 0) {
+      if (result.failed > 0 || result.skipped > 0) {
         await this.confirmDialog.alert({
-          title: 'Drop Completed with Errors',
-          message: `${result.failed} item${result.failed === 1 ? '' : 's'} could not be ${operation === 'copy' ? 'copied' : 'moved'}.`,
+          title: 'Drop Completed with Issues',
+          message: [
+            result.failed > 0
+              ? `${result.failed} item${result.failed === 1 ? '' : 's'} failed.`
+              : '',
+            result.skipped > 0
+              ? `${result.skipped} item${result.skipped === 1 ? '' : 's'} were skipped.`
+              : '',
+          ].filter(Boolean).join('\n'),
         });
       }
     } catch (error) {
@@ -2745,6 +2762,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
 
   private readInternalDragPayload(event: DragEvent): {
     sourcePaneId: PaneId;
+    sourceDirectory: string;
     entries: Array<{ path: string; name?: string; type?: unknown }>;
   } | null {
     try {
@@ -2753,6 +2771,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
 
       const parsed = JSON.parse(raw) as {
         sourcePaneId?: unknown;
+        sourceDirectory?: unknown;
         entries?: unknown;
       };
 
@@ -2768,7 +2787,14 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
           )
         : [];
 
-      return { sourcePaneId, entries };
+      return {
+        sourcePaneId,
+        sourceDirectory:
+          typeof parsed.sourceDirectory === 'string'
+            ? parsed.sourceDirectory
+            : '',
+        entries,
+      };
     } catch {
       return null;
     }

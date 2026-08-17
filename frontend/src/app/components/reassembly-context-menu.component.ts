@@ -48,27 +48,33 @@ export interface ReassemblyContextMenuState {
         [attr.aria-label]="state.title || 'Context menu'"
         [style.left.px]="menuX"
         [style.top.px]="menuY"
+        [style.--context-menu-width.px]="menuWidth"
         (mousedown)="$event.stopPropagation()"
         (contextmenu)="$event.preventDefault(); $event.stopPropagation()">
 
         <div class="title" *ngIf="state.title">{{ state.title }}</div>
 
-        <ng-container *ngFor="let item of state.items; let i = index">
-          <div *ngIf="item.separator" class="separator" role="separator"></div>
+        <div
+          class="menu-items"
+          [style.column-count]="menuColumns"
+          [style.column-gap.px]="menuColumns > 1 ? 6 : 0">
+          <ng-container *ngFor="let item of state.items; let i = index">
+            <div *ngIf="item.separator" class="separator" role="separator"></div>
 
-          <button
-            *ngIf="!item.separator"
-            type="button"
-            role="menuitem"
-            [attr.data-menu-index]="i"
-            [class.danger]="item.danger"
-            [disabled]="item.enabled === false"
-            (mouseenter)="focusItem(i)"
-            (click)="choose(item)">
-            <span class="label">{{ item.label }}</span>
-            <span class="shortcut" *ngIf="item.shortcut">{{ item.shortcut }}</span>
-          </button>
-        </ng-container>
+            <button
+              *ngIf="!item.separator"
+              type="button"
+              role="menuitem"
+              [attr.data-menu-index]="i"
+              [class.danger]="item.danger"
+              [disabled]="item.enabled === false"
+              (mouseenter)="focusItem(i)"
+              (click)="choose(item)">
+              <span class="label">{{ item.label }}</span>
+              <span class="shortcut" *ngIf="item.shortcut">{{ item.shortcut }}</span>
+            </button>
+          </ng-container>
+        </div>
       </section>
     </div>
   `,
@@ -89,9 +95,8 @@ export interface ReassemblyContextMenuState {
     .menu {
       position: fixed;
       box-sizing: border-box;
-      width: min(286px, calc(100vw - 16px));
-      max-height: calc(100vh - 16px);
-      overflow: auto;
+      width: min(var(--context-menu-width, 286px), calc(100vw - 16px));
+      overflow: visible;
       padding: 4px;
       border: 1px solid var(--vsc-border, var(--vsc-border));
       border-radius: 6px;
@@ -111,14 +116,20 @@ export interface ReassemblyContextMenuState {
       font-size: 10px;
     }
 
+    .menu-items {
+      display: block;
+      column-fill: balance;
+    }
+
     button {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
       gap: 16px;
       align-items: center;
       width: 100%;
-      min-height: 28px;
-      padding: 4px 8px;
+      min-height: 24px;
+      padding: 2px 7px;
+      break-inside: avoid;
       border: 0;
       border-radius: 3px;
       background: transparent;
@@ -158,8 +169,9 @@ export interface ReassemblyContextMenuState {
 
     .separator {
       height: 1px;
-      margin: 4px 5px;
+      margin: 3px 5px;
       background: var(--vsc-border, var(--vsc-border));
+      break-inside: avoid;
     }
   `],
 })
@@ -176,6 +188,8 @@ export class ReassemblyContextMenuComponent implements OnDestroy {
 
   menuX = 8;
   menuY = 8;
+  menuColumns = 1;
+  private menuWidth = 286;
 
   constructor(private readonly cdr: ChangeDetectorRef) {}
 
@@ -190,6 +204,8 @@ export class ReassemblyContextMenuComponent implements OnDestroy {
 
     this.menuX = value.x;
     this.menuY = value.y;
+    this.menuColumns = 1;
+    this.menuWidth = 286;
     this.scheduleInitialFocus();
   }
 
@@ -343,23 +359,78 @@ export class ReassemblyContextMenuComponent implements OnDestroy {
     const element = this.menu?.nativeElement;
     if (!element || typeof window === 'undefined') return;
 
-    const rect = element.getBoundingClientRect();
     const margin = 8;
-    let x = this.menuX;
-    let y = this.menuY;
+    const gap = 4;
+    const viewportWidth = Math.max(0, window.innerWidth - margin * 2);
+    const viewportHeight = Math.max(0, window.innerHeight - margin * 2);
+    if (!viewportWidth || !viewportHeight) return;
 
-    if (rect.right > window.innerWidth - margin) {
-      x = Math.max(margin, window.innerWidth - rect.width - margin);
-    }
-    if (rect.bottom > window.innerHeight - margin) {
-      y = Math.max(margin, window.innerHeight - rect.height - margin);
+    // First measure the natural one-column menu. If it is taller than the
+    // viewport, add columns instead of introducing a vertical scrollbar.
+    this.menuColumns = 1;
+    this.menuWidth = Math.min(286, viewportWidth);
+    this.cdr.detectChanges();
+
+    const titleHeight =
+      element.querySelector<HTMLElement>('.title')?.getBoundingClientRect().height ?? 0;
+    const chromeHeight = Math.max(0, element.offsetHeight - (
+      element.querySelector<HTMLElement>('.menu-items')?.offsetHeight ?? 0
+    ));
+    const items = element.querySelector<HTMLElement>('.menu-items');
+    const naturalItemsHeight = items?.scrollHeight ?? 0;
+    const availableItemsHeight = Math.max(1, viewportHeight - Math.max(titleHeight, chromeHeight));
+
+    let columns = Math.max(1, Math.ceil(naturalItemsHeight / availableItemsHeight));
+
+    // Use as many columns as can actually fit horizontally. At compact row
+    // height this keeps normal built-in/plugin menus fully visible without
+    // sacrificing readability.
+    const preferredColumnWidth = 286;
+    const maxColumnsByWidth = Math.max(1, Math.floor(viewportWidth / preferredColumnWidth));
+    columns = Math.min(columns, maxColumnsByWidth);
+
+    this.menuColumns = columns;
+    this.menuWidth = Math.min(viewportWidth, preferredColumnWidth * columns);
+    this.cdr.detectChanges();
+
+    let rect = element.getBoundingClientRect();
+
+    // If balancing still leaves the menu too tall, progressively use any
+    // remaining horizontal room. This is primarily for very large plugin menus.
+    while (rect.height > viewportHeight && this.menuColumns < maxColumnsByWidth) {
+      this.menuColumns += 1;
+      this.menuWidth = Math.min(viewportWidth, preferredColumnWidth * this.menuColumns);
+      this.cdr.detectChanges();
+      rect = element.getBoundingClientRect();
     }
 
-    if (x !== this.menuX || y !== this.menuY) {
-      this.menuX = x;
-      this.menuY = y;
-      this.cdr.markForCheck();
+    const anchorX = this.state?.x ?? this.menuX;
+    const anchorY = this.state?.y ?? this.menuY;
+
+    // Prefer below/right of the pointer. Flip to left/above when that quadrant
+    // cannot contain the measured menu. Final clamping is only a safety net.
+    let x = anchorX + gap;
+    let y = anchorY + gap;
+
+    if (x + rect.width > window.innerWidth - margin) {
+      x = anchorX - rect.width - gap;
     }
+    if (y + rect.height > window.innerHeight - margin) {
+      y = anchorY - rect.height - gap;
+    }
+
+    x = Math.max(
+      margin,
+      Math.min(x, window.innerWidth - rect.width - margin),
+    );
+    y = Math.max(
+      margin,
+      Math.min(y, window.innerHeight - rect.height - margin),
+    );
+
+    this.menuX = x;
+    this.menuY = y;
+    this.cdr.markForCheck();
   }
 
   private clearFocusTimer(): void {

@@ -2872,8 +2872,8 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     }
 
     this.contextMenu = {
-      x: this.clampMenuX(event.clientX),
-      y: this.clampMenuY(event.clientY),
+      x: event.clientX,
+      y: event.clientY,
       title: isParent ? 'Parent folder' : this.entryContextTitle(entry, selectionCount),
       items: normalizeContextMenuItems(items),
     };
@@ -2949,8 +2949,8 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     if (pluginItems.length) this.pushMenuSection(items, pluginItems);
 
     this.contextMenu = {
-      x: this.clampMenuX(event.clientX),
-      y: this.clampMenuY(event.clientY),
+      x: event.clientX,
+      y: event.clientY,
       title: pane?.path || 'Folder',
       items: normalizeContextMenuItems(items),
     };
@@ -3028,15 +3028,6 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     this.contextMenuReturnFocus = active instanceof HTMLElement ? active : null;
   }
 
-  private clampMenuX(x: number): number {
-    if (typeof window === 'undefined') return x;
-    return Math.max(8, Math.min(x, window.innerWidth - 258));
-  }
-
-  private clampMenuY(y: number): number {
-    if (typeof window === 'undefined') return y;
-    return Math.max(8, Math.min(y, window.innerHeight - 360));
-  }
 
   isPanePathPinned(
     pane: ReassemblyDirectoryPaneComponent | undefined,

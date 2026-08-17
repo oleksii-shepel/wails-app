@@ -5,6 +5,7 @@ import type { ViewLayout } from './file-view-container.component';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
 import { parentPath } from './address-bar.utils';
 import { isArchive } from '../services/archive.service';
+import type { PanelSourceRegistryService } from '../services/panel-source-registry.service';
 
 export interface FilePaneOpenHost {
   currentPath: string;
@@ -12,6 +13,7 @@ export interface FilePaneOpenHost {
   defaultOpenAction: 'edit' | 'external';
   entries: FileInfo[];
   apiService: ApiService;
+  panelSources: PanelSourceRegistryService;
   selectionCursorPath: string | null;
   isInArchive(): boolean;
   exitArchive(): void;
@@ -28,6 +30,12 @@ export interface FilePaneOpenHost {
 }
 
 export class FilePaneOpenController {
+  private activateProviderEntry(host: FilePaneOpenHost, entry: FileInfo): boolean {
+    const context = { path: host.currentPath, entries: host.entries, inArchive: host.isInArchive() };
+    const source = host.panelSources.resolve(context).source;
+    return source.activateEntry?.(context, entry) ?? false;
+  }
+
   private openExternalFile(host: FilePaneOpenHost, path: string): void {
     host.apiService.openFile(path).catch(err =>
       console.error('Failed to open file:', err)
@@ -75,6 +83,8 @@ export class FilePaneOpenController {
       return;
     }
 
+    if (this.activateProviderEntry(host, entry)) return;
+
     if (host.currentView === 'tree' && entry.type !== FileType.DIRECTORY) {
       if (entry.type === FileType.ARCHIVE || isArchive(entry.name)) {
         void host.openRootArchive(entry.path);
@@ -96,6 +106,8 @@ export class FilePaneOpenController {
       navigateUp();
       return;
     }
+
+    if (this.activateProviderEntry(host, entry)) return;
 
     if (host.currentView === 'tree' && entry.type === FileType.DIRECTORY) {
       if (host.isInArchive()) {
@@ -166,6 +178,8 @@ export class FilePaneOpenController {
       await host.openPathInNewTab(up);
       return;
     }
+
+    if (this.activateProviderEntry(host, entry)) return;
 
     if (entry.type === FileType.DIRECTORY) {
       await host.openPathInNewTab(entry.path);

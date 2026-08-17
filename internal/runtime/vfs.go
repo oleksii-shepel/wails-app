@@ -35,7 +35,7 @@ func InitVFS(memoryFS *memory.FS) (*vfslib.Unified, error) {
 	}
 
 	if regFS, err := registry.New(); err == nil {
-		if _, err := vfs.Mount("/registry", regFS, true, "Registry", vfslib.VolumeRegistry); err != nil {
+		if _, err := vfs.Mount("/registry", regFS, false, "Registry", vfslib.VolumeRegistry); err != nil {
 			return nil, err
 		}
 	}

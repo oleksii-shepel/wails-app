@@ -184,8 +184,10 @@ export class RegistryService {
    *   REG_BINARY              → space-separated hex pairs
    */
   async readValue(path: string): Promise<string> {
-    const result = await app().VFSReadFile(path);
-    return typeof result === 'string' ? result : new TextDecoder().decode(result);
+    const result = await app().VFSReadFile(path, 'utf8');
+    if (typeof result === 'string') return result;
+    if (typeof result?.content === 'string') return result.content;
+    return new TextDecoder().decode(result?.content ?? result ?? new Uint8Array());
   }
 
   /* ─────────────── WRITE OPERATIONS ─────────────── */

@@ -1,10 +1,11 @@
-import { EventsOn } from 'wailsjs/runtime';
+import { EventsOff, EventsOn } from 'wailsjs/runtime';
 import type { FileInfo } from '../shared/protocol';
 import { normalizePath, pathIdentityKey, samePath } from './address-bar.utils';
 import type { FileViewDirectorySource } from '../services/directory-source.service';
 import type { DirListStreamController, DirStreamBatchEvent, DirStreamDoneEvent, DirStreamErrorEvent, DirStreamMetaEvent } from '../surfaces/dir/dir-list-stream.controller';
 import type { WorkspaceService } from '../services/workspace.service';
 import type { PathHistoryService } from '../services/path-history.service';
+import type { PanelSourceRegistryService } from '../services/panel-source-registry.service';
 
 declare const window: any;
 
@@ -53,6 +54,7 @@ export interface FilePaneDirectoryHost {
   workspaceService: WorkspaceService;
   pathHistoryService: PathHistoryService;
   directorySource: FileViewDirectorySource;
+  panelSources: PanelSourceRegistryService;
   dirStream: DirListStreamController;
   isInArchive(): boolean;
   exitArchive(): void;
@@ -77,18 +79,14 @@ export class FilePaneDirectoryController {
   private activeDirStreamPreserveUI = false;
   private pendingFocusPath: string | null = null;
   private loadRequestId = 0;
-  private eventCleanups: Array<() => void> = [];
 
   bind(host: FilePaneDirectoryHost): void {
-    this.releaseEventListeners();
-    this.eventCleanups.push(
-      EventsOn('fs:directoryChanged', (event: { paneId?: string; path?: string } | null) => {
-        host.runInAngular(() => this.handleFsDirectoryChanged(host, event));
-      }),
-      EventsOn('web:resourcesChanged', (event: { path?: string } | null) => {
-        host.runInAngular(() => this.handleWebResourcesChanged(host, event));
-      }),
-    );
+    EventsOn('fs:directoryChanged', (event: { paneId?: string; path?: string } | null) => {
+      host.runInAngular(() => this.handleFsDirectoryChanged(host, event));
+    });
+    EventsOn('web:resourcesChanged', (event: { path?: string } | null) => {
+      host.runInAngular(() => this.handleWebResourcesChanged(host, event));
+    });
 
     host.dirStream.bind(host.paneId, {
       onMeta: (event, isFirst) => host.runInAngular(() => this.handleDirStreamMeta(host, event, isFirst)),
@@ -104,13 +102,7 @@ export class FilePaneDirectoryController {
       this.fsChangeDebounceTimer = null;
     }
     await host.dirStream.unbind();
-    this.releaseEventListeners();
-  }
-
-  private releaseEventListeners(): void {
-    for (const cleanup of this.eventCleanups.splice(0)) {
-      try { cleanup(); } catch { /* listener may already be gone */ }
-    }
+    EventsOff('fs:directoryChanged', 'web:resourcesChanged');
   }
 
   async loadDirectory(host: FilePaneDirectoryHost, path: string, opts?: { preserveUI?: boolean; focusPath?: string }): Promise<void> {
@@ -133,11 +125,13 @@ export class FilePaneDirectoryController {
     }
 
     try {
-      if (!host.directorySource.supportsStreaming(path)) {
-        const listing = await host.directorySource.listDirectory(path, host.showHidden);
+      const panelContext = { path, entries: host.entries, inArchive: false };
+      const resolvedSource = host.panelSources.resolve(panelContext).source;
+      if (!resolvedSource.supportsStreaming(panelContext)) {
+        const listing = await host.panelSources.listContext(panelContext, host.showHidden);
         host.runInAngular(() => {
           if (!this.isActiveLoad(host, requestId, requestTabId)) return;
-          this.handleDirectDirectoryLoad(host, listing.path, listing.entries);
+          this.handleDirectDirectoryLoad(host, listing.location.path, [...listing.entries]);
         });
         return;
       }
@@ -215,7 +209,7 @@ export class FilePaneDirectoryController {
   }
 
   private handleFsDirectoryChanged(host: FilePaneDirectoryHost, event: { paneId?: string; path?: string } | null): void {
-    if (!event) return;
+    if (!event || event.paneId !== host.paneId) return;
     if (host.isInArchive()) return;
     if (host.shouldSuppressFsRefresh()) return;
 

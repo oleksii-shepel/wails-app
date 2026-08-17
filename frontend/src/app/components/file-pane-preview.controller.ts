@@ -9,6 +9,7 @@ import type { ViewerArchiveContext } from '../viewers/viewer-archive-context';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
 import type { SurfaceCapability } from '../surfaces/surface-contribution';
 import { tabSurfaceId } from '../surfaces/tab-surface';
+import type { PanelSourceRegistryService } from '../services/panel-source-registry.service';
 
 export interface FilePanePreviewHost {
   get paneId(): 'left' | 'right';
@@ -22,6 +23,7 @@ export interface FilePanePreviewHost {
   get tabs(): any[];
   set tabs(value: any[]);
   apiService: ApiService;
+  panelSources: PanelSourceRegistryService;
   workspaceService: WorkspaceService;
   confirmDialog: ConfirmDialogService;
   isInArchive(): boolean;
@@ -122,6 +124,9 @@ export class FilePanePreviewController {
 
     const entry = host.entries.find(candidate => candidate.path === path);
     if (!entry || (entry.type !== FileType.FILE && entry.type !== FileType.SYMLINK)) return null;
+    const panelContext = { path: host.currentPath, entries: host.entries, inArchive: false };
+    const source = host.panelSources.resolve(panelContext).source;
+    if (source.canPreviewEntry?.(panelContext, entry) === false) return null;
     return { path, fileList: this.buildViewerFileList(host), archiveContext: null };
   }
 

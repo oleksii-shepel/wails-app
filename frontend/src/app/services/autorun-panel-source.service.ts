@@ -98,6 +98,27 @@ export class AutorunPanelSource implements PanelSource {
     };
   }
 
+  canPreviewEntry(_context: PanelSourceContext, entry: FileInfo): boolean {
+    return !this.decodeEntryPath(entry.path);
+  }
+
+  activateEntry(_context: PanelSourceContext, entry: FileInfo): boolean {
+    const id = this.decodeEntryPath(entry.path);
+    if (!id) return false;
+
+    // Autorun records are synthetic resources, not files at autorun://entry/....
+    // Opening them through the generic viewer would make ApiService try to create/read
+    // a Windows path with an invalid URI. Provider activation owns this leaf instead.
+    void this.records().then(records => {
+      const record = records.find(candidate => candidate.id === id);
+      if (record?.executable) {
+        return (window as any)?.go?.app?.App?.OpenFile?.(record.executable);
+      }
+      return undefined;
+    }).catch(error => console.warn('Failed to activate autorun entry:', error));
+    return true;
+  }
+
   async records(): Promise<AutorunRecord[]> {
     const app = (window as any)?.go?.app?.App;
     if (!app?.AutorunList) return [];

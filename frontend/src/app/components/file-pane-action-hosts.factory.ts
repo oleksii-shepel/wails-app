@@ -14,6 +14,7 @@ import type { FilePaneOperationsHost } from './file-pane-operations.controller';
 import type { FilePanePreviewHost } from './file-pane-preview.controller';
 import type { ViewLayout } from './file-view-container.component';
 import type { SurfaceCapability } from '../surfaces/surface-contribution';
+import type { PanelSourceRegistryService } from '../services/panel-source-registry.service';
 
 export interface FilePaneActionHostsSource {
   get paneId(): 'left' | 'right';
@@ -57,6 +58,7 @@ export interface FilePaneActionHostsSource {
   workspaceService: WorkspaceService;
   pathHistoryService: PathHistoryService;
   directorySource: FileViewDirectorySource;
+  panelSources: PanelSourceRegistryService;
   confirmDialog: ConfirmDialogService;
   dirStream: DirListStreamController;
   isInArchive(): boolean;
@@ -161,6 +163,7 @@ export class FilePaneActionHostsFactory {
       workspaceService: source.workspaceService,
       pathHistoryService: source.pathHistoryService,
       directorySource: source.directorySource,
+      panelSources: source.panelSources,
       dirStream: source.dirStream,
       isInArchive: () => source.isInArchive(),
       exitArchive: () => source.exitArchive(),
@@ -223,6 +226,7 @@ export class FilePaneActionHostsFactory {
       get tabs() { return source.tabs; },
       set tabs(value: any[]) { source.tabs = value as TabInfo[]; },
       apiService: source.apiService,
+      panelSources: source.panelSources,
       workspaceService: source.workspaceService,
       confirmDialog: source.confirmDialog,
       isInArchive: () => source.isInArchive(),
@@ -241,6 +245,7 @@ export class FilePaneActionHostsFactory {
       get entries() { return source.entries; },
       get selectionCursorPath() { return source.selectionCursorPath; },
       apiService: source.apiService,
+      panelSources: source.panelSources,
       isInArchive: () => source.isInArchive(),
       exitArchive: () => source.exitArchive(),
       clearArchiveState: () => source.clearArchiveState(),

@@ -220,6 +220,13 @@ func openKey(path string, access uint32) (key registry.Key, valueName string, is
 	return pk, valName, false, nil
 }
 
+func apiValueName(name string) string {
+	if strings.EqualFold(strings.TrimSpace(name), "(default)") {
+		return ""
+	}
+	return name
+}
+
 // ── FileSystem interface ───────────────────────────────────────────────────────
 
 func (f *FS) Open(_ context.Context, path string) (vfs.File, error) {
@@ -466,7 +473,7 @@ func (f *FS) Remove(_ context.Context, path string) error {
 		parentKey = pk
 		valName = subkey[idx+1:]
 	}
-	if err2 := parentKey.DeleteValue(valName); err2 != nil {
+	if err2 := parentKey.DeleteValue(apiValueName(valName)); err2 != nil {
 		return fmt.Errorf("registry remove value %q: %w", valName, mapAccessError(err2))
 	}
 	return nil
@@ -501,6 +508,7 @@ type registryValueData struct {
 
 // readRegistryValue reads a registry value and serialises it to UTF-8 bytes.
 func readRegistryValue(k registry.Key, name string) (registryValueData, error) {
+	name = apiValueName(name)
 	// Try as string (REG_SZ, REG_EXPAND_SZ).
 	if s, valueType, err := k.GetStringValue(name); err == nil {
 		return registryValueData{
@@ -709,7 +717,7 @@ func (w *writeFile) Stat() (vfs.FileInfo, error) {
 }
 func (w *writeFile) Close() error {
 	defer w.key.Close()
-	return w.key.SetStringValue(w.valName, w.buf.String())
+	return w.key.SetStringValue(apiValueName(w.valName), w.buf.String())
 }
 
 // Compile-time interface check.

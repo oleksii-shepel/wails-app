@@ -90,12 +90,13 @@ export class AppComponent implements AfterViewInit, OnDestroy {
   ) {}
 
   @HostListener('document:keydown.escape', ['$event'])
-  onGlobalEscape(event: KeyboardEvent): void {
-    if (event.defaultPrevented) return;
+  onGlobalEscape(event: Event): void {
+    const keyboardEvent = event as KeyboardEvent;
+    if (keyboardEvent.defaultPrevented) return;
     if (!this.modalStack.dismissTopmost()) return;
 
-    event.preventDefault();
-    event.stopPropagation();
+    keyboardEvent.preventDefault();
+    keyboardEvent.stopPropagation();
   }
 
   ngAfterViewInit(): void {

@@ -1574,6 +1574,18 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     }
   }
 
+  async navigateLinkedLocation(
+    path: string,
+    options: { history?: 'record' | 'none'; preserveCursor?: boolean } = {},
+  ): Promise<boolean> {
+    if (!path || !this.isDirectoryTab) return false;
+
+    return this.load(path, {
+      history: options.history ?? 'record',
+      preserveCursor: options.preserveCursor ?? false,
+    });
+  }
+
   selectPeerByName(name: string): boolean {
     if (!name || !this.isDirectoryTab) return false;
     const folded = name.toLowerCase();
@@ -2398,8 +2410,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       this.lastAction = tab.isPinned
         ? `pinned tab kept: ${tab.title}`
         : `permanent tab kept: ${tab.title}`;
-      this.revealActiveTab(tabId);
-    this.cdr.markForCheck();
+      this.cdr.markForCheck();
       return;
     }
 

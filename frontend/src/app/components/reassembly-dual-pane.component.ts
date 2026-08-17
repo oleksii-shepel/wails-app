@@ -79,6 +79,10 @@ import { ReassemblyTrashDialogService } from '../services/reassembly-trash-dialo
 import { ReassemblyDriveLifecycleService } from '../services/reassembly-drive-lifecycle.service';
 import { PluginLifecycleCoordinatorService } from '../services/plugin-lifecycle-coordinator.service';
 import { SettingsService } from '../services/settings.service';
+import {
+  ReassemblyPaneIntelligenceService,
+  type ReassemblyPanePairPreset,
+} from '../services/reassembly-pane-intelligence.service';
 import { SurfaceRegistryService } from '../surfaces/surface-registry.service';
 import type { ToolbarContext, MenuContext } from '../plugin/plugin-registry-api';
 import { adaptPluginToolbarActions } from './pane-toolbar-action';
@@ -423,6 +427,53 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         <span class="relation" [title]="paneRelationTitle">{{ paneRelationLabel }}</span>
         <span class="link-status" *ngIf="linkStatus">{{ linkStatus }}</span>
         <span class="spacer"></span>
+
+        <span class="pane-presets" role="group" aria-label="Pane pair presets">
+          <select
+            [value]="selectedPanePresetId"
+            title="Pane pair preset"
+            aria-label="Pane pair preset"
+            (change)="onPanePresetSelected($any($event.target).value)">
+            <option value="">Preset…</option>
+            <option *ngFor="let preset of panePairPresets" [value]="preset.id">
+              {{ preset.name }}
+            </option>
+          </select>
+          <button
+            type="button"
+            title="Save current pane roots and intelligence modes as a preset"
+            (click)="saveCurrentPanePreset()">Save</button>
+          <button
+            type="button"
+            [disabled]="!selectedPanePresetId"
+            title="Delete selected pane pair preset"
+            (click)="deleteSelectedPanePreset()">×</button>
+        </span>
+
+        <span class="relationship-actions" role="group" aria-label="Pane relationship actions">
+          <button type="button" [disabled]="!canMatchOtherPane"
+            title="Navigate the other pane to this pane's location"
+            (click)="matchOtherPaneToActive()">Match</button>
+          <button type="button" [disabled]="!canSwapLinkedRoots"
+            title="Swap left and right linked roots"
+            (click)="swapLinkedRoots()">Roots ⇄</button>
+          <button type="button" [disabled]="!canOpenCurrentCounterpart"
+            title="Open the current item's counterpart in the other pane"
+            (click)="openCurrentCounterpart()">Peer</button>
+          <button type="button" [disabled]="!canCopyCurrentToPeer"
+            title="Copy the current item to the other pane"
+            (click)="transferCurrentToPeer('copy')">Copy →</button>
+          <button type="button" [disabled]="!canMoveCurrentToPeer"
+            title="Move the current item to the other pane"
+            (click)="transferCurrentToPeer('move')">Move →</button>
+        </span>
+
+        <button type="button" [disabled]="differenceCount === 0"
+          title="Previous difference" (click)="navigateDifference(-1)">‹ Diff</button>
+        <button type="button" [disabled]="differenceCount === 0"
+          title="Next difference" (click)="navigateDifference(1)">Diff ›</button>
+        <span class="difference-count" *ngIf="differenceCount">{{ differenceIndexLabel }}</span>
+
         <button type="button" [class.active]="mirrorPresentation" [attr.aria-pressed]="mirrorPresentation"
           title="Mirror view mode, sorting, and folders-first state"
           (click)="toggleMirrorPresentation()">Mirror</button>
@@ -619,6 +670,18 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     .pane-intelligence button.active{border-color:color-mix(in srgb,var(--vsc-accent-blue) 55%,var(--vsc-border));background:color-mix(in srgb,var(--vsc-accent-blue) 12%,transparent);color:var(--vsc-foreground)}
 
     .pane-intelligence .difference-count{min-width:36px;text-align:center;font-variant-numeric:tabular-nums;color:var(--vsc-description-foreground)}
+    .pane-intelligence .relationship-actions{display:inline-flex;align-items:center;gap:2px;padding-right:5px;margin-right:2px;border-right:1px solid var(--vsc-border-subtle,var(--vsc-border))}
+    .pane-intelligence .pane-presets{display:inline-flex;align-items:center;gap:2px;padding-right:5px;margin-right:2px;border-right:1px solid var(--vsc-border-subtle,var(--vsc-border))}
+    .pane-intelligence .pane-presets select{
+      max-width:150px;
+      min-height:20px;
+      border:1px solid var(--vsc-border);
+      border-radius:3px;
+      background:var(--vsc-dropdown-background,var(--vsc-control-background));
+      color:var(--vsc-dropdown-foreground,var(--vsc-foreground));
+      font:inherit;
+    }
+    .pane-intelligence button:disabled{opacity:.42;cursor:default}
     .pane-slot {
       grid-row: 3;
       min-width: 0;
@@ -748,6 +811,8 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
   linkStatus = '';
   private scrollSyncGuard = false;
   private differenceCursor = -1;
+  selectedPanePresetId = '';
+  private restoringPaneIntelligence = false;
   private linkedRoots: { left: string; right: string } | null = null;
   private linkedNavigationGuard = 0;
   private linkedSelectionGuard = false;
@@ -776,6 +841,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     private readonly driveLifecycle: ReassemblyDriveLifecycleService,
     private readonly pluginLifecycle: PluginLifecycleCoordinatorService,
     private readonly settings: SettingsService,
+    private readonly paneIntelligence: ReassemblyPaneIntelligenceService,
     private readonly surfaceRegistry: SurfaceRegistryService,
     private readonly cdr: ChangeDetectorRef,
   ) {}
@@ -988,6 +1054,10 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     this.builtinWorkspaceSurfaceActions.register();
     this.restoreWorkspaceLayout();
     this.syncFilesWorkspacePresentation();
+    queueMicrotask(() => {
+      const workspace = this.workspaceService.getActiveWorkspace();
+      if (workspace) this.restorePaneIntelligenceForWorkspace(workspace.id);
+    });
 
     this.stopDriveLifecycle = this.driveLifecycle.start(() => {
       void this.handleDriveTopologyChange();
@@ -1044,6 +1114,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     }
 
     this.linkStatus = this.mirrorPresentation ? 'presentation mirrored' : '';
+    this.persistPaneIntelligence();
     this.cdr.markForCheck();
   }
 
@@ -1059,6 +1130,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     }
 
     this.linkStatus = this.mirrorFilter ? 'filter mirrored' : 'filter independent';
+    this.persistPaneIntelligence();
     this.cdr.markForCheck();
   }
 
@@ -1090,7 +1162,523 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     } else {
       this.linkedRoots = null;
     }
+    this.persistPaneIntelligence();
     this.cdr.markForCheck();
+  }
+
+  get panePairPresets(): readonly ReassemblyPanePairPreset[] {
+    return this.paneIntelligence.listPresets();
+  }
+
+  async onPanePresetSelected(id: string): Promise<void> {
+    this.selectedPanePresetId = id;
+    if (!id) {
+      this.cdr.markForCheck();
+      return;
+    }
+
+    const preset = this.paneIntelligence.preset(id);
+    if (!preset) {
+      this.selectedPanePresetId = '';
+      this.cdr.markForCheck();
+      return;
+    }
+
+    await this.applyPanePreset(preset);
+  }
+
+  async saveCurrentPanePreset(): Promise<void> {
+    const left = this.leftPane?.path ?? '';
+    const right = this.rightPane?.path ?? '';
+    if (!left || !right) return;
+
+    const suggested =
+      this.selectedPanePresetId
+        ? this.paneIntelligence.preset(this.selectedPanePresetId)?.name ?? ''
+        : '';
+
+    const name = (await this.confirmDialog.prompt({
+      title: 'Save Pane Pair Preset',
+      message: 'Name this left/right pane relationship.',
+      confirmText: 'Save',
+      defaultValue: suggested,
+      historyKey: 'reassembly.panePairPreset.name',
+    }))?.trim();
+
+    if (!name) return;
+
+    const preset = this.paneIntelligence.savePreset({
+      id: this.selectedPanePresetId || undefined,
+      name,
+      roots: { left, right },
+      modes: this.currentPaneIntelligenceModes(),
+    });
+
+    this.selectedPanePresetId = preset.id;
+    this.linkStatus = `preset saved: ${preset.name}`;
+    this.cdr.markForCheck();
+  }
+
+  async deleteSelectedPanePreset(): Promise<void> {
+    if (!this.selectedPanePresetId) return;
+
+    const preset = this.paneIntelligence.preset(this.selectedPanePresetId);
+    if (!preset) {
+      this.selectedPanePresetId = '';
+      return;
+    }
+
+    const confirmed = await this.confirmDialog.confirm({
+      title: 'Delete Pane Pair Preset',
+      message: `Delete preset "${preset.name}"?`,
+      confirmText: 'Delete',
+    });
+    if (!confirmed) return;
+
+    this.paneIntelligence.deletePreset(preset.id);
+    this.selectedPanePresetId = '';
+    this.linkStatus = `preset deleted: ${preset.name}`;
+    this.cdr.markForCheck();
+  }
+
+  private async applyPanePreset(
+    preset: ReassemblyPanePairPreset,
+  ): Promise<void> {
+    const leftPane = this.leftPane;
+    const rightPane = this.rightPane;
+    if (!leftPane?.isDirectoryTab || !rightPane?.isDirectoryTab) return;
+
+    const [leftExists, rightExists] = await Promise.all([
+      leftPane.canNavigateToLocation(preset.roots.left),
+      rightPane.canNavigateToLocation(preset.roots.right),
+    ]);
+
+    if (!leftExists || !rightExists) {
+      this.linkStatus =
+        !leftExists && !rightExists
+          ? 'preset roots unavailable'
+          : !leftExists
+            ? `preset left unavailable: ${preset.roots.left}`
+            : `preset right unavailable: ${preset.roots.right}`;
+      this.cdr.markForCheck();
+      return;
+    }
+
+    this.restoringPaneIntelligence = true;
+    try {
+      const [leftLoaded, rightLoaded] = await Promise.all([
+        leftPane.navigateLinkedLocation(preset.roots.left, {
+          history: 'record',
+          preserveCursor: false,
+        }),
+        rightPane.navigateLinkedLocation(preset.roots.right, {
+          history: 'record',
+          preserveCursor: false,
+        }),
+      ]);
+
+      if (!leftLoaded || !rightLoaded) {
+        this.linkStatus = 'preset navigation failed';
+        return;
+      }
+
+      this.linkedRoots = {
+        left: preset.roots.left,
+        right: preset.roots.right,
+      };
+      this.applyPaneIntelligenceModes(preset.modes);
+      this.selectedPanePresetId = preset.id;
+      this.linkStatus = `preset: ${preset.name}`;
+    } finally {
+      this.restoringPaneIntelligence = false;
+      this.persistPaneIntelligence();
+      this.cdr.markForCheck();
+    }
+  }
+
+  private currentPaneIntelligenceModes() {
+    return {
+      linkedNavigation: this.linkedNavigation,
+      mirrorPresentation: this.mirrorPresentation,
+      mirrorFilter: this.mirrorFilter,
+      syncScroll: this.syncScroll,
+      followSelection: this.followSelection,
+    };
+  }
+
+  private applyPaneIntelligenceModes(
+    modes: {
+      linkedNavigation: boolean;
+      mirrorPresentation: boolean;
+      mirrorFilter: boolean;
+      syncScroll: boolean;
+      followSelection: boolean;
+    },
+  ): void {
+    this.linkedNavigation = modes.linkedNavigation;
+    this.mirrorPresentation = modes.mirrorPresentation;
+    this.mirrorFilter = modes.mirrorPresentation && modes.mirrorFilter;
+    this.syncScroll = modes.syncScroll;
+    this.followSelection = modes.followSelection;
+  }
+
+  private persistPaneIntelligence(): void {
+    if (this.restoringPaneIntelligence) return;
+
+    const workspace = this.workspaceService.getActiveWorkspace();
+    if (!workspace) return;
+
+    this.paneIntelligence.saveWorkspace(workspace.id, {
+      ...this.currentPaneIntelligenceModes(),
+      roots: this.linkedRoots
+        ? {
+            left: this.linkedRoots.left,
+            right: this.linkedRoots.right,
+          }
+        : null,
+    });
+  }
+
+  private restorePaneIntelligenceForWorkspace(workspaceId: string): void {
+    if (!workspaceId) return;
+
+    const state = this.paneIntelligence.loadWorkspace(workspaceId);
+
+    this.restoringPaneIntelligence = true;
+    try {
+      this.applyPaneIntelligenceModes(state);
+      this.linkedRoots = state.roots
+        ? { left: state.roots.left, right: state.roots.right }
+        : null;
+
+      // If Link was persisted before roots existed, establish the current
+      // locations as a safe pair rather than restoring a broken link.
+      if (
+        this.linkedNavigation &&
+        !this.linkedRoots &&
+        this.leftPane?.path &&
+        this.rightPane?.path
+      ) {
+        this.linkedRoots = {
+          left: this.leftPane.path,
+          right: this.rightPane.path,
+        };
+      }
+
+      this.linkStatus =
+        this.linkedNavigation ||
+        this.mirrorPresentation ||
+        this.syncScroll ||
+        this.followSelection
+          ? 'pane intelligence restored'
+          : '';
+    } finally {
+      this.restoringPaneIntelligence = false;
+      this.cdr.markForCheck();
+    }
+  }
+
+  get canMatchOtherPane(): boolean {
+    return !!this.activePane?.isDirectoryTab &&
+      !!this.otherPane?.isDirectoryTab &&
+      !!this.activePane.path;
+  }
+
+  get canSwapLinkedRoots(): boolean {
+    return !!this.linkedRoots?.left && !!this.linkedRoots?.right;
+  }
+
+  get currentCorrespondence(): {
+    name: string;
+    status: string;
+    activePath: string;
+    peerPath: string | null;
+    activeEntry: FileInfo;
+    peerEntry: FileInfo | null;
+  } | null {
+    const source = this.activePane;
+    const peer = this.otherPane;
+    const cursor = source?.cursorEntry;
+
+    if (!source || !peer || !cursor || cursor.path === '__parent__') return null;
+
+    const item = this.paneComparisonResult.items.find(candidate => {
+      const activeEntry = this.activePaneId === 'left'
+        ? candidate.left
+        : candidate.right;
+
+      return activeEntry?.path === cursor.path ||
+        activeEntry?.name.toLocaleLowerCase() === cursor.name.toLocaleLowerCase();
+    });
+
+    if (!item) {
+      const peerEntry = peer.entries.find(candidate =>
+        candidate.path !== '__parent__' &&
+        candidate.name.toLocaleLowerCase() === cursor.name.toLocaleLowerCase()
+      ) ?? null;
+
+      return {
+        name: cursor.name,
+        status: peerEntry ? 'unverified-peer' : 'only-here',
+        activePath: cursor.path,
+        peerPath: peerEntry?.path ?? null,
+        activeEntry: cursor,
+        peerEntry,
+      };
+    }
+
+    const peerEntry = this.activePaneId === 'left'
+      ? item.right
+      : item.left;
+
+    return {
+      name: item.name,
+      status: item.status,
+      activePath: cursor.path,
+      peerPath: peerEntry?.path ?? null,
+      activeEntry: cursor,
+      peerEntry,
+    };
+  }
+
+  get canOpenCurrentCounterpart(): boolean {
+    return !!this.currentCorrespondence?.peerEntry;
+  }
+
+  get canCopyCurrentToPeer(): boolean {
+    return this.canTransferCurrentToPeer('copy');
+  }
+
+  get canMoveCurrentToPeer(): boolean {
+    return this.canTransferCurrentToPeer('move');
+  }
+
+  async matchOtherPaneToActive(): Promise<void> {
+    const source = this.activePane;
+    const target = this.otherPane;
+
+    if (!source?.isDirectoryTab || !target?.isDirectoryTab || !source.path) {
+      return;
+    }
+
+    if (source.path === target.path) {
+      this.linkStatus = 'already matched';
+      this.cdr.markForCheck();
+      return;
+    }
+
+    if (!(await target.canNavigateToLocation(source.path))) {
+      this.linkStatus = `cannot match: ${source.path}`;
+      this.cdr.markForCheck();
+      return;
+    }
+
+    const loaded = await target.navigateLinkedLocation(source.path, {
+      history: 'record',
+      preserveCursor: false,
+    });
+
+    this.linkStatus = loaded ? 'other pane matched' : 'match failed';
+    this.cdr.markForCheck();
+  }
+
+  swapLinkedRoots(): void {
+    if (!this.linkedRoots) return;
+
+    this.linkedRoots = {
+      left: this.linkedRoots.right,
+      right: this.linkedRoots.left,
+    };
+    this.linkStatus = 'linked roots swapped';
+    this.persistPaneIntelligence();
+    this.cdr.markForCheck();
+  }
+
+  openCurrentCounterpart(): void {
+    const correspondence = this.currentCorrespondence;
+    const target = this.otherPane;
+    if (!correspondence?.peerEntry || !target) return;
+
+    const targetPaneId: PaneId =
+      this.activePaneId === 'left' ? 'right' : 'left';
+
+    target.selectComparisonItem(correspondence.peerEntry.path);
+    this.activate(targetPaneId, true);
+    target.openEntry(correspondence.peerEntry);
+
+    this.linkStatus = `opened peer: ${correspondence.name}`;
+    this.cdr.markForCheck();
+  }
+
+  async transferCurrentToPeer(operation: 'copy' | 'move'): Promise<void> {
+    const sourcePane = this.activePane;
+    const destinationPane = this.otherPane;
+    const source = sourcePane?.cursorEntry;
+
+    if (
+      !sourcePane?.isDirectoryTab ||
+      !destinationPane?.isDirectoryTab ||
+      !source ||
+      source.path === '__parent__'
+    ) {
+      return;
+    }
+
+    const decision = canTransferBetween(
+      operation,
+      sourcePane.sourceCapabilities,
+      destinationPane.sourceCapabilities,
+    );
+
+    if (!decision.allowed) {
+      await this.confirmDialog.alert(
+        transferBlockedMessage(operation, decision),
+      );
+      return;
+    }
+
+    const destination = await this.api.joinPaths([
+      destinationPane.path,
+      source.name,
+    ]);
+
+    if (destination === source.path) {
+      this.linkStatus = 'same resource';
+      this.cdr.markForCheck();
+      return;
+    }
+
+    if (operation === 'move') {
+      const confirmed = await this.confirmDialog.confirm({
+        title: 'Move to Other Pane',
+        message: `Move "${source.name}" to ${destinationPane.path}?`,
+        confirmText: 'Move',
+      });
+      if (!confirmed) return;
+    }
+
+    try {
+      const request = [{
+        source: source.path,
+        destination,
+        exactDestination: true,
+      }];
+
+      const result = operation === 'copy'
+        ? await this.api.batchCopy(request, true)
+        : await this.api.batchMove(request, true);
+
+      this.lastTransfer =
+        `${operation} counterpart: ${result.succeeded}/${result.total}` +
+        (result.skipped > 0 ? ` · ${result.skipped} skipped` : '') +
+        (result.failed > 0 ? ` · ${result.failed} failed` : '');
+
+      const affected = result.affectedPaths ?? [];
+      if (
+        result.failed === 0 &&
+        result.skipped === 0 &&
+        affected.length === 1
+      ) {
+        const item = affected[0];
+
+        this.operationHistory.record({
+          label: `${operation === 'copy' ? 'Copy' : 'Move'} ${source.name} to peer pane`,
+          undo: async () => {
+            if (operation === 'copy') {
+              const deletion = await this.api.batchDelete(
+                [item.destination],
+                true,
+                false,
+              );
+              if (deletion.failed > 0 || deletion.skipped > 0) {
+                throw new Error('Undo counterpart copy failed.');
+              }
+              return;
+            }
+
+            const back = await this.api.batchMove([{
+              source: item.destination,
+              destination: item.source,
+              exactDestination: true,
+            }], true);
+
+            if (back.failed > 0 || back.skipped > 0) {
+              throw new Error('Undo counterpart move failed.');
+            }
+          },
+          redo: async () => {
+            const forward = [{
+              source: item.source,
+              destination: item.destination,
+              exactDestination: true,
+            }];
+
+            const redone = operation === 'copy'
+              ? await this.api.batchCopy(forward, true)
+              : await this.api.batchMove(forward, true);
+
+            if (redone.failed > 0 || redone.skipped > 0) {
+              throw new Error(`Redo counterpart ${operation} failed.`);
+            }
+          },
+        });
+      }
+
+      await Promise.all([
+        destinationPane.refresh(),
+        operation === 'move'
+          ? sourcePane.refresh()
+          : Promise.resolve(),
+      ]);
+
+      if (result.succeeded > 0) {
+        destinationPane.selectComparisonItem(destination);
+        this.linkStatus =
+          `${operation === 'copy' ? 'copied' : 'moved'} peer: ${source.name}`;
+      }
+
+      if (result.failed > 0 || result.skipped > 0) {
+        await this.confirmDialog.alert({
+          title: `${operation === 'copy' ? 'Copy' : 'Move'} Completed with Issues`,
+          message: [
+            result.failed > 0
+              ? `${result.failed} item${result.failed === 1 ? '' : 's'} failed.`
+              : '',
+            result.skipped > 0
+              ? `${result.skipped} item${result.skipped === 1 ? '' : 's'} were skipped.`
+              : '',
+          ].filter(Boolean).join('\n'),
+        });
+      }
+    } catch (error) {
+      await this.confirmDialog.alert({
+        title: `${operation === 'copy' ? 'Copy' : 'Move'} Counterpart Failed`,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      this.cdr.markForCheck();
+    }
+  }
+
+  private canTransferCurrentToPeer(operation: 'copy' | 'move'): boolean {
+    const sourcePane = this.activePane;
+    const destinationPane = this.otherPane;
+    const source = sourcePane?.cursorEntry;
+
+    if (
+      !sourcePane?.isDirectoryTab ||
+      !destinationPane?.isDirectoryTab ||
+      !source ||
+      source.path === '__parent__'
+    ) {
+      return false;
+    }
+
+    return canTransferBetween(
+      operation,
+      sourcePane.sourceCapabilities,
+      destinationPane.sourceCapabilities,
+    ).allowed;
   }
 
   get leftCompareOverlay(): readonly ReassemblyCompareOverlayItem[] {
@@ -1113,6 +1701,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
   toggleSyncScroll(): void {
     this.syncScroll = !this.syncScroll;
     this.linkStatus = this.syncScroll ? 'scroll sync on' : '';
+    this.persistPaneIntelligence();
     this.cdr.markForCheck();
 
     if (this.syncScroll && this.activePane) {
@@ -1169,7 +1758,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     if (!result) return [];
 
     return result.items
-      .filter(item => item.status !== 'equal')
+      .filter(item => item.status !== 'same')
       .map(item => ({
         name: item.name ?? item.key,
         leftPath: item.left?.path ?? null,
@@ -1193,7 +1782,9 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
         case 'only-right':
           marker = side === 'right' ? 'only-here' : 'equal';
           break;
-        case 'different':
+        case 'size-different':
+        case 'hash-different':
+        case 'content-different':
           marker = 'different';
           break;
         case 'left-newer':
@@ -1202,7 +1793,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
         case 'right-newer':
           marker = side === 'right' ? 'newer' : 'older';
           break;
-        case 'type-mismatch':
+        case 'type-different':
           marker = 'type-mismatch';
           break;
         default:
@@ -1221,6 +1812,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
   toggleFollowSelection(): void {
     this.followSelection = !this.followSelection;
     this.linkStatus = this.followSelection ? 'selection follow on' : '';
+    this.persistPaneIntelligence();
     this.cdr.markForCheck();
 
     const cursor = this.activePane?.cursorEntry;
@@ -1280,7 +1872,10 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
 
     this.linkedNavigationGuard++;
     try {
-      const loaded = await targetPane.load(peer, { history:'record', preserveCursor:false });
+      const loaded = await targetPane.navigateLinkedLocation(peer, {
+        history: 'record',
+        preserveCursor: false,
+      });
       this.linkStatus = loaded
         ? (exact ? 'aligned' : `nearest peer: ${this.leafName(peer) || peer}`)
         : 'peer navigation failed';
@@ -3584,6 +4179,8 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     ]);
 
     if (generation !== this.workspaceApplyGeneration) return;
+
+    this.restorePaneIntelligenceForWorkspace(workspace.id);
 
     // The workspace is the authority for active pane/layout; explicitly push
     // active-pane identity back through the service so all surfaces agree.

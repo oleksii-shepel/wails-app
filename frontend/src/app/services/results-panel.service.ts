@@ -3,6 +3,8 @@ import { Injectable } from '@angular/core';
 import type { FileInfo } from '../shared/protocol-enhanced';
 
 export interface ResultsPanelMetadata {
+  readonly resultCount?: number;
+  readonly recoveredPartial?: boolean;
   readonly origin?: string;
   readonly rootPath?: string;
   readonly query?: string;
@@ -13,6 +15,8 @@ export interface ResultsPanelMetadata {
   readonly refreshWarnings?: string;
   readonly reclaimableBytes?: string;
   readonly duplicateGroups?: string;
+  readonly searchStrategy?: 'auto' | 'live' | 'indexed';
+  readonly minDuplicateSize?: string;
 }
 
 export interface ResultsPanelCreateOptions {
@@ -44,6 +48,9 @@ export type ResultsPanelRefresher =
 const STORAGE_KEY = 'reassembly.resultsPanels.v1';
 const PINNED_STORAGE_KEY = 'reassembly.resultsPanels.pinned.v1';
 const MAX_PANELS = 24;
+const MAX_PERSISTED_ENTRIES_PER_PANEL = 2000;
+const MAX_PERSISTED_TOTAL_ENTRIES = 8000;
+const RECOVERY_KEY = 'reassembly.resultsPanels.recovery.v1';
 
 function parseResultsId(path: string): string | null {
   const match = /^results:\/\/([^/?#]+)/i.exec((path ?? '').trim());
@@ -73,7 +80,7 @@ export class ResultsPanelService {
       title: title.trim() || 'Results',
       path,
       createdAt: Date.now(),
-      entries: entries.map(entry => ({ ...entry })),
+      entries: [...entries],
       metadata: { ...metadata },
     };
 
@@ -90,12 +97,14 @@ export class ResultsPanelService {
     rootPath: string,
     query: string,
     recursive = false,
+    strategy: 'auto' | 'live' | 'indexed' = 'auto',
   ): ResultsPanelDefinition {
     return this.create(title, entries, {
       origin: 'global-search',
       rootPath,
       query,
       kind: recursive ? 'recursive-search' : 'search',
+      searchStrategy: strategy,
     });
   }
 
@@ -161,6 +170,72 @@ export class ResultsPanelService {
     this.hydrate();
     const id = parseResultsId(path);
     return id ? this.panels.get(id) ?? null : null;
+  }
+
+  async stream(
+    path: string,
+    options: {
+      readonly batchSize?: number;
+      readonly signal?: AbortSignal;
+      readonly onBatch: (
+        batch: readonly FileInfo[],
+        loaded: number,
+        total: number,
+      ) => void;
+    },
+  ): Promise<number> {
+    const panel = this.get(path);
+    if (!panel) return 0;
+
+    const batchSize = Math.max(64, Math.min(2048, options.batchSize ?? 512));
+    const total = panel.entries.length;
+
+    for (let start = 0; start < total; start += batchSize) {
+      if (options.signal?.aborted) {
+        throw new DOMException('Results stream cancelled.', 'AbortError');
+      }
+
+      const end = Math.min(total, start + batchSize);
+      options.onBatch(panel.entries.slice(start, end), end, total);
+
+      // Yield between batches so very large saved/virtual collections do not
+      // monopolize the renderer while being attached to a pane.
+      if (end < total) {
+        await this.nextFrame(options.signal);
+      }
+    }
+
+    return total;
+  }
+
+  private async nextFrame(signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) {
+      throw new DOMException('Results stream cancelled.', 'AbortError');
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      let handle = 0;
+      const abort = () => {
+        if (handle && typeof cancelAnimationFrame === 'function') {
+          cancelAnimationFrame(handle);
+        }
+        reject(new DOMException('Results stream cancelled.', 'AbortError'));
+      };
+
+      signal?.addEventListener('abort', abort, { once: true });
+
+      if (typeof requestAnimationFrame === 'function') {
+        handle = requestAnimationFrame(() => {
+          signal?.removeEventListener('abort', abort);
+          resolve();
+        });
+      } else {
+        setTimeout(() => {
+          signal?.removeEventListener('abort', abort);
+          resolve();
+        }, 0);
+      }
+    });
   }
 
   has(path: string): boolean {
@@ -308,8 +383,13 @@ export class ResultsPanelService {
 
         this.panels.set(panel.id, {
           ...panel,
-          entries: panel.entries.map(entry => ({ ...entry })),
-          metadata: { ...(panel.metadata ?? {}) },
+          entries: [...panel.entries],
+          metadata: {
+            ...(panel.metadata ?? {}),
+            recoveredPartial:
+              Number(panel.metadata?.resultCount ?? panel.entries.length) >
+              panel.entries.length,
+          },
         });
       }
     } catch {
@@ -350,29 +430,35 @@ export class ResultsPanelService {
   }
 
   private persist(): void {
-    const all = [...this.panels.values()];
-
     try {
-      sessionStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify(all),
-      );
-    } catch {
-      // Session persistence is best-effort. The in-memory panel remains usable.
-    }
+      let remaining = MAX_PERSISTED_TOTAL_ENTRIES;
+      const payload = [...this.panels.values()]
+        .sort((a,b)=>b.createdAt-a.createdAt)
+        .map(panel => {
+          const count = Math.min(
+            panel.entries.length,
+            MAX_PERSISTED_ENTRIES_PER_PANEL,
+            remaining,
+          );
+          remaining -= count;
 
-    try {
-      localStorage.setItem(
-        PINNED_STORAGE_KEY,
-        JSON.stringify(
-          all.filter(panel =>
-            panel.pinned &&
-            !panel.metadata.pluginId
-          ),
-        ),
-      );
+          return {
+            ...panel,
+            entries: panel.entries.slice(0,count),
+            metadata: {
+              ...panel.metadata,
+              resultCount: panel.entries.length,
+              recoveredPartial: false,
+            },
+          };
+        });
+
+      const encoded = JSON.stringify(payload);
+      sessionStorage.setItem(STORAGE_KEY, encoded);
+      localStorage.setItem(RECOVERY_KEY, encoded);
     } catch {
-      // Pinned persistence is best-effort.
+      // The complete result model remains in memory. Persistence is bounded
+      // recovery state, not the authoritative result store.
     }
   }
 }

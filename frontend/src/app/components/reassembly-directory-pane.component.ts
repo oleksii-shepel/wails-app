@@ -59,6 +59,13 @@ import {
   dragOperationFromModifiers,
 } from './reassembly-drag-drop-policy';
 import {
+  DirListStreamController,
+  type DirStreamBatchEvent,
+  type DirStreamDoneEvent,
+  type DirStreamErrorEvent,
+  type DirStreamMetaEvent,
+} from '../surfaces/dir/dir-list-stream.controller';
+import {
   createFilenameMaskMatcher,
   entryTypeLabel,
   fileExtension,
@@ -144,7 +151,7 @@ type ReassemblyTab =
     };
 
 interface ReassemblyDirTabSession {
-  schemaVersion: 3;
+  schemaVersion: 4;
   viewMode: ReassemblyDirectoryView;
   sortField: ReassemblySortField;
   sortDirection: ReassemblySortDirection;
@@ -161,7 +168,16 @@ interface ReassemblyDirTabSession {
   navigationIndex: number;
 }
 
-const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
+const REASSEMBLY_DIR_TAB_SESSION_VERSION = 4;
+
+// Directory contents are runtime data, not durable UI state. Persisting or
+// cloning a WinSxS-sized listing on every selection/scroll change defeats
+// virtualization and can lock the renderer for seconds.
+const MAX_RUNTIME_TAB_CACHE_ENTRIES = 800;
+const MAX_PERSISTED_TAB_CACHE_ENTRIES = 256;
+const MAX_LEGACY_SESSION_BYTES = 512 * 1024;
+
+import type { PaneComparisonStatus } from '../services/pane-comparison.service';
 
 @Component({
   selector: 'app-reassembly-directory-pane',
@@ -440,6 +456,9 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
           role="treeitem"
           [class.selected]="selectedPaths.has(row.entry.path)"
           [class.cursor]="cursorPath === row.entry.path"
+          [class.compare-only]="comparisonStatus(row.entry.path)?.startsWith('only-')"
+          [class.compare-newer]="comparisonStatus(row.entry.path)?.endsWith('-newer')"
+          [class.compare-different]="isComparisonDifferent(row.entry.path)"
           [class.drop-target]="dragOverPath === row.entry.path"
           [class.drop-invalid]="dragOverPath === row.entry.path && dropIntent === 'invalid'"
           [class.drop-copy]="dragOverPath === row.entry.path && dropIntent === 'copy'"
@@ -547,6 +566,9 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
           [attr.aria-label]="entryAriaLabel(entry)"
           [class.cursor]="entry.path === cursorPath"
           [class.selected]="selectedPaths.has(entry.path)"
+          [class.compare-only]="comparisonStatus(entry.path)?.startsWith('only-')"
+          [class.compare-newer]="comparisonStatus(entry.path)?.endsWith('-newer')"
+          [class.compare-different]="isComparisonDifferent(entry.path)"
           (click)="selectFromPointer(entry, $event)"
           (dblclick)="openEntry(entry)"
           (contextmenu)="onEntryContextMenu(entry, $event)"
@@ -1043,6 +1065,33 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
       overscroll-behavior: none;
       scroll-behavior: auto;
       touch-action: pan-y;}
+
+    .entry.compare-only,
+    .tree-row.compare-only {
+      background: color-mix(
+        in srgb,
+        var(--vsc-list-warningForeground, var(--vsc-foreground)) 7%,
+        transparent
+      );
+    }
+
+    .entry.compare-newer,
+    .tree-row.compare-newer {
+      background: color-mix(
+        in srgb,
+        var(--vsc-focus-ring, var(--vsc-accent-blue)) 8%,
+        transparent
+      );
+    }
+
+    .entry.compare-different,
+    .tree-row.compare-different {
+      background: color-mix(
+        in srgb,
+        var(--vsc-errorForeground, var(--vsc-foreground)) 6%,
+        transparent
+      );
+    }
 
     .tree-row {
       display: grid;
@@ -1579,6 +1628,8 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   @Input() showHidden = false;
   @Input() currentPathPinned = false;
   @Input() pluginToolbarActions: readonly PresentedCommand[] = [];
+  @Input() comparisonStatuses: ReadonlyMap<string, PaneComparisonStatus> =
+    new Map<string, PaneComparisonStatus>();
   @Output() activateRequested = new EventEmitter<void>();
   @Output() navigationTrailRequested = new EventEmitter<{
     direction: 'back' | 'forward';
@@ -1814,6 +1865,18 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
 
+  comparisonStatus(path: string): PaneComparisonStatus | null {
+    return this.comparisonStatuses.get(path) ?? null;
+  }
+
+  isComparisonDifferent(path: string): boolean {
+    const status = this.comparisonStatus(path);
+    return status === 'size-different' ||
+      status === 'hash-different' ||
+      status === 'content-different' ||
+      status === 'type-different';
+  }
+
   selectComparisonItem(path: string): boolean {
     const entry = this.entries.find(candidate => candidate.path === path);
     if (!entry) return false;
@@ -1869,7 +1932,12 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
         ? ''
         : `, ${this.formatSize(entry.size)}`;
 
-    return `${entry.name}, ${kind}${size}`;
+    const comparison = this.comparisonStatus(entry.path);
+    const comparisonText = comparison && comparison !== 'same'
+      ? `, comparison ${comparison.replace(/-/g, ' ')}`
+      : '';
+
+    return `${entry.name}, ${kind}${size}${comparisonText}`;
   }
 
   entryCategory(entry: FileInfo) {
@@ -2184,6 +2252,19 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
 
   private anchorPath: string | null = null;
   private loadGeneration = 0;
+  private readonly dirStream: DirListStreamController;
+  private resultStreamAbort: AbortController | null = null;
+  private streamRenderActive = false;
+  private streamLoadGeneration = 0;
+  private streamPreviousCursor: string | null = null;
+  private streamRestoreSession = false;
+  private streamFirstBatch = true;
+  private streamLoadOptions: {
+    preserveCursor?: boolean;
+    history?: 'record' | 'none';
+    syncTab?: boolean;
+    restoreSession?: boolean;
+  } = {};
   private readonly navigation = new ReassemblyNavigationController(
     path => this.directorySource.isPathInsideArchive(path)
       ? normalizeArchiveLocation(path)
@@ -2209,7 +2290,9 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     private readonly pluginLifecycle: PluginLifecycleCoordinatorService,
     private readonly surfaceRegistry: SurfaceRegistryService,
     private readonly cdr: ChangeDetectorRef,
-  ) {}
+  ) {
+    this.dirStream = new DirListStreamController(this.api);
+  }
 
   get cursorEntry(): FileInfo | null {
     if (!this.cursorPath) return null;
@@ -2270,6 +2353,19 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   get visibleEntries(): FileInfo[] {
+    if (this.streamRenderActive) {
+      const query = this.filterText.trim().toLocaleLowerCase();
+      if (!query) return this.entries;
+
+      // Keep filtering responsive while a stream is still growing, but defer
+      // global sorting until completion. Sorting the full accumulated list on
+      // every incoming batch is the main-thread failure mode we are avoiding.
+      return this.entries.filter(entry =>
+        entry.name.toLocaleLowerCase().includes(query) ||
+        entry.path.toLocaleLowerCase().includes(query)
+      );
+    }
+
     if (
       this.projectionEntriesRef !== this.entries ||
       this.projectionSortField !== this.sortField ||
@@ -2389,6 +2485,12 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
+    this.dirStream.bind(this.paneId, {
+      onMeta: event => this.handleStreamMeta(event),
+      onBatch: (event, baseEntries) => this.handleStreamBatch(event, baseEntries),
+      onDone: (event, baseEntries) => this.handleStreamDone(event, baseEntries),
+      onError: event => this.handleStreamError(event),
+    });
     void this.initialize();
   }
 
@@ -2398,6 +2500,9 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       clearTimeout(this.scrollPersistTimer);
       this.scrollPersistTimer = null;
     }
+    this.resultStreamAbort?.abort();
+    this.resultStreamAbort = null;
+    void this.dirStream.unbind();
     this.syncActiveDirSessionState();
   }
 
@@ -6931,12 +7036,34 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     return `reassembly.dirTab.${this.paneId}.${tabId}`;
   }
 
+  private tabEntryCache(
+    entries: readonly FileInfo[],
+    limit = MAX_RUNTIME_TAB_CACHE_ENTRIES,
+  ): FileInfo[] {
+    if (entries.length > limit) return [];
+    return entries.map(entry => ({ ...entry }));
+  }
+
+  private persistedTabEntryCache(
+    entries: readonly FileInfo[],
+  ): FileInfo[] {
+    return this.tabEntryCache(entries, MAX_PERSISTED_TAB_CACHE_ENTRIES);
+  }
+
   private loadDirTabSession(tabId: string): ReassemblyDirTabSession {
     const fallback = this.defaultDirTabSession();
 
     try {
-      const raw = localStorage.getItem(this.dirSessionStorageKey(tabId));
+      const storageKey = this.dirSessionStorageKey(tabId);
+      const raw = localStorage.getItem(storageKey);
       if (!raw) return fallback;
+
+      if (raw.length > MAX_LEGACY_SESSION_BYTES) {
+        // Older builds persisted complete directory listings. Drop those
+        // oversized snapshots instead of parsing megabytes of stale entries.
+        localStorage.removeItem(storageKey);
+        return fallback;
+      }
 
       const parsed = JSON.parse(raw) as Partial<ReassemblyDirTabSession>;
       const version =
@@ -7004,7 +7131,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
             : 0,
         entries:
           Array.isArray(parsed.entries)
-            ? parsed.entries.map(entry => ({ ...entry }))
+            ? this.persistedTabEntryCache(parsed.entries)
             : [],
         navigationEntries:
           Array.isArray(parsed.navigationEntries)
@@ -7040,7 +7167,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
         cursorPath: tab.cursorPath,
         anchorPath: tab.anchorPath,
         scrollTop: Math.max(0, Math.round(tab.scrollTop)),
-        entries: tab.entries.map(entry => ({ ...entry })),
+        entries: this.persistedTabEntryCache(tab.entries),
         navigationEntries: [...tab.navigationEntries],
         navigationIndex: tab.navigationIndex,
       };
@@ -7149,7 +7276,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       cursorPath: this.cursorPath,
       anchorPath: this.anchorPath,
       scrollTop: this.currentScrollTop(),
-      entries: this.entries.map(entry => ({ ...entry })),
+      entries: this.tabEntryCache(this.entries),
       navigationEntries: [...this.navigation.snapshotState().entries],
       navigationIndex: this.navigation.snapshotState().index,
     };
@@ -7245,8 +7372,10 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       index: tab.navigationIndex,
     });
 
-    // Cached entries make tab switching immediate while the source refreshes.
-    this.entries = tab.entries.map(entry => ({ ...entry }));
+    // Small directories can still switch instantly. Huge directories skip the
+    // runtime entry cache entirely and reload from the source; otherwise every
+    // tab switch would copy thousands of FileInfo objects on the UI thread.
+    this.entries = this.tabEntryCache(tab.entries);
 
     this.cursorPath = tab.cursorPath;
     this.selectedPaths = new Set(tab.selectedPaths);
@@ -7596,6 +7725,8 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       restoreSession?: boolean;
     } = {},
   ): Promise<boolean> {
+    await this.cancelActiveStreams();
+
     if (this.directorySource.isPathInsideArchive(requestedPath)) {
       return this.loadArchivePath(requestedPath, options);
     }
@@ -7612,88 +7743,55 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
 
     try {
+      const streamMode = this.panelSources.streamMode(
+        requestedPath,
+        this.entries,
+      );
+
+      if (streamMode === 'backend') {
+        return await this.loadBackendStream(
+          requestedPath,
+          generation,
+          previousCursor,
+          options,
+        );
+      }
+
+      if (streamMode === 'results') {
+        return await this.loadResultsStream(
+          requestedPath,
+          generation,
+          previousCursor,
+          options,
+        );
+      }
+
       const listing = await this.panelSources.listDirectory(
         requestedPath,
         this.showHidden,
       );
       if (generation !== this.loadGeneration) return false;
 
-      const nextPath = listing.path || requestedPath;
-      const pathChanged = this.path && this.path !== nextPath;
-      this.path = nextPath;
-
-      if (pathChanged && !options.restoreSession) {
-        this.filterText = '';
-        this.filterVisible = false;
-        this.filterWidget?.deactivateContext();
-
-        this.treeExpandedPaths.clear();
-        this.treeChildren.clear();
-        this.treeLoadingPaths.clear();
-      }
-
-      this.entries = [...(listing.entries || [])];
-
-      if (!options.restoreSession) {
-        const preserved = previousCursor
-          ? this.entries.find(entry => entry.path === previousCursor)
-          : null;
-        const nextCursor = preserved ?? this.sortedEntries[0] ?? null;
-
-        this.cursorPath = nextCursor?.path ?? null;
-        this.selectedPaths = nextCursor
-          ? new Set([nextCursor.path])
-          : new Set();
-        this.anchorPath = nextCursor?.path ?? null;
-      }
-
-      this.error = null;
-
-      if ((options.history ?? 'record') === 'record') {
-        this.navigation.record(this.path);
-      }
-
-      if (options.syncTab !== false) {
-        this.syncActiveTab(this.path);
-      }
-
-      if (this.activeTabId && this.activeTab?.kind === 'dir') {
-        const panelTitle = this.panelSources.titleFor(this.path);
-        if (panelTitle) {
-          this.workspaceService.updateTabPathAndTitle(
-            this.paneId,
-            this.activeTabId,
-            this.path,
-            panelTitle,
-          );
-        } else {
-          this.workspaceService.updateTabPath(
-            this.paneId,
-            this.activeTabId,
-            this.path,
-          );
-        }
-      }
-
-      this.pathHistory.addLocation(this.path, this.paneId);
-      void this.refreshDriveCapacity(this.path).then(() => {
-        if (generation === this.loadGeneration) {
-          this.cdr.markForCheck();
-        }
-      });
-
-      if (!options.restoreSession) {
-        this.syncActiveDirSessionState();
-        this.locationChange.emit(this.path);
-        this.cursorChange.emit(this.cursorEntry);
-      }
-
+      this.applyLoadedDirectory(
+        listing.path || requestedPath,
+        [...(listing.entries || [])],
+        generation,
+        previousCursor,
+        options,
+      );
       return true;
     } catch (error) {
       if (generation !== this.loadGeneration) return false;
+      if (
+        error instanceof DOMException &&
+        error.name === 'AbortError'
+      ) {
+        return false;
+      }
 
       if (!options.restoreSession || this.entries.length === 0) {
         this.entries = [];
+        this.invalidateProjection();
         this.cursorPath = null;
         this.selectedPaths = new Set();
         this.anchorPath = null;
@@ -7703,9 +7801,347 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     } finally {
       if (generation === this.loadGeneration) {
         this.loading = false;
+        this.streamRenderActive = false;
+        this.invalidateProjection();
         this.cdr.markForCheck();
       }
     }
+  }
+
+  private async loadBackendStream(
+    requestedPath: string,
+    generation: number,
+    previousCursor: string | null,
+    options: {
+      preserveCursor?: boolean;
+      history?: 'record' | 'none';
+      syncTab?: boolean;
+      restoreSession?: boolean;
+    },
+  ): Promise<boolean> {
+    this.prepareStreamingDirectory(
+      requestedPath,
+      generation,
+      previousCursor,
+      options,
+    );
+
+    const streamId = await this.dirStream.start(
+      requestedPath,
+      this.showHidden,
+    );
+    await this.dirStream.waitFor(streamId);
+
+    return generation === this.loadGeneration;
+  }
+
+  private async loadResultsStream(
+    requestedPath: string,
+    generation: number,
+    previousCursor: string | null,
+    options: {
+      preserveCursor?: boolean;
+      history?: 'record' | 'none';
+      syncTab?: boolean;
+      restoreSession?: boolean;
+    },
+  ): Promise<boolean> {
+    this.prepareStreamingDirectory(
+      requestedPath,
+      generation,
+      previousCursor,
+      options,
+    );
+
+    const abort = new AbortController();
+    this.resultStreamAbort = abort;
+    const accumulated: FileInfo[] = [];
+
+    await this.panelSources.streamResultsPanel(requestedPath, {
+      batchSize: 512,
+      signal: abort.signal,
+      onBatch: batch => {
+        if (
+          abort.signal.aborted ||
+          generation !== this.loadGeneration
+        ) return;
+
+        accumulated.push(...batch);
+        this.entries = accumulated;
+        this.invalidateProjection();
+
+        if (this.streamFirstBatch) {
+          this.streamFirstBatch = false;
+          this.seedStreamingCursor(previousCursor, options.restoreSession === true);
+        }
+
+        this.cdr.markForCheck();
+      },
+    });
+
+    if (generation !== this.loadGeneration) return false;
+
+    this.resultStreamAbort = null;
+    this.finishStreamingDirectory(
+      requestedPath,
+      accumulated,
+      generation,
+      previousCursor,
+      options,
+    );
+
+    return true;
+  }
+
+  private prepareStreamingDirectory(
+    requestedPath: string,
+    generation: number,
+    previousCursor: string | null,
+    options: {
+      preserveCursor?: boolean;
+      history?: 'record' | 'none';
+      syncTab?: boolean;
+      restoreSession?: boolean;
+    },
+  ): void {
+    const restoreSession = options.restoreSession === true;
+    this.streamLoadGeneration = generation;
+    this.streamPreviousCursor = previousCursor;
+    this.streamRestoreSession = restoreSession;
+    this.streamLoadOptions = { ...options };
+    this.streamFirstBatch = true;
+    this.streamRenderActive = true;
+
+    const pathChanged = !!this.path && this.path !== requestedPath;
+    this.path = requestedPath;
+
+    if (pathChanged && !restoreSession) {
+      this.filterText = '';
+      this.filterVisible = false;
+      this.filterWidget?.deactivateContext();
+      this.treeExpandedPaths.clear();
+      this.treeChildren.clear();
+      this.treeLoadingPaths.clear();
+    }
+
+    this.entries = [];
+    this.invalidateProjection();
+
+    if (!restoreSession) {
+      this.cursorPath = null;
+      this.selectedPaths = new Set();
+      this.anchorPath = null;
+    }
+
+  }
+
+  private handleStreamMeta(event: DirStreamMetaEvent): void {
+    if (this.streamLoadGeneration !== this.loadGeneration) return;
+    if (!this.streamRenderActive) return;
+
+    if (event.path && event.path !== this.path) {
+      this.path = event.path;
+    }
+  }
+
+  private handleStreamBatch(
+    event: DirStreamBatchEvent,
+    baseEntries: FileInfo[],
+  ): void {
+    if (this.streamLoadGeneration !== this.loadGeneration) return;
+    if (!this.streamRenderActive) return;
+
+    // DirListStreamController owns this stable accumulation array. We keep the
+    // same reference while it grows and explicitly invalidate projections.
+    this.entries = baseEntries;
+    this.invalidateProjection();
+
+    if (this.streamFirstBatch) {
+      this.streamFirstBatch = false;
+      this.seedStreamingCursor(
+        this.streamPreviousCursor,
+        this.streamRestoreSession,
+      );
+    }
+
+    this.lastAction = `streaming ${event.path}: ${baseEntries.length}`;
+    this.cdr.markForCheck();
+  }
+
+  private handleStreamDone(
+    event: DirStreamDoneEvent,
+    baseEntries: FileInfo[],
+  ): void {
+    if (this.streamLoadGeneration !== this.loadGeneration) return;
+
+    this.finishStreamingDirectory(
+      event.path || this.path,
+      baseEntries,
+      this.loadGeneration,
+      this.streamPreviousCursor,
+      this.streamLoadOptions,
+    );
+  }
+
+  private handleStreamError(event: DirStreamErrorEvent): void {
+    if (this.streamLoadGeneration !== this.loadGeneration) return;
+    this.error = event.error || 'Failed to load directory';
+    this.streamRenderActive = false;
+    this.invalidateProjection();
+    this.cdr.markForCheck();
+  }
+
+  private finishStreamingDirectory(
+    path: string,
+    entries: FileInfo[],
+    generation: number,
+    previousCursor: string | null,
+    options: {
+      preserveCursor?: boolean;
+      history?: 'record' | 'none';
+      syncTab?: boolean;
+      restoreSession?: boolean;
+    },
+  ): void {
+    if (generation !== this.loadGeneration) return;
+
+    this.entries = entries;
+    this.streamRenderActive = false;
+    this.invalidateProjection();
+
+    this.applyLoadedDirectory(
+      path || this.path,
+      entries,
+      generation,
+      previousCursor,
+      options,
+      true,
+    );
+  }
+
+  private seedStreamingCursor(
+    previousCursor: string | null,
+    restoreSession: boolean,
+  ): void {
+    if (restoreSession || this.entries.length === 0) return;
+
+    const preserved = previousCursor
+      ? this.entries.find(entry => entry.path === previousCursor)
+      : null;
+    const next = preserved ?? this.entries[0] ?? null;
+
+    this.cursorPath = next?.path ?? null;
+    this.selectedPaths = next ? new Set([next.path]) : new Set();
+    this.anchorPath = next?.path ?? null;
+  }
+
+  private applyLoadedDirectory(
+    nextPath: string,
+    entries: FileInfo[],
+    generation: number,
+    previousCursor: string | null,
+    options: {
+      preserveCursor?: boolean;
+      history?: 'record' | 'none';
+      syncTab?: boolean;
+      restoreSession?: boolean;
+    },
+    streamed = false,
+  ): void {
+    if (generation !== this.loadGeneration) return;
+
+    const pathChanged = !!this.path && this.path !== nextPath;
+    this.path = nextPath;
+
+    if (pathChanged && !options.restoreSession) {
+      this.filterText = '';
+      this.filterVisible = false;
+      this.filterWidget?.deactivateContext();
+      this.treeExpandedPaths.clear();
+      this.treeChildren.clear();
+      this.treeLoadingPaths.clear();
+    }
+
+    this.entries = entries;
+    this.invalidateProjection();
+
+    if (!options.restoreSession) {
+      const preserved = previousCursor
+        ? this.entries.find(entry => entry.path === previousCursor)
+        : null;
+      // A streamed large directory has already shown useful content. Defer the
+      // expensive global ordering until visibleEntries is next requested after
+      // completion; do not sort repeatedly during ingestion.
+      const nextCursor = preserved ??
+        (streamed ? this.entries[0] : this.visibleEntries[0]) ??
+        null;
+
+      this.cursorPath = nextCursor?.path ?? null;
+      this.selectedPaths = nextCursor
+        ? new Set([nextCursor.path])
+        : new Set();
+      this.anchorPath = nextCursor?.path ?? null;
+    }
+
+    this.error = null;
+    this.commitLoadedPath(nextPath, generation, options);
+
+    if (!options.restoreSession) {
+      this.syncActiveDirSessionState();
+    }
+  }
+
+  private commitLoadedPath(
+    nextPath: string,
+    generation: number,
+    options: {
+      history?: 'record' | 'none';
+      syncTab?: boolean;
+      restoreSession?: boolean;
+    },
+  ): void {
+    if ((options.history ?? 'record') === 'record') {
+      this.navigation.record(nextPath);
+    }
+
+    if (options.syncTab !== false) {
+      this.syncActiveTab(nextPath);
+    }
+
+    if (this.activeTabId && this.activeTab?.kind === 'dir') {
+      const panelTitle = this.panelSources.titleFor(nextPath);
+      if (panelTitle) {
+        this.workspaceService.updateTabPathAndTitle(
+          this.paneId,
+          this.activeTabId,
+          nextPath,
+          panelTitle,
+        );
+      } else {
+        this.workspaceService.updateTabPath(
+          this.paneId,
+          this.activeTabId,
+          nextPath,
+        );
+      }
+    }
+
+    this.pathHistory.addLocation(nextPath, this.paneId);
+    void this.refreshDriveCapacity(nextPath).then(() => {
+      if (generation === this.loadGeneration) {
+        this.cdr.markForCheck();
+      }
+    });
+  }
+
+  private invalidateProjection(): void {
+    this.projectionEntriesRef = null;
+  }
+
+  private async cancelActiveStreams(): Promise<void> {
+    this.resultStreamAbort?.abort();
+    this.resultStreamAbort = null;
+    await this.dirStream.cancelActive();
   }
 
   private createDirectoryTab(path: string): Extract<ReassemblyTab, { kind: 'dir' }> {
@@ -7759,7 +8195,10 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       anchorPath: path === current.path ? current.anchorPath : null,
       scrollTop: path === current.path ? current.scrollTop : 0,
       expandedPaths: path === current.path ? current.expandedPaths : [],
-      entries: path === current.path ? current.entries : [],
+      entries:
+        path === current.path
+          ? this.tabEntryCache(current.entries)
+          : [],
       navigationEntries: [...this.navigation.snapshotState().entries],
       navigationIndex: this.navigation.snapshotState().index,
     };

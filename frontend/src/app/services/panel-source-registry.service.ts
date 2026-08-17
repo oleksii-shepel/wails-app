@@ -164,6 +164,43 @@ export class RemotePanelSource extends BasePanelSource {
       getSourceCapabilities(context.path),
     );
   }
+
+  override getRootPath(context: PanelSourceContext): string | null {
+    const scheme = schemeOf(context.path);
+    if (!scheme) return null;
+    const mount = this.remote.findByUri(context.path);
+    if (mount?.publicPath) return String(mount.publicPath);
+    return `${scheme}://`;
+  }
+
+  override getParentPath(context: PanelSourceContext): string {
+    const root = this.getRootPath(context);
+    if (!root || context.path === root) return root ?? context.path;
+
+    const mount = this.remote.findByUri(context.path);
+    const mountRoot = String(mount?.publicPath ?? '').replace(/\/+$/, '');
+    const current = context.path.replace(/\/+$/, '');
+
+    if (mountRoot && current === mountRoot) {
+      return `${schemeOf(context.path)}://`;
+    }
+    if (mountRoot && current.startsWith(`${mountRoot}/`)) {
+      const slash = current.lastIndexOf('/');
+      return slash > mountRoot.length ? current.slice(0, slash) : mountRoot;
+    }
+    return super.getParentPath(context);
+  }
+
+  override joinChildPath(
+    context: PanelSourceContext,
+    childName: string,
+  ): string {
+    const hierarchy = this.remote.hierarchyFor(context.path);
+    if (hierarchy === 'share-path' || hierarchy === 'path-backed') {
+      return `${context.path.replace(/\/+$/, '')}/${childName}`;
+    }
+    return super.joinChildPath(context, childName);
+  }
 }
 
 class ResultsPanelSource extends BasePanelSource {
@@ -204,7 +241,7 @@ class ResultsPanelSource extends BasePanelSource {
         sourceId: panel ? `results.${panel.id}` : 'results.expired',
         sourceKind: this.kind,
       },
-      entries: panel ? panel.entries.map(entry => ({ ...entry })) : [],
+      entries: panel ? panel.entries : [],
     };
   }
 
@@ -372,6 +409,41 @@ export class PanelSourceRegistryService {
       inArchive: false,
     };
     return this.resolve(context).source.getParentPath(context);
+  }
+
+  streamMode(
+    path: string,
+    entries: readonly FileInfo[] = [],
+  ): 'backend' | 'results' | null {
+    if (/^results:\/\//i.test(path)) {
+      return this.resultsPanels.has(path) ? 'results' : null;
+    }
+
+    const context: PanelSourceContext = {
+      path,
+      entries,
+      inArchive: false,
+    };
+    const resolved = this.resolve(context);
+
+    return resolved.source.supportsStreaming(context)
+      ? 'backend'
+      : null;
+  }
+
+  async streamResultsPanel(
+    path: string,
+    options: {
+      readonly batchSize?: number;
+      readonly signal?: AbortSignal;
+      readonly onBatch: (
+        batch: readonly FileInfo[],
+        loaded: number,
+        total: number,
+      ) => void;
+    },
+  ): Promise<number> {
+    return this.resultsPanels.stream(path, options);
   }
 
   async listContext(

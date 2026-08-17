@@ -1,4 +1,4 @@
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { 
   BatchItem, 
   BatchResult, 
@@ -30,6 +30,7 @@ import { SpecialFolder } from '../shared/protocol';
 import { normalizePath } from '../components/address-bar.utils';
 import { EventsEmit } from 'wailsjs/runtime';
 import { app, contracts, elevation, plugin } from '../../../wailsjs/go/models';
+import { ResourceMutationService } from './resource-mutation.service';
 
 /** Mirror of Go's ElevatedSessionStatus struct. */
 export interface PathCapacity {
@@ -118,6 +119,7 @@ function normalizeElevatedSessionStatus(status: elevation.SessionStatus): Elevat
   providedIn: 'root'
 })
 export class ApiService {
+  private readonly resourceMutations = inject(ResourceMutationService);
     private normalizeCanonicalPath(path: string): string {
       return normalizePath(path);
     }
@@ -226,10 +228,11 @@ export class ApiService {
     }
 
     async moveFile(source: string, destination: string): Promise<OperationResult> {
-      return await window.go.app.App.MoveFile(
-        this.normalizeCanonicalPath(source),
-        this.normalizeCanonicalPath(destination)
-      );
+      const from = this.normalizeCanonicalPath(source);
+      const to = this.normalizeCanonicalPath(destination);
+      const result = await window.go.app.App.MoveFile(from, to);
+      if (result?.success !== false) this.resourceMutations.publish({ kind: 'move', items: [{ source: from, destination: to }], origin: 'move' });
+      return result;
     }
 
     /**
@@ -279,10 +282,9 @@ export class ApiService {
         shortcutPath: string,
       ): Promise<void>;
     };
-    await app.CreateShortcut(
-      this.normalizeCanonicalPath(target),
-      this.normalizeCanonicalPath(shortcutPath),
-    );
+    const link = this.normalizeCanonicalPath(shortcutPath);
+    await app.CreateShortcut(this.normalizeCanonicalPath(target), link);
+    this.resourceMutations.publish({ kind: 'create', items: [{ destination: link }], origin: 'shortcut' });
   }
 
   async revealInFileManager(path: string): Promise<void> {
@@ -304,10 +306,9 @@ export class ApiService {
         unixMilliseconds: number,
       ): Promise<void>;
     };
-    await app.SetModifiedTime(
-      this.normalizeCanonicalPath(path),
-      unixMilliseconds,
-    );
+    const normalized = this.normalizeCanonicalPath(path);
+    await app.SetModifiedTime(normalized, unixMilliseconds);
+    this.resourceMutations.publish({ kind: 'modify', items: [{ source: normalized }], origin: 'mtime' });
   }
 
   async createSymbolicLink(
@@ -320,10 +321,9 @@ export class ApiService {
         linkPath: string,
       ): Promise<void>;
     };
-    await app.CreateSymbolicLink(
-      this.normalizeCanonicalPath(target),
-      this.normalizeCanonicalPath(linkPath),
-    );
+    const link = this.normalizeCanonicalPath(linkPath);
+    await app.CreateSymbolicLink(this.normalizeCanonicalPath(target), link);
+    this.resourceMutations.publish({ kind: 'create', items: [{ destination: link }], origin: 'symlink' });
   }
 
   async createHardLink(
@@ -336,10 +336,9 @@ export class ApiService {
         linkPath: string,
       ): Promise<void>;
     };
-    await app.CreateHardLink(
-      this.normalizeCanonicalPath(target),
-      this.normalizeCanonicalPath(linkPath),
-    );
+    const link = this.normalizeCanonicalPath(linkPath);
+    await app.CreateHardLink(this.normalizeCanonicalPath(target), link);
+    this.resourceMutations.publish({ kind: 'create', items: [{ destination: link }], origin: 'hardlink' });
   }
 
   async openTerminalAt(path: string): Promise<void> {
@@ -383,7 +382,9 @@ export class ApiService {
     const app = window.go.app.App as unknown as {
       RestoreTrashEntry(id: string): Promise<string>;
     };
-    return await app.RestoreTrashEntry(id);
+    const restored = await app.RestoreTrashEntry(id);
+    if (restored) this.resourceMutations.publish({ kind: 'restore', items: [{ destination: restored }], origin: 'trash' });
+    return restored;
   }
 
   async deleteTrashEntry(id: string): Promise<void> {
@@ -507,10 +508,10 @@ export class ApiService {
       );
     }
 
-    return await app.CreateZipArchive(
-      this.normalizeCanonicalPathList(paths),
-      this.normalizeCanonicalPath(destination),
-    );
+    const target = this.normalizeCanonicalPath(destination);
+    const result = await app.CreateZipArchive(this.normalizeCanonicalPathList(paths), target);
+    if (result?.success !== false) this.resourceMutations.publish({ kind: 'create', items: [{ destination: target }], origin: 'archive-create' });
+    return result;
   }
 
   async openFile(path: string): Promise<void> {
@@ -530,11 +531,17 @@ export class ApiService {
   }
 
   async writeFile(path: string, content: string, encoding: string = 'utf8'): Promise<OperationResult> {
-    return await window.go.app.App.WriteFileContent(this.normalizeCanonicalPath(path), content, encoding);
+    const normalized = this.normalizeCanonicalPath(path);
+    const result = await window.go.app.App.WriteFileContent(normalized, content, encoding);
+    if (result?.success !== false) this.resourceMutations.publish({ kind: 'modify', items: [{ source: normalized }], origin: 'write' });
+    return result;
   }
 
-  async createDirectory(path: string, recursive: boolean = false): Promise<OperationResult> {
-    return await window.go.app.App.CreateDir(this.normalizeCanonicalPath(path), recursive);
+  async createDirectory(path: string, recursive: boolean = false, mutationOrigin?: string): Promise<OperationResult> {
+    const normalized = this.normalizeCanonicalPath(path);
+    const result = await window.go.app.App.CreateDir(normalized, recursive);
+    if (result?.success !== false) this.resourceMutations.publish({ kind: 'create', items: [{ destination: normalized }], origin: mutationOrigin ?? 'mkdir' });
+    return result;
   }
 
   async search(path: string, pattern: string, recursive: boolean = true): Promise<SearchResult> {
@@ -553,31 +560,33 @@ export class ApiService {
   // Batch Operations
   // ============================================================================
 
-  async batchCopy(items: BatchItem[], recursive: boolean = true): Promise<BatchResult> {
-    return castProtocol<BatchResult>(await window.go.app.App.BatchCopy(contracts.BatchRequest.createFrom({
-      items: this.normalizeBatchItems(items),
-      recursive
-    })));
+  async batchCopy(items: BatchItem[], recursive: boolean = true, mutationOrigin?: string): Promise<BatchResult> {
+    const normalized = this.normalizeBatchItems(items);
+    const result = castProtocol<BatchResult>(await window.go.app.App.BatchCopy(contracts.BatchRequest.createFrom({ items: normalized, recursive })));
+    const affected = result.affectedPaths?.length ? result.affectedPaths : normalized;
+    this.resourceMutations.publish({ kind: 'copy', items: affected.map(item => ({ source: item.source, destination: item.destination })), origin: mutationOrigin ?? 'batch-copy' });
+    return result;
   }
 
-  async batchMove(items: BatchItem[], recursive: boolean = true): Promise<BatchResult> {
-    return castProtocol<BatchResult>(await window.go.app.App.BatchMove(contracts.BatchRequest.createFrom({
-      items: this.normalizeBatchItems(items),
-      recursive
-    })));
+  async batchMove(items: BatchItem[], recursive: boolean = true, mutationOrigin?: string): Promise<BatchResult> {
+    const normalized = this.normalizeBatchItems(items);
+    const result = castProtocol<BatchResult>(await window.go.app.App.BatchMove(contracts.BatchRequest.createFrom({ items: normalized, recursive })));
+    const affected = result.affectedPaths?.length ? result.affectedPaths : (result.failed === 0 ? normalized : []);
+    this.resourceMutations.publish({ kind: 'move', items: affected.map(item => ({ source: item.source, destination: item.destination })), origin: mutationOrigin ?? 'batch-move' });
+    return result;
   }
 
-  async batchDelete(paths: string[], recursive: boolean = true, useTrash: boolean = true): Promise<BatchResult> {
-    const request: BatchDeleteRequest = {
-      paths: this.normalizeCanonicalPathList(paths),
-      recursive,
-      useTrash
-    };
-    return castProtocol<BatchResult>(await window.go.app.App.BatchDelete(request));
+  async batchDelete(paths: string[], recursive: boolean = true, useTrash: boolean = true, mutationOrigin?: string): Promise<BatchResult> {
+    const request: BatchDeleteRequest = { paths: this.normalizeCanonicalPathList(paths), recursive, useTrash };
+    const result = castProtocol<BatchResult>(await window.go.app.App.BatchDelete(request));
+    const failed = new Set((result.errors ?? []).map(error => this.normalizeCanonicalPath(error.source)));
+    const succeeded = request.paths.filter(path => !failed.has(path));
+    this.resourceMutations.publish({ kind: 'delete', items: succeeded.map(source => ({ source })), origin: mutationOrigin ?? (useTrash ? 'trash' : 'delete') });
+    return result;
   }
 
   async batchExtract(request: BatchExtractRequest): Promise<BatchExtractResult> {
-    return castProtocol<BatchExtractResult>(await window.go.app.App.BatchExtract(contracts.BatchExtractRequest.createFrom({
+    const result = castProtocol<BatchExtractResult>(await window.go.app.App.BatchExtract(contracts.BatchExtractRequest.createFrom({
       ...request,
       archives: this.normalizeCanonicalPathList(request.archives),
       destinationDir: this.normalizeCanonicalPath(request.destinationDir),
@@ -586,10 +595,12 @@ export class ApiService {
       maxNestDepth: request.maxNestDepth ?? 0,
       flattenSingleRoot: request.flattenSingleRoot ?? false,
     })));
+    if (result.failed === 0 || result.succeeded > 0) this.resourceMutations.publish({ kind: 'modify', items: [{ source: this.normalizeCanonicalPath(request.destinationDir) }], origin: 'extract' });
+    return result;
   }
 
   async batchSelectiveExtract(request: BatchSelectiveExtractRequest): Promise<BatchSelectiveExtractResult> {
-    return castProtocol<BatchSelectiveExtractResult>(await window.go.app.App.BatchSelectiveExtract(contracts.BatchSelectiveExtractRequest.createFrom({
+    const result = castProtocol<BatchSelectiveExtractResult>(await window.go.app.App.BatchSelectiveExtract(contracts.BatchSelectiveExtractRequest.createFrom({
       destinationDir: this.normalizeCanonicalPath(request.destinationDir),
       items: request.items.map(item => ({
         archivePath: this.normalizeCanonicalPath(item.archivePath),
@@ -599,6 +610,8 @@ export class ApiService {
         flattenPaths: item.flattenPaths ?? false,
       })),
     })));
+    this.resourceMutations.publish({ kind: 'modify', items: [{ source: this.normalizeCanonicalPath(request.destinationDir) }], origin: 'extract' });
+    return result;
   }
 
   // ============================================================================

@@ -13,7 +13,7 @@ import { PathHistoryService } from '../services/path-history.service';
 import {
   ArchiveService, ArchiveFrame
 } from '../services/archive.service';
-import { normalizePath } from './address-bar.utils';
+import { normalizePath, samePath } from './address-bar.utils';
 import { PARENT_ENTRY_PATH } from './file-entry.component';
 import { FileViewContainerComponent, ViewLayout } from './file-view-container.component';
 import { ViewerArchiveContext } from '../viewers/viewer-archive-context';
@@ -69,6 +69,7 @@ import { buildBackgroundFileContextMenu, buildBuiltinFileContextMenu, type Backg
 import { FileContextMenuComponent, type FileContextMenuState } from './file-context-menu.component';
 import type { SearchResultItem } from '../services/global-search.service';
 import { tabSurfaceId } from '../surfaces/tab-surface';
+import { ResourceMutationService, deletionRecoveryPath, mutationTouchesDirectory, remapDescendantPath, type ResourceMutation } from '../services/resource-mutation.service';
 
 declare const window: any;
 
@@ -793,6 +794,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     private surfaceRegistry: SurfaceRegistryService,
     private pluginManager: PluginManagerService,
     private inputEngine: InputEngineService,
+    private resourceMutations: ResourceMutationService,
   ) {
     this.dirStream = new DirListStreamController(this.apiService);
     this.operationsController = new FilePaneOperationsController(this.operationService, this.batchRenameDialog);
@@ -828,6 +830,7 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     this.loadPaneState();
     this.directoryController.bind(this.directoryHost);
     this.uiController.bindOptimisticDnD(this.uiHost);
+    this.resourceMutationCleanup = this.resourceMutations.subscribe((mutation) => this.handleResourceMutation(mutation));
 
     // Keep panes in sync when tab state changes elsewhere (e.g. cross-pane tab drag/drop).
     this.workspaceService.activeWorkspace$
@@ -881,6 +884,8 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
 
     void this.directoryController.unbind(this.directoryHost);
     this.uiController.unbindOptimisticDnD();
+    this.resourceMutationCleanup?.();
+    this.resourceMutationCleanup = null;
   }
 
   onTabDrop(event: TabDropEvent): void {
@@ -1063,6 +1068,92 @@ export class FilePaneComponent implements OnInit, OnChanges, OnDestroy {
     await this.loadDirectory(directoryPath, { focusPath });
     this.focusController.focusCursorPath(this.focusHost, focusPath);
     this.runtimeStateController.afterNavigationMutation(this.runtimeStateHost);
+  }
+
+  private async handleResourceMutation(mutation: ResourceMutation): Promise<void> {
+    const skipInitiatingActiveTab = mutation.origin === this.paneId;
+
+    let activePath = this.currentPath;
+    let activePathChanged = false;
+    const tabs = this.workspaceService.getTabs(this.paneId);
+
+    for (const tab of tabs) {
+      const kind = tab.kind ?? 'dir';
+      if (skipInitiatingActiveTab && tab.id === this.currentTabId) continue;
+      if (kind === 'dir') {
+        let nextPath = tab.path;
+
+        if (mutation.kind === 'move') {
+          for (const item of mutation.items) {
+            if (!item.source || !item.destination) continue;
+            const mapped = remapDescendantPath(nextPath, item.source, item.destination);
+            if (mapped) {
+              nextPath = mapped;
+              break;
+            }
+          }
+        } else if (mutation.kind === 'delete') {
+          const recovery = deletionRecoveryPath(
+            nextPath,
+            mutation.items.flatMap(item => item.source ? [item.source] : []),
+          );
+          if (recovery) nextPath = recovery;
+        }
+
+        if (nextPath !== tab.path) {
+          this.workspaceService.updateTabPath(this.paneId, tab.id, nextPath);
+          if (tab.id === this.currentTabId) {
+            activePath = nextPath;
+            activePathChanged = true;
+          }
+        }
+        continue;
+      }
+
+      if (kind === 'viewer' && tab.viewer?.targetPath) {
+        let target = tab.viewer.targetPath;
+        if (mutation.kind === 'move') {
+          for (const item of mutation.items) {
+            if (!item.source || !item.destination) continue;
+            target = remapDescendantPath(target, item.source, item.destination) ?? target;
+          }
+          if (target !== tab.viewer.targetPath) {
+            this.workspaceService.updateViewerTabTargetPath(this.paneId, tab.id, target);
+          }
+        } else if (mutation.kind === 'delete') {
+          const deleted = mutation.items.flatMap(item => item.source ? [item.source] : []);
+          if (deletionRecoveryPath(target, deleted)) {
+            this.workspaceService.closeTab(this.paneId, tab.id);
+          }
+        }
+      }
+    }
+
+    this.tabs = this.workspaceService.getTabs(this.paneId);
+
+    const activeTab = this.tabs.find(tab => tab.id === this.currentTabId);
+    if (!activeTab || (activeTab.kind ?? 'dir') !== 'dir') return;
+
+    if (this.isInArchive()) {
+      if (skipInitiatingActiveTab) return;
+      const outerArchive = this.archiveStack[0]?.fsPath;
+      if (outerArchive && mutation.items.some(item => item.source && samePath(item.source, outerArchive))) {
+        await this.archiveController.refreshArchive(this.archiveHost);
+      }
+      return;
+    }
+
+    if (skipInitiatingActiveTab) return;
+
+    if (activePathChanged) {
+      await this.loadDirectory(activePath, { preserveUI: true });
+      this.runtimeStateController.afterNavigationMutation(this.runtimeStateHost);
+      return;
+    }
+
+    if (mutationTouchesDirectory(mutation, activePath)) {
+      await this.loadDirectory(activePath, { preserveUI: true });
+    }
   }
 
   private withParentEntry(raw: FileInfo[], inArchive: boolean, fsPath: string): FileInfo[] {

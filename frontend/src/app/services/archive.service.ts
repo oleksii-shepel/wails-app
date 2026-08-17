@@ -1,7 +1,8 @@
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { ArchiveListing } from '../shared/protocol-enhanced';
 import { FileInfo, FileType } from '../shared/protocol';
 import { PARENT_ENTRY_PATH } from '../components/file-entry.component';
+import { ResourceMutationService } from './resource-mutation.service';
 
 /* ─────────────────────────────────────────────────────────────
    TYPES
@@ -262,6 +263,7 @@ export function buildArchivePath(
 
 @Injectable({ providedIn: 'root' })
 export class ArchiveService {
+  private readonly resourceMutations = inject(ResourceMutationService);
   /**
    * Extracts entries from an archive. If the user selects all top-level entries (the root),
    * it uses BatchExtract for efficiency. Otherwise, it uses BatchSelectiveExtract for a subset.
@@ -295,18 +297,20 @@ export class ArchiveService {
 
     // Fallback to BatchExtract ONLY if at the root and everything is selected
     if (isAtArchiveRoot && isAllSelected) {
-      return window.go.app.App.BatchExtract({
+      const result = await window.go.app.App.BatchExtract({
         archives: [frame.fsPath],
         destinationDir: destDir,
         createSubdirectory: false,
         expandNestedArchives: false,
         flattenSingleRoot: flattenPaths,
       });
+      this.resourceMutations.publish({ kind: 'modify', items: [{ source: destDir }], origin: 'archive-extract' });
+      return result;
     } 
     
     // Otherwise, use Selective Extraction to ensure only the 
     // contents of the current folder/selection are processed
-    return window.go.app.App.BatchSelectiveExtract({
+    const result = await window.go.app.App.BatchSelectiveExtract({
       items: [
         {
           archivePath: frame.fsPath,
@@ -319,6 +323,8 @@ export class ArchiveService {
       ],
       destinationDir: destDir,
     });
+    this.resourceMutations.publish({ kind: 'modify', items: [{ source: destDir }], origin: 'archive-extract' });
+    return result;
   }
 
   /* ─────────────── OPEN ─────────────── */
@@ -436,7 +442,7 @@ export class ArchiveService {
 
   /* ─────────────── OPERATIONS ─────────────── */
 
-  copy(
+  async copy(
     frame: ArchiveFrame,
     entries: string[],
     destDir: string,
@@ -452,10 +458,12 @@ export class ArchiveService {
       flattenPaths,
     };
 
-    return window.go.app.App.ArchiveCopyEntries(req);
+    const result = await window.go.app.App.ArchiveCopyEntries(req);
+    this.resourceMutations.publish({ kind: 'modify', items: [{ source: destDir }], origin: 'archive-copy' });
+    return result;
   }
 
-  move(
+  async move(
     frame: ArchiveFrame,
     entries: string[],
     destDir: string,
@@ -471,10 +479,13 @@ export class ArchiveService {
       flattenPaths,
     };
 
-    return window.go.app.App.ArchiveMoveEntries(req);
+    const result = await window.go.app.App.ArchiveMoveEntries(req);
+    this.resourceMutations.publish({ kind: 'modify', items: [{ source: frame.fsPath }], origin: 'archive-move' });
+    this.resourceMutations.publish({ kind: 'modify', items: [{ source: destDir }], origin: 'archive-move' });
+    return result;
   }
 
-  delete(
+  async delete(
     frame: ArchiveFrame,
     entries: string[],
   ): Promise<ArchiveEntriesResult> {
@@ -494,10 +505,12 @@ export class ArchiveService {
       flattenPaths: false,
     };
 
-    return window.go.app.App.ArchiveDeleteEntries(req);
+    const result = await window.go.app.App.ArchiveDeleteEntries(req);
+    this.resourceMutations.publish({ kind: 'modify', items: [{ source: frame.fsPath }], origin: 'archive-delete' });
+    return result;
   }
 
-  copyByContext(
+  async copyByContext(
     archivePath: string,
     innerPaths: string[],
     destDir: string,
@@ -511,10 +524,12 @@ export class ArchiveService {
       destinationDir: destDir,
       flattenPaths: false,
     };
-    return window.go.app.App.ArchiveCopyEntries(req);
+    const result = await window.go.app.App.ArchiveCopyEntries(req);
+    this.resourceMutations.publish({ kind: 'modify', items: [{ source: destDir }], origin: 'archive-copy' });
+    return result;
   }
 
-  moveByContext(
+  async moveByContext(
     archivePath: string,
     innerPaths: string[],
     destDir: string,
@@ -528,7 +543,10 @@ export class ArchiveService {
       destinationDir: destDir,
       flattenPaths: false,
     };
-    return window.go.app.App.ArchiveMoveEntries(req);
+    const result = await window.go.app.App.ArchiveMoveEntries(req);
+    this.resourceMutations.publish({ kind: 'modify', items: [{ source: fsPath }], origin: 'archive-move' });
+    this.resourceMutations.publish({ kind: 'modify', items: [{ source: destDir }], origin: 'archive-move' });
+    return result;
   }
 
   /* ─────────────── UTILITIES ─────────────── */

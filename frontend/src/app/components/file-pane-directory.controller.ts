@@ -1,4 +1,4 @@
-import { EventsOff, EventsOn } from 'wailsjs/runtime';
+import { EventsOn } from 'wailsjs/runtime';
 import type { FileInfo } from '../shared/protocol';
 import { normalizePath, pathIdentityKey, samePath } from './address-bar.utils';
 import type { FileViewDirectorySource } from '../services/directory-source.service';
@@ -77,14 +77,18 @@ export class FilePaneDirectoryController {
   private activeDirStreamPreserveUI = false;
   private pendingFocusPath: string | null = null;
   private loadRequestId = 0;
+  private eventCleanups: Array<() => void> = [];
 
   bind(host: FilePaneDirectoryHost): void {
-    EventsOn('fs:directoryChanged', (event: { paneId?: string; path?: string } | null) => {
-      host.runInAngular(() => this.handleFsDirectoryChanged(host, event));
-    });
-    EventsOn('web:resourcesChanged', (event: { path?: string } | null) => {
-      host.runInAngular(() => this.handleWebResourcesChanged(host, event));
-    });
+    this.releaseEventListeners();
+    this.eventCleanups.push(
+      EventsOn('fs:directoryChanged', (event: { paneId?: string; path?: string } | null) => {
+        host.runInAngular(() => this.handleFsDirectoryChanged(host, event));
+      }),
+      EventsOn('web:resourcesChanged', (event: { path?: string } | null) => {
+        host.runInAngular(() => this.handleWebResourcesChanged(host, event));
+      }),
+    );
 
     host.dirStream.bind(host.paneId, {
       onMeta: (event, isFirst) => host.runInAngular(() => this.handleDirStreamMeta(host, event, isFirst)),
@@ -100,7 +104,13 @@ export class FilePaneDirectoryController {
       this.fsChangeDebounceTimer = null;
     }
     await host.dirStream.unbind();
-    EventsOff('fs:directoryChanged', 'web:resourcesChanged');
+    this.releaseEventListeners();
+  }
+
+  private releaseEventListeners(): void {
+    for (const cleanup of this.eventCleanups.splice(0)) {
+      try { cleanup(); } catch { /* listener may already be gone */ }
+    }
   }
 
   async loadDirectory(host: FilePaneDirectoryHost, path: string, opts?: { preserveUI?: boolean; focusPath?: string }): Promise<void> {
@@ -205,7 +215,7 @@ export class FilePaneDirectoryController {
   }
 
   private handleFsDirectoryChanged(host: FilePaneDirectoryHost, event: { paneId?: string; path?: string } | null): void {
-    if (!event || event.paneId !== host.paneId) return;
+    if (!event) return;
     if (host.isInArchive()) return;
     if (host.shouldSuppressFsRefresh()) return;
 

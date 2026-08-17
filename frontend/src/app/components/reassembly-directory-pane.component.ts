@@ -81,6 +81,21 @@ export interface ReassemblyPanePresentation {
   readonly filterVisible: boolean;
 }
 
+export type ReassemblyCompareMarker =
+  | 'equal'
+  | 'only-here'
+  | 'different'
+  | 'newer'
+  | 'older'
+  | 'type-mismatch';
+
+export interface ReassemblyCompareOverlayItem {
+  readonly name: string;
+  readonly path: string;
+  readonly marker: ReassemblyCompareMarker;
+  readonly peerPath?: string | null;
+}
+
 interface ReassemblyTreeRow {
   entry: FileInfo;
   depth: number;
@@ -411,6 +426,11 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
           role="treeitem"
           [class.selected]="selectedPaths.has(row.entry.path)"
           [class.cursor]="cursorPath === row.entry.path"
+          [class.compare-only-here]="compareMarkerFor(row.entry) === 'only-here'"
+          [class.compare-different]="compareMarkerFor(row.entry) === 'different'"
+          [class.compare-newer]="compareMarkerFor(row.entry) === 'newer'"
+          [class.compare-older]="compareMarkerFor(row.entry) === 'older'"
+          [class.compare-type-mismatch]="compareMarkerFor(row.entry) === 'type-mismatch'"
           [class.drop-target]="dragOverPath === row.entry.path"
           [class.drop-invalid]="dragOverPath === row.entry.path && dropIntent === 'invalid'"
           [class.drop-copy]="dragOverPath === row.entry.path && dropIntent === 'copy'"
@@ -435,6 +455,16 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
           </span>
           <span class="icon">{{ entryIcon(row.entry) }}</span>
           <span class="name" *ngIf="renamingPath !== row.entry.path">{{ row.entry.name }}</span>
+          <span *ngIf="compareMarkerFor(row.entry) as marker"
+            class="compare-badge" [class.equal]="marker === 'equal'"
+            [attr.title]="compareMarkerLabel(marker)" aria-hidden="true">
+            {{ marker === 'only-here' ? '●' :
+               marker === 'different' ? '≠' :
+               marker === 'newer' ? '↑' :
+               marker === 'older' ? '↓' :
+               marker === 'type-mismatch' ? '!' :
+               marker === 'equal' ? '=' : '' }}
+          </span>
           <span
             class="rename-editor"
             *ngIf="renamingPath === row.entry.path"
@@ -503,6 +533,11 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
           [attr.aria-label]="entryAriaLabel(entry)"
           [class.cursor]="entry.path === cursorPath"
           [class.selected]="selectedPaths.has(entry.path)"
+          [class.compare-only-here]="compareMarkerFor(entry) === 'only-here'"
+          [class.compare-different]="compareMarkerFor(entry) === 'different'"
+          [class.compare-newer]="compareMarkerFor(entry) === 'newer'"
+          [class.compare-older]="compareMarkerFor(entry) === 'older'"
+          [class.compare-type-mismatch]="compareMarkerFor(entry) === 'type-mismatch'"
           (click)="selectFromPointer(entry, $event)"
           (dblclick)="openEntry(entry)"
           (contextmenu)="onEntryContextMenu(entry, $event)"
@@ -522,6 +557,16 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
           </span>
 
           <span class="name" *ngIf="renamingPath !== entry.path">{{ entry.name }}</span>
+          <span *ngIf="compareMarkerFor(entry) as marker"
+            class="compare-badge" [class.equal]="marker === 'equal'"
+            [attr.title]="compareMarkerLabel(marker)" aria-hidden="true">
+            {{ marker === 'only-here' ? '●' :
+               marker === 'different' ? '≠' :
+               marker === 'newer' ? '↑' :
+               marker === 'older' ? '↓' :
+               marker === 'type-mismatch' ? '!' :
+               marker === 'equal' ? '=' : '' }}
+          </span>
           <span
             class="rename-editor"
             *ngIf="renamingPath === entry.path"
@@ -1115,6 +1160,14 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
       color: var(--vsc-list-active-foreground, var(--vsc-on-accent));
     }
 
+    .entry.compare-only-here,.tree-row.compare-only-here{box-shadow:inset 2px 0 0 var(--vsc-accent-blue)}
+    .entry.compare-different,.tree-row.compare-different{box-shadow:inset 2px 0 0 var(--vsc-warning)}
+    .entry.compare-newer,.tree-row.compare-newer{box-shadow:inset 2px 0 0 var(--vsc-success)}
+    .entry.compare-older,.tree-row.compare-older{box-shadow:inset 2px 0 0 var(--vsc-description-foreground,var(--vsc-foreground-dim))}
+    .entry.compare-type-mismatch,.tree-row.compare-type-mismatch{box-shadow:inset 2px 0 0 var(--vsc-error)}
+    .compare-badge{justify-self:end;min-width:14px;text-align:center;color:var(--vsc-warning);font-size:10px;font-weight:700}
+    .compare-badge.equal{opacity:.32}
+
     .entry.drop-target {
       outline: 1px solid var(--vsc-accent-blue, var(--vsc-accent-blue));
       outline-offset: -1px;
@@ -1436,6 +1489,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   @Input() showHidden = false;
   @Input() currentPathPinned = false;
   @Input() pluginToolbarActions: readonly PresentedCommand[] = [];
+  @Input() compareOverlay: readonly ReassemblyCompareOverlayItem[] = [];
   @Output() activateRequested = new EventEmitter<void>();
   @Output() remoteRecoveryRequested = new EventEmitter<void>();
   @Output() togglePinRequested = new EventEmitter<void>();
@@ -1551,18 +1605,17 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     const viewport = this.viewMode === 'tree'
       ? this.treeViewport?.nativeElement
       : this.listViewport?.nativeElement;
-
     if (!viewport) return { topName: null, ratio: 0 };
 
     const max = Math.max(1, viewport.scrollHeight - viewport.clientHeight);
     const ratio = Math.max(0, Math.min(1, viewport.scrollTop / max));
-
-    const rows = Array.from(
-      viewport.querySelectorAll<HTMLElement>('[data-file-entry], .tree-row'),
-    );
     const viewportTop = viewport.getBoundingClientRect().top;
-    const firstVisible = rows.find(row => row.getBoundingClientRect().bottom >= viewportTop);
-
+    const rows = Array.from(
+      viewport.querySelectorAll<HTMLElement>('[data-file-entry]'),
+    );
+    const firstVisible = rows.find(row =>
+      row.getBoundingClientRect().bottom >= viewportTop
+    );
     const path = firstVisible?.getAttribute('data-file-entry') ?? null;
     const entry = path
       ? this.entries.find(candidate => candidate.path === path)
@@ -1577,7 +1630,6 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       : this.listViewport?.nativeElement;
     if (!viewport) return;
 
-    let matched = false;
     if (snapshot.topName) {
       const folded = snapshot.topName.toLowerCase();
       const entry = this.entries.find(candidate =>
@@ -1590,21 +1642,49 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
           typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
             ? CSS.escape(entry.path)
             : entry.path.replace(/["\\]/g, '\\$&');
-
         const row = viewport.querySelector<HTMLElement>(
           `[data-file-entry="${escaped}"]`,
         );
         if (row) {
           row.scrollIntoView({ block: 'start' });
-          matched = true;
+          return;
         }
       }
     }
 
-    if (!matched) {
-      const max = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
-      viewport.scrollTop = Math.round(max * Math.max(0, Math.min(1, snapshot.ratio)));
+    const max = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+    viewport.scrollTop = Math.round(
+      max * Math.max(0, Math.min(1, snapshot.ratio)),
+    );
+  }
+
+  compareMarkerFor(entry: FileInfo): ReassemblyCompareMarker | null {
+    const folded = entry.name.toLowerCase();
+    return this.compareOverlay.find(item =>
+      item.path === entry.path || item.name.toLowerCase() === folded
+    )?.marker ?? null;
+  }
+
+  compareMarkerLabel(marker: ReassemblyCompareMarker | null): string {
+    switch (marker) {
+      case 'only-here': return 'Only on this side';
+      case 'different': return 'Different';
+      case 'newer': return 'Newer';
+      case 'older': return 'Older';
+      case 'type-mismatch': return 'Type mismatch';
+      case 'equal': return 'Equal';
+      default: return '';
     }
+  }
+
+  selectComparisonItem(path: string): boolean {
+    const entry = this.entries.find(candidate => candidate.path === path);
+    if (!entry) return false;
+    this.setSingleSelection(entry);
+    this.ensureCursorVisible();
+    this.focusContent();
+    this.cdr.markForCheck();
+    return true;
   }
 
   applyMirroredPresentation(

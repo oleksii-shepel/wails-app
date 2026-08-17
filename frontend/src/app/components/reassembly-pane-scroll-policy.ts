@@ -11,12 +11,11 @@ export function normalizeScrollRatio(value: number): number {
 export function chooseScrollAlignment(
   snapshot: ScrollPeerSnapshot,
   peerNames: readonly string[],
-): { mode: 'name'; name: string } | { mode: 'ratio'; ratio: number } {
+): { mode:'name';name:string } | { mode:'ratio';ratio:number } {
   if (snapshot.topName) {
     const folded = snapshot.topName.toLowerCase();
     const match = peerNames.find(name => name.toLowerCase() === folded);
-    if (match) return { mode: 'name', name: match };
+    if (match) return { mode:'name', name:match };
   }
-
-  return { mode: 'ratio', ratio: normalizeScrollRatio(snapshot.ratio) };
+  return { mode:'ratio', ratio:normalizeScrollRatio(snapshot.ratio) };
 }

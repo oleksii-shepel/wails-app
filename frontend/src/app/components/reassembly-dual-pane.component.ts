@@ -85,7 +85,7 @@ import { adaptPluginToolbarActions } from './pane-toolbar-action';
 import { presentPluginCommand } from './plugin-command-presentation';
 import type { PresentedCommand } from './presented-command';
 import { analyzePaneLocations, mirrorPaneLocation, mirroredPeerCandidates } from './reassembly-pane-link-policy';
-import type { ReassemblyPanePresentation } from './reassembly-directory-pane.component';
+import type { ReassemblyCompareOverlayItem, ReassemblyPanePresentation } from './reassembly-directory-pane.component';
 
 type PaneId = 'left' | 'right';
 
@@ -430,6 +430,9 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           [disabled]="!mirrorPresentation"
           title="Also mirror the pane filter"
           (click)="toggleMirrorFilter()">Filter</button>
+        <button type="button" [class.active]="syncScroll" [attr.aria-pressed]="syncScroll"
+          title="Keep corresponding rows visually aligned"
+          (click)="toggleSyncScroll()">Scroll</button>
         <button type="button" [class.active]="followSelection" [attr.aria-pressed]="followSelection"
           title="Mirror cursor to a matching item in the other pane"
           (click)="toggleFollowSelection()">Follow</button>
@@ -446,12 +449,14 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           [showHidden]="showHidden"
           [currentPathPinned]="isPanePathPinned(leftPane)"
           [pluginToolbarActions]="pluginToolbarActionsFor(leftPane)"
+          [compareOverlay]="leftCompareOverlay"
           (activateRequested)="activate('left')"
           (remoteRecoveryRequested)="openRemoteConnections()"
           (togglePinRequested)="togglePanePin(leftPane)"
           (locationChange)="onLinkedPaneLocationChange('left', $event)"
           (cursorChange)="onLinkedPaneCursorChange('left', $event)"
           (presentationChange)="onPanePresentationChange('left', $event)"
+          (viewportChange)="onPaneViewportChange('left', $event)"
           (entryContextMenu)="openEntryMenu('left', $event.event, $event.entry)"
           (backgroundContextMenu)="openBackgroundMenu('left', $event)"
           (internalDrop)="handleInternalDrop('left', $event.event, $event.targetPath)">
@@ -485,12 +490,14 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           [showHidden]="showHidden"
           [currentPathPinned]="isPanePathPinned(rightPane)"
           [pluginToolbarActions]="pluginToolbarActionsFor(rightPane)"
+          [compareOverlay]="rightCompareOverlay"
           (activateRequested)="activate('right')"
           (remoteRecoveryRequested)="openRemoteConnections()"
           (togglePinRequested)="togglePanePin(rightPane)"
           (locationChange)="onLinkedPaneLocationChange('right', $event)"
           (cursorChange)="onLinkedPaneCursorChange('right', $event)"
           (presentationChange)="onPanePresentationChange('right', $event)"
+          (viewportChange)="onPaneViewportChange('right', $event)"
           (entryContextMenu)="openEntryMenu('right', $event.event, $event.entry)"
           (backgroundContextMenu)="openBackgroundMenu('right', $event)"
           (internalDrop)="handleInternalDrop('right', $event.event, $event.targetPath)">
@@ -611,6 +618,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     .pane-intelligence button:hover{border-color:var(--vsc-border);background:var(--vsc-list-hover-background);color:var(--vsc-foreground)}
     .pane-intelligence button.active{border-color:color-mix(in srgb,var(--vsc-accent-blue) 55%,var(--vsc-border));background:color-mix(in srgb,var(--vsc-accent-blue) 12%,transparent);color:var(--vsc-foreground)}
 
+    .pane-intelligence .difference-count{min-width:36px;text-align:center;font-variant-numeric:tabular-nums;color:var(--vsc-description-foreground)}
     .pane-slot {
       grid-row: 3;
       min-width: 0;
@@ -736,7 +744,10 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
   followSelection = false;
   mirrorPresentation = false;
   mirrorFilter = false;
+  syncScroll = false;
   linkStatus = '';
+  private scrollSyncGuard = false;
+  private differenceCursor = -1;
   private linkedRoots: { left: string; right: string } | null = null;
   private linkedNavigationGuard = 0;
   private linkedSelectionGuard = false;
@@ -1080,6 +1091,131 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       this.linkedRoots = null;
     }
     this.cdr.markForCheck();
+  }
+
+  get leftCompareOverlay(): readonly ReassemblyCompareOverlayItem[] {
+    return this.buildCompareOverlay('left');
+  }
+
+  get rightCompareOverlay(): readonly ReassemblyCompareOverlayItem[] {
+    return this.buildCompareOverlay('right');
+  }
+
+  get differenceCount(): number {
+    return this.comparisonDifferences.length;
+  }
+
+  get differenceIndexLabel(): string {
+    if (!this.differenceCount) return '';
+    return `${this.differenceCursor >= 0 ? this.differenceCursor + 1 : 0}/${this.differenceCount}`;
+  }
+
+  toggleSyncScroll(): void {
+    this.syncScroll = !this.syncScroll;
+    this.linkStatus = this.syncScroll ? 'scroll sync on' : '';
+    this.cdr.markForCheck();
+
+    if (this.syncScroll && this.activePane) {
+      this.onPaneViewportChange(
+        this.activePaneId,
+        this.activePane.viewportSnapshot(),
+      );
+    }
+  }
+
+  onPaneViewportChange(
+    paneId: PaneId,
+    snapshot: { topName: string | null; ratio: number },
+  ): void {
+    if (!this.syncScroll || this.scrollSyncGuard) return;
+    const target = paneId === 'left' ? this.rightPane : this.leftPane;
+    if (!target?.isDirectoryTab) return;
+
+    this.scrollSyncGuard = true;
+    try {
+      target.syncViewportToPeer(snapshot);
+      this.linkStatus = snapshot.topName
+        ? `aligned near: ${snapshot.topName}`
+        : 'scroll ratio aligned';
+    } finally {
+      queueMicrotask(() => {
+        this.scrollSyncGuard = false;
+        this.cdr.markForCheck();
+      });
+    }
+  }
+
+  navigateDifference(delta: -1 | 1): void {
+    const differences = this.comparisonDifferences;
+    if (!differences.length) return;
+
+    this.differenceCursor = this.differenceCursor < 0
+      ? (delta > 0 ? 0 : differences.length - 1)
+      : (this.differenceCursor + delta + differences.length) % differences.length;
+
+    const target = differences[this.differenceCursor];
+    if (target.leftPath) this.leftPane?.selectComparisonItem(target.leftPath);
+    if (target.rightPath) this.rightPane?.selectComparisonItem(target.rightPath);
+    this.linkStatus = `difference: ${target.name}`;
+    this.cdr.markForCheck();
+  }
+
+  private get comparisonDifferences(): Array<{
+    name: string;
+    leftPath: string | null;
+    rightPath: string | null;
+  }> {
+    const result = this.paneComparisonResult;
+    if (!result) return [];
+
+    return result.items
+      .filter(item => item.status !== 'equal')
+      .map(item => ({
+        name: item.name ?? item.key,
+        leftPath: item.left?.path ?? null,
+        rightPath: item.right?.path ?? null,
+      }));
+  }
+
+  private buildCompareOverlay(side: PaneId): readonly ReassemblyCompareOverlayItem[] {
+    const result = this.paneComparisonResult;
+    if (!result) return [];
+
+    return result.items.flatMap(item => {
+      const entry = side === 'left' ? item.left : item.right;
+      if (!entry) return [];
+
+      let marker: ReassemblyCompareOverlayItem['marker'] = 'equal';
+      switch (item.status) {
+        case 'only-left':
+          marker = side === 'left' ? 'only-here' : 'equal';
+          break;
+        case 'only-right':
+          marker = side === 'right' ? 'only-here' : 'equal';
+          break;
+        case 'different':
+          marker = 'different';
+          break;
+        case 'left-newer':
+          marker = side === 'left' ? 'newer' : 'older';
+          break;
+        case 'right-newer':
+          marker = side === 'right' ? 'newer' : 'older';
+          break;
+        case 'type-mismatch':
+          marker = 'type-mismatch';
+          break;
+        default:
+          marker = 'equal';
+      }
+
+      return [{
+        name: entry.name,
+        path: entry.path,
+        marker,
+        peerPath: (side === 'left' ? item.right : item.left)?.path ?? null,
+      }];
+    });
   }
 
   toggleFollowSelection(): void {

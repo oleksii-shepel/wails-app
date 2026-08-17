@@ -26,6 +26,11 @@ export interface PluginResultsCollection {
   title: string;
   entries: readonly FileInfo[];
   metadata?: ResultsPanelMetadata;
+  /**
+   * Optional live refresh callback. It remains runtime-only; the host never
+   * serializes executable plugin code into persisted collection snapshots.
+   */
+  refresh?: () => Promise<readonly FileInfo[]>;
 }
 
 export interface PanelColumnContext {

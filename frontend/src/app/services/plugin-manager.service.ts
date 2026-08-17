@@ -242,13 +242,21 @@ export class PluginManagerService implements PluginRegistryAPI {
 
   createResultsCollection(collection: PluginResultsCollection): string {
     const pluginId = this.registeringBackendId ?? collection.ownerPluginId ?? 'plugin';
-    return this.resultsPanels.createPluginCollection(
+    const panel = this.resultsPanels.createPluginCollection(
       pluginId,
       collection.id,
       collection.title,
       collection.entries,
       collection.metadata,
-    ).path;
+    );
+
+    if (collection.refresh) {
+      this.resultsPanels.registerRefresher(panel.path, async () => ({
+        entries: await collection.refresh!(),
+      }));
+    }
+
+    return panel.path;
   }
 
   removeResultsCollection(path: string): void {

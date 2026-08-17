@@ -23,6 +23,8 @@ import { FileClipboardService } from '../services/file-clipboard.service';
 import { ReassemblyOperationHistoryService } from '../services/reassembly-operation-history.service';
 import { ReassemblyActionFeedbackService } from '../services/reassembly-action-feedback.service';
 import { RecentFilesService } from '../services/recent-files.service';
+import { ResultsPanelService } from '../services/results-panel.service';
+import { SmartResultsService } from '../services/smart-results.service';
 import { PluginManagerService } from '../services/plugin-manager.service';
 import type { PanelColumnContribution, PanelColumnContext } from '../plugin/plugin-registry-api';
 import { PluginLifecycleCoordinatorService } from '../services/plugin-lifecycle-coordinator.service';
@@ -306,6 +308,24 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
           {{ clipboard.operation === 'copy' ? 'Copied' : 'Cut' }}: {{ clipboard.paths.length }}
         </span>
         <span class="hint">Ctrl+L location</span>
+      </div>
+
+      <div class="results-collection-bar" *ngIf="activeResultsPanel as panel">
+        <span class="collection-title" [title]="panel.path">{{ panel.title }}</span>
+        <span class="collection-kind">{{ panel.metadata.kind || panel.metadata.origin || 'results' }}</span>
+        <span class="collection-count">{{ panel.entries.length }} items</span>
+        <span class="collection-spacer"></span>
+        <button type="button"
+          [disabled]="loading || !resultsRefreshable"
+          title="Refresh this collection"
+          (click)="refreshResultsCollection()">↻</button>
+        <button type="button"
+          [class.active]="panel.pinned"
+          [title]="panel.pinned ? 'Unpin collection' : 'Pin collection'"
+          (click)="toggleResultsCollectionPin()">{{ panel.pinned ? '★' : '☆' }}</button>
+        <button type="button"
+          title="Rename collection"
+          (click)="renameResultsCollection()">Rename</button>
       </div>
 
       <div class="action-bar">
@@ -708,9 +728,6 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
     
       overscroll-behavior: none;}
 
-    .pane.active-pane {
-      border-color: color-mix(in srgb, var(--vsc-accent-blue, var(--vsc-accent-blue)) 62%, transparent);
-    }
 
     .tab-strip {
       display: flex;
@@ -864,6 +881,49 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
     .hidden-state {
       color: var(--vsc-accent-blue, var(--vsc-focus-ring));
     }
+
+    .results-collection-bar{
+      display:flex;
+      align-items:center;
+      gap:6px;
+      min-height:25px;
+      padding:2px 6px;
+      border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border));
+      background:var(--vsc-sideBar-background,var(--vsc-panel-background));
+      color:var(--vsc-description-foreground,var(--vsc-foreground-dim));
+      font:10px/1.2 var(--vsc-font-family,system-ui,sans-serif);
+    }
+    .results-collection-bar .collection-title{
+      max-width:260px;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+      color:var(--vsc-foreground);
+      font-weight:600;
+    }
+    .results-collection-bar .collection-kind{
+      padding:1px 5px;
+      border:1px solid var(--vsc-border-subtle,var(--vsc-border));
+      border-radius:8px;
+    }
+    .results-collection-bar .collection-spacer{flex:1}
+    .results-collection-bar button{
+      min-height:20px;
+      padding:1px 6px;
+      border:1px solid transparent;
+      border-radius:3px;
+      background:transparent;
+      color:inherit;
+      font:inherit;
+      cursor:pointer;
+    }
+    .results-collection-bar button:hover:not(:disabled){
+      border-color:var(--vsc-border);
+      background:var(--vsc-list-hover-background);
+      color:var(--vsc-foreground);
+    }
+    .results-collection-bar button.active{color:var(--vsc-accent-blue)}
+    .results-collection-bar button:disabled{opacity:.4;cursor:default}
 
     .action-bar {
       display: flex;
@@ -1919,6 +1979,17 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     return this.archiveStack[this.archiveStack.length - 1] ?? null;
   }
 
+  get activeResultsPanel() {
+    return /^results:\/\//i.test(this.path)
+      ? this.resultsPanels.get(this.path)
+      : null;
+  }
+
+  get resultsRefreshable(): boolean {
+    return !!this.activeResultsPanel &&
+      this.smartResults.ensureRefreshability(this.path);
+  }
+
   get activePanelSource(): ResolvedPanelSource {
     return this.panelSources.resolve({
       path: this.path,
@@ -2029,6 +2100,8 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     private readonly operationHistory: ReassemblyOperationHistoryService,
     private readonly actionFeedback: ReassemblyActionFeedbackService,
     private readonly recentFiles: RecentFilesService,
+    private readonly resultsPanels: ResultsPanelService,
+    private readonly smartResults: SmartResultsService,
     private readonly pluginManager: PluginManagerService,
     private readonly pluginLifecycle: PluginLifecycleCoordinatorService,
     private readonly surfaceRegistry: SurfaceRegistryService,
@@ -2198,6 +2271,90 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     this.error = null;
     this.clearArchiveRuntime();
     this.lastAction = `surface: ${title?.trim() || id}`;
+    this.cdr.markForCheck();
+  }
+
+  async refreshResultsCollection(): Promise<void> {
+    const panel = this.activeResultsPanel;
+    if (!panel || !this.resultsRefreshable || this.loading) return;
+
+    const previousCursor = this.cursorPath;
+    const previousSelection = new Set(this.selectedPaths);
+    this.loading = true;
+    this.error = null;
+    this.cdr.markForCheck();
+
+    try {
+      const refreshed = await this.smartResults.refresh(panel.path);
+      if (!refreshed) {
+        this.lastAction = 'collection refresh unavailable';
+        return;
+      }
+
+      await this.load(panel.path, {
+        history: 'none',
+        preserveCursor: true,
+        syncTab: false,
+      });
+
+      const existing = new Set(this.entries.map(entry => entry.path));
+      this.selectedPaths = new Set(
+        [...previousSelection].filter(path => existing.has(path)),
+      );
+
+      if (previousCursor && existing.has(previousCursor)) {
+        this.cursorPath = previousCursor;
+      } else {
+        this.recoverVisibleCursor();
+      }
+
+      this.lastAction = `refreshed: ${refreshed.title}`;
+    } catch (error) {
+      this.error = error instanceof Error ? error.message : String(error);
+      this.lastAction = 'collection refresh failed';
+    } finally {
+      this.loading = false;
+      this.syncActiveDirSessionState();
+      this.cdr.markForCheck();
+    }
+  }
+
+  toggleResultsCollectionPin(): void {
+    const panel = this.activeResultsPanel;
+    if (!panel) return;
+
+    this.resultsPanels.setPinned(panel.path, !panel.pinned);
+    this.lastAction = panel.pinned ? 'collection unpinned' : 'collection pinned';
+    this.cdr.markForCheck();
+  }
+
+  async renameResultsCollection(): Promise<void> {
+    const panel = this.activeResultsPanel;
+    if (!panel) return;
+
+    const title = (await this.confirmDialog.prompt({
+      title: 'Rename Collection',
+      message: 'Collection name',
+      defaultValue: panel.title,
+      confirmText: 'Rename',
+      historyKey: 'reassembly.results.rename',
+    }))?.trim();
+
+    if (!title || title === panel.title) return;
+
+    this.resultsPanels.rename(panel.path, title);
+
+    if (this.activeTabId) {
+      this.workspaceService.updateTabPathAndTitle(
+        this.paneId,
+        this.activeTabId,
+        panel.path,
+        title,
+      );
+      this.tabs = this.mergePersistedTabs();
+    }
+
+    this.lastAction = `collection renamed: ${title}`;
     this.cdr.markForCheck();
   }
 
@@ -2935,6 +3092,18 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   async refresh(): Promise<void> {
     if (!this.isDirectoryTab || !this.path) return;
     this.lastAction = 'refresh';
+
+    if (this.activeResultsPanel) {
+      if (this.resultsRefreshable) {
+        await this.refreshResultsCollection();
+      } else {
+        await this.load(this.path, {
+          preserveCursor: true,
+          history: 'none',
+        });
+      }
+      return;
+    }
 
     if (this.isInArchive) {
       await this.refreshArchive();

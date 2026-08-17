@@ -9,6 +9,10 @@ export interface ResultsPanelMetadata {
   readonly kind?: string;
   readonly pluginId?: string;
   readonly collectionId?: string;
+  readonly refreshedAt?: string;
+  readonly refreshWarnings?: string;
+  readonly reclaimableBytes?: string;
+  readonly duplicateGroups?: string;
 }
 
 export interface ResultsPanelCreateOptions {
@@ -22,10 +26,20 @@ export interface ResultsPanelDefinition {
   readonly title: string;
   readonly path: string;
   readonly createdAt: number;
+  readonly updatedAt?: number;
   readonly entries: readonly FileInfo[];
   readonly metadata: ResultsPanelMetadata;
   readonly pinned?: boolean;
 }
+
+export interface ResultsPanelRefreshResult {
+  readonly entries: readonly FileInfo[];
+  readonly metadata?: ResultsPanelMetadata;
+  readonly title?: string;
+}
+
+export type ResultsPanelRefresher =
+  () => Promise<ResultsPanelRefreshResult | readonly FileInfo[]>;
 
 const STORAGE_KEY = 'reassembly.resultsPanels.v1';
 const PINNED_STORAGE_KEY = 'reassembly.resultsPanels.pinned.v1';
@@ -39,6 +53,7 @@ function parseResultsId(path: string): string | null {
 @Injectable({ providedIn: 'root' })
 export class ResultsPanelService {
   private readonly panels = new Map<string, ResultsPanelDefinition>();
+  private readonly refreshers = new Map<string, ResultsPanelRefresher>();
   private hydrated = false;
 
   create(
@@ -136,6 +151,7 @@ export class ResultsPanelService {
     for (const [id, panel] of this.panels) {
       if (panel.metadata.pluginId !== owner) continue;
       this.panels.delete(id);
+      this.refreshers.delete(id);
       changed = true;
     }
     if (changed) this.persist();
@@ -160,7 +176,81 @@ export class ResultsPanelService {
     const id = parseResultsId(path);
     if (!id) return;
     this.panels.delete(id);
+    this.refreshers.delete(id);
     this.persist();
+  }
+
+  update(
+    path: string,
+    update: {
+      entries?: readonly FileInfo[];
+      metadata?: ResultsPanelMetadata;
+      title?: string;
+    },
+  ): ResultsPanelDefinition | null {
+    this.hydrate();
+    const id = parseResultsId(path);
+    const current = id ? this.panels.get(id) : null;
+    if (!id || !current) return null;
+
+    const next: ResultsPanelDefinition = {
+      ...current,
+      title: update.title?.trim() || current.title,
+      entries: update.entries
+        ? update.entries.map(entry => ({ ...entry }))
+        : current.entries,
+      metadata: update.metadata
+        ? { ...current.metadata, ...update.metadata }
+        : current.metadata,
+      updatedAt: Date.now(),
+    };
+
+    this.panels.set(id, next);
+    this.persist();
+    return next;
+  }
+
+  registerRefresher(
+    path: string,
+    refresher: ResultsPanelRefresher,
+  ): () => void {
+    this.hydrate();
+    const id = parseResultsId(path);
+    if (!id || !this.panels.has(id)) {
+      throw new Error(`Unknown results panel: ${path}`);
+    }
+
+    this.refreshers.set(id, refresher);
+    return () => {
+      if (this.refreshers.get(id) === refresher) {
+        this.refreshers.delete(id);
+      }
+    };
+  }
+
+  canRefresh(path: string): boolean {
+    this.hydrate();
+    const id = parseResultsId(path);
+    return !!id && this.refreshers.has(id);
+  }
+
+  async refresh(path: string): Promise<ResultsPanelDefinition | null> {
+    this.hydrate();
+    const id = parseResultsId(path);
+    const current = id ? this.panels.get(id) : null;
+    const refresher = id ? this.refreshers.get(id) : null;
+    if (!id || !current || !refresher) return null;
+
+    const value = await refresher();
+    const result: ResultsPanelRefreshResult = Array.isArray(value)
+      ? { entries: value }
+      : value as ResultsPanelRefreshResult;
+
+    return this.update(path, {
+      entries: result.entries,
+      metadata: result.metadata,
+      title: result.title,
+    });
   }
 
   rename(path: string, title: string): void {

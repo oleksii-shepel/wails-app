@@ -3,6 +3,7 @@ import {
   ChangeDetectorRef,
   Component,
   ElementRef,
+  HostListener,
   OnDestroy,
   OnInit,
   ViewChild,
@@ -102,6 +103,20 @@ const COMMAND = {
   openSettings: 'reassembly.settings.open',
   openPluginSettings: 'reassembly.settings.plugins',
   switchPane: 'reassembly.manager.switchPane',
+  togglePaneLink: 'reassembly.panes.toggleLink',
+  togglePaneMirror: 'reassembly.panes.toggleMirror',
+  togglePaneFilterMirror: 'reassembly.panes.toggleFilterMirror',
+  togglePaneScrollSync: 'reassembly.panes.toggleScrollSync',
+  togglePaneFollow: 'reassembly.panes.toggleFollow',
+  matchOtherPane: 'reassembly.panes.matchOther',
+  swapPaneRoots: 'reassembly.panes.swapRoots',
+  openPeer: 'reassembly.panes.openPeer',
+  copyToPeer: 'reassembly.panes.copyToPeer',
+  moveToPeer: 'reassembly.panes.moveToPeer',
+  previousDifference: 'reassembly.panes.previousDifference',
+  nextDifference: 'reassembly.panes.nextDifference',
+  savePanePreset: 'reassembly.panes.savePreset',
+  applyPanePreset: 'reassembly.panes.applyPreset',
   widenLeftPane: 'reassembly.layout.widenLeft',
   widenRightPane: 'reassembly.layout.widenRight',
   resetPaneSplit: 'reassembly.layout.resetSplit',
@@ -246,6 +261,12 @@ const COMMAND = {
 } as const;
 
 const BINDINGS: readonly InputBindingDefinition[] = [
+  { id:'reassembly.panes.link.ctrlAltL', commandId:COMMAND.togglePaneLink, contextId:CONTEXT_ID, source:'default', description:'Toggle linked pane navigation', category:'Pane Intelligence', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'l', modifiers:['ctrl','alt']}]}}},
+  { id:'reassembly.panes.mirror.ctrlAltM', commandId:COMMAND.togglePaneMirror, contextId:CONTEXT_ID, source:'default', description:'Toggle pane mirroring', category:'Pane Intelligence', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'m', modifiers:['ctrl','alt']}]}}},
+  { id:'reassembly.panes.follow.ctrlAltF', commandId:COMMAND.togglePaneFollow, contextId:CONTEXT_ID, source:'default', description:'Toggle follow selection', category:'Pane Intelligence', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'f', modifiers:['ctrl','alt']}]}}},
+  { id:'reassembly.panes.scroll.ctrlAltS', commandId:COMMAND.togglePaneScrollSync, contextId:CONTEXT_ID, source:'default', description:'Toggle synchronized scrolling', category:'Pane Intelligence', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'s', modifiers:['ctrl','alt']}]}}},
+  { id:'reassembly.panes.previousDifference.ctrlAltBracketLeft', commandId:COMMAND.previousDifference, contextId:CONTEXT_ID, source:'default', description:'Previous pane difference', category:'Pane Intelligence', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'[', modifiers:['ctrl','alt']}]}}},
+  { id:'reassembly.panes.nextDifference.ctrlAltBracketRight', commandId:COMMAND.nextDifference, contextId:CONTEXT_ID, source:'default', description:'Next pane difference', category:'Pane Intelligence', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:']', modifiers:['ctrl','alt']}]}}},
   { id:'reassembly.layout.widenLeft.altShiftLeft', commandId:COMMAND.widenLeftPane, contextId:CONTEXT_ID, source:'default', description:'Widen left pane', category:'Layout', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'arrowleft', modifiers:['alt','shift']}]}}},
   { id:'reassembly.layout.widenRight.altShiftRight', commandId:COMMAND.widenRightPane, contextId:CONTEXT_ID, source:'default', description:'Widen right pane', category:'Layout', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'arrowright', modifiers:['alt','shift']}]}}},
   { id:'reassembly.layout.resetSplit.altShift0', commandId:COMMAND.resetPaneSplit, contextId:CONTEXT_ID, source:'default', description:'Reset pane split', category:'Layout', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'0', modifiers:['alt','shift']}]}}},
@@ -422,74 +443,118 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         (execute)="executeSyncPlan($event)"
         (close)="closeSyncReview()">
       </app-pane-sync-review>
-      <div class="pane-intelligence" *ngIf="workspacePresentation?.kind !== 'tool'"
-        [class.linked]="linkedNavigation" [class.same]="paneLocationRelation === 'same'">
-        <span class="relation" [title]="paneRelationTitle">{{ paneRelationLabel }}</span>
-        <span class="link-status" *ngIf="linkStatus">{{ linkStatus }}</span>
+      <div
+        class="pane-intelligence"
+        *ngIf="workspacePresentation?.kind !== 'tool'"
+        [class.linked]="linkedNavigation"
+        [class.same]="paneLocationRelation === 'same'">
+        <span class="relation" [title]="paneRelationTitle">
+          {{ paneRelationLabel }}
+        </span>
+
+        <span class="link-status" *ngIf="linkStatus">
+          {{ linkStatus }}
+        </span>
+
+        <span class="difference-count" *ngIf="differenceCount">
+          {{ differenceIndexLabel }}
+        </span>
+
         <span class="spacer"></span>
 
-        <span class="pane-presets" role="group" aria-label="Pane pair presets">
-          <select
-            [value]="selectedPanePresetId"
-            title="Pane pair preset"
-            aria-label="Pane pair preset"
-            (change)="onPanePresetSelected($any($event.target).value)">
-            <option value="">Preset…</option>
-            <option *ngFor="let preset of panePairPresets" [value]="preset.id">
-              {{ preset.name }}
-            </option>
-          </select>
+        <span class="live-modes" role="group" aria-label="Pane intelligence modes">
           <button
             type="button"
-            title="Save current pane roots and intelligence modes as a preset"
-            (click)="saveCurrentPanePreset()">Save</button>
+            class="mode-toggle"
+            [class.active]="linkedNavigation"
+            [attr.aria-pressed]="linkedNavigation"
+            title="Linked navigation · Ctrl+Alt+L"
+            (click)="toggleLinkedNavigation()">
+            Link
+          </button>
           <button
             type="button"
-            [disabled]="!selectedPanePresetId"
-            title="Delete selected pane pair preset"
-            (click)="deleteSelectedPanePreset()">×</button>
+            class="mode-toggle"
+            [class.active]="mirrorPresentation"
+            [attr.aria-pressed]="mirrorPresentation"
+            title="Mirror view/sort state · Ctrl+Alt+M"
+            (click)="toggleMirrorPresentation()">
+            Mirror
+          </button>
+          <button
+            type="button"
+            class="mode-toggle"
+            [class.active]="syncScroll"
+            [attr.aria-pressed]="syncScroll"
+            title="Synchronized scrolling · Ctrl+Alt+S"
+            (click)="toggleSyncScroll()">
+            Scroll
+          </button>
+          <button
+            type="button"
+            class="mode-toggle"
+            [class.active]="followSelection"
+            [attr.aria-pressed]="followSelection"
+            title="Follow matching item · Ctrl+Alt+F"
+            (click)="toggleFollowSelection()">
+            Follow
+          </button>
         </span>
 
-        <span class="relationship-actions" role="group" aria-label="Pane relationship actions">
-          <button type="button" [disabled]="!canMatchOtherPane"
-            title="Navigate the other pane to this pane's location"
-            (click)="matchOtherPaneToActive()">Match</button>
-          <button type="button" [disabled]="!canSwapLinkedRoots"
-            title="Swap left and right linked roots"
-            (click)="swapLinkedRoots()">Roots ⇄</button>
-          <button type="button" [disabled]="!canOpenCurrentCounterpart"
-            title="Open the current item's counterpart in the other pane"
-            (click)="openCurrentCounterpart()">Peer</button>
-          <button type="button" [disabled]="!canCopyCurrentToPeer"
-            title="Copy the current item to the other pane"
-            (click)="transferCurrentToPeer('copy')">Copy →</button>
-          <button type="button" [disabled]="!canMoveCurrentToPeer"
-            title="Move the current item to the other pane"
-            (click)="transferCurrentToPeer('move')">Move →</button>
-        </span>
+        <button
+          type="button"
+          class="intelligence-more"
+          [class.active]="paneIntelligenceMenuOpen"
+          [attr.aria-expanded]="paneIntelligenceMenuOpen"
+          aria-haspopup="menu"
+          title="More pane actions"
+          (click)="togglePaneIntelligenceMenu($event)">
+          ⋯
+        </button>
 
-        <button type="button" [disabled]="differenceCount === 0"
-          title="Previous difference" (click)="navigateDifference(-1)">‹ Diff</button>
-        <button type="button" [disabled]="differenceCount === 0"
-          title="Next difference" (click)="navigateDifference(1)">Diff ›</button>
-        <span class="difference-count" *ngIf="differenceCount">{{ differenceIndexLabel }}</span>
+        <div
+          *ngIf="paneIntelligenceMenuOpen"
+          class="pane-intelligence-menu"
+          role="menu"
+          (click)="$event.stopPropagation()">
+          <section>
+            <header>Relationship</header>
+            <button type="button" role="menuitem" [disabled]="!canMatchOtherPane"
+              (click)="runPaneIntelligenceAction('match')">Match other pane</button>
+            <button type="button" role="menuitem" [disabled]="!canSwapLinkedRoots"
+              (click)="runPaneIntelligenceAction('swapRoots')">Swap linked roots</button>
+            <button type="button" role="menuitem" [disabled]="!canOpenCurrentCounterpart"
+              (click)="runPaneIntelligenceAction('peer')">Open peer item</button>
+            <button type="button" role="menuitem" [disabled]="!canCopyCurrentToPeer"
+              (click)="runPaneIntelligenceAction('copyPeer')">Copy to other pane</button>
+            <button type="button" role="menuitem" [disabled]="!canMoveCurrentToPeer"
+              (click)="runPaneIntelligenceAction('movePeer')">Move to other pane</button>
+          </section>
 
-        <button type="button" [class.active]="mirrorPresentation" [attr.aria-pressed]="mirrorPresentation"
-          title="Mirror view mode, sorting, and folders-first state"
-          (click)="toggleMirrorPresentation()">Mirror</button>
-        <button type="button" [class.active]="mirrorFilter" [attr.aria-pressed]="mirrorFilter"
-          [disabled]="!mirrorPresentation"
-          title="Also mirror the pane filter"
-          (click)="toggleMirrorFilter()">Filter</button>
-        <button type="button" [class.active]="syncScroll" [attr.aria-pressed]="syncScroll"
-          title="Keep corresponding rows visually aligned"
-          (click)="toggleSyncScroll()">Scroll</button>
-        <button type="button" [class.active]="followSelection" [attr.aria-pressed]="followSelection"
-          title="Mirror cursor to a matching item in the other pane"
-          (click)="toggleFollowSelection()">Follow</button>
-        <button type="button" [class.active]="linkedNavigation" [attr.aria-pressed]="linkedNavigation"
-          title="Keep pane navigation root-relative"
-          (click)="toggleLinkedNavigation()">Link</button>
+          <section>
+            <header>Comparison</header>
+            <button type="button" role="menuitem" [disabled]="differenceCount === 0"
+              (click)="runPaneIntelligenceAction('prevDiff')">Previous difference</button>
+            <button type="button" role="menuitem" [disabled]="differenceCount === 0"
+              (click)="runPaneIntelligenceAction('nextDiff')">Next difference</button>
+            <button type="button" role="menuitem" [disabled]="!mirrorPresentation"
+              [class.checked]="mirrorFilter"
+              (click)="runPaneIntelligenceAction('filter')">
+              Mirror filter
+              <span aria-hidden="true">{{ mirrorFilter ? '✓' : '' }}</span>
+            </button>
+          </section>
+
+          <section>
+            <header>Presets</header>
+            <button type="button" role="menuitem"
+              (click)="runPaneIntelligenceAction('savePreset')">Save current pair…</button>
+            <button type="button" role="menuitem" [disabled]="panePairPresets.length === 0"
+              (click)="runPaneIntelligenceAction('applyPreset')">Apply preset…</button>
+            <button type="button" role="menuitem" [disabled]="!selectedPanePresetId"
+              (click)="runPaneIntelligenceAction('deletePreset')">Delete selected preset</button>
+          </section>
+        </div>
       </div>
 
       <div class="pane-slot" *ngIf="workspacePresentation?.kind !== 'tool'">
@@ -501,6 +566,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           [currentPathPinned]="isPanePathPinned(leftPane)"
           [pluginToolbarActions]="pluginToolbarActionsFor(leftPane)"
           [compareOverlay]="leftCompareOverlay"
+          [compareOverlayVisible]="comparisonVisible || syncReviewVisible"
           (activateRequested)="activate('left')"
           (remoteRecoveryRequested)="openRemoteConnections()"
           (togglePinRequested)="togglePanePin(leftPane)"
@@ -542,6 +608,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           [currentPathPinned]="isPanePathPinned(rightPane)"
           [pluginToolbarActions]="pluginToolbarActionsFor(rightPane)"
           [compareOverlay]="rightCompareOverlay"
+          [compareOverlayVisible]="comparisonVisible || syncReviewVisible"
           (activateRequested)="activate('right')"
           (remoteRecoveryRequested)="openRemoteConnections()"
           (togglePinRequested)="togglePanePin(rightPane)"
@@ -659,29 +726,120 @@ const BINDINGS: readonly InputBindingDefinition[] = [
       min-width: 0;
     }
 
-    .pane-intelligence{grid-column:1/-1;display:flex;align-items:center;min-height:24px;gap:6px;padding:2px 6px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border));background:var(--vsc-sideBar-background,var(--vsc-panel-background));color:var(--vsc-description-foreground,var(--vsc-foreground-dim));font:10px/1.2 var(--vsc-font-family,system-ui,sans-serif)}
-    .pane-intelligence.linked{background:color-mix(in srgb,var(--vsc-accent-blue) 7%,var(--vsc-sideBar-background,var(--vsc-panel-background)))}
+    .pane-intelligence{
+      position:relative;
+      grid-column:1 / -1;
+      display:flex;
+      align-items:center;
+      min-height:26px;
+      gap:6px;
+      padding:2px 6px;
+      border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border));
+      background:var(--vsc-sideBar-background,var(--vsc-panel-background));
+      color:var(--vsc-description-foreground,var(--vsc-foreground-dim));
+      font:10px/1.2 var(--vsc-font-family,system-ui,sans-serif);
+    }
+    .pane-intelligence.linked{
+      background:color-mix(in srgb,var(--vsc-accent-blue) 5%,var(--vsc-sideBar-background,var(--vsc-panel-background)));
+    }
     .pane-intelligence.same .relation{color:var(--vsc-success)}
-    .pane-intelligence .relation{font-weight:600;color:var(--vsc-foreground)}
-    .pane-intelligence .link-status{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .pane-intelligence .relation{
+      max-width:220px;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+      font-weight:600;
+      color:var(--vsc-foreground);
+    }
+    .pane-intelligence .link-status{
+      min-width:0;
+      max-width:280px;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+    }
+    .pane-intelligence .difference-count{
+      min-width:30px;
+      text-align:center;
+      font-variant-numeric:tabular-nums;
+      color:var(--vsc-description-foreground,var(--vsc-foreground-dim));
+    }
     .pane-intelligence .spacer{flex:1}
-    .pane-intelligence button{min-height:20px;padding:1px 7px;border:1px solid transparent;border-radius:3px;background:transparent;color:inherit;cursor:pointer;font:inherit}
-    .pane-intelligence button:hover{border-color:var(--vsc-border);background:var(--vsc-list-hover-background);color:var(--vsc-foreground)}
-    .pane-intelligence button.active{border-color:color-mix(in srgb,var(--vsc-accent-blue) 55%,var(--vsc-border));background:color-mix(in srgb,var(--vsc-accent-blue) 12%,transparent);color:var(--vsc-foreground)}
-
-    .pane-intelligence .difference-count{min-width:36px;text-align:center;font-variant-numeric:tabular-nums;color:var(--vsc-description-foreground)}
-    .pane-intelligence .relationship-actions{display:inline-flex;align-items:center;gap:2px;padding-right:5px;margin-right:2px;border-right:1px solid var(--vsc-border-subtle,var(--vsc-border))}
-    .pane-intelligence .pane-presets{display:inline-flex;align-items:center;gap:2px;padding-right:5px;margin-right:2px;border-right:1px solid var(--vsc-border-subtle,var(--vsc-border))}
-    .pane-intelligence .pane-presets select{
-      max-width:150px;
+    .pane-intelligence .live-modes{
+      display:inline-flex;
+      align-items:center;
+      gap:2px;
+    }
+    .pane-intelligence button{
       min-height:20px;
-      border:1px solid var(--vsc-border);
+      padding:1px 7px;
+      border:1px solid transparent;
       border-radius:3px;
-      background:var(--vsc-dropdown-background,var(--vsc-control-background));
-      color:var(--vsc-dropdown-foreground,var(--vsc-foreground));
+      background:transparent;
+      color:inherit;
+      cursor:pointer;
       font:inherit;
     }
-    .pane-intelligence button:disabled{opacity:.42;cursor:default}
+    .pane-intelligence button:hover:not(:disabled){
+      border-color:var(--vsc-border);
+      background:var(--vsc-list-hover-background);
+      color:var(--vsc-foreground);
+    }
+    .pane-intelligence button.active{
+      border-color:color-mix(in srgb,var(--vsc-accent-blue) 52%,var(--vsc-border));
+      background:color-mix(in srgb,var(--vsc-accent-blue) 10%,transparent);
+      color:var(--vsc-foreground);
+    }
+    .pane-intelligence button:disabled{
+      opacity:.4;
+      cursor:default;
+    }
+    .pane-intelligence .intelligence-more{
+      width:26px;
+      padding:0;
+      font-size:15px;
+      line-height:16px;
+    }
+    .pane-intelligence-menu{
+      position:absolute;
+      z-index:120;
+      top:calc(100% + 2px);
+      right:5px;
+      width:220px;
+      padding:5px;
+      border:1px solid var(--vsc-border);
+      border-radius:5px;
+      background:var(--vsc-menu-background,var(--vsc-panel-background));
+      color:var(--vsc-menu-foreground,var(--vsc-foreground));
+      box-shadow:0 7px 22px var(--vsc-scrim-soft);
+    }
+    .pane-intelligence-menu section + section{
+      margin-top:4px;
+      padding-top:4px;
+      border-top:1px solid var(--vsc-border-subtle,var(--vsc-border));
+    }
+    .pane-intelligence-menu header{
+      padding:3px 6px;
+      color:var(--vsc-description-foreground,var(--vsc-foreground-dim));
+      font-size:9px;
+      font-weight:600;
+      text-transform:uppercase;
+      letter-spacing:.04em;
+    }
+    .pane-intelligence-menu button{
+      display:flex;
+      width:100%;
+      align-items:center;
+      justify-content:space-between;
+      min-height:24px;
+      padding:3px 7px;
+      text-align:left;
+      color:inherit;
+    }
+    .pane-intelligence-menu button.checked{
+      color:var(--vsc-foreground);
+    }
+
     .pane-slot {
       grid-row: 3;
       min-width: 0;
@@ -812,6 +970,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
   private scrollSyncGuard = false;
   private differenceCursor = -1;
   selectedPanePresetId = '';
+  paneIntelligenceMenuOpen = false;
   private restoringPaneIntelligence = false;
   private linkedRoots: { left: string; right: string } | null = null;
   private linkedNavigationGuard = 0;
@@ -845,6 +1004,16 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     private readonly surfaceRegistry: SurfaceRegistryService,
     private readonly cdr: ChangeDetectorRef,
   ) {}
+
+  @HostListener('document:mousedown', ['$event'])
+  onDocumentMouseDown(event: Event): void {
+    if (!this.paneIntelligenceMenuOpen) return;
+
+    const target = event.target as HTMLElement | null;
+    if (target?.closest('.pane-intelligence')) return;
+
+    this.closePaneIntelligenceMenu();
+  }
 
   get layoutColumns(): string {
     const left = this.clampPanePercent(this.leftPanePercent);
@@ -1166,6 +1335,71 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
   }
 
+  togglePaneIntelligenceMenu(event?: Event): void {
+    event?.stopPropagation();
+    this.paneIntelligenceMenuOpen = !this.paneIntelligenceMenuOpen;
+    this.cdr.markForCheck();
+  }
+
+  closePaneIntelligenceMenu(): void {
+    if (!this.paneIntelligenceMenuOpen) return;
+    this.paneIntelligenceMenuOpen = false;
+    this.cdr.markForCheck();
+  }
+
+  async runPaneIntelligenceAction(
+    action:
+      | 'match'
+      | 'swapRoots'
+      | 'peer'
+      | 'copyPeer'
+      | 'movePeer'
+      | 'prevDiff'
+      | 'nextDiff'
+      | 'filter'
+      | 'savePreset'
+      | 'applyPreset'
+      | 'deletePreset',
+  ): Promise<void> {
+    this.closePaneIntelligenceMenu();
+
+    switch (action) {
+      case 'match':
+        await this.matchOtherPaneToActive();
+        break;
+      case 'swapRoots':
+        this.swapLinkedRoots();
+        break;
+      case 'peer':
+        this.openCurrentCounterpart();
+        break;
+      case 'copyPeer':
+        await this.transferCurrentToPeer('copy');
+        break;
+      case 'movePeer':
+        await this.transferCurrentToPeer('move');
+        break;
+      case 'prevDiff':
+        this.navigateDifference(-1);
+        break;
+      case 'nextDiff':
+        this.navigateDifference(1);
+        break;
+      case 'filter':
+        this.toggleMirrorFilter();
+        break;
+      case 'savePreset':
+        await this.saveCurrentPanePreset();
+        break;
+      case 'applyPreset':
+        await this.chooseAndApplyPanePreset();
+        break;
+      case 'deletePreset':
+        await this.deleteSelectedPanePreset();
+        break;
+    }
+  }
+
   get panePairPresets(): readonly ReassemblyPanePairPreset[] {
     return this.paneIntelligence.listPresets();
   }
@@ -1184,6 +1418,47 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       return;
     }
 
+    await this.applyPanePreset(preset);
+  }
+
+  async chooseAndApplyPanePreset(): Promise<void> {
+    const presets = this.panePairPresets;
+    if (!presets.length) return;
+
+    const choice = (await this.confirmDialog.prompt({
+      title: 'Apply Pane Pair Preset',
+      message: [
+        'Enter preset number or exact name:',
+        ...presets.map((preset, index) => `${index + 1}. ${preset.name}`),
+      ].join('\n'),
+      confirmText: 'Apply',
+      defaultValue: this.selectedPanePresetId
+        ? this.paneIntelligence.preset(this.selectedPanePresetId)?.name ?? ''
+        : '',
+      historyKey: 'reassembly.panePairPreset.apply',
+    }))?.trim();
+
+    if (!choice) return;
+
+    const numeric = Number(choice);
+    const preset =
+      Number.isInteger(numeric) && numeric >= 1 && numeric <= presets.length
+        ? presets[numeric - 1]
+        : presets.find(item =>
+            item.name.localeCompare(choice, undefined, {
+              sensitivity: 'base',
+            }) === 0
+          );
+
+    if (!preset) {
+      await this.confirmDialog.alert({
+        title: 'Preset Not Found',
+        message: `No pane pair preset matches "${choice}".`,
+      });
+      return;
+    }
+
+    this.selectedPanePresetId = preset.id;
     await this.applyPanePreset(preset);
   }
 
@@ -1902,6 +2177,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
 
 
   activate(paneId: PaneId, focusContent = false): void {
+    this.closePaneIntelligenceMenu();
     this.closeContextMenu();
 
     if (this.activePaneId !== paneId) {
@@ -4189,6 +4465,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     this.lastTransfer = 'none';
     this.lastDrop = 'none';
     this.closeContextMenu();
+    this.closePaneIntelligenceMenu();
 
     queueMicrotask(() => this.activePane?.focusContent());
     this.cdr.markForCheck();
@@ -4393,6 +4670,20 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     descriptor(COMMAND.openSettings, 'Settings', 'Settings', () => this.openSettings());
     descriptor(COMMAND.openPluginSettings, 'Plugin Settings', 'Settings', () => this.openSettings('plugins'));
     descriptor(COMMAND.switchPane, 'Switch Pane', 'Pane Control', () => this.switchPane());
+    descriptor(COMMAND.togglePaneLink, 'Toggle Linked Pane Navigation', 'Pane Intelligence', () => this.toggleLinkedNavigation(), () => !!this.leftPane?.isDirectoryTab && !!this.rightPane?.isDirectoryTab);
+    descriptor(COMMAND.togglePaneMirror, 'Toggle Pane Presentation Mirroring', 'Pane Intelligence', () => this.toggleMirrorPresentation(), () => !!this.leftPane?.isDirectoryTab && !!this.rightPane?.isDirectoryTab);
+    descriptor(COMMAND.togglePaneFilterMirror, 'Toggle Pane Filter Mirroring', 'Pane Intelligence', () => this.toggleMirrorFilter(), () => this.mirrorPresentation);
+    descriptor(COMMAND.togglePaneScrollSync, 'Toggle Synchronized Pane Scrolling', 'Pane Intelligence', () => this.toggleSyncScroll(), () => !!this.leftPane?.isDirectoryTab && !!this.rightPane?.isDirectoryTab);
+    descriptor(COMMAND.togglePaneFollow, 'Toggle Pane Follow Selection', 'Pane Intelligence', () => this.toggleFollowSelection(), () => !!this.leftPane?.isDirectoryTab && !!this.rightPane?.isDirectoryTab);
+    descriptor(COMMAND.matchOtherPane, 'Match Other Pane to Active Location', 'Pane Intelligence', () => this.matchOtherPaneToActive(), () => this.canMatchOtherPane);
+    descriptor(COMMAND.swapPaneRoots, 'Swap Linked Pane Roots', 'Pane Intelligence', () => this.swapLinkedRoots(), () => this.canSwapLinkedRoots);
+    descriptor(COMMAND.openPeer, 'Open Current Peer Item', 'Pane Intelligence', () => this.openCurrentCounterpart(), () => this.canOpenCurrentCounterpart);
+    descriptor(COMMAND.copyToPeer, 'Copy Current Item to Other Pane', 'Pane Intelligence', () => this.transferCurrentToPeer('copy'), () => this.canCopyCurrentToPeer);
+    descriptor(COMMAND.moveToPeer, 'Move Current Item to Other Pane', 'Pane Intelligence', () => this.transferCurrentToPeer('move'), () => this.canMoveCurrentToPeer);
+    descriptor(COMMAND.previousDifference, 'Previous Pane Difference', 'Pane Intelligence', () => this.navigateDifference(-1), () => this.differenceCount > 0);
+    descriptor(COMMAND.nextDifference, 'Next Pane Difference', 'Pane Intelligence', () => this.navigateDifference(1), () => this.differenceCount > 0);
+    descriptor(COMMAND.savePanePreset, 'Save Pane Pair Preset', 'Pane Intelligence', () => this.saveCurrentPanePreset(), () => !!this.leftPane?.path && !!this.rightPane?.path);
+    descriptor(COMMAND.applyPanePreset, 'Apply Pane Pair Preset…', 'Pane Intelligence', () => this.chooseAndApplyPanePreset(), () => this.panePairPresets.length > 0);
     descriptor(COMMAND.widenLeftPane, 'Widen Left Pane', 'Layout', () => this.adjustSplit(5));
     descriptor(COMMAND.widenRightPane, 'Widen Right Pane', 'Layout', () => this.adjustSplit(-5));
     descriptor(COMMAND.resetPaneSplit, 'Reset Pane Split', 'Layout', () => this.resetSplit());

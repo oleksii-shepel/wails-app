@@ -426,11 +426,6 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
           role="treeitem"
           [class.selected]="selectedPaths.has(row.entry.path)"
           [class.cursor]="cursorPath === row.entry.path"
-          [class.compare-only-here]="compareMarkerFor(row.entry) === 'only-here'"
-          [class.compare-different]="compareMarkerFor(row.entry) === 'different'"
-          [class.compare-newer]="compareMarkerFor(row.entry) === 'newer'"
-          [class.compare-older]="compareMarkerFor(row.entry) === 'older'"
-          [class.compare-type-mismatch]="compareMarkerFor(row.entry) === 'type-mismatch'"
           [class.drop-target]="dragOverPath === row.entry.path"
           [class.drop-invalid]="dragOverPath === row.entry.path && dropIntent === 'invalid'"
           [class.drop-copy]="dragOverPath === row.entry.path && dropIntent === 'copy'"
@@ -455,16 +450,6 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
           </span>
           <span class="icon">{{ entryIcon(row.entry) }}</span>
           <span class="name" *ngIf="renamingPath !== row.entry.path">{{ row.entry.name }}</span>
-          <span *ngIf="compareMarkerFor(row.entry) as marker"
-            class="compare-badge" [class.equal]="marker === 'equal'"
-            [attr.title]="compareMarkerLabel(marker)" aria-hidden="true">
-            {{ marker === 'only-here' ? '●' :
-               marker === 'different' ? '≠' :
-               marker === 'newer' ? '↑' :
-               marker === 'older' ? '↓' :
-               marker === 'type-mismatch' ? '!' :
-               marker === 'equal' ? '=' : '' }}
-          </span>
           <span
             class="rename-editor"
             *ngIf="renamingPath === row.entry.path"
@@ -533,11 +518,6 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
           [attr.aria-label]="entryAriaLabel(entry)"
           [class.cursor]="entry.path === cursorPath"
           [class.selected]="selectedPaths.has(entry.path)"
-          [class.compare-only-here]="compareMarkerFor(entry) === 'only-here'"
-          [class.compare-different]="compareMarkerFor(entry) === 'different'"
-          [class.compare-newer]="compareMarkerFor(entry) === 'newer'"
-          [class.compare-older]="compareMarkerFor(entry) === 'older'"
-          [class.compare-type-mismatch]="compareMarkerFor(entry) === 'type-mismatch'"
           (click)="selectFromPointer(entry, $event)"
           (dblclick)="openEntry(entry)"
           (contextmenu)="onEntryContextMenu(entry, $event)"
@@ -557,16 +537,6 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
           </span>
 
           <span class="name" *ngIf="renamingPath !== entry.path">{{ entry.name }}</span>
-          <span *ngIf="compareMarkerFor(entry) as marker"
-            class="compare-badge" [class.equal]="marker === 'equal'"
-            [attr.title]="compareMarkerLabel(marker)" aria-hidden="true">
-            {{ marker === 'only-here' ? '●' :
-               marker === 'different' ? '≠' :
-               marker === 'newer' ? '↑' :
-               marker === 'older' ? '↓' :
-               marker === 'type-mismatch' ? '!' :
-               marker === 'equal' ? '=' : '' }}
-          </span>
           <span
             class="rename-editor"
             *ngIf="renamingPath === entry.path"
@@ -1160,13 +1130,6 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
       color: var(--vsc-list-active-foreground, var(--vsc-on-accent));
     }
 
-    .entry.compare-only-here,.tree-row.compare-only-here{box-shadow:inset 2px 0 0 var(--vsc-accent-blue)}
-    .entry.compare-different,.tree-row.compare-different{box-shadow:inset 2px 0 0 var(--vsc-warning)}
-    .entry.compare-newer,.tree-row.compare-newer{box-shadow:inset 2px 0 0 var(--vsc-success)}
-    .entry.compare-older,.tree-row.compare-older{box-shadow:inset 2px 0 0 var(--vsc-description-foreground,var(--vsc-foreground-dim))}
-    .entry.compare-type-mismatch,.tree-row.compare-type-mismatch{box-shadow:inset 2px 0 0 var(--vsc-error)}
-    .compare-badge{justify-self:end;min-width:14px;text-align:center;color:var(--vsc-warning);font-size:10px;font-weight:700}
-    .compare-badge.equal{opacity:.32}
 
     .entry.drop-target {
       outline: 1px solid var(--vsc-accent-blue, var(--vsc-accent-blue));
@@ -1490,6 +1453,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   @Input() currentPathPinned = false;
   @Input() pluginToolbarActions: readonly PresentedCommand[] = [];
   @Input() compareOverlay: readonly ReassemblyCompareOverlayItem[] = [];
+  @Input() compareOverlayVisible = false;
   @Output() activateRequested = new EventEmitter<void>();
   @Output() remoteRecoveryRequested = new EventEmitter<void>();
   @Output() togglePinRequested = new EventEmitter<void>();
@@ -1671,6 +1635,8 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   compareMarkerFor(entry: FileInfo): ReassemblyCompareMarker | null {
+    if (!this.compareOverlayVisible) return null;
+
     const folded = entry.name.toLowerCase();
     return this.compareOverlay.find(item =>
       item.path === entry.path || item.name.toLowerCase() === folded

@@ -21,6 +21,7 @@ import { WorkspaceService } from '../services/workspace.service';
 import { ConfirmDialogService } from '../services/confirm-dialog.service';
 import { FileClipboardService } from '../services/file-clipboard.service';
 import { ReassemblyOperationHistoryService } from '../services/reassembly-operation-history.service';
+import { ReassemblyActionFeedbackService } from '../services/reassembly-action-feedback.service';
 import { RecentFilesService } from '../services/recent-files.service';
 import { PluginManagerService } from '../services/plugin-manager.service';
 import type { PanelColumnContribution, PanelColumnContext } from '../plugin/plugin-registry-api';
@@ -1821,6 +1822,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     private readonly archiveService: ArchiveService,
     private readonly fileClipboard: FileClipboardService,
     private readonly operationHistory: ReassemblyOperationHistoryService,
+    private readonly actionFeedback: ReassemblyActionFeedbackService,
     private readonly recentFiles: RecentFilesService,
     private readonly pluginManager: PluginManagerService,
     private readonly pluginLifecycle: PluginLifecycleCoordinatorService,
@@ -4367,8 +4369,10 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
         },
       });
       this.lastAction = `new folder: ${cleanName}`;
+      this.actionFeedback.success('Folder created', cleanName);
       await this.refresh();
       this.selectPath(destination);
+      this.focusContent();
     } catch (error) {
       await this.showOperationError('Create Folder', error);
     }
@@ -4512,6 +4516,10 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       const destination = await this.performRename(entry, cleanName);
       this.cancelInlineRename(false);
       this.lastAction = `rename: ${entry.name} -> ${cleanName}`;
+      this.actionFeedback.success(
+        'Renamed',
+        `${entry.name} → ${cleanName}`,
+      );
       await this.refresh();
       this.selectPath(destination);
       this.focusContent();
@@ -4746,13 +4754,37 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
         }
       }
 
-      this.lastAction = `delete: ${result.succeeded}/${result.total}`;
-      await this.refresh();
+      this.lastAction =
+        `delete: ${result.succeeded}/${result.total}` +
+        (result.skipped > 0 ? ` · ${result.skipped} skipped` : '') +
+        (result.failed > 0 ? ` · ${result.failed} failed` : '');
 
-      if (result.failed > 0) {
+      if (result.failed === 0 && result.skipped === 0) {
+        this.actionFeedback.success(
+          useTrash ? 'Moved to Trash' : 'Deleted',
+          `${result.succeeded} item${result.succeeded === 1 ? '' : 's'}`,
+        );
+      } else {
+        this.actionFeedback.warning(
+          'Delete completed with issues',
+          `${result.succeeded} succeeded · ${result.skipped} skipped · ${result.failed} failed`,
+        );
+      }
+
+      await this.refresh();
+      this.focusContent();
+
+      if (result.failed > 0 || result.skipped > 0) {
         await this.confirmDialog.alert({
-          title: 'Delete Completed with Errors',
-          message: `${result.failed} item${result.failed === 1 ? '' : 's'} could not be deleted.`,
+          title: 'Delete Completed with Issues',
+          message: [
+            result.failed > 0
+              ? `${result.failed} item${result.failed === 1 ? '' : 's'} failed.`
+              : '',
+            result.skipped > 0
+              ? `${result.skipped} item${result.skipped === 1 ? '' : 's'} were skipped.`
+              : '',
+          ].filter(Boolean).join('\n'),
         });
       }
     } catch (error) {
@@ -5739,15 +5771,33 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
         this.fileClipboard.clear();
       }
 
-      await this.refresh();
+      if (result.failed === 0 && result.skipped === 0) {
+        this.actionFeedback.success(
+          clipboard.operation === 'copy' ? 'Paste completed' : 'Move completed',
+          `${result.succeeded} item${result.succeeded === 1 ? '' : 's'}`,
+        );
+      } else {
+        this.actionFeedback.warning(
+          'Paste completed with issues',
+          `${result.succeeded} succeeded · ${result.skipped} skipped · ${result.failed} failed`,
+        );
+      }
 
-      if (result.failed > 0) {
+      await this.refresh();
+      this.focusContent();
+
+      if (result.failed > 0 || result.skipped > 0) {
         await this.confirmDialog.alert({
-          title: 'Paste Completed with Errors',
+          title: 'Paste Completed with Issues',
           message:
-            `${result.failed} item${
-              result.failed === 1 ? '' : 's'
-            } could not be pasted.`,
+            [
+              result.failed > 0
+                ? `${result.failed} item${result.failed === 1 ? '' : 's'} failed.`
+                : '',
+              result.skipped > 0
+                ? `${result.skipped} item${result.skipped === 1 ? '' : 's'} were skipped.`
+                : '',
+            ].filter(Boolean).join('\n'),
         });
       }
     } catch (error) {

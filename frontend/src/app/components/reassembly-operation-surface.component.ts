@@ -53,6 +53,8 @@ import type { ConflictResolution } from '../shared/protocol-enhanced';
         class="operation"
         *ngFor="let operation of operations; trackBy: trackOperation"
         [class.operation-failed]="operation.status === 'error'"
+        [class.operation-completed]="operation.status === 'completed'"
+        [class.operation-cancelled]="operation.status === 'cancelled'"
         [class.operation-paused]="operation.status === 'paused'">
 
         <div class="row">
@@ -242,6 +244,12 @@ import type { ConflictResolution } from '../shared/protocol-enhanced';
 
     .operation-paused {
       border-left: 2px solid var(--vsc-warning-foreground, var(--vsc-warning));
+    }
+    .operation-completed {
+      border-left: 2px solid var(--vsc-success);
+    }
+    .operation-cancelled {
+      border-left: 2px solid var(--vsc-description-foreground, var(--vsc-foreground-dim));
     }
 
     .row {
@@ -434,6 +442,9 @@ export class ReassemblyOperationSurfaceComponent implements OnInit, OnDestroy {
     if (operation.status === 'paused' && operation.conflictData) {
       return 'waiting for decision';
     }
+    if (operation.status === 'completed') return 'done';
+    if (operation.status === 'cancelled') return 'cancelled';
+    if (operation.status === 'error') return 'failed';
     return operation.status;
   }
 

@@ -9,6 +9,7 @@ import { ConfirmDialogComponent } from './components/confirm-dialog.component';
 import { ReassemblyDualPaneComponent } from './components/reassembly-dual-pane.component';
 import { ShortcutDebugOverlayComponent } from './components/shortcut-debug-overlay.component';
 import { ReassemblyOperationSurfaceComponent } from './components/reassembly-operation-surface.component';
+import { ReassemblyActionFeedbackComponent } from './components/reassembly-action-feedback.component';
 import { BatchRenameDialogComponent } from './components/batch-rename-dialog.component';
 import { RemoteConnectDialogComponent } from './components/remote-connect-dialog.component';
 import { SettingsDialogComponent } from './components/settings-dialog.component';
@@ -23,6 +24,7 @@ import { ReassemblyModalStackService } from './services/reassembly-modal-stack.s
     ReassemblyDualPaneComponent,
     ShortcutDebugOverlayComponent,
     ReassemblyOperationSurfaceComponent,
+    ReassemblyActionFeedbackComponent,
     BatchRenameDialogComponent,
     RemoteConnectDialogComponent,
     SettingsDialogComponent,
@@ -51,6 +53,7 @@ import { ReassemblyModalStackService } from './services/reassembly-modal-stack.s
       </app-shortcut-debug-overlay>
 
       <app-reassembly-operation-surface></app-reassembly-operation-surface>
+      <app-reassembly-action-feedback></app-reassembly-action-feedback>
       <app-batch-rename-dialog></app-batch-rename-dialog>
       <app-remote-connect-dialog></app-remote-connect-dialog>
       <app-settings-dialog></app-settings-dialog>

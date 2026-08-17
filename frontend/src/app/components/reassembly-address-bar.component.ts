@@ -95,7 +95,8 @@ function editorBindings(paneId: string, contextId: string): readonly InputBindin
       <div
         *ngIf="!editing"
         class="display-path breadcrumb-path"
-        title="Click a segment to navigate · click empty area to edit">
+        title="Click a segment to navigate · click empty area to edit"
+        (click)="onDisplayPathClick($event)">
         <button
           type="button"
           class="location-icon breadcrumb-home"
@@ -490,6 +491,16 @@ export class ReassemblyAddressBarComponent implements OnInit, OnDestroy {
   navigateToSegment(segment: ReassemblyBreadcrumbSegment): void {
     if (!segment.path || segment.path === this.path) return;
     this.navigate.emit(segment.path);
+  }
+
+  onDisplayPathClick(event: MouseEvent): void {
+    const target = event.target as HTMLElement | null;
+
+    // Breadcrumbs and explicit controls own their click. Everything else in the
+    // location field is editable surface, including whitespace after a short path.
+    if (target?.closest('button')) return;
+
+    this.beginEdit();
   }
 
   ngOnInit(): void {

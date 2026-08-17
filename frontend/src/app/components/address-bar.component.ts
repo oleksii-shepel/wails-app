@@ -41,7 +41,7 @@ import { DropdownContainerComponent } from './dropdown-container.component';
 <div class="ab-host" (keydown)="onHostKeyDown($event)">
 
   <!-- ── BREADCRUMB ROW ──────────────────────────────────────────────── -->
-  <div class="ab-bar" *ngIf="!editMode" [class.ab-bar--compact]="compact">
+  <div class="ab-bar" *ngIf="!editMode" [class.ab-bar--compact]="compact" (click)="onBarClick($event)">
 
     <!-- Left cluster: quick access + pin star -->
     <div class="ab-cluster ab-cluster--left">
@@ -1036,6 +1036,18 @@ export class AddressBarComponent implements OnInit, OnDestroy, OnChanges {
     }
 
     e.stopPropagation();
+    this.enterEditMode();
+  }
+
+  onBarClick(e: MouseEvent): void {
+    const target = e.target as HTMLElement | null;
+
+    // Keep every real control interactive. Unused bar surface is location-edit
+    // surface, including whitespace around short breadcrumb trails.
+    if (target?.closest('button, .ab-seg, .ab-chev, .ab-scheme-chevron, app-dropdown-container')) {
+      return;
+    }
+
     this.enterEditMode();
   }
 

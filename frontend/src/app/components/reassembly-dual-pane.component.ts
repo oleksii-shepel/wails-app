@@ -66,6 +66,7 @@ import {
   type ReassemblyContextMenuItem,
   type ReassemblyContextMenuState,
 } from './reassembly-context-menu.component';
+import { normalizeContextMenuItems } from './reassembly-context-menu-policy';
 import { FileInfo, FileType } from '../shared/protocol';
 import { PluginManagerService } from '../services/plugin-manager.service';
 import { ReassemblyOperationHistoryService, type ReassemblySyncHistoryEntry } from '../services/reassembly-operation-history.service';
@@ -689,6 +690,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
   lastTransfer = 'none';
   lastDrop = 'none';
   contextMenu: ReassemblyContextMenuState | null = null;
+  private contextMenuReturnFocus: HTMLElement | null = null;
 
   constructor(
     private readonly input: InputEngineService,
@@ -2777,160 +2779,253 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     event: MouseEvent,
     entry: FileInfo,
   ): void {
-    this.activePaneId = paneId;
+    this.captureContextMenuFocus();
+    this.activate(paneId, false);
 
-    const items: ReassemblyContextMenuItem[] = [
-      this.menuCommand(COMMAND.open, 'Open', 'Enter'),
-      this.menuCommand(COMMAND.quickView, 'Quick view', 'F3'),
-      this.menuCommand(COMMAND.openWithExternal, 'Open with default app', 'Ctrl+Shift+O'),
-      this.menuCommand(COMMAND.openWithChooser, 'Open With…'),
-      { separator: true },
-      this.menuCommand(COMMAND.rename, 'Rename', 'F2'),
-      this.menuCommand(COMMAND.selectSameExtension, 'Select same extension', 'Alt+E'),
-      this.menuCommand(COMMAND.selectSameType, 'Select same type'),
-      this.menuCommand(COMMAND.selectSameExtension, 'Select Same Extension', 'Ctrl+Alt+E'),
-      this.menuCommand(COMMAND.selectSameType, 'Select Same Type'),
-      this.menuCommand(COMMAND.moveSelectionToNewFolder, 'Move Selection to New Folder'),
-      this.menuCommand(COMMAND.properties, 'Properties', 'Alt+Enter'),
-      this.menuCommand(COMMAND.detailsWorkspace, 'Open Full Details Workspace'),
-      this.menuCommand(COMMAND.calculateSize, 'Calculate Size'),
-      this.menuCommand(COMMAND.attributes, 'Attributes / Permissions'),
-      this.menuCommand(COMMAND.setModifiedTime, 'Set Modified Time…'),
-      this.menuCommand(COMMAND.createShortcut, 'Create Shortcut'),
-      this.menuCommand(COMMAND.createSymlink, 'Create Symbolic Link'),
-      this.menuCommand(COMMAND.createHardlink, 'Create Hard Link'),
-      this.menuCommand(COMMAND.checksum, 'SHA-256 Checksum'),
-      this.menuCommand(COMMAND.createArchive, 'Create ZIP Archive', 'Alt+F5'),
-      this.menuCommand(COMMAND.batchRename, 'Batch rename…', 'Ctrl+Shift+R'),
-      this.menuCommand(COMMAND.copy, 'Copy', 'Ctrl+C'),
-      this.menuCommand(COMMAND.copyPath, 'Copy Path', 'Ctrl+Shift+C'),
-      this.menuCommand(COMMAND.copyRelativePath, 'Copy Relative Path', 'Ctrl+Alt+C'),
-      this.menuCommand(COMMAND.copyFileUri, 'Copy File URI'),
-      this.menuCommand(COMMAND.copyName, 'Copy Name'),
-      this.menuCommand(COMMAND.revealInFileManager, 'Reveal in System File Manager'),
-      this.menuCommand(COMMAND.duplicate, 'Duplicate', 'Ctrl+D'),
-      this.menuCommand(COMMAND.cut, 'Cut', 'Ctrl+X'),
-      this.menuCommand(COMMAND.paste, 'Paste', 'Ctrl+V'),
-      { separator: true },
-      this.menuCommand(COMMAND.copyToOther, 'Copy to other pane', 'F5'),
-      this.menuCommand(COMMAND.moveToOther, 'Move to other pane', 'F6'),
-      this.menuCommand(COMMAND.addToBasket, 'Add to Selection Basket', 'Ctrl+Alt+B'),
-      this.menuCommand(COMMAND.extractArchiveToOther, 'Extract to other pane'),
-      this.menuCommand(COMMAND.extractArchiveSelection, 'Extract to folder…'),
-      { separator: true },
-      this.menuCommand(COMMAND.deleteSelected, 'Delete', 'Delete'),
-      this.menuCommand(COMMAND.deletePermanent, 'Delete permanently', 'Shift+Delete'),
-    ];
+    const pane = this.activePane;
+    const isParent = entry.path === '__parent__';
+    const isDirectory = entry.type === FileType.DIRECTORY;
+    const isArchive = entry.type === FileType.ARCHIVE;
+    const selectionCount = pane?.selectedEntries.length ?? 0;
+    const canRename = !!pane?.canRename;
+    const canMutate = !!pane?.isDirectoryTab && !pane.isInArchive;
+    const canCreate = !!pane?.canCreate;
+    const canDelete = !!pane?.canDelete;
 
-    const pluginItems = this.pluginContextMenuItems(
-      this.activePane,
-      entry.path,
-    );
-    if (pluginItems.length) {
-      items.push({ separator: true }, ...pluginItems);
+    const items: ReassemblyContextMenuItem[] = [];
+
+    this.pushMenuSection(items, [
+      this.menuCommand(COMMAND.open, isParent ? 'Go to parent folder' : 'Open', 'Enter'),
+      ...(!isParent && !isDirectory ? [
+        this.menuCommand(COMMAND.quickView, 'Quick view', 'F3'),
+        this.menuCommand(COMMAND.openWithExternal, 'Open with default app', 'Ctrl+Shift+O'),
+        this.menuCommand(COMMAND.openWithChooser, 'Open With…'),
+      ] : []),
+    ]);
+
+    if (!isParent) {
+      this.pushMenuSection(items, [
+        ...(canRename ? [this.menuCommand(COMMAND.rename, 'Rename', 'F2')] : []),
+        ...(selectionCount > 1 && !!pane?.sourceCapabilities.rename
+          ? [this.menuCommand(COMMAND.batchRename, 'Batch rename…', 'Ctrl+Shift+R')]
+          : []),
+        this.menuCommand(COMMAND.copy, 'Copy', 'Ctrl+C'),
+        ...(canMutate ? [this.menuCommand(COMMAND.cut, 'Cut', 'Ctrl+X')] : []),
+        ...(canCreate ? [this.menuCommand(COMMAND.duplicate, 'Duplicate', 'Ctrl+D')] : []),
+        ...(canCreate && selectionCount > 0
+          ? [this.menuCommand(COMMAND.moveSelectionToNewFolder, 'Move Selection to New Folder')]
+          : []),
+        this.menuCommand(COMMAND.copyToOther, 'Copy to other pane', 'F5'),
+        ...(canMutate ? [this.menuCommand(COMMAND.moveToOther, 'Move to other pane', 'F6')] : []),
+      ]);
+
+      this.pushMenuSection(items, [
+        this.menuCommand(COMMAND.copyPath, 'Copy Path', 'Ctrl+Shift+C'),
+        this.menuCommand(COMMAND.copyRelativePath, 'Copy Relative Path', 'Ctrl+Alt+C'),
+        this.menuCommand(COMMAND.copyFileUri, 'Copy File URI'),
+        this.menuCommand(COMMAND.copyName, 'Copy Name'),
+        this.menuCommand(COMMAND.revealInFileManager, 'Reveal in System File Manager'),
+      ]);
+
+      this.pushMenuSection(items, [
+        this.menuCommand(COMMAND.properties, 'Properties', 'Alt+Enter'),
+        this.menuCommand(COMMAND.detailsWorkspace, 'Open Full Details Workspace'),
+        this.menuCommand(COMMAND.calculateSize, 'Calculate Size'),
+        this.menuCommand(COMMAND.attributes, 'Attributes / Permissions'),
+        this.menuCommand(COMMAND.setModifiedTime, 'Set Modified Time…'),
+        ...(!isDirectory ? [this.menuCommand(COMMAND.checksum, 'SHA-256 Checksum')] : []),
+      ]);
+
+      this.pushMenuSection(items, [
+        ...(!isDirectory ? [
+          this.menuCommand(COMMAND.selectSameExtension, 'Select Same Extension', 'Alt+E'),
+          this.menuCommand(COMMAND.selectSameType, 'Select Same Type'),
+        ] : [this.menuCommand(COMMAND.selectSameType, 'Select Same Type')]),
+        this.menuCommand(COMMAND.addToBasket, 'Add to Selection Basket', 'Ctrl+Alt+B'),
+      ]);
+
+      if (canCreate) {
+        this.pushMenuSection(items, [
+          this.menuCommand(COMMAND.createShortcut, 'Create Shortcut'),
+          this.menuCommand(COMMAND.createSymlink, 'Create Symbolic Link'),
+          ...(!isDirectory ? [this.menuCommand(COMMAND.createHardlink, 'Create Hard Link')] : []),
+          this.menuCommand(COMMAND.createArchive, 'Create ZIP Archive', 'Alt+F5'),
+        ]);
+      }
+
+      if (isArchive) {
+        this.pushMenuSection(items, [
+          this.menuCommand(COMMAND.extractArchiveToOther, 'Extract to other pane'),
+          this.menuCommand(COMMAND.extractArchiveSelection, 'Extract to folder…'),
+        ]);
+      }
+    }
+
+    const pluginItems = this.pluginContextMenuItems(pane, entry.path);
+    if (pluginItems.length) this.pushMenuSection(items, pluginItems);
+
+    if (!isParent && canDelete) {
+      this.pushMenuSection(items, [
+        this.menuCommand(COMMAND.deleteSelected, 'Delete', 'Delete', { danger: true }),
+        this.menuCommand(COMMAND.deletePermanent, 'Delete permanently', 'Shift+Delete', { danger: true }),
+      ]);
     }
 
     this.contextMenu = {
       x: this.clampMenuX(event.clientX),
       y: this.clampMenuY(event.clientY),
-      title: entry.name,
-      items,
+      title: isParent ? 'Parent folder' : this.entryContextTitle(entry, selectionCount),
+      items: normalizeContextMenuItems(items),
     };
     this.cdr.markForCheck();
   }
 
   openBackgroundMenu(paneId: PaneId, event: MouseEvent): void {
-    this.activePaneId = paneId;
+    this.captureContextMenuFocus();
+    this.activate(paneId, false);
 
-    const items: ReassemblyContextMenuItem[] = [
-        this.menuCommand(COMMAND.newFolder, 'New folder', 'F7'),
-        this.menuCommand(
-          COMMAND.toggleCurrentPin,
-          this.isPanePathPinned(this.activePane) ? 'Unpin this location' : 'Pin this location',
-        ),
-        this.menuCommand(COMMAND.paste, 'Paste', 'Ctrl+V'),
-        this.menuCommand(COMMAND.undo, 'Undo', 'Ctrl+Z'),
-        this.menuCommand(COMMAND.redo, 'Redo', 'Ctrl+Y'),
-        { separator: true },
-        this.menuCommand(COMMAND.selectAll, 'Select all', 'Ctrl+A'),
-        this.menuCommand(COMMAND.selectFiles, 'Select visible files', 'Alt+Shift+F'),
-        this.menuCommand(COMMAND.selectFolders, 'Select visible folders', 'Alt+Shift+D'),
-        this.menuCommand(COMMAND.clearSelection, 'Clear selection', 'Ctrl+Alt+D'),
-        this.menuCommand(COMMAND.invertSelection, 'Invert selection', 'Alt+I'),
-        this.menuCommand(COMMAND.selectByMask, 'Select by mask…', 'Alt+S'),
-        this.menuCommand(COMMAND.unselectByMask, 'Unselect by mask…', 'Alt+U'),
-        this.menuCommand(COMMAND.openBasket, 'Selection Basket', 'Ctrl+Shift+B'),
-        this.menuCommand(COMMAND.globalSearch, 'Search here…', 'Ctrl+K'),
-        this.menuCommand(COMMAND.quickPathJump, 'Go to path…', 'Ctrl+P'),
-        this.menuCommand(COMMAND.remoteConnect, 'Connect remote…'),
-        this.menuCommand(COMMAND.diskUsage, 'Disk Usage', 'Ctrl+Shift+D'),
-        this.menuCommand(COMMAND.findDuplicates, 'Find Duplicates'),
-        this.menuCommand(COMMAND.openCommandPalette, 'Command Palette', 'Ctrl+Shift+P'),
-        this.menuCommand(COMMAND.openTerminal, 'Open Terminal Here', 'Ctrl+Alt+T'),
-        this.menuCommand(COMMAND.openSettings, 'Settings', 'Ctrl+,'),
-        this.menuCommand(COMMAND.openTrash, 'Trash / Recycle Bin'),
-        this.menuCommand(COMMAND.openPluginSettings, 'Plugin Settings'),
-        this.menuCommand(COMMAND.openOperations, 'Operations Center'),
-        { separator: true },
-        this.menuCommand(COMMAND.toggleTabPin, 'Pin / unpin current tab', 'Ctrl+Alt+P'),
-        this.menuCommand(COMMAND.moveTabToOtherPane, 'Move current tab to other pane'),
-        this.menuCommand(COMMAND.moveTabLeft, 'Move tab left'),
-        this.menuCommand(COMMAND.moveTabRight, 'Move tab right'),
-        this.menuCommand(COMMAND.closeOtherTabs, 'Close other tabs'),
-        this.menuCommand(COMMAND.closeTabsToRight, 'Close tabs to the right'),
+    const pane = this.activePane;
+    const items: ReassemblyContextMenuItem[] = [];
+
+    this.pushMenuSection(items, [
+      ...(pane?.canCreate ? [
+        this.menuCommand(COMMAND.newFolder, 'New Folder', 'F7'),
         this.menuCommand(COMMAND.newFile, 'New File'),
         this.menuCommand(COMMAND.newTextDocument, 'New Text Document'),
         this.menuCommand(COMMAND.newMarkdownDocument, 'New Markdown Document'),
         this.menuCommand(COMMAND.newJsonDocument, 'New JSON Document'),
-        this.menuCommand(COMMAND.refresh, 'Refresh', 'Ctrl+R'),
-    ];
+      ] : []),
+      this.menuCommand(COMMAND.paste, 'Paste', 'Ctrl+V'),
+      this.menuCommand(COMMAND.undo, 'Undo', 'Ctrl+Z'),
+      this.menuCommand(COMMAND.redo, 'Redo', 'Ctrl+Y'),
+    ]);
+
+    this.pushMenuSection(items, [
+      this.menuCommand(COMMAND.selectAll, 'Select All', 'Ctrl+A'),
+      this.menuCommand(COMMAND.selectFiles, 'Select Visible Files', 'Alt+Shift+F'),
+      this.menuCommand(COMMAND.selectFolders, 'Select Visible Folders', 'Alt+Shift+D'),
+      this.menuCommand(COMMAND.clearSelection, 'Clear Selection', 'Ctrl+Alt+D'),
+      this.menuCommand(COMMAND.invertSelection, 'Invert Selection', 'Alt+I'),
+      this.menuCommand(COMMAND.selectByMask, 'Select by Mask…', 'Alt+S'),
+      this.menuCommand(COMMAND.unselectByMask, 'Unselect by Mask…', 'Alt+U'),
+      this.menuCommand(COMMAND.openBasket, 'Selection Basket', 'Ctrl+Shift+B'),
+    ]);
+
+    this.pushMenuSection(items, [
+      this.menuCommand(
+        COMMAND.toggleCurrentPin,
+        this.isPanePathPinned(pane) ? 'Unpin this Location' : 'Pin this Location',
+      ),
+      this.menuCommand(COMMAND.globalSearch, 'Search Here…', 'Ctrl+K'),
+      this.menuCommand(COMMAND.quickPathJump, 'Go to Path…', 'Ctrl+P'),
+      this.menuCommand(COMMAND.refresh, 'Refresh', 'Ctrl+R'),
+      this.menuCommand(COMMAND.openTerminal, 'Open Terminal Here', 'Ctrl+Alt+T'),
+      this.menuCommand(COMMAND.diskUsage, 'Disk Usage', 'Ctrl+Shift+D'),
+      this.menuCommand(COMMAND.findDuplicates, 'Find Duplicates'),
+      this.menuCommand(COMMAND.remoteConnect, 'Connect Remote…'),
+    ]);
+
+    this.pushMenuSection(items, [
+      this.menuCommand(COMMAND.toggleTabPin, 'Pin / Unpin Current Tab', 'Ctrl+Alt+P'),
+      this.menuCommand(COMMAND.moveTabToOtherPane, 'Move Current Tab to Other Pane'),
+      this.menuCommand(COMMAND.moveTabLeft, 'Move Tab Left'),
+      this.menuCommand(COMMAND.moveTabRight, 'Move Tab Right'),
+      this.menuCommand(COMMAND.closeOtherTabs, 'Close Other Tabs'),
+      this.menuCommand(COMMAND.closeTabsToRight, 'Close Tabs to the Right'),
+    ]);
+
+    this.pushMenuSection(items, [
+      this.menuCommand(COMMAND.openOperations, 'Operations Center'),
+      this.menuCommand(COMMAND.openTrash, 'Trash / Recycle Bin'),
+      this.menuCommand(COMMAND.openCommandPalette, 'Command Palette', 'Ctrl+Shift+P'),
+      this.menuCommand(COMMAND.openSettings, 'Settings', 'Ctrl+,'),
+      this.menuCommand(COMMAND.openPluginSettings, 'Plugin Settings'),
+    ]);
 
     const pluginItems = this.pluginContextMenuItems(
-      this.activePane,
-      this.activePane?.path ?? '',
+      pane,
+      pane?.path ?? '',
     );
-    if (pluginItems.length) {
-      items.push({ separator: true }, ...pluginItems);
-    }
+    if (pluginItems.length) this.pushMenuSection(items, pluginItems);
 
     this.contextMenu = {
       x: this.clampMenuX(event.clientX),
       y: this.clampMenuY(event.clientY),
-      title: this.activePane?.path || 'Folder',
-      items,
+      title: pane?.path || 'Folder',
+      items: normalizeContextMenuItems(items),
     };
     this.cdr.markForCheck();
   }
 
   dispatchContextCommand(commandId: string): void {
-    this.closeContextMenu();
+    // Do not restore the old focus here: commands such as Rename deliberately
+    // establish a new focus target of their own.
+    this.closeContextMenu(false);
     this.input.dispatchCommandById(commandId, {
       source: 'context-menu',
       context: {
         paneId: this.activePaneId,
         path: this.activePane?.path ?? '',
+        selectedPaths: this.pluginSelectionPaths(),
       },
     });
   }
 
-  closeContextMenu(): void {
+  closeContextMenu(restoreFocus = true): void {
     if (!this.contextMenu) return;
     this.contextMenu = null;
+    const target = this.contextMenuReturnFocus;
+    this.contextMenuReturnFocus = null;
     this.cdr.markForCheck();
+
+    if (!restoreFocus) return;
+    requestAnimationFrame(() => {
+      if (target?.isConnected) {
+        target.focus({ preventScroll: true });
+      } else {
+        this.activePane?.focusContent();
+      }
+    });
   }
 
   private menuCommand(
     commandId: string,
     label: string,
     shortcut?: string,
+    options: { danger?: boolean } = {},
   ): ReassemblyContextMenuItem {
     const state = this.input.getCommandState(commandId);
     return {
       commandId,
       label,
       shortcut,
+      danger: options.danger,
       enabled: !!state?.registered && state.enabled,
     };
+  }
+
+  private pushMenuSection(
+    target: ReassemblyContextMenuItem[],
+    section: readonly ReassemblyContextMenuItem[],
+  ): void {
+    const meaningful = section.filter(item => !!item && !item.separator);
+    if (!meaningful.length) return;
+    if (target.length) target.push({ separator: true });
+    target.push(...meaningful);
+  }
+
+  private entryContextTitle(entry: FileInfo, selectionCount: number): string {
+    if (selectionCount > 1) return `${selectionCount} selected · ${entry.name}`;
+    return entry.name;
+  }
+
+  private captureContextMenuFocus(): void {
+    if (typeof document === 'undefined') {
+      this.contextMenuReturnFocus = null;
+      return;
+    }
+    const active = document.activeElement;
+    this.contextMenuReturnFocus = active instanceof HTMLElement ? active : null;
   }
 
   private clampMenuX(x: number): number {

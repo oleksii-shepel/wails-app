@@ -1,4 +1,4 @@
-import { analyzePaneLocations, mirrorPaneLocation, relativePaneLocation, samePaneLocation } from './reassembly-pane-link-policy';
+import { analyzePaneLocations, mirrorPaneLocation, mirroredPeerCandidates, relativePaneLocation, samePaneLocation } from './reassembly-pane-link-policy';
 
 describe('Reassembly pane link policy', () => {
   it('recognizes equivalent Windows locations', () => {
@@ -22,5 +22,17 @@ describe('Reassembly pane link policy', () => {
 
   it('refuses navigation outside the linked root', () => {
     expect(relativePaneLocation('C:/other','C:/src')).toBeNull();
+  });
+  it('offers progressively nearer peer folders when an exact mirror is missing', () => {
+    expect(mirroredPeerCandidates(
+      'C:\\src\\app\\assets\\icons',
+      'C:\\src',
+      'D:\\backup',
+    )).toEqual([
+      'D:\\backup\\app\\assets\\icons',
+      'D:\\backup\\app\\assets',
+      'D:\\backup\\app',
+      'D:\\backup',
+    ]);
   });
 });

@@ -65,3 +65,26 @@ export function mirrorPaneLocation(sourceLocation: string, sourceRoot: string, t
   const separator = targetRoot.includes('\\') && !targetRoot.includes('://') ? '\\' : '/';
   return `${target}${separator}${relative.join(separator)}`;
 }
+
+
+export function mirroredPeerCandidates(
+  sourceLocation: string,
+  sourceRoot: string,
+  targetRoot: string,
+): string[] {
+  const relative = relativePaneLocation(sourceLocation, sourceRoot);
+  if (!relative) return [];
+
+  const target = targetRoot.replace(/[\\/]+$/, '');
+  const separator = targetRoot.includes('\\') && !targetRoot.includes('://') ? '\\' : '/';
+  const candidates: string[] = [];
+
+  for (let length = relative.length; length >= 0; length -= 1) {
+    const suffix = relative.slice(0, length);
+    candidates.push(
+      suffix.length ? `${target}${separator}${suffix.join(separator)}` : targetRoot,
+    );
+  }
+
+  return Array.from(new Set(candidates));
+}

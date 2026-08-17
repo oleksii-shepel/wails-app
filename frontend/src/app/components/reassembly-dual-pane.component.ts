@@ -84,7 +84,8 @@ import type { ToolbarContext, MenuContext } from '../plugin/plugin-registry-api'
 import { adaptPluginToolbarActions } from './pane-toolbar-action';
 import { presentPluginCommand } from './plugin-command-presentation';
 import type { PresentedCommand } from './presented-command';
-import { analyzePaneLocations, mirrorPaneLocation } from './reassembly-pane-link-policy';
+import { analyzePaneLocations, mirrorPaneLocation, mirroredPeerCandidates } from './reassembly-pane-link-policy';
+import type { ReassemblyPanePresentation } from './reassembly-directory-pane.component';
 
 type PaneId = 'left' | 'right';
 
@@ -422,6 +423,13 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         <span class="relation" [title]="paneRelationTitle">{{ paneRelationLabel }}</span>
         <span class="link-status" *ngIf="linkStatus">{{ linkStatus }}</span>
         <span class="spacer"></span>
+        <button type="button" [class.active]="mirrorPresentation" [attr.aria-pressed]="mirrorPresentation"
+          title="Mirror view mode, sorting, and folders-first state"
+          (click)="toggleMirrorPresentation()">Mirror</button>
+        <button type="button" [class.active]="mirrorFilter" [attr.aria-pressed]="mirrorFilter"
+          [disabled]="!mirrorPresentation"
+          title="Also mirror the pane filter"
+          (click)="toggleMirrorFilter()">Filter</button>
         <button type="button" [class.active]="followSelection" [attr.aria-pressed]="followSelection"
           title="Mirror cursor to a matching item in the other pane"
           (click)="toggleFollowSelection()">Follow</button>
@@ -443,6 +451,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           (togglePinRequested)="togglePanePin(leftPane)"
           (locationChange)="onLinkedPaneLocationChange('left', $event)"
           (cursorChange)="onLinkedPaneCursorChange('left', $event)"
+          (presentationChange)="onPanePresentationChange('left', $event)"
           (entryContextMenu)="openEntryMenu('left', $event.event, $event.entry)"
           (backgroundContextMenu)="openBackgroundMenu('left', $event)"
           (internalDrop)="handleInternalDrop('left', $event.event, $event.targetPath)">
@@ -481,6 +490,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           (togglePinRequested)="togglePanePin(rightPane)"
           (locationChange)="onLinkedPaneLocationChange('right', $event)"
           (cursorChange)="onLinkedPaneCursorChange('right', $event)"
+          (presentationChange)="onPanePresentationChange('right', $event)"
           (entryContextMenu)="openEntryMenu('right', $event.event, $event.entry)"
           (backgroundContextMenu)="openBackgroundMenu('right', $event)"
           (internalDrop)="handleInternalDrop('right', $event.event, $event.targetPath)">
@@ -724,6 +734,8 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
   lastDrop = 'none';
   linkedNavigation = false;
   followSelection = false;
+  mirrorPresentation = false;
+  mirrorFilter = false;
   linkStatus = '';
   private linkedRoots: { left: string; right: string } | null = null;
   private linkedNavigationGuard = 0;
@@ -1009,6 +1021,54 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     return `Left: ${this.leftPane?.path || '—'}\nRight: ${this.rightPane?.path || '—'}`;
   }
 
+  toggleMirrorPresentation(): void {
+    this.mirrorPresentation = !this.mirrorPresentation;
+    if (!this.mirrorPresentation) this.mirrorFilter = false;
+
+    if (this.mirrorPresentation && this.activePane) {
+      this.onPanePresentationChange(
+        this.activePaneId,
+        this.activePane.panePresentation(),
+      );
+    }
+
+    this.linkStatus = this.mirrorPresentation ? 'presentation mirrored' : '';
+    this.cdr.markForCheck();
+  }
+
+  toggleMirrorFilter(): void {
+    if (!this.mirrorPresentation) return;
+    this.mirrorFilter = !this.mirrorFilter;
+
+    if (this.mirrorFilter && this.activePane) {
+      this.onPanePresentationChange(
+        this.activePaneId,
+        this.activePane.panePresentation(),
+      );
+    }
+
+    this.linkStatus = this.mirrorFilter ? 'filter mirrored' : 'filter independent';
+    this.cdr.markForCheck();
+  }
+
+  onPanePresentationChange(
+    paneId: PaneId,
+    presentation: ReassemblyPanePresentation,
+  ): void {
+    if (!this.mirrorPresentation) return;
+
+    const target = paneId === 'left' ? this.rightPane : this.leftPane;
+    if (!target?.isDirectoryTab) return;
+
+    target.applyMirroredPresentation(presentation, {
+      filter: this.mirrorFilter,
+    });
+    this.linkStatus = this.mirrorFilter
+      ? 'presentation + filter aligned'
+      : 'presentation aligned';
+    this.cdr.markForCheck();
+  }
+
   toggleLinkedNavigation(): void {
     this.linkedNavigation = !this.linkedNavigation;
     this.linkStatus = '';
@@ -1056,16 +1116,38 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       return;
     }
 
-    if (!(await targetPane.canNavigateToLocation(mirrored))) {
-      this.linkStatus = `missing peer: ${this.leafName(mirrored) || mirrored}`;
-      this.cdr.markForCheck();
-      return;
+    let peer = mirrored;
+    let exact = true;
+
+    if (!(await targetPane.canNavigateToLocation(peer))) {
+      exact = false;
+      const candidates = mirroredPeerCandidates(
+        path,
+        this.linkedRoots[paneId],
+        this.linkedRoots[otherId],
+      ).slice(1);
+
+      peer = '';
+      for (const candidate of candidates) {
+        if (await targetPane.canNavigateToLocation(candidate)) {
+          peer = candidate;
+          break;
+        }
+      }
+
+      if (!peer) {
+        this.linkStatus = `missing peer: ${this.leafName(mirrored) || mirrored}`;
+        this.cdr.markForCheck();
+        return;
+      }
     }
 
     this.linkedNavigationGuard++;
     try {
-      const loaded = await targetPane.load(mirrored, { history:'record', preserveCursor:false });
-      this.linkStatus = loaded ? 'aligned' : 'peer navigation failed';
+      const loaded = await targetPane.load(peer, { history:'record', preserveCursor:false });
+      this.linkStatus = loaded
+        ? (exact ? 'aligned' : `nearest peer: ${this.leafName(peer) || peer}`)
+        : 'peer navigation failed';
     } finally {
       this.linkedNavigationGuard = Math.max(0, this.linkedNavigationGuard - 1);
       this.cdr.markForCheck();

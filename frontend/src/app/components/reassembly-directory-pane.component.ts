@@ -68,9 +68,18 @@ import {
   togglePathSelection,
 } from './reassembly-selection-policy';
 
-type ReassemblyDirectoryView = 'list' | 'grid' | 'details' | 'tree';
-type ReassemblySortField = 'name' | 'size' | 'modified' | 'type';
-type ReassemblySortDirection = 'asc' | 'desc';
+export type ReassemblyDirectoryView = 'list' | 'grid' | 'details' | 'tree';
+export type ReassemblySortField = 'name' | 'size' | 'modified' | 'type';
+export type ReassemblySortDirection = 'asc' | 'desc';
+
+export interface ReassemblyPanePresentation {
+  readonly viewMode: ReassemblyDirectoryView;
+  readonly sortField: ReassemblySortField;
+  readonly sortDirection: ReassemblySortDirection;
+  readonly directoriesFirst: boolean;
+  readonly filterText: string;
+  readonly filterVisible: boolean;
+}
 
 interface ReassemblyTreeRow {
   entry: FileInfo;
@@ -398,6 +407,7 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
           *ngFor="let row of treeRows; trackBy: trackTreeRow"
           class="tree-row"
           tabindex="-1"
+          [attr.data-file-entry]="row.entry.path"
           role="treeitem"
           [class.selected]="selectedPaths.has(row.entry.path)"
           [class.cursor]="cursorPath === row.entry.path"
@@ -1431,6 +1441,8 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   @Output() togglePinRequested = new EventEmitter<void>();
   @Output() locationChange = new EventEmitter<string>();
   @Output() cursorChange = new EventEmitter<FileInfo | null>();
+  @Output() presentationChange = new EventEmitter<ReassemblyPanePresentation>();
+  @Output() viewportChange = new EventEmitter<{ topName: string | null; ratio: number }>();
   @Output() entryContextMenu = new EventEmitter<{ event: MouseEvent; entry: FileInfo }>();
   @Output() backgroundContextMenu = new EventEmitter<MouseEvent>();
   @Output() internalDrop = new EventEmitter<{
@@ -1454,6 +1466,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   renameError: string | null = null;
   renameBusy = false;
   private suppressRenameBlur = false;
+  private applyingMirroredPresentation = false;
 
   driveFreeBytes = 0;
   driveTotalBytes = 0;
@@ -1521,6 +1534,114 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     this.syncActiveDirSessionState();
     this.cdr.markForCheck();
     return true;
+  }
+
+  panePresentation(): ReassemblyPanePresentation {
+    return {
+      viewMode: this.viewMode,
+      sortField: this.sortField,
+      sortDirection: this.sortDirection,
+      directoriesFirst: this.directoriesFirst,
+      filterText: this.filterText,
+      filterVisible: this.filterVisible,
+    };
+  }
+
+  viewportSnapshot(): { topName: string | null; ratio: number } {
+    const viewport = this.viewMode === 'tree'
+      ? this.treeViewport?.nativeElement
+      : this.listViewport?.nativeElement;
+
+    if (!viewport) return { topName: null, ratio: 0 };
+
+    const max = Math.max(1, viewport.scrollHeight - viewport.clientHeight);
+    const ratio = Math.max(0, Math.min(1, viewport.scrollTop / max));
+
+    const rows = Array.from(
+      viewport.querySelectorAll<HTMLElement>('[data-file-entry], .tree-row'),
+    );
+    const viewportTop = viewport.getBoundingClientRect().top;
+    const firstVisible = rows.find(row => row.getBoundingClientRect().bottom >= viewportTop);
+
+    const path = firstVisible?.getAttribute('data-file-entry') ?? null;
+    const entry = path
+      ? this.entries.find(candidate => candidate.path === path)
+      : null;
+
+    return { topName: entry?.name ?? null, ratio };
+  }
+
+  syncViewportToPeer(snapshot: { topName: string | null; ratio: number }): void {
+    const viewport = this.viewMode === 'tree'
+      ? this.treeViewport?.nativeElement
+      : this.listViewport?.nativeElement;
+    if (!viewport) return;
+
+    let matched = false;
+    if (snapshot.topName) {
+      const folded = snapshot.topName.toLowerCase();
+      const entry = this.entries.find(candidate =>
+        candidate.path !== '__parent__' &&
+        candidate.name.toLowerCase() === folded
+      );
+
+      if (entry) {
+        const escaped =
+          typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+            ? CSS.escape(entry.path)
+            : entry.path.replace(/["\\]/g, '\\$&');
+
+        const row = viewport.querySelector<HTMLElement>(
+          `[data-file-entry="${escaped}"]`,
+        );
+        if (row) {
+          row.scrollIntoView({ block: 'start' });
+          matched = true;
+        }
+      }
+    }
+
+    if (!matched) {
+      const max = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+      viewport.scrollTop = Math.round(max * Math.max(0, Math.min(1, snapshot.ratio)));
+    }
+  }
+
+  applyMirroredPresentation(
+    value: ReassemblyPanePresentation,
+    options: { filter: boolean },
+  ): void {
+    if (!this.isDirectoryTab) return;
+
+    this.applyingMirroredPresentation = true;
+    try {
+      if (!(this.isInArchive && value.viewMode === 'tree')) {
+        this.viewMode = value.viewMode;
+      }
+      this.sortField = value.sortField;
+      this.sortDirection = value.sortDirection;
+      this.directoriesFirst = value.directoriesFirst;
+
+      if (options.filter) {
+        this.filterText = value.filterText;
+        this.filterVisible = value.filterVisible;
+        this.reconcileSelectionWithVisibleEntries();
+      }
+
+      this.syncActiveDirSessionState();
+      this.lastAction = options.filter
+        ? 'mirrored pane presentation + filter'
+        : 'mirrored pane presentation';
+      queueMicrotask(() => this.ensureCursorVisible());
+      this.cdr.markForCheck();
+    } finally {
+      this.applyingMirroredPresentation = false;
+    }
+  }
+
+  private emitPresentationChange(): void {
+    if (this.applyingMirroredPresentation) return;
+    this.presentationChange.emit(this.panePresentation());
   }
 
   entryAriaLabel(entry: FileInfo): string {
@@ -2513,6 +2634,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     this.sortField = field;
     this.syncActiveDirSessionState();
     this.lastAction = `sort: ${field}`;
+    this.emitPresentationChange();
     this.cdr.markForCheck();
   }
 
@@ -2521,6 +2643,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
     this.syncActiveDirSessionState();
     this.lastAction = `sort: ${this.sortDirection}`;
+    this.emitPresentationChange();
     this.cdr.markForCheck();
   }
 
@@ -2531,6 +2654,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     this.lastAction = this.directoriesFirst
       ? 'folders first'
       : 'mixed folders/files';
+    this.emitPresentationChange();
     this.cdr.markForCheck();
   }
 
@@ -2554,6 +2678,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     this.viewMode = mode;
     this.syncActiveDirSessionState();
     this.lastAction = `view: ${mode}`;
+    this.emitPresentationChange();
     queueMicrotask(() => this.ensureCursorVisible());
     this.cdr.markForCheck();
   }
@@ -2702,6 +2827,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     this.reconcileSelectionWithVisibleEntries();
     this.lastAction = this.filterText ? `filter: ${this.filterText}` : 'filter cleared';
     this.syncActiveDirSessionState();
+    this.emitPresentationChange();
     this.cdr.markForCheck();
   }
 
@@ -2713,6 +2839,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     this.reconcileSelectionWithVisibleEntries();
     this.lastAction = 'filter closed';
     this.syncActiveDirSessionState();
+    this.emitPresentationChange();
     this.cdr.markForCheck();
   }
 
@@ -6546,6 +6673,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       this.scrollPersistTimer = null;
       this.syncActiveDirSessionState();
     }, 140);
+    this.viewportChange.emit(this.viewportSnapshot());
   }
 
   private async tryRestoreWorkspaceTabs(): Promise<boolean> {

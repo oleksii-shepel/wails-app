@@ -70,6 +70,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
       <section class="search" role="dialog" aria-modal="true" aria-label="Global search"
         (mousedown)="$event.stopPropagation()"
         reassemblyModalSurface
+        (reassemblyModalDismiss)="close()"
         [reassemblyModalInitial]="\'.query > input\'"
         tabindex="-1">
         <header>

@@ -76,6 +76,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
       <section class="tools" role="dialog" aria-modal="true" aria-label="File manager tools"
         (mousedown)="$event.stopPropagation()"
         reassemblyModalSurface
+        (reassemblyModalDismiss)="close()"
         [reassemblyModalInitial]="\'nav button.active\'"
         tabindex="-1">
         <header>

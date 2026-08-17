@@ -1,6 +1,7 @@
 import {
   AfterViewInit,
   Component,
+  HostListener,
   OnDestroy,
   ViewChild,
 } from '@angular/core';
@@ -13,6 +14,7 @@ import { RemoteConnectDialogComponent } from './components/remote-connect-dialog
 import { SettingsDialogComponent } from './components/settings-dialog.component';
 import { ReassemblyTrashDialogComponent } from './components/reassembly-trash-dialog.component';
 import { PluginBootstrapService } from './services/plugin-bootstrap.service';
+import { ReassemblyModalStackService } from './services/reassembly-modal-stack.service';
 
 @Component({
   selector: 'app-root',
@@ -81,7 +83,17 @@ export class AppComponent implements AfterViewInit, OnDestroy {
 
   constructor(
     private readonly pluginBootstrap: PluginBootstrapService,
+    private readonly modalStack: ReassemblyModalStackService,
   ) {}
+
+  @HostListener('document:keydown.escape', ['$event'])
+  onGlobalEscape(event: KeyboardEvent): void {
+    if (event.defaultPrevented) return;
+    if (!this.modalStack.dismissTopmost()) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+  }
 
   ngAfterViewInit(): void {
     void this.pluginBootstrap.initialize(

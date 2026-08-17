@@ -223,6 +223,7 @@ interface WorkspaceSwitcherItem {
         aria-label="Workspace switcher"
         (mousedown)="$event.stopPropagation()"
         reassemblyModalSurface
+        (reassemblyModalDismiss)="close()"
         reassemblyModalInitial="[aria-selected='true']"
         tabindex="-1">
 

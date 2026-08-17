@@ -60,6 +60,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
       <section class="history" role="dialog" aria-modal="true" aria-label="Location history"
         (mousedown)="$event.stopPropagation()"
         reassemblyModalSurface
+        (reassemblyModalDismiss)="close()"
         [reassemblyModalInitial]="\'header input\'"
         tabindex="-1">
         <header>

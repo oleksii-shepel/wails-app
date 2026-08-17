@@ -92,6 +92,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     <div class="backdrop" *ngIf="visible" (mousedown)="close()">
       <section class="quick" role="dialog" aria-modal="true" aria-label="Quick Access" (mousedown)="$event.stopPropagation()"
         reassemblyModalSurface
+        (reassemblyModalDismiss)="close()"
         [reassemblyModalInitial]="\'header input\'"
         tabindex="-1">
         <header>

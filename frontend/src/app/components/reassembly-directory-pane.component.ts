@@ -174,16 +174,24 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
       (focusin)="activateRequested.emit()"
       (mousedown)="activateRequested.emit()">
 
-      <div class="tab-strip" role="tablist" [attr.aria-label]="paneId + ' pane tabs'">
+      <div
+        #tabStrip
+        class="tab-strip"
+        role="tablist"
+        [attr.aria-label]="paneId + ' pane tabs'"
+        (dblclick)="onTabStripDoubleClick($event)"
+        (wheel)="onTabStripWheel($event)">
         <button
           *ngFor="let tab of tabs; trackBy: trackTab"
           type="button"
           class="tab"
           role="tab"
+          [attr.data-tab-id]="tab.id"
           [attr.aria-selected]="tab.id === activeTabId"
           [class.active]="tab.id === activeTabId"
           [title]="tab.path"
-          (click)="activateTab(tab.id)">
+          (click)="activateTab(tab.id)"
+          (auxclick)="onTabAuxClick(tab, $event)">
           <span class="tab-title">
             <span class="tab-kind" aria-hidden="true">{{ tab.kind === 'viewer' ? '◉' : (tab.kind === 'surface' ? '◆' : '▣') }}</span>
             <span class="tab-pin-indicator" *ngIf="tab.isPinned" aria-label="Pinned tab">●</span>
@@ -2132,6 +2140,60 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
   }
 
+  private revealActiveTab(tabId = this.activeTabId): void {
+    if (!tabId) return;
+
+    queueMicrotask(() => {
+      const root = this.paneRoot?.nativeElement;
+      if (!root) return;
+
+      const escaped =
+        typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+          ? CSS.escape(tabId)
+          : tabId.replace(/["\\]/g, '\\$&');
+
+      root
+        .querySelector<HTMLElement>(`.tab[data-tab-id="${escaped}"]`)
+        ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    });
+  }
+
+  onTabAuxClick(tab: ReassemblyTab, event: MouseEvent): void {
+    if (event.button !== 1) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (!tab.isClosable || tab.isPinned) {
+      this.lastAction = tab.isPinned
+        ? `pinned tab kept: ${tab.title}`
+        : `permanent tab kept: ${tab.title}`;
+      this.revealActiveTab(tabId);
+    this.cdr.markForCheck();
+      return;
+    }
+
+    void this.closeTab(tab.id);
+  }
+
+  onTabStripDoubleClick(event: MouseEvent): void {
+    const target = event.target as HTMLElement | null;
+    if (target?.closest('.tab, .new-tab, button')) return;
+    this.newTab();
+  }
+
+  onTabStripWheel(event: WheelEvent): void {
+    const strip = event.currentTarget as HTMLElement | null;
+    if (!strip || strip.scrollWidth <= strip.clientWidth) return;
+
+    const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY)
+      ? event.deltaX
+      : event.deltaY;
+    if (!delta) return;
+
+    event.preventDefault();
+    strip.scrollLeft += delta;
+  }
+
   async closeTab(tabId: string): Promise<void> {
     const index = this.tabs.findIndex(tab => tab.id === tabId);
     if (index < 0) return;
@@ -2189,6 +2251,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     const next = this.tabs[nextIndex];
     this.activeTabId = next.id;
     this.lastAction = `close tab -> ${next.title}`;
+    this.revealActiveTab(next.id);
     this.cdr.markForCheck();
 
     if (next.kind === 'dir') {

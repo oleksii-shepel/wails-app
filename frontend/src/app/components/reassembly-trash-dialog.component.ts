@@ -32,8 +32,9 @@ import { ReassemblyModalSurfaceDirective } from './reassembly-modal-surface.dire
         aria-modal="true"
         aria-label="Trash / Recycle Bin"
         reassemblyModalSurface
+        (reassemblyModalDismiss)="close()"
         reassemblyModalInitial=".trash-list"
-        (keydown.escape)="close()">
+        >
         <header>
           <div>
             <h2>Trash / Recycle Bin</h2>

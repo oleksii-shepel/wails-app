@@ -53,6 +53,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
       <section class="palette" role="dialog" aria-modal="true" aria-label="Command palette"
         (mousedown)="$event.stopPropagation()"
         reassemblyModalSurface
+        (reassemblyModalDismiss)="close()"
         [reassemblyModalInitial]="\'.query input\'"
         tabindex="-1">
         <header>

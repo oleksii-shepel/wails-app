@@ -5,8 +5,9 @@ import {
   ElementRef,
   EventEmitter,
   Input,
-  OnDestroy,
+  OnChanges,
   Output,
+  SimpleChanges,
   ViewChild,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
@@ -17,7 +18,6 @@ export interface ReassemblyContextMenuItem {
   shortcut?: string;
   enabled?: boolean;
   separator?: boolean;
-  danger?: boolean;
 }
 
 export interface ReassemblyContextMenuState {
@@ -37,44 +37,35 @@ export interface ReassemblyContextMenuState {
       *ngIf="state"
       class="backdrop"
       (mousedown)="closed.emit()"
-      (contextmenu)="$event.preventDefault(); closed.emit()"
-      (keydown)="onKeyDown($event)">
+      (contextmenu)="$event.preventDefault(); closed.emit()">
 
       <section
         #menu
         class="menu"
         role="menu"
-        tabindex="-1"
-        [attr.aria-label]="state.title || 'Context menu'"
-        [style.left.px]="menuX"
-        [style.top.px]="menuY"
-        [style.--context-menu-width.px]="menuWidth"
+        aria-label="Context menu"
+        [style.left.px]="menuLeft"
+        [style.top.px]="menuTop"
+        (keydown)="onMenuKeyDown($event)"
         (mousedown)="$event.stopPropagation()"
         (contextmenu)="$event.preventDefault(); $event.stopPropagation()">
 
         <div class="title" *ngIf="state.title">{{ state.title }}</div>
 
-        <div
-          class="menu-items"
-          [style.column-count]="menuColumns"
-          [style.column-gap.px]="menuColumns > 1 ? 6 : 0">
-          <ng-container *ngFor="let item of state.items; let i = index">
-            <div *ngIf="item.separator" class="separator" role="separator"></div>
+        <ng-container *ngFor="let item of state.items">
+          <div *ngIf="item.separator" class="separator" role="separator"></div>
 
-            <button
-              *ngIf="!item.separator"
-              type="button"
-              role="menuitem"
-              [attr.data-menu-index]="i"
-              [class.danger]="item.danger"
-              [disabled]="item.enabled === false"
-              (mouseenter)="focusItem(i)"
-              (click)="choose(item)">
-              <span class="label">{{ item.label }}</span>
-              <span class="shortcut" *ngIf="item.shortcut">{{ item.shortcut }}</span>
-            </button>
-          </ng-container>
-        </div>
+          <button
+            *ngIf="!item.separator"
+            type="button"
+            role="menuitem"
+            data-context-menu-item
+            [disabled]="item.enabled === false"
+            (click)="choose(item)">
+            <span class="label">{{ item.label }}</span>
+            <span class="shortcut" *ngIf="item.shortcut">{{ item.shortcut }}</span>
+          </button>
+        </ng-container>
       </section>
     </div>
   `,
@@ -95,8 +86,14 @@ export interface ReassemblyContextMenuState {
     .menu {
       position: fixed;
       box-sizing: border-box;
-      width: min(var(--context-menu-width, 286px), calc(100vw - 16px));
+      width: max-content;
+      min-width: min(220px, calc(100vw - 16px));
+      max-width: calc(100vw - 16px);
+      max-height: calc(100vh - 16px);
       overflow: visible;
+      columns: 230px auto;
+      column-fill: auto;
+      column-gap: 4px;
       padding: 4px;
       border: 1px solid var(--vsc-border, var(--vsc-border));
       border-radius: 6px;
@@ -104,10 +101,10 @@ export interface ReassemblyContextMenuState {
       color: var(--vsc-menu-foreground, var(--vsc-foreground));
       box-shadow: 0 8px 30px var(--vsc-scrim);
       font: 12px/1.35 var(--vsc-font-family, system-ui, sans-serif);
-      outline: none;
     }
 
     .title {
+      column-span: all;
       padding: 5px 8px 6px;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -116,20 +113,14 @@ export interface ReassemblyContextMenuState {
       font-size: 10px;
     }
 
-    .menu-items {
-      display: block;
-      column-fill: balance;
-    }
-
     button {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
       gap: 16px;
       align-items: center;
       width: 100%;
-      min-height: 24px;
-      padding: 2px 7px;
-      break-inside: avoid;
+      min-height: 28px;
+      padding: 4px 8px;
       border: 0;
       border-radius: 3px;
       background: transparent;
@@ -137,6 +128,7 @@ export interface ReassemblyContextMenuState {
       text-align: left;
       cursor: pointer;
       font: inherit;
+      break-inside: avoid;
     }
 
     button:hover:not(:disabled),
@@ -145,13 +137,8 @@ export interface ReassemblyContextMenuState {
       background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
     }
 
-    button.danger:not(:disabled) {
-      color: var(--vsc-error, var(--vsc-danger));
-    }
-
     button:disabled {
-      color: var(--vsc-disabled-foreground, var(--vsc-foreground-dim));
-      opacity: .62;
+      opacity: .38;
       cursor: default;
     }
 
@@ -164,58 +151,44 @@ export interface ReassemblyContextMenuState {
     .shortcut {
       color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
       font-size: 10px;
-      white-space: nowrap;
     }
 
     .separator {
-      height: 1px;
-      margin: 3px 5px;
-      background: var(--vsc-border, var(--vsc-border));
       break-inside: avoid;
+      height: 1px;
+      margin: 4px 5px;
+      background: var(--vsc-border, var(--vsc-border));
     }
   `],
 })
-export class ReassemblyContextMenuComponent implements OnDestroy {
-  @ViewChild('menu') menu?: ElementRef<HTMLElement>;
-
+export class ReassemblyContextMenuComponent implements OnChanges {
+  @Input() state: ReassemblyContextMenuState | null = null;
   @Output() command = new EventEmitter<string>();
   @Output() closed = new EventEmitter<void>();
+  @ViewChild('menu') menu?: ElementRef<HTMLElement>;
 
-  private _state: ReassemblyContextMenuState | null = null;
-  private focusTimer: ReturnType<typeof setTimeout> | null = null;
-  private typeaheadTimer: ReturnType<typeof setTimeout> | null = null;
+  menuLeft = 8;
+  menuTop = 8;
   private typeahead = '';
-
-  menuX = 8;
-  menuY = 8;
-  menuColumns = 1;
-  menuWidth = 286;
+  private typeaheadTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private readonly cdr: ChangeDetectorRef) {}
 
-  @Input()
-  set state(value: ReassemblyContextMenuState | null) {
-    this._state = value;
-    if (!value) {
-      this.clearFocusTimer();
-      this.clearTypeahead();
-      return;
-    }
+  ngOnChanges(changes: SimpleChanges): void {
+    if (!changes['state']) return;
 
-    this.menuX = value.x;
-    this.menuY = value.y;
-    this.menuColumns = 1;
-    this.menuWidth = 286;
-    this.scheduleInitialFocus();
-  }
-
-  get state(): ReassemblyContextMenuState | null {
-    return this._state;
-  }
-
-  ngOnDestroy(): void {
-    this.clearFocusTimer();
     this.clearTypeahead();
+
+    if (!this.state) return;
+
+    this.menuLeft = Math.max(8, this.state.x);
+    this.menuTop = Math.max(8, this.state.y);
+    this.cdr.markForCheck();
+
+    queueMicrotask(() => {
+      this.fitToViewport();
+      this.focusItem(0, 1);
+    });
   }
 
   choose(item: ReassemblyContextMenuItem): void {
@@ -223,50 +196,42 @@ export class ReassemblyContextMenuComponent implements OnDestroy {
     this.command.emit(item.commandId);
   }
 
-  focusItem(index: number): void {
-    const button = this.buttonForItemIndex(index);
-    if (button && !button.disabled) button.focus({ preventScroll: true });
-  }
+  onMenuKeyDown(event: KeyboardEvent): void {
+    const items = this.items();
+    if (!items.length) return;
 
-  onKeyDown(event: KeyboardEvent): void {
-    if (!this.state) return;
+    const active = document.activeElement as HTMLButtonElement | null;
+    const current = Math.max(0, items.indexOf(active as HTMLButtonElement));
 
-    switch (event.key) {
-      case 'Escape':
-        event.preventDefault();
-        event.stopPropagation();
-        this.closed.emit();
-        return;
-      case 'ArrowDown':
-        event.preventDefault();
-        event.stopPropagation();
-        this.focusRelative(1);
-        return;
-      case 'ArrowUp':
-        event.preventDefault();
-        event.stopPropagation();
-        this.focusRelative(-1);
-        return;
-      case 'Home':
-        event.preventDefault();
-        event.stopPropagation();
-        this.focusBoundary(false);
-        return;
-      case 'End':
-        event.preventDefault();
-        event.stopPropagation();
-        this.focusBoundary(true);
-        return;
-      case 'Enter':
-      case ' ':
-        if (this.menu?.nativeElement.contains(document.activeElement)) {
-          event.preventDefault();
-          event.stopPropagation();
-          (document.activeElement as HTMLButtonElement | null)?.click();
-        }
-        return;
-      default:
-        break;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      this.closed.emit();
+      return;
+    }
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      this.focusItem(current + 1, 1);
+      return;
+    }
+
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      this.focusItem(current - 1, -1);
+      return;
+    }
+
+    if (event.key === 'Home') {
+      event.preventDefault();
+      this.focusItem(0, 1);
+      return;
+    }
+
+    if (event.key === 'End') {
+      event.preventDefault();
+      this.focusItem(items.length - 1, -1);
+      return;
     }
 
     if (
@@ -275,168 +240,62 @@ export class ReassemblyContextMenuComponent implements OnDestroy {
       !event.altKey &&
       !event.metaKey
     ) {
-      this.handleTypeahead(event.key);
+      this.typeahead += event.key.toLocaleLowerCase();
+
+      if (this.typeaheadTimer) clearTimeout(this.typeaheadTimer);
+      this.typeaheadTimer = setTimeout(() => this.clearTypeahead(), 650);
+
+      const match = items.find(item =>
+        !item.disabled &&
+        (item.textContent ?? '')
+          .trim()
+          .toLocaleLowerCase()
+          .startsWith(this.typeahead)
+      );
+
+      if (match) {
+        event.preventDefault();
+        match.focus({ preventScroll: true });
+      }
     }
   }
 
-  private scheduleInitialFocus(): void {
-    this.clearFocusTimer();
-    this.focusTimer = setTimeout(() => {
-      this.focusTimer = null;
-      this.repositionIntoViewport();
-      this.focusBoundary(false);
-    }, 0);
-  }
-
-  private enabledButtons(): HTMLButtonElement[] {
-    const root = this.menu?.nativeElement;
-    if (!root) return [];
-    return Array.from(root.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]'))
-      .filter(button => !button.disabled);
-  }
-
-  private buttonForItemIndex(index: number): HTMLButtonElement | null {
-    return this.menu?.nativeElement.querySelector<HTMLButtonElement>(
-      `button[data-menu-index="${index}"]`,
-    ) ?? null;
-  }
-
-  private focusRelative(delta: -1 | 1): void {
-    const buttons = this.enabledButtons();
-    if (!buttons.length) return;
-
-    const active = document.activeElement as HTMLButtonElement | null;
-    const current = buttons.indexOf(active as HTMLButtonElement);
-    const next = current < 0
-      ? (delta > 0 ? 0 : buttons.length - 1)
-      : (current + delta + buttons.length) % buttons.length;
-
-    buttons[next].focus({ preventScroll: true });
-    buttons[next].scrollIntoView({ block: 'nearest' });
-  }
-
-  private focusBoundary(end: boolean): void {
-    const buttons = this.enabledButtons();
-    if (!buttons.length) {
-      this.menu?.nativeElement.focus({ preventScroll: true });
-      return;
-    }
-
-    const button = end ? buttons[buttons.length - 1] : buttons[0];
-    button.focus({ preventScroll: true });
-    button.scrollIntoView({ block: 'nearest' });
-  }
-
-  private handleTypeahead(key: string): void {
-    const buttons = this.enabledButtons();
-    if (!buttons.length) return;
-
-    this.typeahead += key.toLocaleLowerCase();
-    if (this.typeaheadTimer) clearTimeout(this.typeaheadTimer);
-    this.typeaheadTimer = setTimeout(() => this.clearTypeahead(), 650);
-
-    const active = document.activeElement as HTMLButtonElement | null;
-    const activeIndex = buttons.indexOf(active as HTMLButtonElement);
-    const ordered = [
-      ...buttons.slice(activeIndex + 1),
-      ...buttons.slice(0, activeIndex + 1),
-    ];
-
-    const match = ordered.find(button =>
-      (button.querySelector('.label')?.textContent ?? '')
-        .trim()
-        .toLocaleLowerCase()
-        .startsWith(this.typeahead),
+  private items(): HTMLButtonElement[] {
+    return Array.from(
+      this.menu?.nativeElement.querySelectorAll<HTMLButtonElement>(
+        'button[data-context-menu-item]',
+      ) ?? [],
     );
+  }
 
-    if (match) {
-      match.focus({ preventScroll: true });
-      match.scrollIntoView({ block: 'nearest' });
+  private focusItem(requested: number, direction: 1 | -1): void {
+    const items = this.items();
+    if (!items.length) return;
+
+    let index = ((requested % items.length) + items.length) % items.length;
+    for (let attempts = 0; attempts < items.length; attempts += 1) {
+      const item = items[index];
+      if (!item.disabled) {
+        item.focus({ preventScroll: true });
+        return;
+      }
+      index = ((index + direction) % items.length + items.length) % items.length;
     }
   }
 
-  private repositionIntoViewport(): void {
-    const element = this.menu?.nativeElement;
-    if (!element || typeof window === 'undefined') return;
+  private fitToViewport(): void {
+    const menu = this.menu?.nativeElement;
+    const state = this.state;
+    if (!menu || !state || typeof window === 'undefined') return;
 
     const margin = 8;
-    const gap = 4;
-    const viewportWidth = Math.max(0, window.innerWidth - margin * 2);
-    const viewportHeight = Math.max(0, window.innerHeight - margin * 2);
-    if (!viewportWidth || !viewportHeight) return;
+    const rect = menu.getBoundingClientRect();
+    const maxLeft = Math.max(margin, window.innerWidth - rect.width - margin);
+    const maxTop = Math.max(margin, window.innerHeight - rect.height - margin);
 
-    // First measure the natural one-column menu. If it is taller than the
-    // viewport, add columns instead of introducing a vertical scrollbar.
-    this.menuColumns = 1;
-    this.menuWidth = Math.min(286, viewportWidth);
-    this.cdr.detectChanges();
-
-    const titleHeight =
-      element.querySelector<HTMLElement>('.title')?.getBoundingClientRect().height ?? 0;
-    const chromeHeight = Math.max(0, element.offsetHeight - (
-      element.querySelector<HTMLElement>('.menu-items')?.offsetHeight ?? 0
-    ));
-    const items = element.querySelector<HTMLElement>('.menu-items');
-    const naturalItemsHeight = items?.scrollHeight ?? 0;
-    const availableItemsHeight = Math.max(1, viewportHeight - Math.max(titleHeight, chromeHeight));
-
-    let columns = Math.max(1, Math.ceil(naturalItemsHeight / availableItemsHeight));
-
-    // Use as many columns as can actually fit horizontally. At compact row
-    // height this keeps normal built-in/plugin menus fully visible without
-    // sacrificing readability.
-    const preferredColumnWidth = 286;
-    const maxColumnsByWidth = Math.max(1, Math.floor(viewportWidth / preferredColumnWidth));
-    columns = Math.min(columns, maxColumnsByWidth);
-
-    this.menuColumns = columns;
-    this.menuWidth = Math.min(viewportWidth, preferredColumnWidth * columns);
-    this.cdr.detectChanges();
-
-    let rect = element.getBoundingClientRect();
-
-    // If balancing still leaves the menu too tall, progressively use any
-    // remaining horizontal room. This is primarily for very large plugin menus.
-    while (rect.height > viewportHeight && this.menuColumns < maxColumnsByWidth) {
-      this.menuColumns += 1;
-      this.menuWidth = Math.min(viewportWidth, preferredColumnWidth * this.menuColumns);
-      this.cdr.detectChanges();
-      rect = element.getBoundingClientRect();
-    }
-
-    const anchorX = this.state?.x ?? this.menuX;
-    const anchorY = this.state?.y ?? this.menuY;
-
-    // Prefer below/right of the pointer. Flip to left/above when that quadrant
-    // cannot contain the measured menu. Final clamping is only a safety net.
-    let x = anchorX + gap;
-    let y = anchorY + gap;
-
-    if (x + rect.width > window.innerWidth - margin) {
-      x = anchorX - rect.width - gap;
-    }
-    if (y + rect.height > window.innerHeight - margin) {
-      y = anchorY - rect.height - gap;
-    }
-
-    x = Math.max(
-      margin,
-      Math.min(x, window.innerWidth - rect.width - margin),
-    );
-    y = Math.max(
-      margin,
-      Math.min(y, window.innerHeight - rect.height - margin),
-    );
-
-    this.menuX = x;
-    this.menuY = y;
+    this.menuLeft = Math.min(Math.max(margin, state.x), maxLeft);
+    this.menuTop = Math.min(Math.max(margin, state.y), maxTop);
     this.cdr.markForCheck();
-  }
-
-  private clearFocusTimer(): void {
-    if (!this.focusTimer) return;
-    clearTimeout(this.focusTimer);
-    this.focusTimer = null;
   }
 
   private clearTypeahead(): void {

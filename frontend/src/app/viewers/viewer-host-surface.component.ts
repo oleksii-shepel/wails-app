@@ -19,9 +19,17 @@ function extLower(path: string): string {
   imports: [CommonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <ng-container *ngIf="component; else empty">
-      <ng-container *ngComponentOutlet="component; inputs: outletInputs"></ng-container>
-    </ng-container>
+    <div class="viewer-stage" [class.resolving]="resolving">
+      <ng-container *ngIf="component; else empty">
+        <div class="viewer-content" [attr.data-viewer-key]="resolvedViewerKey || 'viewer'">
+          <ng-container *ngComponentOutlet="component; inputs: outletInputs"></ng-container>
+        </div>
+      </ng-container>
+
+      <div class="viewer-transition-status" *ngIf="resolving && component" aria-live="polite">
+        Loading preview…
+      </div>
+    </div>
 
     <ng-template #empty>
       <div class="viewer-host-empty">
@@ -39,6 +47,50 @@ function extLower(path: string): string {
       min-width: 0;
       overflow: hidden;
     }
+    .viewer-stage {
+      position: relative;
+      display: flex;
+      flex: 1 1 0%;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .viewer-content {
+      display: flex;
+      flex: 1 1 0%;
+      min-width: 0;
+      min-height: 0;
+      animation: viewer-enter 90ms ease-out;
+    }
+    .viewer-transition-status {
+      position: absolute;
+      top: 6px;
+      right: 8px;
+      z-index: 10;
+      padding: 2px 6px;
+      border-radius: 3px;
+      background: color-mix(
+        in srgb,
+        var(--vsc-menu-background, var(--vsc-panel-background)) 88%,
+        transparent
+      );
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
+      font-size: 10px;
+      pointer-events: none;
+    }
+    .viewer-stage.resolving .viewer-content {
+      opacity: .72;
+      transition: opacity 80ms ease;
+    }
+    @keyframes viewer-enter {
+      from { opacity: .72; transform: translateY(1px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .viewer-content { animation: none; }
+      .viewer-stage.resolving .viewer-content { transition: none; }
+    }
+
     .viewer-host-empty {
       display: flex;
       flex-direction: column;
@@ -57,6 +109,7 @@ function extLower(path: string): string {
 })
 export class ViewerHostSurfaceComponent implements OnChanges {
   @Input() targetPath = '';
+  resolving = false;
   @Input() fileList: ViewerFileListItem[] = [];
   @Input() archiveContext: ViewerArchiveContext | null = null;
   /** Optional explicit viewer id (from tab metadata) */
@@ -68,7 +121,7 @@ export class ViewerHostSurfaceComponent implements OnChanges {
   @ViewChild(NgComponentOutlet) private outlet?: NgComponentOutlet;
 
   private resolveSeq = 0;
-  private resolvedViewerKey: string | null = null;
+  resolvedViewerKey: string | null = null;
   private renderedInputSignature = '';
 
   constructor(
@@ -90,12 +143,15 @@ export class ViewerHostSurfaceComponent implements OnChanges {
       probe: null as FileProbe | null,
     };
     const seq = ++this.resolveSeq;
+    this.resolving = !!req.targetPath;
+    this.cdr.markForCheck();
 
     if (!req.targetPath) {
       this.resolvedViewerKey = null;
       this.renderedInputSignature = '';
       this.component = null;
       this.outletInputs = {};
+      this.resolving = false;
       this.cdr.markForCheck();
       return;
     }
@@ -134,11 +190,14 @@ export class ViewerHostSurfaceComponent implements OnChanges {
         }
         this.cdr.markForCheck();
         if (preserveMountedViewer) {
+          this.resolving = false;
+          this.cdr.markForCheck();
           return;
         }
       }
 
       if (preserveMountedViewer) {
+        this.resolving = false;
         this.cdr.markForCheck();
         return;
       }
@@ -152,12 +211,14 @@ export class ViewerHostSurfaceComponent implements OnChanges {
     void this.registry.resolve(req).then(({ component }) => {
       if (seq !== this.resolveSeq) return;
       this.component = component;
+      this.resolving = false;
       this.cdr.markForCheck();
     }).catch(() => {
       if (seq !== this.resolveSeq) return;
       this.resolvedViewerKey = null;
       this.renderedInputSignature = '';
       this.component = null;
+      this.resolving = false;
       this.cdr.markForCheck();
     });
   }

@@ -418,8 +418,9 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
       <div
         #treeViewport
         class="tree-view"
+        data-pane-content
         *ngIf="!error && viewMode === 'tree'"
-        tabindex="0"
+        tabindex="-1"
         role="tree"
         [attr.aria-label]="'Tree view of ' + (path || 'location')"
         [attr.aria-busy]="loading"
@@ -510,8 +511,9 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
       <div
         #listViewport
         class="list"
+        data-pane-content
         *ngIf="!error && viewMode !== 'tree'"
-        tabindex="0"
+        tabindex="-1"
         role="listbox"
         [attr.aria-label]="'Files in ' + (path || 'location')"
         [class.view-list]="viewMode === 'list'"
@@ -755,6 +757,16 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
     
       overscroll-behavior: none;}
 
+    /* Pane-level active marker: this is the only large active rectangle. */
+    .pane.active-pane {
+      border-color: color-mix(
+        in srgb,
+        var(--vsc-accent-blue, var(--vsc-focus-border)) 62%,
+        transparent
+      );
+    }
+
+
 
     .tab-strip {
       display: flex;
@@ -785,6 +797,7 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
 
     .tab {
       display: grid;
+      transition: background-color 80ms ease, color 80ms ease, box-shadow 80ms ease;
       grid-template-columns: minmax(48px, 1fr) 20px;
       align-items: center;
       width: min(180px, 34vw);
@@ -1375,6 +1388,13 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
       padding: 5px 10px;
     }
 
+    .viewer-surface,
+    app-viewer-host-surface,
+    app-surface-outlet{
+      min-width:0;
+      min-height:0;
+    }
+
     .tab-kind {
       margin-right: 4px;
       opacity: .65;
@@ -1474,7 +1494,25 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
         display: none;
       }
     }
-    .list:focus-visible,.tree-view:focus-visible,.pane:focus-visible{
+    .list:focus,
+    .list:focus-visible,
+    .tree-view:focus,
+    .tree-view:focus-visible {
+      outline: none !important;
+      box-shadow: none !important;
+    }
+
+    .pane:focus-visible {
+      outline: none;
+    }
+    .pane:focus-within .tab.active{
+      color:var(--vsc-foreground);
+    }
+    .tab:focus-visible,
+    .new-tab:focus-visible,
+    .nav-button:focus-visible,
+    .action-bar button:focus-visible,
+    .action-bar select:focus-visible{
       outline:1px solid var(--vsc-focus-border,var(--vsc-accent-blue));
       outline-offset:-1px;
     }
@@ -2133,6 +2171,8 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   private archiveExitPath = '';
 
   dragOverPath: string | null = null;
+  private dragSpringTimer: ReturnType<typeof setTimeout> | null = null;
+  private dragSpringPath: string | null = null;
   backgroundDropActive = false;
   dropIntent: 'copy' | 'move' | 'invalid' | null = null;
   dropIntentText = '';
@@ -2348,6 +2388,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.cancelDragSpringOpen();
     if (this.scrollPersistTimer) {
       clearTimeout(this.scrollPersistTimer);
       this.scrollPersistTimer = null;
@@ -2618,7 +2659,10 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   async activateTab(tabId: string): Promise<void> {
-    if (tabId === this.activeTabId) return;
+    if (tabId === this.activeTabId) {
+      this.focusContent();
+      return;
+    }
     this.cancelInlineRename(false);
 
     this.syncActiveDirSessionState();
@@ -2654,6 +2698,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     }
 
     this.cdr.markForCheck();
+    queueMicrotask(() => this.focusContent());
   }
 
   private revealActiveTab(tabId = this.activeTabId): void {
@@ -3424,6 +3469,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   onDragEnd(): void {
+    this.cancelDragSpringOpen();
     this.clearDropFeedback();
   }
 
@@ -3439,11 +3485,16 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
 
     this.backgroundDropActive = false;
     this.dragOverPath = entry.path;
-    this.updateDropFeedback(event, entry.path);
+    if (this.updateDropFeedback(event, entry.path)) {
+      this.scheduleDragSpringOpen(entry);
+    } else {
+      this.cancelDragSpringOpen();
+    }
   }
 
   onEntryDragLeave(entry: FileInfo): void {
     if (this.dragOverPath !== entry.path) return;
+    this.cancelDragSpringOpen(entry.path);
     this.dragOverPath = null;
     this.dropIntent = null;
     this.dropIntentText = '';
@@ -3451,6 +3502,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   onEntryDrop(entry: FileInfo, event: DragEvent): void {
+    this.cancelDragSpringOpen();
     if (
       entry.path === '__parent__' ||
       entry.type !== FileType.DIRECTORY ||
@@ -3476,6 +3528,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
 
   onBackgroundDragOver(event: DragEvent): void {
     if (!this.hasInternalDrag(event)) return;
+    this.cancelDragSpringOpen();
 
     event.preventDefault();
     this.backgroundDropActive = true;
@@ -3507,6 +3560,39 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       targetEntry: null,
     });
     this.cdr.markForCheck();
+  }
+
+  private scheduleDragSpringOpen(entry: FileInfo): void {
+    if (
+      entry.type !== FileType.DIRECTORY ||
+      entry.path === '__parent__' ||
+      entry.path === this.dragSpringPath
+    ) {
+      return;
+    }
+
+    this.cancelDragSpringOpen();
+    this.dragSpringPath = entry.path;
+    this.dragSpringTimer = setTimeout(() => {
+      const path = this.dragSpringPath;
+      this.dragSpringTimer = null;
+      this.dragSpringPath = null;
+
+      if (!path || this.dragOverPath !== path) return;
+
+      this.lastAction = `drag open: ${entry.name}`;
+      void this.navigateTo(path);
+    }, 700);
+  }
+
+  private cancelDragSpringOpen(path?: string): void {
+    if (path && this.dragSpringPath !== path) return;
+
+    if (this.dragSpringTimer) {
+      clearTimeout(this.dragSpringTimer);
+      this.dragSpringTimer = null;
+    }
+    this.dragSpringPath = null;
   }
 
   private updateDropFeedback(event: DragEvent, targetPath: string): boolean {
@@ -3612,6 +3698,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       this.cdr.markForCheck();
     }
 
+    this.focusContent();
     this.entryContextMenu.emit({ event, entry });
   }
 
@@ -3642,6 +3729,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     event.preventDefault();
 
     // Background menus must not destroy a useful working selection.
+    this.focusContent();
     this.backgroundContextMenu.emit(event);
   }
 
@@ -3675,6 +3763,10 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     this.lastAction = `select: ${entry.name}`;
     this.cursorChange.emit(entry);
     this.syncActiveDirSessionState();
+
+    // A pointer selection immediately hands keyboard ownership to the pane so
+    // Arrow/Home/End/Space continue from exactly what the user just clicked.
+    this.focusContent();
     this.cdr.markForCheck();
   }
 
@@ -5002,6 +5094,34 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       this.suppressRenameBlur = true;
       this.cancelInlineRename(true);
       queueMicrotask(() => { this.suppressRenameBlur = false; });
+      return;
+    }
+
+    if (event.key === 'Tab') {
+      event.preventDefault();
+      this.suppressRenameBlur = true;
+
+      const candidates = this.visibleEntries.filter(candidate =>
+        candidate.path !== '__parent__'
+      );
+      const currentIndex = candidates.findIndex(candidate =>
+        candidate.path === entry.path
+      );
+      const delta = event.shiftKey ? -1 : 1;
+      const next =
+        currentIndex >= 0 && candidates.length > 1
+          ? candidates[
+              (currentIndex + delta + candidates.length) %
+              candidates.length
+            ]
+          : null;
+
+      void this.commitInlineRename(entry).then(() => {
+        this.suppressRenameBlur = false;
+        if (!this.renamingPath && next) {
+          this.beginInlineRename(next);
+        }
+      });
       return;
     }
   }

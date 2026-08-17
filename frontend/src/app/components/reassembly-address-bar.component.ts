@@ -95,13 +95,13 @@ function editorBindings(paneId: string, contextId: string): readonly InputBindin
       <div
         *ngIf="!editing"
         class="display-path breadcrumb-path"
-        title="Click a segment to navigate · click empty area to edit"
+        title="Click a segment to navigate · click empty space to edit"
         (click)="onDisplayPathClick($event)">
         <button
           type="button"
           class="location-icon breadcrumb-home"
           title="Edit location (Ctrl+L)"
-          (click)="beginEdit()"
+          (click)="beginEdit(); $event.stopPropagation()"
           aria-label="Edit location">⌂</button>
 
         <div class="breadcrumbs">
@@ -112,19 +112,14 @@ function editorBindings(paneId: string, contextId: string): readonly InputBindin
               [class.current]="last"
               [class.archive-boundary]="segment.archiveBoundary"
               [title]="segment.path"
-              (click)="navigateToSegment(segment)">
+              (click)="navigateToSegment(segment); $event.stopPropagation()">
               {{ segment.label }}
             </button>
             <span class="separator" *ngIf="!last">›</span>
           </ng-container>
         </div>
 
-        <button
-          type="button"
-          class="edit-path"
-          title="Edit location (Ctrl+L)"
-          (click)="beginEdit()"
-          aria-label="Edit location">✎</button>
+
       </div>
 
       <div class="editor" *ngIf="editing">
@@ -183,7 +178,7 @@ function editorBindings(paneId: string, contextId: string): readonly InputBindin
     .editor {
       box-sizing: border-box;
       display: grid;
-      grid-template-columns: 24px minmax(0, 1fr) 24px;
+      grid-template-columns: 24px minmax(0, 1fr);
       align-items: center;
       width: 100%;
       height: 30px;
@@ -220,7 +215,6 @@ function editorBindings(paneId: string, contextId: string): readonly InputBindin
     }
 
     button.location-icon,
-    .edit-path,
     .breadcrumb {
       border: 0;
       background: transparent;
@@ -229,8 +223,7 @@ function editorBindings(paneId: string, contextId: string): readonly InputBindin
       cursor: pointer;
     }
 
-    .breadcrumb-home,
-    .edit-path {
+    .breadcrumb-home {
       width: 22px;
       height: 22px;
       padding: 0;
@@ -238,7 +231,6 @@ function editorBindings(paneId: string, contextId: string): readonly InputBindin
     }
 
     .breadcrumb-home:hover,
-    .edit-path:hover,
     .breadcrumb:hover {
       background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
     }
@@ -314,6 +306,14 @@ function editorBindings(paneId: string, contextId: string): readonly InputBindin
 
     .cancel:hover {
       background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
+    }
+
+    .breadcrumb-home:focus-visible,
+    .breadcrumb:focus-visible,
+    .cancel:focus-visible,
+    .location-input:focus-visible {
+      outline: 1px solid var(--vsc-focus-border, var(--vsc-accent-blue));
+      outline-offset: 1px;
     }
 
     .suggestions {
@@ -488,19 +488,18 @@ export class ReassemblyAddressBarComponent implements OnInit, OnDestroy {
     );
   }
 
+  onDisplayPathClick(event: MouseEvent): void {
+    if (this.editing) return;
+
+    const target = event.target as HTMLElement | null;
+    if (target?.closest('button, input, a, [role="button"]')) return;
+
+    this.beginEdit();
+  }
+
   navigateToSegment(segment: ReassemblyBreadcrumbSegment): void {
     if (!segment.path || segment.path === this.path) return;
     this.navigate.emit(segment.path);
-  }
-
-  onDisplayPathClick(event: MouseEvent): void {
-    const target = event.target as HTMLElement | null;
-
-    // Breadcrumbs and explicit address-bar controls keep their own click action.
-    // Any other click inside the visual address field enters location editing.
-    if (target?.closest('button')) return;
-
-    this.beginEdit();
   }
 
   ngOnInit(): void {
@@ -574,12 +573,10 @@ export class ReassemblyAddressBarComponent implements OnInit, OnDestroy {
     this.suggestions = [];
     this.suggestionIndex = -1;
     this.activateEditorContext();
-
-    // The editor input is created by *ngIf="editing". Render it synchronously
-    // before scheduling focus so the first click immediately shows the caret.
     this.cdr.detectChanges();
-    requestAnimationFrame(() => this.focusAndSelect());
+    this.focusAndSelect();
 
+    queueMicrotask(() => this.focusAndSelect());
     void this.refreshSuggestions();
   }
 

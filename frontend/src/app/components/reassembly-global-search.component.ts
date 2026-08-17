@@ -159,15 +159,15 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         <div id="reassembly-global-search-results" class="results" role="listbox" aria-label="Search results" [attr.aria-busy]="searching">
           <ng-container *ngIf="mode !== 'collections'; else collectionsList">
             <button
-              *ngFor="let entry of displayedResults; let i=index; trackBy:trackResult"
+              *ngFor="let entry of renderedSearchResults; let i=index; trackBy:trackResult"
               type="button"
               class="result"
               role="option"
-              [class.selected]="i === selectedIndex"
-              [attr.aria-selected]="i === selectedIndex"
-              [attr.aria-posinset]="i + 1"
+              [class.selected]="searchWindowStart + i === selectedIndex"
+              [attr.aria-selected]="searchWindowStart + i === selectedIndex"
+              [attr.aria-posinset]="searchWindowStart + i + 1"
               [attr.aria-setsize]="displayedResults.length"
-              (mouseenter)="selectedIndex=i"
+              (mouseenter)="selectedIndex=searchWindowStart + i"
               (click)="openEntry(entry)">
               <span class="icon">{{ icon(entry) }}</span>
               <span class="details">
@@ -329,6 +329,27 @@ export class ReassemblyGlobalSearchComponent implements OnInit, OnDestroy {
     }
 
     return results;
+  }
+
+  get searchWindowStart(): number {
+    const count = this.displayedResults.length;
+    if (count <= 160) return 0;
+    return Math.max(
+      0,
+      Math.min(
+        count - 160,
+        this.selectedIndex - 80,
+      ),
+    );
+  }
+
+  get renderedSearchResults(): readonly FileInfo[] {
+    if (this.mode === 'collections') return [];
+    const entries = this.displayedResults;
+    if (entries.length <= 160) return entries;
+
+    const start = this.searchWindowStart;
+    return entries.slice(start, start + 160);
   }
 
   get modeLabel(): string {

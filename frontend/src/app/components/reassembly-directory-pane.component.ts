@@ -25,6 +25,7 @@ import { ReassemblyActionFeedbackService } from '../services/reassembly-action-f
 import { RecentFilesService } from '../services/recent-files.service';
 import { ResultsPanelService } from '../services/results-panel.service';
 import { SmartResultsService } from '../services/smart-results.service';
+import { calculateVirtualWindow, type ReassemblyVirtualWindow } from '../services/reassembly-virtual-window';
 import { PluginManagerService } from '../services/plugin-manager.service';
 import type { PanelColumnContribution, PanelColumnContext } from '../plugin/plugin-registry-api';
 import { PluginLifecycleCoordinatorService } from '../services/plugin-lifecycle-coordinator.service';
@@ -425,7 +426,13 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
         (click)="onBackgroundClick($event)"
         (contextmenu)="onBackgroundContextMenu($event)"        (scroll)="onContentScroll($event)">
         <div
-          *ngFor="let row of treeRows; trackBy: trackTreeRow"
+          *ngIf="treeVirtualWindow.enabled && treeVirtualWindow.beforePx > 0"
+          class="virtual-spacer tree-virtual-spacer"
+          [style.height.px]="treeVirtualWindow.beforePx"
+          aria-hidden="true"></div>
+
+        <div
+          *ngFor="let row of renderedTreeRows; trackBy: trackTreeRow"
           class="tree-row"
           tabindex="-1"
           [attr.data-file-entry]="row.entry.path"
@@ -483,6 +490,12 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
           </span>
         </div>
 
+        <div
+          *ngIf="treeVirtualWindow.enabled && treeVirtualWindow.afterPx > 0"
+          class="virtual-spacer tree-virtual-spacer"
+          [style.height.px]="treeVirtualWindow.afterPx"
+          aria-hidden="true"></div>
+
         <div class="empty" *ngIf="!loading && treeRows.length === 0" role="status">
           <strong>This directory is empty.</strong>
           <span *ngIf="canCreate && !isInArchive">Use F7 to create a folder or Command Palette for New File.</span>
@@ -513,10 +526,18 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
         (drop)="onBackgroundDrop($event)">
 
         <div
-          *ngFor="let entry of visibleEntries; trackBy: trackEntry"
+          *ngIf="listVirtualWindow.enabled && listVirtualWindow.beforePx > 0"
+          class="virtual-spacer list-virtual-spacer"
+          [style.height.px]="listVirtualWindow.beforePx"
+          aria-hidden="true"></div>
+
+        <div
+          *ngFor="let entry of renderedEntries; let virtualIndex=index; trackBy: trackEntry"
           class="entry"
           tabindex="-1"
           role="option"
+          [attr.aria-posinset]="listVirtualWindow.start + virtualIndex + 1"
+          [attr.aria-setsize]="visibleEntries.length"
           draggable="true"
           [attr.data-file-entry]="entry.path"
           [attr.aria-selected]="selectedPaths.has(entry.path)"
@@ -576,6 +597,12 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
           <span class="modified">{{ formatModified(entry.modified) }}</span>
           <span class="plugin-column" *ngFor="let column of pluginPanelColumns">{{ panelColumnValue(column, entry) }}</span>
         </div>
+
+        <div
+          *ngIf="listVirtualWindow.enabled && listVirtualWindow.afterPx > 0"
+          class="virtual-spacer list-virtual-spacer"
+          [style.height.px]="listVirtualWindow.afterPx"
+          aria-hidden="true"></div>
 
         <div class="empty" *ngIf="!loading && visibleEntries.length === 0" role="status">
           <strong>{{ filterText ? 'No matching items.' : 'This directory is empty.' }}</strong>
@@ -1131,6 +1158,22 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
       background: var(--vsc-border, var(--vsc-control-background));
     }
 
+    .virtual-spacer{
+      flex:0 0 auto;
+      min-width:1px;
+      pointer-events:none;
+      visibility:hidden;
+    }
+    .tree-virtual-spacer{width:100%}
+    .list.view-grid .list-virtual-spacer{
+      grid-column:1 / -1;
+      width:100%;
+    }
+    .list.view-list .list-virtual-spacer,
+    .list.view-details .list-virtual-spacer{
+      width:100%;
+    }
+
     .list {
       flex: 1 1 auto;
       min-height: 0;
@@ -1551,6 +1594,21 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   private workspaceRestoreGeneration = 0;
   private interactionGeneration = 0;
   private scrollPersistTimer: ReturnType<typeof setTimeout> | null = null;
+  private projectionEntriesRef: FileInfo[] | null = null;
+  private projectionSortField = '';
+  private projectionSortDirection = '';
+  private projectionDirectoriesFirst = true;
+  private projectionFilterText = '';
+  private projectionCache: FileInfo[] = [];
+
+  private virtualScrollTop = 0;
+  private virtualViewportHeight = 600;
+  private virtualViewportWidth = 800;
+
+  private readonly virtualThreshold = 300;
+  private readonly listRowExtent = 30;
+  private readonly gridRowExtent = 109;
+  private readonly treeRowExtent = 31;
 
   get paneStatusId(): string {
     return `reassembly-${this.paneId}-status`;
@@ -2167,11 +2225,105 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   get visibleEntries(): FileInfo[] {
-    return projectEntries(this.entries, {
-      sortField: this.sortField,
-      sortDirection: this.sortDirection,
-      directoriesFirst: this.directoriesFirst,
-      filterText: this.filterText,
+    if (
+      this.projectionEntriesRef !== this.entries ||
+      this.projectionSortField !== this.sortField ||
+      this.projectionSortDirection !== this.sortDirection ||
+      this.projectionDirectoriesFirst !== this.directoriesFirst ||
+      this.projectionFilterText !== this.filterText
+    ) {
+      this.projectionEntriesRef = this.entries;
+      this.projectionSortField = this.sortField;
+      this.projectionSortDirection = this.sortDirection;
+      this.projectionDirectoriesFirst = this.directoriesFirst;
+      this.projectionFilterText = this.filterText;
+
+      this.projectionCache = projectEntries(this.entries, {
+        sortField: this.sortField,
+        sortDirection: this.sortDirection,
+        directoriesFirst: this.directoriesFirst,
+        filterText: this.filterText,
+      });
+    }
+
+    return this.projectionCache;
+  }
+
+  get listVirtualWindow(): ReassemblyVirtualWindow {
+    const entries = this.visibleEntries;
+    const grid = this.viewMode === 'grid';
+    const columns = grid
+      ? this.estimatedGridColumns()
+      : 1;
+
+    return calculateVirtualWindow({
+      itemCount: entries.length,
+      scrollTop: this.virtualScrollTop,
+      viewportHeight: this.virtualViewportHeight,
+      itemExtent: grid ? this.gridRowExtent : this.listRowExtent,
+      columns,
+      overscanRows: grid ? 3 : 12,
+      threshold: this.virtualThreshold,
+    });
+  }
+
+  get renderedEntries(): FileInfo[] {
+    const window = this.listVirtualWindow;
+    return window.enabled
+      ? this.visibleEntries.slice(window.start, window.end)
+      : this.visibleEntries;
+  }
+
+  get treeVirtualWindow(): ReassemblyVirtualWindow {
+    return calculateVirtualWindow({
+      itemCount: this.treeRows.length,
+      scrollTop: this.virtualScrollTop,
+      viewportHeight: this.virtualViewportHeight,
+      itemExtent: this.treeRowExtent,
+      overscanRows: 12,
+      threshold: this.virtualThreshold,
+    });
+  }
+
+  get renderedTreeRows(): typeof this.treeRows {
+    const window = this.treeVirtualWindow;
+    return window.enabled
+      ? this.treeRows.slice(window.start, window.end)
+      : this.treeRows;
+  }
+
+  private estimatedGridColumns(): number {
+    const width =
+      this.listViewport?.nativeElement.clientWidth ||
+      this.virtualViewportWidth ||
+      800;
+
+    // CSS grid uses minmax(108px,1fr) with a 5px gap and 7px side padding.
+    return Math.max(1, Math.floor((Math.max(108, width - 14) + 5) / 113));
+  }
+
+  private updateVirtualViewport(target?: HTMLElement | null): void {
+    const viewport =
+      target ??
+      (this.viewMode === 'tree'
+        ? this.treeViewport?.nativeElement
+        : this.listViewport?.nativeElement);
+
+    if (!viewport) return;
+
+    this.virtualScrollTop = Math.max(0, viewport.scrollTop);
+    this.virtualViewportHeight = Math.max(
+      this.viewMode === 'grid' ? this.gridRowExtent : this.listRowExtent,
+      viewport.clientHeight || 600,
+    );
+    this.virtualViewportWidth = Math.max(108, viewport.clientWidth || 800);
+  }
+
+  private resetVirtualViewport(): void {
+    this.virtualScrollTop = 0;
+    queueMicrotask(() => {
+      this.updateVirtualViewport();
+      this.cdr.markForCheck();
     });
   }
 
@@ -2896,6 +3048,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   setViewMode(mode: ReassemblyDirectoryView): void {
+    this.resetVirtualViewport();
     this.cancelInlineRename(false);
     this.markUserInteraction();
 
@@ -3058,6 +3211,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   setFilter(value: string): void {
+    this.resetVirtualViewport();
     if (this.renamingPath) this.cancelInlineRename(false);
     this.markUserInteraction();
     this.filterText = value ?? '';
@@ -6973,6 +7127,9 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     const target = event.currentTarget as HTMLElement | null;
     if (!target || !this.isDirectoryTab) return;
 
+    this.updateVirtualViewport(target);
+    this.cdr.markForCheck();
+
     const active = this.activeTab;
     if (!active || active.kind !== 'dir') return;
 
@@ -7468,13 +7625,58 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   private ensureCursorVisible(): void {
     if (!this.cursorPath || typeof document === 'undefined') return;
 
-    const escaped = typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
-      ? CSS.escape(this.cursorPath)
-      : this.cursorPath.replace(/["\\]/g, '\\$&');
+    const viewport =
+      this.viewMode === 'tree'
+        ? this.treeViewport?.nativeElement
+        : this.listViewport?.nativeElement;
+
+    if (viewport) {
+      const index =
+        this.viewMode === 'tree'
+          ? this.treeRows.findIndex(row => row.entry.path === this.cursorPath)
+          : this.visibleEntries.findIndex(entry => entry.path === this.cursorPath);
+
+      if (index >= 0) {
+        const virtual =
+          this.viewMode === 'tree'
+            ? this.treeVirtualWindow
+            : this.listVirtualWindow;
+
+        if (
+          virtual.enabled &&
+          (index < virtual.start || index >= virtual.end)
+        ) {
+          if (this.viewMode === 'grid') {
+            const columns = Math.max(1, virtual.columns);
+            const row = Math.floor(index / columns);
+            viewport.scrollTop = row * this.gridRowExtent;
+          } else {
+            viewport.scrollTop =
+              index *
+              (this.viewMode === 'tree'
+                ? this.treeRowExtent
+                : this.listRowExtent);
+          }
+
+          this.updateVirtualViewport(viewport);
+          this.cdr.detectChanges();
+        }
+      }
+    }
+
+    const escaped =
+      typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+        ? CSS.escape(this.cursorPath)
+        : this.cursorPath.replace(/["\\]/g, '\\$&');
 
     queueMicrotask(() => {
-      document
-        .querySelector<HTMLElement>(`[data-file-entry="${escaped}"]`)
+      const host =
+        this.viewMode === 'tree'
+          ? this.treeViewport?.nativeElement
+          : this.listViewport?.nativeElement;
+
+      host
+        ?.querySelector<HTMLElement>(`[data-file-entry="${escaped}"]`)
         ?.scrollIntoView({ block: 'nearest' });
     });
   }

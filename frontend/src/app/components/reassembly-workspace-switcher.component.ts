@@ -319,6 +319,14 @@ interface WorkspaceSwitcherItem {
               </small>
             </span>
 
+            <button type="button" class="pin-workspace"
+              [class.pinned]="isWorkspacePinned(workspace.id)"
+              [attr.aria-pressed]="isWorkspacePinned(workspace.id)"
+              [title]="isWorkspacePinned(workspace.id) ? 'Unpin workspace' : 'Pin workspace'"
+              (mousedown)="$event.stopPropagation()"
+              (click)="toggleWorkspacePin(workspace.id, $event)">
+              {{ isWorkspacePinned(workspace.id) ? '★' : '☆' }}
+            </button>
             <span class="active-mark" *ngIf="workspace.id === activeWorkspaceId">
               Active
             </span>
@@ -557,6 +565,7 @@ interface WorkspaceSwitcherItem {
       line-height: 1.2;
     }
 
+    .pin-workspace{width:28px;height:28px;border:0;border-radius:4px;background:transparent;color:var(--vsc-description-foreground,var(--vsc-foreground-dim));cursor:pointer;font:16px/1 inherit}.pin-workspace:hover{background:var(--vsc-list-hover-background,var(--vsc-list-hover-background));color:var(--vsc-foreground,var(--vsc-foreground))}.pin-workspace.pinned{color:var(--vsc-accent-blue,var(--vsc-focus-ring))}
     .active-mark {
       padding: 2px 6px;
       border-radius: 10px;
@@ -606,6 +615,9 @@ export class ReassemblyWorkspaceSwitcherComponent
     private readonly cdr: ChangeDetectorRef,
   ) {}
 
+  private readonly workspacePinsKey = 'reassembly.navigation.workspacePins.v1';
+  private readonly pinnedWorkspaceIds = this.loadWorkspacePins();
+
   get workspaces(): WorkspaceSwitcherItem[] {
     const files = (
       this.workspacesService.getWorkspaces().workspaces ?? []
@@ -627,8 +639,23 @@ export class ReassemblyWorkspaceSwitcherComponent
         tool: presentation,
       }));
 
-    return [...files, ...tools];
+    return [...files, ...tools].sort((a,b) =>
+      Number(this.isWorkspacePinned(b.id)) - Number(this.isWorkspacePinned(a.id))
+    );
   }
+
+  isWorkspacePinned(workspaceId:string):boolean{return this.pinnedWorkspaceIds.has(workspaceId)}
+  toggleWorkspacePin(workspaceId:string,event?:MouseEvent):void{
+    event?.preventDefault();event?.stopPropagation();
+    if(this.pinnedWorkspaceIds.has(workspaceId))this.pinnedWorkspaceIds.delete(workspaceId);else this.pinnedWorkspaceIds.add(workspaceId);
+    this.saveWorkspacePins();
+    this.selectedIndex=Math.max(0,this.workspaces.findIndex(item=>item.id===workspaceId));
+    this.cdr.markForCheck();
+  }
+  private loadWorkspacePins():Set<string>{
+    try{const value=JSON.parse(localStorage.getItem(this.workspacePinsKey)??'[]') as unknown;return new Set(Array.isArray(value)?value.filter((id):id is string=>typeof id==='string'&&!!id):[])}catch{return new Set()}
+  }
+  private saveWorkspacePins():void{try{localStorage.setItem(this.workspacePinsKey,JSON.stringify([...this.pinnedWorkspaceIds]))}catch{}}
 
   get activeWorkspaceId(): string {
     const activePresentation = this.workspaceSurfaces.active;

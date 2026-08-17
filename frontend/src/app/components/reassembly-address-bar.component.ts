@@ -85,6 +85,8 @@ function editorBindings(paneId: string, contextId: string): readonly InputBindin
   ];
 }
 
+import { fuzzyPathScore } from '../services/reassembly-navigation-intelligence';
+
 @Component({
   selector: 'app-reassembly-address-bar',
   standalone: true,
@@ -664,7 +666,12 @@ export class ReassemblyAddressBarComponent implements OnInit, OnDestroy {
       const suggestions = await this.history.getSuggestions(this.value, this.path);
       if (generation !== this.suggestionGeneration || !this.editing) return;
 
-      this.suggestions = suggestions;
+      const query = this.value.trim();
+      this.suggestions = [...suggestions].sort((left, right) => {
+        const leftScore = fuzzyPathScore(query, left.displayName, left.path);
+        const rightScore = fuzzyPathScore(query, right.displayName, right.path);
+        return rightScore - leftScore || right.score - left.score;
+      });
       this.suggestionIndex = -1;
       this.cdr.markForCheck();
     } catch {

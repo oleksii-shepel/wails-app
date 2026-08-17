@@ -77,6 +77,42 @@ export class ReassemblyNavigationController {
     }
   }
 
+  backTrail(limit = 12): readonly string[] {
+    if (!this.canBack) return [];
+    return this.entries.slice(Math.max(0, this.index - Math.max(1, limit)), this.index).reverse();
+  }
+
+  forwardTrail(limit = 12): readonly string[] {
+    if (!this.canForward) return [];
+    return this.entries.slice(this.index + 1, this.index + 1 + Math.max(1, limit));
+  }
+
+  indexOfTrailTarget(path: string): number {
+    const value = this.normalizer(path);
+    if (!value) return -1;
+    let best = -1;
+    let distance = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < this.entries.length; i += 1) {
+      if (this.normalizer(this.entries[i] ?? '') !== value) continue;
+      const nextDistance = Math.abs(i - this.index);
+      if (nextDistance < distance) {
+        best = i;
+        distance = nextDistance;
+      }
+    }
+    return best;
+  }
+
+  commitIndex(index: number, path: string): boolean {
+    if (
+      index < 0 ||
+      index >= this.entries.length ||
+      this.normalizer(this.entries[index] ?? '') !== this.normalizer(path)
+    ) return false;
+    this.index = index;
+    return true;
+  }
+
   snapshot(): readonly string[] {
     return this.entries.slice();
   }

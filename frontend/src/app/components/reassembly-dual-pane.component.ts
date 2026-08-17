@@ -594,6 +594,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           (viewportChange)="onPaneViewportChange('left', $event)"
           (entryContextMenu)="openEntryMenu('left', $event.event, $event.entry)"
           (backgroundContextMenu)="openBackgroundMenu('left', $event)"
+          (navigationTrailRequested)="openNavigationTrail('left', $event)"
           (internalDrop)="handleInternalDrop('left', $event.event, $event.targetPath)">
         </app-reassembly-directory-pane>
       </div>
@@ -634,6 +635,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           (viewportChange)="onPaneViewportChange('right', $event)"
           (entryContextMenu)="openEntryMenu('right', $event.event, $event.entry)"
           (backgroundContextMenu)="openBackgroundMenu('right', $event)"
+          (navigationTrailRequested)="openNavigationTrail('right', $event)"
           (internalDrop)="handleInternalDrop('right', $event.event, $event.targetPath)">
         </app-reassembly-directory-pane>
       </div>
@@ -1028,6 +1030,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
   private linkedSelectionGuard = false;
   contextMenu: ReassemblyContextMenuState | null = null;
   private contextMenuReturnFocus: HTMLElement | null = null;
+  private navigationTrailCommands = new Map<string, { paneId: PaneId; path: string }>();
 
   constructor(
     private readonly input: InputEngineService,
@@ -4479,6 +4482,47 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
   }
 
+  openNavigationTrail(
+    paneId: PaneId,
+    request: {
+      direction: 'back' | 'forward';
+      event: MouseEvent;
+      entries: readonly string[];
+    },
+  ): void {
+    this.captureContextMenuFocus();
+    this.activate(paneId, false);
+    this.navigationTrailCommands.clear();
+
+    const items: ReassemblyContextMenuItem[] = request.entries.map((path, index) => {
+      const commandId = `reassembly.navigation.trail.${paneId}.${index}`;
+      this.navigationTrailCommands.set(commandId, { paneId, path });
+      return {
+        commandId,
+        label: this.navigationTrailLabel(path),
+        shortcut: index === 0
+          ? (request.direction === 'back' ? 'Alt+Left' : 'Alt+Right')
+          : undefined,
+        enabled: true,
+      };
+    });
+
+    this.contextMenu = {
+      x: request.event.clientX,
+      y: request.event.clientY,
+      title: request.direction === 'back' ? 'Back history' : 'Forward history',
+      items,
+    };
+    this.cdr.markForCheck();
+  }
+
+  private navigationTrailLabel(path: string): string {
+    const normalized = (path || '').replace(/\\/g, '/').replace(/\/+$/, '');
+    const parts = normalized.split('/').filter(Boolean);
+    const leaf = parts[parts.length - 1] || normalized || path;
+    return leaf === path ? leaf : `${leaf}  —  ${path}`;
+  }
+
   openBackgroundMenu(paneId: PaneId, event: MouseEvent): void {
     this.captureContextMenuFocus();
     this.activate(paneId, false);
@@ -4557,6 +4601,17 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
   }
 
   dispatchContextCommand(commandId: string): void {
+    const trail = this.navigationTrailCommands.get(commandId);
+    if (trail) {
+      this.closeContextMenu(false);
+      this.navigationTrailCommands.clear();
+      const pane = trail.paneId === 'left' ? this.leftPane : this.rightPane;
+      void pane?.jumpNavigationHistory(trail.path);
+      return;
+    }
+
+    this.navigationTrailCommands.clear();
+
     // Do not restore the old focus here: commands such as Rename deliberately
     // establish a new focus target of their own.
     this.closeContextMenu(false);

@@ -1580,6 +1580,11 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   @Input() currentPathPinned = false;
   @Input() pluginToolbarActions: readonly PresentedCommand[] = [];
   @Output() activateRequested = new EventEmitter<void>();
+  @Output() navigationTrailRequested = new EventEmitter<{
+    direction: 'back' | 'forward';
+    event: MouseEvent;
+    entries: readonly string[];
+  }>();
   @Output() remoteRecoveryRequested = new EventEmitter<void>();
   @Output() togglePinRequested = new EventEmitter<void>();
   @Output() locationChange = new EventEmitter<string>();
@@ -3359,6 +3364,26 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
 
     this.lastAction = 'parent directory';
     await this.load(parent, { history: 'record' });
+  }
+
+  showNavigationTrail(direction: 'back' | 'forward', event: MouseEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    const entries = direction === 'back' ? this.navigation.backTrail() : this.navigation.forwardTrail();
+    if (entries.length) this.navigationTrailRequested.emit({ direction, event, entries });
+  }
+
+  async jumpNavigationHistory(path: string): Promise<boolean> {
+    if (!this.isDirectoryTab || !path) return false;
+    const index = this.navigation.indexOfTrailTarget(path);
+    if (index < 0) return false;
+    const loaded = await this.load(path, { history: 'none' });
+    if (!loaded) return false;
+    this.navigation.commitIndex(index, path);
+    this.lastAction = `history jump: ${path}`;
+    this.syncActiveDirSessionState();
+    this.cdr.markForCheck();
+    return true;
   }
 
   async goBack(): Promise<void> {

@@ -14,6 +14,7 @@ import type { SpecialFolder } from '../shared/protocol';
 
 import { discoveryScore } from './reassembly-discovery';
 import { ReassemblyModalSurfaceDirective } from './reassembly-modal-surface.directive';
+import { rankNavigationCandidates } from '../services/reassembly-navigation-intelligence';
 
 export interface ReassemblyQuickAccessTarget {
   path: string;
@@ -26,7 +27,7 @@ interface QuickItem {
   label: string;
   path: string;
   icon: string;
-  kind: 'system' | 'pin' | 'frequent' | 'recent' | 'related' | 'remote';
+  kind: 'system' | 'pin' | 'frequent' | 'recent' | 'related' | 'remote' | 'smart';
   meta?: string;
   surfaceId?: string;
 }
@@ -417,7 +418,32 @@ export class ReassemblyQuickAccessComponent implements OnInit, OnDestroy {
       }))
       .filter(item => !!item.path);
 
+    const smartPool = unique([...pins, ...frequentItems, ...recentItems, ...relatedItems, ...remoteItems]);
+    const historyByPath = new Map(
+      this.history.getAllHistory().map(entry => [this.locationKey(entry.location), entry]),
+    );
+    const pinnedKeys = new Set(pins.map(item => this.locationKey(item.path)));
+    const smartItems: QuickItem[] = rankNavigationCandidates(
+      smartPool.map(item => {
+        const history = historyByPath.get(this.locationKey(item.path));
+        return {
+          ...item,
+          kind: 'smart' as const,
+          accessCount: history?.accessCount ?? 0,
+          timestamp: history?.timestamp ?? 0,
+          pinned: pinnedKeys.has(this.locationKey(item.path)),
+          current: this.locationKey(item.path) === this.locationKey(this.currentPath),
+        };
+      }),
+      this.currentPath,
+    ).slice(0,12).map(candidate => ({
+      ...candidate.item,
+      kind: 'smart' as const,
+      meta: candidate.reasons.slice(0,2).join(' · ') || candidate.item.meta,
+    }));
+
     this.sections = [
+      ...(smartItems.length ? [{ id: 'smart', title: 'Smart', items: smartItems }] : []),
       ...(remoteItems.length ? [{ id: 'remote', title: 'Remote', items: remoteItems }] : []),
       { id: 'drives', title: 'Drives & Roots', items: unique(driveItems) },
       { id: 'system', title: 'System', items: unique(system) },

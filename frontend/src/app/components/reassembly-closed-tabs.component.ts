@@ -110,8 +110,9 @@ export class ReassemblyClosedTabsComponent {
   }
 
   icon(entry: RecentlyClosedTab): string {
-    if ((entry.tab.kind ?? 'dir') === 'viewer') return '◫';
-    if ((entry.tab.kind ?? 'dir') === 'surface') return '◇';
+    const kind = entry.tab.kind ?? 'dir';
+    if (kind === 'viewer') return '◫';
+    if (kind === 'size-manager') return '▦';
     return '▣';
   }
 

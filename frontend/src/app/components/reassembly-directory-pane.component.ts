@@ -5510,6 +5510,121 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     }
   }
 
+  async splitSelectedFile(): Promise<void> {
+    if (!this.isDirectoryTab || this.isInArchive) return;
+
+    const entry = this.cursorEntry ?? this.selectedEntries[0];
+    if (!entry || entry.type === FileType.DIRECTORY) return;
+
+    const raw = await this.confirmDialog.prompt({
+      title: `Split — ${entry.name}`,
+      message: 'Part size in MiB:',
+      confirmText: 'Split',
+      defaultValue: '100',
+      historyKey: 'reassembly.splitFile.partMiB',
+    });
+    if (raw == null) return;
+
+    const mib = Number(String(raw).trim());
+    if (!Number.isFinite(mib) || mib <= 0) {
+      await this.confirmDialog.alert({
+        title: 'Invalid Part Size',
+        message: 'Enter a positive part size in MiB.',
+      });
+      return;
+    }
+
+    try {
+      const parts = await this.api.splitFile(
+        entry.path,
+        Math.floor(mib * 1024 * 1024),
+      );
+
+      this.operationHistory.record({
+        label: `Split ${entry.name} into ${parts.length} parts`,
+        kind: 'split-file',
+        affectedPaths: parts,
+        undo: async () => {
+          const result = await this.api.batchDelete(parts, true, false);
+          if (result.failed > 0) throw new Error('Undo split failed.');
+        },
+        redo: async () => {
+          await this.api.splitFile(
+            entry.path,
+            Math.floor(mib * 1024 * 1024),
+          );
+        },
+      });
+
+      this.lastAction = `split: ${parts.length} parts`;
+      await this.refresh();
+      if (parts[0]) this.selectPath(parts[0]);
+    } catch (error) {
+      await this.showOperationError('Split File', error);
+    }
+  }
+
+  async joinSelectedParts(): Promise<void> {
+    if (!this.isDirectoryTab || this.isInArchive) return;
+
+    const entries = this.selectedEntries
+      .filter(entry => entry.type !== FileType.DIRECTORY)
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, {
+        numeric: true,
+        sensitivity: 'base',
+      }));
+
+    if (entries.length < 2) {
+      await this.confirmDialog.alert({
+        title: 'Join Files',
+        message: 'Select at least two file parts.',
+      });
+      return;
+    }
+
+    const firstName = entries[0].name;
+    const suggested = firstName.replace(/\.part\d+$/i, '') || 'joined.bin';
+    const requested = await this.confirmDialog.prompt({
+      title: 'Join File Parts',
+      message: `Join ${entries.length} selected parts as:`,
+      confirmText: 'Join',
+      defaultValue: suggested,
+      historyKey: 'reassembly.joinFiles.name',
+    });
+    const cleanName = await this.validateRequestedLeaf(requested, this.path);
+    if (!cleanName) return;
+
+    try {
+      const destination = await this.api.joinPaths([this.path, cleanName]);
+      const joined = await this.api.joinFiles(
+        entries.map(entry => entry.path),
+        destination,
+      );
+
+      this.operationHistory.record({
+        label: `Join ${entries.length} parts as ${cleanName}`,
+        kind: 'join-files',
+        affectedPaths: [joined],
+        undo: async () => {
+          await this.api.deleteFile(joined, true, false);
+        },
+        redo: async () => {
+          await this.api.joinFiles(
+            entries.map(entry => entry.path),
+            destination,
+          );
+        },
+      });
+
+      this.lastAction = `joined: ${cleanName}`;
+      await this.refresh();
+      this.selectPath(joined);
+    } catch (error) {
+      await this.showOperationError('Join Files', error);
+    }
+  }
+
   async showSelectedChecksum(): Promise<void> {
     if (!this.isDirectoryTab || this.isInArchive) return;
 

@@ -354,6 +354,10 @@ export function IsRoot(arg1) {
   return window['go']['app']['App']['IsRoot'](arg1);
 }
 
+export function JoinFiles(arg1, arg2) {
+  return window['go']['app']['App']['JoinFiles'](arg1, arg2);
+}
+
 export function JoinMountNamespace(arg1) {
   return window['go']['app']['App']['JoinMountNamespace'](arg1);
 }
@@ -572,6 +576,10 @@ export function SetupFileDropHandler(arg1) {
 
 export function Shutdown() {
   return window['go']['app']['App']['Shutdown']();
+}
+
+export function SplitFile(arg1, arg2) {
+  return window['go']['app']['App']['SplitFile'](arg1, arg2);
 }
 
 export function SplitPath(arg1) {

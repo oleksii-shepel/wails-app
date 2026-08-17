@@ -1,9 +1,8 @@
 import { CommonModule } from '@angular/common';
 import { Component, ElementRef, ViewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { createSubject, takeUntil, type Stream } from '@epikodelabs/streamix';
 import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.directive';
-
+import { createSubject, takeUntil, type Stream } from '@epikodelabs/streamix';
 import { NativeOverlayFreezeService } from '../services/native-overlay-freeze.service';
 import {
   BatchRenameDialogService,
@@ -11,49 +10,7 @@ import {
   type BatchRenameRequest,
 } from '../services/batch-rename-dialog.service';
 
-function splitNameExt(name: string): { stem: string; ext: string } {
-  if (name.startsWith('.')) {
-    const dot = name.indexOf('.', 1);
-    if (dot === -1) return { stem: name, ext: '' };
-    return { stem: name.slice(0, dot), ext: name.slice(dot) };
-  }
-  const dot = name.lastIndexOf('.');
-  if (dot === -1) return { stem: name, ext: '' };
-  return { stem: name.slice(0, dot), ext: name.slice(dot) };
-}
-
-function applyPattern(
-  name: string,
-  pattern: string,
-  counter: number,
-  counterWidth: number
-): string {
-  const { stem, ext } = splitNameExt(name);
-  let result = '';
-  let i = 0;
-  while (i < pattern.length) {
-    const ch = pattern[i];
-    if (ch === '*') {
-      result += stem;
-      i++;
-    } else if (ch === '&') {
-      result += ext;
-      i++;
-    } else if (ch === '#') {
-      let width = 0;
-      while (i + width < pattern.length && pattern[i + width] === '#') {
-        width++;
-      }
-      const pad = Math.max(width, counterWidth);
-      result += String(counter).padStart(pad, '0');
-      i += width;
-    } else {
-      result += ch;
-      i++;
-    }
-  }
-  return result;
-}
+import { applyBatchRenameTemplate } from '../services/batch-rename-template';
 
 interface PreviewRow {
   entry: BatchRenameItem['entry'];
@@ -98,8 +55,11 @@ interface PreviewRow {
                   data-dialog-initial-focus
                 />
                 <div class="br-hint">
-                  <code>*</code> = original name, <code>&amp;</code> = extension,
-                  <code>#</code> = counter (## pads to 2 digits)
+                  <code>*</code>/<code>{{ '{' }}name{{ '}' }}</code> = name,
+                  <code>&amp;</code>/<code>{{ '{' }}.ext{{ '}' }}</code> = extension,
+                  <code>#</code>/<code>{{ '{' }}n:03{{ '}' }}</code> = counter,
+                  <code>{{ '{' }}date{{ '}' }}</code>, <code>{{ '{' }}upper:name{{ '}' }}</code>,
+                  <code>{{ '{' }}lower:name{{ '}' }}</code>, <code>{{ '{' }}replace:old=&gt;new{{ '}' }}</code>
                 </div>
               </div>
 
@@ -231,7 +191,12 @@ export class BatchRenameDialogComponent {
     }
 
     for (const item of req.items) {
-      const newName = applyPattern(item.entry.name, pat, counter, counterWidth);
+      const newName = applyBatchRenameTemplate(pat, {
+        originalName: item.entry.name,
+        index: rows.length,
+        counter,
+        counterWidth,
+      });
       const conflict = seen.has(newName) || newName === '';
       seen.add(newName);
       rows.push({ entry: item.entry, newName, conflict });

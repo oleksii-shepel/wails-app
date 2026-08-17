@@ -96,6 +96,7 @@ import { ReassemblyOperationJournalComponent } from './reassembly-operation-jour
 import { ReassemblyClosedTabsComponent } from './reassembly-closed-tabs.component';
 import type { RecentlyClosedTab } from '../services/workspace.service';
 import { InputCustomizationService } from '../services/input-customization.service';
+import { PowerFileOperationsService } from '../services/power-file-operations.service';
 
 type PaneId = 'left' | 'right';
 
@@ -167,6 +168,8 @@ const COMMAND = {
   operationHistory: 'reassembly.edit.operationHistory',
   createArchive: 'reassembly.archive.createZip',
   checksum: 'reassembly.files.checksum',
+  splitFile: 'reassembly.files.splitFile',
+  joinFiles: 'reassembly.files.joinFiles',
   calculateSize: 'reassembly.files.calculateSize',
   attributes: 'reassembly.files.attributes',
   openTrash: 'reassembly.navigation.trash',
@@ -1051,6 +1054,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     private readonly remoteConnectDialog: RemoteConnectDialogService,
     private readonly pluginManager: PluginManagerService,
     private readonly operationHistory: ReassemblyOperationHistoryService,
+    private readonly powerFileOperations: PowerFileOperationsService,
     private readonly trashDialog: ReassemblyTrashDialogService,
     private readonly driveLifecycle: ReassemblyDriveLifecycleService,
     private readonly pluginLifecycle: PluginLifecycleCoordinatorService,
@@ -4435,7 +4439,13 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
         this.menuCommand(COMMAND.calculateSize, 'Calculate Size'),
         this.menuCommand(COMMAND.attributes, 'Attributes / Permissions'),
         this.menuCommand(COMMAND.setModifiedTime, 'Set Modified Time…'),
-        ...(!isDirectory ? [this.menuCommand(COMMAND.checksum, 'SHA-256 Checksum')] : []),
+        ...(!isDirectory ? [
+          this.menuCommand(COMMAND.checksum, 'SHA-256 Checksum'),
+          this.menuCommand(COMMAND.splitFile, 'Split File…'),
+        ] : []),
+        ...(selectionCount >= 2
+          ? [this.menuCommand(COMMAND.joinFiles, 'Join Selected File Parts…')]
+          : []),
       ]);
 
       this.pushMenuSection(items, [
@@ -4653,7 +4663,6 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       commandId,
       label,
       shortcut,
-      danger: options.danger,
       enabled: !!state?.registered && state.enabled,
     };
   }
@@ -5751,10 +5760,17 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
         destination: await this.api.joinPaths([destination.path, this.leafName(sourcePath)]),
       })));
 
-      const result = operation === 'copy'
-        ? await this.api.batchCopy(items, true)
-        : await this.api.batchMove(items, true);
+      const queueId = this.powerFileOperations.enqueue(operation, items);
+      const queued = await this.powerFileOperations.waitFor(queueId);
 
+      if (queued.status !== 'completed' || !queued.result) {
+        throw new Error(
+          queued.error ||
+          `${operation === 'copy' ? 'Copy' : 'Move'} did not complete.`,
+        );
+      }
+
+      const result = queued.result;
       const affected = result.affectedPaths ?? [];
       if (
         result.failed === 0 &&

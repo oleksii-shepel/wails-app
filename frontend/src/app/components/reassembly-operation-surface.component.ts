@@ -15,6 +15,10 @@ import {
   type OperationState,
 } from '../services/operation.service';
 import type { ConflictResolution } from '../shared/protocol-enhanced';
+import {
+  PowerFileOperationsService,
+  type PowerTransferJob,
+} from '../services/power-file-operations.service';
 
 @Component({
   selector: 'app-reassembly-operation-surface',
@@ -24,7 +28,7 @@ import type { ConflictResolution } from '../shared/protocol-enhanced';
   template: `
     <aside
       class="surface"
-      *ngIf="operations.length > 0"
+      *ngIf="operations.length > 0 || queueJobs.length > 0"
       aria-label="File operations"
       aria-live="polite"
       aria-relevant="additions text"
@@ -39,6 +43,25 @@ import type { ConflictResolution } from '../shared/protocol-enhanced';
         </div>
 
         <div class="header-actions">
+          <label class="collision-policy" title="Default action for transfer name collisions">
+            <span>Collisions</span>
+            <select
+              [value]="operationService.getCollisionPolicy()"
+              (change)="setCollisionPolicy($event)">
+              <option value="ask">Ask</option>
+              <option value="overwrite">Replace all</option>
+              <option value="rename">Keep both</option>
+              <option value="skip">Skip all</option>
+            </select>
+          </label>
+
+          <button
+            type="button"
+            *ngIf="queueJobs.length || powerQueue.pendingCount"
+            (click)="toggleQueuePause()">
+            {{ powerQueue.isPaused ? 'Resume queue' : 'Pause queue' }}
+          </button>
+
           <button type="button" (click)="openDetails.emit()">Details</button>
           <button
             type="button"
@@ -50,11 +73,32 @@ import type { ConflictResolution } from '../shared/protocol-enhanced';
       </header>
 
       <article
+        class="operation queue-operation"
+        *ngFor="let job of queueJobs; trackBy: trackQueueJob"
+        [class.operation-failed]="job.status === 'failed'">
+        <div class="row">
+          <span class="kind">{{ job.kind === 'copy' ? 'Queued Copy' : 'Queued Move' }}</span>
+          <span class="status">{{ job.status }}</span>
+        </div>
+        <div class="meta">
+          <span>{{ job.items.length }} item{{ job.items.length === 1 ? '' : 's' }}</span>
+          <span>attempt {{ job.attempt }}</span>
+          <span *ngIf="job.result">
+            {{ job.result.succeeded }}/{{ job.result.total }} succeeded
+          </span>
+        </div>
+        <div class="error-message" *ngIf="job.error">{{ job.error }}</div>
+        <div class="operation-actions">
+          <button *ngIf="job.status === 'queued'" (click)="cancelQueued(job)">Remove</button>
+          <button *ngIf="job.status === 'failed' || job.status === 'cancelled'" (click)="retryQueued(job)">Retry</button>
+          <button *ngIf="job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled'" (click)="dismissQueued(job)">Dismiss</button>
+        </div>
+      </article>
+
+      <article
         class="operation"
         *ngFor="let operation of operations; trackBy: trackOperation"
         [class.operation-failed]="operation.status === 'error'"
-        [class.operation-completed]="operation.status === 'completed'"
-        [class.operation-cancelled]="operation.status === 'cancelled'"
         [class.operation-paused]="operation.status === 'paused'">
 
         <div class="row">
@@ -208,6 +252,23 @@ import type { ConflictResolution } from '../shared/protocol-enhanced';
       flex-wrap: wrap;
     }
 
+    .collision-policy {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
+      font-size: 10px;
+    }
+
+    .collision-policy select {
+      min-height: 22px;
+      border: 1px solid var(--vsc-border, var(--vsc-border));
+      border-radius: 3px;
+      background: var(--vsc-input-background, var(--vsc-control-background));
+      color: var(--vsc-input-foreground, var(--vsc-foreground));
+      font: inherit;
+    }
+
     header strong {
       color: var(--vsc-foreground, var(--vsc-foreground));
     }
@@ -244,12 +305,6 @@ import type { ConflictResolution } from '../shared/protocol-enhanced';
 
     .operation-paused {
       border-left: 2px solid var(--vsc-warning-foreground, var(--vsc-warning));
-    }
-    .operation-completed {
-      border-left: 2px solid var(--vsc-success);
-    }
-    .operation-cancelled {
-      border-left: 2px solid var(--vsc-description-foreground, var(--vsc-foreground-dim));
     }
 
     .row {
@@ -375,6 +430,7 @@ export class ReassemblyOperationSurfaceComponent implements OnInit, OnDestroy {
   @Output() openDetails = new EventEmitter<void>();
 
   operations: OperationState[] = [];
+  queueJobs: readonly PowerTransferJob[] = [];
   readonly cancelling = new Set<string>();
   readonly applyToAll = new Set<string>();
 
@@ -382,6 +438,7 @@ export class ReassemblyOperationSurfaceComponent implements OnInit, OnDestroy {
 
   constructor(
     public readonly operationService: OperationService,
+    public readonly powerQueue: PowerFileOperationsService,
     private readonly cdr: ChangeDetectorRef,
   ) {}
 
@@ -402,6 +459,15 @@ export class ReassemblyOperationSurfaceComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
+    this.powerQueue.jobs$
+      .pipe(takeUntil(this.destroy$))
+      .subscribe(jobs => {
+        this.queueJobs = jobs.filter(job =>
+          job.status !== 'completed' || Date.now() - job.createdAt < 15_000
+        );
+        this.cdr.markForCheck();
+      });
+
     this.operationService.visibleOperations$
       .pipe(takeUntil(this.destroy$))
       .subscribe(operations => {
@@ -442,9 +508,6 @@ export class ReassemblyOperationSurfaceComponent implements OnInit, OnDestroy {
     if (operation.status === 'paused' && operation.conflictData) {
       return 'waiting for decision';
     }
-    if (operation.status === 'completed') return 'done';
-    if (operation.status === 'cancelled') return 'cancelled';
-    if (operation.status === 'error') return 'failed';
     return operation.status;
   }
 
@@ -492,6 +555,40 @@ export class ReassemblyOperationSurfaceComponent implements OnInit, OnDestroy {
     if (resolved && (resolution === 'skip' || resolution === 'cancel')) {
       this.applyToAll.delete(operation.id);
     }
+  }
+
+  setCollisionPolicy(event: Event): void {
+    const value = (event.target as HTMLSelectElement | null)?.value ?? 'ask';
+    if (
+      value === 'ask' ||
+      value === 'overwrite' ||
+      value === 'rename' ||
+      value === 'skip'
+    ) {
+      this.operationService.setCollisionPolicy(value);
+    }
+  }
+
+  toggleQueuePause(): void {
+    if (this.powerQueue.isPaused) this.powerQueue.resumeQueue();
+    else this.powerQueue.pauseQueue();
+    this.cdr.markForCheck();
+  }
+
+  retryQueued(job: PowerTransferJob): void {
+    this.powerQueue.retry(job.id);
+  }
+
+  cancelQueued(job: PowerTransferJob): void {
+    this.powerQueue.cancelQueued(job.id);
+  }
+
+  dismissQueued(job: PowerTransferJob): void {
+    this.powerQueue.dismiss(job.id);
+  }
+
+  trackQueueJob(_index: number, job: PowerTransferJob): string {
+    return job.id;
   }
 
   trackOperation(_index: number, operation: OperationState): string {

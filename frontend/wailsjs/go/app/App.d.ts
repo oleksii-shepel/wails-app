@@ -186,6 +186,8 @@ export function IsProcessElevated():Promise<boolean>;
 
 export function IsRoot(arg1:string):Promise<boolean>;
 
+export function JoinFiles(arg1:Array<string>,arg2:string):Promise<string>;
+
 export function JoinMountNamespace(arg1:string):Promise<void>;
 
 export function JoinPaths(arg1:Array<string>):Promise<string>;
@@ -295,6 +297,8 @@ export function SetStreamBaseURL(arg1:string):Promise<void>;
 export function SetupFileDropHandler(arg1:number):Promise<void>;
 
 export function Shutdown():Promise<void>;
+
+export function SplitFile(arg1:string,arg2:number):Promise<Array<string>>;
 
 export function SplitPath(arg1:string):Promise<Record<string, string>>;
 

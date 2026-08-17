@@ -97,6 +97,8 @@ export class OperationService implements OnDestroy {
   public conflicts$ = this.conflictsSubject.pipe(shareReplay(1));
   
   private pendingConflicts = new Map<string, ConflictEvent>();
+  private readonly collisionPolicyKey = 'reassembly.operations.collisionPolicy.v1';
+  private collisionPolicy: ConflictResolution | 'ask' = this.loadCollisionPolicy();
   
   // Derived streams using Streamix
   public activeCount$ = this.operations$.pipe(
@@ -288,6 +290,15 @@ export class OperationService implements OnDestroy {
     this.pendingConflicts.set(event.conflictId, event);
     this.conflictsSubject.next(Array.from(this.pendingConflicts.values()));
 
+    if (this.collisionPolicy !== 'ask') {
+      void this.resolveConflict(
+        event.conflictId,
+        this.collisionPolicy,
+        true,
+      );
+      return;
+    }
+
     // Update the operation state
     const existing = this.operationsMap.get(event.operationId);
     if (existing) {
@@ -450,6 +461,36 @@ export class OperationService implements OnDestroy {
   // ============================================================================
   // Public API Methods
   // ============================================================================
+
+  getCollisionPolicy(): ConflictResolution | 'ask' {
+    return this.collisionPolicy;
+  }
+
+  setCollisionPolicy(policy: ConflictResolution | 'ask'): void {
+    this.collisionPolicy = policy;
+    try {
+      localStorage.setItem(this.collisionPolicyKey, policy);
+    } catch {
+      // Preference remains valid for the current session.
+    }
+  }
+
+  private loadCollisionPolicy(): ConflictResolution | 'ask' {
+    try {
+      const value = localStorage.getItem(this.collisionPolicyKey);
+      if (
+        value === 'overwrite' ||
+        value === 'rename' ||
+        value === 'skip' ||
+        value === 'ask'
+      ) {
+        return value;
+      }
+    } catch {
+      // Storage is optional.
+    }
+    return 'ask';
+  }
 
   minimize(id: string): void {
     this.patchOperation(id, { isMinimized: true });

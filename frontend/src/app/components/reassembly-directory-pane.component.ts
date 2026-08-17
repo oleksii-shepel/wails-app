@@ -1167,62 +1167,81 @@ const REASSEMBLY_DIR_TAB_SESSION_VERSION = 3;
     }
 
     .viewer-toolbar {
-      display: grid;
-      grid-template-columns: auto minmax(0, 1fr) 28px;
+      display: flex;
       align-items: center;
-      gap: 8px;
-      min-height: 32px;
-      padding: 0 8px;
+      gap: 4px;
+      min-height: 30px;
+      padding: 0 6px;
       border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
       background: var(--vsc-tabbar-background, var(--vsc-panel-background));
       font-size: 11px;
+      overflow: hidden;
+      white-space: nowrap;
     }
 
     .viewer-label {
+      flex: 0 0 auto;
       color: var(--vsc-accent-blue, var(--vsc-focus-ring));
       font-weight: 600;
+      line-height: 1;
     }
 
     .viewer-kind {
       flex: 0 0 auto;
       padding: 1px 5px;
-      border: 1px solid var(--vsc-border, var(--vsc-border));
+      border: 1px solid var(--vsc-border-subtle, var(--vsc-border));
       border-radius: 3px;
       color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
+      background: var(--vsc-control-background, transparent);
       font-size: 9px;
+      line-height: 16px;
       text-transform: uppercase;
     }
 
     .viewer-separator {
       width: 1px;
-      height: 18px;
-      background: var(--vsc-border, var(--vsc-border));
+      height: 16px;
+      margin: 0 2px;
+      background: var(--vsc-border-subtle, var(--vsc-border));
       flex: 0 0 auto;
     }
 
     .viewer-path {
-      min-width: 0;
+      flex: 1 1 auto;
+      min-width: 48px;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
       color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
       font-family: var(--vsc-font-family-mono, ui-monospace, monospace);
+      opacity: .82;
     }
 
     .viewer-toolbar button {
-      width: 24px;
+      flex: 0 0 auto;
+      width: auto;
+      min-width: 24px;
       height: 24px;
-      border: 0;
+      padding: 0 6px;
+      border: 1px solid transparent;
       border-radius: 3px;
       background: transparent;
       color: inherit;
       cursor: pointer;
-      font-size: 17px;
+      font: inherit;
+      line-height: 22px;
     }
 
-    .viewer-toolbar button:hover {
-      background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
+    .viewer-toolbar button:disabled {
+      cursor: default;
+      opacity: .35;
     }
+
+    .viewer-toolbar button:not(:disabled):hover {
+      background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
+      border-color: var(--vsc-border-subtle, var(--vsc-border));
+    }
+
 
     app-viewer-host-surface {
       display: flex;

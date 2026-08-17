@@ -306,7 +306,8 @@ function createCodePreviewTheme(isDark: boolean, settings: Pick<EditorSettings, 
       align-items: center;
       justify-content: space-between;
       gap: 8px;
-      padding: 8px 12px;
+      min-height: 42px;
+      padding: 5px 10px;
       border-bottom: 1px solid var(--vsc-border, var(--vsc-border));
       background: color-mix(in srgb, var(--vsc-editor-background, var(--vsc-editor-background)) 92%, black);
       flex-shrink: 0;
@@ -320,7 +321,7 @@ function createCodePreviewTheme(isDark: boolean, settings: Pick<EditorSettings, 
       flex: 1;
     }
     .file-icon {
-      font-size: 18px;
+      font-size: 16px;
       flex-shrink: 0;
       line-height: 1;
     }
@@ -330,9 +331,8 @@ function createCodePreviewTheme(isDark: boolean, settings: Pick<EditorSettings, 
     }
     .title {
       font-size: 12px;
-      font-weight: 700;
-      letter-spacing: 0.3px;
-      text-transform: uppercase;
+      font-weight: 600;
+      letter-spacing: 0;
       opacity: 0.9;
       white-space: nowrap;
       overflow: hidden;
@@ -340,8 +340,9 @@ function createCodePreviewTheme(isDark: boolean, settings: Pick<EditorSettings, 
     }
     .path {
       font-family: var(--vsc-font-family-mono, ui-monospace, 'Courier New', monospace);
-      font-size: 11px;
-      opacity: 0.6;
+      font-size: 10px;
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
+      opacity: 1;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -354,9 +355,9 @@ function createCodePreviewTheme(isDark: boolean, settings: Pick<EditorSettings, 
       flex-shrink: 0;
     }
     .badge {
-      font-size: 10px;
+      font-size: 9px;
       font-weight: 600;
-      padding: 2px 6px;
+      padding: 1px 5px;
       border-radius: 3px;
       white-space: nowrap;
       letter-spacing: 0.3px;
@@ -381,7 +382,8 @@ function createCodePreviewTheme(isDark: boolean, settings: Pick<EditorSettings, 
       display: flex;
       align-items: center;
       gap: 2px;
-      padding: 4px 8px;
+      min-height: 30px;
+      padding: 2px 6px;
       border-bottom: 1px solid var(--vsc-border, var(--vsc-border));
       background: color-mix(in srgb, var(--vsc-editor-background, var(--vsc-editor-background)) 96%, black);
       flex-shrink: 0;
@@ -390,8 +392,8 @@ function createCodePreviewTheme(isDark: boolean, settings: Pick<EditorSettings, 
       background: transparent;
       border: 1px solid transparent;
       color: var(--vsc-foreground, var(--vsc-foreground));
-      font-size: 12px;
-      padding: 2px 8px;
+      font-size: 11px;
+      padding: 2px 7px;
       border-radius: 3px;
       cursor: pointer;
       line-height: 1.4;

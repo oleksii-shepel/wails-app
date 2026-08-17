@@ -84,6 +84,7 @@ import type { ToolbarContext, MenuContext } from '../plugin/plugin-registry-api'
 import { adaptPluginToolbarActions } from './pane-toolbar-action';
 import { presentPluginCommand } from './plugin-command-presentation';
 import type { PresentedCommand } from './presented-command';
+import { analyzePaneLocations, mirrorPaneLocation } from './reassembly-pane-link-policy';
 
 type PaneId = 'left' | 'right';
 
@@ -416,6 +417,19 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         (execute)="executeSyncPlan($event)"
         (close)="closeSyncReview()">
       </app-pane-sync-review>
+      <div class="pane-intelligence" *ngIf="workspacePresentation?.kind !== 'tool'"
+        [class.linked]="linkedNavigation" [class.same]="paneLocationRelation === 'same'">
+        <span class="relation" [title]="paneRelationTitle">{{ paneRelationLabel }}</span>
+        <span class="link-status" *ngIf="linkStatus">{{ linkStatus }}</span>
+        <span class="spacer"></span>
+        <button type="button" [class.active]="followSelection" [attr.aria-pressed]="followSelection"
+          title="Mirror cursor to a matching item in the other pane"
+          (click)="toggleFollowSelection()">Follow</button>
+        <button type="button" [class.active]="linkedNavigation" [attr.aria-pressed]="linkedNavigation"
+          title="Keep pane navigation root-relative"
+          (click)="toggleLinkedNavigation()">Link</button>
+      </div>
+
       <div class="pane-slot" *ngIf="workspacePresentation?.kind !== 'tool'">
         <app-reassembly-directory-pane
           #leftPane
@@ -427,6 +441,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           (activateRequested)="activate('left')"
           (remoteRecoveryRequested)="openRemoteConnections()"
           (togglePinRequested)="togglePanePin(leftPane)"
+          (locationChange)="onLinkedPaneLocationChange('left', $event)"
+          (cursorChange)="onLinkedPaneCursorChange('left', $event)"
           (entryContextMenu)="openEntryMenu('left', $event.event, $event.entry)"
           (backgroundContextMenu)="openBackgroundMenu('left', $event)"
           (internalDrop)="handleInternalDrop('left', $event.event, $event.targetPath)">
@@ -463,6 +479,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           (activateRequested)="activate('right')"
           (remoteRecoveryRequested)="openRemoteConnections()"
           (togglePinRequested)="togglePanePin(rightPane)"
+          (locationChange)="onLinkedPaneLocationChange('right', $event)"
+          (cursorChange)="onLinkedPaneCursorChange('right', $event)"
           (entryContextMenu)="openEntryMenu('right', $event.event, $event.entry)"
           (backgroundContextMenu)="openBackgroundMenu('right', $event)"
           (internalDrop)="handleInternalDrop('right', $event.event, $event.targetPath)">
@@ -572,6 +590,16 @@ const BINDINGS: readonly InputBindingDefinition[] = [
       grid-column: 1 / -1;
       min-width: 0;
     }
+
+    .pane-intelligence{grid-column:1/-1;display:flex;align-items:center;min-height:24px;gap:6px;padding:2px 6px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border));background:var(--vsc-sideBar-background,var(--vsc-panel-background));color:var(--vsc-description-foreground,var(--vsc-foreground-dim));font:10px/1.2 var(--vsc-font-family,system-ui,sans-serif)}
+    .pane-intelligence.linked{background:color-mix(in srgb,var(--vsc-accent-blue) 7%,var(--vsc-sideBar-background,var(--vsc-panel-background)))}
+    .pane-intelligence.same .relation{color:var(--vsc-success)}
+    .pane-intelligence .relation{font-weight:600;color:var(--vsc-foreground)}
+    .pane-intelligence .link-status{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .pane-intelligence .spacer{flex:1}
+    .pane-intelligence button{min-height:20px;padding:1px 7px;border:1px solid transparent;border-radius:3px;background:transparent;color:inherit;cursor:pointer;font:inherit}
+    .pane-intelligence button:hover{border-color:var(--vsc-border);background:var(--vsc-list-hover-background);color:var(--vsc-foreground)}
+    .pane-intelligence button.active{border-color:color-mix(in srgb,var(--vsc-accent-blue) 55%,var(--vsc-border));background:color-mix(in srgb,var(--vsc-accent-blue) 12%,transparent);color:var(--vsc-foreground)}
 
     .pane-slot {
       grid-row: 3;
@@ -694,6 +722,12 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
 
   lastTransfer = 'none';
   lastDrop = 'none';
+  linkedNavigation = false;
+  followSelection = false;
+  linkStatus = '';
+  private linkedRoots: { left: string; right: string } | null = null;
+  private linkedNavigationGuard = 0;
+  private linkedSelectionGuard = false;
   contextMenu: ReassemblyContextMenuState | null = null;
   private contextMenuReturnFocus: HTMLElement | null = null;
 
@@ -958,6 +992,101 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
       this.input.unregisterCommandDescriptor(commandId, OWNER_ID);
     }
   }
+
+  get paneLocationRelation(): ReturnType<typeof analyzePaneLocations>['relation'] {
+    return analyzePaneLocations(this.leftPane?.path ?? '', this.rightPane?.path ?? '').relation;
+  }
+
+  get paneRelationLabel(): string {
+    const result = analyzePaneLocations(this.leftPane?.path ?? '', this.rightPane?.path ?? '');
+    if (result.relation === 'same') return 'Same location';
+    if (result.relation === 'left-inside-right') return `Left is ${result.depthDelta} level${result.depthDelta === 1 ? '' : 's'} deeper`;
+    if (result.relation === 'right-inside-left') return `Right is ${result.depthDelta} level${result.depthDelta === 1 ? '' : 's'} deeper`;
+    return 'Independent locations';
+  }
+
+  get paneRelationTitle(): string {
+    return `Left: ${this.leftPane?.path || '—'}\nRight: ${this.rightPane?.path || '—'}`;
+  }
+
+  toggleLinkedNavigation(): void {
+    this.linkedNavigation = !this.linkedNavigation;
+    this.linkStatus = '';
+
+    if (this.linkedNavigation) {
+      this.linkedRoots = { left:this.leftPane?.path ?? '', right:this.rightPane?.path ?? '' };
+      this.linkStatus = 'roots linked';
+    } else {
+      this.linkedRoots = null;
+    }
+    this.cdr.markForCheck();
+  }
+
+  toggleFollowSelection(): void {
+    this.followSelection = !this.followSelection;
+    this.linkStatus = this.followSelection ? 'selection follow on' : '';
+    this.cdr.markForCheck();
+
+    const cursor = this.activePane?.cursorEntry;
+    if (this.followSelection && cursor) {
+      this.onLinkedPaneCursorChange(this.activePaneId, cursor);
+    }
+  }
+
+  async onLinkedPaneLocationChange(paneId: PaneId, path: string): Promise<void> {
+    if (!this.linkedNavigation || !this.linkedRoots || this.linkedNavigationGuard > 0) {
+      this.cdr.markForCheck();
+      return;
+    }
+
+    const otherId: PaneId = paneId === 'left' ? 'right' : 'left';
+    const targetPane = otherId === 'left' ? this.leftPane : this.rightPane;
+    if (!targetPane) return;
+
+    const mirrored = mirrorPaneLocation(path, this.linkedRoots[paneId], this.linkedRoots[otherId]);
+    if (!mirrored) {
+      this.linkStatus = 'outside linked root';
+      this.cdr.markForCheck();
+      return;
+    }
+
+    if (mirrored === targetPane.path) {
+      this.linkStatus = 'aligned';
+      this.cdr.markForCheck();
+      return;
+    }
+
+    if (!(await targetPane.canNavigateToLocation(mirrored))) {
+      this.linkStatus = `missing peer: ${this.leafName(mirrored) || mirrored}`;
+      this.cdr.markForCheck();
+      return;
+    }
+
+    this.linkedNavigationGuard++;
+    try {
+      const loaded = await targetPane.load(mirrored, { history:'record', preserveCursor:false });
+      this.linkStatus = loaded ? 'aligned' : 'peer navigation failed';
+    } finally {
+      this.linkedNavigationGuard = Math.max(0, this.linkedNavigationGuard - 1);
+      this.cdr.markForCheck();
+    }
+  }
+
+  onLinkedPaneCursorChange(paneId: PaneId, entry: FileInfo | null): void {
+    if (!this.followSelection || !entry || this.linkedSelectionGuard) return;
+    const targetPane = paneId === 'left' ? this.rightPane : this.leftPane;
+    if (!targetPane) return;
+
+    this.linkedSelectionGuard = true;
+    try {
+      const followed = targetPane.selectPeerByName(entry.name);
+      this.linkStatus = followed ? `follow: ${entry.name}` : `no peer: ${entry.name}`;
+    } finally {
+      this.linkedSelectionGuard = false;
+      this.cdr.markForCheck();
+    }
+  }
+
 
   activate(paneId: PaneId, focusContent = false): void {
     this.closeContextMenu();

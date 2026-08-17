@@ -1429,6 +1429,8 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   @Output() activateRequested = new EventEmitter<void>();
   @Output() remoteRecoveryRequested = new EventEmitter<void>();
   @Output() togglePinRequested = new EventEmitter<void>();
+  @Output() locationChange = new EventEmitter<string>();
+  @Output() cursorChange = new EventEmitter<FileInfo | null>();
   @Output() entryContextMenu = new EventEmitter<{ event: MouseEvent; entry: FileInfo }>();
   @Output() backgroundContextMenu = new EventEmitter<MouseEvent>();
   @Output() internalDrop = new EventEmitter<{
@@ -1493,6 +1495,32 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
           : this.listViewport?.nativeElement;
 
     target?.focus({ preventScroll: true });
+  }
+
+  async canNavigateToLocation(path: string): Promise<boolean> {
+    if (!path || !this.isDirectoryTab) return false;
+    try {
+      await this.panelSources.listDirectory(path, this.showHidden);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  selectPeerByName(name: string): boolean {
+    if (!name || !this.isDirectoryTab) return false;
+    const folded = name.toLowerCase();
+    const entry =
+      this.selectableEntries().find(candidate => candidate.name.toLowerCase() === folded) ??
+      this.entries.find(candidate => candidate.path !== '__parent__' && candidate.name.toLowerCase() === folded);
+    if (!entry) return false;
+
+    this.setSingleSelection(entry);
+    this.lastAction = `follow: ${entry.name}`;
+    this.ensureCursorVisible();
+    this.syncActiveDirSessionState();
+    this.cdr.markForCheck();
+    return true;
   }
 
   entryAriaLabel(entry: FileInfo): string {
@@ -3070,6 +3098,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     this.cursorPath = null;
     this.anchorPath = null;
     this.lastAction = 'selection cleared';
+    this.cursorChange.emit(null);
 
     const current = event.currentTarget as HTMLElement | null;
     current?.focus({ preventScroll: true });
@@ -3114,6 +3143,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     }
 
     this.lastAction = `select: ${entry.name}`;
+    this.cursorChange.emit(entry);
     this.syncActiveDirSessionState();
     this.cdr.markForCheck();
   }
@@ -6789,6 +6819,8 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
 
       if (!options.restoreSession) {
         this.syncActiveDirSessionState();
+        this.locationChange.emit(this.path);
+        this.cursorChange.emit(this.cursorEntry);
       }
 
       return true;
@@ -6926,6 +6958,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     this.cursorPath = entry.path;
     this.selectedPaths = new Set([entry.path]);
     this.anchorPath = entry.path;
+    this.cursorChange.emit(entry.path === '__parent__' ? null : entry);
   }
 
   private selectRange(anchorPath: string, targetPath: string): void {

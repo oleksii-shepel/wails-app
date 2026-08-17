@@ -81,20 +81,6 @@ export interface ReassemblyPanePresentation {
   readonly filterVisible: boolean;
 }
 
-export type ReassemblyCompareMarker =
-  | 'equal'
-  | 'only-here'
-  | 'different'
-  | 'newer'
-  | 'older'
-  | 'type-mismatch';
-
-export interface ReassemblyCompareOverlayItem {
-  readonly name: string;
-  readonly path: string;
-  readonly marker: ReassemblyCompareMarker;
-  readonly peerPath?: string | null;
-}
 
 interface ReassemblyTreeRow {
   entry: FileInfo;
@@ -1452,8 +1438,6 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   @Input() showHidden = false;
   @Input() currentPathPinned = false;
   @Input() pluginToolbarActions: readonly PresentedCommand[] = [];
-  @Input() compareOverlay: readonly ReassemblyCompareOverlayItem[] = [];
-  @Input() compareOverlayVisible = false;
   @Output() activateRequested = new EventEmitter<void>();
   @Output() remoteRecoveryRequested = new EventEmitter<void>();
   @Output() togglePinRequested = new EventEmitter<void>();
@@ -1536,6 +1520,40 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     } catch {
       return false;
     }
+  }
+
+  async currentLocationAvailable(): Promise<boolean> {
+    if (!this.isDirectoryTab || !this.path) return false;
+    return this.canNavigateToLocation(this.path);
+  }
+
+  recoverVisibleCursor(): void {
+    const visible = this.selectableEntries();
+
+    if (!visible.length) {
+      this.selectedPaths = new Set();
+      this.cursorPath = null;
+      this.anchorPath = null;
+      this.cursorChange.emit(null);
+      this.syncActiveDirSessionState();
+      this.cdr.markForCheck();
+      return;
+    }
+
+    const current =
+      this.cursorPath !== null
+        ? visible.find(entry => entry.path === this.cursorPath)
+        : undefined;
+
+    const fallback: FileInfo =
+      current ??
+      visible.find(entry => this.selectedPaths.has(entry.path)) ??
+      visible[0];
+
+    this.setSingleSelection(fallback);
+    this.ensureCursorVisible();
+    this.syncActiveDirSessionState();
+    this.cdr.markForCheck();
   }
 
   async navigateLinkedLocation(
@@ -1634,26 +1652,6 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     );
   }
 
-  compareMarkerFor(entry: FileInfo): ReassemblyCompareMarker | null {
-    if (!this.compareOverlayVisible) return null;
-
-    const folded = entry.name.toLowerCase();
-    return this.compareOverlay.find(item =>
-      item.path === entry.path || item.name.toLowerCase() === folded
-    )?.marker ?? null;
-  }
-
-  compareMarkerLabel(marker: ReassemblyCompareMarker | null): string {
-    switch (marker) {
-      case 'only-here': return 'Only on this side';
-      case 'different': return 'Different';
-      case 'newer': return 'Newer';
-      case 'older': return 'Older';
-      case 'type-mismatch': return 'Type mismatch';
-      case 'equal': return 'Equal';
-      default: return '';
-    }
-  }
 
   selectComparisonItem(path: string): boolean {
     const entry = this.entries.find(candidate => candidate.path === path);

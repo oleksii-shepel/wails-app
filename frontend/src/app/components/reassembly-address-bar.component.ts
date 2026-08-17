@@ -496,8 +496,8 @@ export class ReassemblyAddressBarComponent implements OnInit, OnDestroy {
   onDisplayPathClick(event: MouseEvent): void {
     const target = event.target as HTMLElement | null;
 
-    // Breadcrumbs and explicit controls own their click. Everything else in the
-    // location field is editable surface, including whitespace after a short path.
+    // Breadcrumbs and explicit address-bar controls keep their own click action.
+    // Any other click inside the visual address field enters location editing.
     if (target?.closest('button')) return;
 
     this.beginEdit();
@@ -574,9 +574,12 @@ export class ReassemblyAddressBarComponent implements OnInit, OnDestroy {
     this.suggestions = [];
     this.suggestionIndex = -1;
     this.activateEditorContext();
-    this.cdr.markForCheck();
 
-    queueMicrotask(() => this.focusAndSelect());
+    // The editor input is created by *ngIf="editing". Render it synchronously
+    // before scheduling focus so the first click immediately shows the caret.
+    this.cdr.detectChanges();
+    requestAnimationFrame(() => this.focusAndSelect());
+
     void this.refreshSuggestions();
   }
 

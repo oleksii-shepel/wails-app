@@ -98,6 +98,52 @@ describe('InputEngineService command invocation', () => {
     });
   });
 
+  it('recovers WebView2 Unidentified navigation accelerators from DOM code', async () => {
+    const engine = createEngine();
+    const previous = fn();
+    const next = fn();
+    engine.registerCommandDescriptor({ id: 'workspace.previous', title: 'Previous Workspace', execute: previous });
+    engine.registerCommandDescriptor({ id: 'workspace.next', title: 'Next Workspace', execute: next });
+    engine.registerBinding({
+      id: 'workspace.previous.ctrlAltLeft',
+      commandId: 'workspace.previous',
+      contextId: 'global',
+      source: 'default',
+      description: 'Previous workspace',
+      trigger: { device: 'keyboard', chord: { steps: [{ key: 'arrowleft', modifiers: ['alt', 'ctrl'] }] } },
+    });
+    engine.registerBinding({
+      id: 'workspace.next.ctrlAltRight',
+      commandId: 'workspace.next',
+      contextId: 'global',
+      source: 'default',
+      description: 'Next workspace',
+      trigger: { device: 'keyboard', chord: { steps: [{ key: 'arrowright', modifiers: ['alt', 'ctrl'] }] } },
+    });
+
+    expect(await engine.dispatchKeyboardEvent({
+      key: 'Unidentified',
+      code: 'ArrowLeft',
+      ctrlKey: true,
+      altKey: true,
+    })).toBe(true);
+    expect(await engine.dispatchKeyboardEvent({
+      key: 'Unidentified',
+      code: 'ArrowRight',
+      ctrlKey: true,
+      altKey: true,
+    })).toBe(true);
+
+    expect(previous).toHaveBeenCalledWith({
+      source: 'keyboard',
+      context: { bindingId: 'workspace.previous.ctrlAltLeft' },
+    });
+    expect(next).toHaveBeenCalledWith({
+      source: 'keyboard',
+      context: { bindingId: 'workspace.next.ctrlAltRight' },
+    });
+  });
+
   it('keeps the latest binding owner active when an older owner unregisters the same binding id', async () => {
     const engine = createEngine();
     const oldExecute = fn();
@@ -132,4 +178,3 @@ describe('InputEngineService command invocation', () => {
     expect(newExecute).toHaveBeenCalledTimes(1);
   });
 });
-

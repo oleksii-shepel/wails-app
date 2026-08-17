@@ -735,6 +735,20 @@ export class InputEngineService {
       NumpadAdd: 'numpadadd',
       NumpadSubtract: 'numpadsubtract',
       NumpadMultiply: 'numpadmultiply',
+      // WebView2 can report accelerator navigation keys with key="Unidentified"
+      // while preserving their DOM code. Normalize those physical codes before
+      // consulting KeyboardEvent.key so global shortcuts such as Ctrl+Alt+Left
+      // and Ctrl+Alt+Right remain reliable.
+      Home: 'home',
+      End: 'end',
+      PageUp: 'pageup',
+      PageDown: 'pagedown',
+      Insert: 'insert',
+      Delete: 'delete',
+      ArrowUp: 'arrowup',
+      ArrowDown: 'arrowdown',
+      ArrowLeft: 'arrowleft',
+      ArrowRight: 'arrowright',
       // Match OEM punctuation by physical key so shortcuts stay stable across
       // keyboard layouts and WebView2 hosts.
       Slash: '/',

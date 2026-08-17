@@ -92,6 +92,7 @@ import type { PresentedCommand } from './presented-command';
 import { analyzePaneLocations, mirrorPaneLocation, mirroredPeerCandidates } from './reassembly-pane-link-policy';
 import type { ReassemblyPanePresentation } from './reassembly-directory-pane.component';
 import { ReassemblyInputCenterComponent } from './reassembly-input-center.component';
+import { ReassemblyOperationJournalComponent } from './reassembly-operation-journal.component';
 import { InputCustomizationService } from '../services/input-customization.service';
 
 type PaneId = 'left' | 'right';
@@ -161,6 +162,7 @@ const COMMAND = {
   openTerminal: 'reassembly.navigation.openTerminal',
   undo: 'reassembly.edit.undo',
   redo: 'reassembly.edit.redo',
+  operationHistory: 'reassembly.edit.operationHistory',
   createArchive: 'reassembly.archive.createZip',
   checksum: 'reassembly.files.checksum',
   calculateSize: 'reassembly.files.calculateSize',
@@ -263,6 +265,7 @@ const COMMAND = {
 } as const;
 
 const BINDINGS: readonly InputBindingDefinition[] = [
+  { id:'reassembly.edit.operationHistory.ctrlShiftH', commandId:COMMAND.operationHistory, contextId:CONTEXT_ID, source:'default', description:'Open operation history', category:'Edit', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'h', modifiers:['ctrl','shift']}]}}},
   { id:'reassembly.mouse.file.doubleClick', commandId:COMMAND.open, contextId:CONTEXT_ID, source:'default', description:'Open selected item with double-click', category:'Mouse', when:'fileEntry && !viewerSurface', trigger:{device:'mouse', gesture:{type:'doubleClick', button:'left'}}},
   { id:'reassembly.mouse.viewer.ctrlWheelUp', commandId:COMMAND.viewerZoomIn, contextId:CONTEXT_ID, source:'default', description:'Zoom viewer in with Ctrl+Wheel', category:'Mouse', when:'viewerSurface', preventDefault:true, trigger:{device:'mouse', gesture:{type:'wheel', modifiers:['ctrl'], direction:'up'}}},
   { id:'reassembly.mouse.viewer.ctrlWheelDown', commandId:COMMAND.viewerZoomOut, contextId:CONTEXT_ID, source:'default', description:'Zoom viewer out with Ctrl+Wheel', category:'Mouse', when:'viewerSurface', preventDefault:true, trigger:{device:'mouse', gesture:{type:'wheel', modifiers:['ctrl'], direction:'down'}}},
@@ -391,7 +394,8 @@ const BINDINGS: readonly InputBindingDefinition[] = [
     ReassemblyGlobalSearchComponent,
     ReassemblyToolWorkspaceHostComponent,
 
-    ReassemblyCommandPaletteComponent,  ],
+    ReassemblyCommandPaletteComponent,    ReassemblyOperationJournalComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section
@@ -694,6 +698,13 @@ const BINDINGS: readonly InputBindingDefinition[] = [
         (closed)="closeContextMenu()">
       </app-reassembly-context-menu>
 
+      <app-reassembly-operation-journal
+        [visible]="operationJournalVisible"
+        (closed)="operationJournalVisible = false"
+        (undoRequested)="undoLastOperation()"
+        (redoRequested)="redoLastOperation()">
+      </app-reassembly-operation-journal>
+
       <app-reassembly-input-center
         [visible]="shortcutHelpVisible"
         (closed)="shortcutHelpVisible = false">
@@ -966,6 +977,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
   private workspaceApplyGeneration = 0;
   showHidden = false;
   shortcutHelpVisible = false;
+  operationJournalVisible = false;
   workspacePresentation: WorkspacePresentation | null = null;
 
   commandPaletteCommands: ReassemblyPaletteCommand[] = [];
@@ -5186,6 +5198,7 @@ export class ReassemblyDualPaneComponent implements OnInit, OnDestroy {
     );
     descriptor(COMMAND.undo, 'Undo', 'Edit', () => this.undoLastOperation(), () => this.operationHistory.canUndo);
     descriptor(COMMAND.redo, 'Redo', 'Edit', () => this.redoLastOperation(), () => this.operationHistory.canRedo);
+    descriptor(COMMAND.operationHistory, 'Operation History', 'Edit', () => { this.operationJournalVisible = true; this.cdr.markForCheck(); });
     descriptor(
       COMMAND.createArchive,
       'Create ZIP Archive',

@@ -5090,6 +5090,19 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
         useTrash,
       );
 
+      if (!useTrash) {
+        this.operationHistory.recordOutcome({
+          label: entries.length === 1
+            ? `Delete ${entries[0].name} permanently`
+            : `Delete ${entries.length} items permanently`,
+          kind: 'delete-permanent',
+          reversible: false,
+          affectedPaths: sourcePaths,
+          state: result.failed > 0 || result.skipped > 0 ? 'partial' : 'completed',
+          summary: `${result.succeeded} succeeded · ${result.skipped} skipped · ${result.failed} failed`,
+        });
+      }
+
       if (useTrash && result.succeeded > 0) {
         const beforeIds = new Set(trashBefore.map(item => item.id));
         const normalize = (value: string) =>
@@ -6143,6 +6156,64 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
         clipboard.operation === 'copy'
           ? await this.api.batchCopy(items, true)
           : await this.api.batchMove(items, true);
+
+      const affected = result.affectedPaths ?? [];
+      if (
+        result.failed === 0 &&
+        result.skipped === 0 &&
+        affected.length === result.succeeded &&
+        affected.length > 0
+      ) {
+        this.operationHistory.record({
+          label: `${clipboard.operation === 'copy' ? 'Paste copy' : 'Paste move'} ${affected.length} item${affected.length === 1 ? '' : 's'}`,
+          kind: clipboard.operation === 'copy' ? 'paste-copy' : 'paste-move',
+          affectedPaths: affected.map(item => item.destination),
+          summary: `${affected.length} item${affected.length === 1 ? '' : 's'}`,
+          undo: async () => {
+            if (clipboard.operation === 'copy') {
+              const deletion = await this.api.batchDelete(
+                affected.map(item => item.destination), true, false,
+              );
+              if (deletion.failed > 0 || deletion.skipped > 0) {
+                throw new Error('Undo paste copy failed.');
+              }
+              return;
+            }
+            const back = await this.api.batchMove(
+              affected.map(item => ({
+                source: item.destination,
+                destination: item.source,
+                exactDestination: true,
+              })), true,
+            );
+            if (back.failed > 0 || back.skipped > 0) {
+              throw new Error('Undo paste move failed.');
+            }
+          },
+          redo: async () => {
+            const forward = affected.map(item => ({
+              source: item.source,
+              destination: item.destination,
+              exactDestination: true,
+            }));
+            const redone = clipboard.operation === 'copy'
+              ? await this.api.batchCopy(forward, true)
+              : await this.api.batchMove(forward, true);
+            if (redone.failed > 0 || redone.skipped > 0) {
+              throw new Error('Redo paste operation failed.');
+            }
+          },
+        });
+      } else if (result.succeeded > 0 || result.failed > 0 || result.skipped > 0) {
+        this.operationHistory.recordOutcome({
+          label: `${clipboard.operation === 'copy' ? 'Paste copy' : 'Paste move'} ${result.total} item${result.total === 1 ? '' : 's'}`,
+          kind: clipboard.operation === 'copy' ? 'paste-copy' : 'paste-move',
+          reversible: false,
+          affectedPaths: affected.map(item => item.destination),
+          state: result.failed > 0 || result.skipped > 0 ? 'partial' : 'completed',
+          summary: `${result.succeeded} succeeded · ${result.skipped} skipped · ${result.failed} failed`,
+        });
+      }
 
       this.lastAction =
         `${clipboard.operation === 'copy' ? 'paste copy' : 'paste move'}: ` +

@@ -1,0 +1,2 @@
+import { ReassemblyOperationHistoryService } from './reassembly-operation-history.service';
+describe('Phase 77 operation journal',()=>{it('records reversible actions',()=>{const s=new ReassemblyOperationHistoryService();s.record({label:'Copy',undo:async()=>{},redo:async()=>{}});expect(s.recentOperations()[0].reversible).toBeTrue();});it('records non-reversible outcomes',()=>{const s=new ReassemblyOperationHistoryService();s.recordOutcome({label:'Permanent delete',reversible:false});expect(s.canUndo).toBeFalse();expect(s.recentOperations()[0].reversible).toBeFalse();});});

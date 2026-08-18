@@ -717,7 +717,23 @@ func comparePreparedEntries(left, right contracts.FileInfo, options DirStreamOpt
 			return comparison
 		}
 	case "type":
-		if comparison := strings.Compare(string(left.Type), string(right.Type)); comparison != 0 {
+		if comparison := compareText(left.Type, right.Type); comparison != 0 {
+			return comparison
+		}
+	case "searchParentPath":
+		if comparison := compareText(left.SearchParentPath, right.SearchParentPath); comparison != 0 {
+			return comparison
+		}
+	case "registryKind":
+		if comparison := compareText(left.RegistryKind, right.RegistryKind); comparison != 0 {
+			return comparison
+		}
+	case "registryValueType":
+		if comparison := compareText(left.RegistryValueType, right.RegistryValueType); comparison != 0 {
+			return comparison
+		}
+	case "registryPreview":
+		if comparison := compareText(left.RegistryPreview, right.RegistryPreview); comparison != 0 {
 			return comparison
 		}
 	default:
@@ -726,6 +742,10 @@ func comparePreparedEntries(left, right contracts.FileInfo, options DirStreamOpt
 		}
 	}
 	return strings.Compare(strings.ToLower(left.Name), strings.ToLower(right.Name))
+}
+
+func compareText[T ~string](left, right T) int {
+	return strings.Compare(strings.ToLower(string(left)), strings.ToLower(string(right)))
 }
 
 func compareInt64(left, right int64) int {

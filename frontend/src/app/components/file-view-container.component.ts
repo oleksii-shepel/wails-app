@@ -10,7 +10,11 @@ import { mergeMap, takeUntil } from '@epikodelabs/streamix';
 import { FileListComponent } from './file-list.component';
 import { FileGridComponent } from './file-grid.component';
 import { FileTreeComponent, TreeNode, DropTarget } from './file-tree.component';
-import { FileDetailsComponent } from './file-details.component';
+import {
+  FileDetailsComponent,
+  type DetailsColumnConfiguration,
+  type ColumnDef,
+} from './file-details.component';
 import { ViewMode } from './action-bar.component';
 import { FileInfo, FileType } from '../shared/protocol';
 import { ApiService } from '../services/api.service';
@@ -136,12 +140,15 @@ export type ViewLayout = ViewMode;
           [singleClickToOpen]="singleClickToOpen"
           [sortField]="sortField"
           [sortDirection]="sortDirection"
+          [columns]="detailsColumns"
+          [columnConfiguration]="detailsColumnConfiguration"
           [colorizeByMime]="colorizeByMime"
           [paneActive]="paneActive"
           (selectionChange)="onSelectionChange($event)"
           (navigate)="onNavigate($event)"
           (openInNewTab)="onOpenInNewTab($event)"
           (sort)="onSortChange($event)"
+          (columnConfigurationChange)="detailsColumnConfigurationChange.emit($event)"
           (contextMenu)="onContextMenu($event)"
           (backgroundContextMenu)="onBackgroundContextMenu($event)"
           (dragStart)="onViewDragStart($event)"
@@ -244,6 +251,8 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
   @Input() sortField     = 'name';
   @Input() sortDirection: 'asc' | 'desc' = 'asc';
   @Input() directoriesFirst = true;
+  @Input() detailsColumns: ColumnDef[] | null = null;
+  @Input() detailsColumnConfiguration: DetailsColumnConfiguration | null = null;
   @Input() colorizeByMime = false;
   @Input() paneActive = true;
 
@@ -252,6 +261,7 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
   @Output() navigate        = new EventEmitter<FileInfo>();
   @Output() openInNewTab    = new EventEmitter<FileInfo>();
   @Output() sortChange      = new EventEmitter<{ field: string; direction: 'asc' | 'desc' }>();
+  @Output() detailsColumnConfigurationChange = new EventEmitter<DetailsColumnConfiguration>();
   @Output() contextMenu     = new EventEmitter<{ event: MouseEvent; entry: FileInfo }>();
   @Output() backgroundContextMenu = new EventEmitter<MouseEvent>();
   @Output() nodeDoubleClick = new EventEmitter<FileInfo>();
@@ -655,10 +665,13 @@ export class FileViewContainerComponent implements OnChanges, OnDestroy, AfterVi
   }
 
   onSortChange(sort: { field: string; direction: 'asc' | 'desc' }): void {
-    this.sortField     = sort.field;
+    this.sortField = sort.field;
     this.sortDirection = sort.direction;
+
+    // Sorting is source-owned. DirectoryPane/DirListStreamController will
+    // rebuild incremental sorted runs or request a new backend window. Do not
+    // perform a second O(n log n) client sort from the Details header.
     this.sortChange.emit(sort);
-    this.sortController.sortEntries(this.sortHost, PARENT_ENTRY_PATH);
   }
 
   // ── Event passthrough ──────────────────────────────────────

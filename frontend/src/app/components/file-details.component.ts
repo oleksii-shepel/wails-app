@@ -30,19 +30,34 @@ export interface ColumnDef {
   flex?: number;
   sortable?: boolean;
   formatter?: (value: any, entry: FileInfo) => string;
+  minWidth?: number;
+  maxWidth?: number;
+}
+
+export interface DetailsColumnState {
+  readonly key: string;
+  readonly visible?: boolean;
+  readonly order?: number;
+  readonly width?: number;
+}
+
+export interface DetailsColumnConfiguration {
+  readonly columns: readonly DetailsColumnState[];
 }
 
 interface DetailsColumnVm {
   column: ColumnDef;
   key: string;
-  width: string | null;
+  widthVar: string | null;
   flex: string;
+  minWidth: number;
+  maxWidth: number;
 }
 
 interface DetailsCellVm {
   column: ColumnDef;
   key: string;
-  width: string | null;
+  widthVar: string | null;
   flex: string;
   value: string;
   isName: boolean;
@@ -62,7 +77,6 @@ interface DetailsRowVm {
   dragOverAfter: boolean;
   draggable: boolean;
   displayNameOverride: string | null;
-  columnVersion: number;
   cells: DetailsCellVm[];
 }
 
@@ -72,7 +86,7 @@ interface DetailsRowVm {
   imports: [CommonModule, FileEntryInlineComponent, VscodeScrollbarDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="file-details" role="table">
+    <div #detailsRoot class="file-details" role="table">
       <div class="details-header" role="rowgroup">
         <div class="details-row header-row" role="row">
           <div 
@@ -80,7 +94,7 @@ interface DetailsRowVm {
             class="details-cell header-cell"
             [attr.data-col]="col.key"
             [class.sortable]="col.column.sortable"
-            [style.width]="col.width"
+            [style.width]="col.widthVar"
             [style.flex]="col.flex"
             [attr.role]="'columnheader'"
             [attr.aria-sort]="getSortState(col.column.field)"
@@ -148,7 +162,7 @@ interface DetailsRowVm {
             <div 
               *ngFor="let cell of row.cells; trackBy: trackByCellKey"
               class="details-cell"
-              [style.width]="cell.width"
+              [style.width]="cell.widthVar"
               [style.flex]="cell.flex"
               [attr.role]="'cell'">
               
@@ -478,10 +492,10 @@ interface DetailsRowVm {
 export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit {
   FileType = FileType;
   private readonly defaultColumns: ColumnDef[] = [
-    { field: 'name', header: 'Name', flex: 2, sortable: true },
-    { field: 'size', header: 'Size', width: '100px', sortable: true, formatter: (value) => this.formatSize(value) },
-    { field: 'modified', header: 'Modified', width: '150px', sortable: true, formatter: (value) => this.formatDate(value) },
-    { field: 'type', header: 'Type', width: '100px', sortable: true, formatter: (_, entry) => this.getFileTypeLabel(entry) }
+    { field: 'name', header: 'Name', flex: 2, sortable: true, minWidth: 140 },
+    { field: 'size', header: 'Size', width: '100px', sortable: true, minWidth: 72, maxWidth: 220, formatter: (value) => this.formatSize(value) },
+    { field: 'modified', header: 'Modified', width: '150px', sortable: true, minWidth: 110, maxWidth: 320, formatter: (value) => this.formatDate(value) },
+    { field: 'type', header: 'Type', width: '100px', sortable: true, minWidth: 80, maxWidth: 260, formatter: (_, entry) => this.getFileTypeLabel(entry) }
   ];
   private readonly registryColumns: ColumnDef[] = [
     { field: 'name', header: 'Name', flex: 1.7, sortable: true },
@@ -492,9 +506,9 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   private readonly searchColumns: ColumnDef[] = [
     { field: 'name', header: 'Name', flex: 1.5, sortable: true },
     { field: 'searchParentPath', header: 'Folder', flex: 1.8, sortable: true, formatter: (_, entry) => this.getSearchParentPath(entry) },
-    { field: 'modified', header: 'Modified', width: '150px', sortable: true, formatter: (value) => this.formatDate(value) },
-    { field: 'size', header: 'Size', width: '100px', sortable: true, formatter: (value) => this.formatSize(value) },
-    { field: 'type', header: 'Type', width: '100px', sortable: true, formatter: (_, entry) => this.getFileTypeLabel(entry) }
+    { field: 'modified', header: 'Modified', width: '150px', sortable: true, minWidth: 110, maxWidth: 320, formatter: (value) => this.formatDate(value) },
+    { field: 'size', header: 'Size', width: '100px', sortable: true, minWidth: 72, maxWidth: 220, formatter: (value) => this.formatSize(value) },
+    { field: 'type', header: 'Type', width: '100px', sortable: true, minWidth: 80, maxWidth: 260, formatter: (_, entry) => this.getFileTypeLabel(entry) }
   ];
   
   constructor(
@@ -502,6 +516,7 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     private cdr: ChangeDetectorRef
   ) {}
 
+  @ViewChild('detailsRoot') detailsRootRef?: ElementRef<HTMLElement>;
   @ViewChild('detailsBody') detailsBodyRef?: ElementRef<HTMLElement>;
   @Input() entries: FileInfo[] = [];
   @Input() pendingDirectorySizePaths: ReadonlySet<string> = new Set();
@@ -509,6 +524,7 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   @Input() selectedFiles: Set<string> = new Set();
   @Input() cursorPath: string | null = null;
   @Input() columns: ColumnDef[] | null = null;
+  @Input() columnConfiguration: DetailsColumnConfiguration | null = null;
   @Input() sortField: string = 'name';
   @Input() sortDirection: 'asc' | 'desc' = 'asc';
   @Input() paneActive = true;
@@ -519,6 +535,7 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   @Output() navigate = new EventEmitter<FileInfo>();
   @Output() openInNewTab = new EventEmitter<FileInfo>();
   @Output() sort = new EventEmitter<{ field: string; direction: 'asc' | 'desc' }>();
+  @Output() columnConfigurationChange = new EventEmitter<DetailsColumnConfiguration>();
   @Output() contextMenu = new EventEmitter<{ event: MouseEvent; entry: FileInfo }>();
   @Output() backgroundContextMenu = new EventEmitter<MouseEvent>();
   @Output() dragStart = new EventEmitter<{ event: DragEvent; entries: FileInfo[] }>();
@@ -553,7 +570,8 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   visibleRowVms: DetailsRowVm[] = [];
   private resolvedActiveColumns: ColumnDef[] = [];
   private rowVmCache = new Map<string, DetailsRowVm>();
-  private columnVmVersion = 0;
+  private readonly formattedValueCache = new WeakMap<FileInfo, Map<string, { signature: string; value: string }>>();
+  private readonly columnWidths = new Map<string, number>();
 
   private anchorPath: string | null = null;
   dragOverPath: string | null = null;
@@ -682,7 +700,6 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
       this.cdr.markForCheck();
     });
   }
-  private columnWidths = new Map<string, number>();
   private resizingColumnKey: string | null = null;
   private resizeStartX = 0;
   private resizeStartWidth = 0;
@@ -727,13 +744,12 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     return String(col.field);
   }
 
-  getColumnWidth(col: ColumnDef): string | null {
+  getColumnWidthVar(col: ColumnDef): string | null {
     const key = this.getColumnKey(col);
-    const resized = this.columnWidths.get(key);
-    if (typeof resized === 'number') {
-      return `${resized}px`;
+    if (this.columnWidths.has(key) || !!col.width) {
+      return `var(--details-column-${this.cssKey(key)}-width)`;
     }
-    return col.width ?? null;
+    return null;
   }
 
   getColumnFlex(col: ColumnDef): string {
@@ -741,13 +757,14 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     if (this.columnWidths.has(key) || !!col.width) {
       return 'none';
     }
-    return col.flex ? String(col.flex) : '1';
+    return col.flex ? `${col.flex} 1 0%` : '1 1 0%';
   }
 
   ngAfterViewInit(): void {
     const element = this.detailsBodyRef?.nativeElement;
     this.viewportHeight = element?.clientHeight || 0;
     this.refreshColumnState();
+    this.rebuildColumnVms();
     this.setupResizeObserver();
     this.setupScrollListener();
     this.rebuildDerivedEntries();
@@ -756,8 +773,17 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   }
 
   ngOnChanges(changes: SimpleChanges): void {
-    if (changes['entries'] || changes['columns'] || changes['currentPath']) {
-      this.refreshColumnState();
+    if (
+      changes['entries'] ||
+      changes['columns'] ||
+      changes['columnConfiguration'] ||
+      changes['currentPath']
+    ) {
+      const columnsChanged =
+        !!changes['columns'] ||
+        !!changes['columnConfiguration'] ||
+        !!changes['currentPath'];
+      if (columnsChanged) this.refreshColumnState();
       const entriesChange = changes['entries'];
       if (entriesChange) {
         const prevLen = entriesChange.previousValue?.length || 0;
@@ -798,8 +824,11 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
 
     this.resizingColumnKey = key;
     this.resizeStartX = event.clientX;
-    this.resizeStartWidth = Math.max(this.MIN_COLUMN_WIDTH, Math.round(headerCell.getBoundingClientRect().width));
-    this.columnWidths.set(key, this.resizeStartWidth);
+    this.resizeStartWidth = Math.max(
+      col.minWidth ?? this.MIN_COLUMN_WIDTH,
+      Math.round(headerCell.getBoundingClientRect().width),
+    );
+    this.setColumnWidthCss(key, this.resizeStartWidth);
 
     this.boundResizeMouseMove = (moveEvent: MouseEvent) => this.onColumnResizeMove(moveEvent);
     this.boundResizeMouseUp = () => this.onColumnResizeEnd();
@@ -810,23 +839,37 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   }
 
   private onColumnResizeMove(event: MouseEvent): void {
-    if (!this.resizingColumnKey) return;
+    const key = this.resizingColumnKey;
+    if (!key) return;
+
+    const column = this.resolvedActiveColumns.find(
+      candidate => this.getColumnKey(candidate) === key,
+    );
+    const minimum = column?.minWidth ?? this.MIN_COLUMN_WIDTH;
+    const maximum = column?.maxWidth ?? 1200;
     const delta = event.clientX - this.resizeStartX;
-    const next = Math.max(this.MIN_COLUMN_WIDTH, this.resizeStartWidth + delta);
-    this.columnWidths.set(this.resizingColumnKey, next);
-    this.rebuildColumnVms();
-    this.rebuildVisibleRowVms();
-    this.cdr.markForCheck();
+    const next = Math.max(
+      minimum,
+      Math.min(maximum, this.resizeStartWidth + delta),
+    );
+
+    // Direct CSS variable mutation changes header + every visible cell without
+    // rebuilding row VMs or running Angular change detection for each mousemove.
+    this.setColumnWidthCss(key, next);
   }
 
   private onColumnResizeEnd(): void {
+    const key = this.resizingColumnKey;
     this.resizingColumnKey = null;
     this.cleanupColumnResizeListeners();
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
-    this.rebuildColumnVms();
-    this.rebuildVisibleRowVms();
-    this.cdr.markForCheck();
+
+    if (key) {
+      this.columnConfigurationChange.emit({
+        columns: this.serializeColumnConfiguration(),
+      });
+    }
   }
 
   private cleanupColumnResizeListeners(): void {
@@ -978,26 +1021,56 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   }
 
   private resolveActiveColumns(): ColumnDef[] {
-    if (this.columns?.length) {
-      return this.columns;
+    const source = this.columns?.length
+      ? this.columns
+      : this.computeIsRegistryListing()
+        ? this.registryColumns
+        : this.computeIsSearchListing()
+          ? this.searchColumns
+          : this.defaultColumns;
+
+    const stateByKey = new Map(
+      (this.columnConfiguration?.columns ?? []).map(state => [state.key, state]),
+    );
+
+    for (const state of stateByKey.values()) {
+      if (Number.isFinite(state.width) && (state.width ?? 0) > 0) {
+        this.columnWidths.set(state.key, Math.round(state.width!));
+      }
     }
-    if (this.computeIsRegistryListing()) {
-      return this.registryColumns;
-    }
-    if (this.computeIsSearchListing()) {
-      return this.searchColumns;
-    }
-    return this.defaultColumns;
+
+    return source
+      .filter(column => stateByKey.get(this.getColumnKey(column))?.visible !== false)
+      .map((column, index) => ({
+        column,
+        index,
+        order: stateByKey.get(this.getColumnKey(column))?.order ?? index,
+      }))
+      .sort((a, b) => a.order - b.order || a.index - b.index)
+      .map(value => value.column);
   }
 
   private rebuildColumnVms(): void {
-    this.columnVmVersion += 1;
-    this.activeColumnVms = this.resolvedActiveColumns.map((column) => ({
-      column,
-      key: this.getColumnKey(column),
-      width: this.getColumnWidth(column),
-      flex: this.getColumnFlex(column),
-    }));
+    this.activeColumnVms = this.resolvedActiveColumns.map((column) => {
+      const key = this.getColumnKey(column);
+      const configured = this.columnWidths.get(key);
+      const fallbackWidth = this.pixelWidth(column.width);
+
+      if (configured !== undefined) {
+        this.setColumnWidthCss(key, configured);
+      } else if (fallbackWidth !== null) {
+        this.setColumnWidthCss(key, fallbackWidth);
+      }
+
+      return {
+        column,
+        key,
+        widthVar: this.getColumnWidthVar(column),
+        flex: this.getColumnFlex(column),
+        minWidth: column.minWidth ?? this.MIN_COLUMN_WIDTH,
+        maxWidth: column.maxWidth ?? 1200,
+      };
+    });
   }
 
   private rebuildVisibleRowVms(): void {
@@ -1023,8 +1096,7 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
       existing.dragOverInside === dragOverInside &&
       existing.dragOverBefore === dragOverBefore &&
       existing.dragOverAfter === dragOverAfter &&
-      existing.displayNameOverride === displayNameOverride &&
-      existing.columnVersion === this.columnVmVersion
+      existing.displayNameOverride === displayNameOverride
     ) {
       return existing;
     }
@@ -1042,7 +1114,6 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
       dragOverAfter,
       draggable: !this.isParentEntry(entry),
       displayNameOverride,
-      columnVersion: this.columnVmVersion,
       cells: this.activeColumnVms.map((columnVm) => this.buildCellVm(entry, columnVm, directorySizePending)),
     };
     this.rowVmCache.set(entry.path, vm);
@@ -1054,7 +1125,7 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     return {
       column: columnVm.column,
       key: `${entry.path}:${columnVm.key}`,
-      width: columnVm.width,
+      widthVar: columnVm.widthVar,
       flex: columnVm.flex,
       value: isName ? '' : this.getCellValue(entry, columnVm.column),
       isName,
@@ -1398,11 +1469,46 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   }
 
   getCellValue(entry: FileInfo, col: ColumnDef): string {
+    const key = this.getColumnKey(col);
     const value = (entry as any)[col.field];
-    if (col.formatter) {
-      return col.formatter(value, entry);
+    const signature = this.cellSignature(entry, col, value);
+
+    let entryCache = this.formattedValueCache.get(entry);
+    if (!entryCache) {
+      entryCache = new Map();
+      this.formattedValueCache.set(entry, entryCache);
     }
-    return value?.toString() || '';
+
+    const cached = entryCache.get(key);
+    if (cached?.signature === signature) {
+      return cached.value;
+    }
+
+    const formatted = col.formatter
+      ? col.formatter(value, entry)
+      : value?.toString() || '';
+
+    entryCache.set(key, { signature, value: formatted });
+    return formatted;
+  }
+
+  private cellSignature(entry: FileInfo, col: ColumnDef, value: unknown): string {
+    switch (col.field) {
+      case 'size':
+        return `size:${entry.size}`;
+      case 'modified':
+      case 'created':
+      case 'accessed':
+        return `${String(col.field)}:${String(value ?? '')}`;
+      case 'type':
+        return `type:${entry.type}:${entry.name}:${entry.isSymlink ? 1 : 0}`;
+      case 'searchParentPath':
+        return `searchParent:${entry.searchParentPath ?? ''}:${entry.path}`;
+      case 'registryKind':
+        return `registryKind:${entry.registryKind ?? ''}:${entry.type}`;
+      default:
+        return `${String(col.field)}:${String(value ?? '')}`;
+    }
   }
 
   isDirectorySizePending(path: string): boolean {
@@ -1445,6 +1551,37 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
     if (!Number.isFinite(timestamp) || timestamp <= 0) return '';
     const date = new Date(timestamp * 1000);
     return Number.isNaN(date.getTime()) ? '' : date.toLocaleString();
+  }
+
+  private setColumnWidthCss(key: string, width: number): void {
+    const rounded = Math.max(1, Math.round(width));
+    this.columnWidths.set(key, rounded);
+    this.detailsRootRef?.nativeElement.style.setProperty(
+      `--details-column-${this.cssKey(key)}-width`,
+      `${rounded}px`,
+    );
+  }
+
+  private serializeColumnConfiguration(): DetailsColumnState[] {
+    return this.resolvedActiveColumns.map((column, order) => {
+      const key = this.getColumnKey(column);
+      return {
+        key,
+        visible: true,
+        order,
+        width: this.columnWidths.get(key),
+      };
+    });
+  }
+
+  private pixelWidth(width: string | undefined): number | null {
+    if (!width) return null;
+    const match = /^(\d+(?:\.\d+)?)px$/i.exec(width.trim());
+    return match ? Number(match[1]) : null;
+  }
+
+  private cssKey(value: string): string {
+    return value.replace(/[^a-zA-Z0-9_-]/g, '-');
   }
 
   private rangeSelect(entry: FileInfo): void {

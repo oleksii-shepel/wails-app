@@ -1,488 +1,243 @@
-import { Component, OnInit, OnDestroy, ViewChild, ElementRef } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  ChangeDetectorRef,
+  Component,
+  ElementRef,
+  Input,
+  OnDestroy,
+  OnInit,
+  ViewChild,
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { createSubject, takeUntil } from '@epikodelabs/streamix';
-import { InputContextService } from '../services/input-context.service';
-import { InputEngineService } from '../services/input-engine.service';
-import type { InputBindingDefinition, CommandCatalogEntry } from '../services/input-system.types';
-import { NativeOverlayFreezeService } from '../services/native-overlay-freeze.service';
-import { CommandPaletteHistoryService } from '../services/command-palette-history.service';
-import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.directive';
-import { bindCommandPresentation, type PresentedCommand } from './presented-command';
-import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directive';
 
-interface PaletteGroup {
+import { InputEngineService } from '../services/input-engine.service';
+import type { InputBindingDefinition } from '../services/input-system.types';
+
+export interface PaletteCommand {
+  id: string;
+  title: string;
   category: string;
-  items: PresentedCommand[];
+  shortcut?: string;
+  execute: () => void | Promise<void>;
+  isEnabled?: () => boolean;
 }
+
+import { discoveryScore } from './discovery';
+import { ModalSurfaceDirective } from './modal-surface.directive';
+
+const CONTEXT_ID = 'overlay.CommandPalette';
+const OWNER_ID = 'overlay.CommandPalette';
+
+const COMMAND = {
+  close: 'reassembly.commandPalette.close',
+  previous: 'reassembly.commandPalette.previous',
+  next: 'reassembly.commandPalette.next',
+  run: 'reassembly.commandPalette.run',
+} as const;
+
+const BINDINGS: readonly InputBindingDefinition[] = [
+  { id:'reassembly.commandPalette.escape', commandId:COMMAND.close, contextId:CONTEXT_ID, source:'default', description:'Close command palette', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'escape'}]}}},
+  { id:'reassembly.commandPalette.up', commandId:COMMAND.previous, contextId:CONTEXT_ID, source:'default', description:'Previous command', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'arrowup'}]}}},
+  { id:'reassembly.commandPalette.down', commandId:COMMAND.next, contextId:CONTEXT_ID, source:'default', description:'Next command', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'arrowdown'}]}}},
+  { id:'reassembly.commandPalette.enter', commandId:COMMAND.run, contextId:CONTEXT_ID, source:'default', description:'Run command', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'enter'}]}}},
+];
 
 @Component({
   selector: 'app-command-palette',
   standalone: true,
-  imports: [CommonModule, FormsModule, DialogFocusTrapDirective, VscodeScrollbarDirective],
+  imports: [CommonModule, FormsModule, ModalSurfaceDirective],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="cp-overlay" *ngIf="isVisible" (click)="hide()">
-      <div
-        #dialogPanel
-        class="cp-panel"
-        [appTrapFocus]="true"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Command Palette"
-        tabindex="-1"
-        (click)="$event.stopPropagation()"
-      >
-        <div class="cp-search-row">
-          <span class="cp-search-icon">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-              <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
-            </svg>
-          </span>
-          <input
-            #searchInput
-            type="text"
-            [(ngModel)]="searchQuery"
-            (ngModelChange)="onSearchChange()"
-            (keydown)="onSearchKeydown($event)"
-            placeholder="Type a command..."
-            class="cp-search-input"
-            data-dialog-initial-focus
-            autofocus
-          />
-          <span class="cp-shortcut-hint" *ngIf="!searchQuery">Ctrl+Shift+P</span>
+    <div class="backdrop" *ngIf="visible" (mousedown)="close()">
+      <section class="palette" role="dialog" aria-modal="true" aria-label="Command palette"
+        (mousedown)="$event.stopPropagation()"
+        ModalSurface
+        (ModalDismiss)="close()"
+        [ModalInitial]="\'.query input\'"
+        tabindex="-1">
+        <header>
+          <strong>Command Palette</strong>
+          <span>{{ filteredCommands.length }} command{{ filteredCommands.length === 1 ? '' : 's' }}</span>
+        </header>
+
+        <div class="query">
+          <span aria-hidden="true">›</span>
+          <input #queryInput [(ngModel)]="query" (ngModelChange)="queryChanged()"
+            autocomplete="off" spellcheck="false"
+            placeholder="Type a command, category, shortcut, or id"
+            aria-label="Command search" aria-controls="command-list" />
         </div>
 
-        <div class="cp-results" appVscodeScrollbar>
-          <div *ngIf="filteredGroups.length === 0" class="cp-no-results">
-            No matching commands
-          </div>
+        <div id="command-list" class="commands" role="listbox" aria-label="Commands">
+          <button *ngFor="let command of filteredCommands; let i=index; trackBy:trackCommand"
+            type="button" class="command" role="option"
+            [class.selected]="i === selectedIndex"
+            [class.disabled]="!enabled(command)"
+            [attr.aria-selected]="i === selectedIndex"
+            [attr.aria-posinset]="i + 1"
+            [attr.aria-setsize]="filteredCommands.length"
+            [attr.aria-disabled]="!enabled(command)"
+            (mouseenter)="selectedIndex=i"
+            (click)="run(command)">
+            <span class="main">
+              <strong>{{ command.title }}</strong>
+              <small>{{ command.category }} · {{ command.id }}</small>
+            </span>
+            <kbd *ngIf="command.shortcut">{{ command.shortcut }}</kbd>
+            <span class="state" *ngIf="!enabled(command)">Unavailable</span>
+          </button>
 
-          <ng-container *ngFor="let group of filteredGroups">
-            <div class="cp-group-header">{{ group.category }}</div>
-            <div
-              *ngFor="let item of group.items; let i = index"
-              class="cp-item"
-              [class.selected]="isSelected(item)"
-               [class.disabled]="!item.enabled"
-              (click)="executeItem(item)"
-              (mouseenter)="selectItem(item)"
-            >
-              <span class="cp-item-icon">
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-                  <path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z"/>
-                </svg>
-              </span>
-              <span class="cp-item-label">{{ item.label }}</span>
-              <span class="cp-item-keys" *ngIf="item.shortcut">
-                {{ item.shortcut }}
-              </span>
-            </div>
-          </ng-container>
+          <div class="empty" *ngIf="filteredCommands.length === 0">No matching commands.</div>
         </div>
 
-        <div class="cp-footer">
-          <span>{{ totalItems }} commands</span>
-          <span class="cp-footer-hint">
-            <kbd>↑</kbd><kbd>↓</kbd> navigate · <kbd>Enter</kbd> run · <kbd>Esc</kbd> close
-          </span>
-        </div>
-      </div>
+        <footer>
+          <span>↑ ↓ navigate · Enter run · Esc close</span>
+          <span>Ctrl+Shift+P</span>
+        </footer>
+      </section>
     </div>
   `,
   styles: [`
-    .cp-overlay {
-      position: fixed;
-      top: 0; left: 0; right: 0; bottom: 0;
-      background: var(--vsc-scrim);
-      display: flex;
-      justify-content: center;
-      align-items: flex-start;
-      padding-top: 12vh;
-      z-index: 10000;
-      backdrop-filter: blur(2px);
-      animation: cpFadeIn 0.15s ease;
-    }
-    @keyframes cpFadeIn { from { opacity: 0; } to { opacity: 1; } }
-
-    .cp-panel {
-      background: var(--vsc-editor-background);
-      border: 1px solid var(--vsc-border-bright);
-      border-radius: var(--vsc-border-radius);
-      width: 600px;
-      max-width: 90vw;
-      max-height: 70vh;
-      display: flex;
-      flex-direction: column;
-      box-shadow: var(--vsc-widget-shadow), 0 24px 56px var(--vsc-scrim);
-      animation: cpSlideDown 0.2s cubic-bezier(0.16,1,0.3,1);
-      overflow: hidden;
-    }
-    @keyframes cpSlideDown {
-      from { transform: translateY(-12px); opacity: 0; }
-      to { transform: translateY(0); opacity: 1; }
-    }
-
-    .cp-search-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 10px 14px;
-      border-bottom: 1px solid var(--vsc-border-subtle);
-    }
-    .cp-search-icon {
-      color: var(--vsc-foreground-dim);
-      flex-shrink: 0;
-    }
-    .cp-search-input {
-      flex: 1;
-      background: transparent;
-      border: none;
-      color: var(--vsc-input-foreground);
-      font-size: var(--vsc-font-size);
-      outline: none;
-      padding: 2px 0;
-    }
-    .cp-search-input::placeholder { color: var(--vsc-input-placeholder); }
-    .cp-shortcut-hint {
-      font-size: 11px;
-      color: var(--vsc-foreground-dim);
-      background: var(--vsc-input-background);
-      padding: 2px 6px;
-      border-radius: var(--vsc-border-radius-sm);
-      border: 1px solid var(--vsc-border);
-      white-space: nowrap;
-    }
-
-    .cp-results {
-      flex: 1;
-      overflow-y: auto;
-      padding: 4px 0;
-    }
-    .cp-no-results {
-      padding: 2rem;
-      text-align: center;
-      color: var(--vsc-foreground-dim);
-      font-size: var(--vsc-font-size);
-    }
-    .cp-group-header {
-      padding: 6px 14px 4px;
-      font-size: 11px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-      color: var(--vsc-foreground-dim);
-      background: var(--vsc-panel-background);
-      border-bottom: 1px solid var(--vsc-border-subtle);
-      position: sticky;
-      top: 0;
-    }
-    .cp-item {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 7px 14px;
-      cursor: pointer;
-      transition: background 0.08s ease;
-      border-left: 2px solid transparent;
-    }
-    .cp-item.disabled { opacity: 0.45; cursor: not-allowed; }
-    .cp-item:hover:not(.disabled), .cp-item.selected:not(.disabled) {
-      background: var(--vsc-list-hover-background);
-      border-left-color: var(--vsc-accent-blue);
-    }
-    .cp-item-icon {
-      color: var(--vsc-foreground-dim);
-      flex-shrink: 0;
-      opacity: 0.7;
-    }
-    .cp-item-label {
-      flex: 1;
-      color: var(--vsc-foreground);
-      font-size: var(--vsc-font-size);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .cp-item-keys {
-      font-family: var(--vsc-font-family-mono);
-      font-size: 11px;
-      color: var(--vsc-foreground-dim);
-      background: var(--vsc-input-background);
-      padding: 2px 6px;
-      border-radius: var(--vsc-border-radius-sm);
-      border: 1px solid var(--vsc-border);
-      white-space: nowrap;
-    }
-
-    .cp-footer {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 6px 14px;
-      border-top: 1px solid var(--vsc-border-subtle);
-      font-size: 11px;
-      color: var(--vsc-foreground-dim);
-      background: var(--vsc-panel-background);
-    }
-    .cp-footer-hint kbd {
-      display: inline-block;
-      padding: 1px 4px;
-      background: var(--vsc-input-background);
-      border: 1px solid var(--vsc-border);
-      border-bottom-width: 2px;
-      border-radius: var(--vsc-border-radius-sm);
-      font-family: var(--vsc-font-family-mono);
-      font-size: 10px;
-      margin: 0 1px;
-    }
-  `]
+    :host{position:fixed;inset:0;z-index:9520;pointer-events:none}
+    .backdrop{position:fixed;inset:0;display:grid;place-items:start center;padding-top:min(8vh,72px);background: var(--vsc-scrim-soft);pointer-events:auto}
+    .palette{box-sizing:border-box;display:flex;flex-direction:column;width:min(760px,calc(100vw - 24px));height:min(620px,calc(100vh - 40px));overflow:hidden;border:1px solid var(--vsc-border,var(--vsc-border));border-radius:8px;background:var(--vsc-menu-background,var(--vsc-panel-background));color:var(--vsc-foreground,var(--vsc-foreground));box-shadow:0 18px 62px var(--vsc-scrim-strong);font:12px/1.4 var(--vsc-font-family,system-ui,sans-serif)}
+    header,footer,.query{display:flex;align-items:center;gap:10px;padding:9px 11px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border-subtle))}
+    header{justify-content:space-between}header span,footer,.command small,.state{color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}
+    .query{font-size:18px}.query input{flex:1;height:34px;border:0;outline:0;background:transparent;color:inherit;font:13px var(--vsc-font-family,system-ui,sans-serif)}
+    .commands{flex:1;min-height:0;overflow:auto;padding:5px}
+    .command{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:10px;width:100%;min-height:48px;padding:6px 9px;border:1px solid transparent;border-radius:4px;background:transparent;color:inherit;text-align:left;cursor:pointer;font:inherit}
+    .command:hover,.command.selected{background:var(--vsc-list-hover-background,var(--vsc-list-hover-background))}
+    .command.selected{border-color:color-mix(in srgb,var(--vsc-accent-blue,var(--vsc-accent-blue)) 55%,transparent)}
+    .command.disabled{opacity:.48}.main{min-width:0;display:grid}.main strong,.main small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .main small{font:10px var(--vsc-font-family-mono,ui-monospace,monospace)}
+    kbd{padding:2px 6px;border:1px solid var(--vsc-border,var(--vsc-border));border-radius:4px;background:var(--vsc-neutral-overlay-subtle);font:10px var(--vsc-font-family-mono,ui-monospace,monospace);white-space:nowrap}
+    .state{font-size:10px}.empty{padding:42px;text-align:center;color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}
+    footer{justify-content:space-between;border-top:1px solid var(--vsc-border-subtle,var(--vsc-border-subtle));border-bottom:0}
+  `],
 })
 export class CommandPaletteComponent implements OnInit, OnDestroy {
-  @ViewChild('searchInput') searchInput?: ElementRef<HTMLInputElement>;
-  @ViewChild('dialogPanel') dialogPanel?: ElementRef<HTMLElement>;
+  @ViewChild('queryInput') queryInput?: ElementRef<HTMLInputElement>;
+  @Input() commands: readonly PaletteCommand[] = [];
 
-  isVisible = false;
-  searchQuery = '';
-  groups: PaletteGroup[] = [];
-  filteredGroups: PaletteGroup[] = [];
-  selectedCommandId: string | null = null;
-  private flatItems: PresentedCommand[] = [];
-  private releaseContext: (() => void) | null = null;
-  private destroy$ = createSubject<void>();
-
-  private readonly modNames: Record<string, string> = {
-    ctrl: 'Ctrl', shift: 'Shift', alt: 'Alt', meta: 'Cmd',
-  };
-  private readonly keyNames: Record<string, string> = {
-    ' ': 'Space', arrowup: '↑', arrowdown: '↓', arrowleft: '←', arrowright: '→',
-    escape: 'Esc', enter: 'Enter', backspace: 'Backspace', delete: 'Del',
-    tab: 'Tab', home: 'Home', end: 'End', pageup: 'PgUp', pagedown: 'PgDn',
-    insert: 'Ins', space: 'Space',
-  };
+  visible = false;
+  query = '';
+  selectedIndex = 0;
 
   constructor(
-    private inputContexts: InputContextService,
-    private inputEngine: InputEngineService,
-    private overlayFreeze: NativeOverlayFreezeService,
-    private historyService: CommandPaletteHistoryService,
+    private readonly input: InputEngineService,
+    private readonly cdr: ChangeDetectorRef,
   ) {}
 
-  ngOnInit(): void {
-    this.loadCommands();
-    this.registerInputCommands();
+  get filteredCommands(): PaletteCommand[] {
+    const query = this.query.trim();
+    const commands = [...this.commands];
 
-    // Refresh palette contents when active contexts change (for context-aware filtering)
-    this.inputEngine.activeContexts$
-      .pipe(takeUntil(this.destroy$))
-      .subscribe(() => {
-        if (this.isVisible) {
-          this.loadCommands();
-          this.onSearchChange();
-        }
-      });
+    if (!query) {
+      return commands.sort(
+        (a,b) =>
+          a.category.localeCompare(b.category) ||
+          a.title.localeCompare(b.title),
+      );
+    }
+
+    return commands
+      .map(command => ({
+        command,
+        score: discoveryScore(query, [
+          { value: command.title, weight: 1.6 },
+          { value: command.category, weight: 1.1 },
+          { value: command.shortcut, weight: 1.25 },
+          { value: command.id, weight: .8 },
+        ]),
+      }))
+      .filter(item => item.score >= 0)
+      .sort(
+        (a,b) =>
+          b.score - a.score ||
+          Number(this.enabled(b.command)) - Number(this.enabled(a.command)) ||
+          a.command.title.localeCompare(b.command.title),
+      )
+      .map(item => item.command);
+  }
+
+  get selectedCommand(): PaletteCommand | null {
+    return this.filteredCommands[this.selectedIndex] ?? null;
+  }
+
+  ngOnInit(): void {
+    this.input.registerContext({
+      id: CONTEXT_ID,
+      kind: 'overlay',
+      priority: 410, exclusive: true,
+      parentId: 'global',
+      description: 'Reassembly command palette',
+    });
+
+    this.input.registerCommandDescriptor({id:COMMAND.close,title:'Close Command Palette',category:'Navigation',execute:()=>this.close()},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.previous,title:'Previous Command',category:'Navigation',execute:()=>this.move(-1)},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.next,title:'Next Command',category:'Navigation',execute:()=>this.move(1)},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.run,title:'Run Command',category:'Navigation',execute:()=>{const command=this.selectedCommand;if(command)void this.run(command)}},OWNER_ID);
+
+    for (const binding of BINDINGS) this.input.registerBinding(binding);
   }
 
   ngOnDestroy(): void {
-    this.overlayFreeze.release('dialog.commandPalette');
-    this.releaseContext?.();
-    this.releaseContext = null;
-    this.unregisterInputCommands();
-    this.destroy$.next();
-    this.destroy$.complete();
+    this.input.deactivateContext(CONTEXT_ID);
+    for (const binding of BINDINGS) this.input.unregisterBinding(binding.id);
+    for (const id of Object.values(COMMAND)) this.input.unregisterCommandDescriptor(id, OWNER_ID);
   }
 
-  show(): void {
-    if (this.isVisible) return;
-    this.isVisible = true;
-    this.searchQuery = '';
-    this.loadCommands();
-    this.onSearchChange();
-    this.releaseContext ??= this.inputContexts.acquire('dialog.commandPalette');
-    this.overlayFreeze.acquire('dialog.commandPalette');
-    setTimeout(() => {
-      this.searchInput?.nativeElement.focus();
-      this.searchInput?.nativeElement.select();
-    }, 0);
+  open(): void {
+    
+    this.query = '';
+    this.selectedIndex = 0;
+    this.visible = true;
+    this.input.activateContext(CONTEXT_ID);
+    
+    this.cdr.markForCheck();
   }
 
-  hide(): void {
-    if (!this.isVisible) return;
-    this.isVisible = false;
-    this.searchQuery = '';
-    this.releaseContext?.();
-    this.releaseContext = null;
-    this.overlayFreeze.release('dialog.commandPalette');
+  close(): void {
+    if (!this.visible) return;
+    this.visible = false;
+    this.input.deactivateContext(CONTEXT_ID);
+    
+    
+    this.cdr.markForCheck();
   }
 
-  private loadCommands(): void {
-    const allCommands = new Map<string, PresentedCommand>();
-    const categoryByCommand = new Map<string, string>();
-
-    for (const entry of this.inputEngine.getCommandCatalog({ activeContextsOnly: true })) {
-      allCommands.set(entry.id, this.createPresentedCommand(entry));
-      categoryByCommand.set(entry.id, entry.category ?? 'General');
-    }
-
-    const categoryMap = new Map<string, PresentedCommand[]>();
-    for (const command of allCommands.values()) {
-      const category = categoryByCommand.get(command.id) ?? 'General';
-      const items = categoryMap.get(category) ?? [];
-      items.push(command);
-      categoryMap.set(category, items);
-    }
-
-    const categoryOrder = [
-      'Navigation', 'Tab Management', 'File Operations', 'Search & Filter',
-      'Workspaces', 'Pane Control', 'Tools', 'General',
-    ];
-    this.groups = [];
-    this.flatItems = [];
-
-    const recentItems = this.historyService.getHistory()
-      .map(commandId => allCommands.get(commandId))
-      .filter((item): item is PresentedCommand => !!item);
-    if (recentItems.length > 0) {
-      this.groups.push({ category: 'Recent', items: recentItems });
-      this.flatItems.push(...recentItems);
-    }
-
-    const pushGroup = (category: string) => {
-      const items = categoryMap.get(category);
-      if (!items?.length) return;
-      items.sort((a, b) => a.label.localeCompare(b.label));
-      this.groups.push({ category, items });
-      this.flatItems.push(...items);
-      categoryMap.delete(category);
-    };
-
-    for (const category of categoryOrder) pushGroup(category);
-    for (const category of categoryMap.keys()) pushGroup(category);
-
-    this.totalItems = this.flatItems.length;
+  queryChanged(): void {
+    this.selectedIndex = 0;
+    this.cdr.markForCheck();
   }
 
-  totalItems = 0;
-
-  onSearchChange(): void {
-    const query = this.searchQuery.toLowerCase().trim();
-    if (!query) {
-      this.filteredGroups = this.groups;
-      this.selectedCommandId = this.flatItems.find(item => item.enabled)?.id ?? null;
-      return;
-    }
-
-    const filteredFlat = this.flatItems.filter(item => {
-      const labelMatch = item.label.toLowerCase().includes(query);
-      const shortcutMatch = (item.shortcut ?? '').toLowerCase().includes(query);
-      const idMatch = (item.commandId ?? item.id).toLowerCase().includes(query);
-      const nameMatch = (item.commandName ?? '').toLowerCase().includes(query);
-      const aliasMatch = (item.aliases ?? []).some(alias => alias.toLowerCase().includes(query));
-      return labelMatch || shortcutMatch || idMatch || nameMatch || aliasMatch;
-    });
-
-    const visibleIds = new Set(filteredFlat.map(item => item.id));
-    this.filteredGroups = this.groups
-      .map(group => ({
-        category: group.category,
-        items: group.items.filter(item => visibleIds.has(item.id)),
-      }))
-      .filter(group => group.items.length > 0);
-
-    this.selectedCommandId = filteredFlat.find(item => item.enabled)?.id ?? null;
+  enabled(command: PaletteCommand): boolean {
+    try { return command.isEnabled ? command.isEnabled() : true; }
+    catch { return false; }
   }
 
-  onSearchKeydown(event: KeyboardEvent): void {
-    if (event.key === 'ArrowDown') {
-      event.preventDefault();
-      this.moveSelection(1);
-    } else if (event.key === 'ArrowUp') {
-      event.preventDefault();
-      this.moveSelection(-1);
-    } else if (event.key === 'Enter') {
-      event.preventDefault();
-      const item = this.findSelectedItem();
-      if (item) this.executeItem(item);
-    } else if (event.key === 'Escape') {
-      event.preventDefault();
-      this.hide();
-    }
+  async run(command: PaletteCommand): Promise<void> {
+    if (!this.enabled(command)) return;
+    this.close();
+    await command.execute();
   }
 
-  private moveSelection(delta: number): void {
-    const flat = this.filteredGroups.flatMap(group => group.items);
-    if (flat.length === 0) return;
+  trackCommand(_index:number, command:PaletteCommand):string { return command.id; }
 
-    let index = flat.findIndex(item => item.id === this.selectedCommandId);
-    if (index < 0) index = delta > 0 ? -1 : 0;
+  private move(delta:-1|1):void {
+    const commands = this.filteredCommands;
+    if (!commands.length) return;
 
-    for (let i = 0; i < flat.length; i++) {
-      index = (index + delta + flat.length) % flat.length;
-      if (flat[index].enabled) {
-        this.selectedCommandId = flat[index].id;
+    let index = this.selectedIndex;
+    for (let attempts=0; attempts<commands.length; attempts+=1) {
+      index = (index + delta + commands.length) % commands.length;
+      if (this.enabled(commands[index])) {
+        this.selectedIndex = index;
+        this.cdr.markForCheck();
         return;
       }
     }
-    this.selectedCommandId = null;
   }
 
-  private findSelectedItem(): PresentedCommand | null {
-    return this.flatItems.find(item => item.id === this.selectedCommandId) ?? null;
-  }
-
-  isSelected(item: PresentedCommand): boolean {
-    return item.id === this.selectedCommandId;
-  }
-
-  selectItem(item: PresentedCommand): void {
-    if (item.enabled) this.selectedCommandId = item.id;
-  }
-
-  executeItem(item: PresentedCommand): void {
-    if (!item.enabled) return;
-    this.hide();
-    this.historyService.recordCommand(item.commandId ?? item.id);
-    // Close the modal before dispatch so command focus behavior remains stable.
-    setTimeout(() => {
-      void item.execute();
-    }, 50);
-  }
-
-  private createPresentedCommand(entry: CommandCatalogEntry): PresentedCommand {
-    return bindCommandPresentation({
-      id: entry.id,
-      label: entry.title,
-      shortcut: this.formatBinding(entry.preferredBinding ?? null) || undefined,
-      enabled: entry.enabled,
-      source: 'registry',
-      commandId: entry.id,
-      commandName: entry.name,
-      aliases: entry.aliases,
-    }, () => {
-      const ok = this.inputEngine.dispatchCommandById(entry.id, { source: 'palette' });
-      if (!ok) {
-        console.warn('Command palette: command not found or failed:', entry.id);
-      }
-    });
-  }
-
-  formatBinding(binding: InputBindingDefinition | null): string {
-    if (!binding || binding.trigger.device !== 'keyboard') return '';
-    return binding.trigger.chord.steps.map(step => {
-      const mods = (step.modifiers ?? []).map(m => this.modNames[m] ?? m).join('+');
-      const key = this.keyNames[step.key] ?? step.key.toUpperCase();
-      return mods ? `${mods}+${key}` : key;
-    }).join(' → ');
-  }
-
-  private registerInputCommands(): void {
-    this.inputEngine.registerCommand('dialog.commandPalette.close', () => this.hide());
-    this.inputEngine.registerCommand('dialog.commandPalette.next', () => this.moveSelection(1));
-    this.inputEngine.registerCommand('dialog.commandPalette.prev', () => this.moveSelection(-1));
-  }
-
-  private unregisterInputCommands(): void {
-    this.inputEngine.unregisterCommand('dialog.commandPalette.close');
-    this.inputEngine.unregisterCommand('dialog.commandPalette.next');
-    this.inputEngine.unregisterCommand('dialog.commandPalette.prev');
-  }
 }

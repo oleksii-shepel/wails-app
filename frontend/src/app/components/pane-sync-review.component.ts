@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, EventEmitter, Input, OnChanges, Output } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import type { PaneComparisonItem, PaneComparisonResult, PaneComparisonStatus } from '../services/pane-comparison.service';
-import type { ReassemblySyncHistoryEntry } from '../services/reassembly-operation-history.service';
+import type { SyncHistoryEntry } from '../services/operation-history.service';
 
 export type PaneSyncDirection = 'skip' | 'left-to-right' | 'right-to-left';
 export type PaneSyncPreset = 'safe' | 'left-to-right' | 'right-to-left' | 'bidirectional';
@@ -127,7 +127,7 @@ type Filter = 'different' | PaneComparisonStatus;
 export class PaneSyncReviewComponent implements OnChanges {
   @Input() visible = false;
   @Input({ required: true }) result!: PaneComparisonResult;
-  @Input() history: readonly ReassemblySyncHistoryEntry[] = [];
+  @Input() history: readonly SyncHistoryEntry[] = [];
   @Output() execute = new EventEmitter<PaneSyncPlan>();
   @Output() close = new EventEmitter<void>();
 
@@ -194,7 +194,7 @@ export class PaneSyncReviewComponent implements OnChanges {
 
   trackByKey(_index: number, item: PaneSyncPlanItem): string { return item.key; }
 
-  syncHistoryLabel(run: ReassemblySyncHistoryEntry): string {
+  syncHistoryLabel(run: SyncHistoryEntry): string {
     const mode = run.mode === 'bidirectional' ? '↔' : run.mode === 'left-to-right' ? '→' : run.mode === 'right-to-left' ? '←' : 'custom';
     return `${mode} ${run.succeeded}/${run.planned}${run.failed ? ` · ${run.failed} failed` : ''}`;
   }

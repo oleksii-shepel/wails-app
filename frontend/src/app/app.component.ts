@@ -6,35 +6,35 @@ import {
   ViewChild,
 } from '@angular/core';
 import { ConfirmDialogComponent } from './components/confirm-dialog.component';
-import { ReassemblyDualPaneComponent } from './components/reassembly-dual-pane.component';
+import { DualPaneComponent } from './components/dual-pane.component';
 import { ShortcutDebugOverlayComponent } from './components/shortcut-debug-overlay.component';
-import { ReassemblyOperationSurfaceComponent } from './components/reassembly-operation-surface.component';
-import { ReassemblyActionFeedbackComponent } from './components/reassembly-action-feedback.component';
+import { OperationSurfaceComponent } from './components/operation-surface.component';
+import { ActionFeedbackComponent } from './components/action-feedback.component';
 import { BatchRenameDialogComponent } from './components/batch-rename-dialog.component';
 import { RemoteConnectDialogComponent } from './components/remote-connect-dialog.component';
 import { SettingsDialogComponent } from './components/settings-dialog.component';
-import { ReassemblyTrashDialogComponent } from './components/reassembly-trash-dialog.component';
+import { TrashDialogComponent } from './components/trash-dialog.component';
 import { PluginBootstrapService } from './services/plugin-bootstrap.service';
-import { ReassemblyModalStackService } from './services/reassembly-modal-stack.service';
+import { ModalStackService } from './services/modal-stack.service';
 import { InputCustomizationService } from './services/input-customization.service';
 
 @Component({
   selector: 'app-root',
   standalone: true,
   imports: [
-    ReassemblyDualPaneComponent,
+    DualPaneComponent,
     ShortcutDebugOverlayComponent,
-    ReassemblyOperationSurfaceComponent,
-    ReassemblyActionFeedbackComponent,
+    OperationSurfaceComponent,
+    ActionFeedbackComponent,
     BatchRenameDialogComponent,
     RemoteConnectDialogComponent,
     SettingsDialogComponent,
-    ReassemblyTrashDialogComponent,
+    TrashDialogComponent,
     ConfirmDialogComponent,
   ],
   template: `
     <main class="app-shell">
-      <app-reassembly-dual-pane #manager></app-reassembly-dual-pane>
+      <app-dual-pane #manager></app-dual-pane>
 
       <app-shortcut-debug-overlay
         [visible]="manager.shortcutHelpVisible"
@@ -53,12 +53,12 @@ import { InputCustomizationService } from './services/input-customization.servic
         [bindings]="manager.shortcutHelpItems">
       </app-shortcut-debug-overlay>
 
-      <app-reassembly-operation-surface></app-reassembly-operation-surface>
-      <app-reassembly-action-feedback></app-reassembly-action-feedback>
+      <app-operation-surface></app-operation-surface>
+      <app-action-feedback></app-action-feedback>
       <app-batch-rename-dialog></app-batch-rename-dialog>
       <app-remote-connect-dialog></app-remote-connect-dialog>
       <app-settings-dialog></app-settings-dialog>
-      <app-reassembly-trash-dialog></app-reassembly-trash-dialog>
+      <app-trash-dialog></app-trash-dialog>
       <app-confirm-dialog></app-confirm-dialog>
     </main>
   `,
@@ -83,11 +83,11 @@ import { InputCustomizationService } from './services/input-customization.servic
 })
 export class AppComponent implements AfterViewInit, OnDestroy {
   @ViewChild('manager')
-  private manager?: ReassemblyDualPaneComponent;
+  private manager?: DualPaneComponent;
 
   constructor(
     private readonly pluginBootstrap: PluginBootstrapService,
-    private readonly modalStack: ReassemblyModalStackService,
+    private readonly modalStack: ModalStackService,
     private readonly inputCustomization: InputCustomizationService,
   ) {}
 

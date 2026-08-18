@@ -47,7 +47,7 @@ func (a *App) SplitFile(path string, partSize int64) ([]string, error) {
 
 	for index := 1; ; index++ {
 		partPath := fmt.Sprintf("%s.part%03d", source, index)
-		temp, err := os.CreateTemp(filepath.Dir(source), ".reassembly-part-*")
+		temp, err := os.CreateTemp(filepath.Dir(source), ".part-*")
 		if err != nil {
 			cleanup()
 			return nil, fmt.Errorf("split file: create part %d: %w", index, err)
@@ -103,7 +103,7 @@ func (a *App) JoinFiles(parts []string, destination string) (string, error) {
 		return "", fmt.Errorf("join files: prepare destination: %w", err)
 	}
 
-	temp, err := os.CreateTemp(filepath.Dir(dest), ".reassembly-join-*")
+	temp, err := os.CreateTemp(filepath.Dir(dest), ".join-*")
 	if err != nil {
 		return "", fmt.Errorf("join files: create temporary destination: %w", err)
 	}

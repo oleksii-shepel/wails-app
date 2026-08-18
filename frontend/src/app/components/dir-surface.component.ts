@@ -21,16 +21,9 @@ import { DirSurfaceVm } from '../surfaces/dir/dir-surface.vm';
   template: `
     <app-address-bar
       *ngIf="vm.pathReady && vm.showPathBar"
-      [initialPath]="vm.currentPath"
-      [loading]="vm.loading"
-      [showBreadcrumbs]="vm.showBreadcrumbs"
+      [path]="vm.currentPath"
       [paneId]="vm.paneId"
-      [surfaceId]="pinSurfaceId"
-      (pathChange)="vm.onPathChange($event)"
-      (pinnedLocationOpen)="vm.onPinnedLocationOpen($event)"
-      (archiveSegmentClick)="vm.onArchiveSegmentClick($event)"
-      (navigateUpClicked)="vm.onNavigateUp()"
-      (refreshClicked)="vm.onRefresh()">
+      (navigate)="vm.onPathChange($event)">
     </app-address-bar>
 
     <app-action-bar

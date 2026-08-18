@@ -1,412 +1,766 @@
-import { Component, OnInit, OnDestroy, ViewChild, ElementRef, Output, EventEmitter } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  ChangeDetectorRef,
+  Component,
+  ElementRef,
+  EventEmitter,
+  OnDestroy,
+  OnInit,
+  Output,
+  ViewChild,
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { createSubject } from '@epikodelabs/streamix';
-import { takeUntil, debounce } from '@epikodelabs/streamix';
-import { GlobalSearchService, SearchResultItem, IndexStats, SearchConfig } from '../services/global-search.service';
-import { InputContextService } from '../services/input-context.service';
+
+import { ConfirmDialogService } from '../services/confirm-dialog.service';
+import { DiscoverySearchService } from '../services/discovery-search.service';
+import {
+  DiscoveryHistoryService,
+  type DiscoverySearchSpec,
+  type DiscoverySearchType,
+  type SavedDiscoverySearch,
+} from '../services/discovery-history.service';
+import { RecentFilesService } from '../services/recent-files.service';
+import {
+  ResultsPanelService,
+  type ResultsPanelDefinition,
+} from '../services/results-panel.service';
 import { InputEngineService } from '../services/input-engine.service';
-import { NativeOverlayFreezeService } from '../services/native-overlay-freeze.service';
-import { FileType } from '../shared/protocol';
-import { getFileEntryPresentation } from './file-entry-presentation.util';
-import { DialogFocusTrapDirective } from '../directives/dialog-focus-trap.directive';
-import { moveFocusWithin } from '../directives/focus-trap.utils';
-import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directive';
+import type { InputBindingDefinition } from '../services/input-system.types';
+import { FileInfo, FileType } from '../shared/protocol';
+import { ModalSurfaceDirective } from './modal-surface.directive';
+
+type SearchSort = 'relevance' | 'name' | 'path' | 'type';
+type DiscoveryMode = 'search' | 'recent' | 'collections';
+
+export interface SearchResultsPanelRequest {
+  readonly title: string;
+  readonly rootPath: string;
+  readonly query: string;
+  readonly recursive: boolean;
+  readonly entries: readonly FileInfo[];
+}
+
+const CONTEXT_ID = 'overlay.GlobalSearch';
+const OWNER_ID = 'overlay.GlobalSearch';
+
+const COMMAND = {
+  close: 'reassembly.globalSearch.close',
+  previous: 'reassembly.globalSearch.previous',
+  next: 'reassembly.globalSearch.next',
+  open: 'reassembly.globalSearch.open',
+  openFolder: 'reassembly.globalSearch.openFolder',
+  toggleRecursive: 'reassembly.globalSearch.toggleRecursive',
+  cycleSort: 'reassembly.globalSearch.cycleSort',
+  previousQuery: 'reassembly.globalSearch.previousQuery',
+  nextQuery: 'reassembly.globalSearch.nextQuery',
+  openAsPanel: 'reassembly.globalSearch.openAsPanel',
+} as const;
+
+const BINDINGS: readonly InputBindingDefinition[] = [
+  { id:'reassembly.globalSearch.escape', commandId:COMMAND.close, contextId:CONTEXT_ID, source:'default', description:'Close global search', category:'Search & Filter', trigger:{device:'keyboard', chord:{steps:[{key:'escape'}]}}},
+  { id:'reassembly.globalSearch.up', commandId:COMMAND.previous, contextId:CONTEXT_ID, source:'default', description:'Previous search result', category:'Search & Filter', trigger:{device:'keyboard', chord:{steps:[{key:'arrowup'}]}}},
+  { id:'reassembly.globalSearch.down', commandId:COMMAND.next, contextId:CONTEXT_ID, source:'default', description:'Next search result', category:'Search & Filter', trigger:{device:'keyboard', chord:{steps:[{key:'arrowdown'}]}}},
+  { id:'reassembly.globalSearch.enter', commandId:COMMAND.open, contextId:CONTEXT_ID, source:'default', description:'Open search result', category:'Search & Filter', trigger:{device:'keyboard', chord:{steps:[{key:'enter'}]}}},
+  { id:'reassembly.globalSearch.ctrlEnter', commandId:COMMAND.openFolder, contextId:CONTEXT_ID, source:'default', description:'Open containing folder', category:'Search & Filter', trigger:{device:'keyboard', chord:{steps:[{key:'enter',modifiers:['ctrl']}]}}},
+  { id:'reassembly.globalSearch.ctrlShiftEnter', commandId:COMMAND.openAsPanel, contextId:CONTEXT_ID, source:'default', description:'Open search results as a panel', category:'Search & Filter', trigger:{device:'keyboard', chord:{steps:[{key:'enter',modifiers:['ctrl','shift']}]}}},
+  { id:'reassembly.globalSearch.toggleRecursive.altR', commandId:COMMAND.toggleRecursive, contextId:CONTEXT_ID, source:'default', description:'Toggle recursive search', category:'Search & Filter', trigger:{device:'keyboard', chord:{steps:[{key:'r',modifiers:['alt']}]}}},
+  { id:'reassembly.globalSearch.cycleSort.altS', commandId:COMMAND.cycleSort, contextId:CONTEXT_ID, source:'default', description:'Cycle search sort', category:'Search & Filter', trigger:{device:'keyboard', chord:{steps:[{key:'s',modifiers:['alt']}]}}},
+  { id:'reassembly.globalSearch.previousQuery.altUp', commandId:COMMAND.previousQuery, contextId:CONTEXT_ID, source:'default', description:'Previous search query', category:'Search & Filter', trigger:{device:'keyboard', chord:{steps:[{key:'arrowup',modifiers:['alt']}]}}},
+  { id:'reassembly.globalSearch.nextQuery.altDown', commandId:COMMAND.nextQuery, contextId:CONTEXT_ID, source:'default', description:'Next search query', category:'Search & Filter', trigger:{device:'keyboard', chord:{steps:[{key:'arrowdown',modifiers:['alt']}]}}},
+];
 
 @Component({
   selector: 'app-global-search',
   standalone: true,
-  imports: [CommonModule, FormsModule, DialogFocusTrapDirective, VscodeScrollbarDirective],
-  templateUrl: './global-search.component.html',
-  styleUrls: ['./global-search.component.scss']
+  imports: [CommonModule, FormsModule, ModalSurfaceDirective],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `
+    <div class="backdrop" *ngIf="visible" (mousedown)="close()">
+      <section class="search" role="dialog" aria-modal="true" aria-label="Global search"
+        (mousedown)="$event.stopPropagation()"
+        ModalSurface
+        [ModalInitial]="\'.query > input\'"
+        tabindex="-1">
+        <header>
+          <div>
+            <strong>Discover</strong>
+            <span class="root" [title]="rootPath">{{ mode === 'search' ? rootPath : modeLabel }}</span>
+          </div>
+          <span class="count">
+            {{ searching ? 'searching…' : resultCount + ' results' }}
+            <ng-container *ngIf="!searching && results.length">
+              · {{ folderCount }} folders · {{ fileCount }} files
+            </ng-container>
+          </span>
+        </header>
+
+        <nav class="modes" aria-label="Discovery source">
+          <button type="button" [class.active]="mode === 'search'" (click)="setMode('search')">Search</button>
+          <button type="button" [class.active]="mode === 'recent'" (click)="setMode('recent')">Recent</button>
+          <button type="button" [class.active]="mode === 'collections'" (click)="setMode('collections')">Collections</button>
+        </nav>
+
+        <div class="query">
+          <input
+            #queryInput
+            [(ngModel)]="queryText"
+            (ngModelChange)="scheduleSearch()"
+            [placeholder]="mode === 'search' ? 'Search this provider or folder' : mode === 'recent' ? 'Filter recent files' : 'Filter collections'"
+            autocomplete="off"
+            spellcheck="false"
+            aria-label="Discovery query"
+            aria-controls="global-search-results" />
+
+          <ng-container *ngIf="mode === 'search'">
+            <label title="Alt+R">
+              <input type="checkbox" [(ngModel)]="recursive" (ngModelChange)="scheduleSearch()">
+              Recursive
+            </label>
+            <label>Type
+              <select [(ngModel)]="typeFilter" (ngModelChange)="scheduleSearch()" aria-label="Search type">
+                <option value="all">All</option>
+                <option value="files">Files</option>
+                <option value="folders">Folders</option>
+                <option value="archives">Archives</option>
+              </select>
+            </label>
+            <label>Sort
+              <select [(ngModel)]="sortMode" aria-label="Search result sort">
+                <option value="relevance">Relevance</option>
+                <option value="name">Name</option>
+                <option value="path">Path</option>
+                <option value="type">Type</option>
+              </select>
+            </label>
+            <button type="button" class="save-search" [disabled]="!queryText.trim()" (click)="saveSearch()">Save…</button>
+          </ng-container>
+        </div>
+
+        <div class="discovery-shortcuts" *ngIf="mode === 'search' && (savedSearches.length || historyEntries.length)">
+          <div *ngIf="savedSearches.length">
+            <span>Saved:</span>
+            <button type="button" *ngFor="let saved of savedSearches.slice(0, 6)"
+              [title]="saved.rootPath + ' · ' + saved.query"
+              (click)="useSavedSearch(saved)">
+              ★ {{ saved.name }}
+            </button>
+          </div>
+          <div *ngIf="historyEntries.length">
+            <span>History:</span>
+            <button type="button" *ngFor="let recent of historyEntries.slice(0, 6)"
+              [title]="recent.rootPath"
+              (click)="useHistory(recent)">
+              {{ recent.query }}
+            </button>
+          </div>
+        </div>
+
+        <div id="global-search-results" class="results" role="listbox" aria-label="Search results" [attr.aria-busy]="searching">
+          <ng-container *ngIf="mode !== 'collections'; else collectionsList">
+            <button
+              *ngFor="let entry of renderedSearchResults; let i=index; trackBy:trackResult"
+              type="button"
+              class="result"
+              role="option"
+              [class.selected]="searchWindowStart + i === selectedIndex"
+              [attr.aria-selected]="searchWindowStart + i === selectedIndex"
+              [attr.aria-posinset]="searchWindowStart + i + 1"
+              [attr.aria-setsize]="displayedResults.length"
+              (mouseenter)="selectedIndex=searchWindowStart + i"
+              (click)="openEntry(entry)">
+              <span class="icon">{{ icon(entry) }}</span>
+              <span class="details">
+                <strong>{{ entry.name }}</strong>
+                <small>{{ entry.path }}</small>
+              </span>
+              <span class="kind">{{ kind(entry) }}</span>
+            </button>
+
+            <div class="empty" *ngIf="!searching && displayedResults.length === 0">
+              {{ mode === 'recent'
+                ? 'No recent files match.'
+                : queryText.trim()
+                  ? 'No matching resources.'
+                  : 'Type a name or wildcard pattern.' }}
+            </div>
+          </ng-container>
+
+          <ng-template #collectionsList>
+            <button
+              *ngFor="let panel of visibleCollections; let i=index; trackBy:trackPanel"
+              type="button"
+              class="result collection"
+              role="option"
+              [class.selected]="i === selectedIndex"
+              [attr.aria-selected]="i === selectedIndex"
+              (mouseenter)="selectedIndex=i"
+              (click)="openCollection(panel)">
+              <span class="icon">{{ panel.pinned ? '★' : '▤' }}</span>
+              <span class="details">
+                <strong>{{ panel.title }}</strong>
+                <small>{{ collectionSummary(panel) }}</small>
+              </span>
+              <span class="kind">{{ panel.entries.length }} items</span>
+            </button>
+            <div class="empty" *ngIf="visibleCollections.length === 0">No matching collections.</div>
+          </ng-template>
+        </div>
+
+        <footer>
+          <span *ngIf="error" class="error" role="alert">{{ error }}</span>
+          <span *ngIf="!error && searchProgress" class="progress">{{ searchProgress }}</span>
+          <span *ngIf="searchWarnings.length" class="warning" [title]="searchWarnings.join('\n')">
+            {{ searchWarnings.length }} warning{{ searchWarnings.length === 1 ? '' : 's' }}
+          </span>
+          <button
+            *ngIf="mode !== 'collections'"
+            type="button"
+            class="open-panel"
+            [disabled]="searching || displayedResults.length === 0"
+            (click)="openAsResultsPanel()">
+            Open as Panel
+          </button>
+          <button
+            *ngIf="mode === 'collections' && selectedCollection"
+            type="button"
+            class="open-panel"
+            (click)="toggleSelectedCollectionPinned()">
+            {{ selectedCollection.pinned ? 'Unpin' : 'Pin' }}
+          </button>
+          <button
+            *ngIf="mode === 'search'"
+            type="button"
+            class="open-panel"
+            [disabled]="searching || displayedResults.length === 0"
+            (click)="openAsResultsWorkspace()">
+            Open Workspace
+          </button>
+          <span class="keys">↑ ↓ · Enter open · Ctrl+Enter folder · Ctrl+Shift+Enter panel · Alt+R recursive · Alt+S sort · Esc</span>
+        </footer>
+      </section>
+    </div>
+  `,
+  styles: [`
+    :host{position:fixed;inset:0;z-index:9480;pointer-events:none}
+    .backdrop{position:fixed;inset:0;display:grid;place-items:start center;padding-top:min(8vh,72px);background: var(--vsc-scrim-soft);pointer-events:auto}
+    .search{box-sizing:border-box;display:flex;flex-direction:column;width:min(820px,calc(100vw - 24px));height:min(660px,calc(100vh - 36px));overflow:hidden;border:1px solid var(--vsc-border,var(--vsc-border));border-radius:8px;background:var(--vsc-menu-background,var(--vsc-panel-background));color:var(--vsc-foreground,var(--vsc-foreground));box-shadow:0 18px 60px var(--vsc-scrim-strong);font:12px/1.4 var(--vsc-font-family,system-ui,sans-serif)}
+    header,footer,.query{display:flex;align-items:center;gap:10px;padding:9px 10px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border-subtle))}header{justify-content:space-between}header>div{display:flex;align-items:baseline;gap:8px;min-width:0}.root,.count,small,.kind,.keys{color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}.root{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--vsc-font-family-mono,ui-monospace,monospace)}
+    
+    .modes{display:flex;gap:3px;padding:5px 10px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border-subtle))}
+    .modes button,.save-search{min-height:24px;padding:2px 8px;border:1px solid transparent;border-radius:3px;background:transparent;color:inherit;font:inherit;cursor:pointer}
+    .modes button.active{border-color:var(--vsc-focus-border,var(--vsc-accent-blue));background:color-mix(in srgb,var(--vsc-accent-blue) 10%,transparent)}
+    .modes button:hover,.save-search:hover{background:var(--vsc-list-hover-background)}
+    .discovery-shortcuts{display:grid;gap:3px;padding:5px 10px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border-subtle));color:var(--vsc-description-foreground)}
+    .discovery-shortcuts>div{display:flex;align-items:center;gap:5px;overflow:hidden}.discovery-shortcuts button{max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px 6px;border:1px solid var(--vsc-border);border-radius:10px;background:transparent;color:inherit;font:10px var(--vsc-font-family);cursor:pointer}
+    .collection .details small{opacity:.8}
+.query input[type=text],.query>input{flex:1;height:30px;padding:0 9px;border:1px solid var(--vsc-border,var(--vsc-border));border-radius:4px;outline:none;background:var(--vsc-input-background,var(--vsc-popover-background));color:inherit;font:inherit}.query input:focus{border-color:var(--vsc-focus-border,var(--vsc-accent-blue))}.query label{display:flex;gap:5px;align-items:center;white-space:nowrap}.query select{height:28px;border:1px solid var(--vsc-border,var(--vsc-border));border-radius:4px;background:var(--vsc-input-background,var(--vsc-popover-background));color:inherit;font:inherit}
+    .recent-queries{display:flex;align-items:center;gap:5px;padding:5px 10px;border-bottom:1px solid var(--vsc-border-subtle,var(--vsc-border-subtle));overflow:hidden;color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}.recent-queries button{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px 6px;border:1px solid var(--vsc-border,var(--vsc-border));border-radius:10px;background:transparent;color:inherit;cursor:pointer;font:10px var(--vsc-font-family,system-ui,sans-serif)}.recent-queries button:hover{background:var(--vsc-list-hover-background,var(--vsc-list-hover-background))}
+    .results{flex:1;min-height:0;overflow:auto;padding:5px}.result{display:grid;grid-template-columns:30px minmax(0,1fr) auto;gap:8px;align-items:center;width:100%;min-height:45px;padding:5px 8px;border:1px solid transparent;border-radius:4px;background:transparent;color:inherit;text-align:left;cursor:pointer;font:inherit}.result:hover,.result.selected{background:var(--vsc-list-hover-background,var(--vsc-list-hover-background))}.result.selected{border-color:color-mix(in srgb,var(--vsc-accent-blue,var(--vsc-accent-blue)) 55%,transparent)}.icon{text-align:center;font-size:16px}.details{min-width:0;display:grid}.details strong,.details small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.details small{font-family:var(--vsc-font-family-mono,ui-monospace,monospace)}.kind{font-size:10px}.empty{padding:40px;text-align:center;color:var(--vsc-description-foreground,var(--vsc-foreground-dim))}
+    footer{border-top:1px solid var(--vsc-border-subtle,var(--vsc-border-subtle));border-bottom:0}.keys{margin-left:auto}.progress{color:var(--vsc-description-foreground)}.warning{color:var(--vsc-warning)}.error{color:var(--vsc-error-foreground,var(--vsc-error));overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.open-panel{height:26px;padding:0 9px;border:1px solid var(--vsc-border,var(--vsc-border));border-radius:4px;background:var(--vsc-button-secondary-background,var(--vsc-control-background));color:inherit;cursor:pointer;font:inherit}.open-panel:disabled{opacity:.45;cursor:default}
+  `],
 })
 export class GlobalSearchComponent implements OnInit, OnDestroy {
-  @ViewChild('searchInput') searchInput?: ElementRef<HTMLInputElement>;
-  @ViewChild('settingsPanel') settingsPanel?: ElementRef<HTMLElement>;
-  @Output() resultSelected = new EventEmitter<SearchResultItem>();
-  @Output() searchFolderRequested = new EventEmitter<string>();
+  @ViewChild('queryInput') queryInput?: ElementRef<HTMLInputElement>;
+  @Output() openResult = new EventEmitter<FileInfo>();
+  @Output() openContainingFolder = new EventEmitter<FileInfo>();
+  @Output() openAsPanel = new EventEmitter<SearchResultsPanelRequest>();
+  @Output() openAsWorkspace = new EventEmitter<SearchResultsPanelRequest>();
+  @Output() openPanelPath = new EventEmitter<string>();
 
-  isVisible = false;
-  searchQuery = '';
-  results: SearchResultItem[] = [];
-  isSearching = false;
+  visible = false;
+  rootPath = '';
+  queryText = '';
+  recursive = true;
+  sortMode: SearchSort = 'relevance';
+  typeFilter: DiscoverySearchType = 'all';
+  mode: DiscoveryMode = 'search';
+  historyEntries: ReturnType<DiscoveryHistoryService['history']> = [];
+  savedSearches: ReturnType<DiscoveryHistoryService['saved']> = [];
+  collections: readonly ResultsPanelDefinition[] = [];
+  private queryHistoryIndex = -1;
+  results: FileInfo[] = [];
+  searchProgress = '';
+  searchWarnings: readonly string[] = [];
   selectedIndex = 0;
-  indexStats: IndexStats | null = null;
-  
-  activeFilters = new Set<string>(['all']);
-  showSettingsModal = false;
-  
-  searchConfig: SearchConfig = {
-    maxResults: 50,
-    fuzzyThreshold: 0.7,
-    enableTypoTolerance: true,
-    searchHidden: false,
-    fileTypes: [FileType.FILE, FileType.DIRECTORY],
-  };
+  searching = false;
+  error = '';
 
-  private destroy$ = createSubject<void>();
-  private searchSubject = createSubject<string>();
-  private releaseSearchContext: (() => void) | null = null;
-  private releaseSearchSettingsContext: (() => void) | null = null;
+  private searchGeneration = 0;
+  private searchAbort: AbortController | null = null;
+  private searchTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
-    private searchService: GlobalSearchService,
-    private inputContexts: InputContextService,
-    private inputEngine: InputEngineService,
-    private overlayFreeze: NativeOverlayFreezeService,
+    private readonly searchService: DiscoverySearchService,
+    readonly history: DiscoveryHistoryService,
+    private readonly recentFiles: RecentFilesService,
+    private readonly resultPanels: ResultsPanelService,
+    private readonly dialogs: ConfirmDialogService,
+    private readonly input: InputEngineService,
+    private readonly cdr: ChangeDetectorRef,
   ) {}
 
+  get displayedResults(): FileInfo[] {
+    const results = [...this.results];
+
+    if (this.sortMode === 'name') {
+      return results.sort((a,b) =>
+        (a.name ?? '').localeCompare(b.name ?? '', undefined, {
+          numeric: true,
+          sensitivity: 'base',
+        }),
+      );
+    }
+
+    if (this.sortMode === 'path') {
+      return results.sort((a,b) =>
+        (a.path ?? '').localeCompare(b.path ?? '', undefined, {
+          numeric: true,
+          sensitivity: 'base',
+        }),
+      );
+    }
+
+    if (this.sortMode === 'type') {
+      return results.sort((a,b) =>
+        this.kind(a).localeCompare(this.kind(b)) ||
+        (a.name ?? '').localeCompare(b.name ?? ''),
+      );
+    }
+
+    return results;
+  }
+
+  get searchWindowStart(): number {
+    const count = this.displayedResults.length;
+    if (count <= 160) return 0;
+    return Math.max(
+      0,
+      Math.min(
+        count - 160,
+        this.selectedIndex - 80,
+      ),
+    );
+  }
+
+  get renderedSearchResults(): readonly FileInfo[] {
+    if (this.mode === 'collections') return [];
+    const entries = this.displayedResults;
+    if (entries.length <= 160) return entries;
+
+    const start = this.searchWindowStart;
+    return entries.slice(start, start + 160);
+  }
+
+  get modeLabel(): string {
+    if (this.mode === 'recent') return 'Recent Files';
+    if (this.mode === 'collections') return 'Collections';
+    return 'Search';
+  }
+
+  get resultCount(): number {
+    return this.mode === 'collections'
+      ? this.visibleCollections.length
+      : this.displayedResults.length;
+  }
+
+  get visibleCollections(): readonly ResultsPanelDefinition[] {
+    const needle = this.queryText.trim().toLocaleLowerCase();
+    return this.collections.filter(panel =>
+      !needle ||
+      panel.title.toLocaleLowerCase().includes(needle) ||
+      (panel.metadata.kind ?? '').toLocaleLowerCase().includes(needle) ||
+      (panel.metadata.origin ?? '').toLocaleLowerCase().includes(needle)
+    );
+  }
+
+  get selectedCollection(): ResultsPanelDefinition | null {
+    return this.visibleCollections[this.selectedIndex] ?? null;
+  }
+
+  get selectedResult(): FileInfo | null {
+    return this.mode === 'collections'
+      ? null
+      : this.displayedResults[this.selectedIndex] ?? null;
+  }
+
+  get folderCount(): number {
+    return this.results.filter(entry => entry.type === FileType.DIRECTORY).length;
+  }
+
+  get fileCount(): number {
+    return this.results.length - this.folderCount;
+  }
+
   ngOnInit(): void {
-    this.registerInputCommands();
+    this.input.registerContext({
+      id: CONTEXT_ID,
+      kind: 'overlay',
+      priority: 390, exclusive: true,
+      parentId: 'global',
+      description: 'Reassembly global search',
+    });
 
-    // Subscribe to index stats
-    this.searchService.stats$
-      .pipe(takeUntil(this.destroy$))
-      .subscribe(stats => {
-        this.indexStats = stats;
-      });
+    this.input.registerCommandDescriptor({id:COMMAND.close,title:'Close Global Search',category:'Search & Filter',execute:()=>this.close()},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.previous,title:'Previous Search Result',category:'Search & Filter',execute:()=>this.move(-1)},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.next,title:'Next Search Result',category:'Search & Filter',execute:()=>this.move(1)},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.open,title:'Open Search Result',category:'Search & Filter',execute:()=>{if(this.mode==='collections'){const panel=this.selectedCollection;if(panel)this.openCollection(panel);return;}const entry=this.selectedResult;if(entry)this.openEntry(entry)}},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.openFolder,title:'Open Containing Folder',category:'Search & Filter',execute:()=>{const entry=this.selectedResult;if(entry)this.openFolder(entry)}},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.openAsPanel,title:'Open Search Results as Panel',category:'Search & Filter',execute:()=>this.openAsResultsPanel(),isEnabled:()=>this.displayedResults.length>0&&!this.searching},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.toggleRecursive,title:'Toggle Recursive Search',category:'Search & Filter',execute:()=>this.toggleRecursive()},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.cycleSort,title:'Cycle Search Sort',category:'Search & Filter',execute:()=>this.cycleSort()},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.previousQuery,title:'Previous Search Query',category:'Search & Filter',execute:()=>this.moveQueryHistory(-1),isEnabled:()=>this.historyEntries.length>0},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.nextQuery,title:'Next Search Query',category:'Search & Filter',execute:()=>this.moveQueryHistory(1),isEnabled:()=>this.historyEntries.length>0},OWNER_ID);
 
-    // Setup debounced search
-    this.searchSubject
-      .pipe(
-        debounce(300),
-        takeUntil(this.destroy$)
-      )
-      .subscribe(query => {
-        this.performSearch(query);
-      });
-
-    // Load config
-    this.searchConfig = this.searchService.getConfig();
+    for (const binding of BINDINGS) this.input.registerBinding(binding);
   }
 
   ngOnDestroy(): void {
-    this.overlayFreeze.release('dialog.globalSearch');
-    this.releaseSearchSettingsContext?.();
-    this.releaseSearchSettingsContext = null;
-    this.releaseSearchContext?.();
-    this.releaseSearchContext = null;
-    this.unregisterInputCommands();
-    this.destroy$.next();
-    this.destroy$.complete();
-  }
-
-  /**
-   * Show the global search modal
-   */
-  show(): void {
-    this.isVisible = true;
-    this.releaseSearchContext ??= this.inputContexts.acquire('dialog.globalSearch');
-    this.overlayFreeze.acquire('dialog.globalSearch');
-    this.searchQuery = '';
-    this.results = [];
-    this.selectedIndex = 0;
-    this.activeFilters = new Set(['all']);
-    setTimeout(() => this.searchInput?.nativeElement.focus(), 0);
-  }
-
-  /**
-   * Hide the global search modal
-   */
-  hide(): void {
-    this.isVisible = false;
-    this.searchQuery = '';
-    this.results = [];
-    this.hideSettings();
-    this.releaseSearchContext?.();
-    this.releaseSearchContext = null;
-    this.overlayFreeze.release('dialog.globalSearch');
-  }
-
-  /**
-   * Handle search query change
-   */
-  onSearchChange(): void {
-    if (!this.searchQuery || this.searchQuery.trim() === '') {
-      this.results = [];
-      this.isSearching = false;
-      return;
-    }
-
-    this.isSearching = true;
-    this.searchSubject.next(this.searchQuery);
-  }
-
-  /**
-   * Perform the search
-   */
-  private performSearch(query: string): void {
-    try {
-      const config = this.getActiveSearchConfig();
-      const rawResults = this.searchService.search(query, config);
-
-      // Apply active filters
-      this.results = this.applyFilters(rawResults);
-      this.selectedIndex = 0;
-    } catch (error) {
-      console.error('Search error:', error);
-      this.results = [];
-    } finally {
-      this.isSearching = false;
+    if (this.searchTimer) clearTimeout(this.searchTimer);
+    this.input.deactivateContext(CONTEXT_ID);
+    for (const binding of BINDINGS) this.input.unregisterBinding(binding.id);
+    for (const id of Object.values(COMMAND)) {
+      this.input.unregisterCommandDescriptor(id, OWNER_ID);
     }
   }
 
-  /**
-   * Get search config based on active filters
-   */
-  private getActiveSearchConfig(): Partial<SearchConfig> {
-    const config: Partial<SearchConfig> = { ...this.searchConfig };
-
-    // File type filters
-    if (this.activeFilters.has('files') && !this.activeFilters.has('folders')) {
-      config.fileTypes = [FileType.FILE];
-    } else if (this.activeFilters.has('folders') && !this.activeFilters.has('files')) {
-      config.fileTypes = [FileType.DIRECTORY];
-    } else {
-      config.fileTypes = [FileType.FILE, FileType.DIRECTORY];
-    }
-
-    return config;
-  }
-
-  /**
-   * Apply additional filters to results
-   */
-  private applyFilters(results: SearchResultItem[]): SearchResultItem[] {
-    let filtered = results;
-
-    // Recent filter (last 7 days)
-    if (this.activeFilters.has('recent')) {
-      const weekAgo = Date.now() / 1000 - (7 * 24 * 60 * 60);
-      filtered = filtered.filter(r => r.file.modified >= weekAgo);
-    }
-
-    return filtered;
-  }
-
-  /**
-   * Toggle a filter
-   */
-  toggleFilter(filter: string): void {
-    if (filter === 'all') {
-      this.activeFilters.clear();
-      this.activeFilters.add('all');
-    } else {
-      this.activeFilters.delete('all');
-      
-      if (this.activeFilters.has(filter)) {
-        this.activeFilters.delete(filter);
-      } else {
-        this.activeFilters.add(filter);
-      }
-
-      // If no filters, default to 'all'
-      if (this.activeFilters.size === 0) {
-        this.activeFilters.add('all');
-      }
-    }
-
-    // Re-search with new filters
-    if (this.searchQuery) {
-      this.performSearch(this.searchQuery);
-    }
-  }
-
-  /**
-   * Clear search
-   */
-  clearSearch(): void {
-    this.searchQuery = '';
-    this.results = [];
-    this.selectedIndex = 0;
-    this.searchInput?.nativeElement.focus();
-  }
-
-  /**
-   * Select a result
-   */
-  selectResult(result: SearchResultItem): void {
-    this.resultSelected.emit(result);
-    this.hide();
-  }
-
-  openSearchFolder(): void {
-    const trimmedQuery = this.searchQuery.trim();
-    if (!trimmedQuery) {
-      return;
-    }
-
-    this.searchFolderRequested.emit(trimmedQuery);
-    this.hide();
-  }
-
-  /**
-   * Get file icon
-   */
-  getFileIcon(file: SearchResultItem['file']): string {
-    return getFileEntryPresentation(file as any, false).iconEmoji;
-  }
-
-  isSymlink(file: SearchResultItem['file']): boolean {
-    return getFileEntryPresentation(file as any, false).isSymlink;
-  }
-
-  /**
-   * Refresh the search index
-   */
-  async refreshIndex(): Promise<void> {
-    this.isSearching = true;
-    try {
-      await this.searchService.refreshIndex();
-    } finally {
-      this.isSearching = false;
-    }
-  }
-
-  /**
-   * Show settings modal
-   */
-  showSettings(): void {
-    this.showSettingsModal = true;
-    this.releaseSearchSettingsContext ??= this.inputContexts.acquire('dialog.globalSearch.settings');
-  }
-
-  /**
-   * Hide settings modal
-   */
-  hideSettings(): void {
-    this.showSettingsModal = false;
-    this.releaseSearchSettingsContext?.();
-    this.releaseSearchSettingsContext = null;
-  }
-
-  /**
-   * Update search configuration
-   */
-  updateSearchConfig(): void {
-    this.searchService.updateConfig(this.searchConfig);
+  open(rootPath: string): void {
     
-    // Re-search if there's an active query
-    if (this.searchQuery) {
-      this.performSearch(this.searchQuery);
+    this.rootPath = rootPath;
+    this.historyEntries = this.history.history();
+    this.savedSearches = this.history.saved();
+    this.collections = this.resultPanels.recent();
+    this.queryHistoryIndex = -1;
+    this.mode = 'search';
+    this.queryText = '';
+    this.results = [];
+    this.selectedIndex = 0;
+    this.error = '';
+    this.visible = true;
+    this.input.activateContext(CONTEXT_ID);
+    
+    this.cdr.markForCheck();
+  }
+
+  close(): void {
+    if (!this.visible) return;
+    this.visible = false;
+    this.input.deactivateContext(CONTEXT_ID);
+    this.searchGeneration += 1;
+    this.searchAbort?.abort();
+    this.searchAbort = null;
+    if (this.searchTimer) {
+      clearTimeout(this.searchTimer);
+      this.searchTimer = null;
     }
+    
+    
+    this.cdr.markForCheck();
   }
 
-  /**
-   * Reset settings to defaults
-   */
-  resetSettings(): void {
-    this.searchConfig = {
-      maxResults: 50,
-      fuzzyThreshold: 0.7,
-      enableTypoTolerance: true,
-      searchHidden: false,
-      fileTypes: [FileType.FILE, FileType.DIRECTORY],
-    };
-    this.updateSearchConfig();
+  scheduleSearch(): void {
+    if (this.searchTimer) clearTimeout(this.searchTimer);
+    this.searchTimer = setTimeout(() => {
+      this.searchTimer = null;
+      void this.search();
+    }, 180);
   }
 
-  /**
-   * Handle keyboard navigation
-   */
-  /**
-   * Scroll to selected result
-   */
-  private scrollToSelected(): void {
-    setTimeout(() => {
-      const selected = document.querySelector('.result-item.selected');
-      if (selected) {
-        selected.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-      }
-    }, 0);
-  }
+  async search(): Promise<void> {
+    const query = this.queryText.trim();
+    const generation = ++this.searchGeneration;
 
-  private registerInputCommands(): void {
-    this.inputEngine.registerCommand('dialog.globalSearch.close', () => {
-      if (!this.isVisible) return;
-      this.hide();
-    });
+    this.searchAbort?.abort();
+    this.searchAbort = null;
 
-    this.inputEngine.registerCommand('dialog.globalSearch.prevResult', () => {
-      if (!this.isVisible || this.showSettingsModal || this.results.length === 0) return;
-      this.selectedIndex = Math.max(this.selectedIndex - 1, 0);
-      this.scrollToSelected();
-    });
-
-    this.inputEngine.registerCommand('dialog.globalSearch.nextResult', () => {
-      if (!this.isVisible || this.showSettingsModal || this.results.length === 0) return;
-      this.selectedIndex = Math.min(this.selectedIndex + 1, this.results.length - 1);
-      this.scrollToSelected();
-    });
-
-    this.inputEngine.registerCommand('dialog.globalSearch.openSelected', () => {
-      if (!this.isVisible || this.showSettingsModal) return;
-      if (this.results.length === 0 || this.selectedIndex >= this.results.length) return;
-      this.selectResult(this.results[this.selectedIndex]);
-    });
-
-    this.inputEngine.registerCommand('dialog.globalSearch.openFolder', () => {
-      if (!this.isVisible || this.showSettingsModal) return;
-      if (!this.searchQuery.trim()) return;
-      this.openSearchFolder();
-    });
-
-    this.inputEngine.registerCommand('dialog.globalSearch.openSettings', () => {
-      if (!this.isVisible) return;
-      this.showSettings();
-    });
-
-    this.inputEngine.registerCommand('dialog.globalSearch.settings.close', () => {
-      if (!this.showSettingsModal) return;
-      this.hideSettings();
-    });
-
-    this.inputEngine.registerCommand('dialog.globalSearch.settings.apply', () => {
-      if (!this.showSettingsModal) return;
-      this.updateSearchConfig();
-      this.hideSettings();
-    });
-
-    this.inputEngine.registerCommand('dialog.globalSearch.settings.focusNextArrow', () => {
-      if (!this.showSettingsModal || !this.shouldUseSettingsArrowFocusNavigation()) return;
-      this.moveSettingsFocus(1);
-    });
-
-    this.inputEngine.registerCommand('dialog.globalSearch.settings.focusPrevArrow', () => {
-      if (!this.showSettingsModal || !this.shouldUseSettingsArrowFocusNavigation()) return;
-      this.moveSettingsFocus(-1);
-    });
-  }
-
-  private unregisterInputCommands(): void {
-    this.inputEngine.unregisterCommand('dialog.globalSearch.close');
-    this.inputEngine.unregisterCommand('dialog.globalSearch.prevResult');
-    this.inputEngine.unregisterCommand('dialog.globalSearch.nextResult');
-    this.inputEngine.unregisterCommand('dialog.globalSearch.openSelected');
-    this.inputEngine.unregisterCommand('dialog.globalSearch.openFolder');
-    this.inputEngine.unregisterCommand('dialog.globalSearch.openSettings');
-    this.inputEngine.unregisterCommand('dialog.globalSearch.settings.close');
-    this.inputEngine.unregisterCommand('dialog.globalSearch.settings.apply');
-    this.inputEngine.unregisterCommand('dialog.globalSearch.settings.focusNextArrow');
-    this.inputEngine.unregisterCommand('dialog.globalSearch.settings.focusPrevArrow');
-  }
-
-  private moveSettingsFocus(delta: number): void {
-    const panel = this.settingsPanel?.nativeElement;
-    if (!panel) {
+    if (this.mode === 'collections') {
+      this.results = [];
+      this.collections = this.resultPanels.recent();
+      this.selectedIndex = Math.min(
+        this.selectedIndex,
+        Math.max(0, this.visibleCollections.length - 1),
+      );
+      this.searching = false;
+      this.error = '';
+      this.cdr.markForCheck();
       return;
     }
 
-    moveFocusWithin(panel, delta, '.settings-footer button');
-  }
-
-  private shouldUseSettingsArrowFocusNavigation(): boolean {
-    const panel = this.settingsPanel?.nativeElement;
-    const activeElement = document.activeElement;
-    if (!panel || !(activeElement instanceof HTMLElement) || !panel.contains(activeElement)) {
-      return false;
+    if (this.mode === 'recent') {
+      this.results = this.recentFiles.search(query, 200);
+      this.selectedIndex = Math.min(
+        this.selectedIndex,
+        Math.max(0, this.displayedResults.length - 1),
+      );
+      this.searching = false;
+      this.error = '';
+      this.cdr.markForCheck();
+      return;
     }
 
-    return !!activeElement.closest('.settings-footer button');
+    if (!query || !this.rootPath) {
+      this.results = [];
+      this.searching = false;
+      this.error = '';
+      this.searchProgress = '';
+      this.searchWarnings = [];
+      this.selectedIndex = 0;
+      this.cdr.markForCheck();
+      return;
+    }
+
+    const controller = new AbortController();
+    this.searchAbort = controller;
+    this.searching = true;
+    this.error = '';
+    this.searchProgress = '';
+    this.searchWarnings = [];
+    this.cdr.markForCheck();
+
+    try {
+      const result = await this.searchService.search(
+        this.rootPath,
+        query,
+        {
+          recursive: this.recursive,
+          type: this.typeFilter,
+          maxResults: 500,
+          signal: controller.signal,
+          onProgress: progress => {
+            if (generation !== this.searchGeneration) return;
+            this.searchProgress =
+              `${progress.sourceId} · ${progress.visitedDirectories} folders · ${progress.matchedEntries} matches`;
+            this.cdr.markForCheck();
+          },
+        },
+      );
+
+      if (generation !== this.searchGeneration) return;
+
+      this.results = [...result.entries];
+      this.searchWarnings = result.warnings;
+      this.searchProgress = result.truncated
+        ? `${result.sourceId} · result limit reached`
+        : `${result.sourceId} · ${result.visitedDirectories} folders`;
+
+      this.history.record(this.currentSearchSpec(), this.results.length);
+      this.historyEntries = this.history.history();
+
+      this.selectedIndex = Math.min(
+        this.selectedIndex,
+        Math.max(0, this.displayedResults.length - 1),
+      );
+    } catch (error) {
+      if (generation !== this.searchGeneration) return;
+      if (error instanceof DOMException && error.name === 'AbortError') return;
+
+      this.results = [];
+      this.selectedIndex = 0;
+      this.error = error instanceof Error ? error.message : String(error);
+    } finally {
+      if (generation === this.searchGeneration) {
+        this.searching = false;
+        this.searchAbort = null;
+        this.cdr.markForCheck();
+      }
+    }
+  }
+
+  openAsResultsPanel(): void {
+    const entries = this.displayedResults;
+    if (entries.length === 0) return;
+
+    const query = this.queryText.trim();
+    this.openAsPanel.emit({
+      title: this.mode === 'recent'
+        ? (query ? `Recent: ${query}` : 'Recent Files')
+        : `Search: ${query}`,
+      rootPath: this.mode === 'recent' ? '' : this.rootPath,
+      query: this.mode === 'recent' ? `recent:${query}` : query,
+      recursive: this.mode === 'search' && this.recursive,
+      entries: entries.map(entry => ({ ...entry })),
+    });
+
+    this.close();
+  }
+
+  openAsResultsWorkspace(): void {
+    const query = this.queryText.trim();
+    const entries = this.displayedResults;
+    if (!query || entries.length === 0) return;
+
+    this.openAsWorkspace.emit({
+      title: `Search: ${query}`,
+      rootPath: this.rootPath,
+      query,
+      recursive: this.recursive,
+      entries: entries.map(entry => ({ ...entry })),
+    });
+
+    this.close();
+  }
+
+
+  toggleRecursive(): void {
+    this.recursive = !this.recursive;
+    this.scheduleSearch();
+    this.cdr.markForCheck();
+  }
+
+  cycleSort(): void {
+    const modes: SearchSort[] = ['relevance', 'name', 'path', 'type'];
+    const index = modes.indexOf(this.sortMode);
+    this.sortMode = modes[(index + 1) % modes.length];
+    this.selectedIndex = Math.min(
+      this.selectedIndex,
+      Math.max(0, this.displayedResults.length - 1),
+    );
+    this.cdr.markForCheck();
+  }
+
+  setMode(mode: DiscoveryMode): void {
+    this.mode = mode;
+    this.selectedIndex = 0;
+    this.searchProgress = '';
+    this.searchWarnings = [];
+    this.error = '';
+
+    if (mode === 'collections') {
+      this.collections = this.resultPanels.recent();
+    }
+
+    void this.search();
+    queueMicrotask(() => this.queryInput?.nativeElement.focus());
+    this.cdr.markForCheck();
+  }
+
+  useSavedSearch(saved: SavedDiscoverySearch): void {
+    this.mode = 'search';
+    this.rootPath = saved.rootPath;
+    this.queryText = saved.query;
+    this.recursive = saved.recursive;
+    this.typeFilter = saved.type;
+    this.sortMode = saved.sort;
+    this.selectedIndex = 0;
+    this.scheduleSearch();
+    queueMicrotask(() => this.queryInput?.nativeElement.focus());
+  }
+
+  useHistory(entry: DiscoverySearchSpec): void {
+    this.mode = 'search';
+    this.rootPath = entry.rootPath;
+    this.queryText = entry.query;
+    this.recursive = entry.recursive;
+    this.typeFilter = entry.type;
+    this.sortMode = entry.sort;
+    this.selectedIndex = 0;
+    this.scheduleSearch();
+    queueMicrotask(() => this.queryInput?.nativeElement.focus());
+  }
+
+  async saveSearch(): Promise<void> {
+    const spec = this.currentSearchSpec();
+    if (!spec.query.trim()) return;
+
+    const name = (await this.dialogs.prompt({
+      title: 'Save Search',
+      message: 'Name this search.',
+      confirmText: 'Save',
+      defaultValue: spec.query,
+      historyKey: 'reassembly.discovery.savedSearch.name',
+    }))?.trim();
+
+    if (!name) return;
+
+    this.history.save(name, spec);
+    this.savedSearches = this.history.saved();
+    this.cdr.markForCheck();
+  }
+
+  openCollection(panel: ResultsPanelDefinition): void {
+    this.openPanelPath.emit(panel.path);
+    this.close();
+  }
+
+  toggleSelectedCollectionPinned(): void {
+    const panel = this.selectedCollection;
+    if (!panel) return;
+
+    this.resultPanels.setPinned(panel.path, !panel.pinned);
+    this.collections = this.resultPanels.recent();
+    this.cdr.markForCheck();
+  }
+
+  collectionSummary(panel: ResultsPanelDefinition): string {
+    const parts = [
+      panel.metadata.kind,
+      panel.metadata.rootPath,
+      panel.metadata.query,
+      panel.metadata.pluginId ? `plugin:${panel.metadata.pluginId}` : '',
+    ].filter(Boolean);
+    return parts.join(' · ') || panel.path;
+  }
+
+  trackPanel(_index: number, panel: ResultsPanelDefinition): string {
+    return panel.path;
+  }
+
+  private moveQueryHistory(delta: -1 | 1): void {
+    if (!this.historyEntries.length) return;
+
+    if (this.queryHistoryIndex < 0) {
+      this.queryHistoryIndex =
+        delta < 0 ? 0 : this.historyEntries.length - 1;
+    } else {
+      this.queryHistoryIndex =
+        (this.queryHistoryIndex + delta + this.historyEntries.length) %
+        this.historyEntries.length;
+    }
+
+    const entry = this.historyEntries[this.queryHistoryIndex];
+    if (entry) this.useHistory(entry);
+  }
+
+  private currentSearchSpec(): DiscoverySearchSpec {
+    return {
+      rootPath: this.rootPath,
+      query: this.queryText.trim(),
+      recursive: this.recursive,
+      type: this.typeFilter,
+      sort: this.sortMode,
+    };
+  }
+
+  openEntry(entry: FileInfo): void {
+    this.openResult.emit(entry);
+    this.close();
+  }
+
+  openFolder(entry: FileInfo): void {
+    this.openContainingFolder.emit(entry);
+    this.close();
+  }
+
+  trackResult(_index:number, entry:FileInfo):string { return entry.path; }
+
+  icon(entry:FileInfo):string {
+    if (entry.type === FileType.DIRECTORY) return '📁';
+    if (entry.type === FileType.ARCHIVE) return '🗜️';
+    return '📄';
+  }
+
+  kind(entry:FileInfo):string {
+    if (entry.type === FileType.DIRECTORY) return 'Folder';
+    if (entry.type === FileType.ARCHIVE) return 'Archive';
+    return 'File';
+  }
+
+  private move(delta:-1|1):void {
+    const count=this.mode === 'collections'
+      ? this.visibleCollections.length
+      : this.displayedResults.length;
+    if(!count)return;
+    this.selectedIndex=(this.selectedIndex+delta+count)%count;
+    this.cdr.markForCheck();
   }
 }

@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"container/heap"
 	"context"
 	"errors"
 	"fmt"
@@ -19,6 +20,7 @@ import (
 )
 
 const dirStreamBatchSize = 256
+const dirStreamPreviewLimit = 1024
 
 // DirStreamOptions describes presentation work that must never run on the
 // renderer thread for a large directory.
@@ -93,11 +95,15 @@ type DirStreamService struct {
 }
 
 type preparedDirStream struct {
-	paneID      string
-	path        string
-	sourceCount int
-	totalSize   int64
-	entries     []contracts.FileInfo
+	paneID       string
+	path         string
+	options      DirStreamOptions
+	sourceCount  int
+	indexedCount int
+	totalSize    int64
+	complete     bool
+	runs         [][]contracts.FileInfo
+	entries      []contracts.FileInfo
 }
 
 func NewDirStreamService(
@@ -161,16 +167,19 @@ func (s *DirStreamService) Window(streamID string, offset, limit int) (*DirStrea
 	if limit < 0 {
 		limit = 0
 	}
-	if offset > len(stream.entries) {
-		offset = len(stream.entries)
+	totalCount := stream.indexedCount
+	if offset > totalCount {
+		offset = totalCount
 	}
-	end := offset + limit
-	if end > len(stream.entries) {
-		end = len(stream.entries)
-	}
-	windowEntries := stream.entries[offset:end]
-	if windowEntries == nil {
-		windowEntries = []contracts.FileInfo{}
+	windowEntries := []contracts.FileInfo{}
+	if stream.complete {
+		end := offset + limit
+		if end > len(stream.entries) {
+			end = len(stream.entries)
+		}
+		windowEntries = stream.entries[offset:end]
+	} else if limit > 0 && totalCount > 0 {
+		windowEntries = mergeSortedRunsWindow(stream.runs, stream.options, offset, limit)
 	}
 
 	return &DirStreamWindow{
@@ -179,7 +188,7 @@ func (s *DirStreamService) Window(streamID string, offset, limit int) (*DirStrea
 		Path:        stream.path,
 		Offset:      offset,
 		Limit:       limit,
-		TotalCount:  len(stream.entries),
+		TotalCount:  stream.indexedCount,
 		SourceCount: stream.sourceCount,
 		Entries:     windowEntries,
 	}, nil
@@ -198,6 +207,13 @@ func (s *DirStreamService) StartWithOptions(paneID, path string, showHidden bool
 	streamID := fmt.Sprintf("%s-%d", paneID, time.Now().UnixNano())
 	ctx, cancel := context.WithCancel(context.Background())
 	s.Register(streamID, cancel)
+	s.rememberPrepared(streamID, preparedDirStream{
+		paneID:  paneID,
+		path:    internalplatform.ToSlash(path),
+		options: options,
+		runs:    [][]contracts.FileInfo{},
+		entries: []contracts.FileInfo{},
+	})
 	go s.run(ctx, streamID, paneID, internalplatform.ToSlash(path), showHidden, options)
 	return streamID, nil
 }
@@ -252,22 +268,70 @@ func (s *DirStreamService) run(ctx context.Context, streamID, paneID, path strin
 	}
 
 	entries := make([]contracts.FileInfo, 0, dirStreamBatchSize)
+	runs := make([][]contracts.FileInfo, 0, 8)
+	sourceCount := 0
+	var totalSize int64
+	previewCount := 0
 	err := scan(ctx, path, showHidden, dirStreamBatchSize, func(batch []contracts.FileInfo, _ int64) {
 		entries = append(entries, batch...)
+		sourceCount += len(batch)
+		if len(batch) == 0 || errors.Is(ctx.Err(), context.Canceled) {
+			return
+		}
+		preparedBatch := prepareStreamEntries(append([]contracts.FileInfo(nil), batch...), options)
+		if len(preparedBatch) > 0 {
+			runs = append(runs, preparedBatch)
+			for _, entry := range preparedBatch {
+				totalSize += entry.Size
+			}
+			s.rememberPrepared(streamID, preparedDirStream{
+				paneID:       paneID,
+				path:         path,
+				options:      options,
+				sourceCount:  sourceCount,
+				indexedCount: countRunEntries(runs),
+				totalSize:    totalSize,
+				complete:     false,
+				runs:         append([][]contracts.FileInfo(nil), runs...),
+				entries:      []contracts.FileInfo{},
+			})
+		}
+		if previewCount >= dirStreamPreviewLimit {
+			return
+		}
+		remaining := dirStreamPreviewLimit - previewCount
+		previewBatch := batch
+		if len(previewBatch) > remaining {
+			previewBatch = previewBatch[:remaining]
+		}
+		previewCount += len(previewBatch)
+		// Emit raw scan batches immediately so the renderer can paint useful
+		// content while the backend continues preparing the final ordered result.
+		// After the initial preview window, keep scanning silently so the
+		// renderer is not flooded with updates during long directory walks.
+		s.Emit("fs:listStream:batch", dirStreamBatchEvent{
+			StreamID: streamID,
+			PaneID:   paneID,
+			Path:     path,
+			Entries:  previewBatch,
+		})
 	})
 	if err == nil {
-		sourceCount := len(entries)
-		entries = prepareStreamEntries(entries, options)
-		entryCount, totalSize := sumPreparedEntries(entries)
+		entries = mergeSortedRunsAll(runs, options)
+		entryCount, finalTotalSize := sumPreparedEntries(entries)
 		if errors.Is(ctx.Err(), context.Canceled) {
 			return
 		}
 		s.rememberPrepared(streamID, preparedDirStream{
-			paneID:      paneID,
-			path:        path,
-			sourceCount: sourceCount,
-			totalSize:   totalSize,
-			entries:     entries,
+			paneID:       paneID,
+			path:         path,
+			options:      options,
+			sourceCount:  sourceCount,
+			indexedCount: entryCount,
+			totalSize:    finalTotalSize,
+			complete:     true,
+			runs:         nil,
+			entries:      entries,
 		})
 		s.Emit("fs:listStream:done", dirStreamDoneEvent{
 			StreamID:    streamID,
@@ -275,7 +339,7 @@ func (s *DirStreamService) run(ctx context.Context, streamID, paneID, path strin
 			Path:        path,
 			EntryCount:  entryCount,
 			SourceCount: sourceCount,
-			TotalSize:   totalSize,
+			TotalSize:   finalTotalSize,
 			DurationMS:  time.Since(started).Milliseconds(),
 		})
 		return
@@ -296,11 +360,15 @@ func (s *DirStreamService) run(ctx context.Context, streamID, paneID, path strin
 				return
 			}
 			s.rememberPrepared(streamID, preparedDirStream{
-				paneID:      paneID,
-				path:        path,
-				sourceCount: sourceCount,
-				totalSize:   size,
-				entries:     entries,
+				paneID:       paneID,
+				path:         path,
+				options:      options,
+				sourceCount:  sourceCount,
+				indexedCount: count,
+				totalSize:    size,
+				complete:     true,
+				runs:         nil,
+				entries:      entries,
 			})
 			s.Emit("fs:listStream:done", dirStreamDoneEvent{
 				StreamID:    streamID,
@@ -332,6 +400,14 @@ func sumPreparedEntries(entries []contracts.FileInfo) (int, int64) {
 	return len(entries), totalSize
 }
 
+func countRunEntries(runs [][]contracts.FileInfo) int {
+	total := 0
+	for _, run := range runs {
+		total += len(run)
+	}
+	return total
+}
+
 func prepareStreamEntries(entries []contracts.FileInfo, options DirStreamOptions) []contracts.FileInfo {
 	needle := strings.ToLower(strings.TrimSpace(options.FilterText))
 	if needle != "" {
@@ -345,33 +421,50 @@ func prepareStreamEntries(entries []contracts.FileInfo, options DirStreamOptions
 	}
 	descending := strings.EqualFold(options.SortDirection, "desc")
 	sort.SliceStable(entries, func(i, j int) bool {
-		left, right := entries[i], entries[j]
-		if left.Path == "__parent__" || right.Path == "__parent__" {
-			return left.Path == "__parent__"
-		}
-		if options.DirectoriesFirst && (left.Type == contracts.FileTypeDirectory) != (right.Type == contracts.FileTypeDirectory) {
-			return left.Type == contracts.FileTypeDirectory
-		}
-		var comparison int
-		switch options.SortField {
-		case "size":
-			comparison = compareInt64(left.Size, right.Size)
-		case "modified":
-			comparison = compareInt64(left.Modified, right.Modified)
-		case "type":
-			comparison = strings.Compare(string(left.Type), string(right.Type))
-		default:
-			comparison = strings.Compare(strings.ToLower(left.Name), strings.ToLower(right.Name))
-		}
-		if comparison == 0 && options.SortField != "name" {
-			comparison = strings.Compare(strings.ToLower(left.Name), strings.ToLower(right.Name))
-		}
+		comparison := comparePreparedEntries(entries[i], entries[j], options)
 		if descending {
 			return comparison > 0
 		}
 		return comparison < 0
 	})
 	return entries
+}
+
+func comparePreparedEntries(left, right contracts.FileInfo, options DirStreamOptions) int {
+	if left.Path == "__parent__" || right.Path == "__parent__" {
+		if left.Path == right.Path {
+			return 0
+		}
+		if left.Path == "__parent__" {
+			return -1
+		}
+		return 1
+	}
+	if options.DirectoriesFirst && (left.Type == contracts.FileTypeDirectory) != (right.Type == contracts.FileTypeDirectory) {
+		if left.Type == contracts.FileTypeDirectory {
+			return -1
+		}
+		return 1
+	}
+	switch options.SortField {
+	case "size":
+		if comparison := compareInt64(left.Size, right.Size); comparison != 0 {
+			return comparison
+		}
+	case "modified":
+		if comparison := compareInt64(left.Modified, right.Modified); comparison != 0 {
+			return comparison
+		}
+	case "type":
+		if comparison := strings.Compare(string(left.Type), string(right.Type)); comparison != 0 {
+			return comparison
+		}
+	default:
+		if comparison := strings.Compare(strings.ToLower(left.Name), strings.ToLower(right.Name)); comparison != 0 {
+			return comparison
+		}
+	}
+	return strings.Compare(strings.ToLower(left.Name), strings.ToLower(right.Name))
 }
 
 func compareInt64(left, right int64) int {
@@ -382,6 +475,93 @@ func compareInt64(left, right int64) int {
 		return 1
 	}
 	return 0
+}
+
+type sortedRunCursor struct {
+	runIndex   int
+	entryIndex int
+	entry      contracts.FileInfo
+}
+
+type sortedRunHeap struct {
+	items   []sortedRunCursor
+	options DirStreamOptions
+}
+
+func (h sortedRunHeap) Len() int { return len(h.items) }
+
+func (h sortedRunHeap) Less(i, j int) bool {
+	comparison := comparePreparedEntries(h.items[i].entry, h.items[j].entry, h.options)
+	if strings.EqualFold(h.options.SortDirection, "desc") {
+		comparison = -comparison
+	}
+	if comparison == 0 {
+		if h.items[i].runIndex != h.items[j].runIndex {
+			return h.items[i].runIndex < h.items[j].runIndex
+		}
+		return h.items[i].entryIndex < h.items[j].entryIndex
+	}
+	return comparison < 0
+}
+
+func (h sortedRunHeap) Swap(i, j int) { h.items[i], h.items[j] = h.items[j], h.items[i] }
+
+func (h *sortedRunHeap) Push(x interface{}) {
+	h.items = append(h.items, x.(sortedRunCursor))
+}
+
+func (h *sortedRunHeap) Pop() interface{} {
+	last := len(h.items) - 1
+	item := h.items[last]
+	h.items = h.items[:last]
+	return item
+}
+
+func mergeSortedRunsWindow(runs [][]contracts.FileInfo, options DirStreamOptions, offset, limit int) []contracts.FileInfo {
+	if limit <= 0 || len(runs) == 0 {
+		return []contracts.FileInfo{}
+	}
+	queue := &sortedRunHeap{options: options}
+	for runIndex, run := range runs {
+		if len(run) == 0 {
+			continue
+		}
+		heap.Push(queue, sortedRunCursor{
+			runIndex:   runIndex,
+			entryIndex: 0,
+			entry:      run[0],
+		})
+	}
+	if queue.Len() == 0 {
+		return []contracts.FileInfo{}
+	}
+	window := make([]contracts.FileInfo, 0, limit)
+	needed := offset + limit
+	position := 0
+	for queue.Len() > 0 && position < needed {
+		cursor := heap.Pop(queue).(sortedRunCursor)
+		if position >= offset {
+			window = append(window, cursor.entry)
+		}
+		position++
+		nextIndex := cursor.entryIndex + 1
+		if nextIndex < len(runs[cursor.runIndex]) {
+			heap.Push(queue, sortedRunCursor{
+				runIndex:   cursor.runIndex,
+				entryIndex: nextIndex,
+				entry:      runs[cursor.runIndex][nextIndex],
+			})
+		}
+	}
+	return window
+}
+
+func mergeSortedRunsAll(runs [][]contracts.FileInfo, options DirStreamOptions) []contracts.FileInfo {
+	total := countRunEntries(runs)
+	if total == 0 {
+		return []contracts.FileInfo{}
+	}
+	return mergeSortedRunsWindow(runs, options, 0, total)
 }
 
 func (s *DirStreamService) scanVFSStream(

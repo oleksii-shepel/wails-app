@@ -1694,8 +1694,14 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   private projectionDirectoriesFirst = true;
   private projectionFilterText = '';
   private projectionCache: FileInfo[] = [];
+  private entryCategoryRef: FileInfo[] | null = null;
+  private entryCategoryCache = new Map<string, ReturnType<PluginManagerService['resolveFileCategory']> | null>();
   private entryLookupRef: FileInfo[] | null = null;
   private entryLookup = new Map<string, FileInfo>();
+  private treeRowsVisibleRef: FileInfo[] | null = null;
+  private treeRowsCacheVersion = -1;
+  private treeRowsStateVersion = 0;
+  private treeRowsCache: ReassemblyTreeRow[] = [];
   // Backend streams arrive already filtered and ordered. Keeping that fact
   // explicit prevents a completed large listing from being synchronously
   // projected again by Angular.
@@ -1960,10 +1966,20 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       return null;
     }
 
-    return this.pluginManager.resolveFileCategory(
+    if (this.entryCategoryRef !== this.entries) {
+      this.entryCategoryRef = this.entries;
+      this.entryCategoryCache = new Map();
+    }
+    if (this.entryCategoryCache.has(entry.path)) {
+      return this.entryCategoryCache.get(entry.path) ?? null;
+    }
+
+    const resolved = this.pluginManager.resolveFileCategory(
       entry.path,
       (entry as FileInfo & { mimeType?: string | null }).mimeType ?? null,
     );
+    this.entryCategoryCache.set(entry.path, resolved ?? null);
+    return resolved ?? null;
   }
 
   entryDisplayIcon(entry: FileInfo): string {
@@ -2315,6 +2331,14 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   get treeRows(): ReassemblyTreeRow[] {
+    const visibleEntries = this.visibleEntries;
+    if (
+      this.treeRowsVisibleRef === visibleEntries &&
+      this.treeRowsCacheVersion === this.treeRowsStateVersion
+    ) {
+      return this.treeRowsCache;
+    }
+
     const rows: ReassemblyTreeRow[] = [];
 
     const append = (entries: FileInfo[], depth: number): void => {
@@ -2335,7 +2359,10 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       }
     };
 
-    append(this.visibleEntries, 0);
+    append(visibleEntries, 0);
+    this.treeRowsVisibleRef = visibleEntries;
+    this.treeRowsCacheVersion = this.treeRowsStateVersion;
+    this.treeRowsCache = rows;
     return rows;
   }
 
@@ -2374,7 +2401,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   get visibleEntryCount(): number {
     return this.backendPresentationActive
       ? this.backendVisibleCount
-      : this.visibleEntries.length;
+      : (this.streamRenderActive ? this.visibleEntries.length : this.visibleEntries.length);
   }
 
   get totalEntryCount(): number {
@@ -3284,6 +3311,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       this.treeExpandedPaths.clear();
       this.treeChildren.clear();
       this.treeLoadingPaths.clear();
+      this.invalidateTreeRows();
     }
     this.viewMode = mode;
     this.syncActiveDirSessionState();
@@ -3322,6 +3350,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
 
     if (this.treeExpandedPaths.has(row.entry.path)) {
       this.treeExpandedPaths.delete(row.entry.path);
+      this.invalidateTreeRows();
       this.syncActiveDirSessionState();
       this.lastAction = `collapse: ${row.entry.name}`;
       this.cdr.markForCheck();
@@ -3329,6 +3358,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     }
 
     this.treeExpandedPaths.add(row.entry.path);
+    this.invalidateTreeRows();
     this.syncActiveDirSessionState();
     this.lastAction = `expand: ${row.entry.name}`;
     this.cdr.markForCheck();
@@ -3336,6 +3366,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     if (this.treeChildren.has(row.entry.path)) return;
 
     this.treeLoadingPaths.add(row.entry.path);
+    this.invalidateTreeRows();
     this.cdr.markForCheck();
 
     try {
@@ -3345,14 +3376,17 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       );
       const children = this.sortEntries([...(listing.entries ?? [])]);
       this.treeChildren.set(row.entry.path, children);
+      this.invalidateTreeRows();
     } catch (error) {
       this.treeExpandedPaths.delete(row.entry.path);
+      this.invalidateTreeRows();
       this.syncActiveDirSessionState();
       this.lastAction = `tree load failed: ${
         error instanceof Error ? error.message : String(error)
       }`;
     } finally {
       this.treeLoadingPaths.delete(row.entry.path);
+      this.invalidateTreeRows();
       this.cdr.markForCheck();
     }
   }
@@ -3381,6 +3415,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
 
     if (row.expandable && row.expanded) {
       this.treeExpandedPaths.delete(row.entry.path);
+      this.invalidateTreeRows();
       this.syncActiveDirSessionState();
       this.cdr.markForCheck();
       return;
@@ -7462,6 +7497,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     }
     this.treeChildren.clear();
     this.treeLoadingPaths.clear();
+    this.invalidateTreeRows();
 
     this.reconcileRestoredSelection();
     this.cdr.markForCheck();
@@ -7501,6 +7537,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     this.treeExpandedPaths.clear();
     this.treeChildren.clear();
     this.treeLoadingPaths.clear();
+    this.invalidateTreeRows();
 
     const expandLevel = async (entries: FileInfo[]): Promise<void> => {
       for (const entry of entries) {
@@ -8023,6 +8060,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       this.treeExpandedPaths.clear();
       this.treeChildren.clear();
       this.treeLoadingPaths.clear();
+      this.invalidateTreeRows();
     }
 
     this.entries = [];
@@ -8051,6 +8089,12 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   ): void {
     if (this.streamLoadGeneration !== this.loadGeneration) return;
     if (!this.streamRenderActive) return;
+
+    if (this.backendPresentationActive) {
+      this.lastAction = `indexing ${event.path}: ${baseEntries.length}`;
+      void this.loadBackendWindowForViewport(true);
+      return;
+    }
 
     // DirListStreamController owns this stable accumulation array. We keep the
     // same reference while it grows and explicitly invalidate projections.
@@ -8163,6 +8207,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       this.treeExpandedPaths.clear();
       this.treeChildren.clear();
       this.treeLoadingPaths.clear();
+      this.invalidateTreeRows();
     }
 
     this.entries = entries;
@@ -8239,6 +8284,13 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
 
   private invalidateProjection(): void {
     this.projectionEntriesRef = null;
+    this.entryCategoryRef = null;
+    this.invalidateTreeRows();
+  }
+
+  private invalidateTreeRows(): void {
+    this.treeRowsStateVersion += 1;
+    this.treeRowsVisibleRef = null;
   }
 
   private resetBackendWindowState(): void {
@@ -8322,6 +8374,13 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       );
       this.entries = [...(window.entries ?? [])];
       this.invalidateProjection();
+      if (this.streamRenderActive && this.streamFirstBatch && this.entries.length > 0) {
+        this.streamFirstBatch = false;
+        this.seedStreamingCursor(
+          this.streamPreviousCursor,
+          this.streamRestoreSession,
+        );
+      }
       this.cdr.markForCheck();
     })();
 

@@ -115,7 +115,21 @@ function truncateFileName(name: string, maxLength: number): string {
         </svg>
       </ng-container>
       <ng-template #normalIcon>
-        <span class="icon-emoji">{{ iconEmoji }}</span>
+        <img
+          *ngIf="variant === 'grid' && thumbnailSrc; else emojiIcon"
+          class="file-thumbnail"
+          [src]="thumbnailSrc"
+          alt=""
+          draggable="false"
+          decoding="async" />
+        <ng-template #emojiIcon>
+          <span class="icon-emoji">{{ iconEmoji }}</span>
+        </ng-template>
+        <span
+          *ngIf="variant === 'grid' && thumbnailLoading && !thumbnailSrc"
+          class="thumbnail-loading"
+          aria-hidden="true">
+        </span>
         <svg *ngIf="isSymlinkEntry" class="symlink-badge" viewBox="0 0 10 10" fill="none" aria-label="symlink">
           <path d="M2 8 C2 5 5 3 8 2"
             stroke="var(--vsc-icon-symlink,var(--vsc-info))" stroke-width="2" stroke-linecap="round"/>
@@ -369,12 +383,7 @@ function truncateFileName(name: string, maxLength: number): string {
     .icon-emoji {
       font-size: 15px;
       line-height: 1;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      width: 100%;
-      height: 100%;
-      text-align: center;
+      display: block;
     }
 
     /* ── Symlink badge ───────────────────────────────────────
@@ -546,6 +555,29 @@ function truncateFileName(name: string, maxLength: number): string {
       font-size: 32px;
     }
 
+    :host(.variant-grid) .file-thumbnail {
+      display: block;
+      width: 48px;
+      height: 48px;
+      object-fit: cover;
+      border-radius: 4px;
+      background: var(--vsc-editor-background);
+      box-shadow: 0 1px 4px var(--vsc-shadow-soft);
+      user-select: none;
+      pointer-events: none;
+    }
+
+    :host(.variant-grid) .thumbnail-loading {
+      position: absolute;
+      width: 16px;
+      height: 16px;
+      border: 2px solid color-mix(in srgb, var(--vsc-accent-blue) 20%, transparent);
+      border-top-color: var(--vsc-accent-blue);
+      border-radius: 999px;
+      animation: file-size-spin .8s linear infinite;
+      pointer-events: none;
+    }
+
     @keyframes file-size-spin {
       from { transform: rotate(0deg); }
       to { transform: rotate(360deg); }
@@ -561,6 +593,8 @@ export class FileEntryComponent implements OnChanges, OnDestroy {
   @Input() colorizeByMime = false;
   @Input() directorySizePending = false;
   @Input() showDirectorySizeSpinnerInName = false;
+  @Input() thumbnailSrc: string | null = null;
+  @Input() thumbnailLoading = false;
 
   @Output() select   = new EventEmitter<FileEntrySelectEvent>();
   @Output() navigate = new EventEmitter<FileInfo>();

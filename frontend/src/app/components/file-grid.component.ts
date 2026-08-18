@@ -25,6 +25,10 @@ import { parentPath } from './address-bar.utils';
 import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directive';
 import { FileCategoryResolverService } from '../services/file-category-resolver.service';
 import { VirtualCollection } from '../services/virtual-window';
+import {
+  ThumbnailPipelineService,
+  type ThumbnailPriority,
+} from '../services/thumbnail-pipeline.service';
 
 @Component({
   selector: 'app-file-grid',
@@ -59,6 +63,8 @@ import { VirtualCollection } from '../services/virtual-window';
               [entry]="dragPreviewEntry"
               [selected]="false"
               [colorizeByMime]="colorizeByMime"
+              [thumbnailSrc]="thumbnailFor(dragPreviewEntry.path)"
+              [thumbnailLoading]="thumbnailLoading(dragPreviewEntry.path)"
               variant="grid">
             </app-file-entry>
             <div class="grid-meta" *ngIf="!isParentEntry(dragPreviewEntry)">
@@ -105,6 +111,8 @@ import { VirtualCollection } from '../services/virtual-window';
               [cursor]="isCursor(entry)"
               [displayNameOverride]="getDisplayNameOverride(entry.path)"
               [colorizeByMime]="colorizeByMime"
+              [thumbnailSrc]="thumbnailFor(entry.path)"
+              [thumbnailLoading]="thumbnailLoading(entry.path)"
               variant="grid"
               (rename)="onRename($event)">
             </app-file-entry>
@@ -411,6 +419,7 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
     private zone: NgZone,
     private cdr: ChangeDetectorRef,
     private categoryResolver: FileCategoryResolverService,
+    private readonly thumbnails: ThumbnailPipelineService,
   ) {}
 
   @ViewChild('gridContainer') gridContainerRef?: ElementRef<HTMLElement>;
@@ -423,6 +432,7 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
   @Input() paneActive = true;
   @Input() singleClickToOpen = false;
   @Input() colorizeByMime = false;
+  @Input() thumbnailsEnabled = true;
   
   @Output() selectionChange = new EventEmitter<FileInfo[]>();
   @Output() cursorPathChange = new EventEmitter<string | null>();
@@ -462,6 +472,12 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
     prefetchGuardRatio: 0.20,
   });
   private visibleEntriesCache: FileInfo[] = [];
+  private readonly thumbnailScope = `grid-${Math.random().toString(36).slice(2)}`;
+  private thumbnailGeneration = 0;
+  private thumbnailUrls = new Map<string, string>();
+  private thumbnailLoadingPaths = new Set<string>();
+  private lastThumbnailBandKey = '';
+  private idleThumbnailHandle: number | null = null;
   private pathToEntryIndex = new Map<string, number>();
   private columnsMeasureRAF: number | null = null; // Coalesce column measurements
 
@@ -523,6 +539,14 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
     return this.visibleEntriesCache;
   }
 
+  thumbnailFor(path: string): string | null {
+    return this.thumbnailUrls.get(path) ?? null;
+  }
+
+  thumbnailLoading(path: string): boolean {
+    return this.thumbnailLoadingPaths.has(path);
+  }
+
   onRename(event: { entry: FileInfo; newName: string }): void {
     this.rename.emit(event);
   }
@@ -556,6 +580,7 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
         host.scrollTop = Math.max(0, itemTop - centerOffset);
       }
       if (this.updateVirtualWindow()) {
+        this.refreshThumbnailPriorities();
         this.cdr.markForCheck();
       }
     } else {
@@ -675,7 +700,9 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
     this.setupResizeObserver();
     this.setupScrollListener();
     this.rebuildDerivedEntries();
+    this.beginThumbnailGeneration();
     this.updateVirtualWindow(true);
+    this.refreshThumbnailPriorities(true);
   }
 
   ngOnChanges(changes: SimpleChanges): void {
@@ -684,8 +711,10 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
     if (changes['cursorPath'] && this.cursorPath !== undefined) {
       this.anchorPath = this.cursorPath;
     }
-    if (changes['entries'] || changes['colorizeByMime']) {
-      this.prewarmCollisionResolutions();
+    if (changes['entries'] || changes['colorizeByMime'] || changes['thumbnailsEnabled']) {
+      if (changes['entries']) {
+        this.beginThumbnailGeneration();
+      }
       if (changes['entries']) {
         const prevLen = changes['entries'].previousValue?.length || 0;
         const currLen = changes['entries'].currentValue?.length || 0;
@@ -695,17 +724,16 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
       }
       this.rebuildDerivedEntries();
       this.updateVirtualWindow(true);
+      this.refreshThumbnailPriorities(true);
       this.cdr.markForCheck();
     } else if (changes['pendingDirectorySizePaths'] || changes['selectedFiles'] || changes['cursorPath']) {
       this.cdr.markForCheck();
     }
   }
 
-  private prewarmCollisionResolutions(): void {
-    if (!this.colorizeByMime) {
-      return;
-    }
-    for (const entry of this.entries) {
+  private prewarmVisibleCollisionResolutions(): void {
+    if (!this.colorizeByMime) return;
+    for (const entry of this.visibleEntriesCache) {
       this.categoryResolver.ensureResolved(entry);
     }
   }
@@ -723,6 +751,10 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
       this.reflowRaf = null;
     }
     this.pendingReflowBefore = null;
+    this.cancelIdleThumbnailWork();
+    this.thumbnails.cancelScope(this.thumbnailScope);
+    this.thumbnailUrls.clear();
+    this.thumbnailLoadingPaths.clear();
   }
 
   private cleanupDragImage(): void {
@@ -833,6 +865,7 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
           }
         }
         if (shouldMark) {
+          this.refreshThumbnailPriorities();
           this.cdr.markForCheck();
         }
       });
@@ -868,7 +901,11 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
       const now = performance.now();
       const scrollDelta = Math.abs((this.gridContainerRef?.nativeElement?.scrollTop ?? 0) - this.lastScrollTop);
       this.lastScrollTime = now;
-      if (this.updateVirtualWindow()) {
+      const windowChanged = this.updateVirtualWindow();
+      // Visible-row priority can change while the retained render window stays
+      // fixed, so thumbnail scheduling follows scroll position, not DOM rebuilds.
+      this.refreshThumbnailPriorities();
+      if (windowChanged) {
         this.cdr.markForCheck();
       }
     });
@@ -883,6 +920,7 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
     this.virtualStart = 0;
     this.virtualEnd = Math.min(this.overscanRows * this.cachedVirtualColumns * 2, this.entries.length);
     this.rebuildVisibleEntries();
+    this.refreshThumbnailPriorities(true);
   }
 
   private updateVirtualWindow(forceRebuild = false): boolean {
@@ -920,8 +958,206 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
     this.virtualEnd = window.end;
     if (changed || forceRebuild) {
       this.rebuildVisibleEntries();
+      this.prewarmVisibleCollisionResolutions();
     }
     return changed || forceRebuild;
+  }
+
+  private beginThumbnailGeneration(): void {
+    this.thumbnailGeneration = this.thumbnails.beginGeneration(this.thumbnailScope);
+    this.lastThumbnailBandKey = '';
+    this.thumbnailLoadingPaths.clear();
+    this.cancelIdleThumbnailWork();
+  }
+
+  private refreshThumbnailPriorities(force = false): void {
+    if (!this.thumbnailsEnabled || !this.entries.length) {
+      this.thumbnailLoadingPaths.clear();
+      return;
+    }
+
+    const host = this.gridContainerRef?.nativeElement;
+    if (!host) return;
+
+    const columns = Math.max(1, this.cachedVirtualColumns);
+    const scrollTop = host.scrollTop;
+    const viewportHeight = Math.max(this.rowHeight, host.clientHeight);
+
+    // Visible band is row-aligned. We never schedule individual-cell geometry.
+    const firstVisibleRow = Math.max(0, Math.floor(scrollTop / this.rowHeight));
+    const visibleRows = Math.max(1, Math.ceil(viewportHeight / this.rowHeight));
+    const visibleStart = firstVisibleRow * columns;
+    const visibleEnd = Math.min(
+      this.entries.length,
+      (firstVisibleRow + visibleRows) * columns,
+    );
+
+    // The shared VirtualCollection render window is the overscan band.
+    const renderWindow = this.virtualCollection.window;
+    const bandKey = [
+      visibleStart,
+      visibleEnd,
+      renderWindow.start,
+      renderWindow.end,
+      columns,
+      this.entries.length,
+    ].join(':');
+
+    if (!force && bandKey === this.lastThumbnailBandKey) return;
+    this.lastThumbnailBandKey = bandKey;
+
+    // Rapid scrolling invalidates queued/in-flight thumbnail work from the old
+    // window. Cached decoded thumbnails remain reusable.
+    this.thumbnailGeneration = this.thumbnails.beginGeneration(this.thumbnailScope);
+    const generation = this.thumbnailGeneration;
+
+    const columnsForRetention = Math.max(1, this.cachedVirtualColumns);
+    const retentionStart = Math.max(0, renderWindow.start - 12 * columnsForRetention);
+    const retentionEnd = Math.min(this.entries.length, renderWindow.end + 12 * columnsForRetention);
+    const retainedPaths = new Set(
+      this.entries
+        .slice(retentionStart, retentionEnd)
+        .map(entry => entry.path),
+    );
+    for (const path of [...this.thumbnailUrls.keys()]) {
+      if (!retainedPaths.has(path)) this.thumbnailUrls.delete(path);
+    }
+    for (const path of [...this.thumbnailLoadingPaths]) {
+      if (!retainedPaths.has(path)) this.thumbnailLoadingPaths.delete(path);
+    }
+
+    this.scheduleThumbnailRange(
+      visibleStart,
+      visibleEnd,
+      'visible',
+      generation,
+    );
+
+    if (renderWindow.start < visibleStart) {
+      this.scheduleThumbnailRange(
+        renderWindow.start,
+        visibleStart,
+        'overscan',
+        generation,
+      );
+    }
+    if (visibleEnd < renderWindow.end) {
+      this.scheduleThumbnailRange(
+        visibleEnd,
+        renderWindow.end,
+        'overscan',
+        generation,
+      );
+    }
+
+    this.scheduleIdleThumbnailBand(renderWindow, generation);
+  }
+
+  private scheduleThumbnailRange(
+    start: number,
+    end: number,
+    priority: ThumbnailPriority,
+    generation: number,
+  ): void {
+    for (let index = Math.max(0, start); index < Math.min(end, this.entries.length); index += 1) {
+      const entry = this.entries[index];
+      if (!entry || this.isParentEntry(entry) || !this.thumbnails.canThumbnail(entry)) {
+        continue;
+      }
+
+      const cached = this.thumbnails.peek(entry, 160, 120);
+      if (cached) {
+        this.thumbnailUrls.set(entry.path, cached);
+        continue;
+      }
+
+      // A previously cached object URL may already have been LRU-evicted.
+      this.thumbnailUrls.delete(entry.path);
+      this.thumbnailLoadingPaths.add(entry.path);
+      void this.thumbnails.request(entry, {
+        scope: this.thumbnailScope,
+        generation,
+        priority,
+        width: 160,
+        height: 120,
+      }).then(url => {
+        if (
+          !this.thumbnails.isCurrent(this.thumbnailScope, generation) ||
+          generation !== this.thumbnailGeneration
+        ) {
+          return;
+        }
+
+        this.thumbnailLoadingPaths.delete(entry.path);
+        if (url) this.thumbnailUrls.set(entry.path, url);
+        this.cdr.markForCheck();
+      });
+    }
+  }
+
+  private scheduleIdleThumbnailBand(
+    renderWindow: { start: number; end: number },
+    generation: number,
+  ): void {
+    this.cancelIdleThumbnailWork();
+
+    const schedule = (callback: () => void): number => {
+      const ric = (window as Window & {
+        requestIdleCallback?: (
+          callback: IdleRequestCallback,
+          options?: IdleRequestOptions,
+        ) => number;
+      }).requestIdleCallback;
+
+      if (ric) {
+        return ric(() => callback(), { timeout: 500 });
+      }
+      return window.setTimeout(callback, 80);
+    };
+
+    this.idleThumbnailHandle = schedule(() => {
+      this.idleThumbnailHandle = null;
+      if (
+        generation !== this.thumbnailGeneration ||
+        !this.thumbnails.isCurrent(this.thumbnailScope, generation)
+      ) {
+        return;
+      }
+
+      const columns = Math.max(1, this.cachedVirtualColumns);
+      // Low-priority work is intentionally bounded to nearby rows. Scheduling
+      // all 100k entries would just churn the bounded decoded-image cache.
+      const idleRows = 12;
+      const beforeStart = Math.max(0, renderWindow.start - idleRows * columns);
+      const afterEnd = Math.min(
+        this.entries.length,
+        renderWindow.end + idleRows * columns,
+      );
+
+      this.scheduleThumbnailRange(
+        beforeStart,
+        renderWindow.start,
+        'idle',
+        generation,
+      );
+      this.scheduleThumbnailRange(
+        renderWindow.end,
+        afterEnd,
+        'idle',
+        generation,
+      );
+    });
+  }
+
+  private cancelIdleThumbnailWork(): void {
+    if (this.idleThumbnailHandle === null) return;
+
+    const cancel = (window as Window & {
+      cancelIdleCallback?: (handle: number) => void;
+    }).cancelIdleCallback;
+    if (cancel) cancel(this.idleThumbnailHandle);
+    else clearTimeout(this.idleThumbnailHandle);
+    this.idleThumbnailHandle = null;
   }
 
   private rebuildDerivedEntries(): void {

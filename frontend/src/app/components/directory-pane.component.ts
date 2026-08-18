@@ -25,7 +25,7 @@ import { ActionFeedbackService } from '../services/action-feedback.service';
 import { RecentFilesService } from '../services/recent-files.service';
 import { ResultsPanelService } from '../services/results-panel.service';
 import { SmartResultsService } from '../services/smart-results.service';
-import { VirtualCollection, calculateVirtualWindow, type VirtualWindow } from '../services/virtual-window';
+import { calculateVirtualWindow, type VirtualWindow } from '../services/virtual-window';
 import { PluginManagerService } from '../services/plugin-manager.service';
 import type { PanelColumnContribution, PanelColumnContext } from '../plugin/plugin-registry-api';
 import { PluginLifecycleCoordinatorService } from '../services/plugin-lifecycle-coordinator.service';
@@ -456,11 +456,9 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
           role="treeitem"
           [class.selected]="selectedPaths.has(row.entry.path)"
           [class.cursor]="cursorPath === row.entry.path"
-          [class.compare-only]="comparisonMarker(row.entry.path) === 'only'"
-          [class.compare-newer]="comparisonMarker(row.entry.path) === 'newer'"
-          [class.compare-older]="comparisonMarker(row.entry.path) === 'older'"
-          [class.compare-different]="comparisonMarker(row.entry.path) === 'different'"
-          [class.compare-type]="comparisonMarker(row.entry.path) === 'type'"
+          [class.compare-only]="comparisonStatus(row.entry.path)?.startsWith('only-')"
+          [class.compare-newer]="comparisonStatus(row.entry.path)?.endsWith('-newer')"
+          [class.compare-different]="isComparisonDifferent(row.entry.path)"
           [class.drop-target]="dragOverPath === row.entry.path"
           [class.drop-invalid]="dragOverPath === row.entry.path && dropIntent === 'invalid'"
           [class.drop-copy]="dragOverPath === row.entry.path && dropIntent === 'copy'"
@@ -484,12 +482,6 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
             {{ row.loading ? '…' : (row.expandable ? (row.expanded ? '▾' : '▸') : '') }}
           </span>
           <span class="icon">{{ entryIcon(row.entry) }}</span>
-          <span
-            *ngIf="comparisonMarker(row.entry.path) as marker"
-            class="comparison-marker"
-            [attr.data-marker]="marker"
-            [title]="comparisonMarkerTitle(row.entry.path)"
-            aria-hidden="true">{{ comparisonMarkerGlyph(marker) }}</span>
           <span class="name" *ngIf="renamingPath !== row.entry.path">{{ row.entry.name }}</span>
           <span
             class="rename-editor"
@@ -574,11 +566,9 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
           [attr.aria-label]="entryAriaLabel(entry)"
           [class.cursor]="entry.path === cursorPath"
           [class.selected]="selectedPaths.has(entry.path)"
-          [class.compare-only]="comparisonMarker(entry.path) === 'only'"
-          [class.compare-newer]="comparisonMarker(entry.path) === 'newer'"
-          [class.compare-older]="comparisonMarker(entry.path) === 'older'"
-          [class.compare-different]="comparisonMarker(entry.path) === 'different'"
-          [class.compare-type]="comparisonMarker(entry.path) === 'type'"
+          [class.compare-only]="comparisonStatus(entry.path)?.startsWith('only-')"
+          [class.compare-newer]="comparisonStatus(entry.path)?.endsWith('-newer')"
+          [class.compare-different]="isComparisonDifferent(entry.path)"
           (click)="selectFromPointer(entry, $event)"
           (dblclick)="openEntry(entry)"
           (contextmenu)="onEntryContextMenu(entry, $event)"
@@ -596,12 +586,6 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
           <span class="icon" aria-hidden="true" [style.color]="entryCategory(entry)?.color || null">
             {{ entryDisplayIcon(entry) }}
           </span>
-          <span
-            *ngIf="comparisonMarker(entry.path) as marker"
-            class="comparison-marker"
-            [attr.data-marker]="marker"
-            [title]="comparisonMarkerTitle(entry.path)"
-            aria-hidden="true">{{ comparisonMarkerGlyph(marker) }}</span>
 
           <span class="name" *ngIf="renamingPath !== entry.path">{{ entry.name }}</span>
           <span
@@ -718,19 +702,54 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
 
       <ng-template #viewerSurface>
         <div class="viewer-shell" *ngIf="activeViewerTab as viewerTab">
+          <div class="viewer-toolbar">
+            <span class="viewer-label">{{ viewerTab.autoFollow ? 'Preview' : 'Viewer' }}</span>
+            <span class="viewer-kind">{{ viewerTab.viewerId || 'Auto' }}</span>
+            <span class="viewer-path" [title]="viewerTab.archiveContext?.entryPath || viewerTab.targetPath">
+              {{ viewerTab.archiveContext?.entryPath || viewerTab.targetPath }}
+            </span>
+
+            <button
+              type="button"
+              *ngIf="viewerTab.sourceTabId || viewerTab.sourceDir"
+              (click)="returnToViewerSource()"
+              title="Return to source folder">
+              Folder
+            </button>
+
+            <span class="viewer-separator"></span>
+
+            <button type="button" [disabled]="!viewerSupports('showPrevious')" (click)="viewerInvoke('showPrevious')" title="Previous item (Left)">‹</button>
+            <button type="button" [disabled]="!viewerSupports('showNext')" (click)="viewerInvoke('showNext')" title="Next item (Right)">›</button>
+            <button type="button" [disabled]="!viewerSupports('zoomOut')" (click)="viewerInvoke('zoomOut')" title="Zoom out (Ctrl+-)">−</button>
+            <button type="button" [disabled]="!viewerSupports('zoomIn')" (click)="viewerInvoke('zoomIn')" title="Zoom in (Ctrl++)">+</button>
+            <button type="button" [disabled]="!viewerSupports('resetZoom')" (click)="viewerInvoke('resetZoom')" title="Fit (Ctrl+0)">Fit</button>
+            <button type="button" [disabled]="!viewerSupports('zoom100')" (click)="viewerInvoke('zoom100')" title="Actual size (Ctrl+1)">1:1</button>
+
+            <span class="viewer-separator"></span>
+
+            <button
+              type="button"
+              [disabled]="!!viewerTab.archiveContext"
+              (click)="openActiveViewerExternally()"
+              title="Open with external application">
+              External
+            </button>
+            <button
+              type="button"
+              [disabled]="viewerTab.isPinned || !viewerTab.isClosable"
+              (click)="closeActiveTab()"
+              title="Close viewer (Ctrl+W)">
+              ×
+            </button>
+          </div>
+
           <app-viewer-host-surface
             #viewerHost
             [targetPath]="viewerTab.targetPath"
             [fileList]="viewerTab.fileList"
             [archiveContext]="viewerTab.archiveContext"
-            [viewerId]="viewerTab.viewerId"
-            [autoFollow]="viewerTab.autoFollow"
-            [sourceAvailable]="!!viewerTab.sourceTabId || !!viewerTab.sourceDir"
-            [isPinned]="viewerTab.isPinned"
-            [isClosable]="viewerTab.isClosable"
-            (returnSource)="returnToViewerSource()"
-            (external)="openActiveViewerExternally()"
-            (close)="closeActiveTab()">
+            [viewerId]="viewerTab.viewerId">
           </app-viewer-host-surface>
         </div>
       </ng-template>
@@ -1047,36 +1066,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       scroll-behavior: auto;
       touch-action: pan-y;}
 
-        .comparison-marker {
-      flex: 0 0 auto;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 14px;
-      height: 14px;
-      border-radius: 999px;
-      font-size: 10px;
-      font-weight: 700;
-      line-height: 1;
-      color: var(--vsc-foreground);
-      background: color-mix(in srgb, var(--vsc-foreground) 12%, transparent);
-    }
-
-    .comparison-marker[data-marker='only'] {
-      color: var(--vsc-list-warningForeground, var(--vsc-warning));
-    }
-    .comparison-marker[data-marker='newer'] {
-      color: var(--vsc-charts-green, var(--vsc-success));
-    }
-    .comparison-marker[data-marker='older'] {
-      color: var(--vsc-charts-orange, var(--vsc-warning));
-    }
-    .comparison-marker[data-marker='different'],
-    .comparison-marker[data-marker='type'] {
-      color: var(--vsc-charts-red, var(--vsc-error));
-    }
-
-.entry.compare-only,
+    .entry.compare-only,
     .tree-row.compare-only {
       background: color-mix(
         in srgb,
@@ -1292,24 +1282,6 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     }
 
 
-    .entry.compare-older,
-    .tree-row.compare-older {
-      box-shadow: inset 2px 0 0 color-mix(
-        in srgb,
-        var(--vsc-charts-orange, var(--vsc-warning)) 72%,
-        transparent
-      );
-    }
-
-    .entry.compare-type,
-    .tree-row.compare-type {
-      box-shadow: inset 2px 0 0 color-mix(
-        in srgb,
-        var(--vsc-charts-red, var(--vsc-error)) 82%,
-        transparent
-      );
-    }
-
     .entry.drop-target {
       outline: 1px solid var(--vsc-accent-blue, var(--vsc-accent-blue));
       outline-offset: -1px;
@@ -1363,7 +1335,6 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     }
 
     .icon {
-      width: 20px;
       text-align: center;
     }
 
@@ -1486,6 +1457,64 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       min-width: 0;
       overflow: hidden;
       background: var(--vsc-editor-background, var(--vsc-editor-background));
+    }
+
+    .viewer-toolbar {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) 28px;
+      align-items: center;
+      gap: 8px;
+      min-height: 32px;
+      padding: 0 8px;
+      border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
+      background: var(--vsc-tabbar-background, var(--vsc-panel-background));
+      font-size: 11px;
+    }
+
+    .viewer-label {
+      color: var(--vsc-accent-blue, var(--vsc-focus-ring));
+      font-weight: 600;
+    }
+
+    .viewer-kind {
+      flex: 0 0 auto;
+      padding: 1px 5px;
+      border: 1px solid var(--vsc-border, var(--vsc-border));
+      border-radius: 3px;
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
+      font-size: 9px;
+      text-transform: uppercase;
+    }
+
+    .viewer-separator {
+      width: 1px;
+      height: 18px;
+      background: var(--vsc-border, var(--vsc-border));
+      flex: 0 0 auto;
+    }
+
+    .viewer-path {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
+      font-family: var(--vsc-font-family-mono, ui-monospace, monospace);
+    }
+
+    .viewer-toolbar button {
+      width: 24px;
+      height: 24px;
+      border: 0;
+      border-radius: 3px;
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+      font-size: 17px;
+    }
+
+    .viewer-toolbar button:hover {
+      background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
     }
 
     app-viewer-host-surface {
@@ -1677,7 +1706,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   // projected again by Angular.
   private backendPresentationActive = false;
   private backendSessionId: string | null = null;
-  private backendDisplayPath: string | null = null;
   private backendVisibleCount = 0;
   private backendSourceCount = 0;
   private backendWindowOffset = 0;
@@ -1693,16 +1721,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   private virtualViewportWidth = 800;
 
   private readonly virtualThreshold = 300;
-  private readonly virtualCollection = new VirtualCollection<FileInfo, string>({
-    identity: entry => entry.path,
-    itemExtent: 44,
-    threshold: 300,
-    overscanRows: 48,
-    guardRows: 24,
-    minimumPrefetchItems: 1024,
-    prefetchMultiplier: 4,
-    prefetchGuardRatio: 0.20,
-  });
   private readonly listRowExtent = 30;
   private readonly gridRowExtent = 109;
   private readonly treeRowExtent = 31;
@@ -1872,59 +1890,12 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     return this.comparisonStatuses.get(path) ?? null;
   }
 
-  comparisonMarker(
-    path: string,
-  ): 'only' | 'newer' | 'older' | 'different' | 'type' | null {
-    const status = this.comparisonStatus(path);
-    if (!status || status === 'same') return null;
-
-    switch (status) {
-      case 'only-left':
-        return this.paneId === 'left' ? 'only' : null;
-      case 'only-right':
-        return this.paneId === 'right' ? 'only' : null;
-      case 'left-newer':
-        return this.paneId === 'left' ? 'newer' : 'older';
-      case 'right-newer':
-        return this.paneId === 'right' ? 'newer' : 'older';
-      case 'type-different':
-        return 'type';
-      case 'size-different':
-      case 'hash-different':
-      case 'content-different':
-        return 'different';
-      default:
-        return null;
-    }
-  }
-
-  comparisonMarkerGlyph(
-    marker: 'only' | 'newer' | 'older' | 'different' | 'type',
-  ): string {
-    switch (marker) {
-      case 'only': return '+';
-      case 'newer': return '↑';
-      case 'older': return '↓';
-      case 'type': return '↯';
-      default: return '≠';
-    }
-  }
-
-  comparisonMarkerTitle(path: string): string {
-    const marker = this.comparisonMarker(path);
-    switch (marker) {
-      case 'only': return 'Exists only in this pane';
-      case 'newer': return 'Newer than counterpart';
-      case 'older': return 'Older than counterpart';
-      case 'type': return 'Type differs from counterpart';
-      case 'different': return 'Content or metadata differs';
-      default: return '';
-    }
-  }
-
   isComparisonDifferent(path: string): boolean {
-    const marker = this.comparisonMarker(path);
-    return marker === 'different' || marker === 'type';
+    const status = this.comparisonStatus(path);
+    return status === 'size-different' ||
+      status === 'hash-different' ||
+      status === 'content-different' ||
+      status === 'type-different';
   }
 
   selectComparisonItem(path: string): boolean {
@@ -2491,51 +2462,31 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
 
   get listVirtualWindow(): VirtualWindow {
     const grid = this.viewMode === 'grid';
-    const columns = grid ? this.estimatedGridColumns() : 1;
-    const itemExtent = grid ? this.gridRowExtent : this.listRowExtent;
-    const logicalCount = this.visibleEntryCount;
+    const columns = grid
+      ? this.estimatedGridColumns()
+      : 1;
 
-    this.virtualCollection.configure({
-      itemExtent,
-      columns,
-      threshold: this.virtualThreshold,
-      overscanRows: grid ? 8 : 48,
-      guardRows: grid ? 4 : 24,
-      minimumPrefetchItems: grid ? 768 : 1024,
-      prefetchMultiplier: 4,
-      prefetchGuardRatio: 0.20,
-    });
-    this.virtualCollection.setLogicalCount(logicalCount);
-
-    if (this.backendPresentationActive) {
-      this.virtualCollection.populate(
-        this.backendWindowOffset,
-        this.entries,
-        logicalCount,
-      );
-    } else {
-      this.virtualCollection.populate(0, this.visibleEntries, logicalCount);
-    }
-
-    this.virtualCollection.updateViewport({
+    return calculateVirtualWindow({
+      itemCount: this.visibleEntryCount,
       scrollTop: this.virtualScrollTop,
       viewportHeight: this.virtualViewportHeight,
+      itemExtent: grid ? this.gridRowExtent : this.listRowExtent,
       columns,
+      overscanRows: grid ? 8 : 48,
+      threshold: this.virtualThreshold,
     });
-
-    return this.virtualCollection.window;
   }
 
   get renderedEntries(): FileInfo[] {
     const window = this.listVirtualWindow;
     if (this.backendPresentationActive) {
       this.queueBackendWindow(window.start, window.end);
-      this.virtualCollection.populate(
-        this.backendWindowOffset,
-        this.entries,
-        this.visibleEntryCount,
-      );
-      return [...this.virtualCollection.renderedItems(window)];
+      const start = Math.max(0, window.start - this.backendWindowOffset);
+      const end = Math.max(start, Math.min(
+        this.entries.length,
+        window.end - this.backendWindowOffset,
+      ));
+      return this.entries.slice(start, end);
     }
     return window.enabled
       ? this.visibleEntries.slice(window.start, window.end)
@@ -7923,7 +7874,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       }
 
       if (streamMode === 'results') {
-        this.backendPresentationActive = true;
+        this.backendPresentationActive = false;
         return await this.loadResultsStream(
           requestedPath,
           generation,
@@ -8040,61 +7991,43 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       options,
     );
 
-    const searchAlias = this.panelSources.resultsPanelSearchAlias(requestedPath);
-    if (searchAlias) {
-      // Query-backed saved collections regenerate through the same Go directory
-      // stream used by search:// tabs. The visible pane path remains results://.
-      this.backendDisplayPath = requestedPath;
-      const estimated = this.panelSources.resultsPanelCount(requestedPath);
-      this.backendVisibleCount = Math.max(0, estimated);
-      this.backendSourceCount = this.backendVisibleCount;
+    const abort = new AbortController();
+    this.resultStreamAbort = abort;
+    const accumulated: FileInfo[] = [];
 
-      const streamId = await this.dirStream.start(
-        searchAlias,
-        this.showHidden,
-        {
-          sortField: this.sortField,
-          sortDirection: this.sortDirection,
-          directoriesFirst: this.directoriesFirst,
-          filterText: this.filterText,
-        },
-      );
-      this.backendSessionId = streamId;
-      await this.dirStream.waitFor(streamId);
-      if (generation !== this.loadGeneration) return false;
+    await this.panelSources.streamResultsPanel(requestedPath, {
+      batchSize: 512,
+      signal: abort.signal,
+      onBatch: batch => {
+        if (
+          abort.signal.aborted ||
+          generation !== this.loadGeneration
+        ) return;
 
-      await this.loadBackendWindowForViewport(true);
-      if (generation !== this.loadGeneration) return false;
+        accumulated.push(...batch);
+        this.entries = accumulated;
+        this.invalidateProjection();
 
-      this.applyLoadedDirectory(
-        requestedPath,
-        [...this.entries],
-        generation,
-        previousCursor,
-        options,
-        true,
-      );
-      return true;
-    }
+        if (this.streamFirstBatch) {
+          this.streamFirstBatch = false;
+          this.seedStreamingCursor(previousCursor, options.restoreSession === true);
+        }
 
-    // Static/saved/plugin/duplicate collections stay in the results service and
-    // are read through large virtual windows. No accumulated frontend array.
-    this.backendDisplayPath = requestedPath;
-    this.backendSessionId = `results:${requestedPath}`;
-    this.backendVisibleCount = this.panelSources.resultsPanelCount(requestedPath);
-    this.backendSourceCount = this.backendVisibleCount;
+        this.cdr.markForCheck();
+      },
+    });
 
-    await this.loadBackendWindowForViewport(true);
     if (generation !== this.loadGeneration) return false;
 
-    this.applyLoadedDirectory(
+    this.resultStreamAbort = null;
+    this.finishStreamingDirectory(
       requestedPath,
-      [...this.entries],
+      accumulated,
       generation,
       previousCursor,
       options,
-      true,
     );
+
     return true;
   }
 
@@ -8145,7 +8078,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     if (this.streamLoadGeneration !== this.loadGeneration) return;
     if (!this.streamRenderActive) return;
 
-    if (!this.backendDisplayPath && event.path && event.path !== this.path) {
+    if (event.path && event.path !== this.path) {
       this.path = event.path;
     }
 
@@ -8393,7 +8326,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       this.backendProgressRefreshTimer = null;
     }
     this.backendSessionId = null;
-    this.backendDisplayPath = null;
     this.backendVisibleCount = 0;
     this.backendSourceCount = 0;
     this.backendWindowOffset = 0;
@@ -8428,26 +8360,14 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   private backendWindowRangeFor(start: number, end: number): { offset: number; limit: number } {
-    // listVirtualWindow configures the shared collection for the current mode.
-    // Force the requested range into the engine's render snapshot before asking
-    // it for the corresponding backend prefetch window.
-    const current = this.virtualCollection.window;
-    if (current.start !== start || current.end !== end) {
-      const itemExtent = this.viewMode === 'grid' ? this.gridRowExtent : this.listRowExtent;
-      const columns = this.viewMode === 'grid' ? this.estimatedGridColumns() : 1;
-      this.virtualCollection.configure({
-        itemExtent,
-        columns,
-        minimumPrefetchItems: this.viewMode === 'grid' ? 768 : 1024,
-        prefetchMultiplier: 4,
-        prefetchGuardRatio: 0.20,
-      });
-    }
-    const prefetch = this.virtualCollection.prefetch();
-    return {
-      offset: prefetch.offset,
-      limit: Math.max(1, prefetch.limit),
-    };
+    const visibleSpan = Math.max(1, end - start);
+    const minimumLimit = this.viewMode === 'grid' ? 768 : 1024;
+    const limit = Math.max(minimumLimit, visibleSpan * 4);
+    const offset = Math.max(
+      0,
+      start - Math.floor((limit - visibleSpan) / 2),
+    );
+    return { offset, limit };
   }
 
   private async loadBackendWindowForViewport(force = false): Promise<void> {
@@ -8460,50 +8380,33 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       end: this.listVirtualWindow.end,
     };
     const range = this.backendWindowRangeFor(target.start, target.end);
-    this.virtualCollection.populate(
-      this.backendWindowOffset,
-      this.entries,
-      this.visibleEntryCount,
-    );
-    if (!force && this.virtualCollection.isRenderCoveredByLoadedGuard()) {
-      return;
+    const currentEnd = this.backendWindowOffset + this.entries.length;
+    if (!force && this.entries.length > 0) {
+      const guard = Math.max(64, Math.floor(this.entries.length * 0.20));
+      const guardedStart = this.backendWindowOffset + guard;
+      const guardedEnd = currentEnd - guard;
+
+      if (
+        target.start >= guardedStart &&
+        target.end <= guardedEnd
+      ) {
+        return;
+      }
     }
 
     const token = ++this.backendWindowRequestToken;
     this.backendWindowFetchPromise = (async () => {
-      const window = streamId.startsWith('results:')
-        ? {
-            ...this.panelSources.readResultsPanelWindow(
-              this.backendDisplayPath ?? this.path,
-              range.offset,
-              range.limit,
-              {
-                sort: this.sortField === 'name'
-                  ? 'name'
-                  : this.sortField === 'type'
-                    ? 'type'
-                    : 'path',
-                filterText: this.filterText,
-              },
-            ),
-            pipelineTiming: {
-              bridgeMs: 0,
-              backendWindowMs: 0,
-            },
-          }
-        : await this.dirStream.readWindow(
-            streamId,
-            range.offset,
-            range.limit,
-          );
+      const window = await this.dirStream.readWindow(
+        streamId,
+        range.offset,
+        range.limit,
+      );
       if (token !== this.backendWindowRequestToken) {
         return;
       }
       this.backendWindowOffset = window.offset;
       this.backendWindowLimit = window.limit;
-      this.backendVisibleCount = streamId.startsWith('results:')
-        ? Math.max(0, window.totalCount ?? 0)
-        : Math.max(this.backendVisibleCount, Math.max(0, window.totalCount ?? 0));
+      this.backendVisibleCount = Math.max(0, window.totalCount ?? 0);
       this.backendSourceCount = Math.max(
         this.backendVisibleCount,
         window.sourceCount ?? this.backendVisibleCount,

@@ -56,9 +56,12 @@ describe('Phase 80 Interaction Polish', () => {
     expect(menu).toContain('startsWith(this.typeahead)');
   });
 
-  it('does not force a context-menu vertical scrollbar', () => {
-    expect(menu).toContain('overflow: visible');
-    expect(menu).toContain('columns: 230px auto');
+  it('keeps context menus in one bounded column', () => {
+    expect(menu).toContain('overflow-y: auto');
+    expect(menu).toContain('max-height: calc(100vh - 16px)');
+    expect(menu).toContain('overscroll-behavior: contain');
+    expect(menu).not.toContain('columns: 230px auto');
+    expect(menu).not.toContain('column-fill: auto');
   });
 
   it('retains viewer content while a new viewer resolves', () => {

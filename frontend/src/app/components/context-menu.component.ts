@@ -46,14 +46,23 @@ export interface ContextMenuState {
         aria-label="Context menu"
         [style.left.px]="menuLeft"
         [style.top.px]="menuTop"
+        [style.width.px]="menuWidth"
+        [style.height.px]="menuHeight"
+        [style.columnCount]="columnCount"
         (keydown)="onMenuKeyDown($event)"
         (mousedown)="$event.stopPropagation()"
         (contextmenu)="$event.preventDefault(); $event.stopPropagation()">
 
-        <div class="title" *ngIf="state.title">{{ state.title }}</div>
+        <div class="title" *ngIf="state.title" [title]="state.title">
+          {{ state.title }}
+        </div>
 
         <ng-container *ngFor="let item of state.items">
-          <div *ngIf="item.separator" class="separator" role="separator"></div>
+          <div
+            *ngIf="item.separator"
+            class="separator"
+            role="separator">
+          </div>
 
           <button
             *ngIf="!item.separator"
@@ -73,7 +82,7 @@ export interface ContextMenuState {
     :host {
       position: fixed;
       inset: 0;
-      z-index: 9000;
+      z-index: 20000;
       pointer-events: none;
     }
 
@@ -86,14 +95,16 @@ export interface ContextMenuState {
     .menu {
       position: fixed;
       box-sizing: border-box;
-      width: max-content;
-      min-width: min(220px, calc(100vw - 16px));
+
+      min-width: min(230px, calc(100vw - 16px));
       max-width: calc(100vw - 16px);
       max-height: calc(100vh - 16px);
-      overflow: visible;
-      columns: 230px auto;
-      column-fill: auto;
+
+      column-width: 230px;
       column-gap: 4px;
+      column-fill: auto;
+
+      overflow: hidden;
       padding: 4px;
       border: 1px solid var(--vsc-border, var(--vsc-border));
       border-radius: 6px;
@@ -143,6 +154,7 @@ export interface ContextMenuState {
     }
 
     .label {
+      min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -151,6 +163,7 @@ export interface ContextMenuState {
     .shortcut {
       color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
       font-size: 10px;
+      white-space: nowrap;
     }
 
     .separator {
@@ -169,8 +182,20 @@ export class ContextMenuComponent implements OnChanges {
 
   menuLeft = 8;
   menuTop = 8;
+  menuWidth = 230;
+  menuHeight = 0;
+  columnCount = 1;
+
   private typeahead = '';
   private typeaheadTimer: ReturnType<typeof setTimeout> | null = null;
+
+  private readonly viewportMargin = 8;
+  private readonly columnWidth = 230;
+  private readonly columnGap = 4;
+  private readonly itemHeight = 36;
+  private readonly separatorHeight = 9;
+  private readonly titleHeight = 28;
+  private readonly menuPadding = 8;
 
   constructor(private readonly cdr: ChangeDetectorRef) {}
 
@@ -181,8 +206,9 @@ export class ContextMenuComponent implements OnChanges {
 
     if (!this.state) return;
 
-    this.menuLeft = Math.max(8, this.state.x);
-    this.menuTop = Math.max(8, this.state.y);
+    this.menuLeft = Math.max(this.viewportMargin, this.state.x);
+    this.menuTop = Math.max(this.viewportMargin, this.state.y);
+    this.layoutMenu();
     this.cdr.markForCheck();
 
     queueMicrotask(() => {
@@ -260,6 +286,70 @@ export class ContextMenuComponent implements OnChanges {
     }
   }
 
+  private layoutMenu(): void {
+    const state = this.state;
+    if (!state || typeof window === 'undefined') return;
+
+    const commandCount = state.items.reduce(
+      (count, item) => count + (item.separator ? 0 : 1),
+      0,
+    );
+    const separatorCount = state.items.length - commandCount;
+
+    const availableHeight = Math.max(
+      120,
+      window.innerHeight - this.viewportMargin * 2,
+    );
+    const availableWidth = Math.max(
+      this.columnWidth,
+      window.innerWidth - this.viewportMargin * 2,
+    );
+
+    const fixedHeight =
+      this.menuPadding +
+      (state.title ? this.titleHeight : 0);
+
+    const contentHeight =
+      commandCount * this.itemHeight +
+      separatorCount * this.separatorHeight;
+
+    const usableColumnHeight = Math.max(
+      this.itemHeight,
+      availableHeight - fixedHeight,
+    );
+
+    const neededColumns = Math.max(
+      1,
+      Math.ceil(contentHeight / usableColumnHeight),
+    );
+
+    const maxColumns = Math.max(
+      1,
+      Math.floor(
+        (availableWidth + this.columnGap) /
+        (this.columnWidth + this.columnGap),
+      ),
+    );
+
+    this.columnCount = Math.min(neededColumns, maxColumns);
+
+    const estimatedColumnContentHeight = Math.ceil(
+      contentHeight / this.columnCount,
+    );
+
+    this.menuHeight = Math.min(
+      availableHeight,
+      fixedHeight + estimatedColumnContentHeight,
+    );
+
+    this.menuWidth = Math.min(
+      availableWidth,
+      this.columnCount * this.columnWidth +
+        (this.columnCount - 1) * this.columnGap +
+        this.menuPadding,
+    );
+  }
+
   private items(): HTMLButtonElement[] {
     return Array.from(
       this.menu?.nativeElement.querySelectorAll<HTMLButtonElement>(
@@ -288,10 +378,17 @@ export class ContextMenuComponent implements OnChanges {
     const state = this.state;
     if (!menu || !state || typeof window === 'undefined') return;
 
-    const margin = 8;
+    const margin = this.viewportMargin;
     const rect = menu.getBoundingClientRect();
-    const maxLeft = Math.max(margin, window.innerWidth - rect.width - margin);
-    const maxTop = Math.max(margin, window.innerHeight - rect.height - margin);
+
+    const maxLeft = Math.max(
+      margin,
+      window.innerWidth - rect.width - margin,
+    );
+    const maxTop = Math.max(
+      margin,
+      window.innerHeight - rect.height - margin,
+    );
 
     this.menuLeft = Math.min(Math.max(margin, state.x), maxLeft);
     this.menuTop = Math.min(Math.max(margin, state.y), maxTop);

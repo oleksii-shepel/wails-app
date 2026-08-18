@@ -358,7 +358,6 @@ function truncateFileName(name: string, maxLength: number): string {
     .file-icon {
       flex-shrink: 0;
       position: relative;
-      width: 20px;
       height: 20px;
       display: inline-flex;
       align-items: center;

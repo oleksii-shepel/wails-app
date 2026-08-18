@@ -33,6 +33,7 @@ import {
   PaneComparisonService,
   type PaneComparisonResult,
   type PaneComparisonPolicy,
+  type PaneComparisonStatus,
 } from '../services/pane-comparison.service';
 import { PaneRecursiveComparisonService } from '../services/pane-recursive-comparison.service';
 import { SelectionBasketService } from '../services/selection-basket.service';
@@ -382,6 +383,9 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   { id:'reassembly.files.openWithExternal.ctrlShiftO', commandId:COMMAND.openWithExternal, contextId:CONTEXT_ID, source:'default', description:'Open with external application', category:'File Operations', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'o', modifiers:['ctrl','shift']}]}}},
 ];
 
+const EMPTY_COMPARISON_STATUSES =
+  new Map<string, PaneComparisonStatus>() as ReadonlyMap<string, PaneComparisonStatus>;
+
 @Component({
   selector: 'app-dual-pane',
   standalone: true,
@@ -494,6 +498,15 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           <button
             type="button"
             class="mode-toggle"
+            [class.active]="comparisonVisible"
+            [attr.aria-pressed]="comparisonVisible"
+            title="Compare panes"
+            (click)="togglePaneComparison()">
+            Compare
+          </button>
+          <button
+            type="button"
+            class="mode-toggle"
             [class.active]="mirrorPresentation"
             [attr.aria-pressed]="mirrorPresentation"
             title="Mirror view/sort state · Ctrl+Alt+M"
@@ -588,6 +601,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           [showHidden]="showHidden"
           [currentPathPinned]="isPanePathPinned(leftPane)"
           [pluginToolbarActions]="pluginToolbarActionsFor(leftPane)"
+          [comparisonStatuses]="leftComparisonStatuses"
           (activateRequested)="activate('left')"
           (remoteRecoveryRequested)="openRemoteConnections()"
           (togglePinRequested)="togglePanePin(leftPane)"
@@ -629,6 +643,7 @@ const BINDINGS: readonly InputBindingDefinition[] = [
           [showHidden]="showHidden"
           [currentPathPinned]="isPanePathPinned(rightPane)"
           [pluginToolbarActions]="pluginToolbarActionsFor(rightPane)"
+          [comparisonStatuses]="rightComparisonStatuses"
           (activateRequested)="activate('right')"
           (remoteRecoveryRequested)="openRemoteConnections()"
           (togglePinRequested)="togglePanePin(rightPane)"
@@ -1009,6 +1024,17 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   recursiveComparisonError = '';
   recursiveComparisonResult: PaneComparisonResult | null = null;
   recursiveComparisonRoots: { left: string; right: string } | null = null;
+  private localComparisonResult: PaneComparisonResult | null = null;
+  private localComparisonLeftEntries: readonly FileInfo[] | null = null;
+  private localComparisonRightEntries: readonly FileInfo[] | null = null;
+  private localComparisonPolicy: PaneComparisonPolicy | null = null;
+  private comparisonStatusMapsCache:
+    | {
+        result: PaneComparisonResult;
+        left: ReadonlyMap<string, PaneComparisonStatus>;
+        right: ReadonlyMap<string, PaneComparisonStatus>;
+      }
+    | null = null;
 
   lastTransfer = 'none';
   lastDrop = 'none';
@@ -2174,12 +2200,21 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   private invalidatePaneComparison(reason = 'comparison stale'): void {
     this.differenceCursor = -1;
     this.comparisonSignature = '';
+    this.invalidateLocalComparisonCache();
     this.linkStatus = reason;
     this.cdr.markForCheck();
   }
 
+  private invalidateLocalComparisonCache(): void {
+    this.localComparisonResult = null;
+    this.localComparisonLeftEntries = null;
+    this.localComparisonRightEntries = null;
+    this.localComparisonPolicy = null;
+    this.comparisonStatusMapsCache = null;
+  }
+
   private comparisonIsCurrent(): boolean {
-    if (!this.paneComparisonResult) return false;
+    if (!this.comparisonVisible || !this.canComparePanes()) return false;
     if (!this.comparisonSignature) return false;
     return this.comparisonSignature === this.currentPanePairSignature();
   }
@@ -3720,16 +3755,74 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       return this.recursiveComparisonResult!;
     }
 
-    return this.paneComparison.compare(
-      this.leftPane?.entries ?? [],
-      this.rightPane?.entries ?? [],
-      { policy: this.comparisonPolicy },
-    );
+    const leftEntries = this.leftPane?.entries ?? [];
+    const rightEntries = this.rightPane?.entries ?? [];
+
+    if (
+      !this.localComparisonResult ||
+      this.localComparisonLeftEntries !== leftEntries ||
+      this.localComparisonRightEntries !== rightEntries ||
+      this.localComparisonPolicy !== this.comparisonPolicy
+    ) {
+      this.localComparisonResult = this.paneComparison.compare(
+        leftEntries,
+        rightEntries,
+        { policy: this.comparisonPolicy },
+      );
+      this.localComparisonLeftEntries = leftEntries;
+      this.localComparisonRightEntries = rightEntries;
+      this.localComparisonPolicy = this.comparisonPolicy;
+      this.comparisonStatusMapsCache = null;
+
+      // Compare mode is live for the current directory populations. When either
+      // pane publishes a new population, the cached comparison advances with it
+      // and difference navigation remains tied to the same snapshot.
+      if (this.comparisonVisible) {
+        this.comparisonSignature = this.currentPanePairSignature();
+        this.differenceCursor = -1;
+      }
+    }
+
+    return this.localComparisonResult;
+  }
+
+  get leftComparisonStatuses(): ReadonlyMap<string, PaneComparisonStatus> {
+    if (!this.comparisonVisible || !this.canComparePanes()) {
+      return EMPTY_COMPARISON_STATUSES;
+    }
+    return this.comparisonStatusMaps().left;
+  }
+
+  get rightComparisonStatuses(): ReadonlyMap<string, PaneComparisonStatus> {
+    if (!this.comparisonVisible || !this.canComparePanes()) {
+      return EMPTY_COMPARISON_STATUSES;
+    }
+    return this.comparisonStatusMaps().right;
+  }
+
+  private comparisonStatusMaps(): {
+    readonly left: ReadonlyMap<string, PaneComparisonStatus>;
+    readonly right: ReadonlyMap<string, PaneComparisonStatus>;
+  } {
+    const result = this.paneComparisonResult;
+    const cached = this.comparisonStatusMapsCache;
+    if (cached?.result === result) {
+      return cached;
+    }
+
+    const maps = this.paneComparison.statusMaps(result);
+    this.comparisonStatusMapsCache = {
+      result,
+      left: maps.left,
+      right: maps.right,
+    };
+    return this.comparisonStatusMapsCache;
   }
 
   async setComparisonPolicy(policy: PaneComparisonPolicy): Promise<void> {
     this.comparisonPolicy = policy;
     this.verifiedComparisonResult = null;
+    this.invalidateLocalComparisonCache();
     this.syncReviewVisible = false;
 
     if (this.comparisonRecursive) {
@@ -3763,6 +3856,8 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     } else {
       this.verifiedComparisonResult = base;
     }
+    this.markComparisonCurrent();
+    this.comparisonStatusMapsCache = null;
     this.cdr.markForCheck();
   }
 
@@ -3781,6 +3876,9 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     }
 
     this.comparisonVisible = true;
+    this.invalidateLocalComparisonCache();
+    void this.paneComparisonResult;
+    this.markComparisonCurrent();
     this.cdr.markForCheck();
   }
 
@@ -3791,6 +3889,7 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     this.recursiveComparisonResult = null;
     this.verifiedComparisonResult = null;
     this.recursiveComparisonError = '';
+    this.comparisonStatusMapsCache = null;
     this.cdr.markForCheck();
   }
 

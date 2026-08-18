@@ -456,9 +456,11 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
           role="treeitem"
           [class.selected]="selectedPaths.has(row.entry.path)"
           [class.cursor]="cursorPath === row.entry.path"
-          [class.compare-only]="comparisonStatus(row.entry.path)?.startsWith('only-')"
-          [class.compare-newer]="comparisonStatus(row.entry.path)?.endsWith('-newer')"
-          [class.compare-different]="isComparisonDifferent(row.entry.path)"
+          [class.compare-only]="comparisonMarker(row.entry.path) === 'only'"
+          [class.compare-newer]="comparisonMarker(row.entry.path) === 'newer'"
+          [class.compare-older]="comparisonMarker(row.entry.path) === 'older'"
+          [class.compare-different]="comparisonMarker(row.entry.path) === 'different'"
+          [class.compare-type]="comparisonMarker(row.entry.path) === 'type'"
           [class.drop-target]="dragOverPath === row.entry.path"
           [class.drop-invalid]="dragOverPath === row.entry.path && dropIntent === 'invalid'"
           [class.drop-copy]="dragOverPath === row.entry.path && dropIntent === 'copy'"
@@ -482,6 +484,12 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
             {{ row.loading ? '…' : (row.expandable ? (row.expanded ? '▾' : '▸') : '') }}
           </span>
           <span class="icon">{{ entryIcon(row.entry) }}</span>
+          <span
+            *ngIf="comparisonMarker(row.entry.path) as marker"
+            class="comparison-marker"
+            [attr.data-marker]="marker"
+            [title]="comparisonMarkerTitle(row.entry.path)"
+            aria-hidden="true">{{ comparisonMarkerGlyph(marker) }}</span>
           <span class="name" *ngIf="renamingPath !== row.entry.path">{{ row.entry.name }}</span>
           <span
             class="rename-editor"
@@ -566,9 +574,11 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
           [attr.aria-label]="entryAriaLabel(entry)"
           [class.cursor]="entry.path === cursorPath"
           [class.selected]="selectedPaths.has(entry.path)"
-          [class.compare-only]="comparisonStatus(entry.path)?.startsWith('only-')"
-          [class.compare-newer]="comparisonStatus(entry.path)?.endsWith('-newer')"
-          [class.compare-different]="isComparisonDifferent(entry.path)"
+          [class.compare-only]="comparisonMarker(entry.path) === 'only'"
+          [class.compare-newer]="comparisonMarker(entry.path) === 'newer'"
+          [class.compare-older]="comparisonMarker(entry.path) === 'older'"
+          [class.compare-different]="comparisonMarker(entry.path) === 'different'"
+          [class.compare-type]="comparisonMarker(entry.path) === 'type'"
           (click)="selectFromPointer(entry, $event)"
           (dblclick)="openEntry(entry)"
           (contextmenu)="onEntryContextMenu(entry, $event)"
@@ -586,6 +596,12 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
           <span class="icon" aria-hidden="true" [style.color]="entryCategory(entry)?.color || null">
             {{ entryDisplayIcon(entry) }}
           </span>
+          <span
+            *ngIf="comparisonMarker(entry.path) as marker"
+            class="comparison-marker"
+            [attr.data-marker]="marker"
+            [title]="comparisonMarkerTitle(entry.path)"
+            aria-hidden="true">{{ comparisonMarkerGlyph(marker) }}</span>
 
           <span class="name" *ngIf="renamingPath !== entry.path">{{ entry.name }}</span>
           <span
@@ -702,54 +718,19 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
 
       <ng-template #viewerSurface>
         <div class="viewer-shell" *ngIf="activeViewerTab as viewerTab">
-          <div class="viewer-toolbar">
-            <span class="viewer-label">{{ viewerTab.autoFollow ? 'Preview' : 'Viewer' }}</span>
-            <span class="viewer-kind">{{ viewerTab.viewerId || 'Auto' }}</span>
-            <span class="viewer-path" [title]="viewerTab.archiveContext?.entryPath || viewerTab.targetPath">
-              {{ viewerTab.archiveContext?.entryPath || viewerTab.targetPath }}
-            </span>
-
-            <button
-              type="button"
-              *ngIf="viewerTab.sourceTabId || viewerTab.sourceDir"
-              (click)="returnToViewerSource()"
-              title="Return to source folder">
-              Folder
-            </button>
-
-            <span class="viewer-separator"></span>
-
-            <button type="button" [disabled]="!viewerSupports('showPrevious')" (click)="viewerInvoke('showPrevious')" title="Previous item (Left)">‹</button>
-            <button type="button" [disabled]="!viewerSupports('showNext')" (click)="viewerInvoke('showNext')" title="Next item (Right)">›</button>
-            <button type="button" [disabled]="!viewerSupports('zoomOut')" (click)="viewerInvoke('zoomOut')" title="Zoom out (Ctrl+-)">−</button>
-            <button type="button" [disabled]="!viewerSupports('zoomIn')" (click)="viewerInvoke('zoomIn')" title="Zoom in (Ctrl++)">+</button>
-            <button type="button" [disabled]="!viewerSupports('resetZoom')" (click)="viewerInvoke('resetZoom')" title="Fit (Ctrl+0)">Fit</button>
-            <button type="button" [disabled]="!viewerSupports('zoom100')" (click)="viewerInvoke('zoom100')" title="Actual size (Ctrl+1)">1:1</button>
-
-            <span class="viewer-separator"></span>
-
-            <button
-              type="button"
-              [disabled]="!!viewerTab.archiveContext"
-              (click)="openActiveViewerExternally()"
-              title="Open with external application">
-              External
-            </button>
-            <button
-              type="button"
-              [disabled]="viewerTab.isPinned || !viewerTab.isClosable"
-              (click)="closeActiveTab()"
-              title="Close viewer (Ctrl+W)">
-              ×
-            </button>
-          </div>
-
           <app-viewer-host-surface
             #viewerHost
             [targetPath]="viewerTab.targetPath"
             [fileList]="viewerTab.fileList"
             [archiveContext]="viewerTab.archiveContext"
-            [viewerId]="viewerTab.viewerId">
+            [viewerId]="viewerTab.viewerId"
+            [autoFollow]="viewerTab.autoFollow"
+            [sourceAvailable]="!!viewerTab.sourceTabId || !!viewerTab.sourceDir"
+            [isPinned]="viewerTab.isPinned"
+            [isClosable]="viewerTab.isClosable"
+            (returnSource)="returnToViewerSource()"
+            (external)="openActiveViewerExternally()"
+            (close)="closeActiveTab()">
           </app-viewer-host-surface>
         </div>
       </ng-template>
@@ -1066,7 +1047,36 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       scroll-behavior: auto;
       touch-action: pan-y;}
 
-    .entry.compare-only,
+        .comparison-marker {
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 14px;
+      height: 14px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 700;
+      line-height: 1;
+      color: var(--vsc-foreground);
+      background: color-mix(in srgb, var(--vsc-foreground) 12%, transparent);
+    }
+
+    .comparison-marker[data-marker='only'] {
+      color: var(--vsc-list-warningForeground, var(--vsc-warning));
+    }
+    .comparison-marker[data-marker='newer'] {
+      color: var(--vsc-charts-green, var(--vsc-success));
+    }
+    .comparison-marker[data-marker='older'] {
+      color: var(--vsc-charts-orange, var(--vsc-warning));
+    }
+    .comparison-marker[data-marker='different'],
+    .comparison-marker[data-marker='type'] {
+      color: var(--vsc-charts-red, var(--vsc-error));
+    }
+
+.entry.compare-only,
     .tree-row.compare-only {
       background: color-mix(
         in srgb,
@@ -1282,6 +1292,24 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     }
 
 
+    .entry.compare-older,
+    .tree-row.compare-older {
+      box-shadow: inset 2px 0 0 color-mix(
+        in srgb,
+        var(--vsc-charts-orange, var(--vsc-warning)) 72%,
+        transparent
+      );
+    }
+
+    .entry.compare-type,
+    .tree-row.compare-type {
+      box-shadow: inset 2px 0 0 color-mix(
+        in srgb,
+        var(--vsc-charts-red, var(--vsc-error)) 82%,
+        transparent
+      );
+    }
+
     .entry.drop-target {
       outline: 1px solid var(--vsc-accent-blue, var(--vsc-accent-blue));
       outline-offset: -1px;
@@ -1458,64 +1486,6 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
       min-width: 0;
       overflow: hidden;
       background: var(--vsc-editor-background, var(--vsc-editor-background));
-    }
-
-    .viewer-toolbar {
-      display: grid;
-      grid-template-columns: auto minmax(0, 1fr) 28px;
-      align-items: center;
-      gap: 8px;
-      min-height: 32px;
-      padding: 0 8px;
-      border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
-      background: var(--vsc-tabbar-background, var(--vsc-panel-background));
-      font-size: 11px;
-    }
-
-    .viewer-label {
-      color: var(--vsc-accent-blue, var(--vsc-focus-ring));
-      font-weight: 600;
-    }
-
-    .viewer-kind {
-      flex: 0 0 auto;
-      padding: 1px 5px;
-      border: 1px solid var(--vsc-border, var(--vsc-border));
-      border-radius: 3px;
-      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
-      font-size: 9px;
-      text-transform: uppercase;
-    }
-
-    .viewer-separator {
-      width: 1px;
-      height: 18px;
-      background: var(--vsc-border, var(--vsc-border));
-      flex: 0 0 auto;
-    }
-
-    .viewer-path {
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
-      font-family: var(--vsc-font-family-mono, ui-monospace, monospace);
-    }
-
-    .viewer-toolbar button {
-      width: 24px;
-      height: 24px;
-      border: 0;
-      border-radius: 3px;
-      background: transparent;
-      color: inherit;
-      cursor: pointer;
-      font-size: 17px;
-    }
-
-    .viewer-toolbar button:hover {
-      background: var(--vsc-list-hover-background, var(--vsc-list-hover-background));
     }
 
     app-viewer-host-surface {
@@ -1902,12 +1872,59 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     return this.comparisonStatuses.get(path) ?? null;
   }
 
-  isComparisonDifferent(path: string): boolean {
+  comparisonMarker(
+    path: string,
+  ): 'only' | 'newer' | 'older' | 'different' | 'type' | null {
     const status = this.comparisonStatus(path);
-    return status === 'size-different' ||
-      status === 'hash-different' ||
-      status === 'content-different' ||
-      status === 'type-different';
+    if (!status || status === 'same') return null;
+
+    switch (status) {
+      case 'only-left':
+        return this.paneId === 'left' ? 'only' : null;
+      case 'only-right':
+        return this.paneId === 'right' ? 'only' : null;
+      case 'left-newer':
+        return this.paneId === 'left' ? 'newer' : 'older';
+      case 'right-newer':
+        return this.paneId === 'right' ? 'newer' : 'older';
+      case 'type-different':
+        return 'type';
+      case 'size-different':
+      case 'hash-different':
+      case 'content-different':
+        return 'different';
+      default:
+        return null;
+    }
+  }
+
+  comparisonMarkerGlyph(
+    marker: 'only' | 'newer' | 'older' | 'different' | 'type',
+  ): string {
+    switch (marker) {
+      case 'only': return '+';
+      case 'newer': return '↑';
+      case 'older': return '↓';
+      case 'type': return '↯';
+      default: return '≠';
+    }
+  }
+
+  comparisonMarkerTitle(path: string): string {
+    const marker = this.comparisonMarker(path);
+    switch (marker) {
+      case 'only': return 'Exists only in this pane';
+      case 'newer': return 'Newer than counterpart';
+      case 'older': return 'Older than counterpart';
+      case 'type': return 'Type differs from counterpart';
+      case 'different': return 'Content or metadata differs';
+      default: return '';
+    }
+  }
+
+  isComparisonDifferent(path: string): boolean {
+    const marker = this.comparisonMarker(path);
+    return marker === 'different' || marker === 'type';
   }
 
   selectComparisonItem(path: string): boolean {

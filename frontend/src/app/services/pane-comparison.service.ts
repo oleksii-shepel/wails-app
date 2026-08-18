@@ -140,6 +140,21 @@ export class PaneComparisonService {
     return { items: normalized, summary, policy };
   }
 
+  statusMaps(result: PaneComparisonResult): {
+    readonly left: ReadonlyMap<string, PaneComparisonStatus>;
+    readonly right: ReadonlyMap<string, PaneComparisonStatus>;
+  } {
+    const left = new Map<string, PaneComparisonStatus>();
+    const right = new Map<string, PaneComparisonStatus>();
+
+    for (const item of result.items) {
+      if (item.left?.path) left.set(item.left.path, item.status);
+      if (item.right?.path) right.set(item.right.path, item.status);
+    }
+
+    return { left, right };
+  }
+
   leftDifferencePaths(result: PaneComparisonResult): string[] {
     return result.items.filter(item => item.left && item.status !== 'same' && item.status !== 'only-right').map(item => item.left!.path);
   }

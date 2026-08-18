@@ -1906,6 +1906,73 @@ export namespace pluginpackage {
 
 }
 
+export namespace runtime {
+	
+	export class DirStreamOptions {
+	    sortField?: string;
+	    sortDirection?: string;
+	    directoriesFirst: boolean;
+	    filterText?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DirStreamOptions(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sortField = source["sortField"];
+	        this.sortDirection = source["sortDirection"];
+	        this.directoriesFirst = source["directoriesFirst"];
+	        this.filterText = source["filterText"];
+	    }
+	}
+	export class DirStreamWindow {
+	    streamId: string;
+	    paneId: string;
+	    path: string;
+	    offset: number;
+	    limit: number;
+	    totalCount: number;
+	    sourceCount: number;
+	    entries: contracts.FileInfo[];
+	
+	    static createFrom(source: any = {}) {
+	        return new DirStreamWindow(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.streamId = source["streamId"];
+	        this.paneId = source["paneId"];
+	        this.path = source["path"];
+	        this.offset = source["offset"];
+	        this.limit = source["limit"];
+	        this.totalCount = source["totalCount"];
+	        this.sourceCount = source["sourceCount"];
+	        this.entries = this.convertValues(source["entries"], contracts.FileInfo);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
 export namespace utility {
 	
 	export class ResolvedLink {

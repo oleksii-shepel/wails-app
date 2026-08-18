@@ -318,7 +318,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
         aria-live="polite"
         aria-atomic="true">
         <span *ngIf="loading">Loading {{ path || 'location' }}…</span>
-        <span *ngIf="!loading && !error">{{ entries.length }} items</span>
+        <span *ngIf="!loading && !error">{{ totalEntryCount }} items</span>
         <span *ngIf="selectedPaths.size">{{ selectedPaths.size }} selected</span>
         <span *ngIf="showHidden" class="hidden-state">hidden visible</span>
         <span *ngIf="clipboard" class="clipboard-state">
@@ -411,8 +411,8 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
         [paneId]="paneId"
         [visible]="filterVisible"
         [value]="filterText"
-        [matchCount]="visibleEntries.length"
-        [totalCount]="entries.length"
+        [matchCount]="visibleEntryCount"
+        [totalCount]="totalEntryCount"
         (valueChange)="setFilter($event)"
         (close)="closeFilter()"
         (next)="nextFilterMatch()"
@@ -557,8 +557,8 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
           class="entry"
           tabindex="-1"
           role="option"
-          [attr.aria-posinset]="listVirtualWindow.start + virtualIndex + 1"
-          [attr.aria-setsize]="visibleEntries.length"
+          [attr.aria-posinset]="renderedEntryStart + virtualIndex + 1"
+          [attr.aria-setsize]="visibleEntryCount"
           draggable="true"
           [attr.data-file-entry]="entry.path"
           [attr.aria-selected]="selectedPaths.has(entry.path)"
@@ -628,7 +628,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
           [style.height.px]="listVirtualWindow.afterPx"
           aria-hidden="true"></div>
 
-        <div class="empty" *ngIf="!loading && visibleEntries.length === 0" role="status">
+        <div class="empty" *ngIf="!loading && visibleEntryCount === 0" role="status">
           <strong>{{ filterText ? 'No matching items.' : 'This directory is empty.' }}</strong>
           <span *ngIf="filterText">Clear the filter to see all items.</span>
           <span *ngIf="!filterText && canCreate && !isInArchive">Use F7 to create a folder or Command Palette for New File.</span>
@@ -657,7 +657,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
         </span>
 
         <span class="footer-item" *ngIf="filterText">
-          {{ visibleEntries.length }} / {{ entries.length }} visible
+          {{ visibleEntryCount }} / {{ totalEntryCount }} visible
         </span>
 
         <span class="footer-spacer"></span>
@@ -1694,6 +1694,21 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   private projectionDirectoriesFirst = true;
   private projectionFilterText = '';
   private projectionCache: FileInfo[] = [];
+  private entryLookupRef: FileInfo[] | null = null;
+  private entryLookup = new Map<string, FileInfo>();
+  // Backend streams arrive already filtered and ordered. Keeping that fact
+  // explicit prevents a completed large listing from being synchronously
+  // projected again by Angular.
+  private backendPresentationActive = false;
+  private backendSessionId: string | null = null;
+  private backendVisibleCount = 0;
+  private backendSourceCount = 0;
+  private backendWindowOffset = 0;
+  private backendWindowLimit = 0;
+  private backendWindowRequestToken = 0;
+  private backendWindowFetchPromise: Promise<void> | null = null;
+  private backendWindowQueuedRange: { start: number; end: number } | null = null;
+  private presentationReloadTimer: ReturnType<typeof setTimeout> | null = null;
 
   private virtualScrollTop = 0;
   private virtualViewportHeight = 600;
@@ -2296,7 +2311,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
 
   get cursorEntry(): FileInfo | null {
     if (!this.cursorPath) return null;
-    return this.entries.find(entry => entry.path === this.cursorPath) ?? null;
+    return this.entriesByPath.get(this.cursorPath) ?? null;
   }
 
   get treeRows(): ReassemblyTreeRow[] {
@@ -2337,11 +2352,35 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   get selectedTotalBytes(): number {
-    return this.selectedEntries.reduce((total, entry) => {
-      if (entry.type === FileType.DIRECTORY) return total;
+    let total = 0;
+    for (const path of this.selectedPaths) {
+      const entry = this.entriesByPath.get(path);
+      if (!entry) continue;
+      if (entry.type === FileType.DIRECTORY) continue;
       const size = Number(entry.size);
-      return total + (Number.isFinite(size) && size > 0 ? size : 0);
-    }, 0);
+      total += Number.isFinite(size) && size > 0 ? size : 0;
+    }
+    return total;
+  }
+
+  private get entriesByPath(): ReadonlyMap<string, FileInfo> {
+    if (this.entryLookupRef !== this.entries) {
+      this.entryLookupRef = this.entries;
+      this.entryLookup = new Map(this.entries.map(entry => [entry.path, entry]));
+    }
+    return this.entryLookup;
+  }
+
+  get visibleEntryCount(): number {
+    return this.backendPresentationActive
+      ? this.backendVisibleCount
+      : this.visibleEntries.length;
+  }
+
+  get totalEntryCount(): number {
+    return this.backendPresentationActive
+      ? this.backendSourceCount
+      : this.entries.length;
   }
 
   get sortedEntries(): FileInfo[] {
@@ -2353,6 +2392,10 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   get visibleEntries(): FileInfo[] {
+    if (this.backendPresentationActive) {
+      return this.entries;
+    }
+
     if (this.streamRenderActive) {
       const query = this.filterText.trim().toLocaleLowerCase();
       if (!query) return this.entries;
@@ -2391,14 +2434,13 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   get listVirtualWindow(): ReassemblyVirtualWindow {
-    const entries = this.visibleEntries;
     const grid = this.viewMode === 'grid';
     const columns = grid
       ? this.estimatedGridColumns()
       : 1;
 
     return calculateVirtualWindow({
-      itemCount: entries.length,
+      itemCount: this.visibleEntryCount,
       scrollTop: this.virtualScrollTop,
       viewportHeight: this.virtualViewportHeight,
       itemExtent: grid ? this.gridRowExtent : this.listRowExtent,
@@ -2410,9 +2452,25 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
 
   get renderedEntries(): FileInfo[] {
     const window = this.listVirtualWindow;
+    if (this.backendPresentationActive) {
+      this.queueBackendWindow(window.start, window.end);
+      const start = Math.max(0, window.start - this.backendWindowOffset);
+      const end = Math.max(start, Math.min(
+        this.entries.length,
+        window.end - this.backendWindowOffset,
+      ));
+      return this.entries.slice(start, end);
+    }
     return window.enabled
       ? this.visibleEntries.slice(window.start, window.end)
       : this.visibleEntries;
+  }
+
+  get renderedEntryStart(): number {
+    if (!this.backendPresentationActive) {
+      return this.listVirtualWindow.start;
+    }
+    return Math.max(this.listVirtualWindow.start, this.backendWindowOffset);
   }
 
   get treeVirtualWindow(): ReassemblyVirtualWindow {
@@ -2488,7 +2546,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     this.dirStream.bind(this.paneId, {
       onMeta: event => this.handleStreamMeta(event),
       onBatch: (event, baseEntries) => this.handleStreamBatch(event, baseEntries),
-      onDone: (event, baseEntries) => this.handleStreamDone(event, baseEntries),
+      onDone: event => this.handleStreamDone(event),
       onError: event => this.handleStreamError(event),
     });
     void this.initialize();
@@ -2496,6 +2554,10 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.cancelDragSpringOpen();
+    if (this.presentationReloadTimer) {
+      clearTimeout(this.presentationReloadTimer);
+      this.presentationReloadTimer = null;
+    }
     if (this.scrollPersistTimer) {
       clearTimeout(this.scrollPersistTimer);
       this.scrollPersistTimer = null;
@@ -3179,6 +3241,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     this.syncActiveDirSessionState();
     this.lastAction = `sort: ${field}`;
     this.emitPresentationChange();
+    this.scheduleBackendPresentationReload();
     this.cdr.markForCheck();
   }
 
@@ -3188,6 +3251,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     this.syncActiveDirSessionState();
     this.lastAction = `sort: ${this.sortDirection}`;
     this.emitPresentationChange();
+    this.scheduleBackendPresentationReload();
     this.cdr.markForCheck();
   }
 
@@ -3199,6 +3263,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       ? 'folders first'
       : 'mixed folders/files';
     this.emitPresentationChange();
+    this.scheduleBackendPresentationReload();
     this.cdr.markForCheck();
   }
 
@@ -3370,7 +3435,13 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     if (this.renamingPath) this.cancelInlineRename(false);
     this.markUserInteraction();
     this.filterText = value ?? '';
-    this.reconcileSelectionWithVisibleEntries();
+    // A backend stream owns the projection. Do not force the old, large
+    // client projection synchronously for each keystroke.
+    if (!this.backendPresentationActive) {
+      this.reconcileSelectionWithVisibleEntries();
+    } else {
+      this.scheduleBackendPresentationReload();
+    }
     this.lastAction = this.filterText ? `filter: ${this.filterText}` : 'filter cleared';
     this.syncActiveDirSessionState();
     this.emitPresentationChange();
@@ -3382,7 +3453,11 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     this.filterText = '';
     this.filterVisible = false;
     this.filterWidget?.deactivateContext();
-    this.reconcileSelectionWithVisibleEntries();
+    if (!this.backendPresentationActive) {
+      this.reconcileSelectionWithVisibleEntries();
+    } else {
+      this.scheduleBackendPresentationReload();
+    }
     this.lastAction = 'filter closed';
     this.syncActiveDirSessionState();
     this.emitPresentationChange();
@@ -7517,6 +7592,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     if (!target || !this.isDirectoryTab) return;
 
     this.updateVirtualViewport(target);
+    this.queueBackendWindowForViewport();
     this.cdr.markForCheck();
 
     const active = this.activeTab;
@@ -7748,7 +7824,10 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
         this.entries,
       );
 
+      this.resetBackendWindowState();
+
       if (streamMode === 'backend') {
+        this.backendPresentationActive = true;
         return await this.loadBackendStream(
           requestedPath,
           generation,
@@ -7758,6 +7837,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       }
 
       if (streamMode === 'results') {
+        this.backendPresentationActive = false;
         return await this.loadResultsStream(
           requestedPath,
           generation,
@@ -7766,6 +7846,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
         );
       }
 
+      this.backendPresentationActive = false;
       const listing = await this.panelSources.listDirectory(
         requestedPath,
         this.showHidden,
@@ -7829,8 +7910,28 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     const streamId = await this.dirStream.start(
       requestedPath,
       this.showHidden,
+      {
+        sortField: this.sortField,
+        sortDirection: this.sortDirection,
+        directoriesFirst: this.directoriesFirst,
+        filterText: this.filterText,
+      },
     );
+    this.backendSessionId = streamId;
     await this.dirStream.waitFor(streamId);
+    if (generation !== this.loadGeneration) return false;
+
+    await this.loadBackendWindowForViewport(true);
+    if (generation !== this.loadGeneration) return false;
+
+    this.applyLoadedDirectory(
+      requestedPath,
+      [...this.entries],
+      generation,
+      previousCursor,
+      options,
+      true,
+    );
 
     return generation === this.loadGeneration;
   }
@@ -7970,17 +8071,19 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
 
   private handleStreamDone(
     event: DirStreamDoneEvent,
-    baseEntries: FileInfo[],
   ): void {
     if (this.streamLoadGeneration !== this.loadGeneration) return;
-
-    this.finishStreamingDirectory(
-      event.path || this.path,
-      baseEntries,
-      this.loadGeneration,
-      this.streamPreviousCursor,
-      this.streamLoadOptions,
+    this.backendSessionId = event.streamId;
+    this.backendVisibleCount = Math.max(0, event.entryCount ?? 0);
+    this.backendSourceCount = Math.max(
+      this.backendVisibleCount,
+      event.sourceCount ?? this.backendVisibleCount,
     );
+    this.streamRenderActive = false;
+    if (event.path) {
+      this.path = event.path;
+    }
+    this.cdr.markForCheck();
   }
 
   private handleStreamError(event: DirStreamErrorEvent): void {
@@ -8138,10 +8241,117 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     this.projectionEntriesRef = null;
   }
 
+  private resetBackendWindowState(): void {
+    this.backendSessionId = null;
+    this.backendVisibleCount = 0;
+    this.backendSourceCount = 0;
+    this.backendWindowOffset = 0;
+    this.backendWindowLimit = 0;
+    this.backendWindowRequestToken += 1;
+    this.backendWindowFetchPromise = null;
+    this.backendWindowQueuedRange = null;
+  }
+
+  private queueBackendWindowForViewport(): void {
+    if (!this.backendPresentationActive || !this.backendSessionId) {
+      return;
+    }
+    const window = this.listVirtualWindow;
+    this.queueBackendWindow(window.start, window.end);
+  }
+
+  private queueBackendWindow(start: number, end: number): void {
+    if (!this.backendPresentationActive || !this.backendSessionId) {
+      return;
+    }
+    this.backendWindowQueuedRange = { start, end };
+    if (this.backendWindowFetchPromise) {
+      return;
+    }
+    queueMicrotask(() => {
+      if (this.backendWindowFetchPromise || !this.backendWindowQueuedRange) {
+        return;
+      }
+      void this.loadBackendWindowForViewport();
+    });
+  }
+
+  private backendWindowRangeFor(start: number, end: number): { offset: number; limit: number } {
+    const visibleSpan = Math.max(1, end - start);
+    const minimumLimit = this.viewMode === 'grid' ? 180 : 320;
+    const limit = Math.max(minimumLimit, visibleSpan * 2);
+    const offset = Math.max(0, start - Math.floor((limit - visibleSpan) / 2));
+    return { offset, limit };
+  }
+
+  private async loadBackendWindowForViewport(force = false): Promise<void> {
+    const streamId = this.backendSessionId;
+    if (!this.backendPresentationActive || !streamId) {
+      return;
+    }
+    const target = this.backendWindowQueuedRange ?? {
+      start: this.listVirtualWindow.start,
+      end: this.listVirtualWindow.end,
+    };
+    const range = this.backendWindowRangeFor(target.start, target.end);
+    const currentEnd = this.backendWindowOffset + this.entries.length;
+    if (
+      !force &&
+      range.offset >= this.backendWindowOffset &&
+      range.offset + range.limit <= currentEnd
+    ) {
+      return;
+    }
+
+    const token = ++this.backendWindowRequestToken;
+    this.backendWindowFetchPromise = (async () => {
+      const window = await this.dirStream.readWindow(
+        streamId,
+        range.offset,
+        range.limit,
+      );
+      if (token !== this.backendWindowRequestToken) {
+        return;
+      }
+      this.backendWindowOffset = window.offset;
+      this.backendWindowLimit = window.limit;
+      this.backendVisibleCount = Math.max(0, window.totalCount ?? 0);
+      this.backendSourceCount = Math.max(
+        this.backendVisibleCount,
+        window.sourceCount ?? this.backendVisibleCount,
+      );
+      this.entries = [...(window.entries ?? [])];
+      this.invalidateProjection();
+      this.cdr.markForCheck();
+    })();
+
+    try {
+      await this.backendWindowFetchPromise;
+    } finally {
+      if (token === this.backendWindowRequestToken) {
+        this.backendWindowFetchPromise = null;
+      }
+    }
+  }
+
+  private scheduleBackendPresentationReload(): void {
+    if (!this.backendPresentationActive || !this.isDirectoryTab || !this.path) {
+      return;
+    }
+    if (this.presentationReloadTimer) {
+      clearTimeout(this.presentationReloadTimer);
+    }
+    this.presentationReloadTimer = setTimeout(() => {
+      this.presentationReloadTimer = null;
+      void this.load(this.path, { preserveCursor: true, history: 'none' });
+    }, 120);
+  }
+
   private async cancelActiveStreams(): Promise<void> {
     this.resultStreamAbort?.abort();
     this.resultStreamAbort = null;
     await this.dirStream.cancelActive();
+    this.resetBackendWindowState();
   }
 
   private createDirectoryTab(path: string): Extract<ReassemblyTab, { kind: 'dir' }> {

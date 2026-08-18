@@ -38,6 +38,24 @@ export interface PathCapacity {
   fileSystem?: string | null;
 }
 
+export interface DirectoryStreamOptions {
+  sortField: 'name' | 'size' | 'modified' | 'type';
+  sortDirection: 'asc' | 'desc';
+  directoriesFirst: boolean;
+  filterText?: string;
+}
+
+export interface DirectoryStreamWindow {
+  streamId: string;
+  paneId: string;
+  path: string;
+  offset: number;
+  limit: number;
+  totalCount: number;
+  sourceCount: number;
+  entries: FileInfo[];
+}
+
 export interface TrashEntry {
   id: string;
   name: string;
@@ -465,13 +483,36 @@ export class ApiService {
 	    return castProtocol<DirectoryListing>(await window.go.app.App.ListDir(this.normalizeCanonicalPath(path), showHidden));
   }
 
-  async startListDirectoryStream(paneId: string, path: string, showHidden: boolean = false): Promise<string> {
-	    return await window.go.app.App.StartListDirStream(paneId, this.normalizeCanonicalPath(path), showHidden);
+  async startListDirectoryStream(paneId: string, path: string, showHidden: boolean = false, options?: DirectoryStreamOptions): Promise<string> {
+    const canonicalPath = this.normalizeCanonicalPath(path);
+    if (options) {
+      return await window.go.app.App.StartListDirStreamWithOptions(paneId, canonicalPath, showHidden, options);
+    }
+    return await window.go.app.App.StartListDirStream(paneId, canonicalPath, showHidden);
   }
 
   async cancelListDirectoryStream(streamId: string): Promise<void> {
     if (!streamId) return;
 	    await window.go.app.App.CancelListDirStream(streamId);
+  }
+
+  async readListDirectoryStreamWindow(
+    streamId: string,
+    offset: number,
+    limit: number,
+  ): Promise<DirectoryStreamWindow> {
+    const app = window.go.app.App as unknown as {
+      ReadListDirStreamWindow(
+        streamId: string,
+        offset: number,
+        limit: number,
+      ): Promise<DirectoryStreamWindow>;
+    };
+    return await app.ReadListDirStreamWindow(
+      streamId,
+      Math.max(0, Math.floor(offset)),
+      Math.max(0, Math.floor(limit)),
+    );
   }
 
   async listDirectoryFiltered(path: string, showHidden: boolean, filter: any): Promise<DirectoryListing> {

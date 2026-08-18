@@ -4,6 +4,8 @@ import { contracts } from '../../../wailsjs/go/models';
 import { ApiService } from './api.service';
 import type { SourceCapabilities } from './source-capabilities';
 
+export type RemoteHierarchy = 'share-path' | 'path-backed';
+
 export interface RemoteConnectionSnapshot {
   mounts: contracts.RemoteMount[];
   loading: boolean;
@@ -59,6 +61,11 @@ export class RemoteConnectionsService {
   isRemoteUri(uri:string):boolean{
     const scheme=/^([a-z][a-z0-9+.-]*):\/\//i.exec((uri??'').trim())?.[1]?.toLowerCase();
     return scheme==='smb'||scheme==='s3'||scheme==='gdrive'||scheme==='dropbox'||scheme==='onedrive';
+  }
+
+  hierarchyFor(uri:string):RemoteHierarchy{
+    const scheme=/^([a-z][a-z0-9+.-]*):\/\//i.exec((uri??'').trim())?.[1]?.toLowerCase();
+    return scheme==='smb'?'share-path':'path-backed';
   }
 
   capabilitiesFor(uri:string,base:SourceCapabilities):SourceCapabilities{

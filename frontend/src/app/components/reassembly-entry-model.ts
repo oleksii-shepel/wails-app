@@ -14,16 +14,17 @@ export function projectEntries(
   entries: readonly FileInfo[],
   options: EntryProjectionOptions,
 ): FileInfo[] {
-  const projected = [...entries].sort((left, right) =>
-    compareEntries(left, right, options),
-  );
-
   const query = normalizeSearchText(options.filterText);
-  if (!query) return projected;
-
-  return projected.filter(entry =>
+  // Filtering first cuts the expensive locale-aware sort down to only the
+  // entries that can be rendered. This is the fallback path for providers
+  // which cannot apply the projection in their own backend.
+  const filtered = !query ? entries : entries.filter(entry =>
     normalizeSearchText(entry.name).includes(query) ||
     normalizeSearchText(entry.path).includes(query),
+  );
+
+  return [...filtered].sort((left, right) =>
+    compareEntries(left, right, options),
   );
 }
 

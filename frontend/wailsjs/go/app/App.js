@@ -478,6 +478,10 @@ export function ReadFileStream(arg1, arg2) {
   return window['go']['app']['App']['ReadFileStream'](arg1, arg2);
 }
 
+export function ReadListDirStreamWindow(arg1, arg2, arg3) {
+  return window['go']['app']['App']['ReadListDirStreamWindow'](arg1, arg2, arg3);
+}
+
 export function ReadPluginFrontendModule(arg1) {
   return window['go']['app']['App']['ReadPluginFrontendModule'](arg1);
 }
@@ -596,6 +600,10 @@ export function StartElevatedSession() {
 
 export function StartListDirStream(arg1, arg2, arg3) {
   return window['go']['app']['App']['StartListDirStream'](arg1, arg2, arg3);
+}
+
+export function StartListDirStreamWithOptions(arg1, arg2, arg3, arg4) {
+  return window['go']['app']['App']['StartListDirStreamWithOptions'](arg1, arg2, arg3, arg4);
 }
 
 export function StartOperation(arg1, arg2, arg3, arg4) {

@@ -1,6 +1,10 @@
 import { EventsOn } from 'wailsjs/runtime';
 import type { FileInfo } from '../../shared/protocol';
-import { ApiService } from '../../services/api.service';
+import {
+  ApiService,
+  type DirectoryStreamOptions,
+  type DirectoryStreamWindow,
+} from '../../services/api.service';
 
 export interface DirStreamMetaEvent {
   streamId: string;
@@ -21,6 +25,7 @@ export interface DirStreamDoneEvent {
   paneId: string;
   path: string;
   entryCount: number;
+  sourceCount: number;
   totalSize: number;
   durationMs: number;
 }
@@ -35,7 +40,7 @@ export interface DirStreamErrorEvent {
 export interface DirListStreamHandlers {
   onMeta: (event: DirStreamMetaEvent, isFirstMeta: boolean) => void;
   onBatch: (event: DirStreamBatchEvent, baseEntries: FileInfo[]) => void;
-  onDone: (event: DirStreamDoneEvent, baseEntries: FileInfo[]) => void;
+  onDone: (event: DirStreamDoneEvent) => void;
   onError: (event: DirStreamErrorEvent) => void;
 }
 
@@ -54,7 +59,7 @@ export class DirListStreamController {
   private metaSeen = false;
   private baseEntries: FileInfo[] = [];
   private pendingBatchEvent: DirStreamBatchEvent | null = null;
-  private flushHandle: number | ReturnType<typeof setTimeout> | null = null;
+  private flushHandle: ReturnType<typeof setTimeout> | null = null;
 
   private waiters = new Map<string, { resolve: () => void; reject: (err: Error) => void }>();
   private terminals = new Map<string, Error | null>();
@@ -95,13 +100,17 @@ export class DirListStreamController {
     return this.activeStreamId;
   }
 
-  async start(path: string, showHidden: boolean): Promise<string> {
+  async readWindow(streamId: string, offset: number, limit: number): Promise<DirectoryStreamWindow> {
+    return await this.api.readListDirectoryStreamWindow(streamId, offset, limit);
+  }
+
+  async start(path: string, showHidden: boolean, options?: DirectoryStreamOptions): Promise<string> {
     await this.cancelActive();
     this.baseEntries = [];
     this.metaSeen = false;
     this.terminals.clear();
 
-    const streamId = await this.api.startListDirectoryStream(this.paneId, path, showHidden);
+    const streamId = await this.api.startListDirectoryStream(this.paneId, path, showHidden, options);
     this.activeStreamId = streamId;
     return streamId;
   }
@@ -191,13 +200,37 @@ export class DirListStreamController {
     this.scheduleFlush();
   }
 
+  private scheduleFlush(): void {
+    if (this.flushHandle !== null) return;
+
+    this.flushHandle = setTimeout(() => {
+      this.flushHandle = null;
+      this.flushPendingBatch();
+    }, 0);
+  }
+
+  private flushPendingBatch(): void {
+    const event = this.pendingBatchEvent;
+    const handlers = this.handlers;
+    if (!event || !handlers) return;
+
+    this.pendingBatchEvent = null;
+    handlers.onBatch(event, this.baseEntries);
+  }
+
+  private cancelScheduledFlush(): void {
+    if (this.flushHandle === null) return;
+    clearTimeout(this.flushHandle);
+    this.flushHandle = null;
+  }
+
   private handleDone(event: DirStreamDoneEvent | null): void {
     if (!event || event.paneId !== this.paneId) return;
     if (!this.activeStreamId || event.streamId !== this.activeStreamId) return;
     if (!this.handlers) return;
 
     this.flushPendingBatch();
-    this.handlers.onDone(event, this.baseEntries);
+    this.handlers.onDone(event);
     this.resolveWaiter(event.streamId);
 
     // Reset internal state after completion so stale events don't apply.
@@ -218,6 +251,8 @@ export class DirListStreamController {
 
     this.activeStreamId = null;
     this.metaSeen = false;
+    this.pendingBatchEvent = null;
+    this.cancelScheduledFlush();
     this.baseEntries = [];
   }
 }

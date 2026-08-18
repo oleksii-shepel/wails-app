@@ -93,6 +93,8 @@ type OfficeConverter interface {
 
 type DirStream interface {
 	Start(paneID, path string, showHidden bool) (string, error)
+	StartWithOptions(paneID, path string, showHidden bool, options internalruntime.DirStreamOptions) (string, error)
+	Window(streamID string, offset, limit int) (*internalruntime.DirStreamWindow, error)
 	Cancel(streamID string)
 	CancelAll()
 	SetVFS(listDir internalruntime.VFSListDirFunc, isVFS internalruntime.IsVFSPathFunc)

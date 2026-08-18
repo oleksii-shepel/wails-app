@@ -6,6 +6,7 @@ import {pluginpackage} from '../models';
 import {app} from '../models';
 import {elevation} from '../models';
 import {plugin} from '../models';
+import {runtime} from '../models';
 import {utility} from '../models';
 import {ops} from '../models';
 import {time} from '../models';
@@ -248,6 +249,8 @@ export function ReadFileRange(arg1:string,arg2:number,arg3:number):Promise<contr
 
 export function ReadFileStream(arg1:string,arg2:number):Promise<string>;
 
+export function ReadListDirStreamWindow(arg1:string,arg2:number,arg3:number):Promise<runtime.DirStreamWindow>;
+
 export function ReadPluginFrontendModule(arg1:string):Promise<pluginpackage.FrontendModule>;
 
 export function RecordPluginActivation(arg1:string,arg2:boolean,arg3:string):Promise<pluginpackage.PackageState>;
@@ -307,6 +310,8 @@ export function StartDiskUsageStream(arg1:string):Promise<string>;
 export function StartElevatedSession():Promise<elevation.SessionStatus>;
 
 export function StartListDirStream(arg1:string,arg2:string,arg3:boolean):Promise<string>;
+
+export function StartListDirStreamWithOptions(arg1:string,arg2:string,arg3:boolean,arg4:runtime.DirStreamOptions):Promise<string>;
 
 export function StartOperation(arg1:contracts.OperationType,arg2:string,arg3:string,arg4:string):Promise<ops.ActiveOperation>;
 

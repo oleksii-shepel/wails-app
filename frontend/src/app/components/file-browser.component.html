@@ -27,8 +27,7 @@
         <ng-container *ngIf="showShortcutDebug">
           <span *ngIf="shortcutDebug$ | async as shortcutDebugValue" class="shortcut-debug-indicator">
             <ng-container *ngIf="asShortcutDebugTrace(shortcutDebugValue) as shortcutDebug">
-              F1 {{ hasBinding('pane.nav.openCommandPalette.f1') ? 'yes' : 'no' }}
-              · Palette {{ hasBinding('pane.nav.openCommandPalette.ctrlShiftP') ? 'yes' : 'no' }}
+              Palette {{ hasBinding('pane.nav.openCommandPalette.ctrlShiftP') ? 'yes' : 'no' }}
               · Pin {{ hasBinding('pane.tabs.pin.ctrlAltP') ? 'yes' : 'no' }}
               · {{ shortcutDebug.stroke }} → {{ shortcutDebug.stage }}<ng-container *ngIf="shortcutDebug.commandId"> · {{ shortcutDebug.commandId }}</ng-container>
             </ng-container>
@@ -46,7 +45,7 @@
         <button
           (click)="commandPalette?.show()"
           class="btn"
-          title="Open Command Palette (Ctrl+Shift+P / F1)">
+          title="Open Command Palette (Ctrl+Shift+P)">
           Commands
         </button>
         <button

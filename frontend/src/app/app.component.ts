@@ -7,7 +7,6 @@ import {
 } from '@angular/core';
 import { ConfirmDialogComponent } from './components/confirm-dialog.component';
 import { DualPaneComponent } from './components/dual-pane.component';
-import { ShortcutDebugOverlayComponent } from './components/shortcut-debug-overlay.component';
 import { OperationSurfaceComponent } from './components/operation-surface.component';
 import { ActionFeedbackComponent } from './components/action-feedback.component';
 import { BatchRenameDialogComponent } from './components/batch-rename-dialog.component';
@@ -23,7 +22,6 @@ import { InputCustomizationService } from './services/input-customization.servic
   standalone: true,
   imports: [
     DualPaneComponent,
-    ShortcutDebugOverlayComponent,
     OperationSurfaceComponent,
     ActionFeedbackComponent,
     BatchRenameDialogComponent,
@@ -36,22 +34,6 @@ import { InputCustomizationService } from './services/input-customization.servic
     <main class="app-shell">
       <app-dual-pane #manager></app-dual-pane>
 
-      <app-shortcut-debug-overlay
-        [visible]="manager.shortcutHelpVisible"
-        [path]="manager.activePane?.path ?? ''"
-        [cursorName]="manager.activePane?.cursorEntry?.name ?? null"
-        [selectedCount]="manager.activePane?.selectedPaths?.size ?? 0"
-        [lastAction]="manager.activePane?.lastAction ?? 'startup'"
-        [activePane]="manager.activePaneId"
-        [otherPath]="manager.otherPane?.path ?? ''"
-        [lastTransfer]="manager.lastTransfer"
-        [lastDrop]="manager.lastDrop"
-        [tabCount]="manager.activePane?.tabs?.length ?? 0"
-        [surfaceKind]="manager.activePane?.activeTab?.kind ?? 'dir'"
-        [splitPercent]="manager.leftPanePercent"
-        [showHidden]="manager.showHidden"
-        [bindings]="manager.shortcutHelpItems">
-      </app-shortcut-debug-overlay>
 
       <app-operation-surface></app-operation-surface>
       <app-action-feedback></app-action-feedback>

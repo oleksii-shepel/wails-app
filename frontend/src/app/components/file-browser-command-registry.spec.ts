@@ -64,6 +64,17 @@ describe('browser keybinding collisions', () => {
     expect(BROWSER_BINDINGS.some(binding => binding.id === 'pane.tabs.pin.ctrlShiftP')).toBe(false);
   });
 
+  it('leaves F1 to the manager-level Input & Shortcuts command', () => {
+    const f1Bindings = BROWSER_BINDINGS.filter(binding =>
+      binding.trigger.device === 'keyboard'
+      && binding.trigger.chord.steps.length === 1
+      && binding.trigger.chord.steps[0].key.toLowerCase() === 'f1'
+      && (binding.trigger.chord.steps[0].modifiers?.length ?? 0) === 0,
+    );
+
+    expect(f1Bindings).toEqual([]);
+  });
+
   it('does not register duplicate browser keyboard chords in the same default context', () => {
     const seen = new Map<string, string>();
     for (const binding of BROWSER_BINDINGS) {
@@ -77,4 +88,3 @@ describe('browser keybinding collisions', () => {
     }
   });
 });
-

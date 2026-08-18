@@ -39,6 +39,7 @@ type DirStreamWindow struct {
 	Limit       int                  `json:"limit"`
 	TotalCount  int                  `json:"totalCount"`
 	SourceCount int                  `json:"sourceCount"`
+	WindowMS    int64                `json:"windowMs"`
 	Entries     []contracts.FileInfo `json:"entries"`
 }
 
@@ -49,10 +50,13 @@ type dirStreamMetaEvent struct {
 	ShowHidden  bool   `json:"showHidden"`
 	SourceCount int    `json:"sourceCount"`
 	TotalCount  int    `json:"totalCount"`
+	Generation  uint64 `json:"generation"`
+	EnumerateMS int64  `json:"enumerateMs"`
 }
 
 type dirStreamBatchEvent struct {
-	StreamID string               `json:"streamId"`
+	StreamID   string               `json:"streamId"`
+	Generation uint64               `json:"generation"`
 	PaneID   string               `json:"paneId"`
 	Path     string               `json:"path"`
 	Entries  []contracts.FileInfo `json:"entries"`
@@ -66,11 +70,16 @@ type dirStreamDoneEvent struct {
 	SourceCount int    `json:"sourceCount"`
 	TotalSize   int64  `json:"totalSize"`
 	DurationMS  int64  `json:"durationMs"`
+	EnumerateMS int64  `json:"enumerateMs"`
+	IndexMS     int64  `json:"indexMs"`
+	SortMS      int64  `json:"sortMs"`
+	Generation  uint64 `json:"generation"`
 	FromElevate bool   `json:"fromElevate"`
 }
 
 type dirStreamErrorEvent struct {
-	StreamID string `json:"streamId"`
+	StreamID   string `json:"streamId"`
+	Generation uint64 `json:"generation"`
 	PaneID   string `json:"paneId"`
 	Path     string `json:"path"`
 	Error    string `json:"error"`
@@ -84,9 +93,11 @@ type VFSListDirFunc func(path string) (*contracts.DirectoryListing, error)
 type IsVFSPathFunc func(path string) bool
 
 type DirStreamService struct {
-	mu           sync.Mutex
-	streams      map[string]context.CancelFunc
-	prepared     map[string]preparedDirStream
+	mu             sync.Mutex
+	streams        map[string]context.CancelFunc
+	prepared       map[string]preparedDirStream
+	paneGeneration map[string]uint64
+	nextGeneration uint64
 	emitEvent    func(string, interface{})
 	elevatedList ElevatedListFunc
 	buildFile    BuildFileInfoFunc
@@ -99,6 +110,7 @@ type DirStreamService struct {
 type preparedDirStream struct {
 	paneID       string
 	path         string
+	generation   uint64
 	options      DirStreamOptions
 	sourceCount  int
 	indexedCount int
@@ -116,8 +128,9 @@ func NewDirStreamService(
 	resolvePath ResolvePublicPathFunc,
 ) *DirStreamService {
 	return &DirStreamService{
-		streams:      make(map[string]context.CancelFunc),
-		prepared:     make(map[string]preparedDirStream),
+		streams:        make(map[string]context.CancelFunc),
+		prepared:       make(map[string]preparedDirStream),
+		paneGeneration: make(map[string]uint64),
 		emitEvent:    emitEvent,
 		elevatedList: elevatedList,
 		buildFile:    buildFile,
@@ -149,16 +162,33 @@ func (s *DirStreamService) Unregister(streamID string) {
 	s.mu.Unlock()
 }
 
-func (s *DirStreamService) rememberPrepared(streamID string, stream preparedDirStream) {
+func (s *DirStreamService) isCurrent(streamID, paneID string, generation uint64) bool {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, active := s.streams[streamID]
+	return active && s.paneGeneration[paneID] == generation
+}
+
+func (s *DirStreamService) rememberPrepared(streamID string, generation uint64, stream preparedDirStream) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, active := s.streams[streamID]; !active || s.paneGeneration[stream.paneID] != generation {
+		return false
+	}
+	stream.generation = generation
 	s.prepared[streamID] = stream
-	s.mu.Unlock()
+	return true
 }
 
 func (s *DirStreamService) Window(streamID string, offset, limit int) (*DirStreamWindow, error) {
+	started := time.Now()
 	s.mu.Lock()
 	stream, ok := s.prepared[streamID]
+	current := ok && s.paneGeneration[stream.paneID] == stream.generation
 	s.mu.Unlock()
+	if ok && !current {
+		return nil, fmt.Errorf("directory stream %q is stale", streamID)
+	}
 	if !ok {
 		return nil, fmt.Errorf("directory stream %q is unavailable", streamID)
 	}
@@ -192,6 +222,7 @@ func (s *DirStreamService) Window(streamID string, offset, limit int) (*DirStrea
 		Limit:       limit,
 		TotalCount:  stream.indexedCount,
 		SourceCount: stream.sourceCount,
+		WindowMS:    time.Since(started).Milliseconds(),
 		Entries:     windowEntries,
 	}, nil
 }
@@ -208,15 +239,23 @@ func (s *DirStreamService) StartWithOptions(paneID, path string, showHidden bool
 	}
 	streamID := fmt.Sprintf("%s-%d", paneID, time.Now().UnixNano())
 	ctx, cancel := context.WithCancel(context.Background())
-	s.Register(streamID, cancel)
-	s.rememberPrepared(streamID, preparedDirStream{
-		paneID:  paneID,
-		path:    internalplatform.ToSlash(path),
-		options: options,
-		runs:    [][]contracts.FileInfo{},
-		entries: []contracts.FileInfo{},
-	})
-	go s.run(ctx, streamID, paneID, internalplatform.ToSlash(path), showHidden, options)
+
+	s.mu.Lock()
+	s.nextGeneration++
+	generation := s.nextGeneration
+	s.paneGeneration[paneID] = generation
+	s.streams[streamID] = cancel
+	s.prepared[streamID] = preparedDirStream{
+		paneID:     paneID,
+		path:       internalplatform.ToSlash(path),
+		generation: generation,
+		options:    options,
+		runs:       [][]contracts.FileInfo{},
+		entries:    []contracts.FileInfo{},
+	}
+	s.mu.Unlock()
+
+	go s.run(ctx, streamID, paneID, internalplatform.ToSlash(path), showHidden, options, generation)
 	return streamID, nil
 }
 
@@ -250,76 +289,218 @@ func (s *DirStreamService) CancelAll() {
 	}
 }
 
-func (s *DirStreamService) initialDirectoryCount(path string, showHidden bool, options DirStreamOptions) int {
-	if pathref.IsSearch(path) || options.FilterText != "" || (s.isVFSPath != nil && s.isVFSPath(path)) {
-		return -1
+type localDirPopulation struct {
+	nativePath string
+	entries    []fs.DirEntry
+}
+
+func (s *DirStreamService) enumerateLocalDirectory(
+	ctx context.Context,
+	path string,
+	showHidden bool,
+) (*localDirPopulation, error) {
+	nativePath, err := s.resolveNativePath(path)
+	if err != nil {
+		return nil, err
 	}
 
-	resolved, err := s.resolvePath(path)
+	dir, err := os.Open(nativePath)
 	if err != nil {
-		return -1
+		return nil, err
+	}
+	defer dir.Close()
+
+	raw, err := dir.ReadDir(-1)
+	if err != nil {
+		return nil, err
 	}
 
-	raw, err := os.ReadDir(resolved)
-	if err != nil {
-		return -1
+	if err := ctx.Err(); err != nil {
+		return nil, context.Canceled
 	}
 
 	if showHidden || s.isHidden == nil {
-		return len(raw)
+		return &localDirPopulation{nativePath: nativePath, entries: raw}, nil
 	}
 
-	count := 0
+	filtered := make([]fs.DirEntry, 0, len(raw))
 	for _, entry := range raw {
-		if !s.isHidden(entry.Name(), filepath.Join(resolved, entry.Name())) {
-			count++
+		if err := ctx.Err(); err != nil {
+			return nil, context.Canceled
+		}
+		name := entry.Name()
+		nativeFullPath := internalplatform.ToSlash(filepath.Join(nativePath, name))
+		if !s.isHidden(name, nativeFullPath) {
+			filtered = append(filtered, entry)
 		}
 	}
-	return count
+
+	return &localDirPopulation{nativePath: nativePath, entries: filtered}, nil
 }
 
-func (s *DirStreamService) run(ctx context.Context, streamID, paneID, path string, showHidden bool, options DirStreamOptions) {
+func (s *DirStreamService) indexLocalPopulation(
+	ctx context.Context,
+	path string,
+	population *localDirPopulation,
+	chunkSize int,
+	onBatch func(batch []contracts.FileInfo, batchSize int64),
+) error {
+	if population == nil {
+		return nil
+	}
+	if chunkSize <= 0 {
+		chunkSize = dirStreamBatchSize
+	}
+
+	for offset := 0; offset < len(population.entries); offset += chunkSize {
+		if err := ctx.Err(); err != nil {
+			return context.Canceled
+		}
+		end := offset + chunkSize
+		if end > len(population.entries) {
+			end = len(population.entries)
+		}
+
+		batch := make([]contracts.FileInfo, 0, end-offset)
+		var batchSize int64
+		for _, entry := range population.entries[offset:end] {
+			if err := ctx.Err(); err != nil {
+				return context.Canceled
+			}
+			info, err := entry.Info()
+			if err != nil {
+				return err
+			}
+			name := entry.Name()
+			nativeFullPath := internalplatform.ToSlash(filepath.Join(population.nativePath, name))
+			hidden := s.isHidden != nil && s.isHidden(name, nativeFullPath)
+			fi := s.buildFile(name, nativeFullPath, info, hidden)
+			fi.Path = joinPublicPath(path, name)
+			batch = append(batch, fi)
+			batchSize += fi.Size
+		}
+		if len(batch) > 0 {
+			onBatch(batch, batchSize)
+		}
+	}
+	return nil
+}
+
+func (s *DirStreamService) run(
+	ctx context.Context,
+	streamID, paneID, path string,
+	showHidden bool,
+	options DirStreamOptions,
+	generation uint64,
+) {
 	defer s.Unregister(streamID)
 
 	started := time.Now()
+	var enumerateDuration time.Duration
+	var indexDuration time.Duration
+	var sortDuration time.Duration
 
-	initialCount := s.initialDirectoryCount(path, showHidden, options)
-	s.Emit("fs:listStream:meta", dirStreamMetaEvent{
-		StreamID:    streamID,
-		PaneID:      paneID,
-		Path:        path,
-		ShowHidden:  showHidden,
-		SourceCount: initialCount,
-		TotalCount:  initialCount,
-	})
+	var scan func(
+		context.Context,
+		string,
+		bool,
+		int,
+		func([]contracts.FileInfo, int64),
+	) error
 
-	scan := s.scanDirectoryStream
-	if pathref.IsSearch(path) {
-		scan = s.scanSearchStream
-	} else if s.isVFSPath != nil && s.isVFSPath(path) {
-		scan = s.scanVFSStream
+	var localPopulation *localDirPopulation
+	if !pathref.IsSearch(path) && (s.isVFSPath == nil || !s.isVFSPath(path)) {
+		enumerateStarted := time.Now()
+		population, err := s.enumerateLocalDirectory(ctx, path, showHidden)
+		enumerateDuration = time.Since(enumerateStarted)
+		if err == nil {
+			localPopulation = population
+		}
+		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				return
+			}
+			s.finishStreamError(ctx, streamID, paneID, path, showHidden, options, generation, started, enumerateDuration, err)
+			return
+		}
+
+		totalCount := len(localPopulation.entries)
+		if strings.TrimSpace(options.FilterText) != "" {
+			totalCount = -1
+		}
+		if !s.isCurrent(streamID, paneID, generation) {
+			return
+		}
+		s.Emit("fs:listStream:meta", dirStreamMetaEvent{
+			StreamID:    streamID,
+			PaneID:      paneID,
+			Path:        path,
+			ShowHidden:  showHidden,
+			SourceCount: len(localPopulation.entries),
+			TotalCount:  totalCount,
+			Generation:  generation,
+			EnumerateMS: enumerateDuration.Milliseconds(),
+		})
+
+		scan = func(
+			ctx context.Context,
+			path string,
+			_ bool,
+			chunkSize int,
+			onBatch func([]contracts.FileInfo, int64),
+		) error {
+			return s.indexLocalPopulation(ctx, path, localPopulation, chunkSize, onBatch)
+		}
+	} else {
+		if !s.isCurrent(streamID, paneID, generation) {
+			return
+		}
+		s.Emit("fs:listStream:meta", dirStreamMetaEvent{
+			StreamID:    streamID,
+			PaneID:      paneID,
+			Path:        path,
+			ShowHidden:  showHidden,
+			SourceCount: -1,
+			TotalCount:  -1,
+			Generation:  generation,
+			EnumerateMS: 0,
+		})
+		scan = s.scanDirectoryStream
+		if pathref.IsSearch(path) {
+			scan = s.scanSearchStream
+		} else if s.isVFSPath != nil && s.isVFSPath(path) {
+			scan = s.scanVFSStream
+		}
 	}
 
-	entries := make([]contracts.FileInfo, 0, dirStreamBatchSize)
 	runs := make([][]contracts.FileInfo, 0, 8)
 	sourceCount := 0
 	var totalSize int64
 	previewCount := 0
+
+	scanStarted := time.Now()
 	err := scan(ctx, path, showHidden, dirStreamBatchSize, func(batch []contracts.FileInfo, _ int64) {
-		entries = append(entries, batch...)
-		sourceCount += len(batch)
-		if len(batch) == 0 || errors.Is(ctx.Err(), context.Canceled) {
+		if len(batch) == 0 || ctx.Err() != nil || !s.isCurrent(streamID, paneID, generation) {
 			return
 		}
-		preparedBatch := prepareStreamEntries(append([]contracts.FileInfo(nil), batch...), options)
+
+		sourceCount += len(batch)
+
+		preparedInput := append([]contracts.FileInfo(nil), batch...)
+
+		sortStarted := time.Now()
+		preparedBatch := prepareStreamEntries(preparedInput, options)
+		sortDuration += time.Since(sortStarted)
+
 		if len(preparedBatch) > 0 {
 			runs = append(runs, preparedBatch)
 			for _, entry := range preparedBatch {
 				totalSize += entry.Size
 			}
-			s.rememberPrepared(streamID, preparedDirStream{
+			if !s.rememberPrepared(streamID, generation, preparedDirStream{
 				paneID:       paneID,
 				path:         path,
+				generation:   generation,
 				options:      options,
 				sourceCount:  sourceCount,
 				indexedCount: countRunEntries(runs),
@@ -327,9 +508,12 @@ func (s *DirStreamService) run(ctx context.Context, streamID, paneID, path strin
 				complete:     false,
 				runs:         append([][]contracts.FileInfo(nil), runs...),
 				entries:      []contracts.FileInfo{},
-			})
+			}) {
+				return
+			}
 		}
-		if previewCount >= dirStreamPreviewLimit {
+
+		if previewCount >= dirStreamPreviewLimit || !s.isCurrent(streamID, paneID, generation) {
 			return
 		}
 		remaining := dirStreamPreviewLimit - previewCount
@@ -338,26 +522,34 @@ func (s *DirStreamService) run(ctx context.Context, streamID, paneID, path strin
 			previewBatch = previewBatch[:remaining]
 		}
 		previewCount += len(previewBatch)
-		// Emit raw scan batches immediately so the renderer can paint useful
-		// content while the backend continues preparing the final ordered result.
-		// After the initial preview window, keep scanning silently so the
-		// renderer is not flooded with updates during long directory walks.
 		s.Emit("fs:listStream:batch", dirStreamBatchEvent{
-			StreamID: streamID,
-			PaneID:   paneID,
-			Path:     path,
-			Entries:  previewBatch,
+			StreamID:   streamID,
+			Generation: generation,
+			PaneID:     paneID,
+			Path:       path,
+			Entries:    previewBatch,
 		})
 	})
+	scanDuration := time.Since(scanStarted)
+	if scanDuration > sortDuration {
+		indexDuration = scanDuration - sortDuration
+	} else {
+		indexDuration = scanDuration
+	}
+
 	if err == nil {
-		entries = mergeSortedRunsAll(runs, options)
+		sortStarted := time.Now()
+		entries := mergeSortedRunsAll(runs, options)
+		sortDuration += time.Since(sortStarted)
+
 		entryCount, finalTotalSize := sumPreparedEntries(entries)
-		if errors.Is(ctx.Err(), context.Canceled) {
+		if ctx.Err() != nil || !s.isCurrent(streamID, paneID, generation) {
 			return
 		}
-		s.rememberPrepared(streamID, preparedDirStream{
+		if !s.rememberPrepared(streamID, generation, preparedDirStream{
 			paneID:       paneID,
 			path:         path,
+			generation:   generation,
 			options:      options,
 			sourceCount:  sourceCount,
 			indexedCount: entryCount,
@@ -365,7 +557,10 @@ func (s *DirStreamService) run(ctx context.Context, streamID, paneID, path strin
 			complete:     true,
 			runs:         nil,
 			entries:      entries,
-		})
+		}) {
+			return
+		}
+
 		s.Emit("fs:listStream:done", dirStreamDoneEvent{
 			StreamID:    streamID,
 			PaneID:      paneID,
@@ -374,10 +569,31 @@ func (s *DirStreamService) run(ctx context.Context, streamID, paneID, path strin
 			SourceCount: sourceCount,
 			TotalSize:   finalTotalSize,
 			DurationMS:  time.Since(started).Milliseconds(),
+			EnumerateMS: enumerateDuration.Milliseconds(),
+			IndexMS:     indexDuration.Milliseconds(),
+			SortMS:      sortDuration.Milliseconds(),
+			Generation:  generation,
 		})
 		return
 	}
-	if errors.Is(err, context.Canceled) {
+
+	if errors.Is(err, context.Canceled) || ctx.Err() != nil || !s.isCurrent(streamID, paneID, generation) {
+		return
+	}
+	s.finishStreamError(ctx, streamID, paneID, path, showHidden, options, generation, started, enumerateDuration, err)
+}
+
+func (s *DirStreamService) finishStreamError(
+	ctx context.Context,
+	streamID, paneID, path string,
+	showHidden bool,
+	options DirStreamOptions,
+	generation uint64,
+	started time.Time,
+	enumerateDuration time.Duration,
+	err error,
+) {
+	if ctx.Err() != nil || !s.isCurrent(streamID, paneID, generation) {
 		return
 	}
 	if s.elevatedList != nil {
@@ -387,14 +603,17 @@ func (s *DirStreamService) run(ctx context.Context, streamID, paneID, path strin
 				entries = []contracts.FileInfo{}
 			}
 			sourceCount := len(entries)
+			sortStarted := time.Now()
 			entries = prepareStreamEntries(entries, options)
+			sortDuration := time.Since(sortStarted)
 			count, size := sumPreparedEntries(entries)
-			if errors.Is(ctx.Err(), context.Canceled) {
+			if ctx.Err() != nil || !s.isCurrent(streamID, paneID, generation) {
 				return
 			}
-			s.rememberPrepared(streamID, preparedDirStream{
+			if !s.rememberPrepared(streamID, generation, preparedDirStream{
 				paneID:       paneID,
 				path:         path,
+				generation:   generation,
 				options:      options,
 				sourceCount:  sourceCount,
 				indexedCount: count,
@@ -402,7 +621,9 @@ func (s *DirStreamService) run(ctx context.Context, streamID, paneID, path strin
 				complete:     true,
 				runs:         nil,
 				entries:      entries,
-			})
+			}) {
+				return
+			}
 			s.Emit("fs:listStream:done", dirStreamDoneEvent{
 				StreamID:    streamID,
 				PaneID:      paneID,
@@ -411,17 +632,24 @@ func (s *DirStreamService) run(ctx context.Context, streamID, paneID, path strin
 				SourceCount: sourceCount,
 				TotalSize:   size,
 				DurationMS:  time.Since(started).Milliseconds(),
+				EnumerateMS: enumerateDuration.Milliseconds(),
+				SortMS:      sortDuration.Milliseconds(),
+				Generation:  generation,
 				FromElevate: true,
 			})
 			return
 		}
 	}
 
+	if !s.isCurrent(streamID, paneID, generation) {
+		return
+	}
 	s.Emit("fs:listStream:error", dirStreamErrorEvent{
-		StreamID: streamID,
-		PaneID:   paneID,
-		Path:     path,
-		Error:    err.Error(),
+		StreamID:   streamID,
+		Generation: generation,
+		PaneID:     paneID,
+		Path:       path,
+		Error:      err.Error(),
 	})
 }
 

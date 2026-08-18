@@ -369,7 +369,12 @@ function truncateFileName(name: string, maxLength: number): string {
     .icon-emoji {
       font-size: 15px;
       line-height: 1;
-      display: block;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      height: 100%;
+      text-align: center;
     }
 
     /* ── Symlink badge ───────────────────────────────────────

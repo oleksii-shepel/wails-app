@@ -179,6 +179,18 @@ const MAX_LEGACY_SESSION_BYTES = 512 * 1024;
 
 import type { PaneComparisonStatus } from '../services/pane-comparison.service';
 
+interface DirectoryPipelineTimings {
+  generation: number;
+  path: string;
+  enumerateMs: number;
+  indexMs: number;
+  sortMs: number;
+  windowMs: number;
+  bridgeMs: number;
+  renderMs: number;
+  totalMs: number;
+}
+
 @Component({
   selector: 'app-directory-pane',
   standalone: true,
@@ -1712,6 +1724,18 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   private backendWindowOffset = 0;
   private backendWindowLimit = 0;
   private backendWindowRequestToken = 0;
+  pipelineTimings: DirectoryPipelineTimings = {
+    generation: 0,
+    path: '',
+    enumerateMs: 0,
+    indexMs: 0,
+    sortMs: 0,
+    windowMs: 0,
+    bridgeMs: 0,
+    renderMs: 0,
+    totalMs: 0,
+  };
+
   private backendWindowFetchPromise: Promise<void> | null = null;
   private backendWindowQueuedRange: { start: number; end: number } | null = null;
   private backendProgressRefreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -7945,6 +7969,17 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       options,
     );
 
+    this.pipelineTimings = {
+      generation,
+      path: requestedPath,
+      enumerateMs: 0,
+      indexMs: 0,
+      sortMs: 0,
+      windowMs: 0,
+      bridgeMs: 0,
+      renderMs: 0,
+      totalMs: 0,
+    };
     const streamId = await this.dirStream.start(
       requestedPath,
       this.showHidden,
@@ -8082,6 +8117,13 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     if (event.path && event.path !== this.path) {
       this.path = event.path;
     }
+
+    this.pipelineTimings = {
+      ...this.pipelineTimings,
+      generation: event.generation ?? this.loadGeneration,
+      path: event.path,
+      enumerateMs: Math.max(0, event.enumerateMs ?? 0),
+    };
 
     if (event.totalCount >= 0) {
       this.backendVisibleCount = event.totalCount;
@@ -8396,15 +8438,30 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     }
 
     const token = ++this.backendWindowRequestToken;
+    const generation = this.loadGeneration;
+    const requestPath = this.path;
+    const renderStarted = performance.now();
     this.backendWindowFetchPromise = (async () => {
       const window = await this.dirStream.readWindow(
         streamId,
         range.offset,
         range.limit,
       );
-      if (token !== this.backendWindowRequestToken) {
+      if (
+        token !== this.backendWindowRequestToken ||
+        generation !== this.loadGeneration ||
+        streamId !== this.backendSessionId ||
+        requestPath !== this.path
+      ) {
         return;
       }
+      this.pipelineTimings = {
+        ...this.pipelineTimings,
+        generation,
+        path: requestPath,
+        windowMs: window.pipelineTiming.backendWindowMs,
+        bridgeMs: window.pipelineTiming.bridgeMs,
+      };
       this.backendWindowOffset = window.offset;
       this.backendWindowLimit = window.limit;
       this.backendVisibleCount = Math.max(0, window.totalCount ?? 0);
@@ -8422,6 +8479,19 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
         );
       }
       this.cdr.markForCheck();
+      requestAnimationFrame(() => {
+        if (
+          generation !== this.loadGeneration ||
+          streamId !== this.backendSessionId ||
+          requestPath !== this.path
+        ) {
+          return;
+        }
+        this.pipelineTimings = {
+          ...this.pipelineTimings,
+          renderMs: performance.now() - renderStarted,
+        };
+      });
     })();
 
     try {

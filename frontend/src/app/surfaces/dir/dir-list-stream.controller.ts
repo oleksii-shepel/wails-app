@@ -13,10 +13,13 @@ export interface DirStreamMetaEvent {
   showHidden: boolean;
   sourceCount: number;
   totalCount: number;
+  generation: number;
+  enumerateMs: number;
 }
 
 export interface DirStreamBatchEvent {
   streamId: string;
+  generation: number;
   paneId: string;
   path: string;
   entries: FileInfo[];
@@ -30,13 +33,23 @@ export interface DirStreamDoneEvent {
   sourceCount: number;
   totalSize: number;
   durationMs: number;
+  enumerateMs: number;
+  indexMs: number;
+  sortMs: number;
+  generation: number;
 }
 
 export interface DirStreamErrorEvent {
   streamId: string;
+  generation: number;
   paneId: string;
   path: string;
   error: string;
+}
+
+export interface DirectoryPipelineWindowTiming {
+  bridgeMs: number;
+  backendWindowMs: number;
 }
 
 export interface DirListStreamHandlers {
@@ -102,8 +115,20 @@ export class DirListStreamController {
     return this.activeStreamId;
   }
 
-  async readWindow(streamId: string, offset: number, limit: number): Promise<DirectoryStreamWindow> {
-    return await this.api.readListDirectoryStreamWindow(streamId, offset, limit);
+  async readWindow(
+    streamId: string,
+    offset: number,
+    limit: number,
+  ): Promise<DirectoryStreamWindow & { pipelineTiming: DirectoryPipelineWindowTiming }> {
+    const started = performance.now();
+    const window = await this.api.readListDirectoryStreamWindow(streamId, offset, limit);
+    return {
+      ...window,
+      pipelineTiming: {
+        bridgeMs: performance.now() - started,
+        backendWindowMs: Math.max(0, Number((window as DirectoryStreamWindow & { windowMs?: number }).windowMs ?? 0)),
+      },
+    };
   }
 
   async start(path: string, showHidden: boolean, options?: DirectoryStreamOptions): Promise<string> {

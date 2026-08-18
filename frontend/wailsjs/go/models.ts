@@ -1934,6 +1934,7 @@ export namespace runtime {
 	    limit: number;
 	    totalCount: number;
 	    sourceCount: number;
+	    windowMs: number;
 	    entries: contracts.FileInfo[];
 	
 	    static createFrom(source: any = {}) {
@@ -1949,6 +1950,7 @@ export namespace runtime {
 	        this.limit = source["limit"];
 	        this.totalCount = source["totalCount"];
 	        this.sourceCount = source["sourceCount"];
+	        this.windowMs = source["windowMs"];
 	        this.entries = this.convertValues(source["entries"], contracts.FileInfo);
 	    }
 	

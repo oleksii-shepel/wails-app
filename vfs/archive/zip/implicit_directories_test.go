@@ -13,10 +13,10 @@ import (
 func TestReadDirSynthesizesNavigableImplicitDirectories(t *testing.T) {
 	zipPath := filepath.Join(t.TempDir(), "implicit.zip")
 	writeZipWithoutDirectoryEntries(t, zipPath, map[string]string{
-		"frontend/src/main.ts":         "main",
-		"frontend/src/app/app.ts":      "app",
-		"frontend/src/app/routes.ts":   "routes",
-		"README.md":                    "readme",
+		"frontend/src/main.ts":       "main",
+		"frontend/src/app/app.ts":    "app",
+		"frontend/src/app/routes.ts": "routes",
+		"README.md":                  "readme",
 	})
 
 	archive, err := openDisk(zipPath, true)
@@ -210,17 +210,9 @@ func writeZipEntries(
 
 func findEntry(
 	t *testing.T,
-	entries []interface {
-	Name() string
-	Path() string
-	IsDir() bool
-},
+	entries []vfs.FileInfo,
 	name string,
-) interface {
-	Name() string
-	Path() string
-	IsDir() bool
-} {
+) vfs.FileInfo {
 	t.Helper()
 
 	for _, entry := range entries {
@@ -228,6 +220,7 @@ func findEntry(
 			return entry
 		}
 	}
+
 	t.Fatalf("entry %q not found", name)
 	return nil
 }

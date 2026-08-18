@@ -1714,6 +1714,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   private backendWindowRequestToken = 0;
   private backendWindowFetchPromise: Promise<void> | null = null;
   private backendWindowQueuedRange: { start: number; end: number } | null = null;
+  private backendProgressRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   private presentationReloadTimer: ReturnType<typeof setTimeout> | null = null;
 
   private virtualScrollTop = 0;
@@ -2286,7 +2287,6 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   private readonly dirStream: DirListStreamController;
   private resultStreamAbort: AbortController | null = null;
   private streamRenderActive = false;
-  streamLogicalCount = -1;
   private streamLoadGeneration = 0;
   private streamPreviousCursor: string | null = null;
   private streamRestoreSession = false;
@@ -2473,7 +2473,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
       viewportHeight: this.virtualViewportHeight,
       itemExtent: grid ? this.gridRowExtent : this.listRowExtent,
       columns,
-      overscanRows: grid ? 3 : 12,
+      overscanRows: grid ? 8 : 48,
       threshold: this.virtualThreshold,
     });
   }
@@ -8076,12 +8076,24 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   private handleStreamMeta(event: DirStreamMetaEvent): void {
-    this.streamLogicalCount = event.totalCount ?? -1;
     if (this.streamLoadGeneration !== this.loadGeneration) return;
     if (!this.streamRenderActive) return;
 
     if (event.path && event.path !== this.path) {
       this.path = event.path;
+    }
+
+    if (event.totalCount >= 0) {
+      this.backendVisibleCount = event.totalCount;
+      this.backendSourceCount = Math.max(
+        event.totalCount,
+        event.sourceCount >= 0 ? event.sourceCount : event.totalCount,
+      );
+    }
+
+    if (this.backendPresentationActive) {
+      this.queueBackendWindowForViewport();
+      this.cdr.markForCheck();
     }
   }
 
@@ -8094,7 +8106,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
 
     if (this.backendPresentationActive) {
       this.lastAction = `indexing ${event.path}: ${baseEntries.length}`;
-      void this.loadBackendWindowForViewport(true);
+      this.scheduleBackendProgressRefresh();
       return;
     }
 
@@ -8295,7 +8307,25 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     this.treeRowsVisibleRef = null;
   }
 
+  private scheduleBackendProgressRefresh(): void {
+    if (this.backendProgressRefreshTimer !== null) {
+      return;
+    }
+
+    this.backendProgressRefreshTimer = setTimeout(() => {
+      this.backendProgressRefreshTimer = null;
+      if (!this.backendPresentationActive || !this.backendSessionId) {
+        return;
+      }
+      void this.loadBackendWindowForViewport(true);
+    }, 50);
+  }
+
   private resetBackendWindowState(): void {
+    if (this.backendProgressRefreshTimer !== null) {
+      clearTimeout(this.backendProgressRefreshTimer);
+      this.backendProgressRefreshTimer = null;
+    }
     this.backendSessionId = null;
     this.backendVisibleCount = 0;
     this.backendSourceCount = 0;
@@ -8332,9 +8362,12 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
 
   private backendWindowRangeFor(start: number, end: number): { offset: number; limit: number } {
     const visibleSpan = Math.max(1, end - start);
-    const minimumLimit = this.viewMode === 'grid' ? 180 : 320;
-    const limit = Math.max(minimumLimit, visibleSpan * 2);
-    const offset = Math.max(0, start - Math.floor((limit - visibleSpan) / 2));
+    const minimumLimit = this.viewMode === 'grid' ? 768 : 1024;
+    const limit = Math.max(minimumLimit, visibleSpan * 4);
+    const offset = Math.max(
+      0,
+      start - Math.floor((limit - visibleSpan) / 2),
+    );
     return { offset, limit };
   }
 
@@ -8349,12 +8382,17 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
     };
     const range = this.backendWindowRangeFor(target.start, target.end);
     const currentEnd = this.backendWindowOffset + this.entries.length;
-    if (
-      !force &&
-      range.offset >= this.backendWindowOffset &&
-      range.offset + range.limit <= currentEnd
-    ) {
-      return;
+    if (!force && this.entries.length > 0) {
+      const guard = Math.max(64, Math.floor(this.entries.length * 0.20));
+      const guardedStart = this.backendWindowOffset + guard;
+      const guardedEnd = currentEnd - guard;
+
+      if (
+        target.start >= guardedStart &&
+        target.end <= guardedEnd
+      ) {
+        return;
+      }
     }
 
     const token = ++this.backendWindowRequestToken;

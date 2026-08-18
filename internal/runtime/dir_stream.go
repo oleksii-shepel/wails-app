@@ -251,12 +251,7 @@ func (s *DirStreamService) CancelAll() {
 }
 
 func (s *DirStreamService) initialDirectoryCount(path string, showHidden bool, options DirStreamOptions) int {
-	// Search/VFS filtering can change cardinality while entries are being
-	// prepared, so keep their extent unknown until indexing establishes it.
-	if pathref.IsSearch(path) || (s.isVFSPath != nil && s.isVFSPath(path)) {
-		return -1
-	}
-	if options.FilterText != "" {
+	if pathref.IsSearch(path) || options.FilterText != "" || (s.isVFSPath != nil && s.isVFSPath(path)) {
 		return -1
 	}
 
@@ -264,22 +259,21 @@ func (s *DirStreamService) initialDirectoryCount(path string, showHidden bool, o
 	if err != nil {
 		return -1
 	}
-	entries, err := os.ReadDir(resolved)
+
+	raw, err := os.ReadDir(resolved)
 	if err != nil {
 		return -1
 	}
 
-	if showHidden {
-		return len(entries)
+	if showHidden || s.isHidden == nil {
+		return len(raw)
 	}
 
 	count := 0
-	for _, entry := range entries {
-		fullPath := filepath.Join(resolved, entry.Name())
-		if s.isHidden != nil && s.isHidden(entry.Name(), fullPath) {
-			continue
+	for _, entry := range raw {
+		if !s.isHidden(entry.Name(), filepath.Join(resolved, entry.Name())) {
+			count++
 		}
-		count++
 	}
 	return count
 }

@@ -1707,6 +1707,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   // projected again by Angular.
   private backendPresentationActive = false;
   private backendSessionId: string | null = null;
+  private backendDisplayPath: string | null = null;
   private backendVisibleCount = 0;
   private backendSourceCount = 0;
   private backendWindowOffset = 0;
@@ -7905,7 +7906,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       }
 
       if (streamMode === 'results') {
-        this.backendPresentationActive = false;
+        this.backendPresentationActive = true;
         return await this.loadResultsStream(
           requestedPath,
           generation,
@@ -8022,43 +8023,61 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       options,
     );
 
-    const abort = new AbortController();
-    this.resultStreamAbort = abort;
-    const accumulated: FileInfo[] = [];
+    const searchAlias = this.panelSources.resultsPanelSearchAlias(requestedPath);
+    if (searchAlias) {
+      // Query-backed saved collections regenerate through the same Go directory
+      // stream used by search:// tabs. The visible pane path remains results://.
+      this.backendDisplayPath = requestedPath;
+      const estimated = this.panelSources.resultsPanelCount(requestedPath);
+      this.backendVisibleCount = Math.max(0, estimated);
+      this.backendSourceCount = this.backendVisibleCount;
 
-    await this.panelSources.streamResultsPanel(requestedPath, {
-      batchSize: 512,
-      signal: abort.signal,
-      onBatch: batch => {
-        if (
-          abort.signal.aborted ||
-          generation !== this.loadGeneration
-        ) return;
+      const streamId = await this.dirStream.start(
+        searchAlias,
+        this.showHidden,
+        {
+          sortField: this.sortField,
+          sortDirection: this.sortDirection,
+          directoriesFirst: this.directoriesFirst,
+          filterText: this.filterText,
+        },
+      );
+      this.backendSessionId = streamId;
+      await this.dirStream.waitFor(streamId);
+      if (generation !== this.loadGeneration) return false;
 
-        accumulated.push(...batch);
-        this.entries = accumulated;
-        this.invalidateProjection();
+      await this.loadBackendWindowForViewport(true);
+      if (generation !== this.loadGeneration) return false;
 
-        if (this.streamFirstBatch) {
-          this.streamFirstBatch = false;
-          this.seedStreamingCursor(previousCursor, options.restoreSession === true);
-        }
+      this.applyLoadedDirectory(
+        requestedPath,
+        [...this.entries],
+        generation,
+        previousCursor,
+        options,
+        true,
+      );
+      return true;
+    }
 
-        this.cdr.markForCheck();
-      },
-    });
+    // Static/saved/plugin/duplicate collections stay in the results service and
+    // are read through large virtual windows. No accumulated frontend array.
+    this.backendDisplayPath = requestedPath;
+    this.backendSessionId = `results:${requestedPath}`;
+    this.backendVisibleCount = this.panelSources.resultsPanelCount(requestedPath);
+    this.backendSourceCount = this.backendVisibleCount;
 
+    await this.loadBackendWindowForViewport(true);
     if (generation !== this.loadGeneration) return false;
 
-    this.resultStreamAbort = null;
-    this.finishStreamingDirectory(
+    this.applyLoadedDirectory(
       requestedPath,
-      accumulated,
+      [...this.entries],
       generation,
       previousCursor,
       options,
+      true,
     );
-
     return true;
   }
 
@@ -8109,7 +8128,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     if (this.streamLoadGeneration !== this.loadGeneration) return;
     if (!this.streamRenderActive) return;
 
-    if (event.path && event.path !== this.path) {
+    if (!this.backendDisplayPath && event.path && event.path !== this.path) {
       this.path = event.path;
     }
 
@@ -8357,6 +8376,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       this.backendProgressRefreshTimer = null;
     }
     this.backendSessionId = null;
+    this.backendDisplayPath = null;
     this.backendVisibleCount = 0;
     this.backendSourceCount = 0;
     this.backendWindowOffset = 0;
@@ -8434,17 +8454,39 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
 
     const token = ++this.backendWindowRequestToken;
     this.backendWindowFetchPromise = (async () => {
-      const window = await this.dirStream.readWindow(
-        streamId,
-        range.offset,
-        range.limit,
-      );
+      const window = streamId.startsWith('results:')
+        ? {
+            ...this.panelSources.readResultsPanelWindow(
+              this.backendDisplayPath ?? this.path,
+              range.offset,
+              range.limit,
+              {
+                sort: this.sortField === 'name'
+                  ? 'name'
+                  : this.sortField === 'type'
+                    ? 'type'
+                    : 'path',
+                filterText: this.filterText,
+              },
+            ),
+            pipelineTiming: {
+              bridgeMs: 0,
+              backendWindowMs: 0,
+            },
+          }
+        : await this.dirStream.readWindow(
+            streamId,
+            range.offset,
+            range.limit,
+          );
       if (token !== this.backendWindowRequestToken) {
         return;
       }
       this.backendWindowOffset = window.offset;
       this.backendWindowLimit = window.limit;
-      this.backendVisibleCount = Math.max(0, window.totalCount ?? 0);
+      this.backendVisibleCount = streamId.startsWith('results:')
+        ? Math.max(0, window.totalCount ?? 0)
+        : Math.max(this.backendVisibleCount, Math.max(0, window.totalCount ?? 0));
       this.backendSourceCount = Math.max(
         this.backendVisibleCount,
         window.sourceCount ?? this.backendVisibleCount,

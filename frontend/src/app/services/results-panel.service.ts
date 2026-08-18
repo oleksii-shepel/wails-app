@@ -1,6 +1,11 @@
 import { Injectable } from '@angular/core';
 
 import type { FileInfo } from '../shared/protocol-enhanced';
+import {
+  SearchResultIndex,
+  type SearchResultSort,
+  type SearchResultWindow,
+} from './search-result-index';
 
 export interface ResultsPanelMetadata {
   readonly resultCount?: number;
@@ -17,6 +22,10 @@ export interface ResultsPanelMetadata {
   readonly duplicateGroups?: string;
   readonly searchStrategy?: 'auto' | 'live' | 'indexed';
   readonly minDuplicateSize?: string;
+  readonly recursive?: boolean;
+  readonly sort?: SearchResultSort;
+  readonly estimatedResultCount?: number;
+  readonly duplicateCandidateGroups?: number;
 }
 
 export interface ResultsPanelCreateOptions {
@@ -61,6 +70,7 @@ function parseResultsId(path: string): string | null {
 export class ResultsPanelService {
   private readonly panels = new Map<string, ResultsPanelDefinition>();
   private readonly refreshers = new Map<string, ResultsPanelRefresher>();
+  private readonly indexes = new Map<string, SearchResultIndex>();
   private hydrated = false;
 
   create(
@@ -75,16 +85,29 @@ export class ResultsPanelService {
       `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
     const path = `results://${encodeURIComponent(id)}`;
+    const index = new SearchResultIndex();
+    index.setSort(metadata.sort ?? 'relevance');
+    index.append(entries, entries.length);
+
     const definition: ResultsPanelDefinition = {
       id,
       title: title.trim() || 'Results',
       path,
       createdAt: Date.now(),
-      entries: [...entries],
-      metadata: { ...metadata },
+      // Keep the public definition compatible. Runtime windowing uses the
+      // chunked index below; persistence already truncates large collections.
+      entries,
+      metadata: {
+        ...metadata,
+        resultCount: metadata.resultCount ?? index.resultCount,
+        duplicateCandidateGroups:
+          metadata.duplicateCandidateGroups ??
+          index.snapshot().duplicateCandidateGroups,
+      },
     };
 
     this.panels.set(id, definition);
+    this.indexes.set(id, index);
     this.trim();
     this.persist();
     return definition;
@@ -105,7 +128,33 @@ export class ResultsPanelService {
       query,
       kind: recursive ? 'recursive-search' : 'search',
       searchStrategy: strategy,
+      recursive,
+      resultCount: entries.length,
     });
+  }
+
+  createFromIndex(
+    title: string,
+    index: SearchResultIndex,
+    metadata: ResultsPanelMetadata = {},
+  ): ResultsPanelDefinition {
+    const snapshot = index.snapshot();
+    // Only a small preview is attached to the public/persisted definition.
+    // The complete runtime population stays chunked in the index map.
+    const preview = index.materialize(
+      Math.min(MAX_PERSISTED_ENTRIES_PER_PANEL, snapshot.resultCount),
+    );
+    const definition = this.create(title, preview, {
+      ...metadata,
+      resultCount: snapshot.resultCount,
+      estimatedResultCount: snapshot.resultCount,
+      duplicateCandidateGroups: snapshot.duplicateCandidateGroups,
+      sort: index.sort,
+    });
+
+    const id = parseResultsId(definition.path);
+    if (id) this.indexes.set(id, index);
+    return definition;
   }
 
   createRecentFiles(
@@ -161,6 +210,7 @@ export class ResultsPanelService {
       if (panel.metadata.pluginId !== owner) continue;
       this.panels.delete(id);
       this.refreshers.delete(id);
+      this.indexes.delete(id);
       changed = true;
     }
     if (changed) this.persist();
@@ -187,25 +237,90 @@ export class ResultsPanelService {
     const panel = this.get(path);
     if (!panel) return 0;
 
+    const index = this.ensureIndex(panel);
     const batchSize = Math.max(64, Math.min(2048, options.batchSize ?? 512));
-    const total = panel.entries.length;
+    const total = index.resultCount;
 
     for (let start = 0; start < total; start += batchSize) {
       if (options.signal?.aborted) {
         throw new DOMException('Results stream cancelled.', 'AbortError');
       }
 
-      const end = Math.min(total, start + batchSize);
-      options.onBatch(panel.entries.slice(start, end), end, total);
+      const window = index.window(start, batchSize);
+      options.onBatch(window.entries, start + window.entries.length, total);
 
-      // Yield between batches so very large saved/virtual collections do not
-      // monopolize the renderer while being attached to a pane.
-      if (end < total) {
+      if (start + window.entries.length < total) {
         await this.nextFrame(options.signal);
       }
+      if (!window.entries.length) break;
     }
 
     return total;
+  }
+
+  count(path: string): number {
+    const panel = this.get(path);
+    if (!panel) return 0;
+    return Number(panel.metadata.resultCount ?? this.ensureIndex(panel).resultCount);
+  }
+
+  readWindow(
+    path: string,
+    offset: number,
+    limit: number,
+    options?: {
+      readonly sort?: SearchResultSort;
+      readonly filterText?: string;
+    },
+  ): SearchResultWindow {
+    const panel = this.get(path);
+    if (!panel) {
+      return { offset: 0, limit: 0, totalCount: 0, sourceCount: 0, entries: [] };
+    }
+
+    const index = this.ensureIndex(panel);
+    index.setSort(options?.sort ?? panel.metadata.sort ?? 'relevance');
+
+    const filterText = options?.filterText?.trim().toLocaleLowerCase() ?? '';
+    index.setFilter(filterText
+      ? entry =>
+          (entry.name ?? '').toLocaleLowerCase().includes(filterText) ||
+          (entry.path ?? '').toLocaleLowerCase().includes(filterText)
+      : null);
+
+    return index.window(offset, limit);
+  }
+
+  backendSearchAlias(path: string): string | null {
+    const panel = this.get(path);
+    if (!panel) return null;
+
+    const kind = panel.metadata.kind;
+    if (kind !== 'search' && kind !== 'recursive-search') return null;
+
+    const root = panel.metadata.rootPath?.trim() ?? '';
+    const query = panel.metadata.query?.trim() ?? '';
+    if (!root || !query) return null;
+
+    const params = new URLSearchParams();
+    params.set('path', root);
+    params.set('pattern', query);
+    params.set(
+      'recursive',
+      String(panel.metadata.recursive ?? kind === 'recursive-search'),
+    );
+    return `search://?${params.toString()}`;
+  }
+
+  private ensureIndex(panel: ResultsPanelDefinition): SearchResultIndex {
+    let index = this.indexes.get(panel.id);
+    if (index) return index;
+
+    index = new SearchResultIndex();
+    index.setSort(panel.metadata.sort ?? 'relevance');
+    index.append(panel.entries, panel.entries.length);
+    this.indexes.set(panel.id, index);
+    return index;
   }
 
   private async nextFrame(signal?: AbortSignal): Promise<void> {
@@ -252,6 +367,7 @@ export class ResultsPanelService {
     if (!id) return;
     this.panels.delete(id);
     this.refreshers.delete(id);
+    this.indexes.delete(id);
     this.persist();
   }
 
@@ -281,6 +397,12 @@ export class ResultsPanelService {
     };
 
     this.panels.set(id, next);
+    if (update.entries) {
+      const index = new SearchResultIndex();
+      index.setSort(next.metadata.sort ?? 'relevance');
+      index.append(next.entries, next.entries.length);
+      this.indexes.set(id, index);
+    }
     this.persist();
     return next;
   }

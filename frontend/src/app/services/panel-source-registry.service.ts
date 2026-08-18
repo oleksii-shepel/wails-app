@@ -431,6 +431,26 @@ export class PanelSourceRegistryService {
       : null;
   }
 
+  resultsPanelCount(path: string): number {
+    return this.resultsPanels.count(path);
+  }
+
+  resultsPanelSearchAlias(path: string): string | null {
+    return this.resultsPanels.backendSearchAlias(path);
+  }
+
+  readResultsPanelWindow(
+    path: string,
+    offset: number,
+    limit: number,
+    options?: {
+      readonly sort?: 'relevance' | 'name' | 'path' | 'type';
+      readonly filterText?: string;
+    },
+  ) {
+    return this.resultsPanels.readWindow(path, offset, limit, options);
+  }
+
   async streamResultsPanel(
     path: string,
     options: {

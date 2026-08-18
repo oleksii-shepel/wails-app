@@ -13,6 +13,11 @@ export interface DiscoverySearchOptions {
   readonly type?: 'all' | 'files' | 'folders' | 'archives';
   readonly signal?: AbortSignal;
   readonly onProgress?: (progress: DiscoverySearchProgress) => void;
+  readonly onBatch?: (
+    batch: readonly FileInfo[],
+    progress: DiscoverySearchProgress,
+  ) => void;
+  readonly batchSize?: number;
 }
 
 export interface DiscoverySearchProgress {
@@ -66,8 +71,11 @@ export class DiscoverySearchService {
     });
 
     // Preserve the fast native backend search for ordinary local files.
-    if (resolved.source.kind === 'filesystem' &&
-        /^([a-z]:[\\/]|\/|\\\\)/i.test(root)) {
+    if (
+      !options.onBatch &&
+      resolved.source.kind === 'filesystem' &&
+      /^([a-z]:[\\/]|\/|\\\\)/i.test(root)
+    ) {
       try {
         const result = await this.api.search(
           root,
@@ -105,20 +113,39 @@ export class DiscoverySearchService {
     options: DiscoverySearchOptions,
   ): Promise<DiscoverySearchResult> {
     const recursive = options.recursive !== false;
-    const maxResults = Math.max(1, options.maxResults ?? 500);
-    const maxVisited = Math.max(1, options.maxVisitedDirectories ?? 5000);
+    const maxResults = Math.max(1, options.maxResults ?? 100_000);
+    const maxVisited = Math.max(1, options.maxVisitedDirectories ?? 100_000);
     const maxDepth = Math.max(0, options.maxDepth ?? 64);
+    const batchSize = Math.max(64, Math.min(2048, options.batchSize ?? 512));
     const matcher = this.matcher(query);
-    const matches: FileInfo[] = [];
+
+    // Streaming consumers own the result population. Do not also retain another
+    // 100k-entry array in this service.
+    const retainedMatches: FileInfo[] = [];
+    const batch: FileInfo[] = [];
     const warnings: string[] = [];
     const visited = new Set<string>();
     const queue: Array<{ path: string; depth: number }> = [{ path: root, depth: 0 }];
+    let matchedEntries = 0;
     let truncated = false;
+
+    const progress = (currentPath: string): DiscoverySearchProgress => ({
+      sourceId,
+      visitedDirectories: visited.size,
+      matchedEntries,
+      currentPath,
+    });
+
+    const flush = (currentPath: string): void => {
+      if (!batch.length) return;
+      const out = batch.splice(0, batch.length);
+      options.onBatch?.(out, progress(currentPath));
+    };
 
     while (queue.length) {
       this.throwIfAborted(options.signal);
 
-      if (visited.size >= maxVisited || matches.length >= maxResults) {
+      if (visited.size >= maxVisited || matchedEntries >= maxResults) {
         truncated = true;
         break;
       }
@@ -143,10 +170,21 @@ export class DiscoverySearchService {
         this.throwIfAborted(options.signal);
         if (!options.showHidden && entry.isHidden) continue;
 
-        if (matcher(entry) &&
-            this.typeAllowed(entry, options.type ?? 'all')) {
-          matches.push({ ...entry });
-          if (matches.length >= maxResults) {
+        if (
+          matcher(entry) &&
+          this.typeAllowed(entry, options.type ?? 'all')
+        ) {
+          const copy = { ...entry };
+          matchedEntries += 1;
+
+          if (options.onBatch) {
+            batch.push(copy);
+            if (batch.length >= batchSize) flush(current.path);
+          } else {
+            retainedMatches.push(copy);
+          }
+
+          if (matchedEntries >= maxResults) {
             truncated = true;
             break;
           }
@@ -162,21 +200,25 @@ export class DiscoverySearchService {
         }
       }
 
-      options.onProgress?.({
-        sourceId,
-        visitedDirectories: visited.size,
-        matchedEntries: matches.length,
-        currentPath: current.path,
-      });
+      flush(current.path);
+      options.onProgress?.(progress(current.path));
 
       if (!recursive) break;
+
+      // Let Angular paint result windows and process cancellation between
+      // directory batches rather than monopolising the renderer.
+      if (options.onBatch && queue.length) {
+        await new Promise<void>(resolve => setTimeout(resolve, 0));
+      }
     }
+
+    flush(root);
 
     return {
       rootPath: root,
       sourceId,
       sourceKind,
-      entries: matches,
+      entries: retainedMatches,
       visitedDirectories: visited.size,
       truncated,
       warnings,

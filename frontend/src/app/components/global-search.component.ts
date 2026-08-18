@@ -29,9 +29,13 @@ import { InputEngineService } from '../services/input-engine.service';
 import type { InputBindingDefinition } from '../services/input-system.types';
 import { FileInfo, FileType } from '../shared/protocol';
 import { ModalSurfaceDirective } from './modal-surface.directive';
+import {
+  SearchResultIndex,
+  type SearchResultSort,
+} from '../services/search-result-index';
 import { VirtualCollection } from '../services/virtual-window';
 
-type SearchSort = 'relevance' | 'name' | 'path' | 'type';
+type SearchSort = SearchResultSort;
 type DiscoveryMode = 'search' | 'recent' | 'collections';
 
 export interface SearchResultsPanelRequest {
@@ -93,7 +97,7 @@ const SEARCH_RESULT_WINDOW_ITEMS = 160;
           </div>
           <span class="count">
             {{ searching ? 'searching…' : resultCount + ' results' }}
-            <ng-container *ngIf="!searching && results.length">
+            <ng-container *ngIf="!searching && resultCount">
               · {{ folderCount }} folders · {{ fileCount }} files
             </ng-container>
           </span>
@@ -130,7 +134,7 @@ const SEARCH_RESULT_WINDOW_ITEMS = 160;
               </select>
             </label>
             <label>Sort
-              <select [(ngModel)]="sortMode" aria-label="Search result sort">
+              <select [(ngModel)]="sortMode" (ngModelChange)="applySort()" aria-label="Search result sort">
                 <option value="relevance">Relevance</option>
                 <option value="name">Name</option>
                 <option value="path">Path</option>
@@ -170,7 +174,7 @@ const SEARCH_RESULT_WINDOW_ITEMS = 160;
               [class.selected]="searchWindowStart + i === selectedIndex"
               [attr.aria-selected]="searchWindowStart + i === selectedIndex"
               [attr.aria-posinset]="searchWindowStart + i + 1"
-              [attr.aria-setsize]="displayedResults.length"
+              [attr.aria-setsize]="resultCount"
               (mouseenter)="selectedIndex=searchWindowStart + i"
               (click)="openEntry(entry)">
               <span class="icon">{{ icon(entry) }}</span>
@@ -181,7 +185,7 @@ const SEARCH_RESULT_WINDOW_ITEMS = 160;
               <span class="kind">{{ kind(entry) }}</span>
             </button>
 
-            <div class="empty" *ngIf="!searching && displayedResults.length === 0">
+            <div class="empty" *ngIf="!searching && resultCount === 0">
               {{ mode === 'recent'
                 ? 'No recent files match.'
                 : queryText.trim()
@@ -205,7 +209,7 @@ const SEARCH_RESULT_WINDOW_ITEMS = 160;
                 <strong>{{ panel.title }}</strong>
                 <small>{{ collectionSummary(panel) }}</small>
               </span>
-              <span class="kind">{{ panel.entries.length }} items</span>
+              <span class="kind">{{ panel.metadata.resultCount ?? panel.entries.length }} items</span>
             </button>
             <div class="empty" *ngIf="visibleCollections.length === 0">No matching collections.</div>
           </ng-template>
@@ -221,7 +225,7 @@ const SEARCH_RESULT_WINDOW_ITEMS = 160;
             *ngIf="mode !== 'collections'"
             type="button"
             class="open-panel"
-            [disabled]="searching || displayedResults.length === 0"
+            [disabled]="searching || resultCount === 0"
             (click)="openAsResultsPanel()">
             Open as Panel
           </button>
@@ -236,7 +240,7 @@ const SEARCH_RESULT_WINDOW_ITEMS = 160;
             *ngIf="mode === 'search'"
             type="button"
             class="open-panel"
-            [disabled]="searching || displayedResults.length === 0"
+            [disabled]="searching || resultCount === 0"
             (click)="openAsResultsWorkspace()">
             Open Workspace
           </button>
@@ -294,7 +298,9 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
   savedSearches: ReturnType<DiscoveryHistoryService['saved']> = [];
   collections: readonly ResultsPanelDefinition[] = [];
   private queryHistoryIndex = -1;
-  results: FileInfo[] = [];
+  private readonly searchIndex = new SearchResultIndex();
+  private resultWindowOffset = 0;
+  private resultWindowEntries: readonly FileInfo[] = [];
   searchProgress = '';
   searchWarnings: readonly string[] = [];
   selectedIndex = 0;
@@ -315,67 +321,22 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
     private readonly cdr: ChangeDetectorRef,
   ) {}
 
-  get displayedResults(): FileInfo[] {
-    const results = [...this.results];
-
-    if (this.sortMode === 'name') {
-      return results.sort((a,b) =>
-        (a.name ?? '').localeCompare(b.name ?? '', undefined, {
-          numeric: true,
-          sensitivity: 'base',
-        }),
-      );
-    }
-
-    if (this.sortMode === 'path') {
-      return results.sort((a,b) =>
-        (a.path ?? '').localeCompare(b.path ?? '', undefined, {
-          numeric: true,
-          sensitivity: 'base',
-        }),
-      );
-    }
-
-    if (this.sortMode === 'type') {
-      return results.sort((a,b) =>
-        this.kind(a).localeCompare(this.kind(b)) ||
-        (a.name ?? '').localeCompare(b.name ?? ''),
-      );
-    }
-
-    return results;
+  get resultCount(): number {
+    return this.mode === 'collections'
+      ? this.visibleCollections.length
+      : this.searchIndex.resultCount;
   }
 
   get searchWindowStart(): number {
+    if (this.mode === 'collections') return 0;
     this.refreshSearchVirtualWindow();
-    return this.resultVirtualCollection.window.start;
+    return this.resultWindowOffset;
   }
 
   get renderedSearchResults(): readonly FileInfo[] {
     if (this.mode === 'collections') return [];
     this.refreshSearchVirtualWindow();
-    return this.resultVirtualCollection.renderedItems();
-  }
-
-  private refreshSearchVirtualWindow(): void {
-    const entries = this.displayedResults;
-    this.resultVirtualCollection.setLogicalCount(entries.length);
-    this.resultVirtualCollection.populate(0, entries, entries.length);
-
-    if (entries.length === 0) {
-      this.resultVirtualCollection.updateViewport({
-        scrollTop: 0,
-        viewportHeight: SEARCH_RESULT_ROW_HEIGHT,
-        columns: 1,
-      }, true);
-      return;
-    }
-
-    const index = Math.max(0, Math.min(entries.length - 1, this.selectedIndex));
-    this.resultVirtualCollection.revealIndex(
-      index,
-      Math.min(SEARCH_RESULT_WINDOW_ITEMS, entries.length),
-    );
+    return this.resultWindowEntries;
   }
 
   get modeLabel(): string {
@@ -384,19 +345,12 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
     return 'Search';
   }
 
-  get resultCount(): number {
-    return this.mode === 'collections'
-      ? this.visibleCollections.length
-      : this.displayedResults.length;
-  }
-
   get visibleCollections(): readonly ResultsPanelDefinition[] {
     const needle = this.queryText.trim().toLocaleLowerCase();
     return this.collections.filter(panel =>
       !needle ||
       panel.title.toLocaleLowerCase().includes(needle) ||
-      (panel.metadata.kind ?? '').toLocaleLowerCase().includes(needle) ||
-      (panel.metadata.origin ?? '').toLocaleLowerCase().includes(needle)
+      this.collectionSummary(panel).toLocaleLowerCase().includes(needle)
     );
   }
 
@@ -407,15 +361,49 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
   get selectedResult(): FileInfo | null {
     return this.mode === 'collections'
       ? null
-      : this.displayedResults[this.selectedIndex] ?? null;
+      : this.searchIndex.at(this.selectedIndex);
   }
 
   get folderCount(): number {
-    return this.results.filter(entry => entry.type === FileType.DIRECTORY).length;
+    return this.searchIndex.folderCount;
   }
 
   get fileCount(): number {
-    return this.results.length - this.folderCount;
+    return this.searchIndex.fileCount;
+  }
+
+  get duplicateCandidateGroupCount(): number {
+    return this.searchIndex.snapshot().duplicateCandidateGroups;
+  }
+
+  private refreshSearchVirtualWindow(): void {
+    const count = this.searchIndex.resultCount;
+    this.resultVirtualCollection.setLogicalCount(count);
+
+    if (count === 0) {
+      this.resultWindowOffset = 0;
+      this.resultWindowEntries = [];
+      this.resultVirtualCollection.populate(0, [], 0);
+      return;
+    }
+
+    const index = Math.max(0, Math.min(count - 1, this.selectedIndex));
+    this.resultVirtualCollection.revealIndex(
+      index,
+      Math.min(SEARCH_RESULT_WINDOW_ITEMS, count),
+    );
+
+    const prefetch = this.resultVirtualCollection.prefetch();
+    const window = this.searchIndex.window(prefetch.offset, Math.max(1, prefetch.limit));
+    this.resultVirtualCollection.populate(
+      window.offset,
+      window.entries,
+      window.totalCount,
+    );
+
+    const renderWindow = this.resultVirtualCollection.window;
+    this.resultWindowOffset = renderWindow.start;
+    this.resultWindowEntries = this.resultVirtualCollection.renderedItems(renderWindow);
   }
 
   ngOnInit(): void {
@@ -432,7 +420,7 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
     this.input.registerCommandDescriptor({id:COMMAND.next,title:'Next Search Result',category:'Search & Filter',execute:()=>this.move(1)},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.open,title:'Open Search Result',category:'Search & Filter',execute:()=>{if(this.mode==='collections'){const panel=this.selectedCollection;if(panel)this.openCollection(panel);return;}const entry=this.selectedResult;if(entry)this.openEntry(entry)}},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.openFolder,title:'Open Containing Folder',category:'Search & Filter',execute:()=>{const entry=this.selectedResult;if(entry)this.openFolder(entry)}},OWNER_ID);
-    this.input.registerCommandDescriptor({id:COMMAND.openAsPanel,title:'Open Search Results as Panel',category:'Search & Filter',execute:()=>this.openAsResultsPanel(),isEnabled:()=>this.displayedResults.length>0&&!this.searching},OWNER_ID);
+    this.input.registerCommandDescriptor({id:COMMAND.openAsPanel,title:'Open Search Results as Panel',category:'Search & Filter',execute:()=>this.openAsResultsPanel(),isEnabled:()=>this.resultCount>0&&!this.searching},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.toggleRecursive,title:'Toggle Recursive Search',category:'Search & Filter',execute:()=>this.toggleRecursive()},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.cycleSort,title:'Cycle Search Sort',category:'Search & Filter',execute:()=>this.cycleSort()},OWNER_ID);
     this.input.registerCommandDescriptor({id:COMMAND.previousQuery,title:'Previous Search Query',category:'Search & Filter',execute:()=>this.moveQueryHistory(-1),isEnabled:()=>this.historyEntries.length>0},OWNER_ID);
@@ -459,7 +447,7 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
     this.queryHistoryIndex = -1;
     this.mode = 'search';
     this.queryText = '';
-    this.results = [];
+    this.searchIndex.reset(this.sortMode);
     this.selectedIndex = 0;
     this.error = '';
     this.visible = true;
@@ -500,7 +488,7 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
     this.searchAbort = null;
 
     if (this.mode === 'collections') {
-      this.results = [];
+      this.searchIndex.reset(this.sortMode);
       this.collections = this.resultPanels.recent();
       this.selectedIndex = Math.min(
         this.selectedIndex,
@@ -513,10 +501,12 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
     }
 
     if (this.mode === 'recent') {
-      this.results = this.recentFiles.search(query, 200);
+      this.searchIndex.reset(this.sortMode);
+      const recent = this.recentFiles.search(query, 200);
+      this.searchIndex.append(recent, recent.length);
       this.selectedIndex = Math.min(
         this.selectedIndex,
-        Math.max(0, this.displayedResults.length - 1),
+        Math.max(0, this.resultCount - 1),
       );
       this.searching = false;
       this.error = '';
@@ -525,7 +515,7 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
     }
 
     if (!query || !this.rootPath) {
-      this.results = [];
+      this.searchIndex.reset(this.sortMode);
       this.searching = false;
       this.error = '';
       this.searchProgress = '';
@@ -541,6 +531,9 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
     this.error = '';
     this.searchProgress = '';
     this.searchWarnings = [];
+    this.searchIndex.reset(this.sortMode);
+    this.resultWindowOffset = 0;
+    this.resultWindowEntries = [];
     this.cdr.markForCheck();
 
     try {
@@ -550,7 +543,8 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
         {
           recursive: this.recursive,
           type: this.typeFilter,
-          maxResults: 500,
+          maxResults: 100_000,
+          batchSize: 512,
           signal: controller.signal,
           onProgress: progress => {
             if (generation !== this.searchGeneration) return;
@@ -558,29 +552,44 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
               `${progress.sourceId} · ${progress.visitedDirectories} folders · ${progress.matchedEntries} matches`;
             this.cdr.markForCheck();
           },
+          onBatch: (batch, progress) => {
+            if (
+              controller.signal.aborted ||
+              generation !== this.searchGeneration
+            ) return;
+            this.searchIndex.append(batch, progress.matchedEntries);
+            this.selectedIndex = Math.min(
+              this.selectedIndex,
+              Math.max(0, this.resultCount - 1),
+            );
+            this.cdr.markForCheck();
+          },
         },
       );
 
       if (generation !== this.searchGeneration) return;
 
-      this.results = [...result.entries];
+      // Non-streaming providers may still return a terminal population.
+      if (result.entries.length) {
+        this.searchIndex.append(result.entries, result.entries.length);
+      }
       this.searchWarnings = result.warnings;
       this.searchProgress = result.truncated
         ? `${result.sourceId} · result limit reached`
         : `${result.sourceId} · ${result.visitedDirectories} folders`;
 
-      this.history.record(this.currentSearchSpec(), this.results.length);
+      this.history.record(this.currentSearchSpec(), this.resultCount);
       this.historyEntries = this.history.history();
 
       this.selectedIndex = Math.min(
         this.selectedIndex,
-        Math.max(0, this.displayedResults.length - 1),
+        Math.max(0, this.resultCount - 1),
       );
     } catch (error) {
       if (generation !== this.searchGeneration) return;
       if (error instanceof DOMException && error.name === 'AbortError') return;
 
-      this.results = [];
+      this.searchIndex.reset(this.sortMode);
       this.selectedIndex = 0;
       this.error = error instanceof Error ? error.message : String(error);
     } finally {
@@ -593,39 +602,52 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
   }
 
   openAsResultsPanel(): void {
-    const entries = this.displayedResults;
-    if (entries.length === 0) return;
+    if (this.resultCount === 0) return;
 
     const query = this.queryText.trim();
-    this.openAsPanel.emit({
-      title: this.mode === 'recent'
+    const panel = this.resultPanels.createFromIndex(
+      this.mode === 'recent'
         ? (query ? `Recent: ${query}` : 'Recent Files')
         : `Search: ${query}`,
-      rootPath: this.mode === 'recent' ? '' : this.rootPath,
-      query: this.mode === 'recent' ? `recent:${query}` : query,
-      recursive: this.mode === 'search' && this.recursive,
-      entries: entries.map(entry => ({ ...entry })),
-    });
+      this.searchIndex,
+      this.mode === 'recent'
+        ? {
+            origin: 'recent-files',
+            query,
+            kind: 'recent-files',
+            sort: this.sortMode,
+          }
+        : {
+            origin: 'global-search',
+            rootPath: this.rootPath,
+            query,
+            recursive: this.recursive,
+            kind: this.recursive ? 'recursive-search' : 'search',
+            sort: this.sortMode,
+          },
+    );
 
+    this.openPanelPath.emit(panel.path);
     this.close();
   }
 
   openAsResultsWorkspace(): void {
     const query = this.queryText.trim();
-    const entries = this.displayedResults;
-    if (!query || entries.length === 0) return;
+    if (!query || this.resultCount === 0) return;
 
+    // Workspace export is an explicit user action, so materialising the current
+    // result set here is acceptable. Normal searching/rendering stays windowed.
+    const entries = this.searchIndex.materialize();
     this.openAsWorkspace.emit({
       title: `Search: ${query}`,
       rootPath: this.rootPath,
       query,
       recursive: this.recursive,
-      entries: entries.map(entry => ({ ...entry })),
+      entries,
     });
 
     this.close();
   }
-
 
   toggleRecursive(): void {
     this.recursive = !this.recursive;
@@ -633,13 +655,24 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
   }
 
+  applySort(): void {
+    this.searchIndex.setSort(this.sortMode);
+    this.resultWindowEntries = [];
+    this.selectedIndex = Math.min(
+      this.selectedIndex,
+      Math.max(0, this.resultCount - 1),
+    );
+    this.cdr.markForCheck();
+  }
+
   cycleSort(): void {
     const modes: SearchSort[] = ['relevance', 'name', 'path', 'type'];
     const index = modes.indexOf(this.sortMode);
     this.sortMode = modes[(index + 1) % modes.length];
+    this.searchIndex.setSort(this.sortMode);
     this.selectedIndex = Math.min(
       this.selectedIndex,
-      Math.max(0, this.displayedResults.length - 1),
+      Math.max(0, this.resultCount - 1),
     );
     this.cdr.markForCheck();
   }
@@ -784,7 +817,7 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
   private move(delta:-1|1):void {
     const count=this.mode === 'collections'
       ? this.visibleCollections.length
-      : this.displayedResults.length;
+      : this.resultCount;
     if(!count)return;
     this.selectedIndex=(this.selectedIndex+delta+count)%count;
     this.cdr.markForCheck();

@@ -25,7 +25,7 @@ import { ActionFeedbackService } from '../services/action-feedback.service';
 import { RecentFilesService } from '../services/recent-files.service';
 import { ResultsPanelService } from '../services/results-panel.service';
 import { SmartResultsService } from '../services/smart-results.service';
-import { calculateVirtualWindow, type VirtualWindow } from '../services/virtual-window';
+import { VirtualCollection, calculateVirtualWindow, type VirtualWindow } from '../services/virtual-window';
 import { PluginManagerService } from '../services/plugin-manager.service';
 import type { PanelColumnContribution, PanelColumnContext } from '../plugin/plugin-registry-api';
 import { PluginLifecycleCoordinatorService } from '../services/plugin-lifecycle-coordinator.service';
@@ -178,18 +178,6 @@ const MAX_PERSISTED_TAB_CACHE_ENTRIES = 256;
 const MAX_LEGACY_SESSION_BYTES = 512 * 1024;
 
 import type { PaneComparisonStatus } from '../services/pane-comparison.service';
-
-interface DirectoryPipelineTimings {
-  generation: number;
-  path: string;
-  enumerateMs: number;
-  indexMs: number;
-  sortMs: number;
-  windowMs: number;
-  bridgeMs: number;
-  renderMs: number;
-  totalMs: number;
-}
 
 @Component({
   selector: 'app-directory-pane',
@@ -1724,18 +1712,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   private backendWindowOffset = 0;
   private backendWindowLimit = 0;
   private backendWindowRequestToken = 0;
-  pipelineTimings: DirectoryPipelineTimings = {
-    generation: 0,
-    path: '',
-    enumerateMs: 0,
-    indexMs: 0,
-    sortMs: 0,
-    windowMs: 0,
-    bridgeMs: 0,
-    renderMs: 0,
-    totalMs: 0,
-  };
-
   private backendWindowFetchPromise: Promise<void> | null = null;
   private backendWindowQueuedRange: { start: number; end: number } | null = null;
   private backendProgressRefreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1746,6 +1722,16 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   private virtualViewportWidth = 800;
 
   private readonly virtualThreshold = 300;
+  private readonly virtualCollection = new VirtualCollection<FileInfo, string>({
+    identity: entry => entry.path,
+    itemExtent: 44,
+    threshold: 300,
+    overscanRows: 48,
+    guardRows: 24,
+    minimumPrefetchItems: 1024,
+    prefetchMultiplier: 4,
+    prefetchGuardRatio: 0.20,
+  });
   private readonly listRowExtent = 30;
   private readonly gridRowExtent = 109;
   private readonly treeRowExtent = 31;
@@ -2487,31 +2473,51 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
 
   get listVirtualWindow(): VirtualWindow {
     const grid = this.viewMode === 'grid';
-    const columns = grid
-      ? this.estimatedGridColumns()
-      : 1;
+    const columns = grid ? this.estimatedGridColumns() : 1;
+    const itemExtent = grid ? this.gridRowExtent : this.listRowExtent;
+    const logicalCount = this.visibleEntryCount;
 
-    return calculateVirtualWindow({
-      itemCount: this.visibleEntryCount,
+    this.virtualCollection.configure({
+      itemExtent,
+      columns,
+      threshold: this.virtualThreshold,
+      overscanRows: grid ? 8 : 48,
+      guardRows: grid ? 4 : 24,
+      minimumPrefetchItems: grid ? 768 : 1024,
+      prefetchMultiplier: 4,
+      prefetchGuardRatio: 0.20,
+    });
+    this.virtualCollection.setLogicalCount(logicalCount);
+
+    if (this.backendPresentationActive) {
+      this.virtualCollection.populate(
+        this.backendWindowOffset,
+        this.entries,
+        logicalCount,
+      );
+    } else {
+      this.virtualCollection.populate(0, this.visibleEntries, logicalCount);
+    }
+
+    this.virtualCollection.updateViewport({
       scrollTop: this.virtualScrollTop,
       viewportHeight: this.virtualViewportHeight,
-      itemExtent: grid ? this.gridRowExtent : this.listRowExtent,
       columns,
-      overscanRows: grid ? 8 : 48,
-      threshold: this.virtualThreshold,
     });
+
+    return this.virtualCollection.window;
   }
 
   get renderedEntries(): FileInfo[] {
     const window = this.listVirtualWindow;
     if (this.backendPresentationActive) {
       this.queueBackendWindow(window.start, window.end);
-      const start = Math.max(0, window.start - this.backendWindowOffset);
-      const end = Math.max(start, Math.min(
-        this.entries.length,
-        window.end - this.backendWindowOffset,
-      ));
-      return this.entries.slice(start, end);
+      this.virtualCollection.populate(
+        this.backendWindowOffset,
+        this.entries,
+        this.visibleEntryCount,
+      );
+      return [...this.virtualCollection.renderedItems(window)];
     }
     return window.enabled
       ? this.visibleEntries.slice(window.start, window.end)
@@ -7969,17 +7975,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       options,
     );
 
-    this.pipelineTimings = {
-      generation,
-      path: requestedPath,
-      enumerateMs: 0,
-      indexMs: 0,
-      sortMs: 0,
-      windowMs: 0,
-      bridgeMs: 0,
-      renderMs: 0,
-      totalMs: 0,
-    };
     const streamId = await this.dirStream.start(
       requestedPath,
       this.showHidden,
@@ -8117,13 +8112,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     if (event.path && event.path !== this.path) {
       this.path = event.path;
     }
-
-    this.pipelineTimings = {
-      ...this.pipelineTimings,
-      generation: event.generation ?? this.loadGeneration,
-      path: event.path,
-      enumerateMs: Math.max(0, event.enumerateMs ?? 0),
-    };
 
     if (event.totalCount >= 0) {
       this.backendVisibleCount = event.totalCount;
@@ -8403,14 +8391,26 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   private backendWindowRangeFor(start: number, end: number): { offset: number; limit: number } {
-    const visibleSpan = Math.max(1, end - start);
-    const minimumLimit = this.viewMode === 'grid' ? 768 : 1024;
-    const limit = Math.max(minimumLimit, visibleSpan * 4);
-    const offset = Math.max(
-      0,
-      start - Math.floor((limit - visibleSpan) / 2),
-    );
-    return { offset, limit };
+    // listVirtualWindow configures the shared collection for the current mode.
+    // Force the requested range into the engine's render snapshot before asking
+    // it for the corresponding backend prefetch window.
+    const current = this.virtualCollection.window;
+    if (current.start !== start || current.end !== end) {
+      const itemExtent = this.viewMode === 'grid' ? this.gridRowExtent : this.listRowExtent;
+      const columns = this.viewMode === 'grid' ? this.estimatedGridColumns() : 1;
+      this.virtualCollection.configure({
+        itemExtent,
+        columns,
+        minimumPrefetchItems: this.viewMode === 'grid' ? 768 : 1024,
+        prefetchMultiplier: 4,
+        prefetchGuardRatio: 0.20,
+      });
+    }
+    const prefetch = this.virtualCollection.prefetch();
+    return {
+      offset: prefetch.offset,
+      limit: Math.max(1, prefetch.limit),
+    };
   }
 
   private async loadBackendWindowForViewport(force = false): Promise<void> {
@@ -8423,45 +8423,25 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       end: this.listVirtualWindow.end,
     };
     const range = this.backendWindowRangeFor(target.start, target.end);
-    const currentEnd = this.backendWindowOffset + this.entries.length;
-    if (!force && this.entries.length > 0) {
-      const guard = Math.max(64, Math.floor(this.entries.length * 0.20));
-      const guardedStart = this.backendWindowOffset + guard;
-      const guardedEnd = currentEnd - guard;
-
-      if (
-        target.start >= guardedStart &&
-        target.end <= guardedEnd
-      ) {
-        return;
-      }
+    this.virtualCollection.populate(
+      this.backendWindowOffset,
+      this.entries,
+      this.visibleEntryCount,
+    );
+    if (!force && this.virtualCollection.isRenderCoveredByLoadedGuard()) {
+      return;
     }
 
     const token = ++this.backendWindowRequestToken;
-    const generation = this.loadGeneration;
-    const requestPath = this.path;
-    const renderStarted = performance.now();
     this.backendWindowFetchPromise = (async () => {
       const window = await this.dirStream.readWindow(
         streamId,
         range.offset,
         range.limit,
       );
-      if (
-        token !== this.backendWindowRequestToken ||
-        generation !== this.loadGeneration ||
-        streamId !== this.backendSessionId ||
-        requestPath !== this.path
-      ) {
+      if (token !== this.backendWindowRequestToken) {
         return;
       }
-      this.pipelineTimings = {
-        ...this.pipelineTimings,
-        generation,
-        path: requestPath,
-        windowMs: window.pipelineTiming.backendWindowMs,
-        bridgeMs: window.pipelineTiming.bridgeMs,
-      };
       this.backendWindowOffset = window.offset;
       this.backendWindowLimit = window.limit;
       this.backendVisibleCount = Math.max(0, window.totalCount ?? 0);
@@ -8479,19 +8459,6 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
         );
       }
       this.cdr.markForCheck();
-      requestAnimationFrame(() => {
-        if (
-          generation !== this.loadGeneration ||
-          streamId !== this.backendSessionId ||
-          requestPath !== this.path
-        ) {
-          return;
-        }
-        this.pipelineTimings = {
-          ...this.pipelineTimings,
-          renderMs: performance.now() - renderStarted,
-        };
-      });
     })();
 
     try {

@@ -24,6 +24,7 @@ import { PARENT_ENTRY_PATH } from './file-entry.component';
 import { parentPath } from './address-bar.utils';
 import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directive';
 import { FileCategoryResolverService } from '../services/file-category-resolver.service';
+import { VirtualCollection } from '../services/virtual-window';
 
 @Component({
   selector: 'app-file-grid',
@@ -438,7 +439,8 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
   // OPTIMIZED: Lower threshold for earlier virtualization activation
   private readonly VIRTUAL_THRESHOLD = 200;
   private readonly rowHeight = 124;
-  private readonly overscanRows = 5; // Increased for smoother scrolling in large folders
+  private readonly overscanRows = 16;
+  private readonly windowGuardRows = 6;
   private scrollRAF: number | null = null;
   private boundScrollListener?: () => void;
   private resizeObserver?: ResizeObserver;
@@ -449,6 +451,16 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
   private lastScrollTop = 0;
   private lastScrollTime = 0;
   private viewportHeight = 0;
+  private readonly virtualCollection = new VirtualCollection<FileInfo, string>({
+    identity: entry => entry.path,
+    itemExtent: this.rowHeight,
+    threshold: this.VIRTUAL_THRESHOLD,
+    overscanRows: this.overscanRows,
+    guardRows: this.windowGuardRows,
+    minimumPrefetchItems: 768,
+    prefetchMultiplier: 4,
+    prefetchGuardRatio: 0.20,
+  });
   private visibleEntriesCache: FileInfo[] = [];
   private pathToEntryIndex = new Map<string, number>();
   private columnsMeasureRAF: number | null = null; // Coalesce column measurements
@@ -497,8 +509,8 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
   }
 
   get totalContentHeight(): number {
-    const rows = Math.ceil(this.entries.length / this.cachedVirtualColumns);
-    return rows * this.rowHeight;
+    return this.virtualCollection.window.totalExtentPx ||
+      Math.ceil(this.entries.length / this.cachedVirtualColumns) * this.rowHeight;
   }
 
   get virtualWindowTransform(): string {
@@ -875,52 +887,41 @@ export class FileGridComponent implements OnInit, OnDestroy, OnChanges, AfterVie
 
   private updateVirtualWindow(forceRebuild = false): boolean {
     const host = this.gridContainerRef?.nativeElement;
-    const viewportHeight = this.viewportHeight || host?.clientHeight || 0;
+    const viewportHeight = Math.max(
+      this.rowHeight,
+      this.viewportHeight || host?.clientHeight || this.rowHeight,
+    );
     const scrollTop = host?.scrollTop ?? 0;
 
-    let changed = forceRebuild;
-
-    // Coalesce column measurements - only measure on resize or force
+    let columns = this.cachedVirtualColumns;
     if (forceRebuild) {
-      const cols = this.measureGridColumns(host);
-      if (cols !== this.cachedVirtualColumns) {
-        this.cachedVirtualColumns = cols;
-        changed = true;
-      }
-    }
-    const cols = this.cachedVirtualColumns;
-
-    if (!this.virtualEnabled) {
-      // Even without virtualization, keep the computed column count so keyboard navigation
-      // (Up/Down by row) behaves correctly in grid view.
-      if (this.virtualStart !== 0 || this.virtualEnd !== this.entries.length) {
-        this.virtualStart = 0;
-        this.virtualEnd = this.entries.length;
-        changed = true;
-      }
-      if (changed) {
-        this.rebuildVisibleEntries();
-      }
-      return changed;
+      columns = this.measureGridColumns(host);
+      this.cachedVirtualColumns = columns;
     }
 
-    const startRow = Math.max(0, Math.floor(scrollTop / this.rowHeight) - this.overscanRows);
-    const visibleRows = Math.max(1, Math.ceil(viewportHeight / this.rowHeight));
-    const endRow = startRow + visibleRows + this.overscanRows * 2;
+    this.virtualCollection.configure({
+      itemExtent: this.rowHeight,
+      threshold: this.VIRTUAL_THRESHOLD,
+      overscanRows: this.overscanRows,
+      guardRows: this.windowGuardRows,
+      columns,
+    });
+    this.virtualCollection.setLogicalCount(this.entries.length);
+    this.virtualCollection.populate(0, this.entries, this.entries.length);
 
-    const start = startRow * cols;
-    const end = Math.min(this.entries.length, endRow * cols);
+    const changed = this.virtualCollection.updateViewport({
+      scrollTop,
+      viewportHeight,
+      columns,
+    }, forceRebuild);
 
-    if (start !== this.virtualStart || end !== this.virtualEnd) {
-      this.virtualStart = start;
-      this.virtualEnd = end;
-      this.lastScrollTop = scrollTop;
-      changed = true;
-    }
-    if (changed) {
+    const window = this.virtualCollection.window;
+    this.virtualStart = window.start;
+    this.virtualEnd = window.end;
+    if (changed || forceRebuild) {
       this.rebuildVisibleEntries();
     }
-    return changed;
+    return changed || forceRebuild;
   }
 
   private rebuildDerivedEntries(): void {

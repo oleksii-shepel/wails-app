@@ -21,6 +21,7 @@ import { PARENT_ENTRY_PATH } from './file-entry.component';
 import { parentPath } from './address-bar.utils';
 import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directive';
 import { isRegistryPath } from '../services/registry.service';
+import { VirtualCollection } from '../services/virtual-window';
 
 export interface ColumnDef {
   field: keyof FileInfo | string;
@@ -527,7 +528,8 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   private readonly VIRTUAL_THRESHOLD = 100;
   private readonly DEFAULT_ROW_HEIGHT = 24;
   rowHeight = 24;
-  private readonly overscan = 5;
+  private readonly overscan = 64;
+  private readonly windowGuardRows = 24;
   private scrollRAF: number | null = null;
   private boundScrollListener?: () => void;
   private resizeObserver?: ResizeObserver;
@@ -535,6 +537,16 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   private virtualStart = 0;
   private virtualEnd = 0;
   private viewportHeight = 0;
+  private readonly virtualCollection = new VirtualCollection<FileInfo, string>({
+    identity: entry => entry.path,
+    itemExtent: this.DEFAULT_ROW_HEIGHT,
+    threshold: this.VIRTUAL_THRESHOLD,
+    overscanRows: this.overscan,
+    guardRows: this.windowGuardRows,
+    minimumPrefetchItems: 1024,
+    prefetchMultiplier: 4,
+    prefetchGuardRatio: 0.20,
+  });
   private visibleEntriesCache: FileInfo[] = [];
   private pathToEntryIndex = new Map<string, number>();
   activeColumnVms: DetailsColumnVm[] = [];
@@ -698,7 +710,8 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   }
 
   get totalContentHeight(): number {
-    return this.entries.length * this.rowHeight;
+    return this.virtualCollection.window.totalExtentPx ||
+      this.entries.length * this.rowHeight;
   }
 
   get virtualWindowTransform(): string {
@@ -890,50 +903,37 @@ export class FileDetailsComponent implements OnDestroy, OnChanges, AfterViewInit
   }
 
   private updateVirtualWindow(forceRebuild = false): boolean {
-    let changed = forceRebuild;
-    if (!this.virtualEnabled) {
-      if (this.virtualStart !== 0 || this.virtualEnd !== this.entries.length) {
-        this.virtualStart = 0;
-        this.virtualEnd = this.entries.length;
-        changed = true;
-      }
-      if (changed) {
-        this.rebuildVisibleEntries();
-      }
-      return changed;
-    }
-
     const element = this.detailsBodyRef?.nativeElement;
+    const viewportHeight = Math.max(
+      this.rowHeight,
+      this.viewportHeight || element?.clientHeight || this.rowHeight,
+    );
     const scrollTop = element?.scrollTop ?? 0;
 
-    const viewportHeight = this.viewportHeight || element?.clientHeight || 0;
-    if (viewportHeight <= 0) {
-      const nextStart = 0;
-      const nextEnd = Math.min(this.entries.length, this.overscan * 4);
-      if (this.virtualStart !== nextStart || this.virtualEnd !== nextEnd) {
-        this.virtualStart = nextStart;
-        this.virtualEnd = nextEnd;
-        changed = true;
-      }
-      if (changed) {
-        this.rebuildVisibleEntries();
-      }
-      return changed;
-    }
-    const visibleCount = Math.max(1, Math.ceil(viewportHeight / this.rowHeight));
-    
-    const start = Math.max(0, Math.floor(scrollTop / this.rowHeight) - this.overscan);
-    const end = Math.min(this.entries.length, start + visibleCount + this.overscan * 2);
+    this.virtualCollection.configure({
+      itemExtent: this.rowHeight,
+      threshold: this.VIRTUAL_THRESHOLD,
+      overscanRows: this.overscan,
+      guardRows: this.windowGuardRows,
+      columns: 1,
+    });
+    this.virtualCollection.setLogicalCount(this.entries.length);
+    this.virtualCollection.populate(0, this.entries, this.entries.length);
 
-    if (start !== this.virtualStart || end !== this.virtualEnd) {
-      this.virtualStart = start;
-      this.virtualEnd = end;
-      changed = true;
-    }
-    if (changed) {
+    const changed = this.virtualCollection.updateViewport({
+      scrollTop,
+      viewportHeight,
+      columns: 1,
+    }, forceRebuild);
+
+    const window = this.virtualCollection.window;
+    this.virtualStart = window.start;
+    this.virtualEnd = window.end;
+
+    if (changed || forceRebuild) {
       this.rebuildVisibleEntries();
     }
-    return changed;
+    return changed || forceRebuild;
   }
 
   private measureRowHeight(): void {

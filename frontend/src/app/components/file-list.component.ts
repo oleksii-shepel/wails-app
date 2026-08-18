@@ -23,6 +23,7 @@ import { PARENT_ENTRY_PATH } from './file-entry.component';
 import { parentPath } from './address-bar.utils';
 import { VscodeScrollbarDirective } from '../directives/vscode-scrollbar.directive';
 import { FileCategoryResolverService } from '../services/file-category-resolver.service';
+import { VirtualCollection } from '../services/virtual-window';
 
 type VisibleRowVm = {
   entry: FileInfo;
@@ -307,6 +308,16 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
   // few wheel ticks.
   private readonly overscan = 64;
   private readonly windowGuardRows = 24;
+  private readonly virtualCollection = new VirtualCollection<FileInfo, string>({
+    identity: entry => entry.path,
+    itemExtent: this.DEFAULT_ROW_HEIGHT,
+    threshold: this.VIRTUAL_THRESHOLD,
+    overscanRows: this.overscan,
+    guardRows: this.windowGuardRows,
+    minimumPrefetchItems: 1024,
+    prefetchMultiplier: 4,
+    prefetchGuardRatio: 0.20,
+  });
   private scrollRAF: number | null = null;
   private boundScrollListener?: () => void;
   private resizeObserver?: ResizeObserver;
@@ -365,7 +376,8 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
   }
 
   get totalContentHeight(): number {
-    return this.cachedVirtualEntries.length * this.rowHeight;
+    return this.virtualCollection.window.totalExtentPx ||
+      this.cachedVirtualEntries.length * this.rowHeight;
   }
 
   get virtualWindowTransform(): string {
@@ -567,79 +579,42 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
   }
 
   private updateVirtualWindow(forceRebuild = false): boolean {
-    if (!this.virtualEnabled) {
-      const changed =
-        this.virtualStart !== 0 ||
-        this.virtualEnd !== this.entries.length;
-      this.virtualStart = 0;
-      this.virtualEnd = this.entries.length;
-      if (changed || forceRebuild) {
-        this.rebuildVisibleEntries();
-      }
-      return changed || forceRebuild;
-    }
-
     const element = this.paneContentRef?.nativeElement;
-    const scrollTop = element?.scrollTop ?? 0;
     const parentOffset = this.parentEntry ? this.parentRowHeight : 0;
+    const scrollTop = element?.scrollTop ?? 0;
     const contentScrollTop = Math.max(0, scrollTop - parentOffset);
     const visibleParentPart = this.parentEntry
       ? Math.max(0, parentOffset - scrollTop)
       : 0;
-
     const viewportHeight = Math.max(
       1,
-      (this.viewportHeight || element?.clientHeight || 0) - visibleParentPart,
-    );
-    const visibleCount = Math.max(
-      1,
-      Math.ceil(viewportHeight / this.rowHeight),
+      (this.viewportHeight || element?.clientHeight || this.rowHeight) - visibleParentPart,
     );
 
     const itemCount = this.cachedVirtualEntries.length;
-    const firstVisible = Math.max(
-      0,
-      Math.min(
-        Math.max(0, itemCount - visibleCount),
-        Math.floor(contentScrollTop / this.rowHeight),
-      ),
-    );
-    const lastVisible = Math.min(
-      itemCount,
-      firstVisible + visibleCount,
-    );
+    this.virtualCollection.configure({
+      itemExtent: this.rowHeight,
+      threshold: this.VIRTUAL_THRESHOLD,
+      overscanRows: this.overscan,
+      guardRows: this.windowGuardRows,
+      columns: 1,
+    });
+    this.virtualCollection.setLogicalCount(itemCount);
+    this.virtualCollection.populate(0, this.cachedVirtualEntries, itemCount);
 
-    // Keep the current materialized window while the viewport remains well
-    // inside it. This is the key difference from recomputing start/end for
-    // every row of scroll movement.
-    if (
-      !forceRebuild &&
-      this.virtualEnd > this.virtualStart &&
-      firstVisible >= this.virtualStart + this.windowGuardRows &&
-      lastVisible <= this.virtualEnd - this.windowGuardRows
-    ) {
-      return false;
-    }
+    const changed = this.virtualCollection.updateViewport({
+      scrollTop: contentScrollTop,
+      viewportHeight,
+      columns: 1,
+    }, forceRebuild);
 
-    const nextStart = Math.max(0, firstVisible - this.overscan);
-    const nextEnd = Math.min(
-      itemCount,
-      lastVisible + this.overscan,
-    );
-
-    const changed =
-      nextStart !== this.virtualStart ||
-      nextEnd !== this.virtualEnd;
-
-    if (changed) {
-      this.virtualStart = nextStart;
-      this.virtualEnd = nextEnd;
-    }
+    const window = this.virtualCollection.window;
+    this.virtualStart = window.start;
+    this.virtualEnd = window.end;
 
     if (changed || forceRebuild) {
       this.rebuildVisibleEntries();
     }
-
     return changed || forceRebuild;
   }
 

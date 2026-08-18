@@ -29,6 +29,7 @@ import { InputEngineService } from '../services/input-engine.service';
 import type { InputBindingDefinition } from '../services/input-system.types';
 import { FileInfo, FileType } from '../shared/protocol';
 import { ModalSurfaceDirective } from './modal-surface.directive';
+import { VirtualCollection } from '../services/virtual-window';
 
 type SearchSort = 'relevance' | 'name' | 'path' | 'type';
 type DiscoveryMode = 'search' | 'recent' | 'collections';
@@ -69,6 +70,9 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   { id:'reassembly.globalSearch.previousQuery.altUp', commandId:COMMAND.previousQuery, contextId:CONTEXT_ID, source:'default', description:'Previous search query', category:'Search & Filter', trigger:{device:'keyboard', chord:{steps:[{key:'arrowup',modifiers:['alt']}]}}},
   { id:'reassembly.globalSearch.nextQuery.altDown', commandId:COMMAND.nextQuery, contextId:CONTEXT_ID, source:'default', description:'Next search query', category:'Search & Filter', trigger:{device:'keyboard', chord:{steps:[{key:'arrowdown',modifiers:['alt']}]}}},
 ];
+
+const SEARCH_RESULT_ROW_HEIGHT = 52;
+const SEARCH_RESULT_WINDOW_ITEMS = 160;
 
 @Component({
   selector: 'app-global-search',
@@ -261,6 +265,17 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   `],
 })
 export class GlobalSearchComponent implements OnInit, OnDestroy {
+  private readonly resultVirtualCollection = new VirtualCollection<FileInfo, string>({
+    identity: entry => entry.path,
+    itemExtent: SEARCH_RESULT_ROW_HEIGHT,
+    threshold: SEARCH_RESULT_WINDOW_ITEMS,
+    overscanRows: 80,
+    guardRows: 24,
+    minimumPrefetchItems: 512,
+    prefetchMultiplier: 4,
+    prefetchGuardRatio: 0.20,
+  });
+
   @ViewChild('queryInput') queryInput?: ElementRef<HTMLInputElement>;
   @Output() openResult = new EventEmitter<FileInfo>();
   @Output() openContainingFolder = new EventEmitter<FileInfo>();
@@ -332,24 +347,35 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
   }
 
   get searchWindowStart(): number {
-    const count = this.displayedResults.length;
-    if (count <= 160) return 0;
-    return Math.max(
-      0,
-      Math.min(
-        count - 160,
-        this.selectedIndex - 80,
-      ),
-    );
+    this.refreshSearchVirtualWindow();
+    return this.resultVirtualCollection.window.start;
   }
 
   get renderedSearchResults(): readonly FileInfo[] {
     if (this.mode === 'collections') return [];
-    const entries = this.displayedResults;
-    if (entries.length <= 160) return entries;
+    this.refreshSearchVirtualWindow();
+    return this.resultVirtualCollection.renderedItems();
+  }
 
-    const start = this.searchWindowStart;
-    return entries.slice(start, start + 160);
+  private refreshSearchVirtualWindow(): void {
+    const entries = this.displayedResults;
+    this.resultVirtualCollection.setLogicalCount(entries.length);
+    this.resultVirtualCollection.populate(0, entries, entries.length);
+
+    if (entries.length === 0) {
+      this.resultVirtualCollection.updateViewport({
+        scrollTop: 0,
+        viewportHeight: SEARCH_RESULT_ROW_HEIGHT,
+        columns: 1,
+      }, true);
+      return;
+    }
+
+    const index = Math.max(0, Math.min(entries.length - 1, this.selectedIndex));
+    this.resultVirtualCollection.revealIndex(
+      index,
+      Math.min(SEARCH_RESULT_WINDOW_ITEMS, entries.length),
+    );
   }
 
   get modeLabel(): string {

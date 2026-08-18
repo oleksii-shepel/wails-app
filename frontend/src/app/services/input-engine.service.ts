@@ -1,4 +1,5 @@
 import { Injectable, NgZone } from '@angular/core';
+import { CommandRegistryService } from './command-registry.service';
 import { createBehaviorSubject } from '@epikodelabs/streamix';
 import { DIALOG_INPUT_CATALOG } from './dialog-input-catalog';
 import type {
@@ -19,12 +20,6 @@ import type {
   InputBindingConflict,
   InputBindingCustomization,
 } from './input-system.types';
-
-interface RegisteredCommand {
-  registrationId: string;
-  handler: InputCommandHandler;
-  registrationOrder: number;
-}
 
 interface RegisteredBinding extends InputBindingDefinition {
   registrationOrder: number;
@@ -101,9 +96,6 @@ const SOURCE_PRIORITY: Record<InputSourceKind, number> = {
 
 const CHORD_TIMEOUT_MS = 1800;
 
-function normalizeCommandReference(value: string): string {
-  return value.trim().toLowerCase();
-}
 
 @Injectable({
   providedIn: 'root'
@@ -112,9 +104,6 @@ export class InputEngineService {
   private readonly contexts = new Map<string, InputContextDefinition>();
   private readonly bindings = new Map<string, RegisteredBinding>();
   private readonly bindingRegistrations = new Map<string, Map<string, RegisteredBinding>>();
-  private readonly commands = new Map<string, Map<string, RegisteredCommand>>();
-  private readonly commandDefinitions = new Map<string, CommandDefinition>();
-  private readonly commandEnablement = new Map<string, Map<string, (invocation?: CommandInvocation) => boolean>>();
   private readonly pluginInputRegistrations = new Map<string, {
     commandIds: string[];
     bindingIds: string[];
@@ -133,7 +122,6 @@ export class InputEngineService {
     target: EventTarget | null;
   } | null = null;
   private registrationCounter = 0;
-  private commandRegistrationCounter = 0;
 
   readonly activeContexts$ = createBehaviorSubject<InputContextDefinition[]>([]);
   readonly pendingChord$ = createBehaviorSubject<PendingChordState | null>(null);
@@ -146,6 +134,7 @@ export class InputEngineService {
 
   constructor(
     private readonly ngZone: NgZone,
+    private readonly commandRegistry: CommandRegistryService,
   ) {
     this.registerContext({
       id: 'global',
@@ -167,93 +156,42 @@ export class InputEngineService {
   }
 
   registerCommand(commandId: string, handler: InputCommandHandler, ownerId = 'default'): void {
-    const registrations = this.commands.get(commandId) ?? new Map<string, RegisteredCommand>();
-    registrations.set(ownerId, {
-      registrationId: ownerId,
-      handler,
-      registrationOrder: ++this.commandRegistrationCounter,
-    });
-    this.commands.set(commandId, registrations);
+    this.commandRegistry.register(commandId, handler, ownerId);
   }
 
   unregisterCommand(commandId: string, ownerId = 'default'): void {
-    const registrations = this.commands.get(commandId);
-    if (!registrations) return;
-
-    registrations.delete(ownerId);
-    if (registrations.size === 0) {
-      this.commands.delete(commandId);
-    }
+    this.commandRegistry.unregister(commandId, ownerId);
   }
 
   registerCommandDescriptor(descriptor: CommandDescriptor, ownerId = 'default'): void {
-    const { execute, isEnabled, ...definition } = descriptor;
-    this.registerCommandDefinition(definition);
-    this.registerCommand(descriptor.id, execute, ownerId);
-
-    if (isEnabled) {
-      const registrations = this.commandEnablement.get(descriptor.id) ?? new Map<string, (invocation?: CommandInvocation) => boolean>();
-      registrations.set(ownerId, isEnabled);
-      this.commandEnablement.set(descriptor.id, registrations);
-    }
+    this.commandRegistry.registerDescriptor(descriptor, ownerId);
   }
 
   unregisterCommandDescriptor(commandId: string, ownerId = 'default'): void {
-    this.unregisterCommand(commandId, ownerId);
-
-    const enablement = this.commandEnablement.get(commandId);
-    enablement?.delete(ownerId);
-    if (enablement?.size === 0) this.commandEnablement.delete(commandId);
-
-    if (!this.commands.has(commandId)) {
-      this.unregisterCommandDefinition(commandId);
-    }
+    this.commandRegistry.unregister(commandId, ownerId);
   }
 
   isCommandEnabled(commandId: string, invocation?: CommandInvocation): boolean {
-    const active = this.getActiveCommandRegistration(commandId);
-    if (!active) return false;
-
-    const predicates = this.commandEnablement.get(commandId);
-    if (!predicates || predicates.size === 0) return true;
-
-    // Mirror handler precedence: the most recently registered owner wins.
-    const predicate = predicates.get(active.registrationId);
-    if (!predicate) return true;
-
-    try {
-      return predicate(invocation);
-    } catch (error) {
-      console.error('Input command availability failed:', error);
-      return false;
-    }
+    return this.commandRegistry.isEnabled(commandId, invocation);
   }
 
-  getCommandState(commandId: string): CommandState | undefined {
-    const definition = this.commandDefinitions.get(commandId);
-    if (!definition) return undefined;
-    return {
-      ...definition,
-      registered: this.commands.has(commandId),
-      enabled: this.isCommandEnabled(commandId),
-    };
+  getCommandState(commandId: string, invocation?: CommandInvocation): CommandState | undefined {
+    return this.commandRegistry.getState(commandId, invocation);
   }
 
   getCommandStates(): CommandState[] {
-    return Array.from(this.commandDefinitions.keys())
-      .map(id => this.getCommandState(id))
-      .filter((state): state is CommandState => !!state);
+    return this.commandRegistry.getStates();
   }
 
   /**
-   * Returns a normalized command catalog for discovery surfaces. The catalog
-   * combines definitions, runtime state, and the preferred keyboard binding so
-   * consumers do not have to join the input engine's internal registries.
+   * Returns a normalized command catalog for discovery surfaces. Input owns the
+   * preferred binding; command metadata and runtime state come from the canonical
+   * command registry.
    */
   getCommandCatalog(options: { activeContextsOnly?: boolean } = {}): CommandCatalogEntry[] {
     const commandIds = new Set<string>([
-      ...this.commandDefinitions.keys(),
-      ...this.commands.keys(),
+      ...this.commandRegistry.getDefinitions().map(definition => definition.id),
+      ...this.commandRegistry.getRegisteredIds(),
       ...Array.from(this.bindings.values(), binding => binding.commandId),
     ]);
     const activeContextIds = options.activeContextsOnly ? this.getActiveContextIds() : null;
@@ -267,34 +205,15 @@ export class InputEngineService {
       });
   }
 
-  /**
-   * Resolve either a stable command ID or a human-facing command name/alias.
-   * Ambiguous aliases intentionally resolve to undefined instead of guessing.
-   */
   resolveCommandId(reference: string): string | undefined {
-    const raw = reference.trim();
-    if (!raw) return undefined;
-    if (this.commandDefinitions.has(raw) || this.commands.has(raw)) return raw;
-
-    const normalized = normalizeCommandReference(raw);
-    let match: string | undefined;
-
-    for (const definition of this.commandDefinitions.values()) {
-      const names = [definition.name, ...(definition.aliases ?? [])].filter((value): value is string => !!value);
-      if (!names.some(name => normalizeCommandReference(name) === normalized)) continue;
-      if (match && match !== definition.id) return undefined;
-      match = definition.id;
-    }
-
-    return match;
+    return this.commandRegistry.resolve(reference);
   }
 
   dispatchCommandByName(
     reference: string,
     invocation: CommandInvocation = { source: 'programmatic' },
   ): boolean {
-    const commandId = this.resolveCommandId(reference);
-    return commandId ? this.dispatchCommandById(commandId, invocation) : false;
+    return this.commandRegistry.dispatchByName(reference, invocation);
   }
 
   getPreferredKeyboardBinding(commandId: string): InputBindingDefinition | undefined {
@@ -310,9 +229,9 @@ export class InputEngineService {
   }
 
   private buildCommandCatalogEntry(commandId: string): CommandCatalogEntry | undefined {
-    const definition = this.commandDefinitions.get(commandId);
+    const definition = this.commandRegistry.getDefinition(commandId);
     const preferredBinding = this.getPreferredKeyboardBinding(commandId);
-    if (!definition && !preferredBinding && !this.commands.has(commandId)) return undefined;
+    if (!definition && !preferredBinding && !this.commandRegistry.isRegistered(commandId)) return undefined;
 
     return {
       id: commandId,
@@ -323,7 +242,7 @@ export class InputEngineService {
       name: definition?.name,
       aliases: definition?.aliases,
       contextIds: definition?.contextIds ?? (preferredBinding ? [preferredBinding.contextId] : undefined),
-      registered: this.commands.has(commandId),
+      registered: this.commandRegistry.isRegistered(commandId),
       enabled: this.isCommandEnabled(commandId),
       preferredBinding,
     };
@@ -434,7 +353,7 @@ export class InputEngineService {
       }
 
       for (const command of contribution.commands) {
-        if (this.commands.has(command.id)) {
+        if (this.commandRegistry.isRegistered(command.id)) {
           throw new Error(`Plugin ${pluginId} cannot replace command ${command.id}.`);
         }
         this.registerCommandDescriptor(command, ownerId);
@@ -620,13 +539,11 @@ export class InputEngineService {
   }
 
   getRegisteredCommandIds(): string[] {
-    return Array.from(this.commands.keys());
+    return this.commandRegistry.getRegisteredIds();
   }
 
   dispatchCommandById(commandId: string, invocation: CommandInvocation = { source: 'programmatic' }): boolean {
-    const handler = this.getCommandHandler(commandId, invocation);
-    if (!handler) return false;
-    return this.executeCommand(handler, invocation);
+    return this.commandRegistry.dispatch(commandId, invocation);
   }
 
   updateBindingTrigger(bindingId: string, trigger: InputTrigger): boolean {
@@ -638,19 +555,19 @@ export class InputEngineService {
   }
 
   registerCommandDefinition(def: CommandDefinition): void {
-    this.commandDefinitions.set(def.id, def);
+    this.commandRegistry.registerDefinition(def);
   }
 
   unregisterCommandDefinition(commandId: string): void {
-    this.commandDefinitions.delete(commandId);
+    this.commandRegistry.unregisterDefinition(commandId);
   }
 
   getCommandDefinitions(): CommandDefinition[] {
-    return Array.from(this.commandDefinitions.values());
+    return this.commandRegistry.getDefinitions();
   }
 
   getCommandDefinition(commandId: string): CommandDefinition | undefined {
-    return this.commandDefinitions.get(commandId);
+    return this.commandRegistry.getDefinition(commandId);
   }
 
   getContextSnapshot(): InputContextDefinition[] {
@@ -707,8 +624,7 @@ export class InputEngineService {
     }
 
     const invocation: CommandInvocation = { source: 'keyboard', context: { bindingId: resolution.binding.id } };
-    const command = this.getCommandHandler(resolution.binding.commandId, invocation);
-    if (!command) {
+    if (!this.commandRegistry.isEnabled(resolution.binding.commandId, invocation)) {
       this.emitShortcutDebug({
         stroke: this.formatDebugStroke(stroke),
         stage: 'no-command',
@@ -725,7 +641,7 @@ export class InputEngineService {
       commandId: resolution.binding.commandId,
     });
 
-    return this.executeCommandAsync(command, invocation);
+    return this.commandRegistry.dispatchAsync(resolution.binding.commandId, invocation);
   }
 
   async dispatchKeyboardEvent(
@@ -740,10 +656,9 @@ export class InputEngineService {
     if (!resolution) return false;
 
     const invocation: CommandInvocation = { source: 'mouse', context: { bindingId: resolution.binding.id } };
-    const command = this.getCommandHandler(resolution.binding.commandId, invocation);
-    if (!command) return false;
+    if (!this.commandRegistry.isEnabled(resolution.binding.commandId, invocation)) return false;
 
-    return this.executeCommandAsync(command, invocation);
+    return this.commandRegistry.dispatchAsync(resolution.binding.commandId, invocation);
   }
 
   private initializeKeyboardListener(): void {
@@ -761,8 +676,7 @@ export class InputEngineService {
       }
 
       const invocation: CommandInvocation = { source: 'keyboard', context: { bindingId: resolution.binding.id } };
-      const command = this.getCommandHandler(resolution.binding.commandId, invocation);
-      if (!command) {
+      if (!this.commandRegistry.isEnabled(resolution.binding.commandId, invocation)) {
         this.emitShortcutDebug({
           stroke: this.formatDebugStroke(stroke),
           stage: 'no-command',
@@ -786,7 +700,7 @@ export class InputEngineService {
         event.stopPropagation();
       }
 
-      this.executeCommand(command, invocation);
+      this.commandRegistry.dispatch(resolution.binding.commandId, invocation);
     };
 
     // One canonical keyboard boundary for the entire application.
@@ -868,15 +782,14 @@ export class InputEngineService {
         clientY: event.clientY,
       },
     };
-    const command = this.getCommandHandler(resolution.binding.commandId, invocation);
-    if (!command) return;
+    if (!this.commandRegistry.isEnabled(resolution.binding.commandId, invocation)) return;
 
     state.emitted = true;
     this.clearPendingChord();
 
     if (resolution.binding.preventDefault !== false) event.preventDefault();
     if (resolution.binding.stopPropagation !== false) event.stopPropagation();
-    this.executeCommand(command, invocation);
+    this.commandRegistry.dispatch(resolution.binding.commandId, invocation);
   }
 
   private handleMouseEvent(kind: string, event: MouseEvent | WheelEvent): void {
@@ -889,8 +802,7 @@ export class InputEngineService {
     if (!resolution) return;
 
     const invocation: CommandInvocation = { source: 'mouse', context: { bindingId: resolution.binding.id } };
-    const command = this.getCommandHandler(resolution.binding.commandId, invocation);
-    if (!command) return;
+    if (!this.commandRegistry.isEnabled(resolution.binding.commandId, invocation)) return;
 
     this.clearPendingChord();
 
@@ -901,7 +813,7 @@ export class InputEngineService {
       event.stopPropagation();
     }
 
-    this.executeCommand(command, invocation);
+    this.commandRegistry.dispatch(resolution.binding.commandId, invocation);
   }
 
   private resolveMouseGesture(gesture: MouseGesture, event?: MouseEvent | WheelEvent): BindingResolution | null {
@@ -1330,11 +1242,6 @@ export class InputEngineService {
     this.bindings$.next(this.getBindingSnapshot());
   }
 
-  private getCommandHandler(commandId: string, invocation?: CommandInvocation): InputCommandHandler | null {
-    if (!this.isCommandEnabled(commandId, invocation)) return null;
-    return this.getActiveCommandRegistration(commandId)?.handler ?? null;
-  }
-
   private emitShortcutDebug(trace: ShortcutDebugTrace): void {
     if (!this.showShortcutDebug) return;
     this.ngZone.run(() => {
@@ -1368,46 +1275,6 @@ export class InputEngineService {
       throw new Error('Binding registration set is unexpectedly empty.');
     }
 
-    return activeRegistration;
-  }
-
-  private executeCommand(command: InputCommandHandler, invocation: CommandInvocation): boolean {
-    try {
-      this.ngZone.run(() => {
-        const result = command(invocation);
-        if (result instanceof Promise) {
-          result.catch(error => console.error('Input command failed:', error));
-        }
-      });
-      return true;
-    } catch (error) {
-      console.error('Input command failed:', error);
-      return false;
-    }
-  }
-
-  private async executeCommandAsync(command: InputCommandHandler, invocation: CommandInvocation): Promise<boolean> {
-    try {
-      await this.ngZone.run(async () => {
-        await command(invocation);
-      });
-      return true;
-    } catch (error) {
-      console.error('Input command failed:', error);
-      return false;
-    }
-  }
-
-  private getActiveCommandRegistration(commandId: string): RegisteredCommand | null {
-    const registrations = this.commands.get(commandId);
-    if (!registrations || registrations.size === 0) return null;
-
-    let activeRegistration: RegisteredCommand | null = null;
-    for (const registration of registrations.values()) {
-      if (!activeRegistration || registration.registrationOrder > activeRegistration.registrationOrder) {
-        activeRegistration = registration;
-      }
-    }
     return activeRegistration;
   }
 

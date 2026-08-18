@@ -27,6 +27,13 @@ import { PanelSourceRegistryService, RegistryPanelSource, RemotePanelSource } fr
 import { DirectorySourceService } from './directory-source.service';
 import { RemoteConnectionsService } from './remote-connections.service';
 import { ResilienceService } from './resilience.service';
+import { CustomizationRegistryService } from './customization-registry.service';
+import type {
+  ThemeContribution,
+  ColumnProfileContribution,
+  LayoutPresetContribution,
+  WorkspaceTemplateContribution,
+} from './customization-registry.service';
 import { ResultsPanelService } from './results-panel.service';
 import { ApiService } from './api.service';
 import { ConfirmDialogService } from './confirm-dialog.service';
@@ -50,6 +57,7 @@ export class PluginManagerService implements PluginRegistryAPI {
   private readonly directories = inject(DirectorySourceService);
   private readonly remoteConnections = inject(RemoteConnectionsService);
   private readonly resilience = inject(ResilienceService);
+  private readonly customizations = inject(CustomizationRegistryService);
   private readonly resultsPanels = inject(ResultsPanelService);
   private readonly api = inject(ApiService);
   private readonly confirmDialog = inject(ConfirmDialogService);
@@ -58,6 +66,7 @@ export class PluginManagerService implements PluginRegistryAPI {
   private readonly backends = new Map<string, PluginBackend>();
   private readonly descriptors = new Map<string, PluginDescriptor>();
   private registeringBackendId: string | null = null;
+  private readonly actionCommands = new Map<string, { commandId: string; ownerId: string }>();
 
   readonly toolbarActions: ToolbarActionContribution[] = [];
   readonly contextMenuItems: ContextMenuContribution[] = [];
@@ -104,6 +113,7 @@ export class PluginManagerService implements PluginRegistryAPI {
       // Preferred plugin input bundles are host-owned: cleanup does not depend
       // on the plugin remembering to unregister every command and binding.
       this.inputEngine.unregisterPluginInput(id);
+      this.customizations.unregisterOwner(id);
       this.backends.delete(id);
       this.descriptors.delete(id);
     }
@@ -169,25 +179,29 @@ export class PluginManagerService implements PluginRegistryAPI {
   }
 
   registerToolbarAction(action: ToolbarActionContribution): void {
+    const normalized = this.normalizeToolbarAction(action);
     const i = this.toolbarActions.findIndex(x => x.id === action.id);
-    if (i >= 0) this.toolbarActions.splice(i, 1, action);
-    else this.toolbarActions.push(action);
+    if (i >= 0) this.toolbarActions.splice(i, 1, normalized);
+    else this.toolbarActions.push(normalized);
   }
 
   unregisterToolbarAction(id: string): void {
     const i = this.toolbarActions.findIndex(x => x.id === id);
     if (i >= 0) this.toolbarActions.splice(i, 1);
+    this.unregisterActionCommand(`toolbar:${id}`);
   }
 
   registerContextMenuItem(item: ContextMenuContribution): void {
+    const normalized = this.normalizeContextMenuItem(item);
     const i = this.contextMenuItems.findIndex(x => x.id === item.id);
-    if (i >= 0) this.contextMenuItems.splice(i, 1, item);
-    else this.contextMenuItems.push(item);
+    if (i >= 0) this.contextMenuItems.splice(i, 1, normalized);
+    else this.contextMenuItems.push(normalized);
   }
 
   unregisterContextMenuItem(id: string): void {
     const i = this.contextMenuItems.findIndex(x => x.id === id);
     if (i >= 0) this.contextMenuItems.splice(i, 1);
+    this.unregisterActionCommand(`context-menu:${id}`);
   }
 
 
@@ -242,6 +256,38 @@ export class PluginManagerService implements PluginRegistryAPI {
     this.relatedLocations.unregister(id);
   }
 
+  registerTheme(theme: ThemeContribution): void {
+    this.customizations.registerTheme(theme, this.contributionOwner());
+  }
+
+  unregisterTheme(id: string): void {
+    this.customizations.unregisterTheme(id, this.contributionOwner());
+  }
+
+  registerColumnProfile(profile: ColumnProfileContribution): void {
+    this.customizations.registerColumnProfile(profile, this.contributionOwner());
+  }
+
+  unregisterColumnProfile(id: string): void {
+    this.customizations.unregisterColumnProfile(id, this.contributionOwner());
+  }
+
+  registerLayoutPreset(preset: LayoutPresetContribution): void {
+    this.customizations.registerLayoutPreset(preset, this.contributionOwner());
+  }
+
+  unregisterLayoutPreset(id: string): void {
+    this.customizations.unregisterLayoutPreset(id, this.contributionOwner());
+  }
+
+  registerWorkspaceTemplate(template: WorkspaceTemplateContribution): void {
+    this.customizations.registerWorkspaceTemplate(template, this.contributionOwner());
+  }
+
+  unregisterWorkspaceTemplate(id: string): void {
+    this.customizations.unregisterWorkspaceTemplate(id, this.contributionOwner());
+  }
+
   createResultsCollection(collection: PluginResultsCollection): string {
     const pluginId = this.registeringBackendId ?? collection.ownerPluginId ?? 'plugin';
     const panel = this.resultsPanels.createPluginCollection(
@@ -263,6 +309,77 @@ export class PluginManagerService implements PluginRegistryAPI {
 
   removeResultsCollection(path: string): void {
     this.resultsPanels.remove(path);
+  }
+
+  private normalizeToolbarAction(action: ToolbarActionContribution): ToolbarActionContribution {
+    if (action.commandId?.trim() || !action.execute) return action;
+
+    const commandId = this.registerActionCommand(
+      `toolbar:${action.id}`,
+      action.id,
+      action.label,
+      'Toolbar',
+      async invocation => {
+        const context = invocation?.context as unknown as ToolbarContext | undefined;
+        if (context) await action.execute?.(context);
+      },
+      invocation => {
+        const context = invocation?.context as unknown as ToolbarContext | undefined;
+        return !!context && action.score(context) > 0;
+      },
+    );
+    return { ...action, commandId, execute: undefined };
+  }
+
+  private normalizeContextMenuItem(item: ContextMenuContribution): ContextMenuContribution {
+    if (item.commandId?.trim() || !item.execute) return item;
+
+    const commandId = this.registerActionCommand(
+      `context-menu:${item.id}`,
+      item.id,
+      item.label,
+      'Context Menu',
+      async invocation => {
+        const context = invocation?.context as unknown as MenuContext | undefined;
+        if (context) await item.execute?.(context);
+      },
+      invocation => {
+        const context = invocation?.context as unknown as MenuContext | undefined;
+        return !!context && item.score(context) > 0;
+      },
+    );
+    return { ...item, commandId, execute: undefined };
+  }
+
+  private registerActionCommand(
+    key: string,
+    contributionId: string,
+    label: string | undefined,
+    category: string,
+    execute: CommandDescriptor['execute'],
+    isEnabled: NonNullable<CommandDescriptor['isEnabled']>,
+  ): string {
+    this.unregisterActionCommand(key);
+    const pluginId = this.registeringBackendId ?? 'host';
+    const commandId = `plugin.${pluginId}.action.${key.replace(':', '.')}`;
+    const ownerId = `plugin-action:${pluginId}:${key}`;
+    this.inputEngine.registerCommandDescriptor({
+      id: commandId,
+      title: label?.trim() || contributionId,
+      category,
+      description: `Action contributed by ${pluginId}`,
+      execute,
+      isEnabled,
+    }, ownerId);
+    this.actionCommands.set(key, { commandId, ownerId });
+    return commandId;
+  }
+
+  private unregisterActionCommand(key: string): void {
+    const registration = this.actionCommands.get(key);
+    if (!registration) return;
+    this.inputEngine.unregisterCommandDescriptor(registration.commandId, registration.ownerId);
+    this.actionCommands.delete(key);
   }
 
   /** Resolve toolbar actions applicable to the given context. */
@@ -534,6 +651,10 @@ export class PluginManagerService implements PluginRegistryAPI {
         schemes: [provider.scheme],
       });
     }
+  }
+
+  private contributionOwner(): string {
+    return this.registeringBackendId ?? 'host';
   }
 
   private commandOwner(commandId: string): string {

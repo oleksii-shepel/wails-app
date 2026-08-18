@@ -72,5 +72,5 @@ export function adaptPluginToolbarActions(
   context: ToolbarContext,
   commands: PluginCommandPresentationHost,
 ): PresentedCommand[] {
-  return contributions.map(contribution => presentPluginCommand(contribution, context, commands));
+  return contributions.map(contribution => presentPluginCommand(contribution, context, commands, { source: 'toolbar' }));
 }

@@ -6,6 +6,12 @@ import type { WorkspaceSurfaceActionContribution } from '../services/workspace-s
 import type { FileInfo } from '../shared/protocol-enhanced';
 import type { ResultsPanelMetadata } from '../services/results-panel.service';
 import type { PanelSource, PanelSourceKind } from '../services/panel-source';
+import type {
+  ThemeContribution,
+  ColumnProfileContribution,
+  LayoutPresetContribution,
+  WorkspaceTemplateContribution,
+} from '../services/customization-registry.service';
 
 export interface PluginDescriptor {
   id: string;
@@ -143,6 +149,18 @@ export interface PluginRegistryAPI {
 
   registerPanelColumn(column: PanelColumnContribution): void;
   unregisterPanelColumn(id: string): void;
+
+  registerTheme(theme: ThemeContribution): void;
+  unregisterTheme(id: string): void;
+
+  registerColumnProfile(profile: ColumnProfileContribution): void;
+  unregisterColumnProfile(id: string): void;
+
+  registerLayoutPreset(preset: LayoutPresetContribution): void;
+  unregisterLayoutPreset(id: string): void;
+
+  registerWorkspaceTemplate(template: WorkspaceTemplateContribution): void;
+  unregisterWorkspaceTemplate(id: string): void;
 
   createResultsCollection(collection: PluginResultsCollection): string;
   removeResultsCollection(path: string): void;

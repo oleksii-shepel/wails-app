@@ -74,6 +74,37 @@ type FileSystem interface {
 	RealPath(vfsPath string) (string, error)
 }
 
+// ProviderCapabilities describes what a mounted adapter actually implements.
+type ProviderCapabilities struct {
+	Pagination   bool
+	RandomAccess bool
+	TotalCount   bool
+	ServerSort   bool
+	ServerFilter bool
+	RangeRead    bool
+	Watch        bool
+	Rename       bool
+	AtomicMove   bool
+	Trash        bool
+}
+
+type CapabilityFileSystem interface {
+	FileSystem
+	ProviderCapabilities() ProviderCapabilities
+}
+
+type DirectoryPage struct {
+	Entries    []FileInfo
+	NextToken  string
+	TotalCount int
+	HasTotal   bool
+}
+
+type PagedFileSystem interface {
+	FileSystem
+	ReadDirPage(ctx context.Context, path, token string, limit int) (DirectoryPage, error)
+}
+
 // File represents an open file handle inside the VFS.
 type File interface {
 	io.Reader

@@ -1123,6 +1123,36 @@ export namespace contracts {
 	        this.fileSystem = source["fileSystem"];
 	    }
 	}
+	export class ProviderCapabilities {
+	    pagination: boolean;
+	    randomAccess: boolean;
+	    totalCount: boolean;
+	    serverSort: boolean;
+	    serverFilter: boolean;
+	    rangeRead: boolean;
+	    watch: boolean;
+	    rename: boolean;
+	    atomicMove: boolean;
+	    trash: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ProviderCapabilities(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.pagination = source["pagination"];
+	        this.randomAccess = source["randomAccess"];
+	        this.totalCount = source["totalCount"];
+	        this.serverSort = source["serverSort"];
+	        this.serverFilter = source["serverFilter"];
+	        this.rangeRead = source["rangeRead"];
+	        this.watch = source["watch"];
+	        this.rename = source["rename"];
+	        this.atomicMove = source["atomicMove"];
+	        this.trash = source["trash"];
+	    }
+	}
 	export class RemoteConfig {
 	    protocol: string;
 	    name?: string;
@@ -1178,6 +1208,7 @@ export namespace contracts {
 	    publicPath: string;
 	    mountPoint: string;
 	    readOnly: boolean;
+	    capabilities: ProviderCapabilities;
 	
 	    static createFrom(source: any = {}) {
 	        return new RemoteMount(source);
@@ -1191,7 +1222,26 @@ export namespace contracts {
 	        this.publicPath = source["publicPath"];
 	        this.mountPoint = source["mountPoint"];
 	        this.readOnly = source["readOnly"];
+	        this.capabilities = this.convertValues(source["capabilities"], ProviderCapabilities);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class RemoteOAuthBeginRequest {
 	    protocol: string;
@@ -1273,6 +1323,7 @@ export namespace contracts {
 	    auth: string;
 	    readOnly: boolean;
 	    hierarchy: string;
+	    capabilities: ProviderCapabilities;
 	
 	    static createFrom(source: any = {}) {
 	        return new RemoteProviderDescriptor(source);
@@ -1285,7 +1336,26 @@ export namespace contracts {
 	        this.auth = source["auth"];
 	        this.readOnly = source["readOnly"];
 	        this.hierarchy = source["hierarchy"];
+	        this.capabilities = this.convertValues(source["capabilities"], ProviderCapabilities);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class SearchResult {
 	    path: string;

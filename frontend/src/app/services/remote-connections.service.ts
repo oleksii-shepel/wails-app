@@ -3,6 +3,7 @@ import { createBehaviorSubject } from '@epikodelabs/streamix';
 import { contracts } from '../../../wailsjs/go/models';
 import { ApiService } from './api.service';
 import type { SourceCapabilities } from './source-capabilities';
+import { normalizeProviderCapabilities, UNKNOWN_PROVIDER_CAPABILITIES, type ProviderCapabilities } from './provider-capabilities';
 
 export type RemoteHierarchy = 'share-path' | 'path-backed';
 
@@ -68,11 +69,9 @@ export class RemoteConnectionsService {
     return scheme==='smb'?'share-path':'path-backed';
   }
 
-  capabilitiesFor(uri:string,base:SourceCapabilities):SourceCapabilities{
-    const mount=this.findByUri(uri);
-    if(!mount||!mount.readOnly)return base;
-    return {read:base.read,create:false,delete:false,rename:false,trash:false};
-  }
+  providerCapabilitiesFor(uri:string):ProviderCapabilities{const mount=this.findByUri(uri);if(!mount)return UNKNOWN_PROVIDER_CAPABILITIES;return normalizeProviderCapabilities((mount as contracts.RemoteMount&{capabilities?:Partial<ProviderCapabilities>}).capabilities)}
+
+  capabilitiesFor(uri:string,base:SourceCapabilities):SourceCapabilities{const mount=this.findByUri(uri);if(!mount)return base;const provider=this.providerCapabilitiesFor(uri);if(mount.readOnly)return {read:base.read,create:false,delete:false,rename:false,trash:false};return {...base,rename:base.rename&&provider.rename,trash:base.trash&&provider.trash}}
 
   private normalizeUri(value:string):string{return (value??'').trim().replace(/\/+$/,'').toLocaleLowerCase()}
   private patch(patch:Partial<RemoteConnectionSnapshot>):void{this.state$.next({...this.state$.value,...patch})}

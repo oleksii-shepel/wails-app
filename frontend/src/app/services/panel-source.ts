@@ -1,5 +1,6 @@
 import type { FileInfo } from '../shared/protocol-enhanced';
 import type { SourceCapabilities } from './source-capabilities';
+import type { ProviderCapabilities } from './provider-capabilities';
 
 export type PanelSourceKind =
   | 'filesystem'
@@ -34,6 +35,7 @@ export interface PanelSource {
 
   canHandle(context: PanelSourceContext): boolean;
   capabilities(context: PanelSourceContext): SourceCapabilities;
+  providerCapabilities?(context: PanelSourceContext): ProviderCapabilities | null;
 
   list(
     context: PanelSourceContext,
@@ -56,4 +58,5 @@ export interface ResolvedPanelSource {
   readonly source: PanelSource;
   readonly location: PanelSourceLocation;
   readonly capabilities: SourceCapabilities;
+  readonly providerCapabilities: ProviderCapabilities | null;
 }

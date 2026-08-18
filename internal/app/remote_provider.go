@@ -48,31 +48,31 @@ func (p builtinRemoteProvider) Connect(ctx context.Context, cfg contracts.Remote
 
 var builtinRemoteProviders = map[contracts.RemoteProtocol]remoteProvider{
 	contracts.ProtocolSMB: builtinRemoteProvider{
-		descriptor: contracts.RemoteProviderDescriptor{Protocol: contracts.ProtocolSMB, Name: "SMB", Auth: "credentials", ReadOnly: false, Hierarchy: "posix-like"},
+		descriptor: contracts.RemoteProviderDescriptor{Protocol: contracts.ProtocolSMB, Name: "SMB", Auth: "credentials", ReadOnly: false, Hierarchy: "posix-like", Capabilities: contracts.ProviderCapabilities{Pagination: false, RandomAccess: true, TotalCount: true, ServerSort: false, ServerFilter: false, RangeRead: true, Watch: false, Rename: true, AtomicMove: true, Trash: false}},
 		connect: func(ctx context.Context, cfg contracts.RemoteConfig, _ cloudutil.AccessTokenSource) (vfslib.FileSystem, error) {
 			return vfssmb.New(ctx, vfssmb.Config{Host: cfg.Host, Port: cfg.Port, Domain: cfg.Domain, Username: cfg.Username, Password: cfg.Password, Share: cfg.Share})
 		},
 	},
 	contracts.ProtocolS3: builtinRemoteProvider{
-		descriptor: contracts.RemoteProviderDescriptor{Protocol: contracts.ProtocolS3, Name: "S3", Auth: "access-key", ReadOnly: true, Hierarchy: "object-prefix"},
+		descriptor: contracts.RemoteProviderDescriptor{Protocol: contracts.ProtocolS3, Name: "S3", Auth: "access-key", ReadOnly: true, Hierarchy: "object-prefix", Capabilities: contracts.ProviderCapabilities{Pagination: true, RandomAccess: true, TotalCount: false, ServerSort: false, ServerFilter: false, RangeRead: true, Watch: false, Rename: false, AtomicMove: false, Trash: false}},
 		connect: func(ctx context.Context, cfg contracts.RemoteConfig, _ cloudutil.AccessTokenSource) (vfslib.FileSystem, error) {
 			return vfss3.New(ctx, vfss3.Config{Region: cfg.Region, Bucket: cfg.Bucket, Prefix: cfg.Prefix, Endpoint: cfg.Endpoint, AccessKeyID: cfg.AccessKeyID, SecretAccessKey: cfg.SecretAccessKey, SessionToken: cfg.SessionToken, Anonymous: cfg.Anonymous, UsePathStyle: cfg.UsePathStyle, Insecure: cfg.Insecure})
 		},
 	},
 	contracts.ProtocolGDrive: builtinRemoteProvider{
-		descriptor: contracts.RemoteProviderDescriptor{Protocol: contracts.ProtocolGDrive, Name: "Google Drive", Auth: "oauth-or-token", ReadOnly: true, Hierarchy: "id-backed"},
+		descriptor: contracts.RemoteProviderDescriptor{Protocol: contracts.ProtocolGDrive, Name: "Google Drive", Auth: "oauth-or-token", ReadOnly: true, Hierarchy: "id-backed", Capabilities: contracts.ProviderCapabilities{Pagination: true, RandomAccess: false, TotalCount: false, ServerSort: false, ServerFilter: false, RangeRead: false, Watch: false, Rename: false, AtomicMove: false, Trash: false}},
 		connect: func(ctx context.Context, cfg contracts.RemoteConfig, token cloudutil.AccessTokenSource) (vfslib.FileSystem, error) {
 			return vfsgdrive.New(ctx, vfsgdrive.Config{AccessToken: cfg.AccessToken, TokenSource: token})
 		},
 	},
 	contracts.ProtocolDropbox: builtinRemoteProvider{
-		descriptor: contracts.RemoteProviderDescriptor{Protocol: contracts.ProtocolDropbox, Name: "Dropbox", Auth: "oauth-or-token", ReadOnly: true, Hierarchy: "path-backed"},
+		descriptor: contracts.RemoteProviderDescriptor{Protocol: contracts.ProtocolDropbox, Name: "Dropbox", Auth: "oauth-or-token", ReadOnly: true, Hierarchy: "path-backed", Capabilities: contracts.ProviderCapabilities{Pagination: false, RandomAccess: false, TotalCount: false, ServerSort: false, ServerFilter: false, RangeRead: false, Watch: false, Rename: false, AtomicMove: false, Trash: false}},
 		connect: func(ctx context.Context, cfg contracts.RemoteConfig, token cloudutil.AccessTokenSource) (vfslib.FileSystem, error) {
 			return vfsdropbox.New(ctx, vfsdropbox.Config{AccessToken: cfg.AccessToken, TokenSource: token})
 		},
 	},
 	contracts.ProtocolOneDrive: builtinRemoteProvider{
-		descriptor: contracts.RemoteProviderDescriptor{Protocol: contracts.ProtocolOneDrive, Name: "OneDrive", Auth: "oauth-or-token", ReadOnly: true, Hierarchy: "id-backed"},
+		descriptor: contracts.RemoteProviderDescriptor{Protocol: contracts.ProtocolOneDrive, Name: "OneDrive", Auth: "oauth-or-token", ReadOnly: true, Hierarchy: "id-backed", Capabilities: contracts.ProviderCapabilities{Pagination: true, RandomAccess: false, TotalCount: false, ServerSort: false, ServerFilter: false, RangeRead: false, Watch: false, Rename: false, AtomicMove: false, Trash: false}},
 		connect: func(ctx context.Context, cfg contracts.RemoteConfig, token cloudutil.AccessTokenSource) (vfslib.FileSystem, error) {
 			return vfsonedrive.New(ctx, vfsonedrive.Config{AccessToken: cfg.AccessToken, TokenSource: token})
 		},

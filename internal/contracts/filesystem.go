@@ -51,6 +51,14 @@ type DirectoryListing struct {
 	TotalSize int64      `json:"totalSize"`
 }
 
+type DirectoryPage struct {
+	Path       string     `json:"path"`
+	Entries    []FileInfo `json:"entries"`
+	NextToken  string     `json:"nextToken,omitempty"`
+	TotalCount int        `json:"totalCount"`
+	HasTotal   bool       `json:"hasTotal"`
+}
+
 type FileContent struct {
 	Path     string `json:"path"`
 	Content  string `json:"content"`

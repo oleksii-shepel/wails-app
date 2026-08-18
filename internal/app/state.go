@@ -98,6 +98,7 @@ type DirStream interface {
 	Cancel(streamID string)
 	CancelAll()
 	SetVFS(listDir internalruntime.VFSListDirFunc, isVFS internalruntime.IsVFSPathFunc)
+	SetVFSPaged(listDirPage internalruntime.VFSListDirPageFunc)
 }
 
 type Utility interface {

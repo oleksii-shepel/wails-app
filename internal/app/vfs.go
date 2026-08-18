@@ -37,6 +37,9 @@ func (s *State) InitVFS() {
 				return s.vfs.IsMounted(normalized)
 			},
 		)
+		s.DirStream.SetVFSPaged(func(ctx context.Context, path, token string, limit int) (*contracts.DirectoryPage, error) {
+			return internalruntime.VFSListDirPage(ctx, s.vfs, path, token, limit)
+		})
 	}
 }
 

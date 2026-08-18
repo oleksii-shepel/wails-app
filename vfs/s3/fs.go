@@ -48,6 +48,12 @@ type FS struct {
 }
 
 var _ vfs.FileSystem = (*FS)(nil)
+var _ vfs.CapabilityFileSystem = (*FS)(nil)
+var _ vfs.PagedFileSystem = (*FS)(nil)
+
+func (f *FS) ProviderCapabilities() vfs.ProviderCapabilities {
+	return vfs.ProviderCapabilities{Pagination: true, RandomAccess: true, TotalCount: false, ServerSort: false, ServerFilter: false, RangeRead: true, Watch: false, Rename: false, AtomicMove: false, Trash: false}
+}
 
 // New creates an S3-backed filesystem rooted at cfg.Bucket/cfg.Prefix.
 func New(ctx context.Context, cfg Config) (*FS, error) {
@@ -180,68 +186,73 @@ func (f *FS) Stat(ctx context.Context, p string) (vfs.FileInfo, error) {
 
 // ReadDir lists one pseudo-directory level using common prefixes and direct objects.
 func (f *FS) ReadDir(ctx context.Context, p string) ([]vfs.FileInfo, error) {
+	entries := make([]vfs.FileInfo, 0)
+	token := ""
+	for {
+		page, err := f.ReadDirPage(ctx, p, token, 1000)
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, page.Entries...)
+		if page.NextToken == "" {
+			return entries, nil
+		}
+		token = page.NextToken
+	}
+}
+
+func (f *FS) ReadDirPage(ctx context.Context, p, token string, limit int) (vfs.DirectoryPage, error) {
 	cleaned := cleanPath(p)
 	if cleaned != "" {
 		info, err := f.Stat(ctx, cleaned)
 		if err != nil {
-			return nil, err
+			return vfs.DirectoryPage{}, err
 		}
 		if !info.IsDir() {
-			return nil, vfs.ErrNotDir
+			return vfs.DirectoryPage{}, vfs.ErrNotDir
 		}
 	}
-
-	prefix := f.directoryKey(cleaned)
-	input := &s3sdk.ListObjectsV2Input{
-		Bucket:    aws.String(f.bucket),
-		Delimiter: aws.String("/"),
+	if limit <= 0 || limit > 1000 {
+		limit = 1000
 	}
+	prefix := f.directoryKey(cleaned)
+	input := &s3sdk.ListObjectsV2Input{Bucket: aws.String(f.bucket), Delimiter: aws.String("/"), MaxKeys: aws.Int32(int32(limit))}
 	if prefix != "" {
 		input.Prefix = aws.String(prefix)
 	}
-
-	paginator := s3sdk.NewListObjectsV2Paginator(f.client, input)
-	entries := make([]vfs.FileInfo, 0)
-	seen := make(map[string]struct{})
-
-	for paginator.HasMorePages() {
-		page, err := paginator.NextPage(ctx)
-		if err != nil {
-			return nil, mapErr(err)
-		}
-
-		for _, commonPrefix := range page.CommonPrefixes {
-			name := childName(prefix, aws.ToString(commonPrefix.Prefix))
-			if name == "" {
-				continue
-			}
-			if _, ok := seen[name]; ok {
-				continue
-			}
-			seen[name] = struct{}{}
-			entries = append(entries, &fileInfo{name: name, isDir: true})
-		}
-
-		for _, object := range page.Contents {
-			key := aws.ToString(object.Key)
-			name := childName(prefix, key)
-			if name == "" || strings.Contains(name, "/") {
-				continue
-			}
-			if _, ok := seen[name]; ok {
-				continue
-			}
-			seen[name] = struct{}{}
-			entries = append(entries, &fileInfo{
-				name:    name,
-				size:    aws.ToInt64(object.Size),
-				modTime: timeValue(object.LastModified),
-				isDir:   false,
-			})
-		}
+	if token != "" {
+		input.ContinuationToken = aws.String(token)
 	}
-
-	return entries, nil
+	out, err := f.client.ListObjectsV2(ctx, input)
+	if err != nil {
+		return vfs.DirectoryPage{}, mapErr(err)
+	}
+	entries := make([]vfs.FileInfo, 0, len(out.CommonPrefixes)+len(out.Contents))
+	seen := map[string]struct{}{}
+	for _, cp := range out.CommonPrefixes {
+		name := childName(prefix, aws.ToString(cp.Prefix))
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		entries = append(entries, &fileInfo{name: name, isDir: true})
+	}
+	for _, obj := range out.Contents {
+		key := aws.ToString(obj.Key)
+		name := childName(prefix, key)
+		if name == "" || strings.Contains(name, "/") {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		entries = append(entries, &fileInfo{name: name, size: aws.ToInt64(obj.Size), modTime: timeValue(obj.LastModified), isDir: false})
+	}
+	return vfs.DirectoryPage{Entries: entries, NextToken: aws.ToString(out.NextContinuationToken)}, nil
 }
 
 func (f *FS) Exists(ctx context.Context, p string) bool {

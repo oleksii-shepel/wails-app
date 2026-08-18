@@ -35,6 +35,11 @@ type FS struct {
 }
 
 var _ vfs.FileSystem = (*FS)(nil)
+var _ vfs.CapabilityFileSystem = (*FS)(nil)
+
+func (f *FS) ProviderCapabilities() vfs.ProviderCapabilities {
+	return vfs.ProviderCapabilities{Pagination: false, RandomAccess: true, TotalCount: true, ServerSort: false, ServerFilter: false, RangeRead: true, Watch: false, Rename: true, AtomicMove: true, Trash: false}
+}
 
 // New connects to the SMB server and mounts the named share.
 func New(ctx context.Context, cfg Config) (*FS, error) {

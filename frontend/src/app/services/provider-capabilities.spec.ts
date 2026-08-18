@@ -1,0 +1,2 @@
+import { normalizeProviderCapabilities, UNKNOWN_PROVIDER_CAPABILITIES } from './provider-capabilities';
+describe('ProviderCapabilities',()=>{it('is conservative by default',()=>{expect(UNKNOWN_PROVIDER_CAPABILITIES.pagination).toBeFalse();expect(UNKNOWN_PROVIDER_CAPABILITIES.rename).toBeFalse()});it('normalizes backend flags',()=>{const c=normalizeProviderCapabilities({pagination:true,rangeRead:true});expect(c.pagination).toBeTrue();expect(c.rangeRead).toBeTrue();expect(c.watch).toBeFalse()})});

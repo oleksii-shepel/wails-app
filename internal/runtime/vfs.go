@@ -72,6 +72,21 @@ func VFSListDir(ctx context.Context, vfs *vfslib.Unified, path string) (*contrac
 	}, nil
 }
 
+func VFSListDirPage(ctx context.Context, vfs *vfslib.Unified, path, token string, limit int) (*contracts.DirectoryPage, error) {
+	publicPath := pathref.Normalize(path)
+	page, err := vfs.ReadDirPage(ctx, pathref.ToVFS(path), token, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]contracts.FileInfo, 0, len(page.Entries))
+	for _, entry := range page.Entries {
+		file := convertVFSInfo(entry)
+		file.Path = pathref.FromVFSEntry(publicPath, file.Path)
+		out = append(out, file)
+	}
+	return &contracts.DirectoryPage{Path: publicPath, Entries: out, NextToken: page.NextToken, TotalCount: page.TotalCount, HasTotal: page.HasTotal}, nil
+}
+
 func VFSOpenArchive(ctx context.Context, vfs *vfslib.Unified, path string, nested []string) (contracts.ArchiveListing, error) {
 	mountPoint, err := mountArchive(ctx, vfs, path, nested)
 	if err != nil {

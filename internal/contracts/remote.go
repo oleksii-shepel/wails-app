@@ -11,15 +11,30 @@ const (
 	ProtocolOneDrive RemoteProtocol = "onedrive"
 )
 
+// ProviderCapabilities mirrors the concrete mounted adapter behavior.
+type ProviderCapabilities struct {
+	Pagination   bool `json:"pagination"`
+	RandomAccess bool `json:"randomAccess"`
+	TotalCount   bool `json:"totalCount"`
+	ServerSort   bool `json:"serverSort"`
+	ServerFilter bool `json:"serverFilter"`
+	RangeRead    bool `json:"rangeRead"`
+	Watch        bool `json:"watch"`
+	Rename       bool `json:"rename"`
+	AtomicMove   bool `json:"atomicMove"`
+	Trash        bool `json:"trash"`
+}
+
 // RemoteProviderDescriptor describes connection semantics without exposing
 // provider implementation details. The frontend can use it to reason about
 // authentication, mutability and hierarchy without hard-coding backend rules.
 type RemoteProviderDescriptor struct {
-	Protocol  RemoteProtocol `json:"protocol"`
-	Name      string         `json:"name"`
-	Auth      string         `json:"auth"`
-	ReadOnly  bool           `json:"readOnly"`
-	Hierarchy string         `json:"hierarchy"`
+	Protocol     RemoteProtocol       `json:"protocol"`
+	Name         string               `json:"name"`
+	Auth         string               `json:"auth"`
+	ReadOnly     bool                 `json:"readOnly"`
+	Hierarchy    string               `json:"hierarchy"`
+	Capabilities ProviderCapabilities `json:"capabilities"`
 }
 
 // RemoteConfig describes how to connect to a remote server.
@@ -92,10 +107,11 @@ type RemoteOAuthConnectRequest struct {
 
 // RemoteMount describes an active remote filesystem mount.
 type RemoteMount struct {
-	Protocol   RemoteProtocol `json:"protocol"`
-	Host       string         `json:"host"`
-	Name       string         `json:"name"`       // human-readable display name
-	PublicPath string         `json:"publicPath"` // e.g. "smb://host/share"
-	MountPoint string         `json:"mountPoint"` // internal VFS path, e.g. "/remote/smb/host:445/share"
-	ReadOnly   bool           `json:"readOnly"`
+	Protocol     RemoteProtocol       `json:"protocol"`
+	Host         string               `json:"host"`
+	Name         string               `json:"name"`       // human-readable display name
+	PublicPath   string               `json:"publicPath"` // e.g. "smb://host/share"
+	MountPoint   string               `json:"mountPoint"` // internal VFS path, e.g. "/remote/smb/host:445/share"
+	ReadOnly     bool                 `json:"readOnly"`
+	Capabilities ProviderCapabilities `json:"capabilities"`
 }

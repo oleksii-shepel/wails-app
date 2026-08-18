@@ -57,9 +57,9 @@ type dirStreamMetaEvent struct {
 type dirStreamBatchEvent struct {
 	StreamID   string               `json:"streamId"`
 	Generation uint64               `json:"generation"`
-	PaneID   string               `json:"paneId"`
-	Path     string               `json:"path"`
-	Entries  []contracts.FileInfo `json:"entries"`
+	PaneID     string               `json:"paneId"`
+	Path       string               `json:"path"`
+	Entries    []contracts.FileInfo `json:"entries"`
 }
 
 type dirStreamDoneEvent struct {
@@ -80,9 +80,9 @@ type dirStreamDoneEvent struct {
 type dirStreamErrorEvent struct {
 	StreamID   string `json:"streamId"`
 	Generation uint64 `json:"generation"`
-	PaneID   string `json:"paneId"`
-	Path     string `json:"path"`
-	Error    string `json:"error"`
+	PaneID     string `json:"paneId"`
+	Path       string `json:"path"`
+	Error      string `json:"error"`
 }
 
 type ElevatedListFunc func(path string, showHidden bool) ([]contracts.FileInfo, error)
@@ -90,6 +90,7 @@ type BuildFileInfoFunc func(name, fullPath string, info os.FileInfo, hidden bool
 type IsHiddenFunc func(name, fullPath string) bool
 type ResolvePublicPathFunc func(path string) (string, error)
 type VFSListDirFunc func(path string) (*contracts.DirectoryListing, error)
+type VFSListDirPageFunc func(ctx context.Context, path, token string, limit int) (*contracts.DirectoryPage, error)
 type IsVFSPathFunc func(path string) bool
 
 type DirStreamService struct {
@@ -98,13 +99,14 @@ type DirStreamService struct {
 	prepared       map[string]preparedDirStream
 	paneGeneration map[string]uint64
 	nextGeneration uint64
-	emitEvent    func(string, interface{})
-	elevatedList ElevatedListFunc
-	buildFile    BuildFileInfoFunc
-	isHidden     IsHiddenFunc
-	resolvePath  ResolvePublicPathFunc
-	vfsListDir   VFSListDirFunc
-	isVFSPath    IsVFSPathFunc
+	emitEvent      func(string, interface{})
+	elevatedList   ElevatedListFunc
+	buildFile      BuildFileInfoFunc
+	isHidden       IsHiddenFunc
+	resolvePath    ResolvePublicPathFunc
+	vfsListDir     VFSListDirFunc
+	vfsListDirPage VFSListDirPageFunc
+	isVFSPath      IsVFSPathFunc
 }
 
 type preparedDirStream struct {
@@ -131,11 +133,11 @@ func NewDirStreamService(
 		streams:        make(map[string]context.CancelFunc),
 		prepared:       make(map[string]preparedDirStream),
 		paneGeneration: make(map[string]uint64),
-		emitEvent:    emitEvent,
-		elevatedList: elevatedList,
-		buildFile:    buildFile,
-		isHidden:     isHidden,
-		resolvePath:  resolvePath,
+		emitEvent:      emitEvent,
+		elevatedList:   elevatedList,
+		buildFile:      buildFile,
+		isHidden:       isHidden,
+		resolvePath:    resolvePath,
 	}
 }
 
@@ -143,6 +145,8 @@ func (s *DirStreamService) SetVFS(listDir VFSListDirFunc, isVFS IsVFSPathFunc) {
 	s.vfsListDir = listDir
 	s.isVFSPath = isVFS
 }
+
+func (s *DirStreamService) SetVFSPaged(fn VFSListDirPageFunc) { s.vfsListDirPage = fn }
 
 func (s *DirStreamService) Emit(name string, data interface{}) {
 	if s.emitEvent != nil {
@@ -717,23 +721,7 @@ func comparePreparedEntries(left, right contracts.FileInfo, options DirStreamOpt
 			return comparison
 		}
 	case "type":
-		if comparison := compareText(left.Type, right.Type); comparison != 0 {
-			return comparison
-		}
-	case "searchParentPath":
-		if comparison := compareText(left.SearchParentPath, right.SearchParentPath); comparison != 0 {
-			return comparison
-		}
-	case "registryKind":
-		if comparison := compareText(left.RegistryKind, right.RegistryKind); comparison != 0 {
-			return comparison
-		}
-	case "registryValueType":
-		if comparison := compareText(left.RegistryValueType, right.RegistryValueType); comparison != 0 {
-			return comparison
-		}
-	case "registryPreview":
-		if comparison := compareText(left.RegistryPreview, right.RegistryPreview); comparison != 0 {
+		if comparison := strings.Compare(string(left.Type), string(right.Type)); comparison != 0 {
 			return comparison
 		}
 	default:
@@ -742,10 +730,6 @@ func comparePreparedEntries(left, right contracts.FileInfo, options DirStreamOpt
 		}
 	}
 	return strings.Compare(strings.ToLower(left.Name), strings.ToLower(right.Name))
-}
-
-func compareText[T ~string](left, right T) int {
-	return strings.Compare(strings.ToLower(string(left)), strings.ToLower(string(right)))
 }
 
 func compareInt64(left, right int64) int {
@@ -845,13 +829,38 @@ func mergeSortedRunsAll(runs [][]contracts.FileInfo, options DirStreamOptions) [
 	return mergeSortedRunsWindow(runs, options, 0, total)
 }
 
-func (s *DirStreamService) scanVFSStream(
-	ctx context.Context,
-	path string,
-	showHidden bool,
-	chunkSize int,
-	onBatch func(batch []contracts.FileInfo, batchSize int64),
-) error {
+func (s *DirStreamService) scanVFSStream(ctx context.Context, path string, showHidden bool, chunkSize int, onBatch func([]contracts.FileInfo, int64)) error {
+	if s.vfsListDirPage != nil {
+		token := ""
+		for {
+			if ctx.Err() != nil {
+				return context.Canceled
+			}
+			page, err := s.vfsListDirPage(ctx, path, token, chunkSize)
+			if err != nil {
+				return err
+			}
+			batch := make([]contracts.FileInfo, 0, len(page.Entries))
+			var size int64
+			for _, fi := range page.Entries {
+				if ctx.Err() != nil {
+					return context.Canceled
+				}
+				if !showHidden && fi.IsHidden {
+					continue
+				}
+				batch = append(batch, fi)
+				size += fi.Size
+			}
+			if len(batch) > 0 {
+				onBatch(batch, size)
+			}
+			if page.NextToken == "" {
+				return nil
+			}
+			token = page.NextToken
+		}
+	}
 	if s.vfsListDir == nil {
 		return fmt.Errorf("vfs listing not available")
 	}
@@ -860,26 +869,24 @@ func (s *DirStreamService) scanVFSStream(
 		return err
 	}
 	batch := make([]contracts.FileInfo, 0, chunkSize)
-	batchSize := int64(0)
+	var size int64
 	for _, fi := range listing.Entries {
-		select {
-		case <-ctx.Done():
+		if ctx.Err() != nil {
 			return context.Canceled
-		default:
 		}
 		if !showHidden && fi.IsHidden {
 			continue
 		}
 		batch = append(batch, fi)
-		batchSize += fi.Size
+		size += fi.Size
 		if len(batch) >= chunkSize {
-			onBatch(batch, batchSize)
+			onBatch(batch, size)
 			batch = make([]contracts.FileInfo, 0, chunkSize)
-			batchSize = 0
+			size = 0
 		}
 	}
 	if len(batch) > 0 {
-		onBatch(batch, batchSize)
+		onBatch(batch, size)
 	}
 	return nil
 }

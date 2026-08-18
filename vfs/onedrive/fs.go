@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 
@@ -32,6 +33,12 @@ type FS struct {
 }
 
 var _ vfs.FileSystem = (*FS)(nil)
+var _ vfs.CapabilityFileSystem = (*FS)(nil)
+var _ vfs.PagedFileSystem = (*FS)(nil)
+
+func (f *FS) ProviderCapabilities() vfs.ProviderCapabilities {
+	return vfs.ProviderCapabilities{Pagination: true, RandomAccess: false, TotalCount: false, ServerSort: false, ServerFilter: false, RangeRead: false, Watch: false, Rename: false, AtomicMove: false, Trash: false}
+}
 
 type item struct {
 	Name                 string          `json:"name"`
@@ -124,6 +131,35 @@ func (f *FS) ReadDir(ctx context.Context, p string) ([]vfs.FileInfo, error) {
 		nextURL = response.NextLink
 	}
 	return result, nil
+}
+
+func (f *FS) ReadDirPage(ctx context.Context, p, token string, limit int) (vfs.DirectoryPage, error) {
+	cleaned := cloudutil.CleanPath(p)
+	if cleaned != "" {
+		meta, err := f.fetchItem(ctx, cleaned)
+		if err != nil {
+			return vfs.DirectoryPage{}, err
+		}
+		if len(meta.Folder) == 0 {
+			return vfs.DirectoryPage{}, vfs.ErrNotDir
+		}
+	}
+	if limit <= 0 || limit > 999 {
+		limit = 999
+	}
+	nextURL := token
+	if nextURL == "" {
+		nextURL = graphBaseURL + childrenEndpoint(cleaned) + "?$select=name,size,lastModifiedDateTime,file,folder&$top=" + strconv.Itoa(limit)
+	}
+	var response childrenResponse
+	if err := f.getJSON(ctx, nextURL, &response); err != nil {
+		return vfs.DirectoryPage{}, err
+	}
+	entries := make([]vfs.FileInfo, 0, len(response.Value))
+	for _, entry := range response.Value {
+		entries = append(entries, toInfo(entry))
+	}
+	return vfs.DirectoryPage{Entries: entries, NextToken: response.NextLink}, nil
 }
 
 func (f *FS) Exists(ctx context.Context, p string) bool {

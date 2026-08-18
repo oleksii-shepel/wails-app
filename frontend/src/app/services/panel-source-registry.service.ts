@@ -165,6 +165,8 @@ export class RemotePanelSource extends BasePanelSource {
     );
   }
 
+  providerCapabilities(context: PanelSourceContext) { return this.remote.providerCapabilitiesFor(context.path); }
+
   override getRootPath(context: PanelSourceContext): string | null {
     const scheme = schemeOf(context.path);
     if (!scheme) return null;
@@ -346,6 +348,7 @@ export class PanelSourceRegistryService {
         sourceKind: source.kind,
       },
       capabilities: source.capabilities(context),
+      providerCapabilities: source.providerCapabilities?.(context) ?? null,
     };
   }
 

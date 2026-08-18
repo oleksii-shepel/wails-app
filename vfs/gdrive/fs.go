@@ -37,6 +37,12 @@ type FS struct {
 }
 
 var _ vfs.FileSystem = (*FS)(nil)
+var _ vfs.CapabilityFileSystem = (*FS)(nil)
+var _ vfs.PagedFileSystem = (*FS)(nil)
+
+func (f *FS) ProviderCapabilities() vfs.ProviderCapabilities {
+	return vfs.ProviderCapabilities{Pagination: true, RandomAccess: false, TotalCount: false, ServerSort: false, ServerFilter: false, RangeRead: false, Watch: false, Rename: false, AtomicMove: false, Trash: false}
+}
 
 type fileMetadata struct {
 	ID              string          `json:"id"`
@@ -146,6 +152,42 @@ func (f *FS) ReadDir(ctx context.Context, p string) ([]vfs.FileInfo, error) {
 		result = append(result, toInfo(child))
 	}
 	return result, nil
+}
+
+func (f *FS) ReadDirPage(ctx context.Context, p, token string, limit int) (vfs.DirectoryPage, error) {
+	cleaned := cloudutil.CleanPath(p)
+	parentID := "root"
+	if cleaned != "" {
+		meta, err := f.resolvePath(ctx, cleaned)
+		if err != nil {
+			return vfs.DirectoryPage{}, err
+		}
+		if resolvedMimeType(meta) != folderMimeType {
+			return vfs.DirectoryPage{}, vfs.ErrNotDir
+		}
+		parentID = resolvedID(meta)
+	}
+	if limit <= 0 || limit > 1000 {
+		limit = 1000
+	}
+	query := url.Values{}
+	query.Set("q", fmt.Sprintf("'%s' in parents and trashed = false", strings.ReplaceAll(parentID, "'", "\\'")))
+	query.Set("fields", "nextPageToken,files(id,name,mimeType,size,modifiedTime,shortcutDetails(targetId,targetMimeType))")
+	query.Set("pageSize", strconv.Itoa(limit))
+	query.Set("supportsAllDrives", "true")
+	query.Set("includeItemsFromAllDrives", "true")
+	if token != "" {
+		query.Set("pageToken", token)
+	}
+	var response listResponse
+	if err := f.getJSON(ctx, apiBaseURL+"/files?"+query.Encode(), &response); err != nil {
+		return vfs.DirectoryPage{}, err
+	}
+	entries := make([]vfs.FileInfo, 0, len(response.Files))
+	for _, child := range response.Files {
+		entries = append(entries, toInfo(child))
+	}
+	return vfs.DirectoryPage{Entries: entries, NextToken: response.NextPageToken}, nil
 }
 
 func (f *FS) Exists(ctx context.Context, p string) bool {

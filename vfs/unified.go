@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	vpath "path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -89,6 +90,70 @@ func (u *Unified) Stat(ctx context.Context, path string) (FileInfo, error) {
 	return fsys.Stat(ctx, rel)
 }
 
+func (u *Unified) ProviderCapabilities(path string) (ProviderCapabilities, error) {
+	fsys, _, _, err := u.mounts.Resolve(path)
+	if err != nil {
+		return ProviderCapabilities{}, err
+	}
+	if capable, ok := fsys.(CapabilityFileSystem); ok {
+		return capable.ProviderCapabilities(), nil
+	}
+	return ProviderCapabilities{}, nil
+}
+
+func (u *Unified) ReadDirPage(ctx context.Context, path, token string, limit int) (DirectoryPage, error) {
+	fsys, rel, _, err := u.mounts.Resolve(path)
+	if err != nil {
+		return DirectoryPage{}, err
+	}
+	if limit <= 0 {
+		limit = 512
+	}
+	if paged, ok := fsys.(PagedFileSystem); ok {
+		page, err := paged.ReadDirPage(ctx, rel, token, limit)
+		if err != nil {
+			return DirectoryPage{}, err
+		}
+		page.Entries = sanitizeDirectoryEntries(page.Entries)
+		return page, nil
+	}
+	entries, err := u.ReadDir(ctx, path)
+	if err != nil {
+		return DirectoryPage{}, err
+	}
+	offset := 0
+	if token != "" {
+		offset, err = strconv.Atoi(token)
+		if err != nil || offset < 0 {
+			return DirectoryPage{}, fmt.Errorf("vfs: invalid directory page token")
+		}
+	}
+	if offset > len(entries) {
+		offset = len(entries)
+	}
+	end := offset + limit
+	if end > len(entries) {
+		end = len(entries)
+	}
+	next := ""
+	if end < len(entries) {
+		next = strconv.Itoa(end)
+	}
+	return DirectoryPage{Entries: entries[offset:end], NextToken: next, TotalCount: len(entries), HasTotal: true}, nil
+}
+
+func sanitizeDirectoryEntries(entries []FileInfo) []FileInfo {
+	writeIdx := 0
+	for _, entry := range entries {
+		if entry == nil || entry.Name() == "." || entry.Name() == ".." {
+			continue
+		}
+		entries[writeIdx] = entry
+		writeIdx++
+	}
+	return entries[:writeIdx]
+}
+
 func (u *Unified) ReadDir(ctx context.Context, path string) ([]FileInfo, error) {
 	fsys, rel, _, err := u.mounts.Resolve(path)
 	if err != nil {
@@ -99,16 +164,7 @@ func (u *Unified) ReadDir(ctx context.Context, path string) ([]FileInfo, error) 
 		return nil, err
 	}
 
-	writeIdx := 0
-	for _, e := range entries {
-		name := e.Name()
-		if name == "." || name == ".." {
-			continue
-		}
-		entries[writeIdx] = e
-		writeIdx++
-	}
-	entries = entries[:writeIdx]
+	entries = sanitizeDirectoryEntries(entries)
 
 	// Inject synthetic directory entries for sub-mounts under path.
 	cleanPath := cleanVFSPath(path)

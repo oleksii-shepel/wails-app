@@ -22,6 +22,10 @@ func (s *State) RemoteConnect(cfg contracts.RemoteConfig) (*contracts.RemoteMoun
 	return s.remoteConnect(cfg, nil)
 }
 
+func contractProviderCapabilities(value vfslib.ProviderCapabilities) contracts.ProviderCapabilities {
+	return contracts.ProviderCapabilities{Pagination: value.Pagination, RandomAccess: value.RandomAccess, TotalCount: value.TotalCount, ServerSort: value.ServerSort, ServerFilter: value.ServerFilter, RangeRead: value.RangeRead, Watch: value.Watch, Rename: value.Rename, AtomicMove: value.AtomicMove, Trash: value.Trash}
+}
+
 func (s *State) remoteConnect(cfg contracts.RemoteConfig, tokenSource cloudutil.AccessTokenSource) (*contracts.RemoteMount, error) {
 	if s.vfs == nil {
 		return nil, fmt.Errorf("vfs not initialized")
@@ -59,14 +63,12 @@ func (s *State) remoteConnect(cfg contracts.RemoteConfig, tokenSource cloudutil.
 		return nil, fmt.Errorf("vfs: mount %s: %w", mountPath, err)
 	}
 
-	mount := contracts.RemoteMount{
-		Protocol:   cfg.Protocol,
-		Host:       provider.Host(cfg),
-		Name:       displayName,
-		PublicPath: pathref.FromVFS(mountPath),
-		MountPoint: mountPath,
-		ReadOnly:   provider.Descriptor().ReadOnly,
+	descriptor := provider.Descriptor()
+	capabilities := descriptor.Capabilities
+	if capable, ok := remoteFS.(vfslib.CapabilityFileSystem); ok {
+		capabilities = contractProviderCapabilities(capable.ProviderCapabilities())
 	}
+	mount := contracts.RemoteMount{Protocol: cfg.Protocol, Host: provider.Host(cfg), Name: displayName, PublicPath: pathref.FromVFS(mountPath), MountPoint: mountPath, ReadOnly: descriptor.ReadOnly, Capabilities: capabilities}
 
 	s.remotesMu.Lock()
 	s.remotes[mountPath] = mount

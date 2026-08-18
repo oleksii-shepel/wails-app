@@ -381,9 +381,14 @@ function truncateFileName(name: string, maxLength: number): string {
     }
 
     .icon-emoji {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       font-size: 15px;
       line-height: 1;
-      display: block;
+      text-align: center;
     }
 
     /* ── Symlink badge ───────────────────────────────────────

@@ -566,7 +566,9 @@ export class PanelSourceRegistryService {
         return panel ? `results.${panel.id}` : 'results.expired';
       }
       case 'virtual':
-        return scheme ? `virtual.${scheme}` : source.id;
+        return source.id === 'virtual'
+          ? (scheme ? `virtual.${scheme}` : source.id)
+          : source.id;
       default:
         return source.id;
     }

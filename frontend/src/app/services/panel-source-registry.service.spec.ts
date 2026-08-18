@@ -125,7 +125,9 @@ describe('PanelSourceRegistryService', () => {
     };
 
     service.register(source);
-    expect(service.resolve({ path: 'demo://collection' }).source.id).toBe('plugin.demo');
+    const resolved = service.resolve({ path: 'demo://collection' });
+    expect(resolved.source.id).toBe('plugin.demo');
+    expect(resolved.location.sourceId).toBe('plugin.demo');
     expect(service.listSources().some(candidate => candidate.id === 'plugin.demo')).toBe(true);
 
     service.unregister('plugin.demo');

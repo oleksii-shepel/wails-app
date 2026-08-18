@@ -38,6 +38,8 @@ import { ResultsPanelService } from './results-panel.service';
 import { ApiService } from './api.service';
 import { ConfirmDialogService } from './confirm-dialog.service';
 import { AutorunPanelSource } from './autorun-panel-source.service';
+import { SystemSurfacePanelSource, systemField } from './system-surface-panel-source';
+import { SYSTEM_SURFACES } from './system-surface-definitions';
 
 export interface PluginBackend {
   id: string;
@@ -76,6 +78,7 @@ export class PluginManagerService implements PluginRegistryAPI {
   constructor() {
     this.registerBuiltinRegistryProvider();
     this.registerBuiltinAutorunProvider();
+    this.registerBuiltinSystemProviders();
     this.registerBuiltinRemoteProviders();
   }
 
@@ -619,6 +622,39 @@ export class PluginManagerService implements PluginRegistryAPI {
       description: 'Aggregates Registry Run/RunOnce and Startup folders into autorun://.',
       schemes: ['autorun'],
     });
+  }
+
+  private registerBuiltinSystemProviders(): void {
+    for (const descriptor of SYSTEM_SURFACES) {
+      const source = new SystemSurfacePanelSource(descriptor);
+      this.registerBackend({
+        id: source.id,
+        onRegister: api => {
+          api.registerPanelSource(source);
+          for (const column of descriptor.columns) {
+            api.registerPanelColumn({
+              id: `${source.id}.${column.id}`,
+              label: column.label,
+              width: column.width,
+              score: context => context.sourceId === source.id ? 100 : 0,
+              value: entry => systemField(entry, column.field),
+            });
+          }
+        },
+        onUnregister: api => {
+          for (const column of descriptor.columns) {
+            api.unregisterPanelColumn(`${source.id}.${column.id}`);
+          }
+          api.unregisterPanelSource(source.id);
+        },
+      }, {
+        id: source.id,
+        name: descriptor.title,
+        version: '1.0.0',
+        description: `${descriptor.title} system surface provider.`,
+        schemes: [descriptor.kind],
+      });
+    }
   }
 
   private registerBuiltinRemoteProviders(): void {

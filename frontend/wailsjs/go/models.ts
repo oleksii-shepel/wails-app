@@ -1438,6 +1438,22 @@ export namespace contracts {
 		    return a;
 		}
 	}
+	export class SystemSurfaceRecord {
+	    id: string;
+	    name: string;
+	    fields?: Record<string, any>;
+	
+	    static createFrom(source: any = {}) {
+	        return new SystemSurfaceRecord(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.fields = source["fields"];
+	    }
+	}
 	
 	export class TrashEntry {
 	    id: string;

@@ -321,6 +321,8 @@ export function StopElevationSession():Promise<void>;
 
 export function StreamBaseURL():Promise<string>;
 
+export function SystemSurfaceList(arg1:string):Promise<Array<contracts.SystemSurfaceRecord>>;
+
 export function UpdatePluginPackageState(arg1:string,arg2:pluginpackage.PackageStatePatch):Promise<pluginpackage.PackageState>;
 
 export function VFSListDir(arg1:string):Promise<contracts.DirectoryListing>;

@@ -26,6 +26,7 @@ import type { PanelSource } from './panel-source';
 import { PanelSourceRegistryService, RegistryPanelSource, RemotePanelSource } from './panel-source-registry.service';
 import { DirectorySourceService } from './directory-source.service';
 import { RemoteConnectionsService } from './remote-connections.service';
+import { ResilienceService } from './resilience.service';
 import { ResultsPanelService } from './results-panel.service';
 import { ApiService } from './api.service';
 import { ConfirmDialogService } from './confirm-dialog.service';
@@ -48,6 +49,7 @@ export class PluginManagerService implements PluginRegistryAPI {
   private readonly panelSources = inject(PanelSourceRegistryService);
   private readonly directories = inject(DirectorySourceService);
   private readonly remoteConnections = inject(RemoteConnectionsService);
+  private readonly resilience = inject(ResilienceService);
   private readonly resultsPanels = inject(ResultsPanelService);
   private readonly api = inject(ApiService);
   private readonly confirmDialog = inject(ConfirmDialogService);
@@ -515,6 +517,7 @@ export class PluginManagerService implements PluginRegistryAPI {
       const source = new RemotePanelSource(
         this.directories,
         this.remoteConnections,
+        this.resilience,
         provider.id,
         provider.name,
         [provider.scheme],

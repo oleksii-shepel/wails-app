@@ -84,6 +84,8 @@ type dirStreamErrorEvent struct {
 	PaneID     string `json:"paneId"`
 	Path       string `json:"path"`
 	Error      string `json:"error"`
+	Partial    bool   `json:"partial"`
+	EntryCount int    `json:"entryCount"`
 }
 
 type ElevatedListFunc func(path string, showHidden bool) ([]contracts.FileInfo, error)
@@ -604,6 +606,37 @@ func (s *DirStreamService) run(
 	if errors.Is(err, context.Canceled) || ctx.Err() != nil || !s.isCurrent(streamID, paneID, generation) {
 		return
 	}
+
+	// A remote/provider failure after some pages were indexed is partial, not
+	// catastrophic. Seal the rows we already own so window reads remain valid.
+	if len(runs) > 0 {
+		entries := mergeSortedRunsAll(runs, options)
+		count, size := sumPreparedEntries(entries)
+		if s.rememberPrepared(streamID, generation, preparedDirStream{
+			paneID:       paneID,
+			path:         path,
+			generation:   generation,
+			options:      options,
+			sourceCount:  sourceCount,
+			indexedCount: count,
+			totalSize:    size,
+			complete:     true,
+			runs:         nil,
+			entries:      entries,
+		}) {
+			s.Emit("fs:listStream:error", dirStreamErrorEvent{
+				StreamID:   streamID,
+				Generation: generation,
+				PaneID:     paneID,
+				Path:       path,
+				Error:      err.Error(),
+				Partial:    true,
+				EntryCount: count,
+			})
+			return
+		}
+	}
+
 	s.finishStreamError(ctx, streamID, paneID, path, showHidden, options, generation, started, enumerateDuration, err)
 }
 
@@ -674,6 +707,8 @@ func (s *DirStreamService) finishStreamError(
 		PaneID:     paneID,
 		Path:       path,
 		Error:      err.Error(),
+		Partial:    false,
+		EntryCount: 0,
 	})
 }
 

@@ -112,9 +112,10 @@ export class WorkspaceService {
       workspaceList = await this.loadBackendWorkspaces();
       this.backendLoaded = true;
     } catch {
-      // wait for backend instead of falling back
-      await new Promise(r => setTimeout(r, 300));
-      return this.initializeWorkspaces();
+      // Crash/restart resilience: the local durable snapshot is authoritative
+      // enough to restore tabs/navigation while the backend bridge recovers.
+      workspaceList = this.loadLocalWorkspaces();
+      this.backendLoaded = false;
     }
 
     // Bootstrap: create a default workspace if none exist yet
@@ -368,8 +369,39 @@ export class WorkspaceService {
 
   private saveLocalWorkspaces(list: WorkspaceList): void {
     try {
-      localStorage.setItem(STORAGE_KEYS.WORKSPACES, JSON.stringify(list));
+      localStorage.setItem(
+        STORAGE_KEYS.WORKSPACES,
+        JSON.stringify(this.durableWorkspaceSnapshot(list)),
+      );
     } catch {}
+  }
+
+  private durableWorkspaceSnapshot(list: WorkspaceList): WorkspaceList {
+    const clone = JSON.parse(JSON.stringify(list)) as WorkspaceList;
+
+    for (const workspace of clone.workspaces ?? []) {
+      for (const pane of [workspace.leftPane, workspace.rightPane]) {
+        for (const tab of pane?.tabs ?? []) {
+          // Viewer next/previous populations can contain tens of thousands of
+          // entries. Persist the target and source location, not that runtime
+          // population; it is regenerated from the source pane on restore.
+          if (tab.viewer?.fileList) {
+            delete tab.viewer.fileList;
+          }
+
+          // Defensive cleanup for old/experimental runtime state.
+          const runtimeTab = tab as TabInfo & {
+            entries?: unknown;
+            visibleEntries?: unknown;
+            population?: unknown;
+          };
+          delete runtimeTab.entries;
+          delete runtimeTab.visibleEntries;
+          delete runtimeTab.population;
+        }
+      }
+    }
+    return clone;
   }
 
   // ---------------------------------------------------------------------------
@@ -389,7 +421,7 @@ export class WorkspaceService {
 
     if (changedWorkspace) {
       // Fire-and-forget backend persistence
-      this.persistWorkspace(changedWorkspace);
+      void this.persistWorkspace(changedWorkspace).catch(() => undefined);
     }
   }
 

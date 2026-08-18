@@ -10,6 +10,8 @@ import {
   type ResolvedPanelSource,
 } from './panel-source';
 import { RemoteConnectionsService } from './remote-connections.service';
+import { ResilienceService } from './resilience.service';
+
 import {
   ResultsPanelService,
   type ResultsPanelMetadata,
@@ -144,6 +146,7 @@ export class RemotePanelSource extends BasePanelSource {
   constructor(
     directories: DirectorySourceService,
     private readonly remote: RemoteConnectionsService,
+    private readonly resilience?: ResilienceService,
     readonly id = 'remote',
     readonly title = 'Remote',
     private readonly schemes: readonly string[] | null = null,
@@ -156,6 +159,42 @@ export class RemotePanelSource extends BasePanelSource {
     if (!this.schemes?.length) return true;
     const scheme = schemeOf(context.path);
     return !!scheme && this.schemes.includes(scheme);
+  }
+
+  override async list(
+    context: PanelSourceContext,
+    showHidden: boolean,
+  ): Promise<PanelSourceListing> {
+    const mount = this.remote.findByUri(context.path);
+    const key = mount
+      ? `provider:${this.remote.protocol(mount)}:${this.remote.rootUri(mount).toLocaleLowerCase()}`
+      : `provider:${schemeOf(context.path) ?? 'remote'}:${context.path}`;
+
+    try {
+      const listing = this.resilience
+        ? await this.resilience.execute(
+            key,
+            () => super.list(context, showHidden),
+            {
+              policy: {
+                maxAttempts: 3,
+                initialDelayMs: 180,
+                maxDelayMs: 1800,
+                multiplier: 2,
+                jitter: 0.2,
+              },
+            },
+          )
+        : await super.list(context, showHidden);
+
+      this.remote.reportSuccess(context.path);
+      return listing;
+    } catch (error) {
+      this.remote.reportFailure(context.path, error);
+      // The caller fails this pane load only. No shared lock/global promise is
+      // held, so another pane/provider continues independently.
+      throw error;
+    }
   }
 
   capabilities(context: PanelSourceContext): SourceCapabilities {
@@ -304,10 +343,11 @@ export class PanelSourceRegistryService {
     private readonly directories: DirectorySourceService,
     remoteConnections: RemoteConnectionsService,
     private readonly resultsPanels: ResultsPanelService,
+    resilience?: ResilienceService,
   ) {
     this.sources = [
       new ArchivePanelSource(this.directories),
-      new RemotePanelSource(this.directories, remoteConnections),
+      new RemotePanelSource(this.directories, remoteConnections, resilience),
       new ResultsPanelSource(this.directories, this.resultsPanels),
       new VirtualPanelSource(this.directories),
       new FilesystemPanelSource(this.directories),

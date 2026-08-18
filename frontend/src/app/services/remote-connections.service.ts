@@ -3,6 +3,7 @@ import { createBehaviorSubject } from '@epikodelabs/streamix';
 import { contracts } from '../../../wailsjs/go/models';
 import { ApiService } from './api.service';
 import type { SourceCapabilities } from './source-capabilities';
+import { ResilienceService, type SourceHealth } from './resilience.service';
 import { normalizeProviderCapabilities, UNKNOWN_PROVIDER_CAPABILITIES, type ProviderCapabilities } from './provider-capabilities';
 
 export type RemoteHierarchy = 'share-path' | 'path-backed';
@@ -19,22 +20,61 @@ const EMPTY: RemoteConnectionSnapshot = { mounts: [], loading: false, error: '',
 export class RemoteConnectionsService {
   readonly state$ = createBehaviorSubject<RemoteConnectionSnapshot>(EMPTY);
   private generation = 0;
-  constructor(private readonly api: ApiService) {}
+  constructor(
+    private readonly api: ApiService,
+    private readonly resilience?: ResilienceService,
+  ) {}
 
   get mounts(): contracts.RemoteMount[] { return this.state$.value.mounts; }
 
   async refresh(): Promise<contracts.RemoteMount[]> {
     const generation = ++this.generation;
-    this.patch({loading:true,error:''});
+    this.patch({ loading: true, error: '' });
+
+    const load = async () => {
+      if (this.resilience) {
+        return this.resilience.execute(
+          'remote:mount-list',
+          () => this.api.remoteListConnections(),
+          {
+            policy: {
+              maxAttempts: 3,
+              initialDelayMs: 150,
+              maxDelayMs: 1200,
+              multiplier: 2,
+              jitter: 0.15,
+            },
+          },
+        );
+      }
+      return this.api.remoteListConnections();
+    };
+
     try {
-      const mounts = await this.api.remoteListConnections();
+      const mounts = await load();
       if (generation !== this.generation) return this.mounts;
-      const normalized=[...(mounts??[])].sort((a,b)=>this.label(a).localeCompare(this.label(b),undefined,{numeric:true,sensitivity:'base'}));
-      this.state$.next({mounts:normalized,loading:false,error:'',refreshedAt:Date.now()});
+      const normalized = [...(mounts ?? [])].sort((a, b) =>
+        this.label(a).localeCompare(this.label(b), undefined, {
+          numeric: true,
+          sensitivity: 'base',
+        }),
+      );
+      this.state$.next({
+        mounts: normalized,
+        loading: false,
+        error: '',
+        refreshedAt: Date.now(),
+      });
       return normalized;
-    } catch(error) {
+    } catch (error) {
       if (generation !== this.generation) return this.mounts;
-      this.patch({loading:false,error:error instanceof Error?error.message:String(error)});
+
+      // Do not erase a healthy pane merely because connection discovery failed.
+      // Existing mounted roots remain visible and individually recoverable.
+      this.patch({
+        loading: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
       return this.mounts;
     }
   }
@@ -72,6 +112,28 @@ export class RemoteConnectionsService {
   providerCapabilitiesFor(uri:string):ProviderCapabilities{const mount=this.findByUri(uri);if(!mount)return UNKNOWN_PROVIDER_CAPABILITIES;return normalizeProviderCapabilities((mount as contracts.RemoteMount&{capabilities?:Partial<ProviderCapabilities>}).capabilities)}
 
   capabilitiesFor(uri:string,base:SourceCapabilities):SourceCapabilities{const mount=this.findByUri(uri);if(!mount)return base;const provider=this.providerCapabilitiesFor(uri);if(mount.readOnly)return {read:base.read,create:false,delete:false,rename:false,trash:false};return {...base,rename:base.rename&&provider.rename,trash:base.trash&&provider.trash}}
+
+  healthFor(uri: string): SourceHealth | null {
+    const mount = this.findByUri(uri);
+    if (!mount || !this.resilience) return null;
+    return this.resilience.snapshot(this.healthKey(mount));
+  }
+
+  reportSuccess(uri: string): void {
+    const mount = this.findByUri(uri);
+    if (!mount || !this.resilience) return;
+    this.resilience.markSuccess(this.healthKey(mount));
+  }
+
+  reportFailure(uri: string, error: unknown, terminal = false): void {
+    const mount = this.findByUri(uri);
+    if (!mount || !this.resilience) return;
+    this.resilience.markFailure(this.healthKey(mount), error, terminal);
+  }
+
+  private healthKey(mount: contracts.RemoteMount): string {
+    return `provider:${this.protocol(mount)}:${this.rootUri(mount).toLocaleLowerCase()}`;
+  }
 
   private normalizeUri(value:string):string{return (value??'').trim().replace(/\/+$/,'').toLocaleLowerCase()}
   private patch(patch:Partial<RemoteConnectionSnapshot>):void{this.state$.next({...this.state$.value,...patch})}

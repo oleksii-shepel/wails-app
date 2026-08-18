@@ -25,6 +25,8 @@ export interface PowerTransferJob {
 
 @Injectable({ providedIn: 'root' })
 export class PowerFileOperationsService {
+  private static readonly RECOVERY_KEY = 'file-manager.transfer-jobs.v1';
+
   private readonly jobs = new Map<string, PowerTransferJob>();
   private paused = false;
   private runningId: string | null = null;
@@ -36,7 +38,10 @@ export class PowerFileOperationsService {
     Array<(job: PowerTransferJob) => void>
   >();
 
-  constructor(private readonly api: ApiService) {}
+  constructor(private readonly api: ApiService) {
+    this.restoreRecoverableJobs();
+    void this.pump();
+  }
 
   get isPaused(): boolean {
     return this.paused;
@@ -210,6 +215,60 @@ export class PowerFileOperationsService {
   }
 
   private emit(): void {
+    this.persistRecoverableJobs();
     this.jobs$.next(this.snapshot());
+  }
+
+  private persistRecoverableJobs(): void {
+    try {
+      const recoverable = this.snapshot()
+        .filter(job =>
+          job.status === 'queued' ||
+          job.status === 'running' ||
+          job.status === 'failed'
+        )
+        .map(job => ({
+          ...job,
+          // A process crash cannot prove a running operation completed.
+          // Recover it as failed so retry remains an explicit user action.
+          status: job.status === 'running' ? 'failed' : job.status,
+          error: job.status === 'running'
+            ? 'Application restarted while this job was running.'
+            : job.error,
+        }));
+      localStorage.setItem(
+        PowerFileOperationsService.RECOVERY_KEY,
+        JSON.stringify({ version: 1, jobs: recoverable }),
+      );
+    } catch {
+      // Recovery persistence must never stall file operations.
+    }
+  }
+
+  private restoreRecoverableJobs(): void {
+    try {
+      const raw = localStorage.getItem(PowerFileOperationsService.RECOVERY_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as {
+        version?: number;
+        jobs?: PowerTransferJob[];
+      };
+      if (parsed.version !== 1 || !Array.isArray(parsed.jobs)) return;
+
+      for (const job of parsed.jobs) {
+        if (!job?.id || !Array.isArray(job.items)) continue;
+        this.jobs.set(job.id, {
+          ...job,
+          items: job.items.map(item => ({ ...item })),
+          status: job.status === 'running' ? 'failed' : job.status,
+          error: job.status === 'running'
+            ? 'Application restarted while this job was running.'
+            : job.error,
+        });
+      }
+      this.jobs$.next(this.snapshot());
+    } catch {
+      // Ignore corrupt recovery data.
+    }
   }
 }

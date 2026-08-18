@@ -15,6 +15,10 @@ function host(): PluginRegistryAPI {
     registerRelatedLocation: fn(), unregisterRelatedLocation: fn(),
     registerPanelSource: fn(), unregisterPanelSource: fn(),
     registerPanelColumn: fn(), unregisterPanelColumn: fn(),
+    registerTheme: fn(), unregisterTheme: fn(),
+    registerColumnProfile: fn(), unregisterColumnProfile: fn(),
+    registerLayoutPreset: fn(), unregisterLayoutPreset: fn(),
+    registerWorkspaceTemplate: fn(), unregisterWorkspaceTemplate: fn(),
     createResultsCollection: fn(() => 'results://plugin-collection'), removeResultsCollection: fn(),
   };
 }
@@ -107,4 +111,21 @@ describe('ScopedPluginRegistry', () => {
     scope.registerInput({ pluginId: 'somebody-else', commands: [], bindings: [] });
     expect(target.registerInput).toHaveBeenCalledWith(expect.objectContaining({ pluginId: 'demo' }));
   });
+  it('owns customization contributions and unwinds them with the plugin scope', () => {
+    const target = host();
+    const scope = new ScopedPluginRegistry('demo', target, new Set(['surfaces', 'columns']));
+
+    scope.registerTheme({ id: 'demo.theme', label: 'Demo', kind: 'dark', variables: {} });
+    scope.registerColumnProfile({ id: 'demo.columns', label: 'Demo', columnIds: [] });
+    scope.registerLayoutPreset({ id: 'demo.layout', label: 'Demo', createLayout: () => ({}) as any });
+    scope.registerWorkspaceTemplate({ id: 'demo.workspace', label: 'Demo', create: () => ({}) as any });
+
+    scope.dispose();
+
+    expect(target.unregisterWorkspaceTemplate).toHaveBeenCalledWith('demo.workspace');
+    expect(target.unregisterLayoutPreset).toHaveBeenCalledWith('demo.layout');
+    expect(target.unregisterColumnProfile).toHaveBeenCalledWith('demo.columns');
+    expect(target.unregisterTheme).toHaveBeenCalledWith('demo.theme');
+  });
+
 });

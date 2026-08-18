@@ -13,6 +13,12 @@ import type { SurfaceContribution } from '../surfaces/surface-contribution';
 import type { RelatedLocationContribution } from '../services/related-location.types';
 import type { WorkspaceSurfaceActionContribution } from '../services/workspace-surface-action.types';
 import type { PanelSource } from '../services/panel-source';
+import type {
+  ThemeContribution,
+  ColumnProfileContribution,
+  LayoutPresetContribution,
+  WorkspaceTemplateContribution,
+} from '../services/customization-registry.service';
 
 /**
  * Plugin-facing registry wrapper. Every successful contribution is recorded and
@@ -132,6 +138,34 @@ export class ScopedPluginRegistry implements PluginRegistryAPI {
     this.cleanups.push(() => this.host.unregisterPanelColumn(column.id));
   }
   unregisterPanelColumn(id: string): void { this.host.unregisterPanelColumn(id); }
+
+  registerTheme(theme: ThemeContribution): void {
+    this.assertActive(); this.require('surfaces');
+    this.host.registerTheme(theme);
+    this.cleanups.push(() => this.host.unregisterTheme(theme.id));
+  }
+  unregisterTheme(id: string): void { this.host.unregisterTheme(id); }
+
+  registerColumnProfile(profile: ColumnProfileContribution): void {
+    this.assertActive(); this.require('columns');
+    this.host.registerColumnProfile(profile);
+    this.cleanups.push(() => this.host.unregisterColumnProfile(profile.id));
+  }
+  unregisterColumnProfile(id: string): void { this.host.unregisterColumnProfile(id); }
+
+  registerLayoutPreset(preset: LayoutPresetContribution): void {
+    this.assertActive(); this.require('surfaces');
+    this.host.registerLayoutPreset(preset);
+    this.cleanups.push(() => this.host.unregisterLayoutPreset(preset.id));
+  }
+  unregisterLayoutPreset(id: string): void { this.host.unregisterLayoutPreset(id); }
+
+  registerWorkspaceTemplate(template: WorkspaceTemplateContribution): void {
+    this.assertActive(); this.require('surfaces');
+    this.host.registerWorkspaceTemplate(template);
+    this.cleanups.push(() => this.host.unregisterWorkspaceTemplate(template.id));
+  }
+  unregisterWorkspaceTemplate(id: string): void { this.host.unregisterWorkspaceTemplate(id); }
 
   createResultsCollection(collection: PluginResultsCollection): string {
     this.assertActive();

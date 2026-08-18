@@ -23,20 +23,16 @@ function extLower(path: string): string {
       <header class="viewer-chrome" *ngIf="targetPath; else noTarget">
         <div class="viewer-identity">
           <span class="viewer-file-icon" aria-hidden="true">{{ fileIcon }}</span>
-          <div class="viewer-title-block">
-            <div class="viewer-title-row">
-              <span class="viewer-title" [title]="displayName">{{ displayName }}</span>
-              <span class="viewer-kind">{{ displayKind }}</span>
-              <span class="viewer-state" *ngIf="resolving">Loading…</span>
-            </div>
-            <div class="viewer-metadata" [title]="displayPath">
-              <span *ngIf="probe?.mimeType">{{ probe.mimeType }}</span>
-              <span *ngIf="probe?.encoding">{{ probe.encoding }}</span>
-              <span *ngIf="fileInfo?.size">{{ formatSize(fileInfo.size || 0) }}</span>
-              <span *ngIf="archiveContext">Archive entry</span>
-              <span class="viewer-path">{{ displayPath }}</span>
-            </div>
-          </div>
+          <span class="viewer-context" *ngIf="autoFollow">Preview</span>
+          <span class="viewer-title" [title]="displayName">{{ displayName }}</span>
+          <span class="viewer-kind">{{ displayKind }}</span>
+          <span class="viewer-state" *ngIf="resolving">Loading…</span>
+          <span class="viewer-metadata" [title]="displayPath">
+            <span *ngIf="probe?.mimeType">{{ probe.mimeType }}</span>
+            <span *ngIf="fileInfo?.size">{{ formatSize(fileInfo.size || 0) }}</span>
+            <span *ngIf="archiveContext">Archive</span>
+            <span class="viewer-path">{{ displayPath }}</span>
+          </span>
         </div>
 
         <div class="viewer-actions">
@@ -49,16 +45,7 @@ function extLower(path: string): string {
             Folder
           </button>
 
-          <span class="viewer-divider"></span>
-
-          <button type="button" [disabled]="!supports('showPrevious')" (click)="invoke('showPrevious')" title="Previous item">‹</button>
-          <button type="button" [disabled]="!supports('showNext')" (click)="invoke('showNext')" title="Next item">›</button>
-          <button type="button" [disabled]="!supports('zoomOut')" (click)="invoke('zoomOut')" title="Zoom out">−</button>
-          <button type="button" [disabled]="!supports('zoomIn')" (click)="invoke('zoomIn')" title="Zoom in">+</button>
-          <button type="button" [disabled]="!supports('resetZoom')" (click)="invoke('resetZoom')" title="Fit">Fit</button>
-          <button type="button" [disabled]="!supports('zoom100')" (click)="invoke('zoom100')" title="Actual size">1:1</button>
-
-          <span class="viewer-divider"></span>
+          <span class="viewer-divider" *ngIf="sourceAvailable"></span>
 
           <button type="button" (click)="toggleFullscreen()" title="Fullscreen">⛶</button>
           <button
@@ -130,8 +117,8 @@ function extLower(path: string): string {
       display: flex;
       align-items: center;
       gap: 10px;
-      min-height: 40px;
-      padding: 4px 8px 4px 10px;
+      min-height: 32px;
+      padding: 3px 6px 3px 8px;
       border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border));
       background: var(--vsc-tabbar-background, var(--vsc-panel-background));
       flex: 0 0 auto;
@@ -141,42 +128,39 @@ function extLower(path: string): string {
     .viewer-identity {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 6px;
       min-width: 0;
       flex: 1 1 auto;
+      overflow: hidden;
     }
 
     .viewer-file-icon {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 24px;
-      height: 24px;
-      flex: 0 0 24px;
-      font-size: 16px;
+      width: 20px;
+      height: 20px;
+      flex: 0 0 20px;
+      font-size: 14px;
       line-height: 1;
     }
 
-    .viewer-title-block {
-      min-width: 0;
-      flex: 1 1 auto;
-    }
-
-    .viewer-title-row {
-      display: flex;
-      align-items: center;
-      gap: 7px;
-      min-width: 0;
-      line-height: 18px;
+    .viewer-context {
+      flex: 0 0 auto;
+      color: var(--vsc-accent-blue, var(--vsc-focus-ring));
+      font-size: 10px;
+      font-weight: 600;
     }
 
     .viewer-title {
-      min-width: 0;
+      min-width: 48px;
+      max-width: min(260px, 28vw);
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
       font-size: 12px;
       font-weight: 600;
+      flex: 0 1 auto;
     }
 
     .viewer-kind,
@@ -206,10 +190,11 @@ function extLower(path: string): string {
       align-items: center;
       gap: 0;
       min-width: 0;
+      flex: 1 1 auto;
       overflow: hidden;
       color: var(--vsc-description-foreground, var(--vsc-foreground-dim));
       font-size: 10px;
-      line-height: 15px;
+      line-height: 18px;
       white-space: nowrap;
     }
 
@@ -235,8 +220,8 @@ function extLower(path: string): string {
     }
 
     .viewer-actions button {
-      min-width: 26px;
-      height: 26px;
+      min-width: 24px;
+      height: 24px;
       padding: 0 6px;
       border: 1px solid transparent;
       border-radius: 3px;
@@ -355,9 +340,14 @@ function extLower(path: string): string {
       opacity: .75;
     }
 
-    @media (max-width: 760px) {
-      .viewer-metadata .viewer-path { display: none; }
+    @media (max-width: 900px) {
+      .viewer-path { display: none; }
+    }
+
+    @media (max-width: 640px) {
+      .viewer-metadata { display: none; }
       .viewer-actions .viewer-action--text { display: none; }
+      .viewer-title { max-width: 40vw; }
     }
   `],
 })

@@ -842,6 +842,7 @@ export class InputEngineService {
       NumpadAdd: 'numpadadd',
       NumpadSubtract: 'numpadsubtract',
       NumpadMultiply: 'numpadmultiply',
+      NumpadDivide: '/',
       // Match OEM punctuation by physical key so shortcuts stay stable across
       // keyboard layouts and WebView2 hosts.
       Slash: '/',

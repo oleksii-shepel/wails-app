@@ -64,6 +64,16 @@ describe('browser keybinding collisions', () => {
     expect(BROWSER_BINDINGS.some(binding => binding.id === 'pane.tabs.pin.ctrlShiftP')).toBe(false);
   });
 
+
+  it('keeps Ctrl+/ dedicated to the keyboard quick reference', () => {
+    const help = BROWSER_BINDINGS.find(binding => binding.id === 'pane.nav.showKeyboardHelp.ctrlSlash');
+    expect(help?.commandId).toBe(BC.showKeyboardHelp);
+    expect(help?.trigger).toEqual({
+      device: 'keyboard',
+      chord: { steps: [{ key: '/', modifiers: ['ctrl'] }] },
+    });
+  });
+
   it('leaves F1 to the manager-level Input & Shortcuts command', () => {
     const f1Bindings = BROWSER_BINDINGS.filter(binding =>
       binding.trigger.device === 'keyboard'

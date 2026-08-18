@@ -6,7 +6,10 @@ import {
   EventEmitter,
   HostListener,
   Input,
+  OnChanges,
+  OnDestroy,
   Output,
+  SimpleChanges,
   ViewChild,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
@@ -54,15 +57,16 @@ import type {
             class="search"
             type="search"
             [(ngModel)]="searchText"
+            (ngModelChange)="applyFilters()"
             placeholder="Search command, shortcut, context, plugin…"
             aria-label="Search input bindings">
-          <select [(ngModel)]="deviceFilter" aria-label="Input device filter">
+          <select [(ngModel)]="deviceFilter" (ngModelChange)="applyFilters()" aria-label="Input device filter">
             <option value="all">All devices</option>
             <option value="keyboard">Keyboard</option>
             <option value="mouse">Mouse</option>
           </select>
           <label class="check">
-            <input type="checkbox" [(ngModel)]="conflictsOnly">
+            <input type="checkbox" [(ngModel)]="conflictsOnly" (ngModelChange)="applyFilters()">
             Conflicts only
           </label>
           <span class="summary">
@@ -87,7 +91,7 @@ import type {
               *ngFor="let binding of visibleBindings; trackBy: trackBinding"
               class="binding"
               [class.disabled]="binding.enabled === false"
-              [class.overridden]="customization.hasOverride(binding.id)"
+              [class.overridden]="isOverridden(binding.id)"
               [class.conflict]="conflictsFor(binding.id).length > 0"
               role="listitem">
               <div class="main">
@@ -104,7 +108,7 @@ import type {
                 class="trigger"
                 [title]="'Change ' + binding.description"
                 (click)="beginCapture(binding)">
-                {{ format(binding.trigger) || 'Unbound' }}
+                {{ triggerLabel(binding.id) }}
               </button>
 
               <label class="enabled" title="Enable or disable binding">
@@ -117,7 +121,7 @@ import type {
               <button
                 type="button"
                 class="reset"
-                [disabled]="!customization.hasOverride(binding.id)"
+                [disabled]="!isOverridden(binding.id)"
                 title="Reset this binding"
                 (click)="reset(binding)">
                 Reset
@@ -178,7 +182,7 @@ import type {
     @media(max-width:700px){.binding{grid-template-columns:minmax(0,1fr) 120px 28px}.reset{grid-column:1/-1;justify-self:end}.summary{width:100%;margin-left:0}}
   `],
 })
-export class InputCenterComponent {
+export class InputCenterComponent implements OnChanges, OnDestroy {
   @Input() visible = false;
   @Output() closed = new EventEmitter<void>();
   @ViewChild('panel') panel?: ElementRef<HTMLElement>;
@@ -189,31 +193,58 @@ export class InputCenterComponent {
   editingBinding: InputBindingDefinition | null = null;
   capturedSteps: KeyStroke[] = [];
 
+  visibleBindings: readonly InputBindingDefinition[] = [];
+  conflicts: readonly InputBindingConflict[] = [];
+
+  private bindingsSnapshot: readonly InputBindingDefinition[] = [];
+  private readonly conflictsByBindingId = new Map<string, InputBindingConflict[]>();
+  private readonly triggerLabels = new Map<string, string>();
+  private readonly overriddenIds = new Set<string>();
+  private modelDirty = true;
+  private readonly bindingSubscription: { unsubscribe?: () => void } | (() => void) | void;
+
   constructor(
     readonly customization: InputCustomizationService,
     private readonly engine: InputEngineService,
     private readonly dialogs: ConfirmDialogService,
     private readonly cdr: ChangeDetectorRef,
-  ) {}
-
-  get conflicts(): readonly InputBindingConflict[] {
-    return this.customization.conflicts();
+  ) {
+    // Binding registration is noisy during startup. Keep the editor cheap while
+    // hidden and rebuild its presentation model only when it is actually open.
+    this.bindingSubscription = this.engine.bindings$.subscribe(() => {
+      this.modelDirty = true;
+      if (!this.visible) return;
+      this.refreshPresentationModel();
+      this.cdr.markForCheck();
+    });
   }
 
-  get visibleBindings(): readonly InputBindingDefinition[] {
-    const search = this.searchText.trim().toLocaleLowerCase();
+  ngOnChanges(changes: SimpleChanges): void {
+    if (changes['visible']?.currentValue && this.modelDirty) {
+      this.refreshPresentationModel();
+    }
+  }
 
-    return this.customization.bindings().filter(binding => {
+  ngOnDestroy(): void {
+    if (typeof this.bindingSubscription === 'function') {
+      this.bindingSubscription();
+    } else {
+      this.bindingSubscription?.unsubscribe?.();
+    }
+  }
+
+  applyFilters(): void {
+    const search = this.searchText.trim().toLocaleLowerCase();
+    this.visibleBindings = this.bindingsSnapshot.filter(binding => {
       if (this.deviceFilter !== 'all' && binding.trigger.device !== this.deviceFilter) {
         return false;
       }
-
-      if (this.conflictsOnly && this.conflictsFor(binding.id).length === 0) {
+      if (this.conflictsOnly && (this.conflictsByBindingId.get(binding.id)?.length ?? 0) === 0) {
         return false;
       }
-
       if (!search) return true;
 
+      const trigger = this.triggerLabels.get(binding.id) ?? '';
       return [
         binding.id,
         binding.commandId,
@@ -221,7 +252,7 @@ export class InputCenterComponent {
         binding.category ?? '',
         binding.contextId,
         binding.source,
-        this.format(binding.trigger),
+        trigger,
       ].some(value => value.toLocaleLowerCase().includes(search));
     });
   }
@@ -319,17 +350,20 @@ export class InputCenterComponent {
       device: 'keyboard',
       chord: { steps: this.capturedSteps },
     });
+    this.refreshPresentationModel();
     this.cancelCapture();
   }
 
   toggleEnabled(binding: InputBindingDefinition, event: Event): void {
     const input = event.target as HTMLInputElement;
     this.customization.setEnabled(binding.id, input.checked);
+    this.refreshPresentationModel();
     this.cdr.markForCheck();
   }
 
   reset(binding: InputBindingDefinition): void {
     this.customization.reset(binding.id);
+    this.refreshPresentationModel();
     this.cdr.markForCheck();
   }
 
@@ -343,6 +377,7 @@ export class InputCenterComponent {
     if (!confirmed) return;
 
     this.customization.resetAll();
+    this.refreshPresentationModel();
     this.cdr.markForCheck();
   }
 
@@ -373,6 +408,7 @@ export class InputCenterComponent {
           title: 'Input Bindings Imported',
           message: `${result.imported} imported${result.ignored ? ` · ${result.ignored} ignored` : ''}.`,
         });
+        this.refreshPresentationModel();
         this.cdr.markForCheck();
       } catch (error) {
         await this.dialogs.alert({
@@ -385,7 +421,15 @@ export class InputCenterComponent {
   }
 
   conflictsFor(bindingId: string): readonly InputBindingConflict[] {
-    return this.customization.conflictsFor(bindingId);
+    return this.conflictsByBindingId.get(bindingId) ?? [];
+  }
+
+  isOverridden(bindingId: string): boolean {
+    return this.overriddenIds.has(bindingId);
+  }
+
+  triggerLabel(bindingId: string): string {
+    return this.triggerLabels.get(bindingId) || 'Unbound';
   }
 
   peerDescription(bindingId: string, conflict: InputBindingConflict): string {
@@ -398,6 +442,38 @@ export class InputCenterComponent {
 
   format(trigger: InputTrigger): string {
     return this.engine.formatInputTrigger(trigger);
+  }
+
+  private refreshPresentationModel(): void {
+    const bindings = this.customization.bindings();
+    const conflicts = this.customization.conflicts();
+
+    this.bindingsSnapshot = bindings;
+    this.conflicts = conflicts;
+    this.conflictsByBindingId.clear();
+    this.triggerLabels.clear();
+    this.overriddenIds.clear();
+
+    for (const binding of bindings) {
+      this.triggerLabels.set(binding.id, this.engine.formatInputTrigger(binding.trigger));
+      if (this.customization.hasOverride(binding.id)) {
+        this.overriddenIds.add(binding.id);
+      }
+    }
+
+    for (const conflict of conflicts) {
+      for (const id of [conflict.bindingId, conflict.conflictingBindingId]) {
+        const current = this.conflictsByBindingId.get(id);
+        if (current) {
+          current.push(conflict);
+        } else {
+          this.conflictsByBindingId.set(id, [conflict]);
+        }
+      }
+    }
+
+    this.modelDirty = false;
+    this.applyFilters();
   }
 
   trackBinding(_index: number, binding: InputBindingDefinition): string {
@@ -433,6 +509,7 @@ export class InputCenterComponent {
       device: 'mouse',
       gesture,
     });
+    this.refreshPresentationModel();
     this.cancelCapture();
   }
 

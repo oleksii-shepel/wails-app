@@ -11,6 +11,10 @@ export interface DirStreamMetaEvent {
   paneId: string;
   path: string;
   showHidden: boolean;
+  /** Final logical extent when known at stream start; -1 means unknown. */
+  sourceCount: number;
+  /** Initial visible extent when known; -1 means indexing determines it. */
+  totalCount: number;
 }
 
 export interface DirStreamBatchEvent {

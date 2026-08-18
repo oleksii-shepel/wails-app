@@ -301,7 +301,12 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
   private readonly VIRTUAL_THRESHOLD = 100;
   private readonly DEFAULT_ROW_HEIGHT = 44;
   rowHeight = 44;
-  private readonly overscan = 5;
+  // A deliberately generous retained window. With 44px rows this keeps
+  // roughly several viewport-heights mounted, which is still tiny compared
+  // with WinSxS-sized directories but avoids rebuilding Angular rows for every
+  // few wheel ticks.
+  private readonly overscan = 64;
+  private readonly windowGuardRows = 24;
   private scrollRAF: number | null = null;
   private boundScrollListener?: () => void;
   private resizeObserver?: ResizeObserver;
@@ -489,14 +494,24 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
   private refreshDerivedEntries(): void {
     this.cachedVirtualEntries = this.parentEntry ? this.entries.slice(1) : this.entries;
     this.pathToVirtualIndex.clear();
-    const pathSet = new Set<string>();
     this.cachedVirtualEntries.forEach((entry, index) => {
       this.pathToVirtualIndex.set(entry.path, index);
-      pathSet.add(entry.path);
     });
-    for (const key of this.rowVmCache.keys()) {
-      if (!pathSet.has(key)) {
-        this.rowVmCache.delete(key);
+
+    // The row VM cache only needs aggressive pruning after navigation or a
+    // major dataset replacement. Avoid allocating another full-directory Set
+    // on every streamed batch.
+    if (
+      this.rowVmCache.size >
+      Math.max(512, this.cachedVirtualEntries.length * 2)
+    ) {
+      const livePaths = new Set(
+        this.cachedVirtualEntries.map(entry => entry.path),
+      );
+      for (const key of this.rowVmCache.keys()) {
+        if (!livePaths.has(key)) {
+          this.rowVmCache.delete(key);
+        }
       }
     }
     this.updateVirtualWindow(true);
@@ -553,7 +568,9 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
 
   private updateVirtualWindow(forceRebuild = false): boolean {
     if (!this.virtualEnabled) {
-      const changed = this.virtualStart !== 0 || this.virtualEnd !== this.entries.length;
+      const changed =
+        this.virtualStart !== 0 ||
+        this.virtualEnd !== this.entries.length;
       this.virtualStart = 0;
       this.virtualEnd = this.entries.length;
       if (changed || forceRebuild) {
@@ -566,25 +583,63 @@ export class FileListComponent implements OnDestroy, OnChanges, AfterViewInit {
     const scrollTop = element?.scrollTop ?? 0;
     const parentOffset = this.parentEntry ? this.parentRowHeight : 0;
     const contentScrollTop = Math.max(0, scrollTop - parentOffset);
-    const visibleParentPart = this.parentEntry ? Math.max(0, parentOffset - scrollTop) : 0;
+    const visibleParentPart = this.parentEntry
+      ? Math.max(0, parentOffset - scrollTop)
+      : 0;
 
     const viewportHeight = Math.max(
       1,
-      (this.viewportHeight || element?.clientHeight || 0) - visibleParentPart
+      (this.viewportHeight || element?.clientHeight || 0) - visibleParentPart,
     );
-    const visibleCount = Math.max(1, Math.ceil(viewportHeight / this.rowHeight));
-    
-    const start = Math.max(0, Math.floor(contentScrollTop / this.rowHeight) - this.overscan);
-    const end = Math.min(this.cachedVirtualEntries.length, start + visibleCount + this.overscan * 2);
+    const visibleCount = Math.max(
+      1,
+      Math.ceil(viewportHeight / this.rowHeight),
+    );
 
-    const changed = start !== this.virtualStart || end !== this.virtualEnd;
-    if (changed) {
-      this.virtualStart = start;
-      this.virtualEnd = end;
+    const itemCount = this.cachedVirtualEntries.length;
+    const firstVisible = Math.max(
+      0,
+      Math.min(
+        Math.max(0, itemCount - visibleCount),
+        Math.floor(contentScrollTop / this.rowHeight),
+      ),
+    );
+    const lastVisible = Math.min(
+      itemCount,
+      firstVisible + visibleCount,
+    );
+
+    // Keep the current materialized window while the viewport remains well
+    // inside it. This is the key difference from recomputing start/end for
+    // every row of scroll movement.
+    if (
+      !forceRebuild &&
+      this.virtualEnd > this.virtualStart &&
+      firstVisible >= this.virtualStart + this.windowGuardRows &&
+      lastVisible <= this.virtualEnd - this.windowGuardRows
+    ) {
+      return false;
     }
+
+    const nextStart = Math.max(0, firstVisible - this.overscan);
+    const nextEnd = Math.min(
+      itemCount,
+      lastVisible + this.overscan,
+    );
+
+    const changed =
+      nextStart !== this.virtualStart ||
+      nextEnd !== this.virtualEnd;
+
+    if (changed) {
+      this.virtualStart = nextStart;
+      this.virtualEnd = nextEnd;
+    }
+
     if (changed || forceRebuild) {
       this.rebuildVisibleEntries();
     }
+
     return changed || forceRebuild;
   }
 

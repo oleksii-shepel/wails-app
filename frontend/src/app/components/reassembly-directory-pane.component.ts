@@ -2286,6 +2286,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   private readonly dirStream: DirListStreamController;
   private resultStreamAbort: AbortController | null = null;
   private streamRenderActive = false;
+  streamLogicalCount = -1;
   private streamLoadGeneration = 0;
   private streamPreviousCursor: string | null = null;
   private streamRestoreSession = false;
@@ -8075,6 +8076,7 @@ export class ReassemblyDirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   private handleStreamMeta(event: DirStreamMetaEvent): void {
+    this.streamLogicalCount = event.totalCount ?? -1;
     if (this.streamLoadGeneration !== this.loadGeneration) return;
     if (!this.streamRenderActive) return;
 

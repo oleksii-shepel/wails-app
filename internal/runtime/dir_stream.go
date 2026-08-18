@@ -43,10 +43,12 @@ type DirStreamWindow struct {
 }
 
 type dirStreamMetaEvent struct {
-	StreamID   string `json:"streamId"`
-	PaneID     string `json:"paneId"`
-	Path       string `json:"path"`
-	ShowHidden bool   `json:"showHidden"`
+	StreamID    string `json:"streamId"`
+	PaneID      string `json:"paneId"`
+	Path        string `json:"path"`
+	ShowHidden  bool   `json:"showHidden"`
+	SourceCount int    `json:"sourceCount"`
+	TotalCount  int    `json:"totalCount"`
 }
 
 type dirStreamBatchEvent struct {
@@ -248,16 +250,53 @@ func (s *DirStreamService) CancelAll() {
 	}
 }
 
+func (s *DirStreamService) initialDirectoryCount(path string, showHidden bool, options DirStreamOptions) int {
+	// Search/VFS filtering can change cardinality while entries are being
+	// prepared, so keep their extent unknown until indexing establishes it.
+	if pathref.IsSearch(path) || (s.isVFSPath != nil && s.isVFSPath(path)) {
+		return -1
+	}
+	if options.FilterText != "" {
+		return -1
+	}
+
+	resolved, err := s.resolvePath(path)
+	if err != nil {
+		return -1
+	}
+	entries, err := os.ReadDir(resolved)
+	if err != nil {
+		return -1
+	}
+
+	if showHidden {
+		return len(entries)
+	}
+
+	count := 0
+	for _, entry := range entries {
+		fullPath := filepath.Join(resolved, entry.Name())
+		if s.isHidden != nil && s.isHidden(entry.Name(), fullPath) {
+			continue
+		}
+		count++
+	}
+	return count
+}
+
 func (s *DirStreamService) run(ctx context.Context, streamID, paneID, path string, showHidden bool, options DirStreamOptions) {
 	defer s.Unregister(streamID)
 
 	started := time.Now()
 
+	initialCount := s.initialDirectoryCount(path, showHidden, options)
 	s.Emit("fs:listStream:meta", dirStreamMetaEvent{
-		StreamID:   streamID,
-		PaneID:     paneID,
-		Path:       path,
-		ShowHidden: showHidden,
+		StreamID:    streamID,
+		PaneID:      paneID,
+		Path:        path,
+		ShowHidden:  showHidden,
+		SourceCount: initialCount,
+		TotalCount:  initialCount,
 	})
 
 	scan := s.scanDirectoryStream

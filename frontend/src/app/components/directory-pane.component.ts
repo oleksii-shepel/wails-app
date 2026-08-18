@@ -955,15 +955,28 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     .action-bar {
       display: flex;
       align-items: center;
+      flex-wrap: nowrap;
       gap: 4px;
+      height: 34px;
       min-height: 34px;
+      max-height: 34px;
+      box-sizing: border-box;
       padding: 3px 8px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      scrollbar-width: none;
       border-bottom: 1px solid var(--vsc-border-subtle, var(--vsc-border-subtle));
       background: var(--vsc-tabbar-background, var(--vsc-panel-background));
     }
 
+    .action-bar::-webkit-scrollbar { display: none; }
+
     .action-bar button {
+      height: 26px;
       min-height: 26px;
+      max-height: 26px;
+      flex: 0 0 auto;
+      white-space: nowrap;
       padding: 3px 9px;
       border: 1px solid transparent;
       border-radius: 4px;
@@ -990,6 +1003,7 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
 
     .view-switcher {
       display: flex;
+      flex: 0 0 auto;
       gap: 2px;
     }
 
@@ -1001,11 +1015,13 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
     .sort-controls {
       display: flex;
       align-items: center;
+      flex: 0 0 auto;
       gap: 2px;
     }
 
     .sort-controls select {
       height: 26px;
+      flex: 0 0 auto;
       max-width: 110px;
       padding: 0 5px;
       border: 1px solid var(--vsc-border, var(--vsc-border));

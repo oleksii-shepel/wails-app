@@ -33,7 +33,6 @@ import {
   PaneComparisonService,
   type PaneComparisonResult,
   type PaneComparisonPolicy,
-  type PaneComparisonStatus,
 } from '../services/pane-comparison.service';
 import { PaneRecursiveComparisonService } from '../services/pane-recursive-comparison.service';
 import { SelectionBasketService } from '../services/selection-basket.service';
@@ -93,6 +92,7 @@ import type { PresentedCommand } from './presented-command';
 import { analyzePaneLocations, mirrorPaneLocation, mirroredPeerCandidates } from './pane-link-policy';
 import type { PanePresentation } from './directory-pane.component';
 import { InputCenterComponent } from './input-center.component';
+import { KeyboardHelpComponent } from './keyboard-help.component';
 import { OperationJournalComponent } from './operation-journal.component';
 import { ClosedTabsComponent } from './closed-tabs.component';
 import type { RecentlyClosedTab } from '../services/workspace.service';
@@ -106,6 +106,7 @@ const OWNER_ID = 'reassembly.manager';
 
 const COMMAND = {
   toggleShortcutHelp: 'reassembly.help.shortcuts',
+  showShortcutReference: 'reassembly.help.shortcutReference',
   openCommandPalette: 'reassembly.navigation.commandPalette',
   openSettings: 'reassembly.settings.open',
   openPluginSettings: 'reassembly.settings.plugins',
@@ -288,9 +289,11 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   { id:'reassembly.layout.widenRight.altShiftRight', commandId:COMMAND.widenRightPane, contextId:CONTEXT_ID, source:'default', description:'Widen right pane', category:'Layout', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'arrowright', modifiers:['alt','shift']}]}}},
   { id:'reassembly.layout.resetSplit.altShift0', commandId:COMMAND.resetPaneSplit, contextId:CONTEXT_ID, source:'default', description:'Reset pane split', category:'Layout', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'0', modifiers:['alt','shift']}]}}},
   { id:'reassembly.help.shortcuts.f1', commandId:COMMAND.toggleShortcutHelp, contextId:CONTEXT_ID, source:'default', description:'Show keyboard shortcuts', category:'Help', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'f1'}]}}},
+  { id:'reassembly.help.shortcutReference.ctrlSlash', commandId:COMMAND.showShortcutReference, contextId:'global', source:'default', description:'Show shortcut reference', category:'Help', trigger:{device:'keyboard', chord:{steps:[{key:'/', modifiers:['ctrl']}]}}},
+  { id:'reassembly.help.shortcutReference.ctrlShiftSlash', commandId:COMMAND.showShortcutReference, contextId:'global', source:'default', description:'Show shortcut reference', category:'Help', trigger:{device:'keyboard', chord:{steps:[{key:'/', modifiers:['ctrl','shift']}]}}},
   { id:'reassembly.files.deletePermanent.shiftDelete', commandId:COMMAND.deletePermanent, contextId:CONTEXT_ID, source:'default', description:'Delete permanently', category:'File Operations', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'delete', modifiers:['shift']}]}}},
   { id:'reassembly.files.properties.altEnter', commandId:COMMAND.properties, contextId:CONTEXT_ID, source:'default', description:'Properties', category:'File Operations', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'enter', modifiers:['alt']}]}}},
-  { id:'reassembly.navigation.commandPalette.ctrlShiftP', commandId:COMMAND.openCommandPalette, contextId:CONTEXT_ID, source:'default', description:'Open command palette', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'p', modifiers:['ctrl','shift']}]}}},
+  { id:'reassembly.navigation.commandPalette.ctrlShiftP', commandId:COMMAND.openCommandPalette, contextId:'global', source:'default', description:'Open command palette', category:'Navigation', trigger:{device:'keyboard', chord:{steps:[{key:'p', modifiers:['ctrl','shift']}]}}},
   { id:'reassembly.settings.open.ctrlComma', commandId:COMMAND.openSettings, contextId:CONTEXT_ID, source:'default', description:'Open Settings', category:'Settings', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:',', modifiers:['ctrl']}]}}},
   { id:'reassembly.manager.switchPane.tab', commandId:COMMAND.switchPane, contextId:CONTEXT_ID, source:'default', description:'Switch active pane', category:'Pane Control', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'tab'}]}}},
   { id:'reassembly.manager.cursorUp.arrowUp', commandId:COMMAND.cursorUp, contextId:CONTEXT_ID, source:'default', description:'Move cursor up', category:'Navigation', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'arrowup'}]}}},
@@ -383,9 +386,6 @@ const BINDINGS: readonly InputBindingDefinition[] = [
   { id:'reassembly.files.openWithExternal.ctrlShiftO', commandId:COMMAND.openWithExternal, contextId:CONTEXT_ID, source:'default', description:'Open with external application', category:'File Operations', when:'!typing', trigger:{device:'keyboard', chord:{steps:[{key:'o', modifiers:['ctrl','shift']}]}}},
 ];
 
-const EMPTY_COMPARISON_STATUSES =
-  new Map<string, PaneComparisonStatus>() as ReadonlyMap<string, PaneComparisonStatus>;
-
 @Component({
   selector: 'app-dual-pane',
   standalone: true,
@@ -394,6 +394,7 @@ const EMPTY_COMPARISON_STATUSES =
     DirectoryPaneComponent,
     ContextMenuComponent,
     InputCenterComponent,
+    KeyboardHelpComponent,
     WorkspaceSwitcherComponent,
     PathHistoryComponent,
     QuickAccessComponent,
@@ -498,15 +499,6 @@ const EMPTY_COMPARISON_STATUSES =
           <button
             type="button"
             class="mode-toggle"
-            [class.active]="comparisonVisible"
-            [attr.aria-pressed]="comparisonVisible"
-            title="Compare panes"
-            (click)="togglePaneComparison()">
-            Compare
-          </button>
-          <button
-            type="button"
-            class="mode-toggle"
             [class.active]="mirrorPresentation"
             [attr.aria-pressed]="mirrorPresentation"
             title="Mirror view/sort state · Ctrl+Alt+M"
@@ -601,7 +593,6 @@ const EMPTY_COMPARISON_STATUSES =
           [showHidden]="showHidden"
           [currentPathPinned]="isPanePathPinned(leftPane)"
           [pluginToolbarActions]="pluginToolbarActionsFor(leftPane)"
-          [comparisonStatuses]="leftComparisonStatuses"
           (activateRequested)="activate('left')"
           (remoteRecoveryRequested)="openRemoteConnections()"
           (togglePinRequested)="togglePanePin(leftPane)"
@@ -643,7 +634,6 @@ const EMPTY_COMPARISON_STATUSES =
           [showHidden]="showHidden"
           [currentPathPinned]="isPanePathPinned(rightPane)"
           [pluginToolbarActions]="pluginToolbarActionsFor(rightPane)"
-          [comparisonStatuses]="rightComparisonStatuses"
           (activateRequested)="activate('right')"
           (remoteRecoveryRequested)="openRemoteConnections()"
           (togglePinRequested)="togglePanePin(rightPane)"
@@ -736,6 +726,8 @@ const EMPTY_COMPARISON_STATUSES =
         (undoRequested)="undoLastOperation()"
         (redoRequested)="redoLastOperation()">
       </app-operation-journal>
+
+      <app-keyboard-help #keyboardHelp></app-keyboard-help>
 
       <app-input-center
         [visible]="shortcutHelpVisible"
@@ -990,6 +982,8 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   toolsCenter?: ToolsCenterComponent;
   @ViewChild('commandPalette')
   commandPalette?: CommandPaletteComponent;
+  @ViewChild('keyboardHelp')
+  keyboardHelp?: KeyboardHelpComponent;
   @ViewChild('globalSearch')
   globalSearchOverlay?: GlobalSearchComponent;
   @ViewChild('pathHistory')
@@ -1024,17 +1018,6 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   recursiveComparisonError = '';
   recursiveComparisonResult: PaneComparisonResult | null = null;
   recursiveComparisonRoots: { left: string; right: string } | null = null;
-  private localComparisonResult: PaneComparisonResult | null = null;
-  private localComparisonLeftEntries: readonly FileInfo[] | null = null;
-  private localComparisonRightEntries: readonly FileInfo[] | null = null;
-  private localComparisonPolicy: PaneComparisonPolicy | null = null;
-  private comparisonStatusMapsCache:
-    | {
-        result: PaneComparisonResult;
-        left: ReadonlyMap<string, PaneComparisonStatus>;
-        right: ReadonlyMap<string, PaneComparisonStatus>;
-      }
-    | null = null;
 
   lastTransfer = 'none';
   lastDrop = 'none';
@@ -2200,21 +2183,12 @@ export class DualPaneComponent implements OnInit, OnDestroy {
   private invalidatePaneComparison(reason = 'comparison stale'): void {
     this.differenceCursor = -1;
     this.comparisonSignature = '';
-    this.invalidateLocalComparisonCache();
     this.linkStatus = reason;
     this.cdr.markForCheck();
   }
 
-  private invalidateLocalComparisonCache(): void {
-    this.localComparisonResult = null;
-    this.localComparisonLeftEntries = null;
-    this.localComparisonRightEntries = null;
-    this.localComparisonPolicy = null;
-    this.comparisonStatusMapsCache = null;
-  }
-
   private comparisonIsCurrent(): boolean {
-    if (!this.comparisonVisible || !this.canComparePanes()) return false;
+    if (!this.paneComparisonResult) return false;
     if (!this.comparisonSignature) return false;
     return this.comparisonSignature === this.currentPanePairSignature();
   }
@@ -3755,74 +3729,16 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       return this.recursiveComparisonResult!;
     }
 
-    const leftEntries = this.leftPane?.entries ?? [];
-    const rightEntries = this.rightPane?.entries ?? [];
-
-    if (
-      !this.localComparisonResult ||
-      this.localComparisonLeftEntries !== leftEntries ||
-      this.localComparisonRightEntries !== rightEntries ||
-      this.localComparisonPolicy !== this.comparisonPolicy
-    ) {
-      this.localComparisonResult = this.paneComparison.compare(
-        leftEntries,
-        rightEntries,
-        { policy: this.comparisonPolicy },
-      );
-      this.localComparisonLeftEntries = leftEntries;
-      this.localComparisonRightEntries = rightEntries;
-      this.localComparisonPolicy = this.comparisonPolicy;
-      this.comparisonStatusMapsCache = null;
-
-      // Compare mode is live for the current directory populations. When either
-      // pane publishes a new population, the cached comparison advances with it
-      // and difference navigation remains tied to the same snapshot.
-      if (this.comparisonVisible) {
-        this.comparisonSignature = this.currentPanePairSignature();
-        this.differenceCursor = -1;
-      }
-    }
-
-    return this.localComparisonResult;
-  }
-
-  get leftComparisonStatuses(): ReadonlyMap<string, PaneComparisonStatus> {
-    if (!this.comparisonVisible || !this.canComparePanes()) {
-      return EMPTY_COMPARISON_STATUSES;
-    }
-    return this.comparisonStatusMaps().left;
-  }
-
-  get rightComparisonStatuses(): ReadonlyMap<string, PaneComparisonStatus> {
-    if (!this.comparisonVisible || !this.canComparePanes()) {
-      return EMPTY_COMPARISON_STATUSES;
-    }
-    return this.comparisonStatusMaps().right;
-  }
-
-  private comparisonStatusMaps(): {
-    readonly left: ReadonlyMap<string, PaneComparisonStatus>;
-    readonly right: ReadonlyMap<string, PaneComparisonStatus>;
-  } {
-    const result = this.paneComparisonResult;
-    const cached = this.comparisonStatusMapsCache;
-    if (cached?.result === result) {
-      return cached;
-    }
-
-    const maps = this.paneComparison.statusMaps(result);
-    this.comparisonStatusMapsCache = {
-      result,
-      left: maps.left,
-      right: maps.right,
-    };
-    return this.comparisonStatusMapsCache;
+    return this.paneComparison.compare(
+      this.leftPane?.entries ?? [],
+      this.rightPane?.entries ?? [],
+      { policy: this.comparisonPolicy },
+    );
   }
 
   async setComparisonPolicy(policy: PaneComparisonPolicy): Promise<void> {
     this.comparisonPolicy = policy;
     this.verifiedComparisonResult = null;
-    this.invalidateLocalComparisonCache();
     this.syncReviewVisible = false;
 
     if (this.comparisonRecursive) {
@@ -3856,8 +3772,6 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     } else {
       this.verifiedComparisonResult = base;
     }
-    this.markComparisonCurrent();
-    this.comparisonStatusMapsCache = null;
     this.cdr.markForCheck();
   }
 
@@ -3876,9 +3790,6 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     }
 
     this.comparisonVisible = true;
-    this.invalidateLocalComparisonCache();
-    void this.paneComparisonResult;
-    this.markComparisonCurrent();
     this.cdr.markForCheck();
   }
 
@@ -3889,7 +3800,6 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     this.recursiveComparisonResult = null;
     this.verifiedComparisonResult = null;
     this.recursiveComparisonError = '';
-    this.comparisonStatusMapsCache = null;
     this.cdr.markForCheck();
   }
 
@@ -5153,6 +5063,16 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       .join(' then ');
   }
 
+  private openCommandPaletteSurface(): void {
+    const palette = this.commandPalette as (CommandPaletteComponent & { show?: () => void; open?: () => void }) | undefined;
+    if (!palette) return;
+    if (typeof palette.show === 'function') {
+      palette.show();
+      return;
+    }
+    palette.open?.();
+  }
+
   private registerCommands(): void {
     const catalog: PaletteCommand[] = [];
 
@@ -5182,9 +5102,10 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     };
 
     descriptor(COMMAND.toggleShortcutHelp, 'Keyboard Shortcuts', 'Help', () => this.toggleShortcutHelp());
+    descriptor(COMMAND.showShortcutReference, 'Shortcut Reference', 'Help', () => this.keyboardHelp?.show());
     descriptor(COMMAND.openCommandPalette, 'Command Palette', 'Navigation', async () => {
       await this.refreshCommandPaletteCommands();
-      this.commandPalette?.open();
+      this.openCommandPaletteSurface();
     });
     descriptor(COMMAND.openSettings, 'Settings', 'Settings', () => this.openSettings());
     descriptor(COMMAND.openPluginSettings, 'Plugin Settings', 'Settings', () => this.openSettings('plugins'));

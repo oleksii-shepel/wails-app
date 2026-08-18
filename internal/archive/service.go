@@ -14,6 +14,7 @@ import (
 	"wails-app/internal/contentprobe"
 	contracts "wails-app/internal/contracts"
 	"wails-app/internal/pathref"
+	"wails-app/internal/work"
 	vfslib "wails-app/vfs"
 	vfsarchive "wails-app/vfs/archive"
 	"wails-app/vfs/archive/cache"
@@ -167,76 +168,81 @@ func (s *Service) ReadFileStream(fsPath string, nestedChain []string, entryPath 
 	s.streamsCancel[streamID] = cancel
 	s.streamsMu.Unlock()
 
-	// Start streaming in background goroutine
-	go func() {
-		defer func() {
-			s.streamsMu.Lock()
-			delete(s.streamsCancel, streamID)
-			s.streamsMu.Unlock()
-		}()
+	// Archive streaming uses the same central bounded worker scheduler.
+	work.Default.Submit(ctx, work.Task{
+		Key:      "archive-stream:" + streamID,
+		Priority: work.PriorityInteractive,
+		Kind:     "viewer",
+		Run: func(ctx context.Context, reporter work.Reporter) error {
+			defer func() {
+				s.streamsMu.Lock()
+				delete(s.streamsCancel, streamID)
+				s.streamsMu.Unlock()
+			}()
 
-		// Convert filesystem:// scheme paths to native OS paths
-		nativePath := pathref.ToNativePath(fsPath)
+			// Convert filesystem:// scheme paths to native OS paths
+			nativePath := pathref.ToNativePath(fsPath)
 
-		arch, err := s.archCache.Get(ctx, nativePath, nestedChain, "")
-		if err != nil {
-			emitEvent("archive:read:error", map[string]interface{}{
-				"streamID": streamID,
-				"error":    fmt.Sprintf("archive read: open %q: %v", nativePath, err),
-			})
-			return
-		}
-
-		f, err := arch.Open(ctx, entryPath)
-		if err != nil {
-			emitEvent("archive:read:error", map[string]interface{}{
-				"streamID": streamID,
-				"error":    fmt.Sprintf("archive read: open entry %q: %v", entryPath, err),
-			})
-			return
-		}
-		defer f.Close()
-
-		// Stream file in chunks
-		bytesRead := int64(0)
-		for {
-			select {
-			case <-ctx.Done():
-				emitEvent("archive:read:cancelled", map[string]interface{}{
-					"streamID": streamID,
-				})
-				return
-			default:
-			}
-
-			chunk := make([]byte, chunkSize)
-			n, err := f.Read(chunk)
-			if err != nil && err != io.EOF {
+			arch, err := s.archCache.Get(ctx, nativePath, nestedChain, "")
+			if err != nil {
 				emitEvent("archive:read:error", map[string]interface{}{
 					"streamID": streamID,
-					"error":    fmt.Sprintf("archive read: failed to read chunk: %v", err),
+					"error":    fmt.Sprintf("archive read: open %q: %v", nativePath, err),
 				})
-				return
+				return err
 			}
 
-			if n > 0 {
-				bytesRead += int64(n)
-				emitEvent("archive:read:chunk", map[string]interface{}{
-					"streamID":  streamID,
-					"data":      chunk[:n],
-					"bytesRead": bytesRead,
+			f, err := arch.Open(ctx, entryPath)
+			if err != nil {
+				emitEvent("archive:read:error", map[string]interface{}{
+					"streamID": streamID,
+					"error":    fmt.Sprintf("archive read: open entry %q: %v", entryPath, err),
 				})
+				return err
 			}
+			defer f.Close()
 
-			if err == io.EOF {
-				emitEvent("archive:read:done", map[string]interface{}{
-					"streamID":   streamID,
-					"totalBytes": bytesRead,
-				})
-				return
+			// Stream file in chunks
+			bytesRead := int64(0)
+			for {
+				select {
+				case <-ctx.Done():
+					emitEvent("archive:read:cancelled", map[string]interface{}{
+						"streamID": streamID,
+					})
+					return ctx.Err()
+				default:
+				}
+
+				chunk := make([]byte, chunkSize)
+				n, err := f.Read(chunk)
+				if err != nil && err != io.EOF {
+					emitEvent("archive:read:error", map[string]interface{}{
+						"streamID": streamID,
+						"error":    fmt.Sprintf("archive read: failed to read chunk: %v", err),
+					})
+					return err
+				}
+
+				if n > 0 {
+					bytesRead += int64(n)
+					emitEvent("archive:read:chunk", map[string]interface{}{
+						"streamID":  streamID,
+						"data":      chunk[:n],
+						"bytesRead": bytesRead,
+					})
+				}
+
+				if err == io.EOF {
+					emitEvent("archive:read:done", map[string]interface{}{
+						"streamID":   streamID,
+						"totalBytes": bytesRead,
+					})
+					return nil
+				}
 			}
-		}
-	}()
+		},
+	})
 
 	return streamID, nil
 }

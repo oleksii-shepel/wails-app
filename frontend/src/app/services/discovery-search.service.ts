@@ -36,12 +36,14 @@ export interface DiscoverySearchResult {
   readonly truncated: boolean;
   readonly warnings: readonly string[];
 }
+import { WorkSchedulerService } from './work-scheduler.service';
 
 @Injectable({ providedIn: 'root' })
 export class DiscoverySearchService {
   constructor(
     private readonly api: ApiService,
     private readonly panelSources: PanelSourceRegistryService,
+    private readonly work: WorkSchedulerService,
   ) {}
 
   async search(
@@ -157,10 +159,21 @@ export class DiscoverySearchService {
 
       let listing;
       try {
-        listing = await this.panelSources.list(
-          current.path,
-          !!options.showHidden,
-        );
+        listing = await this.work.schedule({
+          key: `provider:list:${sourceId}:${current.path}:${options.showHidden ? 1 : 0}`,
+          priority: 'interactive',
+          kind: 'provider',
+          run: async context => {
+            this.throwIfAborted(options.signal);
+            if (context.signal.aborted) {
+              throw new DOMException('Provider listing cancelled.', 'AbortError');
+            }
+            return await this.panelSources.list(
+              current.path,
+              !!options.showHidden,
+            );
+          },
+        }).promise;
       } catch (error) {
         warnings.push(`${current.path}: ${this.message(error)}`);
         continue;
@@ -208,7 +221,7 @@ export class DiscoverySearchService {
       // Let Angular paint result windows and process cancellation between
       // directory batches rather than monopolising the renderer.
       if (options.onBatch && queue.length) {
-        await new Promise<void>(resolve => setTimeout(resolve, 0));
+        await this.work.yield('interactive', options.signal);
       }
     }
 

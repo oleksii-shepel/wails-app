@@ -17,6 +17,7 @@ import (
 	contracts "wails-app/internal/contracts"
 	"wails-app/internal/pathref"
 	internalplatform "wails-app/internal/platform"
+	"wails-app/internal/work"
 )
 
 const dirStreamBatchSize = 256
@@ -259,7 +260,26 @@ func (s *DirStreamService) StartWithOptions(paneID, path string, showHidden bool
 	}
 	s.mu.Unlock()
 
-	go s.run(ctx, streamID, paneID, internalplatform.ToSlash(path), showHidden, options, generation)
+	work.Default.Submit(ctx, work.Task{
+		Key:      "directory-stream:" + streamID,
+		Priority: work.PriorityVisible,
+		Kind:     "directory",
+		Run: func(taskCtx context.Context, reporter work.Reporter) error {
+			s.run(
+				taskCtx,
+				streamID,
+				paneID,
+				internalplatform.ToSlash(path),
+				showHidden,
+				options,
+				generation,
+			)
+			if err := taskCtx.Err(); err != nil {
+				return err
+			}
+			return nil
+		},
+	})
 	return streamID, nil
 }
 

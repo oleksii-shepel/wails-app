@@ -14,6 +14,7 @@ import (
 	elevation "wails-app/internal/elevation"
 	"wails-app/internal/pathref"
 	internalruntime "wails-app/internal/runtime"
+	"wails-app/internal/work"
 	vfslib "wails-app/vfs"
 )
 
@@ -484,91 +485,96 @@ func (s *Service) ReadFileStream(path string, chunkSize int, emitEvent func(stri
 	s.streamsCancel[streamID] = cancel
 	s.streamsMu.Unlock()
 
-	// Start streaming in background goroutine
-	go func() {
-		defer func() {
-			s.streamsMu.Lock()
-			delete(s.streamsCancel, streamID)
-			s.streamsMu.Unlock()
-		}()
+	// File streaming uses the central bounded worker scheduler.
+	work.Default.Submit(ctx, work.Task{
+		Key:      "file-stream:" + streamID,
+		Priority: work.PriorityInteractive,
+		Kind:     "viewer",
+		Run: func(ctx context.Context, reporter work.Reporter) error {
+			defer func() {
+				s.streamsMu.Lock()
+				delete(s.streamsCancel, streamID)
+				s.streamsMu.Unlock()
+			}()
 
-		var reader io.ReadCloser
+			var reader io.ReadCloser
 
-		if s.handlesVFSPath(path) {
-			internalPath := pathref.ToVFS(path)
-			vfsFile, vfsErr := s.vfs.Open(ctx, internalPath)
-			if vfsErr != nil {
-				emitEvent("file:read:error", map[string]interface{}{
-					"streamID": streamID,
-					"error":    fmt.Sprintf("open vfs file: %v", vfsErr),
-				})
-				return
-			}
-			reader = vfsFile
-		} else {
-			// Resolve path
-			resolvedPath, resolveErr := s.resolvePublicPath(path)
-			if resolveErr != nil {
-				emitEvent("file:read:error", map[string]interface{}{
-					"streamID": streamID,
-					"error":    fmt.Sprintf("resolve path: %v", resolveErr),
-				})
-				return
-			}
+			if s.handlesVFSPath(path) {
+				internalPath := pathref.ToVFS(path)
+				vfsFile, vfsErr := s.vfs.Open(ctx, internalPath)
+				if vfsErr != nil {
+					emitEvent("file:read:error", map[string]interface{}{
+						"streamID": streamID,
+						"error":    fmt.Sprintf("open vfs file: %v", vfsErr),
+					})
+					return vfsErr
+				}
+				reader = vfsFile
+			} else {
+				// Resolve path
+				resolvedPath, resolveErr := s.resolvePublicPath(path)
+				if resolveErr != nil {
+					emitEvent("file:read:error", map[string]interface{}{
+						"streamID": streamID,
+						"error":    fmt.Sprintf("resolve path: %v", resolveErr),
+					})
+					return resolveErr
+				}
 
-			// Open file
-			file, err := os.Open(resolvedPath)
-			if err != nil {
-				emitEvent("file:read:error", map[string]interface{}{
-					"streamID": streamID,
-					"error":    fmt.Sprintf("open file: %v", err),
-				})
-				return
+				// Open file
+				file, err := os.Open(resolvedPath)
+				if err != nil {
+					emitEvent("file:read:error", map[string]interface{}{
+						"streamID": streamID,
+						"error":    fmt.Sprintf("open file: %v", err),
+					})
+					return err
+				}
+				reader = file
 			}
-			reader = file
-		}
-		defer reader.Close()
+			defer reader.Close()
 
-		// Stream file in chunks
-		bytesRead := int64(0)
-		for {
-			select {
-			case <-ctx.Done():
-				emitEvent("file:read:cancelled", map[string]interface{}{
-					"streamID": streamID,
-				})
-				return
-			default:
-			}
+			// Stream file in chunks
+			bytesRead := int64(0)
+			for {
+				select {
+				case <-ctx.Done():
+					emitEvent("file:read:cancelled", map[string]interface{}{
+						"streamID": streamID,
+					})
+					return ctx.Err()
+				default:
+				}
 
-			chunk := make([]byte, chunkSize)
-			n, err := reader.Read(chunk)
-			if err != nil && err != io.EOF {
-				emitEvent("file:read:error", map[string]interface{}{
-					"streamID": streamID,
-					"error":    fmt.Sprintf("read chunk: %v", err),
-				})
-				return
-			}
+				chunk := make([]byte, chunkSize)
+				n, err := reader.Read(chunk)
+				if err != nil && err != io.EOF {
+					emitEvent("file:read:error", map[string]interface{}{
+						"streamID": streamID,
+						"error":    fmt.Sprintf("read chunk: %v", err),
+					})
+					return err
+				}
 
-			if n > 0 {
-				bytesRead += int64(n)
-				emitEvent("file:read:chunk", map[string]interface{}{
-					"streamID":  streamID,
-					"data":      chunk[:n],
-					"bytesRead": bytesRead,
-				})
-			}
+				if n > 0 {
+					bytesRead += int64(n)
+					emitEvent("file:read:chunk", map[string]interface{}{
+						"streamID":  streamID,
+						"data":      chunk[:n],
+						"bytesRead": bytesRead,
+					})
+				}
 
-			if err == io.EOF {
-				emitEvent("file:read:done", map[string]interface{}{
-					"streamID":   streamID,
-					"totalBytes": bytesRead,
-				})
-				return
+				if err == io.EOF {
+					emitEvent("file:read:done", map[string]interface{}{
+						"streamID":   streamID,
+						"totalBytes": bytesRead,
+					})
+					return nil
+				}
 			}
-		}
-	}()
+		},
+	})
 
 	return streamID, nil
 }

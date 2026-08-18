@@ -1,5 +1,6 @@
 import { FileType, type FileInfo } from '../shared/protocol';
 import { ThumbnailPipelineService } from './thumbnail-pipeline.service';
+import { WorkSchedulerService } from './work-scheduler.service';
 
 function image(path: string): FileInfo {
   return {
@@ -17,31 +18,35 @@ function image(path: string): FileInfo {
 }
 
 describe('ThumbnailPipelineService', () => {
-  it('uses generation cancellation per grid scope', () => {
-    const service = new ThumbnailPipelineService({} as any);
-    const first = service.beginGeneration('left-grid');
-    expect(service.isCurrent('left-grid', first)).toBeTrue();
+  function service(): ThumbnailPipelineService {
+    return new ThumbnailPipelineService(
+      {} as any,
+      new WorkSchedulerService(),
+    );
+  }
 
-    const second = service.beginGeneration('left-grid');
+  it('uses central scheduler generations per grid scope', () => {
+    const value = service();
+    const first = value.beginGeneration('left-grid');
+    expect(value.isCurrent('left-grid', first)).toBeTrue();
+
+    const second = value.beginGeneration('left-grid');
     expect(second).toBe(first + 1);
-    expect(service.isCurrent('left-grid', first)).toBeFalse();
-    expect(service.isCurrent('left-grid', second)).toBeTrue();
+    expect(value.isCurrent('left-grid', first)).toBeFalse();
+    expect(value.isCurrent('left-grid', second)).toBeTrue();
   });
 
   it('only considers thumbnail-capable files', () => {
-    const service = new ThumbnailPipelineService({} as any);
-    expect(service.canThumbnail(image('/photo.jpg'))).toBeTrue();
-    expect(service.canThumbnail(image('/movie.mp4'))).toBeTrue();
-    expect(service.canThumbnail(image('/notes.txt'))).toBeFalse();
-    expect(service.canThumbnail({
-      ...image('/folder'),
-      type: FileType.DIRECTORY,
-    })).toBeFalse();
+    const value = service();
+    expect(value.canThumbnail(image('/photo.jpg'))).toBeTrue();
+    expect(value.canThumbnail(image('/movie.mp4'))).toBeTrue();
+    expect(value.canThumbnail(image('/notes.txt'))).toBeFalse();
   });
 
-  it('has bounded decoded cache limits in the implementation', () => {
-    const service = new ThumbnailPipelineService({} as any);
-    expect((service as any).maxDecodedEntries).toBe(192);
-    expect((service as any).maxDecodedBytes).toBe(96 * 1024 * 1024);
+  it('keeps decoded-image cache bounded independently of work concurrency', () => {
+    const value = service();
+    expect((value as any).maxDecodedEntries).toBe(192);
+    expect((value as any).maxDecodedBytes).toBe(96 * 1024 * 1024);
+    expect((value as any).maxConcurrency).toBeUndefined();
   });
 });

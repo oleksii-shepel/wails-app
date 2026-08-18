@@ -3,6 +3,10 @@ import { Injectable } from '@angular/core';
 import type { FileInfo } from '../shared/protocol';
 import { FileType } from '../shared/protocol';
 import { ApiService } from './api.service';
+import {
+  WorkSchedulerService,
+  type WorkPriority,
+} from './work-scheduler.service';
 
 export type ThumbnailPriority = 'visible' | 'overscan' | 'idle';
 
@@ -22,24 +26,6 @@ interface ThumbnailCacheEntry {
   lastUsed: number;
 }
 
-interface PendingThumbnailRequest {
-  readonly key: string;
-  readonly cacheKey: string;
-  readonly entry: FileInfo;
-  readonly scope: string;
-  readonly generation: number;
-  readonly priority: number;
-  readonly sequence: number;
-  readonly width: number;
-  readonly height: number;
-  readonly resolve: (url: string | null) => void;
-}
-
-interface ScopeState {
-  generation: number;
-  controller: AbortController;
-}
-
 const IMAGE_EXTENSIONS = new Set([
   'avif', 'bmp', 'gif', 'heic', 'heif', 'hdr', 'jfif', 'jpe', 'jpeg', 'jpg',
   'jxl', 'jp2', 'png', 'pnm', 'ppm', 'psd', 'svg', 'tif', 'tiff', 'webp',
@@ -49,59 +35,35 @@ const VIDEO_EXTENSIONS = new Set([
   'avi', 'm4v', 'mkv', 'mov', 'mp4', 'mpeg', 'mpg', 'webm', 'wmv',
 ]);
 
-const PRIORITY: Record<ThumbnailPriority, number> = {
-  visible: 0,
-  overscan: 1,
-  idle: 2,
+const THUMBNAIL_PRIORITY: Record<ThumbnailPriority, WorkPriority> = {
+  visible: 'visible',
+  overscan: 'prefetch',
+  idle: 'idle',
 };
 
 @Injectable({ providedIn: 'root' })
 export class ThumbnailPipelineService {
   private readonly cache = new Map<string, ThumbnailCacheEntry>();
-  private readonly pendingByKey = new Map<string, PendingThumbnailRequest[]>();
-  private readonly queue: PendingThumbnailRequest[] = [];
-  private readonly scopes = new Map<string, ScopeState>();
-
-  private active = 0;
-  private sequence = 0;
   private decodedBytes = 0;
 
-  private readonly maxConcurrency = 4;
   private readonly maxDecodedEntries = 192;
   private readonly maxDecodedBytes = 96 * 1024 * 1024;
 
-  constructor(private readonly api: ApiService) {}
+  constructor(
+    private readonly api: ApiService,
+    private readonly work: WorkSchedulerService,
+  ) {}
 
   beginGeneration(scope: string): number {
-    const previous = this.scopes.get(scope);
-    previous?.controller.abort();
-
-    const generation = (previous?.generation ?? 0) + 1;
-    this.scopes.set(scope, {
-      generation,
-      controller: new AbortController(),
-    });
-
-    this.dropStaleQueued(scope, generation);
-    return generation;
+    return this.work.beginGeneration(this.workScope(scope));
   }
 
   cancelScope(scope: string): void {
-    const state = this.scopes.get(scope);
-    state?.controller.abort();
-    this.scopes.delete(scope);
-
-    for (let index = this.queue.length - 1; index >= 0; index -= 1) {
-      const request = this.queue[index];
-      if (request.scope !== scope) continue;
-      this.queue.splice(index, 1);
-      request.resolve(null);
-      this.removePendingReference(request);
-    }
+    this.work.cancelScope(this.workScope(scope));
   }
 
   isCurrent(scope: string, generation: number): boolean {
-    return this.scopes.get(scope)?.generation === generation;
+    return this.work.isCurrent(this.workScope(scope), generation);
   }
 
   canThumbnail(entry: FileInfo): boolean {
@@ -129,7 +91,8 @@ export class ThumbnailPipelineService {
       return Promise.resolve(null);
     }
 
-    if (!this.isCurrent(options.scope, options.generation)) {
+    const scope = this.workScope(options.scope);
+    if (!this.work.isCurrent(scope, options.generation)) {
       return Promise.resolve(null);
     }
 
@@ -140,38 +103,80 @@ export class ThumbnailPipelineService {
       return Promise.resolve(cached.objectUrl);
     }
 
-    // Deduplicate only within the same cancellable scope generation. A scroll
-    // in the left pane must never cancel a matching thumbnail requested by the
-    // right pane.
-    const key = `${cacheKey}|${options.scope}|${options.generation}`;
+    const handle = this.work.schedule<string | null>({
+      key: `thumbnail:${cacheKey}:${scope}:${options.generation}`,
+      scope,
+      generation: options.generation,
+      priority: THUMBNAIL_PRIORITY[options.priority],
+      kind: 'thumbnail',
+      run: async context => {
+        const alreadyCached = this.cache.get(cacheKey);
+        if (alreadyCached) {
+          alreadyCached.lastUsed = performance.now();
+          return alreadyCached.objectUrl;
+        }
 
-    return new Promise<string | null>(resolve => {
-      const request: PendingThumbnailRequest = {
-        key,
-        cacheKey,
-        entry,
-        scope: options.scope,
-        generation: options.generation,
-        priority: PRIORITY[options.priority],
-        sequence: this.sequence++,
-        width,
-        height,
-        resolve,
-      };
+        const sourceUrl = await this.buildSourceUrl(entry, width, height);
+        if (!sourceUrl || context.signal.aborted) return null;
 
-      const existing = this.pendingByKey.get(key);
-      if (existing) {
-        existing.push(request);
-      } else {
-        this.pendingByKey.set(key, [request]);
-        this.queue.push(request);
-        this.queue.sort(
-          (left, right) =>
-            left.priority - right.priority ||
-            left.sequence - right.sequence,
+        const response = await fetch(sourceUrl, {
+          signal: context.signal,
+          cache: 'force-cache',
+        });
+        if (!response.ok || context.signal.aborted) return null;
+
+        const blob = await response.blob();
+        if (context.signal.aborted) return null;
+
+        const objectUrl = URL.createObjectURL(blob);
+        const decoded = new Image();
+        decoded.decoding = 'async';
+        decoded.src = objectUrl;
+
+        try {
+          await decoded.decode();
+        } catch {
+          URL.revokeObjectURL(objectUrl);
+          return null;
+        }
+
+        if (context.signal.aborted) {
+          decoded.src = '';
+          URL.revokeObjectURL(objectUrl);
+          return null;
+        }
+
+        const decodedBytes = Math.max(
+          blob.size,
+          decoded.naturalWidth * decoded.naturalHeight * 4,
         );
-        this.pump();
+
+        const item: ThumbnailCacheEntry = {
+          key: cacheKey,
+          objectUrl,
+          decodedImage: decoded,
+          decodedBytes,
+          lastUsed: performance.now(),
+        };
+        this.cache.set(cacheKey, item);
+        this.decodedBytes += decodedBytes;
+        this.evictIfNeeded();
+
+        context.report({
+          completed: 1,
+          total: 1,
+          message: entry.name,
+          units: 'thumbnail',
+        });
+        return objectUrl;
+      },
+    });
+
+    return handle.promise.catch(error => {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        return null;
       }
+      throw error;
     });
   }
 
@@ -181,11 +186,12 @@ export class ThumbnailPipelineService {
     readonly pending: number;
     readonly active: number;
   } {
+    const stats = this.work.stats('thumbnail');
     return {
       decodedEntries: this.cache.size,
       decodedBytes: this.decodedBytes,
-      pending: this.queue.length,
-      active: this.active,
+      pending: stats.queued,
+      active: stats.running,
     };
   }
 
@@ -195,119 +201,6 @@ export class ThumbnailPipelineService {
     }
     this.cache.clear();
     this.decodedBytes = 0;
-  }
-
-  private pump(): void {
-    while (this.active < this.maxConcurrency && this.queue.length) {
-      const request = this.queue.shift()!;
-      if (!this.isCurrent(request.scope, request.generation)) {
-        this.resolvePending(request.key, null);
-        continue;
-      }
-
-      this.active += 1;
-      void this.execute(request)
-        .finally(() => {
-          this.active -= 1;
-          this.pump();
-        });
-    }
-  }
-
-  private async execute(request: PendingThumbnailRequest): Promise<void> {
-    const scope = this.scopes.get(request.scope);
-    if (!scope || scope.generation !== request.generation) {
-      this.resolvePending(request.key, null);
-      return;
-    }
-
-    try {
-      const alreadyCached = this.cache.get(request.cacheKey);
-      if (alreadyCached) {
-        alreadyCached.lastUsed = performance.now();
-        this.resolvePending(request.key, alreadyCached.objectUrl);
-        return;
-      }
-
-      const sourceUrl = await this.buildSourceUrl(
-        request.entry,
-        request.width,
-        request.height,
-      );
-
-      if (
-        !sourceUrl ||
-        scope.controller.signal.aborted ||
-        !this.isCurrent(request.scope, request.generation)
-      ) {
-        this.resolvePending(request.key, null);
-        return;
-      }
-
-      const response = await fetch(sourceUrl, {
-        signal: scope.controller.signal,
-        cache: 'force-cache',
-      });
-      if (!response.ok) {
-        this.resolvePending(request.key, null);
-        return;
-      }
-
-      const blob = await response.blob();
-      if (
-        scope.controller.signal.aborted ||
-        !this.isCurrent(request.scope, request.generation)
-      ) {
-        this.resolvePending(request.key, null);
-        return;
-      }
-
-      const objectUrl = URL.createObjectURL(blob);
-      const decoded = new Image();
-      decoded.decoding = 'async';
-      decoded.src = objectUrl;
-
-      try {
-        await decoded.decode();
-      } catch {
-        URL.revokeObjectURL(objectUrl);
-        this.resolvePending(request.key, null);
-        return;
-      }
-
-      if (
-        scope.controller.signal.aborted ||
-        !this.isCurrent(request.scope, request.generation)
-      ) {
-        decoded.src = '';
-        URL.revokeObjectURL(objectUrl);
-        this.resolvePending(request.key, null);
-        return;
-      }
-
-      const decodedBytes = Math.max(
-        blob.size,
-        decoded.naturalWidth * decoded.naturalHeight * 4,
-      );
-
-      const cached: ThumbnailCacheEntry = {
-        key: request.cacheKey,
-        objectUrl,
-        decodedImage: decoded,
-        decodedBytes,
-        lastUsed: performance.now(),
-      };
-      this.cache.set(request.cacheKey, cached);
-      this.decodedBytes += decodedBytes;
-      this.evictIfNeeded();
-
-      this.resolvePending(request.key, objectUrl);
-    } catch (error) {
-      if (!(error instanceof DOMException && error.name === 'AbortError')) {
-        // Unsupported/corrupt previews intentionally fall back to the file icon.
-      }
-      this.resolvePending(request.key, null);
-    }
   }
 
   private async buildSourceUrl(
@@ -323,44 +216,6 @@ export class ThumbnailPipelineService {
       return await this.api.getStreamURL(entry.path);
     }
     return await this.api.getImageThumbnailURL(entry.path, width, height);
-  }
-
-  private resolvePending(key: string, value: string | null): void {
-    const waiters = this.pendingByKey.get(key) ?? [];
-    this.pendingByKey.delete(key);
-    for (const waiter of waiters) {
-      if (this.isCurrent(waiter.scope, waiter.generation)) {
-        waiter.resolve(value);
-      } else {
-        waiter.resolve(null);
-      }
-    }
-  }
-
-  private removePendingReference(request: PendingThumbnailRequest): void {
-    const waiters = this.pendingByKey.get(request.key);
-    if (!waiters) return;
-    const filtered = waiters.filter(waiter => waiter !== request);
-    if (filtered.length) {
-      this.pendingByKey.set(request.key, filtered);
-    } else {
-      this.pendingByKey.delete(request.key);
-    }
-  }
-
-  private dropStaleQueued(scope: string, generation: number): void {
-    for (let index = this.queue.length - 1; index >= 0; index -= 1) {
-      const request = this.queue[index];
-      if (
-        request.scope !== scope ||
-        request.generation === generation
-      ) {
-        continue;
-      }
-      this.queue.splice(index, 1);
-      request.resolve(null);
-      this.removePendingReference(request);
-    }
   }
 
   private evictIfNeeded(): void {
@@ -394,6 +249,10 @@ export class ThumbnailPipelineService {
 
   private cacheKey(entry: FileInfo, width: number, height: number): string {
     return `${entry.path}|${entry.modified ?? 0}|${entry.size ?? 0}|${width}x${height}`;
+  }
+
+  private workScope(scope: string): string {
+    return `thumbnail:${scope}`;
   }
 
   private extension(value: string): string {

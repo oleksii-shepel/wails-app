@@ -215,24 +215,21 @@ export interface RegistryEntryDragEvent {
     }
 
     .registry-entry.selected {
-      background: var(--vsc-list-active-background);
-      color: var(--vsc-list-active-foreground, var(--vsc-foreground));
+      background: var(--vsc-list-active-background, var(--vsc-list-selected-emphasis));
+      color: var(--vsc-list-active-foreground, var(--vsc-on-accent));
     }
 
     .registry-entry {
-      position: relative;
       border-radius: 3px;
     }
 
-    .registry-entry.cursor::before {
-      content: '';
-      position: absolute;
-      top: 3px;
-      bottom: 3px;
-      left: 1px;
-      width: 2px;
-      border-radius: 2px;
-      background: var(--vsc-focus-border, var(--vsc-accent-blue));
+    .registry-entry.cursor {
+      box-shadow: inset 2px 0 0 var(--vsc-accent-blue, var(--vsc-accent-blue));
+      background: color-mix(
+        in srgb,
+        var(--vsc-list-hover-background, var(--vsc-list-hover-background)) 75%,
+        transparent
+      );
     }
 
     .icon {

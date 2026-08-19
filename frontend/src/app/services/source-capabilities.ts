@@ -10,7 +10,7 @@ const READ_ONLY: SourceCapabilities = Object.freeze({
   read: true,
   create: false,
   delete: false,
-  rename: false,
+  rename: true,
   trash: false,
 });
 

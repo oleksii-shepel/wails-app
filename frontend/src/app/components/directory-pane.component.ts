@@ -390,9 +390,9 @@ import type { PaneComparisonStatus } from '../services/pane-comparison.service';
           </button>
           <button
             type="button"
-            [disabled]="loading || !registryValueSelected"
-            (click)="runRegistryCommand('builtin.registry.editValue')">
-            Edit value
+            [disabled]="loading || !registryEntrySelected"
+            (click)="runRegistryCommand('builtin.registry.edit')">
+            Edit
           </button>
 
           <span class="action-separator"></span>
@@ -3681,6 +3681,21 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     if (entry.path === '__parent__') {
       void this.navigateUp();
       return;
+    }
+
+    if (this.isRegistrySurface) {
+      const kind = String(entry.registryKind ?? '').toLowerCase();
+      if (kind === 'value') {
+        this.runRegistryCommand('builtin.registry.edit');
+        return;
+      }
+
+      // Registry keys/groups keep directory semantics: double-click navigates in.
+      if (entry.type === FileType.DIRECTORY || kind === 'key') {
+        this.lastAction = `open registry key: ${entry.name}`;
+        void this.load(entry.path, { history: 'record' });
+        return;
+      }
     }
 
     if (this.isInArchive) {

@@ -420,7 +420,7 @@ export class PluginManagerService implements PluginRegistryAPI {
     const commandIds = {
       newKey: 'builtin.registry.newKey',
       newValue: 'builtin.registry.newValue',
-      editValue: 'builtin.registry.editValue',
+      edit: 'builtin.registry.edit',
       delete: 'builtin.registry.delete',
     } as const;
 
@@ -447,6 +447,17 @@ export class PluginManagerService implements PluginRegistryAPI {
         targetPath,
         selectedPaths,
       };
+    };
+
+    const refreshAfter = async (
+      invocation: CommandInvocation | undefined,
+      action: () => Promise<void>,
+    ): Promise<void> => {
+      await action();
+      const refresh = invocation?.context?.['refresh'];
+      if (typeof refresh === 'function') {
+        await Promise.resolve(refresh());
+      }
     };
 
     const createKey = async (context: MenuContext): Promise<void> => {
@@ -488,7 +499,7 @@ export class PluginManagerService implements PluginRegistryAPI {
       await this.api.writeFile(path, value, 'utf8');
     };
 
-    const editValue = async (context: MenuContext): Promise<void> => {
+    const editEntry = async (context: MenuContext): Promise<void> => {
       if (
         !isRegistry(context.targetPath) ||
         context.targetPath === context.currentDirectory
@@ -497,7 +508,28 @@ export class PluginManagerService implements PluginRegistryAPI {
       }
 
       const info = await this.api.getFileInfo(context.targetPath);
-      if (String(info.registryKind ?? '').toLowerCase() !== 'value') return;
+      const kind = String(info.registryKind ?? '').toLowerCase();
+
+      if (kind === 'key') {
+        const name = (await this.confirmDialog.prompt({
+          title: `Edit Registry Key — ${info.name}`,
+          message: 'Enter the new key name.',
+          confirmText: 'Rename',
+          defaultValue: info.name,
+          historyKey: 'reassembly.registry.editKey',
+        }))?.trim();
+
+        if (!name || name === info.name) return;
+
+        const separator = context.targetPath.lastIndexOf('/');
+        if (separator < 0) return;
+        const parent = context.targetPath.slice(0, separator);
+        const destination = await this.api.joinPaths([parent, name]);
+        await this.api.moveFile(context.targetPath, destination);
+        return;
+      }
+
+      if (kind !== 'value') return;
 
       const current = await this.api.readFile(context.targetPath, 'utf8');
       const value = await this.confirmDialog.prompt({
@@ -511,8 +543,10 @@ export class PluginManagerService implements PluginRegistryAPI {
       });
       if (value === null) return;
 
+      // VFS Registry write preserves the existing Registry value type.
       await this.api.writeFile(context.targetPath, value, 'utf8');
     };
+
 
     const deleteEntry = async (context: MenuContext): Promise<void> => {
       if (
@@ -544,7 +578,10 @@ export class PluginManagerService implements PluginRegistryAPI {
           id: commandIds.newKey,
           title: 'Registry: New Key',
           category: 'Registry',
-          execute: invocation => createKey(commandContext(invocation)),
+          execute: invocation => refreshAfter(
+            invocation,
+            () => createKey(commandContext(invocation)),
+          ),
           isEnabled: invocation => {
             const context = commandContext(invocation);
             return isRegistry(context.currentDirectory);
@@ -555,7 +592,10 @@ export class PluginManagerService implements PluginRegistryAPI {
           id: commandIds.newValue,
           title: 'Registry: New Value',
           category: 'Registry',
-          execute: invocation => createValue(commandContext(invocation)),
+          execute: invocation => refreshAfter(
+            invocation,
+            () => createValue(commandContext(invocation)),
+          ),
           isEnabled: invocation => {
             const context = commandContext(invocation);
             return isRegistry(context.currentDirectory);
@@ -563,10 +603,13 @@ export class PluginManagerService implements PluginRegistryAPI {
         });
 
         api.registerCommand({
-          id: commandIds.editValue,
-          title: 'Registry: Edit Value',
+          id: commandIds.edit,
+          title: 'Registry: Edit',
           category: 'Registry',
-          execute: invocation => editValue(commandContext(invocation)),
+          execute: invocation => refreshAfter(
+            invocation,
+            () => editEntry(commandContext(invocation)),
+          ),
           isEnabled: invocation => {
             const context = commandContext(invocation);
             return isRegistry(context.targetPath) &&
@@ -578,7 +621,10 @@ export class PluginManagerService implements PluginRegistryAPI {
           id: commandIds.delete,
           title: 'Registry: Delete Entry',
           category: 'Registry',
-          execute: invocation => deleteEntry(commandContext(invocation)),
+          execute: invocation => refreshAfter(
+            invocation,
+            () => deleteEntry(commandContext(invocation)),
+          ),
           isEnabled: invocation => {
             const context = commandContext(invocation);
             return isRegistry(context.targetPath) &&
@@ -601,9 +647,9 @@ export class PluginManagerService implements PluginRegistryAPI {
         });
 
         api.registerContextMenuItem({
-          id: 'builtin.registry.editValue.menu',
-          commandId: commandIds.editValue,
-          label: 'Edit Registry Value',
+          id: 'builtin.registry.edit.menu',
+          commandId: commandIds.edit,
+          label: 'Edit',
           score: context =>
             isRegistry(context.targetPath) &&
             context.targetPath !== context.currentDirectory
@@ -624,12 +670,12 @@ export class PluginManagerService implements PluginRegistryAPI {
       },
       onUnregister: api => {
         api.unregisterContextMenuItem('builtin.registry.delete.menu');
-        api.unregisterContextMenuItem('builtin.registry.editValue.menu');
+        api.unregisterContextMenuItem('builtin.registry.edit.menu');
         api.unregisterContextMenuItem('builtin.registry.newValue.menu');
         api.unregisterContextMenuItem('builtin.registry.newKey.menu');
 
         api.unregisterCommand(commandIds.delete);
-        api.unregisterCommand(commandIds.editValue);
+        api.unregisterCommand(commandIds.edit);
         api.unregisterCommand(commandIds.newValue);
         api.unregisterCommand(commandIds.newKey);
 

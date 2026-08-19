@@ -33,7 +33,7 @@
 // Most write operations require elevation; the OS returns access-denied
 // naturally and the error is propagated as-is — no special handling needed.
 //
-// Rename is not supported by the registry API and always returns ErrReadOnly.
+// Rename supports sibling key and value renames while preserving value types.
 //
 // # Build constraints
 //
@@ -45,13 +45,19 @@ package registry
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
+	"unsafe"
 
+	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 
 	"wails-app/vfs"
@@ -77,6 +83,12 @@ var hives = []hiveEntry{
 	{"HKU", registry.USERS},
 	{"HKCC", registry.CURRENT_CONFIG},
 }
+
+var (
+	advapi32          = windows.NewLazySystemDLL("advapi32.dll")
+	regRenameKeyProc  = advapi32.NewProc("RegRenameKey")
+	regSetValueExProc = advapi32.NewProc("RegSetValueExW")
+)
 
 // canonical returns the canonical long name for a hive abbreviation.
 var canonical = map[string]string{
@@ -479,9 +491,157 @@ func (f *FS) Remove(_ context.Context, path string) error {
 	return nil
 }
 
-// Rename is not supported by the registry API.
-func (f *FS) Rename(_ context.Context, _, _ string) error {
-	return fmt.Errorf("registry: rename not supported")
+// Rename renames a registry key or value within its current parent.
+func (f *FS) Rename(_ context.Context, oldPath, newPath string) error {
+	oldHive, oldSubkey := splitPath(oldPath)
+	newHive, newSubkey := splitPath(newPath)
+	if oldHive == "" || newHive == "" {
+		return vfs.ErrNotFound
+	}
+	if !strings.EqualFold(oldHive, newHive) {
+		return fmt.Errorf("registry rename: source and destination hives differ")
+	}
+	if oldSubkey == "" || newSubkey == "" {
+		return fmt.Errorf("registry rename: hive roots cannot be renamed")
+	}
+
+	oldParent, oldName := splitParentPath(oldSubkey)
+	newParent, newName := splitParentPath(newSubkey)
+	if !strings.EqualFold(oldParent, newParent) {
+		return fmt.Errorf("registry rename: moving between parent keys is not supported")
+	}
+	if strings.TrimSpace(newName) == "" {
+		return fmt.Errorf("registry rename: destination name is empty")
+	}
+
+	root, ok := rootKey(oldHive)
+	if !ok {
+		return vfs.ErrNotFound
+	}
+
+	if key, err := registry.OpenKey(root, strings.ReplaceAll(oldSubkey, "/", "\\"), registry.READ); err == nil {
+		key.Close()
+		return renameRegistryKey(root, oldParent, oldName, newName)
+	} else if isPermissionError(err) {
+		return fs.ErrPermission
+	}
+
+	return renameRegistryValue(root, oldParent, oldName, newName)
+}
+
+func splitParentPath(path string) (parent, name string) {
+	path = strings.Trim(strings.ReplaceAll(path, "\\", "/"), "/")
+	i := strings.LastIndex(path, "/")
+	if i < 0 {
+		return "", path
+	}
+	return path[:i], path[i+1:]
+}
+
+func renameRegistryKey(root registry.Key, parentPath, oldName, newName string) error {
+	parent := root
+	if parentPath != "" {
+		k, err := registry.OpenKey(root, strings.ReplaceAll(parentPath, "/", "\\"), registry.ALL_ACCESS)
+		if err != nil {
+			return mapAccessError(err)
+		}
+		defer k.Close()
+		parent = k
+	}
+
+	oldPtr, err := windows.UTF16PtrFromString(oldName)
+	if err != nil {
+		return err
+	}
+	newPtr, err := windows.UTF16PtrFromString(newName)
+	if err != nil {
+		return err
+	}
+	result, _, _ := regRenameKeyProc.Call(
+		uintptr(parent),
+		uintptr(unsafe.Pointer(oldPtr)),
+		uintptr(unsafe.Pointer(newPtr)),
+	)
+	if result != 0 {
+		return mapAccessError(syscall.Errno(result))
+	}
+	return nil
+}
+
+func renameRegistryValue(root registry.Key, parentPath, oldName, newName string) error {
+	parent := root
+	if parentPath != "" {
+		k, err := registry.OpenKey(
+			root,
+			strings.ReplaceAll(parentPath, "/", "\\"),
+			registry.QUERY_VALUE|registry.SET_VALUE,
+		)
+		if err != nil {
+			return mapAccessError(err)
+		}
+		defer k.Close()
+		parent = k
+	}
+
+	oldAPIName := apiValueName(oldName)
+	newAPIName := apiValueName(newName)
+	if _, _, err := parent.GetValue(newAPIName, nil); err == nil {
+		return fs.ErrExist
+	} else if !errors.Is(err, registry.ErrNotExist) && !errors.Is(err, registry.ErrShortBuffer) {
+		return mapAccessError(err)
+	}
+
+	data, valueType, err := rawRegistryValue(parent, oldAPIName)
+	if err != nil {
+		return mapLookupError(err)
+	}
+	if err := setRawRegistryValue(parent, newAPIName, valueType, data); err != nil {
+		return mapAccessError(err)
+	}
+	if err := parent.DeleteValue(oldAPIName); err != nil {
+		_ = parent.DeleteValue(newAPIName)
+		return mapAccessError(err)
+	}
+	return nil
+}
+
+func rawRegistryValue(k registry.Key, name string) ([]byte, uint32, error) {
+	size, valueType, err := k.GetValue(name, nil)
+	if err != nil && !errors.Is(err, registry.ErrShortBuffer) {
+		return nil, valueType, err
+	}
+	if size == 0 {
+		return nil, valueType, nil
+	}
+	buf := make([]byte, size)
+	n, valueType, err := k.GetValue(name, buf)
+	if err != nil {
+		return nil, valueType, err
+	}
+	return buf[:n], valueType, nil
+}
+
+func setRawRegistryValue(k registry.Key, name string, valueType uint32, data []byte) error {
+	namePtr, err := windows.UTF16PtrFromString(name)
+	if err != nil {
+		return err
+	}
+	var dataPtr uintptr
+	if len(data) > 0 {
+		dataPtr = uintptr(unsafe.Pointer(&data[0]))
+	}
+	result, _, _ := regSetValueExProc.Call(
+		uintptr(k),
+		uintptr(unsafe.Pointer(namePtr)),
+		0,
+		uintptr(valueType),
+		dataPtr,
+		uintptr(len(data)),
+	)
+	if result != 0 {
+		return syscall.Errno(result)
+	}
+	return nil
 }
 
 // ── Path helpers ──────────────────────────────────────────────────────────────
@@ -548,27 +708,13 @@ func readRegistryValue(k registry.Key, name string) (registryValueData, error) {
 		}, nil
 	}
 
-	// Fall back to binary (REG_BINARY, REG_NONE, unknown).
-	b, valueType, err := k.GetBinaryValue(name)
+	// Fall back to the raw Registry representation. This preserves REG_BINARY,
+	// REG_NONE and less common value types instead of coercing them.
+	b, valueType, err := rawRegistryValue(k, name)
 	if err != nil {
 		return registryValueData{}, fmt.Errorf("registry: read value %q: %w", name, err)
 	}
-	serialized := "(empty)"
-	if len(b) == 0 {
-		return registryValueData{
-			data:      []byte(serialized),
-			valueType: registryTypeName(valueType),
-			preview:   serialized,
-		}, nil
-	}
-	var sb strings.Builder
-	for i, byt := range b {
-		if i > 0 {
-			sb.WriteByte(' ')
-		}
-		fmt.Fprintf(&sb, "%02X", byt)
-	}
-	serialized = sb.String()
+	serialized := formatRegistryBytes(b)
 	return registryValueData{
 		data:      []byte(serialized),
 		valueType: registryTypeName(valueType),
@@ -709,7 +855,8 @@ func (f *regFile) Sync() error                 { return nil }
 
 // ── writeFile (write) ─────────────────────────────────────────────────────────
 
-// writeFile buffers written bytes and commits them as REG_SZ on Close.
+// writeFile buffers a textual Registry representation. Existing values keep
+// their Registry type; newly created values default to REG_SZ.
 type writeFile struct {
 	key     registry.Key
 	valName string
@@ -727,7 +874,106 @@ func (w *writeFile) Stat() (vfs.FileInfo, error) {
 }
 func (w *writeFile) Close() error {
 	defer w.key.Close()
-	return w.key.SetStringValue(apiValueName(w.valName), w.buf.String())
+	return writeRegistryTextValue(w.key, apiValueName(w.valName), w.buf.String())
+}
+
+func writeRegistryTextValue(k registry.Key, name, text string) error {
+	_, valueType, err := k.GetValue(name, nil)
+	if errors.Is(err, registry.ErrNotExist) {
+		return k.SetStringValue(name, text)
+	}
+	if err != nil && !errors.Is(err, registry.ErrShortBuffer) {
+		return mapAccessError(err)
+	}
+
+	switch valueType {
+	case registry.SZ:
+		return k.SetStringValue(name, text)
+	case registry.EXPAND_SZ:
+		return k.SetExpandStringValue(name, text)
+	case registry.MULTI_SZ:
+		normalized := strings.ReplaceAll(text, "\r\n", "\n")
+		if normalized == "" {
+			return k.SetStringsValue(name, []string{})
+		}
+		return k.SetStringsValue(name, strings.Split(normalized, "\n"))
+	case registry.DWORD:
+		value, err := parseRegistryInteger(text, 32)
+		if err != nil {
+			return err
+		}
+		return k.SetDWordValue(name, uint32(value))
+	case registry.DWORD_BIG_ENDIAN:
+		value, err := parseRegistryInteger(text, 32)
+		if err != nil {
+			return err
+		}
+		data := make([]byte, 4)
+		binary.BigEndian.PutUint32(data, uint32(value))
+		return setRawRegistryValue(k, name, valueType, data)
+	case registry.QWORD:
+		value, err := parseRegistryInteger(text, 64)
+		if err != nil {
+			return err
+		}
+		return k.SetQWordValue(name, value)
+	default:
+		data, err := parseRegistryBytes(text)
+		if err != nil {
+			return err
+		}
+		return setRawRegistryValue(k, name, valueType, data)
+	}
+}
+
+func parseRegistryInteger(text string, bits int) (uint64, error) {
+	value := strings.TrimSpace(text)
+	if i := strings.Index(value, "("); i >= 0 {
+		value = strings.TrimSpace(value[:i])
+	}
+	if value == "" {
+		return 0, fmt.Errorf("registry integer value is empty")
+	}
+	n, err := strconv.ParseUint(value, 0, bits)
+	if err != nil {
+		return 0, fmt.Errorf("invalid REG_DWORD/REG_QWORD value %q: %w", text, err)
+	}
+	return n, nil
+}
+
+func parseRegistryBytes(text string) ([]byte, error) {
+	value := strings.TrimSpace(text)
+	if value == "" || strings.EqualFold(value, "(empty)") {
+		return nil, nil
+	}
+	fields := strings.Fields(strings.NewReplacer(",", " ", ";", " ").Replace(value))
+	out := make([]byte, 0, len(fields))
+	for _, field := range fields {
+		field = strings.TrimPrefix(strings.TrimPrefix(field, "0x"), "0X")
+		if len(field) == 0 || len(field) > 2 {
+			return nil, fmt.Errorf("invalid registry byte %q", field)
+		}
+		n, err := strconv.ParseUint(field, 16, 8)
+		if err != nil {
+			return nil, fmt.Errorf("invalid registry byte %q: %w", field, err)
+		}
+		out = append(out, byte(n))
+	}
+	return out, nil
+}
+
+func formatRegistryBytes(data []byte) string {
+	if len(data) == 0 {
+		return "(empty)"
+	}
+	var sb strings.Builder
+	for i, byt := range data {
+		if i > 0 {
+			sb.WriteByte(' ')
+		}
+		fmt.Fprintf(&sb, "%02X", byt)
+	}
+	return sb.String()
 }
 
 // Compile-time interface check.

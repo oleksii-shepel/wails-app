@@ -4404,12 +4404,16 @@ export class DualPaneComponent implements OnInit, OnDestroy {
     const pane = this.activePane;
     if (!pane?.isRegistrySurface) return;
 
+    const target = pane.cursorEntry;
     this.input.dispatchCommandById(commandId, {
       source: 'toolbar',
       context: {
         paneId,
         path: pane.path,
+        currentDirectory: pane.path,
+        targetPath: target?.path ?? pane.path,
         selectedPaths: pane.selectedEntries.map(entry => entry.path),
+        refresh: () => pane.refresh(),
       },
     });
   }
@@ -4664,7 +4668,10 @@ export class DualPaneComponent implements OnInit, OnDestroy {
       context: {
         paneId: this.activePaneId,
         path: this.activePane?.path ?? '',
+        currentDirectory: this.activePane?.path ?? '',
+        targetPath: this.activePane?.cursorEntry?.path ?? this.activePane?.path ?? '',
         selectedPaths: this.pluginSelectionPaths(),
+        refresh: () => this.activePane?.refresh(),
       },
     });
   }

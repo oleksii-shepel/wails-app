@@ -18,12 +18,12 @@ describe('getSourceCapabilities', () => {
     );
   });
 
-  it('models registry rename asymmetry', () => {
+  it('supports Registry entry rename', () => {
     expect(getSourceCapabilities('registry://HKEY_CURRENT_USER/Software')).toEqual(
       jasmine.objectContaining({
         create: true,
         delete: true,
-        rename: false,
+        rename: true,
       }),
     );
   });

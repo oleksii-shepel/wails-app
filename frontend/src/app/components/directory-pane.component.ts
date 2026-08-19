@@ -2417,9 +2417,10 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   }
 
   get visibleEntryCount(): number {
-    return this.backendPresentationActive
-      ? this.backendVisibleCount
-      : (this.streamRenderActive ? this.visibleEntries.length : this.visibleEntries.length);
+    if (this.backendPresentationActive) {
+      return this.backendVisibleCount + (this.showPresentationParent ? 1 : 0);
+    }
+    return this.visibleEntries.length;
   }
 
   get totalEntryCount(): number {
@@ -2438,20 +2439,21 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
 
   get visibleEntries(): FileInfo[] {
     if (this.backendPresentationActive) {
-      return this.entries;
+      return this.withPresentationParent(this.entries);
     }
 
     if (this.streamRenderActive) {
       const query = this.filterText.trim().toLocaleLowerCase();
-      if (!query) return this.entries;
+      if (!query) return this.withPresentationParent(this.entries);
 
-      // Keep filtering responsive while a stream is still growing, but defer
-      // global sorting until completion. Sorting the full accumulated list on
-      // every incoming batch is the main-thread failure mode we are avoiding.
-      return this.entries.filter(entry =>
+      // Parent navigation is structural UI and remains visible regardless of
+      // filtering. Tree is the only view that intentionally omits it.
+      const filtered = this.entries.filter(entry =>
+        entry.path === '__parent__' ||
         entry.name.toLocaleLowerCase().includes(query) ||
         entry.path.toLocaleLowerCase().includes(query)
       );
+      return this.withPresentationParent(filtered);
     }
 
     if (
@@ -2475,7 +2477,7 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       });
     }
 
-    return this.projectionCache;
+    return this.withPresentationParent(this.projectionCache);
   }
 
   get listVirtualWindow(): VirtualWindow {
@@ -2498,13 +2500,23 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
   get renderedEntries(): FileInfo[] {
     const window = this.listVirtualWindow;
     if (this.backendPresentationActive) {
-      this.queueBackendWindow(window.start, window.end);
-      const start = Math.max(0, window.start - this.backendWindowOffset);
+      const parentOffset = this.showPresentationParent ? 1 : 0;
+      const sourceStart = Math.max(0, window.start - parentOffset);
+      const sourceEnd = Math.max(sourceStart, window.end - parentOffset);
+
+      this.queueBackendWindow(sourceStart, sourceEnd);
+
+      const start = Math.max(0, sourceStart - this.backendWindowOffset);
       const end = Math.max(start, Math.min(
         this.entries.length,
-        window.end - this.backendWindowOffset,
+        sourceEnd - this.backendWindowOffset,
       ));
-      return this.entries.slice(start, end);
+      const rendered = this.entries.slice(start, end);
+
+      if (parentOffset && window.start === 0) {
+        return [this.presentationParentEntry(), ...rendered];
+      }
+      return rendered;
     }
     return window.enabled
       ? this.visibleEntries.slice(window.start, window.end)
@@ -2515,7 +2527,13 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
     if (!this.backendPresentationActive) {
       return this.listVirtualWindow.start;
     }
-    return Math.max(this.listVirtualWindow.start, this.backendWindowOffset);
+    if (this.showPresentationParent && this.listVirtualWindow.start === 0) {
+      return 0;
+    }
+    return Math.max(
+      this.listVirtualWindow.start,
+      this.backendWindowOffset + (this.showPresentationParent ? 1 : 0),
+    );
   }
 
   get treeVirtualWindow(): VirtualWindow {
@@ -2579,6 +2597,29 @@ export class DirectoryPaneComponent implements OnInit, OnDestroy {
       this.path,
       this.entries,
     );
+  }
+
+  private get showPresentationParent(): boolean {
+    return this.isDirectoryTab && this.viewMode !== 'tree' && !this.atRoot;
+  }
+
+  private presentationParentEntry(): FileInfo {
+    return {
+      name: '..',
+      path: '__parent__',
+      type: FileType.DIRECTORY,
+      size: 0,
+      modified: 0,
+    } as FileInfo;
+  }
+
+  private withPresentationParent(entries: FileInfo[]): FileInfo[] {
+    if (this.viewMode === 'tree') {
+      return entries.filter(entry => entry.path !== '__parent__');
+    }
+    if (!this.showPresentationParent) return entries;
+    if (entries.some(entry => entry.path === '__parent__')) return entries;
+    return [this.presentationParentEntry(), ...entries];
   }
 
   get canBack(): boolean {
